@@ -1,0 +1,8 @@
+# See the OWNERS docs at https://go.k8s.io/owners
+
+reviewers:
+  - ArangoGutierrez
+  - tariq1890
+  - elezar
+approvers:
+  - ArangoGutierrez # lead
