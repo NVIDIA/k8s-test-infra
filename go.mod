@@ -1,6 +1,6 @@
 module github.com/NVIDIA/k8s-ci-artifacts
 
-go 1.21.5
+go 1.21.6
 
 require (
 	github.com/onsi/ginkgo/v2 v2.13.2
