@@ -2,7 +2,9 @@
 
 reviewers:
   - ArangoGutierrez
-  - tariq1890
+  - kklues
   - elezar
 approvers:
-  - ArangoGutierrez # lead
+  - ArangoGutierrez
+  - kklues
+  - elezar
