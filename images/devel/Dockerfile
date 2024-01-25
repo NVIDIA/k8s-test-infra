@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG GOLANG_VERSION=x.x.x
+ARG GOLANG_VERSION=x.x
 FROM golang:${GOLANG_VERSION}
 
 RUN go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.52.0 \
