@@ -65,7 +65,8 @@ jobs:
           CONTROLLER_GEN_VERSION: "v0.9.2"
           CLIENT_GEN_VERSION: "v0.26.1"
         run: |
-          docker build --build-arg GOLANG_VERSION=${GOLANG_VERSION} \
+          docker build --platform=linux/amd64,linux/arm64 \
+          --build-arg GOLANG_VERSION=${GOLANG_VERSION} \
           --build-arg GOLANGCI_LINT_VERSION=${GOLANGCI_LINT_VERSION} \
           --build-arg MOQ_VERSION=${MOQ_VERSION} \
           --build-arg CONTROLLER_GEN_VERSION=${CONTROLLER_GEN_VERSION} \
