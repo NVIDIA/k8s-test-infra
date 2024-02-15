@@ -88,9 +88,5 @@ jobs:
           file: ./images/devel/Dockerfile
           platforms: ${{ env.IMAGE_PLATFORMS }}
           build-args: |
-            CLIENT_GEN_VERSION=v0.26.1
-            CONTROLLER_GEN_VERSION=v0.9.2
-            GOLANGCI_LINT_VERSION=v1.42.1
             GOLANG_VERSION=${{ matrix.go-version }}
-            MOQ_VERSION=v0.3.3
           tags: ghcr.io/nvidia/k8s-test-infra:devel-go${{ matrix.go-version }}
