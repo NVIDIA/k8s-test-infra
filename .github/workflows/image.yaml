@@ -61,7 +61,7 @@ jobs:
       - name: Calculate build vars
         id: vars
         run: |
-          if [ ${{ matrix.ispr }} ]; then
+          if [ "${{ matrix.ispr }}" = "true" ]; then
             echo "IMAGE_PUSH=false" >> $GITHUB_ENV
             echo "IMAGE_OUTPUTS=type=docker,dest=/tmp/k8s-test-infra-image.tar" >> $GITHUB_ENV
             echo "IMAGE_PLATFORMS=linux/amd64" >> $GITHUB_ENV
