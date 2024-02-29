@@ -18,11 +18,9 @@ package retitle
 
 import (
 	"regexp"
-	"strings"
 
 	"k8s.io/klog/v2"
 
-	"github.com/google/go-github/v59/github"
 	"github.com/sethvargo/go-githubactions"
 	cli "github.com/urfave/cli/v2"
 )
@@ -70,49 +68,52 @@ func (m command) run(c *cli.Context) error {
 		return err
 	}
 
-	var newTitle string
-	var issueNumber int
+	//var newTitle string
+	//var issueNumber int
 	if context.Event != nil {
-		if comment, ok := context.Event["comment"].(map[string]any); ok {
-			if body, ok := comment["body"].(string); ok {
-				// Make sure they are requesting a re-title
-				if !retitleRe.MatchString(body) {
-					return nil
-				}
-				// Extract the new title
-				newTitle = getNewTitle(body)
-			}
+		//if comment, ok := context.Event["comment"].(map[string]any); ok {
+		//	if body, ok := comment["body"].(string); ok {
+		//		// Make sure they are requesting a re-title
+		//		if !retitleRe.MatchString(body) {
+		//			return nil
+		//		}
+		//		// Extract the new title
+		//		newTitle = getNewTitle(body)
+		//	}
+		//}
+		for key, val := range context.Event {
+			m.log.Info("Key", "key", key, "val", val)
 		}
-		if issue, ok := context.Event["issue"].(map[string]any); ok {
-			if num, ok := issue["number"].(int); ok {
-				issueNumber = num
-			}
-		}
+		//if issue, ok := context.Event["issue"].(map[string]any); ok {
+		//	if num, ok := issue["number"].(int); ok {
+		//		issueNumber = num
+		//	}
+		//}
 	}
-	m.log.Info("New title", "title", newTitle)
-	m.log.Info("Issue number", "number", issueNumber)
-
-	org, repo := context.Repo()
-	ghToken := action.Getenv("GITHUB_TOKEN")
-	gh := github.NewClient(nil).WithAuthToken(ghToken)
-
-	// Update the title
-	req := &github.IssueRequest{
-		Title: &newTitle,
-	}
-	_, _, err = gh.Issues.Edit(c.Context, org, repo, issueNumber, req)
-	if err != nil {
-		m.log.Error(err, "Failed to update issue")
-		return err
-	}
+	//m.log.Info("New title", "title", newTitle)
+	//m.log.Info("Issue number", "number", issueNumber)
+	//
+	//org, repo := context.Repo()
+	//ghToken := action.Getenv("GITHUB_TOKEN")
+	//gh := github.NewClient(nil).WithAuthToken(ghToken)
+	//
+	//// Update the title
+	//req := &github.IssueRequest{
+	//	Title: &newTitle,
+	//}
+	//_, _, err = gh.Issues.Edit(c.Context, org, repo, issueNumber, req)
+	//if err != nil {
+	//	m.log.Error(err, "Failed to update issue")
+	//	return err
+	//}
 
 	return nil
 }
 
-func getNewTitle(body string) string {
-	matches := retitleRe.FindStringSubmatch(body)
-	if len(matches) < 2 {
-		return ""
-	}
-	return strings.TrimSpace(matches[1])
-}
+//func getNewTitle(body string) string {
+//	matches := retitleRe.FindStringSubmatch(body)
+//	if len(matches) < 2 {
+//		return ""
+//	}
+//	return strings.TrimSpace(matches[1])
+//}
