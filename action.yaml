@@ -6,7 +6,7 @@ inputs:
     required: true
 runs:
   using: docker
-  image: images/nv-ci-bot/Dockerfile
+  image: Dockerfile
 branding:
   color: green
   icon: cloud
