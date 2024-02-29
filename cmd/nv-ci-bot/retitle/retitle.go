@@ -90,6 +90,7 @@ func (m command) run(c *cli.Context) error {
 		}
 	}
 	m.log.Info("New title", "title", newTitle)
+	m.log.Info("Issue number", "number", issueNumber)
 
 	org, repo := context.Repo()
 	ghToken := action.Getenv("GITHUB_TOKEN")
