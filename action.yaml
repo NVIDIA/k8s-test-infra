@@ -1,0 +1,12 @@
+name: NV-CI-Bot
+description: NV GitHub bot for CI/CD automation
+inputs:
+  github-token:
+    description: "Token used by prow actions to accomplish jobs and tasks. May be a bot user access token or the limited scope Github token"
+    required: true
+runs:
+  using: docker
+  image: images/nv-ci-bot/Dockerfile
+branding:
+  color: green
+  icon: cloud
