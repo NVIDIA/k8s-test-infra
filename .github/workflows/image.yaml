@@ -86,7 +86,7 @@ jobs:
           push: ${{ env.IMAGE_PUSH }}
           context: .
           outputs: ${{ env.IMAGE_OUTPUTS }}
-          file: ./images/devel/Dockerfile
+          file: Dockerfile
           platforms: ${{ env.IMAGE_PLATFORMS }}
           build-args: |
             GOLANG_VERSION=${{ matrix.go-version }}
