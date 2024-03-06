@@ -5,10 +5,10 @@ on:
 
 jobs:
   execute:
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     steps:
       - name: Checkout code 
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
       - uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
