@@ -1,4 +1,4 @@
-name: callme
+name: CallMe
 
 on:
   workflow_call:
