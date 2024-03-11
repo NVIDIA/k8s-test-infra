@@ -6,8 +6,8 @@ on:
 jobs:
   execute:
     runs-on: ubuntu-latest
-    steps:
     if: github.event.issue.pull_request
+    steps:
       - name: Checkout code 
         uses: actions/checkout@v4
       - name: Echo PR number

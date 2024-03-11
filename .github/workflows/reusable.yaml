@@ -1,4 +1,4 @@
-name: callme
+name: "CallMe test workflow"
 
 on:
   workflow_call:
