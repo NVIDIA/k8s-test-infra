@@ -1,13 +1,15 @@
 name: Required Checks
 
 on:
+  merge_group:
+    types: [checks_requested]
   pull_request_review:
     types: [submitted]
 
 jobs:
   check-one:
     runs-on: ubuntu-latest
-    if: ${{ contains(github.event.review.state, 'APPROVED') || contains(github.event.review.body, '/test') }}
+    if: ${{ contains(github.event.review.state, 'APPROVED') || contains(github.event.review.body, '/test') || contains(github.event.action, 'checks_requested')}}
     steps:
       - name: Checkout code 
         uses: actions/checkout@v4
