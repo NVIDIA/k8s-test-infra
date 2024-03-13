@@ -1,13 +1,12 @@
 name: Test
 
 on:
-  pull_request_review:
-    types: [submitted]
+  merge_group:
+    types: [checks_requested]
 
 jobs:
-  execute:
+  post-checks:
     runs-on: ubuntu-latest
-    if: ${{ contains(github.event.review.state, 'APPROVED') || contains(github.event.review.body, '/test') }}
     steps:
       - name: Checkout code 
         uses: actions/checkout@v4

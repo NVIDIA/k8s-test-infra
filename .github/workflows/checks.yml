@@ -1,0 +1,27 @@
+name: Required Checks
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  check-one:
+    runs-on: ubuntu-latest
+    if: ${{ contains(github.event.review.state, 'APPROVED') || contains(github.event.review.body, '/test') }}
+    steps:
+      - name: Checkout code 
+        uses: actions/checkout@v4
+      - name: Echo PR number
+        run: echo "PR number is ${{ github.event.pull_request.number }}"
+      - name: Echo PR title
+        run: echo "PR title is ${{ github.event.pull_request.title }}"
+  check-two:
+    runs-on: ubuntu-latest
+    if: ${{ contains(github.event.review.state, 'APPROVED') || contains(github.event.review.body, '/test') }}
+    steps:
+      - name: Checkout code 
+        uses: actions/checkout@v4
+      - name: Echo PR number
+        run: echo "PR number is ${{ github.event.pull_request.number }}"
+      - name: Echo PR title
+        run: echo "PR title is ${{ github.event.pull_request.title }}"
