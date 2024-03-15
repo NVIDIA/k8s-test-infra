@@ -1,0 +1,14 @@
+name: "Test issue comments"
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code 
+        uses: actions/checkout@v1
+      - uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
