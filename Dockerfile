@@ -12,13 +12,13 @@
 ## limitations under the License.
 ## 
 
-FROM golang:1.21-bookworm
+FROM golang:1.22-bookworm
 
 WORKDIR /src
 COPY . .
 
-RUN make build
-RUN install -m 755 /src/bin/nv-ci-bot /usr/local/bin/nv-ci-bot
+RUN make build && \
+    install -m 755 /src/bin/nv-ci-bot /usr/local/bin/nv-ci-bot
 
 RUN echo "nobody:x:65534:65534:Nobody:/:" >> /etc/passwd
 # Run as unprivileged user
