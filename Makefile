@@ -8,7 +8,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-.PHONY: build fmt verify release
+.PHONY: build fmt verify release lint vendor check-vendor
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
@@ -39,3 +39,11 @@ verify:
 	    echo "$$out"; \
 	    exit 1; \
 	fi
+
+vendor:
+	go mod tidy
+	go mod vendor
+	go mod verify
+
+check-vendor: vendor
+	git diff --quiet HEAD -- go.mod go.sum vendor
