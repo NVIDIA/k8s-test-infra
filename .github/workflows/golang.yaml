@@ -42,6 +42,12 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: ${{ env.GOLANG_VERSION }}
+    - name: Lint
+      uses: golangci/golangci-lint-action@v5
+      with:
+        version: latest
+        args: -v --timeout 5m
+        skip-cache: true
     - name: Check golang modules
       run: make check-vendor
 

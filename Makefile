@@ -40,6 +40,9 @@ verify:
 	    exit 1; \
 	fi
 
+lint:
+	golangci-lint run ./...
+
 vendor:
 	go mod tidy
 	go mod vendor
