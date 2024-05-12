@@ -1,6 +1,6 @@
-# Contribute to the NVIDIA k8s-ci-artifacts Project
+# Contribute to the NVIDIA k8s-test-infra Project
 
-Want to hack on the NVIDIA k8s-ci-artifacts Project? Awesome!
+Want to hack on the NVIDIA k8s-test-infra Project? Awesome!
 We only require you to sign your work, the below section describes this!
 
 ## Sign your work

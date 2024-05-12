@@ -1,4 +1,4 @@
-module github.com/NVIDIA/k8s-ci-artifacts
+module github.com/NVIDIA/k8s-test-infra
 
 go 1.22.3
 
