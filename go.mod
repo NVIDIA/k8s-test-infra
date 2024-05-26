@@ -6,9 +6,9 @@ require (
 	github.com/mittwald/go-helm-client v0.12.9
 	github.com/onsi/ginkgo/v2 v2.17.3
 	github.com/onsi/gomega v1.33.1
-	k8s.io/api v0.30.0
-	k8s.io/apimachinery v0.30.0
-	k8s.io/client-go v0.30.0
+	k8s.io/api v0.30.1
+	k8s.io/apimachinery v0.30.1
+	k8s.io/client-go v0.30.1
 	k8s.io/klog/v2 v2.120.1
 	sigs.k8s.io/node-feature-discovery v0.15.4
 	sigs.k8s.io/yaml v1.4.0
