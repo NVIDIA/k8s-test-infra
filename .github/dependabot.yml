@@ -23,3 +23,10 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+
+  # A dependabot rule to bump the runner version
+  - package-ecosystem: "docker"
+    target-branch: main
+    directory: "/images/gh_runner"
+    schedule:
+      interval: "daily"
