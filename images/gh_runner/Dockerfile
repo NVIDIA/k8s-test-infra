@@ -2,7 +2,7 @@
 FROM ghcr.io/nvidia/holodeck:v0.1.1 AS holodeck
 
 # https://github.com/actions/runner/blob/main/images/Dockerfile
-FROM ghcr.io/actions/actions-runner:2.317.0 AS runner
+FROM ghcr.io/actions/actions-runner:2.318.0 AS runner
 
 USER root
 
