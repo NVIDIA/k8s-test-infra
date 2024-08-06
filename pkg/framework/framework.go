@@ -35,6 +35,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -73,6 +74,7 @@ type Framework struct {
 
 	clientConfig *rest.Config
 	ClientSet    clientset.Interface
+	ApiExtClient *apiextensionsclientset.Clientset
 
 	// Helm
 	HelmClient  helm.Client
@@ -132,6 +134,10 @@ func (f *Framework) BeforeEach(ctx context.Context) {
 	}
 	f.clientConfig = rest.CopyConfig(config)
 	f.ClientSet, err = clientset.NewForConfig(config)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Create an API extensions client
+	f.ApiExtClient, err = apiextensionsclientset.NewForConfig(config)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	if !f.SkipNamespaceCreation {
