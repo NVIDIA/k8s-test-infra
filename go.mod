@@ -3,7 +3,7 @@ module github.com/NVIDIA/k8s-test-infra
 go 1.22.3
 
 require (
-	github.com/mittwald/go-helm-client v0.12.10
+	github.com/mittwald/go-helm-client v0.12.12
 	github.com/onsi/ginkgo/v2 v2.19.1
 	github.com/onsi/gomega v1.34.1
 	k8s.io/api v0.30.3
