@@ -55,6 +55,16 @@ jobs:
     - name: Check golang modules
       run: make check-vendor
 
+    - name: Check workflow status
+      run: |
+        STATUS_MESSAGE=""
+        if [ "${{ job.status }}" == "success" ]; then
+            STATUS_MESSAGE=`:green-check-mark: On repository ${{ github.repository }} the Workflow ${{ github.workflow }} has completed successfully.`
+        else
+            STATUS_MESSAGE=`:red_target: On repository ${{ github.repository }} the Workflow ${{ github.workflow }} has failed.`
+        fi  
+        echo $STATUS_MESSAGE >> $GITHUB_ENV
+
     - name: Send Slack alert notification
       id: slack
       if: github.event_name == 'push'
@@ -66,10 +76,6 @@ jobs:
         channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
         #slack-message: "GitHub build result: ${{ job.status }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
         slack-message: |
-          if [ "${{ job.status }}" == "success" ]; then
-            :green-check-mark: On repository ${{ github.repository }} the Workflow ${{ github.workflow }} has completed successfully.
-          else
-            :red-target: On repository ${{ github.repository }} the Workflow ${{ github.workflow }} has failed.
-          fi
-          
+          ${{ env.STATUS_MESSAGE }}
+
           Details: ${{ env.SUMMARY_URL }}
