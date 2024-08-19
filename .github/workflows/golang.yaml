@@ -31,23 +31,36 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-      name: Checkout code
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
     - name: Get Golang version
       id: vars
       run: |
         GOLANG_VERSION=$( grep "GOLANG_VERSION ?=" versions.mk )
         echo "GOLANG_VERSION=${GOLANG_VERSION##GOLANG_VERSION ?= }" >> $GITHUB_ENV
+
     - name: Install Go
       uses: actions/setup-go@v5
       with:
         go-version: ${{ env.GOLANG_VERSION }}
+
     - name: Lint
       uses: golangci/golangci-lint-action@v6
       with:
         version: latest
         args: -v --timeout 5m
         skip-cache: true
+
     - name: Check golang modules
       run: make check-vendor
 
+    - name: Send Slack alert notification
+      id: slack
+      if: github.event_name == 'push'
+      uses: slackapi/slack-github-action@v1.26.0
+      with:
+        channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
+        slack-message: "GitHub build result: ${{ job.status }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
+      env:
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
