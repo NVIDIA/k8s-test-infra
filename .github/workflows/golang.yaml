@@ -57,13 +57,12 @@ jobs:
 
     - name: Check workflow status
       run: |
-        STATUS_MESSAGE=""
-        if [ "${{ job.status }}" == "success" ]; then
-            STATUS_MESSAGE=`:green-check-mark: On repository ${{ github.repository }} the Workflow ${{ github.workflow }} has completed successfully.`
+        if [ "${{ job.status }}" = "success" ]; then
+            STATUS_MESSAGE=":green-check-mark: On repository ${{ github.repository }} the Workflow ${{ github.workflow }} has completed successfully."
         else
-            STATUS_MESSAGE=`:red_target: On repository ${{ github.repository }} the Workflow ${{ github.workflow }} has failed.`
-        fi  
-        echo $STATUS_MESSAGE >> $GITHUB_ENV
+            STATUS_MESSAGE=":red_target: On repository ${{ github.repository }} the Workflow ${{ github.workflow }} has failed."
+        fi
+        echo "STATUS_MESSAGE=$STATUS_MESSAGE" >> $GITHUB_ENV
 
     - name: Send Slack alert notification
       id: slack
