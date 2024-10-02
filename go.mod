@@ -4,7 +4,7 @@ go 1.22.3
 
 require (
 	github.com/mittwald/go-helm-client v0.12.14
-	github.com/onsi/ginkgo/v2 v2.20.1
+	github.com/onsi/ginkgo/v2 v2.20.2
 	github.com/onsi/gomega v1.34.2
 	k8s.io/api v0.31.1
 	k8s.io/apiextensions-apiserver v0.31.1
