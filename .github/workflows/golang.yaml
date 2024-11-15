@@ -59,16 +59,13 @@ jobs:
         echo "STATUS_MESSAGE=$STATUS_MESSAGE" >> $GITHUB_ENV
 
     - name: Send Slack alert notification
-      id: slack
-      if: github.event_name == 'push'
-      uses: slackapi/slack-github-action@v1.27.0
-      env:
-        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-        SUMMARY_URL: https://github.com/${{github.repository}}/actions/runs/${{github.run_id}}
+      if: ${{ failure() }}
+      uses: slackapi/slack-github-action@v2.0.0
       with:
-        channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
-        #slack-message: "GitHub build result: ${{ job.status }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
-        slack-message: |
-          ${{ env.STATUS_MESSAGE }}
-
-          Details: ${{ env.SUMMARY_URL }}
+        method: chat.postMessage
+        token: ${{ secrets.SLACK_BOT_TOKEN }}
+        payload: |
+          channel: ${{ secrets.SLACK_CHANNEL_ID }}
+          text: |
+            :x: On repository ${{ github.repository }}, the Workflow *${{ github.workflow }}* has failed.
+                 Details: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
