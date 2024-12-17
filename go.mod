@@ -5,7 +5,7 @@ toolchain go1.23.4
 
 require (
 	github.com/mittwald/go-helm-client v0.12.14
-	github.com/onsi/ginkgo/v2 v2.21.0
+	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.35.1
 	k8s.io/api v0.32.0
 	k8s.io/apiextensions-apiserver v0.32.0
