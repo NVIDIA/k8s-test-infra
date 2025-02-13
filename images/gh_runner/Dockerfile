@@ -1,5 +1,5 @@
 # Cache Holodeck image
-FROM ghcr.io/nvidia/holodeck:v0.2.4 AS holodeck
+FROM ghcr.io/nvidia/holodeck:v0.2.6 AS holodeck
 
 # https://github.com/actions/runner/blob/main/images/Dockerfile
 FROM ghcr.io/actions/actions-runner:2.319.1 AS runner
