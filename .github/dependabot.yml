@@ -24,9 +24,12 @@ updates:
     schedule:
       interval: "daily"
 
-  # A dependabot rule to bump the runner version
   - package-ecosystem: "docker"
     target-branch: main
-    directory: "/images/gh_runner"
+    directories:
+    # Golang version
+    - "/deployments/devel"
     schedule:
       interval: "daily"
+    labels:
+    - dependencies
