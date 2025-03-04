@@ -15,12 +15,12 @@
 ARG GOLANG_VERSION=x.x.x
 FROM golang:${GOLANG_VERSION}
 
-ARG CLIENT_GEN_VERSION=v0.26.1
-ARG LISTER_GEN_VERSION=v0.26.1
-ARG INFORMER_GEN_VERSION=v0.26.1
-ARG CONTROLLER_GEN_VERSION=v0.17.1
-ARG GOLANGCI_LINT_VERSION=v1.52.0
-ARG MOQ_VERSION=v0.3.4
+ARG CLIENT_GEN_VERSION=v0.32.2
+ARG LISTER_GEN_VERSION=v0.32.2
+ARG INFORMER_GEN_VERSION=v0.32.2
+ARG CONTROLLER_GEN_VERSION=v0.32.2
+ARG GOLANGCI_LINT_VERSION=v1.64.6
+ARG MOQ_VERSION=v0.5.3
 
 RUN go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION} \
     && go install github.com/matryer/moq@${MOQ_VERSION} \
@@ -32,4 +32,3 @@ RUN go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LI
 # We need to set the /work directory as a safe directory.
 # This allows git commands to run in the container.
 RUN git config --file=/.gitconfig --add safe.directory /work
-
