@@ -1,0 +1,45 @@
+<style>
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    table,
+    th,
+    td {
+        border: 1px solid black;
+    }
+
+    th,
+    td {
+        padding: 8px;
+        text-align: center;
+    }
+
+    tr:nth-child(even) {
+        background-color: #D6EEEE;
+    }
+</style>
+<table style="width:100%">
+    <thead>
+        <tr>
+            <th style="text-align:center">Project</th>
+            <th style="text-align:center">Last&nbsp;Run</th>
+            <th style="text-align:center">Passed</th>
+            <th style="text-align:center">Failed</th>
+            <th style="text-align:center">Workflow&nbsp;Run</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{/* data/results/results.json → .Site.Data.results.results */}}
+        {{ range .Site.Data.results.results }}
+        <tr>
+            <td style="width:480x;text-align:left">{{ .project }}</td>
+            <td style="width:480x;text-align:center">{{ .lastRun }}</td>
+            <td style="color: green;width:240px;text-align:center">{{ .passed }}</td>
+            <td style="color: red;width:240px;text-align:center">{{ .failed }}</td>
+            <td style="width:400x;text-align:center"><a href="{{ .actionRunUrl }}">link</a></td>
+        </tr>
+        {{ end }}
+    </tbody>
+</table>
