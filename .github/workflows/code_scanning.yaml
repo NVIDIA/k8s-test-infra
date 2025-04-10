@@ -1,4 +1,4 @@
-# Copyright 2024 NVIDIA CORPORATION
+# Copyright 2025 NVIDIA CORPORATION
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,8 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-name: Golang
+name: "CodeQL"
 
 on:
   workflow_call:
@@ -22,24 +21,31 @@ on:
         type: string
 
 jobs:
-  check:
+  analyze:
+    name: Analyze Go code with CodeQL
     runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      security-events: write
+      packages: read
     steps:
-    - uses: actions/checkout@v4
-      name: Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ inputs.golang_version }}
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.golang_version }}
 
-    - name: Lint
-      uses: golangci/golangci-lint-action@v6
-      with:
-        version: latest
-        args: -v --timeout 5m
-        skip-cache: true
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
 
-    - name: Check golang modules
-      run: |
-        make check-modules
+      - name: Fetch Dependencies
+        run: go mod download
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:go"
