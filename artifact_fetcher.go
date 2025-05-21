@@ -56,6 +56,7 @@ var defaultRepos = []string{
 	"nvidia/nvidia-container-toolkit",
 	"nvidia/k8s-device-plugin",
 	"nvidia/k8s-dra-driver-gpu",
+	"nvidia/holodeck",
 }
 
 var defaultImages = []string{
