@@ -10,7 +10,7 @@ require (
 	k8s.io/apimachinery v0.33.4
 	k8s.io/client-go v0.33.4
 	k8s.io/klog/v2 v2.130.1
-	sigs.k8s.io/node-feature-discovery v0.17.3
+	sigs.k8s.io/node-feature-discovery v0.17.4
 	sigs.k8s.io/node-feature-discovery/api/nfd v0.17.3
 	sigs.k8s.io/yaml v1.4.0
 )
@@ -42,7 +42,7 @@ require (
 	go.uber.org/automaxprocs v1.6.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/net v0.43.0 // indirect
-	golang.org/x/oauth2 v0.27.0 // indirect
+	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/term v0.34.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
