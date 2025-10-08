@@ -1,0 +1,41 @@
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gpu-mock-scripts
+  namespace: gpu-mock
+immutable: true
+data:
+  verify_gpu_mock.sh: |
+    #!/bin/sh
+    set -euo pipefail
+    BASE="${1:-/run/nvidia/driver}"
+    DEV="$BASE/dev"
+    PROC="$BASE/proc/driver/nvidia"
+    require() { test -e "$1" || { echo "MISSING: $1" >&2; exit 1; }; }
+    require_char() { [ -c "$1" ] || { echo "NOT-CHAR: $1" >&2; exit 1; }; }
+    COUNT=$(find "$PROC/gpus" -maxdepth 2 -type f -name information | wc -l | tr -d ' ')
+    [ "$COUNT" -gt 0 ] || { echo "No GPUs found in proc mock" >&2; exit 1; }
+    for i in $(seq 0 $((COUNT-1))); do require_char "$DEV/nvidia$i"; done
+    require_char "$DEV/nvidiactl"
+    require_char "$DEV/nvidia-uvm"
+    require_char "$DEV/nvidia-uvm-tools"
+    require "$PROC/version" && grep -q "NVRM version:" "$PROC/version"
+    for f in $(find "$PROC/gpus" -maxdepth 2 -type f -name information | sort); do
+      grep -q "Model:" "$f" && grep -q "GPU UUID:" "$f" && grep -q "Bus Location:" "$f" || { echo "Bad info in $f" >&2; exit 1; }
+    done
+    (cd "$BASE" && find . -maxdepth 4 -print | sort)
+    echo "ALL CHECKS PASSED"
+

@@ -1,0 +1,76 @@
+// Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package mocktopo
+
+import (
+	"errors"
+	"fmt"
+
+	dgxa100 "github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
+)
+
+// GPUInfo holds identifying information for a single GPU.
+type GPUInfo struct {
+	PCI   string
+	UUID  string
+	Model string
+}
+
+// Topology represents the GPU topology for a given machine type.
+type Topology struct {
+	GPUs []GPUInfo
+}
+
+// FlavorProvider is a function that constructs a Topology for a specific
+// machine flavor (e.g., dgxa100, dgxh100).
+type FlavorProvider func() (*Topology, error)
+
+var registry = map[string]FlavorProvider{}
+
+// Register adds a new flavor provider to the registry.
+func Register(name string, fn FlavorProvider) {
+	registry[name] = fn
+}
+
+func init() {
+	Register("dgxa100", func() (*Topology, error) {
+		srv := dgxa100.New()
+		var gpus []GPUInfo
+		for _, d := range srv.Devices {
+			dev := d.(*dgxa100.Device)
+			gpus = append(gpus, GPUInfo{
+				PCI:   dev.PciBusID,
+				UUID:  dev.UUID,
+				Model: dev.Name,
+			})
+		}
+		if len(gpus) == 0 {
+			return nil, errors.New("dgxa100 mock returned zero GPUs")
+		}
+		return &Topology{GPUs: gpus}, nil
+	})
+}
+
+// New returns a Topology for the specified machine type, or an error if
+// the machine type is unsupported.
+func New(machine string) (*Topology, error) {
+	if fn, ok := registry[machine]; ok {
+		return fn()
+	}
+	return nil, fmt.Errorf(
+		"unsupported MACHINE_TYPE %q (only 'dgxa100'); set "+
+			"ALLOW_UNSUPPORTED=true to use fallback",
+		machine,
+	)
+}
