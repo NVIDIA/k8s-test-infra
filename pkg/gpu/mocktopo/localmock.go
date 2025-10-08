@@ -1,4 +1,4 @@
-// Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+// Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -18,7 +18,14 @@ import "fmt"
 // NewFallback creates a synthetic Topology with n GPUs of the specified
 // model. This is used when a machine type is not supported but
 // ALLOW_UNSUPPORTED=true is set.
+//
+// Note: Currently uses dgxa100 mock as the underlying NVML implementation
+// regardless of the requested GPU count or model name, to ensure CDI
+// generation works correctly.
 func NewFallback(n int, model string) *Topology {
+	// Use wrapped NVML interface with MIG support stubs
+	nvmlImpl := newNVMLWrapper()
+
 	gpus := make([]GPUInfo, 0, n)
 	for i := 0; i < n; i++ {
 		pci := fmt.Sprintf("0000:%02x:00.0", 0x81+i)
@@ -32,5 +39,8 @@ func NewFallback(n int, model string) *Topology {
 			Model: model,
 		})
 	}
-	return &Topology{GPUs: gpus}
+	return &Topology{
+		GPUs:     gpus,
+		nvmlImpl: nvmlImpl, // Use wrapped NVML interface
+	}
 }

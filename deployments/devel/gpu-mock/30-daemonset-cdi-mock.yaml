@@ -1,0 +1,72 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-cdi-mock
+  namespace: gpu-mock
+spec:
+  selector:
+    matchLabels:
+      app: nvidia-cdi-mock
+  template:
+    metadata:
+      labels:
+        app: nvidia-cdi-mock
+    spec:
+      hostPID: true
+      tolerations:
+        - operator: Exists
+      restartPolicy: Always
+      volumes:
+        - name: host-cdi
+          hostPath:
+            path: /etc/cdi
+            type: DirectoryOrCreate
+        - name: host-driver
+          hostPath:
+            path: /var/lib/nvidia-mock/driver
+            type: DirectoryOrCreate
+        - name: host-dev
+          hostPath:
+            path: /dev
+      initContainers:
+        - name: setup
+          image: local/gpu-mockctl:dev
+          env:
+            - name: __NVCT_TESTING_DEVICES_ARE_FILES
+              value: "true"
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          volumeMounts:
+            - name: host-cdi
+              mountPath: /host/etc/cdi
+            - name: host-driver
+              mountPath: /host/var/lib/nvidia-mock/driver
+            - name: host-dev
+              mountPath: /host/dev
+          command: ["/usr/local/bin/gpu-mockctl"]
+          args:
+            - "-mode"
+            - "cdi"
+            - "-driver-root"
+            - "/host/var/lib/nvidia-mock/driver"
+            - "-cdi-output"
+            - "/host/etc/cdi/nvidia.yaml"
+      containers:
+        - name: hold
+          image: debian:bookworm-slim
+          command: ["/bin/sh", "-c", "sleep infinity"]
+
