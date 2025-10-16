@@ -1,0 +1,106 @@
+# Default values for gpu-mock.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# Namespace to deploy into
+namespace:
+  create: true
+  name: gpu-mock
+
+# Mock driver configuration
+mockDriver:
+  enabled: true
+  image:
+    repository: local/gpu-mockctl
+    tag: dev
+    pullPolicy: IfNotPresent
+  
+  # Number of mock GPUs to create
+  gpuCount: 8
+  
+  # Mock GPU model
+  gpuModel: "NVIDIA A100-SXM4-40GB"
+  
+  # Resources for the mock driver pod
+  resources:
+    requests:
+      cpu: 10m
+      memory: 10Mi
+    limits:
+      cpu: 100m
+      memory: 50Mi
+  
+  # Node selector for mock driver deployment
+  nodeSelector: {}
+  
+  # Tolerations for mock driver deployment
+  tolerations:
+    - operator: Exists
+
+# NVIDIA Container Toolkit configuration
+containerToolkit:
+  # Enable/disable the container toolkit deployment
+  enabled: true
+  
+  image:
+    repository: nvcr.io/nvidia/k8s/container-toolkit
+    tag: v1.14.5-ubi8
+    pullPolicy: IfNotPresent
+  
+  # Container runtime to configure (docker, containerd, crio)
+  runtime: containerd
+  
+  # RuntimeClass configuration
+  runtimeClass:
+    create: true
+    name: nvidia
+  
+  # Resources for the toolkit pod
+  resources:
+    requests:
+      cpu: 10m
+      memory: 50Mi
+    limits:
+      cpu: 100m
+      memory: 100Mi
+  
+  # Node selector for toolkit deployment
+  nodeSelector: {}
+  
+  # Only deploy on nodes with mock driver
+  requireMockDriver: true
+
+# Common configuration
+global:
+  # Image pull secrets
+  imagePullSecrets: []
+  
+  # Security context for privileged operations
+  securityContext:
+    privileged: true
+    runAsUser: 0
+  
+  # Service account configuration
+  serviceAccount:
+    create: true
+    annotations: {}
+  
+  # RBAC configuration for node labeling
+  rbac:
+    create: true
+
+# Node labeling configuration
+nodeLabeling:
+  # Apply nvidia.com/gpu.present=true label
+  gpuPresent: true
+  
+  # Apply feature.node.kubernetes.io/pci-10de.present=true label
+  pciPresent: true
+
+# Development/debugging options
+debug:
+  # Enable debug logging
+  enabled: false
+  
+  # Keep failed pods for debugging
+  keepFailedPods: false
