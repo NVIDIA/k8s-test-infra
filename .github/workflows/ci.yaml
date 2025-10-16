@@ -21,5 +21,21 @@ on:
       - release-*
   
 jobs:
+  variables:
+    uses: ./.github/workflows/variables.yaml
+
   basic:
     uses: ./.github/workflows/basic-checks.yaml
+    needs:
+    - variables
+    secrets: inherit
+
+  image:
+    uses: ./.github/workflows/image.yaml
+    needs: 
+      - variables
+      - basic
+    secrets: inherit
+    with:
+      version: ${{ needs.variables.outputs.version }}
+      golang_version: ${{ needs.variables.outputs.golang_version }}

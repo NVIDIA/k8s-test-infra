@@ -1,0 +1,137 @@
+{{- if .Values.containerToolkit.enabled -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "gpu-mock.fullname" . }}-toolkit
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gpu-mock.toolkitLabels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "gpu-mock.toolkitSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gpu-mock.toolkitSelectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.global.rbac.create }}
+      serviceAccountName: {{ include "gpu-mock.fullname" . }}-toolkit
+      {{- end }}
+      hostPID: true
+      hostNetwork: true
+      {{- with .Values.containerToolkit.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.containerToolkit.requireMockDriver }}
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      {{- end }}
+      tolerations:
+        - operator: Exists
+      priorityClassName: system-node-critical
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      volumes:
+      # Mock driver root
+      - name: driver-root
+        hostPath:
+          path: /var/lib/nvidia-mock/driver
+          type: Directory
+          
+      # Host filesystem directories needed by toolkit
+      - name: dev
+        hostPath:
+          path: /dev
+      - name: sys
+        hostPath:
+          path: /sys
+      - name: proc
+        hostPath:
+          path: /proc
+          
+      # Container runtime config
+      - name: containerd-config
+        hostPath:
+          path: /etc/containerd
+          type: DirectoryOrCreate
+      - name: containerd-socket
+        hostPath:
+          path: /run/containerd/containerd.sock
+          type: Socket
+          
+      # Toolkit installation directory
+      - name: toolkit-install
+        hostPath:
+          path: /usr/local/nvidia
+          type: DirectoryOrCreate
+          
+      # Runtime directory for pidfile
+      - name: run-nvidia
+        hostPath:
+          path: /run/nvidia
+          type: DirectoryOrCreate
+          
+      containers:
+      - name: nvidia-container-toolkit
+        image: "{{ .Values.containerToolkit.image.repository }}:{{ .Values.containerToolkit.image.tag }}"
+        imagePullPolicy: {{ .Values.containerToolkit.image.pullPolicy }}
+        command: ["nvidia-toolkit"]
+        args:
+        # Install to /usr/local/nvidia
+        - "/usr/local/nvidia"
+        # Runtime to configure
+        - "--runtime={{ .Values.containerToolkit.runtime }}"
+        env:
+        - name: NVIDIA_DRIVER_ROOT
+          value: "/var/lib/nvidia-mock/driver"
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: "all"
+        - name: CONTAINERD_CONFIG
+          value: "/etc/containerd/config.toml"
+        - name: CONTAINERD_SOCKET
+          value: "/run/containerd/containerd.sock"
+        - name: CONTAINERD_RUNTIME_CLASS
+          value: "{{ .Values.containerToolkit.runtimeClass.name }}"
+        - name: CONTAINERD_SET_AS_DEFAULT
+          value: "false"
+        # Enable CDI mode
+        - name: NVIDIA_CONTAINER_RUNTIME_MODE
+          value: "cdi"
+        - name: NVIDIA_CONTAINER_RUNTIME_MODES_CDI_DEFAULT_KIND
+          value: "nvidia.com/gpu"
+        - name: NVIDIA_CONTAINER_RUNTIME_MODES_CDI_ANNOTATION_PREFIXES
+          value: "cdi.k8s.io/"
+        {{- if .Values.debug.enabled }}
+        - name: NVIDIA_CONTAINER_RUNTIME_DEBUG
+          value: "true"
+        {{- end }}
+        securityContext:
+          {{- toYaml .Values.global.securityContext | nindent 10 }}
+        volumeMounts:
+        - name: driver-root
+          mountPath: /var/lib/nvidia-mock/driver
+          readOnly: true
+        - name: dev
+          mountPath: /dev
+        - name: sys
+          mountPath: /sys
+          readOnly: true
+        - name: proc
+          mountPath: /proc
+          readOnly: true
+        - name: containerd-config
+          mountPath: /etc/containerd
+        - name: containerd-socket
+          mountPath: /run/containerd/containerd.sock
+        - name: toolkit-install
+          mountPath: /usr/local/nvidia
+        - name: run-nvidia
+          mountPath: /run/nvidia
+        resources:
+          {{- toYaml .Values.containerToolkit.resources | nindent 10 }}
+{{- end }}
