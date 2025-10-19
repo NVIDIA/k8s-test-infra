@@ -172,8 +172,8 @@ k8s.io/utils v0.0.0-20250604170112-4c0f3b243397 h1:hwvWFiBzdWw1FhfY1FooPn3kzWuJ8
 k8s.io/utils v0.0.0-20250604170112-4c0f3b243397/go.mod h1:OLgZIPagt7ERELqWJFomSt595RzquPNLL48iOWgYOg0=
 sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 h1:gBQPwqORJ8d8/YNZWEjoZs7npUVDpVXUUOFfW6CgAqE=
 sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8/go.mod h1:mdzfpAEoE6DHQEN0uh9ZbOCuHbLK5wOm7dK4ctXE9Tg=
-sigs.k8s.io/node-feature-discovery v0.18.1 h1:I/GNTGRnJfaXVOYST3M1Ifs+CqlmhQmpRkkCH7Z9XVE=
-sigs.k8s.io/node-feature-discovery v0.18.1/go.mod h1:E1TicxB7ndDiZvQdtG6Gx6VjoDJvegXqU7e5dCTUT7s=
+sigs.k8s.io/node-feature-discovery v0.18.2 h1:n9HJNr4IXiL65nPOHp1LBz9luKh1S6lPvoASpuPdWos=
+sigs.k8s.io/node-feature-discovery v0.18.2/go.mod h1:E1TicxB7ndDiZvQdtG6Gx6VjoDJvegXqU7e5dCTUT7s=
 sigs.k8s.io/node-feature-discovery/api/nfd v0.18.1 h1:uvzkZmQUZFrKH0nHxY2H83YWQ+PXH0R1/+OCdq2clQU=
 sigs.k8s.io/node-feature-discovery/api/nfd v0.18.1/go.mod h1:XzGgUqDUyV/X+qkXEwG+CgfTUUeZix5iuobsmLoT0Ck=
 sigs.k8s.io/randfill v1.0.0 h1:JfjMILfT8A6RbawdsK2JXGBR5AQVfd+9TbzrlneTyrU=

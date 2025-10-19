@@ -10,7 +10,7 @@ require (
 	k8s.io/apimachinery v0.34.1
 	k8s.io/client-go v0.34.1
 	k8s.io/klog/v2 v2.130.1
-	sigs.k8s.io/node-feature-discovery v0.18.1
+	sigs.k8s.io/node-feature-discovery v0.18.2
 	sigs.k8s.io/node-feature-discovery/api/nfd v0.18.1
 	sigs.k8s.io/yaml v1.6.0
 )
