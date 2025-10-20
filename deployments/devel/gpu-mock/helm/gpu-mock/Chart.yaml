@@ -1,0 +1,30 @@
+apiVersion: v2
+name: gpu-mock
+description: A Helm chart for deploying a mock NVIDIA GPU environment in Kubernetes
+
+# Application version corresponds to gpu-mockctl version
+version: 0.1.0
+appVersion: "1.0.0"
+
+type: application
+
+keywords:
+  - nvidia
+  - gpu
+  - mock
+  - testing
+  - kubernetes
+
+maintainers:
+  - name: NVIDIA
+
+home: https://github.com/NVIDIA/k8s-test-infra
+sources:
+  - https://github.com/NVIDIA/k8s-test-infra
+
+dependencies: []
+
+annotations:
+  # Helm chart testing annotations
+  artifacthub.io/category: "testing"
+  artifacthub.io/license: "Apache-2.0"
