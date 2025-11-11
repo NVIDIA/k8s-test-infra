@@ -1,0 +1,113 @@
+# NVIDIA Device Plugin for Mock GPU Environment
+#
+# This DaemonSet deploys the production NVIDIA Device Plugin (v0.17.4) configured
+# to work with our mock NVIDIA driver and NVML library created by gpu-mockctl.
+#
+# Prerequisites:
+# - Mock driver must be deployed via 30-daemonset-mock-driver.yaml
+# - Node must have nvidia.com/gpu.present=true label
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin
+  namespace: gpu-mock
+  labels:
+    app: nvidia-device-plugin
+spec:
+  selector:
+    matchLabels:
+      app: nvidia-device-plugin
+  template:
+    metadata:
+      labels:
+        app: nvidia-device-plugin
+    spec:
+      # Deploy only on nodes with GPU support
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      priorityClassName: system-node-critical
+      
+      initContainers:
+      # Simple init container to ensure NVML library is accessible
+      - name: setup-nvml
+        image: busybox:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "Waiting for mock NVML library..."
+          until [ -f /var/lib/nvidia-mock/driver/lib64/libnvidia-ml.so ]; do
+            echo "Waiting for mock driver to be ready..."
+            sleep 2
+          done
+          echo "Mock NVML library found at /var/lib/nvidia-mock/driver/lib64/libnvidia-ml.so"
+        volumeMounts:
+        - name: mock-driver
+          mountPath: /var/lib/nvidia-mock
+          readOnly: true
+          
+      containers:
+      - name: nvidia-device-plugin
+        # Using the production NVIDIA device plugin image
+        image: nvcr.io/nvidia/k8s-device-plugin:v0.17.4
+        imagePullPolicy: IfNotPresent
+        command: ["nvidia-device-plugin"]
+        args:
+        - "--pass-device-specs=false"
+        - "--device-list-strategy=envvar"
+        - "--device-id-strategy=uuid"
+        - "--config-file=/etc/nvidia-device-plugin/config.yaml"
+        - "--nvidia-driver-root=/var/lib/nvidia-mock/driver"
+        - "--device-discovery-strategy=nvml"
+        env:
+        # Environment variables for NVML library discovery
+        - name: LD_LIBRARY_PATH
+          value: "/var/lib/nvidia-mock/driver/lib64:/usr/lib64"
+        - name: NVIDIA_DRIVER_ROOT
+          value: "/var/lib/nvidia-mock/driver"
+        - name: NVIDIA_MIG_MONITOR_DEVICES
+          value: "all"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+            add: ["SYS_ADMIN"]
+        volumeMounts:
+        - name: device-plugin
+          mountPath: /var/lib/kubelet/device-plugins
+        - name: mock-driver
+          mountPath: /var/lib/nvidia-mock
+          readOnly: true
+        - name: config
+          mountPath: /etc/nvidia-device-plugin
+          readOnly: true
+          
+      volumes:
+      - name: device-plugin
+        hostPath:
+          path: /var/lib/kubelet/device-plugins
+      - name: mock-driver
+        hostPath:
+          path: /var/lib/nvidia-mock
+          type: Directory
+      - name: config
+        configMap:
+          name: nvidia-device-plugin-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nvidia-device-plugin-config
+  namespace: gpu-mock
+data:
+  config.yaml: |
+    version: v1
+    flags:
+      migStrategy: "none"
+      # Use CDI for device enumeration (if toolkit generates CDI specs)
+      # deviceListStrategy: "cdi-cri"
+      # deviceIDStrategy: "uuid"

@@ -1,0 +1,148 @@
+{{- if .Values.mockDriver.enabled -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "gpu-mock.fullname" . }}-driver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gpu-mock.mockDriverLabels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "gpu-mock.mockDriverSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gpu-mock.mockDriverSelectorLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.global.rbac.create }}
+      serviceAccountName: {{ include "gpu-mock.fullname" . }}-driver
+      {{- end }}
+      hostPID: true  # Required for device node creation
+      {{- with .Values.mockDriver.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mockDriver.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      restartPolicy: Always
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      volumes:
+        - name: host-driver
+          hostPath:
+            path: /var/lib/nvidia-mock/driver
+            type: DirectoryOrCreate
+        - name: host-dev
+          hostPath:
+            path: /dev
+        {{- if .Values.cdi.enabled }}
+        - name: cdi-spec
+          configMap:
+            name: {{ .Values.cdi.configMapName | default (printf "%s-cdi-spec" (include "gpu-mock.fullname" .)) }}
+            optional: true
+        {{- end }}
+            
+      initContainers:
+        # Create mock driver filesystem and device nodes
+        - name: setup
+          image: "{{ .Values.mockDriver.image.repository }}:{{ .Values.mockDriver.image.tag }}"
+          imagePullPolicy: {{ .Values.mockDriver.image.pullPolicy }}
+          env:
+            # Use files instead of real device nodes for testing
+            - name: __NVCT_TESTING_DEVICES_ARE_FILES
+              value: "true"
+            {{- if .Values.debug.enabled }}
+            - name: DEBUG
+              value: "true"
+            {{- end }}
+            # Mock GPU architecture configuration
+            - name: MOCK_GPU_ARCH
+              value: {{ .Values.cdi.architectureOverride | default .Values.mockDriver.architecture | quote }}
+            # Number of GPUs (for default mode)
+            - name: MOCK_NVML_NUM_DEVICES
+              value: {{ .Values.mockDriver.gpuCount | quote }}
+            # Driver root and device paths
+            - name: DRIVER_ROOT
+              value: "/host/var/lib/nvidia-mock/driver"
+            - name: HOST_DEV
+              value: "/host/dev"
+            {{- if .Values.cdi.enabled }}
+            # CDI spec path (will be present if ConfigMap is mounted)
+            - name: CDI_SPEC_PATH
+              value: "/config/cdi-spec.yaml"
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.global.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: host-driver
+              mountPath: /host/var/lib/nvidia-mock/driver
+            - name: host-dev
+              mountPath: /host/dev
+            {{- if .Values.cdi.enabled }}
+            - name: cdi-spec
+              mountPath: /config
+              readOnly: true
+            {{- end }}
+          command: ["/usr/local/bin/entrypoint.sh"]
+          args:
+            - "/usr/local/bin/gpu-mockctl"
+            - "driver"
+            - "--driver-root"
+            - "/host/var/lib/nvidia-mock/driver"
+            - "--with-compiled-nvml"
+            {{- if .Values.debug.enabled }}
+            - "--verbose"
+            {{- end }}
+            
+        # Ensure NVML library has execute permissions
+        - name: fix-permissions
+          image: busybox:latest
+          securityContext:
+            {{- toYaml .Values.global.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: host-driver
+              mountPath: /host/var/lib/nvidia-mock/driver
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Fixing library permissions..."
+              chmod +x /host/var/lib/nvidia-mock/driver/lib64/*.so* 2>/dev/null || true
+              ls -la /host/var/lib/nvidia-mock/driver/lib64/libnvidia-ml* || echo "No NVML library found"
+              echo "Permissions fixed"
+              
+        {{- if .Values.nodeLabeling.gpuPresent }}
+        # Label node for GPU support
+        - name: label-node
+          image: bitnami/kubectl:latest
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              echo "Labeling node ${NODE_NAME} for GPU support..."
+              {{- if .Values.nodeLabeling.gpuPresent }}
+              kubectl label node "${NODE_NAME}" nvidia.com/gpu.present=true --overwrite
+              {{- end }}
+              {{- if .Values.nodeLabeling.pciPresent }}
+              kubectl label node "${NODE_NAME}" feature.node.kubernetes.io/pci-10de.present=true --overwrite
+              {{- end }}
+              echo "Node labels applied successfully"
+        {{- end }}
+              
+      containers:
+        # Keep the pod running
+        - name: hold
+          image: debian:bookworm-slim
+          command: ["/bin/sh", "-c", "sleep infinity"]
+          resources:
+            {{- toYaml .Values.mockDriver.resources | nindent 12 }}
+{{- end }}
