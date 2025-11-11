@@ -41,6 +41,12 @@ spec:
         - name: host-dev
           hostPath:
             path: /dev
+        {{- if .Values.cdi.enabled }}
+        - name: cdi-spec
+          configMap:
+            name: {{ .Values.cdi.configMapName | default (printf "%s-cdi-spec" (include "gpu-mock.fullname" .)) }}
+            optional: true
+        {{- end }}
             
       initContainers:
         # Create mock driver filesystem and device nodes
@@ -55,6 +61,22 @@ spec:
             - name: DEBUG
               value: "true"
             {{- end }}
+            # Mock GPU architecture configuration
+            - name: MOCK_GPU_ARCH
+              value: {{ .Values.cdi.architectureOverride | default .Values.mockDriver.architecture | quote }}
+            # Number of GPUs (for default mode)
+            - name: MOCK_NVML_NUM_DEVICES
+              value: {{ .Values.mockDriver.gpuCount | quote }}
+            # Driver root and device paths
+            - name: DRIVER_ROOT
+              value: "/host/var/lib/nvidia-mock/driver"
+            - name: HOST_DEV
+              value: "/host/dev"
+            {{- if .Values.cdi.enabled }}
+            # CDI spec path (will be present if ConfigMap is mounted)
+            - name: CDI_SPEC_PATH
+              value: "/config/cdi-spec.yaml"
+            {{- end }}
           securityContext:
             {{- toYaml .Values.global.securityContext | nindent 12 }}
           volumeMounts:
@@ -62,8 +84,14 @@ spec:
               mountPath: /host/var/lib/nvidia-mock/driver
             - name: host-dev
               mountPath: /host/dev
-          command: ["/usr/local/bin/gpu-mockctl"]
+            {{- if .Values.cdi.enabled }}
+            - name: cdi-spec
+              mountPath: /config
+              readOnly: true
+            {{- end }}
+          command: ["/usr/local/bin/entrypoint.sh"]
           args:
+            - "/usr/local/bin/gpu-mockctl"
             - "driver"
             - "--driver-root"
             - "/host/var/lib/nvidia-mock/driver"
