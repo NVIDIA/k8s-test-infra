@@ -39,6 +39,7 @@ func New() *cli.Command {
 			commands.NewFSCommand(cfg),
 			commands.NewDriverCommand(cfg),
 			commands.NewAllCommand(cfg),
+			commands.NewCDICommand(cfg),
 			commands.NewVersionCommand(),
 		},
 		Flags: []cli.Flag{
