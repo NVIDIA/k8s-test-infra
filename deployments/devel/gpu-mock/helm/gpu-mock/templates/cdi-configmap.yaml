@@ -1,0 +1,13 @@
+{{- if and .Values.cdi.enabled .Values.cdi.inlineSpec -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gpu-mock.fullname" . }}-cdi-spec
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gpu-mock.labels" . | nindent 4 }}
+data:
+  spec.yaml: |
+{{ .Values.cdi.inlineSpec | indent 4 }}
+{{- end }}
+

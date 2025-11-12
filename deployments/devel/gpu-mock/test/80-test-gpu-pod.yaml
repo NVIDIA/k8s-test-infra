@@ -1,0 +1,39 @@
+# GPU Allocation Test Pod
+#
+# This pod requests one GPU to verify that the mock environment is working correctly.
+# It will print the NVIDIA_VISIBLE_DEVICES environment variable that should contain
+# the UUID of the allocated GPU.
+#
+# Usage: kubectl apply -f 80-test-gpu-pod.yaml
+# Check logs: kubectl logs test-gpu-allocation -n gpu-mock
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-gpu-allocation
+  namespace: gpu-mock
+spec:
+  runtimeClassName: nvidia
+  restartPolicy: Never
+  containers:
+  - name: test
+    image: busybox:latest
+    command: ["sh", "-c"]
+    args:
+    - |
+      echo "=== GPU Allocation Test Pod ==="
+      echo "NVIDIA_VISIBLE_DEVICES: $NVIDIA_VISIBLE_DEVICES"
+      echo ""
+      echo "GPU-related environment variables:"
+      env | grep -E '(NVIDIA|CUDA|GPU)' | sort || echo "No GPU env vars found"
+      echo ""
+      echo "Test successful if NVIDIA_VISIBLE_DEVICES contains a GPU UUID!"
+      echo "Sleeping for 10 seconds..."
+      sleep 10
+      echo "Test complete!"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 100Mi
+      limits:
+        nvidia.com/gpu: 1  # Request one GPU

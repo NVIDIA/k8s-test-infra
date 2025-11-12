@@ -1,0 +1,100 @@
+# GPU CUDA Test Pod
+#
+# This pod tests that the container toolkit properly injects libraries
+# by attempting to load CUDA libraries and query GPU information.
+#
+# Usage: kubectl apply -f 85-test-gpu-cuda.yaml
+# Check logs: kubectl logs test-gpu-cuda -n gpu-mock
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-gpu-cuda
+  namespace: gpu-mock
+spec:
+  runtimeClassName: nvidia
+  restartPolicy: Never
+  containers:
+  - name: test
+    image: nvidia/cuda:12.3.0-base-ubuntu22.04
+    command: ["bash", "-c"]
+    args:
+    - |
+      echo "=== GPU CUDA Test Pod ==="
+      echo "Testing NVIDIA Container Toolkit integration..."
+      echo ""
+      
+      echo "1. Environment Variables:"
+      env | grep -E '(NVIDIA|CUDA|GPU|LD_LIBRARY)' | sort || echo "No GPU env vars found"
+      echo ""
+      
+      echo "2. NVIDIA Libraries:"
+      ls -la /usr/local/nvidia/lib64/ 2>/dev/null || echo "No nvidia lib directory"
+      echo ""
+      
+      echo "3. Device Nodes:"
+      ls -la /dev/nvidia* 2>/dev/null || echo "No nvidia devices found"
+      echo ""
+      
+      echo "4. Library Loading Test:"
+      # Try to load NVML library
+      python3 -c "
+      import ctypes
+      import os
+      
+      # Try different paths where NVML might be
+      paths = [
+          'libnvidia-ml.so',
+          '/usr/lib64/libnvidia-ml.so',
+          '/usr/local/nvidia/lib64/libnvidia-ml.so',
+          '/var/lib/nvidia-mock/driver/lib64/libnvidia-ml.so'
+      ]
+      
+      loaded = False
+      for path in paths:
+          try:
+              lib = ctypes.CDLL(path)
+              print(f'✓ Successfully loaded NVML from: {path}')
+              
+              # Try to call nvmlInit
+              result = lib.nvmlInit_v2()
+              if result == 0:
+                  print('✓ NVML initialized successfully')
+                  
+                  # Get device count
+                  count = ctypes.c_uint()
+                  result = lib.nvmlDeviceGetCount_v2(ctypes.byref(count))
+                  if result == 0:
+                      print(f'✓ Found {count.value} GPUs')
+                  
+                  lib.nvmlShutdown()
+              loaded = True
+              break
+          except Exception as e:
+              continue
+      
+      if not loaded:
+          print('✗ Failed to load NVML library')
+          print('Library search paths:')
+          print(f'  LD_LIBRARY_PATH: {os.environ.get(\"LD_LIBRARY_PATH\", \"not set\")}')
+      " 2>/dev/null || echo "Python test failed (this is expected if Python is not installed)"
+      
+      echo ""
+      echo "5. CUDA Runtime Test:"
+      # Simple test to see if CUDA runtime is accessible
+      ldconfig -p | grep cuda || echo "No CUDA libraries in ldconfig cache"
+      
+      echo ""
+      echo "Test complete!"
+      echo ""
+      echo "Summary:"
+      echo "- NVIDIA_VISIBLE_DEVICES is set: $([ -n \"$NVIDIA_VISIBLE_DEVICES\" ] && echo '✓' || echo '✗')"
+      echo "- Libraries injected: $([ -d /usr/local/nvidia/lib64 ] && echo '✓' || echo '✗')"
+      echo "- Devices mounted: $([ -e /dev/nvidia0 ] && echo '✓' || echo '✗')"
+      
+    resources:
+      requests:
+        cpu: 100m
+        memory: 100Mi
+      limits:
+        nvidia.com/gpu: 1  # Request one GPU

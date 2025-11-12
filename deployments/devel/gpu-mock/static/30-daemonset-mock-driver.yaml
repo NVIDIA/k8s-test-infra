@@ -1,0 +1,142 @@
+# Mock NVIDIA Driver DaemonSet
+#
+# This DaemonSet creates a mock NVIDIA driver filesystem on each node, including:
+# - Device nodes (/dev/nvidia*)
+# - Driver libraries including our mock libnvidia-ml.so
+# - Driver version information
+# - Node labels for GPU scheduling
+#
+# The mock driver simulates an NVIDIA DGX A100 system with 8 GPUs.
+
+# ServiceAccount for node labeling permissions
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nvidia-mock-driver
+  namespace: gpu-mock
+---
+# ClusterRole to allow patching node labels
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nvidia-mock-driver
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "patch"]
+---
+# Bind the ClusterRole to the ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nvidia-mock-driver
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nvidia-mock-driver
+subjects:
+- kind: ServiceAccount
+  name: nvidia-mock-driver
+  namespace: gpu-mock
+---
+# DaemonSet to deploy mock driver on all nodes
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-mock-driver
+  namespace: gpu-mock
+spec:
+  selector:
+    matchLabels:
+      app: nvidia-mock-driver
+  template:
+    metadata:
+      labels:
+        app: nvidia-mock-driver
+    spec:
+      serviceAccountName: nvidia-mock-driver
+      hostPID: true  # Required for device node creation
+      tolerations:
+        - operator: Exists  # Run on all nodes including control plane
+      restartPolicy: Always
+      
+      volumes:
+        - name: host-driver
+          hostPath:
+            path: /var/lib/nvidia-mock/driver
+            type: DirectoryOrCreate
+        - name: host-dev
+          hostPath:
+            path: /dev
+            
+      initContainers:
+        # Create mock driver filesystem and device nodes
+        - name: setup
+          image: local/gpu-mockctl:dev
+          env:
+            # Use files instead of real device nodes for testing
+            - name: __NVCT_TESTING_DEVICES_ARE_FILES
+              value: "true"
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          volumeMounts:
+            - name: host-driver
+              mountPath: /host/var/lib/nvidia-mock/driver
+            - name: host-dev
+              mountPath: /host/dev
+          command: ["/usr/local/bin/gpu-mockctl"]
+          args:
+            - "driver"
+            - "--driver-root"
+            - "/host/var/lib/nvidia-mock/driver"
+            - "--with-compiled-nvml"  # Include our mock NVML library
+            
+        # Ensure NVML library has execute permissions
+        - name: fix-permissions
+          image: busybox:latest
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          volumeMounts:
+            - name: host-driver
+              mountPath: /host/var/lib/nvidia-mock/driver
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Fixing library permissions..."
+              chmod +x /host/var/lib/nvidia-mock/driver/lib64/*.so* 2>/dev/null || true
+              ls -la /host/var/lib/nvidia-mock/driver/lib64/libnvidia-ml* || echo "No NVML library found"
+              echo "Permissions fixed"
+              
+        # Label node for GPU support
+        - name: label-node
+          image: bitnami/kubectl:latest
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              echo "Labeling node ${NODE_NAME} for GPU support..."
+              # Label for device plugin node selector
+              kubectl label node "${NODE_NAME}" nvidia.com/gpu.present=true --overwrite
+              # Label for NFD compatibility
+              kubectl label node "${NODE_NAME}" feature.node.kubernetes.io/pci-10de.present=true --overwrite
+              echo "Node labels applied successfully"
+              
+      containers:
+        # Keep the pod running
+        - name: hold
+          image: debian:bookworm-slim
+          command: ["/bin/sh", "-c", "sleep infinity"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 10Mi
+            limits:
+              cpu: 100m
+              memory: 50Mi
+

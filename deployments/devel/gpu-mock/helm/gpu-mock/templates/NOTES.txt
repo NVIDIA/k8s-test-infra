@@ -1,0 +1,47 @@
+1. Get the status of the mock GPU environment:
+   kubectl get pods -n {{ .Release.Namespace }}
+
+2. Verify node GPU capacity:
+   kubectl get nodes -o custom-columns=NAME:.metadata.name,GPUs:.status.capacity.nvidia\\.com/gpu
+
+{{- if .Values.mockDriver.enabled }}
+
+3. Check mock driver logs:
+   kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/component=mock-driver -c setup
+{{- end }}
+
+{{- if .Values.containerToolkit.enabled }}
+
+4. Check container toolkit logs:
+   kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/component=container-toolkit
+
+5. The NVIDIA Container Toolkit has been deployed with RuntimeClass '{{ .Values.containerToolkit.runtimeClass.name }}'
+   To use it, add the following to your pod spec:
+   
+   spec:
+     runtimeClassName: {{ .Values.containerToolkit.runtimeClass.name }}
+{{- end }}
+
+6. To test GPU allocation, create a pod that requests GPUs:
+
+   apiVersion: v1
+   kind: Pod
+   metadata:
+     name: test-gpu
+   spec:
+     {{- if .Values.containerToolkit.enabled }}
+     runtimeClassName: {{ .Values.containerToolkit.runtimeClass.name }}
+     {{- end }}
+     containers:
+     - name: test
+       image: busybox
+       command: ["sh", "-c", "echo NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES && sleep 60"]
+       resources:
+         limits:
+           nvidia.com/gpu: 1
+
+Note: This mock environment simulates {{ .Values.mockDriver.gpuCount }} {{ .Values.mockDriver.gpuModel }} GPUs.
+{{- if not .Values.containerToolkit.enabled }}
+
+Container toolkit is disabled. To enable GPU library injection, set containerToolkit.enabled=true
+{{- end }}

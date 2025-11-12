@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,11 +27,12 @@ import (
 	"github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
-	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/pkg/apis/nfd/v1alpha1"
-	nfdclient "sigs.k8s.io/node-feature-discovery/pkg/generated/clientset/versioned"
+	nfdclient "sigs.k8s.io/node-feature-discovery/api/generated/clientset/versioned"
+	nfdv1alpha1 "sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1"
 )
 
 // GetNonControlPlaneNodes gets the nodes that are not tainted for exclusive control-plane usage
@@ -155,7 +157,7 @@ func CleanupNode(ctx context.Context, cs clientset.Interface) {
 
 	for _, n := range nodeList.Items {
 		var err error
-		for retry := 0; retry < 5; retry++ {
+		for range 5 {
 			if err = cleanup(n.Name); err == nil {
 				break
 			}
@@ -212,4 +214,50 @@ func cleanupNodeFeatureRules(ctx context.Context, cli *nfdclient.Clientset) {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}
+}
+
+// WaitForDeletion polls the provided checkFunc until a NotFound error is returned,
+// confirming that the resource is deleted.
+func WaitForDeletion(resourceName string, checkFunc func() error) error {
+	timeout := 2 * time.Minute
+	interval := 5 * time.Second
+	start := time.Now()
+	for {
+		err := checkFunc()
+		if err != nil && errors.IsNotFound(err) {
+			return nil
+		}
+		if time.Since(start) > timeout {
+			return fmt.Errorf("timed out waiting for deletion of %s", resourceName)
+		}
+		time.Sleep(interval)
+	}
+}
+
+// CleanupCRDs deletes specific CRDs used during testing.
+func CleanupCRDs(ctx context.Context, crds []string, extClient extclient.Interface) error {
+	for _, crd := range crds {
+		err := extClient.ApiextensionsV1().CustomResourceDefinitions().Delete(ctx, crd, metav1.DeleteOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				// Omitted error, nothing to do.
+				continue
+			}
+			return fmt.Errorf("error deleting CRD %s: %w", crd, err)
+		}
+
+		_ = WaitForDeletion(crd, func() error {
+			_, err := extClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crd, metav1.GetOptions{})
+			if err != nil {
+				if errors.IsNotFound(err) {
+					return nil
+				}
+				return err
+			}
+
+			return nil
+		})
+	}
+
+	return nil
 }

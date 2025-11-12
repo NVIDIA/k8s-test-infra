@@ -1,0 +1,136 @@
+# NVIDIA Container Toolkit for Mock GPU Environment
+#
+# This DaemonSet deploys the NVIDIA Container Toolkit configured to work
+# with our mock driver filesystem, similar to how the GPU Operator deploys it.
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-container-toolkit
+  namespace: gpu-mock
+  labels:
+    app: nvidia-container-toolkit
+spec:
+  selector:
+    matchLabels:
+      app: nvidia-container-toolkit
+  template:
+    metadata:
+      labels:
+        app: nvidia-container-toolkit
+    spec:
+      hostPID: true
+      hostNetwork: true
+      serviceAccountName: nvidia-container-toolkit
+      tolerations:
+      - operator: Exists
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      priorityClassName: system-node-critical
+      
+      volumes:
+      # Mock driver root
+      - name: driver-root
+        hostPath:
+          path: /var/lib/nvidia-mock/driver
+          type: Directory
+          
+      # Host filesystem directories needed by toolkit
+      - name: dev
+        hostPath:
+          path: /dev
+      - name: sys
+        hostPath:
+          path: /sys
+      - name: proc
+        hostPath:
+          path: /proc
+          
+      # Container runtime config
+      - name: containerd-config
+        hostPath:
+          path: /etc/containerd
+          type: DirectoryOrCreate
+      - name: containerd-socket
+        hostPath:
+          path: /run/containerd/containerd.sock
+          type: Socket
+          
+      # Toolkit installation directory
+      - name: toolkit-install
+        hostPath:
+          path: /usr/local/nvidia
+          type: DirectoryOrCreate
+          
+      # Runtime directory for pidfile
+      - name: run-nvidia
+        hostPath:
+          path: /run/nvidia
+          type: DirectoryOrCreate
+          
+      containers:
+      - name: nvidia-container-toolkit
+        image: nvcr.io/nvidia/k8s/container-toolkit:v1.14.5-ubi8
+        imagePullPolicy: IfNotPresent
+        command: ["nvidia-toolkit"]
+        args:
+        # Install to /usr/local/nvidia
+        - "/usr/local/nvidia"
+        # Runtime to configure (containerd for KIND)
+        - "--runtime=containerd"
+        env:
+        - name: NVIDIA_DRIVER_ROOT
+          value: "/var/lib/nvidia-mock/driver"
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: "all"
+        - name: CONTAINERD_CONFIG
+          value: "/etc/containerd/config.toml"
+        - name: CONTAINERD_SOCKET
+          value: "/run/containerd/containerd.sock"
+        - name: CONTAINERD_RUNTIME_CLASS
+          value: "nvidia"
+        - name: CONTAINERD_SET_AS_DEFAULT
+          value: "false"
+        # Enable CDI mode
+        - name: NVIDIA_CONTAINER_RUNTIME_MODE
+          value: "cdi"
+        - name: NVIDIA_CONTAINER_RUNTIME_MODES_CDI_DEFAULT_KIND
+          value: "nvidia.com/gpu"
+        - name: NVIDIA_CONTAINER_RUNTIME_MODES_CDI_ANNOTATION_PREFIXES
+          value: "cdi.k8s.io/"
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: driver-root
+          mountPath: /var/lib/nvidia-mock/driver
+          readOnly: true
+        - name: dev
+          mountPath: /dev
+        - name: sys
+          mountPath: /sys
+          readOnly: true
+        - name: proc
+          mountPath: /proc
+          readOnly: true
+        - name: containerd-config
+          mountPath: /etc/containerd
+        - name: containerd-socket
+          mountPath: /run/containerd/containerd.sock
+        - name: toolkit-install
+          mountPath: /usr/local/nvidia
+        - name: run-nvidia
+          mountPath: /run/nvidia
+        resources:
+          requests:
+            cpu: 10m
+            memory: 50Mi
+          limits:
+            cpu: 100m
+            memory: 100Mi
+            
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nvidia-container-toolkit
+  namespace: gpu-mock

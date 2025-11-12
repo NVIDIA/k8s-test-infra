@@ -3,30 +3,31 @@
 
 version: 2
 updates:
+# main branch
   - package-ecosystem: "gomod"
     target-branch: main
     directory: "/"
     schedule:
       interval: "weekly"
       day: "sunday"
+    ignore:
+    - dependency-name: k8s.io/*
     labels:
     - dependencies
-    groups:
-      k8sio:
-        patterns:
-        - k8s.io/*
-        exclude-patterns:
-        - k8s.io/klog/*
 
-  - package-ecosystem: "github-actions"
-    target-branch: main
-    directory: "/"
-    schedule:
-      interval: "daily"
-
-  # A dependabot rule to bump the runner version
   - package-ecosystem: "docker"
     target-branch: main
-    directory: "/images/gh_runner"
+    directories:
+    # GPU mockctl image
+    - "/deployments/devel/gpu-mock/container"
+    # Other development images
+    - "/deployments/devel"
+    schedule:
+      interval: "daily"
+    labels:
+    - dependencies
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
     schedule:
       interval: "daily"
