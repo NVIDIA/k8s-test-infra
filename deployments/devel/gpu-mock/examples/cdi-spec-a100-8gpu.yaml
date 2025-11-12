@@ -1,0 +1,127 @@
+# Example CDI Specification for 8x NVIDIA A100 GPUs
+# This mimics the NVIDIA DGX A100 configuration
+# Compatible with CDI specification version 0.5.0
+#
+# Usage:
+#   kubectl create configmap gpu-cdi-spec --from-file=spec.yaml=cdi-spec-a100-8gpu.yaml -n gpu-mock
+#   helm upgrade --install gpu-mock ../../helm/gpu-mock \
+#     --set cdi.enabled=true \
+#     --set cdi.configMapName=gpu-cdi-spec \
+#     --namespace gpu-mock
+
+cdiVersion: "0.5.0"
+kind: nvidia.com/gpu
+
+devices:
+  # GPU 0
+  - name: "gpu0"
+    annotations:
+      nvidia.com/gpu.model: "NVIDIA A100-SXM4-40GB"
+      nvidia.com/gpu.uuid: "GPU-00000000-0000-0000-0000-000000000000"
+      nvidia.com/gpu.index: "0"
+    containerEdits:
+      deviceNodes:
+        - path: /dev/nvidia0
+          type: c
+          major: 195
+          minor: 0
+          fileMode: 0666
+      
+  # GPU 1
+  - name: "gpu1"
+    annotations:
+      nvidia.com/gpu.model: "NVIDIA A100-SXM4-40GB"
+      nvidia.com/gpu.uuid: "GPU-00000000-0000-0000-0000-000000000001"
+      nvidia.com/gpu.index: "1"
+    containerEdits:
+      deviceNodes:
+        - path: /dev/nvidia1
+          type: c
+          major: 195
+          minor: 1
+          fileMode: 0666
+          
+  # GPU 2
+  - name: "gpu2"
+    annotations:
+      nvidia.com/gpu.model: "NVIDIA A100-SXM4-40GB"
+      nvidia.com/gpu.uuid: "GPU-00000000-0000-0000-0000-000000000002"
+      nvidia.com/gpu.index: "2"
+    containerEdits:
+      deviceNodes:
+        - path: /dev/nvidia2
+          type: c
+          major: 195
+          minor: 2
+          fileMode: 0666
+          
+  # GPU 3
+  - name: "gpu3"
+    annotations:
+      nvidia.com/gpu.model: "NVIDIA A100-SXM4-40GB"
+      nvidia.com/gpu.uuid: "GPU-00000000-0000-0000-0000-000000000003"
+      nvidia.com/gpu.index: "3"
+    containerEdits:
+      deviceNodes:
+        - path: /dev/nvidia3
+          type: c
+          major: 195
+          minor: 3
+          fileMode: 0666
+          
+  # GPU 4
+  - name: "gpu4"
+    annotations:
+      nvidia.com/gpu.model: "NVIDIA A100-SXM4-40GB"
+      nvidia.com/gpu.uuid: "GPU-00000000-0000-0000-0000-000000000004"
+      nvidia.com/gpu.index: "4"
+    containerEdits:
+      deviceNodes:
+        - path: /dev/nvidia4
+          type: c
+          major: 195
+          minor: 4
+          fileMode: 0666
+          
+  # GPU 5
+  - name: "gpu5"
+    annotations:
+      nvidia.com/gpu.model: "NVIDIA A100-SXM4-40GB"
+      nvidia.com/gpu.uuid: "GPU-00000000-0000-0000-0000-000000000005"
+      nvidia.com/gpu.index: "5"
+    containerEdits:
+      deviceNodes:
+        - path: /dev/nvidia5
+          type: c
+          major: 195
+          minor: 5
+          fileMode: 0666
+          
+  # GPU 6
+  - name: "gpu6"
+    annotations:
+      nvidia.com/gpu.model: "NVIDIA A100-SXM4-40GB"
+      nvidia.com/gpu.uuid: "GPU-00000000-0000-0000-0000-000000000006"
+      nvidia.com/gpu.index: "6"
+    containerEdits:
+      deviceNodes:
+        - path: /dev/nvidia6
+          type: c
+          major: 195
+          minor: 6
+          fileMode: 0666
+          
+  # GPU 7
+  - name: "gpu7"
+    annotations:
+      nvidia.com/gpu.model: "NVIDIA A100-SXM4-40GB"
+      nvidia.com/gpu.uuid: "GPU-00000000-0000-0000-0000-000000000007"
+      nvidia.com/gpu.index: "7"
+    containerEdits:
+      deviceNodes:
+        - path: /dev/nvidia7
+          type: c
+          major: 195
+          minor: 7
+          fileMode: 0666
+
