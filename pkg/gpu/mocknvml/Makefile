@@ -35,12 +35,8 @@ $(LIB_NAME): $(LIB_REALNAME)
 $(LIB_REALNAME):
 	go build -buildmode=c-shared -o $(LIB_REALNAME) ./bridge
 
-test: $(LIB_NAME)
-	$(MAKE) -C test test
-
 clean:
 	rm -f $(LIB_NAME)*
-	$(MAKE) -C test clean
 
 .build-image: Dockerfile
 	$(DOCKER) build \
