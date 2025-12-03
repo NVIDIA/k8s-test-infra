@@ -1,0 +1,6 @@
+# Build artifacts
+*.so
+*.dll
+*.dylib
+*.out
+*.test
