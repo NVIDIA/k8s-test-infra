@@ -3,7 +3,7 @@ module github.com/NVIDIA/k8s-test-infra
 go 1.25.0
 
 require (
-	github.com/onsi/ginkgo/v2 v2.27.2
+	github.com/onsi/ginkgo/v2 v2.27.5
 	github.com/onsi/gomega v1.38.2
 	k8s.io/api v0.34.2
 	k8s.io/apiextensions-apiserver v0.34.2
