@@ -123,7 +123,11 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *dgxa100.Server)
 		minorNumber := e.config.GetDeviceMinorNumber(i)
 
 		// Get base device from dgxa100
-		baseDevice := base.Devices[i].(*dgxa100.Device)
+		baseDevice, ok := base.Devices[i].(*dgxa100.Device)
+		if !ok {
+			debugLog("[ENGINE] Device %d is not dgxa100.Device type, skipping\n", i)
+			continue
+		}
 
 		// Create configurable device
 		server.configurableDevices[i] = NewConfigurableDevice(
@@ -145,7 +149,11 @@ func (e *Engine) createDefaultDevices(server *MockServer, base *dgxa100.Server) 
 
 	for i := 0; i < e.config.NumDevices && i < MaxDevices; i++ {
 		// Get base device from dgxa100
-		baseDevice := base.Devices[i].(*dgxa100.Device)
+		baseDevice, ok := base.Devices[i].(*dgxa100.Device)
+		if !ok {
+			debugLog("[ENGINE] Device %d is not dgxa100.Device type, skipping\n", i)
+			continue
+		}
 
 		// Create configurable device with nil config (uses defaults)
 		server.configurableDevices[i] = NewConfigurableDevice(

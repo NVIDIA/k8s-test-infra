@@ -73,8 +73,8 @@ func LoadConfig() *Config {
 	if configPath != "" {
 		yamlConfig, err := LoadYAMLConfig(configPath)
 		if err != nil {
-			// Log warning but continue with defaults/env vars
-			debugLog("[CONFIG] Failed to load YAML config from %s: %v, falling back to defaults\n", configPath, err)
+			// Log visible warning since user explicitly requested this config file
+			warnLog("Failed to load YAML config from %s: %v, falling back to defaults\n", configPath, err)
 		} else {
 			config.YAMLConfig = yamlConfig
 			// Apply system-level config from YAML

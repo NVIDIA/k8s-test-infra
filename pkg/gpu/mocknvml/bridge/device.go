@@ -81,6 +81,8 @@ func nvmlDeviceGetHandleByIndex_v2(index C.uint, nvmlDevice *C.nvmlDevice_t) C.n
 	handle, ret := engine.GetEngine().DeviceGetHandleByIndex(int(index))
 	if ret == nvml.SUCCESS {
 		// nvmlDevice_t is a struct with a handle field pointing to opaque nvmlDevice_st
+		//nolint:govet // Converting uintptr to unsafe.Pointer is intentional - handle was allocated
+		// as C memory by HandleTable.Register() and we need to pass it back to the C caller
 		nvmlDevice.handle = (*C.struct_nvmlDevice_st)(unsafe.Pointer(handle))
 		debugLog("[NVML]   -> handle=0x%x ret=%d\n", uintptr(handle), ret)
 	}
@@ -105,6 +107,8 @@ func nvmlDeviceGetHandleByUUID(uuid *C.char, nvmlDevice *C.nvmlDevice_t) C.nvmlR
 	goUUID := C.GoString(uuid)
 	handle, ret := engine.GetEngine().DeviceGetHandleByUUID(goUUID)
 	if ret == nvml.SUCCESS {
+		//nolint:govet // Converting uintptr to unsafe.Pointer is intentional - handle was allocated
+		// as C memory by HandleTable.Register() and we need to pass it back to the C caller
 		nvmlDevice.handle = (*C.struct_nvmlDevice_st)(unsafe.Pointer(handle))
 	}
 	return toReturn(ret)
@@ -118,6 +122,8 @@ func nvmlDeviceGetHandleByPciBusId_v2(pciBusId *C.char, nvmlDevice *C.nvmlDevice
 	goPciBusId := C.GoString(pciBusId)
 	handle, ret := engine.GetEngine().DeviceGetHandleByPciBusId(goPciBusId)
 	if ret == nvml.SUCCESS {
+		//nolint:govet // Converting uintptr to unsafe.Pointer is intentional - handle was allocated
+		// as C memory by HandleTable.Register() and we need to pass it back to the C caller
 		nvmlDevice.handle = (*C.struct_nvmlDevice_st)(unsafe.Pointer(handle))
 	}
 	return toReturn(ret)

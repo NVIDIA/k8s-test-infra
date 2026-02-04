@@ -65,9 +65,12 @@ config for consistency.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `MOCK_NVML_CONFIG` | Path to YAML configuration file | (none - uses defaults) |
-| `MOCK_NVML_NUM_DEVICES` | Number of GPUs to simulate (if no YAML) | 8 |
+| `MOCK_NVML_NUM_DEVICES` | Number of GPUs to simulate (if no YAML, max 8) | 8 |
 | `MOCK_NVML_DRIVER_VERSION` | Driver version string (if no YAML) | 550.163.01 |
 | `MOCK_NVML_DEBUG` | Enable debug logging to stderr | (disabled) |
+
+> **Note:** The maximum number of simulated GPUs is 8. See [Limitations](#limitations)
+> for details.
 
 ### YAML Configuration
 
@@ -324,7 +327,11 @@ bridge file (e.g., `device.go`) and regenerate stubs.
 
 ## Limitations
 
-- **Maximum 8 GPUs**: Limited by the underlying `dgxa100` mock implementation
+- **Maximum 8 GPUs**: The mock library supports a maximum of 8 simulated GPUs
+  (`MaxDevices = 8`). This limit is enforced by the underlying `dgxa100` mock
+  implementation and handle table. If your YAML config defines more than 8
+  devices, only the first 8 will be created. This matches the typical DGX A100
+  system configuration.
 - **Read-only simulation**: No actual GPU operations
 - **Static device properties**: Device properties set at initialization
 - **No MIG support**: Multi-Instance GPU features not implemented

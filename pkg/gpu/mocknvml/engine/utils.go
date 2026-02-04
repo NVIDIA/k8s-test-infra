@@ -24,3 +24,8 @@ func debugLog(format string, args ...any) {
 		fmt.Fprintf(os.Stderr, format, args...)
 	}
 }
+
+// warnLog always prints warnings to stderr (visible without MOCK_NVML_DEBUG)
+func warnLog(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "[MOCK_NVML WARNING] "+format, args...)
+}
