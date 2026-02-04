@@ -128,6 +128,16 @@ func (ht *HandleTable) Lookup(handle uintptr) nvml.Device {
 		return InvalidDeviceInstance
 	}
 
+	// First check if handle exists in our map - this avoids calling C code
+	// with arbitrary invalid pointers which can trigger Go's checkptr panic
+	ht.mu.RLock()
+	dev, ok := ht.devices[handle]
+	ht.mu.RUnlock()
+
+	if !ok {
+		return InvalidDeviceInstance
+	}
+
 	// Validate the handle's magic number to detect use-after-free or corruption
 	//nolint:govet // Converting uintptr to unsafe.Pointer is intentional -
 	// handle was allocated as C memory and we need to validate it
@@ -135,12 +145,7 @@ func (ht *HandleTable) Lookup(handle uintptr) nvml.Device {
 		return InvalidDeviceInstance
 	}
 
-	ht.mu.RLock()
-	defer ht.mu.RUnlock()
-	if dev, ok := ht.devices[handle]; ok {
-		return dev
-	}
-	return InvalidDeviceInstance
+	return dev
 }
 
 // Clear removes all entries from the handle table and frees allocated memory.

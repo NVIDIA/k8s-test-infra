@@ -31,7 +31,9 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestLoadConfig_Defaults(t *testing.T) {
-	// t.Setenv automatically clears env vars for this test scope
+	// Clear config cache to ensure clean state
+	ClearConfigCache()
+
 	config := LoadConfig()
 	if config == nil {
 		t.Fatal("LoadConfig returned nil")
@@ -61,6 +63,9 @@ func TestLoadConfig_NumDevices(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Clear config cache to ensure env vars take effect
+			ClearConfigCache()
+
 			if tt.setEnv {
 				t.Setenv("MOCK_NVML_NUM_DEVICES", tt.envValue)
 			}
@@ -74,6 +79,9 @@ func TestLoadConfig_NumDevices(t *testing.T) {
 }
 
 func TestLoadConfig_DriverVersion(t *testing.T) {
+	// Clear config cache to ensure env vars take effect
+	ClearConfigCache()
+
 	customVersion := "999.99.99"
 	t.Setenv("MOCK_NVML_DRIVER_VERSION", customVersion)
 
@@ -84,6 +92,9 @@ func TestLoadConfig_DriverVersion(t *testing.T) {
 }
 
 func TestLoadConfig_AllEnvVars(t *testing.T) {
+	// Clear config cache to ensure env vars take effect
+	ClearConfigCache()
+
 	t.Setenv("MOCK_NVML_NUM_DEVICES", "6")
 	t.Setenv("MOCK_NVML_DRIVER_VERSION", "600.00.00")
 
@@ -97,6 +108,9 @@ func TestLoadConfig_AllEnvVars(t *testing.T) {
 }
 
 func TestLoadConfig_EmptyEnvVars(t *testing.T) {
+	// Clear config cache to ensure env vars take effect
+	ClearConfigCache()
+
 	t.Setenv("MOCK_NVML_NUM_DEVICES", "")
 	t.Setenv("MOCK_NVML_DRIVER_VERSION", "")
 
