@@ -309,6 +309,9 @@ func TestEngine_HandleTableCleanupOnShutdown(t *testing.T) {
 }
 
 func TestEngine_ConfigFromEnvironment(t *testing.T) {
+	// Clear config cache to ensure env vars take effect
+	ClearConfigCache()
+
 	t.Setenv("MOCK_NVML_NUM_DEVICES", "6")
 	t.Setenv("MOCK_NVML_DRIVER_VERSION", "600.00.00")
 

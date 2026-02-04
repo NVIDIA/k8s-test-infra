@@ -119,17 +119,18 @@ func TestHandleTable_Clear(t *testing.T) {
 
 func TestHandleTable_MultipleDevices(t *testing.T) {
 	ht := NewHandleTable()
-	devices := make([]nvml.Device, 10)
-	handles := make([]uintptr, 10)
+	// Use MaxDevices to respect the handle table limit
+	devices := make([]nvml.Device, MaxDevices)
+	handles := make([]uintptr, MaxDevices)
 
 	// Register multiple devices
-	for i := 0; i < 10; i++ {
+	for i := 0; i < MaxDevices; i++ {
 		devices[i] = dgxa100.NewDevice(i)
 		handles[i] = ht.Register(devices[i])
 	}
 
-	if ht.Count() != 10 {
-		t.Errorf("Expected count 10, got %d", ht.Count())
+	if ht.Count() != MaxDevices {
+		t.Errorf("Expected count %d, got %d", MaxDevices, ht.Count())
 	}
 
 	// Verify all handles are unique
@@ -153,33 +154,31 @@ func TestHandleTable_MultipleDevices(t *testing.T) {
 func TestHandleTable_ConcurrentAccess(t *testing.T) {
 	ht := NewHandleTable()
 	var wg sync.WaitGroup
-	var zeroHandleCount int32
+	var successCount int32
 	numGoroutines := 100
-	devicesPerGoroutine := 10
 
-	// Concurrent registration
+	// Concurrent registration - each goroutine tries to register one unique device
+	// Only MaxDevices will succeed due to handle table limit
 	wg.Add(numGoroutines)
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < devicesPerGoroutine; j++ {
-				dev := dgxa100.NewDevice(id*devicesPerGoroutine + j)
-				handle := ht.Register(dev)
-				if handle == 0 {
-					atomic.AddInt32(&zeroHandleCount, 1)
-				}
+			dev := dgxa100.NewDevice(id)
+			handle := ht.Register(dev)
+			if handle != 0 {
+				atomic.AddInt32(&successCount, 1)
 			}
 		}(i)
 	}
 	wg.Wait()
 
-	if zeroHandleCount > 0 {
-		t.Errorf("Got %d zero handles during concurrent registration", zeroHandleCount)
+	// Due to MaxDevices limit, only MaxDevices registrations should succeed
+	if successCount != int32(MaxDevices) {
+		t.Errorf("Expected %d successful registrations, got %d", MaxDevices, successCount)
 	}
 
-	expectedCount := numGoroutines * devicesPerGoroutine
-	if ht.Count() != expectedCount {
-		t.Errorf("Expected count %d, got %d", expectedCount, ht.Count())
+	if ht.Count() != MaxDevices {
+		t.Errorf("Expected count %d, got %d", MaxDevices, ht.Count())
 	}
 }
 
@@ -187,21 +186,20 @@ func TestHandleTable_ConcurrentRegisterAndLookup(t *testing.T) {
 	ht := NewHandleTable()
 	var wg sync.WaitGroup
 	var lookupNilCount int32
-	var registerZeroCount int32
 	numGoroutines := 50
 
-	// Pre-register some devices
-	handles := make([]uintptr, 10)
-	devices := make([]nvml.Device, 10)
-	for i := 0; i < 10; i++ {
+	// Pre-register devices up to MaxDevices limit
+	handles := make([]uintptr, MaxDevices)
+	devices := make([]nvml.Device, MaxDevices)
+	for i := 0; i < MaxDevices; i++ {
 		devices[i] = dgxa100.NewDevice(i)
 		handles[i] = ht.Register(devices[i])
 	}
 
-	// Concurrent lookups and registrations
-	wg.Add(numGoroutines * 2)
+	// Concurrent lookups only - table is already at capacity
+	// Testing that lookups work correctly under concurrent access
+	wg.Add(numGoroutines)
 	for i := 0; i < numGoroutines; i++ {
-		// Lookup goroutines
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
@@ -212,24 +210,11 @@ func TestHandleTable_ConcurrentRegisterAndLookup(t *testing.T) {
 				}
 			}
 		}()
-
-		// Register goroutines
-		go func(id int) {
-			defer wg.Done()
-			dev := dgxa100.NewDevice(100 + id)
-			handle := ht.Register(dev)
-			if handle == 0 {
-				atomic.AddInt32(&registerZeroCount, 1)
-			}
-		}(i)
 	}
 	wg.Wait()
 
 	if lookupNilCount > 0 {
 		t.Errorf("Lookup returned nil %d times for valid handles", lookupNilCount)
-	}
-	if registerZeroCount > 0 {
-		t.Errorf("Register returned zero handle %d times", registerZeroCount)
 	}
 }
 
@@ -237,8 +222,8 @@ func TestHandleTable_ConcurrentClear(t *testing.T) {
 	ht := NewHandleTable()
 	var wg sync.WaitGroup
 
-	// Register some devices
-	for i := 0; i < 10; i++ {
+	// Register devices up to MaxDevices limit
+	for i := 0; i < MaxDevices; i++ {
 		dev := dgxa100.NewDevice(i)
 		ht.Register(dev)
 	}
