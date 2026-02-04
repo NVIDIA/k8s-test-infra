@@ -43,3 +43,7 @@ jobs:
     - name: Check golang modules
       run: |
         make check-modules
+
+    - name: Run unit tests
+      run: |
+        go test -v -race -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v vendor)
