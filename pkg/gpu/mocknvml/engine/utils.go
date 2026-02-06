@@ -1,0 +1,31 @@
+// Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package engine
+
+import (
+	"fmt"
+	"os"
+)
+
+// debugLog prints to stderr if MOCK_NVML_DEBUG is set
+func debugLog(format string, args ...any) {
+	if os.Getenv("MOCK_NVML_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, format, args...)
+	}
+}
+
+// warnLog always prints warnings to stderr (visible without MOCK_NVML_DEBUG)
+func warnLog(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "[MOCK_NVML WARNING] "+format, args...)
+}
