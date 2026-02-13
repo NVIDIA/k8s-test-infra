@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/NVIDIA/go-nvml v0.13.0-1
 	github.com/onsi/ginkgo/v2 v2.28.1
-	github.com/onsi/gomega v1.39.0
+	github.com/onsi/gomega v1.39.1
 	k8s.io/api v0.34.2
 	k8s.io/apiextensions-apiserver v0.34.2
 	k8s.io/apimachinery v0.34.2
