@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <script>
+      // Redirect to index.html with the path preserved as a query parameter
+      // This enables client-side routing on GitHub Pages
+      var path = window.location.pathname;
+      window.location.replace(
+        window.location.origin + '/k8s-test-infra/?redirect=' + encodeURIComponent(path)
+      );
+    </script>
+  </head>
+  <body></body>
+</html>
