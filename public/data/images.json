@@ -1,0 +1,16 @@
+{
+  "images": [
+    {
+      "repo": "nvidia/gpu-operator",
+      "tag": "9ee21750",
+      "pushedAt": "2025-05-21T00:35:17Z",
+      "htmlUrl": "https://github.com/nvidia/gpu-operator/pkgs/container/gpu-operator/420112772?tag=9ee21750"
+    },
+    {
+      "repo": "nvidia/k8s-device-plugin",
+      "tag": "6f41f70c-ubi9",
+      "pushedAt": "2025-05-15T14:57:43Z",
+      "htmlUrl": "https://github.com/nvidia/k8s-device-plugin/pkgs/container/k8s-device-plugin/416491509?tag=6f41f70c-ubi9"
+    }
+  ]
+}
