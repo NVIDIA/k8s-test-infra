@@ -3,11 +3,13 @@
   <head>
     <meta charset="utf-8" />
     <script>
-      // Redirect to index.html with the path preserved as a query parameter
-      // This enables client-side routing on GitHub Pages
-      var path = window.location.pathname;
+      // Redirect to index.html with the full path (including query and hash) preserved
+      // This enables client-side routing on GitHub Pages without hard-coding the base path
+      var fullPath = window.location.pathname + window.location.search + window.location.hash;
+      var segments = window.location.pathname.split('/').filter(Boolean);
+      var basePath = segments.length > 0 ? '/' + segments[0] + '/' : '/';
       window.location.replace(
-        window.location.origin + '/k8s-test-infra/?redirect=' + encodeURIComponent(path)
+        window.location.origin + basePath + '?redirect=' + encodeURIComponent(fullPath)
       );
     </script>
   </head>

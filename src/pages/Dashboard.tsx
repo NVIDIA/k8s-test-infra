@@ -5,7 +5,6 @@ import { useTestResults, useWorkflowStatuses, useImageBuilds } from '../hooks/us
 
 const sidebarItems = [
   { to: '/dashboard', label: 'E2E Test Results' },
-  { to: '/dashboard/images', label: 'Image Builds' },
 ];
 
 export default function Dashboard() {

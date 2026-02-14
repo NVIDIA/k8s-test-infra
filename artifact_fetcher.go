@@ -173,7 +173,10 @@ func main() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			img, err := fetchLatestImageTag(ctx, client, ir)
+			imgCtx, cancel := context.WithTimeout(ctx, *timeout)
+			defer cancel()
+
+			img, err := fetchLatestImageTag(imgCtx, client, ir)
 			if err != nil {
 				errCh <- fmt.Errorf("image %s/%s: %w", ir.repo, ir.pkgName, err)
 				return
@@ -190,7 +193,10 @@ func main() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			wfs, err := fetchWorkflowStatus(ctx, client, r)
+			wfCtx, cancel := context.WithTimeout(ctx, *timeout)
+			defer cancel()
+
+			wfs, err := fetchWorkflowStatus(wfCtx, client, r)
 			if err != nil {
 				errCh <- fmt.Errorf("workflow %s: %w", r, err)
 				return
@@ -467,13 +473,27 @@ func fetchWorkflowStatus(ctx context.Context, client *github.Client, repo string
 	}
 	owner, name := parts[0], parts[1]
 
-	workflows, _, err := client.Actions.ListWorkflows(ctx, owner, name, nil)
-	if err != nil {
-		return nil, err
+	const maxWorkflows = 1000
+	var allWfs []*github.Workflow
+	opt := &github.ListOptions{PerPage: 100}
+	for {
+		workflows, resp, err := client.Actions.ListWorkflows(ctx, owner, name, opt)
+		if err != nil {
+			return nil, err
+		}
+		allWfs = append(allWfs, workflows.Workflows...)
+		if len(allWfs) >= maxWorkflows {
+			log.Printf("warning: reached workflow pagination limit (%d) for %s; additional workflows will be ignored", maxWorkflows, repo)
+			break
+		}
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
 	}
 
 	var statuses []WorkflowStatus
-	for _, wf := range workflows.Workflows {
+	for _, wf := range allWfs {
 		runs, _, err := client.Actions.ListWorkflowRunsByID(ctx, owner, name, wf.GetID(), &github.ListWorkflowRunsOptions{
 			ListOptions: github.ListOptions{PerPage: 1},
 		})
