@@ -1,16 +1,21 @@
 import { Routes, Route } from 'react-router';
+import Layout from './components/Layout';
+
+function HomePage() {
+  return (
+    <Layout>
+      <h1 className="text-2xl font-bold text-gray-900 mb-4">
+        Cloud Native Test Infrastructure
+      </h1>
+      <p className="text-gray-600">Dashboard and project portfolio coming soon.</p>
+    </Layout>
+  );
+}
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-nvidia-black text-white p-4">
-        <h1 className="text-xl font-bold">Cloud Native Test Infrastructure</h1>
-      </header>
-      <main className="p-8">
-        <Routes>
-          <Route path="/" element={<p className="text-gray-700">Dashboard coming soon.</p>} />
-        </Routes>
-      </main>
-    </div>
+    <Routes>
+      <Route path="/" element={<HomePage />} />
+    </Routes>
   );
 }
