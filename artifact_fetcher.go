@@ -67,15 +67,39 @@ var defaultImages = []string{
 	"nvidia/driver",
 }
 
+var allRepos = []string{
+	"nvidia/gpu-operator",
+	"nvidia/nvidia-container-toolkit",
+	"nvidia/k8s-device-plugin",
+	"nvidia/k8s-dra-driver-gpu",
+	"nvidia/holodeck",
+	"nvidia/go-nvml",
+	"nvidia/mig-parted",
+	"nvidia/gpu-driver-container",
+	"nvidia/k8s-nim-operator",
+}
+
+type WorkflowStatus struct {
+	Repo       string `json:"repo"`
+	Workflow   string `json:"workflow"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	RunURL     string `json:"runUrl"`
+	UpdatedAt  string `json:"updatedAt"`
+}
+
 // TestResult corresponds to the schema consumed by Hugo.
 // Adjust field names/tags carefully when evolving downstream expectations.
 
 type TestResult struct {
 	Project   string `json:"project"`
+	Repo      string `json:"repo"`
 	LastRun   string `json:"lastRun"`
 	Passed    int    `json:"passed"`
 	Failed    int    `json:"failed"`
+	Skipped   int    `json:"skipped"`
 	ActionURL string `json:"actionRunUrl"`
+	Source    string `json:"source"`
 }
 
 type ImageInfo struct {
@@ -151,10 +175,28 @@ func main() {
 		}(repo)
 	}
 
+	wfCh := make(chan []WorkflowStatus, len(allRepos))
+	for _, repo := range allRepos {
+		wg.Add(1)
+		go func(r string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			wfs, err := fetchWorkflowStatus(ctx, client, r)
+			if err != nil {
+				errCh <- fmt.Errorf("workflow %s: %w", r, err)
+				return
+			}
+			wfCh <- wfs
+		}(repo)
+	}
+
 	wg.Wait()
 	close(resCh)
 	close(errCh)
 	close(imgCh)
+	close(wfCh)
 
 	for err := range errCh {
 		log.Println("error:", err)
@@ -164,21 +206,26 @@ func main() {
 	for tr := range resCh {
 		results = append(results, tr)
 	}
-	if len(results) == 0 {
-		log.Fatal("no results produced")
-	}
 
-	if err := writeJSON(filepath.Join(*outDir, "results.json"), results); err != nil {
+	if err := writeJSON(filepath.Join(*outDir, "results.json"), map[string]any{"results": results}); err != nil {
 		log.Fatal(err)
 	}
 
-	// Write image info to a separate file
 	var images []ImageInfo
 	for img := range imgCh {
 		images = append(images, img)
 	}
 
-	if err := writeJSON(filepath.Join(*outDir, "images.json"), images); err != nil {
+	if err := writeJSON(filepath.Join(*outDir, "images.json"), map[string]any{"images": images}); err != nil {
+		log.Fatal(err)
+	}
+
+	var allWorkflows []WorkflowStatus
+	for wfs := range wfCh {
+		allWorkflows = append(allWorkflows, wfs...)
+	}
+
+	if err := writeJSON(filepath.Join(*outDir, "workflows.json"), map[string]any{"workflows": allWorkflows}); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -354,14 +401,23 @@ func parse(path, project, url string) (TestResult, error) {
 		if legacy.LastRun == "" {
 			legacy.LastRun = time.Now().Format(time.RFC3339)
 		}
-		return TestResult{project, legacy.LastRun, legacy.Passed, legacy.Failed, url}, nil
+		return TestResult{
+			Project:   project,
+			Repo:      "NVIDIA/" + project,
+			LastRun:   legacy.LastRun,
+			Passed:    legacy.Passed,
+			Failed:    legacy.Failed,
+			Skipped:   0,
+			ActionURL: url,
+			Source:    "ginkgo",
+		}, nil
 	}
 	return TestResult{}, fmt.Errorf("parse: unknown JSON schema in %s", path)
 }
 
 // summariseReports aggregates Ginkgo spec states across N suites.
 func summariseReports(reports []types.Report, project, url string) (TestResult, error) {
-	var passed, failed int
+	var passed, failed, skipped int
 	latest := time.Time{}
 
 	for _, rep := range reports {
@@ -374,6 +430,8 @@ func summariseReports(reports []types.Report, project, url string) (TestResult, 
 				passed++
 			case types.SpecStateFailed, types.SpecStateAborted, types.SpecStateInterrupted:
 				failed++
+			case types.SpecStateSkipped, types.SpecStatePending:
+				skipped++
 			}
 		}
 	}
@@ -382,11 +440,64 @@ func summariseReports(reports []types.Report, project, url string) (TestResult, 
 	}
 	return TestResult{
 		Project:   project,
+		Repo:      "NVIDIA/" + project,
 		LastRun:   latest.Format(time.RFC3339),
 		Passed:    passed,
 		Failed:    failed,
+		Skipped:   skipped,
 		ActionURL: url,
+		Source:    "ginkgo",
 	}, nil
+}
+
+// -----------------------------------------------------------------------------
+// fetchWorkflowStatus retrieves the latest run status for each workflow in a repo.
+// -----------------------------------------------------------------------------
+func fetchWorkflowStatus(ctx context.Context, client *github.Client, repo string) ([]WorkflowStatus, error) {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid repo: %s", repo)
+	}
+	owner, name := parts[0], parts[1]
+
+	workflows, _, err := client.Actions.ListWorkflows(ctx, owner, name, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var statuses []WorkflowStatus
+	for _, wf := range workflows.Workflows {
+		runs, _, err := client.Actions.ListWorkflowRunsByID(ctx, owner, name, wf.GetID(), &github.ListWorkflowRunsOptions{
+			ListOptions: github.ListOptions{PerPage: 1},
+		})
+		if err != nil || len(runs.WorkflowRuns) == 0 {
+			continue
+		}
+		run := runs.WorkflowRuns[0]
+		status := "unknown"
+		if run.GetStatus() == "completed" {
+			switch run.GetConclusion() {
+			case "success":
+				status = "success"
+			case "failure":
+				status = "failure"
+			default:
+				status = "unknown"
+			}
+		} else if run.GetStatus() == "in_progress" || run.GetStatus() == "queued" {
+			status = "in_progress"
+		}
+
+		statuses = append(statuses, WorkflowStatus{
+			Repo:       repo,
+			Workflow:   wf.GetName(),
+			Status:     status,
+			Conclusion: run.GetConclusion(),
+			RunURL:     run.GetHTMLURL(),
+			UpdatedAt:  run.GetUpdatedAt().Format(time.RFC3339),
+		})
+	}
+	return statuses, nil
 }
 
 // -----------------------------------------------------------------------------
