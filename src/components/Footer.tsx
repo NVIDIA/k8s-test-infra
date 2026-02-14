@@ -14,7 +14,7 @@ export default function Footer() {
               GitHub
             </a>
             <a
-              href="https://policies.google.com/privacy"
+              href="https://www.nvidia.com/en-us/about-nvidia/privacy-policy/"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-white transition-colors"

@@ -1,4 +1,3 @@
-import { Link } from 'react-router';
 import { ExternalLink, Box, Cpu, HardDrive, TestTube, Library } from 'lucide-react';
 import Layout from '../components/Layout';
 import { projects } from '../data/projects';
@@ -58,12 +57,6 @@ export default function Projects() {
                   <ExternalLink size={14} />
                   GitHub
                 </a>
-                <Link
-                  to={`/projects/${project.slug}`}
-                  className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
-                >
-                  Details →
-                </Link>
               </div>
             </div>
           );

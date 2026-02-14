@@ -59,12 +59,20 @@ var defaultRepos = []string{
 	"nvidia/holodeck",
 }
 
-var defaultImages = []string{
-	"nvidia/k8s-device-plugin",
-	"nvidia/k8s-dra-driver-gpu",
-	"nvidia/container-toolkit",
-	"nvidia/gpu-operator",
-	"nvidia/driver",
+// imageRepo pairs a GitHub repository path with its GitHub Packages container
+// name. The repo field is the full owner/repo used for constructing HTML URLs,
+// while pkgName is the container package name used by the Packages API.
+type imageRepo struct {
+	repo    string // GitHub repo path, e.g. "nvidia/nvidia-container-toolkit"
+	pkgName string // GitHub Packages name, e.g. "container-toolkit"
+}
+
+var defaultImages = []imageRepo{
+	{"nvidia/k8s-device-plugin", "k8s-device-plugin"},
+	{"nvidia/k8s-dra-driver-gpu", "k8s-dra-driver-gpu"},
+	{"nvidia/nvidia-container-toolkit", "container-toolkit"},
+	{"nvidia/gpu-operator", "gpu-operator"},
+	{"nvidia/gpu-driver-container", "driver"},
 }
 
 var allRepos = []string{
@@ -157,22 +165,21 @@ func main() {
 		}(repo)
 	}
 
-	imageRepos := defaultImages
-	imgCh := make(chan ImageInfo, len(imageRepos))
-	for _, repo := range imageRepos {
+	imgCh := make(chan ImageInfo, len(defaultImages))
+	for _, ir := range defaultImages {
 		wg.Add(1)
-		go func(r string) {
+		go func(ir imageRepo) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			img, err := fetchLatestImageTag(ctx, client, r)
+			img, err := fetchLatestImageTag(ctx, client, ir)
 			if err != nil {
-				errCh <- fmt.Errorf("image %s: %w", r, err)
+				errCh <- fmt.Errorf("image %s/%s: %w", ir.repo, ir.pkgName, err)
 				return
 			}
 			imgCh <- img
-		}(repo)
+		}(ir)
 	}
 
 	wfCh := make(chan []WorkflowStatus, len(allRepos))
@@ -518,14 +525,14 @@ func writeJSON(path string, v any) error {
 	return enc.Encode(v)
 }
 
-func fetchLatestImageTag(ctx context.Context, client *github.Client, repo string) (ImageInfo, error) {
-	parts := strings.Split(repo, "/")
+func fetchLatestImageTag(ctx context.Context, client *github.Client, ir imageRepo) (ImageInfo, error) {
+	parts := strings.Split(ir.repo, "/")
 	if len(parts) != 2 {
-		return ImageInfo{}, fmt.Errorf("invalid repo: %s", repo)
+		return ImageInfo{}, fmt.Errorf("invalid repo: %s", ir.repo)
 	}
-	owner, name := parts[0], parts[1]
+	owner := parts[0]
 
-	versions, _, err := client.Organizations.PackageGetAllVersions(ctx, owner, "container", name, nil)
+	versions, _, err := client.Organizations.PackageGetAllVersions(ctx, owner, "container", ir.pkgName, nil)
 	if err != nil {
 		return ImageInfo{}, err
 	}
@@ -537,16 +544,17 @@ func fetchLatestImageTag(ctx context.Context, client *github.Client, repo string
 		}
 	}
 	if latest == nil || len(latest.Metadata.Container.Tags) == 0 {
-		return ImageInfo{}, fmt.Errorf("no tags found for %s", repo)
+		return ImageInfo{}, fmt.Errorf("no tags found for %s", ir.repo)
 	}
 
 	tag := latest.Metadata.Container.Tags[0]
 	versionID := latest.GetID()
-	htmlURL := fmt.Sprintf("https://github.com/%s/%s/pkgs/container/%s/%d?tag=%s",
-		owner, name, name, versionID, tag)
+	// URL format: https://github.com/{owner}/{repo-name}/pkgs/container/{package-name}/{version-id}?tag={tag}
+	htmlURL := fmt.Sprintf("https://github.com/%s/pkgs/container/%s/%d?tag=%s",
+		ir.repo, ir.pkgName, versionID, tag)
 
 	return ImageInfo{
-		Repo:    repo,
+		Repo:    ir.repo,
 		Tag:     tag,
 		Pushed:  latest.GetCreatedAt().Format(time.RFC3339),
 		HTMLURL: htmlURL,
