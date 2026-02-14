@@ -11,21 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-name: CI Pipeline
 
-on:
-  push:
-    branches:
-      - "pull-request/[0-9]+"
-      - main
-      - release-*
-  
-jobs:
-  basic:
-    uses: ./.github/workflows/basic-checks.yaml
+ARG GOLANG_VERSION=1.25
+FROM golang:${GOLANG_VERSION}-bookworm AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY vendor/ vendor/
+COPY pkg/gpu/mocknvml/ pkg/gpu/mocknvml/
+RUN cd pkg/gpu/mocknvml && make clean && make
 
-  gpu-mock-e2e:
-    needs: [basic]
-    uses: ./.github/workflows/gpu-mock-e2e.yaml
-    with:
-      golang_version: ${{ needs.basic.outputs.golang_version }}
+FROM debian:bookworm-slim
+ARG KUBECTL_VERSION=v1.32.0
+ARG TARGETARCH
+COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
+ADD https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl /usr/local/bin/kubectl
+RUN chmod +x /usr/local/bin/kubectl
+COPY deployments/gpu-mock/scripts/ /scripts/
+RUN chmod +x /scripts/*.sh

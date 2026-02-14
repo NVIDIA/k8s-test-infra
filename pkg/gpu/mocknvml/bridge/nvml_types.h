@@ -138,6 +138,23 @@ typedef struct nvmlUtilization_st
     unsigned int memory;             //!< Percent of time GPU memory controller was active
 } nvmlUtilization_t;
 
+/*
+ * Memory information (v2) — adds version field and reserved memory
+ */
+typedef struct nvmlMemory_v2_st
+{
+    unsigned int version;            //!< Structure format version (must be 2)
+    unsigned long long total;        //!< Total physical device memory (in bytes)
+    unsigned long long reserved;     //!< Device memory (in bytes) reserved for system use
+    unsigned long long free;         //!< Unallocated device memory (in bytes)
+    unsigned long long used;         //!< Allocated device memory (in bytes)
+} nvmlMemory_v2_t;
+
+/*
+ * Device architecture type
+ */
+typedef unsigned int nvmlDeviceArchitecture_t;
+
 #ifdef __cplusplus
 }
 #endif

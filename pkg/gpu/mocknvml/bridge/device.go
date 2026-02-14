@@ -22,6 +22,13 @@
 // - nvmlDeviceGetIndex
 // - nvmlDeviceGetBrand
 // - nvmlDeviceGetSerial
+// - nvmlDeviceGetMinorNumber
+// - nvmlDeviceGetPciInfo (v1, v2, v3)
+// - nvmlDeviceGetMemoryInfo
+// - nvmlDeviceGetMemoryInfo_v2
+// - nvmlDeviceGetArchitecture
+// - nvmlDeviceGetCudaComputeCapability
+// - nvmlDeviceGetMigMode
 
 package main
 
@@ -199,4 +206,151 @@ func nvmlDeviceGetSerial(nvmlDevice C.nvmlDevice_t, serial *C.char, length C.uin
 		return toReturn(ret)
 	}
 	return goStringToC(devSerial, serial, length)
+}
+
+//export nvmlDeviceGetMinorNumber
+func nvmlDeviceGetMinorNumber(nvmlDevice C.nvmlDevice_t, minorNumber *C.uint) C.nvmlReturn_t {
+	if minorNumber == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupDevice(handle)
+	minor, ret := dev.GetMinorNumber()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*minorNumber = C.uint(minor)
+	return C.NVML_SUCCESS
+}
+
+// =============================================================================
+// Device PCI Info Functions
+// =============================================================================
+
+//export nvmlDeviceGetPciInfo_v3
+func nvmlDeviceGetPciInfo_v3(nvmlDevice C.nvmlDevice_t, pci *C.nvmlPciInfo_t) C.nvmlReturn_t {
+	if pci == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupDevice(handle)
+	info, ret := dev.GetPciInfo()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	// Copy BusIdLegacy (16 bytes = NVML_DEVICE_PCI_BUS_ID_LEGACY_FMT_SIZE)
+	for i := 0; i < len(info.BusIdLegacy) && i < 16; i++ {
+		pci.busIdLegacy[i] = C.char(info.BusIdLegacy[i])
+	}
+	pci.domain = C.uint(info.Domain)
+	pci.bus = C.uint(info.Bus)
+	pci.device = C.uint(info.Device)
+	pci.pciDeviceId = C.uint(info.PciDeviceId)
+	pci.pciSubSystemId = C.uint(info.PciSubSystemId)
+	// Copy BusId (32 bytes = NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE)
+	for i := 0; i < len(info.BusId) && i < 32; i++ {
+		pci.busId[i] = C.char(info.BusId[i])
+	}
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetPciInfo_v2
+func nvmlDeviceGetPciInfo_v2(nvmlDevice C.nvmlDevice_t, pci *C.nvmlPciInfo_t) C.nvmlReturn_t {
+	return nvmlDeviceGetPciInfo_v3(nvmlDevice, pci)
+}
+
+//export nvmlDeviceGetPciInfo_v1
+func nvmlDeviceGetPciInfo_v1(nvmlDevice C.nvmlDevice_t, pci *C.nvmlPciInfo_t) C.nvmlReturn_t {
+	return nvmlDeviceGetPciInfo_v3(nvmlDevice, pci)
+}
+
+// =============================================================================
+// Device Memory Info Functions
+// =============================================================================
+
+//export nvmlDeviceGetMemoryInfo
+func nvmlDeviceGetMemoryInfo(nvmlDevice C.nvmlDevice_t, memory *C.nvmlMemory_t) C.nvmlReturn_t {
+	if memory == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupDevice(handle)
+	mem, ret := dev.GetMemoryInfo()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	memory.total = C.ulonglong(mem.Total)
+	memory.free = C.ulonglong(mem.Free)
+	memory.used = C.ulonglong(mem.Used)
+	return C.NVML_SUCCESS
+}
+
+// =============================================================================
+// Device Memory Info v2, Architecture, CUDA Compute, MIG Mode
+// =============================================================================
+
+//export nvmlDeviceGetMemoryInfo_v2
+func nvmlDeviceGetMemoryInfo_v2(nvmlDevice C.nvmlDevice_t, memory *C.nvmlMemory_v2_t) C.nvmlReturn_t {
+	if memory == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupDevice(handle)
+	mem, ret := dev.GetMemoryInfo_v2()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	memory.version = C.uint(mem.Version)
+	memory.total = C.ulonglong(mem.Total)
+	memory.reserved = C.ulonglong(mem.Reserved)
+	memory.free = C.ulonglong(mem.Free)
+	memory.used = C.ulonglong(mem.Used)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetArchitecture
+func nvmlDeviceGetArchitecture(nvmlDevice C.nvmlDevice_t, arch *C.nvmlDeviceArchitecture_t) C.nvmlReturn_t {
+	if arch == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupDevice(handle)
+	architecture, ret := dev.GetArchitecture()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*arch = C.nvmlDeviceArchitecture_t(architecture)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetCudaComputeCapability
+func nvmlDeviceGetCudaComputeCapability(nvmlDevice C.nvmlDevice_t, major *C.int, minor *C.int) C.nvmlReturn_t {
+	if major == nil || minor == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupDevice(handle)
+	maj, min, ret := dev.GetCudaComputeCapability()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*major = C.int(maj)
+	*minor = C.int(min)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetMigMode
+func nvmlDeviceGetMigMode(nvmlDevice C.nvmlDevice_t, currentMode *C.uint, pendingMode *C.uint) C.nvmlReturn_t {
+	if currentMode == nil || pendingMode == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupDevice(handle)
+	current, pending, ret := dev.GetMigMode()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*currentMode = C.uint(current)
+	*pendingMode = C.uint(pending)
+	return C.NVML_SUCCESS
 }

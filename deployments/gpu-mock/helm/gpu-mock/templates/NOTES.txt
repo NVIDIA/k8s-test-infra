@@ -1,0 +1,41 @@
+Mock GPU environment deployed on all nodes!
+
+  Profile: {{ .Values.gpu.profile }}
+  GPUs per node: {{ .Values.gpu.count }}
+  Driver version: {{ .Values.driverVersion }}
+  Mock driver root: /var/lib/nvidia-mock/driver
+  Mock config: /var/lib/nvidia-mock/config/config.yaml
+
+To use with NVIDIA Device Plugin:
+
+  helm install nvidia-device-plugin nvidia/k8s-device-plugin \
+    --set runtimeClassName="" \
+    --set args[0]="--nvidia-driver-root=/var/lib/nvidia-mock/driver" \
+    --set args[1]="--driver-root-ctr-path=/var/lib/nvidia-mock/driver" \
+    --set args[2]="--device-discovery-strategy=nvml" \
+    --set env[0].name=MOCK_NVML_CONFIG \
+    --set env[0].value=/var/lib/nvidia-mock/config/config.yaml \
+    --set env[1].name=MOCK_NVML_NUM_DEVICES \
+    --set "env[1].value={{ .Values.gpu.count }}"
+
+To use with NVIDIA DRA Driver:
+
+  helm install nvidia-dra-driver nvidia/nvidia-dra-driver-gpu \
+    --set nvidiaDriverRoot=/var/lib/nvidia-mock/driver \
+    --set env[0].name=MOCK_NVML_CONFIG \
+    --set env[0].value=/driver-root/config/config.yaml \
+    --set env[1].name=MOCK_NVML_NUM_DEVICES \
+    --set "env[1].value={{ .Values.gpu.count }}"
+
+To use with GPU Operator:
+
+  helm install gpu-operator nvidia/gpu-operator \
+    --set driver.enabled=false \
+    --set toolkit.enabled=true \
+    --set devicePlugin.enabled=true
+
+To verify mock GPUs are available:
+
+  kubectl get nodes -o custom-columns=\
+    NAME:.metadata.name,\
+    GPU_PRESENT:.metadata.labels.nvidia\.com/gpu\.present

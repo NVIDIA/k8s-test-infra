@@ -1,0 +1,2 @@
+# Build artifacts from `make docker-build`
+libnvidia-ml.so*

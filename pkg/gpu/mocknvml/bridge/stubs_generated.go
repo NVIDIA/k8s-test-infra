@@ -124,11 +124,6 @@ func nvmlDeviceGetApplicationsClock() C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetApplicationsClock")
 }
 
-//export nvmlDeviceGetArchitecture
-func nvmlDeviceGetArchitecture() C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetArchitecture")
-}
-
 //export nvmlDeviceGetAttributes_v1
 func nvmlDeviceGetAttributes_v1() C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetAttributes_v1")
@@ -262,11 +257,6 @@ func nvmlDeviceGetCpuAffinityWithinScope() C.nvmlReturn_t {
 //export nvmlDeviceGetCreatableVgpus
 func nvmlDeviceGetCreatableVgpus() C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetCreatableVgpus")
-}
-
-//export nvmlDeviceGetCudaComputeCapability
-func nvmlDeviceGetCudaComputeCapability() C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetCudaComputeCapability")
 }
 
 //export nvmlDeviceGetCurrPcieLinkGeneration
@@ -649,24 +639,9 @@ func nvmlDeviceGetMemoryErrorCounter() C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetMemoryErrorCounter")
 }
 
-//export nvmlDeviceGetMemoryInfo
-func nvmlDeviceGetMemoryInfo() C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMemoryInfo")
-}
-
-//export nvmlDeviceGetMemoryInfo_v2
-func nvmlDeviceGetMemoryInfo_v2() C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMemoryInfo_v2")
-}
-
 //export nvmlDeviceGetMigDeviceHandleByIndex
 func nvmlDeviceGetMigDeviceHandleByIndex() C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetMigDeviceHandleByIndex")
-}
-
-//export nvmlDeviceGetMigMode
-func nvmlDeviceGetMigMode() C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMigMode")
 }
 
 //export nvmlDeviceGetMinMaxClockOfPState
@@ -677,11 +652,6 @@ func nvmlDeviceGetMinMaxClockOfPState() C.nvmlReturn_t {
 //export nvmlDeviceGetMinMaxFanSpeed
 func nvmlDeviceGetMinMaxFanSpeed() C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetMinMaxFanSpeed")
-}
-
-//export nvmlDeviceGetMinorNumber
-func nvmlDeviceGetMinorNumber() C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMinorNumber")
 }
 
 //export nvmlDeviceGetModuleId
@@ -782,21 +752,6 @@ func nvmlDeviceGetP2PStatus() C.nvmlReturn_t {
 //export nvmlDeviceGetPciInfoExt
 func nvmlDeviceGetPciInfoExt() C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetPciInfoExt")
-}
-
-//export nvmlDeviceGetPciInfo_v1
-func nvmlDeviceGetPciInfo_v1() C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetPciInfo_v1")
-}
-
-//export nvmlDeviceGetPciInfo_v2
-func nvmlDeviceGetPciInfo_v2() C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetPciInfo_v2")
-}
-
-//export nvmlDeviceGetPciInfo_v3
-func nvmlDeviceGetPciInfo_v3() C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetPciInfo_v3")
 }
 
 //export nvmlDeviceGetPcieLinkMaxSpeed

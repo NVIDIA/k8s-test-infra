@@ -1,0 +1,59 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "gpu-mock.fullname" . }}
+  labels:
+    {{- include "gpu-mock.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "gpu-mock.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gpu-mock.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "gpu-mock.fullname" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: gpu-mock
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            privileged: true
+          command: ["/scripts/entrypoint.sh"]
+          env:
+            - name: GPU_COUNT
+              value: "{{ .Values.gpu.count }}"
+            - name: DRIVER_VERSION
+              value: "{{ .Values.driverVersion }}"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/scripts/cleanup.sh"]
+          volumeMounts:
+            - name: host-nvidia-mock
+              mountPath: /host/var/lib/nvidia-mock
+            - name: gpu-config
+              mountPath: /config
+      volumes:
+        - name: host-nvidia-mock
+          hostPath:
+            path: /var/lib/nvidia-mock
+            type: DirectoryOrCreate
+        - name: gpu-config
+          configMap:
+            name: {{ include "gpu-mock.fullname" . }}-config

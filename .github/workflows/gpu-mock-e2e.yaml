@@ -1,0 +1,118 @@
+# Copyright 2026 NVIDIA CORPORATION
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: GPU Mock E2E
+
+on:
+  workflow_call:
+    inputs:
+      golang_version:
+        required: true
+        type: string
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ inputs.golang_version }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: gpu-mock-e2e
+
+      - name: Build gpu-mock image
+        run: |
+          docker build -t gpu-mock:e2e -f deployments/gpu-mock/Dockerfile \
+            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image gpu-mock:e2e --name gpu-mock-e2e
+
+      - name: Install gpu-mock Helm chart
+        run: |
+          helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
+            --set image.repository=gpu-mock \
+            --set image.tag=e2e \
+            --set gpu.count=2 \
+            --wait --timeout 120s
+
+      - name: Verify DaemonSet is ready
+        run: |
+          kubectl rollout status daemonset -l app.kubernetes.io/name=gpu-mock --timeout=60s
+
+      - name: Verify node labels
+        run: |
+          NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+          LABEL=$(kubectl get node "$NODE" -o jsonpath='{.metadata.labels.nvidia\.com/gpu\.present}')
+          echo "nvidia.com/gpu.present=$LABEL"
+          [ "$LABEL" = "true" ] || (echo "FAIL: node label not set" && exit 1)
+
+      - name: Verify mock files on node
+        run: |
+          NODE_CONTAINER=gpu-mock-e2e-control-plane
+          # Check library
+          docker exec "$NODE_CONTAINER" sh -c "ls /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.* | head -1"
+          docker exec "$NODE_CONTAINER" test -L /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.1
+          # Check device files
+          docker exec "$NODE_CONTAINER" test -e /var/lib/nvidia-mock/dev/nvidia0
+          docker exec "$NODE_CONTAINER" test -e /var/lib/nvidia-mock/dev/nvidia1
+          docker exec "$NODE_CONTAINER" test -e /var/lib/nvidia-mock/dev/nvidiactl
+          # Check config at both locations
+          docker exec "$NODE_CONTAINER" test -f /var/lib/nvidia-mock/config/config.yaml
+          docker exec "$NODE_CONTAINER" test -f /var/lib/nvidia-mock/driver/config/config.yaml
+          echo "All mock files verified"
+
+      - name: Deploy NVIDIA device plugin
+        run: |
+          kubectl apply -f tests/e2e/device-plugin-mock.yaml
+          kubectl -n kube-system wait --for=condition=ready \
+            pod -l name=nvidia-device-plugin-mock --timeout=120s
+
+      - name: Verify allocatable GPUs
+        run: |
+          NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+          # Wait for kubelet to update allocatable (may take a few seconds)
+          for i in $(seq 1 30); do
+            GPUS=$(kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}')
+            if [ "$GPUS" = "2" ]; then
+              echo "PASS: Node reports $GPUS allocatable GPUs"
+              exit 0
+            fi
+            echo "Attempt $i: allocatable GPUs=$GPUS (expected 2), waiting..."
+            sleep 2
+          done
+          echo "FAIL: Expected 2 allocatable GPUs, got $GPUS"
+          exit 1
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== gpu-mock pod logs ==="
+          kubectl logs -l app.kubernetes.io/name=gpu-mock --tail=50 || true
+          echo "=== device plugin logs ==="
+          kubectl -n kube-system logs -l name=nvidia-device-plugin-mock --tail=50 || true
+          echo "=== pod status ==="
+          kubectl get pods -A || true
+          echo "=== node describe ==="
+          kubectl describe nodes || true

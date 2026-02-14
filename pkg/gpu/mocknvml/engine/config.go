@@ -83,6 +83,14 @@ func LoadConfig() *Config {
 			if config.NumDevices == 0 {
 				config.NumDevices = 8 // Default if no devices specified
 			}
+
+			// Allow MOCK_NVML_NUM_DEVICES to override even with YAML config.
+			// This lets the Helm chart's gpu.count control NVML device count.
+			if num := os.Getenv("MOCK_NVML_NUM_DEVICES"); num != "" {
+				if val, err := strconv.Atoi(num); err == nil && val >= 0 {
+					config.NumDevices = val
+				}
+			}
 			debugLog("[CONFIG] Loaded YAML config: %d devices, driver %s\n", config.NumDevices, config.DriverVersion)
 
 			// Cache the config
