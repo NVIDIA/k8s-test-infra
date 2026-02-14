@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@theme {
+  --color-nvidia-green: #76B900;
+  --color-nvidia-green-dark: #5a8f00;
+  --color-nvidia-black: #1a1a1a;
+  --color-status-pass: #22c55e;
+  --color-status-fail: #ef4444;
+  --color-status-warn: #f59e0b;
+  --color-status-unknown: #6b7280;
+}

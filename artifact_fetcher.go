@@ -59,12 +59,41 @@ var defaultRepos = []string{
 	"nvidia/holodeck",
 }
 
-var defaultImages = []string{
+// imageRepo pairs a GitHub repository path with its GitHub Packages container
+// name. The repo field is the full owner/repo used for constructing HTML URLs,
+// while pkgName is the container package name used by the Packages API.
+type imageRepo struct {
+	repo    string // GitHub repo path, e.g. "nvidia/nvidia-container-toolkit"
+	pkgName string // GitHub Packages name, e.g. "container-toolkit"
+}
+
+var defaultImages = []imageRepo{
+	{"nvidia/k8s-device-plugin", "k8s-device-plugin"},
+	{"nvidia/k8s-dra-driver-gpu", "k8s-dra-driver-gpu"},
+	{"nvidia/nvidia-container-toolkit", "container-toolkit"},
+	{"nvidia/gpu-operator", "gpu-operator"},
+	{"nvidia/gpu-driver-container", "driver"},
+}
+
+var allRepos = []string{
+	"nvidia/gpu-operator",
+	"nvidia/nvidia-container-toolkit",
 	"nvidia/k8s-device-plugin",
 	"nvidia/k8s-dra-driver-gpu",
-	"nvidia/container-toolkit",
-	"nvidia/gpu-operator",
-	"nvidia/driver",
+	"nvidia/holodeck",
+	"nvidia/go-nvml",
+	"nvidia/mig-parted",
+	"nvidia/gpu-driver-container",
+	"nvidia/k8s-nim-operator",
+}
+
+type WorkflowStatus struct {
+	Repo       string `json:"repo"`
+	Workflow   string `json:"workflow"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	RunURL     string `json:"runUrl"`
+	UpdatedAt  string `json:"updatedAt"`
 }
 
 // TestResult corresponds to the schema consumed by Hugo.
@@ -72,10 +101,13 @@ var defaultImages = []string{
 
 type TestResult struct {
 	Project   string `json:"project"`
+	Repo      string `json:"repo"`
 	LastRun   string `json:"lastRun"`
 	Passed    int    `json:"passed"`
 	Failed    int    `json:"failed"`
+	Skipped   int    `json:"skipped"`
 	ActionURL string `json:"actionRunUrl"`
+	Source    string `json:"source"`
 }
 
 type ImageInfo struct {
@@ -133,21 +165,43 @@ func main() {
 		}(repo)
 	}
 
-	imageRepos := defaultImages
-	imgCh := make(chan ImageInfo, len(imageRepos))
-	for _, repo := range imageRepos {
+	imgCh := make(chan ImageInfo, len(defaultImages))
+	for _, ir := range defaultImages {
+		wg.Add(1)
+		go func(ir imageRepo) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			imgCtx, cancel := context.WithTimeout(ctx, *timeout)
+			defer cancel()
+
+			img, err := fetchLatestImageTag(imgCtx, client, ir)
+			if err != nil {
+				errCh <- fmt.Errorf("image %s/%s: %w", ir.repo, ir.pkgName, err)
+				return
+			}
+			imgCh <- img
+		}(ir)
+	}
+
+	wfCh := make(chan []WorkflowStatus, len(allRepos))
+	for _, repo := range allRepos {
 		wg.Add(1)
 		go func(r string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			img, err := fetchLatestImageTag(ctx, client, r)
+			wfCtx, cancel := context.WithTimeout(ctx, *timeout)
+			defer cancel()
+
+			wfs, err := fetchWorkflowStatus(wfCtx, client, r)
 			if err != nil {
-				errCh <- fmt.Errorf("image %s: %w", r, err)
+				errCh <- fmt.Errorf("workflow %s: %w", r, err)
 				return
 			}
-			imgCh <- img
+			wfCh <- wfs
 		}(repo)
 	}
 
@@ -155,6 +209,7 @@ func main() {
 	close(resCh)
 	close(errCh)
 	close(imgCh)
+	close(wfCh)
 
 	for err := range errCh {
 		log.Println("error:", err)
@@ -164,21 +219,26 @@ func main() {
 	for tr := range resCh {
 		results = append(results, tr)
 	}
-	if len(results) == 0 {
-		log.Fatal("no results produced")
-	}
 
-	if err := writeJSON(filepath.Join(*outDir, "results.json"), results); err != nil {
+	if err := writeJSON(filepath.Join(*outDir, "results.json"), map[string]any{"results": results}); err != nil {
 		log.Fatal(err)
 	}
 
-	// Write image info to a separate file
 	var images []ImageInfo
 	for img := range imgCh {
 		images = append(images, img)
 	}
 
-	if err := writeJSON(filepath.Join(*outDir, "images.json"), images); err != nil {
+	if err := writeJSON(filepath.Join(*outDir, "images.json"), map[string]any{"images": images}); err != nil {
+		log.Fatal(err)
+	}
+
+	var allWorkflows []WorkflowStatus
+	for wfs := range wfCh {
+		allWorkflows = append(allWorkflows, wfs...)
+	}
+
+	if err := writeJSON(filepath.Join(*outDir, "workflows.json"), map[string]any{"workflows": allWorkflows}); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -354,14 +414,23 @@ func parse(path, project, url string) (TestResult, error) {
 		if legacy.LastRun == "" {
 			legacy.LastRun = time.Now().Format(time.RFC3339)
 		}
-		return TestResult{project, legacy.LastRun, legacy.Passed, legacy.Failed, url}, nil
+		return TestResult{
+			Project:   project,
+			Repo:      "NVIDIA/" + project,
+			LastRun:   legacy.LastRun,
+			Passed:    legacy.Passed,
+			Failed:    legacy.Failed,
+			Skipped:   0,
+			ActionURL: url,
+			Source:    "ginkgo",
+		}, nil
 	}
 	return TestResult{}, fmt.Errorf("parse: unknown JSON schema in %s", path)
 }
 
 // summariseReports aggregates Ginkgo spec states across N suites.
 func summariseReports(reports []types.Report, project, url string) (TestResult, error) {
-	var passed, failed int
+	var passed, failed, skipped int
 	latest := time.Time{}
 
 	for _, rep := range reports {
@@ -374,6 +443,8 @@ func summariseReports(reports []types.Report, project, url string) (TestResult, 
 				passed++
 			case types.SpecStateFailed, types.SpecStateAborted, types.SpecStateInterrupted:
 				failed++
+			case types.SpecStateSkipped, types.SpecStatePending:
+				skipped++
 			}
 		}
 	}
@@ -382,11 +453,78 @@ func summariseReports(reports []types.Report, project, url string) (TestResult, 
 	}
 	return TestResult{
 		Project:   project,
+		Repo:      "NVIDIA/" + project,
 		LastRun:   latest.Format(time.RFC3339),
 		Passed:    passed,
 		Failed:    failed,
+		Skipped:   skipped,
 		ActionURL: url,
+		Source:    "ginkgo",
 	}, nil
+}
+
+// -----------------------------------------------------------------------------
+// fetchWorkflowStatus retrieves the latest run status for each workflow in a repo.
+// -----------------------------------------------------------------------------
+func fetchWorkflowStatus(ctx context.Context, client *github.Client, repo string) ([]WorkflowStatus, error) {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid repo: %s", repo)
+	}
+	owner, name := parts[0], parts[1]
+
+	const maxWorkflows = 1000
+	var allWfs []*github.Workflow
+	opt := &github.ListOptions{PerPage: 100}
+	for {
+		workflows, resp, err := client.Actions.ListWorkflows(ctx, owner, name, opt)
+		if err != nil {
+			return nil, err
+		}
+		allWfs = append(allWfs, workflows.Workflows...)
+		if len(allWfs) >= maxWorkflows {
+			log.Printf("warning: reached workflow pagination limit (%d) for %s; additional workflows will be ignored", maxWorkflows, repo)
+			break
+		}
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		opt.Page = resp.NextPage
+	}
+
+	var statuses []WorkflowStatus
+	for _, wf := range allWfs {
+		runs, _, err := client.Actions.ListWorkflowRunsByID(ctx, owner, name, wf.GetID(), &github.ListWorkflowRunsOptions{
+			ListOptions: github.ListOptions{PerPage: 1},
+		})
+		if err != nil || len(runs.WorkflowRuns) == 0 {
+			continue
+		}
+		run := runs.WorkflowRuns[0]
+		status := "unknown"
+		if run.GetStatus() == "completed" {
+			switch run.GetConclusion() {
+			case "success":
+				status = "success"
+			case "failure":
+				status = "failure"
+			default:
+				status = "unknown"
+			}
+		} else if run.GetStatus() == "in_progress" || run.GetStatus() == "queued" {
+			status = "in_progress"
+		}
+
+		statuses = append(statuses, WorkflowStatus{
+			Repo:       repo,
+			Workflow:   wf.GetName(),
+			Status:     status,
+			Conclusion: run.GetConclusion(),
+			RunURL:     run.GetHTMLURL(),
+			UpdatedAt:  run.GetUpdatedAt().Format(time.RFC3339),
+		})
+	}
+	return statuses, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -407,14 +545,14 @@ func writeJSON(path string, v any) error {
 	return enc.Encode(v)
 }
 
-func fetchLatestImageTag(ctx context.Context, client *github.Client, repo string) (ImageInfo, error) {
-	parts := strings.Split(repo, "/")
+func fetchLatestImageTag(ctx context.Context, client *github.Client, ir imageRepo) (ImageInfo, error) {
+	parts := strings.Split(ir.repo, "/")
 	if len(parts) != 2 {
-		return ImageInfo{}, fmt.Errorf("invalid repo: %s", repo)
+		return ImageInfo{}, fmt.Errorf("invalid repo: %s", ir.repo)
 	}
-	owner, name := parts[0], parts[1]
+	owner := parts[0]
 
-	versions, _, err := client.Organizations.PackageGetAllVersions(ctx, owner, "container", name, nil)
+	versions, _, err := client.Organizations.PackageGetAllVersions(ctx, owner, "container", ir.pkgName, nil)
 	if err != nil {
 		return ImageInfo{}, err
 	}
@@ -426,16 +564,17 @@ func fetchLatestImageTag(ctx context.Context, client *github.Client, repo string
 		}
 	}
 	if latest == nil || len(latest.Metadata.Container.Tags) == 0 {
-		return ImageInfo{}, fmt.Errorf("no tags found for %s", repo)
+		return ImageInfo{}, fmt.Errorf("no tags found for %s", ir.repo)
 	}
 
 	tag := latest.Metadata.Container.Tags[0]
 	versionID := latest.GetID()
-	htmlURL := fmt.Sprintf("https://github.com/%s/%s/pkgs/container/%s/%d?tag=%s",
-		owner, name, name, versionID, tag)
+	// URL format: https://github.com/{owner}/{repo-name}/pkgs/container/{package-name}/{version-id}?tag={tag}
+	htmlURL := fmt.Sprintf("https://github.com/%s/pkgs/container/%s/%d?tag=%s",
+		ir.repo, ir.pkgName, versionID, tag)
 
 	return ImageInfo{
-		Repo:    repo,
+		Repo:    ir.repo,
 		Tag:     tag,
 		Pushed:  latest.GetCreatedAt().Format(time.RFC3339),
 		HTMLURL: htmlURL,
