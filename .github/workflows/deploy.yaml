@@ -5,7 +5,7 @@ on:
     - cron: "0 */6 * * *"
   push:
     branches:
-      - gh-pages-v2
+      - gh-pages
 
   workflow_dispatch:
 
