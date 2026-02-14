@@ -24,13 +24,26 @@ export default function Sidebar({ items, title }: SidebarProps) {
       )}
       <nav className="space-y-1">
         {items.map(({ to, label }) => {
-          const active = location.pathname === to;
+          const [path, hash] = to.split('#');
+          const isActive = hash
+            ? location.pathname === path && location.hash === `#${hash}`
+            : location.pathname === to && !location.hash;
           return (
             <Link
               key={to}
               to={to}
+              onClick={() => {
+                if (hash) {
+                  const el = document.getElementById(hash);
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth' });
+                  }
+                } else {
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+              }}
               className={`block px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                active
+                isActive
                   ? 'bg-nvidia-green/10 text-nvidia-green font-semibold'
                   : 'text-gray-700 hover:bg-gray-100'
               }`}

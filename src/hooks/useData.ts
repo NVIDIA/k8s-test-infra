@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { TestResult, WorkflowStatus, ImageBuild } from '../types';
+import type { TestResult, WorkflowStatus, ImageBuild, RepoInfo } from '../types';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -13,6 +13,10 @@ interface WorkflowsData {
 
 interface ImagesData {
   images: ImageBuild[];
+}
+
+interface ReposData {
+  repos: RepoInfo[];
 }
 
 async function fetchJSON<T>(path: string): Promise<T> {
@@ -59,6 +63,21 @@ export function useImageBuilds() {
   useEffect(() => {
     fetchJSON<ImagesData>('images.json')
       .then((d) => setData(d.images ?? []))
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return { data, loading, error };
+}
+
+export function useRepoInfos() {
+  const [data, setData] = useState<RepoInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchJSON<ReposData>('repos.json')
+      .then((d) => setData(d.repos ?? []))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);

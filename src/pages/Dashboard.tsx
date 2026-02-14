@@ -5,7 +5,10 @@ import StatusBadge from '../components/StatusBadge';
 import { useTestResults, useWorkflowStatuses, useImageBuilds } from '../hooks/useData';
 
 const sidebarItems = [
-  { to: '/dashboard', label: 'E2E Test Results' },
+  { to: '/dashboard', label: 'Overview' },
+  { to: '/dashboard#e2e-results', label: 'E2E Test Results' },
+  { to: '/dashboard#workflow-status', label: 'Workflow Status' },
+  { to: '/dashboard#image-builds', label: 'Image Builds' },
 ];
 
 function FilterBar({
@@ -127,7 +130,7 @@ export default function Dashboard() {
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Dashboard</h1>
 
       {/* E2E Test Results */}
-      <section className="mb-8">
+      <section id="e2e-results" className="mb-8">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">E2E Test Results</h2>
         {!resultsLoading && (
           <FilterBar
@@ -186,7 +189,7 @@ export default function Dashboard() {
       </section>
 
       {/* Workflow Status */}
-      <section className="mb-8">
+      <section id="workflow-status" className="mb-8">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Workflow Status</h2>
         {!workflowsLoading && (
           <FilterBar
@@ -244,7 +247,7 @@ export default function Dashboard() {
       </section>
 
       {/* Latest Image Builds */}
-      <section className="mb-8">
+      <section id="image-builds" className="mb-8">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Latest Image Builds</h2>
         {!imagesLoading && (
           <FilterBar

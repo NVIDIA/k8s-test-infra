@@ -1,0 +1,15 @@
+{
+  "repos": [
+    {
+      "name": "gpu-operator",
+      "fullName": "NVIDIA/gpu-operator",
+      "description": "NVIDIA GPU Operator creates/configures/manages GPUs atop Kubernetes",
+      "stars": 1800,
+      "language": "Go",
+      "license": "Apache-2.0",
+      "htmlUrl": "https://github.com/NVIDIA/gpu-operator",
+      "topics": ["kubernetes", "gpu", "operator", "nvidia"],
+      "readme": "# GPU Operator\n\nThe NVIDIA GPU Operator uses the operator framework to automate the management of all NVIDIA software components needed to provision GPU.\n"
+    }
+  ]
+}

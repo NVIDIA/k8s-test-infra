@@ -25,6 +25,18 @@ export interface ImageBuild {
   htmlUrl: string;
 }
 
+export interface RepoInfo {
+  name: string;
+  fullName: string;
+  description: string;
+  stars: number;
+  language: string;
+  license: string;
+  htmlUrl: string;
+  topics: string[];
+  readme: string;
+}
+
 export interface Project {
   slug: string;
   name: string;

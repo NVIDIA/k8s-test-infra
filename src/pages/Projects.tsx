@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { ExternalLink, Box, Cpu, HardDrive, TestTube, Library } from 'lucide-react';
 import Layout from '../components/Layout';
 import { projects } from '../data/projects';
@@ -33,8 +34,9 @@ export default function Projects() {
         {projects.map((project) => {
           const Icon = categoryIcons[project.category];
           return (
-            <div
+            <Link
               key={project.slug}
+              to={`/projects/${project.slug}`}
               className="bg-white rounded-lg shadow hover:shadow-md transition-shadow border border-gray-200 p-6 flex flex-col"
             >
               <div className="flex items-start justify-between mb-3">
@@ -48,17 +50,18 @@ export default function Projects() {
               </div>
               <p className="text-sm text-gray-600 mb-4 flex-1">{project.description}</p>
               <div className="flex items-center gap-3 pt-3 border-t border-gray-100">
-                <a
-                  href={`https://github.com/${project.repo}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <span
+                  onClick={(e) => {
+                    e.preventDefault();
+                    window.open(`https://github.com/${project.repo}`, '_blank');
+                  }}
                   className="inline-flex items-center gap-1 text-sm text-nvidia-green hover:text-nvidia-green-dark"
                 >
                   <ExternalLink size={14} />
                   GitHub
-                </a>
+                </span>
               </div>
-            </div>
+            </Link>
           );
         })}
       </div>

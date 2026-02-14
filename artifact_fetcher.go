@@ -87,6 +87,18 @@ var allRepos = []string{
 	"nvidia/k8s-nim-operator",
 }
 
+type RepoInfo struct {
+	Name        string   `json:"name"`
+	FullName    string   `json:"fullName"`
+	Description string   `json:"description"`
+	Stars       int      `json:"stars"`
+	Language    string   `json:"language"`
+	License     string   `json:"license"`
+	HTMLURL     string   `json:"htmlUrl"`
+	Topics      []string `json:"topics"`
+	README      string   `json:"readme"`
+}
+
 type WorkflowStatus struct {
 	Repo       string `json:"repo"`
 	Workflow   string `json:"workflow"`
@@ -205,11 +217,32 @@ func main() {
 		}(repo)
 	}
 
+	repoCh := make(chan RepoInfo, len(allRepos))
+	for _, repo := range allRepos {
+		wg.Add(1)
+		go func(r string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			repoCtx, cancel := context.WithTimeout(ctx, *timeout)
+			defer cancel()
+
+			info, err := fetchRepoInfo(repoCtx, client, r)
+			if err != nil {
+				errCh <- fmt.Errorf("repo info %s: %w", r, err)
+				return
+			}
+			repoCh <- info
+		}(repo)
+	}
+
 	wg.Wait()
 	close(resCh)
 	close(errCh)
 	close(imgCh)
 	close(wfCh)
+	close(repoCh)
 
 	for err := range errCh {
 		log.Println("error:", err)
@@ -239,6 +272,15 @@ func main() {
 	}
 
 	if err := writeJSON(filepath.Join(*outDir, "workflows.json"), map[string]any{"workflows": allWorkflows}); err != nil {
+		log.Fatal(err)
+	}
+
+	var repoInfos []RepoInfo
+	for info := range repoCh {
+		repoInfos = append(repoInfos, info)
+	}
+
+	if err := writeJSON(filepath.Join(*outDir, "repos.json"), map[string]any{"repos": repoInfos}); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -525,6 +567,58 @@ func fetchWorkflowStatus(ctx context.Context, client *github.Client, repo string
 		})
 	}
 	return statuses, nil
+}
+
+// -----------------------------------------------------------------------------
+// fetchRepoInfo retrieves repository metadata and README content.
+// -----------------------------------------------------------------------------
+func fetchRepoInfo(ctx context.Context, client *github.Client, repo string) (RepoInfo, error) {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 {
+		return RepoInfo{}, fmt.Errorf("invalid repo: %s", repo)
+	}
+	owner, name := parts[0], parts[1]
+
+	r, _, err := client.Repositories.Get(ctx, owner, name)
+	if err != nil {
+		return RepoInfo{}, err
+	}
+
+	license := ""
+	if r.License != nil {
+		license = r.License.GetSPDXID()
+	}
+
+	// Fetch README as rendered HTML via GitHub API
+	readmeContent := ""
+	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("https://api.github.com/repos/%s/%s/readme", owner, name), nil)
+	if reqErr == nil {
+		req.Header.Set("Accept", "application/vnd.github.html+json")
+		req.Header.Set("Authorization", "token "+os.Getenv("GITHUB_TOKEN"))
+		resp, doErr := http.DefaultClient.Do(req)
+		if doErr == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				body, readErr := io.ReadAll(resp.Body)
+				if readErr == nil {
+					readmeContent = string(body)
+				}
+			}
+		}
+	}
+
+	return RepoInfo{
+		Name:        name,
+		FullName:    r.GetFullName(),
+		Description: r.GetDescription(),
+		Stars:       r.GetStargazersCount(),
+		Language:    r.GetLanguage(),
+		License:     license,
+		HTMLURL:     r.GetHTMLURL(),
+		Topics:      r.Topics,
+		README:      readmeContent,
+	}, nil
 }
 
 // -----------------------------------------------------------------------------
