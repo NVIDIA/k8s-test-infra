@@ -1,20 +1,24 @@
 import { Link } from 'react-router';
-import { BarChart3, FolderOpen, Box, CheckCircle } from 'lucide-react';
+import { BarChart3, FolderOpen, Box, CheckCircle, XCircle } from 'lucide-react';
 import Layout from '../components/Layout';
-import { useTestResults, useImageBuilds } from '../hooks/useData';
+import { useWorkflowStatuses, useImageBuilds } from '../hooks/useData';
 import { projects } from '../data/projects';
 
+const HOURS_48 = 48 * 60 * 60 * 1000;
+
 export default function Home() {
-  const { data: results } = useTestResults();
+  const { data: workflows } = useWorkflowStatuses();
   const { data: images } = useImageBuilds();
 
-  const totalPassed = results.reduce((sum, r) => sum + r.passed, 0);
-  const totalFailed = results.reduce((sum, r) => sum + r.failed, 0);
+  const cutoff = Date.now() - HOURS_48;
+  const recent = workflows.filter((w) => new Date(w.updatedAt).getTime() >= cutoff);
+  const totalPassed = recent.filter((w) => w.status === 'success').length;
+  const totalFailed = recent.filter((w) => w.status === 'failure').length;
 
   const stats = [
     { label: 'Projects', value: projects.length, icon: FolderOpen, color: 'text-nvidia-green' },
-    { label: 'Tests Passing', value: totalPassed, icon: CheckCircle, color: 'text-status-pass' },
-    { label: 'Tests Failing', value: totalFailed, icon: BarChart3, color: totalFailed > 0 ? 'text-status-fail' : 'text-status-pass' },
+    { label: 'Workflows Passing (48h)', value: totalPassed, icon: CheckCircle, color: 'text-status-pass' },
+    { label: 'Workflows Failing (48h)', value: totalFailed, icon: XCircle, color: totalFailed > 0 ? 'text-status-fail' : 'text-status-pass' },
     { label: 'Image Builds', value: images.length, icon: Box, color: 'text-blue-500' },
   ];
 

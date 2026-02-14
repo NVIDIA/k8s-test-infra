@@ -1,4 +1,5 @@
-import { ExternalLink } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { ExternalLink, Search } from 'lucide-react';
 import Layout from '../components/Layout';
 import StatusBadge from '../components/StatusBadge';
 import { useTestResults, useWorkflowStatuses, useImageBuilds } from '../hooks/useData';
@@ -7,10 +8,119 @@ const sidebarItems = [
   { to: '/dashboard', label: 'E2E Test Results' },
 ];
 
+function FilterBar({
+  repos,
+  selectedRepo,
+  onRepoChange,
+  statuses,
+  selectedStatus,
+  onStatusChange,
+  searchTerm,
+  onSearchChange,
+}: {
+  repos: string[];
+  selectedRepo: string;
+  onRepoChange: (v: string) => void;
+  statuses?: string[];
+  selectedStatus?: string;
+  onStatusChange?: (v: string) => void;
+  searchTerm: string;
+  onSearchChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex flex-col sm:flex-row gap-2 mb-3">
+      <div className="relative flex-1">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input
+          type="text"
+          placeholder="Search..."
+          value={searchTerm}
+          onChange={(e) => onSearchChange(e.target.value)}
+          className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-nvidia-green"
+        />
+      </div>
+      <select
+        value={selectedRepo}
+        onChange={(e) => onRepoChange(e.target.value)}
+        className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-nvidia-green"
+      >
+        <option value="">All repos</option>
+        {repos.map((r) => (
+          <option key={r} value={r}>{r}</option>
+        ))}
+      </select>
+      {statuses && onStatusChange && (
+        <select
+          value={selectedStatus}
+          onChange={(e) => onStatusChange(e.target.value)}
+          className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-nvidia-green"
+        >
+          <option value="">All statuses</option>
+          {statuses.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { data: results, loading: resultsLoading } = useTestResults();
   const { data: workflows, loading: workflowsLoading } = useWorkflowStatuses();
   const { data: images, loading: imagesLoading } = useImageBuilds();
+
+  // Results filters
+  const [resultsRepo, setResultsRepo] = useState('');
+  const [resultsSearch, setResultsSearch] = useState('');
+
+  // Workflow filters
+  const [wfRepo, setWfRepo] = useState('');
+  const [wfStatus, setWfStatus] = useState('');
+  const [wfSearch, setWfSearch] = useState('');
+
+  // Image filters
+  const [imgRepo, setImgRepo] = useState('');
+  const [imgSearch, setImgSearch] = useState('');
+
+  const resultRepos = useMemo(() => [...new Set(results.map((r) => r.repo))].sort(), [results]);
+  const wfRepos = useMemo(() => [...new Set(workflows.map((w) => w.repo))].sort(), [workflows]);
+  const wfStatuses = useMemo(() => [...new Set(workflows.map((w) => w.status))].sort(), [workflows]);
+  const imgRepos = useMemo(() => [...new Set(images.map((i) => i.repo))].sort(), [images]);
+
+  const filteredResults = useMemo(() => {
+    return results.filter((r) => {
+      if (resultsRepo && r.repo !== resultsRepo) return false;
+      if (resultsSearch) {
+        const q = resultsSearch.toLowerCase();
+        return r.project.toLowerCase().includes(q) || r.repo.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [results, resultsRepo, resultsSearch]);
+
+  const filteredWorkflows = useMemo(() => {
+    return workflows.filter((w) => {
+      if (wfRepo && w.repo !== wfRepo) return false;
+      if (wfStatus && w.status !== wfStatus) return false;
+      if (wfSearch) {
+        const q = wfSearch.toLowerCase();
+        return w.repo.toLowerCase().includes(q) || w.workflow.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [workflows, wfRepo, wfStatus, wfSearch]);
+
+  const filteredImages = useMemo(() => {
+    return images.filter((img) => {
+      if (imgRepo && img.repo !== imgRepo) return false;
+      if (imgSearch) {
+        const q = imgSearch.toLowerCase();
+        return img.repo.toLowerCase().includes(q) || img.tag.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [images, imgRepo, imgSearch]);
 
   return (
     <Layout sidebarItems={sidebarItems} sidebarTitle="Dashboard">
@@ -19,9 +129,20 @@ export default function Dashboard() {
       {/* E2E Test Results */}
       <section className="mb-8">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">E2E Test Results</h2>
+        {!resultsLoading && (
+          <FilterBar
+            repos={resultRepos}
+            selectedRepo={resultsRepo}
+            onRepoChange={setResultsRepo}
+            searchTerm={resultsSearch}
+            onSearchChange={setResultsSearch}
+          />
+        )}
         <div className="bg-white rounded-lg shadow overflow-x-auto">
           {resultsLoading ? (
             <p className="p-4 text-gray-500">Loading...</p>
+          ) : filteredResults.length === 0 ? (
+            <p className="p-4 text-gray-500">No test results available.</p>
           ) : (
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -35,7 +156,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {results.map((r) => (
+                {filteredResults.map((r) => (
                   <tr key={`${r.repo}-${r.project}`}>
                     <td className="px-4 py-3 text-sm text-gray-900">{r.project}</td>
                     <td className="px-4 py-3 text-sm text-gray-500">{r.lastRun}</td>
@@ -67,9 +188,23 @@ export default function Dashboard() {
       {/* Workflow Status */}
       <section className="mb-8">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Workflow Status</h2>
+        {!workflowsLoading && (
+          <FilterBar
+            repos={wfRepos}
+            selectedRepo={wfRepo}
+            onRepoChange={setWfRepo}
+            statuses={wfStatuses}
+            selectedStatus={wfStatus}
+            onStatusChange={setWfStatus}
+            searchTerm={wfSearch}
+            onSearchChange={setWfSearch}
+          />
+        )}
         <div className="bg-white rounded-lg shadow overflow-x-auto">
           {workflowsLoading ? (
             <p className="p-4 text-gray-500">Loading...</p>
+          ) : filteredWorkflows.length === 0 ? (
+            <p className="p-4 text-gray-500">No workflows match the current filters.</p>
           ) : (
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -82,7 +217,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {workflows.map((w) => (
+                {filteredWorkflows.map((w) => (
                   <tr key={`${w.repo}-${w.workflow}`}>
                     <td className="px-4 py-3 text-sm text-gray-900">{w.repo}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{w.workflow}</td>
@@ -111,9 +246,20 @@ export default function Dashboard() {
       {/* Latest Image Builds */}
       <section className="mb-8">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">Latest Image Builds</h2>
+        {!imagesLoading && (
+          <FilterBar
+            repos={imgRepos}
+            selectedRepo={imgRepo}
+            onRepoChange={setImgRepo}
+            searchTerm={imgSearch}
+            onSearchChange={setImgSearch}
+          />
+        )}
         <div className="bg-white rounded-lg shadow overflow-x-auto">
           {imagesLoading ? (
             <p className="p-4 text-gray-500">Loading...</p>
+          ) : filteredImages.length === 0 ? (
+            <p className="p-4 text-gray-500">No images match the current filters.</p>
           ) : (
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -124,7 +270,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {images.map((img) => (
+                {filteredImages.map((img) => (
                   <tr key={`${img.repo}-${img.tag}`}>
                     <td className="px-4 py-3 text-sm text-gray-900">{img.repo}</td>
                     <td className="px-4 py-3 text-sm">
