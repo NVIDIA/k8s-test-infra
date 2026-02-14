@@ -28,7 +28,7 @@ export function useTestResults() {
 
   useEffect(() => {
     fetchJSON<ResultsData>('results.json')
-      .then((d) => setData(d.results))
+      .then((d) => setData(d.results ?? []))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -43,7 +43,7 @@ export function useWorkflowStatuses() {
 
   useEffect(() => {
     fetchJSON<WorkflowsData>('workflows.json')
-      .then((d) => setData(d.workflows))
+      .then((d) => setData(d.workflows ?? []))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -58,7 +58,7 @@ export function useImageBuilds() {
 
   useEffect(() => {
     fetchJSON<ImagesData>('images.json')
-      .then((d) => setData(d.images))
+      .then((d) => setData(d.images ?? []))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
