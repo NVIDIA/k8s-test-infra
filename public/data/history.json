@@ -1,0 +1,72 @@
+{
+  "snapshots": [
+    {
+      "timestamp": "2026-02-13T00:00:00Z",
+      "workflows": {"success": 38, "failure": 4},
+      "perRepo": {
+        "NVIDIA/gpu-operator": {"success": 6, "failure": 1},
+        "NVIDIA/nvidia-container-toolkit": {"success": 8, "failure": 0}
+      }
+    },
+    {
+      "timestamp": "2026-02-13T06:00:00Z",
+      "workflows": {"success": 40, "failure": 2},
+      "perRepo": {
+        "NVIDIA/gpu-operator": {"success": 7, "failure": 0},
+        "NVIDIA/nvidia-container-toolkit": {"success": 8, "failure": 0}
+      }
+    },
+    {
+      "timestamp": "2026-02-14T00:00:00Z",
+      "workflows": {"success": 39, "failure": 3},
+      "perRepo": {
+        "NVIDIA/gpu-operator": {"success": 6, "failure": 1},
+        "NVIDIA/nvidia-container-toolkit": {"success": 8, "failure": 0}
+      }
+    },
+    {
+      "timestamp": "2026-02-14T06:00:00Z",
+      "workflows": {"success": 41, "failure": 1},
+      "perRepo": {
+        "NVIDIA/gpu-operator": {"success": 7, "failure": 0},
+        "NVIDIA/nvidia-container-toolkit": {"success": 8, "failure": 0}
+      }
+    },
+    {
+      "timestamp": "2026-02-15T00:00:00Z",
+      "workflows": {"success": 42, "failure": 3},
+      "perRepo": {
+        "NVIDIA/gpu-operator": {"success": 8, "failure": 1},
+        "NVIDIA/nvidia-container-toolkit": {"success": 8, "failure": 0}
+      }
+    }
+  ],
+  "traffic": {
+    "NVIDIA/gpu-operator": {
+      "clones": [
+        {"date": "2026-02-10", "count": 45, "uniques": 12},
+        {"date": "2026-02-11", "count": 52, "uniques": 15},
+        {"date": "2026-02-12", "count": 38, "uniques": 10},
+        {"date": "2026-02-13", "count": 60, "uniques": 18},
+        {"date": "2026-02-14", "count": 42, "uniques": 11}
+      ],
+      "views": [
+        {"date": "2026-02-10", "count": 230, "uniques": 89},
+        {"date": "2026-02-11", "count": 245, "uniques": 92},
+        {"date": "2026-02-12", "count": 198, "uniques": 76},
+        {"date": "2026-02-13", "count": 260, "uniques": 95},
+        {"date": "2026-02-14", "count": 215, "uniques": 82}
+      ]
+    }
+  },
+  "repoStats": {
+    "NVIDIA/gpu-operator": [
+      {"date": "2026-02-10", "stars": 845, "forks": 208},
+      {"date": "2026-02-11", "stars": 847, "forks": 208},
+      {"date": "2026-02-12", "stars": 848, "forks": 209},
+      {"date": "2026-02-13", "stars": 849, "forks": 209},
+      {"date": "2026-02-14", "stars": 850, "forks": 210},
+      {"date": "2026-02-15", "stars": 852, "forks": 210}
+    ]
+  }
+}
