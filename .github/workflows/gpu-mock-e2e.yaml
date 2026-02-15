@@ -22,7 +22,7 @@ on:
         type: string
 
 jobs:
-  e2e:
+  e2e-device-plugin:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -81,6 +81,8 @@ jobs:
           # Check config at both locations
           docker exec "$NODE_CONTAINER" test -f /var/lib/nvidia-mock/config/config.yaml
           docker exec "$NODE_CONTAINER" test -f /var/lib/nvidia-mock/driver/config/config.yaml
+          # Verify num_devices was injected
+          docker exec "$NODE_CONTAINER" grep -q "num_devices: 2" /var/lib/nvidia-mock/config/config.yaml
           echo "All mock files verified"
 
       - name: Deploy NVIDIA device plugin
@@ -112,6 +114,102 @@ jobs:
           kubectl logs -l app.kubernetes.io/name=gpu-mock --tail=50 || true
           echo "=== device plugin logs ==="
           kubectl -n kube-system logs -l name=nvidia-device-plugin-mock --tail=50 || true
+          echo "=== pod status ==="
+          kubectl get pods -A || true
+          echo "=== node describe ==="
+          kubectl describe nodes || true
+
+  e2e-dra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ inputs.golang_version }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Create Kind cluster with DRA
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: gpu-mock-dra-e2e
+          config: tests/e2e/kind-dra-config.yaml
+
+      - name: Build gpu-mock image
+        run: |
+          docker build -t gpu-mock:e2e -f deployments/gpu-mock/Dockerfile \
+            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image gpu-mock:e2e --name gpu-mock-dra-e2e
+
+      - name: Install gpu-mock Helm chart
+        run: |
+          helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
+            --set image.repository=gpu-mock \
+            --set image.tag=e2e \
+            --set gpu.count=2 \
+            --wait --timeout 120s
+
+      - name: Verify DaemonSet is ready
+        run: |
+          kubectl rollout status daemonset -l app.kubernetes.io/name=gpu-mock --timeout=60s
+
+      - name: Verify mock files on node
+        run: |
+          NODE_CONTAINER=gpu-mock-dra-e2e-control-plane
+          docker exec "$NODE_CONTAINER" test -f /var/lib/nvidia-mock/driver/config/config.yaml
+          docker exec "$NODE_CONTAINER" grep -q "num_devices: 2" /var/lib/nvidia-mock/driver/config/config.yaml
+          docker exec "$NODE_CONTAINER" test -L /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.1
+          echo "Mock files verified"
+
+      - name: Add NVIDIA Helm repo
+        run: |
+          helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+          helm repo update
+
+      - name: Install DRA driver
+        run: |
+          helm install nvidia-dra-driver nvidia/nvidia-dra-driver-gpu \
+            --namespace nvidia \
+            --create-namespace \
+            --set nvidiaDriverRoot=/var/lib/nvidia-mock/driver \
+            --wait --timeout 180s
+
+      - name: Wait for DRA pods
+        run: |
+          kubectl -n nvidia wait --for=condition=ready pod --all --timeout=120s
+
+      - name: Verify ResourceSlice GPU count
+        run: |
+          for i in $(seq 1 30); do
+            COUNT=$(kubectl get resourceslices -o json | \
+              jq '[.items[].spec.devices // [] | length] | add // 0')
+            if [ "$COUNT" = "2" ]; then
+              echo "PASS: ResourceSlice reports $COUNT GPUs"
+              exit 0
+            fi
+            echo "Attempt $i: ResourceSlice GPUs=$COUNT (expected 2), waiting..."
+            sleep 2
+          done
+          echo "FAIL: Expected 2 GPUs in ResourceSlice, got $COUNT"
+          exit 1
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== gpu-mock pod logs ==="
+          kubectl logs -l app.kubernetes.io/name=gpu-mock --tail=50 || true
+          echo "=== DRA driver pods ==="
+          kubectl -n nvidia get pods || true
+          echo "=== DRA driver logs ==="
+          kubectl -n nvidia logs -l app.kubernetes.io/name=nvidia-dra-driver-gpu --tail=100 || true
+          echo "=== ResourceSlices ==="
+          kubectl get resourceslices -o yaml || true
           echo "=== pod status ==="
           kubectl get pods -A || true
           echo "=== node describe ==="
