@@ -2,10 +2,12 @@ import { useState, useMemo } from 'react';
 import { ExternalLink, Search } from 'lucide-react';
 import Layout from '../components/Layout';
 import StatusBadge from '../components/StatusBadge';
-import { useTestResults, useWorkflowStatuses, useImageBuilds } from '../hooks/useData';
+import TrendChart from '../components/TrendChart';
+import { useTestResults, useWorkflowStatuses, useImageBuilds, useHistory } from '../hooks/useData';
 
 const sidebarItems = [
   { to: '/dashboard', label: 'Overview' },
+  { to: '/dashboard#trends', label: 'Trends' },
   { to: '/dashboard#e2e-results', label: 'E2E Test Results' },
   { to: '/dashboard#workflow-status', label: 'Workflow Status' },
   { to: '/dashboard#image-builds', label: 'Image Builds' },
@@ -72,6 +74,20 @@ export default function Dashboard() {
   const { data: results, loading: resultsLoading } = useTestResults();
   const { data: workflows, loading: workflowsLoading } = useWorkflowStatuses();
   const { data: images, loading: imagesLoading } = useImageBuilds();
+  const { data: history } = useHistory();
+  const [trendRange, setTrendRange] = useState<7 | 30 | 90>(7);
+
+  const trendData = useMemo(() => {
+    if (!history) return [];
+    const cutoff = Date.now() - trendRange * 24 * 60 * 60 * 1000;
+    return history.snapshots
+      .filter((s) => new Date(s.timestamp).getTime() >= cutoff)
+      .map((s) => ({
+        date: s.timestamp,
+        success: s.workflows['success'] ?? 0,
+        failure: s.workflows['failure'] ?? 0,
+      }));
+  }, [history, trendRange]);
 
   // Results filters
   const [resultsRepo, setResultsRepo] = useState('');
@@ -128,6 +144,40 @@ export default function Dashboard() {
   return (
     <Layout sidebarItems={sidebarItems} sidebarTitle="Dashboard">
       <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Dashboard</h1>
+
+      <section id="trends" className="mb-8">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
+            Workflow Trends
+          </h2>
+          <div className="flex gap-1">
+            {([7, 30, 90] as const).map((d) => (
+              <button
+                key={d}
+                onClick={() => setTrendRange(d)}
+                className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${
+                  trendRange === d
+                    ? 'bg-nvidia-green text-white'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+          <TrendChart
+            data={trendData}
+            areas={[
+              { key: 'success', color: '#22c55e', name: 'Success' },
+              { key: 'failure', color: '#ef4444', name: 'Failure' },
+            ]}
+            height={250}
+            stacked
+          />
+        </div>
+      </section>
 
       {/* E2E Test Results */}
       <section id="e2e-results" className="mb-8">
