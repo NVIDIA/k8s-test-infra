@@ -76,3 +76,54 @@ export interface HistoryFile {
   traffic: Record<string, RepoTraffic>;
   repoStats: Record<string, RepoStatsEntry[]>;
 }
+
+export interface IssuePRCategory {
+  [category: string]: number;
+}
+
+export interface AgeBuckets {
+  fresh: number;
+  recent: number;
+  aging: number;
+  stale: number;
+  ancient: number;
+}
+
+export interface VelocityWeek {
+  week: string;
+  opened: number;
+  closed: number;
+  merged?: number;
+}
+
+export interface PRReviewMetrics {
+  awaitingReview: number;
+  noReviewer: number;
+  avgDaysToFirstReview: number;
+  avgDaysToMerge: number;
+}
+
+export interface IssueStats {
+  total: number;
+  categories: IssuePRCategory;
+  ageBuckets: AgeBuckets;
+  velocity: VelocityWeek[];
+}
+
+export interface PRStats {
+  total: number;
+  categories: IssuePRCategory;
+  ageBuckets: AgeBuckets;
+  velocity: VelocityWeek[];
+  review: PRReviewMetrics;
+}
+
+export interface RepoIssuesPRs {
+  fetchedAt: string;
+  issues: IssueStats;
+  pullRequests: PRStats;
+}
+
+export interface IssuesPRsData {
+  repos: Record<string, RepoIssuesPRs>;
+}
