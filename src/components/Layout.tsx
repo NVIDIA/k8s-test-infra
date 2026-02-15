@@ -15,7 +15,7 @@ export default function Layout({
   sidebarTitle,
 }: LayoutProps) {
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
+    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
       <Navbar />
       <div className="flex flex-1">
         <Sidebar items={sidebarItems} title={sidebarTitle} />

@@ -16,9 +16,9 @@ export default function Sidebar({ items, title }: SidebarProps) {
   if (items.length === 0) return null;
 
   return (
-    <aside className="w-64 shrink-0 bg-white border-r border-gray-200 p-4 hidden lg:block">
+    <aside className="w-64 shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 p-4 hidden lg:block">
       {title && (
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+        <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
           {title}
         </h3>
       )}
@@ -45,7 +45,7 @@ export default function Sidebar({ items, title }: SidebarProps) {
               className={`block px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                 isActive
                   ? 'bg-nvidia-green/10 text-nvidia-green font-semibold'
-                  : 'text-gray-700 hover:bg-gray-100'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
               }`}
             >
               {label}
