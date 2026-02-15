@@ -22,9 +22,19 @@ RUN cd pkg/gpu/mocknvml && make clean && make
 
 FROM debian:bookworm-slim
 ARG KUBECTL_VERSION=v1.32.0
-ARG TARGETARCH
+ARG TARGETARCH=amd64
 COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
-ADD https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl /usr/local/bin/kubectl
-RUN chmod +x /usr/local/bin/kubectl
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl ca-certificates; \
+    rm -rf /var/lib/apt/lists/*; \
+    curl -fsSLo /usr/local/bin/kubectl \
+      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl"; \
+    curl -fsSLo /tmp/kubectl.sha256 \
+      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256"; \
+    echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum --check; \
+    chmod +x /usr/local/bin/kubectl; \
+    rm /tmp/kubectl.sha256; \
+    apt-get purge -y --auto-remove curl ca-certificates
 COPY deployments/gpu-mock/scripts/ /scripts/
 RUN chmod +x /scripts/*.sh

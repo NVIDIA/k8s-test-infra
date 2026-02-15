@@ -14,7 +14,7 @@ DEV_ROOT=$HOST/dev
 CONFIG_DIR=$HOST/config
 
 # Validate GPU_COUNT does not exceed profile device count
-PROFILE_COUNT=$(grep -c "^  - index:" /config/config.yaml || echo 0)
+PROFILE_COUNT=$(grep -c "^[[:space:]]*- index:" /config/config.yaml || echo 0)
 if [ "$PROFILE_COUNT" -gt 0 ] && [ "$GPU_COUNT" -gt "$PROFILE_COUNT" ]; then
   echo "WARNING: gpu.count ($GPU_COUNT) exceeds profile devices ($PROFILE_COUNT). Capping to $PROFILE_COUNT."
   GPU_COUNT=$PROFILE_COUNT
@@ -41,11 +41,11 @@ mknod -m 666 "$DEV_ROOT/nvidia-uvm" c 510 0 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm-tools" c 510 1 2>/dev/null || true
 
 # 4. Create mock nvidia-smi (required by DRA driver)
-cat > "$DRIVER_ROOT/usr/bin/nvidia-smi" << 'NVIDIA_SMI_EOF'
+#    Uses unquoted heredoc so $DRIVER_VERSION is expanded at setup time.
+cat > "$DRIVER_ROOT/usr/bin/nvidia-smi" << NVIDIA_SMI_EOF
 #!/bin/sh
 # Mock nvidia-smi — returns driver version and basic GPU info.
 # Used by consumers (e.g., DRA driver) that probe nvidia-smi at startup.
-DRIVER_VERSION="${DRIVER_VERSION:-550.163.01}"
 echo "NVIDIA-SMI $DRIVER_VERSION"
 echo "Driver Version: $DRIVER_VERSION"
 echo "CUDA Version: 12.4"

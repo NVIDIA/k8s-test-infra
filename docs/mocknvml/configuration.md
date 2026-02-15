@@ -355,7 +355,7 @@ A100 configuration with all 8 devices configured.
 ## Complete Example: GB200 Profile
 
 See `pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml` for a Blackwell
-GB200 configuration with 192GB HBM3e memory.
+GB200 configuration with 192 GiB HBM3e memory.
 
 ## Validation
 

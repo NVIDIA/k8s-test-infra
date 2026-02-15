@@ -46,7 +46,7 @@ device_defaults:
     pwr_object: "1.0"
 
   # ---------------------------------------------------------------------------
-  # Memory configuration - 192GB HBM3e per GPU
+  # Memory configuration - 192 GiB HBM3e per GPU
   # ---------------------------------------------------------------------------
   memory:
     total_bytes: 206158430208       # 192 GiB HBM3e
