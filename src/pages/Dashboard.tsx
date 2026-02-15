@@ -266,6 +266,7 @@ export default function Dashboard() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Workflow</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Updated</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Commit</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Run</th>
                 </tr>
               </thead>
@@ -278,6 +279,16 @@ export default function Dashboard() {
                       <StatusBadge status={w.status} />
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{w.updatedAt}</td>
+                    <td className="px-4 py-3 text-sm">
+                      <a
+                        href={w.commitUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-nvidia-green hover:text-nvidia-green-dark font-mono text-xs"
+                      >
+                        {w.commitSha.substring(0, 7)}
+                      </a>
+                    </td>
                     <td className="px-4 py-3">
                       <a
                         href={w.runUrl}

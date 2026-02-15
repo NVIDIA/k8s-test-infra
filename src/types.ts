@@ -16,6 +16,8 @@ export interface WorkflowStatus {
   conclusion: string;
   runUrl: string;
   updatedAt: string;
+  commitSha: string;
+  commitUrl: string;
 }
 
 export interface ImageBuild {

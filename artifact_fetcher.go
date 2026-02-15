@@ -108,6 +108,8 @@ type WorkflowStatus struct {
 	Conclusion string `json:"conclusion"`
 	RunURL     string `json:"runUrl"`
 	UpdatedAt  string `json:"updatedAt"`
+	CommitSHA  string `json:"commitSha"`
+	CommitURL  string `json:"commitUrl"`
 }
 
 // TestResult corresponds to the schema consumed by Hugo.
@@ -678,6 +680,8 @@ func fetchWorkflowStatus(ctx context.Context, client *github.Client, repo string
 			Conclusion: run.GetConclusion(),
 			RunURL:     run.GetHTMLURL(),
 			UpdatedAt:  run.GetUpdatedAt().Format(time.RFC3339),
+			CommitSHA:  run.GetHeadSHA(),
+			CommitURL:  fmt.Sprintf("https://github.com/%s/commit/%s", repo, run.GetHeadSHA()),
 		})
 	}
 	return statuses, nil
