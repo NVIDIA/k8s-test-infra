@@ -17,15 +17,15 @@ const categoryColors: Record<Project['category'], string> = {
   runtime: 'bg-purple-100 text-purple-800',
   driver: 'bg-orange-100 text-orange-800',
   testing: 'bg-green-100 text-green-800',
-  library: 'bg-gray-100 text-gray-800',
+  library: 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200',
 };
 
 export default function Projects() {
   return (
     <Layout>
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Projects</h1>
-        <p className="text-gray-600">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Projects</h1>
+        <p className="text-gray-600 dark:text-gray-400">
           NVIDIA cloud-native Kubernetes projects for GPU workloads.
         </p>
       </div>
@@ -37,19 +37,19 @@ export default function Projects() {
             <Link
               key={project.slug}
               to={`/projects/${project.slug}`}
-              className="bg-white rounded-lg shadow hover:shadow-md transition-shadow border border-gray-200 p-6 flex flex-col"
+              className="bg-white dark:bg-gray-800 rounded-lg shadow hover:shadow-md transition-shadow border border-gray-200 dark:border-gray-700 p-6 flex flex-col"
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Icon size={20} className="text-nvidia-green" />
-                  <h2 className="text-lg font-semibold text-gray-900">{project.name}</h2>
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{project.name}</h2>
                 </div>
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${categoryColors[project.category]}`}>
                   {project.category}
                 </span>
               </div>
-              <p className="text-sm text-gray-600 mb-4 flex-1">{project.description}</p>
-              <div className="flex items-center gap-3 pt-3 border-t border-gray-100">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 flex-1">{project.description}</p>
+              <div className="flex items-center gap-3 pt-3 border-t border-gray-100 dark:border-gray-700">
                 <span
                   onClick={(e) => {
                     e.preventDefault();

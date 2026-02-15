@@ -17,7 +17,7 @@ export default function ProjectDetail() {
     return (
       <Layout>
         <div className="text-center py-12">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Project Not Found</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Project Not Found</h1>
           <Link to="/projects" className="text-nvidia-green hover:text-nvidia-green-dark">
             &larr; Back to Projects
           </Link>
@@ -43,18 +43,18 @@ export default function ProjectDetail() {
       {/* Back link */}
       <Link
         to="/projects"
-        className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-nvidia-green mb-4"
+        className="inline-flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400 hover:text-nvidia-green mb-4"
       >
         <ArrowLeft size={14} />
         All Projects
       </Link>
 
       {/* Header */}
-      <div className="bg-white rounded-lg shadow p-6 mb-6">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-1">{project.name}</h1>
-            <p className="text-gray-600 mb-3">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">{project.name}</h1>
+            <p className="text-gray-600 dark:text-gray-400 mb-3">
               {repoInfo?.description || project.description}
             </p>
             {repoInfo?.topics && repoInfo.topics.length > 0 && (
@@ -83,7 +83,7 @@ export default function ProjectDetail() {
 
         {/* Metadata badges */}
         {repoInfo && (
-          <div className="flex flex-wrap gap-4 pt-3 border-t border-gray-100 text-sm text-gray-600">
+          <div className="flex flex-wrap gap-4 pt-3 border-t border-gray-100 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400">
             <span className="inline-flex items-center gap-1">
               <Star size={14} className="text-yellow-500" />
               {repoInfo.stars.toLocaleString()} stars
@@ -103,34 +103,34 @@ export default function ProjectDetail() {
           </div>
         )}
         {reposLoading && (
-          <p className="text-sm text-gray-400 mt-2">Loading repo info...</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">Loading repo info...</p>
         )}
       </div>
 
       {/* CI Status */}
       <section id="ci-status" className="mb-6">
-        <h2 className="text-lg font-semibold text-gray-800 mb-3">CI Status</h2>
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">CI Status</h2>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
           {projectWorkflows.length === 0 ? (
-            <p className="p-4 text-gray-500">No workflow data available.</p>
+            <p className="p-4 text-gray-500 dark:text-gray-400">No workflow data available.</p>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Workflow</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Updated</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Run</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Workflow</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Updated</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Run</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {projectWorkflows.map((w) => (
                   <tr key={w.workflow}>
-                    <td className="px-4 py-3 text-sm text-gray-900">{w.workflow}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{w.workflow}</td>
                     <td className="px-4 py-3">
                       <StatusBadge status={w.status} />
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{w.updatedAt}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{w.updatedAt}</td>
                     <td className="px-4 py-3">
                       <a
                         href={w.runUrl}
@@ -152,16 +152,16 @@ export default function ProjectDetail() {
       {/* Images */}
       {projectImages.length > 0 && (
         <section id="images" className="mb-6">
-          <h2 className="text-lg font-semibold text-gray-800 mb-3">Container Images</h2>
-          <div className="bg-white rounded-lg shadow overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+          <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Container Images</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tag</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pushed At</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tag</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Pushed At</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {projectImages.map((img) => (
                   <tr key={img.tag}>
                     <td className="px-4 py-3 text-sm">
@@ -174,7 +174,7 @@ export default function ProjectDetail() {
                         {img.tag}
                       </a>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{img.pushedAt}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{img.pushedAt}</td>
                   </tr>
                 ))}
               </tbody>
@@ -185,14 +185,14 @@ export default function ProjectDetail() {
 
       {/* README */}
       <section id="readme" className="mb-6">
-        <h2 className="text-lg font-semibold text-gray-800 mb-3">README</h2>
-        <div className="bg-white rounded-lg shadow p-6 markdown-body">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">README</h2>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 markdown-body">
           {reposLoading ? (
-            <p className="text-gray-400">Loading README...</p>
+            <p className="text-gray-400 dark:text-gray-500">Loading README...</p>
           ) : repoInfo?.readme ? (
             <div dangerouslySetInnerHTML={{ __html: repoInfo.readme }} />
           ) : (
-            <p className="text-gray-500">No README available.</p>
+            <p className="text-gray-500 dark:text-gray-400">No README available.</p>
           )}
         </div>
       </section>

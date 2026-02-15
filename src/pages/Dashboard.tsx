@@ -33,19 +33,19 @@ function FilterBar({
   return (
     <div className="flex flex-col sm:flex-row gap-2 mb-3">
       <div className="relative flex-1">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
         <input
           type="text"
           placeholder="Search..."
           value={searchTerm}
           onChange={(e) => onSearchChange(e.target.value)}
-          className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-nvidia-green"
+          className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-nvidia-green dark:bg-gray-700 dark:text-gray-200"
         />
       </div>
       <select
         value={selectedRepo}
         onChange={(e) => onRepoChange(e.target.value)}
-        className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-nvidia-green"
+        className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-nvidia-green dark:bg-gray-700 dark:text-gray-200"
       >
         <option value="">All repos</option>
         {repos.map((r) => (
@@ -56,7 +56,7 @@ function FilterBar({
         <select
           value={selectedStatus}
           onChange={(e) => onStatusChange(e.target.value)}
-          className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-nvidia-green"
+          className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-1 focus:ring-nvidia-green dark:bg-gray-700 dark:text-gray-200"
         >
           <option value="">All statuses</option>
           {statuses.map((s) => (
@@ -127,11 +127,11 @@ export default function Dashboard() {
 
   return (
     <Layout sidebarItems={sidebarItems} sidebarTitle="Dashboard">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Dashboard</h1>
+      <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Dashboard</h1>
 
       {/* E2E Test Results */}
       <section id="e2e-results" className="mb-8">
-        <h2 className="text-lg font-semibold text-gray-800 mb-3">E2E Test Results</h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">E2E Test Results</h2>
         {!resultsLoading && (
           <FilterBar
             repos={resultRepos}
@@ -141,32 +141,32 @@ export default function Dashboard() {
             onSearchChange={setResultsSearch}
           />
         )}
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
           {resultsLoading ? (
-            <p className="p-4 text-gray-500">Loading...</p>
+            <p className="p-4 text-gray-500 dark:text-gray-400">Loading...</p>
           ) : filteredResults.length === 0 ? (
-            <p className="p-4 text-gray-500">No test results available.</p>
+            <p className="p-4 text-gray-500 dark:text-gray-400">No test results available.</p>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Run</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Passed</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Failed</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Run</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Project</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Run</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Passed</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Failed</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Source</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Run</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {filteredResults.map((r) => (
                   <tr key={`${r.repo}-${r.project}`}>
-                    <td className="px-4 py-3 text-sm text-gray-900">{r.project}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{r.lastRun}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{r.project}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{r.lastRun}</td>
                     <td className="px-4 py-3 text-sm text-status-pass font-medium">{r.passed}</td>
                     <td className="px-4 py-3 text-sm text-status-fail font-medium">{r.failed}</td>
                     <td className="px-4 py-3">
-                      <span className="inline-block rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                      <span className="inline-block rounded bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-xs text-gray-600 dark:text-gray-400">
                         {r.source}
                       </span>
                     </td>
@@ -190,7 +190,7 @@ export default function Dashboard() {
 
       {/* Workflow Status */}
       <section id="workflow-status" className="mb-8">
-        <h2 className="text-lg font-semibold text-gray-800 mb-3">Workflow Status</h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Workflow Status</h2>
         {!workflowsLoading && (
           <FilterBar
             repos={wfRepos}
@@ -203,31 +203,31 @@ export default function Dashboard() {
             onSearchChange={setWfSearch}
           />
         )}
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
           {workflowsLoading ? (
-            <p className="p-4 text-gray-500">Loading...</p>
+            <p className="p-4 text-gray-500 dark:text-gray-400">Loading...</p>
           ) : filteredWorkflows.length === 0 ? (
-            <p className="p-4 text-gray-500">No workflows match the current filters.</p>
+            <p className="p-4 text-gray-500 dark:text-gray-400">No workflows match the current filters.</p>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repo</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Workflow</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Updated</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Run</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Repo</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Workflow</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Updated</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Run</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {filteredWorkflows.map((w) => (
                   <tr key={`${w.repo}-${w.workflow}`}>
-                    <td className="px-4 py-3 text-sm text-gray-900">{w.repo}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{w.workflow}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{w.repo}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{w.workflow}</td>
                     <td className="px-4 py-3">
                       <StatusBadge status={w.status} />
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{w.updatedAt}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{w.updatedAt}</td>
                     <td className="px-4 py-3">
                       <a
                         href={w.runUrl}
@@ -248,7 +248,7 @@ export default function Dashboard() {
 
       {/* Latest Image Builds */}
       <section id="image-builds" className="mb-8">
-        <h2 className="text-lg font-semibold text-gray-800 mb-3">Latest Image Builds</h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Latest Image Builds</h2>
         {!imagesLoading && (
           <FilterBar
             repos={imgRepos}
@@ -258,24 +258,24 @@ export default function Dashboard() {
             onSearchChange={setImgSearch}
           />
         )}
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
           {imagesLoading ? (
-            <p className="p-4 text-gray-500">Loading...</p>
+            <p className="p-4 text-gray-500 dark:text-gray-400">Loading...</p>
           ) : filteredImages.length === 0 ? (
-            <p className="p-4 text-gray-500">No images match the current filters.</p>
+            <p className="p-4 text-gray-500 dark:text-gray-400">No images match the current filters.</p>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Repo</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tag</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pushed At</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Repo</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tag</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Pushed At</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                 {filteredImages.map((img) => (
                   <tr key={`${img.repo}-${img.tag}`}>
-                    <td className="px-4 py-3 text-sm text-gray-900">{img.repo}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{img.repo}</td>
                     <td className="px-4 py-3 text-sm">
                       <a
                         href={img.htmlUrl}
@@ -286,7 +286,7 @@ export default function Dashboard() {
                         {img.tag}
                       </a>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{img.pushedAt}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{img.pushedAt}</td>
                   </tr>
                 ))}
               </tbody>
