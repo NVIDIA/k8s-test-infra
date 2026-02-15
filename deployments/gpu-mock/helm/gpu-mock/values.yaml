@@ -1,0 +1,18 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+gpu:
+  profile: a100           # a100 | gb200
+  count: 8
+  customConfig: ""
+
+image:
+  repository: ghcr.io/nvidia/gpu-mock
+  tag: latest
+  pullPolicy: IfNotPresent
+
+driverVersion: "550.163.01"
+
+nodeSelector: {}
+tolerations:
+  - operator: Exists

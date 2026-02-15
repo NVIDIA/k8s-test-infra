@@ -77,7 +77,7 @@ config for consistency.
 YAML configs allow full control over GPU properties. See `configs/` for examples:
 
 - `mock-nvml-config-a100.yaml` - DGX A100 (8x A100-SXM4-40GB)
-- `mock-nvml-config-gb200.yaml` - GB200 NVL (8x GB200 with 192GB HBM3e)
+- `mock-nvml-config-gb200.yaml` - GB200 NVL (8x GB200 with 192 GiB HBM3e)
 
 #### Configuration Structure
 
