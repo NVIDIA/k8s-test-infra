@@ -3,6 +3,9 @@
 #
 # Device plugin DaemonSet for E2E testing with gpu-mock chart.
 # Expects gpu-mock chart to be installed first.
+#
+# No mock-specific env vars needed — the .so auto-discovers its config
+# from /proc/self/maps and reads num_devices from the YAML.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -22,11 +25,6 @@ spec:
       containers:
         - name: nvidia-device-plugin
           image: nvcr.io/nvidia/k8s-device-plugin:v0.18.2
-          env:
-            - name: MOCK_NVML_CONFIG
-              value: "/var/lib/nvidia-mock/config/config.yaml"
-            - name: MOCK_NVML_NUM_DEVICES
-              value: "2"
           args:
             - "--nvidia-driver-root=/var/lib/nvidia-mock/driver"
             - "--driver-root-ctr-path=/var/lib/nvidia-mock/driver"

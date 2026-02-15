@@ -14,6 +14,9 @@
 package engine
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -121,5 +124,102 @@ func TestLoadConfig_EmptyEnvVars(t *testing.T) {
 	}
 	if config.DriverVersion != "550.163.01" {
 		t.Errorf("Expected default DriverVersion, got %s", config.DriverVersion)
+	}
+}
+
+func TestLoadConfig_YAMLNumDevices(t *testing.T) {
+	// Create a temp config YAML with system.num_devices set
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Config has 2 devices listed but system.num_devices=4
+	yamlContent := `version: "1.0"
+system:
+  driver_version: "550.163.01"
+  num_devices: 4
+device_defaults:
+  name: "NVIDIA A100-SXM4-40GB"
+devices:
+  - index: 0
+    uuid: "GPU-aaaa"
+  - index: 1
+    uuid: "GPU-bbbb"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	ClearConfigCache()
+	t.Setenv("MOCK_NVML_CONFIG", configPath)
+
+	config := LoadConfig()
+	if config.NumDevices != 4 {
+		t.Errorf("Expected NumDevices=4 from system.num_devices, got %d", config.NumDevices)
+	}
+}
+
+func TestLoadConfig_YAMLNumDevicesZero(t *testing.T) {
+	// When system.num_devices is 0 (or unset), fall back to device list count
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `version: "1.0"
+system:
+  driver_version: "550.163.01"
+device_defaults:
+  name: "NVIDIA A100-SXM4-40GB"
+devices:
+  - index: 0
+    uuid: "GPU-aaaa"
+  - index: 1
+    uuid: "GPU-bbbb"
+  - index: 2
+    uuid: "GPU-cccc"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	ClearConfigCache()
+	t.Setenv("MOCK_NVML_CONFIG", configPath)
+
+	config := LoadConfig()
+	if config.NumDevices != 3 {
+		t.Errorf("Expected NumDevices=3 from device list, got %d", config.NumDevices)
+	}
+}
+
+func TestDiscoverConfigPath_NonLinux(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("Test only applies to non-Linux platforms")
+	}
+	result := discoverConfigPath()
+	if result != "" {
+		t.Errorf("Expected empty string on non-Linux, got %q", result)
+	}
+}
+
+func TestDiscoverConfigPath_Linux(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Test only applies to Linux")
+	}
+	// On Linux without a mock .so loaded, should return empty
+	result := discoverConfigPath()
+	if result != "" {
+		t.Errorf("Expected empty string when no libnvidia-ml.so is mapped, got %q", result)
+	}
+}
+
+func TestLoadConfig_AutoDiscoverFallback(t *testing.T) {
+	// When MOCK_NVML_CONFIG is not set and auto-discovery fails,
+	// should fall back to env vars / defaults
+	ClearConfigCache()
+
+	config := LoadConfig()
+	if config == nil {
+		t.Fatal("LoadConfig returned nil")
+	}
+	if config.NumDevices != 8 {
+		t.Errorf("Expected default NumDevices 8, got %d", config.NumDevices)
 	}
 }

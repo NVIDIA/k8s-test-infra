@@ -1,0 +1,11 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kind cluster config with DRA (Dynamic Resource Allocation) feature gates enabled.
+# Used by the DRA E2E test job.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+featureGates:
+  DynamicResourceAllocation: true
+nodes:
+  - role: control-plane
