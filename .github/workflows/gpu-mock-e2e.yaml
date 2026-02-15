@@ -157,7 +157,7 @@ jobs:
 
       - name: Verify DaemonSet is ready
         run: |
-          kubectl rollout status daemonset -l app.kubernetes.io/name=gpu-mock --timeout=60s
+          kubectl rollout status daemonset/gpu-mock --timeout=60s
 
       - name: Verify mock files on node
         run: |
