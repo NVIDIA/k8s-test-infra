@@ -30,6 +30,7 @@ export interface RepoInfo {
   fullName: string;
   description: string;
   stars: number;
+  forks: number;
   language: string;
   license: string;
   htmlUrl: string;
@@ -43,4 +44,33 @@ export interface Project {
   repo: string;
   description: string;
   category: 'operator' | 'runtime' | 'driver' | 'testing' | 'library';
+}
+
+export interface TrafficDay {
+  date: string;
+  count: number;
+  uniques: number;
+}
+
+export interface RepoTraffic {
+  clones: TrafficDay[];
+  views: TrafficDay[];
+}
+
+export interface RepoStatsEntry {
+  date: string;
+  stars: number;
+  forks: number;
+}
+
+export interface HistorySnapshot {
+  timestamp: string;
+  workflows: Record<string, number>;
+  perRepo: Record<string, Record<string, number>>;
+}
+
+export interface HistoryFile {
+  snapshots: HistorySnapshot[];
+  traffic: Record<string, RepoTraffic>;
+  repoStats: Record<string, RepoStatsEntry[]>;
 }
