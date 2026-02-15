@@ -39,8 +39,10 @@ jobs:
       - name: Restore previous history data
         run: |
           mkdir -p ./public/data
-          curl -sSf -o ./public/data/history.json \
-            "https://nvidia.github.io/k8s-test-infra/data/history.json" || echo '{}' > ./public/data/history.json
+          curl -sSf -o /tmp/history.json \
+            "https://nvidia.github.io/k8s-test-infra/data/history.json" \
+            && mv /tmp/history.json ./public/data/history.json \
+            || echo '{}' > ./public/data/history.json
 
       - name: Update artifacts
         env:

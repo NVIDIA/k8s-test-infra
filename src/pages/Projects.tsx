@@ -13,10 +13,10 @@ const categoryIcons: Record<Project['category'], typeof Box> = {
 };
 
 const categoryColors: Record<Project['category'], string> = {
-  operator: 'bg-blue-100 text-blue-800',
-  runtime: 'bg-purple-100 text-purple-800',
-  driver: 'bg-orange-100 text-orange-800',
-  testing: 'bg-green-100 text-green-800',
+  operator: 'bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300',
+  runtime: 'bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300',
+  driver: 'bg-orange-100 dark:bg-orange-900/40 text-orange-800 dark:text-orange-300',
+  testing: 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300',
   library: 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200',
 };
 
