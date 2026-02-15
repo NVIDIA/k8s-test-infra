@@ -30,6 +30,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -92,6 +93,7 @@ type RepoInfo struct {
 	FullName    string   `json:"fullName"`
 	Description string   `json:"description"`
 	Stars       int      `json:"stars"`
+	Forks       int      `json:"forks"`
 	Language    string   `json:"language"`
 	License     string   `json:"license"`
 	HTMLURL     string   `json:"htmlUrl"`
@@ -127,6 +129,41 @@ type ImageInfo struct {
 	Tag     string `json:"tag"`
 	Pushed  string `json:"pushedAt"`
 	HTMLURL string `json:"htmlUrl"`
+}
+
+// HistorySnapshot captures a point-in-time summary of workflow statuses.
+type HistorySnapshot struct {
+	Timestamp string                    `json:"timestamp"`
+	Workflows map[string]int            `json:"workflows"`
+	PerRepo   map[string]map[string]int `json:"perRepo"`
+}
+
+type TrafficDay struct {
+	Date    string `json:"date"`
+	Count   int    `json:"count"`
+	Uniques int    `json:"uniques"`
+}
+
+type RepoTraffic struct {
+	Clones []TrafficDay `json:"clones"`
+	Views  []TrafficDay `json:"views"`
+}
+
+type RepoStatsEntry struct {
+	Date  string `json:"date"`
+	Stars int    `json:"stars"`
+	Forks int    `json:"forks"`
+}
+
+type HistoryFile struct {
+	Snapshots []HistorySnapshot          `json:"snapshots"`
+	Traffic   map[string]RepoTraffic     `json:"traffic"`
+	RepoStats map[string][]RepoStatsEntry `json:"repoStats"`
+}
+
+type repoTrafficResult struct {
+	repo    string
+	traffic RepoTraffic
 }
 
 // -----------------------------------------------------------------------------
@@ -237,12 +274,33 @@ func main() {
 		}(repo)
 	}
 
+	trafficCh := make(chan repoTrafficResult, len(allRepos))
+	for _, repo := range allRepos {
+		wg.Add(1)
+		go func(r string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			tCtx, cancel := context.WithTimeout(ctx, *timeout)
+			defer cancel()
+
+			t, err := fetchTraffic(tCtx, client, r)
+			if err != nil {
+				errCh <- fmt.Errorf("traffic %s: %w", r, err)
+				return
+			}
+			trafficCh <- repoTrafficResult{repo: r, traffic: t}
+		}(repo)
+	}
+
 	wg.Wait()
 	close(resCh)
 	close(errCh)
 	close(imgCh)
 	close(wfCh)
 	close(repoCh)
+	close(trafficCh)
 
 	for err := range errCh {
 		log.Println("error:", err)
@@ -281,6 +339,62 @@ func main() {
 	}
 
 	if err := writeJSON(filepath.Join(*outDir, "repos.json"), map[string]any{"repos": repoInfos}); err != nil {
+		log.Fatal(err)
+	}
+
+	// --- Build history.json ---
+	historyPath := filepath.Join(*outDir, "history.json")
+	history := loadHistory(historyPath)
+
+	// Build workflow snapshot
+	snap := HistorySnapshot{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Workflows: make(map[string]int),
+		PerRepo:   make(map[string]map[string]int),
+	}
+	for _, wf := range allWorkflows {
+		snap.Workflows[wf.Status]++
+		if snap.PerRepo[wf.Repo] == nil {
+			snap.PerRepo[wf.Repo] = make(map[string]int)
+		}
+		snap.PerRepo[wf.Repo][wf.Status]++
+	}
+	history.Snapshots = append(history.Snapshots, snap)
+	if len(history.Snapshots) > 1000 {
+		history.Snapshots = history.Snapshots[len(history.Snapshots)-1000:]
+	}
+
+	// Drain trafficCh and merge
+	for tr := range trafficCh {
+		existing := history.Traffic[tr.repo]
+		history.Traffic[tr.repo] = RepoTraffic{
+			Clones: mergeTrafficDays(existing.Clones, tr.traffic.Clones),
+			Views:  mergeTrafficDays(existing.Views, tr.traffic.Views),
+		}
+	}
+
+	// Snapshot repo stats (stars, forks) for today
+	today := time.Now().UTC().Format("2006-01-02")
+	for _, ri := range repoInfos {
+		key := ri.FullName
+		entries := history.RepoStats[key]
+		alreadyHasToday := false
+		for _, e := range entries {
+			if e.Date == today {
+				alreadyHasToday = true
+				break
+			}
+		}
+		if !alreadyHasToday {
+			history.RepoStats[key] = append(entries, RepoStatsEntry{
+				Date:  today,
+				Stars: ri.Stars,
+				Forks: ri.Forks,
+			})
+		}
+	}
+
+	if err := writeJSON(historyPath, history); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -613,12 +727,105 @@ func fetchRepoInfo(ctx context.Context, client *github.Client, repo string) (Rep
 		FullName:    r.GetFullName(),
 		Description: r.GetDescription(),
 		Stars:       r.GetStargazersCount(),
+		Forks:       r.GetForksCount(),
 		Language:    r.GetLanguage(),
 		License:     license,
 		HTMLURL:     r.GetHTMLURL(),
 		Topics:      r.Topics,
 		README:      readmeContent,
 	}, nil
+}
+
+// -----------------------------------------------------------------------------
+// fetchTraffic retrieves clone and view traffic data for a repository.
+// -----------------------------------------------------------------------------
+func fetchTraffic(ctx context.Context, client *github.Client, repo string) (RepoTraffic, error) {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 {
+		return RepoTraffic{}, fmt.Errorf("invalid repo: %s", repo)
+	}
+	owner, name := parts[0], parts[1]
+
+	clones, _, err := client.Repositories.ListTrafficClones(ctx, owner, name, &github.TrafficBreakdownOptions{Per: "day"})
+	if err != nil {
+		log.Printf("warning: traffic clones for %s: %v (may need admin access)", repo, err)
+		return RepoTraffic{}, nil
+	}
+
+	views, _, err := client.Repositories.ListTrafficViews(ctx, owner, name, &github.TrafficBreakdownOptions{Per: "day"})
+	if err != nil {
+		log.Printf("warning: traffic views for %s: %v", repo, err)
+		return RepoTraffic{}, nil
+	}
+
+	var cloneDays []TrafficDay
+	for _, c := range clones.Clones {
+		cloneDays = append(cloneDays, TrafficDay{
+			Date:    c.GetTimestamp().Format("2006-01-02"),
+			Count:   c.GetCount(),
+			Uniques: c.GetUniques(),
+		})
+	}
+
+	var viewDays []TrafficDay
+	for _, v := range views.Views {
+		viewDays = append(viewDays, TrafficDay{
+			Date:    v.GetTimestamp().Format("2006-01-02"),
+			Count:   v.GetCount(),
+			Uniques: v.GetUniques(),
+		})
+	}
+
+	return RepoTraffic{Clones: cloneDays, Views: viewDays}, nil
+}
+
+// -----------------------------------------------------------------------------
+// loadHistory reads an existing history.json file, returning an empty structure
+// if the file does not exist or cannot be parsed.
+// -----------------------------------------------------------------------------
+func loadHistory(path string) HistoryFile {
+	var h HistoryFile
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return HistoryFile{
+			Traffic:   make(map[string]RepoTraffic),
+			RepoStats: make(map[string][]RepoStatsEntry),
+		}
+	}
+	if err := json.Unmarshal(data, &h); err != nil {
+		log.Printf("warning: failed to parse existing history.json, starting fresh: %v", err)
+		return HistoryFile{
+			Traffic:   make(map[string]RepoTraffic),
+			RepoStats: make(map[string][]RepoStatsEntry),
+		}
+	}
+	if h.Traffic == nil {
+		h.Traffic = make(map[string]RepoTraffic)
+	}
+	if h.RepoStats == nil {
+		h.RepoStats = make(map[string][]RepoStatsEntry)
+	}
+	return h
+}
+
+// mergeTrafficDays combines existing and incoming traffic data, deduplicating by
+// date and keeping the latest value for each day.
+func mergeTrafficDays(existing, incoming []TrafficDay) []TrafficDay {
+	byDate := make(map[string]TrafficDay)
+	for _, d := range existing {
+		byDate[d.Date] = d
+	}
+	for _, d := range incoming {
+		byDate[d.Date] = d
+	}
+	merged := make([]TrafficDay, 0, len(byDate))
+	for _, d := range byDate {
+		merged = append(merged, d)
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].Date < merged[j].Date
+	})
+	return merged
 }
 
 // -----------------------------------------------------------------------------
