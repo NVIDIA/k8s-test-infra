@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
+import ThemeProvider from './components/ThemeProvider';
 import App from './App';
 import './index.css';
 
@@ -13,8 +14,10 @@ if (redirect) {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/+$/, '')}>
-      <App />
-    </BrowserRouter>
+    <ThemeProvider>
+      <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/+$/, '')}>
+        <App />
+      </BrowserRouter>
+    </ThemeProvider>
   </StrictMode>,
 );

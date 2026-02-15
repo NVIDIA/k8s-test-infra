@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router';
-import { BarChart3, FolderOpen, Home } from 'lucide-react';
+import { BarChart3, FolderOpen, Home, Sun, Moon } from 'lucide-react';
+import { useTheme } from './ThemeProvider';
 
 const navItems = [
   { to: '/', label: 'Home', icon: Home },
@@ -9,6 +10,7 @@ const navItems = [
 
 export default function Navbar() {
   const location = useLocation();
+  const { resolved, setTheme } = useTheme();
 
   return (
     <nav className="bg-nvidia-black text-white">
@@ -43,6 +45,13 @@ export default function Navbar() {
                 </Link>
               );
             })}
+            <button
+              onClick={() => setTheme(resolved === 'dark' ? 'light' : 'dark')}
+              className="ml-2 p-2 rounded-md text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+              aria-label="Toggle theme"
+            >
+              {resolved === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
           </div>
         </div>
       </div>
