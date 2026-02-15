@@ -1,8 +1,10 @@
+import { useMemo } from 'react';
 import { useParams, Link } from 'react-router';
-import { ExternalLink, Star, Code, Scale, ArrowLeft } from 'lucide-react';
+import { ExternalLink, Star, Code, Scale, ArrowLeft, GitFork, Eye, Download } from 'lucide-react';
 import Layout from '../components/Layout';
 import StatusBadge from '../components/StatusBadge';
-import { useRepoInfos, useWorkflowStatuses, useImageBuilds } from '../hooks/useData';
+import TrendChart from '../components/TrendChart';
+import { useRepoInfos, useWorkflowStatuses, useImageBuilds, useHistory } from '../hooks/useData';
 import { projects } from '../data/projects';
 
 export default function ProjectDetail() {
@@ -12,6 +14,7 @@ export default function ProjectDetail() {
   const { data: repos, loading: reposLoading } = useRepoInfos();
   const { data: workflows } = useWorkflowStatuses();
   const { data: images } = useImageBuilds();
+  const { data: history } = useHistory();
 
   if (!project) {
     return (
@@ -31,10 +34,43 @@ export default function ProjectDetail() {
   const projectWorkflows = workflows.filter((w) => w.repo.toLowerCase() === repoKey);
   const projectImages = images.filter((i) => i.repo.toLowerCase() === repoKey);
 
+  const workflowTrend = useMemo(() => {
+    if (!history) return [];
+    return history.snapshots
+      .filter((s) => s.perRepo[project.repo])
+      .map((s) => ({
+        date: s.timestamp,
+        success: s.perRepo[project.repo]['success'] ?? 0,
+        failure: s.perRepo[project.repo]['failure'] ?? 0,
+      }));
+  }, [history, project.repo]);
+
+  const trafficData = history?.traffic[project.repo];
+  const cloneChartData = useMemo(() => {
+    return (trafficData?.clones ?? []).map((d) => ({
+      date: d.date,
+      total: d.count,
+      unique: d.uniques,
+    }));
+  }, [trafficData]);
+
+  const viewChartData = useMemo(() => {
+    return (trafficData?.views ?? []).map((d) => ({
+      date: d.date,
+      total: d.count,
+      unique: d.uniques,
+    }));
+  }, [trafficData]);
+
+  const statsHistory = history?.repoStats[project.repo] ?? [];
+  const starsChartData = statsHistory.map((e) => ({ date: e.date, stars: e.stars }));
+  const forksChartData = statsHistory.map((e) => ({ date: e.date, forks: e.forks }));
+
   const sidebarItems = [
     { to: `/projects/${slug}`, label: 'Overview' },
     { to: `/projects/${slug}#ci-status`, label: 'CI Status' },
     ...(projectImages.length > 0 ? [{ to: `/projects/${slug}#images`, label: 'Images' }] : []),
+    { to: `/projects/${slug}#utilization`, label: 'Utilization' },
     { to: `/projects/${slug}#readme`, label: 'README' },
   ];
 
@@ -87,6 +123,10 @@ export default function ProjectDetail() {
             <span className="inline-flex items-center gap-1">
               <Star size={14} className="text-yellow-500" />
               {repoInfo.stars.toLocaleString()} stars
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <GitFork size={14} className="text-gray-400" />
+              {repoInfo.forks.toLocaleString()} forks
             </span>
             {repoInfo.language && (
               <span className="inline-flex items-center gap-1">
@@ -182,6 +222,82 @@ export default function ProjectDetail() {
           </div>
         </section>
       )}
+
+      {/* Utilization */}
+      <section id="utilization" className="mb-6">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">Utilization</h2>
+
+        {workflowTrend.length > 0 && (
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Workflow Status Trend</h3>
+            <TrendChart
+              data={workflowTrend}
+              areas={[
+                { key: 'success', color: '#22c55e', name: 'Success' },
+                { key: 'failure', color: '#ef4444', name: 'Failure' },
+              ]}
+              height={180}
+              stacked
+            />
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Download size={14} className="text-gray-500 dark:text-gray-400" />
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Clones</h3>
+            </div>
+            <TrendChart
+              data={cloneChartData}
+              areas={[
+                { key: 'total', color: '#3b82f6', name: 'Total' },
+                { key: 'unique', color: '#8b5cf6', name: 'Unique' },
+              ]}
+              height={150}
+            />
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Eye size={14} className="text-gray-500 dark:text-gray-400" />
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Views</h3>
+            </div>
+            <TrendChart
+              data={viewChartData}
+              areas={[
+                { key: 'total', color: '#3b82f6', name: 'Total' },
+                { key: 'unique', color: '#8b5cf6', name: 'Unique' },
+              ]}
+              height={150}
+            />
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Star size={14} className="text-yellow-500" />
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Stars</h3>
+            </div>
+            <TrendChart
+              data={starsChartData}
+              areas={[{ key: 'stars', color: '#eab308', name: 'Stars' }]}
+              height={150}
+            />
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <GitFork size={14} className="text-gray-500 dark:text-gray-400" />
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Forks</h3>
+            </div>
+            <TrendChart
+              data={forksChartData}
+              areas={[{ key: 'forks', color: '#06b6d4', name: 'Forks' }]}
+              height={150}
+            />
+          </div>
+        </div>
+      </section>
 
       {/* README */}
       <section id="readme" className="mb-6">
