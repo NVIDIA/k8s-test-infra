@@ -168,6 +168,170 @@ type repoTrafficResult struct {
 	traffic RepoTraffic
 }
 
+// Issues/PRs types
+type AgeBuckets struct {
+	Fresh   int `json:"fresh"`
+	Recent  int `json:"recent"`
+	Aging   int `json:"aging"`
+	Stale   int `json:"stale"`
+	Ancient int `json:"ancient"`
+}
+
+type VelocityWeek struct {
+	Week   string `json:"week"`
+	Opened int    `json:"opened"`
+	Closed int    `json:"closed"`
+	Merged int    `json:"merged,omitempty"`
+}
+
+type PRReviewMetrics struct {
+	AwaitingReview       int     `json:"awaitingReview"`
+	NoReviewer           int     `json:"noReviewer"`
+	AvgDaysToFirstReview float64 `json:"avgDaysToFirstReview"`
+	AvgDaysToMerge       float64 `json:"avgDaysToMerge"`
+}
+
+type IssueStats struct {
+	Total      int            `json:"total"`
+	Categories map[string]int `json:"categories"`
+	AgeBuckets AgeBuckets     `json:"ageBuckets"`
+	Velocity   []VelocityWeek `json:"velocity"`
+}
+
+type PRStats struct {
+	Total      int             `json:"total"`
+	Categories map[string]int  `json:"categories"`
+	AgeBuckets AgeBuckets      `json:"ageBuckets"`
+	Velocity   []VelocityWeek  `json:"velocity"`
+	Review     PRReviewMetrics `json:"review"`
+}
+
+type RepoIssuesPRs struct {
+	FetchedAt    string     `json:"fetchedAt"`
+	Issues       IssueStats `json:"issues"`
+	PullRequests PRStats    `json:"pullRequests"`
+}
+
+type IssuesPRsFile struct {
+	Repos map[string]RepoIssuesPRs `json:"repos"`
+}
+
+type issuesPRsResult struct {
+	repo string
+	data RepoIssuesPRs
+}
+
+var labelCategories = map[string]map[string]string{
+	"_default": {
+		"bug":              "bug",
+		"fix":              "bug",
+		"feature":          "feature-request",
+		"feature-request":  "feature-request",
+		"feature request":  "feature-request",
+		"enhancement":      "enhancement",
+		"question":         "question",
+		"documentation":    "docs",
+		"good first issue": "good-first-issue",
+	},
+	"NVIDIA/gpu-operator": {
+		"kind/bug":          "bug",
+		"kind/feature":      "feature-request",
+		"priority/critical": "critical",
+	},
+	"NVIDIA/k8s-device-plugin": {
+		"kind/bug":     "bug",
+		"kind/feature": "feature-request",
+	},
+	"NVIDIA/nvidia-container-toolkit": {
+		"kind/bug":     "bug",
+		"kind/feature": "feature-request",
+	},
+}
+
+func categorizeLabels(repo string, labels []string) string {
+	merged := make(map[string]string)
+	for k, v := range labelCategories["_default"] {
+		merged[k] = v
+	}
+	if repoMap, ok := labelCategories[repo]; ok {
+		for k, v := range repoMap {
+			merged[k] = v
+		}
+	}
+	for _, label := range labels {
+		lower := strings.ToLower(label)
+		if cat, ok := merged[lower]; ok {
+			return cat
+		}
+	}
+	return "other"
+}
+
+func computeAgeBucket(created time.Time, now time.Time) string {
+	age := now.Sub(created)
+	switch {
+	case age < 7*24*time.Hour:
+		return "fresh"
+	case age < 30*24*time.Hour:
+		return "recent"
+	case age < 90*24*time.Hour:
+		return "aging"
+	case age < 365*24*time.Hour:
+		return "stale"
+	default:
+		return "ancient"
+	}
+}
+
+func isoWeek(t time.Time) string {
+	year, week := t.ISOWeek()
+	jan4 := time.Date(year, 1, 4, 0, 0, 0, 0, time.UTC)
+	weekday := jan4.Weekday()
+	if weekday == 0 {
+		weekday = 7
+	}
+	firstMonday := jan4.AddDate(0, 0, -int(weekday-1))
+	monday := firstMonday.AddDate(0, 0, (week-1)*7)
+	return monday.Format("2006-01-02")
+}
+
+func buildVelocitySlice(opened, closed, merged map[string]int, from, to time.Time) []VelocityWeek {
+	weeks := make(map[string]bool)
+	for w := from; w.Before(to); w = w.AddDate(0, 0, 7) {
+		weeks[isoWeek(w)] = true
+	}
+	for w := range opened {
+		weeks[w] = true
+	}
+	for w := range closed {
+		weeks[w] = true
+	}
+	if merged != nil {
+		for w := range merged {
+			weeks[w] = true
+		}
+	}
+	var sorted []string
+	for w := range weeks {
+		sorted = append(sorted, w)
+	}
+	sort.Strings(sorted)
+
+	var result []VelocityWeek
+	for _, w := range sorted {
+		vw := VelocityWeek{
+			Week:   w,
+			Opened: opened[w],
+			Closed: closed[w],
+		}
+		if merged != nil {
+			vw.Merged = merged[w]
+		}
+		result = append(result, vw)
+	}
+	return result
+}
+
 // -----------------------------------------------------------------------------
 func main() {
 	log.SetFlags(0)
@@ -781,6 +945,276 @@ func fetchTraffic(ctx context.Context, client *github.Client, repo string) (Repo
 	}
 
 	return RepoTraffic{Clones: cloneDays, Views: viewDays}, nil
+}
+
+func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (RepoIssuesPRs, error) {
+	parts := strings.Split(repo, "/")
+	if len(parts) != 2 {
+		return RepoIssuesPRs{}, fmt.Errorf("invalid repo: %s", repo)
+	}
+	owner, name := parts[0], parts[1]
+	now := time.Now().UTC()
+	twelveWeeksAgo := now.AddDate(0, 0, -84)
+
+	// Fetch all open issues (GitHub issues endpoint includes PRs, filter them out)
+	var openIssues []*github.Issue
+	issueOpt := &github.IssueListByRepoOptions{
+		State:       "open",
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	for {
+		issues, resp, err := client.Issues.ListByRepo(ctx, owner, name, issueOpt)
+		if err != nil {
+			return RepoIssuesPRs{}, fmt.Errorf("list open issues: %w", err)
+		}
+		for _, iss := range issues {
+			if iss.PullRequestLinks == nil {
+				openIssues = append(openIssues, iss)
+			}
+		}
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		issueOpt.Page = resp.NextPage
+	}
+
+	// Fetch all open PRs
+	var openPRs []*github.PullRequest
+	prOpt := &github.PullRequestListOptions{
+		State:       "open",
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	for {
+		prs, resp, err := client.PullRequests.List(ctx, owner, name, prOpt)
+		if err != nil {
+			return RepoIssuesPRs{}, fmt.Errorf("list open PRs: %w", err)
+		}
+		openPRs = append(openPRs, prs...)
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		prOpt.Page = resp.NextPage
+	}
+
+	// Fetch recently closed issues+PRs (for velocity)
+	var closedItems []*github.Issue
+	closedOpt := &github.IssueListByRepoOptions{
+		State:       "closed",
+		Since:       twelveWeeksAgo,
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	for {
+		issues, resp, err := client.Issues.ListByRepo(ctx, owner, name, closedOpt)
+		if err != nil {
+			log.Printf("warning: failed to fetch closed issues for %s: %v", repo, err)
+			break
+		}
+		closedItems = append(closedItems, issues...)
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		closedOpt.Page = resp.NextPage
+	}
+
+	// Fetch recently merged PRs (for merge velocity and avg merge time)
+	var mergedPRs []*github.PullRequest
+	mergedOpt := &github.PullRequestListOptions{
+		State:       "closed",
+		Sort:        "updated",
+		Direction:   "desc",
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+	for {
+		prs, resp, err := client.PullRequests.List(ctx, owner, name, mergedOpt)
+		if err != nil {
+			log.Printf("warning: failed to fetch merged PRs for %s: %v", repo, err)
+			break
+		}
+		pastCutoff := false
+		for _, pr := range prs {
+			if pr.GetMergedAt().IsZero() {
+				continue
+			}
+			if pr.GetMergedAt().Before(twelveWeeksAgo) {
+				pastCutoff = true
+				break
+			}
+			mergedPRs = append(mergedPRs, pr)
+		}
+		if pastCutoff || resp == nil || resp.NextPage == 0 {
+			break
+		}
+		mergedOpt.Page = resp.NextPage
+	}
+
+	// --- Aggregate issue stats ---
+	issueCats := make(map[string]int)
+	var issueAgeBuckets AgeBuckets
+	for _, iss := range openIssues {
+		var labels []string
+		for _, l := range iss.Labels {
+			labels = append(labels, l.GetName())
+		}
+		cat := categorizeLabels(repo, labels)
+		issueCats[cat]++
+
+		bucket := computeAgeBucket(iss.GetCreatedAt().Time, now)
+		switch bucket {
+		case "fresh":
+			issueAgeBuckets.Fresh++
+		case "recent":
+			issueAgeBuckets.Recent++
+		case "aging":
+			issueAgeBuckets.Aging++
+		case "stale":
+			issueAgeBuckets.Stale++
+		case "ancient":
+			issueAgeBuckets.Ancient++
+		}
+	}
+
+	// Issue velocity: opened + closed per week
+	issueOpenedByWeek := make(map[string]int)
+	issueClosedByWeek := make(map[string]int)
+
+	for _, iss := range openIssues {
+		if iss.GetCreatedAt().Time.After(twelveWeeksAgo) {
+			w := isoWeek(iss.GetCreatedAt().Time)
+			issueOpenedByWeek[w]++
+		}
+	}
+	for _, iss := range closedItems {
+		if iss.PullRequestLinks != nil {
+			continue
+		}
+		if iss.GetCreatedAt().Time.After(twelveWeeksAgo) {
+			w := isoWeek(iss.GetCreatedAt().Time)
+			issueOpenedByWeek[w]++
+		}
+		if iss.ClosedAt != nil && iss.GetClosedAt().Time.After(twelveWeeksAgo) {
+			w := isoWeek(iss.GetClosedAt().Time)
+			issueClosedByWeek[w]++
+		}
+	}
+
+	// --- Aggregate PR stats ---
+	prCats := make(map[string]int)
+	var prAgeBuckets AgeBuckets
+	awaitingReview := 0
+	noReviewer := 0
+
+	for _, pr := range openPRs {
+		var labels []string
+		for _, l := range pr.Labels {
+			labels = append(labels, l.GetName())
+		}
+		cat := categorizeLabels(repo, labels)
+		prCats[cat]++
+
+		bucket := computeAgeBucket(pr.GetCreatedAt().Time, now)
+		switch bucket {
+		case "fresh":
+			prAgeBuckets.Fresh++
+		case "recent":
+			prAgeBuckets.Recent++
+		case "aging":
+			prAgeBuckets.Aging++
+		case "stale":
+			prAgeBuckets.Stale++
+		case "ancient":
+			prAgeBuckets.Ancient++
+		}
+
+		if len(pr.RequestedReviewers) > 0 {
+			awaitingReview++
+		}
+		if len(pr.RequestedReviewers) == 0 && len(pr.RequestedTeams) == 0 {
+			noReviewer++
+		}
+	}
+
+	// PR velocity
+	prOpenedByWeek := make(map[string]int)
+	prClosedByWeek := make(map[string]int)
+	prMergedByWeek := make(map[string]int)
+
+	for _, pr := range openPRs {
+		if pr.GetCreatedAt().Time.After(twelveWeeksAgo) {
+			w := isoWeek(pr.GetCreatedAt().Time)
+			prOpenedByWeek[w]++
+		}
+	}
+	for _, iss := range closedItems {
+		if iss.PullRequestLinks == nil {
+			continue
+		}
+		if iss.GetCreatedAt().Time.After(twelveWeeksAgo) {
+			w := isoWeek(iss.GetCreatedAt().Time)
+			prOpenedByWeek[w]++
+		}
+		if iss.ClosedAt != nil && iss.GetClosedAt().Time.After(twelveWeeksAgo) {
+			w := isoWeek(iss.GetClosedAt().Time)
+			prClosedByWeek[w]++
+		}
+	}
+	for _, pr := range mergedPRs {
+		w := isoWeek(pr.GetMergedAt().Time)
+		prMergedByWeek[w]++
+	}
+
+	// Avg days to merge
+	var totalMergeDays float64
+	for _, pr := range mergedPRs {
+		mergeDuration := pr.GetMergedAt().Time.Sub(pr.GetCreatedAt().Time)
+		totalMergeDays += mergeDuration.Hours() / 24
+	}
+	avgDaysToMerge := 0.0
+	if len(mergedPRs) > 0 {
+		avgDaysToMerge = totalMergeDays / float64(len(mergedPRs))
+	}
+
+	// Avg days to first review for open PRs
+	var totalFirstReviewDays float64
+	reviewedCount := 0
+	for _, pr := range openPRs {
+		reviews, _, err := client.PullRequests.ListReviews(ctx, owner, name, pr.GetNumber(), &github.ListOptions{PerPage: 1})
+		if err != nil || len(reviews) == 0 {
+			continue
+		}
+		firstReview := reviews[0]
+		duration := firstReview.GetSubmittedAt().Time.Sub(pr.GetCreatedAt().Time)
+		totalFirstReviewDays += duration.Hours() / 24
+		reviewedCount++
+	}
+	avgDaysToFirstReview := 0.0
+	if reviewedCount > 0 {
+		avgDaysToFirstReview = totalFirstReviewDays / float64(reviewedCount)
+	}
+
+	issueVelocity := buildVelocitySlice(issueOpenedByWeek, issueClosedByWeek, nil, twelveWeeksAgo, now)
+	prVelocity := buildVelocitySlice(prOpenedByWeek, prClosedByWeek, prMergedByWeek, twelveWeeksAgo, now)
+
+	return RepoIssuesPRs{
+		FetchedAt: now.Format(time.RFC3339),
+		Issues: IssueStats{
+			Total:      len(openIssues),
+			Categories: issueCats,
+			AgeBuckets: issueAgeBuckets,
+			Velocity:   issueVelocity,
+		},
+		PullRequests: PRStats{
+			Total:      len(openPRs),
+			Categories: prCats,
+			AgeBuckets: prAgeBuckets,
+			Velocity:   prVelocity,
+			Review: PRReviewMetrics{
+				AwaitingReview:       awaitingReview,
+				NoReviewer:           noReviewer,
+				AvgDaysToFirstReview: avgDaysToFirstReview,
+				AvgDaysToMerge:       avgDaysToMerge,
+			},
+		},
+	}, nil
 }
 
 // -----------------------------------------------------------------------------
