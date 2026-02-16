@@ -161,7 +161,13 @@ func discoverConfigPath() string {
 		if len(fields) < 6 {
 			continue
 		}
+		// The last field is normally the pathname, but after file replacement
+		// (e.g. library upgrade) it can be "pathname (deleted)". In that case
+		// the absolute path is the second-to-last field.
 		soPath := fields[len(fields)-1]
+		if soPath == "(deleted)" && len(fields) >= 7 {
+			soPath = fields[len(fields)-2]
+		}
 		if !strings.HasPrefix(soPath, "/") {
 			continue
 		}
