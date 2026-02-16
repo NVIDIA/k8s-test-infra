@@ -14,9 +14,13 @@
 package engine
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 
 	"sigs.k8s.io/yaml"
@@ -55,9 +59,17 @@ func DefaultConfig() *Config {
 }
 
 // LoadConfig loads configuration from YAML file (if specified) or environment variables.
-// Results are cached - subsequent calls with the same MOCK_NVML_CONFIG return cached config.
+// Results are cached - subsequent calls with the same config path return cached config.
+//
+// Config resolution order:
+//  1. MOCK_NVML_CONFIG env var (explicit path)
+//  2. Auto-discover from /proc/self/maps (Linux only)
+//  3. Fall back to env vars / defaults
 func LoadConfig() *Config {
 	configPath := os.Getenv("MOCK_NVML_CONFIG")
+	if configPath == "" {
+		configPath = discoverConfigPath()
+	}
 
 	configCacheMu.Lock()
 	defer configCacheMu.Unlock()
@@ -84,12 +96,11 @@ func LoadConfig() *Config {
 				config.NumDevices = 8 // Default if no devices specified
 			}
 
-			// Allow MOCK_NVML_NUM_DEVICES to override even with YAML config.
-			// This lets the Helm chart's gpu.count control NVML device count.
-			if num := os.Getenv("MOCK_NVML_NUM_DEVICES"); num != "" {
-				if val, err := strconv.Atoi(num); err == nil && val >= 0 {
-					config.NumDevices = val
-				}
+			// system.num_devices overrides the device list count.
+			// setup.sh injects this so the .so knows the desired GPU count
+			// without consumers needing to set env vars.
+			if yamlConfig.System.NumDevices > 0 {
+				config.NumDevices = yamlConfig.System.NumDevices
 			}
 			debugLog("[CONFIG] Loaded YAML config: %d devices, driver %s\n", config.NumDevices, config.DriverVersion)
 
@@ -117,6 +128,62 @@ func LoadConfig() *Config {
 	configCache = config
 	configCachePath = configPath
 	return config
+}
+
+// discoverConfigPath attempts to locate the config file by reading /proc/self/maps
+// to find the path of the loaded mock NVML .so, then navigating to the config directory.
+//
+// Expected layout:
+//
+//	.so at:     <driver_root>/usr/lib64/libnvidia-ml.so.<version>
+//	config at:  <driver_root>/config/config.yaml
+//
+// Returns empty string if auto-discovery is not possible (non-Linux, file not found).
+func discoverConfigPath() string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+
+	f, err := os.Open("/proc/self/maps")
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.Contains(line, "libnvidia-ml.so") {
+			continue
+		}
+		// /proc/self/maps format: addr-addr perms offset dev inode   pathname
+		fields := strings.Fields(line)
+		if len(fields) < 6 {
+			continue
+		}
+		// The last field is normally the pathname, but after file replacement
+		// (e.g. library upgrade) it can be "pathname (deleted)". In that case
+		// the absolute path is the second-to-last field.
+		soPath := fields[len(fields)-1]
+		if soPath == "(deleted)" && len(fields) >= 7 {
+			soPath = fields[len(fields)-2]
+		}
+		if !strings.HasPrefix(soPath, "/") {
+			continue
+		}
+		// Navigate from <driver_root>/usr/lib64/libnvidia-ml.so.* to <driver_root>/config/config.yaml
+		libDir := filepath.Dir(soPath)                   // .../usr/lib64
+		driverRoot := filepath.Dir(filepath.Dir(libDir)) // .../driver_root
+		configPath := filepath.Join(driverRoot, "config", "config.yaml")
+		if _, err := os.Stat(configPath); err == nil {
+			debugLog("[CONFIG] Auto-discovered config at %s\n", configPath)
+			return configPath
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		debugLog("[CONFIG] Error scanning /proc/self/maps: %v\n", err)
+	}
+	return ""
 }
 
 // LoadYAMLConfig loads and parses a YAML configuration file
@@ -282,4 +349,4 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	// Add more fields as needed
 }
 
-// Note: debugLog is defined in device.go to avoid duplication
+// Note: debugLog is defined in utils.go to avoid duplication

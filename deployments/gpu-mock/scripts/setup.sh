@@ -43,7 +43,7 @@ mknod -m 666 "$DEV_ROOT/nvidia-uvm-tools" c 510 1 2>/dev/null || true
 # 4. Create mock nvidia-smi (required by DRA driver)
 #    Uses unquoted heredoc so $DRIVER_VERSION is expanded at setup time.
 cat > "$DRIVER_ROOT/usr/bin/nvidia-smi" << NVIDIA_SMI_EOF
-#!/bin/sh
+#!/bin/bash
 # Mock nvidia-smi — returns driver version and basic GPU info.
 # Used by consumers (e.g., DRA driver) that probe nvidia-smi at startup.
 echo "NVIDIA-SMI $DRIVER_VERSION"
@@ -55,11 +55,16 @@ chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi"
 
 # 5. Copy GPU profile config to both locations:
 #    - config/config.yaml (canonical, used by device plugin)
-#    - driver/config/config.yaml (used by DRA driver when only driver/ is mounted)
+#    - driver/config/config.yaml (auto-discovered by .so via /proc/self/maps)
 cp /config/config.yaml "$CONFIG_DIR/config.yaml"
 cp /config/config.yaml "$DRIVER_ROOT/config/config.yaml"
 
-# 6. Label node (requires RBAC: get+patch on nodes)
+# 6. Inject num_devices into config so the .so knows GPU count without env vars.
+#    This makes the on-host config self-contained — consumers just point at driver root.
+sed -i "/^system:/a\\  num_devices: $GPU_COUNT" "$CONFIG_DIR/config.yaml"
+sed -i "/^system:/a\\  num_devices: $GPU_COUNT" "$DRIVER_ROOT/config/config.yaml"
+
+# 7. Label node (requires RBAC: get+patch on nodes)
 if command -v kubectl >/dev/null 2>&1; then
   kubectl label node "$NODE_NAME" nvidia.com/gpu.present=true --overwrite || true
   kubectl label node "$NODE_NAME" feature.node.kubernetes.io/pci-10de.present=true --overwrite || true

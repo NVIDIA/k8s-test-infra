@@ -30,6 +30,7 @@ type SystemConfig struct {
 	CUDAVersion      string `json:"cuda_version"`
 	CUDAVersionMajor int    `json:"cuda_version_major"`
 	CUDAVersionMinor int    `json:"cuda_version_minor"`
+	NumDevices       int    `json:"num_devices,omitempty"`
 }
 
 // DeviceConfig represents the full device configuration.

@@ -12,20 +12,14 @@ To use with NVIDIA Device Plugin:
     --set runtimeClassName="" \
     --set args[0]="--nvidia-driver-root=/var/lib/nvidia-mock/driver" \
     --set args[1]="--driver-root-ctr-path=/var/lib/nvidia-mock/driver" \
-    --set args[2]="--device-discovery-strategy=nvml" \
-    --set env[0].name=MOCK_NVML_CONFIG \
-    --set env[0].value=/var/lib/nvidia-mock/config/config.yaml \
-    --set env[1].name=MOCK_NVML_NUM_DEVICES \
-    --set "env[1].value={{ .Values.gpu.count }}"
+    --set args[2]="--device-discovery-strategy=nvml"
+
+  No mock-specific env vars needed — the .so auto-discovers its config.
 
 To use with NVIDIA DRA Driver:
 
   helm install nvidia-dra-driver nvidia/nvidia-dra-driver-gpu \
-    --set nvidiaDriverRoot=/var/lib/nvidia-mock/driver \
-    --set env[0].name=MOCK_NVML_CONFIG \
-    --set env[0].value=/driver-root/config/config.yaml \
-    --set env[1].name=MOCK_NVML_NUM_DEVICES \
-    --set "env[1].value={{ .Values.gpu.count }}"
+    --set nvidiaDriverRoot=/var/lib/nvidia-mock/driver
 
 To use with GPU Operator:
 
