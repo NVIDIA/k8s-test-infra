@@ -19,7 +19,7 @@ export default function Layout({
       <Navbar />
       <div className="flex flex-1">
         <Sidebar items={sidebarItems} title={sidebarTitle} />
-        <main className="flex-1 p-6 lg:p-8 max-w-7xl">{children}</main>
+        <main className="flex-1 p-6 lg:p-8 max-w-7xl mx-auto">{children}</main>
       </div>
       <Footer />
     </div>
