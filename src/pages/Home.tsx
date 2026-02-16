@@ -88,12 +88,12 @@ export default function Home() {
   }, [issuesPRs]);
 
   const stats = [
-    { label: 'Projects', value: projects.length, icon: FolderOpen, color: 'text-nvidia-green' },
-    { label: 'Workflows Passing (48h)', value: totalPassed, icon: CheckCircle, color: 'text-status-pass' },
-    { label: 'Workflows Failing (48h)', value: totalFailed, icon: XCircle, color: totalFailed > 0 ? 'text-status-fail' : 'text-status-pass' },
-    { label: 'Image Builds', value: images.length, icon: Box, color: 'text-blue-500' },
-    { label: 'Open Issues', value: totalOpenIssues, icon: AlertCircle, color: 'text-orange-500' },
-    { label: 'Open PRs', value: totalOpenPRs, icon: GitPullRequest, color: 'text-purple-500' },
+    { label: 'Projects', value: projects.length, icon: FolderOpen, color: 'text-nvidia-green', to: '/projects' },
+    { label: 'Workflows Passing (48h)', value: totalPassed, icon: CheckCircle, color: 'text-status-pass', to: '/dashboard#workflow-status' },
+    { label: 'Workflows Failing (48h)', value: totalFailed, icon: XCircle, color: totalFailed > 0 ? 'text-status-fail' : 'text-status-pass', to: '/dashboard#workflow-status' },
+    { label: 'Image Builds', value: images.length, icon: Box, color: 'text-blue-500', to: '/dashboard#image-builds' },
+    { label: 'Open Issues', value: totalOpenIssues, icon: AlertCircle, color: 'text-orange-500', to: '/dashboard#issues-prs' },
+    { label: 'Open PRs', value: totalOpenPRs, icon: GitPullRequest, color: 'text-purple-500', to: '/dashboard#issues-prs' },
   ];
 
   return (
@@ -104,14 +104,14 @@ export default function Home() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-        {stats.map(({ label, value, icon: Icon, color }) => (
-          <div key={label} className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 flex items-center gap-4">
+        {stats.map(({ label, value, icon: Icon, color, to }) => (
+          <Link key={label} to={to} className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 flex items-center gap-4 hover:shadow-md transition-shadow cursor-pointer">
             <Icon size={32} className={color} />
             <div>
               <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
               <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
             </div>
-          </div>
+          </Link>
         ))}
       </div>
 
