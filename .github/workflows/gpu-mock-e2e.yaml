@@ -179,6 +179,7 @@ jobs:
             --create-namespace \
             --set nvidiaDriverRoot=/var/lib/nvidia-mock/driver \
             --set gpuResourcesEnabledOverride=true \
+            --set resources.computeDomains.enabled=false \
             --wait --timeout 180s
 
       - name: Wait for DRA pods
