@@ -30,6 +30,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -256,13 +257,9 @@ var labelCategories = map[string]map[string]string{
 // alphabetically.
 func categorizeLabels(repo string, labels []string) string {
 	merged := make(map[string]string)
-	for k, v := range labelCategories["_default"] {
-		merged[k] = v
-	}
+	maps.Copy(merged, labelCategories["_default"])
 	if repoMap, ok := labelCategories[repo]; ok {
-		for k, v := range repoMap {
-			merged[k] = v
-		}
+		maps.Copy(merged, repoMap)
 	}
 	for _, label := range labels {
 		lower := strings.ToLower(label)
@@ -312,10 +309,8 @@ func buildVelocitySlice(opened, closed, merged map[string]int, from, to time.Tim
 	for w := range closed {
 		weeks[w] = true
 	}
-	if merged != nil {
-		for w := range merged {
-			weeks[w] = true
-		}
+	for w := range merged {
+		weeks[w] = true
 	}
 	var sorted []string
 	for w := range weeks {
