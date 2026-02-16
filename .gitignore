@@ -3,3 +3,5 @@ dist/
 *.tsbuildinfo
 *.log
 .DS_Store
+# Go binary
+k8s-test-infra
