@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router';
 import { ExternalLink, Star, Code, Scale, ArrowLeft, GitFork, Eye, Download } from 'lucide-react';
 import Layout from '../components/Layout';
@@ -20,6 +20,9 @@ export default function ProjectDetail() {
   const { data: images } = useImageBuilds();
   const { data: history } = useHistory();
   const { data: issuesPRs } = useIssuesPRs();
+  const [ciPage, setCiPage] = useState(1);
+
+  useEffect(() => { setCiPage(1); }, [slug]);
 
   if (!project) {
     return (
@@ -37,7 +40,6 @@ export default function ProjectDetail() {
   const repoKey = project.repo.toLowerCase();
   const repoInfo = repos.find((r) => r.fullName.toLowerCase() === repoKey);
   const projectWorkflows = workflows.filter((w) => w.repo.toLowerCase() === repoKey);
-  const [ciPage, setCiPage] = useState(1);
   const ciTotalPages = Math.ceil(projectWorkflows.length / PAGE_SIZE);
   const paginatedCIWorkflows = projectWorkflows.slice(
     (ciPage - 1) * PAGE_SIZE,
