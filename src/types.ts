@@ -25,6 +25,8 @@ export interface ImageBuild {
   tag: string;
   pushedAt: string;
   htmlUrl: string;
+  imageType: 'release' | 'ci' | 'dev';
+  commitUrl: string;
 }
 
 export interface RepoInfo {

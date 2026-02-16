@@ -116,7 +116,7 @@ export function useIssuesPRs() {
       .then((d) => {
         // Normalize repo keys to lowercase for consistent lookups
         const normalized: IssuesPRsData['repos'] = {};
-        for (const [key, value] of Object.entries(d.repos)) {
+        for (const [key, value] of Object.entries(d.repos ?? {})) {
           normalized[key.toLowerCase()] = value;
         }
         setData({ repos: normalized });
