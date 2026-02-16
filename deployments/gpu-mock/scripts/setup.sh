@@ -43,7 +43,7 @@ mknod -m 666 "$DEV_ROOT/nvidia-uvm-tools" c 510 1 2>/dev/null || true
 # 4. Create mock nvidia-smi (required by DRA driver)
 #    Uses unquoted heredoc so $DRIVER_VERSION is expanded at setup time.
 cat > "$DRIVER_ROOT/usr/bin/nvidia-smi" << NVIDIA_SMI_EOF
-#!/bin/sh
+#!/bin/bash
 # Mock nvidia-smi — returns driver version and basic GPU info.
 # Used by consumers (e.g., DRA driver) that probe nvidia-smi at startup.
 echo "NVIDIA-SMI $DRIVER_VERSION"
