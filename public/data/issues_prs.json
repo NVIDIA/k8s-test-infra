@@ -1,0 +1,302 @@
+{
+  "repos": {
+    "NVIDIA/gpu-operator": {
+      "fetchedAt": "2026-02-15T12:00:00Z",
+      "issues": {
+        "total": 42,
+        "categories": {
+          "bug": 12,
+          "feature-request": 8,
+          "enhancement": 5,
+          "question": 3,
+          "other": 14
+        },
+        "ageBuckets": {
+          "fresh": 5,
+          "recent": 10,
+          "aging": 12,
+          "stale": 8,
+          "ancient": 7
+        },
+        "velocity": [
+          {
+            "week": "2025-12-22",
+            "opened": 4,
+            "closed": 3
+          },
+          {
+            "week": "2025-12-29",
+            "opened": 5,
+            "closed": 6
+          },
+          {
+            "week": "2026-01-05",
+            "opened": 3,
+            "closed": 4
+          },
+          {
+            "week": "2026-01-12",
+            "opened": 7,
+            "closed": 2
+          },
+          {
+            "week": "2026-01-19",
+            "opened": 2,
+            "closed": 5
+          },
+          {
+            "week": "2026-01-26",
+            "opened": 6,
+            "closed": 3
+          },
+          {
+            "week": "2026-02-02",
+            "opened": 3,
+            "closed": 5
+          },
+          {
+            "week": "2026-02-09",
+            "opened": 4,
+            "closed": 4
+          }
+        ]
+      },
+      "pullRequests": {
+        "total": 8,
+        "categories": {
+          "bug-fix": 2,
+          "feature": 3,
+          "chore": 1,
+          "other": 2
+        },
+        "ageBuckets": {
+          "fresh": 3,
+          "recent": 2,
+          "aging": 2,
+          "stale": 1,
+          "ancient": 0
+        },
+        "velocity": [
+          {
+            "week": "2025-12-22",
+            "opened": 2,
+            "closed": 2,
+            "merged": 2
+          },
+          {
+            "week": "2025-12-29",
+            "opened": 3,
+            "closed": 3,
+            "merged": 2
+          },
+          {
+            "week": "2026-01-05",
+            "opened": 1,
+            "closed": 2,
+            "merged": 2
+          },
+          {
+            "week": "2026-01-12",
+            "opened": 4,
+            "closed": 1,
+            "merged": 1
+          },
+          {
+            "week": "2026-01-19",
+            "opened": 2,
+            "closed": 3,
+            "merged": 3
+          },
+          {
+            "week": "2026-01-26",
+            "opened": 3,
+            "closed": 2,
+            "merged": 2
+          },
+          {
+            "week": "2026-02-02",
+            "opened": 2,
+            "closed": 4,
+            "merged": 3
+          },
+          {
+            "week": "2026-02-09",
+            "opened": 1,
+            "closed": 2,
+            "merged": 2
+          }
+        ],
+        "review": {
+          "awaitingReview": 3,
+          "noReviewer": 1,
+          "avgDaysToFirstReview": 1.5,
+          "avgDaysToMerge": 3.2
+        }
+      }
+    },
+    "NVIDIA/nvidia-container-toolkit": {
+      "fetchedAt": "2026-02-15T12:00:00Z",
+      "issues": {
+        "total": 18,
+        "categories": {
+          "bug": 6,
+          "feature-request": 4,
+          "enhancement": 3,
+          "other": 5
+        },
+        "ageBuckets": {
+          "fresh": 3,
+          "recent": 5,
+          "aging": 4,
+          "stale": 4,
+          "ancient": 2
+        },
+        "velocity": [
+          {
+            "week": "2026-01-19",
+            "opened": 2,
+            "closed": 3
+          },
+          {
+            "week": "2026-01-26",
+            "opened": 1,
+            "closed": 2
+          },
+          {
+            "week": "2026-02-02",
+            "opened": 3,
+            "closed": 2
+          },
+          {
+            "week": "2026-02-09",
+            "opened": 2,
+            "closed": 3
+          }
+        ]
+      },
+      "pullRequests": {
+        "total": 3,
+        "categories": {
+          "bug-fix": 1,
+          "feature": 1,
+          "other": 1
+        },
+        "ageBuckets": {
+          "fresh": 2,
+          "recent": 1,
+          "aging": 0,
+          "stale": 0,
+          "ancient": 0
+        },
+        "velocity": [
+          {
+            "week": "2026-01-19",
+            "opened": 1,
+            "closed": 2,
+            "merged": 2
+          },
+          {
+            "week": "2026-01-26",
+            "opened": 2,
+            "closed": 1,
+            "merged": 1
+          },
+          {
+            "week": "2026-02-02",
+            "opened": 1,
+            "closed": 2,
+            "merged": 2
+          },
+          {
+            "week": "2026-02-09",
+            "opened": 1,
+            "closed": 1,
+            "merged": 1
+          }
+        ],
+        "review": {
+          "awaitingReview": 1,
+          "noReviewer": 0,
+          "avgDaysToFirstReview": 0.8,
+          "avgDaysToMerge": 1.8
+        }
+      }
+    },
+    "NVIDIA/k8s-device-plugin": {
+      "fetchedAt": "2026-02-15T12:00:00Z",
+      "issues": {
+        "total": 25,
+        "categories": {
+          "bug": 8,
+          "feature-request": 6,
+          "other": 11
+        },
+        "ageBuckets": {
+          "fresh": 2,
+          "recent": 5,
+          "aging": 7,
+          "stale": 6,
+          "ancient": 5
+        },
+        "velocity": [
+          {
+            "week": "2026-01-26",
+            "opened": 3,
+            "closed": 1
+          },
+          {
+            "week": "2026-02-02",
+            "opened": 4,
+            "closed": 2
+          },
+          {
+            "week": "2026-02-09",
+            "opened": 2,
+            "closed": 3
+          }
+        ]
+      },
+      "pullRequests": {
+        "total": 5,
+        "categories": {
+          "feature": 2,
+          "bug-fix": 1,
+          "chore": 2
+        },
+        "ageBuckets": {
+          "fresh": 1,
+          "recent": 2,
+          "aging": 1,
+          "stale": 1,
+          "ancient": 0
+        },
+        "velocity": [
+          {
+            "week": "2026-01-26",
+            "opened": 2,
+            "closed": 1,
+            "merged": 1
+          },
+          {
+            "week": "2026-02-02",
+            "opened": 1,
+            "closed": 2,
+            "merged": 2
+          },
+          {
+            "week": "2026-02-09",
+            "opened": 2,
+            "closed": 1,
+            "merged": 1
+          }
+        ],
+        "review": {
+          "awaitingReview": 2,
+          "noReviewer": 1,
+          "avgDaysToFirstReview": 2.0,
+          "avgDaysToMerge": 4.5
+        }
+      }
+    }
+  }
+}

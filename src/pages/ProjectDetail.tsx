@@ -4,8 +4,9 @@ import { ExternalLink, Star, Code, Scale, ArrowLeft, GitFork, Eye, Download } fr
 import Layout from '../components/Layout';
 import StatusBadge from '../components/StatusBadge';
 import TrendChart from '../components/TrendChart';
-import { useRepoInfos, useWorkflowStatuses, useImageBuilds, useHistory } from '../hooks/useData';
+import { useRepoInfos, useWorkflowStatuses, useImageBuilds, useHistory, useIssuesPRs } from '../hooks/useData';
 import { projects } from '../data/projects';
+import IssuesPRsSection from '../components/IssuesPRsSection';
 
 export default function ProjectDetail() {
   const { slug } = useParams<{ slug: string }>();
@@ -15,6 +16,7 @@ export default function ProjectDetail() {
   const { data: workflows } = useWorkflowStatuses();
   const { data: images } = useImageBuilds();
   const { data: history } = useHistory();
+  const { data: issuesPRs } = useIssuesPRs();
 
   if (!project) {
     return (
@@ -33,6 +35,7 @@ export default function ProjectDetail() {
   const repoInfo = repos.find((r) => r.fullName.toLowerCase() === repoKey);
   const projectWorkflows = workflows.filter((w) => w.repo.toLowerCase() === repoKey);
   const projectImages = images.filter((i) => i.repo.toLowerCase() === repoKey);
+  const projectIssuesPRs = issuesPRs?.repos[project.repo] ?? null;
 
   const workflowTrend = useMemo(() => {
     if (!history) return [];
@@ -69,6 +72,7 @@ export default function ProjectDetail() {
   const sidebarItems = [
     { to: `/projects/${slug}`, label: 'Overview' },
     { to: `/projects/${slug}#ci-status`, label: 'CI Status' },
+    ...(projectIssuesPRs ? [{ to: `/projects/${slug}#issues-prs`, label: 'Issues & PRs' }] : []),
     ...(projectImages.length > 0 ? [{ to: `/projects/${slug}#images`, label: 'Images' }] : []),
     { to: `/projects/${slug}#utilization`, label: 'Utilization' },
     { to: `/projects/${slug}#readme`, label: 'README' },
@@ -199,6 +203,9 @@ export default function ProjectDetail() {
           )}
         </div>
       </section>
+
+      {/* Issues & PRs */}
+      {projectIssuesPRs && <IssuesPRsSection data={projectIssuesPRs} />}
 
       {/* Images */}
       {projectImages.length > 0 && (

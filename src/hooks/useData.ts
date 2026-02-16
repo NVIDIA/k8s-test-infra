@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { TestResult, WorkflowStatus, ImageBuild, RepoInfo, HistoryFile } from '../types';
+import type { TestResult, WorkflowStatus, ImageBuild, RepoInfo, HistoryFile, IssuesPRsData } from '../types';
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -99,6 +99,21 @@ export function useHistory() {
           repoStats: d.repoStats ?? {},
         });
       })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return { data, loading, error };
+}
+
+export function useIssuesPRs() {
+  const [data, setData] = useState<IssuesPRsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchJSON<IssuesPRsData>('issues_prs.json')
+      .then((d) => setData(d))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
