@@ -181,7 +181,7 @@ type VelocityWeek struct {
 	Week   string `json:"week"`
 	Opened int    `json:"opened"`
 	Closed int    `json:"closed"`
-	Merged int    `json:"merged,omitempty"`
+	Merged *int   `json:"merged,omitempty"`
 }
 
 type PRReviewMetrics struct {
@@ -248,6 +248,12 @@ var labelCategories = map[string]map[string]string{
 	},
 }
 
+// categorizeLabels returns a category for the given labels by checking them
+// against a merged mapping of default + repo-specific overrides. Labels are
+// checked in the order returned by GitHub (alphabetical). The first matching
+// label determines the category; issues with multiple matching labels (e.g.
+// both "bug" and "enhancement") will use whichever label comes first
+// alphabetically.
 func categorizeLabels(repo string, labels []string) string {
 	merged := make(map[string]string)
 	for k, v := range labelCategories["_default"] {
@@ -325,7 +331,8 @@ func buildVelocitySlice(opened, closed, merged map[string]int, from, to time.Tim
 			Closed: closed[w],
 		}
 		if merged != nil {
-			vw.Merged = merged[w]
+			m := merged[w]
+			vw.Merged = &m
 		}
 		result = append(result, vw)
 	}
@@ -1068,7 +1075,7 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 			}
 			if pr.GetMergedAt().Before(twelveWeeksAgo) {
 				pastCutoff = true
-				break
+				continue // process remaining PRs on this page
 			}
 			mergedPRs = append(mergedPRs, pr)
 		}
@@ -1156,7 +1163,7 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 			prAgeBuckets.Ancient++
 		}
 
-		if len(pr.RequestedReviewers) > 0 {
+		if len(pr.RequestedReviewers) > 0 || len(pr.RequestedTeams) > 0 {
 			awaitingReview++
 		}
 		if len(pr.RequestedReviewers) == 0 && len(pr.RequestedTeams) == 0 {
