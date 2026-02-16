@@ -4,6 +4,8 @@ import { BarChart3, FolderOpen, Box, CheckCircle, XCircle, AlertCircle, GitPullR
 import Layout from '../components/Layout';
 import TrendChart from '../components/TrendChart';
 import { useWorkflowStatuses, useImageBuilds, useHistory, useIssuesPRs } from '../hooks/useData';
+import { computeTrend } from '../utils/chartStyles';
+import type { Trend } from '../utils/chartStyles';
 import { projects } from '../data/projects';
 
 const HOURS_48 = 48 * 60 * 60 * 1000;
@@ -57,14 +59,7 @@ export default function Home() {
         else if (buckets.fresh > 0) oldestBucket = '<7d';
         else oldestBucket = 'none';
 
-        let trend: 'growing' | 'shrinking' | 'stable' = 'stable';
-        if (repoData.issues.velocity.length >= 3) {
-          const recentVelocity = repoData.issues.velocity.slice(-4);
-          const totalOpened = recentVelocity.reduce((s, v) => s + v.opened, 0);
-          const totalClosed = recentVelocity.reduce((s, v) => s + v.closed, 0);
-          if (totalOpened > totalClosed * 1.1) trend = 'growing';
-          else if (totalClosed > totalOpened * 1.1) trend = 'shrinking';
-        }
+        const trend = computeTrend(repoData.issues.velocity);
 
         return {
           project: p,
@@ -83,7 +78,7 @@ export default function Home() {
         oldestBucket: string;
         awaitingReview: number;
         avgMergeDays: number;
-        trend: 'growing' | 'shrinking' | 'stable';
+        trend: Trend;
       }>;
   }, [issuesPRs]);
 
