@@ -1330,7 +1330,6 @@ func writeJSON(path string, v any) error {
 	return enc.Encode(v)
 }
 
-
 var (
 	semverRe = regexp.MustCompile(`^v?\d+\.\d+\.\d+`)
 	commitRe = regexp.MustCompile(`^([0-9a-f]{7,40})`)

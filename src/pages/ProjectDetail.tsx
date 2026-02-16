@@ -237,10 +237,10 @@ export default function ProjectDetail() {
                     <td className="px-4 py-3 text-sm">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                         img.imageType === 'release'
-                          ? 'bg-green-100 text-status-pass dark:bg-green-900/30'
+                          ? 'bg-green-100 text-status-pass dark:bg-green-900/30 dark:text-green-300'
                           : img.imageType === 'ci'
                             ? 'bg-gray-100 text-gray-600 dark:bg-gray-600 dark:text-gray-300'
-                            : 'bg-amber-100 text-status-warn dark:bg-amber-900/30'
+                            : 'bg-amber-100 text-status-warn dark:bg-amber-900/30 dark:text-amber-300'
                       }`}>
                         {img.imageType === 'release' ? 'Release' : img.imageType === 'ci' ? 'CI' : 'Dev'}
                       </span>
