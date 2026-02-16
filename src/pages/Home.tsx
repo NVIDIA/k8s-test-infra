@@ -93,6 +93,7 @@ export default function Home() {
 
   return (
     <Layout>
+      <div className="max-w-7xl mx-auto w-full">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Cloud Native Test Infrastructure</h1>
         <p className="text-lg text-gray-600 dark:text-gray-400">Dashboard and portfolio for NVIDIA's cloud-native Kubernetes projects.</p>
@@ -186,6 +187,7 @@ export default function Home() {
           </div>
           <p className="text-gray-600 dark:text-gray-400">Browse all {projects.length} NVIDIA cloud-native Kubernetes projects with documentation and CI status.</p>
         </Link>
+      </div>
       </div>
     </Layout>
   );
