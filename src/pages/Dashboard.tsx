@@ -3,13 +3,15 @@ import { ExternalLink, Search } from 'lucide-react';
 import Layout from '../components/Layout';
 import StatusBadge from '../components/StatusBadge';
 import TrendChart from '../components/TrendChart';
-import { useTestResults, useWorkflowStatuses, useImageBuilds, useHistory } from '../hooks/useData';
+import { useTestResults, useWorkflowStatuses, useImageBuilds, useHistory, useIssuesPRs } from '../hooks/useData';
+import IssuesPRsDashboard from '../components/IssuesPRsDashboard';
 
 const sidebarItems = [
   { to: '/dashboard', label: 'Overview' },
   { to: '/dashboard#trends', label: 'Trends' },
   { to: '/dashboard#e2e-results', label: 'E2E Test Results' },
   { to: '/dashboard#workflow-status', label: 'Workflow Status' },
+  { to: '/dashboard#issues-prs', label: 'Issues & PRs' },
   { to: '/dashboard#image-builds', label: 'Image Builds' },
 ];
 
@@ -75,6 +77,7 @@ export default function Dashboard() {
   const { data: workflows, loading: workflowsLoading } = useWorkflowStatuses();
   const { data: images, loading: imagesLoading } = useImageBuilds();
   const { data: history } = useHistory();
+  const { data: issuesPRs } = useIssuesPRs();
   const [trendRange, setTrendRange] = useState<7 | 30 | 90>(7);
 
   const trendData = useMemo(() => {
@@ -306,6 +309,9 @@ export default function Dashboard() {
           )}
         </div>
       </section>
+
+      {/* Issues & PR Health */}
+      {issuesPRs && <IssuesPRsDashboard data={issuesPRs} />}
 
       {/* Latest Image Builds */}
       <section id="image-builds" className="mb-8">
