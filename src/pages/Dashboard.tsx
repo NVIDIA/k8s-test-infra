@@ -122,15 +122,17 @@ export default function Dashboard() {
   }, [results, resultsRepo, resultsSearch]);
 
   const filteredWorkflows = useMemo(() => {
-    return workflows.filter((w) => {
-      if (wfRepo && w.repo !== wfRepo) return false;
-      if (wfStatus && w.status !== wfStatus) return false;
-      if (wfSearch) {
-        const q = wfSearch.toLowerCase();
-        return w.repo.toLowerCase().includes(q) || w.workflow.toLowerCase().includes(q);
-      }
-      return true;
-    });
+    return workflows
+      .filter((w) => {
+        if (wfRepo && w.repo !== wfRepo) return false;
+        if (wfStatus && w.status !== wfStatus) return false;
+        if (wfSearch) {
+          const q = wfSearch.toLowerCase();
+          return w.repo.toLowerCase().includes(q) || w.workflow.toLowerCase().includes(q);
+        }
+        return true;
+      })
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }, [workflows, wfRepo, wfStatus, wfSearch]);
 
   const filteredImages = useMemo(() => {
