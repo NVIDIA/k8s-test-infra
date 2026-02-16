@@ -1,8 +1,6 @@
 name: Deploy React site to Pages
 
 on:
-  schedule:
-    - cron: "0 */6 * * *"
   push:
     branches:
       - gh-pages
