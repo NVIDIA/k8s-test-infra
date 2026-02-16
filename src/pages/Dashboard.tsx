@@ -346,6 +346,8 @@ export default function Dashboard() {
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Repo</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tag</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Source</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Pushed At</th>
                 </tr>
               </thead>
@@ -362,6 +364,31 @@ export default function Dashboard() {
                       >
                         {img.tag}
                       </a>
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                        img.imageType === 'release'
+                          ? 'bg-green-100 text-status-pass dark:bg-green-900/30'
+                          : img.imageType === 'ci'
+                            ? 'bg-gray-100 text-gray-600 dark:bg-gray-600 dark:text-gray-300'
+                            : 'bg-amber-100 text-status-warn dark:bg-amber-900/30'
+                      }`}>
+                        {img.imageType === 'release' ? 'Release' : img.imageType === 'ci' ? 'CI' : 'Dev'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {img.commitUrl ? (
+                        <a
+                          href={img.commitUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-nvidia-green hover:text-nvidia-green-dark font-mono text-xs"
+                        >
+                          {img.tag.match(/^[0-9a-f]{7,}/)?.[0]?.slice(0, 8) ?? img.tag}
+                        </a>
+                      ) : (
+                        <span className="text-gray-400 dark:text-gray-500">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{img.pushedAt}</td>
                   </tr>
