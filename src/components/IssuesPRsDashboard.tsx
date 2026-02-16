@@ -301,9 +301,9 @@ export default function IssuesPRsDashboard({ data }: Props) {
 
   const rows = useMemo<RowData[]>(() => {
     return projects
-      .filter((p) => data.repos[p.repo])
+      .filter((p) => data.repos[p.repo.toLowerCase()])
       .map((p) => {
-        const repoData = data.repos[p.repo];
+        const repoData = data.repos[p.repo.toLowerCase()];
         return {
           slug: p.slug,
           name: p.name,
@@ -319,7 +319,7 @@ export default function IssuesPRsDashboard({ data }: Props) {
   const ranges: TimeRange[] = [4, 8, 12];
 
   return (
-    <section id="issues-prs" className="mb-6">
+    <section className="mb-6">
       {/* Header with time range selector */}
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
