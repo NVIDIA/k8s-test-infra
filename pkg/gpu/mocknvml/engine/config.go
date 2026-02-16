@@ -174,6 +174,9 @@ func discoverConfigPath() string {
 			return configPath
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		debugLog("[CONFIG] Error scanning /proc/self/maps: %v\n", err)
+	}
 	return ""
 }
 
