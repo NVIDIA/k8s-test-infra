@@ -1,10 +1,13 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { ExternalLink, Search } from 'lucide-react';
 import Layout from '../components/Layout';
 import StatusBadge from '../components/StatusBadge';
 import TrendChart from '../components/TrendChart';
 import { useTestResults, useWorkflowStatuses, useImageBuilds, useHistory, useIssuesPRs } from '../hooks/useData';
 import IssuesPRsDashboard from '../components/IssuesPRsDashboard';
+import Pagination from '../components/Pagination';
+
+const PAGE_SIZE = 20;
 
 const sidebarItems = [
   { to: '/dashboard', label: 'Overview' },
@@ -100,6 +103,9 @@ export default function Dashboard() {
   const [wfRepo, setWfRepo] = useState('');
   const [wfStatus, setWfStatus] = useState('');
   const [wfSearch, setWfSearch] = useState('');
+  const [wfPage, setWfPage] = useState(1);
+
+  useEffect(() => { setWfPage(1); }, [wfRepo, wfStatus, wfSearch]);
 
   // Image filters
   const [imgRepo, setImgRepo] = useState('');
@@ -134,6 +140,12 @@ export default function Dashboard() {
       })
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }, [workflows, wfRepo, wfStatus, wfSearch]);
+
+  const wfTotalPages = Math.ceil(filteredWorkflows.length / PAGE_SIZE);
+  const paginatedWorkflows = filteredWorkflows.slice(
+    (wfPage - 1) * PAGE_SIZE,
+    wfPage * PAGE_SIZE,
+  );
 
   const filteredImages = useMemo(() => {
     return images.filter((img) => {
@@ -264,6 +276,7 @@ export default function Dashboard() {
           ) : filteredWorkflows.length === 0 ? (
             <p className="p-4 text-gray-500 dark:text-gray-400">No workflows match the current filters.</p>
           ) : (
+            <>
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
@@ -276,7 +289,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {filteredWorkflows.map((w) => (
+                {paginatedWorkflows.map((w) => (
                   <tr key={`${w.repo}-${w.workflow}`}>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{w.repo}</td>
                     <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">{w.workflow}</td>
@@ -308,6 +321,8 @@ export default function Dashboard() {
                 ))}
               </tbody>
             </table>
+            <Pagination currentPage={wfPage} totalPages={wfTotalPages} onPageChange={setWfPage} />
+            </>
           )}
         </div>
       </section>

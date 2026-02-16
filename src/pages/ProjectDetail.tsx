@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router';
 import { ExternalLink, Star, Code, Scale, ArrowLeft, GitFork, Eye, Download } from 'lucide-react';
 import Layout from '../components/Layout';
@@ -7,6 +7,9 @@ import TrendChart from '../components/TrendChart';
 import { useRepoInfos, useWorkflowStatuses, useImageBuilds, useHistory, useIssuesPRs } from '../hooks/useData';
 import { projects } from '../data/projects';
 import IssuesPRsSection from '../components/IssuesPRsSection';
+import Pagination from '../components/Pagination';
+
+const PAGE_SIZE = 20;
 
 export default function ProjectDetail() {
   const { slug } = useParams<{ slug: string }>();
@@ -17,6 +20,9 @@ export default function ProjectDetail() {
   const { data: images } = useImageBuilds();
   const { data: history } = useHistory();
   const { data: issuesPRs } = useIssuesPRs();
+  const [ciPage, setCiPage] = useState(1);
+
+  useEffect(() => { setCiPage(1); }, [slug]);
 
   if (!project) {
     return (
@@ -34,6 +40,11 @@ export default function ProjectDetail() {
   const repoKey = project.repo.toLowerCase();
   const repoInfo = repos.find((r) => r.fullName.toLowerCase() === repoKey);
   const projectWorkflows = workflows.filter((w) => w.repo.toLowerCase() === repoKey);
+  const ciTotalPages = Math.ceil(projectWorkflows.length / PAGE_SIZE);
+  const paginatedCIWorkflows = projectWorkflows.slice(
+    (ciPage - 1) * PAGE_SIZE,
+    ciPage * PAGE_SIZE,
+  );
   const projectImages = images.filter((i) => i.repo.toLowerCase() === repoKey);
   const projectIssuesPRs = issuesPRs?.repos[repoKey] ?? null;
 
@@ -158,48 +169,51 @@ export default function ProjectDetail() {
           {projectWorkflows.length === 0 ? (
             <p className="p-4 text-gray-500 dark:text-gray-400">No workflow data available.</p>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-gray-700">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Workflow</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Updated</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Commit</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Run</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {projectWorkflows.map((w) => (
-                  <tr key={w.workflow}>
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{w.workflow}</td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={w.status} />
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{w.updatedAt}</td>
-                    <td className="px-4 py-3 text-sm">
-                      <a
-                        href={w.commitUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-nvidia-green hover:text-nvidia-green-dark font-mono text-xs"
-                      >
-                        {w.commitSha.substring(0, 7)}
-                      </a>
-                    </td>
-                    <td className="px-4 py-3">
-                      <a
-                        href={w.runUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-nvidia-green hover:text-nvidia-green-dark inline-flex items-center gap-1"
-                      >
-                        <ExternalLink size={14} />
-                      </a>
-                    </td>
+            <>
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-700">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Workflow</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Updated</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Commit</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Run</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                  {paginatedCIWorkflows.map((w) => (
+                    <tr key={w.workflow}>
+                      <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{w.workflow}</td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={w.status} />
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{w.updatedAt}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <a
+                          href={w.commitUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-nvidia-green hover:text-nvidia-green-dark font-mono text-xs"
+                        >
+                          {w.commitSha.substring(0, 7)}
+                        </a>
+                      </td>
+                      <td className="px-4 py-3">
+                        <a
+                          href={w.runUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-nvidia-green hover:text-nvidia-green-dark inline-flex items-center gap-1"
+                        >
+                          <ExternalLink size={14} />
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <Pagination currentPage={ciPage} totalPages={ciTotalPages} onPageChange={setCiPage} />
+            </>
           )}
         </div>
       </section>
