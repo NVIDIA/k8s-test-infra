@@ -205,6 +205,8 @@ export default function IssuesPRsSection({ data }: Props) {
           <div className="flex gap-1">
             <button
               onClick={() => setVelocityView('issues')}
+              aria-pressed={velocityView === 'issues'}
+              aria-label="Show issues velocity"
               className={`px-2 py-1 text-xs rounded ${
                 velocityView === 'issues'
                   ? 'bg-nvidia-green text-white'
@@ -215,6 +217,8 @@ export default function IssuesPRsSection({ data }: Props) {
             </button>
             <button
               onClick={() => setVelocityView('prs')}
+              aria-pressed={velocityView === 'prs'}
+              aria-label="Show pull requests velocity"
               className={`px-2 py-1 text-xs rounded ${
                 velocityView === 'prs'
                   ? 'bg-nvidia-green text-white'
@@ -234,6 +238,7 @@ export default function IssuesPRsSection({ data }: Props) {
                 tick={tickStyle}
                 tickFormatter={(v: string) => {
                   const d = new Date(v);
+                  if (Number.isNaN(d.getTime())) return v;
                   return `${d.getMonth() + 1}/${d.getDate()}`;
                 }}
               />

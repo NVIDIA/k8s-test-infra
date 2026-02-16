@@ -233,16 +233,16 @@ var labelCategories = map[string]map[string]string{
 		"documentation":    "docs",
 		"good first issue": "good-first-issue",
 	},
-	"NVIDIA/gpu-operator": {
+	"nvidia/gpu-operator": {
 		"kind/bug":          "bug",
 		"kind/feature":      "feature-request",
 		"priority/critical": "critical",
 	},
-	"NVIDIA/k8s-device-plugin": {
+	"nvidia/k8s-device-plugin": {
 		"kind/bug":     "bug",
 		"kind/feature": "feature-request",
 	},
-	"NVIDIA/nvidia-container-toolkit": {
+	"nvidia/nvidia-container-toolkit": {
 		"kind/bug":     "bug",
 		"kind/feature": "feature-request",
 	},
@@ -1163,10 +1163,11 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 			prAgeBuckets.Ancient++
 		}
 
+		// Count review status (mutually exclusive: every open PR is either
+		// awaiting review or has no reviewer assigned)
 		if len(pr.RequestedReviewers) > 0 || len(pr.RequestedTeams) > 0 {
 			awaitingReview++
-		}
-		if len(pr.RequestedReviewers) == 0 && len(pr.RequestedTeams) == 0 {
+		} else {
 			noReviewer++
 		}
 	}
@@ -1212,9 +1213,18 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 	}
 
 	// Avg days to first review for open PRs
+	// Cap review fetching to avoid excessive API calls (one per open PR).
+	// Sample the most recent open PRs for review latency metrics.
 	var totalFirstReviewDays float64
 	reviewedCount := 0
-	for _, pr := range openPRs {
+	reviewPRs := openPRs
+	if len(reviewPRs) > 20 {
+		sort.Slice(reviewPRs, func(i, j int) bool {
+			return reviewPRs[i].GetCreatedAt().Time.After(reviewPRs[j].GetCreatedAt().Time)
+		})
+		reviewPRs = reviewPRs[:20]
+	}
+	for _, pr := range reviewPRs {
 		reviews, _, err := client.PullRequests.ListReviews(ctx, owner, name, pr.GetNumber(), &github.ListOptions{PerPage: 1})
 		if err != nil || len(reviews) == 0 {
 			continue

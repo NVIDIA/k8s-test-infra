@@ -57,12 +57,14 @@ export default function Home() {
         else if (buckets.fresh > 0) oldestBucket = '<7d';
         else oldestBucket = 'none';
 
-        const recentVelocity = repoData.issues.velocity.slice(-4);
-        const totalOpened = recentVelocity.reduce((s, v) => s + v.opened, 0);
-        const totalClosed = recentVelocity.reduce((s, v) => s + v.closed, 0);
         let trend: 'growing' | 'shrinking' | 'stable' = 'stable';
-        if (totalOpened > totalClosed * 1.1) trend = 'growing';
-        else if (totalClosed > totalOpened * 1.1) trend = 'shrinking';
+        if (repoData.issues.velocity.length >= 3) {
+          const recentVelocity = repoData.issues.velocity.slice(-4);
+          const totalOpened = recentVelocity.reduce((s, v) => s + v.opened, 0);
+          const totalClosed = recentVelocity.reduce((s, v) => s + v.closed, 0);
+          if (totalOpened > totalClosed * 1.1) trend = 'growing';
+          else if (totalClosed > totalOpened * 1.1) trend = 'shrinking';
+        }
 
         return {
           project: p,

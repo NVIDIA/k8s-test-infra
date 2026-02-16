@@ -72,7 +72,7 @@ export default function ProjectDetail() {
   const sidebarItems = [
     { to: `/projects/${slug}`, label: 'Overview' },
     { to: `/projects/${slug}#ci-status`, label: 'CI Status' },
-    { to: `/projects/${slug}#issues-prs`, label: 'Issues & PRs' },
+    ...(projectIssuesPRs ? [{ to: `/projects/${slug}#issues-prs`, label: 'Issues & PRs' }] : []),
     ...(projectImages.length > 0 ? [{ to: `/projects/${slug}#images`, label: 'Images' }] : []),
     { to: `/projects/${slug}#utilization`, label: 'Utilization' },
     { to: `/projects/${slug}#readme`, label: 'README' },
