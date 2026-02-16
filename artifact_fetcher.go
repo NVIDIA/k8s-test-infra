@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"maps"
 	"sort"
@@ -128,10 +129,12 @@ type TestResult struct {
 }
 
 type ImageInfo struct {
-	Repo    string `json:"repo"`
-	Tag     string `json:"tag"`
-	Pushed  string `json:"pushedAt"`
-	HTMLURL string `json:"htmlUrl"`
+	Repo      string `json:"repo"`
+	Tag       string `json:"tag"`
+	Pushed    string `json:"pushedAt"`
+	HTMLURL   string `json:"htmlUrl"`
+	ImageType string `json:"imageType"`
+	CommitURL string `json:"commitUrl"`
 }
 
 // HistorySnapshot captures a point-in-time summary of workflow statuses.
@@ -1327,6 +1330,35 @@ func writeJSON(path string, v any) error {
 	return enc.Encode(v)
 }
 
+
+var (
+	semverRe = regexp.MustCompile(`^v?\d+\.\d+\.\d+`)
+	commitRe = regexp.MustCompile(`^([0-9a-f]{7,40})`)
+)
+
+// classifyImageTag returns "release", "ci", or "dev" based on the tag pattern.
+func classifyImageTag(tag string) string {
+	if semverRe.MatchString(tag) {
+		return "release"
+	}
+	if commitRe.MatchString(tag) {
+		return "ci"
+	}
+	return "dev"
+}
+
+// buildCommitURL constructs a GitHub URL for the source of the image.
+// Returns a commit URL for SHA tags, a release URL for semver tags, or empty string.
+func buildCommitURL(repo, tag string) string {
+	if semverRe.MatchString(tag) {
+		return fmt.Sprintf("https://github.com/%s/releases/tag/%s", repo, tag)
+	}
+	if m := commitRe.FindStringSubmatch(tag); len(m) > 1 {
+		return fmt.Sprintf("https://github.com/%s/commit/%s", repo, m[1])
+	}
+	return ""
+}
+
 func fetchLatestImageTag(ctx context.Context, client *github.Client, ir imageRepo) (ImageInfo, error) {
 	parts := strings.Split(ir.repo, "/")
 	if len(parts) != 2 {
@@ -1354,11 +1386,12 @@ func fetchLatestImageTag(ctx context.Context, client *github.Client, ir imageRep
 	// URL format: https://github.com/{owner}/{repo-name}/pkgs/container/{package-name}/{version-id}?tag={tag}
 	htmlURL := fmt.Sprintf("https://github.com/%s/pkgs/container/%s/%d?tag=%s",
 		ir.repo, ir.pkgName, versionID, tag)
-
 	return ImageInfo{
-		Repo:    ir.repo,
-		Tag:     tag,
-		Pushed:  latest.GetCreatedAt().Format(time.RFC3339),
-		HTMLURL: htmlURL,
+		Repo:      ir.repo,
+		Tag:       tag,
+		Pushed:    latest.GetCreatedAt().Format(time.RFC3339),
+		HTMLURL:   htmlURL,
+		ImageType: classifyImageTag(tag),
+		CommitURL: buildCommitURL(ir.repo, tag),
 	}, nil
 }
