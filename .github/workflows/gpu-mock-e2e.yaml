@@ -207,6 +207,12 @@ jobs:
           kubectl logs -l app.kubernetes.io/name=gpu-mock --tail=50 || true
           echo "=== DRA driver pods ==="
           kubectl -n nvidia get pods || true
+          echo "=== DRA kubelet-plugin describe ==="
+          kubectl -n nvidia describe pod -l app.kubernetes.io/component=kubelet-plugin || true
+          echo "=== DRA kubelet-plugin init container logs ==="
+          for pod in $(kubectl -n nvidia get pods -l app.kubernetes.io/component=kubelet-plugin -o name 2>/dev/null); do
+            kubectl -n nvidia logs "$pod" -c init-container --tail=100 || true
+          done
           echo "=== DRA driver logs ==="
           kubectl -n nvidia logs -l app.kubernetes.io/name=nvidia-dra-driver-gpu --tail=100 || true
           echo "=== ResourceSlices ==="
