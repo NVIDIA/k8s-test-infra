@@ -113,7 +113,14 @@ export function useIssuesPRs() {
 
   useEffect(() => {
     fetchJSON<IssuesPRsData>('issues_prs.json')
-      .then((d) => setData(d))
+      .then((d) => {
+        // Normalize repo keys to lowercase for consistent lookups
+        const normalized: Record<string, typeof d.repos[string]> = {};
+        for (const [key, value] of Object.entries(d.repos)) {
+          normalized[key.toLowerCase()] = value;
+        }
+        setData({ repos: normalized });
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);

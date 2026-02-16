@@ -301,9 +301,9 @@ export default function IssuesPRsDashboard({ data }: Props) {
 
   const rows = useMemo<RowData[]>(() => {
     return projects
-      .filter((p) => data.repos[p.repo])
+      .filter((p) => data.repos[p.repo.toLowerCase()])
       .map((p) => {
-        const repoData = data.repos[p.repo];
+        const repoData = data.repos[p.repo.toLowerCase()];
         return {
           slug: p.slug,
           name: p.name,
