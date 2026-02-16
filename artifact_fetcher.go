@@ -460,6 +460,26 @@ func main() {
 		}(repo)
 	}
 
+	issuesPRsCh := make(chan issuesPRsResult, len(allRepos))
+	for _, repo := range allRepos {
+		wg.Add(1)
+		go func(r string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			ipCtx, cancel := context.WithTimeout(ctx, 2*(*timeout))
+			defer cancel()
+
+			data, err := fetchIssuesPRs(ipCtx, client, r)
+			if err != nil {
+				errCh <- fmt.Errorf("issues/prs %s: %w", r, err)
+				return
+			}
+			issuesPRsCh <- issuesPRsResult{repo: r, data: data}
+		}(repo)
+	}
+
 	wg.Wait()
 	close(resCh)
 	close(errCh)
@@ -467,6 +487,7 @@ func main() {
 	close(wfCh)
 	close(repoCh)
 	close(trafficCh)
+	close(issuesPRsCh)
 
 	for err := range errCh {
 		log.Println("error:", err)
@@ -505,6 +526,16 @@ func main() {
 	}
 
 	if err := writeJSON(filepath.Join(*outDir, "repos.json"), map[string]any{"repos": repoInfos}); err != nil {
+		log.Fatal(err)
+	}
+
+	// --- Build issues_prs.json ---
+	issuesPRsFile := IssuesPRsFile{Repos: make(map[string]RepoIssuesPRs)}
+	for ipr := range issuesPRsCh {
+		issuesPRsFile.Repos[ipr.repo] = ipr.data
+	}
+
+	if err := writeJSON(filepath.Join(*outDir, "issues_prs.json"), issuesPRsFile); err != nil {
 		log.Fatal(err)
 	}
 
