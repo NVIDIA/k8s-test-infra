@@ -311,7 +311,15 @@ export default function Dashboard() {
       </section>
 
       {/* Issues & PR Health */}
-      {issuesPRs && <IssuesPRsDashboard data={issuesPRs} />}
+      <section id="issues-prs" className="mb-8">
+        {issuesPRs ? (
+          <IssuesPRsDashboard data={issuesPRs} />
+        ) : (
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+            <p className="text-gray-500 dark:text-gray-400">Loading issues and pull requests...</p>
+          </div>
+        )}
+      </section>
 
       {/* Latest Image Builds */}
       <section id="image-builds" className="mb-8">

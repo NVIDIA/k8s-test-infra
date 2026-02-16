@@ -35,7 +35,7 @@ export default function ProjectDetail() {
   const repoInfo = repos.find((r) => r.fullName.toLowerCase() === repoKey);
   const projectWorkflows = workflows.filter((w) => w.repo.toLowerCase() === repoKey);
   const projectImages = images.filter((i) => i.repo.toLowerCase() === repoKey);
-  const projectIssuesPRs = issuesPRs?.repos[project.repo] ?? null;
+  const projectIssuesPRs = issuesPRs?.repos[project.repo.toLowerCase()] ?? null;
 
   const workflowTrend = useMemo(() => {
     if (!history) return [];

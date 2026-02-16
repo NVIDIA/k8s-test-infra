@@ -47,7 +47,7 @@ export default function Home() {
     if (!issuesPRs) return [];
     return projects
       .map((p) => {
-        const repoData = issuesPRs.repos[p.repo];
+        const repoData = issuesPRs.repos[p.repo.toLowerCase()];
         if (!repoData) return null;
 
         const buckets = repoData.issues.ageBuckets;
