@@ -1,0 +1,383 @@
+# Mock NVML Configuration: HGX H100
+# Full configuration for nvidia-smi -x -q compatibility
+# Use: export MOCK_NVML_CONFIG=/path/to/this/file.yaml
+
+version: "1.0"
+
+# =============================================================================
+# System-level configuration
+# =============================================================================
+system:
+  driver_version: "550.163.01"
+  nvml_version: "12.550.163.01"
+  cuda_version: "12.4"
+  cuda_version_major: 12
+  cuda_version_minor: 4
+
+# =============================================================================
+# Default device configuration (applied to all devices unless overridden)
+# =============================================================================
+device_defaults:
+  # ---------------------------------------------------------------------------
+  # Basic identification
+  # ---------------------------------------------------------------------------
+  name: "NVIDIA H100 80GB HBM3"
+  brand: "nvidia"
+  serial: "1562821083900"
+  board_part_number: "699-21010-0200-000"
+  vbios_version: "96.00.74.00.09"
+
+  # ---------------------------------------------------------------------------
+  # Architecture
+  # ---------------------------------------------------------------------------
+  architecture: "hopper"
+  compute_capability:
+    major: 9
+    minor: 0
+  num_gpu_cores: 16896              # CUDA cores
+
+  # ---------------------------------------------------------------------------
+  # InfoROM versions
+  # ---------------------------------------------------------------------------
+  inforom:
+    image_version: "H100.0200.00.04"
+    oem_object: "2.1"
+    ecc_object: "7.16"
+    pwr_object: "N/A"
+
+  # ---------------------------------------------------------------------------
+  # Memory configuration - 80 GiB HBM3
+  # ---------------------------------------------------------------------------
+  memory:
+    total_bytes: 85899345920        # 80 GiB HBM3
+    reserved_bytes: 1073741824      # ~1 GiB reserved
+    free_bytes: 84825604096         # total - reserved at idle
+    used_bytes: 0
+
+  bar1_memory:
+    total_bytes: 274877906944       # 256 GiB
+    free_bytes: 274877906944
+    used_bytes: 0
+
+  # ---------------------------------------------------------------------------
+  # PCI configuration
+  # ---------------------------------------------------------------------------
+  pci:
+    device_id: 0x233010DE           # H100 SXM 80GB
+    subsystem_id: 0x165810DE
+
+  pcie:
+    max_link_gen: 5                 # PCIe Gen5
+    current_link_gen: 5
+    max_link_width: 16              # x16
+    current_link_width: 16
+    replay_counter: 0
+    tx_throughput_kbps: 0
+    rx_throughput_kbps: 0
+
+  # ---------------------------------------------------------------------------
+  # Power configuration - 700W TDP
+  # ---------------------------------------------------------------------------
+  power:
+    management_supported: true
+    management_mode: "enabled"
+    default_limit_mw: 700000         # 700W
+    enforced_limit_mw: 700000
+    min_limit_mw: 200000            # 200W minimum
+    max_limit_mw: 700000            # 700W max
+    current_draw_mw: 95000          # 95W idle
+    power_state: "P0"
+
+  # ---------------------------------------------------------------------------
+  # Thermal configuration
+  # ---------------------------------------------------------------------------
+  thermal:
+    temperature_gpu_c: 34           # Idle temperature
+    temperature_memory_c: 32
+    shutdown_threshold_c: 92
+    slowdown_threshold_c: 87
+    max_operating_c: 83
+    target_temperature_c: 83
+
+  # ---------------------------------------------------------------------------
+  # Fan configuration (N/A for SXM form factor)
+  # ---------------------------------------------------------------------------
+  fan:
+    count: 0                        # SXM has no fans (liquid cooled)
+    speed_percent: "N/A"
+    target_speed_percent: "N/A"
+
+  # ---------------------------------------------------------------------------
+  # Clock speeds (MHz)
+  # ---------------------------------------------------------------------------
+  clocks:
+    graphics_current: 345           # Idle
+    graphics_max: 1980
+    graphics_app: 1980
+    graphics_app_default: 1980
+    sm_current: 345
+    sm_max: 1980
+    memory_current: 1593            # HBM3
+    memory_max: 1593
+    memory_app: 1593
+    memory_app_default: 1593
+    video_current: 345
+    video_max: 1980
+
+  # ---------------------------------------------------------------------------
+  # Clocks throttle reasons
+  # ---------------------------------------------------------------------------
+  clocks_throttle_reasons:
+    gpu_idle: true
+    applications_clocks_setting: false
+    sw_power_cap: false
+    hw_slowdown: false
+    hw_thermal_slowdown: false
+    hw_power_brake_slowdown: false
+    sync_boost: false
+    sw_thermal_slowdown: false
+    display_clocks_setting: false
+
+  # ---------------------------------------------------------------------------
+  # Supported clocks (for nvidia-smi -q -d SUPPORTED_CLOCKS)
+  # ---------------------------------------------------------------------------
+  supported_clocks:
+    memory_clocks:
+      - freq_mhz: 1593
+        graphics_clocks: [345, 690, 1035, 1380, 1620, 1800, 1980]
+
+  # ---------------------------------------------------------------------------
+  # Performance state
+  # ---------------------------------------------------------------------------
+  performance_state: "P0"
+
+  # ---------------------------------------------------------------------------
+  # Utilization (percentage, 0-100)
+  # ---------------------------------------------------------------------------
+  utilization:
+    gpu: 0
+    memory: 0
+    encoder: 0
+    decoder: 0
+    jpeg: 0
+    ofa: 0
+
+  # ---------------------------------------------------------------------------
+  # Encoder/Decoder statistics
+  # ---------------------------------------------------------------------------
+  encoder_stats:
+    session_count: 0
+    average_fps: 0
+    average_latency_us: 0
+
+  fbc_stats:
+    session_count: 0
+    average_fps: 0
+    average_latency_us: 0
+
+  # ---------------------------------------------------------------------------
+  # ECC configuration
+  # ---------------------------------------------------------------------------
+  ecc:
+    mode_current: "enabled"
+    mode_pending: "enabled"
+    default_mode: "enabled"
+    errors:
+      volatile:
+        single_bit:
+          device_memory: 0
+          l1_cache: 0
+          l2_cache: 0
+          register_file: 0
+          texture_memory: 0
+          total: 0
+        double_bit:
+          device_memory: 0
+          l1_cache: 0
+          l2_cache: 0
+          register_file: 0
+          texture_memory: 0
+          total: 0
+      aggregate:
+        single_bit:
+          device_memory: 0
+          l1_cache: 0
+          l2_cache: 0
+          register_file: 0
+          texture_memory: 0
+          total: 0
+        double_bit:
+          device_memory: 0
+          l1_cache: 0
+          l2_cache: 0
+          register_file: 0
+          texture_memory: 0
+          total: 0
+
+  # ---------------------------------------------------------------------------
+  # Retired pages
+  # ---------------------------------------------------------------------------
+  retired_pages:
+    single_bit_retirement:
+      count: 0
+      addresses: []
+    double_bit_retirement:
+      count: 0
+      addresses: []
+    pending_blacklist: false
+    pending_retirement: false
+
+  # ---------------------------------------------------------------------------
+  # Remapped rows
+  # ---------------------------------------------------------------------------
+  remapped_rows:
+    correctable: 0
+    uncorrectable: 0
+    pending: false
+    failure_occurred: false
+
+  # ---------------------------------------------------------------------------
+  # Display configuration
+  # ---------------------------------------------------------------------------
+  display:
+    mode: "disabled"
+    active: "disabled"
+
+  # ---------------------------------------------------------------------------
+  # Persistence mode
+  # ---------------------------------------------------------------------------
+  persistence_mode: "enabled"
+
+  # ---------------------------------------------------------------------------
+  # Compute mode
+  # ---------------------------------------------------------------------------
+  compute_mode: "default"
+
+  # ---------------------------------------------------------------------------
+  # MIG configuration
+  # ---------------------------------------------------------------------------
+  mig:
+    mode_current: "disabled"
+    mode_pending: "disabled"
+    max_gpu_instances: 7
+
+  # ---------------------------------------------------------------------------
+  # GPU operation mode (GOM)
+  # ---------------------------------------------------------------------------
+  gpu_operation_mode:
+    current: "all_on"
+    pending: "all_on"
+
+  # ---------------------------------------------------------------------------
+  # Driver model (Windows only)
+  # ---------------------------------------------------------------------------
+  driver_model:
+    current: "N/A"
+    pending: "N/A"
+
+  # ---------------------------------------------------------------------------
+  # Accounting mode
+  # ---------------------------------------------------------------------------
+  accounting:
+    mode: "disabled"
+    buffer_size: 4000
+
+  # ---------------------------------------------------------------------------
+  # Virtualization
+  # ---------------------------------------------------------------------------
+  virtualization:
+    mode: "none"
+    host_vgpu_mode: "N/A"
+
+  # ---------------------------------------------------------------------------
+  # GSP Firmware
+  # ---------------------------------------------------------------------------
+  gsp_firmware:
+    mode: "enabled"
+    version: "550.163.01"
+
+  # ---------------------------------------------------------------------------
+  # Hopper-specific features
+  # ---------------------------------------------------------------------------
+  features:
+    transformer_engine: true
+    fp8_support: true
+    confidential_compute: true
+
+  # ---------------------------------------------------------------------------
+  # Processes (empty at idle)
+  # ---------------------------------------------------------------------------
+  processes: []
+
+# =============================================================================
+# Device-specific overrides (indexed 0-7 for HGX H100)
+# =============================================================================
+devices:
+  - index: 0
+    uuid: "GPU-H100-0000-0000-0000-000000000000"
+    serial: "1562821083900"
+    pci:
+      bus_id: "00000000:1A:00.0"
+    minor_number: 0
+
+  - index: 1
+    uuid: "GPU-H100-0000-0000-0000-000000000001"
+    serial: "1562821083901"
+    pci:
+      bus_id: "00000000:1B:00.0"
+    minor_number: 1
+
+  - index: 2
+    uuid: "GPU-H100-0000-0000-0000-000000000002"
+    serial: "1562821083902"
+    pci:
+      bus_id: "00000000:4A:00.0"
+    minor_number: 2
+
+  - index: 3
+    uuid: "GPU-H100-0000-0000-0000-000000000003"
+    serial: "1562821083903"
+    pci:
+      bus_id: "00000000:4B:00.0"
+    minor_number: 3
+
+  - index: 4
+    uuid: "GPU-H100-0000-0000-0000-000000000004"
+    serial: "1562821083904"
+    pci:
+      bus_id: "00000000:8A:00.0"
+    minor_number: 4
+
+  - index: 5
+    uuid: "GPU-H100-0000-0000-0000-000000000005"
+    serial: "1562821083905"
+    pci:
+      bus_id: "00000000:8B:00.0"
+    minor_number: 5
+
+  - index: 6
+    uuid: "GPU-H100-0000-0000-0000-000000000006"
+    serial: "1562821083906"
+    pci:
+      bus_id: "00000000:CA:00.0"
+    minor_number: 6
+
+  - index: 7
+    uuid: "GPU-H100-0000-0000-0000-000000000007"
+    serial: "1562821083907"
+    pci:
+      bus_id: "00000000:CB:00.0"
+    minor_number: 7
+
+# =============================================================================
+# NVLink topology - H100 NVLink 4
+# =============================================================================
+nvlink:
+  version: 4
+  links_per_gpu: 18
+  bandwidth_per_link_gbps: 50       # 50 GB/s per link = 900 GB/s total per GPU
+  links:
+    - link: 0
+      state: "active"
+      remote_device_type: "gpu"
+      remote_pci_bus_id: "00000000:1B:00.0"
