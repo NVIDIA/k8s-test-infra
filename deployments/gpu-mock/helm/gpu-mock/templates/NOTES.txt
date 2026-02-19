@@ -6,29 +6,62 @@ Mock GPU environment deployed on all nodes!
   Mock driver root: /var/lib/nvidia-mock/driver
   Mock config: /var/lib/nvidia-mock/config/config.yaml
 
-To use with NVIDIA Device Plugin:
+NOTE: If you installed from source (no published image yet), you built the
+image locally and loaded it into your cluster. See the chart README for
+build-from-source instructions.
 
-  helm install nvidia-device-plugin nvidia/k8s-device-plugin \
-    --set runtimeClassName="" \
-    --set args[0]="--nvidia-driver-root=/var/lib/nvidia-mock/driver" \
-    --set args[1]="--driver-root-ctr-path=/var/lib/nvidia-mock/driver" \
-    --set args[2]="--device-discovery-strategy=nvml"
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  No mock-specific env vars needed — the .so auto-discovers its config.
+OPTION A: NVIDIA Device Plugin
 
-To use with NVIDIA DRA Driver:
+  kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-test-infra/main/tests/e2e/device-plugin-mock.yaml
+  kubectl -n kube-system wait --for=condition=ready \
+    pod -l name=nvidia-device-plugin-mock --timeout=120s
 
-  helm install nvidia-dra-driver nvidia/nvidia-dra-driver-gpu \
-    --set nvidiaDriverRoot=/var/lib/nvidia-mock/driver
+  Verify allocatable GPUs:
 
-To use with GPU Operator:
+    NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+    kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}'
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OPTION B: NVIDIA DRA Driver (requires DRA-enabled cluster)
+
+  Cluster prerequisites (KIND):
+    kind create cluster --config tests/e2e/kind-dra-config.yaml
+
+  Install:
+    helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+    helm repo update
+
+    helm install nvidia-dra-driver nvidia/nvidia-dra-driver-gpu \
+      --namespace nvidia \
+      --create-namespace \
+      --set nvidiaDriverRoot=/var/lib/nvidia-mock/driver \
+      --set gpuResourcesEnabledOverride=true \
+      --set resources.computeDomains.enabled=false \
+      --wait --timeout 180s
+
+  Verify ResourceSlices:
+
+    kubectl get resourceslices -o json | \
+      jq '[.items[].spec.devices // [] | length] | add // 0'
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OPTION C: GPU Operator (UNTESTED — contributions welcome)
 
   helm install gpu-operator nvidia/gpu-operator \
     --set driver.enabled=false \
     --set toolkit.enabled=true \
     --set devicePlugin.enabled=true
 
-To verify mock GPUs are available:
+  ⚠ This integration has no E2E test coverage. If you get it working,
+  please contribute the test back.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Quick check — node labels:
 
   kubectl get nodes -o custom-columns=\
     NAME:.metadata.name,\
