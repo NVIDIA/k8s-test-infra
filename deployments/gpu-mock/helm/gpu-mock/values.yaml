@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 gpu:
-  profile: a100           # a100 | gb200
+  profile: a100           # a100 | h100 | b200 | gb200
   count: 8
   customConfig: ""
 
