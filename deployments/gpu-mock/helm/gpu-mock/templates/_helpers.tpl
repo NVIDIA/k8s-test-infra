@@ -76,8 +76,10 @@ Priority: customConfig > profile file lookup > fail with error.
 
 {{/*
 Driver version helper.
-Returns the user-provided driverVersion, or derives it from the GPU profile.
+Returns the user-provided driverVersion, or derives it from gpu.profile.
 Blackwell profiles (b200, gb200) use 560.35.03; all others use 550.163.01.
+Note: when gpu.customConfig is set, derivation still uses gpu.profile —
+users with custom configs should set driverVersion explicitly.
 */}}
 {{- define "gpu-mock.driverVersion" -}}
 {{- if .Values.driverVersion -}}
