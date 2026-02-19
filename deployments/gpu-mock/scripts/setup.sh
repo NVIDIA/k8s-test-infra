@@ -27,7 +27,14 @@ mkdir -p "$DRIVER_ROOT/usr/lib64" "$DRIVER_ROOT/usr/bin" "$DRIVER_ROOT/config"
 mkdir -p "$DEV_ROOT" "$CONFIG_DIR"
 
 # 2. Copy mock NVML library + create symlinks
-cp "/usr/local/lib/libnvidia-ml.so.$DRIVER_VERSION" "$DRIVER_ROOT/usr/lib64/"
+#    The .so is built with a fixed version (Makefile LIB_VERSION); rename to match
+#    the target DRIVER_VERSION so consumers see a consistent version string.
+BUILT_SO=$(ls /usr/local/lib/libnvidia-ml.so.*.*.* 2>/dev/null | head -1)
+if [ -z "$BUILT_SO" ]; then
+  echo "ERROR: No mock NVML library found in /usr/local/lib/" >&2
+  exit 1
+fi
+cp "$BUILT_SO" "$DRIVER_ROOT/usr/lib64/libnvidia-ml.so.$DRIVER_VERSION"
 ln -sf "libnvidia-ml.so.$DRIVER_VERSION" "$DRIVER_ROOT/usr/lib64/libnvidia-ml.so.1"
 ln -sf "libnvidia-ml.so.1" "$DRIVER_ROOT/usr/lib64/libnvidia-ml.so"
 

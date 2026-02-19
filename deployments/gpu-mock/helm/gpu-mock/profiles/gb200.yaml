@@ -63,7 +63,7 @@ device_defaults:
   # PCI configuration
   # ---------------------------------------------------------------------------
   pci:
-    device_id: 0x233010DE           # GB200 (placeholder - check real ID)
+    device_id: 0x234110DE
     subsystem_id: 0x181710DE
 
   pcie:

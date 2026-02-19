@@ -3,7 +3,7 @@ Mock GPU environment deployed on all nodes!
   Profile: {{ .Values.gpu.profile }}
   GPUs per node: {{ .Values.gpu.count }}
   Available profiles: a100, h100, b200, gb200
-  Driver version: {{ .Values.driverVersion }}
+  Driver version: {{ include "gpu-mock.driverVersion" . }}
   Mock driver root: /var/lib/nvidia-mock/driver
   Mock config: /var/lib/nvidia-mock/config/config.yaml
 
