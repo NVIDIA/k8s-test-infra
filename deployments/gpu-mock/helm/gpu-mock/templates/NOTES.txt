@@ -63,6 +63,4 @@ OPTION C: GPU Operator (UNTESTED — contributions welcome)
 
 Quick check — node labels:
 
-  kubectl get nodes -o custom-columns=\
-    NAME:.metadata.name,\
-    GPU_PRESENT:.metadata.labels.nvidia\.com/gpu\.present
+  kubectl get nodes -o 'custom-columns=NAME:.metadata.name,GPU_PRESENT:.metadata.labels.nvidia\.com/gpu\.present'

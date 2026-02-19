@@ -65,9 +65,7 @@ helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
 
 ```bash
 kubectl rollout status daemonset/gpu-mock --timeout=60s
-kubectl get nodes -o custom-columns=\
-  NAME:.metadata.name,\
-  GPU_PRESENT:.metadata.labels.nvidia\.com/gpu\.present
+kubectl get nodes -o 'custom-columns=NAME:.metadata.name,GPU_PRESENT:.metadata.labels.nvidia\.com/gpu\.present'
 ```
 
 Expected: `GPU_PRESENT` shows `true`.
@@ -152,6 +150,8 @@ helm install nvidia-dra-driver nvidia/nvidia-dra-driver-gpu \
 ### 6. Verify ResourceSlices
 
 ```bash
+# DRA pods may take a few seconds to appear after helm install completes
+sleep 5
 kubectl -n nvidia wait --for=condition=ready pod --all --timeout=120s
 kubectl get resourceslices -o json | \
   jq '[.items[].spec.devices // [] | length] | add // 0'
