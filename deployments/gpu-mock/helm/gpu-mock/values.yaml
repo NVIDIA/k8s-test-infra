@@ -11,7 +11,7 @@ image:
   tag: latest
   pullPolicy: IfNotPresent
 
-driverVersion: "550.163.01"
+driverVersion: ""                  # Auto-derived from profile. Override: "550.163.01"
 
 nodeSelector: {}
 tolerations:

@@ -73,3 +73,18 @@ Priority: customConfig > profile file lookup > fail with error.
 {{- fail (printf "Unknown GPU profile %q. Supported profiles: a100, h100, b200, gb200. Or set gpu.customConfig with inline YAML." .Values.gpu.profile) }}
 {{- end }}
 {{- end }}
+
+{{/*
+Driver version helper.
+Returns the user-provided driverVersion, or derives it from the GPU profile.
+Blackwell profiles (b200, gb200) use 560.35.03; all others use 550.163.01.
+*/}}
+{{- define "gpu-mock.driverVersion" -}}
+{{- if .Values.driverVersion -}}
+{{- .Values.driverVersion -}}
+{{- else if or (eq .Values.gpu.profile "b200") (eq .Values.gpu.profile "gb200") -}}
+560.35.03
+{{- else -}}
+550.163.01
+{{- end -}}
+{{- end }}
