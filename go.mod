@@ -6,10 +6,10 @@ require (
 	github.com/NVIDIA/go-nvml v0.13.0-1
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
-	k8s.io/api v0.35.1
-	k8s.io/apiextensions-apiserver v0.35.1
-	k8s.io/apimachinery v0.35.1
-	k8s.io/client-go v0.35.1
+	k8s.io/api v0.35.2
+	k8s.io/apiextensions-apiserver v0.35.2
+	k8s.io/apimachinery v0.35.2
+	k8s.io/client-go v0.35.2
 	k8s.io/klog/v2 v2.130.1
 	sigs.k8s.io/node-feature-discovery v0.18.3
 	sigs.k8s.io/node-feature-discovery/api/nfd v0.18.3
