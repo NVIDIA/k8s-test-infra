@@ -30,6 +30,7 @@ const DefaultBAR1SizeMB = 256
 type ConfigurableDevice struct {
 	*dgxa100.Device
 	config      *DeviceConfig
+	nvlinkCfg   *NVLinkConfig
 	index       int
 	minorNumber int
 
@@ -39,10 +40,11 @@ type ConfigurableDevice struct {
 }
 
 // NewConfigurableDevice creates a device with YAML configuration
-func NewConfigurableDevice(index int, baseDevice *dgxa100.Device, config *DeviceConfig, uuid string, pciBusID string, minorNumber int) *ConfigurableDevice {
+func NewConfigurableDevice(index int, baseDevice *dgxa100.Device, config *DeviceConfig, uuid string, pciBusID string, minorNumber int, nvlinkCfg *NVLinkConfig) *ConfigurableDevice {
 	dev := &ConfigurableDevice{
 		Device:      baseDevice,
 		config:      config,
+		nvlinkCfg:   nvlinkCfg,
 		index:       index,
 		minorNumber: minorNumber,
 	}
@@ -174,6 +176,11 @@ func (d *ConfigurableDevice) initPciInfo() {
 	for i := 0; i < len(d.PciBusID) && i < 32; i++ {
 		d.pciInfo.BusId[i] = uint8(d.PciBusID[i])
 	}
+}
+
+// GetConfig returns the device configuration
+func (d *ConfigurableDevice) GetConfig() *DeviceConfig {
+	return d.config
 }
 
 // GetIndex returns the device index
@@ -795,8 +802,20 @@ func (d *ConfigurableDevice) GetGpuOperationMode() (nvml.GpuOperationMode, nvml.
 	return nvml.GOM_ALL_ON, nvml.GOM_ALL_ON, nvml.SUCCESS
 }
 
-// GetNvLinkState returns NvLink state
+// GetNvLinkState returns NvLink state for a specific link.
+// If NVLink config has link entries, uses those; otherwise returns DISABLED.
 func (d *ConfigurableDevice) GetNvLinkState(link int) (nvml.EnableState, nvml.Return) {
+	if d.nvlinkCfg != nil {
+		for _, l := range d.nvlinkCfg.Links {
+			if l.Link == link {
+				if l.State == "active" {
+					debugLog("[NVML] nvmlDeviceGetNvLinkState(link=%d) -> ENABLED\n", link)
+					return nvml.FEATURE_ENABLED, nvml.SUCCESS
+				}
+				break
+			}
+		}
+	}
 	debugLog("[NVML] nvmlDeviceGetNvLinkState(link=%d) -> DISABLED\n", link)
 	return nvml.FEATURE_DISABLED, nvml.SUCCESS
 }
@@ -811,6 +830,70 @@ func (d *ConfigurableDevice) GetNvLinkVersion(link int) (uint32, nvml.Return) {
 func (d *ConfigurableDevice) GetNvLinkCapability(link int, capability nvml.NvLinkCapability) (uint32, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetNvLinkCapability(link=%d, cap=%d) -> 0\n", link, capability)
 	return 0, nvml.SUCCESS
+}
+
+// GetTopologyCommonAncestor returns the topology level between this device and another.
+func (d *ConfigurableDevice) GetTopologyCommonAncestor(other nvml.Device) (nvml.GpuTopologyLevel, nvml.Return) {
+	level := nvml.TOPOLOGY_SINGLE // Default: same PCIe switch
+	if d.config != nil && d.config.Topology != nil {
+		level = parseTopologyLevel(d.config.Topology.DefaultLevel)
+	}
+	debugLog("[NVML] nvmlDeviceGetTopologyCommonAncestor -> %d\n", level)
+	return level, nvml.SUCCESS
+}
+
+// GetNvLinkErrorCounter returns the error counter for a specific NVLink and counter type.
+// Always returns 0 (no errors in mock).
+func (d *ConfigurableDevice) GetNvLinkErrorCounter(link int, counter nvml.NvLinkErrorCounter) (uint64, nvml.Return) {
+	debugLog("[NVML] nvmlDeviceGetNvLinkErrorCounter(link=%d, counter=%d) -> 0\n", link, counter)
+	return 0, nvml.SUCCESS
+}
+
+// GetNvLinkRemotePciInfo returns PCI info for the remote device connected via NVLink.
+func (d *ConfigurableDevice) GetNvLinkRemotePciInfo(link int) (nvml.PciInfo, nvml.Return) {
+	pci := nvml.PciInfo{}
+	if d.nvlinkCfg != nil {
+		for _, l := range d.nvlinkCfg.Links {
+			if l.Link == link && l.RemotePCIBusID != "" {
+				domain, bus, device, _, err := ParsePCIBusID(l.RemotePCIBusID)
+				if err == nil {
+					pci.Domain = domain
+					pci.Bus = bus
+					pci.Device = device
+					for i := 0; i < len(l.RemotePCIBusID) && i < 32; i++ {
+						pci.BusId[i] = uint8(l.RemotePCIBusID[i])
+					}
+				}
+				debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> %s\n", link, l.RemotePCIBusID)
+				return pci, nvml.SUCCESS
+			}
+		}
+	}
+	debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> empty\n", link)
+	return pci, nvml.SUCCESS
+}
+
+// GetThermalSettings returns thermal sensor settings.
+func (d *ConfigurableDevice) GetThermalSettings(sensorIndex uint32) (nvml.GpuThermalSettings, nvml.Return) {
+	settings := nvml.GpuThermalSettings{}
+	if d.config != nil && d.config.Thermal != nil {
+		settings.Count = 1
+		// Note: Sensor[0] fields are set via the opaque _Ctype_struct___28 type,
+		// which we cannot directly populate from Go. The Count field is the
+		// primary useful value. Bridge layer handles the C struct population.
+	}
+	debugLog("[NVML] nvmlDeviceGetThermalSettings(sensor=%d) -> count=%d\n", sensorIndex, settings.Count)
+	return settings, nvml.SUCCESS
+}
+
+// GetPowerManagementMode returns whether power management is enabled.
+func (d *ConfigurableDevice) GetPowerManagementMode() (nvml.EnableState, nvml.Return) {
+	mode := nvml.FEATURE_DISABLED
+	if d.config != nil && d.config.Power != nil && d.config.Power.ManagementMode == "enabled" {
+		mode = nvml.FEATURE_ENABLED
+	}
+	debugLog("[NVML] nvmlDeviceGetPowerManagementMode -> %d\n", mode)
+	return mode, nvml.SUCCESS
 }
 
 // GetPowerState returns power state (same as performance state)
@@ -977,6 +1060,25 @@ func parsePstate(state string) nvml.Pstates {
 		return nvml.PSTATE_8
 	default:
 		return nvml.PSTATE_0
+	}
+}
+
+func parseTopologyLevel(level string) nvml.GpuTopologyLevel {
+	switch level {
+	case "internal":
+		return nvml.TOPOLOGY_INTERNAL
+	case "single":
+		return nvml.TOPOLOGY_SINGLE
+	case "multiple":
+		return nvml.TOPOLOGY_MULTIPLE
+	case "hostbridge":
+		return nvml.TOPOLOGY_HOSTBRIDGE
+	case "node":
+		return nvml.TOPOLOGY_NODE
+	case "system":
+		return nvml.TOPOLOGY_SYSTEM
+	default:
+		return nvml.TOPOLOGY_SINGLE
 	}
 }
 

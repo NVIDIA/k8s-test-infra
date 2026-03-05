@@ -364,11 +364,6 @@ func nvmlDeviceGetEncoderUtilization(device C.nvmlDevice_t, utilization *C.uint,
 	return stubReturn("nvmlDeviceGetEncoderUtilization")
 }
 
-//export nvmlDeviceGetEnforcedPowerLimit
-func nvmlDeviceGetEnforcedPowerLimit(device C.nvmlDevice_t, limit *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetEnforcedPowerLimit")
-}
-
 //export nvmlDeviceGetFBCSessions
 func nvmlDeviceGetFBCSessions(device C.nvmlDevice_t, sessionCount *C.uint, sessionInfo *C.nvmlFBCSessionInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetFBCSessions")
@@ -684,10 +679,6 @@ func nvmlDeviceGetNvLinkCapability(device C.nvmlDevice_t, link C.uint, capabilit
 	return stubReturn("nvmlDeviceGetNvLinkCapability")
 }
 
-//export nvmlDeviceGetNvLinkErrorCounter
-func nvmlDeviceGetNvLinkErrorCounter(device C.nvmlDevice_t, link C.uint, counter C.nvmlNvLinkErrorCounter_t, counterValue *C.ulonglong) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetNvLinkErrorCounter")
-}
 
 //export nvmlDeviceGetNvLinkInfo
 func nvmlDeviceGetNvLinkInfo(device C.nvmlDevice_t, info *C.nvmlNvLinkInfo_t) C.nvmlReturn_t {
@@ -699,20 +690,6 @@ func nvmlDeviceGetNvLinkRemoteDeviceType(device C.nvmlDevice_t, link C.uint, pNv
 	return stubReturn("nvmlDeviceGetNvLinkRemoteDeviceType")
 }
 
-//export nvmlDeviceGetNvLinkRemotePciInfo_v1
-func nvmlDeviceGetNvLinkRemotePciInfo_v1(device C.nvmlDevice_t, link C.uint, pci *C.nvmlPciInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetNvLinkRemotePciInfo_v1")
-}
-
-//export nvmlDeviceGetNvLinkRemotePciInfo_v2
-func nvmlDeviceGetNvLinkRemotePciInfo_v2(device C.nvmlDevice_t, link C.uint, pci *C.nvmlPciInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetNvLinkRemotePciInfo_v2")
-}
-
-//export nvmlDeviceGetNvLinkState
-func nvmlDeviceGetNvLinkState(device C.nvmlDevice_t, link C.uint, isActive *C.nvmlEnableState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetNvLinkState")
-}
 
 //export nvmlDeviceGetNvLinkUtilizationControl
 func nvmlDeviceGetNvLinkUtilizationControl(device C.nvmlDevice_t, link C.uint, counter C.uint, control *C.nvmlNvLinkUtilizationControl_t) C.nvmlReturn_t {
@@ -819,10 +796,6 @@ func nvmlDeviceGetPowerManagementLimitConstraints(device C.nvmlDevice_t, minLimi
 	return stubReturn("nvmlDeviceGetPowerManagementLimitConstraints")
 }
 
-//export nvmlDeviceGetPowerManagementMode
-func nvmlDeviceGetPowerManagementMode(device C.nvmlDevice_t, mode *C.nvmlEnableState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetPowerManagementMode")
-}
 
 //export nvmlDeviceGetPowerMizerMode_v1
 func nvmlDeviceGetPowerMizerMode_v1(device C.nvmlDevice_t, powerMizerMode *C.nvmlDevicePowerMizerModes_v1_t) C.nvmlReturn_t {
@@ -949,30 +922,12 @@ func nvmlDeviceGetTemperature(device C.nvmlDevice_t, sensorType C.nvmlTemperatur
 	return stubReturn("nvmlDeviceGetTemperature")
 }
 
-//export nvmlDeviceGetTemperatureThreshold
-func nvmlDeviceGetTemperatureThreshold(device C.nvmlDevice_t, thresholdType C.nvmlTemperatureThresholds_t, temp *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetTemperatureThreshold")
-}
 
 //export nvmlDeviceGetTemperatureV
 func nvmlDeviceGetTemperatureV(device C.nvmlDevice_t, temperature *C.nvmlTemperature_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetTemperatureV")
 }
 
-//export nvmlDeviceGetThermalSettings
-func nvmlDeviceGetThermalSettings(device C.nvmlDevice_t, sensorIndex C.uint, pThermalSettings *C.nvmlGpuThermalSettings_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetThermalSettings")
-}
-
-//export nvmlDeviceGetTopologyCommonAncestor
-func nvmlDeviceGetTopologyCommonAncestor(device1 C.nvmlDevice_t, device2 C.nvmlDevice_t, pathInfo *C.nvmlGpuTopologyLevel_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetTopologyCommonAncestor")
-}
-
-//export nvmlDeviceGetTopologyNearestGpus
-func nvmlDeviceGetTopologyNearestGpus(device C.nvmlDevice_t, level C.nvmlGpuTopologyLevel_t, count *C.uint, deviceArray *C.nvmlDevice_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetTopologyNearestGpus")
-}
 
 //export nvmlDeviceGetTotalEccErrors
 func nvmlDeviceGetTotalEccErrors(device C.nvmlDevice_t, errorType C.nvmlMemoryErrorType_t, counterType C.nvmlEccCounterType_t, eccCounts *C.ulonglong) C.nvmlReturn_t {

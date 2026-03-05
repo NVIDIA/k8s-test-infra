@@ -129,6 +129,12 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *dgxa100.Server)
 			continue
 		}
 
+		// Get NVLink config from YAML
+		var nvlinkCfg *NVLinkConfig
+		if e.config.YAMLConfig != nil {
+			nvlinkCfg = e.config.YAMLConfig.NVLink
+		}
+
 		// Create configurable device
 		server.configurableDevices[i] = NewConfigurableDevice(
 			i,
@@ -137,6 +143,7 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *dgxa100.Server)
 			uuid,
 			pciBusID,
 			minorNumber,
+			nvlinkCfg,
 		)
 
 		debugLog("[ENGINE] Created device %d: uuid=%s pci=%s\n", i, uuid, pciBusID)
@@ -163,6 +170,7 @@ func (e *Engine) createDefaultDevices(server *MockServer, base *dgxa100.Server) 
 			"",  // Use default UUID
 			"",  // Use default PCI bus ID
 			i,   // Minor number = index
+			nil, // No NVLink config
 		)
 	}
 }
