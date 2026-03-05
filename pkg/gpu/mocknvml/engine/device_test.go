@@ -819,3 +819,91 @@ func TestConfigurableDevice_GetDisplayActive_Enabled(t *testing.T) {
 		t.Errorf("Expected ENABLED, got %d", active)
 	}
 }
+
+// =============================================================================
+// MIG Tests (Batch 3)
+// =============================================================================
+
+func TestConfigurableDevice_GetMaxMigDeviceCount_Default(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	count, ret := dev.GetMaxMigDeviceCount()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetMaxMigDeviceCount failed: %v", ret)
+	}
+	// Default: MIG disabled, count = 0
+	if count != 0 {
+		t.Errorf("Expected 0 (MIG disabled), got %d", count)
+	}
+}
+
+func TestConfigurableDevice_GetMaxMigDeviceCount_Configured(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		MIG: &MIGConfig{
+			ModeCurrent:     "enabled",
+			MaxGPUInstances: 7,
+		},
+	})
+
+	count, ret := dev.GetMaxMigDeviceCount()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetMaxMigDeviceCount failed: %v", ret)
+	}
+	if count != 7 {
+		t.Errorf("Expected 7, got %d", count)
+	}
+}
+
+func TestConfigurableDevice_GetMigMode_WithConfig(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		MIG: &MIGConfig{
+			ModeCurrent: "enabled",
+			ModePending: "disabled",
+		},
+	})
+
+	current, pending, ret := dev.GetMigMode()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetMigMode failed: %v", ret)
+	}
+	if current != 1 {
+		t.Errorf("Expected current=1 (enabled), got %d", current)
+	}
+	if pending != 0 {
+		t.Errorf("Expected pending=0 (disabled), got %d", pending)
+	}
+}
+
+func TestConfigurableDevice_GetMigDeviceHandleByIndex_MIGDisabled(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	_, ret := dev.GetMigDeviceHandleByIndex(0)
+	if ret != nvml.ERROR_NOT_SUPPORTED {
+		t.Errorf("Expected NOT_SUPPORTED when MIG disabled, got %v", ret)
+	}
+}
+
+// =============================================================================
+// GPM Tests (Batch 3)
+// =============================================================================
+
+func TestConfigurableDevice_GetGpmSupport_Default(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	supported, ret := dev.GetGpmSupport()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetGpmSupport failed: %v", ret)
+	}
+	// Default: not supported
+	if supported != 0 {
+		t.Errorf("Expected 0 (not supported), got %d", supported)
+	}
+}

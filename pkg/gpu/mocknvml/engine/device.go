@@ -939,10 +939,47 @@ func (d *ConfigurableDevice) GetPowerState() (nvml.Pstates, nvml.Return) {
 	return d.GetPerformanceState()
 }
 
-// GetMigMode returns MIG mode
+// GetMigMode returns MIG mode (current, pending)
 func (d *ConfigurableDevice) GetMigMode() (int, int, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetMigMode -> disabled\n")
-	return 0, 0, nvml.SUCCESS // Disabled, Disabled
+	current, pending := 0, 0
+	if d.config != nil && d.config.MIG != nil {
+		if d.config.MIG.ModeCurrent == "enabled" {
+			current = 1
+		}
+		if d.config.MIG.ModePending == "enabled" {
+			pending = 1
+		}
+	}
+	debugLog("[NVML] nvmlDeviceGetMigMode -> current=%d pending=%d\n", current, pending)
+	return current, pending, nvml.SUCCESS
+}
+
+// GetMaxMigDeviceCount returns the maximum number of MIG devices
+func (d *ConfigurableDevice) GetMaxMigDeviceCount() (int, nvml.Return) {
+	count := 0
+	if d.config != nil && d.config.MIG != nil {
+		count = d.config.MIG.MaxGPUInstances
+	}
+	debugLog("[NVML] nvmlDeviceGetMaxMigDeviceCount -> %d\n", count)
+	return count, nvml.SUCCESS
+}
+
+// GetMigDeviceHandleByIndex returns a MIG device handle by index.
+// Returns NOT_SUPPORTED when MIG is disabled (default).
+func (d *ConfigurableDevice) GetMigDeviceHandleByIndex(index int) (nvml.Device, nvml.Return) {
+	if d.config == nil || d.config.MIG == nil || d.config.MIG.ModeCurrent != "enabled" {
+		debugLog("[NVML] nvmlDeviceGetMigDeviceHandleByIndex(%d) -> NOT_SUPPORTED (MIG disabled)\n", index)
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
+	debugLog("[NVML] nvmlDeviceGetMigDeviceHandleByIndex(%d) -> NOT_SUPPORTED (no MIG devices configured)\n", index)
+	return nil, nvml.ERROR_NOT_SUPPORTED
+}
+
+// GetGpmSupport returns whether GPM (GPU Performance Monitoring) is supported.
+// Returns 0 (not supported) by default.
+func (d *ConfigurableDevice) GetGpmSupport() (uint32, nvml.Return) {
+	debugLog("[NVML] nvmlGpmQueryDeviceSupport -> 0 (not supported)\n")
+	return 0, nvml.SUCCESS
 }
 
 // GetArchitecture returns GPU architecture
