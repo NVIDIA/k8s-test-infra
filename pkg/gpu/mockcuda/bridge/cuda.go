@@ -81,19 +81,28 @@ func cudaMalloc(devPtr *unsafe.Pointer, size C.size_t) C.cudaError_t {
 	if devPtr == nil {
 		return C.cudaErrorInvalidValue
 	}
-	ptr, err := engine.GetEngine().Malloc(uint64(size))
+	// Allocate real C memory so the pointer is valid and go vet clean.
+	// The engine tracks it by uintptr key for bookkeeping.
+	cPtr := C.malloc(C.size_t(size))
+	if cPtr == nil {
+		return C.cudaErrorMemoryAllocation
+	}
+	err := engine.GetEngine().TrackAllocation(uintptr(cPtr), uint64(size))
 	if err != engine.CudaSuccess {
+		C.free(cPtr)
 		return toCudaError(err)
 	}
-	//nolint:govet // Converting uintptr to unsafe.Pointer is intentional -
-	// this is a fake device pointer used for tracking, never dereferenced.
-	*devPtr = unsafe.Pointer(ptr)
+	*devPtr = cPtr
 	return C.cudaSuccess
 }
 
 //export cudaFree
 func cudaFree(devPtr unsafe.Pointer) C.cudaError_t {
-	return toCudaError(engine.GetEngine().Free(uintptr(devPtr)))
+	err := engine.GetEngine().Free(uintptr(devPtr))
+	if err == engine.CudaSuccess && devPtr != nil {
+		C.free(devPtr)
+	}
+	return toCudaError(err)
 }
 
 //export cudaMemcpy

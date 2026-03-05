@@ -158,6 +158,23 @@ func (e *Engine) Malloc(size uint64) (uintptr, CudaError) {
 	return ptr, CudaSuccess
 }
 
+// TrackAllocation records an externally-allocated pointer in the tracker.
+// Used by the bridge layer which allocates real C memory via C.malloc.
+func (e *Engine) TrackAllocation(ptr uintptr, size uint64) CudaError {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if size == 0 {
+		return CudaErrorInvalidValue
+	}
+	e.allocations[ptr] = AllocationInfo{
+		Ptr:      ptr,
+		Size:     size,
+		DeviceID: e.currentDevice,
+	}
+	debugLog("[CUDA] TrackAllocation(0x%x, %d) -> SUCCESS\n", ptr, size)
+	return CudaSuccess
+}
+
 // Free releases a tracked allocation.
 func (e *Engine) Free(ptr uintptr) CudaError {
 	e.mu.Lock()
