@@ -60,7 +60,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to open header: %v", err)
 	}
-	defer headerFile.Close()
+	defer func() { _ = headerFile.Close() }()
 
 	prototypes, err := parseNVMLPrototypes(headerFile)
 	if err != nil {
