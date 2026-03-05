@@ -1,0 +1,47 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Device plugin DaemonSet for PoC validation with NVML debug tracing enabled.
+# MOCK_NVML_DEBUG=1 causes the mock libnvidia-ml.so to log every NVML call
+# to stderr, allowing us to capture which functions consumers actually invoke.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin-mock
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-mock
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-mock
+    spec:
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: nvidia-device-plugin
+          image: nvcr.io/nvidia/k8s-device-plugin:v0.18.2
+          args:
+            - "--nvidia-driver-root=/var/lib/nvidia-mock/driver"
+            - "--driver-root-ctr-path=/var/lib/nvidia-mock/driver"
+            - "--device-discovery-strategy=nvml"
+          env:
+            - name: MOCK_NVML_DEBUG
+              value: "1"
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: mock-root
+              mountPath: /var/lib/nvidia-mock
+              readOnly: true
+            - name: device-plugins
+              mountPath: /var/lib/kubelet/device-plugins
+      volumes:
+        - name: mock-root
+          hostPath:
+            path: /var/lib/nvidia-mock
+        - name: device-plugins
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
