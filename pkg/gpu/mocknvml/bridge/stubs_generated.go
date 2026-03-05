@@ -574,11 +574,6 @@ func nvmlDeviceGetMaxCustomerBoostClock(device C.nvmlDevice_t, clockType C.nvmlC
 	return stubReturn("nvmlDeviceGetMaxCustomerBoostClock")
 }
 
-//export nvmlDeviceGetMaxMigDeviceCount
-func nvmlDeviceGetMaxMigDeviceCount(device C.nvmlDevice_t, count *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMaxMigDeviceCount")
-}
-
 //export nvmlDeviceGetMaxPcieLinkGeneration
 func nvmlDeviceGetMaxPcieLinkGeneration(device C.nvmlDevice_t, maxLinkGen *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetMaxPcieLinkGeneration")
@@ -612,11 +607,6 @@ func nvmlDeviceGetMemoryBusWidth(device C.nvmlDevice_t, busWidth *C.uint) C.nvml
 //export nvmlDeviceGetMemoryErrorCounter
 func nvmlDeviceGetMemoryErrorCounter(device C.nvmlDevice_t, errorType C.nvmlMemoryErrorType_t, counterType C.nvmlEccCounterType_t, locationType C.nvmlMemoryLocation_t, count *C.ulonglong) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetMemoryErrorCounter")
-}
-
-//export nvmlDeviceGetMigDeviceHandleByIndex
-func nvmlDeviceGetMigDeviceHandleByIndex(device C.nvmlDevice_t, index C.uint, migDevice *C.nvmlDevice_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMigDeviceHandleByIndex")
 }
 
 //export nvmlDeviceGetMinMaxClockOfPState
@@ -1297,11 +1287,6 @@ func nvmlGpmMetricsGet(metricsGet *C.nvmlGpmMetricsGet_t) C.nvmlReturn_t {
 //export nvmlGpmMigSampleGet
 func nvmlGpmMigSampleGet(device C.nvmlDevice_t, gpuInstanceId C.uint, gpmSample C.nvmlGpmSample_t) C.nvmlReturn_t {
 	return stubReturn("nvmlGpmMigSampleGet")
-}
-
-//export nvmlGpmQueryDeviceSupport
-func nvmlGpmQueryDeviceSupport(device C.nvmlDevice_t, gpmSupport *C.nvmlGpmSupport_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGpmQueryDeviceSupport")
 }
 
 //export nvmlGpmQueryIfStreamingEnabled

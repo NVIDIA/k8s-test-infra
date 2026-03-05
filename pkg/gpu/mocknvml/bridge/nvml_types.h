@@ -254,7 +254,11 @@ typedef struct nvmlFBCStats_st                              nvmlFBCStats_t;
 typedef struct nvmlFanSpeedInfo_st                          nvmlFanSpeedInfo_t;
 typedef struct nvmlFieldValue_st                            nvmlFieldValue_t;
 typedef struct nvmlGpmMetricsGet_st                         nvmlGpmMetricsGet_t;
-typedef struct nvmlGpmSupport_st                            nvmlGpmSupport_t;
+/* GPM support - full definition needed by bridge */
+typedef struct nvmlGpmSupport_st {
+    unsigned int version;
+    unsigned int isSupportedDevice;
+} nvmlGpmSupport_t;
 typedef struct nvmlGpuDynamicPstatesInfo_st                 nvmlGpuDynamicPstatesInfo_t;
 typedef struct nvmlGpuFabricInfoV_st                        nvmlGpuFabricInfoV_t;
 typedef struct nvmlGpuFabricInfo_st                         nvmlGpuFabricInfo_t;

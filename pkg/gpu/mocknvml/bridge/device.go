@@ -38,6 +38,9 @@
 // - nvmlDeviceGetRemappedRows
 // - nvmlDeviceGetGspFirmwareMode
 // - nvmlDeviceGetDisplayActive
+// - nvmlDeviceGetMaxMigDeviceCount
+// - nvmlDeviceGetMigDeviceHandleByIndex
+// - nvmlGpmQueryDeviceSupport
 
 package main
 
@@ -515,6 +518,73 @@ func nvmlDeviceGetPowerManagementMode(device C.nvmlDevice_t, mode *C.nvmlEnableS
 		return toReturn(ret)
 	}
 	*mode = C.nvmlEnableState_t(m)
+	return C.NVML_SUCCESS
+}
+
+// =============================================================================
+// MIG Functions
+// =============================================================================
+
+//export nvmlDeviceGetMaxMigDeviceCount
+func nvmlDeviceGetMaxMigDeviceCount(device C.nvmlDevice_t, count *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetMaxMigDeviceCount"); !ok {
+		return ret
+	}
+	if count == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	c, ret := dev.GetMaxMigDeviceCount()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*count = C.uint(c)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetMigDeviceHandleByIndex
+func nvmlDeviceGetMigDeviceHandleByIndex(device C.nvmlDevice_t, index C.uint, migDevice *C.nvmlDevice_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetMigDeviceHandleByIndex"); !ok {
+		return ret
+	}
+	if migDevice == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	_, ret := dev.GetMigDeviceHandleByIndex(int(index))
+	return toReturn(ret)
+}
+
+// =============================================================================
+// GPM Functions
+// =============================================================================
+
+//export nvmlGpmQueryDeviceSupport
+func nvmlGpmQueryDeviceSupport(device C.nvmlDevice_t, gpmSupport *C.nvmlGpmSupport_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlGpmQueryDeviceSupport"); !ok {
+		return ret
+	}
+	if gpmSupport == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	supported, ret := dev.GetGpmSupport()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	gpmSupport.isSupportedDevice = C.uint(supported)
 	return C.NVML_SUCCESS
 }
 
