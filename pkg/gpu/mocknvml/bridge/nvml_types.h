@@ -155,6 +155,181 @@ typedef struct nvmlMemory_v2_st
  */
 typedef unsigned int nvmlDeviceArchitecture_t;
 
+/* =========================================================================
+ * Opaque type definitions for stub ABI compatibility.
+ *
+ * These types are needed for generated stubs to compile with correct
+ * function signatures. Stubs only return NVML_ERROR_NOT_SUPPORTED and
+ * never dereference these types, so opaque definitions suffice.
+ *
+ * Types passed by value in NVML function signatures need correct ABI size:
+ *   - Enums: typedef unsigned int
+ *   - Handles: typedef void* (opaque pointer)
+ * Types only passed by pointer: forward-declared opaque struct is sufficient.
+ * ========================================================================= */
+
+/* --- Enums (passed by value as unsigned int) --- */
+typedef unsigned int nvmlAffinityScope_t;
+typedef unsigned int nvmlClockId_t;
+typedef unsigned int nvmlClockType_t;
+typedef unsigned int nvmlComputeMode_t;
+typedef unsigned int nvmlDetachGpuState_t;
+typedef unsigned int nvmlDeviceVgpuCapability_t;
+typedef unsigned int nvmlDriverModel_t;
+typedef unsigned int nvmlEccCounterType_t;
+typedef unsigned int nvmlEnableState_t;
+typedef unsigned int nvmlEncoderType_t;
+typedef unsigned int nvmlFanControlPolicy_t;
+typedef unsigned int nvmlGpuOperationMode_t;
+typedef unsigned int nvmlGpuP2PCapsIndex_t;
+typedef unsigned int nvmlGpuP2PStatus_t;
+typedef unsigned int nvmlGpuTopologyLevel_t;
+typedef unsigned int nvmlGpuVirtualizationMode_t;
+typedef unsigned int nvmlHostVgpuMode_t;
+typedef unsigned int nvmlInforomObject_t;
+typedef unsigned int nvmlIntNvLinkDeviceType_t;
+typedef unsigned int nvmlLedColor_t;
+typedef unsigned int nvmlMemoryErrorType_t;
+typedef unsigned int nvmlMemoryLocation_t;
+typedef unsigned int nvmlNvLinkCapability_t;
+typedef unsigned int nvmlNvLinkErrorCounter_t;
+typedef unsigned int nvmlPageRetirementCause_t;
+typedef unsigned int nvmlPcieLinkState_t;
+typedef unsigned int nvmlPcieUtilCounter_t;
+typedef unsigned int nvmlPerfPolicyType_t;
+typedef unsigned int nvmlPstates_t;
+typedef unsigned int nvmlRestrictedAPI_t;
+typedef unsigned int nvmlSamplingType_t;
+typedef unsigned int nvmlTemperatureSensors_t;
+typedef unsigned int nvmlTemperatureThresholds_t;
+typedef unsigned int nvmlValueType_t;
+typedef unsigned int nvmlVgpuCapability_t;
+typedef unsigned int nvmlVgpuDriverCapability_t;
+typedef unsigned int nvmlVgpuTypeId_t;
+
+/* --- Opaque handle types (passed by value as pointers) --- */
+typedef struct nvmlComputeInstance_st* nvmlComputeInstance_t;
+typedef struct nvmlEventSet_st*       nvmlEventSet_t;
+typedef struct nvmlGpmSample_st*      nvmlGpmSample_t;
+typedef struct nvmlGpuInstance_st*     nvmlGpuInstance_t;
+typedef struct nvmlUnit_st*           nvmlUnit_t;
+typedef struct nvmlVgpuInstance_st*    nvmlVgpuInstance_t;
+
+/* --- Opaque struct types (only used via pointer in function signatures) --- */
+typedef struct nvmlAccountingStats_st                       nvmlAccountingStats_t;
+typedef struct nvmlActiveVgpuInstanceInfo_st                nvmlActiveVgpuInstanceInfo_t;
+typedef struct nvmlBAR1Memory_st                            nvmlBAR1Memory_t;
+typedef struct nvmlBridgeChipHierarchy_st                   nvmlBridgeChipHierarchy_t;
+typedef struct nvmlBusType_st                               nvmlBusType_t;
+typedef struct nvmlC2cModeInfo_v1_st                        nvmlC2cModeInfo_v1_t;
+typedef struct nvmlClkMonStatus_st                          nvmlClkMonStatus_t;
+typedef struct nvmlClockOffset_st                           nvmlClockOffset_t;
+typedef struct nvmlComputeInstanceInfo_st                   nvmlComputeInstanceInfo_t;
+typedef struct nvmlComputeInstancePlacement_st              nvmlComputeInstancePlacement_t;
+typedef struct nvmlComputeInstanceProfileInfo_st            nvmlComputeInstanceProfileInfo_t;
+typedef struct nvmlComputeInstanceProfileInfo_v2_st         nvmlComputeInstanceProfileInfo_v2_t;
+typedef struct nvmlConfComputeGetKeyRotationThresholdInfo_st nvmlConfComputeGetKeyRotationThresholdInfo_t;
+typedef struct nvmlConfComputeGpuAttestationReport_st       nvmlConfComputeGpuAttestationReport_t;
+typedef struct nvmlConfComputeGpuCertificate_st             nvmlConfComputeGpuCertificate_t;
+typedef struct nvmlConfComputeMemSizeInfo_st                nvmlConfComputeMemSizeInfo_t;
+typedef struct nvmlConfComputeSetKeyRotationThresholdInfo_st nvmlConfComputeSetKeyRotationThresholdInfo_t;
+typedef struct nvmlConfComputeSystemCaps_st                 nvmlConfComputeSystemCaps_t;
+typedef struct nvmlConfComputeSystemState_st                nvmlConfComputeSystemState_t;
+typedef struct nvmlCoolerInfo_st                            nvmlCoolerInfo_t;
+typedef struct nvmlDeviceAddressingMode_st                  nvmlDeviceAddressingMode_t;
+typedef struct nvmlDeviceAttributes_st                      nvmlDeviceAttributes_t;
+typedef struct nvmlDeviceCapabilities_st                    nvmlDeviceCapabilities_t;
+typedef struct nvmlDeviceCurrentClockFreqs_st               nvmlDeviceCurrentClockFreqs_t;
+typedef struct nvmlDevicePerfModes_st                       nvmlDevicePerfModes_t;
+typedef struct nvmlDevicePowerMizerModes_v1_st              nvmlDevicePowerMizerModes_v1_t;
+typedef struct nvmlDramEncryptionInfo_st                    nvmlDramEncryptionInfo_t;
+typedef struct nvmlEccErrorCounts_st                        nvmlEccErrorCounts_t;
+typedef struct nvmlEccSramErrorStatus_st                    nvmlEccSramErrorStatus_t;
+typedef struct nvmlEccSramUniqueUncorrectedErrorCounts_st   nvmlEccSramUniqueUncorrectedErrorCounts_t;
+typedef struct nvmlEncoderSessionInfo_st                    nvmlEncoderSessionInfo_t;
+typedef struct nvmlEventData_st                             nvmlEventData_t;
+typedef struct nvmlExcludedDeviceInfo_st                    nvmlExcludedDeviceInfo_t;
+typedef struct nvmlFBCSessionInfo_st                        nvmlFBCSessionInfo_t;
+typedef struct nvmlFBCStats_st                              nvmlFBCStats_t;
+typedef struct nvmlFanSpeedInfo_st                          nvmlFanSpeedInfo_t;
+typedef struct nvmlFieldValue_st                            nvmlFieldValue_t;
+typedef struct nvmlGpmMetricsGet_st                         nvmlGpmMetricsGet_t;
+typedef struct nvmlGpmSupport_st                            nvmlGpmSupport_t;
+typedef struct nvmlGpuDynamicPstatesInfo_st                 nvmlGpuDynamicPstatesInfo_t;
+typedef struct nvmlGpuFabricInfoV_st                        nvmlGpuFabricInfoV_t;
+typedef struct nvmlGpuFabricInfo_st                         nvmlGpuFabricInfo_t;
+typedef struct nvmlGpuInstanceInfo_st                       nvmlGpuInstanceInfo_t;
+typedef struct nvmlGpuInstancePlacement_st                  nvmlGpuInstancePlacement_t;
+typedef struct nvmlGpuInstanceProfileInfo_st                nvmlGpuInstanceProfileInfo_t;
+typedef struct nvmlGpuInstanceProfileInfo_v2_st             nvmlGpuInstanceProfileInfo_v2_t;
+typedef struct nvmlGpuThermalSettings_st                    nvmlGpuThermalSettings_t;
+typedef struct nvmlGridLicensableFeatures_st                nvmlGridLicensableFeatures_t;
+typedef struct nvmlHwbcEntry_st                             nvmlHwbcEntry_t;
+typedef struct nvmlLedState_st                              nvmlLedState_t;
+typedef struct nvmlMarginTemperature_st                     nvmlMarginTemperature_t;
+typedef struct nvmlNvLinkInfo_st                            nvmlNvLinkInfo_t;
+typedef struct nvmlNvLinkPowerThres_st                      nvmlNvLinkPowerThres_t;
+typedef struct nvmlNvLinkUtilizationControl_st              nvmlNvLinkUtilizationControl_t;
+typedef struct nvmlNvlinkGetBwMode_st                       nvmlNvlinkGetBwMode_t;
+typedef struct nvmlNvlinkSetBwMode_st                       nvmlNvlinkSetBwMode_t;
+typedef struct nvmlNvlinkSupportedBwModes_st                nvmlNvlinkSupportedBwModes_t;
+typedef struct nvmlPRMTLV_v1_st                             nvmlPRMTLV_v1_t;
+typedef struct nvmlPSUInfo_st                               nvmlPSUInfo_t;
+typedef struct nvmlPciInfoExt_st                            nvmlPciInfoExt_t;
+typedef struct nvmlPdi_st                                   nvmlPdi_t;
+typedef struct nvmlPlatformInfo_st                          nvmlPlatformInfo_t;
+typedef struct nvmlPowerSmoothingProfile_st                 nvmlPowerSmoothingProfile_t;
+typedef struct nvmlPowerSmoothingState_st                   nvmlPowerSmoothingState_t;
+typedef struct nvmlPowerSource_st                           nvmlPowerSource_t;
+typedef struct nvmlPowerValue_v2_st                         nvmlPowerValue_v2_t;
+typedef struct nvmlProcessDetailList_st                     nvmlProcessDetailList_t;
+typedef struct nvmlProcessInfo_v1_st                        nvmlProcessInfo_v1_t;
+typedef struct nvmlProcessInfo_v2_st                        nvmlProcessInfo_v2_t;
+typedef struct nvmlProcessUtilizationSample_st              nvmlProcessUtilizationSample_t;
+typedef struct nvmlProcessesUtilizationInfo_st              nvmlProcessesUtilizationInfo_t;
+typedef struct nvmlRepairStatus_st                          nvmlRepairStatus_t;
+typedef struct nvmlRowRemapperHistogramValues_st            nvmlRowRemapperHistogramValues_t;
+typedef struct nvmlSample_st                                nvmlSample_t;
+typedef struct nvmlSystemConfComputeSettings_st             nvmlSystemConfComputeSettings_t;
+typedef struct nvmlSystemDriverBranchInfo_st                nvmlSystemDriverBranchInfo_t;
+typedef struct nvmlSystemEventSetCreateRequest_st           nvmlSystemEventSetCreateRequest_t;
+typedef struct nvmlSystemEventSetFreeRequest_st             nvmlSystemEventSetFreeRequest_t;
+typedef struct nvmlSystemEventSetWaitRequest_st             nvmlSystemEventSetWaitRequest_t;
+typedef struct nvmlSystemRegisterEventRequest_st            nvmlSystemRegisterEventRequest_t;
+typedef struct nvmlTemperature_st                           nvmlTemperature_t;
+typedef struct nvmlUUID_st                                  nvmlUUID_t;
+typedef struct nvmlUnitFanSpeeds_st                         nvmlUnitFanSpeeds_t;
+typedef struct nvmlUnitInfo_st                              nvmlUnitInfo_t;
+typedef struct nvmlVgpuCreatablePlacementInfo_st            nvmlVgpuCreatablePlacementInfo_t;
+typedef struct nvmlVgpuHeterogeneousMode_st                 nvmlVgpuHeterogeneousMode_t;
+typedef struct nvmlVgpuInstanceUtilizationSample_st         nvmlVgpuInstanceUtilizationSample_t;
+typedef struct nvmlVgpuInstancesUtilizationInfo_st          nvmlVgpuInstancesUtilizationInfo_t;
+typedef struct nvmlVgpuLicenseInfo_st                       nvmlVgpuLicenseInfo_t;
+typedef struct nvmlVgpuMetadata_st                          nvmlVgpuMetadata_t;
+typedef struct nvmlVgpuPgpuCompatibility_st                 nvmlVgpuPgpuCompatibility_t;
+typedef struct nvmlVgpuPgpuMetadata_st                      nvmlVgpuPgpuMetadata_t;
+typedef struct nvmlVgpuPlacementId_st                       nvmlVgpuPlacementId_t;
+typedef struct nvmlVgpuPlacementList_st                     nvmlVgpuPlacementList_t;
+typedef struct nvmlVgpuProcessUtilizationSample_st          nvmlVgpuProcessUtilizationSample_t;
+typedef struct nvmlVgpuProcessesUtilizationInfo_st          nvmlVgpuProcessesUtilizationInfo_t;
+typedef struct nvmlVgpuRuntimeState_st                      nvmlVgpuRuntimeState_t;
+typedef struct nvmlVgpuSchedulerCapabilities_st             nvmlVgpuSchedulerCapabilities_t;
+typedef struct nvmlVgpuSchedulerGetState_st                 nvmlVgpuSchedulerGetState_t;
+typedef struct nvmlVgpuSchedulerLogInfo_st                  nvmlVgpuSchedulerLogInfo_t;
+typedef struct nvmlVgpuSchedulerLog_st                      nvmlVgpuSchedulerLog_t;
+typedef struct nvmlVgpuSchedulerSetState_st                 nvmlVgpuSchedulerSetState_t;
+typedef struct nvmlVgpuSchedulerStateInfo_st                nvmlVgpuSchedulerStateInfo_t;
+typedef struct nvmlVgpuSchedulerState_st                    nvmlVgpuSchedulerState_t;
+typedef struct nvmlVgpuTypeBar1Info_st                      nvmlVgpuTypeBar1Info_t;
+typedef struct nvmlVgpuTypeIdInfo_st                        nvmlVgpuTypeIdInfo_t;
+typedef struct nvmlVgpuTypeMaxInstance_st                    nvmlVgpuTypeMaxInstance_t;
+typedef struct nvmlVgpuVersion_st                           nvmlVgpuVersion_t;
+typedef struct nvmlVgpuVmIdType_st                          nvmlVgpuVmIdType_t;
+typedef struct nvmlViolationTime_st                         nvmlViolationTime_t;
+typedef struct nvmlWorkloadPowerProfileCurrentProfiles_st   nvmlWorkloadPowerProfileCurrentProfiles_t;
+typedef struct nvmlWorkloadPowerProfileProfilesInfo_st      nvmlWorkloadPowerProfileProfilesInfo_t;
+typedef struct nvmlWorkloadPowerProfileRequestedProfiles_st nvmlWorkloadPowerProfileRequestedProfiles_t;
+
 #ifdef __cplusplus
 }
 #endif
