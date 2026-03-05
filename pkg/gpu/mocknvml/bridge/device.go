@@ -291,6 +291,9 @@ func nvmlDeviceGetMemoryInfo(nvmlDevice C.nvmlDevice_t, memory *C.nvmlMemory_t) 
 
 //export nvmlDeviceGetTopologyCommonAncestor
 func nvmlDeviceGetTopologyCommonAncestor(device1 C.nvmlDevice_t, device2 C.nvmlDevice_t, pathInfo *C.nvmlGpuTopologyLevel_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetTopologyCommonAncestor"); !ok {
+		return ret
+	}
 	if pathInfo == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -314,6 +317,9 @@ func nvmlDeviceGetTopologyCommonAncestor(device1 C.nvmlDevice_t, device2 C.nvmlD
 
 //export nvmlDeviceGetTopologyNearestGpus
 func nvmlDeviceGetTopologyNearestGpus(device C.nvmlDevice_t, level C.nvmlGpuTopologyLevel_t, count *C.uint, deviceArray *C.nvmlDevice_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetTopologyNearestGpus"); !ok {
+		return ret
+	}
 	if count == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -328,6 +334,9 @@ func nvmlDeviceGetTopologyNearestGpus(device C.nvmlDevice_t, level C.nvmlGpuTopo
 
 //export nvmlDeviceGetNvLinkState
 func nvmlDeviceGetNvLinkState(device C.nvmlDevice_t, link C.uint, isActive *C.nvmlEnableState_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetNvLinkState"); !ok {
+		return ret
+	}
 	if isActive == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -346,6 +355,9 @@ func nvmlDeviceGetNvLinkState(device C.nvmlDevice_t, link C.uint, isActive *C.nv
 
 //export nvmlDeviceGetNvLinkErrorCounter
 func nvmlDeviceGetNvLinkErrorCounter(device C.nvmlDevice_t, link C.uint, counter C.nvmlNvLinkErrorCounter_t, counterValue *C.ulonglong) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetNvLinkErrorCounter"); !ok {
+		return ret
+	}
 	if counterValue == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -364,6 +376,9 @@ func nvmlDeviceGetNvLinkErrorCounter(device C.nvmlDevice_t, link C.uint, counter
 
 //export nvmlDeviceGetNvLinkRemotePciInfo_v2
 func nvmlDeviceGetNvLinkRemotePciInfo_v2(device C.nvmlDevice_t, link C.uint, pci *C.nvmlPciInfo_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetNvLinkRemotePciInfo_v2"); !ok {
+		return ret
+	}
 	if pci == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -387,6 +402,9 @@ func nvmlDeviceGetNvLinkRemotePciInfo_v2(device C.nvmlDevice_t, link C.uint, pci
 
 //export nvmlDeviceGetNvLinkRemotePciInfo_v1
 func nvmlDeviceGetNvLinkRemotePciInfo_v1(device C.nvmlDevice_t, link C.uint, pci *C.nvmlPciInfo_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetNvLinkRemotePciInfo_v1"); !ok {
+		return ret
+	}
 	return nvmlDeviceGetNvLinkRemotePciInfo_v2(device, link, pci)
 }
 
@@ -396,6 +414,9 @@ func nvmlDeviceGetNvLinkRemotePciInfo_v1(device C.nvmlDevice_t, link C.uint, pci
 
 //export nvmlDeviceGetTemperatureThreshold
 func nvmlDeviceGetTemperatureThreshold(device C.nvmlDevice_t, thresholdType C.nvmlTemperatureThresholds_t, temp *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetTemperatureThreshold"); !ok {
+		return ret
+	}
 	if temp == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -414,6 +435,9 @@ func nvmlDeviceGetTemperatureThreshold(device C.nvmlDevice_t, thresholdType C.nv
 
 //export nvmlDeviceGetThermalSettings
 func nvmlDeviceGetThermalSettings(device C.nvmlDevice_t, sensorIndex C.uint, pThermalSettings *C.nvmlGpuThermalSettings_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetThermalSettings"); !ok {
+		return ret
+	}
 	if pThermalSettings == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -445,6 +469,9 @@ func nvmlDeviceGetThermalSettings(device C.nvmlDevice_t, sensorIndex C.uint, pTh
 
 //export nvmlDeviceGetEnforcedPowerLimit
 func nvmlDeviceGetEnforcedPowerLimit(device C.nvmlDevice_t, limit *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetEnforcedPowerLimit"); !ok {
+		return ret
+	}
 	if limit == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -463,6 +490,9 @@ func nvmlDeviceGetEnforcedPowerLimit(device C.nvmlDevice_t, limit *C.uint) C.nvm
 
 //export nvmlDeviceGetPowerManagementMode
 func nvmlDeviceGetPowerManagementMode(device C.nvmlDevice_t, mode *C.nvmlEnableState_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetPowerManagementMode"); !ok {
+		return ret
+	}
 	if mode == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
