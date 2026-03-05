@@ -18,7 +18,7 @@
 // - Stub handling (stubReturn)
 // - Error string caching for nvmlErrorString
 
-//go:generate go run ../../../../cmd/generate-bridge/main.go -input ../../../../vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go -bridge . -output stubs_generated.go
+//go:generate go run ../../../../cmd/generate-bridge/main.go -input ../../../../vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go -header ../../../../vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h -bridge . -output stubs_generated.go
 
 package main
 
