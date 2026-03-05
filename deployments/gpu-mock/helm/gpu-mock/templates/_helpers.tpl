@@ -69,8 +69,12 @@ Priority: customConfig > profile file lookup > fail with error.
 {{- .Files.Get "profiles/b200.yaml" }}
 {{- else if eq .Values.gpu.profile "gb200" }}
 {{- .Files.Get "profiles/gb200.yaml" }}
+{{- else if eq .Values.gpu.profile "l40s" }}
+{{- .Files.Get "profiles/l40s.yaml" }}
+{{- else if eq .Values.gpu.profile "t4" }}
+{{- .Files.Get "profiles/t4.yaml" }}
 {{- else }}
-{{- fail (printf "Unknown GPU profile %q. Supported profiles: a100, h100, b200, gb200. Or set gpu.customConfig with inline YAML." .Values.gpu.profile) }}
+{{- fail (printf "Unknown GPU profile %q. Supported profiles: a100, h100, b200, gb200, l40s, t4. Or set gpu.customConfig with inline YAML." .Values.gpu.profile) }}
 {{- end }}
 {{- end }}
 
