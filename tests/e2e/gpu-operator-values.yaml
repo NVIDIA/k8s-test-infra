@@ -1,0 +1,70 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# GPU Operator Helm values overlay for mock GPU E2E testing on Kind.
+#
+# Usage:
+#   helm install gpu-operator nvidia/gpu-operator \
+#     -n gpu-operator --create-namespace \
+#     -f tests/e2e/gpu-operator-values.yaml
+#
+# Prerequisites:
+#   - gpu-mock Helm chart already installed (provides mock NVML + CUDA libs)
+#   - Node labelled nvidia.com/gpu.present=true (done by gpu-mock chart)
+#
+# Tested versions:
+#   - GPU Operator: v24.9.x
+#   - Device Plugin: v0.17.x (bundled with operator)
+#   - GFD: v0.17.x (bundled with operator)
+#   - DRA Driver: v0.10.x (standalone Helm chart, not part of operator)
+
+# Driver is replaced by gpu-mock chart — no real kernel module needed.
+driver:
+  enabled: false
+
+# Container toolkit is not needed — the mock libs are placed on the host
+# by the gpu-mock DaemonSet, not injected by the toolkit.
+toolkit:
+  enabled: false
+
+# DCGM is not supported by the mock NVML (requires full driver stack).
+dcgm:
+  enabled: false
+
+dcgmExporter:
+  enabled: false
+
+# MIG manager requires real driver — disable.
+migManager:
+  enabled: false
+
+# Node status exporter depends on DCGM — disable.
+nodeStatusExporter:
+  enabled: false
+
+# Device plugin discovers GPUs via mock NVML.
+devicePlugin:
+  enabled: true
+  config:
+    name: ""
+  env:
+    - name: NVIDIA_DRIVER_ROOT
+      value: "/var/lib/nvidia-mock/driver"
+
+# GFD reads GPU attributes via mock NVML and labels the node.
+gfd:
+  enabled: true
+  env:
+    - name: NVIDIA_DRIVER_ROOT
+      value: "/var/lib/nvidia-mock/driver"
+
+# Validator checks that the GPU stack is functional.
+validator:
+  driver:
+    env:
+      - name: LD_LIBRARY_PATH
+        value: "/var/lib/nvidia-mock/driver/usr/lib64"
+  plugin:
+    env:
+      - name: LD_LIBRARY_PATH
+        value: "/var/lib/nvidia-mock/driver/usr/lib64"

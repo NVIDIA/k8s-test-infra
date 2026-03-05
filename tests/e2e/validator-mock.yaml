@@ -1,0 +1,42 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# GPU Operator Validator pod for E2E testing with gpu-mock chart.
+# Runs cuda-vectorAdd against the mock libcuda.so to verify the CUDA mock
+# supports basic kernel launch.
+#
+# This is a standalone Job (not the full operator validator) that exercises
+# the same validation the GPU Operator performs.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gpu-validator-mock
+  namespace: default
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        name: gpu-validator-mock
+    spec:
+      restartPolicy: Never
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: cuda-validation
+          image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: LD_LIBRARY_PATH
+              value: "/var/lib/nvidia-mock/driver/usr/lib64"
+          volumeMounts:
+            - name: mock-root
+              mountPath: /var/lib/nvidia-mock
+              readOnly: true
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+      volumes:
+        - name: mock-root
+          hostPath:
+            path: /var/lib/nvidia-mock

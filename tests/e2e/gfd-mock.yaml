@@ -1,0 +1,94 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# GPU Feature Discovery DaemonSet for E2E testing with gpu-mock chart.
+# Deploys GFD standalone (without GPU Operator) to label nodes with GPU attributes.
+#
+# Expected node labels after GFD runs:
+#   nvidia.com/gpu.compute.major=8
+#   nvidia.com/gpu.product=NVIDIA-A100-SXM4-40GB
+#   nvidia.com/gpu.memory=40960  (or similar)
+#   nvidia.com/gpu.driver.version=550.163.01
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-gfd-mock
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: gpu-feature-discovery
+    app.kubernetes.io/component: gfd
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-gfd-mock
+  template:
+    metadata:
+      labels:
+        name: nvidia-gfd-mock
+    spec:
+      tolerations:
+        - operator: Exists
+      serviceAccountName: nvidia-gfd-mock
+      containers:
+        - name: gpu-feature-discovery
+          image: nvcr.io/nvidia/gpu-feature-discovery:v0.17.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--nvidia-driver-root=/var/lib/nvidia-mock/driver"
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: GFD_SLEEP_INTERVAL
+              value: "60"
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: mock-root
+              mountPath: /var/lib/nvidia-mock
+              readOnly: true
+            - name: output-dir
+              mountPath: /etc/kubernetes/node-feature-discovery/features.d
+            - name: host-sys
+              mountPath: /sys
+              readOnly: true
+      volumes:
+        - name: mock-root
+          hostPath:
+            path: /var/lib/nvidia-mock
+        - name: output-dir
+          hostPath:
+            path: /etc/kubernetes/node-feature-discovery/features.d
+            type: DirectoryOrCreate
+        - name: host-sys
+          hostPath:
+            path: /sys
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nvidia-gfd-mock
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nvidia-gfd-mock
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nvidia-gfd-mock
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nvidia-gfd-mock
+subjects:
+  - kind: ServiceAccount
+    name: nvidia-gfd-mock
+    namespace: kube-system
