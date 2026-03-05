@@ -39,6 +39,7 @@ import (
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
 // main is required for buildmode=c-shared.
@@ -131,14 +132,33 @@ func goStringToC(s string, buf *C.char, length C.uint) C.nvmlReturn_t {
 }
 
 // stubReturn handles unimplemented function calls.
+// First checks the version registry: if the function doesn't exist in the
+// configured driver version, returns FUNCTION_NOT_FOUND.
 // In strict mode, panics to help identify missing implementations.
 // Otherwise returns NOT_SUPPORTED (gracefully handled by most consumers).
 func stubReturn(funcName string) C.nvmlReturn_t {
+	driverVersion := engine.GetEngine().GetConfig().DriverVersion
+	if !engine.FunctionAvailable(funcName, driverVersion) {
+		debugLog("[NVML-STUB] %s called (FUNCTION_NOT_FOUND for driver %s)\n", funcName, driverVersion)
+		return C.NVML_ERROR_FUNCTION_NOT_FOUND
+	}
 	if strictMode {
 		panic(fmt.Sprintf("MOCK_NVML_STRICT: unimplemented function called: %s", funcName))
 	}
 	debugLog("[NVML-STUB] %s called (NOT IMPLEMENTED)\n", funcName)
 	return C.NVML_ERROR_NOT_SUPPORTED
+}
+
+// bridgeVersionCheck checks if a hand-written bridge function is available
+// in the configured driver version. Returns true if available, false otherwise.
+// When false, the caller should return the provided nvmlReturn_t value.
+func bridgeVersionCheck(funcName string) (C.nvmlReturn_t, bool) {
+	driverVersion := engine.GetEngine().GetConfig().DriverVersion
+	if !engine.FunctionAvailable(funcName, driverVersion) {
+		debugLog("[NVML] %s called (FUNCTION_NOT_FOUND for driver %s)\n", funcName, driverVersion)
+		return C.NVML_ERROR_FUNCTION_NOT_FOUND, false
+	}
+	return C.NVML_SUCCESS, true
 }
 
 //export nvmlErrorString
