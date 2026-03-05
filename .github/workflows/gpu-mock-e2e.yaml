@@ -107,6 +107,51 @@ jobs:
           echo "FAIL: Expected 2 allocatable GPUs, got $GPUS"
           exit 1
 
+      - name: Deploy GPU Feature Discovery
+        run: |
+          kubectl apply -f tests/e2e/gfd-mock.yaml
+          kubectl -n kube-system wait --for=condition=ready \
+            pod -l name=nvidia-gfd-mock --timeout=120s
+
+      - name: Verify GFD node labels
+        run: |
+          NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+          # GFD needs a few seconds to label the node
+          for i in $(seq 1 30); do
+            PRODUCT=$(kubectl get node "$NODE" -o jsonpath='{.metadata.labels.nvidia\.com/gpu\.product}' 2>/dev/null || true)
+            if [ -n "$PRODUCT" ]; then
+              break
+            fi
+            echo "Attempt $i: waiting for GFD labels..."
+            sleep 2
+          done
+          echo "Checking GFD labels on node $NODE..."
+          # Verify key labels are set (values depend on profile)
+          for LABEL in nvidia.com/gpu.product nvidia.com/gpu.memory nvidia.com/gpu.compute.major; do
+            VALUE=$(kubectl get node "$NODE" -o jsonpath="{.metadata.labels.${LABEL//./_DOT_}}" 2>/dev/null || true)
+            # jsonpath doesn't handle dots in label keys well — use jq
+            VALUE=$(kubectl get node "$NODE" -o json | jq -r ".metadata.labels[\"$LABEL\"] // empty")
+            if [ -z "$VALUE" ]; then
+              echo "FAIL: GFD label $LABEL not set"
+              kubectl get node "$NODE" -o json | jq '.metadata.labels | to_entries[] | select(.key | startswith("nvidia.com"))' || true
+              exit 1
+            fi
+            echo "  $LABEL=$VALUE"
+          done
+          echo "PASS: GFD labels verified"
+
+      - name: Run CUDA validator job
+        run: |
+          kubectl apply -f tests/e2e/validator-mock.yaml
+          # Wait for job completion (timeout 120s)
+          kubectl wait --for=condition=complete job/gpu-validator-mock --timeout=120s || {
+            echo "Validator job did not complete. Checking status..."
+            kubectl describe job/gpu-validator-mock
+            kubectl logs -l name=gpu-validator-mock --tail=50 || true
+            exit 1
+          }
+          echo "PASS: CUDA validator job completed successfully"
+
       - name: Collect logs on failure
         if: failure()
         run: |
@@ -114,6 +159,12 @@ jobs:
           kubectl logs -l app.kubernetes.io/name=gpu-mock --tail=50 || true
           echo "=== device plugin logs ==="
           kubectl -n kube-system logs -l name=nvidia-device-plugin-mock --tail=50 || true
+          echo "=== GFD logs ==="
+          kubectl -n kube-system logs -l name=nvidia-gfd-mock --tail=50 || true
+          echo "=== validator job logs ==="
+          kubectl logs -l name=gpu-validator-mock --tail=50 || true
+          echo "=== node labels ==="
+          kubectl get nodes -o json | jq '.items[].metadata.labels | to_entries[] | select(.key | startswith("nvidia.com"))' || true
           echo "=== pod status ==="
           kubectl get pods -A || true
           echo "=== node describe ==="
