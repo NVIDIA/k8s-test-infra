@@ -28,22 +28,22 @@ type FunctionVersion struct {
 // Unknown functions default to "available" for backwards compatibility.
 var functionRegistry = map[string]FunctionVersion{
 	// Core functions (331.x)
-	"nvmlInit_v2":                    {Added: "331.0"},
-	"nvmlDeviceGetCount_v2":          {Added: "331.0"},
-	"nvmlDeviceGetHandleByIndex_v2":  {Added: "331.0"},
+	"nvmlInit_v2":                   {Added: "331.0"},
+	"nvmlDeviceGetCount_v2":         {Added: "331.0"},
+	"nvmlDeviceGetHandleByIndex_v2": {Added: "331.0"},
 
 	// 450.x additions
 	"nvmlDeviceGetRemappedRows": {Added: "450.0"},
 
 	// 470.x additions
-	"nvmlDeviceGetArchitecture":          {Added: "470.0"},
+	"nvmlDeviceGetArchitecture":             {Added: "470.0"},
 	"nvmlDeviceGetGpuMaxPcieLinkGeneration": {Added: "470.0"},
 
 	// 510.x additions
-	"nvmlDeviceGetMemoryInfo_v2":              {Added: "510.0"},
-	"nvmlDeviceGetComputeRunningProcesses_v3": {Added: "510.0"},
+	"nvmlDeviceGetMemoryInfo_v2":               {Added: "510.0"},
+	"nvmlDeviceGetComputeRunningProcesses_v3":  {Added: "510.0"},
 	"nvmlDeviceGetGraphicsRunningProcesses_v3": {Added: "510.0"},
-	"nvmlDeviceGetGspFirmwareMode":            {Added: "510.0"},
+	"nvmlDeviceGetGspFirmwareMode":             {Added: "510.0"},
 
 	// 535.x additions
 	"nvmlGpmQueryDeviceSupport": {Added: "535.0"},
