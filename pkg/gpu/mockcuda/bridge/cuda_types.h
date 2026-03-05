@@ -29,7 +29,10 @@ typedef enum cudaError_enum {
     cudaErrorUnknown                = 999
 } cudaError_t;
 
-/* CUresult mirrors cudaError_t for driver API */
+/* TODO: CUresult (driver API) and cudaError_t (runtime API) are distinct enums
+ * in real CUDA with diverging values at higher codes. For now we alias them
+ * since we only use low error codes. If consumers check driver API constants
+ * (e.g. CUDA_ERROR_INVALID_VALUE), split into a separate enum. */
 typedef cudaError_t CUresult;
 
 /*

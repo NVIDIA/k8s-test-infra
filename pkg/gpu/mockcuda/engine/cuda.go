@@ -67,13 +67,14 @@ func ResetEngine() {
 // NewEngine creates a new CUDA engine with default or environment-configured state.
 func NewEngine() *Engine {
 	deviceCount := DefaultDeviceCount
-	if num := os.Getenv("MOCK_CUDA_NUM_DEVICES"); num != "" {
+	// Fallback: shared NVML config for device count
+	if num := os.Getenv("MOCK_NVML_NUM_DEVICES"); num != "" {
 		if val, err := strconv.Atoi(num); err == nil && val >= 0 {
 			deviceCount = val
 		}
 	}
-	// Also check NVML config env var for shared device count
-	if num := os.Getenv("MOCK_NVML_NUM_DEVICES"); num != "" {
+	// Override: CUDA-specific env var takes priority
+	if num := os.Getenv("MOCK_CUDA_NUM_DEVICES"); num != "" {
 		if val, err := strconv.Atoi(num); err == nil && val >= 0 {
 			deviceCount = val
 		}
