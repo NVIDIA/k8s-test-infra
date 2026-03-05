@@ -1,0 +1,3 @@
+# Log files are generated at runtime, not committed
+*
+!.gitignore
