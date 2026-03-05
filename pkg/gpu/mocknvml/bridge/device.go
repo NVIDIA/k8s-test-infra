@@ -291,6 +291,9 @@ func nvmlDeviceGetMemoryInfo(nvmlDevice C.nvmlDevice_t, memory *C.nvmlMemory_t) 
 
 //export nvmlDeviceGetMemoryInfo_v2
 func nvmlDeviceGetMemoryInfo_v2(nvmlDevice C.nvmlDevice_t, memory *C.nvmlMemory_v2_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetMemoryInfo_v2"); !ok {
+		return ret
+	}
 	if memory == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -310,6 +313,9 @@ func nvmlDeviceGetMemoryInfo_v2(nvmlDevice C.nvmlDevice_t, memory *C.nvmlMemory_
 
 //export nvmlDeviceGetArchitecture
 func nvmlDeviceGetArchitecture(nvmlDevice C.nvmlDevice_t, arch *C.nvmlDeviceArchitecture_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetArchitecture"); !ok {
+		return ret
+	}
 	if arch == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
