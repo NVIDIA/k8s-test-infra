@@ -107,6 +107,16 @@ jobs:
           echo "FAIL: Expected 2 allocatable GPUs, got $GPUS"
           exit 1
 
+      - name: Pre-load GFD image into Kind
+        run: |
+          docker pull nvcr.io/nvidia/gpu-feature-discovery:v0.17.0
+          kind load docker-image nvcr.io/nvidia/gpu-feature-discovery:v0.17.0 --name gpu-mock-e2e
+
+      - name: Pre-load CUDA sample image into Kind
+        run: |
+          docker pull nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
+          kind load docker-image nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 --name gpu-mock-e2e
+
       - name: Deploy GPU Feature Discovery
         run: |
           kubectl apply -f tests/e2e/gfd-mock.yaml

@@ -32,6 +32,7 @@ spec:
       containers:
         - name: gpu-feature-discovery
           image: nvcr.io/nvidia/gpu-feature-discovery:v0.17.0
+          imagePullPolicy: IfNotPresent
           args:
             - "--nvidia-driver-root=/var/lib/nvidia-mock/driver"
           env:
