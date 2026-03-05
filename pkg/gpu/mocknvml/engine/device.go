@@ -37,6 +37,9 @@ type ConfigurableDevice struct {
 	// Cached computed values
 	bar1Memory nvml.BAR1Memory
 	pciInfo    nvml.PciInfo
+
+	// Mutable in-memory state (not persisted across restarts)
+	persistenceModeOverride *nvml.EnableState
 }
 
 // NewConfigurableDevice creates a device with YAML configuration
@@ -266,6 +269,29 @@ func (d *ConfigurableDevice) GetGraphicsRunningProcesses() ([]nvml.ProcessInfo, 
 		}
 	}
 	return procs, nvml.SUCCESS
+}
+
+// GetProcessUtilization returns process utilization samples since lastSeenTimestamp
+func (d *ConfigurableDevice) GetProcessUtilization(lastSeenTimestamp uint64) ([]nvml.ProcessUtilizationSample, nvml.Return) {
+	debugLog("[NVML] nvmlDeviceGetProcessUtilization(lastSeen=%d)\n", lastSeenTimestamp)
+	return []nvml.ProcessUtilizationSample{}, nvml.SUCCESS
+}
+
+// GetCurrentClocksEventReasons returns clock event reasons bitmask (newer API name for throttle reasons)
+func (d *ConfigurableDevice) GetCurrentClocksEventReasons() (uint64, nvml.Return) {
+	return d.GetCurrentClocksThrottleReasons()
+}
+
+// GetGspFirmwareMode returns GSP firmware mode (isEnabled, defaultMode)
+func (d *ConfigurableDevice) GetGspFirmwareMode() (bool, bool, nvml.Return) {
+	isEnabled := false
+	defaultMode := false
+	if d.config != nil && d.config.GSPFirmware != nil {
+		isEnabled = d.config.GSPFirmware.Mode == "enabled"
+		defaultMode = isEnabled // default mode follows mode unless overridden
+	}
+	debugLog("[NVML] nvmlDeviceGetGspFirmwareMode -> enabled=%v default=%v\n", isEnabled, defaultMode)
+	return isEnabled, defaultMode, nvml.SUCCESS
 }
 
 // GetSerial returns the device serial number
@@ -516,12 +542,24 @@ func (d *ConfigurableDevice) GetPerformanceState() (nvml.Pstates, nvml.Return) {
 
 // GetPersistenceMode returns persistence mode status
 func (d *ConfigurableDevice) GetPersistenceMode() (nvml.EnableState, nvml.Return) {
+	// Check in-memory override first (set by SetPersistenceMode)
+	if d.persistenceModeOverride != nil {
+		debugLog("[NVML] nvmlDeviceGetPersistenceMode -> %d (override)\n", *d.persistenceModeOverride)
+		return *d.persistenceModeOverride, nvml.SUCCESS
+	}
 	enabled := nvml.FEATURE_DISABLED
 	if d.config != nil && d.config.PersistenceMode == "enabled" {
 		enabled = nvml.FEATURE_ENABLED
 	}
 	debugLog("[NVML] nvmlDeviceGetPersistenceMode -> %d\n", enabled)
 	return enabled, nvml.SUCCESS
+}
+
+// SetPersistenceMode sets persistence mode in-memory (not persisted across restarts)
+func (d *ConfigurableDevice) SetPersistenceMode(mode nvml.EnableState) nvml.Return {
+	debugLog("[NVML] nvmlDeviceSetPersistenceMode(%d)\n", mode)
+	d.persistenceModeOverride = &mode
+	return nvml.SUCCESS
 }
 
 // GetComputeMode returns compute mode
@@ -983,8 +1021,16 @@ func (d *ConfigurableDevice) GetRetiredPagesPendingStatus() (nvml.EnableState, n
 
 // GetRemappedRows returns remapped row information
 func (d *ConfigurableDevice) GetRemappedRows() (int, int, bool, bool, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetRemappedRows -> 0, 0, false, false\n")
-	return 0, 0, false, false, nvml.SUCCESS
+	corrRows, uncRows := 0, 0
+	isPending, failureOccurred := false, false
+	if d.config != nil && d.config.RemappedRows != nil {
+		corrRows = d.config.RemappedRows.Correctable
+		uncRows = d.config.RemappedRows.Uncorrectable
+		isPending = d.config.RemappedRows.Pending
+		failureOccurred = d.config.RemappedRows.FailureOccurred
+	}
+	debugLog("[NVML] nvmlDeviceGetRemappedRows -> corr=%d unc=%d pending=%v failure=%v\n", corrRows, uncRows, isPending, failureOccurred)
+	return corrRows, uncRows, isPending, failureOccurred, nvml.SUCCESS
 }
 
 // GetFanSpeed_v2 returns fan speed for a specific fan
