@@ -286,6 +286,200 @@ func nvmlDeviceGetMemoryInfo(nvmlDevice C.nvmlDevice_t, memory *C.nvmlMemory_t) 
 }
 
 // =============================================================================
+// Topology Functions
+// =============================================================================
+
+//export nvmlDeviceGetTopologyCommonAncestor
+func nvmlDeviceGetTopologyCommonAncestor(device1 C.nvmlDevice_t, device2 C.nvmlDevice_t, pathInfo *C.nvmlGpuTopologyLevel_t) C.nvmlReturn_t {
+	if pathInfo == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle1 := uintptr(unsafe.Pointer(device1.handle))
+	handle2 := uintptr(unsafe.Pointer(device2.handle))
+	dev1 := engine.GetEngine().LookupConfigurableDevice(handle1)
+	if dev1 == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	dev2 := engine.GetEngine().LookupDevice(handle2)
+	if dev2 == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	level, ret := dev1.GetTopologyCommonAncestor(dev2)
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*pathInfo = C.nvmlGpuTopologyLevel_t(level)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetTopologyNearestGpus
+func nvmlDeviceGetTopologyNearestGpus(device C.nvmlDevice_t, level C.nvmlGpuTopologyLevel_t, count *C.uint, deviceArray *C.nvmlDevice_t) C.nvmlReturn_t {
+	if count == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	// Return empty array - topology nearest GPUs is complex and rarely used in mocks
+	*count = 0
+	return C.NVML_SUCCESS
+}
+
+// =============================================================================
+// NVLink Functions
+// =============================================================================
+
+//export nvmlDeviceGetNvLinkState
+func nvmlDeviceGetNvLinkState(device C.nvmlDevice_t, link C.uint, isActive *C.nvmlEnableState_t) C.nvmlReturn_t {
+	if isActive == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	state, ret := dev.GetNvLinkState(int(link))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*isActive = C.nvmlEnableState_t(state)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetNvLinkErrorCounter
+func nvmlDeviceGetNvLinkErrorCounter(device C.nvmlDevice_t, link C.uint, counter C.nvmlNvLinkErrorCounter_t, counterValue *C.ulonglong) C.nvmlReturn_t {
+	if counterValue == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	val, ret := dev.GetNvLinkErrorCounter(int(link), nvml.NvLinkErrorCounter(counter))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*counterValue = C.ulonglong(val)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetNvLinkRemotePciInfo_v2
+func nvmlDeviceGetNvLinkRemotePciInfo_v2(device C.nvmlDevice_t, link C.uint, pci *C.nvmlPciInfo_t) C.nvmlReturn_t {
+	if pci == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	info, ret := dev.GetNvLinkRemotePciInfo(int(link))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	pci.domain = C.uint(info.Domain)
+	pci.bus = C.uint(info.Bus)
+	pci.device = C.uint(info.Device)
+	for i := 0; i < len(info.BusId) && i < 32; i++ {
+		pci.busId[i] = C.char(info.BusId[i])
+	}
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetNvLinkRemotePciInfo_v1
+func nvmlDeviceGetNvLinkRemotePciInfo_v1(device C.nvmlDevice_t, link C.uint, pci *C.nvmlPciInfo_t) C.nvmlReturn_t {
+	return nvmlDeviceGetNvLinkRemotePciInfo_v2(device, link, pci)
+}
+
+// =============================================================================
+// Temperature / Thermal Functions
+// =============================================================================
+
+//export nvmlDeviceGetTemperatureThreshold
+func nvmlDeviceGetTemperatureThreshold(device C.nvmlDevice_t, thresholdType C.nvmlTemperatureThresholds_t, temp *C.uint) C.nvmlReturn_t {
+	if temp == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	t, ret := dev.GetTemperatureThreshold(nvml.TemperatureThresholds(thresholdType))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*temp = C.uint(t)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetThermalSettings
+func nvmlDeviceGetThermalSettings(device C.nvmlDevice_t, sensorIndex C.uint, pThermalSettings *C.nvmlGpuThermalSettings_t) C.nvmlReturn_t {
+	if pThermalSettings == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	settings, ret := dev.GetThermalSettings(uint32(sensorIndex))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	pThermalSettings.count = C.uint(settings.Count)
+	if settings.Count > 0 {
+		pThermalSettings.sensor[0].controller = C.NVML_THERMAL_CONTROLLER_GPU_INTERNAL
+		if dev != nil && dev.GetConfig() != nil && dev.GetConfig().Thermal != nil {
+			thermal := dev.GetConfig().Thermal
+			pThermalSettings.sensor[0].currentTemp = C.int(thermal.TemperatureGPU_C)
+			pThermalSettings.sensor[0].defaultMaxTemp = C.int(thermal.MaxOperating_C)
+			pThermalSettings.sensor[0].target = C.NVML_THERMAL_TARGET_GPU
+		}
+	}
+	return C.NVML_SUCCESS
+}
+
+// =============================================================================
+// Power Functions
+// =============================================================================
+
+//export nvmlDeviceGetEnforcedPowerLimit
+func nvmlDeviceGetEnforcedPowerLimit(device C.nvmlDevice_t, limit *C.uint) C.nvmlReturn_t {
+	if limit == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	l, ret := dev.GetEnforcedPowerLimit()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*limit = C.uint(l)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetPowerManagementMode
+func nvmlDeviceGetPowerManagementMode(device C.nvmlDevice_t, mode *C.nvmlEnableState_t) C.nvmlReturn_t {
+	if mode == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	m, ret := dev.GetPowerManagementMode()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*mode = C.nvmlEnableState_t(m)
+	return C.NVML_SUCCESS
+}
+
+// =============================================================================
 // Device Memory Info v2, Architecture, CUDA Compute, MIG Mode
 // =============================================================================
 

@@ -123,6 +123,9 @@ type DeviceConfig struct {
 	// Grace Superchip (GB200)
 	GraceSuperchip *GraceSuperchipConfig `json:"grace_superchip,omitempty"`
 
+	// Topology
+	Topology *TopologyConfig `json:"topology,omitempty"`
+
 	// Processes
 	Processes []ProcessConfig `json:"processes,omitempty"`
 }
@@ -396,6 +399,11 @@ type ProcessConfig struct {
 	Type          string `json:"type,omitempty"` // "C" for compute, "G" for graphics
 	Name          string `json:"name,omitempty"`
 	UsedMemoryMiB uint64 `json:"used_memory_mib,omitempty"`
+}
+
+// TopologyConfig defines GPU topology settings
+type TopologyConfig struct {
+	DefaultLevel string `json:"default_level,omitempty"` // internal, single, multiple, hostbridge, node, system
 }
 
 // NVLinkConfig defines NVLink topology

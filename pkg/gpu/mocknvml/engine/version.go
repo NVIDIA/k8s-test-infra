@@ -50,6 +50,23 @@ var functionRegistry = map[string]FunctionVersion{
 
 	// 560.x additions
 	"nvmlDeviceGetPlatformInfo": {Added: "560.0"},
+
+	// Topology functions (available since early NVML)
+	"nvmlDeviceGetTopologyCommonAncestor": {Added: "331.0"},
+	"nvmlDeviceGetTopologyNearestGpus":    {Added: "331.0"},
+
+	// NVLink functions (390.x+)
+	"nvmlDeviceGetNvLinkState":              {Added: "390.0"},
+	"nvmlDeviceGetNvLinkErrorCounter":       {Added: "390.0"},
+	"nvmlDeviceGetNvLinkRemotePciInfo_v2":   {Added: "390.0"},
+
+	// Thermal functions (331.x+)
+	"nvmlDeviceGetTemperatureThreshold": {Added: "331.0"},
+	"nvmlDeviceGetThermalSettings":      {Added: "331.0"},
+
+	// Power functions (331.x+)
+	"nvmlDeviceGetEnforcedPowerLimit":   {Added: "331.0"},
+	"nvmlDeviceGetPowerManagementMode":  {Added: "331.0"},
 }
 
 // GetFunctionRegistry returns a copy of the function version registry.

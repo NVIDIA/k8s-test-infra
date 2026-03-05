@@ -262,7 +262,35 @@ typedef struct nvmlGpuInstanceInfo_st                       nvmlGpuInstanceInfo_
 typedef struct nvmlGpuInstancePlacement_st                  nvmlGpuInstancePlacement_t;
 typedef struct nvmlGpuInstanceProfileInfo_st                nvmlGpuInstanceProfileInfo_t;
 typedef struct nvmlGpuInstanceProfileInfo_v2_st             nvmlGpuInstanceProfileInfo_v2_t;
-typedef struct nvmlGpuThermalSettings_st                    nvmlGpuThermalSettings_t;
+/* Thermal sensor settings - full definition needed by bridge */
+#define NVML_MAX_THERMAL_SENSORS_PER_GPU 3
+
+typedef enum nvmlThermalTarget_enum {
+    NVML_THERMAL_TARGET_NONE          = 0,
+    NVML_THERMAL_TARGET_GPU           = 1,
+    NVML_THERMAL_TARGET_MEMORY        = 2,
+    NVML_THERMAL_TARGET_POWER_SUPPLY  = 4,
+    NVML_THERMAL_TARGET_BOARD         = 8,
+    NVML_THERMAL_TARGET_ALL           = 15,
+    NVML_THERMAL_TARGET_UNKNOWN       = -1
+} nvmlThermalTarget_t;
+
+typedef enum nvmlThermalController_enum {
+    NVML_THERMAL_CONTROLLER_NONE      = 0,
+    NVML_THERMAL_CONTROLLER_GPU_INTERNAL = 1,
+    NVML_THERMAL_CONTROLLER_UNKNOWN   = -1
+} nvmlThermalController_t;
+
+typedef struct {
+    unsigned int count;
+    struct {
+        nvmlThermalController_t controller;
+        int defaultMinTemp;
+        int defaultMaxTemp;
+        int currentTemp;
+        nvmlThermalTarget_t target;
+    } sensor[NVML_MAX_THERMAL_SENSORS_PER_GPU];
+} nvmlGpuThermalSettings_t;
 typedef struct nvmlGridLicensableFeatures_st                nvmlGridLicensableFeatures_t;
 typedef struct nvmlHwbcEntry_st                             nvmlHwbcEntry_t;
 typedef struct nvmlLedState_st                              nvmlLedState_t;
