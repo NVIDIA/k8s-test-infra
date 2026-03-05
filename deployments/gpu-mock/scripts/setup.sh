@@ -46,6 +46,11 @@ else
   cp "$BUILT_CUDA_SO" "$DRIVER_ROOT/usr/lib64/libcuda.so.$DRIVER_VERSION"
   ln -sf "libcuda.so.$DRIVER_VERSION" "$DRIVER_ROOT/usr/lib64/libcuda.so.1"
   ln -sf "libcuda.so.1" "$DRIVER_ROOT/usr/lib64/libcuda.so"
+  # TODO: properly split driver API (libcuda.so) and runtime API (libcudart.so)
+  # For now, our mock exports CUDA Runtime API symbols but is built as libcuda.so.
+  # CUDA samples (e.g. vectorAdd) link against libcudart.so, so create a symlink.
+  ln -sf "libcuda.so.1" "$DRIVER_ROOT/usr/lib64/libcudart.so.12"
+  ln -sf "libcudart.so.12" "$DRIVER_ROOT/usr/lib64/libcudart.so"
 fi
 
 # 3. Create char device nodes

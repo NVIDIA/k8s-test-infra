@@ -40,7 +40,7 @@ spec:
                 fieldRef:
                   fieldPath: spec.nodeName
             - name: GFD_SLEEP_INTERVAL
-              value: "0"
+              value: "60"
           securityContext:
             privileged: true
           volumeMounts:

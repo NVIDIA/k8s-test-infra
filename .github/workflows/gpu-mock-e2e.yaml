@@ -128,8 +128,6 @@ jobs:
           echo "Checking GFD labels on node $NODE..."
           # Verify key labels are set (values depend on profile)
           for LABEL in nvidia.com/gpu.product nvidia.com/gpu.memory nvidia.com/gpu.compute.major; do
-            VALUE=$(kubectl get node "$NODE" -o jsonpath="{.metadata.labels.${LABEL//./_DOT_}}" 2>/dev/null || true)
-            # jsonpath doesn't handle dots in label keys well — use jq
             VALUE=$(kubectl get node "$NODE" -o json | jq -r ".metadata.labels[\"$LABEL\"] // empty")
             if [ -z "$VALUE" ]; then
               echo "FAIL: GFD label $LABEL not set"
