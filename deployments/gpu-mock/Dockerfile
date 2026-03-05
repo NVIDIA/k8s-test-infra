@@ -18,12 +18,15 @@ WORKDIR /src
 COPY go.mod go.sum ./
 COPY vendor/ vendor/
 COPY pkg/gpu/mocknvml/ pkg/gpu/mocknvml/
+COPY pkg/gpu/mockcuda/ pkg/gpu/mockcuda/
 RUN cd pkg/gpu/mocknvml && make clean && make
+RUN cd pkg/gpu/mockcuda && make clean && make
 
 FROM debian:bookworm-slim
 ARG KUBECTL_VERSION=v1.32.0
 ARG TARGETARCH=amd64
 COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
+COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates; \

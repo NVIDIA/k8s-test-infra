@@ -38,6 +38,16 @@ cp "$BUILT_SO" "$DRIVER_ROOT/usr/lib64/libnvidia-ml.so.$DRIVER_VERSION"
 ln -sf "libnvidia-ml.so.$DRIVER_VERSION" "$DRIVER_ROOT/usr/lib64/libnvidia-ml.so.1"
 ln -sf "libnvidia-ml.so.1" "$DRIVER_ROOT/usr/lib64/libnvidia-ml.so"
 
+# 2b. Copy mock CUDA library + create symlinks
+BUILT_CUDA_SO=$(ls /usr/local/lib/libcuda.so.*.*.* 2>/dev/null | head -1)
+if [ -z "$BUILT_CUDA_SO" ]; then
+  echo "WARNING: No mock CUDA library found in /usr/local/lib/, skipping libcuda.so setup"
+else
+  cp "$BUILT_CUDA_SO" "$DRIVER_ROOT/usr/lib64/libcuda.so.$DRIVER_VERSION"
+  ln -sf "libcuda.so.$DRIVER_VERSION" "$DRIVER_ROOT/usr/lib64/libcuda.so.1"
+  ln -sf "libcuda.so.1" "$DRIVER_ROOT/usr/lib64/libcuda.so"
+fi
+
 # 3. Create char device nodes
 #    Major 195 = nvidia, Major 510 = nvidia-uvm (standard NVIDIA major numbers)
 for i in $(seq 0 $((GPU_COUNT - 1))); do
