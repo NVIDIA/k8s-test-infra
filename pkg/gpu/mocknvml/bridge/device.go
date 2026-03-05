@@ -29,6 +29,15 @@
 // - nvmlDeviceGetArchitecture
 // - nvmlDeviceGetCudaComputeCapability
 // - nvmlDeviceGetMigMode
+// - nvmlDeviceGetComputeRunningProcesses_v3
+// - nvmlDeviceGetProcessUtilization
+// - nvmlDeviceGetPerformanceState
+// - nvmlDeviceGetCurrentClocksEventReasons
+// - nvmlDeviceGetPersistenceMode
+// - nvmlDeviceSetPersistenceMode
+// - nvmlDeviceGetRemappedRows
+// - nvmlDeviceGetGspFirmwareMode
+// - nvmlDeviceGetDisplayActive
 
 package main
 
@@ -582,5 +591,225 @@ func nvmlDeviceGetMigMode(nvmlDevice C.nvmlDevice_t, currentMode *C.uint, pendin
 	}
 	*currentMode = C.uint(current)
 	*pendingMode = C.uint(pending)
+	return C.NVML_SUCCESS
+}
+
+// =============================================================================
+// Process Functions
+// =============================================================================
+
+//export nvmlDeviceGetComputeRunningProcesses_v3
+func nvmlDeviceGetComputeRunningProcesses_v3(nvmlDevice C.nvmlDevice_t, infoCount *C.uint, infos *C.nvmlProcessInfo_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetComputeRunningProcesses_v3"); !ok {
+		return ret
+	}
+	if infoCount == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	procs, ret := dev.GetComputeRunningProcesses()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	if infos == nil {
+		// Caller is querying the count
+		*infoCount = C.uint(len(procs))
+		return C.NVML_SUCCESS
+	}
+	bufSize := int(*infoCount)
+	if len(procs) > bufSize {
+		*infoCount = C.uint(len(procs))
+		return C.NVML_ERROR_INSUFFICIENT_SIZE
+	}
+	*infoCount = C.uint(len(procs))
+	if len(procs) > 0 {
+		// Write process info to the caller's buffer
+		outSlice := unsafe.Slice(infos, len(procs))
+		for i, p := range procs {
+			outSlice[i].pid = C.uint(p.Pid)
+			outSlice[i].usedGpuMemory = C.ulonglong(p.UsedGpuMemory)
+			outSlice[i].gpuInstanceId = C.uint(p.GpuInstanceId)
+			outSlice[i].computeInstanceId = C.uint(p.ComputeInstanceId)
+		}
+	}
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetProcessUtilization
+func nvmlDeviceGetProcessUtilization(nvmlDevice C.nvmlDevice_t, utilization *C.nvmlProcessUtilizationSample_t, processSamplesCount *C.uint, lastSeenTimeStamp C.ulonglong) C.nvmlReturn_t {
+	if processSamplesCount == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	samples, ret := dev.GetProcessUtilization(uint64(lastSeenTimeStamp))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*processSamplesCount = C.uint(len(samples))
+	return C.NVML_SUCCESS
+}
+
+// =============================================================================
+// Performance Functions
+// =============================================================================
+
+//export nvmlDeviceGetPerformanceState
+func nvmlDeviceGetPerformanceState(nvmlDevice C.nvmlDevice_t, pState *C.nvmlPstates_t) C.nvmlReturn_t {
+	if pState == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	state, ret := dev.GetPerformanceState()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*pState = C.nvmlPstates_t(state)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetCurrentClocksEventReasons
+func nvmlDeviceGetCurrentClocksEventReasons(nvmlDevice C.nvmlDevice_t, clocksEventReasons *C.ulonglong) C.nvmlReturn_t {
+	if clocksEventReasons == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	reasons, ret := dev.GetCurrentClocksEventReasons()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*clocksEventReasons = C.ulonglong(reasons)
+	return C.NVML_SUCCESS
+}
+
+// =============================================================================
+// Persistence Functions
+// =============================================================================
+
+//export nvmlDeviceGetPersistenceMode
+func nvmlDeviceGetPersistenceMode(nvmlDevice C.nvmlDevice_t, mode *C.nvmlEnableState_t) C.nvmlReturn_t {
+	if mode == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	state, ret := dev.GetPersistenceMode()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*mode = C.nvmlEnableState_t(state)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceSetPersistenceMode
+func nvmlDeviceSetPersistenceMode(nvmlDevice C.nvmlDevice_t, mode C.nvmlEnableState_t) C.nvmlReturn_t {
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	ret := dev.SetPersistenceMode(nvml.EnableState(mode))
+	return toReturn(ret)
+}
+
+// =============================================================================
+// Advanced Functions
+// =============================================================================
+
+//export nvmlDeviceGetRemappedRows
+func nvmlDeviceGetRemappedRows(nvmlDevice C.nvmlDevice_t, corrRows *C.uint, uncRows *C.uint, isPending *C.uint, failureOccurred *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetRemappedRows"); !ok {
+		return ret
+	}
+	if corrRows == nil || uncRows == nil || isPending == nil || failureOccurred == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	corr, unc, pending, failure, ret := dev.GetRemappedRows()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*corrRows = C.uint(corr)
+	*uncRows = C.uint(unc)
+	if pending {
+		*isPending = 1
+	} else {
+		*isPending = 0
+	}
+	if failure {
+		*failureOccurred = 1
+	} else {
+		*failureOccurred = 0
+	}
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetGspFirmwareMode
+func nvmlDeviceGetGspFirmwareMode(nvmlDevice C.nvmlDevice_t, isEnabled *C.uint, defaultMode *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetGspFirmwareMode"); !ok {
+		return ret
+	}
+	if isEnabled == nil || defaultMode == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	enabled, defMode, ret := dev.GetGspFirmwareMode()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	if enabled {
+		*isEnabled = 1
+	} else {
+		*isEnabled = 0
+	}
+	if defMode {
+		*defaultMode = 1
+	} else {
+		*defaultMode = 0
+	}
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetDisplayActive
+func nvmlDeviceGetDisplayActive(nvmlDevice C.nvmlDevice_t, isActive *C.nvmlEnableState_t) C.nvmlReturn_t {
+	if isActive == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	active, ret := dev.GetDisplayActive()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*isActive = C.nvmlEnableState_t(active)
 	return C.NVML_SUCCESS
 }

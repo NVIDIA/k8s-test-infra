@@ -120,7 +120,7 @@ func TestConfigurableDevice_GetPciInfo(t *testing.T) {
 }
 
 // =============================================================================
-// Topology Tests
+// Topology Tests (from T4/Batch 1)
 // =============================================================================
 
 func TestConfigurableDevice_GetTopologyCommonAncestor(t *testing.T) {
@@ -193,7 +193,7 @@ func TestConfigurableDevice_GetTopologyCommonAncestor_WithConfig(t *testing.T) {
 }
 
 // =============================================================================
-// NVLink Tests
+// NVLink Tests (from T4/Batch 1)
 // =============================================================================
 
 func TestConfigurableDevice_GetNvLinkState_WithConfig(t *testing.T) {
@@ -309,7 +309,7 @@ func TestConfigurableDevice_GetNvLinkRemotePciInfo(t *testing.T) {
 }
 
 // =============================================================================
-// Thermal Tests
+// Thermal Tests (from T4/Batch 1)
 // =============================================================================
 
 func TestConfigurableDevice_GetTemperatureThreshold_WithConfig(t *testing.T) {
@@ -400,7 +400,7 @@ func TestConfigurableDevice_GetThermalSettings(t *testing.T) {
 }
 
 // =============================================================================
-// Power Tests
+// Power Tests (from T4/Batch 1)
 // =============================================================================
 
 func TestConfigurableDevice_GetEnforcedPowerLimit_WithConfig(t *testing.T) {
@@ -498,5 +498,324 @@ func TestConfigurableDevice_GetPowerManagementMode_Default(t *testing.T) {
 	}
 	if mode != nvml.FEATURE_DISABLED {
 		t.Errorf("Expected FEATURE_DISABLED, got %d", mode)
+	}
+}
+
+// =============================================================================
+// Batch 2 Test Helper
+// =============================================================================
+
+// newTestDeviceWithConfig creates a test engine with YAML config and returns the first device.
+func newTestDeviceWithConfig(t *testing.T, deviceCfg *DeviceConfig) *ConfigurableDevice {
+	t.Helper()
+	cfg := &Config{
+		NumDevices:    1,
+		DriverVersion: "550.163",
+		YAMLConfig: &YAMLConfig{
+			Version: "1.0",
+			System: SystemConfig{
+				DriverVersion: "550.163",
+				NVMLVersion:   "12.550.163",
+				NumDevices:    1,
+			},
+			DeviceDefaults: *deviceCfg,
+		},
+	}
+	e := NewEngine(cfg)
+	_ = e.Init()
+	t.Cleanup(func() { _ = e.Shutdown() })
+
+	handle, _ := e.DeviceGetHandleByIndex(0)
+	dev := e.LookupDevice(handle)
+	cd, ok := dev.(*ConfigurableDevice)
+	if !ok {
+		t.Fatal("Expected ConfigurableDevice type")
+	}
+	return cd
+}
+
+// =============================================================================
+// Process functions (Batch 2)
+// =============================================================================
+
+func TestConfigurableDevice_GetComputeRunningProcesses_WithConfig(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		Processes: []ProcessConfig{
+			{PID: 1234, Type: "C", Name: "python", UsedMemoryMiB: 1024},
+			{PID: 5678, Type: "C", Name: "torch", UsedMemoryMiB: 2048},
+			{PID: 9999, Type: "G", Name: "Xorg", UsedMemoryMiB: 128},
+		},
+	})
+
+	procs, ret := dev.GetComputeRunningProcesses()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetComputeRunningProcesses failed: %v", ret)
+	}
+	if len(procs) != 2 {
+		t.Fatalf("Expected 2 compute processes, got %d", len(procs))
+	}
+	if procs[0].Pid != 1234 {
+		t.Errorf("Expected PID 1234, got %d", procs[0].Pid)
+	}
+	if procs[0].UsedGpuMemory != 1024*1024*1024 {
+		t.Errorf("Expected 1 GiB memory, got %d", procs[0].UsedGpuMemory)
+	}
+	if procs[1].Pid != 5678 {
+		t.Errorf("Expected PID 5678, got %d", procs[1].Pid)
+	}
+}
+
+func TestConfigurableDevice_GetProcessUtilization_Default(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	utils, ret := dev.GetProcessUtilization(0)
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetProcessUtilization failed: %v", ret)
+	}
+	if len(utils) != 0 {
+		t.Errorf("Expected empty utilization list, got %d", len(utils))
+	}
+}
+
+// =============================================================================
+// Performance functions (Batch 2)
+// =============================================================================
+
+func TestConfigurableDevice_GetPerformanceState_Default(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	pstate, ret := dev.GetPerformanceState()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetPerformanceState failed: %v", ret)
+	}
+	if pstate != nvml.PSTATE_0 {
+		t.Errorf("Expected P0 default, got %d", pstate)
+	}
+}
+
+func TestConfigurableDevice_GetPerformanceState_Configured(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name:             "NVIDIA A100-SXM4-80GB",
+		PerformanceState: "P8",
+	})
+
+	pstate, ret := dev.GetPerformanceState()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetPerformanceState failed: %v", ret)
+	}
+	if pstate != nvml.PSTATE_8 {
+		t.Errorf("Expected P8, got %d", pstate)
+	}
+}
+
+func TestConfigurableDevice_GetCurrentClocksEventReasons_Default(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	reasons, ret := dev.GetCurrentClocksEventReasons()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetCurrentClocksEventReasons failed: %v", ret)
+	}
+	if reasons != 0 {
+		t.Errorf("Expected 0 (no throttling), got 0x%x", reasons)
+	}
+}
+
+// =============================================================================
+// Persistence functions (Batch 2)
+// =============================================================================
+
+func TestConfigurableDevice_GetPersistenceMode_Default(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	mode, ret := dev.GetPersistenceMode()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetPersistenceMode failed: %v", ret)
+	}
+	if mode != nvml.FEATURE_DISABLED {
+		t.Errorf("Expected DISABLED default, got %d", mode)
+	}
+}
+
+func TestConfigurableDevice_GetPersistenceMode_Configured(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name:            "NVIDIA A100-SXM4-80GB",
+		PersistenceMode: "enabled",
+	})
+
+	mode, ret := dev.GetPersistenceMode()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetPersistenceMode failed: %v", ret)
+	}
+	if mode != nvml.FEATURE_ENABLED {
+		t.Errorf("Expected ENABLED, got %d", mode)
+	}
+}
+
+func TestConfigurableDevice_SetPersistenceMode(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	// Initially disabled
+	mode, ret := dev.GetPersistenceMode()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetPersistenceMode failed: %v", ret)
+	}
+	if mode != nvml.FEATURE_DISABLED {
+		t.Errorf("Expected DISABLED initially, got %d", mode)
+	}
+
+	// Set to enabled
+	ret = dev.SetPersistenceMode(nvml.FEATURE_ENABLED)
+	if ret != nvml.SUCCESS {
+		t.Fatalf("SetPersistenceMode failed: %v", ret)
+	}
+
+	// Now should be enabled
+	mode, ret = dev.GetPersistenceMode()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetPersistenceMode failed: %v", ret)
+	}
+	if mode != nvml.FEATURE_ENABLED {
+		t.Errorf("Expected ENABLED after set, got %d", mode)
+	}
+
+	// Set back to disabled
+	ret = dev.SetPersistenceMode(nvml.FEATURE_DISABLED)
+	if ret != nvml.SUCCESS {
+		t.Fatalf("SetPersistenceMode failed: %v", ret)
+	}
+
+	mode, ret = dev.GetPersistenceMode()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetPersistenceMode failed: %v", ret)
+	}
+	if mode != nvml.FEATURE_DISABLED {
+		t.Errorf("Expected DISABLED after unset, got %d", mode)
+	}
+}
+
+// =============================================================================
+// Advanced functions (Batch 2)
+// =============================================================================
+
+func TestConfigurableDevice_GetRemappedRows_Default(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	corrRows, uncRows, isPending, failureOccurred, ret := dev.GetRemappedRows()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetRemappedRows failed: %v", ret)
+	}
+	if corrRows != 0 || uncRows != 0 {
+		t.Errorf("Expected 0 rows, got corr=%d unc=%d", corrRows, uncRows)
+	}
+	if isPending || failureOccurred {
+		t.Errorf("Expected no pending/failure, got pending=%v failure=%v", isPending, failureOccurred)
+	}
+}
+
+func TestConfigurableDevice_GetRemappedRows_Configured(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		RemappedRows: &RemappedRowsConfig{
+			Correctable:     2,
+			Uncorrectable:   1,
+			Pending:         true,
+			FailureOccurred: false,
+		},
+	})
+
+	corrRows, uncRows, isPending, failureOccurred, ret := dev.GetRemappedRows()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetRemappedRows failed: %v", ret)
+	}
+	if corrRows != 2 {
+		t.Errorf("Expected 2 correctable rows, got %d", corrRows)
+	}
+	if uncRows != 1 {
+		t.Errorf("Expected 1 uncorrectable row, got %d", uncRows)
+	}
+	if !isPending {
+		t.Errorf("Expected pending=true")
+	}
+	if failureOccurred {
+		t.Errorf("Expected failure=false")
+	}
+}
+
+func TestConfigurableDevice_GetGspFirmwareMode_Default(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	isEnabled, defaultMode, ret := dev.GetGspFirmwareMode()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetGspFirmwareMode failed: %v", ret)
+	}
+	// Default: disabled
+	if isEnabled {
+		t.Errorf("Expected GSP disabled by default")
+	}
+	if defaultMode {
+		t.Errorf("Expected GSP default mode disabled by default")
+	}
+}
+
+func TestConfigurableDevice_GetGspFirmwareMode_Enabled(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		GSPFirmware: &GSPFirmwareConfig{
+			Mode: "enabled",
+		},
+	})
+
+	isEnabled, _, ret := dev.GetGspFirmwareMode()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetGspFirmwareMode failed: %v", ret)
+	}
+	if !isEnabled {
+		t.Errorf("Expected GSP enabled")
+	}
+}
+
+func TestConfigurableDevice_GetDisplayActive_Default(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	active, ret := dev.GetDisplayActive()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetDisplayActive failed: %v", ret)
+	}
+	if active != nvml.FEATURE_DISABLED {
+		t.Errorf("Expected DISABLED default, got %d", active)
+	}
+}
+
+func TestConfigurableDevice_GetDisplayActive_Enabled(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		Display: &DisplayConfig{
+			Active: "enabled",
+		},
+	})
+
+	active, ret := dev.GetDisplayActive()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetDisplayActive failed: %v", ret)
+	}
+	if active != nvml.FEATURE_ENABLED {
+		t.Errorf("Expected ENABLED, got %d", active)
 	}
 }
