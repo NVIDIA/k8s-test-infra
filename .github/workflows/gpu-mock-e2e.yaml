@@ -107,36 +107,29 @@ jobs:
           echo "FAIL: Expected 2 allocatable GPUs, got $GPUS"
           exit 1
 
-      - name: Pre-load GFD image into Kind
+      # GFD and CUDA validator steps require NGC-authenticated images (nvcr.io).
+      # Disabled in CI until NGC_API_KEY is configured as a GitHub Actions secret.
+      # See tests/e2e/README.md for running the full E2E suite locally.
+      - name: Deploy GPU Feature Discovery
+        if: false
         run: |
           docker pull nvcr.io/nvidia/gpu-feature-discovery:v0.17.0
           kind load docker-image nvcr.io/nvidia/gpu-feature-discovery:v0.17.0 --name gpu-mock-e2e
-
-      - name: Pre-load CUDA sample image into Kind
-        run: |
-          docker pull nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
-          kind load docker-image nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 --name gpu-mock-e2e
-
-      - name: Deploy GPU Feature Discovery
-        run: |
           kubectl apply -f tests/e2e/gfd-mock.yaml
           kubectl -n kube-system wait --for=condition=ready \
             pod -l name=nvidia-gfd-mock --timeout=120s
 
       - name: Verify GFD node labels
+        if: false
         run: |
           NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
-          # GFD needs a few seconds to label the node
           for i in $(seq 1 30); do
             PRODUCT=$(kubectl get node "$NODE" -o jsonpath='{.metadata.labels.nvidia\.com/gpu\.product}' 2>/dev/null || true)
-            if [ -n "$PRODUCT" ]; then
-              break
-            fi
+            if [ -n "$PRODUCT" ]; then break; fi
             echo "Attempt $i: waiting for GFD labels..."
             sleep 2
           done
           echo "Checking GFD labels on node $NODE..."
-          # Verify key labels are set (values depend on profile)
           for LABEL in nvidia.com/gpu.product nvidia.com/gpu.memory nvidia.com/gpu.compute.major; do
             VALUE=$(kubectl get node "$NODE" -o json | jq -r ".metadata.labels[\"$LABEL\"] // empty")
             if [ -z "$VALUE" ]; then
@@ -149,9 +142,11 @@ jobs:
           echo "PASS: GFD labels verified"
 
       - name: Run CUDA validator job
+        if: false
         run: |
+          docker pull nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
+          kind load docker-image nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 --name gpu-mock-e2e
           kubectl apply -f tests/e2e/validator-mock.yaml
-          # Wait for job completion (timeout 120s)
           kubectl wait --for=condition=complete job/gpu-validator-mock --timeout=120s || {
             echo "Validator job did not complete. Checking status..."
             kubectl describe job/gpu-validator-mock
