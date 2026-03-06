@@ -25,10 +25,11 @@ package main
 import "C"
 import "unsafe"
 
-// dummyEventSet is a sentinel pointer for the event set handle.
+// dummyEventSetBacking provides a stable address for the dummy event set handle.
 // nvidia-smi just needs a non-null handle; it doesn't actually wait for events
 // in the default (non-daemon) invocation mode.
-var dummyEventSet = C.nvmlEventSet_t(unsafe.Pointer(uintptr(0xDEAD)))
+var dummyEventSetBacking byte
+var dummyEventSet = C.nvmlEventSet_t(unsafe.Pointer(&dummyEventSetBacking))
 
 //export nvmlEventSetCreate
 func nvmlEventSetCreate(set *C.nvmlEventSet_t) C.nvmlReturn_t {
