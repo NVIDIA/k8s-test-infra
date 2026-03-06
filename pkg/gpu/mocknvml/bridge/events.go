@@ -59,3 +59,15 @@ func nvmlDeviceGetSupportedEventTypes(device C.nvmlDevice_t, eventTypes *C.ulong
 	*eventTypes = 0
 	return C.NVML_SUCCESS
 }
+
+//export nvmlEventSetWait_v1
+func nvmlEventSetWait_v1(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
+	// Return TIMEOUT so callers (e.g., device plugin health monitor) treat
+	// the wait as "no events occurred" rather than an error.
+	return C.NVML_ERROR_TIMEOUT
+}
+
+//export nvmlEventSetWait_v2
+func nvmlEventSetWait_v2(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
+	return C.NVML_ERROR_TIMEOUT
+}

@@ -1016,15 +1016,8 @@ func nvmlDeviceWorkloadPowerProfileSetRequestedProfiles(device C.nvmlDevice_t, r
 // nvmlEventSetCreate — hand-written in events.go
 // nvmlEventSetFree — hand-written in events.go
 
-//export nvmlEventSetWait_v1
-func nvmlEventSetWait_v1(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlEventSetWait_v1")
-}
-
-//export nvmlEventSetWait_v2
-func nvmlEventSetWait_v2(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlEventSetWait_v2")
-}
+// nvmlEventSetWait_v1 — hand-written in events.go
+// nvmlEventSetWait_v2 — hand-written in events.go
 
 //export nvmlGetExcludedDeviceCount
 func nvmlGetExcludedDeviceCount(deviceCount *C.uint) C.nvmlReturn_t {
