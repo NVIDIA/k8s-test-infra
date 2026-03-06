@@ -62,18 +62,43 @@ mknod -m 666 "$DEV_ROOT/nvidiactl" c 195 255 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm" c 510 0 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm-tools" c 510 1 2>/dev/null || true
 
-# 4. Create mock nvidia-smi (required by DRA driver)
-#    Uses unquoted heredoc so $DRIVER_VERSION is expanded at setup time.
-cat > "$DRIVER_ROOT/usr/bin/nvidia-smi" << NVIDIA_SMI_EOF
+# 4. Install nvidia-smi binary
+if [ -f /usr/local/bin/nvidia-smi ]; then
+  cp /usr/local/bin/nvidia-smi "$DRIVER_ROOT/usr/bin/nvidia-smi"
+  chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi"
+  echo "Installed real nvidia-smi binary"
+else
+  # Fallback: create shell script shim
+  cat > "$DRIVER_ROOT/usr/bin/nvidia-smi" << NVIDIA_SMI_EOF
 #!/bin/bash
 # Mock nvidia-smi — returns driver version and basic GPU info.
-# Used by consumers (e.g., DRA driver) that probe nvidia-smi at startup.
 echo "NVIDIA-SMI $DRIVER_VERSION"
 echo "Driver Version: $DRIVER_VERSION"
 echo "CUDA Version: 12.4"
 exit 0
 NVIDIA_SMI_EOF
-chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi"
+  chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi"
+  echo "WARNING: Real nvidia-smi not found, using shell script fallback"
+fi
+
+# 4b. Create /proc/driver/nvidia mock files (read by nvidia-smi)
+PROC_DIR="$DRIVER_ROOT/proc/driver/nvidia"
+mkdir -p "$PROC_DIR"
+cat > "$PROC_DIR/version" << PROC_VERSION_EOF
+NVRM version: NVIDIA UNIX x86_64 Kernel Module  $DRIVER_VERSION  Thu Feb 20 23:41:34 UTC 2026
+GCC version:  gcc version 12.2.0 (Debian 12.2.0-14)
+PROC_VERSION_EOF
+
+cat > "$PROC_DIR/params" << PROC_PARAMS_EOF
+EnableMSI: 1
+NVreg_RegistryDwords:
+NVreg_DeviceFileGID: 0
+NVreg_DeviceFileMode: 438
+NVreg_DeviceFileUID: 0
+NVreg_ModifyDeviceFiles: 1
+NVreg_PreserveVideoMemoryAllocations: 0
+NVreg_EnableResizableBar: 0
+PROC_PARAMS_EOF
 
 # 5. Copy GPU profile config to both locations:
 #    - config/config.yaml (canonical, used by device plugin)
