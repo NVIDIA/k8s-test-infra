@@ -1,63 +1,58 @@
 #!/bin/bash
 # Spike: run real nvidia-smi against mock NVML in a container
-# Usage: ./tests/e2e/spike-nvidia-smi.sh
+# Usage: cd <repo-root> && ./tests/e2e/spike-nvidia-smi.sh
+#
+# The gpu-mock Dockerfile already includes:
+# 1. Mock NVML library (compiled from source)
+# 2. Real nvidia-smi binary (from nvidia-utils package)
+# This script just builds it and runs nvidia-smi with debug enabled.
+#
+# NOTE: nvidia-smi is x86_64 only. On ARM hosts (Apple Silicon),
+# Docker uses QEMU emulation via --platform linux/amd64.
+# The Go cross-compilation + package install takes ~10-15 minutes.
 set -euo pipefail
 
 GOLANG_VERSION=${GOLANG_VERSION:-1.25}
-DRIVER_VERSION="550.163.01"
+PLATFORM="linux/amd64"
+IMAGE="gpu-mock:spike"
 
-echo "=== Building gpu-mock image ==="
-docker build -t gpu-mock:spike -f deployments/gpu-mock/Dockerfile \
-  --build-arg GOLANG_VERSION="$GOLANG_VERSION" .
+echo "=== Building gpu-mock image (platform: $PLATFORM) ==="
+echo "    This may take 10-15 minutes on ARM hosts (QEMU emulation)."
+echo ""
 
-echo "=== Building spike container ==="
-cat <<'DOCKERFILE' | docker build -t nvidia-smi-spike -f - .
-FROM gpu-mock:spike AS mock
+docker build --platform "$PLATFORM" -t "$IMAGE" \
+  --build-arg GOLANG_VERSION="$GOLANG_VERSION" \
+  -f deployments/gpu-mock/Dockerfile .
 
-FROM ubuntu:22.04
-# Install nvidia-smi from nvidia-utils package
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-      gnupg2 curl ca-certificates && \
-    curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub | \
-      gpg --dearmor -o /usr/share/keyrings/nvidia.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/nvidia.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64 /" \
-      > /etc/apt/sources.list.d/nvidia.list && \
-    apt-get update && \
-    apt-get download nvidia-utils-550 && \
-    dpkg --force-depends -i nvidia-utils-550*.deb && \
-    rm -f nvidia-utils-550*.deb && \
-    rm -rf /var/lib/apt/lists/*
+# Common env + run args
+RUN_ARGS=(
+  --rm --platform "$PLATFORM"
+  -e MOCK_NVML_CONFIG=/config/config.yaml
+  -e MOCK_NVML_DEBUG=1
+  -e MOCK_NVML_NUM_DEVICES=2
+)
 
-# Copy mock libraries
-COPY --from=mock /usr/local/lib/libnvidia-ml.so.* /usr/local/lib/
-RUN ln -sf /usr/local/lib/libnvidia-ml.so.*.*.* /usr/local/lib/libnvidia-ml.so.1 && \
-    ln -sf /usr/local/lib/libnvidia-ml.so.1 /usr/local/lib/libnvidia-ml.so && \
-    echo "/usr/local/lib" > /etc/ld.so.conf.d/mock-nvml.conf && \
-    ldconfig
+# We need a config file inside the container. The Dockerfile doesn't COPY one
+# by default (setup.sh handles it at runtime), so mount it.
+CONFIG="deployments/gpu-mock/helm/gpu-mock/profiles/a100.yaml"
+RUN_ARGS+=(-v "$(pwd)/$CONFIG:/config/config.yaml:ro")
 
-# Copy config
-COPY deployments/gpu-mock/helm/gpu-mock/profiles/a100.yaml /config/config.yaml
-
-ENV MOCK_NVML_CONFIG=/config/config.yaml
-ENV MOCK_NVML_DEBUG=1
-ENV MOCK_NVML_NUM_DEVICES=2
-DOCKERFILE
-
+echo ""
 echo "=== Running nvidia-smi against mock NVML ==="
 echo ""
 echo "--- nvidia-smi (default) ---"
-docker run --rm nvidia-smi-spike nvidia-smi 2>&1 || true
+docker run "${RUN_ARGS[@]}" "$IMAGE" nvidia-smi 2>&1 || true
 echo ""
 echo "--- nvidia-smi -q (query) ---"
-docker run --rm nvidia-smi-spike nvidia-smi -q 2>&1 | head -100 || true
+docker run "${RUN_ARGS[@]}" "$IMAGE" nvidia-smi -q 2>&1 | head -100 || true
 echo ""
 echo "--- nvidia-smi -L (list GPUs) ---"
-docker run --rm nvidia-smi-spike nvidia-smi -L 2>&1 || true
+docker run "${RUN_ARGS[@]}" "$IMAGE" nvidia-smi -L 2>&1 || true
 echo ""
 echo "--- Full debug stderr ---"
-docker run --rm nvidia-smi-spike bash -c 'nvidia-smi 2>/tmp/debug 1>/tmp/out; echo "=== stdout ==="; cat /tmp/out; echo "=== stderr (stub calls) ==="; cat /tmp/debug' || true
+docker run "${RUN_ARGS[@]}" "$IMAGE" \
+  bash -c 'nvidia-smi 2>/tmp/debug 1>/tmp/out; echo "=== stdout ==="; cat /tmp/out; echo "=== stderr (stub calls) ==="; cat /tmp/debug' || true
 
 echo ""
 echo "=== Cleanup ==="
-docker rmi nvidia-smi-spike 2>/dev/null || true
+docker rmi "$IMAGE" 2>/dev/null || true

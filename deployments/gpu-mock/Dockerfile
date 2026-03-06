@@ -38,13 +38,14 @@ RUN set -eux; \
     echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum --check; \
     chmod +x /usr/local/bin/kubectl; \
     rm /tmp/kubectl.sha256; \
-    # Extract nvidia-smi binary from nvidia-utils package (no full install needed)
-    curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/3bf863cc.pub | \
+    # Extract nvidia-smi binary from nvidia-utils package (no full install needed).
+    # Use Ubuntu 22.04 repo (binary-compatible with Debian bookworm, has nvidia-utils-550-server).
+    curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub | \
       gpg --dearmor -o /usr/share/keyrings/nvidia.gpg; \
-    echo "deb [signed-by=/usr/share/keyrings/nvidia.gpg] https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64 /" \
+    echo "deb [signed-by=/usr/share/keyrings/nvidia.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64 /" \
       > /etc/apt/sources.list.d/nvidia.list; \
     apt-get update; \
-    cd /tmp && apt-get download nvidia-utils-550-server 2>/dev/null || apt-get download nvidia-utils-550; \
+    cd /tmp && apt-get download nvidia-utils-550; \
     dpkg-deb -x /tmp/nvidia-utils-550*.deb /tmp/nvidia-utils; \
     cp /tmp/nvidia-utils/usr/bin/nvidia-smi /usr/local/bin/nvidia-smi; \
     chmod +x /usr/local/bin/nvidia-smi; \

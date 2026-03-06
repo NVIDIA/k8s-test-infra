@@ -644,10 +644,7 @@ func nvmlDeviceGetSupportedClocksThrottleReasons(device C.nvmlDevice_t, supporte
 	return stubReturn("nvmlDeviceGetSupportedClocksThrottleReasons")
 }
 
-//export nvmlDeviceGetSupportedEventTypes
-func nvmlDeviceGetSupportedEventTypes(device C.nvmlDevice_t, eventTypes *C.ulonglong) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetSupportedEventTypes")
-}
+// nvmlDeviceGetSupportedEventTypes — hand-written in events.go
 
 //export nvmlDeviceGetSupportedGraphicsClocks
 func nvmlDeviceGetSupportedGraphicsClocks(device C.nvmlDevice_t, memoryClockMHz C.uint, count *C.uint, clocksMHz *C.uint) C.nvmlReturn_t {
@@ -794,10 +791,7 @@ func nvmlDeviceReadWritePRM_v1(device C.nvmlDevice_t, buffer *C.nvmlPRMTLV_v1_t)
 	return stubReturn("nvmlDeviceReadWritePRM_v1")
 }
 
-//export nvmlDeviceRegisterEvents
-func nvmlDeviceRegisterEvents(device C.nvmlDevice_t, eventTypes C.ulonglong, set C.nvmlEventSet_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceRegisterEvents")
-}
+// nvmlDeviceRegisterEvents — hand-written in events.go
 
 //export nvmlDeviceRemoveGpu_v1
 func nvmlDeviceRemoveGpu_v1(pciInfo *C.nvmlPciInfo_t) C.nvmlReturn_t {
@@ -1019,15 +1013,8 @@ func nvmlDeviceWorkloadPowerProfileSetRequestedProfiles(device C.nvmlDevice_t, r
 	return stubReturn("nvmlDeviceWorkloadPowerProfileSetRequestedProfiles")
 }
 
-//export nvmlEventSetCreate
-func nvmlEventSetCreate(set *C.nvmlEventSet_t) C.nvmlReturn_t {
-	return stubReturn("nvmlEventSetCreate")
-}
-
-//export nvmlEventSetFree
-func nvmlEventSetFree(set C.nvmlEventSet_t) C.nvmlReturn_t {
-	return stubReturn("nvmlEventSetFree")
-}
+// nvmlEventSetCreate — hand-written in events.go
+// nvmlEventSetFree — hand-written in events.go
 
 //export nvmlEventSetWait_v1
 func nvmlEventSetWait_v1(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
