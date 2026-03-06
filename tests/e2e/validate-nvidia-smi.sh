@@ -12,8 +12,8 @@ GPU_COUNT="${3:?}"
 
 echo "=== Validating nvidia-smi on $NODE_CONTAINER ==="
 
-# Run nvidia-smi inside the Kind node container with mock library
-NVIDIA_SMI_CMD="LD_LIBRARY_PATH=/var/lib/nvidia-mock/driver/usr/lib64 /var/lib/nvidia-mock/driver/usr/bin/nvidia-smi"
+# Run nvidia-smi inside the Kind node container via the LD_LIBRARY_PATH wrapper
+NVIDIA_SMI_CMD="/var/lib/nvidia-mock/driver/usr/bin/nvidia-smi"
 
 echo "--- nvidia-smi default output ---"
 OUTPUT=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI_CMD" 2>&1) || {
