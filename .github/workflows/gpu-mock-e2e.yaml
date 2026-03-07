@@ -85,6 +85,14 @@ jobs:
           docker exec "$NODE_CONTAINER" grep -q "num_devices: 2" /var/lib/nvidia-mock/config/config.yaml
           echo "All mock files verified"
 
+      - name: Validate nvidia-smi output
+        run: |
+          chmod +x tests/e2e/validate-nvidia-smi.sh
+          ./tests/e2e/validate-nvidia-smi.sh \
+            gpu-mock-e2e-control-plane \
+            "NVIDIA A100" \
+            2
+
       - name: Deploy NVIDIA device plugin
         run: |
           kubectl apply -f tests/e2e/device-plugin-mock.yaml
@@ -221,6 +229,14 @@ jobs:
           docker exec "$NODE_CONTAINER" test -L /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.1
           echo "Mock files verified"
 
+      - name: Validate nvidia-smi output
+        run: |
+          chmod +x tests/e2e/validate-nvidia-smi.sh
+          ./tests/e2e/validate-nvidia-smi.sh \
+            gpu-mock-dra-e2e-control-plane \
+            "NVIDIA A100" \
+            2
+
       - name: Add NVIDIA Helm repo
         run: |
           helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
@@ -229,6 +245,7 @@ jobs:
       - name: Install DRA driver
         run: |
           helm install nvidia-dra-driver nvidia/nvidia-dra-driver-gpu \
+            --version 25.8.1 \
             --namespace nvidia \
             --create-namespace \
             --set nvidiaDriverRoot=/var/lib/nvidia-mock/driver \

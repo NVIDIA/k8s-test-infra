@@ -34,8 +34,28 @@ $(LIB_NAME): $(LIB_REALNAME)
 	ln -sf $(LIB_REALNAME) $(LIB_SONAME)
 	ln -sf $(LIB_SONAME) $(LIB_NAME)
 
+# Version aliases: NVML header macros map unversioned names to versioned ones
+# (e.g., nvmlDeviceGetPciInfo → nvmlDeviceGetPciInfo_v3). nvidia-smi dlsym()s
+# the unversioned names, so we need linker aliases.
+VERSION_ALIASES := \
+	-Wl,--defsym,nvmlDeviceGetPciInfo=nvmlDeviceGetPciInfo_v3 \
+	-Wl,--defsym,nvmlDeviceGetHandleByPciBusId=nvmlDeviceGetHandleByPciBusId_v2 \
+	-Wl,--defsym,nvmlDeviceGetNvLinkRemotePciInfo=nvmlDeviceGetNvLinkRemotePciInfo_v2 \
+	-Wl,--defsym,nvmlDeviceRemoveGpu=nvmlDeviceRemoveGpu_v2 \
+	-Wl,--defsym,nvmlDeviceGetGridLicensableFeatures=nvmlDeviceGetGridLicensableFeatures_v4 \
+	-Wl,--defsym,nvmlEventSetWait=nvmlEventSetWait_v2 \
+	-Wl,--defsym,nvmlDeviceGetAttributes=nvmlDeviceGetAttributes_v2 \
+	-Wl,--defsym,nvmlComputeInstanceGetInfo=nvmlComputeInstanceGetInfo_v2 \
+	-Wl,--defsym,nvmlDeviceGetComputeRunningProcesses=nvmlDeviceGetComputeRunningProcesses_v3 \
+	-Wl,--defsym,nvmlDeviceGetGraphicsRunningProcesses=nvmlDeviceGetGraphicsRunningProcesses_v3 \
+	-Wl,--defsym,nvmlDeviceGetMPSComputeRunningProcesses=nvmlDeviceGetMPSComputeRunningProcesses_v3 \
+	-Wl,--defsym,nvmlDeviceGetGpuInstancePossiblePlacements=nvmlDeviceGetGpuInstancePossiblePlacements_v2 \
+	-Wl,--defsym,nvmlVgpuInstanceGetLicenseInfo=nvmlVgpuInstanceGetLicenseInfo_v2 \
+	-Wl,--defsym,nvmlDeviceGetDriverModel=nvmlDeviceGetDriverModel_v2
+
 $(LIB_REALNAME):
-	go build -buildmode=c-shared -o $(LIB_REALNAME) ./bridge
+	CGO_LDFLAGS_ALLOW='--defsym' CGO_LDFLAGS='$(VERSION_ALIASES)' \
+		go build -buildmode=c-shared -o $(LIB_REALNAME) ./bridge
 
 clean:
 	rm -f $(LIB_NAME)*

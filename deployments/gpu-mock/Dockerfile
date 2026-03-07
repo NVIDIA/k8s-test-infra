@@ -29,7 +29,7 @@ COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends curl ca-certificates; \
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg2; \
     rm -rf /var/lib/apt/lists/*; \
     curl -fsSLo /usr/local/bin/kubectl \
       "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl"; \
@@ -38,6 +38,20 @@ RUN set -eux; \
     echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum --check; \
     chmod +x /usr/local/bin/kubectl; \
     rm /tmp/kubectl.sha256; \
-    apt-get purge -y --auto-remove curl ca-certificates
+    # Extract nvidia-smi binary from nvidia-utils package (no full install needed).
+    # Use Ubuntu 22.04 repo (binary-compatible with Debian bookworm, has nvidia-utils-550).
+    curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub | \
+      gpg --dearmor -o /usr/share/keyrings/nvidia.gpg; \
+    echo "deb [signed-by=/usr/share/keyrings/nvidia.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64 /" \
+      > /etc/apt/sources.list.d/nvidia.list; \
+    apt-get update; \
+    cd /tmp && apt-get download nvidia-utils-550; \
+    dpkg-deb -x /tmp/nvidia-utils-550*.deb /tmp/nvidia-utils; \
+    cp /tmp/nvidia-utils/usr/bin/nvidia-smi /usr/local/bin/nvidia-smi; \
+    chmod +x /usr/local/bin/nvidia-smi; \
+    rm -rf /var/lib/apt/lists/*; \
+    rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-550*.deb \
+           /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
+    apt-get purge -y --auto-remove curl ca-certificates gnupg2
 COPY deployments/gpu-mock/scripts/ /scripts/
 RUN chmod +x /scripts/*.sh
