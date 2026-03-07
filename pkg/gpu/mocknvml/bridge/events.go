@@ -23,13 +23,12 @@ package main
 #include "nvml_types.h"
 */
 import "C"
-import "unsafe"
 
-// dummyEventSetBacking provides a stable address for the dummy event set handle.
-// nvidia-smi just needs a non-null handle; it doesn't actually wait for events
-// in the default (non-daemon) invocation mode.
-var dummyEventSetBacking byte
-var dummyEventSet = C.nvmlEventSet_t(unsafe.Pointer(&dummyEventSetBacking))
+// dummyEventSet is a non-null handle allocated from C memory (not Go heap).
+// nvidia-smi needs a non-null handle from nvmlEventSetCreate; it doesn't
+// actually wait for events in the default (non-daemon) invocation mode.
+// Using C.malloc avoids cgo pointer rule violations (Go pointers in C memory).
+var dummyEventSet = C.nvmlEventSet_t(C.malloc(1))
 
 //export nvmlEventSetCreate
 func nvmlEventSetCreate(set *C.nvmlEventSet_t) C.nvmlReturn_t {

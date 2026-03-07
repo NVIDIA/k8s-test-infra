@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
 # Spike: run real nvidia-smi against mock NVML in a container
 # Usage: cd <repo-root> && ./tests/e2e/spike-nvidia-smi.sh
 #
