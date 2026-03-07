@@ -245,6 +245,7 @@ jobs:
       - name: Install DRA driver
         run: |
           helm install nvidia-dra-driver nvidia/nvidia-dra-driver-gpu \
+            --version 25.8.1 \
             --namespace nvidia \
             --create-namespace \
             --set nvidiaDriverRoot=/var/lib/nvidia-mock/driver \
