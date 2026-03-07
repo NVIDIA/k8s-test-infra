@@ -62,34 +62,32 @@ mknod -m 666 "$DEV_ROOT/nvidiactl" c 195 255 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm" c 510 0 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm-tools" c 510 1 2>/dev/null || true
 
-# 4. Install nvidia-smi binary with LD_LIBRARY_PATH wrapper
-#    The real nvidia-smi needs libnvidia-ml.so at runtime. Consumers like the DRA
-#    driver init container run nvidia-smi without setting LD_LIBRARY_PATH, so we
-#    install a wrapper that resolves the lib path relative to the binary location.
-if [ -f /usr/local/bin/nvidia-smi ]; then
-  cp /usr/local/bin/nvidia-smi "$DRIVER_ROOT/usr/bin/nvidia-smi.real"
-  chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi.real"
-  cat > "$DRIVER_ROOT/usr/bin/nvidia-smi" << 'WRAPPER_EOF'
+# 4. Install nvidia-smi
+#    The DRA driver init container runs nvidia-smi via `env -i` in an Alpine-based
+#    container. Real nvidia-smi is glibc-linked and can't exec under musl, so we
+#    always install a shell script shim at the standard path. The real binary goes
+#    to nvidia-smi.real for glibc-based consumers (Kind node, gpu-mock container).
+cat > "$DRIVER_ROOT/usr/bin/nvidia-smi" << NVIDIA_SMI_EOF
 #!/bin/sh
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LIB_DIR="${SCRIPT_DIR}/../lib64"
-export LD_LIBRARY_PATH="${LIB_DIR}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-exec "${SCRIPT_DIR}/nvidia-smi.real" "$@"
-WRAPPER_EOF
-  chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi"
-  echo "Installed real nvidia-smi binary with LD_LIBRARY_PATH wrapper"
-else
-  # Fallback: create shell script shim
-  cat > "$DRIVER_ROOT/usr/bin/nvidia-smi" << NVIDIA_SMI_EOF
-#!/bin/bash
-# Mock nvidia-smi — returns driver version and basic GPU info.
+# Shim: delegates to the real nvidia-smi binary if available (glibc environments),
+# otherwise returns basic driver info for lightweight init containers (Alpine/musl).
+SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
+if [ -x "\${SCRIPT_DIR}/nvidia-smi.real" ]; then
+  LIB_DIR="\${SCRIPT_DIR}/../lib64"
+  export LD_LIBRARY_PATH="\${LIB_DIR}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+  exec "\${SCRIPT_DIR}/nvidia-smi.real" "\$@"
+fi
 echo "NVIDIA-SMI $DRIVER_VERSION"
 echo "Driver Version: $DRIVER_VERSION"
 echo "CUDA Version: 12.4"
-exit 0
 NVIDIA_SMI_EOF
-  chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi"
-  echo "WARNING: Real nvidia-smi not found, using shell script fallback"
+chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi"
+if [ -f /usr/local/bin/nvidia-smi ]; then
+  cp /usr/local/bin/nvidia-smi "$DRIVER_ROOT/usr/bin/nvidia-smi.real"
+  chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi.real"
+  echo "Installed nvidia-smi shim + real binary"
+else
+  echo "WARNING: Real nvidia-smi not found, shim will use fallback output"
 fi
 
 # 4b. Create /proc/driver/nvidia mock files (read by nvidia-smi)

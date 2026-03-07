@@ -1646,7 +1646,23 @@ func nvmlDeviceGetRetiredPages(device C.nvmlDevice_t, cause C.nvmlPageRetirement
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
+	if addresses == nil {
+		// Caller is querying the count
+		*pageCount = C.uint(len(pages))
+		return C.NVML_SUCCESS
+	}
+	bufSize := int(*pageCount)
+	if len(pages) > bufSize {
+		*pageCount = C.uint(len(pages))
+		return C.NVML_ERROR_INSUFFICIENT_SIZE
+	}
 	*pageCount = C.uint(len(pages))
+	if len(pages) > 0 {
+		outSlice := unsafe.Slice(addresses, len(pages))
+		for i, p := range pages {
+			outSlice[i] = C.ulonglong(p)
+		}
+	}
 	return C.NVML_SUCCESS
 }
 
