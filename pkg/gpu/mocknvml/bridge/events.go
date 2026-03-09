@@ -23,24 +23,27 @@ package main
 #include "nvml_types.h"
 */
 import "C"
-
-// dummyEventSet is a non-null handle allocated from C memory (not Go heap).
-// nvidia-smi needs a non-null handle from nvmlEventSetCreate; it doesn't
-// actually wait for events in the default (non-daemon) invocation mode.
-// Using C.malloc avoids cgo pointer rule violations (Go pointers in C memory).
-var dummyEventSet = C.nvmlEventSet_t(C.malloc(1))
+import "unsafe"
 
 //export nvmlEventSetCreate
 func nvmlEventSetCreate(set *C.nvmlEventSet_t) C.nvmlReturn_t {
 	if set == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	*set = dummyEventSet
+	p := C.malloc(1)
+	if p == nil {
+		return C.NVML_ERROR_MEMORY
+	}
+	*set = (C.nvmlEventSet_t)(p)
 	return C.NVML_SUCCESS
 }
 
 //export nvmlEventSetFree
 func nvmlEventSetFree(set C.nvmlEventSet_t) C.nvmlReturn_t {
+	if set != nil {
+		//nolint:govet // CGo struct pointer to unsafe.Pointer for C.free
+		C.free(unsafe.Pointer(set))
+	}
 	return C.NVML_SUCCESS
 }
 
