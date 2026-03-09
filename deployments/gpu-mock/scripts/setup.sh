@@ -63,19 +63,23 @@ mknod -m 666 "$DEV_ROOT/nvidia-uvm" c 510 0 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm-tools" c 510 1 2>/dev/null || true
 
 # 4. Install nvidia-smi
-#    The DRA driver init container runs nvidia-smi via `env -i` in an Alpine-based
-#    container. Real nvidia-smi is glibc-linked and can't exec under musl, so we
-#    always install a shell script shim at the standard path. The real binary goes
-#    to nvidia-smi.real for glibc-based consumers (Kind node, gpu-mock container).
+#    The DRA driver init container runs nvidia-smi via `env -i` in a distroless
+#    container (nvcr.io/nvidia/distroless/cc) which has /bin/bash but NOT /bin/sh.
+#    We install a bash shim at the standard path. It delegates to nvidia-smi.real
+#    (the real glibc-linked binary) where possible, falling back to basic output
+#    for environments where the real binary can't run (missing glibc/libs).
 cat > "$DRIVER_ROOT/usr/bin/nvidia-smi" << NVIDIA_SMI_EOF
-#!/bin/sh
+#!/bin/bash
 # Shim: delegates to the real nvidia-smi binary if available (glibc environments),
-# otherwise returns basic driver info for lightweight init containers (Alpine/musl).
+# otherwise returns basic driver info for lightweight init containers (distroless/musl).
+# Uses /bin/bash (not /bin/sh) because the DRA driver's distroless container has
+# /bin/bash but not /bin/sh.
 SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
 if [ -x "\${SCRIPT_DIR}/nvidia-smi.real" ]; then
   LIB_DIR="\${SCRIPT_DIR}/../lib64"
   export LD_LIBRARY_PATH="\${LIB_DIR}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
-  exec "\${SCRIPT_DIR}/nvidia-smi.real" "\$@"
+  "\${SCRIPT_DIR}/nvidia-smi.real" "\$@" && exit 0
+  # Real binary failed (missing glibc/libs); fall through to basic output.
 fi
 echo "NVIDIA-SMI $DRIVER_VERSION"
 echo "Driver Version: $DRIVER_VERSION"
