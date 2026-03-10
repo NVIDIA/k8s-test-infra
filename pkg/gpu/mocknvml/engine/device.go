@@ -844,8 +844,7 @@ func (d *ConfigurableDevice) GetDefaultEccMode() (nvml.EnableState, nvml.Return)
 
 // GetSupportedClocksThrottleReasons returns bitmask of all supported throttle reasons.
 func (d *ConfigurableDevice) GetSupportedClocksThrottleReasons() (uint64, nvml.Return) {
-	// Standard bitmask for datacenter GPUs: all common reasons supported.
-	reasons := uint64(0x1FF)
+	reasons := uint64(nvml.ClocksThrottleReasonAll)
 	debugLog("[NVML] nvmlDeviceGetSupportedClocksThrottleReasons -> 0x%x\n", reasons)
 	return reasons, nvml.SUCCESS
 }
@@ -871,9 +870,6 @@ func (d *ConfigurableDevice) GetTotalEnergyConsumption() (uint64, nvml.Return) {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	energy := d.config.Power.TotalEnergyConsumptionMJ
-	if energy == 0 {
-		return 0, nvml.ERROR_NOT_SUPPORTED
-	}
 	debugLog("[NVML] nvmlDeviceGetTotalEnergyConsumption -> %d mJ\n", energy)
 	return energy, nvml.SUCCESS
 }

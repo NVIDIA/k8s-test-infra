@@ -1972,7 +1972,7 @@ func nvmlDeviceGetGspFirmwareVersion(device C.nvmlDevice_t, version *C.char) C.n
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
-	return goStringToC(val, version, 80)
+	return goStringToC(val, version, nvml.GSP_FIRMWARE_VERSION_BUF_SIZE)
 }
 
 //export nvmlDeviceGetTotalEnergyConsumption

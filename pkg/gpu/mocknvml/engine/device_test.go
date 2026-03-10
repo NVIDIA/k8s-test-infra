@@ -893,6 +893,183 @@ func TestConfigurableDevice_GetMigDeviceHandleByIndex_MIGDisabled(t *testing.T) 
 // GPM Tests (Batch 3)
 // =============================================================================
 
+// =============================================================================
+// nvidia-smi -q Gap Closure Tests
+// =============================================================================
+
+func TestConfigurableDevice_GetMemoryBusWidth_Configured(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		Memory: &MemoryConfig{
+			TotalBytes:     42949672960,
+			MemoryBusWidth: 5120,
+		},
+	})
+
+	width, ret := dev.GetMemoryBusWidth()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetMemoryBusWidth failed: %v", ret)
+	}
+	if width != 5120 {
+		t.Errorf("Expected 5120, got %d", width)
+	}
+}
+
+func TestConfigurableDevice_GetMemoryBusWidth_NotConfigured(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	_, ret := dev.GetMemoryBusWidth()
+	if ret != nvml.ERROR_NOT_SUPPORTED {
+		t.Errorf("Expected NOT_SUPPORTED when no memory config, got %v", ret)
+	}
+}
+
+func TestConfigurableDevice_GetDefaultEccMode_Enabled(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		ECC: &ECCConfig{
+			DefaultMode: "enabled",
+		},
+	})
+
+	mode, ret := dev.GetDefaultEccMode()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetDefaultEccMode failed: %v", ret)
+	}
+	if mode != nvml.FEATURE_ENABLED {
+		t.Errorf("Expected ENABLED, got %d", mode)
+	}
+}
+
+func TestConfigurableDevice_GetDefaultEccMode_NoConfig(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	mode, ret := dev.GetDefaultEccMode()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetDefaultEccMode failed: %v", ret)
+	}
+	if mode != nvml.FEATURE_DISABLED {
+		t.Errorf("Expected DISABLED when no ECC config, got %d", mode)
+	}
+}
+
+func TestConfigurableDevice_GetSupportedClocksThrottleReasons(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	reasons, ret := dev.GetSupportedClocksThrottleReasons()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetSupportedClocksThrottleReasons failed: %v", ret)
+	}
+	if reasons != uint64(nvml.ClocksThrottleReasonAll) {
+		t.Errorf("Expected 0x%x, got 0x%x", nvml.ClocksThrottleReasonAll, reasons)
+	}
+}
+
+func TestConfigurableDevice_GetAutoBoostedClocksEnabled(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	_, _, ret := dev.GetAutoBoostedClocksEnabled()
+	if ret != nvml.ERROR_NOT_SUPPORTED {
+		t.Errorf("Expected NOT_SUPPORTED for datacenter GPU, got %v", ret)
+	}
+}
+
+func TestConfigurableDevice_GetGspFirmwareVersion_Configured(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		GSPFirmware: &GSPFirmwareConfig{
+			Version: "550.54.15",
+		},
+	})
+
+	version, ret := dev.GetGspFirmwareVersion()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetGspFirmwareVersion failed: %v", ret)
+	}
+	if version != "550.54.15" {
+		t.Errorf("Expected '550.54.15', got '%s'", version)
+	}
+}
+
+func TestConfigurableDevice_GetGspFirmwareVersion_NoConfig(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	_, ret := dev.GetGspFirmwareVersion()
+	if ret != nvml.ERROR_NOT_SUPPORTED {
+		t.Errorf("Expected NOT_SUPPORTED when no GSP config, got %v", ret)
+	}
+}
+
+func TestConfigurableDevice_GetTotalEnergyConsumption_Configured(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		Power: &PowerConfig{
+			TotalEnergyConsumptionMJ: 500000,
+		},
+	})
+
+	energy, ret := dev.GetTotalEnergyConsumption()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetTotalEnergyConsumption failed: %v", ret)
+	}
+	if energy != 500000 {
+		t.Errorf("Expected 500000, got %d", energy)
+	}
+}
+
+func TestConfigurableDevice_GetTotalEnergyConsumption_Zero(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		Power: &PowerConfig{
+			TotalEnergyConsumptionMJ: 0,
+		},
+	})
+
+	energy, ret := dev.GetTotalEnergyConsumption()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetTotalEnergyConsumption failed: %v", ret)
+	}
+	if energy != 0 {
+		t.Errorf("Expected 0 (valid zero), got %d", energy)
+	}
+}
+
+func TestConfigurableDevice_GetTotalEnergyConsumption_NoPowerConfig(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	_, ret := dev.GetTotalEnergyConsumption()
+	if ret != nvml.ERROR_NOT_SUPPORTED {
+		t.Errorf("Expected NOT_SUPPORTED when no power config, got %v", ret)
+	}
+}
+
+func TestConfigurableDevice_GetDetailedEccErrors_Default(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	counts, ret := dev.GetDetailedEccErrors(nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.VOLATILE_ECC)
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetDetailedEccErrors failed: %v", ret)
+	}
+	if counts.L1Cache != 0 || counts.L2Cache != 0 || counts.DeviceMemory != 0 || counts.RegisterFile != 0 {
+		t.Errorf("Expected all zeros, got l1=%d l2=%d mem=%d reg=%d",
+			counts.L1Cache, counts.L2Cache, counts.DeviceMemory, counts.RegisterFile)
+	}
+}
+
 func TestConfigurableDevice_GetGpmSupport_Default(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
 		Name: "NVIDIA A100-SXM4-80GB",
