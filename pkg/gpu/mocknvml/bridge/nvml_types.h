@@ -218,7 +218,13 @@ typedef struct nvmlVgpuInstance_st*    nvmlVgpuInstance_t;
 /* --- Opaque struct types (only used via pointer in function signatures) --- */
 typedef struct nvmlAccountingStats_st                       nvmlAccountingStats_t;
 typedef struct nvmlActiveVgpuInstanceInfo_st                nvmlActiveVgpuInstanceInfo_t;
-typedef struct nvmlBAR1Memory_st                            nvmlBAR1Memory_t;
+/* BAR1 Memory - full definition needed by bridge */
+typedef struct nvmlBAR1Memory_st
+{
+    unsigned long long bar1Total;    //!< Total BAR1 Memory (in bytes)
+    unsigned long long bar1Free;     //!< Unallocated BAR1 Memory (in bytes)
+    unsigned long long bar1Used;     //!< Allocated Used Memory (in bytes)
+} nvmlBAR1Memory_t;
 typedef struct nvmlBridgeChipHierarchy_st                   nvmlBridgeChipHierarchy_t;
 typedef struct nvmlBusType_st                               nvmlBusType_t;
 typedef struct nvmlC2cModeInfo_v1_st                        nvmlC2cModeInfo_v1_t;
