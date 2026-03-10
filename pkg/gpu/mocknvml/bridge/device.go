@@ -83,6 +83,13 @@
 // - nvmlDeviceGetNvLinkVersion
 // - nvmlDeviceGetNvLinkCapability
 // - nvmlDeviceGetMemoryErrorCounter
+// - nvmlDeviceGetMemoryBusWidth
+// - nvmlDeviceGetDefaultEccMode
+// - nvmlDeviceGetSupportedClocksThrottleReasons
+// - nvmlDeviceGetAutoBoostedClocksEnabled
+// - nvmlDeviceGetGspFirmwareVersion
+// - nvmlDeviceGetTotalEnergyConsumption
+// - nvmlDeviceGetDetailedEccErrors
 
 package main
 
@@ -1856,5 +1863,159 @@ func nvmlDeviceGetMemoryErrorCounter(device C.nvmlDevice_t, errorType C.nvmlMemo
 		return toReturn(ret)
 	}
 	*count = C.ulonglong(val)
+	return C.NVML_SUCCESS
+}
+
+// =============================================================================
+// Group G — nvidia-smi query gap closures
+// =============================================================================
+
+//export nvmlDeviceGetMemoryBusWidth
+func nvmlDeviceGetMemoryBusWidth(device C.nvmlDevice_t, busWidth *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetMemoryBusWidth"); !ok {
+		return ret
+	}
+	if busWidth == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	val, ret := dev.GetMemoryBusWidth()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*busWidth = C.uint(val)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetDefaultEccMode
+func nvmlDeviceGetDefaultEccMode(device C.nvmlDevice_t, defaultMode *C.nvmlEnableState_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetDefaultEccMode"); !ok {
+		return ret
+	}
+	if defaultMode == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	val, ret := dev.GetDefaultEccMode()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*defaultMode = C.nvmlEnableState_t(val)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetSupportedClocksThrottleReasons
+func nvmlDeviceGetSupportedClocksThrottleReasons(device C.nvmlDevice_t, supportedClocksThrottleReasons *C.ulonglong) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetSupportedClocksThrottleReasons"); !ok {
+		return ret
+	}
+	if supportedClocksThrottleReasons == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	val, ret := dev.GetSupportedClocksThrottleReasons()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*supportedClocksThrottleReasons = C.ulonglong(val)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetAutoBoostedClocksEnabled
+func nvmlDeviceGetAutoBoostedClocksEnabled(device C.nvmlDevice_t, isEnabled *C.nvmlEnableState_t, defaultIsEnabled *C.nvmlEnableState_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetAutoBoostedClocksEnabled"); !ok {
+		return ret
+	}
+	if isEnabled == nil || defaultIsEnabled == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	enabled, defaultEnabled, ret := dev.GetAutoBoostedClocksEnabled()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*isEnabled = C.nvmlEnableState_t(enabled)
+	*defaultIsEnabled = C.nvmlEnableState_t(defaultEnabled)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetGspFirmwareVersion
+func nvmlDeviceGetGspFirmwareVersion(device C.nvmlDevice_t, version *C.char) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetGspFirmwareVersion"); !ok {
+		return ret
+	}
+	if version == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	val, ret := dev.GetGspFirmwareVersion()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	return goStringToC(val, version, 80)
+}
+
+//export nvmlDeviceGetTotalEnergyConsumption
+func nvmlDeviceGetTotalEnergyConsumption(device C.nvmlDevice_t, energy *C.ulonglong) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetTotalEnergyConsumption"); !ok {
+		return ret
+	}
+	if energy == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	val, ret := dev.GetTotalEnergyConsumption()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*energy = C.ulonglong(val)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetDetailedEccErrors
+func nvmlDeviceGetDetailedEccErrors(device C.nvmlDevice_t, errorType C.nvmlMemoryErrorType_t, counterType C.nvmlEccCounterType_t, eccCounts *C.nvmlEccErrorCounts_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetDetailedEccErrors"); !ok {
+		return ret
+	}
+	if eccCounts == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	counts, ret := dev.GetDetailedEccErrors(nvml.MemoryErrorType(errorType), nvml.EccCounterType(counterType))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	eccCounts.l1Cache = C.ulonglong(counts.L1Cache)
+	eccCounts.l2Cache = C.ulonglong(counts.L2Cache)
+	eccCounts.deviceMemory = C.ulonglong(counts.DeviceMemory)
+	eccCounts.registerFile = C.ulonglong(counts.RegisterFile)
 	return C.NVML_SUCCESS
 }

@@ -124,10 +124,7 @@ func nvmlDeviceGetAttributes_v2(device C.nvmlDevice_t, attributes *C.nvmlDeviceA
 	return stubReturn("nvmlDeviceGetAttributes_v2")
 }
 
-//export nvmlDeviceGetAutoBoostedClocksEnabled
-func nvmlDeviceGetAutoBoostedClocksEnabled(device C.nvmlDevice_t, isEnabled *C.nvmlEnableState_t, defaultIsEnabled *C.nvmlEnableState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetAutoBoostedClocksEnabled")
-}
+// nvmlDeviceGetAutoBoostedClocksEnabled — hand-written in device.go
 
 //export nvmlDeviceGetBridgeChipInfo
 func nvmlDeviceGetBridgeChipInfo(device C.nvmlDevice_t, bridgeHierarchy *C.nvmlBridgeChipHierarchy_t) C.nvmlReturn_t {
@@ -224,15 +221,9 @@ func nvmlDeviceGetCurrentClockFreqs(device C.nvmlDevice_t, currentClockFreqs *C.
 	return stubReturn("nvmlDeviceGetCurrentClockFreqs")
 }
 
-//export nvmlDeviceGetDefaultEccMode
-func nvmlDeviceGetDefaultEccMode(device C.nvmlDevice_t, defaultMode *C.nvmlEnableState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetDefaultEccMode")
-}
+// nvmlDeviceGetDefaultEccMode — hand-written in device.go
 
-//export nvmlDeviceGetDetailedEccErrors
-func nvmlDeviceGetDetailedEccErrors(device C.nvmlDevice_t, errorType C.nvmlMemoryErrorType_t, counterType C.nvmlEccCounterType_t, eccCounts *C.nvmlEccErrorCounts_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetDetailedEccErrors")
-}
+// nvmlDeviceGetDetailedEccErrors — hand-written in device.go
 
 //export nvmlDeviceGetDeviceHandleFromMigDeviceHandle
 func nvmlDeviceGetDeviceHandleFromMigDeviceHandle(migDevice C.nvmlDevice_t, device *C.nvmlDevice_t) C.nvmlReturn_t {
@@ -399,10 +390,7 @@ func nvmlDeviceGetGridLicensableFeatures_v4(device C.nvmlDevice_t, pGridLicensab
 	return stubReturn("nvmlDeviceGetGridLicensableFeatures_v4")
 }
 
-//export nvmlDeviceGetGspFirmwareVersion
-func nvmlDeviceGetGspFirmwareVersion(device C.nvmlDevice_t, version *C.char) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGspFirmwareVersion")
-}
+// nvmlDeviceGetGspFirmwareVersion — hand-written in device.go
 
 //export nvmlDeviceGetHandleBySerial
 func nvmlDeviceGetHandleBySerial(serial *C.char, device *C.nvmlDevice_t) C.nvmlReturn_t {
@@ -479,10 +467,7 @@ func nvmlDeviceGetMemoryAffinity(device C.nvmlDevice_t, nodeSetSize C.uint, node
 	return stubReturn("nvmlDeviceGetMemoryAffinity")
 }
 
-//export nvmlDeviceGetMemoryBusWidth
-func nvmlDeviceGetMemoryBusWidth(device C.nvmlDevice_t, busWidth *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMemoryBusWidth")
-}
+// nvmlDeviceGetMemoryBusWidth — hand-written in device.go
 
 //export nvmlDeviceGetMinMaxClockOfPState
 func nvmlDeviceGetMinMaxClockOfPState(device C.nvmlDevice_t, _type C.nvmlClockType_t, pstate C.nvmlPstates_t, minClockMHz *C.uint, maxClockMHz *C.uint) C.nvmlReturn_t {
@@ -639,10 +624,7 @@ func nvmlDeviceGetSupportedClocksEventReasons(device C.nvmlDevice_t, supportedCl
 	return stubReturn("nvmlDeviceGetSupportedClocksEventReasons")
 }
 
-//export nvmlDeviceGetSupportedClocksThrottleReasons
-func nvmlDeviceGetSupportedClocksThrottleReasons(device C.nvmlDevice_t, supportedClocksThrottleReasons *C.ulonglong) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetSupportedClocksThrottleReasons")
-}
+// nvmlDeviceGetSupportedClocksThrottleReasons — hand-written in device.go
 
 // nvmlDeviceGetSupportedEventTypes — hand-written in events.go
 
@@ -676,10 +658,7 @@ func nvmlDeviceGetTemperatureV(device C.nvmlDevice_t, temperature *C.nvmlTempera
 	return stubReturn("nvmlDeviceGetTemperatureV")
 }
 
-//export nvmlDeviceGetTotalEnergyConsumption
-func nvmlDeviceGetTotalEnergyConsumption(device C.nvmlDevice_t, energy *C.ulonglong) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetTotalEnergyConsumption")
-}
+// nvmlDeviceGetTotalEnergyConsumption — hand-written in device.go
 
 //export nvmlDeviceGetVgpuCapabilities
 func nvmlDeviceGetVgpuCapabilities(device C.nvmlDevice_t, capability C.nvmlDeviceVgpuCapability_t, capResult *C.uint) C.nvmlReturn_t {

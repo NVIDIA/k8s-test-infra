@@ -249,7 +249,13 @@ typedef struct nvmlDeviceCurrentClockFreqs_st               nvmlDeviceCurrentClo
 typedef struct nvmlDevicePerfModes_st                       nvmlDevicePerfModes_t;
 typedef struct nvmlDevicePowerMizerModes_v1_st              nvmlDevicePowerMizerModes_v1_t;
 typedef struct nvmlDramEncryptionInfo_st                    nvmlDramEncryptionInfo_t;
-typedef struct nvmlEccErrorCounts_st                        nvmlEccErrorCounts_t;
+/* ECC error counts - full definition needed by bridge */
+typedef struct nvmlEccErrorCounts_st {
+    unsigned long long l1Cache;
+    unsigned long long l2Cache;
+    unsigned long long deviceMemory;
+    unsigned long long registerFile;
+} nvmlEccErrorCounts_t;
 typedef struct nvmlEccSramErrorStatus_st                    nvmlEccSramErrorStatus_t;
 typedef struct nvmlEccSramUniqueUncorrectedErrorCounts_st   nvmlEccSramUniqueUncorrectedErrorCounts_t;
 typedef struct nvmlEncoderSessionInfo_st                    nvmlEncoderSessionInfo_t;

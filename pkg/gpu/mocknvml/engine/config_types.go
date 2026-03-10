@@ -159,6 +159,7 @@ type MemoryConfig struct {
 	ReservedBytes uint64 `json:"reserved_bytes,omitempty"`
 	FreeBytes     uint64 `json:"free_bytes,omitempty"`
 	UsedBytes     uint64 `json:"used_bytes,omitempty"`
+	MemoryBusWidth uint32 `json:"memory_bus_width,omitempty"` // bits (e.g., 5120 for A100)
 }
 
 // BAR1MemoryConfig defines BAR1 aperture settings
@@ -194,8 +195,9 @@ type PowerConfig struct {
 	EnforcedLimitMW     uint32 `json:"enforced_limit_mw,omitempty"`
 	MinLimitMW          uint32 `json:"min_limit_mw,omitempty"`
 	MaxLimitMW          uint32 `json:"max_limit_mw,omitempty"`
-	CurrentDrawMW       uint32 `json:"current_draw_mw,omitempty"`
-	PowerState          string `json:"power_state,omitempty"`
+	CurrentDrawMW            uint32 `json:"current_draw_mw,omitempty"`
+	PowerState               string `json:"power_state,omitempty"`
+	TotalEnergyConsumptionMJ uint64 `json:"total_energy_consumption_mj,omitempty"` // millijoules since boot
 }
 
 // ThermalConfig defines thermal settings

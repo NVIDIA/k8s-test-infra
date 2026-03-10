@@ -53,6 +53,7 @@ device_defaults:
     reserved_bytes: 1073741824      # ~1 GiB reserved
     free_bytes: 84825604096         # total - reserved at idle
     used_bytes: 0
+    memory_bus_width: 5120
 
   bar1_memory:
     total_bytes: 274877906944       # 256 GiB
@@ -87,6 +88,7 @@ device_defaults:
     max_limit_mw: 700000            # 700W max
     current_draw_mw: 95000          # 95W idle
     power_state: "P0"
+    total_energy_consumption_mj: 600000  # millijoules since boot
 
   # ---------------------------------------------------------------------------
   # Thermal configuration
