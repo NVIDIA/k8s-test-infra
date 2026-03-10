@@ -816,6 +816,74 @@ func (d *ConfigurableDevice) GetBoardId() (uint32, nvml.Return) {
 	return 0, nvml.SUCCESS
 }
 
+// GetMemoryBusWidth returns the memory bus width in bits.
+func (d *ConfigurableDevice) GetMemoryBusWidth() (uint32, nvml.Return) {
+	width := uint32(0)
+	if d.config != nil && d.config.Memory != nil {
+		width = d.config.Memory.MemoryBusWidth
+	}
+	if width == 0 {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	debugLog("[NVML] nvmlDeviceGetMemoryBusWidth -> %d bits\n", width)
+	return width, nvml.SUCCESS
+}
+
+// GetDefaultEccMode returns the default ECC mode.
+func (d *ConfigurableDevice) GetDefaultEccMode() (nvml.EnableState, nvml.Return) {
+	if d.config == nil || d.config.ECC == nil {
+		return nvml.FEATURE_DISABLED, nvml.SUCCESS
+	}
+	mode := nvml.FEATURE_DISABLED
+	if d.config.ECC.DefaultMode == "enabled" {
+		mode = nvml.FEATURE_ENABLED
+	}
+	debugLog("[NVML] nvmlDeviceGetDefaultEccMode -> %d\n", mode)
+	return mode, nvml.SUCCESS
+}
+
+// GetSupportedClocksThrottleReasons returns bitmask of all supported throttle reasons.
+func (d *ConfigurableDevice) GetSupportedClocksThrottleReasons() (uint64, nvml.Return) {
+	reasons := uint64(nvml.ClocksThrottleReasonAll)
+	debugLog("[NVML] nvmlDeviceGetSupportedClocksThrottleReasons -> 0x%x\n", reasons)
+	return reasons, nvml.SUCCESS
+}
+
+// GetAutoBoostedClocksEnabled returns auto-boost status.
+// Datacenter GPUs (A100, H100, etc.) don't support auto-boost.
+func (d *ConfigurableDevice) GetAutoBoostedClocksEnabled() (nvml.EnableState, nvml.EnableState, nvml.Return) {
+	return nvml.FEATURE_DISABLED, nvml.FEATURE_DISABLED, nvml.ERROR_NOT_SUPPORTED
+}
+
+// GetGspFirmwareVersion returns the GSP firmware version string.
+func (d *ConfigurableDevice) GetGspFirmwareVersion() (string, nvml.Return) {
+	if d.config == nil || d.config.GSPFirmware == nil || d.config.GSPFirmware.Version == "" {
+		return "", nvml.ERROR_NOT_SUPPORTED
+	}
+	debugLog("[NVML] nvmlDeviceGetGspFirmwareVersion -> %s\n", d.config.GSPFirmware.Version)
+	return d.config.GSPFirmware.Version, nvml.SUCCESS
+}
+
+// GetTotalEnergyConsumption returns cumulative energy in millijoules.
+func (d *ConfigurableDevice) GetTotalEnergyConsumption() (uint64, nvml.Return) {
+	if d.config == nil || d.config.Power == nil {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	energy := d.config.Power.TotalEnergyConsumptionMJ
+	debugLog("[NVML] nvmlDeviceGetTotalEnergyConsumption -> %d mJ\n", energy)
+	return energy, nvml.SUCCESS
+}
+
+// GetDetailedEccErrors returns per-location ECC error counts.
+func (d *ConfigurableDevice) GetDetailedEccErrors(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType) (nvml.EccErrorCounts, nvml.Return) {
+	counts := nvml.EccErrorCounts{}
+	if d.config == nil || d.config.ECC == nil {
+		return counts, nvml.SUCCESS
+	}
+	debugLog("[NVML] nvmlDeviceGetDetailedEccErrors(errorType=%d, counterType=%d) -> zeros\n", errorType, counterType)
+	return counts, nvml.SUCCESS
+}
+
 // GetEncoderCapacity returns encoder capacity
 func (d *ConfigurableDevice) GetEncoderCapacity(encoderType nvml.EncoderType) (int, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetEncoderCapacity(type=%d) -> 100\n", encoderType)

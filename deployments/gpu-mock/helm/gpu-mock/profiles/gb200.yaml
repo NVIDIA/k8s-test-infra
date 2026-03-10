@@ -53,6 +53,7 @@ device_defaults:
     reserved_bytes: 1073741824      # ~1 GiB reserved
     free_bytes: 205084688384        # total - reserved at idle
     used_bytes: 0
+    memory_bus_width: 8192
 
   bar1_memory:
     total_bytes: 549755813888       # 512 GiB (unified memory with Grace)
@@ -87,6 +88,7 @@ device_defaults:
     max_limit_mw: 1200000           # 1200W boost
     current_draw_mw: 145000         # 145W idle
     power_state: "P0"
+    total_energy_consumption_mj: 1000000  # millijoules since boot
 
   # ---------------------------------------------------------------------------
   # Thermal configuration
