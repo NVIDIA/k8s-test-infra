@@ -35,7 +35,11 @@ dcgm:
 dcgmExporter:
   enabled: false
 
-# MIG manager requires real driver — disable.
+# MIG is not supported by the mock NVML — disable manager and set strategy to none.
+# Without this, the device-plugin uses migStrategy=single and crashes with
+# "error getting MIG device handle at index '0': ERROR_NOT_SUPPORTED".
+mig:
+  strategy: none
 migManager:
   enabled: false
 
