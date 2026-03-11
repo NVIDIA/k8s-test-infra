@@ -65,13 +65,17 @@ gfd:
       value: "/var/lib/nvidia-mock/driver"
 
 # Validator checks that the GPU stack is functional.
+# driver-validation: mounts hostPath /run/nvidia/driver → our mock (via symlink).
+# toolkit-validation: CDI injection makes nvidia-smi available inside containers.
+# cuda-validation: WITH_WORKLOAD=false skips vectorAdd (kernel launch is a no-op).
+# plugin-validation: checks nvidia.com/gpu in node allocatable.
 validator:
   driver:
     env:
       - name: DRIVER_INSTALL_DIR
-        value: "/var/lib/nvidia-mock/driver"
+        value: "/run/nvidia/driver"
       - name: LD_LIBRARY_PATH
-        value: "/var/lib/nvidia-mock/driver/usr/lib64"
+        value: "/run/nvidia/driver/usr/lib64"
   toolkit:
     env:
       - name: NVIDIA_VISIBLE_DEVICES
@@ -83,4 +87,4 @@ validator:
   plugin:
     env:
       - name: LD_LIBRARY_PATH
-        value: "/var/lib/nvidia-mock/driver/usr/lib64"
+        value: "/run/nvidia/driver/usr/lib64"

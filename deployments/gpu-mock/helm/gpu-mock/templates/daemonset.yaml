@@ -51,6 +51,8 @@ spec:
               mountPath: /config
             - name: host-cdi
               mountPath: /host/var/run/cdi
+            - name: host-run-nvidia
+              mountPath: /host/run/nvidia
       volumes:
         - name: host-nvidia-mock
           hostPath:
@@ -62,4 +64,8 @@ spec:
         - name: host-cdi
           hostPath:
             path: /var/run/cdi
+            type: DirectoryOrCreate
+        - name: host-run-nvidia
+          hostPath:
+            path: /run/nvidia
             type: DirectoryOrCreate

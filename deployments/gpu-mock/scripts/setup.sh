@@ -185,4 +185,11 @@ if command -v kubectl >/dev/null 2>&1; then
   kubectl label node "$NODE_NAME" feature.node.kubernetes.io/pci-10de.present=true --overwrite || true
 fi
 
+# 8. Create GPU Operator compatibility symlink.
+#    The GPU Operator's validator DaemonSet mounts hostPath /run/nvidia/driver
+#    into the driver-validation init container. By symlinking to our mock driver
+#    root, the validator finds nvidia-smi and mock NVML at the expected path.
+mkdir -p /host/run/nvidia
+ln -sfn /var/lib/nvidia-mock/driver /host/run/nvidia/driver
+
 echo "Mock GPU environment ready: $GPU_COUNT GPUs at $HOST"
