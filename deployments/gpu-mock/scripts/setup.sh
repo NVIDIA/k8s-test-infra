@@ -62,6 +62,61 @@ mknod -m 666 "$DEV_ROOT/nvidiactl" c 195 255 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm" c 510 0 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm-tools" c 510 1 2>/dev/null || true
 
+# 3b. Generate CDI spec for nvidia-container-runtime CDI mode.
+#     This allows the toolkit to inject our mock libs into containers without
+#     needing libnvidia-container or kernel modules.
+CDI_DIR=/host/var/run/cdi
+mkdir -p "$CDI_DIR"
+
+cat > "$CDI_DIR/nvidia.yaml" << 'CDI_HEADER'
+cdiVersion: "0.6.0"
+kind: "nvidia.com/gpu"
+containerEdits:
+  deviceNodes:
+    - path: /dev/nvidiactl
+      hostPath: /var/lib/nvidia-mock/dev/nvidiactl
+    - path: /dev/nvidia-uvm
+      hostPath: /var/lib/nvidia-mock/dev/nvidia-uvm
+    - path: /dev/nvidia-uvm-tools
+      hostPath: /var/lib/nvidia-mock/dev/nvidia-uvm-tools
+  mounts:
+    - hostPath: /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.1
+      containerPath: /usr/lib64/libnvidia-ml.so.1
+      options: [ro, nosuid, nodev, bind]
+    - hostPath: /var/lib/nvidia-mock/driver/usr/bin/nvidia-smi
+      containerPath: /usr/bin/nvidia-smi
+      options: [ro, nosuid, nodev, bind]
+  hooks:
+    - hookName: createContainer
+      path: /usr/bin/nvidia-cdi-hook
+      args: [nvidia-cdi-hook, update-ldcache, --folder, /usr/lib64]
+  env:
+    - NVIDIA_VISIBLE_DEVICES=void
+devices:
+CDI_HEADER
+
+# Per-GPU device entries
+for i in $(seq 0 $((GPU_COUNT - 1))); do
+  cat >> "$CDI_DIR/nvidia.yaml" << DEVICE_EOF
+  - name: "$i"
+    containerEdits:
+      deviceNodes:
+        - path: /dev/nvidia$i
+          hostPath: /var/lib/nvidia-mock/dev/nvidia$i
+DEVICE_EOF
+done
+
+# "all" device — aggregates all GPUs
+echo '  - name: "all"' >> "$CDI_DIR/nvidia.yaml"
+echo '    containerEdits:' >> "$CDI_DIR/nvidia.yaml"
+echo '      deviceNodes:' >> "$CDI_DIR/nvidia.yaml"
+for i in $(seq 0 $((GPU_COUNT - 1))); do
+  echo "        - path: /dev/nvidia$i" >> "$CDI_DIR/nvidia.yaml"
+  echo "          hostPath: /var/lib/nvidia-mock/dev/nvidia$i" >> "$CDI_DIR/nvidia.yaml"
+done
+
+echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices)"
+
 # 4. Install nvidia-smi
 #    The DRA driver init container runs nvidia-smi via `env -i` in a distroless
 #    container (nvcr.io/nvidia/distroless/cc) which has /bin/bash but NOT /bin/sh.
