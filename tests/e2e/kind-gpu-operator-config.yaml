@@ -1,0 +1,19 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kind cluster config for GPU Operator E2E testing.
+# Enables CDI in containerd and registers the nvidia runtime handler.
+# The nvidia-container-toolkit package must be installed in the worker node
+# after cluster creation, then containerd must be restarted.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri"]
+      enable_cdi = true
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
+      runtime_type = "io.containerd.runc.v2"
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
+      BinaryName = "/usr/bin/nvidia-container-runtime"
+nodes:
+  - role: control-plane
