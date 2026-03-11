@@ -49,9 +49,14 @@ RUN set -eux; \
     dpkg-deb -x /tmp/nvidia-utils-550*.deb /tmp/nvidia-utils; \
     cp /tmp/nvidia-utils/usr/bin/nvidia-smi /usr/local/bin/nvidia-smi; \
     chmod +x /usr/local/bin/nvidia-smi; \
+    # Set RPATH so nvidia-smi finds libs relative to its own location ($ORIGIN/../lib64).
+    # This makes it work in every mount context: /run/nvidia/driver/usr/bin/,
+    # /var/lib/nvidia-mock/driver/usr/bin/, and CDI-injected /usr/bin/.
+    apt-get install -y --no-install-recommends patchelf; \
+    patchelf --set-rpath '$ORIGIN/../lib64' /usr/local/bin/nvidia-smi; \
     rm -rf /var/lib/apt/lists/*; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-550*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
-    apt-get purge -y --auto-remove curl ca-certificates gnupg2
+    apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
 COPY deployments/gpu-mock/scripts/ /scripts/
 RUN chmod +x /scripts/*.sh
