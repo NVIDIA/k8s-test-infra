@@ -76,6 +76,8 @@ validator:
         value: "/run/nvidia/driver"
       - name: LD_LIBRARY_PATH
         value: "/run/nvidia/driver/usr/lib64"
+      - name: DISABLE_DEV_CHAR_SYMLINK_CREATION
+        value: "true"
   toolkit:
     env:
       - name: NVIDIA_VISIBLE_DEVICES
