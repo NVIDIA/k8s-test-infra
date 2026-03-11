@@ -295,3 +295,173 @@ jobs:
           kubectl get pods -A || true
           echo "=== node describe ==="
           kubectl describe nodes || true
+
+  e2e-gpu-operator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ inputs.golang_version }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Create Kind cluster for GPU Operator
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: gpu-mock-operator-e2e
+          config: tests/e2e/kind-gpu-operator-config.yaml
+
+      - name: Install nvidia-container-toolkit in Kind worker
+        run: |
+          NODE_CONTAINER=gpu-mock-operator-e2e-control-plane
+          docker exec "$NODE_CONTAINER" bash -c '
+            apt-get update -qq
+            apt-get install -y -qq curl gpg
+            curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+              | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+            curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+              | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" \
+              | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+            apt-get update -qq
+            apt-get install -y -qq nvidia-container-toolkit
+          '
+
+      - name: Configure toolkit for CDI mode
+        run: |
+          NODE_CONTAINER=gpu-mock-operator-e2e-control-plane
+          docker exec "$NODE_CONTAINER" nvidia-ctk runtime configure \
+            --runtime=containerd --cdi.enabled --set-as-default
+          docker exec "$NODE_CONTAINER" bash -c '
+            cat > /etc/nvidia-container-runtime/config.toml << EOF
+          [nvidia-container-runtime]
+          mode = "cdi"
+
+          [nvidia-container-runtime.modes.cdi]
+          default-kind = "nvidia.com/gpu"
+          spec-dirs = ["/var/run/cdi", "/etc/cdi"]
+          EOF
+          '
+
+      - name: Restart containerd to pick up nvidia runtime
+        run: |
+          NODE_CONTAINER=gpu-mock-operator-e2e-control-plane
+          docker exec "$NODE_CONTAINER" systemctl restart containerd
+          sleep 5
+          docker exec "$NODE_CONTAINER" crictl info | head -5
+
+      - name: Build gpu-mock image
+        run: |
+          docker build -t gpu-mock:e2e -f deployments/gpu-mock/Dockerfile \
+            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image gpu-mock:e2e --name gpu-mock-operator-e2e
+
+      - name: Install gpu-mock Helm chart
+        run: |
+          helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
+            --set image.repository=gpu-mock \
+            --set image.tag=e2e \
+            --set gpu.count=2 \
+            --wait --timeout 120s
+
+      - name: Verify DaemonSet is ready
+        run: |
+          kubectl rollout status daemonset/gpu-mock --timeout=60s
+
+      - name: Verify CDI spec exists on node
+        run: |
+          NODE_CONTAINER=gpu-mock-operator-e2e-control-plane
+          docker exec "$NODE_CONTAINER" test -f /var/run/cdi/nvidia.yaml
+          docker exec "$NODE_CONTAINER" cat /var/run/cdi/nvidia.yaml
+          echo "CDI spec verified"
+
+      - name: Add NVIDIA Helm repo
+        run: |
+          helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+          helm repo update
+
+      - name: Install GPU Operator
+        run: |
+          helm install gpu-operator nvidia/gpu-operator \
+            -n gpu-operator --create-namespace \
+            -f tests/e2e/gpu-operator-values.yaml \
+            --wait --timeout 300s
+
+      - name: Wait for operator-validator pod
+        run: |
+          for i in $(seq 1 60); do
+            PHASE=$(kubectl -n gpu-operator get pods -l app=nvidia-operator-validator \
+              -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "NotFound")
+            if [ "$PHASE" = "Running" ]; then
+              echo "PASS: nvidia-operator-validator is Running"
+              kubectl -n gpu-operator get pods -l app=nvidia-operator-validator
+              exit 0
+            fi
+            echo "Attempt $i/60: validator phase=$PHASE, waiting..."
+            sleep 5
+          done
+          echo "FAIL: nvidia-operator-validator did not reach Running state"
+          kubectl -n gpu-operator describe pods -l app=nvidia-operator-validator || true
+          exit 1
+
+      - name: Verify GFD node labels
+        run: |
+          NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+          for label in nvidia.com/gpu.product nvidia.com/gpu.memory nvidia.com/gpu.count; do
+            VALUE=$(kubectl get node "$NODE" -o json | jq -r ".metadata.labels[\"$label\"] // \"NOT_SET\"")
+            echo "$label = $VALUE"
+            if [ "$VALUE" = "NOT_SET" ] || [ -z "$VALUE" ]; then
+              echo "WARNING: GFD label $label not found (may need more time)"
+            fi
+          done
+
+      - name: Verify allocatable GPUs
+        run: |
+          NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+          for i in $(seq 1 30); do
+            GPUS=$(kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}')
+            if [ "$GPUS" = "2" ]; then
+              echo "PASS: Node reports $GPUS allocatable GPUs"
+              exit 0
+            fi
+            echo "Attempt $i: allocatable GPUs=$GPUS (expected 2), waiting..."
+            sleep 2
+          done
+          echo "FAIL: Expected 2 allocatable GPUs, got $GPUS"
+          exit 1
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== gpu-mock pod logs ==="
+          kubectl logs -l app.kubernetes.io/name=gpu-mock --tail=50 || true
+          echo "=== CDI spec ==="
+          NODE_CONTAINER=gpu-mock-operator-e2e-control-plane
+          docker exec "$NODE_CONTAINER" cat /var/run/cdi/nvidia.yaml 2>/dev/null || true
+          echo "=== nvidia-container-runtime config ==="
+          docker exec "$NODE_CONTAINER" cat /etc/nvidia-container-runtime/config.toml 2>/dev/null || true
+          echo "=== GPU Operator pods ==="
+          kubectl -n gpu-operator get pods || true
+          echo "=== operator-validator describe ==="
+          kubectl -n gpu-operator describe pods -l app=nvidia-operator-validator || true
+          echo "=== operator-validator init container logs ==="
+          VALIDATOR_POD=$(kubectl -n gpu-operator get pods -l app=nvidia-operator-validator \
+            --no-headers -o custom-columns=':metadata.name' | head -1)
+          if [ -n "$VALIDATOR_POD" ]; then
+            for INIT in driver-validation toolkit-validation cuda-validation plugin-validation; do
+              echo "--- $INIT ---"
+              kubectl -n gpu-operator logs "$VALIDATOR_POD" -c "$INIT" --tail=30 || true
+            done
+          fi
+          echo "=== device plugin logs ==="
+          kubectl -n gpu-operator logs -l app=nvidia-device-plugin-daemonset --tail=50 || true
+          echo "=== GFD logs ==="
+          kubectl -n gpu-operator logs -l app=nvidia-gpu-feature-discovery --tail=50 || true
+          echo "=== node describe ==="
+          kubectl describe nodes || true
