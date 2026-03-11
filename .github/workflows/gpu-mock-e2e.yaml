@@ -401,6 +401,67 @@ jobs:
           echo "=== file type check ==="
           docker exec "$NODE_CONTAINER" file /run/nvidia/driver/usr/bin/nvidia-smi 2>&1 || echo "file command not available"
 
+      - name: Test CDI injection end-to-end
+        run: |
+          NODE_CONTAINER=gpu-mock-operator-e2e-control-plane
+
+          echo "=== CDI spec (first 30 lines) ==="
+          docker exec "$NODE_CONTAINER" head -30 /var/run/cdi/nvidia.yaml
+
+          echo "=== nvidia-container-runtime config ==="
+          docker exec "$NODE_CONTAINER" cat /etc/nvidia-container-runtime/config.toml 2>&1 || echo "config not found"
+
+          echo "=== containerd config (nvidia runtime) ==="
+          docker exec "$NODE_CONTAINER" grep -A10 nvidia /etc/containerd/config.toml 2>&1 || echo "no nvidia runtime in containerd config"
+
+          echo "=== nvidia-cdi-hook binary ==="
+          docker exec "$NODE_CONTAINER" which nvidia-cdi-hook 2>&1 || echo "nvidia-cdi-hook NOT FOUND"
+          docker exec "$NODE_CONTAINER" nvidia-cdi-hook --version 2>&1 || echo "version check failed"
+
+          echo "=== Test CDI injection with a real pod ==="
+          cat <<'PODEOF' | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: cdi-test
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: test
+                image: ubuntu:22.04
+                env:
+                  - name: NVIDIA_VISIBLE_DEVICES
+                    value: "all"
+                command: ["sh", "-c"]
+                args:
+                  - |
+                    echo "=== injected files ==="
+                    ls -la /usr/bin/nvidia-smi /usr/lib64/libnvidia-ml* 2>&1 || echo "no injected files"
+                    echo "=== ldconfig ==="
+                    ldconfig -p 2>/dev/null | grep nvidia || echo "no nvidia in ldcache"
+                    echo "=== nvidia-smi ==="
+                    nvidia-smi 2>&1 || echo "nvidia-smi failed exit=$?"
+                    echo "CDI_TEST_DONE"
+          PODEOF
+
+          echo "Waiting for cdi-test pod..."
+          for i in $(seq 1 30); do
+            PHASE=$(kubectl get pod cdi-test -o jsonpath='{.status.phase}' 2>/dev/null || echo "Pending")
+            if [ "$PHASE" = "Succeeded" ] || [ "$PHASE" = "Failed" ]; then
+              break
+            fi
+            echo "  attempt $i: phase=$PHASE"
+            sleep 2
+          done
+
+          echo "=== CDI test pod status ==="
+          kubectl get pod cdi-test -o wide || true
+          echo "=== CDI test pod describe ==="
+          kubectl describe pod cdi-test 2>&1 | tail -30 || true
+          echo "=== CDI test pod logs ==="
+          kubectl logs cdi-test 2>&1 || true
+          kubectl delete pod cdi-test --ignore-not-found || true
+
       - name: Add NVIDIA Helm repo
         run: |
           helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
