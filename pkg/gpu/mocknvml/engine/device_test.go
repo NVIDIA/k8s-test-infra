@@ -883,9 +883,11 @@ func TestConfigurableDevice_GetMigDeviceHandleByIndex_MIGDisabled(t *testing.T) 
 		Name: "NVIDIA A100-SXM4-80GB",
 	})
 
+	// NOT_FOUND (not NOT_SUPPORTED) signals "no device at this index" which
+	// callers like nvidia-device-plugin treat as end-of-iteration, not error.
 	_, ret := dev.GetMigDeviceHandleByIndex(0)
-	if ret != nvml.ERROR_NOT_SUPPORTED {
-		t.Errorf("Expected NOT_SUPPORTED when MIG disabled, got %v", ret)
+	if ret != nvml.ERROR_NOT_FOUND {
+		t.Errorf("Expected NOT_FOUND when MIG disabled, got %v", ret)
 	}
 }
 
