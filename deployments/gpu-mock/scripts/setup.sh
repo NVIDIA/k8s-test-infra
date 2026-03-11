@@ -118,36 +118,35 @@ done
 echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices)"
 
 # 4. Install nvidia-smi
-#    The DRA driver init container runs nvidia-smi via `env -i` in a distroless
-#    container (nvcr.io/nvidia/distroless/cc) which has /bin/bash but NOT /bin/sh.
-#    We install a bash shim at the standard path. It delegates to nvidia-smi.real
-#    (the real glibc-linked binary) where possible, falling back to basic output
-#    for environments where the real binary can't run (missing glibc/libs).
-cat > "$DRIVER_ROOT/usr/bin/nvidia-smi" << NVIDIA_SMI_EOF
+#    The GPU Operator validator runs the nvidia-smi binary from the driver install
+#    dir with LD_PRELOAD + LD_LIBRARY_PATH. It exec's the file directly, so it must
+#    be an ELF binary (not a script) — the validator container is distroless and may
+#    lack /bin/bash or /bin/sh.
+#
+#    We install the real nvidia-smi ELF binary at the standard path. A shell-script
+#    fallback is kept at nvidia-smi.sh for environments that need it.
+if [ -f /usr/local/bin/nvidia-smi ]; then
+  cp /usr/local/bin/nvidia-smi "$DRIVER_ROOT/usr/bin/nvidia-smi"
+  chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi"
+  echo "Installed real nvidia-smi binary"
+else
+  echo "WARNING: Real nvidia-smi not found, creating fallback script"
+fi
+# Shell-script fallback for environments where LD_LIBRARY_PATH must be set by the
+# wrapper (e.g., DRA distroless init containers that use env -i).
+cat > "$DRIVER_ROOT/usr/bin/nvidia-smi.sh" << NVIDIA_SMI_EOF
 #!/bin/bash
-# Shim: delegates to the real nvidia-smi binary if available (glibc environments),
-# otherwise returns basic driver info for lightweight init containers (distroless/musl).
-# Uses /bin/bash (not /bin/sh) because the DRA driver's distroless container has
-# /bin/bash but not /bin/sh.
 SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
-if [ -x "\${SCRIPT_DIR}/nvidia-smi.real" ]; then
-  LIB_DIR="\${SCRIPT_DIR}/../lib64"
-  export LD_LIBRARY_PATH="\${LIB_DIR}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
-  "\${SCRIPT_DIR}/nvidia-smi.real" "\$@" && exit 0
-  # Real binary failed (missing glibc/libs); fall through to basic output.
+LIB_DIR="\${SCRIPT_DIR}/../lib64"
+export LD_LIBRARY_PATH="\${LIB_DIR}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+if [ -x "\${SCRIPT_DIR}/nvidia-smi" ]; then
+  exec "\${SCRIPT_DIR}/nvidia-smi" "\$@"
 fi
 echo "NVIDIA-SMI $DRIVER_VERSION"
 echo "Driver Version: $DRIVER_VERSION"
 echo "CUDA Version: 12.4"
 NVIDIA_SMI_EOF
-chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi"
-if [ -f /usr/local/bin/nvidia-smi ]; then
-  cp /usr/local/bin/nvidia-smi "$DRIVER_ROOT/usr/bin/nvidia-smi.real"
-  chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi.real"
-  echo "Installed nvidia-smi shim + real binary"
-else
-  echo "WARNING: Real nvidia-smi not found, shim will use fallback output"
-fi
+chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi.sh"
 
 # 4b. Create /proc/driver/nvidia mock files (read by nvidia-smi)
 PROC_DIR="$DRIVER_ROOT/proc/driver/nvidia"

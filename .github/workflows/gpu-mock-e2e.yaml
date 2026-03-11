@@ -394,10 +394,12 @@ jobs:
           docker exec "$NODE_CONTAINER" head -5 /run/nvidia/driver/usr/bin/nvidia-smi 2>&1 || echo "no nvidia-smi"
           echo "=== libnvidia-ml check ==="
           docker exec "$NODE_CONTAINER" ls -la /run/nvidia/driver/usr/lib64/libnvidia-ml* 2>&1 || echo "no nvml"
-          echo "=== test nvidia-smi from host ==="
+          echo "=== test nvidia-smi with LD_LIBRARY_PATH ==="
           docker exec "$NODE_CONTAINER" bash -c 'LD_LIBRARY_PATH=/run/nvidia/driver/usr/lib64 /run/nvidia/driver/usr/bin/nvidia-smi' 2>&1 || echo "nvidia-smi failed exit=$?"
-          echo "=== test nvidia-smi.real with LD_PRELOAD ==="
-          docker exec "$NODE_CONTAINER" bash -c 'LD_PRELOAD=/run/nvidia/driver/usr/lib64/libnvidia-ml.so.1 /run/nvidia/driver/usr/bin/nvidia-smi.real' 2>&1 || echo "nvidia-smi.real failed exit=$?"
+          echo "=== test nvidia-smi with LD_PRELOAD + LD_LIBRARY_PATH (validator mode) ==="
+          docker exec "$NODE_CONTAINER" bash -c 'LD_PRELOAD=/run/nvidia/driver/usr/lib64/libnvidia-ml.so.1 LD_LIBRARY_PATH=/run/nvidia/driver/usr/lib64 /run/nvidia/driver/usr/bin/nvidia-smi' 2>&1 || echo "nvidia-smi failed exit=$?"
+          echo "=== file type check ==="
+          docker exec "$NODE_CONTAINER" file /run/nvidia/driver/usr/bin/nvidia-smi 2>&1 || echo "file command not available"
 
       - name: Add NVIDIA Helm repo
         run: |
