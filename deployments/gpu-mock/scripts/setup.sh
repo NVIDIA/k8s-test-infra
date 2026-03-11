@@ -62,37 +62,87 @@ mknod -m 666 "$DEV_ROOT/nvidiactl" c 195 255 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm" c 510 0 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm-tools" c 510 1 2>/dev/null || true
 
+# 3b. Generate CDI spec for nvidia-container-runtime CDI mode.
+#     This allows the toolkit to inject our mock libs into containers without
+#     needing libnvidia-container or kernel modules.
+CDI_DIR=/host/var/run/cdi
+mkdir -p "$CDI_DIR"
+
+cat > "$CDI_DIR/nvidia.yaml" << 'CDI_HEADER'
+cdiVersion: "0.6.0"
+kind: "nvidia.com/gpu"
+containerEdits:
+  deviceNodes:
+    - path: /dev/nvidiactl
+      hostPath: /var/lib/nvidia-mock/dev/nvidiactl
+    - path: /dev/nvidia-uvm
+      hostPath: /var/lib/nvidia-mock/dev/nvidia-uvm
+    - path: /dev/nvidia-uvm-tools
+      hostPath: /var/lib/nvidia-mock/dev/nvidia-uvm-tools
+  mounts:
+    - hostPath: /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.1
+      containerPath: /usr/lib64/libnvidia-ml.so.1
+      options: [ro, nosuid, nodev, bind]
+    - hostPath: /var/lib/nvidia-mock/driver/usr/bin/nvidia-smi
+      containerPath: /usr/bin/nvidia-smi
+      options: [ro, nosuid, nodev, bind]
+  hooks:
+    - hookName: createContainer
+      path: /usr/bin/nvidia-cdi-hook
+      args: [nvidia-cdi-hook, update-ldcache, --folder, /usr/lib64]
+  env:
+    - NVIDIA_VISIBLE_DEVICES=void
+devices:
+CDI_HEADER
+
+# Per-GPU device entries
+for i in $(seq 0 $((GPU_COUNT - 1))); do
+  cat >> "$CDI_DIR/nvidia.yaml" << DEVICE_EOF
+  - name: "$i"
+    containerEdits:
+      deviceNodes:
+        - path: /dev/nvidia$i
+          hostPath: /var/lib/nvidia-mock/dev/nvidia$i
+DEVICE_EOF
+done
+
+# "all" device — aggregates all GPUs
+echo '  - name: "all"' >> "$CDI_DIR/nvidia.yaml"
+echo '    containerEdits:' >> "$CDI_DIR/nvidia.yaml"
+echo '      deviceNodes:' >> "$CDI_DIR/nvidia.yaml"
+for i in $(seq 0 $((GPU_COUNT - 1))); do
+  echo "        - path: /dev/nvidia$i" >> "$CDI_DIR/nvidia.yaml"
+  echo "          hostPath: /var/lib/nvidia-mock/dev/nvidia$i" >> "$CDI_DIR/nvidia.yaml"
+done
+
+echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices)"
+
 # 4. Install nvidia-smi
-#    The DRA driver init container runs nvidia-smi via `env -i` in a distroless
-#    container (nvcr.io/nvidia/distroless/cc) which has /bin/bash but NOT /bin/sh.
-#    We install a bash shim at the standard path. It delegates to nvidia-smi.real
-#    (the real glibc-linked binary) where possible, falling back to basic output
-#    for environments where the real binary can't run (missing glibc/libs).
-cat > "$DRIVER_ROOT/usr/bin/nvidia-smi" << NVIDIA_SMI_EOF
-#!/bin/bash
-# Shim: delegates to the real nvidia-smi binary if available (glibc environments),
-# otherwise returns basic driver info for lightweight init containers (distroless/musl).
-# Uses /bin/bash (not /bin/sh) because the DRA driver's distroless container has
-# /bin/bash but not /bin/sh.
-SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
-if [ -x "\${SCRIPT_DIR}/nvidia-smi.real" ]; then
-  LIB_DIR="\${SCRIPT_DIR}/../lib64"
-  export LD_LIBRARY_PATH="\${LIB_DIR}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
-  "\${SCRIPT_DIR}/nvidia-smi.real" "\$@" && exit 0
-  # Real binary failed (missing glibc/libs); fall through to basic output.
+#    The ELF binary has RPATH=$ORIGIN/../lib64 (set by patchelf in Dockerfile),
+#    so it finds libnvidia-ml.so.1 relative to its own location. This works for:
+#    - GPU Operator validator:  /run/nvidia/driver/usr/bin/ → ../lib64
+#    - CDI injection:           /usr/bin/ → ../lib64 (CDI also mounts libs there)
+#    - DRA kubelet-plugin:      /var/lib/nvidia-mock/driver/usr/bin/ → ../lib64
+#    - Kind node direct:        same path
+#
+#    We also install a shell fallback (nvidia-smi.sh) for environments without
+#    glibc (e.g. Alpine/musl init containers).
+if [ -f /usr/local/bin/nvidia-smi ]; then
+  cp /usr/local/bin/nvidia-smi "$DRIVER_ROOT/usr/bin/nvidia-smi"
+  chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi"
+  echo "Installed nvidia-smi ELF binary (RPATH-enabled)"
+else
+  echo "WARNING: Real nvidia-smi not found, installing shell fallback only"
 fi
+
+# Shell fallback for non-glibc environments
+cat > "$DRIVER_ROOT/usr/bin/nvidia-smi.sh" << NVIDIA_SMI_EOF
+#!/bin/sh
 echo "NVIDIA-SMI $DRIVER_VERSION"
 echo "Driver Version: $DRIVER_VERSION"
 echo "CUDA Version: 12.4"
 NVIDIA_SMI_EOF
-chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi"
-if [ -f /usr/local/bin/nvidia-smi ]; then
-  cp /usr/local/bin/nvidia-smi "$DRIVER_ROOT/usr/bin/nvidia-smi.real"
-  chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi.real"
-  echo "Installed nvidia-smi shim + real binary"
-else
-  echo "WARNING: Real nvidia-smi not found, shim will use fallback output"
-fi
+chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi.sh"
 
 # 4b. Create /proc/driver/nvidia mock files (read by nvidia-smi)
 PROC_DIR="$DRIVER_ROOT/proc/driver/nvidia"
@@ -129,5 +179,12 @@ if command -v kubectl >/dev/null 2>&1; then
   kubectl label node "$NODE_NAME" nvidia.com/gpu.present=true --overwrite || true
   kubectl label node "$NODE_NAME" feature.node.kubernetes.io/pci-10de.present=true --overwrite || true
 fi
+
+# 8. Create GPU Operator compatibility symlink.
+#    The GPU Operator's validator DaemonSet mounts hostPath /run/nvidia/driver
+#    into the driver-validation init container. By symlinking to our mock driver
+#    root, the validator finds nvidia-smi and mock NVML at the expected path.
+mkdir -p /host/run/nvidia
+ln -sfn /var/lib/nvidia-mock/driver /host/run/nvidia/driver
 
 echo "Mock GPU environment ready: $GPU_COUNT GPUs at $HOST"

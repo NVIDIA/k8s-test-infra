@@ -1033,14 +1033,12 @@ func (d *ConfigurableDevice) GetMaxMigDeviceCount() (int, nvml.Return) {
 }
 
 // GetMigDeviceHandleByIndex returns a MIG device handle by index.
-// Returns NOT_SUPPORTED when MIG is disabled (default).
+// Returns NOT_FOUND when no MIG devices exist (MIG disabled or no instances).
+// NOT_FOUND (vs NOT_SUPPORTED) signals "no device at this index" which callers
+// like nvidia-device-plugin treat as end-of-iteration, not as a fatal error.
 func (d *ConfigurableDevice) GetMigDeviceHandleByIndex(index int) (nvml.Device, nvml.Return) {
-	if d.config == nil || d.config.MIG == nil || d.config.MIG.ModeCurrent != "enabled" {
-		debugLog("[NVML] nvmlDeviceGetMigDeviceHandleByIndex(%d) -> NOT_SUPPORTED (MIG disabled)\n", index)
-		return nil, nvml.ERROR_NOT_SUPPORTED
-	}
-	debugLog("[NVML] nvmlDeviceGetMigDeviceHandleByIndex(%d) -> NOT_SUPPORTED (no MIG devices configured)\n", index)
-	return nil, nvml.ERROR_NOT_SUPPORTED
+	debugLog("[NVML] nvmlDeviceGetMigDeviceHandleByIndex(%d) -> NOT_FOUND (no MIG devices)\n", index)
+	return nil, nvml.ERROR_NOT_FOUND
 }
 
 // GetGpmSupport returns whether GPM (GPU Performance Monitoring) is supported.

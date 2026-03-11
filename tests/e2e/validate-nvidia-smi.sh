@@ -13,7 +13,7 @@ GPU_COUNT="${3:?}"
 echo "=== Validating nvidia-smi on $NODE_CONTAINER ==="
 
 # Run nvidia-smi inside the Kind node container.
-# The shim script sets LD_LIBRARY_PATH and delegates to the real binary.
+# The ELF binary has RPATH=$ORIGIN/../lib64, so it finds libs automatically.
 NVIDIA_SMI_CMD="/var/lib/nvidia-mock/driver/usr/bin/nvidia-smi"
 
 echo "--- nvidia-smi default output ---"
