@@ -36,8 +36,8 @@ dcgmExporter:
   enabled: false
 
 # MIG is not supported by the mock NVML — disable manager and set strategy to none.
-# Without this, the device-plugin uses migStrategy=single and crashes with
-# "error getting MIG device handle at index '0': ERROR_NOT_SUPPORTED".
+# Without this, the device-plugin enumerates MIG devices and the CDI spec generator
+# treats any non-NOT_FOUND return as fatal (the mock now returns NOT_FOUND).
 mig:
   strategy: none
 migManager:

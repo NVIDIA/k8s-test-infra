@@ -135,6 +135,13 @@ else
   echo "WARNING: Real nvidia-smi not found, installing shell fallback only"
 fi
 
+# Ensure nvidia-smi exists at the standard path even when the ELF is missing.
+# Consumers (e.g. GPU Operator validator) expect /usr/bin/nvidia-smi to exist.
+if [ ! -f "$DRIVER_ROOT/usr/bin/nvidia-smi" ]; then
+  ln -sf nvidia-smi.sh "$DRIVER_ROOT/usr/bin/nvidia-smi"
+  echo "Symlinked nvidia-smi -> nvidia-smi.sh (shell fallback)"
+fi
+
 # Shell fallback for non-glibc environments
 cat > "$DRIVER_ROOT/usr/bin/nvidia-smi.sh" << NVIDIA_SMI_EOF
 #!/bin/sh
