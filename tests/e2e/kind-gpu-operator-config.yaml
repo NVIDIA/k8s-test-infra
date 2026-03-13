@@ -3,7 +3,7 @@
 #
 # Kind cluster config for GPU Operator E2E testing.
 # Enables CDI in containerd and registers the nvidia runtime handler.
-# The nvidia-container-toolkit package must be installed in the worker node
+# The nvidia-container-toolkit package must be installed in the control-plane node
 # after cluster creation, then containerd must be restarted.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4

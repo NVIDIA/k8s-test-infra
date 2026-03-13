@@ -2,7 +2,7 @@
 
 ## Context
 
-PR #239 adds GPU Operator E2E testing with CDI mode. After 5 CI runs, each fix
+PR #239 adds GPU Operator E2E testing with CDI mode. After 7 CI runs, each fix
 reveals a new layer. This plan applies systematic debugging to identify root
 causes and fix them methodically.
 
