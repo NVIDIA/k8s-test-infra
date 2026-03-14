@@ -20,6 +20,22 @@ on:
       golang_version:
         required: true
         type: string
+      gpu_profiles:
+        required: false
+        type: string
+        default: '["a100", "h100", "t4"]'
+  workflow_dispatch:
+    inputs:
+      golang_version:
+        description: 'Go version'
+        required: true
+        default: '1.23'
+        type: string
+      gpu_profiles:
+        description: 'GPU profiles to test (JSON array)'
+        required: false
+        default: '["a100", "h100", "b200", "gb200", "l40s", "t4"]'
+        type: string
 
 jobs:
   e2e-device-plugin:
@@ -27,16 +43,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        gpu-profile: [a100, h100, t4]
-        include:
-          - gpu-profile: a100
-            gpu-name: "NVIDIA A100"
-          - gpu-profile: h100
-            gpu-name: "NVIDIA H100"
-          - gpu-profile: t4
-            gpu-name: "NVIDIA T4"
+        gpu-profile: ${{ fromJson(inputs.gpu_profiles) }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Set GPU display name
+        id: gpu-info
+        run: |
+          case "${{ matrix.gpu-profile }}" in
+            a100) echo "gpu-name=NVIDIA A100" >> "$GITHUB_OUTPUT" ;;
+            h100) echo "gpu-name=NVIDIA H100" >> "$GITHUB_OUTPUT" ;;
+            b200) echo "gpu-name=NVIDIA B200" >> "$GITHUB_OUTPUT" ;;
+            gb200) echo "gpu-name=NVIDIA GB200" >> "$GITHUB_OUTPUT" ;;
+            l40s) echo "gpu-name=NVIDIA L40S" >> "$GITHUB_OUTPUT" ;;
+            t4)   echo "gpu-name=NVIDIA T4" >> "$GITHUB_OUTPUT" ;;
+            *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Install Go
         uses: actions/setup-go@v6
@@ -102,7 +124,7 @@ jobs:
           chmod +x tests/e2e/validate-nvidia-smi.sh
           ./tests/e2e/validate-nvidia-smi.sh \
             gpu-mock-e2e-${{ matrix.gpu-profile }}-control-plane \
-            "${{ matrix.gpu-name }}" \
+            "${{ steps.gpu-info.outputs.gpu-name }}" \
             2
 
       - name: Deploy NVIDIA device plugin
@@ -198,16 +220,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        gpu-profile: [a100, h100, t4]
-        include:
-          - gpu-profile: a100
-            gpu-name: "NVIDIA A100"
-          - gpu-profile: h100
-            gpu-name: "NVIDIA H100"
-          - gpu-profile: t4
-            gpu-name: "NVIDIA T4"
+        gpu-profile: ${{ fromJson(inputs.gpu_profiles) }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Set GPU display name
+        id: gpu-info
+        run: |
+          case "${{ matrix.gpu-profile }}" in
+            a100) echo "gpu-name=NVIDIA A100" >> "$GITHUB_OUTPUT" ;;
+            h100) echo "gpu-name=NVIDIA H100" >> "$GITHUB_OUTPUT" ;;
+            b200) echo "gpu-name=NVIDIA B200" >> "$GITHUB_OUTPUT" ;;
+            gb200) echo "gpu-name=NVIDIA GB200" >> "$GITHUB_OUTPUT" ;;
+            l40s) echo "gpu-name=NVIDIA L40S" >> "$GITHUB_OUTPUT" ;;
+            t4)   echo "gpu-name=NVIDIA T4" >> "$GITHUB_OUTPUT" ;;
+            *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Install Go
         uses: actions/setup-go@v6
@@ -258,7 +286,7 @@ jobs:
           chmod +x tests/e2e/validate-nvidia-smi.sh
           ./tests/e2e/validate-nvidia-smi.sh \
             gpu-mock-dra-${{ matrix.gpu-profile }}-control-plane \
-            "${{ matrix.gpu-name }}" \
+            "${{ steps.gpu-info.outputs.gpu-name }}" \
             2
 
       - name: Add NVIDIA Helm repo
@@ -325,16 +353,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        gpu-profile: [a100, h100, t4]
-        include:
-          - gpu-profile: a100
-            gpu-name: "NVIDIA A100"
-          - gpu-profile: h100
-            gpu-name: "NVIDIA H100"
-          - gpu-profile: t4
-            gpu-name: "NVIDIA T4"
+        gpu-profile: ${{ fromJson(inputs.gpu_profiles) }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Set GPU display name
+        id: gpu-info
+        run: |
+          case "${{ matrix.gpu-profile }}" in
+            a100) echo "gpu-name=NVIDIA A100" >> "$GITHUB_OUTPUT" ;;
+            h100) echo "gpu-name=NVIDIA H100" >> "$GITHUB_OUTPUT" ;;
+            b200) echo "gpu-name=NVIDIA B200" >> "$GITHUB_OUTPUT" ;;
+            gb200) echo "gpu-name=NVIDIA GB200" >> "$GITHUB_OUTPUT" ;;
+            l40s) echo "gpu-name=NVIDIA L40S" >> "$GITHUB_OUTPUT" ;;
+            t4)   echo "gpu-name=NVIDIA T4" >> "$GITHUB_OUTPUT" ;;
+            *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Install Go
         uses: actions/setup-go@v6
