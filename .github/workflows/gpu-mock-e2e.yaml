@@ -546,3 +546,171 @@ jobs:
           kubectl -n gpu-operator logs -l app=nvidia-gpu-feature-discovery --tail=50 || true
           echo "=== node describe ==="
           kubectl describe nodes || true
+
+  e2e-multi-node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ inputs.golang_version }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Create multi-node Kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: gpu-fleet
+          config: tests/e2e/kind-multi-node-config.yaml
+
+      - name: Build gpu-mock image
+        run: |
+          docker build -t gpu-mock:e2e -f deployments/gpu-mock/Dockerfile \
+            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image gpu-mock:e2e --name gpu-fleet
+
+      - name: Discover worker node names
+        id: nodes
+        run: |
+          WORKERS=$(kind get nodes --name gpu-fleet | grep worker | sort)
+          echo "Worker nodes: $WORKERS"
+          WORKER1=$(echo "$WORKERS" | head -1)
+          WORKER2=$(echo "$WORKERS" | tail -1)
+          echo "worker1=$WORKER1" >> "$GITHUB_OUTPUT"
+          echo "worker2=$WORKER2" >> "$GITHUB_OUTPUT"
+
+      - name: Verify node labels
+        run: |
+          kubectl get nodes --show-labels | grep gpu-mock/profile || {
+            echo "FAIL: gpu-mock/profile labels not found on worker nodes"
+            kubectl get nodes --show-labels
+            exit 1
+          }
+
+      - name: Install nvidia-container-toolkit on workers
+        run: |
+          for NODE in ${{ steps.nodes.outputs.worker1 }} ${{ steps.nodes.outputs.worker2 }}; do
+            echo "Installing nvidia-container-toolkit on $NODE..."
+            docker exec "$NODE" bash -c '
+              apt-get update -qq &&
+              apt-get install -y -qq curl gpg > /dev/null &&
+              curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey |
+                gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg &&
+              curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list |
+                sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" |
+                tee /etc/apt/sources.list.d/nvidia-container-toolkit.list &&
+              apt-get update -qq &&
+              apt-get install -y -qq nvidia-container-toolkit > /dev/null
+            '
+            docker exec "$NODE" systemctl restart containerd
+            echo "Done: $NODE"
+          done
+          sleep 5
+
+      - name: Install gpu-mock on worker-1 (A100 profile)
+        run: |
+          helm install gpu-mock-a100 deployments/gpu-mock/helm/gpu-mock \
+            --set image.repository=gpu-mock \
+            --set image.tag=e2e \
+            --set gpu.profile=a100 \
+            --set gpu.count=2 \
+            --set "nodeSelector.gpu-mock/profile=a100" \
+            --wait --timeout 120s
+
+      - name: Install gpu-mock on worker-2 (T4 profile)
+        run: |
+          helm install gpu-mock-t4 deployments/gpu-mock/helm/gpu-mock \
+            --set image.repository=gpu-mock \
+            --set image.tag=e2e \
+            --set gpu.profile=t4 \
+            --set gpu.count=2 \
+            --set "nodeSelector.gpu-mock/profile=t4" \
+            --wait --timeout 120s
+
+      - name: Verify mock files on both workers
+        run: |
+          echo "=== Worker-1 (A100) ==="
+          docker exec "${{ steps.nodes.outputs.worker1 }}" ls -la /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.* | head -2
+          docker exec "${{ steps.nodes.outputs.worker1 }}" grep "NVIDIA A100" /var/lib/nvidia-mock/config/config.yaml | head -1
+
+          echo "=== Worker-2 (T4) ==="
+          docker exec "${{ steps.nodes.outputs.worker2 }}" ls -la /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.* | head -2
+          docker exec "${{ steps.nodes.outputs.worker2 }}" grep "NVIDIA T4" /var/lib/nvidia-mock/config/config.yaml | head -1
+
+      - name: Deploy NVIDIA device plugin
+        run: |
+          kubectl apply -f tests/e2e/device-plugin-mock.yaml
+          kubectl -n kube-system wait --for=condition=ready \
+            pod -l name=nvidia-device-plugin-mock --timeout=120s
+
+      - name: Verify GPUs on both nodes
+        run: |
+          WORKER1="${{ steps.nodes.outputs.worker1 }}"
+          WORKER2="${{ steps.nodes.outputs.worker2 }}"
+          echo "Waiting for device-plugin to register GPUs on both nodes..."
+          for i in $(seq 1 30); do
+            A100_GPUS=$(kubectl get node "$WORKER1" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' 2>/dev/null || echo "0")
+            T4_GPUS=$(kubectl get node "$WORKER2" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' 2>/dev/null || echo "0")
+            if [ "$A100_GPUS" = "2" ] && [ "$T4_GPUS" = "2" ]; then
+              echo "PASS: Heterogeneous GPU fleet detected"
+              echo "  $WORKER1 (A100): $A100_GPUS GPUs"
+              echo "  $WORKER2 (T4):   $T4_GPUS GPUs"
+              exit 0
+            fi
+            echo "Attempt $i: $WORKER1=$A100_GPUS $WORKER2=$T4_GPUS (expected 2+2), waiting..."
+            sleep 5
+          done
+          echo "FAIL: Expected 2 GPUs on each worker node"
+          kubectl describe nodes | grep -A5 "Allocatable"
+          exit 1
+
+      - name: Test cross-node GPU scheduling
+        run: |
+          cat <<'PODEOF' | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: gpu-scheduling-test
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: test
+                image: busybox:1.36
+                command: ["sh", "-c", "echo scheduled-on=$(hostname); sleep 5"]
+                resources:
+                  limits:
+                    nvidia.com/gpu: 1
+          PODEOF
+
+          echo "Waiting for pod to be scheduled..."
+          kubectl wait --for=condition=Ready pod/gpu-scheduling-test --timeout=60s || {
+            echo "Pod did not reach Ready state"
+            kubectl describe pod/gpu-scheduling-test
+          }
+          NODE=$(kubectl get pod gpu-scheduling-test -o jsonpath='{.spec.nodeName}')
+          echo "PASS: GPU pod scheduled on node: $NODE"
+          kubectl delete pod gpu-scheduling-test --ignore-not-found
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== gpu-mock pods ==="
+          kubectl get pods -A -l app.kubernetes.io/name=gpu-mock -o wide || true
+          echo "=== gpu-mock-a100 logs ==="
+          kubectl logs -l app.kubernetes.io/instance=gpu-mock-a100 --tail=30 || true
+          echo "=== gpu-mock-t4 logs ==="
+          kubectl logs -l app.kubernetes.io/instance=gpu-mock-t4 --tail=30 || true
+          echo "=== device plugin logs ==="
+          kubectl -n kube-system logs -l name=nvidia-device-plugin-mock --tail=50 || true
+          echo "=== node labels ==="
+          kubectl get nodes -o json | jq '.items[] | {name: .metadata.name, labels: (.metadata.labels | to_entries | map(select(.key | startswith("nvidia.com") or startswith("gpu-mock"))) | from_entries)}' || true
+          echo "=== events ==="
+          kubectl get events --sort-by=.lastTimestamp | tail -30 || true
+          echo "=== node describe ==="
+          kubectl describe nodes || true
