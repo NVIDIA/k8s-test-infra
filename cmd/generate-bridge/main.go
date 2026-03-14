@@ -35,6 +35,7 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -47,7 +48,17 @@ func main() {
 	header := flag.String("header", "vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h", "NVML C header file for prototype extraction")
 	bridge := flag.String("bridge", "pkg/gpu/mocknvml/bridge", "Bridge directory to scan for existing implementations")
 	output := flag.String("output", "pkg/gpu/mocknvml/bridge/stubs_generated.go", "Output file for generated stubs")
+	stats := flag.Bool("stats", false, "Print coverage statistics and exit")
 	flag.Parse()
+
+	if *stats {
+		allFunctions, err := parseNVMLFunctions(*input)
+		if err != nil {
+			log.Fatalf("Failed to parse input: %v", err)
+		}
+		printStats(os.Stdout, allFunctions, *bridge)
+		return
+	}
 
 	// Step 1: Parse input file to get all NVML function names
 	allFunctions, err := parseNVMLFunctions(*input)
@@ -248,4 +259,66 @@ import "C"
 	log.Printf("Generated %d stubs with correct signatures, %d without", withProto, withoutProto)
 
 	return buf.String()
+}
+
+// printStats writes NVML function coverage statistics to w.
+func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
+	exports, err := scanBridgeExports(bridgeDir)
+	if err != nil {
+		fmt.Fprintf(w, "Error scanning bridge: %v\n", err)
+		return
+	}
+
+	total := len(allFunctions)
+	implemented := len(exports)
+	stubs := total - implemented
+	pctImpl := 0.0
+	pctStub := 0.0
+	if total > 0 {
+		pctImpl = float64(implemented) / float64(total) * 100
+		pctStub = float64(stubs) / float64(total) * 100
+	}
+
+	fmt.Fprintf(w, "NVML Function Coverage:\n")
+	fmt.Fprintf(w, "  Total functions:               %d\n", total)
+	fmt.Fprintf(w, "  Hand-written implementations:  %d (%.1f%%)\n", implemented, pctImpl)
+	fmt.Fprintf(w, "  Generated stubs:               %d (%.1f%%)\n", stubs, pctStub)
+
+	// Per-file breakdown
+	fileCounts := make(map[string]int)
+	err = filepath.Walk(bridgeDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "stubs_generated.go") {
+			return err
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		count := 0
+		for _, line := range strings.Split(string(content), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "//export ") {
+				count++
+			}
+		}
+		if count > 0 {
+			fileCounts[filepath.Base(path)] = count
+		}
+		return nil
+	})
+	if err != nil {
+		fmt.Fprintf(w, "  Error scanning files: %v\n", err)
+		return
+	}
+
+	if len(fileCounts) > 0 {
+		fmt.Fprintf(w, "\n  By file:\n")
+		var files []string
+		for f := range fileCounts {
+			files = append(files, f)
+		}
+		sort.Strings(files)
+		for _, f := range files {
+			fmt.Fprintf(w, "    %-20s %d functions\n", f+":", fileCounts[f])
+		}
+	}
 }

@@ -348,3 +348,44 @@ func TestLookupProtoNoMatch(t *testing.T) {
 		t.Fatal("expected no match for nonexistent function")
 	}
 }
+
+func TestPrintStats(t *testing.T) {
+	dir := t.TempDir()
+
+	deviceGo := `package main
+
+//export nvmlDeviceGetCount_v2
+func nvmlDeviceGetCount_v2() {}
+
+//export nvmlDeviceGetName
+func nvmlDeviceGetName() {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "device.go"), []byte(deviceGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	initGo := `package main
+
+//export nvmlInit_v2
+func nvmlInit_v2() {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "init.go"), []byte(initGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	allFunctions := []string{"nvmlDeviceGetCount_v2", "nvmlDeviceGetName", "nvmlInit_v2", "nvmlShutdown", "nvmlFoo"}
+
+	var buf strings.Builder
+	printStats(&buf, allFunctions, dir)
+	output := buf.String()
+
+	if !strings.Contains(output, "Total functions") {
+		t.Errorf("expected 'Total functions' in output:\n%s", output)
+	}
+	if !strings.Contains(output, "5") {
+		t.Errorf("expected total count 5 in output:\n%s", output)
+	}
+	if !strings.Contains(output, "device.go") {
+		t.Errorf("expected 'device.go' in per-file breakdown:\n%s", output)
+	}
+}
