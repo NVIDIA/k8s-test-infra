@@ -1,0 +1,30 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kind cluster config for multi-node GPU fleet simulation.
+# Creates 1 control-plane + 2 workers with CDI enabled on all nodes.
+# Each worker gets a different GPU profile via separate Helm releases
+# using nodeSelector to target the gpu-mock/profile label.
+#
+# Usage:
+#   kind create cluster --name gpu-fleet --config tests/e2e/kind-multi-node-config.yaml
+#   helm install gpu-mock-a100 gpu-mock/ --set gpu.profile=a100 --set nodeSelector.gpu-mock/profile=a100
+#   helm install gpu-mock-t4 gpu-mock/ --set gpu.profile=t4 --set nodeSelector.gpu-mock/profile=t4
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri"]
+      enable_cdi = true
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
+      runtime_type = "io.containerd.runc.v2"
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
+      BinaryName = "/usr/bin/nvidia-container-runtime"
+nodes:
+  - role: control-plane
+  - role: worker
+    labels:
+      gpu-mock/profile: a100
+  - role: worker
+    labels:
+      gpu-mock/profile: t4

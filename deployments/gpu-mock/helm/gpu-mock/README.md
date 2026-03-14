@@ -165,13 +165,45 @@ Expected: `8` (default gpu.count).
 kind delete cluster --name gpu-mock-dra
 ```
 
+## Multi-Node Heterogeneous GPU Fleet
+
+Simulate a cluster with different GPU types on different nodes by installing
+multiple Helm releases with `nodeSelector`:
+
+```bash
+# Label your nodes (Kind does this via cluster config)
+kubectl label node worker-1 gpu-mock/profile=a100
+kubectl label node worker-2 gpu-mock/profile=t4
+
+# Install a different GPU profile per node
+helm install gpu-mock-a100 deployments/gpu-mock/helm/gpu-mock \
+  --set image.repository=gpu-mock \
+  --set image.tag=local \
+  --set gpu.profile=a100 \
+  --set gpu.count=4 \
+  --set "nodeSelector.gpu-mock/profile=a100"
+
+helm install gpu-mock-t4 deployments/gpu-mock/helm/gpu-mock \
+  --set image.repository=gpu-mock \
+  --set image.tag=local \
+  --set gpu.profile=t4 \
+  --set gpu.count=2 \
+  --set "nodeSelector.gpu-mock/profile=t4"
+```
+
+Each release creates its own DaemonSet, ConfigMap, and RBAC resources. The
+device plugin (or DRA driver) discovers different GPU types on each node,
+enabling heterogeneous scheduling and topology-aware placement testing.
+
+For a Kind cluster with labeled workers, see `tests/e2e/kind-multi-node-config.yaml`.
+
 ## Configuration
 
 ### Values
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `gpu.profile` | `a100` | GPU profile: `a100`, `h100`, `b200`, or `gb200` |
+| `gpu.profile` | `a100` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `l40s`, or `t4` |
 | `gpu.count` | `8` | Number of mock GPUs per node |
 | `gpu.customConfig` | `""` | Inline YAML to override profile config entirely |
 | `image.repository` | `ghcr.io/nvidia/gpu-mock` | Container image repository |
@@ -203,23 +235,23 @@ helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
 
 #### Profile Comparison
 
-| | A100 | H100 | B200 | GB200 |
-|---|---|---|---|---|
-| **Profile name** | `a100` | `h100` | `b200` | `gb200` |
-| **Full name** | A100-SXM4-40GB | H100 80GB HBM3 | B200 | GB200 NVL |
-| **Architecture** | Ampere | Hopper | Blackwell | Blackwell |
-| **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 |
-| **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 |
-| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 192 GiB HBM3e | 192 GiB HBM3e |
-| **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links |
-| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s |
-| **TDP** | 400W | 700W | 1,000W | 1,000W |
-| **PCIe** | Gen4 | Gen5 | Gen6 | Gen6 |
-| **MIG instances** | 7 | 7 | 7 | 7 |
-| **Grace CPU** | — | — | — | Yes (NVLink-C2C) |
-| **FP8** | — | Yes | Yes | Yes |
-| **FP4** | — | — | Yes | Yes |
-| **Driver version** | 550.163.01 | 550.163.01 | 560.35.03 | 560.35.03 |
+| | A100 | H100 | B200 | GB200 | L40S | T4 |
+|---|---|---|---|---|---|---|
+| **Profile name** | `a100` | `h100` | `b200` | `gb200` | `l40s` | `t4` |
+| **Full name** | A100-SXM4-40GB | H100 80GB HBM3 | B200 | GB200 NVL | L40S | Tesla T4 |
+| **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Ada Lovelace | Turing |
+| **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 8.9 | 7.5 |
+| **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 18,176 | 2,560 |
+| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 192 GiB HBM3e | 192 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
+| **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | — | — |
+| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | — | — |
+| **TDP** | 400W | 700W | 1,000W | 1,000W | 350W | 70W |
+| **PCIe** | Gen4 | Gen5 | Gen6 | Gen6 | Gen4 | Gen3 |
+| **MIG instances** | 7 | 7 | 7 | 7 | 0 | 0 |
+| **Grace CPU** | — | — | — | Yes (NVLink-C2C) | — | — |
+| **FP8** | — | Yes | Yes | Yes | Yes | — |
+| **FP4** | — | — | Yes | Yes | — | — |
+| **Driver version** | 550.163.01 | 550.163.01 | 560.35.03 | 560.35.03 | 550.163.01 | 550.163.01 |
 
 #### When to Use Each Profile
 
@@ -227,6 +259,8 @@ helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
 - **`h100`** — testing Hopper-specific features: FP8, Transformer Engine, PCIe Gen5, or NVLink v4 topology.
 - **`b200`** — testing next-gen Blackwell features: FP4, NVLink v5, PCIe Gen6. Standalone GPU (no Grace CPU).
 - **`gb200`** — testing Grace-Blackwell Superchip: NVLink-C2C to Grace CPU, unified memory, and Blackwell features.
+- **`l40s`** — testing Ada Lovelace inference workloads: FP8, PCIe Gen4, no NVLink (PCIe-only topology).
+- **`t4`** — testing Turing inference GPUs: low power (70W), small memory (16 GiB), 4 GPUs per node.
 
 ### Custom Configuration
 
