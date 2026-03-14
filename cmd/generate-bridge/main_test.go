@@ -14,6 +14,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -200,5 +202,242 @@ func TestGenerateStubWithSignaturePointerParam(t *testing.T) {
 
 	if !strings.Contains(stub, "func nvmlDeviceGetCount_v2(deviceCount *C.uint)") {
 		t.Errorf("incorrect pointer param signature in:\n%s", stub)
+	}
+}
+
+func TestScanBridgeExports(t *testing.T) {
+	dir := t.TempDir()
+
+	deviceGo := `package main
+
+//export nvmlDeviceGetCount_v2
+func nvmlDeviceGetCount_v2() {}
+
+//export nvmlDeviceGetName
+func nvmlDeviceGetName() {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "device.go"), []byte(deviceGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	initGo := `package main
+
+//export nvmlInit_v2
+func nvmlInit_v2() {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "init.go"), []byte(initGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// stubs_generated.go should be SKIPPED
+	stubsGo := `package main
+
+//export nvmlStubFunction
+func nvmlStubFunction() {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "stubs_generated.go"), []byte(stubsGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	exports, err := scanBridgeExports(dir)
+	if err != nil {
+		t.Fatalf("scanBridgeExports: %v", err)
+	}
+
+	if len(exports) != 3 {
+		t.Fatalf("expected 3 exports, got %d: %v", len(exports), exports)
+	}
+
+	for _, fn := range []string{"nvmlDeviceGetCount_v2", "nvmlDeviceGetName", "nvmlInit_v2"} {
+		if !exports[fn] {
+			t.Errorf("expected export %q not found", fn)
+		}
+	}
+
+	if exports["nvmlStubFunction"] {
+		t.Error("stubs_generated.go should be skipped but nvmlStubFunction was found")
+	}
+}
+
+func TestScanBridgeExportsEmptyDir(t *testing.T) {
+	dir := t.TempDir()
+
+	exports, err := scanBridgeExports(dir)
+	if err != nil {
+		t.Fatalf("scanBridgeExports: %v", err)
+	}
+
+	if len(exports) != 0 {
+		t.Fatalf("expected 0 exports from empty dir, got %d", len(exports))
+	}
+}
+
+func TestFindMissing(t *testing.T) {
+	all := []string{"nvmlInit_v2", "nvmlShutdown", "nvmlDeviceGetCount_v2", "nvmlDeviceGetName"}
+	existing := map[string]bool{
+		"nvmlInit_v2":  true,
+		"nvmlShutdown": true,
+	}
+
+	missing := findMissing(all, existing)
+
+	if len(missing) != 2 {
+		t.Fatalf("expected 2 missing, got %d: %v", len(missing), missing)
+	}
+	if missing[0] != "nvmlDeviceGetCount_v2" || missing[1] != "nvmlDeviceGetName" {
+		t.Errorf("unexpected missing functions: %v", missing)
+	}
+}
+
+func TestFindMissingNoneImplemented(t *testing.T) {
+	all := []string{"a", "b", "c"}
+	existing := map[string]bool{}
+
+	missing := findMissing(all, existing)
+	if len(missing) != 3 {
+		t.Fatalf("expected 3 missing, got %d", len(missing))
+	}
+}
+
+func TestFindMissingAllImplemented(t *testing.T) {
+	all := []string{"a", "b"}
+	existing := map[string]bool{"a": true, "b": true}
+
+	missing := findMissing(all, existing)
+	if len(missing) != 0 {
+		t.Fatalf("expected 0 missing, got %d", len(missing))
+	}
+}
+
+func TestLookupProtoDirectMatch(t *testing.T) {
+	protos := map[string]FuncProto{
+		"nvmlInit_v2": {Name: "nvmlInit_v2", Params: nil},
+	}
+
+	proto, ok := lookupProto("nvmlInit_v2", protos)
+	if !ok {
+		t.Fatal("expected direct match")
+	}
+	if proto.Name != "nvmlInit_v2" {
+		t.Errorf("got name %q, want nvmlInit_v2", proto.Name)
+	}
+}
+
+func TestLookupProtoVersionFallback(t *testing.T) {
+	protos := map[string]FuncProto{
+		"nvmlDeviceGetCount": {
+			Name:   "nvmlDeviceGetCount",
+			Params: []CParam{{CType: "unsigned int *", Name: "deviceCount"}},
+		},
+	}
+
+	proto, ok := lookupProto("nvmlDeviceGetCount_v2", protos)
+	if !ok {
+		t.Fatal("expected fallback match for _v2 → unversioned")
+	}
+	if len(proto.Params) != 1 {
+		t.Errorf("expected 1 param, got %d", len(proto.Params))
+	}
+}
+
+func TestLookupProtoNoMatch(t *testing.T) {
+	protos := map[string]FuncProto{}
+
+	_, ok := lookupProto("nvmlNonexistent", protos)
+	if ok {
+		t.Fatal("expected no match for nonexistent function")
+	}
+}
+
+func TestPrintStats(t *testing.T) {
+	dir := t.TempDir()
+
+	deviceGo := `package main
+
+//export nvmlDeviceGetCount_v2
+func nvmlDeviceGetCount_v2() {}
+
+//export nvmlDeviceGetName
+func nvmlDeviceGetName() {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "device.go"), []byte(deviceGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	initGo := `package main
+
+//export nvmlInit_v2
+func nvmlInit_v2() {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "init.go"), []byte(initGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	allFunctions := []string{"nvmlDeviceGetCount_v2", "nvmlDeviceGetName", "nvmlInit_v2", "nvmlShutdown", "nvmlFoo"}
+
+	var buf strings.Builder
+	printStats(&buf, allFunctions, dir)
+	output := buf.String()
+
+	if !strings.Contains(output, "Total functions") {
+		t.Errorf("expected 'Total functions' in output:\n%s", output)
+	}
+	if !strings.Contains(output, "5") {
+		t.Errorf("expected total count 5 in output:\n%s", output)
+	}
+	if !strings.Contains(output, "device.go") {
+		t.Errorf("expected 'device.go' in per-file breakdown:\n%s", output)
+	}
+}
+
+func TestValidateSignatures(t *testing.T) {
+	dir := t.TempDir()
+
+	// Correct: 1 param matching prototype
+	correctGo := `package main
+
+//export nvmlDeviceGetCount_v2
+func nvmlDeviceGetCount_v2(deviceCount *C.uint) C.nvmlReturn_t {
+	return 0
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "correct.go"), []byte(correctGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wrong: 0 params but prototype says 3
+	wrongGo := `package main
+
+//export nvmlDeviceGetName
+func nvmlDeviceGetName() C.nvmlReturn_t {
+	return 0
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "wrong.go"), []byte(wrongGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	protos := map[string]FuncProto{
+		"nvmlDeviceGetCount_v2": {
+			Name:   "nvmlDeviceGetCount_v2",
+			Params: []CParam{{CType: "unsigned int *", Name: "deviceCount"}},
+		},
+		"nvmlDeviceGetName": {
+			Name: "nvmlDeviceGetName",
+			Params: []CParam{
+				{CType: "nvmlDevice_t", Name: "device"},
+				{CType: "char *", Name: "name"},
+				{CType: "unsigned int", Name: "length"},
+			},
+		},
+	}
+
+	mismatches := validateSignatures(dir, protos)
+
+	if len(mismatches) != 1 {
+		t.Fatalf("expected 1 mismatch, got %d: %v", len(mismatches), mismatches)
+	}
+	if !strings.Contains(mismatches[0], "nvmlDeviceGetName") {
+		t.Errorf("expected mismatch for nvmlDeviceGetName, got: %s", mismatches[0])
 	}
 }
