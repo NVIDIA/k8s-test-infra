@@ -24,6 +24,17 @@ on:
 jobs:
   e2e-device-plugin:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu-profile: [a100, h100, t4]
+        include:
+          - gpu-profile: a100
+            gpu-name: "NVIDIA A100"
+          - gpu-profile: h100
+            gpu-name: "NVIDIA H100"
+          - gpu-profile: t4
+            gpu-name: "NVIDIA T4"
     steps:
       - uses: actions/checkout@v6
 
@@ -38,7 +49,7 @@ jobs:
       - name: Create Kind cluster
         uses: helm/kind-action@v1
         with:
-          cluster_name: gpu-mock-e2e
+          cluster_name: gpu-mock-e2e-${{ matrix.gpu-profile }}
 
       - name: Build gpu-mock image
         run: |
@@ -47,13 +58,14 @@ jobs:
 
       - name: Load image into Kind
         run: |
-          kind load docker-image gpu-mock:e2e --name gpu-mock-e2e
+          kind load docker-image gpu-mock:e2e --name gpu-mock-e2e-${{ matrix.gpu-profile }}
 
       - name: Install gpu-mock Helm chart
         run: |
           helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
             --set image.repository=gpu-mock \
             --set image.tag=e2e \
+            --set gpu.profile=${{ matrix.gpu-profile }} \
             --set gpu.count=2 \
             --wait --timeout 120s
 
@@ -70,7 +82,7 @@ jobs:
 
       - name: Verify mock files on node
         run: |
-          NODE_CONTAINER=gpu-mock-e2e-control-plane
+          NODE_CONTAINER=gpu-mock-e2e-${{ matrix.gpu-profile }}-control-plane
           # Check library
           docker exec "$NODE_CONTAINER" sh -c "ls /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.* | head -1"
           docker exec "$NODE_CONTAINER" test -L /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.1
@@ -89,8 +101,8 @@ jobs:
         run: |
           chmod +x tests/e2e/validate-nvidia-smi.sh
           ./tests/e2e/validate-nvidia-smi.sh \
-            gpu-mock-e2e-control-plane \
-            "NVIDIA A100" \
+            gpu-mock-e2e-${{ matrix.gpu-profile }}-control-plane \
+            "${{ matrix.gpu-name }}" \
             2
 
       - name: Deploy NVIDIA device plugin
@@ -122,7 +134,7 @@ jobs:
         if: false
         run: |
           docker pull nvcr.io/nvidia/gpu-feature-discovery:v0.17.0
-          kind load docker-image nvcr.io/nvidia/gpu-feature-discovery:v0.17.0 --name gpu-mock-e2e
+          kind load docker-image nvcr.io/nvidia/gpu-feature-discovery:v0.17.0 --name gpu-mock-e2e-${{ matrix.gpu-profile }}
           kubectl apply -f tests/e2e/gfd-mock.yaml
           kubectl -n kube-system wait --for=condition=ready \
             pod -l name=nvidia-gfd-mock --timeout=120s
@@ -153,7 +165,7 @@ jobs:
         if: false
         run: |
           docker pull nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
-          kind load docker-image nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 --name gpu-mock-e2e
+          kind load docker-image nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 --name gpu-mock-e2e-${{ matrix.gpu-profile }}
           kubectl apply -f tests/e2e/validator-mock.yaml
           kubectl wait --for=condition=complete job/gpu-validator-mock --timeout=120s || {
             echo "Validator job did not complete. Checking status..."
@@ -183,6 +195,17 @@ jobs:
 
   e2e-dra:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu-profile: [a100, h100, t4]
+        include:
+          - gpu-profile: a100
+            gpu-name: "NVIDIA A100"
+          - gpu-profile: h100
+            gpu-name: "NVIDIA H100"
+          - gpu-profile: t4
+            gpu-name: "NVIDIA T4"
     steps:
       - uses: actions/checkout@v6
 
