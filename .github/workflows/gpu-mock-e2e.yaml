@@ -220,7 +220,7 @@ jobs:
       - name: Create Kind cluster with DRA
         uses: helm/kind-action@v1
         with:
-          cluster_name: gpu-mock-dra-e2e
+          cluster_name: gpu-mock-dra-${{ matrix.gpu-profile }}
           config: tests/e2e/kind-dra-config.yaml
 
       - name: Build gpu-mock image
@@ -230,13 +230,14 @@ jobs:
 
       - name: Load image into Kind
         run: |
-          kind load docker-image gpu-mock:e2e --name gpu-mock-dra-e2e
+          kind load docker-image gpu-mock:e2e --name gpu-mock-dra-${{ matrix.gpu-profile }}
 
       - name: Install gpu-mock Helm chart
         run: |
           helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
             --set image.repository=gpu-mock \
             --set image.tag=e2e \
+            --set gpu.profile=${{ matrix.gpu-profile }} \
             --set gpu.count=2 \
             --wait --timeout 120s
 
@@ -246,7 +247,7 @@ jobs:
 
       - name: Verify mock files on node
         run: |
-          NODE_CONTAINER=gpu-mock-dra-e2e-control-plane
+          NODE_CONTAINER=gpu-mock-dra-${{ matrix.gpu-profile }}-control-plane
           docker exec "$NODE_CONTAINER" test -f /var/lib/nvidia-mock/driver/config/config.yaml
           docker exec "$NODE_CONTAINER" grep -q "num_devices: 2" /var/lib/nvidia-mock/driver/config/config.yaml
           docker exec "$NODE_CONTAINER" test -L /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.1
@@ -256,8 +257,8 @@ jobs:
         run: |
           chmod +x tests/e2e/validate-nvidia-smi.sh
           ./tests/e2e/validate-nvidia-smi.sh \
-            gpu-mock-dra-e2e-control-plane \
-            "NVIDIA A100" \
+            gpu-mock-dra-${{ matrix.gpu-profile }}-control-plane \
+            "${{ matrix.gpu-name }}" \
             2
 
       - name: Add NVIDIA Helm repo
@@ -321,6 +322,17 @@ jobs:
 
   e2e-gpu-operator:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu-profile: [a100, h100, t4]
+        include:
+          - gpu-profile: a100
+            gpu-name: "NVIDIA A100"
+          - gpu-profile: h100
+            gpu-name: "NVIDIA H100"
+          - gpu-profile: t4
+            gpu-name: "NVIDIA T4"
     steps:
       - uses: actions/checkout@v6
 
@@ -335,12 +347,12 @@ jobs:
       - name: Create Kind cluster for GPU Operator
         uses: helm/kind-action@v1
         with:
-          cluster_name: gpu-mock-operator-e2e
+          cluster_name: gpu-mock-operator-e2e-${{ matrix.gpu-profile }}
           config: tests/e2e/kind-gpu-operator-config.yaml
 
       - name: Install nvidia-container-toolkit in Kind worker
         run: |
-          NODE_CONTAINER=gpu-mock-operator-e2e-control-plane
+          NODE_CONTAINER=gpu-mock-operator-e2e-${{ matrix.gpu-profile }}-control-plane
           docker exec "$NODE_CONTAINER" bash -c '
             apt-get update -qq
             apt-get install -y -qq curl gpg
@@ -355,7 +367,7 @@ jobs:
 
       - name: Configure toolkit for CDI mode
         run: |
-          NODE_CONTAINER=gpu-mock-operator-e2e-control-plane
+          NODE_CONTAINER=gpu-mock-operator-e2e-${{ matrix.gpu-profile }}-control-plane
           docker exec "$NODE_CONTAINER" nvidia-ctk runtime configure \
             --runtime=containerd --cdi.enabled --set-as-default
           docker exec "$NODE_CONTAINER" bash -c '
@@ -371,7 +383,7 @@ jobs:
 
       - name: Restart containerd to pick up nvidia runtime
         run: |
-          NODE_CONTAINER=gpu-mock-operator-e2e-control-plane
+          NODE_CONTAINER=gpu-mock-operator-e2e-${{ matrix.gpu-profile }}-control-plane
           docker exec "$NODE_CONTAINER" systemctl restart containerd
           sleep 5
           docker exec "$NODE_CONTAINER" crictl info | head -5
@@ -383,13 +395,14 @@ jobs:
 
       - name: Load image into Kind
         run: |
-          kind load docker-image gpu-mock:e2e --name gpu-mock-operator-e2e
+          kind load docker-image gpu-mock:e2e --name gpu-mock-operator-e2e-${{ matrix.gpu-profile }}
 
       - name: Install gpu-mock Helm chart
         run: |
           helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
             --set image.repository=gpu-mock \
             --set image.tag=e2e \
+            --set gpu.profile=${{ matrix.gpu-profile }} \
             --set gpu.count=2 \
             --wait --timeout 120s
 
@@ -399,14 +412,14 @@ jobs:
 
       - name: Verify CDI spec exists on node
         run: |
-          NODE_CONTAINER=gpu-mock-operator-e2e-control-plane
+          NODE_CONTAINER=gpu-mock-operator-e2e-${{ matrix.gpu-profile }}-control-plane
           docker exec "$NODE_CONTAINER" test -f /var/run/cdi/nvidia.yaml
           docker exec "$NODE_CONTAINER" cat /var/run/cdi/nvidia.yaml
           echo "CDI spec verified"
 
       - name: Verify mock driver setup on node
         run: |
-          NODE_CONTAINER=gpu-mock-operator-e2e-control-plane
+          NODE_CONTAINER=gpu-mock-operator-e2e-${{ matrix.gpu-profile }}-control-plane
           echo "=== symlink check ==="
           docker exec "$NODE_CONTAINER" ls -la /run/nvidia/ 2>&1 || echo "no /run/nvidia"
           docker exec "$NODE_CONTAINER" ls -la /run/nvidia/driver 2>&1 || echo "symlink missing"
@@ -426,7 +439,7 @@ jobs:
 
       - name: Test CDI injection end-to-end
         run: |
-          NODE_CONTAINER=gpu-mock-operator-e2e-control-plane
+          NODE_CONTAINER=gpu-mock-operator-e2e-${{ matrix.gpu-profile }}-control-plane
 
           echo "=== CDI spec (first 30 lines) ==="
           docker exec "$NODE_CONTAINER" head -30 /var/run/cdi/nvidia.yaml
@@ -546,7 +559,7 @@ jobs:
           echo "=== gpu-mock pod logs ==="
           kubectl logs -l app.kubernetes.io/name=gpu-mock --tail=50 || true
           echo "=== CDI spec ==="
-          NODE_CONTAINER=gpu-mock-operator-e2e-control-plane
+          NODE_CONTAINER=gpu-mock-operator-e2e-${{ matrix.gpu-profile }}-control-plane
           docker exec "$NODE_CONTAINER" cat /var/run/cdi/nvidia.yaml 2>/dev/null || true
           echo "=== nvidia-container-runtime config ==="
           docker exec "$NODE_CONTAINER" cat /etc/nvidia-container-runtime/config.toml 2>/dev/null || true
