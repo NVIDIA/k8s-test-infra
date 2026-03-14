@@ -357,19 +357,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Set GPU display name
-        id: gpu-info
-        run: |
-          case "${{ matrix.gpu-profile }}" in
-            a100) echo "gpu-name=NVIDIA A100" >> "$GITHUB_OUTPUT" ;;
-            h100) echo "gpu-name=NVIDIA H100" >> "$GITHUB_OUTPUT" ;;
-            b200) echo "gpu-name=NVIDIA B200" >> "$GITHUB_OUTPUT" ;;
-            gb200) echo "gpu-name=NVIDIA GB200" >> "$GITHUB_OUTPUT" ;;
-            l40s) echo "gpu-name=NVIDIA L40S" >> "$GITHUB_OUTPUT" ;;
-            t4)   echo "gpu-name=NVIDIA T4" >> "$GITHUB_OUTPUT" ;;
-            *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;
-          esac
-
       - name: Install Go
         uses: actions/setup-go@v6
         with:
