@@ -389,3 +389,55 @@ func nvmlInit_v2() {}
 		t.Errorf("expected 'device.go' in per-file breakdown:\n%s", output)
 	}
 }
+
+func TestValidateSignatures(t *testing.T) {
+	dir := t.TempDir()
+
+	// Correct: 1 param matching prototype
+	correctGo := `package main
+
+//export nvmlDeviceGetCount_v2
+func nvmlDeviceGetCount_v2(deviceCount *C.uint) C.nvmlReturn_t {
+	return 0
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "correct.go"), []byte(correctGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wrong: 0 params but prototype says 3
+	wrongGo := `package main
+
+//export nvmlDeviceGetName
+func nvmlDeviceGetName() C.nvmlReturn_t {
+	return 0
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "wrong.go"), []byte(wrongGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	protos := map[string]FuncProto{
+		"nvmlDeviceGetCount_v2": {
+			Name:   "nvmlDeviceGetCount_v2",
+			Params: []CParam{{CType: "unsigned int *", Name: "deviceCount"}},
+		},
+		"nvmlDeviceGetName": {
+			Name: "nvmlDeviceGetName",
+			Params: []CParam{
+				{CType: "nvmlDevice_t", Name: "device"},
+				{CType: "char *", Name: "name"},
+				{CType: "unsigned int", Name: "length"},
+			},
+		},
+	}
+
+	mismatches := validateSignatures(dir, protos)
+
+	if len(mismatches) != 1 {
+		t.Fatalf("expected 1 mismatch, got %d: %v", len(mismatches), mismatches)
+	}
+	if !strings.Contains(mismatches[0], "nvmlDeviceGetName") {
+		t.Errorf("expected mismatch for nvmlDeviceGetName, got: %s", mismatches[0])
+	}
+}
