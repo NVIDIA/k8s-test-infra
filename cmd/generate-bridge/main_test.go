@@ -271,3 +271,80 @@ func TestScanBridgeExportsEmptyDir(t *testing.T) {
 		t.Fatalf("expected 0 exports from empty dir, got %d", len(exports))
 	}
 }
+
+func TestFindMissing(t *testing.T) {
+	all := []string{"nvmlInit_v2", "nvmlShutdown", "nvmlDeviceGetCount_v2", "nvmlDeviceGetName"}
+	existing := map[string]bool{
+		"nvmlInit_v2":  true,
+		"nvmlShutdown": true,
+	}
+
+	missing := findMissing(all, existing)
+
+	if len(missing) != 2 {
+		t.Fatalf("expected 2 missing, got %d: %v", len(missing), missing)
+	}
+	if missing[0] != "nvmlDeviceGetCount_v2" || missing[1] != "nvmlDeviceGetName" {
+		t.Errorf("unexpected missing functions: %v", missing)
+	}
+}
+
+func TestFindMissingNoneImplemented(t *testing.T) {
+	all := []string{"a", "b", "c"}
+	existing := map[string]bool{}
+
+	missing := findMissing(all, existing)
+	if len(missing) != 3 {
+		t.Fatalf("expected 3 missing, got %d", len(missing))
+	}
+}
+
+func TestFindMissingAllImplemented(t *testing.T) {
+	all := []string{"a", "b"}
+	existing := map[string]bool{"a": true, "b": true}
+
+	missing := findMissing(all, existing)
+	if len(missing) != 0 {
+		t.Fatalf("expected 0 missing, got %d", len(missing))
+	}
+}
+
+func TestLookupProtoDirectMatch(t *testing.T) {
+	protos := map[string]FuncProto{
+		"nvmlInit_v2": {Name: "nvmlInit_v2", Params: nil},
+	}
+
+	proto, ok := lookupProto("nvmlInit_v2", protos)
+	if !ok {
+		t.Fatal("expected direct match")
+	}
+	if proto.Name != "nvmlInit_v2" {
+		t.Errorf("got name %q, want nvmlInit_v2", proto.Name)
+	}
+}
+
+func TestLookupProtoVersionFallback(t *testing.T) {
+	protos := map[string]FuncProto{
+		"nvmlDeviceGetCount": {
+			Name:   "nvmlDeviceGetCount",
+			Params: []CParam{{CType: "unsigned int *", Name: "deviceCount"}},
+		},
+	}
+
+	proto, ok := lookupProto("nvmlDeviceGetCount_v2", protos)
+	if !ok {
+		t.Fatal("expected fallback match for _v2 → unversioned")
+	}
+	if len(proto.Params) != 1 {
+		t.Errorf("expected 1 param, got %d", len(proto.Params))
+	}
+}
+
+func TestLookupProtoNoMatch(t *testing.T) {
+	protos := map[string]FuncProto{}
+
+	_, ok := lookupProto("nvmlNonexistent", protos)
+	if ok {
+		t.Fatal("expected no match for nonexistent function")
+	}
+}
