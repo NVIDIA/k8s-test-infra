@@ -77,3 +77,7 @@ check-modules: modules
 	@git diff --exit-code -- $$(find . -name go.mod -name go.sum)
 	@echo "- Checking if the go mod vendor dir is in sync..."
 	@git diff --exit-code -- $$(find . -name vendor)
+
+.PHONY: generate
+generate:
+	go generate ./pkg/gpu/mocknvml/bridge/...
