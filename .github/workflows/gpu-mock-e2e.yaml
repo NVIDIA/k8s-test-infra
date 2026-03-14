@@ -692,6 +692,7 @@ jobs:
           kubectl wait --for=condition=Ready pod/gpu-scheduling-test --timeout=60s || {
             echo "Pod did not reach Ready state"
             kubectl describe pod/gpu-scheduling-test
+            exit 1
           }
           NODE=$(kubectl get pod gpu-scheduling-test -o jsonpath='{.spec.nodeName}')
           echo "PASS: GPU pod scheduled on node: $NODE"
