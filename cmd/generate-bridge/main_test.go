@@ -14,6 +14,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -200,5 +202,72 @@ func TestGenerateStubWithSignaturePointerParam(t *testing.T) {
 
 	if !strings.Contains(stub, "func nvmlDeviceGetCount_v2(deviceCount *C.uint)") {
 		t.Errorf("incorrect pointer param signature in:\n%s", stub)
+	}
+}
+
+func TestScanBridgeExports(t *testing.T) {
+	dir := t.TempDir()
+
+	deviceGo := `package main
+
+//export nvmlDeviceGetCount_v2
+func nvmlDeviceGetCount_v2() {}
+
+//export nvmlDeviceGetName
+func nvmlDeviceGetName() {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "device.go"), []byte(deviceGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	initGo := `package main
+
+//export nvmlInit_v2
+func nvmlInit_v2() {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "init.go"), []byte(initGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// stubs_generated.go should be SKIPPED
+	stubsGo := `package main
+
+//export nvmlStubFunction
+func nvmlStubFunction() {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "stubs_generated.go"), []byte(stubsGo), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	exports, err := scanBridgeExports(dir)
+	if err != nil {
+		t.Fatalf("scanBridgeExports: %v", err)
+	}
+
+	if len(exports) != 3 {
+		t.Fatalf("expected 3 exports, got %d: %v", len(exports), exports)
+	}
+
+	for _, fn := range []string{"nvmlDeviceGetCount_v2", "nvmlDeviceGetName", "nvmlInit_v2"} {
+		if !exports[fn] {
+			t.Errorf("expected export %q not found", fn)
+		}
+	}
+
+	if exports["nvmlStubFunction"] {
+		t.Error("stubs_generated.go should be skipped but nvmlStubFunction was found")
+	}
+}
+
+func TestScanBridgeExportsEmptyDir(t *testing.T) {
+	dir := t.TempDir()
+
+	exports, err := scanBridgeExports(dir)
+	if err != nil {
+		t.Fatalf("scanBridgeExports: %v", err)
+	}
+
+	if len(exports) != 0 {
+		t.Fatalf("expected 0 exports from empty dir, got %d", len(exports))
 	}
 }
