@@ -28,6 +28,7 @@ After install, deploy a consumer to test:
 |----------|-------|
 | **NVIDIA Device Plugin** | [Quick Start](deployments/gpu-mock/helm/gpu-mock/README.md#quick-start-device-plugin-on-kind) |
 | **NVIDIA DRA Driver** | [Quick Start](deployments/gpu-mock/helm/gpu-mock/README.md#quick-start-dra-driver-on-kind) |
+| **NVIDIA GPU Operator** | [Quick Start](deployments/gpu-mock/helm/gpu-mock/README.md#quick-start-gpu-operator-on-kind) |
 
 **Full documentation:** [gpu-mock Helm chart README](deployments/gpu-mock/helm/gpu-mock/README.md)
 

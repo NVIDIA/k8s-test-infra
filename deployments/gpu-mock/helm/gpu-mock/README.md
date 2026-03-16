@@ -165,6 +165,67 @@ Expected: `8` (default gpu.count).
 kind delete cluster --name gpu-mock-dra
 ```
 
+## Quick Start: GPU Operator on KIND
+
+This path validates the full NVIDIA GPU Operator stack (device plugin, toolkit,
+validator) using CDI mode with mock GPUs. Tested in CI via
+`.github/workflows/gpu-mock-e2e.yaml` → `e2e-gpu-operator` job.
+
+### 1. Create a KIND cluster
+
+```bash
+kind create cluster --name gpu-mock-operator
+```
+
+### 2. Build and load the gpu-mock image
+
+```bash
+docker build -t gpu-mock:local -f deployments/gpu-mock/Dockerfile .
+kind load docker-image gpu-mock:local --name gpu-mock-operator
+```
+
+### 3. Install gpu-mock
+
+```bash
+helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
+  --set image.repository=gpu-mock \
+  --set image.tag=local \
+  --wait --timeout 120s
+```
+
+### 4. Install the GPU Operator
+
+```bash
+helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+helm repo update
+
+helm install gpu-operator nvidia/gpu-operator \
+  --namespace gpu-operator \
+  --create-namespace \
+  --set cdi.enabled=true \
+  --set driver.enabled=false \
+  --set toolkit.enabled=false \
+  --set devicePlugin.config.name="" \
+  --set nfd.enabled=false \
+  --set operator.defaultRuntime=containerd \
+  --wait --timeout 300s
+```
+
+### 5. Verify
+
+```bash
+kubectl -n gpu-operator wait --for=condition=ready pod --all --timeout=180s
+kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}'
+```
+
+Expected: `8` (default gpu.count).
+
+### 6. Clean up
+
+```bash
+kind delete cluster --name gpu-mock-operator
+```
+
 ## Multi-Node Heterogeneous GPU Fleet
 
 Simulate a cluster with different GPU types on different nodes by installing
@@ -209,7 +270,7 @@ For a Kind cluster with labeled workers, see `tests/e2e/kind-multi-node-config.y
 | `image.repository` | `ghcr.io/nvidia/gpu-mock` | Container image repository |
 | `image.tag` | `latest` | Container image tag |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
-| `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, auto-derived from `gpu.profile` (even if `gpu.customConfig` is set): A100/H100 → `550.163.01`, B200/GB200 → `560.35.03`. For non-standard GPUs configured via `gpu.customConfig`, explicitly set `driverVersion`. |
+| `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, auto-derived from `gpu.profile` (even if `gpu.customConfig` is set): A100/H100/L40S/T4 → `550.163.01`, B200/GB200 → `560.35.03`. For non-standard GPUs configured via `gpu.customConfig`, explicitly set `driverVersion`. |
 | `nodeSelector` | `{}` | Node selector for DaemonSet |
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
 
