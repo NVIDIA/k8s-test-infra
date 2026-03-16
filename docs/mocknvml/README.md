@@ -129,7 +129,7 @@ LD_LIBRARY_PATH=. nvidia-smi
 | NVLink | `GetNvLinkState`, `GetNvLinkVersion`, `GetNvLinkCapability` | ✅ Full | |
 | Persistence | `GetPersistenceMode`, `SetPersistenceMode` | ✅ Full | |
 | Process | `GetComputeRunningProcesses`, `GetGraphicsRunningProcesses` | ✅ Full | Returns empty list |
-| MIG | `GetMigMode`, `GetGpuInstanceProfileInfo` | ✅ Basic | Returns disabled |
+| MIG | `GetMigMode` | ✅ Basic | Returns disabled; profile info functions return `NOT_SUPPORTED` |
 | GSP Firmware | `GetGspFirmwareVersion`, `GetGspFirmwareMode` | ✅ Full | |
 | nvidia-smi | `-q`, `-x -q`, default display, CSV queries | ✅ Full | Real binary, mock data |
 | Other | ~289 additional functions | ⚠️ Returns `NOT_SUPPORTED` | See note below |

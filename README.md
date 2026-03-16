@@ -42,7 +42,7 @@ on PRs.
 |------------|-------------------|----------|
 | **Device Plugin** | `nvidia.com/gpu` allocatable resources | A100, H100, T4 |
 | **DRA Driver** | ResourceSlices via Dynamic Resource Allocation | A100, H100, T4 |
-| **GPU Operator** | Full stack: device plugin + toolkit + validator (CDI) | A100, H100, T4 |
+| **GPU Operator** | Operator components: device plugin + GFD + validator (CDI injection) | A100, H100, T4 |
 | **Multi-Node Fleet** | Cross-node scheduling with heterogeneous GPUs | A100 + T4 |
 
 Manual dispatch supports all 6 profiles: `a100`, `h100`, `b200`, `gb200`, `l40s`, `t4`.

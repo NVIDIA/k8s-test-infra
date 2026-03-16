@@ -84,12 +84,6 @@ LD_LIBRARY_PATH=. nvidia-smi -q -d PCIE
 LD_LIBRARY_PATH=. nvidia-smi -q -d UTILIZATION
 ```
 
-### XML Output
-
-```bash
-LD_LIBRARY_PATH=. nvidia-smi -x -q > gpu-info.xml
-```
-
 ### CSV Output
 
 ```bash

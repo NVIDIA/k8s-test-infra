@@ -338,8 +338,9 @@ expected files.
 
 **Solution**: Ensure the mock driver root has all required files:
 ```bash
-NODE_CONTAINER=$(docker ps --filter name=control-plane -q)
-docker exec "$NODE_CONTAINER" ls -la /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so*
+# Use the specific Kind cluster and node name (adjust cluster name as needed)
+NODE_CONTAINER="gpu-mock-operator-control-plane"
+docker exec "$NODE_CONTAINER" ls -la /run/nvidia/driver/usr/lib64/libnvidia-ml.so*
 docker exec "$NODE_CONTAINER" cat /var/lib/nvidia-mock/driver/config/config.yaml
 ```
 

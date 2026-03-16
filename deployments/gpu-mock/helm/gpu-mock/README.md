@@ -167,15 +167,21 @@ kind delete cluster --name gpu-mock-dra
 
 ## Quick Start: GPU Operator on KIND
 
-This path validates the full NVIDIA GPU Operator stack (device plugin, toolkit,
-validator) using CDI mode with mock GPUs. Tested in CI via
-`.github/workflows/gpu-mock-e2e.yaml` → `e2e-gpu-operator` job.
+This path validates the NVIDIA GPU Operator stack (device plugin, GFD, validator)
+using CDI mode with mock GPUs. The CI `e2e-gpu-operator` job uses a more complete
+setup — see `tests/e2e/kind-gpu-operator-config.yaml` and
+`tests/e2e/gpu-operator-values.yaml` for the exact CI configuration.
 
 ### 1. Create a KIND cluster
 
 ```bash
-kind create cluster --name gpu-mock-operator
+kind create cluster --name gpu-mock-operator \
+  --config tests/e2e/kind-gpu-operator-config.yaml
 ```
+
+> **Note:** The Kind config enables CDI in containerd and registers the nvidia
+> runtime handler. After cluster creation, `nvidia-container-toolkit` must be
+> installed in the control-plane node — see the E2E workflow for the full setup.
 
 ### 2. Build and load the gpu-mock image
 
@@ -202,10 +208,7 @@ helm repo update
 helm install gpu-operator nvidia/gpu-operator \
   --namespace gpu-operator \
   --create-namespace \
-  --set cdi.enabled=true \
-  --set driver.enabled=false \
-  --set toolkit.enabled=false \
-  --set devicePlugin.config.name="" \
+  -f tests/e2e/gpu-operator-values.yaml \
   --set nfd.enabled=false \
   --set operator.defaultRuntime=containerd \
   --wait --timeout 300s

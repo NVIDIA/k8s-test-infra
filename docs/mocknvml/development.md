@@ -39,7 +39,7 @@ pkg/gpu/mocknvml/
 cmd/generate-bridge/
 ├── main.go                    # Stub generator (--stats, --validate flags)
 ├── parser.go                  # nvml.h prototype parser
-└── main_test.go               # Generator tests (16 test cases)
+└── main_test.go               # Generator tests
 
 tests/mocknvml/
 ├── main.go                    # Integration test
