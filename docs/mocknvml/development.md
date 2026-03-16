@@ -37,7 +37,9 @@ pkg/gpu/mocknvml/
 └── README.md
 
 cmd/generate-bridge/
-└── main.go                    # Stub generator (generates stubs_generated.go)
+├── main.go                    # Stub generator (--stats, --validate flags)
+├── parser.go                  # nvml.h prototype parser
+└── main_test.go               # Generator tests (16 test cases)
 
 tests/mocknvml/
 ├── main.go                    # Integration test
@@ -353,28 +355,66 @@ The stub generator creates `stubs_generated.go` with stub implementations for
 NVML functions that don't have hand-written implementations:
 
 ```bash
-# From bridge directory (uses go:generate directive)
+# Preferred: use Makefile target from repo root
+make generate
+
+# Or from bridge directory (uses go:generate directive)
 cd pkg/gpu/mocknvml/bridge
 go generate
 
-# Or from repo root
-go generate ./pkg/gpu/mocknvml/bridge/...
-
-# Or run generator directly
+# Or run generator directly with all flags
 go run ./cmd/generate-bridge \
   -input vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go \
+  -header vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h \
   -bridge pkg/gpu/mocknvml/bridge \
   -output pkg/gpu/mocknvml/bridge/stubs_generated.go
 ```
 
 The generator:
-1. Parses all NVML function names from `nvml.go` (~396 functions)
-2. Scans `bridge/*.go` for existing `//export` directives
-3. Generates stubs only for functions NOT already implemented
-4. Outputs to `stubs_generated.go`
+1. Parses all NVML function names from `nvml.go`
+2. Parses C prototypes from `nvml.h` for ABI-correct signatures
+3. Scans `bridge/*.go` for existing `//export` directives
+4. Generates stubs only for functions NOT already implemented
+5. Outputs to `stubs_generated.go`
 
 When you add a new implementation to a bridge file, regenerate stubs to
 automatically remove the corresponding stub.
+
+### Coverage Statistics
+
+View current implementation coverage:
+
+```bash
+go run ./cmd/generate-bridge --stats
+```
+
+Output:
+```
+NVML Function Coverage:
+  Total functions:               400
+  Hand-written implementations:  111 (27.8%)
+  Generated stubs:               289 (72.2%)
+
+  By file:
+    device.go:           94 functions
+    events.go:            6 functions
+    init.go:              5 functions
+    system.go:            4 functions
+    helpers.go:           1 function
+    internal.go:          1 function
+```
+
+### Signature Validation
+
+Check that hand-written exports match nvml.h parameter counts:
+
+```bash
+go run ./cmd/generate-bridge --validate
+```
+
+This compares the number of Go parameters in each `//export` function against
+the corresponding C prototype in `nvml.h`. Exits non-zero on mismatch — useful
+in CI to catch signature drift.
 
 ## Release Checklist
 
