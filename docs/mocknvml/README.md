@@ -116,20 +116,28 @@ LD_LIBRARY_PATH=. nvidia-smi
 | Category | Functions | Status | Notes |
 |----------|-----------|--------|-------|
 | Initialization | `nvmlInit`, `nvmlShutdown` | ✅ Full | |
+| System Info | `SystemGetDriverVersion`, `SystemGetCudaDriverVersion` | ✅ Full | |
 | Device Enumeration | `GetCount`, `GetHandleByIndex/UUID/PCI` | ✅ Full | |
-| Device Info | `GetName`, `GetUUID`, `GetMemoryInfo` | ✅ Full | |
+| Device Info | `GetName`, `GetUUID`, `GetMemoryInfo`, `GetMemoryBusWidth` | ✅ Full | |
 | Thermal | `GetTemperature`, `GetTemperatureThreshold` | ✅ Full | |
-| Power | `GetPowerUsage`, `GetPowerManagementLimit` | ✅ Full | |
-| Clocks | `GetClockInfo`, `GetMaxClockInfo` | ✅ Full | |
-| ECC | `GetEccMode`, `GetTotalEccErrors` | ✅ Full | |
-| PCIe | `GetPciInfo`, `GetCurrPcieLinkGeneration` | ✅ Full | |
+| Power | `GetPowerUsage`, `GetPowerManagementLimit`, `GetTotalEnergyConsumption` | ✅ Full | |
+| Clocks | `GetClockInfo`, `GetMaxClockInfo`, `GetAutoBoostedClocksEnabled` | ✅ Full | |
+| ECC | `GetEccMode`, `GetDefaultEccMode`, `GetTotalEccErrors`, `GetDetailedEccErrors` | ✅ Full | |
+| PCIe | `GetPciInfo`, `GetCurrPcieLinkGeneration/Width` | ✅ Full | |
 | Utilization | `GetUtilizationRates` | ✅ Full | |
-| MIG | `GetMigMode` | ✅ Basic | Returns disabled |
-| Other | 340+ additional functions | ⚠️ Returns `NOT_SUPPORTED` | See note below |
+| Topology | `GetTopologyCommonAncestor`, `GetTopologyNearestGpus` | ✅ Full | |
+| NVLink | `GetNvLinkState`, `GetNvLinkVersion`, `GetNvLinkCapability` | ✅ Full | |
+| Persistence | `GetPersistenceMode`, `SetPersistenceMode` | ✅ Full | |
+| Process | `GetComputeRunningProcesses`, `GetGraphicsRunningProcesses` | ✅ Full | Returns empty list |
+| MIG | `GetMigMode`, `GetGpuInstanceProfileInfo` | ✅ Basic | Returns disabled |
+| GSP Firmware | `GetGspFirmwareVersion`, `GetGspFirmwareMode` | ✅ Full | |
+| nvidia-smi | `-q`, `-x -q`, default display, CSV queries | ✅ Full | Real binary, mock data |
+| Other | ~289 additional functions | ⚠️ Returns `NOT_SUPPORTED` | See note below |
 
 ### Stub Function Behavior
 
-Functions marked with ⚠️ are **not implemented** and return `NVML_ERROR_NOT_SUPPORTED` (error code 3). This is distinct from:
+The mock library implements ~111 NVML functions with configurable behavior.
+The remaining ~289 functions return `NVML_ERROR_NOT_SUPPORTED` (error code 3). This is distinct from:
 - `NVML_SUCCESS` (0) - Operation succeeded
 - `NVML_ERROR_NOT_FOUND` (6) - Device/object not found
 
