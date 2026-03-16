@@ -326,6 +326,46 @@ docker run ... which nvidia-smi
 GOARCH=amd64 make -C pkg/gpu/mocknvml
 ```
 
+## GPU Operator Issues
+
+### Validator Pod in CrashLoopBackOff
+
+**Problem**: The GPU Operator validator pod repeatedly crashes.
+
+**Explanation**: The GPU Operator validator (`/usr/bin/nvidia-validator`) is a
+statically-linked Go binary with no shell. It probes the driver root for
+expected files.
+
+**Solution**: Ensure the mock driver root has all required files:
+```bash
+# Use the specific Kind cluster and node name (adjust cluster name as needed)
+NODE_CONTAINER="gpu-mock-operator-control-plane"
+docker exec "$NODE_CONTAINER" ls -la /run/nvidia/driver/usr/lib64/libnvidia-ml.so*
+docker exec "$NODE_CONTAINER" cat /var/lib/nvidia-mock/driver/config/config.yaml
+```
+
+### CDI Spec Not Generated
+
+**Problem**: CDI specs are not appearing in `/var/run/cdi/`.
+
+**Solution**: Check gpu-mock DaemonSet logs for CDI generation errors:
+```bash
+kubectl logs -l app.kubernetes.io/name=gpu-mock | grep -i cdi
+```
+
+### Device Plugin Shows 0 GPUs with GPU Operator
+
+**Problem**: The GPU Operator-managed device plugin reports 0 GPUs.
+
+**Solution**: Verify the device plugin is using the mock driver root:
+```bash
+kubectl -n gpu-operator logs -l app=nvidia-device-plugin-daemonset | head -20
+```
+
+The GPU Operator must be installed with `--set driver.enabled=false` and
+`--set toolkit.enabled=false` when using mock GPUs, since there is no real
+NVIDIA driver to manage.
+
 ## Getting Help
 
 ### Debug Information to Collect
