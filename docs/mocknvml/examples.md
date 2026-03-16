@@ -45,6 +45,20 @@ GPU 1: NVIDIA A100-SXM4-40GB (UUID: GPU-12345678-1234-1234-1234-123456780001)
 LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-a100.yaml nvidia-smi -q
 ```
 
+The mock library supports all fields in `nvidia-smi -q` output including
+temperature, power, clocks, ECC, PCIe, memory, utilization, persistence mode,
+GSP firmware, and energy consumption. Fields backed by configuration return
+profile values; unimplemented fields show "N/A".
+
+### XML Query
+
+```bash
+LD_LIBRARY_PATH=. nvidia-smi -x -q > gpu-report.xml
+```
+
+Produces valid XML output parseable by automated tools. Useful for testing
+GPU monitoring pipelines that consume `nvidia-smi -x -q`.
+
 ### Query Specific Details
 
 ```bash
