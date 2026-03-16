@@ -32,6 +32,23 @@ After install, deploy a consumer to test:
 
 **Full documentation:** [gpu-mock Helm chart README](deployments/gpu-mock/helm/gpu-mock/README.md)
 
+## E2E Testing
+
+The gpu-mock E2E workflow tests all GPU consumers across multiple profiles
+and node topologies. Run manually via `workflow_dispatch` or automatically
+on PRs.
+
+| Test Suite | What It Validates | Profiles |
+|------------|-------------------|----------|
+| **Device Plugin** | `nvidia.com/gpu` allocatable resources | A100, H100, T4 |
+| **DRA Driver** | ResourceSlices via Dynamic Resource Allocation | A100, H100, T4 |
+| **GPU Operator** | Full stack: device plugin + toolkit + validator (CDI) | A100, H100, T4 |
+| **Multi-Node Fleet** | Cross-node scheduling with heterogeneous GPUs | A100 + T4 |
+
+Manual dispatch supports all 6 profiles: `a100`, `h100`, `b200`, `gb200`, `l40s`, `t4`.
+
+See [`.github/workflows/gpu-mock-e2e.yaml`](.github/workflows/gpu-mock-e2e.yaml) for details.
+
 ## Mock NVML Library
 
 The underlying CGo-based mock `libnvidia-ml.so` that powers gpu-mock.
@@ -43,6 +60,8 @@ Use standalone for local development and CI pipelines.
 | [Quick Start](docs/mocknvml/quickstart.md) | Build and run in 5 minutes |
 | [Configuration](docs/mocknvml/configuration.md) | YAML configuration reference |
 | [Architecture](docs/mocknvml/architecture.md) | System design and components |
+| [Development](docs/mocknvml/development.md) | Contributing and extending the library |
+| [Troubleshooting](docs/mocknvml/troubleshooting.md) | Common issues and solutions |
 
 ## License
 
