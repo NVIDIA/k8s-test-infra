@@ -35,6 +35,7 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -47,7 +48,44 @@ func main() {
 	header := flag.String("header", "vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h", "NVML C header file for prototype extraction")
 	bridge := flag.String("bridge", "pkg/gpu/mocknvml/bridge", "Bridge directory to scan for existing implementations")
 	output := flag.String("output", "pkg/gpu/mocknvml/bridge/stubs_generated.go", "Output file for generated stubs")
+	stats := flag.Bool("stats", false, "Print coverage statistics and exit")
+	validate := flag.Bool("validate", false, "Validate hand-written export parameter counts against nvml.h prototypes")
 	flag.Parse()
+
+	if *stats {
+		allFunctions, err := parseNVMLFunctions(*input)
+		if err != nil {
+			log.Fatalf("Failed to parse input: %v", err)
+		}
+		printStats(os.Stdout, allFunctions, *bridge)
+		return
+	}
+
+	if *validate {
+		headerFile, err := os.Open(*header)
+		if err != nil {
+			log.Fatalf("Failed to open header: %v", err)
+		}
+		defer func() { _ = headerFile.Close() }()
+
+		prototypes, err := parseNVMLPrototypes(headerFile)
+		if err != nil {
+			log.Fatalf("Failed to parse header: %v", err)
+		}
+
+		mismatches, err := validateSignatures(*bridge, prototypes)
+		if err != nil {
+			log.Fatalf("Failed to scan bridge directory: %v", err)
+		}
+		if len(mismatches) == 0 {
+			fmt.Println("All hand-written exports match nvml.h parameter counts.")
+			return
+		}
+		for _, m := range mismatches {
+			fmt.Printf("WARNING: %s\n", m)
+		}
+		os.Exit(1)
+	}
 
 	// Step 1: Parse input file to get all NVML function names
 	allFunctions, err := parseNVMLFunctions(*input)
@@ -248,4 +286,140 @@ import "C"
 	log.Printf("Generated %d stubs with correct signatures, %d without", withProto, withoutProto)
 
 	return buf.String()
+}
+
+// printStats writes NVML function coverage statistics to w.
+func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
+	exports, err := scanBridgeExports(bridgeDir)
+	if err != nil {
+		_, _ = fmt.Fprintf(w, "Error scanning bridge: %v\n", err)
+		return
+	}
+
+	// Count only exports that correspond to functions in allFunctions
+	// to avoid overcounting bridge-internal exports not in nvml.go.
+	allSet := make(map[string]bool, len(allFunctions))
+	for _, fn := range allFunctions {
+		allSet[fn] = true
+	}
+	implemented := 0
+	for fn := range exports {
+		if allSet[fn] {
+			implemented++
+		}
+	}
+
+	total := len(allFunctions)
+	stubs := total - implemented
+	pctImpl := 0.0
+	pctStub := 0.0
+	if total > 0 {
+		pctImpl = float64(implemented) / float64(total) * 100
+		pctStub = float64(stubs) / float64(total) * 100
+	}
+
+	_, _ = fmt.Fprintf(w, "NVML Function Coverage:\n")
+	_, _ = fmt.Fprintf(w, "  Total functions:               %d\n", total)
+	_, _ = fmt.Fprintf(w, "  Hand-written implementations:  %d (%.1f%%)\n", implemented, pctImpl)
+	_, _ = fmt.Fprintf(w, "  Generated stubs:               %d (%.1f%%)\n", stubs, pctStub)
+
+	// Per-file breakdown
+	fileCounts := make(map[string]int)
+	err = filepath.Walk(bridgeDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "stubs_generated.go") {
+			return err
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		count := 0
+		for _, line := range strings.Split(string(content), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "//export ") {
+				count++
+			}
+		}
+		if count > 0 {
+			fileCounts[filepath.Base(path)] = count
+		}
+		return nil
+	})
+	if err != nil {
+		_, _ = fmt.Fprintf(w, "  Error scanning files: %v\n", err)
+		return
+	}
+
+	if len(fileCounts) > 0 {
+		_, _ = fmt.Fprintf(w, "\n  By file:\n")
+		var files []string
+		for f := range fileCounts {
+			files = append(files, f)
+		}
+		sort.Strings(files)
+		for _, f := range files {
+			_, _ = fmt.Fprintf(w, "    %-20s %d functions\n", f+":", fileCounts[f])
+		}
+	}
+}
+
+// validateSignatures checks that hand-written //export functions have the
+// correct number of parameters compared to their C prototypes in nvml.h.
+// Returns a list of mismatch descriptions and any walk error.
+func validateSignatures(bridgeDir string, prototypes map[string]FuncProto) ([]string, error) {
+	var mismatches []string
+
+	err := filepath.Walk(bridgeDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "stubs_generated.go") {
+			return err
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		lines := strings.Split(string(content), "\n")
+		for i, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if !strings.HasPrefix(trimmed, "//export ") {
+				continue
+			}
+			funcName := strings.TrimSpace(strings.TrimPrefix(trimmed, "//export "))
+
+			// Find the func line (should be next non-empty line)
+			goParamCount := 0
+			for j := i + 1; j < len(lines) && j <= i+3; j++ {
+				funcLine := strings.TrimSpace(lines[j])
+				if strings.HasPrefix(funcLine, "func ") {
+					parenOpen := strings.Index(funcLine, "(")
+					parenClose := strings.Index(funcLine, ")")
+					if parenOpen >= 0 && parenClose > parenOpen {
+						paramStr := strings.TrimSpace(funcLine[parenOpen+1 : parenClose])
+						if paramStr == "" {
+							goParamCount = 0
+						} else {
+							goParamCount = strings.Count(paramStr, ",") + 1
+						}
+					}
+					break
+				}
+			}
+
+			// Look up C prototype
+			proto, ok := lookupProto(funcName, prototypes)
+			if !ok {
+				continue
+			}
+
+			if goParamCount != len(proto.Params) {
+				mismatches = append(mismatches, fmt.Sprintf(
+					"%s:%d: %s has %d Go params but nvml.h prototype has %d C params",
+					filepath.Base(path), i+1, funcName, goParamCount, len(proto.Params),
+				))
+			}
+		}
+		return nil
+	})
+
+	return mismatches, err
 }
