@@ -49,7 +49,7 @@ func main() {
 	bridge := flag.String("bridge", "pkg/gpu/mocknvml/bridge", "Bridge directory to scan for existing implementations")
 	output := flag.String("output", "pkg/gpu/mocknvml/bridge/stubs_generated.go", "Output file for generated stubs")
 	stats := flag.Bool("stats", false, "Print coverage statistics and exit")
-	validate := flag.Bool("validate", false, "Validate hand-written export signatures against nvml.h prototypes")
+	validate := flag.Bool("validate", false, "Validate hand-written export parameter counts against nvml.h prototypes")
 	flag.Parse()
 
 	if *stats {
@@ -73,9 +73,12 @@ func main() {
 			log.Fatalf("Failed to parse header: %v", err)
 		}
 
-		mismatches := validateSignatures(*bridge, prototypes)
+		mismatches, err := validateSignatures(*bridge, prototypes)
+		if err != nil {
+			log.Fatalf("Failed to scan bridge directory: %v", err)
+		}
 		if len(mismatches) == 0 {
-			fmt.Println("All hand-written exports match nvml.h prototypes.")
+			fmt.Println("All hand-written exports match nvml.h parameter counts.")
 			return
 		}
 		for _, m := range mismatches {
@@ -293,8 +296,20 @@ func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
 		return
 	}
 
+	// Count only exports that correspond to functions in allFunctions
+	// to avoid overcounting bridge-internal exports not in nvml.go.
+	allSet := make(map[string]bool, len(allFunctions))
+	for _, fn := range allFunctions {
+		allSet[fn] = true
+	}
+	implemented := 0
+	for fn := range exports {
+		if allSet[fn] {
+			implemented++
+		}
+	}
+
 	total := len(allFunctions)
-	implemented := len(exports)
 	stubs := total - implemented
 	pctImpl := 0.0
 	pctStub := 0.0
@@ -349,11 +364,11 @@ func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
 
 // validateSignatures checks that hand-written //export functions have the
 // correct number of parameters compared to their C prototypes in nvml.h.
-// Returns a list of mismatch descriptions.
-func validateSignatures(bridgeDir string, prototypes map[string]FuncProto) []string {
+// Returns a list of mismatch descriptions and any walk error.
+func validateSignatures(bridgeDir string, prototypes map[string]FuncProto) ([]string, error) {
 	var mismatches []string
 
-	_ = filepath.Walk(bridgeDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(bridgeDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "stubs_generated.go") {
 			return err
 		}
@@ -406,5 +421,5 @@ func validateSignatures(bridgeDir string, prototypes map[string]FuncProto) []str
 		return nil
 	})
 
-	return mismatches
+	return mismatches, err
 }

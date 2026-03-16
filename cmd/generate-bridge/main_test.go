@@ -432,7 +432,10 @@ func nvmlDeviceGetName() C.nvmlReturn_t {
 		},
 	}
 
-	mismatches := validateSignatures(dir, protos)
+	mismatches, err := validateSignatures(dir, protos)
+	if err != nil {
+		t.Fatalf("validateSignatures: %v", err)
+	}
 
 	if len(mismatches) != 1 {
 		t.Fatalf("expected 1 mismatch, got %d: %v", len(mismatches), mismatches)
