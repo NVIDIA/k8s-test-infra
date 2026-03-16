@@ -289,7 +289,7 @@ import "C"
 func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
 	exports, err := scanBridgeExports(bridgeDir)
 	if err != nil {
-		fmt.Fprintf(w, "Error scanning bridge: %v\n", err)
+		_, _ = fmt.Fprintf(w, "Error scanning bridge: %v\n", err)
 		return
 	}
 
@@ -303,10 +303,10 @@ func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
 		pctStub = float64(stubs) / float64(total) * 100
 	}
 
-	fmt.Fprintf(w, "NVML Function Coverage:\n")
-	fmt.Fprintf(w, "  Total functions:               %d\n", total)
-	fmt.Fprintf(w, "  Hand-written implementations:  %d (%.1f%%)\n", implemented, pctImpl)
-	fmt.Fprintf(w, "  Generated stubs:               %d (%.1f%%)\n", stubs, pctStub)
+	_, _ = fmt.Fprintf(w, "NVML Function Coverage:\n")
+	_, _ = fmt.Fprintf(w, "  Total functions:               %d\n", total)
+	_, _ = fmt.Fprintf(w, "  Hand-written implementations:  %d (%.1f%%)\n", implemented, pctImpl)
+	_, _ = fmt.Fprintf(w, "  Generated stubs:               %d (%.1f%%)\n", stubs, pctStub)
 
 	// Per-file breakdown
 	fileCounts := make(map[string]int)
@@ -330,19 +330,19 @@ func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
 		return nil
 	})
 	if err != nil {
-		fmt.Fprintf(w, "  Error scanning files: %v\n", err)
+		_, _ = fmt.Fprintf(w, "  Error scanning files: %v\n", err)
 		return
 	}
 
 	if len(fileCounts) > 0 {
-		fmt.Fprintf(w, "\n  By file:\n")
+		_, _ = fmt.Fprintf(w, "\n  By file:\n")
 		var files []string
 		for f := range fileCounts {
 			files = append(files, f)
 		}
 		sort.Strings(files)
 		for _, f := range files {
-			fmt.Fprintf(w, "    %-20s %d functions\n", f+":", fileCounts[f])
+			_, _ = fmt.Fprintf(w, "    %-20s %d functions\n", f+":", fileCounts[f])
 		}
 	}
 }
