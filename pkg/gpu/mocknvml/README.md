@@ -199,7 +199,7 @@ $ MOCK_NVML_CONFIG=configs/mock-nvml-config-gb200.yaml LD_LIBRARY_PATH=. nvidia-
 │  │  Bridge Layer (CGo)                │ │
 │  │  - Hand-written implementations    │ │
 │  │  - Auto-generated stubs            │ │
-│  │  - 396 C function exports          │ │
+│  │  - 400 C function exports          │ │
 │  │  - Type conversions (C ↔ Go)       │ │
 │  └────────────┬───────────────────────┘ │
 │               │                          │
@@ -245,7 +245,7 @@ pkg/gpu/mocknvml/
 │   ├── device.go                  # Device handle functions
 │   ├── system.go                  # System functions
 │   ├── internal.go                # Internal export table (nvidia-smi)
-│   └── stubs_generated.go         # Auto-generated stubs (~375 functions)
+│   └── stubs_generated.go         # Auto-generated stubs (~366 functions)
 ├── engine/
 │   ├── config.go                  # Configuration loading
 │   ├── config_types.go            # YAML struct definitions
@@ -301,7 +301,7 @@ The mock library implements 50+ NVML functions required by nvidia-smi:
 - **ECC**: `nvmlDeviceGetEccMode`, `nvmlDeviceGetTotalEccErrors`
 - **PCIe**: `nvmlDeviceGetPciInfo`, `nvmlDeviceGetCurrPcieLinkGeneration`
 - **MIG**: `nvmlDeviceGetMigMode`
-- **Events**: `nvmlEventSetCreate`, `nvmlEventSetWait`
+- **Events**: `nvmlEventSetCreate`, `nvmlEventSetWait` (stubs — return `NOT_SUPPORTED`)
 
 All other NVML functions return `NVML_ERROR_NOT_SUPPORTED`, providing full API
 coverage for linking.
@@ -334,7 +334,7 @@ bridge file (e.g., `device.go`) and regenerate stubs.
   system configuration.
 - **Read-only simulation**: No actual GPU operations
 - **Static device properties**: Device properties set at initialization
-- **No MIG support**: Multi-Instance GPU features not implemented
+- **Limited MIG support**: GetMigMode is implemented; MIG device enumeration returns stubs
 - **Process list**: Always empty (configurable in YAML)
 
 ## Troubleshooting

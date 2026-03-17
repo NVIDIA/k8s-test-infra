@@ -40,7 +40,7 @@ The integration test exercises the following NVML APIs:
 The mock library can be configured via environment variables:
 
 - `MOCK_NVML_NUM_DEVICES` - Number of mock devices (default: 8, test uses: 4)
-- `MOCK_NVML_DRIVER_VERSION` - Mock driver version (default: 550.54.15)
+- `MOCK_NVML_DRIVER_VERSION` - Mock driver version (default: 550.163.01)
 
 ## Expected Output
 
@@ -49,7 +49,7 @@ Starting Mini Device Plugin Test
 =================================
 Initializing NVML...
 ✓ NVML initialized successfully
-✓ Driver version: 550.54.15
+✓ Driver version: 550.163.01
 ✓ Found 4 GPU device(s)
 
 Enumerating devices:
@@ -80,7 +80,7 @@ SUCCESS: Mock NVML library is working correctly!
 
 ## Known Limitations
 
-- Some NVML functions return `ERROR_NOT_SUPPORTED` (378 out of 396 stubs)
+- Some NVML functions return `ERROR_NOT_SUPPORTED` (366 auto-generated stubs (out of 400 total exports))
 
 ## Architecture
 
