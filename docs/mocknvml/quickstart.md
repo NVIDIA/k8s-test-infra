@@ -5,7 +5,7 @@ Get Mock NVML running in 5 minutes.
 ## Prerequisites
 
 - Linux (x86_64 or arm64)
-- Go 1.23+ with CGo
+- Go 1.25+ with CGo
 - GCC toolchain (`build-essential` on Debian/Ubuntu)
 - `nvidia-smi` binary (from NVIDIA driver or CUDA toolkit)
 

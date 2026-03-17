@@ -262,7 +262,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.25'
       
       - name: Build Mock NVML
         run: make -C pkg/gpu/mocknvml docker-build
@@ -284,7 +284,7 @@ jobs:
 
 ```dockerfile
 # Dockerfile
-FROM golang:1.23
+FROM golang:1.25
 
 # Copy mock NVML library
 COPY pkg/gpu/mocknvml/libnvidia-ml.so* /usr/local/lib/

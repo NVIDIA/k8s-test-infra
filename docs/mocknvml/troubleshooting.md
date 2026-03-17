@@ -27,14 +27,14 @@ xcode-select --install
 
 **Error**:
 ```
-go: go.mod file indicates go 1.23
+go: go.mod file indicates go 1.25
 ```
 
 **Solution**:
 ```bash
-# Install Go 1.23+
-wget https://go.dev/dl/go1.23.0.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.23.0.linux-amd64.tar.gz
+# Install Go 1.25+
+wget https://go.dev/dl/go1.25.0.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.25.0.linux-amd64.tar.gz
 export PATH=$PATH:/usr/local/go/bin
 ```
 
