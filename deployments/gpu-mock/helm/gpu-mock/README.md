@@ -23,7 +23,7 @@ as the NVIDIA driver root and discover GPUs through standard NVML APIs.
 | [Kind](https://kind.sigs.k8s.io/) | 0.20+ | Local cluster (or use your own) |
 | [kubectl](https://kubernetes.io/docs/tasks/tools/) | 1.31+ | Cluster access |
 | [Helm](https://helm.sh/docs/intro/install/) | 3.x | Chart installation |
-| [Go](https://go.dev/dl/) | 1.23+ | Building from source |
+| [Go](https://go.dev/dl/) | 1.25+ | Building from source |
 | [jq](https://jqlang.github.io/jq/) | any | DRA verification only |
 
 **Cluster requirements:**

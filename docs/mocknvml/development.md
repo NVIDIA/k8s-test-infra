@@ -4,7 +4,7 @@ Contributing to and extending Mock NVML.
 
 ## Prerequisites
 
-- Go 1.23+ with CGo enabled
+- Go 1.25+ with CGo enabled
 - GCC toolchain
 - Docker (for cross-platform builds)
 - golangci-lint (for linting)
@@ -20,7 +20,7 @@ pkg/gpu/mocknvml/
 │   ├── device.go              # Device handle functions
 │   ├── system.go              # System functions
 │   ├── internal.go            # Internal export table (nvidia-smi)
-│   └── stubs_generated.go     # Auto-generated stubs (~375 functions)
+│   └── stubs_generated.go     # Auto-generated stubs (~289 functions)
 ├── engine/
 │   ├── config.go              # Configuration loading
 │   ├── config_types.go        # YAML struct definitions

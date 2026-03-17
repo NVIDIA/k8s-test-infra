@@ -19,7 +19,7 @@ for testing GPU-dependent software without physical NVIDIA hardware.
 Mock NVML is a drop-in replacement for `libnvidia-ml.so` that:
 
 - **Works with real nvidia-smi** - No modifications needed to the binary
-- **Simulates any GPU** - A100, GB200, or custom profiles via YAML
+- **Simulates any GPU** - A100, H100, B200, GB200, or custom profiles via YAML
 - **Zero hardware required** - Test GPU workloads on any Linux system
 - **Kubernetes-ready** - Test device plugins, operators, and schedulers
 
@@ -32,7 +32,7 @@ The mock library replaces `libnvidia-ml.so` but **does not include** the `nvidia
 | Method | Use Case | Command/Notes |
 |--------|----------|---------------|
 | **NVIDIA Driver Package** | Systems with driver installed | Already at `/usr/bin/nvidia-smi` |
-| **Container Image** | CI/CD, Kubernetes | Use `nvcr.io/nvidia/cuda:12.4.0-base-ubuntu22.04` |
+| **Container Image** | CI/CD, Kubernetes | Extract from driver package into your image (CUDA base images do NOT include nvidia-smi) |
 | **Standalone Extract** | Minimal environments | Extract from `.run` driver installer |
 | **nvidia-container-toolkit** | Container testing | Provides nvidia-smi in container context |
 
@@ -41,8 +41,9 @@ The mock library replaces `libnvidia-ml.so` but **does not include** the `nvidia
 ### For CI/CD (No Hardware)
 
 ```bash
-# Option 1: Use CUDA base image (includes nvidia-smi)
-FROM nvcr.io/nvidia/cuda:12.4.0-base-ubuntu22.04
+# Option 1: Standalone build (obtain nvidia-smi separately)
+FROM ubuntu:22.04
+# Note: nvidia-smi must be obtained separately (e.g., from driver .run package or a driver image)
 COPY libnvidia-ml.so.1 /usr/lib/x86_64-linux-gnu/
 ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
 
@@ -60,6 +61,8 @@ export LD_LIBRARY_PATH=/path/to/mocknvml
 export MOCK_NVML_CONFIG=/path/to/a100-config.yaml
 ./k8s-device-plugin
 ```
+
+> **Note:** `LD_LIBRARY_PATH` works for local nvidia-smi testing. Kubernetes consumers (device plugin, DRA driver) use `--nvidia-driver-root` path resolution and do not honor `LD_LIBRARY_PATH`.
 
 ### CI/CD Pipelines
 
@@ -84,12 +87,14 @@ LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-a100.yaml nvidia-smi
 
 **For systems without NVIDIA drivers:**
 ```bash
-# Use Docker with CUDA base image
+# Requires: nvidia-smi binary mounted or installed in the image
 docker run --rm -v $(pwd):/mock \
   -e LD_PRELOAD=/mock/libnvidia-ml.so.1 \
   -e MOCK_NVML_CONFIG=/mock/configs/mock-nvml-config-a100.yaml \
-  nvcr.io/nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+  ubuntu:22.04 /path/to/nvidia-smi
 ```
+
+> **Note:** `LD_PRELOAD` forces loading the mock even when a real NVML library is present. `LD_LIBRARY_PATH` is sufficient when no real library exists.
 
 ## Quick Example
 
@@ -132,7 +137,7 @@ LD_LIBRARY_PATH=. nvidia-smi
 | MIG | `GetMigMode` | ✅ Basic | Returns disabled; profile info functions return `NOT_SUPPORTED` |
 | GSP Firmware | `GetGspFirmwareVersion`, `GetGspFirmwareMode` | ✅ Full | |
 | nvidia-smi | `-q`, `-x -q`, default display, CSV queries | ✅ Full | Real binary, mock data |
-| Other | ~289 additional functions | ⚠️ Returns `NOT_SUPPORTED` | See note below |
+| Other | 289 additional functions | ⚠️ Returns `NOT_SUPPORTED` | See note below |
 
 ### Stub Function Behavior
 
@@ -150,7 +155,7 @@ MOCK_NVML_DEBUG=1 LD_LIBRARY_PATH=. nvidia-smi 2>&1 | grep "NOT IMPLEMENTED"
 
 ## Requirements
 
-- **Go 1.23+** with CGo enabled
+- **Go 1.25+** with CGo enabled
 - **Linux** (x86_64 or arm64)
 - **GCC toolchain** for building
 - **Docker** (optional, for cross-platform builds)

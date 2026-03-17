@@ -21,7 +21,7 @@ Deep dive into Mock NVML's design and implementation.
 │    │                                                                      │   │
 │    │  ┌────────────────────────────────────────────────────────────────┐ │   │
 │    │  │                   CGo Bridge Layer                              │ │   │
-│    │  │  - 396 C function exports (//export directives)                 │ │   │
+│    │  │  - 400 C function exports (//export directives)                 │ │   │
 │    │  │  - C struct definitions (nvmlPciInfo_t, nvmlMemory_t, etc)      │ │   │
 │    │  │  - Type conversions (C ↔ Go)                                    │ │   │
 │    │  └────────────────────────────────────────────────────────────────┘ │   │
@@ -35,7 +35,7 @@ Deep dive into Mock NVML's design and implementation.
 │    │                               │                                      │   │
 │    │  ┌────────────────────────────▼───────────────────────────────────┐ │   │
 │    │  │                  ConfigurableDevice                             │ │   │
-│    │  │  - 50+ NVML method implementations                              │ │   │
+│    │  │  - 89 NVML method implementations                               │ │   │
 │    │  │  - YAML-driven property values                                  │ │   │
 │    │  │  - Wraps dgxa100.Device (go-nvml mock)                          │ │   │
 │    │  └────────────────────────────────────────────────────────────────┘ │   │
@@ -104,7 +104,7 @@ typedef struct nvmlMemory_st {
 
 ### 2. Engine Layer
 
-**File**: `engine/engine.go` (388 lines)
+**File**: `engine/engine.go` (~400 lines)
 
 The Engine is the central coordinator, managing:
 
@@ -140,7 +140,7 @@ func GetEngine() *Engine {
 
 ### 3. Handle Table
 
-**File**: `engine/handles.go` (126 lines)
+**File**: `engine/handles.go` (~170 lines)
 
 **Problem**: CGo doesn't allow passing Go pointers with nested Go pointers to C code. When nvidia-smi receives a device handle, it expects to dereference it.
 
@@ -171,7 +171,7 @@ func (ht *HandleTable) Register(dev nvml.Device) uintptr {
 
 ### 4. Configuration System
 
-**Files**: `engine/config.go` (243 lines), `engine/config_types.go` (418 lines)
+**Files**: `engine/config.go` (~350 lines), `engine/config_types.go` (418 lines)
 
 #### Configuration Hierarchy
 
@@ -208,9 +208,9 @@ func (c *Config) GetDeviceConfig(index int) *DeviceConfig {
 
 ### 5. ConfigurableDevice
 
-**File**: `engine/device.go` (1008 lines)
+**File**: `engine/device.go` (~1290 lines)
 
-Implements 50+ NVML methods by reading from YAML configuration.
+Implements 89 NVML methods by reading from YAML configuration.
 
 ```go
 type ConfigurableDevice struct {
@@ -309,7 +309,7 @@ pkg/gpu/mocknvml/
 │   ├── device.go              # Device handle functions
 │   ├── system.go              # System functions
 │   ├── internal.go            # Internal export table (nvidia-smi)
-│   └── stubs_generated.go     # Auto-generated stubs (~375 functions)
+│   └── stubs_generated.go     # Auto-generated stubs (~289 functions)
 ├── engine/
 │   ├── config.go              # Config loading
 │   ├── config_types.go        # YAML structs
