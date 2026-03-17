@@ -62,6 +62,8 @@ export MOCK_NVML_CONFIG=/path/to/a100-config.yaml
 ./k8s-device-plugin
 ```
 
+> **Note:** `LD_LIBRARY_PATH` works for local nvidia-smi testing. Kubernetes consumers (device plugin, DRA driver) use `--nvidia-driver-root` path resolution and do not honor `LD_LIBRARY_PATH`.
+
 ### CI/CD Pipelines
 
 ```yaml
@@ -91,6 +93,8 @@ docker run --rm -v $(pwd):/mock \
   -e MOCK_NVML_CONFIG=/mock/configs/mock-nvml-config-a100.yaml \
   <your-image-with-nvidia-smi> nvidia-smi
 ```
+
+> **Note:** `LD_PRELOAD` forces loading the mock even when a real NVML library is present. `LD_LIBRARY_PATH` is sufficient when no real library exists.
 
 ## Quick Example
 
