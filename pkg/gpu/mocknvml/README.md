@@ -8,7 +8,7 @@ for testing GPU-dependent software without physical NVIDIA hardware.
 - **nvidia-smi compatible**: Works with the real `nvidia-smi` binary
 - **YAML-based configuration**: Full control over GPU profiles (A100, GB200, custom)
 - **Zero-config default**: Simulates DGX A100 system (8 GPUs) out of the box
-- **50+ NVML functions**: Comprehensive API coverage for nvidia-smi compatibility
+- **89 NVML functions**: Comprehensive API coverage for nvidia-smi compatibility
 - **Auto-generated bridge**: Scalable CGo bridge generated from `go-nvml`
 - **Docker build support**: Build Linux binaries on macOS
 - **Thread-safe**: Proper synchronization for concurrent access
@@ -214,7 +214,7 @@ $ MOCK_NVML_CONFIG=configs/mock-nvml-config-gb200.yaml LD_LIBRARY_PATH=. nvidia-
 │  ┌────────────▼───────────────────────┐ │
 │  │  ConfigurableDevice                │ │
 │  │  - YAML-driven GPU properties      │ │
-│  │  - 50+ NVML method implementations │ │
+│  │  - 89 NVML method implementations  │ │
 │  │  - Wraps dgxa100.Device            │ │
 │  └────────────┬───────────────────────┘ │
 │               │                          │
@@ -245,7 +245,7 @@ pkg/gpu/mocknvml/
 │   ├── device.go                  # Device handle functions
 │   ├── system.go                  # System functions
 │   ├── internal.go                # Internal export table (nvidia-smi)
-│   └── stubs_generated.go         # Auto-generated stubs (~366 functions)
+│   └── stubs_generated.go         # Auto-generated stubs (~289 functions)
 ├── engine/
 │   ├── config.go                  # Configuration loading
 │   ├── config_types.go            # YAML struct definitions
@@ -292,7 +292,7 @@ NVML library.
 
 ## Supported NVML Functions
 
-The mock library implements 50+ NVML functions required by nvidia-smi:
+The mock library implements 89 NVML functions required by nvidia-smi:
 
 - **Device enumeration**: `nvmlDeviceGetCount`, `nvmlDeviceGetHandleByIndex`
 - **Device properties**: `nvmlDeviceGetName`, `nvmlDeviceGetUUID`, `nvmlDeviceGetMemoryInfo`
@@ -301,7 +301,7 @@ The mock library implements 50+ NVML functions required by nvidia-smi:
 - **ECC**: `nvmlDeviceGetEccMode`, `nvmlDeviceGetTotalEccErrors`
 - **PCIe**: `nvmlDeviceGetPciInfo`, `nvmlDeviceGetCurrPcieLinkGeneration`
 - **MIG**: `nvmlDeviceGetMigMode`
-- **Events**: `nvmlEventSetCreate`, `nvmlEventSetWait` (stubs — return `NOT_SUPPORTED`)
+- **Events**: `nvmlEventSetCreate`, `nvmlEventSetWait` (EventSetCreate returns `SUCCESS`; EventSetWait returns `TIMEOUT`)
 
 All other NVML functions return `NVML_ERROR_NOT_SUPPORTED`, providing full API
 coverage for linking.
@@ -334,7 +334,7 @@ bridge file (e.g., `device.go`) and regenerate stubs.
   system configuration.
 - **Read-only simulation**: No actual GPU operations
 - **Static device properties**: Device properties set at initialization
-- **Limited MIG support**: GetMigMode is implemented; MIG device enumeration returns stubs
+- **Limited MIG support**: GetMigMode is implemented; MIG device enumeration returns `NOT_FOUND` (end-of-iteration signal)
 - **Process list**: Always empty (configurable in YAML)
 
 ## Troubleshooting

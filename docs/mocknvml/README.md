@@ -41,7 +41,7 @@ The mock library replaces `libnvidia-ml.so` but **does not include** the `nvidia
 ### For CI/CD (No Hardware)
 
 ```bash
-# Option 1: Multi-stage build to get nvidia-smi from driver image
+# Option 1: Standalone build (obtain nvidia-smi separately)
 FROM ubuntu:22.04
 # Note: nvidia-smi must be obtained separately (e.g., from driver .run package or a driver image)
 COPY libnvidia-ml.so.1 /usr/lib/x86_64-linux-gnu/
@@ -87,11 +87,11 @@ LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-a100.yaml nvidia-smi
 
 **For systems without NVIDIA drivers:**
 ```bash
-# Requires: image with nvidia-smi installed
+# Requires: nvidia-smi binary mounted or installed in the image
 docker run --rm -v $(pwd):/mock \
   -e LD_PRELOAD=/mock/libnvidia-ml.so.1 \
   -e MOCK_NVML_CONFIG=/mock/configs/mock-nvml-config-a100.yaml \
-  <your-image-with-nvidia-smi> nvidia-smi
+  ubuntu:22.04 /path/to/nvidia-smi
 ```
 
 > **Note:** `LD_PRELOAD` forces loading the mock even when a real NVML library is present. `LD_LIBRARY_PATH` is sufficient when no real library exists.
@@ -137,7 +137,7 @@ LD_LIBRARY_PATH=. nvidia-smi
 | MIG | `GetMigMode` | ✅ Basic | Returns disabled; profile info functions return `NOT_SUPPORTED` |
 | GSP Firmware | `GetGspFirmwareVersion`, `GetGspFirmwareMode` | ✅ Full | |
 | nvidia-smi | `-q`, `-x -q`, default display, CSV queries | ✅ Full | Real binary, mock data |
-| Other | 366 additional functions | ⚠️ Returns `NOT_SUPPORTED` | See note below |
+| Other | 289 additional functions | ⚠️ Returns `NOT_SUPPORTED` | See note below |
 
 ### Stub Function Behavior
 

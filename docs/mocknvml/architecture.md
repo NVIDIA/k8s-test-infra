@@ -35,7 +35,7 @@ Deep dive into Mock NVML's design and implementation.
 │    │                               │                                      │   │
 │    │  ┌────────────────────────────▼───────────────────────────────────┐ │   │
 │    │  │                  ConfigurableDevice                             │ │   │
-│    │  │  - 50+ NVML method implementations                              │ │   │
+│    │  │  - 89 NVML method implementations                               │ │   │
 │    │  │  - YAML-driven property values                                  │ │   │
 │    │  │  - Wraps dgxa100.Device (go-nvml mock)                          │ │   │
 │    │  └────────────────────────────────────────────────────────────────┘ │   │
@@ -208,9 +208,9 @@ func (c *Config) GetDeviceConfig(index int) *DeviceConfig {
 
 ### 5. ConfigurableDevice
 
-**File**: `engine/device.go` (~1040 lines)
+**File**: `engine/device.go` (~1290 lines)
 
-Implements 55+ NVML methods by reading from YAML configuration.
+Implements 89 NVML methods by reading from YAML configuration.
 
 ```go
 type ConfigurableDevice struct {
@@ -309,7 +309,7 @@ pkg/gpu/mocknvml/
 │   ├── device.go              # Device handle functions
 │   ├── system.go              # System functions
 │   ├── internal.go            # Internal export table (nvidia-smi)
-│   └── stubs_generated.go     # Auto-generated stubs (~366 functions)
+│   └── stubs_generated.go     # Auto-generated stubs (~289 functions)
 ├── engine/
 │   ├── config.go              # Config loading
 │   ├── config_types.go        # YAML structs

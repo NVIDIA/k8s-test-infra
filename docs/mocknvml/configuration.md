@@ -26,7 +26,7 @@ YAML configuration takes precedence when `MOCK_NVML_CONFIG` is set.
 
 ```bash
 export MOCK_NVML_NUM_DEVICES=4
-export MOCK_NVML_DRIVER_VERSION=535.129.03
+export MOCK_NVML_DRIVER_VERSION=550.163.01
 LD_LIBRARY_PATH=. nvidia-smi
 ```
 

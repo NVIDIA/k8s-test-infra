@@ -80,7 +80,7 @@ SUCCESS: Mock NVML library is working correctly!
 
 ## Known Limitations
 
-- Some NVML functions return `ERROR_NOT_SUPPORTED` (366 auto-generated stubs (out of 400 total exports))
+- Some NVML functions return `ERROR_NOT_SUPPORTED` (289 auto-generated stubs (out of 400 total exports))
 
 ## Architecture
 

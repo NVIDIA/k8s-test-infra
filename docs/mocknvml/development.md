@@ -20,7 +20,7 @@ pkg/gpu/mocknvml/
 │   ├── device.go              # Device handle functions
 │   ├── system.go              # System functions
 │   ├── internal.go            # Internal export table (nvidia-smi)
-│   └── stubs_generated.go     # Auto-generated stubs (~366 functions)
+│   └── stubs_generated.go     # Auto-generated stubs (~289 functions)
 ├── engine/
 │   ├── config.go              # Configuration loading
 │   ├── config_types.go        # YAML struct definitions
