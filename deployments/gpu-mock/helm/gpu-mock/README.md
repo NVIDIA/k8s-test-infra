@@ -422,6 +422,43 @@ Consumer components (DRA driver, device plugin) mount `/var/lib/nvidia-mock`
 and use `--nvidia-driver-root=/var/lib/nvidia-mock/driver` to discover GPUs
 through standard NVML `tryResolveLibrary` paths.
 
+## Known Limitations
+
+The mock NVML library covers the NVML C API surface used by consumers for GPU
+discovery and monitoring. Some host-level subsystems are not mocked:
+
+| What's Missing | Affected Consumer | Impact |
+|----------------|-------------------|--------|
+| `/sys/bus/pci/devices/{busID}` sysfs entries | DRA driver | `dra.k8s.io/pcieRoot` attribute absent from ResourceSlices — **blocks topology-aware scheduling demos** (e.g., GPU + SR-IOV VF alignment) |
+| `/sys/bus/pci/devices/{busID}/numa_node` | Device plugin | NUMA-aware topology hints unavailable; scheduling works but NUMA affinity not enforced |
+| `/sys/bus/pci/devices/*/vendor,device,class` | NFD (Node Feature Discovery) | PCI feature labels not auto-detected (gpu-mock sets `nvidia.com/gpu.present` and `pci-10de.present` directly) |
+
+### PCIe Root Complex (DRA driver)
+
+When using the DRA driver with gpu-mock, you will see warnings like:
+
+```
+W0319 11:41:21.314205       1 nvlib.go:491] error getting PCIe root for device 0,
+  continuing without attribute: failed to resolve PCIe Root Complex for PCI Bus ID
+  0000:07:00.0: failed to read symlink for PCI Bus ID /sys/bus/pci/devices/0000:07:00.0:
+  readlink /sys/bus/pci/devices/0000:07:00.0: no such file or directory
+```
+
+**This warning is expected** but has real impact. The DRA driver resolves PCIe
+root complex topology by reading sysfs symlinks. Since gpu-mock provides a mock
+NVML library (not a full kernel driver), these sysfs entries don't exist. GPUs
+appear in ResourceSlices and are fully allocatable, but the
+`dra.k8s.io/pcieRoot` topology attribute is absent.
+
+**What this blocks:** DRA topology-aware scheduling that uses `pcieRoot` to
+align devices on the same PCIe root complex — for example, co-scheduling a GPU
+with an SR-IOV virtual function (VF) from the same root for optimal data path
+locality. Without `pcieRoot`, ResourceClaims that express cross-device topology
+constraints cannot be validated.
+
+We are actively working on PCIe sysfs simulation to address this gap — see
+[#265](https://github.com/NVIDIA/k8s-test-infra/issues/265) for progress.
+
 ## Troubleshooting
 
 **ImagePullBackOff**: No published image exists yet. Build from source (see Quick Start).
@@ -439,6 +476,8 @@ docker exec "$NODE_CONTAINER" cat /var/lib/nvidia-mock/driver/config/config.yaml
 ```bash
 kubectl -n nvidia logs -l app.kubernetes.io/name=nvidia-dra-driver-gpu --tail=100
 ```
+
+**PCIe root warnings from DRA driver**: See [Known Limitations](#known-limitations).
 
 **Privileged pods blocked**: Your cluster may have PodSecurity or OPA/Gatekeeper
 policies blocking `privileged: true`. KIND allows this by default. For managed
