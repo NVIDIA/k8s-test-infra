@@ -17,10 +17,4 @@ nodeSelector: {}
 tolerations:
   - operator: Exists
 
-resources:
-  limits:
-    cpu: 100m
-    memory: 128Mi
-  requests:
-    cpu: 50m
-    memory: 64Mi
+resources: {}
