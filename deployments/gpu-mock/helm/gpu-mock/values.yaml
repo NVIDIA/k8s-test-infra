@@ -16,3 +16,5 @@ driverVersion: ""                  # Auto-derived from profile. Override: "550.1
 nodeSelector: {}
 tolerations:
   - operator: Exists
+
+resources: {}

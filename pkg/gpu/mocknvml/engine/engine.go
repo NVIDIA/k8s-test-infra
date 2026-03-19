@@ -305,13 +305,13 @@ func (e *Engine) DeviceGetHandleByPciBusId(pciBusId string) (uintptr, nvml.Retur
 }
 
 // LookupDevice returns the device object for a given handle.
-// Returns nil if the engine is not initialized or the handle is invalid.
+// Returns InvalidDeviceInstance if the engine is not initialized or the handle is invalid.
 func (e *Engine) LookupDevice(handle uintptr) nvml.Device {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
 	if e.initCount == 0 {
-		return nil
+		return InvalidDeviceInstance
 	}
 	return e.handles.Lookup(handle)
 }

@@ -257,12 +257,24 @@ func TestEngine_LookupDevice(t *testing.T) {
 
 func TestEngine_LookupDeviceBeforeInit(t *testing.T) {
 	e := NewEngine(nil)
-
-	// LookupDevice should return nil when not initialized (engine not ready)
-	// This is different from InvalidDeviceInstance which is for invalid handles in an initialized engine
 	dev := e.LookupDevice(1)
+	if dev == nil {
+		t.Fatal("LookupDevice on uninitialized engine returned nil, expected InvalidDeviceInstance")
+	}
+	if dev != InvalidDeviceInstance {
+		t.Errorf("Expected InvalidDeviceInstance, got %T", dev)
+	}
+	_, ret := dev.GetName()
+	if ret != nvml.ERROR_INVALID_ARGUMENT {
+		t.Errorf("Expected ERROR_INVALID_ARGUMENT from InvalidDeviceInstance, got %v", ret)
+	}
+}
+
+func TestEngine_LookupConfigurableDevice_UninitializedReturnsNil(t *testing.T) {
+	e := NewEngine(nil)
+	dev := e.LookupConfigurableDevice(0x1234)
 	if dev != nil {
-		t.Error("Expected nil when engine not initialized")
+		t.Error("LookupConfigurableDevice on uninitialized engine should return nil")
 	}
 }
 
