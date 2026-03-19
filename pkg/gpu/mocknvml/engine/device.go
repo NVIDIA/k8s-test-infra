@@ -1159,10 +1159,12 @@ func parseArchitecture(arch string) nvml.DeviceArchitecture {
 		return nvml.DEVICE_ARCH_TURING
 	case "ampere":
 		return nvml.DEVICE_ARCH_AMPERE
-	case "ada":
+	case "ada", "ada_lovelace":
 		return nvml.DEVICE_ARCH_ADA
 	case "hopper":
 		return nvml.DEVICE_ARCH_HOPPER
+	case "blackwell":
+		return nvml.DEVICE_ARCH_BLACKWELL
 	default:
 		return nvml.DEVICE_ARCH_UNKNOWN
 	}
