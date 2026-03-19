@@ -15,10 +15,17 @@ package engine
 
 import (
 	"fmt"
+	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
 )
+
+// nvmlStructVersion computes NVML_STRUCT_VERSION(size, ver) = size | (ver << 24).
+// This matches the NVML C macro encoding used for versioned structs.
+func nvmlStructVersion(structSize uintptr, version uint32) uint32 {
+	return uint32(structSize) | (version << 24)
+}
 
 // MaxDevices is the maximum number of devices supported by the mock server.
 const MaxDevices = 8
@@ -213,7 +220,7 @@ func (d *ConfigurableDevice) GetMemoryInfo() (nvml.Memory, nvml.Return) {
 // GetMemoryInfo_v2 returns GPU memory information (v2 API)
 func (d *ConfigurableDevice) GetMemoryInfo_v2() (nvml.Memory_v2, nvml.Return) {
 	mem := nvml.Memory_v2{
-		Version:  2,
+		Version:  nvmlStructVersion(unsafe.Sizeof(nvml.Memory_v2{}), 2),
 		Total:    d.MemoryInfo.Total,
 		Reserved: 0,
 		Free:     d.MemoryInfo.Free,
@@ -335,151 +342,128 @@ func (d *ConfigurableDevice) GetBoardPartNumber() (string, nvml.Return) {
 
 // GetTemperature returns the GPU temperature
 func (d *ConfigurableDevice) GetTemperature(sensor nvml.TemperatureSensors) (uint32, nvml.Return) {
-	temp := uint32(0)
-	if d.config != nil && d.config.Thermal != nil {
-		switch sensor {
-		case nvml.TEMPERATURE_GPU:
-			temp = uint32(d.config.Thermal.TemperatureGPU_C)
-		default:
-			temp = uint32(d.config.Thermal.TemperatureGPU_C)
-		}
-	}
-	debugLog("[NVML] nvmlDeviceGetTemperature(sensor=%d) -> %d\n", sensor, temp)
-	if temp == 0 {
+	if d.config == nil || d.config.Thermal == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	var temp uint32
+	switch sensor {
+	case nvml.TEMPERATURE_GPU:
+		temp = uint32(d.config.Thermal.TemperatureGPU_C)
+	default:
+		temp = uint32(d.config.Thermal.TemperatureGPU_C)
+	}
+	debugLog("[NVML] nvmlDeviceGetTemperature(sensor=%d) -> %d\n", sensor, temp)
 	return temp, nvml.SUCCESS
 }
 
 // GetTemperatureThreshold returns temperature thresholds
 func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.TemperatureThresholds) (uint32, nvml.Return) {
-	temp := uint32(0)
-	if d.config != nil && d.config.Thermal != nil {
-		switch thresholdType {
-		case nvml.TEMPERATURE_THRESHOLD_SHUTDOWN:
-			temp = uint32(d.config.Thermal.ShutdownThreshold_C)
-		case nvml.TEMPERATURE_THRESHOLD_SLOWDOWN:
-			temp = uint32(d.config.Thermal.SlowdownThreshold_C)
-		case nvml.TEMPERATURE_THRESHOLD_GPU_MAX:
-			temp = uint32(d.config.Thermal.MaxOperating_C)
-		default:
-			temp = uint32(d.config.Thermal.MaxOperating_C)
-		}
-	}
-	debugLog("[NVML] nvmlDeviceGetTemperatureThreshold(type=%d) -> %d\n", thresholdType, temp)
-	if temp == 0 {
+	if d.config == nil || d.config.Thermal == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	var temp uint32
+	switch thresholdType {
+	case nvml.TEMPERATURE_THRESHOLD_SHUTDOWN:
+		temp = uint32(d.config.Thermal.ShutdownThreshold_C)
+	case nvml.TEMPERATURE_THRESHOLD_SLOWDOWN:
+		temp = uint32(d.config.Thermal.SlowdownThreshold_C)
+	case nvml.TEMPERATURE_THRESHOLD_GPU_MAX:
+		temp = uint32(d.config.Thermal.MaxOperating_C)
+	default:
+		temp = uint32(d.config.Thermal.MaxOperating_C)
+	}
+	debugLog("[NVML] nvmlDeviceGetTemperatureThreshold(type=%d) -> %d\n", thresholdType, temp)
 	return temp, nvml.SUCCESS
 }
 
 // GetPowerUsage returns current power draw in milliwatts
 func (d *ConfigurableDevice) GetPowerUsage() (uint32, nvml.Return) {
-	power := uint32(0)
-	if d.config != nil && d.config.Power != nil {
-		power = d.config.Power.CurrentDrawMW
-	}
-	debugLog("[NVML] nvmlDeviceGetPowerUsage -> %d mW\n", power)
-	if power == 0 {
+	if d.config == nil || d.config.Power == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	power := d.config.Power.CurrentDrawMW
+	debugLog("[NVML] nvmlDeviceGetPowerUsage -> %d mW\n", power)
 	return power, nvml.SUCCESS
 }
 
 // GetPowerManagementLimit returns the power management limit in milliwatts
 func (d *ConfigurableDevice) GetPowerManagementLimit() (uint32, nvml.Return) {
-	limit := uint32(0)
-	if d.config != nil && d.config.Power != nil {
-		limit = d.config.Power.EnforcedLimitMW
-	}
-	debugLog("[NVML] nvmlDeviceGetPowerManagementLimit -> %d mW\n", limit)
-	if limit == 0 {
+	if d.config == nil || d.config.Power == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	limit := d.config.Power.EnforcedLimitMW
+	debugLog("[NVML] nvmlDeviceGetPowerManagementLimit -> %d mW\n", limit)
 	return limit, nvml.SUCCESS
 }
 
 // GetPowerManagementDefaultLimit returns the default power limit
 func (d *ConfigurableDevice) GetPowerManagementDefaultLimit() (uint32, nvml.Return) {
-	limit := uint32(0)
-	if d.config != nil && d.config.Power != nil {
-		limit = d.config.Power.DefaultLimitMW
-	}
-	debugLog("[NVML] nvmlDeviceGetPowerManagementDefaultLimit -> %d mW\n", limit)
-	if limit == 0 {
+	if d.config == nil || d.config.Power == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	limit := d.config.Power.DefaultLimitMW
+	debugLog("[NVML] nvmlDeviceGetPowerManagementDefaultLimit -> %d mW\n", limit)
 	return limit, nvml.SUCCESS
 }
 
 // GetEnforcedPowerLimit returns the enforced power limit
 func (d *ConfigurableDevice) GetEnforcedPowerLimit() (uint32, nvml.Return) {
-	limit := uint32(0)
-	if d.config != nil && d.config.Power != nil {
-		limit = d.config.Power.EnforcedLimitMW
-	}
-	debugLog("[NVML] nvmlDeviceGetEnforcedPowerLimit -> %d mW\n", limit)
-	if limit == 0 {
+	if d.config == nil || d.config.Power == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	limit := d.config.Power.EnforcedLimitMW
+	debugLog("[NVML] nvmlDeviceGetEnforcedPowerLimit -> %d mW\n", limit)
 	return limit, nvml.SUCCESS
 }
 
 // GetPowerManagementLimitConstraints returns min/max power limits
 func (d *ConfigurableDevice) GetPowerManagementLimitConstraints() (uint32, uint32, nvml.Return) {
-	minLimit, maxLimit := uint32(0), uint32(0)
-	if d.config != nil && d.config.Power != nil {
-		minLimit = d.config.Power.MinLimitMW
-		maxLimit = d.config.Power.MaxLimitMW
-	}
-	debugLog("[NVML] nvmlDeviceGetPowerManagementLimitConstraints -> min=%d max=%d mW\n", minLimit, maxLimit)
-	if minLimit == 0 && maxLimit == 0 {
+	if d.config == nil || d.config.Power == nil {
 		return 0, 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	minLimit := d.config.Power.MinLimitMW
+	maxLimit := d.config.Power.MaxLimitMW
+	debugLog("[NVML] nvmlDeviceGetPowerManagementLimitConstraints -> min=%d max=%d mW\n", minLimit, maxLimit)
 	return minLimit, maxLimit, nvml.SUCCESS
 }
 
 // GetClockInfo returns current clock frequencies
 func (d *ConfigurableDevice) GetClockInfo(clockType nvml.ClockType) (uint32, nvml.Return) {
-	clock := uint32(0)
-	if d.config != nil && d.config.Clocks != nil {
-		switch clockType {
-		case nvml.CLOCK_GRAPHICS:
-			clock = d.config.Clocks.GraphicsCurrent
-		case nvml.CLOCK_SM:
-			clock = d.config.Clocks.SMCurrent
-		case nvml.CLOCK_MEM:
-			clock = d.config.Clocks.MemoryCurrent
-		case nvml.CLOCK_VIDEO:
-			clock = d.config.Clocks.VideoCurrent
-		}
-	}
-	debugLog("[NVML] nvmlDeviceGetClockInfo(type=%d) -> %d MHz\n", clockType, clock)
-	if clock == 0 {
+	if d.config == nil || d.config.Clocks == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	var clock uint32
+	switch clockType {
+	case nvml.CLOCK_GRAPHICS:
+		clock = d.config.Clocks.GraphicsCurrent
+	case nvml.CLOCK_SM:
+		clock = d.config.Clocks.SMCurrent
+	case nvml.CLOCK_MEM:
+		clock = d.config.Clocks.MemoryCurrent
+	case nvml.CLOCK_VIDEO:
+		clock = d.config.Clocks.VideoCurrent
+	}
+	debugLog("[NVML] nvmlDeviceGetClockInfo(type=%d) -> %d MHz\n", clockType, clock)
 	return clock, nvml.SUCCESS
 }
 
 // GetMaxClockInfo returns maximum clock frequencies
 func (d *ConfigurableDevice) GetMaxClockInfo(clockType nvml.ClockType) (uint32, nvml.Return) {
-	clock := uint32(0)
-	if d.config != nil && d.config.Clocks != nil {
-		switch clockType {
-		case nvml.CLOCK_GRAPHICS:
-			clock = d.config.Clocks.GraphicsMax
-		case nvml.CLOCK_SM:
-			clock = d.config.Clocks.SMMax
-		case nvml.CLOCK_MEM:
-			clock = d.config.Clocks.MemoryMax
-		case nvml.CLOCK_VIDEO:
-			clock = d.config.Clocks.VideoMax
-		}
-	}
-	debugLog("[NVML] nvmlDeviceGetMaxClockInfo(type=%d) -> %d MHz\n", clockType, clock)
-	if clock == 0 {
+	if d.config == nil || d.config.Clocks == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	var clock uint32
+	switch clockType {
+	case nvml.CLOCK_GRAPHICS:
+		clock = d.config.Clocks.GraphicsMax
+	case nvml.CLOCK_SM:
+		clock = d.config.Clocks.SMMax
+	case nvml.CLOCK_MEM:
+		clock = d.config.Clocks.MemoryMax
+	case nvml.CLOCK_VIDEO:
+		clock = d.config.Clocks.VideoMax
+	}
+	debugLog("[NVML] nvmlDeviceGetMaxClockInfo(type=%d) -> %d MHz\n", clockType, clock)
 	return clock, nvml.SUCCESS
 }
 
