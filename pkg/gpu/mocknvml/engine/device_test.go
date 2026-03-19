@@ -15,6 +15,7 @@ package engine
 
 import (
 	"testing"
+	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
@@ -1084,5 +1085,124 @@ func TestConfigurableDevice_GetGpmSupport_Default(t *testing.T) {
 	// Default: not supported
 	if supported != 0 {
 		t.Errorf("Expected 0 (not supported), got %d", supported)
+	}
+}
+
+func TestParseArchitecture(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected nvml.DeviceArchitecture
+	}{
+		{"kepler", nvml.DEVICE_ARCH_KEPLER},
+		{"maxwell", nvml.DEVICE_ARCH_MAXWELL},
+		{"pascal", nvml.DEVICE_ARCH_PASCAL},
+		{"volta", nvml.DEVICE_ARCH_VOLTA},
+		{"turing", nvml.DEVICE_ARCH_TURING},
+		{"ampere", nvml.DEVICE_ARCH_AMPERE},
+		{"ada", nvml.DEVICE_ARCH_ADA},
+		{"ada_lovelace", nvml.DEVICE_ARCH_ADA},
+		{"hopper", nvml.DEVICE_ARCH_HOPPER},
+		{"blackwell", nvml.DEVICE_ARCH_BLACKWELL},
+		{"unknown_arch", nvml.DEVICE_ARCH_UNKNOWN},
+		{"", nvml.DEVICE_ARCH_UNKNOWN},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := parseArchitecture(tt.input)
+			if got != tt.expected {
+				t.Errorf("parseArchitecture(%q) = %d, want %d", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+// =============================================================================
+// Audit Fix Tests: Memory_v2 Version Encoding (C1)
+// =============================================================================
+
+func TestConfigurableDevice_GetMemoryInfo_v2_VersionEncoding(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		Memory: &MemoryConfig{
+			TotalBytes: 42949672960,
+		},
+	})
+
+	mem, ret := dev.GetMemoryInfo_v2()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetMemoryInfo_v2 failed: %v", ret)
+	}
+
+	// NVML_STRUCT_VERSION(Memory, 2) = sizeof(nvmlMemory_v2_t) | (2 << 24)
+	expectedVersion := uint32(unsafe.Sizeof(nvml.Memory_v2{})) | (2 << 24)
+	if mem.Version != expectedVersion {
+		t.Errorf("Expected Version=0x%X (sizeof=%d | 2<<24), got 0x%X",
+			expectedVersion, unsafe.Sizeof(nvml.Memory_v2{}), mem.Version)
+	}
+}
+
+// =============================================================================
+// Audit Fix Tests: Zero-Value Sentinel Bug (T4)
+// =============================================================================
+
+func TestConfigurableDevice_GetTemperature_ZeroIsValid(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		Thermal: &ThermalConfig{
+			TemperatureGPU_C: 0,
+		},
+	})
+
+	temp, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
+	if ret != nvml.SUCCESS {
+		t.Errorf("Expected SUCCESS when Thermal config exists with temp=0, got %v", ret)
+	}
+	if temp != 0 {
+		t.Errorf("Expected 0, got %d", temp)
+	}
+}
+
+func TestConfigurableDevice_GetTemperature_NilConfigReturnsNotSupported(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+	})
+
+	_, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
+	if ret != nvml.ERROR_NOT_SUPPORTED {
+		t.Errorf("Expected NOT_SUPPORTED when no Thermal config, got %v", ret)
+	}
+}
+
+func TestConfigurableDevice_GetPowerUsage_ZeroIsValid(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		Power: &PowerConfig{
+			CurrentDrawMW: 0,
+		},
+	})
+
+	power, ret := dev.GetPowerUsage()
+	if ret != nvml.SUCCESS {
+		t.Errorf("Expected SUCCESS when Power config exists with draw=0, got %v", ret)
+	}
+	if power != 0 {
+		t.Errorf("Expected 0, got %d", power)
+	}
+}
+
+func TestConfigurableDevice_GetClockInfo_ZeroIsValid(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		Clocks: &ClocksConfig{
+			GraphicsCurrent: 0,
+		},
+	})
+
+	clock, ret := dev.GetClockInfo(nvml.CLOCK_GRAPHICS)
+	if ret != nvml.SUCCESS {
+		t.Errorf("Expected SUCCESS when Clocks config exists with graphics=0, got %v", ret)
+	}
+	if clock != 0 {
+		t.Errorf("Expected 0, got %d", clock)
 	}
 }
