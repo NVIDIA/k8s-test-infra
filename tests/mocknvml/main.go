@@ -187,7 +187,13 @@ func main() {
 		log.Fatalf("PCI Bus ID mismatch: expected %s, got %s", busId, busIdCheck)
 	}
 
+	// Run bridge edge-case tests
+	bridgeFailures := runBridgeTests(count)
+
 	log.Println("\n=================================")
-	log.Println("✓ All device plugin tests passed!")
+	if bridgeFailures > 0 {
+		log.Fatalf("FAILED: %d bridge test(s) failed", bridgeFailures)
+	}
+	log.Println("✓ All tests passed!")
 	fmt.Println("\nSUCCESS: Mock NVML library is working correctly!")
 }
