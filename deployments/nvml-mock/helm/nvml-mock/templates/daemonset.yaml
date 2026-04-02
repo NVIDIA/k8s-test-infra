@@ -3,19 +3,19 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ include "nvidia-mock.fullname" . }}
+  name: {{ include "nvml-mock.fullname" . }}
   labels:
-    {{- include "nvidia-mock.labels" . | nindent 4 }}
+    {{- include "nvml-mock.labels" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      {{- include "nvidia-mock.selectorLabels" . | nindent 6 }}
+      {{- include "nvml-mock.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "nvidia-mock.selectorLabels" . | nindent 8 }}
+        {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
     spec:
-      serviceAccountName: {{ include "nvidia-mock.fullname" . }}
+      serviceAccountName: {{ include "nvml-mock.fullname" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -25,7 +25,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: nvidia-mock
+        - name: nvml-mock
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with .Values.resources }}
@@ -39,7 +39,7 @@ spec:
             - name: GPU_COUNT
               value: "{{ .Values.gpu.count }}"
             - name: DRIVER_VERSION
-              value: "{{ include "nvidia-mock.driverVersion" . }}"
+              value: "{{ include "nvml-mock.driverVersion" . }}"
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -49,8 +49,8 @@ spec:
               exec:
                 command: ["/scripts/cleanup.sh"]
           volumeMounts:
-            - name: host-nvidia-mock
-              mountPath: /host/var/lib/nvidia-mock
+            - name: host-nvml-mock
+              mountPath: /host/var/lib/nvml-mock
             - name: gpu-config
               mountPath: /config
             - name: host-cdi
@@ -58,13 +58,13 @@ spec:
             - name: host-run-nvidia
               mountPath: /host/run/nvidia
       volumes:
-        - name: host-nvidia-mock
+        - name: host-nvml-mock
           hostPath:
-            path: /var/lib/nvidia-mock
+            path: /var/lib/nvml-mock
             type: DirectoryOrCreate
         - name: gpu-config
           configMap:
-            name: {{ include "nvidia-mock.fullname" . }}-config
+            name: {{ include "nvml-mock.fullname" . }}-config
         - name: host-cdi
           hostPath:
             path: /var/run/cdi

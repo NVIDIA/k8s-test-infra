@@ -2,7 +2,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Deploys the NVIDIA DRA driver against nvidia-mock and validates ResourceSlices.
+# Deploys the NVIDIA DRA driver against nvml-mock and validates ResourceSlices.
 # Must run after setup-kind-cluster.sh with --dra flag.
 #
 # Usage: ./deploy-dra-driver.sh [--expected-gpus 8]
@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="${LOG_DIR:-$SCRIPT_DIR/logs}"
 
 EXPECTED_GPUS="${EXPECTED_GPUS:-8}"
-CLUSTER_NAME="${CLUSTER_NAME:-nvidia-mock-poc}"
+CLUSTER_NAME="${CLUSTER_NAME:-nvml-mock-poc}"
 DRA_CHART_VERSION="${DRA_CHART_VERSION:-}"  # Empty = latest
 
 while [[ $# -gt 0 ]]; do
@@ -47,7 +47,7 @@ fi
 helm install nvidia-dra-driver nvidia/nvidia-dra-driver-gpu \
   --namespace nvidia \
   --create-namespace \
-  --set nvidiaDriverRoot=/var/lib/nvidia-mock/driver \
+  --set nvidiaDriverRoot=/var/lib/nvml-mock/driver \
   --set gpuResourcesEnabledOverride=true \
   --set resources.computeDomains.enabled=false \
   $VERSION_FLAG \

@@ -3,22 +3,22 @@
 Kubernetes test infrastructure for NVIDIA GPU software — mock GPU environments,
 CI tooling, and testing utilities.
 
-## nvidia-mock
+## nvml-mock
 
 Turn any Kubernetes cluster into a multi-GPU environment for testing.
 No physical NVIDIA hardware required.
 
 ```bash
 # 1. Build the image (no published image yet)
-docker build -t nvidia-mock:local -f deployments/nvidia-mock/Dockerfile .
+docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .
 
 # 2. Load into KIND
 kind create cluster --name gpu-test
-kind load docker-image nvidia-mock:local --name gpu-test
+kind load docker-image nvml-mock:local --name gpu-test
 
 # 3. Install
-helm install nvidia-mock deployments/nvidia-mock/helm/nvidia-mock \
-  --set image.repository=nvidia-mock \
+helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+  --set image.repository=nvml-mock \
   --set image.tag=local
 ```
 
@@ -26,15 +26,15 @@ After install, deploy a consumer to test:
 
 | Consumer | Guide |
 |----------|-------|
-| **NVIDIA Device Plugin** | [Quick Start](deployments/nvidia-mock/helm/nvidia-mock/README.md#quick-start-device-plugin-on-kind) |
-| **NVIDIA DRA Driver** | [Quick Start](deployments/nvidia-mock/helm/nvidia-mock/README.md#quick-start-dra-driver-on-kind) |
-| **NVIDIA GPU Operator** | [Quick Start](deployments/nvidia-mock/helm/nvidia-mock/README.md#quick-start-gpu-operator-on-kind) |
+| **NVIDIA Device Plugin** | [Quick Start](deployments/nvml-mock/helm/nvml-mock/README.md#quick-start-device-plugin-on-kind) |
+| **NVIDIA DRA Driver** | [Quick Start](deployments/nvml-mock/helm/nvml-mock/README.md#quick-start-dra-driver-on-kind) |
+| **NVIDIA GPU Operator** | [Quick Start](deployments/nvml-mock/helm/nvml-mock/README.md#quick-start-gpu-operator-on-kind) |
 
-**Full documentation:** [nvidia-mock Helm chart README](deployments/nvidia-mock/helm/nvidia-mock/README.md)
+**Full documentation:** [nvml-mock Helm chart README](deployments/nvml-mock/helm/nvml-mock/README.md)
 
 ## E2E Testing
 
-The nvidia-mock E2E workflow tests all GPU consumers across multiple profiles
+The nvml-mock E2E workflow tests all GPU consumers across multiple profiles
 and node topologies. Run manually via `workflow_dispatch` or automatically
 on PRs.
 
@@ -47,11 +47,11 @@ on PRs.
 
 Manual dispatch supports all 6 profiles: `a100`, `h100`, `b200`, `gb200`, `l40s`, `t4`.
 
-See [`.github/workflows/nvidia-mock-e2e.yaml`](.github/workflows/nvidia-mock-e2e.yaml) for details.
+See [`.github/workflows/nvml-mock-e2e.yaml`](.github/workflows/nvml-mock-e2e.yaml) for details.
 
 ## Mock NVML Library
 
-The underlying CGo-based mock `libnvidia-ml.so` that powers nvidia-mock.
+The underlying CGo-based mock `libnvidia-ml.so` that powers nvml-mock.
 Use standalone for local development and CI pipelines.
 
 | Document | Description |

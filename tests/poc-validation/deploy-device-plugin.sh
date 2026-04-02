@@ -2,7 +2,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Deploys the NVIDIA device plugin against nvidia-mock and validates GPU count.
+# Deploys the NVIDIA device plugin against nvml-mock and validates GPU count.
 # Must run after setup-kind-cluster.sh.
 #
 # Usage: ./deploy-device-plugin.sh [--expected-gpus 8]
@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 EXPECTED_GPUS="${EXPECTED_GPUS:-8}"
-CLUSTER_NAME="${CLUSTER_NAME:-nvidia-mock-poc}"
+CLUSTER_NAME="${CLUSTER_NAME:-nvml-mock-poc}"
 LOG_DIR="${LOG_DIR:-$SCRIPT_DIR/logs}"
 
 while [[ $# -gt 0 ]]; do
@@ -46,14 +46,14 @@ kubectl -n kube-system logs -l name=nvidia-device-plugin-mock --tail=500 \
   > "$LOG_DIR/device-plugin-startup.log" 2>&1 || true
 echo "Logs saved to $LOG_DIR/device-plugin-startup.log"
 
-# Step 4: Capture NVML debug traces from nvidia-mock pod
+# Step 4: Capture NVML debug traces from nvml-mock pod
 echo ""
-echo "=== Step 4: Capturing NVML debug traces from nvidia-mock ==="
+echo "=== Step 4: Capturing NVML debug traces from nvml-mock ==="
 # The MOCK_NVML_DEBUG traces go to stderr of the process that loaded libnvidia-ml.so.
 # For device plugin, traces appear in the device plugin container's stderr.
-# We also check the nvidia-mock pod for any traces from setup.
-kubectl logs -l app.kubernetes.io/name=nvidia-mock --tail=200 \
-  > "$LOG_DIR/nvidia-mock-pod.log" 2>&1 || true
+# We also check the nvml-mock pod for any traces from setup.
+kubectl logs -l app.kubernetes.io/name=nvml-mock --tail=200 \
+  > "$LOG_DIR/nvml-mock-pod.log" 2>&1 || true
 
 # Step 5: Verify allocatable GPUs
 echo ""

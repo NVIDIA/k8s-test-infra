@@ -24,8 +24,8 @@ spec:
         - name: nvidia-device-plugin
           image: nvcr.io/nvidia/k8s-device-plugin:v0.18.2
           args:
-            - "--nvidia-driver-root=/var/lib/nvidia-mock/driver"
-            - "--driver-root-ctr-path=/var/lib/nvidia-mock/driver"
+            - "--nvidia-driver-root=/var/lib/nvml-mock/driver"
+            - "--driver-root-ctr-path=/var/lib/nvml-mock/driver"
             - "--device-discovery-strategy=nvml"
           env:
             - name: MOCK_NVML_DEBUG
@@ -34,14 +34,14 @@ spec:
             privileged: true
           volumeMounts:
             - name: mock-root
-              mountPath: /var/lib/nvidia-mock
+              mountPath: /var/lib/nvml-mock
               readOnly: true
             - name: device-plugins
               mountPath: /var/lib/kubelet/device-plugins
       volumes:
         - name: mock-root
           hostPath:
-            path: /var/lib/nvidia-mock
+            path: /var/lib/nvml-mock
         - name: device-plugins
           hostPath:
             path: /var/lib/kubelet/device-plugins

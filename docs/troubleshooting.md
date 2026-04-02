@@ -339,18 +339,18 @@ expected files.
 **Solution**: Ensure the mock driver root has all required files:
 ```bash
 # Use the specific Kind cluster and node name (adjust cluster name as needed)
-NODE_CONTAINER="nvidia-mock-operator-control-plane"
+NODE_CONTAINER="nvml-mock-operator-control-plane"
 docker exec "$NODE_CONTAINER" ls -la /run/nvidia/driver/usr/lib64/libnvidia-ml.so*
-docker exec "$NODE_CONTAINER" cat /var/lib/nvidia-mock/driver/config/config.yaml
+docker exec "$NODE_CONTAINER" cat /var/lib/nvml-mock/driver/config/config.yaml
 ```
 
 ### CDI Spec Not Generated
 
 **Problem**: CDI specs are not appearing in `/var/run/cdi/`.
 
-**Solution**: Check nvidia-mock DaemonSet logs for CDI generation errors:
+**Solution**: Check nvml-mock DaemonSet logs for CDI generation errors:
 ```bash
-kubectl logs -l app.kubernetes.io/name=nvidia-mock | grep -i cdi
+kubectl logs -l app.kubernetes.io/name=nvml-mock | grep -i cdi
 ```
 
 ### Device Plugin Shows 0 GPUs with GPU Operator

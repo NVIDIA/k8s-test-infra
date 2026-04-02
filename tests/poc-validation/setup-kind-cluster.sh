@@ -2,7 +2,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Creates a Kind cluster with nvidia-mock installed (A100 profile).
+# Creates a Kind cluster with nvml-mock installed (A100 profile).
 # Usage: ./setup-kind-cluster.sh [--profile a100] [--gpu-count 8] [--dra]
 #
 # Prerequisites: docker, kind, helm, kubectl
@@ -16,7 +16,7 @@ GPU_PROFILE="${GPU_PROFILE:-a100}"
 GPU_COUNT="${GPU_COUNT:-8}"
 GOLANG_VERSION="${GOLANG_VERSION:-1.25}"
 ENABLE_DRA="${ENABLE_DRA:-false}"
-CLUSTER_NAME="nvidia-mock-poc"
+CLUSTER_NAME="nvml-mock-poc"
 MOCK_NVML_DEBUG="${MOCK_NVML_DEBUG:-1}"
 
 # Parse arguments
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "=== nvidia-mock PoC Validation ==="
+echo "=== nvml-mock PoC Validation ==="
 echo "Profile: $GPU_PROFILE"
 echo "GPU Count: $GPU_COUNT"
 echo "DRA Enabled: $ENABLE_DRA"
@@ -69,23 +69,23 @@ else
   kind create cluster --name "$CLUSTER_NAME"
 fi
 
-# Step 2: Build nvidia-mock image
+# Step 2: Build nvml-mock image
 echo ""
-echo "=== Step 2: Building nvidia-mock image ==="
-docker build -t nvidia-mock:poc -f "$REPO_ROOT/deployments/nvidia-mock/Dockerfile" \
+echo "=== Step 2: Building nvml-mock image ==="
+docker build -t nvml-mock:poc -f "$REPO_ROOT/deployments/nvml-mock/Dockerfile" \
   --build-arg GOLANG_VERSION="$GOLANG_VERSION" \
   "$REPO_ROOT"
 
 # Step 3: Load image into Kind
 echo ""
 echo "=== Step 3: Loading image into Kind ==="
-kind load docker-image nvidia-mock:poc --name "$CLUSTER_NAME"
+kind load docker-image nvml-mock:poc --name "$CLUSTER_NAME"
 
-# Step 4: Install nvidia-mock Helm chart
+# Step 4: Install nvml-mock Helm chart
 echo ""
-echo "=== Step 4: Installing nvidia-mock Helm chart (profile=$GPU_PROFILE, count=$GPU_COUNT) ==="
-helm install nvidia-mock "$REPO_ROOT/deployments/nvidia-mock/helm/nvidia-mock" \
-  --set image.repository=nvidia-mock \
+echo "=== Step 4: Installing nvml-mock Helm chart (profile=$GPU_PROFILE, count=$GPU_COUNT) ==="
+helm install nvml-mock "$REPO_ROOT/deployments/nvml-mock/helm/nvml-mock" \
+  --set image.repository=nvml-mock \
   --set image.tag=poc \
   --set gpu.profile="$GPU_PROFILE" \
   --set gpu.count="$GPU_COUNT" \
@@ -93,16 +93,16 @@ helm install nvidia-mock "$REPO_ROOT/deployments/nvidia-mock/helm/nvidia-mock" \
 
 # Step 5: Wait for DaemonSet
 echo ""
-echo "=== Step 5: Waiting for nvidia-mock DaemonSet ==="
-kubectl rollout status daemonset/nvidia-mock --timeout=60s
+echo "=== Step 5: Waiting for nvml-mock DaemonSet ==="
+kubectl rollout status daemonset/nvml-mock --timeout=60s
 
 # Step 6: Verify mock files on node
 echo ""
 echo "=== Step 6: Verifying mock files on node ==="
 NODE_CONTAINER="${CLUSTER_NAME}-control-plane"
-docker exec "$NODE_CONTAINER" test -L /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.1
-docker exec "$NODE_CONTAINER" test -f /var/lib/nvidia-mock/driver/config/config.yaml
-docker exec "$NODE_CONTAINER" test -e /var/lib/nvidia-mock/dev/nvidia0
+docker exec "$NODE_CONTAINER" test -L /var/lib/nvml-mock/driver/usr/lib64/libnvidia-ml.so.1
+docker exec "$NODE_CONTAINER" test -f /var/lib/nvml-mock/driver/config/config.yaml
+docker exec "$NODE_CONTAINER" test -e /var/lib/nvml-mock/dev/nvidia0
 echo "Mock files verified on node"
 
 # Step 7: Verify node labels

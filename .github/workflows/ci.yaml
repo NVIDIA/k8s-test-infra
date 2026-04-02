@@ -24,8 +24,8 @@ jobs:
   basic:
     uses: ./.github/workflows/basic-checks.yaml
 
-  nvidia-mock-e2e:
+  nvml-mock-e2e:
     needs: [basic]
-    uses: ./.github/workflows/nvidia-mock-e2e.yaml
+    uses: ./.github/workflows/nvml-mock-e2e.yaml
     with:
       golang_version: ${{ needs.basic.outputs.golang_version }}

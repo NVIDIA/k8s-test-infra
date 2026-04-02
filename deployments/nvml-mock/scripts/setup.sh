@@ -3,12 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Sets up mock GPU environment on the host filesystem.
-# Runs as an entrypoint in the nvidia-mock DaemonSet container.
+# Runs as an entrypoint in the nvml-mock DaemonSet container.
 #
 # Required env vars: GPU_COUNT, DRIVER_VERSION, NODE_NAME
 set -e
 
-HOST=/host/var/lib/nvidia-mock
+HOST=/host/var/lib/nvml-mock
 DRIVER_ROOT=$HOST/driver
 DEV_ROOT=$HOST/dev
 CONFIG_DIR=$HOST/config
@@ -74,16 +74,16 @@ kind: "nvidia.com/gpu"
 containerEdits:
   deviceNodes:
     - path: /dev/nvidiactl
-      hostPath: /var/lib/nvidia-mock/dev/nvidiactl
+      hostPath: /var/lib/nvml-mock/dev/nvidiactl
     - path: /dev/nvidia-uvm
-      hostPath: /var/lib/nvidia-mock/dev/nvidia-uvm
+      hostPath: /var/lib/nvml-mock/dev/nvidia-uvm
     - path: /dev/nvidia-uvm-tools
-      hostPath: /var/lib/nvidia-mock/dev/nvidia-uvm-tools
+      hostPath: /var/lib/nvml-mock/dev/nvidia-uvm-tools
   mounts:
-    - hostPath: /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.1
+    - hostPath: /var/lib/nvml-mock/driver/usr/lib64/libnvidia-ml.so.1
       containerPath: /usr/lib64/libnvidia-ml.so.1
       options: [ro, nosuid, nodev, bind]
-    - hostPath: /var/lib/nvidia-mock/driver/usr/bin/nvidia-smi
+    - hostPath: /var/lib/nvml-mock/driver/usr/bin/nvidia-smi
       containerPath: /usr/bin/nvidia-smi
       options: [ro, nosuid, nodev, bind]
   hooks:
@@ -102,7 +102,7 @@ for i in $(seq 0 $((GPU_COUNT - 1))); do
     containerEdits:
       deviceNodes:
         - path: /dev/nvidia$i
-          hostPath: /var/lib/nvidia-mock/dev/nvidia$i
+          hostPath: /var/lib/nvml-mock/dev/nvidia$i
 DEVICE_EOF
 done
 
@@ -112,7 +112,7 @@ echo '    containerEdits:' >> "$CDI_DIR/nvidia.yaml"
 echo '      deviceNodes:' >> "$CDI_DIR/nvidia.yaml"
 for i in $(seq 0 $((GPU_COUNT - 1))); do
   echo "        - path: /dev/nvidia$i" >> "$CDI_DIR/nvidia.yaml"
-  echo "          hostPath: /var/lib/nvidia-mock/dev/nvidia$i" >> "$CDI_DIR/nvidia.yaml"
+  echo "          hostPath: /var/lib/nvml-mock/dev/nvidia$i" >> "$CDI_DIR/nvidia.yaml"
 done
 
 echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices)"
@@ -122,7 +122,7 @@ echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices)"
 #    so it finds libnvidia-ml.so.1 relative to its own location. This works for:
 #    - GPU Operator validator:  /run/nvidia/driver/usr/bin/ → ../lib64
 #    - CDI injection:           /usr/bin/ → ../lib64 (CDI also mounts libs there)
-#    - DRA kubelet-plugin:      /var/lib/nvidia-mock/driver/usr/bin/ → ../lib64
+#    - DRA kubelet-plugin:      /var/lib/nvml-mock/driver/usr/bin/ → ../lib64
 #    - Kind node direct:        same path
 #
 #    We also install a shell fallback (nvidia-smi.sh) for environments without
@@ -192,6 +192,6 @@ fi
 #    into the driver-validation init container. By symlinking to our mock driver
 #    root, the validator finds nvidia-smi and mock NVML at the expected path.
 mkdir -p /host/run/nvidia
-ln -sfn /var/lib/nvidia-mock/driver /host/run/nvidia/driver
+ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 
 echo "Mock GPU environment ready: $GPU_COUNT GPUs at $HOST"

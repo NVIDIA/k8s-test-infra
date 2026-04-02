@@ -7,7 +7,7 @@ gpu:
   customConfig: ""
 
 image:
-  repository: ghcr.io/nvidia/nvidia-mock
+  repository: ghcr.io/nvidia/nvml-mock
   tag: latest
   pullPolicy: IfNotPresent
 

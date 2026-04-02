@@ -1,7 +1,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# GPU Feature Discovery DaemonSet for E2E testing with nvidia-mock chart.
+# GPU Feature Discovery DaemonSet for E2E testing with nvml-mock chart.
 # Deploys GFD standalone (without GPU Operator) to label nodes with GPU attributes.
 #
 # Expected node labels after GFD runs:
@@ -34,7 +34,7 @@ spec:
           image: nvcr.io/nvidia/gpu-feature-discovery:v0.17.0
           imagePullPolicy: IfNotPresent
           args:
-            - "--nvidia-driver-root=/var/lib/nvidia-mock/driver"
+            - "--nvidia-driver-root=/var/lib/nvml-mock/driver"
           env:
             - name: NODE_NAME
               valueFrom:
@@ -46,7 +46,7 @@ spec:
             privileged: true
           volumeMounts:
             - name: mock-root
-              mountPath: /var/lib/nvidia-mock
+              mountPath: /var/lib/nvml-mock
               readOnly: true
             - name: output-dir
               mountPath: /etc/kubernetes/node-feature-discovery/features.d
@@ -56,7 +56,7 @@ spec:
       volumes:
         - name: mock-root
           hostPath:
-            path: /var/lib/nvidia-mock
+            path: /var/lib/nvml-mock
         - name: output-dir
           hostPath:
             path: /etc/kubernetes/node-feature-discovery/features.d

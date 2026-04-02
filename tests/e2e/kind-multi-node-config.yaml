@@ -4,12 +4,12 @@
 # Kind cluster config for multi-node GPU fleet simulation.
 # Creates 1 control-plane + 2 workers with CDI enabled on all nodes.
 # Each worker gets a different GPU profile via separate Helm releases
-# using nodeSelector to target the nvidia-mock/profile label.
+# using nodeSelector to target the nvml-mock/profile label.
 #
 # Usage:
 #   kind create cluster --name gpu-fleet --config tests/e2e/kind-multi-node-config.yaml
-#   helm install nvidia-mock-a100 nvidia-mock/ --set gpu.profile=a100 --set nodeSelector.nvidia-mock/profile=a100
-#   helm install nvidia-mock-t4 nvidia-mock/ --set gpu.profile=t4 --set nodeSelector.nvidia-mock/profile=t4
+#   helm install nvml-mock-a100 nvml-mock/ --set gpu.profile=a100 --set nodeSelector.nvml-mock/profile=a100
+#   helm install nvml-mock-t4 nvml-mock/ --set gpu.profile=t4 --set nodeSelector.nvml-mock/profile=t4
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 containerdConfigPatches:
@@ -24,7 +24,7 @@ nodes:
   - role: control-plane
   - role: worker
     labels:
-      nvidia-mock/profile: a100
+      nvml-mock/profile: a100
   - role: worker
     labels:
-      nvidia-mock/profile: t4
+      nvml-mock/profile: t4

@@ -14,7 +14,7 @@ echo "=== Validating nvidia-smi on $NODE_CONTAINER ==="
 
 # Run nvidia-smi inside the Kind node container.
 # The ELF binary has RPATH=$ORIGIN/../lib64, so it finds libs automatically.
-NVIDIA_SMI_CMD="/var/lib/nvidia-mock/driver/usr/bin/nvidia-smi"
+NVIDIA_SMI_CMD="/var/lib/nvml-mock/driver/usr/bin/nvidia-smi"
 
 echo "--- nvidia-smi default output ---"
 OUTPUT=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI_CMD" 2>&1) || {

@@ -1,4 +1,4 @@
-# nvidia-mock E2E Consumer Version Matrix
+# nvml-mock E2E Consumer Version Matrix
 
 Tested component versions for the mock GPU E2E test suite.
 
@@ -28,7 +28,7 @@ The GPU Operator is tested via a values overlay (`gpu-operator-values.yaml`) tha
 ### Not Supported
 - **DCGM / DCGM Exporter**: requires full driver telemetry stack
 - **MIG Manager**: requires real driver for MIG partition operations
-- **Container Toolkit**: not needed (mock libs placed on host by nvidia-mock chart)
+- **Container Toolkit**: not needed (mock libs placed on host by nvml-mock chart)
 - **Node Status Exporter**: depends on DCGM
 
 ## Kind Cluster Requirements

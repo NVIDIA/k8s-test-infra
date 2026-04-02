@@ -1,7 +1,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# GPU Operator Validator pod for E2E testing with nvidia-mock chart.
+# GPU Operator Validator pod for E2E testing with nvml-mock chart.
 # Runs cuda-vectorAdd against the mock libcuda.so to verify the CUDA mock
 # supports basic kernel launch.
 #
@@ -28,10 +28,10 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: LD_LIBRARY_PATH
-              value: "/var/lib/nvidia-mock/driver/usr/lib64"
+              value: "/var/lib/nvml-mock/driver/usr/lib64"
           volumeMounts:
             - name: mock-root
-              mountPath: /var/lib/nvidia-mock
+              mountPath: /var/lib/nvml-mock
               readOnly: true
           resources:
             limits:
@@ -39,4 +39,4 @@ spec:
       volumes:
         - name: mock-root
           hostPath:
-            path: /var/lib/nvidia-mock
+            path: /var/lib/nvml-mock

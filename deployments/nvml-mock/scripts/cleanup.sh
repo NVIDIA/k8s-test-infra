@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Cleans up mock GPU environment from host. Runs as preStop hook.
-MOCK_GPU_DIR="/host/var/lib/nvidia-mock"
+MOCK_GPU_DIR="/host/var/lib/nvml-mock"
 
-if [ -d "$MOCK_GPU_DIR" ] && [ "$MOCK_GPU_DIR" = "/host/var/lib/nvidia-mock" ]; then
+if [ -d "$MOCK_GPU_DIR" ] && [ "$MOCK_GPU_DIR" = "/host/var/lib/nvml-mock" ]; then
   rm -rf "$MOCK_GPU_DIR"/*
 fi
 # Remove GPU Operator compatibility symlink

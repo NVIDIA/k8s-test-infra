@@ -2,7 +2,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# End-to-end PoC validation: creates Kind cluster, deploys nvidia-mock,
+# End-to-end PoC validation: creates Kind cluster, deploys nvml-mock,
 # tests both device plugin and DRA driver, captures NVML traces.
 #
 # Usage: ./run-all.sh [--profile a100] [--gpu-count 8]
@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 GPU_PROFILE="${GPU_PROFILE:-a100}"
 GPU_COUNT="${GPU_COUNT:-8}"
-export CLUSTER_NAME="nvidia-mock-poc"
+export CLUSTER_NAME="nvml-mock-poc"
 export LOG_DIR="$SCRIPT_DIR/logs"
 export EXPECTED_GPUS="$GPU_COUNT"
 
