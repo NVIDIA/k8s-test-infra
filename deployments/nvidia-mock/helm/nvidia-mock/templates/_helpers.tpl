@@ -4,7 +4,7 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "gpu-mock.name" -}}
+{{- define "nvidia-mock.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
@@ -13,7 +13,7 @@ Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 If release name contains chart name it will be used as a full name.
 */}}
-{{- define "gpu-mock.fullname" -}}
+{{- define "nvidia-mock.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -29,16 +29,16 @@ If release name contains chart name it will be used as a full name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "gpu-mock.chart" -}}
+{{- define "nvidia-mock.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "gpu-mock.labels" -}}
-helm.sh/chart: {{ include "gpu-mock.chart" . }}
-{{ include "gpu-mock.selectorLabels" . }}
+{{- define "nvidia-mock.labels" -}}
+helm.sh/chart: {{ include "nvidia-mock.chart" . }}
+{{ include "nvidia-mock.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -48,8 +48,8 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "gpu-mock.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "gpu-mock.name" . }}
+{{- define "nvidia-mock.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "nvidia-mock.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
@@ -58,7 +58,7 @@ GPU configuration helper.
 Returns the GPU profile configuration YAML content.
 Priority: customConfig > profile file lookup > fail with error.
 */}}
-{{- define "gpu-mock.gpuConfig" -}}
+{{- define "nvidia-mock.gpuConfig" -}}
 {{- if .Values.gpu.customConfig }}
 {{- .Values.gpu.customConfig }}
 {{- else if eq .Values.gpu.profile "a100" }}
@@ -85,7 +85,7 @@ Blackwell profiles (b200, gb200) use 560.35.03; all others use 550.163.01.
 Note: when gpu.customConfig is set, derivation still uses gpu.profile —
 users with custom configs should set driverVersion explicitly.
 */}}
-{{- define "gpu-mock.driverVersion" -}}
+{{- define "nvidia-mock.driverVersion" -}}
 {{- if .Values.driverVersion -}}
 {{- .Values.driverVersion -}}
 {{- else if or (eq .Values.gpu.profile "b200") (eq .Values.gpu.profile "gb200") -}}
