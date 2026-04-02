@@ -1,4 +1,4 @@
-# gpu-mock Helm Chart
+# nvidia-mock Helm Chart
 
 Mock GPU infrastructure for Kubernetes testing. Turns any cluster into a
 multi-GPU environment using a CGo-based mock NVML library — no physical
@@ -27,44 +27,44 @@ as the NVIDIA driver root and discover GPUs through standard NVML APIs.
 | [jq](https://jqlang.github.io/jq/) | any | DRA verification only |
 
 **Cluster requirements:**
-- Privileged pods must be allowed (gpu-mock DaemonSet uses `privileged: true` for `mknod`)
+- Privileged pods must be allowed (nvidia-mock DaemonSet uses `privileged: true` for `mknod`)
 - For DRA: Kubernetes 1.31+ with `DynamicResourceAllocation` feature gate enabled
 
 ## Quick Start: Device Plugin on KIND
 
 This path uses the NVIDIA device plugin to expose mock GPUs as
 `nvidia.com/gpu` allocatable resources. Tested in CI via
-`.github/workflows/gpu-mock-e2e.yaml` → `e2e-device-plugin` job.
+`.github/workflows/nvidia-mock-e2e.yaml` → `e2e-device-plugin` job.
 
 ### 1. Create a KIND cluster
 
 ```bash
-kind create cluster --name gpu-mock-test
+kind create cluster --name nvidia-mock-test
 ```
 
-### 2. Build and load the gpu-mock image
+### 2. Build and load the nvidia-mock image
 
 There is no published image yet. Build from source:
 
 ```bash
 # From the repository root
-docker build -t gpu-mock:local -f deployments/gpu-mock/Dockerfile .
-kind load docker-image gpu-mock:local --name gpu-mock-test
+docker build -t nvidia-mock:local -f deployments/nvidia-mock/Dockerfile .
+kind load docker-image nvidia-mock:local --name nvidia-mock-test
 ```
 
-### 3. Install gpu-mock
+### 3. Install nvidia-mock
 
 ```bash
-helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
-  --set image.repository=gpu-mock \
+helm install nvidia-mock deployments/nvidia-mock/helm/nvidia-mock \
+  --set image.repository=nvidia-mock \
   --set image.tag=local \
   --wait --timeout 120s
 ```
 
-### 4. Verify gpu-mock is running
+### 4. Verify nvidia-mock is running
 
 ```bash
-kubectl rollout status daemonset/gpu-mock --timeout=60s
+kubectl rollout status daemonset/nvidia-mock --timeout=60s
 kubectl get nodes -o 'custom-columns=NAME:.metadata.name,GPU_PRESENT:.metadata.labels.nvidia\.com/gpu\.present'
 ```
 
@@ -90,19 +90,19 @@ Expected: `8` (default gpu.count).
 ### 7. Clean up
 
 ```bash
-kind delete cluster --name gpu-mock-test
+kind delete cluster --name nvidia-mock-test
 ```
 
 ## Quick Start: DRA Driver on KIND
 
 This path uses the NVIDIA DRA (Dynamic Resource Allocation) driver to expose
 mock GPUs as ResourceSlices. DRA requires a cluster with specific feature
-gates. Tested in CI via `.github/workflows/gpu-mock-e2e.yaml` → `e2e-dra` job.
+gates. Tested in CI via `.github/workflows/nvidia-mock-e2e.yaml` → `e2e-dra` job.
 
 ### 1. Create a KIND cluster with DRA enabled
 
 ```bash
-kind create cluster --name gpu-mock-dra --config tests/e2e/kind-dra-config.yaml
+kind create cluster --name nvidia-mock-dra --config tests/e2e/kind-dra-config.yaml
 ```
 
 This config enables:
@@ -110,26 +110,26 @@ This config enables:
 - CDI (Container Device Interface) in containerd
 - `resource.k8s.io/v1beta1` API
 
-### 2. Build and load the gpu-mock image
+### 2. Build and load the nvidia-mock image
 
 ```bash
-docker build -t gpu-mock:local -f deployments/gpu-mock/Dockerfile .
-kind load docker-image gpu-mock:local --name gpu-mock-dra
+docker build -t nvidia-mock:local -f deployments/nvidia-mock/Dockerfile .
+kind load docker-image nvidia-mock:local --name nvidia-mock-dra
 ```
 
-### 3. Install gpu-mock
+### 3. Install nvidia-mock
 
 ```bash
-helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
-  --set image.repository=gpu-mock \
+helm install nvidia-mock deployments/nvidia-mock/helm/nvidia-mock \
+  --set image.repository=nvidia-mock \
   --set image.tag=local \
   --wait --timeout 120s
 ```
 
-### 4. Verify gpu-mock is running
+### 4. Verify nvidia-mock is running
 
 ```bash
-kubectl rollout status daemonset/gpu-mock --timeout=60s
+kubectl rollout status daemonset/nvidia-mock --timeout=60s
 ```
 
 ### 5. Install the DRA driver
@@ -162,7 +162,7 @@ Expected: `8` (default gpu.count).
 ### 7. Clean up
 
 ```bash
-kind delete cluster --name gpu-mock-dra
+kind delete cluster --name nvidia-mock-dra
 ```
 
 ## Quick Start: GPU Operator on KIND
@@ -175,7 +175,7 @@ setup — see `tests/e2e/kind-gpu-operator-config.yaml` and
 ### 1. Create a KIND cluster
 
 ```bash
-kind create cluster --name gpu-mock-operator \
+kind create cluster --name nvidia-mock-operator \
   --config tests/e2e/kind-gpu-operator-config.yaml
 ```
 
@@ -183,18 +183,18 @@ kind create cluster --name gpu-mock-operator \
 > runtime handler. After cluster creation, `nvidia-container-toolkit` must be
 > installed in the control-plane node — see the E2E workflow for the full setup.
 
-### 2. Build and load the gpu-mock image
+### 2. Build and load the nvidia-mock image
 
 ```bash
-docker build -t gpu-mock:local -f deployments/gpu-mock/Dockerfile .
-kind load docker-image gpu-mock:local --name gpu-mock-operator
+docker build -t nvidia-mock:local -f deployments/nvidia-mock/Dockerfile .
+kind load docker-image nvidia-mock:local --name nvidia-mock-operator
 ```
 
-### 3. Install gpu-mock
+### 3. Install nvidia-mock
 
 ```bash
-helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
-  --set image.repository=gpu-mock \
+helm install nvidia-mock deployments/nvidia-mock/helm/nvidia-mock \
+  --set image.repository=nvidia-mock \
   --set image.tag=local \
   --wait --timeout 120s
 ```
@@ -226,7 +226,7 @@ Expected: `8` (default gpu.count).
 ### 6. Clean up
 
 ```bash
-kind delete cluster --name gpu-mock-operator
+kind delete cluster --name nvidia-mock-operator
 ```
 
 ## Multi-Node Heterogeneous GPU Fleet
@@ -236,23 +236,23 @@ multiple Helm releases with `nodeSelector`:
 
 ```bash
 # Label your nodes (Kind does this via cluster config)
-kubectl label node worker-1 gpu-mock/profile=a100
-kubectl label node worker-2 gpu-mock/profile=t4
+kubectl label node worker-1 nvidia-mock/profile=a100
+kubectl label node worker-2 nvidia-mock/profile=t4
 
 # Install a different GPU profile per node
-helm install gpu-mock-a100 deployments/gpu-mock/helm/gpu-mock \
-  --set image.repository=gpu-mock \
+helm install nvidia-mock-a100 deployments/nvidia-mock/helm/nvidia-mock \
+  --set image.repository=nvidia-mock \
   --set image.tag=local \
   --set gpu.profile=a100 \
   --set gpu.count=4 \
-  --set "nodeSelector.gpu-mock/profile=a100"
+  --set "nodeSelector.nvidia-mock/profile=a100"
 
-helm install gpu-mock-t4 deployments/gpu-mock/helm/gpu-mock \
-  --set image.repository=gpu-mock \
+helm install nvidia-mock-t4 deployments/nvidia-mock/helm/nvidia-mock \
+  --set image.repository=nvidia-mock \
   --set image.tag=local \
   --set gpu.profile=t4 \
   --set gpu.count=2 \
-  --set "nodeSelector.gpu-mock/profile=t4"
+  --set "nodeSelector.nvidia-mock/profile=t4"
 ```
 
 Each release creates its own DaemonSet, ConfigMap, and RBAC resources. The
@@ -270,7 +270,7 @@ For a Kind cluster with labeled workers, see `tests/e2e/kind-multi-node-config.y
 | `gpu.profile` | `a100` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `l40s`, or `t4` |
 | `gpu.count` | `8` | Number of mock GPUs per node |
 | `gpu.customConfig` | `""` | Inline YAML to override profile config entirely |
-| `image.repository` | `ghcr.io/nvidia/gpu-mock` | Container image repository |
+| `image.repository` | `ghcr.io/nvidia/nvidia-mock` | Container image repository |
 | `image.tag` | `latest` | Container image tag |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, auto-derived from `gpu.profile` (even if `gpu.customConfig` is set): A100/H100/L40S/T4 → `550.163.01`, B200/GB200 → `560.35.03`. For non-standard GPUs configured via `gpu.customConfig`, explicitly set `driverVersion`. |
@@ -284,14 +284,14 @@ Select a profile with `--set gpu.profile=<name>`:
 
 ```bash
 # Deploy as an 8-GPU H100 node
-helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
-  --set image.repository=gpu-mock \
+helm install nvidia-mock deployments/nvidia-mock/helm/nvidia-mock \
+  --set image.repository=nvidia-mock \
   --set image.tag=local \
   --set gpu.profile=h100
 
 # Deploy as a 4-GPU B200 node
-helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
-  --set image.repository=gpu-mock \
+helm install nvidia-mock deployments/nvidia-mock/helm/nvidia-mock \
+  --set image.repository=nvidia-mock \
   --set image.tag=local \
   --set gpu.profile=b200 \
   --set gpu.count=4
@@ -335,8 +335,8 @@ For GPU types not covered by built-in profiles, provide your own config YAML.
 Create a YAML file following the profile format, then pass it at install time:
 
 ```bash
-helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
-  --set image.repository=gpu-mock \
+helm install nvidia-mock deployments/nvidia-mock/helm/nvidia-mock \
+  --set image.repository=nvidia-mock \
   --set image.tag=local \
   --set-file gpu.customConfig=my-custom-gpus.yaml
 ```
@@ -376,8 +376,8 @@ gpu:
 ```
 
 ```bash
-helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
-  --set image.repository=gpu-mock \
+helm install nvidia-mock deployments/nvidia-mock/helm/nvidia-mock \
+  --set image.repository=nvidia-mock \
   --set image.tag=local \
   -f custom-values.yaml
 ```
@@ -387,7 +387,7 @@ helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
 Use an existing profile as your starting point:
 
 ```bash
-cp deployments/gpu-mock/helm/gpu-mock/profiles/a100.yaml my-custom-gpus.yaml
+cp deployments/nvidia-mock/helm/nvidia-mock/profiles/a100.yaml my-custom-gpus.yaml
 ```
 
 Key fields to change:
@@ -403,7 +403,7 @@ Key fields to change:
 | `nvlink` | NVLink version and links (or omit for PCIe-only GPUs) |
 
 The full YAML schema matches the fields exposed by `nvidia-smi -x -q`. See the built-in
-profiles in `deployments/gpu-mock/helm/gpu-mock/profiles/` for complete examples.
+profiles in `deployments/nvidia-mock/helm/nvidia-mock/profiles/` for complete examples.
 
 ## How It Works
 
@@ -431,11 +431,11 @@ discovery and monitoring. Some host-level subsystems are not mocked:
 |----------------|-------------------|--------|
 | `/sys/bus/pci/devices/{busID}` sysfs entries | DRA driver | `dra.k8s.io/pcieRoot` attribute absent from ResourceSlices — **blocks topology-aware scheduling demos** (e.g., GPU + SR-IOV VF alignment) |
 | `/sys/bus/pci/devices/{busID}/numa_node` | Device plugin | NUMA-aware topology hints unavailable; scheduling works but NUMA affinity not enforced |
-| `/sys/bus/pci/devices/*/vendor,device,class` | NFD (Node Feature Discovery) | PCI feature labels not auto-detected (gpu-mock sets `nvidia.com/gpu.present` and `pci-10de.present` directly) |
+| `/sys/bus/pci/devices/*/vendor,device,class` | NFD (Node Feature Discovery) | PCI feature labels not auto-detected (nvidia-mock sets `nvidia.com/gpu.present` and `pci-10de.present` directly) |
 
 ### PCIe Root Complex (DRA driver)
 
-When using the DRA driver with gpu-mock, you will see warnings like:
+When using the DRA driver with nvidia-mock, you will see warnings like:
 
 ```
 W0319 11:41:21.314205       1 nvlib.go:491] error getting PCIe root for device 0,
@@ -445,7 +445,7 @@ W0319 11:41:21.314205       1 nvlib.go:491] error getting PCIe root for device 0
 ```
 
 **This warning is expected** but has real impact. The DRA driver resolves PCIe
-root complex topology by reading sysfs symlinks. Since gpu-mock provides a mock
+root complex topology by reading sysfs symlinks. Since nvidia-mock provides a mock
 NVML library (not a full kernel driver), these sysfs entries don't exist. GPUs
 appear in ResourceSlices and are fully allocatable, but the
 `dra.k8s.io/pcieRoot` topology attribute is absent.
@@ -463,7 +463,7 @@ We are actively working on PCIe sysfs simulation to address this gap — see
 
 **ImagePullBackOff**: No published image exists yet. Build from source (see Quick Start).
 
-**DaemonSet not ready**: Check pod logs: `kubectl logs -l app.kubernetes.io/name=gpu-mock`
+**DaemonSet not ready**: Check pod logs: `kubectl logs -l app.kubernetes.io/name=nvidia-mock`
 
 **Device plugin shows 0 GPUs**: Verify mock files exist on the node:
 ```bash
@@ -481,11 +481,11 @@ kubectl -n nvidia logs -l app.kubernetes.io/name=nvidia-dra-driver-gpu --tail=10
 
 **Privileged pods blocked**: Your cluster may have PodSecurity or OPA/Gatekeeper
 policies blocking `privileged: true`. KIND allows this by default. For managed
-clusters, you may need to create a PodSecurity exception for the gpu-mock namespace.
+clusters, you may need to create a PodSecurity exception for the nvidia-mock namespace.
 
 ## Related Documentation
 
-- [Mock NVML Library Documentation](../../../../docs/mocknvml/README.md)
-- [E2E Test Workflow](../../../../.github/workflows/gpu-mock-e2e.yaml)
+- [Mock NVML Library Documentation](../../../../docs/mocknvml-readme.md)
+- [E2E Test Workflow](../../../../.github/workflows/nvidia-mock-e2e.yaml)
 - [KIND DRA Config](../../../../tests/e2e/kind-dra-config.yaml)
 - [Device Plugin Mock Manifest](../../../../tests/e2e/device-plugin-mock.yaml)
