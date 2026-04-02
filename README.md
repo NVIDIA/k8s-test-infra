@@ -9,17 +9,14 @@ Turn any Kubernetes cluster into a multi-GPU environment for testing.
 No physical NVIDIA hardware required.
 
 ```bash
-# 1. Build the image (no published image yet)
-docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .
-
-# 2. Load into KIND
+# 1. Create cluster
 kind create cluster --name gpu-test
-kind load docker-image nvml-mock:local --name gpu-test
+
+# 2. Load the published image (or build locally with: docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .)
+kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name gpu-test
 
 # 3. Install
-helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
-  --set image.repository=nvml-mock \
-  --set image.tag=local
+helm install nvml-mock deployments/nvml-mock/helm/nvml-mock
 ```
 
 After install, deploy a consumer to test:

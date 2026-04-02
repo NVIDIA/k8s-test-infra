@@ -42,9 +42,15 @@ This path uses the NVIDIA device plugin to expose mock GPUs as
 kind create cluster --name nvml-mock-test
 ```
 
-### 2. Build and load the nvml-mock image
+### 2. Load the nvml-mock image
 
-There is no published image yet. Build from source:
+**Option A: Use the published image (recommended)**
+
+```bash
+kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-test
+```
+
+**Option B: Build from source**
 
 ```bash
 # From the repository root
@@ -53,6 +59,15 @@ kind load docker-image nvml-mock:local --name nvml-mock-test
 ```
 
 ### 3. Install nvml-mock
+
+**With published image:**
+
+```bash
+helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+  --wait --timeout 120s
+```
+
+**With locally built image:**
 
 ```bash
 helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
@@ -110,7 +125,15 @@ This config enables:
 - CDI (Container Device Interface) in containerd
 - `resource.k8s.io/v1beta1` API
 
-### 2. Build and load the nvml-mock image
+### 2. Load the nvml-mock image
+
+**Option A: Use the published image (recommended)**
+
+```bash
+kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-dra
+```
+
+**Option B: Build from source**
 
 ```bash
 docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .
@@ -118,6 +141,15 @@ kind load docker-image nvml-mock:local --name nvml-mock-dra
 ```
 
 ### 3. Install nvml-mock
+
+**With published image:**
+
+```bash
+helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+  --wait --timeout 120s
+```
+
+**With locally built image:**
 
 ```bash
 helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
@@ -183,7 +215,15 @@ kind create cluster --name nvml-mock-operator \
 > runtime handler. After cluster creation, `nvidia-container-toolkit` must be
 > installed in the control-plane node — see the E2E workflow for the full setup.
 
-### 2. Build and load the nvml-mock image
+### 2. Load the nvml-mock image
+
+**Option A: Use the published image (recommended)**
+
+```bash
+kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-operator
+```
+
+**Option B: Build from source**
 
 ```bash
 docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .
@@ -191,6 +231,15 @@ kind load docker-image nvml-mock:local --name nvml-mock-operator
 ```
 
 ### 3. Install nvml-mock
+
+**With published image:**
+
+```bash
+helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+  --wait --timeout 120s
+```
+
+**With locally built image:**
 
 ```bash
 helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
@@ -461,7 +510,7 @@ We are actively working on PCIe sysfs simulation to address this gap — see
 
 ## Troubleshooting
 
-**ImagePullBackOff**: No published image exists yet. Build from source (see Quick Start).
+**ImagePullBackOff**: Verify the image is accessible. The published image is at `ghcr.io/nvidia/nvml-mock:latest`. For local builds, ensure the image is loaded into your cluster (see Quick Start).
 
 **DaemonSet not ready**: Check pod logs: `kubectl logs -l app.kubernetes.io/name=nvml-mock`
 
