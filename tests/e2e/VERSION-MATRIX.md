@@ -28,7 +28,7 @@ The GPU Operator is tested via a values overlay (`gpu-operator-values.yaml`) tha
 ### Not Supported
 - **DCGM / DCGM Exporter**: requires full driver telemetry stack
 - **MIG Manager**: requires real driver for MIG partition operations
-- **Container Toolkit**: not needed (mock libs placed on host by gpu-mock chart)
+- **Container Toolkit**: not needed (mock libs placed on host by nvidia-mock chart)
 - **Node Status Exporter**: depends on DCGM
 
 ## Kind Cluster Requirements

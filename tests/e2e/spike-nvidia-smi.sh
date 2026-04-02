@@ -5,7 +5,7 @@
 # Spike: run real nvidia-smi against mock NVML in a container
 # Usage: cd <repo-root> && ./tests/e2e/spike-nvidia-smi.sh
 #
-# The gpu-mock Dockerfile already includes:
+# The nvidia-mock Dockerfile already includes:
 # 1. Mock NVML library (compiled from source)
 # 2. Real nvidia-smi binary (from nvidia-utils package)
 # This script just builds it and runs nvidia-smi with debug enabled.
@@ -17,15 +17,15 @@ set -euo pipefail
 
 GOLANG_VERSION=${GOLANG_VERSION:-1.25}
 PLATFORM="linux/amd64"
-IMAGE="gpu-mock:spike"
+IMAGE="nvidia-mock:spike"
 
-echo "=== Building gpu-mock image (platform: $PLATFORM) ==="
+echo "=== Building nvidia-mock image (platform: $PLATFORM) ==="
 echo "    This may take 10-15 minutes on ARM hosts (QEMU emulation)."
 echo ""
 
 docker build --platform "$PLATFORM" -t "$IMAGE" \
   --build-arg GOLANG_VERSION="$GOLANG_VERSION" \
-  -f deployments/gpu-mock/Dockerfile .
+  -f deployments/nvidia-mock/Dockerfile .
 
 # Common env + run args
 RUN_ARGS=(
@@ -37,7 +37,7 @@ RUN_ARGS=(
 
 # We need a config file inside the container. The Dockerfile doesn't COPY one
 # by default (setup.sh handles it at runtime), so mount it.
-CONFIG="deployments/gpu-mock/helm/gpu-mock/profiles/a100.yaml"
+CONFIG="deployments/nvidia-mock/helm/nvidia-mock/profiles/a100.yaml"
 RUN_ARGS+=(-v "$(pwd)/$CONFIG:/config/config.yaml:ro")
 
 echo ""

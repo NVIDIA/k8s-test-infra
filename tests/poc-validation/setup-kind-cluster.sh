@@ -2,7 +2,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Creates a Kind cluster with gpu-mock installed (A100 profile).
+# Creates a Kind cluster with nvidia-mock installed (A100 profile).
 # Usage: ./setup-kind-cluster.sh [--profile a100] [--gpu-count 8] [--dra]
 #
 # Prerequisites: docker, kind, helm, kubectl
@@ -16,7 +16,7 @@ GPU_PROFILE="${GPU_PROFILE:-a100}"
 GPU_COUNT="${GPU_COUNT:-8}"
 GOLANG_VERSION="${GOLANG_VERSION:-1.25}"
 ENABLE_DRA="${ENABLE_DRA:-false}"
-CLUSTER_NAME="gpu-mock-poc"
+CLUSTER_NAME="nvidia-mock-poc"
 MOCK_NVML_DEBUG="${MOCK_NVML_DEBUG:-1}"
 
 # Parse arguments
@@ -69,23 +69,23 @@ else
   kind create cluster --name "$CLUSTER_NAME"
 fi
 
-# Step 2: Build gpu-mock image
+# Step 2: Build nvidia-mock image
 echo ""
-echo "=== Step 2: Building gpu-mock image ==="
-docker build -t gpu-mock:poc -f "$REPO_ROOT/deployments/gpu-mock/Dockerfile" \
+echo "=== Step 2: Building nvidia-mock image ==="
+docker build -t nvidia-mock:poc -f "$REPO_ROOT/deployments/nvidia-mock/Dockerfile" \
   --build-arg GOLANG_VERSION="$GOLANG_VERSION" \
   "$REPO_ROOT"
 
 # Step 3: Load image into Kind
 echo ""
 echo "=== Step 3: Loading image into Kind ==="
-kind load docker-image gpu-mock:poc --name "$CLUSTER_NAME"
+kind load docker-image nvidia-mock:poc --name "$CLUSTER_NAME"
 
-# Step 4: Install gpu-mock Helm chart
+# Step 4: Install nvidia-mock Helm chart
 echo ""
-echo "=== Step 4: Installing gpu-mock Helm chart (profile=$GPU_PROFILE, count=$GPU_COUNT) ==="
-helm install gpu-mock "$REPO_ROOT/deployments/gpu-mock/helm/gpu-mock" \
-  --set image.repository=gpu-mock \
+echo "=== Step 4: Installing nvidia-mock Helm chart (profile=$GPU_PROFILE, count=$GPU_COUNT) ==="
+helm install nvidia-mock "$REPO_ROOT/deployments/nvidia-mock/helm/nvidia-mock" \
+  --set image.repository=nvidia-mock \
   --set image.tag=poc \
   --set gpu.profile="$GPU_PROFILE" \
   --set gpu.count="$GPU_COUNT" \
@@ -93,8 +93,8 @@ helm install gpu-mock "$REPO_ROOT/deployments/gpu-mock/helm/gpu-mock" \
 
 # Step 5: Wait for DaemonSet
 echo ""
-echo "=== Step 5: Waiting for gpu-mock DaemonSet ==="
-kubectl rollout status daemonset/gpu-mock --timeout=60s
+echo "=== Step 5: Waiting for nvidia-mock DaemonSet ==="
+kubectl rollout status daemonset/nvidia-mock --timeout=60s
 
 # Step 6: Verify mock files on node
 echo ""

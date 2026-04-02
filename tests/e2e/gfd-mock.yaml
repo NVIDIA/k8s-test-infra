@@ -1,7 +1,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# GPU Feature Discovery DaemonSet for E2E testing with gpu-mock chart.
+# GPU Feature Discovery DaemonSet for E2E testing with nvidia-mock chart.
 # Deploys GFD standalone (without GPU Operator) to label nodes with GPU attributes.
 #
 # Expected node labels after GFD runs:

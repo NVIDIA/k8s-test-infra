@@ -1,14 +1,14 @@
 # GPU Mock E2E Tests
 
 End-to-end tests that deploy NVIDIA GPU consumers on a Kind cluster using the
-gpu-mock chart (mock NVML + CUDA libraries instead of real hardware).
+nvidia-mock chart (mock NVML + CUDA libraries instead of real hardware).
 
 ## What runs in CI
 
 The `e2e-device-plugin` and `e2e-dra` jobs run automatically on every push.
 They verify:
 
-- gpu-mock DaemonSet deploys and creates mock device files
+- nvidia-mock DaemonSet deploys and creates mock device files
 - NVIDIA device plugin discovers mock GPUs and registers `nvidia.com/gpu`
 - DRA driver discovers mock GPUs and publishes ResourceSlices
 
@@ -24,15 +24,15 @@ To run the full suite locally:
 docker login nvcr.io -u '$oauthtoken' -p <NGC_API_KEY>
 
 # 2. Create Kind cluster
-kind create cluster --name gpu-mock-e2e
+kind create cluster --name nvidia-mock-e2e
 
-# 3. Build and load gpu-mock image
-docker build -t gpu-mock:e2e -f deployments/gpu-mock/Dockerfile .
-kind load docker-image gpu-mock:e2e --name gpu-mock-e2e
+# 3. Build and load nvidia-mock image
+docker build -t nvidia-mock:e2e -f deployments/nvidia-mock/Dockerfile .
+kind load docker-image nvidia-mock:e2e --name nvidia-mock-e2e
 
-# 4. Install gpu-mock chart
-helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
-  --set image.repository=gpu-mock --set image.tag=e2e --set gpu.count=2 \
+# 4. Install nvidia-mock chart
+helm install nvidia-mock deployments/nvidia-mock/helm/nvidia-mock \
+  --set image.repository=nvidia-mock --set image.tag=e2e --set gpu.count=2 \
   --wait --timeout 120s
 
 # 5. Deploy device plugin
@@ -41,12 +41,12 @@ kubectl -n kube-system wait --for=condition=ready pod -l name=nvidia-device-plug
 
 # 6. Pull, load, and deploy GFD
 docker pull nvcr.io/nvidia/gpu-feature-discovery:v0.17.0
-kind load docker-image nvcr.io/nvidia/gpu-feature-discovery:v0.17.0 --name gpu-mock-e2e
+kind load docker-image nvcr.io/nvidia/gpu-feature-discovery:v0.17.0 --name nvidia-mock-e2e
 kubectl apply -f tests/e2e/gfd-mock.yaml
 
 # 7. Pull, load, and run CUDA validator
 docker pull nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
-kind load docker-image nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 --name gpu-mock-e2e
+kind load docker-image nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 --name nvidia-mock-e2e
 kubectl apply -f tests/e2e/validator-mock.yaml
 kubectl wait --for=condition=complete job/gpu-validator-mock --timeout=120s
 ```

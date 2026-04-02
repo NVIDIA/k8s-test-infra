@@ -1,7 +1,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# GPU Operator Validator pod for E2E testing with gpu-mock chart.
+# GPU Operator Validator pod for E2E testing with nvidia-mock chart.
 # Runs cuda-vectorAdd against the mock libcuda.so to verify the CUDA mock
 # supports basic kernel launch.
 #

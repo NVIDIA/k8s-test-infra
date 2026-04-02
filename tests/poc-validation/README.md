@@ -1,6 +1,6 @@
 # GPU Mock PoC Validation
 
-Reproducible scripts for validating NVIDIA GPU consumers (device plugin, DRA driver) against the gpu-mock infrastructure on Kind clusters.
+Reproducible scripts for validating NVIDIA GPU consumers (device plugin, DRA driver) against the nvidia-mock infrastructure on Kind clusters.
 
 ## Prerequisites
 
@@ -39,9 +39,9 @@ Reproducible scripts for validating NVIDIA GPU consumers (device plugin, DRA dri
 |----------|---------|-------------|
 | `GPU_PROFILE` | `a100` | GPU profile (a100, h100, b200, gb200, l40s, t4) |
 | `GPU_COUNT` | `8` | Number of mock GPUs |
-| `CLUSTER_NAME` | `gpu-mock-poc` | Kind cluster name |
+| `CLUSTER_NAME` | `nvidia-mock-poc` | Kind cluster name |
 | `MOCK_NVML_DEBUG` | `1` | Enable NVML debug traces |
-| `GOLANG_VERSION` | `1.25` | Go version for building gpu-mock image |
+| `GOLANG_VERSION` | `1.25` | Go version for building nvidia-mock image |
 
 ## Output
 

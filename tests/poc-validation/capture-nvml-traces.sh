@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Captures NVML call traces from device plugin and DRA driver containers.
-# MOCK_NVML_DEBUG=1 must be set in the consumer containers (not gpu-mock).
+# MOCK_NVML_DEBUG=1 must be set in the consumer containers (not nvidia-mock).
 #
-# The gpu-mock chart deploys libnvidia-ml.so to the host. When device plugin
+# The nvidia-mock chart deploys libnvidia-ml.so to the host. When device plugin
 # or DRA driver loads this .so, debug traces go to that consumer's stderr.
 #
 # Usage: ./capture-nvml-traces.sh [--output-dir ./logs]
