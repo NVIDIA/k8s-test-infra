@@ -58,5 +58,5 @@ RUN set -eux; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-550*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
     apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
-COPY deployments/gpu-mock/scripts/ /scripts/
+COPY deployments/nvidia-mock/scripts/ /scripts/
 RUN chmod +x /scripts/*.sh
