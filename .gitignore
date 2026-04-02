@@ -4,3 +4,9 @@
 *.dylib
 *.out
 *.test
+
+# Agentic working artifacts
+.agents/
+AGENTS.md
+docs/plans/
+docs/superpowers/
