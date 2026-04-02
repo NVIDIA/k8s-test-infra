@@ -1,8 +1,8 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 apiVersion: v2
-name: gpu-mock
-description: Mock GPU infrastructure for Kubernetes testing
+name: nvidia-mock
+description: Mock NVIDIA driver infrastructure for Kubernetes testing
 type: application
 version: 0.1.0
 appVersion: "550.163.01"
@@ -10,6 +10,7 @@ keywords:
   - gpu
   - nvidia
   - mock
+  - nvml
   - testing
 maintainers:
   - name: NVIDIA
