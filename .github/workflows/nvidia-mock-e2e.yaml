@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: GPU Mock E2E
+name: nvidia-mock E2E
 
 on:
   workflow_call:
@@ -71,21 +71,21 @@ jobs:
       - name: Create Kind cluster
         uses: helm/kind-action@v1
         with:
-          cluster_name: gpu-mock-e2e-${{ matrix.gpu-profile }}
+          cluster_name: nvidia-mock-e2e-${{ matrix.gpu-profile }}
 
-      - name: Build gpu-mock image
+      - name: Build nvidia-mock image
         run: |
-          docker build -t gpu-mock:e2e -f deployments/gpu-mock/Dockerfile \
+          docker build -t nvidia-mock:e2e -f deployments/nvidia-mock/Dockerfile \
             --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
 
       - name: Load image into Kind
         run: |
-          kind load docker-image gpu-mock:e2e --name gpu-mock-e2e-${{ matrix.gpu-profile }}
+          kind load docker-image nvidia-mock:e2e --name nvidia-mock-e2e-${{ matrix.gpu-profile }}
 
-      - name: Install gpu-mock Helm chart
+      - name: Install nvidia-mock Helm chart
         run: |
-          helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
-            --set image.repository=gpu-mock \
+          helm install nvidia-mock deployments/nvidia-mock/helm/nvidia-mock \
+            --set image.repository=nvidia-mock \
             --set image.tag=e2e \
             --set gpu.profile=${{ matrix.gpu-profile }} \
             --set gpu.count=2 \
@@ -93,7 +93,7 @@ jobs:
 
       - name: Verify DaemonSet is ready
         run: |
-          kubectl rollout status daemonset/gpu-mock --timeout=60s
+          kubectl rollout status daemonset/nvidia-mock --timeout=60s
 
       - name: Verify node labels
         run: |
@@ -104,7 +104,7 @@ jobs:
 
       - name: Verify mock files on node
         run: |
-          NODE_CONTAINER=gpu-mock-e2e-${{ matrix.gpu-profile }}-control-plane
+          NODE_CONTAINER=nvidia-mock-e2e-${{ matrix.gpu-profile }}-control-plane
           # Check library
           docker exec "$NODE_CONTAINER" sh -c "ls /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.* | head -1"
           docker exec "$NODE_CONTAINER" test -L /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.1
@@ -123,7 +123,7 @@ jobs:
         run: |
           chmod +x tests/e2e/validate-nvidia-smi.sh
           ./tests/e2e/validate-nvidia-smi.sh \
-            gpu-mock-e2e-${{ matrix.gpu-profile }}-control-plane \
+            nvidia-mock-e2e-${{ matrix.gpu-profile }}-control-plane \
             "${{ steps.gpu-info.outputs.gpu-name }}" \
             2
 
@@ -156,7 +156,7 @@ jobs:
         if: false
         run: |
           docker pull nvcr.io/nvidia/gpu-feature-discovery:v0.17.0
-          kind load docker-image nvcr.io/nvidia/gpu-feature-discovery:v0.17.0 --name gpu-mock-e2e-${{ matrix.gpu-profile }}
+          kind load docker-image nvcr.io/nvidia/gpu-feature-discovery:v0.17.0 --name nvidia-mock-e2e-${{ matrix.gpu-profile }}
           kubectl apply -f tests/e2e/gfd-mock.yaml
           kubectl -n kube-system wait --for=condition=ready \
             pod -l name=nvidia-gfd-mock --timeout=120s
@@ -187,7 +187,7 @@ jobs:
         if: false
         run: |
           docker pull nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
-          kind load docker-image nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 --name gpu-mock-e2e-${{ matrix.gpu-profile }}
+          kind load docker-image nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 --name nvidia-mock-e2e-${{ matrix.gpu-profile }}
           kubectl apply -f tests/e2e/validator-mock.yaml
           kubectl wait --for=condition=complete job/gpu-validator-mock --timeout=120s || {
             echo "Validator job did not complete. Checking status..."
@@ -200,8 +200,8 @@ jobs:
       - name: Collect logs on failure
         if: failure()
         run: |
-          echo "=== gpu-mock pod logs ==="
-          kubectl logs -l app.kubernetes.io/name=gpu-mock --tail=50 || true
+          echo "=== nvidia-mock pod logs ==="
+          kubectl logs -l app.kubernetes.io/name=nvidia-mock --tail=50 || true
           echo "=== device plugin logs ==="
           kubectl -n kube-system logs -l name=nvidia-device-plugin-mock --tail=50 || true
           echo "=== GFD logs ==="
@@ -248,22 +248,22 @@ jobs:
       - name: Create Kind cluster with DRA
         uses: helm/kind-action@v1
         with:
-          cluster_name: gpu-mock-dra-${{ matrix.gpu-profile }}
+          cluster_name: nvidia-mock-dra-${{ matrix.gpu-profile }}
           config: tests/e2e/kind-dra-config.yaml
 
-      - name: Build gpu-mock image
+      - name: Build nvidia-mock image
         run: |
-          docker build -t gpu-mock:e2e -f deployments/gpu-mock/Dockerfile \
+          docker build -t nvidia-mock:e2e -f deployments/nvidia-mock/Dockerfile \
             --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
 
       - name: Load image into Kind
         run: |
-          kind load docker-image gpu-mock:e2e --name gpu-mock-dra-${{ matrix.gpu-profile }}
+          kind load docker-image nvidia-mock:e2e --name nvidia-mock-dra-${{ matrix.gpu-profile }}
 
-      - name: Install gpu-mock Helm chart
+      - name: Install nvidia-mock Helm chart
         run: |
-          helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
-            --set image.repository=gpu-mock \
+          helm install nvidia-mock deployments/nvidia-mock/helm/nvidia-mock \
+            --set image.repository=nvidia-mock \
             --set image.tag=e2e \
             --set gpu.profile=${{ matrix.gpu-profile }} \
             --set gpu.count=2 \
@@ -271,11 +271,11 @@ jobs:
 
       - name: Verify DaemonSet is ready
         run: |
-          kubectl rollout status daemonset/gpu-mock --timeout=60s
+          kubectl rollout status daemonset/nvidia-mock --timeout=60s
 
       - name: Verify mock files on node
         run: |
-          NODE_CONTAINER=gpu-mock-dra-${{ matrix.gpu-profile }}-control-plane
+          NODE_CONTAINER=nvidia-mock-dra-${{ matrix.gpu-profile }}-control-plane
           docker exec "$NODE_CONTAINER" test -f /var/lib/nvidia-mock/driver/config/config.yaml
           docker exec "$NODE_CONTAINER" grep -q "num_devices: 2" /var/lib/nvidia-mock/driver/config/config.yaml
           docker exec "$NODE_CONTAINER" test -L /var/lib/nvidia-mock/driver/usr/lib64/libnvidia-ml.so.1
@@ -285,7 +285,7 @@ jobs:
         run: |
           chmod +x tests/e2e/validate-nvidia-smi.sh
           ./tests/e2e/validate-nvidia-smi.sh \
-            gpu-mock-dra-${{ matrix.gpu-profile }}-control-plane \
+            nvidia-mock-dra-${{ matrix.gpu-profile }}-control-plane \
             "${{ steps.gpu-info.outputs.gpu-name }}" \
             2
 
@@ -326,8 +326,8 @@ jobs:
       - name: Collect logs on failure
         if: failure()
         run: |
-          echo "=== gpu-mock pod logs ==="
-          kubectl logs -l app.kubernetes.io/name=gpu-mock --tail=50 || true
+          echo "=== nvidia-mock pod logs ==="
+          kubectl logs -l app.kubernetes.io/name=nvidia-mock --tail=50 || true
           echo "=== DRA driver pods ==="
           kubectl -n nvidia get pods || true
           echo "=== DRA kubelet-plugin pod describe ==="
@@ -368,12 +368,12 @@ jobs:
       - name: Create Kind cluster for GPU Operator
         uses: helm/kind-action@v1
         with:
-          cluster_name: gpu-mock-op-${{ matrix.gpu-profile }}
+          cluster_name: nvidia-mock-op-${{ matrix.gpu-profile }}
           config: tests/e2e/kind-gpu-operator-config.yaml
 
       - name: Install nvidia-container-toolkit in Kind worker
         run: |
-          NODE_CONTAINER=gpu-mock-op-${{ matrix.gpu-profile }}-control-plane
+          NODE_CONTAINER=nvidia-mock-op-${{ matrix.gpu-profile }}-control-plane
           docker exec "$NODE_CONTAINER" bash -c '
             apt-get update -qq
             apt-get install -y -qq curl gpg
@@ -388,7 +388,7 @@ jobs:
 
       - name: Configure toolkit for CDI mode
         run: |
-          NODE_CONTAINER=gpu-mock-op-${{ matrix.gpu-profile }}-control-plane
+          NODE_CONTAINER=nvidia-mock-op-${{ matrix.gpu-profile }}-control-plane
           docker exec "$NODE_CONTAINER" nvidia-ctk runtime configure \
             --runtime=containerd --cdi.enabled --set-as-default
           docker exec "$NODE_CONTAINER" bash -c '
@@ -404,24 +404,24 @@ jobs:
 
       - name: Restart containerd to pick up nvidia runtime
         run: |
-          NODE_CONTAINER=gpu-mock-op-${{ matrix.gpu-profile }}-control-plane
+          NODE_CONTAINER=nvidia-mock-op-${{ matrix.gpu-profile }}-control-plane
           docker exec "$NODE_CONTAINER" systemctl restart containerd
           sleep 5
           docker exec "$NODE_CONTAINER" crictl info | head -5
 
-      - name: Build gpu-mock image
+      - name: Build nvidia-mock image
         run: |
-          docker build -t gpu-mock:e2e -f deployments/gpu-mock/Dockerfile \
+          docker build -t nvidia-mock:e2e -f deployments/nvidia-mock/Dockerfile \
             --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
 
       - name: Load image into Kind
         run: |
-          kind load docker-image gpu-mock:e2e --name gpu-mock-op-${{ matrix.gpu-profile }}
+          kind load docker-image nvidia-mock:e2e --name nvidia-mock-op-${{ matrix.gpu-profile }}
 
-      - name: Install gpu-mock Helm chart
+      - name: Install nvidia-mock Helm chart
         run: |
-          helm install gpu-mock deployments/gpu-mock/helm/gpu-mock \
-            --set image.repository=gpu-mock \
+          helm install nvidia-mock deployments/nvidia-mock/helm/nvidia-mock \
+            --set image.repository=nvidia-mock \
             --set image.tag=e2e \
             --set gpu.profile=${{ matrix.gpu-profile }} \
             --set gpu.count=2 \
@@ -429,18 +429,18 @@ jobs:
 
       - name: Verify DaemonSet is ready
         run: |
-          kubectl rollout status daemonset/gpu-mock --timeout=60s
+          kubectl rollout status daemonset/nvidia-mock --timeout=60s
 
       - name: Verify CDI spec exists on node
         run: |
-          NODE_CONTAINER=gpu-mock-op-${{ matrix.gpu-profile }}-control-plane
+          NODE_CONTAINER=nvidia-mock-op-${{ matrix.gpu-profile }}-control-plane
           docker exec "$NODE_CONTAINER" test -f /var/run/cdi/nvidia.yaml
           docker exec "$NODE_CONTAINER" cat /var/run/cdi/nvidia.yaml
           echo "CDI spec verified"
 
       - name: Verify mock driver setup on node
         run: |
-          NODE_CONTAINER=gpu-mock-op-${{ matrix.gpu-profile }}-control-plane
+          NODE_CONTAINER=nvidia-mock-op-${{ matrix.gpu-profile }}-control-plane
           echo "=== symlink check ==="
           docker exec "$NODE_CONTAINER" ls -la /run/nvidia/ 2>&1 || echo "no /run/nvidia"
           docker exec "$NODE_CONTAINER" ls -la /run/nvidia/driver 2>&1 || echo "symlink missing"
@@ -460,7 +460,7 @@ jobs:
 
       - name: Test CDI injection end-to-end
         run: |
-          NODE_CONTAINER=gpu-mock-op-${{ matrix.gpu-profile }}-control-plane
+          NODE_CONTAINER=nvidia-mock-op-${{ matrix.gpu-profile }}-control-plane
 
           echo "=== CDI spec (first 30 lines) ==="
           docker exec "$NODE_CONTAINER" head -30 /var/run/cdi/nvidia.yaml
@@ -577,10 +577,10 @@ jobs:
       - name: Collect logs on failure
         if: failure()
         run: |
-          echo "=== gpu-mock pod logs ==="
-          kubectl logs -l app.kubernetes.io/name=gpu-mock --tail=50 || true
+          echo "=== nvidia-mock pod logs ==="
+          kubectl logs -l app.kubernetes.io/name=nvidia-mock --tail=50 || true
           echo "=== CDI spec ==="
-          NODE_CONTAINER=gpu-mock-op-${{ matrix.gpu-profile }}-control-plane
+          NODE_CONTAINER=nvidia-mock-op-${{ matrix.gpu-profile }}-control-plane
           docker exec "$NODE_CONTAINER" cat /var/run/cdi/nvidia.yaml 2>/dev/null || true
           echo "=== nvidia-container-runtime config ==="
           docker exec "$NODE_CONTAINER" cat /etc/nvidia-container-runtime/config.toml 2>/dev/null || true
@@ -623,14 +623,14 @@ jobs:
           cluster_name: gpu-fleet
           config: tests/e2e/kind-multi-node-config.yaml
 
-      - name: Build gpu-mock image
+      - name: Build nvidia-mock image
         run: |
-          docker build -t gpu-mock:e2e -f deployments/gpu-mock/Dockerfile \
+          docker build -t nvidia-mock:e2e -f deployments/nvidia-mock/Dockerfile \
             --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
 
       - name: Load image into Kind
         run: |
-          kind load docker-image gpu-mock:e2e --name gpu-fleet
+          kind load docker-image nvidia-mock:e2e --name gpu-fleet
 
       - name: Discover worker node names
         id: nodes
@@ -644,8 +644,8 @@ jobs:
 
       - name: Verify node labels
         run: |
-          kubectl get nodes --show-labels | grep gpu-mock/profile || {
-            echo "FAIL: gpu-mock/profile labels not found on worker nodes"
+          kubectl get nodes --show-labels | grep nvidia-mock/profile || {
+            echo "FAIL: nvidia-mock/profile labels not found on worker nodes"
             kubectl get nodes --show-labels
             exit 1
           }
@@ -670,24 +670,24 @@ jobs:
           done
           sleep 5
 
-      - name: Install gpu-mock on worker-1 (A100 profile)
+      - name: Install nvidia-mock on worker-1 (A100 profile)
         run: |
-          helm install gpu-mock-a100 deployments/gpu-mock/helm/gpu-mock \
-            --set image.repository=gpu-mock \
+          helm install nvidia-mock-a100 deployments/nvidia-mock/helm/nvidia-mock \
+            --set image.repository=nvidia-mock \
             --set image.tag=e2e \
             --set gpu.profile=a100 \
             --set gpu.count=2 \
-            --set "nodeSelector.gpu-mock/profile=a100" \
+            --set "nodeSelector.nvidia-mock/profile=a100" \
             --wait --timeout 120s
 
-      - name: Install gpu-mock on worker-2 (T4 profile)
+      - name: Install nvidia-mock on worker-2 (T4 profile)
         run: |
-          helm install gpu-mock-t4 deployments/gpu-mock/helm/gpu-mock \
-            --set image.repository=gpu-mock \
+          helm install nvidia-mock-t4 deployments/nvidia-mock/helm/nvidia-mock \
+            --set image.repository=nvidia-mock \
             --set image.tag=e2e \
             --set gpu.profile=t4 \
             --set gpu.count=2 \
-            --set "nodeSelector.gpu-mock/profile=t4" \
+            --set "nodeSelector.nvidia-mock/profile=t4" \
             --wait --timeout 120s
 
       - name: Verify mock files on both workers
@@ -758,16 +758,16 @@ jobs:
       - name: Collect logs on failure
         if: failure()
         run: |
-          echo "=== gpu-mock pods ==="
-          kubectl get pods -A -l app.kubernetes.io/name=gpu-mock -o wide || true
-          echo "=== gpu-mock-a100 logs ==="
-          kubectl logs -l app.kubernetes.io/instance=gpu-mock-a100 --tail=30 || true
-          echo "=== gpu-mock-t4 logs ==="
-          kubectl logs -l app.kubernetes.io/instance=gpu-mock-t4 --tail=30 || true
+          echo "=== nvidia-mock pods ==="
+          kubectl get pods -A -l app.kubernetes.io/name=nvidia-mock -o wide || true
+          echo "=== nvidia-mock-a100 logs ==="
+          kubectl logs -l app.kubernetes.io/instance=nvidia-mock-a100 --tail=30 || true
+          echo "=== nvidia-mock-t4 logs ==="
+          kubectl logs -l app.kubernetes.io/instance=nvidia-mock-t4 --tail=30 || true
           echo "=== device plugin logs ==="
           kubectl -n kube-system logs -l name=nvidia-device-plugin-mock --tail=50 || true
           echo "=== node labels ==="
-          kubectl get nodes -o json | jq '.items[] | {name: .metadata.name, labels: (.metadata.labels | to_entries | map(select(.key | startswith("nvidia.com") or startswith("gpu-mock"))) | from_entries)}' || true
+          kubectl get nodes -o json | jq '.items[] | {name: .metadata.name, labels: (.metadata.labels | to_entries | map(select(.key | startswith("nvidia.com") or startswith("nvidia-mock"))) | from_entries)}' || true
           echo "=== events ==="
           kubectl get events --sort-by=.lastTimestamp | tail -30 || true
           echo "=== node describe ==="
