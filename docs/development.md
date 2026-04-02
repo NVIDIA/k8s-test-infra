@@ -47,7 +47,7 @@ tests/mocknvml/
 ├── Makefile
 └── README.md
 
-docs/mocknvml/
+
 ├── README.md
 ├── quickstart.md
 ├── architecture.md
