@@ -1,4 +1,4 @@
-# GPU Mock E2E Tests
+# nvidia-mock E2E Tests
 
 End-to-end tests that deploy NVIDIA GPU consumers on a Kind cluster using the
 nvidia-mock chart (mock NVML + CUDA libraries instead of real hardware).

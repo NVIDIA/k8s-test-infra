@@ -1,4 +1,4 @@
-# GPU Mock E2E Consumer Version Matrix
+# nvidia-mock E2E Consumer Version Matrix
 
 Tested component versions for the mock GPU E2E test suite.
 

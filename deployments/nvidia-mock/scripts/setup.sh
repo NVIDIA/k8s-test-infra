@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Sets up mock GPU environment on the host filesystem.
-# Runs as an entrypoint in the gpu-mock DaemonSet container.
+# Runs as an entrypoint in the nvidia-mock DaemonSet container.
 #
 # Required env vars: GPU_COUNT, DRIVER_VERSION, NODE_NAME
 set -e

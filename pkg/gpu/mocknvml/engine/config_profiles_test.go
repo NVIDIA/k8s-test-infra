@@ -22,7 +22,7 @@ import (
 // testdataDir returns the absolute path to the profiles directory.
 func testdataDir() string {
 	_, filename, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(filename), "..", "..", "..", "..", "deployments", "gpu-mock", "helm", "gpu-mock", "profiles")
+	return filepath.Join(filepath.Dir(filename), "..", "..", "..", "..", "deployments", "nvidia-mock", "helm", "nvidia-mock", "profiles")
 }
 
 func TestLoadConfig_L40SProfile(t *testing.T) {

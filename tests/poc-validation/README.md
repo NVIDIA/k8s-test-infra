@@ -1,4 +1,4 @@
-# GPU Mock PoC Validation
+# nvidia-mock PoC Validation
 
 Reproducible scripts for validating NVIDIA GPU consumers (device plugin, DRA driver) against the nvidia-mock infrastructure on Kind clusters.
 

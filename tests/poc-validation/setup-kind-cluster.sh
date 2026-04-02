@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "=== GPU Mock PoC Validation ==="
+echo "=== nvidia-mock PoC Validation ==="
 echo "Profile: $GPU_PROFILE"
 echo "GPU Count: $GPU_COUNT"
 echo "DRA Enabled: $ENABLE_DRA"
