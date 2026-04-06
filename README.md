@@ -53,12 +53,27 @@ Use standalone for local development and CI pipelines.
 
 | Document | Description |
 |----------|-------------|
-| [Overview](docs/mocknvml-readme.md) | What Mock NVML is and how to use it |
+| [Overview](docs/README.md) | Project overview, components, GPU profiles |
 | [Quick Start](docs/quickstart.md) | Build and run in 5 minutes |
 | [Configuration](docs/configuration.md) | YAML configuration reference |
 | [Architecture](docs/architecture.md) | System design and components |
+| [CUDA Mock](docs/cuda-mock.md) | Mock CUDA library overview |
 | [Development](docs/development.md) | Contributing and extending the library |
+| [Examples](docs/examples.md) | Usage patterns and scenarios |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
+
+## Integrations
+
+| Integration | Description | Guide |
+|-------------|-------------|-------|
+| **fake-gpu-operator** | Run:ai's K8s-level GPU simulation | [Integration Guide](docs/integrations/fake-gpu-operator.md) |
+
+## Demos
+
+| Demo | Description |
+|------|-------------|
+| [Standalone](docs/demo/standalone/) | nvml-mock with FGO-style labels on Kind |
+| [With fake-gpu-operator](docs/demo/with-fgo/) | Full FGO + nvml-mock integration |
 
 ## License
 
