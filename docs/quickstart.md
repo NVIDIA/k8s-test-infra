@@ -110,8 +110,24 @@ Output includes:
 | `MOCK_NVML_DRIVER_VERSION` | Driver version (without YAML) | 550.163.01 |
 | `MOCK_NVML_DEBUG` | Enable debug logging | (disabled) |
 
+## Option 3: Kubernetes (Published Image)
+
+Deploy on a Kind cluster using the published container image:
+
+```bash
+kind create cluster --name nvml-mock-test
+kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-test
+helm install nvml-mock deployments/nvml-mock/helm/nvml-mock --wait --timeout 120s
+```
+
+See the [Helm Chart README](../deployments/nvml-mock/helm/nvml-mock/README.md)
+for full deployment walkthrough including device plugin, DRA driver, and GPU
+Operator integration.
+
 ## Next Steps
 
 - [Configuration Reference](configuration.md) - Customize GPU properties
 - [Examples](examples.md) - Common usage patterns
 - [Architecture](architecture.md) - Understand how it works
+- [CUDA Mock](cuda-mock.md) - Mock CUDA library overview
+- [fake-gpu-operator Integration](integrations/fake-gpu-operator.md) - K8s-level GPU simulation

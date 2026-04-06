@@ -385,3 +385,19 @@ LD_DEBUG=libs LD_LIBRARY_PATH=. nvidia-smi 2>&1 | grep nvml
 # List exported symbols
 nm -D pkg/gpu/mocknvml/libnvidia-ml.so | grep nvml | head -20
 ```
+
+## fake-gpu-operator Integration
+
+Deploy nvml-mock with profile ConfigMaps for fake-gpu-operator discovery:
+
+```bash
+helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+  --set integrations.fakeGpuOperator.enabled=true \
+  --set gpu.profile=h100
+
+# Verify profiles
+kubectl get cm -l run.ai/gpu-profile=true
+```
+
+See [full integration guide](integrations/fake-gpu-operator.md) and
+[runnable demos](demo/).

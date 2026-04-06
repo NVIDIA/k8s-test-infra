@@ -351,6 +351,13 @@ The HandleTable also has its own mutex for independent locking.
 - Matches real NVML behavior (static strings)
 - Prevents memory leaks from repeated allocations
 
+## Mock CUDA Architecture
+
+The CUDA mock follows the same engine/bridge pattern as NVML but at
+a smaller scale (15 functions vs 400).
+
+See [CUDA Mock](cuda-mock.md) for full details.
+
 ## Extending the Library
 
 See [Development Guide](development.md) for:

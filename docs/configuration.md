@@ -357,6 +357,17 @@ A100 configuration with all 8 devices configured.
 See `pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml` for a Blackwell
 GB200 configuration with 192 GiB HBM3e memory.
 
+## Integration Values
+
+When deploying via Helm, additional values control integration with external projects:
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps for fake-gpu-operator discovery |
+| `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Discovery labels on profile ConfigMaps |
+
+See [fake-gpu-operator integration](integrations/fake-gpu-operator.md) for setup details.
+
 ## Validation
 
 The configuration is validated on load:
