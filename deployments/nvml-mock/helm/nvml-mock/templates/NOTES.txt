@@ -61,6 +61,14 @@ OPTION C: GPU Operator (UNTESTED — contributions welcome)
   please contribute the test back.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.integrations.fakeGpuOperator.enabled }}
+
+fake-gpu-operator integration is enabled.
+6 profile ConfigMaps created. Discover them with:
+
+  kubectl get cm -l run.ai/gpu-profile=true
+
+{{- end }}
 
 Quick check — node labels:
 
