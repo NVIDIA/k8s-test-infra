@@ -36,7 +36,7 @@ EOF
 # Step 2 -- Build the nvml-mock image
 ###############################################################################
 info "Building image: ${IMAGE_NAME}"
-docker build -t "${IMAGE_NAME}" "${REPO_ROOT}"
+docker build -t "${IMAGE_NAME}" -f "${REPO_ROOT}/deployments/nvml-mock/Dockerfile" "${REPO_ROOT}"
 
 ###############################################################################
 # Step 3 -- Load image into Kind
@@ -68,6 +68,8 @@ done
 ###############################################################################
 info "Installing nvml-mock Helm chart"
 helm install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
+  --set image.repository=nvml-mock \
+  --set image.tag=demo \
   --set integrations.fakeGpuOperator.enabled=true \
   --set gpu.profile=h100 \
   --set gpu.count=8 \
@@ -83,7 +85,7 @@ kubectl rollout status daemonset/nvml-mock --timeout=60s
 # Step 7 -- Verify: Profile ConfigMaps
 ###############################################################################
 info "Checking profile ConfigMaps"
-CM_COUNT=$(kubectl get configmaps -l app.kubernetes.io/component=nvml-mock-profile \
+CM_COUNT=$(kubectl get configmaps -l run.ai/gpu-profile=true \
   --no-headers 2>/dev/null | wc -l | tr -d ' ')
 
 if [[ "${CM_COUNT}" -lt 6 ]]; then

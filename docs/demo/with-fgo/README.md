@@ -31,7 +31,7 @@ EOF
 ## Step 2 -- Build and load the nvml-mock image
 
 ```bash
-docker build -t nvml-mock:demo .
+docker build -t nvml-mock:demo -f deployments/nvml-mock/Dockerfile .
 kind load docker-image nvml-mock:demo --name nvml-mock-fgo-demo
 ```
 
@@ -56,6 +56,8 @@ done
 
 ```bash
 helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+  --set image.repository=nvml-mock \
+  --set image.tag=demo \
   --set integrations.fakeGpuOperator.enabled=true \
   --set gpu.profile=h100 \
   --set gpu.count=8 \
@@ -113,7 +115,7 @@ kubectl apply -f topology.yaml
 kubectl get pods -l app.kubernetes.io/name=nvml-mock -o wide
 
 # Profile ConfigMaps should exist.
-kubectl get configmaps -l app.kubernetes.io/component=nvml-mock-profile
+kubectl get configmaps -l run.ai/gpu-profile=true
 
 # nvidia-smi should work inside the pod.
 POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \

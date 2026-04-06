@@ -137,12 +137,12 @@ The following profiles are created by default:
 
 | ConfigMap Name | GPU Model | Memory |
 |---|---|---|
-| `nvml-mock-profile-a100` | A100-SXM4-80GB | 80 GiB |
-| `nvml-mock-profile-b200` | B200-SXM-180GB | 180 GiB |
-| `nvml-mock-profile-gb200` | GB200-SXM-192GB | 192 GiB |
-| `nvml-mock-profile-h100` | H100-SXM5-80GB | 80 GiB |
-| `nvml-mock-profile-l40s` | L40S-48GB | 48 GiB |
-| `nvml-mock-profile-t4` | Tesla-T4-16GB | 16 GiB |
+| `nvml-mock-profile-a100` | NVIDIA A100-SXM4-40GB | 40 GiB |
+| `nvml-mock-profile-h100` | NVIDIA H100 80GB HBM3 | 80 GiB |
+| `nvml-mock-profile-b200` | NVIDIA B200 | 192 GiB |
+| `nvml-mock-profile-gb200` | NVIDIA GB200 NVL | 192 GiB |
+| `nvml-mock-profile-l40s` | NVIDIA L40S | 48 GiB |
+| `nvml-mock-profile-t4` | NVIDIA T4 | 16 GiB |
 
 ## Custom Labels
 

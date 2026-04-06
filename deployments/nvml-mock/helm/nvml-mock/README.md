@@ -574,7 +574,7 @@ clusters, you may need to create a PodSecurity exception for the nvml-mock names
 
 ## Related Documentation
 
-- [Mock NVML Library Documentation](../../../../docs/mocknvml-readme.md)
+- [Mock NVML Library Documentation](../../../../docs/README.md)
 - [E2E Test Workflow](../../../../.github/workflows/nvml-mock-e2e.yaml)
 - [KIND DRA Config](../../../../tests/e2e/kind-dra-config.yaml)
 - [Device Plugin Mock Manifest](../../../../tests/e2e/device-plugin-mock.yaml)
