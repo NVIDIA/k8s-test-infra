@@ -310,6 +310,44 @@ enabling heterogeneous scheduling and topology-aware placement testing.
 
 For a Kind cluster with labeled workers, see `tests/e2e/kind-multi-node-config.yaml`.
 
+## Integration: fake-gpu-operator
+
+[fake-gpu-operator](https://github.com/run-ai/fake-gpu-operator) by Run:ai
+simulates GPUs at the Kubernetes API level for scale testing. nvml-mock
+can provide driver-level fidelity (real NVML API) on real nodes while
+fake-gpu-operator handles KWOK virtual nodes.
+
+### Enable Profile Discovery
+
+```bash
+helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+  --set integrations.fakeGpuOperator.enabled=true
+```
+
+This creates per-profile ConfigMaps discoverable by fake-gpu-operator:
+
+```bash
+kubectl get cm -l run.ai/gpu-profile=true
+```
+
+```
+NAME                              DATA   AGE
+nvml-mock-profile-a100            1      10s
+nvml-mock-profile-h100            1      10s
+nvml-mock-profile-b200            1      10s
+nvml-mock-profile-gb200           1      10s
+nvml-mock-profile-l40s            1      10s
+nvml-mock-profile-t4              1      10s
+```
+
+### Custom Labels
+
+```bash
+helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+  --set integrations.fakeGpuOperator.enabled=true \
+  --set 'integrations.fakeGpuOperator.profileLabels.my-org/gpu-profile=true'
+```
+
 ## Configuration
 
 ### Values
@@ -325,6 +363,8 @@ For a Kind cluster with labeled workers, see `tests/e2e/kind-multi-node-config.y
 | `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, auto-derived from `gpu.profile` (even if `gpu.customConfig` is set): A100/H100/L40S/T4 → `550.163.01`, B200/GB200 → `560.35.03`. For non-standard GPUs configured via `gpu.customConfig`, explicitly set `driverVersion`. |
 | `nodeSelector` | `{}` | Node selector for DaemonSet |
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
+| `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps for fake-gpu-operator discovery |
+| `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Labels on profile ConfigMaps for discovery |
 
 ### GPU Profiles
 
