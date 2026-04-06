@@ -18,3 +18,11 @@ tolerations:
   - operator: Exists
 
 resources: {}
+
+# Integration with external projects
+integrations:
+  fakeGpuOperator:
+    enabled: false
+    # Labels applied to per-profile ConfigMaps for discovery
+    profileLabels:
+      run.ai/gpu-profile: "true"
