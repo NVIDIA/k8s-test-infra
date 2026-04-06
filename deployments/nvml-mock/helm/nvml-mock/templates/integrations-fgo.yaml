@@ -1,0 +1,24 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+{{- if .Values.integrations.fakeGpuOperator.enabled }}
+{{- $profiles := list "a100" "h100" "b200" "gb200" "l40s" "t4" }}
+{{- range $profile := $profiles }}
+{{- $content := $.Files.Get (printf "profiles/%s.yaml" $profile) }}
+{{- if $content }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nvml-mock.fullname" $ }}-profile-{{ $profile }}
+  labels:
+    {{- include "nvml-mock.labels" $ | nindent 4 }}
+    nvml-mock/profile-name: {{ $profile | quote }}
+    {{- range $key, $value := $.Values.integrations.fakeGpuOperator.profileLabels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+data:
+  config.yaml: |
+    {{- $content | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}
