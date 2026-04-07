@@ -18,6 +18,7 @@ pkg/gpu/mocknvml/
 │   ├── helpers.go             # Helper functions + main() + go:generate
 │   ├── init.go                # nvmlInit_v2, nvmlShutdown, etc.
 │   ├── device.go              # Device handle functions
+│   ├── events.go              # Event set/wait functions
 │   ├── system.go              # System functions
 │   ├── internal.go            # Internal export table (nvidia-smi)
 │   └── stubs_generated.go     # Auto-generated stubs (~289 functions)
@@ -27,11 +28,15 @@ pkg/gpu/mocknvml/
 │   ├── device.go              # ConfigurableDevice implementation
 │   ├── engine.go              # Singleton engine
 │   ├── handles.go             # C↔Go handle mapping
+│   ├── invalid_device.go      # Invalid device handle sentinel
 │   ├── utils.go               # Debug utilities
+│   ├── version.go             # NVML version responses
 │   └── *_test.go              # Unit tests
 ├── configs/
 │   ├── mock-nvml-config-a100.yaml
-│   └── mock-nvml-config-gb200.yaml
+│   ├── mock-nvml-config-gb200.yaml
+│   ├── mock-nvml-config-l40s.yaml
+│   └── mock-nvml-config-t4.yaml
 ├── Dockerfile
 ├── Makefile
 └── README.md
@@ -47,14 +52,20 @@ tests/mocknvml/
 ├── Makefile
 └── README.md
 
-
+docs/
 ├── README.md
 ├── quickstart.md
 ├── architecture.md
 ├── configuration.md
-├── examples.md
+├── cuda-mock.md
 ├── development.md
-└── troubleshooting.md
+├── examples.md
+├── troubleshooting.md
+├── demo/
+│   ├── standalone/
+│   └── with-fgo/
+└── integrations/
+    └── fake-gpu-operator.md
 ```
 
 ## Building
@@ -391,9 +402,9 @@ go run ./cmd/generate-bridge --stats
 Output:
 ```
 NVML Function Coverage:
-  Total functions:               400
-  Hand-written implementations:  111 (27.8%)
-  Generated stubs:               289 (72.2%)
+  Total functions:               396
+  Hand-written implementations:  107 (27.0%)
+  Generated stubs:               289 (73.0%)
 
   By file:
     device.go:           94 functions
