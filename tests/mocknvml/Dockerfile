@@ -37,7 +37,7 @@ WORKDIR /build
 COPY tests/mocknvml/go.mod tests/mocknvml/go.sum* ./
 RUN go mod download
 
-COPY tests/mocknvml/main.go ./
+COPY tests/mocknvml/*.go ./
 RUN CGO_ENABLED=1 go build -o mocknvml-test main.go
 
 # Runtime stage
