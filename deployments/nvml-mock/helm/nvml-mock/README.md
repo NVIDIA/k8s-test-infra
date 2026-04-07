@@ -28,7 +28,7 @@ as the NVIDIA driver root and discover GPUs through standard NVML APIs.
 
 **Cluster requirements:**
 - Privileged pods must be allowed (nvml-mock DaemonSet uses `privileged: true` for `mknod`)
-- For DRA: Kubernetes 1.31+ with `DynamicResourceAllocation` feature gate enabled
+- For DRA: Kubernetes 1.32+ with `DynamicResourceAllocation` feature gate enabled
 
 ## Quick Start: Device Plugin on KIND
 
@@ -211,11 +211,46 @@ kind create cluster --name nvml-mock-operator \
   --config tests/e2e/kind-gpu-operator-config.yaml
 ```
 
-> **Note:** The Kind config enables CDI in containerd and registers the nvidia
-> runtime handler. After cluster creation, `nvidia-container-toolkit` must be
-> installed in the control-plane node — see the E2E workflow for the full setup.
+### 2. Install nvidia-container-toolkit in the Kind node
 
-### 2. Load the nvml-mock image
+```bash
+NODE_CONTAINER=nvml-mock-operator-control-plane
+docker exec "$NODE_CONTAINER" bash -c '
+  apt-get update -qq
+  apt-get install -y -qq curl gpg
+  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+    | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+    | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" \
+    | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  apt-get update -qq
+  apt-get install -y -qq nvidia-container-toolkit
+'
+```
+
+### 3. Configure CDI mode
+
+```bash
+docker exec "$NODE_CONTAINER" nvidia-ctk runtime configure \
+  --runtime=containerd --cdi.enabled --set-as-default
+docker exec "$NODE_CONTAINER" bash -c 'cat > /etc/nvidia-container-runtime/config.toml << EOF
+[nvidia-container-runtime]
+mode = "cdi"
+
+[nvidia-container-runtime.modes.cdi]
+default-kind = "nvidia.com/gpu"
+spec-dirs = ["/var/run/cdi", "/etc/cdi"]
+EOF'
+```
+
+### 4. Restart containerd
+
+```bash
+docker exec "$NODE_CONTAINER" systemctl restart containerd
+sleep 5
+```
+
+### 5. Load the nvml-mock image
 
 **Option A: Use the published image (recommended)**
 
@@ -230,7 +265,7 @@ docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .
 kind load docker-image nvml-mock:local --name nvml-mock-operator
 ```
 
-### 3. Install nvml-mock
+### 6. Install nvml-mock
 
 **With published image:**
 
@@ -248,7 +283,7 @@ helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
   --wait --timeout 120s
 ```
 
-### 4. Install the GPU Operator
+### 7. Install the GPU Operator
 
 ```bash
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
@@ -258,12 +293,10 @@ helm install gpu-operator nvidia/gpu-operator \
   --namespace gpu-operator \
   --create-namespace \
   -f tests/e2e/gpu-operator-values.yaml \
-  --set nfd.enabled=false \
-  --set operator.defaultRuntime=containerd \
   --wait --timeout 300s
 ```
 
-### 5. Verify
+### 8. Verify
 
 ```bash
 kubectl -n gpu-operator wait --for=condition=ready pod --all --timeout=180s
@@ -272,43 +305,134 @@ kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}'
 
 Expected: `8` (default gpu.count).
 
-### 6. Clean up
+### 9. Clean up
 
 ```bash
 kind delete cluster --name nvml-mock-operator
 ```
 
-## Multi-Node Heterogeneous GPU Fleet
+## Quick Start: Multi-Node Heterogeneous GPU Fleet
 
 Simulate a cluster with different GPU types on different nodes by installing
-multiple Helm releases with `nodeSelector`:
+multiple Helm releases with `nodeSelector`. Each release creates its own
+DaemonSet, ConfigMap, and RBAC resources. The device plugin (or DRA driver)
+discovers different GPU types on each node, enabling heterogeneous scheduling
+and topology-aware placement testing.
+
+### 1. Create a Kind cluster with labeled workers
 
 ```bash
-# Label your nodes (Kind does this via cluster config)
-kubectl label node worker-1 nvml-mock/profile=a100
-kubectl label node worker-2 nvml-mock/profile=t4
+kind create cluster --name gpu-fleet --config tests/e2e/kind-multi-node-config.yaml
+```
 
-# Install a different GPU profile per node
+This creates 1 control-plane + 2 workers. The workers are pre-labeled
+`nvml-mock/profile=a100` and `nvml-mock/profile=t4` respectively.
+
+### 2. Build and load the nvml-mock image
+
+**Option A: Use the published image (recommended)**
+
+```bash
+kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name gpu-fleet
+```
+
+**Option B: Build from source**
+
+```bash
+docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .
+kind load docker-image nvml-mock:local --name gpu-fleet
+```
+
+### 3. Install nvidia-container-toolkit on workers
+
+```bash
+for NODE in $(kind get nodes --name gpu-fleet | grep worker); do
+  echo "Installing nvidia-container-toolkit on $NODE..."
+  docker exec "$NODE" bash -c '
+    apt-get update -qq &&
+    apt-get install -y -qq curl gpg > /dev/null &&
+    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey |
+      gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg &&
+    curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list |
+      sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" |
+      tee /etc/apt/sources.list.d/nvidia-container-toolkit.list &&
+    apt-get update -qq &&
+    apt-get install -y -qq nvidia-container-toolkit > /dev/null
+  '
+  docker exec "$NODE" systemctl restart containerd
+done
+sleep 5
+```
+
+### 4. Install nvml-mock on each node
+
+**With published image:**
+
+```bash
+helm install nvml-mock-a100 deployments/nvml-mock/helm/nvml-mock \
+  --set gpu.profile=a100 \
+  --set gpu.count=4 \
+  --set "nodeSelector.nvml-mock/profile=a100" \
+  --wait --timeout 120s
+
+helm install nvml-mock-t4 deployments/nvml-mock/helm/nvml-mock \
+  --set gpu.profile=t4 \
+  --set gpu.count=2 \
+  --set "nodeSelector.nvml-mock/profile=t4" \
+  --wait --timeout 120s
+```
+
+**With locally built image:**
+
+```bash
 helm install nvml-mock-a100 deployments/nvml-mock/helm/nvml-mock \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --set gpu.profile=a100 \
   --set gpu.count=4 \
-  --set "nodeSelector.nvml-mock/profile=a100"
+  --set "nodeSelector.nvml-mock/profile=a100" \
+  --wait --timeout 120s
 
 helm install nvml-mock-t4 deployments/nvml-mock/helm/nvml-mock \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --set gpu.profile=t4 \
   --set gpu.count=2 \
-  --set "nodeSelector.nvml-mock/profile=t4"
+  --set "nodeSelector.nvml-mock/profile=t4" \
+  --wait --timeout 120s
 ```
 
-Each release creates its own DaemonSet, ConfigMap, and RBAC resources. The
-device plugin (or DRA driver) discovers different GPU types on each node,
-enabling heterogeneous scheduling and topology-aware placement testing.
+### 5. Deploy the device plugin
 
-For a Kind cluster with labeled workers, see `tests/e2e/kind-multi-node-config.yaml`.
+```bash
+kubectl apply -f tests/e2e/device-plugin-mock.yaml
+kubectl -n kube-system wait --for=condition=ready \
+  pod -l name=nvidia-device-plugin-mock --timeout=120s
+```
+
+### 6. Verify GPUs on both nodes
+
+```bash
+for NODE in $(kubectl get nodes -l nvml-mock/profile -o jsonpath='{.items[*].metadata.name}'); do
+  echo -n "$NODE: "
+  for i in $(seq 1 12); do
+    COUNT=$(kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' 2>/dev/null)
+    if [ -n "$COUNT" ] && [ "$COUNT" != "0" ]; then
+      echo "${COUNT} GPUs"
+      break
+    fi
+    sleep 5
+  done
+done
+```
+
+Expected: worker with `a100` profile shows `4` GPUs, worker with `t4` profile shows `2` GPUs.
+
+### 7. Clean up
+
+```bash
+kind delete cluster --name gpu-fleet
+```
 
 ## Integration: fake-gpu-operator
 
