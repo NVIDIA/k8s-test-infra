@@ -12,52 +12,51 @@ They verify:
 - NVIDIA device plugin discovers mock GPUs and registers `nvidia.com/gpu`
 - DRA driver discovers mock GPUs and publishes ResourceSlices
 
-## What requires NGC credentials
+## Standalone GFD/validator steps (disabled)
 
-GFD and CUDA validator tests are **disabled in CI** (`if: false`) because
-their container images live on `nvcr.io` which requires authentication.
+The `e2e-device-plugin` job has standalone GFD and CUDA validator steps that
+pull directly from `nvcr.io`. These are disabled (`if: false`) because the
+standalone images may require NGC authentication. GPU Operator images are
+public and do not require NGC credentials -- the separate `e2e-gpu-operator`
+job uses that path and works without auth.
 
-To run the full suite locally:
+To run the standalone steps locally (NGC auth may be needed):
 
 ```bash
-# 1. Authenticate with NGC
-docker login nvcr.io -u '$oauthtoken' -p <NGC_API_KEY>
-
-# 2. Create Kind cluster
+# 1. Create Kind cluster
 kind create cluster --name nvml-mock-e2e
 
-# 3. Build and load nvml-mock image
+# 2. Build and load nvml-mock image
 docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile .
 kind load docker-image nvml-mock:e2e --name nvml-mock-e2e
 
-# 4. Install nvml-mock chart
+# 3. Install nvml-mock chart
 helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
   --set image.repository=nvml-mock --set image.tag=e2e --set gpu.count=2 \
   --wait --timeout 120s
 
-# 5. Deploy device plugin
+# 4. Deploy device plugin
 kubectl apply -f tests/e2e/device-plugin-mock.yaml
 kubectl -n kube-system wait --for=condition=ready pod -l name=nvidia-device-plugin-mock --timeout=120s
 
-# 6. Pull, load, and deploy GFD
+# 5. Pull, load, and deploy GFD (may require: docker login nvcr.io)
 docker pull nvcr.io/nvidia/gpu-feature-discovery:v0.17.0
 kind load docker-image nvcr.io/nvidia/gpu-feature-discovery:v0.17.0 --name nvml-mock-e2e
 kubectl apply -f tests/e2e/gfd-mock.yaml
 
-# 7. Pull, load, and run CUDA validator
+# 6. Pull, load, and run CUDA validator (may require: docker login nvcr.io)
 docker pull nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
 kind load docker-image nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 --name nvml-mock-e2e
 kubectl apply -f tests/e2e/validator-mock.yaml
 kubectl wait --for=condition=complete job/gpu-validator-mock --timeout=120s
 ```
 
-## Enabling GFD/validator in CI
+## Enabling standalone GFD/validator in CI
 
-When `NGC_API_KEY` is added as a GitHub Actions secret:
+Once confirmed that the standalone `nvcr.io` images are publicly accessible:
 
-1. Add a docker login step before the GFD/validator steps
-2. Remove the `if: false` conditions from the GFD and validator steps
-3. The image pull + kind load is already embedded in the step scripts
+1. Remove the `if: false` conditions from the GFD and validator steps
+2. The image pull + kind load is already embedded in the step scripts
 
 ## Files
 

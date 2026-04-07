@@ -29,7 +29,7 @@ on:
       golang_version:
         description: 'Go version'
         required: true
-        default: '1.23'
+        default: '1.25'
         type: string
       gpu_profiles:
         description: 'GPU profiles to test (JSON array)'
@@ -149,9 +149,10 @@ jobs:
           echo "FAIL: Expected 2 allocatable GPUs, got $GPUS"
           exit 1
 
-      # GFD and CUDA validator steps require NGC-authenticated images (nvcr.io).
-      # Disabled in CI until NGC_API_KEY is configured as a GitHub Actions secret.
-      # See tests/e2e/README.md for running the full E2E suite locally.
+      # GFD and CUDA validator standalone images from nvcr.io may require NGC auth.
+      # The GPU Operator path (e2e-gpu-operator job) bundles these publicly and works
+      # without credentials. These standalone steps are disabled until verified public.
+      # See tests/e2e/README.md for local testing instructions.
       - name: Deploy GPU Feature Discovery
         if: false
         run: |
