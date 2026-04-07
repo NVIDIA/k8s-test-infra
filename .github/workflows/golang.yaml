@@ -50,3 +50,8 @@ jobs:
     - name: Run unit tests
       run: |
         go test -v -race -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v vendor)
+
+    - name: Run govulncheck
+      run: |
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        govulncheck ./...
