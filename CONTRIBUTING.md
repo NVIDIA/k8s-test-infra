@@ -1,60 +1,129 @@
-# Contribute to the NVIDIA k8s-test-infra Project
+# Contributing to NVIDIA k8s-test-infra
 
-Want to hack on the NVIDIA k8s-test-infra Project? Awesome!
-We only require you to sign your work, the below section describes this!
+Thank you for your interest in contributing! This guide covers everything you
+need to get started.
 
-## Sign your work
+## Code of Conduct
 
-The sign-off is a simple line at the end of the explanation for the patch. Your
-signature certifies that you wrote the patch or otherwise have the right to pass
-it on as an open-source patch. The rules are pretty simple: if you can certify
-the below (from [developercertificate.org](http://developercertificate.org/)):
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
+By participating, you agree to uphold this code.
 
-```
-Developer Certificate of Origin
-Version 1.1
+## Getting Started
 
-Copyright (C) 2004, 2006 The Linux Foundation and its contributors.
-1 Letterman Drive
-Suite D4700
-San Francisco, CA, 94129
+### Prerequisites
 
-Everyone is permitted to copy and distribute verbatim copies of this
-license document, but changing it is not allowed.
+- Go 1.25+
+- Docker 20.10+
+- Helm 3.x
+- Kind (for E2E testing)
+- Make
 
-Developer's Certificate of Origin 1.1
+### Development Setup
 
-By making a contribution to this project, I certify that:
+```bash
+# Clone the repository
+git clone https://github.com/NVIDIA/k8s-test-infra.git
+cd k8s-test-infra
 
-(a) The contribution was created in whole or in part by me and I
-    have the right to submit it under the open source license
-    indicated in the file; or
+# Verify Go version
+go version  # must be >= 1.25
 
-(b) The contribution is based upon previous work that, to the best
-    of my knowledge, is covered under an appropriate open source
-    license and I have the right under that license to submit that
-    work with modifications, whether created in whole or in part
-    by me, under the same open source license (unless I am
-    permitted to submit under a different license), as indicated
-    in the file; or
+# Run unit tests
+go test -v -race $(go list ./... | grep -v vendor)
 
-(c) The contribution was provided directly to me by some other
-    person who certified (a), (b) or (c) and I have not modified
-    it.
+# Run linter
+golangci-lint run -v --timeout 5m
 
-(d) I understand and agree that this project and the contribution
-    are public and that a record of the contribution (including all
-    personal information I submit with it, including my sign-off) is
-    maintained indefinitely and may be redistributed consistent with
-    this project or the open source license(s) involved.
+# Check Go modules
+make check-modules
 ```
 
-Then you just add a line to every git commit message:
+### Building the Mock NVML Library
 
-    Signed-off-by: Joe Smith <joe.smith@email.com>
+```bash
+cd pkg/gpu/mocknvml
+make
+# Produces libnvidia-ml.so.1, libnvidia-ml.so.1.550.163.01, and symlinks
+```
 
-Use your real name (sorry, no pseudonyms or anonymous contributions.)
+### Running nvidia-smi Locally
 
-If you set your `user.name` and `user.email` git configs, you can sign your
-commit automatically with `git commit -s`.
+```bash
+cd pkg/gpu/mocknvml
+LD_LIBRARY_PATH=. nvidia-smi
+```
 
+## How to Contribute
+
+### Reporting Bugs
+
+Open an issue using the [bug report template](.github/ISSUE_TEMPLATE/bug_report.md).
+Include steps to reproduce, expected vs actual behavior, and your environment.
+
+### Suggesting Features
+
+Open an issue using the [feature request template](.github/ISSUE_TEMPLATE/feature_request.md).
+
+### Submitting Changes
+
+1. Fork the repository
+2. Create a feature branch from `main`
+3. Make your changes with tests
+4. Ensure all checks pass (see Testing below)
+5. Submit a pull request
+
+## Pull Request Process
+
+1. **One concern per PR** — keep PRs focused and reviewable
+2. **Tests required** — new features need tests; bug fixes need regression tests
+3. **CI must pass** — all checks (lint, unit tests, E2E) must be green
+4. **Review required** — at least one maintainer approval from [OWNERS](OWNERS)
+
+## Testing
+
+### Unit Tests
+
+```bash
+go test -v -race $(go list ./... | grep -v vendor)
+```
+
+### Helm Chart Tests
+
+```bash
+# Lint
+ct lint --chart-dirs deployments/nvml-mock/helm --all
+
+# Unit tests
+helm unittest deployments/nvml-mock/helm/nvml-mock
+```
+
+### E2E Tests
+
+E2E tests run on Kind clusters. See [tests/e2e/README.md](tests/e2e/README.md)
+for the full guide.
+
+## Coding Standards
+
+- Follow existing code patterns in the repository
+- Use `golangci-lint` for Go code
+- Add SPDX license headers to new files:
+  ```
+  // SPDX-License-Identifier: Apache-2.0
+  // SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+  ```
+
+## Sign Your Work (DCO)
+
+All commits must be signed off per the
+[Developer Certificate of Origin](http://developercertificate.org/).
+
+Add a sign-off line to every git commit message:
+
+    Signed-off-by: Your Name <your.email@example.com>
+
+Use your real name. If you set `user.name` and `user.email` in your git config,
+you can sign automatically with:
+
+```bash
+git commit -s
+```
