@@ -48,7 +48,7 @@ jobs:
       matrix:
         gpu-profile: ${{ fromJson(inputs.gpu_profiles) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set GPU display name
         id: gpu-info
@@ -64,15 +64,15 @@ jobs:
           esac
 
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: ${{ inputs.golang_version }}
 
       - name: Install Helm
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
 
       - name: Create Kind cluster
-        uses: helm/kind-action@v1
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
         with:
           cluster_name: nvml-mock-e2e-${{ matrix.gpu-profile }}
 
@@ -226,7 +226,7 @@ jobs:
       matrix:
         gpu-profile: ${{ fromJson(inputs.gpu_profiles) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Set GPU display name
         id: gpu-info
@@ -242,15 +242,15 @@ jobs:
           esac
 
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: ${{ inputs.golang_version }}
 
       - name: Install Helm
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
 
       - name: Create Kind cluster with DRA
-        uses: helm/kind-action@v1
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
         with:
           cluster_name: nvml-mock-dra-${{ matrix.gpu-profile }}
           config: tests/e2e/kind-dra-config.yaml
@@ -359,18 +359,18 @@ jobs:
       matrix:
         gpu-profile: ${{ fromJson(inputs.gpu_profiles) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: ${{ inputs.golang_version }}
 
       - name: Install Helm
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
 
       - name: Create Kind cluster for GPU Operator
-        uses: helm/kind-action@v1
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
         with:
           cluster_name: nvml-mock-op-${{ matrix.gpu-profile }}
           config: tests/e2e/kind-gpu-operator-config.yaml
@@ -611,18 +611,18 @@ jobs:
   e2e-multi-node:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Install Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version: ${{ inputs.golang_version }}
 
       - name: Install Helm
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
 
       - name: Create multi-node Kind cluster
-        uses: helm/kind-action@v1
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
         with:
           cluster_name: gpu-fleet
           config: tests/e2e/kind-multi-node-config.yaml
