@@ -222,3 +222,19 @@ If the libraries are missing, check the DaemonSet pod logs for errors:
 ```bash
 kubectl logs -l app.kubernetes.io/name=nvml-mock --tail=50
 ```
+
+## Cleanup
+
+To remove the FGO + nvml-mock setup, uninstall both Helm releases and delete
+the topology ConfigMap:
+
+```bash
+# Uninstall nvml-mock
+helm uninstall nvml-mock
+
+# Uninstall fake-gpu-operator
+helm uninstall fake-gpu-operator -n gpu-operator
+
+# Delete the topology ConfigMap
+kubectl delete configmap fake-gpu-operator-topology -n gpu-operator
+```

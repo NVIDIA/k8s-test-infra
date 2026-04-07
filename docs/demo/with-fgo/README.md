@@ -61,6 +61,7 @@ helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
   --set integrations.fakeGpuOperator.enabled=true \
   --set gpu.profile=h100 \
   --set gpu.count=8 \
+  --set "nodeSelector.run\.ai/simulated-gpu-node-pool=integration" \
   --wait --timeout 120s
 ```
 
@@ -82,28 +83,32 @@ Create a topology ConfigMap that tells FGO which backend each pool uses.
 The `integration` pool uses `backend: mock` (nvml-mock provides the NVML
 shim), and the `scale` pool uses `backend: fake` (FGO provides the shim).
 
-```yaml
+```bash
+kubectl apply -f - <<'EOF'
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: fake-gpu-operator-topology
+  namespace: gpu-operator
 data:
   topology.yaml: |
-    nodePools:
-      integration:
+    nodeGroups:
+      - name: integration
         backend: mock
+        nodeSelector:
+          run.ai/simulated-gpu-node-pool: "integration"
         gpuCount: 8
-        gpuProfile: h100
-      scale:
+        gpuModel: NVIDIA H100 80GB HBM3
+        gpuMemory: 80Gi
+
+      - name: scale
         backend: fake
+        nodeSelector:
+          run.ai/simulated-gpu-node-pool: "scale"
         gpuCount: 8
-        gpuProfile: h100
-```
-
-Apply the ConfigMap:
-
-```bash
-kubectl apply -f topology.yaml
+        gpuModel: NVIDIA H100 80GB HBM3
+        gpuMemory: 80Gi
+EOF
 ```
 
 ## Step 7 -- Verify
