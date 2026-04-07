@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+
+version = 1
+
+[[annotations]]
+path = ["**.go", "**.yaml", "**.yml", "**.sh", "**.toml", "Makefile", "Dockerfile"]
+SPDX-FileCopyrightText = "Copyright 2024-2026 NVIDIA CORPORATION"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ["**.md"]
+SPDX-FileCopyrightText = "Copyright 2024-2026 NVIDIA CORPORATION"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ["go.sum", "vendor/**", ".gitignore", ".editorconfig"]
+SPDX-FileCopyrightText = "Copyright 2024-2026 NVIDIA CORPORATION"
+SPDX-License-Identifier = "Apache-2.0"
