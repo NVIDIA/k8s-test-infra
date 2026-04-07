@@ -1,5 +1,9 @@
 # k8s-test-infra
 
+[![CI](https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml/badge.svg)](https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/NVIDIA/k8s-test-infra/badge)](https://scorecard.dev/viewer/?uri=github.com/NVIDIA/k8s-test-infra)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 Kubernetes test infrastructure for NVIDIA GPU software — mock GPU environments,
 CI tooling, and testing utilities.
 
