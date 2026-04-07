@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-04-07
 
 ### Added
-- Mock NVML library (`libnvidia-ml.so`) with 396 C API exports (107 hand-written,
+- Mock NVML library (`libnvidia-ml.so`) with 400 C API exports (111 hand-written,
   289 auto-generated stubs)
 - Mock CUDA library (`libcuda.so.1`) with 15 functions
 - Real `nvidia-smi` binary with RPATH patch backed by mock NVML
