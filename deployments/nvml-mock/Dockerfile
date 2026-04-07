@@ -24,7 +24,7 @@ RUN cd pkg/gpu/mockcuda && make clean && make
 
 FROM debian:bookworm-slim
 ARG KUBECTL_VERSION=v1.32.0
-ARG TARGETARCH=amd64
+ARG TARGETARCH
 COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
 RUN set -eux; \
