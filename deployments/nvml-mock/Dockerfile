@@ -40,9 +40,11 @@ RUN set -eux; \
     rm /tmp/kubectl.sha256; \
     # Extract nvidia-smi binary from nvidia-utils package (no full install needed).
     # Use Ubuntu 22.04 repo (binary-compatible with Debian bookworm, has nvidia-utils-550).
-    curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub | \
+    # Map TARGETARCH to NVIDIA repo path: amd64 → x86_64, arm64 → sbsa.
+    NVIDIA_REPO_ARCH=$(case ${TARGETARCH} in amd64) echo x86_64;; arm64) echo sbsa;; *) echo x86_64;; esac); \
+    curl -fsSL "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/${NVIDIA_REPO_ARCH}/3bf863cc.pub" | \
       gpg --dearmor -o /usr/share/keyrings/nvidia.gpg; \
-    echo "deb [signed-by=/usr/share/keyrings/nvidia.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64 /" \
+    echo "deb [signed-by=/usr/share/keyrings/nvidia.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/${NVIDIA_REPO_ARCH} /" \
       > /etc/apt/sources.list.d/nvidia.list; \
     apt-get update; \
     cd /tmp && apt-get download nvidia-utils-550; \
