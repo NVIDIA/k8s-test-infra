@@ -77,3 +77,16 @@ jobs:
             $(echo "${{ steps.meta.outputs.tags }}" | head -1)
         env:
           COSIGN_EXPERIMENTAL: "true"
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@f325610c9f50a54015d37c8d16cb3b0e2c8f4de0 # v0.18.0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Attach SBOM to image
+        run: |
+          cosign attest --yes --predicate sbom.spdx.json \
+            --type spdxjson \
+            $(echo "${{ steps.meta.outputs.tags }}" | head -1)
