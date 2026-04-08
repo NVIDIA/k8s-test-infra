@@ -15,6 +15,9 @@ name: CI Pipeline
 
 permissions:
   contents: read
+  security-events: write
+  actions: read
+  packages: read
 
 on:
   push:
