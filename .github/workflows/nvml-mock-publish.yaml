@@ -87,6 +87,8 @@ jobs:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
           format: spdx-json
           output-file: sbom.spdx.json
+          upload-artifact: false
+          dependency-snapshot: false
 
       - name: Attach SBOM to image
         run: |
