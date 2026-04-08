@@ -17,6 +17,7 @@ No physical NVIDIA hardware required.
 kind create cluster --name gpu-test
 
 # 2. Load the published image (or build locally with: docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .)
+docker pull ghcr.io/nvidia/nvml-mock:latest
 kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name gpu-test
 
 # 3. Install

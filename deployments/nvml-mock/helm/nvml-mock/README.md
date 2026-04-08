@@ -26,6 +26,11 @@ as the NVIDIA driver root and discover GPUs through standard NVML APIs.
 | [Go](https://go.dev/dl/) | 1.25+ | Building from source |
 | [jq](https://jqlang.github.io/jq/) | any | DRA verification only |
 
+**Published image:** The nvml-mock container image is published at
+`ghcr.io/nvidia/nvml-mock:latest` and is built automatically on pushes to
+`main`. If the image is not yet available (e.g., before the first release),
+use "Option B: Build from source" in the quick start sections below.
+
 **Cluster requirements:**
 - Privileged pods must be allowed (nvml-mock DaemonSet uses `privileged: true` for `mknod`)
 - For DRA: Kubernetes 1.32+ with `DynamicResourceAllocation` feature gate enabled
@@ -47,6 +52,7 @@ kind create cluster --name nvml-mock-test
 **Option A: Use the published image (recommended)**
 
 ```bash
+docker pull ghcr.io/nvidia/nvml-mock:latest
 kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-test
 ```
 
@@ -130,6 +136,7 @@ This config enables:
 **Option A: Use the published image (recommended)**
 
 ```bash
+docker pull ghcr.io/nvidia/nvml-mock:latest
 kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-dra
 ```
 
@@ -255,6 +262,7 @@ sleep 5
 **Option A: Use the published image (recommended)**
 
 ```bash
+docker pull ghcr.io/nvidia/nvml-mock:latest
 kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-operator
 ```
 
@@ -333,6 +341,7 @@ This creates 1 control-plane + 2 workers. The workers are pre-labeled
 **Option A: Use the published image (recommended)**
 
 ```bash
+docker pull ghcr.io/nvidia/nvml-mock:latest
 kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name gpu-fleet
 ```
 

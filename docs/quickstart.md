@@ -7,7 +7,8 @@ Get Mock NVML running in 5 minutes.
 - Linux (x86_64 or arm64)
 - Go 1.25+ with CGo
 - GCC toolchain (`build-essential` on Debian/Ubuntu)
-- `nvidia-smi` binary (from NVIDIA driver or CUDA toolkit)
+- `nvidia-smi` binary (optional -- only needed for local nvidia-smi output;
+  the Kubernetes deployment includes it automatically)
 
 ## Option 1: Local Build (Linux)
 
@@ -50,6 +51,10 @@ Build Linux binaries from macOS or other platforms:
 cd pkg/gpu/mocknvml
 make docker-build
 ```
+
+Build artifacts (shared libraries) are placed in `pkg/gpu/mocknvml/`:
+`libnvidia-ml.so`, `libnvidia-ml.so.1`, `libnvidia-ml.so.{version}`, and
+`nvidia-smi`.
 
 ## Verification
 
@@ -116,6 +121,7 @@ Deploy on a Kind cluster using the published container image:
 
 ```bash
 kind create cluster --name nvml-mock-test
+docker pull ghcr.io/nvidia/nvml-mock:latest
 kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-test
 helm install nvml-mock deployments/nvml-mock/helm/nvml-mock --wait --timeout 120s
 ```

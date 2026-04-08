@@ -28,6 +28,8 @@ Linux system -- no hardware required.
 
 ```bash
 kind create cluster --name test
+docker pull ghcr.io/nvidia/nvml-mock:latest
+kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name test
 helm install nvml-mock deployments/nvml-mock/helm/nvml-mock
 ```
 

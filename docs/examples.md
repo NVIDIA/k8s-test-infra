@@ -274,6 +274,8 @@ jobs:
         run: go test ./... -tags=gpu -v
       
       - name: Verify nvidia-smi
+        # Requires nvidia-smi binary (self-hosted runner with NVIDIA drivers,
+        # or extract from container image)
         env:
           LD_LIBRARY_PATH: ./pkg/gpu/mocknvml
           MOCK_NVML_CONFIG: ./pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml
