@@ -38,27 +38,27 @@ RUN set -eux; \
     echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum --check; \
     chmod +x /usr/local/bin/kubectl; \
     rm /tmp/kubectl.sha256; \
-    # Extract nvidia-smi binary from nvidia-utils package (amd64 only).
-    # The NVIDIA apt repo for arm64 (sbsa) does not carry nvidia-utils-550,
-    # so we conditionally install nvidia-smi only on amd64.
-    if [ "${TARGETARCH}" = "amd64" ]; then \
-      curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub | \
-        gpg --dearmor -o /usr/share/keyrings/nvidia.gpg; \
-      echo "deb [signed-by=/usr/share/keyrings/nvidia.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64 /" \
-        > /etc/apt/sources.list.d/nvidia.list; \
-      apt-get update; \
-      cd /tmp && apt-get download nvidia-utils-550; \
-      dpkg-deb -x /tmp/nvidia-utils-550*.deb /tmp/nvidia-utils; \
-      cp /tmp/nvidia-utils/usr/bin/nvidia-smi /usr/local/bin/nvidia-smi; \
-      chmod +x /usr/local/bin/nvidia-smi; \
-      # Set RPATH so nvidia-smi finds libs relative to its own location ($ORIGIN/../lib64).
-      apt-get install -y --no-install-recommends patchelf; \
-      patchelf --set-rpath '$ORIGIN/../lib64' /usr/local/bin/nvidia-smi; \
-      rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-550*.deb \
-             /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
-      apt-get purge -y --auto-remove patchelf; \
-    fi; \
+    # Extract nvidia-smi binary from nvidia-utils package (no full install needed).
+    # Use Ubuntu 22.04 repo (binary-compatible with Debian bookworm, has nvidia-utils-550).
+    # Map TARGETARCH to NVIDIA repo path: amd64 → x86_64, arm64 → sbsa.
+    NVIDIA_REPO_ARCH=$(case ${TARGETARCH} in arm64) echo sbsa;; *) echo x86_64;; esac); \
+    curl -fsSL "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/${NVIDIA_REPO_ARCH}/3bf863cc.pub" | \
+      gpg --dearmor -o /usr/share/keyrings/nvidia.gpg; \
+    echo "deb [signed-by=/usr/share/keyrings/nvidia.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/${NVIDIA_REPO_ARCH} /" \
+      > /etc/apt/sources.list.d/nvidia.list; \
+    apt-get update; \
+    cd /tmp && apt-get download nvidia-utils-550; \
+    dpkg-deb -x /tmp/nvidia-utils-550*.deb /tmp/nvidia-utils; \
+    cp /tmp/nvidia-utils/usr/bin/nvidia-smi /usr/local/bin/nvidia-smi; \
+    chmod +x /usr/local/bin/nvidia-smi; \
+    # Set RPATH so nvidia-smi finds libs relative to its own location ($ORIGIN/../lib64).
+    # This makes it work in every mount context: /run/nvidia/driver/usr/bin/,
+    # /var/lib/nvml-mock/driver/usr/bin/, and CDI-injected /usr/bin/.
+    apt-get install -y --no-install-recommends patchelf; \
+    patchelf --set-rpath '$ORIGIN/../lib64' /usr/local/bin/nvidia-smi; \
     rm -rf /var/lib/apt/lists/*; \
-    apt-get purge -y --auto-remove curl ca-certificates gnupg2
+    rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-550*.deb \
+           /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
+    apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
 COPY deployments/nvml-mock/scripts/ /scripts/
 RUN chmod +x /scripts/*.sh
