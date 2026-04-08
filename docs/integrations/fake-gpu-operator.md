@@ -76,7 +76,7 @@ helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
 
 ### Step 2: Configure FGO Topology
 
-Create a topology ConfigMap that tells FGO which backend to use for each node group. Real nodes use `backend: mock` (served by nvml-mock), while KWOK virtual nodes use `backend: fake` (served by FGO).
+Create a topology ConfigMap that tells FGO which backend to use for each node pool. Real nodes use `backend: mock` (served by nvml-mock), while KWOK virtual nodes use `backend: fake` (served by FGO).
 
 ```yaml
 apiVersion: v1
@@ -86,23 +86,15 @@ metadata:
   namespace: gpu-operator
 data:
   topology.yaml: |
-    nodeGroups:
-      - name: mock-nodes
+    nodePools:
+      mock-nodes:
         backend: mock
-        nodeSelector:
-          nvidia.com/gpu-driver-mock: "true"
         gpuCount: 8
-        gpuModel: A100-SXM4-80GB
-        gpuMemory: 80Gi
-
-      - name: kwok-nodes
+        gpuProfile: a100
+      kwok-nodes:
         backend: fake
-        nodeSelector:
-          type: kwok
         gpuCount: 8
-        gpuModel: A100-SXM4-80GB
-        gpuMemory: 80Gi
-        nodeCount: 200
+        gpuProfile: a100
 ```
 
 ### Step 3: Verify

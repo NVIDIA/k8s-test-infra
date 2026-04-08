@@ -77,7 +77,11 @@ config for consistency.
 YAML configs allow full control over GPU properties. See `configs/` for examples:
 
 - `mock-nvml-config-a100.yaml` - DGX A100 (8x A100-SXM4-40GB)
+- `mock-nvml-config-h100.yaml` - HGX H100 (8x H100 80GB HBM3)
+- `mock-nvml-config-b200.yaml` - B200 (8x B200, 192 GiB HBM3e)
 - `mock-nvml-config-gb200.yaml` - GB200 NVL (8x GB200 with 192 GiB HBM3e)
+- `mock-nvml-config-l40s.yaml` - L40S (8x L40S, 48 GiB)
+- `mock-nvml-config-t4.yaml` - T4 (8x T4, 16 GiB)
 
 #### Configuration Structure
 
@@ -175,7 +179,7 @@ $ MOCK_NVML_CONFIG=configs/mock-nvml-config-a100.yaml LD_LIBRARY_PATH=. nvidia-s
 ```
 $ MOCK_NVML_CONFIG=configs/mock-nvml-config-gb200.yaml LD_LIBRARY_PATH=. nvidia-smi
 +-----------------------------------------------------------------------------------------+
-| NVIDIA-SMI 550.163.01             Driver Version: 560.35.03      CUDA Version: 12.6     |
+| NVIDIA-SMI 560.35.03              Driver Version: 560.35.03      CUDA Version: 12.6     |
 |-----------------------------------------+------------------------+----------------------+
 | GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
 |=========================================+========================+======================|
@@ -240,11 +244,13 @@ $ MOCK_NVML_CONFIG=configs/mock-nvml-config-gb200.yaml LD_LIBRARY_PATH=. nvidia-
 pkg/gpu/mocknvml/
 ├── bridge/                        # CGo bridge layer
 │   ├── cgo_types.go               # Shared CGo type definitions
-│   ├── helpers.go                 # Helper functions + main()
+│   ├── helpers.go                 # Helper functions + main() + go:generate
 │   ├── init.go                    # Init/shutdown functions
 │   ├── device.go                  # Device handle functions
+│   ├── events.go                  # Event set/wait functions
 │   ├── system.go                  # System functions
 │   ├── internal.go                # Internal export table (nvidia-smi)
+│   ├── nvml_types.h               # C type definitions for CGo preamble
 │   └── stubs_generated.go         # Auto-generated stubs (~289 functions)
 ├── engine/
 │   ├── config.go                  # Configuration loading
@@ -252,19 +258,28 @@ pkg/gpu/mocknvml/
 │   ├── device.go                  # ConfigurableDevice implementation
 │   ├── engine.go                  # Main engine singleton
 │   ├── handles.go                 # C-compatible handle management
+│   ├── invalid_device.go          # Invalid device handle sentinel
 │   ├── utils.go                   # Debug logging utilities
+│   ├── version.go                 # NVML version responses
 │   └── *_test.go                  # Unit tests
 ├── configs/
 │   ├── mock-nvml-config-a100.yaml
-│   └── mock-nvml-config-gb200.yaml
+│   ├── mock-nvml-config-b200.yaml
+│   ├── mock-nvml-config-gb200.yaml
+│   ├── mock-nvml-config-h100.yaml
+│   ├── mock-nvml-config-l40s.yaml
+│   └── mock-nvml-config-t4.yaml
 ├── Dockerfile                     # Docker build environment
 ├── Makefile                       # Build automation
 └── README.md
 
 cmd/generate-bridge/
-└── main.go                        # Stub generator
+├── main.go                        # Stub generator (--stats, --validate flags)
+├── parser.go                      # nvml.h prototype parser
+└── main_test.go                   # Generator tests
 
 tests/mocknvml/
+├── bridge_tests.go                # Bridge-level integration tests
 ├── main.go                        # Integration test (mini device plugin)
 ├── Dockerfile                     # Test container
 ├── Makefile                       # Test automation
@@ -318,6 +333,7 @@ go generate
 # Or from repo root
 go run ./cmd/generate-bridge \
   -input vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go \
+  -header vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h \
   -bridge pkg/gpu/mocknvml/bridge \
   -output pkg/gpu/mocknvml/bridge/stubs_generated.go
 ```

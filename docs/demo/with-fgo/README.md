@@ -92,22 +92,15 @@ metadata:
   namespace: gpu-operator
 data:
   topology.yaml: |
-    nodeGroups:
-      - name: integration
+    nodePools:
+      integration:
         backend: mock
-        nodeSelector:
-          run.ai/simulated-gpu-node-pool: "integration"
         gpuCount: 8
-        gpuModel: NVIDIA H100 80GB HBM3
-        gpuMemory: 80Gi
-
-      - name: scale
+        gpuProfile: h100
+      scale:
         backend: fake
-        nodeSelector:
-          run.ai/simulated-gpu-node-pool: "scale"
         gpuCount: 8
-        gpuModel: NVIDIA H100 80GB HBM3
-        gpuMemory: 80Gi
+        gpuProfile: h100
 EOF
 ```
 

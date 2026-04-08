@@ -34,7 +34,9 @@ pkg/gpu/mocknvml/
 │   └── *_test.go              # Unit tests
 ├── configs/
 │   ├── mock-nvml-config-a100.yaml
+│   ├── mock-nvml-config-b200.yaml
 │   ├── mock-nvml-config-gb200.yaml
+│   ├── mock-nvml-config-h100.yaml
 │   ├── mock-nvml-config-l40s.yaml
 │   └── mock-nvml-config-t4.yaml
 ├── Dockerfile
@@ -47,7 +49,8 @@ cmd/generate-bridge/
 └── main_test.go               # Generator tests
 
 tests/mocknvml/
-├── main.go                    # Integration test
+├── bridge_tests.go            # Bridge-level integration tests
+├── main.go                    # Integration test (mini device plugin)
 ├── Dockerfile
 ├── Makefile
 └── README.md

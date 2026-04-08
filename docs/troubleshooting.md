@@ -199,22 +199,6 @@ grep "nvmlDeviceGetXxx" pkg/gpu/mocknvml/bridge/stubs_generated.go
 
 ## Testing Issues
 
-### Tests Fail with "undefined"
-
-**Error**:
-```
-./device_test.go:XX: undefined: EnhancedDevice
-```
-
-**Solution**: Update test file to use `ConfigurableDevice`:
-```go
-// Old
-dev := &EnhancedDevice{...}
-
-// New
-dev := &ConfigurableDevice{...}
-```
-
 ### Integration Test Fails
 
 **Error**:

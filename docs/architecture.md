@@ -304,11 +304,13 @@ nvidia-smi                Bridge              Engine           Device
 pkg/gpu/mocknvml/
 ├── bridge/
 │   ├── cgo_types.go           # Shared CGo type definitions
-│   ├── helpers.go             # Helper functions + main()
+│   ├── helpers.go             # Helper functions + main() + go:generate
 │   ├── init.go                # nvmlInit_v2, nvmlShutdown, etc.
 │   ├── device.go              # Device handle functions
+│   ├── events.go              # Event set/wait functions
 │   ├── system.go              # System functions
 │   ├── internal.go            # Internal export table (nvidia-smi)
+│   ├── nvml_types.h           # C type definitions for CGo preamble
 │   └── stubs_generated.go     # Auto-generated stubs (~289 functions)
 ├── engine/
 │   ├── config.go              # Config loading
@@ -316,16 +318,25 @@ pkg/gpu/mocknvml/
 │   ├── device.go              # ConfigurableDevice
 │   ├── engine.go              # Singleton engine
 │   ├── handles.go             # Handle table
-│   └── utils.go               # Debug logging
+│   ├── invalid_device.go      # Invalid device handle sentinel
+│   ├── utils.go               # Debug logging
+│   ├── version.go             # NVML version responses
+│   └── *_test.go              # Unit tests
 ├── configs/
 │   ├── mock-nvml-config-a100.yaml
-│   └── mock-nvml-config-gb200.yaml
+│   ├── mock-nvml-config-b200.yaml
+│   ├── mock-nvml-config-gb200.yaml
+│   ├── mock-nvml-config-h100.yaml
+│   ├── mock-nvml-config-l40s.yaml
+│   └── mock-nvml-config-t4.yaml
 ├── Dockerfile
 ├── Makefile
 └── README.md
 
 cmd/generate-bridge/
-└── main.go                    # Stub generator
+├── main.go                    # Stub generator (--stats, --validate flags)
+├── parser.go                  # nvml.h prototype parser
+└── main_test.go               # Generator tests
 ```
 
 ## Thread Safety

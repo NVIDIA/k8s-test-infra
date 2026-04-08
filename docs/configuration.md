@@ -347,15 +347,20 @@ nvlink:
       remote_pci_bus_id: "00000000:0F:00.0"
 ```
 
-## Complete Example: A100 Profile
+## Available GPU Profiles
 
-See `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` for a complete
-A100 configuration with all 8 devices configured.
+Standalone configuration files are provided for each supported GPU model:
 
-## Complete Example: GB200 Profile
+| File | GPU Model | Memory | Architecture |
+|------|-----------|--------|--------------|
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` | NVIDIA A100-SXM4-40GB | 40 GiB | Ampere |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml` | NVIDIA H100 80GB HBM3 | 80 GiB | Hopper |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-b200.yaml` | NVIDIA B200 | 192 GiB | Blackwell |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml` | NVIDIA GB200 NVL | 192 GiB | Blackwell |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-l40s.yaml` | NVIDIA L40S | 48 GiB | Ada Lovelace |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-t4.yaml` | NVIDIA T4 | 16 GiB | Turing |
 
-See `pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml` for a Blackwell
-GB200 configuration with 192 GiB HBM3e memory.
+Each file contains a complete configuration with all 8 devices configured.
 
 ## Integration Values
 
@@ -364,7 +369,7 @@ When deploying via Helm, additional values control integration with external pro
 | Key | Default | Description |
 |-----|---------|-------------|
 | `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps for fake-gpu-operator discovery |
-| `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Discovery labels on profile ConfigMaps |
+| `integrations.fakeGpuOperator.profileLabels` | `run.ai/gpu-profile: "true"` | Discovery labels on profile ConfigMaps |
 
 See [fake-gpu-operator integration](integrations/fake-gpu-operator.md) for setup details.
 
