@@ -2019,3 +2019,28 @@ func nvmlDeviceGetDetailedEccErrors(device C.nvmlDevice_t, errorType C.nvmlMemor
 	eccCounts.registerFile = C.ulonglong(counts.RegisterFile)
 	return C.NVML_SUCCESS
 }
+
+// =============================================================================
+// MIG Device Handle Detection
+// =============================================================================
+
+// nvmlDeviceIsMigDeviceHandle returns whether a device handle refers to a MIG
+// device. Mock devices are always full GPUs, never MIG instances.
+//
+//export nvmlDeviceIsMigDeviceHandle
+func nvmlDeviceIsMigDeviceHandle(device C.nvmlDevice_t, isMigDevice *C.uint) C.nvmlReturn_t {
+	if isMigDevice == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	*isMigDevice = 0 // false: mock devices are not MIG devices
+	return C.NVML_SUCCESS
+}
+
+// nvmlDeviceGetDeviceHandleFromMigDeviceHandle returns the parent GPU handle
+// for a MIG device. Since mock devices are never MIG devices, this always
+// returns ERROR_NOT_SUPPORTED.
+//
+//export nvmlDeviceGetDeviceHandleFromMigDeviceHandle
+func nvmlDeviceGetDeviceHandleFromMigDeviceHandle(migDevice C.nvmlDevice_t, device *C.nvmlDevice_t) C.nvmlReturn_t {
+	return C.NVML_ERROR_NOT_SUPPORTED
+}

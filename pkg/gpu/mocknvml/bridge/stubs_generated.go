@@ -225,10 +225,7 @@ func nvmlDeviceGetCurrentClockFreqs(device C.nvmlDevice_t, currentClockFreqs *C.
 
 // nvmlDeviceGetDetailedEccErrors — hand-written in device.go
 
-//export nvmlDeviceGetDeviceHandleFromMigDeviceHandle
-func nvmlDeviceGetDeviceHandleFromMigDeviceHandle(migDevice C.nvmlDevice_t, device *C.nvmlDevice_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetDeviceHandleFromMigDeviceHandle")
-}
+// nvmlDeviceGetDeviceHandleFromMigDeviceHandle: moved to device.go (hand-implemented)
 
 //export nvmlDeviceGetDramEncryptionMode
 func nvmlDeviceGetDramEncryptionMode(device C.nvmlDevice_t, current *C.nvmlDramEncryptionInfo_t, pending *C.nvmlDramEncryptionInfo_t) C.nvmlReturn_t {
@@ -730,10 +727,7 @@ func nvmlDeviceGetVirtualizationMode(device C.nvmlDevice_t, pVirtualMode *C.nvml
 	return stubReturn("nvmlDeviceGetVirtualizationMode")
 }
 
-//export nvmlDeviceIsMigDeviceHandle
-func nvmlDeviceIsMigDeviceHandle(device C.nvmlDevice_t, isMigDevice *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceIsMigDeviceHandle")
-}
+// nvmlDeviceIsMigDeviceHandle: moved to device.go (hand-implemented)
 
 //export nvmlDeviceModifyDrainState
 func nvmlDeviceModifyDrainState(pciInfo *C.nvmlPciInfo_t, newState C.nvmlEnableState_t) C.nvmlReturn_t {
