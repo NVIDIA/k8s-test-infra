@@ -593,7 +593,7 @@ gpu:
         used_bytes: 0
     devices:
       - index: 0
-        uuid: "GPU-L40S-0000-0000-0000-000000000000"
+        uuid: "GPU-14050000-0000-0000-0000-000000000000"
         minor_number: 0
 ```
 
