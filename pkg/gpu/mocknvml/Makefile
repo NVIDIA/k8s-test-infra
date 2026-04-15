@@ -53,8 +53,12 @@ VERSION_ALIASES := \
 	-Wl,--defsym,nvmlVgpuInstanceGetLicenseInfo=nvmlVgpuInstanceGetLicenseInfo_v2 \
 	-Wl,--defsym,nvmlDeviceGetDriverModel=nvmlDeviceGetDriverModel_v2
 
+# Set SONAME so nvidia-container-toolkit CDI spec generation creates the
+# libnvidia-ml.so.1 symlink (nvidia-smi dlopen's this soname).
+SONAME_FLAG := -Wl,-soname,$(LIB_SONAME)
+
 $(LIB_REALNAME):
-	CGO_LDFLAGS_ALLOW='--defsym' CGO_LDFLAGS='$(VERSION_ALIASES)' \
+	CGO_LDFLAGS_ALLOW='--defsym|.*-soname.*' CGO_LDFLAGS='$(VERSION_ALIASES) $(SONAME_FLAG)' \
 		go build -buildmode=c-shared -o $(LIB_REALNAME) ./bridge
 
 clean:
