@@ -1236,11 +1236,30 @@ func parseComputeMode(mode string) nvml.ComputeMode {
 type MockServer struct {
 	*dgxa100.Server
 	configurableDevices [MaxDevices]*ConfigurableDevice
+
+	// visibleDevices maps "visible index" (0, 1, ...) to the actual device
+	// index in configurableDevices. When a container has only a subset of
+	// /dev/nvidia* nodes (via CDI injection), this slice contains only the
+	// devices whose device nodes exist, mimicking real NVML's cgroup-based
+	// device filtering. If nil, all devices are visible (no filtering).
+	visibleDevices []int
 }
 
-// DeviceGetHandleByIndex returns a configurable device by index
+// DeviceGetHandleByIndex returns a configurable device by visible index.
+// When device visibility filtering is active (container has only a subset
+// of /dev/nvidia* nodes), the index maps through the visibility table.
 func (s *MockServer) DeviceGetHandleByIndex(index int) (nvml.Device, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetHandleByIndex(%d)\n", index)
+
+	// Map through visibility filter if active
+	if s.visibleDevices != nil {
+		if index < 0 || index >= len(s.visibleDevices) {
+			return nil, nvml.ERROR_INVALID_ARGUMENT
+		}
+		actual := s.visibleDevices[index]
+		return s.configurableDevices[actual], nvml.SUCCESS
+	}
+
 	if index < 0 || index >= len(s.configurableDevices) {
 		return nil, nvml.ERROR_INVALID_ARGUMENT
 	}

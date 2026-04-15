@@ -14,6 +14,8 @@
 package engine
 
 import (
+	"fmt"
+	"os"
 	"sync"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -78,9 +80,20 @@ func (e *Engine) Init() nvml.Return {
 		return nvml.ERROR_UNKNOWN
 	}
 
+	// Detect which GPU device nodes exist. In containers where CDI injects
+	// only the allocated GPUs (e.g. /dev/nvidia0 but not /dev/nvidia1-7),
+	// filter the visible device set to match. This mimics real NVML behavior
+	// where cgroup device permissions limit GPU visibility per container.
+	server.visibleDevices = detectVisibleDevices(e.config.NumDevices)
+
 	e.server = server
 	e.initCount = 1
-	debugLog("[ENGINE] Initialized with %d devices\n", e.config.NumDevices)
+
+	visibleCount := e.config.NumDevices
+	if server.visibleDevices != nil {
+		visibleCount = len(server.visibleDevices)
+	}
+	debugLog("[ENGINE] Initialized with %d devices (%d visible)\n", e.config.NumDevices, visibleCount)
 	return nvml.SUCCESS
 }
 
@@ -177,9 +190,14 @@ func (e *Engine) createDefaultDevices(server *MockServer, base *dgxa100.Server) 
 
 // applySystemConfig applies system-level configuration
 func (e *Engine) applySystemConfig(server *MockServer) {
-	// Override device count
+	// Override device count. If device visibility filtering is active
+	// (container has only a subset of /dev/nvidia* nodes), return the
+	// filtered count instead of the total configured count.
 	numDevices := e.config.NumDevices
 	server.DeviceGetCountFunc = func() (int, nvml.Return) {
+		if server.visibleDevices != nil {
+			return len(server.visibleDevices), nvml.SUCCESS
+		}
 		if numDevices <= MaxDevices {
 			return numDevices, nvml.SUCCESS
 		}
@@ -406,4 +424,37 @@ func ResetForTesting() {
 	engineInstance = nil
 
 	debugLog("[ENGINE] Reset for testing\n")
+}
+
+// detectVisibleDevices scans for /dev/nvidia<N> device nodes and returns a
+// slice mapping visible indices to actual device indices. This mimics real
+// NVML behavior where cgroup device permissions limit which GPUs a container
+// can see.
+//
+// Returns nil if ALL device nodes exist (no filtering needed) or if none
+// exist (host context where /dev/nvidia* may not be present but NVML should
+// still work).
+func detectVisibleDevices(numDevices int) []int {
+	var present []int
+	var absent int
+
+	for i := 0; i < numDevices && i < MaxDevices; i++ {
+		path := fmt.Sprintf("/dev/nvidia%d", i)
+		if _, err := os.Stat(path); err == nil {
+			present = append(present, i)
+		} else {
+			absent++
+		}
+	}
+
+	// No filtering if all devices exist or none exist.
+	// "None exist" handles the host/driver-plugin case where /dev/nvidia*
+	// nodes are not at /dev/ but the library should still expose all devices.
+	if absent == 0 || len(present) == 0 {
+		return nil
+	}
+
+	debugLog("[ENGINE] Device visibility filtering: %d of %d GPUs visible (by /dev/nvidia* presence)\n",
+		len(present), numDevices)
+	return present
 }
