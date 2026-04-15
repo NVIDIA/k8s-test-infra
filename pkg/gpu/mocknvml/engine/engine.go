@@ -163,7 +163,10 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *dgxa100.Server)
 	}
 }
 
-// createDefaultDevices creates devices with default/env configuration (legacy mode)
+// createDefaultDevices creates devices with default/env configuration (legacy mode).
+// Uses deterministic UUIDs and PCI bus IDs so that multiple processes loading the
+// library for the same device index see identical identifiers -- critical for shared
+// GPU scenarios where two pods must agree on the UUID of a shared device.
 func (e *Engine) createDefaultDevices(server *MockServer, base *dgxa100.Server) {
 	debugLog("[ENGINE] Creating devices with default config\n")
 
@@ -175,13 +178,16 @@ func (e *Engine) createDefaultDevices(server *MockServer, base *dgxa100.Server) 
 			continue
 		}
 
-		// Create configurable device with nil config (uses defaults)
+		// Deterministic UUID and PCI bus ID based on device index.
+		uuid := fmt.Sprintf("GPU-00000000-0000-0000-0000-%012d", i)
+		pciBusID := fmt.Sprintf("00000000:%02X:00.0", i+1)
+
 		server.configurableDevices[i] = NewConfigurableDevice(
 			i,
 			baseDevice,
 			nil, // No YAML config
-			"",  // Use default UUID
-			"",  // Use default PCI bus ID
+			uuid,
+			pciBusID,
 			i,   // Minor number = index
 			nil, // No NVLink config
 		)
