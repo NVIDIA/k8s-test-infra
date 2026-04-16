@@ -15,6 +15,7 @@ package engine
 
 import (
 	"fmt"
+	"slices"
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -1257,6 +1258,9 @@ func (s *MockServer) DeviceGetHandleByIndex(index int) (nvml.Device, nvml.Return
 			return nil, nvml.ERROR_INVALID_ARGUMENT
 		}
 		actual := s.visibleDevices[index]
+		if s.configurableDevices[actual] == nil {
+			return nil, nvml.ERROR_NOT_FOUND
+		}
 		return s.configurableDevices[actual], nvml.SUCCESS
 	}
 
@@ -1269,25 +1273,42 @@ func (s *MockServer) DeviceGetHandleByIndex(index int) (nvml.Device, nvml.Return
 	return s.configurableDevices[index], nvml.SUCCESS
 }
 
-// DeviceGetHandleByUUID returns a configurable device by UUID
+// DeviceGetHandleByUUID returns a configurable device by UUID.
+// When device visibility filtering is active, only visible devices are returned.
 func (s *MockServer) DeviceGetHandleByUUID(uuid string) (nvml.Device, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetHandleByUUID(%s)\n", uuid)
-	for _, dev := range s.configurableDevices {
+	for i, dev := range s.configurableDevices {
 		if dev != nil && dev.UUID == uuid {
+			if !s.isDeviceVisible(i) {
+				return nil, nvml.ERROR_NOT_FOUND
+			}
 			return dev, nvml.SUCCESS
 		}
 	}
 	return nil, nvml.ERROR_NOT_FOUND
 }
 
-// DeviceGetHandleByPciBusId returns a configurable device by PCI bus ID
+// DeviceGetHandleByPciBusId returns a configurable device by PCI bus ID.
+// When device visibility filtering is active, only visible devices are returned.
 func (s *MockServer) DeviceGetHandleByPciBusId(pciBusId string) (nvml.Device, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetHandleByPciBusId(%s)\n", pciBusId)
-	for _, dev := range s.configurableDevices {
+	for i, dev := range s.configurableDevices {
 		if dev != nil && dev.PciBusID == pciBusId {
+			if !s.isDeviceVisible(i) {
+				return nil, nvml.ERROR_NOT_FOUND
+			}
 			return dev, nvml.SUCCESS
 		}
 	}
 	return nil, nvml.ERROR_NOT_FOUND
+}
+
+// isDeviceVisible returns true if the given device index is in the visible set.
+// When visibleDevices is nil (no filtering), all devices are visible.
+func (s *MockServer) isDeviceVisible(deviceIndex int) bool {
+	if s.visibleDevices == nil {
+		return true
+	}
+	return slices.Contains(s.visibleDevices, deviceIndex)
 }
 

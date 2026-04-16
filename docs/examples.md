@@ -132,7 +132,7 @@ device_defaults:
 
 devices:
   - index: 0
-    uuid: "GPU-RTX4090-0000-0000-0000-000000000000"
+    uuid: "GPU-40900000-0000-0000-0000-000000000000"
     pci:
       bus_id: "00000000:01:00.0"
 ```
@@ -160,7 +160,7 @@ device_defaults:
 
 devices:
   - index: 0
-    uuid: "GPU-A100-0000"
+    uuid: "GPU-a1000000-0000-0000-0000-000000000000"
     name: "NVIDIA A100-SXM4-80GB"
     memory:
       total_bytes: 85899345920  # 80 GiB
@@ -168,7 +168,7 @@ devices:
       bus_id: "00000000:07:00.0"
   
   - index: 1
-    uuid: "GPU-H100-0001"
+    uuid: "GPU-01000100-0000-0000-0000-000000000001"
     name: "NVIDIA H100"
     architecture: "hopper"
     memory:
@@ -209,7 +209,7 @@ device_defaults:
 
 devices:
   - index: 0
-    uuid: "GPU-LOAD-0000"
+    uuid: "GPU-10ad0000-0000-0000-0000-000000000000"
     pci:
       bus_id: "00000000:07:00.0"
     processes:
@@ -326,7 +326,7 @@ data:
         total_bytes: 42949672960
     devices:
       - index: 0
-        uuid: "GPU-TEST-0000"
+        uuid: "GPU-7e570000-0000-0000-0000-000000000000"
         pci:
           bus_id: "00000000:00:00.0"
 ---

@@ -418,6 +418,14 @@ func (e *Engine) GetConfig() *Config {
 	return e.config
 }
 
+// SetVisibleDevicesForTesting sets the visible device mapping on an initialized
+// engine's server. Pass nil to disable filtering. Only use in tests.
+func (e *Engine) SetVisibleDevicesForTesting(visible []int) {
+	if e.server != nil {
+		e.server.visibleDevices = visible
+	}
+}
+
 // ResetForTesting resets the engine singleton for testing purposes.
 // This clears all cached state including config cache.
 // WARNING: Only use in tests! Not thread-safe during concurrent access.
@@ -441,11 +449,17 @@ func ResetForTesting() {
 // exist (host context where /dev/nvidia* may not be present but NVML should
 // still work).
 func detectVisibleDevices(numDevices int) []int {
+	return detectVisibleDevicesAt("/dev/nvidia%d", numDevices)
+}
+
+// detectVisibleDevicesAt is the testable core of detectVisibleDevices.
+// pathFmt is a printf format that takes the device index (e.g. "/dev/nvidia%d").
+func detectVisibleDevicesAt(pathFmt string, numDevices int) []int {
 	var present []int
 	var absent int
 
 	for i := 0; i < numDevices && i < MaxDevices; i++ {
-		path := fmt.Sprintf("/dev/nvidia%d", i)
+		path := fmt.Sprintf(pathFmt, i)
 		if _, err := os.Stat(path); err == nil {
 			present = append(present, i)
 		} else {

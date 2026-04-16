@@ -58,7 +58,7 @@ VERSION_ALIASES := \
 SONAME_FLAG := -Wl,-soname,$(LIB_SONAME)
 
 $(LIB_REALNAME):
-	CGO_LDFLAGS_ALLOW='--defsym|.*-soname.*' CGO_LDFLAGS='$(VERSION_ALIASES) $(SONAME_FLAG)' \
+	CGO_LDFLAGS_ALLOW='--defsym|-soname' CGO_LDFLAGS='$(VERSION_ALIASES) $(SONAME_FLAG)' \
 		go build -buildmode=c-shared -o $(LIB_REALNAME) ./bridge
 
 clean:

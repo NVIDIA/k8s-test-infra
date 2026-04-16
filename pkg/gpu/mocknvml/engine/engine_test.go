@@ -14,6 +14,8 @@
 package engine
 
 import (
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -408,4 +410,199 @@ func TestEngine_DeviceGetHandleByPciBusIdInvalid(t *testing.T) {
 	if ret == nvml.SUCCESS {
 		t.Error("Expected error for invalid PCI bus ID")
 	}
+}
+
+// --- Visibility filtering tests ---
+
+// TestDetectVisibleDevices_NonePresent verifies nil is returned when no device
+// nodes exist (typical host/driver-plugin context).
+func TestDetectVisibleDevices_NonePresent(t *testing.T) {
+	dir := t.TempDir()
+	// No files created – simulates no /dev/nvidia* nodes
+	result := detectVisibleDevicesAt(dir+"/nvidia%d", 4)
+	if result != nil {
+		t.Errorf("Expected nil (no filtering) when no nodes exist, got %v", result)
+	}
+}
+
+// TestDetectVisibleDevices_AllPresent verifies nil is returned when every
+// device node exists (no filtering needed).
+func TestDetectVisibleDevices_AllPresent(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 4; i++ {
+		f, err := os.Create(fmt.Sprintf("%s/nvidia%d", dir, i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+
+	result := detectVisibleDevicesAt(dir+"/nvidia%d", 4)
+	if result != nil {
+		t.Errorf("Expected nil (no filtering) when all nodes exist, got %v", result)
+	}
+}
+
+// TestDetectVisibleDevices_Subset verifies correct filtering when only some
+// device nodes exist (e.g. container with CDI-injected subset).
+func TestDetectVisibleDevices_Subset(t *testing.T) {
+	dir := t.TempDir()
+	// Create only nodes 0 and 2 out of 4
+	for _, idx := range []int{0, 2} {
+		f, err := os.Create(fmt.Sprintf("%s/nvidia%d", dir, idx))
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+
+	result := detectVisibleDevicesAt(dir+"/nvidia%d", 4)
+	if len(result) != 2 {
+		t.Fatalf("Expected 2 visible devices, got %d: %v", len(result), result)
+	}
+	if result[0] != 0 || result[1] != 2 {
+		t.Errorf("Expected visible devices [0 2], got %v", result)
+	}
+}
+
+// TestVisibility_DeviceGetCount verifies that DeviceGetCount returns the
+// filtered count when visibility filtering is active.
+func TestVisibility_DeviceGetCount(t *testing.T) {
+	e := NewEngine(&Config{NumDevices: 4, DriverVersion: "550.54.15"})
+	_ = e.Init()
+	defer func() { _ = e.Shutdown() }()
+
+	// Before filtering: should see all 4
+	count, ret := e.DeviceGetCount()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("DeviceGetCount failed: %v", ret)
+	}
+	if count != 4 {
+		t.Errorf("Expected 4, got %d", count)
+	}
+
+	// Activate filtering: only devices 1 and 3 visible
+	e.SetVisibleDevicesForTesting([]int{1, 3})
+	count, ret = e.DeviceGetCount()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("DeviceGetCount failed: %v", ret)
+	}
+	if count != 2 {
+		t.Errorf("Expected 2 visible devices, got %d", count)
+	}
+
+	// Disable filtering
+	e.SetVisibleDevicesForTesting(nil)
+	count, ret = e.DeviceGetCount()
+	if ret != nvml.SUCCESS {
+		t.Fatalf("DeviceGetCount failed: %v", ret)
+	}
+	if count != 4 {
+		t.Errorf("Expected 4 after disabling filter, got %d", count)
+	}
+}
+
+// TestVisibility_DeviceGetHandleByIndex verifies index remapping through the
+// visibility table.
+func TestVisibility_DeviceGetHandleByIndex(t *testing.T) {
+	e := NewEngine(&Config{NumDevices: 4, DriverVersion: "550.54.15"})
+	_ = e.Init()
+	defer func() { _ = e.Shutdown() }()
+
+	// Get the actual device at index 2 before filtering
+	handleDev2, ret := e.DeviceGetHandleByIndex(2)
+	if ret != nvml.SUCCESS {
+		t.Fatalf("DeviceGetHandleByIndex(2) failed: %v", ret)
+	}
+
+	// Activate filtering: visible = [2, 3] (device 2 becomes visible index 0)
+	e.SetVisibleDevicesForTesting([]int{2, 3})
+
+	// Visible index 0 should map to actual device 2
+	handle, ret := e.DeviceGetHandleByIndex(0)
+	if ret != nvml.SUCCESS {
+		t.Fatalf("DeviceGetHandleByIndex(0) with visibility failed: %v", ret)
+	}
+	if handle != handleDev2 {
+		t.Error("Visible index 0 should map to actual device 2")
+	}
+
+	// Visible index 2 should be out of range (only 2 visible)
+	_, ret = e.DeviceGetHandleByIndex(2)
+	if ret != nvml.ERROR_INVALID_ARGUMENT {
+		t.Errorf("Expected ERROR_INVALID_ARGUMENT for out-of-range visible index, got %v", ret)
+	}
+}
+
+// TestVisibility_DeviceGetHandleByUUID verifies that UUID lookups respect
+// device visibility filtering.
+func TestVisibility_DeviceGetHandleByUUID(t *testing.T) {
+	e := NewEngine(&Config{NumDevices: 4, DriverVersion: "550.54.15"})
+	_ = e.Init()
+	defer func() { _ = e.Shutdown() }()
+
+	// Get UUIDs for devices 0 and 1
+	h0, _ := e.DeviceGetHandleByIndex(0)
+	uuid0, _ := e.LookupDevice(h0).GetUUID()
+	h1, _ := e.DeviceGetHandleByIndex(1)
+	uuid1, _ := e.LookupDevice(h1).GetUUID()
+
+	// Only device 0 is visible
+	e.SetVisibleDevicesForTesting([]int{0})
+
+	// Device 0's UUID should resolve
+	_, ret := e.DeviceGetHandleByUUID(uuid0)
+	if ret != nvml.SUCCESS {
+		t.Errorf("Expected SUCCESS for visible device UUID, got %v", ret)
+	}
+
+	// Device 1's UUID should NOT resolve
+	_, ret = e.DeviceGetHandleByUUID(uuid1)
+	if ret != nvml.ERROR_NOT_FOUND {
+		t.Errorf("Expected ERROR_NOT_FOUND for non-visible device UUID, got %v", ret)
+	}
+}
+
+// TestVisibility_DeviceGetHandleByPciBusId verifies that PCI bus ID lookups
+// respect device visibility filtering.
+func TestVisibility_DeviceGetHandleByPciBusId(t *testing.T) {
+	e := NewEngine(&Config{NumDevices: 4, DriverVersion: "550.54.15"})
+	_ = e.Init()
+	defer func() { _ = e.Shutdown() }()
+
+	// Get PCI bus IDs for devices 0 and 1
+	h0, _ := e.DeviceGetHandleByIndex(0)
+	pci0, _ := e.LookupDevice(h0).GetPciInfo()
+	busId0 := pciInfoBusIdString(pci0)
+
+	h1, _ := e.DeviceGetHandleByIndex(1)
+	pci1, _ := e.LookupDevice(h1).GetPciInfo()
+	busId1 := pciInfoBusIdString(pci1)
+
+	// Only device 0 is visible
+	e.SetVisibleDevicesForTesting([]int{0})
+
+	// Device 0's PCI bus ID should resolve
+	_, ret := e.DeviceGetHandleByPciBusId(busId0)
+	if ret != nvml.SUCCESS {
+		t.Errorf("Expected SUCCESS for visible device PCI bus ID, got %v", ret)
+	}
+
+	// Device 1's PCI bus ID should NOT resolve
+	_, ret = e.DeviceGetHandleByPciBusId(busId1)
+	if ret != nvml.ERROR_NOT_FOUND {
+		t.Errorf("Expected ERROR_NOT_FOUND for non-visible device PCI bus ID, got %v", ret)
+	}
+}
+
+// pciInfoBusIdString extracts a Go string from the null-terminated BusId array.
+func pciInfoBusIdString(pci nvml.PciInfo) string {
+	var s string
+	for _, b := range pci.BusId {
+		if b == 0 {
+			break
+		}
+		s += string(rune(b))
+	}
+	return s
 }

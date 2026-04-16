@@ -243,7 +243,7 @@ device_defaults:
 
 devices:
   - index: 0
-    uuid: "GPU-NEWGPU-0000"
+    uuid: "GPU-ae000000-0000-0000-0000-000000000000"
     pci:
       bus_id: "00000000:07:00.0"
   # ... add all devices
