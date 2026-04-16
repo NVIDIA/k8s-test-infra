@@ -434,7 +434,9 @@ func TestDetectVisibleDevices_AllPresent(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	result := detectVisibleDevicesAt(dir+"/nvidia%d", 4)
@@ -453,7 +455,9 @@ func TestDetectVisibleDevices_Subset(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	result := detectVisibleDevicesAt(dir+"/nvidia%d", 4)
