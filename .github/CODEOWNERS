@@ -2,16 +2,16 @@
 # See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 # Default owners for everything
-* @ArangoGutierrez @klueska
+* @ArangoGutierrez
 
 # Mock NVML library
 /pkg/gpu/mocknvml/ @ArangoGutierrez
 
 # Helm chart
-/deployments/nvml-mock/ @ArangoGutierrez @klueska
+/deployments/nvml-mock/ @ArangoGutierrez
 
 # CI workflows
-/.github/workflows/ @ArangoGutierrez @klueska
+/.github/workflows/ @ArangoGutierrez
 
 # E2E tests
-/tests/e2e/ @ArangoGutierrez @klueska
+/tests/e2e/ @ArangoGutierrez
