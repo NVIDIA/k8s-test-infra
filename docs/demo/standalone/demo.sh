@@ -76,7 +76,22 @@ POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[
 kubectl exec "${POD}" -- nvidia-smi
 
 ###############################################################################
-# Step 8 -- Show node labels
+# Step 8 -- Verify: InfiniBand mock (libibmocksys.so + render-ib-sysfs)
+###############################################################################
+info "Listing simulated InfiniBand HCAs (ibstat -l)"
+kubectl exec "${POD}" -- ibstat -l
+
+info "Running ibstatus inside the DaemonSet pod"
+kubectl exec "${POD}" -- ibstatus | head -40
+
+HCA_COUNT=$(kubectl exec "${POD}" -- ibstat -l | wc -l | tr -d ' ')
+if [[ "${HCA_COUNT}" -lt 1 ]]; then
+  fail "Expected at least 1 mock HCA, found ${HCA_COUNT}"
+fi
+info "Found ${HCA_COUNT} mock HCA(s)"
+
+###############################################################################
+# Step 9 -- Show node labels
 ###############################################################################
 info "Node labels"
 kubectl get nodes --show-labels
@@ -89,8 +104,9 @@ WORKERS=($(kubectl get nodes --no-headers -o custom-columns=":metadata.name" \
 ###############################################################################
 echo
 info "Demo complete."
-info "  Cluster : ${CLUSTER_NAME}"
-info "  Workers : ${#WORKERS[@]}"
+info "  Cluster   : ${CLUSTER_NAME}"
+info "  Workers   : ${#WORKERS[@]}"
 info "  ConfigMaps: ${CM_COUNT}"
+info "  Mock HCAs : ${HCA_COUNT} per pod"
 info ""
 info "To tear down: kind delete cluster --name ${CLUSTER_NAME}"

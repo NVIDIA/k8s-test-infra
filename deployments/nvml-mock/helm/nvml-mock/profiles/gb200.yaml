@@ -415,3 +415,20 @@ nvlink:
       remote_device_type: "cpu"     # NVLink-C2C to Grace
       remote_pci_bus_id: "N/A"
     # ... define all 18 links for full topology
+
+# =============================================================================
+# InfiniBand topology - 1 ConnectX-7 NDR HCA per GPU (typical GB200 NVL72)
+# =============================================================================
+infiniband:
+  enabled: true
+  hca_type: "MT4129"
+  fw_version: "28.40.1000"
+  hw_rev: "0x0"
+  board_id: "MT_0000000838"
+  link_layer: "InfiniBand"
+  rate_gbps: 400
+  port_state: "ACTIVE"
+  phys_state: "LinkUp"
+  hcas_per_gpu: 1
+  guid_prefix: "9b88c2:0300:ab"
+  node_desc_template: "{node_name} mlx5_{idx}"

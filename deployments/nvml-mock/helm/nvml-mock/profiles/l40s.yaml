@@ -362,3 +362,10 @@ devices:
     pci:
       bus_id: "00000000:CB:00.0"
     minor_number: 7
+
+# =============================================================================
+# InfiniBand topology - L40S systems typically ship without IB HCAs.
+# Set enabled=true via Helm values to simulate one if needed.
+# =============================================================================
+infiniband:
+  enabled: false

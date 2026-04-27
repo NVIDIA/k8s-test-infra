@@ -19,17 +19,24 @@ COPY go.mod go.sum ./
 COPY vendor/ vendor/
 COPY pkg/gpu/mocknvml/ pkg/gpu/mocknvml/
 COPY pkg/gpu/mockcuda/ pkg/gpu/mockcuda/
+COPY pkg/network/mockibsysfs/ pkg/network/mockibsysfs/
+COPY cmd/render-ib-sysfs/ cmd/render-ib-sysfs/
 RUN cd pkg/gpu/mocknvml && make clean && make
 RUN cd pkg/gpu/mockcuda && make clean && make
+RUN cd pkg/network/mockibsysfs && make clean && make
+RUN mkdir -p /out && go build -mod=vendor -o /out/render-ib-sysfs ./cmd/render-ib-sysfs
 
 FROM debian:bookworm-slim
 ARG KUBECTL_VERSION=v1.32.0
 ARG TARGETARCH
 COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
+COPY --from=builder /src/pkg/network/mockibsysfs/libibmocksys.so.* /usr/local/lib/
+COPY --from=builder /out/render-ib-sysfs /usr/local/bin/render-ib-sysfs
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends curl ca-certificates gnupg2; \
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
+        infiniband-diags rdma-core; \
     rm -rf /var/lib/apt/lists/*; \
     curl -fsSLo /usr/local/bin/kubectl \
       "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl"; \

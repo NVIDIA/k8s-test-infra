@@ -205,4 +205,16 @@ fi
 mkdir -p /host/run/nvidia
 ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 
+# 9. Render fake InfiniBand sysfs tree (consumed via libibmocksys.so LD_PRELOAD).
+#    Only writes anything when the profile has `infiniband.enabled: true`.
+IB_ROOT="$HOST/ib"
+mkdir -p "$IB_ROOT"
+if [ -x /usr/local/bin/render-ib-sysfs ]; then
+  /usr/local/bin/render-ib-sysfs \
+    --config /config/config.yaml \
+    --gpu-count "$GPU_COUNT" \
+    --node-name "$NODE_NAME" \
+    --output "$IB_ROOT" || echo "WARNING: render-ib-sysfs failed (non-fatal)"
+fi
+
 echo "Mock GPU environment ready: $GPU_COUNT GPUs at $HOST"

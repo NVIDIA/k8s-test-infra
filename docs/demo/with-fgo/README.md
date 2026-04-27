@@ -83,6 +83,10 @@ kubectl get configmaps -l run.ai/gpu-profile=true
 POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
   -o jsonpath='{.items[0].metadata.name}')
 kubectl exec "${POD}" -- nvidia-smi
+
+# InfiniBand diagnostic tools see one mock ConnectX-7 NDR HCA per GPU.
+kubectl exec "${POD}" -- ibstat
+kubectl exec "${POD}" -- ibstatus
 ```
 
 ### Scale pool (fake-gpu-operator)

@@ -1,0 +1,5 @@
+# Build artifacts produced by `make` (libibmocksys.so* are built into the
+# nvml-mock image via the Dockerfile; never check binaries into git).
+libibmocksys.so
+libibmocksys.so.*
+*.o
