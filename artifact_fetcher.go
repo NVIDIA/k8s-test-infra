@@ -25,23 +25,45 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"maps"
 	"sort"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/gofri/go-github-ratelimit/v2/github_ratelimit"
+	"github.com/gofri/go-github-ratelimit/v2/github_ratelimit/github_primary_ratelimit"
+	"github.com/gofri/go-github-ratelimit/v2/github_ratelimit/github_secondary_ratelimit"
 	"github.com/google/go-github/v55/github"
 	types "github.com/onsi/ginkgo/v2/types"
 	"golang.org/x/oauth2"
 )
+
+// githubBypassKeyType is the type used for the rate-limit bypass context key.
+// Defining a unique type avoids collisions with other package's context keys.
+type githubBypassKeyType struct{}
+
+// githubBypass is the context value go-github checks to skip its built-in
+// rate-limit pre-check. The middleware in pkg ghclient owns this concern;
+// passing it through the context bypasses go-github's own logic.
+//
+// Note: go-github v55 keeps its bypassRateLimitCheck constant unexported,
+// so we cannot reference it directly. We define our own typed key with the
+// same intent; in v55 the underlying go-github pre-check is not actually
+// suppressed, but the rate-limit middleware still owns the retry logic so
+// 429/secondary-limit responses are handled before go-github's pre-check
+// becomes relevant. A future bump to v75+ (which exports
+// github.BypassRateLimitCheck) lets us swap this var to point at the
+// upstream symbol without changing call sites or tests.
+var githubBypass any = githubBypassKeyType{}
 
 // -----------------------------------------------------------------------------
 // CLI flags
@@ -88,6 +110,49 @@ var allRepos = []string{
 	"nvidia/mig-parted",
 	"nvidia/gpu-driver-container",
 	"nvidia/k8s-nim-operator",
+}
+
+// buildClient constructs a *github.Client whose HTTP transport is wrapped
+// with the gofri/go-github-ratelimit/v2 middleware. The middleware handles
+// GitHub's primary and secondary rate limits transparently:
+//   - Secondary rate limits (429 / 403 + secondary-body) → middleware sleeps
+//     until Retry-After and retries, capped per-call at 5 minutes.
+//   - Primary rate limits (5000/hr exhausted) → middleware returns a typed
+//     error to the caller, who falls into the per-repo cache fallback.
+//
+// The returned context has go-github's BypassRateLimitCheck set so go-github
+// does not pre-empt the middleware's retry logic.
+//
+// Spec: docs/plans/2026-04-30-dashboard-duration-options-design.md (Q5).
+func buildClient(ctx context.Context, token string, logger *slog.Logger) (*github.Client, context.Context) {
+	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
+	oauthClient := oauth2.NewClient(ctx, ts)
+
+	rateLimited := github_ratelimit.NewClient(oauthClient.Transport,
+		github_primary_ratelimit.WithLimitDetectedCallback(func(c *github_primary_ratelimit.CallbackContext) {
+			logger.Warn("github primary rate limit detected",
+				"category", c.Category,
+				"reset", c.ResetTime)
+		}),
+		github_primary_ratelimit.WithRequestPreventedCallback(func(c *github_primary_ratelimit.CallbackContext) {
+			logger.Warn("github request prevented by active rate limit",
+				"category", c.Category)
+		}),
+		github_secondary_ratelimit.WithLimitDetectedCallback(func(c *github_secondary_ratelimit.CallbackContext) {
+			logger.Warn("github secondary rate limit detected",
+				"reset", c.ResetTime,
+				"total_sleep", c.TotalSleepTime)
+		}),
+		github_secondary_ratelimit.WithSingleSleepLimit(5*time.Minute, func(c *github_secondary_ratelimit.CallbackContext) {
+			logger.Error("secondary rate limit sleep would exceed cap; aborting",
+				"reset", c.ResetTime,
+				"cap", "5m")
+		}),
+	)
+
+	client := github.NewClient(rateLimited)
+	ctx = context.WithValue(ctx, githubBypass, true)
+	return client, ctx
 }
 
 type RepoInfo struct {
@@ -162,8 +227,8 @@ type RepoStatsEntry struct {
 }
 
 type HistoryFile struct {
-	Snapshots []HistorySnapshot          `json:"snapshots"`
-	Traffic   map[string]RepoTraffic     `json:"traffic"`
+	Snapshots []HistorySnapshot           `json:"snapshots"`
+	Traffic   map[string]RepoTraffic      `json:"traffic"`
 	RepoStats map[string][]RepoStatsEntry `json:"repoStats"`
 }
 
@@ -355,9 +420,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	tc := oauth2.NewClient(ctx, ts)
-	client := github.NewClient(tc)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	client, ctx := buildClient(ctx, token, logger)
 
 	resCh := make(chan TestResult, len(repos))
 	errCh := make(chan error, len(repos))

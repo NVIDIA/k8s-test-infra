@@ -3,6 +3,7 @@ module github.com/NVIDIA/k8s-test-infra
 go 1.24.2
 
 require (
+	github.com/gofri/go-github-ratelimit/v2 v2.0.2
 	github.com/google/go-github/v55 v55.0.0
 	github.com/onsi/ginkgo/v2 v2.23.4
 	golang.org/x/oauth2 v0.27.0
