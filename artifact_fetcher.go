@@ -123,7 +123,12 @@ var allRepos = []string{
 //   - Secondary rate limits (429 / 403 + secondary-body) → middleware sleeps
 //     until Retry-After and retries, capped per-call at 5 minutes.
 //   - Primary rate limits (5000/hr exhausted) → middleware returns a typed
-//     error to the caller, who falls into the per-repo cache fallback.
+//     error to the caller. In PR-A the caller's existing error path takes
+//     over (push to errCh, the run continues with whatever was successfully
+//     fetched). PR-B introduces a per-repo cache fallback that, when
+//     present, will be preferred over the bare error path; until PR-B
+//     lands, primary-limit exhaustion blanks the failing repo's row in
+//     this run's output.
 //
 // The returned context carries our githubBypass marker. In go-github v55
 // the equivalent symbol is unexported, so this is currently a no-op;
