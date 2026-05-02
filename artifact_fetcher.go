@@ -18,6 +18,7 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -166,6 +167,60 @@ func buildClient(ctx context.Context, token string, logger *slog.Logger) (*githu
 	client := github.NewClient(rateLimited)
 	ctx = context.WithValue(ctx, githubBypass, true)
 	return client, ctx
+}
+
+// loadPreviousIssuesPRs reads the previously deployed issues_prs.json file
+// (restored by the workflow's "Restore previous history data" step) and
+// returns it as an in-memory cache used by runIssuesPRsPhase to fall back
+// when a per-repo fetch fails this run.
+//
+// Behavior:
+//   - Missing or zero-byte file → empty IssuesPRsFile, nil error, info log.
+//   - Valid JSON → parsed file, nil error.
+//   - Malformed JSON → empty IssuesPRsFile, nil error, error-level log,
+//     and a ::warning:: GitHub Actions annotation on stdout so degradation
+//     is visible in the workflow run summary.
+//
+// This function never returns a log.Fatal path. The returned error is
+// reserved for unexpected I/O failures (permission denied, etc.); callers
+// may treat any non-nil error as exceptional but the typical degraded
+// flows return nil error with an empty cache.
+//
+// Spec: docs/plans/2026-04-30-dashboard-duration-options-design.md
+// (component loadPreviousIssuesPRs, malformed-cache path).
+func loadPreviousIssuesPRs(path string, logger *slog.Logger) (IssuesPRsFile, error) {
+	empty := IssuesPRsFile{Repos: make(map[string]RepoIssuesPRs)}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logger.Info("no prior cache", "path", path)
+			return empty, nil
+		}
+		// Other I/O errors are unexpected; surface them.
+		return empty, fmt.Errorf("loadPreviousIssuesPRs read %s: %w", path, err)
+	}
+
+	if len(bytes.TrimSpace(data)) == 0 {
+		logger.Info("no prior cache (empty file)", "path", path)
+		return empty, nil
+	}
+
+	var parsed IssuesPRsFile
+	if jerr := json.Unmarshal(data, &parsed); jerr != nil {
+		logger.Error("malformed prior cache",
+			"path", path,
+			"err", jerr.Error())
+		// Visible workflow annotation so degraded runs aren't silent.
+		fmt.Println("::warning title=issues_prs cache::malformed prior issues_prs.json — degraded fallback in effect (per-repo failures will omit, not use stale data)")
+		return empty, nil
+	}
+
+	if parsed.Repos == nil {
+		parsed.Repos = make(map[string]RepoIssuesPRs)
+	}
+	logger.Info("prior cache loaded", "path", path, "repos", len(parsed.Repos))
+	return parsed, nil
 }
 
 type RepoInfo struct {
