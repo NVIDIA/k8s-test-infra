@@ -2,13 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // captureLogger returns a slog.Logger that writes to the provided buffer
@@ -203,5 +207,161 @@ func TestLoadPreviousIssuesPRs_NonFatalRegression(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("subprocess exited non-zero: %v\noutput:\n%s", err, out)
+	}
+}
+
+// TestRunIssuesPRsPhase_CacheFallback covers the heart of PR-B: when one
+// repo's fetch fails and another succeeds, the failing repo is restored
+// from cache (with prev fetchedAt preserved) and the successful repo
+// gets fresh data (with current fetchedAt, NOT the cached one).
+//
+// Both assertions are required (QA "paired assertion" item from rev1):
+//   - drop fallback branch → repo A omitted → fails
+//   - always use cache → repo B has stale fetchedAt → fails
+//
+// We use a single httptest.Server that switches behavior based on the
+// path's repo segment: 500 server error for repo A, 200 with empty
+// issues for repo B. The cache-fallback branch in runIssuesPRsPhase
+// triggers on ANY error from fetchIssuesPRs, not specifically rate-limit
+// errors. Using 500 (vs the rate-limit 403 that the original plan
+// proposed) avoids poisoning the gofri middleware's per-category state,
+// which would otherwise short-circuit repo-b's concurrent request and
+// flake the test under -race (~67% failure rate). See plan deviation
+// note.
+func TestRunIssuesPRsPhase_CacheFallback(t *testing.T) {
+	t.Parallel()
+
+	const cachedFetchedAt = "2026-04-15T08:00:00Z"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Path looks like /repos/owner/name/issues
+		switch {
+		case strings.Contains(r.URL.Path, "/repos/test/repo-a/"):
+			// Server error — exercises the cache-fallback branch without
+			// poisoning the rate-limit middleware's per-category state.
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"message":"internal server error"}`)
+		case strings.Contains(r.URL.Path, "/repos/test/repo-b/"):
+			// Success — empty issue/PR list.
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `[]`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"message":"not found"}`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+
+	client, ctx := buildClient(ctx, "fake-token", silentLogger())
+	parsed, err := client.BaseURL.Parse(srv.URL + "/")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	client.BaseURL = parsed
+
+	cache := IssuesPRsFile{
+		Repos: map[string]RepoIssuesPRs{
+			"test/repo-a": {
+				FetchedAt: cachedFetchedAt,
+				Issues: IssueStats{
+					Total:      99,
+					Categories: map[string]int{"bug": 50},
+					AgeBuckets: AgeBuckets{Fresh: 10, Recent: 20, Aging: 30, Stale: 25, Ancient: 14},
+					Velocity:   []VelocityWeek{},
+				},
+				PullRequests: PRStats{
+					Total: 5, Categories: map[string]int{}, AgeBuckets: AgeBuckets{},
+					Velocity: []VelocityWeek{}, Review: PRReviewMetrics{},
+				},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	logger := captureLogger(&buf)
+
+	got := runIssuesPRsPhase(
+		ctx, client,
+		[]string{"test/repo-a", "test/repo-b"},
+		5*time.Second,
+		2,
+		cache,
+		logger,
+	)
+
+	// repo-a: should be present from cache, with cached fetchedAt.
+	a, ok := got.Repos["test/repo-a"]
+	if !ok {
+		t.Fatalf("expected repo-a from cache; got keys: %v\nlog:\n%s", keysOf(got.Repos), buf.String())
+	}
+	if a.FetchedAt != cachedFetchedAt {
+		t.Fatalf("repo-a fetchedAt = %q; want cached %q", a.FetchedAt, cachedFetchedAt)
+	}
+	if a.Issues.Total != 99 {
+		t.Fatalf("repo-a issues.total = %d; want cached 99", a.Issues.Total)
+	}
+
+	// repo-b: should be present with FRESH fetchedAt (NOT the cache value).
+	b, ok := got.Repos["test/repo-b"]
+	if !ok {
+		t.Fatalf("expected repo-b fresh; got keys: %v", keysOf(got.Repos))
+	}
+	if b.FetchedAt == cachedFetchedAt {
+		t.Fatalf("repo-b fetchedAt = %q; want a fresh timestamp (NOT the cached value — fallback wrongly used)", b.FetchedAt)
+	}
+	if b.FetchedAt == "" {
+		t.Fatalf("repo-b fetchedAt is empty; expected a fresh ISO8601 timestamp from this run")
+	}
+
+	// Log assertions to confirm the right messages fired.
+	if !strings.Contains(buf.String(), "using cached data") {
+		t.Fatalf("expected 'using cached data' log line; got:\n%s", buf.String())
+	}
+}
+
+// TestRunIssuesPRsPhase_NoCacheOmit covers the second branch of cache
+// fallback: when a repo fails AND has no cache entry, it's omitted from
+// the output entirely (and a 'no data and no prior cache' warning is
+// logged). The dashboard's existing data.repos[slug] filter naturally
+// hides repos without data. Same 500-vs-403 deviation as the sibling
+// test; kept consistent.
+func TestRunIssuesPRsPhase_NoCacheOmit(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"message":"internal server error"}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+
+	client, ctx := buildClient(ctx, "fake-token", silentLogger())
+	parsed, _ := client.BaseURL.Parse(srv.URL + "/")
+	client.BaseURL = parsed
+
+	emptyCache := IssuesPRsFile{Repos: map[string]RepoIssuesPRs{}}
+
+	var buf bytes.Buffer
+	logger := captureLogger(&buf)
+
+	got := runIssuesPRsPhase(
+		ctx, client,
+		[]string{"test/no-cache-repo"},
+		5*time.Second,
+		2,
+		emptyCache,
+		logger,
+	)
+
+	if _, exists := got.Repos["test/no-cache-repo"]; exists {
+		t.Fatalf("expected repo to be omitted; got: %v", got.Repos)
+	}
+	if !strings.Contains(buf.String(), "no data and no prior cache") {
+		t.Fatalf("expected 'no data and no prior cache' log; got:\n%s", buf.String())
 	}
 }
