@@ -52,7 +52,7 @@ import (
 type githubBypassKeyType struct{}
 
 // githubBypass is the context value go-github checks to skip its built-in
-// rate-limit pre-check. The middleware in pkg ghclient owns this concern;
+// rate-limit pre-check. The middleware in this package owns this concern;
 // passing it through the context bypasses go-github's own logic.
 //
 // Note: go-github v55 keeps its bypassRateLimitCheck constant unexported,
@@ -120,8 +120,11 @@ var allRepos = []string{
 //   - Primary rate limits (5000/hr exhausted) → middleware returns a typed
 //     error to the caller, who falls into the per-repo cache fallback.
 //
-// The returned context has go-github's BypassRateLimitCheck set so go-github
-// does not pre-empt the middleware's retry logic.
+// The returned context carries our githubBypass marker. In go-github v55
+// the equivalent symbol is unexported, so this is currently a no-op;
+// see the githubBypass var declaration for the rationale and the v75+
+// migration path. The middleware still handles 429 responses correctly
+// because it sits below go-github's check.
 //
 // Spec: docs/plans/2026-04-30-dashboard-duration-options-design.md (Q5).
 func buildClient(ctx context.Context, token string, logger *slog.Logger) (*github.Client, context.Context) {

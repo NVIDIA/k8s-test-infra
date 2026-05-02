@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,7 +20,9 @@ func silentLogger() *slog.Logger {
 
 // TestBuildClient_RetriesOnSecondaryRateLimit asserts that the rate-limit
 // middleware is wired such that a 429 response with Retry-After is
-// transparently retried, and the caller observes the eventual 200.
+// transparently retried, and the caller observes the eventual 200. buildClient
+// is the entry-point of the pipeline that ultimately produces TestResult
+// records, so a regression here breaks every artifact fetch downstream.
 //
 // Mutation check: if buildClient forgets to wrap the OAuth2 transport with
 // github_ratelimit.New, the 429 surfaces to the caller as a
@@ -108,8 +108,3 @@ func TestBuildClient_BypassRateLimitCheckSet(t *testing.T) {
 func githubBypassKey() any {
 	return githubBypass
 }
-
-// silenceUnused keeps the helper imports linted-clean if a future refactor
-// drops one of them.
-var _ = strings.Contains
-var _ = fmt.Sprintf
