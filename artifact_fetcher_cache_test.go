@@ -131,3 +131,45 @@ func keysOf(m map[string]RepoIssuesPRs) []string {
 	}
 	return out
 }
+
+// TestLoadPreviousIssuesPRs_MalformedJSON asserts that:
+//   - Function returns empty IssuesPRsFile with nil error.
+//   - slog records an error-level entry mentioning "malformed".
+//   - stdout contains a ::warning title=issues_prs cache:: annotation
+//     (the GitHub Actions surface that makes degraded runs visible in
+//     the workflow summary UI).
+//
+// Mutation check: removing the fmt.Println line drops the annotation;
+// the stdout assertion fails. Replacing the warn-and-return with
+// log.Fatal causes os.Exit which the test harness traps via subprocess.
+func TestLoadPreviousIssuesPRs_MalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "issues_prs.json")
+	if err := os.WriteFile(path, []byte("{garbage not json"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	var buf bytes.Buffer
+	logger := captureLogger(&buf)
+
+	var got IssuesPRsFile
+	var err error
+	stdout := captureStdout(t, func() {
+		got, err = loadPreviousIssuesPRs(path, logger)
+	})
+
+	if err != nil {
+		t.Fatalf("err = %v; want nil (malformed should NOT propagate as error)", err)
+	}
+	if len(got.Repos) != 0 {
+		t.Fatalf("len(Repos) = %d; want 0 on malformed", len(got.Repos))
+	}
+	if !strings.Contains(buf.String(), "malformed") {
+		t.Fatalf("slog missing 'malformed':\n%s", buf.String())
+	}
+	if !strings.Contains(stdout, "::warning") || !strings.Contains(stdout, "issues_prs cache") {
+		t.Fatalf("stdout missing GitHub Actions ::warning::; got:\n%s", stdout)
+	}
+}
