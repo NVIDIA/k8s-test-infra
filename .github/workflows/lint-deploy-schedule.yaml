@@ -1,0 +1,21 @@
+name: Lint deploy.yaml schedule
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/deploy.yaml
+      - hack/lint_deploy_schedule.sh
+      - .github/workflows/lint-deploy-schedule.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: schedule guardrail
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Lint
+        run: ./hack/lint_deploy_schedule.sh .github/workflows/deploy.yaml
