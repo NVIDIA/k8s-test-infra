@@ -713,7 +713,7 @@ func processRepo(parent context.Context, client *github.Client, repo, token, art
 	}
 
 	tmpZip := filepath.Join(os.TempDir(), fmt.Sprintf("%s_%d.zip", name, art.GetID()))
-	if err := download(ctx, zipURL, tmpZip, token); err != nil {
+	if err := download(ctx, client.Client(), zipURL, tmpZip, token); err != nil {
 		return TestResult{}, err
 	}
 	defer os.Remove(tmpZip)
@@ -731,16 +731,17 @@ func processRepo(parent context.Context, client *github.Client, repo, token, art
 }
 
 // -----------------------------------------------------------------------------
-// download fetches a URL with token auth.
+// download fetches a URL with token auth using the supplied http.Client so
+// requests inherit the rate-limit middleware wired in main().
 // -----------------------------------------------------------------------------
-func download(ctx context.Context, url, dest, token string) error {
+func download(ctx context.Context, httpClient *http.Client, url, dest, token string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "token "+token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -986,7 +987,7 @@ func fetchRepoInfo(ctx context.Context, client *github.Client, repo string) (Rep
 	if reqErr == nil {
 		req.Header.Set("Accept", "application/vnd.github.html+json")
 		req.Header.Set("Authorization", "token "+os.Getenv("GITHUB_TOKEN"))
-		resp, doErr := http.DefaultClient.Do(req)
+		resp, doErr := client.Client().Do(req)
 		if doErr == nil {
 			defer resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
