@@ -223,6 +223,68 @@ func loadPreviousIssuesPRs(path string, logger *slog.Logger) (IssuesPRsFile, err
 	return parsed, nil
 }
 
+// runIssuesPRsPhase fetches issues/PRs for each repo concurrently and
+// returns a populated IssuesPRsFile. On any per-repo error, it consults
+// the cache: present → copy entry verbatim (preserving old fetchedAt);
+// absent → omit the repo from output. Phase-level errors (context
+// cancellation, panic) are returned to the caller; per-repo errors are
+// recorded in slog and never abort the run.
+//
+// Spec: docs/plans/2026-04-30-dashboard-duration-options-design.md
+// (component runIssuesPRsPhase).
+func runIssuesPRsPhase(
+	ctx context.Context,
+	client *github.Client,
+	repos []string,
+	timeout time.Duration,
+	workers int,
+	cache IssuesPRsFile,
+	logger *slog.Logger,
+) IssuesPRsFile {
+	out := IssuesPRsFile{Repos: make(map[string]RepoIssuesPRs)}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, workers)
+
+	for _, repo := range repos {
+		repo = strings.TrimSpace(repo)
+		if repo == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(r string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			ipCtx, cancel := context.WithTimeout(ctx, 2*timeout)
+			defer cancel()
+
+			data, err := fetchIssuesPRs(ipCtx, client, r)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				if cached, ok := cache.Repos[r]; ok {
+					logger.Warn("issues_prs: using cached data",
+						"repo", r,
+						"err", err.Error(),
+						"prev_fetched_at", cached.FetchedAt)
+					out.Repos[r] = cached
+					return
+				}
+				logger.Warn("issues_prs: no data and no prior cache",
+					"repo", r,
+					"err", err.Error())
+				return
+			}
+			out.Repos[r] = data
+		}(repo)
+	}
+
+	wg.Wait()
+	return out
+}
+
 type RepoInfo struct {
 	Name        string   `json:"name"`
 	FullName    string   `json:"fullName"`
@@ -351,11 +413,6 @@ type RepoIssuesPRs struct {
 
 type IssuesPRsFile struct {
 	Repos map[string]RepoIssuesPRs `json:"repos"`
-}
-
-type issuesPRsResult struct {
-	repo string
-	data RepoIssuesPRs
 }
 
 var labelCategories = map[string]map[string]string{
@@ -597,25 +654,9 @@ func main() {
 		}(repo)
 	}
 
-	issuesPRsCh := make(chan issuesPRsResult, len(allRepos))
-	for _, repo := range allRepos {
-		wg.Add(1)
-		go func(r string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			ipCtx, cancel := context.WithTimeout(ctx, 2*(*timeout))
-			defer cancel()
-
-			data, err := fetchIssuesPRs(ipCtx, client, r)
-			if err != nil {
-				errCh <- fmt.Errorf("issues/prs %s: %w", r, err)
-				return
-			}
-			issuesPRsCh <- issuesPRsResult{repo: r, data: data}
-		}(repo)
-	}
+	// Issues/PRs phase — extracted helper handles per-repo cache fallback.
+	prevCache, _ := loadPreviousIssuesPRs(filepath.Join(*outDir, "issues_prs.json"), logger)
+	issuesPRsFile := runIssuesPRsPhase(ctx, client, allRepos, *timeout, *workers, prevCache, logger)
 
 	wg.Wait()
 	close(resCh)
@@ -624,7 +665,6 @@ func main() {
 	close(wfCh)
 	close(repoCh)
 	close(trafficCh)
-	close(issuesPRsCh)
 
 	for err := range errCh {
 		log.Println("error:", err)
@@ -664,12 +704,6 @@ func main() {
 
 	if err := writeJSON(filepath.Join(*outDir, "repos.json"), map[string]any{"repos": repoInfos}); err != nil {
 		log.Fatal(err)
-	}
-
-	// --- Build issues_prs.json ---
-	issuesPRsFile := IssuesPRsFile{Repos: make(map[string]RepoIssuesPRs)}
-	for ipr := range issuesPRsCh {
-		issuesPRsFile.Repos[ipr.repo] = ipr.data
 	}
 
 	if err := writeJSON(filepath.Join(*outDir, "issues_prs.json"), issuesPRsFile); err != nil {
