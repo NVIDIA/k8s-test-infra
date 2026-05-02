@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -171,5 +172,36 @@ func TestLoadPreviousIssuesPRs_MalformedJSON(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "::warning") || !strings.Contains(stdout, "issues_prs cache") {
 		t.Fatalf("stdout missing GitHub Actions ::warning::; got:\n%s", stdout)
+	}
+}
+
+// TestLoadPreviousIssuesPRs_NonFatalRegression asserts the function does
+// not call log.Fatal on malformed JSON. We use the standard Go subprocess
+// pattern: re-exec the test binary with an env flag that runs only the
+// malformed-JSON code path and inspect the exit code.
+//
+// Mutation check: replace the warn-and-return-empty branch with
+// log.Fatalf("malformed: %v", jerr) — the subprocess exits non-zero,
+// the assertion fires.
+func TestLoadPreviousIssuesPRs_NonFatalRegression(t *testing.T) {
+	t.Parallel()
+
+	if os.Getenv("LOAD_PREVIOUS_FATAL_PROBE") == "1" {
+		// Subprocess mode: run the malformed-JSON path and exit 0 on success.
+		path := filepath.Join(t.TempDir(), "issues_prs.json")
+		_ = os.WriteFile(path, []byte("{garbage"), 0o644)
+		_, _ = loadPreviousIssuesPRs(path, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		os.Exit(0)
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	cmd := exec.Command(exe, "-test.run=TestLoadPreviousIssuesPRs_NonFatalRegression$", "-test.v")
+	cmd.Env = append(os.Environ(), "LOAD_PREVIOUS_FATAL_PROBE=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("subprocess exited non-zero: %v\noutput:\n%s", err, out)
 	}
 }
