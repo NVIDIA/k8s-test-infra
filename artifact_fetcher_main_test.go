@@ -108,3 +108,69 @@ func TestBuildClient_BypassRateLimitCheckSet(t *testing.T) {
 func githubBypassKey() any {
 	return githubBypass
 }
+
+// TestBuildClient_SecondaryRateLimitCap asserts that the WithSingleSleepLimit
+// cap aborts a too-long secondary-rate-limit sleep instead of blocking the
+// caller indefinitely. We override secondarySleepCap to 1ms (test-only)
+// and configure the test server to return a 60-second Retry-After WITH the
+// canonical detector-matching body so the middleware actually engages.
+//
+// Mutation check: removing WithSingleSleepLimit entirely makes the call
+// block until Retry-After elapses (60s) or the test's context times out.
+// The 5-second test deadline asserts the cap fired well before that.
+//
+// Not parallel: this test mutates the package-level secondarySleepCap
+// variable. Running concurrently with any other test that calls buildClient
+// would observe the 1ms cap and behave unpredictably.
+func TestBuildClient_SecondaryRateLimitCap(t *testing.T) {
+	// Intentionally NOT t.Parallel() — see godoc above.
+
+	// Reduce the cap for this test only.
+	originalCap := secondarySleepCap
+	secondarySleepCap = 1 * time.Millisecond
+	t.Cleanup(func() { secondarySleepCap = originalCap })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		w.Header().Set("X-RateLimit-Remaining", "5000")
+		w.WriteHeader(http.StatusForbidden)
+		// Canonical body — gofri detector requires the prefix
+		// "You have exceeded a secondary rate limit" (verified at
+		// vendor/github.com/gofri/go-github-ratelimit/v2/.../detect.go:26).
+		// A placeholder body that omits the prefix makes the middleware
+		// classify as primary, NOT engage, and surface 403 to the caller —
+		// rendering this cap test theatrical.
+		_, _ = io.WriteString(w, `{"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+
+	client, ctx := buildClient(ctx, "fake-token", silentLogger())
+	parsed, err := client.BaseURL.Parse(srv.URL + "/")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	client.BaseURL = parsed
+
+	req, err := client.NewRequest("GET", "user", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+
+	start := time.Now()
+	var got map[string]any
+	_, err = client.Do(ctx, req, &got)
+	elapsed := time.Since(start)
+
+	// Either the middleware aborts (returning an error) or the caller's
+	// context expires. Either way, total wall-clock time MUST be less than
+	// the Retry-After (60s). 5s is the test deadline; assert <2s for margin.
+	if elapsed >= 2*time.Second {
+		t.Fatalf("call took %s; expected < 2s after cap fired", elapsed)
+	}
+	if err == nil {
+		t.Fatalf("expected error after sleep cap fired; got success")
+	}
+}

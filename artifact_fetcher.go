@@ -65,6 +65,11 @@ type githubBypassKeyType struct{}
 // upstream symbol without changing call sites or tests.
 var githubBypass any = githubBypassKeyType{}
 
+// secondarySleepCap is the maximum duration the rate-limit middleware will
+// sleep on a single secondary-rate-limit response. Exceeding it triggers the
+// abort callback. Tests may override this via the package-level variable.
+var secondarySleepCap = 5 * time.Minute
+
 // -----------------------------------------------------------------------------
 // CLI flags
 // -----------------------------------------------------------------------------
@@ -146,10 +151,10 @@ func buildClient(ctx context.Context, token string, logger *slog.Logger) (*githu
 				"reset", c.ResetTime,
 				"total_sleep", c.TotalSleepTime)
 		}),
-		github_secondary_ratelimit.WithSingleSleepLimit(5*time.Minute, func(c *github_secondary_ratelimit.CallbackContext) {
+		github_secondary_ratelimit.WithSingleSleepLimit(secondarySleepCap, func(c *github_secondary_ratelimit.CallbackContext) {
 			logger.Error("secondary rate limit sleep would exceed cap; aborting",
 				"reset", c.ResetTime,
-				"cap", "5m")
+				"cap", secondarySleepCap)
 		}),
 	)
 
