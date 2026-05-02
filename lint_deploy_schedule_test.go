@@ -81,6 +81,19 @@ jobs:
 			content:  "",
 			wantExit: 2,
 		},
+		{
+			name: "bypass-attempt: marker as YAML value",
+			content: `name: Deploy
+on:
+  myKey: ADR-allowed-schedule: bypass
+  schedule:
+    - cron: '0 * * * *'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+`,
+			wantExit: 1,
+		},
 	}
 
 	for _, tc := range cases {

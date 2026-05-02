@@ -12,6 +12,13 @@
 # deploys are infrequent. A scheduled trigger silently invalidates that
 # assumption. Future re-introduction of a schedule must be an explicit
 # design decision, not an incidental edit.
+#
+# Anchor: the marker must appear on a line that begins with optional
+# whitespace, then '#', then optional whitespace, then 'ADR-allowed-schedule:'.
+# This prevents a YAML key-value bypass like:
+#   myKey: ADR-allowed-schedule: bypass
+#   schedule: ...
+# where the substring matches but is NOT an opt-in comment.
 
 set -euo pipefail
 
@@ -43,7 +50,7 @@ while IFS=: read -r lineno _; do
     continue
   fi
   prev_text=$(sed -n "${prev}p" "$DEPLOY_YAML")
-  if [[ "$prev_text" =~ ADR-allowed-schedule: ]]; then
+  if [[ "$prev_text" =~ ^[[:space:]]*#[[:space:]]*ADR-allowed-schedule: ]]; then
     echo "OK: schedule: at line $lineno has ADR marker on line $prev"
     continue
   fi
