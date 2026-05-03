@@ -1218,7 +1218,8 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 	}
 	owner, name := parts[0], parts[1]
 	now := time.Now().UTC()
-	twelveWeeksAgo := now.AddDate(0, 0, -84)
+	fiveYearsAgo := now.AddDate(-5, 0, 0)
+	oneYearAgo := now.AddDate(-1, 0, 0)
 
 	// Fetch all open issues (GitHub issues endpoint includes PRs, filter them out)
 	var openIssues []*github.Issue
@@ -1264,7 +1265,7 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 	var closedItems []*github.Issue
 	closedOpt := &github.IssueListByRepoOptions{
 		State:       "closed",
-		Since:       twelveWeeksAgo,
+		Since:       fiveYearsAgo,
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 	for {
@@ -1299,7 +1300,7 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 			if pr.GetMergedAt().IsZero() {
 				continue
 			}
-			if pr.GetMergedAt().Before(twelveWeeksAgo) {
+			if pr.GetMergedAt().Before(fiveYearsAgo) {
 				pastCutoff = true
 				continue // process remaining PRs on this page
 			}
@@ -1337,27 +1338,38 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 		}
 	}
 
-	// Issue velocity: opened + closed per week
+	// Issue velocity: opened + closed per week (5y window) and per day (1y window)
 	issueOpenedByWeek := make(map[string]int)
 	issueClosedByWeek := make(map[string]int)
+	issueOpenedByDay := make(map[string]int)
+	issueClosedByDay := make(map[string]int)
 
 	for _, iss := range openIssues {
-		if iss.GetCreatedAt().Time.After(twelveWeeksAgo) {
-			w := isoWeek(iss.GetCreatedAt().Time)
-			issueOpenedByWeek[w]++
+		if iss.GetCreatedAt().Time.After(fiveYearsAgo) {
+			t := iss.GetCreatedAt().Time
+			issueOpenedByWeek[isoWeek(t)]++
+			if t.After(oneYearAgo) {
+				issueOpenedByDay[t.UTC().Format("2006-01-02")]++
+			}
 		}
 	}
 	for _, iss := range closedItems {
 		if iss.PullRequestLinks != nil {
 			continue
 		}
-		if iss.GetCreatedAt().Time.After(twelveWeeksAgo) {
-			w := isoWeek(iss.GetCreatedAt().Time)
-			issueOpenedByWeek[w]++
+		if iss.GetCreatedAt().Time.After(fiveYearsAgo) {
+			t := iss.GetCreatedAt().Time
+			issueOpenedByWeek[isoWeek(t)]++
+			if t.After(oneYearAgo) {
+				issueOpenedByDay[t.UTC().Format("2006-01-02")]++
+			}
 		}
-		if iss.ClosedAt != nil && iss.GetClosedAt().Time.After(twelveWeeksAgo) {
-			w := isoWeek(iss.GetClosedAt().Time)
-			issueClosedByWeek[w]++
+		if iss.ClosedAt != nil && iss.GetClosedAt().Time.After(fiveYearsAgo) {
+			t := iss.GetClosedAt().Time
+			issueClosedByWeek[isoWeek(t)]++
+			if t.After(oneYearAgo) {
+				issueClosedByDay[t.UTC().Format("2006-01-02")]++
+			}
 		}
 	}
 
@@ -1398,33 +1410,48 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 		}
 	}
 
-	// PR velocity
+	// PR velocity (5y weekly + 1y daily)
 	prOpenedByWeek := make(map[string]int)
 	prClosedByWeek := make(map[string]int)
 	prMergedByWeek := make(map[string]int)
+	prOpenedByDay := make(map[string]int)
+	prClosedByDay := make(map[string]int)
+	prMergedByDay := make(map[string]int)
 
 	for _, pr := range openPRs {
-		if pr.GetCreatedAt().Time.After(twelveWeeksAgo) {
-			w := isoWeek(pr.GetCreatedAt().Time)
-			prOpenedByWeek[w]++
+		if pr.GetCreatedAt().Time.After(fiveYearsAgo) {
+			t := pr.GetCreatedAt().Time
+			prOpenedByWeek[isoWeek(t)]++
+			if t.After(oneYearAgo) {
+				prOpenedByDay[t.UTC().Format("2006-01-02")]++
+			}
 		}
 	}
 	for _, iss := range closedItems {
 		if iss.PullRequestLinks == nil {
 			continue
 		}
-		if iss.GetCreatedAt().Time.After(twelveWeeksAgo) {
-			w := isoWeek(iss.GetCreatedAt().Time)
-			prOpenedByWeek[w]++
+		if iss.GetCreatedAt().Time.After(fiveYearsAgo) {
+			t := iss.GetCreatedAt().Time
+			prOpenedByWeek[isoWeek(t)]++
+			if t.After(oneYearAgo) {
+				prOpenedByDay[t.UTC().Format("2006-01-02")]++
+			}
 		}
-		if iss.ClosedAt != nil && iss.GetClosedAt().Time.After(twelveWeeksAgo) {
-			w := isoWeek(iss.GetClosedAt().Time)
-			prClosedByWeek[w]++
+		if iss.ClosedAt != nil && iss.GetClosedAt().Time.After(fiveYearsAgo) {
+			t := iss.GetClosedAt().Time
+			prClosedByWeek[isoWeek(t)]++
+			if t.After(oneYearAgo) {
+				prClosedByDay[t.UTC().Format("2006-01-02")]++
+			}
 		}
 	}
 	for _, pr := range mergedPRs {
-		w := isoWeek(pr.GetMergedAt().Time)
-		prMergedByWeek[w]++
+		t := pr.GetMergedAt().Time
+		prMergedByWeek[isoWeek(t)]++
+		if t.After(oneYearAgo) {
+			prMergedByDay[t.UTC().Format("2006-01-02")]++
+		}
 	}
 
 	// Avg days to merge
@@ -1465,8 +1492,10 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 		avgDaysToFirstReview = totalFirstReviewDays / float64(reviewedCount)
 	}
 
-	issueVelocityWeekly := buildVelocitySlice(issueOpenedByWeek, issueClosedByWeek, nil, twelveWeeksAgo, now)
-	prVelocityWeekly := buildVelocitySlice(prOpenedByWeek, prClosedByWeek, prMergedByWeek, twelveWeeksAgo, now)
+	issueVelocityWeekly := buildVelocitySlice(issueOpenedByWeek, issueClosedByWeek, nil, fiveYearsAgo, now)
+	prVelocityWeekly := buildVelocitySlice(prOpenedByWeek, prClosedByWeek, prMergedByWeek, fiveYearsAgo, now)
+	issueVelocityDaily := bucketByDay(issueOpenedByDay, issueClosedByDay, nil, oneYearAgo, now)
+	prVelocityDaily := bucketByDay(prOpenedByDay, prClosedByDay, prMergedByDay, oneYearAgo, now)
 
 	return RepoIssuesPRs{
 		FetchedAt: now.Format(time.RFC3339),
@@ -1475,7 +1504,7 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 			Categories: issueCats,
 			AgeBuckets: issueAgeBuckets,
 			Velocity: Velocity{
-				Daily:  nil, // populated in subsequent task (Task 5) by bucketByDay
+				Daily:  issueVelocityDaily,
 				Weekly: issueVelocityWeekly,
 			},
 		},
@@ -1484,7 +1513,7 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 			Categories: prCats,
 			AgeBuckets: prAgeBuckets,
 			Velocity: Velocity{
-				Daily:  nil, // populated in subsequent task (Task 5) by bucketByDay
+				Daily:  prVelocityDaily,
 				Weekly: prVelocityWeekly,
 			},
 			Review: PRReviewMetrics{
