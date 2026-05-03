@@ -55,12 +55,12 @@ function ExpandedRowDetail({
   gridStroke: string;
 }) {
   const issueVelocity = useMemo(
-    () => repoData.issues.velocity.slice(-timeRange),
-    [repoData.issues.velocity, timeRange],
+    () => repoData.issues.velocity.weekly.slice(-timeRange),
+    [repoData.issues.velocity.weekly, timeRange],
   );
   const prVelocity = useMemo(
-    () => repoData.pullRequests.velocity.slice(-timeRange),
-    [repoData.pullRequests.velocity, timeRange],
+    () => repoData.pullRequests.velocity.weekly.slice(-timeRange),
+    [repoData.pullRequests.velocity.weekly, timeRange],
   );
   const issueCategories = useMemo(
     () =>
@@ -309,7 +309,7 @@ export default function IssuesPRsDashboard({ data }: Props) {
           name: p.name,
           repo: p.repo,
           repoData,
-          trend: computeTrend(repoData.issues.velocity),
+          trend: computeTrend(repoData.issues.velocity.weekly),
         };
       });
   }, [data]);
@@ -403,7 +403,7 @@ export default function IssuesPRsDashboard({ data }: Props) {
                       {row.repoData.pullRequests.total}
                     </td>
                     <td className="p-3 text-center">
-                      <VelocitySparkline data={row.repoData.issues.velocity} weeks={timeRange} />
+                      <VelocitySparkline data={row.repoData.issues.velocity.weekly} weeks={timeRange} />
                     </td>
                     <td className="p-3 text-right">
                       <span

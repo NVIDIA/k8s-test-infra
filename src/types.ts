@@ -98,6 +98,18 @@ export interface VelocityWeek {
   merged?: number;
 }
 
+export interface VelocityDay {
+  date: string;        // "YYYY-MM-DD" (UTC)
+  opened: number;
+  closed: number;
+  merged?: number;
+}
+
+export interface Velocity {
+  daily: VelocityDay[];
+  weekly: VelocityWeek[];
+}
+
 export interface PRReviewMetrics {
   awaitingReview: number;
   noReviewer: number;
@@ -109,14 +121,14 @@ export interface IssueStats {
   total: number;
   categories: IssuePRCategory;
   ageBuckets: AgeBuckets;
-  velocity: VelocityWeek[];
+  velocity: Velocity;
 }
 
 export interface PRStats {
   total: number;
   categories: IssuePRCategory;
   ageBuckets: AgeBuckets;
-  velocity: VelocityWeek[];
+  velocity: Velocity;
   review: PRReviewMetrics;
 }
 

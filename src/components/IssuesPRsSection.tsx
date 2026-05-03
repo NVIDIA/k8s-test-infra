@@ -48,14 +48,14 @@ export default function IssuesPRsSection({ data }: Props) {
   }, [data.issues.ageBuckets, data.pullRequests.ageBuckets]);
 
   const velocityData = useMemo(() => {
-    const source = velocityView === 'issues' ? data.issues.velocity : data.pullRequests.velocity;
+    const source = velocityView === 'issues' ? data.issues.velocity.weekly : data.pullRequests.velocity.weekly;
     return source.map((v) => ({
       week: v.week,
       opened: v.opened,
       closed: v.closed,
       ...(v.merged !== undefined ? { merged: v.merged } : {}),
     }));
-  }, [velocityView, data.issues.velocity, data.pullRequests.velocity]);
+  }, [velocityView, data.issues.velocity.weekly, data.pullRequests.velocity.weekly]);
 
   const { tooltipStyle, tickStyle, gridStroke } = getChartStyles(dark);
 
