@@ -86,7 +86,7 @@ var (
 var defaultRepos = []string{
 	"nvidia/nvidia-container-toolkit",
 	"nvidia/k8s-device-plugin",
-	"nvidia/k8s-dra-driver-gpu",
+	"kubernetes-sigs/dra-driver-nvidia-gpu", // was: nvidia/k8s-dra-driver-gpu (donated to kubernetes-sigs 2026-04-30; see docs/plans/2026-04-30-dra-repo-migration-design.md)
 	"nvidia/holodeck",
 }
 
@@ -100,7 +100,7 @@ type imageRepo struct {
 
 var defaultImages = []imageRepo{
 	{"nvidia/k8s-device-plugin", "k8s-device-plugin"},
-	{"nvidia/k8s-dra-driver-gpu", "k8s-dra-driver-gpu"},
+	{"kubernetes-sigs/dra-driver-nvidia-gpu", "dra-driver-nvidia-gpu"}, // donated 2026-04-30; pkgName best-effort (kubernetes-sigs GHCR not yet listable without read:packages)
 	{"nvidia/nvidia-container-toolkit", "container-toolkit"},
 	{"nvidia/gpu-operator", "gpu-operator"},
 	{"nvidia/gpu-driver-container", "driver"},
@@ -110,7 +110,7 @@ var allRepos = []string{
 	"nvidia/gpu-operator",
 	"nvidia/nvidia-container-toolkit",
 	"nvidia/k8s-device-plugin",
-	"nvidia/k8s-dra-driver-gpu",
+	"kubernetes-sigs/dra-driver-nvidia-gpu", // donated 2026-04-30
 	"nvidia/holodeck",
 	"nvidia/go-nvml",
 	"nvidia/mig-parted",
