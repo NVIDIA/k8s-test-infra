@@ -212,7 +212,7 @@ func loadPreviousIssuesPRs(path string, logger *slog.Logger) (IssuesPRsFile, err
 			"path", path,
 			"err", jerr.Error())
 		// Visible workflow annotation so degraded runs aren't silent.
-		fmt.Println("::warning title=issues_prs cache::malformed prior issues_prs.json — degraded fallback in effect (per-repo failures will omit, not use stale data)")
+		fmt.Println("::warning title=issues_prs cache::malformed or schema-mismatched prior issues_prs.json — degraded fallback in effect (per-repo failures will omit). This is expected on the first run after PR-C lands due to the velocity-shape change.")
 		return empty, nil
 	}
 
@@ -383,6 +383,29 @@ type VelocityWeek struct {
 	Merged *int   `json:"merged,omitempty"`
 }
 
+// VelocityDay carries day-bucketed counts. Used for sub-weekly views
+// (currently the 7d duration; D2 retains 365 days so future specs can
+// add historical-offset views without re-fetching).
+type VelocityDay struct {
+	Date   string `json:"date"` // RFC 3339 date in UTC, e.g. "2026-04-23"
+	Opened int    `json:"opened"`
+	Closed int    `json:"closed"`
+	Merged *int   `json:"merged,omitempty"`
+}
+
+// Velocity bundles the daily and weekly arrays for a single Issue or PR
+// stream. Daily covers the last 365 days (UTC-bucketed). Weekly covers the
+// last ~260 weeks at ISO-week granularity. Consumers select the array
+// matching the active duration:
+//   - 7d         → daily.slice(-7)
+//   - 4w / 12w   → weekly.slice(-4) / -12
+//   - 6m / 1y    → weekly.slice(-26) / -52
+//   - 5y         → weekly.slice(-260)
+type Velocity struct {
+	Daily  []VelocityDay  `json:"daily"`
+	Weekly []VelocityWeek `json:"weekly"`
+}
+
 type PRReviewMetrics struct {
 	AwaitingReview       int     `json:"awaitingReview"`
 	NoReviewer           int     `json:"noReviewer"`
@@ -394,14 +417,14 @@ type IssueStats struct {
 	Total      int            `json:"total"`
 	Categories map[string]int `json:"categories"`
 	AgeBuckets AgeBuckets     `json:"ageBuckets"`
-	Velocity   []VelocityWeek `json:"velocity"`
+	Velocity   Velocity       `json:"velocity"`
 }
 
 type PRStats struct {
 	Total      int             `json:"total"`
 	Categories map[string]int  `json:"categories"`
 	AgeBuckets AgeBuckets      `json:"ageBuckets"`
-	Velocity   []VelocityWeek  `json:"velocity"`
+	Velocity   Velocity        `json:"velocity"`
 	Review     PRReviewMetrics `json:"review"`
 }
 
@@ -1404,8 +1427,8 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 		avgDaysToFirstReview = totalFirstReviewDays / float64(reviewedCount)
 	}
 
-	issueVelocity := buildVelocitySlice(issueOpenedByWeek, issueClosedByWeek, nil, twelveWeeksAgo, now)
-	prVelocity := buildVelocitySlice(prOpenedByWeek, prClosedByWeek, prMergedByWeek, twelveWeeksAgo, now)
+	issueVelocityWeekly := buildVelocitySlice(issueOpenedByWeek, issueClosedByWeek, nil, twelveWeeksAgo, now)
+	prVelocityWeekly := buildVelocitySlice(prOpenedByWeek, prClosedByWeek, prMergedByWeek, twelveWeeksAgo, now)
 
 	return RepoIssuesPRs{
 		FetchedAt: now.Format(time.RFC3339),
@@ -1413,13 +1436,19 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 			Total:      len(openIssues),
 			Categories: issueCats,
 			AgeBuckets: issueAgeBuckets,
-			Velocity:   issueVelocity,
+			Velocity: Velocity{
+				Daily:  nil, // populated in subsequent task (Task 5) by bucketByDay
+				Weekly: issueVelocityWeekly,
+			},
 		},
 		PullRequests: PRStats{
 			Total:      len(openPRs),
 			Categories: prCats,
 			AgeBuckets: prAgeBuckets,
-			Velocity:   prVelocity,
+			Velocity: Velocity{
+				Daily:  nil, // populated in subsequent task (Task 5) by bucketByDay
+				Weekly: prVelocityWeekly,
+			},
 			Review: PRReviewMetrics{
 				AwaitingReview:       awaitingReview,
 				NoReviewer:           noReviewer,

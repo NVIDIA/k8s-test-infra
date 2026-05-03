@@ -94,8 +94,8 @@ func TestLoadPreviousIssuesPRs_ValidFile(t *testing.T) {
   "repos": {
     "nvidia/gpu-operator": {
       "fetchedAt": "2026-04-29T12:00:00Z",
-      "issues": {"total": 42, "categories": {"bug": 12}, "ageBuckets": {"fresh":5,"recent":10,"aging":12,"stale":8,"ancient":7}, "velocity": []},
-      "pullRequests": {"total": 8, "categories": {}, "ageBuckets": {"fresh":3,"recent":2,"aging":2,"stale":1,"ancient":0}, "velocity": [], "review": {"awaitingReview":3,"noReviewer":1,"avgDaysToFirstReview":1.5,"avgDaysToMerge":3.2}}
+      "issues": {"total": 42, "categories": {"bug": 12}, "ageBuckets": {"fresh":5,"recent":10,"aging":12,"stale":8,"ancient":7}, "velocity": {"daily": [], "weekly": []}},
+      "pullRequests": {"total": 8, "categories": {}, "ageBuckets": {"fresh":3,"recent":2,"aging":2,"stale":1,"ancient":0}, "velocity": {"daily": [], "weekly": []}, "review": {"awaitingReview":3,"noReviewer":1,"avgDaysToFirstReview":1.5,"avgDaysToMerge":3.2}}
     }
   }
 }`
@@ -270,11 +270,11 @@ func TestRunIssuesPRsPhase_CacheFallback(t *testing.T) {
 					Total:      99,
 					Categories: map[string]int{"bug": 50},
 					AgeBuckets: AgeBuckets{Fresh: 10, Recent: 20, Aging: 30, Stale: 25, Ancient: 14},
-					Velocity:   []VelocityWeek{},
+					Velocity:   Velocity{Daily: []VelocityDay{}, Weekly: []VelocityWeek{}},
 				},
 				PullRequests: PRStats{
 					Total: 5, Categories: map[string]int{}, AgeBuckets: AgeBuckets{},
-					Velocity: []VelocityWeek{}, Review: PRReviewMetrics{},
+					Velocity: Velocity{Daily: []VelocityDay{}, Weekly: []VelocityWeek{}}, Review: PRReviewMetrics{},
 				},
 			},
 		},
