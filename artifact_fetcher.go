@@ -550,6 +550,44 @@ func buildVelocitySlice(opened, closed, merged map[string]int, from, to time.Tim
 	return result
 }
 
+// bucketByDay emits a continuous range of VelocityDay entries for [from, to)
+// in UTC. Days with no events get zero counts. The opened/closed/merged
+// input maps are keyed by RFC 3339 date strings ("YYYY-MM-DD") in UTC; the
+// caller is responsible for populating the keys with UTC dates (e.g.,
+// `t.UTC().Format("2006-01-02")`).
+//
+// merged may be nil for streams that don't track merges (Issues); the
+// resulting VelocityDay.Merged field is left nil in that case.
+//
+// Spec: docs/plans/2026-04-30-dashboard-duration-options-design.md
+// (component bucketByDay; D2 — 1-year retention).
+func bucketByDay(opened, closed, merged map[string]int, from, to time.Time) []VelocityDay {
+	from = from.UTC().Truncate(24 * time.Hour)
+	to = to.UTC().Truncate(24 * time.Hour)
+	if !from.Before(to) {
+		return []VelocityDay{}
+	}
+	days := int(to.Sub(from) / (24 * time.Hour))
+	out := make([]VelocityDay, 0, days)
+	for i := 0; i < days; i++ {
+		d := from.AddDate(0, 0, i)
+		key := d.Format("2006-01-02")
+		entry := VelocityDay{
+			Date:   key,
+			Opened: opened[key],
+			Closed: closed[key],
+		}
+		if merged != nil {
+			if m, ok := merged[key]; ok {
+				v := m
+				entry.Merged = &v
+			}
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
 // -----------------------------------------------------------------------------
 func main() {
 	log.SetFlags(0)
