@@ -403,7 +403,7 @@ export default function IssuesPRsDashboard({ data }: Props) {
                       {row.repoData.pullRequests.total}
                     </td>
                     <td className="p-3 text-center">
-                      <VelocitySparkline data={row.repoData.issues.velocity.weekly} weeks={timeRange} />
+                      <VelocitySparkline velocity={row.repoData.issues.velocity} duration="12w" />
                     </td>
                     <td className="p-3 text-right">
                       <span
