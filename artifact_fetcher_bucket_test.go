@@ -94,3 +94,71 @@ func TestBucketByDay_UTCAlignment(t *testing.T) {
 		t.Fatalf("Opened = %d; want 7", got[0].Opened)
 	}
 }
+
+// TestBucketByDay_EmptyInput asserts the helper returns the right
+// continuous-zeros range when none of the input maps have entries.
+// This is the path most production days will take for low-traffic repos.
+//
+// Mutation check: returning an empty slice on empty input fails the
+// length assertion (the spec says "continuous range with zeros"; an
+// empty slice would let the UI's "no velocity data" placeholder fire
+// for repos that genuinely have zero events, which is wrong).
+func TestBucketByDay_EmptyInput(t *testing.T) {
+	t.Parallel()
+
+	from := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 4, 23, 0, 0, 0, 0, time.UTC)
+
+	got := bucketByDay(map[string]int{}, map[string]int{}, map[string]int{}, from, to)
+
+	if len(got) != 3 {
+		t.Fatalf("len = %d; want 3 (3-day continuous range with zeros)", len(got))
+	}
+	for i, d := range got {
+		if d.Opened != 0 || d.Closed != 0 || d.Merged != nil {
+			t.Errorf("day[%d] = %+v; want all-zero", i, d)
+		}
+	}
+}
+
+// TestBucketByDay_OneYearRetention asserts the helper returns 365 (or
+// 366 for leap years) entries when invoked over a 1-year window. PR-C's
+// fetchIssuesPRs caller passes a 1-year span; this test pins the length
+// invariant so a future bug shrinking the window is caught.
+//
+// Mutation check: a regression that hard-codes "30 days" returns 30
+// entries; assertion fails.
+func TestBucketByDay_OneYearRetention(t *testing.T) {
+	t.Parallel()
+
+	to := time.Date(2026, 4, 30, 0, 0, 0, 0, time.UTC)
+	from := to.AddDate(-1, 0, 0)
+
+	got := bucketByDay(nil, nil, nil, from, to)
+
+	wantDays := int(to.Sub(from) / (24 * time.Hour))
+	if len(got) != wantDays {
+		t.Fatalf("len = %d; want %d (one full year)", len(got), wantDays)
+	}
+	if got[0].Date != "2025-04-30" {
+		t.Fatalf("first entry Date = %q; want %q", got[0].Date, "2025-04-30")
+	}
+	if got[len(got)-1].Date != "2026-04-29" {
+		t.Fatalf("last entry Date = %q; want %q", got[len(got)-1].Date, "2026-04-29")
+	}
+}
+
+// TestBucketByDay_FromAfterTo returns an empty slice (defensive — the
+// caller shouldn't ever do this, but a misconfigured `from > to` should
+// not panic or return random entries).
+func TestBucketByDay_FromAfterTo(t *testing.T) {
+	t.Parallel()
+
+	from := time.Date(2026, 4, 25, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
+
+	got := bucketByDay(nil, nil, nil, from, to)
+	if len(got) != 0 {
+		t.Fatalf("len = %d; want 0", len(got))
+	}
+}
