@@ -22,10 +22,20 @@ export const projects: Project[] = [
     description: 'Kubernetes device plugin to expose GPUs as schedulable resources in a cluster.',
     category: 'operator',
   },
+  // Note: slug, name, and repo intentionally diverge here.
+  //   - slug ('k8s-dra-driver-gpu') stays stable to preserve external bookmarks
+  //     to /projects/k8s-dra-driver-gpu#issues-prs that predate the migration.
+  //   - name ('K8s DRA Driver GPU') is the human-facing label; renaming would
+  //     churn the dashboard for marginal benefit.
+  //   - repo ('kubernetes-sigs/dra-driver-nvidia-gpu') is the canonical home
+  //     after NVIDIA donated the project to kubernetes-sigs (2026-04-30).
+  // The static-shape test in artifact_fetcher_repos_test.go enforces the repo
+  // literal across all four places (defaultRepos, allRepos, defaultImages,
+  // this file); see docs/plans/2026-04-30-dra-repo-migration-design.md.
   {
     slug: 'k8s-dra-driver-gpu',
     name: 'K8s DRA Driver GPU',
-    repo: 'NVIDIA/k8s-dra-driver-gpu',
+    repo: 'kubernetes-sigs/dra-driver-nvidia-gpu',
     description: 'Dynamic Resource Allocation (DRA) driver for NVIDIA GPUs in Kubernetes 1.31+.',
     category: 'driver',
   },
