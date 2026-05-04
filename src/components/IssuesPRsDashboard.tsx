@@ -16,7 +16,7 @@ import {
 import { ChevronDown, ChevronRight, ArrowUp, ArrowDown, ArrowRight } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import VelocitySparkline from './VelocitySparkline';
-import { AGE_COLORS, getCategoryColor, getChartStyles, formatWeekTick, computeTrend } from '../utils/chartStyles';
+import { AGE_COLORS, getCategoryColor, getChartStyles, formatWeekTick, formatDayTick, computeTrend } from '../utils/chartStyles';
 import type { Trend } from '../utils/chartStyles';
 import { DURATIONS, pickVelocity, type Duration } from '../utils/duration';
 import { projects } from '../data/projects';
@@ -53,14 +53,16 @@ function ExpandedRowDetail({
   tickStyle: { fontSize: number; fill: string };
   gridStroke: string;
 }) {
-  const issueVelocity = useMemo(
-    () => pickVelocity(repoData.issues.velocity, duration).points,
+  const { points: issueVelocity, granularity: issueGranularity } = useMemo(
+    () => pickVelocity(repoData.issues.velocity, duration),
     [repoData.issues.velocity, duration],
   );
-  const prVelocity = useMemo(
-    () => pickVelocity(repoData.pullRequests.velocity, duration).points,
+  const { points: prVelocity, granularity: prGranularity } = useMemo(
+    () => pickVelocity(repoData.pullRequests.velocity, duration),
     [repoData.pullRequests.velocity, duration],
   );
+  const issueTickFormatter = issueGranularity === 'day' ? formatDayTick : formatWeekTick;
+  const prTickFormatter = prGranularity === 'day' ? formatDayTick : formatWeekTick;
   const issueCategories = useMemo(
     () =>
       Object.entries(repoData.issues.categories)
@@ -143,7 +145,13 @@ function ExpandedRowDetail({
                 <XAxis
                   dataKey="label"
                   tick={tickStyle}
-                  tickFormatter={formatWeekTick}
+                  tickFormatter={issueTickFormatter}
+                  label={{
+                    value: issueGranularity === 'day' ? 'Day (UTC)' : 'Week (UTC)',
+                    position: 'insideBottom',
+                    offset: -5,
+                    style: { fontSize: tickStyle.fontSize, fill: tickStyle.fill },
+                  }}
                 />
                 <YAxis tick={tickStyle} allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} />
@@ -258,10 +266,20 @@ function ExpandedRowDetail({
                 data={prVelocity}
                 margin={{ top: 4, right: 16, bottom: 0, left: 0 }}
               >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke={gridStroke}
+                />
                 <XAxis
                   dataKey="label"
                   tick={tickStyle}
-                  tickFormatter={formatWeekTick}
+                  tickFormatter={prTickFormatter}
+                  label={{
+                    value: prGranularity === 'day' ? 'Day (UTC)' : 'Week (UTC)',
+                    position: 'insideBottom',
+                    offset: -5,
+                    style: { fontSize: tickStyle.fontSize, fill: tickStyle.fill },
+                  }}
                 />
                 <YAxis tick={tickStyle} allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} />
@@ -318,11 +336,11 @@ export default function IssuesPRsDashboard({ data }: Props) {
   return (
     <section className="mb-6">
       {/* Header with time range selector */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
           Issues &amp; PRs Overview
         </h2>
-        <div className="flex gap-1" role="group" aria-label="Velocity duration">
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Velocity duration">
           {DURATIONS.map((d) => (
             <button
               key={d}
