@@ -273,20 +273,23 @@ func buildIssuesJSON(items []issueFixture) string {
 		if i > 0 {
 			b.WriteString(",")
 		}
-		labels := "["
+		var labels strings.Builder
+		labels.WriteString("[")
 		for j, l := range it.Labels {
 			if j > 0 {
-				labels += ","
+				labels.WriteString(",")
 			}
-			labels += `{"name":"` + l + `"}`
+			labels.WriteString(`{"name":"`)
+			labels.WriteString(l)
+			labels.WriteString(`"}`)
 		}
-		labels += "]"
-		b.WriteString(fmt.Sprintf(
+		labels.WriteString("]")
+		fmt.Fprintf(&b,
 			`{"number":%d,"state":"%s","created_at":"%s","labels":%s`,
-			it.Number, it.State, it.CreatedAt.Format(time.RFC3339), labels,
-		))
+			it.Number, it.State, it.CreatedAt.Format(time.RFC3339), labels.String(),
+		)
 		if it.ClosedAt != nil {
-			b.WriteString(fmt.Sprintf(`,"closed_at":"%s"`, it.ClosedAt.Format(time.RFC3339)))
+			fmt.Fprintf(&b, `,"closed_at":"%s"`, it.ClosedAt.Format(time.RFC3339))
 		}
 		if it.IsPullRequest {
 			b.WriteString(`,"pull_request":{"url":"http://example/pr"}`)
@@ -314,10 +317,10 @@ func buildPRsJSON(items []prFixture) string {
 		if i > 0 {
 			b.WriteString(",")
 		}
-		b.WriteString(fmt.Sprintf(
+		fmt.Fprintf(&b,
 			`{"number":%d,"state":"closed","created_at":"%s","merged_at":"%s"}`,
 			it.Number, it.CreatedAt.Format(time.RFC3339), it.MergedAt.Format(time.RFC3339),
-		))
+		)
 	}
 	b.WriteString("]")
 	return b.String()
