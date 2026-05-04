@@ -411,10 +411,16 @@ export default function IssuesPRsDashboard({ data }: Props) {
                         {row.name}
                       </Link>
                     </td>
-                    <td className="p-3 text-right text-gray-700 dark:text-gray-300">
+                    <td
+                      className="p-3 text-right text-gray-700 dark:text-gray-300"
+                      data-testid={`open-issues-${row.slug}`}
+                    >
                       {row.repoData.issues.total}
                     </td>
-                    <td className="p-3 text-right text-gray-700 dark:text-gray-300">
+                    <td
+                      className="p-3 text-right text-gray-700 dark:text-gray-300"
+                      data-testid={`open-prs-${row.slug}`}
+                    >
                       {row.repoData.pullRequests.total}
                     </td>
                     <td className="p-3 text-center">

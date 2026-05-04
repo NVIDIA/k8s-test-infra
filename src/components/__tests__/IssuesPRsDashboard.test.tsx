@@ -60,12 +60,12 @@ function makeData(): IssuesPRsData {
             daily: Array.from({ length: 365 }, (_, i) => ({
               date: `2026-day-${i}`,
               opened: 1000 + i,
-              closed: 0,
+              closed: 500 + i,
             })),
             weekly: Array.from({ length: 260 }, (_, i) => ({
               week: `wk-${i}`,
               opened: i,
-              closed: 0,
+              closed: 500 - i,
             })),
           },
         },
@@ -77,12 +77,12 @@ function makeData(): IssuesPRsData {
             daily: Array.from({ length: 365 }, (_, i) => ({
               date: `2026-day-${i}`,
               opened: 0,
-              closed: 0,
+              closed: 200 + i,
             })),
             weekly: Array.from({ length: 260 }, (_, i) => ({
               week: `wk-${i}`,
               opened: 0,
-              closed: 0,
+              closed: 200 - i,
             })),
           },
           review: { awaitingReview: 3, noReviewer: 1, avgDaysToFirstReview: 1.5, avgDaysToMerge: 3.2 },
@@ -133,30 +133,28 @@ describe('IssuesPRsDashboard', () => {
   });
 
   // Q3 invariant (snapshot regression test, strengthened per QA review).
-  // The fixture is deliberately constructed so daily-7 slice values do NOT
-  // coincide with snapshot values: snapshot Open Issues = 42, daily-7
-  // values are in the 1000s. Asserts displayed text is BYTE-IDENTICAL
-  // before and after each duration click.
+  // Uses stable test IDs (not text content) so a regression can't pass by
+  // coincidence with another element rendering the same number — e.g. the
+  // categories bar chart can render '8' for the feature-request count,
+  // which would collide with pullRequests.total === 8 if querying by text.
   it('snapshot stats do not change when duration changes (Q3 invariant)', async () => {
     const user = userEvent.setup();
     renderDashboard(makeData());
 
-    // Capture displayed snapshot stats from the comparison row.
-    // The exact text element selectors depend on IssuesPRsDashboard.tsx's
-    // rendering — adjust to data-testid if the implementation needs hooks.
-    const openIssuesCells = screen.getAllByText('42');
-    const openPRsCells = screen.getAllByText('8');
-    const initialIssuesText = openIssuesCells.map((el) => el.textContent).join('|');
-    const initialPRsText = openPRsCells.map((el) => el.textContent).join('|');
+    const openIssuesCell = screen.getByTestId('open-issues-gpu-operator');
+    const openPRsCell = screen.getByTestId('open-prs-gpu-operator');
+    const initialIssuesText = openIssuesCell.textContent;
+    const initialPRsText = openPRsCell.textContent;
+
+    expect(initialIssuesText).toBe('42');
+    expect(initialPRsText).toBe('8');
 
     for (const label of ['7d', '4w', '12w', '6m', '1y', '5y']) {
       const btn = screen.getByRole('button', { name: new RegExp(`Show ${label} of velocity data`) });
       await user.click(btn);
 
-      const afterIssuesText = screen.getAllByText('42').map((el) => el.textContent).join('|');
-      const afterPRsText = screen.getAllByText('8').map((el) => el.textContent).join('|');
-      expect(afterIssuesText).toBe(initialIssuesText);
-      expect(afterPRsText).toBe(initialPRsText);
+      expect(openIssuesCell.textContent).toBe(initialIssuesText);
+      expect(openPRsCell.textContent).toBe(initialPRsText);
     }
   });
 });
