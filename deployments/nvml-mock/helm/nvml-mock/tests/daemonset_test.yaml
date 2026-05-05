@@ -185,6 +185,18 @@ tests:
               fieldRef:
                 fieldPath: spec.nodeName
 
+  - it: should point MOCK_NVML_CONFIG at the mounted ConfigMap
+    # Without this env var, nvidia-smi run inside the daemonset pod (e.g.
+    # `kubectl exec ds/nvml-mock -- nvidia-smi`) cannot locate the GPU
+    # profile YAML and falls back to no-YAML defaults, surfacing as
+    # `[N/A]` for temperature / power.
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_NVML_CONFIG
+            value: /etc/nvml-mock/config.yaml
+
   - it: should override GPU_COUNT
     set:
       gpu:
@@ -208,7 +220,7 @@ tests:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: gpu-config
-            mountPath: /config
+            mountPath: /etc/nvml-mock
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:

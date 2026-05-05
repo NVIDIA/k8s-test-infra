@@ -490,6 +490,11 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | `gpu.profile` | `a100` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `l40s`, or `t4` |
 | `gpu.count` | `8` | Number of mock GPUs per node |
 | `gpu.customConfig` | `""` | Inline YAML to override profile config entirely |
+| `gpu.dynamicMetrics.enabled` | `false` | Make the mock return time-varying temperature / power / utilization readings instead of the static profile values. See [Dynamic Metrics](#dynamic-metrics) below. |
+| `gpu.dynamicMetrics.seed` | `0` | RNG seed; `0` uses a time-based seed, non-zero produces reproducible sequences. |
+| `gpu.dynamicMetrics.temperature.*` | see `values.yaml` | `base_c`, `variance_c`, `ramp_c`, `ramp_period_sec` for the GPU temperature generator. |
+| `gpu.dynamicMetrics.power.*` | see `values.yaml` | `base_mw`, `variance_mw` for the power-draw generator (clamped to `power.min_limit_mw`/`max_limit_mw` from the profile). |
+| `gpu.dynamicMetrics.utilization.*` | see `values.yaml` | `pattern` (`idle` \| `busy` \| `burst` \| `steady`), `gpu_min/max`, `memory_min/max`, `burst_period_sec`. |
 | `image.repository` | `ghcr.io/nvidia/nvml-mock` | Container image repository |
 | `image.tag` | `latest` | Container image tag |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
@@ -626,6 +631,66 @@ Key fields to change:
 
 The full YAML schema matches the fields exposed by `nvidia-smi -x -q`. See the built-in
 profiles in `deployments/nvml-mock/helm/nvml-mock/profiles/` for complete examples.
+
+### Dynamic Metrics
+
+Real GPUs report metrics that change over time — temperature rises under
+load, utilization fluctuates, power draw ramps. By default the mock is
+fully static: whatever values are set in a profile's `thermal`, `power`,
+and `utilization` sections are returned unchanged on every call.
+
+Set `gpu.dynamicMetrics.enabled=true` to have the rendered ConfigMap
+inject a `device_defaults.dynamic_metrics` block. The mock then returns
+fluctuating values from `GetTemperature`, `GetPowerUsage`, and
+`GetUtilizationRates`. Each sub-section (`temperature`, `power`,
+`utilization`) can be tuned independently; the overlay works with any
+built-in profile and with `gpu.customConfig`.
+
+```bash
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --set image.repository=nvml-mock \
+  --set image.tag=local \
+  --set gpu.profile=h100 \
+  --set gpu.dynamicMetrics.enabled=true \
+  --set gpu.dynamicMetrics.utilization.pattern=burst
+```
+
+Or via a values file:
+
+```yaml
+gpu:
+  profile: h100
+  dynamicMetrics:
+    enabled: true
+    seed: 0                             # set non-zero for reproducibility
+    temperature:
+      base_c: 60
+      variance_c: 3
+      ramp_c: 15
+      ramp_period_sec: 120
+    power:
+      base_mw: 500000
+      variance_mw: 50000
+    utilization:
+      pattern: burst                    # idle | busy | burst | steady
+      gpu_min: 0
+      gpu_max: 100
+      memory_min: 0
+      memory_max: 100
+      burst_period_sec: 30
+```
+
+Utilization pattern semantics (values are always clamped to `0..100`):
+
+| pattern  | sampled from                                          |
+| -------- | ----------------------------------------------------- |
+| `idle`   | bottom quarter of `[gpu_min, gpu_max]`                |
+| `busy`   | top quarter of `[gpu_min, gpu_max]`                   |
+| `burst`  | alternates `idle` / `busy` every `burst_period_sec`   |
+| `steady` | full `[gpu_min, gpu_max]` range (default if omitted)  |
+
+See [`pkg/gpu/mocknvml/README.md`](../../../pkg/gpu/mocknvml/README.md#dynamic-metrics-optional)
+for the full engine-side reference.
 
 ## How It Works
 

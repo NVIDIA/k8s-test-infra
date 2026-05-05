@@ -47,6 +47,7 @@ helm install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set integrations.fakeGpuOperator.enabled=true \
   --set gpu.profile=h100 \
   --set gpu.count=8 \
+  --set gpu.dynamicMetrics.enabled=true \
   --wait --timeout 120s
 
 ###############################################################################

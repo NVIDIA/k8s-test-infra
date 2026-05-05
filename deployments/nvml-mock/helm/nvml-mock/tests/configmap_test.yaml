@@ -204,3 +204,102 @@ tests:
       - equal:
           path: metadata.name
           value: custom-cm-config
+
+  # ── Dynamic metrics ─────────────────────────────────────────────────
+  - it: should not emit dynamic_metrics block when feature is disabled (default)
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "dynamic_metrics:"
+
+  - it: should inject dynamic_metrics under device_defaults when enabled
+    set:
+      gpu:
+        dynamicMetrics:
+          enabled: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "dynamic_metrics:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "pattern: burst"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "base_mw: 250000"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "base_c: 55"
+
+  - it: should respect per-field overrides when dynamic_metrics is enabled
+    set:
+      gpu:
+        dynamicMetrics:
+          enabled: true
+          seed: 42
+          temperature:
+            base_c: 70
+            variance_c: 2
+          power:
+            base_mw: 300000
+            variance_mw: 10000
+          utilization:
+            pattern: idle
+            gpu_min: 0
+            gpu_max: 50
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "seed: 42"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "base_c: 70"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "base_mw: 300000"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "pattern: idle"
+
+  - it: should not emit the dynamicMetrics 'enabled' flag into the rendered config
+    set:
+      gpu:
+        dynamicMetrics:
+          enabled: true
+    asserts:
+      # `enabled` is a helm-level toggle; it must not leak into the mock
+      # NVML YAML since DynamicMetricsConfig has no corresponding field.
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "^ *enabled:"
+
+  - it: should overlay dynamic_metrics on top of gpu.customConfig when enabled
+    set:
+      gpu:
+        profile: a100
+        count: 1
+        customConfig: |
+          version: "1.0"
+          system:
+            driver_version: "custom"
+          device_defaults:
+            name: "Custom GPU"
+            thermal:
+              temperature_gpu_c: 40
+        dynamicMetrics:
+          enabled: true
+          temperature:
+            base_c: 88
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "Custom GPU"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "temperature_gpu_c: 40"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "dynamic_metrics:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "base_c: 88"

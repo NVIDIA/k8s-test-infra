@@ -128,6 +128,11 @@ type DeviceConfig struct {
 
 	// Processes
 	Processes []ProcessConfig `json:"processes,omitempty"`
+
+	// DynamicMetrics enables time-varying values for temperature, power, and
+	// utilization. When nil (default), static values from the other config
+	// sections are returned as-is.
+	DynamicMetrics *DynamicMetricsConfig `json:"dynamic_metrics,omitempty"`
 }
 
 // DeviceOverride contains per-device settings that override defaults
@@ -406,6 +411,64 @@ type ProcessConfig struct {
 // TopologyConfig defines GPU topology settings
 type TopologyConfig struct {
 	DefaultLevel string `json:"default_level,omitempty"` // internal, single, multiple, hostbridge, node, system
+}
+
+// DynamicMetricsConfig enables opt-in time-varying simulation for GPU
+// metrics that, on real hardware, change between calls (temperature, power,
+// utilization). When this config is absent, static values from the Thermal,
+// Power, and Utilization sections are returned unchanged.
+type DynamicMetricsConfig struct {
+	// Seed seeds the per-device PRNG. Zero means use a time-based seed so
+	// each process sees different but repeatable-within-run values.
+	Seed int64 `json:"seed,omitempty"`
+
+	// Temperature, Power, Utilization are each independently opt-in. Any
+	// sub-config left nil keeps the corresponding metric static.
+	Temperature *DynamicTemperatureConfig `json:"temperature,omitempty"`
+	Power       *DynamicPowerConfig       `json:"power,omitempty"`
+	Utilization *DynamicUtilizationConfig `json:"utilization,omitempty"`
+}
+
+// DynamicTemperatureConfig produces GPU temperatures that fluctuate over time.
+//
+// Returned value (clamped to the thermal shutdown threshold if known):
+//
+//	base_c + ramp_offset(t) + noise
+//
+// where ramp_offset oscillates in [0, ramp_c] with period ramp_period_sec
+// (a sine wave shifted to be non-negative), and noise is uniform in
+// [-variance_c, +variance_c].
+type DynamicTemperatureConfig struct {
+	BaseC         int `json:"base_c"`
+	VarianceC     int `json:"variance_c,omitempty"`
+	RampC         int `json:"ramp_c,omitempty"`
+	RampPeriodSec int `json:"ramp_period_sec,omitempty"`
+}
+
+// DynamicPowerConfig produces power draw values (milliwatts) that fluctuate
+// around base_mw by at most variance_mw. The result is clamped to
+// [min_limit_mw, max_limit_mw] from PowerConfig when those bounds are set.
+type DynamicPowerConfig struct {
+	BaseMW     uint32 `json:"base_mw"`
+	VarianceMW uint32 `json:"variance_mw,omitempty"`
+}
+
+// DynamicUtilizationConfig drives GPU / memory utilization percentages.
+//
+// Pattern semantics (all values clamped to 0..100):
+//   - "idle":   random in [gpu_min, gpu_min + (gpu_max-gpu_min)/4]
+//   - "busy":   random in [gpu_max - (gpu_max-gpu_min)/4, gpu_max]
+//   - "burst":  alternates "idle" and "busy" phases every burst_period_sec
+//   - "steady" or empty: random in [gpu_min, gpu_max]
+//
+// Memory utilization follows the same rule using memory_min / memory_max.
+type DynamicUtilizationConfig struct {
+	Pattern        string `json:"pattern,omitempty"`
+	GPUMin         uint32 `json:"gpu_min,omitempty"`
+	GPUMax         uint32 `json:"gpu_max,omitempty"`
+	MemoryMin      uint32 `json:"memory_min,omitempty"`
+	MemoryMax      uint32 `json:"memory_max,omitempty"`
+	BurstPeriodSec int    `json:"burst_period_sec,omitempty"`
 }
 
 // NVLinkConfig defines NVLink topology

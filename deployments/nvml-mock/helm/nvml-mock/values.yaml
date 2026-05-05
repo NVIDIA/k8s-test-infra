@@ -6,6 +6,30 @@ gpu:
   count: 8
   customConfig: ""
 
+  # Opt-in: make GetTemperature / GetPowerUsage / GetUtilizationRates return
+  # time-varying values instead of the static figures from the profile.
+  # When `enabled: false` (default), the rendered ConfigMap is unchanged
+  # and the mock reproduces the historical static behavior.
+  # See pkg/gpu/mocknvml/README.md#dynamic-metrics-optional for semantics.
+  dynamicMetrics:
+    enabled: false
+    seed: 0                              # 0 = time-based; non-zero for reproducibility
+    temperature:
+      base_c: 55
+      variance_c: 3
+      ramp_c: 15
+      ramp_period_sec: 120
+    power:
+      base_mw: 250000
+      variance_mw: 25000
+    utilization:
+      pattern: burst                     # idle | busy | burst | steady
+      gpu_min: 0
+      gpu_max: 100
+      memory_min: 0
+      memory_max: 100
+      burst_period_sec: 30
+
 image:
   repository: ghcr.io/nvidia/nvml-mock
   tag: latest

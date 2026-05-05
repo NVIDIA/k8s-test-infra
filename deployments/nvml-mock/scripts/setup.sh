@@ -14,7 +14,7 @@ DEV_ROOT=$HOST/dev
 CONFIG_DIR=$HOST/config
 
 # Validate GPU_COUNT does not exceed profile device count
-PROFILE_COUNT=$(grep -c "^[[:space:]]*- index:" /config/config.yaml || echo 0)
+PROFILE_COUNT=$(grep -c "^[[:space:]]*- index:" /etc/nvml-mock/config.yaml || echo 0)
 if [ "$PROFILE_COUNT" -gt 0 ] && [ "$GPU_COUNT" -gt "$PROFILE_COUNT" ]; then
   echo "WARNING: gpu.count ($GPU_COUNT) exceeds profile devices ($PROFILE_COUNT). Capping to $PROFILE_COUNT."
   GPU_COUNT=$PROFILE_COUNT
@@ -86,12 +86,20 @@ containerEdits:
     - hostPath: /var/lib/nvml-mock/driver/usr/bin/nvidia-smi
       containerPath: /usr/bin/nvidia-smi
       options: [ro, nosuid, nodev, bind]
+    # Bind-mount the GPU profile config so the mock NVML library finds it via
+    # MOCK_NVML_CONFIG below. Without this CDI-injected workloads load the
+    # mock .so but fall back to "no-YAML" defaults — temperature, power and
+    # similar metrics surface as N/A in nvidia-smi.
+    - hostPath: /var/lib/nvml-mock/driver/config/config.yaml
+      containerPath: /etc/nvml-mock/config.yaml
+      options: [ro, nosuid, nodev, bind]
   hooks:
     - hookName: createContainer
       path: /usr/bin/nvidia-cdi-hook
       args: [nvidia-cdi-hook, update-ldcache, --folder, /usr/lib64]
   env:
     - NVIDIA_VISIBLE_DEVICES=void
+    - MOCK_NVML_CONFIG=/etc/nvml-mock/config.yaml
 devices:
 CDI_HEADER
 
@@ -173,8 +181,8 @@ PROC_PARAMS_EOF
 # 5. Copy GPU profile config to both locations:
 #    - config/config.yaml (canonical, used by device plugin)
 #    - driver/config/config.yaml (auto-discovered by .so via /proc/self/maps)
-cp /config/config.yaml "$CONFIG_DIR/config.yaml"
-cp /config/config.yaml "$DRIVER_ROOT/config/config.yaml"
+cp /etc/nvml-mock/config.yaml "$CONFIG_DIR/config.yaml"
+cp /etc/nvml-mock/config.yaml "$DRIVER_ROOT/config/config.yaml"
 
 # 6. Inject num_devices into config so the .so knows GPU count without env vars.
 #    This makes the on-host config self-contained — consumers just point at driver root.
