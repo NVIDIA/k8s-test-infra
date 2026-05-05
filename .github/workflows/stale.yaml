@@ -1,0 +1,54 @@
+# DGXC OSS stale lifecycle — mirrors the policy:
+#   - 90 days inactive  -> label `lifecycle/stale`
+#   - +30 days inactive -> close
+#   - exempt: label `lifecycle/frozen`
+# Reference: https://github.com/NVIDIA/gpu-operator/blob/main/.github/workflows/stale.yaml
+name: "Mark and close stale issues"
+
+on:
+  schedule:
+    - cron: "30 1 * * *"   # daily 01:30 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          # --- thresholds (policy) ---
+          days-before-issue-stale: 90
+          days-before-issue-close: 30
+          days-before-pr-stale: 90
+          days-before-pr-close: 30
+
+          # --- labels ---
+          stale-issue-label: "lifecycle/stale"
+          stale-pr-label: "lifecycle/stale"
+          exempt-issue-labels: "lifecycle/frozen"
+          exempt-pr-labels: "lifecycle/frozen"
+
+          # --- messages ---
+          stale-issue-message: |
+            This issue has had no activity for 90 days and is being marked `lifecycle/stale`
+            per the DGXC OSS Issue Mgmt policy. It will be auto-closed in 30 days unless:
+              * a maintainer adds the `lifecycle/frozen` label, or
+              * a comment / commit reactivates it.
+          close-issue-message: |
+            Closing per DGXC OSS stale policy (no activity for 120 days). Re-open with new
+            evidence if still relevant.
+          stale-pr-message: |
+            This PR has had no activity for 90 days and is being marked `lifecycle/stale`.
+            It will be auto-closed in 30 days unless updated or labeled `lifecycle/frozen`.
+          close-pr-message: |
+            Closing per DGXC OSS stale policy (no activity for 120 days).
+
+          # --- behaviour ---
+          remove-stale-when-updated: true
+          operations-per-run: 200
+          ascending: true
+          delete-branch: false
