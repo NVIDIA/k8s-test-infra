@@ -1,0 +1,20 @@
+name: "Documentation request or correction"
+description: "Missing, outdated, or incorrect docs (DGXC OSS policy: kind/documentation)."
+title: "[Docs]: "
+labels: ["kind/documentation", "needs-triage", "priority/unprioritized"]
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Location
+      description: URL, file path, or section affected.
+    validations: { required: true }
+  - type: textarea
+    id: issue
+    attributes:
+      label: What is wrong / missing
+    validations: { required: true }
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested correction (optional)

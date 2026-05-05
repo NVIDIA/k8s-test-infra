@@ -1,0 +1,36 @@
+name: "Feature request"
+description: "Propose a new capability or enhancement (DGXC OSS policy: kind/feature)."
+title: "[Feature]: "
+labels: ["kind/feature", "needs-triage", "priority/unprioritized"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user/operator problem does this solve? Cite the use case.
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: API, UX, configuration, behavioural change. Include alternatives considered.
+    validations: { required: true }
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope / non-goals
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Audience
+      options: ["Operators / cluster admins", "End users", "Internal NVIDIA teams", "Other"]
+    validations: { required: true }
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues / Discussions and this is not a duplicate.
+          required: true
+        - label: I understand triage cadence is weekly and Unprioritized SLA is 7 calendric days.
+          required: true

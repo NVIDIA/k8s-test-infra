@@ -1,0 +1,56 @@
+name: "Bug report"
+description: "Report a defect (DGXC OSS policy: kind/bug)."
+title: "[Bug]: "
+labels: ["kind/bug", "needs-triage", "priority/unprioritized"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please complete every section. Issues missing reproduction or version data may be re-labeled `needs-triage` and parked.
+  - type: input
+    id: version
+    attributes:
+      label: Component / version
+      description: e.g. holodeck v0.4.2 / k8s-test-infra commit abc1234
+    validations: { required: true }
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Actual behaviour, including full error output / stack traces.
+      render: shell
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal, deterministic. Include manifests, commands, env.
+      render: bash
+    validations: { required: true }
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, kernel, container runtime, k8s version, GPU/driver, hardware.
+      render: yaml
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / artefacts
+      description: Attach or paste relevant logs (redact secrets).
+      render: shell
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues and Discussions and this is not a duplicate.
+          required: true
+        - label: This is a defect, not a usage question (questions belong in Discussions).
+          required: true
