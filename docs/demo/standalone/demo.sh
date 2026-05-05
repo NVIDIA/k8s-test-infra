@@ -48,10 +48,6 @@ helm install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set gpu.profile=h100 \
   --set gpu.count=8 \
   --set gpu.dynamicMetrics.enabled=true \
-  --set gpu.failureInjection.enabled=true \
-  --set gpu.failureInjection.mode=fallen_off_bus \
-  --set gpu.failureInjection.after_calls=3 \
-  --set gpu.failureInjection.xid.code=79 \
   --wait --timeout 120s
 
 ###############################################################################
