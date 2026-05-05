@@ -169,6 +169,77 @@ Pattern semantics for utilization (values always clamped to 0..100):
 | `burst`  | alternates `idle` / `busy` every `burst_period_sec`   |
 | `steady` | full `[gpu_min, gpu_max]` range (default if omitted)  |
 
+#### Failure Injection (optional)
+
+Real GPUs occasionally fall off the bus, accumulate uncorrectable ECC errors,
+or surface Xid events. By default the mock reports healthy hardware on every
+device. Set `device_defaults.failure` (or override per device) to test how
+consumers — device-plugin, GPU operator, monitoring stack — behave under
+failure.
+
+```yaml
+device_defaults:
+  failure:
+    mode: lost            # healthy (default) | lost | fallen_off_bus | ecc_uncorrectable
+    probability: 0.0      # 0..1 chance to trip per guarded NVML call
+    after_calls: 100      # deterministic trip after N guarded calls
+    seed: 0               # 0 = time-based; set non-zero for reproducible rolls
+    xid:
+      code: 79            # surfaced via GetViolationStatus once tripped
+```
+
+Trigger semantics:
+
+- **No `probability` and no `after_calls`** — the failure activates on the
+  first guarded NVML call, so a bare `mode: lost` block produces an
+  immediately-lost GPU.
+- **`after_calls: N`** — the failure activates as soon as the device has
+  observed `N` guarded calls. Use this for reproducible CI runs.
+- **`probability: p`** — every guarded call rolls a uniform sample; if it
+  lands below `p` the failure trips. Combine with `after_calls` for
+  "may fail before, will fail by".
+
+Once tripped, a device stays tripped — real lost / fallen-off-bus GPUs do
+not recover without a reboot. Per-mode behaviour:
+
+| mode                | guarded API calls return | handle lookup returns | ECC counters         | `GetViolationStatus`              |
+| ------------------- | ------------------------ | --------------------- | -------------------- | --------------------------------- |
+| `healthy` (default) | normal values            | normal handle         | zero                 | empty                             |
+| `lost`              | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | error                | error                             |
+| `fallen_off_bus`    | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | error                | error                             |
+| `ecc_uncorrectable` | normal values            | normal handle         | strictly-increasing  | non-zero `ViolationTime` if `xid` |
+
+The `xid.code` field is surfaced through `Device.GetViolationStatus` once
+the device trips. Combine it with `mode: ecc_uncorrectable` to inject a
+specific Xid (for example `64` for ECC double-bit, `79` for "GPU has fallen
+off the bus") without taking the GPU off the API surface.
+
+##### Verifying with `nvidia-smi`
+
+Note: each `nvidia-smi` invocation is a fresh process whose call counter
+starts at 0. To see the trigger fire from a single short query, set
+`after_calls: 1` (or use a richer query that issues several guarded calls
+per GPU, such as `nvidia-smi -q -d ECC,POWER,TEMPERATURE,UTILIZATION`).
+
+```bash
+# mode: lost / fallen_off_bus  ─  handle lookup itself fails once tripped.
+# nvidia-smi prints "Unable to determine the device handle for GPU ..."
+# and exits non-zero.
+nvidia-smi -L
+nvidia-smi --query-gpu=name,uuid --format=csv
+nvidia-smi -q                                        # "GPU is lost" sections
+echo "exit=$?"                                       # non-zero after trip
+
+# mode: ecc_uncorrectable  ─  device stays addressable; counters grow and
+# GetViolationStatus surfaces the configured Xid code.
+nvidia-smi -q -d ECC                                 # uncorrectable counts
+nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv
+nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.dram  --format=csv
+
+# Any mode  ─  watch the engine trip in real time.
+MOCK_NVML_DEBUG=1 nvidia-smi -q -d ECC 2>&1 | grep -E 'failure|GPU_IS_LOST|Xid'
+```
+
 ### Debugging
 
 Enable verbose logging to troubleshoot issues:

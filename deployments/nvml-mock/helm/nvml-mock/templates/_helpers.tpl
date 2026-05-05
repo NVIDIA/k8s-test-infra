@@ -61,16 +61,31 @@ Priority: customConfig > profile file lookup > fail with error.
 When .Values.gpu.dynamicMetrics.enabled is true, a `dynamic_metrics:`
 block is injected under `device_defaults:` in the resulting YAML so that
 the mock returns time-varying temperature/power/utilization readings.
+
+When .Values.gpu.failureInjection.enabled is true, a `failure:` block is
+injected under `device_defaults:` so consumers can test how device-plugin,
+GPU operator and monitoring stacks behave when GPUs go lost / fall off
+the bus / accumulate uncorrectable ECC errors.
+
+If neither overlay is enabled the base YAML is returned verbatim, which
+preserves comments and key order from the profile file.
 */}}
 {{- define "nvml-mock.gpuConfig" -}}
 {{- $base := include "nvml-mock.gpuConfigBase" . -}}
-{{- if and .Values.gpu.dynamicMetrics .Values.gpu.dynamicMetrics.enabled -}}
+{{- $dynEnabled := and .Values.gpu.dynamicMetrics .Values.gpu.dynamicMetrics.enabled -}}
+{{- $failEnabled := and .Values.gpu.failureInjection .Values.gpu.failureInjection.enabled -}}
+{{- if or $dynEnabled $failEnabled -}}
 {{- $cfg := fromYaml $base -}}
 {{- if hasKey $cfg "Error" -}}
-{{- fail (printf "nvml-mock.gpuConfig: failed to parse base YAML for dynamic metrics injection: %s" (get $cfg "Error")) -}}
+{{- fail (printf "nvml-mock.gpuConfig: failed to parse base YAML for overlay injection: %s" (get $cfg "Error")) -}}
 {{- end -}}
 {{- $defaults := get $cfg "device_defaults" | default (dict) -}}
+{{- if $dynEnabled -}}
 {{- $_ := set $defaults "dynamic_metrics" (omit .Values.gpu.dynamicMetrics "enabled") -}}
+{{- end -}}
+{{- if $failEnabled -}}
+{{- $_ := set $defaults "failure" (omit .Values.gpu.failureInjection "enabled") -}}
+{{- end -}}
 {{- $_ := set $cfg "device_defaults" $defaults -}}
 {{- toYaml $cfg -}}
 {{- else -}}

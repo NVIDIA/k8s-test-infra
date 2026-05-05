@@ -30,6 +30,19 @@ gpu:
       memory_max: 100
       burst_period_sec: 30
 
+  # Opt-in: simulate GPU failure scenarios (lost device, fallen-off-bus,
+  # uncorrectable ECC errors, Xid). When `enabled: false` (default) the
+  # rendered ConfigMap is unchanged and the mock reports healthy hardware.
+  # See pkg/gpu/mocknvml/README.md#failure-injection-optional for semantics.
+  failureInjection:
+    enabled: false
+    mode: lost                           # healthy | lost | fallen_off_bus | ecc_uncorrectable
+    probability: 0.0                     # 0..1 chance per guarded NVML call
+    after_calls: 0                       # deterministic trip after N guarded calls (0 = disabled)
+    seed: 0                              # 0 = time-based; non-zero for reproducible rolls
+    xid:
+      code: 0                            # 0 = no Xid surfaced; e.g. 79 = "GPU has fallen off the bus"
+
 image:
   repository: ghcr.io/nvidia/nvml-mock
   tag: latest

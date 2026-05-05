@@ -16,6 +16,7 @@ package engine
 import (
 	"fmt"
 	"slices"
+	"time"
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -52,6 +53,11 @@ type ConfigurableDevice struct {
 	// dynamicMetrics is non-nil when DeviceConfig.DynamicMetrics is set.
 	// When nil, the device returns static values from config unchanged.
 	dynamicMetrics *dynamicMetricsSimulator
+
+	// failure is non-nil when DeviceConfig.Failure selects a non-healthy
+	// mode. When nil, the device behaves as healthy hardware. Methods
+	// that should respect failure injection call checkFailure / tickLost.
+	failure *failureInjector
 }
 
 // NewConfigurableDevice creates a device with YAML configuration
@@ -111,6 +117,14 @@ func NewConfigurableDevice(index int, baseDevice *dgxa100.Device, config *Device
 	// config.DynamicMetrics nil preserves the historical static behavior.
 	if config != nil && config.DynamicMetrics != nil {
 		dev.dynamicMetrics = newDynamicMetricsSimulator(config.DynamicMetrics)
+	}
+
+	// Enable failure injection (lost/fallen_off_bus/ecc_uncorrectable)
+	// when the YAML opts in. newFailureInjector returns nil for the
+	// default healthy mode, so the per-call hot path stays a single
+	// nil check.
+	if config != nil && config.Failure != nil {
+		dev.failure = newFailureInjector(config.Failure)
 	}
 
 	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Name, dev.UUID, dev.PciBusID)
@@ -224,12 +238,18 @@ func (d *ConfigurableDevice) GetBAR1MemoryInfo() (nvml.BAR1Memory, nvml.Return) 
 
 // GetMemoryInfo returns GPU memory information
 func (d *ConfigurableDevice) GetMemoryInfo() (nvml.Memory, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return nvml.Memory{}, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetMemoryInfo -> total=%d\n", d.MemoryInfo.Total)
 	return d.MemoryInfo, nvml.SUCCESS
 }
 
 // GetMemoryInfo_v2 returns GPU memory information (v2 API)
 func (d *ConfigurableDevice) GetMemoryInfo_v2() (nvml.Memory_v2, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return nvml.Memory_v2{}, ret
+	}
 	mem := nvml.Memory_v2{
 		Version:  nvmlStructVersion(unsafe.Sizeof(nvml.Memory_v2{}), 2),
 		Total:    d.MemoryInfo.Total,
@@ -356,6 +376,9 @@ func (d *ConfigurableDevice) GetBoardPartNumber() (string, nvml.Return) {
 // configured do we report ERROR_NOT_SUPPORTED. When both are present the
 // dynamic simulator overrides the static value.
 func (d *ConfigurableDevice) GetTemperature(sensor nvml.TemperatureSensors) (uint32, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
 	if d.config == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
@@ -408,6 +431,9 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 // neither is configured do we report ERROR_NOT_SUPPORTED. When both are
 // present the dynamic simulator overrides the static value.
 func (d *ConfigurableDevice) GetPowerUsage() (uint32, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
 	if d.config == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
@@ -473,6 +499,9 @@ func (d *ConfigurableDevice) GetPowerManagementLimitConstraints() (uint32, uint3
 
 // GetClockInfo returns current clock frequencies
 func (d *ConfigurableDevice) GetClockInfo(clockType nvml.ClockType) (uint32, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
 	if d.config == nil || d.config.Clocks == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
@@ -552,6 +581,9 @@ func (d *ConfigurableDevice) GetDefaultApplicationsClock(clockType nvml.ClockTyp
 // (idle / busy / burst / steady); otherwise the static UtilizationConfig
 // values are returned unchanged.
 func (d *ConfigurableDevice) GetUtilizationRates() (nvml.Utilization, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return nvml.Utilization{}, ret
+	}
 	util := nvml.Utilization{}
 	if d.config != nil && d.config.Utilization != nil {
 		util.Gpu = d.config.Utilization.GPU
@@ -1126,16 +1158,40 @@ func (d *ConfigurableDevice) GetPcieThroughput(counter nvml.PcieUtilCounter) (ui
 	return 0, nvml.SUCCESS
 }
 
-// GetTotalEccErrors returns total ECC errors
+// GetTotalEccErrors returns total ECC errors. Healthy devices report
+// zero. When failure injection has tripped into ecc_uncorrectable mode
+// the running call counter is surfaced as the uncorrectable count so
+// each subsequent NVML poll sees a strictly increasing value (matching
+// real hardware accumulating ECC events).
 func (d *ConfigurableDevice) GetTotalEccErrors(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType) (uint64, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetTotalEccErrors -> 0\n")
-	return 0, nvml.SUCCESS
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	count := uint64(0)
+	if d.failure != nil && d.failure.IsECCUncorrectable() && errorType == nvml.MEMORY_ERROR_TYPE_UNCORRECTED {
+		count = uint64(d.failure.CallCount())
+	}
+	debugLog("[NVML] nvmlDeviceGetTotalEccErrors(errType=%d) -> %d\n", errorType, count)
+	return count, nvml.SUCCESS
 }
 
-// GetMemoryErrorCounter returns memory error counter
+// GetMemoryErrorCounter returns the per-location memory-error counter.
+// Healthy devices report zero. ecc_uncorrectable mode reports the running
+// call count for the uncorrected counter on device memory, mirroring the
+// total error count so callers correlating the two queries see a
+// consistent view.
 func (d *ConfigurableDevice) GetMemoryErrorCounter(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType, locationType nvml.MemoryLocation) (uint64, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetMemoryErrorCounter -> 0\n")
-	return 0, nvml.SUCCESS
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	count := uint64(0)
+	if d.failure != nil && d.failure.IsECCUncorrectable() &&
+		errorType == nvml.MEMORY_ERROR_TYPE_UNCORRECTED &&
+		locationType == nvml.MEMORY_LOCATION_DEVICE_MEMORY {
+		count = uint64(d.failure.CallCount())
+	}
+	debugLog("[NVML] nvmlDeviceGetMemoryErrorCounter(errType=%d loc=%d) -> %d\n", errorType, locationType, count)
+	return count, nvml.SUCCESS
 }
 
 // GetRetiredPages returns retired pages
@@ -1158,6 +1214,9 @@ func (d *ConfigurableDevice) GetRetiredPagesPendingStatus() (nvml.EnableState, n
 
 // GetRemappedRows returns remapped row information
 func (d *ConfigurableDevice) GetRemappedRows() (int, int, bool, bool, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return 0, 0, false, false, ret
+	}
 	corrRows, uncRows := 0, 0
 	isPending, failureOccurred := false, false
 	if d.config != nil && d.config.RemappedRows != nil {
@@ -1165,6 +1224,10 @@ func (d *ConfigurableDevice) GetRemappedRows() (int, int, bool, bool, nvml.Retur
 		uncRows = d.config.RemappedRows.Uncorrectable
 		isPending = d.config.RemappedRows.Pending
 		failureOccurred = d.config.RemappedRows.FailureOccurred
+	}
+	if d.failure != nil && d.failure.IsECCUncorrectable() {
+		uncRows++
+		failureOccurred = true
 	}
 	debugLog("[NVML] nvmlDeviceGetRemappedRows -> corr=%d unc=%d pending=%v failure=%v\n", corrRows, uncRows, isPending, failureOccurred)
 	return corrRows, uncRows, isPending, failureOccurred, nvml.SUCCESS
@@ -1282,6 +1345,64 @@ func parseComputeMode(mode string) nvml.ComputeMode {
 	}
 }
 
+// tickFailure advances the device's failure injector by one guarded call
+// and returns the NVML return code clients should propagate. SUCCESS means
+// "carry on with the normal code path"; any other value should be
+// propagated immediately. A nil failure injector (the default) is a fast
+// no-op so callers can sprinkle this at the top of every guarded getter
+// without measurable overhead.
+func (d *ConfigurableDevice) tickFailure() nvml.Return {
+	if d == nil || d.failure == nil {
+		return nvml.SUCCESS
+	}
+	d.failure.Tick()
+	if d.failure.IsLost() {
+		return d.failure.ErrorReturn()
+	}
+	return nvml.SUCCESS
+}
+
+// failureLost returns true once the device has tripped into a lost or
+// fallen-off-bus state. Use this at handle-lookup boundaries (where we do
+// not want to advance the call counter — Tick has already done so for the
+// guarded call that prompted the lookup).
+func (d *ConfigurableDevice) failureLost() bool {
+	return d != nil && d.failure != nil && d.failure.IsLost()
+}
+
+// failureXid returns the configured Xid code if the failure has tripped
+// and a Xid sub-config is present, otherwise zero. Used by
+// GetViolationStatus and event-set queries.
+func (d *ConfigurableDevice) failureXid() uint64 {
+	if d == nil || d.failure == nil {
+		return 0
+	}
+	return d.failure.Xid()
+}
+
+// GetViolationStatus returns the active violation time information for a
+// performance policy. Without failure injection the device reports no
+// violation — matching healthy hardware. Once failure injection has
+// tripped and a Xid sub-config is configured we surface the Xid code in
+// the violation_time field so consumers polling GetViolationStatus see a
+// non-zero, non-flapping signal.
+func (d *ConfigurableDevice) GetViolationStatus(perfPolicyType nvml.PerfPolicyType) (nvml.ViolationTime, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return nvml.ViolationTime{}, ret
+	}
+	xid := d.failureXid()
+	if xid == 0 {
+		debugLog("[NVML] nvmlDeviceGetViolationStatus(policy=%d) -> no violation\n", perfPolicyType)
+		return nvml.ViolationTime{}, nvml.SUCCESS
+	}
+	vt := nvml.ViolationTime{
+		ReferenceTime: uint64(time.Now().UnixNano()),
+		ViolationTime: xid,
+	}
+	debugLog("[NVML] nvmlDeviceGetViolationStatus(policy=%d) -> xid=%d\n", perfPolicyType, xid)
+	return vt, nvml.SUCCESS
+}
+
 // MockServer wraps dgxa100.Server and uses configurable devices
 type MockServer struct {
 	*dgxa100.Server
@@ -1298,6 +1419,11 @@ type MockServer struct {
 // DeviceGetHandleByIndex returns a configurable device by visible index.
 // When device visibility filtering is active (container has only a subset
 // of /dev/nvidia* nodes), the index maps through the visibility table.
+//
+// If the resolved device has tripped failure injection into a "lost" or
+// "fallen_off_bus" mode, the lookup returns ERROR_GPU_IS_LOST instead of
+// a usable handle, matching real NVML behaviour for hardware that has
+// dropped off the PCI bus.
 func (s *MockServer) DeviceGetHandleByIndex(index int) (nvml.Device, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetHandleByIndex(%d)\n", index)
 
@@ -1307,29 +1433,41 @@ func (s *MockServer) DeviceGetHandleByIndex(index int) (nvml.Device, nvml.Return
 			return nil, nvml.ERROR_INVALID_ARGUMENT
 		}
 		actual := s.visibleDevices[index]
-		if s.configurableDevices[actual] == nil {
+		dev := s.configurableDevices[actual]
+		if dev == nil {
 			return nil, nvml.ERROR_NOT_FOUND
 		}
-		return s.configurableDevices[actual], nvml.SUCCESS
+		if ret := dev.handleLookupReturn(); ret != nvml.SUCCESS {
+			return nil, ret
+		}
+		return dev, nvml.SUCCESS
 	}
 
 	if index < 0 || index >= len(s.configurableDevices) {
 		return nil, nvml.ERROR_INVALID_ARGUMENT
 	}
-	if s.configurableDevices[index] == nil {
+	dev := s.configurableDevices[index]
+	if dev == nil {
 		return nil, nvml.ERROR_NOT_FOUND
 	}
-	return s.configurableDevices[index], nvml.SUCCESS
+	if ret := dev.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nil, ret
+	}
+	return dev, nvml.SUCCESS
 }
 
 // DeviceGetHandleByUUID returns a configurable device by UUID.
 // When device visibility filtering is active, only visible devices are returned.
+// Lost devices behave the same as in DeviceGetHandleByIndex.
 func (s *MockServer) DeviceGetHandleByUUID(uuid string) (nvml.Device, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetHandleByUUID(%s)\n", uuid)
 	for i, dev := range s.configurableDevices {
 		if dev != nil && dev.UUID == uuid {
 			if !s.isDeviceVisible(i) {
 				return nil, nvml.ERROR_NOT_FOUND
+			}
+			if ret := dev.handleLookupReturn(); ret != nvml.SUCCESS {
+				return nil, ret
 			}
 			return dev, nvml.SUCCESS
 		}
@@ -1339,6 +1477,7 @@ func (s *MockServer) DeviceGetHandleByUUID(uuid string) (nvml.Device, nvml.Retur
 
 // DeviceGetHandleByPciBusId returns a configurable device by PCI bus ID.
 // When device visibility filtering is active, only visible devices are returned.
+// Lost devices behave the same as in DeviceGetHandleByIndex.
 func (s *MockServer) DeviceGetHandleByPciBusId(pciBusId string) (nvml.Device, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetHandleByPciBusId(%s)\n", pciBusId)
 	for i, dev := range s.configurableDevices {
@@ -1346,10 +1485,31 @@ func (s *MockServer) DeviceGetHandleByPciBusId(pciBusId string) (nvml.Device, nv
 			if !s.isDeviceVisible(i) {
 				return nil, nvml.ERROR_NOT_FOUND
 			}
+			if ret := dev.handleLookupReturn(); ret != nvml.SUCCESS {
+				return nil, ret
+			}
 			return dev, nvml.SUCCESS
 		}
 	}
 	return nil, nvml.ERROR_NOT_FOUND
+}
+
+// handleLookupReturn returns the NVML return code that a handle-lookup
+// path should propagate when the device has tripped failure injection.
+// SUCCESS means the device is still reachable. We deliberately do not
+// Tick() the failure injector here because handle lookups are not
+// guarded NVML operations on real hardware — they simply observe state
+// already produced by the actual API calls below. Otherwise a workload
+// that resolves a handle once and reuses it would never see the
+// scheduled "after_calls" failure.
+func (d *ConfigurableDevice) handleLookupReturn() nvml.Return {
+	if d == nil || d.failure == nil {
+		return nvml.SUCCESS
+	}
+	if d.failureLost() {
+		return d.failure.ErrorReturn()
+	}
+	return nvml.SUCCESS
 }
 
 // isDeviceVisible returns true if the given device index is in the visible set.

@@ -495,6 +495,12 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | `gpu.dynamicMetrics.temperature.*` | see `values.yaml` | `base_c`, `variance_c`, `ramp_c`, `ramp_period_sec` for the GPU temperature generator. |
 | `gpu.dynamicMetrics.power.*` | see `values.yaml` | `base_mw`, `variance_mw` for the power-draw generator (clamped to `power.min_limit_mw`/`max_limit_mw` from the profile). |
 | `gpu.dynamicMetrics.utilization.*` | see `values.yaml` | `pattern` (`idle` \| `busy` \| `burst` \| `steady`), `gpu_min/max`, `memory_min/max`, `burst_period_sec`. |
+| `gpu.failureInjection.enabled` | `false` | Enable simulated GPU failures (lost / fallen off bus / uncorrectable ECC). See [Failure Injection](#failure-injection) below. |
+| `gpu.failureInjection.mode` | `lost` | Failure mode: `healthy`, `lost`, `fallen_off_bus`, or `ecc_uncorrectable`. |
+| `gpu.failureInjection.probability` | `0.0` | Per-call probability (0..1) for stochastic failure activation. |
+| `gpu.failureInjection.after_calls` | `0` | Activate failure deterministically after N guarded NVML calls (0 = disabled). |
+| `gpu.failureInjection.seed` | `0` | RNG seed for probability rolls; `0` uses a time-based seed. |
+| `gpu.failureInjection.xid.code` | `0` | Xid error code surfaced via `GetViolationStatus` once tripped. `0` = no Xid. |
 | `image.repository` | `ghcr.io/nvidia/nvml-mock` | Container image repository |
 | `image.tag` | `latest` | Container image tag |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
@@ -691,6 +697,93 @@ Utilization pattern semantics (values are always clamped to `0..100`):
 
 See [`pkg/gpu/mocknvml/README.md`](../../../pkg/gpu/mocknvml/README.md#dynamic-metrics-optional)
 for the full engine-side reference.
+
+### Failure Injection
+
+Real GPUs occasionally fall off the bus, accumulate uncorrectable ECC errors,
+or surface Xid events. By default the mock reports healthy hardware. Set
+`gpu.failureInjection.enabled=true` to have the rendered ConfigMap inject a
+`device_defaults.failure` block; the mock will then trip the device into the
+configured failure mode based on the trigger you choose:
+
+```bash
+# Deterministic: device goes "lost" after the 200th NVML call
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --set gpu.profile=h100 \
+  --set gpu.failureInjection.enabled=true \
+  --set gpu.failureInjection.mode=lost \
+  --set gpu.failureInjection.after_calls=200
+```
+
+```yaml
+# Stochastic + Xid: 1% chance per call to surface ECC double-bit (Xid 64),
+# bounded to trip within 10k calls so CI does not hang.
+gpu:
+  profile: h100
+  failureInjection:
+    enabled: true
+    mode: ecc_uncorrectable
+    probability: 0.01
+    after_calls: 10000
+    seed: 12345
+    xid:
+      code: 64
+```
+
+Per-mode behaviour:
+
+| mode                | guarded API calls return | handle lookup returns | ECC counters         | `GetViolationStatus`              |
+| ------------------- | ------------------------ | --------------------- | -------------------- | --------------------------------- |
+| `healthy` (default) | normal values            | normal handle         | zero                 | empty                             |
+| `lost`              | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | error                | error                             |
+| `fallen_off_bus`    | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | error                | error                             |
+| `ecc_uncorrectable` | normal values            | normal handle         | strictly-increasing  | non-zero `ViolationTime` if `xid` |
+
+Failure injection composes with `gpu.dynamicMetrics`: with both enabled the
+device returns dynamic readings while healthy and switches to the configured
+failure mode once the trigger fires. Once tripped a device stays tripped for
+the lifetime of the pod, matching real hardware that needs a reboot to
+recover.
+
+#### Verifying with `nvidia-smi`
+
+Each `nvidia-smi` invocation is a fresh process whose call counter starts at
+0, so a narrow query like `--query-gpu=ecc.errors.uncorrected.aggregate.total`
+will only ever issue **one** guarded call per GPU per invocation. To see the
+failure surface from a single short command set `after_calls: 1`, or use a
+richer query that issues several guarded calls per GPU (e.g. `nvidia-smi -q`)
+so the trigger fires within one process.
+
+```bash
+# mode: lost / fallen_off_bus  ─  handle lookup itself fails once tripped.
+# nvidia-smi prints "Unable to determine the device handle for GPU ..."
+# and exits non-zero.
+kubectl exec ds/nvml-mock -- nvidia-smi -L
+kubectl exec ds/nvml-mock -- nvidia-smi --query-gpu=name,uuid --format=csv
+kubectl exec ds/nvml-mock -- nvidia-smi -q                # "GPU is lost"
+
+# mode: ecc_uncorrectable  ─  device stays addressable; counters grow and
+# GetViolationStatus surfaces the configured Xid code.
+kubectl exec ds/nvml-mock -- nvidia-smi -q -d ECC
+kubectl exec ds/nvml-mock -- nvidia-smi \
+  --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv
+kubectl exec ds/nvml-mock -- nvidia-smi \
+  --query-gpu=ecc.errors.uncorrected.aggregate.dram  --format=csv
+
+# Any mode  ─  watch the engine trip in real time.
+kubectl exec ds/nvml-mock -- env MOCK_NVML_DEBUG=1 \
+  nvidia-smi -q -d ECC 2>&1 | grep -E 'failure|GPU_IS_LOST|Xid'
+
+# One long-running process so the per-process call counter accumulates
+# (useful when after_calls > 1 and you want to see a deterministic trip
+# without restarting the daemonset).
+kubectl exec ds/nvml-mock -- nvidia-smi \
+  --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv -l 1
+```
+
+See [`pkg/gpu/mocknvml/README.md`](../../../pkg/gpu/mocknvml/README.md#failure-injection-optional)
+for the full engine-side reference, including how the modes interact with
+specific NVML calls.
 
 ## How It Works
 

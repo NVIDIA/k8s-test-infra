@@ -303,3 +303,89 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "base_c: 88"
+
+  # ── Failure injection ───────────────────────────────────────────────
+  - it: should not emit failure block when failure injection is disabled (default)
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "^[[:space:]]*failure:"
+
+  - it: should inject failure block under device_defaults when enabled
+    set:
+      gpu:
+        failureInjection:
+          enabled: true
+          mode: lost
+          after_calls: 100
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "failure:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode: lost"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "after_calls: 100"
+
+  - it: should respect per-field overrides when failure injection is enabled
+    set:
+      gpu:
+        failureInjection:
+          enabled: true
+          mode: ecc_uncorrectable
+          probability: 0.25
+          after_calls: 500
+          seed: 12345
+          xid:
+            code: 64
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode: ecc_uncorrectable"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "probability: 0.25"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "after_calls: 500"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "seed: 12345"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "code: 64"
+
+  - it: should not emit the failureInjection 'enabled' flag into the rendered config
+    set:
+      gpu:
+        failureInjection:
+          enabled: true
+          mode: lost
+    asserts:
+      # `enabled` is a helm-level toggle; it must not leak into the mock
+      # NVML YAML since FailureInjectionConfig has no corresponding field.
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "^ *enabled:"
+
+  - it: should support enabling dynamic_metrics and failure injection together
+    set:
+      gpu:
+        dynamicMetrics:
+          enabled: true
+        failureInjection:
+          enabled: true
+          mode: fallen_off_bus
+          after_calls: 50
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "dynamic_metrics:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "failure:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode: fallen_off_bus"
