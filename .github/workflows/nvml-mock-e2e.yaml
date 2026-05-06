@@ -111,10 +111,11 @@ jobs:
           # Check library
           docker exec "$NODE_CONTAINER" sh -c "ls /var/lib/nvml-mock/driver/usr/lib64/libnvidia-ml.so.* | head -1"
           docker exec "$NODE_CONTAINER" test -L /var/lib/nvml-mock/driver/usr/lib64/libnvidia-ml.so.1
-          # Check device files
-          docker exec "$NODE_CONTAINER" test -e /var/lib/nvml-mock/dev/nvidia0
-          docker exec "$NODE_CONTAINER" test -e /var/lib/nvml-mock/dev/nvidia1
-          docker exec "$NODE_CONTAINER" test -e /var/lib/nvml-mock/dev/nvidiactl
+          # Check device files (under driver root so the upstream DRA driver's
+          # getDevRoot() resolves; CDI bind-mounts these to /dev/nvidia* in pods)
+          docker exec "$NODE_CONTAINER" test -e /var/lib/nvml-mock/driver/dev/nvidia0
+          docker exec "$NODE_CONTAINER" test -e /var/lib/nvml-mock/driver/dev/nvidia1
+          docker exec "$NODE_CONTAINER" test -e /var/lib/nvml-mock/driver/dev/nvidiactl
           # Check config at both locations
           docker exec "$NODE_CONTAINER" test -f /var/lib/nvml-mock/config/config.yaml
           docker exec "$NODE_CONTAINER" test -f /var/lib/nvml-mock/driver/config/config.yaml
