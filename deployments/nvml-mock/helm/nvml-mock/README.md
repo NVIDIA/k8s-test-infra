@@ -8,7 +8,7 @@ NVIDIA hardware required.
 
 Deploys a DaemonSet that creates on every node:
 - Mock `libnvidia-ml.so` shared library at `/var/lib/nvml-mock/driver/usr/lib64/`
-- Device nodes (`/dev/nvidia0`, `/dev/nvidia1`, ..., `/dev/nvidiactl`)
+- Mock device nodes at `/var/lib/nvml-mock/driver/dev/nvidia{N,ctl,-uvm,-uvm-tools}` (consumers see them at `/dev/nvidia*` via CDI bind-mount)
 - GPU configuration at `/var/lib/nvml-mock/driver/config/config.yaml`
 - Node label `nvidia.com/gpu.present=true`
 
@@ -634,7 +634,7 @@ The chart deploys:
 1. **DaemonSet** — runs a privileged container on each node that:
    - Copies `libnvidia-ml.so.{version}` to the host at `/var/lib/nvml-mock/driver/usr/lib64/`
    - Creates symlinks (`libnvidia-ml.so.1` → `libnvidia-ml.so.{version}`)
-   - Creates device nodes (`/dev/nvidia0` ... `/dev/nvidiaX`, `/dev/nvidiactl`)
+   - Creates mock device nodes at `/var/lib/nvml-mock/driver/dev/nvidia{N,ctl,-uvm,-uvm-tools}` (CDI bind-mounts them to `/dev/nvidia*` in consumer containers)
    - Writes GPU config YAML at `/var/lib/nvml-mock/driver/config/config.yaml`
    - Labels the node `nvidia.com/gpu.present=true`
 2. **ConfigMap** — GPU configuration from the selected profile

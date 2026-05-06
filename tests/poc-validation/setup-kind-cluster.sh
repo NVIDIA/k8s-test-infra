@@ -102,7 +102,7 @@ echo "=== Step 6: Verifying mock files on node ==="
 NODE_CONTAINER="${CLUSTER_NAME}-control-plane"
 docker exec "$NODE_CONTAINER" test -L /var/lib/nvml-mock/driver/usr/lib64/libnvidia-ml.so.1
 docker exec "$NODE_CONTAINER" test -f /var/lib/nvml-mock/driver/config/config.yaml
-docker exec "$NODE_CONTAINER" test -e /var/lib/nvml-mock/dev/nvidia0
+docker exec "$NODE_CONTAINER" test -e /var/lib/nvml-mock/driver/dev/nvidia0
 echo "Mock files verified on node"
 
 # Step 7: Verify node labels

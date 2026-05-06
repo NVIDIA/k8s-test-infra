@@ -10,7 +10,10 @@ set -e
 
 HOST=/host/var/lib/nvml-mock
 DRIVER_ROOT=$HOST/driver
-DEV_ROOT=$HOST/dev
+# Co-locate device nodes under $DRIVER_ROOT so the upstream DRA driver's
+# getDevRoot() (cmd/gpu-kubelet-plugin/root.go in NVIDIA/k8s-dra-driver-gpu)
+# resolves devRoot to the mock driver root rather than falling back to "/".
+DEV_ROOT=$DRIVER_ROOT/dev
 CONFIG_DIR=$HOST/config
 
 # Validate GPU_COUNT does not exceed profile device count
@@ -74,11 +77,11 @@ kind: "nvidia.com/gpu"
 containerEdits:
   deviceNodes:
     - path: /dev/nvidiactl
-      hostPath: /var/lib/nvml-mock/dev/nvidiactl
+      hostPath: /var/lib/nvml-mock/driver/dev/nvidiactl
     - path: /dev/nvidia-uvm
-      hostPath: /var/lib/nvml-mock/dev/nvidia-uvm
+      hostPath: /var/lib/nvml-mock/driver/dev/nvidia-uvm
     - path: /dev/nvidia-uvm-tools
-      hostPath: /var/lib/nvml-mock/dev/nvidia-uvm-tools
+      hostPath: /var/lib/nvml-mock/driver/dev/nvidia-uvm-tools
   mounts:
     - hostPath: /var/lib/nvml-mock/driver/usr/lib64/libnvidia-ml.so.1
       containerPath: /usr/lib64/libnvidia-ml.so.1
@@ -102,7 +105,7 @@ for i in $(seq 0 $((GPU_COUNT - 1))); do
     containerEdits:
       deviceNodes:
         - path: /dev/nvidia$i
-          hostPath: /var/lib/nvml-mock/dev/nvidia$i
+          hostPath: /var/lib/nvml-mock/driver/dev/nvidia$i
 DEVICE_EOF
 done
 
@@ -112,7 +115,7 @@ echo '    containerEdits:' >> "$CDI_DIR/nvidia.yaml"
 echo '      deviceNodes:' >> "$CDI_DIR/nvidia.yaml"
 for i in $(seq 0 $((GPU_COUNT - 1))); do
   echo "        - path: /dev/nvidia$i" >> "$CDI_DIR/nvidia.yaml"
-  echo "          hostPath: /var/lib/nvml-mock/dev/nvidia$i" >> "$CDI_DIR/nvidia.yaml"
+  echo "          hostPath: /var/lib/nvml-mock/driver/dev/nvidia$i" >> "$CDI_DIR/nvidia.yaml"
 done
 
 echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices)"
