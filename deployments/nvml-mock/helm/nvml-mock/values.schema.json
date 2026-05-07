@@ -120,6 +120,22 @@
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },
     "resources": { "type": "object" },
+    "updateStrategy": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "DaemonSet rolling update strategy passed verbatim into spec.updateStrategy.",
+      "properties": {
+        "type": { "type": "string", "enum": ["RollingUpdate", "OnDelete"] },
+        "rollingUpdate": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "maxUnavailable": { "type": ["string", "integer"] },
+            "maxSurge": { "type": ["string", "integer"] }
+          }
+        }
+      }
+    },
     "integrations": { "type": "object" }
   }
 }

@@ -397,3 +397,35 @@ tests:
       - matchRegex:
           path: spec.template.metadata.annotations["checksum/config"]
           pattern: ^[0-9a-f]{64}$
+
+  # ── updateStrategy ──────────────────────────────────────────────────
+  # Default to parallel rollout: nvml-mock is a stateless mock, so a
+  # config change should propagate in seconds rather than node-by-node.
+  - it: should default to RollingUpdate maxUnavailable 100%
+    asserts:
+      - equal:
+          path: spec.updateStrategy.type
+          value: RollingUpdate
+      - equal:
+          path: spec.updateStrategy.rollingUpdate.maxUnavailable
+          value: 100%
+
+  - it: should respect a user-supplied updateStrategy override
+    set:
+      updateStrategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxUnavailable: 1
+    asserts:
+      - equal:
+          path: spec.updateStrategy.rollingUpdate.maxUnavailable
+          value: 1
+
+  - it: should accept OnDelete as an updateStrategy
+    set:
+      updateStrategy:
+        type: OnDelete
+    asserts:
+      - equal:
+          path: spec.updateStrategy.type
+          value: OnDelete

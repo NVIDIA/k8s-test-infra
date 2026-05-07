@@ -10,6 +10,8 @@ spec:
   selector:
     matchLabels:
       {{- include "nvml-mock.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
   template:
     metadata:
       labels:

@@ -70,12 +70,22 @@ wait_for_pod() {
 }
 
 # upgrade_and_recycle: helm upgrade with --reuse-values + the per-mode
-# overrides. The pod template carries a sha256 of the rendered GPU
-# config (templates/daemonset.yaml: `checksum/config`), so changing
-# any failureInjection knob mutates the pod-template hash and
-# Kubernetes recycles the DaemonSet automatically — no explicit
-# `kubectl rollout restart` needed. `helm upgrade --wait` blocks
-# until the new pod is Ready. Echoes the new pod name on stdout.
+# overrides, then force every nvml-mock pod to recreate so the new
+# config is picked up everywhere at once.
+#
+# Two safeguards are layered on top of helm:
+#   1. The pod template carries a sha256 of the rendered GPU config
+#      (templates/daemonset.yaml: `checksum/config`) so any change to
+#      gpu.failureInjection / gpu.dynamicMetrics already mutates the
+#      pod-template hash. The chart also defaults to
+#      `updateStrategy.rollingUpdate.maxUnavailable=100%` so that
+#      change rolls in parallel rather than node-by-node.
+#   2. `kubectl delete pods -l ...` explicitly evicts every existing
+#      pod up front. Belt-and-suspenders: if the user has overridden
+#      updateStrategy back to the upstream default (maxUnavailable=1),
+#      this still gives the demo a fast, deterministic rollout.
+#
+# Echoes the new pod name on stdout.
 upgrade_and_recycle() {
   local label=$1
   shift
@@ -83,6 +93,8 @@ upgrade_and_recycle() {
   helm upgrade "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
     --reuse-values "$@" \
     --wait --timeout 120s >/dev/null
+  kubectl delete pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
+    --wait=false >/dev/null 2>&1 || true
   wait_for_pod
 }
 
