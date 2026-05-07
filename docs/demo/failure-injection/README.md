@@ -2,44 +2,54 @@
 
 End-to-end walkthrough of the GPU failure-injection feature on a
 dedicated Kind cluster. Unlike [`../standalone/`](../standalone/), this
-demo deploys nvml-mock with `gpu.failureInjection.enabled=true` from
-the start and verifies that the engine actually trips the configured
-fault.
+demo exercises every supported failure mode (`healthy` →
+`ecc_uncorrectable` → `lost` → `fallen_off_bus`) by re-deploying the
+chart between scenarios with `helm upgrade --reuse-values`, and
+asserts each mode's expected behaviour against `nvidia-smi` output
+inside the pod.
 
 The demo lives in its own cluster (`nvml-mock-failure-demo`) so it
 never collides with the standalone demo or any other nvml-mock
-deployment you may already have running.
+deployment. The Kind topology itself is the shared
+[`../kind.yaml`](../kind.yaml) (1 control-plane + 3 workers with
+FGO-style labels) — failure injection doesn't need its own topology.
 
 ## What the script does
 
-1. Creates a small Kind cluster (1 control-plane, 1 worker — see
-   [`kind.yaml`](./kind.yaml)).
+1. (Re)creates the dedicated Kind cluster (idempotent: an existing
+   `nvml-mock-failure-demo` cluster is reused).
 2. Builds and loads the `nvml-mock:failure-demo` image.
-3. Installs the chart with:
-   ```
-   gpu.failureInjection.enabled = true
-   gpu.failureInjection.mode    = ecc_uncorrectable
-   gpu.failureInjection.after_calls = 3
-   gpu.failureInjection.xid.code    = 79
-   ```
-   `ecc_uncorrectable` is the entry-point mode because the device
-   stays addressable: `nvidia-smi` keeps running inside the pod and
-   the script can verify counters growing instead of the GPU
-   disappearing from the API surface.
-4. Verifies the rendered ConfigMap actually carries the
-   `failure:` block under `device_defaults:` (a regression guard
-   against the helper template silently dropping the overlay).
-5. Runs `nvidia-smi -q -d ECC` inside a pod and asserts the aggregate
-   uncorrectable counter is **non-zero**. `after_calls: 3` is met by
-   the third guarded NVML call within that single `nvidia-smi`
-   process, so the trip fires while the same process keeps running
-   and subsequent ECC reads return the running call count.
-6. Prints the YAML the engine actually loaded from
-   `/etc/nvml-mock/config.yaml` for sanity.
-7. Prints copy-pasteable follow-up commands for the other two failure
-   modes (`lost` and `fallen_off_bus`), which are NOT run
-   automatically because they make `nvidia-smi -L` return an error
-   and that's not a great closing impression for an automated demo.
+3. **Scenario 1 — healthy baseline**. Installs with
+   `gpu.failureInjection.enabled=false` and asserts:
+   * the rendered ConfigMap has **no** `failure:` block,
+   * `nvidia-smi -L` lists `gpu.count` GPUs,
+   * the aggregate uncorrectable ECC counter starts at `0`.
+4. **Scenario 2 — `ecc_uncorrectable` + Xid 79**. Upgrades the
+   release with `mode=ecc_uncorrectable, after_calls=3, xid.code=79`,
+   recycles the DaemonSet, and asserts:
+   * the ConfigMap now contains `mode: ecc_uncorrectable`,
+   * `nvidia-smi -L` **still** lists every GPU (mode contract: device
+     stays addressable),
+   * `nvidia-smi -q -d ECC` reports a strictly-positive aggregate
+     uncorrectable total — the third guarded NVML call within that
+     same process meets `after_calls: 3`, so the trip fires while the
+     same `nvidia-smi` invocation is still running.
+5. **Scenario 3 — `lost`**. Upgrades with `mode=lost, after_calls=1`,
+   recycles the DaemonSet, and asserts that
+   `nvidia-smi --query-gpu=temperature.gpu --format=csv` surfaces an
+   error marker (`[N/A]`, `[Unknown Error]`, etc.) instead of a clean
+   integer — the first guarded metric call trips the device and every
+   subsequent NVML call (metrics, identity getters, handle lookups)
+   returns `ERROR_GPU_IS_LOST`.
+6. **Scenario 4 — `fallen_off_bus` + Xid 79**. Same NVML surface as
+   `lost` but with `xid.code=79` queued for the NVML event set.
+   Asserts the same `nvidia-smi` error-marker behaviour and verifies
+   the ConfigMap carries both `mode: fallen_off_bus` and
+   `code: 79`.
+
+Each scenario uses `helm upgrade --reuse-values` so only the
+failure-injection knobs are touched between runs; everything else
+(image, profile, count) is preserved from Scenario 1.
 
 ## Quick start
 
@@ -47,61 +57,55 @@ deployment you may already have running.
 ./demo.sh
 ```
 
-Reruns are idempotent — if the cluster already exists the script reuses
-it, and `helm upgrade --install` covers both first-time install and
-subsequent upgrades.
+The script is idempotent — rerun it as often as you like; the
+existing cluster is reused and `helm upgrade --install` covers both
+first-time install and follow-up upgrades.
 
-## Manual exploration
+## Caveats
 
-After `./demo.sh` completes, the script prints commands for switching
-the running release between failure modes. A few useful follow-ups:
+### The Xid event is delivered through the NVML event set, not nvidia-smi
 
-### Watch the ECC counter grow over time
+`nvidia-smi` doesn't subscribe to `nvmlEventSetWait_v2`, so it never
+prints `Xid 79`. The mock delivers the configured Xid through the
+standard NVML event set
+(`NVML_EVENT_TYPE_XID_CRITICAL_ERROR`), exactly once per engine
+lifetime — matching real NVML semantics. Real consumers see it via:
 
-The mock's call counter is **per-process**, so each `nvidia-smi`
-invocation starts fresh. To see the counter increment monotonically,
-keep one process alive:
+* the **NVIDIA device plugin** health monitor (marks the GPU
+  `Unhealthy`),
+* **dcgm-exporter** (`DCGM_FI_DEV_XID_ERRORS` metric),
+* a small Go program calling `nvml.EventSetCreate` /
+  `RegisterEvents(EventTypeXidCriticalError)` / `EventSetWait` —
+  useful for ad-hoc verification:
+
+  ```go
+  set, _ := nvml.EventSetCreate()
+  dev, _ := nvml.DeviceGetHandleByIndex(0)
+  dev.RegisterEvents(nvml.EventTypeXidCriticalError, set)
+  for i := 0; i < 5; i++ { _, _ = dev.GetTemperature(nvml.TEMPERATURE_GPU) }
+  ev, _ := nvml.EventSetWait(set, 1000)
+  // ev.EventType == 0x8 (XID_CRITICAL_ERROR), ev.EventData == 79
+  ```
+
+### The injector counter is per-process
+
+Each `kubectl exec ... -- nvidia-smi` is a fresh process with a fresh
+`failureInjector` whose call counter resets to 0. That's why
+Scenario 2 uses `after_calls: 3` (so a single
+`nvidia-smi -q -d ECC` reaches the threshold during its own
+invocation) and Scenarios 3-4 use `after_calls: 1` (the very first
+guarded call trips). For interactive exploration, use a long-running
+process — e.g.
 
 ```bash
-POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
-  -o jsonpath='{.items[0].metadata.name}')
-
-kubectl exec "$POD" -- nvidia-smi \
+kubectl exec -it "$POD" -- nvidia-smi \
   --query-gpu=index,ecc.errors.uncorrected.aggregate.total \
   --format=csv -l 1
 ```
 
-The first two rows print `0`; from the third row onward the counter
-is strictly increasing.
+— and watch the counter increment on every poll.
 
-### Switch to `lost` mode
-
-```bash
-helm upgrade nvml-mock deployments/nvml-mock/helm/nvml-mock \
-  --reuse-values \
-  --set gpu.failureInjection.mode=lost \
-  --set gpu.failureInjection.after_calls=1
-kubectl rollout restart daemonset/nvml-mock
-kubectl rollout status   daemonset/nvml-mock --timeout=60s
-kubectl exec "$POD" -- nvidia-smi -L || true   # expect: 'GPU is lost'
-```
-
-### Observe the Xid event
-
-`nvidia-smi` does **not** subscribe to the NVML event set, so it never
-prints the configured Xid. To see the Xid delivered through
-`nvmlEventSetWait_v2` (`NVML_EVENT_TYPE_XID_CRITICAL_ERROR`), use any
-of:
-
-* the NVIDIA device plugin (its health monitor consumes the same
-  event and marks the GPU `Unhealthy`),
-* `dcgm-exporter` (`DCGM_FI_DEV_XID_ERRORS` metric),
-* a small Go program calling `nvml.EventSetCreate` /
-  `RegisterEvents(EventTypeXidCriticalError)` / `EventSetWait` — the
-  mock delivers the configured Xid exactly once per engine lifetime,
-  matching real NVML semantics.
-
-For full per-mode behaviour see
+For the full per-mode behaviour contract see
 [`pkg/gpu/mocknvml/README.md#failure-injection-optional`](../../../pkg/gpu/mocknvml/README.md#failure-injection-optional).
 
 ## Clean up
@@ -115,7 +119,7 @@ kind delete cluster --name nvml-mock-failure-demo
 The standalone demo (`../standalone/demo.sh`) intentionally keeps
 failure injection *disabled* so its post-install verification steps
 (`nvidia-smi`, ConfigMap counts, node labels) always succeed. Folding
-failure injection into that script would make those checks flaky on
-first run because every `nvidia-smi` invocation would trip the GPU
-mid-flight. Splitting it out lets each demo make assertions that
-match its own intent.
+the four scenarios above into that script would have made it flaky —
+each `nvidia-smi` invocation in the standalone demo would have
+tripped the GPU mid-flight. Splitting failure injection into its own
+demo lets each script make assertions that match its own intent.

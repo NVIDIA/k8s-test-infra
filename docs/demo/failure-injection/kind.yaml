@@ -1,9 +1,0 @@
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-# Smaller topology than ../kind.yaml: failure injection only needs a
-# single worker to demonstrate the behaviour, and a smaller cluster
-# spins up faster for the typical demo loop (install -> upgrade modes
-# -> tear down).
-nodes:
-  - role: control-plane
-  - role: worker
