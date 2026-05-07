@@ -107,8 +107,14 @@ upgrade_and_recycle() {
   # care about graceful shutdown and we DO care that rollout status
   # below sees only the new pods. --ignore-not-found keeps the call
   # idempotent if the previous scenario already evicted everything.
+  #
+  # `--force` always prints a `Warning: Immediate deletion does not
+  # wait for confirmation...` line to stderr. It's noise in this
+  # demo, so filter just that line and leave any other stderr alone
+  # so real failures still surface.
   kubectl delete pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
-    --force --grace-period=0 --ignore-not-found >/dev/null
+    --force --grace-period=0 --ignore-not-found >/dev/null \
+    2> >(grep -v '^Warning: Immediate deletion' >&2)
   wait_for_pod
 }
 
