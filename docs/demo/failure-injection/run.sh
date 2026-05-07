@@ -70,8 +70,12 @@ wait_for_pod() {
 }
 
 # upgrade_and_recycle: helm upgrade with --reuse-values + the per-mode
-# overrides, then force a DaemonSet rollout so the new engine config
-# is picked up. Echoes the new pod name on stdout.
+# overrides. The pod template carries a sha256 of the rendered GPU
+# config (templates/daemonset.yaml: `checksum/config`), so changing
+# any failureInjection knob mutates the pod-template hash and
+# Kubernetes recycles the DaemonSet automatically — no explicit
+# `kubectl rollout restart` needed. `helm upgrade --wait` blocks
+# until the new pod is Ready. Echoes the new pod name on stdout.
 upgrade_and_recycle() {
   local label=$1
   shift
@@ -79,7 +83,6 @@ upgrade_and_recycle() {
   helm upgrade "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
     --reuse-values "$@" \
     --wait --timeout 120s >/dev/null
-  kubectl rollout restart "daemonset/${RELEASE_NAME}" >/dev/null
   wait_for_pod
 }
 
@@ -167,15 +170,15 @@ fi
 ###############################################################################
 # `ecc_uncorrectable` keeps the device addressable: handle lookups and
 # identity getters keep succeeding, but uncorrectable ECC counters
-# return the running call count once tripped. `after_calls: 3` means
-# a single `nvidia-smi -q -d ECC` invocation (which issues many
-# guarded calls per device) trips on the third call and reports a
-# strictly-positive uncorrectable total in the same process.
-info "Scenario 2: ecc_uncorrectable + Xid 79 (after_calls=3)"
+# return the running call count once tripped. We use after_calls=1 so
+# the FIRST guarded ECC read on each device trips it — every device
+# has its own per-device call counter, so a query that issues exactly
+# one guarded call per GPU still trips every GPU.
+info "Scenario 2: ecc_uncorrectable + Xid 79 (after_calls=1)"
 POD=$(upgrade_and_recycle "ecc_uncorrectable" \
   --set gpu.failureInjection.enabled=true \
   --set gpu.failureInjection.mode=ecc_uncorrectable \
-  --set gpu.failureInjection.after_calls=3 \
+  --set gpu.failureInjection.after_calls=1 \
   --set gpu.failureInjection.xid.code=79)
 sub "Pod after rollout: ${POD}"
 
@@ -189,26 +192,26 @@ if [[ "${LIST_COUNT}" -ne "${EXPECTED_GPUS}" ]]; then
 fi
 ok "nvidia-smi -L still lists ${LIST_COUNT} GPUs (device addressable)"
 
-# Aggregate uncorrectable counter must be > 0 once tripped. The third
-# guarded call inside `nvidia-smi -q -d ECC` meets after_calls=3, so
-# the aggregate counter the tool prints is strictly positive.
-ECC_OUT=$(kubectl exec "${POD}" -- nvidia-smi -q -d ECC)
-UNCORR=$(printf '%s\n' "${ECC_OUT}" | awk '
-  /Aggregate Uncorrectable Errors/ { in_block = 1; next }
-  in_block && /Total/              { print $NF; exit }
-')
-case "${UNCORR}" in
-  ''|0|*[!0-9]*)
-    if printf '%s\n' "${ECC_OUT}" | grep -qE 'Uncorrectable.*[1-9]'; then
-      ok "ECC uncorrectable counter is non-zero (parsed loosely)"
-    else
-      fail "ecc_uncorrectable mode did not trip — ECC counter is still 0"
-    fi
-    ;;
-  *)
-    ok "ECC uncorrectable total = ${UNCORR} (>0 confirms trip)"
-    ;;
-esac
+# Read the uncorrectable counter via --format=csv so each GPU prints
+# exactly one integer per line. No awk required: just confirm at
+# least one line is a positive integer.
+ECC_OUT=$(kubectl exec "${POD}" -- nvidia-smi \
+  --query-gpu=ecc.errors.uncorrected.aggregate.total \
+  --format=csv,noheader,nounits 2>&1 || true)
+sub "ECC uncorrectable per-GPU readings:"
+printf '%s\n' "${ECC_OUT}" | sed 's/^/      /'
+
+# Pick the highest integer from the output. `grep -E '^[0-9]+$'`
+# discards [N/A] / [Unknown Error] / blank lines; `sort -n | tail -1`
+# yields the max. If the max is >0 the trip fired.
+MAX_UNCORR=$(printf '%s\n' "${ECC_OUT}" | \
+  grep -E '^[0-9]+$' | sort -n | tail -1)
+MAX_UNCORR=${MAX_UNCORR:-0}
+if [[ "${MAX_UNCORR}" -gt 0 ]]; then
+  ok "ECC uncorrectable max = ${MAX_UNCORR} (>0 confirms trip)"
+else
+  fail "ecc_uncorrectable did not trip — every per-GPU counter is still 0"
+fi
 
 ###############################################################################
 # Scenario 3 -- lost

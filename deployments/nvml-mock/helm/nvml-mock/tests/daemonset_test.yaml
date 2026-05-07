@@ -359,3 +359,41 @@ tests:
       - equal:
           path: spec.template.spec.serviceAccountName
           value: my-full-name
+
+  # ── ConfigMap checksum annotation ───────────────────────────────────
+  # The pod template carries a sha256 of the rendered GPU config so a
+  # `helm upgrade` that flips a failureInjection / dynamicMetrics knob
+  # rolls the DaemonSet without an explicit `kubectl rollout restart`.
+  # The default-values snapshot above already pins the exact checksum
+  # value byte-for-byte; these cases cover presence + format and
+  # cross-toggle stability without coupling assertions to a specific
+  # hash.
+  - it: should annotate pods with a config checksum
+    asserts:
+      - isNotEmpty:
+          path: spec.template.metadata.annotations["checksum/config"]
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/config"]
+          pattern: ^[0-9a-f]{64}$
+
+  - it: should keep the checksum well-formed when failureInjection is enabled
+    set:
+      gpu:
+        failureInjection:
+          enabled: true
+          mode: lost
+          after_calls: 1
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/config"]
+          pattern: ^[0-9a-f]{64}$
+
+  - it: should keep the checksum well-formed when dynamicMetrics is enabled
+    set:
+      gpu:
+        dynamicMetrics:
+          enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/config"]
+          pattern: ^[0-9a-f]{64}$

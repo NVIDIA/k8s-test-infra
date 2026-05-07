@@ -14,6 +14,9 @@ spec:
     metadata:
       labels:
         {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the DaemonSet on any config.yaml change.
+        checksum/config: {{ include "nvml-mock.gpuConfig" . | sha256sum }}
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
       {{- with .Values.nodeSelector }}
