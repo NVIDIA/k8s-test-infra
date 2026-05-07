@@ -56,9 +56,12 @@ KIND_CONFIG="${REPO_ROOT}/docs/demo/kind.yaml"
 ###############################################################################
 # Helpers
 ###############################################################################
-info()    { printf '\n==> %s\n' "$*"; }
-sub()     { printf '    %s\n' "$*"; }
-ok()      { printf '    \xE2\x9C\x93 %s\n' "$*"; }   # ✓
+# All log helpers write to stderr so functions that echo a captured
+# value on stdout (e.g. upgrade_and_recycle -> pod name) stay safe to
+# use inside command substitution.
+info()    { printf '\n==> %s\n' "$*" >&2; }
+sub()     { printf '    %s\n' "$*" >&2; }
+ok()      { printf '    \xE2\x9C\x93 %s\n' "$*" >&2; }   # ✓
 fail()    { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 # wait_for_pod: wait for the DaemonSet rollout to settle and echo the
