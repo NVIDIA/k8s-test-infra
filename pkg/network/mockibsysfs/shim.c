@@ -19,8 +19,11 @@
  *   - When MOCK_IB_DISABLE=1 (or root is unset and "/var/lib/nvml-mock" does
  *     not exist) the shim becomes a true no-op.
  *   - Variadic open()/openat() are handled with the `mode_t` extraction
- *     pattern recommended by glibc's headers (only valid when O_CREAT or
- *     O_TMPFILE is set in flags).
+ *     pattern recommended by glibc's headers: read as `unsigned int` from
+ *     va_arg (post default-argument-promotion) and cast back to mode_t.
+ *     Only valid when O_CREAT is set or (flags & O_TMPFILE) == O_TMPFILE
+ *     -- O_TMPFILE includes O_DIRECTORY in its bit pattern so a simple
+ *     `flags & O_TMPFILE` test would false-positive on O_DIRECTORY alone.
  *
  * Targeted at glibc 2.36+ (Debian bookworm). Older `__xstat` family symbols
  * are also intercepted for safety; if libc does not export them the linker
@@ -127,9 +130,14 @@ REAL(open64);
 REAL(openat);
 REAL(openat64);
 
-static int extract_mode(int flags, va_list ap) {
-    if ((flags & O_CREAT) || (flags & __O_TMPFILE)) {
-        return va_arg(ap, int);
+static mode_t extract_mode(int flags, va_list ap) {
+    /* Avoid the glibc-internal __O_TMPFILE symbol; O_TMPFILE is the public
+     * macro and matching its full bit pattern (it includes O_DIRECTORY) is
+     * the documented test. POSIX `mode_t` is promoted to `int`/`unsigned`
+     * through varargs, so extracting as `unsigned int` is the canonical
+     * pattern (matches glibc's own `fcntl.h` inline open()). */
+    if ((flags & O_CREAT) || (flags & O_TMPFILE) == O_TMPFILE) {
+        return (mode_t)va_arg(ap, unsigned int);
     }
     return 0;
 }
@@ -137,7 +145,7 @@ static int extract_mode(int flags, va_list ap) {
 int open(const char *path, int flags, ...) {
     LOAD_REAL(open);
     char buf[PATH_MAX];
-    int mode = 0;
+    mode_t mode = 0;
     va_list ap;
     va_start(ap, flags);
     mode = extract_mode(flags, ap);
@@ -152,7 +160,7 @@ int open(const char *path, int flags, ...) {
 int open64(const char *path, int flags, ...) {
     LOAD_REAL(open64);
     char buf[PATH_MAX];
-    int mode = 0;
+    mode_t mode = 0;
     va_list ap;
     va_start(ap, flags);
     mode = extract_mode(flags, ap);
@@ -167,7 +175,7 @@ int open64(const char *path, int flags, ...) {
 int openat(int dirfd, const char *path, int flags, ...) {
     LOAD_REAL(openat);
     char buf[PATH_MAX];
-    int mode = 0;
+    mode_t mode = 0;
     va_list ap;
     va_start(ap, flags);
     mode = extract_mode(flags, ap);
@@ -184,7 +192,7 @@ int openat(int dirfd, const char *path, int flags, ...) {
 int openat64(int dirfd, const char *path, int flags, ...) {
     LOAD_REAL(openat64);
     char buf[PATH_MAX];
-    int mode = 0;
+    mode_t mode = 0;
     va_list ap;
     va_start(ap, flags);
     mode = extract_mode(flags, ap);

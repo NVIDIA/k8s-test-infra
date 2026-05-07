@@ -82,4 +82,18 @@ func TestIbstat_Integration(t *testing.T) {
 			t.Errorf("ibstat output missing %q\nfull output:\n%s", s, got)
 		}
 	}
+
+	// Spot-check end-to-end that branches not exercised by `ibstat` are
+	// rendered: per-HCA counter files (read by perfquery / iblinkinfo)
+	// and the global infiniband_mad/abi_version (read by libibumad init).
+	for _, rel := range []string{
+		"sys/class/infiniband/mlx5_0/ports/1/counters/port_xmit_data",
+		"sys/class/infiniband/mlx5_0/ports/1/counters/port_rcv_data",
+		"sys/class/infiniband/mlx5_1/ports/1/counters/port_xmit_packets",
+		"sys/class/infiniband_mad/abi_version",
+	} {
+		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
+			t.Errorf("expected rendered file %s: %v", rel, err)
+		}
+	}
 }

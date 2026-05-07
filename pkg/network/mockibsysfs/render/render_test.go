@@ -6,6 +6,7 @@ package render
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,7 +15,25 @@ import (
 
 func TestRender_Disabled(t *testing.T) {
 	dir := t.TempDir()
-	if err := Render(Options{IB: config.Infiniband{Enabled: false}, Output: dir, GPUCount: 8}); err != nil {
+	// Populate every Infiniband field except `Enabled` so the test would
+	// catch a regression where `Enabled` is ignored and Render() proceeds
+	// based on the rest of the struct alone.
+	ib := config.Infiniband{
+		Enabled:          false,
+		HCAType:          "MT4129",
+		FWVersion:        "28.39.2048",
+		HWRev:            "0",
+		BoardID:          "MT_0000000884",
+		GUIDPrefix:       "001122334455",
+		HCAsPerGPU:       2,
+		HCACountOverride: 4,
+		RateGbps:         400,
+		PortState:        "ACTIVE",
+		PhysState:        "LinkUp",
+		LinkLayer:        "InfiniBand",
+		NodeDescTemplate: "{node_name} mlx5_{idx}",
+	}
+	if err := Render(Options{IB: ib, Output: dir, GPUCount: 8, NodeName: "host1"}); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	entries, _ := os.ReadDir(dir)
@@ -35,7 +54,7 @@ func TestRender_DefaultsAndCount(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	for i := 0; i < 4; i++ {
-		caDir := filepath.Join(dir, "sys/class/infiniband", "mlx5_"+itoa(i))
+		caDir := filepath.Join(dir, "sys/class/infiniband", "mlx5_"+strconv.Itoa(i))
 		if _, err := os.Stat(caDir); err != nil {
 			t.Errorf("missing CA dir mlx5_%d: %v", i, err)
 		}
@@ -64,6 +83,22 @@ func TestRender_DefaultsAndCount(t *testing.T) {
 	mustRead("sys/class/infiniband/mlx5_0/ports/1/link_layer", "InfiniBand")
 	mustRead("sys/class/infiniband_mad/abi_version", "5")
 	mustRead("sys/class/infiniband_mad/umad0/ibdev", "mlx5_0")
+
+	// `gid_attrs` must be a directory in real Linux sysfs; libibverbs and
+	// iblinkinfo opendir() it. A regular file would yield ENOTDIR.
+	gidAttrs := filepath.Join(dir, "sys/class/infiniband/mlx5_0/ports/1/gid_attrs")
+	if st, err := os.Stat(gidAttrs); err != nil {
+		t.Errorf("missing gid_attrs: %v", err)
+	} else if !st.IsDir() {
+		t.Errorf("gid_attrs must be a directory, got mode %v", st.Mode())
+	}
+
+	// port_guid is exposed by real mlx5 ports and must follow node_guid's
+	// formatting. The default GUID prefix is "a088c20300ab" and the lower
+	// 16 bits encode (idx+1), so mlx5_0's port_guid ends in 0001 (its
+	// node_guid ends in 0000) — matches real Mellanox U/L-bit behavior.
+	mustRead("sys/class/infiniband/mlx5_0/node_guid", "a088:c203:00ab:0000")
+	mustRead("sys/class/infiniband/mlx5_0/ports/1/port_guid", "a088:c203:00ab:0001")
 }
 
 func TestRender_HCAsPerGPU(t *testing.T) {
@@ -77,7 +112,7 @@ func TestRender_HCAsPerGPU(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	for i := 0; i < 8; i++ {
-		caDir := filepath.Join(dir, "sys/class/infiniband", "mlx5_"+itoa(i))
+		caDir := filepath.Join(dir, "sys/class/infiniband", "mlx5_"+strconv.Itoa(i))
 		if _, err := os.Stat(caDir); err != nil {
 			t.Errorf("missing CA dir mlx5_%d: %v", i, err)
 		}
@@ -95,7 +130,7 @@ func TestRender_HCACountOverride(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	for i := 0; i < 2; i++ {
-		caDir := filepath.Join(dir, "sys/class/infiniband", "mlx5_"+itoa(i))
+		caDir := filepath.Join(dir, "sys/class/infiniband", "mlx5_"+strconv.Itoa(i))
 		if _, err := os.Stat(caDir); err != nil {
 			t.Errorf("missing CA dir mlx5_%d: %v", i, err)
 		}
@@ -149,14 +184,3 @@ func TestRender_BadGUIDPrefix(t *testing.T) {
 	}
 }
 
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	digits := []byte{}
-	for i > 0 {
-		digits = append([]byte{byte('0' + i%10)}, digits...)
-		i /= 10
-	}
-	return string(digits)
-}

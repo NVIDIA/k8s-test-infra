@@ -79,7 +79,10 @@ spec:
               mountPath: /host/var/lib/nvml-mock
             # Second mount of the same hostPath volume at the canonical path
             # so MOCK_IB_ROOT=/var/lib/nvml-mock/ib resolves identically in
-            # this pod and in CDI-injected consumer pods.
+            # this pod and in CDI-injected consumer pods. Mounting one
+            # volume at multiple mountPaths in a single container is
+            # standard k8s behavior (supported on every version covered
+            # by Chart.yaml's kubeVersion: ">= 1.28.0-0").
             - name: host-nvml-mock
               mountPath: /var/lib/nvml-mock
             - name: gpu-config

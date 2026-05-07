@@ -89,18 +89,21 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 		"{idx}", fmt.Sprintf("%d", idx),
 	).Replace(ib.NodeDescTemplate)
 
-	caFiles := map[string]string{
-		"node_type":       "1: CA\n",
-		"node_guid":       guid + "\n",
-		"sys_image_guid":  guid + "\n",
-		"fw_ver":          ib.FWVersion + "\n",
-		"hw_rev":          ib.HWRev + "\n",
-		"board_id":        ib.BoardID + "\n",
-		"hca_type":        ib.HCAType + "\n",
-		"node_desc":       nodeDesc + "\n",
+	// Slice (not map) so file creation order is deterministic — useful when
+	// diffing rendered trees across runs and when reasoning about partial
+	// failures from later in the function.
+	caFiles := []nameValue{
+		{"node_type", "1: CA\n"},
+		{"node_guid", guid + "\n"},
+		{"sys_image_guid", guid + "\n"},
+		{"fw_ver", ib.FWVersion + "\n"},
+		{"hw_rev", ib.HWRev + "\n"},
+		{"board_id", ib.BoardID + "\n"},
+		{"hca_type", ib.HCAType + "\n"},
+		{"node_desc", nodeDesc + "\n"},
 	}
-	for name, val := range caFiles {
-		if err := writeFile(root, filepath.Join(caDir, name), val); err != nil {
+	for _, f := range caFiles {
+		if err := writeFile(root, filepath.Join(caDir, f.name), f.value); err != nil {
 			return err
 		}
 	}
@@ -118,21 +121,30 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 	if err := mkdirAll(root, filepath.Join(portDir, "counters")); err != nil {
 		return err
 	}
-
-	portFiles := map[string]string{
-		"state":          formatPortState(ib.PortState),
-		"phys_state":     formatPhysState(ib.PhysState),
-		"rate":           formatRate(ib.RateGbps) + "\n",
-		"lid":            fmt.Sprintf("0x%04x\n", idx+1),
-		"lid_mask_count": "0\n",
-		"sm_lid":         "0x0001\n",
-		"sm_sl":          "0\n",
-		"cap_mask":       "0x2651e848\n",
-		"link_layer":     ib.LinkLayer + "\n",
-		"gid_attrs":      "",
+	// In real Linux sysfs `gid_attrs` is a directory containing per-GID
+	// attribute files (ndevs, types, ...). Create it as a directory so
+	// libibverbs / iblinkinfo opendir() succeeds; ibstat doesn't read it.
+	if err := mkdirAll(root, filepath.Join(portDir, "gid_attrs")); err != nil {
+		return err
 	}
-	for name, val := range portFiles {
-		if err := writeFile(root, filepath.Join(portDir, name), val); err != nil {
+
+	portFiles := []nameValue{
+		{"state", formatPortState(ib.PortState)},
+		{"phys_state", formatPhysState(ib.PhysState)},
+		{"rate", formatRate(ib.RateGbps) + "\n"},
+		{"lid", fmt.Sprintf("0x%04x\n", idx+1)},
+		{"lid_mask_count", "0\n"},
+		{"sm_lid", "0x0001\n"},
+		{"sm_sl", "0\n"},
+		{"cap_mask", "0x2651e848\n"},
+		{"link_layer", ib.LinkLayer + "\n"},
+		// Real mlx5 ports expose port_guid alongside node_guid (typically
+		// differing only in the U/L bit). Surface it so tools that key off
+		// per-port identity (e.g. perftest, NCCL topology probes) work.
+		{"port_guid", portGUID + "\n"},
+	}
+	for _, f := range portFiles {
+		if err := writeFile(root, filepath.Join(portDir, f.name), f.value); err != nil {
 			return err
 		}
 	}
@@ -207,9 +219,14 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 			return err
 		}
 	}
-
-	_ = portGUID // currently unused; reserved for future port-GUID-specific files
 	return nil
+}
+
+// nameValue is a (filename, contents) pair used to keep file creation
+// order deterministic; map iteration in Go is randomized.
+type nameValue struct {
+	name  string
+	value string
 }
 
 // formatPortState turns "ACTIVE" / "INIT" / etc. into the kernel's
@@ -287,13 +304,19 @@ func perHCAPortGUID(guidPrefix string, idx int) string {
 }
 
 func mkdirAll(root, rel string) error {
-	return os.MkdirAll(filepath.Join(root, rel), 0o755)
+	if err := os.MkdirAll(filepath.Join(root, rel), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", rel, err)
+	}
+	return nil
 }
 
 func writeFile(root, rel, contents string) error {
 	full := filepath.Join(root, rel)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return err
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(rel), err)
 	}
-	return os.WriteFile(full, []byte(contents), 0o644)
+	if err := os.WriteFile(full, []byte(contents), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", rel, err)
+	}
+	return nil
 }
