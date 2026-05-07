@@ -1411,17 +1411,6 @@ func (d *ConfigurableDevice) failureLost() bool {
 	return d != nil && d.failure != nil && d.failure.IsLost()
 }
 
-// failureXid returns the configured Xid code if the failure has tripped
-// and a Xid sub-config is present, otherwise zero. Used by event-set
-// queries to materialize NVML_EVENT_TYPE_XID_CRITICAL_ERROR; see
-// (*Engine).PendingXidEvent.
-func (d *ConfigurableDevice) failureXid() uint64 {
-	if d == nil || d.failure == nil {
-		return 0
-	}
-	return d.failure.Xid()
-}
-
 // GetViolationStatus returns the active violation time information for
 // a performance policy. The returned struct stays semantically faithful
 // to the NVML spec — both ReferenceTime and ViolationTime are reported
