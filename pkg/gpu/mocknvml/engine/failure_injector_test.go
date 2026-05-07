@@ -431,7 +431,15 @@ func TestFailureInjection_GetViolationStatus_HealthyReportsNoViolation(t *testin
 	}
 }
 
-func TestFailureInjection_GetViolationStatus_SurfacesXidAfterTrip(t *testing.T) {
+func TestFailureInjection_GetViolationStatus_StaysSpecCompliantAfterTrip(t *testing.T) {
+	// Regression test for the previous behavior where GetViolationStatus
+	// overloaded `ViolationTime.ViolationTime` (officially throttle ns)
+	// to carry the configured Xid code. Per NVML semantics that field
+	// is reserved for cumulative violation time in nanoseconds, so
+	// monitoring stacks that read it per spec misinterpreted the Xid.
+	// The Xid is now delivered via the NVML event set
+	// (NVML_EVENT_TYPE_XID_CRITICAL_ERROR) — see
+	// TestEngine_PendingXidEvent_DeliveredOnceAfterTrip below.
 	dev := newTestDeviceWithConfig(t, withFailure(&FailureInjectionConfig{
 		Mode:       FailureModeECCUncorrectable, // doesn't return error from getters
 		AfterCalls: 2,
@@ -443,16 +451,19 @@ func TestFailureInjection_GetViolationStatus_SurfacesXidAfterTrip(t *testing.T) 
 		t.Fatalf("setup call 1: expected SUCCESS, got %v", ret)
 	}
 
-	// Pre-trip: violation status should still report zero.
-	vt, _ := dev.GetViolationStatus(nvml.PERF_POLICY_POWER)
 	// At this point the device has just tripped (AfterCalls=2 met by the
-	// SECOND tick, which is GetViolationStatus itself). So we expect Xid
-	// to surface.
-	if vt.ViolationTime != 64 {
-		t.Fatalf("post-trip GetViolationStatus.ViolationTime = %d, want 64 (Xid)", vt.ViolationTime)
+	// SECOND tick, which is GetViolationStatus itself). It must NOT
+	// stuff the Xid into the violation_time field; both fields stay
+	// at their healthy zero values.
+	vt, ret := dev.GetViolationStatus(nvml.PERF_POLICY_POWER)
+	if ret != nvml.SUCCESS {
+		t.Fatalf("expected SUCCESS, got %v", ret)
 	}
-	if vt.ReferenceTime == 0 {
-		t.Fatalf("expected non-zero ReferenceTime, got 0")
+	if vt.ViolationTime != 0 {
+		t.Fatalf("ViolationTime must be 0 ns post-trip (Xid no longer overloaded), got %d", vt.ViolationTime)
+	}
+	if vt.ReferenceTime != 0 {
+		t.Fatalf("ReferenceTime must be 0 ns post-trip, got %d", vt.ReferenceTime)
 	}
 }
 
@@ -466,6 +477,212 @@ func TestFailureInjection_GetViolationStatus_LostModeReturnsError(t *testing.T) 
 	// never get to populate the Xid in the response).
 	if _, ret := dev.GetViolationStatus(nvml.PERF_POLICY_POWER); ret != nvml.ERROR_GPU_IS_LOST {
 		t.Fatalf("expected ERROR_GPU_IS_LOST, got %v", ret)
+	}
+}
+
+// =============================================================================
+// Engine event-set delivery (NVML_EVENT_TYPE_XID_CRITICAL_ERROR)
+// =============================================================================
+
+func TestEngine_PendingXidEvent_NoneWhenHealthy(t *testing.T) {
+	cfg := &Config{
+		NumDevices:    1,
+		DriverVersion: "550.163",
+		YAMLConfig: &YAMLConfig{
+			Version: "1.0",
+			System: SystemConfig{
+				DriverVersion: "550.163",
+				NVMLVersion:   "12.550.163",
+				NumDevices:    1,
+			},
+			DeviceDefaults: *healthyConfig(),
+		},
+	}
+	e := NewEngine(cfg)
+	if ret := e.Init(); ret != nvml.SUCCESS {
+		t.Fatalf("engine init failed: %v", ret)
+	}
+	t.Cleanup(func() { _ = e.Shutdown() })
+
+	if h, x, ok := e.PendingXidEvent(); ok {
+		t.Fatalf("healthy engine must not have pending Xid events, got handle=%v xid=%d", h, x)
+	}
+}
+
+func TestEngine_PendingXidEvent_DeliveredOnceAfterTrip(t *testing.T) {
+	// Two devices: one with a Xid configured, one without. Only the
+	// first should ever produce an event; once delivered, repeated
+	// PendingXidEvent calls return (0, 0, false).
+	cfg := &Config{
+		NumDevices:    2,
+		DriverVersion: "550.163",
+		YAMLConfig: &YAMLConfig{
+			Version: "1.0",
+			System: SystemConfig{
+				DriverVersion: "550.163",
+				NVMLVersion:   "12.550.163",
+				NumDevices:    2,
+			},
+			DeviceDefaults: *withFailure(&FailureInjectionConfig{
+				Mode:       FailureModeECCUncorrectable,
+				AfterCalls: 1,
+				Xid:        &XidErrorConfig{Code: 79},
+			}),
+		},
+	}
+	e := NewEngine(cfg)
+	if ret := e.Init(); ret != nvml.SUCCESS {
+		t.Fatalf("engine init failed: %v", ret)
+	}
+	t.Cleanup(func() { _ = e.Shutdown() })
+
+	// Before any guarded call trips the device, no event is queued —
+	// PendingXidEvent must not synthesize one out of mere config.
+	if _, _, ok := e.PendingXidEvent(); ok {
+		t.Fatalf("pre-trip: PendingXidEvent must report no event")
+	}
+
+	// Trip device 0 with a single guarded call (AfterCalls=1).
+	h0, _ := e.DeviceGetHandleByIndex(0)
+	dev0 := e.LookupDevice(h0).(*ConfigurableDevice)
+	if _, ret := dev0.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS {
+		t.Fatalf("trip call: expected SUCCESS (ecc_uncorrectable doesn't error), got %v", ret)
+	}
+
+	// First wait delivers the Xid event with the right device handle.
+	gotHandle, gotXid, ok := e.PendingXidEvent()
+	if !ok {
+		t.Fatalf("post-trip: expected pending Xid event, got none")
+	}
+	if gotXid != 79 {
+		t.Fatalf("Xid: expected 79, got %d", gotXid)
+	}
+	if gotHandle == 0 {
+		t.Fatalf("expected non-zero device handle, got 0")
+	}
+	if gotHandle != h0 {
+		t.Fatalf("expected device handle for index 0 (%v), got %v", h0, gotHandle)
+	}
+
+	// Second wait must NOT redeliver the same Xid (matches real NVML
+	// where each critical Xid fires exactly once per occurrence).
+	if _, _, ok := e.PendingXidEvent(); ok {
+		t.Fatalf("Xid must be delivered at most once; got duplicate event")
+	}
+}
+
+func TestEngine_PendingXidEvent_NoEventWithoutXidConfig(t *testing.T) {
+	// Device trips into ecc_uncorrectable but has no `xid:` block. We
+	// surface ECC counters via GetTotalEccErrors; we must NOT fabricate
+	// a Xid event from a Xid-less config.
+	cfg := &Config{
+		NumDevices:    1,
+		DriverVersion: "550.163",
+		YAMLConfig: &YAMLConfig{
+			Version: "1.0",
+			System: SystemConfig{
+				DriverVersion: "550.163",
+				NVMLVersion:   "12.550.163",
+				NumDevices:    1,
+			},
+			DeviceDefaults: *withFailure(&FailureInjectionConfig{
+				Mode:       FailureModeECCUncorrectable,
+				AfterCalls: 1,
+				// no Xid configured
+			}),
+		},
+	}
+	e := NewEngine(cfg)
+	if ret := e.Init(); ret != nvml.SUCCESS {
+		t.Fatalf("engine init failed: %v", ret)
+	}
+	t.Cleanup(func() { _ = e.Shutdown() })
+
+	h, _ := e.DeviceGetHandleByIndex(0)
+	dev := e.LookupDevice(h).(*ConfigurableDevice)
+	if _, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS {
+		t.Fatalf("trip call: %v", ret)
+	}
+
+	if _, _, ok := e.PendingXidEvent(); ok {
+		t.Fatalf("Xid-less config must produce no event")
+	}
+}
+
+// =============================================================================
+// Identity getters guarded by the lost / fallen_off_bus modes
+// =============================================================================
+
+func TestFailureInjection_IdentityGettersFailWhenLost(t *testing.T) {
+	cfg := &Config{
+		NumDevices:    1,
+		DriverVersion: "550.163",
+		YAMLConfig: &YAMLConfig{
+			Version: "1.0",
+			System: SystemConfig{
+				DriverVersion: "550.163",
+				NVMLVersion:   "12.550.163",
+				NumDevices:    1,
+			},
+			DeviceDefaults: *withFailure(&FailureInjectionConfig{
+				Mode:       FailureModeLost,
+				AfterCalls: 2, // identity getters don't tick; trip via 2 GetTemperature calls
+			}),
+		},
+	}
+	e := NewEngine(cfg)
+	if ret := e.Init(); ret != nvml.SUCCESS {
+		t.Fatalf("engine init failed: %v", ret)
+	}
+	t.Cleanup(func() { _ = e.Shutdown() })
+
+	h, _ := e.DeviceGetHandleByIndex(0)
+	dev := e.LookupDevice(h).(*ConfigurableDevice)
+
+	// Pre-trip: identity getters succeed (real NVML answers from the
+	// PCI subsystem before the kernel marks the device gone).
+	if _, ret := dev.GetUUID(); ret != nvml.SUCCESS {
+		t.Fatalf("pre-trip GetUUID: expected SUCCESS, got %v", ret)
+	}
+	if _, ret := dev.GetName(); ret != nvml.SUCCESS {
+		t.Fatalf("pre-trip GetName: expected SUCCESS, got %v", ret)
+	}
+	if _, ret := dev.GetIndex(); ret != nvml.SUCCESS {
+		t.Fatalf("pre-trip GetIndex: expected SUCCESS, got %v", ret)
+	}
+	if _, ret := dev.GetMinorNumber(); ret != nvml.SUCCESS {
+		t.Fatalf("pre-trip GetMinorNumber: expected SUCCESS, got %v", ret)
+	}
+	if _, ret := dev.GetPciInfo(); ret != nvml.SUCCESS {
+		t.Fatalf("pre-trip GetPciInfo: expected SUCCESS, got %v", ret)
+	}
+	if _, ret := dev.GetBrand(); ret != nvml.SUCCESS {
+		t.Fatalf("pre-trip GetBrand: expected SUCCESS, got %v", ret)
+	}
+
+	// Trip the device with two guarded calls.
+	for i := 1; i <= 2; i++ {
+		_, _ = dev.GetTemperature(nvml.TEMPERATURE_GPU)
+	}
+
+	// Post-trip: every identity getter must surface ERROR_GPU_IS_LOST,
+	// matching real NVML behavior where lost GPUs can't even answer
+	// identity queries (the kernel driver has marked the device gone).
+	tests := []struct {
+		name string
+		fn   func() nvml.Return
+	}{
+		{"GetUUID", func() nvml.Return { _, r := dev.GetUUID(); return r }},
+		{"GetName", func() nvml.Return { _, r := dev.GetName(); return r }},
+		{"GetIndex", func() nvml.Return { _, r := dev.GetIndex(); return r }},
+		{"GetMinorNumber", func() nvml.Return { _, r := dev.GetMinorNumber(); return r }},
+		{"GetPciInfo", func() nvml.Return { _, r := dev.GetPciInfo(); return r }},
+		{"GetBrand", func() nvml.Return { _, r := dev.GetBrand(); return r }},
+	}
+	for _, tc := range tests {
+		if got := tc.fn(); got != nvml.ERROR_GPU_IS_LOST {
+			t.Errorf("post-trip %s: expected ERROR_GPU_IS_LOST, got %v", tc.name, got)
+		}
 	}
 }
 

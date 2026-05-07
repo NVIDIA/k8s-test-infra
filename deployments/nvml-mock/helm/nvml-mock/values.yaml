@@ -30,13 +30,23 @@ gpu:
       memory_max: 100
       burst_period_sec: 30
 
-  # Opt-in: simulate GPU failure scenarios (lost device, fallen-off-bus,
-  # uncorrectable ECC errors, Xid). When `enabled: false` (default) the
-  # rendered ConfigMap is unchanged and the mock reports healthy hardware.
-  # See pkg/gpu/mocknvml/README.md#failure-injection-optional for semantics.
+  # Opt-in simulation of GPU failure scenarios: lost device, fallen-off-bus,
+  # uncorrectable ECC errors, and Xid critical events. When `enabled: false`
+  # (the default) the rendered ConfigMap is unchanged and the mock reports
+  # healthy hardware.
+  #
+  # Defaults are intentionally inert. The default `mode: healthy` is a no-op
+  # even when `enabled: true`, so engaging failure injection is an explicit,
+  # two-step decision: enable the feature *and* select a non-healthy mode
+  # from {lost, fallen_off_bus, ecc_uncorrectable}. This guards against
+  # `--set gpu.failureInjection.enabled=true` accidentally tripping every
+  # GPU on the first NVML call.
+  #
+  # See pkg/gpu/mocknvml/README.md#failure-injection-optional for the full
+  # behavioural contract per mode.
   failureInjection:
     enabled: false
-    mode: lost                           # healthy | lost | fallen_off_bus | ecc_uncorrectable
+    mode: healthy                        # healthy (no-op) | lost | fallen_off_bus | ecc_uncorrectable
     probability: 0.0                     # 0..1 chance per guarded NVML call
     after_calls: 0                       # deterministic trip after N guarded calls (0 = disabled)
     seed: 0                              # 0 = time-based; non-zero for reproducible rolls

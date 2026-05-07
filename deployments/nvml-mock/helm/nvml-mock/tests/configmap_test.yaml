@@ -389,3 +389,39 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "mode: fallen_off_bus"
+
+  # values.schema.json now blocks bad failureInjection values at install
+  # time so a typo like `mode: healhty` or `probability: 1.5` fails fast
+  # instead of silently coercing to "healthy" / out-of-range behavior at
+  # runtime. These cases exercise the schema gate.
+  - it: should reject failureInjection.mode outside the supported enum
+    set:
+      gpu:
+        failureInjection:
+          enabled: true
+          mode: healhty                  # typo — must be rejected by schema
+    asserts:
+      - failedTemplate:
+          errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/gpu/failureInjection/mode': value must be one of 'healthy', 'lost', 'fallen_off_bus', 'ecc_uncorrectable'\n"
+
+  - it: should reject failureInjection.probability outside [0, 1]
+    set:
+      gpu:
+        failureInjection:
+          enabled: true
+          mode: lost
+          probability: 1.5
+    asserts:
+      - failedTemplate:
+          errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/gpu/failureInjection/probability': maximum: got 1.5, want 1\n"
+
+  - it: should reject negative failureInjection.after_calls
+    set:
+      gpu:
+        failureInjection:
+          enabled: true
+          mode: lost
+          after_calls: -1
+    asserts:
+      - failedTemplate:
+          errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/gpu/failureInjection/after_calls': minimum: got -1, want 0\n"

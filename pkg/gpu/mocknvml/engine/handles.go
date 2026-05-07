@@ -148,6 +148,21 @@ func (ht *HandleTable) Lookup(handle uintptr) nvml.Device {
 	return dev
 }
 
+// HandleFor returns the registered handle for the given device, or 0 when
+// the device has not yet been registered. Used by event-set wiring that
+// needs to translate a tripped device back to a handle the caller
+// already holds (e.g. the Xid critical-error event delivery path). Real
+// NVML accepts events for devices the caller has resolved a handle for;
+// returning 0 here lets the caller treat that case as "no event yet".
+func (ht *HandleTable) HandleFor(dev nvml.Device) uintptr {
+	if dev == nil {
+		return 0
+	}
+	ht.mu.RLock()
+	defer ht.mu.RUnlock()
+	return ht.reverse[dev]
+}
+
 // Clear removes all entries from the handle table and frees allocated memory.
 func (ht *HandleTable) Clear() {
 	ht.mu.Lock()

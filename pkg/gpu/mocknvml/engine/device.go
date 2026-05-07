@@ -16,7 +16,6 @@ package engine
 import (
 	"fmt"
 	"slices"
-	"time"
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -220,12 +219,42 @@ func (d *ConfigurableDevice) GetConfig() *DeviceConfig {
 
 // GetIndex returns the device index
 func (d *ConfigurableDevice) GetIndex() (int, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetIndex -> %d\n", d.index)
 	return d.index, nvml.SUCCESS
 }
 
+// GetUUID returns the device UUID. Overrides the embedded dgxa100.Device
+// implementation so the lost / fallen_off_bus failure modes can surface
+// ERROR_GPU_IS_LOST from this getter — real NVML returns the same error
+// code from every device method once the kernel driver has marked the
+// GPU gone, including identity queries that don't touch hardware.
+func (d *ConfigurableDevice) GetUUID() (string, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return "", ret
+	}
+	debugLog("[NVML] nvmlDeviceGetUUID -> %s\n", d.UUID)
+	return d.UUID, nvml.SUCCESS
+}
+
+// GetName returns the device name. Overrides the embedded dgxa100.Device
+// implementation for the same reason as GetUUID — lost GPUs must
+// propagate ERROR_GPU_IS_LOST from every device method.
+func (d *ConfigurableDevice) GetName() (string, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return "", ret
+	}
+	debugLog("[NVML] nvmlDeviceGetName -> %s\n", d.Name)
+	return d.Name, nvml.SUCCESS
+}
+
 // GetMinorNumber returns the device minor number
 func (d *ConfigurableDevice) GetMinorNumber() (int, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetMinorNumber -> %d\n", d.minorNumber)
 	return d.minorNumber, nvml.SUCCESS
 }
@@ -267,6 +296,9 @@ func (d *ConfigurableDevice) GetMemoryInfo_v2() (nvml.Memory_v2, nvml.Return) {
 
 // GetPciInfo returns PCI information for the device
 func (d *ConfigurableDevice) GetPciInfo() (nvml.PciInfo, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nvml.PciInfo{}, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetPciInfo -> busId=%s\n", d.PciBusID)
 	return d.pciInfo, nvml.SUCCESS
 }
@@ -334,6 +366,9 @@ func (d *ConfigurableDevice) GetGspFirmwareMode() (bool, bool, nvml.Return) {
 
 // GetSerial returns the device serial number
 func (d *ConfigurableDevice) GetSerial() (string, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return "", ret
+	}
 	serial := ""
 	if d.config != nil && d.config.Serial != "" {
 		serial = d.config.Serial
@@ -360,6 +395,9 @@ func (d *ConfigurableDevice) GetVbiosVersion() (string, nvml.Return) {
 
 // GetBoardPartNumber returns the board part number
 func (d *ConfigurableDevice) GetBoardPartNumber() (string, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return "", ret
+	}
 	partNumber := ""
 	if d.config != nil && d.config.BoardPartNumber != "" {
 		partNumber = d.config.BoardPartNumber
@@ -1130,6 +1168,9 @@ func (d *ConfigurableDevice) GetCudaComputeCapability() (int, int, nvml.Return) 
 
 // GetBrand returns device brand
 func (d *ConfigurableDevice) GetBrand() (nvml.BrandType, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
 	debugLog("[NVML] nvmlDeviceGetBrand -> %d\n", d.Brand)
 	return d.Brand, nvml.SUCCESS
 }
@@ -1371,8 +1412,9 @@ func (d *ConfigurableDevice) failureLost() bool {
 }
 
 // failureXid returns the configured Xid code if the failure has tripped
-// and a Xid sub-config is present, otherwise zero. Used by
-// GetViolationStatus and event-set queries.
+// and a Xid sub-config is present, otherwise zero. Used by event-set
+// queries to materialize NVML_EVENT_TYPE_XID_CRITICAL_ERROR; see
+// (*Engine).PendingXidEvent.
 func (d *ConfigurableDevice) failureXid() uint64 {
 	if d == nil || d.failure == nil {
 		return 0
@@ -1380,27 +1422,22 @@ func (d *ConfigurableDevice) failureXid() uint64 {
 	return d.failure.Xid()
 }
 
-// GetViolationStatus returns the active violation time information for a
-// performance policy. Without failure injection the device reports no
-// violation — matching healthy hardware. Once failure injection has
-// tripped and a Xid sub-config is configured we surface the Xid code in
-// the violation_time field so consumers polling GetViolationStatus see a
-// non-zero, non-flapping signal.
+// GetViolationStatus returns the active violation time information for
+// a performance policy. The returned struct stays semantically faithful
+// to the NVML spec — both ReferenceTime and ViolationTime are reported
+// in nanoseconds for power/thermal violations. Failure injection does
+// NOT overload these fields with the configured Xid code; instead the
+// Xid is surfaced via the NVML event set
+// (NVML_EVENT_TYPE_XID_CRITICAL_ERROR) so consumers like dcgm-exporter
+// or the device plugin's health monitor see it through the API designed
+// for it. We still return ERROR_GPU_IS_LOST for tripped lost /
+// fallen_off_bus devices, matching every other guarded getter.
 func (d *ConfigurableDevice) GetViolationStatus(perfPolicyType nvml.PerfPolicyType) (nvml.ViolationTime, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return nvml.ViolationTime{}, ret
 	}
-	xid := d.failureXid()
-	if xid == 0 {
-		debugLog("[NVML] nvmlDeviceGetViolationStatus(policy=%d) -> no violation\n", perfPolicyType)
-		return nvml.ViolationTime{}, nvml.SUCCESS
-	}
-	vt := nvml.ViolationTime{
-		ReferenceTime: uint64(time.Now().UnixNano()),
-		ViolationTime: xid,
-	}
-	debugLog("[NVML] nvmlDeviceGetViolationStatus(policy=%d) -> xid=%d\n", perfPolicyType, xid)
-	return vt, nvml.SUCCESS
+	debugLog("[NVML] nvmlDeviceGetViolationStatus(policy=%d) -> no violation\n", perfPolicyType)
+	return nvml.ViolationTime{}, nvml.SUCCESS
 }
 
 // MockServer wraps dgxa100.Server and uses configurable devices

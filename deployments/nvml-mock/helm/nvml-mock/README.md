@@ -496,11 +496,11 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 | `gpu.dynamicMetrics.power.*` | see `values.yaml` | `base_mw`, `variance_mw` for the power-draw generator (clamped to `power.min_limit_mw`/`max_limit_mw` from the profile). |
 | `gpu.dynamicMetrics.utilization.*` | see `values.yaml` | `pattern` (`idle` \| `busy` \| `burst` \| `steady`), `gpu_min/max`, `memory_min/max`, `burst_period_sec`. |
 | `gpu.failureInjection.enabled` | `false` | Enable simulated GPU failures (lost / fallen off bus / uncorrectable ECC). See [Failure Injection](#failure-injection) below. |
-| `gpu.failureInjection.mode` | `lost` | Failure mode: `healthy`, `lost`, `fallen_off_bus`, or `ecc_uncorrectable`. |
-| `gpu.failureInjection.probability` | `0.0` | Per-call probability (0..1) for stochastic failure activation. |
+| `gpu.failureInjection.mode` | `healthy` | Failure mode: `healthy` (default, no-op), `lost`, `fallen_off_bus`, or `ecc_uncorrectable`. With the inert default, `enabled: true` alone produces a healthy device — you must set `mode` explicitly to engage failures. |
+| `gpu.failureInjection.probability` | `0.0` | Per-call probability `[0, 1]` for stochastic failure activation. |
 | `gpu.failureInjection.after_calls` | `0` | Activate failure deterministically after N guarded NVML calls (0 = disabled). |
 | `gpu.failureInjection.seed` | `0` | RNG seed for probability rolls; `0` uses a time-based seed. |
-| `gpu.failureInjection.xid.code` | `0` | Xid error code surfaced via `GetViolationStatus` once tripped. `0` = no Xid. |
+| `gpu.failureInjection.xid.code` | `0` | Xid error code delivered via the NVML event set (`NVML_EVENT_TYPE_XID_CRITICAL_ERROR`) once tripped. `0` = no Xid. |
 | `image.repository` | `ghcr.io/nvidia/nvml-mock` | Container image repository |
 | `image.tag` | `latest` | Container image tag |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
@@ -732,12 +732,19 @@ gpu:
 
 Per-mode behaviour:
 
-| mode                | guarded API calls return | handle lookup returns | ECC counters         | `GetViolationStatus`              |
-| ------------------- | ------------------------ | --------------------- | -------------------- | --------------------------------- |
-| `healthy` (default) | normal values            | normal handle         | zero                 | empty                             |
-| `lost`              | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | error                | error                             |
-| `fallen_off_bus`    | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | error                | error                             |
-| `ecc_uncorrectable` | normal values            | normal handle         | strictly-increasing  | non-zero `ViolationTime` if `xid` |
+| mode                | guarded API calls return | handle lookup returns | identity getters    | ECC counters         | event set                       |
+| ------------------- | ------------------------ | --------------------- | ------------------- | -------------------- | ------------------------------- |
+| `healthy` (default) | normal values            | normal handle         | normal values       | zero                 | empty                           |
+| `lost`              | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | `ERROR_GPU_IS_LOST` | error                | empty                           |
+| `fallen_off_bus`    | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | `ERROR_GPU_IS_LOST` | error                | empty                           |
+| `ecc_uncorrectable` | normal values            | normal handle         | normal values       | strictly-increasing  | one `XID_CRITICAL_ERROR` if xid |
+
+Values rendered into the ConfigMap are validated against
+[`values.schema.json`](./values.schema.json) at install / upgrade time:
+typos like `mode: healhty` or out-of-range values like `probability: 1.5`
+are rejected by Helm before the chart renders, so misconfigurations
+surface as actionable schema errors instead of silent runtime
+coercion.
 
 Failure injection composes with `gpu.dynamicMetrics`: with both enabled the
 device returns dynamic readings while healthy and switches to the configured
@@ -763,7 +770,7 @@ kubectl exec ds/nvml-mock -- nvidia-smi --query-gpu=name,uuid --format=csv
 kubectl exec ds/nvml-mock -- nvidia-smi -q                # "GPU is lost"
 
 # mode: ecc_uncorrectable  ─  device stays addressable; counters grow and
-# GetViolationStatus surfaces the configured Xid code.
+# nvmlEventSetWait_v2 delivers the configured Xid once per trip.
 kubectl exec ds/nvml-mock -- nvidia-smi -q -d ECC
 kubectl exec ds/nvml-mock -- nvidia-smi \
   --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv

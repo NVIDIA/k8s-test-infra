@@ -11,10 +11,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package main provides minimal NVML event set implementations.
+// Package main provides NVML event set implementations.
+//
 // nvidia-smi calls nvmlEventSetCreate during initialization and fails
-// if it returns an error. These are no-op implementations that allow
-// nvidia-smi to proceed.
+// if it returns an error, so the create/free/register stubs must always
+// succeed. nvmlEventSetWait_v2 is wired through to the engine's failure
+// injector: when a device trips with a `failure.xid:` block configured,
+// the next wait call returns NVML_SUCCESS with the configured Xid in
+// the standard nvmlEventData_t structure (NVML_EVENT_TYPE_XID_CRITICAL_ERROR).
+// Real NVML clients (dcgm-exporter, the device plugin's health monitor)
+// see the Xid through the API designed for it instead of having to
+// scrape it out of an overloaded ViolationTime field.
 
 package main
 
@@ -23,7 +30,11 @@ package main
 #include "nvml_types.h"
 */
 import "C"
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
+)
 
 //export nvmlEventSetCreate
 func nvmlEventSetCreate(set *C.nvmlEventSet_t) C.nvmlReturn_t {
@@ -57,19 +68,53 @@ func nvmlDeviceGetSupportedEventTypes(device C.nvmlDevice_t, eventTypes *C.ulong
 	if eventTypes == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	// Report no supported events
-	*eventTypes = 0
+	// Advertise XID_CRITICAL_ERROR as supported so consumers (dcgm-exporter,
+	// device-plugin health monitor) actually register for the event class
+	// the failure injector emits. Returning 0 here would cause well-behaved
+	// callers to skip RegisterEvents entirely and never observe the Xid we
+	// surface from nvmlEventSetWait_v2 below.
+	*eventTypes = C.NVML_EVENT_TYPE_XID_CRITICAL_ERROR
 	return C.NVML_SUCCESS
+}
+
+// pollPendingXid asks the engine for the next undelivered Xid critical
+// error (produced by failure injection) and, if one exists, populates
+// `data` with the standard NVML event payload. Returns true when an
+// event was delivered.
+func pollPendingXid(data *C.nvmlEventData_t) bool {
+	if data == nil {
+		return false
+	}
+	handle, xid, ok := engine.GetEngine().PendingXidEvent()
+	if !ok {
+		return false
+	}
+	//nolint:govet // Converting uintptr (handle table key, originally
+	// allocated as C memory) to *C.struct_nvmlDevice_st is intentional
+	// and matches the conversion used in device.go's handle lookup
+	// helpers.
+	data.device.handle = (*C.struct_nvmlDevice_st)(unsafe.Pointer(handle))
+	data.eventType = C.NVML_EVENT_TYPE_XID_CRITICAL_ERROR
+	data.eventData = C.ulonglong(xid)
+	data.gpuInstanceId = 0
+	data.computeInstanceId = 0
+	return true
 }
 
 //export nvmlEventSetWait_v1
 func nvmlEventSetWait_v1(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
-	// Return TIMEOUT so callers (e.g., device plugin health monitor) treat
-	// the wait as "no events occurred" rather than an error.
+	if pollPendingXid(data) {
+		return C.NVML_SUCCESS
+	}
+	// No injected event pending — report TIMEOUT so callers treat the
+	// wait as "no events occurred" rather than an error.
 	return C.NVML_ERROR_TIMEOUT
 }
 
 //export nvmlEventSetWait_v2
 func nvmlEventSetWait_v2(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
+	if pollPendingXid(data) {
+		return C.NVML_SUCCESS
+	}
 	return C.NVML_ERROR_TIMEOUT
 }

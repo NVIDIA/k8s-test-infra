@@ -418,6 +418,46 @@ func (e *Engine) GetConfig() *Config {
 	return e.config
 }
 
+// PendingXidEvent claims the next undelivered Xid critical-error event
+// from any device that has tripped failure injection with a `xid:` block
+// configured. It returns the device handle (auto-registering one if the
+// caller hasn't resolved a handle for that device yet), the Xid code,
+// and true on success. When no event is pending it returns (0, 0,
+// false) and the bridge layer reports NVML_ERROR_TIMEOUT to the
+// nvmlEventSetWait caller.
+//
+// Each tripped Xid is delivered at most once for the lifetime of the
+// engine, matching real NVML semantics where a single Xid critical
+// error fires exactly once per occurrence.
+func (e *Engine) PendingXidEvent() (uintptr, uint64, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.initCount == 0 || e.server == nil {
+		return 0, 0, false
+	}
+
+	for _, dev := range e.server.configurableDevices {
+		if dev == nil || dev.failure == nil {
+			continue
+		}
+		xid, ok := dev.failure.ClaimXid()
+		if !ok {
+			continue
+		}
+		// Make sure the caller has a stable handle for this device. Real
+		// NVML clients will have resolved one already (events fire after
+		// the workload has discovered the GPU); if not, register on the
+		// fly so the C-side struct still references valid memory.
+		handle := e.handles.HandleFor(dev)
+		if handle == 0 {
+			handle = e.handles.Register(dev)
+		}
+		return handle, xid, true
+	}
+	return 0, 0, false
+}
+
 // SetVisibleDevicesForTesting sets the visible device mapping on an initialized
 // engine's server. Pass nil to disable filtering. Only use in tests.
 func (e *Engine) SetVisibleDevicesForTesting(visible []int) {

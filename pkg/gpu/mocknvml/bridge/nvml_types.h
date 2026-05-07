@@ -259,7 +259,29 @@ typedef struct nvmlEccErrorCounts_st {
 typedef struct nvmlEccSramErrorStatus_st                    nvmlEccSramErrorStatus_t;
 typedef struct nvmlEccSramUniqueUncorrectedErrorCounts_st   nvmlEccSramUniqueUncorrectedErrorCounts_t;
 typedef struct nvmlEncoderSessionInfo_st                    nvmlEncoderSessionInfo_t;
-typedef struct nvmlEventData_st                             nvmlEventData_t;
+/* Event data - full definition needed by bridge so the failure-injection
+ * Xid event surfaced via nvmlEventSetWait_v2 can populate the eventType
+ * and eventData fields (see bridge/events.go). Layout matches the
+ * upstream NVML header. */
+typedef struct nvmlEventData_st {
+    nvmlDevice_t        device;
+    unsigned long long  eventType;
+    unsigned long long  eventData;
+    unsigned int        gpuInstanceId;
+    unsigned int        computeInstanceId;
+} nvmlEventData_t;
+
+/* Event type bitmask values from the upstream NVML public header. We
+ * only consume NVML_EVENT_TYPE_XID_CRITICAL_ERROR but advertise the
+ * full bitmask as supported so consumers that AND against
+ * arbitrary types still find it. */
+#define NVML_EVENT_TYPE_SINGLE_BIT_ECC          0x0000000000000001ULL
+#define NVML_EVENT_TYPE_DOUBLE_BIT_ECC          0x0000000000000002ULL
+#define NVML_EVENT_TYPE_PSTATE_CHANGE           0x0000000000000004ULL
+#define NVML_EVENT_TYPE_XID_CRITICAL_ERROR      0x0000000000000008ULL
+#define NVML_EVENT_TYPE_CLOCK_CHANGE            0x0000000000000010ULL
+#define NVML_EVENT_TYPE_POWER_SOURCE_CHANGE     0x0000000000000080ULL
+#define NVML_EVENT_TYPE_MIG_CONFIG_CHANGE       0x0000000000000100ULL
 typedef struct nvmlExcludedDeviceInfo_st                    nvmlExcludedDeviceInfo_t;
 typedef struct nvmlFBCSessionInfo_st                        nvmlFBCSessionInfo_t;
 typedef struct nvmlFBCStats_st                              nvmlFBCStats_t;

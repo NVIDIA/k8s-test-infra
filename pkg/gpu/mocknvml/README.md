@@ -180,13 +180,18 @@ failure.
 ```yaml
 device_defaults:
   failure:
-    mode: lost            # healthy (default) | lost | fallen_off_bus | ecc_uncorrectable
+    mode: lost            # healthy (default, no-op) | lost | fallen_off_bus | ecc_uncorrectable
     probability: 0.0      # 0..1 chance to trip per guarded NVML call
     after_calls: 100      # deterministic trip after N guarded calls
     seed: 0               # 0 = time-based; set non-zero for reproducible rolls
     xid:
-      code: 79            # surfaced via GetViolationStatus once tripped
+      code: 79            # surfaced via the NVML event set once tripped
 ```
+
+`mode: healthy` (the default) makes the failure block inert — even when
+the block is present, every device reports a healthy GPU. You must set
+`mode` explicitly to one of `lost`, `fallen_off_bus`, or
+`ecc_uncorrectable` to engage failure injection.
 
 Trigger semantics:
 
@@ -202,17 +207,28 @@ Trigger semantics:
 Once tripped, a device stays tripped — real lost / fallen-off-bus GPUs do
 not recover without a reboot. Per-mode behaviour:
 
-| mode                | guarded API calls return | handle lookup returns | ECC counters         | `GetViolationStatus`              |
-| ------------------- | ------------------------ | --------------------- | -------------------- | --------------------------------- |
-| `healthy` (default) | normal values            | normal handle         | zero                 | empty                             |
-| `lost`              | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | error                | error                             |
-| `fallen_off_bus`    | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | error                | error                             |
-| `ecc_uncorrectable` | normal values            | normal handle         | strictly-increasing  | non-zero `ViolationTime` if `xid` |
+| mode                | guarded API calls return | handle lookup returns | identity getters    | ECC counters         | event set                       |
+| ------------------- | ------------------------ | --------------------- | ------------------- | -------------------- | ------------------------------- |
+| `healthy` (default) | normal values            | normal handle         | normal values       | zero                 | empty                           |
+| `lost`              | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | `ERROR_GPU_IS_LOST` | error                | empty                           |
+| `fallen_off_bus`    | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | `ERROR_GPU_IS_LOST` | error                | empty                           |
+| `ecc_uncorrectable` | normal values            | normal handle         | normal values       | strictly-increasing  | one `XID_CRITICAL_ERROR` if xid |
 
-The `xid.code` field is surfaced through `Device.GetViolationStatus` once
-the device trips. Combine it with `mode: ecc_uncorrectable` to inject a
-specific Xid (for example `64` for ECC double-bit, `79` for "GPU has fallen
-off the bus") without taking the GPU off the API surface.
+The `xid.code` field is surfaced through the standard NVML event set
+(`NVML_EVENT_TYPE_XID_CRITICAL_ERROR`) the first time
+`nvmlEventSetWait_v2` is called after the device trips. Combine it with
+`mode: ecc_uncorrectable` to inject a specific Xid (for example `64` for
+ECC double-bit, `79` for "GPU has fallen off the bus") without taking
+the GPU off the API surface. Real NVML reports each critical Xid exactly
+once per occurrence, so the mock delivers the configured code on the
+first wait and reports `NVML_ERROR_TIMEOUT` (no event) on subsequent
+waits — exactly like real hardware.
+
+`Device.GetViolationStatus` deliberately does **not** carry the Xid
+code; that field is reserved for cumulative throttle time in nanoseconds
+per the NVML spec and was previously misinterpreted by monitoring
+stacks (dcgm-exporter, the device-plugin health monitor) that read it
+verbatim.
 
 ##### Verifying with `nvidia-smi`
 
@@ -231,7 +247,7 @@ nvidia-smi -q                                        # "GPU is lost" sections
 echo "exit=$?"                                       # non-zero after trip
 
 # mode: ecc_uncorrectable  ─  device stays addressable; counters grow and
-# GetViolationStatus surfaces the configured Xid code.
+# nvmlEventSetWait_v2 delivers the configured Xid once per trip.
 nvidia-smi -q -d ECC                                 # uncorrectable counts
 nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv
 nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.dram  --format=csv

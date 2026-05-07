@@ -33,6 +33,10 @@ import (
 // permitted everywhere, in which case the injector reports a healthy
 // device — this matches the "no failure config" default.
 type failureInjector struct {
+	// cfg is set once in newFailureInjector and is never mutated after
+	// construction. Reads are therefore safe without synchronization.
+	// If the engine ever grows hot-reload of YAML config, replace the
+	// whole injector instead of mutating cfg in place.
 	cfg *FailureInjectionConfig
 
 	// callCount is incremented on every Tick() and is used to evaluate
@@ -42,6 +46,13 @@ type failureInjector struct {
 
 	// tripped flips from false to true exactly once and is then sticky.
 	tripped atomic.Bool
+
+	// xidDelivered flips from false to true the first time the configured
+	// Xid event is consumed via the NVML event set. Subsequent
+	// nvmlEventSetWait calls must not re-deliver the same Xid (real NVML
+	// reports each critical Xid exactly once per occurrence). Callers
+	// must use ClaimXid to atomically take the event.
+	xidDelivered atomic.Bool
 
 	// rng is only read/written while holding mu. We avoid a fast-path that
 	// would race here because Probability rolls happen at most once per
@@ -187,8 +198,9 @@ func (f *failureInjector) IsECCUncorrectable() bool {
 }
 
 // Xid returns the Xid error code to surface, or 0 when no Xid was
-// configured or the device has not tripped yet. Callers may pair this
-// with GetViolationStatus and event-set queries.
+// configured or the device has not tripped yet. Callers use this to
+// peek at the configured Xid; to atomically consume the event for
+// delivery via the NVML event set use ClaimXid instead.
 func (f *failureInjector) Xid() uint64 {
 	if !f.Triggered() {
 		return 0
@@ -197,6 +209,22 @@ func (f *failureInjector) Xid() uint64 {
 		return 0
 	}
 	return f.cfg.Xid.Code
+}
+
+// ClaimXid atomically claims the pending Xid event for delivery to a
+// caller (the bridge's nvmlEventSetWait). It returns the Xid code and
+// true on the first call after the device trips with a Xid configured;
+// every subsequent call returns (0, false) so consumers don't see the
+// same Xid replay forever.
+func (f *failureInjector) ClaimXid() (uint64, bool) {
+	xid := f.Xid()
+	if xid == 0 {
+		return 0, false
+	}
+	if !f.xidDelivered.CompareAndSwap(false, true) {
+		return 0, false
+	}
+	return xid, true
 }
 
 // CallCount returns the number of Tick()s observed so far. Exposed for
