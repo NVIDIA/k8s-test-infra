@@ -102,8 +102,13 @@ upgrade_and_recycle() {
   helm upgrade "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
     --reuse-values "$@" \
     --wait --timeout 120s >/dev/null
+  # Force-delete with grace-period=0 so pods don't linger while the
+  # kubelet runs preStop / SIGTERM. This is a demo cluster: we don't
+  # care about graceful shutdown and we DO care that rollout status
+  # below sees only the new pods. --ignore-not-found keeps the call
+  # idempotent if the previous scenario already evicted everything.
   kubectl delete pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
-    --wait=false >/dev/null 2>&1 || true
+    --force --grace-period=0 --ignore-not-found >/dev/null
   wait_for_pod
 }
 
