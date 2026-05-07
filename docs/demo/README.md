@@ -38,7 +38,7 @@ prints copy-pasteable commands to switch the running release into
 **Requirements:** Docker, Kind, Helm
 
 ```bash
-cd failure-injection && ./demo.sh
+cd failure-injection && ./run.sh
 ```
 
 See [failure-injection/README.md](failure-injection/README.md) for the

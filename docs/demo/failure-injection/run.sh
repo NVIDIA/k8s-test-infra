@@ -34,7 +34,20 @@ CLUSTER_NAME="nvml-mock-failure-demo"
 IMAGE_NAME="nvml-mock:failure-demo"
 RELEASE_NAME="nvml-mock"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
-GPU_COUNT=2
+# The chart names its rendered ConfigMap "<fullname>-config" (see
+# templates/configmap.yaml). For RELEASE_NAME=nvml-mock the helm
+# fullname helper short-circuits to the release name, so the
+# ConfigMap is just "nvml-mock-config".
+CONFIGMAP_NAME="${RELEASE_NAME}-config"
+# Number of GPUs that nvidia-smi reports inside the daemonset pod. We
+# DON'T pass --set gpu.count=... because that only affects the
+# host-side CDI spec produced by setup.sh — the in-pod config mounted
+# at /etc/nvml-mock/config.yaml is the chart's full ConfigMap, which
+# always contains every device defined by the chosen profile (eg 8
+# for h100). The baseline scenario below detects the actual count by
+# parsing nvidia-smi -L and reuses that value for subsequent
+# assertions.
+EXPECTED_GPUS=0
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 # Reuse the shared Kind config used by the standalone demo so all
 # nvml-mock demos share the same cluster topology.
@@ -76,9 +89,9 @@ upgrade_and_recycle() {
 # overlay.
 assert_configmap_contains() {
   local pattern=$1
-  if ! kubectl get "configmap/${RELEASE_NAME}" \
+  if ! kubectl get "configmap/${CONFIGMAP_NAME}" \
         -o jsonpath='{.data.config\.yaml}' | grep -qF "${pattern}"; then
-    fail "ConfigMap is missing expected pattern: ${pattern}"
+    fail "ConfigMap ${CONFIGMAP_NAME} is missing expected pattern: ${pattern}"
   fi
   ok "ConfigMap contains: ${pattern}"
 }
@@ -113,7 +126,6 @@ helm upgrade --install "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
   --set image.repository=nvml-mock \
   --set image.tag=failure-demo \
   --set gpu.profile=h100 \
-  --set "gpu.count=${GPU_COUNT}" \
   --set gpu.failureInjection.enabled=false \
   --wait --timeout 120s >/dev/null
 
@@ -122,20 +134,23 @@ sub "DaemonSet pod ready: ${POD}"
 
 # A healthy install must NOT inject the `failure:` block into the
 # rendered ConfigMap.
-if kubectl get "configmap/${RELEASE_NAME}" \
+if kubectl get "configmap/${CONFIGMAP_NAME}" \
       -o jsonpath='{.data.config\.yaml}' | grep -qE '^[[:space:]]+failure:'; then
   fail "ConfigMap should not contain a failure: block when failureInjection.enabled=false"
 fi
 ok "ConfigMap has no failure: block (as expected)"
 
-# nvidia-smi -L lists the configured number of GPUs.
+# Detect how many GPUs nvidia-smi reports inside the pod. This is what
+# every subsequent scenario will assert against — we don't hard-code a
+# number because the in-pod count is dictated by the profile YAML
+# rendered into the ConfigMap, not by `--set gpu.count`.
 LIST_OUT=$(kubectl exec "${POD}" -- nvidia-smi -L)
-LIST_COUNT=$(printf '%s\n' "${LIST_OUT}" | grep -c '^GPU ' || true)
-if [[ "${LIST_COUNT}" -ne "${GPU_COUNT}" ]]; then
-  fail "Expected ${GPU_COUNT} GPUs, nvidia-smi -L reported ${LIST_COUNT}:
+EXPECTED_GPUS=$(printf '%s\n' "${LIST_OUT}" | grep -c '^GPU ' || true)
+if [[ "${EXPECTED_GPUS}" -lt 1 ]]; then
+  fail "nvidia-smi -L reported no GPUs in the healthy baseline:
 ${LIST_OUT}"
 fi
-ok "nvidia-smi -L lists ${LIST_COUNT} GPUs"
+ok "nvidia-smi -L lists ${EXPECTED_GPUS} GPU(s) (healthy baseline)"
 
 # Aggregate uncorrectable ECC must be zero on a healthy device.
 ECC_BASELINE=$(kubectl exec "${POD}" -- nvidia-smi \
@@ -169,8 +184,8 @@ assert_configmap_contains "mode: ecc_uncorrectable"
 # Device must remain addressable (mode contract: ecc_uncorrectable
 # does NOT take the GPU off the API surface).
 LIST_COUNT=$(kubectl exec "${POD}" -- nvidia-smi -L | grep -c '^GPU ' || true)
-if [[ "${LIST_COUNT}" -ne "${GPU_COUNT}" ]]; then
-  fail "ecc_uncorrectable must keep all ${GPU_COUNT} GPUs addressable, got ${LIST_COUNT}"
+if [[ "${LIST_COUNT}" -ne "${EXPECTED_GPUS}" ]]; then
+  fail "ecc_uncorrectable must keep all ${EXPECTED_GPUS} GPUs addressable, got ${LIST_COUNT}"
 fi
 ok "nvidia-smi -L still lists ${LIST_COUNT} GPUs (device addressable)"
 
@@ -265,7 +280,7 @@ cat <<EOF
 
 ==> All four failure-injection scenarios verified.
 
-   Scenario 1  healthy            : nvidia-smi -L lists ${GPU_COUNT} GPU(s); ECC = 0
+   Scenario 1  healthy            : nvidia-smi -L lists ${EXPECTED_GPUS} GPU(s); ECC = 0
    Scenario 2  ecc_uncorrectable  : device addressable; ECC uncorrectable > 0
    Scenario 3  lost               : nvidia-smi metric query returns error markers
    Scenario 4  fallen_off_bus     : nvidia-smi metric query returns error markers; Xid 79 queued

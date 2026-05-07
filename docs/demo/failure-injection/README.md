@@ -22,7 +22,11 @@ FGO-style labels) — failure injection doesn't need its own topology.
 3. **Scenario 1 — healthy baseline**. Installs with
    `gpu.failureInjection.enabled=false` and asserts:
    * the rendered ConfigMap has **no** `failure:` block,
-   * `nvidia-smi -L` lists `gpu.count` GPUs,
+   * `nvidia-smi -L` lists at least one GPU. The script captures the
+     observed count and reuses it for the subsequent scenarios — the
+     in-pod GPU count comes from the chart-rendered ConfigMap (i.e.
+     the chosen profile) and is not influenced by `--set gpu.count`,
+     which only affects the host-side CDI spec.
    * the aggregate uncorrectable ECC counter starts at `0`.
 4. **Scenario 2 — `ecc_uncorrectable` + Xid 79**. Upgrades the
    release with `mode=ecc_uncorrectable, after_calls=3, xid.code=79`,
@@ -54,7 +58,7 @@ failure-injection knobs are touched between runs; everything else
 ## Quick start
 
 ```bash
-./demo.sh
+./run.sh
 ```
 
 The script is idempotent — rerun it as often as you like; the
@@ -113,13 +117,3 @@ For the full per-mode behaviour contract see
 ```bash
 kind delete cluster --name nvml-mock-failure-demo
 ```
-
-## Why a separate demo
-
-The standalone demo (`../standalone/demo.sh`) intentionally keeps
-failure injection *disabled* so its post-install verification steps
-(`nvidia-smi`, ConfigMap counts, node labels) always succeed. Folding
-the four scenarios above into that script would have made it flaky —
-each `nvidia-smi` invocation in the standalone demo would have
-tripped the GPU mid-flight. Splitting failure injection into its own
-demo lets each script make assertions that match its own intent.
