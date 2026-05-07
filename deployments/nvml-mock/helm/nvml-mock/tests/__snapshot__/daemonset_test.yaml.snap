@@ -33,6 +33,8 @@ should match snapshot with all overrides:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
+                - name: MOCK_NVML_CONFIG
+                  value: /etc/nvml-mock/config.yaml
               image: custom-registry/nvml-mock:v2.0.0
               imagePullPolicy: Always
               lifecycle:
@@ -53,7 +55,7 @@ should match snapshot with all overrides:
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: host-nvml-mock
-                - mountPath: /config
+                - mountPath: /etc/nvml-mock
                   name: gpu-config
                 - mountPath: /host/var/run/cdi
                   name: host-cdi
@@ -117,6 +119,8 @@ should match snapshot with b200 profile:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
+                - name: MOCK_NVML_CONFIG
+                  value: /etc/nvml-mock/config.yaml
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               lifecycle:
@@ -130,7 +134,7 @@ should match snapshot with b200 profile:
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: host-nvml-mock
-                - mountPath: /config
+                - mountPath: /etc/nvml-mock
                   name: gpu-config
                 - mountPath: /host/var/run/cdi
                   name: host-cdi
@@ -190,6 +194,8 @@ should match snapshot with default values:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
+                - name: MOCK_NVML_CONFIG
+                  value: /etc/nvml-mock/config.yaml
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               lifecycle:
@@ -203,7 +209,7 @@ should match snapshot with default values:
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: host-nvml-mock
-                - mountPath: /config
+                - mountPath: /etc/nvml-mock
                   name: gpu-config
                 - mountPath: /host/var/run/cdi
                   name: host-cdi

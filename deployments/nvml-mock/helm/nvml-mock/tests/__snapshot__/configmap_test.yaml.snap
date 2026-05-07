@@ -324,56 +324,56 @@ should match snapshot with b200 profile:
         # =============================================================================
         devices:
           - index: 0
-            uuid: "GPU-B200-0000-0000-0000-000000000000"
+            uuid: "GPU-b2000000-0000-0000-0000-000000000000"
             serial: "1562849203700"
             pci:
               bus_id: "00000000:1A:00.0"
             minor_number: 0
 
           - index: 1
-            uuid: "GPU-B200-0000-0000-0000-000000000001"
+            uuid: "GPU-b2000000-0000-0000-0000-000000000001"
             serial: "1562849203701"
             pci:
               bus_id: "00000000:1B:00.0"
             minor_number: 1
 
           - index: 2
-            uuid: "GPU-B200-0000-0000-0000-000000000002"
+            uuid: "GPU-b2000000-0000-0000-0000-000000000002"
             serial: "1562849203702"
             pci:
               bus_id: "00000000:4A:00.0"
             minor_number: 2
 
           - index: 3
-            uuid: "GPU-B200-0000-0000-0000-000000000003"
+            uuid: "GPU-b2000000-0000-0000-0000-000000000003"
             serial: "1562849203703"
             pci:
               bus_id: "00000000:4B:00.0"
             minor_number: 3
 
           - index: 4
-            uuid: "GPU-B200-0000-0000-0000-000000000004"
+            uuid: "GPU-b2000000-0000-0000-0000-000000000004"
             serial: "1562849203704"
             pci:
               bus_id: "00000000:8A:00.0"
             minor_number: 4
 
           - index: 5
-            uuid: "GPU-B200-0000-0000-0000-000000000005"
+            uuid: "GPU-b2000000-0000-0000-0000-000000000005"
             serial: "1562849203705"
             pci:
               bus_id: "00000000:8B:00.0"
             minor_number: 5
 
           - index: 6
-            uuid: "GPU-B200-0000-0000-0000-000000000006"
+            uuid: "GPU-b2000000-0000-0000-0000-000000000006"
             serial: "1562849203706"
             pci:
               bus_id: "00000000:CA:00.0"
             minor_number: 6
 
           - index: 7
-            uuid: "GPU-B200-0000-0000-0000-000000000007"
+            uuid: "GPU-b2000000-0000-0000-0000-000000000007"
             serial: "1562849203707"
             pci:
               bus_id: "00000000:CB:00.0"
@@ -1135,7 +1135,7 @@ should match snapshot with gb200 profile:
         # =============================================================================
         devices:
           - index: 0
-            uuid: "GPU-GB200-0000-0000-0000-000000000000"
+            uuid: "GPU-b200b200-0000-0000-0000-000000000000"
             serial: "1562849103700"
             pci:
               bus_id: "00000000:0A:00.0"
@@ -1143,7 +1143,7 @@ should match snapshot with gb200 profile:
             grace_cpu_pair: 0               # Paired with Grace CPU 0
 
           - index: 1
-            uuid: "GPU-GB200-0000-0000-0000-000000000001"
+            uuid: "GPU-b200b200-0000-0000-0000-000000000001"
             serial: "1562849103701"
             pci:
               bus_id: "00000000:0B:00.0"
@@ -1151,7 +1151,7 @@ should match snapshot with gb200 profile:
             grace_cpu_pair: 0               # Same superchip as GPU 0
 
           - index: 2
-            uuid: "GPU-GB200-0000-0000-0000-000000000002"
+            uuid: "GPU-b200b200-0000-0000-0000-000000000002"
             serial: "1562849103702"
             pci:
               bus_id: "00000000:4A:00.0"
@@ -1159,7 +1159,7 @@ should match snapshot with gb200 profile:
             grace_cpu_pair: 1
 
           - index: 3
-            uuid: "GPU-GB200-0000-0000-0000-000000000003"
+            uuid: "GPU-b200b200-0000-0000-0000-000000000003"
             serial: "1562849103703"
             pci:
               bus_id: "00000000:4B:00.0"
@@ -1167,7 +1167,7 @@ should match snapshot with gb200 profile:
             grace_cpu_pair: 1
 
           - index: 4
-            uuid: "GPU-GB200-0000-0000-0000-000000000004"
+            uuid: "GPU-b200b200-0000-0000-0000-000000000004"
             serial: "1562849103704"
             pci:
               bus_id: "00000000:8A:00.0"
@@ -1175,7 +1175,7 @@ should match snapshot with gb200 profile:
             grace_cpu_pair: 2
 
           - index: 5
-            uuid: "GPU-GB200-0000-0000-0000-000000000005"
+            uuid: "GPU-b200b200-0000-0000-0000-000000000005"
             serial: "1562849103705"
             pci:
               bus_id: "00000000:8B:00.0"
@@ -1183,7 +1183,7 @@ should match snapshot with gb200 profile:
             grace_cpu_pair: 2
 
           - index: 6
-            uuid: "GPU-GB200-0000-0000-0000-000000000006"
+            uuid: "GPU-b200b200-0000-0000-0000-000000000006"
             serial: "1562849103706"
             pci:
               bus_id: "00000000:CA:00.0"
@@ -1191,7 +1191,7 @@ should match snapshot with gb200 profile:
             grace_cpu_pair: 3
 
           - index: 7
-            uuid: "GPU-GB200-0000-0000-0000-000000000007"
+            uuid: "GPU-b200b200-0000-0000-0000-000000000007"
             serial: "1562849103707"
             pci:
               bus_id: "00000000:CB:00.0"
@@ -1551,56 +1551,56 @@ should match snapshot with h100 profile:
         # =============================================================================
         devices:
           - index: 0
-            uuid: "GPU-H100-0000-0000-0000-000000000000"
+            uuid: "GPU-01000100-0000-0000-0000-000000000000"
             serial: "1562821083900"
             pci:
               bus_id: "00000000:1A:00.0"
             minor_number: 0
 
           - index: 1
-            uuid: "GPU-H100-0000-0000-0000-000000000001"
+            uuid: "GPU-01000100-0000-0000-0000-000000000001"
             serial: "1562821083901"
             pci:
               bus_id: "00000000:1B:00.0"
             minor_number: 1
 
           - index: 2
-            uuid: "GPU-H100-0000-0000-0000-000000000002"
+            uuid: "GPU-01000100-0000-0000-0000-000000000002"
             serial: "1562821083902"
             pci:
               bus_id: "00000000:4A:00.0"
             minor_number: 2
 
           - index: 3
-            uuid: "GPU-H100-0000-0000-0000-000000000003"
+            uuid: "GPU-01000100-0000-0000-0000-000000000003"
             serial: "1562821083903"
             pci:
               bus_id: "00000000:4B:00.0"
             minor_number: 3
 
           - index: 4
-            uuid: "GPU-H100-0000-0000-0000-000000000004"
+            uuid: "GPU-01000100-0000-0000-0000-000000000004"
             serial: "1562821083904"
             pci:
               bus_id: "00000000:8A:00.0"
             minor_number: 4
 
           - index: 5
-            uuid: "GPU-H100-0000-0000-0000-000000000005"
+            uuid: "GPU-01000100-0000-0000-0000-000000000005"
             serial: "1562821083905"
             pci:
               bus_id: "00000000:8B:00.0"
             minor_number: 5
 
           - index: 6
-            uuid: "GPU-H100-0000-0000-0000-000000000006"
+            uuid: "GPU-01000100-0000-0000-0000-000000000006"
             serial: "1562821083906"
             pci:
               bus_id: "00000000:CA:00.0"
             minor_number: 6
 
           - index: 7
-            uuid: "GPU-H100-0000-0000-0000-000000000007"
+            uuid: "GPU-01000100-0000-0000-0000-000000000007"
             serial: "1562821083907"
             pci:
               bus_id: "00000000:CB:00.0"
@@ -1942,56 +1942,56 @@ should match snapshot with l40s profile:
         # =============================================================================
         devices:
           - index: 0
-            uuid: "GPU-L40S-0000-0000-0000-000000000000"
+            uuid: "GPU-14050000-0000-0000-0000-000000000000"
             serial: "1562830094500"
             pci:
               bus_id: "00000000:17:00.0"
             minor_number: 0
 
           - index: 1
-            uuid: "GPU-L40S-0000-0000-0000-000000000001"
+            uuid: "GPU-14050000-0000-0000-0000-000000000001"
             serial: "1562830094501"
             pci:
               bus_id: "00000000:31:00.0"
             minor_number: 1
 
           - index: 2
-            uuid: "GPU-L40S-0000-0000-0000-000000000002"
+            uuid: "GPU-14050000-0000-0000-0000-000000000002"
             serial: "1562830094502"
             pci:
               bus_id: "00000000:B1:00.0"
             minor_number: 2
 
           - index: 3
-            uuid: "GPU-L40S-0000-0000-0000-000000000003"
+            uuid: "GPU-14050000-0000-0000-0000-000000000003"
             serial: "1562830094503"
             pci:
               bus_id: "00000000:CA:00.0"
             minor_number: 3
 
           - index: 4
-            uuid: "GPU-L40S-0000-0000-0000-000000000004"
+            uuid: "GPU-14050000-0000-0000-0000-000000000004"
             serial: "1562830094504"
             pci:
               bus_id: "00000000:18:00.0"
             minor_number: 4
 
           - index: 5
-            uuid: "GPU-L40S-0000-0000-0000-000000000005"
+            uuid: "GPU-14050000-0000-0000-0000-000000000005"
             serial: "1562830094505"
             pci:
               bus_id: "00000000:32:00.0"
             minor_number: 5
 
           - index: 6
-            uuid: "GPU-L40S-0000-0000-0000-000000000006"
+            uuid: "GPU-14050000-0000-0000-0000-000000000006"
             serial: "1562830094506"
             pci:
               bus_id: "00000000:B2:00.0"
             minor_number: 6
 
           - index: 7
-            uuid: "GPU-L40S-0000-0000-0000-000000000007"
+            uuid: "GPU-14050000-0000-0000-0000-000000000007"
             serial: "1562830094507"
             pci:
               bus_id: "00000000:CB:00.0"
@@ -2320,28 +2320,28 @@ should match snapshot with t4 profile:
         # =============================================================================
         devices:
           - index: 0
-            uuid: "GPU-T4-0000-0000-0000-000000000000"
+            uuid: "GPU-00000074-0000-0000-0000-000000000000"
             serial: "0421819085400"
             pci:
               bus_id: "00000000:3B:00.0"
             minor_number: 0
 
           - index: 1
-            uuid: "GPU-T4-0000-0000-0000-000000000001"
+            uuid: "GPU-00000074-0000-0000-0000-000000000001"
             serial: "0421819085401"
             pci:
               bus_id: "00000000:86:00.0"
             minor_number: 1
 
           - index: 2
-            uuid: "GPU-T4-0000-0000-0000-000000000002"
+            uuid: "GPU-00000074-0000-0000-0000-000000000002"
             serial: "0421819085402"
             pci:
               bus_id: "00000000:AF:00.0"
             minor_number: 2
 
           - index: 3
-            uuid: "GPU-T4-0000-0000-0000-000000000003"
+            uuid: "GPU-00000074-0000-0000-0000-000000000003"
             serial: "0421819085403"
             pci:
               bus_id: "00000000:D8:00.0"

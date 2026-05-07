@@ -119,6 +119,56 @@ devices:
   # ... define each GPU
 ```
 
+#### Dynamic Metrics (optional)
+
+Real GPUs report metrics that change over time — temperature rises under
+load, utilization fluctuates, power draw ramps. By default mock NVML is
+fully static: the values you set in `thermal`, `power`, and `utilization`
+are returned unchanged on every call.
+
+Set `device_defaults.dynamic_metrics` (or override per device) to get
+time-varying readings back from `GetTemperature`, `GetPowerUsage`, and
+`GetUtilizationRates`. Each sub-section is independently opt-in; any
+section left out stays static.
+
+```yaml
+device_defaults:
+  thermal:
+    temperature_gpu_c: 55              # used as a fallback / shutdown clamp
+    shutdown_threshold_c: 92
+  power:
+    current_draw_mw: 250000
+    min_limit_mw: 100000
+    max_limit_mw: 400000               # clamps dynamic power
+
+  dynamic_metrics:
+    seed: 0                            # 0 = time-based; set non-zero for reproducible runs
+    temperature:
+      base_c: 55
+      variance_c: 3                    # +/- noise on every call
+      ramp_c: 20                       # adds 0..ramp_c over a sine wave
+      ramp_period_sec: 120
+    power:
+      base_mw: 250000
+      variance_mw: 25000               # +/- noise, clamped to power.min/max_limit_mw
+    utilization:
+      pattern: burst                   # idle | busy | burst | steady
+      gpu_min: 0
+      gpu_max: 100
+      memory_min: 0
+      memory_max: 100
+      burst_period_sec: 30             # half-period for "burst" pattern
+```
+
+Pattern semantics for utilization (values always clamped to 0..100):
+
+| pattern  | sampled from                                          |
+| -------- | ----------------------------------------------------- |
+| `idle`   | bottom quarter of `[gpu_min, gpu_max]`                |
+| `busy`   | top quarter of `[gpu_min, gpu_max]`                   |
+| `burst`  | alternates `idle` / `busy` every `burst_period_sec`   |
+| `steady` | full `[gpu_min, gpu_max]` range (default if omitted)  |
+
 ### Debugging
 
 Enable verbose logging to troubleshoot issues:

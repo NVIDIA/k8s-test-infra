@@ -48,6 +48,10 @@ type ConfigurableDevice struct {
 
 	// Mutable in-memory state (not persisted across restarts)
 	persistenceModeOverride *nvml.EnableState
+
+	// dynamicMetrics is non-nil when DeviceConfig.DynamicMetrics is set.
+	// When nil, the device returns static values from config unchanged.
+	dynamicMetrics *dynamicMetricsSimulator
 }
 
 // NewConfigurableDevice creates a device with YAML configuration
@@ -102,6 +106,12 @@ func NewConfigurableDevice(index int, baseDevice *dgxa100.Device, config *Device
 	// Initialize cached values
 	dev.initBAR1Memory()
 	dev.initPciInfo()
+
+	// Enable dynamic metric simulation if the YAML opts in. Leaving
+	// config.DynamicMetrics nil preserves the historical static behavior.
+	if config != nil && config.DynamicMetrics != nil {
+		dev.dynamicMetrics = newDynamicMetricsSimulator(config.DynamicMetrics)
+	}
 
 	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Name, dev.UUID, dev.PciBusID)
 
@@ -341,17 +351,33 @@ func (d *ConfigurableDevice) GetBoardPartNumber() (string, nvml.Return) {
 	return partNumber, nvml.SUCCESS
 }
 
-// GetTemperature returns the GPU temperature
+// GetTemperature returns the GPU temperature. Either a static `thermal:` block
+// or a `dynamic_metrics.temperature` block is sufficient; only when neither is
+// configured do we report ERROR_NOT_SUPPORTED. When both are present the
+// dynamic simulator overrides the static value.
 func (d *ConfigurableDevice) GetTemperature(sensor nvml.TemperatureSensors) (uint32, nvml.Return) {
-	if d.config == nil || d.config.Thermal == nil {
+	if d.config == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
+	hasStatic := d.config.Thermal != nil
+	hasDynamic := d.config.DynamicMetrics != nil && d.config.DynamicMetrics.Temperature != nil
+	if !hasStatic && !hasDynamic {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+
 	var temp uint32
-	switch sensor {
-	case nvml.TEMPERATURE_GPU:
-		temp = uint32(d.config.Thermal.TemperatureGPU_C)
-	default:
-		temp = uint32(d.config.Thermal.TemperatureGPU_C)
+	var shutdownC int
+	if hasStatic {
+		switch sensor {
+		case nvml.TEMPERATURE_GPU:
+			temp = uint32(d.config.Thermal.TemperatureGPU_C)
+		default:
+			temp = uint32(d.config.Thermal.TemperatureGPU_C)
+		}
+		shutdownC = d.config.Thermal.ShutdownThreshold_C
+	}
+	if d.dynamicMetrics != nil {
+		temp = d.dynamicMetrics.Temperature(temp, shutdownC)
 	}
 	debugLog("[NVML] nvmlDeviceGetTemperature(sensor=%d) -> %d\n", sensor, temp)
 	return temp, nvml.SUCCESS
@@ -377,12 +403,29 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 	return temp, nvml.SUCCESS
 }
 
-// GetPowerUsage returns current power draw in milliwatts
+// GetPowerUsage returns current power draw in milliwatts. Either a static
+// `power:` block or a `dynamic_metrics.power` block is sufficient; only when
+// neither is configured do we report ERROR_NOT_SUPPORTED. When both are
+// present the dynamic simulator overrides the static value.
 func (d *ConfigurableDevice) GetPowerUsage() (uint32, nvml.Return) {
-	if d.config == nil || d.config.Power == nil {
+	if d.config == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
-	power := d.config.Power.CurrentDrawMW
+	hasStatic := d.config.Power != nil
+	hasDynamic := d.config.DynamicMetrics != nil && d.config.DynamicMetrics.Power != nil
+	if !hasStatic && !hasDynamic {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+
+	var power, minMW, maxMW uint32
+	if hasStatic {
+		power = d.config.Power.CurrentDrawMW
+		minMW = d.config.Power.MinLimitMW
+		maxMW = d.config.Power.MaxLimitMW
+	}
+	if d.dynamicMetrics != nil {
+		power = d.dynamicMetrics.Power(power, minMW, maxMW)
+	}
 	debugLog("[NVML] nvmlDeviceGetPowerUsage -> %d mW\n", power)
 	return power, nvml.SUCCESS
 }
@@ -504,12 +547,18 @@ func (d *ConfigurableDevice) GetDefaultApplicationsClock(clockType nvml.ClockTyp
 	return clock, nvml.SUCCESS
 }
 
-// GetUtilizationRates returns GPU utilization
+// GetUtilizationRates returns GPU utilization. When dynamic_metrics.utilization
+// is configured the returned values vary according to the selected pattern
+// (idle / busy / burst / steady); otherwise the static UtilizationConfig
+// values are returned unchanged.
 func (d *ConfigurableDevice) GetUtilizationRates() (nvml.Utilization, nvml.Return) {
 	util := nvml.Utilization{}
 	if d.config != nil && d.config.Utilization != nil {
 		util.Gpu = d.config.Utilization.GPU
 		util.Memory = d.config.Utilization.Memory
+	}
+	if d.dynamicMetrics != nil {
+		util.Gpu, util.Memory = d.dynamicMetrics.Utilization(util.Gpu, util.Memory)
 	}
 	debugLog("[NVML] nvmlDeviceGetUtilizationRates -> gpu=%d%% mem=%d%%\n", util.Gpu, util.Memory)
 	return util, nvml.SUCCESS

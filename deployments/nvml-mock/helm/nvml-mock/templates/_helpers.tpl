@@ -57,8 +57,34 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 GPU configuration helper.
 Returns the GPU profile configuration YAML content.
 Priority: customConfig > profile file lookup > fail with error.
+
+When .Values.gpu.dynamicMetrics.enabled is true, a `dynamic_metrics:`
+block is injected under `device_defaults:` in the resulting YAML so that
+the mock returns time-varying temperature/power/utilization readings.
 */}}
 {{- define "nvml-mock.gpuConfig" -}}
+{{- $base := include "nvml-mock.gpuConfigBase" . -}}
+{{- if and .Values.gpu.dynamicMetrics .Values.gpu.dynamicMetrics.enabled -}}
+{{- $cfg := fromYaml $base -}}
+{{- if hasKey $cfg "Error" -}}
+{{- fail (printf "nvml-mock.gpuConfig: failed to parse base YAML for dynamic metrics injection: %s" (get $cfg "Error")) -}}
+{{- end -}}
+{{- $defaults := get $cfg "device_defaults" | default (dict) -}}
+{{- $_ := set $defaults "dynamic_metrics" (omit .Values.gpu.dynamicMetrics "enabled") -}}
+{{- $_ := set $cfg "device_defaults" $defaults -}}
+{{- toYaml $cfg -}}
+{{- else -}}
+{{- $base -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Internal: return the raw base GPU config (customConfig or profile file),
+without any dynamic-metrics overlay. Kept as its own helper so the main
+gpuConfig template can either return this verbatim (preserving comments
+and key order) or round-trip it through fromYaml/toYaml for overlays.
+*/}}
+{{- define "nvml-mock.gpuConfigBase" -}}
 {{- if .Values.gpu.customConfig }}
 {{- .Values.gpu.customConfig }}
 {{- else if eq .Values.gpu.profile "a100" }}
