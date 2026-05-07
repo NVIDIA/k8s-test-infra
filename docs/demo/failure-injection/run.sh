@@ -102,19 +102,13 @@ upgrade_and_recycle() {
   helm upgrade "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
     --reuse-values "$@" \
     --wait --timeout 120s >/dev/null
-  # Force-delete with grace-period=0 so pods don't linger while the
-  # kubelet runs preStop / SIGTERM. This is a demo cluster: we don't
-  # care about graceful shutdown and we DO care that rollout status
-  # below sees only the new pods. --ignore-not-found keeps the call
-  # idempotent if the previous scenario already evicted everything.
-  #
-  # `--force` always prints a `Warning: Immediate deletion does not
-  # wait for confirmation...` line to stderr. It's noise in this
-  # demo, so filter just that line and leave any other stderr alone
-  # so real failures still surface.
+  # Synchronous delete: the chart pins terminationGracePeriodSeconds
+  # to a low value (see values.yaml), so the default --wait=true
+  # blocks just long enough for pods to disappear before rollout
+  # status checks the new generation. --ignore-not-found keeps the
+  # call idempotent if the previous scenario already evicted them.
   kubectl delete pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
-    --force --grace-period=0 --ignore-not-found >/dev/null \
-    2> >(grep -v '^Warning: Immediate deletion' >&2)
+    --ignore-not-found >/dev/null
   wait_for_pod
 }
 
@@ -163,6 +157,7 @@ helm upgrade --install "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
   --set gpu.profile=h100 \
   --set gpu.failureInjection.enabled=false \
   --set-string updateStrategy.rollingUpdate.maxUnavailable=100% \
+  --set terminationGracePeriodSeconds=1 \
   --wait --timeout 120s >/dev/null
 
 POD=$(wait_for_pod)
