@@ -11,7 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG GOLANG_VERSION=1.25.0
+ARG GOLANG_VERSION=1.26.0
 FROM golang:${GOLANG_VERSION} AS lib-builder
 
 WORKDIR /build
