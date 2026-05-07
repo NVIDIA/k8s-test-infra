@@ -66,6 +66,7 @@ should match snapshot with all overrides:
           nodeSelector:
             nvidia.com/gpu.present: "true"
           serviceAccountName: nvml-mock-custom
+          terminationGracePeriodSeconds: 10
           tolerations:
             - effect: NoSchedule
               key: nvidia.com/gpu
@@ -149,6 +150,7 @@ should match snapshot with b200 profile:
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
           serviceAccountName: RELEASE-NAME-nvml-mock
+          terminationGracePeriodSeconds: 10
           tolerations:
             - operator: Exists
           volumes:
@@ -230,6 +232,7 @@ should match snapshot with default values:
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
           serviceAccountName: RELEASE-NAME-nvml-mock
+          terminationGracePeriodSeconds: 10
           tolerations:
             - operator: Exists
           volumes:

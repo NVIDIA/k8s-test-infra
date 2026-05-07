@@ -21,6 +21,7 @@ spec:
         checksum/config: {{ include "nvml-mock.gpuConfig" . | sha256sum }}
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

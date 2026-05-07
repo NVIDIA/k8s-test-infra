@@ -65,6 +65,11 @@ updateStrategy:
   rollingUpdate:
     maxUnavailable: 25%
 
+# Pod termination grace period. preStop cleanup is a few rm -rf
+# calls plus kubectl label requests, so the upstream 30s default
+# is overkill and slows rollouts.
+terminationGracePeriodSeconds: 10
+
 # Integration with external projects
 integrations:
   fakeGpuOperator:
