@@ -65,10 +65,16 @@ ok()      { printf '    \xE2\x9C\x93 %s\n' "$*" >&2; }   # ✓
 fail()    { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 # wait_for_pod: wait for the DaemonSet rollout to settle and echo the
-# name of the (only) pod we'll exec into for verification.
+# name of a Running pod we can exec into for verification.
+#
+# `kubectl rollout status` returns once the new pods are Ready, but a
+# terminating old pod can still appear in the listing for a moment.
+# Filtering on status.phase=Running keeps us from accidentally execing
+# into a pod that's on its way out.
 wait_for_pod() {
   kubectl rollout status "daemonset/${RELEASE_NAME}" --timeout=90s >/dev/null
   kubectl get pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
+    --field-selector=status.phase=Running \
     -o jsonpath='{.items[0].metadata.name}'
 }
 
