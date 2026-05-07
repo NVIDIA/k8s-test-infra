@@ -399,13 +399,14 @@ tests:
           pattern: ^[0-9a-f]{64}$
 
   # ── updateStrategy ──────────────────────────────────────────────────
-  # Default to parallel rollout: nvml-mock is a stateless mock, so a
-  # config change should propagate in seconds rather than node-by-node.
-  - it: should default to RollingUpdate maxUnavailable 100%
+  # Defaults are covered by the rendered-manifest snapshot above; these
+  # cases only assert the override paths.
+  - it: should accept maxUnavailable 100% override
+    set:
+      updateStrategy:
+        rollingUpdate:
+          maxUnavailable: 100%
     asserts:
-      - equal:
-          path: spec.updateStrategy.type
-          value: RollingUpdate
       - equal:
           path: spec.updateStrategy.rollingUpdate.maxUnavailable
           value: 100%

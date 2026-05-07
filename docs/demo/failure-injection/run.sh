@@ -77,13 +77,13 @@ wait_for_pod() {
 #   1. The pod template carries a sha256 of the rendered GPU config
 #      (templates/daemonset.yaml: `checksum/config`) so any change to
 #      gpu.failureInjection / gpu.dynamicMetrics already mutates the
-#      pod-template hash. The chart also defaults to
-#      `updateStrategy.rollingUpdate.maxUnavailable=100%` so that
-#      change rolls in parallel rather than node-by-node.
+#      pod-template hash. The initial helm install also pinned
+#      `updateStrategy.rollingUpdate.maxUnavailable=100%` (the chart
+#      default is the more conservative 25%) so the rollout fires
+#      across every node simultaneously.
 #   2. `kubectl delete pods -l ...` explicitly evicts every existing
-#      pod up front. Belt-and-suspenders: if the user has overridden
-#      updateStrategy back to the upstream default (maxUnavailable=1),
-#      this still gives the demo a fast, deterministic rollout.
+#      pod up front. Belt-and-suspenders: deterministic refresh even
+#      under a tighter updateStrategy.
 #
 # Echoes the new pod name on stdout.
 upgrade_and_recycle() {
@@ -142,6 +142,7 @@ helm upgrade --install "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
   --set image.tag=failure-demo \
   --set gpu.profile=h100 \
   --set gpu.failureInjection.enabled=false \
+  --set-string updateStrategy.rollingUpdate.maxUnavailable=100% \
   --wait --timeout 120s >/dev/null
 
 POD=$(wait_for_pod)

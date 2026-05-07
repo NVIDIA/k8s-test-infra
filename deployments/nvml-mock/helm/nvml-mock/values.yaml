@@ -59,15 +59,11 @@ tolerations:
 
 resources: {}
 
-# DaemonSet rolling update strategy. nvml-mock is a stateless mock
-# driver, so the default is to roll every pod in parallel
-# (maxUnavailable: 100%) — config changes propagate in seconds rather
-# than O(nodes) seconds. Override to tighten the blast radius if you
-# need the upstream DaemonSet default behaviour.
+# DaemonSet rolling update strategy.
 updateStrategy:
   type: RollingUpdate
   rollingUpdate:
-    maxUnavailable: 100%
+    maxUnavailable: 25%
 
 # Integration with external projects
 integrations:

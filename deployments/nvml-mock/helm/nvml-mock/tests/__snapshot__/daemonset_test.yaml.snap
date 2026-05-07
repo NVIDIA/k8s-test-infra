@@ -88,7 +88,7 @@ should match snapshot with all overrides:
               name: host-run-nvidia
       updateStrategy:
         rollingUpdate:
-          maxUnavailable: 100%
+          maxUnavailable: 25%
         type: RollingUpdate
 should match snapshot with b200 profile:
   1: |
@@ -169,7 +169,7 @@ should match snapshot with b200 profile:
               name: host-run-nvidia
       updateStrategy:
         rollingUpdate:
-          maxUnavailable: 100%
+          maxUnavailable: 25%
         type: RollingUpdate
 should match snapshot with default values:
   1: |
@@ -250,5 +250,5 @@ should match snapshot with default values:
               name: host-run-nvidia
       updateStrategy:
         rollingUpdate:
-          maxUnavailable: 100%
+          maxUnavailable: 25%
         type: RollingUpdate
