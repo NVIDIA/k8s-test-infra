@@ -303,3 +303,125 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "base_c: 88"
+
+  # ── Failure injection ───────────────────────────────────────────────
+  - it: should not emit failure block when failure injection is disabled (default)
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "^[[:space:]]*failure:"
+
+  - it: should inject failure block under device_defaults when enabled
+    set:
+      gpu:
+        failureInjection:
+          enabled: true
+          mode: lost
+          after_calls: 100
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "failure:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode: lost"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "after_calls: 100"
+
+  - it: should respect per-field overrides when failure injection is enabled
+    set:
+      gpu:
+        failureInjection:
+          enabled: true
+          mode: ecc_uncorrectable
+          probability: 0.25
+          after_calls: 500
+          seed: 12345
+          xid:
+            code: 64
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode: ecc_uncorrectable"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "probability: 0.25"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "after_calls: 500"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "seed: 12345"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "code: 64"
+
+  - it: should not emit the failureInjection 'enabled' flag into the rendered config
+    set:
+      gpu:
+        failureInjection:
+          enabled: true
+          mode: lost
+    asserts:
+      # `enabled` is a helm-level toggle; it must not leak into the mock
+      # NVML YAML since FailureInjectionConfig has no corresponding field.
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "^ *enabled:"
+
+  - it: should support enabling dynamic_metrics and failure injection together
+    set:
+      gpu:
+        dynamicMetrics:
+          enabled: true
+        failureInjection:
+          enabled: true
+          mode: fallen_off_bus
+          after_calls: 50
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "dynamic_metrics:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "failure:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode: fallen_off_bus"
+
+  # values.schema.json now blocks bad failureInjection values at install
+  # time so a typo like `mode: healhty` or `probability: 1.5` fails fast
+  # instead of silently coercing to "healthy" / out-of-range behavior at
+  # runtime. These cases exercise the schema gate.
+  - it: should reject failureInjection.mode outside the supported enum
+    set:
+      gpu:
+        failureInjection:
+          enabled: true
+          mode: healhty                  # typo — must be rejected by schema
+    asserts:
+      - failedTemplate:
+          errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/gpu/failureInjection/mode': value must be one of 'healthy', 'lost', 'fallen_off_bus', 'ecc_uncorrectable'\n"
+
+  - it: should reject failureInjection.probability outside [0, 1]
+    set:
+      gpu:
+        failureInjection:
+          enabled: true
+          mode: lost
+          probability: 1.5
+    asserts:
+      - failedTemplate:
+          errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/gpu/failureInjection/probability': maximum: got 1.5, want 1\n"
+
+  - it: should reject negative failureInjection.after_calls
+    set:
+      gpu:
+        failureInjection:
+          enabled: true
+          mode: lost
+          after_calls: -1
+    asserts:
+      - failedTemplate:
+          errorMessage: "values don't meet the specifications of the schema(s) in the following chart(s):\nnvml-mock:\n- at '/gpu/failureInjection/after_calls': minimum: got -1, want 0\n"

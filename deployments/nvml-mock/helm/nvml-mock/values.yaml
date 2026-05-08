@@ -30,6 +30,22 @@ gpu:
       memory_max: 100
       burst_period_sec: 30
 
+  # Opt-in simulation of GPU failure scenarios: lost device, fallen-off-bus,
+  # uncorrectable ECC errors, and Xid critical events. When `enabled: false`
+  # (the default) the rendered ConfigMap is unchanged and the mock reports
+  # healthy hardware.
+  #
+  # See pkg/gpu/mocknvml/README.md#failure-injection-optional for the full
+  # behavioural contract per mode.
+  failureInjection:
+    enabled: false
+    mode: healthy                        # healthy (no-op) | lost | fallen_off_bus | ecc_uncorrectable
+    probability: 0.0                     # 0..1 chance per guarded NVML call
+    after_calls: 0                       # deterministic trip after N guarded calls (0 = disabled)
+    seed: 0                              # 0 = time-based; non-zero for reproducible rolls
+    xid:
+      code: 0                            # 0 = no Xid surfaced; e.g. 79 = "GPU has fallen off the bus"
+
 image:
   repository: ghcr.io/nvidia/nvml-mock
   tag: latest
@@ -42,6 +58,17 @@ tolerations:
   - operator: Exists
 
 resources: {}
+
+# DaemonSet rolling update strategy.
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 25%
+
+# Pod termination grace period. preStop cleanup is a few rm -rf
+# calls plus kubectl label requests, so the upstream 30s default
+# is overkill and slows rollouts.
+terminationGracePeriodSeconds: 10
 
 # Integration with external projects
 integrations:

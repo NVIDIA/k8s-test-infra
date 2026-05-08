@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "nvml-mock Helm values",
+  "description": "Schema for deployments/nvml-mock/helm/nvml-mock/values.yaml. Validated by Helm at install/upgrade time so typos like `mode: healhty` or `probability: 1.5` fail fast with an actionable error instead of silently coercing to healthy / out-of-range behavior at runtime.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "gpu": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "GPU profile name. The valid set is enforced by the template helper (which renders a friendly error pointing users at gpu.customConfig); we deliberately avoid a JSON-schema enum here so the helper can keep producing that actionable message instead of a generic schema rejection."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "customConfig": {
+          "type": "string"
+        },
+        "dynamicMetrics": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "seed": { "type": "integer" },
+            "temperature": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "base_c": { "type": "integer", "minimum": 0, "maximum": 150 },
+                "variance_c": { "type": "integer", "minimum": 0 },
+                "ramp_c": { "type": "integer" },
+                "ramp_period_sec": { "type": "integer", "minimum": 1 }
+              }
+            },
+            "power": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "base_mw": { "type": "integer", "minimum": 0 },
+                "variance_mw": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "utilization": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "enum": ["idle", "busy", "burst", "steady"]
+                },
+                "gpu_min": { "type": "integer", "minimum": 0, "maximum": 100 },
+                "gpu_max": { "type": "integer", "minimum": 0, "maximum": 100 },
+                "memory_min": { "type": "integer", "minimum": 0, "maximum": 100 },
+                "memory_max": { "type": "integer", "minimum": 0, "maximum": 100 },
+                "burst_period_sec": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        },
+        "failureInjection": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Opt-in GPU failure scenarios. The engine treats `mode: healthy` as a no-op even when enabled, so a bare `enabled: true` does not silently trip every GPU.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "mode": {
+              "type": "string",
+              "description": "Failure mode. Anything outside this enum is rejected; the engine has no fall-through coercion path.",
+              "enum": ["healthy", "lost", "fallen_off_bus", "ecc_uncorrectable"]
+            },
+            "probability": {
+              "type": "number",
+              "description": "Per-call trip probability. Must be in [0, 1]; 0 disables stochastic tripping.",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "after_calls": {
+              "type": "integer",
+              "description": "Deterministic trip after N guarded NVML calls. 0 disables this trigger.",
+              "minimum": 0
+            },
+            "seed": {
+              "type": "integer",
+              "description": "RNG seed for reproducibility. 0 means time-based (non-deterministic)."
+            },
+            "xid": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "code": {
+                  "type": "integer",
+                  "description": "Xid code surfaced via the NVML event set once the device trips. 0 disables Xid emission. Common codes: 79 (fallen off bus), 48 (DBE error), 63 (page retirement).",
+                  "minimum": 0,
+                  "maximum": 1023
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "repository": { "type": "string" },
+        "tag": { "type": "string" },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"]
+        }
+      }
+    },
+    "driverVersion": { "type": "string" },
+    "nodeSelector": { "type": "object" },
+    "tolerations": { "type": "array" },
+    "resources": { "type": "object" },
+    "terminationGracePeriodSeconds": {
+      "type": "integer",
+      "description": "Pod termination grace period (seconds). Lower values speed up rollouts; preStop cleanup is fast so 5-15s is typical.",
+      "minimum": 0
+    },
+    "updateStrategy": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "DaemonSet rolling update strategy passed verbatim into spec.updateStrategy.",
+      "properties": {
+        "type": { "type": "string", "enum": ["RollingUpdate", "OnDelete"] },
+        "rollingUpdate": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "maxUnavailable": { "type": ["string", "integer"] },
+            "maxSurge": { "type": ["string", "integer"] }
+          }
+        }
+      }
+    },
+    "integrations": { "type": "object" }
+  }
+}

@@ -133,6 +133,11 @@ type DeviceConfig struct {
 	// utilization. When nil (default), static values from the other config
 	// sections are returned as-is.
 	DynamicMetrics *DynamicMetricsConfig `json:"dynamic_metrics,omitempty"`
+
+	// Failure enables GPU failure injection (lost device, fallen-off-bus,
+	// uncorrectable ECC, Xid). When nil (default) the device behaves as
+	// healthy hardware.
+	Failure *FailureInjectionConfig `json:"failure,omitempty"`
 }
 
 // DeviceOverride contains per-device settings that override defaults
@@ -469,6 +474,63 @@ type DynamicUtilizationConfig struct {
 	MemoryMin      uint32 `json:"memory_min,omitempty"`
 	MemoryMax      uint32 `json:"memory_max,omitempty"`
 	BurstPeriodSec int    `json:"burst_period_sec,omitempty"`
+}
+
+// Failure mode constants used by FailureInjectionConfig.Mode. Anything else
+// (including the empty string) is treated as "healthy" — i.e. failure
+// injection disabled for the device.
+const (
+	FailureModeHealthy          = "healthy"
+	FailureModeLost             = "lost"
+	FailureModeFallenOffBus     = "fallen_off_bus"
+	FailureModeECCUncorrectable = "ecc_uncorrectable"
+)
+
+// FailureInjectionConfig models GPU failure injection for a device. It is
+// disabled by default. When Mode is one of FailureMode* constants the
+// device starts (or transitions to) the failed state subject to the
+// stochastic and deterministic triggers below.
+//
+// Trigger semantics:
+//   - When AfterCalls > 0 the failure activates as soon as the device has
+//     received that many guarded NVML calls. This makes failure timing
+//     reproducible in CI without depending on wall-clock time.
+//   - When Probability > 0 every guarded call rolls a uniform sample in
+//     [0, 1); if it lands below Probability the failure activates.
+//   - When neither AfterCalls nor Probability are set, the failure is
+//     active immediately (so consumers can pin a "permanently lost"
+//     device just by setting Mode).
+//
+// Once a device has tripped it stays tripped — real lost / fallen-off-bus
+// GPUs do not recover until the box is rebooted, and ECC errors only
+// accumulate. Use the Xid sub-config to pair the failure with a Xid code
+// returned via Device.GetViolationStatus.
+type FailureInjectionConfig struct {
+	// Mode selects the failure flavour. See FailureMode* constants.
+	Mode string `json:"mode,omitempty"`
+
+	// Probability of activating per guarded call, in [0, 1].
+	Probability float64 `json:"probability,omitempty"`
+
+	// AfterCalls activates the failure once this many guarded calls have
+	// been observed (deterministic). Combine with Probability if you want
+	// "may fail before, will fail by".
+	AfterCalls int64 `json:"after_calls,omitempty"`
+
+	// Seed seeds the per-device PRNG used for Probability rolls. Zero
+	// means "derive from time" (similar to DynamicMetricsConfig.Seed).
+	Seed int64 `json:"seed,omitempty"`
+
+	// Xid optionally injects a Xid error code visible via
+	// Device.GetViolationStatus once the failure has tripped.
+	Xid *XidErrorConfig `json:"xid,omitempty"`
+}
+
+// XidErrorConfig models a Xid critical error to surface when a failure
+// trips. Code matches the kernel-driver Xid number (e.g. 79 = "GPU has
+// fallen off the bus", 64 = "ECC double-bit error").
+type XidErrorConfig struct {
+	Code uint64 `json:"code,omitempty"`
 }
 
 // NVLinkConfig defines NVLink topology

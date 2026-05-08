@@ -349,6 +349,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.DynamicMetrics != nil {
 		base.DynamicMetrics = override.DynamicMetrics
 	}
+	if override.Failure != nil {
+		base.Failure = override.Failure
+	}
 	// Add more fields as needed
 }
 

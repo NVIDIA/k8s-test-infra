@@ -10,12 +10,18 @@ spec:
   selector:
     matchLabels:
       {{- include "nvml-mock.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
   template:
     metadata:
       labels:
         {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the DaemonSet on any config.yaml change.
+        checksum/config: {{ include "nvml-mock.gpuConfig" . | sha256sum }}
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

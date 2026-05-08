@@ -26,3 +26,20 @@ Full integration with Run:ai's fake-gpu-operator. nvml-mock handles the
 **Requirements:** Docker, Kind, Helm, fake-gpu-operator Helm chart
 
 See [with-fgo/README.md](with-fgo/README.md) for the step-by-step guide.
+
+### Failure injection
+
+Dedicated cluster (`nvml-mock-failure-demo`) that deploys nvml-mock with
+GPU failure injection enabled and verifies the engine actually trips
+the configured fault. Demonstrates `ecc_uncorrectable` end-to-end and
+prints copy-pasteable commands to switch the running release into
+`lost` / `fallen_off_bus` mode.
+
+**Requirements:** Docker, Kind, Helm
+
+```bash
+cd failure-injection && ./run.sh
+```
+
+See [failure-injection/README.md](failure-injection/README.md) for the
+walkthrough.
