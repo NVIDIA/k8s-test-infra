@@ -75,7 +75,7 @@ jobs:
       - name: Read chart version
         id: chart
         run: |
-          version=$(helm show chart ${{ env.CHART_DIR }}/${{ env.CHART_NAME }} | grep '^version:' | awk '{print $2}')
+          version=$(helm show chart ${{ env.CHART_DIR }}/${{ env.CHART_NAME }} -o json | jq -er .version)
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
