@@ -59,7 +59,7 @@ export default function Home() {
         else if (buckets.fresh > 0) oldestBucket = '<7d';
         else oldestBucket = 'none';
 
-        const trend = computeTrend(repoData.issues.velocity);
+        const trend = computeTrend(repoData.issues.velocity.weekly);
 
         return {
           project: p,

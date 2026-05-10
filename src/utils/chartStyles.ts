@@ -45,6 +45,17 @@ export function formatWeekTick(v: string): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+/**
+ * formatDayTick formats a YYYY-MM-DD UTC date string for chart x-axes
+ * showing daily granularity. Returns "MMM dd" (e.g., "Apr 23"). UTC is
+ * indicated separately via the "(UTC)" axis label set on the chart.
+ */
+export function formatDayTick(value: string): string {
+  // value is "YYYY-MM-DD"; render as locale-independent "MMM dd".
+  const d = new Date(value + 'T00:00:00Z');
+  return d.toLocaleDateString('en-US', { month: 'short', day: '2-digit', timeZone: 'UTC' });
+}
+
 export type Trend = 'growing' | 'shrinking' | 'stable';
 
 export function computeTrend(velocity: VelocityWeek[]): Trend {
