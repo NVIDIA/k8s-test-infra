@@ -18,6 +18,7 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -85,7 +86,7 @@ var (
 var defaultRepos = []string{
 	"nvidia/nvidia-container-toolkit",
 	"nvidia/k8s-device-plugin",
-	"nvidia/k8s-dra-driver-gpu",
+	"kubernetes-sigs/dra-driver-nvidia-gpu", // was: nvidia/k8s-dra-driver-gpu (donated to kubernetes-sigs 2026-04-30; see docs/plans/2026-04-30-dra-repo-migration-design.md)
 	"nvidia/holodeck",
 }
 
@@ -99,7 +100,7 @@ type imageRepo struct {
 
 var defaultImages = []imageRepo{
 	{"nvidia/k8s-device-plugin", "k8s-device-plugin"},
-	{"nvidia/k8s-dra-driver-gpu", "k8s-dra-driver-gpu"},
+	{"kubernetes-sigs/dra-driver-nvidia-gpu", "dra-driver-nvidia-gpu"}, // donated 2026-04-30; pkgName best-effort (kubernetes-sigs GHCR not yet listable without read:packages)
 	{"nvidia/nvidia-container-toolkit", "container-toolkit"},
 	{"nvidia/gpu-operator", "gpu-operator"},
 	{"nvidia/gpu-driver-container", "driver"},
@@ -109,7 +110,7 @@ var allRepos = []string{
 	"nvidia/gpu-operator",
 	"nvidia/nvidia-container-toolkit",
 	"nvidia/k8s-device-plugin",
-	"nvidia/k8s-dra-driver-gpu",
+	"kubernetes-sigs/dra-driver-nvidia-gpu", // donated 2026-04-30
 	"nvidia/holodeck",
 	"nvidia/go-nvml",
 	"nvidia/mig-parted",
@@ -166,6 +167,122 @@ func buildClient(ctx context.Context, token string, logger *slog.Logger) (*githu
 	client := github.NewClient(rateLimited)
 	ctx = context.WithValue(ctx, githubBypass, true)
 	return client, ctx
+}
+
+// loadPreviousIssuesPRs reads the previously deployed issues_prs.json file
+// (restored by the workflow's "Restore previous history data" step) and
+// returns it as an in-memory cache used by runIssuesPRsPhase to fall back
+// when a per-repo fetch fails this run.
+//
+// Behavior:
+//   - Missing or zero-byte file → empty IssuesPRsFile, nil error, info log.
+//   - Valid JSON → parsed file, nil error.
+//   - Malformed JSON → empty IssuesPRsFile, nil error, error-level log,
+//     and a ::warning:: GitHub Actions annotation on stdout so degradation
+//     is visible in the workflow run summary.
+//
+// This function never returns a log.Fatal path. The returned error is
+// reserved for unexpected I/O failures (permission denied, etc.); callers
+// may treat any non-nil error as exceptional but the typical degraded
+// flows return nil error with an empty cache.
+//
+// Spec: docs/plans/2026-04-30-dashboard-duration-options-design.md
+// (component loadPreviousIssuesPRs, malformed-cache path).
+func loadPreviousIssuesPRs(path string, logger *slog.Logger) (IssuesPRsFile, error) {
+	empty := IssuesPRsFile{Repos: make(map[string]RepoIssuesPRs)}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logger.Info("no prior cache", "path", path)
+			return empty, nil
+		}
+		// Other I/O errors are unexpected; surface them.
+		return empty, fmt.Errorf("loadPreviousIssuesPRs read %s: %w", path, err)
+	}
+
+	if len(bytes.TrimSpace(data)) == 0 {
+		logger.Info("no prior cache (empty file)", "path", path)
+		return empty, nil
+	}
+
+	var parsed IssuesPRsFile
+	if jerr := json.Unmarshal(data, &parsed); jerr != nil {
+		logger.Error("malformed prior cache",
+			"path", path,
+			"err", jerr.Error())
+		// Visible workflow annotation so degraded runs aren't silent.
+		fmt.Println("::warning title=issues_prs cache::malformed prior issues_prs.json — degraded fallback in effect (per-repo failures will omit, not use stale data)")
+		return empty, nil
+	}
+
+	if parsed.Repos == nil {
+		parsed.Repos = make(map[string]RepoIssuesPRs)
+	}
+	logger.Info("prior cache loaded", "path", path, "repos", len(parsed.Repos))
+	return parsed, nil
+}
+
+// runIssuesPRsPhase fetches issues/PRs for each repo concurrently and
+// returns a populated IssuesPRsFile. On any per-repo error, it consults
+// the cache: present → copy entry verbatim (preserving old fetchedAt);
+// absent → omit the repo from output. Phase-level errors (context
+// cancellation, panic) are returned to the caller; per-repo errors are
+// recorded in slog and never abort the run.
+//
+// Spec: docs/plans/2026-04-30-dashboard-duration-options-design.md
+// (component runIssuesPRsPhase).
+func runIssuesPRsPhase(
+	ctx context.Context,
+	client *github.Client,
+	repos []string,
+	timeout time.Duration,
+	workers int,
+	cache IssuesPRsFile,
+	logger *slog.Logger,
+) IssuesPRsFile {
+	out := IssuesPRsFile{Repos: make(map[string]RepoIssuesPRs)}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, workers)
+
+	for _, repo := range repos {
+		repo = strings.TrimSpace(repo)
+		if repo == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(r string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			ipCtx, cancel := context.WithTimeout(ctx, 2*timeout)
+			defer cancel()
+
+			data, err := fetchIssuesPRs(ipCtx, client, r)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				if cached, ok := cache.Repos[r]; ok {
+					logger.Warn("issues_prs: using cached data",
+						"repo", r,
+						"err", err.Error(),
+						"prev_fetched_at", cached.FetchedAt)
+					out.Repos[r] = cached
+					return
+				}
+				logger.Warn("issues_prs: no data and no prior cache",
+					"repo", r,
+					"err", err.Error())
+				return
+			}
+			out.Repos[r] = data
+		}(repo)
+	}
+
+	wg.Wait()
+	return out
 }
 
 type RepoInfo struct {
@@ -296,11 +413,6 @@ type RepoIssuesPRs struct {
 
 type IssuesPRsFile struct {
 	Repos map[string]RepoIssuesPRs `json:"repos"`
-}
-
-type issuesPRsResult struct {
-	repo string
-	data RepoIssuesPRs
 }
 
 var labelCategories = map[string]map[string]string{
@@ -542,25 +654,9 @@ func main() {
 		}(repo)
 	}
 
-	issuesPRsCh := make(chan issuesPRsResult, len(allRepos))
-	for _, repo := range allRepos {
-		wg.Add(1)
-		go func(r string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			ipCtx, cancel := context.WithTimeout(ctx, 2*(*timeout))
-			defer cancel()
-
-			data, err := fetchIssuesPRs(ipCtx, client, r)
-			if err != nil {
-				errCh <- fmt.Errorf("issues/prs %s: %w", r, err)
-				return
-			}
-			issuesPRsCh <- issuesPRsResult{repo: r, data: data}
-		}(repo)
-	}
+	// Issues/PRs phase — extracted helper handles per-repo cache fallback.
+	prevCache, _ := loadPreviousIssuesPRs(filepath.Join(*outDir, "issues_prs.json"), logger)
+	issuesPRsFile := runIssuesPRsPhase(ctx, client, allRepos, *timeout, *workers, prevCache, logger)
 
 	wg.Wait()
 	close(resCh)
@@ -569,7 +665,6 @@ func main() {
 	close(wfCh)
 	close(repoCh)
 	close(trafficCh)
-	close(issuesPRsCh)
 
 	for err := range errCh {
 		log.Println("error:", err)
@@ -609,12 +704,6 @@ func main() {
 
 	if err := writeJSON(filepath.Join(*outDir, "repos.json"), map[string]any{"repos": repoInfos}); err != nil {
 		log.Fatal(err)
-	}
-
-	// --- Build issues_prs.json ---
-	issuesPRsFile := IssuesPRsFile{Repos: make(map[string]RepoIssuesPRs)}
-	for ipr := range issuesPRsCh {
-		issuesPRsFile.Repos[ipr.repo] = ipr.data
 	}
 
 	if err := writeJSON(filepath.Join(*outDir, "issues_prs.json"), issuesPRsFile); err != nil {
