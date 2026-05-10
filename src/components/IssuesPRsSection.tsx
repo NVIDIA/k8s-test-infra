@@ -48,13 +48,13 @@ export default function IssuesPRsSection({ data }: Props) {
   }, [data.issues.ageBuckets, data.pullRequests.ageBuckets]);
 
   // Velocity here is rendered as the default detail view at weekly
-  // granularity; UI redesign spec 3 may add a per-page duration selector
-  // later. Until then, this section reads the last 12 weeks straight from
-  // velocity.weekly — the daily array (velocity.daily) is consumed by the
-  // home dashboard's 7d view.
+  // granularity; a per-page duration selector may follow later. Until then
+  // this section reads the last 12 weeks of velocity.weekly to match the
+  // "Velocity (12 weeks)" heading; the daily array (velocity.daily) is
+  // consumed by the home dashboard's 7d view.
   const velocityData = useMemo(() => {
     const source = velocityView === 'issues' ? data.issues.velocity.weekly : data.pullRequests.velocity.weekly;
-    return source.map((v) => ({
+    return source.slice(-12).map((v) => ({
       week: v.week,
       opened: v.opened,
       closed: v.closed,
