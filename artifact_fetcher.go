@@ -701,7 +701,14 @@ func main() {
 	}
 
 	// Issues/PRs phase — extracted helper handles per-repo cache fallback.
-	prevCache, _ := loadPreviousIssuesPRs(filepath.Join(*outDir, "issues_prs.json"), logger)
+	prevCache, cacheErr := loadPreviousIssuesPRs(filepath.Join(*outDir, "issues_prs.json"), logger)
+	if cacheErr != nil {
+		// I/O failure (permission denied, EISDIR, etc.) — degraded run with
+		// empty cache. The function still returns a usable empty value, so
+		// continue, but surface the error so a silently-blank deploy is
+		// visible in logs.
+		errCh <- fmt.Errorf("issues_prs cache: %w", cacheErr)
+	}
 	issuesPRsFile := runIssuesPRsPhase(ctx, client, allRepos, *timeout, *workers, prevCache, logger)
 
 	wg.Wait()

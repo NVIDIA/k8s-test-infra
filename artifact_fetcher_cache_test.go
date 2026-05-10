@@ -179,6 +179,41 @@ func TestLoadPreviousIssuesPRs_MalformedJSON(t *testing.T) {
 	}
 }
 
+// TestLoadPreviousIssuesPRs_IOErrorReturnsError pins the contract that the
+// function returns a non-nil error when os.ReadFile fails for reasons other
+// than ErrNotExist. main() relies on this to surface unexpected I/O issues
+// (permission denied, EISDIR, etc.) instead of silently degrading to an
+// empty cache for an entire deploy run.
+//
+// We trigger EISDIR by passing a directory path to ReadFile.
+//
+// Mutation check: returning nil error from the os.ReadFile branch (e.g.,
+// always falling through to the "no prior cache" path) would cause this
+// test to fail with err == nil.
+func TestLoadPreviousIssuesPRs_IOErrorReturnsError(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	asFile := filepath.Join(dir, "issues_prs.json")
+	if err := os.Mkdir(asFile, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	var buf bytes.Buffer
+	logger := captureLogger(&buf)
+
+	got, err := loadPreviousIssuesPRs(asFile, logger)
+	if err == nil {
+		t.Fatalf("err = nil; want non-nil for directory-as-path I/O failure")
+	}
+	if !strings.Contains(err.Error(), "loadPreviousIssuesPRs read") {
+		t.Fatalf("err = %v; want it wrapped with 'loadPreviousIssuesPRs read' context", err)
+	}
+	if got.Repos == nil {
+		t.Fatalf("Repos = nil; want empty map alongside the error")
+	}
+}
+
 // TestLoadPreviousIssuesPRs_NonFatalRegression asserts the function does
 // not call log.Fatal on malformed JSON. We use the standard Go subprocess
 // pattern: re-exec the test binary with an env flag that runs only the
