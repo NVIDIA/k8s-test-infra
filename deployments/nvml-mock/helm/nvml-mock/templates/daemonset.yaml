@@ -61,6 +61,15 @@ spec:
             # workloads) all see the config at the same in-container location.
             - name: MOCK_NVML_CONFIG
               value: /etc/nvml-mock/config.yaml
+            # LD_PRELOAD installs the InfiniBand sysfs redirector in every
+            # process spawned in this container (e.g. `kubectl exec ibstat`).
+            # The shim only rewrites paths under /sys/class/infiniband*,
+            # /sys/class/infiniband_mad/, /sys/class/infiniband_verbs/ and
+            # /dev/infiniband — every other path passes through unchanged.
+            - name: LD_PRELOAD
+              value: "/usr/local/lib/libibmocksys.so.1"
+            - name: MOCK_IB_ROOT
+              value: "/var/lib/nvml-mock/ib"
           lifecycle:
             preStop:
               exec:
@@ -68,6 +77,14 @@ spec:
           volumeMounts:
             - name: host-nvml-mock
               mountPath: /host/var/lib/nvml-mock
+            # Second mount of the same hostPath volume at the canonical path
+            # so MOCK_IB_ROOT=/var/lib/nvml-mock/ib resolves identically in
+            # this pod and in CDI-injected consumer pods. Mounting one
+            # volume at multiple mountPaths in a single container is
+            # standard k8s behavior (supported on every version covered
+            # by Chart.yaml's kubeVersion: ">= 1.28.0-0").
+            - name: host-nvml-mock
+              mountPath: /var/lib/nvml-mock
             - name: gpu-config
               mountPath: /etc/nvml-mock
             - name: host-cdi

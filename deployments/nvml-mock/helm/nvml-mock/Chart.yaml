@@ -6,6 +6,11 @@ description: Mock NVIDIA driver infrastructure for Kubernetes testing
 type: application
 version: 0.1.0
 appVersion: "550.163.01"
+# Minimum kubernetes version. Mounting the same hostPath volume at two
+# different mountPaths in one container (used by daemonset.yaml for the
+# IB sysfs mock) has been supported since the dawn of kubernetes, but
+# pin a conservative floor for predictable CI runs.
+kubeVersion: ">= 1.28.0-0"
 icon: https://assets.nvidiagrid.net/ngc/logos/Infrastructure.png
 keywords:
   - gpu

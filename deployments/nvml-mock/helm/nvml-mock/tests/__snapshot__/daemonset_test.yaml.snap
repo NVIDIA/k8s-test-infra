@@ -18,7 +18,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: a9dac7aa968f973518f4685fc2b41ca907c356337f88a38859184767ad1b4aa2
+            checksum/config: 204e5d4ea3a64ec98af544c7d6623ba71a2839c2761c1678c655def226cdba68
           labels:
             app.kubernetes.io/instance: custom
             app.kubernetes.io/name: nvml-mock
@@ -37,6 +37,10 @@ should match snapshot with all overrides:
                       fieldPath: spec.nodeName
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
+                - name: LD_PRELOAD
+                  value: /usr/local/lib/libibmocksys.so.1
+                - name: MOCK_IB_ROOT
+                  value: /var/lib/nvml-mock/ib
               image: custom-registry/nvml-mock:v2.0.0
               imagePullPolicy: Always
               lifecycle:
@@ -56,6 +60,8 @@ should match snapshot with all overrides:
                 privileged: true
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
+                  name: host-nvml-mock
+                - mountPath: /var/lib/nvml-mock
                   name: host-nvml-mock
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
@@ -111,7 +117,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: 28998b50ef728ae5b194d8847eadc34fcc675e27fdf9f0bc2350a86e39473b9c
+            checksum/config: e77c39d7b16109bdf1a87a46bdfa0048811dae86863c83116d3a6b6978ddab5d
           labels:
             app.kubernetes.io/instance: RELEASE-NAME
             app.kubernetes.io/name: nvml-mock
@@ -130,6 +136,10 @@ should match snapshot with b200 profile:
                       fieldPath: spec.nodeName
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
+                - name: LD_PRELOAD
+                  value: /usr/local/lib/libibmocksys.so.1
+                - name: MOCK_IB_ROOT
+                  value: /var/lib/nvml-mock/ib
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               lifecycle:
@@ -142,6 +152,8 @@ should match snapshot with b200 profile:
                 privileged: true
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
+                  name: host-nvml-mock
+                - mountPath: /var/lib/nvml-mock
                   name: host-nvml-mock
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
@@ -193,7 +205,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: 8cc02ebbe7fb41275c40abc60753dc5cf974ef4dae475c8fea3c6c49d156e99d
+            checksum/config: 5c9770a3246c869d6a5fdcfe2648f185529cc0ea0528548468550be85dad3d63
           labels:
             app.kubernetes.io/instance: RELEASE-NAME
             app.kubernetes.io/name: nvml-mock
@@ -212,6 +224,10 @@ should match snapshot with default values:
                       fieldPath: spec.nodeName
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
+                - name: LD_PRELOAD
+                  value: /usr/local/lib/libibmocksys.so.1
+                - name: MOCK_IB_ROOT
+                  value: /var/lib/nvml-mock/ib
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               lifecycle:
@@ -224,6 +240,8 @@ should match snapshot with default values:
                 privileged: true
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
+                  name: host-nvml-mock
+                - mountPath: /var/lib/nvml-mock
                   name: host-nvml-mock
                 - mountPath: /etc/nvml-mock
                   name: gpu-config

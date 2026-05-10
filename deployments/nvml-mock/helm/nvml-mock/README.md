@@ -11,6 +11,9 @@ Deploys a DaemonSet that creates on every node:
 - Mock device nodes at `/var/lib/nvml-mock/driver/dev/nvidia{N,ctl,-uvm,-uvm-tools}` (consumers see them at `/dev/nvidia*` via CDI bind-mount)
 - GPU configuration at `/var/lib/nvml-mock/driver/config/config.yaml`
 - Node label `nvidia.com/gpu.present=true`
+- A fake InfiniBand sysfs tree at `/var/lib/nvml-mock/ib/sys/class/infiniband/...`
+  paired with `libibmocksys.so` (`LD_PRELOAD`) so real `ibstat`, `ibstatus`,
+  `iblinkinfo`, ... read mock HCAs
 
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
@@ -480,6 +483,63 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --set integrations.fakeGpuOperator.enabled=true \
   --set 'integrations.fakeGpuOperator.profileLabels.my-org/gpu-profile=true'
 ```
+
+## InfiniBand mocking
+
+Each profile carries an `infiniband:` block alongside the GPU config. When the
+DaemonSet starts, `render-ib-sysfs` reads it and writes a fake sysfs tree at
+`/var/lib/nvml-mock/ib/sys/class/infiniband/...`. Inside the container, the
+`LD_PRELOAD` shim `libibmocksys.so` rewrites every access to
+`/sys/class/infiniband*`, `/sys/class/infiniband_mad/`,
+`/sys/class/infiniband_verbs/` and `/dev/infiniband` so real userspace tools
+read from the rendered tree:
+
+```bash
+POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')
+kubectl exec "$POD" -- ibstat
+kubectl exec "$POD" -- ibstatus
+```
+
+### Defaults per profile
+
+| Profile | Enabled | HCA | Speed | HCAs per GPU |
+|---|---|---|---|---|
+| `a100`  | yes | ConnectX-6 (`MT4123`) | HDR 200 Gb/s | 1 |
+| `h100`  | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
+| `b200`  | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
+| `gb200` | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
+| `l40s`  | no  | — | — | — |
+| `t4`    | no  | — | — | — |
+
+### `infiniband:` block schema
+
+| Field | Default | Notes |
+|---|---|---|
+| `enabled` | `false` | Must be `true` to render any tree |
+| `hca_type` | `MT4129` | Shows up as `CA type` in `ibstat` output |
+| `fw_version` | `28.39.2048` | Firmware version |
+| `hw_rev` | `0x0` | Hardware revision |
+| `board_id` | `MT_0000000838` | Mellanox board ID |
+| `link_layer` | `InfiniBand` | `InfiniBand` or `Ethernet` |
+| `rate_gbps` | `400` | One of `100` (EDR), `200` (HDR), `400` (NDR), `800` (XDR) |
+| `port_state` | `ACTIVE` | `DOWN`, `INIT`, `ARMED`, `ACTIVE`, `ACTIVE_DEFER` |
+| `phys_state` | `LinkUp` | `Disabled`, `Polling`, `Training`, `LinkUp`, ... |
+| `hcas_per_gpu` | `1` | Total HCAs = `gpu.count * hcas_per_gpu` |
+| `hca_count` | `0` | If non-zero, used instead of `gpu.count * hcas_per_gpu` |
+| `guid_prefix` | `a088c20300ab` | First 12 hex digits of every node/port GUID; HCA index appended |
+| `node_desc_template` | `{node_name} mlx5_{idx}` | `{node_name}` and `{idx}` are interpolated |
+
+### Disable IB on a profile
+
+Set `enabled: false` either inline:
+
+```bash
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --set gpu.profile=h100 \
+  --set-string 'gpu.customConfig=infiniband: { enabled: false }'
+```
+
+…or via a custom profile file (preferred for full control).
 
 ## Configuration
 

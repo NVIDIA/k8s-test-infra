@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- InfiniBand mock: real `ibstat`, `ibstatus`, `iblinkinfo`, and other
+  `infiniband-diags` / `rdma-core` tools now work inside the nvml-mock
+  DaemonSet without IB hardware. Implementation: `LD_PRELOAD` shim
+  (`libibmocksys.so`) redirects libc filesystem accesses against
+  `/sys/class/infiniband*` and `/dev/infiniband` to a fake tree rendered
+  at startup by `render-ib-sysfs` from each profile's new `infiniband:`
+  block. Defaults: `a100` -> ConnectX-6 HDR; `h100` / `b200` / `gb200`
+  -> ConnectX-7 NDR; `l40s` / `t4` -> disabled.
+
 ## [0.1.0] - 2026-04-07
 
 ### Added

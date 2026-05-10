@@ -2,8 +2,8 @@
 
 This demo deploys nvml-mock on a local Kind cluster with FGO-style labels
 enabled. It does not require any external GPU operator -- nvml-mock itself
-generates the GPU profile ConfigMaps and node labels that downstream
-consumers expect.
+generates the GPU profile ConfigMaps, the fake InfiniBand sysfs tree, and
+the node labels that downstream consumers expect.
 
 ## What it does
 
@@ -17,6 +17,8 @@ consumers expect.
    - DaemonSet pods are running on all workers.
    - Six GPU profile ConfigMaps are created (one per profile field group).
    - `nvidia-smi` runs successfully inside a pod.
+   - `ibstat` lists 8 simulated ConnectX-7 NDR HCAs (see
+     [`pkg/network/mockibsysfs/README.md`](../../../pkg/network/mockibsysfs/README.md)).
    - Node labels are present.
 
 ## Quick start

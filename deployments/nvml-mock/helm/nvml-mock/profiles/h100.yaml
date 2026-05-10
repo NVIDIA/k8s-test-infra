@@ -383,3 +383,20 @@ nvlink:
       state: "active"
       remote_device_type: "gpu"
       remote_pci_bus_id: "00000000:1B:00.0"
+
+# =============================================================================
+# InfiniBand topology - 1 ConnectX-7 NDR HCA per GPU (typical HGX H100)
+# =============================================================================
+infiniband:
+  enabled: true
+  hca_type: "MT4129"                # ConnectX-7
+  fw_version: "28.39.2048"
+  hw_rev: "0x0"
+  board_id: "MT_0000000838"
+  link_layer: "InfiniBand"
+  rate_gbps: 400                    # NDR
+  port_state: "ACTIVE"
+  phys_state: "LinkUp"
+  hcas_per_gpu: 1                   # total HCAs = gpu.count * hcas_per_gpu
+  guid_prefix: "a088c2:0300:ab"     # last byte = HCA index
+  node_desc_template: "{node_name} mlx5_{idx}"

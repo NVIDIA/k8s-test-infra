@@ -334,3 +334,9 @@ devices:
     pci:
       bus_id: "00000000:D8:00.0"
     minor_number: 3
+
+# =============================================================================
+# InfiniBand topology - T4 systems do not ship with IB HCAs.
+# =============================================================================
+infiniband:
+  enabled: false

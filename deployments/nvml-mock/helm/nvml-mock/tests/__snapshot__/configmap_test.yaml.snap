@@ -391,6 +391,23 @@ should match snapshot with b200 profile:
               state: "active"
               remote_device_type: "gpu"
               remote_pci_bus_id: "00000000:1B:00.0"
+
+        # =============================================================================
+        # InfiniBand topology - 1 ConnectX-7 NDR HCA per GPU (typical HGX B200)
+        # =============================================================================
+        infiniband:
+          enabled: true
+          hca_type: "MT4129"
+          fw_version: "28.40.1000"
+          hw_rev: "0x0"
+          board_id: "MT_0000000838"
+          link_layer: "InfiniBand"
+          rate_gbps: 400
+          port_state: "ACTIVE"
+          phys_state: "LinkUp"
+          hcas_per_gpu: 1
+          guid_prefix: "b288c2:0300:ab"
+          node_desc_template: "{node_name} mlx5_{idx}"
     kind: ConfigMap
     metadata:
       labels:
@@ -788,6 +805,23 @@ should match snapshot with default a100 profile:
               remote_device_type: "gpu"
               remote_pci_bus_id: "00000000:0F:00.0"
             # ... define all 12 links for full topology
+
+        # =============================================================================
+        # InfiniBand topology - 1 ConnectX-6 HDR HCA per GPU (typical DGX A100)
+        # =============================================================================
+        infiniband:
+          enabled: true
+          hca_type: "MT4123"                # ConnectX-6
+          fw_version: "20.36.1010"
+          hw_rev: "0x0"
+          board_id: "MT_0000000223"
+          link_layer: "InfiniBand"
+          rate_gbps: 200                    # HDR
+          port_state: "ACTIVE"
+          phys_state: "LinkUp"
+          hcas_per_gpu: 1
+          guid_prefix: "a288c2:0300:ab"
+          node_desc_template: "{node_name} mlx5_{idx}"
     kind: ConfigMap
     metadata:
       labels:
@@ -1219,6 +1253,23 @@ should match snapshot with gb200 profile:
               remote_device_type: "cpu"     # NVLink-C2C to Grace
               remote_pci_bus_id: "N/A"
             # ... define all 18 links for full topology
+
+        # =============================================================================
+        # InfiniBand topology - 1 ConnectX-7 NDR HCA per GPU (typical GB200 NVL72)
+        # =============================================================================
+        infiniband:
+          enabled: true
+          hca_type: "MT4129"
+          fw_version: "28.40.1000"
+          hw_rev: "0x0"
+          board_id: "MT_0000000838"
+          link_layer: "InfiniBand"
+          rate_gbps: 400
+          port_state: "ACTIVE"
+          phys_state: "LinkUp"
+          hcas_per_gpu: 1
+          guid_prefix: "9b88c2:0300:ab"
+          node_desc_template: "{node_name} mlx5_{idx}"
     kind: ConfigMap
     metadata:
       labels:
@@ -1618,6 +1669,23 @@ should match snapshot with h100 profile:
               state: "active"
               remote_device_type: "gpu"
               remote_pci_bus_id: "00000000:1B:00.0"
+
+        # =============================================================================
+        # InfiniBand topology - 1 ConnectX-7 NDR HCA per GPU (typical HGX H100)
+        # =============================================================================
+        infiniband:
+          enabled: true
+          hca_type: "MT4129"                # ConnectX-7
+          fw_version: "28.39.2048"
+          hw_rev: "0x0"
+          board_id: "MT_0000000838"
+          link_layer: "InfiniBand"
+          rate_gbps: 400                    # NDR
+          port_state: "ACTIVE"
+          phys_state: "LinkUp"
+          hcas_per_gpu: 1                   # total HCAs = gpu.count * hcas_per_gpu
+          guid_prefix: "a088c2:0300:ab"     # last byte = HCA index
+          node_desc_template: "{node_name} mlx5_{idx}"
     kind: ConfigMap
     metadata:
       labels:
@@ -1996,6 +2064,13 @@ should match snapshot with l40s profile:
             pci:
               bus_id: "00000000:CB:00.0"
             minor_number: 7
+
+        # =============================================================================
+        # InfiniBand topology - L40S systems typically ship without IB HCAs.
+        # Set enabled=true via Helm values to simulate one if needed.
+        # =============================================================================
+        infiniband:
+          enabled: false
     kind: ConfigMap
     metadata:
       labels:
@@ -2346,6 +2421,12 @@ should match snapshot with t4 profile:
             pci:
               bus_id: "00000000:D8:00.0"
             minor_number: 3
+
+        # =============================================================================
+        # InfiniBand topology - T4 systems do not ship with IB HCAs.
+        # =============================================================================
+        infiniband:
+          enabled: false
     kind: ConfigMap
     metadata:
       labels:

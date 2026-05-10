@@ -131,6 +131,15 @@ jobs:
             "${{ steps.gpu-info.outputs.gpu-name }}" \
             2
 
+      - name: Validate ibstat / ibstatus (InfiniBand mock)
+        run: |
+          chmod +x tests/e2e/validate-ibstat.sh
+          POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+            -o jsonpath='{.items[0].metadata.name}')
+          # gpu.count=2 in this job; profiles ship hcas_per_gpu=1, so
+          # IB-enabled profiles are expected to expose 2 HCAs.
+          ./tests/e2e/validate-ibstat.sh "$POD" "${{ matrix.gpu-profile }}" 2
+
       - name: Deploy NVIDIA device plugin
         run: |
           kubectl apply -f tests/e2e/device-plugin-mock.yaml
@@ -756,6 +765,18 @@ jobs:
           echo "=== Worker-2 (T4) ==="
           docker exec "${{ steps.nodes.outputs.worker2 }}" ls -la /var/lib/nvml-mock/driver/usr/lib64/libnvidia-ml.so.* | head -2
           docker exec "${{ steps.nodes.outputs.worker2 }}" grep "NVIDIA T4" /var/lib/nvml-mock/config/config.yaml | head -1
+
+      - name: Validate ibstat / ibstatus on both workers
+        run: |
+          chmod +x tests/e2e/validate-ibstat.sh
+          # A100 release: IB enabled, expect gpu.count=2 HCAs.
+          A100_POD=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-a100 \
+            -o jsonpath='{.items[0].metadata.name}')
+          ./tests/e2e/validate-ibstat.sh "$A100_POD" a100 2
+          # T4 release: IB disabled by default, expect zero HCAs.
+          T4_POD=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-t4 \
+            -o jsonpath='{.items[0].metadata.name}')
+          ./tests/e2e/validate-ibstat.sh "$T4_POD" t4 2
 
       - name: Deploy NVIDIA device plugin
         run: |
