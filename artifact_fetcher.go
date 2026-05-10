@@ -48,23 +48,14 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// githubBypassKeyType is the type used for the rate-limit bypass context key.
-// Defining a unique type avoids collisions with other package's context keys.
-type githubBypassKeyType struct{}
-
-// githubBypass is the context value go-github checks to skip its built-in
-// rate-limit pre-check. The middleware in this package owns this concern;
-// passing it through the context bypasses go-github's own logic.
-//
-// Note: go-github v55 keeps its bypassRateLimitCheck constant unexported,
-// so we cannot reference it directly. We define our own typed key with the
-// same intent; in v55 the underlying go-github pre-check is not actually
-// suppressed, but the rate-limit middleware still owns the retry logic so
-// 429/secondary-limit responses are handled before go-github's pre-check
-// becomes relevant. A future bump to v75+ (which exports
-// github.BypassRateLimitCheck) lets us swap this var to point at the
-// upstream symbol without changing call sites or tests.
-var githubBypass any = githubBypassKeyType{}
+// TODO(v75+): when go-github exports github.BypassRateLimitCheck, declare
+// `var githubBypass any = github.BypassRateLimitCheck` and stamp it into the
+// outgoing context inside buildClient so go-github's built-in pre-check is
+// suppressed (the middleware owns retry semantics). Until then, a typed
+// private key would not be honored by v55 and stamping one would only
+// pollute the caller's context.Value() lookups, so we omit it. The
+// middleware still handles 429/secondary-limit responses correctly because
+// it sits below go-github's pre-check.
 
 // secondarySleepCap is the maximum duration the rate-limit middleware will
 // sleep on a single secondary-rate-limit response. Exceeding it triggers the
@@ -131,13 +122,8 @@ var allRepos = []string{
 //     lands, primary-limit exhaustion blanks the failing repo's row in
 //     this run's output.
 //
-// The returned context carries our githubBypass marker. In go-github v55
-// the equivalent symbol is unexported, so this is currently a no-op;
-// see the githubBypass var declaration for the rationale and the v75+
-// migration path. The middleware still handles 429 responses correctly
-// because it sits below go-github's check.
-//
 // Spec: docs/plans/2026-04-30-dashboard-duration-options-design.md (Q5).
+// See the TODO above for the v75+ bypass-marker migration.
 func buildClient(ctx context.Context, token string, logger *slog.Logger) (*github.Client, context.Context) {
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 	oauthClient := oauth2.NewClient(ctx, ts)
@@ -165,7 +151,6 @@ func buildClient(ctx context.Context, token string, logger *slog.Logger) (*githu
 	)
 
 	client := github.NewClient(rateLimited)
-	ctx = context.WithValue(ctx, githubBypass, true)
 	return client, ctx
 }
 

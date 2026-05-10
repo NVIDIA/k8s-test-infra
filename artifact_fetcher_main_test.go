@@ -82,28 +82,24 @@ func TestBuildClient_RetriesOnSecondaryRateLimit(t *testing.T) {
 	}
 }
 
-// TestBuildClient_BypassRateLimitCheckSet is a placeholder.
+// TestBuildClient_BypassRateLimitCheckSet is a placeholder for the v75+
+// behavioral assertion described on the bypass TODO above buildClient.
 //
-// In go-github v55 (current), bypassRateLimitCheck is an unexported context
-// key (see vendor/github.com/google/go-github/v55/github/github.go:784).
-// External code cannot set it; our buildClient stores its own
-// githubBypassKeyType{} marker. Asserting that our own marker is present
-// would pass regardless of whether go-github actually honors it — that is
-// theater, not a behavioral test.
+// In go-github v55 we do NOT stamp our own marker into the context, since
+// v55's bypassRateLimitCheck is unexported and asserting our private marker
+// would only confirm we set what we set — theater, not behavior.
 //
-// In go-github v75+ the symbol is exported. When the project bumps to v75+,
-// re-enable this test with an actual behavioral assertion: configure a stub
-// server to return a primary-rate-limit-exhausted response (X-RateLimit-
-// Remaining: 0, X-RateLimit-Reset in the future) on a FIRST call so that
-// go-github's c.rateLimits[] state is populated, then make a SECOND call and
-// assert it succeeds (because the bypass marker prevented the pre-empt).
+// On the v75+ bump, replace this Skip with: configure a stub server to
+// return a primary-rate-limit-exhausted response (X-RateLimit-Remaining: 0,
+// X-RateLimit-Reset in the future) on a FIRST call so go-github's
+// c.rateLimits[] state is populated, then make a SECOND call and assert it
+// succeeds because github.BypassRateLimitCheck prevented the pre-empt.
 // Without the bypass, the second call would short-circuit with a
 // *github.RateLimitError before reaching the network.
 //
-// Until the v75+ bump, the retry test
-// (TestBuildClient_RetriesOnSecondaryRateLimit) is the real safety net:
-// it proves the middleware engages on the response path, which is the only
-// behavior we care about with v55's unexported bypass.
+// Until then, TestBuildClient_RetriesOnSecondaryRateLimit is the real
+// safety net: it proves the middleware engages on the response path, which
+// is the only behavior we care about with v55.
 func TestBuildClient_BypassRateLimitCheckSet(t *testing.T) {
 	t.Skip("placeholder: bypassRateLimitCheck is unexported in go-github v55; re-enable on v75+ bump with a behavioral assertion (see TODO in godoc).")
 }
