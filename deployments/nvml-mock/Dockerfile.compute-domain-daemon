@@ -1,0 +1,29 @@
+# Copyright 2026 NVIDIA CORPORATION
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Thin overlay on the upstream compute-domain-daemon image that swaps in
+# the fake nvidia-imex / nvidia-imex-ctl binaries from the nvml-mock
+# image. With this image deployed (via the upstream Helm chart's image
+# override), the real compute-domain-controller and -daemon run
+# unmodified against the mock NVML fabric APIs on a hardware-free KIND
+# cluster. See NVIDIA/k8s-test-infra#304.
+
+ARG NVML_MOCK_IMAGE=ghcr.io/nvidia/nvml-mock:latest
+ARG COMPUTE_DOMAIN_DAEMON_IMAGE=registry.k8s.io/dra-driver-nvidia-gpu/compute-domain-daemon:latest
+
+FROM ${NVML_MOCK_IMAGE} AS imex
+
+FROM ${COMPUTE_DOMAIN_DAEMON_IMAGE}
+COPY --from=imex /usr/bin/nvidia-imex     /usr/bin/nvidia-imex
+COPY --from=imex /usr/bin/nvidia-imex-ctl /usr/bin/nvidia-imex-ctl

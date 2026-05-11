@@ -294,8 +294,47 @@ typedef struct nvmlGpmSupport_st {
     unsigned int isSupportedDevice;
 } nvmlGpmSupport_t;
 typedef struct nvmlGpuDynamicPstatesInfo_st                 nvmlGpuDynamicPstatesInfo_t;
-typedef struct nvmlGpuFabricInfoV_st                        nvmlGpuFabricInfoV_t;
-typedef struct nvmlGpuFabricInfo_st                         nvmlGpuFabricInfo_t;
+
+/* GPU Fabric information — full definitions needed by the bridge so
+ * nvmlDeviceGetGpuFabricInfo / nvmlDeviceGetGpuFabricInfoV can populate
+ * the caller's struct. Layout matches the upstream NVML public header
+ * (versions v1 / v2 / v3); see vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h. */
+#define NVML_GPU_FABRIC_UUID_LEN 16
+
+#define NVML_GPU_FABRIC_STATE_NOT_SUPPORTED 0
+#define NVML_GPU_FABRIC_STATE_NOT_STARTED   1
+#define NVML_GPU_FABRIC_STATE_IN_PROGRESS   2
+#define NVML_GPU_FABRIC_STATE_COMPLETED     3
+
+typedef unsigned char nvmlGpuFabricState_t;
+
+typedef struct nvmlGpuFabricInfo_st {
+    unsigned char        clusterUuid[NVML_GPU_FABRIC_UUID_LEN];
+    nvmlReturn_t         status;
+    unsigned int         cliqueId;
+    nvmlGpuFabricState_t state;
+} nvmlGpuFabricInfo_t;
+
+typedef struct nvmlGpuFabricInfo_v2_st {
+    unsigned int         version;
+    unsigned char        clusterUuid[NVML_GPU_FABRIC_UUID_LEN];
+    nvmlReturn_t         status;
+    unsigned int         cliqueId;
+    nvmlGpuFabricState_t state;
+    unsigned int         healthMask;
+} nvmlGpuFabricInfo_v2_t;
+
+typedef struct nvmlGpuFabricInfo_v3_st {
+    unsigned int         version;
+    unsigned char        clusterUuid[NVML_GPU_FABRIC_UUID_LEN];
+    nvmlReturn_t         status;
+    unsigned int         cliqueId;
+    nvmlGpuFabricState_t state;
+    unsigned int         healthMask;
+    unsigned char        healthSummary;
+} nvmlGpuFabricInfo_v3_t;
+
+typedef nvmlGpuFabricInfo_v3_t nvmlGpuFabricInfoV_t;
 typedef struct nvmlGpuInstanceInfo_st                       nvmlGpuInstanceInfo_t;
 typedef struct nvmlGpuInstancePlacement_st                  nvmlGpuInstancePlacement_t;
 typedef struct nvmlGpuInstanceProfileInfo_st                nvmlGpuInstanceProfileInfo_t;

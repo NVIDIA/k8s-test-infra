@@ -61,6 +61,22 @@ spec:
             # workloads) all see the config at the same in-container location.
             - name: MOCK_NVML_CONFIG
               value: /etc/nvml-mock/config.yaml
+            {{- if .Values.topology.enabled }}
+            # Point the engine's topology overlay at the in-pod mount of
+            # the cluster-level topology ConfigMap. See
+            # pkg/gpu/mocknvml/engine/config.go applyTopologyOverlay().
+            - name: MOCK_TOPOLOGY_CONFIG
+              value: /etc/nvml-mock/topology/topology.yaml
+            {{- end }}
+            {{- if .Values.imex.enabled }}
+            # Shared coordination directory for the fake nvidia-imex /
+            # nvidia-imex-ctl binaries baked into this image. The same
+            # hostPath is bind-mounted into compute-domain-daemon pods
+            # via the thin image layer in
+            # deployments/nvml-mock/Dockerfile.compute-domain-daemon.
+            - name: IMEX_STATE_DIR
+              value: {{ .Values.imex.stateDir }}
+            {{- end }}
             # LD_PRELOAD installs the InfiniBand sysfs redirector in every
             # process spawned in this container (e.g. `kubectl exec ibstat`).
             # The shim only rewrites paths under /sys/class/infiniband*,
@@ -91,6 +107,14 @@ spec:
               mountPath: /host/var/run/cdi
             - name: host-run-nvidia
               mountPath: /host/run/nvidia
+            {{- if .Values.topology.enabled }}
+            - name: gpu-topology
+              mountPath: /etc/nvml-mock/topology
+            {{- end }}
+            {{- if .Values.imex.enabled }}
+            - name: host-imex-state
+              mountPath: {{ .Values.imex.stateDir }}
+            {{- end }}
       volumes:
         - name: host-nvml-mock
           hostPath:
@@ -107,3 +131,14 @@ spec:
           hostPath:
             path: /run/nvidia
             type: DirectoryOrCreate
+        {{- if .Values.topology.enabled }}
+        - name: gpu-topology
+          configMap:
+            name: {{ include "nvml-mock.fullname" . }}-topology
+        {{- end }}
+        {{- if .Values.imex.enabled }}
+        - name: host-imex-state
+          hostPath:
+            path: {{ .Values.imex.stateDir }}
+            type: DirectoryOrCreate
+        {{- end }}

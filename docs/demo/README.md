@@ -43,3 +43,22 @@ cd failure-injection && ./run.sh
 
 See [failure-injection/README.md](failure-injection/README.md) for the
 walkthrough.
+
+### ComputeDomain (NVLink fabric)
+
+Dedicated cluster (`nvml-mock-compute-domain`) with 4 workers sharing a
+hostPath state directory. Exercises the mock NVML fabric APIs
+(`nvmlDeviceGetGpuFabricInfo` / `…InfoV`) driven by a cluster-level
+topology ConfigMap, plus the fake `nvidia-imex` /
+`nvidia-imex-ctl` binaries coordinating peer readiness through marker
+files on the shared volume. Concludes with a `helm upgrade` that
+rebinds every node into a new clique without rebuilding the image.
+
+**Requirements:** Docker, Kind, Helm
+
+```bash
+cd compute-domain && ./run.sh
+```
+
+See [compute-domain/README.md](compute-domain/README.md) for the
+walkthrough.

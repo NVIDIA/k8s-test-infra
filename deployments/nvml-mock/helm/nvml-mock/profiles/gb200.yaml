@@ -37,6 +37,20 @@ device_defaults:
   num_gpu_cores: 18432              # Blackwell has more CUDA cores
 
   # ---------------------------------------------------------------------------
+  # NVLink fabric (GB200 ComputeDomain). The clique_id / cluster_uuid below
+  # are placeholder defaults; the topology-overlay step in the engine
+  # rewrites them per-node based on the cluster-level topology ConfigMap
+  # (set Helm value `topology.enabled=true`). Nodes that don't appear in
+  # the topology fall through to these defaults, which is sufficient for
+  # single-node experiments. See pkg/gpu/mocknvml/engine/fabric.go.
+  # ---------------------------------------------------------------------------
+  fabric:
+    cluster_uuid: "00000000-0000-0000-0000-000000000001"
+    clique_id: 0
+    state: "completed"
+    health_mask: 0
+
+  # ---------------------------------------------------------------------------
   # InfoROM versions
   # ---------------------------------------------------------------------------
   inforom:

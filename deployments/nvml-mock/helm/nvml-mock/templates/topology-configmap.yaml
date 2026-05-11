@@ -1,0 +1,21 @@
+{{- /*
+Copyright 2026 NVIDIA CORPORATION
+SPDX-License-Identifier: Apache-2.0
+
+Cluster-level ComputeDomain topology. Consumed only by the mock NVML
+engine at LoadConfig() time to override per-node fabric attributes; see
+pkg/gpu/mocknvml/engine/config.go applyTopologyOverlay().
+*/ -}}
+{{- if .Values.topology.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nvml-mock.fullname" . }}-topology
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+data:
+  topology.yaml: |
+    version: 1
+    domains:
+      {{- toYaml .Values.topology.domains | nindent 6 }}
+{{- end }}
