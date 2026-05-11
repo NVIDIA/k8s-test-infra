@@ -1621,8 +1621,14 @@ func buildCommitURL(repo, tag string) string {
 // on ir.imageRegistry. The empty string defaults to GHCR (the historical
 // behavior). Per docs/plans/2026-05-11-dra-registry-k8s-io-design.md.
 func fetchLatestImageTag(ctx context.Context, client *github.Client, ir imageRepo) (ImageInfo, error) {
-	// No dispatch yet — the imageRegistry field lands in Task 2.
-	return fetchLatestGHCRTag(ctx, client, ir)
+	switch ir.imageRegistry {
+	case "", "ghcr.io":
+		return fetchLatestGHCRTag(ctx, client, ir)
+	case "registry.k8s.io":
+		return fetchLatestRegistryK8sTag(ctx, client, ir)
+	default:
+		return ImageInfo{}, fmt.Errorf("unknown imageRegistry %q for %s", ir.imageRegistry, ir.repo)
+	}
 }
 
 func fetchLatestGHCRTag(ctx context.Context, client *github.Client, ir imageRepo) (ImageInfo, error) {

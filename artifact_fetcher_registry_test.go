@@ -90,6 +90,90 @@ func TestFetchLatestRegistryK8sTag_HappyPath(t *testing.T) {
 	}
 }
 
+// TestFetchLatestImageTag_Dispatch asserts the dispatcher routes by
+// imageRegistry. We stub /repos/.../releases (registry.k8s.io path) and
+// /orgs/.../packages/... (GHCR path) on the same server and watch which one
+// is hit per imageRegistry value.
+func TestFetchLatestImageTag_Dispatch(t *testing.T) {
+	t.Parallel()
+
+	var (
+		ghcrHit     bool
+		releasesHit bool
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/orgs/") && strings.Contains(r.URL.Path, "/packages/"):
+			ghcrHit = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `[{"id":1,"created_at":"2026-05-01T00:00:00Z","metadata":{"container":{"tags":["v1.0.0"]}}}]`)
+		case strings.HasPrefix(r.URL.Path, "/repos/") && strings.HasSuffix(r.URL.Path, "/releases"):
+			releasesHit = true
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `[{"tag_name":"v25.12.0","published_at":"2026-02-12T14:55:44Z"}]`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	client := github.NewClient(nil)
+	client.BaseURL = mustParseURL(t, srv.URL+"/")
+
+	cases := []struct {
+		name          string
+		ir            imageRepo
+		wantGHCR      bool
+		wantReleases  bool
+		wantErrSubstr string
+	}{
+		{
+			name:         "empty registry routes to GHCR",
+			ir:           imageRepo{repo: "nvidia/k8s-device-plugin", pkgName: "k8s-device-plugin", imageRegistry: ""},
+			wantGHCR:     true,
+			wantReleases: false,
+		},
+		{
+			name:         "ghcr.io explicitly routes to GHCR",
+			ir:           imageRepo{repo: "nvidia/k8s-device-plugin", pkgName: "k8s-device-plugin", imageRegistry: "ghcr.io"},
+			wantGHCR:     true,
+			wantReleases: false,
+		},
+		{
+			name:         "registry.k8s.io routes to releases",
+			ir:           imageRepo{repo: "kubernetes-sigs/dra-driver-nvidia-gpu", pkgName: "dra-driver-nvidia/dra-driver-nvidia-gpu", imageRegistry: "registry.k8s.io"},
+			wantGHCR:     false,
+			wantReleases: true,
+		},
+		{
+			name:          "unknown registry returns error",
+			ir:            imageRepo{repo: "nvidia/foo", pkgName: "foo", imageRegistry: "quay.io"},
+			wantGHCR:      false,
+			wantReleases:  false,
+			wantErrSubstr: "unknown imageRegistry",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ghcrHit, releasesHit = false, false
+			_, err := fetchLatestImageTag(context.Background(), client, tc.ir)
+
+			if tc.wantErrSubstr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErrSubstr) {
+					t.Fatalf("err = %v; want non-nil containing %q", err, tc.wantErrSubstr)
+				}
+				return
+			}
+			if ghcrHit != tc.wantGHCR {
+				t.Errorf("ghcrHit = %v; want %v", ghcrHit, tc.wantGHCR)
+			}
+			if releasesHit != tc.wantReleases {
+				t.Errorf("releasesHit = %v; want %v", releasesHit, tc.wantReleases)
+			}
+		})
+	}
+}
+
 func TestFetchLatestRegistryK8sTag_NoReleases(t *testing.T) {
 	t.Parallel()
 
