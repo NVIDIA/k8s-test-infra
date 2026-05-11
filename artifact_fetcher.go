@@ -18,6 +18,7 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,23 +26,41 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"maps"
 	"sort"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/gofri/go-github-ratelimit/v2/github_ratelimit"
+	"github.com/gofri/go-github-ratelimit/v2/github_ratelimit/github_primary_ratelimit"
+	"github.com/gofri/go-github-ratelimit/v2/github_ratelimit/github_secondary_ratelimit"
 	"github.com/google/go-github/v55/github"
 	types "github.com/onsi/ginkgo/v2/types"
 	"golang.org/x/oauth2"
 )
+
+// TODO(v75+): when go-github exports github.BypassRateLimitCheck, declare
+// `var githubBypass any = github.BypassRateLimitCheck` and stamp it into the
+// outgoing context inside buildClient so go-github's built-in pre-check is
+// suppressed (the middleware owns retry semantics). Until then, a typed
+// private key would not be honored by v55 and stamping one would only
+// pollute the caller's context.Value() lookups, so we omit it. The
+// middleware still handles 429/secondary-limit responses correctly because
+// it sits below go-github's pre-check.
+
+// secondarySleepCap is the maximum duration the rate-limit middleware will
+// sleep on a single secondary-rate-limit response. Exceeding it triggers the
+// abort callback. Tests may override this via the package-level variable.
+var secondarySleepCap = 5 * time.Minute
 
 // -----------------------------------------------------------------------------
 // CLI flags
@@ -58,7 +77,7 @@ var (
 var defaultRepos = []string{
 	"nvidia/nvidia-container-toolkit",
 	"nvidia/k8s-device-plugin",
-	"nvidia/k8s-dra-driver-gpu",
+	"kubernetes-sigs/dra-driver-nvidia-gpu", // was: nvidia/k8s-dra-driver-gpu (donated to kubernetes-sigs 2026-04-30; see docs/plans/2026-04-30-dra-repo-migration-design.md)
 	"nvidia/holodeck",
 }
 
@@ -72,7 +91,7 @@ type imageRepo struct {
 
 var defaultImages = []imageRepo{
 	{"nvidia/k8s-device-plugin", "k8s-device-plugin"},
-	{"nvidia/k8s-dra-driver-gpu", "k8s-dra-driver-gpu"},
+	{"kubernetes-sigs/dra-driver-nvidia-gpu", "dra-driver-nvidia-gpu"}, // donated 2026-04-30; pkgName best-effort (kubernetes-sigs GHCR not yet listable without read:packages)
 	{"nvidia/nvidia-container-toolkit", "container-toolkit"},
 	{"nvidia/gpu-operator", "gpu-operator"},
 	{"nvidia/gpu-driver-container", "driver"},
@@ -82,12 +101,173 @@ var allRepos = []string{
 	"nvidia/gpu-operator",
 	"nvidia/nvidia-container-toolkit",
 	"nvidia/k8s-device-plugin",
-	"nvidia/k8s-dra-driver-gpu",
+	"kubernetes-sigs/dra-driver-nvidia-gpu", // donated 2026-04-30
 	"nvidia/holodeck",
 	"nvidia/go-nvml",
 	"nvidia/mig-parted",
 	"nvidia/gpu-driver-container",
 	"nvidia/k8s-nim-operator",
+}
+
+// buildClient constructs a *github.Client whose HTTP transport is wrapped
+// with the gofri/go-github-ratelimit/v2 middleware. The middleware handles
+// GitHub's primary and secondary rate limits transparently:
+//   - Secondary rate limits (429 / 403 + secondary-body) → middleware sleeps
+//     until Retry-After and retries, capped per-call at 5 minutes.
+//   - Primary rate limits (5000/hr exhausted) → middleware returns a typed
+//     error to the caller. In PR-A the caller's existing error path takes
+//     over (push to errCh, the run continues with whatever was successfully
+//     fetched). PR-B introduces a per-repo cache fallback that, when
+//     present, will be preferred over the bare error path; until PR-B
+//     lands, primary-limit exhaustion blanks the failing repo's row in
+//     this run's output.
+//
+// Spec: docs/plans/2026-04-30-dashboard-duration-options-design.md (Q5).
+// See the TODO above for the v75+ bypass-marker migration.
+func buildClient(ctx context.Context, token string, logger *slog.Logger) (*github.Client, context.Context) {
+	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
+	oauthClient := oauth2.NewClient(ctx, ts)
+
+	rateLimited := github_ratelimit.NewClient(oauthClient.Transport,
+		github_primary_ratelimit.WithLimitDetectedCallback(func(c *github_primary_ratelimit.CallbackContext) {
+			logger.Warn("github primary rate limit detected",
+				"category", c.Category,
+				"reset", c.ResetTime)
+		}),
+		github_primary_ratelimit.WithRequestPreventedCallback(func(c *github_primary_ratelimit.CallbackContext) {
+			logger.Warn("github request prevented by active rate limit",
+				"category", c.Category)
+		}),
+		github_secondary_ratelimit.WithLimitDetectedCallback(func(c *github_secondary_ratelimit.CallbackContext) {
+			logger.Warn("github secondary rate limit detected",
+				"reset", c.ResetTime,
+				"total_sleep", c.TotalSleepTime)
+		}),
+		github_secondary_ratelimit.WithSingleSleepLimit(secondarySleepCap, func(c *github_secondary_ratelimit.CallbackContext) {
+			logger.Error("secondary rate limit sleep would exceed cap; aborting",
+				"reset", c.ResetTime,
+				"cap", secondarySleepCap)
+		}),
+	)
+
+	client := github.NewClient(rateLimited)
+	return client, ctx
+}
+
+// loadPreviousIssuesPRs reads the previously deployed issues_prs.json file
+// (restored by the workflow's "Restore previous history data" step) and
+// returns it as an in-memory cache used by runIssuesPRsPhase to fall back
+// when a per-repo fetch fails this run.
+//
+// Behavior:
+//   - Missing or zero-byte file → empty IssuesPRsFile, nil error, info log.
+//   - Valid JSON → parsed file, nil error.
+//   - Malformed JSON → empty IssuesPRsFile, nil error, error-level log,
+//     and a ::warning:: GitHub Actions annotation on stdout so degradation
+//     is visible in the workflow run summary.
+//
+// This function never returns a log.Fatal path. The returned error is
+// reserved for unexpected I/O failures (permission denied, etc.); callers
+// may treat any non-nil error as exceptional but the typical degraded
+// flows return nil error with an empty cache.
+//
+// Spec: docs/plans/2026-04-30-dashboard-duration-options-design.md
+// (component loadPreviousIssuesPRs, malformed-cache path).
+func loadPreviousIssuesPRs(path string, logger *slog.Logger) (IssuesPRsFile, error) {
+	empty := IssuesPRsFile{Repos: make(map[string]RepoIssuesPRs)}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logger.Info("no prior cache", "path", path)
+			return empty, nil
+		}
+		// Other I/O errors are unexpected; surface them.
+		return empty, fmt.Errorf("loadPreviousIssuesPRs read %s: %w", path, err)
+	}
+
+	if len(bytes.TrimSpace(data)) == 0 {
+		logger.Info("no prior cache (empty file)", "path", path)
+		return empty, nil
+	}
+
+	var parsed IssuesPRsFile
+	if jerr := json.Unmarshal(data, &parsed); jerr != nil {
+		logger.Error("malformed prior cache",
+			"path", path,
+			"err", jerr.Error())
+		// Visible workflow annotation so degraded runs aren't silent.
+		fmt.Println("::warning title=issues_prs cache::malformed or schema-mismatched prior issues_prs.json — degraded fallback in effect (per-repo failures will omit). This is expected on the first run after PR-C lands due to the velocity-shape change.")
+		return empty, nil
+	}
+
+	if parsed.Repos == nil {
+		parsed.Repos = make(map[string]RepoIssuesPRs)
+	}
+	logger.Info("prior cache loaded", "path", path, "repos", len(parsed.Repos))
+	return parsed, nil
+}
+
+// runIssuesPRsPhase fetches issues/PRs for each repo concurrently and
+// returns a populated IssuesPRsFile. On any per-repo error, it consults
+// the cache: present → copy entry verbatim (preserving old fetchedAt);
+// absent → omit the repo from output. Phase-level errors (context
+// cancellation, panic) are returned to the caller; per-repo errors are
+// recorded in slog and never abort the run.
+//
+// Spec: docs/plans/2026-04-30-dashboard-duration-options-design.md
+// (component runIssuesPRsPhase).
+func runIssuesPRsPhase(
+	ctx context.Context,
+	client *github.Client,
+	repos []string,
+	timeout time.Duration,
+	workers int,
+	cache IssuesPRsFile,
+	logger *slog.Logger,
+) IssuesPRsFile {
+	out := IssuesPRsFile{Repos: make(map[string]RepoIssuesPRs)}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, workers)
+
+	for _, repo := range repos {
+		repo = strings.TrimSpace(repo)
+		if repo == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(r string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			ipCtx, cancel := context.WithTimeout(ctx, 2*timeout)
+			defer cancel()
+
+			data, err := fetchIssuesPRs(ipCtx, client, r)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				if cached, ok := cache.Repos[r]; ok {
+					logger.Warn("issues_prs: using cached data",
+						"repo", r,
+						"err", err.Error(),
+						"prev_fetched_at", cached.FetchedAt)
+					out.Repos[r] = cached
+					return
+				}
+				logger.Warn("issues_prs: no data and no prior cache",
+					"repo", r,
+					"err", err.Error())
+				return
+			}
+			out.Repos[r] = data
+		}(repo)
+	}
+
+	wg.Wait()
+	return out
 }
 
 type RepoInfo struct {
@@ -162,8 +342,8 @@ type RepoStatsEntry struct {
 }
 
 type HistoryFile struct {
-	Snapshots []HistorySnapshot          `json:"snapshots"`
-	Traffic   map[string]RepoTraffic     `json:"traffic"`
+	Snapshots []HistorySnapshot           `json:"snapshots"`
+	Traffic   map[string]RepoTraffic      `json:"traffic"`
 	RepoStats map[string][]RepoStatsEntry `json:"repoStats"`
 }
 
@@ -188,6 +368,29 @@ type VelocityWeek struct {
 	Merged *int   `json:"merged,omitempty"`
 }
 
+// VelocityDay carries day-bucketed counts. Used for sub-weekly views
+// (currently the 7d duration; D2 retains 365 days so future specs can
+// add historical-offset views without re-fetching).
+type VelocityDay struct {
+	Date   string `json:"date"` // RFC 3339 date in UTC, e.g. "2026-04-23"
+	Opened int    `json:"opened"`
+	Closed int    `json:"closed"`
+	Merged *int   `json:"merged,omitempty"`
+}
+
+// Velocity bundles the daily and weekly arrays for a single Issue or PR
+// stream. Daily covers the last 365 days (UTC-bucketed). Weekly covers the
+// last ~260 weeks at ISO-week granularity. Consumers select the array
+// matching the active duration:
+//   - 7d         → daily.slice(-7)
+//   - 4w / 12w   → weekly.slice(-4) / -12
+//   - 6m / 1y    → weekly.slice(-26) / -52
+//   - 5y         → weekly.slice(-260)
+type Velocity struct {
+	Daily  []VelocityDay  `json:"daily"`
+	Weekly []VelocityWeek `json:"weekly"`
+}
+
 type PRReviewMetrics struct {
 	AwaitingReview       int     `json:"awaitingReview"`
 	NoReviewer           int     `json:"noReviewer"`
@@ -199,14 +402,14 @@ type IssueStats struct {
 	Total      int            `json:"total"`
 	Categories map[string]int `json:"categories"`
 	AgeBuckets AgeBuckets     `json:"ageBuckets"`
-	Velocity   []VelocityWeek `json:"velocity"`
+	Velocity   Velocity       `json:"velocity"`
 }
 
 type PRStats struct {
 	Total      int             `json:"total"`
 	Categories map[string]int  `json:"categories"`
 	AgeBuckets AgeBuckets      `json:"ageBuckets"`
-	Velocity   []VelocityWeek  `json:"velocity"`
+	Velocity   Velocity        `json:"velocity"`
 	Review     PRReviewMetrics `json:"review"`
 }
 
@@ -218,11 +421,6 @@ type RepoIssuesPRs struct {
 
 type IssuesPRsFile struct {
 	Repos map[string]RepoIssuesPRs `json:"repos"`
-}
-
-type issuesPRsResult struct {
-	repo string
-	data RepoIssuesPRs
 }
 
 var labelCategories = map[string]map[string]string{
@@ -337,6 +535,44 @@ func buildVelocitySlice(opened, closed, merged map[string]int, from, to time.Tim
 	return result
 }
 
+// bucketByDay emits a continuous range of VelocityDay entries for [from, to)
+// in UTC. Days with no events get zero counts. The opened/closed/merged
+// input maps are keyed by RFC 3339 date strings ("YYYY-MM-DD") in UTC; the
+// caller is responsible for populating the keys with UTC dates (e.g.,
+// `t.UTC().Format("2006-01-02")`).
+//
+// merged may be nil for streams that don't track merges (Issues); the
+// resulting VelocityDay.Merged field is left nil in that case.
+//
+// Spec: docs/plans/2026-04-30-dashboard-duration-options-design.md
+// (component bucketByDay; D2 — 1-year retention).
+func bucketByDay(opened, closed, merged map[string]int, from, to time.Time) []VelocityDay {
+	from = from.UTC().Truncate(24 * time.Hour)
+	to = to.UTC().Truncate(24 * time.Hour)
+	if !from.Before(to) {
+		return []VelocityDay{}
+	}
+	days := int(to.Sub(from) / (24 * time.Hour))
+	out := make([]VelocityDay, 0, days)
+	for i := 0; i < days; i++ {
+		d := from.AddDate(0, 0, i)
+		key := d.Format("2006-01-02")
+		entry := VelocityDay{
+			Date:   key,
+			Opened: opened[key],
+			Closed: closed[key],
+		}
+		if merged != nil {
+			if m, ok := merged[key]; ok {
+				v := m
+				entry.Merged = &v
+			}
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
 // -----------------------------------------------------------------------------
 func main() {
 	log.SetFlags(0)
@@ -355,9 +591,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	tc := oauth2.NewClient(ctx, ts)
-	client := github.NewClient(tc)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	client, ctx := buildClient(ctx, token, logger)
 
 	resCh := make(chan TestResult, len(repos))
 	errCh := make(chan error, len(repos))
@@ -465,25 +700,16 @@ func main() {
 		}(repo)
 	}
 
-	issuesPRsCh := make(chan issuesPRsResult, len(allRepos))
-	for _, repo := range allRepos {
-		wg.Add(1)
-		go func(r string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			ipCtx, cancel := context.WithTimeout(ctx, 2*(*timeout))
-			defer cancel()
-
-			data, err := fetchIssuesPRs(ipCtx, client, r)
-			if err != nil {
-				errCh <- fmt.Errorf("issues/prs %s: %w", r, err)
-				return
-			}
-			issuesPRsCh <- issuesPRsResult{repo: r, data: data}
-		}(repo)
+	// Issues/PRs phase — extracted helper handles per-repo cache fallback.
+	prevCache, cacheErr := loadPreviousIssuesPRs(filepath.Join(*outDir, "issues_prs.json"), logger)
+	if cacheErr != nil {
+		// I/O failure (permission denied, EISDIR, etc.) — degraded run with
+		// empty cache. The function still returns a usable empty value, so
+		// continue, but surface the error so a silently-blank deploy is
+		// visible in logs.
+		errCh <- fmt.Errorf("issues_prs cache: %w", cacheErr)
 	}
+	issuesPRsFile := runIssuesPRsPhase(ctx, client, allRepos, *timeout, *workers, prevCache, logger)
 
 	wg.Wait()
 	close(resCh)
@@ -492,7 +718,6 @@ func main() {
 	close(wfCh)
 	close(repoCh)
 	close(trafficCh)
-	close(issuesPRsCh)
 
 	for err := range errCh {
 		log.Println("error:", err)
@@ -532,12 +757,6 @@ func main() {
 
 	if err := writeJSON(filepath.Join(*outDir, "repos.json"), map[string]any{"repos": repoInfos}); err != nil {
 		log.Fatal(err)
-	}
-
-	// --- Build issues_prs.json ---
-	issuesPRsFile := IssuesPRsFile{Repos: make(map[string]RepoIssuesPRs)}
-	for ipr := range issuesPRsCh {
-		issuesPRsFile.Repos[ipr.repo] = ipr.data
 	}
 
 	if err := writeJSON(filepath.Join(*outDir, "issues_prs.json"), issuesPRsFile); err != nil {
@@ -641,7 +860,7 @@ func processRepo(parent context.Context, client *github.Client, repo, token, art
 	}
 
 	tmpZip := filepath.Join(os.TempDir(), fmt.Sprintf("%s_%d.zip", name, art.GetID()))
-	if err := download(ctx, zipURL, tmpZip, token); err != nil {
+	if err := download(ctx, client.Client(), zipURL, tmpZip, token); err != nil {
 		return TestResult{}, err
 	}
 	defer os.Remove(tmpZip)
@@ -659,16 +878,17 @@ func processRepo(parent context.Context, client *github.Client, repo, token, art
 }
 
 // -----------------------------------------------------------------------------
-// download fetches a URL with token auth.
+// download fetches a URL with token auth using the supplied http.Client so
+// requests inherit the rate-limit middleware wired in main().
 // -----------------------------------------------------------------------------
-func download(ctx context.Context, url, dest, token string) error {
+func download(ctx context.Context, httpClient *http.Client, url, dest, token string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", "token "+token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -914,7 +1134,7 @@ func fetchRepoInfo(ctx context.Context, client *github.Client, repo string) (Rep
 	if reqErr == nil {
 		req.Header.Set("Accept", "application/vnd.github.html+json")
 		req.Header.Set("Authorization", "token "+os.Getenv("GITHUB_TOKEN"))
-		resp, doErr := http.DefaultClient.Do(req)
+		resp, doErr := client.Client().Do(req)
 		if doErr == nil {
 			defer resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -990,7 +1210,8 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 	}
 	owner, name := parts[0], parts[1]
 	now := time.Now().UTC()
-	twelveWeeksAgo := now.AddDate(0, 0, -84)
+	fiveYearsAgo := now.AddDate(-5, 0, 0)
+	oneYearAgo := now.AddDate(-1, 0, 0)
 
 	// Fetch all open issues (GitHub issues endpoint includes PRs, filter them out)
 	var openIssues []*github.Issue
@@ -1036,7 +1257,7 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 	var closedItems []*github.Issue
 	closedOpt := &github.IssueListByRepoOptions{
 		State:       "closed",
-		Since:       twelveWeeksAgo,
+		Since:       fiveYearsAgo,
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 	for {
@@ -1071,7 +1292,7 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 			if pr.GetMergedAt().IsZero() {
 				continue
 			}
-			if pr.GetMergedAt().Before(twelveWeeksAgo) {
+			if pr.GetMergedAt().Before(fiveYearsAgo) {
 				pastCutoff = true
 				continue // process remaining PRs on this page
 			}
@@ -1109,27 +1330,38 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 		}
 	}
 
-	// Issue velocity: opened + closed per week
+	// Issue velocity: opened + closed per week (5y window) and per day (1y window)
 	issueOpenedByWeek := make(map[string]int)
 	issueClosedByWeek := make(map[string]int)
+	issueOpenedByDay := make(map[string]int)
+	issueClosedByDay := make(map[string]int)
 
 	for _, iss := range openIssues {
-		if iss.GetCreatedAt().Time.After(twelveWeeksAgo) {
-			w := isoWeek(iss.GetCreatedAt().Time)
-			issueOpenedByWeek[w]++
+		if iss.GetCreatedAt().Time.After(fiveYearsAgo) {
+			t := iss.GetCreatedAt().Time
+			issueOpenedByWeek[isoWeek(t)]++
+			if t.After(oneYearAgo) {
+				issueOpenedByDay[t.UTC().Format("2006-01-02")]++
+			}
 		}
 	}
 	for _, iss := range closedItems {
 		if iss.PullRequestLinks != nil {
 			continue
 		}
-		if iss.GetCreatedAt().Time.After(twelveWeeksAgo) {
-			w := isoWeek(iss.GetCreatedAt().Time)
-			issueOpenedByWeek[w]++
+		if iss.GetCreatedAt().Time.After(fiveYearsAgo) {
+			t := iss.GetCreatedAt().Time
+			issueOpenedByWeek[isoWeek(t)]++
+			if t.After(oneYearAgo) {
+				issueOpenedByDay[t.UTC().Format("2006-01-02")]++
+			}
 		}
-		if iss.ClosedAt != nil && iss.GetClosedAt().Time.After(twelveWeeksAgo) {
-			w := isoWeek(iss.GetClosedAt().Time)
-			issueClosedByWeek[w]++
+		if iss.ClosedAt != nil && iss.GetClosedAt().Time.After(fiveYearsAgo) {
+			t := iss.GetClosedAt().Time
+			issueClosedByWeek[isoWeek(t)]++
+			if t.After(oneYearAgo) {
+				issueClosedByDay[t.UTC().Format("2006-01-02")]++
+			}
 		}
 	}
 
@@ -1170,33 +1402,48 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 		}
 	}
 
-	// PR velocity
+	// PR velocity (5y weekly + 1y daily)
 	prOpenedByWeek := make(map[string]int)
 	prClosedByWeek := make(map[string]int)
 	prMergedByWeek := make(map[string]int)
+	prOpenedByDay := make(map[string]int)
+	prClosedByDay := make(map[string]int)
+	prMergedByDay := make(map[string]int)
 
 	for _, pr := range openPRs {
-		if pr.GetCreatedAt().Time.After(twelveWeeksAgo) {
-			w := isoWeek(pr.GetCreatedAt().Time)
-			prOpenedByWeek[w]++
+		if pr.GetCreatedAt().Time.After(fiveYearsAgo) {
+			t := pr.GetCreatedAt().Time
+			prOpenedByWeek[isoWeek(t)]++
+			if t.After(oneYearAgo) {
+				prOpenedByDay[t.UTC().Format("2006-01-02")]++
+			}
 		}
 	}
 	for _, iss := range closedItems {
 		if iss.PullRequestLinks == nil {
 			continue
 		}
-		if iss.GetCreatedAt().Time.After(twelveWeeksAgo) {
-			w := isoWeek(iss.GetCreatedAt().Time)
-			prOpenedByWeek[w]++
+		if iss.GetCreatedAt().Time.After(fiveYearsAgo) {
+			t := iss.GetCreatedAt().Time
+			prOpenedByWeek[isoWeek(t)]++
+			if t.After(oneYearAgo) {
+				prOpenedByDay[t.UTC().Format("2006-01-02")]++
+			}
 		}
-		if iss.ClosedAt != nil && iss.GetClosedAt().Time.After(twelveWeeksAgo) {
-			w := isoWeek(iss.GetClosedAt().Time)
-			prClosedByWeek[w]++
+		if iss.ClosedAt != nil && iss.GetClosedAt().Time.After(fiveYearsAgo) {
+			t := iss.GetClosedAt().Time
+			prClosedByWeek[isoWeek(t)]++
+			if t.After(oneYearAgo) {
+				prClosedByDay[t.UTC().Format("2006-01-02")]++
+			}
 		}
 	}
 	for _, pr := range mergedPRs {
-		w := isoWeek(pr.GetMergedAt().Time)
-		prMergedByWeek[w]++
+		t := pr.GetMergedAt().Time
+		prMergedByWeek[isoWeek(t)]++
+		if t.After(oneYearAgo) {
+			prMergedByDay[t.UTC().Format("2006-01-02")]++
+		}
 	}
 
 	// Avg days to merge
@@ -1237,8 +1484,10 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 		avgDaysToFirstReview = totalFirstReviewDays / float64(reviewedCount)
 	}
 
-	issueVelocity := buildVelocitySlice(issueOpenedByWeek, issueClosedByWeek, nil, twelveWeeksAgo, now)
-	prVelocity := buildVelocitySlice(prOpenedByWeek, prClosedByWeek, prMergedByWeek, twelveWeeksAgo, now)
+	issueVelocityWeekly := buildVelocitySlice(issueOpenedByWeek, issueClosedByWeek, nil, fiveYearsAgo, now)
+	prVelocityWeekly := buildVelocitySlice(prOpenedByWeek, prClosedByWeek, prMergedByWeek, fiveYearsAgo, now)
+	issueVelocityDaily := bucketByDay(issueOpenedByDay, issueClosedByDay, nil, oneYearAgo, now)
+	prVelocityDaily := bucketByDay(prOpenedByDay, prClosedByDay, prMergedByDay, oneYearAgo, now)
 
 	return RepoIssuesPRs{
 		FetchedAt: now.Format(time.RFC3339),
@@ -1246,13 +1495,19 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 			Total:      len(openIssues),
 			Categories: issueCats,
 			AgeBuckets: issueAgeBuckets,
-			Velocity:   issueVelocity,
+			Velocity: Velocity{
+				Daily:  issueVelocityDaily,
+				Weekly: issueVelocityWeekly,
+			},
 		},
 		PullRequests: PRStats{
 			Total:      len(openPRs),
 			Categories: prCats,
 			AgeBuckets: prAgeBuckets,
-			Velocity:   prVelocity,
+			Velocity: Velocity{
+				Daily:  prVelocityDaily,
+				Weekly: prVelocityWeekly,
+			},
 			Review: PRReviewMetrics{
 				AwaitingReview:       awaitingReview,
 				NoReviewer:           noReviewer,

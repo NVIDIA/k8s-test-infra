@@ -47,15 +47,20 @@ export default function IssuesPRsSection({ data }: Props) {
     }));
   }, [data.issues.ageBuckets, data.pullRequests.ageBuckets]);
 
+  // Velocity here is rendered as the default detail view at weekly
+  // granularity; a per-page duration selector may follow later. Until then
+  // this section reads the last 12 weeks of velocity.weekly to match the
+  // "Velocity (12 weeks)" heading; the daily array (velocity.daily) is
+  // consumed by the home dashboard's 7d view.
   const velocityData = useMemo(() => {
-    const source = velocityView === 'issues' ? data.issues.velocity : data.pullRequests.velocity;
-    return source.map((v) => ({
+    const source = velocityView === 'issues' ? data.issues.velocity.weekly : data.pullRequests.velocity.weekly;
+    return source.slice(-12).map((v) => ({
       week: v.week,
       opened: v.opened,
       closed: v.closed,
       ...(v.merged !== undefined ? { merged: v.merged } : {}),
     }));
-  }, [velocityView, data.issues.velocity, data.pullRequests.velocity]);
+  }, [velocityView, data.issues.velocity.weekly, data.pullRequests.velocity.weekly]);
 
   const { tooltipStyle, tickStyle, gridStroke } = getChartStyles(dark);
 
@@ -204,6 +209,12 @@ export default function IssuesPRsSection({ data }: Props) {
                 dataKey="week"
                 tick={tickStyle}
                 tickFormatter={formatWeekTick}
+                label={{
+                  value: 'Week (UTC)',
+                  position: 'insideBottom',
+                  offset: -5,
+                  style: { fontSize: 11, fill: tickStyle.fill },
+                }}
               />
               <YAxis tick={tickStyle} allowDecimals={false} />
               <Tooltip contentStyle={tooltipStyle} />

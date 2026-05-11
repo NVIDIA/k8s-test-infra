@@ -34,13 +34,25 @@ jobs:
         with:
           go-version: "1.24"
 
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Go tests
+        run: go test -race -count=1 ./...
+
       - name: Restore previous history data
         run: |
           mkdir -p ./public/data
+          # history.json (existing)
           curl -sSf -o /tmp/history.json \
             "https://nvidia.github.io/k8s-test-infra/data/history.json" \
             && mv /tmp/history.json ./public/data/history.json \
             || echo '{}' > ./public/data/history.json
+          # issues_prs.json (new — feeds runIssuesPRsPhase cache fallback)
+          curl -sSf -o /tmp/issues_prs.json \
+            "https://nvidia.github.io/k8s-test-infra/data/issues_prs.json" \
+            && mv /tmp/issues_prs.json ./public/data/issues_prs.json \
+            || echo '{"repos":{}}' > ./public/data/issues_prs.json
 
       - name: Update artifacts
         env:
@@ -56,6 +68,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: JS tests
+        run: npm test
 
       - name: Build
         run: npm run build

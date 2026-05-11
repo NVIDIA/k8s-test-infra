@@ -1,0 +1,41 @@
+name: Go Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feat/dashboard-enhancements
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Verify modules
+        run: |
+          go mod tidy
+          if ! git diff --quiet -- go.mod go.sum; then
+            echo "::error::go.mod or go.sum out of sync; run 'go mod tidy' locally and commit"
+            git diff -- go.mod go.sum
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...

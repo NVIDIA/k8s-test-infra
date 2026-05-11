@@ -16,12 +16,11 @@ import {
 import { ChevronDown, ChevronRight, ArrowUp, ArrowDown, ArrowRight } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import VelocitySparkline from './VelocitySparkline';
-import { AGE_COLORS, getCategoryColor, getChartStyles, formatWeekTick, computeTrend } from '../utils/chartStyles';
+import { AGE_COLORS, getCategoryColor, getChartStyles, formatWeekTick, formatDayTick, computeTrend } from '../utils/chartStyles';
 import type { Trend } from '../utils/chartStyles';
+import { DURATIONS, pickVelocity, type Duration } from '../utils/duration';
 import { projects } from '../data/projects';
 import type { IssuesPRsData, RepoIssuesPRs } from '../types';
-
-type TimeRange = 4 | 8 | 12;
 
 interface Props {
   data: IssuesPRsData;
@@ -43,25 +42,27 @@ interface RowData {
 
 function ExpandedRowDetail({
   repoData,
-  timeRange,
+  duration,
   tooltipStyle,
   tickStyle,
   gridStroke,
 }: {
   repoData: RepoIssuesPRs;
-  timeRange: TimeRange;
+  duration: Duration;
   tooltipStyle: React.CSSProperties;
   tickStyle: { fontSize: number; fill: string };
   gridStroke: string;
 }) {
-  const issueVelocity = useMemo(
-    () => repoData.issues.velocity.slice(-timeRange),
-    [repoData.issues.velocity, timeRange],
+  const { points: issueVelocity, granularity: issueGranularity } = useMemo(
+    () => pickVelocity(repoData.issues.velocity, duration),
+    [repoData.issues.velocity, duration],
   );
-  const prVelocity = useMemo(
-    () => repoData.pullRequests.velocity.slice(-timeRange),
-    [repoData.pullRequests.velocity, timeRange],
+  const { points: prVelocity, granularity: prGranularity } = useMemo(
+    () => pickVelocity(repoData.pullRequests.velocity, duration),
+    [repoData.pullRequests.velocity, duration],
   );
+  const issueTickFormatter = issueGranularity === 'day' ? formatDayTick : formatWeekTick;
+  const prTickFormatter = prGranularity === 'day' ? formatDayTick : formatWeekTick;
   const issueCategories = useMemo(
     () =>
       Object.entries(repoData.issues.categories)
@@ -129,7 +130,7 @@ function ExpandedRowDetail({
         {/* Issue Velocity */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
           <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-            Issue Velocity ({timeRange}w)
+            Issue Velocity ({duration})
           </h4>
           {issueVelocity.length > 0 ? (
             <ResponsiveContainer width="100%" height={160}>
@@ -142,9 +143,15 @@ function ExpandedRowDetail({
                   stroke={gridStroke}
                 />
                 <XAxis
-                  dataKey="week"
+                  dataKey="label"
                   tick={tickStyle}
-                  tickFormatter={formatWeekTick}
+                  tickFormatter={issueTickFormatter}
+                  label={{
+                    value: issueGranularity === 'day' ? 'Day (UTC)' : 'Week (UTC)',
+                    position: 'insideBottom',
+                    offset: -5,
+                    style: { fontSize: tickStyle.fontSize, fill: tickStyle.fill },
+                  }}
                 />
                 <YAxis tick={tickStyle} allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} />
@@ -251,7 +258,7 @@ function ExpandedRowDetail({
             </div>
           </div>
           <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-            PR Velocity ({timeRange}w)
+            PR Velocity ({duration})
           </h4>
           {prVelocity.length > 0 ? (
             <ResponsiveContainer width="100%" height={100}>
@@ -259,10 +266,20 @@ function ExpandedRowDetail({
                 data={prVelocity}
                 margin={{ top: 4, right: 16, bottom: 0, left: 0 }}
               >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke={gridStroke}
+                />
                 <XAxis
-                  dataKey="week"
+                  dataKey="label"
                   tick={tickStyle}
-                  tickFormatter={formatWeekTick}
+                  tickFormatter={prTickFormatter}
+                  label={{
+                    value: prGranularity === 'day' ? 'Day (UTC)' : 'Week (UTC)',
+                    position: 'insideBottom',
+                    offset: -5,
+                    style: { fontSize: tickStyle.fontSize, fill: tickStyle.fill },
+                  }}
                 />
                 <YAxis tick={tickStyle} allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} />
@@ -296,7 +313,7 @@ function ExpandedRowDetail({
 export default function IssuesPRsDashboard({ data }: Props) {
   const { resolved } = useTheme();
   const dark = resolved === 'dark';
-  const [timeRange, setTimeRange] = useState<TimeRange>(12);
+  const [duration, setDuration] = useState<Duration>('12w');
   const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
 
   const rows = useMemo<RowData[]>(() => {
@@ -309,36 +326,34 @@ export default function IssuesPRsDashboard({ data }: Props) {
           name: p.name,
           repo: p.repo,
           repoData,
-          trend: computeTrend(repoData.issues.velocity),
+          trend: computeTrend(repoData.issues.velocity.weekly),
         };
       });
   }, [data]);
 
   const { tooltipStyle, tickStyle, gridStroke } = getChartStyles(dark);
 
-  const ranges: TimeRange[] = [4, 8, 12];
-
   return (
     <section className="mb-6">
       {/* Header with time range selector */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
           Issues &amp; PRs Overview
         </h2>
-        <div className="flex gap-1">
-          {ranges.map((r) => (
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Velocity duration">
+          {DURATIONS.map((d) => (
             <button
-              key={r}
-              onClick={() => setTimeRange(r)}
-              aria-pressed={timeRange === r}
-              aria-label={`Show ${r} weeks of data`}
+              key={d}
+              onClick={() => setDuration(d)}
+              aria-pressed={duration === d}
+              aria-label={`Show ${d} of velocity data`}
               className={`px-2 py-1 text-xs rounded ${
-                timeRange === r
+                duration === d
                   ? 'bg-nvidia-green text-white'
                   : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
               }`}
             >
-              {r}w
+              {d}
             </button>
           ))}
         </div>
@@ -396,14 +411,20 @@ export default function IssuesPRsDashboard({ data }: Props) {
                         {row.name}
                       </Link>
                     </td>
-                    <td className="p-3 text-right text-gray-700 dark:text-gray-300">
+                    <td
+                      className="p-3 text-right text-gray-700 dark:text-gray-300"
+                      data-testid={`open-issues-${row.slug}`}
+                    >
                       {row.repoData.issues.total}
                     </td>
-                    <td className="p-3 text-right text-gray-700 dark:text-gray-300">
+                    <td
+                      className="p-3 text-right text-gray-700 dark:text-gray-300"
+                      data-testid={`open-prs-${row.slug}`}
+                    >
                       {row.repoData.pullRequests.total}
                     </td>
                     <td className="p-3 text-center">
-                      <VelocitySparkline data={row.repoData.issues.velocity} weeks={timeRange} />
+                      <VelocitySparkline velocity={row.repoData.issues.velocity} duration={duration} />
                     </td>
                     <td className="p-3 text-right">
                       <span
@@ -438,7 +459,7 @@ export default function IssuesPRsDashboard({ data }: Props) {
                       <td colSpan={8} className="p-0">
                         <ExpandedRowDetail
                           repoData={row.repoData}
-                          timeRange={timeRange}
+                          duration={duration}
                           tooltipStyle={tooltipStyle}
                           tickStyle={tickStyle}
                           gridStroke={gridStroke}
