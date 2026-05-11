@@ -93,6 +93,33 @@ func TestDRAMigrationLiteralsAligned(t *testing.T) {
 			t.Errorf("defaultImages missing entry with repo=%q", newRepo)
 		}
 	})
+	t.Run("defaultImages.registryCoords", func(t *testing.T) {
+		t.Parallel()
+		// Post-CNCF-donation: DRA driver images live at
+		// registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu, promoted
+		// from a k8s-staging registry by the Prow release job.
+		// See docs/plans/2026-05-11-dra-registry-k8s-io-design.md.
+		const (
+			wantPkgName  = "dra-driver-nvidia/dra-driver-nvidia-gpu"
+			wantRegistry = "registry.k8s.io"
+		)
+		var found bool
+		for _, ir := range defaultImages {
+			if ir.repo != newRepo {
+				continue
+			}
+			found = true
+			if ir.imageRegistry != wantRegistry {
+				t.Errorf("defaultImages DRA entry imageRegistry = %q; want %q", ir.imageRegistry, wantRegistry)
+			}
+			if ir.pkgName != wantPkgName {
+				t.Errorf("defaultImages DRA entry pkgName = %q; want %q (full registry.k8s.io image path)", ir.pkgName, wantPkgName)
+			}
+		}
+		if !found {
+			t.Errorf("defaultImages missing entry with repo=%q", newRepo)
+		}
+	})
 	t.Run("projects.ts", func(t *testing.T) {
 		t.Parallel()
 		// Read the TS file as a string and grep for the canonical literal.
