@@ -95,7 +95,7 @@ type imageRepo struct {
 
 var defaultImages = []imageRepo{
 	{"nvidia/k8s-device-plugin", "k8s-device-plugin", ""},
-	{"kubernetes-sigs/dra-driver-nvidia-gpu", "dra-driver-nvidia-gpu", ""}, // rewired to registry.k8s.io in a follow-up commit
+	{"kubernetes-sigs/dra-driver-nvidia-gpu", "dra-driver-nvidia/dra-driver-nvidia-gpu", "registry.k8s.io"}, // images live at registry.k8s.io after Prow promotion; see docs/plans/2026-05-11-dra-registry-k8s-io-design.md
 	{"nvidia/nvidia-container-toolkit", "container-toolkit", ""},
 	{"nvidia/gpu-operator", "gpu-operator", ""},
 	{"nvidia/gpu-driver-container", "driver", ""},
