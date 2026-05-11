@@ -89,3 +89,22 @@ func TestFetchLatestRegistryK8sTag_HappyPath(t *testing.T) {
 		t.Errorf("CommitURL = %q; want %q (release URL for SemVer)", got.CommitURL, wantHTMLURL)
 	}
 }
+
+func TestFetchLatestRegistryK8sTag_NoReleases(t *testing.T) {
+	t.Parallel()
+
+	client := newReleasesStub(t, "kubernetes-sigs", "dra-driver-nvidia-gpu", `[]`)
+
+	ir := imageRepo{
+		repo:          "kubernetes-sigs/dra-driver-nvidia-gpu",
+		pkgName:       "dra-driver-nvidia/dra-driver-nvidia-gpu",
+		imageRegistry: "registry.k8s.io",
+	}
+	_, err := fetchLatestRegistryK8sTag(context.Background(), client, ir)
+	if err == nil {
+		t.Fatalf("err = nil; want non-nil for empty releases response")
+	}
+	if !strings.Contains(err.Error(), "no releases found") {
+		t.Fatalf("err = %v; want it to contain 'no releases found'", err)
+	}
+}
