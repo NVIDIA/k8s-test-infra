@@ -81,20 +81,24 @@ var defaultRepos = []string{
 	"nvidia/holodeck",
 }
 
-// imageRepo pairs a GitHub repository path with its GitHub Packages container
-// name. The repo field is the full owner/repo used for constructing HTML URLs,
-// while pkgName is the container package name used by the Packages API.
+// imageRepo pairs a GitHub repository path with its container-registry
+// coordinates. The repo field is the full owner/repo for source/release link
+// construction. pkgName is the image path within its registry. imageRegistry
+// discriminates the fetch path: "" or "ghcr.io" = GitHub Packages (default);
+// "registry.k8s.io" = OCI registry served by the kubernetes-sigs project
+// release pipeline. Per docs/plans/2026-05-11-dra-registry-k8s-io-design.md.
 type imageRepo struct {
-	repo    string // GitHub repo path, e.g. "nvidia/nvidia-container-toolkit"
-	pkgName string // GitHub Packages name, e.g. "container-toolkit"
+	repo          string // GitHub repo path, e.g. "nvidia/nvidia-container-toolkit"
+	pkgName       string // image path within the registry, e.g. "container-toolkit"
+	imageRegistry string // "" / "ghcr.io" = GHCR (default); "registry.k8s.io" for OCI
 }
 
 var defaultImages = []imageRepo{
-	{"nvidia/k8s-device-plugin", "k8s-device-plugin"},
-	{"kubernetes-sigs/dra-driver-nvidia-gpu", "dra-driver-nvidia-gpu"}, // donated 2026-04-30; pkgName best-effort (kubernetes-sigs GHCR not yet listable without read:packages)
-	{"nvidia/nvidia-container-toolkit", "container-toolkit"},
-	{"nvidia/gpu-operator", "gpu-operator"},
-	{"nvidia/gpu-driver-container", "driver"},
+	{"nvidia/k8s-device-plugin", "k8s-device-plugin", ""},
+	{"kubernetes-sigs/dra-driver-nvidia-gpu", "dra-driver-nvidia-gpu", ""}, // rewired to registry.k8s.io in a follow-up commit
+	{"nvidia/nvidia-container-toolkit", "container-toolkit", ""},
+	{"nvidia/gpu-operator", "gpu-operator", ""},
+	{"nvidia/gpu-driver-container", "driver", ""},
 }
 
 var allRepos = []string{
@@ -1613,7 +1617,15 @@ func buildCommitURL(repo, tag string) string {
 	return ""
 }
 
+// fetchLatestImageTag dispatches to the right registry-specific fetcher based
+// on ir.imageRegistry. The empty string defaults to GHCR (the historical
+// behavior). Per docs/plans/2026-05-11-dra-registry-k8s-io-design.md.
 func fetchLatestImageTag(ctx context.Context, client *github.Client, ir imageRepo) (ImageInfo, error) {
+	// No dispatch yet — the imageRegistry field lands in Task 2.
+	return fetchLatestGHCRTag(ctx, client, ir)
+}
+
+func fetchLatestGHCRTag(ctx context.Context, client *github.Client, ir imageRepo) (ImageInfo, error) {
 	parts := strings.Split(ir.repo, "/")
 	if len(parts) != 2 {
 		return ImageInfo{}, fmt.Errorf("invalid repo: %s", ir.repo)
@@ -1645,6 +1657,48 @@ func fetchLatestImageTag(ctx context.Context, client *github.Client, ir imageRep
 		Tag:       tag,
 		Pushed:    latest.GetCreatedAt().Format(time.RFC3339),
 		HTMLURL:   htmlURL,
+		ImageType: classifyImageTag(tag),
+		CommitURL: buildCommitURL(ir.repo, tag),
+	}, nil
+}
+
+// fetchLatestRegistryK8sTag handles imageRepo entries whose images live at
+// registry.k8s.io (or other OCI registries with no Packages API). Instead of
+// listing OCI tags — which would not give us push timestamps — we list the
+// source repo's GitHub releases and treat the newest release as authoritative
+// for the latest image tag and push date. This matches the release process:
+// the GitHub release publish triggers the Prow image-push job.
+//
+// Spec: docs/plans/2026-05-11-dra-registry-k8s-io-design.md.
+func fetchLatestRegistryK8sTag(ctx context.Context, client *github.Client, ir imageRepo) (ImageInfo, error) {
+	parts := strings.Split(ir.repo, "/")
+	if len(parts) != 2 {
+		return ImageInfo{}, fmt.Errorf("invalid repo: %s", ir.repo)
+	}
+	owner, name := parts[0], parts[1]
+
+	rels, _, err := client.Repositories.ListReleases(ctx, owner, name, &github.ListOptions{PerPage: 5})
+	if err != nil {
+		return ImageInfo{}, fmt.Errorf("list releases %s: %w", ir.repo, err)
+	}
+	if len(rels) == 0 {
+		return ImageInfo{}, fmt.Errorf("no releases found for %s", ir.repo)
+	}
+
+	// GitHub returns releases newest-first.
+	latest := rels[0]
+	tag := latest.GetTagName()
+
+	// No GHCR page exists for registry.k8s.io-hosted images; both the Tag-cell
+	// link (HTMLURL) and the Source-cell link (CommitURL) point at the GitHub
+	// release page. buildCommitURL already returns this for SemVer tags.
+	releaseURL := fmt.Sprintf("https://github.com/%s/releases/tag/%s", ir.repo, tag)
+
+	return ImageInfo{
+		Repo:      ir.repo,
+		Tag:       tag,
+		Pushed:    latest.GetPublishedAt().Format(time.RFC3339),
+		HTMLURL:   releaseURL,
 		ImageType: classifyImageTag(tag),
 		CommitURL: buildCommitURL(ir.repo, tag),
 	}, nil
