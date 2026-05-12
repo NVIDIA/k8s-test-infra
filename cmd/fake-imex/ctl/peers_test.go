@@ -18,6 +18,9 @@ import (
 	"testing"
 )
 
+// TestExpectedPeers locks in the contract used by main()'s readiness
+// check: the local POD_IP is always part of the set, even when
+// nodes.cfg omits it.
 func TestExpectedPeers(t *testing.T) {
 	cases := []struct {
 		name  string
