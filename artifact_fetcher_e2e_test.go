@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -340,6 +341,85 @@ func srvURLOf(r *http.Request) string {
 //
 // Mutation check: a special-case "if no events, return nil arrays"
 // fails the length assertion.
+// TestFetchIssuesPRs_PaginationCap pins the per-loop pagination cap that
+// prevents runaway page-walking on a repo with very long history. Without
+// the cap, the fetcher pages indefinitely through every closed issue whose
+// updated_at falls within the 5y window — GitHub's `Since` filter uses
+// updated_at, not created_at, so old issues with recent comments stay in
+// the result set. Long-lived repos (gpu-operator, k8s-device-plugin) have
+// thousands of such issues; without a cap the deploy stalls for hours and
+// exhausts the rate-limit budget. Verified empirically on the cancelled
+// run 2026-05-11T13:12:35Z (5h 20m of silence post traffic phase).
+//
+// The stub server always returns a full page (100 issues) AND advertises a
+// next page via Link header, simulating an infinite-pagination repo. The
+// fetcher must stop at maxIssuesPRsPages and return cleanly.
+//
+// Mutation: removing the page-cap exit causes the fetcher to keep paging
+// past 30 calls; the openCalls assertion fires.
+func TestFetchIssuesPRs_PaginationCap(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+
+	var openCalls int32
+	var openCallsMu sync.Mutex
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/issues") || r.URL.Query().Get("state") != "open" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, "[]")
+			return
+		}
+		openCallsMu.Lock()
+		openCalls++
+		thisPage := openCalls
+		openCallsMu.Unlock()
+
+		// Always advertise a "next" page — the fetcher never sees end-of-list.
+		w.Header().Set("Link", fmt.Sprintf(`<%s/repos/test/repo/issues?state=open&page=%d>; rel="next"`, srvURLOf(r), thisPage+1))
+		w.Header().Set("Content-Type", "application/json")
+
+		// 100 distinct open issues per page, all with createdAt in the last year
+		// so they all land in the velocity window.
+		fixtures := make([]issueFixture, 0, 100)
+		for i := 0; i < 100; i++ {
+			fixtures = append(fixtures, issueFixture{
+				Number:    int(thisPage)*1000 + i,
+				State:     "open",
+				CreatedAt: now.Add(-time.Duration(i) * time.Hour),
+				Labels:    []string{"bug"},
+			})
+		}
+		_, _ = io.WriteString(w, buildIssuesJSON(fixtures))
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+
+	client, ctx := buildClient(ctx, "fake-token", silentLogger())
+	parsed, _ := client.BaseURL.Parse(srv.URL + "/")
+	client.BaseURL = parsed
+
+	got, err := fetchIssuesPRs(ctx, client, "test/repo")
+	if err != nil {
+		t.Fatalf("fetchIssuesPRs: %v", err)
+	}
+
+	// The cap is maxIssuesPRsPages; verify the fetcher honored it.
+	if openCalls > int32(maxIssuesPRsPages) {
+		t.Errorf("open-issues API calls = %d; want <= %d (page cap leaked)", openCalls, maxIssuesPRsPages)
+	}
+	if openCalls < int32(maxIssuesPRsPages) {
+		t.Errorf("open-issues API calls = %d; want exactly %d (cap should be reached)", openCalls, maxIssuesPRsPages)
+	}
+	// And the events do actually flow into the aggregator (100 per page × cap).
+	wantTotal := int(maxIssuesPRsPages) * 100
+	if got.Issues.Total != wantTotal {
+		t.Errorf("Issues.Total = %d; want %d (cap × per_page)", got.Issues.Total, wantTotal)
+	}
+}
+
 func TestFetchIssuesPRs_EmptyResponse(t *testing.T) {
 	t.Parallel()
 
