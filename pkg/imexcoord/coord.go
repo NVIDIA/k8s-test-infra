@@ -28,6 +28,32 @@
 // Pod IPs are globally unique in Kubernetes, so no clique
 // subdirectories are required — the daemon's own filtering already
 // scopes the nodes.cfg to the correct clique.
+//
+// # Known limitations
+//
+// This is a deliberately thin file-based simulation of nvidia-imex; it
+// does not attempt to mirror every property of the real network-based
+// protocol. Three behaviours are worth knowing about:
+//
+//  1. No liveness signal. Markers are presence-only, so SIGKILL,
+//     OOM-kill, kubelet eviction, or a node crash all leave stale
+//     markers behind. nvidia-imex-ctl will report READY for a fault
+//     window equal to whatever cleans the shared hostPath — until then
+//     the upstream ComputeDomain controller is responsible for
+//     tolerating a stale READY across that window.
+//  2. Pod IP recycling is undefined. Markers are keyed by POD_IP, and
+//     Kubernetes may eventually reissue an IP after a long enough
+//     delete-recreate cycle. If a new pod inherits an IP that has a
+//     leftover marker from a prior incarnation, ctl will treat the new
+//     pod as immediately ready. KIND tears the shared hostPath down at
+//     cluster destroy, so this is bounded in practice; long-lived
+//     shared-mount simulations would need to clear markers on pod
+//     deletion.
+//  3. The daemon's 2s tick is observability-only — it re-reads
+//     nodes.cfg for logging and re-asserts its marker, but readiness
+//     itself is driven by ctl invocations from the kubelet probe. The
+//     worst-case latency between a peer dying and ctl observing it is
+//     the readiness probe period, not the daemon's tick.
 package imexcoord
 
 import (
