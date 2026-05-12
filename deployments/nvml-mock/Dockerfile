@@ -20,11 +20,18 @@ COPY vendor/ vendor/
 COPY pkg/gpu/mocknvml/ pkg/gpu/mocknvml/
 COPY pkg/gpu/mockcuda/ pkg/gpu/mockcuda/
 COPY pkg/network/mockibsysfs/ pkg/network/mockibsysfs/
+COPY pkg/imexcoord/ pkg/imexcoord/
 COPY cmd/render-ib-sysfs/ cmd/render-ib-sysfs/
+COPY cmd/fake-imex/ cmd/fake-imex/
+COPY cmd/check-fabric/ cmd/check-fabric/
 RUN cd pkg/gpu/mocknvml && make clean && make
 RUN cd pkg/gpu/mockcuda && make clean && make
 RUN cd pkg/network/mockibsysfs && make clean && make
-RUN mkdir -p /out && go build -mod=vendor -o /out/render-ib-sysfs ./cmd/render-ib-sysfs
+RUN mkdir -p /out \
+    && go build -mod=vendor -o /out/render-ib-sysfs ./cmd/render-ib-sysfs \
+    && go build -mod=vendor -o /out/nvidia-imex     ./cmd/fake-imex/daemon \
+    && go build -mod=vendor -o /out/nvidia-imex-ctl ./cmd/fake-imex/ctl \
+    && go build -mod=vendor -o /out/check-fabric    ./cmd/check-fabric
 
 FROM debian:bookworm-slim
 ARG KUBECTL_VERSION=v1.32.0
@@ -33,6 +40,17 @@ COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockibsysfs/libibmocksys.so.* /usr/local/lib/
 COPY --from=builder /out/render-ib-sysfs /usr/local/bin/render-ib-sysfs
+# Fake IMEX binaries used for ComputeDomain simulation on KIND. Installed
+# at the same paths the upstream compute-domain-daemon expects in $PATH,
+# so the thin daemon image layer (Dockerfile.compute-domain-daemon) can
+# COPY them straight from this image. See NVIDIA/k8s-test-infra#304.
+COPY --from=builder /out/nvidia-imex     /usr/bin/nvidia-imex
+COPY --from=builder /out/nvidia-imex-ctl /usr/bin/nvidia-imex-ctl
+# check-fabric: tiny Go consumer that calls nvmlDeviceGetGpuFabricInfo
+# via the LD_PRELOAD'd mock library. Used by docs/demo/compute-domain
+# to confirm the topology overlay assigned the expected clique to each
+# node. See NVIDIA/k8s-test-infra#304.
+COPY --from=builder /out/check-fabric    /usr/local/bin/check-fabric
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \

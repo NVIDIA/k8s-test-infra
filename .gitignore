@@ -5,6 +5,9 @@
 *.out
 *.test
 
+# Stray binaries from `go build ./cmd/...` at repo root
+/check-fabric
+
 # Agentic working artifacts
 .agents/
 AGENTS.md

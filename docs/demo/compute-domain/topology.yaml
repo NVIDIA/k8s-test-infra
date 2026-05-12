@@ -1,0 +1,31 @@
+# Helm values fragment for the ComputeDomain demo
+# (docs/demo/compute-domain/run.sh). Passed to `helm upgrade --install`
+# via `-f <this file>` so the chart merges it on top of its defaults.
+#
+# `--set-file` is NOT used here: that flag stuffs the raw file bytes
+# into the target key as a string literal, which would defeat the
+# structured list helm expects under `topology.domains`.
+#
+# Node names follow Kind's `<cluster-name>-worker[N]` convention. The
+# cluster is created from tests/e2e/kind-compute-domain-config.yaml as
+# `nvml-mock-compute-domain`, so worker0 .. worker3 land at
+# `nvml-mock-compute-domain-worker`, `-worker2`, `-worker3`, `-worker4`.
+#
+# Layout:
+#   domain "demo-domain"
+#     clique 0: -worker, -worker2
+#     clique 1: -worker3, -worker4
+topology:
+  enabled: true
+  domains:
+    - name: demo-domain
+      uuid: "00000000-0000-0000-0000-0000000000ab"
+      cliques:
+        - id: 0
+          nodes:
+            - nvml-mock-compute-domain-worker
+            - nvml-mock-compute-domain-worker2
+        - id: 1
+          nodes:
+            - nvml-mock-compute-domain-worker3
+            - nvml-mock-compute-domain-worker4

@@ -138,6 +138,11 @@ type DeviceConfig struct {
 	// uncorrectable ECC, Xid). When nil (default) the device behaves as
 	// healthy hardware.
 	Failure *FailureInjectionConfig `json:"failure,omitempty"`
+
+	// Fabric enables the GB200/GB300 NVLink fabric API surface. When nil
+	// (default) GetGpuFabricInfo / GetGpuFabricInfoV report
+	// ERROR_NOT_SUPPORTED — matching every non-fabric-attached GPU.
+	Fabric *FabricConfig `json:"fabric,omitempty"`
 }
 
 // DeviceOverride contains per-device settings that override defaults
@@ -531,6 +536,61 @@ type FailureInjectionConfig struct {
 // fallen off the bus", 64 = "ECC double-bit error").
 type XidErrorConfig struct {
 	Code uint64 `json:"code,omitempty"`
+}
+
+// FabricConfig models the per-GPU NVLink fabric attributes that
+// nvmlDeviceGetGpuFabricInfo / nvmlDeviceGetGpuFabricInfoV expose for
+// fabric-attached GPUs (Hopper+ / GB200 / GB300). All GPUs on the same
+// physical node share the same fabric config — the NVLink domain is a
+// node-level property.
+//
+// State strings map to the NVML_GPU_FABRIC_STATE_* enum:
+//   - "not_started" -> 0
+//   - "in_progress" -> 1
+//   - "completed"   -> 2
+//
+// ClusterUUID is parsed as RFC-4122-style hex; non-hex characters are
+// dropped and the buffer is zero-padded to 16 bytes so the YAML can
+// carry either bare hex or dashed UUID form.
+type FabricConfig struct {
+	// ClusterUUID identifies the NVLink fabric (16-byte UUID). Accepts
+	// dashed form ("00000000-0000-0000-0000-000000000001") or bare hex.
+	ClusterUUID string `json:"cluster_uuid,omitempty"`
+	// CliqueID is the clique within the cluster this GPU belongs to.
+	CliqueID uint32 `json:"clique_id,omitempty"`
+	// State is the GPU registration state with the fabric manager.
+	// Defaults to "completed" (the healthy steady-state value).
+	State string `json:"state,omitempty"`
+	// HealthMask is the v2 health bitmask. Defaults to 0 (healthy).
+	HealthMask uint32 `json:"health_mask,omitempty"`
+}
+
+// TopologyDocument is the cluster-level ConfigMap that maps individual
+// nodes (by Kubernetes node name) to fabric clusters and cliques. It is
+// the single source of truth for ComputeDomain topology in the mock.
+//
+// At LoadConfig() time the engine looks up the current node (via
+// NODE_NAME) and, if found in the topology, overrides the per-device
+// FabricConfig.ClusterUUID / CliqueID. Nodes absent from the topology
+// keep their default fabric config (or report NOT_SUPPORTED when no
+// FabricConfig is present).
+type TopologyDocument struct {
+	Version int              `json:"version"`
+	Domains []TopologyDomain `json:"domains"`
+}
+
+// TopologyDomain represents one NVLink fabric domain (cluster UUID).
+type TopologyDomain struct {
+	Name    string            `json:"name,omitempty"`
+	UUID    string            `json:"uuid"`
+	Cliques []TopologyClique  `json:"cliques"`
+}
+
+// TopologyClique groups the Kubernetes node names that share a clique
+// inside a fabric domain.
+type TopologyClique struct {
+	ID    uint32   `json:"id"`
+	Nodes []string `json:"nodes"`
 }
 
 // NVLinkConfig defines NVLink topology

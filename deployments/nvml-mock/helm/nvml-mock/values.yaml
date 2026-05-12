@@ -70,6 +70,37 @@ updateStrategy:
 # is overkill and slows rollouts.
 terminationGracePeriodSeconds: 10
 
+# ComputeDomain (NVLink fabric) simulation. Opt-in: when `topology.enabled`
+# is true a cluster-level ConfigMap declaring domain UUID + per-clique node
+# membership is rendered and mounted into every nvml-mock pod. The mock
+# NVML engine looks up its NODE_NAME on startup and overrides each GPU's
+# fabric cluster_uuid / clique_id accordingly. See
+# pkg/gpu/mocknvml/engine/fabric.go and issue NVIDIA/k8s-test-infra#304.
+topology:
+  enabled: false
+  # Cluster-level topology document (consumed only by the mock NVML
+  # engine). Each node must appear in exactly one clique within one
+  # domain. Example:
+  # domains:
+  #   - name: "test-domain-1"
+  #     uuid: "00000000-0000-0000-0000-000000000001"
+  #     cliques:
+  #       - id: 0
+  #         nodes: [kind-worker, kind-worker2]
+  #       - id: 1
+  #         nodes: [kind-worker3, kind-worker4]
+  domains: []
+
+# Fake IMEX coordination. When `imex.enabled` is true the chart mounts a
+# hostPath state directory into the nvml-mock pod so the fake nvidia-imex
+# / nvidia-imex-ctl binaries (compiled into the image) can coordinate
+# peer readiness via marker files. Real compute-domain-daemon pods reuse
+# the same hostPath via a thin image layer (see
+# deployments/nvml-mock/Dockerfile.compute-domain-daemon).
+imex:
+  enabled: false
+  stateDir: /var/lib/nvml-mock/imex-state
+
 # Integration with external projects
 integrations:
   fakeGpuOperator:

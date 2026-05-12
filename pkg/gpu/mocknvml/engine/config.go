@@ -102,6 +102,16 @@ func LoadConfig() *Config {
 			if yamlConfig.System.NumDevices > 0 {
 				config.NumDevices = yamlConfig.System.NumDevices
 			}
+
+			// Topology overlay: when a cluster-level topology ConfigMap is
+			// mounted into the pod we look up the current Kubernetes node
+			// (NODE_NAME) and override the fabric cluster UUID / clique ID
+			// on the YAML defaults so every device on this node reports
+			// the correct ComputeDomain identity. Nodes not present in the
+			// topology fall through to the YAML-default fabric config (or
+			// to NOT_SUPPORTED when none is set, matching non-GB200 GPUs).
+			applyTopologyOverlay(yamlConfig)
+
 			debugLog("[CONFIG] Loaded YAML config: %d devices, driver %s\n", config.NumDevices, config.DriverVersion)
 
 			// Cache the config
@@ -352,7 +362,94 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.Failure != nil {
 		base.Failure = override.Failure
 	}
+	if override.Fabric != nil {
+		base.Fabric = override.Fabric
+	}
 	// Add more fields as needed
+}
+
+// applyTopologyOverlay rewrites yamlConfig.DeviceDefaults.Fabric (and any
+// per-device override that already carries a Fabric block) based on a
+// cluster-level topology document. The lookup key is the Kubernetes node
+// name supplied through the NODE_NAME environment variable (set via the
+// downward API in the DaemonSet). When either the topology file or the
+// NODE_NAME is unset, this is a no-op.
+//
+// Resolution order for the topology path:
+//  1. MOCK_TOPOLOGY_CONFIG env var (explicit path)
+//  2. /config/topology.yaml (canonical helm mount)
+func applyTopologyOverlay(yamlConfig *YAMLConfig) {
+	nodeName := os.Getenv("NODE_NAME")
+	if nodeName == "" {
+		return
+	}
+	topoPath := os.Getenv("MOCK_TOPOLOGY_CONFIG")
+	if topoPath == "" {
+		topoPath = "/config/topology.yaml"
+	}
+	if _, err := os.Stat(topoPath); err != nil {
+		// No topology mounted — leave fabric config untouched.
+		return
+	}
+	data, err := os.ReadFile(topoPath)
+	if err != nil {
+		warnLog("Failed to read topology %s: %v\n", topoPath, err)
+		return
+	}
+	var topo TopologyDocument
+	if err := yaml.Unmarshal(data, &topo); err != nil {
+		warnLog("Failed to parse topology %s: %v\n", topoPath, err)
+		return
+	}
+	// The profile is the gate: if the loaded YAML has no fabric block on
+	// its DeviceDefaults, the GPU type modelled by this profile is not
+	// fabric-attached (e.g. A100). Synthesising a FabricConfig here would
+	// silently start reporting GB200-style fabric info on every device,
+	// which is exactly what real NVML does *not* do on those GPUs.
+	if yamlConfig.DeviceDefaults.Fabric == nil {
+		debugLog("[CONFIG] Topology overlay: profile has no fabric defaults, skipping overlay for node=%s\n", nodeName)
+		return
+	}
+	for _, domain := range topo.Domains {
+		for _, clique := range domain.Cliques {
+			for _, n := range clique.Nodes {
+				if n != nodeName {
+					continue
+				}
+				overrideFabric(yamlConfig, domain.UUID, clique.ID)
+				debugLog("[CONFIG] Topology overlay: node=%s domain=%s clique=%d\n",
+					nodeName, domain.UUID, clique.ID)
+				return
+			}
+		}
+	}
+	debugLog("[CONFIG] Topology overlay: node=%s not in topology, leaving fabric defaults\n", nodeName)
+}
+
+// overrideFabric pins the supplied cluster UUID / clique ID onto the
+// already-present DeviceDefaults.Fabric (the caller guarantees it is
+// non-nil — see applyTopologyOverlay). Per-device overrides that carry
+// their own Fabric block get the same treatment so the entire node
+// reports a consistent fabric identity.
+func overrideFabric(yamlConfig *YAMLConfig, clusterUUID string, cliqueID uint32) {
+	yamlConfig.DeviceDefaults.Fabric.ClusterUUID = clusterUUID
+	yamlConfig.DeviceDefaults.Fabric.CliqueID = cliqueID
+	if yamlConfig.DeviceDefaults.Fabric.State == "" {
+		yamlConfig.DeviceDefaults.Fabric.State = "completed"
+	}
+	// forward-compat: no profile currently ships per-device fabric blocks,
+	// but if one does in the future we keep the whole node coherent by
+	// rewriting those too rather than silently letting them diverge.
+	for i := range yamlConfig.Devices {
+		if yamlConfig.Devices[i].Fabric == nil {
+			continue
+		}
+		yamlConfig.Devices[i].Fabric.ClusterUUID = clusterUUID
+		yamlConfig.Devices[i].Fabric.CliqueID = cliqueID
+		if yamlConfig.Devices[i].Fabric.State == "" {
+			yamlConfig.Devices[i].Fabric.State = "completed"
+		}
+	}
 }
 
 // Note: debugLog is defined in utils.go to avoid duplication

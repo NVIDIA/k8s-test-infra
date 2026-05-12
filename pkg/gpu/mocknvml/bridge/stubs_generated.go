@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 302 stub functions for unimplemented NVML functions.
+// 300 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -295,16 +295,6 @@ func nvmlDeviceGetGpcClkMinMaxVfOffset(device C.nvmlDevice_t, minOffset *C.int, 
 //export nvmlDeviceGetGpcClkVfOffset
 func nvmlDeviceGetGpcClkVfOffset(device C.nvmlDevice_t, offset *C.int) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetGpcClkVfOffset")
-}
-
-//export nvmlDeviceGetGpuFabricInfo
-func nvmlDeviceGetGpuFabricInfo(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpuFabricInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpuFabricInfo")
-}
-
-//export nvmlDeviceGetGpuFabricInfoV
-func nvmlDeviceGetGpuFabricInfoV(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpuFabricInfoV_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpuFabricInfoV")
 }
 
 //export nvmlDeviceGetGpuInstanceById
