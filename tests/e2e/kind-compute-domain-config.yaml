@@ -14,7 +14,7 @@
 #     --set gpu.count=4 \
 #     --set topology.enabled=true \
 #     --set imex.enabled=true \
-#     --set-file topology.domains=tests/e2e/compute-domain-topology.yaml
+#     -f docs/demo/compute-domain/topology.yaml
 #
 # Usage:
 #   mkdir -p /tmp/nvml-mock-imex-state
