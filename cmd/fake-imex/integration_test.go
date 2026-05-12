@@ -147,6 +147,55 @@ func waitForMarker(t *testing.T, dir, ip string) {
 	t.Fatalf("marker %s did not appear within deadline", ip)
 }
 
+// TestFakeImex_DaemonReassertsMarker verifies the 2s tick re-creates
+// the marker after an external delete (hostPath GC, accidental
+// cleanup, ConfigMap remount). Without re-assertion the daemon would
+// stay non-coordinable until restart even though it's still running.
+func TestFakeImex_DaemonReassertsMarker(t *testing.T) {
+	tmp := t.TempDir()
+	stateDir := filepath.Join(tmp, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nodesCfg := filepath.Join(tmp, "nodes.cfg")
+	if err := os.WriteFile(nodesCfg, []byte("10.0.0.99\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	daemonBin := build(t, "./cmd/fake-imex/daemon", filepath.Join(tmp, "nvidia-imex"))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, daemonBin, "-c", "/dev/null")
+	cmd.Env = []string{
+		"IMEX_STATE_DIR=" + stateDir,
+		"IMEX_NODES_CONFIG=" + nodesCfg,
+		"POD_IP=10.0.0.99",
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		cancel()
+		t.Fatalf("start daemon: %v", err)
+	}
+	t.Cleanup(func() {
+		cancel()
+		_ = cmd.Wait()
+	})
+
+	// Marker arrives at startup.
+	waitForMarker(t, stateDir, "10.0.0.99")
+
+	// Wipe it externally.
+	if err := os.Remove(filepath.Join(stateDir, "10.0.0.99")); err != nil {
+		t.Fatalf("remove marker: %v", err)
+	}
+	waitForNoMarker(t, stateDir, "10.0.0.99")
+
+	// The daemon's 2s tick must re-create the marker. waitForMarker has
+	// a 5s deadline which absorbs the tick interval plus scheduler
+	// jitter.
+	waitForMarker(t, stateDir, "10.0.0.99")
+}
+
 func waitForNoMarker(t *testing.T, dir, ip string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
