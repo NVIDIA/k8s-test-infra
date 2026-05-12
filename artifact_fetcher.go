@@ -62,6 +62,18 @@ import (
 // abort callback. Tests may override this via the package-level variable.
 var secondarySleepCap = 5 * time.Minute
 
+// maxIssuesPRsPages caps each pagination loop inside fetchIssuesPRs.
+// GitHub's `Since` filter on Issues.ListByRepo matches updated_at, not
+// created_at, so a long-lived repo's closed-issues page-walk can pull in
+// thousands of pre-cutoff items that got recent activity. Without a cap the
+// fetcher pages indefinitely and the deploy stalls (verified empirically
+// on cancelled run 2026-05-11T13:12:35Z, 5h 20m of silent hang).
+//
+// At 100 entries/page × 30 pages × 4 loops × 9 repos this gives a ceiling
+// of ~108k API events per deploy — comfortably within the 5000/hr primary
+// rate-limit budget when amortized across a 6-hour deploy cron.
+const maxIssuesPRsPages = 30
+
 // -----------------------------------------------------------------------------
 // CLI flags
 // -----------------------------------------------------------------------------
@@ -599,7 +611,15 @@ func main() {
 	client, ctx := buildClient(ctx, token, logger)
 
 	resCh := make(chan TestResult, len(repos))
-	errCh := make(chan error, len(repos))
+	// errCh must be wide enough to absorb every potential error writer in the
+	// fanouts below without blocking — otherwise a burst of failures fills the
+	// channel and the producing goroutines deadlock on the send (the drain
+	// only runs after wg.Wait()). Writers, in order:
+	//   - repos             (processRepo failures)
+	//   - defaultImages     (fetchLatestImageTag failures)
+	//   - allRepos × 3      (workflows / repo info / traffic failures)
+	//   - +1                (loadPreviousIssuesPRs I/O error, surfaced from main)
+	errCh := make(chan error, len(repos)+len(defaultImages)+3*len(allRepos)+1)
 
 	sem := make(chan struct{}, *workers)
 	var wg sync.WaitGroup
@@ -1223,7 +1243,7 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 		State:       "open",
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
-	for {
+	for page := 0; page < maxIssuesPRsPages; page++ {
 		issues, resp, err := client.Issues.ListByRepo(ctx, owner, name, issueOpt)
 		if err != nil {
 			return RepoIssuesPRs{}, fmt.Errorf("list open issues: %w", err)
@@ -1236,6 +1256,10 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 		if resp == nil || resp.NextPage == 0 {
 			break
 		}
+		if page == maxIssuesPRsPages-1 {
+			log.Printf("warning: open issues for %s hit pagination cap (%d pages); truncating", repo, maxIssuesPRsPages)
+			break
+		}
 		issueOpt.Page = resp.NextPage
 	}
 
@@ -1245,13 +1269,17 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 		State:       "open",
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
-	for {
+	for page := 0; page < maxIssuesPRsPages; page++ {
 		prs, resp, err := client.PullRequests.List(ctx, owner, name, prOpt)
 		if err != nil {
 			return RepoIssuesPRs{}, fmt.Errorf("list open PRs: %w", err)
 		}
 		openPRs = append(openPRs, prs...)
 		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		if page == maxIssuesPRsPages-1 {
+			log.Printf("warning: open PRs for %s hit pagination cap (%d pages); truncating", repo, maxIssuesPRsPages)
 			break
 		}
 		prOpt.Page = resp.NextPage
@@ -1264,7 +1292,7 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 		Since:       fiveYearsAgo,
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
-	for {
+	for page := 0; page < maxIssuesPRsPages; page++ {
 		issues, resp, err := client.Issues.ListByRepo(ctx, owner, name, closedOpt)
 		if err != nil {
 			log.Printf("warning: failed to fetch closed issues for %s: %v", repo, err)
@@ -1272,6 +1300,10 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 		}
 		closedItems = append(closedItems, issues...)
 		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		if page == maxIssuesPRsPages-1 {
+			log.Printf("warning: closed issues for %s hit pagination cap (%d pages); truncating", repo, maxIssuesPRsPages)
 			break
 		}
 		closedOpt.Page = resp.NextPage
@@ -1285,7 +1317,7 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 		Direction:   "desc",
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
-	for {
+	for page := 0; page < maxIssuesPRsPages; page++ {
 		prs, resp, err := client.PullRequests.List(ctx, owner, name, mergedOpt)
 		if err != nil {
 			log.Printf("warning: failed to fetch merged PRs for %s: %v", repo, err)
@@ -1303,6 +1335,10 @@ func fetchIssuesPRs(ctx context.Context, client *github.Client, repo string) (Re
 			mergedPRs = append(mergedPRs, pr)
 		}
 		if pastCutoff || resp == nil || resp.NextPage == 0 {
+			break
+		}
+		if page == maxIssuesPRsPages-1 {
+			log.Printf("warning: merged PRs for %s hit pagination cap (%d pages); truncating", repo, maxIssuesPRsPages)
 			break
 		}
 		mergedOpt.Page = resp.NextPage
