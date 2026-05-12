@@ -41,7 +41,7 @@ import (
 // nvmlGpuFabricInfo_v2 / _v3 version identifiers — match the upstream
 // NVML_STRUCT_VERSION(GpuFabricInfo, N) encoding (size | (version << 24))
 // computed at runtime so we are robust to struct padding differences.
-func fabricStructVersion(size uintptr, version uint32) uint32 {
+func FabricStructVersion(size uintptr, version uint32) uint32 {
 	return uint32(size) | (version << 24)
 }
 
@@ -88,8 +88,8 @@ func nvmlDeviceGetGpuFabricInfoV(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpu
 	// encodings; anything else (including zero) defaults to v3 since
 	// nvmlGpuFabricInfoV_t is the v3 alias in this header.
 	requested := uint32(gpuFabricInfo.version)
-	v2 := fabricStructVersion(unsafe.Sizeof(C.nvmlGpuFabricInfo_v2_t{}), 2)
-	v3 := fabricStructVersion(unsafe.Sizeof(C.nvmlGpuFabricInfo_v3_t{}), 3)
+	v2 := FabricStructVersion(unsafe.Sizeof(C.nvmlGpuFabricInfo_v2_t{}), 2)
+	v3 := FabricStructVersion(unsafe.Sizeof(C.nvmlGpuFabricInfo_v3_t{}), 3)
 
 	switch requested {
 	case v2:
