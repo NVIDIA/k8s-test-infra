@@ -83,6 +83,13 @@ func main() {
 				return
 			}
 		case <-tick.C:
+			// Re-assert the marker on every tick so the daemon
+			// self-heals when the marker is externally deleted
+			// (hostPath GC, accidental cleanup, volume remount).
+			// WriteMarker is idempotent so this is cheap.
+			if err := imexcoord.WriteMarker(stateDir, podIP); err != nil {
+				log.Printf("fake-imex: re-assert marker on tick: %v", err)
+			}
 			logPeers("tick")
 		}
 	}

@@ -148,8 +148,8 @@ func waitForMarker(t *testing.T, dir, ip string) {
 }
 
 // TestFakeImex_DaemonReassertsMarker verifies the 2s tick re-creates
-// the marker after an external delete (hostPath GC, accidental
-// cleanup, ConfigMap remount). Without re-assertion the daemon would
+// the marker after an external delete — hostPath GC, accidental
+// cleanup, ConfigMap remount. Without re-assertion the daemon would
 // stay non-coordinable until restart even though it's still running.
 func TestFakeImex_DaemonReassertsMarker(t *testing.T) {
 	tmp := t.TempDir()
