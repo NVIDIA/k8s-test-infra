@@ -100,15 +100,6 @@ func TestWriteMarker_RejectsInvalidIP(t *testing.T) {
 			}
 		})
 	}
-	// And the more important assertion: nothing was created outside dir.
-	parent := filepath.Dir(dir)
-	entries, _ := os.ReadDir(parent)
-	for _, e := range entries {
-		if e.Name() == filepath.Base(dir) || strings.HasPrefix(e.Name(), "TestWriteMarker") {
-			continue
-		}
-		// Don't fail on pre-existing siblings; just don't be the source.
-	}
 }
 
 // TestAllPeersReady_TreatsInvalidIPAsMissing protects against a
