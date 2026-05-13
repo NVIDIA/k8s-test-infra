@@ -205,6 +205,16 @@ fi
 mkdir -p /host/run/nvidia
 ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 
+# 8b. Write the toolkit-ready marker that GPU Operator operand pods poll for.
+#     Operand DaemonSets (device-plugin, gpu-feature-discovery) ship with a
+#     hardcoded `toolkit-validation` init container that loops on:
+#       until [ -f /run/nvidia/validations/toolkit-ready ]; do sleep 5; done
+#     Real nvidia-container-toolkit writes this marker as part of its install.
+#     When nvml-mock substitutes for the toolkit, no other component writes
+#     it — so we do, here, alongside the existing /run/nvidia/driver setup.
+mkdir -p /host/run/nvidia/validations
+touch /host/run/nvidia/validations/toolkit-ready
+
 # 9. Render fake InfiniBand sysfs tree (consumed via libibmocksys.so LD_PRELOAD).
 #    Only writes anything when the profile has `infiniband.enabled: true`.
 #    Failures are fatal under `set -e`: a profile typo here would otherwise
