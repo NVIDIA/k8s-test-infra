@@ -18,8 +18,14 @@
 #
 # Usage:
 #   mkdir -p /tmp/nvml-mock-imex-state
-#   kind create cluster --name compute-domain \
+#   kind create cluster --name nvml-mock-compute-domain \
 #       --config tests/e2e/kind-compute-domain-config.yaml
+#
+# Cluster-name convention: Kind names each worker
+# `<cluster-name>-worker[N]`. The demo's topology.yaml lists nodes as
+# `nvml-mock-compute-domain-worker[2..4]`, so renaming the cluster
+# requires updating the node names in topology.yaml in lockstep (and
+# changing the hostPath below if you also want an isolated state dir).
 #
 # See NVIDIA/k8s-test-infra#304 for the full design.
 kind: Cluster

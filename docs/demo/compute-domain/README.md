@@ -24,6 +24,22 @@ that mounts `/tmp/nvml-mock-imex-state` from the host into every worker
 node container — the cross-node shared volume the real
 compute-domain-daemon would normally get from a CSI driver.
 
+## Prerequisites
+
+The demo expects the following tools on `$PATH`:
+
+| Tool      | Tested version | Notes |
+|---        |---             |---    |
+| `docker`  | 24+            | Daemon must be running. Multi-stage build uses Go 1.25 base. |
+| `kind`    | v0.24+         | Kind clusters mount a shared hostPath via `extraMounts`. |
+| `kubectl` | v1.30+         | Used for `exec`, `rollout`, `get` against the in-cluster pods. |
+| `helm`    | v3.13+         | Chart install + `helm upgrade --reuse-values`. |
+| `bash`    | 4+             | `run.sh` uses `set -euo pipefail` and `mapfile`. |
+
+If you intend to follow the manual reproduction below instead of running
+the script, you'll also want `kubectl-cp` (bundled with `kubectl`) for
+copying `nodes.cfg` into pods.
+
 ## What the script does
 
 1. (Re)creates the dedicated Kind cluster (idempotent: an existing
@@ -88,6 +104,79 @@ compute-domain-daemon would normally get from a CSI driver.
 The script is idempotent — rerun it as often as you like; the
 existing cluster is reused and `helm upgrade --install` covers both
 first-time install and follow-up upgrades.
+
+## Manual reproduction
+
+If you want to follow along without `run.sh` — for debugging,
+demo-tweaking, or just to understand the moving parts — these are the
+commands the script issues. They're written for the default
+`nvml-mock-compute-domain` cluster name; see the "Custom cluster name"
+note at the end of this section if you need to rename it.
+
+```bash
+# 1. Create the dedicated cluster + shared hostPath.
+mkdir -p /tmp/nvml-mock-imex-state
+kind create cluster --name nvml-mock-compute-domain \
+    --config tests/e2e/kind-compute-domain-config.yaml
+
+# 2. Build the demo image (bundles fake-imex + check-fabric on top of
+#    the standard nvml-mock image).
+docker build -t nvml-mock:compute-domain -f deployments/nvml-mock/Dockerfile .
+
+# 3. Load the image into the Kind cluster.
+kind load docker-image nvml-mock:compute-domain --name nvml-mock-compute-domain
+
+# 4. Install the chart. The --set image.* flags point the DaemonSet at
+#    the locally-loaded image (these are required — without them the
+#    chart pulls the default upstream image which does not have the
+#    fake binaries baked in).
+helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+    -f docs/demo/compute-domain/topology.yaml \
+    --set image.repository=nvml-mock \
+    --set image.tag=compute-domain \
+    --set gpu.profile=gb200 \
+    --set imex.enabled=true \
+    --wait --timeout 180s
+
+# 5. Verify the per-node fabric overlay (Scenario 1).
+kubectl rollout status daemonset/nvml-mock --timeout=120s
+for node in nvml-mock-compute-domain-{worker,worker2,worker3,worker4}; do
+  pod=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+    --field-selector="spec.nodeName=${node},status.phase=Running" \
+    -o jsonpath='{.items[0].metadata.name}')
+  echo "=== ${node} (pod=${pod}) ==="
+  kubectl exec "${pod}" -- check-fabric | head -6
+done
+```
+
+`-worker` / `-worker2` should report `cliqueId : 0`, `-worker3` /
+`-worker4` should report `cliqueId : 1`, all four should report the
+demo `clusterUuid : 00000000-0000-0000-0000-0000000000ab` and
+`state : completed (3)`.
+
+Scenarios 2 and 3 are best read directly from
+[`run.sh`](./run.sh) — they involve writing a `nodes.cfg`,
+inspecting markers under `/tmp/nvml-mock-imex-state`, and a
+`helm upgrade --reuse-values` with a substituted topology. None of
+those steps are non-obvious once Scenario 1 works.
+
+**Custom cluster name.** If you rename the Kind cluster (e.g., to
+parallelise demos), three things need to change in lockstep:
+
+1. The `nodes:` lists in [`topology.yaml`](./topology.yaml) — each
+   Kind worker is named `<cluster-name>-worker[N]`, so renaming the
+   cluster renames every entry in the topology.
+2. The `hostPath:` under `extraMounts:` in
+   [`tests/e2e/kind-compute-domain-config.yaml`](../../../tests/e2e/kind-compute-domain-config.yaml)
+   if you also want an isolated state directory — otherwise the new
+   cluster shares `/tmp/nvml-mock-imex-state` with whatever else is
+   running.
+3. Cluster name in every `kind` / `kubectl --context` / `kind load`
+   call below.
+
+The script doesn't expose this as a flag because the demo is
+documentation-by-example; the canonical name keeps the example
+faithful to what's checked in.
 
 ## How the fakes fit alongside the real compute-domain-daemon
 
