@@ -34,7 +34,7 @@ The demo expects the following tools on `$PATH`:
 | `kind`    | v0.24+         | Kind clusters mount a shared hostPath via `extraMounts`. |
 | `kubectl` | v1.30+         | Used for `exec`, `rollout`, `get` against the in-cluster pods. |
 | `helm`    | v3.13+         | Chart install + `helm upgrade --reuse-values`. |
-| `bash`    | 4+             | `run.sh` uses `set -euo pipefail` and `mapfile`. |
+| `bash`    | 3.2+           | `run.sh` uses `set -euo pipefail` — no bash 4+ features. |
 
 If you intend to follow the manual reproduction below instead of running
 the script, you'll also want `kubectl-cp` (bundled with `kubectl`) for
