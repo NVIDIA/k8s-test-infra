@@ -13,6 +13,8 @@ if [ -L "/host/run/nvidia/driver" ]; then
   rm -f "/host/run/nvidia/driver"
   echo "GPU Operator driver symlink removed"
 fi
+# Remove GPU Operator toolkit-ready marker (counterpart to setup.sh:8b)
+rm -f "/host/run/nvidia/validations/toolkit-ready"
 # Remove CDI spec
 CDI_FILE="/host/var/run/cdi/nvidia.yaml"
 if [ -f "$CDI_FILE" ]; then
