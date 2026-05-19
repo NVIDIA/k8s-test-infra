@@ -50,11 +50,11 @@ devices:                          # Per-device overrides
   - index: 0
     uuid: "GPU-12345678-1234-1234-1234-123456780000"
     pci:
-      bus_id: "00000000:07:00.0"
+      bus_id: "0000:07:00.0"
   - index: 1
     uuid: "GPU-12345678-1234-1234-1234-123456780001"
     pci:
-      bus_id: "00000000:0F:00.0"
+      bus_id: "0000:0F:00.0"
   # ...
 
 nvlink:                           # Optional NVLink configuration
@@ -110,7 +110,7 @@ device_defaults:
   pci:
     device_id: 0x20B010DE             # A100 device ID
     subsystem_id: 0x134710DE
-    bus_id: "00000000:07:00.0"        # Usually per-device
+    bus_id: "0000:07:00.0"        # Usually per-device
   
   pcie:
     max_link_gen: 4
@@ -316,7 +316,7 @@ devices:
     uuid: "GPU-12345678-1234-1234-1234-123456780000"
     minor_number: 0
     pci:
-      bus_id: "00000000:07:00.0"
+      bus_id: "0000:07:00.0"
     # Override thermal for this device only
     thermal:
       temperature_gpu_c: 35
@@ -325,7 +325,7 @@ devices:
     uuid: "GPU-12345678-1234-1234-1234-123456780001"
     minor_number: 1
     pci:
-      bus_id: "00000000:0F:00.0"
+      bus_id: "0000:0F:00.0"
     thermal:
       temperature_gpu_c: 37
 ```
@@ -344,7 +344,7 @@ nvlink:
     - link: 0
       state: "active"
       remote_device_type: "GPU"
-      remote_pci_bus_id: "00000000:0F:00.0"
+      remote_pci_bus_id: "0000:0F:00.0"
 ```
 
 ## Available GPU Profiles

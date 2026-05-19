@@ -180,7 +180,7 @@ func (e *Engine) createDefaultDevices(server *MockServer, base *dgxa100.Server) 
 
 		// Deterministic UUID and PCI bus ID based on device index.
 		uuid := fmt.Sprintf("GPU-00000000-0000-0000-0000-%012d", i)
-		pciBusID := fmt.Sprintf("00000000:%02X:00.0", i+1)
+		pciBusID := fmt.Sprintf("0000:%02X:00.0", i+1)
 
 		server.configurableDevices[i] = NewConfigurableDevice(
 			i,

@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- nvml-mock PCIe topology: profiles now carry a `pcie_topology:` block
+  describing PCI root complexes, NUMA nodes, and device-to-root mapping.
+  A new `render-pci-sysfs` binary (built from `cmd/render-pci-sysfs/`,
+  schema and renderer in `pkg/system/mockpcisysfs/`) materializes a fake
+  `/sys/bus/pci/devices` + `/sys/devices/pciDDDD:BB` tree under
+  `/var/lib/nvml-mock/sys/` from the init container, so topology-aware
+  consumers (NVIDIA DRA driver's `dra.k8s.io/pcieRoot`, device-plugin
+  NUMA hints) can resolve PCIe root complex via `readlink()` + path
+  parse. Defaults populated for every profile: `a100`/`b200`/`h100`/`l40s`
+  -> 2 root complexes (dual-socket), `gb200` -> 4 root complexes (one per
+  Grace pair), `t4` -> 1 root complex. (#263)
+
+### Changed
+- nvml-mock profile `bus_id` fields now use the canonical Linux sysfs
+  4-digit-domain form (`0000:07:00.0`) instead of the NVML 8-digit
+  `busIdLegacy` form (`00000000:07:00.0`). The bridge already returned
+  the same string verbatim in `nvmlPciInfo.busId`; the new format aligns
+  the mock with what real Linux PCI sysfs exposes and is a hard
+  prerequisite for the PCIe sysfs renderer above. (#263)
 - InfiniBand mock: real `ibstat`, `ibstatus`, `iblinkinfo`, and other
   `infiniband-diags` / `rdma-core` tools now work inside the nvml-mock
   DaemonSet without IB hardware. Implementation: `LD_PRELOAD` shim

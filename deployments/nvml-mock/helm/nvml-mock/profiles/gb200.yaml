@@ -348,7 +348,7 @@ devices:
     uuid: "GPU-b200b200-0000-0000-0000-000000000000"
     serial: "1562849103700"
     pci:
-      bus_id: "00000000:0A:00.0"
+      bus_id: "0000:0A:00.0"
     minor_number: 0
     grace_cpu_pair: 0               # Paired with Grace CPU 0
 
@@ -356,7 +356,7 @@ devices:
     uuid: "GPU-b200b200-0000-0000-0000-000000000001"
     serial: "1562849103701"
     pci:
-      bus_id: "00000000:0B:00.0"
+      bus_id: "0000:0B:00.0"
     minor_number: 1
     grace_cpu_pair: 0               # Same superchip as GPU 0
 
@@ -364,7 +364,7 @@ devices:
     uuid: "GPU-b200b200-0000-0000-0000-000000000002"
     serial: "1562849103702"
     pci:
-      bus_id: "00000000:4A:00.0"
+      bus_id: "0000:4A:00.0"
     minor_number: 2
     grace_cpu_pair: 1
 
@@ -372,7 +372,7 @@ devices:
     uuid: "GPU-b200b200-0000-0000-0000-000000000003"
     serial: "1562849103703"
     pci:
-      bus_id: "00000000:4B:00.0"
+      bus_id: "0000:4B:00.0"
     minor_number: 3
     grace_cpu_pair: 1
 
@@ -380,7 +380,7 @@ devices:
     uuid: "GPU-b200b200-0000-0000-0000-000000000004"
     serial: "1562849103704"
     pci:
-      bus_id: "00000000:8A:00.0"
+      bus_id: "0000:8A:00.0"
     minor_number: 4
     grace_cpu_pair: 2
 
@@ -388,7 +388,7 @@ devices:
     uuid: "GPU-b200b200-0000-0000-0000-000000000005"
     serial: "1562849103705"
     pci:
-      bus_id: "00000000:8B:00.0"
+      bus_id: "0000:8B:00.0"
     minor_number: 5
     grace_cpu_pair: 2
 
@@ -396,7 +396,7 @@ devices:
     uuid: "GPU-b200b200-0000-0000-0000-000000000006"
     serial: "1562849103706"
     pci:
-      bus_id: "00000000:CA:00.0"
+      bus_id: "0000:CA:00.0"
     minor_number: 6
     grace_cpu_pair: 3
 
@@ -404,7 +404,7 @@ devices:
     uuid: "GPU-b200b200-0000-0000-0000-000000000007"
     serial: "1562849103707"
     pci:
-      bus_id: "00000000:CB:00.0"
+      bus_id: "0000:CB:00.0"
     minor_number: 7
     grace_cpu_pair: 3
 
@@ -423,7 +423,7 @@ nvlink:
     - link: 0
       state: "active"
       remote_device_type: "gpu"
-      remote_pci_bus_id: "00000000:0B:00.0"
+      remote_pci_bus_id: "0000:0B:00.0"
     - link: 1
       state: "active"
       remote_device_type: "cpu"     # NVLink-C2C to Grace
@@ -446,3 +446,32 @@ infiniband:
   hcas_per_gpu: 1
   guid_prefix: "9b88c2:0300:ab"
   node_desc_template: "{node_name} mlx5_{idx}"
+
+# =============================================================================
+# PCIe topology - GB200, 4 Grace CPU pairs -> 4 NUMA nodes, 2 GPUs each.
+# Consumed by `render-pci-sysfs` to materialize a fake /sys/bus/pci tree
+# under MOCK_PCI_ROOT; the NVIDIA DRA driver resolves `dra.k8s.io/pcieRoot`
+# from these symlinks.
+# =============================================================================
+pcie_topology:
+  root_complexes:
+    - id: "pci0000:00"
+      numa_node: 0
+      devices:
+        - "0000:0A:00.0"
+        - "0000:0B:00.0"
+    - id: "pci0000:40"
+      numa_node: 1
+      devices:
+        - "0000:4A:00.0"
+        - "0000:4B:00.0"
+    - id: "pci0000:80"
+      numa_node: 2
+      devices:
+        - "0000:8A:00.0"
+        - "0000:8B:00.0"
+    - id: "pci0000:c0"
+      numa_node: 3
+      devices:
+        - "0000:CA:00.0"
+        - "0000:CB:00.0"
