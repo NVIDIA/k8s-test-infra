@@ -91,7 +91,67 @@ fi
 info "Found ${HCA_COUNT} mock HCA(s)"
 
 ###############################################################################
-# Step 9 -- Show node labels
+# Step 9 -- Verify: PCI sysfs mock (render-pci-sysfs)
+#
+# The init container materialized a fake /sys/bus/pci tree at
+# /var/lib/nvml-mock/sys/... from the profile's `pcie_topology:` block.
+# Topology-aware consumers (NVIDIA DRA driver `dra.k8s.io/pcieRoot`,
+# device-plugin NUMA hints) resolve PCIe root complex via readlink() on
+# /sys/bus/pci/devices/<bdf>, so we exercise the same path here: list,
+# readlink, and read a numa_node file through the symlink.
+###############################################################################
+PCI_DEV_DIR="/var/lib/nvml-mock/sys/bus/pci/devices"
+
+info "Listing rendered PCI devices under ${PCI_DEV_DIR}"
+kubectl exec "${POD}" -- ls "${PCI_DEV_DIR}"
+
+PCI_DEV_COUNT=$(kubectl exec "${POD}" -- sh -c "ls ${PCI_DEV_DIR} 2>/dev/null | wc -l" \
+  | tr -d ' ')
+# H100 profile defines 8 GPUs across 2 NUMA root complexes (pci0000:00,
+# pci0000:80). One symlink per device must appear under bus/pci/devices.
+if [[ "${PCI_DEV_COUNT}" -ne 8 ]]; then
+  fail "Expected 8 rendered PCI devices (h100 / gpu.count=8), found ${PCI_DEV_COUNT}"
+fi
+info "Found ${PCI_DEV_COUNT} rendered PCI device symlink(s)"
+
+# The deviceattribute library extracts the PCIe root complex by
+# readlink()'ing the device path and parsing out the "pciDDDD:BB"
+# component. Exercise that exact contract on the first device so a
+# missing or absolute-path symlink would fail the demo loudly.
+FIRST_DEV=$(kubectl exec "${POD}" -- sh -c "ls ${PCI_DEV_DIR} | sort | head -1" \
+  | tr -d '[:space:]')
+TARGET=$(kubectl exec "${POD}" -- readlink "${PCI_DEV_DIR}/${FIRST_DEV}" \
+  | tr -d '[:space:]')
+info "readlink ${FIRST_DEV} -> ${TARGET}"
+if [[ "${TARGET}" != ../../../devices/pci*/* ]]; then
+  fail "Expected relative ../../../devices/pciDDDD:BB/<bdf> target, got '${TARGET}'"
+fi
+
+# numa_node is the second half of the contract: the DRA driver may also
+# read it to surface a NUMA hint alongside pcieRoot.
+NUMA_NODE=$(kubectl exec "${POD}" -- cat "${PCI_DEV_DIR}/${FIRST_DEV}/numa_node" \
+  | tr -d '[:space:]')
+if ! [[ "${NUMA_NODE}" =~ ^-?[0-9]+$ ]]; then
+  fail "numa_node for ${FIRST_DEV} is not a number: '${NUMA_NODE}'"
+fi
+info "${FIRST_DEV} numa_node=${NUMA_NODE}"
+
+# Count distinct root complexes the symlinks resolve to. For h100 this
+# must be 2 (pci0000:00 + pci0000:80); a regression that collapsed all
+# devices onto a single root would silently break NUMA-aware scheduling.
+# readlink target shape: "../../../devices/pciDDDD:BB/<bdf>"
+# Splitting on "/" yields: $1=.. $2=.. $3=.. $4=devices $5=pciDDDD:BB
+# so the root complex is field #5.
+ROOT_COUNT=$(kubectl exec "${POD}" -- sh -c \
+  "for d in ${PCI_DEV_DIR}/*; do readlink \"\$d\"; done" \
+  | awk -F/ '{print $5}' | sort -u | wc -l | tr -d ' ')
+if [[ "${ROOT_COUNT}" -ne 2 ]]; then
+  fail "Expected 2 distinct PCI root complexes for h100, found ${ROOT_COUNT}"
+fi
+info "Devices span ${ROOT_COUNT} distinct PCI root complex(es)"
+
+###############################################################################
+# Step 10 -- Show node labels
 ###############################################################################
 info "Node labels"
 kubectl get nodes --show-labels
@@ -108,5 +168,6 @@ info "  Cluster   : ${CLUSTER_NAME}"
 info "  Workers   : ${#WORKERS[@]}"
 info "  ConfigMaps: ${CM_COUNT}"
 info "  Mock HCAs : ${HCA_COUNT} per pod"
+info "  PCI devs  : ${PCI_DEV_COUNT} across ${ROOT_COUNT} root complex(es)"
 info ""
 info "To tear down: kind delete cluster --name ${CLUSTER_NAME}"
