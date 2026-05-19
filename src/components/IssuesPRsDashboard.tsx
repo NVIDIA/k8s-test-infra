@@ -134,8 +134,12 @@ function ExpandedRowDetail({
             Issue Velocity ({formatDurationLabel(duration)} • {issueGranularity === 'day' ? 'daily' : 'weekly'})
           </h4>
           {issueClamp && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2" data-testid="issue-clamp-note">
-              Showing {issueClamp.actualFrom} onward (requested {issueClamp.requestedFrom} — data starts {issueClamp.actualFrom}).
+            <p
+              aria-live="polite"
+              className="text-xs text-gray-500 dark:text-gray-400 mb-2"
+              data-testid="issue-clamp-note"
+            >
+              Showing data from {issueClamp.actualFrom} (requested {issueClamp.requestedFrom}).
             </p>
           )}
           {issueVelocity.length > 0 ? (
@@ -267,8 +271,12 @@ function ExpandedRowDetail({
             PR Velocity ({formatDurationLabel(duration)} • {prGranularity === 'day' ? 'daily' : 'weekly'})
           </h4>
           {prClamp && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2" data-testid="pr-clamp-note">
-              Showing {prClamp.actualFrom} onward (requested {prClamp.requestedFrom} — data starts {prClamp.actualFrom}).
+            <p
+              aria-live="polite"
+              className="text-xs text-gray-500 dark:text-gray-400 mb-2"
+              data-testid="pr-clamp-note"
+            >
+              Showing data from {prClamp.actualFrom} (requested {prClamp.requestedFrom}).
             </p>
           )}
           {prVelocity.length > 0 ? (

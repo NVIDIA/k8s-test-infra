@@ -92,6 +92,38 @@ function makeData(): IssuesPRsData {
   };
 }
 
+// Variant of makeData() where weekly velocity starts on a known ISO date so
+// the clamp branch in pickVelocity fires when `from` predates that week.
+function makeDataWithWeeklyStart(firstWeek: string): IssuesPRsData {
+  const base = makeData();
+  const repoData = base.repos['nvidia/gpu-operator'];
+  // Replace the first weekly entry's key with the given ISO date so
+  // pickVelocity's `earliest = weekly[0].week` comparison uses a real date.
+  const issueWeekly = [
+    { week: firstWeek, opened: 0, closed: 0 },
+    ...repoData.issues.velocity.weekly.slice(1),
+  ];
+  const prWeekly = [
+    { week: firstWeek, opened: 0, closed: 0 },
+    ...repoData.pullRequests.velocity.weekly.slice(1),
+  ];
+  return {
+    repos: {
+      'nvidia/gpu-operator': {
+        ...repoData,
+        issues: {
+          ...repoData.issues,
+          velocity: { ...repoData.issues.velocity, weekly: issueWeekly },
+        },
+        pullRequests: {
+          ...repoData.pullRequests,
+          velocity: { ...repoData.pullRequests.velocity, weekly: prWeekly },
+        },
+      },
+    },
+  };
+}
+
 function renderDashboard(data: IssuesPRsData) {
   return render(
     <MemoryRouter>
@@ -173,5 +205,31 @@ describe('IssuesPRsDashboard', () => {
       expect(openIssuesCell.textContent).toBe(initialIssuesText);
       expect(openPRsCell.textContent).toBe(initialPRsText);
     }
+  });
+
+  it('renders clamp notes when a custom range predates the weekly retention', async () => {
+    const user = userEvent.setup();
+    // Weekly data starts at 2024-01-01; requesting from 2020-06-01 triggers clamping.
+    const data = makeDataWithWeeklyStart('2024-01-01');
+    renderDashboard(data);
+
+    // Expand the GPU Operator row to reveal the velocity charts.
+    // The row has role="button" and its accessible name includes "GPU Operator".
+    await user.click(screen.getByRole('button', { name: /GPU Operator/i }));
+
+    // Open the DurationPicker, select Custom range, enter clamping dates, apply.
+    await user.click(screen.getByRole('button', { name: /range/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Custom range/i }));
+    await user.type(screen.getByLabelText('From'), '2020-06-01');
+    await user.type(screen.getByLabelText('To'), '2024-06-30');
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+
+    // Both clamp notes must appear with the corrected wording.
+    const issueNote = await screen.findByTestId('issue-clamp-note');
+    const prNote = await screen.findByTestId('pr-clamp-note');
+    expect(issueNote).toHaveTextContent('Showing data from 2024-01-01');
+    expect(issueNote).toHaveTextContent('(requested 2020-06-01)');
+    expect(prNote).toHaveTextContent('Showing data from 2024-01-01');
+    expect(prNote).toHaveTextContent('(requested 2020-06-01)');
   });
 });
