@@ -82,7 +82,14 @@ info "Listing simulated InfiniBand HCAs (ibstat -l)"
 kubectl exec "${POD}" -- ibstat -l
 
 info "Running ibstatus inside the DaemonSet pod"
+# `head -40` closes the pipe after 40 lines, but `ibstatus` keeps writing
+# (8 HCAs * ~8 lines each = ~64 lines). The producer dies with SIGPIPE
+# and pipefail propagates exit code 141 to the whole script, aborting
+# the demo before any later verification (PCI sysfs, node labels) runs.
+# Scope pipefail down for just this one cosmetic truncation.
+set +o pipefail
 kubectl exec "${POD}" -- ibstatus | head -40
+set -o pipefail
 
 HCA_COUNT=$(kubectl exec "${POD}" -- ibstat -l | wc -l | tr -d ' ')
 if [[ "${HCA_COUNT}" -lt 1 ]]; then
