@@ -6,17 +6,25 @@ import type { Velocity, VelocityDay, VelocityWeek } from '../../types';
 // values for any given index. This catches a bug where pickVelocity maps a
 // daily-granularity duration ('7d') to the weekly array. `closed` values
 // are also distinct from `opened` to catch a swap regression.
+//
+// Daily: sequential ISO dates 2026-01-01 through 2026-12-31 (365 unique days).
+// Weekly: sequential ISO Monday dates 2021-12-27 through 2026-12-21 (260 weeks).
+// Both match production data shape (artifact_fetcher.go uses Format("2006-01-02")).
 function makeFixture(): Velocity {
-  const daily: VelocityDay[] = Array.from({ length: 365 }, (_, i) => ({
-    date: `2026-${String(Math.floor(i / 31) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`,
-    opened: 1000 + i,
-    closed: 500 + i,
-  }));
-  const weekly: VelocityWeek[] = Array.from({ length: 260 }, (_, i) => ({
-    week: `2026-week-${i}`,
-    opened: i,
-    closed: 500 - i,
-  }));
+  const dailyStart = Date.UTC(2026, 0, 1); // 2026-01-01
+  const daily: VelocityDay[] = Array.from({ length: 365 }, (_, i) => {
+    const date = new Date(dailyStart + i * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    return { date, opened: 1000 + i, closed: 500 + i };
+  });
+  const weeklyStart = Date.UTC(2021, 11, 27); // 2021-12-27 (Monday)
+  const weekly: VelocityWeek[] = Array.from({ length: 260 }, (_, i) => {
+    const week = new Date(weeklyStart + i * 7 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    return { week, opened: i, closed: 500 - i };
+  });
   return { daily, weekly };
 }
 
@@ -86,28 +94,21 @@ describe('formatDurationLabel', () => {
 });
 
 describe('pickVelocity (custom)', () => {
-  // The fixture's daily array uses synthetic dates 2026-01-01..2026-12-04
-  // (12 months × 31 day slots, 365 entries) so we can test against known
-  // dates. Use a fixed `now` to make daily-retention assertions deterministic.
-
-  // Wrap pickVelocity with a fixed "today" so the 365-day daily retention
-  // check is deterministic. Production calls Date.now() inside pickVelocity;
-  // tests inject via the optional 3rd arg added below.
+  // Daily fixture: 2026-01-01..2026-12-31 (365 unique sequential ISO dates).
+  // Weekly fixture: 2021-12-27..2026-12-21 (260 sequential ISO Monday dates).
+  // Both match production data shape (artifact_fetcher.go uses Format("2006-01-02")).
+  // Use a fixed `now` to make 365-day daily-retention assertions deterministic.
   function custom(from: string, to: string): Duration {
     return { kind: 'custom', from, to };
   }
 
   it('range ≤ 90 days inside daily window → daily granularity', () => {
     const v = makeFixture();
-    // daily[0] = 2026-01-01, daily[6] = 2026-01-07; the fixture's modulo-28
-    // day formula produces some duplicate dates within the month, so the
-    // filter returns 10 entries for this 7-calendar-day window. The key
-    // assertions are granularity, boundary labels, and absence of clamping.
-    const now = new Date('2026-12-04T00:00:00Z'); // well within 365-day retention
+    const now = new Date('2026-12-04T00:00:00Z');
     const got = pickVelocity(v, custom('2026-01-01', '2026-01-07'), now);
 
     expect(got.granularity).toBe('day');
-    expect(got.points.length).toBeGreaterThan(0);
+    expect(got.points).toHaveLength(7);
     expect(got.points[0].label).toBe('2026-01-01');
     expect(got.points[6].label).toBe('2026-01-07');
     expect(got.clamp).toBeUndefined();
@@ -116,42 +117,52 @@ describe('pickVelocity (custom)', () => {
   it('range > 90 days inside daily window → weekly granularity', () => {
     const v = makeFixture();
     const now = new Date('2026-12-04T00:00:00Z');
-    // rangeDays = floor((Jul-20 - Jan-1) / 1day) + 1 = 200 > 90 → weekly
+    // Range 2026-01-01..2026-07-20 = 200+ days → falls through to weekly.
+    // Weekly fixture has Mondays in this range; filter should return them.
     const got = pickVelocity(v, custom('2026-01-01', '2026-07-20'), now);
 
-    // Granularity rule forces weekly even though start is within 365d retention.
     expect(got.granularity).toBe('week');
-    // The fixture uses synthetic "2026-week-N" labels which don't overlap ISO
-    // date boundaries, so points is empty. This test asserts the granularity
-    // decision only — point filtering is covered by the clamp/retention tests.
+    expect(got.points.length).toBeGreaterThan(0);
+    // All returned weeks must be inside the requested range.
+    for (const p of got.points) {
+      expect(p.label >= '2026-01-01').toBe(true);
+      expect(p.label <= '2026-07-20').toBe(true);
+    }
     expect(got.clamp).toBeUndefined();
   });
 
   it('range > 90 days starting earlier than 365d ago → weekly', () => {
     const v = makeFixture();
-    const now = new Date('2027-06-01T00:00:00Z'); // far enough that 2026-01-01 is > 365d
+    const now = new Date('2027-06-01T00:00:00Z'); // 2026-01-01 is > 365d before this
     const got = pickVelocity(v, custom('2026-01-01', '2026-12-04'), now);
 
     expect(got.granularity).toBe('week');
+    expect(got.points.length).toBeGreaterThan(0);
     expect(got.clamp).toBeUndefined();
   });
 
   it('range partially before weekly retention → clamps', () => {
     const v = makeFixture();
-    // weekly fixture entries are labelled "2026-week-0" through "2026-week-259";
-    // the earliest weekly label is "2026-week-0". Asking for a range that
-    // starts before that should clamp.
-    const got = pickVelocity(v, custom('2025-week-50', '2026-week-10'), new Date('2027-01-01T00:00:00Z'));
+    // Earliest weekly Monday is 2021-12-27. Request a range that starts before.
+    const got = pickVelocity(
+      v,
+      custom('2020-06-01', '2022-03-01'),
+      new Date('2027-01-01T00:00:00Z'),
+    );
 
     expect(got.granularity).toBe('week');
     expect(got.points.length).toBeGreaterThan(0);
-    expect(got.points[0].label).toBe('2026-week-0');
-    expect(got.clamp).toEqual({ requestedFrom: '2025-week-50', actualFrom: '2026-week-0' });
+    expect(got.points[0].label).toBe('2021-12-27');
+    expect(got.clamp).toEqual({ requestedFrom: '2020-06-01', actualFrom: '2021-12-27' });
   });
 
   it('range entirely before retention → empty', () => {
     const v = makeFixture();
-    const got = pickVelocity(v, custom('2020-01-01', '2020-12-31'), new Date('2027-01-01T00:00:00Z'));
+    const got = pickVelocity(
+      v,
+      custom('2019-01-01', '2019-12-31'),
+      new Date('2027-01-01T00:00:00Z'),
+    );
 
     expect(got.points).toEqual([]);
     expect(got.granularity).toBe('week');
