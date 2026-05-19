@@ -53,13 +53,13 @@ describe('VelocitySparkline', () => {
     render(<VelocitySparkline velocity={v} duration={d} />);
 
     const data = readChartData();
-    // Length: pickVelocity('7d') slices daily by -7.
+    // Length: pickVelocity({ kind: 'preset', value: '7d' }) slices daily by -7.
     expect(data).toHaveLength(7);
     // Last 7 of daily (length 365) is indices 358..364.
     expect(data[0].label).toBe('D358');
     expect(data[6].label).toBe('D364');
     // Source: opened values must come from daily (10000-range), not weekly (100-range).
-    // If pickVelocity wrongly returned weekly for 7d, opened would be in 100..359.
+    // If pickVelocity({ kind: 'preset', value: '7d' }) wrongly returned weekly, opened would be in 100..359.
     expect(data[0].opened).toBe(10358);
     expect(data[6].opened).toBe(10364);
     // Closed series must also come from daily (1000-range), not weekly (50-range).
@@ -72,13 +72,13 @@ describe('VelocitySparkline', () => {
     render(<VelocitySparkline velocity={v} duration={d} />);
 
     const data = readChartData();
-    // Length: pickVelocity('5y') slices weekly by -260; weekly is exactly 260 long.
+    // Length: pickVelocity({ kind: 'preset', value: '5y' }) slices weekly by -260; weekly is exactly 260 long.
     expect(data).toHaveLength(260);
     // slice(-260) on a 260-length array is the whole array.
     expect(data[0].label).toBe('W0');
     expect(data[259].label).toBe('W259');
     // Source: opened values must come from weekly (100-range), not daily (10000-range).
-    // If pickVelocity wrongly returned daily for 5y, opened would be in 10000..10364
+    // If pickVelocity({ kind: 'preset', value: '5y' }) wrongly returned daily, opened would be in 10000..10364
     // and length would be 7, not 260.
     expect(data[0].opened).toBe(100);
     expect(data[259].opened).toBe(359);
