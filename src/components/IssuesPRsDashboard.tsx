@@ -18,7 +18,8 @@ import { useTheme } from './ThemeProvider';
 import VelocitySparkline from './VelocitySparkline';
 import { AGE_COLORS, getCategoryColor, getChartStyles, formatWeekTick, formatDayTick, computeTrend } from '../utils/chartStyles';
 import type { Trend } from '../utils/chartStyles';
-import { PRESET_DURATIONS, pickVelocity, formatDurationLabel, type Duration } from '../utils/duration';
+import { pickVelocity, formatDurationLabel, type Duration } from '../utils/duration';
+import DurationPicker from './DurationPicker';
 import { projects } from '../data/projects';
 import type { IssuesPRsData, RepoIssuesPRs } from '../types';
 
@@ -53,11 +54,11 @@ function ExpandedRowDetail({
   tickStyle: { fontSize: number; fill: string };
   gridStroke: string;
 }) {
-  const { points: issueVelocity, granularity: issueGranularity } = useMemo(
+  const { points: issueVelocity, granularity: issueGranularity, clamp: issueClamp } = useMemo(
     () => pickVelocity(repoData.issues.velocity, duration),
     [repoData.issues.velocity, duration],
   );
-  const { points: prVelocity, granularity: prGranularity } = useMemo(
+  const { points: prVelocity, granularity: prGranularity, clamp: prClamp } = useMemo(
     () => pickVelocity(repoData.pullRequests.velocity, duration),
     [repoData.pullRequests.velocity, duration],
   );
@@ -132,6 +133,11 @@ function ExpandedRowDetail({
           <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
             Issue Velocity ({formatDurationLabel(duration)} • {issueGranularity === 'day' ? 'daily' : 'weekly'})
           </h4>
+          {issueClamp && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2" data-testid="issue-clamp-note">
+              Showing {issueClamp.actualFrom} onward (requested {issueClamp.requestedFrom} — data starts {issueClamp.actualFrom}).
+            </p>
+          )}
           {issueVelocity.length > 0 ? (
             <ResponsiveContainer width="100%" height={160}>
               <LineChart
@@ -260,6 +266,11 @@ function ExpandedRowDetail({
           <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
             PR Velocity ({formatDurationLabel(duration)} • {prGranularity === 'day' ? 'daily' : 'weekly'})
           </h4>
+          {prClamp && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2" data-testid="pr-clamp-note">
+              Showing {prClamp.actualFrom} onward (requested {prClamp.requestedFrom} — data starts {prClamp.actualFrom}).
+            </p>
+          )}
           {prVelocity.length > 0 ? (
             <ResponsiveContainer width="100%" height={100}>
               <LineChart
@@ -340,26 +351,7 @@ export default function IssuesPRsDashboard({ data }: Props) {
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
           Issues &amp; PRs Overview
         </h2>
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Velocity duration">
-          {PRESET_DURATIONS.map((d) => {
-            const isActive = duration.kind === 'preset' && duration.value === d;
-            return (
-              <button
-                key={d}
-                onClick={() => setDuration({ kind: 'preset', value: d })}
-                aria-pressed={isActive}
-                aria-label={`Show ${d} of velocity data`}
-                className={`px-2 py-1 text-xs rounded ${
-                  isActive
-                    ? 'bg-nvidia-green text-white'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
-                }`}
-              >
-                {d}
-              </button>
-            );
-          })}
-        </div>
+        <DurationPicker value={duration} onChange={setDuration} />
       </div>
 
       {/* Comparison Table */}
