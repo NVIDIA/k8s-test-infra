@@ -47,17 +47,19 @@ export function pickVelocity(v: Velocity, d: Duration): PickedVelocity {
   return { points: [], granularity: 'week' };
 }
 
+// en-US short month names. Update if i18n support is added.
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-function parseISO(d: string): { y: number; m: number; day: number } {
+type ParsedDate = { y: number; m: number; day: number };
+
+function parseISO(d: string): ParsedDate {
   const [y, m, day] = d.split('-').map(Number);
   return { y, m, day };
 }
 
-function shortDate(iso: string, includeYear: boolean): string {
-  const { y, m, day } = parseISO(iso);
-  const base = `${MONTHS[m - 1]} ${day}`;
-  return includeYear ? `${base}, ${y}` : base;
+function shortDate(p: ParsedDate, includeYear: boolean): string {
+  const base = `${MONTHS[p.m - 1]} ${p.day}`;
+  return includeYear ? `${base}, ${p.y}` : base;
 }
 
 const PRESET_LABELS: Record<PresetDuration, string> = {
@@ -73,15 +75,15 @@ export function formatDurationLabel(d: Duration): string {
   if (d.kind === 'preset') {
     return PRESET_LABELS[d.value];
   }
+  const from = parseISO(d.from);
   if (d.from === d.to) {
-    return shortDate(d.from, true);
+    return shortDate(from, true);
   }
-  const fromY = parseISO(d.from).y;
-  const toY = parseISO(d.to).y;
-  if (fromY === toY) {
-    return `${shortDate(d.from, false)} – ${shortDate(d.to, true)}`;
+  const to = parseISO(d.to);
+  if (from.y === to.y) {
+    return `${shortDate(from, false)} – ${shortDate(to, true)}`;
   }
-  return `${shortDate(d.from, true)} – ${shortDate(d.to, true)}`;
+  return `${shortDate(from, true)} – ${shortDate(to, true)}`;
 }
 
 function pickPreset(v: Velocity, preset: PresetDuration): PickedVelocity {
