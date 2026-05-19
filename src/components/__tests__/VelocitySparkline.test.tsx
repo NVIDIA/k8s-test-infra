@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import VelocitySparkline from '../VelocitySparkline';
 import type { Velocity } from '../../types';
+import type { Duration } from '../../utils/duration';
 
 // Mock recharts so the data prop passed into <LineChart> is exposed as a
 // queryable DOM attribute. This lets us assert the actual slice/granularity
@@ -48,7 +49,8 @@ function makeFixture(): Velocity {
 describe('VelocitySparkline', () => {
   it('renders for 7d using daily data', () => {
     const v = makeFixture();
-    render(<VelocitySparkline velocity={v} duration="7d" />);
+    const d: Duration = { kind: 'preset', value: '7d' };
+    render(<VelocitySparkline velocity={v} duration={d} />);
 
     const data = readChartData();
     // Length: pickVelocity('7d') slices daily by -7.
@@ -66,7 +68,8 @@ describe('VelocitySparkline', () => {
 
   it('renders for 5y using weekly data', () => {
     const v = makeFixture();
-    render(<VelocitySparkline velocity={v} duration="5y" />);
+    const d: Duration = { kind: 'preset', value: '5y' };
+    render(<VelocitySparkline velocity={v} duration={d} />);
 
     const data = readChartData();
     // Length: pickVelocity('5y') slices weekly by -260; weekly is exactly 260 long.
@@ -84,7 +87,7 @@ describe('VelocitySparkline', () => {
   });
 
   it('renders the empty state when both arrays are empty', () => {
-    render(<VelocitySparkline velocity={{ daily: [], weekly: [] }} duration="7d" />);
+    render(<VelocitySparkline velocity={{ daily: [], weekly: [] }} duration={{ kind: 'preset', value: '7d' }} />);
     expect(screen.getByTestId('sparkline-empty')).toBeInTheDocument();
   });
 });

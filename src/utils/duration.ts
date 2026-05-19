@@ -1,8 +1,12 @@
 import type { Velocity } from '../types';
 
-export type Duration = '7d' | '4w' | '12w' | '6m' | '1y' | '5y';
+export type PresetDuration = '7d' | '4w' | '12w' | '6m' | '1y' | '5y';
 
-export const DURATIONS: Duration[] = ['7d', '4w', '12w', '6m', '1y', '5y'];
+export type Duration =
+  | { kind: 'preset'; value: PresetDuration }
+  | { kind: 'custom'; from: string; to: string }; // ISO "YYYY-MM-DD"
+
+export const PRESET_DURATIONS: PresetDuration[] = ['7d', '4w', '12w', '6m', '1y', '5y'];
 
 export interface VelocityPoint {
   label: string;
@@ -14,9 +18,11 @@ export interface VelocityPoint {
 export interface PickedVelocity {
   points: VelocityPoint[];
   granularity: 'day' | 'week';
+  /** When the requested range was clamped to fit available data. */
+  clamp?: { requestedFrom: string; actualFrom: string };
 }
 
-const DURATION_TABLE: Record<Duration, { granularity: 'day' | 'week'; n: number }> = {
+const PRESET_TABLE: Record<PresetDuration, { granularity: 'day' | 'week'; n: number }> = {
   '7d':  { granularity: 'day',  n: 7   },
   '4w':  { granularity: 'week', n: 4   },
   '12w': { granularity: 'week', n: 12  },
@@ -31,11 +37,18 @@ const DURATION_TABLE: Record<Duration, { granularity: 'day' | 'week'; n: number 
  * come from the underlying entry's `date` (daily) or `week` (weekly).
  *
  * Snapshot stats (Open Issues, age buckets, categories) deliberately do
- * NOT pass through this helper — they always reflect "right now" per the
- * Q3 invariant in the spec.
+ * NOT pass through this helper — they always reflect "right now".
  */
 export function pickVelocity(v: Velocity, d: Duration): PickedVelocity {
-  const cfg = DURATION_TABLE[d];
+  if (d.kind === 'preset') {
+    return pickPreset(v, d.value);
+  }
+  // Custom case implemented in Task 3.
+  return { points: [], granularity: 'week' };
+}
+
+function pickPreset(v: Velocity, preset: PresetDuration): PickedVelocity {
+  const cfg = PRESET_TABLE[preset];
   if (cfg.granularity === 'day') {
     const slice = v.daily.slice(-cfg.n);
     return {

@@ -18,7 +18,7 @@ import { useTheme } from './ThemeProvider';
 import VelocitySparkline from './VelocitySparkline';
 import { AGE_COLORS, getCategoryColor, getChartStyles, formatWeekTick, formatDayTick, computeTrend } from '../utils/chartStyles';
 import type { Trend } from '../utils/chartStyles';
-import { DURATIONS, pickVelocity, type Duration } from '../utils/duration';
+import { PRESET_DURATIONS, pickVelocity, type Duration } from '../utils/duration';
 import { projects } from '../data/projects';
 import type { IssuesPRsData, RepoIssuesPRs } from '../types';
 
@@ -130,7 +130,7 @@ function ExpandedRowDetail({
         {/* Issue Velocity */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
           <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-            Issue Velocity ({duration})
+            Issue Velocity ({duration.kind === 'preset' ? duration.value : 'custom'})
           </h4>
           {issueVelocity.length > 0 ? (
             <ResponsiveContainer width="100%" height={160}>
@@ -258,7 +258,7 @@ function ExpandedRowDetail({
             </div>
           </div>
           <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-            PR Velocity ({duration})
+            PR Velocity ({duration.kind === 'preset' ? duration.value : 'custom'})
           </h4>
           {prVelocity.length > 0 ? (
             <ResponsiveContainer width="100%" height={100}>
@@ -313,7 +313,7 @@ function ExpandedRowDetail({
 export default function IssuesPRsDashboard({ data }: Props) {
   const { resolved } = useTheme();
   const dark = resolved === 'dark';
-  const [duration, setDuration] = useState<Duration>('12w');
+  const [duration, setDuration] = useState<Duration>({ kind: 'preset', value: '12w' });
   const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
 
   const rows = useMemo<RowData[]>(() => {
@@ -341,21 +341,24 @@ export default function IssuesPRsDashboard({ data }: Props) {
           Issues &amp; PRs Overview
         </h2>
         <div className="flex flex-wrap gap-1" role="group" aria-label="Velocity duration">
-          {DURATIONS.map((d) => (
-            <button
-              key={d}
-              onClick={() => setDuration(d)}
-              aria-pressed={duration === d}
-              aria-label={`Show ${d} of velocity data`}
-              className={`px-2 py-1 text-xs rounded ${
-                duration === d
-                  ? 'bg-nvidia-green text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
-              }`}
-            >
-              {d}
-            </button>
-          ))}
+          {PRESET_DURATIONS.map((d) => {
+            const isActive = duration.kind === 'preset' && duration.value === d;
+            return (
+              <button
+                key={d}
+                onClick={() => setDuration({ kind: 'preset', value: d })}
+                aria-pressed={isActive}
+                aria-label={`Show ${d} of velocity data`}
+                className={`px-2 py-1 text-xs rounded ${
+                  isActive
+                    ? 'bg-nvidia-green text-white'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                }`}
+              >
+                {d}
+              </button>
+            );
+          })}
         </div>
       </div>
 
