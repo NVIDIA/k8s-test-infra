@@ -73,7 +73,7 @@ export default function DurationPicker({ value, onChange }: Props) {
       <button
         type="button"
         onClick={openPresets}
-        aria-haspopup="menu"
+        aria-haspopup={mode === 'custom' ? 'dialog' : 'menu'}
         aria-expanded={mode !== 'closed'}
         className="flex items-center gap-1 px-3 py-1 text-xs rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"
       >
@@ -116,7 +116,13 @@ export default function DurationPicker({ value, onChange }: Props) {
       )}
 
       {mode === 'custom' && (
-        <div className="absolute right-0 mt-1 z-10 min-w-[240px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-lg text-xs p-3">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (canApply) applyCustom();
+          }}
+          className="absolute right-0 mt-1 z-10 min-w-[240px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-lg text-xs p-3"
+        >
           <label className="block mb-2">
             <span className="block text-gray-600 dark:text-gray-400 mb-1">From</span>
             <input
@@ -136,7 +142,7 @@ export default function DurationPicker({ value, onChange }: Props) {
             />
           </label>
           {invalidOrder && (
-            <p className="text-red-600 dark:text-red-400 mb-2">From must be on or before To.</p>
+            <p role="alert" className="text-red-600 dark:text-red-400 mb-2">From must be on or before To.</p>
           )}
           <div className="flex justify-end gap-2 mt-2">
             <button
@@ -147,15 +153,14 @@ export default function DurationPicker({ value, onChange }: Props) {
               Cancel
             </button>
             <button
-              type="button"
-              onClick={applyCustom}
+              type="submit"
               disabled={!canApply}
               className="px-2 py-1 rounded bg-nvidia-green text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Apply
             </button>
           </div>
-        </div>
+        </form>
       )}
     </div>
   );

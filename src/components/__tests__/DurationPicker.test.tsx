@@ -121,6 +121,7 @@ describe('DurationPicker (custom range)', () => {
 
     expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
     expect(screen.getByText(/From must be on or before To/i)).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('Apply is disabled until both dates are filled', async () => {
@@ -148,6 +149,27 @@ describe('DurationPicker (custom range)', () => {
 
     expect(onChange).not.toHaveBeenCalled();
     expect(screen.getByRole('menuitem', { name: 'Last 7 days' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Custom range/i })).toBeInTheDocument();
+  });
+
+  it('Enter inside an input submits when range is valid', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<DurationPicker value={preset('12w')} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: /range/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Custom range/i }));
+    await user.type(screen.getByLabelText('From'), '2025-10-06');
+    await user.type(screen.getByLabelText('To'), '2025-10-12');
+    // Enter inside the focused To input
+    await user.keyboard('{Enter}');
+
+    expect(onChange).toHaveBeenCalledWith({
+      kind: 'custom',
+      from: '2025-10-06',
+      to: '2025-10-12',
+    });
+    expect(screen.queryByLabelText('From')).not.toBeInTheDocument();
   });
 
   it('pre-fills inputs from the current custom value', async () => {
