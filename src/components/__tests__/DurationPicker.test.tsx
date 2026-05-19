@@ -58,4 +58,18 @@ describe('DurationPicker (presets)', () => {
     expect(screen.queryByRole('menuitem', { name: 'Last 7 days' })).not.toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('Escape key closes the popover without firing onChange', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<DurationPicker value={preset('12w')} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: /range/i }));
+    expect(screen.getByRole('menuitem', { name: 'Last 7 days' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('menuitem', { name: 'Last 7 days' })).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });

@@ -23,8 +23,17 @@ export default function DurationPicker({ value, onChange }: Props) {
         setOpen(false);
       }
     }
+    function handleKeydown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setOpen(false);
+      }
+    }
     document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKeydown);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKeydown);
+    };
   }, [open]);
 
   function selectPreset(p: PresetDuration) {
@@ -39,7 +48,6 @@ export default function DurationPicker({ value, onChange }: Props) {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Range: ${formatDurationLabel(value)}`}
         className="flex items-center gap-1 px-3 py-1 text-xs rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"
       >
         <span>Range: {formatDurationLabel(value)}</span>
@@ -58,6 +66,7 @@ export default function DurationPicker({ value, onChange }: Props) {
               <button
                 key={p}
                 role="menuitem"
+                type="button"
                 onClick={() => selectPreset(p)}
                 className={`block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 ${
                   isActive ? 'text-nvidia-green font-medium' : 'text-gray-700 dark:text-gray-200'
@@ -71,7 +80,7 @@ export default function DurationPicker({ value, onChange }: Props) {
           <button
             role="menuitem"
             type="button"
-            disabled
+            aria-disabled="true"
             className="block w-full text-left px-3 py-1.5 text-gray-400 dark:text-gray-500 cursor-not-allowed"
           >
             Custom range…
