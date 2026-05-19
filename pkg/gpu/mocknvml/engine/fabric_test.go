@@ -185,3 +185,78 @@ domains:
 		t.Errorf("unexpected mutation: %+v", cfg.DeviceDefaults.Fabric)
 	}
 }
+
+// TestTopologyOverlay_MissingFile_NoChange exercises the os.Stat
+// early-return branch in applyTopologyOverlay: when MOCK_TOPOLOGY_CONFIG
+// points at a path that does not exist, the overlay must be a silent
+// no-op, leaving DeviceDefaults.Fabric exactly as the YAML profile set it.
+func TestTopologyOverlay_MissingFile_NoChange(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("NODE_NAME", "nodeA")
+	t.Setenv("MOCK_TOPOLOGY_CONFIG", filepath.Join(dir, "does-not-exist.yaml"))
+
+	cfg := &YAMLConfig{
+		DeviceDefaults: DeviceConfig{Fabric: &FabricConfig{
+			ClusterUUID: "ORIG-UUID",
+			CliqueID:    42,
+		}},
+	}
+	applyTopologyOverlay(cfg)
+	if cfg.DeviceDefaults.Fabric == nil {
+		t.Fatal("Fabric reset to nil; want sentinel values preserved")
+	}
+	if cfg.DeviceDefaults.Fabric.ClusterUUID != "ORIG-UUID" || cfg.DeviceDefaults.Fabric.CliqueID != 42 {
+		t.Errorf("Fabric mutated by missing-file path: %+v", cfg.DeviceDefaults.Fabric)
+	}
+}
+
+// TestTopologyOverlay_MalformedYAML_NoChange exercises the yaml.Unmarshal
+// failure branch. A typo in the topology file should warn and skip the
+// overlay rather than crash or partially apply.
+func TestTopologyOverlay_MalformedYAML_NoChange(t *testing.T) {
+	dir := t.TempDir()
+	topoPath := filepath.Join(dir, "topology.yaml")
+	if err := os.WriteFile(topoPath, []byte("this: is: not: valid: yaml\n  - mismatched indent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("NODE_NAME", "nodeA")
+	t.Setenv("MOCK_TOPOLOGY_CONFIG", topoPath)
+
+	cfg := &YAMLConfig{
+		DeviceDefaults: DeviceConfig{Fabric: &FabricConfig{
+			ClusterUUID: "ORIG-UUID",
+			CliqueID:    42,
+		}},
+	}
+	applyTopologyOverlay(cfg)
+	if cfg.DeviceDefaults.Fabric == nil {
+		t.Fatal("Fabric reset to nil; want sentinel values preserved")
+	}
+	if cfg.DeviceDefaults.Fabric.ClusterUUID != "ORIG-UUID" || cfg.DeviceDefaults.Fabric.CliqueID != 42 {
+		t.Errorf("Fabric mutated by malformed-YAML path: %+v", cfg.DeviceDefaults.Fabric)
+	}
+}
+
+// TestTopologyOverlay_UnreadableFile_NoChange exercises the os.ReadFile
+// failure branch by pointing MOCK_TOPOLOGY_CONFIG at a directory. The
+// path exists (so os.Stat succeeds), but the subsequent ReadFile fails
+// with "is a directory" and the overlay must skip cleanly.
+func TestTopologyOverlay_UnreadableFile_NoChange(t *testing.T) {
+	dir := t.TempDir() // directory, not a file — defeats ReadFile
+	t.Setenv("NODE_NAME", "nodeA")
+	t.Setenv("MOCK_TOPOLOGY_CONFIG", dir)
+
+	cfg := &YAMLConfig{
+		DeviceDefaults: DeviceConfig{Fabric: &FabricConfig{
+			ClusterUUID: "ORIG-UUID",
+			CliqueID:    42,
+		}},
+	}
+	applyTopologyOverlay(cfg)
+	if cfg.DeviceDefaults.Fabric == nil {
+		t.Fatal("Fabric reset to nil; want sentinel values preserved")
+	}
+	if cfg.DeviceDefaults.Fabric.ClusterUUID != "ORIG-UUID" || cfg.DeviceDefaults.Fabric.CliqueID != 42 {
+		t.Errorf("Fabric mutated by unreadable-file path: %+v", cfg.DeviceDefaults.Fabric)
+	}
+}

@@ -38,10 +38,13 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
-// nvmlGpuFabricInfo_v2 / _v3 version identifiers — match the upstream
-// NVML_STRUCT_VERSION(GpuFabricInfo, N) encoding (size | (version << 24))
-// computed at runtime so we are robust to struct padding differences.
-func fabricStructVersion(size uintptr, version uint32) uint32 {
+// FabricStructVersion encodes (size, version) the same way the upstream
+// NVML_STRUCT_VERSION(struct, N) macro does — size in the low 24 bits,
+// version in the high 8 — so callers built against the real NVML header
+// produce matching tags. Used by nvmlDeviceGetGpuFabricInfoV's dispatch
+// switch; pure-Go tests in fabric_dispatch_test.go pin this against
+// go-nvml's STRUCT_VERSION helper.
+func FabricStructVersion(size uintptr, version uint32) uint32 {
 	return uint32(size) | (version << 24)
 }
 
@@ -84,20 +87,22 @@ func nvmlDeviceGetGpuFabricInfoV(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpu
 	}
 
 	// The caller selects the struct version by writing into the
-	// `version` field before calling. We recognise the v2 and v3
-	// encodings; anything else (including zero) defaults to v3 since
-	// nvmlGpuFabricInfoV_t is the v3 alias in this header.
+	// `version` field before calling. Only the v2 and v3 encodings
+	// are valid; anything else — including a zero/unset version —
+	// gets ARGUMENT_VERSION_MISMATCH, matching real NVML behaviour.
+	// Accepting zero as v3 used to be a path that could write v3
+	// bytes into a v2-sized buffer cast to *nvmlGpuFabricInfoV_t.
 	requested := uint32(gpuFabricInfo.version)
-	v2 := fabricStructVersion(unsafe.Sizeof(C.nvmlGpuFabricInfo_v2_t{}), 2)
-	v3 := fabricStructVersion(unsafe.Sizeof(C.nvmlGpuFabricInfo_v3_t{}), 3)
+	v2Tag := FabricStructVersion(unsafe.Sizeof(C.nvmlGpuFabricInfo_v2_t{}), 2)
+	v3Tag := FabricStructVersion(unsafe.Sizeof(C.nvmlGpuFabricInfo_v3_t{}), 3)
 
-	switch requested {
-	case v2:
+	switch ClassifyFabricVersion(requested, v2Tag, v3Tag) {
+	case FabricVersionV2:
 		// Reinterpret as v2 layout. The two structs share their
 		// leading fields up through healthMask; v3 just adds
 		// healthSummary at the tail, which v2 callers must not touch.
 		v2info := (*C.nvmlGpuFabricInfo_v2_t)(unsafe.Pointer(gpuFabricInfo))
-		v2info.version = C.uint(v2)
+		v2info.version = C.uint(v2Tag)
 		for i := 0; i < len(info.ClusterUUID); i++ {
 			v2info.clusterUuid[i] = C.uchar(info.ClusterUUID[i])
 		}
@@ -106,15 +111,8 @@ func nvmlDeviceGetGpuFabricInfoV(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpu
 		v2info.state = C.nvmlGpuFabricState_t(info.State)
 		v2info.healthMask = C.uint(info.HealthMask)
 		return C.NVML_SUCCESS
-	default:
-		// Treat unknown / zero version as the latest (v3). This keeps
-		// callers that forgot to set `version` working while still
-		// flagging strict mismatches via ARGUMENT_VERSION_MISMATCH
-		// when we *can* detect them below.
-		if requested != 0 && requested != v3 {
-			return C.NVML_ERROR_ARGUMENT_VERSION_MISMATCH
-		}
-		gpuFabricInfo.version = C.uint(v3)
+	case FabricVersionV3:
+		gpuFabricInfo.version = C.uint(v3Tag)
 		for i := 0; i < len(info.ClusterUUID); i++ {
 			gpuFabricInfo.clusterUuid[i] = C.uchar(info.ClusterUUID[i])
 		}
@@ -124,5 +122,7 @@ func nvmlDeviceGetGpuFabricInfoV(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpu
 		gpuFabricInfo.healthMask = C.uint(info.HealthMask)
 		gpuFabricInfo.healthSummary = C.uchar(info.HealthSummary)
 		return C.NVML_SUCCESS
+	default:
+		return C.NVML_ERROR_ARGUMENT_VERSION_MISMATCH
 	}
 }

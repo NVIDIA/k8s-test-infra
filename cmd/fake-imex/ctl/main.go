@@ -47,7 +47,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	ready, missing := imexcoord.AllPeersReady(imexcoord.StateDir(), peers)
+	// Include the local POD_IP in the check so a dead local daemon
+	// with live peers no longer reports READY. See ExpectedPeers in
+	// peers.go for the rationale.
+	expected := ExpectedPeers(peers, os.Getenv(imexcoord.EnvPodIP))
+
+	ready, missing := imexcoord.AllPeersReady(imexcoord.StateDir(), expected)
 	if !ready {
 		fmt.Fprintf(os.Stderr, "fake-imex-ctl: peer %s not ready\n", missing)
 		os.Exit(1)

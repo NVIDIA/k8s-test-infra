@@ -28,11 +28,38 @@
 // Pod IPs are globally unique in Kubernetes, so no clique
 // subdirectories are required — the daemon's own filtering already
 // scopes the nodes.cfg to the correct clique.
+//
+// # Known limitations
+//
+// This is a deliberately thin file-based simulation of nvidia-imex; it
+// does not attempt to mirror every property of the real network-based
+// protocol. Three behaviours are worth knowing about:
+//
+//  1. No liveness signal. Markers are presence-only, so SIGKILL,
+//     OOM-kill, kubelet eviction, or a node crash all leave stale
+//     markers behind. nvidia-imex-ctl will report READY for a fault
+//     window equal to whatever cleans the shared hostPath — until then
+//     the upstream ComputeDomain controller is responsible for
+//     tolerating a stale READY across that window.
+//  2. Pod IP recycling is undefined. Markers are keyed by POD_IP, and
+//     Kubernetes may eventually reissue an IP after a long enough
+//     delete-recreate cycle. If a new pod inherits an IP that has a
+//     leftover marker from a prior incarnation, ctl will treat the new
+//     pod as immediately ready. KIND tears the shared hostPath down at
+//     cluster destroy, so this is bounded in practice; long-lived
+//     shared-mount simulations would need to clear markers on pod
+//     deletion.
+//  3. The daemon's 2s tick is observability-only — it re-reads
+//     nodes.cfg for logging and re-asserts its marker, but readiness
+//     itself is driven by ctl invocations from the kubelet probe. The
+//     worst-case latency between a peer dying and ctl observing it is
+//     the readiness probe period, not the daemon's tick.
 package imexcoord
 
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,16 +101,39 @@ func NodesConfigPath() string {
 	return DefaultNodesConfig
 }
 
+// validatePeerIP rejects anything that is not a well-formed IP
+// literal. The upstream compute-domain-daemon writes nodes.cfg, so
+// the peer-IP strings that reach this package are effectively
+// untrusted input; without this guard a stray "../etc/passwd" entry
+// would let MarkerPath walk out of stateDir via filepath.Join.
+// net.ParseIP refuses anything with a slash, dot-dot, port suffix,
+// CIDR mask, or non-hex/decimal junk, which is exactly the surface
+// we need to defend.
+func validatePeerIP(ip string) error {
+	if ip == "" {
+		return fmt.Errorf("imexcoord: empty pod IP")
+	}
+	if net.ParseIP(ip) == nil {
+		return fmt.Errorf("imexcoord: invalid peer IP %q (must be a bare IPv4 or IPv6 literal)", ip)
+	}
+	return nil
+}
+
 // MarkerPath returns the marker filename for the given peer IP.
+// Callers must validate the IP first (via WriteMarker / RemoveMarker /
+// AllPeersReady, which already do); this helper preserves the legacy
+// signature for code that has already validated.
 func MarkerPath(stateDir, ip string) string {
 	return filepath.Join(stateDir, ip)
 }
 
 // WriteMarker creates an empty marker file at <stateDir>/<ip>. It is
-// idempotent — re-running it on an existing marker is fine.
+// idempotent — re-running it on an existing marker is fine. Returns
+// a validation error before touching the filesystem if ip is not a
+// well-formed IP literal.
 func WriteMarker(stateDir, ip string) error {
-	if ip == "" {
-		return fmt.Errorf("imexcoord: empty pod IP, cannot write marker")
+	if err := validatePeerIP(ip); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return fmt.Errorf("imexcoord: mkdir %s: %w", stateDir, err)
@@ -96,10 +146,11 @@ func WriteMarker(stateDir, ip string) error {
 	return f.Close()
 }
 
-// RemoveMarker removes a marker file. Missing files are not an error so
-// shutdown paths can call this unconditionally.
+// RemoveMarker removes a marker file. Missing files and invalid IPs
+// are both no-ops — shutdown paths must be tolerant of corrupt state
+// (and must never delete a path the caller did not intend).
 func RemoveMarker(stateDir, ip string) error {
-	if ip == "" {
+	if err := validatePeerIP(ip); err != nil {
 		return nil
 	}
 	err := os.Remove(MarkerPath(stateDir, ip))
@@ -139,9 +190,16 @@ func ReadPeers(path string) ([]string, error) {
 
 // AllPeersReady returns true iff every peer in `peers` has a marker
 // file under stateDir. An empty peer list is treated as "ready"
-// (single-node clique — there is nothing to wait for).
+// (single-node clique — there is nothing to wait for). An invalid
+// peer IP — anything net.ParseIP rejects — is treated as "missing"
+// and returned as the offending entry, so a corrupt nodes.cfg
+// surfaces as a readiness failure instead of an os.Stat on an
+// unintended path.
 func AllPeersReady(stateDir string, peers []string) (bool, string) {
 	for _, p := range peers {
+		if err := validatePeerIP(p); err != nil {
+			return false, p
+		}
 		if _, err := os.Stat(MarkerPath(stateDir, p)); err != nil {
 			return false, p
 		}
