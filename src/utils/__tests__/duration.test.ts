@@ -111,6 +111,11 @@ describe('pickVelocity (custom)', () => {
     expect(got.points).toHaveLength(7);
     expect(got.points[0].label).toBe('2026-01-01');
     expect(got.points[6].label).toBe('2026-01-07');
+    // Daily fixture starts at index 0 = 2026-01-01 with opened=1000+0, closed=500+0.
+    expect(got.points[0].opened).toBe(1000);
+    expect(got.points[0].closed).toBe(500);
+    expect(got.points[6].opened).toBe(1006);
+    expect(got.points[6].closed).toBe(506);
     expect(got.clamp).toBeUndefined();
   });
 
@@ -118,12 +123,12 @@ describe('pickVelocity (custom)', () => {
     const v = makeFixture();
     const now = new Date('2026-12-04T00:00:00Z');
     // Range 2026-01-01..2026-07-20 = 200+ days → falls through to weekly.
-    // Weekly fixture has Mondays in this range; filter should return them.
+    // Exactly 29 Mondays in this range (verified via fixture: 2021-12-27 + 7n
+    // for n = 213..241 land in [2026-01-01, 2026-07-20]).
     const got = pickVelocity(v, custom('2026-01-01', '2026-07-20'), now);
 
     expect(got.granularity).toBe('week');
-    expect(got.points.length).toBeGreaterThan(0);
-    // All returned weeks must be inside the requested range.
+    expect(got.points).toHaveLength(29);
     for (const p of got.points) {
       expect(p.label >= '2026-01-01').toBe(true);
       expect(p.label <= '2026-07-20').toBe(true);
@@ -131,13 +136,21 @@ describe('pickVelocity (custom)', () => {
     expect(got.clamp).toBeUndefined();
   });
 
-  it('range > 90 days starting earlier than 365d ago → weekly', () => {
+  it('short range starting earlier than 365d ago → weekly (age gate)', () => {
     const v = makeFixture();
-    const now = new Date('2027-06-01T00:00:00Z'); // 2026-01-01 is > 365d before this
-    const got = pickVelocity(v, custom('2026-01-01', '2026-12-04'), now);
+    // Range = 7 days (≤ 90), but `from` is ~517 days before `now` → age gate
+    // forces weekly. Deleting the `ageDays <= 365` clause from pickCustom
+    // would let daily through, breaking this test.
+    // 2024-01-01 is a Monday and exists in the weekly fixture.
+    const got = pickVelocity(
+      v,
+      custom('2024-01-01', '2024-01-07'),
+      new Date('2025-06-01T00:00:00Z'),
+    );
 
     expect(got.granularity).toBe('week');
-    expect(got.points.length).toBeGreaterThan(0);
+    expect(got.points).toHaveLength(1);
+    expect(got.points[0].label).toBe('2024-01-01');
     expect(got.clamp).toBeUndefined();
   });
 
@@ -176,6 +189,9 @@ describe('pickVelocity (custom)', () => {
     expect(got.granularity).toBe('day');
     expect(got.points).toHaveLength(1);
     expect(got.points[0].label).toBe('2026-01-15');
+    // 2026-01-15 is at index 14 in the daily fixture (0=2026-01-01).
+    expect(got.points[0].opened).toBe(1014);
+    expect(got.points[0].closed).toBe(514);
   });
 
   it('from > to → empty (defensive)', () => {
