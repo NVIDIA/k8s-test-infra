@@ -73,3 +73,92 @@ describe('DurationPicker (presets)', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 });
+
+describe('DurationPicker (custom range)', () => {
+  it('clicking Custom range… swaps the popover to the date form', async () => {
+    const user = userEvent.setup();
+    render(<DurationPicker value={preset('12w')} onChange={() => {}} />);
+
+    await user.click(screen.getByRole('button', { name: /range/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Custom range/i }));
+
+    expect(screen.getByLabelText('From')).toBeInTheDocument();
+    expect(screen.getByLabelText('To')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    // Preset items are no longer visible
+    expect(screen.queryByRole('menuitem', { name: 'Last 7 days' })).not.toBeInTheDocument();
+  });
+
+  it('Apply with valid range fires onChange and closes', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<DurationPicker value={preset('12w')} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: /range/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Custom range/i }));
+    await user.type(screen.getByLabelText('From'), '2025-10-06');
+    await user.type(screen.getByLabelText('To'), '2025-10-12');
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+
+    expect(onChange).toHaveBeenCalledWith({
+      kind: 'custom',
+      from: '2025-10-06',
+      to: '2025-10-12',
+    });
+    expect(screen.queryByLabelText('From')).not.toBeInTheDocument();
+  });
+
+  it('Apply is disabled when from > to', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<DurationPicker value={preset('12w')} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: /range/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Custom range/i }));
+    await user.type(screen.getByLabelText('From'), '2025-10-12');
+    await user.type(screen.getByLabelText('To'), '2025-10-06');
+
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    expect(screen.getByText(/From must be on or before To/i)).toBeInTheDocument();
+  });
+
+  it('Apply is disabled until both dates are filled', async () => {
+    const user = userEvent.setup();
+    render(<DurationPicker value={preset('12w')} onChange={() => {}} />);
+
+    await user.click(screen.getByRole('button', { name: /range/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Custom range/i }));
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+
+    await user.type(screen.getByLabelText('From'), '2025-10-06');
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    await user.type(screen.getByLabelText('To'), '2025-10-12');
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled();
+  });
+
+  it('Cancel returns to the preset list without firing onChange', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<DurationPicker value={preset('12w')} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: /range/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Custom range/i }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('menuitem', { name: 'Last 7 days' })).toBeInTheDocument();
+  });
+
+  it('pre-fills inputs from the current custom value', async () => {
+    const user = userEvent.setup();
+    const value: Duration = { kind: 'custom', from: '2025-10-06', to: '2025-10-12' };
+    render(<DurationPicker value={value} onChange={() => {}} />);
+
+    await user.click(screen.getByRole('button', { name: /range/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Custom range/i }));
+
+    expect(screen.getByLabelText('From')).toHaveValue('2025-10-06');
+    expect(screen.getByLabelText('To')).toHaveValue('2025-10-12');
+  });
+});
