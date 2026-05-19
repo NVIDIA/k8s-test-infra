@@ -26,9 +26,10 @@ type Profile struct {
 	PCIeTopology *PCIeTopology `json:"pcie_topology,omitempty" yaml:"pcie_topology,omitempty"`
 }
 
-// Device captures only the fields the renderer needs: the device index
-// (used for --gpu-count clipping) and the PCI bus_id. Every other profile
-// field is ignored at unmarshal time.
+// Device captures the per-GPU PCI bus_id used as the join key into the
+// topology block. Index is unmarshaled for YAML shape compatibility with
+// the full profile but is not consulted by Validate or the renderer.
+// Every other profile field is ignored at unmarshal time.
 type Device struct {
 	Index int `json:"index" yaml:"index"`
 	PCI   PCI `json:"pci"   yaml:"pci"`

@@ -240,6 +240,7 @@ fi
 #     malformed sysfs that downstream `dra.k8s.io/pcieRoot` attributes
 #     would inherit.
 PCI_ROOT="$HOST"
+mkdir -p "$PCI_ROOT"
 if [ -x /usr/local/bin/render-pci-sysfs ]; then
   /usr/local/bin/render-pci-sysfs \
     --config /etc/nvml-mock/config.yaml \

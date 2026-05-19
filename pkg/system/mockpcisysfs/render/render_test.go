@@ -227,6 +227,19 @@ func TestValidate_RejectsMalformedRoot(t *testing.T) {
 	}
 }
 
+func TestValidate_RejectsDuplicateRoot(t *testing.T) {
+	p := config.Profile{
+		Devices: []config.Device{{Index: 0, PCI: config.PCI{BusID: "0000:07:00.0"}}},
+		PCIeTopology: &config.PCIeTopology{RootComplexes: []config.RootComplex{
+			{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+			{ID: "pci0000:00", NUMANode: 1, Devices: []string{}},
+		}},
+	}
+	if err := p.Validate(); err == nil {
+		t.Fatal("expected error for duplicate root complex, got nil")
+	}
+}
+
 func TestValidate_RejectsDuplicateBDF(t *testing.T) {
 	// A device under two root complexes would silently overwrite its
 	// own numa_node on the second pass; catching duplicates at parse

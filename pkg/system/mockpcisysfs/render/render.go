@@ -38,6 +38,11 @@ type Options struct {
 
 	// Output is the fake-root directory. The renderer writes under
 	// <Output>/sys/... — Output itself is created if missing.
+	//
+	// When Topology is nil or has no root complexes, Render is a no-op
+	// even if Output is empty (so setup.sh can invoke the renderer
+	// unconditionally). A non-nil Topology with a non-empty Output is
+	// required; otherwise Render returns an error.
 	Output string
 }
 
