@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pickVelocity, PRESET_DURATIONS, type Duration, type PresetDuration } from '../duration';
+import { pickVelocity, PRESET_DURATIONS, formatDurationLabel, type Duration, type PresetDuration } from '../duration';
 import type { Velocity, VelocityDay, VelocityWeek } from '../../types';
 
 // Build distinguishable fixtures so daily and weekly arrays return DIFFERENT
@@ -54,5 +54,33 @@ describe('pickVelocity (preset)', () => {
 
   it('exposes PRESET_DURATIONS in display order', () => {
     expect(PRESET_DURATIONS).toEqual(['7d', '4w', '12w', '6m', '1y', '5y']);
+  });
+});
+
+describe('formatDurationLabel', () => {
+  it.each<[PresetDuration, string]>([
+    ['7d', 'Last 7 days'],
+    ['4w', 'Last 4 weeks'],
+    ['12w', 'Last 12 weeks'],
+    ['6m', 'Last 6 months'],
+    ['1y', 'Last 1 year'],
+    ['5y', 'Last 5 years'],
+  ])('preset %s → %s', (value, want) => {
+    expect(formatDurationLabel({ kind: 'preset', value })).toBe(want);
+  });
+
+  it('custom range same year → "MMM d – MMM d, YYYY"', () => {
+    expect(formatDurationLabel({ kind: 'custom', from: '2025-10-06', to: '2025-10-12' }))
+      .toBe('Oct 6 – Oct 12, 2025');
+  });
+
+  it('custom range crossing years → "MMM d, YYYY – MMM d, YYYY"', () => {
+    expect(formatDurationLabel({ kind: 'custom', from: '2024-12-29', to: '2025-01-04' }))
+      .toBe('Dec 29, 2024 – Jan 4, 2025');
+  });
+
+  it('custom single-day range → "MMM d, YYYY"', () => {
+    expect(formatDurationLabel({ kind: 'custom', from: '2025-10-06', to: '2025-10-06' }))
+      .toBe('Oct 6, 2025');
   });
 });

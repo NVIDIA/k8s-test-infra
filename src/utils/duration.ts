@@ -47,6 +47,43 @@ export function pickVelocity(v: Velocity, d: Duration): PickedVelocity {
   return { points: [], granularity: 'week' };
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function parseISO(d: string): { y: number; m: number; day: number } {
+  const [y, m, day] = d.split('-').map(Number);
+  return { y, m, day };
+}
+
+function shortDate(iso: string, includeYear: boolean): string {
+  const { y, m, day } = parseISO(iso);
+  const base = `${MONTHS[m - 1]} ${day}`;
+  return includeYear ? `${base}, ${y}` : base;
+}
+
+const PRESET_LABELS: Record<PresetDuration, string> = {
+  '7d':  'Last 7 days',
+  '4w':  'Last 4 weeks',
+  '12w': 'Last 12 weeks',
+  '6m':  'Last 6 months',
+  '1y':  'Last 1 year',
+  '5y':  'Last 5 years',
+};
+
+export function formatDurationLabel(d: Duration): string {
+  if (d.kind === 'preset') {
+    return PRESET_LABELS[d.value];
+  }
+  if (d.from === d.to) {
+    return shortDate(d.from, true);
+  }
+  const fromY = parseISO(d.from).y;
+  const toY = parseISO(d.to).y;
+  if (fromY === toY) {
+    return `${shortDate(d.from, false)} – ${shortDate(d.to, true)}`;
+  }
+  return `${shortDate(d.from, true)} – ${shortDate(d.to, true)}`;
+}
+
 function pickPreset(v: Velocity, preset: PresetDuration): PickedVelocity {
   const cfg = PRESET_TABLE[preset];
   if (cfg.granularity === 'day') {

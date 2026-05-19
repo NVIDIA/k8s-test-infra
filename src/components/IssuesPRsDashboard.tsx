@@ -18,7 +18,7 @@ import { useTheme } from './ThemeProvider';
 import VelocitySparkline from './VelocitySparkline';
 import { AGE_COLORS, getCategoryColor, getChartStyles, formatWeekTick, formatDayTick, computeTrend } from '../utils/chartStyles';
 import type { Trend } from '../utils/chartStyles';
-import { PRESET_DURATIONS, pickVelocity, type Duration } from '../utils/duration';
+import { PRESET_DURATIONS, pickVelocity, formatDurationLabel, type Duration } from '../utils/duration';
 import { projects } from '../data/projects';
 import type { IssuesPRsData, RepoIssuesPRs } from '../types';
 
@@ -130,7 +130,7 @@ function ExpandedRowDetail({
         {/* Issue Velocity */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
           <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-            Issue Velocity ({duration.kind === 'preset' ? duration.value : 'custom'})
+            Issue Velocity ({formatDurationLabel(duration)} • {issueGranularity === 'day' ? 'daily' : 'weekly'})
           </h4>
           {issueVelocity.length > 0 ? (
             <ResponsiveContainer width="100%" height={160}>
@@ -258,7 +258,7 @@ function ExpandedRowDetail({
             </div>
           </div>
           <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-            PR Velocity ({duration.kind === 'preset' ? duration.value : 'custom'})
+            PR Velocity ({formatDurationLabel(duration)} • {prGranularity === 'day' ? 'daily' : 'weekly'})
           </h4>
           {prVelocity.length > 0 ? (
             <ResponsiveContainer width="100%" height={100}>
