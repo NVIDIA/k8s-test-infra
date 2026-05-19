@@ -476,6 +476,7 @@ nvml-mock-profile-a100            1      10s
 nvml-mock-profile-h100            1      10s
 nvml-mock-profile-b200            1      10s
 nvml-mock-profile-gb200           1      10s
+nvml-mock-profile-gb300           1      10s
 nvml-mock-profile-l40s            1      10s
 nvml-mock-profile-t4              1      10s
 ```
@@ -609,7 +610,7 @@ a flat single-root layout (every device under `pci0000:00`, NUMA 0).
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `gpu.profile` | `a100` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `l40s`, or `t4` |
+| `gpu.profile` | `a100` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, or `t4` |
 | `gpu.count` | `8` | Number of mock GPUs per node |
 | `gpu.customConfig` | `""` | Inline YAML to override profile config entirely |
 | `gpu.dynamicMetrics.enabled` | `false` | Make the mock return time-varying temperature / power / utilization readings instead of the static profile values. See [Dynamic Metrics](#dynamic-metrics) below. |
@@ -654,23 +655,24 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 
 #### Profile Comparison
 
-| | A100 | H100 | B200 | GB200 | L40S | T4 |
-|---|---|---|---|---|---|---|
-| **Profile name** | `a100` | `h100` | `b200` | `gb200` | `l40s` | `t4` |
-| **Full name** | A100-SXM4-40GB | H100 80GB HBM3 | B200 | GB200 NVL | L40S | Tesla T4 |
-| **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Ada Lovelace | Turing |
-| **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 8.9 | 7.5 |
-| **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 18,176 | 2,560 |
-| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 192 GiB HBM3e | 192 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
-| **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | — | — |
-| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | — | — |
-| **TDP** | 400W | 700W | 1,000W | 1,000W | 350W | 70W |
-| **PCIe** | Gen4 | Gen5 | Gen6 | Gen6 | Gen4 | Gen3 |
-| **MIG instances** | 7 | 7 | 7 | 7 | 0 | 0 |
-| **Grace CPU** | — | — | — | Yes (NVLink-C2C) | — | — |
-| **FP8** | — | Yes | Yes | Yes | Yes | — |
-| **FP4** | — | — | Yes | Yes | — | — |
-| **Driver version** | 550.163.01 | 550.163.01 | 560.35.03 | 560.35.03 | 550.163.01 | 550.163.01 |
+| | A100 | H100 | B200 | GB200 | GB300 | L40S | T4 |
+|---|---|---|---|---|---|---|---|
+| **Profile name** | `a100` | `h100` | `b200` | `gb200` | `gb300` | `l40s` | `t4` |
+| **Full name** | A100-SXM4-40GB | H100 80GB HBM3 | B200 | GB200 NVL | GB300 NVL | L40S | Tesla T4 |
+| **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Blackwell Ultra | Ada Lovelace | Turing |
+| **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 10.0 | 8.9 | 7.5 |
+| **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 21,632 | 18,176 | 2,560 |
+| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 192 GiB HBM3e | 192 GiB HBM3e | 288 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
+| **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — |
+| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — |
+| **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W |
+| **PCIe** | Gen4 | Gen5 | Gen6 | Gen6 | Gen6 | Gen4 | Gen3 |
+| **MIG instances** | 7 | 7 | 7 | 7 | 7 | 0 | 0 |
+| **Grace CPU** | — | — | — | Yes (NVLink-C2C) | Yes (NVLink-C2C) | — | — |
+| **FP8** | — | Yes | Yes | Yes | Yes | Yes | — |
+| **FP4** | — | — | Yes | Yes | Yes | — | — |
+| **FP6** | — | — | — | — | Yes | — | — |
+| **Driver version** | 550.163.01 | 550.163.01 | 560.35.03 | 560.35.03 | 570.124.06 | 550.163.01 | 550.163.01 |
 
 #### When to Use Each Profile
 
@@ -678,6 +680,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 - **`h100`** — testing Hopper-specific features: FP8, Transformer Engine, PCIe Gen5, or NVLink v4 topology.
 - **`b200`** — testing next-gen Blackwell features: FP4, NVLink v5, PCIe Gen6. Standalone GPU (no Grace CPU).
 - **`gb200`** — testing Grace-Blackwell Superchip: NVLink-C2C to Grace CPU, unified memory, and Blackwell features.
+- **`gb300`** — testing Grace-Blackwell Ultra Superchip: 288 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (570.124.06).
 - **`l40s`** — testing Ada Lovelace inference workloads: FP8, PCIe Gen4, no NVLink (PCIe-only topology).
 - **`t4`** — testing Turing inference GPUs: low power (70W), small memory (16 GiB), 4 GPUs per node.
 

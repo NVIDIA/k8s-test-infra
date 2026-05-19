@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- New GPU profile `gb300` modeling the NVIDIA GB300 NVL (Grace-Blackwell
+  Ultra Superchip): 8 GPUs/node arranged as 4 Grace+2×B300 trays, 288 GiB
+  HBM3e per GPU, 1.4 kW default TDP / 1.6 kW boost, PCIe Gen6, NVLink v5
+  with NVLink-C2C to Grace, FP4/FP6/FP8 + Transformer Engine, MIG-capable,
+  and the Blackwell Ultra driver line (`570.124.06`). Ships with a
+  canonical 4-digit-BDF layout and a `pcie_topology:` block describing
+  4 PCI root complexes (one per Grace pair, 2 B300 GPUs each), so the
+  `render-pci-sysfs` step lights up an NVL72-shaped `/sys/bus/pci/devices`
+  tree out of the box. Driver-version derivation, NOTES.txt profile list,
+  fake-gpu-operator ConfigMap fanout, the e2e workflow profile matrix,
+  and Helm unittests / Go profile-consistency tests were all extended to
+  cover `gb300` in lockstep with the existing profiles.
 - nvml-mock PCIe topology: profiles now carry a `pcie_topology:` block
   describing PCI root complexes, NUMA nodes, and device-to-root mapping.
   A new `render-pci-sysfs` binary (built from `cmd/render-pci-sysfs/`,

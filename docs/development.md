@@ -36,6 +36,7 @@ pkg/gpu/mocknvml/
 │   ├── mock-nvml-config-a100.yaml
 │   ├── mock-nvml-config-b200.yaml
 │   ├── mock-nvml-config-gb200.yaml
+│   ├── mock-nvml-config-gb300.yaml
 │   ├── mock-nvml-config-h100.yaml
 │   ├── mock-nvml-config-l40s.yaml
 │   └── mock-nvml-config-t4.yaml

@@ -165,6 +165,18 @@ tests:
             name: DRIVER_VERSION
             value: "560.35.03"
 
+  - it: should derive Blackwell Ultra driver version for gb300 profile
+    set:
+      gpu:
+        profile: gb300
+        count: 8
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DRIVER_VERSION
+            value: "570.124.06"
+
   - it: should use explicit driverVersion when provided
     set:
       driverVersion: "999.99.99"
