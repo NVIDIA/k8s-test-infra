@@ -31,20 +31,76 @@ const PRESET_TABLE: Record<PresetDuration, { granularity: 'day' | 'week'; n: num
   '5y':  { granularity: 'week', n: 260 },
 };
 
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const DAILY_RETENTION_DAYS = 365;
+const DAILY_MAX_RANGE_DAYS = 90;
+
 /**
  * pickVelocity selects the right velocity array (daily or weekly) for the
- * requested duration and slices it to the appropriate length. The labels
- * come from the underlying entry's `date` (daily) or `week` (weekly).
+ * requested duration and slices it. For custom ranges, granularity is
+ * chosen by the rule:
+ *   daily if range_days ≤ 90 AND from ≥ today − 365d, else weekly.
+ * Out-of-retention starts are clamped to the earliest available label.
  *
- * Snapshot stats (Open Issues, age buckets, categories) deliberately do
- * NOT pass through this helper — they always reflect "right now".
+ * The optional `now` parameter exists so tests can pin "today" for the
+ * 365-day retention check. Production callers omit it (defaults to
+ * `new Date()`).
  */
-export function pickVelocity(v: Velocity, d: Duration): PickedVelocity {
+export function pickVelocity(v: Velocity, d: Duration, now?: Date): PickedVelocity {
   if (d.kind === 'preset') {
     return pickPreset(v, d.value);
   }
-  // Custom case implemented in Task 3.
-  return { points: [], granularity: 'week' };
+  return pickCustom(v, d.from, d.to, now ?? new Date());
+}
+
+function pickCustom(v: Velocity, from: string, to: string, now: Date): PickedVelocity {
+  if (from > to) {
+    return { points: [], granularity: 'week' };
+  }
+
+  const rangeDays = daysBetweenInclusive(from, to);
+  const fromDate = new Date(`${from}T00:00:00Z`);
+  const ageDays = (now.getTime() - fromDate.getTime()) / ONE_DAY_MS;
+  const wantDaily = rangeDays <= DAILY_MAX_RANGE_DAYS && ageDays <= DAILY_RETENTION_DAYS;
+
+  if (wantDaily) {
+    const points = v.daily
+      .filter((entry) => entry.date >= from && entry.date <= to)
+      .map((day) => ({
+        label: day.date,
+        opened: day.opened,
+        closed: day.closed,
+        merged: day.merged,
+      }));
+    return { points, granularity: 'day' };
+  }
+
+  const weekly = v.weekly;
+  if (weekly.length === 0) {
+    return { points: [], granularity: 'week' };
+  }
+  const earliest = weekly[0].week;
+  const filtered = weekly.filter((entry) => entry.week >= from && entry.week <= to);
+  const points = filtered.map((wk) => ({
+    label: wk.week,
+    opened: wk.opened,
+    closed: wk.closed,
+    merged: wk.merged,
+  }));
+  if (from < earliest && points.length > 0) {
+    return {
+      points,
+      granularity: 'week',
+      clamp: { requestedFrom: from, actualFrom: points[0].label },
+    };
+  }
+  return { points, granularity: 'week' };
+}
+
+function daysBetweenInclusive(fromISO: string, toISO: string): number {
+  const from = new Date(`${fromISO}T00:00:00Z`).getTime();
+  const to = new Date(`${toISO}T00:00:00Z`).getTime();
+  return Math.floor((to - from) / ONE_DAY_MS) + 1;
 }
 
 // en-US short month names. Update if i18n support is added.
