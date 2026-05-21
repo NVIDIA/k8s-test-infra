@@ -201,4 +201,21 @@ describe('pickVelocity (custom)', () => {
 
     expect(got.points).toEqual([]);
   });
+
+  it('rejects malformed from (empty string)', () => {
+    const v = makeFixture();
+    const got = pickVelocity(v, custom('', '2026-01-07'), new Date('2026-12-04T00:00:00Z'));
+
+    expect(got.points).toEqual([]);
+    expect(got.granularity).toBe('week');
+    expect(got.clamp).toBeUndefined();
+  });
+
+  it('rejects malformed to (not ISO)', () => {
+    const v = makeFixture();
+    const got = pickVelocity(v, custom('2026-01-01', 'not-a-date'), new Date('2026-12-04T00:00:00Z'));
+
+    expect(got.points).toEqual([]);
+    expect(got.granularity).toBe('week');
+  });
 });

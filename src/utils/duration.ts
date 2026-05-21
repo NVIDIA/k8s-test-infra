@@ -34,6 +34,7 @@ const PRESET_TABLE: Record<PresetDuration, { granularity: 'day' | 'week'; n: num
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const DAILY_RETENTION_DAYS = 365;
 const DAILY_MAX_RANGE_DAYS = 90;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * pickVelocity selects the right velocity array (daily or weekly) for the
@@ -55,6 +56,9 @@ export function pickVelocity(v: Velocity, d: Duration, now?: Date): PickedVeloci
 
 function pickCustom(v: Velocity, from: string, to: string, now: Date): PickedVelocity {
   if (from > to) {
+    return { points: [], granularity: 'week' };
+  }
+  if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) {
     return { points: [], granularity: 'week' };
   }
 
