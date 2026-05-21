@@ -144,8 +144,30 @@ describe('DurationPicker (custom range)', () => {
     await user.type(screen.getByLabelText('To'), '2025-10-06');
 
     expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
-    expect(screen.getByText(/From must be on or before To/i)).toBeInTheDocument();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/From must be on or before To/i);
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('single-day range (from === to) is valid and Apply is enabled', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<DurationPicker value={preset('12w')} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: /range/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Custom range/i }));
+    await user.type(screen.getByLabelText('From'), '2025-10-06');
+    await user.type(screen.getByLabelText('To'), '2025-10-06');
+
+    const apply = screen.getByRole('button', { name: 'Apply' });
+    expect(apply).toBeEnabled();
+
+    await user.click(apply);
+    expect(onChange).toHaveBeenCalledWith({
+      kind: 'custom',
+      from: '2025-10-06',
+      to: '2025-10-06',
+    });
   });
 
   it('Apply is disabled until both dates are filled', async () => {

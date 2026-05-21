@@ -231,5 +231,9 @@ describe('IssuesPRsDashboard', () => {
     expect(issueNote).toHaveTextContent('(requested 2020-06-01)');
     expect(prNote).toHaveTextContent('Showing data from 2024-01-01');
     expect(prNote).toHaveTextContent('(requested 2020-06-01)');
+    // ARIA: screen readers must announce the clamp note when it appears
+    // after a range change. Removing aria-live would silently degrade SR UX.
+    expect(issueNote).toHaveAttribute('aria-live', 'polite');
+    expect(prNote).toHaveAttribute('aria-live', 'polite');
   });
 });
