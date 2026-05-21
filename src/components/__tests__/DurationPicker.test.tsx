@@ -72,6 +72,30 @@ describe('DurationPicker (presets)', () => {
     expect(screen.queryByRole('menuitem', { name: 'Last 7 days' })).not.toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('Escape returns focus to the trigger', async () => {
+    const user = userEvent.setup();
+    render(<DurationPicker value={preset('12w')} onChange={() => {}} />);
+
+    const trigger = screen.getByRole('button', { name: /range/i });
+    await user.click(trigger);
+    expect(screen.getByRole('menuitem', { name: 'Last 7 days' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    expect(trigger).toHaveFocus();
+  });
+
+  it('selecting a preset returns focus to the trigger', async () => {
+    const user = userEvent.setup();
+    render(<DurationPicker value={preset('12w')} onChange={() => {}} />);
+
+    const trigger = screen.getByRole('button', { name: /range/i });
+    await user.click(trigger);
+    await user.click(screen.getByRole('menuitem', { name: 'Last 6 months' }));
+
+    expect(trigger).toHaveFocus();
+  });
 });
 
 describe('DurationPicker (custom range)', () => {
@@ -182,5 +206,30 @@ describe('DurationPicker (custom range)', () => {
 
     expect(screen.getByLabelText('From')).toHaveValue('2025-10-06');
     expect(screen.getByLabelText('To')).toHaveValue('2025-10-12');
+  });
+
+  it('Apply returns focus to the trigger', async () => {
+    const user = userEvent.setup();
+    render(<DurationPicker value={preset('12w')} onChange={() => {}} />);
+
+    const trigger = screen.getByRole('button', { name: /range/i });
+    await user.click(trigger);
+    await user.click(screen.getByRole('menuitem', { name: /Custom range/i }));
+    await user.type(screen.getByLabelText('From'), '2025-10-06');
+    await user.type(screen.getByLabelText('To'), '2025-10-12');
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+
+    expect(trigger).toHaveFocus();
+  });
+
+  it('custom form has role=dialog with an accessible label', async () => {
+    const user = userEvent.setup();
+    render(<DurationPicker value={preset('12w')} onChange={() => {}} />);
+
+    await user.click(screen.getByRole('button', { name: /range/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Custom range/i }));
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAccessibleName('Custom date range');
   });
 });

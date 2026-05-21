@@ -19,6 +19,12 @@ export default function DurationPicker({ value, onChange }: Props) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  function closeAndRefocus() {
+    setMode('closed');
+    triggerRef.current?.focus();
+  }
 
   useEffect(() => {
     if (mode === 'closed') return;
@@ -29,7 +35,7 @@ export default function DurationPicker({ value, onChange }: Props) {
     }
     function handleKeydown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        setMode('closed');
+        closeAndRefocus();
       }
     }
     document.addEventListener('mousedown', handleClick);
@@ -46,7 +52,7 @@ export default function DurationPicker({ value, onChange }: Props) {
 
   function selectPreset(p: PresetDuration) {
     onChange({ kind: 'preset', value: p });
-    setMode('closed');
+    closeAndRefocus();
   }
 
   function enterCustom() {
@@ -62,7 +68,7 @@ export default function DurationPicker({ value, onChange }: Props) {
 
   function applyCustom() {
     onChange({ kind: 'custom', from, to });
-    setMode('closed');
+    closeAndRefocus();
   }
 
   const invalidOrder = from !== '' && to !== '' && from > to;
@@ -71,6 +77,7 @@ export default function DurationPicker({ value, onChange }: Props) {
   return (
     <div ref={rootRef} className="relative inline-block">
       <button
+        ref={triggerRef}
         type="button"
         onClick={openPresets}
         aria-haspopup={mode === 'custom' ? 'dialog' : 'menu'}
@@ -117,6 +124,9 @@ export default function DurationPicker({ value, onChange }: Props) {
 
       {mode === 'custom' && (
         <form
+          role="dialog"
+          aria-label="Custom date range"
+          aria-modal="false"
           onSubmit={(e) => {
             e.preventDefault();
             if (canApply) applyCustom();
