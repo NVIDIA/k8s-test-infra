@@ -138,7 +138,10 @@ func runE2EClosedAndMerged(t *testing.T) (RepoIssuesPRs, e2eFixtureTimes) {
 // against a stub server returning multi-page paginated responses with
 // Link: <...>; rel="next" headers. Asserts:
 //   - velocity.Daily length is exactly the days-in-1y count.
-//   - velocity.Weekly length is exactly the expected ~260 weeks.
+//   - velocity.Weekly length is approximately 260 weeks (260-262 range
+//     covers calendar drift: 5y = 1826 or 1827 days = 260.86 weeks, and
+//     the iteration in buildVelocitySlice can touch one extra ISO week
+//     when the start/end boundaries straddle a week change).
 //   - Totals match the fixture's exact counts (not "approximately").
 //   - Categories are populated from the fixture's labels.
 //   - Closed-issue + closed-PR (PR-as-issue) aggregation paths produce the
@@ -173,8 +176,13 @@ func TestFetchIssuesPRs_EndToEnd_DeterministicFixture(t *testing.T) {
 	if len(got.Issues.Velocity.Daily) != 365 {
 		t.Fatalf("Issues.Velocity.Daily length = %d; want 365", len(got.Issues.Velocity.Daily))
 	}
-	if len(got.Issues.Velocity.Weekly) < 260 || len(got.Issues.Velocity.Weekly) > 261 {
-		t.Fatalf("Issues.Velocity.Weekly length = %d; want 260-261", len(got.Issues.Velocity.Weekly))
+	// 5y = 1826 or 1827 days = 260.86 ISO weeks. The iteration in
+	// buildVelocitySlice steps in 7-day increments from fiveYearsAgo to
+	// now and bucketizes each step by isoWeek (Monday of that week). If
+	// the start or end falls near a week boundary, the iteration can touch
+	// one extra ISO week, producing 262. Allow 260-262 to absorb the drift.
+	if len(got.Issues.Velocity.Weekly) < 260 || len(got.Issues.Velocity.Weekly) > 262 {
+		t.Fatalf("Issues.Velocity.Weekly length = %d; want 260-262", len(got.Issues.Velocity.Weekly))
 	}
 
 	// --- Closed-issue aggregation: two plain closed issues should land in
