@@ -1,7 +1,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 {{- if .Values.integrations.fakeGpuOperator.enabled }}
-{{- $profiles := list "a100" "h100" "b200" "gb200" "l40s" "t4" }}
+{{- $profiles := list "a100" "h100" "b200" "gb200" "gb300" "l40s" "t4" }}
 {{- range $profile := $profiles }}
 {{- $content := $.Files.Get (printf "profiles/%s.yaml" $profile) }}
 {{- if $content }}

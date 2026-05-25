@@ -177,6 +177,79 @@ func TestLoadConfig_T4Profile(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_GB300Profile(t *testing.T) {
+	profilePath := filepath.Join(testdataDir(), "gb300.yaml")
+
+	yamlCfg, err := LoadYAMLConfig(profilePath)
+	if err != nil {
+		t.Fatalf("Failed to load GB300 profile: %v", err)
+	}
+
+	// 8 GPUs: 4 Grace-Blackwell Ultra superchips × 2 B300 GPUs each.
+	if got := len(yamlCfg.Devices); got != 8 {
+		t.Errorf("GB300 device count: got %d, want 8", got)
+	}
+
+	if got := yamlCfg.DeviceDefaults.Name; got != "NVIDIA GB300 NVL" {
+		t.Errorf("GB300 name: got %q, want %q", got, "NVIDIA GB300 NVL")
+	}
+
+	// 288 GiB HBM3e per GPU is the headline GB300 vs. GB200 delta — make
+	// sure a regression in the YAML can never quietly drop us back to 192.
+	mem := yamlCfg.DeviceDefaults.Memory
+	if mem == nil {
+		t.Fatal("GB300 memory config is nil")
+	}
+	expectedMemBytes := uint64(288) * 1024 * 1024 * 1024
+	if mem.TotalBytes != expectedMemBytes {
+		t.Errorf("GB300 memory total_bytes: got %d, want %d (288 GiB)", mem.TotalBytes, expectedMemBytes)
+	}
+
+	// Blackwell Ultra uses the 570.x driver line; the chart's
+	// driverVersion helper relies on this value being consistent.
+	if got := yamlCfg.System.DriverVersion; got != "570.124.06" {
+		t.Errorf("GB300 driver_version: got %q, want %q", got, "570.124.06")
+	}
+
+	// PCIe Gen6 (or NVLink-C2C to Grace).
+	pcie := yamlCfg.DeviceDefaults.PCIe
+	if pcie == nil {
+		t.Fatal("GB300 PCIe config is nil")
+	}
+	if pcie.MaxLinkGen != 6 {
+		t.Errorf("GB300 PCIe max_link_gen: got %d, want 6", pcie.MaxLinkGen)
+	}
+
+	// 1400W default TDP (vs. GB200's 1000W).
+	power := yamlCfg.DeviceDefaults.Power
+	if power == nil {
+		t.Fatal("GB300 power config is nil")
+	}
+	if power.DefaultLimitMW != 1400000 {
+		t.Errorf("GB300 power default_limit_mw: got %d, want 1400000", power.DefaultLimitMW)
+	}
+
+	// Grace pairing must be wired up — GB300 is a superchip part.
+	grace := yamlCfg.DeviceDefaults.GraceSuperchip
+	if grace == nil {
+		t.Fatal("GB300 grace_superchip config is nil")
+	}
+	if !grace.Enabled {
+		t.Error("GB300 grace_superchip.enabled: got false, want true")
+	}
+
+	// NVLink v5, 18 links @ 100 GB/s (same fabric as GB200).
+	if yamlCfg.NVLink == nil {
+		t.Fatal("GB300 NVLink config is nil")
+	}
+	if yamlCfg.NVLink.Version != 5 {
+		t.Errorf("GB300 nvlink.version: got %d, want 5", yamlCfg.NVLink.Version)
+	}
+	if yamlCfg.NVLink.LinksPerGPU != 18 {
+		t.Errorf("GB300 nvlink.links_per_gpu: got %d, want 18", yamlCfg.NVLink.LinksPerGPU)
+	}
+}
+
 func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 	profiles := []struct {
 		name         string
@@ -191,6 +264,7 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 		{"H100", "h100.yaml", "hopper", 9, 0, 80, 8},
 		{"B200", "b200.yaml", "blackwell", 10, 0, 192, 8},
 		{"GB200", "gb200.yaml", "blackwell", 10, 0, 192, 8},
+		{"GB300", "gb300.yaml", "blackwell", 10, 0, 288, 8},
 		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 48, 8},
 		{"T4", "t4.yaml", "turing", 7, 5, 16, 4},
 	}

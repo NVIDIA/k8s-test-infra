@@ -24,6 +24,12 @@ LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-a100.yaml nvidia-smi
 LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-gb200.yaml nvidia-smi
 ```
 
+### With GB300 YAML Profile
+
+```bash
+LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-gb300.yaml nvidia-smi
+```
+
 ## nvidia-smi Commands
 
 ### List GPUs

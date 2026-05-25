@@ -110,25 +110,30 @@ and key order) or round-trip it through fromYaml/toYaml for overlays.
 {{- .Files.Get "profiles/b200.yaml" }}
 {{- else if eq .Values.gpu.profile "gb200" }}
 {{- .Files.Get "profiles/gb200.yaml" }}
+{{- else if eq .Values.gpu.profile "gb300" }}
+{{- .Files.Get "profiles/gb300.yaml" }}
 {{- else if eq .Values.gpu.profile "l40s" }}
 {{- .Files.Get "profiles/l40s.yaml" }}
 {{- else if eq .Values.gpu.profile "t4" }}
 {{- .Files.Get "profiles/t4.yaml" }}
 {{- else }}
-{{- fail (printf "Unknown GPU profile %q. Supported profiles: a100, h100, b200, gb200, l40s, t4. Or set gpu.customConfig with inline YAML." .Values.gpu.profile) }}
+{{- fail (printf "Unknown GPU profile %q. Supported profiles: a100, h100, b200, gb200, gb300, l40s, t4. Or set gpu.customConfig with inline YAML." .Values.gpu.profile) }}
 {{- end }}
 {{- end }}
 
 {{/*
 Driver version helper.
 Returns the user-provided driverVersion, or derives it from gpu.profile.
-Blackwell profiles (b200, gb200) use 560.35.03; all others use 550.163.01.
+Blackwell profiles (b200, gb200) use 560.35.03; Blackwell Ultra (gb300)
+uses 570.124.06; all others use 550.163.01.
 Note: when gpu.customConfig is set, derivation still uses gpu.profile —
 users with custom configs should set driverVersion explicitly.
 */}}
 {{- define "nvml-mock.driverVersion" -}}
 {{- if .Values.driverVersion -}}
 {{- .Values.driverVersion -}}
+{{- else if eq .Values.gpu.profile "gb300" -}}
+570.124.06
 {{- else if or (eq .Values.gpu.profile "b200") (eq .Values.gpu.profile "gb200") -}}
 560.35.03
 {{- else -}}

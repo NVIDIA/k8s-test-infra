@@ -41,6 +41,9 @@ LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-a100.yaml nvidia-smi
 
 # GB200 profile (192GB, 1000W)
 LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-gb200.yaml nvidia-smi
+
+# GB300 profile (288GB, 1400W, Blackwell Ultra)
+LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-gb300.yaml nvidia-smi
 ```
 
 ## Option 2: Docker Build (Cross-Platform)

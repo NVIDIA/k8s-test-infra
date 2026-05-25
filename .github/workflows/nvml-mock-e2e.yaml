@@ -37,7 +37,7 @@ on:
       gpu_profiles:
         description: 'GPU profiles to test (JSON array)'
         required: false
-        default: '["a100", "h100", "b200", "gb200", "l40s", "t4"]'
+        default: '["a100", "h100", "b200", "gb200", "gb300", "l40s", "t4"]'
         type: string
 
 jobs:
@@ -58,6 +58,7 @@ jobs:
             h100) echo "gpu-name=NVIDIA H100" >> "$GITHUB_OUTPUT" ;;
             b200) echo "gpu-name=NVIDIA B200" >> "$GITHUB_OUTPUT" ;;
             gb200) echo "gpu-name=NVIDIA GB200" >> "$GITHUB_OUTPUT" ;;
+            gb300) echo "gpu-name=NVIDIA GB300" >> "$GITHUB_OUTPUT" ;;
             l40s) echo "gpu-name=NVIDIA L40S" >> "$GITHUB_OUTPUT" ;;
             t4)   echo "gpu-name=NVIDIA T4" >> "$GITHUB_OUTPUT" ;;
             *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;
@@ -246,6 +247,7 @@ jobs:
             h100) echo "gpu-name=NVIDIA H100" >> "$GITHUB_OUTPUT" ;;
             b200) echo "gpu-name=NVIDIA B200" >> "$GITHUB_OUTPUT" ;;
             gb200) echo "gpu-name=NVIDIA GB200" >> "$GITHUB_OUTPUT" ;;
+            gb300) echo "gpu-name=NVIDIA GB300" >> "$GITHUB_OUTPUT" ;;
             l40s) echo "gpu-name=NVIDIA L40S" >> "$GITHUB_OUTPUT" ;;
             t4)   echo "gpu-name=NVIDIA T4" >> "$GITHUB_OUTPUT" ;;
             *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;

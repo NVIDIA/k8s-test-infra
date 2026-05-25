@@ -36,6 +36,14 @@ tests:
     asserts:
       - matchSnapshot: {}
 
+  - it: should match snapshot with gb300 profile
+    set:
+      gpu:
+        profile: gb300
+        count: 8
+    asserts:
+      - matchSnapshot: {}
+
   - it: should match snapshot with l40s profile
     set:
       gpu:
@@ -129,6 +137,19 @@ tests:
           path: data["config.yaml"]
           pattern: "architecture: .blackwell."
 
+  - it: should load gb300 profile
+    set:
+      gpu:
+        profile: gb300
+        count: 8
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "NVIDIA GB300"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "architecture: .blackwell."
+
   - it: should load l40s profile
     set:
       gpu:
@@ -195,7 +216,7 @@ tests:
         count: 1
     asserts:
       - failedTemplate:
-          errorMessage: 'Unknown GPU profile "invalid-gpu". Supported profiles: a100, h100, b200, gb200, l40s, t4. Or set gpu.customConfig with inline YAML.'
+          errorMessage: 'Unknown GPU profile "invalid-gpu". Supported profiles: a100, h100, b200, gb200, gb300, l40s, t4. Or set gpu.customConfig with inline YAML.'
 
   - it: should respect fullnameOverride in ConfigMap name
     set:

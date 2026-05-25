@@ -49,6 +49,15 @@ tests:
       - matchRegexRaw:
           pattern: "Driver version: 560.35.03"
 
+  - it: should render Blackwell Ultra driver version for gb300
+    set:
+      gpu:
+        profile: gb300
+        count: 8
+    asserts:
+      - matchRegexRaw:
+          pattern: "Driver version: 570.124.06"
+
   - it: should render explicit driver version
     set:
       driverVersion: "999.99.99"
@@ -59,7 +68,7 @@ tests:
   - it: should list available profiles
     asserts:
       - matchRegexRaw:
-          pattern: "a100, h100, b200, gb200, l40s, t4"
+          pattern: "a100, h100, b200, gb200, gb300, l40s, t4"
 
   - it: should contain all three option sections
     asserts:
