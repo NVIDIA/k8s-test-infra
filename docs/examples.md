@@ -134,7 +134,7 @@ devices:
   - index: 0
     uuid: "GPU-40900000-0000-0000-0000-000000000000"
     pci:
-      bus_id: "00000000:01:00.0"
+      bus_id: "0000:01:00.0"
 ```
 
 ```bash
@@ -165,7 +165,7 @@ devices:
     memory:
       total_bytes: 85899345920  # 80 GiB
     pci:
-      bus_id: "00000000:07:00.0"
+      bus_id: "0000:07:00.0"
   
   - index: 1
     uuid: "GPU-01000100-0000-0000-0000-000000000001"
@@ -174,7 +174,7 @@ devices:
     memory:
       total_bytes: 85899345920
     pci:
-      bus_id: "00000000:0F:00.0"
+      bus_id: "0000:0F:00.0"
 ```
 
 ### Simulating GPU Under Load
@@ -211,7 +211,7 @@ devices:
   - index: 0
     uuid: "GPU-10ad0000-0000-0000-0000-000000000000"
     pci:
-      bus_id: "00000000:07:00.0"
+      bus_id: "0000:07:00.0"
     processes:
       - pid: 12345
         type: "C"
@@ -328,7 +328,7 @@ data:
       - index: 0
         uuid: "GPU-7e570000-0000-0000-0000-000000000000"
         pci:
-          bus_id: "00000000:00:00.0"
+          bus_id: "0000:00:00.0"
 ---
 apiVersion: v1
 kind: Pod

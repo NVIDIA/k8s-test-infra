@@ -18,7 +18,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: 204e5d4ea3a64ec98af544c7d6623ba71a2839c2761c1678c655def226cdba68
+            checksum/config: a61c6a3dddda8dbb6d6d0558d54f7687398def2880fdef692b995e798d8da71e
           labels:
             app.kubernetes.io/instance: custom
             app.kubernetes.io/name: nvml-mock
@@ -117,7 +117,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: e77c39d7b16109bdf1a87a46bdfa0048811dae86863c83116d3a6b6978ddab5d
+            checksum/config: 39b4be468d3038181d5a5eb63fb5fba75f8ffa2500bc0cba20a308246a0334ca
           labels:
             app.kubernetes.io/instance: RELEASE-NAME
             app.kubernetes.io/name: nvml-mock
@@ -205,7 +205,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: 5c9770a3246c869d6a5fdcfe2648f185529cc0ea0528548468550be85dad3d63
+            checksum/config: 07b4e38538574cd5b7a6a50321a31a19e14d80a5b43771dff9710afb61c6f563
           labels:
             app.kubernetes.io/instance: RELEASE-NAME
             app.kubernetes.io/name: nvml-mock

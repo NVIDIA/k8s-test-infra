@@ -319,56 +319,56 @@ devices:
     uuid: "GPU-01000100-0000-0000-0000-000000000000"
     serial: "1562821083900"
     pci:
-      bus_id: "00000000:1A:00.0"
+      bus_id: "0000:1A:00.0"
     minor_number: 0
 
   - index: 1
     uuid: "GPU-01000100-0000-0000-0000-000000000001"
     serial: "1562821083901"
     pci:
-      bus_id: "00000000:1B:00.0"
+      bus_id: "0000:1B:00.0"
     minor_number: 1
 
   - index: 2
     uuid: "GPU-01000100-0000-0000-0000-000000000002"
     serial: "1562821083902"
     pci:
-      bus_id: "00000000:4A:00.0"
+      bus_id: "0000:4A:00.0"
     minor_number: 2
 
   - index: 3
     uuid: "GPU-01000100-0000-0000-0000-000000000003"
     serial: "1562821083903"
     pci:
-      bus_id: "00000000:4B:00.0"
+      bus_id: "0000:4B:00.0"
     minor_number: 3
 
   - index: 4
     uuid: "GPU-01000100-0000-0000-0000-000000000004"
     serial: "1562821083904"
     pci:
-      bus_id: "00000000:8A:00.0"
+      bus_id: "0000:8A:00.0"
     minor_number: 4
 
   - index: 5
     uuid: "GPU-01000100-0000-0000-0000-000000000005"
     serial: "1562821083905"
     pci:
-      bus_id: "00000000:8B:00.0"
+      bus_id: "0000:8B:00.0"
     minor_number: 5
 
   - index: 6
     uuid: "GPU-01000100-0000-0000-0000-000000000006"
     serial: "1562821083906"
     pci:
-      bus_id: "00000000:CA:00.0"
+      bus_id: "0000:CA:00.0"
     minor_number: 6
 
   - index: 7
     uuid: "GPU-01000100-0000-0000-0000-000000000007"
     serial: "1562821083907"
     pci:
-      bus_id: "00000000:CB:00.0"
+      bus_id: "0000:CB:00.0"
     minor_number: 7
 
 # =============================================================================
@@ -382,7 +382,7 @@ nvlink:
     - link: 0
       state: "active"
       remote_device_type: "gpu"
-      remote_pci_bus_id: "00000000:1B:00.0"
+      remote_pci_bus_id: "0000:1B:00.0"
 
 # =============================================================================
 # InfiniBand topology - 1 ConnectX-7 NDR HCA per GPU (typical HGX H100)
@@ -400,3 +400,26 @@ infiniband:
   hcas_per_gpu: 1                   # total HCAs = gpu.count * hcas_per_gpu
   guid_prefix: "a088c2:0300:ab"     # last byte = HCA index
   node_desc_template: "{node_name} mlx5_{idx}"
+
+# =============================================================================
+# PCIe topology - HGX H100, 2 NUMA nodes, 4 GPUs each.
+# Consumed by `render-pci-sysfs` to materialize a fake /sys/bus/pci tree
+# under MOCK_PCI_ROOT; the NVIDIA DRA driver resolves `dra.k8s.io/pcieRoot`
+# from these symlinks.
+# =============================================================================
+pcie_topology:
+  root_complexes:
+    - id: "pci0000:00"
+      numa_node: 0
+      devices:
+        - "0000:1A:00.0"
+        - "0000:1B:00.0"
+        - "0000:4A:00.0"
+        - "0000:4B:00.0"
+    - id: "pci0000:80"
+      numa_node: 1
+      devices:
+        - "0000:8A:00.0"
+        - "0000:8B:00.0"
+        - "0000:CA:00.0"
+        - "0000:CB:00.0"

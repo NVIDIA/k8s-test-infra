@@ -111,13 +111,69 @@ devices:
   - index: 0
     uuid: "GPU-12345678-1234-1234-1234-123456780000"
     pci:
-      bus_id: "00000000:07:00.0"
+      bus_id: "0000:07:00.0"
   - index: 1
     uuid: "GPU-12345678-1234-1234-1234-123456780001"
     pci:
-      bus_id: "00000000:0F:00.0"
+      bus_id: "0000:0F:00.0"
   # ... define each GPU
 ```
+
+> **Note:** `bus_id` uses the canonical Linux sysfs form `DDDD:BB:DD.F`
+> (4-digit PCI domain). The 8-digit NVML `busIdLegacy` form
+> (`00000000:07:00.0`) is **not accepted** — the PCI sysfs renderer
+> rejects it at validation time so half-migrated profiles don't silently
+> produce trees the DRA driver can't resolve.
+
+#### PCIe Topology (optional)
+
+Topology-aware schedulers (e.g. the NVIDIA DRA driver's
+`dra.k8s.io/pcieRoot` resource attribute) resolve "which PCIe root
+complex a GPU lives on" by `readlink()`ing
+`/sys/bus/pci/devices/<bdf>` and parsing the resulting path. The
+DaemonSet runs `render-pci-sysfs` (built from `cmd/render-pci-sysfs/`)
+to materialize a fake tree under `/var/lib/nvml-mock/sys/` from the
+profile's `pcie_topology:` block:
+
+```yaml
+pcie_topology:
+  root_complexes:
+    - id: "pci0000:00"             # sysfs root-complex dir; "pciDDDD:BB"
+      numa_node: 0                  # numa_node value for every child device
+      devices:
+        - "0000:07:00.0"
+        - "0000:0F:00.0"
+    - id: "pci0000:80"
+      numa_node: 1
+      devices:
+        - "0000:87:00.0"
+        - "0000:90:00.0"
+```
+
+Rendered tree (matches what the kernel exposes):
+
+```
+/var/lib/nvml-mock/sys/
+├── bus/pci/devices/
+│   ├── 0000:07:00.0 -> ../../../devices/pci0000:00/0000:07:00.0
+│   └── 0000:0f:00.0 -> ../../../devices/pci0000:00/0000:0f:00.0
+└── devices/
+    └── pci0000:00/
+        ├── 0000:07:00.0/numa_node     # "0"
+        └── 0000:0f:00.0/numa_node     # "0"
+```
+
+Constraints (enforced at validation time):
+
+- Every BDF in `pcie_topology.root_complexes[*].devices` must appear in
+  `devices[]` — typos fail loudly instead of producing orphan entries.
+- Each device may belong to at most one root complex.
+- Root complex IDs must match the kernel format `pciDDDD:BB`.
+- BDFs use the 4-digit-domain canonical form (`DDDD:BB:DD.F`).
+
+If `pcie_topology:` is omitted, the renderer falls back to a flat
+single-root layout: every device under `pci0000:00`, `numa_node: 0`.
+Run `render-pci-sysfs --strict` to require an explicit block.
 
 #### Dynamic Metrics (optional)
 

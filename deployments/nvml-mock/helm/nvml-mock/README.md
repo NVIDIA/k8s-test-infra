@@ -14,6 +14,10 @@ Deploys a DaemonSet that creates on every node:
 - A fake InfiniBand sysfs tree at `/var/lib/nvml-mock/ib/sys/class/infiniband/...`
   paired with `libibmocksys.so` (`LD_PRELOAD`) so real `ibstat`, `ibstatus`,
   `iblinkinfo`, ... read mock HCAs
+- A fake PCI sysfs tree at `/var/lib/nvml-mock/sys/bus/pci/devices/...` (symlinks
+  into `/var/lib/nvml-mock/sys/devices/pciDDDD:BB/...`) so topology-aware
+  consumers (NVIDIA DRA driver `dra.k8s.io/pcieRoot`, NUMA-aware schedulers)
+  resolve PCIe root complex via a standard `readlink()`
 
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
@@ -540,6 +544,64 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 ```
 
 …or via a custom profile file (preferred for full control).
+
+## PCIe topology mocking
+
+Each profile carries a `pcie_topology:` block describing the host's PCI
+root-complex layout. When the DaemonSet starts, `render-pci-sysfs` reads
+it and writes a fake sysfs tree at `/var/lib/nvml-mock/sys/...` matching
+what real Linux kernels expose. Topology-aware consumers (NVIDIA DRA
+driver, device plugins computing NUMA hints) resolve "which PCIe root
+complex a GPU lives on" via a standard `readlink()` + path parse against
+the rendered tree:
+
+```bash
+$ readlink /var/lib/nvml-mock/sys/bus/pci/devices/0000:07:00.0
+../../../devices/pci0000:00/0000:07:00.0
+
+$ cat /var/lib/nvml-mock/sys/devices/pci0000:00/0000:07:00.0/numa_node
+0
+```
+
+### Defaults per profile
+
+| Profile | Root complexes | NUMA nodes | Devices per root |
+|---|---|---|---|
+| `a100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual EPYC) | 4 |
+| `h100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
+| `b200`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
+| `gb200` | 4 (`pci0000:00`, `:40`, `:80`, `:c0`) | 4 (per Grace pair) | 2 |
+| `l40s`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
+| `t4`    | 1 (`pci0000:00`) | 1 | 4 |
+
+### `pcie_topology:` block schema
+
+```yaml
+pcie_topology:
+  root_complexes:
+    - id: "pci0000:00"            # sysfs root-complex dir, format "pciDDDD:BB"
+      numa_node: 0                 # numa_node value for every child device
+      devices:
+        - "0000:07:00.0"           # canonical 4-digit-domain BDF
+        - "0000:0F:00.0"
+    - id: "pci0000:80"
+      numa_node: 1
+      devices:
+        - "0000:87:00.0"
+        - "0000:90:00.0"
+```
+
+`render-pci-sysfs` validates the block at startup and fails the
+DaemonSet under `set -e` if it finds a typo:
+
+- Every BDF listed under a root complex must also appear in `devices[]`.
+- Each BDF may belong to at most one root complex.
+- Root complex IDs must match `pciDDDD:BB`.
+- BDFs must use 4-digit-domain form (`DDDD:BB:DD.F`); the legacy NVML
+  `busIdLegacy` 8-digit form is rejected.
+
+If a profile omits `pcie_topology:` entirely the renderer falls back to
+a flat single-root layout (every device under `pci0000:00`, NUMA 0).
 
 ## Configuration
 

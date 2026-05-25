@@ -245,7 +245,7 @@ devices:
   - index: 0
     uuid: "GPU-ae000000-0000-0000-0000-000000000000"
     pci:
-      bus_id: "00000000:07:00.0"
+      bus_id: "0000:07:00.0"
   # ... add all devices
 ```
 

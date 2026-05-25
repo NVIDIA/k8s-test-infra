@@ -230,4 +230,21 @@ if [ -x /usr/local/bin/render-ib-sysfs ]; then
     --output "$IB_ROOT"
 fi
 
+# 10. Render fake PCI sysfs tree (consumed by topology-aware DRA / device
+#     plugins that resolve PCIe root complex via a readlink on
+#     /sys/bus/pci/devices/<bdf>). The renderer parses the profile's
+#     `pcie_topology:` block; profiles without one get a flat default
+#     covering every device under a single root complex (`pci0000:00`,
+#     NUMA 0). Failures are fatal under `set -e` for the same reason as
+#     the IB block above — a topology typo otherwise yields silently
+#     malformed sysfs that downstream `dra.k8s.io/pcieRoot` attributes
+#     would inherit.
+PCI_ROOT="$HOST"
+mkdir -p "$PCI_ROOT"
+if [ -x /usr/local/bin/render-pci-sysfs ]; then
+  /usr/local/bin/render-pci-sysfs \
+    --config /etc/nvml-mock/config.yaml \
+    --output "$PCI_ROOT"
+fi
+
 echo "Mock GPU environment ready: $GPU_COUNT GPUs at $HOST"
