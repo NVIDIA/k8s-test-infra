@@ -18,7 +18,8 @@ import { useTheme } from './ThemeProvider';
 import VelocitySparkline from './VelocitySparkline';
 import { AGE_COLORS, getCategoryColor, getChartStyles, formatWeekTick, formatDayTick, computeTrend } from '../utils/chartStyles';
 import type { Trend } from '../utils/chartStyles';
-import { DURATIONS, pickVelocity, type Duration } from '../utils/duration';
+import { pickVelocity, formatDurationLabel, type Duration } from '../utils/duration';
+import DurationPicker from './DurationPicker';
 import { projects } from '../data/projects';
 import type { IssuesPRsData, RepoIssuesPRs } from '../types';
 
@@ -53,11 +54,11 @@ function ExpandedRowDetail({
   tickStyle: { fontSize: number; fill: string };
   gridStroke: string;
 }) {
-  const { points: issueVelocity, granularity: issueGranularity } = useMemo(
+  const { points: issueVelocity, granularity: issueGranularity, clamp: issueClamp } = useMemo(
     () => pickVelocity(repoData.issues.velocity, duration),
     [repoData.issues.velocity, duration],
   );
-  const { points: prVelocity, granularity: prGranularity } = useMemo(
+  const { points: prVelocity, granularity: prGranularity, clamp: prClamp } = useMemo(
     () => pickVelocity(repoData.pullRequests.velocity, duration),
     [repoData.pullRequests.velocity, duration],
   );
@@ -130,8 +131,17 @@ function ExpandedRowDetail({
         {/* Issue Velocity */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
           <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-            Issue Velocity ({duration})
+            Issue Velocity ({formatDurationLabel(duration)} • {issueGranularity === 'day' ? 'daily' : 'weekly'})
           </h4>
+          {issueClamp && (
+            <p
+              aria-live="polite"
+              className="text-xs text-gray-500 dark:text-gray-400 mb-2"
+              data-testid="issue-clamp-note"
+            >
+              Showing data from {issueClamp.actualFrom} (requested {issueClamp.requestedFrom}).
+            </p>
+          )}
           {issueVelocity.length > 0 ? (
             <ResponsiveContainer width="100%" height={160}>
               <LineChart
@@ -258,8 +268,17 @@ function ExpandedRowDetail({
             </div>
           </div>
           <h4 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-            PR Velocity ({duration})
+            PR Velocity ({formatDurationLabel(duration)} • {prGranularity === 'day' ? 'daily' : 'weekly'})
           </h4>
+          {prClamp && (
+            <p
+              aria-live="polite"
+              className="text-xs text-gray-500 dark:text-gray-400 mb-2"
+              data-testid="pr-clamp-note"
+            >
+              Showing data from {prClamp.actualFrom} (requested {prClamp.requestedFrom}).
+            </p>
+          )}
           {prVelocity.length > 0 ? (
             <ResponsiveContainer width="100%" height={100}>
               <LineChart
@@ -313,7 +332,7 @@ function ExpandedRowDetail({
 export default function IssuesPRsDashboard({ data }: Props) {
   const { resolved } = useTheme();
   const dark = resolved === 'dark';
-  const [duration, setDuration] = useState<Duration>('12w');
+  const [duration, setDuration] = useState<Duration>({ kind: 'preset', value: '12w' });
   const [expandedSlug, setExpandedSlug] = useState<string | null>(null);
 
   const rows = useMemo<RowData[]>(() => {
@@ -340,23 +359,7 @@ export default function IssuesPRsDashboard({ data }: Props) {
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
           Issues &amp; PRs Overview
         </h2>
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Velocity duration">
-          {DURATIONS.map((d) => (
-            <button
-              key={d}
-              onClick={() => setDuration(d)}
-              aria-pressed={duration === d}
-              aria-label={`Show ${d} of velocity data`}
-              className={`px-2 py-1 text-xs rounded ${
-                duration === d
-                  ? 'bg-nvidia-green text-white'
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
-              }`}
-            >
-              {d}
-            </button>
-          ))}
-        </div>
+        <DurationPicker value={duration} onChange={setDuration} />
       </div>
 
       {/* Comparison Table */}

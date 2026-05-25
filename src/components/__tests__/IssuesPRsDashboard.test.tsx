@@ -92,6 +92,38 @@ function makeData(): IssuesPRsData {
   };
 }
 
+// Variant of makeData() where weekly velocity starts on a known ISO date so
+// the clamp branch in pickVelocity fires when `from` predates that week.
+function makeDataWithWeeklyStart(firstWeek: string): IssuesPRsData {
+  const base = makeData();
+  const repoData = base.repos['nvidia/gpu-operator'];
+  // Replace the first weekly entry's key with the given ISO date so
+  // pickVelocity's `earliest = weekly[0].week` comparison uses a real date.
+  const issueWeekly = [
+    { week: firstWeek, opened: 0, closed: 0 },
+    ...repoData.issues.velocity.weekly.slice(1),
+  ];
+  const prWeekly = [
+    { week: firstWeek, opened: 0, closed: 0 },
+    ...repoData.pullRequests.velocity.weekly.slice(1),
+  ];
+  return {
+    repos: {
+      'nvidia/gpu-operator': {
+        ...repoData,
+        issues: {
+          ...repoData.issues,
+          velocity: { ...repoData.issues.velocity, weekly: issueWeekly },
+        },
+        pullRequests: {
+          ...repoData.pullRequests,
+          velocity: { ...repoData.pullRequests.velocity, weekly: prWeekly },
+        },
+      },
+    },
+  };
+}
+
 function renderDashboard(data: IssuesPRsData) {
   return render(
     <MemoryRouter>
@@ -105,31 +137,40 @@ function renderDashboard(data: IssuesPRsData) {
 describe('IssuesPRsDashboard', () => {
   it('defaults to the 12w duration', () => {
     renderDashboard(makeData());
-    const btn = screen.getByRole('button', { name: /Show 12w of velocity data/ });
-    expect(btn).toHaveAttribute('aria-pressed', 'true');
+    // DurationPicker trigger shows the current range label
+    expect(screen.getByRole('button', { name: /range/i })).toHaveTextContent('Last 12 weeks');
   });
 
-  it('renders all 6 duration buttons in display order', () => {
-    renderDashboard(makeData());
-    const labels = ['7d', '4w', '12w', '6m', '1y', '5y'];
-    for (const label of labels) {
-      expect(screen.getByRole('button', { name: new RegExp(`Show ${label} of velocity data`) }))
-        .toBeInTheDocument();
-    }
-  });
-
-  it('clicking a duration button updates aria-pressed', async () => {
+  it('renders the DurationPicker trigger showing all 6 presets via the popover', async () => {
     const user = userEvent.setup();
     renderDashboard(makeData());
 
-    const btn7d = screen.getByRole('button', { name: /Show 7d of velocity data/ });
-    expect(btn7d).toHaveAttribute('aria-pressed', 'false');
+    await user.click(screen.getByRole('button', { name: /range/i }));
 
-    await user.click(btn7d);
+    const expectedLabels = [
+      'Last 7 days',
+      'Last 4 weeks',
+      'Last 12 weeks',
+      'Last 6 months',
+      'Last 1 year',
+      'Last 5 years',
+    ];
+    for (const label of expectedLabels) {
+      expect(screen.getByRole('menuitem', { name: label })).toBeInTheDocument();
+    }
+  });
 
-    expect(btn7d).toHaveAttribute('aria-pressed', 'true');
-    const btn12w = screen.getByRole('button', { name: /Show 12w of velocity data/ });
-    expect(btn12w).toHaveAttribute('aria-pressed', 'false');
+  it('selecting a preset from DurationPicker updates the trigger label', async () => {
+    const user = userEvent.setup();
+    renderDashboard(makeData());
+
+    const trigger = screen.getByRole('button', { name: /range/i });
+    expect(trigger).toHaveTextContent('Last 12 weeks');
+
+    await user.click(trigger);
+    await user.click(screen.getByRole('menuitem', { name: 'Last 7 days' }));
+
+    expect(screen.getByRole('button', { name: /range/i })).toHaveTextContent('Last 7 days');
   });
 
   // Q3 invariant (snapshot regression test, strengthened per QA review).
@@ -149,12 +190,50 @@ describe('IssuesPRsDashboard', () => {
     expect(initialIssuesText).toBe('42');
     expect(initialPRsText).toBe('8');
 
-    for (const label of ['7d', '4w', '12w', '6m', '1y', '5y']) {
-      const btn = screen.getByRole('button', { name: new RegExp(`Show ${label} of velocity data`) });
-      await user.click(btn);
+    const presetLabels = [
+      'Last 7 days',
+      'Last 4 weeks',
+      'Last 12 weeks',
+      'Last 6 months',
+      'Last 1 year',
+      'Last 5 years',
+    ];
+    for (const label of presetLabels) {
+      await user.click(screen.getByRole('button', { name: /range/i }));
+      await user.click(screen.getByRole('menuitem', { name: label }));
 
       expect(openIssuesCell.textContent).toBe(initialIssuesText);
       expect(openPRsCell.textContent).toBe(initialPRsText);
     }
+  });
+
+  it('renders clamp notes when a custom range predates the weekly retention', async () => {
+    const user = userEvent.setup();
+    // Weekly data starts at 2024-01-01; requesting from 2020-06-01 triggers clamping.
+    const data = makeDataWithWeeklyStart('2024-01-01');
+    renderDashboard(data);
+
+    // Expand the GPU Operator row to reveal the velocity charts.
+    // The row has role="button" and its accessible name includes "GPU Operator".
+    await user.click(screen.getByRole('button', { name: /GPU Operator/i }));
+
+    // Open the DurationPicker, select Custom range, enter clamping dates, apply.
+    await user.click(screen.getByRole('button', { name: /range/i }));
+    await user.click(screen.getByRole('menuitem', { name: /Custom range/i }));
+    await user.type(screen.getByLabelText('From'), '2020-06-01');
+    await user.type(screen.getByLabelText('To'), '2024-06-30');
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+
+    // Both clamp notes must appear with the corrected wording.
+    const issueNote = await screen.findByTestId('issue-clamp-note');
+    const prNote = await screen.findByTestId('pr-clamp-note');
+    expect(issueNote).toHaveTextContent('Showing data from 2024-01-01');
+    expect(issueNote).toHaveTextContent('(requested 2020-06-01)');
+    expect(prNote).toHaveTextContent('Showing data from 2024-01-01');
+    expect(prNote).toHaveTextContent('(requested 2020-06-01)');
+    // ARIA: screen readers must announce the clamp note when it appears
+    // after a range change. Removing aria-live would silently degrade SR UX.
+    expect(issueNote).toHaveAttribute('aria-live', 'polite');
+    expect(prNote).toHaveAttribute('aria-live', 'polite');
   });
 });
