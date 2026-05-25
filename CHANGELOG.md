@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fake-gpu-operator ConfigMap fanout, the e2e workflow profile matrix,
   and Helm unittests / Go profile-consistency tests were all extended to
   cover `gb300` in lockstep with the existing profiles.
+- nvml-mock library-size padding: the built `libnvidia-ml.so` is now padded
+  in a dedicated `.data.nvml_mock_padding` section to land within ~10% of
+  the real driver-shipped library (≈14 MiB for driver 550.x), so detection
+  / security tools that sanity-check the NVML file size accept the mock.
+  Configurable via `TARGET_LIB_SIZE` (auto two-pass build, default), an
+  explicit `PADDING_BYTES`, or fully disabled with `NO_PADDING=1` /
+  `BUILD_TAGS=nopadding` for minimal images. No functional impact on the
+  NVML API surface. (#247)
 - nvml-mock PCIe topology: profiles now carry a `pcie_topology:` block
   describing PCI root complexes, NUMA nodes, and device-to-root mapping.
   A new `render-pci-sysfs` binary (built from `cmd/render-pci-sysfs/`,

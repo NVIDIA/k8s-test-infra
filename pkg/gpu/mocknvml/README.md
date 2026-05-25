@@ -52,6 +52,10 @@ binaries even on macOS.
 |----------|-------------|---------|
 | `LIB_VERSION` | Library version (appears in filename) | 550.163.01 |
 | `GOLANG_VERSION` | Go version for Docker builds | 1.25.0 |
+| `TARGET_LIB_SIZE` | Target on-disk size in bytes (two-pass auto-pads to this) | `14680064` (≈14 MiB) |
+| `PADDING_BYTES` | Explicit padding size in bytes (overrides `TARGET_LIB_SIZE`) | _(unset → auto)_ |
+| `NO_PADDING` | Set to `1` to disable padding (small library) | _(unset)_ |
+| `BUILD_TAGS` | Extra Go build tags (include `nopadding` to disable padding) | _(unset)_ |
 
 This produces:
 - `libnvidia-ml.so.<version>` - The actual library
@@ -60,6 +64,34 @@ This produces:
 
 **Note:** The `LIB_VERSION` should match the `driver_version` in your YAML
 config for consistency.
+
+### Library-size padding
+
+The real `libnvidia-ml.so` shipped by the NVIDIA driver is roughly 14 MiB on
+disk (driver 550.x). Some detection / security tools sanity-check the file
+size of the loaded NVML library as a (very weak) authenticity heuristic, so
+by default the mock pads the built `.so` with an inert blob in a dedicated
+`.data.nvml_mock_padding` section to land within ~10% of the real size.
+
+```bash
+# Default: two-pass build, auto-sized to ~14 MiB (within 10% of real lib).
+make
+make size                              # report final size vs target
+
+# Explicit padding size (skips the probe pass).
+make PADDING_BYTES=10485760            # exactly 10 MiB of padding
+
+# Disable padding entirely (smaller library, smaller container images).
+make NO_PADDING=1
+# or equivalently:
+make BUILD_TAGS=nopadding
+```
+
+The padding has **zero functional impact** on the NVML API — it is a
+read-only byte blob with no exported symbol, anchored via an `__attribute__
+((used))` accessor so the linker keeps it. You can inspect it with
+`readelf -SW libnvidia-ml.so.*` (look for the `.data.nvml_mock_padding`
+section).
 
 ## Configuration
 
