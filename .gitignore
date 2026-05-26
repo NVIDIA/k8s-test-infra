@@ -10,6 +10,9 @@
 
 # Agentic working artifacts
 .agents/
+.cursor/
+.worktrees/
 AGENTS.md
+CLAUDE.md
 docs/plans/
 docs/superpowers/
