@@ -5,14 +5,12 @@ package daemon
 
 import (
 	"encoding/binary"
-	"fmt"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/gid"
 )
 
 // Offsets for SA PathRecord fields within the MAD payload (libibmad fields.c).
 const (
-	ibSAClass          = 0x03
 	ibSAMethodGet      = 0x01
 	ibSAAttrPathRecord = 0x35
 	ibSADataOff        = 56
@@ -172,21 +170,12 @@ func (s *Server) resolveLIDForGID(dgid []byte) (uint16, bool) {
 	if lid, ok := s.loopback.lidForGID(dgid); ok {
 		return lid, true
 	}
-	guid := portGUIDFromGID(dgid)
-	if guid == "" {
+	portGUID := gid.PortGUIDFromBytes(dgid)
+	if portGUID == "" {
 		return 0, false
 	}
-	if peer, ok := s.registry.Lookup(guid); ok && peer.LID != 0 {
+	if peer, ok := s.registry.Lookup(portGUID); ok && peer.LID != 0 {
 		return peer.LID, true
 	}
 	return 0, false
-}
-
-func portGUIDFromGID(gid []byte) string {
-	if len(gid) != 16 {
-		return ""
-	}
-	b := gid[8:16]
-	return registry.NormalizePortGUID(fmt.Sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x",
-		b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]))
 }

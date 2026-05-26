@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/gid"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
 )
@@ -38,23 +39,19 @@ func Scan(root string) ([]protocol.PortAdvert, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse %s lid: %w", caName, err)
 		}
-		gid := ""
-		if gidBytes, err := os.ReadFile(filepath.Join(portDir, "gids/0")); err == nil {
-			gid = normalizeGID(strings.TrimSpace(string(gidBytes)))
+		defaultGID := ""
+		if rawGID, err := os.ReadFile(filepath.Join(portDir, "gids/0")); err == nil {
+			defaultGID = gid.Normalize(strings.TrimSpace(string(rawGID)))
 		}
 		out = append(out, protocol.PortAdvert{
 			PortGUID:   registry.NormalizePortGUID(strings.TrimSpace(string(guidBytes))),
-			DefaultGID: gid,
+			DefaultGID: defaultGID,
 			CAName:     caName,
 			Port:       1,
 			LID:        lid,
 		})
 	}
 	return out, nil
-}
-
-func normalizeGID(s string) string {
-	return strings.ToLower(strings.TrimSpace(s))
 }
 
 func parseLID(s string) (uint16, error) {

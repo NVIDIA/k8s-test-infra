@@ -5,9 +5,8 @@ package daemon
 
 import (
 	"context"
-	"encoding/binary"
-	"encoding/hex"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -15,10 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
-	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/sysfs"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/daemon/madtest"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/render"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/sysfs"
 )
 
 func TestServer_LoopbackOpenSendRecv(t *testing.T) {
@@ -77,7 +77,7 @@ func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 	if advert.CAName == "" {
 		t.Fatalf("mlx5_0 not in %+v", ports)
 	}
-	sendMad := makePingMAD(advert)
+	sendMad := madtest.PingMAD(advert)
 	if err := protocol.WriteMessage(conn, protocol.TypeSend, protocol.SendReq{
 		Handle: openResp.Handle,
 		MAD:    sendMad,
@@ -115,6 +115,62 @@ func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 		t.Fatal("expected response method bit set on echoed MAD")
 	}
 
+	if err := protocol.WriteMessage(conn, protocol.TypeClose, protocol.CloseReq{Handle: openResp.Handle}); err != nil {
+		t.Fatal(err)
+	}
+	if err := protocol.ReadEnvelope(conn, &env); err != nil {
+		t.Fatal(err)
+	}
+	var closeResp protocol.CloseResp
+	if err := protocol.DecodeBody(env, &closeResp); err != nil {
+		t.Fatal(err)
+	}
+	if !closeResp.OK {
+		t.Fatalf("close: %+v", closeResp)
+	}
+
+	cancel()
+}
+
+func TestServer_handleClose_unknownHandle(t *testing.T) {
+	dir := t.TempDir()
+	if err := render.Render(render.Options{
+		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "n", Output: dir,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(os.TempDir(), fmt.Sprintf("mock-ib-%d-close.sock", os.Getpid()))
+	t.Cleanup(func() { _ = os.Remove(sock) })
+	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe(ctx) }()
+	waitForSocket(t, sock, errCh)
+
+	conn, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	if err := protocol.WriteMessage(conn, protocol.TypeClose, protocol.CloseReq{Handle: 9999}); err != nil {
+		t.Fatal(err)
+	}
+	var env protocol.Envelope
+	if err := protocol.ReadEnvelope(conn, &env); err != nil {
+		t.Fatal(err)
+	}
+	var closeResp protocol.CloseResp
+	if err := protocol.DecodeBody(env, &closeResp); err != nil {
+		t.Fatal(err)
+	}
+	if closeResp.OK {
+		t.Fatalf("expected close error, got %+v", closeResp)
+	}
 	cancel()
 }
 
@@ -139,23 +195,3 @@ func waitForSocket(t *testing.T, path string, errCh <-chan error) {
 	t.Fatalf("socket %s not ready", path)
 }
 
-func makePingMAD(p protocol.PortAdvert) []byte {
-	mad := make([]byte, 72)
-	binary.LittleEndian.PutUint32(mad[umadGRHPresent:], 1)
-	binary.BigEndian.PutUint16(mad[umadLIDOffset:], p.LID)
-	if p.DefaultGID != "" {
-		parseGIDInto(mad[umadGIDOffset:umadGIDOffset+16], p.DefaultGID)
-	}
-	mad[umadMADOffset+ibMADClassOff] = vendorClass0x81
-	mad[umadMADOffset+ibMADMethodOff] = 0x01
-	return mad
-}
-
-func parseGIDInto(dst []byte, gid string) {
-	h := strings.NewReplacer(":", "").Replace(gid)
-	b, err := hex.DecodeString(h)
-	if err != nil || len(b) != 16 {
-		return
-	}
-	copy(dst, b)
-}

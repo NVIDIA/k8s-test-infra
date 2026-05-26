@@ -180,12 +180,8 @@ func (s *Server) handleOpen(c net.Conn, req protocol.OpenReq) error {
 	if req.CAName == "" || req.Port <= 0 {
 		return protocol.WriteMessage(c, protocol.TypeOpen, protocol.OpenResp{Error: "ca_name and port required"})
 	}
-	ports, err := sysfs.Scan(s.cfg.IBRoot)
-	if err != nil {
-		return protocol.WriteMessage(c, protocol.TypeOpen, protocol.OpenResp{Error: err.Error()})
-	}
 	var found bool
-	for _, p := range ports {
+	for _, p := range s.localPorts {
 		if p.CAName == req.CAName && p.Port == req.Port {
 			found = true
 			break
@@ -236,10 +232,6 @@ func (s *Server) handleSend(c net.Conn, req protocol.SendReq) error {
 
 func (s *Server) handleRecv(c net.Conn, req protocol.RecvReq) error {
 	h, ok := s.lookupHandle(req.Handle)
-	if ok {
-		h.mu.Lock()
-		h.mu.Unlock()
-	}
 	if !ok {
 		return protocol.WriteMessage(c, protocol.TypeRecv, protocol.RecvResp{Error: "invalid handle"})
 	}
@@ -266,8 +258,14 @@ func (s *Server) handleRecv(c net.Conn, req protocol.RecvReq) error {
 
 func (s *Server) handleClose(c net.Conn, req protocol.CloseReq) error {
 	s.handlesMu.Lock()
-	delete(s.handles, req.Handle)
+	_, ok := s.handles[req.Handle]
+	if ok {
+		delete(s.handles, req.Handle)
+	}
 	s.handlesMu.Unlock()
+	if !ok {
+		return protocol.WriteMessage(c, protocol.TypeClose, protocol.CloseResp{Error: "invalid handle"})
+	}
 	return protocol.WriteMessage(c, protocol.TypeClose, protocol.CloseResp{OK: true})
 }
 
