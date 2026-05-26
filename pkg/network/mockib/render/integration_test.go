@@ -10,8 +10,8 @@
 //
 // Run with:
 //
-//	make -C pkg/network/mockibsysfs                       # build libibmocksys.so
-//	go test -tags=integration ./pkg/network/mockibsysfs/render/...
+//	make -C pkg/network/mockib                       # build libibmocksys.so
+//	go test -tags=integration ./pkg/network/mockib/render/...
 package render
 
 import (
@@ -22,7 +22,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockibsysfs/config"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 )
 
 func TestIbstat_Integration(t *testing.T) {
@@ -39,7 +39,7 @@ func TestIbstat_Integration(t *testing.T) {
 	}
 	shim := filepath.Join(wd, "..", "libibmocksys.so")
 	if _, err := os.Stat(shim); err != nil {
-		t.Skipf("shim not built: %v (run `make -C pkg/network/mockibsysfs`)", err)
+		t.Skipf("shim not built: %v (run `make -C pkg/network/mockib`)", err)
 	}
 
 	root := t.TempDir()

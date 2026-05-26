@@ -453,3 +453,83 @@ tests:
       - equal:
           path: spec.template.spec.terminationGracePeriodSeconds
           value: 0
+
+  # ── InfiniBand ping mock ────────────────────────────────────────────
+  - it: should preload libibmocksys only when ping is disabled
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LD_PRELOAD
+            value: /usr/local/lib/libibmocksys.so.1
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_PING
+      - notExists:
+          path: spec.template.spec.containers[0].ports
+
+  - it: should enable ping mock env, LD_PRELOAD, and containerPort when ping is enabled
+    set:
+      infiniband:
+        ping:
+          enabled: true
+          port: 18515
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_PING
+            value: "1"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_PING_FABRIC
+            value: "1"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_PING_PORT
+            value: "18515"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_PING_SERVICE_HOST
+            value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LD_PRELOAD
+            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmocksys.so.1
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].name
+          value: ibping
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 18515
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].protocol
+          value: TCP
+
+  - it: should honor a custom ping port
+    set:
+      infiniband:
+        ping:
+          enabled: true
+          port: 19000
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_PING_PORT
+            value: "19000"
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 19000

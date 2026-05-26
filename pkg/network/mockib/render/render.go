@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockibsysfs/config"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 )
 
 // Options controls a single rendering pass.
@@ -82,8 +82,9 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 		return err
 	}
 
-	guid := perHCAGUID(guidPrefix, idx)
-	portGUID := perHCAPortGUID(guidPrefix, idx)
+	nid := nodeID(nodeName)
+	guid := perHCAGUID(guidPrefix, nid, idx)
+	portGUID := perHCAPortGUID(guidPrefix, nid, idx)
 	nodeDesc := strings.NewReplacer(
 		"{node_name}", nodeName,
 		"{idx}", fmt.Sprintf("%d", idx),
@@ -132,7 +133,7 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 		{"state", formatPortState(ib.PortState)},
 		{"phys_state", formatPhysState(ib.PhysState)},
 		{"rate", formatRate(ib.RateGbps) + "\n"},
-		{"lid", fmt.Sprintf("0x%04x\n", idx+1)},
+		{"lid", fmt.Sprintf("0x%04x\n", 0x0100+int(nid&0xff)*16+idx)},
 		{"lid_mask_count", "0\n"},
 		{"sm_lid", "0x0001\n"},
 		{"sm_sl", "0\n"},
@@ -149,8 +150,9 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 		}
 	}
 
-	gid := fmt.Sprintf("fe80:0000:0000:0000:%s:%s:%s:%s",
-		guidPrefix[0:4], guidPrefix[4:8], guidPrefix[8:12], fmt.Sprintf("%04x", idx))
+	portLower := (nid << 8) | uint16(idx+1)
+	gid := fmt.Sprintf("fe80:0000:0000:0000:%s:%s:%s:%04x",
+		guidPrefix[0:4], guidPrefix[4:8], guidPrefix[8:12], portLower)
 	if err := writeFile(root, filepath.Join(portDir, "gids/0"), gid+"\n"); err != nil {
 		return err
 	}
@@ -290,17 +292,19 @@ func normalizeGUIDPrefix(s string) string {
 }
 
 // perHCAGUID renders the colon-separated 8-byte node GUID for HCA index idx.
-func perHCAGUID(guidPrefix string, idx int) string {
-	// prefix is 12 hex chars; pad with 4 hex chars for the lower bytes.
+// The lower 16 bits encode (nid<<8)|idx so GUIDs are unique per node and HCA.
+func perHCAGUID(guidPrefix string, nid uint16, idx int) string {
+	lower := (nid << 8) | uint16(idx)
 	return fmt.Sprintf("%s:%s:%s:%04x",
-		guidPrefix[0:4], guidPrefix[4:8], guidPrefix[8:12], idx)
+		guidPrefix[0:4], guidPrefix[4:8], guidPrefix[8:12], lower)
 }
 
 // perHCAPortGUID derives a port GUID by flipping a single byte (matches
 // real Mellanox HCAs where node and port GUIDs differ in the U/L bit).
-func perHCAPortGUID(guidPrefix string, idx int) string {
+func perHCAPortGUID(guidPrefix string, nid uint16, idx int) string {
+	lower := (nid << 8) | uint16(idx+1)
 	return fmt.Sprintf("%s:%s:%s:%04x",
-		guidPrefix[0:4], guidPrefix[4:8], guidPrefix[8:12], idx+1)
+		guidPrefix[0:4], guidPrefix[4:8], guidPrefix[8:12], lower)
 }
 
 func mkdirAll(root, rel string) error {

@@ -18,7 +18,9 @@ the node labels that downstream consumers expect.
    - Six GPU profile ConfigMaps are created (one per profile field group).
    - `nvidia-smi` runs successfully inside a pod.
    - `ibstat` lists 8 simulated ConnectX-7 NDR HCAs (see
-     [`pkg/network/mockibsysfs/README.md`](../../../pkg/network/mockibsysfs/README.md)).
+     [`pkg/network/mockib/README.md`](../../../pkg/network/mockib/README.md)).
+   - Cross-node `ibping` between two worker pods (`infiniband.ping.enabled=true`;
+     uses [`tests/e2e/validate-ibping.sh`](../../../tests/e2e/validate-ibping.sh)).
    - Node labels are present.
 
 ## Quick start

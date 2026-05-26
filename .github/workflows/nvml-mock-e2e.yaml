@@ -852,3 +852,81 @@ jobs:
           kubectl get events --sort-by=.lastTimestamp | tail -30 || true
           echo "=== node describe ==="
           kubectl describe nodes || true
+
+  ibping-multinode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
+
+      - name: Create multi-node Kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          cluster_name: ibping-fleet
+          config: tests/e2e/kind-multi-node-config.yaml
+
+      - name: Build nvml-mock image
+        run: |
+          docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile \
+            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image nvml-mock:e2e --name ibping-fleet
+
+      - name: Discover worker node names
+        id: nodes
+        run: |
+          WORKERS=$(kind get nodes --name ibping-fleet | grep worker | sort)
+          echo "Worker nodes: $WORKERS"
+          WORKER1=$(echo "$WORKERS" | head -1)
+          WORKER2=$(echo "$WORKERS" | tail -1)
+          echo "worker1=$WORKER1" >> "$GITHUB_OUTPUT"
+          echo "worker2=$WORKER2" >> "$GITHUB_OUTPUT"
+
+      - name: Install nvml-mock on worker-1 (A100 + ibping)
+        run: |
+          helm install nvml-mock-w1 deployments/nvml-mock/helm/nvml-mock \
+            --set image.repository=nvml-mock \
+            --set image.tag=e2e \
+            --set gpu.profile=a100 \
+            --set gpu.count=2 \
+            --set infiniband.ping.enabled=true \
+            --set "nodeSelector.kubernetes\.io/hostname=${{ steps.nodes.outputs.worker1 }}" \
+            --wait --timeout 120s
+
+      - name: Install nvml-mock on worker-2 (A100 + ibping)
+        run: |
+          helm install nvml-mock-w2 deployments/nvml-mock/helm/nvml-mock \
+            --set image.repository=nvml-mock \
+            --set image.tag=e2e \
+            --set gpu.profile=a100 \
+            --set gpu.count=2 \
+            --set infiniband.ping.enabled=true \
+            --set "nodeSelector.kubernetes\.io/hostname=${{ steps.nodes.outputs.worker2 }}" \
+            --wait --timeout 120s
+
+      - name: Validate cross-node ibping
+        run: |
+          chmod +x tests/e2e/validate-ibping.sh
+          SERVER_POD=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w1 \
+            -o jsonpath='{.items[0].metadata.name}')
+          CLIENT_POD=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w2 \
+            -o jsonpath='{.items[0].metadata.name}')
+          echo "Server pod: $SERVER_POD"
+          echo "Client pod: $CLIENT_POD"
+          ./tests/e2e/validate-ibping.sh "$SERVER_POD" "$CLIENT_POD"
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== nvml-mock pods ==="
+          kubectl get pods -A -l app.kubernetes.io/name=nvml-mock -o wide || true
+          echo "=== nvml-mock-w1 logs ==="
+          kubectl logs -l app.kubernetes.io/instance=nvml-mock-w1 --tail=50 || true
+          echo "=== nvml-mock-w2 logs ==="
+          kubectl logs -l app.kubernetes.io/instance=nvml-mock-w2 --tail=50 || true
+          echo "=== events ==="
+          kubectl get events --sort-by=.lastTimestamp | tail -30 || true
