@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/daemon/madtest"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/sysfs"
@@ -145,7 +146,7 @@ func TestFabric_RemoteSendForwardsPing(t *testing.T) {
 	})
 
 	h := &portHandle{caName: portsB[0].CAName, port: portsB[0].Port}
-	sendMad := makePingMAD(portsA[0])
+	sendMad := madtest.PingMAD(portsA[0])
 	if !client.tryFabricSend(h, sendMad) {
 		t.Fatal("tryFabricSend: expected remote ping success")
 	}

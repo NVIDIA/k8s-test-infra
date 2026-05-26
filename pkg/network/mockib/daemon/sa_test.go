@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/daemon/madtest"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/gid"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/render"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/sysfs"
@@ -30,7 +32,7 @@ func TestSAPathQuery_LocalPort(t *testing.T) {
 		registry:   registry.New(),
 	}
 	dgid := gidBytesForPort(t, ports[0].DefaultGID)
-	send := makeSAPathQueryMAD(dgid)
+	send := madtest.SAPathQueryMAD(dgid)
 	h := &portHandle{}
 	if !srv.trySAPathQuery(h, send) {
 		t.Fatal("expected SA path query handled")
@@ -79,7 +81,7 @@ func TestSAPathQuery_RemoteViaRegistry(t *testing.T) {
 	})
 
 	dgid := gidBytesForPort(t, portsA[0].DefaultGID)
-	send := makeSAPathQueryMAD(dgid)
+	send := madtest.SAPathQueryMAD(dgid)
 	h := &portHandle{}
 	if !client.trySAPathQuery(h, send) {
 		t.Fatal("expected remote SA path query handled")
@@ -91,20 +93,9 @@ func TestSAPathQuery_RemoteViaRegistry(t *testing.T) {
 	}
 }
 
-func makeSAPathQueryMAD(dgid []byte) []byte {
-	mad := make([]byte, umadMADOffset+256)
-	binary.BigEndian.PutUint16(mad[umadLIDOffset:], 0x0001) // SM lid
-	m := mad[umadMADOffset:]
-	// Match libibumad SA GET PathRecord layout seen from ibping -G (attr id offset varies).
-	m[20] = ibSAMethodGet
-	binary.BigEndian.PutUint16(m[24:26], ibSAAttrPathRecord)
-	copy(m[ibPathRecDGIDOff:ibPathRecDGIDOff+16], dgid)
-	return mad
-}
-
-func gidBytesForPort(t *testing.T, gid string) []byte {
+func gidBytesForPort(t *testing.T, gidStr string) []byte {
 	t.Helper()
 	var b [16]byte
-	parseGIDInto(b[:], gid)
+	gid.ParseInto(b[:], gidStr)
 	return b[:]
 }

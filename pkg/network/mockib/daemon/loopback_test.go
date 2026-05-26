@@ -9,6 +9,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/sysfs"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/daemon/madtest"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/render"
 )
 
@@ -23,7 +24,7 @@ func TestLoopback_ShouldQueueRecv_LocalGUID(t *testing.T) {
 		t.Fatal(err)
 	}
 	lb := NewLoopback(ports)
-	mad := makePingMAD(ports[0])
+	mad := madtest.PingMAD(ports[0])
 	if !lb.ShouldQueueRecv(mad) {
 		t.Fatalf("want queue for local ping; port=%+v", ports[0])
 	}

@@ -5,34 +5,19 @@ package daemon
 
 import (
 	"encoding/binary"
-	"fmt"
-	"strings"
 	"sync"
 
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/gid"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
 )
 
-const (
-	// Must match libibumad umad_get_mad() (legacy API: &addr.pkey_index), not sizeof(ib_user_mad).
-	umadMADOffset  = 56
-	umadLIDOffset  = 28
-	umadGRHPresent = 32
-	umadGIDOffset  = 36
-	ibMADClassOff  = 1
-	ibMADMethodOff = 3
-	ibMADStatusOff = 4
-	vendorClass0x81 = 0x81
-)
-
 // Loopback matches outbound ping MADs to local port GUIDs under ib-root and synthesizes RECV payloads.
 type Loopback struct {
-	mu sync.RWMutex
-	// serverGUIDs holds port GUIDs registered by ibping -S -G (server mode).
-	serverGUIDs map[string]struct{}
-	byGUID      map[string]protocol.PortAdvert
-	byGID       map[string]protocol.PortAdvert
-	byLID       map[uint16]protocol.PortAdvert
+	mu     sync.RWMutex
+	byGUID map[string]protocol.PortAdvert
+	byGID  map[string]protocol.PortAdvert
+	byLID  map[uint16]protocol.PortAdvert
 }
 
 // NewLoopback indexes localPorts by port GUID, default GID, and LID.
@@ -43,24 +28,15 @@ func NewLoopback(localPorts []protocol.PortAdvert) *Loopback {
 	for _, p := range localPorts {
 		byGUID[registry.NormalizePortGUID(p.PortGUID)] = p
 		if p.DefaultGID != "" {
-			byGID[normalizeGID(p.DefaultGID)] = p
+			byGID[gid.Normalize(p.DefaultGID)] = p
 		}
 		byLID[p.LID] = p
 	}
 	return &Loopback{
-		serverGUIDs: make(map[string]struct{}),
-		byGUID:      byGUID,
-		byGID:       byGID,
-		byLID:       byLID,
+		byGUID: byGUID,
+		byGID:  byGID,
+		byLID:  byLID,
 	}
-}
-
-// RegisterServerGUID marks guid as listening (ibping -S -G).
-func (l *Loopback) RegisterServerGUID(guid string) {
-	key := registry.NormalizePortGUID(guid)
-	l.mu.Lock()
-	l.serverGUIDs[key] = struct{}{}
-	l.mu.Unlock()
 }
 
 // ShouldQueueRecv reports whether sendMad should produce a synthetic RECV for loopback.
@@ -68,18 +44,7 @@ func (l *Loopback) ShouldQueueRecv(sendMad []byte) bool {
 	if len(sendMad) < umadMADOffset+ibMADMethodOff+1 {
 		return false
 	}
-	if l.matchesLocal(sendMad) {
-		return true
-	}
-	if guid, ok := destPortGUID(sendMad); ok {
-		l.mu.RLock()
-		_, server := l.serverGUIDs[registry.NormalizePortGUID(guid)]
-		l.mu.RUnlock()
-		if server && isPingLikeMAD(sendMad) {
-			return true
-		}
-	}
-	return false
+	return l.matchesLocal(sendMad)
 }
 
 // SynthesizeRecv builds the next RECV buffer for a prior SEND.
@@ -99,17 +64,17 @@ func (l *Loopback) SynthesizeRecv(sendMad []byte) []byte {
 }
 
 func (l *Loopback) matchesLocal(umad []byte) bool {
-	if guid, ok := destPortGUID(umad); ok {
+	if g, ok := destPortGUID(umad); ok {
 		l.mu.RLock()
-		_, ok := l.byGUID[registry.NormalizePortGUID(guid)]
+		_, ok := l.byGUID[g]
 		l.mu.RUnlock()
 		if ok {
 			return true
 		}
 	}
-	if gid, ok := destGID(umad); ok {
+	if g, ok := destGID(umad); ok {
 		l.mu.RLock()
-		_, ok := l.byGID[normalizeGID(gid)]
+		_, ok := l.byGID[gid.Normalize(g)]
 		l.mu.RUnlock()
 		if ok {
 			return true
@@ -126,80 +91,20 @@ func (l *Loopback) matchesLocal(umad []byte) bool {
 	return false
 }
 
-func destLID(umad []byte) (uint16, bool) {
-	if len(umad) < umadLIDOffset+2 {
-		return 0, false
-	}
-	// ib_user_mad.addr.lid (uint16) at byte offset 28; libibumad uses network byte order.
-	return binary.BigEndian.Uint16(umad[umadLIDOffset:]), true
-}
-
-func destGID(umad []byte) (string, bool) {
-	if len(umad) < umadGIDOffset+16 {
-		return "", false
-	}
-	if binary.LittleEndian.Uint32(umad[umadGRHPresent:]) == 0 {
-		return "", false
-	}
-	return formatGID(umad[umadGIDOffset : umadGIDOffset+16]), true
-}
-
-func formatGID(g []byte) string {
-	if len(g) != 16 {
-		return ""
-	}
-	return fmt.Sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
-		g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7],
-		g[8], g[9], g[10], g[11], g[12], g[13], g[14], g[15])
-}
-
-func destPortGUID(umad []byte) (string, bool) {
-	if len(umad) < umadGIDOffset+16 {
-		return "", false
-	}
-	if binary.LittleEndian.Uint32(umad[umadGRHPresent:]) == 0 {
-		return "", false
-	}
-	gid := umad[umadGIDOffset : umadGIDOffset+16]
-	return portGUIDFromGID(gid), true
-}
-
 // lidForGID returns the LID for a 16-byte destination GID when it matches a local port.
-func (l *Loopback) lidForGID(gid []byte) (uint16, bool) {
-	if len(gid) != 16 {
+func (l *Loopback) lidForGID(gidBytes []byte) (uint16, bool) {
+	if len(gidBytes) != 16 {
 		return 0, false
 	}
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	if p, ok := l.byGID[normalizeGID(formatGID(gid))]; ok {
+	if p, ok := l.byGID[gid.Normalize(gid.Format(gidBytes))]; ok {
 		return p.LID, true
 	}
-	if guid := portGUIDFromGID(gid); guid != "" {
-		if p, ok := l.byGUID[guid]; ok {
+	if g := gid.PortGUIDFromBytes(gidBytes); g != "" {
+		if p, ok := l.byGUID[g]; ok {
 			return p.LID, true
 		}
 	}
 	return 0, false
-}
-
-func normalizeGID(s string) string {
-	return strings.ToLower(strings.TrimSpace(s))
-}
-
-func isPingLikeMAD(umad []byte) bool {
-	if len(umad) < umadMADOffset+4 {
-		return false
-	}
-	mad := umad[umadMADOffset:]
-	if mad[ibMADClassOff] == vendorClass0x81 {
-		return true
-	}
-	return len(umad) >= 72 && mad[ibMADMethodOff]&0x7f != 0
-}
-
-func isSolicitedMAD(umad []byte) bool {
-	if len(umad) < umadMADOffset+ibMADMethodOff+1 {
-		return false
-	}
-	return umad[umadMADOffset+ibMADClassOff] == 3
 }
