@@ -76,13 +76,12 @@ terminationGracePeriodSeconds: 10
 # NVML engine looks up its NODE_NAME on startup and overrides each GPU's
 # fabric cluster_uuid / clique_id accordingly. See
 # pkg/gpu/mocknvml/engine/fabric.go and issue NVIDIA/k8s-test-infra#304.
-# InfiniBand ping mock. When `infiniband.ping.enabled` is true the DaemonSet
-# preloads libibmockumad alongside libibmocksys, starts mock-ib via the
-# container entrypoint, exposes a ClusterIP Service on `ping.port`, and sets
-# MOCK_IB_PING / MOCK_IB_PING_FABRIC so ibping can reach peer pods.
+# InfiniBand ping mock (always on). The DaemonSet preloads libibmockumad
+# alongside libibmocksys, starts mock-ib via the container entrypoint,
+# exposes a headless Service on `ping.port`, and sets MOCK_IB_PING /
+# MOCK_IB_PING_FABRIC so ibping can reach peer pods.
 infiniband:
   ping:
-    enabled: false
     port: 18515
 
 topology:

@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	umadMADOffset  = 64
+	// Must match libibumad umad_get_mad() (legacy API: &addr.pkey_index), not sizeof(ib_user_mad).
+	umadMADOffset  = 56
 	umadLIDOffset  = 28
 	umadGRHPresent = 32
 	umadGIDOffset  = 36
@@ -160,9 +161,25 @@ func destPortGUID(umad []byte) (string, bool) {
 		return "", false
 	}
 	gid := umad[umadGIDOffset : umadGIDOffset+16]
-	b := gid[8:16]
-	return registry.NormalizePortGUID(fmt.Sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x",
-		b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7])), true
+	return portGUIDFromGID(gid), true
+}
+
+// lidForGID returns the LID for a 16-byte destination GID when it matches a local port.
+func (l *Loopback) lidForGID(gid []byte) (uint16, bool) {
+	if len(gid) != 16 {
+		return 0, false
+	}
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if p, ok := l.byGID[normalizeGID(formatGID(gid))]; ok {
+		return p.LID, true
+	}
+	if guid := portGUIDFromGID(gid); guid != "" {
+		if p, ok := l.byGUID[guid]; ok {
+			return p.LID, true
+		}
+	}
+	return 0, false
 }
 
 func normalizeGID(s string) string {

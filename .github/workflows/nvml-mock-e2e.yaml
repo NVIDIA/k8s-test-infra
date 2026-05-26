@@ -893,7 +893,6 @@ jobs:
             --set image.tag=e2e \
             --set gpu.profile=a100 \
             --set gpu.count=2 \
-            --set infiniband.ping.enabled=true \
             --set "nodeSelector.kubernetes\.io/hostname=${{ steps.nodes.outputs.worker1 }}" \
             --wait --timeout 120s
 
@@ -904,7 +903,6 @@ jobs:
             --set image.tag=e2e \
             --set gpu.profile=a100 \
             --set gpu.count=2 \
-            --set infiniband.ping.enabled=true \
             --set "nodeSelector.kubernetes\.io/hostname=${{ steps.nodes.outputs.worker2 }}" \
             --wait --timeout 120s
 

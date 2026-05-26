@@ -102,18 +102,19 @@ GIDs, or LIDs. Integration test:
 
 **Phase 2 (fabric):** With `MOCK_IB_PING_FABRIC=1`, each daemon listens on
 TCP (default port 18515), registers local ports with peers, and relays
-`PING`/`PONG` between nvml-mock pods on different nodes. The nvml-mock Helm
-chart exposes a ClusterIP Service and sets the env vars when
-`infiniband.ping.enabled=true` (default off).
+`PING`/`PONG` between nvml-mock pods on different nodes. The nvml-mock Helm chart always exposes a headless Service and sets the env vars.
 
 ### What works and what does not
 
-- **LID-based `ibping` works** for same-pod loopback and cross-node fabric
-  (`ibping -S` on the server, `ibping -c N <lid>` on the client). E2E:
-  `tests/e2e/validate-ibping.sh`.
-- **`ibping -G <port_guid>` is still limited** for cross-node use. The fabric
-  path is exercised via LID in CI; GUID-based client/server modes
-  (`ibping -G`, `ibping -S -G`) are not fully supported across pods.
+- **LID-based `ibping`** works for same-pod loopback and cross-node fabric
+  (`ibping -c N <lid>`). E2E: `tests/e2e/validate-ibping.sh`.
+- **GUID-based `ibping`** (`ibping -G -c N <port_guid>`) resolves the
+  destination via a mocked SA PathRecord query, then uses the same fabric
+  path as LID mode. Pass the port GUID as a single hex value (e.g.
+  `0xa088c20300abfa01`); colon-separated sysfs values must be normalized
+  (ibdiag uses `strtoull` and stops at `:`).
+- **`ibping -S` / `ibping -S -G`** (server mode) are not supported by the
+  UMAD shim; cross-node validation uses client-mode pings only.
 - Other `ibping` flags (`-R`, multicast, batch modes) are out of scope.
 
 The renderer assigns **node-unique LIDs and port GUIDs** (FNV-1a of

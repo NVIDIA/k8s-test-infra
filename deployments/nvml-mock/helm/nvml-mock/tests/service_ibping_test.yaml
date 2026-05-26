@@ -4,17 +4,7 @@ suite: IB ping Service
 templates:
   - templates/service-ibping.yaml
 tests:
-  - it: should not render when ping is disabled
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: should render a headless Service when ping is enabled
-    set:
-      infiniband:
-        ping:
-          enabled: true
-          port: 18515
+  - it: should render a headless Service
     asserts:
       - hasDocuments:
           count: 1
@@ -49,7 +39,6 @@ tests:
     set:
       infiniband:
         ping:
-          enabled: true
           port: 19000
     asserts:
       - equal:

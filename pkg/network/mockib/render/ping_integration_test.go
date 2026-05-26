@@ -78,6 +78,7 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 	}
 
 	lidPath := filepath.Join(root, "sys/class/infiniband/mlx5_0/ports/1/lid")
+	guidPath := filepath.Join(root, "sys/class/infiniband/mlx5_0/ports/1/port_guid")
 	lidBytes, err := os.ReadFile(lidPath)
 	if err != nil {
 		t.Fatalf("read lid: %v", err)
@@ -86,6 +87,11 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 	if lid == "" {
 		t.Fatal("empty lid")
 	}
+	guidBytes, err := os.ReadFile(guidPath)
+	if err != nil {
+		t.Fatalf("read port_guid: %v", err)
+	}
+	guidHex := "0x" + strings.NewReplacer(":", "").Replace(strings.TrimSpace(string(guidBytes)))
 
 	runDir := t.TempDir()
 	socketPath := filepath.Join(runDir, "mock-ib.sock")
@@ -105,40 +111,47 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 	waitForUnixSocket(t, socketPath)
 
 	preload := shimUmad + ":" + shimSys
-	cmd := exec.Command(ibping, "-c", "1", lid)
-	cmd.Env = append(os.Environ(),
-		"MOCK_IB_PING=1",
-		"LD_PRELOAD="+preload,
-		"MOCK_IB_ROOT="+root,
-		"MOCK_IB_PING_SOCKET="+socketPath,
-	)
-	out, err := cmd.CombinedOutput()
-	got := string(out)
+	runIbping := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(ibping, args...)
+		cmd.Env = append(os.Environ(),
+			"MOCK_IB_PING=1",
+			"LD_PRELOAD="+preload,
+			"MOCK_IB_ROOT="+root,
+			"MOCK_IB_PING_SOCKET="+socketPath,
+		)
+		out, err := cmd.CombinedOutput()
+		got := string(out)
 
-	failPatterns := []string{
-		"client_register for mgmt 3 failed",
-		"iberror:",
-		"can't open UMAD port",
-	}
-	for _, p := range failPatterns {
-		if strings.Contains(got, p) {
-			t.Fatalf("ibping output contains %q\nerr=%v\noutput:\n%s", p, err, got)
+		failPatterns := []string{
+			"client_register for mgmt 3 failed",
+			"iberror:",
+			"can't open UMAD port",
+			"can't resolve destination port",
+		}
+		for _, p := range failPatterns {
+			if strings.Contains(got, p) {
+				t.Fatalf("ibping %v output contains %q\nerr=%v\noutput:\n%s", args, p, err, got)
+			}
+		}
+
+		if err != nil {
+			t.Fatalf("ibping %v failed: %v\noutput:\n%s", args, err, got)
+		}
+		if strings.Contains(got, ", 0 received") || strings.Contains(got, "100% packet loss") {
+			t.Fatalf("ibping %v reported no replies\noutput:\n%s", args, got)
+		}
+		if !strings.Contains(got, "packets transmitted") {
+			t.Fatalf("ibping %v missing statistics\noutput:\n%s", args, got)
+		}
+		if !regexp.MustCompile(`[0-9]+ packets transmitted, [1-9][0-9]* received`).MatchString(got) &&
+			!strings.Contains(got, "0% packet loss") {
+			t.Fatalf("ibping %v did not report successful replies\noutput:\n%s", args, got)
 		}
 	}
 
-	if err != nil {
-		t.Fatalf("ibping failed: %v\noutput:\n%s", err, got)
-	}
-	if strings.Contains(got, ", 0 received") || strings.Contains(got, "100% packet loss") {
-		t.Fatalf("ibping reported no replies\noutput:\n%s", got)
-	}
-	if !strings.Contains(got, "packets transmitted") {
-		t.Fatalf("ibping missing statistics\noutput:\n%s", got)
-	}
-	if !regexp.MustCompile(`[0-9]+ packets transmitted, [1-9][0-9]* received`).MatchString(got) &&
-		!strings.Contains(got, "0% packet loss") {
-		t.Fatalf("ibping did not report successful replies\noutput:\n%s", got)
-	}
+	runIbping("-c", "1", lid)
+	runIbping("-G", "-c", "1", guidHex)
 }
 
 func waitForUnixSocket(t *testing.T, path string) {

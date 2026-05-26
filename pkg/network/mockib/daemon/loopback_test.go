@@ -48,7 +48,7 @@ func TestLoopback_ShouldNotQueueRecv_RemoteLID(t *testing.T) {
 }
 
 func TestLoopback_umadMADOffsetMatchesShim(t *testing.T) {
-	const want = 64 // ib_user_mad data offset in c/umad_shim.c
+	const want = 56 // libibumad umad_get_mad() offset; see c/umad_shim.c MOCK_UMAD_HDR_SZ
 	if umadMADOffset != want {
 		t.Fatalf("umadMADOffset = %d, want %d (libibumad header size)", umadMADOffset, want)
 	}
