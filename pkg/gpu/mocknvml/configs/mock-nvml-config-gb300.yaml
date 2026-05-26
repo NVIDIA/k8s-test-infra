@@ -1,4 +1,4 @@
-# Mock NVML Configuration: HGX H100
+# Mock NVML Configuration: GB300 NVL (Grace-Blackwell Ultra Superchip)
 # Full configuration for nvidia-smi -x -q compatibility
 # Use: export MOCK_NVML_CONFIG=/path/to/this/file.yaml
 
@@ -8,11 +8,11 @@ version: "1.0"
 # System-level configuration
 # =============================================================================
 system:
-  driver_version: "550.163.01"
-  nvml_version: "12.550.163.01"
-  cuda_version: "12.4"
+  driver_version: "570.124.06"
+  nvml_version: "12.570.124.06"
+  cuda_version: "12.8"
   cuda_version_major: 12
-  cuda_version_minor: 4
+  cuda_version_minor: 8
 
 # =============================================================================
 # Default device configuration (applied to all devices unless overridden)
@@ -21,55 +21,55 @@ device_defaults:
   # ---------------------------------------------------------------------------
   # Basic identification
   # ---------------------------------------------------------------------------
-  name: "NVIDIA H100 80GB HBM3"
+  name: "NVIDIA GB300 NVL"
   brand: "nvidia"
-  serial: "1562821083900"
-  board_part_number: "699-21010-0200-000"
-  vbios_version: "96.00.74.00.09"
+  serial: "1573041103750"
+  board_part_number: "699-2G530-0300-000"
+  vbios_version: "97.00.41.00.01"
 
   # ---------------------------------------------------------------------------
-  # Architecture
+  # Architecture - Blackwell Ultra (still sm_100 family for compute_capability,
+  # but with higher TFLOPS per SM than the standard Blackwell B200/GB200)
   # ---------------------------------------------------------------------------
-  architecture: "hopper"
+  architecture: "blackwell"
   compute_capability:
-    major: 9
+    major: 10
     minor: 0
-  num_gpu_cores: 16896              # CUDA cores
+  num_gpu_cores: 21632             # Blackwell Ultra: more cores than B200/GB200
 
   # ---------------------------------------------------------------------------
   # InfoROM versions
   # ---------------------------------------------------------------------------
   inforom:
-    image_version: "H100.0200.00.04"
+    image_version: "G530.0300.00.01"
     oem_object: "2.1"
-    ecc_object: "7.16"
-    pwr_object: "N/A"
+    ecc_object: "7.20"
+    pwr_object: "1.0"
 
   # ---------------------------------------------------------------------------
-  # Memory configuration - 80 GiB HBM3
+  # Memory configuration - 288 GiB HBM3e per GPU (1.5x GB200's 192 GiB)
   # ---------------------------------------------------------------------------
   memory:
-    total_bytes: 85899345920        # 80 GiB HBM3
-    reserved_bytes: 1073741824      # ~1 GiB reserved
-    free_bytes: 84825604096         # total - reserved at idle
+    total_bytes: 309237645312       # 288 GiB HBM3e
+    reserved_bytes: 1610612736      # ~1.5 GiB reserved
+    free_bytes: 307627032576        # total - reserved at idle
     used_bytes: 0
-    memory_bus_width: 5120
 
   bar1_memory:
-    total_bytes: 274877906944       # 256 GiB
-    free_bytes: 274877906944
+    total_bytes: 824633720832       # 768 GiB (unified memory with Grace, grown for B300)
+    free_bytes: 824633720832
     used_bytes: 0
 
   # ---------------------------------------------------------------------------
   # PCI configuration
   # ---------------------------------------------------------------------------
   pci:
-    device_id: 0x233010DE           # H100 SXM 80GB
-    subsystem_id: 0x165810DE
+    device_id: 0x294110DE           # GB300 NVL (mock placeholder, Blackwell Ultra)
+    subsystem_id: 0x183010DE
 
   pcie:
-    max_link_gen: 5                 # PCIe Gen5
-    current_link_gen: 5
+    max_link_gen: 6                 # PCIe Gen6 (or NVLink-C2C to Grace)
+    current_link_gen: 6
     max_link_width: 16              # x16
     current_link_width: 16
     replay_counter: 0
@@ -77,54 +77,54 @@ device_defaults:
     rx_throughput_kbps: 0
 
   # ---------------------------------------------------------------------------
-  # Power configuration - 700W TDP
+  # Power configuration - GB300 is higher TDP than GB200
+  # (B300 GPU alone advertised at up to 1.4 kW; full superchip headroom higher)
   # ---------------------------------------------------------------------------
   power:
     management_supported: true
     management_mode: "enabled"
-    default_limit_mw: 700000         # 700W
-    enforced_limit_mw: 700000
-    min_limit_mw: 200000            # 200W minimum
-    max_limit_mw: 700000            # 700W max
-    current_draw_mw: 95000          # 95W idle
+    default_limit_mw: 1400000       # 1400W per B300 GPU
+    enforced_limit_mw: 1400000
+    min_limit_mw: 500000            # 500W minimum
+    max_limit_mw: 1600000           # 1600W boost ceiling
+    current_draw_mw: 175000         # 175W idle (liquid cooled)
     power_state: "P0"
-    total_energy_consumption_mj: 600000  # millijoules since boot
 
   # ---------------------------------------------------------------------------
-  # Thermal configuration
+  # Thermal configuration (same liquid-cooled envelope as GB200)
   # ---------------------------------------------------------------------------
   thermal:
-    temperature_gpu_c: 34           # Idle temperature
-    temperature_memory_c: 32
-    shutdown_threshold_c: 92
-    slowdown_threshold_c: 87
-    max_operating_c: 83
-    target_temperature_c: 83
+    temperature_gpu_c: 38           # Idle temperature (liquid cooled)
+    temperature_memory_c: 36
+    shutdown_threshold_c: 95
+    slowdown_threshold_c: 90
+    max_operating_c: 85
+    target_temperature_c: 85
 
   # ---------------------------------------------------------------------------
-  # Fan configuration (N/A for SXM form factor)
+  # Fan configuration (N/A - liquid cooled)
   # ---------------------------------------------------------------------------
   fan:
-    count: 0                        # SXM has no fans (liquid cooled)
+    count: 0                        # Liquid cooled, no fans
     speed_percent: "N/A"
     target_speed_percent: "N/A"
 
   # ---------------------------------------------------------------------------
-  # Clock speeds (MHz)
+  # Clock speeds (MHz) - Blackwell Ultra pushes boost slightly higher
   # ---------------------------------------------------------------------------
   clocks:
     graphics_current: 345           # Idle
-    graphics_max: 1980
-    graphics_app: 1980
-    graphics_app_default: 1980
+    graphics_max: 2200              # Boost
+    graphics_app: 2200
+    graphics_app_default: 2200
     sm_current: 345
-    sm_max: 1980
-    memory_current: 1593            # HBM3
-    memory_max: 1593
-    memory_app: 1593
-    memory_app_default: 1593
-    video_current: 345
-    video_max: 1980
+    sm_max: 2200
+    memory_current: 2625            # HBM3e 8 Gbps (1.05x GB200's 2500)
+    memory_max: 2625
+    memory_app: 2625
+    memory_app_default: 2625
+    video_current: 1200
+    video_max: 2200
 
   # ---------------------------------------------------------------------------
   # Clocks throttle reasons
@@ -141,12 +141,12 @@ device_defaults:
     display_clocks_setting: false
 
   # ---------------------------------------------------------------------------
-  # Supported clocks (for nvidia-smi -q -d SUPPORTED_CLOCKS)
+  # Supported clocks
   # ---------------------------------------------------------------------------
   supported_clocks:
     memory_clocks:
-      - freq_mhz: 1593
-        graphics_clocks: [345, 690, 1035, 1380, 1620, 1800, 1980]
+      - freq_mhz: 2625
+        graphics_clocks: [345, 690, 1035, 1380, 1725, 1980, 2200]
 
   # ---------------------------------------------------------------------------
   # Performance state
@@ -256,7 +256,7 @@ device_defaults:
   compute_mode: "default"
 
   # ---------------------------------------------------------------------------
-  # MIG configuration
+  # MIG configuration - GB300 supports MIG
   # ---------------------------------------------------------------------------
   mig:
     mode_current: "disabled"
@@ -296,15 +296,29 @@ device_defaults:
   # ---------------------------------------------------------------------------
   gsp_firmware:
     mode: "enabled"
-    version: "550.163.01"
+    version: "570.124.06"
 
   # ---------------------------------------------------------------------------
-  # Hopper-specific features
+  # Blackwell Ultra-specific features
   # ---------------------------------------------------------------------------
   features:
-    transformer_engine: true
-    fp8_support: true
-    confidential_compute: true
+    transformer_engine: true        # 2nd gen Transformer Engine
+    fp4_support: true               # FP4 precision support
+    fp6_support: true               # FP6 precision (Blackwell Ultra)
+    fp8_support: true               # FP8 precision support
+    confidential_compute: true      # CC/TEE support
+    nvlink_c2c: true                # NVLink Chip-to-Chip (Grace connection)
+    decompression_engine: true      # Hardware decompression
+    fifth_gen_tensor_cores: true    # 5th generation tensor cores
+
+  # ---------------------------------------------------------------------------
+  # Grace CPU pairing (GB300 superchip)
+  # ---------------------------------------------------------------------------
+  grace_superchip:
+    enabled: true
+    cpu_cores: 72                   # Grace CPU cores (same Grace as GB200)
+    cpu_memory_gb: 480              # LPDDR5X per Grace CPU
+    coherent_memory: true           # NVLink-C2C coherent memory
 
   # ---------------------------------------------------------------------------
   # Processes (empty at idle)
@@ -312,114 +326,122 @@ device_defaults:
   processes: []
 
 # =============================================================================
-# Device-specific overrides (indexed 0-7 for HGX H100)
+# Device-specific overrides
+# GB300 NVL72 has 72 GPUs, but we define 8 for testing (4 superchip trays,
+# each with 1 Grace CPU + 2 B300 GPUs, matching the GB200 layout).
 # =============================================================================
 devices:
   - index: 0
-    uuid: "GPU-01000100-0000-0000-0000-000000000000"
-    serial: "1562821083900"
+    uuid: "GPU-b300b300-0000-0000-0000-000000000000"
+    serial: "1573041103700"
     pci:
-      bus_id: "0000:1A:00.0"
+      bus_id: "0000:0A:00.0"
     minor_number: 0
+    grace_cpu_pair: 0               # Paired with Grace CPU 0
 
   - index: 1
-    uuid: "GPU-01000100-0000-0000-0000-000000000001"
-    serial: "1562821083901"
+    uuid: "GPU-b300b300-0000-0000-0000-000000000001"
+    serial: "1573041103701"
     pci:
-      bus_id: "0000:1B:00.0"
+      bus_id: "0000:0B:00.0"
     minor_number: 1
+    grace_cpu_pair: 0               # Same superchip as GPU 0
 
   - index: 2
-    uuid: "GPU-01000100-0000-0000-0000-000000000002"
-    serial: "1562821083902"
+    uuid: "GPU-b300b300-0000-0000-0000-000000000002"
+    serial: "1573041103702"
     pci:
       bus_id: "0000:4A:00.0"
     minor_number: 2
+    grace_cpu_pair: 1
 
   - index: 3
-    uuid: "GPU-01000100-0000-0000-0000-000000000003"
-    serial: "1562821083903"
+    uuid: "GPU-b300b300-0000-0000-0000-000000000003"
+    serial: "1573041103703"
     pci:
       bus_id: "0000:4B:00.0"
     minor_number: 3
+    grace_cpu_pair: 1
 
   - index: 4
-    uuid: "GPU-01000100-0000-0000-0000-000000000004"
-    serial: "1562821083904"
+    uuid: "GPU-b300b300-0000-0000-0000-000000000004"
+    serial: "1573041103704"
     pci:
       bus_id: "0000:8A:00.0"
     minor_number: 4
+    grace_cpu_pair: 2
 
   - index: 5
-    uuid: "GPU-01000100-0000-0000-0000-000000000005"
-    serial: "1562821083905"
+    uuid: "GPU-b300b300-0000-0000-0000-000000000005"
+    serial: "1573041103705"
     pci:
       bus_id: "0000:8B:00.0"
     minor_number: 5
+    grace_cpu_pair: 2
 
   - index: 6
-    uuid: "GPU-01000100-0000-0000-0000-000000000006"
-    serial: "1562821083906"
+    uuid: "GPU-b300b300-0000-0000-0000-000000000006"
+    serial: "1573041103706"
     pci:
       bus_id: "0000:CA:00.0"
     minor_number: 6
+    grace_cpu_pair: 3
 
   - index: 7
-    uuid: "GPU-01000100-0000-0000-0000-000000000007"
-    serial: "1562821083907"
+    uuid: "GPU-b300b300-0000-0000-0000-000000000007"
+    serial: "1573041103707"
     pci:
       bus_id: "0000:CB:00.0"
     minor_number: 7
+    grace_cpu_pair: 3
 
 # =============================================================================
-# NVLink topology - H100 NVLink 4
+# NVLink topology - GB300 uses NVLink 5.0 (same fabric as GB200)
 # =============================================================================
 nvlink:
-  version: 4
+  version: 5
   links_per_gpu: 18
-  bandwidth_per_link_gbps: 50       # 50 GB/s per link = 900 GB/s total per GPU
+  bandwidth_per_link_gbps: 100      # 100 GB/s per link = 1.8 TB/s total per GPU
+  switch_support: true              # NVLink Switch for scale-out
+  switch_count: 0                   # Set for NVL72 configurations (up to 9 switches)
+  c2c_enabled: true                 # NVLink-C2C to Grace CPU
+  # NVLink state per link (18 links)
   links:
     - link: 0
       state: "active"
       remote_device_type: "gpu"
-      remote_pci_bus_id: "0000:1B:00.0"
+      remote_pci_bus_id: "0000:0B:00.0"
+    - link: 1
+      state: "active"
+      remote_device_type: "cpu"     # NVLink-C2C to Grace
+      remote_pci_bus_id: "N/A"
+    # ... define all 18 links for full topology
 
 # =============================================================================
-# InfiniBand topology - 1 ConnectX-7 NDR HCA per GPU (typical HGX H100)
-# =============================================================================
-infiniband:
-  enabled: true
-  hca_type: "MT4129"                # ConnectX-7
-  fw_version: "28.39.2048"
-  hw_rev: "0x0"
-  board_id: "MT_0000000838"
-  link_layer: "InfiniBand"
-  rate_gbps: 400                    # NDR
-  port_state: "ACTIVE"
-  phys_state: "LinkUp"
-  hcas_per_gpu: 1                   # total HCAs = gpu.count * hcas_per_gpu
-  guid_prefix: "a088c2:0300:ab"     # last byte = HCA index
-  node_desc_template: "{node_name} mlx5_{idx}"
-
-# =============================================================================
-# PCIe topology - HGX H100, 2 NUMA nodes, 4 GPUs each.
-# Consumed by `render-pci-sysfs` to materialize a fake /sys/bus/pci tree
-# under MOCK_PCI_ROOT; the NVIDIA DRA driver resolves `dra.k8s.io/pcieRoot`
-# from these symlinks.
+# PCIe topology (consumed by render-pci-sysfs to materialize
+# /sys/bus/pci/devices/<bdf> -> ../../../devices/pciDDDD:BB/<bdf> symlinks
+# and per-device numa_node files). Mirrors the GB300 NVL superchip layout:
+# one PCI root complex per Grace+2×B300 tray, NUMA-aligned per tray.
 # =============================================================================
 pcie_topology:
   root_complexes:
     - id: "pci0000:00"
       numa_node: 0
       devices:
-        - "0000:1A:00.0"
-        - "0000:1B:00.0"
+        - "0000:0A:00.0"
+        - "0000:0B:00.0"
+    - id: "pci0000:40"
+      numa_node: 1
+      devices:
         - "0000:4A:00.0"
         - "0000:4B:00.0"
     - id: "pci0000:80"
-      numa_node: 1
+      numa_node: 2
       devices:
         - "0000:8A:00.0"
         - "0000:8B:00.0"
+    - id: "pci0000:c0"
+      numa_node: 3
+      devices:
         - "0000:CA:00.0"
         - "0000:CB:00.0"

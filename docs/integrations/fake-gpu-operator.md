@@ -133,6 +133,7 @@ The following profiles are created by default:
 | `nvml-mock-profile-h100` | NVIDIA H100 80GB HBM3 | 80 GiB |
 | `nvml-mock-profile-b200` | NVIDIA B200 | 192 GiB |
 | `nvml-mock-profile-gb200` | NVIDIA GB200 NVL | 192 GiB |
+| `nvml-mock-profile-gb300` | NVIDIA GB300 NVL | 288 GiB |
 | `nvml-mock-profile-l40s` | NVIDIA L40S | 48 GiB |
 | `nvml-mock-profile-t4` | NVIDIA T4 | 16 GiB |
 

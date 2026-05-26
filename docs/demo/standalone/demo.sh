@@ -7,11 +7,33 @@ set -euo pipefail
 
 ###############################################################################
 # Configuration
+#
+# GPU_PROFILE / GPU_COUNT are env-overridable so the same demo can drive any
+# of the chart's built-in profiles, e.g.
+#   GPU_PROFILE=gb200 GPU_COUNT=8 ./demo.sh
+#   GPU_PROFILE=t4    GPU_COUNT=4 ./demo.sh
+# The PCI-sysfs assertions in step 9 derive their expected values from
+# GPU_COUNT and from the profile's `pcie_topology:` block, so switching
+# profile keeps the demo correct without further edits.
 ###############################################################################
 CLUSTER_NAME="nvml-mock-demo"
 IMAGE_NAME="nvml-mock:demo"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+: "${GPU_PROFILE:=h100}"
+: "${GPU_COUNT:=8}"
+
+PROFILE_YAML="${REPO_ROOT}/${CHART_PATH}/profiles/${GPU_PROFILE}.yaml"
+if [[ ! -f "${PROFILE_YAML}" ]]; then
+  echo "ERROR: profile YAML not found: ${PROFILE_YAML}" >&2
+  echo "       set GPU_PROFILE to one of: $(ls "${REPO_ROOT}/${CHART_PATH}/profiles/" | sed 's/\.yaml$//' | tr '\n' ' ')" >&2
+  exit 1
+fi
+
+# Count the `- id: "pci...` rows under `pcie_topology.root_complexes`. The
+# renderer falls back to a flat single-root layout for profiles without an
+# explicit block, so default to 1 if the YAML carries no pcie_topology.
+EXPECTED_ROOTS=$(awk '/^    - id: "pci/ {n++} END {print (n>0)?n:1}' "${PROFILE_YAML}")
 
 ###############################################################################
 # Helpers
@@ -40,13 +62,13 @@ kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 ###############################################################################
 # Step 4 -- Install nvml-mock via Helm
 ###############################################################################
-info "Installing nvml-mock Helm chart"
+info "Installing nvml-mock Helm chart (profile=${GPU_PROFILE}, count=${GPU_COUNT})"
 helm install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set image.repository=nvml-mock \
   --set image.tag=demo \
   --set integrations.fakeGpuOperator.enabled=true \
-  --set gpu.profile=h100 \
-  --set gpu.count=8 \
+  --set "gpu.profile=${GPU_PROFILE}" \
+  --set "gpu.count=${GPU_COUNT}" \
   --set gpu.dynamicMetrics.enabled=true \
   --wait --timeout 120s
 
@@ -82,7 +104,14 @@ info "Listing simulated InfiniBand HCAs (ibstat -l)"
 kubectl exec "${POD}" -- ibstat -l
 
 info "Running ibstatus inside the DaemonSet pod"
+# `head -40` closes the pipe after 40 lines, but `ibstatus` keeps writing
+# (8 HCAs * ~8 lines each = ~64 lines). The producer dies with SIGPIPE
+# and pipefail propagates exit code 141 to the whole script, aborting
+# the demo before any later verification (PCI sysfs, node labels) runs.
+# Scope pipefail down for just this one cosmetic truncation.
+set +o pipefail
 kubectl exec "${POD}" -- ibstatus | head -40
+set -o pipefail
 
 HCA_COUNT=$(kubectl exec "${POD}" -- ibstat -l | wc -l | tr -d ' ')
 if [[ "${HCA_COUNT}" -lt 1 ]]; then
@@ -91,7 +120,70 @@ fi
 info "Found ${HCA_COUNT} mock HCA(s)"
 
 ###############################################################################
-# Step 9 -- Show node labels
+# Step 9 -- Verify: PCI sysfs mock (render-pci-sysfs)
+#
+# The init container materialized a fake /sys/bus/pci tree at
+# /var/lib/nvml-mock/sys/... from the profile's `pcie_topology:` block.
+# Topology-aware consumers (NVIDIA DRA driver `dra.k8s.io/pcieRoot`,
+# device-plugin NUMA hints) resolve PCIe root complex via readlink() on
+# /sys/bus/pci/devices/<bdf>, so we exercise the same path here: list,
+# readlink, and read a numa_node file through the symlink.
+###############################################################################
+PCI_DEV_DIR="/var/lib/nvml-mock/sys/bus/pci/devices"
+
+info "Listing rendered PCI devices under ${PCI_DEV_DIR}"
+kubectl exec "${POD}" -- ls "${PCI_DEV_DIR}"
+
+PCI_DEV_COUNT=$(kubectl exec "${POD}" -- sh -c "ls ${PCI_DEV_DIR} 2>/dev/null | wc -l" \
+  | tr -d ' ')
+# One symlink per device must appear under bus/pci/devices. We expect
+# exactly GPU_COUNT of them (the helm install above set gpu.count to the
+# same value, and the chart wires that into the profile's `devices:` list).
+if [[ "${PCI_DEV_COUNT}" -ne "${GPU_COUNT}" ]]; then
+  fail "Expected ${GPU_COUNT} rendered PCI devices (profile=${GPU_PROFILE}, gpu.count=${GPU_COUNT}), found ${PCI_DEV_COUNT}"
+fi
+info "Found ${PCI_DEV_COUNT} rendered PCI device symlink(s)"
+
+# The deviceattribute library extracts the PCIe root complex by
+# readlink()'ing the device path and parsing out the "pciDDDD:BB"
+# component. Exercise that exact contract on the first device so a
+# missing or absolute-path symlink would fail the demo loudly.
+FIRST_DEV=$(kubectl exec "${POD}" -- sh -c "ls ${PCI_DEV_DIR} | sort | head -1" \
+  | tr -d '[:space:]')
+TARGET=$(kubectl exec "${POD}" -- readlink "${PCI_DEV_DIR}/${FIRST_DEV}" \
+  | tr -d '[:space:]')
+info "readlink ${FIRST_DEV} -> ${TARGET}"
+if [[ "${TARGET}" != ../../../devices/pci*/* ]]; then
+  fail "Expected relative ../../../devices/pciDDDD:BB/<bdf> target, got '${TARGET}'"
+fi
+
+# numa_node is the second half of the contract: the DRA driver may also
+# read it to surface a NUMA hint alongside pcieRoot.
+NUMA_NODE=$(kubectl exec "${POD}" -- cat "${PCI_DEV_DIR}/${FIRST_DEV}/numa_node" \
+  | tr -d '[:space:]')
+if ! [[ "${NUMA_NODE}" =~ ^-?[0-9]+$ ]]; then
+  fail "numa_node for ${FIRST_DEV} is not a number: '${NUMA_NODE}'"
+fi
+info "${FIRST_DEV} numa_node=${NUMA_NODE}"
+
+# Count distinct root complexes the symlinks resolve to. The expected
+# count was derived from the profile's `pcie_topology.root_complexes`
+# block at the top of the script, so e.g. h100/a100/b200/l40s -> 2,
+# gb200 -> 4, t4 -> 1. A regression that collapsed all devices onto a
+# single root would silently break NUMA-aware scheduling.
+# readlink target shape: "../../../devices/pciDDDD:BB/<bdf>"
+# Splitting on "/" yields: $1=.. $2=.. $3=.. $4=devices $5=pciDDDD:BB
+# so the root complex is field #5.
+ROOT_COUNT=$(kubectl exec "${POD}" -- sh -c \
+  "for d in ${PCI_DEV_DIR}/*; do readlink \"\$d\"; done" \
+  | awk -F/ '{print $5}' | sort -u | wc -l | tr -d ' ')
+if [[ "${ROOT_COUNT}" -ne "${EXPECTED_ROOTS}" ]]; then
+  fail "Expected ${EXPECTED_ROOTS} distinct PCI root complexes for ${GPU_PROFILE}, found ${ROOT_COUNT}"
+fi
+info "Devices span ${ROOT_COUNT} distinct PCI root complex(es)"
+
+###############################################################################
+# Step 10 -- Show node labels
 ###############################################################################
 info "Node labels"
 kubectl get nodes --show-labels
@@ -105,8 +197,10 @@ WORKERS=($(kubectl get nodes --no-headers -o custom-columns=":metadata.name" \
 echo
 info "Demo complete."
 info "  Cluster   : ${CLUSTER_NAME}"
+info "  Profile   : ${GPU_PROFILE} (gpu.count=${GPU_COUNT})"
 info "  Workers   : ${#WORKERS[@]}"
 info "  ConfigMaps: ${CM_COUNT}"
 info "  Mock HCAs : ${HCA_COUNT} per pod"
+info "  PCI devs  : ${PCI_DEV_COUNT} across ${ROOT_COUNT} root complex(es)"
 info ""
 info "To tear down: kind delete cluster --name ${CLUSTER_NAME}"

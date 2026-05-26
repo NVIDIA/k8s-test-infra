@@ -36,6 +36,7 @@ pkg/gpu/mocknvml/
 │   ├── mock-nvml-config-a100.yaml
 │   ├── mock-nvml-config-b200.yaml
 │   ├── mock-nvml-config-gb200.yaml
+│   ├── mock-nvml-config-gb300.yaml
 │   ├── mock-nvml-config-h100.yaml
 │   ├── mock-nvml-config-l40s.yaml
 │   └── mock-nvml-config-t4.yaml
@@ -245,7 +246,7 @@ devices:
   - index: 0
     uuid: "GPU-ae000000-0000-0000-0000-000000000000"
     pci:
-      bus_id: "00000000:07:00.0"
+      bus_id: "0000:07:00.0"
   # ... add all devices
 ```
 

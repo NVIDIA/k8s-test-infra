@@ -47,7 +47,7 @@ on PRs.
 | **GPU Operator** | Operator components: device plugin + GFD + validator (CDI injection) | A100, H100, T4 |
 | **Multi-Node Fleet** | Cross-node scheduling with heterogeneous GPUs | A100 + T4 |
 
-Manual dispatch supports all 6 profiles: `a100`, `h100`, `b200`, `gb200`, `l40s`, `t4`.
+Manual dispatch supports all 7 profiles: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`.
 
 See [`.github/workflows/nvml-mock-e2e.yaml`](.github/workflows/nvml-mock-e2e.yaml) for details.
 

@@ -14,6 +14,10 @@ Deploys a DaemonSet that creates on every node:
 - A fake InfiniBand sysfs tree at `/var/lib/nvml-mock/ib/sys/class/infiniband/...`
   paired with `libibmocksys.so` (`LD_PRELOAD`) so real `ibstat`, `ibstatus`,
   `iblinkinfo`, `ibping`, ... use mock HCAs (sysfs + synthetic umad)
+- A fake PCI sysfs tree at `/var/lib/nvml-mock/sys/bus/pci/devices/...` (symlinks
+  into `/var/lib/nvml-mock/sys/devices/pciDDDD:BB/...`) so topology-aware
+  consumers (NVIDIA DRA driver `dra.k8s.io/pcieRoot`, NUMA-aware schedulers)
+  resolve PCIe root complex via a standard `readlink()`
 
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
@@ -472,6 +476,7 @@ nvml-mock-profile-a100            1      10s
 nvml-mock-profile-h100            1      10s
 nvml-mock-profile-b200            1      10s
 nvml-mock-profile-gb200           1      10s
+nvml-mock-profile-gb300           1      10s
 nvml-mock-profile-l40s            1      10s
 nvml-mock-profile-t4              1      10s
 ```
@@ -554,13 +559,71 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 
 …or via a custom profile file (preferred for full control).
 
+## PCIe topology mocking
+
+Each profile carries a `pcie_topology:` block describing the host's PCI
+root-complex layout. When the DaemonSet starts, `render-pci-sysfs` reads
+it and writes a fake sysfs tree at `/var/lib/nvml-mock/sys/...` matching
+what real Linux kernels expose. Topology-aware consumers (NVIDIA DRA
+driver, device plugins computing NUMA hints) resolve "which PCIe root
+complex a GPU lives on" via a standard `readlink()` + path parse against
+the rendered tree:
+
+```bash
+$ readlink /var/lib/nvml-mock/sys/bus/pci/devices/0000:07:00.0
+../../../devices/pci0000:00/0000:07:00.0
+
+$ cat /var/lib/nvml-mock/sys/devices/pci0000:00/0000:07:00.0/numa_node
+0
+```
+
+### Defaults per profile
+
+| Profile | Root complexes | NUMA nodes | Devices per root |
+|---|---|---|---|
+| `a100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual EPYC) | 4 |
+| `h100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
+| `b200`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
+| `gb200` | 4 (`pci0000:00`, `:40`, `:80`, `:c0`) | 4 (per Grace pair) | 2 |
+| `l40s`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
+| `t4`    | 1 (`pci0000:00`) | 1 | 4 |
+
+### `pcie_topology:` block schema
+
+```yaml
+pcie_topology:
+  root_complexes:
+    - id: "pci0000:00"            # sysfs root-complex dir, format "pciDDDD:BB"
+      numa_node: 0                 # numa_node value for every child device
+      devices:
+        - "0000:07:00.0"           # canonical 4-digit-domain BDF
+        - "0000:0F:00.0"
+    - id: "pci0000:80"
+      numa_node: 1
+      devices:
+        - "0000:87:00.0"
+        - "0000:90:00.0"
+```
+
+`render-pci-sysfs` validates the block at startup and fails the
+DaemonSet under `set -e` if it finds a typo:
+
+- Every BDF listed under a root complex must also appear in `devices[]`.
+- Each BDF may belong to at most one root complex.
+- Root complex IDs must match `pciDDDD:BB`.
+- BDFs must use 4-digit-domain form (`DDDD:BB:DD.F`); the legacy NVML
+  `busIdLegacy` 8-digit form is rejected.
+
+If a profile omits `pcie_topology:` entirely the renderer falls back to
+a flat single-root layout (every device under `pci0000:00`, NUMA 0).
+
 ## Configuration
 
 ### Values
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `gpu.profile` | `a100` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `l40s`, or `t4` |
+| `gpu.profile` | `a100` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, or `t4` |
 | `gpu.count` | `8` | Number of mock GPUs per node |
 | `gpu.customConfig` | `""` | Inline YAML to override profile config entirely |
 | `gpu.dynamicMetrics.enabled` | `false` | Make the mock return time-varying temperature / power / utilization readings instead of the static profile values. See [Dynamic Metrics](#dynamic-metrics) below. |
@@ -605,23 +668,24 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 
 #### Profile Comparison
 
-| | A100 | H100 | B200 | GB200 | L40S | T4 |
-|---|---|---|---|---|---|---|
-| **Profile name** | `a100` | `h100` | `b200` | `gb200` | `l40s` | `t4` |
-| **Full name** | A100-SXM4-40GB | H100 80GB HBM3 | B200 | GB200 NVL | L40S | Tesla T4 |
-| **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Ada Lovelace | Turing |
-| **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 8.9 | 7.5 |
-| **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 18,176 | 2,560 |
-| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 192 GiB HBM3e | 192 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
-| **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | — | — |
-| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | — | — |
-| **TDP** | 400W | 700W | 1,000W | 1,000W | 350W | 70W |
-| **PCIe** | Gen4 | Gen5 | Gen6 | Gen6 | Gen4 | Gen3 |
-| **MIG instances** | 7 | 7 | 7 | 7 | 0 | 0 |
-| **Grace CPU** | — | — | — | Yes (NVLink-C2C) | — | — |
-| **FP8** | — | Yes | Yes | Yes | Yes | — |
-| **FP4** | — | — | Yes | Yes | — | — |
-| **Driver version** | 550.163.01 | 550.163.01 | 560.35.03 | 560.35.03 | 550.163.01 | 550.163.01 |
+| | A100 | H100 | B200 | GB200 | GB300 | L40S | T4 |
+|---|---|---|---|---|---|---|---|
+| **Profile name** | `a100` | `h100` | `b200` | `gb200` | `gb300` | `l40s` | `t4` |
+| **Full name** | A100-SXM4-40GB | H100 80GB HBM3 | B200 | GB200 NVL | GB300 NVL | L40S | Tesla T4 |
+| **Architecture** | Ampere | Hopper | Blackwell | Blackwell | Blackwell Ultra | Ada Lovelace | Turing |
+| **Compute capability** | 8.0 | 9.0 | 10.0 | 10.0 | 10.0 | 8.9 | 7.5 |
+| **CUDA cores** | 6,912 | 16,896 | 18,432 | 18,432 | 21,632 | 18,176 | 2,560 |
+| **Memory** | 40 GiB HBM2e | 80 GiB HBM3 | 192 GiB HBM3e | 192 GiB HBM3e | 288 GiB HBM3e | 48 GiB GDDR6 | 16 GiB GDDR6 |
+| **NVLink** | v3, 12 links | v4, 18 links | v5, 18 links | v5, 18 links | v5, 18 links | — | — |
+| **NVLink BW** | 600 GB/s | 900 GB/s | 1.8 TB/s | 1.8 TB/s | 1.8 TB/s | — | — |
+| **TDP** | 400W | 700W | 1,000W | 1,000W | 1,400W | 350W | 70W |
+| **PCIe** | Gen4 | Gen5 | Gen6 | Gen6 | Gen6 | Gen4 | Gen3 |
+| **MIG instances** | 7 | 7 | 7 | 7 | 7 | 0 | 0 |
+| **Grace CPU** | — | — | — | Yes (NVLink-C2C) | Yes (NVLink-C2C) | — | — |
+| **FP8** | — | Yes | Yes | Yes | Yes | Yes | — |
+| **FP4** | — | — | Yes | Yes | Yes | — | — |
+| **FP6** | — | — | — | — | Yes | — | — |
+| **Driver version** | 550.163.01 | 550.163.01 | 560.35.03 | 560.35.03 | 570.124.06 | 550.163.01 | 550.163.01 |
 
 #### When to Use Each Profile
 
@@ -629,6 +693,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 - **`h100`** — testing Hopper-specific features: FP8, Transformer Engine, PCIe Gen5, or NVLink v4 topology.
 - **`b200`** — testing next-gen Blackwell features: FP4, NVLink v5, PCIe Gen6. Standalone GPU (no Grace CPU).
 - **`gb200`** — testing Grace-Blackwell Superchip: NVLink-C2C to Grace CPU, unified memory, and Blackwell features.
+- **`gb300`** — testing Grace-Blackwell Ultra Superchip: 288 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (570.124.06).
 - **`l40s`** — testing Ada Lovelace inference workloads: FP8, PCIe Gen4, no NVLink (PCIe-only topology).
 - **`t4`** — testing Turing inference GPUs: low power (70W), small memory (16 GiB), 4 GPUs per node.
 

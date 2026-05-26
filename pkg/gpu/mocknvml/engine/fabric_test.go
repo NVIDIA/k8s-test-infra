@@ -27,7 +27,7 @@ func makeFabricDevice(t *testing.T, fabric *FabricConfig) *ConfigurableDevice {
 	base := dgxa100.New()
 	bd, _ := base.Devices[0].(*dgxa100.Device)
 	return NewConfigurableDevice(0, bd, &DeviceConfig{Fabric: fabric},
-		"GPU-00000000-0000-0000-0000-000000000000", "00000000:01:00.0", 0, nil)
+		"GPU-00000000-0000-0000-0000-000000000000", "0000:01:00.0", 0, nil)
 }
 
 func TestGetMockFabricInfo_NotSupportedWhenNil(t *testing.T) {

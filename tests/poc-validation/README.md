@@ -37,7 +37,7 @@ Reproducible scripts for validating NVIDIA GPU consumers (device plugin, DRA dri
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GPU_PROFILE` | `a100` | GPU profile (a100, h100, b200, gb200, l40s, t4) |
+| `GPU_PROFILE` | `a100` | GPU profile (a100, h100, b200, gb200, gb300, l40s, t4) |
 | `GPU_COUNT` | `8` | Number of mock GPUs |
 | `CLUSTER_NAME` | `nvml-mock-poc` | Kind cluster name |
 | `MOCK_NVML_DEBUG` | `1` | Enable NVML debug traces |
