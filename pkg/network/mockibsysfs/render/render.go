@@ -207,9 +207,9 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 	}
 
 	// /dev/infiniband device files. Real char-dev creation requires
-	// CAP_MKNOD; regular files are sufficient for sysfs-only consumers
-	// (ibstat, ibstatus, iblinkinfo). umad_open_port / ibv_open_device
-	// will fail at ioctl time, which is out of scope.
+	// CAP_MKNOD; placeholder files are enough for sysfs-only tools.
+	// libibumad consumers (ibping, ...) use synthetic umad fds from
+	// libibmocksys.so instead of opening these nodes.
 	for _, f := range []string{
 		fmt.Sprintf("dev/infiniband/umad%d", idx),
 		fmt.Sprintf("dev/infiniband/issm%d", idx),

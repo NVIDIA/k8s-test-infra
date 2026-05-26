@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * libibmocksys.so -- LD_PRELOAD shim that redirects InfiniBand sysfs/dev
- * lookups to a fake tree under $MOCK_IB_ROOT (default /var/lib/nvml-mock).
+ * lookups to a fake tree under $MOCK_IB_ROOT (default /var/lib/nvml-mock/ib).
  *
- * Real `ibstat`, `ibstatus`, `iblinkinfo`, `ibv_devinfo`, ... read from
+ * Real `ibstat`, `ibstatus`, `iblinkinfo`, `ibping`, `ibv_devinfo`, ... read from
  * /sys/class/infiniband*, /sys/class/infiniband_mad*,
  * /sys/class/infiniband_verbs*, /sys/class/infiniband_cm*, and
  * /dev/infiniband*. We hook the libc syscall wrappers, and for any path
@@ -16,8 +16,7 @@
  *   - dlsym(RTLD_NEXT, ...) is resolved lazily on first call and cached.
  *   - Path rewriting uses a thread-local fixed buffer (PATH_MAX) -- no
  *     allocations on the hot path.
- *   - When MOCK_IB_DISABLE=1 (or root is unset and "/var/lib/nvml-mock" does
- *     not exist) the shim becomes a true no-op.
+ *   - When MOCK_IB_DISABLE=1 the shim becomes a true no-op.
  *   - Variadic open()/openat() are handled with the `mode_t` extraction
  *     pattern recommended by glibc's headers: read as `unsigned int` from
  *     va_arg (post default-argument-promotion) and cast back to mode_t.
@@ -43,6 +42,15 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
+
+#include "mock_ib_root.h"
+#include "umad_mock.h"
+
+/* glibc may expose ioctl as a macro; we provide the variadic symbol. */
+#ifdef ioctl
+#undef ioctl
+#endif
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -74,12 +82,8 @@ static void init_root(void) {
         disabled_cached = 1;
         return;
     }
-    const char *root = getenv("MOCK_IB_ROOT");
-    if (!root || root[0] == '\0') {
-        root = "/var/lib/nvml-mock";
-    }
-    root_cached = root;
-    root_len_cached = strlen(root);
+    root_cached = mock_ib_root();
+    root_len_cached = strlen(root_cached);
     disabled_cached = 0;
 }
 
@@ -152,6 +156,9 @@ int open(const char *path, int flags, ...) {
     va_end(ap);
     int rc = rewrite_path(path, buf, sizeof(buf));
     if (rc == 1) {
+        int umad_fd = umad_mock_open(buf);
+        if (umad_fd >= 0)
+            return umad_fd;
         return real_open(buf, flags, mode);
     }
     return real_open(path, flags, mode);
@@ -167,6 +174,9 @@ int open64(const char *path, int flags, ...) {
     va_end(ap);
     int rc = rewrite_path(path, buf, sizeof(buf));
     if (rc == 1) {
+        int umad_fd = umad_mock_open(buf);
+        if (umad_fd >= 0)
+            return umad_fd;
         return real_open64(buf, flags, mode);
     }
     return real_open64(path, flags, mode);
@@ -184,6 +194,9 @@ int openat(int dirfd, const char *path, int flags, ...) {
      * points at a redirected directory if appropriate. */
     int rc = rewrite_path(path, buf, sizeof(buf));
     if (rc == 1) {
+        int umad_fd = umad_mock_open(buf);
+        if (umad_fd >= 0)
+            return umad_fd;
         return real_openat(dirfd, buf, flags, mode);
     }
     return real_openat(dirfd, path, flags, mode);
@@ -199,9 +212,81 @@ int openat64(int dirfd, const char *path, int flags, ...) {
     va_end(ap);
     int rc = rewrite_path(path, buf, sizeof(buf));
     if (rc == 1) {
+        int umad_fd = umad_mock_open(buf);
+        if (umad_fd >= 0)
+            return umad_fd;
         return real_openat64(dirfd, buf, flags, mode);
     }
     return real_openat64(dirfd, path, flags, mode);
+}
+
+/* ---------- read / write / ioctl / close / poll (umad mock) ---------- */
+
+REAL(read);
+REAL(write);
+REAL(close);
+REAL(poll);
+
+static int (*real_ioctl)(int fd, unsigned long request, ...) = NULL;
+
+ssize_t read(int fd, void *buf, size_t count) {
+    LOAD_REAL(read);
+    if (umad_mock_is_mock_fd(fd))
+        return umad_mock_read(fd, buf, count);
+    return real_read(fd, buf, count);
+}
+
+ssize_t write(int fd, const void *buf, size_t count) {
+    LOAD_REAL(write);
+    if (umad_mock_is_mock_fd(fd))
+        return umad_mock_write(fd, buf, count);
+    return real_write(fd, buf, count);
+}
+
+int ioctl(int fd, unsigned long request, ...) {
+    void *arg = NULL;
+    va_list ap;
+    int ret;
+
+    if (!real_ioctl) {
+        real_ioctl = (int (*)(int, unsigned long, ...))dlsym(RTLD_NEXT, "ioctl");
+    }
+
+    va_start(ap, request);
+    arg = va_arg(ap, void *);
+    va_end(ap);
+
+    if (umad_mock_is_mock_fd(fd)) {
+        ret = umad_mock_ioctl(fd, request, arg);
+        if (ret >= 0 || errno != ENOTTY)
+            return ret;
+    }
+    if (!real_ioctl) {
+        errno = ENOSYS;
+        return -1;
+    }
+    return real_ioctl(fd, request, arg);
+}
+
+int close(int fd) {
+    LOAD_REAL(close);
+    if (umad_mock_is_mock_fd(fd))
+        umad_mock_close(fd);
+    return real_close(fd);
+}
+
+int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
+    LOAD_REAL(poll);
+    int has_mock = 0;
+    for (nfds_t i = 0; i < nfds; i++) {
+        if (umad_mock_is_mock_fd(fds[i].fd)) {
+            has_mock = 1;
+            break;
+        }
+    }
+    if (has_mock)
+        return umad_mock_poll(fds, nfds, timeout);
+    return real_poll(fds, nfds, timeout);
 }
 
 /* ---------- fopen ---------- */

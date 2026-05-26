@@ -41,7 +41,22 @@ on:
         type: string
 
 jobs:
+  mockib-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install infiniband-diags
+        run: sudo apt-get update && sudo apt-get install -y infiniband-diags
+
+      - name: Build libibmocksys and run integration tests
+        run: |
+          make -C pkg/network/mockibsysfs
+          go test ./pkg/network/mockibsysfs/...
+          go test -tags=integration ./pkg/network/mockibsysfs/render/...
+
   e2e-device-plugin:
+    needs: mockib-integration
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -139,6 +154,13 @@ jobs:
           # gpu.count=2 in this job; profiles ship hcas_per_gpu=1, so
           # IB-enabled profiles are expected to expose 2 HCAs.
           ./tests/e2e/validate-ibstat.sh "$POD" "${{ matrix.gpu-profile }}" 2
+
+      - name: Validate ibping (vendor MAD / libibumad)
+        run: |
+          chmod +x tests/e2e/validate-ibping.sh
+          POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+            -o jsonpath='{.items[0].metadata.name}')
+          ./tests/e2e/validate-ibping.sh "$POD" "${{ matrix.gpu-profile }}" 2
 
       - name: Deploy NVIDIA device plugin
         run: |
@@ -777,6 +799,13 @@ jobs:
           T4_POD=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-t4 \
             -o jsonpath='{.items[0].metadata.name}')
           ./tests/e2e/validate-ibstat.sh "$T4_POD" t4 2
+
+      - name: Validate ibping on A100 worker
+        run: |
+          chmod +x tests/e2e/validate-ibping.sh
+          A100_POD=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-a100 \
+            -o jsonpath='{.items[0].metadata.name}')
+          ./tests/e2e/validate-ibping.sh "$A100_POD" a100 2
 
       - name: Deploy NVIDIA device plugin
         run: |

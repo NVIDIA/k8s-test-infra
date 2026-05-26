@@ -13,7 +13,7 @@ Deploys a DaemonSet that creates on every node:
 - Node label `nvidia.com/gpu.present=true`
 - A fake InfiniBand sysfs tree at `/var/lib/nvml-mock/ib/sys/class/infiniband/...`
   paired with `libibmocksys.so` (`LD_PRELOAD`) so real `ibstat`, `ibstatus`,
-  `iblinkinfo`, ... read mock HCAs
+  `iblinkinfo`, `ibping`, ... use mock HCAs (sysfs + synthetic umad)
 
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
@@ -498,7 +498,20 @@ read from the rendered tree:
 POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')
 kubectl exec "$POD" -- ibstat
 kubectl exec "$POD" -- ibstatus
+kubectl exec "$POD" -- ibping -c 1 -C mlx5_0 -P 1 1
 ```
+
+**Environment (DaemonSet):**
+
+| Variable | Value | Purpose |
+|----------|--------|---------|
+| `LD_PRELOAD` | `/usr/local/lib/libibmocksys.so.1` | Sysfs redirect + synthetic umad |
+| `MOCK_IB_ROOT` | `/var/lib/nvml-mock/ib` | Fake sysfs + `umad-bus/` runtime dir |
+| `MOCK_IB_DISABLE` | unset (set `1` to bypass) | Debug escape hatch |
+
+**Limitations:** sysfs tools (`ibstat`, …) read the rendered tree. **`ibping`**
+uses emulated umad (vendor ping MADs only), not real HCAs or RDMA. Runtime
+MAD relay files live under `/var/lib/nvml-mock/ib/umad-bus/`.
 
 ### Defaults per profile
 

@@ -11,6 +11,23 @@ They verify:
 - nvml-mock DaemonSet deploys and creates mock device files
 - NVIDIA device plugin discovers mock GPUs and registers `nvidia.com/gpu`
 - DRA driver discovers mock GPUs and publishes ResourceSlices
+- InfiniBand: `validate-ibstat.sh` and `validate-ibping.sh` on nvml-mock pods
+  (skipped for profiles with IB disabled, e.g. `t4`)
+
+### InfiniBand validation scripts
+
+| Script | What it checks |
+|--------|----------------|
+| `validate-ibstat.sh` | `ibstat` / `ibstatus` against rendered sysfs (HCA count) |
+| `validate-ibping.sh` | `ibping` self-ping (LID 1) and cross-HCA ping (LID 2, server on `mlx5_1`) |
+
+```bash
+POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')
+./tests/e2e/validate-ibstat.sh "$POD" h100 2
+./tests/e2e/validate-ibping.sh "$POD" h100 2
+```
+
+Requires the pod to have `LD_PRELOAD` and `MOCK_IB_ROOT` set by the chart.
 
 ## Standalone GFD/validator steps (disabled)
 
@@ -68,3 +85,5 @@ Once confirmed that the standalone `nvcr.io` images are publicly accessible:
 | `gpu-operator-values.yaml` | GPU Operator Helm values overlay |
 | `kind-dra-config.yaml` | Kind config with DRA feature gates |
 | `VERSION-MATRIX.md` | Tested component versions |
+| `validate-ibstat.sh` | InfiniBand sysfs mock validation |
+| `validate-ibping.sh` | ibping / umad mock validation |

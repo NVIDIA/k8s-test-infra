@@ -79,9 +79,8 @@ spec:
             {{- end }}
             # LD_PRELOAD installs the InfiniBand sysfs redirector in every
             # process spawned in this container (e.g. `kubectl exec ibstat`).
-            # The shim only rewrites paths under /sys/class/infiniband*,
-            # /sys/class/infiniband_mad/, /sys/class/infiniband_verbs/ and
-            # /dev/infiniband — every other path passes through unchanged.
+            # The shim rewrites IB sysfs/dev paths and emulates umad for ibping.
+            # Every other path passes through unchanged.
             - name: LD_PRELOAD
               value: "/usr/local/lib/libibmocksys.so.1"
             - name: MOCK_IB_ROOT

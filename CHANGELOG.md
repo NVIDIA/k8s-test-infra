@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- InfiniBand mock: `ibping` (OpenIB vendor ping MAD class only) via synthetic
+  umad fds, global `umad-bus/` for cross-HCA server/client, TID-matched replies,
+  `REGISTER_AGENT2`, and mixed-fd `poll()` with libc.
 - InfiniBand mock: real `ibstat`, `ibstatus`, `iblinkinfo`, and other
   `infiniband-diags` / `rdma-core` tools now work inside the nvml-mock
   DaemonSet without IB hardware. Implementation: `LD_PRELOAD` shim
