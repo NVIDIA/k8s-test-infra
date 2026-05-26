@@ -64,7 +64,9 @@ typedef struct ib_user_mad {
 #define MOCK_MAX_FRAME (1 << 20)
 #define MOCK_MAX_PORTS 32
 /* Matches libibumad umad_size() on Debian bookworm (ABI v5, legacy header). */
-#define MOCK_UMAD_HDR_SZ 64
+/* Legacy libibumad umad_size() on Debian bookworm (not sizeof struct ib_user_mad). */
+#define MOCK_UMAD_HDR_SZ 56
+#define MOCK_IB_MAD_SIZE 256
 #define MOCK_DEFAULT_SOCK "/run/mock-ib.sock"
 
 static const char k_b64[] =
@@ -516,9 +518,13 @@ int umad_send(int portid, int agentid, void *umad, int length, int timeout_ms, i
         errno = EINVAL;
         return -EINVAL;
     }
+    /*
+     * libibmad _do_madrpc passes len = mad_build_pkt() return value (MAD bytes only),
+     * not umad_size()+len. Always forward header + full MAD to mock-ib.
+     */
     size_t total = (size_t)length;
-    if (total < (size_t)MOCK_UMAD_HDR_SZ) {
-        total = MOCK_UMAD_HDR_SZ + (size_t)length;
+    if (total <= (size_t)MOCK_IB_MAD_SIZE) {
+        total = (size_t)MOCK_UMAD_HDR_SZ + total;
     }
     char b64[8192];
     if (b64_encode((const uint8_t *)umad, total, b64, sizeof(b64)) < 0) {

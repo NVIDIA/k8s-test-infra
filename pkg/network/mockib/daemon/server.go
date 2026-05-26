@@ -218,6 +218,9 @@ func (s *Server) handleSend(c net.Conn, req protocol.SendReq) error {
 	if len(req.MAD) == 0 {
 		return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{Error: "empty mad"})
 	}
+	if s.trySAPathQuery(h, req.MAD) {
+		return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{OK: true})
+	}
 	if s.cfg.Fabric && s.tryFabricSend(h, req.MAD) {
 		return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{OK: true})
 	}
