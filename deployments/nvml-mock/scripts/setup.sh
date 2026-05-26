@@ -215,19 +215,20 @@ ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 mkdir -p /host/run/nvidia/validations
 touch /host/run/nvidia/validations/toolkit-ready
 
-# 9. Render fake InfiniBand sysfs tree (consumed via libibmocksys.so LD_PRELOAD).
-#    Only writes anything when the profile has `infiniband.enabled: true`.
-#    Failures are fatal under `set -e`: a profile typo here would otherwise
-#    silently produce an empty IB tree and `ibstat` would report zero HCAs
-#    with no signal in pod logs.
+# 9. InfiniBand: render sysfs via mock-ib; optionally run UMAD/fabric daemon.
 IB_ROOT="$HOST/ib"
 mkdir -p "$IB_ROOT"
-if [ -x /usr/local/bin/render-ib-sysfs ]; then
-  /usr/local/bin/render-ib-sysfs \
-    --config /etc/nvml-mock/config.yaml \
-    --gpu-count "$GPU_COUNT" \
-    --node-name "$NODE_NAME" \
-    --output "$IB_ROOT"
+if [ -x /usr/local/bin/mock-ib ]; then
+  if [ "${MOCK_IB_PING:-0}" = "1" ]; then
+    /scripts/start-mock-ib.sh &
+  else
+    /usr/local/bin/mock-ib \
+      -config /etc/nvml-mock/config.yaml \
+      -gpu-count "$GPU_COUNT" \
+      -node-name "$NODE_NAME" \
+      -ib-root "$IB_ROOT" \
+      -render-only
+  fi
 fi
 
 # 10. Render fake PCI sysfs tree (consumed by topology-aware DRA / device

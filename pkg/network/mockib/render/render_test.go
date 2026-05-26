@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockibsysfs/config"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 )
 
 func TestRender_Disabled(t *testing.T) {
@@ -94,11 +94,11 @@ func TestRender_DefaultsAndCount(t *testing.T) {
 	}
 
 	// port_guid is exposed by real mlx5 ports and must follow node_guid's
-	// formatting. The default GUID prefix is "a088c20300ab" and the lower
-	// 16 bits encode (idx+1), so mlx5_0's port_guid ends in 0001 (its
-	// node_guid ends in 0000) — matches real Mellanox U/L-bit behavior.
-	mustRead("sys/class/infiniband/mlx5_0/node_guid", "a088:c203:00ab:0000")
-	mustRead("sys/class/infiniband/mlx5_0/ports/1/port_guid", "a088:c203:00ab:0001")
+	// formatting. The lower 16 bits encode (nodeID<<8)|idx for node_guid
+	// and (nodeID<<8)|(idx+1) for port_guid — matches real Mellanox U/L-bit
+	// behavior. For NodeName "host1", nodeID is 0xfa.
+	mustRead("sys/class/infiniband/mlx5_0/node_guid", "a088:c203:00ab:fa00")
+	mustRead("sys/class/infiniband/mlx5_0/ports/1/port_guid", "a088:c203:00ab:fa01")
 }
 
 func TestRender_HCAsPerGPU(t *testing.T) {
@@ -169,6 +169,38 @@ func TestRender_GUIDPrefixNormalization(t *testing.T) {
 	want := "aabb:cc00:1122:0000\n"
 	if string(got) != want {
 		t.Errorf("node_guid: got %q want %q", string(got), want)
+	}
+}
+
+func TestRender_NodeUniqueGUIDsAcrossNodes(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	ib := config.Infiniband{Enabled: true}
+	opts := func(node, out string) Options {
+		return Options{IB: ib, GPUCount: 2, NodeName: node, Output: out}
+	}
+	if err := Render(opts("worker-a", dirA)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Render(opts("worker-b", dirB)); err != nil {
+		t.Fatal(err)
+	}
+	readGUID := func(root, ca string) string {
+		b, err := os.ReadFile(filepath.Join(root, "sys/class/infiniband", ca, "node_guid"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(b))
+	}
+	gA := readGUID(dirA, "mlx5_0")
+	gB := readGUID(dirB, "mlx5_0")
+	if gA == gB {
+		t.Fatalf("node_guid collision for same hca idx: %q", gA)
+	}
+	lidA, _ := os.ReadFile(filepath.Join(dirA, "sys/class/infiniband/mlx5_0/ports/1/lid"))
+	lidB, _ := os.ReadFile(filepath.Join(dirB, "sys/class/infiniband/mlx5_0/ports/1/lid"))
+	if strings.TrimSpace(string(lidA)) == strings.TrimSpace(string(lidB)) {
+		t.Fatalf("lid collision: %q", lidA)
 	}
 }
 

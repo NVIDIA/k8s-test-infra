@@ -52,9 +52,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DaemonSet without IB hardware. Implementation: `LD_PRELOAD` shim
   (`libibmocksys.so`) redirects libc filesystem accesses against
   `/sys/class/infiniband*` and `/dev/infiniband` to a fake tree rendered
-  at startup by `render-ib-sysfs` from each profile's new `infiniband:`
+  at startup by `mock-ib` from each profile's new `infiniband:`
   block. Defaults: `a100` -> ConnectX-6 HDR; `h100` / `b200` / `gb200`
   -> ConnectX-7 NDR; `l40s` / `t4` -> disabled.
+- Optional cross-node `ibping` via `mock-ib` and `libibmockumad.so`
+  (default off). Enable with Helm `infiniband.ping.enabled=true` to preload
+  both shims, start the in-pod daemon, and relay LID-based ping traffic
+  between nvml-mock pods over the Kubernetes pod network. E2E:
+  `tests/e2e/validate-ibping.sh`.
 
 ## [0.1.0] - 2026-04-07
 

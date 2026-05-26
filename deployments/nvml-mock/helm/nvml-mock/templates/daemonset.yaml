@@ -40,6 +40,12 @@ spec:
           {{- end }}
           securityContext:
             privileged: true
+          {{- if .Values.infiniband.ping.enabled }}
+          ports:
+            - name: ibping
+              containerPort: {{ .Values.infiniband.ping.port }}
+              protocol: TCP
+          {{- end }}
           command: ["/scripts/entrypoint.sh"]
           env:
             - name: GPU_COUNT
@@ -77,13 +83,35 @@ spec:
             - name: IMEX_STATE_DIR
               value: {{ .Values.imex.stateDir }}
             {{- end }}
+            {{- if .Values.infiniband.ping.enabled }}
+            # Enable mock-ib (started by setup.sh) and TCP fabric relay
+            # between nvml-mock pods so `ibping` can reach peers cluster-wide.
+            - name: MOCK_IB_PING
+              value: "1"
+            - name: MOCK_IB_PING_FABRIC
+              value: "1"
+            - name: MOCK_IB_PING_PORT
+              value: "{{ .Values.infiniband.ping.port }}"
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MOCK_IB_PING_SERVICE_HOST
+              value: "{{ include "nvml-mock.fullname" . }}-ibping.{{ .Release.Namespace }}.svc.cluster.local"
+            {{- end }}
             # LD_PRELOAD installs the InfiniBand sysfs redirector in every
             # process spawned in this container (e.g. `kubectl exec ibstat`).
             # The shim only rewrites paths under /sys/class/infiniband*,
             # /sys/class/infiniband_mad/, /sys/class/infiniband_verbs/ and
             # /dev/infiniband — every other path passes through unchanged.
+            # When ping mock is enabled, libibmockumad must precede libibmocksys
+            # so UMAD ioctls are intercepted before sysfs path rewriting.
             - name: LD_PRELOAD
+              {{- if .Values.infiniband.ping.enabled }}
+              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmocksys.so.1"
+              {{- else }}
               value: "/usr/local/lib/libibmocksys.so.1"
+              {{- end }}
             - name: MOCK_IB_ROOT
               value: "/var/lib/nvml-mock/ib"
           lifecycle:
