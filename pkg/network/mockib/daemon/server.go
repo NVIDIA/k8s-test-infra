@@ -70,16 +70,16 @@ func NewServer(cfg Config, logger *log.Logger) (*Server, error) {
 		return nil, fmt.Errorf("scan ib-root %q: %w", cfg.IBRoot, err)
 	}
 	srv := &Server{
-		cfg:        cfg,
-		loopback:   NewLoopback(ports),
-		log:        logger,
-		localPorts: ports,
-		registry:   registry.New(),
-		podIP:      localPodIP(),
-		nodeName:   localNodeName(),
-		handles:           make(map[int]*portHandle),
-		verbsHandles:      make(map[int]*verbsHandle),
-		registerWarned:    make(map[string]struct{}),
+		cfg:            cfg,
+		loopback:       NewLoopback(ports),
+		log:            logger,
+		localPorts:     ports,
+		registry:       registry.New(),
+		podIP:          localPodIP(),
+		nodeName:       localNodeName(),
+		handles:        make(map[int]*portHandle),
+		verbsHandles:   make(map[int]*verbsHandle),
+		registerWarned: make(map[string]struct{}),
 	}
 	srv.rebuildGraph()
 	return srv, nil

@@ -18,6 +18,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/subnet"
 )
 
 func (s *Server) startFabric(ctx context.Context) (net.Listener, error) {
@@ -301,6 +302,15 @@ func (s *Server) hasLocalPortGUID(guid string) bool {
 }
 
 func (s *Server) tryFabricSend(h *portHandle, sendMad []byte) bool {
+	// Subnet management packets must be answered by subnet synthesis, never
+	// translated into a cross-pod fabric ping. handleSend already gates this
+	// path with !subnet.IsSMPSend, but we re-check here as defense-in-depth:
+	// a future caller, a refactor, or a buggy heuristic in handleSend would
+	// otherwise turn an iblinkinfo SMP into a synthetic ping reply and break
+	// link discovery silently.
+	if subnet.IsSMPSend(sendMad) {
+		return false
+	}
 	if s.loopback.matchesLocal(sendMad) {
 		return false
 	}
