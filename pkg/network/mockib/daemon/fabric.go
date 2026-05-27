@@ -67,7 +67,7 @@ func (s *Server) acceptFabric(ctx context.Context, ln net.Listener) {
 }
 
 func (s *Server) serveFabricConn(ctx context.Context, c net.Conn) {
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	for {
 		if ctx.Err() != nil {
 			return
@@ -117,6 +117,7 @@ func (s *Server) applyRegister(body protocol.RegisterBody) {
 			LID:      port.LID,
 		})
 	}
+	s.rebuildGraph()
 }
 
 func (s *Server) handleFabricPing(c net.Conn, ping protocol.PingBody) error {
@@ -231,7 +232,7 @@ func (s *Server) sendRegister(peerIP string, body protocol.RegisterBody) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	return protocol.WriteMessage(conn, protocol.TypeRegister, body)
 }
 
@@ -241,7 +242,7 @@ func (s *Server) pingPeer(peerIP, portGUID string, dstLID uint16) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		return err
 	}

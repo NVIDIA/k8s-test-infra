@@ -493,17 +493,40 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 
 Each profile carries an `infiniband:` block alongside the GPU config. When the
 DaemonSet starts, `mock-ib` reads it and writes a fake sysfs tree at
-`/var/lib/nvml-mock/ib/sys/class/infiniband/...`. Inside the container, the
-`LD_PRELOAD` shim `libibmocksys.so` rewrites every access to
-`/sys/class/infiniband*`, `/sys/class/infiniband_mad/`,
-`/sys/class/infiniband_verbs/` and `/dev/infiniband` so real userspace tools
-read from the rendered tree:
+`/var/lib/nvml-mock/ib/sys/class/infiniband/...`. Inside the container, three
+LD_PRELOAD shims cooperate (preload order
+`libibmockumad.so:libibmockverbs.so:libibmocksys.so`):
+
+- `libibmocksys.so` rewrites every access to `/sys/class/infiniband*`,
+  `/sys/class/infiniband_mad/`, `/sys/class/infiniband_verbs/` and
+  `/dev/infiniband` so sysfs-driven tools read from the rendered tree.
+- `libibmockumad.so` proxies `libibumad`'s `umad_send` / `umad_recv` to the
+  in-pod `mock-ib` daemon (Unix socket) which handles SA path queries,
+  ibping echoes, and SMP synthesis for `iblinkinfo`.
+- `libibmockverbs.so` proxies open/read/write on `/dev/infiniband/uverbsN`
+  so `libibverbs` consumers can enumerate HCAs.
 
 ```bash
 POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')
+
+# sysfs / libibumad (always works):
 kubectl exec "$POD" -- ibstat
 kubectl exec "$POD" -- ibstatus
+
+# libibverbs enumeration (modalias matches libmlx5's match table):
+kubectl exec "$POD" -- ibv_devinfo -l
+kubectl exec "$POD" -- ibv_devices
+
+# Subnet management direct-route walk (cross-node fabric scan):
+kubectl exec "$POD" -- iblinkinfo
 ```
+
+Full per-device `ibv_devinfo` (without `-l`) intentionally is not supported:
+after libibverbs claims the device, `libmlx5`'s `verbs_open_device` issues
+real uverbs `ioctl()`s that a userspace `LD_PRELOAD` shim cannot fake. The
+same port-level information (state, phys state, GID, LID, rate, link layer)
+is available through `ibstatus`, which reads it from the rendered sysfs
+tree.
 
 ### Defaults per profile
 
@@ -637,11 +660,18 @@ kubectl exec "$CLIENT_POD" -- ibping -c 3 "$LID"
 
 For automated cross-node validation (including peer restart and retries), use
 `tests/e2e/validate-ibping.sh`. LID-based ping is the supported path;
-Cross-node `ibping -G <port_guid>` is supported (use `0x` hex without colons; see `pkg/network/mockib/README.md`).
+cross-node `ibping -G <port_guid>` is supported (use `0x` hex without colons;
+see `pkg/network/mockib/README.md`). Companion fabric validators:
+
+- [`tests/e2e/validate-iblinkinfo.sh`](../../../../tests/e2e/validate-iblinkinfo.sh)
+  — direct-route walk reports peer GUIDs without duplicate-port errors.
+- [`tests/e2e/validate-ibv-devinfo.sh`](../../../../tests/e2e/validate-ibv-devinfo.sh)
+  — `ibv_devinfo -l` claims every rendered HCA via libmlx5; `ibstatus`
+  confirms ACTIVE / LinkUp port state.
 
 See [`pkg/network/mockib/README.md`](../../../../pkg/network/mockib/README.md#mock-ibping)
-for env vars (`MOCK_IB_PING`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`, …) and
-architecture details.
+for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
+`MOCK_IB_DEBUG_SMP`, …) and architecture details.
 
 ## Configuration
 

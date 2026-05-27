@@ -26,7 +26,7 @@ func TestServer_sendRegister(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	_, portStr, err := net.SplitHostPort(ln.Addr().String())
 	if err != nil {
 		t.Fatal(err)

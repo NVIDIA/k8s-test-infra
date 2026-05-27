@@ -57,6 +57,17 @@ func (r *Registry) Lookup(portGUID string) (Peer, bool) {
 	return p, ok
 }
 
+// Snapshot returns a copy of the GUID → peer table (for fabric graph rebuild).
+func (r *Registry) Snapshot() map[string]Peer {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[string]Peer, len(r.m))
+	for k, v := range r.m {
+		out[k] = v
+	}
+	return out
+}
+
 // LookupByLID returns the peer and port GUID for lid when registered.
 func (r *Registry) LookupByLID(lid uint16) (Peer, string, bool) {
 	r.mu.RLock()

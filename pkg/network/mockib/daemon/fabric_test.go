@@ -42,13 +42,13 @@ func TestFabric_RegisterAndPingHandler(t *testing.T) {
 		handles:    make(map[int]*portHandle),
 	}
 	ln := startTestFabricListener(t, srv)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	conn, err := net.Dial("tcp", ln.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	remotePorts := []protocol.PortAdvert{{
 		PortGUID: "a088:c203:00ab:00ff",
@@ -125,7 +125,7 @@ func TestFabric_RemoteSendForwardsPing(t *testing.T) {
 		handles:    make(map[int]*portHandle),
 	}
 	ln := startTestFabricListener(t, server)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	client := &Server{
 		cfg:        Config{TCPPort: server.cfg.TCPPort, Fabric: true},

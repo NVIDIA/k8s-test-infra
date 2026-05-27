@@ -16,8 +16,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/fabric"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/subnet"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/sysfs"
 )
 
@@ -45,6 +47,13 @@ type Server struct {
 	handles      map[int]*portHandle
 	handlesMu    sync.Mutex
 
+	nextVerbsHandleID int
+	verbsHandles      map[int]*verbsHandle
+	verbsMu           sync.RWMutex
+
+	graphMu sync.RWMutex
+	graph   *fabric.Graph
+
 	// Fabric registration: suppress repeated "connection refused" while peers start.
 	lastPeerRegisterOK int
 	registerWarned     map[string]struct{}
@@ -68,10 +77,19 @@ func NewServer(cfg Config, logger *log.Logger) (*Server, error) {
 		registry:   registry.New(),
 		podIP:      localPodIP(),
 		nodeName:   localNodeName(),
-		handles:        make(map[int]*portHandle),
-		registerWarned: make(map[string]struct{}),
+		handles:           make(map[int]*portHandle),
+		verbsHandles:      make(map[int]*verbsHandle),
+		registerWarned:    make(map[string]struct{}),
 	}
+	srv.rebuildGraph()
 	return srv, nil
+}
+
+func (s *Server) rebuildGraph() {
+	g := fabric.Build(s.localPorts, s.registry.Snapshot())
+	s.graphMu.Lock()
+	s.graph = g
+	s.graphMu.Unlock()
 }
 
 // ListenAndServe accepts Unix connections until ctx is canceled.
@@ -84,7 +102,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listen unix %q: %w", s.cfg.SocketPath, err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	if err := os.Chmod(s.cfg.SocketPath, 0o666); err != nil {
 		return fmt.Errorf("chmod socket: %w", err)
 	}
@@ -120,7 +138,7 @@ type portHandle struct {
 }
 
 func (s *Server) serveConn(ctx context.Context, c net.Conn) {
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	for {
 		if ctx.Err() != nil {
 			return
@@ -169,6 +187,8 @@ func (s *Server) dispatch(c net.Conn, env protocol.Envelope) error {
 	case protocol.TypeRegisterPeers:
 		s.registerWithPeers(context.Background())
 		return protocol.WriteMessage(c, protocol.TypeRegisterPeers, map[string]bool{"ok": true})
+	case protocol.TypeVerbsOpen, protocol.TypeVerbsWrite, protocol.TypeVerbsRead, protocol.TypeVerbsClose:
+		return s.dispatchVerbs(c, env)
 	default:
 		return protocol.WriteMessage(c, env.Type, map[string]string{
 			"error": fmt.Sprintf("unknown message type %q", env.Type),
@@ -214,18 +234,31 @@ func (s *Server) handleSend(c net.Conn, req protocol.SendReq) error {
 	if len(req.MAD) == 0 {
 		return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{Error: "empty mad"})
 	}
-	if s.trySAPathQuery(h, req.MAD) {
-		return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{OK: true})
-	}
-	if s.cfg.Fabric && s.tryFabricSend(h, req.MAD) {
-		return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{OK: true})
-	}
-	queue := s.loopback.ShouldQueueRecv(req.MAD)
-	if queue {
-		resp := s.loopback.SynthesizeRecv(req.MAD)
+	s.graphMu.RLock()
+	g := s.graph
+	s.graphMu.RUnlock()
+	if resp, ok := subnet.TrySynthesize(req.MAD, g, h.caName); ok {
 		h.mu.Lock()
 		h.recvQ = append(h.recvQ, resp)
 		h.mu.Unlock()
+		return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{OK: true})
+	}
+	if s.trySAPathQuery(h, req.MAD) {
+		return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{OK: true})
+	}
+	// Fabric ping + loopback echo is for vendor/ping MADs only; SMP must use subnet synthesis.
+	if s.cfg.Fabric && !subnet.IsSMPSend(req.MAD) && s.tryFabricSend(h, req.MAD) {
+		return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{OK: true})
+	}
+	// Subnet SMP must not fall through to loopback echo (empty payload breaks iblinkinfo).
+	if !subnet.IsSMPSend(req.MAD) {
+		queue := s.loopback.ShouldQueueRecv(req.MAD)
+		if queue {
+			resp := s.loopback.SynthesizeRecv(req.MAD)
+			h.mu.Lock()
+			h.recvQ = append(h.recvQ, resp)
+			h.mu.Unlock()
+		}
 	}
 	return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{OK: true})
 }

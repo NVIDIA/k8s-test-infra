@@ -219,7 +219,7 @@ touch /host/run/nvidia/validations/toolkit-ready
 IB_ROOT="$HOST/ib"
 mkdir -p "$IB_ROOT"
 if [ -x /usr/local/bin/mock-ib ]; then
-  if [ "${MOCK_IB_PING:-0}" = "1" ]; then
+  if [ "${MOCK_IB:-0}" = "1" ]; then
     /scripts/start-mock-ib.sh &
   else
     /usr/local/bin/mock-ib \
