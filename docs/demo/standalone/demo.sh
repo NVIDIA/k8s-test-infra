@@ -206,7 +206,34 @@ chmod +x "${REPO_ROOT}/tests/e2e/validate-iblinkinfo.sh"
   "${GPU_PROFILE}" "${HCA_COUNT}"
 
 ###############################################################################
-# Step 11 -- Show node labels
+# Step 11 -- Verify: IB counters writer (sysfs ticks)
+#
+# Defaults: counters.enabled=true, counters.tick_seconds=5. The writer
+# rewrites every catalog file atomically each tick; this validator reads
+# port_xmit_data_64 twice and asserts strict growth, then confirms the
+# mlx5 hw_counters/ surface exists for Prometheus RDMA exporters.
+###############################################################################
+info "Validating IB counters (sysfs writer ticks + hw_counters/)"
+chmod +x "${REPO_ROOT}/tests/e2e/validate-counters.sh"
+"${REPO_ROOT}/tests/e2e/validate-counters.sh" "${POD}" \
+  "${GPU_PROFILE}" "${HCA_COUNT}"
+
+###############################################################################
+# Step 12 -- Verify: PMA perfquery (Get + Reset)
+#
+# Exercises the full PMA path: perfquery -> libibmad -> libibumad
+# LD_PRELOAD shim -> mock-ib unix socket -> daemon PMA synthesizer.
+# Covers legacy 32-bit PortCounters, 64-bit PortCountersExtended, and
+# the perfquery -R ClearCounters epoch reset (writer + PMA share the
+# same Generator+Epochs, so sysfs and perfquery stay aligned).
+###############################################################################
+info "Validating perfquery (PMA Get + Reset)"
+chmod +x "${REPO_ROOT}/tests/e2e/validate-perfquery.sh"
+"${REPO_ROOT}/tests/e2e/validate-perfquery.sh" "${POD}" \
+  "${GPU_PROFILE}" "${HCA_COUNT}"
+
+###############################################################################
+# Step 13 -- Show node labels
 ###############################################################################
 info "Node labels"
 kubectl get nodes --show-labels
@@ -227,5 +254,6 @@ info "  Mock HCAs : ${HCA_COUNT} per pod"
 info "  PCI devs  : ${PCI_DEV_COUNT} across ${ROOT_COUNT} root complex(es)"
 info "  ibping    : cross-node OK (${SERVER_POD} -> ${CLIENT_POD})"
 info "  ibv_devinfo / iblinkinfo: validated (profile=${GPU_PROFILE})"
+info "  counters / perfquery   : validated (sysfs writer + PMA Get/Reset)"
 info ""
 info "To tear down: kind delete cluster --name ${CLUSTER_NAME}"
