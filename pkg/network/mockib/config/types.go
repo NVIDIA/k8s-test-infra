@@ -43,6 +43,10 @@ type Infiniband struct {
 	// index. Example: "a088c2:0300:ab" -> "a088c20300ab" -> per-HCA GUID
 	// "a088:c203:00ab:00<idx>".
 	GUIDPrefix string `json:"guid_prefix" yaml:"guid_prefix"`
+
+	// Counters controls per-port counter values rendered into sysfs and
+	// returned by mock-ib's PMA MAD synthesizer. Defaults to enabled.
+	Counters Counters `json:"counters" yaml:"counters"`
 }
 
 // Defaults returns a copy of the InfiniBand block with reasonable fallback
@@ -83,5 +87,38 @@ func (ib Infiniband) Defaults() Infiniband {
 	if out.GUIDPrefix == "" {
 		out.GUIDPrefix = "a088c20300ab"
 	}
+	out.Counters = out.Counters.Defaults()
 	return out
+}
+
+// Counters controls the mock counters subsystem. A nil Enabled means
+// "use the default" (true when the parent Infiniband block is enabled).
+// Use a *bool so the YAML zero value (absent) can be distinguished from
+// an explicit `enabled: false`.
+type Counters struct {
+	Enabled     *bool `json:"enabled"      yaml:"enabled"`
+	TickSeconds int   `json:"tick_seconds" yaml:"tick_seconds"`
+}
+
+// Defaults returns a copy with defaults applied. Absent Enabled becomes
+// true; TickSeconds 0 becomes 5.
+func (c Counters) Defaults() Counters {
+	out := c
+	if out.Enabled == nil {
+		t := true
+		out.Enabled = &t
+	}
+	if out.TickSeconds == 0 {
+		out.TickSeconds = 5
+	}
+	return out
+}
+
+// EnabledOrDefault reports whether counters are enabled. Treats nil as
+// true (matches the documented YAML default).
+func (c Counters) EnabledOrDefault() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
 }
