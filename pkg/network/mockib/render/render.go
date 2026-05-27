@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/nodeid"
 )
 
 // Options controls a single rendering pass.
@@ -82,7 +83,7 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 		return err
 	}
 
-	nid := nodeID(nodeName)
+	nid := nodeid.NodeID(nodeName)
 	guid := perHCAGUID(guidPrefix, nid, idx)
 	portGUID := perHCAPortGUID(guidPrefix, nid, idx)
 	nodeDesc := strings.NewReplacer(
