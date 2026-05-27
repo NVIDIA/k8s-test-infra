@@ -194,7 +194,7 @@ End-to-end validation: [`tests/e2e/validate-iblinkinfo.sh`](../../../tests/e2e/v
 `ibv_devinfo -l` (and `ibv_devices`) enumerate HCAs via libibverbs.
 libibverbs matches each rendered sysfs device against the
 `fnmatch`-based modalias tables of every loaded provider; for the mock
-to be claimed by `libmlx5`, two things must line up:
+to be claimed by `libmlx5`, three things must line up:
 
 1. **Provider package installed** — the nvml-mock image installs
    `ibverbs-providers` and pre-creates `/etc/libibverbs.d/` so libibverbs
@@ -205,6 +205,19 @@ to be claimed by `libmlx5`, two things must line up:
    is `pci:v000015B3d*sv*sd*bc*sc*i*`; any deviation (lower-case hex,
    missing zero padding, missing `bc`) causes the device to be silently
    skipped and `ibv_devinfo -l` reports `0 HCAs found`.
+3. **NETLINK_RDMA short-circuit blocked** — `libibverbs >= v44` discovers
+   devices via `NETLINK_RDMA` first and only falls back to walking
+   `/sys/class/infiniband_verbs/*` when that socket fails. On any host
+   whose kernel exposes a real RDMA device (GitHub Actions runners,
+   bare-metal nodes with `mlx5_core` loaded, …) the netlink dump leaks
+   that real device into the pod and our mocks are never enumerated.
+   `libibmockverbs.so` therefore intercepts
+   `socket(AF_NETLINK, *, NETLINK_RDMA)` while `MOCK_IB=1` and returns
+   `-1 / EPROTONOSUPPORT`. libibverbs then falls back to the sysfs scan
+   that `libibmocksys.so` already redirects to `MOCK_IB_ROOT`. The
+   intercept is intentionally surgical: every other `socket(…)` call
+   (AF_UNIX, AF_INET, NETLINK_ROUTE, NETLINK_KOBJECT_UEVENT, …) is
+   forwarded untouched so Kubernetes networking remains unaffected.
 
 ```bash
 kubectl exec "$POD" -- ibv_devinfo -l   # lists mlx5_0..mlx5_N

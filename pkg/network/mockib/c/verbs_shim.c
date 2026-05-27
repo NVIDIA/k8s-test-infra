@@ -2,9 +2,19 @@
  * Copyright 2026 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  *
- * libibmockverbs.so -- LD_PRELOAD shim for /dev/infiniband/uverbs* used by
- * ibv_devinfo. Forwards open/write/read to mock-ib when MOCK_IB=1 or
- * MOCK_IB=1.
+ * libibmockverbs.so -- LD_PRELOAD shim used by ibv_devinfo / libibverbs.
+ *
+ * Two responsibilities, both gated on MOCK_IB=1:
+ *
+ *   1. open/read/write/close interception for /dev/infiniband/uverbs*
+ *      so verbs ioctl/write commands are forwarded to the mock-ib daemon
+ *      over the Unix socket at $MOCK_IB_PING_SOCKET (default
+ *      /run/mock-ib.sock).
+ *
+ *   2. socket(AF_NETLINK, *, NETLINK_RDMA) interception that forces
+ *      libibverbs to skip the RDMA netlink fast-path and fall back to
+ *      walking /sys/class/infiniband_verbs (see the long-form comment
+ *      next to socket() below for the full rationale).
  */
 
 #define _GNU_SOURCE
@@ -12,6 +22,7 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/netlink.h>
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -26,6 +37,13 @@
 #define MOCK_MAX_VERBS 32
 #define MOCK_VERBS_FD_BASE 700
 #define MOCK_DEFAULT_SOCK "/run/mock-ib.sock"
+
+/* NETLINK_RDMA was added in Linux 4.11. Define it locally as well so the
+ * shim builds against older kernel UAPI headers (the value is fixed by the
+ * kernel ABI). */
+#ifndef NETLINK_RDMA
+#define NETLINK_RDMA 20
+#endif
 
 static const char k_b64[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -49,6 +67,7 @@ static int (*real_openat)(int, const char *, int, ...);
 static ssize_t (*real_write)(int, const void *, size_t);
 static ssize_t (*real_read)(int, void *, size_t);
 static int (*real_close)(int);
+static int (*real_socket)(int, int, int);
 
 static void init_cfg(void) {
     const char *v = getenv("MOCK_IB");
@@ -358,4 +377,43 @@ int close(int fd) {
         return 0;
     }
     return real_close(fd);
+}
+
+/*
+ * libibverbs >= v44 (rdma-core) discovers RDMA devices via NETLINK_RDMA
+ * first, and only falls back to walking /sys/class/infiniband_verbs when
+ * that netlink probe fails (see libibverbs/init.c::ibverbs_get_device_list
+ * and libibverbs/ibdev_nl.c::find_sysfs_devs_nl, which short-circuits to
+ * the netlink result whenever rdmanl_socket_alloc() succeeds — even if
+ * the kernel reports zero or "wrong" devices).
+ *
+ * On a host whose kernel exposes any real RDMA device (e.g. a GitHub
+ * Actions runner with mlx5 modules loaded) the NETLINK_RDMA dump leaks
+ * that real device into the pod and our mock entries under MOCK_IB_ROOT
+ * are never enumerated. The mock sysfs path-rewriter (libibmocksys.so)
+ * cannot help here: libibverbs simply does not look at sysfs once
+ * netlink answers.
+ *
+ * Fix: make `socket(AF_NETLINK, *, NETLINK_RDMA)` fail with
+ * EPROTONOSUPPORT when the mock is enabled. libnl's `nl_connect` then
+ * returns an error, `rdmanl_socket_alloc` returns NULL,
+ * `find_sysfs_devs_nl` returns non-zero, and libibverbs falls back to
+ * its sysfs scan — which `libibmocksys.so` already redirects to the
+ * mock tree, where both `uverbs0` and `uverbs1` are present.
+ *
+ * The intercept is intentionally surgical: only when MOCK_IB=1 AND
+ * domain == AF_NETLINK AND protocol == NETLINK_RDMA. Every other socket
+ * call (AF_UNIX, AF_INET, NETLINK_ROUTE, NETLINK_KOBJECT_UEVENT, ...) is
+ * forwarded untouched so Kubernetes networking, DNS, kubelet probes,
+ * etc. remain unaffected.
+ */
+int socket(int domain, int type, int protocol) {
+    if (!real_socket) {
+        real_socket = dlsym(RTLD_NEXT, "socket");
+    }
+    if (mock_enabled() && domain == AF_NETLINK && protocol == NETLINK_RDMA) {
+        errno = EPROTONOSUPPORT;
+        return -1;
+    }
+    return real_socket(domain, type, protocol);
 }
