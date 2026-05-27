@@ -109,6 +109,11 @@ intercepts run before sysfs path rewriting.
   the container; both are guaranteed by `render.go` + the chart image.
   Full per-device `ibv_devinfo` (without `-l`) is intentionally not
   supported — see the same section below.
+- **`perfquery`, `perfquery -x`, `perfquery -R`** — UMAD plus PMA MAD
+  synthesis (`ClassPortInfo`, `PortCounters`, `PortCountersExtended`).
+  Counter values are deterministic per-`(NODE_NAME, mlx5_N)` and grow
+  over time at rates derived from `rate_gbps`. See
+  [Counters and perfquery](#counters-and-perfquery).
 
 ### Environment variables
 
@@ -221,6 +226,103 @@ from a userspace `LD_PRELOAD` shim is well beyond the scope of this
 mock; per-port state (which `ibv_devinfo` would otherwise print) is
 covered by `ibstatus`, which reads the same sysfs files.
 
+## Counters and perfquery
+
+By default mock-ib emits **non-zero, deterministic, slowly-growing**
+counter values so monitoring tools and link-quality alerts see plausible
+output instead of the all-zeros that used to come out of `counters/*`.
+Both the sysfs files and the PMA MAD synthesizer share a single
+`counters.Generator` + `counters.Epochs` instance, so `cat
+.../port_xmit_data_64` and `perfquery -x` always agree.
+
+### What is rendered
+
+The renderer + daemon writer cover three surfaces, all driven by a
+single `counters.Catalog` (47 entries):
+
+| Surface                                                 | Counters                                                                                     |
+|---------------------------------------------------------|----------------------------------------------------------------------------------------------|
+| `counters/` (legacy 32-bit, libibmad `PortCounters`)    | 16 entries: `port_xmit_data`, `port_rcv_data`, `port_xmit_packets`, `port_rcv_packets`, `symbol_error`, `link_error_recovery`, `link_downed`, `port_rcv_errors`, `port_rcv_remote_physical_errors`, `port_rcv_switch_relay_errors`, `port_xmit_discards`, `port_xmit_constraint_errors`, `port_rcv_constraint_errors`, `local_link_integrity_errors`, `excessive_buffer_overrun_errors`, `VL15_dropped` |
+| `counters/` (extended 64-bit, libibmad `PortCountersExtended`) | 8 entries: `port_xmit_data_64`, `port_rcv_data_64`, `port_xmit_packets_64`, `port_rcv_packets_64`, `unicast_xmit_packets`, `unicast_rcv_packets`, `multicast_xmit_packets`, `multicast_rcv_packets` |
+| `hw_counters/` (mlx5-specific, scraped by Prometheus RDMA exporters) | 23 entries including `out_of_buffer`, `np_cnp_sent`, `np_ecn_marked_roce_packets`, `rp_cnp_handled`, `req_cqe_error`, `resp_local_length_error`, `rx_write_requests`, `lifespan`, ... |
+
+### Value model
+
+`counters/counters.Generator.Value(caIdx, entry, elapsed)` returns
+`uint64` deterministically from `(NodeID, caIdx, entry.Name, elapsed)`.
+The result is a small per-port seed plus an elapsed-time delta sized by
+the entry's `Family`:
+
+- **Data families** (`FamilyXmitData`, `FamilyRcvData`) — grow at 70% /
+  65% of the configured link rate, expressed in 4-byte words (IB spec
+  semantics for `PortXmitData`/`PortRcvData`).
+- **Packet families** — grow at the data-family rate divided by 4096 (MTU).
+- **Error / discard families** — grow at fractional rates per second
+  (e.g. one `symbol_error` every ~20 seconds) so link-quality alerts can
+  trigger after a long enough run.
+- **CNP family** — moderate RoCE congestion-notification rate (~5/s).
+- **Atomic / constant families** — near-zero or fixed (e.g. `lifespan`).
+
+32-bit catalog entries are wrapped mod 2³², 64-bit entries are returned
+as-is. The `NodeID` is `fnv32a(NODE_NAME)` (truncated to 16 bits), so
+two pods running the same profile produce visibly distinct counter
+values without any cross-pod coordination.
+
+### Daemon writer
+
+`daemon.CountersWriter` ticks every `counters.tick_seconds` (default
+`5s`), rewriting every catalog file atomically (`os.CreateTemp` +
+`os.Rename`) so concurrent readers (Prometheus exporters, `perfquery`)
+never see a torn write. The writer runs in a goroutine alongside the
+UMAD/SMP/fabric server in `cmd/mock-ib`.
+
+### PMA MAD synthesizer (perfquery path)
+
+`daemon/pma.go` synthesizes Performance Management MADs (MgmtClass
+`0x04`) before `handleSend` falls through to the fabric or loopback
+paths. Supported AttrIDs:
+
+| AttrID                          | Method   | Behavior                                                                  |
+|---------------------------------|----------|---------------------------------------------------------------------------|
+| `ClassPortInfo` (`0x0001`)      | Get      | Minimal `BaseVersion=1, ClassVersion=1, CapabilityMask=0`.                |
+| `PortCounters` (`0x0012`)       | Get      | Reads catalog counters via the shared `Generator`+`Epochs`; bit-packs all 16 legacy fields at libibmad `IB_PC_*` offsets. |
+| `PortCounters` (`0x0012`)       | Set      | ClearCounters: advances `Epochs.Reset(caIdx, now)`, returns GetResp.       |
+| `PortCountersExtended` (`0x001D`)| Get     | Same as above for the 8 64-bit fields at `IB_PC_EXT_*` offsets.            |
+| `PortCountersExtended` (`0x001D`)| Set     | Same epoch reset (single per-port epoch covers both legacy and extended).  |
+
+Because the writer and the PMA path share the same `Generator` and
+`*Epochs`, `perfquery -R` (Reset) brings both `cat
+.../port_xmit_data_64` and the next `perfquery -x` Get back near zero
+simultaneously.
+
+```bash
+kubectl exec "$POD" -- perfquery mlx5_0 1     # 32-bit PortCounters
+kubectl exec "$POD" -- perfquery -x mlx5_0 1  # 64-bit PortCountersExtended
+kubectl exec "$POD" -- perfquery -R -x mlx5_0 1  # reset, then re-Get
+```
+
+### YAML
+
+```yaml
+infiniband:
+  enabled: true
+  rate_gbps: 400
+  counters:
+    enabled: true        # default; set false to render all zeros and
+                         #   skip the writer + PMA dispatcher entirely.
+    tick_seconds: 5      # writer rewrite cadence; default 5s.
+```
+
+`counters.enabled` is a tri-state `*bool` — omitting it defaults to
+`true`; an explicit `enabled: false` is preserved so disabling counters
+is a deliberate opt-out.
+
+End-to-end validation:
+[`tests/e2e/validate-counters.sh`](../../../tests/e2e/validate-counters.sh)
+(sysfs growth) and
+[`tests/e2e/validate-perfquery.sh`](../../../tests/e2e/validate-perfquery.sh)
+(PMA Get + Reset).
+
 ### Build notes
 
 Both shims build on **Linux only** (glibc, `dlfcn.h`). On macOS, build inside
@@ -262,6 +364,8 @@ configuration.
 | `hca_count`          | `0`                  | If non-zero, used instead of `gpu.count * hcas_per_gpu`.                   |
 | `guid_prefix`        | `a088c2:0300:ab`     | First 12 hex digits of every node/port GUID; HCA index encodes lower bytes. |
 | `node_desc_template` | `{node_name} mlx5_{idx}` | `{node_name}` and `{idx}` are interpolated.                            |
+| `counters.enabled`   | `true` (implicit)    | Tri-state `*bool`. Absent ⇒ on. Explicit `false` renders zeros and disables the writer + PMA dispatcher. |
+| `counters.tick_seconds` | `5`               | Writer rewrite cadence. See [Counters and perfquery](#counters-and-perfquery). |
 
 ### Defaults per built-in profile
 
