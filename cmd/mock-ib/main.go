@@ -76,10 +76,13 @@ func main() {
 	defer cancel()
 
 	if prof.Infiniband.Enabled && prof.Infiniband.Counters.EnabledOrDefault() {
+		gen := counters.Generator{NodeID: nodeid.NodeID(*nodeName), RateGbps: prof.Infiniband.RateGbps}
+		epochs := counters.NewEpochs(time.Now())
+		srv.SetCounters(gen, epochs)
 		writer, err := daemon.NewCountersWriter(daemon.CountersWriterOptions{
 			Root:         *ibRoot,
-			Gen:          counters.Generator{NodeID: nodeid.NodeID(*nodeName), RateGbps: prof.Infiniband.RateGbps},
-			Epochs:       counters.NewEpochs(time.Now()),
+			Gen:          gen,
+			Epochs:       epochs,
 			TickInterval: time.Duration(prof.Infiniband.Counters.TickSeconds) * time.Second,
 			Log:          log.Default(),
 		})

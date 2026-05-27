@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/counters"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/fabric"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
@@ -54,10 +55,25 @@ type Server struct {
 	graphMu sync.RWMutex
 	graph   *fabric.Graph
 
+	// PMA synthesis state. Both nil when counters are disabled; both
+	// non-nil and shared with the daemon's CountersWriter when enabled,
+	// so sysfs reads and PMA Gets reflect the same Generator+Epochs.
+	gen    counters.Generator
+	epochs *counters.Epochs
+
 	// Fabric registration: suppress repeated "connection refused" while peers start.
 	lastPeerRegisterOK int
 	registerWarned     map[string]struct{}
 	registerWarnedMu   sync.Mutex
+}
+
+// SetCounters installs the Generator + Epochs the PMA dispatcher uses.
+// Call once after NewServer (and before ListenAndServe) when counters
+// are enabled. The same gen/epochs MUST be passed to the
+// CountersWriter so sysfs and PMA agree.
+func (s *Server) SetCounters(gen counters.Generator, epochs *counters.Epochs) {
+	s.gen = gen
+	s.epochs = epochs
 }
 
 // NewServer builds a server; local ports are loaded from ib-root sysfs.
@@ -246,12 +262,23 @@ func (s *Server) handleSend(c net.Conn, req protocol.SendReq) error {
 	if s.trySAPathQuery(h, req.MAD) {
 		return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{OK: true})
 	}
-	// Fabric ping + loopback echo is for vendor/ping MADs only; SMP must use subnet synthesis.
-	if s.cfg.Fabric && !subnet.IsSMPSend(req.MAD) && s.tryFabricSend(h, req.MAD) {
+	// Performance Management: perfquery, Prometheus RDMA exporters.
+	// Synthesize before fabric/loopback so PMA is never routed cross-pod
+	// (counter values are per-host) and never echoed back empty.
+	if s.epochs != nil && IsPMASend(req.MAD) {
+		if resp, ok := TrySynthesizePMA(req.MAD, h.caName, s.gen, s.epochs, time.Now()); ok {
+			h.mu.Lock()
+			h.recvQ = append(h.recvQ, resp)
+			h.mu.Unlock()
+			return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{OK: true})
+		}
+	}
+	// Fabric ping + loopback echo is for vendor/ping MADs only; SMP / PMA must use synthesis.
+	if s.cfg.Fabric && !subnet.IsSMPSend(req.MAD) && !IsPMASend(req.MAD) && s.tryFabricSend(h, req.MAD) {
 		return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{OK: true})
 	}
-	// Subnet SMP must not fall through to loopback echo (empty payload breaks iblinkinfo).
-	if !subnet.IsSMPSend(req.MAD) {
+	// SMP / PMA must not fall through to loopback echo (empty payload breaks iblinkinfo / perfquery).
+	if !subnet.IsSMPSend(req.MAD) && !IsPMASend(req.MAD) {
 		queue := s.loopback.ShouldQueueRecv(req.MAD)
 		if queue {
 			resp := s.loopback.SynthesizeRecv(req.MAD)
