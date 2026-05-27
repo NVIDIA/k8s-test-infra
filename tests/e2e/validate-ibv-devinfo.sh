@@ -45,6 +45,45 @@ printf '%s\n' "$LIST"
 ACTUAL=$(printf '%s\n' "$LIST" | awk '/^[[:space:]]+mlx5_/ {print $1}' | wc -l)
 if [ "$ACTUAL" -ne "$EXPECTED" ]; then
   echo "FAIL: ibv_devinfo -l reported $ACTUAL devices, expected $EXPECTED"
+  echo "=== DEBUG: rendered sysfs tree under MOCK_IB_ROOT ==="
+  kubectl exec "$POD" -- sh -c '
+    set +e
+    echo "--- ls /var/lib/nvml-mock/ib/sys/class/infiniband/ ---"
+    ls -la /var/lib/nvml-mock/ib/sys/class/infiniband/ 2>&1
+    echo "--- ls /var/lib/nvml-mock/ib/sys/class/infiniband_verbs/ ---"
+    ls -la /var/lib/nvml-mock/ib/sys/class/infiniband_verbs/ 2>&1
+    echo "--- ls /var/lib/nvml-mock/ib/dev/infiniband/ ---"
+    ls -la /var/lib/nvml-mock/ib/dev/infiniband/ 2>&1
+    for u in /var/lib/nvml-mock/ib/sys/class/infiniband_verbs/uverbs*; do
+      [ -d "$u" ] || continue
+      echo "--- $u ---"
+      ls "$u"
+      for f in ibdev dev abi_version; do
+        printf "  %s = " "$f"; cat "$u/$f" 2>&1 || true
+      done
+    done
+    for d in /var/lib/nvml-mock/ib/sys/class/infiniband/mlx5_*; do
+      [ -d "$d" ] || continue
+      echo "--- $d/{node_type,device/modalias} ---"
+      printf "  node_type = "; cat "$d/node_type" 2>&1 || true
+      printf "  device/modalias = "; cat "$d/device/modalias" 2>&1 || true
+    done
+  ' || true
+  echo "=== DEBUG: libibverbs verbose enumeration ==="
+  kubectl exec "$POD" -- sh -c 'IBV_SHOW_WARNINGS=1 VERBS_LOG_LEVEL=3 ibv_devinfo -l 2>&1' || true
+  kubectl exec "$POD" -- sh -c 'IBV_SHOW_WARNINGS=1 VERBS_LOG_LEVEL=3 ibv_devices 2>&1' || true
+  echo "=== DEBUG: raw kernel view (MOCK_IB_DISABLE=1, bypasses libibmocksys) ==="
+  kubectl exec "$POD" -- sh -c '
+    set +e
+    echo "--- ls /sys/class/infiniband (real kernel) ---"
+    MOCK_IB_DISABLE=1 ls /sys/class/infiniband/ 2>&1
+    echo "--- ls /sys/class/infiniband_verbs (real kernel) ---"
+    MOCK_IB_DISABLE=1 ls /sys/class/infiniband_verbs/ 2>&1
+    echo "--- ls /dev/infiniband (real kernel) ---"
+    MOCK_IB_DISABLE=1 ls /dev/infiniband/ 2>&1
+    echo "--- MOCK_IB_DISABLE=1 ibv_devinfo -l ---"
+    MOCK_IB_DISABLE=1 ibv_devinfo -l 2>&1
+  ' || true
   exit 1
 fi
 echo "PASS: ibv_devinfo -l listed $ACTUAL devices"
