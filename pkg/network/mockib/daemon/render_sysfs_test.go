@@ -16,7 +16,7 @@ func TestRenderSysfsFromConfig_disabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := filepath.Join(dir, "ib")
-	if err := RenderSysfsFromConfig(RenderSysfsOptions{
+	if _, err := RenderSysfsFromConfig(RenderSysfsOptions{
 		ConfigPath: cfg,
 		OutputDir:  out,
 	}); err != nil {
@@ -38,7 +38,7 @@ infiniband:
 		t.Fatal(err)
 	}
 	out := filepath.Join(dir, "ib")
-	if err := RenderSysfsFromConfig(RenderSysfsOptions{
+	if _, err := RenderSysfsFromConfig(RenderSysfsOptions{
 		ConfigPath: cfg,
 		GPUCount:   2,
 		NodeName:   "node-a",
@@ -49,5 +49,29 @@ infiniband:
 	lidPath := filepath.Join(out, "sys/class/infiniband/mlx5_0/ports/1/lid")
 	if _, err := os.Stat(lidPath); err != nil {
 		t.Fatalf("missing rendered lid: %v", err)
+	}
+}
+
+func TestRenderSysfsFromConfig_ReturnsDefaultedProfile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "p.yaml")
+	if err := os.WriteFile(cfg, []byte("infiniband:\n  enabled: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "ibroot")
+	prof, err := RenderSysfsFromConfig(RenderSysfsOptions{
+		ConfigPath: cfg, OutputDir: out, NodeName: "h1", GPUCount: 1,
+	})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if prof.Infiniband.RateGbps == 0 {
+		t.Fatal("expected RateGbps default applied")
+	}
+	if prof.Infiniband.Counters.TickSeconds == 0 {
+		t.Fatal("expected Counters.TickSeconds default applied")
+	}
+	if !prof.Infiniband.Counters.EnabledOrDefault() {
+		t.Fatal("expected counters enabled by default")
 	}
 }

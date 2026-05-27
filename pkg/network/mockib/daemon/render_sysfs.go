@@ -24,31 +24,33 @@ type RenderSysfsOptions struct {
 
 // RenderSysfsFromConfig reads a mock-nvml profile YAML and writes the fake IB
 // sysfs tree under OutputDir when infiniband.enabled is true.
-func RenderSysfsFromConfig(opts RenderSysfsOptions) error {
+func RenderSysfsFromConfig(opts RenderSysfsOptions) (config.Profile, error) {
 	if opts.ConfigPath == "" {
-		return fmt.Errorf("config path required")
+		return config.Profile{}, fmt.Errorf("config path required")
 	}
 	if opts.OutputDir == "" {
-		return fmt.Errorf("output directory required")
+		return config.Profile{}, fmt.Errorf("output directory required")
 	}
 	data, err := os.ReadFile(opts.ConfigPath)
 	if err != nil {
-		return fmt.Errorf("read config: %w", err)
+		return config.Profile{}, fmt.Errorf("read config: %w", err)
 	}
 	var prof config.Profile
 	if err := yaml.Unmarshal(data, &prof); err != nil {
-		return fmt.Errorf("parse config: %w", err)
+		return config.Profile{}, fmt.Errorf("parse config: %w", err)
 	}
+	prof.Infiniband = prof.Infiniband.Defaults()
 	if !prof.Infiniband.Enabled {
-		return nil
+		return prof, nil
 	}
 	if opts.DryRun {
-		return nil
+		return prof, nil
 	}
-	return render.Render(render.Options{
+	err = render.Render(render.Options{
 		IB:       prof.Infiniband,
 		GPUCount: opts.GPUCount,
 		NodeName: opts.NodeName,
 		Output:   opts.OutputDir,
 	})
+	return prof, err
 }

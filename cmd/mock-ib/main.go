@@ -12,8 +12,12 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/counters"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/daemon"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/nodeid"
 )
 
 func main() {
@@ -30,14 +34,17 @@ func main() {
 	dryRun := flag.Bool("dry-run", false, "validate -config and exit without writing files")
 	flag.Parse()
 
+	var prof config.Profile
 	if *configPath != "" {
-		if err := daemon.RenderSysfsFromConfig(daemon.RenderSysfsOptions{
+		var err error
+		prof, err = daemon.RenderSysfsFromConfig(daemon.RenderSysfsOptions{
 			ConfigPath: *configPath,
 			GPUCount:   *gpuCount,
 			NodeName:   *nodeName,
 			OutputDir:  *ibRoot,
 			DryRun:     *dryRun,
-		}); err != nil {
+		})
+		if err != nil {
 			log.Fatalf("mock-ib: render: %v", err)
 		}
 		if *dryRun {
@@ -67,6 +74,24 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	if prof.Infiniband.Enabled && prof.Infiniband.Counters.EnabledOrDefault() {
+		writer, err := daemon.NewCountersWriter(daemon.CountersWriterOptions{
+			Root:         *ibRoot,
+			Gen:          counters.Generator{NodeID: nodeid.NodeID(*nodeName), RateGbps: prof.Infiniband.RateGbps},
+			Epochs:       counters.NewEpochs(time.Now()),
+			TickInterval: time.Duration(prof.Infiniband.Counters.TickSeconds) * time.Second,
+			Log:          log.Default(),
+		})
+		if err != nil {
+			log.Fatalf("mock-ib: counters writer: %v", err)
+		}
+		go func() {
+			if err := writer.Run(ctx); err != nil {
+				log.Printf("mock-ib: counters writer: %v", err)
+			}
+		}()
+	}
 
 	if err := srv.ListenAndServe(ctx); err != nil && ctx.Err() == nil {
 		log.Fatalf("mock-ib: %v", err)
