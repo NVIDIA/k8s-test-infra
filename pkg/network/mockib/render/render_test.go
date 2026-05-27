@@ -230,3 +230,70 @@ func TestRender_BadGUIDPrefix(t *testing.T) {
 	}
 }
 
+func TestRender_CountersAreNonZeroByDefault(t *testing.T) {
+	dir := t.TempDir()
+	err := Render(Options{
+		IB:       config.Infiniband{Enabled: true},
+		GPUCount: 1,
+		NodeName: "host1",
+		Output:   dir,
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	legacy := filepath.Join(dir, "sys/class/infiniband/mlx5_0/ports/1/counters/port_xmit_data")
+	b, err := os.ReadFile(legacy)
+	if err != nil {
+		t.Fatalf("read %s: %v", legacy, err)
+	}
+	s := strings.TrimSpace(string(b))
+	if s == "0" || s == "" {
+		t.Fatalf("port_xmit_data should be non-zero by default, got %q", s)
+	}
+	n, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		t.Fatalf("port_xmit_data not numeric: %q", s)
+	}
+	if n == 0 {
+		t.Fatalf("port_xmit_data parsed to 0")
+	}
+}
+
+func TestRender_CountersZeroWhenDisabled(t *testing.T) {
+	dir := t.TempDir()
+	f := false
+	err := Render(Options{
+		IB: config.Infiniband{
+			Enabled:  true,
+			Counters: config.Counters{Enabled: &f},
+		},
+		GPUCount: 1,
+		NodeName: "host1",
+		Output:   dir,
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, "sys/class/infiniband/mlx5_0/ports/1/counters/port_xmit_data"))
+	if strings.TrimSpace(string(b)) != "0" {
+		t.Fatalf("counters.enabled=false should keep port_xmit_data zero, got %q", b)
+	}
+}
+
+func TestRender_HWCountersDirectoryExists(t *testing.T) {
+	dir := t.TempDir()
+	err := Render(Options{
+		IB:       config.Infiniband{Enabled: true},
+		GPUCount: 1,
+		NodeName: "host1",
+		Output:   dir,
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	hw := filepath.Join(dir, "sys/class/infiniband/mlx5_0/ports/1/hw_counters/out_of_buffer")
+	if _, err := os.Stat(hw); err != nil {
+		t.Fatalf("hw_counters/out_of_buffer missing: %v", err)
+	}
+}
+

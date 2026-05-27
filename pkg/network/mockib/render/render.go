@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/counters"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/nodeid"
 )
 
@@ -161,16 +162,25 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 		return err
 	}
 
-	// Counters that diag tools optionally read.
-	zeroCounters := []string{
-		"port_xmit_data", "port_rcv_data", "port_xmit_packets", "port_rcv_packets",
-		"port_xmit_discards", "port_rcv_errors", "symbol_error", "link_error_recovery",
-		"link_downed", "port_rcv_remote_physical_errors", "port_rcv_switch_relay_errors",
-		"local_link_integrity_errors", "excessive_buffer_overrun_errors",
-		"VL15_dropped", "port_xmit_constraint_errors", "port_rcv_constraint_errors",
-	}
-	for _, c := range zeroCounters {
-		if err := writeFile(root, filepath.Join(portDir, "counters", c), "0\n"); err != nil {
+	gen := counters.Generator{NodeID: nid, RateGbps: ib.RateGbps}
+	countersEnabled := ib.Counters.EnabledOrDefault()
+	for _, e := range counters.Catalog {
+		var dir string
+		switch e.Surface {
+		case counters.SurfaceCounters:
+			dir = filepath.Join(portDir, "counters")
+		case counters.SurfaceHWCounters:
+			dir = filepath.Join(portDir, "hw_counters")
+		}
+		if err := mkdirAll(root, dir); err != nil {
+			return err
+		}
+		v := uint64(0)
+		if countersEnabled {
+			v = gen.Value(idx, e, 0)
+		}
+		if err := writeFile(root, filepath.Join(dir, e.Name),
+			fmt.Sprintf("%d\n", v)); err != nil {
 			return err
 		}
 	}
