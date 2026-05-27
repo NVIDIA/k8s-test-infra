@@ -19,11 +19,13 @@ pkg/network/mockib/
 ├── config/           # YAML schema for the `infiniband:` profile block
 ├── render/           # writes a kernel-faithful sysfs tree from the schema
 ├── sysfs/            # scans rendered tree (port GUID, LID, GID)
+├── nodeid/           # FNV-1a NodeID helper shared by render + daemon
+├── counters/         # counter Catalog + deterministic Generator + per-port reset Epochs
 ├── protocol/         # JSON wire format (Unix socket + TCP fabric)
 ├── registry/         # cross-pod port GUID → peer routing table
 ├── fabric/           # in-memory port graph + DR neighbor selection
 ├── subnet/           # SMP synthesis (NODE_DESC/NODE_INFO/PORT_INFO, DR path resolution)
-└── daemon/           # mock-ib server (UMAD loopback + SMP synth + verbs RPC + TCP fabric)
+└── daemon/           # mock-ib server (UMAD loopback + SMP/PMA synth + verbs RPC + TCP fabric + counters writer)
 
 cmd/mock-ib/     # renders sysfs from profile; UMAD daemon + optional TCP fabric
 ```
@@ -248,7 +250,7 @@ single `counters.Catalog` (47 entries):
 
 ### Value model
 
-`counters/counters.Generator.Value(caIdx, entry, elapsed)` returns
+`counters.Generator.Value(caIdx, entry, elapsed)` returns
 `uint64` deterministically from `(NodeID, caIdx, entry.Name, elapsed)`.
 The result is a small per-port seed plus an elapsed-time delta sized by
 the entry's `Family`:
@@ -294,6 +296,11 @@ Because the writer and the PMA path share the same `Generator` and
 `*Epochs`, `perfquery -R` (Reset) brings both `cat
 .../port_xmit_data_64` and the next `perfquery -x` Get back near zero
 simultaneously.
+
+`CounterSelect` (request bitmask) is **echoed in the response but not
+applied** — every mapped counter is always populated. `perfquery` uses
+`0xffff` (all counters), so this is invisible in practice; clients that
+expect selective masking will see extra fields populated.
 
 ```bash
 kubectl exec "$POD" -- perfquery mlx5_0 1     # 32-bit PortCounters
@@ -474,6 +481,8 @@ Companion E2E validators:
 | [`tests/e2e/validate-ibping.sh`](../../../tests/e2e/validate-ibping.sh) | Cross-node `ibping` (LID + GUID modes). |
 | [`tests/e2e/validate-iblinkinfo.sh`](../../../tests/e2e/validate-iblinkinfo.sh) | DR-walk fabric scan reports the peer's port GUID. |
 | [`tests/e2e/validate-ibv-devinfo.sh`](../../../tests/e2e/validate-ibv-devinfo.sh) | `ibv_devinfo -l` claims every rendered HCA; `ibstatus` shows ACTIVE / LinkUp ports. |
+| [`tests/e2e/validate-counters.sh`](../../../tests/e2e/validate-counters.sh) | `cat .../port_xmit_data_64` grows between two reads; `hw_counters/` is present. |
+| [`tests/e2e/validate-perfquery.sh`](../../../tests/e2e/validate-perfquery.sh) | `perfquery` / `perfquery -x` return non-zero; `perfquery -R` resets. |
 
 ## Why C, not Go
 

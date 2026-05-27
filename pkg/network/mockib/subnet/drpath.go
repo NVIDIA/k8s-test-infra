@@ -18,7 +18,7 @@ func IsSMPSend(umad []byte) bool {
 	if len(umad) < umadMADOffset+24 {
 		return false
 	}
-	hdr, ok := normalizeMADHeader(umad[umadMADOffset:])
+	hdr, ok := NormalizeMADHeader(umad[umadMADOffset:])
 	if !ok {
 		return false
 	}

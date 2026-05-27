@@ -27,9 +27,9 @@ if [ "$EXPECTED" -eq 0 ]; then
   exit 0
 fi
 
-# Wait briefly so the writer has produced non-zero values via PMA.
-# (sysfs may already show non-zero from render-time seed, but perfquery
-# goes through PMA which depends on the writer-shared Epochs.)
+# Small settle window so the pod has finished the daemon boot path and
+# Epochs has measurable elapsed time (PMA reads the shared
+# Generator+Epochs directly; render seed is already non-zero at t=0).
 sleep 2
 
 # 1) perfquery (legacy PortCounters, 32-bit) on mlx5_0 port 1.

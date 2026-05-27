@@ -61,7 +61,7 @@ func DecodeSMPGet(umad []byte) (SMPGetHeader, bool) {
 		return h, false
 	}
 	mad := umad[umadMADOffset:]
-	hdr, ok := normalizeMADHeader(mad)
+	hdr, ok := NormalizeMADHeader(mad)
 	if !ok {
 		return h, false
 	}
@@ -87,7 +87,7 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 		return nil, false
 	}
 
-	hdr, ok := normalizeMADHeader(mad)
+	hdr, ok := NormalizeMADHeader(mad)
 	if !ok {
 		return nil, false
 	}
@@ -142,7 +142,11 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 	}
 }
 
-func normalizeMADHeader(mad []byte) ([24]byte, bool) {
+// NormalizeMADHeader returns the first 24 bytes of `mad` with each
+// 4-byte word byte-reversed. libibmad transmits MAD headers in
+// word-swapped form on the wire; both SMP and PMA synthesis need the
+// unswapped header to inspect MgmtClass / Method / AttrID.
+func NormalizeMADHeader(mad []byte) ([24]byte, bool) {
 	var hdr [24]byte
 	if len(mad) < len(hdr) {
 		return hdr, false

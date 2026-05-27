@@ -15,14 +15,13 @@ import (
 // 0x04 is Performance Management; Get/Set carry counter queries from
 // perfquery and Prometheus RDMA exporters.
 const (
-	pmaClass         byte = 0x04
-	pmaMethodGet     byte = 0x01
-	pmaMethodSet     byte = 0x02
-	pmaMethodGetResp byte = 0x81
+	pmaClass     byte = 0x04
+	pmaMethodGet byte = 0x01
+	pmaMethodSet byte = 0x02
 )
 
-// PMAAttrXxx are exposed so test fixtures and the dispatcher hook (Task
-// 3.5) can reference them without rebinding the literals.
+// PMAAttrXxx are exposed so test fixtures and the server-side
+// dispatcher can reference them without rebinding the literals.
 const (
 	PMAAttrClassPortInfo   uint16 = 0x0001
 	PMAAttrPortCounters    uint16 = 0x0012
@@ -94,7 +93,7 @@ func IsPMASend(umad []byte) bool {
 		return false
 	}
 	mad := umad[56:]
-	hdr, ok := normalizeMADHeaderForPMA(mad)
+	hdr, ok := subnet.NormalizeMADHeader(mad)
 	if !ok {
 		return false
 	}
@@ -116,7 +115,7 @@ func TrySynthesizePMA(sendMad []byte, localCA string,
 		return nil, false
 	}
 	mad := sendMad[pmaUMADHeaderLen:]
-	hdr, ok := normalizeMADHeaderForPMA(mad)
+	hdr, ok := subnet.NormalizeMADHeader(mad)
 	if !ok {
 		return nil, false
 	}
@@ -240,24 +239,7 @@ func fillPMAPortCountersExt(payload []byte, caIdx int,
 
 func decodePMAAttrID(hdr [24]byte) uint16 {
 	// AttrID is at MAD bytes 16..17 in unswapped layout; after the word
-	// swap in normalizeMADHeaderForPMA it lands at hdr[18..19] swapped.
+	// swap in subnet.NormalizeMADHeader it lands at hdr[18..19] swapped.
 	attrID := binary.BigEndian.Uint16(hdr[18:20])
 	return (attrID >> 8) | (attrID << 8)
-}
-
-// normalizeMADHeaderForPMA mirrors subnet.normalizeMADHeader since that
-// helper is package-private. Keep the two implementations identical;
-// PMA and SMP share the same word-swapped wire layout.
-func normalizeMADHeaderForPMA(mad []byte) ([24]byte, bool) {
-	if len(mad) < 24 {
-		return [24]byte{}, false
-	}
-	var hdr [24]byte
-	for w := 0; w < len(hdr); w += 4 {
-		hdr[w+0] = mad[w+3]
-		hdr[w+1] = mad[w+2]
-		hdr[w+2] = mad[w+1]
-		hdr[w+3] = mad[w+0]
-	}
-	return hdr, true
 }
