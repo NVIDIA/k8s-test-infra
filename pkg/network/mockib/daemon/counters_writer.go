@@ -148,6 +148,13 @@ func writeAtomic(path string, v uint64) error {
 
 // caIndex parses "mlx5_<N>" -> N. Returns false on names that don't fit
 // (the writer skips those CAs).
+//
+// The parsed value is bounded to 16 bits because the generator FNV-seed
+// packs it into a uint32 alongside NodeID (see counters.Generator.seed).
+// Real profiles cap at 16 CAs; we accept anything up to 0xffff so CodeQL's
+// taint analysis cannot flag a silent strconv.Atoi -> uint16 truncation
+// downstream, and pathological "mlx5_99999999" names are rejected here
+// rather than wrapping around inside the generator.
 func caIndex(caName string) (int, bool) {
 	s, ok := strings.CutPrefix(caName, "mlx5_")
 	if !ok {
@@ -155,6 +162,9 @@ func caIndex(caName string) (int, bool) {
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil {
+		return 0, false
+	}
+	if n < 0 || n > 0xffff {
 		return 0, false
 	}
 	return n, true

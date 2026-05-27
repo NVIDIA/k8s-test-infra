@@ -35,7 +35,17 @@ func (g Generator) Value(caIdx int, e Entry, elapsed time.Duration) uint64 {
 func (g Generator) seed(caIdx int, name string, family Family) uint64 {
 	h := fnv.New32a()
 	var buf [4]byte
-	binary.BigEndian.PutUint32(buf[:], uint32(g.NodeID)<<16|uint32(uint16(caIdx)))
+	// caIdx flows in from strconv.Atoi on the "mlx5_<N>" suffix in
+	// daemon.caIndex, where it is already bounded to 0..0xffff. We
+	// re-check the bound here so the int -> uint16 truncation is
+	// explicit (CodeQL flags an unchecked Atoi -> uint16 cast otherwise)
+	// and so a defensive miswire from any future caller can't silently
+	// alias two CAs to the same seed.
+	idx16 := uint16(0)
+	if caIdx >= 0 && caIdx <= 0xffff {
+		idx16 = uint16(caIdx)
+	}
+	binary.BigEndian.PutUint32(buf[:], uint32(g.NodeID)<<16|uint32(idx16))
 	_, _ = h.Write(buf[:])
 	_, _ = h.Write([]byte(name))
 	raw := uint64(h.Sum32()) & 0x00ffffff // low 24 bits
