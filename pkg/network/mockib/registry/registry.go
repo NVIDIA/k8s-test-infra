@@ -57,6 +57,15 @@ func (r *Registry) Lookup(portGUID string) (Peer, bool) {
 	return p, ok
 }
 
+// Size returns the number of peer entries currently registered. Useful for
+// diagnostic logging (e.g. distinguishing "no REGISTER arrived" from
+// "REGISTER arrived but key didn't match the requested LID/GUID").
+func (r *Registry) Size() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.m)
+}
+
 // Snapshot returns a copy of the GUID → peer table (for fabric graph rebuild).
 func (r *Registry) Snapshot() map[string]Peer {
 	r.mu.RLock()

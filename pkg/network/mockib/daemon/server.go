@@ -113,6 +113,18 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		}
 	}
 
+	// Unconditional one-shot startup log so `kubectl logs` is enough to confirm
+	// the daemon came up, learned its local ports, and (when -fabric) bound its
+	// TCP relay. Cross-pod ibping cannot work without this listener; absence of
+	// this line on a peer pod immediately localizes the bug to startup, not to
+	// MAD routing.
+	s.log.Printf("mock-ib: ready socket=%s fabric=%t port=%d podIP=%s node=%q localPorts=%d",
+		s.cfg.SocketPath, s.cfg.Fabric, s.cfg.TCPPort, s.podIP, s.nodeName, len(s.localPorts))
+	for _, p := range s.localPorts {
+		s.log.Printf("mock-ib: local port ca=%s port=%d lid=0x%04x port_guid=%s",
+			p.CAName, p.Port, p.LID, p.PortGUID)
+	}
+
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()

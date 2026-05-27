@@ -118,10 +118,26 @@ func (s *Server) applyRegister(body protocol.RegisterBody) {
 		})
 	}
 	s.rebuildGraph()
+	// Unconditional log so cross-pod REGISTER outcomes are visible in
+	// kubectl logs without enabling per-feature debug flags. Cross-release
+	// ibping (ibping-multinode CI job) depends on this REGISTER reaching every
+	// peer; absence of this line on a pod immediately tells us the one-shot
+	// `mock-ib -register-peers` did not arrive (TCP firewall, wrong port, ...).
+	for _, port := range body.Ports {
+		s.log.Printf("mock-ib: register from podIP=%s node=%q ca=%s port=%d lid=0x%04x port_guid=%s",
+			body.PodIP, body.NodeName, port.CAName, port.Port, port.LID, port.PortGUID)
+	}
 }
 
 func (s *Server) handleFabricPing(c net.Conn, ping protocol.PingBody) error {
 	if !s.pingTargetsLocalPort(ping) {
+		// The peer's tryFabricSend resolved this MAD to *our* PodIP, so the
+		// dst either has the wrong LID or the wrong port_guid for our locals.
+		// Logging this here is the only way to spot a one-shot REGISTER that
+		// shipped stale/wrong port advertisements without re-running the
+		// validate-ibping.sh harness by hand.
+		s.log.Printf("mock-ib: fabric ping mismatch: dst_lid=0x%04x dst_guid=%s does not match any local port",
+			ping.DstLID, ping.DstPortGUID)
 		return nil
 	}
 	return protocol.WriteMessage(c, protocol.TypePong, protocol.PongBody{
@@ -303,6 +319,14 @@ func (s *Server) tryFabricSend(h *portHandle, sendMad []byte) bool {
 		}
 	}
 	if !found || peer.PodIP == "" || peer.PodIP == s.podIP {
+		// Useful diagnostic for cross-pod ibping failures: print the
+		// destination we could not route AND the registry size so it is
+		// immediately obvious whether REGISTER never arrived (size=0) or
+		// arrived with the wrong key (size>0 + miss).
+		if dstLID, ok := destLID(sendMad); ok && dstLID != 0 {
+			s.log.Printf("mock-ib: no fabric route for lid=0x%04x (registry size=%d, self=%s, peer.PodIP=%q)",
+				dstLID, s.registry.Size(), s.podIP, peer.PodIP)
+		}
 		return false
 	}
 	var dstLID uint16
