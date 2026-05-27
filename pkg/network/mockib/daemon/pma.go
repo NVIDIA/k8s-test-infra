@@ -127,8 +127,7 @@ func TrySynthesizePMA(sendMad []byte, localCA string,
 		return nil, false
 	}
 	method := hdr[pmaMADMethodOff] & 0x7f
-	if method != pmaMethodGet {
-		// Set/Reset path is Task 3.4.
+	if method != pmaMethodGet && method != pmaMethodSet {
 		return nil, false
 	}
 	attrID := decodePMAAttrID(hdr)
@@ -138,9 +137,30 @@ func TrySynthesizePMA(sendMad []byte, localCA string,
 		return nil, false
 	}
 
+	if method == pmaMethodSet {
+		// ClassPortInfo Set is not defined for this stack; only counter
+		// resets are accepted. Any other AttrID falls through to nil/false
+		// so the SMP/loopback paths can't accidentally see it.
+		if attrID != PMAAttrPortCounters && attrID != PMAAttrPortCountersExt {
+			return nil, false
+		}
+		out := buildPMAResponse(sendMad, method)
+		payload := out[pmaUMADHeaderLen+pmaDataOff:]
+		reqPayload := mad[pmaDataOff:]
+		portSelect := subnet.GetFieldSpec(reqPayload, 0, 8)
+		counterSelect := subnet.GetFieldSpec(reqPayload, 16, 16)
+		subnet.SetFieldSpec(payload, 0, 8, portSelect)
+		subnet.SetFieldSpec(payload, 16, 16, counterSelect)
+		// Single per-port epoch covers both legacy and extended attrs —
+		// perfquery -R typically targets one and assumes both are cleared
+		// (sysfs reflects the writer's view of the same Generator).
+		epochs.Reset(caIdx, now)
+		return out, true
+	}
+
+	// method == pmaMethodGet (other methods rejected above).
 	out := buildPMAResponse(sendMad, method)
 	payload := out[pmaUMADHeaderLen+pmaDataOff:]
-
 	switch attrID {
 	case PMAAttrClassPortInfo:
 		fillPMAClassPortInfo(payload)

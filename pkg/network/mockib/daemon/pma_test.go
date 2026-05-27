@@ -257,3 +257,93 @@ func TestTrySynthesizePMA_PortCountersExt_AgreesWithGenerator(t *testing.T) {
 		}
 	}
 }
+
+func TestTrySynthesizePMA_PortCountersSet_ResetsEpoch(t *testing.T) {
+	gen := counters.Generator{NodeID: 0xab, RateGbps: 400}
+	epochs := counters.NewEpochs(time.Now().Add(-time.Hour))
+
+	// 1. Pre-reset Get returns large value.
+	getReq := buildPMAUMAD(0x04, 0x01, PMAAttrPortCountersExt)
+	pl := getReq[56+64:]
+	subnet.SetFieldSpec(pl, 0, 8, 1)
+	subnet.SetFieldSpec(pl, 16, 16, 0xffff)
+	before, ok := TrySynthesizePMA(getReq, "mlx5_0", gen, epochs, time.Now())
+	if !ok {
+		t.Fatal("pre-reset Get must succeed")
+	}
+	preXmit := getPMAField64(t, before, 64)
+	if preXmit == 0 {
+		t.Fatal("pre-reset xmit_data must be non-zero")
+	}
+
+	// 2. Set ClearCounters via PortCounters (legacy 32-bit attr).
+	setReq := buildPMAUMAD(0x04, 0x02, PMAAttrPortCounters)
+	setPl := setReq[56+64:]
+	subnet.SetFieldSpec(setPl, 0, 8, 1)
+	subnet.SetFieldSpec(setPl, 16, 16, 0xffff) // CounterSelect = all
+	setResp, ok := TrySynthesizePMA(setReq, "mlx5_0", gen, epochs, time.Now())
+	if !ok || setResp == nil {
+		t.Fatal("Set ClearCounters must be acknowledged")
+	}
+	if setResp[56+3] != (0x02 | 0x80) {
+		t.Fatalf("Set response method = 0x%02x, want 0x82 (Set|GetResp bit)", setResp[56+3])
+	}
+	// Echo PortSelect / CounterSelect.
+	if v := getPMAFieldSpec(t, setResp, 0, 8); v != 1 {
+		t.Fatalf("Set response PortSelect echo = %d, want 1", v)
+	}
+	if v := getPMAFieldSpec(t, setResp, 16, 16); v != 0xffff {
+		t.Fatalf("Set response CounterSelect echo = 0x%x, want 0xffff", v)
+	}
+
+	// 3. Post-reset Get returns value <= before (because elapsed since
+	// reset is now sub-millisecond instead of 1h).
+	after, ok := TrySynthesizePMA(getReq, "mlx5_0", gen, epochs, time.Now())
+	if !ok {
+		t.Fatal("post-reset Get must succeed")
+	}
+	postXmit := getPMAField64(t, after, 64)
+	if postXmit >= preXmit {
+		t.Fatalf("expected post-reset xmit_data < pre-reset: pre=%d post=%d", preXmit, postXmit)
+	}
+}
+
+func TestTrySynthesizePMA_PortCountersExtSet_AlsoResets(t *testing.T) {
+	gen := counters.Generator{NodeID: 0xab, RateGbps: 400}
+	epochs := counters.NewEpochs(time.Now().Add(-time.Hour))
+
+	setReq := buildPMAUMAD(0x04, 0x02, PMAAttrPortCountersExt)
+	setPl := setReq[56+64:]
+	subnet.SetFieldSpec(setPl, 0, 8, 1)
+	subnet.SetFieldSpec(setPl, 16, 16, 0xffff)
+	resp, ok := TrySynthesizePMA(setReq, "mlx5_1", gen, epochs, time.Now())
+	if !ok || resp == nil {
+		t.Fatal("Set Ext must be acknowledged")
+	}
+	if resp[56+3] != 0x82 {
+		t.Fatalf("Set Ext response method = 0x%02x, want 0x82", resp[56+3])
+	}
+
+	// Verify epoch on caIdx=1 was reset, but caIdx=0 untouched.
+	getReq := buildPMAUMAD(0x04, 0x01, PMAAttrPortCountersExt)
+	gp := getReq[56+64:]
+	subnet.SetFieldSpec(gp, 0, 8, 1)
+	subnet.SetFieldSpec(gp, 16, 16, 0xffff)
+	now := time.Now()
+	g0, _ := TrySynthesizePMA(getReq, "mlx5_0", gen, epochs, now)
+	g1, _ := TrySynthesizePMA(getReq, "mlx5_1", gen, epochs, now)
+	v0 := getPMAField64(t, g0, 64)
+	v1 := getPMAField64(t, g1, 64)
+	if v0 == 0 || v1 >= v0 {
+		t.Fatalf("expected caIdx 0 large, caIdx 1 small: v0=%d v1=%d", v0, v1)
+	}
+}
+
+func TestTrySynthesizePMA_ClassPortInfoSet_Rejected(t *testing.T) {
+	setReq := buildPMAUMAD(0x04, 0x02, PMAAttrClassPortInfo)
+	gen := counters.Generator{NodeID: 0xab, RateGbps: 400}
+	epochs := counters.NewEpochs(time.Now())
+	if _, ok := TrySynthesizePMA(setReq, "mlx5_0", gen, epochs, time.Now()); ok {
+		t.Fatal("Set ClassPortInfo must be rejected")
+	}
+}
