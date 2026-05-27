@@ -46,7 +46,7 @@ func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if err := protocol.WriteMessage(conn, protocol.TypeOpen, protocol.OpenReq{CAName: "mlx5_0", Port: 1}); err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ func TestServer_handleClose_unknownHandle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if err := protocol.WriteMessage(conn, protocol.TypeClose, protocol.CloseReq{Handle: 9999}); err != nil {
 		t.Fatal(err)

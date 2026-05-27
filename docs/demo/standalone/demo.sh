@@ -113,6 +113,10 @@ if [[ "${HCA_COUNT}" -lt 1 ]]; then
 fi
 info "Found ${HCA_COUNT} mock HCA(s)"
 
+info "Validating ibv_devinfo (list + smoke output)"
+chmod +x "${REPO_ROOT}/tests/e2e/validate-ibv-devinfo.sh"
+"${REPO_ROOT}/tests/e2e/validate-ibv-devinfo.sh" "${POD}" "${GPU_PROFILE}" "${HCA_COUNT}"
+
 ###############################################################################
 # Step 9 -- Verify: PCI sysfs mock (render-pci-sysfs)
 #
@@ -196,6 +200,11 @@ info "Cross-node ibping: server=${SERVER_POD} client=${CLIENT_POD}"
 chmod +x "${REPO_ROOT}/tests/e2e/validate-ibping.sh"
 "${REPO_ROOT}/tests/e2e/validate-ibping.sh" "${SERVER_POD}" "${CLIENT_POD}"
 
+info "Validating cross-node iblinkinfo (fabric scan includes peer HCAs)"
+chmod +x "${REPO_ROOT}/tests/e2e/validate-iblinkinfo.sh"
+"${REPO_ROOT}/tests/e2e/validate-iblinkinfo.sh" "${SERVER_POD}" "${CLIENT_POD}" \
+  "${GPU_PROFILE}" "${HCA_COUNT}"
+
 ###############################################################################
 # Step 11 -- Show node labels
 ###############################################################################
@@ -217,5 +226,6 @@ info "  ConfigMaps: ${CM_COUNT}"
 info "  Mock HCAs : ${HCA_COUNT} per pod"
 info "  PCI devs  : ${PCI_DEV_COUNT} across ${ROOT_COUNT} root complex(es)"
 info "  ibping    : cross-node OK (${SERVER_POD} -> ${CLIENT_POD})"
+info "  ibv_devinfo / iblinkinfo: validated (profile=${GPU_PROFILE})"
 info ""
 info "To tear down: kind delete cluster --name ${CLUSTER_NAME}"

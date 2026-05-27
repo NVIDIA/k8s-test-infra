@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * libibmockumad.so -- LD_PRELOAD shim that forwards libibumad calls used by
- * ibping to mock-ib over a Unix socket when MOCK_IB_PING=1.
+ * ibping to mock-ib over a Unix socket when MOCK_IB=1.
  *
- * When MOCK_IB_PING is unset or "0", every hooked symbol delegates to the
+ * When MOCK_IB is unset or "0", every hooked symbol delegates to the
  * real libibumad via dlsym(RTLD_NEXT, ...).
  *
  * Wire format matches pkg/network/mockib/protocol: 4-byte big-endian
@@ -96,7 +96,7 @@ static int next_local_port = 100;
     } while (0)
 
 static void init_cfg(void) {
-    const char *v = getenv("MOCK_IB_PING");
+    const char *v = getenv("MOCK_IB");
     mock_ping = (v && v[0] == '1') ? 1 : 0;
     const char *sock = getenv("MOCK_IB_PING_SOCKET");
     if (!sock || sock[0] == '\0') {
@@ -622,13 +622,14 @@ int umad_recv(int portid, void *umad, int *length, int timeout_ms) {
         return -EIO;
     }
     size_t data_len = pkt_len - MOCK_UMAD_HDR_SZ;
-    if (data_len > (size_t)*length) {
-        *length = (int)data_len;
-        errno = ENOSPC;
-        return -ENOSPC;
+    if (data_len > MOCK_IB_MAD_SIZE) {
+        data_len = MOCK_IB_MAD_SIZE;
     }
+    /* libibmad passes *length as IB_SMP_DATA_SIZE (64) while the caller buffer is
+     * umad_size()+256 bytes. Do not treat that as the recv cap — always copy the MAD. */
     memcpy(umad, pkt, MOCK_UMAD_HDR_SZ);
     memcpy((uint8_t *)umad + MOCK_UMAD_HDR_SZ, pkt + MOCK_UMAD_HDR_SZ, data_len);
+    ((ib_user_mad_t *)umad)->status = 0;
     ((ib_user_mad_t *)umad)->length = (uint32_t)data_len;
     *length = (int)data_len;
     return 1;

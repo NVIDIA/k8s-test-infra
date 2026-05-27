@@ -207,6 +207,38 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 	if err := writeFile(root, filepath.Join(verbsDir, "abi_version"), "1\n"); err != nil {
 		return err
 	}
+	// libibverbs setup_sysfs_uverbs() reads major:minor from dev.
+	if err := writeFile(root, filepath.Join(verbsDir, "dev"), fmt.Sprintf("231:%d\n", idx)); err != nil {
+		return err
+	}
+
+	// libibverbs matches each sysfs device against provider modalias tables
+	// (libibverbs/init.c match_modalias -> fnmatch). The kernel modalias
+	// grammar is "pci:v<8H>d<8H>sv<8H>sd<8H>bc<2H>sc<2H>i<2H>" with
+	// upper-case hex, zero-padded fields — otherwise libmlx5's match
+	// pattern "pci:v000015B3d*sv*sd*bc*sc*i*" never claims the device and
+	// ibv_devinfo reports "0 HCAs found". Use the ConnectX-5 (0x1017) PCI
+	// IDs (vendor 0x15B3 Mellanox, subsystem 0x15B3:0x0008, class
+	// 0x028000 = Infiniband controller).
+	if err := mkdirAll(root, filepath.Join(caDir, "device")); err != nil {
+		return err
+	}
+	const modalias = "pci:v000015B3d00001017sv000015B3sd00000008bc02sc00i00\n"
+	if err := writeFile(root, filepath.Join(caDir, "device/modalias"), modalias); err != nil {
+		return err
+	}
+	if err := mkdirAll(root, filepath.Join(portDir, "gid_attrs/types")); err != nil {
+		return err
+	}
+	if err := mkdirAll(root, filepath.Join(portDir, "gid_attrs/ndevs")); err != nil {
+		return err
+	}
+	if err := writeFile(root, filepath.Join(portDir, "gid_attrs/types/0"), "RoCE v2\n"); err != nil {
+		return err
+	}
+	if err := writeFile(root, filepath.Join(portDir, "gid_attrs/ndevs/0"), "1\n"); err != nil {
+		return err
+	}
 
 	// /dev/infiniband device files. Real char-dev creation requires
 	// CAP_MKNOD; regular files are sufficient for sysfs-only consumers

@@ -2,10 +2,10 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Start mock-ib when MOCK_IB_PING=1.
+# Start mock-ib when MOCK_IB=1.
 set -e
 
-if [ "${MOCK_IB_PING:-0}" != "1" ]; then
+if [ "${MOCK_IB:-0}" != "1" ]; then
   exit 0
 fi
 

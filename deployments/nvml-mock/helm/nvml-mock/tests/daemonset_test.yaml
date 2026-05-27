@@ -460,7 +460,7 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: MOCK_IB_PING
+            name: MOCK_IB
             value: "1"
       - contains:
           path: spec.template.spec.containers[0].env
@@ -488,7 +488,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: LD_PRELOAD
-            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmocksys.so.1
+            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
       - equal:
           path: spec.template.spec.containers[0].ports[0].name
           value: ibping

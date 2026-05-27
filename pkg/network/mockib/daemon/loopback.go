@@ -52,7 +52,7 @@ func (l *Loopback) SynthesizeRecv(sendMad []byte) []byte {
 	out := make([]byte, len(sendMad))
 	copy(out, sendMad)
 	if len(out) >= 8 {
-		binary.LittleEndian.PutUint32(out[4:8], 0)
+		binary.LittleEndian.PutUint32(out[4:8], 0) // umad.status must be zero
 	}
 	if len(out) >= umadMADOffset+ibMADMethodOff+1 {
 		mad := out[umadMADOffset:]

@@ -20,6 +20,10 @@ const (
 	TypeRecv     = "recv"
 	TypeClose          = "close"
 	TypeRegisterPeers  = "register_peers"
+	TypeVerbsOpen      = "verbs_open"
+	TypeVerbsWrite     = "verbs_write"
+	TypeVerbsRead      = "verbs_read"
+	TypeVerbsClose     = "verbs_close"
 )
 
 // MaxFrameSize is the largest accepted length-prefixed JSON frame.
@@ -34,6 +38,7 @@ type Envelope struct {
 // PortAdvert describes one HCA port from sysfs or a REGISTER payload.
 type PortAdvert struct {
 	PortGUID   string `json:"port_guid"`
+	NodeGUID   string `json:"node_guid,omitempty"`
 	DefaultGID string `json:"default_gid,omitempty"`
 	CAName     string `json:"ca_name"`
 	Port       int    `json:"port"`
@@ -59,6 +64,46 @@ type PingBody struct {
 type PongBody struct {
 	Seq      uint32 `json:"seq"`
 	ServerTS int64  `json:"server_ts"`
+}
+
+// VerbsOpenReq opens a mock uverbs device by sysfs name (e.g. uverbs0).
+type VerbsOpenReq struct {
+	DevName string `json:"dev_name"`
+}
+
+// VerbsOpenResp returns a daemon-side handle for write/read.
+type VerbsOpenResp struct {
+	Handle int    `json:"handle,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// VerbsWriteReq is a write(2) payload to a mock uverbs fd.
+type VerbsWriteReq struct {
+	Handle int    `json:"handle"`
+	Data   []byte `json:"data"`
+}
+
+// VerbsWriteResp acknowledges write and may queue a response for read.
+type VerbsWriteResp struct {
+	Written int    `json:"written,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// VerbsReadReq drains the response queue for a mock uverbs handle.
+type VerbsReadReq struct {
+	Handle int `json:"handle"`
+	MaxLen int `json:"max_len"`
+}
+
+// VerbsReadResp returns bytes for the verbs shim read(2).
+type VerbsReadResp struct {
+	Data  []byte `json:"data,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+// VerbsCloseReq closes a mock uverbs handle.
+type VerbsCloseReq struct {
+	Handle int `json:"handle"`
 }
 
 // WriteEnvelope marshals env and writes a big-endian uint32 length prefix.

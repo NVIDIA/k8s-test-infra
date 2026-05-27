@@ -141,6 +141,13 @@ jobs:
           # IB-enabled profiles are expected to expose 2 HCAs.
           ./tests/e2e/validate-ibstat.sh "$POD" "${{ matrix.gpu-profile }}" 2
 
+      - name: Validate ibv_devinfo (InfiniBand mock)
+        run: |
+          chmod +x tests/e2e/validate-ibv-devinfo.sh
+          POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+            -o jsonpath='{.items[0].metadata.name}')
+          ./tests/e2e/validate-ibv-devinfo.sh "$POD" "${{ matrix.gpu-profile }}" 2
+
       - name: Deploy NVIDIA device plugin
         run: |
           kubectl apply -f tests/e2e/device-plugin-mock.yaml
@@ -916,6 +923,15 @@ jobs:
           echo "Server pod: $SERVER_POD"
           echo "Client pod: $CLIENT_POD"
           ./tests/e2e/validate-ibping.sh "$SERVER_POD" "$CLIENT_POD"
+
+      - name: Validate cross-node iblinkinfo
+        run: |
+          chmod +x tests/e2e/validate-iblinkinfo.sh
+          W1=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w1 \
+            -o jsonpath='{.items[0].metadata.name}')
+          W2=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w2 \
+            -o jsonpath='{.items[0].metadata.name}')
+          ./tests/e2e/validate-iblinkinfo.sh "$W1" "$W2" a100 2
 
       - name: Collect logs on failure
         if: failure()

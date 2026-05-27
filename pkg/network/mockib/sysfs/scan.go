@@ -39,12 +39,14 @@ func Scan(root string) ([]protocol.PortAdvert, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse %s lid: %w", caName, err)
 		}
+		nodeGUIDBytes, _ := os.ReadFile(filepath.Join(caDir, "node_guid"))
 		defaultGID := ""
 		if rawGID, err := os.ReadFile(filepath.Join(portDir, "gids/0")); err == nil {
 			defaultGID = gid.Normalize(strings.TrimSpace(string(rawGID)))
 		}
 		out = append(out, protocol.PortAdvert{
 			PortGUID:   registry.NormalizePortGUID(strings.TrimSpace(string(guidBytes))),
+			NodeGUID:   registry.NormalizePortGUID(strings.TrimSpace(string(nodeGUIDBytes))),
 			DefaultGID: defaultGID,
 			CAName:     caName,
 			Port:       1,

@@ -83,7 +83,7 @@ spec:
             {{- end }}
             # Enable mock-ib (started by setup.sh) and TCP fabric relay
             # between nvml-mock pods so `ibping` can reach peers cluster-wide.
-            - name: MOCK_IB_PING
+            - name: MOCK_IB
               value: "1"
             - name: MOCK_IB_PING_FABRIC
               value: "1"
@@ -103,7 +103,7 @@ spec:
             # libibmockumad must precede libibmocksys so UMAD ioctls are
             # intercepted before sysfs path rewriting.
             - name: LD_PRELOAD
-              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmocksys.so.1"
+              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1"
             - name: MOCK_IB_ROOT
               value: "/var/lib/nvml-mock/ib"
           lifecycle:

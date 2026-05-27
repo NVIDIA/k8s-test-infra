@@ -78,7 +78,7 @@ terminationGracePeriodSeconds: 10
 # pkg/gpu/mocknvml/engine/fabric.go and issue NVIDIA/k8s-test-infra#304.
 # InfiniBand ping mock (always on). The DaemonSet preloads libibmockumad
 # alongside libibmocksys, starts mock-ib via the container entrypoint,
-# exposes a headless Service on `ping.port`, and sets MOCK_IB_PING /
+# exposes a headless Service on `ping.port`, and sets MOCK_IB /
 # MOCK_IB_PING_FABRIC so ibping can reach peer pods.
 infiniband:
   ping:

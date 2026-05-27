@@ -43,6 +43,7 @@ COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmocksys.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmockumad.so.* /usr/local/lib/
+COPY --from=builder /src/pkg/network/mockib/libibmockverbs.so.* /usr/local/lib/
 COPY --from=builder /out/mock-ib /usr/local/bin/mock-ib
 COPY --from=builder /out/render-pci-sysfs /usr/local/bin/render-pci-sysfs
 # Fake IMEX binaries used for ComputeDomain simulation on KIND. Installed
@@ -59,8 +60,13 @@ COPY --from=builder /out/check-fabric    /usr/local/bin/check-fabric
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
-        infiniband-diags rdma-core; \
+        infiniband-diags rdma-core ibverbs-utils ibverbs-providers python3; \
     rm -rf /var/lib/apt/lists/*; \
+    # libibverbs prints "couldn't open config directory '/etc/libibverbs.d'"
+    # when the dir is missing. ibverbs-providers ships .driver files there,
+    # but keep an explicit mkdir as a belt-and-braces guarantee so the
+    # warning never appears even if the providers package is purged. \
+    mkdir -p /etc/libibverbs.d; \
     curl -fsSLo /usr/local/bin/kubectl \
       "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl"; \
     curl -fsSLo /tmp/kubectl.sha256 \

@@ -19,8 +19,13 @@ the node labels that downstream consumers expect.
    - `nvidia-smi` runs successfully inside a pod.
    - `ibstat` lists 8 simulated ConnectX-7 NDR HCAs (see
      [`pkg/network/mockib/README.md`](../../../pkg/network/mockib/README.md)).
+   - `ibv_devinfo -l` enumerates every mock HCA (via libmlx5) and
+     `ibstatus` confirms ACTIVE / LinkUp ports, both driven by
+     [`tests/e2e/validate-ibv-devinfo.sh`](../../../tests/e2e/validate-ibv-devinfo.sh).
    - Cross-node `ibping` between two worker pods via
      [`tests/e2e/validate-ibping.sh`](../../../tests/e2e/validate-ibping.sh).
+   - Cross-node `iblinkinfo` fabric direct-route scan via
+     [`tests/e2e/validate-iblinkinfo.sh`](../../../tests/e2e/validate-iblinkinfo.sh).
    - Node labels are present.
 
 ## Quick start

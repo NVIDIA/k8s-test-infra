@@ -83,6 +83,20 @@ func TestRender_DefaultsAndCount(t *testing.T) {
 	mustRead("sys/class/infiniband/mlx5_0/ports/1/link_layer", "InfiniBand")
 	mustRead("sys/class/infiniband_mad/abi_version", "5")
 	mustRead("sys/class/infiniband_mad/umad0/ibdev", "mlx5_0")
+	mustRead("sys/class/infiniband_verbs/uverbs0/dev", "231:0")
+
+	modaliasPath := filepath.Join(dir, "sys/class/infiniband/mlx5_0/device/modalias")
+	modalias, err := os.ReadFile(modaliasPath)
+	if err != nil {
+		t.Fatalf("read modalias: %v", err)
+	}
+	// Must be in the exact kernel modalias grammar so libibverbs' fnmatch
+	// against provider match tables (e.g. mlx5's "pci:v000015B3d*sv*sd*bc*sc*i*")
+	// can claim the device. See render.go for the rationale.
+	const wantModalias = "pci:v000015B3d00001017sv000015B3sd00000008bc02sc00i00\n"
+	if string(modalias) != wantModalias {
+		t.Fatalf("modalias = %q, want %q", modalias, wantModalias)
+	}
 
 	// `gid_attrs` must be a directory in real Linux sysfs; libibverbs and
 	// iblinkinfo opendir() it. A regular file would yield ENOTDIR.

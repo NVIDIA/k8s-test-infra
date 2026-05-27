@@ -115,7 +115,7 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 		t.Helper()
 		cmd := exec.Command(ibping, args...)
 		cmd.Env = append(os.Environ(),
-			"MOCK_IB_PING=1",
+			"MOCK_IB=1",
 			"LD_PRELOAD="+preload,
 			"MOCK_IB_ROOT="+root,
 			"MOCK_IB_PING_SOCKET="+socketPath,
