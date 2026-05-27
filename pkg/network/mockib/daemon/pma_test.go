@@ -178,3 +178,82 @@ func TestTrySynthesizePMA_RejectsUnsupportedAttr(t *testing.T) {
 		t.Fatal("unsupported AttrID must yield (nil,false)")
 	}
 }
+
+// getPMAField64 reads a 64-bit big-endian field at a byte-aligned PMA
+// payload offset (relative to MAD+64).
+func getPMAField64(t *testing.T, recvUmad []byte, bitOff int) uint64 {
+	t.Helper()
+	payload := recvUmad[56+64:]
+	off := bitOff / 8
+	if off+8 > len(payload) {
+		t.Fatalf("payload too short: %d for off %d", len(payload), bitOff)
+	}
+	return binary.BigEndian.Uint64(payload[off : off+8])
+}
+
+func TestTrySynthesizePMA_PortCountersExt_NonZero(t *testing.T) {
+	umad := buildPMAUMAD(0x04, 0x01, PMAAttrPortCountersExt)
+	payload := umad[56+64:]
+	subnet.SetFieldSpec(payload, 0, 8, 1)
+	subnet.SetFieldSpec(payload, 16, 16, 0xffff)
+
+	gen := counters.Generator{NodeID: 0xab, RateGbps: 400}
+	epochs := counters.NewEpochs(time.Now().Add(-time.Hour))
+	out, ok := TrySynthesizePMA(umad, "mlx5_0", gen, epochs, time.Now())
+	if !ok || out == nil {
+		t.Fatal("PortCountersExt Get must be synthesized")
+	}
+	if out[56+3] != 0x81 {
+		t.Fatalf("method = 0x%02x, want 0x81", out[56+3])
+	}
+	if v := getPMAFieldSpec(t, out, 0, 8); v != 1 {
+		t.Fatalf("PortSelect echo = %d, want 1", v)
+	}
+	if v := getPMAFieldSpec(t, out, 16, 16); v != 0xffff {
+		t.Fatalf("CounterSelect echo = 0x%x, want 0xffff", v)
+	}
+	if v := getPMAField64(t, out, 64); v == 0 {
+		t.Fatal("port_xmit_data_64 must be non-zero")
+	}
+	// 64-bit response must exceed uint32 range at 400Gbps * 1h.
+	if v := getPMAField64(t, out, 64); v <= 0xffffffff {
+		t.Fatalf("expected 64-bit xmit_data > uint32 max, got %d", v)
+	}
+}
+
+func TestTrySynthesizePMA_PortCountersExt_AgreesWithGenerator(t *testing.T) {
+	umad := buildPMAUMAD(0x04, 0x01, PMAAttrPortCountersExt)
+	payload := umad[56+64:]
+	subnet.SetFieldSpec(payload, 0, 8, 1)
+	subnet.SetFieldSpec(payload, 16, 16, 0xffff)
+	epochs := counters.NewEpochs(time.Now().Add(-30 * time.Second))
+	gen := counters.Generator{NodeID: 0xab, RateGbps: 400}
+	now := time.Now()
+	out, ok := TrySynthesizePMA(umad, "mlx5_3", gen, epochs, now)
+	if !ok {
+		t.Fatal("synthesis failed")
+	}
+	for _, c := range []struct {
+		name   string
+		bitOff int
+	}{
+		{"port_xmit_data_64", 64},
+		{"port_rcv_data_64", 128},
+		{"port_xmit_packets_64", 192},
+		{"port_rcv_packets_64", 256},
+		{"unicast_xmit_packets", 320},
+		{"unicast_rcv_packets", 384},
+		{"multicast_xmit_packets", 448},
+		{"multicast_rcv_packets", 512},
+	} {
+		e := counters.FindByName(c.name)
+		if e == nil {
+			t.Fatalf("catalog missing %s", c.name)
+		}
+		want := gen.Value(3, *e, epochs.Elapsed(3, now))
+		got := getPMAField64(t, out, c.bitOff)
+		if got != want {
+			t.Errorf("%s: pma=%d gen=%d", c.name, got, want)
+		}
+	}
+}

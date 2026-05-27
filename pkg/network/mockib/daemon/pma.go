@@ -64,6 +64,24 @@ var pmaPortCountersFields = []struct {
 	{"port_rcv_packets", 288, 32},
 }
 
+// pmaPortCountersExtFields maps catalog counter names to their
+// PortCountersExtended bit-field offsets (libibmad fields.c
+// IB_PC_EXT_*). All fields are 64 bits, byte-aligned, so the writer
+// uses subnet.SetField64.
+var pmaPortCountersExtFields = []struct {
+	name   string
+	bitOff int
+}{
+	{"port_xmit_data_64", 64},
+	{"port_rcv_data_64", 128},
+	{"port_xmit_packets_64", 192},
+	{"port_rcv_packets_64", 256},
+	{"unicast_xmit_packets", 320},
+	{"unicast_rcv_packets", 384},
+	{"multicast_xmit_packets", 448},
+	{"multicast_rcv_packets", 512},
+}
+
 // pmaUMADMinLen is the smallest umad+mad payload we'll touch. Matches
 // the SMP path constant from subnet.synthesize.go.
 const pmaUMADMinLen = 56 + 24 // umad header + MAD header
@@ -133,6 +151,12 @@ func TrySynthesizePMA(sendMad []byte, localCA string,
 		counterSelect := subnet.GetFieldSpec(reqPayload, 16, 16)
 		fillPMAPortCounters(payload, caIdx, gen, epochs, now, portSelect, counterSelect)
 		return out, true
+	case PMAAttrPortCountersExt:
+		reqPayload := mad[pmaDataOff:]
+		portSelect := subnet.GetFieldSpec(reqPayload, 0, 8)
+		counterSelect := subnet.GetFieldSpec(reqPayload, 16, 16)
+		fillPMAPortCountersExt(payload, caIdx, gen, epochs, now, portSelect, counterSelect)
+		return out, true
 	default:
 		return nil, false
 	}
@@ -176,6 +200,21 @@ func fillPMAPortCounters(payload []byte, caIdx int,
 		}
 		v := uint32(gen.Value(caIdx, *e, elapsed))
 		subnet.SetFieldSpec(payload, f.specOff, f.width, v)
+	}
+}
+
+func fillPMAPortCountersExt(payload []byte, caIdx int,
+	gen counters.Generator, epochs *counters.Epochs, now time.Time,
+	portSelect, counterSelect uint32) {
+	subnet.SetFieldSpec(payload, 0, 8, portSelect)
+	subnet.SetFieldSpec(payload, 16, 16, counterSelect)
+	elapsed := epochs.Elapsed(caIdx, now)
+	for _, f := range pmaPortCountersExtFields {
+		e := counters.FindByName(f.name)
+		if e == nil {
+			continue
+		}
+		subnet.SetField64(payload, f.bitOff, gen.Value(caIdx, *e, elapsed))
 	}
 }
 
