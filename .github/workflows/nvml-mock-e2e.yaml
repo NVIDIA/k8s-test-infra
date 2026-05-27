@@ -155,6 +155,13 @@ jobs:
             -o jsonpath='{.items[0].metadata.name}')
           ./tests/e2e/validate-counters.sh "$POD" "${{ matrix.gpu-profile }}" 2
 
+      - name: Validate perfquery (PMA Get + Reset)
+        run: |
+          chmod +x tests/e2e/validate-perfquery.sh
+          POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+            -o jsonpath='{.items[0].metadata.name}')
+          ./tests/e2e/validate-perfquery.sh "$POD" "${{ matrix.gpu-profile }}" 2
+
       - name: Deploy NVIDIA device plugin
         run: |
           kubectl apply -f tests/e2e/device-plugin-mock.yaml
