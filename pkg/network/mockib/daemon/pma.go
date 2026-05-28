@@ -30,7 +30,7 @@ const (
 
 const (
 	pmaUMADHeaderLen = 56
-	pmaMADMethodOff  = 3 // unswapped byte offset of Method in MAD header
+	pmaMADMethodOff  = 3  // wire byte offset of Method in the MAD header (IBA §13.4)
 	pmaDataOff       = 64 // IB_PC_DATA_OFFS (matches IB_SMP_DATA_OFFS)
 	pmaMADMinLen     = 24 // MAD header bytes
 	pmaMADTotalLen   = 256 // perfquery sends full 256-byte MAD payload
@@ -88,48 +88,62 @@ const pmaUMADMinLen = 56 + 24 // umad header + MAD header
 // IsPMASend reports whether umad carries a Performance Management
 // Get or Set. The handler hook in server.go uses this to route PMA MADs
 // to TrySynthesizePMA before the SMP / fabric / loopback fallbacks.
+//
+// MAD wire layout (IBA §13.4) puts MgmtClass at byte 1 and Method at
+// byte 3 of the MAD header. libibumad delivers the MAD payload to the
+// daemon in wire (network) byte order, so we read those bytes directly.
+//
+// A previous version ran the header through subnet.NormalizeMADHeader
+// (a 4-byte-word swap that assumes the bytes are already in host-word
+// order) and then read hdr[1] / hdr[3]. After that swap hdr[1] is
+// ClassVersion (0x01 for nearly every IB management class) and hdr[3]
+// is BaseVersion (also 0x01), so PMA MADs (MgmtClass=0x04, Method=Get)
+// were misclassified as non-PMA — IsPMASend returned false for every
+// real perfquery request, the dispatcher was never called, and
+// handleSend fell through to the loopback echo, returning a response
+// whose counter fields were all zero (proven on the live demo cluster
+// where sysfs port_xmit_data was ~1.27e9 yet perfquery printed 0).
+//
+// Same trap as the IsSMPSend fix in subnet/drpath.go; same shape of fix.
 func IsPMASend(umad []byte) bool {
 	if len(umad) < pmaUMADMinLen {
 		return false
 	}
 	mad := umad[56:]
-	hdr, ok := subnet.NormalizeMADHeader(mad)
-	if !ok {
+	if mad[1] != pmaClass {
 		return false
 	}
-	if hdr[1] != pmaClass {
+	if mad[3]&0x80 != 0 {
 		return false
 	}
-	if hdr[3]&0x80 != 0 {
-		return false
-	}
-	method := hdr[3] & 0x7f
+	method := mad[3] & 0x7f
 	return method == pmaMethodGet || method == pmaMethodSet
 }
 
 // TrySynthesizePMA returns a synthesized RECV umad for the given PMA
 // request, or (nil,false) when the request is unsupported.
+//
+// The MAD header is read directly from wire byte order (no
+// NormalizeMADHeader), see IsPMASend's comment for why — the swap was
+// reading ClassVersion instead of MgmtClass and made every real
+// perfquery request fall through to loopback echo.
 func TrySynthesizePMA(sendMad []byte, localCA string,
 	gen counters.Generator, epochs *counters.Epochs, now time.Time) ([]byte, bool) {
 	if len(sendMad) < pmaUMADHeaderLen+pmaMADMinLen {
 		return nil, false
 	}
 	mad := sendMad[pmaUMADHeaderLen:]
-	hdr, ok := subnet.NormalizeMADHeader(mad)
-	if !ok {
+	if mad[1] != pmaClass {
 		return nil, false
 	}
-	if hdr[1] != pmaClass {
+	if mad[pmaMADMethodOff]&0x80 != 0 {
 		return nil, false
 	}
-	if hdr[pmaMADMethodOff]&0x80 != 0 {
-		return nil, false
-	}
-	method := hdr[pmaMADMethodOff] & 0x7f
+	method := mad[pmaMADMethodOff] & 0x7f
 	if method != pmaMethodGet && method != pmaMethodSet {
 		return nil, false
 	}
-	attrID := decodePMAAttrID(hdr)
+	attrID := decodePMAAttrID(mad)
 
 	caIdx, ok := caIndex(localCA)
 	if !ok {
@@ -200,10 +214,24 @@ func buildPMAResponse(sendMad []byte, method byte) []byte {
 	return out
 }
 
+// fillPMAClassPortInfo writes a minimal-but-functional PerfMgt
+// ClassPortInfo. perfquery's dump_perfcounters checks CapabilityMask
+// before reading IB_PC_EXT_* fields and prints
+//
+//	"PerfMgt ClassPortInfo CapMask 0x00; No extended counter support indicated"
+//
+// when the mask is empty — which then causes every PortXmitData /
+// PortRcvData / PortXmitPkts / PortRcvPkts cell in `perfquery -x` to
+// render as 0 regardless of what TrySynthesizePMA actually packed in
+// the response. The bits we set match real ConnectX-class hardware:
+//
+//	0x0100 ALL_PORT_SELECT_SUP — perfquery -a / "summary" support
+//	0x0200 EXT_WIDTH_SUPPORTED — IB_PC_EXT_XMIT_BYTES_F etc are populated
+//	0x0400 EXT_WIDTH_NOIETF_SUP — extended widths are non-IETF wire layout
 func fillPMAClassPortInfo(payload []byte) {
-	subnet.SetFieldSpec(payload, 0, 8, 1)   // BaseVersion
-	subnet.SetFieldSpec(payload, 8, 8, 1)   // ClassVersion
-	subnet.SetFieldSpec(payload, 16, 16, 0) // CapabilityMask
+	subnet.SetFieldSpec(payload, 0, 8, 1)        // BaseVersion
+	subnet.SetFieldSpec(payload, 8, 8, 1)        // ClassVersion
+	subnet.SetFieldSpec(payload, 16, 16, 0x0700) // CapabilityMask (ALL_PORT + EXT_WIDTH + EXT_NOIETF)
 }
 
 func fillPMAPortCounters(payload []byte, caIdx int,
@@ -237,9 +265,12 @@ func fillPMAPortCountersExt(payload []byte, caIdx int,
 	}
 }
 
-func decodePMAAttrID(hdr [24]byte) uint16 {
-	// AttrID is at MAD bytes 16..17 in unswapped layout; after the word
-	// swap in subnet.NormalizeMADHeader it lands at hdr[18..19] swapped.
-	attrID := binary.BigEndian.Uint16(hdr[18:20])
-	return (attrID >> 8) | (attrID << 8)
+// decodePMAAttrID reads AttributeID from a wire-order MAD payload.
+// IBA §13.4: AttrID sits at MAD bytes 16..17, big-endian. libibumad
+// delivers wire byte order to the daemon, so a single BE16 read is the
+// right thing — the previous version routed through NormalizeMADHeader
+// and used a double-swap that happened to land on the right value by
+// coincidence, see the IsPMASend comment for context.
+func decodePMAAttrID(mad []byte) uint16 {
+	return binary.BigEndian.Uint16(mad[16:18])
 }

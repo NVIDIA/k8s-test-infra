@@ -13,29 +13,52 @@ import (
 )
 
 // buildPMAUMAD returns a minimal umad buffer with the requested class +
-// method + attrID. The on-wire MAD is "word-swapped" relative to plain
-// big-endian — we mirror what libibmad emits by writing the class byte at
-// MAD byte 1 (which corresponds to the second byte of the first 4-byte
-// word once swapped). For test purposes we directly write the
-// already-swapped buffer.
+// method + attrID in real wire byte order, which is what libibmad
+// actually emits and what libibumad delivers to the daemon.
+//
+// MAD wire layout (IBA §13.4) for the first 4 bytes is
+//
+//	BaseVersion | MgmtClass | ClassVersion | Method
+//
+// and AttrID is a big-endian uint16 at bytes 16..17. A previous version
+// of this helper instead pre-scrambled the bytes as if the daemon would
+// run them through subnet.NormalizeMADHeader and read hdr[1] — that
+// matched the (buggy) IsPMASend / TrySynthesizePMA implementations but
+// produced MADs that no real perfquery would ever send. Fixing
+// IsPMASend to read mad[1] directly exposed the test fixture too.
 func buildPMAUMAD(class, method byte, attrID uint16) []byte {
 	buf := make([]byte, 56+256)
 	mad := buf[56:]
-	// In the swapped header, word 0 (mad[0:4]) holds BaseVersion(0),
-	// MgmtClass(1), ClassVersion(2), Method(3). After the wire-side
-	// swap done by normalizeMADHeader, those land at hdr[0..3] as
-	// mad[3], mad[2], mad[1], mad[0]. So to put class at hdr[1] we
-	// write mad[2]=class; to put method at hdr[3] we write mad[0]=method.
-	mad[0] = method
-	mad[1] = 1 // ClassVersion
-	mad[2] = class
-	mad[3] = 1 // BaseVersion
-	// AttrID in normalized hdr[18..19]; mirror subnet/synthesize_test.go:
-	// pre-swap the attr, then word-scramble so mad[17]=hdr[18], mad[16]=hdr[19].
-	swapped := (attrID >> 8) | (attrID << 8)
-	mad[17] = byte(swapped >> 8)
-	mad[16] = byte(swapped)
+	mad[0] = 1 // BaseVersion
+	mad[1] = class
+	mad[2] = 1 // ClassVersion
+	mad[3] = method
+	binary.BigEndian.PutUint16(mad[16:18], attrID)
 	return buf
+}
+
+// perfqueryPortCountersHdr is the first 24 bytes of a real `perfquery
+// <lid> 1` MAD send captured via the libibumad shim, in wire byte order:
+//
+//	mad_hdr = 01 04 01 01  00000000 ...
+//	          BaseVer Class ClassVer Method
+//	AttrID@16..17 = 00 12 (PortCounters)
+//
+// The previous IsPMASend implementation ran this through
+// subnet.NormalizeMADHeader and then checked hdr[1] (which after the
+// word swap is ClassVersion = 0x01, not MgmtClass = 0x04), so it
+// returned false for every real perfquery request and the dispatcher
+// was never called. The synthesized response that loopback echoed back
+// looked superficially OK to perfquery but every counter cell printed
+// 0 — proven on the live demo cluster against a non-zero sysfs
+// port_xmit_data. This fixture pins the wire format so the regression
+// can't quietly come back.
+var perfqueryPortCountersHdr = []byte{
+	0x01, 0x04, 0x01, 0x01, // BaseVer, MgmtClass=PMA, ClassVer, Method=Get
+	0x00, 0x00, 0x00, 0x00, // Status
+	0x00, 0x00, 0x00, 0x00, 0x12, 0x34, 0x56, 0x78, // TransactionID
+	0x00, 0x12, 0x00, 0x00, // AttributeID=PortCounters, Reserved
+	0x00, 0x00, 0x00, 0x00, // AttributeModifier
 }
 
 func getPMAFieldSpec(t *testing.T, recvUmad []byte, specOff, width int) uint32 {
@@ -81,6 +104,33 @@ func TestIsPMASend_RejectsShortBuffer(t *testing.T) {
 	}
 	if IsPMASend(make([]byte, 16)) {
 		t.Fatal("short buffer must not be a PMA send")
+	}
+}
+
+// TestIsPMASend_AcceptsRealWireFormat replays a real perfquery MAD
+// captured off the libibumad shim. This is the regression test for the
+// byte-order bug that made `validate-perfquery.sh` fail with all-zero
+// counter cells even though the sysfs writer was producing ~1.27e9
+// PortXmitData on the live demo cluster. Before the fix IsPMASend
+// read ClassVersion(0x01) instead of MgmtClass(0x04) — i.e. it
+// returned false for every real perfquery request and the dispatcher
+// was never invoked.
+func TestIsPMASend_AcceptsRealWireFormat(t *testing.T) {
+	umad := make([]byte, 56+256)
+	copy(umad[56:], perfqueryPortCountersHdr)
+	if !IsPMASend(umad) {
+		t.Fatalf("real wire-format PMA Get (mad[1]=0x%02x mad[3]=0x%02x) must be PMA send",
+			umad[57], umad[59])
+	}
+}
+
+// TestIsPMASend_DecodesRealAttrID locks down decodePMAAttrID against
+// the captured fixture so a future refactor of TrySynthesizePMA can't
+// silently start reading AttrID from the wrong offset (the previous
+// double-swap implementation worked by coincidence, see decodePMAAttrID).
+func TestIsPMASend_DecodesRealAttrID(t *testing.T) {
+	if got := decodePMAAttrID(perfqueryPortCountersHdr); got != PMAAttrPortCounters {
+		t.Fatalf("decodePMAAttrID on real wire MAD: got %#x want %#x", got, PMAAttrPortCounters)
 	}
 }
 

@@ -32,9 +32,16 @@ fi
 # Generator+Epochs directly; render seed is already non-zero at t=0).
 sleep 2
 
+# perfquery's positional args are `<lid|guid> [port] [reset_mask]` — passing
+# "mlx5_0" as the first positional makes perfquery try to resolve it as a LID
+# and fail with:
+#   perfquery: iberror: failed: can't resolve destination port mlx5_0
+# CA name + port number live on the -C/-P flags instead.
+PQ_PORT=(-C mlx5_0 -P 1)
+
 # 1) perfquery (legacy PortCounters, 32-bit) on mlx5_0 port 1.
-LEGACY=$(kubectl exec "$POD" -- perfquery mlx5_0 1 2>&1 || true)
-echo "--- perfquery mlx5_0 1 ---"
+LEGACY=$(kubectl exec "$POD" -- perfquery "${PQ_PORT[@]}" 2>&1 || true)
+echo "--- perfquery ${PQ_PORT[*]} ---"
 printf '%s\n' "$LEGACY"
 if printf '%s\n' "$LEGACY" | grep -qiE 'timeout|ibwarn'; then
   echo "FAIL: perfquery legacy output contains error indicator"
@@ -48,8 +55,8 @@ fi
 echo "PASS: perfquery PortXmitData = $LEGACY_XMIT"
 
 # 2) perfquery -x (PortCountersExtended, 64-bit).
-EXT=$(kubectl exec "$POD" -- perfquery -x mlx5_0 1 2>&1 || true)
-echo "--- perfquery -x mlx5_0 1 ---"
+EXT=$(kubectl exec "$POD" -- perfquery -x "${PQ_PORT[@]}" 2>&1 || true)
+echo "--- perfquery -x ${PQ_PORT[*]} ---"
 printf '%s\n' "$EXT"
 if printf '%s\n' "$EXT" | grep -qiE 'timeout|ibwarn'; then
   echo "FAIL: perfquery -x output contains error indicator"
@@ -63,10 +70,10 @@ fi
 echo "PASS: perfquery -x PortXmitData = $EXT_XMIT"
 
 # 3) perfquery -R -x resets and re-reads; second value must be lower.
-PRE=$(kubectl exec "$POD" -- perfquery -x mlx5_0 1 2>&1 | awk -F'[ .]+' '/PortXmitData/ {print $NF; exit}')
-kubectl exec "$POD" -- perfquery -R -x mlx5_0 1 >/dev/null 2>&1 || true
+PRE=$(kubectl exec "$POD" -- perfquery -x "${PQ_PORT[@]}" 2>&1 | awk -F'[ .]+' '/PortXmitData/ {print $NF; exit}')
+kubectl exec "$POD" -- perfquery -R -x "${PQ_PORT[@]}" >/dev/null 2>&1 || true
 sleep 1
-POST=$(kubectl exec "$POD" -- perfquery -x mlx5_0 1 2>&1 | awk -F'[ .]+' '/PortXmitData/ {print $NF; exit}')
+POST=$(kubectl exec "$POD" -- perfquery -x "${PQ_PORT[@]}" 2>&1 | awk -F'[ .]+' '/PortXmitData/ {print $NF; exit}')
 echo "--- reset: pre=$PRE post=$POST ---"
 if [ -z "$PRE" ] || [ -z "$POST" ]; then
   echo "FAIL: pre/post reset PortXmitData missing (pre='$PRE' post='$POST')"
