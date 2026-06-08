@@ -25,9 +25,13 @@ spec:
     - Ingress
   ingress:
     - from:
+        # Match by app name only (not instance): the fabric spans every
+        # nvml-mock pod cluster-wide, which may be deployed as multiple Helm
+        # releases (e.g. one per node in the ibping-multinode e2e). Scoping to
+        # the release's own instance would block cross-release registration.
         - podSelector:
             matchLabels:
-              {{- include "nvml-mock.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/name: {{ include "nvml-mock.name" . }}
       ports:
         - port: ibping
           protocol: TCP
