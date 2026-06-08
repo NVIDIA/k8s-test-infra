@@ -190,10 +190,41 @@ func main() {
 	// Run bridge edge-case tests
 	bridgeFailures := runBridgeTests(count)
 
+	// Per-process utilization (requires a config with a compute process + sm_util).
+	checkProcessUtilization()
+
 	log.Println("\n=================================")
 	if bridgeFailures > 0 {
 		log.Fatalf("FAILED: %d bridge test(s) failed", bridgeFailures)
 	}
 	log.Println("✓ All tests passed!")
 	fmt.Println("\nSUCCESS: Mock NVML library is working correctly!")
+}
+
+// checkProcessUtilization exercises nvmlDeviceGetProcessUtilization end-to-end
+// through go-nvml's two-call wrapper. Without MOCK_NVML_CONFIG (env/default
+// config has no processes) it validates the clean empty path — which is exactly
+// where the old stub broke go-nvml by returning SUCCESS on the count probe.
+// With MOCK_NVML_CONFIG defining a compute process + sm_util, it validates the
+// populated probe->fill path.
+func checkProcessUtilization() {
+	dev, ret := nvml.DeviceGetHandleByIndex(0)
+	if ret != nvml.SUCCESS {
+		log.Fatalf("checkProcessUtilization: DeviceGetHandleByIndex: %v", ret)
+	}
+	samples, ret := dev.GetProcessUtilization(0)
+	if ret != nvml.SUCCESS {
+		log.Fatalf("checkProcessUtilization: GetProcessUtilization: %v", ret)
+	}
+	if os.Getenv("MOCK_NVML_CONFIG") == "" {
+		// Default/env config: no processes. The call must succeed cleanly and
+		// return zero samples (probe -> INSUFFICIENT_SIZE with count 0).
+		log.Printf("✓ checkProcessUtilization: empty path OK (%d samples, no MOCK_NVML_CONFIG)", len(samples))
+		return
+	}
+	if len(samples) == 0 {
+		log.Fatalf("checkProcessUtilization: MOCK_NVML_CONFIG set but got 0 samples; expected a compute process with sm_util")
+	}
+	log.Printf("✓ checkProcessUtilization: pid=%d smUtil=%d memUtil=%d",
+		samples[0].Pid, samples[0].SmUtil, samples[0].MemUtil)
 }
