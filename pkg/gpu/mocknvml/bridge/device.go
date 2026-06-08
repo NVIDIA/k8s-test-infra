@@ -777,15 +777,24 @@ func nvmlDeviceGetProcessUtilization(nvmlDevice C.nvmlDevice_t, utilization *C.n
 		return toReturn(ret)
 	}
 
-	// PROBE: caller passes utilization=nil (or a too-small buffer) to learn the
-	// count. go-nvml's wrapper requires INSUFFICIENT_SIZE here (NOT SUCCESS) —
-	// unlike the RunningProcesses convention — else it returns without filling.
-	if utilization == nil || int(*processSamplesCount) < len(samples) {
+	// PROBE: utilization==nil means the caller wants the count. With samples to
+	// return, go-nvml's wrapper requires INSUFFICIENT_SIZE (so it allocates and
+	// calls again). With zero samples there's nothing to fetch, so return SUCCESS
+	// — the wrapper then yields (empty, SUCCESS), matching the prior empty-path
+	// behavior (and unlike the RunningProcesses SUCCESS-on-probe convention).
+	if utilization == nil {
 		*processSamplesCount = C.uint(len(samples))
+		if len(samples) == 0 {
+			return C.NVML_SUCCESS
+		}
 		return C.NVML_ERROR_INSUFFICIENT_SIZE
 	}
 
-	// FILL: write samples into the caller's buffer.
+	// FILL: a buffer was provided. If it is too small, report the needed size.
+	if int(*processSamplesCount) < len(samples) {
+		*processSamplesCount = C.uint(len(samples))
+		return C.NVML_ERROR_INSUFFICIENT_SIZE
+	}
 	*processSamplesCount = C.uint(len(samples))
 	if len(samples) > 0 {
 		out := unsafe.Slice(utilization, len(samples))
