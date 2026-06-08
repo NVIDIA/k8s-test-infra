@@ -1,6 +1,7 @@
-# Mock NVML Configuration: DGX A100
-# Full configuration for nvidia-smi -x -q compatibility
-# Use: export MOCK_NVML_CONFIG=/path/to/this/file.yaml
+# Mock NVML test fixture (A100-based) for the tests/mocknvml integration harness.
+# Identical to an A100 profile but with one compute process carrying sm_util, so the
+# harness exercises the populated nvmlDeviceGetProcessUtilization probe->fill path.
+# Wired in via the Makefile: MOCK_NVML_CONFIG=/app/util-test-config.yaml
 
 version: "1.0"
 

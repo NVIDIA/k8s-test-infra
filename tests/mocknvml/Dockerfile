@@ -53,6 +53,11 @@ WORKDIR /app
 # Copy the test binary
 COPY --from=test-builder /build/mocknvml-test /app/
 
+# Copy the test config fixture (a process with utilization, for the populated path).
+# The Makefile points MOCK_NVML_CONFIG at this so the integration test runs against
+# a real profile config rather than the env-var fallback.
+COPY tests/mocknvml/util-test-config.yaml /app/util-test-config.yaml
+
 # Copy the mock NVML library to /usr/local/lib (architecture-independent)
 COPY --from=lib-builder /build/pkg/gpu/mocknvml/libnvidia-ml.so* /usr/local/lib/
 

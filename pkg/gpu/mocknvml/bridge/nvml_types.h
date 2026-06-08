@@ -390,6 +390,8 @@ typedef struct nvmlPowerValue_v2_st                         nvmlPowerValue_v2_t;
 typedef struct nvmlProcessDetailList_st                     nvmlProcessDetailList_t;
 typedef struct nvmlProcessInfo_v1_st                        nvmlProcessInfo_v1_t;
 typedef struct nvmlProcessInfo_v2_st                        nvmlProcessInfo_v2_t;
+
+/* Process utilization sample */
 typedef struct nvmlProcessUtilizationSample_st
 {
     unsigned int        pid;        //!< PID of process

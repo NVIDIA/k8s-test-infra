@@ -36,7 +36,7 @@ test: build
 	@echo "Running mock NVML integration test in Docker..."
 	@echo "================================================"
 	@echo ""
-	$(DOCKER) run --rm $(IMAGE_NAME):$(IMAGE_TAG)
+	$(DOCKER) run --rm -e MOCK_NVML_CONFIG=/app/util-test-config.yaml $(IMAGE_NAME):$(IMAGE_TAG)
 	@echo ""
 	@echo "================================================"
 	@echo "✓ Mock NVML integration test completed successfully!"

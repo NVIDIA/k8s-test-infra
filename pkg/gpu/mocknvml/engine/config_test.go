@@ -207,11 +207,11 @@ func TestGetDeviceConfig_PerDeviceProcessesOverride(t *testing.T) {
 	// Device 0 uses its override.
 	d0 := c.GetDeviceConfig(0)
 	if len(d0.Processes) != 1 || d0.Processes[0].PID != 4242 {
-		t.Fatalf("device 0: expected overridden PID 4242, got %+v", d0.Processes)
+		t.Fatalf("Device 0: expected overridden PID 4242, got %+v", d0.Processes)
 	}
 	// Device 1 inherits the default.
 	d1 := c.GetDeviceConfig(1)
 	if len(d1.Processes) != 1 || d1.Processes[0].PID != 1 {
-		t.Fatalf("device 1: expected inherited PID 1, got %+v", d1.Processes)
+		t.Fatalf("Device 1: expected inherited PID 1, got %+v", d1.Processes)
 	}
 }

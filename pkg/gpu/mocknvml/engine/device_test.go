@@ -485,19 +485,19 @@ func TestConfigurableDevice_GetProcessUtilization_WithConfig(t *testing.T) {
 	}
 	// Only the compute process is reported (graphics excluded), matching real NVML.
 	if len(utils) != 1 {
-		t.Fatalf("expected 1 compute utilization sample, got %d", len(utils))
+		t.Fatalf("Expected 1 compute utilization sample, got %d", len(utils))
 	}
 	if utils[0].Pid != 1234 {
-		t.Errorf("expected PID 1234, got %d", utils[0].Pid)
+		t.Errorf("Expected PID 1234, got %d", utils[0].Pid)
 	}
 	if utils[0].SmUtil != 75 {
-		t.Errorf("expected SmUtil 75, got %d", utils[0].SmUtil)
+		t.Errorf("Expected SmUtil 75, got %d", utils[0].SmUtil)
 	}
 	if utils[0].MemUtil != 40 {
-		t.Errorf("expected MemUtil 40, got %d", utils[0].MemUtil)
+		t.Errorf("Expected MemUtil 40, got %d", utils[0].MemUtil)
 	}
 	if utils[0].TimeStamp == 0 {
-		t.Errorf("expected a non-zero timestamp")
+		t.Errorf("Expected a non-zero timestamp")
 	}
 }
 

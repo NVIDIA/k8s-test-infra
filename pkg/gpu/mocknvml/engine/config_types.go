@@ -147,10 +147,10 @@ type DeviceConfig struct {
 
 // DeviceOverride contains per-device settings that override defaults
 type DeviceOverride struct {
-	Index        int    `json:"index"`
-	UUID         string `json:"uuid,omitempty"`
-	MinorNumber  int    `json:"minor_number,omitempty"`
-	GraceCPUPair int    `json:"grace_cpu_pair,omitempty"`
+	Index        int              `json:"index"`
+	UUID         string           `json:"uuid,omitempty"`
+	MinorNumber  int              `json:"minor_number,omitempty"`
+	GraceCPUPair int              `json:"grace_cpu_pair,omitempty"`
 	DeviceConfig `json:",inline"` // Embed all device config fields
 }
 
@@ -170,10 +170,10 @@ type InfoROMConfig struct {
 
 // MemoryConfig defines GPU memory settings
 type MemoryConfig struct {
-	TotalBytes    uint64 `json:"total_bytes"`
-	ReservedBytes uint64 `json:"reserved_bytes,omitempty"`
-	FreeBytes     uint64 `json:"free_bytes,omitempty"`
-	UsedBytes     uint64 `json:"used_bytes,omitempty"`
+	TotalBytes     uint64 `json:"total_bytes"`
+	ReservedBytes  uint64 `json:"reserved_bytes,omitempty"`
+	FreeBytes      uint64 `json:"free_bytes,omitempty"`
+	UsedBytes      uint64 `json:"used_bytes,omitempty"`
 	MemoryBusWidth uint32 `json:"memory_bus_width,omitempty"` // bits (e.g., 5120 for A100)
 }
 
@@ -204,12 +204,12 @@ type PCIeConfig struct {
 
 // PowerConfig defines power management settings
 type PowerConfig struct {
-	ManagementSupported bool   `json:"management_supported,omitempty"`
-	ManagementMode      string `json:"management_mode,omitempty"`
-	DefaultLimitMW      uint32 `json:"default_limit_mw,omitempty"`
-	EnforcedLimitMW     uint32 `json:"enforced_limit_mw,omitempty"`
-	MinLimitMW          uint32 `json:"min_limit_mw,omitempty"`
-	MaxLimitMW          uint32 `json:"max_limit_mw,omitempty"`
+	ManagementSupported      bool   `json:"management_supported,omitempty"`
+	ManagementMode           string `json:"management_mode,omitempty"`
+	DefaultLimitMW           uint32 `json:"default_limit_mw,omitempty"`
+	EnforcedLimitMW          uint32 `json:"enforced_limit_mw,omitempty"`
+	MinLimitMW               uint32 `json:"min_limit_mw,omitempty"`
+	MaxLimitMW               uint32 `json:"max_limit_mw,omitempty"`
 	CurrentDrawMW            uint32 `json:"current_draw_mw,omitempty"`
 	PowerState               string `json:"power_state,omitempty"`
 	TotalEnergyConsumptionMJ uint64 `json:"total_energy_consumption_mj,omitempty"` // millijoules since boot
@@ -393,13 +393,13 @@ type GSPFirmwareConfig struct {
 
 // FeaturesConfig defines GPU-specific features (like Blackwell features)
 type FeaturesConfig struct {
-	TransformerEngine    bool `json:"transformer_engine,omitempty"`
-	FP4Support           bool `json:"fp4_support,omitempty"`
-	FP8Support           bool `json:"fp8_support,omitempty"`
-	ConfidentialCompute  bool `json:"confidential_compute,omitempty"`
-	NVLinkC2C            bool `json:"nvlink_c2c,omitempty"`
-	DecompressionEngine  bool `json:"decompression_engine,omitempty"`
-	FifthGenTensorCores  bool `json:"fifth_gen_tensor_cores,omitempty"`
+	TransformerEngine   bool `json:"transformer_engine,omitempty"`
+	FP4Support          bool `json:"fp4_support,omitempty"`
+	FP8Support          bool `json:"fp8_support,omitempty"`
+	ConfidentialCompute bool `json:"confidential_compute,omitempty"`
+	NVLinkC2C           bool `json:"nvlink_c2c,omitempty"`
+	DecompressionEngine bool `json:"decompression_engine,omitempty"`
+	FifthGenTensorCores bool `json:"fifth_gen_tensor_cores,omitempty"`
 }
 
 // GraceSuperchipConfig defines Grace CPU pairing for GB200
@@ -416,8 +416,8 @@ type ProcessConfig struct {
 	Type          string `json:"type,omitempty"` // "C" for compute, "G" for graphics
 	Name          string `json:"name,omitempty"`
 	UsedMemoryMiB uint64 `json:"used_memory_mib,omitempty"`
-	SmUtil        uint32 `json:"sm_util,omitempty"`  // per-process SM utilization %
-	MemUtil       uint32 `json:"mem_util,omitempty"` // per-process memory-bandwidth utilization %
+	SmUtil        uint32 `json:"sm_util,omitempty"`  // SM utilization %
+	MemUtil       uint32 `json:"mem_util,omitempty"` // memory-bandwidth utilization %
 	EncUtil       uint32 `json:"enc_util,omitempty"` // encoder utilization %
 	DecUtil       uint32 `json:"dec_util,omitempty"` // decoder utilization %
 }
@@ -585,9 +585,9 @@ type TopologyDocument struct {
 
 // TopologyDomain represents one NVLink fabric domain (cluster UUID).
 type TopologyDomain struct {
-	Name    string            `json:"name,omitempty"`
-	UUID    string            `json:"uuid"`
-	Cliques []TopologyClique  `json:"cliques"`
+	Name    string           `json:"name,omitempty"`
+	UUID    string           `json:"uuid"`
+	Cliques []TopologyClique `json:"cliques"`
 }
 
 // TopologyClique groups the Kubernetes node names that share a clique

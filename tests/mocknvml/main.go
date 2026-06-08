@@ -210,15 +210,15 @@ func main() {
 func checkProcessUtilization() {
 	dev, ret := nvml.DeviceGetHandleByIndex(0)
 	if ret != nvml.SUCCESS {
-		log.Fatalf("checkProcessUtilization: DeviceGetHandleByIndex: %v", ret)
+		log.Fatalf("checkProcessUtilization: DeviceGetHandleByIndex: %v", nvml.ErrorString(ret))
 	}
 	samples, ret := dev.GetProcessUtilization(0)
 	if ret != nvml.SUCCESS {
-		log.Fatalf("checkProcessUtilization: GetProcessUtilization: %v", ret)
+		log.Fatalf("checkProcessUtilization: GetProcessUtilization: %v", nvml.ErrorString(ret))
 	}
 	if os.Getenv("MOCK_NVML_CONFIG") == "" {
 		// Default/env config: no processes. The call must succeed cleanly and
-		// return zero samples (probe -> INSUFFICIENT_SIZE with count 0).
+		// return zero samples (probe returns SUCCESS with count 0).
 		log.Printf("✓ checkProcessUtilization: empty path OK (%d samples, no MOCK_NVML_CONFIG)", len(samples))
 		return
 	}

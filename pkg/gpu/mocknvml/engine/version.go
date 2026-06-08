@@ -32,6 +32,9 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceGetCount_v2":         {Added: "331.0"},
 	"nvmlDeviceGetHandleByIndex_v2": {Added: "331.0"},
 
+	// 418.x additions
+	"nvmlDeviceGetProcessUtilization": {Added: "418.0"},
+
 	// 450.x additions
 	"nvmlDeviceGetRemappedRows": {Added: "450.0"},
 
@@ -43,7 +46,6 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceGetMemoryInfo_v2":               {Added: "510.0"},
 	"nvmlDeviceGetComputeRunningProcesses_v3":  {Added: "510.0"},
 	"nvmlDeviceGetGraphicsRunningProcesses_v3": {Added: "510.0"},
-	"nvmlDeviceGetProcessUtilization":          {Added: "418.0"},
 	"nvmlDeviceGetGspFirmwareMode":             {Added: "510.0"},
 
 	// 535.x additions
@@ -57,17 +59,17 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceGetTopologyNearestGpus":    {Added: "331.0"},
 
 	// NVLink functions (390.x+)
-	"nvmlDeviceGetNvLinkState":              {Added: "390.0"},
-	"nvmlDeviceGetNvLinkErrorCounter":       {Added: "390.0"},
-	"nvmlDeviceGetNvLinkRemotePciInfo_v2":   {Added: "390.0"},
+	"nvmlDeviceGetNvLinkState":            {Added: "390.0"},
+	"nvmlDeviceGetNvLinkErrorCounter":     {Added: "390.0"},
+	"nvmlDeviceGetNvLinkRemotePciInfo_v2": {Added: "390.0"},
 
 	// Thermal functions (331.x+)
 	"nvmlDeviceGetTemperatureThreshold": {Added: "331.0"},
 	"nvmlDeviceGetThermalSettings":      {Added: "331.0"},
 
 	// Power functions (331.x+)
-	"nvmlDeviceGetEnforcedPowerLimit":   {Added: "331.0"},
-	"nvmlDeviceGetPowerManagementMode":  {Added: "331.0"},
+	"nvmlDeviceGetEnforcedPowerLimit":  {Added: "331.0"},
+	"nvmlDeviceGetPowerManagementMode": {Added: "331.0"},
 }
 
 // GetFunctionRegistry returns a copy of the function version registry.
