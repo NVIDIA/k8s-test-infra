@@ -416,6 +416,10 @@ type ProcessConfig struct {
 	Type          string `json:"type,omitempty"` // "C" for compute, "G" for graphics
 	Name          string `json:"name,omitempty"`
 	UsedMemoryMiB uint64 `json:"used_memory_mib,omitempty"`
+	SmUtil        uint32 `json:"sm_util,omitempty"`  // per-process SM utilization %
+	MemUtil       uint32 `json:"mem_util,omitempty"` // per-process memory-bandwidth utilization %
+	EncUtil       uint32 `json:"enc_util,omitempty"` // encoder utilization %
+	DecUtil       uint32 `json:"dec_util,omitempty"` // decoder utilization %
 }
 
 // TopologyConfig defines GPU topology settings

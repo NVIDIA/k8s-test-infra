@@ -470,6 +470,37 @@ func TestConfigurableDevice_GetProcessUtilization_Default(t *testing.T) {
 	require.Empty(t, utils, "Expected empty utilization list")
 }
 
+func TestConfigurableDevice_GetProcessUtilization_WithConfig(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		Processes: []ProcessConfig{
+			{PID: 1234, Type: "C", Name: "python", UsedMemoryMiB: 1024, SmUtil: 75, MemUtil: 40},
+			{PID: 9999, Type: "G", Name: "Xorg", UsedMemoryMiB: 128, SmUtil: 10},
+		},
+	})
+
+	utils, ret := dev.GetProcessUtilization(0)
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetProcessUtilization failed: %v", ret)
+	}
+	// Only the compute process is reported (graphics excluded), matching real NVML.
+	if len(utils) != 1 {
+		t.Fatalf("expected 1 compute utilization sample, got %d", len(utils))
+	}
+	if utils[0].Pid != 1234 {
+		t.Errorf("expected PID 1234, got %d", utils[0].Pid)
+	}
+	if utils[0].SmUtil != 75 {
+		t.Errorf("expected SmUtil 75, got %d", utils[0].SmUtil)
+	}
+	if utils[0].MemUtil != 40 {
+		t.Errorf("expected MemUtil 40, got %d", utils[0].MemUtil)
+	}
+	if utils[0].TimeStamp == 0 {
+		t.Errorf("expected a non-zero timestamp")
+	}
+}
+
 // =============================================================================
 // Performance functions (Batch 2)
 // =============================================================================
