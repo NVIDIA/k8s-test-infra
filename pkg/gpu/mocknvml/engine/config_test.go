@@ -185,3 +185,33 @@ func TestLoadConfig_AutoDiscoverFallback(t *testing.T) {
 	require.NotNil(t, config, "LoadConfig returned nil")
 	require.Equal(t, 8, config.NumDevices, "Expected default NumDevices 8")
 }
+
+func TestGetDeviceConfig_PerDeviceProcessesOverride(t *testing.T) {
+	c := &Config{
+		YAMLConfig: &YAMLConfig{
+			DeviceDefaults: DeviceConfig{
+				Processes: []ProcessConfig{{PID: 1, Type: "C", UsedMemoryMiB: 100}},
+			},
+			Devices: []DeviceOverride{
+				{
+					Index: 0,
+					DeviceConfig: DeviceConfig{
+						Processes: []ProcessConfig{{PID: 4242, Type: "C", UsedMemoryMiB: 6000}},
+					},
+				},
+				{Index: 1}, // no override -> inherits device_defaults
+			},
+		},
+	}
+
+	// Device 0 uses its override.
+	d0 := c.GetDeviceConfig(0)
+	if len(d0.Processes) != 1 || d0.Processes[0].PID != 4242 {
+		t.Fatalf("device 0: expected overridden PID 4242, got %+v", d0.Processes)
+	}
+	// Device 1 inherits the default.
+	d1 := c.GetDeviceConfig(1)
+	if len(d1.Processes) != 1 || d1.Processes[0].PID != 1 {
+		t.Fatalf("device 1: expected inherited PID 1, got %+v", d1.Processes)
+	}
+}

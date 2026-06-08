@@ -365,6 +365,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.Fabric != nil {
 		base.Fabric = override.Fabric
 	}
+	if override.Processes != nil {
+		base.Processes = override.Processes // nil = not overridden; [] = explicit clear
+	}
 	// Add more fields as needed
 }
 
