@@ -390,7 +390,15 @@ typedef struct nvmlPowerValue_v2_st                         nvmlPowerValue_v2_t;
 typedef struct nvmlProcessDetailList_st                     nvmlProcessDetailList_t;
 typedef struct nvmlProcessInfo_v1_st                        nvmlProcessInfo_v1_t;
 typedef struct nvmlProcessInfo_v2_st                        nvmlProcessInfo_v2_t;
-typedef struct nvmlProcessUtilizationSample_st              nvmlProcessUtilizationSample_t;
+typedef struct nvmlProcessUtilizationSample_st
+{
+    unsigned int        pid;        //!< PID of process
+    unsigned long long  timeStamp;  //!< CPU Timestamp in microseconds
+    unsigned int        smUtil;     //!< SM (3D/Compute) Util Value
+    unsigned int        memUtil;    //!< Frame Buffer Memory Util Value
+    unsigned int        encUtil;    //!< Encoder Util Value
+    unsigned int        decUtil;    //!< Decoder Util Value
+} nvmlProcessUtilizationSample_t;
 typedef struct nvmlProcessesUtilizationInfo_st              nvmlProcessesUtilizationInfo_t;
 typedef struct nvmlRepairStatus_st                          nvmlRepairStatus_t;
 typedef struct nvmlRowRemapperHistogramValues_st            nvmlRowRemapperHistogramValues_t;

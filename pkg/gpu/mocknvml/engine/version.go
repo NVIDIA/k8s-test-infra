@@ -43,6 +43,7 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceGetMemoryInfo_v2":               {Added: "510.0"},
 	"nvmlDeviceGetComputeRunningProcesses_v3":  {Added: "510.0"},
 	"nvmlDeviceGetGraphicsRunningProcesses_v3": {Added: "510.0"},
+	"nvmlDeviceGetProcessUtilization":          {Added: "418.0"},
 	"nvmlDeviceGetGspFirmwareMode":             {Added: "510.0"},
 
 	// 535.x additions
