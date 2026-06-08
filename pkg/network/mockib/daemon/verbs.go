@@ -222,11 +222,9 @@ func (s *Server) readPortLID(caName string) (uint16, error) {
 		return 0, err
 	}
 	sv := strings.TrimSpace(string(raw))
-	if strings.HasPrefix(sv, "0x") {
-		v, err := strconv.ParseUint(sv, 2, 16)
-		return uint16(v), err
-	}
-	v, err := strconv.ParseUint(sv, 10, 16)
+	// base 0 honors a "0x" prefix (render.go writes the LID as 0x%04x) and
+	// still parses bare decimal, so a single call covers both formats.
+	v, err := strconv.ParseUint(sv, 0, 16)
 	return uint16(v), err
 }
 

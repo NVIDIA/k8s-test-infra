@@ -1,0 +1,34 @@
+{{- /* Copyright 2026 NVIDIA CORPORATION */}}
+{{- /* SPDX-License-Identifier: Apache-2.0 */}}
+{{- if .Values.infiniband.ping.networkPolicy.enabled }}
+# The mock-ib TCP fabric listener binds 0.0.0.0:{{ .Values.infiniband.ping.port }}
+# with no authentication, and the DaemonSet runs privileged. This policy
+# limits the blast radius by allowing inbound fabric traffic only from peer
+# nvml-mock pods (the only legitimate clients). Egress is left unrestricted
+# so DNS-based peer discovery and registration keep working.
+#
+# NOTE: NetworkPolicy is only enforced by CNIs that implement it (Calico,
+# Cilium, ...). Kind's default CNI (kindnet) ignores NetworkPolicy, so this
+# is a no-op in the typical Kind fixture and matters on policy-enforcing
+# clusters. Harmless either way.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "nvml-mock.fullname" . }}-ibping
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "nvml-mock.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "nvml-mock.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: ibping
+          protocol: TCP
+{{- end }}

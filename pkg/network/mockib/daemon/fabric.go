@@ -60,8 +60,19 @@ func (s *Server) acceptFabric(ctx context.Context, ln net.Listener) {
 			if ctx.Err() != nil {
 				return
 			}
+			// A transient Accept error (e.g. EMFILE, ECONNABORTED) must not
+			// kill cross-pod routing for the rest of the pod's life. Back off
+			// briefly and keep serving; only a closed listener is fatal.
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			s.log.Printf("mock-ib: fabric accept: %v", err)
-			return
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(50 * time.Millisecond):
+			}
+			continue
 		}
 		go s.serveFabricConn(ctx, conn)
 	}

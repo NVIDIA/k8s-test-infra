@@ -634,6 +634,14 @@ needs UMAD I/O. The chart always preloads `libibmockumad.so` alongside
 `libibmocksys.so`, starts `mock-ib` in each pod, and exposes a headless
 Service on port 18515 for TCP fabric relay between nvml-mock pods.
 
+The fabric listener binds `0.0.0.0` with no authentication, so the chart
+also ships a `NetworkPolicy` (`infiniband.ping.networkPolicy.enabled`,
+default `true`) that allows inbound fabric traffic only from peer
+nvml-mock pods. NetworkPolicy is enforced only by CNIs that implement it;
+Kind's default `kindnet` ignores it, so it is a no-op in the typical Kind
+fixture but limits exposure on Calico/Cilium-backed clusters. mock-ib is a
+test fixture — don't deploy it to a shared or production cluster.
+
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --set gpu.profile=a100 \
@@ -702,6 +710,7 @@ for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 | `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps for fake-gpu-operator discovery |
 | `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Labels on profile ConfigMaps for discovery |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
+| `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
 
 ### GPU Profiles
 

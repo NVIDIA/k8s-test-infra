@@ -135,6 +135,20 @@ GIDs, or LIDs. Integration test:
 TCP (default port 18515), registers local ports with peers, and relays
 `PING`/`PONG` between nvml-mock pods on different nodes. The nvml-mock Helm chart always exposes a headless Service and sets the env vars.
 
+> **Test-cluster-only.** The TCP fabric listener binds `0.0.0.0:18515`
+> with no authentication and the daemon's Unix socket is created world
+> read/write (`0666`). Combined with the privileged nvml-mock DaemonSet,
+> this is acceptable **only** inside an isolated test cluster (Kind, a
+> throwaway CI namespace, …). Do not deploy mock-ib to a shared or
+> production cluster, and do not expose port 18515 beyond the pod network.
+>
+> The Helm chart ships a `NetworkPolicy` (enabled by default via
+> `infiniband.ping.networkPolicy.enabled`) that limits inbound access to
+> the fabric port to peer nvml-mock pods. It only takes effect on CNIs
+> that enforce NetworkPolicy — Kind's default `kindnet` ignores it, so it
+> is a no-op in the typical Kind fixture but hardens Calico/Cilium-backed
+> clusters.
+
 ### What works and what does not
 
 - **LID-based `ibping`** works for same-pod loopback and cross-node fabric

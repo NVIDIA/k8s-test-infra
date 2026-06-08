@@ -83,6 +83,14 @@ terminationGracePeriodSeconds: 10
 infiniband:
   ping:
     port: 18515
+    # The mock-ib TCP fabric listener binds 0.0.0.0:<port> with no auth and
+    # the DaemonSet runs privileged. This NetworkPolicy restricts inbound
+    # access to that port to peer nvml-mock pods (the only legitimate
+    # clients), limiting the blast radius on clusters whose CNI enforces
+    # NetworkPolicy. NOTE: Kind's default CNI (kindnet) does NOT enforce
+    # NetworkPolicy, so this is a no-op there; it matters on Calico/Cilium.
+    networkPolicy:
+      enabled: true
 
 topology:
   enabled: false

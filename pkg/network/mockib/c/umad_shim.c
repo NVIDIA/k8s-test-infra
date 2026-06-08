@@ -62,6 +62,10 @@ typedef struct ib_user_mad {
 } ib_user_mad_t;
 
 #define MOCK_MAX_FRAME (1 << 20)
+/* Daemon responses are small JSON (a base64 MAD is <512B); cap stack response
+ * buffers well under MOCK_MAX_FRAME so RPC paths don't reserve 1 MiB on threads
+ * with small stacks. read_frame still rejects anything larger. */
+#define MOCK_MAX_RESP (1 << 14)
 #define MOCK_MAX_PORTS 32
 /* Matches libibumad umad_size() on Debian bookworm (ABI v5, legacy header). */
 /* Legacy libibumad umad_size() on Debian bookworm (not sizeof struct ib_user_mad). */
@@ -435,7 +439,7 @@ int umad_open_port(const char *ca_name, int portnum) {
         errno = ENOMEM;
         return -1;
     }
-    char resp[MOCK_MAX_FRAME];
+    char resp[MOCK_MAX_RESP];
     if (rpc_call(req, resp, sizeof(resp)) < 0) {
         errno = EIO;
         return -EIO;
@@ -578,7 +582,7 @@ int umad_recv(int portid, void *umad, int *length, int timeout_ms) {
         errno = EIO;
         return -1;
     }
-    char resp[MOCK_MAX_FRAME];
+    char resp[MOCK_MAX_RESP];
     if (rpc_call(req, resp, sizeof(resp)) < 0) {
         errno = EIO;
         return -EIO;

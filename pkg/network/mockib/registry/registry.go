@@ -77,16 +77,27 @@ func (r *Registry) Snapshot() map[string]Peer {
 	return out
 }
 
-// LookupByLID returns the peer and port GUID for lid when registered.
+// LookupByLID returns the peer and port GUID for lid when registered. If two
+// peers ever share a LID (shouldn't happen in a healthy fabric), the one with
+// the lexicographically lower PodIP wins, matching Register's tie-break so the
+// result is deterministic instead of depending on map iteration order.
 func (r *Registry) LookupByLID(lid uint16) (Peer, string, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	var (
+		best     Peer
+		bestGUID string
+		found    bool
+	)
 	for guid, p := range r.m {
-		if p.LID == lid {
-			return p, guid, true
+		if p.LID != lid {
+			continue
+		}
+		if !found || p.PodIP < best.PodIP {
+			best, bestGUID, found = p, guid, true
 		}
 	}
-	return Peer{}, "", false
+	return best, bestGUID, found
 }
 
 // NormalizePortGUID lowercases a port GUID and formats it with colon separators

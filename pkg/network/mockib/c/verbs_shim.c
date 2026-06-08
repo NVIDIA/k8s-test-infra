@@ -34,6 +34,10 @@
 #include <unistd.h>
 
 #define MOCK_MAX_FRAME (1 << 20)
+/* Daemon responses are small JSON (verbs reads decode into a 4 KiB buffer); cap
+ * stack response buffers well under MOCK_MAX_FRAME so these hooks don't reserve
+ * 1 MiB on threads with small stacks. read_frame still rejects anything larger. */
+#define MOCK_MAX_RESP (1 << 14)
 #define MOCK_MAX_VERBS 32
 #define MOCK_VERBS_FD_BASE 700
 #define MOCK_DEFAULT_SOCK "/run/mock-ib.sock"
@@ -222,7 +226,7 @@ static int verbs_open_dev(const char *dev_name) {
     snprintf(body, sizeof(body), "{\"dev_name\":\"%s\"}", dev_name);
     char req[256];
     snprintf(req, sizeof(req), "{\"type\":\"verbs_open\",\"body\":%s}", body);
-    char resp[MOCK_MAX_FRAME];
+    char resp[MOCK_MAX_RESP];
     if (rpc_call(req, resp, sizeof(resp)) < 0) {
         return -1;
     }
@@ -255,7 +259,7 @@ static int verbs_write_dev(int slot, const void *buf, size_t len) {
              mock_devs[slot].daemon_handle, b64);
     char req[9200];
     snprintf(req, sizeof(req), "{\"type\":\"verbs_write\",\"body\":%s}", body);
-    char resp[MOCK_MAX_FRAME];
+    char resp[MOCK_MAX_RESP];
     if (rpc_call(req, resp, sizeof(resp)) < 0) {
         return -1;
     }
@@ -271,7 +275,7 @@ static ssize_t verbs_read_dev(int slot, void *buf, size_t len) {
              mock_devs[slot].daemon_handle, len);
     char req[256];
     snprintf(req, sizeof(req), "{\"type\":\"verbs_read\",\"body\":%s}", body);
-    char resp[MOCK_MAX_FRAME];
+    char resp[MOCK_MAX_RESP];
     if (rpc_call(req, resp, sizeof(resp)) < 0) {
         return -1;
     }
