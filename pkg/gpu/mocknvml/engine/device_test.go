@@ -475,7 +475,7 @@ func TestConfigurableDevice_GetProcessUtilization_WithConfig(t *testing.T) {
 		Name: "NVIDIA A100-SXM4-80GB",
 		Processes: []ProcessConfig{
 			{PID: 1234, Type: "C", Name: "python", UsedMemoryMiB: 1024, SmUtil: 75, MemUtil: 40},
-			{PID: 9999, Type: "G", Name: "Xorg", UsedMemoryMiB: 128, SmUtil: 10},
+			{PID: 9999, Type: "G", Name: "ffmpeg", UsedMemoryMiB: 128, EncUtil: 60, DecUtil: 30},
 		},
 	})
 
@@ -483,9 +483,10 @@ func TestConfigurableDevice_GetProcessUtilization_WithConfig(t *testing.T) {
 	if ret != nvml.SUCCESS {
 		t.Fatalf("GetProcessUtilization failed: %v", ret)
 	}
-	// Only the compute process is reported (graphics excluded), matching real NVML.
-	if len(utils) != 1 {
-		t.Fatalf("Expected 1 compute utilization sample, got %d", len(utils))
+	// Both compute and graphics/video processes report utilization, like real NVML
+	// (unlike GetComputeRunningProcesses, which is compute-only).
+	if len(utils) != 2 {
+		t.Fatalf("Expected 2 utilization samples, got %d", len(utils))
 	}
 	if utils[0].Pid != 1234 {
 		t.Errorf("Expected PID 1234, got %d", utils[0].Pid)
@@ -498,6 +499,16 @@ func TestConfigurableDevice_GetProcessUtilization_WithConfig(t *testing.T) {
 	}
 	if utils[0].TimeStamp == 0 {
 		t.Errorf("Expected a non-zero timestamp")
+	}
+	// The graphics/video process is reported too, carrying encoder/decoder util.
+	if utils[1].Pid != 9999 {
+		t.Errorf("Expected PID 9999, got %d", utils[1].Pid)
+	}
+	if utils[1].EncUtil != 60 {
+		t.Errorf("Expected EncUtil 60, got %d", utils[1].EncUtil)
+	}
+	if utils[1].DecUtil != 30 {
+		t.Errorf("Expected DecUtil 30, got %d", utils[1].DecUtil)
 	}
 }
 

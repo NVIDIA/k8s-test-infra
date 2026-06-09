@@ -342,10 +342,19 @@ func (d *ConfigurableDevice) GetGraphicsRunningProcesses() ([]nvml.ProcessInfo, 
 	return procs, nvml.SUCCESS
 }
 
-// GetProcessUtilization returns process utilization samples since lastSeenTimestamp.
-// Utilization is reported for compute processes (type "C" or "") from the device
-// config, matching real NVML. Samples carry a synthetic "now" timestamp so they
-// are always newer than the caller's lastSeenTimestamp.
+// GetProcessUtilization returns a utilization sample for every process in the
+// device config. Real nvmlDeviceGetProcessUtilization reports one sample per
+// running process — compute AND graphics/video — carrying SM, memory, encoder
+// and decoder utilization, so samples are NOT filtered by process type (unlike
+// GetComputeRunningProcesses, which is the compute-only call).
+//
+// lastSeenTimestamp is intentionally not used as a filter: this is a static,
+// config-driven fixture, not a rolling driver sample buffer. Each sample is
+// stamped with time.Now() so it is always newer than any lastSeen the caller
+// passes, keeping the common lastSeen=0 polling pattern observing the configured
+// values. (Real NVML returns only samples newer than lastSeen, and
+// NVML_ERROR_NOT_FOUND when none remain; emulating that would only error out
+// lastSeen=0 callers.)
 func (d *ConfigurableDevice) GetProcessUtilization(lastSeenTimestamp uint64) ([]nvml.ProcessUtilizationSample, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetProcessUtilization(lastSeen=%d)\n", lastSeenTimestamp)
 	if d.config == nil || len(d.config.Processes) == 0 {
@@ -354,9 +363,6 @@ func (d *ConfigurableDevice) GetProcessUtilization(lastSeenTimestamp uint64) ([]
 	ts := uint64(time.Now().UnixMicro())
 	var out []nvml.ProcessUtilizationSample
 	for _, p := range d.config.Processes {
-		if p.Type != "C" && p.Type != "" { // utilization is a compute concept
-			continue
-		}
 		out = append(out, nvml.ProcessUtilizationSample{
 			Pid:       p.PID,
 			TimeStamp: ts,
