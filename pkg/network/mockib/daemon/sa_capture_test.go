@@ -49,20 +49,20 @@ func TestSAPathQuery_IbpingCapture(t *testing.T) {
 		t.Fatal("isSAPathRecordGet: want true for captured ibping SA GET")
 	}
 
-	dirA := t.TempDir()
+	// The recorded SA GET targets port GUID a088:c203:00ab:2001 (the DGID in
+	// the hex above). Register that exact GUID so the test pins SA PathRecord
+	// resolution independently of the renderer's GUID encoding — the client's
+	// own (rendered) ports are a different node, so resolution falls through
+	// to the registry.
+	const capturedTargetGUID = "a088:c203:00ab:2001"
+	const capturedTargetLID uint16 = 0x0201
+
 	dirB := t.TempDir()
-	// Capture is from a Kind pod on nvml-mock-demo-worker pinging ...:2001.
-	if err := render.Render(render.Options{
-		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "nvml-mock-demo-worker", Output: dirA,
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if err := render.Render(render.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "nvml-mock-demo-worker2", Output: dirB,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	portsA, _ := sysfs.Scan(dirA)
 	portsB, _ := sysfs.Scan(dirB)
 
 	client := &Server{
@@ -70,8 +70,8 @@ func TestSAPathQuery_IbpingCapture(t *testing.T) {
 		loopback:   NewLoopback(portsB),
 		registry:   registry.New(),
 	}
-	client.registry.Register(portsA[0].PortGUID, registry.Peer{
-		PodIP: "10.0.0.1", NodeName: "node-a", LID: portsA[0].LID,
+	client.registry.Register(capturedTargetGUID, registry.Peer{
+		PodIP: "10.0.0.1", NodeName: "node-a", LID: capturedTargetLID,
 	})
 
 	h := &portHandle{}
@@ -83,8 +83,8 @@ func TestSAPathQuery_IbpingCapture(t *testing.T) {
 	}
 	dlidOff, _ := pathRecordDLIDOffset(h.recvQ[0][umadMADOffset:])
 	gotLID := binary.BigEndian.Uint16(h.recvQ[0][umadMADOffset+dlidOff:])
-	if gotLID != portsA[0].LID {
-		t.Fatalf("dlid: got 0x%04x want 0x%04x", gotLID, portsA[0].LID)
+	if gotLID != capturedTargetLID {
+		t.Fatalf("dlid: got 0x%04x want 0x%04x", gotLID, capturedTargetLID)
 	}
 	mad := h.recvQ[0][umadMADOffset:]
 	if got, want := mad[8:16], umad[umadMADOffset+8:umadMADOffset+16]; string(got) != string(want) {

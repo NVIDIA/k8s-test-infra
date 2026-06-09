@@ -108,11 +108,13 @@ func TestRender_DefaultsAndCount(t *testing.T) {
 	}
 
 	// port_guid is exposed by real mlx5 ports and must follow node_guid's
-	// formatting. The lower 16 bits encode (nodeID<<8)|idx for node_guid
-	// and (nodeID<<8)|(idx+1) for port_guid — matches real Mellanox U/L-bit
-	// behavior. For NodeName "host1", nodeID is 0xfa.
-	mustRead("sys/class/infiniband/mlx5_0/node_guid", "a088:c203:00ab:fa00")
-	mustRead("sys/class/infiniband/mlx5_0/ports/1/port_guid", "a088:c203:00ab:fa01")
+	// formatting. The lower 16 bits pack the node id (bits 5..15) and HCA
+	// index (bits 1..4); bit 0 is the EUI-64 U/L bit, set on the port GUID
+	// and clear on the node GUID — matching real Mellanox behavior and what
+	// fabric.nodeGUIDFromPortGUID inverts. For NodeName "host1", nodeID is
+	// 0x52fa, so the node GUID lower word is 0x5f40 and the port GUID 0x5f41.
+	mustRead("sys/class/infiniband/mlx5_0/node_guid", "a088:c203:00ab:5f40")
+	mustRead("sys/class/infiniband/mlx5_0/ports/1/port_guid", "a088:c203:00ab:5f41")
 }
 
 func TestRender_HCAsPerGPU(t *testing.T) {
@@ -218,6 +220,43 @@ func TestRender_NodeUniqueGUIDsAcrossNodes(t *testing.T) {
 	lidB, _ := os.ReadFile(filepath.Join(dirB, "sys/class/infiniband/mlx5_0/ports/1/lid"))
 	if strings.TrimSpace(string(lidA)) == strings.TrimSpace(string(lidB)) {
 		t.Fatalf("lid collision: %q", lidA)
+	}
+}
+
+func TestRender_NodePortGUIDsNoOverlap(t *testing.T) {
+	// Regression: the previous encoding packed the HCA index into the GUID's
+	// lowest bits as node=base|idx, port=base|(idx+1), so port_guid(mlx5_i)
+	// collided with node_guid(mlx5_{i+1}). Reserving bit 0 as the U/L bit and
+	// putting the index in bits 1..4 keeps every node/port GUID distinct.
+	dir := t.TempDir()
+	const hcas = 8
+	if err := Render(Options{
+		IB:       config.Infiniband{Enabled: true, HCACountOverride: hcas},
+		NodeName: "worker-a",
+		Output:   dir,
+	}); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	read := func(rel string) string {
+		b, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		return strings.TrimSpace(string(b))
+	}
+	seen := map[string]string{}
+	for i := 0; i < hcas; i++ {
+		ca := "mlx5_" + strconv.Itoa(i)
+		for _, kind := range []struct{ rel, what string }{
+			{filepath.Join("sys/class/infiniband", ca, "node_guid"), ca + " node_guid"},
+			{filepath.Join("sys/class/infiniband", ca, "ports/1/port_guid"), ca + " port_guid"},
+		} {
+			v := read(kind.rel)
+			if prev, dup := seen[v]; dup {
+				t.Fatalf("GUID collision: %s and %s both == %q", prev, kind.what, v)
+			}
+			seen[v] = kind.what
+		}
 	}
 }
 

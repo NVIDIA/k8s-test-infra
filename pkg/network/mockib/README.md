@@ -156,14 +156,18 @@ TCP (default port 18515), registers local ports with peers, and relays
 - **GUID-based `ibping`** (`ibping -G -c N <port_guid>`) resolves the
   destination via a mocked SA PathRecord query, then uses the same fabric
   path as LID mode. Pass the port GUID as a single hex value (e.g.
-  `0xa088c20300abfa01`); colon-separated sysfs values must be normalized
+  `0xa088c20300ab5f41`); colon-separated sysfs values must be normalized
   (ibdiag uses `strtoull` and stops at `:`).
 - **`ibping -S` / `ibping -S -G`** (server mode) are not supported by the
   UMAD shim; cross-node validation uses client-mode pings only.
 - Other `ibping` flags (`-R`, multicast, batch modes) are out of scope.
 
-The renderer assigns **node-unique LIDs and port GUIDs** (FNV-1a of
-`NODE_NAME`) so identities do not collide across Kind workers.
+The renderer assigns **node-unique LIDs and port GUIDs** from an FNV-1a hash
+of `NODE_NAME`: the lower GUID word packs an 11-bit node id (bits 5..15) and a
+4-bit HCA index (bits 1..4), with bit 0 as the EUI-64 U/L bit (clear on the
+node GUID, set on the port GUID). LIDs pack the same node id and index above a
+0x0100 base inside the unicast range. This keeps identities distinct across
+Kind workers (out past ~2K nodes before hash collisions become likely).
 
 ## iblinkinfo and ibv_devinfo
 

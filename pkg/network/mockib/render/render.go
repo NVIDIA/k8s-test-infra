@@ -133,7 +133,7 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 		{"state", formatPortState(ib.PortState)},
 		{"phys_state", formatPhysState(ib.PhysState)},
 		{"rate", formatRate(ib.RateGbps) + "\n"},
-		{"lid", fmt.Sprintf("0x%04x\n", 0x0100+int(nid&0xff)*16+idx)},
+		{"lid", fmt.Sprintf("0x%04x\n", hcaLID(nid, idx))},
 		{"lid_mask_count", "0\n"},
 		{"sm_lid", "0x0001\n"},
 		{"sm_sl", "0\n"},
@@ -150,7 +150,8 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 		}
 	}
 
-	portLower := (nid << 8) | uint16(idx+1)
+	// gids/0 lower 64 bits must equal the port GUID (fe80:: + port GUID).
+	portLower := hcaIdentity(nid, idx) | 1
 	gid := fmt.Sprintf("fe80:0000:0000:0000:%s:%s:%s:%04x",
 		guidPrefix[0:4], guidPrefix[4:8], guidPrefix[8:12], portLower)
 	if err := writeFile(root, filepath.Join(portDir, "gids/0"), gid+"\n"); err != nil {
@@ -323,18 +324,39 @@ func normalizeGUIDPrefix(s string) string {
 	return strings.ToLower(strings.ReplaceAll(s, ":", ""))
 }
 
+// hcaIdentity packs the node id and HCA index into the lower 15 bits of the
+// 64-bit GUID, reserving bit 0 as the EUI-64 U/L bit. idx occupies bits 1..4
+// (up to 16 HCAs) and the node id occupies bits 5..15 (11 bits). The previous
+// (nid<<8) form silently truncated nid to 8 bits via uint16 overflow, so the
+// whole GUID/LID space collapsed onto 256 node values; keeping 11 node-id bits
+// pushes cross-node collisions out past ~2K nodes. bit 0 == 0 marks a node
+// GUID; the port GUID is the same value with bit 0 set (see perHCAPortGUID),
+// which is exactly what fabric.nodeGUIDFromPortGUID inverts by clearing bit 0.
+func hcaIdentity(nid uint16, idx int) uint16 {
+	return (nid&0x07ff)<<5 | uint16(idx&0x0f)<<1
+}
+
+// hcaLID derives a per-(node,HCA) LID inside the unicast range. The node id
+// (11 bits) and HCA index (4 bits) sit above a fixed 0x0100 base; the maximum
+// (0x80ff) stays well under the 0xbfff unicast ceiling. Cross-node ibping
+// resolves the destination by LID, so distinct LIDs per node matter.
+func hcaLID(nid uint16, idx int) int {
+	return 0x0100 + int(nid&0x07ff)<<4 + (idx & 0x0f)
+}
+
 // perHCAGUID renders the colon-separated 8-byte node GUID for HCA index idx.
-// The lower 16 bits encode (nid<<8)|idx so GUIDs are unique per node and HCA.
 func perHCAGUID(guidPrefix string, nid uint16, idx int) string {
-	lower := (nid << 8) | uint16(idx)
+	lower := hcaIdentity(nid, idx)
 	return fmt.Sprintf("%s:%s:%s:%04x",
 		guidPrefix[0:4], guidPrefix[4:8], guidPrefix[8:12], lower)
 }
 
-// perHCAPortGUID derives a port GUID by flipping a single byte (matches
-// real Mellanox HCAs where node and port GUIDs differ in the U/L bit).
+// perHCAPortGUID derives the port GUID by setting the U/L bit (bit 0) on the
+// node GUID, matching real Mellanox HCAs where node and port GUIDs differ in
+// that bit. Because the identity (node id + HCA index) lives in bits 1..15,
+// no port GUID can collide with another HCA's node GUID on the same host.
 func perHCAPortGUID(guidPrefix string, nid uint16, idx int) string {
-	lower := (nid << 8) | uint16(idx+1)
+	lower := hcaIdentity(nid, idx) | 1
 	return fmt.Sprintf("%s:%s:%s:%04x",
 		guidPrefix[0:4], guidPrefix[4:8], guidPrefix[8:12], lower)
 }

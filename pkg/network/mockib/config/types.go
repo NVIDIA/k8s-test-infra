@@ -39,9 +39,11 @@ type Infiniband struct {
 	HCACountOverride int `json:"hca_count" yaml:"hca_count"`       // if >0, used instead of gpu_count*hcas_per_gpu
 
 	// GUIDPrefix is the upper 6 bytes of every node/port GUID, in hex
-	// (with optional ':' separators). The lower 2 bytes encode the HCA
-	// index. Example: "a088c2:0300:ab" -> "a088c20300ab" -> per-HCA GUID
-	// "a088:c203:00ab:00<idx>".
+	// (with optional ':' separators). The lower 2 bytes encode the node id
+	// (bits 5..15) and HCA index (bits 1..4); bit 0 is the EUI-64 U/L bit,
+	// clear on the node GUID and set on the port GUID. Example:
+	// "a088c2:0300:ab" -> "a088c20300ab" -> per-HCA node GUID
+	// "a088:c203:00ab:<nnnn>" with the matching port GUID one greater.
 	GUIDPrefix string `json:"guid_prefix" yaml:"guid_prefix"`
 }
 

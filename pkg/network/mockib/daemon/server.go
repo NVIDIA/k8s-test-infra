@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/fabric"
@@ -54,8 +55,10 @@ type Server struct {
 	graphMu sync.RWMutex
 	graph   *fabric.Graph
 
-	// Fabric registration: suppress repeated "connection refused" while peers start.
-	lastPeerRegisterOK int
+	// Fabric registration: suppress repeated "connection refused" while peers
+	// start. lastPeerRegisterOK is touched by both registerWithPeersLoop and
+	// the socket-driven register_peers handler, so it is atomic.
+	lastPeerRegisterOK atomic.Int32
 	registerWarned     map[string]struct{}
 	registerWarnedMu   sync.Mutex
 }

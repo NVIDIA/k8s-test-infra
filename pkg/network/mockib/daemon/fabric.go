@@ -204,14 +204,16 @@ func (s *Server) registerWithPeers(ctx context.Context) {
 	if ctx.Err() != nil || wantPeers == 0 {
 		return
 	}
-	if ok > s.lastPeerRegisterOK {
+	// Concurrent callers may both log the same step (harmless); the atomic
+	// only guarantees the read-modify-write is race-free, not single-shot.
+	if int32(ok) > s.lastPeerRegisterOK.Load() {
 		switch {
 		case ok >= wantPeers:
 			s.log.Printf("mock-ib: fabric ready — registered %d port(s) with all %d peer(s)", len(body.Ports), wantPeers)
 		default:
 			s.log.Printf("mock-ib: registered %d port(s) with %d/%d peer(s) (waiting for remaining pods)", len(body.Ports), ok, wantPeers)
 		}
-		s.lastPeerRegisterOK = ok
+		s.lastPeerRegisterOK.Store(int32(ok))
 	}
 }
 
