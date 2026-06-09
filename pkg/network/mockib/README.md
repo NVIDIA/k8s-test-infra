@@ -118,6 +118,7 @@ intercepts run before sysfs path rewriting.
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `MOCK_IB` | `0` | Enable `libibmockumad` + `libibmockverbs` shims and start `mock-ib` |
+| `MOCK_IB_DISABLE` | (unset) | Global escape hatch: any non-empty, non-`0` value turns all three shims (`libibmocksys`, `libibmockumad`, `libibmockverbs`) into no-ops so the process sees the real host (e.g. `MOCK_IB_DISABLE=1 ibv_devinfo -l`) |
 | `MOCK_IB_PING_SOCKET` | `/run/mock-ib.sock` | Unix socket between shim and daemon |
 | `MOCK_IB_PING_FABRIC` | `0` | Enable Phase 2 TCP fabric relay between pods |
 | `MOCK_IB_PEERS` | (unset) | Comma-separated peer pod IPs for fabric registration (optional when Service discovery is used) |
