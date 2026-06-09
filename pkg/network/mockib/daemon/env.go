@@ -10,13 +10,13 @@ import (
 )
 
 const (
-	EnvMockIBConfig     = "MOCK_IB_CONFIG"
-	EnvGPUCount         = "GPU_COUNT"
-	EnvNodeName         = "NODE_NAME"
-	EnvMockIBRoot       = "MOCK_IB_ROOT"
-	EnvMockIBPingSocket = "MOCK_IB_PING_SOCKET"
-	EnvMockIBPingPort   = "MOCK_IB_PING_PORT"
-	EnvMockIBPingFabric = "MOCK_IB_PING_FABRIC"
+	EnvMockIBConfig          = "MOCK_IB_CONFIG"
+	EnvGPUCount              = "GPU_COUNT"
+	EnvNodeName              = "NODE_NAME"
+	EnvMockIBRoot            = "MOCK_IB_ROOT"
+	EnvMockIBPingSocket      = "MOCK_IB_PING_SOCKET"
+	EnvMockIBPingPort        = "MOCK_IB_PING_PORT"
+	EnvMockIBPingFabric      = "MOCK_IB_PING_FABRIC"
 	EnvMockIBPeers           = "MOCK_IB_PEERS"
 	EnvMockIBPingServiceHost = "MOCK_IB_PING_SERVICE_HOST"
 )

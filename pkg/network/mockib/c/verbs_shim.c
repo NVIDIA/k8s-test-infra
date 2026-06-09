@@ -39,6 +39,11 @@
  * 1 MiB on threads with small stacks. read_frame still rejects anything larger. */
 #define MOCK_MAX_RESP (1 << 14)
 #define MOCK_MAX_VERBS 32
+/* Synthetic fd base for mock uverbs handles (umad_shim uses 100). We assume the
+ * host process never holds a real fd in [700, 700+MOCK_MAX_VERBS); true for the
+ * single-threaded diag tools this shim targets (ibv_devinfo, ibstat, ...). A
+ * process juggling ~700 real fds with a mock device open could collide and
+ * mis-route a real read/write — out of scope for this test fixture. */
 #define MOCK_VERBS_FD_BASE 700
 #define MOCK_DEFAULT_SOCK "/run/mock-ib.sock"
 

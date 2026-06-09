@@ -12,12 +12,12 @@ import (
 )
 
 const (
-	MADOffset      = 56
-	LIDOffset      = 28
-	GRHPresentOff  = 32
-	GIDOffset      = 36
-	MADClassOff    = 1
-	MADMethodOff   = 3
+	MADOffset       = 56
+	LIDOffset       = 28
+	GRHPresentOff   = 32
+	GIDOffset       = 36
+	MADClassOff     = 1
+	MADMethodOff    = 3
 	VendorClass0x81 = 0x81
 )
 

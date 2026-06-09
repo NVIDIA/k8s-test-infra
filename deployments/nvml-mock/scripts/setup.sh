@@ -219,15 +219,20 @@ touch /host/run/nvidia/validations/toolkit-ready
 IB_ROOT="$HOST/ib"
 mkdir -p "$IB_ROOT"
 if [ -x /usr/local/bin/mock-ib ]; then
+  # Render the sysfs tree synchronously first. This is fatal under `set -e`,
+  # so a profile typo fails the pod here with a clear error instead of
+  # silently producing an empty tree / zero HCAs. When MOCK_IB=1 the serving
+  # daemon below re-renders idempotently before it starts listening; we still
+  # render here so the fail-fast signal isn't lost to the backgrounded daemon
+  # (whose render failure would just exit the `&` child while setup continues).
+  /usr/local/bin/mock-ib \
+    -config /etc/nvml-mock/config.yaml \
+    -gpu-count "$GPU_COUNT" \
+    -node-name "$NODE_NAME" \
+    -ib-root "$IB_ROOT" \
+    -render-only
   if [ "${MOCK_IB:-0}" = "1" ]; then
     /scripts/start-mock-ib.sh &
-  else
-    /usr/local/bin/mock-ib \
-      -config /etc/nvml-mock/config.yaml \
-      -gpu-count "$GPU_COUNT" \
-      -node-name "$NODE_NAME" \
-      -ib-root "$IB_ROOT" \
-      -render-only
   fi
 fi
 

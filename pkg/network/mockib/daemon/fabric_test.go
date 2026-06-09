@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/daemon/madtest"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
-	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/sysfs"
-	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/render"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/sysfs"
 )
 
 func TestFabric_RegisterAndPingHandler(t *testing.T) {

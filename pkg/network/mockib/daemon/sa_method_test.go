@@ -38,9 +38,9 @@ func TestPathRecordDGIDOffset_Fixed(t *testing.T) {
 
 func TestSetSAMethodResponse(t *testing.T) {
 	tests := []struct {
-		name    string
-		setup   func([]byte)
-		check   func([]byte) bool
+		name  string
+		setup func([]byte)
+		check func([]byte) bool
 	}{
 		{
 			name: "mad0 GET",

@@ -26,9 +26,9 @@ type Port struct {
 
 // Graph holds all known ports and full-mesh neighbor rules.
 type Graph struct {
-	ports   []Port
-	byLID   map[uint16]Port
-	byGUID  map[string]Port
+	ports  []Port
+	byLID  map[uint16]Port
+	byGUID map[string]Port
 }
 
 // Build merges local sysfs ports and registered peer ports.

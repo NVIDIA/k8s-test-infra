@@ -11,13 +11,13 @@ import (
 
 const (
 	// Must match libibumad umad_get_mad() (legacy API: &addr.pkey_index), not sizeof(ib_user_mad).
-	umadMADOffset  = 56
-	umadLIDOffset  = 28
-	umadGRHPresent = 32
-	umadGIDOffset  = 36
-	ibMADClassOff  = 1
-	ibMADMethodOff = 3
-	ibMADStatusOff = 4
+	umadMADOffset   = 56
+	umadLIDOffset   = 28
+	umadGRHPresent  = 32
+	umadGIDOffset   = 36
+	ibMADClassOff   = 1
+	ibMADMethodOff  = 3
+	ibMADStatusOff  = 4
 	vendorClass0x81 = 0x81
 )
 

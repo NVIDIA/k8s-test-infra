@@ -155,7 +155,10 @@ func TestRender_HCACountOverride(t *testing.T) {
 }
 
 func TestRender_RateMapping(t *testing.T) {
-	cases := []struct{ in int; want string }{
+	cases := []struct {
+		in   int
+		want string
+	}{
 		{100, "100 Gb/sec (4X EDR)"},
 		{200, "200 Gb/sec (4X HDR)"},
 		{400, "400 Gb/sec (4X NDR)"},
@@ -229,4 +232,3 @@ func TestRender_BadGUIDPrefix(t *testing.T) {
 		t.Fatalf("expected error for bad guid_prefix, got nil")
 	}
 }
-

@@ -194,4 +194,3 @@ func waitForSocket(t *testing.T, path string, errCh <-chan error) {
 	}
 	t.Fatalf("socket %s not ready", path)
 }
-

@@ -7,10 +7,10 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/sysfs"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/daemon/madtest"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/render"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/sysfs"
 )
 
 func TestLoopback_ShouldQueueRecv_LocalGUID(t *testing.T) {

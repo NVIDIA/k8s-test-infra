@@ -22,19 +22,21 @@ func smpLogf(format string, args ...interface{}) {
 }
 
 const (
-	umadMADOffset  = 56
+	umadMADOffset = 56
 	// Full legacy umad buffer: 56-byte header + 256-byte MAD (libibumad umad_size + MAD).
-	minUmadLen = umadMADOffset + 256
+	minUmadLen     = umadMADOffset + 256
 	ibMADMethodOff = 3
-	// MAD header AttrID lives at bytes 18..19 (see libibmad: IB_MAD_ATTRID_F / BE_OFFS(144,16)).
-	ibMADAttrIDOff = 18
+	// AttributeID is a BE16 at wire bytes 16..17 of the common MAD header
+	// (IBA §13.4.6: BaseVer, MgmtClass, ClassVer, Method, Status, ClassSpec,
+	// 64-bit TID, then AttributeID@16). Read straight from the wire payload.
+	ibMADAttrIDOff = 16
 
 	// SMP payload is copied from MAD+64 (see libibmad: IB_SMP_DATA_OFFS).
 	ibSMPDataOff = 64
 
-	ibAttrNodeDesc = 0x0010
-	ibAttrNodeInfo = 0x0011
-	ibAttrPortInfo = 0x0015
+	ibAttrNodeDesc   = 0x0010
+	ibAttrNodeInfo   = 0x0011
+	ibAttrPortInfo   = 0x0015
 	ibClassSMI       = 0x01
 	ibClassSMIDirect = 0x81
 
@@ -48,34 +50,6 @@ const (
 	defaultGidPrefix    = 0xfe80000000000000
 )
 
-// SMPGetHeader carries decoded subnet GET header fields from a UMAD buffer.
-type SMPGetHeader struct {
-	AttrID  uint16
-	AttrMod uint32
-}
-
-// DecodeSMPGet parses a subnet management GET from umad (best-effort).
-func DecodeSMPGet(umad []byte) (SMPGetHeader, bool) {
-	var h SMPGetHeader
-	if len(umad) < umadMADOffset+24 {
-		return h, false
-	}
-	mad := umad[umadMADOffset:]
-	hdr, ok := normalizeMADHeader(mad)
-	if !ok {
-		return h, false
-	}
-	if hdr[1] != ibClassSMI && hdr[1] != ibClassSMIDirect {
-		return h, false
-	}
-	if hdr[ibMADMethodOff]&0x7f != 0x01 {
-		return h, false
-	}
-	h.AttrID = decodeAttrID(hdr)
-	h.AttrMod = binary.BigEndian.Uint32(hdr[20:24])
-	return h, true
-}
-
 // TrySynthesize returns a RECV umad buffer for subnet GETs, or (nil, false).
 // localCA is the umad-opened HCA (e.g. mlx5_0) used to resolve self-queries (dlid 0).
 func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, bool) {
@@ -83,25 +57,27 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 		return nil, false
 	}
 	mad := sendMad[umadMADOffset:]
-	if len(mad) < 12 {
+	if len(mad) < 24 {
 		return nil, false
 	}
 
-	hdr, ok := normalizeMADHeader(mad)
-	if !ok {
-		return nil, false
-	}
-
-	cls := hdr[1]
+	// MAD wire header (IBA §13.4): BaseVer | MgmtClass | ClassVer | Method,
+	// then Status, TID, AttrID (BE16 @16), Reserved, AttrMod (BE32 @20).
+	// libibumad delivers MADs in wire byte order, so read every field straight
+	// from the payload — same convention as IsSMPSend and the SA decoder. A
+	// previous version word-swapped the header first and then read hdr[1],
+	// which is ClassVersion (0x01 for almost every class), so any vendor/GSI
+	// MAD with ClassVersion 0x01 was misclassified as SMI.
+	cls := mad[1]
 	if cls != ibClassSMI && cls != ibClassSMIDirect {
 		return nil, false
 	}
-	method := hdr[ibMADMethodOff] & 0x7f
+	method := mad[ibMADMethodOff] & 0x7f
 	if method != 0x01 { // GET
 		return nil, false
 	}
-	attrID := decodeAttrID(hdr)
-	attrMod := binary.BigEndian.Uint32(hdr[20:24])
+	attrID := binary.BigEndian.Uint16(mad[ibMADAttrIDOff : ibMADAttrIDOff+2])
+	attrMod := binary.BigEndian.Uint32(mad[20:24])
 
 	lid, ok := destLID(sendMad)
 	if !ok {
@@ -142,25 +118,6 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 	}
 }
 
-func normalizeMADHeader(mad []byte) ([24]byte, bool) {
-	var hdr [24]byte
-	if len(mad) < len(hdr) {
-		return hdr, false
-	}
-	for w := 0; w < len(hdr); w += 4 {
-		hdr[w+0] = mad[w+3]
-		hdr[w+1] = mad[w+2]
-		hdr[w+2] = mad[w+1]
-		hdr[w+3] = mad[w+0]
-	}
-	return hdr, true
-}
-
-func decodeAttrID(hdr [24]byte) uint16 {
-	attrID := binary.BigEndian.Uint16(hdr[ibMADAttrIDOff : ibMADAttrIDOff+2])
-	return (attrID >> 8) | (attrID << 8)
-}
-
 func fillNodeDesc(mad []byte, p fabric.Port) {
 	if len(mad) < ibSMPDataOff+64 {
 		return
@@ -184,7 +141,7 @@ func fillNodeInfo(mad []byte, p fabric.Port, attrMod uint32) {
 	_ = attrMod
 
 	SetFieldSpec(pl, 16, 8, nodeTypeCA)
-	SetFieldSpec(pl, 24, 8, 1) // NumPorts
+	SetFieldSpec(pl, 24, 8, 1)    // NumPorts
 	putGUID64(pl, 4, p.NodeGUID)  // SystemGuid @ bit 32
 	putGUID64(pl, 12, p.NodeGUID) // NodeGuid @ bit 96
 	putGUID64(pl, 20, p.PortGUID) // PortGuid @ bit 160

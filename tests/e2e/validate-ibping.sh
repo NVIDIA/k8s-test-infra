@@ -25,6 +25,10 @@ CLIENT_POD="${2:?Usage: $0 <server-pod> <client-pod>}"
 MAX_RETRIES="${IBPING_E2E_RETRIES:-3}"
 RETRY_SLEEP="${IBPING_E2E_RETRY_SLEEP:-5}"
 
+# Single-quoted on purpose: IB_ROOT must stay the literal string
+# "${MOCK_IB_ROOT:-...}" so it expands inside the pod's `sh -c` (against the
+# pod's env), not here on the host runner. LID_PATH/GUID_PATH below embed that
+# literal and are likewise resolved pod-side.
 IB_ROOT='${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib}'
 LID_PATH="${IB_ROOT}/sys/class/infiniband/mlx5_0/ports/1/lid"
 GUID_PATH="${IB_ROOT}/sys/class/infiniband/mlx5_0/ports/1/port_guid"

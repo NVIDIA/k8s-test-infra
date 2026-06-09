@@ -12,6 +12,18 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
 )
 
+// writeMADHeader writes a wire-format SMP GET header (IBA §13.4) into mad:
+// BaseVer=1, MgmtClass=class, ClassVer=1, Method=Get, AttrID (BE16 @16).
+// This matches the byte order libibumad delivers to the daemon, which is what
+// TrySynthesize parses (see IsSMPSend for the same convention).
+func writeMADHeader(mad []byte, class byte, attr uint16) {
+	mad[0] = 0x01 // BaseVersion
+	mad[1] = class
+	mad[2] = 0x01 // ClassVersion
+	mad[ibMADMethodOff] = 0x01
+	binary.BigEndian.PutUint16(mad[ibMADAttrIDOff:ibMADAttrIDOff+2], attr)
+}
+
 func TestTrySynthesize_PortInfo(t *testing.T) {
 	g := fabric.Build([]protocol.PortAdvert{
 		{PortGUID: "a088:c203:00ab:0001", LID: 0x101, CAName: "mlx5_0"},
@@ -19,20 +31,7 @@ func TestTrySynthesize_PortInfo(t *testing.T) {
 	send := make([]byte, umadMADOffset+64)
 	mad := send[umadMADOffset:]
 
-	// Build a "normalized" MAD header, then scramble it to match libibmad packing.
-	hdr := make([]byte, 24)
-	hdr[1] = ibClassSMI
-	hdr[ibMADMethodOff] = 0x01
-	// Match synthesize.go normalization + 16-bit swap.
-	attr := uint16(ibAttrPortInfo)
-	attr = (attr >> 8) | (attr << 8)
-	binary.BigEndian.PutUint16(hdr[ibMADAttrIDOff:ibMADAttrIDOff+2], attr)
-	for w := 0; w < len(hdr); w += 4 {
-		mad[w+0] = hdr[w+3]
-		mad[w+1] = hdr[w+2]
-		mad[w+2] = hdr[w+1]
-		mad[w+3] = hdr[w+0]
-	}
+	writeMADHeader(mad, ibClassSMI, ibAttrPortInfo)
 
 	binary.BigEndian.PutUint16(send[28:30], 0x101)
 	resp, ok := TrySynthesize(send, g, "mlx5_0")
@@ -52,18 +51,7 @@ func TestTrySynthesize_SelfResolveLID0(t *testing.T) {
 	send := make([]byte, umadMADOffset+64)
 	mad := send[umadMADOffset:]
 
-	hdr := make([]byte, 24)
-	hdr[1] = ibClassSMI
-	hdr[ibMADMethodOff] = 0x01
-	attr := uint16(ibAttrNodeInfo)
-	attr = (attr >> 8) | (attr << 8)
-	binary.BigEndian.PutUint16(hdr[ibMADAttrIDOff:ibMADAttrIDOff+2], attr)
-	for w := 0; w < len(hdr); w += 4 {
-		mad[w+0] = hdr[w+3]
-		mad[w+1] = hdr[w+2]
-		mad[w+2] = hdr[w+1]
-		mad[w+3] = hdr[w+0]
-	}
+	writeMADHeader(mad, ibClassSMI, ibAttrNodeInfo)
 
 	// dlid 0 self-resolve
 	send[28] = 0
@@ -80,18 +68,7 @@ func TestTrySynthesize_PortInfoMod0PhysLinkUp(t *testing.T) {
 	}, nil)
 	send := make([]byte, umadMADOffset+256)
 	mad := send[umadMADOffset:]
-	hdr := make([]byte, 24)
-	hdr[1] = ibClassSMIDirect
-	hdr[ibMADMethodOff] = 0x01
-	attr := uint16(ibAttrPortInfo)
-	attr = (attr >> 8) | (attr << 8)
-	binary.BigEndian.PutUint16(hdr[ibMADAttrIDOff:ibMADAttrIDOff+2], attr)
-	for w := 0; w < 24; w += 4 {
-		mad[w+0] = hdr[w+3]
-		mad[w+1] = hdr[w+2]
-		mad[w+2] = hdr[w+1]
-		mad[w+3] = hdr[w+0]
-	}
+	writeMADHeader(mad, ibClassSMIDirect, ibAttrPortInfo)
 	SetField(mad, ibDRHopCntBit, 8, 0)
 	binary.BigEndian.PutUint16(send[28:30], 0xffff)
 
@@ -115,18 +92,7 @@ func TestTrySynthesize_ShortSendBuffer(t *testing.T) {
 	// libibmad often sends header + ~64 MAD bytes, not the full 256-byte MAD.
 	send := make([]byte, umadMADOffset+64)
 	mad := send[umadMADOffset:]
-	hdr := make([]byte, 24)
-	hdr[1] = ibClassSMIDirect
-	hdr[ibMADMethodOff] = 0x01
-	attr := uint16(ibAttrPortInfo)
-	attr = (attr >> 8) | (attr << 8)
-	binary.BigEndian.PutUint16(hdr[ibMADAttrIDOff:ibMADAttrIDOff+2], attr)
-	for w := 0; w < 24; w += 4 {
-		mad[w+0] = hdr[w+3]
-		mad[w+1] = hdr[w+2]
-		mad[w+2] = hdr[w+1]
-		mad[w+3] = hdr[w+0]
-	}
+	writeMADHeader(mad, ibClassSMIDirect, ibAttrPortInfo)
 	SetField(mad, ibDRHopCntBit, 8, 0)
 
 	resp, ok := TrySynthesize(send, g, "mlx5_0")
@@ -156,18 +122,7 @@ func TestTrySynthesize_DROneHopNodeInfo(t *testing.T) {
 
 	send := make([]byte, umadMADOffset+256)
 	mad := send[umadMADOffset:]
-	hdr := make([]byte, 24)
-	hdr[1] = ibClassSMIDirect
-	hdr[ibMADMethodOff] = 0x01
-	attr := uint16(ibAttrNodeInfo)
-	attr = (attr >> 8) | (attr << 8)
-	binary.BigEndian.PutUint16(hdr[ibMADAttrIDOff:ibMADAttrIDOff+2], attr)
-	for w := 0; w < len(hdr); w += 4 {
-		mad[w+0] = hdr[w+3]
-		mad[w+1] = hdr[w+2]
-		mad[w+2] = hdr[w+1]
-		mad[w+3] = hdr[w+0]
-	}
+	writeMADHeader(mad, ibClassSMIDirect, ibAttrNodeInfo)
 	SetField(mad, ibDRHopCntBit, 8, 1)
 	mad[ibDRPathByteOff] = 1
 	binary.BigEndian.PutUint16(send[28:30], 0xffff)

@@ -35,8 +35,8 @@ type Infiniband struct {
 	PhysState string `json:"phys_state" yaml:"phys_state"` // "LinkUp" | "Disabled" | ...
 
 	// Topology shape.
-	HCAsPerGPU int `json:"hcas_per_gpu" yaml:"hcas_per_gpu"` // total = gpu_count * hcas_per_gpu
-	HCACountOverride int `json:"hca_count" yaml:"hca_count"` // if >0, used instead of gpu_count*hcas_per_gpu
+	HCAsPerGPU       int `json:"hcas_per_gpu" yaml:"hcas_per_gpu"` // total = gpu_count * hcas_per_gpu
+	HCACountOverride int `json:"hca_count" yaml:"hca_count"`       // if >0, used instead of gpu_count*hcas_per_gpu
 
 	// GUIDPrefix is the upper 6 bytes of every node/port GUID, in hex
 	// (with optional ':' separators). The lower 2 bytes encode the HCA

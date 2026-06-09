@@ -12,18 +12,18 @@ import (
 
 // Message type strings on the wire.
 const (
-	TypeRegister = "register"
-	TypePing     = "ping"
-	TypePong     = "pong"
-	TypeOpen     = "open"
-	TypeSend     = "send"
-	TypeRecv     = "recv"
-	TypeClose          = "close"
-	TypeRegisterPeers  = "register_peers"
-	TypeVerbsOpen      = "verbs_open"
-	TypeVerbsWrite     = "verbs_write"
-	TypeVerbsRead      = "verbs_read"
-	TypeVerbsClose     = "verbs_close"
+	TypeRegister      = "register"
+	TypePing          = "ping"
+	TypePong          = "pong"
+	TypeOpen          = "open"
+	TypeSend          = "send"
+	TypeRecv          = "recv"
+	TypeClose         = "close"
+	TypeRegisterPeers = "register_peers"
+	TypeVerbsOpen     = "verbs_open"
+	TypeVerbsWrite    = "verbs_write"
+	TypeVerbsRead     = "verbs_read"
+	TypeVerbsClose    = "verbs_close"
 )
 
 // MaxFrameSize is the largest accepted length-prefixed JSON frame.

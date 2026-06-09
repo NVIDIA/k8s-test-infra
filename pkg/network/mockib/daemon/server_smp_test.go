@@ -62,18 +62,13 @@ func TestServer_SMPPortInfoSelfResolveShort(t *testing.T) {
 
 	send := make([]byte, umadMADOffset+64)
 	mad := send[umadMADOffset:]
-	hdr := make([]byte, 24)
-	hdr[1] = 0x81
-	hdr[3] = 0x01
-	attr := uint16(0x0015)
-	attr = (attr >> 8) | (attr << 8)
-	binary.BigEndian.PutUint16(hdr[18:20], attr)
-	for w := 0; w < 24; w += 4 {
-		mad[w+0] = hdr[w+3]
-		mad[w+1] = hdr[w+2]
-		mad[w+2] = hdr[w+1]
-		mad[w+3] = hdr[w+0]
-	}
+	// Wire-format SMI-direct PORT_INFO GET (IBA §13.4): BaseVer | MgmtClass |
+	// ClassVer | Method, with AttributeID as a BE16 at byte 16.
+	mad[0] = 0x01 // BaseVersion
+	mad[1] = 0x81 // MgmtClass = SMI Direct Route
+	mad[2] = 0x01 // ClassVersion
+	mad[3] = 0x01 // Method = Get
+	binary.BigEndian.PutUint16(mad[16:18], 0x0015)
 	subnet.SetField(mad, 32, 8, 0)
 
 	if err := protocol.WriteMessage(conn, protocol.TypeSend, protocol.SendReq{
@@ -163,17 +158,13 @@ func TestServer_SMPNodeInfoThenPortInfo(t *testing.T) {
 		t.Helper()
 		send := make([]byte, umadMADOffset+64)
 		mad := send[umadMADOffset:]
-		hdr := make([]byte, 24)
-		hdr[1] = 0x81
-		hdr[3] = 0x01
-		attrSw := (attr >> 8) | (attr << 8)
-		binary.BigEndian.PutUint16(hdr[18:20], attrSw)
-		for w := 0; w < 24; w += 4 {
-			mad[w+0] = hdr[w+3]
-			mad[w+1] = hdr[w+2]
-			mad[w+2] = hdr[w+1]
-			mad[w+3] = hdr[w+0]
-		}
+		// Wire-format SMI-direct GET (IBA §13.4): BaseVer | MgmtClass |
+		// ClassVer | Method, with AttributeID as a BE16 at byte 16.
+		mad[0] = 0x01 // BaseVersion
+		mad[1] = 0x81 // MgmtClass = SMI Direct Route
+		mad[2] = 0x01 // ClassVersion
+		mad[3] = 0x01 // Method = Get
+		binary.BigEndian.PutUint16(mad[16:18], attr)
 		if err := protocol.WriteMessage(conn, protocol.TypeSend, protocol.SendReq{Handle: handle, MAD: send}); err != nil {
 			t.Fatal(err)
 		}
