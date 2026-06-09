@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Cross-node ibping validation between two nvml-mock DaemonSet pods.
-# Requires MOCK_IB / fabric / LD_PRELOAD (always set by the nvml-mock chart).
+# Requires MOCK_IB / fabric / LD_PRELOAD (set by the nvml-mock chart for
+# profiles with infiniband.enabled=true).
 #
 # Usage:
 #   validate-ibping.sh <server-pod> <client-pod>

@@ -454,7 +454,7 @@ tests:
           path: spec.template.spec.terminationGracePeriodSeconds
           value: 0
 
-  # ── InfiniBand ping mock (always enabled) ───────────────────────────
+  # ── InfiniBand ping mock ────────────────────────────────────────────
   - it: should set ping mock env, LD_PRELOAD, and containerPort
     asserts:
       - contains:
@@ -498,6 +498,24 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].ports[0].protocol
           value: TCP
+
+  - it: should disable ping mock for profiles without InfiniBand
+    set:
+      gpu:
+        profile: t4
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB
+            value: "0"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_PING_FABRIC
+            value: "0"
+      - notExists:
+          path: spec.template.spec.containers[0].ports
 
   - it: should honor a custom ping port
     set:

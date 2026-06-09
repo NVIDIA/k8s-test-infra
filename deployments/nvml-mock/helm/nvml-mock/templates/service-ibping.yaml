@@ -1,5 +1,6 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
+{{- if eq (include "nvml-mock.infinibandEnabled" .) "true" }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -10,9 +11,10 @@ spec:
   # Headless: DNS returns all nvml-mock pod IPs for fabric peer discovery.
   clusterIP: None
   selector:
-    {{- include "nvml-mock.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/name: {{ include "nvml-mock.name" . }}
   ports:
     - name: ibping
       port: {{ .Values.infiniband.ping.port }}
       targetPort: ibping
       protocol: TCP
+{{- end }}

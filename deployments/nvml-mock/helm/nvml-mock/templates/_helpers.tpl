@@ -122,6 +122,24 @@ and key order) or round-trip it through fromYaml/toYaml for overlays.
 {{- end }}
 
 {{/*
+Return "true" when the rendered GPU config enables InfiniBand.
+The chart uses the same config content that is mounted into the pod, so built-in
+profiles and gpu.customConfig follow one source of truth.
+*/}}
+{{- define "nvml-mock.infinibandEnabled" -}}
+{{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}
+{{- if hasKey $cfg "Error" -}}
+{{- fail (printf "nvml-mock.infinibandEnabled: failed to parse GPU config: %s" (get $cfg "Error")) -}}
+{{- end -}}
+{{- $ib := get $cfg "infiniband" | default (dict) -}}
+{{- if and (kindIs "map" $ib) (eq (toString (get $ib "enabled")) "true") -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end }}
+
+{{/*
 Driver version helper.
 Returns the user-provided driverVersion, or derives it from gpu.profile.
 Blackwell profiles (b200, gb200) use 560.35.03; Blackwell Ultra (gb300)

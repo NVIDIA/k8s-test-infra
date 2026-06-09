@@ -108,13 +108,14 @@ func TestRender_DefaultsAndCount(t *testing.T) {
 	}
 
 	// port_guid is exposed by real mlx5 ports and must follow node_guid's
-	// formatting. The lower 16 bits pack the node id (bits 5..15) and HCA
-	// index (bits 1..4); bit 0 is the EUI-64 U/L bit, set on the port GUID
+	// formatting. The lower 32 bits pack the node id (bits 9..31) and HCA
+	// index (bits 1..8); bit 0 is the EUI-64 U/L bit, set on the port GUID
 	// and clear on the node GUID — matching real Mellanox behavior and what
 	// fabric.nodeGUIDFromPortGUID inverts. For NodeName "host1", nodeID is
-	// 0x52fa, so the node GUID lower word is 0x5f40 and the port GUID 0x5f41.
-	mustRead("sys/class/infiniband/mlx5_0/node_guid", "a088:c203:00ab:5f40")
-	mustRead("sys/class/infiniband/mlx5_0/ports/1/port_guid", "a088:c203:00ab:5f41")
+	// 0x6bde52fa, so the node GUID lower dword is 0xbca5f400 and the port
+	// GUID is 0xbca5f401.
+	mustRead("sys/class/infiniband/mlx5_0/node_guid", "a088:c203:bca5:f400")
+	mustRead("sys/class/infiniband/mlx5_0/ports/1/port_guid", "a088:c203:bca5:f401")
 }
 
 func TestRender_HCAsPerGPU(t *testing.T) {
@@ -185,7 +186,7 @@ func TestRender_GUIDPrefixNormalization(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	got, _ := os.ReadFile(filepath.Join(dir, "sys/class/infiniband/mlx5_0/node_guid"))
-	want := "aabb:cc00:1122:0000\n"
+	want := "aabb:cc00:0000:0000\n"
 	if string(got) != want {
 		t.Errorf("node_guid: got %q want %q", string(got), want)
 	}
@@ -223,13 +224,45 @@ func TestRender_NodeUniqueGUIDsAcrossNodes(t *testing.T) {
 	}
 }
 
+func TestRender_NodePortGUIDsAvoidKnownHashLowBitCollision(t *testing.T) {
+	// "38" and "worker-44" have the same low 11 bits in FNV-1a. The renderer
+	// must not key GUID/LID identity only on those low bits, or cross-node
+	// fabric routing by rendered sysfs identity becomes ambiguous.
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	ib := config.Infiniband{Enabled: true, HCACountOverride: 2}
+	if err := Render(Options{IB: ib, NodeName: "38", Output: dirA}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Render(Options{IB: ib, NodeName: "worker-44", Output: dirB}); err != nil {
+		t.Fatal(err)
+	}
+	read := func(root, rel string) string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		return strings.TrimSpace(string(b))
+	}
+	for _, rel := range []string{
+		"sys/class/infiniband/mlx5_0/node_guid",
+		"sys/class/infiniband/mlx5_0/ports/1/port_guid",
+		"sys/class/infiniband/mlx5_0/ports/1/lid",
+	} {
+		if a, b := read(dirA, rel), read(dirB, rel); a == b {
+			t.Fatalf("%s collision for known node-name pair: %q", rel, a)
+		}
+	}
+}
+
 func TestRender_NodePortGUIDsNoOverlap(t *testing.T) {
 	// Regression: the previous encoding packed the HCA index into the GUID's
 	// lowest bits as node=base|idx, port=base|(idx+1), so port_guid(mlx5_i)
 	// collided with node_guid(mlx5_{i+1}). Reserving bit 0 as the U/L bit and
 	// putting the index in bits 1..4 keeps every node/port GUID distinct.
 	dir := t.TempDir()
-	const hcas = 8
+	const hcas = 20
 	if err := Render(Options{
 		IB:       config.Infiniband{Enabled: true, HCACountOverride: hcas},
 		NodeName: "worker-a",

@@ -133,7 +133,9 @@ GIDs, or LIDs. Integration test:
 
 **Phase 2 (fabric):** With `MOCK_IB_PING_FABRIC=1`, each daemon listens on
 TCP (default port 18515), registers local ports with peers, and relays
-`PING`/`PONG` between nvml-mock pods on different nodes. The nvml-mock Helm chart always exposes a headless Service and sets the env vars.
+`PING`/`PONG` between nvml-mock pods on different nodes. For IB-enabled
+profiles, the nvml-mock Helm chart exposes a headless Service and sets the
+env vars.
 
 > **Test-cluster-only.** The TCP fabric listener binds `0.0.0.0:18515`
 > with no authentication and the daemon's Unix socket is created world
@@ -162,12 +164,14 @@ TCP (default port 18515), registers local ports with peers, and relays
   UMAD shim; cross-node validation uses client-mode pings only.
 - Other `ibping` flags (`-R`, multicast, batch modes) are out of scope.
 
-The renderer assigns **node-unique LIDs and port GUIDs** from an FNV-1a hash
-of `NODE_NAME`: the lower GUID word packs an 11-bit node id (bits 5..15) and a
-4-bit HCA index (bits 1..4), with bit 0 as the EUI-64 U/L bit (clear on the
-node GUID, set on the port GUID). LIDs pack the same node id and index above a
-0x0100 base inside the unicast range. This keeps identities distinct across
-Kind workers (out past ~2K nodes before hash collisions become likely).
+The renderer assigns **node-derived LIDs and port GUIDs** from an FNV-1a hash
+of `NODE_NAME`: GUIDs keep the configured upper 4 bytes fixed and pack a 23-bit
+node hash (bits 9..31), 8-bit HCA index (bits 1..8), and the EUI-64 U/L bit
+(clear on the node GUID, set on the port GUID) into the lower 4 bytes. LIDs are
+only 16 bits, so they use the configured HCA count as a stride across the
+unicast range (`0x0100..0xbfff`) to avoid HCA index wrap and maximize available
+node buckets for that profile. GUID-mode `ibping` has the larger identity
+space; LID-mode remains bounded by the IB LID range, as on real fabrics.
 
 ## iblinkinfo and ibv_devinfo
 
@@ -291,7 +295,7 @@ configuration.
 | `phys_state`         | `LinkUp`             | `Disabled`, `Polling`, `Training`, `LinkUp`, `LinkErrorRecovery`, ...      |
 | `hcas_per_gpu`       | `1`                  | Total HCAs = `gpu.count * hcas_per_gpu`.                                   |
 | `hca_count`          | `0`                  | If non-zero, used instead of `gpu.count * hcas_per_gpu`.                   |
-| `guid_prefix`        | `a088c2:0300:ab`     | First 12 hex digits of every node/port GUID; HCA index encodes lower bytes. |
+| `guid_prefix`        | `a088c2:0300:ab`     | Hex prefix for node/port GUIDs; the first 8 hex digits stay fixed and the lower 32 bits encode node/HCA identity. |
 | `node_desc_template` | `{node_name} mlx5_{idx}` | `{node_name}` and `{idx}` are interpolated.                            |
 
 ### Defaults per built-in profile

@@ -5,12 +5,12 @@ package render
 
 import "hash/fnv"
 
-// nodeID returns a stable 16-bit id from a Kubernetes node name.
-func nodeID(nodeName string) uint16 {
+// nodeID returns a stable 32-bit id from a Kubernetes node name.
+func nodeID(nodeName string) uint32 {
 	if nodeName == "" {
 		return 0
 	}
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(nodeName))
-	return uint16(h.Sum32())
+	return h.Sum32()
 }

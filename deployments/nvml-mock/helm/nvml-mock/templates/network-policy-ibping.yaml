@@ -1,6 +1,6 @@
 {{- /* Copyright 2026 NVIDIA CORPORATION */}}
 {{- /* SPDX-License-Identifier: Apache-2.0 */}}
-{{- if .Values.infiniband.ping.networkPolicy.enabled }}
+{{- if and .Values.infiniband.ping.networkPolicy.enabled (eq (include "nvml-mock.infinibandEnabled" .) "true") }}
 # The mock-ib TCP fabric listener binds 0.0.0.0:{{ .Values.infiniband.ping.port }}
 # with no authentication, and the DaemonSet runs privileged. This policy
 # limits the blast radius by allowing inbound fabric traffic only from peer

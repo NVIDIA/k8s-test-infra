@@ -554,7 +554,7 @@ tree.
 | `phys_state` | `LinkUp` | `Disabled`, `Polling`, `Training`, `LinkUp`, ... |
 | `hcas_per_gpu` | `1` | Total HCAs = `gpu.count * hcas_per_gpu` |
 | `hca_count` | `0` | If non-zero, used instead of `gpu.count * hcas_per_gpu` |
-| `guid_prefix` | `a088c20300ab` | First 12 hex digits of every node/port GUID; HCA index appended |
+| `guid_prefix` | `a088c20300ab` | Hex prefix for node/port GUIDs. The renderer keeps the first 8 hex digits fixed and uses the lower 32 bits for node/HCA identity |
 | `node_desc_template` | `{node_name} mlx5_{idx}` | `{node_name}` and `{idx}` are interpolated |
 
 ### Disable IB on a profile
@@ -630,9 +630,10 @@ a flat single-root layout (every device under `pci0000:00`, NUMA 0).
 ### Cross-node `ibping`
 
 Sysfs mocking alone lets `ibstat` / `iblinkinfo` work, but real `ibping`
-needs UMAD I/O. The chart always preloads `libibmockumad.so` alongside
-`libibmocksys.so`, starts `mock-ib` in each pod, and exposes a headless
-Service on port 18515 for TCP fabric relay between nvml-mock pods.
+needs UMAD I/O. For IB-enabled profiles, the chart preloads
+`libibmockumad.so` alongside `libibmocksys.so`, starts `mock-ib` in each pod,
+and exposes a headless Service on port 18515 for TCP fabric relay between
+nvml-mock pods.
 
 The fabric listener binds `0.0.0.0` with no authentication, so the chart
 also ships a `NetworkPolicy` (`infiniband.ping.networkPolicy.enabled`,
@@ -650,7 +651,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 ```
 
 On a multi-node cluster, pick two nvml-mock pods on different nodes. Read
-the server LID from sysfs, start a server, and ping by LID from the client:
+the server LID from sysfs and ping that LID from the client:
 
 ```bash
 SERVER_POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
@@ -661,8 +662,6 @@ CLIENT_POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
 LID=$(kubectl exec "$SERVER_POD" -- sh -c \
   "tr -d '[:space:]' < /var/lib/nvml-mock/ib/sys/class/infiniband/mlx5_0/ports/1/lid")
 
-kubectl exec "$SERVER_POD" -- ibping -S &
-sleep 2
 kubectl exec "$CLIENT_POD" -- ibping -c 3 "$LID"
 ```
 

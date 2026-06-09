@@ -19,9 +19,8 @@ tests:
       - equal:
           path: spec.selector["app.kubernetes.io/name"]
           value: nvml-mock
-      - equal:
+      - notExists:
           path: spec.selector["app.kubernetes.io/instance"]
-          value: RELEASE-NAME
       - equal:
           path: spec.ports[0].name
           value: ibping
@@ -44,3 +43,11 @@ tests:
       - equal:
           path: spec.ports[0].port
           value: 19000
+
+  - it: should not render for profiles without InfiniBand
+    set:
+      gpu:
+        profile: t4
+    asserts:
+      - hasDocuments:
+          count: 0

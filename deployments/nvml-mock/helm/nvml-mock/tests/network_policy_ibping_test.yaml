@@ -38,3 +38,11 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: should not render for profiles without InfiniBand
+    set:
+      gpu:
+        profile: t4
+    asserts:
+      - hasDocuments:
+          count: 0

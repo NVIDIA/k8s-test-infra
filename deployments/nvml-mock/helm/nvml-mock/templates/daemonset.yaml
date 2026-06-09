@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 apiVersion: apps/v1
 kind: DaemonSet
+{{- $ibEnabled := eq (include "nvml-mock.infinibandEnabled" .) "true" }}
 metadata:
   name: {{ include "nvml-mock.fullname" . }}
   labels:
@@ -40,10 +41,12 @@ spec:
           {{- end }}
           securityContext:
             privileged: true
+          {{- if $ibEnabled }}
           ports:
             - name: ibping
               containerPort: {{ .Values.infiniband.ping.port }}
               protocol: TCP
+          {{- end }}
           command: ["/scripts/entrypoint.sh"]
           env:
             - name: GPU_COUNT
@@ -81,12 +84,11 @@ spec:
             - name: IMEX_STATE_DIR
               value: {{ .Values.imex.stateDir }}
             {{- end }}
-            # Enable mock-ib (started by setup.sh) and TCP fabric relay
-            # between nvml-mock pods so `ibping` can reach peers cluster-wide.
+            # Enable mock-ib (started by setup.sh) only for IB-capable profiles.
             - name: MOCK_IB
-              value: "1"
+              value: {{ ternary "1" "0" $ibEnabled | quote }}
             - name: MOCK_IB_PING_FABRIC
-              value: "1"
+              value: {{ ternary "1" "0" $ibEnabled | quote }}
             - name: MOCK_IB_PING_PORT
               value: "{{ .Values.infiniband.ping.port }}"
             - name: POD_IP
