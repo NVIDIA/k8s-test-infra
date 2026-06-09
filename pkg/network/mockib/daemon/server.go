@@ -32,6 +32,18 @@ type Config struct {
 	Fabric     bool
 }
 
+const (
+	// unixConnIdleTimeout caps how long a Unix-socket client may stall between
+	// frames before its connection (and goroutine) is reaped. Diag tools run in
+	// seconds with sub-second gaps, so this is generous headroom that still
+	// prevents a half-open client from pinning a goroutine for the pod's life.
+	unixConnIdleTimeout = 5 * time.Minute
+	// fabricConnIdleTimeout is tighter because cross-pod fabric exchanges are a
+	// single REGISTER or Ping/Pong round-trip; a peer that connects to the
+	// 0.0.0.0 listener but never completes a frame is reaped quickly.
+	fabricConnIdleTimeout = 30 * time.Second
+)
+
 // Server serves libibmockumad over a Unix socket.
 type Server struct {
 	cfg      Config
@@ -158,9 +170,12 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn) {
 		if ctx.Err() != nil {
 			return
 		}
+		_ = c.SetReadDeadline(time.Now().Add(unixConnIdleTimeout))
 		var env protocol.Envelope
 		if err := protocol.ReadEnvelope(c, &env); err != nil {
-			if errors.Is(err, io.EOF) || ctx.Err() != nil {
+			// EOF (clean close) and a stalled-client read timeout are both
+			// expected lifecycle events, not errors worth logging.
+			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) || ctx.Err() != nil {
 				return
 			}
 			s.log.Printf("mock-ib: read: %v", err)

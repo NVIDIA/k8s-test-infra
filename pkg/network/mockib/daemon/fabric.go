@@ -84,9 +84,12 @@ func (s *Server) serveFabricConn(ctx context.Context, c net.Conn) {
 		if ctx.Err() != nil {
 			return
 		}
+		_ = c.SetReadDeadline(time.Now().Add(fabricConnIdleTimeout))
 		var env protocol.Envelope
 		if err := protocol.ReadEnvelope(c, &env); err != nil {
-			if errors.Is(err, io.EOF) || ctx.Err() != nil {
+			// EOF (peer closed after its REGISTER/Ping) and a stalled-peer read
+			// timeout are expected; only unexpected errors are logged.
+			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) || ctx.Err() != nil {
 				return
 			}
 			s.log.Printf("mock-ib: fabric read: %v", err)

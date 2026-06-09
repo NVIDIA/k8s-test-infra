@@ -43,13 +43,19 @@ func TestSetSAMethodResponse(t *testing.T) {
 		check func([]byte) bool
 	}{
 		{
-			name: "mad0 GET",
+			// Standard-aligned MAD: method at wire byte 3, AttributeID at 16.
+			// The response bit must land on the method byte and BaseVersion
+			// (byte 0) must be left intact — the old mad[0] shortcut corrupted it.
+			name: "method at byte 3, BaseVersion preserved",
 			setup: func(m []byte) {
-				m[0] = ibSAMethodGet
+				m[0] = 0x01 // BaseVersion
+				m[ibMADMethodOff] = ibSAMethodGet
+				binary.BigEndian.PutUint16(m[ibMADCommonHdrLen:ibMADCommonHdrLen+2], ibSAAttrPathRecord)
 			},
-			check: func(m []byte) bool { return m[0] == 0x81 },
+			check: func(m []byte) bool { return m[0] == 0x01 && m[ibMADMethodOff] == 0x81 },
 		},
 		{
+			// Layout used by madtest.SAPathQueryMAD: method one word ahead of attr.
 			name: "method before attr",
 			setup: func(m []byte) {
 				binary.BigEndian.PutUint16(m[24:26], ibSAAttrPathRecord)
@@ -60,13 +66,13 @@ func TestSetSAMethodResponse(t *testing.T) {
 		{
 			name: "TRID bytes untouched",
 			setup: func(m []byte) {
-				m[0] = 0x00
 				copy(m[8:16], []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08})
 				binary.BigEndian.PutUint16(m[24:26], ibSAAttrPathRecord)
 				m[12] = 0x01 // would match GET if scan did not skip 8-15
+				m[20] = ibSAMethodGet
 			},
 			check: func(m []byte) bool {
-				return m[12] == 0x01 && m[12]&0x80 == 0
+				return m[12] == 0x01 && m[12]&0x80 == 0 && m[20] == 0x81
 			},
 		},
 	}

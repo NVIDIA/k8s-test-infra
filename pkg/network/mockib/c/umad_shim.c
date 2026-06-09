@@ -102,6 +102,12 @@ static int next_local_port = 100;
 static void init_cfg(void) {
     const char *v = getenv("MOCK_IB");
     mock_ping = (v && v[0] == '1') ? 1 : 0;
+    /* MOCK_IB_DISABLE is the global escape hatch (see libibmocksys): when set,
+     * every mock shim becomes a true no-op so a process sees the real host. */
+    const char *disable = getenv("MOCK_IB_DISABLE");
+    if (disable && disable[0] != '\0' && disable[0] != '0') {
+        mock_ping = 0;
+    }
     const char *sock = getenv("MOCK_IB_PING_SOCKET");
     if (!sock || sock[0] == '\0') {
         sock = MOCK_DEFAULT_SOCK;

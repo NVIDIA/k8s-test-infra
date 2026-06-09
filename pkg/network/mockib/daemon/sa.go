@@ -16,6 +16,11 @@ const (
 	ibSADataOff        = 56
 	ibPathRecDGIDOff   = ibSADataOff + 8  // bit 64, 128-bit DGID
 	ibPathRecDLIDOff   = ibSADataOff + 40 // bit 320, 16-bit DLID
+
+	// ibMADCommonHdrLen is the fixed common MAD header length (BaseVer,
+	// MgmtClass, ClassVer, Method, Status, ClassSpec, 64-bit TID). AttributeID
+	// and everything beyond it begin here.
+	ibMADCommonHdrLen = 16
 )
 
 // trySAPathQuery handles ib_path_query_via GET PathRecord MADs used by ibping -G.
@@ -57,7 +62,10 @@ func isSAPathRecordGet(umad []byte) bool {
 }
 
 func pathRecordAttrOffset(mad []byte) (int, bool) {
-	for i := 0; i+2 <= len(mad); i++ {
+	// AttributeID lives at or after the 16-byte common MAD header, so begin the
+	// scan there: this keeps a 0x0035 inside the 64-bit TID (bytes 8-15) from
+	// false-matching as the PathRecord attribute.
+	for i := ibMADCommonHdrLen; i+2 <= len(mad); i++ {
 		if binary.BigEndian.Uint16(mad[i:i+2]) == ibSAAttrPathRecord {
 			return i, true
 		}
@@ -141,27 +149,35 @@ func saMethodResponseSet(mad []byte) bool {
 	return false
 }
 
+// setSAMethodResponse converts an SA GET into a GETRESP by OR-ing the response
+// bit (0x80) onto the method byte. The method's wire offset varies with the SA
+// GET layout this daemon observes (attr-4 in the synthetic fixture, byte 3 in a
+// standard-aligned MAD), so locate it relative to the AttributeID rather than
+// assuming a fixed offset. Two header regions are never written: the 64-bit TID
+// (bytes 8-15, used by libibmad to match the reply) and the leading common
+// header (BaseVersion/MgmtClass/ClassVersion at bytes 0-2). A previous revision
+// special-cased mad[0]==0x01, which unconditionally matched BaseVersion and
+// corrupted it to 0x81 without ever flipping the real method byte.
 func setSAMethodResponse(mad []byte) {
-	if len(mad) > 0 && mad[0]&0x7f == ibSAMethodGet {
-		mad[0] |= 0x80
+	attrOff, ok := pathRecordAttrOffset(mad)
+	if !ok {
 		return
 	}
-	if attrOff, ok := pathRecordAttrOffset(mad); ok {
-		for _, i := range []int{attrOff - 4, attrOff - 2} {
-			if i >= 0 && i < len(mad) && (i < 8 || i >= 16) && mad[i]&0x7f == ibSAMethodGet {
-				mad[i] |= 0x80
-				return
-			}
+	for _, i := range []int{attrOff - 4, attrOff - 2} {
+		if i >= ibMADMethodOff && i < len(mad) && (i < 8 || i >= ibMADCommonHdrLen) && mad[i]&0x7f == ibSAMethodGet {
+			mad[i] |= 0x80
+			return
 		}
-		for i := attrOff; i >= 0; i-- {
-			// IB_MAD_TRID_F occupies bytes 8-15; do not treat 0x01 there as GET method.
-			if i >= 8 && i < 16 {
-				continue
-			}
-			if mad[i]&0x7f == ibSAMethodGet {
-				mad[i] |= 0x80
-				return
-			}
+	}
+	// Reverse-scan toward the method byte. Stop at ibMADMethodOff so the
+	// BaseVersion/MgmtClass/ClassVersion bytes are never mistaken for a method.
+	for i := attrOff; i >= ibMADMethodOff; i-- {
+		if i >= 8 && i < ibMADCommonHdrLen {
+			continue
+		}
+		if mad[i]&0x7f == ibSAMethodGet {
+			mad[i] |= 0x80
+			return
 		}
 	}
 }

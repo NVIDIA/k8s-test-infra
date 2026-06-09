@@ -52,6 +52,19 @@ func (s *Server) handleVerbsOpen(c net.Conn, req protocol.VerbsOpenReq) error {
 		})
 	}
 	s.verbsMu.Lock()
+	// Dedup by device like handleOpen does for UMAD CA/port: a client that
+	// disconnects without VerbsClose (e.g. a killed `kubectl exec`) otherwise
+	// leaks a fresh handle on every open, growing verbsHandles for the pod's
+	// life. Reusing the handle per device bounds the map to the device count.
+	// A reused handle may carry a readQ entry left by a client that died
+	// between write and read; harmless here since the diag tools are
+	// single-threaded and per-device responses are deterministic.
+	for id, h := range s.verbsHandles {
+		if h.devName == req.DevName {
+			s.verbsMu.Unlock()
+			return protocol.WriteMessage(c, protocol.TypeVerbsOpen, protocol.VerbsOpenResp{Handle: id})
+		}
+	}
 	id := s.nextVerbsHandleID + 1
 	s.nextVerbsHandleID = id
 	s.verbsHandles[id] = &verbsHandle{devName: req.DevName, caName: caName}

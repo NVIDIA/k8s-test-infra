@@ -70,8 +70,11 @@ In the nvml-mock DaemonSet:
   `MOCK_IB_ROOT=/var/lib/nvml-mock/ib`, so every process in the
   container — including `kubectl exec ... ibstat` — sees the fake fabric.
 
-Set `MOCK_IB_DISABLE=1` in any process to bypass the shim (escape hatch
-for debugging the host filesystem).
+Set `MOCK_IB_DISABLE=1` in any process to bypass all three shims —
+`libibmocksys` (sysfs), `libibmockumad` (UMAD), and `libibmockverbs`
+(verbs/`NETLINK_RDMA`) — so the process sees the real host (escape hatch
+for debugging; e.g. `MOCK_IB_DISABLE=1 ibv_devinfo -l` shows the raw
+kernel view).
 
 ## Mock ibping
 
