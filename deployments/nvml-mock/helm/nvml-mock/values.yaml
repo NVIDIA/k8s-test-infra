@@ -91,9 +91,11 @@ terminationGracePeriodSeconds: 10
 # no-op when MOCK_IB=off, so `MOCK_IB=off <cmd>` is the per-command escape hatch.
 infiniband:
   # mockTier sets the container's MOCK_IB value: off | sysfs | full.
-  # Defaults to "full" for InfiniBand-enabled profiles (and "off" for non-IB
-  # profiles) — leaving this empty auto-derives that per profile. Set it
-  # explicitly to override (an invalid value fails `helm template`).
+  # Defaults to "full" for InfiniBand-enabled profiles and "sysfs" for non-IB
+  # profiles (sysfs keeps the libibmocksys redirect active so any real host IB
+  # is masked, i.e. ibstat reports 0 HCAs). Leaving this empty auto-derives
+  # that per profile. Set it explicitly to override (an invalid value fails
+  # `helm template`).
   mockTier: ""
   ping:
     port: 18515

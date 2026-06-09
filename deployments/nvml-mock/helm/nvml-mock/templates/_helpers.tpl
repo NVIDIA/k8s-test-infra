@@ -143,7 +143,10 @@ false
 Resolve the effective MOCK_IB tier: one of "off", "sysfs", or "full".
 Honors an explicit .Values.infiniband.mockTier override (validated here so a
 typo fails the render, not silently disables IB); when empty/unset it derives
-from the profile — "full" when InfiniBand is enabled, "off" otherwise.
+from the profile — "full" when InfiniBand is enabled, "sysfs" otherwise.
+Non-IB profiles use "sysfs" (not "off") so the libibmocksys redirect stays
+active and masks any real InfiniBand the host exposes (e.g. a CI runner with
+mlx5 hardware), matching the behavior expected by validate-ibstat (0 HCAs).
 */}}
 {{- define "nvml-mock.mockIBTier" -}}
 {{- $ib := .Values.infiniband | default dict -}}
@@ -154,7 +157,7 @@ from the profile — "full" when InfiniBand is enabled, "off" otherwise.
 {{- end -}}
 {{- $override -}}
 {{- else -}}
-{{- ternary "full" "off" (eq (include "nvml-mock.infinibandEnabled" .) "true") -}}
+{{- ternary "full" "sysfs" (eq (include "nvml-mock.infinibandEnabled" .) "true") -}}
 {{- end -}}
 {{- end }}
 

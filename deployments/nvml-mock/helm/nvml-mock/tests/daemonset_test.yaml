@@ -499,16 +499,17 @@ tests:
           path: spec.template.spec.containers[0].ports[0].protocol
           value: TCP
 
-  - it: should disable ping mock for profiles without InfiniBand
+  - it: should disable ping mock (but keep sysfs masking) for profiles without InfiniBand
     set:
       gpu:
         profile: t4
     asserts:
+      # sysfs (not off) so libibmocksys still masks any real host IB.
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: MOCK_IB
-            value: "off"
+            value: "sysfs"
       - contains:
           path: spec.template.spec.containers[0].env
           content:

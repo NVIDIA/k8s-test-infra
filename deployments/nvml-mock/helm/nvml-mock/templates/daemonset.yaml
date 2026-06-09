@@ -86,7 +86,8 @@ spec:
             {{- end }}
             # MOCK_IB tier: "full" (sysfs + UMAD/verbs shims + mock-ib daemon),
             # "sysfs" (sysfs redirect only), or "off" (no mocking). Defaults to
-            # "full" for IB-capable profiles and "off" otherwise; override with
+            # "full" for IB-capable profiles and "sysfs" otherwise (sysfs keeps
+            # the redirect active so any real host IB is masked); override with
             # infiniband.mockTier. The shims stay LD_PRELOAD'd in every process
             # regardless and no-op when off.
             - name: MOCK_IB
