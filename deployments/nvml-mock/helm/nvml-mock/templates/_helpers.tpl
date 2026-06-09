@@ -140,6 +140,25 @@ false
 {{- end }}
 
 {{/*
+Resolve the effective MOCK_IB tier: one of "off", "sysfs", or "full".
+Honors an explicit .Values.infiniband.mockTier override (validated here so a
+typo fails the render, not silently disables IB); when empty/unset it derives
+from the profile — "full" when InfiniBand is enabled, "off" otherwise.
+*/}}
+{{- define "nvml-mock.mockIBTier" -}}
+{{- $ib := .Values.infiniband | default dict -}}
+{{- $override := get $ib "mockTier" | default "" | toString -}}
+{{- if $override -}}
+{{- if not (has $override (list "off" "sysfs" "full")) -}}
+{{- fail (printf "infiniband.mockTier must be one of off, sysfs, full (got %q)" $override) -}}
+{{- end -}}
+{{- $override -}}
+{{- else -}}
+{{- ternary "full" "off" (eq (include "nvml-mock.infinibandEnabled" .) "true") -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Driver version helper.
 Returns the user-provided driverVersion, or derives it from gpu.profile.
 Blackwell profiles (b200, gb200) use 560.35.03; Blackwell Ultra (gb300)

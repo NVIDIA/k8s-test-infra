@@ -72,17 +72,17 @@ if [ "$ACTUAL" -ne "$EXPECTED" ]; then
   echo "=== DEBUG: libibverbs verbose enumeration ==="
   kubectl exec "$POD" -- sh -c 'IBV_SHOW_WARNINGS=1 VERBS_LOG_LEVEL=3 ibv_devinfo -l 2>&1' || true
   kubectl exec "$POD" -- sh -c 'IBV_SHOW_WARNINGS=1 VERBS_LOG_LEVEL=3 ibv_devices 2>&1' || true
-  echo "=== DEBUG: raw kernel view (MOCK_IB_DISABLE=1, bypasses libibmocksys) ==="
+  echo "=== DEBUG: raw kernel view (MOCK_IB=off, bypasses libibmocksys) ==="
   kubectl exec "$POD" -- sh -c '
     set +e
     echo "--- ls /sys/class/infiniband (real kernel) ---"
-    MOCK_IB_DISABLE=1 ls /sys/class/infiniband/ 2>&1
+    MOCK_IB=off ls /sys/class/infiniband/ 2>&1
     echo "--- ls /sys/class/infiniband_verbs (real kernel) ---"
-    MOCK_IB_DISABLE=1 ls /sys/class/infiniband_verbs/ 2>&1
+    MOCK_IB=off ls /sys/class/infiniband_verbs/ 2>&1
     echo "--- ls /dev/infiniband (real kernel) ---"
-    MOCK_IB_DISABLE=1 ls /dev/infiniband/ 2>&1
-    echo "--- MOCK_IB_DISABLE=1 ibv_devinfo -l ---"
-    MOCK_IB_DISABLE=1 ibv_devinfo -l 2>&1
+    MOCK_IB=off ls /dev/infiniband/ 2>&1
+    echo "--- MOCK_IB=off ibv_devinfo -l ---"
+    MOCK_IB=off ibv_devinfo -l 2>&1
   ' || true
   exit 1
 fi

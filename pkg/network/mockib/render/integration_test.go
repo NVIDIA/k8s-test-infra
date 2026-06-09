@@ -60,6 +60,7 @@ func TestIbstat_Integration(t *testing.T) {
 	cmd := exec.Command(ibstat)
 	cmd.Env = append(os.Environ(),
 		"LD_PRELOAD="+shim,
+		"MOCK_IB=sysfs",
 		"MOCK_IB_ROOT="+root,
 	)
 	out, err := cmd.CombinedOutput()
@@ -133,6 +134,7 @@ func TestIbvDevinfo_List_Integration(t *testing.T) {
 	cmd := exec.Command(ibv, "-l")
 	cmd.Env = append(os.Environ(),
 		"LD_PRELOAD="+shim,
+		"MOCK_IB=sysfs",
 		"MOCK_IB_ROOT="+root,
 	)
 	out, err := cmd.CombinedOutput()

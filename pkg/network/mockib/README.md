@@ -65,16 +65,24 @@ In the nvml-mock DaemonSet:
 - The Dockerfile builds both pieces and installs `infiniband-diags` +
   `rdma-core` for the real userspace tools.
 - `setup.sh` invokes `mock-ib -render-only` (or starts the full
-  daemon when `MOCK_IB=1`) to populate `/host/var/lib/nvml-mock/ib`.
+  daemon when `MOCK_IB=full`) to populate `/host/var/lib/nvml-mock/ib`.
 - The pod env sets `LD_PRELOAD=/usr/local/lib/libibmocksys.so.1` and
   `MOCK_IB_ROOT=/var/lib/nvml-mock/ib`, so every process in the
   container — including `kubectl exec ... ibstat` — sees the fake fabric.
 
-Set `MOCK_IB_DISABLE=1` in any process to bypass all three shims —
-`libibmocksys` (sysfs), `libibmockumad` (UMAD), and `libibmockverbs`
-(verbs/`NETLINK_RDMA`) — so the process sees the real host (escape hatch
-for debugging; e.g. `MOCK_IB_DISABLE=1 ibv_devinfo -l` shows the raw
-kernel view).
+`MOCK_IB` is a single tri-state switch (case-insensitive) that selects how
+much of the fabric is mocked for a given process:
+
+- `full` — all three shims active (`libibmocksys` sysfs, `libibmockumad`
+  UMAD, `libibmockverbs` verbs/`NETLINK_RDMA`) plus the `mock-ib` daemon.
+- `sysfs` — only `libibmocksys` (path redirection to `MOCK_IB_ROOT`);
+  `ibstat`/`ibstatus` work, no daemon, no UMAD/verbs interception.
+- `off` (also the default when unset, empty, or unrecognized) — every shim
+  becomes a true no-op so the process sees the real host.
+
+So `off` is the escape hatch: set `MOCK_IB=off` in any single command to
+bypass all three shims for debugging (e.g. `MOCK_IB=off ibv_devinfo -l`
+shows the raw kernel view).
 
 ## Mock ibping
 
@@ -89,7 +97,7 @@ receive management MADs without IB hardware.
 | Component | Location | Role |
 |-----------|----------|------|
 | `libibmocksys.so` | `shim.c` | Sysfs/dev path redirect (`MOCK_IB_ROOT`) |
-| `libibmockumad.so` | `umad_shim.c` | Intercept `libibumad` calls used by `ibping` when `MOCK_IB=1` |
+| `libibmockumad.so` | `umad_shim.c` | Intercept `libibumad` calls used by `ibping` when `MOCK_IB=full` |
 | `mock-ib` | `cmd/mock-ib/` | Renders sysfs from profile; UMAD over Unix socket; optional TCP fabric relay |
 
 When mock IB is enabled, preload order is
@@ -117,8 +125,7 @@ intercepts run before sysfs path rewriting.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `MOCK_IB` | `0` | Enable `libibmockumad` + `libibmockverbs` shims and start `mock-ib` |
-| `MOCK_IB_DISABLE` | (unset) | Global escape hatch: any non-empty, non-`0` value turns all three shims (`libibmocksys`, `libibmockumad`, `libibmockverbs`) into no-ops so the process sees the real host (e.g. `MOCK_IB_DISABLE=1 ibv_devinfo -l`) |
+| `MOCK_IB` | `off` | Tri-state mock tier (case-insensitive): `full` (all three shims + `mock-ib` daemon), `sysfs` (`libibmocksys` path redirect only), or `off` (no-op; also the default for unset/empty/unrecognized values). `MOCK_IB=off` is the escape hatch to see the real host (e.g. `MOCK_IB=off ibv_devinfo -l`) |
 | `MOCK_IB_PING_SOCKET` | `/run/mock-ib.sock` | Unix socket between shim and daemon |
 | `MOCK_IB_PING_FABRIC` | `0` | Enable Phase 2 TCP fabric relay between pods |
 | `MOCK_IB_PEERS` | (unset) | Comma-separated peer pod IPs for fabric registration (optional when Service discovery is used) |
@@ -238,7 +245,7 @@ to be claimed by `libmlx5`, three things must line up:
    bare-metal nodes with `mlx5_core` loaded, …) the netlink dump leaks
    that real device into the pod and our mocks are never enumerated.
    `libibmockverbs.so` therefore intercepts
-   `socket(AF_NETLINK, *, NETLINK_RDMA)` while `MOCK_IB=1` and returns
+   `socket(AF_NETLINK, *, NETLINK_RDMA)` while `MOCK_IB=full` and returns
    `-1 / EPROTONOSUPPORT`. libibverbs then falls back to the sysfs scan
    that `libibmocksys.so` already redirects to `MOCK_IB_ROOT`. The
    intercept is intentionally surgical: every other `socket(…)` call
@@ -365,12 +372,14 @@ EOF
 sudo apt-get install -y infiniband-diags
 
 LD_PRELOAD=$PWD/libibmocksys.so.1 \
+  MOCK_IB=sysfs \
   MOCK_IB_ROOT=/tmp/ibroot \
   ibstat
 ```
 
-You should see four `mlx5_X` HCAs reported as `Active` / `LinkUp` at
-400 Gb/sec (4X NDR).
+`MOCK_IB=sysfs` activates the sysfs redirector without needing the daemon;
+`MOCK_IB=full` would also work. You should see four `mlx5_X` HCAs reported
+as `Active` / `LinkUp` at 400 Gb/sec (4X NDR).
 
 ## Tests
 

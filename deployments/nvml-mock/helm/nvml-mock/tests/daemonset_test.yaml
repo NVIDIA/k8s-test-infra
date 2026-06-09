@@ -461,7 +461,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: MOCK_IB
-            value: "1"
+            value: "full"
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -508,7 +508,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: MOCK_IB
-            value: "0"
+            value: "off"
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -531,3 +531,46 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 19000
+
+  - it: should let infiniband.mockTier override the derived MOCK_IB tier
+    set:
+      infiniband:
+        mockTier: sysfs
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB
+            value: "sysfs"
+
+  - it: should let infiniband.mockTier force MOCK_IB off on an IB profile
+    set:
+      infiniband:
+        mockTier: "off"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB
+            value: "off"
+
+  - it: should let infiniband.mockTier force MOCK_IB full on a non-IB profile
+    set:
+      gpu:
+        profile: t4
+      infiniband:
+        mockTier: full
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB
+            value: "full"
+
+  - it: should reject an invalid infiniband.mockTier
+    set:
+      infiniband:
+        mockTier: bogus
+    asserts:
+      - failedTemplate:
+          errorMessage: "infiniband.mockTier must be one of off, sysfs, full (got \"bogus\")"

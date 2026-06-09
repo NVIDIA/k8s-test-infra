@@ -2,10 +2,10 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Start mock-ib when MOCK_IB=1.
+# Start mock-ib when MOCK_IB=full (case-insensitive).
 set -e
 
-if [ "${MOCK_IB:-0}" != "1" ]; then
+if [ "$(printf '%s' "${MOCK_IB:-off}" | tr '[:upper:]' '[:lower:]')" != "full" ]; then
   exit 0
 fi
 

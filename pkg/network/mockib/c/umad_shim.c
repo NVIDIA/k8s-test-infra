@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * libibmockumad.so -- LD_PRELOAD shim that forwards libibumad calls used by
- * ibping to mock-ib over a Unix socket when MOCK_IB=1.
+ * ibping to mock-ib over a Unix socket when MOCK_IB=full.
  *
- * When MOCK_IB is unset or "0", every hooked symbol delegates to the
- * real libibumad via dlsym(RTLD_NEXT, ...).
+ * For any other MOCK_IB value (sysfs, off, unset, empty, unrecognized) every
+ * hooked symbol delegates to the real libibumad via dlsym(RTLD_NEXT, ...).
+ * Set MOCK_IB=off (or leave it unset) to bypass every shim.
  *
  * Wire format matches pkg/network/mockib/protocol: 4-byte big-endian
  * frame length, JSON envelope {"type":"...","body":{...}}.  []byte fields
@@ -24,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -100,14 +102,10 @@ static int next_local_port = 100;
     } while (0)
 
 static void init_cfg(void) {
-    const char *v = getenv("MOCK_IB");
-    mock_ping = (v && v[0] == '1') ? 1 : 0;
-    /* MOCK_IB_DISABLE is the global escape hatch (see libibmocksys): when set,
-     * every mock shim becomes a true no-op so a process sees the real host. */
-    const char *disable = getenv("MOCK_IB_DISABLE");
-    if (disable && disable[0] != '\0' && disable[0] != '0') {
-        mock_ping = 0;
-    }
+    /* The UMAD shim only intercepts under MOCK_IB=full; sysfs/off/unset all
+     * leave libibumad untouched (see libibmocksys for the full mode table). */
+    const char *mode = getenv("MOCK_IB");
+    mock_ping = (mode && strcasecmp(mode, "full") == 0) ? 1 : 0;
     const char *sock = getenv("MOCK_IB_PING_SOCKET");
     if (!sock || sock[0] == '\0') {
         sock = MOCK_DEFAULT_SOCK;

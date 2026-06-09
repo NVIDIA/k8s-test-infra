@@ -38,7 +38,7 @@ should match snapshot with all overrides:
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_IB
-                  value: "1"
+                  value: full
                 - name: MOCK_IB_PING_FABRIC
                   value: "1"
                 - name: MOCK_IB_PING_PORT
@@ -153,7 +153,7 @@ should match snapshot with b200 profile:
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_IB
-                  value: "1"
+                  value: full
                 - name: MOCK_IB_PING_FABRIC
                   value: "1"
                 - name: MOCK_IB_PING_PORT
@@ -257,7 +257,7 @@ should match snapshot with default values:
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_IB
-                  value: "1"
+                  value: full
                 - name: MOCK_IB_PING_FABRIC
                   value: "1"
                 - name: MOCK_IB_PING_PORT

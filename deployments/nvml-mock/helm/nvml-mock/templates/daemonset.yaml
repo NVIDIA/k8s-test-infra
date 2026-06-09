@@ -84,9 +84,13 @@ spec:
             - name: IMEX_STATE_DIR
               value: {{ .Values.imex.stateDir }}
             {{- end }}
-            # Enable mock-ib (started by setup.sh) only for IB-capable profiles.
+            # MOCK_IB tier: "full" (sysfs + UMAD/verbs shims + mock-ib daemon),
+            # "sysfs" (sysfs redirect only), or "off" (no mocking). Defaults to
+            # "full" for IB-capable profiles and "off" otherwise; override with
+            # infiniband.mockTier. The shims stay LD_PRELOAD'd in every process
+            # regardless and no-op when off.
             - name: MOCK_IB
-              value: {{ ternary "1" "0" $ibEnabled | quote }}
+              value: {{ include "nvml-mock.mockIBTier" . | quote }}
             - name: MOCK_IB_PING_FABRIC
               value: {{ ternary "1" "0" $ibEnabled | quote }}
             - name: MOCK_IB_PING_PORT

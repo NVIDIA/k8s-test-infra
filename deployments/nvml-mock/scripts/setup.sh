@@ -216,12 +216,26 @@ mkdir -p /host/run/nvidia/validations
 touch /host/run/nvidia/validations/toolkit-ready
 
 # 9. InfiniBand: render sysfs via mock-ib; optionally run UMAD/fabric daemon.
+#    MOCK_IB selects the mock tier (case-insensitive):
+#      full  -> sysfs redirection + UMAD/verbs shims + mock-ib daemon
+#      sysfs -> sysfs redirection only (ibstat/ibstatus; no daemon)
+#      off   -> nothing mocked (default)
+#    Any other value is a typo; fail fast so IB isn't silently disabled.
+MOCK_IB_MODE=$(printf '%s' "${MOCK_IB:-off}" | tr '[:upper:]' '[:lower:]')
+case "$MOCK_IB_MODE" in
+  off | sysfs | full) ;;
+  *)
+    echo "ERROR: MOCK_IB='$MOCK_IB' is invalid; expected off, sysfs, or full" >&2
+    exit 1
+    ;;
+esac
+
 IB_ROOT="$HOST/ib"
 mkdir -p "$IB_ROOT"
-if [ -x /usr/local/bin/mock-ib ]; then
+if [ "$MOCK_IB_MODE" != "off" ] && [ -x /usr/local/bin/mock-ib ]; then
   # Render the sysfs tree synchronously first. This is fatal under `set -e`,
   # so a profile typo fails the pod here with a clear error instead of
-  # silently producing an empty tree / zero HCAs. When MOCK_IB=1 the serving
+  # silently producing an empty tree / zero HCAs. When MOCK_IB=full the serving
   # daemon below re-renders idempotently before it starts listening; we still
   # render here so the fail-fast signal isn't lost to the backgrounded daemon
   # (whose render failure would just exit the `&` child while setup continues).
@@ -231,7 +245,7 @@ if [ -x /usr/local/bin/mock-ib ]; then
     -node-name "$NODE_NAME" \
     -ib-root "$IB_ROOT" \
     -render-only
-  if [ "${MOCK_IB:-0}" = "1" ]; then
+  if [ "$MOCK_IB_MODE" = "full" ]; then
     /scripts/start-mock-ib.sh &
   fi
 fi

@@ -4,7 +4,8 @@
  *
  * libibmockverbs.so -- LD_PRELOAD shim used by ibv_devinfo / libibverbs.
  *
- * Two responsibilities, both gated on MOCK_IB=1:
+ * Two responsibilities, both gated on MOCK_IB=full (sysfs/off/unset leave
+ * libibverbs untouched; set MOCK_IB=off to bypass every shim):
  *
  *   1. open/read/write/close interception for /dev/infiniband/uverbs*
  *      so verbs ioctl/write commands are forwarded to the mock-ib daemon
@@ -29,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -79,16 +81,12 @@ static int (*real_close)(int);
 static int (*real_socket)(int, int, int);
 
 static void init_cfg(void) {
-    const char *v = getenv("MOCK_IB");
-    mock_ib = (v && v[0] == '1') ? 1 : 0;
-    /* MOCK_IB_DISABLE is the global escape hatch (see libibmocksys): when set,
-     * every mock shim becomes a true no-op so a process sees the real host.
-     * This also makes `MOCK_IB_DISABLE=1 ibv_devinfo -l` (validate-ibv-devinfo's
-     * raw-kernel debug dump) bypass the NETLINK_RDMA block and uverbs redirect. */
-    const char *disable = getenv("MOCK_IB_DISABLE");
-    if (disable && disable[0] != '\0' && disable[0] != '0') {
-        mock_ib = 0;
-    }
+    /* The verbs shim only intercepts under MOCK_IB=full; any other value
+     * (sysfs, off, unset) leaves libibverbs and the NETLINK_RDMA fast-path
+     * untouched, so `MOCK_IB=off ibv_devinfo -l` shows the raw kernel view
+     * (see libibmocksys for the full mode table). */
+    const char *mode = getenv("MOCK_IB");
+    mock_ib = (mode && strcasecmp(mode, "full") == 0) ? 1 : 0;
     const char *sock = getenv("MOCK_IB_PING_SOCKET");
     if (!sock || sock[0] == '\0') {
         sock = MOCK_DEFAULT_SOCK;
@@ -418,7 +416,7 @@ int close(int fd) {
  * its sysfs scan — which `libibmocksys.so` already redirects to the
  * mock tree, where both `uverbs0` and `uverbs1` are present.
  *
- * The intercept is intentionally surgical: only when MOCK_IB=1 AND
+ * The intercept is intentionally surgical: only when MOCK_IB=full AND
  * domain == AF_NETLINK AND protocol == NETLINK_RDMA. Every other socket
  * call (AF_UNIX, AF_INET, NETLINK_ROUTE, NETLINK_KOBJECT_UEVENT, ...) is
  * forwarded untouched so Kubernetes networking, DNS, kubelet probes,
