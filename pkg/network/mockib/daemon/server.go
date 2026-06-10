@@ -181,6 +181,10 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn) {
 			s.log.Printf("mock-ib: read: %v", err)
 			return
 		}
+		// Bound the response write the same way the read above is bounded: a
+		// client that sends a request frame then stops reading must not pin
+		// this goroutine for the pod's life on a full socket buffer.
+		_ = c.SetWriteDeadline(time.Now().Add(unixConnIdleTimeout))
 		if err := s.dispatch(c, env); err != nil {
 			s.log.Printf("mock-ib: %s: %v", env.Type, err)
 			return

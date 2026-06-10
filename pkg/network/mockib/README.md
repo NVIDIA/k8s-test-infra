@@ -317,6 +317,7 @@ configuration.
 | `h100`   | yes     | ConnectX-7 (`MT4129`)  | NDR 400 Gb/s | 1          |
 | `b200`   | yes     | ConnectX-7 (`MT4129`)  | NDR 400 Gb/s | 1          |
 | `gb200`  | yes     | ConnectX-7 (`MT4129`)  | NDR 400 Gb/s | 1          |
+| `gb300`  | yes     | ConnectX-7 (`MT4129`)  | NDR 400 Gb/s | 1          |
 | `l40s`   | no      | —                      | —            | —          |
 | `t4`     | no      | —                      | —            | —          |
 

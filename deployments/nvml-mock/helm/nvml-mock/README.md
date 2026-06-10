@@ -536,6 +536,7 @@ tree.
 | `h100`  | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
 | `b200`  | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
 | `gb200` | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
+| `gb300` | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
 | `l40s`  | no  | — | — | — |
 | `t4`    | no  | — | — | — |
 
@@ -559,15 +560,32 @@ tree.
 
 ### Disable IB on a profile
 
-Set `enabled: false` either inline:
+Two options, depending on intent:
 
-```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --set gpu.profile=h100 \
-  --set-string 'gpu.customConfig=infiniband: { enabled: false }'
-```
+- **Turn the in-pod mock IB off at runtime** (no sysfs render, no `mock-ib`
+  daemon, shims become no-ops) without editing the profile:
 
-…or via a custom profile file (preferred for full control).
+  ```bash
+  helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+    --set gpu.profile=h100 \
+    --set infiniband.mockTier=off
+  ```
+
+  This disables `ibstat` / `ibping` / `iblinkinfo` mocking in the pod. The
+  chart still renders the IB `Service` and `NetworkPolicy` because those track
+  the profile's `infiniband.enabled`, not the tier — use the next option to
+  drop them too.
+
+- **Set `infiniband.enabled: false` in the profile** via a custom profile
+  file (preferred for full control). Note that `gpu.customConfig` *replaces
+  the entire* profile config rather than merging, so an inline
+  `--set-string 'gpu.customConfig=infiniband: { enabled: false }'` would throw
+  away all the GPU settings — pass a complete config file instead:
+
+  ```bash
+  helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+    --set-file gpu.customConfig=my-h100-no-ib.yaml
+  ```
 
 ## PCIe topology mocking
 
@@ -708,6 +726,7 @@ for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
 | `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps for fake-gpu-operator discovery |
 | `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Labels on profile ConfigMaps for discovery |
+| `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
 

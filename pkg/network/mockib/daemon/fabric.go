@@ -95,6 +95,9 @@ func (s *Server) serveFabricConn(ctx context.Context, c net.Conn) {
 			s.log.Printf("mock-ib: fabric read: %v", err)
 			return
 		}
+		// Symmetric to the read deadline above: cap the Pong/response write so
+		// a peer that stops reading mid-exchange cannot pin this goroutine.
+		_ = c.SetWriteDeadline(time.Now().Add(fabricConnIdleTimeout))
 		if err := s.dispatchFabric(c, env); err != nil {
 			s.log.Printf("mock-ib: fabric %s: %v", env.Type, err)
 			return
