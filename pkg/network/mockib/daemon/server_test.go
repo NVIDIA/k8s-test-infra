@@ -132,6 +132,76 @@ func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 	cancel()
 }
 
+func TestServer_handleSend_shortMADNoPanic(t *testing.T) {
+	dir := t.TempDir()
+	if err := render.Render(render.Options{
+		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "n", Output: dir,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(os.TempDir(), fmt.Sprintf("mock-ib-%d-short.sock", os.Getpid()))
+	t.Cleanup(func() { _ = os.Remove(sock) })
+	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe(ctx) }()
+	waitForSocket(t, sock, errCh)
+
+	conn, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if err := protocol.WriteMessage(conn, protocol.TypeOpen, protocol.OpenReq{CAName: "mlx5_0", Port: 1}); err != nil {
+		t.Fatal(err)
+	}
+	var env protocol.Envelope
+	if err := protocol.ReadEnvelope(conn, &env); err != nil {
+		t.Fatal(err)
+	}
+	var openResp protocol.OpenResp
+	if err := protocol.DecodeBody(env, &openResp); err != nil {
+		t.Fatal(err)
+	}
+	if openResp.Handle == 0 {
+		t.Fatalf("open: %+v", openResp)
+	}
+
+	// A truncated umad buffer (shorter than the 56-byte header) used to slice
+	// umad[umadMADOffset:] out of range and panic the serveConn goroutine.
+	// Now it must come back as an error and leave the daemon serving.
+	if err := protocol.WriteMessage(conn, protocol.TypeSend, protocol.SendReq{
+		Handle: openResp.Handle,
+		MAD:    make([]byte, 10),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := protocol.ReadEnvelope(conn, &env); err != nil {
+		t.Fatal(err)
+	}
+	var sendResp protocol.SendResp
+	if err := protocol.DecodeBody(env, &sendResp); err != nil {
+		t.Fatal(err)
+	}
+	if sendResp.OK || !strings.Contains(sendResp.Error, "too short") {
+		t.Fatalf("short send: got %+v, want error containing \"too short\"", sendResp)
+	}
+
+	// The daemon must still answer on the same connection (goroutine survived).
+	if err := protocol.WriteMessage(conn, protocol.TypeClose, protocol.CloseReq{Handle: openResp.Handle}); err != nil {
+		t.Fatal(err)
+	}
+	if err := protocol.ReadEnvelope(conn, &env); err != nil {
+		t.Fatalf("daemon stopped serving after short MAD: %v", err)
+	}
+	cancel()
+}
+
 func TestServer_handleClose_unknownHandle(t *testing.T) {
 	dir := t.TempDir()
 	if err := render.Render(render.Options{

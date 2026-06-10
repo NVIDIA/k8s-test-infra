@@ -10,7 +10,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
 )
 
-func TestGraph_FullMeshNeighbors(t *testing.T) {
+func TestGraph_BuildAndLookup(t *testing.T) {
 	local := []protocol.PortAdvert{
 		{PortGUID: "a088:c203:00ab:0001", LID: 0x101, CAName: "mlx5_0"},
 	}
@@ -25,10 +25,5 @@ func TestGraph_FullMeshNeighbors(t *testing.T) {
 	remote, ok := g.ByLID(0x102)
 	if !ok || remote.PodIP != "10.0.0.2" {
 		t.Fatalf("ByLID: %+v ok=%v", remote, ok)
-	}
-	p := g.Ports()[0]
-	nb, ok := g.InboundNeighborFor(remote)
-	if !ok || nb.PortGUID != p.PortGUID {
-		t.Fatalf("inbound for remote: %+v ok=%v", nb, ok)
 	}
 }

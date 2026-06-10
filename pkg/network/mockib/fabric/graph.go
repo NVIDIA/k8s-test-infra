@@ -90,29 +90,6 @@ func (g *Graph) ByCAName(caName string) (Port, bool) {
 	return Port{}, false
 }
 
-// OutboundNeighbor picks one stable remote neighbor for local port P (lowest GUID).
-func (g *Graph) OutboundNeighbor(p Port) (Port, bool) {
-	for _, cand := range g.ports {
-		if cand.PortGUID == p.PortGUID {
-			continue
-		}
-		return cand, true
-	}
-	return Port{}, false
-}
-
-// InboundNeighborFor returns A as neighbor when synthesizing PORT_INFO for port B
-// so ibnd sees B connected to A (full mesh via inbound edges).
-func (g *Graph) InboundNeighborFor(target Port) (Port, bool) {
-	for _, cand := range g.ports {
-		if cand.PortGUID == target.PortGUID {
-			continue
-		}
-		return cand, true
-	}
-	return Port{}, false
-}
-
 func coalesceGUID(nodeGUID, portGUID string) string {
 	if nodeGUID != "" {
 		return nodeGUID

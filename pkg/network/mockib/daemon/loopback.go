@@ -5,16 +5,16 @@ package daemon
 
 import (
 	"encoding/binary"
-	"sync"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/gid"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
 )
 
-// Loopback matches outbound ping MADs to local port GUIDs under ib-root and synthesizes RECV payloads.
+// Loopback matches outbound ping MADs to local port GUIDs under ib-root and
+// synthesizes RECV payloads. The lookup maps are populated once in NewLoopback
+// and never mutated afterwards, so reads need no synchronization.
 type Loopback struct {
-	mu     sync.RWMutex
 	byGUID map[string]protocol.PortAdvert
 	byGID  map[string]protocol.PortAdvert
 	byLID  map[uint16]protocol.PortAdvert
@@ -65,26 +65,17 @@ func (l *Loopback) SynthesizeRecv(sendMad []byte) []byte {
 
 func (l *Loopback) matchesLocal(umad []byte) bool {
 	if g, ok := destPortGUID(umad); ok {
-		l.mu.RLock()
-		_, ok := l.byGUID[g]
-		l.mu.RUnlock()
-		if ok {
+		if _, ok := l.byGUID[g]; ok {
 			return true
 		}
 	}
 	if g, ok := destGID(umad); ok {
-		l.mu.RLock()
-		_, ok := l.byGID[gid.Normalize(g)]
-		l.mu.RUnlock()
-		if ok {
+		if _, ok := l.byGID[gid.Normalize(g)]; ok {
 			return true
 		}
 	}
 	if lid, ok := destLID(umad); ok {
-		l.mu.RLock()
-		_, ok := l.byLID[lid]
-		l.mu.RUnlock()
-		if ok {
+		if _, ok := l.byLID[lid]; ok {
 			return true
 		}
 	}
@@ -96,8 +87,6 @@ func (l *Loopback) lidForGID(gidBytes []byte) (uint16, bool) {
 	if len(gidBytes) != 16 {
 		return 0, false
 	}
-	l.mu.RLock()
-	defer l.mu.RUnlock()
 	if p, ok := l.byGID[gid.Normalize(gid.Format(gidBytes))]; ok {
 		return p.LID, true
 	}

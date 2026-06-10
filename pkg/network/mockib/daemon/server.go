@@ -268,6 +268,14 @@ func (s *Server) handleSend(c net.Conn, req protocol.SendReq) error {
 	if len(req.MAD) == 0 {
 		return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{Error: "empty mad"})
 	}
+	// Reject a truncated umad buffer before any downstream wire-offset read.
+	// The real shim always sends a full 56-byte umad header + MAD, but a short
+	// buffer sent over the local 0666 Unix socket would otherwise slice
+	// umad[umadMADOffset:] out of range (e.g. in the SA path query) and panic
+	// the serveConn goroutine, taking the daemon down.
+	if len(req.MAD) < umadMADOffset+ibMADCommonHdrLen {
+		return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{Error: "mad too short"})
+	}
 	s.graphMu.RLock()
 	g := s.graph
 	s.graphMu.RUnlock()

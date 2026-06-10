@@ -60,7 +60,7 @@ COPY --from=builder /out/check-fabric    /usr/local/bin/check-fabric
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
-        infiniband-diags rdma-core ibverbs-utils ibverbs-providers python3; \
+        infiniband-diags rdma-core ibverbs-utils ibverbs-providers; \
     rm -rf /var/lib/apt/lists/*; \
     # libibverbs prints "couldn't open config directory '/etc/libibverbs.d'"
     # when the dir is missing. ibverbs-providers ships .driver files there,
