@@ -492,18 +492,41 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 ## InfiniBand mocking
 
 Each profile carries an `infiniband:` block alongside the GPU config. When the
-DaemonSet starts, `render-ib-sysfs` reads it and writes a fake sysfs tree at
-`/var/lib/nvml-mock/ib/sys/class/infiniband/...`. Inside the container, the
-`LD_PRELOAD` shim `libibmocksys.so` rewrites every access to
-`/sys/class/infiniband*`, `/sys/class/infiniband_mad/`,
-`/sys/class/infiniband_verbs/` and `/dev/infiniband` so real userspace tools
-read from the rendered tree:
+DaemonSet starts, `mock-ib` reads it and writes a fake sysfs tree at
+`/var/lib/nvml-mock/ib/sys/class/infiniband/...`. Inside the container, three
+LD_PRELOAD shims cooperate (preload order
+`libibmockumad.so:libibmockverbs.so:libibmocksys.so`):
+
+- `libibmocksys.so` rewrites every access to `/sys/class/infiniband*`,
+  `/sys/class/infiniband_mad/`, `/sys/class/infiniband_verbs/` and
+  `/dev/infiniband` so sysfs-driven tools read from the rendered tree.
+- `libibmockumad.so` proxies `libibumad`'s `umad_send` / `umad_recv` to the
+  in-pod `mock-ib` daemon (Unix socket) which handles SA path queries,
+  ibping echoes, and SMP synthesis for `iblinkinfo`.
+- `libibmockverbs.so` proxies open/read/write on `/dev/infiniband/uverbsN`
+  so `libibverbs` consumers can enumerate HCAs.
 
 ```bash
 POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')
+
+# sysfs / libibumad (always works):
 kubectl exec "$POD" -- ibstat
 kubectl exec "$POD" -- ibstatus
+
+# libibverbs enumeration (modalias matches libmlx5's match table):
+kubectl exec "$POD" -- ibv_devinfo -l
+kubectl exec "$POD" -- ibv_devices
+
+# Subnet management direct-route walk (cross-node fabric scan):
+kubectl exec "$POD" -- iblinkinfo
 ```
+
+Full per-device `ibv_devinfo` (without `-l`) intentionally is not supported:
+after libibverbs claims the device, `libmlx5`'s `verbs_open_device` issues
+real uverbs `ioctl()`s that a userspace `LD_PRELOAD` shim cannot fake. The
+same port-level information (state, phys state, GID, LID, rate, link layer)
+is available through `ibstatus`, which reads it from the rendered sysfs
+tree.
 
 ### Defaults per profile
 
@@ -513,6 +536,7 @@ kubectl exec "$POD" -- ibstatus
 | `h100`  | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
 | `b200`  | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
 | `gb200` | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
+| `gb300` | yes | ConnectX-7 (`MT4129`) | NDR 400 Gb/s | 1 |
 | `l40s`  | no  | — | — | — |
 | `t4`    | no  | — | — | — |
 
@@ -531,20 +555,37 @@ kubectl exec "$POD" -- ibstatus
 | `phys_state` | `LinkUp` | `Disabled`, `Polling`, `Training`, `LinkUp`, ... |
 | `hcas_per_gpu` | `1` | Total HCAs = `gpu.count * hcas_per_gpu` |
 | `hca_count` | `0` | If non-zero, used instead of `gpu.count * hcas_per_gpu` |
-| `guid_prefix` | `a088c20300ab` | First 12 hex digits of every node/port GUID; HCA index appended |
+| `guid_prefix` | `a088c20300ab` | Hex prefix for node/port GUIDs. The renderer keeps the first 8 hex digits fixed and uses the lower 32 bits for node/HCA identity |
 | `node_desc_template` | `{node_name} mlx5_{idx}` | `{node_name}` and `{idx}` are interpolated |
 
 ### Disable IB on a profile
 
-Set `enabled: false` either inline:
+Two options, depending on intent:
 
-```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --set gpu.profile=h100 \
-  --set-string 'gpu.customConfig=infiniband: { enabled: false }'
-```
+- **Turn the in-pod mock IB off at runtime** (no sysfs render, no `mock-ib`
+  daemon, shims become no-ops) without editing the profile:
 
-…or via a custom profile file (preferred for full control).
+  ```bash
+  helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+    --set gpu.profile=h100 \
+    --set infiniband.mockTier=off
+  ```
+
+  This disables `ibstat` / `ibping` / `iblinkinfo` mocking in the pod. The
+  chart still renders the IB `Service` and `NetworkPolicy` because those track
+  the profile's `infiniband.enabled`, not the tier — use the next option to
+  drop them too.
+
+- **Set `infiniband.enabled: false` in the profile** via a custom profile
+  file (preferred for full control). Note that `gpu.customConfig` *replaces
+  the entire* profile config rather than merging, so an inline
+  `--set-string 'gpu.customConfig=infiniband: { enabled: false }'` would throw
+  away all the GPU settings — pass a complete config file instead:
+
+  ```bash
+  helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+    --set-file gpu.customConfig=my-h100-no-ib.yaml
+  ```
 
 ## PCIe topology mocking
 
@@ -604,6 +645,59 @@ DaemonSet under `set -e` if it finds a typo:
 If a profile omits `pcie_topology:` entirely the renderer falls back to
 a flat single-root layout (every device under `pci0000:00`, NUMA 0).
 
+### Cross-node `ibping`
+
+Sysfs mocking alone lets `ibstat` / `iblinkinfo` work, but real `ibping`
+needs UMAD I/O. For IB-enabled profiles, the chart preloads
+`libibmockumad.so` alongside `libibmocksys.so`, starts `mock-ib` in each pod,
+and exposes a headless Service on port 18515 for TCP fabric relay between
+nvml-mock pods.
+
+The fabric listener binds `0.0.0.0` with no authentication, so the chart
+also ships a `NetworkPolicy` (`infiniband.ping.networkPolicy.enabled`,
+default `true`) that allows inbound fabric traffic only from peer
+nvml-mock pods. NetworkPolicy is enforced only by CNIs that implement it;
+Kind's default `kindnet` ignores it, so it is a no-op in the typical Kind
+fixture but limits exposure on Calico/Cilium-backed clusters. mock-ib is a
+test fixture — don't deploy it to a shared or production cluster.
+
+```bash
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --set gpu.profile=a100 \
+  --set gpu.count=2 \
+  --wait --timeout 120s
+```
+
+On a multi-node cluster, pick two nvml-mock pods on different nodes. Read
+the server LID from sysfs and ping that LID from the client:
+
+```bash
+SERVER_POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+  -o jsonpath='{.items[0].metadata.name}')
+CLIENT_POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+  -o jsonpath='{.items[1].metadata.name}')
+
+LID=$(kubectl exec "$SERVER_POD" -- sh -c \
+  "tr -d '[:space:]' < /var/lib/nvml-mock/ib/sys/class/infiniband/mlx5_0/ports/1/lid")
+
+kubectl exec "$CLIENT_POD" -- ibping -c 3 "$LID"
+```
+
+For automated cross-node validation (including peer restart and retries), use
+`tests/e2e/validate-ibping.sh`. LID-based ping is the supported path;
+cross-node `ibping -G <port_guid>` is supported (use `0x` hex without colons;
+see `pkg/network/mockib/README.md`). Companion fabric validators:
+
+- [`tests/e2e/validate-iblinkinfo.sh`](../../../../tests/e2e/validate-iblinkinfo.sh)
+  — direct-route walk reports peer GUIDs without duplicate-port errors.
+- [`tests/e2e/validate-ibv-devinfo.sh`](../../../../tests/e2e/validate-ibv-devinfo.sh)
+  — `ibv_devinfo -l` claims every rendered HCA via libmlx5; `ibstatus`
+  confirms ACTIVE / LinkUp port state.
+
+See [`pkg/network/mockib/README.md`](../../../../pkg/network/mockib/README.md#mock-ibping)
+for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
+`MOCK_IB_DEBUG_SMP`, …) and architecture details.
+
 ## Configuration
 
 ### Values
@@ -632,6 +726,9 @@ a flat single-root layout (every device under `pci0000:00`, NUMA 0).
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
 | `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps for fake-gpu-operator discovery |
 | `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Labels on profile ConfigMaps for discovery |
+| `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
+| `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
+| `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
 
 ### GPU Profiles
 

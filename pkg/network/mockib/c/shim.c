@@ -16,8 +16,12 @@
  *   - dlsym(RTLD_NEXT, ...) is resolved lazily on first call and cached.
  *   - Path rewriting uses a thread-local fixed buffer (PATH_MAX) -- no
  *     allocations on the hot path.
- *   - When MOCK_IB_DISABLE=1 (or root is unset and "/var/lib/nvml-mock" does
- *     not exist) the shim becomes a true no-op.
+ *   - MOCK_IB selects how much of the fabric is mocked: "full" (sysfs +
+ *     UMAD/verbs + daemon) and "sysfs" (path redirection only) both activate
+ *     this shim; "off", an empty/unset value, or any unrecognized value make
+ *     it a true no-op so the process sees the real host. Matching is
+ *     case-insensitive. There is no separate disable flag — set MOCK_IB=off
+ *     (or leave it unset) to bypass every shim.
  *   - Variadic open()/openat() are handled with the `mode_t` extraction
  *     pattern recommended by glibc's headers: read as `unsigned int` from
  *     va_arg (post default-argument-promotion) and cast back to mode_t.
@@ -40,6 +44,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -69,8 +74,11 @@ static int disabled_cached = -1;
 static pthread_once_t init_once = PTHREAD_ONCE_INIT;
 
 static void init_root(void) {
-    const char *disable = getenv("MOCK_IB_DISABLE");
-    if (disable && disable[0] != '\0' && disable[0] != '0') {
+    /* Sysfs redirection is active for MOCK_IB=sysfs and MOCK_IB=full; every
+     * other value (off, unset, empty, typo) leaves the shim a no-op. */
+    const char *mode = getenv("MOCK_IB");
+    if (!mode ||
+        (strcasecmp(mode, "full") != 0 && strcasecmp(mode, "sysfs") != 0)) {
         disabled_cached = 1;
         return;
     }

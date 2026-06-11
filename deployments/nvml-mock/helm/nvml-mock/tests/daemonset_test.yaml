@@ -453,3 +453,125 @@ tests:
       - equal:
           path: spec.template.spec.terminationGracePeriodSeconds
           value: 0
+
+  # ── InfiniBand ping mock ────────────────────────────────────────────
+  - it: should set ping mock env, LD_PRELOAD, and containerPort
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB
+            value: "full"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_PING_FABRIC
+            value: "1"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_PING_PORT
+            value: "18515"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_PING_SERVICE_HOST
+            value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LD_PRELOAD
+            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].name
+          value: ibping
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 18515
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].protocol
+          value: TCP
+
+  - it: should disable ping mock (but keep sysfs masking) for profiles without InfiniBand
+    set:
+      gpu:
+        profile: t4
+    asserts:
+      # sysfs (not off) so libibmocksys still masks any real host IB.
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB
+            value: "sysfs"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_PING_FABRIC
+            value: "0"
+      - notExists:
+          path: spec.template.spec.containers[0].ports
+
+  - it: should honor a custom ping port
+    set:
+      infiniband:
+        ping:
+          port: 19000
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_PING_PORT
+            value: "19000"
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 19000
+
+  - it: should let infiniband.mockTier override the derived MOCK_IB tier
+    set:
+      infiniband:
+        mockTier: sysfs
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB
+            value: "sysfs"
+
+  - it: should let infiniband.mockTier force MOCK_IB off on an IB profile
+    set:
+      infiniband:
+        mockTier: "off"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB
+            value: "off"
+
+  - it: should let infiniband.mockTier force MOCK_IB full on a non-IB profile
+    set:
+      gpu:
+        profile: t4
+      infiniband:
+        mockTier: full
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB
+            value: "full"
+
+  - it: should reject an invalid infiniband.mockTier
+    set:
+      infiniband:
+        mockTier: bogus
+    asserts:
+      - failedTemplate:
+          errorMessage: "infiniband.mockTier must be one of off, sysfs, full (got \"bogus\")"

@@ -215,19 +215,39 @@ ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 mkdir -p /host/run/nvidia/validations
 touch /host/run/nvidia/validations/toolkit-ready
 
-# 9. Render fake InfiniBand sysfs tree (consumed via libibmocksys.so LD_PRELOAD).
-#    Only writes anything when the profile has `infiniband.enabled: true`.
-#    Failures are fatal under `set -e`: a profile typo here would otherwise
-#    silently produce an empty IB tree and `ibstat` would report zero HCAs
-#    with no signal in pod logs.
+# 9. InfiniBand: render sysfs via mock-ib; optionally run UMAD/fabric daemon.
+#    MOCK_IB selects the mock tier (case-insensitive):
+#      full  -> sysfs redirection + UMAD/verbs shims + mock-ib daemon
+#      sysfs -> sysfs redirection only (ibstat/ibstatus; no daemon)
+#      off   -> nothing mocked (default)
+#    Any other value is a typo; fail fast so IB isn't silently disabled.
+MOCK_IB_MODE=$(printf '%s' "${MOCK_IB:-off}" | tr '[:upper:]' '[:lower:]')
+case "$MOCK_IB_MODE" in
+  off | sysfs | full) ;;
+  *)
+    echo "ERROR: MOCK_IB='$MOCK_IB' is invalid; expected off, sysfs, or full" >&2
+    exit 1
+    ;;
+esac
+
 IB_ROOT="$HOST/ib"
 mkdir -p "$IB_ROOT"
-if [ -x /usr/local/bin/render-ib-sysfs ]; then
-  /usr/local/bin/render-ib-sysfs \
-    --config /etc/nvml-mock/config.yaml \
-    --gpu-count "$GPU_COUNT" \
-    --node-name "$NODE_NAME" \
-    --output "$IB_ROOT"
+if [ "$MOCK_IB_MODE" != "off" ] && [ -x /usr/local/bin/mock-ib ]; then
+  # Render the sysfs tree synchronously first. This is fatal under `set -e`,
+  # so a profile typo fails the pod here with a clear error instead of
+  # silently producing an empty tree / zero HCAs. When MOCK_IB=full the serving
+  # daemon below re-renders idempotently before it starts listening; we still
+  # render here so the fail-fast signal isn't lost to the backgrounded daemon
+  # (whose render failure would just exit the `&` child while setup continues).
+  /usr/local/bin/mock-ib \
+    -config /etc/nvml-mock/config.yaml \
+    -gpu-count "$GPU_COUNT" \
+    -node-name "$NODE_NAME" \
+    -ib-root "$IB_ROOT" \
+    -render-only
+  if [ "$MOCK_IB_MODE" = "full" ]; then
+    /scripts/start-mock-ib.sh &
+  fi
 fi
 
 # 10. Render fake PCI sysfs tree (consumed by topology-aware DRA / device

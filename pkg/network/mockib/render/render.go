@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockibsysfs/config"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 )
 
 // Options controls a single rendering pass.
@@ -34,8 +34,8 @@ func Render(o Options) error {
 	}
 	ib := o.IB.Defaults()
 	guidPrefix := normalizeGUIDPrefix(ib.GUIDPrefix)
-	if len(guidPrefix) != 12 {
-		return fmt.Errorf("guid_prefix must be 12 hex digits after stripping ':' (got %q -> %q)", ib.GUIDPrefix, guidPrefix)
+	if len(guidPrefix) < 8 || !isHexString(guidPrefix) {
+		return fmt.Errorf("guid_prefix must be at least 8 hex digits after stripping ':' (got %q -> %q)", ib.GUIDPrefix, guidPrefix)
 	}
 
 	hcaCount := ib.HCACountOverride
@@ -44,6 +44,12 @@ func Render(o Options) error {
 	}
 	if hcaCount <= 0 {
 		return fmt.Errorf("infiniband: hca_count is 0 (gpu_count=%d, hcas_per_gpu=%d)", o.GPUCount, ib.HCAsPerGPU)
+	}
+	if hcaCount > maxGUIDHCAs {
+		return fmt.Errorf("infiniband: hca_count=%d exceeds mock GUID capacity %d", hcaCount, maxGUIDHCAs)
+	}
+	if hcaCount > maxUnicastLIDs {
+		return fmt.Errorf("infiniband: hca_count=%d exceeds mock LID capacity %d", hcaCount, maxUnicastLIDs)
 	}
 
 	root := o.Output
@@ -68,22 +74,23 @@ func Render(o Options) error {
 	}
 
 	for i := 0; i < hcaCount; i++ {
-		if err := renderHCA(root, ib, guidPrefix, i, o.NodeName); err != nil {
+		if err := renderHCA(root, ib, guidPrefix, i, hcaCount, o.NodeName); err != nil {
 			return fmt.Errorf("rendering mlx5_%d: %w", i, err)
 		}
 	}
 	return nil
 }
 
-func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, nodeName string) error {
+func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCount int, nodeName string) error {
 	caName := fmt.Sprintf("mlx5_%d", idx)
 	caDir := filepath.Join("sys/class/infiniband", caName)
 	if err := mkdirAll(root, caDir); err != nil {
 		return err
 	}
 
-	guid := perHCAGUID(guidPrefix, idx)
-	portGUID := perHCAPortGUID(guidPrefix, idx)
+	nid := nodeID(nodeName)
+	guid := perHCAGUID(guidPrefix, nid, idx)
+	portGUID := perHCAPortGUID(guidPrefix, nid, idx)
 	nodeDesc := strings.NewReplacer(
 		"{node_name}", nodeName,
 		"{idx}", fmt.Sprintf("%d", idx),
@@ -132,7 +139,7 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 		{"state", formatPortState(ib.PortState)},
 		{"phys_state", formatPhysState(ib.PhysState)},
 		{"rate", formatRate(ib.RateGbps) + "\n"},
-		{"lid", fmt.Sprintf("0x%04x\n", idx+1)},
+		{"lid", fmt.Sprintf("0x%04x\n", hcaLID(nid, idx, hcaCount))},
 		{"lid_mask_count", "0\n"},
 		{"sm_lid", "0x0001\n"},
 		{"sm_sl", "0\n"},
@@ -149,8 +156,10 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 		}
 	}
 
-	gid := fmt.Sprintf("fe80:0000:0000:0000:%s:%s:%s:%s",
-		guidPrefix[0:4], guidPrefix[4:8], guidPrefix[8:12], fmt.Sprintf("%04x", idx))
+	// gids/0 lower 64 bits must equal the port GUID (fe80:: + port GUID).
+	portLower := hcaIdentity(nid, idx) | 1
+	gid := fmt.Sprintf("fe80:0000:0000:0000:%s:%s:%04x:%04x",
+		guidPrefix[0:4], guidPrefix[4:8], portLower>>16, portLower&0xffff)
 	if err := writeFile(root, filepath.Join(portDir, "gids/0"), gid+"\n"); err != nil {
 		return err
 	}
@@ -203,6 +212,38 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx int, no
 		return err
 	}
 	if err := writeFile(root, filepath.Join(verbsDir, "abi_version"), "1\n"); err != nil {
+		return err
+	}
+	// libibverbs setup_sysfs_uverbs() reads major:minor from dev.
+	if err := writeFile(root, filepath.Join(verbsDir, "dev"), fmt.Sprintf("231:%d\n", idx)); err != nil {
+		return err
+	}
+
+	// libibverbs matches each sysfs device against provider modalias tables
+	// (libibverbs/init.c match_modalias -> fnmatch). The kernel modalias
+	// grammar is "pci:v<8H>d<8H>sv<8H>sd<8H>bc<2H>sc<2H>i<2H>" with
+	// upper-case hex, zero-padded fields — otherwise libmlx5's match
+	// pattern "pci:v000015B3d*sv*sd*bc*sc*i*" never claims the device and
+	// ibv_devinfo reports "0 HCAs found". Use the ConnectX-5 (0x1017) PCI
+	// IDs (vendor 0x15B3 Mellanox, subsystem 0x15B3:0x0008, class
+	// 0x028000 = Infiniband controller).
+	if err := mkdirAll(root, filepath.Join(caDir, "device")); err != nil {
+		return err
+	}
+	const modalias = "pci:v000015B3d00001017sv000015B3sd00000008bc02sc00i00\n"
+	if err := writeFile(root, filepath.Join(caDir, "device/modalias"), modalias); err != nil {
+		return err
+	}
+	if err := mkdirAll(root, filepath.Join(portDir, "gid_attrs/types")); err != nil {
+		return err
+	}
+	if err := mkdirAll(root, filepath.Join(portDir, "gid_attrs/ndevs")); err != nil {
+		return err
+	}
+	if err := writeFile(root, filepath.Join(portDir, "gid_attrs/types/0"), "RoCE v2\n"); err != nil {
+		return err
+	}
+	if err := writeFile(root, filepath.Join(portDir, "gid_attrs/ndevs/0"), "1\n"); err != nil {
 		return err
 	}
 
@@ -289,18 +330,62 @@ func normalizeGUIDPrefix(s string) string {
 	return strings.ToLower(strings.ReplaceAll(s, ":", ""))
 }
 
-// perHCAGUID renders the colon-separated 8-byte node GUID for HCA index idx.
-func perHCAGUID(guidPrefix string, idx int) string {
-	// prefix is 12 hex chars; pad with 4 hex chars for the lower bytes.
-	return fmt.Sprintf("%s:%s:%s:%04x",
-		guidPrefix[0:4], guidPrefix[4:8], guidPrefix[8:12], idx)
+func isHexString(s string) bool {
+	for _, c := range s {
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
+			continue
+		}
+		return false
+	}
+	return s != ""
 }
 
-// perHCAPortGUID derives a port GUID by flipping a single byte (matches
-// real Mellanox HCAs where node and port GUIDs differ in the U/L bit).
-func perHCAPortGUID(guidPrefix string, idx int) string {
-	return fmt.Sprintf("%s:%s:%s:%04x",
-		guidPrefix[0:4], guidPrefix[4:8], guidPrefix[8:12], idx+1)
+const (
+	maxGUIDHCAs    = 256
+	lidBase        = 0x0100
+	lidUnicastHi   = 0xbfff
+	maxUnicastLIDs = lidUnicastHi - lidBase + 1
+)
+
+// hcaIdentity packs node id and HCA index into the lower 32 bits of the GUID,
+// reserving bit 0 as the EUI-64 U/L bit. idx occupies bits 1..8 (up to 256
+// HCAs) and the node id occupies bits 9..31 (23 bits). That avoids both the
+// low-bit node hash collisions and the mlx5_16 -> mlx5_0 index wrap caused by
+// the earlier 16-bit lower-word encoding.
+func hcaIdentity(nid uint32, idx int) uint32 {
+	return (nid&0x007fffff)<<9 | uint32(idx)<<1
+}
+
+// hcaLID derives a per-(node,HCA) LID inside the unicast range. LIDs are only
+// 16 bits, so they cannot carry the full GUID identity; use the actual HCA
+// count as the node stride to avoid index wrap and maximize available node
+// buckets for the configured profile.
+func hcaLID(nid uint32, idx, hcaCount int) int {
+	if hcaCount <= 0 {
+		hcaCount = 1
+	}
+	buckets := maxUnicastLIDs / hcaCount
+	if buckets <= 0 {
+		buckets = 1
+	}
+	return lidBase + int(nid%uint32(buckets))*hcaCount + idx
+}
+
+// perHCAGUID renders the colon-separated 8-byte node GUID for HCA index idx.
+func perHCAGUID(guidPrefix string, nid uint32, idx int) string {
+	lower := hcaIdentity(nid, idx)
+	return fmt.Sprintf("%s:%s:%04x:%04x",
+		guidPrefix[0:4], guidPrefix[4:8], lower>>16, lower&0xffff)
+}
+
+// perHCAPortGUID derives the port GUID by setting the U/L bit (bit 0) on the
+// node GUID, matching real Mellanox HCAs where node and port GUIDs differ in
+// that bit. Because the identity (node id + HCA index) lives in bits 1..31,
+// no port GUID can collide with another HCA's node GUID on the same host.
+func perHCAPortGUID(guidPrefix string, nid uint32, idx int) string {
+	lower := hcaIdentity(nid, idx) | 1
+	return fmt.Sprintf("%s:%s:%04x:%04x",
+		guidPrefix[0:4], guidPrefix[4:8], lower>>16, lower&0xffff)
 }
 
 func mkdirAll(root, rel string) error {

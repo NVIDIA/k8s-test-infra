@@ -5,11 +5,14 @@
 *.out
 *.test
 
+pkg/network/*/libibmock*
 # Stray binaries from `go build ./cmd/...` at repo root
 /check-fabric
+/mock-ib
 
 # Agentic working artifacts
 .agents/
 AGENTS.md
 docs/plans/
 docs/superpowers/
+.worktrees/

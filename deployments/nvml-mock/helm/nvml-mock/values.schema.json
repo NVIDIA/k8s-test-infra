@@ -141,6 +141,32 @@
         }
       }
     },
-    "integrations": { "type": "object" }
+    "integrations": { "type": "object" },
+    "infiniband": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "ping": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "port": {
+              "type": "integer",
+              "description": "TCP port for the mock-ib fabric relay between nvml-mock pods.",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "networkPolicy": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "NetworkPolicy restricting inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that do not enforce NetworkPolicy (e.g. Kind's kindnet).",
+              "properties": {
+                "enabled": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }

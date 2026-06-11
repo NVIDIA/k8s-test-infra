@@ -1,0 +1,53 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+suite: IB ping NetworkPolicy
+templates:
+  - templates/network-policy-ibping.yaml
+tests:
+  - it: should render a NetworkPolicy by default
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nvml-mock-ibping
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/name"]
+          value: nvml-mock
+      - contains:
+          path: spec.policyTypes
+          content: Ingress
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/name"]
+          value: nvml-mock
+      # namespaceSelector + podSelector in one peer (AND) admits nvml-mock
+      # pods in any namespace, so a cross-namespace fleet isn't dropped on
+      # enforcing CNIs.
+      - exists:
+          path: spec.ingress[0].from[0].namespaceSelector
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: ibping
+      - equal:
+          path: spec.ingress[0].ports[0].protocol
+          value: TCP
+
+  - it: should not render when disabled
+    set:
+      infiniband:
+        ping:
+          networkPolicy:
+            enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render for profiles without InfiniBand
+    set:
+      gpu:
+        profile: t4
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockibsysfs/config"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 )
 
 func TestRender_Disabled(t *testing.T) {
@@ -83,6 +83,20 @@ func TestRender_DefaultsAndCount(t *testing.T) {
 	mustRead("sys/class/infiniband/mlx5_0/ports/1/link_layer", "InfiniBand")
 	mustRead("sys/class/infiniband_mad/abi_version", "5")
 	mustRead("sys/class/infiniband_mad/umad0/ibdev", "mlx5_0")
+	mustRead("sys/class/infiniband_verbs/uverbs0/dev", "231:0")
+
+	modaliasPath := filepath.Join(dir, "sys/class/infiniband/mlx5_0/device/modalias")
+	modalias, err := os.ReadFile(modaliasPath)
+	if err != nil {
+		t.Fatalf("read modalias: %v", err)
+	}
+	// Must be in the exact kernel modalias grammar so libibverbs' fnmatch
+	// against provider match tables (e.g. mlx5's "pci:v000015B3d*sv*sd*bc*sc*i*")
+	// can claim the device. See render.go for the rationale.
+	const wantModalias = "pci:v000015B3d00001017sv000015B3sd00000008bc02sc00i00\n"
+	if string(modalias) != wantModalias {
+		t.Fatalf("modalias = %q, want %q", modalias, wantModalias)
+	}
 
 	// `gid_attrs` must be a directory in real Linux sysfs; libibverbs and
 	// iblinkinfo opendir() it. A regular file would yield ENOTDIR.
@@ -94,11 +108,14 @@ func TestRender_DefaultsAndCount(t *testing.T) {
 	}
 
 	// port_guid is exposed by real mlx5 ports and must follow node_guid's
-	// formatting. The default GUID prefix is "a088c20300ab" and the lower
-	// 16 bits encode (idx+1), so mlx5_0's port_guid ends in 0001 (its
-	// node_guid ends in 0000) — matches real Mellanox U/L-bit behavior.
-	mustRead("sys/class/infiniband/mlx5_0/node_guid", "a088:c203:00ab:0000")
-	mustRead("sys/class/infiniband/mlx5_0/ports/1/port_guid", "a088:c203:00ab:0001")
+	// formatting. The lower 32 bits pack the node id (bits 9..31) and HCA
+	// index (bits 1..8); bit 0 is the EUI-64 U/L bit, set on the port GUID
+	// and clear on the node GUID — matching real Mellanox behavior and what
+	// fabric.nodeGUIDFromPortGUID inverts. For NodeName "host1", nodeID is
+	// 0x6bde52fa, so the node GUID lower dword is 0xbca5f400 and the port
+	// GUID is 0xbca5f401.
+	mustRead("sys/class/infiniband/mlx5_0/node_guid", "a088:c203:bca5:f400")
+	mustRead("sys/class/infiniband/mlx5_0/ports/1/port_guid", "a088:c203:bca5:f401")
 }
 
 func TestRender_HCAsPerGPU(t *testing.T) {
@@ -141,7 +158,10 @@ func TestRender_HCACountOverride(t *testing.T) {
 }
 
 func TestRender_RateMapping(t *testing.T) {
-	cases := []struct{ in int; want string }{
+	cases := []struct {
+		in   int
+		want string
+	}{
 		{100, "100 Gb/sec (4X EDR)"},
 		{200, "200 Gb/sec (4X HDR)"},
 		{400, "400 Gb/sec (4X NDR)"},
@@ -166,9 +186,110 @@ func TestRender_GUIDPrefixNormalization(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	got, _ := os.ReadFile(filepath.Join(dir, "sys/class/infiniband/mlx5_0/node_guid"))
-	want := "aabb:cc00:1122:0000\n"
+	want := "aabb:cc00:0000:0000\n"
 	if string(got) != want {
 		t.Errorf("node_guid: got %q want %q", string(got), want)
+	}
+}
+
+func TestRender_NodeUniqueGUIDsAcrossNodes(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	ib := config.Infiniband{Enabled: true}
+	opts := func(node, out string) Options {
+		return Options{IB: ib, GPUCount: 2, NodeName: node, Output: out}
+	}
+	if err := Render(opts("worker-a", dirA)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Render(opts("worker-b", dirB)); err != nil {
+		t.Fatal(err)
+	}
+	readGUID := func(root, ca string) string {
+		b, err := os.ReadFile(filepath.Join(root, "sys/class/infiniband", ca, "node_guid"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(b))
+	}
+	gA := readGUID(dirA, "mlx5_0")
+	gB := readGUID(dirB, "mlx5_0")
+	if gA == gB {
+		t.Fatalf("node_guid collision for same hca idx: %q", gA)
+	}
+	lidA, _ := os.ReadFile(filepath.Join(dirA, "sys/class/infiniband/mlx5_0/ports/1/lid"))
+	lidB, _ := os.ReadFile(filepath.Join(dirB, "sys/class/infiniband/mlx5_0/ports/1/lid"))
+	if strings.TrimSpace(string(lidA)) == strings.TrimSpace(string(lidB)) {
+		t.Fatalf("lid collision: %q", lidA)
+	}
+}
+
+func TestRender_NodePortGUIDsAvoidKnownHashLowBitCollision(t *testing.T) {
+	// "38" and "worker-44" have the same low 11 bits in FNV-1a. The renderer
+	// must not key GUID/LID identity only on those low bits, or cross-node
+	// fabric routing by rendered sysfs identity becomes ambiguous.
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	ib := config.Infiniband{Enabled: true, HCACountOverride: 2}
+	if err := Render(Options{IB: ib, NodeName: "38", Output: dirA}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Render(Options{IB: ib, NodeName: "worker-44", Output: dirB}); err != nil {
+		t.Fatal(err)
+	}
+	read := func(root, rel string) string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		return strings.TrimSpace(string(b))
+	}
+	for _, rel := range []string{
+		"sys/class/infiniband/mlx5_0/node_guid",
+		"sys/class/infiniband/mlx5_0/ports/1/port_guid",
+		"sys/class/infiniband/mlx5_0/ports/1/lid",
+	} {
+		if a, b := read(dirA, rel), read(dirB, rel); a == b {
+			t.Fatalf("%s collision for known node-name pair: %q", rel, a)
+		}
+	}
+}
+
+func TestRender_NodePortGUIDsNoOverlap(t *testing.T) {
+	// Regression: the previous encoding packed the HCA index into the GUID's
+	// lowest bits as node=base|idx, port=base|(idx+1), so port_guid(mlx5_i)
+	// collided with node_guid(mlx5_{i+1}). Reserving bit 0 as the U/L bit and
+	// putting the index in bits 1..4 keeps every node/port GUID distinct.
+	dir := t.TempDir()
+	const hcas = 20
+	if err := Render(Options{
+		IB:       config.Infiniband{Enabled: true, HCACountOverride: hcas},
+		NodeName: "worker-a",
+		Output:   dir,
+	}); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	read := func(rel string) string {
+		b, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		return strings.TrimSpace(string(b))
+	}
+	seen := map[string]string{}
+	for i := 0; i < hcas; i++ {
+		ca := "mlx5_" + strconv.Itoa(i)
+		for _, kind := range []struct{ rel, what string }{
+			{filepath.Join("sys/class/infiniband", ca, "node_guid"), ca + " node_guid"},
+			{filepath.Join("sys/class/infiniband", ca, "ports/1/port_guid"), ca + " port_guid"},
+		} {
+			v := read(kind.rel)
+			if prev, dup := seen[v]; dup {
+				t.Fatalf("GUID collision: %s and %s both == %q", prev, kind.what, v)
+			}
+			seen[v] = kind.what
+		}
 	}
 }
 
@@ -183,4 +304,3 @@ func TestRender_BadGUIDPrefix(t *testing.T) {
 		t.Fatalf("expected error for bad guid_prefix, got nil")
 	}
 }
-

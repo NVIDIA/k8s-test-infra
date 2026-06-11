@@ -122,6 +122,46 @@ and key order) or round-trip it through fromYaml/toYaml for overlays.
 {{- end }}
 
 {{/*
+Return "true" when the rendered GPU config enables InfiniBand.
+The chart uses the same config content that is mounted into the pod, so built-in
+profiles and gpu.customConfig follow one source of truth.
+*/}}
+{{- define "nvml-mock.infinibandEnabled" -}}
+{{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}
+{{- if hasKey $cfg "Error" -}}
+{{- fail (printf "nvml-mock.infinibandEnabled: failed to parse GPU config: %s" (get $cfg "Error")) -}}
+{{- end -}}
+{{- $ib := get $cfg "infiniband" | default (dict) -}}
+{{- if and (kindIs "map" $ib) (eq (toString (get $ib "enabled")) "true") -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end }}
+
+{{/*
+Resolve the effective MOCK_IB tier: one of "off", "sysfs", or "full".
+Honors an explicit .Values.infiniband.mockTier override (validated here so a
+typo fails the render, not silently disables IB); when empty/unset it derives
+from the profile — "full" when InfiniBand is enabled, "sysfs" otherwise.
+Non-IB profiles use "sysfs" (not "off") so the libibmocksys redirect stays
+active and masks any real InfiniBand the host exposes (e.g. a CI runner with
+mlx5 hardware), matching the behavior expected by validate-ibstat (0 HCAs).
+*/}}
+{{- define "nvml-mock.mockIBTier" -}}
+{{- $ib := .Values.infiniband | default dict -}}
+{{- $override := get $ib "mockTier" | default "" | toString -}}
+{{- if $override -}}
+{{- if not (has $override (list "off" "sysfs" "full")) -}}
+{{- fail (printf "infiniband.mockTier must be one of off, sysfs, full (got %q)" $override) -}}
+{{- end -}}
+{{- $override -}}
+{{- else -}}
+{{- ternary "full" "sysfs" (eq (include "nvml-mock.infinibandEnabled" .) "true") -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Driver version helper.
 Returns the user-provided driverVersion, or derives it from gpu.profile.
 Blackwell profiles (b200, gb200) use 560.35.03; Blackwell Ultra (gb300)

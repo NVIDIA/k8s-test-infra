@@ -91,6 +91,38 @@ topology:
   #         nodes: [kind-worker3, kind-worker4]
   domains: []
 
+# InfiniBand ping mock. For profiles with infiniband.enabled=true, the
+# DaemonSet preloads libibmockumad alongside libibmocksys, starts mock-ib via
+# the container entrypoint, exposes a headless Service on `ping.port`, and sets
+# MOCK_IB / MOCK_IB_PING_FABRIC so ibping can reach peer pods.
+#
+# MOCK_IB is a tri-state mock tier:
+#   full  -> all shims (libibmocksys sysfs, libibmockumad UMAD, libibmockverbs
+#            verbs) + the mock-ib daemon. Enables
+#            ibstat/ibstatus/ibping/iblinkinfo/ibv_devinfo.
+#   sysfs -> libibmocksys sysfs redirection only (ibstat/ibstatus; no daemon).
+#   off   -> every shim is a no-op (real host).
+# The shims stay LD_PRELOAD'd in every container process regardless of tier and
+# no-op when MOCK_IB=off, so `MOCK_IB=off <cmd>` is the per-command escape hatch.
+infiniband:
+  # mockTier sets the container's MOCK_IB value: off | sysfs | full.
+  # Defaults to "full" for InfiniBand-enabled profiles and "sysfs" for non-IB
+  # profiles (sysfs keeps the libibmocksys redirect active so any real host IB
+  # is masked, i.e. ibstat reports 0 HCAs). Leaving this empty auto-derives
+  # that per profile. Set it explicitly to override (an invalid value fails
+  # `helm template`).
+  mockTier: ""
+  ping:
+    port: 18515
+    # The mock-ib TCP fabric listener binds 0.0.0.0:<port> with no auth and
+    # the DaemonSet runs privileged. This NetworkPolicy restricts inbound
+    # access to that port to peer nvml-mock pods (the only legitimate
+    # clients), limiting the blast radius on clusters whose CNI enforces
+    # NetworkPolicy. NOTE: Kind's default CNI (kindnet) does NOT enforce
+    # NetworkPolicy, so this is a no-op there; it matters on Calico/Cilium.
+    networkPolicy:
+      enabled: true
+
 # Fake IMEX coordination. When `imex.enabled` is true the chart mounts a
 # hostPath state directory into the nvml-mock pod so the fake nvidia-imex
 # / nvidia-imex-ctl binaries (compiled into the image) can coordinate

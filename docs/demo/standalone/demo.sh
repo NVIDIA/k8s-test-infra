@@ -34,6 +34,12 @@ fi
 # renderer falls back to a flat single-root layout for profiles without an
 # explicit block, so default to 1 if the YAML carries no pcie_topology.
 EXPECTED_ROOTS=$(awk '/^    - id: "pci/ {n++} END {print (n>0)?n:1}' "${PROFILE_YAML}")
+IB_ENABLED=$(awk '
+  /^infiniband:/ {in_ib=1; next}
+  in_ib && /^[^[:space:]]/ {in_ib=0}
+  in_ib && /^[[:space:]]+enabled:/ {print $2; found=1; exit}
+  END {if (!found) print "false"}
+' "${PROFILE_YAML}")
 
 ###############################################################################
 # Helpers
@@ -98,26 +104,29 @@ POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[
 kubectl exec "${POD}" -- nvidia-smi
 
 ###############################################################################
-# Step 8 -- Verify: InfiniBand mock (libibmocksys.so + render-ib-sysfs)
+# Step 8 -- Verify: InfiniBand mock (libibmocksys.so + mock-ib render)
 ###############################################################################
-info "Listing simulated InfiniBand HCAs (ibstat -l)"
-kubectl exec "${POD}" -- ibstat -l
+HCA_COUNT=0
+if [[ "${IB_ENABLED}" == "true" ]]; then
+  info "Listing simulated InfiniBand HCAs (ibstat -l)"
+  kubectl exec "${POD}" -- ibstat -l
 
-info "Running ibstatus inside the DaemonSet pod"
-# `head -40` closes the pipe after 40 lines, but `ibstatus` keeps writing
-# (8 HCAs * ~8 lines each = ~64 lines). The producer dies with SIGPIPE
-# and pipefail propagates exit code 141 to the whole script, aborting
-# the demo before any later verification (PCI sysfs, node labels) runs.
-# Scope pipefail down for just this one cosmetic truncation.
-set +o pipefail
-kubectl exec "${POD}" -- ibstatus | head -40
-set -o pipefail
+  info "Running ibstatus inside the DaemonSet pod (first 40 lines)"
+  # Run head inside the pod: piping locally triggers SIGPIPE (exit 141) with set -o pipefail.
+  kubectl exec "${POD}" -- sh -c 'ibstatus | head -40'
 
-HCA_COUNT=$(kubectl exec "${POD}" -- ibstat -l | wc -l | tr -d ' ')
-if [[ "${HCA_COUNT}" -lt 1 ]]; then
-  fail "Expected at least 1 mock HCA, found ${HCA_COUNT}"
+  HCA_COUNT=$(kubectl exec "${POD}" -- ibstat -l | wc -l | tr -d ' ')
+  if [[ "${HCA_COUNT}" -lt 1 ]]; then
+    fail "Expected at least 1 mock HCA, found ${HCA_COUNT}"
+  fi
+  info "Found ${HCA_COUNT} mock HCA(s)"
+
+  info "Validating ibv_devinfo (list + smoke output)"
+  chmod +x "${REPO_ROOT}/tests/e2e/validate-ibv-devinfo.sh"
+  "${REPO_ROOT}/tests/e2e/validate-ibv-devinfo.sh" "${POD}" "${GPU_PROFILE}" "${HCA_COUNT}"
+else
+  info "Skipping InfiniBand validation for profile=${GPU_PROFILE} (infiniband.enabled=false)"
 fi
-info "Found ${HCA_COUNT} mock HCA(s)"
 
 ###############################################################################
 # Step 9 -- Verify: PCI sysfs mock (render-pci-sysfs)
@@ -183,7 +192,37 @@ fi
 info "Devices span ${ROOT_COUNT} distinct PCI root complex(es)"
 
 ###############################################################################
-# Step 10 -- Show node labels
+# Step 10 -- Verify: cross-node mock ibping (mock-ib + libibmockumad)
+###############################################################################
+SERVER_POD=""
+CLIENT_POD=""
+if [[ "${IB_ENABLED}" == "true" ]]; then
+  # Collect all Running nvml-mock pod names into an array and check the count
+  # before indexing. Reading jsonpath '{.items[1]}' directly would error when
+  # only one pod is Running and, under `set -e`, abort the demo right here —
+  # before the friendly check below could explain why.
+  mapfile -t IB_PODS < <(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+    --field-selector=status.phase=Running \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+  if [[ "${#IB_PODS[@]}" -lt 2 ]]; then
+    fail "Expected at least 2 running nvml-mock pods for cross-node ibping, found ${#IB_PODS[@]}"
+  fi
+  SERVER_POD="${IB_PODS[0]}"
+  CLIENT_POD="${IB_PODS[1]}"
+  info "Cross-node ibping: server=${SERVER_POD} client=${CLIENT_POD}"
+  chmod +x "${REPO_ROOT}/tests/e2e/validate-ibping.sh"
+  "${REPO_ROOT}/tests/e2e/validate-ibping.sh" "${SERVER_POD}" "${CLIENT_POD}"
+
+  info "Validating cross-node iblinkinfo (fabric scan includes peer HCAs)"
+  chmod +x "${REPO_ROOT}/tests/e2e/validate-iblinkinfo.sh"
+  "${REPO_ROOT}/tests/e2e/validate-iblinkinfo.sh" "${SERVER_POD}" "${CLIENT_POD}" \
+    "${GPU_PROFILE}" "${HCA_COUNT}"
+else
+  info "Skipping cross-node ibping/iblinkinfo for profile=${GPU_PROFILE} (infiniband.enabled=false)"
+fi
+
+###############################################################################
+# Step 11 -- Show node labels
 ###############################################################################
 info "Node labels"
 kubectl get nodes --show-labels
@@ -202,5 +241,12 @@ info "  Workers   : ${#WORKERS[@]}"
 info "  ConfigMaps: ${CM_COUNT}"
 info "  Mock HCAs : ${HCA_COUNT} per pod"
 info "  PCI devs  : ${PCI_DEV_COUNT} across ${ROOT_COUNT} root complex(es)"
+if [[ "${IB_ENABLED}" == "true" ]]; then
+  info "  ibping    : cross-node OK (${SERVER_POD} -> ${CLIENT_POD})"
+  info "  ibv_devinfo / iblinkinfo: validated (profile=${GPU_PROFILE})"
+else
+  info "  ibping    : skipped (profile=${GPU_PROFILE} has InfiniBand disabled)"
+  info "  ibv_devinfo / iblinkinfo: skipped"
+fi
 info ""
 info "To tear down: kind delete cluster --name ${CLUSTER_NAME}"

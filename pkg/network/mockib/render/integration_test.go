@@ -10,8 +10,8 @@
 //
 // Run with:
 //
-//	make -C pkg/network/mockibsysfs                       # build libibmocksys.so
-//	go test -tags=integration ./pkg/network/mockibsysfs/render/...
+//	make -C pkg/network/mockib                       # build libibmocksys.so
+//	go test -tags=integration ./pkg/network/mockib/render/...
 package render
 
 import (
@@ -22,7 +22,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockibsysfs/config"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 )
 
 func TestIbstat_Integration(t *testing.T) {
@@ -39,7 +39,7 @@ func TestIbstat_Integration(t *testing.T) {
 	}
 	shim := filepath.Join(wd, "..", "libibmocksys.so")
 	if _, err := os.Stat(shim); err != nil {
-		t.Skipf("shim not built: %v (run `make -C pkg/network/mockibsysfs`)", err)
+		t.Skipf("shim not built: %v (run `make -C pkg/network/mockib`)", err)
 	}
 
 	root := t.TempDir()
@@ -60,6 +60,7 @@ func TestIbstat_Integration(t *testing.T) {
 	cmd := exec.Command(ibstat)
 	cmd.Env = append(os.Environ(),
 		"LD_PRELOAD="+shim,
+		"MOCK_IB=sysfs",
 		"MOCK_IB_ROOT="+root,
 	)
 	out, err := cmd.CombinedOutput()
@@ -94,6 +95,56 @@ func TestIbstat_Integration(t *testing.T) {
 	} {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 			t.Errorf("expected rendered file %s: %v", rel, err)
+		}
+	}
+}
+
+func TestIbvDevinfo_List_Integration(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("integration test requires linux")
+	}
+	ibv, err := exec.LookPath("ibv_devinfo")
+	if err != nil {
+		t.Skip("ibv_devinfo not installed (apt-get install rdma-core)")
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	shim := filepath.Join(wd, "..", "libibmocksys.so")
+	if _, err := os.Stat(shim); err != nil {
+		t.Skipf("shim not built: %v (run `make -C pkg/network/mockib`)", err)
+	}
+
+	root := t.TempDir()
+	if err := Render(Options{
+		IB: config.Infiniband{
+			Enabled:   true,
+			HCAType:   "MT4129",
+			FWVersion: "28.39.2048",
+			RateGbps:  400,
+		},
+		GPUCount: 2,
+		NodeName: "test-node",
+		Output:   root,
+	}); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	cmd := exec.Command(ibv, "-l")
+	cmd.Env = append(os.Environ(),
+		"LD_PRELOAD="+shim,
+		"MOCK_IB=sysfs",
+		"MOCK_IB_ROOT="+root,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("ibv_devinfo -l failed: %v\noutput:\n%s", err, out)
+	}
+	got := string(out)
+	for _, want := range []string{"mlx5_0", "mlx5_1"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("ibv_devinfo -l missing %q\nfull output:\n%s", want, got)
 		}
 	}
 }
