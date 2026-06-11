@@ -32,7 +32,7 @@ done
 
 # The mock fabric is a point-to-point topology (no switches): each local CA
 # picks ONE outbound neighbor — the lowest-GUID non-self port in the merged
-# graph (see fabric.OutboundNeighbor). For a control-plane pod, that ends up
+# graph (see fabric.PeerAtOutbound). For a control-plane pod, that ends up
 # being whichever worker pod happened to claim the lowest GUID range, which
 # may not be $PEER_POD. So instead of asserting "iblinkinfo finds $PEER_POD's
 # GUID specifically", we assert the stronger property we actually care about:
@@ -92,7 +92,7 @@ if [ "$CROSS_POD" = "$PEER_GUID" ]; then
 else
   echo "OK: iblinkinfo scan from $LOCAL_POD reached cross-pod peer $CROSS_POD"
   echo "     (requested $PEER_POD=$PEER_GUID; mock fabric is point-to-point lowest-GUID, "
-  echo "      see fabric.OutboundNeighbor — cross-pod visibility is the assertion)"
+  echo "      see fabric.PeerAtOutbound — cross-pod visibility is the assertion)"
 fi
 
 echo "=== iblinkinfo validation PASSED ==="

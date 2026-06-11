@@ -76,6 +76,21 @@ terminationGracePeriodSeconds: 10
 # NVML engine looks up its NODE_NAME on startup and overrides each GPU's
 # fabric cluster_uuid / clique_id accordingly. See
 # pkg/gpu/mocknvml/engine/fabric.go and issue NVIDIA/k8s-test-infra#304.
+topology:
+  enabled: false
+  # Cluster-level topology document (consumed only by the mock NVML
+  # engine). Each node must appear in exactly one clique within one
+  # domain. Example:
+  # domains:
+  #   - name: "test-domain-1"
+  #     uuid: "00000000-0000-0000-0000-000000000001"
+  #     cliques:
+  #       - id: 0
+  #         nodes: [kind-worker, kind-worker2]
+  #       - id: 1
+  #         nodes: [kind-worker3, kind-worker4]
+  domains: []
+
 # InfiniBand ping mock. For profiles with infiniband.enabled=true, the
 # DaemonSet preloads libibmockumad alongside libibmocksys, starts mock-ib via
 # the container entrypoint, exposes a headless Service on `ping.port`, and sets
@@ -107,21 +122,6 @@ infiniband:
     # NetworkPolicy, so this is a no-op there; it matters on Calico/Cilium.
     networkPolicy:
       enabled: true
-
-topology:
-  enabled: false
-  # Cluster-level topology document (consumed only by the mock NVML
-  # engine). Each node must appear in exactly one clique within one
-  # domain. Example:
-  # domains:
-  #   - name: "test-domain-1"
-  #     uuid: "00000000-0000-0000-0000-000000000001"
-  #     cliques:
-  #       - id: 0
-  #         nodes: [kind-worker, kind-worker2]
-  #       - id: 1
-  #         nodes: [kind-worker3, kind-worker4]
-  domains: []
 
 # Fake IMEX coordination. When `imex.enabled` is true the chart mounts a
 # hostPath state directory into the nvml-mock pod so the fake nvidia-imex

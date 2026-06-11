@@ -197,19 +197,18 @@ info "Devices span ${ROOT_COUNT} distinct PCI root complex(es)"
 SERVER_POD=""
 CLIENT_POD=""
 if [[ "${IB_ENABLED}" == "true" ]]; then
-  SERVER_POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+  # Collect all Running nvml-mock pod names into an array and check the count
+  # before indexing. Reading jsonpath '{.items[1]}' directly would error when
+  # only one pod is Running and, under `set -e`, abort the demo right here —
+  # before the friendly check below could explain why.
+  mapfile -t IB_PODS < <(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
     --field-selector=status.phase=Running \
-    -o jsonpath='{.items[0].metadata.name}')
-  CLIENT_POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
-    --field-selector=status.phase=Running \
-    -o jsonpath='{.items[1].metadata.name}')
-
-  if [[ -z "${SERVER_POD}" || -z "${CLIENT_POD}" ]]; then
-    fail "Expected at least 2 running nvml-mock pods for cross-node ibping"
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+  if [[ "${#IB_PODS[@]}" -lt 2 ]]; then
+    fail "Expected at least 2 running nvml-mock pods for cross-node ibping, found ${#IB_PODS[@]}"
   fi
-  if [[ "${SERVER_POD}" == "${CLIENT_POD}" ]]; then
-    fail "Need two distinct nvml-mock pods for cross-node ibping"
-  fi
+  SERVER_POD="${IB_PODS[0]}"
+  CLIENT_POD="${IB_PODS[1]}"
   info "Cross-node ibping: server=${SERVER_POD} client=${CLIENT_POD}"
   chmod +x "${REPO_ROOT}/tests/e2e/validate-ibping.sh"
   "${REPO_ROOT}/tests/e2e/validate-ibping.sh" "${SERVER_POD}" "${CLIENT_POD}"

@@ -22,6 +22,11 @@ tests:
       - equal:
           path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/name"]
           value: nvml-mock
+      # namespaceSelector + podSelector in one peer (AND) admits nvml-mock
+      # pods in any namespace, so a cross-namespace fleet isn't dropped on
+      # enforcing CNIs.
+      - exists:
+          path: spec.ingress[0].from[0].namespaceSelector
       - equal:
           path: spec.ingress[0].ports[0].port
           value: ibping
