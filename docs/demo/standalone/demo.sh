@@ -201,7 +201,14 @@ if [[ "${IB_ENABLED}" == "true" ]]; then
   # before indexing. Reading jsonpath '{.items[1]}' directly would error when
   # only one pod is Running and, under `set -e`, abort the demo right here —
   # before the friendly check below could explain why.
-  mapfile -t IB_PODS < <(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+  #
+  # Use a `while read` loop rather than `mapfile`/`readarray`: those are
+  # bash 4.0+ builtins and macOS still ships bash 3.2, so `mapfile` aborts
+  # the demo with "command not found" on stock macOS.
+  IB_PODS=()
+  while IFS= read -r ib_pod; do
+    [[ -n "${ib_pod}" ]] && IB_PODS+=("${ib_pod}")
+  done < <(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
     --field-selector=status.phase=Running \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
   if [[ "${#IB_PODS[@]}" -lt 2 ]]; then
