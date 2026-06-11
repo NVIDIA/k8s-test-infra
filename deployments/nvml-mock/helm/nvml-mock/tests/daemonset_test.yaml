@@ -165,6 +165,55 @@ tests:
             name: DRIVER_VERSION
             value: "560.35.03"
 
+  # ── fabricmanager enablement (derived from the profile) ─────────────
+  - it: should start fabricmanager for an auto-state profile (gb200)
+    set:
+      gpu:
+        profile: gb200
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER
+            value: "on"
+
+  - it: should not start fabricmanager for a non-auto NVSwitch profile (a100)
+    set:
+      gpu:
+        profile: a100
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER
+            value: "on"
+
+  - it: should honor an explicit fabricmanager.enabled=true override on a100
+    set:
+      gpu:
+        profile: a100
+      fabricmanager:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER
+            value: "on"
+
+  - it: should honor an explicit fabricmanager.enabled=false override on gb200
+    set:
+      gpu:
+        profile: gb200
+      fabricmanager:
+        enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER
+            value: "on"
+
   - it: should derive Blackwell Ultra driver version for gb300 profile
     set:
       gpu:
@@ -575,3 +624,59 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "infiniband.mockTier must be one of off, sysfs, full (got \"bogus\")"
+
+  # ── Fake fabricmanager (NVSwitch platforms) ─────────────────────────
+  - it: should not wire fabricmanager by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER
+            value: "on"
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-fabric-state
+            hostPath:
+              path: /var/lib/nvml-mock/fabric-state
+              type: DirectoryOrCreate
+
+  - it: should wire fabricmanager env, mount, and volume when enabled
+    set:
+      fabricmanager:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER
+            value: "on"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /var/lib/nvml-mock/fabric-state
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-fabric-state
+            mountPath: /var/lib/nvml-mock/fabric-state
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-fabric-state
+            hostPath:
+              path: /var/lib/nvml-mock/fabric-state
+              type: DirectoryOrCreate
+
+  - it: should honor a custom fabricmanager.stateDir
+    set:
+      fabricmanager:
+        enabled: true
+        stateDir: /run/nvidia-fabricmanager
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /run/nvidia-fabricmanager

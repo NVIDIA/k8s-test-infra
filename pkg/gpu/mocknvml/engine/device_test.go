@@ -949,3 +949,185 @@ func TestConfigurableDevice_GetClockInfo_ZeroIsValid(t *testing.T) {
 	require.Equal(t, nvml.SUCCESS, ret, "Expected SUCCESS when Clocks config exists with graphics=0")
 	require.Zero(t, clock, "Expected 0")
 }
+
+// =============================================================================
+// NVLink / topology / affinity getters wired to NodeFabric
+// =============================================================================
+
+// newFabricEngine builds a 2-GPU engine where device 0 has 2 switch links and
+// 1 direct GPU link to device 1, plus a single-NUMA pcie_topology block.
+func newFabricEngine(t *testing.T) *Engine {
+	t.Helper()
+	cfg := &Config{
+		NumDevices:    2,
+		DriverVersion: "560.0",
+		YAMLConfig: &YAMLConfig{
+			Version: "1.0",
+			System:  SystemConfig{DriverVersion: "560.0", NVMLVersion: "12.560.0", NumDevices: 2},
+			DeviceDefaults: DeviceConfig{
+				Name: "NVIDIA A100-SXM4-80GB",
+			},
+			Devices: []DeviceOverride{
+				devWithBDF(0, "0000:0A:00.0"),
+				devWithBDF(1, "0000:0B:00.0"),
+			},
+			NVLink: &NVLinkConfig{
+				Version:              5,
+				BandwidthPerLinkGBPS: 100,
+				Switches:             []NVSwitchConfig{{BDF: "0000:0F:00.0"}},
+				Defaults:             &NVLinkDefaults{State: "active", DutyCycle: 0.05},
+				DeviceLinks: []DeviceLinksConfig{
+					{Index: 0, Links: []NVLinkLinkConfig{
+						{Link: 0, State: "active", RemoteDeviceType: "switch", RemotePCIBusID: "0000:0F:00.0"},
+						{Link: 1, State: "active", RemoteDeviceType: "switch", RemotePCIBusID: "0000:0F:00.0"},
+						{Link: 2, State: "active", RemoteDeviceType: "gpu", RemotePCIBusID: "0000:0B:00.0"},
+					}},
+				},
+			},
+			PCIeTopology: &PCIeTopologyConfig{
+				CoresPerNUMA: 8,
+				RootComplexes: []RootComplexConfig{
+					{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:0A:00.0", "0000:0B:00.0"}},
+				},
+			},
+		},
+	}
+	e := NewEngine(cfg)
+	if ret := e.Init(); ret != nvml.SUCCESS {
+		t.Fatalf("engine init: %v", ret)
+	}
+	t.Cleanup(func() { _ = e.Shutdown() })
+	return e
+}
+
+func fabricDevice(t *testing.T, e *Engine, index int) *ConfigurableDevice {
+	t.Helper()
+	handle, _ := e.DeviceGetHandleByIndex(index)
+	cd, ok := e.LookupDevice(handle).(*ConfigurableDevice)
+	if !ok {
+		t.Fatalf("device %d is not a ConfigurableDevice", index)
+	}
+	return cd
+}
+
+func TestConfigurableDevice_NvLinkGetters_PerDevice(t *testing.T) {
+	e := newFabricEngine(t)
+	d0 := fabricDevice(t, e, 0)
+	d1 := fabricDevice(t, e, 1)
+
+	if st, ret := d0.GetNvLinkState(0); ret != nvml.SUCCESS || st != nvml.FEATURE_ENABLED {
+		t.Errorf("d0.GetNvLinkState(0): got st=%d ret=%v, want ENABLED/SUCCESS", st, ret)
+	}
+	// Link in range but not configured on device 0.
+	if st, ret := d0.GetNvLinkState(7); ret != nvml.SUCCESS || st != nvml.FEATURE_DISABLED {
+		t.Errorf("d0.GetNvLinkState(7): got st=%d ret=%v, want DISABLED/SUCCESS", st, ret)
+	}
+	// Device 1 has no links of its own.
+	if st, ret := d1.GetNvLinkState(0); ret != nvml.SUCCESS || st != nvml.FEATURE_DISABLED {
+		t.Errorf("d1.GetNvLinkState(0): got st=%d ret=%v, want DISABLED/SUCCESS", st, ret)
+	}
+	// Out-of-range link index.
+	if _, ret := d0.GetNvLinkState(-1); ret != nvml.ERROR_INVALID_ARGUMENT {
+		t.Errorf("d0.GetNvLinkState(-1): got %v, want INVALID_ARGUMENT", ret)
+	}
+	if _, ret := d0.GetNvLinkState(99); ret != nvml.ERROR_INVALID_ARGUMENT {
+		t.Errorf("d0.GetNvLinkState(99): got %v, want INVALID_ARGUMENT", ret)
+	}
+
+	if v, ret := d0.GetNvLinkVersion(0); ret != nvml.SUCCESS || v != 5 {
+		t.Errorf("d0.GetNvLinkVersion(0): got v=%d ret=%v, want 5/SUCCESS", v, ret)
+	}
+
+	if cap, ret := d0.GetNvLinkCapability(0, nvml.NVLINK_CAP_P2P_SUPPORTED); ret != nvml.SUCCESS || cap != 1 {
+		t.Errorf("d0.GetNvLinkCapability(0,P2P): got %d ret=%v, want 1/SUCCESS", cap, ret)
+	}
+
+	// Remote device type: link 0 is a switch, link 2 is a GPU.
+	if dt, ret := d0.GetNvLinkRemoteDeviceType(0); ret != nvml.SUCCESS || dt != nvml.NVLINK_DEVICE_TYPE_SWITCH {
+		t.Errorf("d0.GetNvLinkRemoteDeviceType(0): got %d ret=%v, want SWITCH/SUCCESS", dt, ret)
+	}
+	if dt, ret := d0.GetNvLinkRemoteDeviceType(2); ret != nvml.SUCCESS || dt != nvml.NVLINK_DEVICE_TYPE_GPU {
+		t.Errorf("d0.GetNvLinkRemoteDeviceType(2): got %d ret=%v, want GPU/SUCCESS", dt, ret)
+	}
+
+	// Remote PCI info: link 2 points at device 1's BDF.
+	pci, ret := d0.GetNvLinkRemotePciInfo(2)
+	if ret != nvml.SUCCESS {
+		t.Fatalf("d0.GetNvLinkRemotePciInfo(2): %v", ret)
+	}
+	busID := busIDString(pci.BusId[:])
+	if !containsPrefix(busID, "0000:0B") && !containsPrefix(busID, "0000:0b") {
+		t.Errorf("d0 link2 remote BusId: got %q, want 0000:0B prefix", busID)
+	}
+}
+
+func TestConfigurableDevice_TopologyCommonAncestor_Pairwise(t *testing.T) {
+	e := newFabricEngine(t)
+	d0 := fabricDevice(t, e, 0)
+	d1 := fabricDevice(t, e, 1)
+
+	// Same root complex => TOPOLOGY_SINGLE.
+	lvl, ret := d0.GetTopologyCommonAncestor(d1)
+	if ret != nvml.SUCCESS || lvl != nvml.TOPOLOGY_SINGLE {
+		t.Errorf("d0->d1 topo: got lvl=%d ret=%v, want SINGLE/SUCCESS", lvl, ret)
+	}
+}
+
+func TestConfigurableDevice_Affinity_FromFabric(t *testing.T) {
+	e := newFabricEngine(t)
+	d0 := fabricDevice(t, e, 0)
+
+	if node, ret := d0.GetNumaNodeId(); ret != nvml.SUCCESS || node != 0 {
+		t.Errorf("d0.GetNumaNodeId: got %d ret=%v, want 0/SUCCESS", node, ret)
+	}
+
+	mask, ret := d0.GetCpuAffinity(2)
+	if ret != nvml.SUCCESS {
+		t.Fatalf("d0.GetCpuAffinity: %v", ret)
+	}
+	if len(mask) != 2 || mask[0] != 0xFF {
+		t.Errorf("d0 cpu affinity: got %v, want word0=0xFF", mask)
+	}
+
+	mem, ret := d0.GetMemoryAffinity(1, nvml.AFFINITY_SCOPE_NODE)
+	if ret != nvml.SUCCESS || len(mem) != 1 || mem[0] != 1 {
+		t.Errorf("d0 memory affinity: got %v ret=%v, want [1]/SUCCESS", mem, ret)
+	}
+}
+
+func TestConfigurableDevice_NvLinkUtilizationCounter_Grows(t *testing.T) {
+	e := newFabricEngine(t)
+	d0 := fabricDevice(t, e, 0)
+
+	rx, tx, ret := d0.GetNvLinkUtilizationCounter(0, 0)
+	if ret != nvml.SUCCESS {
+		t.Fatalf("GetNvLinkUtilizationCounter: %v", ret)
+	}
+	if rx != tx {
+		t.Errorf("rx (%d) != tx (%d)", rx, tx)
+	}
+	// Freeze/Reset are no-op successes.
+	if r := d0.FreezeNvLinkUtilizationCounter(0, 0, nvml.FEATURE_ENABLED); r != nvml.SUCCESS {
+		t.Errorf("Freeze: got %v, want SUCCESS", r)
+	}
+	if r := d0.ResetNvLinkUtilizationCounter(0, 0); r != nvml.SUCCESS {
+		t.Errorf("Reset: got %v, want SUCCESS", r)
+	}
+}
+
+// busIDString decodes the NVML PciInfo.BusId char array (go-nvml v0.13.1-0
+// types it as [32]int8) into a Go string, stopping at the NUL terminator.
+func busIDString(b []int8) string {
+	out := make([]byte, 0, len(b))
+	for _, c := range b {
+		if c == 0 {
+			break
+		}
+		out = append(out, byte(c))
+	}
+	return string(out)
+}
+
+func containsPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}

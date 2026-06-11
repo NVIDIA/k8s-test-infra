@@ -38,7 +38,7 @@ const DefaultBAR1SizeMB = 256
 type ConfigurableDevice struct {
 	*dgxa100.Device
 	config      *DeviceConfig
-	nvlinkCfg   *NVLinkConfig
+	fabric      *NodeFabric
 	index       int
 	minorNumber int
 
@@ -59,12 +59,16 @@ type ConfigurableDevice struct {
 	failure *failureInjector
 }
 
-// NewConfigurableDevice creates a device with YAML configuration
-func NewConfigurableDevice(index int, baseDevice *dgxa100.Device, config *DeviceConfig, uuid string, pciBusID string, minorNumber int, nvlinkCfg *NVLinkConfig) *ConfigurableDevice {
+// NewConfigurableDevice creates a device with YAML configuration. The
+// shared, immutable *NodeFabric carries the node-level NVLink / PCIe /
+// affinity topology; this device only needs its own index to derive its
+// per-device view. fabric may be nil (legacy/default mode) in which case
+// the NVLink and topology getters fall back to per-device defaults.
+func NewConfigurableDevice(index int, baseDevice *dgxa100.Device, config *DeviceConfig, uuid string, pciBusID string, minorNumber int, fabric *NodeFabric) *ConfigurableDevice {
 	dev := &ConfigurableDevice{
 		Device:      baseDevice,
 		config:      config,
-		nvlinkCfg:   nvlinkCfg,
+		fabric:      fabric,
 		index:       index,
 		minorNumber: minorNumber,
 	}
@@ -1012,75 +1016,246 @@ func (d *ConfigurableDevice) GetGpuOperationMode() (nvml.GpuOperationMode, nvml.
 	return nvml.GOM_ALL_ON, nvml.GOM_ALL_ON, nvml.SUCCESS
 }
 
-// GetNvLinkState returns NvLink state for a specific link.
-// If NVLink config has link entries, uses those; otherwise returns DISABLED.
+// nvlinkLinkInRange reports whether a link index is within the valid
+// per-device NVLink range. Negative or out-of-range indices map to
+// ERROR_INVALID_ARGUMENT, matching real NVML.
+func nvlinkLinkInRange(link int) bool {
+	return link >= 0 && link < nvLinkMaxLinks
+}
+
+// GetNvLinkState returns NvLink state for a specific link, derived from
+// the node fabric's resolved per-device links.
 func (d *ConfigurableDevice) GetNvLinkState(link int) (nvml.EnableState, nvml.Return) {
-	if d.nvlinkCfg != nil {
-		for _, l := range d.nvlinkCfg.Links {
-			if l.Link == link {
-				if l.State == "active" {
-					debugLog("[NVML] nvmlDeviceGetNvLinkState(link=%d) -> ENABLED\n", link)
-					return nvml.FEATURE_ENABLED, nvml.SUCCESS
-				}
-				break
-			}
+	if !nvlinkLinkInRange(link) {
+		return nvml.FEATURE_DISABLED, nvml.ERROR_INVALID_ARGUMENT
+	}
+	if d.fabric != nil {
+		if l, ok := d.fabric.Link(d.index, link); ok && l.Active {
+			debugLog("[NVML] nvmlDeviceGetNvLinkState(link=%d) -> ENABLED\n", link)
+			return nvml.FEATURE_ENABLED, nvml.SUCCESS
 		}
 	}
 	debugLog("[NVML] nvmlDeviceGetNvLinkState(link=%d) -> DISABLED\n", link)
 	return nvml.FEATURE_DISABLED, nvml.SUCCESS
 }
 
-// GetNvLinkVersion returns NvLink version
+// GetNvLinkVersion returns the NvLink version for a link from the fabric.
 func (d *ConfigurableDevice) GetNvLinkVersion(link int) (uint32, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetNvLinkVersion(link=%d) -> 0\n", link)
-	return 0, nvml.SUCCESS
+	if !nvlinkLinkInRange(link) {
+		return 0, nvml.ERROR_INVALID_ARGUMENT
+	}
+	version := uint32(0)
+	if d.fabric != nil {
+		if l, ok := d.fabric.Link(d.index, link); ok {
+			version = l.Version
+		} else {
+			version = d.fabric.version
+		}
+	}
+	debugLog("[NVML] nvmlDeviceGetNvLinkVersion(link=%d) -> %d\n", link, version)
+	return version, nvml.SUCCESS
 }
 
-// GetNvLinkCapability returns NvLink capability
+// GetNvLinkCapability returns whether a capability bit is set for a link.
 func (d *ConfigurableDevice) GetNvLinkCapability(link int, capability nvml.NvLinkCapability) (uint32, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetNvLinkCapability(link=%d, cap=%d) -> 0\n", link, capability)
-	return 0, nvml.SUCCESS
+	if !nvlinkLinkInRange(link) {
+		return 0, nvml.ERROR_INVALID_ARGUMENT
+	}
+	val := uint32(0)
+	if d.fabric != nil {
+		if l, ok := d.fabric.Link(d.index, link); ok {
+			val = (l.Caps >> uint(capability)) & 1
+		}
+	}
+	debugLog("[NVML] nvmlDeviceGetNvLinkCapability(link=%d, cap=%d) -> %d\n", link, capability, val)
+	return val, nvml.SUCCESS
 }
 
-// GetTopologyCommonAncestor returns the topology level between this device and another.
+// GetNvLinkRemoteDeviceType returns the kind of device on the far end of a
+// link (GPU, SWITCH for NVSwitch endpoints, or IBMNPU/UNKNOWN otherwise).
+func (d *ConfigurableDevice) GetNvLinkRemoteDeviceType(link int) (nvml.IntNvLinkDeviceType, nvml.Return) {
+	if !nvlinkLinkInRange(link) {
+		return nvml.NVLINK_DEVICE_TYPE_UNKNOWN, nvml.ERROR_INVALID_ARGUMENT
+	}
+	t := nvml.NVLINK_DEVICE_TYPE_UNKNOWN
+	if d.fabric != nil {
+		if l, ok := d.fabric.Link(d.index, link); ok && l.Active {
+			switch l.RemoteKind {
+			case RemoteGPU:
+				t = nvml.NVLINK_DEVICE_TYPE_GPU
+			case RemoteSwitch:
+				t = nvml.NVLINK_DEVICE_TYPE_SWITCH
+			}
+		}
+	}
+	debugLog("[NVML] nvmlDeviceGetNvLinkRemoteDeviceType(link=%d) -> %d\n", link, t)
+	return t, nvml.SUCCESS
+}
+
+// GetTopologyCommonAncestor returns the pairwise PCIe topology level
+// between this device and another. When the fabric carries pcie_topology
+// facts the level is computed pairwise; otherwise it falls back to the
+// per-device topology.default_level (preserving legacy behavior).
 func (d *ConfigurableDevice) GetTopologyCommonAncestor(other nvml.Device) (nvml.GpuTopologyLevel, nvml.Return) {
-	level := nvml.TOPOLOGY_SINGLE // Default: same PCIe switch
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return 0, ret
+	}
+	if d.fabric != nil && d.fabric.HasPCIeTopology() {
+		if o, ok := other.(*ConfigurableDevice); ok {
+			level := d.fabric.TopoLevel(d.index, o.index)
+			debugLog("[NVML] nvmlDeviceGetTopologyCommonAncestor(%d,%d) -> %d\n", d.index, o.index, level)
+			return level, nvml.SUCCESS
+		}
+	}
+	level := nvml.TOPOLOGY_SINGLE
 	if d.config != nil && d.config.Topology != nil {
 		level = parseTopologyLevel(d.config.Topology.DefaultLevel)
 	}
-	debugLog("[NVML] nvmlDeviceGetTopologyCommonAncestor -> %d\n", level)
+	debugLog("[NVML] nvmlDeviceGetTopologyCommonAncestor -> %d (default)\n", level)
 	return level, nvml.SUCCESS
 }
 
-// GetNvLinkErrorCounter returns the error counter for a specific NVLink and counter type.
-// Always returns 0 (no errors in mock).
+// GetNvLinkErrorCounter returns the deterministic error counter for a
+// link. Healthy links accrue at rate 0 (always 0); a configured error
+// rate accrues monotonically against the shared epoch.
 func (d *ConfigurableDevice) GetNvLinkErrorCounter(link int, counter nvml.NvLinkErrorCounter) (uint64, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetNvLinkErrorCounter(link=%d, counter=%d) -> 0\n", link, counter)
-	return 0, nvml.SUCCESS
+	if !nvlinkLinkInRange(link) {
+		return 0, nvml.ERROR_INVALID_ARGUMENT
+	}
+	val := uint64(0)
+	if d.fabric != nil {
+		val = d.fabric.NvLinkErrorCount(d.index, link, d.fabric.now())
+	}
+	debugLog("[NVML] nvmlDeviceGetNvLinkErrorCounter(link=%d, counter=%d) -> %d\n", link, counter, val)
+	return val, nvml.SUCCESS
 }
 
-// GetNvLinkRemotePciInfo returns PCI info for the remote device connected via NVLink.
+// GetNvLinkUtilizationCounter returns the deterministic (rx, tx)
+// utilization counters for a link. The values grow monotonically with
+// wall-clock time and across separate processes (shared epoch).
+func (d *ConfigurableDevice) GetNvLinkUtilizationCounter(link, counter int) (uint64, uint64, nvml.Return) {
+	if !nvlinkLinkInRange(link) {
+		return 0, 0, nvml.ERROR_INVALID_ARGUMENT
+	}
+	if d.fabric == nil {
+		return 0, 0, nvml.SUCCESS
+	}
+	rx, tx := d.fabric.NvLinkCounters(d.index, link, d.fabric.now())
+	debugLog("[NVML] nvmlDeviceGetNvLinkUtilizationCounter(link=%d, counter=%d) -> rx=%d tx=%d\n", link, counter, rx, tx)
+	return rx, tx, nvml.SUCCESS
+}
+
+// FreezeNvLinkUtilizationCounter is a no-op success: the counters are a
+// pure function of time, so there is no mutable state to freeze.
+func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, counter int, freeze nvml.EnableState) nvml.Return {
+	if !nvlinkLinkInRange(link) {
+		return nvml.ERROR_INVALID_ARGUMENT
+	}
+	debugLog("[NVML] nvmlDeviceFreezeNvLinkUtilizationCounter(link=%d) -> no-op\n", link)
+	return nvml.SUCCESS
+}
+
+// ResetNvLinkUtilizationCounter is a no-op success (see Freeze).
+func (d *ConfigurableDevice) ResetNvLinkUtilizationCounter(link, counter int) nvml.Return {
+	if !nvlinkLinkInRange(link) {
+		return nvml.ERROR_INVALID_ARGUMENT
+	}
+	debugLog("[NVML] nvmlDeviceResetNvLinkUtilizationCounter(link=%d) -> no-op\n", link)
+	return nvml.SUCCESS
+}
+
+// ResetNvLinkErrorCounters is a no-op success.
+func (d *ConfigurableDevice) ResetNvLinkErrorCounters(link int) nvml.Return {
+	if !nvlinkLinkInRange(link) {
+		return nvml.ERROR_INVALID_ARGUMENT
+	}
+	debugLog("[NVML] nvmlDeviceResetNvLinkErrorCounters(link=%d) -> no-op\n", link)
+	return nvml.SUCCESS
+}
+
+// GetNvLinkRemotePciInfo returns PCI info for the remote device connected
+// via NVLink, derived from the fabric's resolved per-device links.
 func (d *ConfigurableDevice) GetNvLinkRemotePciInfo(link int) (nvml.PciInfo, nvml.Return) {
 	pci := nvml.PciInfo{}
-	if d.nvlinkCfg != nil {
-		for _, l := range d.nvlinkCfg.Links {
-			if l.Link == link && l.RemotePCIBusID != "" {
-				domain, bus, device, _, err := ParsePCIBusID(l.RemotePCIBusID)
-				if err == nil {
-					pci.Domain = domain
-					pci.Bus = bus
-					pci.Device = device
-					for i := 0; i < len(l.RemotePCIBusID) && i < 32; i++ {
-						pci.BusId[i] = int8(l.RemotePCIBusID[i])
-					}
+	if !nvlinkLinkInRange(link) {
+		return pci, nvml.ERROR_INVALID_ARGUMENT
+	}
+	if d.fabric != nil {
+		if l, ok := d.fabric.Link(d.index, link); ok && l.RemoteBDF != "" {
+			if domain, bus, device, _, err := ParsePCIBusID(l.RemoteBDF); err == nil {
+				pci.Domain = domain
+				pci.Bus = bus
+				pci.Device = device
+				for i := 0; i < len(l.RemoteBDF) && i < 32; i++ {
+					pci.BusId[i] = int8(l.RemoteBDF[i])
 				}
-				debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> %s\n", link, l.RemotePCIBusID)
-				return pci, nvml.SUCCESS
 			}
+			debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> %s\n", link, l.RemoteBDF)
+			return pci, nvml.SUCCESS
 		}
 	}
 	debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> empty\n", link)
 	return pci, nvml.SUCCESS
+}
+
+// GetNumaNodeId returns the device's NUMA node from the fabric. Reports
+// ERROR_NOT_SUPPORTED when no pcie_topology facts are available.
+func (d *ConfigurableDevice) GetNumaNodeId() (int, nvml.Return) {
+	if d.fabric == nil || !d.fabric.HasPCIeTopology() {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	node := d.fabric.NumaNode(d.index)
+	if node < 0 {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	debugLog("[NVML] nvmlDeviceGetNumaNodeId -> %d\n", node)
+	return node, nvml.SUCCESS
+}
+
+// GetCpuAffinity returns the device's CPU affinity bitmask packed into
+// cpuSetSize machine words. Reports ERROR_NOT_SUPPORTED without topology.
+// The signature matches nvml.Device so it overrides the embedded stub.
+func (d *ConfigurableDevice) GetCpuAffinity(cpuSetSize int) ([]uint, nvml.Return) {
+	if cpuSetSize <= 0 {
+		return nil, nvml.ERROR_INVALID_ARGUMENT
+	}
+	if d.fabric == nil || !d.fabric.HasPCIeTopology() {
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
+	mask := wordsToUint(d.fabric.CPUAffinityMask(d.index, cpuSetSize))
+	debugLog("[NVML] nvmlDeviceGetCpuAffinity -> %v\n", mask)
+	return mask, nvml.SUCCESS
+}
+
+// GetCpuAffinityWithinScope returns the CPU affinity bitmask for a scope.
+// The mock does not distinguish socket vs node scope, so both return the
+// device's NUMA CPU set.
+func (d *ConfigurableDevice) GetCpuAffinityWithinScope(cpuSetSize int, scope nvml.AffinityScope) ([]uint, nvml.Return) {
+	return d.GetCpuAffinity(cpuSetSize)
+}
+
+// GetMemoryAffinity returns the device's memory (NUMA) affinity bitmask
+// packed into nodeSetSize machine words.
+func (d *ConfigurableDevice) GetMemoryAffinity(nodeSetSize int, scope nvml.AffinityScope) ([]uint, nvml.Return) {
+	if nodeSetSize <= 0 {
+		return nil, nvml.ERROR_INVALID_ARGUMENT
+	}
+	if d.fabric == nil || !d.fabric.HasPCIeTopology() {
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
+	mask := wordsToUint(d.fabric.MemoryAffinityMask(d.index, nodeSetSize))
+	debugLog("[NVML] nvmlDeviceGetMemoryAffinity -> %v\n", mask)
+	return mask, nvml.SUCCESS
+}
+
+// wordsToUint converts a 64-bit-word affinity mask into the []uint shape
+// the nvml.Device interface uses.
+func wordsToUint(words []uint64) []uint {
+	out := make([]uint, len(words))
+	for i, w := range words {
+		out[i] = uint(w)
+	}
+	return out
 }
 
 // GetThermalSettings returns thermal sensor settings.

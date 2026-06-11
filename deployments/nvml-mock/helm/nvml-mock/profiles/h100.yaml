@@ -37,6 +37,18 @@ device_defaults:
   num_gpu_cores: 16896              # CUDA cores
 
   # ---------------------------------------------------------------------------
+  # NVLink fabric. H100 (Hopper) supports the GpuFabricInfo NVML API, so the
+  # HGX H100 baseboard couples each GPU's fabric-manager readiness to the fake
+  # fabricmanager via state: auto (resolves to "completed" when fabricmanager
+  # is disabled). See pkg/gpu/mocknvml/engine/fabric.go.
+  # ---------------------------------------------------------------------------
+  fabric:
+    cluster_uuid: "00000000-0000-0000-0000-000000000001"
+    clique_id: 0
+    state: "auto"
+    health_mask: 0
+
+  # ---------------------------------------------------------------------------
   # InfoROM versions
   # ---------------------------------------------------------------------------
   inforom:
@@ -378,11 +390,23 @@ nvlink:
   version: 4
   links_per_gpu: 18
   bandwidth_per_link_gbps: 50       # 50 GB/s per link = 900 GB/s total per GPU
-  links:
-    - link: 0
-      state: "active"
-      remote_device_type: "gpu"
-      remote_pci_bus_id: "0000:1B:00.0"
+  switch_support: true              # HGX H100 NVSwitch baseboard
+  switch_count: 4                   # 4 NVSwitches backing this 8-GPU HGX baseboard
+  c2c_enabled: false                # no Grace C2C on HGX H100
+  # Switch-link auto-expansion: switches declared + links_per_gpu > 0 (and no
+  # explicit per-device links) makes the engine synthesize 18 active links per
+  # GPU fanned round-robin across these NVSwitches, yielding NV18 all-to-all in
+  # `nvidia-smi topo -m`. HGX H100 couples fabric-manager readiness via
+  # device_defaults.fabric.state: auto.
+  switches:
+    - bdf: "0000:05:00.0"
+      uuid: "NVSwitch-H100-0000-0000-0000-000000000000"
+    - bdf: "0000:06:00.0"
+      uuid: "NVSwitch-H100-0000-0000-0000-000000000001"
+    - bdf: "0000:07:00.0"
+      uuid: "NVSwitch-H100-0000-0000-0000-000000000002"
+    - bdf: "0000:08:00.0"
+      uuid: "NVSwitch-H100-0000-0000-0000-000000000003"
 
 # =============================================================================
 # InfiniBand topology - 1 ConnectX-7 NDR HCA per GPU (typical HGX H100)

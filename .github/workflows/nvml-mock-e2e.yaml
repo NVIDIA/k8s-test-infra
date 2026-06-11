@@ -26,7 +26,10 @@ on:
       gpu_profiles:
         required: false
         type: string
-        default: '["a100", "h100", "t4"]'
+        # Include the NVSwitch/fabric profiles (gb200, gb300) and the
+        # standalone B200 negative control so the #371 NVLink/fabricmanager
+        # acceptance criteria are actually exercised in normal CI.
+        default: '["a100", "h100", "b200", "gb200", "gb300", "t4"]'
   workflow_dispatch:
     inputs:
       golang_version:
@@ -63,6 +66,15 @@ jobs:
             l40s) echo "gpu-name=NVIDIA L40S" >> "$GITHUB_OUTPUT" ;;
             t4)   echo "gpu-name=NVIDIA T4" >> "$GITHUB_OUTPUT" ;;
             *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;
+          esac
+          # Whether to expect a running fabricmanager daemon. The chart now
+          # derives fabricmanager enablement from the profile itself
+          # (device_defaults.fabric.state: auto on HGX H100, GB200, GB300), so
+          # this is NOT passed to Helm — it only gates the readiness assertion
+          # below so non-fabric profiles don't probe a daemon they never start.
+          case "${{ matrix.gpu-profile }}" in
+            h100 | gb200 | gb300) echo "fm-enabled=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "fm-enabled=false" >> "$GITHUB_OUTPUT" ;;
           esac
 
       - name: Install Go
@@ -127,10 +139,38 @@ jobs:
 
       - name: Validate nvidia-smi output
         run: |
-          chmod +x tests/e2e/validate-nvidia-smi.sh
           ./tests/e2e/validate-nvidia-smi.sh \
             nvml-mock-e2e-${{ matrix.gpu-profile }}-control-plane \
             "${{ steps.gpu-info.outputs.gpu-name }}" \
+            2
+
+      - name: Verify fake fabricmanager readiness
+        if: steps.gpu-info.outputs.fm-enabled == 'true'
+        run: |
+          POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+            -o jsonpath='{.items[0].metadata.name}')
+          # The fake nvidia-fabricmanager daemon writes a node-local readiness
+          # marker; nv-fabricmanager-ctl -q reports READY once it exists.
+          # Verify readiness BEFORE asserting NVLink topology: on a real
+          # HGX/GB200 node the fabric (and thus the NV# links) is gated on
+          # fabricmanager registration completing.
+          for i in $(seq 1 15); do
+            if kubectl exec "$POD" -- /usr/bin/nv-fabricmanager-ctl -q 2>/dev/null | grep -q READY; then
+              echo "PASS: fake fabricmanager reports READY"
+              exit 0
+            fi
+            echo "Attempt $i: fabricmanager not ready yet, waiting..."
+            sleep 2
+          done
+          echo "FAIL: fake fabricmanager did not report READY"
+          kubectl logs "$POD" --tail=30 || true
+          exit 1
+
+      - name: Validate NVLink topology (nvidia-smi topo -m)
+        run: |
+          ./tests/e2e/validate-nvlink.sh \
+            nvml-mock-e2e-${{ matrix.gpu-profile }}-control-plane \
+            "${{ matrix.gpu-profile }}" \
             2
 
       - name: Validate ibstat / ibstatus (InfiniBand mock)
@@ -260,6 +300,15 @@ jobs:
             t4)   echo "gpu-name=NVIDIA T4" >> "$GITHUB_OUTPUT" ;;
             *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;
           esac
+          # Whether to expect a running fabricmanager daemon. The chart now
+          # derives fabricmanager enablement from the profile itself
+          # (device_defaults.fabric.state: auto on HGX H100, GB200, GB300), so
+          # this is NOT passed to Helm — it only gates the readiness assertion
+          # below so non-fabric profiles don't probe a daemon they never start.
+          case "${{ matrix.gpu-profile }}" in
+            h100 | gb200 | gb300) echo "fm-enabled=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "fm-enabled=false" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Install Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -307,10 +356,35 @@ jobs:
 
       - name: Validate nvidia-smi output
         run: |
-          chmod +x tests/e2e/validate-nvidia-smi.sh
           ./tests/e2e/validate-nvidia-smi.sh \
             nvml-mock-dra-${{ matrix.gpu-profile }}-control-plane \
             "${{ steps.gpu-info.outputs.gpu-name }}" \
+            2
+
+      - name: Verify fake fabricmanager readiness
+        if: steps.gpu-info.outputs.fm-enabled == 'true'
+        run: |
+          POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+            -o jsonpath='{.items[0].metadata.name}')
+          # Gate the NV# topology assertion on fabricmanager readiness, as on
+          # a real HGX/GB200 node (see e2e-device-plugin for rationale).
+          for i in $(seq 1 15); do
+            if kubectl exec "$POD" -- /usr/bin/nv-fabricmanager-ctl -q 2>/dev/null | grep -q READY; then
+              echo "PASS: fake fabricmanager reports READY"
+              exit 0
+            fi
+            echo "Attempt $i: fabricmanager not ready yet, waiting..."
+            sleep 2
+          done
+          echo "FAIL: fake fabricmanager did not report READY"
+          kubectl logs "$POD" --tail=30 || true
+          exit 1
+
+      - name: Validate NVLink topology (nvidia-smi topo -m)
+        run: |
+          ./tests/e2e/validate-nvlink.sh \
+            nvml-mock-dra-${{ matrix.gpu-profile }}-control-plane \
+            "${{ matrix.gpu-profile }}" \
             2
 
       - name: Add NVIDIA Helm repo

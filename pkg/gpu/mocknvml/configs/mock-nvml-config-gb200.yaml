@@ -37,6 +37,18 @@ device_defaults:
   num_gpu_cores: 18432              # Blackwell has more CUDA cores
 
   # ---------------------------------------------------------------------------
+  # NVLink fabric (GB200 ComputeDomain). state: auto couples each GPU's
+  # fabric-manager registration to the fake fabricmanager's readiness when
+  # fabricmanager is enabled, and resolves to "completed" when it is disabled.
+  # See pkg/gpu/mocknvml/engine/fabric.go.
+  # ---------------------------------------------------------------------------
+  fabric:
+    cluster_uuid: "00000000-0000-0000-0000-000000000001"
+    clique_id: 0
+    state: "auto"
+    health_mask: 0
+
+  # ---------------------------------------------------------------------------
   # InfoROM versions
   # ---------------------------------------------------------------------------
   inforom:
@@ -398,21 +410,25 @@ devices:
 nvlink:
   version: 5
   links_per_gpu: 18
-  bandwidth_per_link_gbps: 100      # 100 GB/s per link = 1.8 TB/s total per GPU
+  bandwidth_per_link_gbps: 53       # NVLink5 ~53.125 GB/s/link unidirectional (int); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
   switch_support: true              # NVLink Switch for scale-out
-  switch_count: 0                   # Set for NVL72 configurations (up to 9 switches)
+  switch_count: 4                   # 4 NVSwitches backing this 8-GPU NVL72 slice
   c2c_enabled: true                 # NVLink-C2C to Grace CPU
-  # NVLink state per link (18 links)
-  links:
-    - link: 0
-      state: "active"
-      remote_device_type: "gpu"
-      remote_pci_bus_id: "0000:0B:00.0"
-    - link: 1
-      state: "active"
-      remote_device_type: "cpu"     # NVLink-C2C to Grace
-      remote_pci_bus_id: "N/A"
-    # ... define all 18 links for full topology
+  # Switch-link auto-expansion: because switches are declared and
+  # links_per_gpu > 0 (and no explicit per-device links exist), the engine
+  # synthesizes 18 active links per GPU fanned round-robin across these
+  # NVSwitches. Every switch-attached link reaches all peers through the
+  # shared fabric, so `nvidia-smi topo -m` shows NV18 between every GPU pair.
+  # Fabric-manager readiness is coupled via device_defaults.fabric.state: auto.
+  switches:
+    - bdf: "0000:01:00.0"
+      uuid: "NVSwitch-GB200-0000-0000-0000-000000000000"
+    - bdf: "0000:02:00.0"
+      uuid: "NVSwitch-GB200-0000-0000-0000-000000000001"
+    - bdf: "0000:03:00.0"
+      uuid: "NVSwitch-GB200-0000-0000-0000-000000000002"
+    - bdf: "0000:04:00.0"
+      uuid: "NVSwitch-GB200-0000-0000-0000-000000000003"
 
 # =============================================================================
 # PCIe topology - GB200, 4 Grace CPU pairs -> 4 NUMA nodes, 2 GPUs each.

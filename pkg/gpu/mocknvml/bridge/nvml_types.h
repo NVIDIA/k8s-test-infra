@@ -286,7 +286,29 @@ typedef struct nvmlExcludedDeviceInfo_st                    nvmlExcludedDeviceIn
 typedef struct nvmlFBCSessionInfo_st                        nvmlFBCSessionInfo_t;
 typedef struct nvmlFBCStats_st                              nvmlFBCStats_t;
 typedef struct nvmlFanSpeedInfo_st                          nvmlFanSpeedInfo_t;
-typedef struct nvmlFieldValue_st                            nvmlFieldValue_t;
+/* Field value query — full definition needed by the bridge so
+ * nvmlDeviceGetFieldValues (see bridge/fieldvalues.go) can read the
+ * requested fieldId/scopeId and populate value/valueType/nvmlReturn.
+ * Layout matches the upstream NVML public header; nvmlValueType_t is
+ * already typedef'd (unsigned int) above. */
+typedef union nvmlValue_st {
+    double             dVal;    //!< If the value is double
+    int                siVal;   //!< If the value is signed int
+    unsigned int       uiVal;   //!< If the value is unsigned int
+    unsigned long      ulVal;   //!< If the value is unsigned long
+    unsigned long long ullVal;  //!< If the value is unsigned long long
+    signed long long   sllVal;  //!< If the value is signed long long
+    unsigned short     usVal;   //!< If the value is unsigned short
+} nvmlValue_t;
+typedef struct nvmlFieldValue_st {
+    unsigned int    fieldId;     //!< ID of the NVML field to retrieve
+    unsigned int    scopeId;     //!< Context (e.g. NVLink linkId) for fieldId
+    long long       timestamp;   //!< CPU timestamp in usec since 1970
+    long long       latencyUsec; //!< How long the field took to update (usec)
+    nvmlValueType_t valueType;   //!< Type of the value stored in value
+    nvmlReturn_t    nvmlReturn;  //!< Per-field return code; check before value
+    nvmlValue_t     value;       //!< Field value (valid iff nvmlReturn == SUCCESS)
+} nvmlFieldValue_t;
 typedef struct nvmlGpmMetricsGet_st                         nvmlGpmMetricsGet_t;
 /* GPM support - full definition needed by bridge */
 typedef struct nvmlGpmSupport_st {

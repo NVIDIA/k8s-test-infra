@@ -91,10 +91,20 @@ func buildFabricInfo(cfg *FabricConfig) FabricInfo {
 	info := FabricInfo{
 		CliqueID:   cfg.CliqueID,
 		HealthMask: cfg.HealthMask,
-		State:      parseFabricState(cfg.State),
+		State:      resolveFabricState(cfg.State),
 	}
 	info.ClusterUUID = parseClusterUUID(cfg.ClusterUUID)
 	return info
+}
+
+// resolveFabricState maps the configured state string to an NVML state.
+// The special value "auto" couples the state to the fake fabricmanager's
+// readiness marker (decision D-a); every other value is a static mapping.
+func resolveFabricState(s string) uint8 {
+	if strings.EqualFold(strings.TrimSpace(s), "auto") {
+		return fabricReadiness.state()
+	}
+	return parseFabricState(s)
 }
 
 func parseFabricState(s string) uint8 {

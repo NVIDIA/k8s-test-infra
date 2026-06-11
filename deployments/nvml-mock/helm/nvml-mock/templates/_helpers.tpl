@@ -140,6 +140,38 @@ false
 {{- end }}
 
 {{/*
+Return "true" when the fake nvidia-fabricmanager daemon should run.
+Single source of truth is the GPU profile: a profile that sets
+device_defaults.fabric.state: auto (HGX H100 / GB200 / GB300) couples its
+GPUs' fabric registration to the fabricmanager readiness marker, so the daemon
+must run. A100 declares NVSwitches but no fabricmanager (no auto state), and
+standalone B200/L40S/T4 have no fabric — none start the daemon.
+
+fabricmanager.enabled is a tri-state override: leave it empty/unset to derive
+from the profile (the normal path, so CI/users never restate per-profile
+facts); set it to true/false to force the daemon on or off regardless of
+profile (e.g. a custom config, or disabling it on an auto profile).
+*/}}
+{{- define "nvml-mock.fabricmanagerEnabled" -}}
+{{- $fm := .Values.fabricmanager | default dict -}}
+{{- $override := get $fm "enabled" -}}
+{{- if and (not (kindIs "invalid" $override)) (ne (toString $override) "") -}}
+{{- ternary "true" "false" (eq (toString $override) "true") -}}
+{{- else -}}
+{{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}
+{{- if hasKey $cfg "Error" -}}
+{{- fail (printf "nvml-mock.fabricmanagerEnabled: failed to parse GPU config: %s" (get $cfg "Error")) -}}
+{{- end -}}
+{{- $dd := get $cfg "device_defaults" | default (dict) -}}
+{{- $fabric := dict -}}
+{{- if kindIs "map" $dd -}}{{- $fabric = get $dd "fabric" | default (dict) -}}{{- end -}}
+{{- $state := "" -}}
+{{- if kindIs "map" $fabric -}}{{- $state = get $fabric "state" | default "" | toString -}}{{- end -}}
+{{- ternary "true" "false" (eq (lower $state) "auto") -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Resolve the effective MOCK_IB tier: one of "off", "sysfs", or "full".
 Honors an explicit .Values.infiniband.mockTier override (validated here so a
 typo fails the render, not silently disables IB); when empty/unset it derives

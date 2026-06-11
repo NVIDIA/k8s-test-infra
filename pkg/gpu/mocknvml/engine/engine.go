@@ -126,6 +126,14 @@ func (e *Engine) createServer() (*MockServer, error) {
 func (e *Engine) createDevicesFromYAML(server *MockServer, base *dgxa100.Server) {
 	debugLog("[ENGINE] Creating devices from YAML config\n")
 
+	// Build the node-level topology model once. It is immutable and shared
+	// (read-only) by every device, replacing the single shared *NVLinkConfig
+	// pointer that previously made every GPU report identical links.
+	fabric := BuildNodeFabric(e.config)
+	for _, w := range fabric.Validate() {
+		warnLog("[ENGINE] NVLink topology: %s\n", w)
+	}
+
 	for i := 0; i < e.config.NumDevices && i < MaxDevices; i++ {
 		// Get merged device config (defaults + overrides)
 		deviceCfg := e.config.GetDeviceConfig(i)
@@ -142,13 +150,7 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *dgxa100.Server)
 			continue
 		}
 
-		// Get NVLink config from YAML
-		var nvlinkCfg *NVLinkConfig
-		if e.config.YAMLConfig != nil {
-			nvlinkCfg = e.config.YAMLConfig.NVLink
-		}
-
-		// Create configurable device
+		// Create configurable device with the shared node fabric.
 		server.configurableDevices[i] = NewConfigurableDevice(
 			i,
 			baseDevice,
@@ -156,7 +158,7 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *dgxa100.Server)
 			uuid,
 			pciBusID,
 			minorNumber,
-			nvlinkCfg,
+			fabric,
 		)
 
 		debugLog("[ENGINE] Created device %d: uuid=%s pci=%s\n", i, uuid, pciBusID)
@@ -193,7 +195,7 @@ func (e *Engine) createDefaultDevices(server *MockServer, base *dgxa100.Server) 
 			uuid,
 			pciBusID,
 			i,   // Minor number = index
-			nil, // No NVLink config
+			nil, // No node fabric (legacy/default mode)
 		)
 	}
 }
@@ -364,6 +366,87 @@ func (e *Engine) LookupConfigurableDevice(handle uintptr) *ConfigurableDevice {
 		return cd
 	}
 	return nil
+}
+
+// TopologyNearestGpus returns handles for the GPUs whose topology path to
+// the given device is at or below (i.e. closer than or equal to) the
+// requested level. The bridge marshals these into the caller's device
+// array. Handles are registered on demand so the C caller gets valid
+// references.
+func (e *Engine) TopologyNearestGpus(handle uintptr, level nvml.GpuTopologyLevel) ([]uintptr, nvml.Return) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.initCount == 0 || e.server == nil {
+		return nil, nvml.ERROR_UNINITIALIZED
+	}
+	dev := e.handles.Lookup(handle)
+	cd, ok := dev.(*ConfigurableDevice)
+	if !ok || cd == nil {
+		return nil, nvml.ERROR_INVALID_ARGUMENT
+	}
+	if cd.fabric == nil {
+		return nil, nvml.SUCCESS
+	}
+
+	var out []uintptr
+	for j := 0; j < cd.fabric.NumDevices(); j++ {
+		if j == cd.index {
+			continue
+		}
+		if cd.fabric.TopoLevel(cd.index, j) > level {
+			continue
+		}
+		peer := e.server.configurableDevices[j]
+		if peer == nil {
+			continue
+		}
+		h := e.handles.HandleFor(peer)
+		if h == 0 {
+			h = e.handles.Register(peer)
+		}
+		out = append(out, h)
+	}
+	return out, nvml.SUCCESS
+}
+
+// TopologyGpuSet returns handles for the GPUs that have CPU affinity with
+// the given CPU number, derived from the NodeFabric's per-device CPU sets.
+// This backs nvmlSystemGetTopologyGpuSet, which nvidia-smi topo -m uses to
+// group GPUs by their affined CPU. When no pcie_topology is configured the
+// affinity sets are empty and the result is an empty set (SUCCESS), matching
+// a node whose CPU affinity is unknown rather than an error.
+func (e *Engine) TopologyGpuSet(cpuNumber int) ([]uintptr, nvml.Return) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.initCount == 0 || e.server == nil {
+		return nil, nvml.ERROR_UNINITIALIZED
+	}
+
+	var out []uintptr
+	for j := 0; j < len(e.server.configurableDevices); j++ {
+		dev := e.server.configurableDevices[j]
+		if dev == nil || dev.fabric == nil {
+			continue
+		}
+		matched := false
+		for _, c := range dev.fabric.CPUs(dev.index) {
+			if c == cpuNumber {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		h := e.handles.HandleFor(dev)
+		if h == 0 {
+			h = e.handles.Register(dev)
+		}
+		out = append(out, h)
+	}
+	return out, nvml.SUCCESS
 }
 
 // SystemGetDriverVersion returns the NVIDIA driver version.

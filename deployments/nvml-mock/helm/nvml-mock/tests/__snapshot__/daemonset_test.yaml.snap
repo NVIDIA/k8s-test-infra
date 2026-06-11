@@ -18,7 +18,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: a61c6a3dddda8dbb6d6d0558d54f7687398def2880fdef692b995e798d8da71e
+            checksum/config: 85aae452b9d96a109bb6732de549b3faa87e333521e19223e570c3edbee2b293
           labels:
             app.kubernetes.io/instance: custom
             app.kubernetes.io/name: nvml-mock
@@ -37,6 +37,10 @@ should match snapshot with all overrides:
                       fieldPath: spec.nodeName
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
+                - name: MOCK_FABRICMANAGER
+                  value: "on"
+                - name: MOCK_FABRICMANAGER_STATE_DIR
+                  value: /var/lib/nvml-mock/fabric-state
                 - name: MOCK_IB
                   value: full
                 - name: MOCK_IB_PING_FABRIC
@@ -85,6 +89,8 @@ should match snapshot with all overrides:
                   name: host-cdi
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
+                - mountPath: /var/lib/nvml-mock/fabric-state
+                  name: host-fabric-state
           nodeSelector:
             nvidia.com/gpu.present: "true"
           serviceAccountName: nvml-mock-custom
@@ -109,6 +115,10 @@ should match snapshot with all overrides:
                 path: /run/nvidia
                 type: DirectoryOrCreate
               name: host-run-nvidia
+            - hostPath:
+                path: /var/lib/nvml-mock/fabric-state
+                type: DirectoryOrCreate
+              name: host-fabric-state
       updateStrategy:
         rollingUpdate:
           maxUnavailable: 25%
@@ -133,7 +143,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: 39b4be468d3038181d5a5eb63fb5fba75f8ffa2500bc0cba20a308246a0334ca
+            checksum/config: 02d334e3995a506f615abeaf9c3570349234ab0f65375584cf88abf19af21081
           labels:
             app.kubernetes.io/instance: RELEASE-NAME
             app.kubernetes.io/name: nvml-mock
@@ -237,7 +247,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: 07b4e38538574cd5b7a6a50321a31a19e14d80a5b43771dff9710afb61c6f563
+            checksum/config: c6bc9e0c8bd084f54529d8388db77789aa582226c9ed2dd8d6da574affaf3fd8
           labels:
             app.kubernetes.io/instance: RELEASE-NAME
             app.kubernetes.io/name: nvml-mock
