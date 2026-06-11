@@ -111,6 +111,76 @@ func TestTrySynthesize_ShortSendBuffer(t *testing.T) {
 	}
 }
 
+// TestFillPortInfo_WireBytes pins the on-wire byte layout of a synthesized
+// PortInfo SMP, reading the payload as raw big-endian bytes at the IB-spec
+// wire offsets a real libibmad consumer (iblinkinfo) parses — deliberately
+// NOT via GetFieldSpec, which would re-apply the same BITSOFFS / 3^idx
+// transform fillPortInfo used to write and mask a symmetric offset regression
+// (e.g. a Bitsoffs or SetField change that breaks set+get together). The
+// per-field offsets below are the libibmad fields.c byte positions: a field at
+// spec bit offset o, byte width w lands at wire byte o/8 in network order.
+func TestFillPortInfo_WireBytes(t *testing.T) {
+	mad := make([]byte, ibSMPDataOff+64)
+	fillPortInfo(mad, fabricPort(0x0dc0), 1)
+	pl := mad[ibSMPDataOff:]
+
+	// GidPrefix (spec bit 64 -> byte 8, BE64).
+	if got := binary.BigEndian.Uint64(pl[8:16]); got != defaultGidPrefix {
+		t.Fatalf("GidPrefix @byte8: got %#016x want %#016x", got, uint64(defaultGidPrefix))
+	}
+	// LID (spec bit 128 -> byte 16, BE16).
+	if got := binary.BigEndian.Uint16(pl[16:18]); got != 0x0dc0 {
+		t.Fatalf("LID @byte16: got %#04x want 0x0dc0", got)
+	}
+	// MasterSMLID (spec bit 144 -> byte 18, BE16).
+	if got := binary.BigEndian.Uint16(pl[18:20]); got != defaultSMLID {
+		t.Fatalf("SMLID @byte18: got %#04x want %#04x", got, defaultSMLID)
+	}
+	// PortState occupies the low nibble of wire byte 32; PortPhysState the
+	// high nibble of wire byte 33 (libibmad PORT_INFO field defs).
+	if got := pl[32] & 0x0f; got != portStateActive {
+		t.Fatalf("PortState @byte32 low nibble: got %d want %d", got, portStateActive)
+	}
+	if got := pl[33] >> 4; got != portPhysStateLinkUp {
+		t.Fatalf("PortPhysState @byte33 high nibble: got %d want %d", got, portPhysStateLinkUp)
+	}
+}
+
+// TestFillNodeInfo_WireBytes pins the on-wire byte layout of a synthesized
+// NodeInfo SMP via raw big-endian reads at the libibmad fields.c byte offsets,
+// independent of GetFieldSpec (see TestFillPortInfo_WireBytes rationale).
+func TestFillNodeInfo_WireBytes(t *testing.T) {
+	mad := make([]byte, ibSMPDataOff+64)
+	p := fabricPort(0x101)
+	fillNodeInfo(mad, p, 0)
+	pl := mad[ibSMPDataOff:]
+
+	// NodeType (spec bit 16 -> byte 2) and NumPorts (spec bit 24 -> byte 3).
+	if pl[2] != nodeTypeCA {
+		t.Fatalf("NodeType @byte2: got %d want %d", pl[2], nodeTypeCA)
+	}
+	if pl[3] != 1 {
+		t.Fatalf("NumPorts @byte3: got %d want 1", pl[3])
+	}
+	// SystemGuid @byte4 and NodeGuid @byte12 are both p.NodeGUID; PortGuid
+	// @byte20 is p.PortGUID (all 8-byte BE, written by putGUID64).
+	nodeGUID := []byte{0xa0, 0x88, 0xc2, 0x03, 0x00, 0xab, 0x00, 0x00}
+	portGUID := []byte{0xa0, 0x88, 0xc2, 0x03, 0x00, 0xab, 0x00, 0x01}
+	if string(pl[4:12]) != string(nodeGUID) {
+		t.Fatalf("SystemGuid @byte4: got %x want %x", pl[4:12], nodeGUID)
+	}
+	if string(pl[12:20]) != string(nodeGUID) {
+		t.Fatalf("NodeGuid @byte12: got %x want %x", pl[12:20], nodeGUID)
+	}
+	if string(pl[20:28]) != string(portGUID) {
+		t.Fatalf("PortGuid @byte20: got %x want %x", pl[20:28], portGUID)
+	}
+	// LocalPort (spec bit 288 -> byte 36); attrMod 0 resolves to port 1.
+	if pl[36] != 1 {
+		t.Fatalf("LocalPort @byte36: got %d want 1", pl[36])
+	}
+}
+
 func TestTrySynthesize_DROneHopNodeInfo(t *testing.T) {
 	local := []protocol.PortAdvert{
 		{PortGUID: "a088:c203:00ab:0001", NodeGUID: "a088:c203:00ab:0000", LID: 0x101, CAName: "mlx5_0"},
