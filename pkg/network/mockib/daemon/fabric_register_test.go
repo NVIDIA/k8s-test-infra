@@ -13,33 +13,24 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/render"
+	"github.com/stretchr/testify/require"
 )
 
 func TestServer_sendRegister(t *testing.T) {
 	dir := t.TempDir()
-	if err := render.Render(render.Options{
+	require.NoError(t, render.Render(render.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "node-a", Output: dir,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()
 	_, portStr, err := net.SplitHostPort(ln.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	tcpPort, err := strconv.Atoi(portStr)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	srv, err := NewServer(Config{IBRoot: dir, TCPPort: tcpPort, Fabric: true}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go srv.acceptFabric(ctx, ln)
@@ -51,9 +42,7 @@ func TestServer_sendRegister(t *testing.T) {
 			{PortGUID: "a088:c203:00ab:2001", LID: 0x0300, CAName: "mlx5_0", Port: 1},
 		},
 	}
-	if err := srv.sendRegister("127.0.0.1", body); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, srv.sendRegister("127.0.0.1", body))
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -62,5 +51,5 @@ func TestServer_sendRegister(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("peer not registered")
+	require.Fail(t, "peer not registered")
 }

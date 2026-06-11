@@ -10,6 +10,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/fabric"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
+	"github.com/stretchr/testify/require"
 )
 
 // writeMADHeader writes a wire-format SMP GET header (IBA §13.4) into mad:
@@ -35,13 +36,9 @@ func TestTrySynthesize_PortInfo(t *testing.T) {
 
 	binary.BigEndian.PutUint16(send[28:30], 0x101)
 	resp, ok := TrySynthesize(send, g, "mlx5_0")
-	if !ok {
-		t.Fatal("expected synthesize")
-	}
+	require.True(t, ok, "expected synthesize")
 	rm := resp[umadMADOffset:]
-	if rm[ibMADMethodOff]&0x80 == 0 {
-		t.Fatal("response method bit not set")
-	}
+	require.NotEqual(t, byte(0), rm[ibMADMethodOff]&0x80, "response method bit not set")
 }
 
 func TestTrySynthesize_SelfResolveLID0(t *testing.T) {
@@ -57,9 +54,7 @@ func TestTrySynthesize_SelfResolveLID0(t *testing.T) {
 	send[28] = 0
 	send[29] = 0
 	_, ok := TrySynthesize(send, g, "mlx5_0")
-	if !ok {
-		t.Fatal("expected synthesize for lid 0 self resolve")
-	}
+	require.True(t, ok, "expected synthesize for lid 0 self resolve")
 }
 
 func TestTrySynthesize_PortInfoMod0PhysLinkUp(t *testing.T) {
@@ -73,16 +68,10 @@ func TestTrySynthesize_PortInfoMod0PhysLinkUp(t *testing.T) {
 	binary.BigEndian.PutUint16(send[28:30], 0xffff)
 
 	resp, ok := TrySynthesize(send, g, "mlx5_0")
-	if !ok {
-		t.Fatal("expected synthesize")
-	}
+	require.True(t, ok, "expected synthesize")
 	pl := resp[umadMADOffset+ibSMPDataOff:]
-	if got := GetFieldSpec(pl, 264, 4); got != portPhysStateLinkUp {
-		t.Fatalf("phys: got %d want %d", got, portPhysStateLinkUp)
-	}
-	if got := GetFieldSpec(pl, 128, 16); got != 0x0dc0 {
-		t.Fatalf("lid: got %#x want 0x0dc0", got)
-	}
+	require.Equal(t, uint32(portPhysStateLinkUp), GetFieldSpec(pl, 264, 4), "phys")
+	require.Equal(t, uint32(0x0dc0), GetFieldSpec(pl, 128, 16), "lid")
 }
 
 func TestTrySynthesize_ShortSendBuffer(t *testing.T) {
@@ -96,19 +85,11 @@ func TestTrySynthesize_ShortSendBuffer(t *testing.T) {
 	SetField(mad, ibDRHopCntBit, 8, 0)
 
 	resp, ok := TrySynthesize(send, g, "mlx5_0")
-	if !ok {
-		t.Fatal("expected synthesize")
-	}
-	if len(resp) < minUmadLen {
-		t.Fatalf("resp len %d want >= %d", len(resp), minUmadLen)
-	}
+	require.True(t, ok, "expected synthesize")
+	require.GreaterOrEqual(t, len(resp), minUmadLen, "resp len %d want >= %d", len(resp), minUmadLen)
 	pl := resp[umadMADOffset+ibSMPDataOff:]
-	if got := GetFieldSpec(pl, 128, 16); got != 0x0f90 {
-		t.Fatalf("lid: got %#x want 0x0f90", got)
-	}
-	if got := GetFieldSpec(pl, 264, 4); got != portPhysStateLinkUp {
-		t.Fatalf("phys: got %d want %d", got, portPhysStateLinkUp)
-	}
+	require.Equal(t, uint32(0x0f90), GetFieldSpec(pl, 128, 16), "lid")
+	require.Equal(t, uint32(portPhysStateLinkUp), GetFieldSpec(pl, 264, 4), "phys")
 }
 
 // TestFillPortInfo_WireBytes pins the on-wire byte layout of a synthesized
@@ -125,25 +106,15 @@ func TestFillPortInfo_WireBytes(t *testing.T) {
 	pl := mad[ibSMPDataOff:]
 
 	// GidPrefix (spec bit 64 -> byte 8, BE64).
-	if got := binary.BigEndian.Uint64(pl[8:16]); got != defaultGidPrefix {
-		t.Fatalf("GidPrefix @byte8: got %#016x want %#016x", got, uint64(defaultGidPrefix))
-	}
+	require.Equal(t, uint64(defaultGidPrefix), binary.BigEndian.Uint64(pl[8:16]), "GidPrefix @byte8")
 	// LID (spec bit 128 -> byte 16, BE16).
-	if got := binary.BigEndian.Uint16(pl[16:18]); got != 0x0dc0 {
-		t.Fatalf("LID @byte16: got %#04x want 0x0dc0", got)
-	}
+	require.Equal(t, uint16(0x0dc0), binary.BigEndian.Uint16(pl[16:18]), "LID @byte16")
 	// MasterSMLID (spec bit 144 -> byte 18, BE16).
-	if got := binary.BigEndian.Uint16(pl[18:20]); got != defaultSMLID {
-		t.Fatalf("SMLID @byte18: got %#04x want %#04x", got, defaultSMLID)
-	}
+	require.Equal(t, uint16(defaultSMLID), binary.BigEndian.Uint16(pl[18:20]), "SMLID @byte18")
 	// PortState occupies the low nibble of wire byte 32; PortPhysState the
 	// high nibble of wire byte 33 (libibmad PORT_INFO field defs).
-	if got := pl[32] & 0x0f; got != portStateActive {
-		t.Fatalf("PortState @byte32 low nibble: got %d want %d", got, portStateActive)
-	}
-	if got := pl[33] >> 4; got != portPhysStateLinkUp {
-		t.Fatalf("PortPhysState @byte33 high nibble: got %d want %d", got, portPhysStateLinkUp)
-	}
+	require.Equal(t, byte(portStateActive), pl[32]&0x0f, "PortState @byte32 low nibble")
+	require.Equal(t, byte(portPhysStateLinkUp), pl[33]>>4, "PortPhysState @byte33 high nibble")
 }
 
 // TestFillNodeInfo_WireBytes pins the on-wire byte layout of a synthesized
@@ -156,29 +127,17 @@ func TestFillNodeInfo_WireBytes(t *testing.T) {
 	pl := mad[ibSMPDataOff:]
 
 	// NodeType (spec bit 16 -> byte 2) and NumPorts (spec bit 24 -> byte 3).
-	if pl[2] != nodeTypeCA {
-		t.Fatalf("NodeType @byte2: got %d want %d", pl[2], nodeTypeCA)
-	}
-	if pl[3] != 1 {
-		t.Fatalf("NumPorts @byte3: got %d want 1", pl[3])
-	}
+	require.Equal(t, byte(nodeTypeCA), pl[2], "NodeType @byte2")
+	require.Equal(t, byte(1), pl[3], "NumPorts @byte3")
 	// SystemGuid @byte4 and NodeGuid @byte12 are both p.NodeGUID; PortGuid
 	// @byte20 is p.PortGUID (all 8-byte BE, written by putGUID64).
 	nodeGUID := []byte{0xa0, 0x88, 0xc2, 0x03, 0x00, 0xab, 0x00, 0x00}
 	portGUID := []byte{0xa0, 0x88, 0xc2, 0x03, 0x00, 0xab, 0x00, 0x01}
-	if string(pl[4:12]) != string(nodeGUID) {
-		t.Fatalf("SystemGuid @byte4: got %x want %x", pl[4:12], nodeGUID)
-	}
-	if string(pl[12:20]) != string(nodeGUID) {
-		t.Fatalf("NodeGuid @byte12: got %x want %x", pl[12:20], nodeGUID)
-	}
-	if string(pl[20:28]) != string(portGUID) {
-		t.Fatalf("PortGuid @byte20: got %x want %x", pl[20:28], portGUID)
-	}
+	require.Equal(t, nodeGUID, pl[4:12], "SystemGuid @byte4")
+	require.Equal(t, nodeGUID, pl[12:20], "NodeGuid @byte12")
+	require.Equal(t, portGUID, pl[20:28], "PortGuid @byte20")
 	// LocalPort (spec bit 288 -> byte 36); attrMod 0 resolves to port 1.
-	if pl[36] != 1 {
-		t.Fatalf("LocalPort @byte36: got %d want 1", pl[36])
-	}
+	require.Equal(t, byte(1), pl[36], "LocalPort @byte36")
 }
 
 func TestTrySynthesize_DROneHopNodeInfo(t *testing.T) {
@@ -198,13 +157,9 @@ func TestTrySynthesize_DROneHopNodeInfo(t *testing.T) {
 	binary.BigEndian.PutUint16(send[28:30], 0xffff)
 
 	resp, ok := TrySynthesize(send, g, "mlx5_0")
-	if !ok {
-		t.Fatal("expected synthesize for DR hop")
-	}
+	require.True(t, ok, "expected synthesize for DR hop")
 	pl := resp[umadMADOffset+ibSMPDataOff:]
 	// PortGuid @ byte 20 should be the peer port (0002).
 	want := []byte{0xa0, 0x88, 0xc2, 0x03, 0x00, 0xab, 0x00, 0x02}
-	if string(pl[20:28]) != string(want) {
-		t.Fatalf("peer port guid: got %x want %x", pl[20:28], want)
-	}
+	require.Equal(t, want, pl[20:28], "peer port guid")
 }

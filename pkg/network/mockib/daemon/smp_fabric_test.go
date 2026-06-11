@@ -12,6 +12,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/subnet"
+	"github.com/stretchr/testify/require"
 )
 
 // SMP GETs to a peer LID must be answered by subnet synthesis, not fabric ping
@@ -64,26 +65,16 @@ func TestTryFabricSend_SkipsSubnetMAD(t *testing.T) {
 	binary.BigEndian.PutUint16(send[28:30], 0x102)
 
 	h := &portHandle{caName: "mlx5_0", port: 1}
-	if !subnet.IsSMPSend(send) {
-		t.Fatalf("wire-format SMI-direct MAD (mad[1]=0x%02x) must be SMP", mad[1])
-	}
-	if srv.tryFabricSend(h, send) {
-		t.Fatal("tryFabricSend must reject subnet SMP MADs (defense-in-depth)")
-	}
+	require.True(t, subnet.IsSMPSend(send), "wire-format SMI-direct MAD (mad[1]=0x%02x) must be SMP", mad[1])
+	require.False(t, srv.tryFabricSend(h, send), "tryFabricSend must reject subnet SMP MADs (defense-in-depth)")
 
 	srv.graphMu.RLock()
 	g := srv.graph
 	srv.graphMu.RUnlock()
 	resp, ok := subnet.TrySynthesize(send, g, h.caName)
-	if !ok {
-		t.Fatal("TrySynthesize: expected peer PORT_INFO")
-	}
+	require.True(t, ok, "TrySynthesize: expected peer PORT_INFO")
 	pl := resp[umadMADOffset+64:]
-	if got := subnet.GetFieldSpec(pl, 264, 4); got != 5 {
-		t.Fatalf("peer phys: got %d want 5 (link up)", got)
-	}
-	if got := subnet.GetFieldSpec(pl, 128, 16); got != 0x102 {
-		t.Fatalf("peer lid: got %#x want 0x102", got)
-	}
+	require.Equal(t, uint32(5), subnet.GetFieldSpec(pl, 264, 4), "peer phys: want 5 (link up)")
+	require.Equal(t, uint32(0x102), subnet.GetFieldSpec(pl, 128, 16), "peer lid: want 0x102")
 	_ = fabric.Port{}
 }

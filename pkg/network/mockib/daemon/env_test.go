@@ -6,71 +6,46 @@ package daemon
 import (
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestEnvOr(t *testing.T) {
 	const key = "MOCK_IB_TEST_ENV_OR"
 	t.Setenv(key, "")
-	if got := EnvOr(key, "def"); got != "def" {
-		t.Fatalf("unset: got %q want def", got)
-	}
+	require.Equal(t, "def", EnvOr(key, "def"), "unset")
 	t.Setenv(key, "val")
-	if got := EnvOr(key, "def"); got != "val" {
-		t.Fatalf("set: got %q want val", got)
-	}
+	require.Equal(t, "val", EnvOr(key, "def"), "set")
 }
 
 func TestEnvIntOr(t *testing.T) {
 	const key = "MOCK_IB_TEST_ENV_INT"
 	t.Setenv(key, "")
-	if got := EnvIntOr(key, 42); got != 42 {
-		t.Fatalf("unset: got %d want 42", got)
-	}
+	require.Equal(t, 42, EnvIntOr(key, 42), "unset")
 	t.Setenv(key, "99")
-	if got := EnvIntOr(key, 42); got != 99 {
-		t.Fatalf("set: got %d want 99", got)
-	}
+	require.Equal(t, 99, EnvIntOr(key, 42), "set")
 	t.Setenv(key, "nope")
-	if got := EnvIntOr(key, 42); got != 42 {
-		t.Fatalf("invalid: got %d want 42", got)
-	}
+	require.Equal(t, 42, EnvIntOr(key, 42), "invalid")
 }
 
 func TestEnvBoolOr(t *testing.T) {
 	const key = "MOCK_IB_TEST_ENV_BOOL"
 	t.Setenv(key, "")
-	if got := EnvBoolOr(key, true); !got {
-		t.Fatal("unset default true: want true")
-	}
-	if got := EnvBoolOr(key, false); got {
-		t.Fatal("unset default false: want false")
-	}
+	require.True(t, EnvBoolOr(key, true), "unset default true: want true")
+	require.False(t, EnvBoolOr(key, false), "unset default false: want false")
 	for _, v := range []string{"1", "true", "TRUE"} {
 		t.Setenv(key, v)
-		if !EnvBoolOr(key, false) {
-			t.Fatalf("%q: want true", v)
-		}
+		require.True(t, EnvBoolOr(key, false), "%q: want true", v)
 	}
 	t.Setenv(key, "0")
-	if EnvBoolOr(key, true) {
-		t.Fatal("0: want false")
-	}
+	require.False(t, EnvBoolOr(key, true), "0: want false")
 }
 
 func TestParsePeerList(t *testing.T) {
-	if got := ParsePeerList(""); got != nil {
-		t.Fatalf("empty: got %v want nil", got)
-	}
+	require.Nil(t, ParsePeerList(""), "empty")
 	got := ParsePeerList(" 10.0.0.1 , , 10.0.0.2 ")
 	want := []string{"10.0.0.1", "10.0.0.2"}
-	if len(got) != len(want) {
-		t.Fatalf("got %v want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %v want %v", got, want)
-		}
-	}
+	require.Equal(t, want, got)
 }
 
 func TestEnvOr_readsProcessEnv(t *testing.T) {
@@ -78,7 +53,5 @@ func TestEnvOr_readsProcessEnv(t *testing.T) {
 	if os.Getenv("PATH") == "" {
 		t.Skip("PATH unset in test environment")
 	}
-	if EnvOr("PATH", "") == "" {
-		t.Fatal("expected non-empty PATH")
-	}
+	require.NotEmpty(t, EnvOr("PATH", ""), "expected non-empty PATH")
 }

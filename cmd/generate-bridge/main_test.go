@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseNVMLPrototypes(t *testing.T) {
@@ -33,9 +35,7 @@ nvmlReturn_t DECLDIR nvmlDeviceCreateGpuInstance(nvmlDevice_t device, unsigned i
 DEPRECATED(13.0) nvmlReturn_t DECLDIR nvmlDeviceGetHandleBySerial(const char *serial, nvmlDevice_t *device);
 `
 	protos, err := parseNVMLPrototypes(strings.NewReader(header))
-	if err != nil {
-		t.Fatalf("parseNVMLPrototypes: %v", err)
-	}
+	require.NoError(t, err, "parseNVMLPrototypes")
 
 	tests := []struct {
 		name       string
@@ -98,19 +98,12 @@ DEPRECATED(13.0) nvmlReturn_t DECLDIR nvmlDeviceGetHandleBySerial(const char *se
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			proto, ok := protos[tt.name]
-			if !ok {
-				t.Fatalf("function %s not found in parsed prototypes", tt.name)
-			}
-			if len(proto.Params) != len(tt.wantParams) {
-				t.Fatalf("param count: got %d, want %d\n  got:  %+v\n  want: %+v",
-					len(proto.Params), len(tt.wantParams), proto.Params, tt.wantParams)
-			}
+			require.True(t, ok, "function %s not found in parsed prototypes", tt.name)
+			require.Len(t, proto.Params, len(tt.wantParams),
+				"param count\n  got:  %+v\n  want: %+v", proto.Params, tt.wantParams)
 			for i, want := range tt.wantParams {
 				got := proto.Params[i]
-				if got.CType != want.CType || got.Name != want.Name {
-					t.Errorf("param[%d]: got {%q, %q}, want {%q, %q}",
-						i, got.CType, got.Name, want.CType, want.Name)
-				}
+				require.Equal(t, want, got, "param[%d]", i)
 			}
 		})
 	}
@@ -144,9 +137,7 @@ func TestCTypeToGo(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.cType, func(t *testing.T) {
 			got := cTypeToGo(tt.cType)
-			if got != tt.goType {
-				t.Errorf("cTypeToGo(%q) = %q, want %q", tt.cType, got, tt.goType)
-			}
+			require.Equal(t, tt.goType, got, "cTypeToGo(%q)", tt.cType)
 		})
 	}
 }
@@ -164,17 +155,11 @@ func TestGenerateStubWithSignature(t *testing.T) {
 	stub := generateStubWithSignature(proto)
 
 	// Should contain //export directive
-	if !strings.Contains(stub, "//export nvmlDeviceGetTemperature") {
-		t.Error("missing //export directive")
-	}
+	require.Contains(t, stub, "//export nvmlDeviceGetTemperature", "missing //export directive")
 	// Should contain correct Go function signature
-	if !strings.Contains(stub, "func nvmlDeviceGetTemperature(device C.nvmlDevice_t, sensorType C.nvmlTemperatureSensors_t, temp *C.uint)") {
-		t.Errorf("incorrect function signature in:\n%s", stub)
-	}
+	require.Contains(t, stub, "func nvmlDeviceGetTemperature(device C.nvmlDevice_t, sensorType C.nvmlTemperatureSensors_t, temp *C.uint)", "incorrect function signature in:\n%s", stub)
 	// Should return stubReturn
-	if !strings.Contains(stub, `return stubReturn("nvmlDeviceGetTemperature")`) {
-		t.Error("missing stubReturn call")
-	}
+	require.Contains(t, stub, `return stubReturn("nvmlDeviceGetTemperature")`, "missing stubReturn call")
 }
 
 func TestGenerateStubWithSignatureVoid(t *testing.T) {
@@ -185,9 +170,7 @@ func TestGenerateStubWithSignatureVoid(t *testing.T) {
 
 	stub := generateStubWithSignature(proto)
 
-	if !strings.Contains(stub, "func nvmlInit_v2() C.nvmlReturn_t") {
-		t.Errorf("incorrect void function signature in:\n%s", stub)
-	}
+	require.Contains(t, stub, "func nvmlInit_v2() C.nvmlReturn_t", "incorrect void function signature in:\n%s", stub)
 }
 
 func TestGenerateStubWithSignaturePointerParam(t *testing.T) {
@@ -200,9 +183,7 @@ func TestGenerateStubWithSignaturePointerParam(t *testing.T) {
 
 	stub := generateStubWithSignature(proto)
 
-	if !strings.Contains(stub, "func nvmlDeviceGetCount_v2(deviceCount *C.uint)") {
-		t.Errorf("incorrect pointer param signature in:\n%s", stub)
-	}
+	require.Contains(t, stub, "func nvmlDeviceGetCount_v2(deviceCount *C.uint)", "incorrect pointer param signature in:\n%s", stub)
 }
 
 func TestScanBridgeExports(t *testing.T) {
@@ -216,18 +197,14 @@ func nvmlDeviceGetCount_v2() {}
 //export nvmlDeviceGetName
 func nvmlDeviceGetName() {}
 `
-	if err := os.WriteFile(filepath.Join(dir, "device.go"), []byte(deviceGo), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "device.go"), []byte(deviceGo), 0644))
 
 	initGo := `package main
 
 //export nvmlInit_v2
 func nvmlInit_v2() {}
 `
-	if err := os.WriteFile(filepath.Join(dir, "init.go"), []byte(initGo), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "init.go"), []byte(initGo), 0644))
 
 	// stubs_generated.go should be SKIPPED
 	stubsGo := `package main
@@ -235,41 +212,27 @@ func nvmlInit_v2() {}
 //export nvmlStubFunction
 func nvmlStubFunction() {}
 `
-	if err := os.WriteFile(filepath.Join(dir, "stubs_generated.go"), []byte(stubsGo), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stubs_generated.go"), []byte(stubsGo), 0644))
 
 	exports, err := scanBridgeExports(dir)
-	if err != nil {
-		t.Fatalf("scanBridgeExports: %v", err)
-	}
+	require.NoError(t, err, "scanBridgeExports")
 
-	if len(exports) != 3 {
-		t.Fatalf("expected 3 exports, got %d: %v", len(exports), exports)
-	}
+	require.Len(t, exports, 3, "exports: %v", exports)
 
 	for _, fn := range []string{"nvmlDeviceGetCount_v2", "nvmlDeviceGetName", "nvmlInit_v2"} {
-		if !exports[fn] {
-			t.Errorf("expected export %q not found", fn)
-		}
+		require.True(t, exports[fn], "expected export %q not found", fn)
 	}
 
-	if exports["nvmlStubFunction"] {
-		t.Error("stubs_generated.go should be skipped but nvmlStubFunction was found")
-	}
+	require.False(t, exports["nvmlStubFunction"], "stubs_generated.go should be skipped but nvmlStubFunction was found")
 }
 
 func TestScanBridgeExportsEmptyDir(t *testing.T) {
 	dir := t.TempDir()
 
 	exports, err := scanBridgeExports(dir)
-	if err != nil {
-		t.Fatalf("scanBridgeExports: %v", err)
-	}
+	require.NoError(t, err, "scanBridgeExports")
 
-	if len(exports) != 0 {
-		t.Fatalf("expected 0 exports from empty dir, got %d", len(exports))
-	}
+	require.Empty(t, exports, "expected 0 exports from empty dir")
 }
 
 func TestFindMissing(t *testing.T) {
@@ -281,12 +244,9 @@ func TestFindMissing(t *testing.T) {
 
 	missing := findMissing(all, existing)
 
-	if len(missing) != 2 {
-		t.Fatalf("expected 2 missing, got %d: %v", len(missing), missing)
-	}
-	if missing[0] != "nvmlDeviceGetCount_v2" || missing[1] != "nvmlDeviceGetName" {
-		t.Errorf("unexpected missing functions: %v", missing)
-	}
+	require.Len(t, missing, 2, "missing: %v", missing)
+	require.Equal(t, "nvmlDeviceGetCount_v2", missing[0], "unexpected missing functions: %v", missing)
+	require.Equal(t, "nvmlDeviceGetName", missing[1], "unexpected missing functions: %v", missing)
 }
 
 func TestFindMissingNoneImplemented(t *testing.T) {
@@ -294,9 +254,7 @@ func TestFindMissingNoneImplemented(t *testing.T) {
 	existing := map[string]bool{}
 
 	missing := findMissing(all, existing)
-	if len(missing) != 3 {
-		t.Fatalf("expected 3 missing, got %d", len(missing))
-	}
+	require.Len(t, missing, 3)
 }
 
 func TestFindMissingAllImplemented(t *testing.T) {
@@ -304,9 +262,7 @@ func TestFindMissingAllImplemented(t *testing.T) {
 	existing := map[string]bool{"a": true, "b": true}
 
 	missing := findMissing(all, existing)
-	if len(missing) != 0 {
-		t.Fatalf("expected 0 missing, got %d", len(missing))
-	}
+	require.Empty(t, missing)
 }
 
 func TestLookupProtoDirectMatch(t *testing.T) {
@@ -315,12 +271,8 @@ func TestLookupProtoDirectMatch(t *testing.T) {
 	}
 
 	proto, ok := lookupProto("nvmlInit_v2", protos)
-	if !ok {
-		t.Fatal("expected direct match")
-	}
-	if proto.Name != "nvmlInit_v2" {
-		t.Errorf("got name %q, want nvmlInit_v2", proto.Name)
-	}
+	require.True(t, ok, "expected direct match")
+	require.Equal(t, "nvmlInit_v2", proto.Name)
 }
 
 func TestLookupProtoVersionFallback(t *testing.T) {
@@ -332,21 +284,15 @@ func TestLookupProtoVersionFallback(t *testing.T) {
 	}
 
 	proto, ok := lookupProto("nvmlDeviceGetCount_v2", protos)
-	if !ok {
-		t.Fatal("expected fallback match for _v2 → unversioned")
-	}
-	if len(proto.Params) != 1 {
-		t.Errorf("expected 1 param, got %d", len(proto.Params))
-	}
+	require.True(t, ok, "expected fallback match for _v2 → unversioned")
+	require.Len(t, proto.Params, 1, "expected 1 param")
 }
 
 func TestLookupProtoNoMatch(t *testing.T) {
 	protos := map[string]FuncProto{}
 
 	_, ok := lookupProto("nvmlNonexistent", protos)
-	if ok {
-		t.Fatal("expected no match for nonexistent function")
-	}
+	require.False(t, ok, "expected no match for nonexistent function")
 }
 
 func TestPrintStats(t *testing.T) {
@@ -360,18 +306,14 @@ func nvmlDeviceGetCount_v2() {}
 //export nvmlDeviceGetName
 func nvmlDeviceGetName() {}
 `
-	if err := os.WriteFile(filepath.Join(dir, "device.go"), []byte(deviceGo), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "device.go"), []byte(deviceGo), 0644))
 
 	initGo := `package main
 
 //export nvmlInit_v2
 func nvmlInit_v2() {}
 `
-	if err := os.WriteFile(filepath.Join(dir, "init.go"), []byte(initGo), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "init.go"), []byte(initGo), 0644))
 
 	allFunctions := []string{"nvmlDeviceGetCount_v2", "nvmlDeviceGetName", "nvmlInit_v2", "nvmlShutdown", "nvmlFoo"}
 
@@ -379,15 +321,9 @@ func nvmlInit_v2() {}
 	printStats(&buf, allFunctions, dir)
 	output := buf.String()
 
-	if !strings.Contains(output, "Total functions") {
-		t.Errorf("expected 'Total functions' in output:\n%s", output)
-	}
-	if !strings.Contains(output, "5") {
-		t.Errorf("expected total count 5 in output:\n%s", output)
-	}
-	if !strings.Contains(output, "device.go") {
-		t.Errorf("expected 'device.go' in per-file breakdown:\n%s", output)
-	}
+	require.Contains(t, output, "Total functions", "expected 'Total functions' in output:\n%s", output)
+	require.Contains(t, output, "5", "expected total count 5 in output:\n%s", output)
+	require.Contains(t, output, "device.go", "expected 'device.go' in per-file breakdown:\n%s", output)
 }
 
 func TestValidateSignatures(t *testing.T) {
@@ -401,9 +337,7 @@ func nvmlDeviceGetCount_v2(deviceCount *C.uint) C.nvmlReturn_t {
 	return 0
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, "correct.go"), []byte(correctGo), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "correct.go"), []byte(correctGo), 0644))
 
 	// Wrong: 0 params but prototype says 3
 	wrongGo := `package main
@@ -413,9 +347,7 @@ func nvmlDeviceGetName() C.nvmlReturn_t {
 	return 0
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, "wrong.go"), []byte(wrongGo), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "wrong.go"), []byte(wrongGo), 0644))
 
 	protos := map[string]FuncProto{
 		"nvmlDeviceGetCount_v2": {
@@ -433,14 +365,8 @@ func nvmlDeviceGetName() C.nvmlReturn_t {
 	}
 
 	mismatches, err := validateSignatures(dir, protos)
-	if err != nil {
-		t.Fatalf("validateSignatures: %v", err)
-	}
+	require.NoError(t, err, "validateSignatures")
 
-	if len(mismatches) != 1 {
-		t.Fatalf("expected 1 mismatch, got %d: %v", len(mismatches), mismatches)
-	}
-	if !strings.Contains(mismatches[0], "nvmlDeviceGetName") {
-		t.Errorf("expected mismatch for nvmlDeviceGetName, got: %s", mismatches[0])
-	}
+	require.Len(t, mismatches, 1, "mismatches: %v", mismatches)
+	require.Contains(t, mismatches[0], "nvmlDeviceGetName", "expected mismatch for nvmlDeviceGetName, got: %s", mismatches[0])
 }

@@ -18,6 +18,7 @@ import (
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/stretchr/testify/require"
 )
 
 // TestClassifyFabricVersion locks in the strict dispatch contract used
@@ -53,10 +54,9 @@ func TestClassifyFabricVersion(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := ClassifyFabricVersion(tc.requested, v2Tag, v3Tag)
-			if got != tc.want {
-				t.Errorf("ClassifyFabricVersion(0x%x, v2=0x%x, v3=0x%x) = %d, want %d",
-					tc.requested, v2Tag, v3Tag, got, tc.want)
-			}
+			require.Equal(t, tc.want, got,
+				"ClassifyFabricVersion(0x%x, v2=0x%x, v3=0x%x)",
+				tc.requested, v2Tag, v3Tag)
 		})
 	}
 }

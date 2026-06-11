@@ -18,6 +18,7 @@ import (
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfigurableDevice_GetBAR1MemoryInfo(t *testing.T) {
@@ -29,25 +30,15 @@ func TestConfigurableDevice_GetBAR1MemoryInfo(t *testing.T) {
 	dev := e.LookupDevice(handle)
 
 	enhanced, ok := dev.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	bar1, ret := enhanced.GetBAR1MemoryInfo()
-	if ret != nvml.SUCCESS {
-		t.Errorf("GetBAR1MemoryInfo failed: %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetBAR1MemoryInfo failed")
 
 	expectedBytes := uint64(DefaultBAR1SizeMB * 1024 * 1024)
-	if bar1.Bar1Total != expectedBytes {
-		t.Errorf("Expected BAR1 total %d, got %d", expectedBytes, bar1.Bar1Total)
-	}
-	if bar1.Bar1Free != expectedBytes {
-		t.Errorf("Expected BAR1 free %d, got %d", expectedBytes, bar1.Bar1Free)
-	}
-	if bar1.Bar1Used != 0 {
-		t.Errorf("Expected BAR1 used 0, got %d", bar1.Bar1Used)
-	}
+	require.Equal(t, expectedBytes, bar1.Bar1Total, "Expected BAR1 total")
+	require.Equal(t, expectedBytes, bar1.Bar1Free, "Expected BAR1 free")
+	require.Zero(t, bar1.Bar1Used, "Expected BAR1 used 0")
 }
 
 func TestConfigurableDevice_GetComputeRunningProcesses(t *testing.T) {
@@ -59,18 +50,12 @@ func TestConfigurableDevice_GetComputeRunningProcesses(t *testing.T) {
 	dev := e.LookupDevice(handle)
 
 	enhanced, ok := dev.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	processes, ret := enhanced.GetComputeRunningProcesses()
-	if ret != nvml.SUCCESS {
-		t.Errorf("GetComputeRunningProcesses failed: %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetComputeRunningProcesses failed")
 	// Mock returns empty list
-	if len(processes) != 0 {
-		t.Errorf("Expected empty process list, got %d processes", len(processes))
-	}
+	require.Empty(t, processes, "Expected empty process list")
 }
 
 func TestConfigurableDevice_GetGraphicsRunningProcesses(t *testing.T) {
@@ -82,18 +67,12 @@ func TestConfigurableDevice_GetGraphicsRunningProcesses(t *testing.T) {
 	dev := e.LookupDevice(handle)
 
 	enhanced, ok := dev.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	processes, ret := enhanced.GetGraphicsRunningProcesses()
-	if ret != nvml.SUCCESS {
-		t.Errorf("GetGraphicsRunningProcesses failed: %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetGraphicsRunningProcesses failed")
 	// Mock returns empty list
-	if len(processes) != 0 {
-		t.Errorf("Expected empty process list, got %d processes", len(processes))
-	}
+	require.Empty(t, processes, "Expected empty process list")
 }
 
 func TestConfigurableDevice_GetPciInfo(t *testing.T) {
@@ -105,19 +84,13 @@ func TestConfigurableDevice_GetPciInfo(t *testing.T) {
 	dev := e.LookupDevice(handle)
 
 	enhanced, ok := dev.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	pciInfo, ret := enhanced.GetPciInfo()
-	if ret != nvml.SUCCESS {
-		t.Errorf("GetPciInfo failed: %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetPciInfo failed")
 
 	// Verify PCI device ID is set (A100)
-	if pciInfo.PciDeviceId != 0x20B010DE {
-		t.Errorf("Expected A100 PCI device ID, got 0x%X", pciInfo.PciDeviceId)
-	}
+	require.Equal(t, uint32(0x20B010DE), pciInfo.PciDeviceId, "Expected A100 PCI device ID")
 }
 
 // =============================================================================
@@ -139,18 +112,12 @@ func TestConfigurableDevice_GetTopologyCommonAncestor(t *testing.T) {
 	dev2 := e.LookupDevice(handle2)
 
 	cd1, ok := dev1.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	// Default: devices on same node should return TOPOLOGY_SINGLE
 	level, ret := cd1.GetTopologyCommonAncestor(dev2)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetTopologyCommonAncestor failed: %v", ret)
-	}
-	if level != nvml.TOPOLOGY_SINGLE {
-		t.Errorf("Expected TOPOLOGY_SINGLE (%d), got %d", nvml.TOPOLOGY_SINGLE, level)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetTopologyCommonAncestor failed")
+	require.Equal(t, nvml.TOPOLOGY_SINGLE, level, "Expected TOPOLOGY_SINGLE")
 }
 
 func TestConfigurableDevice_GetTopologyCommonAncestor_WithConfig(t *testing.T) {
@@ -180,17 +147,11 @@ func TestConfigurableDevice_GetTopologyCommonAncestor_WithConfig(t *testing.T) {
 	dev2 := e.LookupDevice(handle2)
 
 	cd1, ok := dev1.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	level, ret := cd1.GetTopologyCommonAncestor(dev2)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetTopologyCommonAncestor failed: %v", ret)
-	}
-	if level != nvml.TOPOLOGY_SYSTEM {
-		t.Errorf("Expected TOPOLOGY_SYSTEM (%d), got %d", nvml.TOPOLOGY_SYSTEM, level)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetTopologyCommonAncestor failed")
+	require.Equal(t, nvml.TOPOLOGY_SYSTEM, level, "Expected TOPOLOGY_SYSTEM")
 }
 
 // =============================================================================
@@ -224,27 +185,17 @@ func TestConfigurableDevice_GetNvLinkState_WithConfig(t *testing.T) {
 	dev := e.LookupDevice(handle)
 
 	cd, ok := dev.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	// Link 0 should be active
 	state, ret := cd.GetNvLinkState(0)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetNvLinkState(0) failed: %v", ret)
-	}
-	if state != nvml.FEATURE_ENABLED {
-		t.Errorf("Expected link 0 ENABLED, got %d", state)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetNvLinkState(0) failed")
+	require.Equal(t, nvml.FEATURE_ENABLED, state, "Expected link 0 ENABLED")
 
 	// Link 1 should be inactive
 	state, ret = cd.GetNvLinkState(1)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetNvLinkState(1) failed: %v", ret)
-	}
-	if state != nvml.FEATURE_DISABLED {
-		t.Errorf("Expected link 1 DISABLED, got %d", state)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetNvLinkState(1) failed")
+	require.Equal(t, nvml.FEATURE_DISABLED, state, "Expected link 1 DISABLED")
 }
 
 func TestConfigurableDevice_GetNvLinkErrorCounter(t *testing.T) {
@@ -256,18 +207,12 @@ func TestConfigurableDevice_GetNvLinkErrorCounter(t *testing.T) {
 	dev := e.LookupDevice(handle)
 
 	cd, ok := dev.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	// Error counter should always return 0
 	val, ret := cd.GetNvLinkErrorCounter(0, 0)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetNvLinkErrorCounter failed: %v", ret)
-	}
-	if val != 0 {
-		t.Errorf("Expected 0, got %d", val)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetNvLinkErrorCounter failed")
+	require.Zero(t, val, "Expected 0")
 }
 
 func TestConfigurableDevice_GetNvLinkRemotePciInfo(t *testing.T) {
@@ -296,17 +241,11 @@ func TestConfigurableDevice_GetNvLinkRemotePciInfo(t *testing.T) {
 	dev := e.LookupDevice(handle)
 
 	cd, ok := dev.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	pci, ret := cd.GetNvLinkRemotePciInfo(0)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetNvLinkRemotePciInfo failed: %v", ret)
-	}
-	if pci.Bus != 0x3B {
-		t.Errorf("Expected bus 0x3B, got 0x%X", pci.Bus)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetNvLinkRemotePciInfo failed")
+	require.Equal(t, uint32(0x3B), pci.Bus, "Expected bus 0x3B")
 }
 
 // =============================================================================
@@ -340,25 +279,15 @@ func TestConfigurableDevice_GetTemperatureThreshold_WithConfig(t *testing.T) {
 	dev := e.LookupDevice(handle)
 
 	cd, ok := dev.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	temp, ret := cd.GetTemperatureThreshold(nvml.TEMPERATURE_THRESHOLD_SHUTDOWN)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetTemperatureThreshold(SHUTDOWN) failed: %v", ret)
-	}
-	if temp != 95 {
-		t.Errorf("Expected 95, got %d", temp)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetTemperatureThreshold(SHUTDOWN) failed")
+	require.Equal(t, uint32(95), temp, "Expected 95")
 
 	temp, ret = cd.GetTemperatureThreshold(nvml.TEMPERATURE_THRESHOLD_SLOWDOWN)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetTemperatureThreshold(SLOWDOWN) failed: %v", ret)
-	}
-	if temp != 90 {
-		t.Errorf("Expected 90, got %d", temp)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetTemperatureThreshold(SLOWDOWN) failed")
+	require.Equal(t, uint32(90), temp, "Expected 90")
 }
 
 func TestConfigurableDevice_GetThermalSettings(t *testing.T) {
@@ -387,17 +316,11 @@ func TestConfigurableDevice_GetThermalSettings(t *testing.T) {
 	dev := e.LookupDevice(handle)
 
 	cd, ok := dev.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	settings, ret := cd.GetThermalSettings(0)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetThermalSettings failed: %v", ret)
-	}
-	if settings.Count != 1 {
-		t.Errorf("Expected 1 sensor, got %d", settings.Count)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetThermalSettings failed")
+	require.Equal(t, uint32(1), settings.Count, "Expected 1 sensor")
 }
 
 // =============================================================================
@@ -429,17 +352,11 @@ func TestConfigurableDevice_GetEnforcedPowerLimit_WithConfig(t *testing.T) {
 	dev := e.LookupDevice(handle)
 
 	cd, ok := dev.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	limit, ret := cd.GetEnforcedPowerLimit()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetEnforcedPowerLimit failed: %v", ret)
-	}
-	if limit != 300000 {
-		t.Errorf("Expected 300000, got %d", limit)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetEnforcedPowerLimit failed")
+	require.Equal(t, uint32(300000), limit, "Expected 300000")
 }
 
 func TestConfigurableDevice_GetPowerManagementMode(t *testing.T) {
@@ -467,17 +384,11 @@ func TestConfigurableDevice_GetPowerManagementMode(t *testing.T) {
 	dev := e.LookupDevice(handle)
 
 	cd, ok := dev.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	mode, ret := cd.GetPowerManagementMode()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetPowerManagementMode failed: %v", ret)
-	}
-	if mode != nvml.FEATURE_ENABLED {
-		t.Errorf("Expected FEATURE_ENABLED, got %d", mode)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetPowerManagementMode failed")
+	require.Equal(t, nvml.FEATURE_ENABLED, mode, "Expected FEATURE_ENABLED")
 }
 
 func TestConfigurableDevice_GetPowerManagementMode_Default(t *testing.T) {
@@ -489,17 +400,11 @@ func TestConfigurableDevice_GetPowerManagementMode_Default(t *testing.T) {
 	dev := e.LookupDevice(handle)
 
 	cd, ok := dev.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 
 	mode, ret := cd.GetPowerManagementMode()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetPowerManagementMode failed: %v", ret)
-	}
-	if mode != nvml.FEATURE_DISABLED {
-		t.Errorf("Expected FEATURE_DISABLED, got %d", mode)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetPowerManagementMode failed")
+	require.Equal(t, nvml.FEATURE_DISABLED, mode, "Expected FEATURE_DISABLED")
 }
 
 // =============================================================================
@@ -529,9 +434,7 @@ func newTestDeviceWithConfig(t *testing.T, deviceCfg *DeviceConfig) *Configurabl
 	handle, _ := e.DeviceGetHandleByIndex(0)
 	dev := e.LookupDevice(handle)
 	cd, ok := dev.(*ConfigurableDevice)
-	if !ok {
-		t.Fatal("Expected ConfigurableDevice type")
-	}
+	require.True(t, ok, "Expected ConfigurableDevice type")
 	return cd
 }
 
@@ -550,21 +453,11 @@ func TestConfigurableDevice_GetComputeRunningProcesses_WithConfig(t *testing.T) 
 	})
 
 	procs, ret := dev.GetComputeRunningProcesses()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetComputeRunningProcesses failed: %v", ret)
-	}
-	if len(procs) != 2 {
-		t.Fatalf("Expected 2 compute processes, got %d", len(procs))
-	}
-	if procs[0].Pid != 1234 {
-		t.Errorf("Expected PID 1234, got %d", procs[0].Pid)
-	}
-	if procs[0].UsedGpuMemory != 1024*1024*1024 {
-		t.Errorf("Expected 1 GiB memory, got %d", procs[0].UsedGpuMemory)
-	}
-	if procs[1].Pid != 5678 {
-		t.Errorf("Expected PID 5678, got %d", procs[1].Pid)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetComputeRunningProcesses failed")
+	require.Len(t, procs, 2, "Expected 2 compute processes")
+	require.Equal(t, uint32(1234), procs[0].Pid, "Expected PID 1234")
+	require.Equal(t, uint64(1024*1024*1024), procs[0].UsedGpuMemory, "Expected 1 GiB memory")
+	require.Equal(t, uint32(5678), procs[1].Pid, "Expected PID 5678")
 }
 
 func TestConfigurableDevice_GetProcessUtilization_Default(t *testing.T) {
@@ -573,12 +466,8 @@ func TestConfigurableDevice_GetProcessUtilization_Default(t *testing.T) {
 	})
 
 	utils, ret := dev.GetProcessUtilization(0)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetProcessUtilization failed: %v", ret)
-	}
-	if len(utils) != 0 {
-		t.Errorf("Expected empty utilization list, got %d", len(utils))
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetProcessUtilization failed")
+	require.Empty(t, utils, "Expected empty utilization list")
 }
 
 // =============================================================================
@@ -591,12 +480,8 @@ func TestConfigurableDevice_GetPerformanceState_Default(t *testing.T) {
 	})
 
 	pstate, ret := dev.GetPerformanceState()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetPerformanceState failed: %v", ret)
-	}
-	if pstate != nvml.PSTATE_0 {
-		t.Errorf("Expected P0 default, got %d", pstate)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetPerformanceState failed")
+	require.Equal(t, nvml.PSTATE_0, pstate, "Expected P0 default")
 }
 
 func TestConfigurableDevice_GetPerformanceState_Configured(t *testing.T) {
@@ -606,12 +491,8 @@ func TestConfigurableDevice_GetPerformanceState_Configured(t *testing.T) {
 	})
 
 	pstate, ret := dev.GetPerformanceState()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetPerformanceState failed: %v", ret)
-	}
-	if pstate != nvml.PSTATE_8 {
-		t.Errorf("Expected P8, got %d", pstate)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetPerformanceState failed")
+	require.Equal(t, nvml.PSTATE_8, pstate, "Expected P8")
 }
 
 func TestConfigurableDevice_GetCurrentClocksEventReasons_Default(t *testing.T) {
@@ -620,12 +501,8 @@ func TestConfigurableDevice_GetCurrentClocksEventReasons_Default(t *testing.T) {
 	})
 
 	reasons, ret := dev.GetCurrentClocksEventReasons()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetCurrentClocksEventReasons failed: %v", ret)
-	}
-	if reasons != 0 {
-		t.Errorf("Expected 0 (no throttling), got 0x%x", reasons)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetCurrentClocksEventReasons failed")
+	require.Zero(t, reasons, "Expected 0 (no throttling)")
 }
 
 // =============================================================================
@@ -638,12 +515,8 @@ func TestConfigurableDevice_GetPersistenceMode_Default(t *testing.T) {
 	})
 
 	mode, ret := dev.GetPersistenceMode()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetPersistenceMode failed: %v", ret)
-	}
-	if mode != nvml.FEATURE_DISABLED {
-		t.Errorf("Expected DISABLED default, got %d", mode)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetPersistenceMode failed")
+	require.Equal(t, nvml.FEATURE_DISABLED, mode, "Expected DISABLED default")
 }
 
 func TestConfigurableDevice_GetPersistenceMode_Configured(t *testing.T) {
@@ -653,12 +526,8 @@ func TestConfigurableDevice_GetPersistenceMode_Configured(t *testing.T) {
 	})
 
 	mode, ret := dev.GetPersistenceMode()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetPersistenceMode failed: %v", ret)
-	}
-	if mode != nvml.FEATURE_ENABLED {
-		t.Errorf("Expected ENABLED, got %d", mode)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetPersistenceMode failed")
+	require.Equal(t, nvml.FEATURE_ENABLED, mode, "Expected ENABLED")
 }
 
 func TestConfigurableDevice_SetPersistenceMode(t *testing.T) {
@@ -668,41 +537,25 @@ func TestConfigurableDevice_SetPersistenceMode(t *testing.T) {
 
 	// Initially disabled
 	mode, ret := dev.GetPersistenceMode()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetPersistenceMode failed: %v", ret)
-	}
-	if mode != nvml.FEATURE_DISABLED {
-		t.Errorf("Expected DISABLED initially, got %d", mode)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetPersistenceMode failed")
+	require.Equal(t, nvml.FEATURE_DISABLED, mode, "Expected DISABLED initially")
 
 	// Set to enabled
 	ret = dev.SetPersistenceMode(nvml.FEATURE_ENABLED)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("SetPersistenceMode failed: %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "SetPersistenceMode failed")
 
 	// Now should be enabled
 	mode, ret = dev.GetPersistenceMode()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetPersistenceMode failed: %v", ret)
-	}
-	if mode != nvml.FEATURE_ENABLED {
-		t.Errorf("Expected ENABLED after set, got %d", mode)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetPersistenceMode failed")
+	require.Equal(t, nvml.FEATURE_ENABLED, mode, "Expected ENABLED after set")
 
 	// Set back to disabled
 	ret = dev.SetPersistenceMode(nvml.FEATURE_DISABLED)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("SetPersistenceMode failed: %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "SetPersistenceMode failed")
 
 	mode, ret = dev.GetPersistenceMode()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetPersistenceMode failed: %v", ret)
-	}
-	if mode != nvml.FEATURE_DISABLED {
-		t.Errorf("Expected DISABLED after unset, got %d", mode)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetPersistenceMode failed")
+	require.Equal(t, nvml.FEATURE_DISABLED, mode, "Expected DISABLED after unset")
 }
 
 // =============================================================================
@@ -715,15 +568,11 @@ func TestConfigurableDevice_GetRemappedRows_Default(t *testing.T) {
 	})
 
 	corrRows, uncRows, isPending, failureOccurred, ret := dev.GetRemappedRows()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetRemappedRows failed: %v", ret)
-	}
-	if corrRows != 0 || uncRows != 0 {
-		t.Errorf("Expected 0 rows, got corr=%d unc=%d", corrRows, uncRows)
-	}
-	if isPending || failureOccurred {
-		t.Errorf("Expected no pending/failure, got pending=%v failure=%v", isPending, failureOccurred)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetRemappedRows failed")
+	require.Zero(t, corrRows, "Expected 0 correctable rows")
+	require.Zero(t, uncRows, "Expected 0 uncorrectable rows")
+	require.False(t, isPending, "Expected no pending")
+	require.False(t, failureOccurred, "Expected no failure")
 }
 
 func TestConfigurableDevice_GetRemappedRows_Configured(t *testing.T) {
@@ -738,21 +587,11 @@ func TestConfigurableDevice_GetRemappedRows_Configured(t *testing.T) {
 	})
 
 	corrRows, uncRows, isPending, failureOccurred, ret := dev.GetRemappedRows()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetRemappedRows failed: %v", ret)
-	}
-	if corrRows != 2 {
-		t.Errorf("Expected 2 correctable rows, got %d", corrRows)
-	}
-	if uncRows != 1 {
-		t.Errorf("Expected 1 uncorrectable row, got %d", uncRows)
-	}
-	if !isPending {
-		t.Errorf("Expected pending=true")
-	}
-	if failureOccurred {
-		t.Errorf("Expected failure=false")
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetRemappedRows failed")
+	require.Equal(t, 2, corrRows, "Expected 2 correctable rows")
+	require.Equal(t, 1, uncRows, "Expected 1 uncorrectable row")
+	require.True(t, isPending, "Expected pending=true")
+	require.False(t, failureOccurred, "Expected failure=false")
 }
 
 func TestConfigurableDevice_GetGspFirmwareMode_Default(t *testing.T) {
@@ -761,16 +600,10 @@ func TestConfigurableDevice_GetGspFirmwareMode_Default(t *testing.T) {
 	})
 
 	isEnabled, defaultMode, ret := dev.GetGspFirmwareMode()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetGspFirmwareMode failed: %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetGspFirmwareMode failed")
 	// Default: disabled
-	if isEnabled {
-		t.Errorf("Expected GSP disabled by default")
-	}
-	if defaultMode {
-		t.Errorf("Expected GSP default mode disabled by default")
-	}
+	require.False(t, isEnabled, "Expected GSP disabled by default")
+	require.False(t, defaultMode, "Expected GSP default mode disabled by default")
 }
 
 func TestConfigurableDevice_GetGspFirmwareMode_Enabled(t *testing.T) {
@@ -782,12 +615,8 @@ func TestConfigurableDevice_GetGspFirmwareMode_Enabled(t *testing.T) {
 	})
 
 	isEnabled, _, ret := dev.GetGspFirmwareMode()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetGspFirmwareMode failed: %v", ret)
-	}
-	if !isEnabled {
-		t.Errorf("Expected GSP enabled")
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetGspFirmwareMode failed")
+	require.True(t, isEnabled, "Expected GSP enabled")
 }
 
 func TestConfigurableDevice_GetDisplayActive_Default(t *testing.T) {
@@ -796,12 +625,8 @@ func TestConfigurableDevice_GetDisplayActive_Default(t *testing.T) {
 	})
 
 	active, ret := dev.GetDisplayActive()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetDisplayActive failed: %v", ret)
-	}
-	if active != nvml.FEATURE_DISABLED {
-		t.Errorf("Expected DISABLED default, got %d", active)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetDisplayActive failed")
+	require.Equal(t, nvml.FEATURE_DISABLED, active, "Expected DISABLED default")
 }
 
 func TestConfigurableDevice_GetDisplayActive_Enabled(t *testing.T) {
@@ -813,12 +638,8 @@ func TestConfigurableDevice_GetDisplayActive_Enabled(t *testing.T) {
 	})
 
 	active, ret := dev.GetDisplayActive()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetDisplayActive failed: %v", ret)
-	}
-	if active != nvml.FEATURE_ENABLED {
-		t.Errorf("Expected ENABLED, got %d", active)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetDisplayActive failed")
+	require.Equal(t, nvml.FEATURE_ENABLED, active, "Expected ENABLED")
 }
 
 // =============================================================================
@@ -831,13 +652,9 @@ func TestConfigurableDevice_GetMaxMigDeviceCount_Default(t *testing.T) {
 	})
 
 	count, ret := dev.GetMaxMigDeviceCount()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetMaxMigDeviceCount failed: %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetMaxMigDeviceCount failed")
 	// Default: MIG disabled, count = 0
-	if count != 0 {
-		t.Errorf("Expected 0 (MIG disabled), got %d", count)
-	}
+	require.Zero(t, count, "Expected 0 (MIG disabled)")
 }
 
 func TestConfigurableDevice_GetMaxMigDeviceCount_Configured(t *testing.T) {
@@ -850,12 +667,8 @@ func TestConfigurableDevice_GetMaxMigDeviceCount_Configured(t *testing.T) {
 	})
 
 	count, ret := dev.GetMaxMigDeviceCount()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetMaxMigDeviceCount failed: %v", ret)
-	}
-	if count != 7 {
-		t.Errorf("Expected 7, got %d", count)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetMaxMigDeviceCount failed")
+	require.Equal(t, 7, count, "Expected 7")
 }
 
 func TestConfigurableDevice_GetMigMode_WithConfig(t *testing.T) {
@@ -868,15 +681,9 @@ func TestConfigurableDevice_GetMigMode_WithConfig(t *testing.T) {
 	})
 
 	current, pending, ret := dev.GetMigMode()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetMigMode failed: %v", ret)
-	}
-	if current != 1 {
-		t.Errorf("Expected current=1 (enabled), got %d", current)
-	}
-	if pending != 0 {
-		t.Errorf("Expected pending=0 (disabled), got %d", pending)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetMigMode failed")
+	require.Equal(t, 1, current, "Expected current=1 (enabled)")
+	require.Zero(t, pending, "Expected pending=0 (disabled)")
 }
 
 func TestConfigurableDevice_GetMigDeviceHandleByIndex_MIGDisabled(t *testing.T) {
@@ -887,9 +694,7 @@ func TestConfigurableDevice_GetMigDeviceHandleByIndex_MIGDisabled(t *testing.T) 
 	// NOT_FOUND (not NOT_SUPPORTED) signals "no device at this index" which
 	// callers like nvidia-device-plugin treat as end-of-iteration, not error.
 	_, ret := dev.GetMigDeviceHandleByIndex(0)
-	if ret != nvml.ERROR_NOT_FOUND {
-		t.Errorf("Expected NOT_FOUND when MIG disabled, got %v", ret)
-	}
+	require.Equal(t, nvml.ERROR_NOT_FOUND, ret, "Expected NOT_FOUND when MIG disabled")
 }
 
 // =============================================================================
@@ -910,12 +715,8 @@ func TestConfigurableDevice_GetMemoryBusWidth_Configured(t *testing.T) {
 	})
 
 	width, ret := dev.GetMemoryBusWidth()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetMemoryBusWidth failed: %v", ret)
-	}
-	if width != 5120 {
-		t.Errorf("Expected 5120, got %d", width)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetMemoryBusWidth failed")
+	require.Equal(t, uint32(5120), width, "Expected 5120")
 }
 
 func TestConfigurableDevice_GetMemoryBusWidth_NotConfigured(t *testing.T) {
@@ -924,9 +725,7 @@ func TestConfigurableDevice_GetMemoryBusWidth_NotConfigured(t *testing.T) {
 	})
 
 	_, ret := dev.GetMemoryBusWidth()
-	if ret != nvml.ERROR_NOT_SUPPORTED {
-		t.Errorf("Expected NOT_SUPPORTED when no memory config, got %v", ret)
-	}
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "Expected NOT_SUPPORTED when no memory config")
 }
 
 func TestConfigurableDevice_GetDefaultEccMode_Enabled(t *testing.T) {
@@ -938,12 +737,8 @@ func TestConfigurableDevice_GetDefaultEccMode_Enabled(t *testing.T) {
 	})
 
 	mode, ret := dev.GetDefaultEccMode()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetDefaultEccMode failed: %v", ret)
-	}
-	if mode != nvml.FEATURE_ENABLED {
-		t.Errorf("Expected ENABLED, got %d", mode)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetDefaultEccMode failed")
+	require.Equal(t, nvml.FEATURE_ENABLED, mode, "Expected ENABLED")
 }
 
 func TestConfigurableDevice_GetDefaultEccMode_NoConfig(t *testing.T) {
@@ -952,12 +747,8 @@ func TestConfigurableDevice_GetDefaultEccMode_NoConfig(t *testing.T) {
 	})
 
 	mode, ret := dev.GetDefaultEccMode()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetDefaultEccMode failed: %v", ret)
-	}
-	if mode != nvml.FEATURE_DISABLED {
-		t.Errorf("Expected DISABLED when no ECC config, got %d", mode)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetDefaultEccMode failed")
+	require.Equal(t, nvml.FEATURE_DISABLED, mode, "Expected DISABLED when no ECC config")
 }
 
 func TestConfigurableDevice_GetSupportedClocksThrottleReasons(t *testing.T) {
@@ -966,12 +757,8 @@ func TestConfigurableDevice_GetSupportedClocksThrottleReasons(t *testing.T) {
 	})
 
 	reasons, ret := dev.GetSupportedClocksThrottleReasons()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetSupportedClocksThrottleReasons failed: %v", ret)
-	}
-	if reasons != uint64(nvml.ClocksThrottleReasonAll) {
-		t.Errorf("Expected 0x%x, got 0x%x", nvml.ClocksThrottleReasonAll, reasons)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetSupportedClocksThrottleReasons failed")
+	require.Equal(t, uint64(nvml.ClocksThrottleReasonAll), reasons, "Expected ClocksThrottleReasonAll")
 }
 
 func TestConfigurableDevice_GetAutoBoostedClocksEnabled(t *testing.T) {
@@ -980,9 +767,7 @@ func TestConfigurableDevice_GetAutoBoostedClocksEnabled(t *testing.T) {
 	})
 
 	_, _, ret := dev.GetAutoBoostedClocksEnabled()
-	if ret != nvml.ERROR_NOT_SUPPORTED {
-		t.Errorf("Expected NOT_SUPPORTED for datacenter GPU, got %v", ret)
-	}
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "Expected NOT_SUPPORTED for datacenter GPU")
 }
 
 func TestConfigurableDevice_GetGspFirmwareVersion_Configured(t *testing.T) {
@@ -994,12 +779,8 @@ func TestConfigurableDevice_GetGspFirmwareVersion_Configured(t *testing.T) {
 	})
 
 	version, ret := dev.GetGspFirmwareVersion()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetGspFirmwareVersion failed: %v", ret)
-	}
-	if version != "550.54.15" {
-		t.Errorf("Expected '550.54.15', got '%s'", version)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetGspFirmwareVersion failed")
+	require.Equal(t, "550.54.15", version, "Expected '550.54.15'")
 }
 
 func TestConfigurableDevice_GetGspFirmwareVersion_NoConfig(t *testing.T) {
@@ -1008,9 +789,7 @@ func TestConfigurableDevice_GetGspFirmwareVersion_NoConfig(t *testing.T) {
 	})
 
 	_, ret := dev.GetGspFirmwareVersion()
-	if ret != nvml.ERROR_NOT_SUPPORTED {
-		t.Errorf("Expected NOT_SUPPORTED when no GSP config, got %v", ret)
-	}
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "Expected NOT_SUPPORTED when no GSP config")
 }
 
 func TestConfigurableDevice_GetTotalEnergyConsumption_Configured(t *testing.T) {
@@ -1022,12 +801,8 @@ func TestConfigurableDevice_GetTotalEnergyConsumption_Configured(t *testing.T) {
 	})
 
 	energy, ret := dev.GetTotalEnergyConsumption()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetTotalEnergyConsumption failed: %v", ret)
-	}
-	if energy != 500000 {
-		t.Errorf("Expected 500000, got %d", energy)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetTotalEnergyConsumption failed")
+	require.Equal(t, uint64(500000), energy, "Expected 500000")
 }
 
 func TestConfigurableDevice_GetTotalEnergyConsumption_Zero(t *testing.T) {
@@ -1039,12 +814,8 @@ func TestConfigurableDevice_GetTotalEnergyConsumption_Zero(t *testing.T) {
 	})
 
 	energy, ret := dev.GetTotalEnergyConsumption()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetTotalEnergyConsumption failed: %v", ret)
-	}
-	if energy != 0 {
-		t.Errorf("Expected 0 (valid zero), got %d", energy)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetTotalEnergyConsumption failed")
+	require.Zero(t, energy, "Expected 0 (valid zero)")
 }
 
 func TestConfigurableDevice_GetTotalEnergyConsumption_NoPowerConfig(t *testing.T) {
@@ -1053,9 +824,7 @@ func TestConfigurableDevice_GetTotalEnergyConsumption_NoPowerConfig(t *testing.T
 	})
 
 	_, ret := dev.GetTotalEnergyConsumption()
-	if ret != nvml.ERROR_NOT_SUPPORTED {
-		t.Errorf("Expected NOT_SUPPORTED when no power config, got %v", ret)
-	}
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "Expected NOT_SUPPORTED when no power config")
 }
 
 func TestConfigurableDevice_GetDetailedEccErrors_Default(t *testing.T) {
@@ -1064,13 +833,11 @@ func TestConfigurableDevice_GetDetailedEccErrors_Default(t *testing.T) {
 	})
 
 	counts, ret := dev.GetDetailedEccErrors(nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.VOLATILE_ECC)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetDetailedEccErrors failed: %v", ret)
-	}
-	if counts.L1Cache != 0 || counts.L2Cache != 0 || counts.DeviceMemory != 0 || counts.RegisterFile != 0 {
-		t.Errorf("Expected all zeros, got l1=%d l2=%d mem=%d reg=%d",
-			counts.L1Cache, counts.L2Cache, counts.DeviceMemory, counts.RegisterFile)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetDetailedEccErrors failed")
+	require.Zero(t, counts.L1Cache, "Expected L1Cache zero")
+	require.Zero(t, counts.L2Cache, "Expected L2Cache zero")
+	require.Zero(t, counts.DeviceMemory, "Expected DeviceMemory zero")
+	require.Zero(t, counts.RegisterFile, "Expected RegisterFile zero")
 }
 
 func TestConfigurableDevice_GetGpmSupport_Default(t *testing.T) {
@@ -1079,13 +846,9 @@ func TestConfigurableDevice_GetGpmSupport_Default(t *testing.T) {
 	})
 
 	supported, ret := dev.GetGpmSupport()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetGpmSupport failed: %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetGpmSupport failed")
 	// Default: not supported
-	if supported != 0 {
-		t.Errorf("Expected 0 (not supported), got %d", supported)
-	}
+	require.Zero(t, supported, "Expected 0 (not supported)")
 }
 
 func TestParseArchitecture(t *testing.T) {
@@ -1109,9 +872,7 @@ func TestParseArchitecture(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			got := parseArchitecture(tt.input)
-			if got != tt.expected {
-				t.Errorf("parseArchitecture(%q) = %d, want %d", tt.input, got, tt.expected)
-			}
+			require.Equal(t, tt.expected, got, "parseArchitecture(%q)", tt.input)
 		})
 	}
 }
@@ -1129,16 +890,12 @@ func TestConfigurableDevice_GetMemoryInfo_v2_VersionEncoding(t *testing.T) {
 	})
 
 	mem, ret := dev.GetMemoryInfo_v2()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetMemoryInfo_v2 failed: %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetMemoryInfo_v2 failed")
 
 	// NVML_STRUCT_VERSION(Memory, 2) = sizeof(nvmlMemory_v2_t) | (2 << 24)
 	expectedVersion := uint32(unsafe.Sizeof(nvml.Memory_v2{})) | (2 << 24)
-	if mem.Version != expectedVersion {
-		t.Errorf("Expected Version=0x%X (sizeof=%d | 2<<24), got 0x%X",
-			expectedVersion, unsafe.Sizeof(nvml.Memory_v2{}), mem.Version)
-	}
+	require.Equal(t, expectedVersion, mem.Version, "Expected Version 0x%X (sizeof=%d | 2<<24)",
+		expectedVersion, unsafe.Sizeof(nvml.Memory_v2{}))
 }
 
 // =============================================================================
@@ -1154,12 +911,8 @@ func TestConfigurableDevice_GetTemperature_ZeroIsValid(t *testing.T) {
 	})
 
 	temp, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
-	if ret != nvml.SUCCESS {
-		t.Errorf("Expected SUCCESS when Thermal config exists with temp=0, got %v", ret)
-	}
-	if temp != 0 {
-		t.Errorf("Expected 0, got %d", temp)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "Expected SUCCESS when Thermal config exists with temp=0")
+	require.Zero(t, temp, "Expected 0")
 }
 
 func TestConfigurableDevice_GetTemperature_NilConfigReturnsNotSupported(t *testing.T) {
@@ -1168,9 +921,7 @@ func TestConfigurableDevice_GetTemperature_NilConfigReturnsNotSupported(t *testi
 	})
 
 	_, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
-	if ret != nvml.ERROR_NOT_SUPPORTED {
-		t.Errorf("Expected NOT_SUPPORTED when no Thermal config, got %v", ret)
-	}
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "Expected NOT_SUPPORTED when no Thermal config")
 }
 
 func TestConfigurableDevice_GetPowerUsage_ZeroIsValid(t *testing.T) {
@@ -1182,12 +933,8 @@ func TestConfigurableDevice_GetPowerUsage_ZeroIsValid(t *testing.T) {
 	})
 
 	power, ret := dev.GetPowerUsage()
-	if ret != nvml.SUCCESS {
-		t.Errorf("Expected SUCCESS when Power config exists with draw=0, got %v", ret)
-	}
-	if power != 0 {
-		t.Errorf("Expected 0, got %d", power)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "Expected SUCCESS when Power config exists with draw=0")
+	require.Zero(t, power, "Expected 0")
 }
 
 func TestConfigurableDevice_GetClockInfo_ZeroIsValid(t *testing.T) {
@@ -1199,10 +946,6 @@ func TestConfigurableDevice_GetClockInfo_ZeroIsValid(t *testing.T) {
 	})
 
 	clock, ret := dev.GetClockInfo(nvml.CLOCK_GRAPHICS)
-	if ret != nvml.SUCCESS {
-		t.Errorf("Expected SUCCESS when Clocks config exists with graphics=0, got %v", ret)
-	}
-	if clock != 0 {
-		t.Errorf("Expected 0, got %d", clock)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "Expected SUCCESS when Clocks config exists with graphics=0")
+	require.Zero(t, clock, "Expected 0")
 }

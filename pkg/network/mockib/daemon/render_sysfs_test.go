@@ -7,47 +7,39 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRenderSysfsFromConfig_disabled(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(cfg, []byte("infiniband:\n  enabled: false\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(cfg, []byte("infiniband:\n  enabled: false\n"), 0o644))
 	out := filepath.Join(dir, "ib")
-	if err := RenderSysfsFromConfig(RenderSysfsOptions{
+	require.NoError(t, RenderSysfsFromConfig(RenderSysfsOptions{
 		ConfigPath: cfg,
 		OutputDir:  out,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(out, "sys/class/infiniband")); err == nil {
-		t.Fatal("expected no sysfs tree when infiniband.enabled=false")
-	}
+	}))
+	_, err := os.Stat(filepath.Join(out, "sys/class/infiniband"))
+	require.Error(t, err, "expected no sysfs tree when infiniband.enabled=false")
 }
 
 func TestRenderSysfsFromConfig_enabled(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(cfg, []byte(`
+	require.NoError(t, os.WriteFile(cfg, []byte(`
 infiniband:
   enabled: true
   hca_count: 1
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+`), 0o644))
 	out := filepath.Join(dir, "ib")
-	if err := RenderSysfsFromConfig(RenderSysfsOptions{
+	require.NoError(t, RenderSysfsFromConfig(RenderSysfsOptions{
 		ConfigPath: cfg,
 		GPUCount:   2,
 		NodeName:   "node-a",
 		OutputDir:  out,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	lidPath := filepath.Join(out, "sys/class/infiniband/mlx5_0/ports/1/lid")
-	if _, err := os.Stat(lidPath); err != nil {
-		t.Fatalf("missing rendered lid: %v", err)
-	}
+	_, err := os.Stat(lidPath)
+	require.NoError(t, err, "missing rendered lid")
 }

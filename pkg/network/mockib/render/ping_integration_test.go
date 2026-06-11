@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIbping_Loopback_Integration(t *testing.T) {
@@ -37,9 +38,7 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 	}
 
 	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
+	require.NoError(t, err, "getwd")
 	mockibDir := filepath.Join(wd, "..")
 	shimSys := filepath.Join(mockibDir, "libibmocksys.so")
 	shimUmad := filepath.Join(mockibDir, "libibmockumad.so")
@@ -49,21 +48,19 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 		}
 	}
 
-	if out, err := exec.Command("make", "-C", mockibDir).CombinedOutput(); err != nil {
-		t.Fatalf("make shims: %v\n%s", err, out)
-	}
+	out, err := exec.Command("make", "-C", mockibDir).CombinedOutput()
+	require.NoError(t, err, "make shims\n%s", out)
 
 	repoRoot := filepath.Join(wd, "..", "..", "..", "..")
 	daemonBin := filepath.Join(t.TempDir(), "mock-ib")
 	build := exec.Command("go", "build", "-mod=vendor", "-o", daemonBin, "./cmd/mock-ib")
 	build.Dir = repoRoot
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build mock-ib: %v\n%s", err, out)
-	}
+	buildOut, err := build.CombinedOutput()
+	require.NoError(t, err, "build mock-ib\n%s", buildOut)
 
 	root := t.TempDir()
 	nodeName := "host1"
-	if err := Render(Options{
+	err = Render(Options{
 		IB: config.Infiniband{
 			Enabled:   true,
 			HCAType:   "MT4129",
@@ -73,24 +70,17 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 		GPUCount: 2,
 		NodeName: nodeName,
 		Output:   root,
-	}); err != nil {
-		t.Fatalf("Render: %v", err)
-	}
+	})
+	require.NoError(t, err, "Render")
 
 	lidPath := filepath.Join(root, "sys/class/infiniband/mlx5_0/ports/1/lid")
 	guidPath := filepath.Join(root, "sys/class/infiniband/mlx5_0/ports/1/port_guid")
 	lidBytes, err := os.ReadFile(lidPath)
-	if err != nil {
-		t.Fatalf("read lid: %v", err)
-	}
+	require.NoError(t, err, "read lid")
 	lid := strings.TrimSpace(string(lidBytes))
-	if lid == "" {
-		t.Fatal("empty lid")
-	}
+	require.NotEqual(t, "", lid, "empty lid")
 	guidBytes, err := os.ReadFile(guidPath)
-	if err != nil {
-		t.Fatalf("read port_guid: %v", err)
-	}
+	require.NoError(t, err, "read port_guid")
 	guidHex := "0x" + strings.NewReplacer(":", "").Replace(strings.TrimSpace(string(guidBytes)))
 
 	runDir := t.TempDir()
@@ -101,9 +91,8 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 	daemon := exec.CommandContext(ctx, daemonBin, "-socket", socketPath, "-ib-root", root)
 	daemon.Stdout = os.Stderr
 	daemon.Stderr = os.Stderr
-	if err := daemon.Start(); err != nil {
-		t.Fatalf("start mock-ib: %v", err)
-	}
+	err = daemon.Start()
+	require.NoError(t, err, "start mock-ib")
 	t.Cleanup(func() {
 		cancel()
 		_ = daemon.Wait()
@@ -130,24 +119,17 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 			"can't resolve destination port",
 		}
 		for _, p := range failPatterns {
-			if strings.Contains(got, p) {
-				t.Fatalf("ibping %v output contains %q\nerr=%v\noutput:\n%s", args, p, err, got)
-			}
+			require.NotContains(t, got, p, "ibping %v output contains %q\nerr=%v\noutput:\n%s", args, p, err, got)
 		}
 
-		if err != nil {
-			t.Fatalf("ibping %v failed: %v\noutput:\n%s", args, err, got)
-		}
-		if strings.Contains(got, ", 0 received") || strings.Contains(got, "100% packet loss") {
-			t.Fatalf("ibping %v reported no replies\noutput:\n%s", args, got)
-		}
-		if !strings.Contains(got, "packets transmitted") {
-			t.Fatalf("ibping %v missing statistics\noutput:\n%s", args, got)
-		}
-		if !regexp.MustCompile(`[0-9]+ packets transmitted, [1-9][0-9]* received`).MatchString(got) &&
-			!strings.Contains(got, "0% packet loss") {
-			t.Fatalf("ibping %v did not report successful replies\noutput:\n%s", args, got)
-		}
+		require.NoError(t, err, "ibping %v failed\noutput:\n%s", args, got)
+		require.NotContains(t, got, ", 0 received", "ibping %v reported no replies\noutput:\n%s", args, got)
+		require.NotContains(t, got, "100% packet loss", "ibping %v reported no replies\noutput:\n%s", args, got)
+		require.Contains(t, got, "packets transmitted", "ibping %v missing statistics\noutput:\n%s", args, got)
+		require.True(t,
+			regexp.MustCompile(`[0-9]+ packets transmitted, [1-9][0-9]* received`).MatchString(got) ||
+				strings.Contains(got, "0% packet loss"),
+			"ibping %v did not report successful replies\noutput:\n%s", args, got)
 	}
 
 	runIbping("-c", "1", lid)
@@ -163,5 +145,5 @@ func waitForUnixSocket(t *testing.T, path string) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("unix socket %s not ready", path)
+	require.Failf(t, "unix socket not ready", "unix socket %s not ready", path)
 }

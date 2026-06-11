@@ -20,6 +20,7 @@ import (
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
+	"github.com/stretchr/testify/require"
 )
 
 func makeFabricDevice(t *testing.T, fabric *FabricConfig) *ConfigurableDevice {
@@ -33,13 +34,9 @@ func makeFabricDevice(t *testing.T, fabric *FabricConfig) *ConfigurableDevice {
 func TestGetMockFabricInfo_NotSupportedWhenNil(t *testing.T) {
 	dev := makeFabricDevice(t, nil)
 	_, ret := dev.GetMockFabricInfo()
-	if ret != nvml.ERROR_NOT_SUPPORTED {
-		t.Fatalf("nil fabric: want ERROR_NOT_SUPPORTED, got %v", ret)
-	}
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "nil fabric")
 	_, ret = dev.GetMockFabricInfoV()
-	if ret != nvml.ERROR_NOT_SUPPORTED {
-		t.Fatalf("nil fabric V: want ERROR_NOT_SUPPORTED, got %v", ret)
-	}
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "nil fabric V")
 }
 
 func TestGetMockFabricInfo_PopulatesFields(t *testing.T) {
@@ -50,26 +47,14 @@ func TestGetMockFabricInfo_PopulatesFields(t *testing.T) {
 		HealthMask:  0x42,
 	})
 	info, ret := dev.GetMockFabricInfo()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("v1: %v", ret)
-	}
-	if info.CliqueID != 7 {
-		t.Errorf("CliqueID: want 7, got %d", info.CliqueID)
-	}
-	if info.State != FabricStateCompleted {
-		t.Errorf("State: want completed (%d), got %d", FabricStateCompleted, info.State)
-	}
-	if info.ClusterUUID[15] != 0xab {
-		t.Errorf("ClusterUUID last byte: want 0xab, got 0x%x", info.ClusterUUID[15])
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "v1")
+	require.Equal(t, uint32(7), info.CliqueID, "CliqueID")
+	require.Equal(t, FabricStateCompleted, info.State, "State")
+	require.Equal(t, byte(0xab), info.ClusterUUID[15], "ClusterUUID last byte")
 
 	v, ret := dev.GetMockFabricInfoV()
-	if ret != nvml.SUCCESS {
-		t.Fatalf("V: %v", ret)
-	}
-	if v.HealthMask != 0x42 {
-		t.Errorf("V: healthMask=%d", v.HealthMask)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "V")
+	require.Equal(t, uint32(0x42), v.HealthMask, "V healthMask")
 }
 
 func TestParseFabricState(t *testing.T) {
@@ -83,28 +68,23 @@ func TestParseFabricState(t *testing.T) {
 		"garbage":      FabricStateCompleted,
 	}
 	for in, want := range cases {
-		if got := parseFabricState(in); got != want {
-			t.Errorf("parseFabricState(%q) = %d, want %d", in, got, want)
-		}
+		require.Equal(t, want, parseFabricState(in), "parseFabricState(%q)", in)
 	}
 }
 
 func TestParseClusterUUID(t *testing.T) {
 	out := parseClusterUUID("00000000-0000-0000-0000-000000000001")
-	if out[15] != 0x01 {
-		t.Errorf("last byte: want 0x01, got 0x%x", out[15])
-	}
+	require.Equal(t, byte(0x01), out[15], "last byte")
 	// short input is zero-padded
 	short := parseClusterUUID("ff")
-	if short[0] != 0xff || short[15] != 0x00 {
-		t.Errorf("short: want [ff..00], got %x", short)
-	}
+	require.Equal(t, byte(0xff), short[0], "short first byte")
+	require.Equal(t, byte(0x00), short[15], "short last byte")
 }
 
 func TestTopologyOverlay(t *testing.T) {
 	dir := t.TempDir()
 	topoPath := filepath.Join(dir, "topology.yaml")
-	if err := os.WriteFile(topoPath, []byte(`
+	err := os.WriteFile(topoPath, []byte(`
 version: 1
 domains:
   - name: dom1
@@ -114,9 +94,8 @@ domains:
         nodes: [nodeA, nodeB]
       - id: 9
         nodes: [nodeC]
-`), 0o644); err != nil {
-		t.Fatal(err)
-	}
+`), 0o644)
+	require.NoError(t, err)
 	t.Setenv("NODE_NAME", "nodeB")
 	t.Setenv("MOCK_TOPOLOGY_CONFIG", topoPath)
 
@@ -127,12 +106,8 @@ domains:
 		}},
 	}
 	applyTopologyOverlay(cfg)
-	if cfg.DeviceDefaults.Fabric.CliqueID != 5 {
-		t.Errorf("CliqueID: want 5, got %d", cfg.DeviceDefaults.Fabric.CliqueID)
-	}
-	if cfg.DeviceDefaults.Fabric.ClusterUUID != "00000000-0000-0000-0000-0000000000ab" {
-		t.Errorf("ClusterUUID: got %q", cfg.DeviceDefaults.Fabric.ClusterUUID)
-	}
+	require.Equal(t, uint32(5), cfg.DeviceDefaults.Fabric.CliqueID, "CliqueID")
+	require.Equal(t, "00000000-0000-0000-0000-0000000000ab", cfg.DeviceDefaults.Fabric.ClusterUUID, "ClusterUUID")
 }
 
 func TestTopologyOverlay_NoFabricDefaults_NoOp(t *testing.T) {
@@ -155,9 +130,7 @@ domains:
 
 	cfg := &YAMLConfig{DeviceDefaults: DeviceConfig{}}
 	applyTopologyOverlay(cfg)
-	if cfg.DeviceDefaults.Fabric != nil {
-		t.Errorf("non-fabric profile: want Fabric=nil after overlay, got %+v", cfg.DeviceDefaults.Fabric)
-	}
+	require.Nil(t, cfg.DeviceDefaults.Fabric, "non-fabric profile: want Fabric=nil after overlay")
 }
 
 func TestTopologyOverlay_NodeNotPresent_NoChange(t *testing.T) {
@@ -181,9 +154,8 @@ domains:
 		}},
 	}
 	applyTopologyOverlay(cfg)
-	if cfg.DeviceDefaults.Fabric.CliqueID != 77 || cfg.DeviceDefaults.Fabric.ClusterUUID != "ORIG" {
-		t.Errorf("unexpected mutation: %+v", cfg.DeviceDefaults.Fabric)
-	}
+	require.Equal(t, uint32(77), cfg.DeviceDefaults.Fabric.CliqueID, "unexpected mutation")
+	require.Equal(t, "ORIG", cfg.DeviceDefaults.Fabric.ClusterUUID, "unexpected mutation")
 }
 
 // TestTopologyOverlay_MissingFile_NoChange exercises the os.Stat
@@ -202,12 +174,9 @@ func TestTopologyOverlay_MissingFile_NoChange(t *testing.T) {
 		}},
 	}
 	applyTopologyOverlay(cfg)
-	if cfg.DeviceDefaults.Fabric == nil {
-		t.Fatal("Fabric reset to nil; want sentinel values preserved")
-	}
-	if cfg.DeviceDefaults.Fabric.ClusterUUID != "ORIG-UUID" || cfg.DeviceDefaults.Fabric.CliqueID != 42 {
-		t.Errorf("Fabric mutated by missing-file path: %+v", cfg.DeviceDefaults.Fabric)
-	}
+	require.NotNil(t, cfg.DeviceDefaults.Fabric, "Fabric reset to nil; want sentinel values preserved")
+	require.Equal(t, "ORIG-UUID", cfg.DeviceDefaults.Fabric.ClusterUUID, "Fabric mutated by missing-file path")
+	require.Equal(t, uint32(42), cfg.DeviceDefaults.Fabric.CliqueID, "Fabric mutated by missing-file path")
 }
 
 // TestTopologyOverlay_MalformedYAML_NoChange exercises the yaml.Unmarshal
@@ -216,9 +185,7 @@ func TestTopologyOverlay_MissingFile_NoChange(t *testing.T) {
 func TestTopologyOverlay_MalformedYAML_NoChange(t *testing.T) {
 	dir := t.TempDir()
 	topoPath := filepath.Join(dir, "topology.yaml")
-	if err := os.WriteFile(topoPath, []byte("this: is: not: valid: yaml\n  - mismatched indent\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(topoPath, []byte("this: is: not: valid: yaml\n  - mismatched indent\n"), 0o644))
 	t.Setenv("NODE_NAME", "nodeA")
 	t.Setenv("MOCK_TOPOLOGY_CONFIG", topoPath)
 
@@ -229,12 +196,9 @@ func TestTopologyOverlay_MalformedYAML_NoChange(t *testing.T) {
 		}},
 	}
 	applyTopologyOverlay(cfg)
-	if cfg.DeviceDefaults.Fabric == nil {
-		t.Fatal("Fabric reset to nil; want sentinel values preserved")
-	}
-	if cfg.DeviceDefaults.Fabric.ClusterUUID != "ORIG-UUID" || cfg.DeviceDefaults.Fabric.CliqueID != 42 {
-		t.Errorf("Fabric mutated by malformed-YAML path: %+v", cfg.DeviceDefaults.Fabric)
-	}
+	require.NotNil(t, cfg.DeviceDefaults.Fabric, "Fabric reset to nil; want sentinel values preserved")
+	require.Equal(t, "ORIG-UUID", cfg.DeviceDefaults.Fabric.ClusterUUID, "Fabric mutated by malformed-YAML path")
+	require.Equal(t, uint32(42), cfg.DeviceDefaults.Fabric.CliqueID, "Fabric mutated by malformed-YAML path")
 }
 
 // TestTopologyOverlay_UnreadableFile_NoChange exercises the os.ReadFile
@@ -253,10 +217,7 @@ func TestTopologyOverlay_UnreadableFile_NoChange(t *testing.T) {
 		}},
 	}
 	applyTopologyOverlay(cfg)
-	if cfg.DeviceDefaults.Fabric == nil {
-		t.Fatal("Fabric reset to nil; want sentinel values preserved")
-	}
-	if cfg.DeviceDefaults.Fabric.ClusterUUID != "ORIG-UUID" || cfg.DeviceDefaults.Fabric.CliqueID != 42 {
-		t.Errorf("Fabric mutated by unreadable-file path: %+v", cfg.DeviceDefaults.Fabric)
-	}
+	require.NotNil(t, cfg.DeviceDefaults.Fabric, "Fabric reset to nil; want sentinel values preserved")
+	require.Equal(t, "ORIG-UUID", cfg.DeviceDefaults.Fabric.ClusterUUID, "Fabric mutated by unreadable-file path")
+	require.Equal(t, uint32(42), cfg.DeviceDefaults.Fabric.CliqueID, "Fabric mutated by unreadable-file path")
 }

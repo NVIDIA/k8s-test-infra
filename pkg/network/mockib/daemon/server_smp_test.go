@@ -16,23 +16,20 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/render"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/subnet"
+	"github.com/stretchr/testify/require"
 )
 
 func TestServer_SMPPortInfoSelfResolveShort(t *testing.T) {
 	dir := t.TempDir()
-	if err := render.Render(render.Options{
+	require.NoError(t, render.Render(render.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dir,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	safe := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
 	sock := filepath.Join(os.TempDir(), "mock-ib-"+safe+".sock")
 	t.Cleanup(func() { _ = os.Remove(sock) })
 
 	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir, Fabric: true}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errCh := make(chan error, 1)
@@ -40,25 +37,15 @@ func TestServer_SMPPortInfoSelfResolveShort(t *testing.T) {
 	waitForSocket(t, sock, errCh)
 
 	conn, err := net.Dial("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
 
-	if err := protocol.WriteMessage(conn, protocol.TypeOpen, protocol.OpenReq{CAName: "mlx5_0", Port: 1}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeOpen, protocol.OpenReq{CAName: "mlx5_0", Port: 1}))
 	var env protocol.Envelope
-	if err := protocol.ReadEnvelope(conn, &env); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
 	var openResp protocol.OpenResp
-	if err := protocol.DecodeBody(env, &openResp); err != nil {
-		t.Fatal(err)
-	}
-	if openResp.Handle == 0 {
-		t.Fatalf("open: %+v", openResp)
-	}
+	require.NoError(t, protocol.DecodeBody(env, &openResp))
+	require.NotZero(t, openResp.Handle, "open: %+v", openResp)
 
 	send := make([]byte, umadMADOffset+64)
 	mad := send[umadMADOffset:]
@@ -71,64 +58,41 @@ func TestServer_SMPPortInfoSelfResolveShort(t *testing.T) {
 	binary.BigEndian.PutUint16(mad[16:18], 0x0015)
 	subnet.SetField(mad, 32, 8, 0)
 
-	if err := protocol.WriteMessage(conn, protocol.TypeSend, protocol.SendReq{
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeSend, protocol.SendReq{
 		Handle: openResp.Handle,
 		MAD:    send,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := protocol.ReadEnvelope(conn, &env); err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
 	var sendResp protocol.SendResp
-	if err := protocol.DecodeBody(env, &sendResp); err != nil {
-		t.Fatal(err)
-	}
-	if !sendResp.OK {
-		t.Fatalf("send: %+v", sendResp)
-	}
+	require.NoError(t, protocol.DecodeBody(env, &sendResp))
+	require.True(t, sendResp.OK, "send: %+v", sendResp)
 
-	if err := protocol.WriteMessage(conn, protocol.TypeRecv, protocol.RecvReq{
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeRecv, protocol.RecvReq{
 		Handle: openResp.Handle, TimeoutMS: 500,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := protocol.ReadEnvelope(conn, &env); err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
 	var recvResp protocol.RecvResp
-	if err := protocol.DecodeBody(env, &recvResp); err != nil {
-		t.Fatal(err)
-	}
-	if recvResp.Timeout || len(recvResp.MAD) < umadMADOffset+128 {
-		t.Fatalf("recv: timeout=%v len=%d", recvResp.Timeout, len(recvResp.MAD))
-	}
+	require.NoError(t, protocol.DecodeBody(env, &recvResp))
+	require.False(t, recvResp.Timeout, "recv: timeout=%v len=%d", recvResp.Timeout, len(recvResp.MAD))
+	require.GreaterOrEqual(t, len(recvResp.MAD), umadMADOffset+128, "recv: timeout=%v len=%d", recvResp.Timeout, len(recvResp.MAD))
 	pl := recvResp.MAD[umadMADOffset+64:]
 	lid := subnet.GetFieldSpec(pl, 128, 16)
 	phys := subnet.GetFieldSpec(pl, 264, 4)
-	if lid == 0 || lid == 1 {
-		t.Fatalf("base lid: got %#x (likely echo/SMLid, not synthesized)", lid)
-	}
-	if phys != 5 {
-		t.Fatalf("phys state: got %d want 5 (LINKUP)", phys)
-	}
+	require.NotContains(t, []uint32{0, 1}, lid, "base lid: got %#x (likely echo/SMLid, not synthesized)", lid)
+	require.Equal(t, uint32(5), phys, "phys state: want 5 (LINKUP)")
 }
 
 func TestServer_SMPNodeInfoThenPortInfo(t *testing.T) {
 	dir := t.TempDir()
-	if err := render.Render(render.Options{
+	require.NoError(t, render.Render(render.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dir,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	safe := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
 	sock := filepath.Join(os.TempDir(), "mock-ib-"+safe+".sock")
 	t.Cleanup(func() { _ = os.Remove(sock) })
 
 	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir, Fabric: true}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errCh := make(chan error, 1)
@@ -136,22 +100,15 @@ func TestServer_SMPNodeInfoThenPortInfo(t *testing.T) {
 	waitForSocket(t, sock, errCh)
 
 	conn, err := net.Dial("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
 
 	var env protocol.Envelope
-	if err := protocol.WriteMessage(conn, protocol.TypeOpen, protocol.OpenReq{CAName: "mlx5_0", Port: 1}); err != nil {
-		t.Fatal(err)
-	}
-	if err := protocol.ReadEnvelope(conn, &env); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeOpen, protocol.OpenReq{CAName: "mlx5_0", Port: 1}))
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
 	var openResp protocol.OpenResp
-	if err := protocol.DecodeBody(env, &openResp); err != nil || openResp.Handle == 0 {
-		t.Fatalf("open: %+v err=%v", openResp, err)
-	}
+	require.NoError(t, protocol.DecodeBody(env, &openResp))
+	require.NotZero(t, openResp.Handle, "open: %+v", openResp)
 	handle := openResp.Handle
 
 	smpSendRecv := func(attr uint16) []byte {
@@ -165,39 +122,23 @@ func TestServer_SMPNodeInfoThenPortInfo(t *testing.T) {
 		mad[2] = 0x01 // ClassVersion
 		mad[3] = 0x01 // Method = Get
 		binary.BigEndian.PutUint16(mad[16:18], attr)
-		if err := protocol.WriteMessage(conn, protocol.TypeSend, protocol.SendReq{Handle: handle, MAD: send}); err != nil {
-			t.Fatal(err)
-		}
-		if err := protocol.ReadEnvelope(conn, &env); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, protocol.WriteMessage(conn, protocol.TypeSend, protocol.SendReq{Handle: handle, MAD: send}))
+		require.NoError(t, protocol.ReadEnvelope(conn, &env))
 		var sendResp protocol.SendResp
-		if err := protocol.DecodeBody(env, &sendResp); err != nil || !sendResp.OK {
-			t.Fatalf("send: %+v", sendResp)
-		}
-		if err := protocol.WriteMessage(conn, protocol.TypeRecv, protocol.RecvReq{Handle: handle, TimeoutMS: 500}); err != nil {
-			t.Fatal(err)
-		}
-		if err := protocol.ReadEnvelope(conn, &env); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, protocol.DecodeBody(env, &sendResp))
+		require.True(t, sendResp.OK, "send: %+v", sendResp)
+		require.NoError(t, protocol.WriteMessage(conn, protocol.TypeRecv, protocol.RecvReq{Handle: handle, TimeoutMS: 500}))
+		require.NoError(t, protocol.ReadEnvelope(conn, &env))
 		var recvResp protocol.RecvResp
-		if err := protocol.DecodeBody(env, &recvResp); err != nil {
-			t.Fatal(err)
-		}
-		if recvResp.Timeout || len(recvResp.MAD) == 0 {
-			t.Fatalf("recv: %+v", recvResp)
-		}
+		require.NoError(t, protocol.DecodeBody(env, &recvResp))
+		require.False(t, recvResp.Timeout, "recv: %+v", recvResp)
+		require.NotZero(t, len(recvResp.MAD), "recv: %+v", recvResp)
 		return recvResp.MAD
 	}
 
 	_ = smpSendRecv(0x0011)
 	port := smpSendRecv(0x0015)
 	pl := port[umadMADOffset+64:]
-	if got := subnet.GetFieldSpec(pl, 264, 4); got != 5 {
-		t.Fatalf("PORT_INFO phys: got %d want 5", got)
-	}
-	if got := subnet.GetFieldSpec(pl, 128, 16); got == 0 || got == 1 {
-		t.Fatalf("PORT_INFO lid: got %#x", got)
-	}
+	require.Equal(t, uint32(5), subnet.GetFieldSpec(pl, 264, 4), "PORT_INFO phys: want 5")
+	require.NotContains(t, []uint32{0, 1}, subnet.GetFieldSpec(pl, 128, 16), "PORT_INFO lid")
 }

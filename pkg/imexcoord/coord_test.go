@@ -18,45 +18,40 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestAllPeersReady_HappyPath(t *testing.T) {
 	dir := t.TempDir()
 	for _, ip := range []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"} {
-		if err := WriteMarker(dir, ip); err != nil {
-			t.Fatal(err)
-		}
+		err := WriteMarker(dir, ip)
+		require.NoError(t, err)
 	}
 	ok, missing := AllPeersReady(dir, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"})
-	if !ok {
-		t.Fatalf("expected ready, got missing=%s", missing)
-	}
+	require.True(t, ok, "expected ready, got missing=%s", missing)
 }
 
 func TestAllPeersReady_MissingPeer(t *testing.T) {
 	dir := t.TempDir()
 	_ = WriteMarker(dir, "10.0.0.1")
 	ok, missing := AllPeersReady(dir, []string{"10.0.0.1", "10.0.0.99"})
-	if ok || missing != "10.0.0.99" {
-		t.Fatalf("expected missing=10.0.0.99 not-ready, got ok=%v missing=%q", ok, missing)
-	}
+	require.False(t, ok, "expected missing=10.0.0.99 not-ready, got ok=%v missing=%q", ok, missing)
+	require.Equal(t, "10.0.0.99", missing, "expected missing=10.0.0.99 not-ready, got ok=%v missing=%q", ok, missing)
 }
 
 func TestAllPeersReady_EmptyPeersTreatedAsReady(t *testing.T) {
-	if ok, _ := AllPeersReady(t.TempDir(), nil); !ok {
-		t.Fatal("empty peers should be ready")
-	}
+	ok, _ := AllPeersReady(t.TempDir(), nil)
+	require.True(t, ok, "empty peers should be ready")
 }
 
 func TestRemoveMarker_IsIdempotent(t *testing.T) {
 	dir := t.TempDir()
-	if err := RemoveMarker(dir, "10.0.0.1"); err != nil {
-		t.Fatalf("remove missing: %v", err)
-	}
+	err := RemoveMarker(dir, "10.0.0.1")
+	require.NoError(t, err, "remove missing")
 	_ = WriteMarker(dir, "10.0.0.1")
-	if err := RemoveMarker(dir, "10.0.0.1"); err != nil {
-		t.Fatalf("remove existing: %v", err)
-	}
+	err = RemoveMarker(dir, "10.0.0.1")
+	require.NoError(t, err, "remove existing")
 }
 
 func TestReadPeers_SkipsCommentsBlanksAndPort(t *testing.T) {
@@ -64,12 +59,10 @@ func TestReadPeers_SkipsCommentsBlanksAndPort(t *testing.T) {
 	path := filepath.Join(dir, "nodes.cfg")
 	_ = os.WriteFile(path, []byte("# header\n\n10.0.0.1\n10.0.0.2 50051\n  \n"), 0o644)
 	peers, err := ReadPeers(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(peers) != 2 || peers[0] != "10.0.0.1" || peers[1] != "10.0.0.2" {
-		t.Fatalf("unexpected peers: %v", peers)
-	}
+	require.NoError(t, err)
+	require.Len(t, peers, 2, "unexpected peers: %v", peers)
+	require.Equal(t, "10.0.0.1", peers[0], "unexpected peers: %v", peers)
+	require.Equal(t, "10.0.0.2", peers[1], "unexpected peers: %v", peers)
 }
 
 // TestWriteMarker_RejectsInvalidIP guards against path traversal via
@@ -92,12 +85,9 @@ func TestWriteMarker_RejectsInvalidIP(t *testing.T) {
 	for _, bad := range cases {
 		t.Run(bad, func(t *testing.T) {
 			err := WriteMarker(dir, bad)
-			if err == nil {
-				t.Fatalf("WriteMarker(%q) = nil, want validation error", bad)
-			}
-			if !strings.Contains(err.Error(), "invalid") && !strings.Contains(err.Error(), "empty") {
-				t.Errorf("WriteMarker(%q) error %q lacks 'invalid'/'empty' tag — looks like incidental filesystem failure rather than a validation reject", bad, err)
-			}
+			require.Error(t, err, "WriteMarker(%q) = nil, want validation error", bad)
+			require.True(t, strings.Contains(err.Error(), "invalid") || strings.Contains(err.Error(), "empty"),
+				"WriteMarker(%q) error %q lacks 'invalid'/'empty' tag — looks like incidental filesystem failure rather than a validation reject", bad, err)
 		})
 	}
 }
@@ -109,14 +99,9 @@ func TestWriteMarker_RejectsInvalidIP(t *testing.T) {
 // unintended path).
 func TestAllPeersReady_TreatsInvalidIPAsMissing(t *testing.T) {
 	dir := t.TempDir()
-	if err := WriteMarker(dir, "10.0.0.1"); err != nil {
-		t.Fatal(err)
-	}
+	err := WriteMarker(dir, "10.0.0.1")
+	require.NoError(t, err)
 	ok, missing := AllPeersReady(dir, []string{"10.0.0.1", "../etc/passwd"})
-	if ok {
-		t.Fatal("AllPeersReady with invalid peer returned ready=true")
-	}
-	if missing != "../etc/passwd" {
-		t.Errorf("missing = %q, want %q (the invalid peer)", missing, "../etc/passwd")
-	}
+	require.False(t, ok, "AllPeersReady with invalid peer returned ready=true")
+	require.Equal(t, "../etc/passwd", missing, "missing = %q, want %q (the invalid peer)", missing, "../etc/passwd")
 }

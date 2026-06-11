@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func FuzzLoadYAMLConfig(f *testing.F) {
@@ -30,9 +32,7 @@ total_memory_mib: 40960
 		// Write fuzzed data to a temp file
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
-		if err := os.WriteFile(path, data, 0644); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, os.WriteFile(path, data, 0644))
 		// LoadYAMLConfig should never panic on any input
 		_, _ = LoadYAMLConfig(path)
 	})

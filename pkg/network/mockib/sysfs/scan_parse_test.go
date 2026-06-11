@@ -3,7 +3,11 @@
 
 package sysfs
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestParseLID(t *testing.T) {
 	tests := []struct {
@@ -19,17 +23,10 @@ func TestParseLID(t *testing.T) {
 	for _, tc := range tests {
 		got, err := parseLID(tc.in)
 		if tc.wantErr {
-			if err == nil {
-				t.Errorf("parseLID(%q): want error", tc.in)
-			}
+			require.Error(t, err, "parseLID(%q): want error", tc.in)
 			continue
 		}
-		if err != nil {
-			t.Errorf("parseLID(%q): %v", tc.in, err)
-			continue
-		}
-		if got != tc.want {
-			t.Errorf("parseLID(%q) = 0x%04x want 0x%04x", tc.in, got, tc.want)
-		}
+		require.NoError(t, err, "parseLID(%q)", tc.in)
+		require.Equal(t, tc.want, got, "parseLID(%q)", tc.in)
 	}
 }

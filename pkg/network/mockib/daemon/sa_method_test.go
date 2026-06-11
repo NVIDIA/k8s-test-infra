@@ -6,15 +6,16 @@ package daemon
 import (
 	"encoding/binary"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestPathRecordAttrOffset(t *testing.T) {
 	mad := make([]byte, 128)
 	binary.BigEndian.PutUint16(mad[24:26], ibSAAttrPathRecord)
 	off, ok := pathRecordAttrOffset(mad)
-	if !ok || off != 24 {
-		t.Fatalf("got off=%d ok=%v", off, ok)
-	}
+	require.True(t, ok, "got off=%d ok=%v", off, ok)
+	require.Equal(t, 24, off, "got off=%d ok=%v", off, ok)
 }
 
 func TestPathRecordDGIDOffset_RMPP(t *testing.T) {
@@ -22,18 +23,16 @@ func TestPathRecordDGIDOffset_RMPP(t *testing.T) {
 	binary.BigEndian.PutUint16(mad[24:26], ibSAAttrPathRecord)
 	copy(mad[72:74], []byte{0xfe, 0x80})
 	off, ok := pathRecordDGIDOffset(mad)
-	if !ok || off != 72 {
-		t.Fatalf("got off=%d ok=%v", off, ok)
-	}
+	require.True(t, ok, "got off=%d ok=%v", off, ok)
+	require.Equal(t, 72, off, "got off=%d ok=%v", off, ok)
 }
 
 func TestPathRecordDGIDOffset_Fixed(t *testing.T) {
 	mad := make([]byte, ibPathRecDGIDOff+16)
 	copy(mad[ibPathRecDGIDOff:ibPathRecDGIDOff+2], []byte{0xfe, 0x80})
 	off, ok := pathRecordDGIDOffset(mad)
-	if !ok || off != ibPathRecDGIDOff {
-		t.Fatalf("got off=%d ok=%v", off, ok)
-	}
+	require.True(t, ok, "got off=%d ok=%v", off, ok)
+	require.Equal(t, ibPathRecDGIDOff, off, "got off=%d ok=%v", off, ok)
 }
 
 func TestSetSAMethodResponse(t *testing.T) {
@@ -81,9 +80,7 @@ func TestSetSAMethodResponse(t *testing.T) {
 			mad := make([]byte, 128)
 			tc.setup(mad)
 			setSAMethodResponse(mad)
-			if !tc.check(mad) {
-				t.Fatalf("check failed for %x", mad[:32])
-			}
+			require.True(t, tc.check(mad), "check failed for %x", mad[:32])
 		})
 	}
 }
@@ -93,7 +90,5 @@ func TestSynthesizeSAPathRecordResp_PreservesTRID(t *testing.T) {
 	copy(send[umadMADOffset+8:umadMADOffset+16], []byte{1, 2, 3, 4, 5, 6, 7, 8})
 	resp := synthesizeSAPathRecordResp(send, 0x0300)
 	mad := resp[umadMADOffset:]
-	if got, want := mad[8:16], send[umadMADOffset+8:umadMADOffset+16]; string(got) != string(want) {
-		t.Fatalf("TRID: got %x want %x", got, want)
-	}
+	require.Equal(t, send[umadMADOffset+8:umadMADOffset+16], mad[8:16], "TRID")
 }

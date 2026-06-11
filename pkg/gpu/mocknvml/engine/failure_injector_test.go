@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/stretchr/testify/require"
 )
 
 // =============================================================================
@@ -55,36 +56,24 @@ func withFailure(f *FailureInjectionConfig) *DeviceConfig {
 // =============================================================================
 
 func TestFailureInjector_NilConfigYieldsNilInjector(t *testing.T) {
-	if got := newFailureInjector(nil); got != nil {
-		t.Fatalf("expected nil injector for nil cfg, got %#v", got)
-	}
+	got := newFailureInjector(nil)
+	require.Nil(t, got, "expected nil injector for nil cfg")
 }
 
 func TestFailureInjector_HealthyModeYieldsNilInjector(t *testing.T) {
 	for _, mode := range []string{"", "healthy", "not-a-real-mode"} {
-		if got := newFailureInjector(&FailureInjectionConfig{Mode: mode}); got != nil {
-			t.Fatalf("mode %q: expected nil injector for healthy/unknown mode, got %#v", mode, got)
-		}
+		got := newFailureInjector(&FailureInjectionConfig{Mode: mode})
+		require.Nil(t, got, "mode %q: expected nil injector for healthy/unknown mode", mode)
 	}
 }
 
 func TestFailureInjector_ModeWithoutTriggersFailsOnFirstTick(t *testing.T) {
 	f := newFailureInjector(&FailureInjectionConfig{Mode: FailureModeLost})
-	if f == nil {
-		t.Fatal("expected non-nil injector for lost mode")
-	}
-	if f.Triggered() {
-		t.Fatal("injector must not be tripped before any Tick()")
-	}
-	if !f.Tick() {
-		t.Fatal("expected first Tick() to trip a mode-only injector")
-	}
-	if !f.Triggered() {
-		t.Fatal("Triggered() must report true after Tick() trips")
-	}
-	if got, want := f.ErrorReturn(), nvml.ERROR_GPU_IS_LOST; got != want {
-		t.Fatalf("ErrorReturn = %v, want %v", got, want)
-	}
+	require.NotNil(t, f, "expected non-nil injector for lost mode")
+	require.False(t, f.Triggered(), "injector must not be tripped before any Tick()")
+	require.True(t, f.Tick(), "expected first Tick() to trip a mode-only injector")
+	require.True(t, f.Triggered(), "Triggered() must report true after Tick() trips")
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, f.ErrorReturn(), "ErrorReturn")
 }
 
 func TestFailureInjector_AfterCallsIsDeterministic(t *testing.T) {
@@ -95,18 +84,12 @@ func TestFailureInjector_AfterCallsIsDeterministic(t *testing.T) {
 	})
 
 	for i := 1; i < N; i++ {
-		if f.Tick() {
-			t.Fatalf("call %d: tripped before AfterCalls=%d", i, N)
-		}
+		require.False(t, f.Tick(), "call %d: tripped before AfterCalls=%d", i, N)
 	}
-	if !f.Tick() {
-		t.Fatalf("call %d: expected trip at AfterCalls=%d", N, N)
-	}
+	require.True(t, f.Tick(), "call %d: expected trip at AfterCalls=%d", N, N)
 	// And it stays tripped afterwards.
 	for i := 0; i < 3; i++ {
-		if !f.Tick() {
-			t.Fatalf("post-trip call %d: expected sticky trip", i)
-		}
+		require.True(t, f.Tick(), "post-trip call %d: expected sticky trip", i)
 	}
 }
 
@@ -118,9 +101,7 @@ func TestFailureInjector_ProbabilityZeroNeverTripsOnItsOwn(t *testing.T) {
 		Seed:        42,
 	})
 	for i := 0; i < 10_000; i++ {
-		if f.Tick() {
-			t.Fatalf("call %d: probability=0 must not trip", i)
-		}
+		require.False(t, f.Tick(), "call %d: probability=0 must not trip", i)
 	}
 }
 
@@ -131,9 +112,7 @@ func TestFailureInjector_ProbabilityOneTripsOnFirstTick(t *testing.T) {
 		AfterCalls:  1_000_000, // ensure trip is from probability, not AfterCalls
 		Seed:        42,
 	})
-	if !f.Tick() {
-		t.Fatal("probability=1 must trip immediately")
-	}
+	require.True(t, f.Tick(), "probability=1 must trip immediately")
 }
 
 func TestFailureInjector_SeedReproducibility(t *testing.T) {
@@ -157,12 +136,8 @@ func TestFailureInjector_SeedReproducibility(t *testing.T) {
 
 	a := tripAt(mk())
 	b := tripAt(mk())
-	if a != b {
-		t.Fatalf("same seed must trip at the same call: a=%d b=%d", a, b)
-	}
-	if a < 1 || a > 10_000 {
-		t.Fatalf("expected trip within 10k calls (Probability=0.05 makes p(no-trip) effectively 0), got %d", a)
-	}
+	require.Equal(t, a, b, "same seed must trip at the same call: a=%d b=%d", a, b)
+	require.True(t, a >= 1 && a <= 10_000, "expected trip within 10k calls (Probability=0.05 makes p(no-trip) effectively 0), got %d", a)
 }
 
 func TestFailureInjector_DifferentSeedsDiverge(t *testing.T) {
@@ -183,9 +158,7 @@ func TestFailureInjector_DifferentSeedsDiverge(t *testing.T) {
 		return -1
 	}
 
-	if tripAt(mk(1)) == tripAt(mk(2)) {
-		t.Fatal("different seeds should not trip at the exact same call (with high probability)")
-	}
+	require.NotEqual(t, tripAt(mk(1)), tripAt(mk(2)), "different seeds should not trip at the exact same call (with high probability)")
 }
 
 func TestFailureInjector_ConcurrentTickSafety(t *testing.T) {
@@ -211,9 +184,7 @@ func TestFailureInjector_ConcurrentTickSafety(t *testing.T) {
 
 	// Only assertion we make is the call count is correct; -race covers
 	// the rest of the synchronization properties.
-	if got, want := f.CallCount(), int64(goroutines*iters); got != want {
-		t.Fatalf("CallCount = %d, want %d", got, want)
-	}
+	require.Equal(t, int64(goroutines*iters), f.CallCount(), "CallCount")
 }
 
 func TestFailureInjector_XidRequiresTrip(t *testing.T) {
@@ -222,18 +193,12 @@ func TestFailureInjector_XidRequiresTrip(t *testing.T) {
 		AfterCalls: 5,
 		Xid:        &XidErrorConfig{Code: 79},
 	})
-	if got := f.Xid(); got != 0 {
-		t.Fatalf("Xid() before trip must be 0, got %d", got)
-	}
+	require.Zero(t, f.Xid(), "Xid() before trip must be 0")
 	for i := 0; i < 5; i++ {
 		f.Tick()
 	}
-	if !f.Triggered() {
-		t.Fatal("expected trip after AfterCalls")
-	}
-	if got, want := f.Xid(), uint64(79); got != want {
-		t.Fatalf("Xid() after trip = %d, want %d", got, want)
-	}
+	require.True(t, f.Triggered(), "expected trip after AfterCalls")
+	require.Equal(t, uint64(79), f.Xid(), "Xid() after trip")
 }
 
 // =============================================================================
@@ -247,27 +212,22 @@ func TestFailureInjection_DeviceLevel_LostTripsAfterCalls(t *testing.T) {
 	}))
 
 	for i := 1; i <= 2; i++ {
-		if temp, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS || temp != 33 {
-			t.Fatalf("call %d before trip: expected (33, SUCCESS), got (%d, %v)", i, temp, ret)
-		}
+		temp, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
+		require.Equal(t, nvml.SUCCESS, ret, "call %d before trip", i)
+		require.Equal(t, uint32(33), temp, "call %d before trip", i)
 	}
 	// Third call trips and immediately surfaces ERROR_GPU_IS_LOST.
-	if _, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.ERROR_GPU_IS_LOST {
-		t.Fatalf("trip call: expected ERROR_GPU_IS_LOST, got %v", ret)
-	}
+	_, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, "trip call")
 	// All subsequent guarded calls keep failing.
-	if _, ret := dev.GetPowerUsage(); ret != nvml.ERROR_GPU_IS_LOST {
-		t.Fatalf("post-trip GetPowerUsage: expected ERROR_GPU_IS_LOST, got %v", ret)
-	}
-	if _, ret := dev.GetUtilizationRates(); ret != nvml.ERROR_GPU_IS_LOST {
-		t.Fatalf("post-trip GetUtilizationRates: expected ERROR_GPU_IS_LOST, got %v", ret)
-	}
-	if _, ret := dev.GetMemoryInfo(); ret != nvml.ERROR_GPU_IS_LOST {
-		t.Fatalf("post-trip GetMemoryInfo: expected ERROR_GPU_IS_LOST, got %v", ret)
-	}
-	if _, ret := dev.GetClockInfo(nvml.CLOCK_SM); ret != nvml.ERROR_GPU_IS_LOST {
-		t.Fatalf("post-trip GetClockInfo: expected ERROR_GPU_IS_LOST, got %v", ret)
-	}
+	_, ret = dev.GetPowerUsage()
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, "post-trip GetPowerUsage")
+	_, ret = dev.GetUtilizationRates()
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, "post-trip GetUtilizationRates")
+	_, ret = dev.GetMemoryInfo()
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, "post-trip GetMemoryInfo")
+	_, ret = dev.GetClockInfo(nvml.CLOCK_SM)
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, "post-trip GetClockInfo")
 }
 
 func TestFailureInjection_DeviceLevel_FallenOffBusBehavesLikeLost(t *testing.T) {
@@ -275,9 +235,8 @@ func TestFailureInjection_DeviceLevel_FallenOffBusBehavesLikeLost(t *testing.T) 
 		Mode: FailureModeFallenOffBus,
 	}))
 	// Mode without triggers ⇒ trips on first call.
-	if _, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.ERROR_GPU_IS_LOST {
-		t.Fatalf("expected ERROR_GPU_IS_LOST, got %v", ret)
-	}
+	_, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, "expected ERROR_GPU_IS_LOST")
 }
 
 func TestFailureInjection_HandleLookupFailsAfterTrip(t *testing.T) {
@@ -298,35 +257,29 @@ func TestFailureInjection_HandleLookupFailsAfterTrip(t *testing.T) {
 		},
 	}
 	e := NewEngine(cfg)
-	if ret := e.Init(); ret != nvml.SUCCESS {
-		t.Fatalf("engine init failed: %v", ret)
-	}
+	ret := e.Init()
+	require.Equal(t, nvml.SUCCESS, ret, "engine init failed")
 	t.Cleanup(func() { _ = e.Shutdown() })
 
 	// Pre-trip handle lookup must succeed (else newTestDeviceWithConfig
 	// itself wouldn't be able to drive the failure). This documents that
 	// a fresh boot sees the GPU before guarded API calls trip it.
 	handle, ret := e.DeviceGetHandleByIndex(0)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("pre-trip handle lookup: expected SUCCESS, got %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "pre-trip handle lookup")
 	dev := e.LookupDevice(handle).(*ConfigurableDevice)
 
 	// One guarded call trips the device.
-	if _, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.ERROR_GPU_IS_LOST {
-		t.Fatalf("expected first guarded call to trip, got %v", ret)
-	}
+	_, ret = dev.GetTemperature(nvml.TEMPERATURE_GPU)
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, "expected first guarded call to trip")
 
 	// Re-lookups now report the GPU as lost (real NVML returns the same
 	// error from handle lookups when the kernel driver has marked the
 	// device as gone).
-	if _, ret := e.DeviceGetHandleByIndex(0); ret != nvml.ERROR_GPU_IS_LOST {
-		t.Fatalf("post-trip DeviceGetHandleByIndex: expected ERROR_GPU_IS_LOST, got %v", ret)
-	}
+	_, ret = e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, "post-trip DeviceGetHandleByIndex")
 	if dev.UUID != "" {
-		if _, ret := e.DeviceGetHandleByUUID(dev.UUID); ret != nvml.ERROR_GPU_IS_LOST {
-			t.Fatalf("post-trip DeviceGetHandleByUUID: expected ERROR_GPU_IS_LOST, got %v", ret)
-		}
+		_, ret = e.DeviceGetHandleByUUID(dev.UUID)
+		require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, "post-trip DeviceGetHandleByUUID")
 	}
 }
 
@@ -342,43 +295,31 @@ func TestFailureInjection_ECC_NonZeroAfterTrip(t *testing.T) {
 
 	// Pre-trip: counters report zero.
 	count, ret := dev.GetTotalEccErrors(nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("pre-trip GetTotalEccErrors ret: %v", ret)
-	}
-	if count != 1 {
-		// Reasoning: the call above was the AfterCalls=1 trigger; the
-		// counter therefore reports 1 (the running call count) on this
-		// very call. Subsequent calls report strictly larger values.
-		t.Fatalf("first ECC poll: expected 1 (call count), got %d", count)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "pre-trip GetTotalEccErrors ret")
+	// Reasoning: the call above was the AfterCalls=1 trigger; the
+	// counter therefore reports 1 (the running call count) on this
+	// very call. Subsequent calls report strictly larger values.
+	require.Equal(t, uint64(1), count, "first ECC poll: expected 1 (call count)")
 
 	count2, _ := dev.GetTotalEccErrors(nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC)
-	if count2 <= count {
-		t.Fatalf("expected ECC count to grow with subsequent polls: %d -> %d", count, count2)
-	}
+	require.Greater(t, count2, count, "expected ECC count to grow with subsequent polls")
 
 	// Corrected counter stays zero — the failure is uncorrectable only.
-	if c, _ := dev.GetTotalEccErrors(nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC); c != 0 {
-		t.Fatalf("corrected counter must stay zero, got %d", c)
-	}
+	c, _ := dev.GetTotalEccErrors(nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC)
+	require.Zero(t, c, "corrected counter must stay zero")
 
 	// Per-location counter agrees on device memory.
 	loc, _ := dev.GetMemoryErrorCounter(nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_DEVICE_MEMORY)
-	if loc == 0 {
-		t.Fatalf("device-memory uncorrected counter must be > 0 after trip, got 0")
-	}
+	require.NotZero(t, loc, "device-memory uncorrected counter must be > 0 after trip")
 
 	// L1 cache (different location) stays at zero.
 	l1, _ := dev.GetMemoryErrorCounter(nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_L1_CACHE)
-	if l1 != 0 {
-		t.Fatalf("L1 cache counter must stay zero (we only inject device-memory errors), got %d", l1)
-	}
+	require.Zero(t, l1, "L1 cache counter must stay zero (we only inject device-memory errors)")
 
 	// Remapped rows surface the failure.
 	_, unc, _, failureOccurred, _ := dev.GetRemappedRows()
-	if unc == 0 || !failureOccurred {
-		t.Fatalf("expected non-zero uncorrectable rows + failure flag, got unc=%d failure=%v", unc, failureOccurred)
-	}
+	require.NotZero(t, unc, "expected non-zero uncorrectable rows")
+	require.True(t, failureOccurred, "expected failure flag")
 }
 
 func TestFailureInjection_ECC_DoesNotBlockHandleLookup(t *testing.T) {
@@ -407,13 +348,11 @@ func TestFailureInjection_ECC_DoesNotBlockHandleLookup(t *testing.T) {
 	_, _ = dev.GetTemperature(nvml.TEMPERATURE_GPU)
 
 	// Handle lookup MUST keep working — ecc_uncorrectable ≠ lost.
-	if _, ret := e.DeviceGetHandleByIndex(0); ret != nvml.SUCCESS {
-		t.Fatalf("ecc_uncorrectable must not affect handle lookup, got %v", ret)
-	}
+	_, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret, "ecc_uncorrectable must not affect handle lookup")
 	// And so must other API calls.
-	if _, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS {
-		t.Fatalf("ecc_uncorrectable must not block GetTemperature, got %v", ret)
-	}
+	_, ret = dev.GetTemperature(nvml.TEMPERATURE_GPU)
+	require.Equal(t, nvml.SUCCESS, ret, "ecc_uncorrectable must not block GetTemperature")
 }
 
 // =============================================================================
@@ -423,12 +362,9 @@ func TestFailureInjection_ECC_DoesNotBlockHandleLookup(t *testing.T) {
 func TestFailureInjection_GetViolationStatus_HealthyReportsNoViolation(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, healthyConfig())
 	vt, ret := dev.GetViolationStatus(nvml.PERF_POLICY_POWER)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("expected SUCCESS, got %v", ret)
-	}
-	if vt.ViolationTime != 0 || vt.ReferenceTime != 0 {
-		t.Fatalf("healthy device must report empty ViolationTime, got %+v", vt)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "expected SUCCESS")
+	require.Zero(t, vt.ViolationTime, "healthy device must report empty ViolationTime")
+	require.Zero(t, vt.ReferenceTime, "healthy device must report empty ReferenceTime")
 }
 
 func TestFailureInjection_GetViolationStatus_StaysSpecCompliantAfterTrip(t *testing.T) {
@@ -447,24 +383,17 @@ func TestFailureInjection_GetViolationStatus_StaysSpecCompliantAfterTrip(t *test
 	}))
 
 	// Trip the device with one guarded call.
-	if _, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS {
-		t.Fatalf("setup call 1: expected SUCCESS, got %v", ret)
-	}
+	_, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
+	require.Equal(t, nvml.SUCCESS, ret, "setup call 1")
 
 	// At this point the device has just tripped (AfterCalls=2 met by the
 	// SECOND tick, which is GetViolationStatus itself). It must NOT
 	// stuff the Xid into the violation_time field; both fields stay
 	// at their healthy zero values.
 	vt, ret := dev.GetViolationStatus(nvml.PERF_POLICY_POWER)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("expected SUCCESS, got %v", ret)
-	}
-	if vt.ViolationTime != 0 {
-		t.Fatalf("ViolationTime must be 0 ns post-trip (Xid no longer overloaded), got %d", vt.ViolationTime)
-	}
-	if vt.ReferenceTime != 0 {
-		t.Fatalf("ReferenceTime must be 0 ns post-trip, got %d", vt.ReferenceTime)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "expected SUCCESS")
+	require.Zero(t, vt.ViolationTime, "ViolationTime must be 0 ns post-trip (Xid no longer overloaded)")
+	require.Zero(t, vt.ReferenceTime, "ReferenceTime must be 0 ns post-trip")
 }
 
 func TestFailureInjection_GetViolationStatus_LostModeReturnsError(t *testing.T) {
@@ -475,9 +404,8 @@ func TestFailureInjection_GetViolationStatus_LostModeReturnsError(t *testing.T) 
 	// Mode without triggers ⇒ trips on first Tick(). GetViolationStatus
 	// is guarded, so the very first call returns the error code (we
 	// never get to populate the Xid in the response).
-	if _, ret := dev.GetViolationStatus(nvml.PERF_POLICY_POWER); ret != nvml.ERROR_GPU_IS_LOST {
-		t.Fatalf("expected ERROR_GPU_IS_LOST, got %v", ret)
-	}
+	_, ret := dev.GetViolationStatus(nvml.PERF_POLICY_POWER)
+	require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, "expected ERROR_GPU_IS_LOST")
 }
 
 // =============================================================================
@@ -499,14 +427,12 @@ func TestEngine_PendingXidEvent_NoneWhenHealthy(t *testing.T) {
 		},
 	}
 	e := NewEngine(cfg)
-	if ret := e.Init(); ret != nvml.SUCCESS {
-		t.Fatalf("engine init failed: %v", ret)
-	}
+	ret := e.Init()
+	require.Equal(t, nvml.SUCCESS, ret, "engine init failed")
 	t.Cleanup(func() { _ = e.Shutdown() })
 
-	if h, x, ok := e.PendingXidEvent(); ok {
-		t.Fatalf("healthy engine must not have pending Xid events, got handle=%v xid=%d", h, x)
-	}
+	_, _, ok := e.PendingXidEvent()
+	require.False(t, ok, "healthy engine must not have pending Xid events")
 }
 
 func TestEngine_PendingXidEvent_DeliveredOnceAfterTrip(t *testing.T) {
@@ -531,44 +457,32 @@ func TestEngine_PendingXidEvent_DeliveredOnceAfterTrip(t *testing.T) {
 		},
 	}
 	e := NewEngine(cfg)
-	if ret := e.Init(); ret != nvml.SUCCESS {
-		t.Fatalf("engine init failed: %v", ret)
-	}
+	ret := e.Init()
+	require.Equal(t, nvml.SUCCESS, ret, "engine init failed")
 	t.Cleanup(func() { _ = e.Shutdown() })
 
 	// Before any guarded call trips the device, no event is queued —
 	// PendingXidEvent must not synthesize one out of mere config.
-	if _, _, ok := e.PendingXidEvent(); ok {
-		t.Fatalf("pre-trip: PendingXidEvent must report no event")
-	}
+	_, _, ok := e.PendingXidEvent()
+	require.False(t, ok, "pre-trip: PendingXidEvent must report no event")
 
 	// Trip device 0 with a single guarded call (AfterCalls=1).
 	h0, _ := e.DeviceGetHandleByIndex(0)
 	dev0 := e.LookupDevice(h0).(*ConfigurableDevice)
-	if _, ret := dev0.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS {
-		t.Fatalf("trip call: expected SUCCESS (ecc_uncorrectable doesn't error), got %v", ret)
-	}
+	_, ret = dev0.GetTemperature(nvml.TEMPERATURE_GPU)
+	require.Equal(t, nvml.SUCCESS, ret, "trip call: expected SUCCESS (ecc_uncorrectable doesn't error)")
 
 	// First wait delivers the Xid event with the right device handle.
 	gotHandle, gotXid, ok := e.PendingXidEvent()
-	if !ok {
-		t.Fatalf("post-trip: expected pending Xid event, got none")
-	}
-	if gotXid != 79 {
-		t.Fatalf("Xid: expected 79, got %d", gotXid)
-	}
-	if gotHandle == 0 {
-		t.Fatalf("expected non-zero device handle, got 0")
-	}
-	if gotHandle != h0 {
-		t.Fatalf("expected device handle for index 0 (%v), got %v", h0, gotHandle)
-	}
+	require.True(t, ok, "post-trip: expected pending Xid event, got none")
+	require.Equal(t, uint64(79), gotXid, "Xid")
+	require.NotZero(t, gotHandle, "expected non-zero device handle")
+	require.Equal(t, h0, gotHandle, "expected device handle for index 0")
 
 	// Second wait must NOT redeliver the same Xid (matches real NVML
 	// where each critical Xid fires exactly once per occurrence).
-	if _, _, ok := e.PendingXidEvent(); ok {
-		t.Fatalf("Xid must be delivered at most once; got duplicate event")
-	}
+	_, _, ok = e.PendingXidEvent()
+	require.False(t, ok, "Xid must be delivered at most once; got duplicate event")
 }
 
 func TestEngine_PendingXidEvent_NoEventWithoutXidConfig(t *testing.T) {
@@ -593,20 +507,17 @@ func TestEngine_PendingXidEvent_NoEventWithoutXidConfig(t *testing.T) {
 		},
 	}
 	e := NewEngine(cfg)
-	if ret := e.Init(); ret != nvml.SUCCESS {
-		t.Fatalf("engine init failed: %v", ret)
-	}
+	ret := e.Init()
+	require.Equal(t, nvml.SUCCESS, ret, "engine init failed")
 	t.Cleanup(func() { _ = e.Shutdown() })
 
 	h, _ := e.DeviceGetHandleByIndex(0)
 	dev := e.LookupDevice(h).(*ConfigurableDevice)
-	if _, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS {
-		t.Fatalf("trip call: %v", ret)
-	}
+	_, ret = dev.GetTemperature(nvml.TEMPERATURE_GPU)
+	require.Equal(t, nvml.SUCCESS, ret, "trip call")
 
-	if _, _, ok := e.PendingXidEvent(); ok {
-		t.Fatalf("Xid-less config must produce no event")
-	}
+	_, _, ok := e.PendingXidEvent()
+	require.False(t, ok, "Xid-less config must produce no event")
 }
 
 // =============================================================================
@@ -631,9 +542,8 @@ func TestFailureInjection_IdentityGettersFailWhenLost(t *testing.T) {
 		},
 	}
 	e := NewEngine(cfg)
-	if ret := e.Init(); ret != nvml.SUCCESS {
-		t.Fatalf("engine init failed: %v", ret)
-	}
+	ret := e.Init()
+	require.Equal(t, nvml.SUCCESS, ret, "engine init failed")
 	t.Cleanup(func() { _ = e.Shutdown() })
 
 	h, _ := e.DeviceGetHandleByIndex(0)
@@ -641,24 +551,18 @@ func TestFailureInjection_IdentityGettersFailWhenLost(t *testing.T) {
 
 	// Pre-trip: identity getters succeed (real NVML answers from the
 	// PCI subsystem before the kernel marks the device gone).
-	if _, ret := dev.GetUUID(); ret != nvml.SUCCESS {
-		t.Fatalf("pre-trip GetUUID: expected SUCCESS, got %v", ret)
-	}
-	if _, ret := dev.GetName(); ret != nvml.SUCCESS {
-		t.Fatalf("pre-trip GetName: expected SUCCESS, got %v", ret)
-	}
-	if _, ret := dev.GetIndex(); ret != nvml.SUCCESS {
-		t.Fatalf("pre-trip GetIndex: expected SUCCESS, got %v", ret)
-	}
-	if _, ret := dev.GetMinorNumber(); ret != nvml.SUCCESS {
-		t.Fatalf("pre-trip GetMinorNumber: expected SUCCESS, got %v", ret)
-	}
-	if _, ret := dev.GetPciInfo(); ret != nvml.SUCCESS {
-		t.Fatalf("pre-trip GetPciInfo: expected SUCCESS, got %v", ret)
-	}
-	if _, ret := dev.GetBrand(); ret != nvml.SUCCESS {
-		t.Fatalf("pre-trip GetBrand: expected SUCCESS, got %v", ret)
-	}
+	_, ret = dev.GetUUID()
+	require.Equal(t, nvml.SUCCESS, ret, "pre-trip GetUUID")
+	_, ret = dev.GetName()
+	require.Equal(t, nvml.SUCCESS, ret, "pre-trip GetName")
+	_, ret = dev.GetIndex()
+	require.Equal(t, nvml.SUCCESS, ret, "pre-trip GetIndex")
+	_, ret = dev.GetMinorNumber()
+	require.Equal(t, nvml.SUCCESS, ret, "pre-trip GetMinorNumber")
+	_, ret = dev.GetPciInfo()
+	require.Equal(t, nvml.SUCCESS, ret, "pre-trip GetPciInfo")
+	_, ret = dev.GetBrand()
+	require.Equal(t, nvml.SUCCESS, ret, "pre-trip GetBrand")
 
 	// Trip the device with two guarded calls.
 	for i := 1; i <= 2; i++ {
@@ -680,9 +584,7 @@ func TestFailureInjection_IdentityGettersFailWhenLost(t *testing.T) {
 		{"GetBrand", func() nvml.Return { _, r := dev.GetBrand(); return r }},
 	}
 	for _, tc := range tests {
-		if got := tc.fn(); got != nvml.ERROR_GPU_IS_LOST {
-			t.Errorf("post-trip %s: expected ERROR_GPU_IS_LOST, got %v", tc.name, got)
-		}
+		require.Equal(t, nvml.ERROR_GPU_IS_LOST, tc.fn(), "post-trip %s", tc.name)
 	}
 }
 
@@ -707,15 +609,11 @@ func TestFailureInjection_MergeDeviceOverride(t *testing.T) {
 
 	mergeDeviceOverride(&base, override)
 
-	if base.Failure == nil || base.Failure.Mode != FailureModeLost {
-		t.Fatalf("expected override to replace base.Failure with lost mode, got %+v", base.Failure)
-	}
-	if base.Failure.AfterCalls != 5 {
-		t.Fatalf("AfterCalls not propagated: got %d", base.Failure.AfterCalls)
-	}
-	if base.Failure.Xid == nil || base.Failure.Xid.Code != 79 {
-		t.Fatalf("Xid not propagated: %+v", base.Failure.Xid)
-	}
+	require.NotNil(t, base.Failure, "expected override to replace base.Failure")
+	require.Equal(t, FailureModeLost, base.Failure.Mode, "expected override to replace base.Failure with lost mode")
+	require.Equal(t, int64(5), base.Failure.AfterCalls, "AfterCalls not propagated")
+	require.NotNil(t, base.Failure.Xid, "Xid not propagated")
+	require.Equal(t, uint64(79), base.Failure.Xid.Code, "Xid not propagated")
 }
 
 // =============================================================================
@@ -726,12 +624,10 @@ func TestFailureInjection_HealthyConfigIsNoOp(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, withFailure(&FailureInjectionConfig{
 		Mode: FailureModeHealthy,
 	}))
-	if dev.failure != nil {
-		t.Fatalf("healthy mode must not allocate a failureInjector, got %#v", dev.failure)
-	}
+	require.Nil(t, dev.failure, "healthy mode must not allocate a failureInjector")
 	for i := 0; i < 50; i++ {
-		if temp, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS || temp != 33 {
-			t.Fatalf("call %d: expected (33, SUCCESS), got (%d, %v)", i, temp, ret)
-		}
+		temp, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
+		require.Equal(t, nvml.SUCCESS, ret, "call %d", i)
+		require.Equal(t, uint32(33), temp, "call %d", i)
 	}
 }
