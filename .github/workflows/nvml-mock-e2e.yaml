@@ -57,29 +57,25 @@ jobs:
       - name: Resolve profile facts (display name + GPU count)
         id: gpu-info
         run: |
-          case "${{ matrix.gpu-profile }}" in
-            a100) echo "gpu-name=NVIDIA A100" >> "$GITHUB_OUTPUT" ;;
-            h100) echo "gpu-name=NVIDIA H100" >> "$GITHUB_OUTPUT" ;;
-            b200) echo "gpu-name=NVIDIA B200" >> "$GITHUB_OUTPUT" ;;
-            gb200) echo "gpu-name=NVIDIA GB200" >> "$GITHUB_OUTPUT" ;;
-            gb300) echo "gpu-name=NVIDIA GB300" >> "$GITHUB_OUTPUT" ;;
-            l40s) echo "gpu-name=NVIDIA L40S" >> "$GITHUB_OUTPUT" ;;
-            t4)   echo "gpu-name=NVIDIA T4" >> "$GITHUB_OUTPUT" ;;
-            *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;
-          esac
-          # GPU count is the profile's own `devices:` roster — the same single
-          # source of truth the chart uses (gpu.count defaults to len(devices)).
-          # CI no longer pins gpu.count, so every count assertion below derives
-          # from this. Fabric-manager enablement is likewise derived from the
-          # deployed chart (see "Verify fake fabricmanager readiness"), not a
-          # hardcoded per-profile list here.
+          # The profile is the single source of truth. Display name is its
+          # device_defaults.name (the full product string nvidia-smi -L prints,
+          # e.g. "NVIDIA A100-SXM4-40GB"); GPU count is the length of its
+          # `devices:` roster (the same value the chart derives — gpu.count
+          # defaults to len(devices)). CI no longer pins either, and
+          # fabric-manager enablement is read back from the deployed chart (see
+          # "Verify fake fabricmanager readiness"), so nothing is restated here.
           PROFILE_FILE="deployments/nvml-mock/helm/nvml-mock/profiles/${{ matrix.gpu-profile }}.yaml"
+          NAME=$(awk -F'"' '/^  name:/{print $2; exit}' "$PROFILE_FILE")
+          if [ -z "$NAME" ]; then
+            echo "FAIL: could not derive GPU name from $PROFILE_FILE"; exit 1
+          fi
           COUNT=$(awk '/^devices:/{f=1;next} /^[^[:space:]]/{f=0} f&&/^[[:space:]]*-[[:space:]]*index:/{c++} END{print c+0}' "$PROFILE_FILE")
           if [ -z "$COUNT" ] || [ "$COUNT" -lt 1 ]; then
             echo "FAIL: could not derive GPU count from $PROFILE_FILE"; exit 1
           fi
+          echo "gpu-name=$NAME" >> "$GITHUB_OUTPUT"
           echo "gpu-count=$COUNT" >> "$GITHUB_OUTPUT"
-          echo "Resolved profile '${{ matrix.gpu-profile }}': $COUNT GPUs"
+          echo "Resolved profile '${{ matrix.gpu-profile }}': name='$NAME', $COUNT GPUs"
 
       - name: Install Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -302,27 +298,23 @@ jobs:
       - name: Resolve profile facts (display name + GPU count)
         id: gpu-info
         run: |
-          case "${{ matrix.gpu-profile }}" in
-            a100) echo "gpu-name=NVIDIA A100" >> "$GITHUB_OUTPUT" ;;
-            h100) echo "gpu-name=NVIDIA H100" >> "$GITHUB_OUTPUT" ;;
-            b200) echo "gpu-name=NVIDIA B200" >> "$GITHUB_OUTPUT" ;;
-            gb200) echo "gpu-name=NVIDIA GB200" >> "$GITHUB_OUTPUT" ;;
-            gb300) echo "gpu-name=NVIDIA GB300" >> "$GITHUB_OUTPUT" ;;
-            l40s) echo "gpu-name=NVIDIA L40S" >> "$GITHUB_OUTPUT" ;;
-            t4)   echo "gpu-name=NVIDIA T4" >> "$GITHUB_OUTPUT" ;;
-            *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;
-          esac
-          # GPU count is the profile's own `devices:` roster — the same single
-          # source of truth the chart uses (gpu.count defaults to len(devices)).
-          # Fabric-manager enablement is likewise derived from the deployed
-          # chart (see "Verify fake fabricmanager readiness"), not hardcoded.
+          # The profile is the single source of truth. Display name is its
+          # device_defaults.name (the full product string nvidia-smi -L prints);
+          # GPU count is the length of its `devices:` roster (the same value the
+          # chart derives). Fabric-manager enablement is read back from the
+          # deployed chart (see "Verify fake fabricmanager readiness").
           PROFILE_FILE="deployments/nvml-mock/helm/nvml-mock/profiles/${{ matrix.gpu-profile }}.yaml"
+          NAME=$(awk -F'"' '/^  name:/{print $2; exit}' "$PROFILE_FILE")
+          if [ -z "$NAME" ]; then
+            echo "FAIL: could not derive GPU name from $PROFILE_FILE"; exit 1
+          fi
           COUNT=$(awk '/^devices:/{f=1;next} /^[^[:space:]]/{f=0} f&&/^[[:space:]]*-[[:space:]]*index:/{c++} END{print c+0}' "$PROFILE_FILE")
           if [ -z "$COUNT" ] || [ "$COUNT" -lt 1 ]; then
             echo "FAIL: could not derive GPU count from $PROFILE_FILE"; exit 1
           fi
+          echo "gpu-name=$NAME" >> "$GITHUB_OUTPUT"
           echo "gpu-count=$COUNT" >> "$GITHUB_OUTPUT"
-          echo "Resolved profile '${{ matrix.gpu-profile }}': $COUNT GPUs"
+          echo "Resolved profile '${{ matrix.gpu-profile }}': name='$NAME', $COUNT GPUs"
 
       - name: Install Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6

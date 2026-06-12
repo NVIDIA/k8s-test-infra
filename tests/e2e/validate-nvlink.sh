@@ -129,7 +129,12 @@ if [ "$EXPECT_NV" -gt 0 ]; then
   echo "--- nvidia-smi nvlink -s (status) ---"
   NVLINK_S=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI nvlink -s" 2>&1) || {
     echo "FAIL: nvidia-smi nvlink -s exited with error"; echo "$NVLINK_S"; exit 1; }
-  echo "$NVLINK_S" | head -10
+  # Truncate for log noise with sed (not head): an 8-GPU x 18-link dump is far
+  # longer than 10 lines, and `echo ... | head -10` makes head close the pipe
+  # early, so echo takes SIGPIPE -> with `set -o pipefail` the pipeline fails
+  # and `set -e` aborts the whole script. sed consumes all input, so echo never
+  # hits a broken pipe.
+  echo "$NVLINK_S" | sed -n '1,10p'
   if echo "$NVLINK_S" | grep -qE "Link[[:space:]]+0"; then
     echo "PASS: nvlink -s enumerated links (Link 0 present)"
   else
@@ -142,7 +147,8 @@ if [ "$EXPECT_NV" -gt 0 ]; then
   echo "--- nvidia-smi nvlink -c (capabilities) ---"
   NVLINK_C=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI nvlink -c" 2>&1) || {
     echo "FAIL: nvidia-smi nvlink -c exited with error"; echo "$NVLINK_C"; exit 1; }
-  echo "$NVLINK_C" | head -10
+  # sed, not head: see the nvlink -s note above (avoids SIGPIPE under pipefail).
+  echo "$NVLINK_C" | sed -n '1,10p'
   if echo "$NVLINK_C" | grep -qE "Link[[:space:]]+0"; then
     echo "PASS: nvlink -c reported per-link capabilities (Link 0 present)"
   else
