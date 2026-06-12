@@ -182,6 +182,34 @@ profile (e.g. a custom config, or disabling it on an auto profile).
 {{- end }}
 
 {{/*
+Resolve the effective GPU count.
+Single source of truth is the GPU profile: the length of its `devices:` list
+(t4 -> 4, the NVSwitch baseboards/NVL slices -> 8). The engine mirrors this
+(config.go defaults NumDevices to len(devices)). gpu.count is an override:
+leave it empty/unset to use the profile's device count (the normal path, so
+CI/users never restate a per-profile fact); set it to a positive integer to
+force a smaller (or larger) slice regardless of profile. setup.sh still caps
+the effective count to the profile device count at runtime.
+*/}}
+{{- define "nvml-mock.gpuCount" -}}
+{{- $count := .Values.gpu.count -}}
+{{- if and (not (kindIs "invalid" $count)) (ne (toString $count) "") -}}
+{{- $count -}}
+{{- else -}}
+{{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}
+{{- if hasKey $cfg "Error" -}}
+{{- fail (printf "nvml-mock.gpuCount: failed to parse GPU config: %s" (get $cfg "Error")) -}}
+{{- end -}}
+{{- $devices := get $cfg "devices" | default (list) -}}
+{{- if gt (len $devices) 0 -}}
+{{- len $devices -}}
+{{- else -}}
+8
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Resolve the effective MOCK_IB tier: one of "off", "sysfs", or "full".
 Honors an explicit .Values.infiniband.mockTier override (validated here so a
 typo fails the render, not silently disables IB); when empty/unset it derives

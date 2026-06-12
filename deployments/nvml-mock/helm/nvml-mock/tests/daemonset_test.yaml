@@ -270,6 +270,31 @@ tests:
             name: GPU_COUNT
             value: "4"
 
+  # ── GPU_COUNT derived from the profile devices list (count unset) ──────
+  - it: should derive GPU_COUNT from the t4 profile devices list (4)
+    set:
+      gpu:
+        profile: t4
+        count: ""
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GPU_COUNT
+            value: "4"
+
+  - it: should derive GPU_COUNT from the gb200 profile devices list (8)
+    set:
+      gpu:
+        profile: gb200
+        count: ""
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GPU_COUNT
+            value: "8"
+
   - it: should mount all required volumes
     asserts:
       - contains:

@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Set GPU display name
+      - name: Resolve profile facts (display name + GPU count)
         id: gpu-info
         run: |
           case "${{ matrix.gpu-profile }}" in
@@ -67,17 +67,19 @@ jobs:
             t4)   echo "gpu-name=NVIDIA T4" >> "$GITHUB_OUTPUT" ;;
             *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;
           esac
-          # Whether to expect a running fabricmanager daemon. The chart now
-          # derives fabricmanager enablement from the profile itself — any
-          # NVSwitch-based platform runs one (A100/H100/B200 8-GPU via the
-          # legacy nv-fabricmanager daemon, GB200/GB300 via NMX), so it is NOT
-          # passed to Helm. This only gates the readiness assertion below so
-          # non-NVSwitch profiles don't probe a daemon they never start. The
-          # standalone B200 negative control declares no NVSwitches -> false.
-          case "${{ matrix.gpu-profile }}" in
-            a100 | h100 | gb200 | gb300) echo "fm-enabled=true" >> "$GITHUB_OUTPUT" ;;
-            *) echo "fm-enabled=false" >> "$GITHUB_OUTPUT" ;;
-          esac
+          # GPU count is the profile's own `devices:` roster — the same single
+          # source of truth the chart uses (gpu.count defaults to len(devices)).
+          # CI no longer pins gpu.count, so every count assertion below derives
+          # from this. Fabric-manager enablement is likewise derived from the
+          # deployed chart (see "Verify fake fabricmanager readiness"), not a
+          # hardcoded per-profile list here.
+          PROFILE_FILE="deployments/nvml-mock/helm/nvml-mock/profiles/${{ matrix.gpu-profile }}.yaml"
+          COUNT=$(awk '/^devices:/{f=1;next} /^[^[:space:]]/{f=0} f&&/^[[:space:]]*-[[:space:]]*index:/{c++} END{print c+0}' "$PROFILE_FILE")
+          if [ -z "$COUNT" ] || [ "$COUNT" -lt 1 ]; then
+            echo "FAIL: could not derive GPU count from $PROFILE_FILE"; exit 1
+          fi
+          echo "gpu-count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Resolved profile '${{ matrix.gpu-profile }}': $COUNT GPUs"
 
       - name: Install Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -107,7 +109,6 @@ jobs:
             --set image.repository=nvml-mock \
             --set image.tag=e2e \
             --set gpu.profile=${{ matrix.gpu-profile }} \
-            --set gpu.count=2 \
             --wait --timeout 120s
 
       - name: Verify DaemonSet is ready
@@ -135,8 +136,8 @@ jobs:
           # Check config at both locations
           docker exec "$NODE_CONTAINER" test -f /var/lib/nvml-mock/config/config.yaml
           docker exec "$NODE_CONTAINER" test -f /var/lib/nvml-mock/driver/config/config.yaml
-          # Verify num_devices was injected
-          docker exec "$NODE_CONTAINER" grep -q "num_devices: 2" /var/lib/nvml-mock/config/config.yaml
+          # Verify num_devices was injected (profile-derived count)
+          docker exec "$NODE_CONTAINER" grep -q "num_devices: ${{ steps.gpu-info.outputs.gpu-count }}" /var/lib/nvml-mock/config/config.yaml
           echo "All mock files verified"
 
       - name: Validate nvidia-smi output
@@ -144,11 +145,21 @@ jobs:
           ./tests/e2e/validate-nvidia-smi.sh \
             nvml-mock-e2e-${{ matrix.gpu-profile }}-control-plane \
             "${{ steps.gpu-info.outputs.gpu-name }}" \
-            2
+            ${{ steps.gpu-info.outputs.gpu-count }}
 
       - name: Verify fake fabricmanager readiness
-        if: steps.gpu-info.outputs.fm-enabled == 'true'
         run: |
+          # Fabric-manager enablement is derived by the chart from the profile
+          # (nvlink.switches / device_defaults.fabric.state: auto) and surfaced
+          # as the MOCK_FABRICMANAGER env on the daemonset. Read it back from
+          # the deployed resource rather than restating a per-profile list here,
+          # then skip the readiness probe for profiles that never start it.
+          FM=$(kubectl get daemonset nvml-mock \
+            -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="MOCK_FABRICMANAGER")].value}' 2>/dev/null || true)
+          if [ "$FM" != "on" ]; then
+            echo "fabricmanager not enabled for profile '${{ matrix.gpu-profile }}' — skipping readiness check"
+            exit 0
+          fi
           POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
             -o jsonpath='{.items[0].metadata.name}')
           # The fake nvidia-fabricmanager daemon writes a node-local readiness
@@ -173,21 +184,21 @@ jobs:
           ./tests/e2e/validate-nvlink.sh \
             nvml-mock-e2e-${{ matrix.gpu-profile }}-control-plane \
             "${{ matrix.gpu-profile }}" \
-            2
+            ${{ steps.gpu-info.outputs.gpu-count }}
 
       - name: Validate ibstat / ibstatus (InfiniBand mock)
         run: |
           POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
             -o jsonpath='{.items[0].metadata.name}')
-          # gpu.count=2 in this job; profiles ship hcas_per_gpu=1, so
-          # IB-enabled profiles are expected to expose 2 HCAs.
-          ./tests/e2e/validate-ibstat.sh "$POD" "${{ matrix.gpu-profile }}" 2
+          # Profiles ship hcas_per_gpu=1, so IB-enabled profiles expose one HCA
+          # per GPU — i.e. the profile-derived GPU count.
+          ./tests/e2e/validate-ibstat.sh "$POD" "${{ matrix.gpu-profile }}" ${{ steps.gpu-info.outputs.gpu-count }}
 
       - name: Validate ibv_devinfo (InfiniBand mock)
         run: |
           POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
             -o jsonpath='{.items[0].metadata.name}')
-          ./tests/e2e/validate-ibv-devinfo.sh "$POD" "${{ matrix.gpu-profile }}" 2
+          ./tests/e2e/validate-ibv-devinfo.sh "$POD" "${{ matrix.gpu-profile }}" ${{ steps.gpu-info.outputs.gpu-count }}
 
       - name: Deploy NVIDIA device plugin
         run: |
@@ -198,17 +209,18 @@ jobs:
       - name: Verify allocatable GPUs
         run: |
           NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+          EXPECT=${{ steps.gpu-info.outputs.gpu-count }}
           # Wait for kubelet to update allocatable (may take a few seconds)
           for i in $(seq 1 30); do
             GPUS=$(kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}')
-            if [ "$GPUS" = "2" ]; then
+            if [ "$GPUS" = "$EXPECT" ]; then
               echo "PASS: Node reports $GPUS allocatable GPUs"
               exit 0
             fi
-            echo "Attempt $i: allocatable GPUs=$GPUS (expected 2), waiting..."
+            echo "Attempt $i: allocatable GPUs=$GPUS (expected $EXPECT), waiting..."
             sleep 2
           done
-          echo "FAIL: Expected 2 allocatable GPUs, got $GPUS"
+          echo "FAIL: Expected $EXPECT allocatable GPUs, got $GPUS"
           exit 1
 
       # GFD and CUDA validator standalone images from nvcr.io may require NGC auth.
@@ -287,7 +299,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Set GPU display name
+      - name: Resolve profile facts (display name + GPU count)
         id: gpu-info
         run: |
           case "${{ matrix.gpu-profile }}" in
@@ -300,17 +312,17 @@ jobs:
             t4)   echo "gpu-name=NVIDIA T4" >> "$GITHUB_OUTPUT" ;;
             *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;
           esac
-          # Whether to expect a running fabricmanager daemon. The chart now
-          # derives fabricmanager enablement from the profile itself — any
-          # NVSwitch-based platform runs one (A100/H100/B200 8-GPU via the
-          # legacy nv-fabricmanager daemon, GB200/GB300 via NMX), so it is NOT
-          # passed to Helm. This only gates the readiness assertion below so
-          # non-NVSwitch profiles don't probe a daemon they never start. The
-          # standalone B200 negative control declares no NVSwitches -> false.
-          case "${{ matrix.gpu-profile }}" in
-            a100 | h100 | gb200 | gb300) echo "fm-enabled=true" >> "$GITHUB_OUTPUT" ;;
-            *) echo "fm-enabled=false" >> "$GITHUB_OUTPUT" ;;
-          esac
+          # GPU count is the profile's own `devices:` roster — the same single
+          # source of truth the chart uses (gpu.count defaults to len(devices)).
+          # Fabric-manager enablement is likewise derived from the deployed
+          # chart (see "Verify fake fabricmanager readiness"), not hardcoded.
+          PROFILE_FILE="deployments/nvml-mock/helm/nvml-mock/profiles/${{ matrix.gpu-profile }}.yaml"
+          COUNT=$(awk '/^devices:/{f=1;next} /^[^[:space:]]/{f=0} f&&/^[[:space:]]*-[[:space:]]*index:/{c++} END{print c+0}' "$PROFILE_FILE")
+          if [ -z "$COUNT" ] || [ "$COUNT" -lt 1 ]; then
+            echo "FAIL: could not derive GPU count from $PROFILE_FILE"; exit 1
+          fi
+          echo "gpu-count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Resolved profile '${{ matrix.gpu-profile }}': $COUNT GPUs"
 
       - name: Install Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
@@ -341,7 +353,6 @@ jobs:
             --set image.repository=nvml-mock \
             --set image.tag=e2e \
             --set gpu.profile=${{ matrix.gpu-profile }} \
-            --set gpu.count=2 \
             --wait --timeout 120s
 
       - name: Verify DaemonSet is ready
@@ -352,7 +363,7 @@ jobs:
         run: |
           NODE_CONTAINER=nvml-mock-dra-${{ matrix.gpu-profile }}-control-plane
           docker exec "$NODE_CONTAINER" test -f /var/lib/nvml-mock/driver/config/config.yaml
-          docker exec "$NODE_CONTAINER" grep -q "num_devices: 2" /var/lib/nvml-mock/driver/config/config.yaml
+          docker exec "$NODE_CONTAINER" grep -q "num_devices: ${{ steps.gpu-info.outputs.gpu-count }}" /var/lib/nvml-mock/driver/config/config.yaml
           docker exec "$NODE_CONTAINER" test -L /var/lib/nvml-mock/driver/usr/lib64/libnvidia-ml.so.1
           echo "Mock files verified"
 
@@ -361,11 +372,19 @@ jobs:
           ./tests/e2e/validate-nvidia-smi.sh \
             nvml-mock-dra-${{ matrix.gpu-profile }}-control-plane \
             "${{ steps.gpu-info.outputs.gpu-name }}" \
-            2
+            ${{ steps.gpu-info.outputs.gpu-count }}
 
       - name: Verify fake fabricmanager readiness
-        if: steps.gpu-info.outputs.fm-enabled == 'true'
         run: |
+          # Derive fabricmanager enablement from the deployed daemonset's
+          # MOCK_FABRICMANAGER env (the chart sets it from the profile), then
+          # skip the readiness probe for profiles that never start it.
+          FM=$(kubectl get daemonset nvml-mock \
+            -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="MOCK_FABRICMANAGER")].value}' 2>/dev/null || true)
+          if [ "$FM" != "on" ]; then
+            echo "fabricmanager not enabled for profile '${{ matrix.gpu-profile }}' — skipping readiness check"
+            exit 0
+          fi
           POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
             -o jsonpath='{.items[0].metadata.name}')
           # Gate the NV# topology assertion on fabricmanager readiness, as on
@@ -387,7 +406,7 @@ jobs:
           ./tests/e2e/validate-nvlink.sh \
             nvml-mock-dra-${{ matrix.gpu-profile }}-control-plane \
             "${{ matrix.gpu-profile }}" \
-            2
+            ${{ steps.gpu-info.outputs.gpu-count }}
 
       - name: Add NVIDIA Helm repo
         run: |
@@ -410,18 +429,19 @@ jobs:
 
       - name: Verify ResourceSlice GPU count
         run: |
+          EXPECT=${{ steps.gpu-info.outputs.gpu-count }}
           for i in $(seq 1 30); do
             COUNT=$(kubectl get resourceslices -o json | \
               jq '[.items[].spec.devices // [] | length] | add // 0')
-            if [ "$COUNT" = "2" ]; then
+            if [ "$COUNT" = "$EXPECT" ]; then
               echo "PASS: ResourceSlice reports $COUNT GPUs"
               break
             fi
-            echo "Attempt $i: ResourceSlice GPUs=$COUNT (expected 2), waiting..."
+            echo "Attempt $i: ResourceSlice GPUs=$COUNT (expected $EXPECT), waiting..."
             sleep 2
           done
-          if [ "$COUNT" != "2" ]; then
-            echo "FAIL: Expected 2 GPUs in ResourceSlice, got $COUNT"
+          if [ "$COUNT" != "$EXPECT" ]; then
+            echo "FAIL: Expected $EXPECT GPUs in ResourceSlice, got $COUNT"
             exit 1
           fi
 
@@ -509,6 +529,20 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
+      - name: Resolve profile GPU count
+        id: gpu-info
+        run: |
+          # Profile-derived GPU count (len of the profile's devices list), the
+          # same source of truth the chart uses now that CI no longer pins
+          # gpu.count.
+          PROFILE_FILE="deployments/nvml-mock/helm/nvml-mock/profiles/${{ matrix.gpu-profile }}.yaml"
+          COUNT=$(awk '/^devices:/{f=1;next} /^[^[:space:]]/{f=0} f&&/^[[:space:]]*-[[:space:]]*index:/{c++} END{print c+0}' "$PROFILE_FILE")
+          if [ -z "$COUNT" ] || [ "$COUNT" -lt 1 ]; then
+            echo "FAIL: could not derive GPU count from $PROFILE_FILE"; exit 1
+          fi
+          echo "gpu-count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Resolved profile '${{ matrix.gpu-profile }}': $COUNT GPUs"
+
       - name: Install Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
@@ -576,7 +610,6 @@ jobs:
             --set image.repository=nvml-mock \
             --set image.tag=e2e \
             --set gpu.profile=${{ matrix.gpu-profile }} \
-            --set gpu.count=2 \
             --wait --timeout 120s
 
       - name: Verify DaemonSet is ready
@@ -714,16 +747,17 @@ jobs:
       - name: Verify allocatable GPUs
         run: |
           NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+          EXPECT=${{ steps.gpu-info.outputs.gpu-count }}
           for i in $(seq 1 30); do
             GPUS=$(kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}')
-            if [ "$GPUS" = "2" ]; then
+            if [ "$GPUS" = "$EXPECT" ]; then
               echo "PASS: Node reports $GPUS allocatable GPUs"
               exit 0
             fi
-            echo "Attempt $i: allocatable GPUs=$GPUS (expected 2), waiting..."
+            echo "Attempt $i: allocatable GPUs=$GPUS (expected $EXPECT), waiting..."
             sleep 2
           done
-          echo "FAIL: Expected 2 allocatable GPUs, got $GPUS"
+          echo "FAIL: Expected $EXPECT allocatable GPUs, got $GPUS"
           exit 1
 
       - name: Collect logs on failure
@@ -828,7 +862,6 @@ jobs:
             --set image.repository=nvml-mock \
             --set image.tag=e2e \
             --set gpu.profile=a100 \
-            --set gpu.count=2 \
             --set "nodeSelector.nvml-mock/profile=a100" \
             --wait --timeout 120s
 
@@ -838,7 +871,6 @@ jobs:
             --set image.repository=nvml-mock \
             --set image.tag=e2e \
             --set gpu.profile=t4 \
-            --set gpu.count=2 \
             --set "nodeSelector.nvml-mock/profile=t4" \
             --wait --timeout 120s
 
@@ -854,14 +886,18 @@ jobs:
 
       - name: Validate ibstat / ibstatus on both workers
         run: |
-          # A100 release: IB enabled, expect gpu.count=2 HCAs.
+          # Counts come from each profile's devices list (a100 -> 8, t4 -> 4),
+          # since CI no longer pins gpu.count.
+          PROFILES=deployments/nvml-mock/helm/nvml-mock/profiles
+          gpu_count() { awk '/^devices:/{f=1;next} /^[^[:space:]]/{f=0} f&&/^[[:space:]]*-[[:space:]]*index:/{c++} END{print c+0}' "$1"; }
+          # A100 release: IB enabled, one HCA per GPU.
           A100_POD=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-a100 \
             -o jsonpath='{.items[0].metadata.name}')
-          ./tests/e2e/validate-ibstat.sh "$A100_POD" a100 2
-          # T4 release: IB disabled by default, expect zero HCAs.
+          ./tests/e2e/validate-ibstat.sh "$A100_POD" a100 "$(gpu_count "$PROFILES/a100.yaml")"
+          # T4 release: IB disabled by default, expect zero HCAs (count arg ignored).
           T4_POD=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-t4 \
             -o jsonpath='{.items[0].metadata.name}')
-          ./tests/e2e/validate-ibstat.sh "$T4_POD" t4 2
+          ./tests/e2e/validate-ibstat.sh "$T4_POD" t4 "$(gpu_count "$PROFILES/t4.yaml")"
 
       - name: Deploy NVIDIA device plugin
         run: |
@@ -873,20 +909,26 @@ jobs:
         run: |
           WORKER1="${{ steps.nodes.outputs.worker1 }}"
           WORKER2="${{ steps.nodes.outputs.worker2 }}"
-          echo "Waiting for device-plugin to register GPUs on both nodes..."
+          # Expected counts come from each profile's devices list (a100 -> 8,
+          # t4 -> 4), since CI no longer pins gpu.count.
+          PROFILES=deployments/nvml-mock/helm/nvml-mock/profiles
+          gpu_count() { awk '/^devices:/{f=1;next} /^[^[:space:]]/{f=0} f&&/^[[:space:]]*-[[:space:]]*index:/{c++} END{print c+0}' "$1"; }
+          A100_EXPECT=$(gpu_count "$PROFILES/a100.yaml")
+          T4_EXPECT=$(gpu_count "$PROFILES/t4.yaml")
+          echo "Waiting for device-plugin to register GPUs on both nodes (expect A100=$A100_EXPECT, T4=$T4_EXPECT)..."
           for i in $(seq 1 30); do
             A100_GPUS=$(kubectl get node "$WORKER1" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' 2>/dev/null || echo "0")
             T4_GPUS=$(kubectl get node "$WORKER2" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' 2>/dev/null || echo "0")
-            if [ "$A100_GPUS" = "2" ] && [ "$T4_GPUS" = "2" ]; then
+            if [ "$A100_GPUS" = "$A100_EXPECT" ] && [ "$T4_GPUS" = "$T4_EXPECT" ]; then
               echo "PASS: Heterogeneous GPU fleet detected"
               echo "  $WORKER1 (A100): $A100_GPUS GPUs"
               echo "  $WORKER2 (T4):   $T4_GPUS GPUs"
               exit 0
             fi
-            echo "Attempt $i: $WORKER1=$A100_GPUS $WORKER2=$T4_GPUS (expected 2+2), waiting..."
+            echo "Attempt $i: $WORKER1=$A100_GPUS $WORKER2=$T4_GPUS (expected $A100_EXPECT+$T4_EXPECT), waiting..."
             sleep 5
           done
-          echo "FAIL: Expected 2 GPUs on each worker node"
+          echo "FAIL: Expected $A100_EXPECT GPUs on worker1 and $T4_EXPECT on worker2"
           kubectl describe nodes | grep -A5 "Allocatable"
           exit 1
 
@@ -975,7 +1017,6 @@ jobs:
             --set image.repository=nvml-mock \
             --set image.tag=e2e \
             --set gpu.profile=a100 \
-            --set gpu.count=2 \
             --set "nodeSelector.kubernetes\.io/hostname=${{ steps.nodes.outputs.worker1 }}" \
             --wait --timeout 120s
 
@@ -985,7 +1026,6 @@ jobs:
             --set image.repository=nvml-mock \
             --set image.tag=e2e \
             --set gpu.profile=a100 \
-            --set gpu.count=2 \
             --set "nodeSelector.kubernetes\.io/hostname=${{ steps.nodes.outputs.worker2 }}" \
             --wait --timeout 120s
 
@@ -1005,7 +1045,10 @@ jobs:
             -o jsonpath='{.items[0].metadata.name}')
           W2=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w2 \
             -o jsonpath='{.items[0].metadata.name}')
-          ./tests/e2e/validate-iblinkinfo.sh "$W1" "$W2" a100 2
+          # HCA count = a100 profile GPU count (one HCA per GPU), derived from
+          # the profile devices list since CI no longer pins gpu.count.
+          A100=$(awk '/^devices:/{f=1;next} /^[^[:space:]]/{f=0} f&&/^[[:space:]]*-[[:space:]]*index:/{c++} END{print c+0}' deployments/nvml-mock/helm/nvml-mock/profiles/a100.yaml)
+          ./tests/e2e/validate-iblinkinfo.sh "$W1" "$W2" a100 "$A100"
 
       - name: Collect logs on failure
         if: failure()

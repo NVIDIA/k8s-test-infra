@@ -51,7 +51,7 @@ spec:
           command: ["/scripts/entrypoint.sh"]
           env:
             - name: GPU_COUNT
-              value: "{{ .Values.gpu.count }}"
+              value: "{{ include "nvml-mock.gpuCount" . }}"
             - name: DRIVER_VERSION
               value: "{{ include "nvml-mock.driverVersion" . }}"
             - name: NODE_NAME

@@ -14,9 +14,18 @@
           "description": "GPU profile name. The valid set is enforced by the template helper (which renders a friendly error pointing users at gpu.customConfig); we deliberately avoid a JSON-schema enum here so the helper can keep producing that actionable message instead of a generic schema rejection."
         },
         "count": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 64
+          "description": "Number of GPUs to expose. Use an integer to force a slice, or the empty string \"\" (default) to derive the count from the selected profile's devices list.",
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            },
+            {
+              "type": "string",
+              "enum": [""]
+            }
+          ]
         },
         "customConfig": {
           "type": "string"
