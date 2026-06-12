@@ -205,22 +205,22 @@ mlx5 hardware), matching the behavior expected by validate-ibstat (0 HCAs).
 
 {{/*
 Driver version helper.
-Returns the user-provided driverVersion, or derives it from gpu.profile.
-GB200 uses 580.65.06 (matches the bundled nvidia-smi 580 binary); B200 uses
-560.35.03; Blackwell Ultra (gb300) uses 570.124.06; all others use 550.163.01.
-Note: when gpu.customConfig is set, derivation still uses gpu.profile —
-users with custom configs should set driverVersion explicitly.
+Returns the user-provided driverVersion, otherwise reads system.driver_version
+from the resolved GPU config (customConfig or the selected profile file) so the
+profile stays the single source of truth — the DRIVER_VERSION env (which names
+the on-disk libnvidia-ml.so.<ver> in setup.sh) never drifts from the
+driver_version the engine reports via NVML. Fails if neither is set.
 */}}
 {{- define "nvml-mock.driverVersion" -}}
 {{- if .Values.driverVersion -}}
 {{- .Values.driverVersion -}}
-{{- else if eq .Values.gpu.profile "gb200" -}}
-580.65.06
-{{- else if eq .Values.gpu.profile "gb300" -}}
-570.124.06
-{{- else if eq .Values.gpu.profile "b200" -}}
-560.35.03
 {{- else -}}
-550.163.01
+{{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}
+{{- $dv := dig "system" "driver_version" "" $cfg -}}
+{{- if $dv -}}
+{{- $dv -}}
+{{- else -}}
+{{- fail (printf "GPU config for profile %q has no system.driver_version; set .Values.driverVersion explicitly." .Values.gpu.profile) -}}
+{{- end -}}
 {{- end -}}
 {{- end }}
