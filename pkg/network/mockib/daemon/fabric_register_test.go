@@ -4,7 +4,9 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"net"
 	"os"
 	"strconv"
@@ -15,9 +17,46 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/render"
 	"github.com/stretchr/testify/require"
 )
+
+// TestApplyRegister_LogsOnlyOnChange pins REGISTER log volume: peers
+// re-register every 2s, so an unchanged registration must stay silent
+// (~86k lines/day per port otherwise) while the first registration and any
+// change keep the existing per-port log line for kubectl-logs debuggability.
+func TestApplyRegister_LogsOnlyOnChange(t *testing.T) {
+	var buf bytes.Buffer
+	srv := &Server{registry: registry.New(), log: log.New(&buf, "", 0)}
+	body := protocol.RegisterBody{
+		NodeName: "node-b",
+		PodIP:    "10.0.0.2",
+		Ports: []protocol.PortAdvert{
+			{PortGUID: "a088:c203:00ab:2001", LID: 0x0300, CAName: "mlx5_0", Port: 1},
+			{PortGUID: "a088:c203:00ab:2002", LID: 0x0301, CAName: "mlx5_1", Port: 1},
+		},
+	}
+
+	srv.applyRegister(body)
+	require.Equal(t, 2, strings.Count(buf.String(), "register from"),
+		"first REGISTER must log every port:\n%s", buf.String())
+	// First-registration log content must stay identical (CI greps depend on it).
+	require.Contains(t, buf.String(),
+		`mock-ib: register from podIP=10.0.0.2 node="node-b" ca=mlx5_0 port=1 lid=0x0300 port_guid=a088:c203:00ab:2001`)
+
+	// Identical 2s re-register: no new lines.
+	srv.applyRegister(body)
+	require.Equal(t, 2, strings.Count(buf.String(), "register from"),
+		"unchanged re-register must not log:\n%s", buf.String())
+
+	// LID change on one port: exactly one new line, for the changed port.
+	body.Ports[1].LID = 0x0999
+	srv.applyRegister(body)
+	require.Equal(t, 3, strings.Count(buf.String(), "register from"),
+		"changed port must log exactly once:\n%s", buf.String())
+	require.Contains(t, buf.String(), "lid=0x0999")
+}
 
 // TestServer_sendRegister_StalledPeerTimesOut pins the I/O deadline on
 // outbound REGISTER connections. A peer that accepts the TCP connection but
