@@ -1115,6 +1115,41 @@ func (d *ConfigurableDevice) GetTopologyCommonAncestor(other nvml.Device) (nvml.
 	return level, nvml.SUCCESS
 }
 
+// GetP2PStatus reports the peer-to-peer status between this device and
+// another for a given capability index.
+//
+// nvidia-smi `topo -m` uses this (with the NVLINK caps index) to decide
+// whether to render an NV# cell between a GPU pair: on NVSwitch fabrics the
+// per-link remote PCI is an opaque switch endpoint (a real GB200 reports
+// FFFFFFFF:FF:FF.0 for every link), so it cannot be matched to a peer GPU
+// via nvmlDeviceGetNvLinkRemotePciInfo. nvidia-smi instead asks whether P2P
+// over NVLink is OK between the pair and, if so, renders NV<active link
+// count>. Without this getter (it was a NOT_SUPPORTED stub) the matrix fell
+// back to the PCIe path (PIX) for every pair, masking the NVLink topology.
+//
+// P2P is OK when the two devices are NVLink-connected in the immutable
+// fabric model (NVLinkCount > 0), which already encodes the switch-fanned
+// all-to-all connectivity (a100 -> NV12, h100/gb200/gb300 -> NV18). A device
+// is trivially OK with itself. Otherwise the pair is not NVLink P2P capable.
+func (d *ConfigurableDevice) GetP2PStatus(other nvml.Device, _ nvml.GpuP2PCapsIndex) (nvml.GpuP2PStatus, nvml.Return) {
+	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
+		return nvml.P2P_STATUS_UNKNOWN, ret
+	}
+	o, ok := other.(*ConfigurableDevice)
+	if !ok {
+		return nvml.P2P_STATUS_UNKNOWN, nvml.ERROR_INVALID_ARGUMENT
+	}
+	if o.index == d.index {
+		return nvml.P2P_STATUS_OK, nvml.SUCCESS
+	}
+	if d.fabric != nil && d.fabric.NVLinkCount(d.index, o.index) > 0 {
+		debugLog("[NVML] nvmlDeviceGetP2PStatus(%d,%d) -> OK (nvlink)\n", d.index, o.index)
+		return nvml.P2P_STATUS_OK, nvml.SUCCESS
+	}
+	debugLog("[NVML] nvmlDeviceGetP2PStatus(%d,%d) -> NOT_SUPPORTED\n", d.index, o.index)
+	return nvml.P2P_STATUS_NOT_SUPPORTED, nvml.SUCCESS
+}
+
 // GetNvLinkErrorCounter returns the deterministic error counter for a
 // link. Healthy links accrue at rate 0 (always 0); a configured error
 // rate accrues monotonically against the shared epoch.

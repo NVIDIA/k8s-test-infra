@@ -68,12 +68,14 @@ jobs:
             *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;
           esac
           # Whether to expect a running fabricmanager daemon. The chart now
-          # derives fabricmanager enablement from the profile itself
-          # (device_defaults.fabric.state: auto on HGX H100, GB200, GB300), so
-          # this is NOT passed to Helm — it only gates the readiness assertion
-          # below so non-fabric profiles don't probe a daemon they never start.
+          # derives fabricmanager enablement from the profile itself — any
+          # NVSwitch-based platform runs one (A100/H100/B200 8-GPU via the
+          # legacy nv-fabricmanager daemon, GB200/GB300 via NMX), so it is NOT
+          # passed to Helm. This only gates the readiness assertion below so
+          # non-NVSwitch profiles don't probe a daemon they never start. The
+          # standalone B200 negative control declares no NVSwitches -> false.
           case "${{ matrix.gpu-profile }}" in
-            h100 | gb200 | gb300) echo "fm-enabled=true" >> "$GITHUB_OUTPUT" ;;
+            a100 | h100 | gb200 | gb300) echo "fm-enabled=true" >> "$GITHUB_OUTPUT" ;;
             *) echo "fm-enabled=false" >> "$GITHUB_OUTPUT" ;;
           esac
 
@@ -301,12 +303,14 @@ jobs:
             *)    echo "gpu-name=Unknown" >> "$GITHUB_OUTPUT" ;;
           esac
           # Whether to expect a running fabricmanager daemon. The chart now
-          # derives fabricmanager enablement from the profile itself
-          # (device_defaults.fabric.state: auto on HGX H100, GB200, GB300), so
-          # this is NOT passed to Helm — it only gates the readiness assertion
-          # below so non-fabric profiles don't probe a daemon they never start.
+          # derives fabricmanager enablement from the profile itself — any
+          # NVSwitch-based platform runs one (A100/H100/B200 8-GPU via the
+          # legacy nv-fabricmanager daemon, GB200/GB300 via NMX), so it is NOT
+          # passed to Helm. This only gates the readiness assertion below so
+          # non-NVSwitch profiles don't probe a daemon they never start. The
+          # standalone B200 negative control declares no NVSwitches -> false.
           case "${{ matrix.gpu-profile }}" in
-            h100 | gb200 | gb300) echo "fm-enabled=true" >> "$GITHUB_OUTPUT" ;;
+            a100 | h100 | gb200 | gb300) echo "fm-enabled=true" >> "$GITHUB_OUTPUT" ;;
             *) echo "fm-enabled=false" >> "$GITHUB_OUTPUT" ;;
           esac
 

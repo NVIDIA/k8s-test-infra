@@ -141,11 +141,15 @@ false
 
 {{/*
 Return "true" when the fake nvidia-fabricmanager daemon should run.
-Single source of truth is the GPU profile: a profile that sets
-device_defaults.fabric.state: auto (HGX H100 / GB200 / GB300) couples its
-GPUs' fabric registration to the fabricmanager readiness marker, so the daemon
-must run. A100 declares NVSwitches but no fabricmanager (no auto state), and
-standalone B200/L40S/T4 have no fabric — none start the daemon.
+Single source of truth is the GPU profile. Every NVSwitch-based platform runs
+a fabric manager on real hardware (A100/H100/B200 8-GPU baseboards via the
+legacy nv-fabricmanager daemon; GB200/GB300 NVL racks via NMX-C/NMX-T), so the
+daemon must run whenever the profile declares NVSwitches (nvlink.switches).
+Hopper+/NVL profiles additionally set device_defaults.fabric.state: auto to
+couple each GPU's GpuFabricInfo registration to the readiness marker; A100
+(Ampere) has NVSwitches but no GpuFabricInfo API, so it runs the daemon
+without an auto state. Standalone B200 and L40S/T4 declare no NVSwitches and
+do not start the daemon (negative controls).
 
 fabricmanager.enabled is a tri-state override: leave it empty/unset to derive
 from the profile (the normal path, so CI/users never restate per-profile
@@ -167,7 +171,13 @@ profile (e.g. a custom config, or disabling it on an auto profile).
 {{- if kindIs "map" $dd -}}{{- $fabric = get $dd "fabric" | default (dict) -}}{{- end -}}
 {{- $state := "" -}}
 {{- if kindIs "map" $fabric -}}{{- $state = get $fabric "state" | default "" | toString -}}{{- end -}}
-{{- ternary "true" "false" (eq (lower $state) "auto") -}}
+{{- $autoState := eq (lower $state) "auto" -}}
+{{- $nvlink := dict -}}
+{{- if kindIs "map" $cfg -}}{{- $nvlink = get $cfg "nvlink" | default (dict) -}}{{- end -}}
+{{- $switches := list -}}
+{{- if kindIs "map" $nvlink -}}{{- $switches = get $nvlink "switches" | default (list) -}}{{- end -}}
+{{- $hasSwitches := gt (len $switches) 0 -}}
+{{- ternary "true" "false" (or $autoState $hasSwitches) -}}
 {{- end -}}
 {{- end }}
 

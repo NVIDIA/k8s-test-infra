@@ -266,6 +266,10 @@ should match snapshot with default values:
                       fieldPath: spec.nodeName
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
+                - name: MOCK_FABRICMANAGER
+                  value: "on"
+                - name: MOCK_FABRICMANAGER_STATE_DIR
+                  value: /var/lib/nvml-mock/fabric-state
                 - name: MOCK_IB
                   value: full
                 - name: MOCK_IB_PING_FABRIC
@@ -307,6 +311,8 @@ should match snapshot with default values:
                   name: host-cdi
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
+                - mountPath: /var/lib/nvml-mock/fabric-state
+                  name: host-fabric-state
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 10
           tolerations:
@@ -327,6 +333,10 @@ should match snapshot with default values:
                 path: /run/nvidia
                 type: DirectoryOrCreate
               name: host-run-nvidia
+            - hostPath:
+                path: /var/lib/nvml-mock/fabric-state
+                type: DirectoryOrCreate
+              name: host-fabric-state
       updateStrategy:
         rollingUpdate:
           maxUnavailable: 25%

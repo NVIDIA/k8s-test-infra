@@ -163,7 +163,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: DRIVER_VERSION
-            value: "560.35.03"
+            value: "580.126.16"
 
   # ── fabricmanager enablement (derived from the profile) ─────────────
   - it: should start fabricmanager for an auto-state profile (gb200)
@@ -177,12 +177,12 @@ tests:
             name: MOCK_FABRICMANAGER
             value: "on"
 
-  - it: should not start fabricmanager for a non-auto NVSwitch profile (a100)
+  - it: should start fabricmanager for an NVSwitch profile (a100, legacy daemon)
     set:
       gpu:
         profile: a100
     asserts:
-      - notContains:
+      - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: MOCK_FABRICMANAGER
@@ -626,7 +626,10 @@ tests:
           errorMessage: "infiniband.mockTier must be one of off, sysfs, full (got \"bogus\")"
 
   # ── Fake fabricmanager (NVSwitch platforms) ─────────────────────────
-  - it: should not wire fabricmanager by default
+  - it: should not wire fabricmanager for a non-NVSwitch profile (t4)
+    set:
+      gpu:
+        profile: t4
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].env

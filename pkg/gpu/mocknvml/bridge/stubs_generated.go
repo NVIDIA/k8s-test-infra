@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 274 stub functions for unimplemented NVML functions.
+// 273 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -462,11 +462,6 @@ func nvmlDeviceGetNvlinkSupportedBwModes(device C.nvmlDevice_t, supportedBwMode 
 //export nvmlDeviceGetOfaUtilization
 func nvmlDeviceGetOfaUtilization(device C.nvmlDevice_t, utilization *C.uint, samplingPeriodUs *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetOfaUtilization")
-}
-
-//export nvmlDeviceGetP2PStatus
-func nvmlDeviceGetP2PStatus(device1 C.nvmlDevice_t, device2 C.nvmlDevice_t, p2pIndex C.nvmlGpuP2PCapsIndex_t, p2pStatus *C.nvmlGpuP2PStatus_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetP2PStatus")
 }
 
 //export nvmlDeviceGetPciInfoExt

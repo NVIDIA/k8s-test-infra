@@ -54,6 +54,30 @@ func nvmlDeviceGetNvLinkRemoteDeviceType(device C.nvmlDevice_t, link C.uint, pNv
 	return C.NVML_SUCCESS
 }
 
+//export nvmlDeviceGetP2PStatus
+func nvmlDeviceGetP2PStatus(device1 C.nvmlDevice_t, device2 C.nvmlDevice_t, p2pIndex C.nvmlGpuP2PCapsIndex_t, p2pStatus *C.nvmlGpuP2PStatus_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetP2PStatus"); !ok {
+		return ret
+	}
+	if p2pStatus == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	dev1 := engine.GetEngine().LookupConfigurableDevice(uintptr(unsafe.Pointer(device1.handle)))
+	if dev1 == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	dev2 := engine.GetEngine().LookupDevice(uintptr(unsafe.Pointer(device2.handle)))
+	if dev2 == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	status, ret := dev1.GetP2PStatus(dev2, nvml.GpuP2PCapsIndex(p2pIndex))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*p2pStatus = C.nvmlGpuP2PStatus_t(status)
+	return C.NVML_SUCCESS
+}
+
 //export nvmlDeviceGetNvLinkUtilizationCounter
 func nvmlDeviceGetNvLinkUtilizationCounter(device C.nvmlDevice_t, link C.uint, counter C.uint, rxcounter *C.ulonglong, txcounter *C.ulonglong) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetNvLinkUtilizationCounter"); !ok {
