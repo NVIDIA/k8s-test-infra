@@ -42,6 +42,11 @@ const (
 	// single REGISTER or Ping/Pong round-trip; a peer that connects to the
 	// 0.0.0.0 listener but never completes a frame is reaped quickly.
 	fabricConnIdleTimeout = 30 * time.Second
+	// fabricPeerIOTimeout bounds the dial and the whole exchange on outbound
+	// fabric connections (REGISTER, Ping). registerWithPeersLoop walks peers
+	// sequentially, so a peer that accepts but never reads or replies must not
+	// pin the loop past this deadline.
+	fabricPeerIOTimeout = 5 * time.Second
 )
 
 // Server serves libibmockumad over a Unix socket.

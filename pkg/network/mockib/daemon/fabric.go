@@ -264,22 +264,27 @@ func (s *Server) RegisterWithPeers() {
 
 func (s *Server) sendRegister(peerIP string, body protocol.RegisterBody) error {
 	addr := net.JoinHostPort(peerIP, strconv.Itoa(s.cfg.TCPPort))
-	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	conn, err := net.DialTimeout("tcp", addr, fabricPeerIOTimeout)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = conn.Close() }()
+	// Mirror pingPeer: bound the write so a peer that accepts but never reads
+	// cannot wedge the sequential registerWithPeersLoop forever.
+	if err := conn.SetDeadline(time.Now().Add(fabricPeerIOTimeout)); err != nil {
+		return err
+	}
 	return protocol.WriteMessage(conn, protocol.TypeRegister, body)
 }
 
 func (s *Server) pingPeer(peerIP, portGUID string, dstLID uint16) error {
 	addr := net.JoinHostPort(peerIP, strconv.Itoa(s.cfg.TCPPort))
-	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	conn, err := net.DialTimeout("tcp", addr, fabricPeerIOTimeout)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = conn.Close() }()
-	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := conn.SetDeadline(time.Now().Add(fabricPeerIOTimeout)); err != nil {
 		return err
 	}
 
