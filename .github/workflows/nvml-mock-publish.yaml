@@ -4,16 +4,18 @@ name: nvml-mock Publish
 
 permissions: {}
 
+# No paths filter here: GitHub applies paths filters to tag pushes too, and
+# a tag push has no changed-files diff, so a paths filter silently suppresses
+# every tag-triggered run (the v0.2.0 tag published no image until it was
+# retagged by hand). workflow_dispatch allows re-running a publish at any ref
+# without re-pushing tags.
 on:
   push:
     branches:
       - main
     tags:
       - 'v*'
-    paths:
-      - 'pkg/gpu/**'
-      - 'deployments/nvml-mock/**'
-      - '.github/workflows/nvml-mock-publish.yaml'
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -77,7 +79,7 @@ jobs:
       - name: Sign container image
         run: |
           cosign sign --yes \
-            $(echo "${{ steps.meta.outputs.tags }}" | head -1)
+            "$(echo "${{ steps.meta.outputs.tags }}" | head -1)"
         env:
           COSIGN_EXPERIMENTAL: "true"
 
@@ -94,4 +96,4 @@ jobs:
         run: |
           cosign attest --yes --predicate sbom.spdx.json \
             --type spdxjson \
-            $(echo "${{ steps.meta.outputs.tags }}" | head -1)
+            "$(echo "${{ steps.meta.outputs.tags }}" | head -1)"
