@@ -3,16 +3,20 @@
 
 package daemon
 
-import "net"
+import (
+	"context"
+	"net"
+)
 
 // DiscoverPeerIPs resolves a headless Kubernetes service DNS name to pod IPs,
 // excluding selfIP. Used when MOCK_IB_PEERS is unset and MOCK_IB_PING_SERVICE_HOST
-// points at the chart's -ibping Service (clusterIP: None).
-func DiscoverPeerIPs(serviceHost, selfIP string) []string {
+// points at the chart's -ibping Service (clusterIP: None). Resolution honors
+// ctx so daemon shutdown is not held up by a slow or unresponsive resolver.
+func DiscoverPeerIPs(ctx context.Context, serviceHost, selfIP string) []string {
 	if serviceHost == "" {
 		return nil
 	}
-	addrs, err := net.LookupHost(serviceHost)
+	addrs, err := net.DefaultResolver.LookupHost(ctx, serviceHost)
 	if err != nil {
 		return nil
 	}

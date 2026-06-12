@@ -187,7 +187,7 @@ func (s *Server) pingTargetsLocalPort(ping protocol.PingBody) bool {
 func (s *Server) registerWithPeers(ctx context.Context) {
 	peers := ParsePeerList(EnvOr(EnvMockIBPeers, ""))
 	if len(peers) == 0 {
-		peers = DiscoverPeerIPs(EnvOr(EnvMockIBPingServiceHost, ""), s.podIP)
+		peers = DiscoverPeerIPs(ctx, EnvOr(EnvMockIBPingServiceHost, ""), s.podIP)
 	}
 	if len(peers) == 0 {
 		return
@@ -200,6 +200,11 @@ func (s *Server) registerWithPeers(ctx context.Context) {
 	wantPeers := 0
 	var ok int
 	for _, peerIP := range peers {
+		// Sequential sweep with up-to-5s dials per peer: once ctx is canceled
+		// (SIGTERM), stop between peers instead of walking the rest of the list.
+		if ctx.Err() != nil {
+			return
+		}
 		if peerIP == s.podIP {
 			continue
 		}
