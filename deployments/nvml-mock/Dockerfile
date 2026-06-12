@@ -86,12 +86,18 @@ RUN set -eux; \
     rm /tmp/kubectl.sha256; \
     # Extract nvidia-smi binary from nvidia-utils package (no full install needed).
     # Use Ubuntu 22.04 repo (binary-compatible with Debian bookworm). Pin to the
-    # 560 branch so nvidia-smi matches the driver version the profiles advertise
-    # (560.35.03) and can render the NVLink5 `nvlink -e` layout (Tx/Rx packets,
-    # bytes, per-link error/recovery counters, Effective/Symbol BER) for
-    # GB200/GB300 — the 550 binary only renders the legacy Replay/Recovery/CRC
-    # layout. (The FEC Errors 0..15 histogram is only rendered by newer nvidia-smi
-    # 570+; the mock implements those fields regardless.) See NVIDIA/k8s-test-infra#371.
+    # 580 branch so nvidia-smi can render the full GB200/GB300 NVLink surface that
+    # real driver 580.x exposes: the NVLink5 `nvlink -e` layout (Tx/Rx packets,
+    # bytes, per-link error/recovery counters, Effective/Symbol BER, FEC Errors
+    # 0..15 histogram), plus the newer subcommands `nvlink -info` (NVLE/firmware),
+    # `nvlink -gLowPwrInfo` and `nvlink -gLWidth`. (Older binaries render only the
+    # legacy Replay/Recovery/CRC layout and lack those subcommands; the mock
+    # library implements the underlying fields regardless.) The GB200 profile
+    # advertises a matching 580.65.06 driver_version so `nvidia-smi --version`
+    # NVIDIA-SMI and DRIVER lines agree. Pin the exact version: within this repo
+    # only nvidia-utils-580=580.65.06-0ubuntu1 ships the nvidia-smi binary; every
+    # later 580.x nvidia-utils is a transitional dummy package (no binary).
+    # See NVIDIA/k8s-test-infra#371.
     # Map TARGETARCH to NVIDIA repo path: amd64 → x86_64, arm64 → sbsa.
     NVIDIA_REPO_ARCH=$(case ${TARGETARCH} in arm64) echo sbsa;; *) echo x86_64;; esac); \
     curl -fsSL "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/${NVIDIA_REPO_ARCH}/3bf863cc.pub" | \
@@ -99,8 +105,8 @@ RUN set -eux; \
     echo "deb [signed-by=/usr/share/keyrings/nvidia.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/${NVIDIA_REPO_ARCH} /" \
       > /etc/apt/sources.list.d/nvidia.list; \
     apt-get update; \
-    cd /tmp && apt-get download nvidia-utils-560; \
-    dpkg-deb -x /tmp/nvidia-utils-560*.deb /tmp/nvidia-utils; \
+    cd /tmp && apt-get download nvidia-utils-580=580.65.06-0ubuntu1; \
+    dpkg-deb -x /tmp/nvidia-utils-580*.deb /tmp/nvidia-utils; \
     cp /tmp/nvidia-utils/usr/bin/nvidia-smi /usr/local/bin/nvidia-smi; \
     chmod +x /usr/local/bin/nvidia-smi; \
     # Set RPATH so nvidia-smi finds libs relative to its own location ($ORIGIN/../lib64).
@@ -109,7 +115,7 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends patchelf; \
     patchelf --set-rpath '$ORIGIN/../lib64' /usr/local/bin/nvidia-smi; \
     rm -rf /var/lib/apt/lists/*; \
-    rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-560*.deb \
+    rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
     apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
 COPY deployments/nvml-mock/scripts/ /scripts/

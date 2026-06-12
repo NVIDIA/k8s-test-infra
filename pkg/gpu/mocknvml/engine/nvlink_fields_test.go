@@ -172,6 +172,67 @@ func TestGetNvLinkFieldValue_SwitchFabric(t *testing.T) {
 	})
 }
 
+// TestGetNvLinkFieldValue_RemoteAndLowPower covers the fields that back
+// `nvidia-smi nvlink -R` (remote NVLink id) and `-gLowPwrInfo` (single-lane
+// power state + threshold range). On a switch fabric every active GPU link
+// reaches the far end at link 0 and reports the High Speed state.
+func TestGetNvLinkFieldValue_RemoteAndLowPower(t *testing.T) {
+	cd := newSwitchFabricDevice(t)
+
+	t.Run("remote_nvlink_id_active", func(t *testing.T) {
+		vt, val, ret := cd.GetNvLinkFieldValue(fiNvlinkRemoteNvlinkID, 0)
+		if ret != nvml.SUCCESS || vt != NVLinkFieldUint || val != 0 {
+			t.Fatalf("REMOTE_NVLINK_ID(link0) = (type=%d,val=%d,ret=%v), want (Uint,0,SUCCESS)", vt, val, ret)
+		}
+	})
+
+	t.Run("remote_nvlink_id_out_of_range", func(t *testing.T) {
+		vt, _, ret := cd.GetNvLinkFieldValue(fiNvlinkRemoteNvlinkID, 99)
+		if ret != nvml.ERROR_NOT_SUPPORTED || vt != NVLinkFieldUnsupported {
+			t.Errorf("REMOTE_NVLINK_ID(link99) = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", vt, ret)
+		}
+	})
+
+	t.Run("low_power_per_link", func(t *testing.T) {
+		if _, val, ret := cd.GetNvLinkFieldValue(fiNvlinkGetPowerState, 0); ret != nvml.SUCCESS || val != nvlinkPowerStateHighSpeed {
+			t.Errorf("GET_POWER_STATE(link0) = (val=%d,ret=%v), want (%d,SUCCESS)", val, ret, nvlinkPowerStateHighSpeed)
+		}
+		if _, val, ret := cd.GetNvLinkFieldValue(fiNvlinkGetPowerThreshold, 0); ret != nvml.SUCCESS || val != lowPowerThresholdDefault {
+			t.Errorf("GET_POWER_THRESHOLD(link0) = (val=%d,ret=%v), want (%d,SUCCESS)", val, ret, lowPowerThresholdDefault)
+		}
+	})
+
+	t.Run("low_power_header", func(t *testing.T) {
+		cases := map[uint32]uint64{
+			fiNvlinkPowerThresholdUnits:     lowPowerThresholdUnit50us,
+			fiNvlinkPowerThresholdMin:       lowPowerThresholdMin,
+			fiNvlinkPowerThresholdMax:       lowPowerThresholdMax,
+			fiNvlinkPowerThresholdSupported: nvlinkPowerThresholdEnabled,
+		}
+		for fid, want := range cases {
+			vt, val, ret := cd.GetNvLinkFieldValue(fid, 0)
+			if ret != nvml.SUCCESS || vt != NVLinkFieldUint || val != want {
+				t.Errorf("field %d = (type=%d,val=%d,ret=%v), want (Uint,%d,SUCCESS)", fid, vt, val, ret, want)
+			}
+		}
+	})
+
+	// `nvlink -p`/`-R`: switch-attached links report the all-0xFF "invalid"
+	// remote PCI sentinel (a real GB200 shows FFFFFFFF:FF:FF.0 for every link).
+	t.Run("switch_remote_pci_sentinel", func(t *testing.T) {
+		pci, ret := cd.GetNvLinkRemotePciInfo(0)
+		if ret != nvml.SUCCESS {
+			t.Fatalf("GetNvLinkRemotePciInfo(0): %v", ret)
+		}
+		if pci.Domain != 0xFFFFFFFF || pci.Bus != 0xFF || pci.Device != 0xFF {
+			t.Errorf("sentinel = domain=%#x bus=%#x device=%#x, want all-0xFF", pci.Domain, pci.Bus, pci.Device)
+		}
+		if got := busIDString(pci.BusId[:]); got != invalidRemotePciBusID {
+			t.Errorf("sentinel BusId = %q, want %q", got, invalidRemotePciBusID)
+		}
+	})
+}
+
 // TestGetNvLinkFieldValue_NoNVLink verifies a profile without NVLink reports a
 // zero link count (SUCCESS), so nvidia-smi correctly shows no NVLinks rather
 // than erroring.
@@ -194,5 +255,18 @@ func TestGetNvLinkFieldValue_NoNVLink(t *testing.T) {
 	vt, val, ret := cd.GetNvLinkFieldValue(fiNvlinkLinkCount, 0)
 	if ret != nvml.SUCCESS || vt != NVLinkFieldUint || val != 0 {
 		t.Errorf("LINK_COUNT (no nvlink) = (type=%d,val=%d,ret=%v), want (Uint,0,SUCCESS)", vt, val, ret)
+	}
+
+	// Low-power info must report NOT_SUPPORTED when the GPU has no NVLinks, so
+	// `nvlink -gLowPwrInfo` shows nothing rather than a bogus threshold range.
+	for _, fid := range []uint32{
+		fiNvlinkPowerThresholdUnits, fiNvlinkPowerThresholdMin,
+		fiNvlinkPowerThresholdMax, fiNvlinkPowerThresholdSupported,
+		fiNvlinkGetPowerState, fiNvlinkGetPowerThreshold,
+		fiNvlinkRemoteNvlinkID,
+	} {
+		if vt, _, ret := cd.GetNvLinkFieldValue(fid, 0); ret != nvml.ERROR_NOT_SUPPORTED || vt != NVLinkFieldUnsupported {
+			t.Errorf("field %d (no nvlink) = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", fid, vt, ret)
+		}
 	}
 }

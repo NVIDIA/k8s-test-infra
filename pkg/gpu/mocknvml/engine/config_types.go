@@ -608,9 +608,14 @@ type TopologyClique struct {
 
 // NVLinkConfig defines NVLink topology
 type NVLinkConfig struct {
-	Version              int  `json:"version,omitempty"`
-	LinksPerGPU          int  `json:"links_per_gpu,omitempty"`
-	BandwidthPerLinkGBPS int  `json:"bandwidth_per_link_gbps,omitempty"`
+	Version              int `json:"version,omitempty"`
+	LinksPerGPU          int `json:"links_per_gpu,omitempty"`
+	BandwidthPerLinkGBPS int `json:"bandwidth_per_link_gbps,omitempty"`
+	// BandwidthPerLinkMbps, when > 0, sets the per-link speed precisely in
+	// Mbps (what NVML/`nvidia-smi nvlink -s` reports, GB/s = Mbps/1000). It
+	// overrides BandwidthPerLinkGBPS, which can only express whole GB/s — e.g.
+	// NVLink5 is 53.125 GB/s, i.e. 53125 Mbps, not 53.
+	BandwidthPerLinkMbps int  `json:"bandwidth_per_link_mbps,omitempty"`
 	SwitchSupport        bool `json:"switch_support,omitempty"`
 	SwitchCount          int  `json:"switch_count,omitempty"`
 	C2CEnabled           bool `json:"c2c_enabled,omitempty"`

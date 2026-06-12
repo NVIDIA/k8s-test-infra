@@ -42,6 +42,21 @@ const (
 	fiNvlinkGetState         = 165
 	fiNvlinkGetVersion       = 166
 
+	// Remote NVLink id (NVML_FI_DEV_NVLINK_REMOTE_NVLINK_ID): the link number
+	// on the far end. `nvidia-smi nvlink -R` reads this per link in addition to
+	// the remote PCI info; without it the line falls back to "Not Supported".
+	// On an NVSwitch fabric every GPU link lands on switch port/link 0.
+	fiNvlinkRemoteNvlinkID = 146
+
+	// Low-power (single-lane) state and threshold, surfaced by
+	// `nvidia-smi nvlink -gLowPwrInfo` (NVML_FI_DEV_NVLINK_GET_POWER_*).
+	fiNvlinkGetPowerState           = 167
+	fiNvlinkGetPowerThreshold       = 168
+	fiNvlinkPowerThresholdMax       = 200
+	fiNvlinkPowerThresholdMin       = 223
+	fiNvlinkPowerThresholdUnits     = 224
+	fiNvlinkPowerThresholdSupported = 225
+
 	// NVLink5 per-link counters surfaced by `nvidia-smi nvlink -e`
 	// (NVML_FI_DEV_NVLINK_COUNT_*). scopeId carries the linkId. Field ids 205
 	// (VL15_DROPPED) and 216-218 (RAW_BER_*) are deprecated and not modeled.
@@ -73,6 +88,17 @@ const (
 	// avgBytesPerNvlinkPacket scales the packet counter into a byte counter so
 	// the two track realistically (real GB200 reports ~86 bytes/packet).
 	avgBytesPerNvlinkPacket = 86
+
+	// Low-power threshold model (matches a real GB200 idle box):
+	//   `nvlink -gLowPwrInfo` -> units of 50 us, range 1..1023,
+	//   per link: High Speed State + threshold 50000 us (= 1000 * 50 us).
+	// NVML_NVLINK_LOW_POWER_THRESHOLD_UNIT_50US = 0x1.
+	lowPowerThresholdUnit50us   = 1
+	lowPowerThresholdMin        = 1
+	lowPowerThresholdMax        = 1023
+	lowPowerThresholdDefault    = 1000
+	nvlinkPowerStateHighSpeed   = 0
+	nvlinkPowerThresholdEnabled = 1
 )
 
 // NVLinkFieldType identifies which nvmlValue_t union member the bridge must
@@ -171,6 +197,49 @@ func (d *ConfigurableDevice) GetNvLinkFieldValue(fieldID, scopeID uint32) (NVLin
 			return NVLinkFieldUint, mbps, nvml.SUCCESS
 		}
 		return NVLinkFieldUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
+
+	// `nvlink -R`: remote NVLink id. Every switch-attached GPU link reaches
+	// the far end at link 0 (mirrors the FFFFFFFF:FF:FF.0 remote PCI sentinel).
+	case fiNvlinkRemoteNvlinkID:
+		if l, ok := f.Link(d.index, link); ok && l.Active {
+			return NVLinkFieldUint, 0, nvml.SUCCESS
+		}
+		return NVLinkFieldUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
+
+	// `nvlink -gLowPwrInfo`: per-link single-lane power state + threshold.
+	case fiNvlinkGetPowerState:
+		if l, ok := f.Link(d.index, link); ok && l.Active {
+			return NVLinkFieldUint, nvlinkPowerStateHighSpeed, nvml.SUCCESS
+		}
+		return NVLinkFieldUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
+	case fiNvlinkGetPowerThreshold:
+		if l, ok := f.Link(d.index, link); ok && l.Active {
+			return NVLinkFieldUint, lowPowerThresholdDefault, nvml.SUCCESS
+		}
+		return NVLinkFieldUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
+
+	// `nvlink -gLowPwrInfo` device-level header (units + valid range +
+	// supported flag). Reported only when the GPU actually has NVLinks.
+	case fiNvlinkPowerThresholdUnits:
+		if f.ActiveLinkCount(d.index) == 0 {
+			return NVLinkFieldUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
+		}
+		return NVLinkFieldUint, lowPowerThresholdUnit50us, nvml.SUCCESS
+	case fiNvlinkPowerThresholdMin:
+		if f.ActiveLinkCount(d.index) == 0 {
+			return NVLinkFieldUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
+		}
+		return NVLinkFieldUint, lowPowerThresholdMin, nvml.SUCCESS
+	case fiNvlinkPowerThresholdMax:
+		if f.ActiveLinkCount(d.index) == 0 {
+			return NVLinkFieldUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
+		}
+		return NVLinkFieldUint, lowPowerThresholdMax, nvml.SUCCESS
+	case fiNvlinkPowerThresholdSupported:
+		if f.ActiveLinkCount(d.index) == 0 {
+			return NVLinkFieldUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
+		}
+		return NVLinkFieldUint, nvlinkPowerThresholdEnabled, nvml.SUCCESS
 
 	case fiNvlinkSpeedMbpsCommon:
 		l, ok := f.FirstActiveLink(d.index)

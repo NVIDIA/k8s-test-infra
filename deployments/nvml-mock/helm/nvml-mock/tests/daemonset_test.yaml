@@ -163,7 +163,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: DRIVER_VERSION
-            value: "580.126.16"
+            value: "580.65.06"
 
   # ── fabricmanager enablement (derived from the profile) ─────────────
   - it: should start fabricmanager for an auto-state profile (gb200)

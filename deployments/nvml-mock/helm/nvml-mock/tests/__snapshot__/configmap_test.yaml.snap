@@ -908,11 +908,11 @@ should match snapshot with gb200 profile:
         # System-level configuration
         # =============================================================================
         system:
-          driver_version: "560.35.03"
-          nvml_version: "12.560.35.03"
-          cuda_version: "12.6"
-          cuda_version_major: 12
-          cuda_version_minor: 6
+          driver_version: "580.65.06"
+          nvml_version: "13.580.65"
+          cuda_version: "13.0"
+          cuda_version_major: 13
+          cuda_version_minor: 0
 
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
@@ -921,7 +921,7 @@ should match snapshot with gb200 profile:
           # ---------------------------------------------------------------------------
           # Basic identification
           # ---------------------------------------------------------------------------
-          name: "NVIDIA GB200 NVL"
+          name: "NVIDIA GB200"
           brand: "nvidia"
           serial: "1562849103750"
           board_part_number: "699-2G530-0200-000"
@@ -1210,7 +1210,7 @@ should match snapshot with gb200 profile:
           # ---------------------------------------------------------------------------
           gsp_firmware:
             mode: "enabled"
-            version: "560.35.03"
+            version: "580.65.06"
 
           # ---------------------------------------------------------------------------
           # Blackwell-specific features
@@ -1314,7 +1314,8 @@ should match snapshot with gb200 profile:
         nvlink:
           version: 5
           links_per_gpu: 18
-          bandwidth_per_link_gbps: 53       # NVLink5 ~53.125 GB/s/link unidirectional (int); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
+          bandwidth_per_link_gbps: 53       # whole-GB/s fallback; superseded by _mbps below
+          bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
           switch_support: true              # NVLink Switch for scale-out
           switch_count: 4                   # 4 NVSwitches backing this 8-GPU NVL72 slice
           c2c_enabled: true                 # NVLink-C2C to Grace CPU

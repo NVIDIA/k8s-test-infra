@@ -206,17 +206,19 @@ mlx5 hardware), matching the behavior expected by validate-ibstat (0 HCAs).
 {{/*
 Driver version helper.
 Returns the user-provided driverVersion, or derives it from gpu.profile.
-Blackwell profiles (b200, gb200) use 560.35.03; Blackwell Ultra (gb300)
-uses 570.124.06; all others use 550.163.01.
+GB200 uses 580.65.06 (matches the bundled nvidia-smi 580 binary); B200 uses
+560.35.03; Blackwell Ultra (gb300) uses 570.124.06; all others use 550.163.01.
 Note: when gpu.customConfig is set, derivation still uses gpu.profile —
 users with custom configs should set driverVersion explicitly.
 */}}
 {{- define "nvml-mock.driverVersion" -}}
 {{- if .Values.driverVersion -}}
 {{- .Values.driverVersion -}}
+{{- else if eq .Values.gpu.profile "gb200" -}}
+580.65.06
 {{- else if eq .Values.gpu.profile "gb300" -}}
 570.124.06
-{{- else if or (eq .Values.gpu.profile "b200") (eq .Values.gpu.profile "gb200") -}}
+{{- else if eq .Values.gpu.profile "b200" -}}
 560.35.03
 {{- else -}}
 550.163.01

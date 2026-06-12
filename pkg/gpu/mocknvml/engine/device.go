@@ -1217,6 +1217,18 @@ func (d *ConfigurableDevice) GetNvLinkRemotePciInfo(link int) (nvml.PciInfo, nvm
 	}
 	if d.fabric != nil {
 		if l, ok := d.fabric.Link(d.index, link); ok && l.RemoteBDF != "" {
+			// NVSwitch-attached links: a real GB200/HGX reports the "invalid"
+			// PCI sentinel (FFFFFFFF:FF:FF.0) for switch endpoints — switches
+			// are not PCI-enumerable from the GPU, so NVML fills 0xFF fields.
+			// Matching this makes `nvlink -p` and `-R` render exactly as on
+			// hardware ("Remote Device FFFFFFFF:FF:FF.0: Link 0"); a real-looking
+			// BDF instead makes `-R` attempt a device lookup that yields
+			// "Not Supported". Direct GPU<->GPU links still return the peer BDF.
+			if l.RemoteKind == RemoteSwitch {
+				setInvalidRemotePci(&pci)
+				debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> switch sentinel\n", link)
+				return pci, nvml.SUCCESS
+			}
 			if domain, bus, device, _, err := ParsePCIBusID(l.RemoteBDF); err == nil {
 				pci.Domain = domain
 				pci.Bus = bus
@@ -1231,6 +1243,24 @@ func (d *ConfigurableDevice) GetNvLinkRemotePciInfo(link int) (nvml.PciInfo, nvm
 	}
 	debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> empty\n", link)
 	return pci, nvml.SUCCESS
+}
+
+// invalidRemotePciBusID is the sentinel BDF NVML returns for an NVLink remote
+// endpoint that is not PCI-enumerable (e.g. an NVSwitch). Real GB200/HGX GPUs
+// report this for every switch-attached link.
+const invalidRemotePciBusID = "FFFFFFFF:FF:FF.0"
+
+// setInvalidRemotePci fills a PciInfo with the all-0xFF sentinel that NVML uses
+// for non-enumerable NVLink remote endpoints (NVSwitch).
+func setInvalidRemotePci(pci *nvml.PciInfo) {
+	pci.Domain = 0xFFFFFFFF
+	pci.Bus = 0xFF
+	pci.Device = 0xFF
+	for i := 0; i < len(invalidRemotePciBusID) && i < len(pci.BusId); i++ {
+		// go-nvml v0.13.1-0 (#400) changed PciInfo.BusId to [32]int8; bus-ID
+		// bytes are ASCII so the int8 conversion is lossless.
+		pci.BusId[i] = int8(invalidRemotePciBusID[i])
+	}
 }
 
 // GetNumaNodeId returns the device's NUMA node from the fabric. Reports
