@@ -8,6 +8,11 @@ import (
 	"net"
 )
 
+// lookupHost is a seam over the default resolver: hosts-file fast paths
+// complete without honoring ctx, so ctx-cancellation behavior can only be
+// tested against a substituted resolver.
+var lookupHost = net.DefaultResolver.LookupHost
+
 // DiscoverPeerIPs resolves a headless Kubernetes service DNS name to pod IPs,
 // excluding selfIP. Used when MOCK_IB_PEERS is unset and MOCK_IB_PING_SERVICE_HOST
 // points at the chart's -ibping Service (clusterIP: None). Resolution honors
@@ -16,7 +21,7 @@ func DiscoverPeerIPs(ctx context.Context, serviceHost, selfIP string) []string {
 	if serviceHost == "" {
 		return nil
 	}
-	addrs, err := net.DefaultResolver.LookupHost(ctx, serviceHost)
+	addrs, err := lookupHost(ctx, serviceHost)
 	if err != nil {
 		return nil
 	}

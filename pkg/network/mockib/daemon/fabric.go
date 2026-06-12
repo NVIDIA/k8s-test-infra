@@ -280,9 +280,15 @@ func (s *Server) sendRegister(peerIP string, body protocol.RegisterBody) error {
 		return err
 	}
 	defer func() { _ = conn.Close() }()
-	// Mirror pingPeer: bound the write so a peer that accepts but never reads
-	// cannot wedge the sequential registerWithPeersLoop forever.
-	if err := conn.SetDeadline(time.Now().Add(fabricPeerIOTimeout)); err != nil {
+	return writeRegister(conn, fabricPeerIOTimeout, body)
+}
+
+// writeRegister bounds the REGISTER write so a peer that accepts but never
+// reads cannot wedge the sequential registerWithPeersLoop forever (mirrors
+// pingPeer). Split from sendRegister so the deadline path is testable against
+// an unbuffered net.Pipe instead of kernel-buffered TCP sockets.
+func writeRegister(conn net.Conn, timeout time.Duration, body protocol.RegisterBody) error {
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
 		return err
 	}
 	return protocol.WriteMessage(conn, protocol.TypeRegister, body)
