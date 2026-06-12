@@ -39,14 +39,22 @@ func Scan(root string) ([]protocol.PortAdvert, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse %s lid: %w", caName, err)
 		}
+		// node_guid is optional in the tree. Normalize only a non-empty value:
+		// NormalizePortGUID("") would yield the non-empty
+		// "0000:0000:0000:0000", defeating fabric.coalesceGUID's nodeGUID==""
+		// fallback and advertising a zero NodeGUID for every local port.
+		nodeGUID := ""
 		nodeGUIDBytes, _ := os.ReadFile(filepath.Join(caDir, "node_guid"))
+		if raw := strings.TrimSpace(string(nodeGUIDBytes)); raw != "" {
+			nodeGUID = registry.NormalizePortGUID(raw)
+		}
 		defaultGID := ""
 		if rawGID, err := os.ReadFile(filepath.Join(portDir, "gids/0")); err == nil {
 			defaultGID = gid.Normalize(strings.TrimSpace(string(rawGID)))
 		}
 		out = append(out, protocol.PortAdvert{
 			PortGUID:   registry.NormalizePortGUID(strings.TrimSpace(string(guidBytes))),
-			NodeGUID:   registry.NormalizePortGUID(strings.TrimSpace(string(nodeGUIDBytes))),
+			NodeGUID:   nodeGUID,
 			DefaultGID: defaultGID,
 			CAName:     caName,
 			Port:       1,
