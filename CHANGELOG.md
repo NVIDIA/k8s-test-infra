@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-12
+
 ### Added
 - New GPU profile `gb300` modeling the NVIDIA GB300 NVL (Grace-Blackwell
   Ultra Superchip): 8 GPUs/node arranged as 4 Grace+2×B300 trays, 288 GiB
@@ -55,10 +57,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at startup by `mock-ib` from each profile's new `infiniband:`
   block. Defaults: `a100` -> ConnectX-6 HDR; `h100` / `b200` / `gb200`
   -> ConnectX-7 NDR; `l40s` / `t4` -> disabled.
-- Cross-node `ibping` via `mock-ib` and `libibmockumad.so` (always enabled in
-  the nvml-mock Helm chart). The chart preloads both shims, starts the in-pod
-  daemon, and relays ping traffic between nvml-mock pods over the Kubernetes
-  pod network. E2E: `tests/e2e/validate-ibping.sh`.
+- Cross-node `ibping`, `iblinkinfo`, and `ibv_devinfo` via `mock-ib`,
+  `libibmockumad.so`, and `libibmockverbs.so`. The chart preloads the shims,
+  starts the in-pod daemon, and relays MAD traffic between nvml-mock pods
+  over the Kubernetes pod network; the daemon and its Service are only
+  created for profiles whose `infiniband:` block is enabled. E2E:
+  `tests/e2e/validate-ibping.sh` plus a multi-node ibping CI job. (#367)
+- Test suite standardized on `testify/require` across all packages; soft
+  `t.Errorf` checks upgraded to hard failures, expect-error assertions made
+  explicit with `require.Error`. No test functions were added or removed.
+  (#386)
+
+### Fixed
+- `docs/demo/standalone/demo.sh` no longer uses the bash 4 `mapfile`
+  builtin and runs on macOS's stock bash 3.2. (#385)
+- Helm chart OCI publishing: the cosign signing step now authenticates to
+  GHCR via the Docker config and signs the chart by digest; chart signing
+  had failed with UNAUTHORIZED on every publish since 2026-05-25. (#388)
 
 ## [0.1.0] - 2026-04-07
 
@@ -79,5 +94,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Rebranded from gpu-mock to nvml-mock (PRs #273, #274, #275, #281, #282)
 
-[Unreleased]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/NVIDIA/k8s-test-infra/releases/tag/v0.1.0

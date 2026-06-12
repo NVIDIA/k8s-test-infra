@@ -60,7 +60,7 @@ tests:
     asserts:
       - equal:
           path: metadata.labels["helm.sh/chart"]
-          value: nvml-mock-0.1.0
+          value: nvml-mock-0.2.0
       - equal:
           path: metadata.labels["app.kubernetes.io/name"]
           value: nvml-mock
