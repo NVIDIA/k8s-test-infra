@@ -178,8 +178,12 @@ func (e *Engine) createDefaultDevices(server *MockServer, base *dgxa100.Server) 
 			continue
 		}
 
-		// Deterministic UUID and PCI bus ID based on device index.
-		uuid := fmt.Sprintf("GPU-00000000-0000-0000-0000-%012d", i)
+		// Deterministic UUID and PCI bus ID based on device index. The first
+		// hex group spells "MOCK" (0x4d4f434b) so that no device ever carries
+		// the all-zeros nil UUID: real GPUs never report it, and NVML
+		// consumers use it as the canonical nonexistent-UUID probe, which
+		// DeviceGetHandleByUUID must answer with ERROR_NOT_FOUND.
+		uuid := fmt.Sprintf("GPU-4d4f434b-0000-0000-0000-%012d", i)
 		pciBusID := fmt.Sprintf("0000:%02X:00.0", i+1)
 
 		server.configurableDevices[i] = NewConfigurableDevice(
