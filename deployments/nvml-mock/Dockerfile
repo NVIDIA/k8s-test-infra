@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG GOLANG_VERSION=1.26
+ARG GOLANG_VERSION=1.26.4
 FROM golang:${GOLANG_VERSION}-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -37,7 +37,7 @@ RUN mkdir -p /out \
     && go build -mod=vendor -o /out/check-fabric    ./cmd/check-fabric
 
 FROM debian:bookworm-slim
-ARG KUBECTL_VERSION=v1.32.0
+ARG KUBECTL_VERSION=v1.36.1
 ARG TARGETARCH
 COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
