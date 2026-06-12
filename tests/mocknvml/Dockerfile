@@ -38,7 +38,7 @@ COPY tests/mocknvml/go.mod tests/mocknvml/go.sum* ./
 RUN go mod download
 
 COPY tests/mocknvml/*.go ./
-RUN CGO_ENABLED=1 go build -o mocknvml-test main.go
+RUN CGO_ENABLED=1 go build -o mocknvml-test .
 
 # Runtime stage
 FROM debian:bookworm-slim

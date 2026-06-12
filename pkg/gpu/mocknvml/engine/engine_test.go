@@ -16,6 +16,7 @@ package engine
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -265,13 +266,106 @@ func TestEngine_DeviceGetHandleByUUID(t *testing.T) {
 	require.Equal(t, handle, handleByUUID, "Expected same handle for same device")
 }
 
-func TestEngine_DeviceGetHandleByUUIDInvalid(t *testing.T) {
-	e := NewEngine(nil)
-	_ = e.Init()
+// TestEngine_DeviceGetHandleByUUID_UnknownUUID verifies that UUID lookup
+// misses surface as ERROR_NOT_FOUND, matching real NVML semantics: NOT_FOUND
+// signals a lookup miss (same convention as GetMigDeviceHandleByIndex), while
+// NOT_SUPPORTED would be fatal to consumers. The all-zeros nil UUID is the
+// canonical nonexistent-UUID probe (used by tests/mocknvml
+// boundary/uuid_invalid) and must never resolve to a device.
+func TestEngine_DeviceGetHandleByUUID_UnknownUUID(t *testing.T) {
+	e := NewEngine(&Config{NumDevices: 4, DriverVersion: "550.54.15"})
+	require.Equal(t, nvml.SUCCESS, e.Init(), "Init failed")
 	defer func() { _ = e.Shutdown() }()
 
-	_, ret := e.DeviceGetHandleByUUID("invalid-uuid-12345")
-	require.NotEqual(t, nvml.SUCCESS, ret, "Expected error for invalid UUID")
+	// Derive a known-good UUID through the index path, independently of the
+	// UUID lookup under test.
+	handle, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret, "DeviceGetHandleByIndex failed")
+	knownUUID, ret := e.LookupDevice(handle).GetUUID()
+	require.Equal(t, nvml.SUCCESS, ret, "GetUUID failed")
+
+	tests := []struct {
+		name string
+		uuid string
+		want nvml.Return
+	}{
+		{"known UUID resolves", knownUUID, nvml.SUCCESS},
+		{"nil UUID is not a device", "GPU-00000000-0000-0000-0000-000000000000", nvml.ERROR_NOT_FOUND},
+		{"well-formed unknown UUID", "GPU-ffffffff-ffff-ffff-ffff-ffffffffffff", nvml.ERROR_NOT_FOUND},
+		{"malformed UUID", "invalid-uuid-12345", nvml.ERROR_NOT_FOUND},
+		{"missing GPU- prefix", strings.TrimPrefix(knownUUID, "GPU-"), nvml.ERROR_NOT_FOUND},
+		{"empty string", "", nvml.ERROR_NOT_FOUND},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ret := e.DeviceGetHandleByUUID(tc.uuid)
+			require.Equal(t, tc.want, ret, "DeviceGetHandleByUUID(%q)", tc.uuid)
+		})
+	}
+}
+
+// TestEngine_DeviceGetHandleByUUID_ExactMatch pins the lookup's matching
+// semantics: byte-exact comparison with no case folding and no prefix
+// normalization, consistent with how YAML profiles declare UUIDs.
+func TestEngine_DeviceGetHandleByUUID_ExactMatch(t *testing.T) {
+	const configuredUUID = "GPU-AaBbCcDd-1111-2222-3333-444455556666"
+	e := NewEngine(&Config{
+		NumDevices:    1,
+		DriverVersion: "550.54.15",
+		YAMLConfig: &YAMLConfig{
+			System:  SystemConfig{NumDevices: 1, DriverVersion: "550.54.15"},
+			Devices: []DeviceOverride{{Index: 0, UUID: configuredUUID}},
+		},
+	})
+	require.Equal(t, nvml.SUCCESS, e.Init(), "Init failed")
+	defer func() { _ = e.Shutdown() }()
+
+	tests := []struct {
+		name string
+		uuid string
+		want nvml.Return
+	}{
+		{"exact case resolves", configuredUUID, nvml.SUCCESS},
+		{"lowercased variant misses", strings.ToLower(configuredUUID), nvml.ERROR_NOT_FOUND},
+		{"uppercased variant misses", strings.ToUpper(configuredUUID), nvml.ERROR_NOT_FOUND},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ret := e.DeviceGetHandleByUUID(tc.uuid)
+			require.Equal(t, tc.want, ret, "DeviceGetHandleByUUID(%q)", tc.uuid)
+		})
+	}
+}
+
+// TestEngine_DefaultDeviceUUIDs verifies the deterministic UUIDs assigned in
+// legacy env-var mode (no YAML config): GPU- prefixed, unique per index,
+// never the all-zeros nil UUID, and round-trippable through
+// DeviceGetHandleByUUID. Determinism across processes is required for shared
+// GPU scenarios, but the nil UUID must stay free so that lookups of it
+// report ERROR_NOT_FOUND.
+func TestEngine_DefaultDeviceUUIDs(t *testing.T) {
+	e := NewEngine(&Config{NumDevices: MaxDevices, DriverVersion: "550.54.15"})
+	require.Equal(t, nvml.SUCCESS, e.Init(), "Init failed")
+	defer func() { _ = e.Shutdown() }()
+
+	seen := make(map[string]int, MaxDevices)
+	for i := 0; i < MaxDevices; i++ {
+		handle, ret := e.DeviceGetHandleByIndex(i)
+		require.Equal(t, nvml.SUCCESS, ret, "DeviceGetHandleByIndex(%d) failed", i)
+		uuid, ret := e.LookupDevice(handle).GetUUID()
+		require.Equal(t, nvml.SUCCESS, ret, "GetUUID for device %d failed", i)
+
+		require.True(t, strings.HasPrefix(uuid, "GPU-"), "device %d UUID %q must carry the GPU- prefix", i, uuid)
+		require.NotEqual(t, "GPU-00000000-0000-0000-0000-000000000000", uuid, "device %d must not carry the nil UUID", i)
+		prev, dup := seen[uuid]
+		require.False(t, dup, "device %d reuses UUID %q of device %d", i, uuid, prev)
+		seen[uuid] = i
+
+		// Round-trip: the UUID a device reports must resolve back to it.
+		rtHandle, ret := e.DeviceGetHandleByUUID(uuid)
+		require.Equal(t, nvml.SUCCESS, ret, "device %d UUID %q must round-trip through DeviceGetHandleByUUID", i, uuid)
+		require.Equal(t, handle, rtHandle, "device %d round-trip returned a different handle", i)
+	}
 }
 
 func TestEngine_DeviceGetHandleByPciBusId(t *testing.T) {
