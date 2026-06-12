@@ -48,12 +48,26 @@ jobs:
       - name: Package chart
         run: helm package ${{ env.CHART_DIR }}/${{ env.CHART_NAME }} --destination .cr-release-packages
 
+      # ghcr intermittently 404s the tag operation right after a fresh
+      # manifest upload ("failed to perform Tag ...: not found"), leaving an
+      # untagged package version behind; a short retry finds the
+      # already-uploaded manifest and tags it.
       - name: Push chart to OCI registry
         id: push
         run: |
           set -o pipefail
-          helm push .cr-release-packages/${{ env.CHART_NAME }}-${{ steps.chart.outputs.version }}.tgz \
-            oci://ghcr.io/nvidia/k8s-test-infra/chart 2>&1 | tee push.log
+          for attempt in 1 2 3; do
+            if helm push .cr-release-packages/${{ env.CHART_NAME }}-${{ steps.chart.outputs.version }}.tgz \
+              oci://ghcr.io/nvidia/k8s-test-infra/chart 2>&1 | tee push.log; then
+              break
+            fi
+            if [ "${attempt}" -eq 3 ]; then
+              echo "helm push failed after ${attempt} attempts" >&2
+              exit 1
+            fi
+            echo "helm push attempt ${attempt} failed; retrying in 10s" >&2
+            sleep 10
+          done
           digest=$(awk '/^Digest:/ {print $2}' push.log)
           if [ -z "${digest}" ]; then
             echo "could not extract chart digest from helm push output" >&2
