@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/stretchr/testify/require"
 )
 
 // devWithBDF builds a DeviceOverride carrying just a PCI bus id.
@@ -63,26 +64,18 @@ func TestNodeFabric_SwitchTraversalNV18(t *testing.T) {
 	}
 	f := BuildNodeFabric(&Config{NumDevices: 2, YAMLConfig: yc})
 
-	if got := f.NVLinkCount(0, 1); got != 18 {
-		t.Errorf("NVLinkCount(0,1): got %d, want 18 (NV18)", got)
-	}
-	if got := f.NVLinkCount(1, 0); got != 18 {
-		t.Errorf("NVLinkCount(1,0): got %d, want 18", got)
-	}
-	if got := f.NVLinkCount(0, 0); got != 0 {
-		t.Errorf("NVLinkCount(0,0) diagonal: got %d, want 0", got)
-	}
-	if len(f.Switches()) != 1 {
-		t.Errorf("Switches: got %d, want 1", len(f.Switches()))
-	}
+	got := f.NVLinkCount(0, 1)
+	require.Equal(t, 18, got, "NVLinkCount(0,1): got %d, want 18 (NV18)", got)
+	got = f.NVLinkCount(1, 0)
+	require.Equal(t, 18, got, "NVLinkCount(1,0): got %d, want 18", got)
+	got = f.NVLinkCount(0, 0)
+	require.Equal(t, 0, got, "NVLinkCount(0,0) diagonal: got %d, want 0", got)
+	require.Len(t, f.Switches(), 1, "Switches: got %d, want 1", len(f.Switches()))
 	// Remote device type of a switch link must be SWITCH.
 	l, ok := f.Link(0, 0)
-	if !ok || l.RemoteKind != RemoteSwitch {
-		t.Errorf("link 0 remote kind: got %v ok=%v, want RemoteSwitch", l.RemoteKind, ok)
-	}
-	if len(f.Validate()) != 0 {
-		t.Errorf("unexpected warnings: %v", f.Validate())
-	}
+	require.True(t, ok, "link 0 remote kind: got %v ok=%v, want RemoteSwitch", l.RemoteKind, ok)
+	require.Equal(t, RemoteSwitch, l.RemoteKind, "link 0 remote kind: got %v ok=%v, want RemoteSwitch", l.RemoteKind, ok)
+	require.Empty(t, f.Validate(), "unexpected warnings: %v", f.Validate())
 }
 
 // TestNodeFabric_SwitchLinkAutoExpansion verifies that a profile declaring
@@ -114,31 +107,24 @@ func TestNodeFabric_SwitchLinkAutoExpansion(t *testing.T) {
 	f := BuildNodeFabric(&Config{NumDevices: 4, YAMLConfig: yc})
 
 	for i := 0; i < 4; i++ {
-		if got := f.NumLinks(i); got != 18 {
-			t.Errorf("device %d auto-expanded links: got %d, want 18", i, got)
-		}
+		got := f.NumLinks(i)
+		require.Equal(t, 18, got, "device %d auto-expanded links: got %d, want 18", i, got)
 		for j := 0; j < 4; j++ {
 			want := 18
 			if i == j {
 				want = 0
 			}
-			if got := f.NVLinkCount(i, j); got != want {
-				t.Errorf("NVLinkCount(%d,%d): got %d, want %d", i, j, got, want)
-			}
+			got := f.NVLinkCount(i, j)
+			require.Equal(t, want, got, "NVLinkCount(%d,%d): got %d, want %d", i, j, got, want)
 		}
 	}
 	// Every expanded link must be a switch endpoint, fanned round-robin.
 	l0, _ := f.Link(0, 0)
 	l1, _ := f.Link(0, 1)
-	if l0.RemoteKind != RemoteSwitch || l1.RemoteKind != RemoteSwitch {
-		t.Errorf("expanded links must be RemoteSwitch, got %v/%v", l0.RemoteKind, l1.RemoteKind)
-	}
-	if l0.RemoteBDF == l1.RemoteBDF {
-		t.Errorf("round-robin fan: links 0 and 1 should target different switches, both %q", l0.RemoteBDF)
-	}
-	if len(f.Validate()) != 0 {
-		t.Errorf("unexpected warnings: %v", f.Validate())
-	}
+	require.Equal(t, RemoteSwitch, l0.RemoteKind, "expanded links must be RemoteSwitch, got %v/%v", l0.RemoteKind, l1.RemoteKind)
+	require.Equal(t, RemoteSwitch, l1.RemoteKind, "expanded links must be RemoteSwitch, got %v/%v", l0.RemoteKind, l1.RemoteKind)
+	require.NotEqual(t, l0.RemoteBDF, l1.RemoteBDF, "round-robin fan: links 0 and 1 should target different switches, both %q", l0.RemoteBDF)
+	require.Empty(t, f.Validate(), "unexpected warnings: %v", f.Validate())
 }
 
 // TestNodeFabric_ExplicitLinksSuppressExpansion verifies a device with an
@@ -161,12 +147,10 @@ func TestNodeFabric_ExplicitLinksSuppressExpansion(t *testing.T) {
 	}
 	f := BuildNodeFabric(&Config{NumDevices: 2, YAMLConfig: yc})
 
-	if got := f.NumLinks(0); got != 4 {
-		t.Errorf("device 0 explicit links: got %d, want 4 (not expanded)", got)
-	}
-	if got := f.NumLinks(1); got != 18 {
-		t.Errorf("device 1 auto-expanded links: got %d, want 18", got)
-	}
+	got := f.NumLinks(0)
+	require.Equal(t, 4, got, "device 0 explicit links: got %d, want 4 (not expanded)", got)
+	got = f.NumLinks(1)
+	require.Equal(t, 18, got, "device 1 auto-expanded links: got %d, want 18", got)
 }
 
 // TestNodeFabric_DirectGPULinks exercises direct GPU-to-GPU adjacency via
@@ -192,17 +176,14 @@ func TestNodeFabric_DirectGPULinks(t *testing.T) {
 	}
 	f := BuildNodeFabric(&Config{NumDevices: 3, YAMLConfig: yc})
 
-	if got := f.NVLinkCount(0, 1); got != 2 {
-		t.Errorf("NVLinkCount(0,1): got %d, want 2", got)
-	}
-	if got := f.NVLinkCount(0, 2); got != 1 {
-		t.Errorf("NVLinkCount(0,2): got %d, want 1", got)
-	}
+	got := f.NVLinkCount(0, 1)
+	require.Equal(t, 2, got, "NVLinkCount(0,1): got %d, want 2", got)
+	got = f.NVLinkCount(0, 2)
+	require.Equal(t, 1, got, "NVLinkCount(0,2): got %d, want 1", got)
 	// Peer BDF backfilled from remote_index.
 	l, _ := f.Link(0, 0)
-	if l.RemotePeer != 1 || l.RemoteBDF != "0000:0b:00.0" {
-		t.Errorf("link0 resolved peer=%d bdf=%q, want 1/0000:0b:00.0", l.RemotePeer, l.RemoteBDF)
-	}
+	require.Equal(t, 1, l.RemotePeer, "link0 resolved peer=%d bdf=%q, want 1/0000:0b:00.0", l.RemotePeer, l.RemoteBDF)
+	require.Equal(t, "0000:0b:00.0", l.RemoteBDF, "link0 resolved peer=%d bdf=%q, want 1/0000:0b:00.0", l.RemotePeer, l.RemoteBDF)
 }
 
 // TestNodeFabric_PairwiseTopoLevel verifies the pairwise PCIe levels:
@@ -238,9 +219,8 @@ func TestNodeFabric_PairwiseTopoLevel(t *testing.T) {
 		{0, 3, nvml.TOPOLOGY_SYSTEM},     // diff NUMA
 	}
 	for _, c := range cases {
-		if got := f.TopoLevel(c.a, c.b); got != c.want {
-			t.Errorf("TopoLevel(%d,%d): got %d, want %d", c.a, c.b, got, c.want)
-		}
+		got := f.TopoLevel(c.a, c.b)
+		require.Equal(t, c.want, got, "TopoLevel(%d,%d): got %d, want %d", c.a, c.b, got, c.want)
 	}
 }
 
@@ -265,30 +245,22 @@ func TestNodeFabric_Affinity(t *testing.T) {
 	}
 	f := BuildNodeFabric(&Config{NumDevices: 3, YAMLConfig: yc})
 
-	if f.NumaNode(0) != 0 || f.NumaNode(1) != 1 || f.NumaNode(2) != 2 {
-		t.Errorf("numa nodes: got %d/%d/%d, want 0/1/2", f.NumaNode(0), f.NumaNode(1), f.NumaNode(2))
-	}
+	require.Equal(t, 0, f.NumaNode(0), "numa nodes: got %d/%d/%d, want 0/1/2", f.NumaNode(0), f.NumaNode(1), f.NumaNode(2))
+	require.Equal(t, 1, f.NumaNode(1), "numa nodes: got %d/%d/%d, want 0/1/2", f.NumaNode(0), f.NumaNode(1), f.NumaNode(2))
+	require.Equal(t, 2, f.NumaNode(2), "numa nodes: got %d/%d/%d, want 0/1/2", f.NumaNode(0), f.NumaNode(1), f.NumaNode(2))
 	// device 0: synthesized cpus 0..7 -> low word bits 0..7 = 0xFF.
 	mask0 := f.CPUAffinityMask(0, 2)
-	if mask0[0] != 0xFF {
-		t.Errorf("dev0 cpu mask word0: got 0x%x, want 0xFF", mask0[0])
-	}
+	require.Equal(t, uint64(0xFF), mask0[0], "dev0 cpu mask word0: got 0x%x, want 0xFF", mask0[0])
 	// device 1: numa 1 -> cpus 8..15 -> bits 8..15 = 0xFF00.
 	mask1 := f.CPUAffinityMask(1, 2)
-	if mask1[0] != 0xFF00 {
-		t.Errorf("dev1 cpu mask word0: got 0x%x, want 0xFF00", mask1[0])
-	}
+	require.Equal(t, uint64(0xFF00), mask1[0], "dev1 cpu mask word0: got 0x%x, want 0xFF00", mask1[0])
 	// device 2: explicit range 100-103 -> bits 100..103 in word 1.
 	mask2 := f.CPUAffinityMask(2, 2)
 	wantWord1 := uint64(0xF) << (100 - 64)
-	if mask2[1] != wantWord1 {
-		t.Errorf("dev2 cpu mask word1: got 0x%x, want 0x%x", mask2[1], wantWord1)
-	}
+	require.Equal(t, wantWord1, mask2[1], "dev2 cpu mask word1: got 0x%x, want 0x%x", mask2[1], wantWord1)
 	// memory affinity sets the device's NUMA node bit.
 	mem1 := f.MemoryAffinityMask(1, 1)
-	if mem1[0] != (uint64(1) << 1) {
-		t.Errorf("dev1 memory mask: got 0x%x, want 0x2", mem1[0])
-	}
+	require.Equal(t, uint64(1)<<1, mem1[0], "dev1 memory mask: got 0x%x, want 0x2", mem1[0])
 }
 
 // TestNodeFabric_LegacyFlatLinksMapToDevice0 verifies the legacy flat
@@ -309,18 +281,12 @@ func TestNodeFabric_LegacyFlatLinksMapToDevice0(t *testing.T) {
 	}
 	f := BuildNodeFabric(&Config{NumDevices: 2, YAMLConfig: yc})
 
-	if f.NumLinks(0) != 1 {
-		t.Errorf("device 0 links: got %d, want 1", f.NumLinks(0))
-	}
-	if f.NumLinks(1) != 0 {
-		t.Errorf("device 1 links: got %d, want 0 (legacy maps to device 0 only)", f.NumLinks(1))
-	}
-	if got := f.NVLinkCount(0, 1); got != 1 {
-		t.Errorf("NVLinkCount(0,1): got %d, want 1", got)
-	}
-	if got := f.NVLinkCount(1, 0); got != 0 {
-		t.Errorf("NVLinkCount(1,0): got %d, want 0", got)
-	}
+	require.Equal(t, 1, f.NumLinks(0), "device 0 links: got %d, want 1", f.NumLinks(0))
+	require.Equal(t, 0, f.NumLinks(1), "device 1 links: got %d, want 0 (legacy maps to device 0 only)", f.NumLinks(1))
+	got := f.NVLinkCount(0, 1)
+	require.Equal(t, 1, got, "NVLinkCount(0,1): got %d, want 1", got)
+	got = f.NVLinkCount(1, 0)
+	require.Equal(t, 0, got, "NVLinkCount(1,0): got %d, want 0", got)
 }
 
 // TestNodeFabric_UnresolvedRemoteWarns asserts the load-time validator
@@ -338,9 +304,7 @@ func TestNodeFabric_UnresolvedRemoteWarns(t *testing.T) {
 		},
 	}
 	f := BuildNodeFabric(&Config{NumDevices: 1, YAMLConfig: yc})
-	if len(f.Validate()) == 0 {
-		t.Error("expected a warning for unresolved remote BDF, got none")
-	}
+	require.NotEmpty(t, f.Validate(), "expected a warning for unresolved remote BDF, got none")
 }
 
 // TestNodeFabric_BuiltinGB200ProfileClean asserts the shipped GB200 config
@@ -349,17 +313,14 @@ func TestNodeFabric_UnresolvedRemoteWarns(t *testing.T) {
 func TestNodeFabric_BuiltinGB200ProfileClean(t *testing.T) {
 	path := filepath.Join("..", "configs", "mock-nvml-config-gb200.yaml")
 	yc, err := LoadYAMLConfig(path)
-	if err != nil {
-		t.Fatalf("loading built-in gb200 profile: %v", err)
-	}
+	require.NoError(t, err, "loading built-in gb200 profile")
 	n := len(yc.Devices)
 	if yc.System.NumDevices > 0 {
 		n = yc.System.NumDevices
 	}
 	f := BuildNodeFabric(&Config{NumDevices: n, YAMLConfig: yc})
-	if w := f.Validate(); len(w) != 0 {
-		t.Errorf("built-in gb200 profile has unresolved NVLink endpoints: %v", w)
-	}
+	w := f.Validate()
+	require.Empty(t, w, "built-in gb200 profile has unresolved NVLink endpoints: %v", w)
 }
 
 // TestNodeFabric_BuiltinProfiles asserts every shipped profile that models
@@ -382,21 +343,17 @@ func TestNodeFabric_BuiltinProfiles(t *testing.T) {
 		t.Run(c.profile, func(t *testing.T) {
 			path := filepath.Join("..", "configs", "mock-nvml-config-"+c.profile+".yaml")
 			yc, err := LoadYAMLConfig(path)
-			if err != nil {
-				t.Fatalf("loading built-in %s profile: %v", c.profile, err)
-			}
+			require.NoError(t, err, "loading built-in %s profile", c.profile)
 			n := len(yc.Devices)
 			if yc.System.NumDevices > 0 {
 				n = yc.System.NumDevices
 			}
 			f := BuildNodeFabric(&Config{NumDevices: n, YAMLConfig: yc})
 
-			if w := f.Validate(); len(w) != 0 {
-				t.Errorf("%s: unresolved NVLink endpoints: %v", c.profile, w)
-			}
-			if got := len(f.Switches()) > 0; got != c.wantSwitch {
-				t.Errorf("%s: hasSwitches = %v, want %v", c.profile, got, c.wantSwitch)
-			}
+			w := f.Validate()
+			require.Empty(t, w, "%s: unresolved NVLink endpoints: %v", c.profile, w)
+			got := len(f.Switches()) > 0
+			require.Equal(t, c.wantSwitch, got, "%s: hasSwitches = %v, want %v", c.profile, got, c.wantSwitch)
 			// Assert the FULL NV# matrix, not just the (0,1) cell: every
 			// off-diagonal pair must equal wantNV and every diagonal must be
 			// 0. This is the driver-independent acceptance guard for the
@@ -409,9 +366,8 @@ func TestNodeFabric_BuiltinProfiles(t *testing.T) {
 					if i == j {
 						want = 0
 					}
-					if got := f.NVLinkCount(i, j); got != want {
-						t.Errorf("%s: NVLinkCount(%d,%d) = %d, want %d", c.profile, i, j, got, want)
-					}
+					got := f.NVLinkCount(i, j)
+					require.Equal(t, want, got, "%s: NVLinkCount(%d,%d) = %d, want %d", c.profile, i, j, got, want)
 				}
 			}
 		})

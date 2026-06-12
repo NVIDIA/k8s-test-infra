@@ -17,6 +17,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // newCache returns a fabricReadinessCache with injected clock/stat so the
@@ -35,13 +37,9 @@ func TestResolveFabricState_AutoDisabled(t *testing.T) {
 	// Empty value == coupling off (the engine treats blank as "not set"),
 	// and t.Setenv restores any ambient value after the test.
 	t.Setenv(EnvFabricStateDir, "")
-	if got := resolveFabricState("auto"); got != FabricStateCompleted {
-		t.Errorf("auto with coupling disabled: got %d, want COMPLETED(%d)", got, FabricStateCompleted)
-	}
+	require.Equal(t, FabricStateCompleted, resolveFabricState("auto"), "auto with coupling disabled")
 	// A static state is unaffected by coupling.
-	if got := resolveFabricState("not_started"); got != FabricStateNotStarted {
-		t.Errorf("static not_started: got %d, want %d", got, FabricStateNotStarted)
-	}
+	require.Equal(t, FabricStateNotStarted, resolveFabricState("not_started"), "static not_started")
 }
 
 // TestFabricReadiness_CoupledMarker verifies the auto->ready transition
@@ -51,15 +49,11 @@ func TestFabricReadiness_CoupledMarker(t *testing.T) {
 
 	// Marker present -> COMPLETED.
 	ready := newCache(time.Now, okStat)
-	if got := ready.state(); got != FabricStateCompleted {
-		t.Errorf("marker present: got %d, want COMPLETED(%d)", got, FabricStateCompleted)
-	}
+	require.Equal(t, FabricStateCompleted, ready.state(), "marker present")
 
 	// Marker absent -> IN_PROGRESS.
 	notReady := newCache(time.Now, errStat)
-	if got := notReady.state(); got != FabricStateInProgress {
-		t.Errorf("marker absent: got %d, want IN_PROGRESS(%d)", got, FabricStateInProgress)
-	}
+	require.Equal(t, FabricStateInProgress, notReady.state(), "marker absent")
 }
 
 // TestFabricReadiness_TTLCaching verifies the cache does not stat() on
@@ -76,23 +70,13 @@ func TestFabricReadiness_TTLCaching(t *testing.T) {
 	}
 	c := newCache(func() time.Time { return now }, stat)
 
-	if c.state() != FabricStateInProgress {
-		t.Fatal("first check should be not-ready")
-	}
-	if calls != 1 {
-		t.Fatalf("first call stat count: got %d, want 1", calls)
-	}
+	require.Equal(t, FabricStateInProgress, c.state(), "first check should be not-ready")
+	require.Equal(t, 1, calls, "first call stat count")
 	// Second call within TTL must not stat again.
-	if c.state() != FabricStateInProgress {
-		t.Fatal("cached check should still be not-ready")
-	}
-	if calls != 1 {
-		t.Fatalf("cached call stat count: got %d, want 1 (no re-stat within TTL)", calls)
-	}
+	require.Equal(t, FabricStateInProgress, c.state(), "cached check should still be not-ready")
+	require.Equal(t, 1, calls, "cached call stat count (no re-stat within TTL)")
 	// Advance past the TTL: a fresh stat is taken.
 	now = now.Add(2 * fabricReadinessTTL)
 	_ = c.state()
-	if calls != 2 {
-		t.Fatalf("post-TTL stat count: got %d, want 2", calls)
-	}
+	require.Equal(t, 2, calls, "post-TTL stat count")
 }

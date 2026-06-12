@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/fmcoord"
+	"github.com/stretchr/testify/require"
 )
 
 // TestFabricCoordContract guards the marker/env contract shared between the
@@ -26,10 +27,6 @@ import (
 // convention; a rename in one without the other would silently break the
 // coupling with no compile error. This test fails loudly instead.
 func TestFabricCoordContract(t *testing.T) {
-	if EnvFabricStateDir != fmcoord.EnvStateDir {
-		t.Errorf("state-dir env var drift: engine=%q fmcoord=%q", EnvFabricStateDir, fmcoord.EnvStateDir)
-	}
-	if FabricReadyMarker != fmcoord.ReadyMarker {
-		t.Errorf("ready-marker filename drift: engine=%q fmcoord=%q", FabricReadyMarker, fmcoord.ReadyMarker)
-	}
+	require.Equal(t, fmcoord.EnvStateDir, EnvFabricStateDir, "state-dir env var drift")
+	require.Equal(t, fmcoord.ReadyMarker, FabricReadyMarker, "ready-marker filename drift")
 }

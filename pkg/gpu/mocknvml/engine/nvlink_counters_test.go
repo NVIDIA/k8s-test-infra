@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // counterFabric builds a single-GPU fabric with one active switch link
@@ -52,17 +54,11 @@ func TestNvLinkCounter_Monotonic(t *testing.T) {
 	for s := 0; s <= 60; s += 5 {
 		now := epoch.Add(time.Duration(s) * time.Second)
 		rx, tx := f.NvLinkCounters(0, 0, now)
-		if rx != tx {
-			t.Fatalf("rx (%d) != tx (%d)", rx, tx)
-		}
-		if rx < prev {
-			t.Fatalf("counter went backwards at t=%ds: %d < %d", s, rx, prev)
-		}
+		require.Equal(t, tx, rx, "rx (%d) != tx (%d)", rx, tx)
+		require.GreaterOrEqual(t, rx, prev, "counter went backwards at t=%ds: %d < %d", s, rx, prev)
 		prev = rx
 	}
-	if prev == 0 {
-		t.Fatal("counter never grew; expected positive accrual")
-	}
+	require.NotZero(t, prev, "counter never grew; expected positive accrual")
 }
 
 // TestNvLinkCounter_Deterministic asserts identical (epoch, now) yields the
@@ -78,9 +74,7 @@ func TestNvLinkCounter_Deterministic(t *testing.T) {
 
 	rx1, _ := f1.NvLinkCounters(0, 0, now)
 	rx2, _ := f2.NvLinkCounters(0, 0, now)
-	if rx1 != rx2 {
-		t.Errorf("non-deterministic counters: %d vs %d", rx1, rx2)
-	}
+	require.Equal(t, rx1, rx2, "non-deterministic counters: %d vs %d", rx1, rx2)
 }
 
 // TestNvLinkCounter_CrossProcessGrowth is the regression test for the
@@ -100,9 +94,7 @@ func TestNvLinkCounter_CrossProcessGrowth(t *testing.T) {
 	f2.epoch = epoch
 	rx2, _ := f2.NvLinkCounters(0, 0, epoch.Add(20*time.Second))
 
-	if !(rx2 > rx1) {
-		t.Errorf("cross-process growth failed: second sample %d not greater than first %d", rx2, rx1)
-	}
+	require.Greater(t, rx2, rx1, "cross-process growth failed: second sample %d not greater than first %d", rx2, rx1)
 }
 
 // TestNvLinkCounter_InactiveLinkZero asserts inactive / missing links read 0.
@@ -110,9 +102,9 @@ func TestNvLinkCounter_InactiveLinkZero(t *testing.T) {
 	f := counterFabric(t)
 	f.epoch = time.Unix(1000, 0)
 	now := f.epoch.Add(time.Hour)
-	if rx, tx := f.NvLinkCounters(0, 5, now); rx != 0 || tx != 0 {
-		t.Errorf("missing link counters: got rx=%d tx=%d, want 0/0", rx, tx)
-	}
+	rx, tx := f.NvLinkCounters(0, 5, now)
+	require.Zero(t, rx, "missing link counters: got rx=%d tx=%d, want 0/0", rx, tx)
+	require.Zero(t, tx, "missing link counters: got rx=%d tx=%d, want 0/0", rx, tx)
 }
 
 // TestNvLinkErrorCounter_ZeroByDefault asserts healthy links report no
@@ -121,18 +113,15 @@ func TestNvLinkErrorCounter_ZeroByDefault(t *testing.T) {
 	f := counterFabric(t)
 	f.epoch = time.Unix(1000, 0)
 	now := f.epoch.Add(24 * time.Hour)
-	if got := f.NvLinkErrorCount(0, 0, now); got != 0 {
-		t.Errorf("error counter: got %d, want 0", got)
-	}
+	got := f.NvLinkErrorCount(0, 0, now)
+	require.Zero(t, got, "error counter: got %d, want 0", got)
 }
 
 // TestResolveCounterEpoch_FromEnv asserts MOCK_NVML_EPOCH takes precedence.
 func TestResolveCounterEpoch_FromEnv(t *testing.T) {
 	t.Setenv("MOCK_NVML_EPOCH", "1700000000")
 	got := resolveCounterEpoch()
-	if got.Unix() != 1700000000 {
-		t.Errorf("resolveCounterEpoch from env: got %d, want 1700000000", got.Unix())
-	}
+	require.Equal(t, int64(1700000000), got.Unix(), "resolveCounterEpoch from env: got %d, want 1700000000", got.Unix())
 }
 
 // TestProcStatBtime parses btime from a /proc/stat-shaped fixture.
@@ -140,15 +129,12 @@ func TestProcStatBtime(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "stat")
 	content := "cpu  1 2 3 4\nbtime 1234567890\nprocesses 99\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	err := os.WriteFile(path, []byte(content), 0o644)
+	require.NoError(t, err)
 	v, ok := procStatBtime(path)
-	if !ok || v != 1234567890 {
-		t.Errorf("procStatBtime: got %d ok=%v, want 1234567890 true", v, ok)
-	}
+	require.True(t, ok, "procStatBtime: got %d ok=%v, want 1234567890 true", v, ok)
+	require.Equal(t, int64(1234567890), v, "procStatBtime: got %d ok=%v, want 1234567890 true", v, ok)
 
-	if _, ok := procStatBtime(filepath.Join(dir, "nope")); ok {
-		t.Error("procStatBtime on missing file: want ok=false")
-	}
+	_, ok = procStatBtime(filepath.Join(dir, "nope"))
+	require.False(t, ok, "procStatBtime on missing file: want ok=false")
 }

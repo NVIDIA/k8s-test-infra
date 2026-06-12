@@ -17,61 +17,38 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestReadinessLifecycle(t *testing.T) {
 	dir := t.TempDir()
 
-	if IsReady(dir) {
-		t.Fatal("fresh state dir should not be ready")
-	}
+	require.False(t, IsReady(dir), "fresh state dir should not be ready")
 
-	if err := WriteReady(dir); err != nil {
-		t.Fatalf("WriteReady: %v", err)
-	}
-	if !IsReady(dir) {
-		t.Fatal("after WriteReady the marker should exist")
-	}
-	if _, err := os.Stat(filepath.Join(dir, ReadyMarker)); err != nil {
-		t.Fatalf("marker file missing: %v", err)
-	}
+	require.NoError(t, WriteReady(dir), "WriteReady")
+	require.True(t, IsReady(dir), "after WriteReady the marker should exist")
+	_, err := os.Stat(filepath.Join(dir, ReadyMarker))
+	require.NoError(t, err, "marker file missing")
 
 	// WriteReady is idempotent.
-	if err := WriteReady(dir); err != nil {
-		t.Fatalf("second WriteReady: %v", err)
-	}
+	require.NoError(t, WriteReady(dir), "second WriteReady")
 
-	if err := RemoveReady(dir); err != nil {
-		t.Fatalf("RemoveReady: %v", err)
-	}
-	if IsReady(dir) {
-		t.Fatal("after RemoveReady the marker should be gone")
-	}
+	require.NoError(t, RemoveReady(dir), "RemoveReady")
+	require.False(t, IsReady(dir), "after RemoveReady the marker should be gone")
 	// RemoveReady on a missing marker is a no-op.
-	if err := RemoveReady(dir); err != nil {
-		t.Fatalf("RemoveReady on missing marker should be nil: %v", err)
-	}
+	require.NoError(t, RemoveReady(dir), "RemoveReady on missing marker should be nil")
 }
 
 func TestWriteReadyCreatesStateDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "fabric-state")
-	if err := WriteReady(dir); err != nil {
-		t.Fatalf("WriteReady should create the dir: %v", err)
-	}
-	if !IsReady(dir) {
-		t.Fatal("marker should exist after creating nested dir")
-	}
+	require.NoError(t, WriteReady(dir), "WriteReady should create the dir")
+	require.True(t, IsReady(dir), "marker should exist after creating nested dir")
 }
 
 func TestStateDirEnvOverride(t *testing.T) {
 	t.Setenv(EnvStateDir, "/custom/fabric-state")
-	if got := StateDir(); got != "/custom/fabric-state" {
-		t.Errorf("StateDir with env: got %q, want /custom/fabric-state", got)
-	}
-	if err := os.Unsetenv(EnvStateDir); err != nil {
-		t.Fatalf("unset env: %v", err)
-	}
-	if got := StateDir(); got != DefaultStateDir {
-		t.Errorf("StateDir default: got %q, want %q", got, DefaultStateDir)
-	}
+	require.Equal(t, "/custom/fabric-state", StateDir(), "StateDir with env")
+	require.NoError(t, os.Unsetenv(EnvStateDir), "unset env")
+	require.Equal(t, DefaultStateDir, StateDir(), "StateDir default")
 }

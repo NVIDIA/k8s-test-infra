@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/stretchr/testify/require"
 )
 
 // twoDevices initializes an engine from cfg and returns its first two
@@ -24,18 +25,14 @@ import (
 func twoDevices(t *testing.T, cfg *Config) (*ConfigurableDevice, *ConfigurableDevice) {
 	t.Helper()
 	e := NewEngine(cfg)
-	if ret := e.Init(); ret != nvml.SUCCESS {
-		t.Fatalf("engine init: %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, e.Init(), "engine init")
 	t.Cleanup(func() { _ = e.Shutdown() })
 
 	h0, _ := e.DeviceGetHandleByIndex(0)
 	h1, _ := e.DeviceGetHandleByIndex(1)
 	cd0, ok0 := e.LookupDevice(h0).(*ConfigurableDevice)
 	cd1, ok1 := e.LookupDevice(h1).(*ConfigurableDevice)
-	if !ok0 || !ok1 {
-		t.Fatal("expected ConfigurableDevice handles")
-	}
+	require.True(t, ok0 && ok1, "expected ConfigurableDevice handles")
 	return cd0, cd1
 }
 
@@ -61,20 +58,19 @@ func TestGetP2PStatus_SwitchFabric(t *testing.T) {
 
 	for _, idx := range []nvml.GpuP2PCapsIndex{nvml.P2P_CAPS_INDEX_NVLINK, nvml.P2P_CAPS_INDEX_READ} {
 		status, ret := cd0.GetP2PStatus(cd1, idx)
-		if ret != nvml.SUCCESS || status != nvml.P2P_STATUS_OK {
-			t.Errorf("P2PStatus(0,1,idx=%d) = (status=%d,ret=%v), want (OK,SUCCESS)", idx, status, ret)
-		}
+		require.Equal(t, nvml.SUCCESS, ret, "P2PStatus(0,1,idx=%d) ret", idx)
+		require.Equal(t, nvml.P2P_STATUS_OK, status, "P2PStatus(0,1,idx=%d) status", idx)
 	}
 
 	// Symmetric.
-	if status, ret := cd1.GetP2PStatus(cd0, nvml.P2P_CAPS_INDEX_NVLINK); ret != nvml.SUCCESS || status != nvml.P2P_STATUS_OK {
-		t.Errorf("P2PStatus(1,0) = (status=%d,ret=%v), want (OK,SUCCESS)", status, ret)
-	}
+	status, ret := cd1.GetP2PStatus(cd0, nvml.P2P_CAPS_INDEX_NVLINK)
+	require.Equal(t, nvml.SUCCESS, ret, "P2PStatus(1,0) ret")
+	require.Equal(t, nvml.P2P_STATUS_OK, status, "P2PStatus(1,0) status")
 
 	// Diagonal: a device is always P2P-OK with itself.
-	if status, ret := cd0.GetP2PStatus(cd0, nvml.P2P_CAPS_INDEX_NVLINK); ret != nvml.SUCCESS || status != nvml.P2P_STATUS_OK {
-		t.Errorf("P2PStatus(0,0) = (status=%d,ret=%v), want (OK,SUCCESS)", status, ret)
-	}
+	status, ret = cd0.GetP2PStatus(cd0, nvml.P2P_CAPS_INDEX_NVLINK)
+	require.Equal(t, nvml.SUCCESS, ret, "P2PStatus(0,0) ret")
+	require.Equal(t, nvml.P2P_STATUS_OK, status, "P2PStatus(0,0) status")
 }
 
 // TestGetP2PStatus_NoNVLink verifies a profile without an NVLink fabric
@@ -86,7 +82,7 @@ func TestGetP2PStatus_NoNVLink(t *testing.T) {
 	}}
 	cd0, cd1 := twoDevices(t, cfg)
 
-	if status, ret := cd0.GetP2PStatus(cd1, nvml.P2P_CAPS_INDEX_NVLINK); ret != nvml.SUCCESS || status != nvml.P2P_STATUS_NOT_SUPPORTED {
-		t.Errorf("P2PStatus(0,1) no-nvlink = (status=%d,ret=%v), want (NOT_SUPPORTED,SUCCESS)", status, ret)
-	}
+	status, ret := cd0.GetP2PStatus(cd1, nvml.P2P_CAPS_INDEX_NVLINK)
+	require.Equal(t, nvml.SUCCESS, ret, "P2PStatus(0,1) no-nvlink ret")
+	require.Equal(t, nvml.P2P_STATUS_NOT_SUPPORTED, status, "P2PStatus(0,1) no-nvlink status")
 }

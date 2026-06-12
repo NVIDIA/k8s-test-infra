@@ -122,7 +122,7 @@ if [ "$EXPECT_NV" -gt 0 ]; then
   echo "--- nvidia-smi nvlink -s (status) ---"
   NVLINK_S=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI nvlink -s" 2>&1) || {
     echo "FAIL: nvidia-smi nvlink -s exited with error"; echo "$NVLINK_S"; exit 1; }
-  echo "$NVLINK_S"
+  echo "$NVLINK_S" | head -10
   if echo "$NVLINK_S" | grep -qE "Link[[:space:]]+0"; then
     echo "PASS: nvlink -s enumerated links (Link 0 present)"
   else
@@ -135,7 +135,7 @@ if [ "$EXPECT_NV" -gt 0 ]; then
   echo "--- nvidia-smi nvlink -c (capabilities) ---"
   NVLINK_C=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI nvlink -c" 2>&1) || {
     echo "FAIL: nvidia-smi nvlink -c exited with error"; echo "$NVLINK_C"; exit 1; }
-  echo "$NVLINK_C"
+  echo "$NVLINK_C" | head -10
   if echo "$NVLINK_C" | grep -qE "Link[[:space:]]+0"; then
     echo "PASS: nvlink -c reported per-link capabilities (Link 0 present)"
   else
