@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // testdataDir returns the absolute path to the profiles directory.
@@ -29,225 +31,137 @@ func TestLoadConfig_L40SProfile(t *testing.T) {
 	profilePath := filepath.Join(testdataDir(), "l40s.yaml")
 
 	yamlCfg, err := LoadYAMLConfig(profilePath)
-	if err != nil {
-		t.Fatalf("Failed to load L40S profile: %v", err)
-	}
+	require.NoError(t, err, "Failed to load L40S profile")
 
 	// Verify device count: L40S typically 8 GPUs in a server
-	if got := len(yamlCfg.Devices); got != 8 {
-		t.Errorf("L40S device count: got %d, want 8", got)
-	}
+	require.Len(t, yamlCfg.Devices, 8, "L40S device count")
 
 	// Verify architecture
-	if got := yamlCfg.DeviceDefaults.Architecture; got != "ada_lovelace" {
-		t.Errorf("L40S architecture: got %q, want %q", got, "ada_lovelace")
-	}
+	require.Equal(t, "ada_lovelace", yamlCfg.DeviceDefaults.Architecture, "L40S architecture")
 
 	// Verify compute capability 8.9
 	cc := yamlCfg.DeviceDefaults.ComputeCapability
-	if cc == nil {
-		t.Fatal("L40S compute_capability is nil")
-	}
-	if cc.Major != 8 || cc.Minor != 9 {
-		t.Errorf("L40S compute capability: got %d.%d, want 8.9", cc.Major, cc.Minor)
-	}
+	require.NotNil(t, cc, "L40S compute_capability is nil")
+	require.Equal(t, 8, cc.Major, "L40S compute capability major")
+	require.Equal(t, 9, cc.Minor, "L40S compute capability minor")
 
 	// Verify memory: 48 GiB = 51539607552 bytes
 	mem := yamlCfg.DeviceDefaults.Memory
-	if mem == nil {
-		t.Fatal("L40S memory config is nil")
-	}
+	require.NotNil(t, mem, "L40S memory config is nil")
 	expectedMemBytes := uint64(51539607552) // 48 GiB
-	if mem.TotalBytes != expectedMemBytes {
-		t.Errorf("L40S memory total_bytes: got %d, want %d", mem.TotalBytes, expectedMemBytes)
-	}
+	require.Equal(t, expectedMemBytes, mem.TotalBytes, "L40S memory total_bytes")
 
 	// Verify PCI device ID: 0x26B510DE
 	pci := yamlCfg.DeviceDefaults.PCI
-	if pci == nil {
-		t.Fatal("L40S PCI config is nil")
-	}
+	require.NotNil(t, pci, "L40S PCI config is nil")
 	expectedDeviceID := uint32(0x26B510DE)
-	if pci.DeviceID != expectedDeviceID {
-		t.Errorf("L40S PCI device_id: got 0x%08X, want 0x%08X", pci.DeviceID, expectedDeviceID)
-	}
+	require.Equal(t, expectedDeviceID, pci.DeviceID, "L40S PCI device_id")
 
 	// Verify GPU name
-	if got := yamlCfg.DeviceDefaults.Name; got != "NVIDIA L40S" {
-		t.Errorf("L40S name: got %q, want %q", got, "NVIDIA L40S")
-	}
+	require.Equal(t, "NVIDIA L40S", yamlCfg.DeviceDefaults.Name, "L40S name")
 
 	// Verify no NVLink (L40S is PCIe only)
-	if yamlCfg.NVLink != nil {
-		t.Error("L40S should not have NVLink configuration")
-	}
+	require.Nil(t, yamlCfg.NVLink, "L40S should not have NVLink configuration")
 
 	// Verify PCIe Gen4
 	pcie := yamlCfg.DeviceDefaults.PCIe
-	if pcie == nil {
-		t.Fatal("L40S PCIe config is nil")
-	}
-	if pcie.MaxLinkGen != 4 {
-		t.Errorf("L40S PCIe max_link_gen: got %d, want 4", pcie.MaxLinkGen)
-	}
+	require.NotNil(t, pcie, "L40S PCIe config is nil")
+	require.Equal(t, 4, pcie.MaxLinkGen, "L40S PCIe max_link_gen")
 
 	// Verify power: 350W TDP
 	power := yamlCfg.DeviceDefaults.Power
-	if power == nil {
-		t.Fatal("L40S power config is nil")
-	}
-	if power.DefaultLimitMW != 350000 {
-		t.Errorf("L40S power default_limit_mw: got %d, want 350000", power.DefaultLimitMW)
-	}
+	require.NotNil(t, power, "L40S power config is nil")
+	require.Equal(t, uint32(350000), power.DefaultLimitMW, "L40S power default_limit_mw")
 }
 
 func TestLoadConfig_T4Profile(t *testing.T) {
 	profilePath := filepath.Join(testdataDir(), "t4.yaml")
 
 	yamlCfg, err := LoadYAMLConfig(profilePath)
-	if err != nil {
-		t.Fatalf("Failed to load T4 profile: %v", err)
-	}
+	require.NoError(t, err, "Failed to load T4 profile")
 
 	// Verify device count: T4 typically 4 GPUs
-	if got := len(yamlCfg.Devices); got != 4 {
-		t.Errorf("T4 device count: got %d, want 4", got)
-	}
+	require.Len(t, yamlCfg.Devices, 4, "T4 device count")
 
 	// Verify architecture
-	if got := yamlCfg.DeviceDefaults.Architecture; got != "turing" {
-		t.Errorf("T4 architecture: got %q, want %q", got, "turing")
-	}
+	require.Equal(t, "turing", yamlCfg.DeviceDefaults.Architecture, "T4 architecture")
 
 	// Verify compute capability 7.5
 	cc := yamlCfg.DeviceDefaults.ComputeCapability
-	if cc == nil {
-		t.Fatal("T4 compute_capability is nil")
-	}
-	if cc.Major != 7 || cc.Minor != 5 {
-		t.Errorf("T4 compute capability: got %d.%d, want 7.5", cc.Major, cc.Minor)
-	}
+	require.NotNil(t, cc, "T4 compute_capability is nil")
+	require.Equal(t, 7, cc.Major, "T4 compute capability major")
+	require.Equal(t, 5, cc.Minor, "T4 compute capability minor")
 
 	// Verify memory: 16 GiB = 17179869184 bytes
 	mem := yamlCfg.DeviceDefaults.Memory
-	if mem == nil {
-		t.Fatal("T4 memory config is nil")
-	}
+	require.NotNil(t, mem, "T4 memory config is nil")
 	expectedMemBytes := uint64(17179869184) // 16 GiB
-	if mem.TotalBytes != expectedMemBytes {
-		t.Errorf("T4 memory total_bytes: got %d, want %d", mem.TotalBytes, expectedMemBytes)
-	}
+	require.Equal(t, expectedMemBytes, mem.TotalBytes, "T4 memory total_bytes")
 
 	// Verify PCI device ID: 0x1EB810DE
 	pci := yamlCfg.DeviceDefaults.PCI
-	if pci == nil {
-		t.Fatal("T4 PCI config is nil")
-	}
+	require.NotNil(t, pci, "T4 PCI config is nil")
 	expectedDeviceID := uint32(0x1EB810DE)
-	if pci.DeviceID != expectedDeviceID {
-		t.Errorf("T4 PCI device_id: got 0x%08X, want 0x%08X", pci.DeviceID, expectedDeviceID)
-	}
+	require.Equal(t, expectedDeviceID, pci.DeviceID, "T4 PCI device_id")
 
 	// Verify GPU name
-	if got := yamlCfg.DeviceDefaults.Name; got != "NVIDIA T4" {
-		t.Errorf("T4 name: got %q, want %q", got, "NVIDIA T4")
-	}
+	require.Equal(t, "NVIDIA T4", yamlCfg.DeviceDefaults.Name, "T4 name")
 
 	// Verify no NVLink (T4 is PCIe only)
-	if yamlCfg.NVLink != nil {
-		t.Error("T4 should not have NVLink configuration")
-	}
+	require.Nil(t, yamlCfg.NVLink, "T4 should not have NVLink configuration")
 
 	// Verify PCIe Gen3
 	pcie := yamlCfg.DeviceDefaults.PCIe
-	if pcie == nil {
-		t.Fatal("T4 PCIe config is nil")
-	}
-	if pcie.MaxLinkGen != 3 {
-		t.Errorf("T4 PCIe max_link_gen: got %d, want 3", pcie.MaxLinkGen)
-	}
+	require.NotNil(t, pcie, "T4 PCIe config is nil")
+	require.Equal(t, 3, pcie.MaxLinkGen, "T4 PCIe max_link_gen")
 
 	// Verify power: 70W TDP
 	power := yamlCfg.DeviceDefaults.Power
-	if power == nil {
-		t.Fatal("T4 power config is nil")
-	}
-	if power.DefaultLimitMW != 70000 {
-		t.Errorf("T4 power default_limit_mw: got %d, want 70000", power.DefaultLimitMW)
-	}
+	require.NotNil(t, power, "T4 power config is nil")
+	require.Equal(t, uint32(70000), power.DefaultLimitMW, "T4 power default_limit_mw")
 }
 
 func TestLoadConfig_GB300Profile(t *testing.T) {
 	profilePath := filepath.Join(testdataDir(), "gb300.yaml")
 
 	yamlCfg, err := LoadYAMLConfig(profilePath)
-	if err != nil {
-		t.Fatalf("Failed to load GB300 profile: %v", err)
-	}
+	require.NoError(t, err, "Failed to load GB300 profile")
 
 	// 8 GPUs: 4 Grace-Blackwell Ultra superchips × 2 B300 GPUs each.
-	if got := len(yamlCfg.Devices); got != 8 {
-		t.Errorf("GB300 device count: got %d, want 8", got)
-	}
+	require.Len(t, yamlCfg.Devices, 8, "GB300 device count")
 
-	if got := yamlCfg.DeviceDefaults.Name; got != "NVIDIA GB300 NVL" {
-		t.Errorf("GB300 name: got %q, want %q", got, "NVIDIA GB300 NVL")
-	}
+	require.Equal(t, "NVIDIA GB300 NVL", yamlCfg.DeviceDefaults.Name, "GB300 name")
 
 	// 288 GiB HBM3e per GPU is the headline GB300 vs. GB200 delta — make
 	// sure a regression in the YAML can never quietly drop us back to 192.
 	mem := yamlCfg.DeviceDefaults.Memory
-	if mem == nil {
-		t.Fatal("GB300 memory config is nil")
-	}
+	require.NotNil(t, mem, "GB300 memory config is nil")
 	expectedMemBytes := uint64(288) * 1024 * 1024 * 1024
-	if mem.TotalBytes != expectedMemBytes {
-		t.Errorf("GB300 memory total_bytes: got %d, want %d (288 GiB)", mem.TotalBytes, expectedMemBytes)
-	}
+	require.Equal(t, expectedMemBytes, mem.TotalBytes, "GB300 memory total_bytes (288 GiB)")
 
 	// Blackwell Ultra uses the 570.x driver line; the chart's
 	// driverVersion helper relies on this value being consistent.
-	if got := yamlCfg.System.DriverVersion; got != "570.124.06" {
-		t.Errorf("GB300 driver_version: got %q, want %q", got, "570.124.06")
-	}
+	require.Equal(t, "570.124.06", yamlCfg.System.DriverVersion, "GB300 driver_version")
 
 	// PCIe Gen6 (or NVLink-C2C to Grace).
 	pcie := yamlCfg.DeviceDefaults.PCIe
-	if pcie == nil {
-		t.Fatal("GB300 PCIe config is nil")
-	}
-	if pcie.MaxLinkGen != 6 {
-		t.Errorf("GB300 PCIe max_link_gen: got %d, want 6", pcie.MaxLinkGen)
-	}
+	require.NotNil(t, pcie, "GB300 PCIe config is nil")
+	require.Equal(t, 6, pcie.MaxLinkGen, "GB300 PCIe max_link_gen")
 
 	// 1400W default TDP (vs. GB200's 1000W).
 	power := yamlCfg.DeviceDefaults.Power
-	if power == nil {
-		t.Fatal("GB300 power config is nil")
-	}
-	if power.DefaultLimitMW != 1400000 {
-		t.Errorf("GB300 power default_limit_mw: got %d, want 1400000", power.DefaultLimitMW)
-	}
+	require.NotNil(t, power, "GB300 power config is nil")
+	require.Equal(t, uint32(1400000), power.DefaultLimitMW, "GB300 power default_limit_mw")
 
 	// Grace pairing must be wired up — GB300 is a superchip part.
 	grace := yamlCfg.DeviceDefaults.GraceSuperchip
-	if grace == nil {
-		t.Fatal("GB300 grace_superchip config is nil")
-	}
-	if !grace.Enabled {
-		t.Error("GB300 grace_superchip.enabled: got false, want true")
-	}
+	require.NotNil(t, grace, "GB300 grace_superchip config is nil")
+	require.True(t, grace.Enabled, "GB300 grace_superchip.enabled: got false, want true")
 
 	// NVLink v5, 18 links @ 100 GB/s (same fabric as GB200).
-	if yamlCfg.NVLink == nil {
-		t.Fatal("GB300 NVLink config is nil")
-	}
-	if yamlCfg.NVLink.Version != 5 {
-		t.Errorf("GB300 nvlink.version: got %d, want 5", yamlCfg.NVLink.Version)
-	}
-	if yamlCfg.NVLink.LinksPerGPU != 18 {
-		t.Errorf("GB300 nvlink.links_per_gpu: got %d, want 18", yamlCfg.NVLink.LinksPerGPU)
-	}
+	require.NotNil(t, yamlCfg.NVLink, "GB300 NVLink config is nil")
+	require.Equal(t, 5, yamlCfg.NVLink.Version, "GB300 nvlink.version")
+	require.Equal(t, 18, yamlCfg.NVLink.LinksPerGPU, "GB300 nvlink.links_per_gpu")
 }
 
 func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
@@ -273,38 +187,23 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 		t.Run(p.name, func(t *testing.T) {
 			profilePath := filepath.Join(testdataDir(), p.file)
 			yamlCfg, err := LoadYAMLConfig(profilePath)
-			if err != nil {
-				t.Fatalf("Failed to load %s profile: %v", p.name, err)
-			}
+			require.NoError(t, err, "Failed to load %s profile", p.name)
 
-			if yamlCfg.DeviceDefaults.Architecture != p.architecture {
-				t.Errorf("%s architecture: got %q, want %q", p.name, yamlCfg.DeviceDefaults.Architecture, p.architecture)
-			}
+			require.Equal(t, p.architecture, yamlCfg.DeviceDefaults.Architecture, "%s architecture", p.name)
 
 			cc := yamlCfg.DeviceDefaults.ComputeCapability
-			if cc == nil {
-				t.Fatalf("%s compute_capability is nil", p.name)
-			}
-			if cc.Major != p.ccMajor || cc.Minor != p.ccMinor {
-				t.Errorf("%s compute capability: got %d.%d, want %d.%d", p.name, cc.Major, cc.Minor, p.ccMajor, p.ccMinor)
-			}
+			require.NotNil(t, cc, "%s compute_capability is nil", p.name)
+			require.Equal(t, p.ccMajor, cc.Major, "%s compute capability major", p.name)
+			require.Equal(t, p.ccMinor, cc.Minor, "%s compute capability minor", p.name)
 
 			mem := yamlCfg.DeviceDefaults.Memory
-			if mem == nil {
-				t.Fatalf("%s memory config is nil", p.name)
-			}
+			require.NotNil(t, mem, "%s memory config is nil", p.name)
 			expectedBytes := p.memGiB * 1024 * 1024 * 1024
-			if mem.TotalBytes != expectedBytes {
-				t.Errorf("%s memory: got %d bytes, want %d bytes (%d GiB)", p.name, mem.TotalBytes, expectedBytes, p.memGiB)
-			}
+			require.Equal(t, expectedBytes, mem.TotalBytes, "%s memory (%d GiB)", p.name, p.memGiB)
 
-			if len(yamlCfg.Devices) != p.deviceCount {
-				t.Errorf("%s device count: got %d, want %d", p.name, len(yamlCfg.Devices), p.deviceCount)
-			}
+			require.Len(t, yamlCfg.Devices, p.deviceCount, "%s device count", p.name)
 
-			if yamlCfg.System.DriverVersion == "" {
-				t.Errorf("%s driver_version is empty", p.name)
-			}
+			require.NotEmpty(t, yamlCfg.System.DriverVersion, "%s driver_version is empty", p.name)
 		})
 	}
 }

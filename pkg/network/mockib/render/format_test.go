@@ -3,7 +3,11 @@
 
 package render
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestFormatPortState(t *testing.T) {
 	tests := []struct {
@@ -19,9 +23,8 @@ func TestFormatPortState(t *testing.T) {
 		{"unknown", "4: ACTIVE\n"},
 	}
 	for _, tc := range tests {
-		if got := formatPortState(tc.in); got != tc.want {
-			t.Errorf("formatPortState(%q) = %q want %q", tc.in, got, tc.want)
-		}
+		got := formatPortState(tc.in)
+		require.Equal(t, tc.want, got, "formatPortState(%q)", tc.in)
 	}
 }
 
@@ -40,8 +43,7 @@ func TestFormatPhysState(t *testing.T) {
 		{"other", "5: LinkUp\n"},
 	}
 	for _, tc := range tests {
-		if got := formatPhysState(tc.in); got != tc.want {
-			t.Errorf("formatPhysState(%q) = %q want %q", tc.in, got, tc.want)
-		}
+		got := formatPhysState(tc.in)
+		require.Equal(t, tc.want, got, "formatPhysState(%q)", tc.in)
 	}
 }

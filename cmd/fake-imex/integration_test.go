@@ -23,6 +23,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // build compiles a fake-imex sub-command into the given output path and
@@ -38,24 +40,21 @@ func build(t *testing.T, pkg, out string) string {
 	}
 	cmd := exec.Command("go", "build", "-mod=vendor", "-o", out, pkg)
 	cmd.Dir = repoRoot(t)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build %s: %v\n%s", pkg, err, output)
-	}
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "build %s: %s", pkg, output)
 	return out
 }
 
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	for cur := wd; cur != "/"; cur = filepath.Dir(cur) {
 		if _, err := os.Stat(filepath.Join(cur, "go.mod")); err == nil {
 			return cur
 		}
 	}
-	t.Fatal("could not locate repo root")
+	require.FailNow(t, "could not locate repo root")
 	return ""
 }
 
@@ -65,13 +64,9 @@ func repoRoot(t *testing.T) string {
 func TestFakeImex_HappyPath_ReadyTransitions(t *testing.T) {
 	tmp := t.TempDir()
 	stateDir := filepath.Join(tmp, "state")
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(stateDir, 0o755))
 	nodesCfg := filepath.Join(tmp, "nodes.cfg")
-	if err := os.WriteFile(nodesCfg, []byte("10.0.0.1\n10.0.0.2\n10.0.0.3\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(nodesCfg, []byte("10.0.0.1\n10.0.0.2\n10.0.0.3\n"), 0o644))
 
 	daemonBin := build(t, "./cmd/fake-imex/daemon", filepath.Join(tmp, "nvidia-imex"))
 	ctlBin := build(t, "./cmd/fake-imex/ctl", filepath.Join(tmp, "nvidia-imex-ctl"))
@@ -88,7 +83,7 @@ func TestFakeImex_HappyPath_ReadyTransitions(t *testing.T) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		if err := cmd.Start(); err != nil {
 			cancel()
-			t.Fatalf("start daemon %s: %v", ip, err)
+			require.NoError(t, err, "start daemon %s", ip)
 		}
 		t.Cleanup(func() {
 			cancel()
@@ -105,7 +100,7 @@ func TestFakeImex_HappyPath_ReadyTransitions(t *testing.T) {
 			if ee, ok := err.(*exec.ExitError); ok {
 				return string(out), ee.ExitCode()
 			}
-			t.Fatalf("ctl unexpected error: %v", err)
+			require.NoError(t, err, "ctl unexpected error")
 		}
 		return string(out), 0
 	}
@@ -116,23 +111,20 @@ func TestFakeImex_HappyPath_ReadyTransitions(t *testing.T) {
 	// Only 2 of 3 markers exist → ctl exits 1.
 	waitForMarker(t, stateDir, "10.0.0.1")
 	waitForMarker(t, stateDir, "10.0.0.2")
-	if _, code := runCtl(); code != 1 {
-		t.Fatalf("ctl with 2/3 markers: want exit 1, got %d", code)
-	}
+	_, code := runCtl()
+	require.Equal(t, 1, code, "ctl with 2/3 markers: want exit 1")
 
 	startDaemon("10.0.0.3")
 	waitForMarker(t, stateDir, "10.0.0.3")
 	out, code := runCtl()
-	if code != 0 || !strings.HasPrefix(out, "READY") {
-		t.Fatalf("ctl with 3/3: want READY exit 0, got %q exit %d", out, code)
-	}
+	require.Equal(t, 0, code, "ctl with 3/3: want exit 0, got %q", out)
+	require.True(t, strings.HasPrefix(out, "READY"), "ctl with 3/3: want READY prefix, got %q", out)
 
 	// Kill d1 cleanly so it removes its marker; ctl should fail again.
 	_ = d1.Process.Signal(syscall.SIGTERM)
 	waitForNoMarker(t, stateDir, "10.0.0.1")
-	if _, code := runCtl(); code != 1 {
-		t.Fatalf("ctl after d1 SIGTERM: want exit 1, got %d", code)
-	}
+	_, code = runCtl()
+	require.Equal(t, 1, code, "ctl after d1 SIGTERM: want exit 1")
 }
 
 func waitForMarker(t *testing.T, dir, ip string) {
@@ -144,7 +136,7 @@ func waitForMarker(t *testing.T, dir, ip string) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("marker %s did not appear within deadline", ip)
+	require.FailNowf(t, "marker did not appear", "marker %s did not appear within deadline", ip)
 }
 
 // TestFakeImex_DaemonReassertsMarker verifies the 2s tick re-creates
@@ -154,13 +146,9 @@ func waitForMarker(t *testing.T, dir, ip string) {
 func TestFakeImex_DaemonReassertsMarker(t *testing.T) {
 	tmp := t.TempDir()
 	stateDir := filepath.Join(tmp, "state")
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(stateDir, 0o755))
 	nodesCfg := filepath.Join(tmp, "nodes.cfg")
-	if err := os.WriteFile(nodesCfg, []byte("10.0.0.99\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(nodesCfg, []byte("10.0.0.99\n"), 0o644))
 
 	daemonBin := build(t, "./cmd/fake-imex/daemon", filepath.Join(tmp, "nvidia-imex"))
 
@@ -174,7 +162,7 @@ func TestFakeImex_DaemonReassertsMarker(t *testing.T) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		cancel()
-		t.Fatalf("start daemon: %v", err)
+		require.NoError(t, err, "start daemon")
 	}
 	t.Cleanup(func() {
 		cancel()
@@ -185,9 +173,7 @@ func TestFakeImex_DaemonReassertsMarker(t *testing.T) {
 	waitForMarker(t, stateDir, "10.0.0.99")
 
 	// Wipe it externally.
-	if err := os.Remove(filepath.Join(stateDir, "10.0.0.99")); err != nil {
-		t.Fatalf("remove marker: %v", err)
-	}
+	require.NoError(t, os.Remove(filepath.Join(stateDir, "10.0.0.99")), "remove marker")
 	waitForNoMarker(t, stateDir, "10.0.0.99")
 
 	// The daemon's 2s tick must re-create the marker. waitForMarker has
@@ -205,5 +191,5 @@ func waitForNoMarker(t *testing.T, dir, ip string) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("marker %s did not disappear within deadline", ip)
+	require.FailNowf(t, "marker did not disappear", "marker %s did not disappear within deadline", ip)
 }

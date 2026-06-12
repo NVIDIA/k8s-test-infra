@@ -18,19 +18,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDefaultConfig(t *testing.T) {
 	config := DefaultConfig()
-	if config == nil {
-		t.Fatal("DefaultConfig returned nil")
-	}
-	if config.NumDevices != 8 {
-		t.Errorf("Expected default NumDevices 8, got %d", config.NumDevices)
-	}
-	if config.DriverVersion != "550.163.01" {
-		t.Errorf("Expected default DriverVersion 550.163.01, got %s", config.DriverVersion)
-	}
+	require.NotNil(t, config, "DefaultConfig returned nil")
+	require.Equal(t, 8, config.NumDevices, "Expected default NumDevices 8")
+	require.Equal(t, "550.163.01", config.DriverVersion, "Expected default DriverVersion 550.163.01")
 }
 
 func TestLoadConfig_Defaults(t *testing.T) {
@@ -38,15 +34,9 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	ClearConfigCache()
 
 	config := LoadConfig()
-	if config == nil {
-		t.Fatal("LoadConfig returned nil")
-	}
-	if config.NumDevices != 8 {
-		t.Errorf("Expected default NumDevices 8, got %d", config.NumDevices)
-	}
-	if config.DriverVersion != "550.163.01" {
-		t.Errorf("Expected default DriverVersion, got %s", config.DriverVersion)
-	}
+	require.NotNil(t, config, "LoadConfig returned nil")
+	require.Equal(t, 8, config.NumDevices, "Expected default NumDevices 8")
+	require.Equal(t, "550.163.01", config.DriverVersion, "Expected default DriverVersion")
 }
 
 func TestLoadConfig_NumDevices(t *testing.T) {
@@ -74,9 +64,7 @@ func TestLoadConfig_NumDevices(t *testing.T) {
 			}
 
 			config := LoadConfig()
-			if config.NumDevices != tt.expected {
-				t.Errorf("Expected NumDevices %d, got %d", tt.expected, config.NumDevices)
-			}
+			require.Equal(t, tt.expected, config.NumDevices, "Expected NumDevices %d", tt.expected)
 		})
 	}
 }
@@ -89,9 +77,7 @@ func TestLoadConfig_DriverVersion(t *testing.T) {
 	t.Setenv("MOCK_NVML_DRIVER_VERSION", customVersion)
 
 	config := LoadConfig()
-	if config.DriverVersion != customVersion {
-		t.Errorf("Expected DriverVersion %s, got %s", customVersion, config.DriverVersion)
-	}
+	require.Equal(t, customVersion, config.DriverVersion, "Expected DriverVersion %s", customVersion)
 }
 
 func TestLoadConfig_AllEnvVars(t *testing.T) {
@@ -102,12 +88,8 @@ func TestLoadConfig_AllEnvVars(t *testing.T) {
 	t.Setenv("MOCK_NVML_DRIVER_VERSION", "600.00.00")
 
 	config := LoadConfig()
-	if config.NumDevices != 6 {
-		t.Errorf("NumDevices not set correctly: %d", config.NumDevices)
-	}
-	if config.DriverVersion != "600.00.00" {
-		t.Errorf("DriverVersion not set correctly: %s", config.DriverVersion)
-	}
+	require.Equal(t, 6, config.NumDevices, "NumDevices not set correctly")
+	require.Equal(t, "600.00.00", config.DriverVersion, "DriverVersion not set correctly")
 }
 
 func TestLoadConfig_EmptyEnvVars(t *testing.T) {
@@ -119,12 +101,8 @@ func TestLoadConfig_EmptyEnvVars(t *testing.T) {
 
 	config := LoadConfig()
 	// Empty strings should result in defaults
-	if config.NumDevices != 8 {
-		t.Errorf("Expected default NumDevices 8, got %d", config.NumDevices)
-	}
-	if config.DriverVersion != "550.163.01" {
-		t.Errorf("Expected default DriverVersion, got %s", config.DriverVersion)
-	}
+	require.Equal(t, 8, config.NumDevices, "Expected default NumDevices 8")
+	require.Equal(t, "550.163.01", config.DriverVersion, "Expected default DriverVersion")
 }
 
 func TestLoadConfig_YAMLNumDevices(t *testing.T) {
@@ -145,17 +123,13 @@ devices:
   - index: 1
     uuid: "GPU-bbbb"
 `
-	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("Failed to write config file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(configPath, []byte(yamlContent), 0644), "Failed to write config file")
 
 	ClearConfigCache()
 	t.Setenv("MOCK_NVML_CONFIG", configPath)
 
 	config := LoadConfig()
-	if config.NumDevices != 4 {
-		t.Errorf("Expected NumDevices=4 from system.num_devices, got %d", config.NumDevices)
-	}
+	require.Equal(t, 4, config.NumDevices, "Expected NumDevices=4 from system.num_devices")
 }
 
 func TestLoadConfig_YAMLNumDevicesZero(t *testing.T) {
@@ -176,17 +150,13 @@ devices:
   - index: 2
     uuid: "GPU-cccc"
 `
-	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("Failed to write config file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(configPath, []byte(yamlContent), 0644), "Failed to write config file")
 
 	ClearConfigCache()
 	t.Setenv("MOCK_NVML_CONFIG", configPath)
 
 	config := LoadConfig()
-	if config.NumDevices != 3 {
-		t.Errorf("Expected NumDevices=3 from device list, got %d", config.NumDevices)
-	}
+	require.Equal(t, 3, config.NumDevices, "Expected NumDevices=3 from device list")
 }
 
 func TestDiscoverConfigPath_NonLinux(t *testing.T) {
@@ -194,9 +164,7 @@ func TestDiscoverConfigPath_NonLinux(t *testing.T) {
 		t.Skip("Test only applies to non-Linux platforms")
 	}
 	result := discoverConfigPath()
-	if result != "" {
-		t.Errorf("Expected empty string on non-Linux, got %q", result)
-	}
+	require.Empty(t, result, "Expected empty string on non-Linux")
 }
 
 func TestDiscoverConfigPath_Linux(t *testing.T) {
@@ -205,9 +173,7 @@ func TestDiscoverConfigPath_Linux(t *testing.T) {
 	}
 	// On Linux without a mock .so loaded, should return empty
 	result := discoverConfigPath()
-	if result != "" {
-		t.Errorf("Expected empty string when no libnvidia-ml.so is mapped, got %q", result)
-	}
+	require.Empty(t, result, "Expected empty string when no libnvidia-ml.so is mapped")
 }
 
 func TestLoadConfig_AutoDiscoverFallback(t *testing.T) {
@@ -216,10 +182,6 @@ func TestLoadConfig_AutoDiscoverFallback(t *testing.T) {
 	ClearConfigCache()
 
 	config := LoadConfig()
-	if config == nil {
-		t.Fatal("LoadConfig returned nil")
-	}
-	if config.NumDevices != 8 {
-		t.Errorf("Expected default NumDevices 8, got %d", config.NumDevices)
-	}
+	require.NotNil(t, config, "LoadConfig returned nil")
+	require.Equal(t, 8, config.NumDevices, "Expected default NumDevices 8")
 }

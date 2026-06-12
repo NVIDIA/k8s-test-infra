@@ -19,23 +19,20 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/render"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/sysfs"
+	"github.com/stretchr/testify/require"
 )
 
 func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 	dir := t.TempDir()
 	ib := config.Infiniband{Enabled: true}
-	if err := render.Render(render.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, render.Render(render.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir}))
 	// Short path under /tmp: macOS limits unix socket paths; sandbox may block $TMPDIR binds.
 	safe := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
 	sock := filepath.Join(os.TempDir(), "mock-ib-"+safe+".sock")
 	t.Cleanup(func() { _ = os.Remove(sock) })
 
 	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errCh := make(chan error, 1)
@@ -43,30 +40,19 @@ func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 	waitForSocket(t, sock, errCh)
 
 	conn, err := net.Dial("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
 
-	if err := protocol.WriteMessage(conn, protocol.TypeOpen, protocol.OpenReq{CAName: "mlx5_0", Port: 1}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeOpen, protocol.OpenReq{CAName: "mlx5_0", Port: 1}))
 	var env protocol.Envelope
-	if err := protocol.ReadEnvelope(conn, &env); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
 	var openResp protocol.OpenResp
-	if err := protocol.DecodeBody(env, &openResp); err != nil {
-		t.Fatal(err)
-	}
-	if openResp.Handle == 0 || openResp.Error != "" {
-		t.Fatalf("open: %+v", openResp)
-	}
+	require.NoError(t, protocol.DecodeBody(env, &openResp))
+	require.NotZero(t, openResp.Handle, "open: %+v", openResp)
+	require.Empty(t, openResp.Error, "open: %+v", openResp)
 
 	ports, err := sysfs.Scan(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	var advert protocol.PortAdvert
 	for _, p := range ports {
 		if p.CAName == "mlx5_0" {
@@ -74,77 +60,46 @@ func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 			break
 		}
 	}
-	if advert.CAName == "" {
-		t.Fatalf("mlx5_0 not in %+v", ports)
-	}
+	require.NotEmpty(t, advert.CAName, "mlx5_0 not in %+v", ports)
 	sendMad := madtest.PingMAD(advert)
-	if err := protocol.WriteMessage(conn, protocol.TypeSend, protocol.SendReq{
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeSend, protocol.SendReq{
 		Handle: openResp.Handle,
 		MAD:    sendMad,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := protocol.ReadEnvelope(conn, &env); err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
 	var sendResp protocol.SendResp
-	if err := protocol.DecodeBody(env, &sendResp); err != nil {
-		t.Fatal(err)
-	}
-	if !sendResp.OK {
-		t.Fatalf("send: %+v", sendResp)
-	}
+	require.NoError(t, protocol.DecodeBody(env, &sendResp))
+	require.True(t, sendResp.OK, "send: %+v", sendResp)
 
-	if err := protocol.WriteMessage(conn, protocol.TypeRecv, protocol.RecvReq{
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeRecv, protocol.RecvReq{
 		Handle:    openResp.Handle,
 		TimeoutMS: 500,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := protocol.ReadEnvelope(conn, &env); err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
 	var recvResp protocol.RecvResp
-	if err := protocol.DecodeBody(env, &recvResp); err != nil {
-		t.Fatal(err)
-	}
-	if recvResp.Timeout || len(recvResp.MAD) == 0 {
-		t.Fatalf("recv: %+v", recvResp)
-	}
-	if recvResp.MAD[umadMADOffset+ibMADMethodOff]&0x80 == 0 {
-		t.Fatal("expected response method bit set on echoed MAD")
-	}
+	require.NoError(t, protocol.DecodeBody(env, &recvResp))
+	require.False(t, recvResp.Timeout, "recv: %+v", recvResp)
+	require.NotZero(t, len(recvResp.MAD), "recv: %+v", recvResp)
+	require.NotZero(t, recvResp.MAD[umadMADOffset+ibMADMethodOff]&0x80, "expected response method bit set on echoed MAD")
 
-	if err := protocol.WriteMessage(conn, protocol.TypeClose, protocol.CloseReq{Handle: openResp.Handle}); err != nil {
-		t.Fatal(err)
-	}
-	if err := protocol.ReadEnvelope(conn, &env); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeClose, protocol.CloseReq{Handle: openResp.Handle}))
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
 	var closeResp protocol.CloseResp
-	if err := protocol.DecodeBody(env, &closeResp); err != nil {
-		t.Fatal(err)
-	}
-	if !closeResp.OK {
-		t.Fatalf("close: %+v", closeResp)
-	}
+	require.NoError(t, protocol.DecodeBody(env, &closeResp))
+	require.True(t, closeResp.OK, "close: %+v", closeResp)
 
 	cancel()
 }
 
 func TestServer_handleSend_shortMADNoPanic(t *testing.T) {
 	dir := t.TempDir()
-	if err := render.Render(render.Options{
+	require.NoError(t, render.Render(render.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "n", Output: dir,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	sock := filepath.Join(os.TempDir(), fmt.Sprintf("mock-ib-%d-short.sock", os.Getpid()))
 	t.Cleanup(func() { _ = os.Remove(sock) })
 	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errCh := make(chan error, 1)
@@ -152,69 +107,44 @@ func TestServer_handleSend_shortMADNoPanic(t *testing.T) {
 	waitForSocket(t, sock, errCh)
 
 	conn, err := net.Dial("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
 
-	if err := protocol.WriteMessage(conn, protocol.TypeOpen, protocol.OpenReq{CAName: "mlx5_0", Port: 1}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeOpen, protocol.OpenReq{CAName: "mlx5_0", Port: 1}))
 	var env protocol.Envelope
-	if err := protocol.ReadEnvelope(conn, &env); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
 	var openResp protocol.OpenResp
-	if err := protocol.DecodeBody(env, &openResp); err != nil {
-		t.Fatal(err)
-	}
-	if openResp.Handle == 0 {
-		t.Fatalf("open: %+v", openResp)
-	}
+	require.NoError(t, protocol.DecodeBody(env, &openResp))
+	require.NotZero(t, openResp.Handle, "open: %+v", openResp)
 
 	// A truncated umad buffer (shorter than the 56-byte header) used to slice
 	// umad[umadMADOffset:] out of range and panic the serveConn goroutine.
 	// Now it must come back as an error and leave the daemon serving.
-	if err := protocol.WriteMessage(conn, protocol.TypeSend, protocol.SendReq{
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeSend, protocol.SendReq{
 		Handle: openResp.Handle,
 		MAD:    make([]byte, 10),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := protocol.ReadEnvelope(conn, &env); err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
 	var sendResp protocol.SendResp
-	if err := protocol.DecodeBody(env, &sendResp); err != nil {
-		t.Fatal(err)
-	}
-	if sendResp.OK || !strings.Contains(sendResp.Error, "too short") {
-		t.Fatalf("short send: got %+v, want error containing \"too short\"", sendResp)
-	}
+	require.NoError(t, protocol.DecodeBody(env, &sendResp))
+	require.False(t, sendResp.OK, "short send: got %+v, want error containing \"too short\"", sendResp)
+	require.Contains(t, sendResp.Error, "too short", "short send: got %+v", sendResp)
 
 	// The daemon must still answer on the same connection (goroutine survived).
-	if err := protocol.WriteMessage(conn, protocol.TypeClose, protocol.CloseReq{Handle: openResp.Handle}); err != nil {
-		t.Fatal(err)
-	}
-	if err := protocol.ReadEnvelope(conn, &env); err != nil {
-		t.Fatalf("daemon stopped serving after short MAD: %v", err)
-	}
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeClose, protocol.CloseReq{Handle: openResp.Handle}))
+	require.NoError(t, protocol.ReadEnvelope(conn, &env), "daemon stopped serving after short MAD")
 	cancel()
 }
 
 func TestServer_handleClose_unknownHandle(t *testing.T) {
 	dir := t.TempDir()
-	if err := render.Render(render.Options{
+	require.NoError(t, render.Render(render.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "n", Output: dir,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	sock := filepath.Join(os.TempDir(), fmt.Sprintf("mock-ib-%d-close.sock", os.Getpid()))
 	t.Cleanup(func() { _ = os.Remove(sock) })
 	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errCh := make(chan error, 1)
@@ -222,25 +152,15 @@ func TestServer_handleClose_unknownHandle(t *testing.T) {
 	waitForSocket(t, sock, errCh)
 
 	conn, err := net.Dial("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer func() { _ = conn.Close() }()
 
-	if err := protocol.WriteMessage(conn, protocol.TypeClose, protocol.CloseReq{Handle: 9999}); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeClose, protocol.CloseReq{Handle: 9999}))
 	var env protocol.Envelope
-	if err := protocol.ReadEnvelope(conn, &env); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
 	var closeResp protocol.CloseResp
-	if err := protocol.DecodeBody(env, &closeResp); err != nil {
-		t.Fatal(err)
-	}
-	if closeResp.OK {
-		t.Fatalf("expected close error, got %+v", closeResp)
-	}
+	require.NoError(t, protocol.DecodeBody(env, &closeResp))
+	require.False(t, closeResp.OK, "expected close error, got %+v", closeResp)
 	cancel()
 }
 
@@ -250,9 +170,7 @@ func waitForSocket(t *testing.T, path string, errCh <-chan error) {
 	for time.Now().Before(deadline) {
 		select {
 		case err := <-errCh:
-			if err != nil && !errors.Is(err, context.Canceled) {
-				t.Fatalf("server exited early: %v", err)
-			}
+			require.True(t, err == nil || errors.Is(err, context.Canceled), "server exited early: %v", err)
 		default:
 		}
 		c, err := net.Dial("unix", path)
@@ -262,5 +180,5 @@ func waitForSocket(t *testing.T, path string, errCh <-chan error) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("socket %s not ready", path)
+	require.Failf(t, "socket not ready", "socket %s not ready", path)
 }

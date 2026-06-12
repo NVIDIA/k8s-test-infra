@@ -13,7 +13,11 @@
 
 package engine
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestCompareDriverVersions(t *testing.T) {
 	tests := []struct {
@@ -56,9 +60,7 @@ func TestCompareDriverVersions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := CompareDriverVersions(tt.a, tt.b)
-			if got != tt.want {
-				t.Errorf("CompareDriverVersions(%q, %q) = %d, want %d", tt.a, tt.b, got, tt.want)
-			}
+			require.Equal(t, tt.want, got, "CompareDriverVersions(%q, %q)", tt.a, tt.b)
 		})
 	}
 }
@@ -97,9 +99,7 @@ func TestFunctionAvailable(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := FunctionAvailable(tt.funcName, tt.driverVersion)
-			if got != tt.want {
-				t.Errorf("FunctionAvailable(%q, %q) = %v, want %v", tt.funcName, tt.driverVersion, got, tt.want)
-			}
+			require.Equal(t, tt.want, got, "FunctionAvailable(%q, %q)", tt.funcName, tt.driverVersion)
 		})
 	}
 }
@@ -123,8 +123,7 @@ func TestFunctionRegistry_Coverage(t *testing.T) {
 
 	registry := GetFunctionRegistry()
 	for _, name := range expectedFunctions {
-		if _, ok := registry[name]; !ok {
-			t.Errorf("expected function %q not found in registry", name)
-		}
+		_, ok := registry[name]
+		require.True(t, ok, "expected function %q not found in registry", name)
 	}
 }

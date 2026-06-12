@@ -8,6 +8,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGraph_BuildAndLookup(t *testing.T) {
@@ -19,11 +20,8 @@ func TestGraph_BuildAndLookup(t *testing.T) {
 		"a088:c203:00ab:0003": {LID: 0x103, CAName: "mlx5_1", PodIP: "10.0.0.2"},
 	}
 	g := Build(local, peers)
-	if len(g.Ports()) != 3 {
-		t.Fatalf("ports: got %d want 3", len(g.Ports()))
-	}
+	require.Len(t, g.Ports(), 3, "ports")
 	remote, ok := g.ByLID(0x102)
-	if !ok || remote.PodIP != "10.0.0.2" {
-		t.Fatalf("ByLID: %+v ok=%v", remote, ok)
-	}
+	require.True(t, ok, "ByLID: %+v ok=%v", remote, ok)
+	require.Equal(t, "10.0.0.2", remote.PodIP, "ByLID: %+v ok=%v", remote, ok)
 }

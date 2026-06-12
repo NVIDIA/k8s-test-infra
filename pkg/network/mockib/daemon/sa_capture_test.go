@@ -12,6 +12,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/render"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/sysfs"
+	"github.com/stretchr/testify/require"
 )
 
 // Built from ibping -G LIBIBMAD_DEBUG_LEVEL=3 xdump (MAD payload rows at umad offset 64).
@@ -35,19 +36,13 @@ const ibpingSAPathSendHex = "" +
 
 func TestSAPathQuery_IbpingCapture(t *testing.T) {
 	madPayload, err := hex.DecodeString(ibpingSAPathSendHex)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(madPayload) != 256 {
-		t.Fatalf("payload len: got %d want 256", len(madPayload))
-	}
+	require.NoError(t, err)
+	require.Len(t, madPayload, 256, "payload len")
 	umad := make([]byte, umadMADOffset+len(madPayload))
 	copy(umad[umadMADOffset:], madPayload)
 	binary.BigEndian.PutUint16(umad[umadLIDOffset:], 0x0001)
 
-	if !isSAPathRecordGet(umad) {
-		t.Fatal("isSAPathRecordGet: want true for captured ibping SA GET")
-	}
+	require.True(t, isSAPathRecordGet(umad), "isSAPathRecordGet: want true for captured ibping SA GET")
 
 	// The recorded SA GET targets port GUID a088:c203:00ab:2001 (the DGID in
 	// the hex above). Register that exact GUID so the test pins SA PathRecord
@@ -58,11 +53,9 @@ func TestSAPathQuery_IbpingCapture(t *testing.T) {
 	const capturedTargetLID uint16 = 0x0201
 
 	dirB := t.TempDir()
-	if err := render.Render(render.Options{
+	require.NoError(t, render.Render(render.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "nvml-mock-demo-worker2", Output: dirB,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	portsB, _ := sysfs.Scan(dirB)
 
 	client := &Server{
@@ -75,22 +68,12 @@ func TestSAPathQuery_IbpingCapture(t *testing.T) {
 	})
 
 	h := &portHandle{}
-	if !client.trySAPathQuery(h, umad) {
-		t.Fatal("trySAPathQuery: want true")
-	}
-	if len(h.recvQ) != 1 {
-		t.Fatalf("recvQ len: got %d want 1", len(h.recvQ))
-	}
+	require.True(t, client.trySAPathQuery(h, umad), "trySAPathQuery: want true")
+	require.Len(t, h.recvQ, 1, "recvQ len")
 	dlidOff, _ := pathRecordDLIDOffset(h.recvQ[0][umadMADOffset:])
 	gotLID := binary.BigEndian.Uint16(h.recvQ[0][umadMADOffset+dlidOff:])
-	if gotLID != capturedTargetLID {
-		t.Fatalf("dlid: got 0x%04x want 0x%04x", gotLID, capturedTargetLID)
-	}
+	require.Equal(t, capturedTargetLID, gotLID, "dlid")
 	mad := h.recvQ[0][umadMADOffset:]
-	if got, want := mad[8:16], umad[umadMADOffset+8:umadMADOffset+16]; string(got) != string(want) {
-		t.Fatalf("TRID bytes 8-15: got %x want %x", got, want)
-	}
-	if !saMethodResponseSet(mad) {
-		t.Fatal("expected GET response bit on SA method byte")
-	}
+	require.Equal(t, umad[umadMADOffset+8:umadMADOffset+16], mad[8:16], "TRID bytes 8-15")
+	require.True(t, saMethodResponseSet(mad), "expected GET response bit on SA method byte")
 }

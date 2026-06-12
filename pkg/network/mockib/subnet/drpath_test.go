@@ -9,6 +9,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/fabric"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
+	"github.com/stretchr/testify/require"
 )
 
 // Captured MAD header from a real `ibping <lid>` send in
@@ -39,10 +40,8 @@ var ibpingVendorPingHdr = []byte{
 func TestIsSMPSend_RejectsVendorPing(t *testing.T) {
 	umad := make([]byte, umadMADOffset+256)
 	copy(umad[umadMADOffset:], ibpingVendorPingHdr)
-	if IsSMPSend(umad) {
-		t.Fatalf("vendor ping MAD (MgmtClass=0x%02x) must not be classified as SMP",
-			umad[umadMADOffset+1])
-	}
+	require.False(t, IsSMPSend(umad), "vendor ping MAD (MgmtClass=0x%02x) must not be classified as SMP",
+		umad[umadMADOffset+1])
 }
 
 // TestIsSMPSend_AcceptsSMI / _AcceptsSMIDirect keep the positive side of the
@@ -54,9 +53,7 @@ func TestIsSMPSend_AcceptsSMI(t *testing.T) {
 	umad[umadMADOffset+1] = ibClassSMI
 	umad[umadMADOffset+2] = 0x01
 	umad[umadMADOffset+3] = 0x01
-	if !IsSMPSend(umad) {
-		t.Fatal("SMI MAD must be classified as SMP")
-	}
+	require.True(t, IsSMPSend(umad), "SMI MAD must be classified as SMP")
 }
 
 func TestIsSMPSend_AcceptsSMIDirect(t *testing.T) {
@@ -66,9 +63,7 @@ func TestIsSMPSend_AcceptsSMIDirect(t *testing.T) {
 	umad[umadMADOffset+1] = ibClassSMIDirect
 	umad[umadMADOffset+2] = 0x01
 	umad[umadMADOffset+3] = 0x01
-	if !IsSMPSend(umad) {
-		t.Fatal("SMI-direct MAD must be classified as SMP")
-	}
+	require.True(t, IsSMPSend(umad), "SMI-direct MAD must be classified as SMP")
 }
 
 // TestIsSMPSend_RejectsSA pins the SA(0x03) case so the future habit of
@@ -79,9 +74,7 @@ func TestIsSMPSend_RejectsSA(t *testing.T) {
 	umad[umadMADOffset+1] = 0x03 // SA
 	umad[umadMADOffset+2] = 0x02
 	umad[umadMADOffset+3] = 0x01
-	if IsSMPSend(umad) {
-		t.Fatal("SA MAD must not be classified as SMP")
-	}
+	require.False(t, IsSMPSend(umad), "SA MAD must not be classified as SMP")
 }
 
 func TestResolveTarget_DROneHopPeerNotLocal(t *testing.T) {
@@ -99,15 +92,9 @@ func TestResolveTarget_DROneHopPeerNotLocal(t *testing.T) {
 	mad[ibDRPathByteOff+1] = 1
 
 	p, ok := resolveTarget(g, mad, 0xffff, "mlx5_0")
-	if !ok {
-		t.Fatal("expected peer resolve")
-	}
-	if p.PortGUID == "a088:c203:00ab:5601" {
-		t.Fatalf("DR hop 1 should target peer, got local port GUID %s", p.PortGUID)
-	}
-	if p.PortGUID != "a088:c203:00ab:2001" {
-		t.Fatalf("peer GUID: got %s", p.PortGUID)
-	}
+	require.True(t, ok, "expected peer resolve")
+	require.NotEqual(t, "a088:c203:00ab:5601", p.PortGUID, "DR hop 1 should target peer, got local port GUID %s", p.PortGUID)
+	require.Equal(t, "a088:c203:00ab:2001", p.PortGUID, "peer GUID: got %s", p.PortGUID)
 }
 
 func TestResolveTarget_TwoHopDifferentPeer(t *testing.T) {
@@ -127,14 +114,8 @@ func TestResolveTarget_TwoHopDifferentPeer(t *testing.T) {
 	mad[ibDRPathByteOff+2] = 1
 
 	p, ok := resolveTarget(g, mad, 0xffff, "mlx5_0")
-	if !ok {
-		t.Fatal("expected two-hop resolve")
-	}
-	if p.PortGUID == "a088:c203:00ab:5601" {
-		t.Fatal("two-hop must not resolve to local port")
-	}
-	if p.PodIP == "10.0.0.2" {
-		// second hop should land on the other peer pod when two remotes exist
-		t.Fatalf("expected second peer pod, got %s", p.PodIP)
-	}
+	require.True(t, ok, "expected two-hop resolve")
+	require.NotEqual(t, "a088:c203:00ab:5601", p.PortGUID, "two-hop must not resolve to local port")
+	// second hop should land on the other peer pod when two remotes exist
+	require.NotEqual(t, "10.0.0.2", p.PodIP, "expected second peer pod, got %s", p.PodIP)
 }

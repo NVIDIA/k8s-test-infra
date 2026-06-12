@@ -7,16 +7,13 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/fabric"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBitsoffs_PortInfoLid(t *testing.T) {
 	// IB spec offsets are transformed by libibmad fields.c BITSOFFS macro.
-	if got, want := Bitsoffs(128, 16), 144; got != want {
-		t.Fatalf("Bitsoffs(128,16): got %d want %d", got, want)
-	}
-	if got, want := Bitsoffs(144, 16), 128; got != want {
-		t.Fatalf("Bitsoffs(144,16): got %d want %d", got, want)
-	}
+	require.Equal(t, 144, Bitsoffs(128, 16), "Bitsoffs(128,16)")
+	require.Equal(t, 128, Bitsoffs(144, 16), "Bitsoffs(144,16)")
 }
 
 func TestSetFieldPortInfoLinkUp(t *testing.T) {
@@ -46,9 +43,7 @@ func TestSetFieldPortInfoLinkUp(t *testing.T) {
 		{280, 4, linkSpeed10G},
 	}
 	for _, c := range cases {
-		if got := GetFieldSpec(pl, c.specOff, c.len); got != c.want {
-			t.Fatalf("field spec@%d len=%d: got %#x want %#x", c.specOff, c.len, got, c.want)
-		}
+		require.Equal(t, c.want, GetFieldSpec(pl, c.specOff, c.len), "field spec@%d len=%d", c.specOff, c.len)
 	}
 }
 
@@ -57,12 +52,8 @@ func TestFillNodeInfo(t *testing.T) {
 	fillNodeInfo(mad, fabricPort(0x101), 0)
 	pl := mad[ibSMPDataOff:]
 
-	if got := GetFieldSpec(pl, 16, 8); got != nodeTypeCA {
-		t.Fatalf("node type: got %d want %d", got, nodeTypeCA)
-	}
-	if got := GetFieldSpec(pl, 288, 8); got != 1 {
-		t.Fatalf("local port: got %d want 1", got)
-	}
+	require.Equal(t, uint32(nodeTypeCA), GetFieldSpec(pl, 16, 8), "node type")
+	require.Equal(t, uint32(1), GetFieldSpec(pl, 288, 8), "local port")
 }
 
 func TestFillPortInfo(t *testing.T) {
@@ -70,15 +61,9 @@ func TestFillPortInfo(t *testing.T) {
 	fillPortInfo(mad, fabricPort(0x101), 1)
 	pl := mad[ibSMPDataOff:]
 
-	if got := GetFieldSpec(pl, 264, 4); got != portPhysStateLinkUp {
-		t.Fatalf("phys state: got %d want %d", got, portPhysStateLinkUp)
-	}
-	if got := GetFieldSpec(pl, 248, 8); got != linkWidth4X {
-		t.Fatalf("link width: got %d want %d", got, linkWidth4X)
-	}
-	if got := GetFieldSpec(pl, 128, 16); got != 0x101 {
-		t.Fatalf("lid: got %#x want 0x101", got)
-	}
+	require.Equal(t, uint32(portPhysStateLinkUp), GetFieldSpec(pl, 264, 4), "phys state")
+	require.Equal(t, uint32(linkWidth4X), GetFieldSpec(pl, 248, 8), "link width")
+	require.Equal(t, uint32(0x101), GetFieldSpec(pl, 128, 16), "lid")
 }
 
 func fabricPort(lid uint16) fabric.Port {

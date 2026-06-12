@@ -36,6 +36,7 @@ import (
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/stretchr/testify/require"
 )
 
 // Expected byte sizes derived from nvml_types.h field-by-field. Update
@@ -65,10 +66,9 @@ func TestFabricStructLayouts(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.goSize != tc.expected {
-				t.Errorf("%s: go-nvml = %d bytes, C layout expects %d bytes — ABI drift; update either go-nvml vendor or nvml_types.h",
-					tc.name, tc.goSize, tc.expected)
-			}
+			require.Equal(t, tc.expected, tc.goSize,
+				"%s: go-nvml = %d bytes, C layout expects %d bytes — ABI drift; update either go-nvml vendor or nvml_types.h",
+				tc.name, tc.goSize, tc.expected)
 		})
 	}
 }
@@ -101,10 +101,9 @@ func TestFabricStructVersion_MatchesGoNvml(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.ours != tc.theirs {
-				t.Errorf("%s: bridge encoded 0x%x, go-nvml encoded 0x%x — version-tag mismatch",
-					tc.name, tc.ours, tc.theirs)
-			}
+			require.Equal(t, tc.theirs, tc.ours,
+				"%s: bridge encoded 0x%x, go-nvml encoded 0x%x — version-tag mismatch",
+				tc.name, tc.ours, tc.theirs)
 		})
 	}
 }

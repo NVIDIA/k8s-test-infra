@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRender_Disabled(t *testing.T) {
@@ -33,13 +34,10 @@ func TestRender_Disabled(t *testing.T) {
 		LinkLayer:        "InfiniBand",
 		NodeDescTemplate: "{node_name} mlx5_{idx}",
 	}
-	if err := Render(Options{IB: ib, Output: dir, GPUCount: 8, NodeName: "host1"}); err != nil {
-		t.Fatalf("Render: %v", err)
-	}
+	err := Render(Options{IB: ib, Output: dir, GPUCount: 8, NodeName: "host1"})
+	require.NoError(t, err, "Render")
 	entries, _ := os.ReadDir(dir)
-	if len(entries) != 0 {
-		t.Fatalf("expected no output when disabled, got %d entries", len(entries))
-	}
+	require.Len(t, entries, 0, "expected no output when disabled")
 }
 
 func TestRender_DefaultsAndCount(t *testing.T) {
@@ -50,28 +48,20 @@ func TestRender_DefaultsAndCount(t *testing.T) {
 		NodeName: "host1",
 		Output:   dir,
 	})
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
+	require.NoError(t, err, "Render")
 	for i := 0; i < 4; i++ {
 		caDir := filepath.Join(dir, "sys/class/infiniband", "mlx5_"+strconv.Itoa(i))
-		if _, err := os.Stat(caDir); err != nil {
-			t.Errorf("missing CA dir mlx5_%d: %v", i, err)
-		}
+		_, err := os.Stat(caDir)
+		require.NoError(t, err, "missing CA dir mlx5_%d", i)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "sys/class/infiniband", "mlx5_4")); !os.IsNotExist(err) {
-		t.Errorf("unexpected mlx5_4 (gpu_count=4 hcas_per_gpu=1): %v", err)
-	}
+	_, err = os.Stat(filepath.Join(dir, "sys/class/infiniband", "mlx5_4"))
+	require.True(t, os.IsNotExist(err), "unexpected mlx5_4 (gpu_count=4 hcas_per_gpu=1): %v", err)
 
 	mustRead := func(rel, want string) {
 		t.Helper()
 		got, err := os.ReadFile(filepath.Join(dir, rel))
-		if err != nil {
-			t.Fatalf("read %s: %v", rel, err)
-		}
-		if strings.TrimSpace(string(got)) != strings.TrimSpace(want) {
-			t.Errorf("%s: got %q want %q", rel, string(got), want)
-		}
+		require.NoError(t, err, "read %s", rel)
+		require.Equal(t, strings.TrimSpace(want), strings.TrimSpace(string(got)), "%s", rel)
 	}
 
 	mustRead("sys/class/infiniband/mlx5_0/hca_type", "MT4129")
@@ -87,25 +77,19 @@ func TestRender_DefaultsAndCount(t *testing.T) {
 
 	modaliasPath := filepath.Join(dir, "sys/class/infiniband/mlx5_0/device/modalias")
 	modalias, err := os.ReadFile(modaliasPath)
-	if err != nil {
-		t.Fatalf("read modalias: %v", err)
-	}
+	require.NoError(t, err, "read modalias")
 	// Must be in the exact kernel modalias grammar so libibverbs' fnmatch
 	// against provider match tables (e.g. mlx5's "pci:v000015B3d*sv*sd*bc*sc*i*")
 	// can claim the device. See render.go for the rationale.
 	const wantModalias = "pci:v000015B3d00001017sv000015B3sd00000008bc02sc00i00\n"
-	if string(modalias) != wantModalias {
-		t.Fatalf("modalias = %q, want %q", modalias, wantModalias)
-	}
+	require.Equal(t, wantModalias, string(modalias), "modalias")
 
 	// `gid_attrs` must be a directory in real Linux sysfs; libibverbs and
 	// iblinkinfo opendir() it. A regular file would yield ENOTDIR.
 	gidAttrs := filepath.Join(dir, "sys/class/infiniband/mlx5_0/ports/1/gid_attrs")
-	if st, err := os.Stat(gidAttrs); err != nil {
-		t.Errorf("missing gid_attrs: %v", err)
-	} else if !st.IsDir() {
-		t.Errorf("gid_attrs must be a directory, got mode %v", st.Mode())
-	}
+	st, err := os.Stat(gidAttrs)
+	require.NoError(t, err, "missing gid_attrs")
+	require.True(t, st.IsDir(), "gid_attrs must be a directory, got mode %v", st.Mode())
 
 	// port_guid is exposed by real mlx5 ports and must follow node_guid's
 	// formatting. The lower 32 bits pack the node id (bits 9..31) and HCA
@@ -125,14 +109,11 @@ func TestRender_HCAsPerGPU(t *testing.T) {
 		GPUCount: 4,
 		Output:   dir,
 	})
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
+	require.NoError(t, err, "Render")
 	for i := 0; i < 8; i++ {
 		caDir := filepath.Join(dir, "sys/class/infiniband", "mlx5_"+strconv.Itoa(i))
-		if _, err := os.Stat(caDir); err != nil {
-			t.Errorf("missing CA dir mlx5_%d: %v", i, err)
-		}
+		_, err := os.Stat(caDir)
+		require.NoError(t, err, "missing CA dir mlx5_%d", i)
 	}
 }
 
@@ -143,18 +124,14 @@ func TestRender_HCACountOverride(t *testing.T) {
 		GPUCount: 16, // ignored
 		Output:   dir,
 	})
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
+	require.NoError(t, err, "Render")
 	for i := 0; i < 2; i++ {
 		caDir := filepath.Join(dir, "sys/class/infiniband", "mlx5_"+strconv.Itoa(i))
-		if _, err := os.Stat(caDir); err != nil {
-			t.Errorf("missing CA dir mlx5_%d: %v", i, err)
-		}
+		_, err := os.Stat(caDir)
+		require.NoError(t, err, "missing CA dir mlx5_%d", i)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "sys/class/infiniband", "mlx5_2")); !os.IsNotExist(err) {
-		t.Errorf("override should cap count: mlx5_2 exists: %v", err)
-	}
+	_, err = os.Stat(filepath.Join(dir, "sys/class/infiniband", "mlx5_2"))
+	require.True(t, os.IsNotExist(err), "override should cap count: mlx5_2 exists: %v", err)
 }
 
 func TestRender_RateMapping(t *testing.T) {
@@ -169,9 +146,8 @@ func TestRender_RateMapping(t *testing.T) {
 		{50, "50 Gb/sec (4X)"},
 	}
 	for _, tc := range cases {
-		if got := formatRate(tc.in); got != tc.want {
-			t.Errorf("formatRate(%d): got %q want %q", tc.in, got, tc.want)
-		}
+		got := formatRate(tc.in)
+		require.Equal(t, tc.want, got, "formatRate(%d)", tc.in)
 	}
 }
 
@@ -182,14 +158,10 @@ func TestRender_GUIDPrefixNormalization(t *testing.T) {
 		GPUCount: 1,
 		Output:   dir,
 	})
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
+	require.NoError(t, err, "Render")
 	got, _ := os.ReadFile(filepath.Join(dir, "sys/class/infiniband/mlx5_0/node_guid"))
 	want := "aabb:cc00:0000:0000\n"
-	if string(got) != want {
-		t.Errorf("node_guid: got %q want %q", string(got), want)
-	}
+	require.Equal(t, want, string(got), "node_guid")
 }
 
 func TestRender_NodeUniqueGUIDsAcrossNodes(t *testing.T) {
@@ -199,29 +171,21 @@ func TestRender_NodeUniqueGUIDsAcrossNodes(t *testing.T) {
 	opts := func(node, out string) Options {
 		return Options{IB: ib, GPUCount: 2, NodeName: node, Output: out}
 	}
-	if err := Render(opts("worker-a", dirA)); err != nil {
-		t.Fatal(err)
-	}
-	if err := Render(opts("worker-b", dirB)); err != nil {
-		t.Fatal(err)
-	}
+	err := Render(opts("worker-a", dirA))
+	require.NoError(t, err)
+	err = Render(opts("worker-b", dirB))
+	require.NoError(t, err)
 	readGUID := func(root, ca string) string {
 		b, err := os.ReadFile(filepath.Join(root, "sys/class/infiniband", ca, "node_guid"))
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		return strings.TrimSpace(string(b))
 	}
 	gA := readGUID(dirA, "mlx5_0")
 	gB := readGUID(dirB, "mlx5_0")
-	if gA == gB {
-		t.Fatalf("node_guid collision for same hca idx: %q", gA)
-	}
+	require.NotEqual(t, gB, gA, "node_guid collision for same hca idx")
 	lidA, _ := os.ReadFile(filepath.Join(dirA, "sys/class/infiniband/mlx5_0/ports/1/lid"))
 	lidB, _ := os.ReadFile(filepath.Join(dirB, "sys/class/infiniband/mlx5_0/ports/1/lid"))
-	if strings.TrimSpace(string(lidA)) == strings.TrimSpace(string(lidB)) {
-		t.Fatalf("lid collision: %q", lidA)
-	}
+	require.NotEqual(t, strings.TrimSpace(string(lidB)), strings.TrimSpace(string(lidA)), "lid collision")
 }
 
 func TestRender_NodePortGUIDsAvoidKnownHashLowBitCollision(t *testing.T) {
@@ -231,18 +195,14 @@ func TestRender_NodePortGUIDsAvoidKnownHashLowBitCollision(t *testing.T) {
 	dirA := t.TempDir()
 	dirB := t.TempDir()
 	ib := config.Infiniband{Enabled: true, HCACountOverride: 2}
-	if err := Render(Options{IB: ib, NodeName: "38", Output: dirA}); err != nil {
-		t.Fatal(err)
-	}
-	if err := Render(Options{IB: ib, NodeName: "worker-44", Output: dirB}); err != nil {
-		t.Fatal(err)
-	}
+	err := Render(Options{IB: ib, NodeName: "38", Output: dirA})
+	require.NoError(t, err)
+	err = Render(Options{IB: ib, NodeName: "worker-44", Output: dirB})
+	require.NoError(t, err)
 	read := func(root, rel string) string {
 		t.Helper()
 		b, err := os.ReadFile(filepath.Join(root, rel))
-		if err != nil {
-			t.Fatalf("read %s: %v", rel, err)
-		}
+		require.NoError(t, err, "read %s", rel)
 		return strings.TrimSpace(string(b))
 	}
 	for _, rel := range []string{
@@ -250,9 +210,8 @@ func TestRender_NodePortGUIDsAvoidKnownHashLowBitCollision(t *testing.T) {
 		"sys/class/infiniband/mlx5_0/ports/1/port_guid",
 		"sys/class/infiniband/mlx5_0/ports/1/lid",
 	} {
-		if a, b := read(dirA, rel), read(dirB, rel); a == b {
-			t.Fatalf("%s collision for known node-name pair: %q", rel, a)
-		}
+		a, b := read(dirA, rel), read(dirB, rel)
+		require.NotEqual(t, b, a, "%s collision for known node-name pair", rel)
 	}
 }
 
@@ -263,18 +222,15 @@ func TestRender_NodePortGUIDsNoOverlap(t *testing.T) {
 	// putting the index in bits 1..4 keeps every node/port GUID distinct.
 	dir := t.TempDir()
 	const hcas = 20
-	if err := Render(Options{
+	err := Render(Options{
 		IB:       config.Infiniband{Enabled: true, HCACountOverride: hcas},
 		NodeName: "worker-a",
 		Output:   dir,
-	}); err != nil {
-		t.Fatalf("Render: %v", err)
-	}
+	})
+	require.NoError(t, err, "Render")
 	read := func(rel string) string {
 		b, err := os.ReadFile(filepath.Join(dir, rel))
-		if err != nil {
-			t.Fatalf("read %s: %v", rel, err)
-		}
+		require.NoError(t, err, "read %s", rel)
 		return strings.TrimSpace(string(b))
 	}
 	seen := map[string]string{}
@@ -285,9 +241,8 @@ func TestRender_NodePortGUIDsNoOverlap(t *testing.T) {
 			{filepath.Join("sys/class/infiniband", ca, "ports/1/port_guid"), ca + " port_guid"},
 		} {
 			v := read(kind.rel)
-			if prev, dup := seen[v]; dup {
-				t.Fatalf("GUID collision: %s and %s both == %q", prev, kind.what, v)
-			}
+			prev, dup := seen[v]
+			require.False(t, dup, "GUID collision: %s and %s both == %q", prev, kind.what, v)
 			seen[v] = kind.what
 		}
 	}
@@ -300,7 +255,5 @@ func TestRender_BadGUIDPrefix(t *testing.T) {
 		GPUCount: 1,
 		Output:   dir,
 	})
-	if err == nil {
-		t.Fatalf("expected error for bad guid_prefix, got nil")
-	}
+	require.Error(t, err, "expected error for bad guid_prefix")
 }

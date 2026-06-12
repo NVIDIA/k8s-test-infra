@@ -8,6 +8,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPeerAtOutbound_FirstHopRemote(t *testing.T) {
@@ -21,13 +22,11 @@ func TestPeerAtOutbound_FirstHopRemote(t *testing.T) {
 	}
 	g := Build(local, peers)
 	from, ok := g.ByCAName("mlx5_0")
-	if !ok {
-		t.Fatal("local port")
-	}
+	require.True(t, ok, "local port")
 	peer, ok := g.PeerAtOutbound(from, 1, 0)
-	if !ok || peer.Local || peer.PortGUID != "a088:c203:00ab:0002" {
-		t.Fatalf("peer: %+v ok=%v", peer, ok)
-	}
+	require.True(t, ok, "peer: %+v ok=%v", peer, ok)
+	require.False(t, peer.Local, "peer: %+v ok=%v", peer, ok)
+	require.Equal(t, "a088:c203:00ab:0002", peer.PortGUID, "peer: %+v ok=%v", peer, ok)
 }
 
 func TestPeerAtOutbound_SecondHopDifferentPod(t *testing.T) {
@@ -41,17 +40,9 @@ func TestPeerAtOutbound_SecondHopDifferentPod(t *testing.T) {
 	g := Build(local, peers)
 	from, _ := g.ByCAName("mlx5_0")
 	first, ok := g.PeerAtOutbound(from, 1, 0)
-	if !ok {
-		t.Fatal("first hop")
-	}
+	require.True(t, ok, "first hop")
 	second, ok := g.PeerAtOutbound(first, 1, 1)
-	if !ok {
-		t.Fatal("second hop")
-	}
-	if second.PortGUID == first.PortGUID {
-		t.Fatalf("second hop must be a different port, got %s", second.PortGUID)
-	}
-	if second.PodIP == first.PodIP {
-		t.Fatalf("second hop must be a different pod")
-	}
+	require.True(t, ok, "second hop")
+	require.NotEqual(t, first.PortGUID, second.PortGUID, "second hop must be a different port, got %s", second.PortGUID)
+	require.NotEqual(t, first.PodIP, second.PodIP, "second hop must be a different pod")
 }

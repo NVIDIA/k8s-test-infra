@@ -19,10 +19,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIbstat_Integration(t *testing.T) {
@@ -34,16 +34,14 @@ func TestIbstat_Integration(t *testing.T) {
 		t.Skip("ibstat not installed (apt-get install infiniband-diags)")
 	}
 	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
+	require.NoError(t, err, "getwd")
 	shim := filepath.Join(wd, "..", "libibmocksys.so")
 	if _, err := os.Stat(shim); err != nil {
 		t.Skipf("shim not built: %v (run `make -C pkg/network/mockib`)", err)
 	}
 
 	root := t.TempDir()
-	if err := Render(Options{
+	err = Render(Options{
 		IB: config.Infiniband{
 			Enabled:   true,
 			HCAType:   "MT4129",
@@ -53,9 +51,8 @@ func TestIbstat_Integration(t *testing.T) {
 		GPUCount: 2,
 		NodeName: "test-node",
 		Output:   root,
-	}); err != nil {
-		t.Fatalf("Render: %v", err)
-	}
+	})
+	require.NoError(t, err, "Render")
 
 	cmd := exec.Command(ibstat)
 	cmd.Env = append(os.Environ(),
@@ -64,9 +61,7 @@ func TestIbstat_Integration(t *testing.T) {
 		"MOCK_IB_ROOT="+root,
 	)
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("ibstat failed: %v\noutput:\n%s", err, out)
-	}
+	require.NoError(t, err, "ibstat failed\noutput:\n%s", out)
 	want := []string{
 		"CA 'mlx5_0'",
 		"CA 'mlx5_1'",
@@ -79,9 +74,7 @@ func TestIbstat_Integration(t *testing.T) {
 	}
 	got := string(out)
 	for _, s := range want {
-		if !strings.Contains(got, s) {
-			t.Errorf("ibstat output missing %q\nfull output:\n%s", s, got)
-		}
+		require.Contains(t, got, s, "ibstat output missing %q\nfull output:\n%s", s, got)
 	}
 
 	// Spot-check end-to-end that branches not exercised by `ibstat` are
@@ -93,9 +86,8 @@ func TestIbstat_Integration(t *testing.T) {
 		"sys/class/infiniband/mlx5_1/ports/1/counters/port_xmit_packets",
 		"sys/class/infiniband_mad/abi_version",
 	} {
-		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
-			t.Errorf("expected rendered file %s: %v", rel, err)
-		}
+		_, err := os.Stat(filepath.Join(root, rel))
+		require.NoError(t, err, "expected rendered file %s", rel)
 	}
 }
 
@@ -108,16 +100,14 @@ func TestIbvDevinfo_List_Integration(t *testing.T) {
 		t.Skip("ibv_devinfo not installed (apt-get install rdma-core)")
 	}
 	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
+	require.NoError(t, err, "getwd")
 	shim := filepath.Join(wd, "..", "libibmocksys.so")
 	if _, err := os.Stat(shim); err != nil {
 		t.Skipf("shim not built: %v (run `make -C pkg/network/mockib`)", err)
 	}
 
 	root := t.TempDir()
-	if err := Render(Options{
+	err = Render(Options{
 		IB: config.Infiniband{
 			Enabled:   true,
 			HCAType:   "MT4129",
@@ -127,9 +117,8 @@ func TestIbvDevinfo_List_Integration(t *testing.T) {
 		GPUCount: 2,
 		NodeName: "test-node",
 		Output:   root,
-	}); err != nil {
-		t.Fatalf("Render: %v", err)
-	}
+	})
+	require.NoError(t, err, "Render")
 
 	cmd := exec.Command(ibv, "-l")
 	cmd.Env = append(os.Environ(),
@@ -138,13 +127,9 @@ func TestIbvDevinfo_List_Integration(t *testing.T) {
 		"MOCK_IB_ROOT="+root,
 	)
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("ibv_devinfo -l failed: %v\noutput:\n%s", err, out)
-	}
+	require.NoError(t, err, "ibv_devinfo -l failed\noutput:\n%s", out)
 	got := string(out)
 	for _, want := range []string{"mlx5_0", "mlx5_1"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("ibv_devinfo -l missing %q\nfull output:\n%s", want, got)
-		}
+		require.Contains(t, got, want, "ibv_devinfo -l missing %q\nfull output:\n%s", want, got)
 	}
 }

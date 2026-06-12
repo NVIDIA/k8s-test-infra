@@ -20,16 +20,13 @@ import (
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHandleTable_NewHandleTable(t *testing.T) {
 	ht := NewHandleTable()
-	if ht == nil {
-		t.Fatal("NewHandleTable returned nil")
-	}
-	if ht.Count() != 0 {
-		t.Errorf("Expected empty table, got count %d", ht.Count())
-	}
+	require.NotNil(t, ht, "NewHandleTable returned nil")
+	require.Equal(t, 0, ht.Count(), "Expected empty table")
 }
 
 func TestHandleTable_Register(t *testing.T) {
@@ -38,32 +35,20 @@ func TestHandleTable_Register(t *testing.T) {
 
 	// Register device
 	handle := ht.Register(dev)
-	if handle == 0 {
-		t.Error("Expected non-zero handle")
-	}
-	if ht.Count() != 1 {
-		t.Errorf("Expected count 1, got %d", ht.Count())
-	}
+	require.NotZero(t, handle, "Expected non-zero handle")
+	require.Equal(t, 1, ht.Count(), "Expected count 1")
 
 	// Register same device again - should return same handle
 	handle2 := ht.Register(dev)
-	if handle != handle2 {
-		t.Errorf("Expected same handle for same device, got %d and %d", handle, handle2)
-	}
-	if ht.Count() != 1 {
-		t.Errorf("Expected count to remain 1, got %d", ht.Count())
-	}
+	require.Equal(t, handle, handle2, "Expected same handle for same device")
+	require.Equal(t, 1, ht.Count(), "Expected count to remain 1")
 }
 
 func TestHandleTable_RegisterNil(t *testing.T) {
 	ht := NewHandleTable()
 	handle := ht.Register(nil)
-	if handle != 0 {
-		t.Errorf("Expected 0 handle for nil device, got %d", handle)
-	}
-	if ht.Count() != 0 {
-		t.Errorf("Expected count 0, got %d", ht.Count())
-	}
+	require.Zero(t, handle, "Expected 0 handle for nil device")
+	require.Equal(t, 0, ht.Count(), "Expected count 0")
 }
 
 func TestHandleTable_Lookup(t *testing.T) {
@@ -73,21 +58,15 @@ func TestHandleTable_Lookup(t *testing.T) {
 	// Register and lookup
 	handle := ht.Register(dev)
 	retrieved := ht.Lookup(handle)
-	if retrieved != dev {
-		t.Error("Lookup returned different device")
-	}
+	require.Equal(t, dev, retrieved, "Lookup returned different device")
 
 	// Lookup invalid handle - returns InvalidDeviceInstance (null-object pattern)
 	invalid := ht.Lookup(999)
-	if invalid != InvalidDeviceInstance {
-		t.Error("Expected InvalidDeviceInstance for invalid handle")
-	}
+	require.Equal(t, InvalidDeviceInstance, invalid, "Expected InvalidDeviceInstance for invalid handle")
 
 	// Lookup zero handle - returns InvalidDeviceInstance
 	zero := ht.Lookup(0)
-	if zero != InvalidDeviceInstance {
-		t.Error("Expected InvalidDeviceInstance for zero handle")
-	}
+	require.Equal(t, InvalidDeviceInstance, zero, "Expected InvalidDeviceInstance for zero handle")
 }
 
 func TestHandleTable_Clear(t *testing.T) {
@@ -98,23 +77,15 @@ func TestHandleTable_Clear(t *testing.T) {
 	handle1 := ht.Register(dev1)
 	handle2 := ht.Register(dev2)
 
-	if ht.Count() != 2 {
-		t.Errorf("Expected count 2, got %d", ht.Count())
-	}
+	require.Equal(t, 2, ht.Count(), "Expected count 2")
 
 	ht.Clear()
 
-	if ht.Count() != 0 {
-		t.Errorf("Expected count 0 after clear, got %d", ht.Count())
-	}
+	require.Equal(t, 0, ht.Count(), "Expected count 0 after clear")
 
 	// Lookup should return InvalidDeviceInstance after clear (null-object pattern)
-	if ht.Lookup(handle1) != InvalidDeviceInstance {
-		t.Error("Expected InvalidDeviceInstance after clear")
-	}
-	if ht.Lookup(handle2) != InvalidDeviceInstance {
-		t.Error("Expected InvalidDeviceInstance after clear")
-	}
+	require.Equal(t, InvalidDeviceInstance, ht.Lookup(handle1), "Expected InvalidDeviceInstance after clear")
+	require.Equal(t, InvalidDeviceInstance, ht.Lookup(handle2), "Expected InvalidDeviceInstance after clear")
 }
 
 func TestHandleTable_MultipleDevices(t *testing.T) {
@@ -129,25 +100,19 @@ func TestHandleTable_MultipleDevices(t *testing.T) {
 		handles[i] = ht.Register(devices[i])
 	}
 
-	if ht.Count() != MaxDevices {
-		t.Errorf("Expected count %d, got %d", MaxDevices, ht.Count())
-	}
+	require.Equal(t, MaxDevices, ht.Count(), "Expected count %d", MaxDevices)
 
 	// Verify all handles are unique
 	seen := make(map[uintptr]bool)
 	for _, h := range handles {
-		if seen[h] {
-			t.Errorf("Duplicate handle detected: %d", h)
-		}
+		require.False(t, seen[h], "Duplicate handle detected: %d", h)
 		seen[h] = true
 	}
 
 	// Verify all lookups work
 	for i, h := range handles {
 		retrieved := ht.Lookup(h)
-		if retrieved != devices[i] {
-			t.Errorf("Lookup failed for device %d", i)
-		}
+		require.Equal(t, devices[i], retrieved, "Lookup failed for device %d", i)
 	}
 }
 
@@ -173,13 +138,9 @@ func TestHandleTable_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 
 	// Due to MaxDevices limit, only MaxDevices registrations should succeed
-	if successCount != int32(MaxDevices) {
-		t.Errorf("Expected %d successful registrations, got %d", MaxDevices, successCount)
-	}
+	require.Equal(t, int32(MaxDevices), successCount, "Expected %d successful registrations", MaxDevices)
 
-	if ht.Count() != MaxDevices {
-		t.Errorf("Expected count %d, got %d", MaxDevices, ht.Count())
-	}
+	require.Equal(t, MaxDevices, ht.Count(), "Expected count %d", MaxDevices)
 }
 
 func TestHandleTable_ConcurrentRegisterAndLookup(t *testing.T) {
@@ -213,9 +174,7 @@ func TestHandleTable_ConcurrentRegisterAndLookup(t *testing.T) {
 	}
 	wg.Wait()
 
-	if lookupNilCount > 0 {
-		t.Errorf("Lookup returned nil %d times for valid handles", lookupNilCount)
-	}
+	require.Zero(t, lookupNilCount, "Lookup returned nil %d times for valid handles", lookupNilCount)
 }
 
 func TestHandleTable_ConcurrentClear(t *testing.T) {

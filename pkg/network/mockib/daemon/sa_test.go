@@ -13,19 +13,16 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/registry"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/render"
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/sysfs"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSAPathQuery_LocalPort(t *testing.T) {
 	dir := t.TempDir()
-	if err := render.Render(render.Options{
+	require.NoError(t, render.Render(render.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dir,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	ports, err := sysfs.Scan(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	srv := &Server{
 		localPorts: ports,
 		loopback:   NewLoopback(ports),
@@ -34,40 +31,26 @@ func TestSAPathQuery_LocalPort(t *testing.T) {
 	dgid := gidBytesForPort(t, ports[0].DefaultGID)
 	send := madtest.SAPathQueryMAD(dgid)
 	h := &portHandle{}
-	if !srv.trySAPathQuery(h, send) {
-		t.Fatal("expected SA path query handled")
-	}
-	if len(h.recvQ) != 1 {
-		t.Fatalf("recvQ len: got %d want 1", len(h.recvQ))
-	}
+	require.True(t, srv.trySAPathQuery(h, send), "expected SA path query handled")
+	require.Len(t, h.recvQ, 1, "recvQ len")
 	dlidOff, _ := pathRecordDLIDOffset(h.recvQ[0][umadMADOffset:])
 	gotLID := binary.BigEndian.Uint16(h.recvQ[0][umadMADOffset+dlidOff:])
-	if gotLID != ports[0].LID {
-		t.Fatalf("dlid: got 0x%04x want 0x%04x", gotLID, ports[0].LID)
-	}
+	require.Equal(t, ports[0].LID, gotLID, "dlid")
 	resp := h.recvQ[0][umadMADOffset:]
-	if resp[20]&0x80 == 0 {
-		t.Fatalf("SA GET response bit not set on method byte: 0x%02x", resp[20])
-	}
+	require.NotZero(t, resp[20]&0x80, "SA GET response bit not set on method byte: 0x%02x", resp[20])
 	// libibmad _do_madrpc matches TRID at MAD bytes 8-15; must not be corrupted by method scan.
-	if got, want := resp[8:16], send[umadMADOffset+8:umadMADOffset+16]; string(got) != string(want) {
-		t.Fatalf("TRID bytes 8-15: got %x want %x", got, want)
-	}
+	require.Equal(t, send[umadMADOffset+8:umadMADOffset+16], resp[8:16], "TRID bytes 8-15")
 }
 
 func TestSAPathQuery_RemoteViaRegistry(t *testing.T) {
 	dirA := t.TempDir()
 	dirB := t.TempDir()
-	if err := render.Render(render.Options{
+	require.NoError(t, render.Render(render.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dirA,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := render.Render(render.Options{
+	}))
+	require.NoError(t, render.Render(render.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-b", Output: dirB,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	}))
 	portsA, _ := sysfs.Scan(dirA)
 	portsB, _ := sysfs.Scan(dirB)
 
@@ -83,14 +66,10 @@ func TestSAPathQuery_RemoteViaRegistry(t *testing.T) {
 	dgid := gidBytesForPort(t, portsA[0].DefaultGID)
 	send := madtest.SAPathQueryMAD(dgid)
 	h := &portHandle{}
-	if !client.trySAPathQuery(h, send) {
-		t.Fatal("expected remote SA path query handled")
-	}
+	require.True(t, client.trySAPathQuery(h, send), "expected remote SA path query handled")
 	dlidOff, _ := pathRecordDLIDOffset(h.recvQ[0][umadMADOffset:])
 	gotLID := binary.BigEndian.Uint16(h.recvQ[0][umadMADOffset+dlidOff:])
-	if gotLID != portsA[0].LID {
-		t.Fatalf("dlid: got 0x%04x want 0x%04x", gotLID, portsA[0].LID)
-	}
+	require.Equal(t, portsA[0].LID, gotLID, "dlid")
 }
 
 func gidBytesForPort(t *testing.T, gidStr string) []byte {

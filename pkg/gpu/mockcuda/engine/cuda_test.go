@@ -15,6 +15,8 @@ package engine
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func newTestEngine() *Engine {
@@ -23,47 +25,29 @@ func newTestEngine() *Engine {
 
 func TestInit(t *testing.T) {
 	e := newTestEngine()
-	if err := e.Init(0); err != CudaSuccess {
-		t.Fatalf("Init(0) = %d, want %d", err, CudaSuccess)
-	}
+	require.Equal(t, CudaSuccess, e.Init(0), "Init(0)")
 }
 
 func TestDriverGetVersion(t *testing.T) {
 	e := newTestEngine()
 	ver, err := e.DriverGetVersion()
-	if err != CudaSuccess {
-		t.Fatalf("DriverGetVersion() error = %d", err)
-	}
-	if ver != DefaultDriverVersion {
-		t.Fatalf("DriverGetVersion() = %d, want %d", ver, DefaultDriverVersion)
-	}
+	require.Equal(t, CudaSuccess, err, "DriverGetVersion() error")
+	require.Equal(t, DefaultDriverVersion, ver, "DriverGetVersion()")
 }
 
 func TestGetDeviceCount(t *testing.T) {
 	e := newTestEngine()
 	count, err := e.GetDeviceCount()
-	if err != CudaSuccess {
-		t.Fatalf("GetDeviceCount() error = %d", err)
-	}
-	if count != DefaultDeviceCount {
-		t.Fatalf("GetDeviceCount() = %d, want %d", count, DefaultDeviceCount)
-	}
+	require.Equal(t, CudaSuccess, err, "GetDeviceCount() error")
+	require.Equal(t, DefaultDeviceCount, count, "GetDeviceCount()")
 }
 
 func TestSetDevice(t *testing.T) {
 	e := newTestEngine()
-	if err := e.SetDevice(0); err != CudaSuccess {
-		t.Fatalf("SetDevice(0) = %d, want SUCCESS", err)
-	}
-	if err := e.SetDevice(7); err != CudaSuccess {
-		t.Fatalf("SetDevice(7) = %d, want SUCCESS", err)
-	}
-	if err := e.SetDevice(8); err != CudaErrorInvalidDevice {
-		t.Fatalf("SetDevice(8) = %d, want CudaErrorInvalidDevice", err)
-	}
-	if err := e.SetDevice(-1); err != CudaErrorInvalidDevice {
-		t.Fatalf("SetDevice(-1) = %d, want CudaErrorInvalidDevice", err)
-	}
+	require.Equal(t, CudaSuccess, e.SetDevice(0), "SetDevice(0)")
+	require.Equal(t, CudaSuccess, e.SetDevice(7), "SetDevice(7)")
+	require.Equal(t, CudaErrorInvalidDevice, e.SetDevice(8), "SetDevice(8)")
+	require.Equal(t, CudaErrorInvalidDevice, e.SetDevice(-1), "SetDevice(-1)")
 }
 
 func TestMallocFreeLifecycle(t *testing.T) {
@@ -71,50 +55,30 @@ func TestMallocFreeLifecycle(t *testing.T) {
 
 	// Allocate
 	ptr, err := e.Malloc(1024)
-	if err != CudaSuccess {
-		t.Fatalf("Malloc(1024) error = %d", err)
-	}
-	if ptr == 0 {
-		t.Fatal("Malloc returned nil pointer")
-	}
-	if e.AllocationCount() != 1 {
-		t.Fatalf("AllocationCount = %d, want 1", e.AllocationCount())
-	}
+	require.Equal(t, CudaSuccess, err, "Malloc(1024) error")
+	require.NotZero(t, ptr, "Malloc returned nil pointer")
+	require.Equal(t, 1, e.AllocationCount(), "AllocationCount")
 
 	// Verify allocation info
 	info, ok := e.GetAllocation(ptr)
-	if !ok {
-		t.Fatal("GetAllocation returned false for allocated pointer")
-	}
-	if info.Size != 1024 {
-		t.Fatalf("AllocationInfo.Size = %d, want 1024", info.Size)
-	}
+	require.True(t, ok, "GetAllocation returned false for allocated pointer")
+	require.Equal(t, uint64(1024), info.Size, "AllocationInfo.Size")
 
 	// Free
-	if err := e.Free(ptr); err != CudaSuccess {
-		t.Fatalf("Free() = %d, want SUCCESS", err)
-	}
-	if e.AllocationCount() != 0 {
-		t.Fatalf("AllocationCount after free = %d, want 0", e.AllocationCount())
-	}
+	require.Equal(t, CudaSuccess, e.Free(ptr), "Free()")
+	require.Equal(t, 0, e.AllocationCount(), "AllocationCount after free")
 
 	// Double free should fail
-	if err := e.Free(ptr); err != CudaErrorInvalidValue {
-		t.Fatalf("Double Free() = %d, want CudaErrorInvalidValue", err)
-	}
+	require.Equal(t, CudaErrorInvalidValue, e.Free(ptr), "Double Free()")
 
 	// Free(NULL) is no-op
-	if err := e.Free(0); err != CudaSuccess {
-		t.Fatalf("Free(0) = %d, want SUCCESS", err)
-	}
+	require.Equal(t, CudaSuccess, e.Free(0), "Free(0)")
 }
 
 func TestMallocZeroSize(t *testing.T) {
 	e := newTestEngine()
 	_, err := e.Malloc(0)
-	if err != CudaErrorInvalidValue {
-		t.Fatalf("Malloc(0) = %d, want CudaErrorInvalidValue", err)
-	}
+	require.Equal(t, CudaErrorInvalidValue, err, "Malloc(0)")
 }
 
 func TestMultipleAllocations(t *testing.T) {
@@ -122,60 +86,40 @@ func TestMultipleAllocations(t *testing.T) {
 	ptrs := make([]uintptr, 5)
 	for i := range ptrs {
 		ptr, err := e.Malloc(uint64(1024 * (i + 1)))
-		if err != CudaSuccess {
-			t.Fatalf("Malloc(%d) error = %d", 1024*(i+1), err)
-		}
+		require.Equal(t, CudaSuccess, err, "Malloc(%d) error", 1024*(i+1))
 		ptrs[i] = ptr
 	}
-	if e.AllocationCount() != 5 {
-		t.Fatalf("AllocationCount = %d, want 5", e.AllocationCount())
-	}
+	require.Equal(t, 5, e.AllocationCount(), "AllocationCount")
 
 	// All pointers should be unique
 	seen := make(map[uintptr]bool)
 	for _, ptr := range ptrs {
-		if seen[ptr] {
-			t.Fatal("Duplicate pointer returned from Malloc")
-		}
+		require.False(t, seen[ptr], "Duplicate pointer returned from Malloc")
 		seen[ptr] = true
 	}
 
 	// Free all
 	for _, ptr := range ptrs {
-		if err := e.Free(ptr); err != CudaSuccess {
-			t.Fatalf("Free(0x%x) = %d", ptr, err)
-		}
+		require.Equal(t, CudaSuccess, e.Free(ptr), "Free(0x%x)", ptr)
 	}
-	if e.AllocationCount() != 0 {
-		t.Fatalf("AllocationCount after freeing all = %d, want 0", e.AllocationCount())
-	}
+	require.Equal(t, 0, e.AllocationCount(), "AllocationCount after freeing all")
 }
 
 func TestMemcpy(t *testing.T) {
 	e := newTestEngine()
-	if err := e.Memcpy(CudaMemcpyHostToHost); err != CudaSuccess {
-		t.Fatalf("Memcpy(HostToHost) = %d", err)
-	}
-	if err := e.Memcpy(CudaMemcpyHostToDevice); err != CudaSuccess {
-		t.Fatalf("Memcpy(HostToDevice) = %d", err)
-	}
-	if err := e.Memcpy(CudaMemcpyDeviceToHost); err != CudaSuccess {
-		t.Fatalf("Memcpy(DeviceToHost) = %d", err)
-	}
+	require.Equal(t, CudaSuccess, e.Memcpy(CudaMemcpyHostToHost), "Memcpy(HostToHost)")
+	require.Equal(t, CudaSuccess, e.Memcpy(CudaMemcpyHostToDevice), "Memcpy(HostToDevice)")
+	require.Equal(t, CudaSuccess, e.Memcpy(CudaMemcpyDeviceToHost), "Memcpy(DeviceToHost)")
 }
 
 func TestLaunchKernel(t *testing.T) {
 	e := newTestEngine()
-	if err := e.LaunchKernel(); err != CudaSuccess {
-		t.Fatalf("LaunchKernel() = %d", err)
-	}
+	require.Equal(t, CudaSuccess, e.LaunchKernel(), "LaunchKernel()")
 }
 
 func TestDeviceSynchronize(t *testing.T) {
 	e := newTestEngine()
-	if err := e.DeviceSynchronize(); err != CudaSuccess {
-		t.Fatalf("DeviceSynchronize() = %d", err)
-	}
+	require.Equal(t, CudaSuccess, e.DeviceSynchronize(), "DeviceSynchronize()")
 }
 
 func TestGetErrorString(t *testing.T) {
@@ -192,9 +136,7 @@ func TestGetErrorString(t *testing.T) {
 	}
 	for _, tc := range tests {
 		got := e.GetErrorString(tc.err)
-		if got != tc.want {
-			t.Errorf("GetErrorString(%d) = %q, want %q", tc.err, got, tc.want)
-		}
+		require.Equal(t, tc.want, got, "GetErrorString(%d)", tc.err)
 	}
 }
 
@@ -203,19 +145,11 @@ func TestSetDeviceTracksCurrent(t *testing.T) {
 	e.SetDevice(3)
 	ptr, _ := e.Malloc(512)
 	info, ok := e.GetAllocation(ptr)
-	if !ok {
-		t.Fatal("allocation not found")
-	}
-	if info.DeviceID != 3 {
-		t.Fatalf("allocation device = %d, want 3", info.DeviceID)
-	}
+	require.True(t, ok, "allocation not found")
+	require.Equal(t, 3, info.DeviceID, "allocation device")
 }
 
 func TestErrorStringFunction(t *testing.T) {
-	if s := ErrorString(CudaSuccess); s != "no error" {
-		t.Fatalf("ErrorString(0) = %q, want 'no error'", s)
-	}
-	if s := ErrorString(CudaError(99999)); s != "unknown error" {
-		t.Fatalf("ErrorString(99999) = %q, want 'unknown error'", s)
-	}
+	require.Equal(t, "no error", ErrorString(CudaSuccess), "ErrorString(0)")
+	require.Equal(t, "unknown error", ErrorString(CudaError(99999)), "ErrorString(99999)")
 }

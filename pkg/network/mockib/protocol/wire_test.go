@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestWriteReadEnvelope_Register(t *testing.T) {
@@ -21,61 +23,44 @@ func TestWriteReadEnvelope_Register(t *testing.T) {
 			LID:      0x0100,
 		}},
 	}
-	if err := WriteMessage(&buf, TypeRegister, body); err != nil {
-		t.Fatal(err)
-	}
+	err := WriteMessage(&buf, TypeRegister, body)
+	require.NoError(t, err)
 	var env Envelope
-	if err := ReadEnvelope(&buf, &env); err != nil {
-		t.Fatal(err)
-	}
-	if env.Type != TypeRegister {
-		t.Fatalf("type: got %q want %q", env.Type, TypeRegister)
-	}
+	err = ReadEnvelope(&buf, &env)
+	require.NoError(t, err)
+	require.Equal(t, TypeRegister, env.Type, "type")
 	var got RegisterBody
-	if err := DecodeBody(env, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.NodeName != body.NodeName || got.PodIP != body.PodIP || len(got.Ports) != 1 {
-		t.Fatalf("register body mismatch: %+v", got)
-	}
-	if got.Ports[0].PortGUID != body.Ports[0].PortGUID {
-		t.Fatalf("port_guid: got %q want %q", got.Ports[0].PortGUID, body.Ports[0].PortGUID)
-	}
+	err = DecodeBody(env, &got)
+	require.NoError(t, err)
+	require.Equal(t, body.NodeName, got.NodeName, "register body mismatch: %+v", got)
+	require.Equal(t, body.PodIP, got.PodIP, "register body mismatch: %+v", got)
+	require.Len(t, got.Ports, 1, "register body mismatch: %+v", got)
+	require.Equal(t, body.Ports[0].PortGUID, got.Ports[0].PortGUID, "port_guid")
 }
 
 func TestWriteReadEnvelope_PingPong(t *testing.T) {
 	var buf bytes.Buffer
 	ping := PingBody{DstPortGUID: "a088:c203:00ab:0001", Seq: 7, ClientTS: 100}
-	if err := WriteMessage(&buf, TypePing, ping); err != nil {
-		t.Fatal(err)
-	}
+	err := WriteMessage(&buf, TypePing, ping)
+	require.NoError(t, err)
 	var env Envelope
-	if err := ReadEnvelope(&buf, &env); err != nil {
-		t.Fatal(err)
-	}
+	err = ReadEnvelope(&buf, &env)
+	require.NoError(t, err)
 	var got PingBody
-	if err := DecodeBody(env, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got != ping {
-		t.Fatalf("ping: got %+v want %+v", got, ping)
-	}
+	err = DecodeBody(env, &got)
+	require.NoError(t, err)
+	require.Equal(t, ping, got, "ping")
 
 	buf.Reset()
 	pong := PongBody{Seq: 7, ServerTS: 200}
-	if err := WriteMessage(&buf, TypePong, pong); err != nil {
-		t.Fatal(err)
-	}
-	if err := ReadEnvelope(&buf, &env); err != nil {
-		t.Fatal(err)
-	}
+	err = WriteMessage(&buf, TypePong, pong)
+	require.NoError(t, err)
+	err = ReadEnvelope(&buf, &env)
+	require.NoError(t, err)
 	var gotPong PongBody
-	if err := DecodeBody(env, &gotPong); err != nil {
-		t.Fatal(err)
-	}
-	if gotPong != pong {
-		t.Fatalf("pong: got %+v want %+v", gotPong, pong)
-	}
+	err = DecodeBody(env, &gotPong)
+	require.NoError(t, err)
+	require.Equal(t, pong, gotPong, "pong")
 }
 
 func TestReadFrame_RejectsOversize(t *testing.T) {
@@ -84,7 +69,5 @@ func TestReadFrame_RejectsOversize(t *testing.T) {
 	binary.BigEndian.PutUint32(hdr[:], MaxFrameSize+1)
 	buf.Write(hdr[:])
 	_, err := ReadFrame(&buf)
-	if err == nil {
-		t.Fatal("expected error for oversize frame")
-	}
+	require.Error(t, err, "expected error for oversize frame")
 }

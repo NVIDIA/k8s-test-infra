@@ -14,8 +14,9 @@
 package main
 
 import (
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestExpectedPeers locks in the contract used by main()'s readiness
@@ -56,9 +57,7 @@ func TestExpectedPeers(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := ExpectedPeers(tc.peers, tc.ownIP)
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("ExpectedPeers(%v, %q) = %v, want %v", tc.peers, tc.ownIP, got, tc.want)
-			}
+			require.Equal(t, tc.want, got, "ExpectedPeers(%v, %q)", tc.peers, tc.ownIP)
 		})
 	}
 }

@@ -3,12 +3,14 @@
 
 package daemon
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestDiscoverPeerIPs_FiltersSelf(t *testing.T) {
 	// Unit test uses empty host; integration uses real DNS in cluster.
 	got := DiscoverPeerIPs("", "10.0.0.1")
-	if len(got) != 0 {
-		t.Fatalf("want empty, got %v", got)
-	}
+	require.Empty(t, got)
 }
