@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -101,70 +100,30 @@ func TestRegisterWithPeers_CancelledCtxMakesNoDials(t *testing.T) {
 	require.Zero(t, accepts.Load(), "canceled ctx must stop the sweep before any peer dial")
 }
 
-// TestServer_sendRegister_StalledPeerTimesOut pins the I/O deadline on
-// outbound REGISTER connections. A peer that accepts the TCP connection but
-// never reads (wedged pod, half-open conn) must not hang sendRegister forever:
+// TestWriteRegister_StalledPeerTimesOut pins the I/O deadline on outbound
+// REGISTER writes. A peer that accepts the TCP connection but never reads
+// (wedged pod, half-open conn) must not hang the write forever:
 // registerWithPeersLoop is sequential, so one stuck write silently stops
 // re-registration to every peer for the rest of the pod's life.
 //
-// The register body is sized near the 1 MiB frame cap and the listener's
-// receive buffer is pinned small (accepted sockets inherit SO_RCVBUF from the
-// listening socket on Linux and macOS) so the kernel cannot absorb the whole
-// frame and the write genuinely blocks until the deadline fires.
-func TestServer_sendRegister_StalledPeerTimesOut(t *testing.T) {
-	lc := net.ListenConfig{Control: func(_, _ string, c syscall.RawConn) error {
-		var serr error
-		if err := c.Control(func(fd uintptr) {
-			serr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 4096)
-		}); err != nil {
-			return err
-		}
-		return serr
-	}}
-	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ln.Close() })
-	_, portStr, err := net.SplitHostPort(ln.Addr().String())
-	require.NoError(t, err)
-	tcpPort, err := strconv.Atoi(portStr)
-	require.NoError(t, err)
-
-	// Accept and hold the connection open without ever reading from it.
-	accepted := make(chan net.Conn, 1)
-	go func() {
-		c, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		accepted <- c
-	}()
-	t.Cleanup(func() {
-		select {
-		case c := <-accepted:
-			_ = c.Close()
-		default:
-		}
-	})
-
-	srv := &Server{cfg: Config{TCPPort: tcpPort}}
-	body := protocol.RegisterBody{
-		// ~1000 KiB of payload: above loopback socket buffering, below the
-		// protocol.MaxFrameSize (1 MiB) frame cap.
-		NodeName: strings.Repeat("n", 1000*1024),
-		PodIP:    "10.0.0.2",
-	}
+// The write is exercised through an unbuffered net.Pipe rather than a real
+// TCP socket: kernel sockets absorb writes into tunable buffers (an SO_RCVBUF
+// variant of this test passed on darwin and failed on linux runners), while a
+// pipe write blocks until the far side reads, so the deadline path fires
+// deterministically on every platform.
+func TestWriteRegister_StalledPeerTimesOut(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
+	// The server side never reads.
 
 	start := time.Now()
-	done := make(chan error, 1)
-	go func() { done <- srv.sendRegister("127.0.0.1", body) }()
-	select {
-	case err := <-done:
-		require.Error(t, err, "write to a peer that never reads must fail once the deadline expires")
-		require.ErrorIs(t, err, os.ErrDeadlineExceeded, "want deadline error, got: %v", err)
-		require.Less(t, time.Since(start), 20*time.Second, "sendRegister must return around the 5s I/O deadline")
-	case <-time.After(25 * time.Second):
-		t.Fatal("sendRegister hung: no I/O deadline set on the fabric connection")
-	}
+	err := writeRegister(client, 50*time.Millisecond, protocol.RegisterBody{
+		NodeName: "node-b",
+		PodIP:    "10.0.0.2",
+	})
+	require.Error(t, err, "write to a peer that never reads must fail once the deadline expires")
+	require.ErrorIs(t, err, os.ErrDeadlineExceeded, "want deadline error, got: %v", err)
+	require.Less(t, time.Since(start), 5*time.Second, "writeRegister must return at the configured deadline")
 }
 
 func TestServer_sendRegister(t *testing.T) {
