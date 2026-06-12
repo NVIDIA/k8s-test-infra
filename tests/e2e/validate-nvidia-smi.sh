@@ -38,7 +38,9 @@ LIST_OUTPUT=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI_CMD -L" 2>&1) || 
 }
 echo "$LIST_OUTPUT"
 
-if echo "$LIST_OUTPUT" | grep -qF -- "$GPU_NAME"; then
+# here-string, not `echo | grep -q`: grep -q exits on first match and closes
+# the pipe, so echo takes SIGPIPE and `set -o pipefail` would fail the `if`.
+if grep -qF -- "$GPU_NAME" <<< "$LIST_OUTPUT"; then
   echo "PASS: GPU name '$GPU_NAME' found in nvidia-smi -L output"
 else
   echo "FAIL: GPU name '$GPU_NAME' not found in nvidia-smi -L output"

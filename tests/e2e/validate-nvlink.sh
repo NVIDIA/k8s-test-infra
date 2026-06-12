@@ -59,7 +59,7 @@ TOPO=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI topo -m" 2>&1) || {
 echo "$TOPO"
 
 # Legend is always printed by topo -m.
-if echo "$TOPO" | grep -qiE "Legend|NV# ="; then
+if grep -qiE "Legend|NV# =" <<< "$TOPO"; then
   echo "PASS: topo -m printed a legend"
 else
   echo "FAIL: topo -m did not print a legend"
@@ -67,7 +67,7 @@ else
 fi
 
 # CPU/NUMA affinity columns must be present in the matrix header.
-if echo "$TOPO" | grep -qiE "CPU Affinity|NUMA Affinity"; then
+if grep -qiE "CPU Affinity|NUMA Affinity" <<< "$TOPO"; then
   echo "PASS: topo -m shows CPU/NUMA Affinity columns"
 else
   echo "FAIL: topo -m missing CPU/NUMA Affinity columns"
@@ -135,7 +135,10 @@ if [ "$EXPECT_NV" -gt 0 ]; then
   # and `set -e` aborts the whole script. sed consumes all input, so echo never
   # hits a broken pipe.
   echo "$NVLINK_S" | sed -n '1,10p'
-  if echo "$NVLINK_S" | grep -qE "Link[[:space:]]+0"; then
+  # Use a here-string, not `echo ... | grep -q`: grep -q exits on first match
+  # and closes the pipe, so echo takes SIGPIPE -> under `set -o pipefail` the
+  # pipeline (hence the `if`) reports failure even though the match succeeded.
+  if grep -qE "Link[[:space:]]+0" <<< "$NVLINK_S"; then
     echo "PASS: nvlink -s enumerated links (Link 0 present)"
   else
     echo "FAIL: nvlink -s printed no links for NVLink profile '$GPU_PROFILE'."
@@ -149,7 +152,8 @@ if [ "$EXPECT_NV" -gt 0 ]; then
     echo "FAIL: nvidia-smi nvlink -c exited with error"; echo "$NVLINK_C"; exit 1; }
   # sed, not head: see the nvlink -s note above (avoids SIGPIPE under pipefail).
   echo "$NVLINK_C" | sed -n '1,10p'
-  if echo "$NVLINK_C" | grep -qE "Link[[:space:]]+0"; then
+  # here-string (see nvlink -s note): avoids the grep -q SIGPIPE/pipefail race.
+  if grep -qE "Link[[:space:]]+0" <<< "$NVLINK_C"; then
     echo "PASS: nvlink -c reported per-link capabilities (Link 0 present)"
   else
     echo "FAIL: nvlink -c printed no capabilities for NVLink profile '$GPU_PROFILE'."
