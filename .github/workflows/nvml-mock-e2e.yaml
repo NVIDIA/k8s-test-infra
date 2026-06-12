@@ -57,13 +57,6 @@ jobs:
       - name: Resolve profile facts (display name + GPU count)
         id: gpu-info
         run: |
-          # The profile is the single source of truth. Display name is its
-          # device_defaults.name (the full product string nvidia-smi -L prints,
-          # e.g. "NVIDIA A100-SXM4-40GB"); GPU count is the length of its
-          # `devices:` roster (the same value the chart derives — gpu.count
-          # defaults to len(devices)). CI no longer pins either, and
-          # fabric-manager enablement is read back from the deployed chart (see
-          # "Verify fake fabricmanager readiness"), so nothing is restated here.
           PROFILE_FILE="deployments/nvml-mock/helm/nvml-mock/profiles/${{ matrix.gpu-profile }}.yaml"
           NAME=$(awk -F'"' '/^  name:/{print $2; exit}' "$PROFILE_FILE")
           if [ -z "$NAME" ]; then
@@ -298,11 +291,6 @@ jobs:
       - name: Resolve profile facts (display name + GPU count)
         id: gpu-info
         run: |
-          # The profile is the single source of truth. Display name is its
-          # device_defaults.name (the full product string nvidia-smi -L prints);
-          # GPU count is the length of its `devices:` roster (the same value the
-          # chart derives). Fabric-manager enablement is read back from the
-          # deployed chart (see "Verify fake fabricmanager readiness").
           PROFILE_FILE="deployments/nvml-mock/helm/nvml-mock/profiles/${{ matrix.gpu-profile }}.yaml"
           NAME=$(awk -F'"' '/^  name:/{print $2; exit}' "$PROFILE_FILE")
           if [ -z "$NAME" ]; then
