@@ -74,9 +74,16 @@ else
   exit 1
 fi
 
-# NV# cells in the matrix body (e.g. NV12, NV18). Restrict to matrix rows
-# (lines starting with GPU<n>) so the legend's "NV#" text is not matched.
-NV_TOKENS=$(echo "$TOPO" | grep -E "^GPU[0-9]" | grep -oE "NV[0-9]+" || true)
+# NV# cells in the GPU x GPU submatrix (e.g. NV12, NV18). topo -m can also
+# list NIC<n> columns: the Kind node inherits the runner host's RDMA devices,
+# and the 580 nvidia-smi fans a GPU's NVSwitch-connected link count across its
+# whole row, so a GPU-NIC cell can read NV# too. Those NIC columns are an
+# environmental artifact, not part of the GPU NVLink fabric under test, so we
+# restrict counting to the first GPU_COUNT data columns. In a "GPU<n>" row,
+# awk field $1 is the row label and $2..$(1+GPU_COUNT) are the GPU columns
+# (the diagonal is "X"); NIC and CPU/NUMA Affinity columns come after.
+NV_TOKENS=$(echo "$TOPO" | awk -v n="$GPU_COUNT" '
+  /^GPU[0-9]/ { for (i = 2; i <= 1 + n; i++) if ($i ~ /^NV[0-9]+$/) print $i }')
 NV_DISTINCT=$(echo "$NV_TOKENS" | sed '/^$/d' | sort -u | tr '\n' ' ' | sed 's/ *$//')
 NV_CELL_COUNT=$(echo "$NV_TOKENS" | sed '/^$/d' | grep -c . || true)
 EXPECTED_OFFDIAG=$((GPU_COUNT * (GPU_COUNT - 1)))
