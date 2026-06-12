@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -162,6 +163,110 @@ func TestServer_handleClose_unknownHandle(t *testing.T) {
 	require.NoError(t, protocol.DecodeBody(env, &closeResp))
 	require.False(t, closeResp.OK, "expected close error, got %+v", closeResp)
 	cancel()
+}
+
+// TestEffectiveRecvTimeout pins the clamp on the client-supplied recv timeout.
+// timeout_ms comes straight off the Unix socket, so an absurd or hostile value
+// must not let one recv RPC pin a poll loop (and its goroutine) for minutes.
+func TestEffectiveRecvTimeout(t *testing.T) {
+	tests := []struct {
+		name string
+		ms   int
+		want time.Duration
+	}{
+		{"zero uses default", 0, time.Second},
+		{"negative uses default", -100, time.Second},
+		{"small value passes through", 500, 500 * time.Millisecond},
+		{"exactly at cap", 60_000, 60 * time.Second},
+		{"above cap clamps", 600_000, 60 * time.Second},
+		{"overflow-sized clamps", math.MaxInt, 60 * time.Second},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, effectiveRecvTimeout(tc.ms))
+		})
+	}
+}
+
+// TestServer_handleRecv_EmptyQueueTimesOut pins that a small client timeout is
+// still honored through the poll loop: an empty queue yields Timeout=true
+// shortly after timeout_ms, not at the cap and not never.
+func TestServer_handleRecv_EmptyQueueTimesOut(t *testing.T) {
+	srv := &Server{handles: map[int]*portHandle{1: {caName: "mlx5_0", port: 1}}}
+	clientEnd, serverEnd := net.Pipe()
+	t.Cleanup(func() { _ = clientEnd.Close(); _ = serverEnd.Close() })
+
+	done := make(chan error, 1)
+	go func() {
+		done <- srv.handleRecv(context.Background(), serverEnd, protocol.RecvReq{Handle: 1, TimeoutMS: 50})
+	}()
+
+	resp := readRecvResp(t, clientEnd, 5*time.Second)
+	require.True(t, resp.Timeout, "empty queue must time out: %+v", resp)
+	require.NoError(t, <-done)
+}
+
+// TestServer_handleRecv_CtxCancelReturnsTimeout pins shutdown behavior: when
+// the server ctx is canceled mid-recv, handleRecv must return promptly (not
+// poll out the remaining client timeout) and complete the in-flight RPC as a
+// Timeout response — the client's normal no-data path — matching how the rest
+// of the daemon treats ctx cancellation as an expected lifecycle event.
+func TestServer_handleRecv_CtxCancelReturnsTimeout(t *testing.T) {
+	srv := &Server{handles: map[int]*portHandle{1: {caName: "mlx5_0", port: 1}}}
+	clientEnd, serverEnd := net.Pipe()
+	t.Cleanup(func() { _ = clientEnd.Close(); _ = serverEnd.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	start := time.Now()
+	done := make(chan error, 1)
+	go func() {
+		// 600s client timeout: without the ctx check this blocks for the full
+		// 60s cap; with it, the response arrives right after cancel.
+		done <- srv.handleRecv(ctx, serverEnd, protocol.RecvReq{Handle: 1, TimeoutMS: 600_000})
+	}()
+	time.AfterFunc(50*time.Millisecond, cancel)
+
+	resp := readRecvResp(t, clientEnd, 5*time.Second)
+	require.True(t, resp.Timeout, "shutdown recv must complete as a timeout: %+v", resp)
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("handleRecv did not return after ctx cancellation")
+	}
+	require.Less(t, time.Since(start), 5*time.Second,
+		"handleRecv must return promptly on ctx cancel, not at the recv timeout cap")
+}
+
+// readRecvResp reads one recv envelope from c, failing the test after timeout.
+// net.Pipe writes are synchronous, so the read also unblocks handleRecv's
+// response write.
+func readRecvResp(t *testing.T, c net.Conn, timeout time.Duration) protocol.RecvResp {
+	t.Helper()
+	type result struct {
+		env protocol.Envelope
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		var env protocol.Envelope
+		err := protocol.ReadEnvelope(c, &env)
+		ch <- result{env, err}
+	}()
+	select {
+	case r := <-ch:
+		require.NoError(t, r.err)
+		require.Equal(t, protocol.TypeRecv, r.env.Type)
+		var resp protocol.RecvResp
+		require.NoError(t, protocol.DecodeBody(r.env, &resp))
+		return resp
+	case <-time.After(timeout):
+		t.Fatalf("no recv response within %v", timeout)
+		return protocol.RecvResp{}
+	}
 }
 
 func waitForSocket(t *testing.T, path string, errCh <-chan error) {

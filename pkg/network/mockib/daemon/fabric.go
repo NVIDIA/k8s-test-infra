@@ -126,8 +126,9 @@ func (s *Server) dispatchFabric(c net.Conn, env protocol.Envelope) error {
 }
 
 func (s *Server) applyRegister(body protocol.RegisterBody) {
-	for _, port := range body.Ports {
-		s.registry.Register(port.PortGUID, registry.Peer{
+	changed := make([]bool, len(body.Ports))
+	for i, port := range body.Ports {
+		changed[i] = s.registry.Register(port.PortGUID, registry.Peer{
 			PodIP:    body.PodIP,
 			NodeName: body.NodeName,
 			CAName:   port.CAName,
@@ -136,12 +137,17 @@ func (s *Server) applyRegister(body protocol.RegisterBody) {
 		})
 	}
 	s.rebuildGraph()
-	// Unconditional log so cross-pod REGISTER outcomes are visible in
-	// kubectl logs without enabling per-feature debug flags. Cross-release
-	// ibping (ibping-multinode CI job) depends on this REGISTER reaching every
-	// peer; absence of this line on a pod immediately tells us the one-shot
-	// `mock-ib -register-peers` did not arrive (TCP firewall, wrong port, ...).
-	for _, port := range body.Ports {
+	// Log so cross-pod REGISTER outcomes are visible in kubectl logs without
+	// enabling per-feature debug flags. Cross-release ibping (ibping-multinode
+	// CI job) depends on this REGISTER reaching every peer; absence of this
+	// line on a pod immediately tells us the one-shot `mock-ib -register-peers`
+	// did not arrive (TCP firewall, wrong port, ...). Peers re-register every
+	// 2s, so only changed registrations are logged: the first one and any
+	// later LID/PodIP/node change, not the steady-state repeats.
+	for i, port := range body.Ports {
+		if !changed[i] {
+			continue
+		}
 		s.log.Printf("mock-ib: register from podIP=%s node=%q ca=%s port=%d lid=0x%04x port_guid=%s",
 			body.PodIP, body.NodeName, port.CAName, port.Port, port.LID, port.PortGUID)
 	}
@@ -181,7 +187,7 @@ func (s *Server) pingTargetsLocalPort(ping protocol.PingBody) bool {
 func (s *Server) registerWithPeers(ctx context.Context) {
 	peers := ParsePeerList(EnvOr(EnvMockIBPeers, ""))
 	if len(peers) == 0 {
-		peers = DiscoverPeerIPs(EnvOr(EnvMockIBPingServiceHost, ""), s.podIP)
+		peers = DiscoverPeerIPs(ctx, EnvOr(EnvMockIBPingServiceHost, ""), s.podIP)
 	}
 	if len(peers) == 0 {
 		return
@@ -194,6 +200,11 @@ func (s *Server) registerWithPeers(ctx context.Context) {
 	wantPeers := 0
 	var ok int
 	for _, peerIP := range peers {
+		// Sequential sweep with up-to-5s dials per peer: once ctx is canceled
+		// (SIGTERM), stop between peers instead of walking the rest of the list.
+		if ctx.Err() != nil {
+			return
+		}
 		if peerIP == s.podIP {
 			continue
 		}
@@ -264,22 +275,33 @@ func (s *Server) RegisterWithPeers() {
 
 func (s *Server) sendRegister(peerIP string, body protocol.RegisterBody) error {
 	addr := net.JoinHostPort(peerIP, strconv.Itoa(s.cfg.TCPPort))
-	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	conn, err := net.DialTimeout("tcp", addr, fabricPeerIOTimeout)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = conn.Close() }()
+	return writeRegister(conn, fabricPeerIOTimeout, body)
+}
+
+// writeRegister bounds the REGISTER write so a peer that accepts but never
+// reads cannot wedge the sequential registerWithPeersLoop forever (mirrors
+// pingPeer). Split from sendRegister so the deadline path is testable against
+// an unbuffered net.Pipe instead of kernel-buffered TCP sockets.
+func writeRegister(conn net.Conn, timeout time.Duration, body protocol.RegisterBody) error {
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return err
+	}
 	return protocol.WriteMessage(conn, protocol.TypeRegister, body)
 }
 
 func (s *Server) pingPeer(peerIP, portGUID string, dstLID uint16) error {
 	addr := net.JoinHostPort(peerIP, strconv.Itoa(s.cfg.TCPPort))
-	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	conn, err := net.DialTimeout("tcp", addr, fabricPeerIOTimeout)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = conn.Close() }()
-	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := conn.SetDeadline(time.Now().Add(fabricPeerIOTimeout)); err != nil {
 		return err
 	}
 

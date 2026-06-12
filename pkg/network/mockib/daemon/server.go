@@ -42,6 +42,20 @@ const (
 	// single REGISTER or Ping/Pong round-trip; a peer that connects to the
 	// 0.0.0.0 listener but never completes a frame is reaped quickly.
 	fabricConnIdleTimeout = 30 * time.Second
+	// fabricPeerIOTimeout bounds the dial and the whole exchange on outbound
+	// fabric connections (REGISTER, Ping). registerWithPeersLoop walks peers
+	// sequentially, so a peer that accepts but never reads or replies must not
+	// pin the loop past this deadline.
+	fabricPeerIOTimeout = 5 * time.Second
+	// recvTimeoutCap bounds the client-supplied recv timeout_ms. The value
+	// arrives untrusted off the 0666 Unix socket; without a cap a single recv
+	// RPC could pin its poll-loop goroutine for arbitrary client-chosen time.
+	// Diag tools use sub-second timeouts, so 60s is generous headroom.
+	recvTimeoutCap = 60 * time.Second
+	// defaultRecvTimeout applies when the client sends timeout_ms <= 0.
+	defaultRecvTimeout = time.Second
+	// recvPollInterval is the recv queue poll period inside handleRecv.
+	recvPollInterval = 5 * time.Millisecond
 )
 
 // Server serves libibmockumad over a Unix socket.
@@ -185,14 +199,14 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn) {
 		// client that sends a request frame then stops reading must not pin
 		// this goroutine for the pod's life on a full socket buffer.
 		_ = c.SetWriteDeadline(time.Now().Add(unixConnIdleTimeout))
-		if err := s.dispatch(c, env); err != nil {
+		if err := s.dispatch(ctx, c, env); err != nil {
 			s.log.Printf("mock-ib: %s: %v", env.Type, err)
 			return
 		}
 	}
 }
 
-func (s *Server) dispatch(c net.Conn, env protocol.Envelope) error {
+func (s *Server) dispatch(ctx context.Context, c net.Conn, env protocol.Envelope) error {
 	switch env.Type {
 	case protocol.TypeOpen:
 		var req protocol.OpenReq
@@ -211,7 +225,7 @@ func (s *Server) dispatch(c net.Conn, env protocol.Envelope) error {
 		if err := protocol.DecodeBody(env, &req); err != nil {
 			return err
 		}
-		return s.handleRecv(c, req)
+		return s.handleRecv(ctx, c, req)
 	case protocol.TypeClose:
 		var req protocol.CloseReq
 		if err := protocol.DecodeBody(env, &req); err != nil {
@@ -219,7 +233,9 @@ func (s *Server) dispatch(c net.Conn, env protocol.Envelope) error {
 		}
 		return s.handleClose(c, req)
 	case protocol.TypeRegisterPeers:
-		s.registerWithPeers(context.Background())
+		// Use the server ctx (not Background) so a one-shot register sweep
+		// stops between peers when the daemon is shutting down.
+		s.registerWithPeers(ctx)
 		return protocol.WriteMessage(c, protocol.TypeRegisterPeers, map[string]bool{"ok": true})
 	case protocol.TypeVerbsOpen, protocol.TypeVerbsWrite, protocol.TypeVerbsRead, protocol.TypeVerbsClose:
 		return s.dispatchVerbs(c, env)
@@ -305,16 +321,14 @@ func (s *Server) handleSend(c net.Conn, req protocol.SendReq) error {
 	return protocol.WriteMessage(c, protocol.TypeSend, protocol.SendResp{OK: true})
 }
 
-func (s *Server) handleRecv(c net.Conn, req protocol.RecvReq) error {
+func (s *Server) handleRecv(ctx context.Context, c net.Conn, req protocol.RecvReq) error {
 	h, ok := s.lookupHandle(req.Handle)
 	if !ok {
 		return protocol.WriteMessage(c, protocol.TypeRecv, protocol.RecvResp{Error: "invalid handle"})
 	}
-	timeout := time.Duration(req.TimeoutMS) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 1000 * time.Millisecond
-	}
-	deadline := time.Now().Add(timeout)
+	deadline := time.Now().Add(effectiveRecvTimeout(req.TimeoutMS))
+	ticker := time.NewTicker(recvPollInterval)
+	defer ticker.Stop()
 	for {
 		h.mu.Lock()
 		if len(h.recvQ) > 0 {
@@ -327,8 +341,31 @@ func (s *Server) handleRecv(c net.Conn, req protocol.RecvReq) error {
 		if time.Now().After(deadline) {
 			return protocol.WriteMessage(c, protocol.TypeRecv, protocol.RecvResp{Timeout: true})
 		}
-		time.Sleep(5 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			// Daemon shutdown: complete the in-flight recv as a Timeout — the
+			// client's umad_recv maps it to EWOULDBLOCK, its normal no-data
+			// path — instead of dropping the RPC mid-frame. serveConn then
+			// exits on its next ctx check and closes the connection, matching
+			// how shutdown is treated as an expected event elsewhere.
+			return protocol.WriteMessage(c, protocol.TypeRecv, protocol.RecvResp{Timeout: true})
+		case <-ticker.C:
+		}
 	}
+}
+
+// effectiveRecvTimeout converts the client-supplied recv timeout_ms into a
+// bounded wait: timeoutMS <= 0 selects the default, and anything above
+// recvTimeoutCap (including values that would overflow a time.Duration) is
+// clamped to the cap so an untrusted client cannot pick the poll duration.
+func effectiveRecvTimeout(timeoutMS int) time.Duration {
+	if timeoutMS <= 0 {
+		return defaultRecvTimeout
+	}
+	if timeoutMS >= int(recvTimeoutCap/time.Millisecond) {
+		return recvTimeoutCap
+	}
+	return time.Duration(timeoutMS) * time.Millisecond
 }
 
 func (s *Server) handleClose(c net.Conn, req protocol.CloseReq) error {
