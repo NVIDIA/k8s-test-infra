@@ -32,20 +32,24 @@ func New() *Registry {
 // Register records peer for portGUID. When the same NodeName re-registers (pod
 // restart with a new PodIP), the entry is refreshed. Otherwise duplicate GUIDs
 // keep the peer with the lexicographically lower PodIP to avoid flip-flopping.
-func (r *Registry) Register(portGUID string, peer Peer) {
+// It reports whether the stored registration changed (new GUID, or any field
+// of the stored peer differs afterwards), so callers can log on change only
+// instead of on every periodic re-register.
+func (r *Registry) Register(portGUID string, peer Peer) bool {
 	key := NormalizePortGUID(portGUID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if cur, ok := r.m[key]; ok {
 		if cur.NodeName != "" && cur.NodeName == peer.NodeName {
 			r.m[key] = peer
-			return
+			return cur != peer
 		}
 		if peer.PodIP >= cur.PodIP {
-			return
+			return false
 		}
 	}
 	r.m[key] = peer
+	return true
 }
 
 // Lookup returns the peer for portGUID and whether it was found.

@@ -126,8 +126,9 @@ func (s *Server) dispatchFabric(c net.Conn, env protocol.Envelope) error {
 }
 
 func (s *Server) applyRegister(body protocol.RegisterBody) {
-	for _, port := range body.Ports {
-		s.registry.Register(port.PortGUID, registry.Peer{
+	changed := make([]bool, len(body.Ports))
+	for i, port := range body.Ports {
+		changed[i] = s.registry.Register(port.PortGUID, registry.Peer{
 			PodIP:    body.PodIP,
 			NodeName: body.NodeName,
 			CAName:   port.CAName,
@@ -136,12 +137,17 @@ func (s *Server) applyRegister(body protocol.RegisterBody) {
 		})
 	}
 	s.rebuildGraph()
-	// Unconditional log so cross-pod REGISTER outcomes are visible in
-	// kubectl logs without enabling per-feature debug flags. Cross-release
-	// ibping (ibping-multinode CI job) depends on this REGISTER reaching every
-	// peer; absence of this line on a pod immediately tells us the one-shot
-	// `mock-ib -register-peers` did not arrive (TCP firewall, wrong port, ...).
-	for _, port := range body.Ports {
+	// Log so cross-pod REGISTER outcomes are visible in kubectl logs without
+	// enabling per-feature debug flags. Cross-release ibping (ibping-multinode
+	// CI job) depends on this REGISTER reaching every peer; absence of this
+	// line on a pod immediately tells us the one-shot `mock-ib -register-peers`
+	// did not arrive (TCP firewall, wrong port, ...). Peers re-register every
+	// 2s, so only changed registrations are logged: the first one and any
+	// later LID/PodIP/node change, not the steady-state repeats.
+	for i, port := range body.Ports {
+		if !changed[i] {
+			continue
+		}
 		s.log.Printf("mock-ib: register from podIP=%s node=%q ca=%s port=%d lid=0x%04x port_guid=%s",
 			body.PodIP, body.NodeName, port.CAName, port.Port, port.LID, port.PortGUID)
 	}
