@@ -6,11 +6,13 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"io"
 	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -56,6 +58,47 @@ func TestApplyRegister_LogsOnlyOnChange(t *testing.T) {
 	require.Equal(t, 3, strings.Count(buf.String(), "register from"),
 		"changed port must log exactly once:\n%s", buf.String())
 	require.Contains(t, buf.String(), "lid=0x0999")
+}
+
+// TestRegisterWithPeers_CancelledCtxMakesNoDials pins ctx handling in the
+// peer register sweep: registerWithPeers checks ctx between peers (post-SIGTERM
+// the sequential loop must stop, not keep dialing through the list), so with
+// ctx already canceled before the sweep, not a single peer may be dialed.
+func TestRegisterWithPeers_CancelledCtxMakesNoDials(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	var accepts atomic.Int32
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			accepts.Add(1)
+			_ = c.Close()
+		}
+	}()
+	_, portStr, err := net.SplitHostPort(ln.Addr().String())
+	require.NoError(t, err)
+	tcpPort, err := strconv.Atoi(portStr)
+	require.NoError(t, err)
+
+	t.Setenv(EnvMockIBPeers, "127.0.0.1")
+	srv := &Server{
+		cfg:            Config{TCPPort: tcpPort},
+		podIP:          "10.255.255.1", // must differ from the peer so it is not skipped as self
+		log:            log.New(io.Discard, "", 0),
+		registerWarned: make(map[string]struct{}),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	srv.registerWithPeers(ctx)
+
+	// Give a stray dial time to reach the accept loop before judging.
+	time.Sleep(300 * time.Millisecond)
+	require.Zero(t, accepts.Load(), "canceled ctx must stop the sweep before any peer dial")
 }
 
 // TestServer_sendRegister_StalledPeerTimesOut pins the I/O deadline on
