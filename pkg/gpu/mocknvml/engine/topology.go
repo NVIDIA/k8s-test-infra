@@ -155,6 +155,7 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 	for i := 0; i < n; i++ {
 		f.nvCount[i] = make([]int, n)
 		f.pcieLevel[i] = make([]nvml.GpuTopologyLevel, n)
+		f.numaOf[i] = -1
 	}
 
 	var yc *YAMLConfig
@@ -423,7 +424,7 @@ func (f *NodeFabric) computeNVCounts() {
 			continue
 		}
 		for j := 0; j < f.numDevices; j++ {
-			if j != i {
+			if j != i && switchLinks[j] > 0 {
 				f.nvCount[i][j] += switchLinks[i]
 			}
 		}

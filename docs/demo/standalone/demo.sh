@@ -86,7 +86,7 @@ kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 # Step 4 -- Install nvml-mock via Helm
 ###############################################################################
 info "Installing nvml-mock Helm chart (profile=${GPU_PROFILE}, count=${GPU_COUNT})"
-helm install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
+helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set image.repository=nvml-mock \
   --set image.tag=demo \
   --set integrations.fakeGpuOperator.enabled=true \

@@ -58,13 +58,40 @@ type fabricReadinessCache struct {
 	stat func(string) (os.FileInfo, error)
 }
 
-var fabricReadiness = &fabricReadinessCache{now: time.Now, stat: os.Stat}
+var (
+	fabricReadiness   = &fabricReadinessCache{now: time.Now, stat: os.Stat}
+	fabricEnvDir      string
+	fabricEnvDirOnce  sync.Once
+)
+
+func fabricStateDir() string {
+	fabricEnvDirOnce.Do(func() {
+		fabricEnvDir = strings.TrimSpace(os.Getenv(EnvFabricStateDir))
+	})
+	return fabricEnvDir
+}
+
+func (c *fabricReadinessCache) couplingStateDir() string {
+	if c == fabricReadiness {
+		return fabricStateDir()
+	}
+	return strings.TrimSpace(os.Getenv(EnvFabricStateDir))
+}
+
+func resetFabricReadinessForTesting() {
+	fabricReadiness.mu.Lock()
+	fabricReadiness.checked = time.Time{}
+	fabricReadiness.ready = false
+	fabricReadiness.mu.Unlock()
+	fabricEnvDirOnce = sync.Once{}
+	fabricEnvDir = ""
+}
 
 // state resolves the registration state for a GPU configured with fabric
 // state "auto". COMPLETED when coupling is inactive (fabricmanager
 // disabled); otherwise it tracks the readiness marker.
 func (c *fabricReadinessCache) state() uint8 {
-	dir := strings.TrimSpace(os.Getenv(EnvFabricStateDir))
+	dir := c.couplingStateDir()
 	if dir == "" {
 		return FabricStateCompleted
 	}

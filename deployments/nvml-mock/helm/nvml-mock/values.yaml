@@ -147,12 +147,12 @@ imex:
 # IN_PROGRESS until the daemon is ready, COMPLETED once it is.
 #
 # `enabled` is a tri-state override and is derived from the GPU profile by
-# default — leave it empty and the chart starts the daemon exactly when the
-# selected profile sets `device_defaults.fabric.state: auto`, so you never
-# restate per-profile facts here or in CI (same pattern as infiniband.mockTier).
-# Non-NVSwitch profiles (A100, standalone B200) report a static fabric state
-# and do not start the daemon. Set to true/false to force it regardless of
-# profile (e.g. with gpu.customConfig).
+# default — leave it empty and the chart starts the daemon when the profile
+# declares NVSwitches (`nvlink.switches`) or sets `device_defaults.fabric.state:
+# auto` (same pattern as infiniband.mockTier). A100 runs the legacy daemon
+# (NVSwitch baseboard, no GpuFabricInfo API); standalone B200/L40S/T4 declare
+# no NVSwitches and do not start the daemon. Set to true/false to force it
+# regardless of profile (e.g. with gpu.customConfig).
 fabricmanager:
   enabled: ""
   stateDir: /var/lib/nvml-mock/fabric-state

@@ -1,0 +1,27 @@
+## MAGI Report: MELCHIOR / gpt-5.5-extra-high
+
+### Plan
+- Risk areas:
+  - Product behavior: `nvidia-smi topo -m`, `nvidia-smi nvlink -s/-c/-e/-R/-gLowPwrInfo`, and `nvmlDeviceGetGpuFabricInfo*` must look realistic enough for downstream users while preserving negative controls for standalone/non-NVSwitch profiles. Watch for user-visible drift between profile comments, Helm README/NOTES, and actual behavior, especially around whether A100 starts fake fabricmanager and whether B200 is modeled as standalone.
+  - User impact: the feature changes what users see from standard NVIDIA tools, device-plugin/DRA/GPU-operator validation, CDI-injected workloads, and Helm defaults. Any mismatch in driver version, field support, profile GPU count, fabric readiness, or CDI env propagation could make users trust an unrealistic topology or see GPUs stuck in `IN_PROGRESS`.
+  - Integration: highest-risk joins are profile-derived fabricmanager enablement, setup.sh CDI generation, the hostPath readiness marker, fake fabricmanager lifecycle cleanup/reassertion, Helm schema/values/helpers/templates, Dockerfile build context/package pinning for the 580 `nvidia-smi`, and bridge marshalling of `nvmlDeviceGetFieldValues` plus topology/NVLink symbols.
+  - Tests: unit tests cover many pure engine invariants, but review should look for gaps in real binary behavior, rendered Helm manifests, CDI workload behavior, stale marker/restart behavior, profile matrix coverage, and CI matrix defaults. DCO is also a merge gate and should be verified separately before merge.
+- Files to inspect:
+  - Engine and bridge: `pkg/gpu/mocknvml/engine/topology.go`, `pkg/gpu/mocknvml/engine/nvlink_fields.go`, `pkg/gpu/mocknvml/engine/nvlink_counters.go`, `pkg/gpu/mocknvml/engine/fabric.go`, `pkg/gpu/mocknvml/engine/fabric_readiness.go`, `pkg/gpu/mocknvml/engine/device.go`, `pkg/gpu/mocknvml/engine/config_types.go`, `pkg/gpu/mocknvml/bridge/fieldvalues.go`, `pkg/gpu/mocknvml/bridge/nvlink.go`, `pkg/gpu/mocknvml/bridge/topology.go`, `pkg/gpu/mocknvml/bridge/device.go`, `pkg/gpu/mocknvml/bridge/nvml_types.h`, `pkg/gpu/mocknvml/bridge/stubs_generated.go`.
+  - Fake fabricmanager: `pkg/fmcoord/coord.go`, `cmd/fake-fabricmanager/daemon/main.go`, `cmd/fake-fabricmanager/ctl/main.go`.
+  - Deployment path: `deployments/nvml-mock/Dockerfile`, `.dockerignore`, `deployments/nvml-mock/scripts/setup.sh`, `deployments/nvml-mock/helm/nvml-mock/templates/_helpers.tpl`, `templates/daemonset.yaml`, `templates/NOTES.txt`, `values.yaml`, `values.schema.json`, `README.md`.
+  - Profiles/configs: Helm profiles and engine configs for `a100`, `h100`, `b200`, `gb200`, `gb300`, plus `t4`/`l40s` as negative controls.
+  - Tests and CI: `pkg/gpu/mocknvml/engine/*topology*_test.go`, `*nvlink*_test.go`, `*fabric*_test.go`, `p2p_status_test.go`, `pkg/fmcoord/coord_test.go`, Helm unittest snapshots/tests, `tests/e2e/validate-nvlink.sh`, `tests/e2e/validate-nvidia-smi.sh`, `.github/workflows/nvml-mock-e2e.yaml`.
+- Test strategy:
+  - Start with deterministic unit tests for engine/fmcoord/bridge-adjacent behavior: built-in profile NV matrix, NVSwitch connected link count, field-value return/value types, counter monotonicity across simulated processes, P2P status, fabric readiness marker TTL, and fmcoord marker lifecycle.
+  - Run Helm render/unit coverage for all profile classes and overrides: default `a100`, `h100`, `gb200`, `gb300`, `b200`, `t4`/`l40s`, explicit `fabricmanager.enabled=true/false`, custom `fabricmanager.stateDir`, and `gpu.customConfig` containing switches or `fabric.state: auto`.
+  - Exercise the Docker/setup path by building the image and checking that `nvidia-smi`, `nv-fabricmanager`, `nv-fabricmanager-ctl`, CDI spec mounts/env, hostPath state directory, and cleanup behavior are present and consistent.
+  - Use e2e Kind validation as the product oracle: for NVSwitch profiles assert fabricmanager readiness first, exact `NV12`/`NV18` off-diagonal GPU matrix, link enumeration, capabilities, and non-decreasing counters; for standalone/non-NVSwitch profiles assert no leaked `NV#` and no fabricmanager wiring.
+  - Include downstream integration checks where feasible: device plugin allocatable GPUs, DRA ResourceSlices/CDI-injected workload `nvidia-smi`, GPU Operator validator path, and a restart/rollout scenario to catch stale readiness markers.
+  - Do not treat passing unit tests alone as sufficient because the main acceptance signal is the behavior of the bundled real `nvidia-smi` binary against the CGo bridge in containerized deployment.
+- Evidence that would change this plan:
+  - If CI artifacts already include full successful e2e logs for every matrix profile, CDI-injected workload checks, and a restart/rollout readiness scenario, reduce local integration emphasis and focus on review of user-facing docs and edge profiles.
+  - If the PR intentionally scopes out GPU Operator, custom configs, or CDI workload fabric gating, downgrade those from required validation to documented residual risk.
+  - If maintainers clarify that A100 should or should not run fake fabricmanager, update the review focus around Helm docs/helpers/tests accordingly.
+  - If tests show the 580 `nvidia-smi` no longer relies on field 147 or changes NVLink subcommand field usage, reprioritize bridge field compatibility over topology model review.
+  - If DCO remains `ACTION_REQUIRED`, treat merge readiness as blocked independently of product/test findings.

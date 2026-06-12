@@ -160,7 +160,11 @@ profile (e.g. a custom config, or disabling it on an auto profile).
 {{- $fm := .Values.fabricmanager | default dict -}}
 {{- $override := get $fm "enabled" -}}
 {{- if and (not (kindIs "invalid" $override)) (ne (toString $override) "") -}}
-{{- ternary "true" "false" (eq (toString $override) "true") -}}
+{{- $s := toString $override -}}
+{{- if not (has $s (list "true" "false")) -}}
+{{- fail (printf "fabricmanager.enabled must be true or false (got %q)" $s) -}}
+{{- end -}}
+{{- ternary "true" "false" (eq $s "true") -}}
 {{- else -}}
 {{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}
 {{- if hasKey $cfg "Error" -}}

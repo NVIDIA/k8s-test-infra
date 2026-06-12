@@ -560,6 +560,8 @@ func ResetForTesting() {
 	// Clear config cache first (before engine reset)
 	ClearConfigCache()
 
+	resetFabricReadinessForTesting()
+
 	// Reset engine singleton
 	engineOnce = sync.Once{}
 	engineInstance = nil
