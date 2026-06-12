@@ -49,12 +49,32 @@ jobs:
         run: helm package ${{ env.CHART_DIR }}/${{ env.CHART_NAME }} --destination .cr-release-packages
 
       - name: Push chart to OCI registry
-        run: helm push .cr-release-packages/${{ env.CHART_NAME }}-${{ steps.chart.outputs.version }}.tgz oci://ghcr.io/nvidia/k8s-test-infra/chart
+        id: push
+        run: |
+          set -o pipefail
+          helm push .cr-release-packages/${{ env.CHART_NAME }}-${{ steps.chart.outputs.version }}.tgz \
+            oci://ghcr.io/nvidia/k8s-test-infra/chart 2>&1 | tee push.log
+          digest=$(awk '/^Digest:/ {print $2}' push.log)
+          if [ -z "${digest}" ]; then
+            echo "could not extract chart digest from helm push output" >&2
+            exit 1
+          fi
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
+      # cosign reads registry credentials from the Docker config, which
+      # `helm registry login` does not write; without this login the
+      # signature blob upload is rejected with UNAUTHORIZED.
+      - name: Log in to GHCR for cosign
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Sign OCI artifact
         run: |
           cosign sign --yes \
-            ghcr.io/nvidia/k8s-test-infra/chart/${{ env.CHART_NAME }}:${{ steps.chart.outputs.version }}
+            ghcr.io/nvidia/k8s-test-infra/chart/${{ env.CHART_NAME }}@${{ steps.push.outputs.digest }}
