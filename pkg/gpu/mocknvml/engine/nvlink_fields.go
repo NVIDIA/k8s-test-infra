@@ -48,6 +48,12 @@ const (
 	// On an NVSwitch fabric every GPU link lands on switch port/link 0.
 	fiNvlinkRemoteNvlinkID = 146
 
+	// NVLinks connected to an NVSwitch (NVML_FI_DEV_NVSWITCH_CONNECTED_LINK_COUNT).
+	// The 580 nvidia-smi reads this per GPU in `topo -m` to detect the switch
+	// fabric and render NV<count> between every switch-connected GPU pair (it no
+	// longer calls nvmlDeviceGetP2PStatus the way the 560 binary did).
+	fiNvswitchConnectedLinkCount = 147
+
 	// Low-power (single-lane) state and threshold, surfaced by
 	// `nvidia-smi nvlink -gLowPwrInfo` (NVML_FI_DEV_NVLINK_GET_POWER_*).
 	fiNvlinkGetPowerState           = 167
@@ -195,6 +201,16 @@ func (d *ConfigurableDevice) GetNvLinkFieldValue(fieldID, scopeID uint32) (NVLin
 	case fiNvlinkGetSpeed:
 		if mbps, active := f.NvLinkSpeedMbps(d.index, link); active {
 			return NVLinkFieldUint, mbps, nvml.SUCCESS
+		}
+		return NVLinkFieldUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
+
+	// `topo -m` (580): number of this GPU's NVLinks landing on an NVSwitch.
+	// >0 makes nvidia-smi draw NV<count> across the switch fabric; report
+	// NOT_SUPPORTED when there are none so non-switch profiles show no NV#
+	// (negative control) exactly as before.
+	case fiNvswitchConnectedLinkCount:
+		if n := f.NVSwitchConnectedLinkCount(d.index); n > 0 {
+			return NVLinkFieldUint, uint64(n), nvml.SUCCESS
 		}
 		return NVLinkFieldUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
 

@@ -534,6 +534,25 @@ func (f *NodeFabric) ActiveLinkCount(dev int) int {
 	return n
 }
 
+// NVSwitchConnectedLinkCount returns the number of a device's active NVLinks
+// whose remote endpoint is an NVSwitch. This backs
+// NVML_FI_DEV_NVSWITCH_CONNECTED_LINK_COUNT (field 147), which the 580
+// nvidia-smi reads per GPU in `topo -m` to detect an NVSwitch fabric and draw
+// NV<count> between every switch-connected GPU pair. Returns 0 for direct or
+// non-NVLink topologies (no switch endpoints), so those render no NV#.
+func (f *NodeFabric) NVSwitchConnectedLinkCount(dev int) int {
+	if dev < 0 || dev >= f.numDevices {
+		return 0
+	}
+	n := 0
+	for _, l := range f.links[dev] {
+		if l.Active && l.RemoteKind == RemoteSwitch {
+			n++
+		}
+	}
+	return n
+}
+
 // NvLinkSpeedMbps returns the per-link speed in MB/s (NVML reports NVLink
 // speed in MBps) and whether the link is active. Derived from the
 // configured per-link bandwidth.

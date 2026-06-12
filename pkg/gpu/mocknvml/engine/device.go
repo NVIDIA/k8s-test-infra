@@ -1118,14 +1118,15 @@ func (d *ConfigurableDevice) GetTopologyCommonAncestor(other nvml.Device) (nvml.
 // GetP2PStatus reports the peer-to-peer status between this device and
 // another for a given capability index.
 //
-// nvidia-smi `topo -m` uses this (with the NVLINK caps index) to decide
-// whether to render an NV# cell between a GPU pair: on NVSwitch fabrics the
-// per-link remote PCI is an opaque switch endpoint (a real GB200 reports
-// FFFFFFFF:FF:FF.0 for every link), so it cannot be matched to a peer GPU
-// via nvmlDeviceGetNvLinkRemotePciInfo. nvidia-smi instead asks whether P2P
-// over NVLink is OK between the pair and, if so, renders NV<active link
-// count>. Without this getter (it was a NOT_SUPPORTED stub) the matrix fell
-// back to the PCIe path (PIX) for every pair, masking the NVLink topology.
+// On NVSwitch fabrics the per-link remote PCI is an opaque switch endpoint (a
+// real GB200 reports FFFFFFFF:FF:FF.0 for every link), so a pair's NVLink
+// connectivity cannot be matched via nvmlDeviceGetNvLinkRemotePciInfo. This
+// getter answers whether P2P over NVLink is OK between the pair instead.
+//
+// NOTE: the 580 nvidia-smi `topo -m` no longer calls this; it derives the NV#
+// matrix from NVML_FI_DEV_NVSWITCH_CONNECTED_LINK_COUNT (field 147, see
+// nvlink_fields.go). This remains implemented for the older binaries and any
+// CUDA/NVML caller that probes P2P capability directly.
 //
 // P2P is OK when the two devices are NVLink-connected in the immutable
 // fabric model (NVLinkCount > 0), which already encodes the switch-fanned

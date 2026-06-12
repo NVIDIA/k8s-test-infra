@@ -85,9 +85,11 @@ if [ "$EXPECT_NV" -gt 0 ]; then
   WANT_TOKEN="NV$EXPECT_NV"
   if [ -z "$NV_DISTINCT" ]; then
     echo "FAIL: profile '$GPU_PROFILE' expected $WANT_TOKEN between every GPU pair, found NO NV# in topo -m."
-    echo "      This is the C5/D5 residual: the bundled nvidia-smi did not surface the"
-    echo "      NV# matrix from the implemented per-link getters. Implement the deferred"
-    echo "      nvmlDeviceGetP2PStatus / nvmlDeviceGetFieldValues surface (final-design.md C5)."
+    echo "      The 580 nvidia-smi builds the NV# matrix from"
+    echo "      NVML_FI_DEV_NVSWITCH_CONNECTED_LINK_COUNT (field 147) per GPU; if that"
+    echo "      returns NOT_SUPPORTED the matrix collapses to PIX. Check"
+    echo "      engine/nvlink_fields.go (fiNvswitchConnectedLinkCount) and the fabric's"
+    echo "      switch-attached link expansion."
     exit 1
   fi
   if [ "$NV_DISTINCT" != "$WANT_TOKEN" ]; then

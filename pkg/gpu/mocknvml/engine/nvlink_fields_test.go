@@ -179,6 +179,15 @@ func TestGetNvLinkFieldValue_SwitchFabric(t *testing.T) {
 func TestGetNvLinkFieldValue_RemoteAndLowPower(t *testing.T) {
 	cd := newSwitchFabricDevice(t)
 
+	// `topo -m` (580 binary) reads NVSWITCH_CONNECTED_LINK_COUNT per GPU to
+	// detect the switch fabric; the 18 auto-expanded links all land on switches.
+	t.Run("nvswitch_connected_link_count", func(t *testing.T) {
+		vt, val, ret := cd.GetNvLinkFieldValue(fiNvswitchConnectedLinkCount, 0)
+		if ret != nvml.SUCCESS || vt != NVLinkFieldUint || val != 18 {
+			t.Fatalf("NVSWITCH_CONNECTED_LINK_COUNT = (type=%d,val=%d,ret=%v), want (Uint,18,SUCCESS)", vt, val, ret)
+		}
+	})
+
 	t.Run("remote_nvlink_id_active", func(t *testing.T) {
 		vt, val, ret := cd.GetNvLinkFieldValue(fiNvlinkRemoteNvlinkID, 0)
 		if ret != nvml.SUCCESS || vt != NVLinkFieldUint || val != 0 {
@@ -263,7 +272,7 @@ func TestGetNvLinkFieldValue_NoNVLink(t *testing.T) {
 		fiNvlinkPowerThresholdUnits, fiNvlinkPowerThresholdMin,
 		fiNvlinkPowerThresholdMax, fiNvlinkPowerThresholdSupported,
 		fiNvlinkGetPowerState, fiNvlinkGetPowerThreshold,
-		fiNvlinkRemoteNvlinkID,
+		fiNvlinkRemoteNvlinkID, fiNvswitchConnectedLinkCount,
 	} {
 		if vt, _, ret := cd.GetNvLinkFieldValue(fid, 0); ret != nvml.ERROR_NOT_SUPPORTED || vt != NVLinkFieldUnsupported {
 			t.Errorf("field %d (no nvlink) = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", fid, vt, ret)
