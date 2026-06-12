@@ -4,7 +4,7 @@ apiVersion: v2
 name: nvml-mock
 description: Mock NVIDIA driver infrastructure for Kubernetes testing
 type: application
-version: 0.2.0
+version: 0.2.1
 appVersion: "550.163.01"
 # Minimum kubernetes version. Mounting the same hostPath volume at two
 # different mountPaths in one container (used by daemonset.yaml for the

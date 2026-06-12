@@ -8,7 +8,7 @@ should match ClusterRole snapshot:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.2.0
+        helm.sh/chart: nvml-mock-0.2.1
       name: RELEASE-NAME-nvml-mock
     rules:
       - apiGroups:
@@ -28,7 +28,7 @@ should match ClusterRoleBinding snapshot:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.2.0
+        helm.sh/chart: nvml-mock-0.2.1
       name: RELEASE-NAME-nvml-mock
     roleRef:
       apiGroup: rbac.authorization.k8s.io
@@ -48,5 +48,5 @@ should match ServiceAccount snapshot:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.2.0
+        helm.sh/chart: nvml-mock-0.2.1
       name: RELEASE-NAME-nvml-mock

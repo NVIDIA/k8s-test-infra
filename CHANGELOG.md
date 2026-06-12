@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-12
+
+### Fixed
+- Release machinery: chart pushes to ghcr retry through the registry's tag
+  read-after-write lag (#390); image publishing now triggers on `v*` tag
+  pushes (a `paths:` filter silently suppressed every tag-triggered run)
+  and supports `workflow_dispatch` (#391).
+- Stale Go pins bumped to 1.26.4 across the build (deployment and test
+  Dockerfiles, mocknvml/mockcuda Makefiles, e2e dispatch default, helper
+  scripts), unbreaking the documented `make docker-build`; bundled
+  `kubectl` bumped v1.32.0 -> v1.36.1, cutting the image's CRITICAL/HIGH
+  CVE findings from that binary from 17 to 8. (#394)
+- mocknvml: `nvmlDeviceGetHandleByUUID` returns `NOT_FOUND` for unknown
+  UUIDs; the legacy default UUID scheme no longer assigns device 0 the
+  canonical nil UUID; the `tests/mocknvml` harness builds again (broken
+  since #269). (#395)
+- mockib hardening from review: peer-registration I/O carries deadlines
+  (one wedged peer no longer halts re-registration), `recv` waits are
+  bounded and honor daemon shutdown, peer discovery and registration
+  sweeps respect context cancellation, missing sysfs `node_guid` no
+  longer renders an all-zero NodeGUID, and steady-state re-register
+  logging only fires on change. (#396)
+
 ## [0.2.0] - 2026-06-12
 
 ### Added
@@ -41,6 +64,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parse. Defaults populated for every profile: `a100`/`b200`/`h100`/`l40s`
   -> 2 root complexes (dual-socket), `gb200` -> 4 root complexes (one per
   Grace pair), `t4` -> 1 root complex. (#263)
+- Dynamic per-query metric sampling: utilization, temperature, power, and
+  clocks vary plausibly across calls instead of returning static values.
+  (#323)
+- GPU failure injection: profiles can trip `ecc_uncorrectable`, `lost`,
+  and `fallen_off_bus` modes at runtime, including Xid 79 propagation.
+  (#328)
+- ComputeDomain / NVLink fabric simulation: `nvmlDeviceGetGpuFabricInfo`
+  (+`InfoV`) driven by a cluster-level topology ConfigMap, plus fake
+  `nvidia-imex` / `nvidia-imex-ctl` binaries coordinating peer readiness
+  through marker files on a shared volume. (#337, #342)
+- Toolkit-ready marker file for GPU Operator validator compatibility.
+  (#346)
 
 ### Changed
 - nvml-mock profile `bus_id` fields now use the canonical Linux sysfs
@@ -94,6 +129,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Rebranded from gpu-mock to nvml-mock (PRs #273, #274, #275, #281, #282)
 
-[Unreleased]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/NVIDIA/k8s-test-infra/releases/tag/v0.1.0
