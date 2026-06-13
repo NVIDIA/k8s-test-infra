@@ -24,7 +24,9 @@ import (
 // newCache returns a fabricReadinessCache with injected clock/stat so the
 // tests never touch the real filesystem or wall clock.
 func newCache(now func() time.Time, stat func(string) (os.FileInfo, error)) *fabricReadinessCache {
-	return &fabricReadinessCache{now: now, stat: stat}
+	// Inject envStateDir (not the once-cached fabricStateDir) so each t.Setenv
+	// in these tests is observed, matching the singleton/test split.
+	return &fabricReadinessCache{now: now, stat: stat, stateDir: envStateDir}
 }
 
 func okStat(string) (os.FileInfo, error)  { return nil, nil }

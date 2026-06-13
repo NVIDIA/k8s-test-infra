@@ -326,11 +326,22 @@ fi
 if [ "$MOCK_FM_MODE" != "off" ]; then
   if [ -x /usr/bin/nv-fabricmanager ]; then
     mkdir -p "$FM_STATE_DIR"
+    # Marker name must match fmcoord.ReadyMarker (pkg/fmcoord/coord.go), which
+    # the daemon writes and engine.FabricReadyMarker reads. Keep this literal in
+    # sync with that constant — the engine/fmcoord contract test pins the Go
+    # side, but this shell path is not covered, so a rename would silently skip
+    # this stale-marker cleanup.
     rm -f "$FM_STATE_DIR/fabricmanager.ready"
     echo "Starting fake nvidia-fabricmanager (state dir: $FM_STATE_DIR)"
     /usr/bin/nv-fabricmanager &
   else
-    echo "WARNING: MOCK_FABRICMANAGER='$MOCK_FABRICMANAGER' set but /usr/bin/nv-fabricmanager not found" >&2
+    # Hard-fail rather than warn: MOCK_FM_MODE != off means the env is fully
+    # wired (a profile with fabric.state: auto). Without the daemon the
+    # readiness marker is never written, so those GPUs sit at IN_PROGRESS
+    # forever — a confusing failure from the workload side. A missing binary is
+    # a broken image, same as the unknown-mode branch validated earlier.
+    echo "FATAL: MOCK_FABRICMANAGER='$MOCK_FABRICMANAGER' set but /usr/bin/nv-fabricmanager not found in image" >&2
+    exit 1
   fi
 fi
 

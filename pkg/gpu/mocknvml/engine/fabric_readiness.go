@@ -53,29 +53,35 @@ type fabricReadinessCache struct {
 	checked time.Time
 	ready   bool
 
-	// now and stat are injectable for tests.
-	now  func() time.Time
-	stat func(string) (os.FileInfo, error)
+	// now, stat and stateDir are injectable. stateDir resolves the coupling
+	// directory: the process singleton uses fabricStateDir (read once, off the
+	// hot path), while tests inject envStateDir so each t.Setenv is observed.
+	// Carrying the resolver on the struct keeps that split explicit instead of
+	// branching on the singleton's identity.
+	now      func() time.Time
+	stat     func(string) (os.FileInfo, error)
+	stateDir func() string
 }
 
 var (
-	fabricReadiness   = &fabricReadinessCache{now: time.Now, stat: os.Stat}
-	fabricEnvDir      string
-	fabricEnvDirOnce  sync.Once
+	fabricReadiness  = &fabricReadinessCache{now: time.Now, stat: os.Stat, stateDir: fabricStateDir}
+	fabricEnvDir     string
+	fabricEnvDirOnce sync.Once
 )
 
-func fabricStateDir() string {
-	fabricEnvDirOnce.Do(func() {
-		fabricEnvDir = strings.TrimSpace(os.Getenv(EnvFabricStateDir))
-	})
-	return fabricEnvDir
+// envStateDir reads EnvFabricStateDir directly (no caching), observing the
+// current environment on every call.
+func envStateDir() string {
+	return strings.TrimSpace(os.Getenv(EnvFabricStateDir))
 }
 
-func (c *fabricReadinessCache) couplingStateDir() string {
-	if c == fabricReadiness {
-		return fabricStateDir()
-	}
-	return strings.TrimSpace(os.Getenv(EnvFabricStateDir))
+// fabricStateDir resolves EnvFabricStateDir once and caches it, so the hot NVML
+// getters don't re-read the environment on every call.
+func fabricStateDir() string {
+	fabricEnvDirOnce.Do(func() {
+		fabricEnvDir = envStateDir()
+	})
+	return fabricEnvDir
 }
 
 func resetFabricReadinessForTesting() {
@@ -91,7 +97,7 @@ func resetFabricReadinessForTesting() {
 // state "auto". COMPLETED when coupling is inactive (fabricmanager
 // disabled); otherwise it tracks the readiness marker.
 func (c *fabricReadinessCache) state() uint8 {
-	dir := c.couplingStateDir()
+	dir := c.stateDir()
 	if dir == "" {
 		return FabricStateCompleted
 	}

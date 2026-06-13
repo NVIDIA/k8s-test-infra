@@ -108,6 +108,14 @@ const (
 
 	// nvLinkMaxLinks bounds the per-device link index. Indices outside
 	// [0, nvLinkMaxLinks) are rejected as invalid arguments.
+	//
+	// FIDELITY (#255): this is a single global cap, not per-profile. On a
+	// profile with fewer links than the max (e.g. a100 = 12), indices in
+	// [links_per_gpu, nvLinkMaxLinks) resolve as valid-but-DISABLED, whereas
+	// real NVML returns ERROR_INVALID_ARGUMENT for link >= links_per_gpu.
+	// Harmless for current consumers (nvidia-smi enumerates via LINK_COUNT and
+	// stops at the active links); revisit if a consumer probes beyond the
+	// profile's link count.
 	nvLinkMaxLinks = 18
 )
 
