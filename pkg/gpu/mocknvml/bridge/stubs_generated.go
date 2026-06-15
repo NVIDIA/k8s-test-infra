@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 273 stub functions for unimplemented NVML functions.
+// 279 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -364,6 +364,11 @@ func nvmlDeviceGetHostVgpuMode(device C.nvmlDevice_t, pHostVgpuMode *C.nvmlHostV
 	return stubReturn("nvmlDeviceGetHostVgpuMode")
 }
 
+//export nvmlDeviceGetHostname_v1
+func nvmlDeviceGetHostname_v1(device C.nvmlDevice_t, hostname *C.nvmlHostname_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetHostname_v1")
+}
+
 //export nvmlDeviceGetInforomConfigurationChecksum
 func nvmlDeviceGetInforomConfigurationChecksum(device C.nvmlDevice_t, checksum *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetInforomConfigurationChecksum")
@@ -584,6 +589,11 @@ func nvmlDeviceGetTemperatureV(device C.nvmlDevice_t, temperature *C.nvmlTempera
 	return stubReturn("nvmlDeviceGetTemperatureV")
 }
 
+//export nvmlDeviceGetUnrepairableMemoryFlag_v1
+func nvmlDeviceGetUnrepairableMemoryFlag_v1(device C.nvmlDevice_t, unrepairableMemoryStatus *C.nvmlUnrepairableMemoryStatus_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetUnrepairableMemoryFlag_v1")
+}
+
 //export nvmlDeviceGetVgpuCapabilities
 func nvmlDeviceGetVgpuCapabilities(device C.nvmlDevice_t, capability C.nvmlDeviceVgpuCapability_t, capResult *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetVgpuCapabilities")
@@ -682,6 +692,11 @@ func nvmlDevicePowerSmoothingUpdatePresetProfileParam(device C.nvmlDevice_t, pro
 //export nvmlDeviceQueryDrainState
 func nvmlDeviceQueryDrainState(pciInfo *C.nvmlPciInfo_t, currentState *C.nvmlEnableState_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceQueryDrainState")
+}
+
+//export nvmlDeviceReadPRMCounters_v1
+func nvmlDeviceReadPRMCounters_v1(device C.nvmlDevice_t, counterList *C.nvmlPRMCounterList_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceReadPRMCounters_v1")
 }
 
 //export nvmlDeviceReadWritePRM_v1
@@ -804,6 +819,11 @@ func nvmlDeviceSetGpuOperationMode(device C.nvmlDevice_t, mode C.nvmlGpuOperatio
 	return stubReturn("nvmlDeviceSetGpuOperationMode")
 }
 
+//export nvmlDeviceSetHostname_v1
+func nvmlDeviceSetHostname_v1(device C.nvmlDevice_t, hostname *C.nvmlHostname_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceSetHostname_v1")
+}
+
 //export nvmlDeviceSetMemClkVfOffset
 func nvmlDeviceSetMemClkVfOffset(device C.nvmlDevice_t, offset C.int) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetMemClkVfOffset")
@@ -847,6 +867,11 @@ func nvmlDeviceSetPowerManagementLimit_v2(device C.nvmlDevice_t, powerValue *C.n
 //export nvmlDeviceSetPowerMizerMode_v1
 func nvmlDeviceSetPowerMizerMode_v1(device C.nvmlDevice_t, powerMizerMode *C.nvmlDevicePowerMizerModes_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetPowerMizerMode_v1")
+}
+
+//export nvmlDeviceSetRusdSettings_v1
+func nvmlDeviceSetRusdSettings_v1(device C.nvmlDevice_t, settings *C.nvmlRusdSettings_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceSetRusdSettings_v1")
 }
 
 //export nvmlDeviceSetTemperatureThreshold
@@ -897,6 +922,11 @@ func nvmlDeviceWorkloadPowerProfileGetProfilesInfo(device C.nvmlDevice_t, profil
 //export nvmlDeviceWorkloadPowerProfileSetRequestedProfiles
 func nvmlDeviceWorkloadPowerProfileSetRequestedProfiles(device C.nvmlDevice_t, requestedProfiles *C.nvmlWorkloadPowerProfileRequestedProfiles_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceWorkloadPowerProfileSetRequestedProfiles")
+}
+
+//export nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1
+func nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1(device C.nvmlDevice_t, updateProfiles *C.nvmlWorkloadPowerProfileUpdateProfiles_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1")
 }
 
 //export nvmlGetExcludedDeviceCount

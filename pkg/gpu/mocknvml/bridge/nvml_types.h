@@ -457,6 +457,17 @@ typedef struct nvmlWorkloadPowerProfileCurrentProfiles_st   nvmlWorkloadPowerPro
 typedef struct nvmlWorkloadPowerProfileProfilesInfo_st      nvmlWorkloadPowerProfileProfilesInfo_t;
 typedef struct nvmlWorkloadPowerProfileRequestedProfiles_st nvmlWorkloadPowerProfileRequestedProfiles_t;
 
+/*
+ * NVML 13.0 additions (go-nvml v0.13.1-0, #400). Only ever passed by pointer
+ * through NOT_SUPPORTED stubs, so opaque forward declarations are sufficient
+ * and ABI-safe.
+ */
+typedef struct nvmlHostname_v1_st                           nvmlHostname_v1_t;
+typedef struct nvmlPRMCounterList_v1_st                     nvmlPRMCounterList_v1_t;
+typedef struct nvmlRusdSettings_v1_st                       nvmlRusdSettings_v1_t;
+typedef struct nvmlUnrepairableMemoryStatus_v1_st           nvmlUnrepairableMemoryStatus_v1_t;
+typedef struct nvmlWorkloadPowerProfileUpdateProfiles_v1_st nvmlWorkloadPowerProfileUpdateProfiles_v1_t;
+
 #ifdef __cplusplus
 }
 #endif
