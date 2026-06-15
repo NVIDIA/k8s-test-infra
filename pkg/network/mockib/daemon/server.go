@@ -213,32 +213,27 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn) {
 	}
 }
 
+// decodeAnd unmarshals the envelope body into a fresh T and hands it to fn.
+// It collapses the decode-then-handle boilerplate that every typed message
+// case would otherwise repeat, keeping dispatch a flat one-line-per-type table.
+func decodeAnd[T any](env protocol.Envelope, fn func(T) error) error {
+	var req T
+	if err := protocol.DecodeBody(env, &req); err != nil {
+		return err
+	}
+	return fn(req)
+}
+
 func (s *Server) dispatch(ctx context.Context, c net.Conn, env protocol.Envelope) error {
 	switch env.Type {
 	case protocol.TypeOpen:
-		var req protocol.OpenReq
-		if err := protocol.DecodeBody(env, &req); err != nil {
-			return err
-		}
-		return s.handleOpen(c, req)
+		return decodeAnd(env, func(req protocol.OpenReq) error { return s.handleOpen(c, req) })
 	case protocol.TypeSend:
-		var req protocol.SendReq
-		if err := protocol.DecodeBody(env, &req); err != nil {
-			return err
-		}
-		return s.handleSend(c, req)
+		return decodeAnd(env, func(req protocol.SendReq) error { return s.handleSend(c, req) })
 	case protocol.TypeRecv:
-		var req protocol.RecvReq
-		if err := protocol.DecodeBody(env, &req); err != nil {
-			return err
-		}
-		return s.handleRecv(ctx, c, req)
+		return decodeAnd(env, func(req protocol.RecvReq) error { return s.handleRecv(ctx, c, req) })
 	case protocol.TypeClose:
-		var req protocol.CloseReq
-		if err := protocol.DecodeBody(env, &req); err != nil {
-			return err
-		}
-		return s.handleClose(c, req)
+		return decodeAnd(env, func(req protocol.CloseReq) error { return s.handleClose(c, req) })
 	case protocol.TypeRegisterPeers:
 		// Use the server ctx (not Background) so a one-shot register sweep
 		// stops between peers when the daemon is shutting down.
@@ -247,37 +242,17 @@ func (s *Server) dispatch(ctx context.Context, c net.Conn, env protocol.Envelope
 	case protocol.TypeVerbsOpen, protocol.TypeVerbsWrite, protocol.TypeVerbsRead, protocol.TypeVerbsClose:
 		return s.dispatchVerbs(c, env)
 	case protocol.TypeVerbsQPCreate:
-		var req protocol.VerbsQPCreateReq
-		if err := protocol.DecodeBody(env, &req); err != nil {
-			return err
-		}
-		return s.handleVerbsQPCreate(req)
+		return decodeAnd(env, s.handleVerbsQPCreate)
 	case protocol.TypeVerbsQPConnect:
-		var req protocol.VerbsQPConnectReq
-		if err := protocol.DecodeBody(env, &req); err != nil {
-			return err
-		}
-		return s.handleVerbsQPConnect(req)
+		return decodeAnd(env, s.handleVerbsQPConnect)
 	case protocol.TypeVerbsQPDestroy:
-		var req protocol.VerbsQPDestroyReq
-		if err := protocol.DecodeBody(env, &req); err != nil {
-			return err
-		}
-		return s.handleVerbsQPDestroy(req)
+		return decodeAnd(env, s.handleVerbsQPDestroy)
 	case protocol.TypeVerbsAttach:
-		var req protocol.VerbsAttachReq
-		if err := protocol.DecodeBody(env, &req); err != nil {
-			return err
-		}
-		return s.handleVerbsAttach(ctx, c, req)
+		return decodeAnd(env, func(req protocol.VerbsAttachReq) error { return s.handleVerbsAttach(ctx, c, req) })
 	case protocol.TypeVerbsOp:
-		var op protocol.VerbsOp
-		if err := protocol.DecodeBody(env, &op); err != nil {
-			return err
-		}
 		// Egress is fire-and-forget: never write a per-op reply (that would
 		// serialize the data path and can deadlock the apply thread).
-		return s.routeVerbsEgress(op)
+		return decodeAnd(env, s.routeVerbsEgress)
 	default:
 		return protocol.WriteMessage(c, env.Type, map[string]string{
 			"error": fmt.Sprintf("unknown message type %q", env.Type),
