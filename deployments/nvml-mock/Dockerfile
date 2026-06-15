@@ -15,6 +15,12 @@
 ARG GOLANG_VERSION=1.26.4
 FROM golang:${GOLANG_VERSION}-bookworm AS builder
 WORKDIR /src
+# libibmockrdma.so (c/rdma_shim.c) #includes <infiniband/verbs.h>, so the
+# builder needs the libibverbs dev headers. This is build-only; the runtime
+# image already ships rdma-core/ibverbs-providers for the .so to load against.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libibverbs-dev \
+    && rm -rf /var/lib/apt/lists/*
 COPY go.mod go.sum ./
 COPY vendor/ vendor/
 COPY pkg/gpu/mocknvml/ pkg/gpu/mocknvml/
