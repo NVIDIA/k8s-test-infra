@@ -136,6 +136,18 @@ spec:
             {{- end }}
             - name: MOCK_IB_ROOT
               value: "/var/lib/nvml-mock/ib"
+          # Gate readiness on setup.sh completing the driver/sysfs install.
+          # Without this the pod is Ready the moment the process starts, so
+          # `helm --wait` / `kubectl rollout status` return while setup is still
+          # running and e2e validations race the install. setup.sh writes the
+          # marker as its last step.
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "test -f /tmp/nvml-mock-setup-complete"]
+            initialDelaySeconds: 1
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 60
           lifecycle:
             preStop:
               exec:

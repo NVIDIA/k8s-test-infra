@@ -71,6 +71,16 @@ should match snapshot with all overrides:
                 - containerPort: 18515
                   name: ibping
                   protocol: TCP
+              readinessProbe:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - test -f /tmp/nvml-mock-setup-complete
+                failureThreshold: 60
+                initialDelaySeconds: 1
+                periodSeconds: 2
+                timeoutSeconds: 2
               resources:
                 limits:
                   cpu: 500m
@@ -194,6 +204,16 @@ should match snapshot with b200 profile:
                 - containerPort: 18515
                   name: ibping
                   protocol: TCP
+              readinessProbe:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - test -f /tmp/nvml-mock-setup-complete
+                failureThreshold: 60
+                initialDelaySeconds: 1
+                periodSeconds: 2
+                timeoutSeconds: 2
               securityContext:
                 privileged: true
               volumeMounts:
@@ -304,6 +324,16 @@ should match snapshot with default values:
                 - containerPort: 18515
                   name: ibping
                   protocol: TCP
+              readinessProbe:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - test -f /tmp/nvml-mock-setup-complete
+                failureThreshold: 60
+                initialDelaySeconds: 1
+                periodSeconds: 2
+                timeoutSeconds: 2
               securityContext:
                 privileged: true
               volumeMounts:
