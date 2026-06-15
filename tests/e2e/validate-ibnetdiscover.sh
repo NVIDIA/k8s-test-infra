@@ -39,15 +39,18 @@ fi
 
 # ibnetdiscover needs the mock-ib UMAD daemon; under MOCK_IB=sysfs (no socket)
 # there is nothing to answer the DR walk, so skip rather than hard-fail.
-if ! kubectl exec "$LOCAL_POD" -- test -S "${MOCK_IBPING_SOCKET}" 2>/dev/null; then
+wait_for_socket() {
+  local pod=$1 i
   for i in $(seq 1 30); do
-    if kubectl exec "$LOCAL_POD" -- test -S "${MOCK_IBPING_SOCKET}" 2>/dev/null; then
-      break
+    if kubectl exec "$pod" -- test -S "${MOCK_IBPING_SOCKET}" 2>/dev/null; then
+      return 0
     fi
     sleep 1
   done
-fi
-if ! kubectl exec "$LOCAL_POD" -- test -S "${MOCK_IBPING_SOCKET}" 2>/dev/null; then
+  return 1
+}
+
+if ! wait_for_socket "$LOCAL_POD"; then
   echo "SKIP: mock-ib socket ${MOCK_IBPING_SOCKET} not present on $LOCAL_POD (UMAD daemon not running)"
   exit 0
 fi
