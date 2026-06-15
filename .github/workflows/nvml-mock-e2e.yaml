@@ -192,6 +192,12 @@ jobs:
       - name: Deploy NVIDIA device plugin
         run: |
           kubectl apply -f tests/e2e/device-plugin-mock.yaml
+          # Wait for the DaemonSet rollout before waiting on its pods: a bare
+          # `kubectl wait pod -l ...` run immediately after apply fails with
+          # "no matching resources found" if the DS controller hasn't created
+          # the pod yet. rollout status tolerates that and blocks until ready.
+          kubectl -n kube-system rollout status \
+            daemonset/nvidia-device-plugin-mock --timeout=120s
           kubectl -n kube-system wait --for=condition=ready \
             pod -l name=nvidia-device-plugin-mock --timeout=120s
 
@@ -882,6 +888,12 @@ jobs:
       - name: Deploy NVIDIA device plugin
         run: |
           kubectl apply -f tests/e2e/device-plugin-mock.yaml
+          # Wait for the DaemonSet rollout before waiting on its pods: a bare
+          # `kubectl wait pod -l ...` run immediately after apply fails with
+          # "no matching resources found" if the DS controller hasn't created
+          # the pod yet. rollout status tolerates that and blocks until ready.
+          kubectl -n kube-system rollout status \
+            daemonset/nvidia-device-plugin-mock --timeout=120s
           kubectl -n kube-system wait --for=condition=ready \
             pod -l name=nvidia-device-plugin-mock --timeout=120s
 
