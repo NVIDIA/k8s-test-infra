@@ -117,6 +117,21 @@ infiniband:
   # that per profile. Set it explicitly to override (an invalid value fails
   # `helm template`).
   mockTier: ""
+  # rdma enables the RDMA verbs data path (issue #374): the chart LD_PRELOADs
+  # libibmockrdma (an in-process libibverbs provider) and sets MOCK_IB_RDMA=1
+  # so perftest tools (ib_write_bw / ib_read_bw / ib_send_bw) and GPUDirect-RDMA
+  # bandwidth runs complete and report NON-ZERO bandwidth across pods.
+  #
+  # Enabled by default. The provider is inert unless the data path is exercised
+  # and degrades safely when the mock-ib daemon socket is absent (e.g. non-full
+  # tiers), so it is harmless when unused; set to false to drop it entirely.
+  #
+  # IMPORTANT: the bandwidth is a functional artifact of relaying each RDMA
+  # operation over the mock-ib JSON/TCP fabric, NOT a real InfiniBand
+  # measurement — do not use it for performance characterization. The data path
+  # requires mockTier "full" (the verbs/UMAD shims and the mock-ib daemon).
+  rdma:
+    enabled: true
   ping:
     port: 18515
     # The mock-ib TCP fabric listener binds 0.0.0.0:<port> with no auth and

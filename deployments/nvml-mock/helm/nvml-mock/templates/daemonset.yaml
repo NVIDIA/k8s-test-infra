@@ -120,9 +120,20 @@ spec:
             # /sys/class/infiniband_mad/, /sys/class/infiniband_verbs/ and
             # /dev/infiniband — every other path passes through unchanged.
             # libibmockumad must precede libibmocksys so UMAD ioctls are
-            # intercepted before sysfs path rewriting.
+            # intercepted before sysfs path rewriting. When the RDMA data path
+            # is enabled, libibmockrdma (an in-process libibverbs provider) is
+            # prepended so its ibv_* QP/MR/WR symbols win over the real
+            # libibverbs; it stays inert unless MOCK_IB_RDMA=1 (set below).
             - name: LD_PRELOAD
-              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1"
+              value: "{{ if .Values.infiniband.rdma.enabled }}/usr/local/lib/libibmockrdma.so.1:{{ end }}/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1"
+            {{- if .Values.infiniband.rdma.enabled }}
+            # MOCK_IB_RDMA arms libibmockrdma's data path: RDMA WRITE/READ/SEND
+            # are relayed over the mock-ib JSON/TCP fabric so perftest reports
+            # non-zero bandwidth. This is a functional relay artifact, NOT an
+            # InfiniBand measurement. Requires MOCK_IB=full. See issue #374.
+            - name: MOCK_IB_RDMA
+              value: "1"
+            {{- end }}
             - name: MOCK_IB_ROOT
               value: "/var/lib/nvml-mock/ib"
           lifecycle:

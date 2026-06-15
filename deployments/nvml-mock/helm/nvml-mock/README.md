@@ -727,6 +727,7 @@ for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 | `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps for fake-gpu-operator discovery |
 | `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Labels on profile ConfigMaps for discovery |
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
+| `infiniband.rdma.enabled` | `true` | Arm the RDMA verbs data path: LD_PRELOAD `libibmockrdma` (an in-process libibverbs provider) and set `MOCK_IB_RDMA=1` so `perftest` (`ib_write_bw`/`ib_read_bw`/`ib_send_bw`) reports **non-zero** bandwidth across pods. On by default; the data path requires `mockTier: full` and degrades safely otherwise. Set `false` to drop the provider entirely. The bandwidth is a JSON/TCP relay artifact, **not** an InfiniBand measurement (#374) |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
 

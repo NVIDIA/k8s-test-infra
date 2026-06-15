@@ -1062,6 +1062,16 @@ jobs:
             -o jsonpath='{.items[0].metadata.name}')
           ./tests/e2e/validate-ibnetdiscover.sh "$W1" "$W2" a100 2
 
+      - name: Validate cross-node RDMA bandwidth (ib_write_bw)
+        run: |
+          SERVER_POD=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w1 \
+            -o jsonpath='{.items[0].metadata.name}')
+          CLIENT_POD=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w2 \
+            -o jsonpath='{.items[0].metadata.name}')
+          echo "Server pod: $SERVER_POD"
+          echo "Client pod: $CLIENT_POD"
+          ./tests/e2e/validate-rdma.sh "$SERVER_POD" "$CLIENT_POD"
+
       - name: Collect logs on failure
         if: failure()
         run: |
@@ -1073,3 +1083,17 @@ jobs:
           kubectl logs -l app.kubernetes.io/instance=nvml-mock-w2 --tail=50 || true
           echo "=== events ==="
           kubectl get events --sort-by=.lastTimestamp | tail -30 || true
+
+  rdma-loopback:
+    # Fast, hardware-free regression test for the RDMA verbs data-path shim.
+    # Builds the production libibmockrdma.so via the package Makefile and proves
+    # real bytes move through the JSON relay (datapath_test) plus stock perftest
+    # ib_write_bw over loopback -- no Kind cluster required.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: RDMA data-path loopback test
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src debian:bookworm-slim \
+            sh pkg/network/mockib/c/loopback/run.sh

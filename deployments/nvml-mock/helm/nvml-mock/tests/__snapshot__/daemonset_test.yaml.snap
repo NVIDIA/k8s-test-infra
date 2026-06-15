@@ -54,7 +54,9 @@ should match snapshot with all overrides:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: nvml-mock-custom-ibping.gpu-system.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                  value: /usr/local/lib/libibmockrdma.so.1:/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                - name: MOCK_IB_RDMA
+                  value: "1"
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
               image: custom-registry/nvml-mock:v2.0.0
@@ -175,7 +177,9 @@ should match snapshot with b200 profile:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                  value: /usr/local/lib/libibmockrdma.so.1:/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                - name: MOCK_IB_RDMA
+                  value: "1"
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
               image: ghcr.io/nvidia/nvml-mock:latest
@@ -283,7 +287,9 @@ should match snapshot with default values:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                  value: /usr/local/lib/libibmockrdma.so.1:/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                - name: MOCK_IB_RDMA
+                  value: "1"
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
               image: ghcr.io/nvidia/nvml-mock:latest

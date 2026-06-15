@@ -48,6 +48,11 @@ COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmocksys.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmockumad.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmockverbs.so.* /usr/local/lib/
+# libibmockrdma.so: in-process libibverbs provider that carries the RDMA verbs
+# data path (perftest / GPUDirect bandwidth) over the mock-ib JSON/TCP relay.
+# Only LD_PRELOAD'd (and active) when infiniband.rdma.enabled sets MOCK_IB_RDMA;
+# see deployments/nvml-mock/helm/nvml-mock/templates/daemonset.yaml. Issue #374.
+COPY --from=builder /src/pkg/network/mockib/libibmockrdma.so.* /usr/local/lib/
 COPY --from=builder /out/mock-ib /usr/local/bin/mock-ib
 COPY --from=builder /out/render-pci-sysfs /usr/local/bin/render-pci-sysfs
 # Fake IMEX binaries used for ComputeDomain simulation on KIND. Installed

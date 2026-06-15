@@ -78,6 +78,10 @@ type Server struct {
 	verbsHandles      map[int]*verbsHandle
 	verbsMu           sync.RWMutex
 
+	// verbs RDMA data-path routing (issue #374); see verbs_fabric.go.
+	verbs      *verbsRouter
+	verbsDebug bool
+
 	graphMu sync.RWMutex
 	graph   *fabric.Graph
 
@@ -109,6 +113,8 @@ func NewServer(cfg Config, logger *log.Logger) (*Server, error) {
 		handles:        make(map[int]*portHandle),
 		verbsHandles:   make(map[int]*verbsHandle),
 		registerWarned: make(map[string]struct{}),
+		verbs:          newVerbsRouter(),
+		verbsDebug:     os.Getenv("MOCK_IB_DEBUG_VERBS") == "1",
 	}
 	srv.rebuildGraph()
 	return srv, nil
@@ -157,6 +163,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()
+		s.verbs.closePeers()
 	}()
 
 	for {
@@ -239,6 +246,38 @@ func (s *Server) dispatch(ctx context.Context, c net.Conn, env protocol.Envelope
 		return protocol.WriteMessage(c, protocol.TypeRegisterPeers, map[string]bool{"ok": true})
 	case protocol.TypeVerbsOpen, protocol.TypeVerbsWrite, protocol.TypeVerbsRead, protocol.TypeVerbsClose:
 		return s.dispatchVerbs(c, env)
+	case protocol.TypeVerbsQPCreate:
+		var req protocol.VerbsQPCreateReq
+		if err := protocol.DecodeBody(env, &req); err != nil {
+			return err
+		}
+		return s.handleVerbsQPCreate(req)
+	case protocol.TypeVerbsQPConnect:
+		var req protocol.VerbsQPConnectReq
+		if err := protocol.DecodeBody(env, &req); err != nil {
+			return err
+		}
+		return s.handleVerbsQPConnect(req)
+	case protocol.TypeVerbsQPDestroy:
+		var req protocol.VerbsQPDestroyReq
+		if err := protocol.DecodeBody(env, &req); err != nil {
+			return err
+		}
+		return s.handleVerbsQPDestroy(req)
+	case protocol.TypeVerbsAttach:
+		var req protocol.VerbsAttachReq
+		if err := protocol.DecodeBody(env, &req); err != nil {
+			return err
+		}
+		return s.handleVerbsAttach(ctx, c, req)
+	case protocol.TypeVerbsOp:
+		var op protocol.VerbsOp
+		if err := protocol.DecodeBody(env, &op); err != nil {
+			return err
+		}
+		// Egress is fire-and-forget: never write a per-op reply (that would
+		// serialize the data path and can deadlock the apply thread).
+		return s.routeVerbsEgress(op)
 	default:
 		return protocol.WriteMessage(c, env.Type, map[string]string{
 			"error": fmt.Sprintf("unknown message type %q", env.Type),
