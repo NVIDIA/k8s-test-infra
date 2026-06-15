@@ -118,17 +118,8 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 	smpLogf("attr=0x%04x mod=0x%x lid=0x%x localCA=%s hopCnt=%d hops=%02x:%02x:%02x:%02x -> %s/%s lid=0x%x local=%t podIP=%s",
 		attrID, attrMod, lid, localCA, drHopCnt(mad), drPathByte(mad, 1), drPathByte(mad, 2), drPathByte(mad, 3), drPathByte(mad, 4),
 		target.CAName, target.PortGUID, target.LID, target.Local, target.PodIP)
-	out := make([]byte, len(sendMad))
-	if len(sendMad) < minUmadLen {
-		out = make([]byte, minUmadLen)
-	}
-	copy(out, sendMad)
-	if len(out) >= 8 {
-		// ib_user_mad.status (offset 4); non-zero makes libibmad mad_rpc retry/discard.
-		binary.LittleEndian.PutUint32(out[4:8], 0)
-	}
+	out := newSMPResp(sendMad, method)
 	respMAD := out[umadMADOffset:]
-	respMAD[ibMADMethodOff] = method | 0x80
 	switch attrID {
 	case ibAttrNodeDesc:
 		fillNodeDesc(respMAD, target)
@@ -147,8 +138,9 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 // newSMPResp clones a SEND umad into a GETRESP buffer: padded to at least a full
 // legacy umad frame (so short libibmad sends still carry the 256-byte MAD),
 // umad.status zeroed (a non-zero status makes libibmad discard the reply), and
-// the MAD method's response bit (0x80) set. It mirrors the inline response setup
-// in TrySynthesize and is used by the SMInfo branch.
+// the MAD method's response bit (0x80) set. It is the single response-framing
+// helper for TrySynthesize, used by both the SMInfo branch and the directed-route
+// NODE_DESC/NODE_INFO/PORT_INFO path.
 func newSMPResp(sendMad []byte, method byte) []byte {
 	out := make([]byte, len(sendMad))
 	if len(sendMad) < minUmadLen {

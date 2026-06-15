@@ -58,15 +58,22 @@ for P in "$LOCAL_POD" "$PEER_POD"; do
   fi
 done
 
-# Local pod's own port GUIDs come from the rendered mock sysfs tree. Any GUID in
+# Local pod's own GUIDs come from the rendered mock sysfs tree. Any GUID in
 # ibnetdiscover's output that is not in this set is, by construction, a peer-pod
-# port (same technique as validate-iblinkinfo.sh).
+# GUID (same technique as validate-iblinkinfo.sh). We collect port_guid AND the
+# CA-level node_guid / sys_image_guid: ibnetdiscover prints node GUIDs (caguid=)
+# in addition to port GUIDs, and the mock derives node_guid from port_guid by
+# clearing the EUI-64 U/L bit (fabric.nodeGUIDFromPortGUID), so node_guid !=
+# port_guid. Excluding only port_guid would let the local CA's own node GUID be
+# misclassified as a cross-pod peer and false-pass the assertion below.
 LOCAL_GUIDS=$(kubectl exec "$LOCAL_POD" -- sh -c '
-  for f in /var/lib/nvml-mock/ib/sys/class/infiniband/*/ports/1/port_guid; do
-    [ -r "$f" ] && cat "$f"
+  for ca in /var/lib/nvml-mock/ib/sys/class/infiniband/*; do
+    for f in "$ca/ports/1/port_guid" "$ca/node_guid" "$ca/sys_image_guid"; do
+      [ -r "$f" ] && cat "$f"
+    done
   done' 2>/dev/null | tr -d ':[:space:]' | tr 'A-F' 'a-f' | sort -u)
 if [ -z "$LOCAL_GUIDS" ]; then
-  echo "FAIL: could not enumerate local port GUIDs from sysfs on $LOCAL_POD"
+  echo "FAIL: could not enumerate local GUIDs (port/node/sys_image) from sysfs on $LOCAL_POD"
   exit 1
 fi
 
