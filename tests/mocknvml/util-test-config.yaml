@@ -329,6 +329,7 @@ devices:
     pci:
       bus_id: "0000:0F:00.0"
     minor_number: 1
+    processes: []   # explicit clear: empty-path coverage
 
   - index: 2
     uuid: "GPU-12345678-1234-1234-1234-123456780002"

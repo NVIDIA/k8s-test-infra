@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -186,32 +187,32 @@ func TestLoadConfig_AutoDiscoverFallback(t *testing.T) {
 	require.Equal(t, 8, config.NumDevices, "Expected default NumDevices 8")
 }
 
-func TestGetDeviceConfig_PerDeviceProcessesOverride(t *testing.T) {
-	c := &Config{
-		YAMLConfig: &YAMLConfig{
-			DeviceDefaults: DeviceConfig{
-				Processes: []ProcessConfig{{PID: 1, Type: "C", UsedMemoryMiB: 100}},
-			},
-			Devices: []DeviceOverride{
-				{
-					Index: 0,
-					DeviceConfig: DeviceConfig{
-						Processes: []ProcessConfig{{PID: 4242, Type: "C", UsedMemoryMiB: 6000}},
-					},
-				},
-				{Index: 1}, // no override -> inherits device_defaults
-			},
-		},
+// Per-device processes, decoded from real YAML through the inline-embedded
+// DeviceConfig and merged: covers override (d0), explicit-clear (d1), inherit (d2).
+func TestYAMLConfig_PerDeviceProcesses(t *testing.T) {
+	const y = `
+device_defaults:
+  processes:
+    - {pid: 1, type: "C"}
+devices:
+  - index: 0
+    processes:
+      - {pid: 4242, type: "C", sm_util: 75}
+  - index: 1
+    processes: []
+`
+	var yc YAMLConfig
+	if err := yaml.Unmarshal([]byte(y), &yc); err != nil {
+		t.Fatalf("yaml decode: %v", err)
 	}
-
-	// Device 0 uses its override.
-	d0 := c.GetDeviceConfig(0)
-	if len(d0.Processes) != 1 || d0.Processes[0].PID != 4242 {
-		t.Fatalf("Device 0: expected overridden PID 4242, got %+v", d0.Processes)
+	c := &Config{YAMLConfig: &yc}
+	if d := c.GetDeviceConfig(0); len(d.Processes) != 1 || d.Processes[0].PID != 4242 || d.Processes[0].SmUtil != 75 {
+		t.Fatalf("device 0 (override): %+v", d.Processes)
 	}
-	// Device 1 inherits the default.
-	d1 := c.GetDeviceConfig(1)
-	if len(d1.Processes) != 1 || d1.Processes[0].PID != 1 {
-		t.Fatalf("Device 1: expected inherited PID 1, got %+v", d1.Processes)
+	if d := c.GetDeviceConfig(1); len(d.Processes) != 0 { // processes: [] clears the default
+		t.Fatalf("device 1 (explicit clear): %+v", d.Processes)
+	}
+	if d := c.GetDeviceConfig(2); len(d.Processes) != 1 || d.Processes[0].PID != 1 { // no override -> inherit
+		t.Fatalf("device 2 (inherit): %+v", d.Processes)
 	}
 }

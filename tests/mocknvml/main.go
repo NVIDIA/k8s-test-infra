@@ -222,9 +222,18 @@ func checkProcessUtilization() {
 		log.Printf("✓ checkProcessUtilization: empty path OK (%d samples, no MOCK_NVML_CONFIG)", len(samples))
 		return
 	}
-	if len(samples) == 0 {
-		log.Fatalf("checkProcessUtilization: MOCK_NVML_CONFIG set but got 0 samples; expected a compute process with sm_util")
+	// Assert exact values, not just len>0, so a dropped/transposed bridge field is caught.
+	if len(samples) != 1 || samples[0].Pid != 4242 || samples[0].SmUtil != 75 || samples[0].MemUtil != 40 {
+		log.Fatalf("checkProcessUtilization: device 0 = %+v; want one sample pid=4242 smUtil=75 memUtil=40", samples)
 	}
-	log.Printf("✓ checkProcessUtilization: pid=%d smUtil=%d memUtil=%d",
+	// Device 1 (processes: []) covers the empty path + explicit-clear merge.
+	d1, ret := nvml.DeviceGetHandleByIndex(1)
+	if ret != nvml.SUCCESS {
+		log.Fatalf("checkProcessUtilization: DeviceGetHandleByIndex(1): %v", nvml.ErrorString(ret))
+	}
+	if s1, ret := d1.GetProcessUtilization(0); ret != nvml.SUCCESS || len(s1) != 0 {
+		log.Fatalf("checkProcessUtilization: device 1 (processes: []) -> ret=%v, %d samples; want SUCCESS, 0", nvml.ErrorString(ret), len(s1))
+	}
+	log.Printf("✓ checkProcessUtilization: device 0 pid=%d smUtil=%d memUtil=%d; device 1 empty",
 		samples[0].Pid, samples[0].SmUtil, samples[0].MemUtil)
 }
