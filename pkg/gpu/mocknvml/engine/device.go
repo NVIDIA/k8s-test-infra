@@ -208,7 +208,7 @@ func (d *ConfigurableDevice) initPciInfo() {
 
 	// Copy bus ID string
 	for i := 0; i < len(d.PciBusID) && i < 32; i++ {
-		d.pciInfo.BusId[i] = uint8(d.PciBusID[i])
+		d.pciInfo.BusId[i] = int8(d.PciBusID[i])
 	}
 }
 
@@ -1071,7 +1071,7 @@ func (d *ConfigurableDevice) GetNvLinkRemotePciInfo(link int) (nvml.PciInfo, nvm
 					pci.Bus = bus
 					pci.Device = device
 					for i := 0; i < len(l.RemotePCIBusID) && i < 32; i++ {
-						pci.BusId[i] = uint8(l.RemotePCIBusID[i])
+						pci.BusId[i] = int8(l.RemotePCIBusID[i])
 					}
 				}
 				debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> %s\n", link, l.RemotePCIBusID)
@@ -1546,4 +1546,3 @@ func (s *MockServer) isDeviceVisible(deviceIndex int) bool {
 	}
 	return slices.Contains(s.visibleDevices, deviceIndex)
 }
-
