@@ -142,3 +142,63 @@ func TestServer_SMPNodeInfoThenPortInfo(t *testing.T) {
 	require.Equal(t, uint32(5), subnet.GetFieldSpec(pl, 264, 4), "PORT_INFO phys: want 5")
 	require.NotContains(t, []uint32{0, 1}, subnet.GetFieldSpec(pl, 128, 16), "PORT_INFO lid")
 }
+
+// TestServer_SMInfoMaster drives the sminfo path end to end over the Unix
+// socket: a SubnGet(SMInfo) LID-routed to the advertised SM LID (1) must return
+// a master SM (SMState=3) with a non-zero GUID, even though no rendered HCA
+// owns LID 1.
+func TestServer_SMInfoMaster(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, render.Render(render.Options{
+		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dir,
+	}))
+	safe := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
+	sock := filepath.Join(os.TempDir(), "mock-ib-"+safe+".sock")
+	t.Cleanup(func() { _ = os.Remove(sock) })
+
+	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir, Fabric: true}, nil)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe(ctx) }()
+	waitForSocket(t, sock, errCh)
+
+	conn, err := net.Dial("unix", sock)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	var env protocol.Envelope
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeOpen, protocol.OpenReq{CAName: "mlx5_0", Port: 1}))
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
+	var openResp protocol.OpenResp
+	require.NoError(t, protocol.DecodeBody(env, &openResp))
+	require.NotZero(t, openResp.Handle, "open: %+v", openResp)
+
+	send := make([]byte, umadMADOffset+64)
+	mad := send[umadMADOffset:]
+	// Wire-format SMI (LID-routed) SMInfo GET, as sminfo issues it.
+	mad[0] = 0x01                                  // BaseVersion
+	mad[1] = 0x01                                  // MgmtClass = SMI (LID-routed)
+	mad[2] = 0x01                                  // ClassVersion
+	mad[3] = 0x01                                  // Method = Get
+	binary.BigEndian.PutUint16(mad[16:18], 0x0020) // SMInfo
+	binary.BigEndian.PutUint16(send[28:30], 1)     // DLID = advertised SM LID
+
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeSend, protocol.SendReq{Handle: openResp.Handle, MAD: send}))
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
+	var sendResp protocol.SendResp
+	require.NoError(t, protocol.DecodeBody(env, &sendResp))
+	require.True(t, sendResp.OK, "send: %+v", sendResp)
+
+	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeRecv, protocol.RecvReq{Handle: openResp.Handle, TimeoutMS: 500}))
+	require.NoError(t, protocol.ReadEnvelope(conn, &env))
+	var recvResp protocol.RecvResp
+	require.NoError(t, protocol.DecodeBody(env, &recvResp))
+	require.False(t, recvResp.Timeout, "recv: %+v", recvResp)
+	require.GreaterOrEqual(t, len(recvResp.MAD), umadMADOffset+64+24, "recv len %d", len(recvResp.MAD))
+
+	pl := recvResp.MAD[umadMADOffset+64:]
+	require.Equal(t, uint32(3), subnet.GetFieldSpec(pl, 164, 4), "SMState: want 3 (MASTER)")
+	require.NotEqual(t, make([]byte, 8), pl[0:8], "SM GUID must be non-zero")
+}

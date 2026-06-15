@@ -120,6 +120,12 @@ intercepts run before sysfs path rewriting.
   the container; both are guaranteed by `render.go` + the chart image.
   Full per-device `ibv_devinfo` (without `-l`) is intentionally not
   supported — see the same section below.
+- **`sminfo`** — UMAD plus SMInfo (attr `0x0020`) synthesis. The daemon
+  reports a mock master subnet manager (`SMState=MASTER`). See
+  [sminfo and ibnetdiscover](#sminfo-and-ibnetdiscover).
+- **`ibnetdiscover`** — UMAD plus the same SMP direct-route synthesis as
+  `iblinkinfo`; lists the local CA and its cross-pod peer(s). See
+  [sminfo and ibnetdiscover](#sminfo-and-ibnetdiscover).
 
 ### Environment variables
 
@@ -266,6 +272,58 @@ supported: after `ibv_get_device_list` claims a device, libmlx5's
 from a userspace `LD_PRELOAD` shim is well beyond the scope of this
 mock; per-port state (which `ibv_devinfo` would otherwise print) is
 covered by `ibstatus`, which reads the same sysfs files.
+
+## sminfo and ibnetdiscover
+
+These two tools round out the mock with a subnet-manager identity and a
+whole-fabric view. Both ride the existing `libibmockumad` UMAD path — no
+chart, Dockerfile, or `setup.sh` changes — and are synthesized Go-side in
+`subnet/` over the same `fabric.Graph` that drives `iblinkinfo`.
+
+### sminfo (master subnet manager)
+
+`sminfo` reads its local `PORT_INFO` (`MasterSMLID = 1`) and sends a
+`SubnGet(SMInfo)` (attribute `0x0020`) to that SM LID. No rendered HCA owns
+LID 1, so the daemon answers it specially: `subnet.TrySynthesize` handles
+`SMInfo` **before** direct-route target resolution and fills the reply from
+the elected **master SM** — the lowest-`PortGUID` port in the merged
+local+peer graph (`fabric.(*Graph).MasterSM`). Every pod that has converged
+on the same fabric therefore reports one consistent SM identity, with
+`SMState = MASTER (3)`.
+
+The SMInfo payload follows libibmad `fields.c`: GUID `{0,64}` and SM_Key
+`{64,64}` as plain big-endian (`putGUID64`/`SetField64`), ActCount `{128,32}`,
+Priority `{160,4}`, and SMState `{164,4}` via the `BITSOFFS` helpers. Only
+`SubnGet` is answered; `sminfo -p/-s/-a` issue `SubnSet` to mutate SM state,
+which the mock has no persistent SM to honor and so does not synthesize.
+
+```bash
+kubectl exec "$POD" -- sminfo
+```
+
+End-to-end validation: [`tests/e2e/validate-sminfo.sh`](../../../tests/e2e/validate-sminfo.sh).
+
+### ibnetdiscover (whole-fabric scan)
+
+`ibnetdiscover` runs the same `libibnetdisc` direct-route walk as
+`iblinkinfo` over the existing NODE_INFO / NODE_DESC / PORT_INFO synthesis,
+so it needs no new SMP handling. It lists the local CA and its cross-pod
+peer(s).
+
+> **Topology limit.** The mock fabric is point-to-point with no switches:
+> each one-port CA selects a single outbound neighbor (lowest-GUID non-self
+> port; see `fabric.PeerAtOutbound`), and CAs do not forward directed-route
+> SMPs. A scan from one pod therefore reaches the local CA plus one neighbor
+> — sufficient for the two-node E2E (cross-pod visibility), but it does not
+> enumerate every port of a 3+ node fabric. True whole-fabric enumeration
+> would require modeling a synthetic switch (NodeType=2 + `SwitchInfo`),
+> which is left as a follow-up.
+
+```bash
+kubectl exec "$POD" -- ibnetdiscover
+```
+
+End-to-end validation: [`tests/e2e/validate-ibnetdiscover.sh`](../../../tests/e2e/validate-ibnetdiscover.sh).
 
 ### Build notes
 

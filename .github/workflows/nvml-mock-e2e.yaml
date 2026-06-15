@@ -933,6 +933,26 @@ jobs:
             -o jsonpath='{.items[0].metadata.name}')
           ./tests/e2e/validate-iblinkinfo.sh "$W1" "$W2" a100 2
 
+      - name: Validate sminfo (master subnet manager)
+        run: |
+          chmod +x tests/e2e/validate-sminfo.sh
+          W1=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w1 \
+            -o jsonpath='{.items[0].metadata.name}')
+          W2=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w2 \
+            -o jsonpath='{.items[0].metadata.name}')
+          # Pass W2 as peer so the validator also asserts both pods agree on a
+          # single master SM GUID (the consistent-SM-identity property).
+          ./tests/e2e/validate-sminfo.sh "$W1" a100 2 "$W2"
+
+      - name: Validate cross-node ibnetdiscover
+        run: |
+          chmod +x tests/e2e/validate-ibnetdiscover.sh
+          W1=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w1 \
+            -o jsonpath='{.items[0].metadata.name}')
+          W2=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w2 \
+            -o jsonpath='{.items[0].metadata.name}')
+          ./tests/e2e/validate-ibnetdiscover.sh "$W1" "$W2" a100 2
+
       - name: Collect logs on failure
         if: failure()
         run: |

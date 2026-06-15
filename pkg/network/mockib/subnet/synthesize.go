@@ -37,8 +37,17 @@ const (
 	ibAttrNodeDesc   = 0x0010
 	ibAttrNodeInfo   = 0x0011
 	ibAttrPortInfo   = 0x0015
+	ibAttrSMInfo     = 0x0020
 	ibClassSMI       = 0x01
 	ibClassSMIDirect = 0x81
+
+	// SMInfo (IBA Vol.1 §14.2.5.13, Table 120) values for the mock master SM.
+	// sminfo prints ActCount and Priority verbatim; the mock has no live SM, so
+	// they are deterministic constants rather than mutable state.
+	smStateMaster     = 3      // SMINFO_MASTER
+	defaultSMPriority = 15     // cosmetic
+	defaultSMKey      = 0      // unprotected subnet
+	smActCount        = 0x1000 // deterministic, non-zero
 
 	// PortInfo / NodeInfo values understood by libibmad / iblinkinfo.
 	portStateActive     = 4 // PORT_ACTIVE
@@ -77,6 +86,23 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 		return nil, false
 	}
 	attrID := binary.BigEndian.Uint16(mad[ibMADAttrIDOff : ibMADAttrIDOff+2])
+
+	// SMInfo (sminfo) reports a fabric-global SM identity, not a DR-target
+	// attribute. sminfo LID-routes it to the advertised SM LID (defaultSMLID=1),
+	// which is not a real port in the graph, so resolveTarget below would reject
+	// it. Answer it here, before any target/DLID resolution, from the elected
+	// master SM (lowest-PortGUID port) so every pod reports the same identity.
+	if attrID == ibAttrSMInfo {
+		sm, smOK := g.MasterSM()
+		if !smOK {
+			return nil, false
+		}
+		out := newSMPResp(sendMad, method)
+		fillSMInfo(out[umadMADOffset:], sm)
+		smpLogf("attr=0x%04x SMInfo -> master sm guid=%s lid=0x%x state=MASTER", attrID, sm.PortGUID, sm.LID)
+		return out, true
+	}
+
 	attrMod := binary.BigEndian.Uint32(mad[20:24])
 
 	lid, ok := destLID(sendMad)
@@ -116,6 +142,46 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 	default:
 		return nil, false
 	}
+}
+
+// newSMPResp clones a SEND umad into a GETRESP buffer: padded to at least a full
+// legacy umad frame (so short libibmad sends still carry the 256-byte MAD),
+// umad.status zeroed (a non-zero status makes libibmad discard the reply), and
+// the MAD method's response bit (0x80) set. It mirrors the inline response setup
+// in TrySynthesize and is used by the SMInfo branch.
+func newSMPResp(sendMad []byte, method byte) []byte {
+	out := make([]byte, len(sendMad))
+	if len(sendMad) < minUmadLen {
+		out = make([]byte, minUmadLen)
+	}
+	copy(out, sendMad)
+	if len(out) >= 8 {
+		binary.LittleEndian.PutUint32(out[4:8], 0)
+	}
+	out[umadMADOffset+ibMADMethodOff] = method | 0x80
+	return out
+}
+
+// fillSMInfo writes a master-SM SMInfo payload (AttrID 0x0020) for sm into the
+// SMP data block. Layout per IBA Vol.1 §14.2.5.13 Table 120 / libibmad fields.c:
+// GUID {0,64}, SM_Key {64,64}, ActCount {128,32}, Priority {160,4}, SMState
+// {164,4}. The two 64-bit fields are plain big-endian (putGUID64 / SetField64),
+// matching how NodeGuid/PortGuid/GidPrefix are written; the sub-32-bit fields use
+// the libibmad BITSOFFS convention via SetFieldSpec, so byte 20 of the block ends
+// up (Priority<<4)|SMState.
+func fillSMInfo(mad []byte, sm fabric.Port) {
+	if len(mad) < ibSMPDataOff+64 {
+		return
+	}
+	pl := mad[ibSMPDataOff:]
+	for i := range pl {
+		pl[i] = 0
+	}
+	putGUID64(pl, 0, sm.PortGUID)    // GUID @ bit 0
+	SetField64(pl, 64, defaultSMKey) // SM_Key @ bit 64
+	SetFieldSpec(pl, 128, 32, smActCount)
+	SetFieldSpec(pl, 160, 4, defaultSMPriority)
+	SetFieldSpec(pl, 164, 4, smStateMaster)
 }
 
 func fillNodeDesc(mad []byte, p fabric.Port) {
