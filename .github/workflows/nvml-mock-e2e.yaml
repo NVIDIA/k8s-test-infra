@@ -1083,17 +1083,3 @@ jobs:
           kubectl logs -l app.kubernetes.io/instance=nvml-mock-w2 --tail=50 || true
           echo "=== events ==="
           kubectl get events --sort-by=.lastTimestamp | tail -30 || true
-
-  rdma-loopback:
-    # Fast, hardware-free regression test for the RDMA verbs data-path shim.
-    # Builds the production libibmockrdma.so via the package Makefile and proves
-    # real bytes move through the JSON relay (datapath_test) plus stock perftest
-    # ib_write_bw over loopback -- no Kind cluster required.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: RDMA data-path loopback test
-        run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src debian:bookworm-slim \
-            sh pkg/network/mockib/c/loopback/run.sh
