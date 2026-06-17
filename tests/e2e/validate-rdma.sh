@@ -38,6 +38,11 @@ PERFTEST_PORT="${RDMA_E2E_PORT:-18516}"
 IB_DEV="${RDMA_E2E_DEV:-mlx5_0}"
 MSG_SIZE="${RDMA_E2E_SIZE:-65536}"
 ITERS="${RDMA_E2E_ITERS:-1000}"
+# Hard cap on each in-pod ib_write_bw run. perftest blocks indefinitely if the
+# OOB/QP handshake or a completion never arrives, and `kubectl exec` has no
+# timeout of its own -- without this the step hangs until the job's wall clock.
+# Bounding it lets a stuck data path fail fast with logs instead of stalling CI.
+PERFTEST_TIMEOUT="${RDMA_E2E_TIMEOUT:-30}"
 MOCK_IBPING_SOCKET="${MOCK_IB_PING_SOCKET:-/run/mock-ib.sock}"
 MOCK_IBPING_PORT="${MOCK_IB_PING_PORT:-18515}"
 
@@ -160,14 +165,16 @@ run_rdma_case() {
     # the wrapper sh exits. It serves exactly one client run then exits.
     # -F suppresses the cpufreq-governor warning that otherwise aborts the run
     # on nodes without exposed scaling governors (matches the proven loopback).
+    # `timeout` bounds the server too: a blocked run must not survive into the
+    # next attempt holding the OOB port, which would wedge the retry's bind.
     kubectl exec "$SERVER_POD" -- sh -c \
       "rm -f /tmp/ib_write_bw.server.log; \
-       nohup ib_write_bw -d ${IB_DEV} -p ${PERFTEST_PORT} -s ${MSG_SIZE} -n ${ITERS} -F \
+       nohup timeout ${PERFTEST_TIMEOUT} ib_write_bw -d ${IB_DEV} -p ${PERFTEST_PORT} -s ${MSG_SIZE} -n ${ITERS} -F \
          > /tmp/ib_write_bw.server.log 2>&1 & echo started" >/dev/null 2>&1 || true
     # Give the server time to bind its OOB listener.
     sleep 3
     out_client=$(kubectl exec "$CLIENT_POD" -- sh -c \
-      "ib_write_bw -d ${IB_DEV} -p ${PERFTEST_PORT} -s ${MSG_SIZE} -n ${ITERS} -F ${SERVER_IP}" 2>&1) || true
+      "timeout ${PERFTEST_TIMEOUT} ib_write_bw -d ${IB_DEV} -p ${PERFTEST_PORT} -s ${MSG_SIZE} -n ${ITERS} -F ${SERVER_IP}" 2>&1) || true
     echo "=== client ib_write_bw output ==="
     echo "$out_client"
     server_log=$(kubectl exec "$SERVER_POD" -- cat /tmp/ib_write_bw.server.log 2>/dev/null || true)

@@ -972,6 +972,10 @@ jobs:
 
   ibping-multinode:
     runs-on: ubuntu-latest
+    # Backstop so a wedged data-path validation (e.g. a blocked ib_write_bw)
+    # cannot ride GitHub's 6h default; the in-script `timeout` should fail the
+    # RDMA step long before this, leaving this as a hard safety net.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
