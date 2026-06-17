@@ -386,7 +386,6 @@ should match snapshot with b200 profile:
           version: 5
           links_per_gpu: 18
           bandwidth_per_link_gbps: 100      # 100 GB/s per link = 1.8 TB/s total per GPU
-          switch_support: false             # Standalone B200: no NVSwitch baseboard
           c2c_enabled: false                # no Grace C2C
           # Standalone B200: negative-control profile -- no NVSwitch, no fabricmanager.
           # topo -m shows PCIe paths only (no NV#); nvmlDeviceGetGpuFabricInfo returns
@@ -821,8 +820,6 @@ should match snapshot with default a100 profile:
           version: 3
           links_per_gpu: 12
           bandwidth_per_link_gbps: 50       # 50 GB/s per link = 600 GB/s total per GPU
-          switch_support: true              # DGX A100 NVSwitch baseboard
-          switch_count: 6                   # 6 NVSwitches backing this 8-GPU baseboard
           c2c_enabled: false                # no Grace C2C on DGX A100
           # DGX A100: 6x NVSwitch -> NV12 all-to-all. Switch-link auto-expansion
           # (switches declared + links_per_gpu > 0, and no explicit per-device links)
@@ -1316,8 +1313,6 @@ should match snapshot with gb200 profile:
           links_per_gpu: 18
           bandwidth_per_link_gbps: 53       # whole-GB/s fallback; superseded by _mbps below
           bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
-          switch_support: true              # NVLink Switch for scale-out
-          switch_count: 4                   # 4 NVSwitches backing this 8-GPU NVL72 slice
           c2c_enabled: true                 # NVLink-C2C to Grace CPU
           # Switch-link auto-expansion: because switches are declared and
           # links_per_gpu > 0 (and no explicit per-device links exist), the engine
@@ -1815,8 +1810,6 @@ should match snapshot with gb300 profile:
           links_per_gpu: 18
           bandwidth_per_link_gbps: 53       # whole-GB/s fallback; superseded by _mbps below
           bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
-          switch_support: true              # NVLink Switch for scale-out
-          switch_count: 4                   # 4 NVSwitches backing this 8-GPU NVL72 slice
           c2c_enabled: true                 # NVLink-C2C to Grace CPU
           # Switch-link auto-expansion: because switches are declared and
           # links_per_gpu > 0 (and no explicit per-device links exist), the engine
@@ -2285,8 +2278,6 @@ should match snapshot with h100 profile:
           version: 4
           links_per_gpu: 18
           bandwidth_per_link_gbps: 50       # 50 GB/s per link = 900 GB/s total per GPU
-          switch_support: true              # HGX H100 NVSwitch baseboard
-          switch_count: 4                   # 4 NVSwitches backing this 8-GPU HGX baseboard
           c2c_enabled: false                # no Grace C2C on HGX H100
           # Switch-link auto-expansion: switches declared + links_per_gpu > 0 (and no
           # explicit per-device links) makes the engine synthesize 18 active links per

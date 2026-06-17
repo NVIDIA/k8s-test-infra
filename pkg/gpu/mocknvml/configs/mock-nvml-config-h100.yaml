@@ -390,8 +390,6 @@ nvlink:
   version: 4
   links_per_gpu: 18
   bandwidth_per_link_gbps: 50       # 50 GB/s per link = 900 GB/s total per GPU
-  switch_support: true              # HGX H100 NVSwitch baseboard
-  switch_count: 4                   # 4 NVSwitches backing this 8-GPU HGX baseboard
   c2c_enabled: false                # no Grace C2C on HGX H100
   # Switch-link auto-expansion: switches declared + links_per_gpu > 0 (and no
   # explicit per-device links) makes the engine synthesize 18 active links per

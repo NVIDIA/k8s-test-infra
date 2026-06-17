@@ -76,7 +76,7 @@ mkdir -p "$CDI_DIR"
 # fails the pod with a clear message rather than silently disabling the gate.
 MOCK_FM_MODE=$(printf '%s' "${MOCK_FABRICMANAGER:-off}" | tr '[:upper:]' '[:lower:]')
 case "$MOCK_FM_MODE" in
-  off | on | full | "true" | 1) ;;
+  off | on) ;;
   *)
     echo "ERROR: MOCK_FABRICMANAGER='$MOCK_FABRICMANAGER' is invalid; expected off or on" >&2
     exit 1

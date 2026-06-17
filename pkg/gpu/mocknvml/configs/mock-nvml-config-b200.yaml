@@ -381,7 +381,6 @@ nvlink:
   version: 5
   links_per_gpu: 18
   bandwidth_per_link_gbps: 100      # 100 GB/s per link = 1.8 TB/s total per GPU
-  switch_support: false             # Standalone B200: no NVSwitch baseboard
   c2c_enabled: false                # no Grace C2C
   # Standalone B200: negative-control profile -- no NVSwitch, no fabricmanager.
   # topo -m shows PCIe paths only (no NV#); nvmlDeviceGetGpuFabricInfo returns

@@ -616,8 +616,6 @@ type NVLinkConfig struct {
 	// overrides BandwidthPerLinkGBPS, which can only express whole GB/s — e.g.
 	// NVLink5 is 53.125 GB/s, i.e. 53125 Mbps, not 53.
 	BandwidthPerLinkMbps int  `json:"bandwidth_per_link_mbps,omitempty"`
-	SwitchSupport        bool `json:"switch_support,omitempty"`
-	SwitchCount          int  `json:"switch_count,omitempty"`
 	C2CEnabled           bool `json:"c2c_enabled,omitempty"`
 	// Links is the legacy flat link list. It is kept for backward
 	// compatibility and is mapped to device index 0 when no DeviceLinks
