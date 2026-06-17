@@ -84,20 +84,13 @@ RUN set -eux; \
     echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum --check; \
     chmod +x /usr/local/bin/kubectl; \
     rm /tmp/kubectl.sha256; \
-    # Extract nvidia-smi binary from nvidia-utils package (no full install needed).
-    # Use Ubuntu 22.04 repo (binary-compatible with Debian bookworm). Pin to the
-    # 580 branch so nvidia-smi can render the full GB200/GB300 NVLink surface that
-    # real driver 580.x exposes: the NVLink5 `nvlink -e` layout (Tx/Rx packets,
-    # bytes, per-link error/recovery counters, Effective/Symbol BER, FEC Errors
-    # 0..15 histogram), plus the newer subcommands `nvlink -info` (NVLE/firmware),
-    # `nvlink -gLowPwrInfo` and `nvlink -gLWidth`. (Older binaries render only the
-    # legacy Replay/Recovery/CRC layout and lack those subcommands; the mock
-    # library implements the underlying fields regardless.) The GB200 profile
-    # advertises a matching 580.65.06 driver_version so `nvidia-smi --version`
-    # NVIDIA-SMI and DRIVER lines agree. Pin the exact version: within this repo
-    # only nvidia-utils-580=580.65.06-0ubuntu1 ships the nvidia-smi binary; every
-    # later 580.x nvidia-utils is a transitional dummy package (no binary).
-    # See NVIDIA/k8s-test-infra#371.
+    # Extract just the nvidia-smi binary from nvidia-utils (Ubuntu 22.04 repo:
+    # glibc 2.35, runs on bookworm). The 580 branch renders the full GB200/GB300
+    # NVLink5 surface (`nvlink -e/-info/-gLowPwrInfo/-gLWidth`); older binaries
+    # only show the legacy layout, though the mock implements the fields either
+    # way. Pin 580.65.06-0ubuntu1: it's the only nvidia-utils-580 here that ships
+    # the binary (later 580.x are transitional dummies) and matches the GB200
+    # profile's driver_version. See NVIDIA/k8s-test-infra#371.
     # Map TARGETARCH to NVIDIA repo path: amd64 → x86_64, arm64 → sbsa.
     NVIDIA_REPO_ARCH=$(case ${TARGETARCH} in arm64) echo sbsa;; *) echo x86_64;; esac); \
     curl -fsSL "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/${NVIDIA_REPO_ARCH}/3bf863cc.pub" | \
