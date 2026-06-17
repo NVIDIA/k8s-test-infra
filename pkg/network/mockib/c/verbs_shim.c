@@ -74,7 +74,6 @@ static int daemon_fd = -1;
 static struct mock_uverbs mock_devs[MOCK_MAX_VERBS];
 
 static int (*real_open)(const char *, int, ...);
-static int (*real_openat)(int, const char *, int, ...);
 static ssize_t (*real_write)(int, const void *, size_t);
 static ssize_t (*real_read)(int, void *, size_t);
 static int (*real_close)(int);
@@ -333,7 +332,9 @@ int open(const char *pathname, int flags, ...) {
     if (!real_open) {
         real_open = dlsym(RTLD_NEXT, "open");
     }
-    if (mock_enabled() && pathname && strstr(pathname, "/dev/infiniband/uverbs")) {
+    /* glibc declares open()'s pathname as nonnull, so an explicit NULL guard
+     * here triggers -Wnonnull-compare; rely on that contract instead. */
+    if (mock_enabled() && strstr(pathname, "/dev/infiniband/uverbs")) {
         char dev[32];
         if (parse_uverbs_path(pathname, dev, sizeof(dev)) == 0) {
             int fd = verbs_open_dev(dev);

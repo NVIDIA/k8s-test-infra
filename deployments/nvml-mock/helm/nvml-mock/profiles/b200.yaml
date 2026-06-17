@@ -381,11 +381,10 @@ nvlink:
   version: 5
   links_per_gpu: 18
   bandwidth_per_link_gbps: 100      # 100 GB/s per link = 1.8 TB/s total per GPU
-  links:
-    - link: 0
-      state: "active"
-      remote_device_type: "gpu"
-      remote_pci_bus_id: "0000:1B:00.0"
+  c2c_enabled: false                # no Grace C2C
+  # Standalone B200: negative-control profile -- no NVSwitch, no fabricmanager.
+  # topo -m shows PCIe paths only (no NV#); nvmlDeviceGetGpuFabricInfo returns
+  # NOT_SUPPORTED.
 
 # =============================================================================
 # InfiniBand topology - 1 ConnectX-7 NDR HCA per GPU (typical HGX B200)

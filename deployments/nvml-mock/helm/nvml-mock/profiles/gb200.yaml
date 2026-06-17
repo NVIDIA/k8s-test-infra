@@ -8,11 +8,11 @@ version: "1.0"
 # System-level configuration
 # =============================================================================
 system:
-  driver_version: "560.35.03"
-  nvml_version: "12.560.35.03"
-  cuda_version: "12.6"
-  cuda_version_major: 12
-  cuda_version_minor: 6
+  driver_version: "580.65.06"
+  nvml_version: "13.580.65"
+  cuda_version: "13.0"
+  cuda_version_major: 13
+  cuda_version_minor: 0
 
 # =============================================================================
 # Default device configuration (applied to all devices unless overridden)
@@ -21,7 +21,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   # Basic identification
   # ---------------------------------------------------------------------------
-  name: "NVIDIA GB200 NVL"
+  name: "NVIDIA GB200"
   brand: "nvidia"
   serial: "1562849103750"
   board_part_number: "699-2G530-0200-000"
@@ -47,7 +47,7 @@ device_defaults:
   fabric:
     cluster_uuid: "00000000-0000-0000-0000-000000000001"
     clique_id: 0
-    state: "completed"
+    state: "auto"                   # couple GPU fabric registration to fake fabricmanager readiness
     health_mask: 0
 
   # ---------------------------------------------------------------------------
@@ -310,7 +310,7 @@ device_defaults:
   # ---------------------------------------------------------------------------
   gsp_firmware:
     mode: "enabled"
-    version: "560.35.03"
+    version: "580.65.06"
 
   # ---------------------------------------------------------------------------
   # Blackwell-specific features
@@ -414,21 +414,24 @@ devices:
 nvlink:
   version: 5
   links_per_gpu: 18
-  bandwidth_per_link_gbps: 100      # 100 GB/s per link = 1.8 TB/s total per GPU
-  switch_support: true              # NVLink Switch for scale-out
-  switch_count: 0                   # Set for NVL72 configurations (up to 9 switches)
+  bandwidth_per_link_gbps: 53       # whole-GB/s fallback; superseded by _mbps below
+  bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
   c2c_enabled: true                 # NVLink-C2C to Grace CPU
-  # NVLink state per link (18 links)
-  links:
-    - link: 0
-      state: "active"
-      remote_device_type: "gpu"
-      remote_pci_bus_id: "0000:0B:00.0"
-    - link: 1
-      state: "active"
-      remote_device_type: "cpu"     # NVLink-C2C to Grace
-      remote_pci_bus_id: "N/A"
-    # ... define all 18 links for full topology
+  # Switch-link auto-expansion: because switches are declared and
+  # links_per_gpu > 0 (and no explicit per-device links exist), the engine
+  # synthesizes 18 active links per GPU fanned round-robin across these
+  # NVSwitches. Every switch-attached link reaches all peers through the
+  # shared fabric, so `nvidia-smi topo -m` shows NV18 between every GPU pair.
+  # Fabric-manager readiness is coupled via device_defaults.fabric.state: auto.
+  switches:
+    - bdf: "0000:01:00.0"
+      uuid: "NVSwitch-GB200-0000-0000-0000-000000000000"
+    - bdf: "0000:02:00.0"
+      uuid: "NVSwitch-GB200-0000-0000-0000-000000000001"
+    - bdf: "0000:03:00.0"
+      uuid: "NVSwitch-GB200-0000-0000-0000-000000000002"
+    - bdf: "0000:04:00.0"
+      uuid: "NVSwitch-GB200-0000-0000-0000-000000000003"
 
 # =============================================================================
 # InfiniBand topology - 1 ConnectX-7 NDR HCA per GPU (typical GB200 NVL72)

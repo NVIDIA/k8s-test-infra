@@ -337,8 +337,6 @@ nvlink:
   version: 4
   links_per_gpu: 18
   bandwidth_per_link_gbps: 25
-  switch_support: true
-  switch_count: 6
   c2c_enabled: false
   links:
     - link: 0

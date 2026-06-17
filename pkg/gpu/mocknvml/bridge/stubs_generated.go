@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 300 stub functions for unimplemented NVML functions.
+// 279 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -74,11 +74,6 @@ func nvmlDeviceDiscoverGpus(pciInfo *C.nvmlPciInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceDiscoverGpus")
 }
 
-//export nvmlDeviceFreezeNvLinkUtilizationCounter
-func nvmlDeviceFreezeNvLinkUtilizationCounter(device C.nvmlDevice_t, link C.uint, counter C.uint, freeze C.nvmlEnableState_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceFreezeNvLinkUtilizationCounter")
-}
-
 //export nvmlDeviceGetAPIRestriction
 func nvmlDeviceGetAPIRestriction(device C.nvmlDevice_t, apiType C.nvmlRestrictedAPI_t, isRestricted *C.nvmlEnableState_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetAPIRestriction")
@@ -123,8 +118,6 @@ func nvmlDeviceGetAttributes_v1(device C.nvmlDevice_t, attributes *C.nvmlDeviceA
 func nvmlDeviceGetAttributes_v2(device C.nvmlDevice_t, attributes *C.nvmlDeviceAttributes_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetAttributes_v2")
 }
-
-// nvmlDeviceGetAutoBoostedClocksEnabled — hand-written in device.go
 
 //export nvmlDeviceGetBridgeChipInfo
 func nvmlDeviceGetBridgeChipInfo(device C.nvmlDevice_t, bridgeHierarchy *C.nvmlBridgeChipHierarchy_t) C.nvmlReturn_t {
@@ -201,16 +194,6 @@ func nvmlDeviceGetCoolerInfo(device C.nvmlDevice_t, coolerInfo *C.nvmlCoolerInfo
 	return stubReturn("nvmlDeviceGetCoolerInfo")
 }
 
-//export nvmlDeviceGetCpuAffinity
-func nvmlDeviceGetCpuAffinity(device C.nvmlDevice_t, cpuSetSize C.uint, cpuSet *C.ulong) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetCpuAffinity")
-}
-
-//export nvmlDeviceGetCpuAffinityWithinScope
-func nvmlDeviceGetCpuAffinityWithinScope(device C.nvmlDevice_t, cpuSetSize C.uint, cpuSet *C.ulong, scope C.nvmlAffinityScope_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetCpuAffinityWithinScope")
-}
-
 //export nvmlDeviceGetCreatableVgpus
 func nvmlDeviceGetCreatableVgpus(device C.nvmlDevice_t, vgpuCount *C.uint, vgpuTypeIds *C.nvmlVgpuTypeId_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetCreatableVgpus")
@@ -220,12 +203,6 @@ func nvmlDeviceGetCreatableVgpus(device C.nvmlDevice_t, vgpuCount *C.uint, vgpuT
 func nvmlDeviceGetCurrentClockFreqs(device C.nvmlDevice_t, currentClockFreqs *C.nvmlDeviceCurrentClockFreqs_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetCurrentClockFreqs")
 }
-
-// nvmlDeviceGetDefaultEccMode — hand-written in device.go
-
-// nvmlDeviceGetDetailedEccErrors — hand-written in device.go
-
-// nvmlDeviceGetDeviceHandleFromMigDeviceHandle: moved to device.go (hand-implemented)
 
 //export nvmlDeviceGetDramEncryptionMode
 func nvmlDeviceGetDramEncryptionMode(device C.nvmlDevice_t, current *C.nvmlDramEncryptionInfo_t, pending *C.nvmlDramEncryptionInfo_t) C.nvmlReturn_t {
@@ -280,11 +257,6 @@ func nvmlDeviceGetFanControlPolicy_v2(device C.nvmlDevice_t, fan C.uint, policy 
 //export nvmlDeviceGetFanSpeedRPM
 func nvmlDeviceGetFanSpeedRPM(device C.nvmlDevice_t, fanSpeed *C.nvmlFanSpeedInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetFanSpeedRPM")
-}
-
-//export nvmlDeviceGetFieldValues
-func nvmlDeviceGetFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *C.nvmlFieldValue_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetFieldValues")
 }
 
 //export nvmlDeviceGetGpcClkMinMaxVfOffset
@@ -377,8 +349,6 @@ func nvmlDeviceGetGridLicensableFeatures_v4(device C.nvmlDevice_t, pGridLicensab
 	return stubReturn("nvmlDeviceGetGridLicensableFeatures_v4")
 }
 
-// nvmlDeviceGetGspFirmwareVersion — hand-written in device.go
-
 //export nvmlDeviceGetHandleBySerial
 func nvmlDeviceGetHandleBySerial(serial *C.char, device *C.nvmlDevice_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetHandleBySerial")
@@ -392,6 +362,11 @@ func nvmlDeviceGetHandleByUUIDV(uuid *C.nvmlUUID_t, device *C.nvmlDevice_t) C.nv
 //export nvmlDeviceGetHostVgpuMode
 func nvmlDeviceGetHostVgpuMode(device C.nvmlDevice_t, pHostVgpuMode *C.nvmlHostVgpuMode_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetHostVgpuMode")
+}
+
+//export nvmlDeviceGetHostname_v1
+func nvmlDeviceGetHostname_v1(device C.nvmlDevice_t, hostname *C.nvmlHostname_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetHostname_v1")
 }
 
 //export nvmlDeviceGetInforomConfigurationChecksum
@@ -449,13 +424,6 @@ func nvmlDeviceGetMemClkVfOffset(device C.nvmlDevice_t, offset *C.int) C.nvmlRet
 	return stubReturn("nvmlDeviceGetMemClkVfOffset")
 }
 
-//export nvmlDeviceGetMemoryAffinity
-func nvmlDeviceGetMemoryAffinity(device C.nvmlDevice_t, nodeSetSize C.uint, nodeSet *C.ulong, scope C.nvmlAffinityScope_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMemoryAffinity")
-}
-
-// nvmlDeviceGetMemoryBusWidth — hand-written in device.go
-
 //export nvmlDeviceGetMinMaxClockOfPState
 func nvmlDeviceGetMinMaxClockOfPState(device C.nvmlDevice_t, _type C.nvmlClockType_t, pstate C.nvmlPstates_t, minClockMHz *C.uint, maxClockMHz *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetMinMaxClockOfPState")
@@ -476,29 +444,14 @@ func nvmlDeviceGetNumGpuCores(device C.nvmlDevice_t, numCores *C.uint) C.nvmlRet
 	return stubReturn("nvmlDeviceGetNumGpuCores")
 }
 
-//export nvmlDeviceGetNumaNodeId
-func nvmlDeviceGetNumaNodeId(device C.nvmlDevice_t, node *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetNumaNodeId")
-}
-
 //export nvmlDeviceGetNvLinkInfo
 func nvmlDeviceGetNvLinkInfo(device C.nvmlDevice_t, info *C.nvmlNvLinkInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetNvLinkInfo")
 }
 
-//export nvmlDeviceGetNvLinkRemoteDeviceType
-func nvmlDeviceGetNvLinkRemoteDeviceType(device C.nvmlDevice_t, link C.uint, pNvLinkDeviceType *C.nvmlIntNvLinkDeviceType_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetNvLinkRemoteDeviceType")
-}
-
 //export nvmlDeviceGetNvLinkUtilizationControl
 func nvmlDeviceGetNvLinkUtilizationControl(device C.nvmlDevice_t, link C.uint, counter C.uint, control *C.nvmlNvLinkUtilizationControl_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetNvLinkUtilizationControl")
-}
-
-//export nvmlDeviceGetNvLinkUtilizationCounter
-func nvmlDeviceGetNvLinkUtilizationCounter(device C.nvmlDevice_t, link C.uint, counter C.uint, rxcounter *C.ulonglong, txcounter *C.ulonglong) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetNvLinkUtilizationCounter")
 }
 
 //export nvmlDeviceGetNvlinkBwMode
@@ -514,11 +467,6 @@ func nvmlDeviceGetNvlinkSupportedBwModes(device C.nvmlDevice_t, supportedBwMode 
 //export nvmlDeviceGetOfaUtilization
 func nvmlDeviceGetOfaUtilization(device C.nvmlDevice_t, utilization *C.uint, samplingPeriodUs *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetOfaUtilization")
-}
-
-//export nvmlDeviceGetP2PStatus
-func nvmlDeviceGetP2PStatus(device1 C.nvmlDevice_t, device2 C.nvmlDevice_t, p2pIndex C.nvmlGpuP2PCapsIndex_t, p2pStatus *C.nvmlGpuP2PStatus_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetP2PStatus")
 }
 
 //export nvmlDeviceGetPciInfoExt
@@ -611,10 +559,6 @@ func nvmlDeviceGetSupportedClocksEventReasons(device C.nvmlDevice_t, supportedCl
 	return stubReturn("nvmlDeviceGetSupportedClocksEventReasons")
 }
 
-// nvmlDeviceGetSupportedClocksThrottleReasons — hand-written in device.go
-
-// nvmlDeviceGetSupportedEventTypes — hand-written in events.go
-
 //export nvmlDeviceGetSupportedGraphicsClocks
 func nvmlDeviceGetSupportedGraphicsClocks(device C.nvmlDevice_t, memoryClockMHz C.uint, count *C.uint, clocksMHz *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetSupportedGraphicsClocks")
@@ -645,7 +589,10 @@ func nvmlDeviceGetTemperatureV(device C.nvmlDevice_t, temperature *C.nvmlTempera
 	return stubReturn("nvmlDeviceGetTemperatureV")
 }
 
-// nvmlDeviceGetTotalEnergyConsumption — hand-written in device.go
+//export nvmlDeviceGetUnrepairableMemoryFlag_v1
+func nvmlDeviceGetUnrepairableMemoryFlag_v1(device C.nvmlDevice_t, unrepairableMemoryStatus *C.nvmlUnrepairableMemoryStatus_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetUnrepairableMemoryFlag_v1")
+}
 
 //export nvmlDeviceGetVgpuCapabilities
 func nvmlDeviceGetVgpuCapabilities(device C.nvmlDevice_t, capability C.nvmlDeviceVgpuCapability_t, capResult *C.uint) C.nvmlReturn_t {
@@ -717,8 +664,6 @@ func nvmlDeviceGetVirtualizationMode(device C.nvmlDevice_t, pVirtualMode *C.nvml
 	return stubReturn("nvmlDeviceGetVirtualizationMode")
 }
 
-// nvmlDeviceIsMigDeviceHandle: moved to device.go (hand-implemented)
-
 //export nvmlDeviceModifyDrainState
 func nvmlDeviceModifyDrainState(pciInfo *C.nvmlPciInfo_t, newState C.nvmlEnableState_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceModifyDrainState")
@@ -749,12 +694,15 @@ func nvmlDeviceQueryDrainState(pciInfo *C.nvmlPciInfo_t, currentState *C.nvmlEna
 	return stubReturn("nvmlDeviceQueryDrainState")
 }
 
+//export nvmlDeviceReadPRMCounters_v1
+func nvmlDeviceReadPRMCounters_v1(device C.nvmlDevice_t, counterList *C.nvmlPRMCounterList_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceReadPRMCounters_v1")
+}
+
 //export nvmlDeviceReadWritePRM_v1
 func nvmlDeviceReadWritePRM_v1(device C.nvmlDevice_t, buffer *C.nvmlPRMTLV_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceReadWritePRM_v1")
 }
-
-// nvmlDeviceRegisterEvents — hand-written in events.go
 
 //export nvmlDeviceRemoveGpu_v1
 func nvmlDeviceRemoveGpu_v1(pciInfo *C.nvmlPciInfo_t) C.nvmlReturn_t {
@@ -779,16 +727,6 @@ func nvmlDeviceResetGpuLockedClocks(device C.nvmlDevice_t) C.nvmlReturn_t {
 //export nvmlDeviceResetMemoryLockedClocks
 func nvmlDeviceResetMemoryLockedClocks(device C.nvmlDevice_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceResetMemoryLockedClocks")
-}
-
-//export nvmlDeviceResetNvLinkErrorCounters
-func nvmlDeviceResetNvLinkErrorCounters(device C.nvmlDevice_t, link C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceResetNvLinkErrorCounters")
-}
-
-//export nvmlDeviceResetNvLinkUtilizationCounter
-func nvmlDeviceResetNvLinkUtilizationCounter(device C.nvmlDevice_t, link C.uint, counter C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceResetNvLinkUtilizationCounter")
 }
 
 //export nvmlDeviceSetAPIRestriction
@@ -881,6 +819,11 @@ func nvmlDeviceSetGpuOperationMode(device C.nvmlDevice_t, mode C.nvmlGpuOperatio
 	return stubReturn("nvmlDeviceSetGpuOperationMode")
 }
 
+//export nvmlDeviceSetHostname_v1
+func nvmlDeviceSetHostname_v1(device C.nvmlDevice_t, hostname *C.nvmlHostname_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceSetHostname_v1")
+}
+
 //export nvmlDeviceSetMemClkVfOffset
 func nvmlDeviceSetMemClkVfOffset(device C.nvmlDevice_t, offset C.int) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetMemClkVfOffset")
@@ -924,6 +867,11 @@ func nvmlDeviceSetPowerManagementLimit_v2(device C.nvmlDevice_t, powerValue *C.n
 //export nvmlDeviceSetPowerMizerMode_v1
 func nvmlDeviceSetPowerMizerMode_v1(device C.nvmlDevice_t, powerMizerMode *C.nvmlDevicePowerMizerModes_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetPowerMizerMode_v1")
+}
+
+//export nvmlDeviceSetRusdSettings_v1
+func nvmlDeviceSetRusdSettings_v1(device C.nvmlDevice_t, settings *C.nvmlRusdSettings_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceSetRusdSettings_v1")
 }
 
 //export nvmlDeviceSetTemperatureThreshold
@@ -976,11 +924,10 @@ func nvmlDeviceWorkloadPowerProfileSetRequestedProfiles(device C.nvmlDevice_t, r
 	return stubReturn("nvmlDeviceWorkloadPowerProfileSetRequestedProfiles")
 }
 
-// nvmlEventSetCreate — hand-written in events.go
-// nvmlEventSetFree — hand-written in events.go
-
-// nvmlEventSetWait_v1 — hand-written in events.go
-// nvmlEventSetWait_v2 — hand-written in events.go
+//export nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1
+func nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1(device C.nvmlDevice_t, updateProfiles *C.nvmlWorkloadPowerProfileUpdateProfiles_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceWorkloadPowerProfileUpdateProfiles_v1")
+}
 
 //export nvmlGetExcludedDeviceCount
 func nvmlGetExcludedDeviceCount(deviceCount *C.uint) C.nvmlReturn_t {
@@ -1195,11 +1142,6 @@ func nvmlSystemGetNvlinkBwMode(nvlinkBwMode *C.uint) C.nvmlReturn_t {
 //export nvmlSystemGetProcessName
 func nvmlSystemGetProcessName(pid C.uint, name *C.char, length C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlSystemGetProcessName")
-}
-
-//export nvmlSystemGetTopologyGpuSet
-func nvmlSystemGetTopologyGpuSet(cpuNumber C.uint, count *C.uint, deviceArray *C.nvmlDevice_t) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemGetTopologyGpuSet")
 }
 
 //export nvmlSystemRegisterEvents

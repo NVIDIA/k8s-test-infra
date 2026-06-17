@@ -14,9 +14,18 @@
           "description": "GPU profile name. The valid set is enforced by the template helper (which renders a friendly error pointing users at gpu.customConfig); we deliberately avoid a JSON-schema enum here so the helper can keep producing that actionable message instead of a generic schema rejection."
         },
         "count": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 64
+          "description": "Number of GPUs to expose. Use an integer to force a slice, or the empty string \"\" (default) to derive the count from the selected profile's devices list.",
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            },
+            {
+              "type": "string",
+              "enum": [""]
+            }
+          ]
         },
         "customConfig": {
           "type": "string"
@@ -142,6 +151,24 @@
       }
     },
     "integrations": { "type": "object" },
+    "fabricmanager": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Fake nvidia-fabricmanager daemon for NVSwitch platforms. When enabled is empty, the chart derives enablement from the GPU profile (NVSwitches or fabric.state: auto).",
+      "properties": {
+        "enabled": {
+          "description": "Tri-state override: empty string derives from profile; true/false force the daemon on or off.",
+          "oneOf": [
+            { "type": "boolean" },
+            { "type": "string", "enum": ["", "true", "false"] }
+          ]
+        },
+        "stateDir": {
+          "type": "string",
+          "description": "HostPath directory for the node-local fabricmanager readiness marker."
+        }
+      }
+    },
     "infiniband": {
       "type": "object",
       "additionalProperties": true,

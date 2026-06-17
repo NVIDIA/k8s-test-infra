@@ -3,6 +3,7 @@
 apiVersion: apps/v1
 kind: DaemonSet
 {{- $ibEnabled := eq (include "nvml-mock.infinibandEnabled" .) "true" }}
+{{- $fmEnabled := eq (include "nvml-mock.fabricmanagerEnabled" .) "true" }}
 metadata:
   name: {{ include "nvml-mock.fullname" . }}
   labels:
@@ -50,7 +51,7 @@ spec:
           command: ["/scripts/entrypoint.sh"]
           env:
             - name: GPU_COUNT
-              value: "{{ .Values.gpu.count }}"
+              value: "{{ include "nvml-mock.gpuCount" . }}"
             - name: DRIVER_VERSION
               value: "{{ include "nvml-mock.driverVersion" . }}"
             - name: NODE_NAME
@@ -83,6 +84,17 @@ spec:
             # deployments/nvml-mock/Dockerfile.compute-domain-daemon.
             - name: IMEX_STATE_DIR
               value: {{ .Values.imex.stateDir }}
+            {{- end }}
+            {{- if $fmEnabled }}
+            # Start the fake nvidia-fabricmanager daemon (setup.sh) and point
+            # both the daemon and the mock NVML engine at the same readiness
+            # marker directory. With this enabled, GPUs on profiles that set
+            # `fabric.state: auto` (GB200/GB300/H100) report COMPLETED only
+            # once the daemon is ready. See engine/fabric_readiness.go.
+            - name: MOCK_FABRICMANAGER
+              value: "on"
+            - name: MOCK_FABRICMANAGER_STATE_DIR
+              value: {{ .Values.fabricmanager.stateDir }}
             {{- end }}
             # MOCK_IB tier: "full" (sysfs + UMAD/verbs shims + mock-ib daemon),
             # "sysfs" (sysfs redirect only), or "off" (no mocking). Defaults to
@@ -142,6 +154,10 @@ spec:
             - name: host-imex-state
               mountPath: {{ .Values.imex.stateDir }}
             {{- end }}
+            {{- if $fmEnabled }}
+            - name: host-fabric-state
+              mountPath: {{ .Values.fabricmanager.stateDir }}
+            {{- end }}
       volumes:
         - name: host-nvml-mock
           hostPath:
@@ -167,5 +183,11 @@ spec:
         - name: host-imex-state
           hostPath:
             path: {{ .Values.imex.stateDir }}
+            type: DirectoryOrCreate
+        {{- end }}
+        {{- if $fmEnabled }}
+        - name: host-fabric-state
+          hostPath:
+            path: {{ .Values.fabricmanager.stateDir }}
             type: DirectoryOrCreate
         {{- end }}
