@@ -26,7 +26,12 @@
 #   4. Parse the "BW average" column and require it to be > 0.
 #
 # perftest's out-of-band TCP sync MUST NOT use mock-ib's fabric port (18515);
-# override with RDMA_E2E_PORT (default 18516).
+# override with RDMA_E2E_PORT (default 18516). This port is exchanged BEFORE
+# the QP is created, so it must be reachable between pods: the chart's ibping
+# NetworkPolicy admits it via infiniband.rdma.oobPort (kept in sync with this
+# default). A mismatch here would be dropped on policy-enforcing CNIs (kindnet
+# >= kind v0.24.0, Calico, Cilium) and wedge the handshake before any fabric
+# traffic — see deployments/nvml-mock/helm/nvml-mock/templates/network-policy-ibping.yaml.
 set -euo pipefail
 
 SERVER_POD="${1:?Usage: $0 <server-pod> <client-pod>}"

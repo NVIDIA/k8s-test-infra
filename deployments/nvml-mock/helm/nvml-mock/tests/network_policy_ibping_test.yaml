@@ -33,6 +33,40 @@ tests:
       - equal:
           path: spec.ingress[0].ports[0].protocol
           value: TCP
+      # With the RDMA data path enabled (the default), the policy must also
+      # admit perftest's out-of-band sync port so the cross-pod handshake is
+      # not dropped on policy-enforcing CNIs (kindnet >= kind v0.24.0, Calico,
+      # Cilium). See issue #374.
+      - equal:
+          path: spec.ingress[0].ports[1].port
+          value: 18516
+      - equal:
+          path: spec.ingress[0].ports[1].protocol
+          value: TCP
+
+  - it: should omit the RDMA OOB port when the data path is disabled
+    set:
+      infiniband:
+        rdma:
+          enabled: false
+    asserts:
+      # Only the fabric port remains; no perftest OOB port is admitted.
+      - lengthEqual:
+          path: spec.ingress[0].ports
+          count: 1
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: ibping
+
+  - it: should admit a custom RDMA OOB port
+    set:
+      infiniband:
+        rdma:
+          oobPort: 29000
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports[1].port
+          value: 29000
 
   - it: should not render when disabled
     set:

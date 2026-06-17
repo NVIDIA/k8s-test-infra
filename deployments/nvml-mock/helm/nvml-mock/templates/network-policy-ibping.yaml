@@ -7,10 +7,12 @@
 # nvml-mock pods (the only legitimate clients). Egress is left unrestricted
 # so DNS-based peer discovery and registration keep working.
 #
-# NOTE: NetworkPolicy is only enforced by CNIs that implement it (Calico,
-# Cilium, ...). Kind's default CNI (kindnet) ignores NetworkPolicy, so this
-# is a no-op in the typical Kind fixture and matters on policy-enforcing
-# clusters. Harmless either way.
+# NOTE: NetworkPolicy is enforced by CNIs that implement it (Calico, Cilium,
+# ...) AND by Kind's default CNI (kindnet) as of kind v0.24.0, which folds
+# kube-network-policies into kindnetd with Network Policies on by default. So
+# the multi-node Kind e2e fixture DOES enforce this — the allowed ingress
+# ports below must cover every port peers legitimately connect to, or the
+# traffic is silently dropped (e.g. perftest's OOB handshake, see below).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -42,4 +44,15 @@ spec:
       ports:
         - port: ibping
           protocol: TCP
+        {{- if .Values.infiniband.rdma.enabled }}
+        # perftest's out-of-band TCP sync port for the RDMA verbs data-path
+        # validation (issue #374). ib_write_bw/ib_read_bw exchange QP endpoint
+        # info on this plain TCP port BEFORE the QP is created, so if it is
+        # dropped the handshake wedges and NO fabric traffic is ever emitted
+        # (the run just times out). Admit it from the same peer nvml-mock pods
+        # that may run the validation. Distinct from the fabric port above;
+        # mirrors RDMA_E2E_PORT in tests/e2e/validate-rdma.sh.
+        - port: {{ .Values.infiniband.rdma.oobPort }}
+          protocol: TCP
+        {{- end }}
 {{- end }}
