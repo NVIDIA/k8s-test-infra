@@ -78,10 +78,14 @@ COPY --from=builder /out/nv-fabricmanager-ctl /usr/bin/nv-fabricmanager-ctl
 # to confirm the topology overlay assigned the expected clique to each
 # node. See NVIDIA/k8s-test-infra#304.
 COPY --from=builder /out/check-fabric    /usr/local/bin/check-fabric
+# perftest provides ib_write_bw/ib_read_bw, the stock RDMA bandwidth tools the
+# verbs data path is exercised with: tests/e2e/validate-rdma.sh runs them inside
+# the pod against the LD_PRELOAD'd libibmockrdma shim. Without it the RDMA e2e
+# job fails with "ib_write_bw: not found". See NVIDIA/k8s-test-infra#374.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
-        infiniband-diags rdma-core ibverbs-utils ibverbs-providers; \
+        infiniband-diags rdma-core ibverbs-utils ibverbs-providers perftest; \
     rm -rf /var/lib/apt/lists/*; \
     # libibverbs prints "couldn't open config directory '/etc/libibverbs.d'"
     # when the dir is missing. ibverbs-providers ships .driver files there,
