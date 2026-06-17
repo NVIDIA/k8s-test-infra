@@ -33,7 +33,7 @@ func counterFabric(t *testing.T) *NodeFabric {
 		},
 		NVLink: &NVLinkConfig{
 			Version:              5,
-			BandwidthPerLinkGBPS: 100,
+			BandwidthPerLinkMbps: 100000,
 			Switches:             []NVSwitchConfig{{BDF: "0000:0F:00.0"}},
 			Defaults:             &NVLinkDefaults{State: "active", DutyCycle: 0.05},
 			DeviceLinks: []DeviceLinksConfig{
