@@ -389,7 +389,7 @@ devices:
 nvlink:
   version: 4
   links_per_gpu: 18
-  bandwidth_per_link_mbps: 50000    # 50 GB/s per link = 900 GB/s total per GPU
+  bandwidth_per_link_mbps: 26562    # NVLink4 26.562 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 478 GB/s/GPU (900 GB/s bidir)
   c2c_enabled: false                # no Grace C2C on HGX H100
   # Switch-link auto-expansion: switches declared + links_per_gpu > 0 (and no
   # explicit per-device links) makes the engine synthesize 18 active links per
