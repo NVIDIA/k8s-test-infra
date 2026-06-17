@@ -414,7 +414,6 @@ devices:
 nvlink:
   version: 5
   links_per_gpu: 18
-  bandwidth_per_link_gbps: 53       # whole-GB/s fallback; superseded by _mbps below
   bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
   c2c_enabled: true                 # NVLink-C2C to Grace CPU
   # Switch-link auto-expansion: because switches are declared and

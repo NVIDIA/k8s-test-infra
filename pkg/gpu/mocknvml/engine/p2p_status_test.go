@@ -47,7 +47,7 @@ func TestGetP2PStatus_SwitchFabric(t *testing.T) {
 		NVLink: &NVLinkConfig{
 			Version:              5,
 			LinksPerGPU:          18,
-			BandwidthPerLinkGBPS: 53,
+			BandwidthPerLinkMbps: 53000,
 			Switches: []NVSwitchConfig{
 				{BDF: "0000:01:00.0"},
 				{BDF: "0000:02:00.0"},

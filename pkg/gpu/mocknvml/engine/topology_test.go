@@ -53,7 +53,7 @@ func TestNodeFabric_SwitchTraversalNV18(t *testing.T) {
 		NVLink: &NVLinkConfig{
 			Version:              5,
 			LinksPerGPU:          18,
-			BandwidthPerLinkGBPS: 100,
+			BandwidthPerLinkMbps: 100000,
 			Switches:             []NVSwitchConfig{{BDF: "0000:0F:00.0", UUID: "sw-0"}},
 			Defaults:             &NVLinkDefaults{State: "active", DutyCycle: 0.05},
 			DeviceLinks: []DeviceLinksConfig{
@@ -95,7 +95,7 @@ func TestNodeFabric_SwitchLinkAutoExpansion(t *testing.T) {
 		NVLink: &NVLinkConfig{
 			Version:              5,
 			LinksPerGPU:          18,
-			BandwidthPerLinkGBPS: 100,
+			BandwidthPerLinkMbps: 100000,
 			Switches: []NVSwitchConfig{
 				{BDF: "0000:01:00.0", UUID: "sw-0"},
 				{BDF: "0000:02:00.0", UUID: "sw-1"},
@@ -385,7 +385,7 @@ func TestNodeFabric_ConcurrentReads(t *testing.T) {
 		},
 		NVLink: &NVLinkConfig{
 			Version:              5,
-			BandwidthPerLinkGBPS: 100,
+			BandwidthPerLinkMbps: 100000,
 			Switches:             []NVSwitchConfig{{BDF: "0000:0F:00.0"}},
 			Defaults:             &NVLinkDefaults{State: "active", DutyCycle: 0.05},
 			DeviceLinks: []DeviceLinksConfig{

@@ -371,7 +371,7 @@ devices:
 nvlink:
   version: 3
   links_per_gpu: 12
-  bandwidth_per_link_gbps: 50       # 50 GB/s per link = 600 GB/s total per GPU
+  bandwidth_per_link_mbps: 50000    # 50 GB/s per link = 600 GB/s total per GPU
   c2c_enabled: false                # no Grace C2C on DGX A100
   # DGX A100: 6x NVSwitch -> NV12 all-to-all. Switch-link auto-expansion
   # (switches declared + links_per_gpu > 0, and no explicit per-device links)

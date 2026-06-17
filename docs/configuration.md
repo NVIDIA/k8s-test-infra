@@ -336,7 +336,7 @@ devices:
 nvlink:
   version: 4
   links_per_gpu: 18
-  bandwidth_per_link_gbps: 25
+  bandwidth_per_link_mbps: 25000
   c2c_enabled: false
   links:
     - link: 0
