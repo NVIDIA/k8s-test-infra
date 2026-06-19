@@ -57,11 +57,24 @@ var functionRegistry = map[string]FunctionVersion{
 	// Topology functions (available since early NVML)
 	"nvmlDeviceGetTopologyCommonAncestor": {Added: "331.0"},
 	"nvmlDeviceGetTopologyNearestGpus":    {Added: "331.0"},
+	"nvmlSystemGetTopologyGpuSet":         {Added: "331.0"},
 
 	// NVLink functions (390.x+)
-	"nvmlDeviceGetNvLinkState":            {Added: "390.0"},
-	"nvmlDeviceGetNvLinkErrorCounter":     {Added: "390.0"},
-	"nvmlDeviceGetNvLinkRemotePciInfo_v2": {Added: "390.0"},
+	"nvmlDeviceGetNvLinkState":                 {Added: "390.0"},
+	"nvmlDeviceGetNvLinkVersion":               {Added: "390.0"},
+	"nvmlDeviceGetNvLinkCapability":            {Added: "390.0"},
+	"nvmlDeviceGetNvLinkErrorCounter":          {Added: "390.0"},
+	"nvmlDeviceGetNvLinkRemotePciInfo_v2":      {Added: "390.0"},
+	"nvmlDeviceGetNvLinkRemoteDeviceType":      {Added: "450.0"},
+	"nvmlDeviceGetNvLinkUtilizationCounter":    {Added: "390.0"},
+	"nvmlDeviceFreezeNvLinkUtilizationCounter": {Added: "390.0"},
+	"nvmlDeviceResetNvLinkUtilizationCounter":  {Added: "390.0"},
+	"nvmlDeviceResetNvLinkErrorCounters":       {Added: "390.0"},
+
+	// CPU / memory affinity functions
+	"nvmlDeviceGetCpuAffinity":            {Added: "331.0"},
+	"nvmlDeviceGetCpuAffinityWithinScope": {Added: "440.0"},
+	"nvmlDeviceGetMemoryAffinity":         {Added: "440.0"},
 
 	// Thermal functions (331.x+)
 	"nvmlDeviceGetTemperatureThreshold": {Added: "331.0"},

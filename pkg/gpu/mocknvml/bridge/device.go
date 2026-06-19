@@ -376,18 +376,9 @@ func nvmlDeviceGetTopologyCommonAncestor(device1 C.nvmlDevice_t, device2 C.nvmlD
 	return C.NVML_SUCCESS
 }
 
-//export nvmlDeviceGetTopologyNearestGpus
-func nvmlDeviceGetTopologyNearestGpus(device C.nvmlDevice_t, level C.nvmlGpuTopologyLevel_t, count *C.uint, deviceArray *C.nvmlDevice_t) C.nvmlReturn_t {
-	if ret, ok := bridgeVersionCheck("nvmlDeviceGetTopologyNearestGpus"); !ok {
-		return ret
-	}
-	if count == nil {
-		return C.NVML_ERROR_INVALID_ARGUMENT
-	}
-	// Return empty array - topology nearest GPUs is complex and rarely used in mocks
-	*count = 0
-	return C.NVML_SUCCESS
-}
+// nvmlDeviceGetTopologyNearestGpus is implemented in topology.go so the
+// NVLink-adjacency-derived nearest-GPU set lives next to the other
+// topology bridge exports.
 
 // =============================================================================
 // NVLink Functions

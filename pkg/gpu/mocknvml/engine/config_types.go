@@ -21,6 +21,12 @@ type YAMLConfig struct {
 	DeviceDefaults DeviceConfig     `json:"device_defaults"`
 	Devices        []DeviceOverride `json:"devices"`
 	NVLink         *NVLinkConfig    `json:"nvlink,omitempty"`
+
+	// PCIeTopology promotes the root-complex / NUMA layout (previously
+	// consumed only by cmd/render-pci-sysfs) into the engine so NVLink
+	// topology, pairwise PCIe levels, and CPU/NUMA affinity all derive
+	// from the same facts. Optional; absent on PCIe-only profiles.
+	PCIeTopology *PCIeTopologyConfig `json:"pcie_topology,omitempty"`
 }
 
 // SystemConfig contains system-level NVML settings
@@ -548,10 +554,14 @@ type XidErrorConfig struct {
 // physical node share the same fabric config — the NVLink domain is a
 // node-level property.
 //
-// State strings map to the NVML_GPU_FABRIC_STATE_* enum:
-//   - "not_started" -> 0
-//   - "in_progress" -> 1
-//   - "completed"   -> 2
+// State strings map to the NVML_GPU_FABRIC_STATE_* enum (see fabric.go
+// FabricState* constants and parseFabricState):
+//   - "not_supported" -> 0
+//   - "not_started"   -> 1
+//   - "in_progress"   -> 2
+//   - "completed"     -> 3
+//   - "auto"          -> coupled to the fabricmanager readiness marker
+//     (resolves to in_progress/completed; see resolveFabricState)
 //
 // ClusterUUID is parsed as RFC-4122-style hex; non-hex characters are
 // dropped and the buffer is zero-padded to 16 bytes so the YAML can
@@ -563,7 +573,10 @@ type FabricConfig struct {
 	// CliqueID is the clique within the cluster this GPU belongs to.
 	CliqueID uint32 `json:"clique_id,omitempty"`
 	// State is the GPU registration state with the fabric manager.
-	// Defaults to "completed" (the healthy steady-state value).
+	// Defaults to "completed" (the healthy steady-state value). The
+	// special value "auto" couples the state to the fake fabricmanager's
+	// readiness marker when fabricmanager is enabled, and resolves to
+	// "completed" when it is disabled (see engine/fabric_readiness.go).
 	State string `json:"state,omitempty"`
 	// HealthMask is the v2 health bitmask. Defaults to 0 (healthy).
 	HealthMask uint32 `json:"health_mask,omitempty"`
@@ -599,13 +612,63 @@ type TopologyClique struct {
 
 // NVLinkConfig defines NVLink topology
 type NVLinkConfig struct {
-	Version              int                `json:"version,omitempty"`
-	LinksPerGPU          int                `json:"links_per_gpu,omitempty"`
-	BandwidthPerLinkGBPS int                `json:"bandwidth_per_link_gbps,omitempty"`
-	SwitchSupport        bool               `json:"switch_support,omitempty"`
-	SwitchCount          int                `json:"switch_count,omitempty"`
-	C2CEnabled           bool               `json:"c2c_enabled,omitempty"`
-	Links                []NVLinkLinkConfig `json:"links,omitempty"`
+	Version              int `json:"version,omitempty"`
+	LinksPerGPU          int `json:"links_per_gpu,omitempty"`
+	BandwidthPerLinkGBPS int `json:"bandwidth_per_link_gbps,omitempty"`
+	// BandwidthPerLinkMbps, when > 0, sets the per-link speed precisely in
+	// Mbps (what NVML/`nvidia-smi nvlink -s` reports, GB/s = Mbps/1000). It
+	// overrides BandwidthPerLinkGBPS, which can only express whole GB/s — e.g.
+	// NVLink5 is 53.125 GB/s, i.e. 53125 Mbps, not 53.
+	BandwidthPerLinkMbps int  `json:"bandwidth_per_link_mbps,omitempty"`
+	C2CEnabled           bool `json:"c2c_enabled,omitempty"`
+	// Links is the legacy flat link list. It is kept for backward
+	// compatibility and is mapped to device index 0 when no DeviceLinks
+	// entry exists for that device.
+	Links []NVLinkLinkConfig `json:"links,omitempty"`
+
+	// Switches lists the NVSwitch remote endpoints on the node. NVSwitches
+	// are modeled purely as NVLink remote endpoints (remote device type
+	// SWITCH); the nvmlUnit* chassis API stays stubbed, matching real
+	// DGX/HGX GPU nodes.
+	Switches []NVSwitchConfig `json:"switches,omitempty"`
+
+	// Defaults carries per-link defaults applied to every resolved link
+	// (state, counter accrual). Absent fields fall back to built-in
+	// defaults.
+	Defaults *NVLinkDefaults `json:"defaults,omitempty"`
+
+	// DeviceLinks holds per-device link sets keyed by device index. When a
+	// device has no entry here the legacy flat Links list is used for
+	// device 0 only.
+	DeviceLinks []DeviceLinksConfig `json:"device_links,omitempty"`
+}
+
+// NVSwitchConfig describes a single NVSwitch remote endpoint.
+type NVSwitchConfig struct {
+	BDF  string `json:"bdf,omitempty"`
+	UUID string `json:"uuid,omitempty"`
+}
+
+// NVLinkDefaults carries per-link defaults expanded across all links so
+// the NV# matrix can be populated without hand-authoring every entry.
+type NVLinkDefaults struct {
+	// State is the default link state (active/up/enabled vs anything else).
+	State string `json:"state,omitempty"`
+	// DutyCycle is the fraction of line rate accrued into the utilization
+	// counters (0..1). A small positive value makes counters visibly grow
+	// across separate nvidia-smi invocations.
+	DutyCycle float64 `json:"duty_cycle,omitempty"`
+	// CounterSeed is the baseline value added to every utilization counter.
+	CounterSeed uint64 `json:"counter_seed,omitempty"`
+	// ErrorRate is the per-second accrual rate for NVLink error counters.
+	// Defaults to 0 (healthy links report no errors).
+	ErrorRate float64 `json:"error_rate,omitempty"`
+}
+
+// DeviceLinksConfig is the per-device NVLink link set.
+type DeviceLinksConfig struct {
+	Index int                `json:"index"`
+	Links []NVLinkLinkConfig `json:"links,omitempty"`
 }
 
 // NVLinkLinkConfig defines a single NVLink connection
@@ -614,4 +677,28 @@ type NVLinkLinkConfig struct {
 	State            string `json:"state,omitempty"`
 	RemoteDeviceType string `json:"remote_device_type,omitempty"`
 	RemotePCIBusID   string `json:"remote_pci_bus_id,omitempty"`
+	// RemoteIndex optionally identifies the peer GPU directly by device
+	// index. When set it takes precedence over RemotePCIBusID for peer
+	// resolution.
+	RemoteIndex *int `json:"remote_index,omitempty"`
+}
+
+// PCIeTopologyConfig describes the root-complex / NUMA layout shared with
+// render-pci-sysfs. CoresPerNUMA synthesizes a CPU affinity set per NUMA
+// node when a root complex does not declare an explicit cpu_affinity range.
+type PCIeTopologyConfig struct {
+	RootComplexes []RootComplexConfig `json:"root_complexes,omitempty"`
+	CoresPerNUMA  int                 `json:"cores_per_numa,omitempty"`
+}
+
+// RootComplexConfig is one PCI host bridge with its NUMA node, attached
+// device BDFs, and an optional explicit CPU affinity range.
+type RootComplexConfig struct {
+	ID       string   `json:"id,omitempty"`
+	NUMANode int      `json:"numa_node,omitempty"`
+	Devices  []string `json:"devices,omitempty"`
+	// CPUAffinity is an optional inclusive CPU range ("0-71") or comma
+	// list ("0,2,4"). When empty the affinity set is synthesized from the
+	// NUMA node index and CoresPerNUMA.
+	CPUAffinity string `json:"cpu_affinity,omitempty"`
 }

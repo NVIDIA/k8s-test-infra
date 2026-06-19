@@ -15,4 +15,5 @@ pkg/network/*/libibmock*
 AGENTS.md
 docs/plans/
 docs/superpowers/
+docs/magi/
 .worktrees/

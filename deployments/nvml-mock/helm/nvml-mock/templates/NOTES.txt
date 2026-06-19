@@ -1,7 +1,7 @@
 Mock GPU environment deployed on all nodes!
 
   Profile: {{ .Values.gpu.profile }}
-  GPUs per node: {{ .Values.gpu.count }}
+  GPUs per node: {{ include "nvml-mock.gpuCount" . }}
   Available profiles: a100, h100, b200, gb200, gb300, l40s, t4
   Driver version: {{ include "nvml-mock.driverVersion" . }}
   Mock driver root: /var/lib/nvml-mock/driver

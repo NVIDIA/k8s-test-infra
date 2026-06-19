@@ -22,6 +22,9 @@ CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${GPU_PROFILE:=h100}"
 : "${GPU_COUNT:=8}"
+# FORCE_RECREATE=true tears down an existing cluster of the same name and
+# recreates it; otherwise an existing cluster is reused as-is.
+: "${FORCE_RECREATE:=false}"
 
 PROFILE_YAML="${REPO_ROOT}/${CHART_PATH}/profiles/${GPU_PROFILE}.yaml"
 if [[ ! -f "${PROFILE_YAML}" ]]; then
@@ -49,9 +52,23 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 
 ###############################################################################
 # Step 1 -- Create a Kind cluster
+#
+# Reuse an existing cluster of the same name unless FORCE_RECREATE=true, in
+# which case tear it down first and create a fresh one.
 ###############################################################################
-info "Creating Kind cluster: ${CLUSTER_NAME}"
-kind create cluster --name "${CLUSTER_NAME}" --config=$REPO_ROOT/docs/demo/kind.yaml
+if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
+  if [[ "${FORCE_RECREATE}" == "true" ]]; then
+    info "Kind cluster '${CLUSTER_NAME}' exists; FORCE_RECREATE=true -> deleting it"
+    kind delete cluster --name "${CLUSTER_NAME}"
+    info "Creating Kind cluster: ${CLUSTER_NAME}"
+    kind create cluster --name "${CLUSTER_NAME}" --config="$REPO_ROOT/docs/demo/kind.yaml"
+  else
+    info "Reusing existing Kind cluster '${CLUSTER_NAME}' (set FORCE_RECREATE=true to recreate)"
+  fi
+else
+  info "Creating Kind cluster: ${CLUSTER_NAME}"
+  kind create cluster --name "${CLUSTER_NAME}" --config="$REPO_ROOT/docs/demo/kind.yaml"
+fi
 
 ###############################################################################
 # Step 2 -- Build the nvml-mock image
@@ -69,7 +86,7 @@ kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 # Step 4 -- Install nvml-mock via Helm
 ###############################################################################
 info "Installing nvml-mock Helm chart (profile=${GPU_PROFILE}, count=${GPU_COUNT})"
-helm install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
+helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set image.repository=nvml-mock \
   --set image.tag=demo \
   --set integrations.fakeGpuOperator.enabled=true \
@@ -104,6 +121,20 @@ POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[
 kubectl exec "${POD}" -- nvidia-smi
 
 ###############################################################################
+# Step 7b -- Verify: NVLink / NVSwitch topology (nvidia-smi topo -m + nvlink)
+#
+# validate-nvlink.sh asserts the profile-specific NV# matrix (a100 -> NV12,
+# h100/gb200/gb300 -> NV18; t4/l40s/standalone-b200 -> none), that topo -m
+# prints the legend + CPU/NUMA Affinity columns, and that `nvlink -s`/`-c`
+# enumerate links for NVLink profiles. It runs the host-driver-root nvidia-smi
+# via `docker exec` on the Kind node, so resolve the node container (== the
+# Kubernetes node name in Kind) from the pod we just exec'd into.
+###############################################################################
+info "Validating NVLink / NVSwitch topology"
+NODE_CONTAINER=$(kubectl get pod "${POD}" -o jsonpath='{.spec.nodeName}')
+"${REPO_ROOT}/tests/e2e/validate-nvlink.sh" "${NODE_CONTAINER}" "${GPU_PROFILE}" "${GPU_COUNT}"
+
+###############################################################################
 # Step 8 -- Verify: InfiniBand mock (libibmocksys.so + mock-ib render)
 ###############################################################################
 HCA_COUNT=0
@@ -122,7 +153,6 @@ if [[ "${IB_ENABLED}" == "true" ]]; then
   info "Found ${HCA_COUNT} mock HCA(s)"
 
   info "Validating ibv_devinfo (list + smoke output)"
-  chmod +x "${REPO_ROOT}/tests/e2e/validate-ibv-devinfo.sh"
   "${REPO_ROOT}/tests/e2e/validate-ibv-devinfo.sh" "${POD}" "${GPU_PROFILE}" "${HCA_COUNT}"
 else
   info "Skipping InfiniBand validation for profile=${GPU_PROFILE} (infiniband.enabled=false)"
@@ -217,11 +247,9 @@ if [[ "${IB_ENABLED}" == "true" ]]; then
   SERVER_POD="${IB_PODS[0]}"
   CLIENT_POD="${IB_PODS[1]}"
   info "Cross-node ibping: server=${SERVER_POD} client=${CLIENT_POD}"
-  chmod +x "${REPO_ROOT}/tests/e2e/validate-ibping.sh"
   "${REPO_ROOT}/tests/e2e/validate-ibping.sh" "${SERVER_POD}" "${CLIENT_POD}"
 
   info "Validating cross-node iblinkinfo (fabric scan includes peer HCAs)"
-  chmod +x "${REPO_ROOT}/tests/e2e/validate-iblinkinfo.sh"
   "${REPO_ROOT}/tests/e2e/validate-iblinkinfo.sh" "${SERVER_POD}" "${CLIENT_POD}" \
     "${GPU_PROFILE}" "${HCA_COUNT}"
 else
@@ -248,6 +276,7 @@ info "  Workers   : ${#WORKERS[@]}"
 info "  ConfigMaps: ${CM_COUNT}"
 info "  Mock HCAs : ${HCA_COUNT} per pod"
 info "  PCI devs  : ${PCI_DEV_COUNT} across ${ROOT_COUNT} root complex(es)"
+info "  NVLink    : topo -m + nvlink validated (profile=${GPU_PROFILE})"
 if [[ "${IB_ENABLED}" == "true" ]]; then
   info "  ibping    : cross-node OK (${SERVER_POD} -> ${CLIENT_POD})"
   info "  ibv_devinfo / iblinkinfo: validated (profile=${GPU_PROFILE})"

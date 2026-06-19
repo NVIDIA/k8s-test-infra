@@ -140,6 +140,80 @@ false
 {{- end }}
 
 {{/*
+Return "true" when the fake nvidia-fabricmanager daemon should run.
+Single source of truth is the GPU profile. Every NVSwitch-based platform runs
+a fabric manager on real hardware (A100/H100/B200 8-GPU baseboards via the
+legacy nv-fabricmanager daemon; GB200/GB300 NVL racks via NMX-C/NMX-T), so the
+daemon must run whenever the profile declares NVSwitches (nvlink.switches).
+Hopper+/NVL profiles additionally set device_defaults.fabric.state: auto to
+couple each GPU's GpuFabricInfo registration to the readiness marker; A100
+(Ampere) has NVSwitches but no GpuFabricInfo API, so it runs the daemon
+without an auto state. Standalone B200 and L40S/T4 declare no NVSwitches and
+do not start the daemon (negative controls).
+
+fabricmanager.enabled is a tri-state override: leave it empty/unset to derive
+from the profile (the normal path, so CI/users never restate per-profile
+facts); set it to true/false to force the daemon on or off regardless of
+profile (e.g. a custom config, or disabling it on an auto profile).
+*/}}
+{{- define "nvml-mock.fabricmanagerEnabled" -}}
+{{- $fm := .Values.fabricmanager | default dict -}}
+{{- $override := get $fm "enabled" -}}
+{{- if and (not (kindIs "invalid" $override)) (ne (toString $override) "") -}}
+{{- $s := toString $override -}}
+{{- if not (has $s (list "true" "false")) -}}
+{{- fail (printf "fabricmanager.enabled must be true or false (got %q)" $s) -}}
+{{- end -}}
+{{- ternary "true" "false" (eq $s "true") -}}
+{{- else -}}
+{{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}
+{{- if hasKey $cfg "Error" -}}
+{{- fail (printf "nvml-mock.fabricmanagerEnabled: failed to parse GPU config: %s" (get $cfg "Error")) -}}
+{{- end -}}
+{{- $dd := get $cfg "device_defaults" | default (dict) -}}
+{{- $fabric := dict -}}
+{{- if kindIs "map" $dd -}}{{- $fabric = get $dd "fabric" | default (dict) -}}{{- end -}}
+{{- $state := "" -}}
+{{- if kindIs "map" $fabric -}}{{- $state = get $fabric "state" | default "" | toString -}}{{- end -}}
+{{- $autoState := eq (lower $state) "auto" -}}
+{{- $nvlink := dict -}}
+{{- if kindIs "map" $cfg -}}{{- $nvlink = get $cfg "nvlink" | default (dict) -}}{{- end -}}
+{{- $switches := list -}}
+{{- if kindIs "map" $nvlink -}}{{- $switches = get $nvlink "switches" | default (list) -}}{{- end -}}
+{{- $hasSwitches := gt (len $switches) 0 -}}
+{{- ternary "true" "false" (or $autoState $hasSwitches) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Resolve the effective GPU count.
+Single source of truth is the GPU profile: the length of its `devices:` list
+(t4 -> 4, the NVSwitch baseboards/NVL slices -> 8). The engine mirrors this
+(config.go defaults NumDevices to len(devices)). gpu.count is an override:
+leave it empty/unset to use the profile's device count (the normal path, so
+CI/users never restate a per-profile fact); set it to a positive integer to
+force a smaller (or larger) slice regardless of profile. setup.sh still caps
+the effective count to the profile device count at runtime.
+*/}}
+{{- define "nvml-mock.gpuCount" -}}
+{{- $count := .Values.gpu.count -}}
+{{- if and (not (kindIs "invalid" $count)) (ne (toString $count) "") -}}
+{{- $count -}}
+{{- else -}}
+{{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}
+{{- if hasKey $cfg "Error" -}}
+{{- fail (printf "nvml-mock.gpuCount: failed to parse GPU config: %s" (get $cfg "Error")) -}}
+{{- end -}}
+{{- $devices := get $cfg "devices" | default (list) -}}
+{{- if gt (len $devices) 0 -}}
+{{- len $devices -}}
+{{- else -}}
+8
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Resolve the effective MOCK_IB tier: one of "off", "sysfs", or "full".
 Honors an explicit .Values.infiniband.mockTier override (validated here so a
 typo fails the render, not silently disables IB); when empty/unset it derives
@@ -163,20 +237,22 @@ mlx5 hardware), matching the behavior expected by validate-ibstat (0 HCAs).
 
 {{/*
 Driver version helper.
-Returns the user-provided driverVersion, or derives it from gpu.profile.
-Blackwell profiles (b200, gb200) use 560.35.03; Blackwell Ultra (gb300)
-uses 570.124.06; all others use 550.163.01.
-Note: when gpu.customConfig is set, derivation still uses gpu.profile —
-users with custom configs should set driverVersion explicitly.
+Returns the user-provided driverVersion, otherwise reads system.driver_version
+from the resolved GPU config (customConfig or the selected profile file) so the
+profile stays the single source of truth — the DRIVER_VERSION env (which names
+the on-disk libnvidia-ml.so.<ver> in setup.sh) never drifts from the
+driver_version the engine reports via NVML. Fails if neither is set.
 */}}
 {{- define "nvml-mock.driverVersion" -}}
 {{- if .Values.driverVersion -}}
 {{- .Values.driverVersion -}}
-{{- else if eq .Values.gpu.profile "gb300" -}}
-570.124.06
-{{- else if or (eq .Values.gpu.profile "b200") (eq .Values.gpu.profile "gb200") -}}
-560.35.03
 {{- else -}}
-550.163.01
+{{- $cfg := fromYaml (include "nvml-mock.gpuConfig" .) -}}
+{{- $dv := dig "system" "driver_version" "" $cfg -}}
+{{- if $dv -}}
+{{- $dv -}}
+{{- else -}}
+{{- fail (printf "GPU config for profile %q has no system.driver_version; set .Values.driverVersion explicitly." .Values.gpu.profile) -}}
+{{- end -}}
 {{- end -}}
 {{- end }}

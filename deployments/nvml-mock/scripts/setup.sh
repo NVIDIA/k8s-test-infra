@@ -71,6 +71,19 @@ mknod -m 666 "$DEV_ROOT/nvidia-uvm-tools" c 510 1 2>/dev/null || true
 CDI_DIR=/host/var/run/cdi
 mkdir -p "$CDI_DIR"
 
+# Resolve fabricmanager enablement once, here, because it influences both the
+# CDI spec (below) and the daemon launch (step 11). Validate early so a typo
+# fails the pod with a clear message rather than silently disabling the gate.
+MOCK_FM_MODE=$(printf '%s' "${MOCK_FABRICMANAGER:-off}" | tr '[:upper:]' '[:lower:]')
+case "$MOCK_FM_MODE" in
+  off | on) ;;
+  *)
+    echo "ERROR: MOCK_FABRICMANAGER='$MOCK_FABRICMANAGER' is invalid; expected off or on" >&2
+    exit 1
+    ;;
+esac
+FM_STATE_DIR="${MOCK_FABRICMANAGER_STATE_DIR:-/var/lib/nvml-mock/fabric-state}"
+
 cat > "$CDI_DIR/nvidia.yaml" << 'CDI_HEADER'
 cdiVersion: "0.6.0"
 kind: "nvidia.com/gpu"
@@ -96,6 +109,23 @@ containerEdits:
     - hostPath: /var/lib/nvml-mock/driver/config/config.yaml
       containerPath: /etc/nvml-mock/config.yaml
       options: [ro, nosuid, nodev, bind]
+CDI_HEADER
+
+# When fabricmanager is enabled, bind-mount the node-local readiness marker
+# directory into CDI-injected workloads and point the mock NVML library at it.
+# Without this, the mock .so loaded inside user pods sees an empty
+# MOCK_FABRICMANAGER_STATE_DIR and resolves `fabric.state: auto` straight to
+# COMPLETED, silently bypassing the fabricmanager readiness gate (the mock .so
+# is loaded by nvidia-smi *inside the workload container*, not by this pod).
+if [ "$MOCK_FM_MODE" != "off" ]; then
+  cat >> "$CDI_DIR/nvidia.yaml" << FM_MOUNT_EOF
+    - hostPath: $FM_STATE_DIR
+      containerPath: $FM_STATE_DIR
+      options: [ro, nosuid, nodev, bind]
+FM_MOUNT_EOF
+fi
+
+cat >> "$CDI_DIR/nvidia.yaml" << 'CDI_HOOKS_ENV'
   hooks:
     - hookName: createContainer
       path: /usr/bin/nvidia-cdi-hook
@@ -103,8 +133,17 @@ containerEdits:
   env:
     - NVIDIA_VISIBLE_DEVICES=void
     - MOCK_NVML_CONFIG=/etc/nvml-mock/config.yaml
+CDI_HOOKS_ENV
+
+if [ "$MOCK_FM_MODE" != "off" ]; then
+  cat >> "$CDI_DIR/nvidia.yaml" << FM_ENV_EOF
+    - MOCK_FABRICMANAGER_STATE_DIR=$FM_STATE_DIR
+FM_ENV_EOF
+fi
+
+cat >> "$CDI_DIR/nvidia.yaml" << 'CDI_DEVICES'
 devices:
-CDI_HEADER
+CDI_DEVICES
 
 # Per-GPU device entries
 for i in $(seq 0 $((GPU_COUNT - 1))); do
@@ -265,6 +304,45 @@ if [ -x /usr/local/bin/render-pci-sysfs ]; then
   /usr/local/bin/render-pci-sysfs \
     --config /etc/nvml-mock/config.yaml \
     --output "$PCI_ROOT"
+fi
+
+# 11. Fabric Manager: on NVSwitch platforms (HGX H100 / GB200 / GB300) the
+#     real nvidia-fabricmanager registers the GPUs with the NVSwitch fabric
+#     before they are usable. When MOCK_FABRICMANAGER is enabled we start the
+#     fake daemon, which writes a node-local readiness marker under
+#     MOCK_FABRICMANAGER_STATE_DIR. The mock NVML library reads that marker to
+#     resolve each GPU's fabric state when the profile sets `fabric.state:
+#     auto` (in_progress until ready, completed once ready) — mirroring how a
+#     real fabricmanager gates GPU readiness. NVLink counters anchor to
+#     /proc/stat btime (stable across nvidia-smi invocations), so no epoch
+#     export is needed here for counters to grow.
+#
+#     MOCK_FM_MODE / FM_STATE_DIR were resolved + validated earlier (near the
+#     CDI block). The readiness marker lives on a DirectoryOrCreate hostPath
+#     that survives pod restarts, and the daemon re-asserts it every 2s — so a
+#     stale marker from a prior pod could make a fresh pod report COMPLETED
+#     before its own daemon is ready. Clear it here so every pod starts in a
+#     clean IN_PROGRESS state until *this* daemon writes the marker.
+if [ "$MOCK_FM_MODE" != "off" ]; then
+  if [ -x /usr/bin/nv-fabricmanager ]; then
+    mkdir -p "$FM_STATE_DIR"
+    # Marker name must match fmcoord.ReadyMarker (pkg/fmcoord/coord.go), which
+    # the daemon writes and engine.FabricReadyMarker reads. Keep this literal in
+    # sync with that constant — the engine/fmcoord contract test pins the Go
+    # side, but this shell path is not covered, so a rename would silently skip
+    # this stale-marker cleanup.
+    rm -f "$FM_STATE_DIR/fabricmanager.ready"
+    echo "Starting fake nvidia-fabricmanager (state dir: $FM_STATE_DIR)"
+    /usr/bin/nv-fabricmanager &
+  else
+    # Hard-fail rather than warn: MOCK_FM_MODE != off means the env is fully
+    # wired (a profile with fabric.state: auto). Without the daemon the
+    # readiness marker is never written, so those GPUs sit at IN_PROGRESS
+    # forever — a confusing failure from the workload side. A missing binary is
+    # a broken image, same as the unknown-mode branch validated earlier.
+    echo "FATAL: MOCK_FABRICMANAGER='$MOCK_FABRICMANAGER' set but /usr/bin/nv-fabricmanager not found in image" >&2
+    exit 1
+  fi
 fi
 
 echo "Mock GPU environment ready: $GPU_COUNT GPUs at $HOST"

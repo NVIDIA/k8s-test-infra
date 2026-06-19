@@ -163,7 +163,56 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: DRIVER_VERSION
-            value: "560.35.03"
+            value: "580.65.06"
+
+  # ── fabricmanager enablement (derived from the profile) ─────────────
+  - it: should start fabricmanager for an auto-state profile (gb200)
+    set:
+      gpu:
+        profile: gb200
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER
+            value: "on"
+
+  - it: should start fabricmanager for an NVSwitch profile (a100, legacy daemon)
+    set:
+      gpu:
+        profile: a100
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER
+            value: "on"
+
+  - it: should honor an explicit fabricmanager.enabled=true override on a100
+    set:
+      gpu:
+        profile: a100
+      fabricmanager:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER
+            value: "on"
+
+  - it: should honor an explicit fabricmanager.enabled=false override on gb200
+    set:
+      gpu:
+        profile: gb200
+      fabricmanager:
+        enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER
+            value: "on"
 
   - it: should derive Blackwell Ultra driver version for gb300 profile
     set:
@@ -220,6 +269,31 @@ tests:
           content:
             name: GPU_COUNT
             value: "4"
+
+  # ── GPU_COUNT derived from the profile devices list (count unset) ──────
+  - it: should derive GPU_COUNT from the t4 profile devices list (4)
+    set:
+      gpu:
+        profile: t4
+        count: ""
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GPU_COUNT
+            value: "4"
+
+  - it: should derive GPU_COUNT from the gb200 profile devices list (8)
+    set:
+      gpu:
+        profile: gb200
+        count: ""
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GPU_COUNT
+            value: "8"
 
   - it: should mount all required volumes
     asserts:
@@ -575,3 +649,62 @@ tests:
     asserts:
       - failedTemplate:
           errorMessage: "infiniband.mockTier must be one of off, sysfs, full (got \"bogus\")"
+
+  # ── Fake fabricmanager (NVSwitch platforms) ─────────────────────────
+  - it: should not wire fabricmanager for a non-NVSwitch profile (t4)
+    set:
+      gpu:
+        profile: t4
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER
+            value: "on"
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-fabric-state
+            hostPath:
+              path: /var/lib/nvml-mock/fabric-state
+              type: DirectoryOrCreate
+
+  - it: should wire fabricmanager env, mount, and volume when enabled
+    set:
+      fabricmanager:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER
+            value: "on"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /var/lib/nvml-mock/fabric-state
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-fabric-state
+            mountPath: /var/lib/nvml-mock/fabric-state
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-fabric-state
+            hostPath:
+              path: /var/lib/nvml-mock/fabric-state
+              type: DirectoryOrCreate
+
+  - it: should honor a custom fabricmanager.stateDir
+    set:
+      fabricmanager:
+        enabled: true
+        stateDir: /run/nvidia-fabricmanager
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /run/nvidia-fabricmanager

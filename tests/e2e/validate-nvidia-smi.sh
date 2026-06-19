@@ -24,15 +24,11 @@ OUTPUT=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI_CMD" 2>&1) || {
 }
 echo "$OUTPUT"
 
-# Validate GPU name appears in output
-if echo "$OUTPUT" | grep -qF -- "$GPU_NAME"; then
-  echo "PASS: GPU name '$GPU_NAME' found in output"
-else
-  echo "FAIL: GPU name '$GPU_NAME' not found in output"
-  exit 1
-fi
-
-# Validate GPU count (nvidia-smi -L lists one line per GPU)
+# Validate GPU name and count from `nvidia-smi -L`. The expected name is the
+# profile's device_defaults.name (the CI passes it straight through), which is
+# the full product string, e.g. "NVIDIA A100-SXM4-40GB". We match against -L
+# rather than the default table because that table truncates the Name column,
+# so the full string would not appear there verbatim.
 echo ""
 echo "--- nvidia-smi -L ---"
 LIST_OUTPUT=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI_CMD -L" 2>&1) || {
@@ -41,6 +37,15 @@ LIST_OUTPUT=$(docker exec "$NODE_CONTAINER" sh -c "$NVIDIA_SMI_CMD -L" 2>&1) || 
   exit 1
 }
 echo "$LIST_OUTPUT"
+
+# here-string, not `echo | grep -q`: grep -q exits on first match and closes
+# the pipe, so echo takes SIGPIPE and `set -o pipefail` would fail the `if`.
+if grep -qF -- "$GPU_NAME" <<< "$LIST_OUTPUT"; then
+  echo "PASS: GPU name '$GPU_NAME' found in nvidia-smi -L output"
+else
+  echo "FAIL: GPU name '$GPU_NAME' not found in nvidia-smi -L output"
+  exit 1
+fi
 
 ACTUAL_COUNT=$(echo "$LIST_OUTPUT" | grep -c "^GPU")
 if [ "$ACTUAL_COUNT" -eq "$GPU_COUNT" ]; then
