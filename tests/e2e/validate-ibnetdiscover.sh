@@ -111,7 +111,7 @@ attempt_discover() {
 
   cross_pod=""
   for g in $found_guids; do
-    if ! printf '%s\n' "$LOCAL_GUIDS" | grep -qx "$g"; then
+    if ! grep -qx "$g" <<<"$LOCAL_GUIDS"; then
       cross_pod="$g"
       break
     fi

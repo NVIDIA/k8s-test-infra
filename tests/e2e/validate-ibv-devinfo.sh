@@ -91,7 +91,7 @@ echo "PASS: ibv_devinfo -l listed $ACTUAL devices"
 DEVICES=$(kubectl exec "$POD" -- ibv_devices 2>&1)
 echo "--- ibv_devices ---"
 printf '%s\n' "$DEVICES"
-if ! printf '%s\n' "$DEVICES" | grep -qE '^[[:space:]]+mlx5_0[[:space:]]+[0-9a-f]{16}'; then
+if ! grep -qE '^[[:space:]]+mlx5_0[[:space:]]+[0-9a-f]{16}' <<<"$DEVICES"; then
   echo "FAIL: ibv_devices did not list mlx5_0 with a node GUID"
   exit 1
 fi
@@ -105,7 +105,7 @@ if [ "$ACTIVE_PORTS" -lt "$EXPECTED" ]; then
   echo "FAIL: ibstatus reports $ACTIVE_PORTS ACTIVE ports, expected at least $EXPECTED"
   exit 1
 fi
-if ! printf '%s\n' "$FULL" | grep -qE 'phys state:[[:space:]]+5: LinkUp'; then
+if ! grep -qE 'phys state:[[:space:]]+5: LinkUp' <<<"$FULL"; then
   echo "FAIL: ibstatus output missing 'phys state: 5: LinkUp'"
   exit 1
 fi
