@@ -4,8 +4,10 @@ The mock CUDA library provides a minimal implementation of CUDA Driver and Runti
 APIs for container validation workloads. It is built alongside the mock NVML library
 and deployed via the same DaemonSet.
 
-**Status:** Early stage -- 15 functions implemented. Sufficient for basic validation
-workloads (e.g., `cuda-sample:vectoradd`) but not for complex CUDA applications.
+**Status:** Early stage -- 26 functions implemented. Sufficient for basic validation
+workloads (e.g., `cuda-sample:vectoradd`) and for host-timed mock collective
+benchmarks (see [Mock NCCL](../pkg/gpu/mocknccl/README.md)), but not for complex
+CUDA applications.
 
 ## Implemented Functions
 
@@ -13,8 +15,10 @@ workloads (e.g., `cuda-sample:vectoradd`) but not for complex CUDA applications.
 |-------------------|----------------------------------------------------------------------------|--------------------------------------------------------|
 | Initialization    | `cuInit`, `cudaDriverGetVersion`, `cudaRuntimeGetVersion`                  | Returns configured driver/runtime versions             |
 | Device Management | `cudaGetDeviceCount`, `cudaSetDevice`, `cudaGetDevice`, `cudaDeviceReset`  | Tracks active device index                             |
-| Memory            | `cudaMalloc`, `cudaFree`, `cudaMemcpy`                                     | Real host allocation via malloc; device copies are no-ops |
+| Memory            | `cudaMalloc`, `cudaFree`, `cudaMemcpy`, `cudaMemset`                       | Real host allocation via malloc; device copies are no-ops |
 | Execution         | `cudaLaunchKernel`, `cudaDeviceSynchronize`                                | No-ops (no actual computation)                         |
+| Streams           | `cudaStreamCreate`, `cudaStreamCreateWithFlags`, `cudaStreamSynchronize`, `cudaStreamDestroy` | Opaque handles; synchronize is a no-op    |
+| Events            | `cudaEventCreate`, `cudaEventCreateWithFlags`, `cudaEventRecord`, `cudaEventSynchronize`, `cudaEventDestroy`, `cudaEventElapsedTime` | Host wall-clock timing -- `cudaEventElapsedTime` returns real elapsed ms between recorded events |
 | Error Handling    | `cudaGetErrorString`, `cudaGetLastError`, `cudaPeekAtLastError`            | Thread-local error tracking                            |
 
 ## How It Works
@@ -39,7 +43,7 @@ compatibility workaround -- applications that link against `libcudart.so` (such 
 ```
 ┌──────────────────────────────────┐
 │   CGo Bridge (bridge/cuda.go)    │
-│   15 C function exports          │
+│   26 C function exports          │
 │   C <-> Go type conversion       │
 └──────────────┬───────────────────┘
                │
@@ -60,7 +64,9 @@ manages state (active device index, allocated memory pointers, error codes).
 
 - **No actual computation** -- kernel launches are no-ops.
 - **No multi-GPU** -- device selection is tracked but has no effect.
-- **No streams/events** -- async operations are not implemented.
+- **Streams/events are timing-only** -- stream/event handles and `cudaEventElapsedTime`
+  provide host wall-clock timing (used by the mock NCCL driver), but there is no real
+  asynchronous execution; stream synchronize is a no-op.
 - **Memory copies** -- only host-to-host actually copies data; other directions are no-ops.
 - **No CUDA context management** -- `cuCtxCreate`, `cuCtxDestroy`, etc. are not implemented.
 
@@ -75,8 +81,10 @@ make
 
 | File                                    | Description                                |
 |-----------------------------------------|--------------------------------------------|
-| `pkg/gpu/mockcuda/bridge/cuda.go`       | CGo bridge -- 15 exported C functions      |
+| `pkg/gpu/mockcuda/bridge/cuda.go`       | CGo bridge -- 26 exported C functions      |
 | `pkg/gpu/mockcuda/bridge/cuda_types.h`  | C type definitions                         |
+| `pkg/gpu/mockcuda/bridge/cuda_runtime.h`| Public runtime header (consumed by the mock NCCL driver) |
 | `pkg/gpu/mockcuda/engine/cuda.go`       | Go engine -- device and memory management  |
+| `pkg/gpu/mockcuda/engine/timing.go`     | Go engine -- stream/event host wall-clock timing |
 | `pkg/gpu/mockcuda/engine/types.go`      | Error codes and type definitions           |
 | `pkg/gpu/mockcuda/Makefile`             | Build configuration                        |

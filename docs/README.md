@@ -45,6 +45,7 @@ full walkthrough.
 | [Architecture](architecture.md) | System design and component overview |
 | [Configuration Reference](configuration.md) | Complete YAML configuration guide |
 | [CUDA Mock](cuda-mock.md) | Mock CUDA driver library details |
+| [NCCL Mock](../pkg/gpu/mocknccl/README.md) | Hardware-free NCCL collective-comms simulation |
 | [Development Guide](development.md) | Contributing and extending the project |
 | [Examples](examples.md) | Common usage patterns and scenarios |
 | [Troubleshooting](troubleshooting.md) | Common issues and solutions |

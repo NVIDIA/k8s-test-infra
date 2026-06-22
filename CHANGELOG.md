@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **NCCL collective-comms simulation** (`pkg/gpu/mocknccl`): hardware-free mock
+  `libnccl.so.2` with a topology-derived linear cost model, mock CUDA event
+  timing, an MPI-free Indexed-Job rendezvous, and a `mock-coll-perf` driver. A
+  2-pod `all_reduce`-style run reports non-zero `busbw` on Kind. (#372)
+
 ## [0.2.1] - 2026-06-12
 
 ### Fixed
