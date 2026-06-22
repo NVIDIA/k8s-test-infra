@@ -88,7 +88,7 @@ func Rendezvous(ctx context.Context, rank, worldSize int, rdzvAddr, selfAddr str
 		if err != nil {
 			return nil, fmt.Errorf("rank0 listen %s: %w", rdzvAddr, err)
 		}
-		defer ln.Close()
+		defer func() { _ = ln.Close() }()
 		return rendezvousServe(ctx, ln, rank, worldSize, selfAddr)
 	}
 	return rendezvousDial(ctx, rdzvAddr, rank, worldSize, selfAddr)
@@ -170,7 +170,7 @@ func rendezvousDial(ctx context.Context, addr string, rank, worldSize int, selfA
 		case <-time.After(dialRetryInterval):
 		}
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if err := writeJSON(conn, Peer{Rank: rank, Addr: selfAddr}); err != nil {
 		return nil, fmt.Errorf("send peer: %w", err)
 	}
