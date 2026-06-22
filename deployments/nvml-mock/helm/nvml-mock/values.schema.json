@@ -194,6 +194,36 @@
           }
         }
       }
+    },
+    "nccl": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "NCCL collective-comms simulation (mock libnccl + mock-coll-perf).",
+      "properties": {
+        "test": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Optional 2-pod all_reduce_perf-style test Job. Off by default.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "collective": {
+              "type": "string",
+              "description": "Collective operation exercised by mock-coll-perf.",
+              "enum": ["all_reduce", "all_gather", "reduce_scatter", "broadcast", "reduce"]
+            },
+            "worldSize": { "type": "integer", "minimum": 1 },
+            "minBytes": { "type": "integer", "minimum": 1 },
+            "maxBytes": { "type": "integer", "minimum": 1 },
+            "iters": { "type": "integer", "minimum": 1 },
+            "rendezvousPort": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "image": { "type": "string" }
+          }
+        }
+      }
     }
   }
 }
