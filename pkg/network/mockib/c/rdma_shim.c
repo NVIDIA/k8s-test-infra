@@ -1093,6 +1093,7 @@ struct ibv_mr *ibv_reg_mr_iova2(struct ibv_pd *pd, void *addr, size_t len,
     static uint32_t g_key = 0x1000;
     m->lkey = __sync_fetch_and_add(&g_key, 1);
     m->rkey = __sync_fetch_and_add(&g_key, 1);
+    int tracked = 0;
     pthread_mutex_lock(&mr_mu);
     for (int i = 0; i < MR_MAX; i++) {
         if (!g_mr[i].used) {
@@ -1101,10 +1102,21 @@ struct ibv_mr *ibv_reg_mr_iova2(struct ibv_pd *pd, void *addr, size_t len,
             g_mr[i].length = len;
             g_mr[i].lkey = m->lkey;
             g_mr[i].rkey = m->rkey;
+            tracked = 1;
             break;
         }
     }
     pthread_mutex_unlock(&mr_mu);
+    /* The MR table is full: we still hand back a valid ibv_mr* (perftest checks
+     * for NULL), but it is untracked, so mr_check() will later reject every
+     * inbound op against it. Log it once here so that otherwise-silent
+     * rem_access failures are diagnosable instead of looking like a data-path
+     * bug. Bounded at MR_MAX=256, far beyond perftest's handful of MRs. */
+    if (!tracked) {
+        DBG("reg_mr: MR table full (%d slots); rkey 0x%x untracked, inbound ops "
+            "to it will fail mr_check",
+            MR_MAX, m->rkey);
+    }
     return m;
 }
 int ibv_dereg_mr(struct ibv_mr *m) {
