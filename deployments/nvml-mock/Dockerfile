@@ -19,6 +19,7 @@ COPY go.mod go.sum ./
 COPY vendor/ vendor/
 COPY pkg/gpu/mocknvml/ pkg/gpu/mocknvml/
 COPY pkg/gpu/mockcuda/ pkg/gpu/mockcuda/
+COPY pkg/gpu/mocknccl/ pkg/gpu/mocknccl/
 COPY pkg/network/mockib/ pkg/network/mockib/
 COPY pkg/system/mockpcisysfs/ pkg/system/mockpcisysfs/
 COPY pkg/imexcoord/ pkg/imexcoord/
@@ -30,6 +31,7 @@ COPY cmd/fake-fabricmanager/ cmd/fake-fabricmanager/
 COPY cmd/check-fabric/ cmd/check-fabric/
 RUN cd pkg/gpu/mocknvml && make clean && make
 RUN cd pkg/gpu/mockcuda && make clean && make
+RUN cd pkg/gpu/mocknccl && make clean && make
 RUN cd pkg/network/mockib && make clean && make
 RUN mkdir -p /out \
     && go build -mod=vendor -o /out/mock-ib ./cmd/mock-ib \
@@ -40,11 +42,24 @@ RUN mkdir -p /out \
     && go build -mod=vendor -o /out/nv-fabricmanager-ctl ./cmd/fake-fabricmanager/ctl \
     && go build -mod=vendor -o /out/check-fabric    ./cmd/check-fabric
 
+# Build the mock-coll-perf driver against the mock NCCL/CUDA libs + headers.
+RUN gcc -O2 \
+      -I pkg/gpu/mocknccl/bridge -I pkg/gpu/mockcuda/bridge \
+      -o /out/mock-coll-perf pkg/gpu/mocknccl/perf/mock-coll-perf.c \
+      -L pkg/gpu/mocknccl -lnccl -L pkg/gpu/mockcuda -lcuda \
+      -Wl,-rpath,/usr/local/lib
+
 FROM debian:bookworm-slim
 ARG KUBECTL_VERSION=v1.36.1
 ARG TARGETARCH
 COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
+COPY --from=builder /src/pkg/gpu/mocknccl/libnccl.so.* /usr/local/lib/
+# mock-coll-perf records bare libnccl.so/libcuda.so NEEDED entries (the
+# c-shared SONAME), but the .so.* globs above only copy the versioned files.
+# Recreate the bare-name symlinks so the driver's dynamic deps resolve.
+RUN ln -sf libnccl.so.2 /usr/local/lib/libnccl.so \
+    && ln -sf libcuda.so.1 /usr/local/lib/libcuda.so
 COPY --from=builder /src/pkg/network/mockib/libibmocksys.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmockumad.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmockverbs.so.* /usr/local/lib/
@@ -67,6 +82,7 @@ COPY --from=builder /out/nv-fabricmanager-ctl /usr/bin/nv-fabricmanager-ctl
 # to confirm the topology overlay assigned the expected clique to each
 # node. See NVIDIA/k8s-test-infra#304.
 COPY --from=builder /out/check-fabric    /usr/local/bin/check-fabric
+COPY --from=builder /out/mock-coll-perf /usr/local/bin/mock-coll-perf
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
