@@ -1,5 +1,6 @@
 # Build artifacts
 *.so
+*.so.*
 *.dll
 *.dylib
 *.out
