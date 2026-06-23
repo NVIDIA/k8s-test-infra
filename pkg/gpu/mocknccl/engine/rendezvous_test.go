@@ -125,6 +125,52 @@ func TestRendezvousDialRetryBeforeBind(t *testing.T) {
 	}
 }
 
+func TestRendezvousRank0BindsLocalPort(t *testing.T) {
+	// Exercises the top-level Rendezvous: rank 0 must bind the local wildcard
+	// for rdzvAddr's port (rdzvAddr is a dial-only Service name in k8s), while
+	// rank 1 dials the loopback host:port. Regression test for rank 0 trying
+	// to bind() the remote rendezvous address.
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := probe.Addr().String()
+	require.NoError(t, probe.Close())
+
+	results := make([]*RendezvousResult, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		r, err := Rendezvous(ctx, 0, 2, addr, "10.0.0.1")
+		if err != nil {
+			t.Errorf("rank0: %v", err)
+			return
+		}
+		results[0] = r
+	}()
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		r, err := Rendezvous(ctx, 1, 2, addr, "10.0.0.2")
+		if err != nil {
+			t.Errorf("rank1: %v", err)
+			return
+		}
+		results[1] = r
+	}()
+	wg.Wait()
+
+	for i, r := range results {
+		require.NotNilf(t, r, "rank %d nil result", i)
+		require.Equalf(t, 2, r.WorldSize, "rank %d worldsize", i)
+		require.Lenf(t, r.Peers, 2, "rank %d peers", i)
+		require.Truef(t, r.InterNode, "rank %d expected inter-node (distinct addrs)", i)
+	}
+}
+
 func TestReadJSONFramingBounds(t *testing.T) {
 	frame := func(n uint32) []byte {
 		var buf bytes.Buffer

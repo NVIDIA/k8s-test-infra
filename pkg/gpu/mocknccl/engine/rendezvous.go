@@ -84,9 +84,17 @@ func Rendezvous(ctx context.Context, rank, worldSize int, rdzvAddr, selfAddr str
 			Peers: []Peer{{Rank: rank, Addr: selfAddr}}, InterNode: false}, nil
 	}
 	if rank == 0 {
-		ln, err := Listen(rdzvAddr)
+		// rdzvAddr is the address other ranks DIAL (e.g. a Kubernetes Service
+		// DNS name); rank 0 cannot bind() that remote name, so it listens on
+		// the local wildcard interface for the same port.
+		_, port, err := net.SplitHostPort(rdzvAddr)
 		if err != nil {
-			return nil, fmt.Errorf("rank0 listen %s: %w", rdzvAddr, err)
+			return nil, fmt.Errorf("rank0 parse rdzv addr %q: %w", rdzvAddr, err)
+		}
+		bindAddr := net.JoinHostPort("", port)
+		ln, err := Listen(bindAddr)
+		if err != nil {
+			return nil, fmt.Errorf("rank0 listen %s: %w", bindAddr, err)
 		}
 		defer func() { _ = ln.Close() }()
 		return rendezvousServe(ctx, ln, rank, worldSize, selfAddr)
