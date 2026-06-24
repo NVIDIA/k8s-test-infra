@@ -164,3 +164,17 @@ integrations:
     # Labels applied to per-profile ConfigMaps for discovery
     profileLabels:
       run.ai/gpu-profile: "true"
+
+# NCCL collective-comms simulation (mock libnccl + mock-coll-perf).
+nccl:
+  # Optional 2-pod all_reduce_perf-style test Job. Off by default; the E2E
+  # harness and `helm install --set nccl.test.enabled=true` turn it on.
+  test:
+    enabled: false
+    collective: all_reduce   # all_reduce|all_gather|reduce_scatter|broadcast|reduce
+    worldSize: 2
+    minBytes: 1024
+    maxBytes: 67108864
+    iters: 20
+    rendezvousPort: 29500
+    image: ""   # defaults to the chart's nvml-mock image when empty

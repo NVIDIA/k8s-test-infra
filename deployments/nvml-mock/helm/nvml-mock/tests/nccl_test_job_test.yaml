@@ -1,0 +1,42 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+suite: nccl test job
+templates:
+  - templates/nccl-test-job.yaml
+  - templates/service-nccl.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: renders Job and Service when enabled
+    set:
+      nccl.test.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: templates/nccl-test-job.yaml
+      - equal:
+          path: spec.completionMode
+          value: Indexed
+        template: templates/nccl-test-job.yaml
+      - equal:
+          path: spec.parallelism
+          value: 2
+        template: templates/nccl-test-job.yaml
+      - equal:
+          path: spec.clusterIP
+          value: None
+        template: templates/service-nccl.yaml
+      - equal:
+          path: spec.selector["batch.kubernetes.io/job-completion-index"]
+          value: "0"
+        template: templates/service-nccl.yaml
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: nccl-test
+        template: templates/service-nccl.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "nccl-rdzv:29500"
+        template: templates/nccl-test-job.yaml

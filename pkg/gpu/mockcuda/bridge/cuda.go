@@ -195,3 +195,125 @@ func cudaRuntimeGetVersion(runtimeVersion *C.int) C.cudaError_t {
 	*runtimeVersion = C.int(ver)
 	return C.cudaSuccess
 }
+
+// =============================================================================
+// Streams
+// =============================================================================
+
+//export cudaStreamCreate
+func cudaStreamCreate(pStream *C.cudaStream_t) C.cudaError_t {
+	if pStream == nil {
+		return C.cudaErrorInvalidValue
+	}
+	// Back the opaque handle with real C memory holding the engine id, so the
+	// pointer is valid and go vet clean (mirrors cudaMalloc's rationale).
+	h := C.malloc(C.size_t(8))
+	if h == nil {
+		return C.cudaErrorMemoryAllocation
+	}
+	*(*uint64)(h) = uint64(engine.GetEngine().StreamCreate())
+	*pStream = C.cudaStream_t(h)
+	return C.cudaSuccess
+}
+
+//export cudaStreamCreateWithFlags
+func cudaStreamCreateWithFlags(pStream *C.cudaStream_t, flags C.uint) C.cudaError_t {
+	return cudaStreamCreate(pStream)
+}
+
+//export cudaStreamSynchronize
+func cudaStreamSynchronize(stream C.cudaStream_t) C.cudaError_t {
+	if stream == nil { // stream 0 (default) is always valid
+		return C.cudaSuccess
+	}
+	id := *(*uint64)(unsafe.Pointer(stream))
+	return toCudaError(engine.GetEngine().StreamSynchronize(id))
+}
+
+//export cudaStreamDestroy
+func cudaStreamDestroy(stream C.cudaStream_t) C.cudaError_t {
+	if stream == nil {
+		return C.cudaSuccess
+	}
+	id := *(*uint64)(unsafe.Pointer(stream))
+	rc := toCudaError(engine.GetEngine().StreamDestroy(id))
+	C.free(unsafe.Pointer(stream))
+	return rc
+}
+
+// =============================================================================
+// Events
+// =============================================================================
+
+//export cudaEventCreate
+func cudaEventCreate(pEvent *C.cudaEvent_t) C.cudaError_t {
+	if pEvent == nil {
+		return C.cudaErrorInvalidValue
+	}
+	// Back the opaque handle with real C memory holding the engine id, so the
+	// pointer is valid and go vet clean (mirrors cudaMalloc's rationale).
+	h := C.malloc(C.size_t(8))
+	if h == nil {
+		return C.cudaErrorMemoryAllocation
+	}
+	*(*uint64)(h) = uint64(engine.GetEngine().EventCreate())
+	*pEvent = C.cudaEvent_t(h)
+	return C.cudaSuccess
+}
+
+//export cudaEventCreateWithFlags
+func cudaEventCreateWithFlags(pEvent *C.cudaEvent_t, flags C.uint) C.cudaError_t {
+	return cudaEventCreate(pEvent)
+}
+
+//export cudaEventRecord
+func cudaEventRecord(event C.cudaEvent_t, stream C.cudaStream_t) C.cudaError_t {
+	if event == nil {
+		return C.cudaErrorInvalidValue
+	}
+	id := *(*uint64)(unsafe.Pointer(event))
+	return toCudaError(engine.GetEngine().EventRecord(id))
+}
+
+//export cudaEventSynchronize
+func cudaEventSynchronize(event C.cudaEvent_t) C.cudaError_t {
+	if event == nil {
+		return C.cudaErrorInvalidValue
+	}
+	id := *(*uint64)(unsafe.Pointer(event))
+	return toCudaError(engine.GetEngine().EventSynchronize(id))
+}
+
+//export cudaEventDestroy
+func cudaEventDestroy(event C.cudaEvent_t) C.cudaError_t {
+	if event == nil {
+		return C.cudaErrorInvalidValue
+	}
+	id := *(*uint64)(unsafe.Pointer(event))
+	rc := toCudaError(engine.GetEngine().EventDestroy(id))
+	C.free(unsafe.Pointer(event))
+	return rc
+}
+
+//export cudaEventElapsedTime
+func cudaEventElapsedTime(ms *C.float, start C.cudaEvent_t, stop C.cudaEvent_t) C.cudaError_t {
+	if ms == nil || start == nil || stop == nil {
+		return C.cudaErrorInvalidValue
+	}
+	sid := *(*uint64)(unsafe.Pointer(start))
+	eid := *(*uint64)(unsafe.Pointer(stop))
+	v, err := engine.GetEngine().EventElapsedTime(sid, eid)
+	if err != engine.CudaSuccess {
+		return toCudaError(err)
+	}
+	*ms = C.float(v)
+	return C.cudaSuccess
+}
+
+//export cudaMemset
+func cudaMemset(devPtr unsafe.Pointer, value C.int, count C.size_t) C.cudaError_t {
+	if devPtr != nil && count > 0 {
+		C.memset(devPtr, value, count)
+	}
+	return C.cudaSuccess
+}

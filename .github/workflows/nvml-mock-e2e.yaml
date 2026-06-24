@@ -1073,3 +1073,60 @@ jobs:
           kubectl logs -l app.kubernetes.io/instance=nvml-mock-w2 --tail=50 || true
           echo "=== events ==="
           kubectl get events --sort-by=.lastTimestamp | tail -30 || true
+
+  nccl-multinode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
+
+      - name: Create multi-node Kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          cluster_name: nccl-fleet
+          config: tests/e2e/kind-multi-node-config.yaml
+
+      - name: Build nvml-mock image
+        run: |
+          docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile \
+            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image nvml-mock:e2e --name nccl-fleet
+
+      # Single cluster-wide release: the DaemonSet tolerates all nodes (no
+      # nodeSelector) and the 2-pod NCCL Job spreads across hosts via its own
+      # podAntiAffinity, so a per-worker install (as in e2e-multi-node) is not
+      # needed here. a100 is IB-enabled, exercising the mock transport path.
+      # helm --wait gates on DaemonSet readiness (it does not wait for Job
+      # completion without --wait-for-jobs); the validator performs its own
+      # Job-completion wait and reads the rank-0 busbw.
+      - name: Install nvml-mock chart with NCCL test enabled (a100, IB-enabled)
+        run: |
+          helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+            --set image.repository=nvml-mock \
+            --set image.tag=e2e \
+            --set gpu.profile=a100 \
+            --set nccl.test.enabled=true \
+            --set nccl.test.worldSize=2 \
+            --wait --timeout 120s
+
+      - name: Validate 2-pod NCCL busbw
+        run: |
+          ./tests/e2e/validate-nccl.sh default nvml-mock-nccl-test
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== nccl test job ==="
+          kubectl describe job/nvml-mock-nccl-test || true
+          kubectl logs -l app.kubernetes.io/component=nccl-test --tail=100 --prefix || true
+          echo "=== rdzv service + endpoints ==="
+          kubectl get svc,endpoints -l app.kubernetes.io/component=nccl-test -o wide || true
+          echo "=== pods ==="
+          kubectl get pods -o wide || true
+          echo "=== events ==="
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true

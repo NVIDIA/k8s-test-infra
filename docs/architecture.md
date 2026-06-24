@@ -370,6 +370,59 @@ a smaller scale (15 functions vs 400).
 
 See [CUDA Mock](cuda-mock.md) for full details.
 
+## Mock NCCL Architecture
+
+The NCCL mock reuses the same engine/bridge split to simulate GPU
+collective communication with no GPUs and no NVLink/InfiniBand hardware.
+
+- **Bridge (`libnccl.so.2`).** A cgo `c-shared` library exporting the
+  common NCCL C ABI (comm lifecycle, queries, grouping, and the
+  `AllReduce` / `AllGather` / `ReduceScatter` / `Broadcast` / `Reduce`
+  collectives). Each collective resolves its communicator and delegates to
+  the engine; no buffers are read or written.
+- **Engine (Go).** Owns a linear cost model
+  (`time = latency + msgBytes / algbw`, with `algbw = EffectiveBusBW /
+  busbwFactor`), the resolved communicator, and an MPI-free rendezvous.
+  Bandwidths derive from the mock-nvml profile's `nvlink:` (intra-node) and
+  `infiniband:` (inter-node) blocks, with `nccl:` YAML keys and
+  `MOCK_NCCL_*` env vars as overrides.
+- **Timing coupling with mockcuda.** The engine performs no measurement —
+  it sleeps the host for the modeled duration (capped by
+  `MOCK_NCCL_MAX_SLEEP_MS`). Consumers bracket the collective with
+  `cudaEventRecord` / `cudaEventElapsedTime`, which mockcuda implements as
+  host monotonic timestamps, so the reported `busbw` is derived from real
+  wall-clock — exactly as nccl-tests does on hardware.
+
+### Two-pod rendezvous data flow
+
+The Helm chart's opt-in NCCL test runs `mock-coll-perf` as an `Indexed`
+Job, one pod per rank, fronted by a headless Service:
+
+```
+            ┌─────────────────────────── headless Service ──────────────────────────┐
+            │  <release>-nccl-rdzv:29500  (selector pins job-completion-index="0")   │
+            └──────────────▲─────────────────────────────────────────────────────────┘
+                           │ resolves to rank 0
+   rank 0 pod              │                         rank 1 pod
+   RANK=JOB_COMPLETION_INDEX=0                       RANK=JOB_COMPLETION_INDEX=1
+   WORLD_SIZE=2, POD_IP=…                            WORLD_SIZE=2, POD_IP=…
+   ncclCommInitRank ──► binds :29500, serves ◄────── ncclCommInitRank dials rdzv
+        │                roster (peers, inter-node)        │
+        ▼                                                  ▼
+   collective loop (cudaEvent-timed)               collective loop
+        │
+        ▼  rank 0 prints "# Avg bus bandwidth : N"  ──► validate-nccl.sh asserts N > 0
+```
+
+Each pod derives `RANK` from `JOB_COMPLETION_INDEX`, takes `WORLD_SIZE`
+from the chart value, and `POD_IP` from the downward API. Rank 0 binds the
+rendezvous port and serves the roster; other ranks dial the headless
+Service. More than one distinct pod IP in the roster selects the
+inter-node (InfiniBand) bandwidth.
+
+See [`pkg/gpu/mocknccl/README.md`](../pkg/gpu/mocknccl/README.md) for the
+cost-model details, configuration reference, and ABI surface.
+
 ## Extending the Library
 
 See [Development Guide](development.md) for:

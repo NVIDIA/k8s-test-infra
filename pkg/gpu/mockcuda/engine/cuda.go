@@ -43,6 +43,7 @@ type Engine struct {
 	currentDevice int
 	allocations   map[uintptr]AllocationInfo
 	nextAllocID   uintptr
+	timing        *timing // stream/event state
 }
 
 var (
@@ -92,6 +93,7 @@ func NewEngine() *Engine {
 		driverVersion: driverVersion,
 		allocations:   make(map[uintptr]AllocationInfo),
 		nextAllocID:   0x1000, // Start at a non-zero fake address
+		timing:        newTiming(),
 	}
 }
 
@@ -229,4 +231,9 @@ func (e *Engine) GetAllocation(ptr uintptr) (AllocationInfo, bool) {
 	defer e.mu.Unlock()
 	info, ok := e.allocations[ptr]
 	return info, ok
+}
+
+// timingState returns the stream/event state.
+func (e *Engine) timingState() *timing {
+	return e.timing
 }

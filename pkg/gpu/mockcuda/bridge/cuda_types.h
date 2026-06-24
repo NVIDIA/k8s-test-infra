@@ -60,6 +60,11 @@ typedef struct {
  */
 typedef struct CUstream_st* cudaStream_t;
 
+/*
+ * cudaEvent_t - opaque event handle
+ */
+typedef struct CUevent_st* cudaEvent_t;
+
 #ifdef __cplusplus
 }
 #endif

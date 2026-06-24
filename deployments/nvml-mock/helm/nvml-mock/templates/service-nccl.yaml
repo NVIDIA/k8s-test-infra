@@ -1,0 +1,22 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+{{- if .Values.nccl.test.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nvml-mock.fullname" . }}-nccl-rdzv
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nccl-test
+spec:
+  clusterIP: None
+  selector:
+    {{- include "nvml-mock.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: nccl-test
+    batch.kubernetes.io/job-completion-index: "0"
+  ports:
+    - name: rdzv
+      protocol: TCP
+      port: {{ .Values.nccl.test.rendezvousPort }}
+      targetPort: {{ .Values.nccl.test.rendezvousPort }}
+{{- end }}

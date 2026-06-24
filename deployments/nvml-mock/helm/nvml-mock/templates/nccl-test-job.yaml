@@ -1,0 +1,61 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+{{- if .Values.nccl.test.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "nvml-mock.fullname" . }}-nccl-test
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nccl-test
+spec:
+  completions: {{ .Values.nccl.test.worldSize }}
+  parallelism: {{ .Values.nccl.test.worldSize }}
+  completionMode: Indexed
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: nccl-test
+    spec:
+      restartPolicy: Never
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: nccl-test
+      containers:
+        - name: nccl-perf
+          image: {{ .Values.nccl.test.image | default (printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion)) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              export RANK="${JOB_COMPLETION_INDEX:-0}"
+              export WORLD_SIZE="{{ .Values.nccl.test.worldSize }}"
+              export MOCK_NCCL_RDZV="{{ include "nvml-mock.fullname" . }}-nccl-rdzv:{{ .Values.nccl.test.rendezvousPort }}"
+              exec /usr/local/bin/mock-coll-perf {{ .Values.nccl.test.collective }} \
+                -b {{ .Values.nccl.test.minBytes }} -e {{ .Values.nccl.test.maxBytes }} \
+                -f 2 -n {{ .Values.nccl.test.iters }}
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: LD_LIBRARY_PATH
+              value: /usr/local/lib
+            - name: MOCK_NCCL_CONFIG
+              value: /etc/nvml-mock/config.yaml
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nvml-mock
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "nvml-mock.fullname" . }}-config
+{{- end }}
