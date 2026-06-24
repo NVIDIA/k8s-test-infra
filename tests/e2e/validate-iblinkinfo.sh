@@ -76,7 +76,7 @@ fi
 
 CROSS_POD=""
 for g in $FOUND_GUIDS; do
-  if ! printf '%s\n' "$LOCAL_GUIDS" | grep -qx "$g"; then
+  if ! grep -qx "$g" <<<"$LOCAL_GUIDS"; then
     CROSS_POD="$g"
     break
   fi
