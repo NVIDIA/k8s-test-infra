@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 279 stub functions for unimplemented NVML functions.
+// 287 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -519,6 +519,11 @@ func nvmlDeviceGetProcessesUtilizationInfo(device C.nvmlDevice_t, procesesUtilIn
 	return stubReturn("nvmlDeviceGetProcessesUtilizationInfo")
 }
 
+//export nvmlDeviceGetRemappedRows_v2
+func nvmlDeviceGetRemappedRows_v2(device C.nvmlDevice_t, info *C.nvmlRemappedRowsInfo_v2_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetRemappedRows_v2")
+}
+
 //export nvmlDeviceGetRepairStatus
 func nvmlDeviceGetRepairStatus(device C.nvmlDevice_t, repairStatus *C.nvmlRepairStatus_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetRepairStatus")
@@ -634,9 +639,19 @@ func nvmlDeviceGetVgpuSchedulerLog(device C.nvmlDevice_t, pSchedulerLog *C.nvmlV
 	return stubReturn("nvmlDeviceGetVgpuSchedulerLog")
 }
 
+//export nvmlDeviceGetVgpuSchedulerLog_v2
+func nvmlDeviceGetVgpuSchedulerLog_v2(device C.nvmlDevice_t, pSchedulerLogInfo *C.nvmlVgpuSchedulerLogInfo_v2_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetVgpuSchedulerLog_v2")
+}
+
 //export nvmlDeviceGetVgpuSchedulerState
 func nvmlDeviceGetVgpuSchedulerState(device C.nvmlDevice_t, pSchedulerState *C.nvmlVgpuSchedulerGetState_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetVgpuSchedulerState")
+}
+
+//export nvmlDeviceGetVgpuSchedulerState_v2
+func nvmlDeviceGetVgpuSchedulerState_v2(device C.nvmlDevice_t, pSchedulerStateInfo *C.nvmlVgpuSchedulerStateInfo_v2_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetVgpuSchedulerState_v2")
 }
 
 //export nvmlDeviceGetVgpuTypeCreatablePlacements
@@ -894,6 +909,11 @@ func nvmlDeviceSetVgpuSchedulerState(device C.nvmlDevice_t, pSchedulerState *C.n
 	return stubReturn("nvmlDeviceSetVgpuSchedulerState")
 }
 
+//export nvmlDeviceSetVgpuSchedulerState_v2
+func nvmlDeviceSetVgpuSchedulerState_v2(device C.nvmlDevice_t, pSchedulerState *C.nvmlVgpuSchedulerState_v2_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceSetVgpuSchedulerState_v2")
+}
+
 //export nvmlDeviceSetVirtualizationMode
 func nvmlDeviceSetVirtualizationMode(device C.nvmlDevice_t, virtualMode C.nvmlGpuVirtualizationMode_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceSetVirtualizationMode")
@@ -902,6 +922,11 @@ func nvmlDeviceSetVirtualizationMode(device C.nvmlDevice_t, virtualMode C.nvmlGp
 //export nvmlDeviceValidateInforom
 func nvmlDeviceValidateInforom(device C.nvmlDevice_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceValidateInforom")
+}
+
+//export nvmlDeviceVgpuForceGspUnload
+func nvmlDeviceVgpuForceGspUnload(device C.nvmlDevice_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceVgpuForceGspUnload")
 }
 
 //export nvmlDeviceWorkloadPowerProfileClearRequestedProfiles
@@ -1059,9 +1084,19 @@ func nvmlGpuInstanceGetVgpuSchedulerLog(gpuInstance C.nvmlGpuInstance_t, pSchedu
 	return stubReturn("nvmlGpuInstanceGetVgpuSchedulerLog")
 }
 
+//export nvmlGpuInstanceGetVgpuSchedulerLog_v2
+func nvmlGpuInstanceGetVgpuSchedulerLog_v2(gpuInstance C.nvmlGpuInstance_t, pSchedulerLogInfo *C.nvmlVgpuSchedulerLogInfo_v2_t) C.nvmlReturn_t {
+	return stubReturn("nvmlGpuInstanceGetVgpuSchedulerLog_v2")
+}
+
 //export nvmlGpuInstanceGetVgpuSchedulerState
 func nvmlGpuInstanceGetVgpuSchedulerState(gpuInstance C.nvmlGpuInstance_t, pSchedulerStateInfo *C.nvmlVgpuSchedulerStateInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlGpuInstanceGetVgpuSchedulerState")
+}
+
+//export nvmlGpuInstanceGetVgpuSchedulerState_v2
+func nvmlGpuInstanceGetVgpuSchedulerState_v2(gpuInstance C.nvmlGpuInstance_t, pSchedulerStateInfo *C.nvmlVgpuSchedulerStateInfo_v2_t) C.nvmlReturn_t {
+	return stubReturn("nvmlGpuInstanceGetVgpuSchedulerState_v2")
 }
 
 //export nvmlGpuInstanceGetVgpuTypeCreatablePlacements
@@ -1077,6 +1112,11 @@ func nvmlGpuInstanceSetVgpuHeterogeneousMode(gpuInstance C.nvmlGpuInstance_t, pH
 //export nvmlGpuInstanceSetVgpuSchedulerState
 func nvmlGpuInstanceSetVgpuSchedulerState(gpuInstance C.nvmlGpuInstance_t, pScheduler *C.nvmlVgpuSchedulerState_t) C.nvmlReturn_t {
 	return stubReturn("nvmlGpuInstanceSetVgpuSchedulerState")
+}
+
+//export nvmlGpuInstanceSetVgpuSchedulerState_v2
+func nvmlGpuInstanceSetVgpuSchedulerState_v2(gpuInstance C.nvmlGpuInstance_t, pSchedulerState *C.nvmlVgpuSchedulerState_v2_t) C.nvmlReturn_t {
+	return stubReturn("nvmlGpuInstanceSetVgpuSchedulerState_v2")
 }
 
 //export nvmlSetVgpuVersion

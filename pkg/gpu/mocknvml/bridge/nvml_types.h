@@ -468,6 +468,17 @@ typedef struct nvmlRusdSettings_v1_st                       nvmlRusdSettings_v1_
 typedef struct nvmlUnrepairableMemoryStatus_v1_st           nvmlUnrepairableMemoryStatus_v1_t;
 typedef struct nvmlWorkloadPowerProfileUpdateProfiles_v1_st nvmlWorkloadPowerProfileUpdateProfiles_v1_t;
 
+/*
+ * NVML additions (go-nvml v0.13.2-0, #410). Versioned _v2 info structs for
+ * remapped rows and the vGPU scheduler APIs. Only ever passed by pointer
+ * through NOT_SUPPORTED stubs, so opaque forward declarations are sufficient
+ * and ABI-safe.
+ */
+typedef struct nvmlRemappedRowsInfo_v2_st                   nvmlRemappedRowsInfo_v2_t;
+typedef struct nvmlVgpuSchedulerLogInfo_v2_st               nvmlVgpuSchedulerLogInfo_v2_t;
+typedef struct nvmlVgpuSchedulerStateInfo_v2_st             nvmlVgpuSchedulerStateInfo_v2_t;
+typedef struct nvmlVgpuSchedulerState_v2_st                 nvmlVgpuSchedulerState_v2_t;
+
 #ifdef __cplusplus
 }
 #endif
