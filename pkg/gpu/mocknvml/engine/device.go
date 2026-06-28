@@ -16,6 +16,7 @@ package engine
 import (
 	"fmt"
 	"slices"
+	"time"
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -345,10 +346,30 @@ func (d *ConfigurableDevice) GetGraphicsRunningProcesses() ([]nvml.ProcessInfo, 
 	return procs, nvml.SUCCESS
 }
 
-// GetProcessUtilization returns process utilization samples since lastSeenTimestamp
+// GetProcessUtilization returns one sample per configured process, compute and
+// graphics/video alike (real NVML reports both; GetComputeRunningProcesses is the
+// compute-only call), so it does not filter by type. lastSeenTimestamp is not used
+// as a filter: each sample is stamped with time.Now() (always newer than the
+// caller's lastSeen) so the common lastSeen=0 polling pattern keeps observing the
+// configured values.
 func (d *ConfigurableDevice) GetProcessUtilization(lastSeenTimestamp uint64) ([]nvml.ProcessUtilizationSample, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetProcessUtilization(lastSeen=%d)\n", lastSeenTimestamp)
-	return []nvml.ProcessUtilizationSample{}, nvml.SUCCESS
+	if d.config == nil || len(d.config.Processes) == 0 {
+		return nil, nvml.SUCCESS
+	}
+	ts := uint64(time.Now().UnixMicro())
+	var out []nvml.ProcessUtilizationSample
+	for _, p := range d.config.Processes {
+		out = append(out, nvml.ProcessUtilizationSample{
+			Pid:       p.PID,
+			TimeStamp: ts,
+			SmUtil:    p.SmUtil,
+			MemUtil:   p.MemUtil,
+			EncUtil:   p.EncUtil,
+			DecUtil:   p.DecUtil,
+		})
+	}
+	return out, nvml.SUCCESS
 }
 
 // GetCurrentClocksEventReasons returns clock event reasons bitmask (newer API name for throttle reasons)

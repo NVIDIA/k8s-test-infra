@@ -223,6 +223,8 @@ devices:
         type: "C"
         name: "python"
         used_memory_mib: 30720
+        sm_util: 95                # per-process SM utilization %
+        mem_util: 75              # per-process memory-bandwidth utilization %
 ```
 
 ## Testing Scenarios

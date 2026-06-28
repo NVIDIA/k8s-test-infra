@@ -297,6 +297,10 @@ device_defaults:
 
 ### Processes
 
+`processes` drive the running-process queries and `nvmlDeviceGetProcessUtilization`.
+The utilization fields (`sm_util`/`mem_util`/`enc_util`/`dec_util`, all percent) are
+reported for every process — compute and graphics/video alike.
+
 ```yaml
 device_defaults:
   processes:
@@ -304,6 +308,14 @@ device_defaults:
       type: "C"                       # C=compute, G=graphics
       name: "python"
       used_memory_mib: 1024
+      sm_util: 75                     # SM (compute) utilization %
+      mem_util: 40                    # memory-bandwidth utilization %
+    - pid: 5678
+      type: "G"
+      name: "ffmpeg"
+      used_memory_mib: 512
+      enc_util: 60                    # encoder utilization %
+      dec_util: 30                    # decoder utilization %
 ```
 
 ## Per-Device Overrides

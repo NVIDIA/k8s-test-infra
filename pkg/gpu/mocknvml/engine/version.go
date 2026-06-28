@@ -32,6 +32,9 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceGetCount_v2":         {Added: "331.0"},
 	"nvmlDeviceGetHandleByIndex_v2": {Added: "331.0"},
 
+	// 418.x additions
+	"nvmlDeviceGetProcessUtilization": {Added: "418.0"},
+
 	// 450.x additions
 	"nvmlDeviceGetRemappedRows": {Added: "450.0"},
 

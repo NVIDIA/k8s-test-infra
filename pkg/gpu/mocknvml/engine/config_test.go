@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -184,4 +185,34 @@ func TestLoadConfig_AutoDiscoverFallback(t *testing.T) {
 	config := LoadConfig()
 	require.NotNil(t, config, "LoadConfig returned nil")
 	require.Equal(t, 8, config.NumDevices, "Expected default NumDevices 8")
+}
+
+// Per-device processes, decoded from real YAML through the inline-embedded
+// DeviceConfig and merged: covers override (d0), explicit-clear (d1), inherit (d2).
+func TestYAMLConfig_PerDeviceProcesses(t *testing.T) {
+	const y = `
+device_defaults:
+  processes:
+    - {pid: 1, type: "C"}
+devices:
+  - index: 0
+    processes:
+      - {pid: 4242, type: "C", sm_util: 75}
+  - index: 1
+    processes: []
+`
+	var yc YAMLConfig
+	if err := yaml.Unmarshal([]byte(y), &yc); err != nil {
+		t.Fatalf("yaml decode: %v", err)
+	}
+	c := &Config{YAMLConfig: &yc}
+	if d := c.GetDeviceConfig(0); len(d.Processes) != 1 || d.Processes[0].PID != 4242 || d.Processes[0].SmUtil != 75 {
+		t.Fatalf("device 0 (override): %+v", d.Processes)
+	}
+	if d := c.GetDeviceConfig(1); len(d.Processes) != 0 { // processes: [] clears the default
+		t.Fatalf("device 1 (explicit clear): %+v", d.Processes)
+	}
+	if d := c.GetDeviceConfig(2); len(d.Processes) != 1 || d.Processes[0].PID != 1 { // no override -> inherit
+		t.Fatalf("device 2 (inherit): %+v", d.Processes)
+	}
 }

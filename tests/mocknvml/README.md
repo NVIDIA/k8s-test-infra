@@ -33,50 +33,54 @@ The integration test exercises the following NVML APIs:
 - `nvmlDeviceGetCudaComputeCapability()` - Get compute capability
 - `nvmlDeviceGetHandleByUUID()` - Get device by UUID
 - `nvmlDeviceGetHandleByPciBusId_v2()` - Get device by PCI Bus ID
+- `nvmlDeviceGetComputeRunningProcesses_v3()` / `nvmlDeviceGetGraphicsRunningProcesses_v3()` - per-process GPU memory
+- `nvmlDeviceGetProcessUtilization()` - per-process SM / memory / encoder / decoder utilization
 - `nvmlShutdown()` - Shutdown NVML
+
+It also runs a suite of **bridge edge-case tests** (`bridge_tests.go`): NVML return-code strings, index/UUID/PCI boundary lookups, and post-shutdown behavior.
 
 ## Configuration
 
-The mock library can be configured via environment variables:
+The integration test runs against a profile config fixture, `util-test-config.yaml`, via `MOCK_NVML_CONFIG` (set by the Makefile). It is an A100 profile plus one compute process carrying `sm_util`, so the per-process utilization path is exercised.
 
-- `MOCK_NVML_NUM_DEVICES` - Number of mock devices (default: 8, test uses: 4)
+Without a config file, the mock library falls back to environment variables:
+
+- `MOCK_NVML_NUM_DEVICES` - Number of mock devices (default: 8)
 - `MOCK_NVML_DRIVER_VERSION` - Mock driver version (default: 550.163.01)
 
 ## Expected Output
 
 ```
-Starting Mini Device Plugin Test
-=================================
 Initializing NVML...
 ✓ NVML initialized successfully
 ✓ Driver version: 550.163.01
-✓ Found 4 GPU device(s)
+✓ Found 8 GPU device(s)
 
 Enumerating devices:
-
 Device 0:
-  Name: Mock NVIDIA A100-SXM4-40GB
-  UUID: GPU-9b465350-deaa-456b-ba7c-2b0c95ae7f2b
-  Memory: 40960 MB (Total), 0 MB (Free), 0 MB (Used)
-
+  Name: NVIDIA A100-SXM4-40GB
+  UUID: GPU-12345678-1234-1234-1234-123456780000
+  Memory: 40960 MB (Total) ...
 ... (additional devices)
 
-Testing device lookup by UUID...
-  Device 0 UUID: "GPU-543ae470-0879-4749-8bb8-e38ecacd1bb5"
-  Device 1 UUID: "GPU-c13faba5-2b00-4949-b3f3-5ab360ac0250"
-  Device 2 UUID: "GPU-810f0b8a-cc0a-43bb-b11a-099b0b7acd18"
-  Device 3 UUID: "GPU-10ffca56-a94f-4825-87e2-e41fc4c23395"
-Looking up device with UUID: "GPU-543ae470-0879-4749-8bb8-e38ecacd1bb5"
-✓ Successfully looked up device by UUID: GPU-543ae470-0879-4749-8bb8-e38ecacd1bb5
+Testing device lookup by UUID / PCI Bus ID...
+✓ Successfully looked up device by UUID / PCI Bus ID
 
-Testing device lookup by PCI Bus ID...
-✓ Successfully looked up device by PCI Bus ID: 0000:00:00.0
+=== Bridge Edge-Case Tests ===
+  PASS  errstr/SUCCESS
+  PASS  boundary/uuid_invalid (correctly returned: ERROR_NOT_FOUND)
+  ... (additional bridge cases)
+=== Bridge Tests: 29 passed, 0 failed ===
+
+✓ checkProcessUtilization: pid=4242 smUtil=75 memUtil=40
 
 =================================
-✓ All device plugin tests passed!
+✓ All tests passed!
 
 SUCCESS: Mock NVML library is working correctly!
 ```
+
+(Device names/UUIDs come from the configured profile in `util-test-config.yaml`.)
 
 ## Known Limitations
 

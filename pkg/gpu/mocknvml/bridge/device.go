@@ -751,6 +751,9 @@ func nvmlDeviceGetComputeRunningProcesses_v3(nvmlDevice C.nvmlDevice_t, infoCoun
 
 //export nvmlDeviceGetProcessUtilization
 func nvmlDeviceGetProcessUtilization(nvmlDevice C.nvmlDevice_t, utilization *C.nvmlProcessUtilizationSample_t, processSamplesCount *C.uint, lastSeenTimeStamp C.ulonglong) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetProcessUtilization"); !ok {
+		return ret
+	}
 	if processSamplesCount == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -759,11 +762,40 @@ func nvmlDeviceGetProcessUtilization(nvmlDevice C.nvmlDevice_t, utilization *C.n
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
+
 	samples, ret := dev.GetProcessUtilization(uint64(lastSeenTimeStamp))
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
+
+	// Probe call (utilization==nil): report the count. INSUFFICIENT_SIZE when there
+	// are samples (go-nvml then allocates and re-calls); SUCCESS when there are none
+	// (yields a clean empty result rather than an error).
+	if utilization == nil {
+		*processSamplesCount = C.uint(len(samples))
+		if len(samples) == 0 {
+			return C.NVML_SUCCESS
+		}
+		return C.NVML_ERROR_INSUFFICIENT_SIZE
+	}
+
+	// Fill call: a buffer was provided. If it is too small, report the needed size.
+	if int(*processSamplesCount) < len(samples) {
+		*processSamplesCount = C.uint(len(samples))
+		return C.NVML_ERROR_INSUFFICIENT_SIZE
+	}
 	*processSamplesCount = C.uint(len(samples))
+	if len(samples) > 0 {
+		out := unsafe.Slice(utilization, len(samples))
+		for i, s := range samples {
+			out[i].pid = C.uint(s.Pid)
+			out[i].timeStamp = C.ulonglong(s.TimeStamp)
+			out[i].smUtil = C.uint(s.SmUtil)
+			out[i].memUtil = C.uint(s.MemUtil)
+			out[i].encUtil = C.uint(s.EncUtil)
+			out[i].decUtil = C.uint(s.DecUtil)
+		}
+	}
 	return C.NVML_SUCCESS
 }
 
