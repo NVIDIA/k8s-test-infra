@@ -24,9 +24,6 @@ DEMO_DIR="${REPO_ROOT}/docs/demo/topograph"
 : "${TOPOGRAPH_NS:=topograph}"
 # FORCE_RECREATE=true tears down an existing cluster of the same name first.
 : "${FORCE_RECREATE:=false}"
-# ENABLE_IB_REDIRECT=true also redirects topograph's ibnetdiscover exec into the
-# nvml-mock pods (best-effort; the mock fabric is switchless so it adds no tiers).
-: "${ENABLE_IB_REDIRECT:=true}"
 
 CLIQUE0_NODES=("${CLUSTER_NAME}-worker" "${CLUSTER_NAME}-worker2")
 CLIQUE1_NODES=("${CLUSTER_NAME}-worker3" "${CLUSTER_NAME}-worker4")
@@ -81,6 +78,12 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set "gpu.profile=${GPU_PROFILE}" \
   --wait --timeout 180s
 
+# Force a pod recycle: when an existing cluster is reused, the image tag is
+# unchanged (nvml-mock:topograph-demo), so `helm upgrade` leaves the DaemonSet
+# template untouched and Kubernetes keeps the previously loaded (possibly stale)
+# image. Restarting guarantees the freshly built image is the one running.
+info "Restarting nvml-mock DaemonSet to pick up the freshly built image"
+kubectl rollout restart daemonset/nvml-mock
 info "Waiting for nvml-mock DaemonSet rollout"
 kubectl rollout status daemonset/nvml-mock --timeout=120s
 
@@ -115,19 +118,14 @@ helm upgrade --install topograph topograph/topograph \
   --wait --timeout 180s
 
 ###############################################################################
-# Step 6 -- (Optional) redirect topograph's ibnetdiscover into nvml-mock pods
-###############################################################################
-if [[ "${ENABLE_IB_REDIRECT}" == "true" ]]; then
-  info "Redirecting topograph ibnetdiscover exec into nvml-mock DaemonSet"
-  DEPLOY=$(kubectl get deploy -n "${TOPOGRAPH_NS}" \
-    -l app.kubernetes.io/name=topograph -o jsonpath='{.items[0].metadata.name}')
-  kubectl set env "deployment/${DEPLOY}" -n "${TOPOGRAPH_NS}" \
-    NODE_DATA_BROKER_NAME=nvml-mock NODE_DATA_BROKER_NAMESPACE=default
-  kubectl rollout status "deployment/${DEPLOY}" -n "${TOPOGRAPH_NS}" --timeout=120s
-fi
-
-###############################################################################
-# Step 7 -- Wait for topograph to label the nodes
+# Step 6 -- Wait for topograph to label the nodes
+#
+# topograph's node-data-broker init container reads each node's NVLink clique
+# (`nvidia-smi -q` in the nvml-mock pod) and annotates the node with
+# `topograph.nvidia.com/cluster-id=<ClusterUUID>.<CliqueId>`. The topograph
+# server's k8s engine then turns that annotation into the accelerator label.
+# (The broker also attempts `ibnetdiscover`, but nvml-mock's fabric is
+# switchless, so it contributes no switch tiers -- see Step 8.)
 ###############################################################################
 info "Waiting for topograph to apply network.topology.nvidia.com/accelerator labels"
 DEADLINE=$(( $(date +%s) + 180 ))
@@ -147,7 +145,7 @@ done
 info "All 4 worker nodes carry an accelerator label"
 
 ###############################################################################
-# Step 8 -- Verify: accelerator labels partition nodes by clique
+# Step 7 -- Verify: accelerator labels partition nodes by clique
 ###############################################################################
 A0=$(accel_label "${CLIQUE0_NODES[0]}")
 A0b=$(accel_label "${CLIQUE0_NODES[1]}")
@@ -162,7 +160,7 @@ info "clique1: ${CLIQUE1_NODES[0]}=${A1} ${CLIQUE1_NODES[1]}=${A1b}"
 info "Accelerator labels correctly partition the two NVLink cliques"
 
 ###############################################################################
-# Step 9 -- Document the switchless limitation (leaf/spine/core absent)
+# Step 8 -- Document the switchless limitation (leaf/spine/core absent)
 ###############################################################################
 LEAF=$(kubectl get node "${CLIQUE0_NODES[0]}" \
   -o jsonpath='{.metadata.labels.network\.topology\.nvidia\.com/leaf}' 2>/dev/null || true)
@@ -183,7 +181,6 @@ info "  Cluster      : ${CLUSTER_NAME}"
 info "  Profile      : ${GPU_PROFILE}"
 info "  Cliques      : 0=[${CLIQUE0_NODES[*]}] 1=[${CLIQUE1_NODES[*]}]"
 info "  Accelerator  : clique0=${A0} clique1=${A1}"
-info "  IB redirect  : ${ENABLE_IB_REDIRECT}"
 info ""
 info "Inspect labels: kubectl get nodes -L network.topology.nvidia.com/accelerator"
 info "To tear down  : kind delete cluster --name ${CLUSTER_NAME}"
