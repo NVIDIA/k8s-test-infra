@@ -10,7 +10,7 @@
  *   1. open/read/write/close interception for /dev/infiniband/uverbs*
  *      so verbs ioctl/write commands are forwarded to the mock-ib daemon
  *      over the Unix socket at $MOCK_IB_PING_SOCKET (default
- *      /run/mock-ib.sock).
+ *      /var/lib/nvml-mock/run/mock-ib.sock).
  *
  *   2. socket(AF_NETLINK, *, NETLINK_RDMA) interception that forces
  *      libibverbs to skip the RDMA netlink fast-path and fall back to
@@ -47,7 +47,7 @@
  * process juggling ~700 real fds with a mock device open could collide and
  * mis-route a real read/write — out of scope for this test fixture. */
 #define MOCK_VERBS_FD_BASE 700
-#define MOCK_DEFAULT_SOCK "/run/mock-ib.sock"
+#define MOCK_DEFAULT_SOCK "/var/lib/nvml-mock/run/mock-ib.sock"
 
 /* NETLINK_RDMA was added in Linux 4.11. Define it locally as well so the
  * shim builds against older kernel UAPI headers (the value is fixed by the

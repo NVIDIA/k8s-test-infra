@@ -8,6 +8,8 @@
 # Required env vars: GPU_COUNT, DRIVER_VERSION, NODE_NAME
 set -e
 
+. /scripts/generate-cdi-specs.sh
+
 HOST=/host/var/lib/nvml-mock
 DRIVER_ROOT=$HOST/driver
 # Co-locate device nodes under $DRIVER_ROOT so the upstream DRA driver's
@@ -57,6 +59,12 @@ else
   ln -sf "libcuda.so.1" "$DRIVER_ROOT/usr/lib64/libcudart.so.12"
   ln -sf "libcudart.so.12" "$DRIVER_ROOT/usr/lib64/libcudart.so"
 fi
+
+# 2c. Copy IB/PCI LD_PRELOAD shims to host-visible driver root for CDI bind-mounts.
+mkdir -p "$DRIVER_ROOT/usr/local/lib"
+cp /usr/local/lib/libibmockumad.so.* /usr/local/lib/libibmockverbs.so.* \
+   /usr/local/lib/libibmocksys.so.* /usr/local/lib/libpcimocksys.so.* \
+   "$DRIVER_ROOT/usr/local/lib/" 2>/dev/null || true
 
 # 3. Create char device nodes
 #    Major 195 = nvidia, Major 510 = nvidia-uvm (standard NVIDIA major numbers)
@@ -127,6 +135,8 @@ if [ "$MOCK_FM_MODE" != "off" ]; then
 FM_MOUNT_EOF
 fi
 
+append_full_tier_to_nvidia_cdi "$CDI_DIR/nvidia.yaml"
+
 cat >> "$CDI_DIR/nvidia.yaml" << 'CDI_HOOKS_ENV'
   hooks:
     - hookName: createContainer
@@ -142,6 +152,8 @@ if [ "$MOCK_FM_MODE" != "off" ]; then
     - MOCK_FABRICMANAGER_STATE_DIR=$FM_STATE_DIR
 FM_ENV_EOF
 fi
+
+generate_full_tier_env_edits >> "$CDI_DIR/nvidia.yaml"
 
 cat >> "$CDI_DIR/nvidia.yaml" << 'CDI_DEVICES'
 devices:
@@ -168,6 +180,11 @@ for i in $(seq 0 $((GPU_COUNT - 1))); do
 done
 
 echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices)"
+
+write_nvml_mock_cdi_spec "$CDI_DIR" nvml 0 0
+write_nvml_mock_cdi_spec "$CDI_DIR" ib 1 0
+write_nvml_mock_cdi_spec "$CDI_DIR" full 1 1
+echo "Tiered CDI specs generated in $CDI_DIR"
 
 # 4. Install nvidia-smi
 #    The ELF binary has RPATH=$ORIGIN/../lib64 (set by patchelf in Dockerfile),

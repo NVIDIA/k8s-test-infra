@@ -73,7 +73,7 @@ typedef struct ib_user_mad {
 /* Legacy libibumad umad_size() on Debian bookworm (not sizeof struct ib_user_mad). */
 #define MOCK_UMAD_HDR_SZ 56
 #define MOCK_IB_MAD_SIZE 256
-#define MOCK_DEFAULT_SOCK "/run/mock-ib.sock"
+#define MOCK_DEFAULT_SOCK "/var/lib/nvml-mock/run/mock-ib.sock"
 
 static const char k_b64[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
