@@ -729,6 +729,9 @@ for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
+| `injector.enabled` | `true` | Deploy the mutating admission webhook that injects tiered CDI device annotations |
+| `injector.gpuOperator.operandComponents` | see `values.yaml` | GPU Operator component labels that receive automatic `gpu` tier injection |
+| `injector.certManager.enabled` | `false` | When `true`, skip chart-managed TLS Secret (bring your own `caBundle`) |
 
 ### GPU Profiles
 
@@ -1013,6 +1016,46 @@ kubectl exec ds/nvml-mock -- nvidia-smi \
 See [`pkg/gpu/mocknvml/README.md`](../../../pkg/gpu/mocknvml/README.md#failure-injection-optional)
 for the full engine-side reference, including how the modes interact with
 specific NVML calls.
+
+## Pod Injection Tiers
+
+The nvml-mock DaemonSet materializes tiered CDI specs on each node. When
+`injector.enabled=true` (default), a mutating admission webhook adds
+`cdi.k8s.io/*` annotations so workloads receive the mock environment without
+`kubectl exec` into the DaemonSet.
+
+| Tier | Trigger | nvidia-smi | IB tools | PCI sysfs | `/dev/nvidia*` |
+|------|---------|:----------:|:--------:|:---------:|:------------:|
+| `gpu` | Auto: GPU Operator operands + `nvidia.com/gpu` requests | yes | yes | yes | yes |
+| `full` | Opt-in annotation | yes | yes | yes | no |
+| `ib` | Opt-in annotation | yes | yes | no | no |
+| `nvml` | Opt-in annotation | yes | no | no | no |
+
+**Requirements:** containerd with CDI enabled, `runtimeClassName: nvidia`
+(nvidia-container-runtime), and the nvml-mock DaemonSet running on the node.
+
+**Opt-in discovery pod:**
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-discovery-check
+  annotations:
+    nvml-mock.nvidia.com/tier: ib
+spec:
+  restartPolicy: Never
+  containers:
+    - name: check
+      image: ghcr.io/nvidia/nvml-mock:latest
+      command: ["sh", "-c", "nvidia-smi -L && ibstat -l"]
+```
+
+The webhook sets `nvml-mock.nvidia.com/injected-tier` on mutated pods for
+debugging. Validate with `tests/e2e/validate-injection-tier.sh <tier>` on a
+Kind cluster with CDI + nvidia runtime configured.
+
+Disable the webhook when not needed: `--set injector.enabled=false`.
 
 ## How It Works
 

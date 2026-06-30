@@ -133,6 +133,34 @@ See the [Helm Chart README](../deployments/nvml-mock/helm/nvml-mock/README.md)
 for full deployment walkthrough including device plugin, DRA driver, and GPU
 Operator integration.
 
+## Option 4: Opt-In Pod Injection (Kind + CDI)
+
+On a Kind cluster with CDI and nvidia-container-runtime enabled (see
+`tests/e2e/kind-gpu-operator-config.yaml`), install nvml-mock with the injection
+webhook (enabled by default) and run a discovery pod:
+
+```bash
+helm install nvml-mock deployments/nvml-mock/helm/nvml-mock --wait
+kubectl apply -f - <<'EOF'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-discovery-check
+  annotations:
+    nvml-mock.nvidia.com/tier: nvml
+spec:
+  restartPolicy: Never
+  containers:
+    - name: check
+      image: ghcr.io/nvidia/nvml-mock:latest
+      command: ["sh", "-c", "nvidia-smi -L"]
+EOF
+kubectl wait --for=condition=Ready pod/gpu-discovery-check --timeout=120s
+kubectl logs gpu-discovery-check
+```
+
+Or run `tests/e2e/validate-injection-tier.sh nvml` after the cluster is up.
+
 ## Next Steps
 
 - [Configuration Reference](configuration.md) - Customize GPU properties
