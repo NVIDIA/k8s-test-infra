@@ -28,11 +28,8 @@ metadata:
     app.kubernetes.io/component: injector
 webhooks:
   - name: mutate.nvml-mock.nvidia.com
-    # failurePolicy Ignore lets GPU-requesting pods schedule when the webhook
-    # is unavailable. Annotated opt-in pods should use Fail in future via
-    # matchConditions once tier-specific admission policies are supported.
-    failurePolicy: Ignore
-    sideEffects: None
+    failurePolicy: {{ .Values.injector.webhook.failurePolicy }}
+    sideEffects: {{ .Values.injector.webhook.sideEffects }}
     admissionReviewVersions:
       - v1
     rules:

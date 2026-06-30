@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 suite: injector
 templates:
-  - templates/injector-deployment.yaml
-  - templates/injector-service.yaml
-  - templates/injector-admission.yaml
+  - templates/injector/deployment.yaml
+  - templates/injector/service.yaml
+  - templates/injector/admission.yaml
 tests:
   - it: should not render when injector disabled
     set:
@@ -15,7 +15,7 @@ tests:
           count: 0
 
   - it: should render injector Deployment when enabled
-    template: templates/injector-deployment.yaml
+    template: templates/injector/deployment.yaml
     asserts:
       - hasDocuments:
           count: 1
@@ -46,7 +46,7 @@ tests:
           value: /healthz
 
   - it: should render injector Service when enabled
-    template: templates/injector-service.yaml
+    template: templates/injector/service.yaml
     asserts:
       - hasDocuments:
           count: 1
@@ -60,7 +60,7 @@ tests:
           value: webhook
 
   - it: should render TLS Secret and webhook when certManager disabled
-    template: templates/injector-admission.yaml
+    template: templates/injector/admission.yaml
     asserts:
       - hasDocuments:
           count: 2
@@ -82,13 +82,35 @@ tests:
           path: webhooks[0].failurePolicy
           value: Ignore
         documentIndex: 1
+      - equal:
+          path: webhooks[0].sideEffects
+          value: None
+        documentIndex: 1
+
+  - it: should honor configurable webhook failurePolicy and sideEffects
+    set:
+      injector:
+        webhook:
+          failurePolicy: Fail
+          sideEffects: NoneOnDryRun
+    template: templates/injector/admission.yaml
+    documentSelector:
+      path: kind
+      value: MutatingWebhookConfiguration
+    asserts:
+      - equal:
+          path: webhooks[0].failurePolicy
+          value: Fail
+      - equal:
+          path: webhooks[0].sideEffects
+          value: NoneOnDryRun
 
   - it: should render webhook only when certManager is enabled
     set:
       injector:
         certManager:
           enabled: true
-    template: templates/injector-admission.yaml
+    template: templates/injector/admission.yaml
     asserts:
       - hasDocuments:
           count: 1

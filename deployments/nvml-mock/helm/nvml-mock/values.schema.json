@@ -231,6 +231,21 @@
             "enabled": { "type": "boolean" }
           }
         },
+        "webhook": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "MutatingWebhookConfiguration behavior.",
+          "properties": {
+            "failurePolicy": {
+              "type": "string",
+              "enum": ["Ignore", "Fail"]
+            },
+            "sideEffects": {
+              "type": "string",
+              "enum": ["None", "NoneOnDryRun", "Some", "Unknown"]
+            }
+          }
+        },
         "resources": { "type": "object" }
       }
     }

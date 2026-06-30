@@ -732,6 +732,8 @@ for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 | `injector.enabled` | `true` | Deploy the mutating admission webhook that injects tiered CDI device annotations |
 | `injector.gpuOperator.operandComponents` | see `values.yaml` | GPU Operator component labels that receive automatic `gpu` tier injection |
 | `injector.certManager.enabled` | `false` | When `true`, skip chart-managed TLS Secret (bring your own `caBundle`) |
+| `injector.webhook.failurePolicy` | `Ignore` | Mutating webhook `failurePolicy`: `Ignore` or `Fail` |
+| `injector.webhook.sideEffects` | `None` | Mutating webhook `sideEffects`: `None`, `NoneOnDryRun`, `Some`, or `Unknown` |
 
 ### GPU Profiles
 

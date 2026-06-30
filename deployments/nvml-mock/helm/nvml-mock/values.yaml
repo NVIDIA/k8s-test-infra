@@ -180,4 +180,10 @@ injector:
       - nvidia-operator-validator
   certManager:
     enabled: false
+  webhook:
+    # Ignore: pod creation proceeds if the webhook is unavailable (default).
+    # Fail: reject pod creation when the webhook cannot be reached.
+    failurePolicy: Ignore
+    # None: webhook does not have side effects in dry-run or normal requests.
+    sideEffects: None
   resources: {}
