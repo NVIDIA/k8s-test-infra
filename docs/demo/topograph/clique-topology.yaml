@@ -1,0 +1,22 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# nvml-mock Helm values fragment: declare one NVLink domain split into two
+# cliques. The mock NVML engine looks up each pod's NODE_NAME and overrides its
+# GPUs' clique_id / cluster_uuid accordingly, so `nvidia-smi -q` on each node
+# reports the clique below. Node names follow Kind's `<cluster>-worker[N]`
+# scheme for cluster name `nvml-mock-topograph`.
+topology:
+  enabled: true
+  domains:
+    - name: "demo-domain"
+      uuid: "00000000-0000-0000-0000-0000000000ab"
+      cliques:
+        - id: 0
+          nodes:
+            - nvml-mock-topograph-worker
+            - nvml-mock-topograph-worker2
+        - id: 1
+          nodes:
+            - nvml-mock-topograph-worker3
+            - nvml-mock-topograph-worker4

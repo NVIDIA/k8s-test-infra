@@ -1,0 +1,51 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Topograph chart values for the nvml-mock demo. Adapted from the chart's
+# values.k8s.ib-example.yaml. The node-data-broker init container is redirected
+# from the GPU Operator's device plugin to the nvml-mock DaemonSet, so topograph
+# reads each node's NVLink clique from nvml-mock's `nvidia-smi -q`.
+global:
+  provider:
+    name: infiniband-k8s
+    params:
+      # Use the topograph.nvidia.com/cluster-id annotation (written by the
+      # node-data-broker) as the accelerator-domain source. Must stay false:
+      # with the nvidia.com/gpu.clique label path the k8s engine would defer to
+      # that label and NOT write its own network.topology.nvidia.com/accelerator
+      # label, which is exactly what this demo verifies.
+      useGpuCliqueLabel: false
+  engine:
+    name: k8s
+
+# Auto-trigger topology generation for the mock GPU nodes. setup.sh in the
+# nvml-mock chart labels those nodes nvidia.com/gpu.present=true.
+node-observer:
+  topograph:
+    trigger:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+
+node-data-broker:
+  securityContext:
+    privileged: true
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
+  # Read NVLink clique IDs from the nvml-mock DaemonSet instead of the GPU
+  # Operator's device plugin. The init container execs `nvidia-smi -q` here.
+  initc:
+    extraArgs:
+      - gpu-operator-namespace=default
+      - device-plugin-daemonset=nvml-mock
+  # The broker's own pod (curl image) only hosts the init container above. The
+  # server's `ibnetdiscover` exec is redirected to the nvml-mock DaemonSet by
+  # run.sh (ENABLE_IB_REDIRECT). The mock fabric is switchless, so the switch
+  # tree is empty and only the accelerator (NVLink clique) label is produced.
+  volumeMounts:
+    - name: sys-class
+      mountPath: /sys/class
+  volumes:
+    - name: sys-class
+      hostPath:
+        path: /sys/class
+        type: Directory
