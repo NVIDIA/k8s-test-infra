@@ -194,6 +194,45 @@
           }
         }
       }
+    },
+    "injector": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Mutating admission webhook that injects tiered CDI device annotations.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "port": {
+          "type": "integer",
+          "description": "HTTPS port for the mutating webhook server.",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "healthPort": {
+          "type": "integer",
+          "description": "HTTP port for liveness/readiness probes.",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "gpuOperator": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "operandComponents": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "certManager": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        },
+        "resources": { "type": "object" }
+      }
     }
   }
 }

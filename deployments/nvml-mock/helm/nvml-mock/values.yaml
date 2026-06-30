@@ -164,3 +164,20 @@ integrations:
     # Labels applied to per-profile ConfigMaps for discovery
     profileLabels:
       run.ai/gpu-profile: "true"
+
+# Mutating admission webhook that injects tiered CDI device annotations into
+# GPU Operator operand pods, GPU-requesting workloads, and opt-in discovery
+# pods. Requires the nvml-mock DaemonSet to materialize host CDI specs.
+injector:
+  enabled: true
+  replicaCount: 1
+  port: 8443
+  healthPort: 8080
+  gpuOperator:
+    operandComponents:
+      - nvidia-device-plugin
+      - gpu-feature-discovery
+      - nvidia-operator-validator
+  certManager:
+    enabled: false
+  resources: {}

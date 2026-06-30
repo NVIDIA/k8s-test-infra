@@ -1,0 +1,67 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+{{- if .Values.injector.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nvml-mock.fullname" . }}-injector
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: injector
+spec:
+  replicas: {{ .Values.injector.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "nvml-mock.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: injector
+  template:
+    metadata:
+      labels:
+        {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: injector
+    spec:
+      serviceAccountName: {{ include "nvml-mock.fullname" . }}
+      containers:
+        - name: injector
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/nvml-mock-injector"]
+          env:
+            - name: GPU_OPERATOR_COMPONENTS
+              value: {{ join "," .Values.injector.gpuOperator.operandComponents | quote }}
+            - name: TLS_CERT
+              value: /etc/webhook/certs/tls.crt
+            - name: TLS_KEY
+              value: /etc/webhook/certs/tls.key
+            - name: PORT
+              value: {{ .Values.injector.port | quote }}
+            - name: HEALTH_PORT
+              value: {{ .Values.injector.healthPort | quote }}
+          ports:
+            - name: webhook
+              containerPort: {{ .Values.injector.port }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.injector.healthPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+          {{- with .Values.injector.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: {{ include "nvml-mock.fullname" . }}-injector-tls
+{{- end }}

@@ -1,0 +1,54 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+{{- if .Values.injector.enabled }}
+{{- $fullname := include "nvml-mock.fullname" . }}
+{{- $cn := printf "%s-injector.%s.svc" $fullname .Release.Namespace }}
+{{- $ca := genSelfSignedCert $cn nil (list $cn (printf "%s-injector" $fullname)) 3650 }}
+{{- if not .Values.injector.certManager.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $fullname }}-injector-tls
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: injector
+type: kubernetes.io/tls
+data:
+  ca.crt: {{ $ca.Cert | b64enc }}
+  tls.crt: {{ $ca.Cert | b64enc }}
+  tls.key: {{ $ca.Key | b64enc }}
+---
+{{- end }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ $fullname }}-injector
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: injector
+webhooks:
+  - name: mutate.nvml-mock.nvidia.com
+    # failurePolicy Ignore lets GPU-requesting pods schedule when the webhook
+    # is unavailable. Annotated opt-in pods should use Fail in future via
+    # matchConditions once tier-specific admission policies are supported.
+    failurePolicy: Ignore
+    sideEffects: None
+    admissionReviewVersions:
+      - v1
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+        scope: "*"
+    clientConfig:
+      service:
+        name: {{ $fullname }}-injector
+        namespace: {{ .Release.Namespace }}
+        path: /mutate
+        port: 443
+      {{- if not .Values.injector.certManager.enabled }}
+      caBundle: {{ $ca.Cert | b64enc }}
+      {{- end }}
+    namespaceSelector: {}
+{{- end }}

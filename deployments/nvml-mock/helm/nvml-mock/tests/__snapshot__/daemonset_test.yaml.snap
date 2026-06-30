@@ -47,6 +47,8 @@ should match snapshot with all overrides:
                   value: "1"
                 - name: MOCK_IB_PING_PORT
                   value: "18515"
+                - name: MOCK_IB_PING_SOCKET
+                  value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: POD_IP
                   valueFrom:
                     fieldRef:
@@ -168,6 +170,8 @@ should match snapshot with b200 profile:
                   value: "1"
                 - name: MOCK_IB_PING_PORT
                   value: "18515"
+                - name: MOCK_IB_PING_SOCKET
+                  value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: POD_IP
                   valueFrom:
                     fieldRef:
@@ -276,6 +280,8 @@ should match snapshot with default values:
                   value: "1"
                 - name: MOCK_IB_PING_PORT
                   value: "18515"
+                - name: MOCK_IB_PING_SOCKET
+                  value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: POD_IP
                   valueFrom:
                     fieldRef:

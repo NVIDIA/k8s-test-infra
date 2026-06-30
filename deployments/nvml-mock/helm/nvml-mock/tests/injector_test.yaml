@@ -1,0 +1,96 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+suite: injector
+templates:
+  - templates/injector-deployment.yaml
+  - templates/injector-service.yaml
+  - templates/injector-admission.yaml
+tests:
+  - it: should not render when injector disabled
+    set:
+      injector:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render injector Deployment when enabled
+    template: templates/injector-deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nvml-mock-injector
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: ["/usr/local/bin/nvml-mock-injector"]
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GPU_OPERATOR_COMPONENTS
+            value: "nvidia-device-plugin,gpu-feature-discovery,nvidia-operator-validator"
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-nvml-mock
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8443
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].containerPort
+          value: 8080
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /healthz
+
+  - it: should render injector Service when enabled
+    template: templates/injector-service.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.ports[0].port
+          value: 443
+      - equal:
+          path: spec.ports[0].targetPort
+          value: webhook
+
+  - it: should render TLS Secret and webhook when certManager disabled
+    template: templates/injector-admission.yaml
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: Secret
+        documentIndex: 0
+      - isKind:
+          of: MutatingWebhookConfiguration
+        documentIndex: 1
+      - equal:
+          path: webhooks[0].name
+          value: mutate.nvml-mock.nvidia.com
+        documentIndex: 1
+      - equal:
+          path: webhooks[0].clientConfig.service.name
+          value: RELEASE-NAME-nvml-mock-injector
+        documentIndex: 1
+      - equal:
+          path: webhooks[0].failurePolicy
+          value: Ignore
+        documentIndex: 1
+
+  - it: should render webhook only when certManager is enabled
+    set:
+      injector:
+        certManager:
+          enabled: true
+    template: templates/injector-admission.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: MutatingWebhookConfiguration
