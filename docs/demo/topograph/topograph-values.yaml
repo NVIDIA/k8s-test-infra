@@ -2,9 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Topograph chart values for the nvml-mock demo. Adapted from the chart's
-# values.k8s.ib-example.yaml. The node-data-broker init container is redirected
-# from the GPU Operator's device plugin to the nvml-mock DaemonSet, so topograph
-# reads each node's NVLink clique from nvml-mock's `nvidia-smi -q`.
+# values.k8s.ib-example.yaml.
+#
+# The node-data-broker (a per-node DaemonSet) is pointed at the nvml-mock
+# DaemonSet instead of the GPU Operator's device plugin: it execs
+# `nvidia-smi -q` inside the nvml-mock pod on its node, reads the NVLink clique
+# (ClusterUUID/CliqueId), and writes it onto the node as the
+# topograph.nvidia.com/cluster-id annotation. The k8s engine then turns that
+# annotation into the network.topology.nvidia.com/accelerator label.
 global:
   provider:
     name: infiniband-k8s
@@ -27,25 +32,16 @@ node-observer:
         nvidia.com/gpu.present: "true"
 
 node-data-broker:
-  securityContext:
-    privileged: true
+  # The broker runs as the main container (no init container in this version):
+  # it applies the cluster-id annotation on startup and re-applies it every
+  # refreshInterval. Pin it to the mock GPU nodes.
   nodeSelector:
     nvidia.com/gpu.present: "true"
-  # Read NVLink clique IDs from the nvml-mock DaemonSet instead of the GPU
-  # Operator's device plugin. The init container execs `nvidia-smi -q` here.
-  initc:
-    extraArgs:
-      - gpu-operator-namespace=default
-      - device-plugin-daemonset=nvml-mock
-  # The broker's own pod (curl image) only hosts the init container above. The
-  # server's `ibnetdiscover` exec is redirected to the nvml-mock DaemonSet by
-  # run.sh (ENABLE_IB_REDIRECT). The mock fabric is switchless, so the switch
-  # tree is empty and only the accelerator (NVLink clique) label is produced.
-  volumeMounts:
-    - name: sys-class
-      mountPath: /sys/class
-  volumes:
-    - name: sys-class
-      hostPath:
-        path: /sys/class
-        type: Directory
+  # Point the infiniband-k8s clique lookup at the nvml-mock DaemonSet in the
+  # default namespace. Each entry is passed to node-data-broker as --set=<entry>.
+  # The broker execs `nvidia-smi -q | grep "ClusterUUID\|CliqueId"` in the
+  # nvml-mock pod on its node (RBAC for pods/exec is granted by the chart when
+  # provider=infiniband-k8s and useGpuCliqueLabel=false).
+  extraArgs:
+    - gpu-operator-namespace=default
+    - device-plugin-daemonset=nvml-mock

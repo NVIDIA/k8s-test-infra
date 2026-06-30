@@ -70,7 +70,7 @@ start clean. Env knobs:
 | `GPU_PROFILE` | `gb200` | nvml-mock GPU profile. |
 | `TOPOGRAPH_NS` | `topograph` | Namespace for the topograph release. |
 | `TOPOGRAPH_GIT` | `https://github.com/NVIDIA/topograph.git` | topograph source repo. |
-| `TOPOGRAPH_REF` | `v0.4.0` | Git ref to build (kept in lockstep with the vendored chart). |
+| `TOPOGRAPH_REF` | `main` | Git ref to build; the chart vendored in that checkout is installed too. |
 | `TOPOGRAPH_SRC` | `$TMPDIR/topograph-src` | Local checkout dir (reused across runs). |
 | `TOPOGRAPH_IMAGE_REPO` / `TOPOGRAPH_IMAGE_TAG` | `topograph` / `source-demo` | Locally built image loaded into Kind. |
 | `FORCE_RECREATE` | `false` | Tear down an existing cluster first. |
@@ -97,12 +97,14 @@ hardware identity; topograph's **node-data-broker** harvests it; topograph's
 
 2. **topograph's node-data-broker reads it and annotates the node.** The
    broker runs as a DaemonSet pinned to GPU nodes
-   (`nodeSelector: nvidia.com/gpu.present=true`). Its init container is told
-   where to find the device-plugin DaemonSet
-   (`device-plugin-daemonset=nvml-mock`,
-   `gpu-operator-namespace=default`), execs `nvidia-smi -q` in the
-   co-located nvml-mock pod, and writes the discovered clique onto the node
-   as the annotation `topograph.nvidia.com/cluster-id=<ClusterUUID>.<CliqueId>`.
+   (`nodeSelector: nvidia.com/gpu.present=true`). It is told where to find the
+   device-plugin DaemonSet via `node-data-broker.extraArgs`
+   (`device-plugin-daemonset=nvml-mock`, `gpu-operator-namespace=default`),
+   execs `nvidia-smi -q | grep "ClusterUUID\|CliqueId"` in the co-located
+   nvml-mock pod, and writes the discovered clique onto the node as the
+   annotation `topograph.nvidia.com/cluster-id=<ClusterUUID>.<CliqueId>`. The
+   broker applies the annotation on startup (and re-applies it every
+   `refreshInterval`) before it begins serving `/healthz`.
    See [`topograph-values.yaml`](./topograph-values.yaml).
 
 3. **topograph's server labels the node.** The `node-observer` triggers a
@@ -175,7 +177,7 @@ POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
 kubectl exec "$POD" -- nvidia-smi -q | grep -E 'ClusterUUID|CliqueId'
 
 # 5. Build topograph from source and load the image into Kind.
-git clone --depth 1 --branch v0.4.0 \
+git clone --depth 1 --branch main \
     https://github.com/NVIDIA/topograph.git /tmp/topograph-src
 # topograph's Makefile defaults GOOS to the host OS; force linux for the image.
 make -C /tmp/topograph-src image-build \
