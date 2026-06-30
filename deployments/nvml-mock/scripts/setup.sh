@@ -28,6 +28,8 @@ echo "Setting up mock GPU environment: $GPU_COUNT GPUs, driver $DRIVER_VERSION"
 # 1. Create directory structure
 mkdir -p "$DRIVER_ROOT/usr/lib64" "$DRIVER_ROOT/usr/bin" "$DRIVER_ROOT/config"
 mkdir -p "$DEV_ROOT" "$CONFIG_DIR"
+MOCK_RUN_DIR="$HOST/run"
+mkdir -p "$MOCK_RUN_DIR"
 
 # 2. Copy mock NVML library + create symlinks
 #    The .so is built with a fixed version (Makefile LIB_VERSION); rename to match

@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-	socket := flag.String("socket", daemon.EnvOr(daemon.EnvMockIBPingSocket, "/run/mock-ib.sock"), "Unix socket path")
+	socket := flag.String("socket", daemon.EnvOr(daemon.EnvMockIBPingSocket, daemon.DefaultMockIBPingSocket), "Unix socket path")
 	ibRoot := flag.String("ib-root", daemon.EnvOr(daemon.EnvMockIBRoot, "/var/lib/nvml-mock/ib"), "MOCK_IB_ROOT sysfs tree")
 	tcpPort := flag.Int("port", daemon.EnvIntOr(daemon.EnvMockIBPingPort, 18515), "TCP fabric port (phase 2)")
 	fabric := flag.Bool("fabric", daemon.EnvBoolOr(daemon.EnvMockIBPingFabric, false), "enable TCP fabric relay (phase 2)")

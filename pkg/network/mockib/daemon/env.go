@@ -10,11 +10,16 @@ import (
 )
 
 const (
+	defaultMockIBPingSocket = "/var/lib/nvml-mock/run/mock-ib.sock"
+
 	EnvMockIBConfig          = "MOCK_IB_CONFIG"
 	EnvGPUCount              = "GPU_COUNT"
 	EnvNodeName              = "NODE_NAME"
 	EnvMockIBRoot            = "MOCK_IB_ROOT"
 	EnvMockIBPingSocket      = "MOCK_IB_PING_SOCKET"
+	// DefaultMockIBPingSocket is the host-backed Unix socket for mock-ib when
+	// MOCK_IB_PING_SOCKET is unset.
+	DefaultMockIBPingSocket = defaultMockIBPingSocket
 	EnvMockIBPingPort        = "MOCK_IB_PING_PORT"
 	EnvMockIBPingFabric      = "MOCK_IB_PING_FABRIC"
 	EnvMockIBPeers           = "MOCK_IB_PEERS"
