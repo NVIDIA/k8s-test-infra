@@ -43,11 +43,17 @@ The demo expects the following tools on `$PATH`:
 | `docker`  | 24+            | Daemon must be running. Multi-stage build uses the Go base image. |
 | `kind`    | v0.24+         | Creates the `nvml-mock-topograph` cluster (1 cp + 4 workers). |
 | `kubectl` | v1.30+         | Used for `exec`, `rollout`, `get`/`label` against in-cluster pods. |
-| `helm`    | v3.13+         | Installs the nvml-mock chart and the topograph chart `0.4.0`. |
+| `helm`    | v3.13+         | Installs the nvml-mock chart and the topograph chart (from source). |
+| `git`     | 2.x            | Clones the topograph source at `TOPOGRAPH_REF` for the build. |
+| `make`    | any            | Drives topograph's `image-build` target. |
 | `bash`    | 3.2+           | `run.sh` uses `set -euo pipefail` — no bash 4+ features. |
 
-Network access is required to pull the topograph Helm chart from
-`https://NVIDIA.github.io/topograph` and the topograph container images.
+**topograph is built from source, not pulled from the published chart/images.**
+`run.sh` clones [`NVIDIA/topograph`](https://github.com/NVIDIA/topograph) at a
+pinned ref, builds the single topograph image (server + node-observer +
+node-data-broker), loads it into Kind, and installs the chart vendored in that
+checkout. Network access is therefore required to clone the repo and to
+download Go modules / base images during the build (not to reach a Helm repo).
 
 ## Quick start
 
@@ -57,9 +63,17 @@ Network access is required to pull the topograph Helm chart from
 
 The script is idempotent. By default an existing `nvml-mock-topograph`
 cluster is reused; pass `FORCE_RECREATE=true ./run.sh` to tear it down and
-start clean. Other env knobs: `GPU_PROFILE` (default `gb200`),
-`TOPOGRAPH_CHART_VERSION` (default `0.4.0`), `TOPOGRAPH_NS` (default
-`topograph`).
+start clean. Env knobs:
+
+| Variable | Default | Purpose |
+|---       |---      |---      |
+| `GPU_PROFILE` | `gb200` | nvml-mock GPU profile. |
+| `TOPOGRAPH_NS` | `topograph` | Namespace for the topograph release. |
+| `TOPOGRAPH_GIT` | `https://github.com/NVIDIA/topograph.git` | topograph source repo. |
+| `TOPOGRAPH_REF` | `v0.4.0` | Git ref to build (kept in lockstep with the vendored chart). |
+| `TOPOGRAPH_SRC` | `$TMPDIR/topograph-src` | Local checkout dir (reused across runs). |
+| `TOPOGRAPH_IMAGE_REPO` / `TOPOGRAPH_IMAGE_TAG` | `topograph` / `source-demo` | Locally built image loaded into Kind. |
+| `FORCE_RECREATE` | `false` | Tear down an existing cluster first. |
 
 ## How it works
 
@@ -160,15 +174,28 @@ POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
     -o jsonpath='{.items[0].metadata.name}')
 kubectl exec "$POD" -- nvidia-smi -q | grep -E 'ClusterUUID|CliqueId'
 
-# 5. Install topograph (infiniband-k8s provider + k8s engine).
-helm repo add topograph https://NVIDIA.github.io/topograph
-helm repo update
-helm upgrade --install topograph topograph/topograph --version 0.4.0 \
+# 5. Build topograph from source and load the image into Kind.
+git clone --depth 1 --branch v0.4.0 \
+    https://github.com/NVIDIA/topograph.git /tmp/topograph-src
+# topograph's Makefile defaults GOOS to the host OS; force linux for the image.
+make -C /tmp/topograph-src image-build \
+    IMAGE_REPO=topograph IMAGE_TAG=source-demo \
+    GOOS=linux GOARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')"
+kind load docker-image topograph:source-demo --name nvml-mock-topograph
+
+# 6. Install topograph's in-repo chart, pointing every component at the
+#    locally built image (server, node-data-broker, node-observer share it).
+helm upgrade --install topograph /tmp/topograph-src/charts/topograph \
     --namespace topograph --create-namespace \
     -f docs/demo/topograph/topograph-values.yaml \
+    --set image.repository=topograph --set image.tag=source-demo \
+    --set node-data-broker.image.repository=topograph \
+    --set node-data-broker.image.tag=source-demo \
+    --set node-observer.image.repository=topograph \
+    --set node-observer.image.tag=source-demo \
     --wait --timeout 180s
 
-# 6. Inspect the result.
+# 7. Inspect the result.
 kubectl get nodes -L network.topology.nvidia.com/accelerator
 ```
 

@@ -19,11 +19,24 @@ CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 DEMO_DIR="${REPO_ROOT}/docs/demo/topograph"
 : "${GPU_PROFILE:=gb200}"
-: "${TOPOGRAPH_REPO:=https://NVIDIA.github.io/topograph}"
-: "${TOPOGRAPH_CHART_VERSION:=0.4.0}"
 : "${TOPOGRAPH_NS:=topograph}"
+# topograph is built from source (not pulled from the published chart/images):
+#   TOPOGRAPH_GIT  -- source repository to clone
+#   TOPOGRAPH_REF  -- git ref (tag/branch/sha) to build; kept in lockstep with
+#                     the vendored chart version
+#   TOPOGRAPH_SRC  -- local checkout dir (reused across runs)
+#   TOPOGRAPH_IMAGE_REPO/TAG -- locally built image, loaded into Kind
+: "${TOPOGRAPH_GIT:=https://github.com/NVIDIA/topograph.git}"
+: "${TOPOGRAPH_REF:=main}"
+: "${TOPOGRAPH_SRC:=${TMPDIR:-/tmp}/topograph-src}"
+: "${TOPOGRAPH_IMAGE_REPO:=topograph}"
+: "${TOPOGRAPH_IMAGE_TAG:=source-demo}"
 # FORCE_RECREATE=true tears down an existing cluster of the same name first.
 : "${FORCE_RECREATE:=false}"
+
+# Container target arch (the Kind nodes' arch); topograph's Makefile defaults
+# GOOS to the host OS (e.g. darwin), so we force linux for the image build.
+TOPOGRAPH_ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')"
 
 CLIQUE0_NODES=("${CLUSTER_NAME}-worker" "${CLUSTER_NAME}-worker2")
 CLIQUE1_NODES=("${CLUSTER_NAME}-worker3" "${CLUSTER_NAME}-worker4")
@@ -105,16 +118,42 @@ fi
 info "nvidia-smi -q reports fabric clique identity (ClusterUUID/CliqueId present)"
 
 ###############################################################################
-# Step 5 -- Install topograph (infiniband-k8s provider + k8s engine)
+# Step 5 -- Build topograph from source, then install its in-repo chart
+#
+# We build topograph (server + node-observer + node-data-broker all ship in a
+# single image) from a pinned source ref instead of pulling the published
+# image/chart, and install the chart vendored in that same checkout. The image
+# tag is overridden onto every component so the DaemonSets/Deployment use the
+# locally loaded build rather than ghcr.io.
 ###############################################################################
-info "Adding topograph Helm repo"
-helm repo add topograph "${TOPOGRAPH_REPO}" >/dev/null 2>&1 || true
-helm repo update >/dev/null
-info "Installing topograph chart ${TOPOGRAPH_CHART_VERSION}"
-helm upgrade --install topograph topograph/topograph \
-  --version "${TOPOGRAPH_CHART_VERSION}" \
+info "Fetching topograph source (${TOPOGRAPH_REF}) into ${TOPOGRAPH_SRC}"
+if [[ -d "${TOPOGRAPH_SRC}/.git" ]]; then
+  git -C "${TOPOGRAPH_SRC}" fetch --depth 1 origin "${TOPOGRAPH_REF}"
+  git -C "${TOPOGRAPH_SRC}" checkout -q FETCH_HEAD
+else
+  rm -rf "${TOPOGRAPH_SRC}"
+  git clone --depth 1 --branch "${TOPOGRAPH_REF}" "${TOPOGRAPH_GIT}" "${TOPOGRAPH_SRC}"
+fi
+
+info "Building topograph image ${TOPOGRAPH_IMAGE_REPO}:${TOPOGRAPH_IMAGE_TAG} (linux/${TOPOGRAPH_ARCH})"
+make -C "${TOPOGRAPH_SRC}" image-build \
+  IMAGE_REPO="${TOPOGRAPH_IMAGE_REPO}" \
+  IMAGE_TAG="${TOPOGRAPH_IMAGE_TAG}" \
+  GOOS=linux GOARCH="${TOPOGRAPH_ARCH}"
+
+info "Loading topograph image into Kind cluster"
+kind load docker-image "${TOPOGRAPH_IMAGE_REPO}:${TOPOGRAPH_IMAGE_TAG}" --name "${CLUSTER_NAME}"
+
+info "Installing topograph chart from source (${TOPOGRAPH_SRC}/charts/topograph)"
+helm upgrade --install topograph "${TOPOGRAPH_SRC}/charts/topograph" \
   --namespace "${TOPOGRAPH_NS}" --create-namespace \
   -f "${DEMO_DIR}/topograph-values.yaml" \
+  --set "image.repository=${TOPOGRAPH_IMAGE_REPO}" \
+  --set "image.tag=${TOPOGRAPH_IMAGE_TAG}" \
+  --set "node-data-broker.image.repository=${TOPOGRAPH_IMAGE_REPO}" \
+  --set "node-data-broker.image.tag=${TOPOGRAPH_IMAGE_TAG}" \
+  --set "node-observer.image.repository=${TOPOGRAPH_IMAGE_REPO}" \
+  --set "node-observer.image.tag=${TOPOGRAPH_IMAGE_TAG}" \
   --wait --timeout 180s
 
 ###############################################################################
@@ -179,6 +218,7 @@ echo
 info "Demo complete."
 info "  Cluster      : ${CLUSTER_NAME}"
 info "  Profile      : ${GPU_PROFILE}"
+info "  topograph    : ${TOPOGRAPH_REF} (built from source -> ${TOPOGRAPH_IMAGE_REPO}:${TOPOGRAPH_IMAGE_TAG})"
 info "  Cliques      : 0=[${CLIQUE0_NODES[*]}] 1=[${CLIQUE1_NODES[*]}]"
 info "  Accelerator  : clique0=${A0} clique1=${A1}"
 info ""
