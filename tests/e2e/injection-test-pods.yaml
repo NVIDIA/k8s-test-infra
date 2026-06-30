@@ -1,0 +1,68 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Pod manifests for tiered nvml-mock CDI injection E2E validation.
+# Applied by tests/e2e/validate-injection-tier.sh (one pod at a time).
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: injection-tier-nvml
+  annotations:
+    nvml-mock.nvidia.com/tier: nvml
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: ghcr.io/nvidia/nvml-mock:latest
+      command:
+        - sh
+        - -c
+        - |
+          nvidia-smi -L
+          test ! -e /dev/nvidia0
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: injection-tier-ib
+  annotations:
+    nvml-mock.nvidia.com/tier: ib
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: ghcr.io/nvidia/nvml-mock:latest
+      command:
+        - sh
+        - -c
+        - |
+          nvidia-smi -L
+          ibstat -l
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: injection-tier-full
+  annotations:
+    nvml-mock.nvidia.com/tier: full
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: ghcr.io/nvidia/nvml-mock:latest
+      command:
+        - sh
+        - -c
+        - |
+          set -e
+          nvidia-smi -L
+          # Resolve any rendered GPU BDF from the mock PCI tree.
+          for bdf in /sys/bus/pci/devices/*; do
+            if readlink "$bdf" 2>/dev/null | grep -q pci; then
+              echo "PASS: PCI readlink ok for $(basename "$bdf")"
+              exit 0
+            fi
+          done
+          echo "FAIL: no mock PCI device symlink found"
+          exit 1
