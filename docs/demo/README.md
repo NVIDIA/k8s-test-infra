@@ -62,3 +62,23 @@ cd compute-domain && ./run.sh
 
 See [compute-domain/README.md](compute-domain/README.md) for the
 walkthrough.
+
+### Topograph (network topology discovery)
+
+Dedicated cluster (`nvml-mock-topograph`, 1 control-plane + 4 workers) that
+runs [NVIDIA/topograph](https://github.com/NVIDIA/topograph) against an
+nvml-mock-simulated GB200 cluster. topograph's node-data-broker reads each
+node's NVLink clique from the mock `nvidia-smi -q` and the server applies
+`network.topology.nvidia.com/accelerator` labels that partition the workers
+into two NVLink accelerator domains — all without real GPUs, HCAs, or
+switches. (nvml-mock's fabric is switchless, so only the `accelerator` label
+is produced, not `leaf`/`spine`/`core`; see the README for the documented
+follow-up.)
+
+**Requirements:** Docker, Kind, Helm (+ network access to the topograph chart)
+
+```bash
+cd topograph && ./run.sh
+```
+
+See [topograph/README.md](topograph/README.md) for the walkthrough.
