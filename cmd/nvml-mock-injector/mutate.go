@@ -60,7 +60,7 @@ type jsonPatchOp struct {
 }
 
 func buildPodJSONPatch(orig, mut *corev1.Pod) ([]byte, error) {
-	ops := make([]jsonPatchOp, 0, len(mut.Annotations)+1)
+	var ops []jsonPatchOp
 
 	for key, value := range mut.Annotations {
 		if orig.Annotations[key] == value {
