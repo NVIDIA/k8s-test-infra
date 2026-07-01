@@ -1,0 +1,173 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+suite: injector
+templates:
+  - templates/injector-webhook.yaml
+  - templates/injector-deployment.yaml
+  - templates/injector-service.yaml
+  - templates/injector-rbac.yaml
+tests:
+  # ── Disabled: nothing renders ───────────────────────────────────────
+  - it: renders nothing when disabled
+    set:
+      injector.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ── Enabled: Secret + webhook render ────────────────────────────────
+  - it: renders the TLS Secret and the webhook when enabled
+    template: templates/injector-webhook.yaml
+    set:
+      injector.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: emits a kubernetes.io/tls Secret with the serving cert and CA
+    template: templates/injector-webhook.yaml
+    documentIndex: 0
+    set:
+      injector.enabled: true
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nvml-mock-injector-tls
+      - equal:
+          path: type
+          value: kubernetes.io/tls
+      - isNotEmpty:
+          path: data["tls.crt"]
+      - isNotEmpty:
+          path: data["tls.key"]
+      - isNotEmpty:
+          path: data["ca.crt"]
+
+  - it: webhook is fail-open, scoped to pod CREATE, and has a caBundle
+    template: templates/injector-webhook.yaml
+    documentIndex: 1
+    set:
+      injector.enabled: true
+    asserts:
+      - isKind:
+          of: MutatingWebhookConfiguration
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nvml-mock-injector
+      - equal:
+          path: webhooks[0].failurePolicy
+          value: Ignore
+      - equal:
+          path: webhooks[0].sideEffects
+          value: None
+      - contains:
+          path: webhooks[0].admissionReviewVersions
+          content: v1
+      - equal:
+          path: webhooks[0].clientConfig.service.name
+          value: RELEASE-NAME-nvml-mock-injector
+      - equal:
+          path: webhooks[0].clientConfig.service.path
+          value: /mutate
+      - equal:
+          path: webhooks[0].clientConfig.service.port
+          value: 443
+      - isNotEmpty:
+          path: webhooks[0].clientConfig.caBundle
+      - equal:
+          path: webhooks[0].rules[0].operations[0]
+          value: CREATE
+      - equal:
+          path: webhooks[0].rules[0].resources[0]
+          value: pods
+
+  - it: excludes the release namespace by default
+    template: templates/injector-webhook.yaml
+    documentIndex: 1
+    set:
+      injector.enabled: true
+    asserts:
+      - contains:
+          path: webhooks[0].namespaceSelector.matchExpressions[0].values
+          content: NAMESPACE
+
+  - it: flows excludedNamespaces into the namespaceSelector
+    template: templates/injector-webhook.yaml
+    documentIndex: 1
+    set:
+      injector.enabled: true
+      injector.excludedNamespaces:
+        - kube-system
+        - monitoring
+    asserts:
+      - equal:
+          path: webhooks[0].namespaceSelector.matchExpressions[0].operator
+          value: NotIn
+      - contains:
+          path: webhooks[0].namespaceSelector.matchExpressions[0].values
+          content: NAMESPACE
+      - contains:
+          path: webhooks[0].namespaceSelector.matchExpressions[0].values
+          content: kube-system
+      - contains:
+          path: webhooks[0].namespaceSelector.matchExpressions[0].values
+          content: monitoring
+
+  # ── Deployment ──────────────────────────────────────────────────────
+  - it: deployment points at the injector binary and mounts TLS
+    template: templates/injector-deployment.yaml
+    set:
+      injector.enabled: true
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nvml-mock-injector
+      - equal:
+          path: spec.template.spec.containers[0].command[0]
+          value: /usr/local/bin/nvml-mock-injector
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-nvml-mock-injector
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8443
+      - equal:
+          path: spec.template.spec.volumes[0].secret.secretName
+          value: RELEASE-NAME-nvml-mock-injector-tls
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /healthz
+
+  # ── Service ─────────────────────────────────────────────────────────
+  - it: service exposes 443 -> https target port
+    template: templates/injector-service.yaml
+    set:
+      injector.enabled: true
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nvml-mock-injector
+      - equal:
+          path: spec.ports[0].port
+          value: 443
+      - equal:
+          path: spec.ports[0].targetPort
+          value: https
+
+  # ── RBAC ────────────────────────────────────────────────────────────
+  - it: creates a bare ServiceAccount for the injector
+    template: templates/injector-rbac.yaml
+    set:
+      injector.enabled: true
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nvml-mock-injector

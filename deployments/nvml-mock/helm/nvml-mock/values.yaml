@@ -164,3 +164,32 @@ integrations:
     # Labels applied to per-profile ConfigMaps for discovery
     profileLabels:
       run.ai/gpu-profile: "true"
+
+# Node-wide mock GPU injection. When enabled, a mutating admission webhook
+# overlays the DaemonSet-materialized mock tree (/var/lib/nvml-mock) at
+# /opt/nvml-mock in EVERY pod and injects PATH/LD_LIBRARY_PATH/LD_PRELOAD/MOCK_*
+# env, so any pod can run nvidia-smi / ibnetdiscover without a GPU request.
+#
+# Safety: the webhook is fail-open (failurePolicy: Ignore) and excludes its own
+# release namespace. Pods opt out with annotation
+# `nvml-mock.nvidia.com/inject: "false"`; pods opt into privileged /dev/nvidia*
+# device nodes with `nvml-mock.nvidia.com/devices: "true"`.
+injector:
+  enabled: true
+  replicaCount: 1
+  port: 8443
+  overlay:
+    hostPath: /var/lib/nvml-mock
+    mountPath: /opt/nvml-mock
+    ib: true
+    pci: true
+  optOutAnnotation: nvml-mock.nvidia.com/inject
+  devicesAnnotation: nvml-mock.nvidia.com/devices
+  # Namespaces never mutated (release namespace is always excluded). Add e.g.
+  # kube-system here if control-plane pods misbehave with the overlay.
+  excludedNamespaces: []
+  # Fail-open is mandatory in practice: a cluster-wide Fail policy on all pods
+  # would make the API server unable to schedule anything (including this
+  # webhook) during an outage. Left configurable but keep this "Ignore".
+  failurePolicy: Ignore
+  resources: {}

@@ -1,0 +1,16 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+{{- if .Values.injector.enabled }}
+{{- $fullname := include "nvml-mock.fullname" . }}
+{{- /*
+The webhook needs no Kubernetes API permissions at runtime (it only serves
+AdmissionReview HTTP), so a bare ServiceAccount suffices — no ClusterRole.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fullname }}-injector
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: injector
+{{- end }}

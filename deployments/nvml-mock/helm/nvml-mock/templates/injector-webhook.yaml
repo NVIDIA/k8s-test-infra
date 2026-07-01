@@ -1,0 +1,71 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+{{- if .Values.injector.enabled }}
+{{- /*
+Generate a self-signed CA + serving cert ONCE and emit BOTH the TLS Secret AND
+the MutatingWebhookConfiguration from the SAME $ca/$cert pair. Helm renders each
+template file independently, so keeping the Secret and the webhook caBundle in
+one file is what guarantees the served cert and the caBundle always match — do
+not move cert generation into a second template (that regenerates a different CA
+and breaks webhook TLS).
+*/}}
+{{- $fullname := include "nvml-mock.fullname" . }}
+{{- $svc := printf "%s-injector" $fullname }}
+{{- $cn := printf "%s.%s.svc" $svc .Release.Namespace }}
+{{- $altNames := list $cn (printf "%s.%s.svc.cluster.local" $svc .Release.Namespace) }}
+{{- $ca := genCA (printf "%s-ca" $svc) 3650 }}
+{{- $cert := genSignedCert $cn nil $altNames 3650 $ca }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $svc }}-tls
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: injector
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $cert.Cert | b64enc }}
+  tls.key: {{ $cert.Key | b64enc }}
+  ca.crt: {{ $ca.Cert | b64enc }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: injector
+webhooks:
+  - name: inject.nvml-mock.nvidia.com
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    reinvocationPolicy: Never
+    # Fail-open is mandatory: a cluster-wide Fail policy on all pods would make
+    # the API server unable to schedule anything (including this webhook) during
+    # an outage.
+    failurePolicy: {{ .Values.injector.failurePolicy | default "Ignore" }}
+    clientConfig:
+      service:
+        name: {{ $svc }}
+        namespace: {{ .Release.Namespace }}
+        path: /mutate
+        port: 443
+      caBundle: {{ $ca.Cert | b64enc }}
+    namespaceSelector:
+      matchExpressions:
+        # Never mutate the injector's own namespace (bootstrap deadlock), plus
+        # any operator-configured exclusions.
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - {{ .Release.Namespace }}
+            {{- range .Values.injector.excludedNamespaces }}
+            - {{ . }}
+            {{- end }}
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+        scope: "Namespaced"
+{{- end }}
