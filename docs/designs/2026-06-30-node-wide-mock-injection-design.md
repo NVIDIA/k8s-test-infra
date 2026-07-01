@@ -1,8 +1,13 @@
 # Node-Wide Mock GPU Injection Design
 
 **Date:** 2026-06-30  
-**Status:** Approved  
+**Status:** Superseded by [`2026-07-01-node-wide-mock-injection-every-pod-design.md`](2026-07-01-node-wide-mock-injection-every-pod-design.md)  
 **Authors:** Design session (brainstorming)
+
+> **Superseded (2026-07-01):** The requirement changed to injecting into *every*
+> pod using a pure-Kubernetes webhook that rewrites the pod spec directly (no
+> containerd `enable_cdi`, no `runtimeClassName`). This tiered, opt-in, CDI-based
+> design is retained for historical context only. See the successor design.
 
 ## Summary
 
