@@ -201,10 +201,19 @@ injector:
   timeoutSeconds: 5
   # Container security context for the injector Deployment. The injector only
   # reads TLS from /tls and serves HTTP, writing nothing to the rootfs.
+  # The shared nvml-mock image runs as root (no USER), so runAsNonRoot alone
+  # would be rejected by the kubelet ("container has runAsNonRoot and image
+  # will run as root"). Pin an explicit non-root UID/GID: the injector is a
+  # self-contained Go binary that only needs to read the world-readable TLS
+  # secret and listen on a high port, so any unprivileged uid works.
   securityContext:
     runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
     allowPrivilegeEscalation: false
     readOnlyRootFilesystem: true
+    seccompProfile:
+      type: RuntimeDefault
     capabilities:
       drop:
         - ALL

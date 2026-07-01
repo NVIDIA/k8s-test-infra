@@ -7,10 +7,9 @@
 # nvml-mock pods (the only legitimate clients). Egress is left unrestricted
 # so DNS-based peer discovery and registration keep working.
 #
-# NOTE: NetworkPolicy is only enforced by CNIs that implement it (Calico,
-# Cilium, ...). Kind's default CNI (kindnet) ignores NetworkPolicy, so this
-# is a no-op in the typical Kind fixture and matters on policy-enforcing
-# clusters. Harmless either way.
+# NOTE: NetworkPolicy is enforced by CNIs that implement it (Calico, Cilium,
+# and recent kindnet). On CNIs that ignore it this is a no-op; either way it is
+# scoped to the mock-ib fabric DaemonSet pods only.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -21,6 +20,16 @@ spec:
   podSelector:
     matchLabels:
       {{- include "nvml-mock.selectorLabels" . | nindent 6 }}
+    # Exclude the injector Deployment: it shares the name/instance selector
+    # labels but is NOT a fabric pod. Selecting it here would restrict its
+    # ingress to the ibping port only, silently blocking the admission
+    # webhook's :8443 endpoint (the API server call fails open, so no pod ever
+    # gets injected). The fabric DaemonSet pods carry no component label.
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values:
+          - injector
   policyTypes:
     - Ingress
   ingress:
