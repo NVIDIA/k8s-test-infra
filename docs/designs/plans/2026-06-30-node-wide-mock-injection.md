@@ -1,5 +1,11 @@
 # Node-Wide Mock GPU Injection Implementation Plan
 
+> **Status: Superseded (2026-07-01).** This plan implements the tiered, opt-in,
+> CDI-based design that has been superseded by the "every pod, webhook-only"
+> design at [`../2026-07-01-node-wide-mock-injection-every-pod-design.md`](../2026-07-01-node-wide-mock-injection-every-pod-design.md).
+> A new implementation plan will be written for the successor design. Do not
+> execute this plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Extend nvml-mock so GPU Operator workloads, GPU-requesting pods, and opt-in discovery pods receive tiered mock GPU/IB/PCI environments via CDI + a mutating admission webhook.
