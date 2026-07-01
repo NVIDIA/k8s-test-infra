@@ -698,6 +698,77 @@ See [`pkg/network/mockib/README.md`](../../../../pkg/network/mockib/README.md#mo
 for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 `MOCK_IB_DEBUG_SMP`, …) and architecture details.
 
+## Node-Wide Injection (Every Pod)
+
+By default (`injector.enabled: true`) the chart also deploys a mutating admission
+webhook, `nvml-mock-injector`, that makes the mock GPU environment **ambient on
+every node**. On each pod `CREATE` it overlays the DaemonSet-materialized host
+tree (`/var/lib/nvml-mock`) read-only at `/opt/nvml-mock` and injects
+`PATH` / `LD_LIBRARY_PATH` / `LD_PRELOAD` / `MOCK_*` env into every container
+(and init container). The result: an arbitrary pod — no GPU request, no
+`runtimeClassName`, no annotations — can run `nvidia-smi`, `ibstat`,
+`ibnetdiscover`, and friends. No containerd/CDI changes are involved.
+
+Mutated pods are stamped with `nvml-mock.nvidia.com/injected: "true"` for
+auditing, and the injection is idempotent (a pod that already carries the
+`nvml-mock-overlay` volume is left untouched).
+
+```bash
+# Injection is on by default; this is the explicit form.
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --set injector.enabled=true \
+  --wait --timeout 120s
+
+# A plain ubuntu pod with no GPU request can now see the mock GPUs.
+kubectl run ambient --image=ubuntu:22.04 --restart=Never -it --rm -- nvidia-smi -L
+```
+
+### Opt out (per pod)
+
+Set the opt-out annotation on a pod to skip mutation entirely:
+
+```yaml
+metadata:
+  annotations:
+    nvml-mock.nvidia.com/inject: "false"
+```
+
+Opting out is required for images whose C library is incompatible with the
+staged tools. The IB discovery tools staged onto the host inherit **this image's
+glibc** (Debian bookworm, glibc 2.36); they run only in pods whose own loader is
+glibc ≥ 2.36. musl-based (Alpine), distroless, scratch, or older-glibc images
+should opt out so the overlay does not break their processes.
+
+### Device opt-in (per pod)
+
+Ambient injection provides the userspace libraries and tools but **not**
+`/dev/nvidia*` device nodes. Pods that need the mock character devices set the
+device opt-in annotation, which makes the injected containers `privileged` and
+bind-mounts the host device nodes (`nvidiactl`, `nvidia-uvm`,
+`nvidia-uvm-tools`, and `nvidia0`..`nvidia{N-1}`):
+
+```yaml
+metadata:
+  annotations:
+    nvml-mock.nvidia.com/devices: "true"
+```
+
+### Safety defaults
+
+- **Fail-open.** The webhook uses `failurePolicy: Ignore` (`injector.failurePolicy`)
+  so that an injector outage never blocks pod scheduling cluster-wide. A short
+  `injector.timeoutSeconds` (default `5`) bounds the API-server latency added on
+  every pod `CREATE` before fail-open takes over.
+- **Namespace exclusions.** The injector's own release namespace is *always*
+  excluded (avoids a bootstrap deadlock). `injector.excludedNamespaces` lists
+  additional namespaces to never mutate; it defaults to `[kube-system]` so the
+  overlay/`LD_PRELOAD` is never injected into control-plane or static pods.
+  Extend the list to protect other sensitive namespaces.
+
+mock-ib and the node-wide overlay are a **test fixture** — do not enable the
+injector on a shared or production cluster. Set `--set injector.enabled=false`
+to deploy the DaemonSet-only (consumer opt-in) behaviour.
+
 ## Configuration
 
 ### Values
@@ -729,6 +800,20 @@ for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
+| `injector.enabled` | `true` | Deploy the node-wide mutating admission webhook that overlays `/opt/nvml-mock` and injects `PATH`/`LD_LIBRARY_PATH`/`LD_PRELOAD`/`MOCK_*` env into every pod. See [Node-Wide Injection](#node-wide-injection-every-pod) |
+| `injector.replicaCount` | `1` | Number of injector webhook replicas |
+| `injector.port` | `8443` | HTTPS port the injector serves `/mutate` and `/healthz` on |
+| `injector.overlay.hostPath` | `/var/lib/nvml-mock` | Host source directory overlaid into pods |
+| `injector.overlay.mountPath` | `/opt/nvml-mock` | In-pod path the host tree is mounted at (read-only) |
+| `injector.overlay.ib` | `true` | Inject the InfiniBand shims + `MOCK_IB*` env |
+| `injector.overlay.pci` | `true` | Inject the PCI sysfs shim + `MOCK_PCI_ROOT` env |
+| `injector.optOutAnnotation` | `nvml-mock.nvidia.com/inject` | Pod annotation; value `"false"` skips injection for that pod |
+| `injector.devicesAnnotation` | `nvml-mock.nvidia.com/devices` | Pod annotation; value `"true"` adds `privileged` + `/dev/nvidia*` device nodes |
+| `injector.excludedNamespaces` | `[kube-system]` | Namespaces never mutated (the release namespace is always excluded on top of this list) |
+| `injector.failurePolicy` | `Ignore` | Webhook `failurePolicy`; keep `Ignore` (fail-open) so an injector outage never blocks scheduling |
+| `injector.timeoutSeconds` | `5` | Webhook timeout in seconds (bounds added API-server latency per pod `CREATE`) |
+| `injector.securityContext` | `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`, `capabilities.drop: [ALL]` | Container security context for the injector Deployment (locked down: the injector only reads TLS from `/tls` and serves HTTP) |
+| `injector.resources` | `{}` | Resource requests/limits for the injector Deployment |
 
 ### GPU Profiles
 

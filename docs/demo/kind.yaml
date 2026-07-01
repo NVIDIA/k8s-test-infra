@@ -7,6 +7,9 @@ nodes:
       run.ai/simulated-gpu-node-pool: integration
   - role: worker
     labels:
+      run.ai/simulated-gpu-node-pool: integration
+  - role: worker
+    labels:
       run.ai/simulated-gpu-node-pool: scale
   - role: worker
     labels:

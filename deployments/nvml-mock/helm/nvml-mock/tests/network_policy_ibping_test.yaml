@@ -16,6 +16,18 @@ tests:
       - equal:
           path: spec.podSelector.matchLabels["app.kubernetes.io/name"]
           value: nvml-mock
+      # The policy must NOT select the injector pod (it shares name/instance
+      # labels): otherwise its ingress is restricted to the ibping port and the
+      # admission webhook's :8443 endpoint is silently blocked.
+      - equal:
+          path: spec.podSelector.matchExpressions[0].key
+          value: app.kubernetes.io/component
+      - equal:
+          path: spec.podSelector.matchExpressions[0].operator
+          value: NotIn
+      - contains:
+          path: spec.podSelector.matchExpressions[0].values
+          content: injector
       - contains:
           path: spec.policyTypes
           content: Ingress

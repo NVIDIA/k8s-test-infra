@@ -28,9 +28,11 @@ COPY cmd/render-pci-sysfs/ cmd/render-pci-sysfs/
 COPY cmd/fake-imex/ cmd/fake-imex/
 COPY cmd/fake-fabricmanager/ cmd/fake-fabricmanager/
 COPY cmd/check-fabric/ cmd/check-fabric/
+COPY cmd/nvml-mock-injector/ cmd/nvml-mock-injector/
 RUN cd pkg/gpu/mocknvml && make clean && make
 RUN cd pkg/gpu/mockcuda && make clean && make
 RUN cd pkg/network/mockib && make clean && make
+RUN cd pkg/system/mockpcisysfs && make clean && make
 RUN mkdir -p /out \
     && go build -mod=vendor -o /out/mock-ib ./cmd/mock-ib \
     && go build -mod=vendor -o /out/render-pci-sysfs ./cmd/render-pci-sysfs \
@@ -38,7 +40,8 @@ RUN mkdir -p /out \
     && go build -mod=vendor -o /out/nvidia-imex-ctl ./cmd/fake-imex/ctl \
     && go build -mod=vendor -o /out/nv-fabricmanager     ./cmd/fake-fabricmanager/daemon \
     && go build -mod=vendor -o /out/nv-fabricmanager-ctl ./cmd/fake-fabricmanager/ctl \
-    && go build -mod=vendor -o /out/check-fabric    ./cmd/check-fabric
+    && go build -mod=vendor -o /out/check-fabric    ./cmd/check-fabric \
+    && go build -mod=vendor -o /out/nvml-mock-injector ./cmd/nvml-mock-injector
 
 FROM debian:bookworm-slim
 ARG KUBECTL_VERSION=v1.36.1
@@ -48,6 +51,7 @@ COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmocksys.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmockumad.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmockverbs.so.* /usr/local/lib/
+COPY --from=builder /src/pkg/system/mockpcisysfs/libpcimocksys.so.* /usr/local/lib/
 COPY --from=builder /out/mock-ib /usr/local/bin/mock-ib
 COPY --from=builder /out/render-pci-sysfs /usr/local/bin/render-pci-sysfs
 # Fake IMEX binaries used for ComputeDomain simulation on KIND. Installed
@@ -67,6 +71,11 @@ COPY --from=builder /out/nv-fabricmanager-ctl /usr/bin/nv-fabricmanager-ctl
 # to confirm the topology overlay assigned the expected clique to each
 # node. See NVIDIA/k8s-test-infra#304.
 COPY --from=builder /out/check-fabric    /usr/local/bin/check-fabric
+# nvml-mock-injector: mutating admission webhook that overlays the mock GPU
+# environment (/opt/nvml-mock overlay + PATH/LD_PRELOAD/MOCK_* env) onto every
+# pod, so any pod can run nvidia-smi / ibnetdiscover without a GPU request.
+# Deployed by the Helm chart with failurePolicy: Ignore (fail-open).
+COPY --from=builder /out/nvml-mock-injector /usr/local/bin/nvml-mock-injector
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \

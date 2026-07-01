@@ -25,7 +25,7 @@ case "$PROFILE" in
   l40s|t4) EXPECTED=0 ;;
 esac
 
-MOCK_IBPING_SOCKET="${MOCK_IB_PING_SOCKET:-/run/mock-ib.sock}"
+MOCK_IBPING_SOCKET="${MOCK_IB_PING_SOCKET:-/var/lib/nvml-mock/run/mock-ib.sock}"
 MAX_RETRIES="${SMINFO_E2E_RETRIES:-3}"
 RETRY_SLEEP="${SMINFO_E2E_RETRY_SLEEP:-5}"
 

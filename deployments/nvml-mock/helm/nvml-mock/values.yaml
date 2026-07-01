@@ -164,3 +164,57 @@ integrations:
     # Labels applied to per-profile ConfigMaps for discovery
     profileLabels:
       run.ai/gpu-profile: "true"
+
+# Node-wide mock GPU injection. When enabled, a mutating admission webhook
+# overlays the DaemonSet-materialized mock tree (/var/lib/nvml-mock) at
+# /opt/nvml-mock in EVERY pod and injects PATH/LD_LIBRARY_PATH/LD_PRELOAD/MOCK_*
+# env, so any pod can run nvidia-smi / ibnetdiscover without a GPU request.
+#
+# Safety: the webhook is fail-open (failurePolicy: Ignore) and excludes its own
+# release namespace. Pods opt out with annotation
+# `nvml-mock.nvidia.com/inject: "false"`; pods opt into privileged /dev/nvidia*
+# device nodes with `nvml-mock.nvidia.com/devices: "true"`.
+injector:
+  enabled: true
+  replicaCount: 1
+  port: 8443
+  overlay:
+    hostPath: /var/lib/nvml-mock
+    mountPath: /opt/nvml-mock
+    ib: true
+    pci: true
+  optOutAnnotation: nvml-mock.nvidia.com/inject
+  devicesAnnotation: nvml-mock.nvidia.com/devices
+  # Namespaces never mutated (release namespace is always excluded). Add e.g.
+  # kube-system here if control-plane pods misbehave with the overlay.
+  # kube-system is excluded by default so the overlay/LD_PRELOAD is never
+  # injected into control-plane or static pods (which could destabilize the
+  # node); keep it a list so users can extend it.
+  excludedNamespaces:
+    - kube-system
+  # Fail-open is mandatory in practice: a cluster-wide Fail policy on all pods
+  # would make the API server unable to schedule anything (including this
+  # webhook) during an outage. Left configurable but keep this "Ignore".
+  failurePolicy: Ignore
+  # Webhook timeout (seconds). The webhook fires on every pod CREATE, so a low
+  # timeout bounds the API-server latency added before fail-open kicks in.
+  timeoutSeconds: 5
+  # Container security context for the injector Deployment. The injector only
+  # reads TLS from /tls and serves HTTP, writing nothing to the rootfs.
+  # The shared nvml-mock image runs as root (no USER), so runAsNonRoot alone
+  # would be rejected by the kubelet ("container has runAsNonRoot and image
+  # will run as root"). Pin an explicit non-root UID/GID: the injector is a
+  # self-contained Go binary that only needs to read the world-readable TLS
+  # secret and listen on a high port, so any unprivileged uid works.
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    seccompProfile:
+      type: RuntimeDefault
+    capabilities:
+      drop:
+        - ALL
+  resources: {}

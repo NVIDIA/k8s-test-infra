@@ -1,0 +1,47 @@
+# Ambient: plain image, NO annotations, NO GPU request. Must still run
+# nvidia-smi and ibnetdiscover thanks to the injector overlay.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: injection-ambient
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: ubuntu:22.04
+      command:
+        - sh
+        - -c
+        - |
+          set -e
+          nvidia-smi -L
+          ibstat -l
+          ibnetdiscover || true   # cross-pod fabric may be empty on single node
+---
+# Opt-out: must NOT receive the overlay.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: injection-optout
+  annotations:
+    nvml-mock.nvidia.com/inject: "false"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: ubuntu:22.04
+      command: ["sh", "-c", "test ! -e /opt/nvml-mock && echo NO-OVERLAY"]
+---
+# Device opt-in: privileged + /dev/nvidia0 present.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: injection-devices
+  annotations:
+    nvml-mock.nvidia.com/devices: "true"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: test
+      image: ubuntu:22.04
+      command: ["sh", "-c", "nvidia-smi -L && test -e /dev/nvidia0 && echo HAVE-DEV"]

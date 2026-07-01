@@ -62,3 +62,21 @@ cd compute-domain && ./run.sh
 
 See [compute-domain/README.md](compute-domain/README.md) for the
 walkthrough.
+
+### Node-wide injection
+
+Dedicated cluster (`nvml-mock-injection`) that installs nvml-mock with the
+node-wide mutating injector enabled, then runs an **ordinary `gpu-agent` pod**
+(no GPU request, no mock mounts, stock `debian` image) that the webhook turns
+into a working mock GPU node at admission time. The pod runs `nvidia-smi`
+successfully and reports its node's NVLink clique -- proving injection alone is
+enough to make any pod believe a GPU is present.
+
+**Requirements:** Docker, Kind, Helm
+
+```bash
+cd node-wide-injection && ./run.sh
+```
+
+See [node-wide-injection/README.md](node-wide-injection/README.md) for the
+walkthrough.

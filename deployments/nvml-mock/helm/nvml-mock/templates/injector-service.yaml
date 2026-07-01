@@ -1,0 +1,20 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+{{- if .Values.injector.enabled }}
+{{- $fullname := include "nvml-mock.fullname" . }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-injector
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: injector
+spec:
+  selector:
+    {{- include "nvml-mock.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: injector
+  ports:
+    - name: https
+      port: 443
+      targetPort: https
+{{- end }}

@@ -10,6 +10,12 @@ pkg/network/*/libibmock*
 /check-fabric
 /mock-ib
 
+# Local Go build/module caches (workspace-local)
+.gocache/
+.gomodcache/
+.gotmp/
+.gopath/
+
 # Agentic working artifacts
 .agents/
 AGENTS.md

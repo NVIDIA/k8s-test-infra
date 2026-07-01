@@ -1,0 +1,92 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+{{- if .Values.injector.enabled }}
+{{- $fullname := include "nvml-mock.fullname" . }}
+{{- /*
+Roll the injector pods whenever the serving cert changes. The cert lives in the
+{{ $fullname }}-injector-tls Secret (owned by injector-webhook.yaml). Reading it
+back via lookup and hashing tls.crt means: on a real cert change the checksum
+shifts and the Deployment rolls (picking up the new cert); on upgrades where the
+cert is reused (the common case) the checksum is stable and pods do not churn.
+lookup returns an empty map during `helm template`/`helm unittest`, so we fall
+back to a stable placeholder — the annotation always renders offline.
+*/}}
+{{- $secretName := printf "%s-injector-tls" $fullname }}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName }}
+{{- $tlsCrt := index ((default (dict) $existing).data | default (dict)) "tls.crt" | default "" }}
+{{- $tlsChecksum := ternary (sha256sum $tlsCrt) "unprovisioned" (ne $tlsCrt "") }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-injector
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: injector
+spec:
+  replicas: {{ .Values.injector.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "nvml-mock.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: injector
+  template:
+    metadata:
+      labels:
+        {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: injector
+      annotations:
+        # Roll the injector on any serving-cert change (see top-of-file note).
+        checksum/tls: {{ $tlsChecksum }}
+    spec:
+      serviceAccountName: {{ $fullname }}-injector
+      containers:
+        - name: injector
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/nvml-mock-injector"]
+          {{- with .Values.injector.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.injector.port }}
+          env:
+            - name: LISTEN_ADDR
+              value: ":{{ .Values.injector.port }}"
+            - name: OVERLAY_HOST_PATH
+              value: {{ .Values.injector.overlay.hostPath | quote }}
+            - name: OVERLAY_MOUNT_PATH
+              value: {{ .Values.injector.overlay.mountPath | quote }}
+            - name: OVERLAY_IB
+              value: {{ .Values.injector.overlay.ib | quote }}
+            - name: OVERLAY_PCI
+              value: {{ .Values.injector.overlay.pci | quote }}
+            - name: OPT_OUT_ANNOTATION
+              value: {{ .Values.injector.optOutAnnotation | quote }}
+            - name: DEVICES_ANNOTATION
+              value: {{ .Values.injector.devicesAnnotation | quote }}
+            - name: GPU_COUNT
+              value: "{{ include "nvml-mock.gpuCount" . }}"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+          volumeMounts:
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+          {{- with .Values.injector.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ $fullname }}-injector-tls
+{{- end }}

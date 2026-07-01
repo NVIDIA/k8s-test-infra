@@ -1,0 +1,30 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# nvml-mock Helm values fragment: declare one NVLink domain split into two
+# cliques. The mock NVML engine looks up each pod's NODE_NAME and overrides its
+# GPUs' clique_id / cluster_uuid accordingly, so `nvidia-smi -q` on each node
+# reports the clique below.
+#
+# NOTE: because the mock engine keys the override on NODE_NAME, ANY pod that has
+# the mock libnvidia-ml injected (via the node-wide injector) AND carries a
+# NODE_NAME env set to its host will report the correct per-node clique -- which
+# is exactly how the plain `gpu-agent` pod in this demo reports a distinct
+# clique per node purely through injection.
+#
+# Node names follow Kind's `<cluster>-worker[N]` scheme for cluster name
+# `nvml-mock-injection`.
+topology:
+  enabled: true
+  domains:
+    - name: "demo-domain"
+      uuid: "00000000-0000-0000-0000-0000000000ab"
+      cliques:
+        - id: 0
+          nodes:
+            - nvml-mock-injection-worker
+            - nvml-mock-injection-worker2
+        - id: 1
+          nodes:
+            - nvml-mock-injection-worker3
+            - nvml-mock-injection-worker4

@@ -10,11 +10,15 @@ import (
 )
 
 const (
-	EnvMockIBConfig          = "MOCK_IB_CONFIG"
-	EnvGPUCount              = "GPU_COUNT"
-	EnvNodeName              = "NODE_NAME"
-	EnvMockIBRoot            = "MOCK_IB_ROOT"
-	EnvMockIBPingSocket      = "MOCK_IB_PING_SOCKET"
+	EnvMockIBConfig     = "MOCK_IB_CONFIG"
+	EnvGPUCount         = "GPU_COUNT"
+	EnvNodeName         = "NODE_NAME"
+	EnvMockIBRoot       = "MOCK_IB_ROOT"
+	EnvMockIBPingSocket = "MOCK_IB_PING_SOCKET"
+	// DefaultMockIBPingSocket lives under the shared /var/lib/nvml-mock tree (not
+	// pod-local /run) so injected consumer pods reach the DaemonSet's mock-ib
+	// daemon through the overlay mount.
+	DefaultMockIBPingSocket  = "/var/lib/nvml-mock/run/mock-ib.sock"
 	EnvMockIBPingPort        = "MOCK_IB_PING_PORT"
 	EnvMockIBPingFabric      = "MOCK_IB_PING_FABRIC"
 	EnvMockIBPeers           = "MOCK_IB_PEERS"

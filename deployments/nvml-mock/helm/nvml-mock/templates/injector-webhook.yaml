@@ -1,0 +1,94 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+{{- if .Values.injector.enabled }}
+{{- /*
+Emit BOTH the TLS Secret AND the MutatingWebhookConfiguration from the SAME
+cert material so the served cert and the webhook caBundle always match. Helm
+renders each template file independently, so keeping them in one file is what
+guarantees that invariant — do not move cert generation into a second template.
+
+Cert stability across `helm upgrade`: genCA/genSignedCert mint a NEW cert every
+render, which would rewrite the Secret + caBundle while the running injector pod
+still serves the OLD cert (loaded once at startup via ListenAndServeTLS) — after
+an upgrade the caBundle(new) vs serving cert(old) mismatch silently breaks the
+webhook (fail-open => injection stops). To avoid that, reuse the existing
+Secret's cert when present (lookup), and only generate on a fresh install.
+NOTE: `lookup` returns an empty map during `helm template`/`helm unittest`, so
+the else-branch below still produces a valid self-signed cert/caBundle offline.
+The injector-deployment rolls its pods on cert change via a checksum/tls
+annotation computed from the same looked-up Secret.
+*/}}
+{{- $fullname := include "nvml-mock.fullname" . }}
+{{- $svc := printf "%s-injector" $fullname }}
+{{- $secretName := printf "%s-tls" $svc }}
+{{- $cn := printf "%s.%s.svc" $svc .Release.Namespace }}
+{{- $altNames := list $cn (printf "%s.%s.svc.cluster.local" $svc .Release.Namespace) }}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName }}
+{{- $existingData := (default (dict) $existing).data | default (dict) }}
+{{- $tlsCrt := index $existingData "tls.crt" | default "" }}
+{{- $tlsKey := index $existingData "tls.key" | default "" }}
+{{- $caCrt := index $existingData "ca.crt" | default "" }}
+{{- if not (and $tlsCrt $tlsKey $caCrt) }}
+{{- $ca := genCA (printf "%s-ca" $svc) 3650 }}
+{{- $cert := genSignedCert $cn nil $altNames 3650 $ca }}
+{{- $tlsCrt = $cert.Cert | b64enc }}
+{{- $tlsKey = $cert.Key | b64enc }}
+{{- $caCrt = $ca.Cert | b64enc }}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: injector
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $tlsCrt }}
+  tls.key: {{ $tlsKey }}
+  ca.crt: {{ $caCrt }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: injector
+webhooks:
+  - name: inject.nvml-mock.nvidia.com
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    reinvocationPolicy: Never
+    # Fires on every pod CREATE; a low timeout bounds API-server latency before
+    # the fail-open policy takes over.
+    timeoutSeconds: {{ .Values.injector.timeoutSeconds | default 5 }}
+    # Fail-open is mandatory: a cluster-wide Fail policy on all pods would make
+    # the API server unable to schedule anything (including this webhook) during
+    # an outage.
+    failurePolicy: {{ .Values.injector.failurePolicy | default "Ignore" }}
+    clientConfig:
+      service:
+        name: {{ $svc }}
+        namespace: {{ .Release.Namespace }}
+        path: /mutate
+        port: 443
+      caBundle: {{ $caCrt }}
+    namespaceSelector:
+      matchExpressions:
+        # Never mutate the injector's own namespace (bootstrap deadlock), plus
+        # any operator-configured exclusions.
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - {{ .Release.Namespace }}
+            {{- range .Values.injector.excludedNamespaces }}
+            - {{ . }}
+            {{- end }}
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+        scope: "Namespaced"
+{{- end }}

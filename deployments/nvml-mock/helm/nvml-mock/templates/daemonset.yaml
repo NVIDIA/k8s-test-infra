@@ -108,6 +108,8 @@ spec:
               value: {{ ternary "1" "0" $ibEnabled | quote }}
             - name: MOCK_IB_PING_PORT
               value: "{{ .Values.infiniband.ping.port }}"
+            - name: MOCK_IB_PING_SOCKET
+              value: /var/lib/nvml-mock/run/mock-ib.sock
             - name: POD_IP
               valueFrom:
                 fieldRef:
