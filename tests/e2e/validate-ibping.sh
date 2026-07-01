@@ -33,7 +33,7 @@ RETRY_SLEEP="${IBPING_E2E_RETRY_SLEEP:-5}"
 IB_ROOT='${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib}'
 LID_PATH="${IB_ROOT}/sys/class/infiniband/mlx5_0/ports/1/lid"
 GUID_PATH="${IB_ROOT}/sys/class/infiniband/mlx5_0/ports/1/port_guid"
-MOCK_IBPING_SOCKET="${MOCK_IB_PING_SOCKET:-/run/mock-ib.sock}"
+MOCK_IBPING_SOCKET="${MOCK_IB_PING_SOCKET:-/var/lib/nvml-mock/run/mock-ib.sock}"
 MOCK_IBPING_PORT="${MOCK_IB_PING_PORT:-18515}"
 IBPING_E2E_MODE="${IBPING_E2E_MODE:-both}"
 

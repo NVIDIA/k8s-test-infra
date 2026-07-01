@@ -9,7 +9,7 @@ if [ "$(printf '%s' "${MOCK_IB:-off}" | tr '[:upper:]' '[:lower:]')" != "full" ]
   exit 0
 fi
 
-SOCKET="${MOCK_IB_PING_SOCKET:-/run/mock-ib.sock}"
+SOCKET="${MOCK_IB_PING_SOCKET:-/var/lib/nvml-mock/run/mock-ib.sock}"
 IB_ROOT="${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib}"
 PORT="${MOCK_IB_PING_PORT:-18515}"
 

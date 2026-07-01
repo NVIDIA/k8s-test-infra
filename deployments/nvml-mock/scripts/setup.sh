@@ -28,6 +28,7 @@ echo "Setting up mock GPU environment: $GPU_COUNT GPUs, driver $DRIVER_VERSION"
 # 1. Create directory structure
 mkdir -p "$DRIVER_ROOT/usr/lib64" "$DRIVER_ROOT/usr/bin" "$DRIVER_ROOT/config"
 mkdir -p "$DEV_ROOT" "$CONFIG_DIR"
+mkdir -p "$HOST/run"
 
 # 2. Copy mock NVML library + create symlinks
 #    The .so is built with a fixed version (Makefile LIB_VERSION); rename to match
@@ -55,6 +56,38 @@ else
   ln -sf "libcuda.so.1" "$DRIVER_ROOT/usr/lib64/libcudart.so.12"
   ln -sf "libcudart.so.12" "$DRIVER_ROOT/usr/lib64/libcudart.so"
 fi
+
+# 2c. Stage the InfiniBand discovery tools, their shared-library dependencies,
+#     and the LD_PRELOAD shims into the driver root so the node-wide injector's
+#     overlay mount (/opt/nvml-mock) exposes them to arbitrary pods. Without
+#     this, only processes inside THIS image (which ships infiniband-diags +
+#     rdma-core) could run ibnetdiscover/ibstat. glibc itself is intentionally
+#     NOT staged — injected pods use their own loader, so tools run only in pods
+#     whose glibc is >= this image's (bookworm 2.36); older images should use
+#     the injector opt-out annotation.
+mkdir -p "$DRIVER_ROOT/usr/local/lib"
+cp -a /usr/local/lib/libibmockumad.so.* /usr/local/lib/libibmockverbs.so.* \
+      /usr/local/lib/libibmocksys.so.*  /usr/local/lib/libpcimocksys.so.* \
+      "$DRIVER_ROOT/usr/local/lib/" 2>/dev/null || true
+
+# IB discovery tools ship in /usr/sbin (infiniband-diags). Stage each tool plus
+# every non-glibc shared object it links, resolved via ldd, into the driver
+# root. LD_LIBRARY_PATH (set by the injector) points at usr/lib64, so copy the
+# resolved deps there.
+for tool in ibnetdiscover ibstat ibstatus iblinkinfo sminfo ibping; do
+  src=$(command -v "$tool" 2>/dev/null || echo "/usr/sbin/$tool")
+  [ -x "$src" ] || continue
+  cp -a "$src" "$DRIVER_ROOT/usr/bin/$tool"
+  # Copy dependent libs (skip the dynamic loader and libc/libpthread/libm/libdl,
+  # which the target pod already provides via its own glibc).
+  ldd "$src" 2>/dev/null | awk '/=>/ {print $3} !/=>/ && /^\// {print $1}' | \
+  while read -r lib; do
+    case "$lib" in
+      ""|*/ld-linux*|*/libc.so*|*/libpthread.so*|*/libm.so*|*/libdl.so*|*/librt.so*) continue ;;
+    esac
+    [ -e "$lib" ] && cp -a "$lib" "$DRIVER_ROOT/usr/lib64/" 2>/dev/null || true
+  done
+done
 
 # 3. Create char device nodes
 #    Major 195 = nvidia, Major 510 = nvidia-uvm (standard NVIDIA major numbers)
