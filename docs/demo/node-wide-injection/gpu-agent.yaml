@@ -1,0 +1,78 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# gpu-agent: an ORDINARY per-node pod that exercises nvidia-smi purely because
+# the node-wide nvml-mock injector mutates it at admission time.
+#
+# What this manifest deliberately does NOT contain:
+#   * no `nvidia.com/gpu` resource request/limit
+#   * no hostPath / mock-library volumes or volumeMounts
+#   * no LD_PRELOAD / MOCK_* / PATH env
+#   * a stock distro image
+#
+# The nvml-mock mutating admission webhook adds all of that at admission time:
+# the mock libnvidia-ml overlay mount, PATH / LD_LIBRARY_PATH / LD_PRELOAD, and
+# the MOCK_* env. The only GPU-relevant thing this pod provides itself is its
+# NODE_NAME (downward API), which the mock NVML engine keys the per-node NVLink
+# clique override on.
+#
+# To make the injection observable, the container actually RUNS nvidia-smi:
+# once at startup (full table + fabric clique) and then `nvidia-smi -L` on a
+# loop. Inspect it with:  kubectl logs -n default ds/gpu-agent
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gpu-agent
+  namespace: default
+  labels:
+    app: gpu-agent
+spec:
+  selector:
+    matchLabels:
+      app: gpu-agent
+  template:
+    metadata:
+      labels:
+        app: gpu-agent
+    spec:
+      # Land only on the simulated GPU nodes (labeled by the nvml-mock chart's
+      # fake-GPU-operator integration). The real GPU-less control-plane is
+      # skipped.
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: agent
+          image: debian:bookworm-slim
+          # Exercise the injected mock GPU stack. nvidia-smi resolves via the
+          # injected PATH; libnvidia-ml.so.1 loads via the injected LD_PRELOAD;
+          # the per-node clique comes from NODE_NAME + the mock topology.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "[gpu-agent] node=${NODE_NAME} starting nvidia-smi self-test"
+              echo "=== nvidia-smi ==="
+              nvidia-smi || echo "[gpu-agent] ERROR: nvidia-smi failed (injection missing?)"
+              echo "=== nvidia-smi -q (fabric clique) ==="
+              nvidia-smi -q | grep -iE "ClusterUUID|CliqueId" || true
+              echo "[gpu-agent] entering nvidia-smi -L loop"
+              while true; do
+                nvidia-smi -L 2>&1 || true
+                sleep 300
+              done
+          env:
+            # The mock NVML engine reads NODE_NAME to resolve this node's NVLink
+            # clique from the topology config (see clique-topology.yaml). This
+            # is the ONLY GPU-relevant field the pod supplies; everything else
+            # is injected by the webhook.
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
