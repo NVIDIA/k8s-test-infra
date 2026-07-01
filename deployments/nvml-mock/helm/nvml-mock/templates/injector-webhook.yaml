@@ -40,6 +40,9 @@ webhooks:
     admissionReviewVersions: ["v1"]
     sideEffects: None
     reinvocationPolicy: Never
+    # Fires on every pod CREATE; a low timeout bounds API-server latency before
+    # the fail-open policy takes over.
+    timeoutSeconds: {{ .Values.injector.timeoutSeconds | default 5 }}
     # Fail-open is mandatory: a cluster-wide Fail policy on all pods would make
     # the API server unable to schedule anything (including this webhook) during
     # an outage.

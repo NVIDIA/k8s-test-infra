@@ -187,9 +187,25 @@ injector:
   devicesAnnotation: nvml-mock.nvidia.com/devices
   # Namespaces never mutated (release namespace is always excluded). Add e.g.
   # kube-system here if control-plane pods misbehave with the overlay.
-  excludedNamespaces: []
+  # kube-system is excluded by default so the overlay/LD_PRELOAD is never
+  # injected into control-plane or static pods (which could destabilize the
+  # node); keep it a list so users can extend it.
+  excludedNamespaces:
+    - kube-system
   # Fail-open is mandatory in practice: a cluster-wide Fail policy on all pods
   # would make the API server unable to schedule anything (including this
   # webhook) during an outage. Left configurable but keep this "Ignore".
   failurePolicy: Ignore
+  # Webhook timeout (seconds). The webhook fires on every pod CREATE, so a low
+  # timeout bounds the API-server latency added before fail-open kicks in.
+  timeoutSeconds: 5
+  # Container security context for the injector Deployment. The injector only
+  # reads TLS from /tls and serves HTTP, writing nothing to the rootfs.
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
   resources: {}

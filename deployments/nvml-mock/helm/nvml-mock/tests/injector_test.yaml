@@ -77,21 +77,30 @@ tests:
       - isNotEmpty:
           path: webhooks[0].clientConfig.caBundle
       - equal:
+          path: webhooks[0].timeoutSeconds
+          value: 5
+      - equal:
           path: webhooks[0].rules[0].operations[0]
           value: CREATE
       - equal:
           path: webhooks[0].rules[0].resources[0]
           value: pods
 
-  - it: excludes the release namespace by default
+  - it: excludes the release namespace and kube-system by default
     template: templates/injector-webhook.yaml
     documentIndex: 1
     set:
       injector.enabled: true
     asserts:
+      - equal:
+          path: webhooks[0].namespaceSelector.matchExpressions[0].key
+          value: kubernetes.io/metadata.name
       - contains:
           path: webhooks[0].namespaceSelector.matchExpressions[0].values
           content: NAMESPACE
+      - contains:
+          path: webhooks[0].namespaceSelector.matchExpressions[0].values
+          content: kube-system
 
   - it: flows excludedNamespaces into the namespaceSelector
     template: templates/injector-webhook.yaml
@@ -141,6 +150,24 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].readinessProbe.httpGet.path
           value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.scheme
+          value: HTTPS
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.scheme
+          value: HTTPS
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
 
   # ── Service ─────────────────────────────────────────────────────────
   - it: service exposes 443 -> https target port
