@@ -8,7 +8,7 @@
  * $MOCK_PCI_ROOT in front of the absolute path and forwarding to the next
  * libc. A no-op when $MOCK_PCI_ROOT is unset/empty. Mirrors
  * pkg/network/mockib/c/shim.c; see that file for the design notes on
- * dlsym(RTLD_NEXT), the thread-local buffer, and the variadic open() mode
+ * dlsym(RTLD_NEXT), the per-call stack buffer, and the variadic open() mode
  * extraction pattern.
  */
 
@@ -65,12 +65,11 @@ static int rewrite_path(const char *path, char *out, size_t out_size) {
     for (size_t i = 0; k_prefixes[i] != NULL; ++i) {
         const char *p = k_prefixes[i];
         size_t plen = strlen(p);
-        if (p[plen - 1] == '/') {
-            if (strncmp(path, p, plen) != 0) continue;
-        } else {
-            if (strncmp(path, p, plen) != 0) continue;
-            if (path[plen] != '\0' && path[plen] != '/') continue;
-        }
+        /* Every PCI prefix is a pure "starts-with" match: the canonical
+         * device path /sys/devices/pci0000:00/<bdf>/numa_node has a digit
+         * (not '/') right after "/sys/devices/pci", so a trailing-slash
+         * boundary check would leak it to the real /sys. */
+        if (strncmp(path, p, plen) != 0) continue;
         size_t total = root_len_cached + strlen(path);
         if (total + 1 > out_size) return -1;
         memcpy(out, root_cached, root_len_cached);
@@ -140,13 +139,50 @@ int openat64(int dirfd, const char *path, int flags, ...) {
     return real_openat64(dirfd, rc == 1 ? buf : path, flags, mode);
 }
 
+REAL(fopen);
+REAL(fopen64);
+
+FILE *fopen(const char *path, const char *mode) {
+    LOAD_REAL(fopen);
+    char buf[PATH_MAX];
+    int rc = rewrite_path(path, buf, sizeof(buf));
+    return real_fopen(rc == 1 ? buf : path, mode);
+}
+
+FILE *fopen64(const char *path, const char *mode) {
+    LOAD_REAL(fopen64);
+    char buf[PATH_MAX];
+    int rc = rewrite_path(path, buf, sizeof(buf));
+    return real_fopen64(rc == 1 ? buf : path, mode);
+}
+
 REAL(opendir);
+REAL(scandir);
+REAL(scandir64);
 
 DIR *opendir(const char *name) {
     LOAD_REAL(opendir);
     char buf[PATH_MAX];
     int rc = rewrite_path(name, buf, sizeof(buf));
     return real_opendir(rc == 1 ? buf : name);
+}
+
+int scandir(const char *path, struct dirent ***namelist,
+            int (*filter)(const struct dirent *),
+            int (*compar)(const struct dirent **, const struct dirent **)) {
+    LOAD_REAL(scandir);
+    char buf[PATH_MAX];
+    int rc = rewrite_path(path, buf, sizeof(buf));
+    return real_scandir(rc == 1 ? buf : path, namelist, filter, compar);
+}
+
+int scandir64(const char *path, struct dirent64 ***namelist,
+              int (*filter)(const struct dirent64 *),
+              int (*compar)(const struct dirent64 **, const struct dirent64 **)) {
+    LOAD_REAL(scandir64);
+    char buf[PATH_MAX];
+    int rc = rewrite_path(path, buf, sizeof(buf));
+    return real_scandir64(rc == 1 ? buf : path, namelist, filter, compar);
 }
 
 REAL(stat);
@@ -201,6 +237,64 @@ int statx(int dirfd, const char *path, int flags, unsigned int mask,
     char buf[PATH_MAX];
     int rc = rewrite_path(path, buf, sizeof(buf));
     return real(dirfd, rc == 1 ? buf : path, flags, mask, st);
+}
+
+/* Legacy __xstat family (glibc < 2.33). On modern systems these may not be
+ * exported by libc.so.6; in that case dlsym returns NULL and we just don't
+ * register the hook (the binary won't call us either). */
+
+int __xstat(int ver, const char *path, struct stat *st) {
+    static int (*real)(int, const char *, struct stat *) = NULL;
+    if (!real) real = dlsym(RTLD_NEXT, "__xstat");
+    if (!real) { errno = ENOSYS; return -1; }
+    char buf[PATH_MAX];
+    int rc = rewrite_path(path, buf, sizeof(buf));
+    return real(ver, rc == 1 ? buf : path, st);
+}
+
+int __xstat64(int ver, const char *path, struct stat64 *st) {
+    static int (*real)(int, const char *, struct stat64 *) = NULL;
+    if (!real) real = dlsym(RTLD_NEXT, "__xstat64");
+    if (!real) { errno = ENOSYS; return -1; }
+    char buf[PATH_MAX];
+    int rc = rewrite_path(path, buf, sizeof(buf));
+    return real(ver, rc == 1 ? buf : path, st);
+}
+
+int __lxstat(int ver, const char *path, struct stat *st) {
+    static int (*real)(int, const char *, struct stat *) = NULL;
+    if (!real) real = dlsym(RTLD_NEXT, "__lxstat");
+    if (!real) { errno = ENOSYS; return -1; }
+    char buf[PATH_MAX];
+    int rc = rewrite_path(path, buf, sizeof(buf));
+    return real(ver, rc == 1 ? buf : path, st);
+}
+
+int __lxstat64(int ver, const char *path, struct stat64 *st) {
+    static int (*real)(int, const char *, struct stat64 *) = NULL;
+    if (!real) real = dlsym(RTLD_NEXT, "__lxstat64");
+    if (!real) { errno = ENOSYS; return -1; }
+    char buf[PATH_MAX];
+    int rc = rewrite_path(path, buf, sizeof(buf));
+    return real(ver, rc == 1 ? buf : path, st);
+}
+
+int __fxstatat(int ver, int dirfd, const char *path, struct stat *st, int flag) {
+    static int (*real)(int, int, const char *, struct stat *, int) = NULL;
+    if (!real) real = dlsym(RTLD_NEXT, "__fxstatat");
+    if (!real) { errno = ENOSYS; return -1; }
+    char buf[PATH_MAX];
+    int rc = rewrite_path(path, buf, sizeof(buf));
+    return real(ver, dirfd, rc == 1 ? buf : path, st, flag);
+}
+
+int __fxstatat64(int ver, int dirfd, const char *path, struct stat64 *st, int flag) {
+    static int (*real)(int, int, const char *, struct stat64 *, int) = NULL;
+    if (!real) real = dlsym(RTLD_NEXT, "__fxstatat64");
+    if (!real) { errno = ENOSYS; return -1; }
+    char buf[PATH_MAX];
+    int rc = rewrite_path(path, buf, sizeof(buf));
+    return real(ver, dirfd, rc == 1 ? buf : path, st, flag);
 }
 
 REAL(access);
