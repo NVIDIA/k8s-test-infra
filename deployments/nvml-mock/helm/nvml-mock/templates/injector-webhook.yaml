@@ -2,31 +2,51 @@
 # SPDX-License-Identifier: Apache-2.0
 {{- if .Values.injector.enabled }}
 {{- /*
-Generate a self-signed CA + serving cert ONCE and emit BOTH the TLS Secret AND
-the MutatingWebhookConfiguration from the SAME $ca/$cert pair. Helm renders each
-template file independently, so keeping the Secret and the webhook caBundle in
-one file is what guarantees the served cert and the caBundle always match — do
-not move cert generation into a second template (that regenerates a different CA
-and breaks webhook TLS).
+Emit BOTH the TLS Secret AND the MutatingWebhookConfiguration from the SAME
+cert material so the served cert and the webhook caBundle always match. Helm
+renders each template file independently, so keeping them in one file is what
+guarantees that invariant — do not move cert generation into a second template.
+
+Cert stability across `helm upgrade`: genCA/genSignedCert mint a NEW cert every
+render, which would rewrite the Secret + caBundle while the running injector pod
+still serves the OLD cert (loaded once at startup via ListenAndServeTLS) — after
+an upgrade the caBundle(new) vs serving cert(old) mismatch silently breaks the
+webhook (fail-open => injection stops). To avoid that, reuse the existing
+Secret's cert when present (lookup), and only generate on a fresh install.
+NOTE: `lookup` returns an empty map during `helm template`/`helm unittest`, so
+the else-branch below still produces a valid self-signed cert/caBundle offline.
+The injector-deployment rolls its pods on cert change via a checksum/tls
+annotation computed from the same looked-up Secret.
 */}}
 {{- $fullname := include "nvml-mock.fullname" . }}
 {{- $svc := printf "%s-injector" $fullname }}
+{{- $secretName := printf "%s-tls" $svc }}
 {{- $cn := printf "%s.%s.svc" $svc .Release.Namespace }}
 {{- $altNames := list $cn (printf "%s.%s.svc.cluster.local" $svc .Release.Namespace) }}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName }}
+{{- $existingData := (default (dict) $existing).data | default (dict) }}
+{{- $tlsCrt := index $existingData "tls.crt" | default "" }}
+{{- $tlsKey := index $existingData "tls.key" | default "" }}
+{{- $caCrt := index $existingData "ca.crt" | default "" }}
+{{- if not (and $tlsCrt $tlsKey $caCrt) }}
 {{- $ca := genCA (printf "%s-ca" $svc) 3650 }}
 {{- $cert := genSignedCert $cn nil $altNames 3650 $ca }}
+{{- $tlsCrt = $cert.Cert | b64enc }}
+{{- $tlsKey = $cert.Key | b64enc }}
+{{- $caCrt = $ca.Cert | b64enc }}
+{{- end }}
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ $svc }}-tls
+  name: {{ $secretName }}
   labels:
     {{- include "nvml-mock.labels" . | nindent 4 }}
     app.kubernetes.io/component: injector
 type: kubernetes.io/tls
 data:
-  tls.crt: {{ $cert.Cert | b64enc }}
-  tls.key: {{ $cert.Key | b64enc }}
-  ca.crt: {{ $ca.Cert | b64enc }}
+  tls.crt: {{ $tlsCrt }}
+  tls.key: {{ $tlsKey }}
+  ca.crt: {{ $caCrt }}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
@@ -53,7 +73,7 @@ webhooks:
         namespace: {{ .Release.Namespace }}
         path: /mutate
         port: 443
-      caBundle: {{ $ca.Cert | b64enc }}
+      caBundle: {{ $caCrt }}
     namespaceSelector:
       matchExpressions:
         # Never mutate the injector's own namespace (bootstrap deadlock), plus

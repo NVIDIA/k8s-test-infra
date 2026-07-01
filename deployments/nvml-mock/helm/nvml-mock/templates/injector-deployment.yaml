@@ -2,6 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 {{- if .Values.injector.enabled }}
 {{- $fullname := include "nvml-mock.fullname" . }}
+{{- /*
+Roll the injector pods whenever the serving cert changes. The cert lives in the
+{{ $fullname }}-injector-tls Secret (owned by injector-webhook.yaml). Reading it
+back via lookup and hashing tls.crt means: on a real cert change the checksum
+shifts and the Deployment rolls (picking up the new cert); on upgrades where the
+cert is reused (the common case) the checksum is stable and pods do not churn.
+lookup returns an empty map during `helm template`/`helm unittest`, so we fall
+back to a stable placeholder — the annotation always renders offline.
+*/}}
+{{- $secretName := printf "%s-injector-tls" $fullname }}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secretName }}
+{{- $tlsCrt := index ((default (dict) $existing).data | default (dict)) "tls.crt" | default "" }}
+{{- $tlsChecksum := ternary (sha256sum $tlsCrt) "unprovisioned" (ne $tlsCrt "") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,6 +33,9 @@ spec:
       labels:
         {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: injector
+      annotations:
+        # Roll the injector on any serving-cert change (see top-of-file note).
+        checksum/tls: {{ $tlsChecksum }}
     spec:
       serviceAccountName: {{ $fullname }}-injector
       containers:
