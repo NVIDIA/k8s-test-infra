@@ -133,6 +133,39 @@ See the [Helm Chart README](../deployments/nvml-mock/helm/nvml-mock/README.md)
 for full deployment walkthrough including device plugin, DRA driver, and GPU
 Operator integration.
 
+## Option 4: Ambient Node-Wide Mock (Any Pod)
+
+By default the chart deploys a mutating admission webhook (`injector.enabled:
+true`) that overlays the mock GPU tree at `/opt/nvml-mock` and injects
+`PATH`/`LD_LIBRARY_PATH`/`LD_PRELOAD`/`MOCK_*` env into **every** pod. Any pod —
+no GPU request, no annotations — can then run `nvidia-smi` / `ibnetdiscover`.
+
+```bash
+kind create cluster --name nvml-mock-test
+docker pull ghcr.io/nvidia/nvml-mock:latest
+kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-test
+
+# injector.enabled is true by default; shown explicitly here.
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --set injector.enabled=true \
+  --wait --timeout 120s
+
+# Wait for the DaemonSet to stage the host artifacts.
+kubectl rollout status daemonset/nvml-mock --timeout=60s
+
+# A plain ubuntu pod with NO GPU request sees the mock GPUs and IB fabric.
+kubectl run ambient --image=ubuntu:22.04 --restart=Never -it --rm -- \
+  sh -c 'nvidia-smi -L && ibstat -l'
+```
+
+Opt a pod out with `nvml-mock.nvidia.com/inject: "false"` (required for
+musl/Alpine/distroless/scratch or older-glibc images), and opt into privileged
+`/dev/nvidia*` device nodes with `nvml-mock.nvidia.com/devices: "true"`. The
+webhook is fail-open (`failurePolicy: Ignore`) and never mutates the release
+namespace or `kube-system`. See
+[Node-Wide Injection](../deployments/nvml-mock/helm/nvml-mock/README.md#node-wide-injection-every-pod)
+for details.
+
 ## Next Steps
 
 - [Configuration Reference](configuration.md) - Customize GPU properties
