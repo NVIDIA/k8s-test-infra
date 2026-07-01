@@ -812,6 +812,7 @@ to deploy the DaemonSet-only (consumer opt-in) behaviour.
 | `injector.excludedNamespaces` | `[kube-system]` | Namespaces never mutated (the release namespace is always excluded on top of this list) |
 | `injector.failurePolicy` | `Ignore` | Webhook `failurePolicy`; keep `Ignore` (fail-open) so an injector outage never blocks scheduling |
 | `injector.timeoutSeconds` | `5` | Webhook timeout in seconds (bounds added API-server latency per pod `CREATE`) |
+| `injector.securityContext` | `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`, `capabilities.drop: [ALL]` | Container security context for the injector Deployment (locked down: the injector only reads TLS from `/tls` and serves HTTP) |
 | `injector.resources` | `{}` | Resource requests/limits for the injector Deployment |
 
 ### GPU Profiles
