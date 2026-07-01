@@ -163,8 +163,26 @@ func buildEnv(cfg Config) []corev1.EnvVar {
 		{Name: "PATH", Value: driver + "/usr/bin"},
 		{Name: "LD_LIBRARY_PATH", Value: driver + "/usr/lib64"},
 		{Name: "MOCK_NVML_CONFIG", Value: driver + "/config/config.yaml"},
+		// Per-node NVLink clique overlay source. The mock engine keys the
+		// override on NODE_NAME and reads the cluster topology from this path;
+		// it silently no-ops when the file is absent (topology disabled). The
+		// host DaemonSet stages topology.yaml here alongside config.yaml so
+		// injected pods resolve the same per-node clique as the DaemonSet.
+		{Name: "MOCK_TOPOLOGY_CONFIG", Value: driver + "/config/topology.yaml"},
 	}
-	var preload []string
+	// Preload the mock GPU driver libraries. LD_LIBRARY_PATH alone is not
+	// enough: the stock NVIDIA nvidia-smi probes a fixed set of directories /
+	// the ld.so cache to locate libnvidia-ml.so.1 and ignores LD_LIBRARY_PATH,
+	// so a library staged under the overlay (not a default/cached path) is
+	// never found ("NVIDIA-SMI couldn't find libnvidia-ml.so"). Preloading it
+	// (and libcuda for CUDA consumers) makes the mock driver resolvable in any
+	// image without touching the container's ld.so cache. Both libs are safe to
+	// preload into non-GPU processes (sh, sleep, ...): their constructors are
+	// no-ops until an API is called.
+	preload := []string{
+		driver + "/usr/lib64/libnvidia-ml.so.1",
+		driver + "/usr/lib64/libcuda.so.1",
+	}
 	if cfg.EnableIB {
 		preload = append(preload,
 			driver+"/usr/local/lib/libibmockumad.so.1",

@@ -264,6 +264,21 @@ cp /etc/nvml-mock/config.yaml "$DRIVER_ROOT/config/config.yaml"
 sed -i "/^system:/a\\  num_devices: $GPU_COUNT" "$CONFIG_DIR/config.yaml"
 sed -i "/^system:/a\\  num_devices: $GPU_COUNT" "$DRIVER_ROOT/config/config.yaml"
 
+# 6b. Stage the cluster-level NVLink topology document (when mounted) into the
+#     driver root so the node-wide injector's overlay (/opt/nvml-mock) exposes
+#     it to injected pods. The mock engine applies the per-node clique overlay
+#     from MOCK_TOPOLOGY_CONFIG (keyed by NODE_NAME); the injector points that
+#     env at $DRIVER_ROOT/config/topology.yaml. Without staging it here, an
+#     injected pod — which mounts only the overlay, not the topology ConfigMap —
+#     would fall back to the profile's default fabric identity, so every node
+#     would report the same clique. No-op when topology is disabled (unset env
+#     / missing file); the engine also stat-guards the path.
+TOPO_SRC="${MOCK_TOPOLOGY_CONFIG:-/etc/nvml-mock/topology/topology.yaml}"
+if [ -f "$TOPO_SRC" ]; then
+  cp "$TOPO_SRC" "$DRIVER_ROOT/config/topology.yaml"
+  echo "Staged cluster topology from $TOPO_SRC"
+fi
+
 # 7. Label node (requires RBAC: get+patch on nodes)
 if command -v kubectl >/dev/null 2>&1; then
   kubectl label node "$NODE_NAME" nvidia.com/gpu.present=true --overwrite || true

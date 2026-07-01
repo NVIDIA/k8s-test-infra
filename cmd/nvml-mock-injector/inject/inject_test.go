@@ -93,8 +93,15 @@ func TestMutate_MergesExistingEnv(t *testing.T) {
 	require.Contains(t, got["LD_PRELOAD"], "/x/pre.so")
 	require.Contains(t, got["LD_PRELOAD"], "libibmockumad.so.1")
 	require.Contains(t, got["LD_PRELOAD"], "libpcimocksys.so.1")
+	// The mock GPU driver libs must be preloaded: nvidia-smi ignores
+	// LD_LIBRARY_PATH and would otherwise not find libnvidia-ml.so.1.
+	require.Contains(t, got["LD_PRELOAD"], "libnvidia-ml.so.1")
+	require.Contains(t, got["LD_PRELOAD"], "libcuda.so.1")
 	require.Equal(t, "bar", got["FOO"]) // untouched entries preserved
 	require.Equal(t, "/opt/nvml-mock", got["MOCK_PCI_ROOT"])
+	// Per-node NVLink clique overlay source must be pointed at the staged
+	// topology in the overlay so injected pods resolve their node's clique.
+	require.Equal(t, "/opt/nvml-mock/driver/config/topology.yaml", got["MOCK_TOPOLOGY_CONFIG"])
 }
 
 func TestMutate_OptOut(t *testing.T) {
