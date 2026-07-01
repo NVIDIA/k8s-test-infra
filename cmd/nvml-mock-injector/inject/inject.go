@@ -69,8 +69,8 @@ func Mutate(pod *corev1.Pod, cfg Config) ([]PatchOp, error) {
 	// 2. Per-container edits (containers + initContainers).
 	env := buildEnv(cfg)
 	mounts := containerMounts(cfg, devices)
-	ops = append(ops, containerOps("/spec/containers", pod.Spec.Containers, env, mounts, devices, cfg)...)
-	ops = append(ops, containerOps("/spec/initContainers", pod.Spec.InitContainers, env, mounts, devices, cfg)...)
+	ops = append(ops, containerOps("/spec/containers", pod.Spec.Containers, env, mounts, devices)...)
+	ops = append(ops, containerOps("/spec/initContainers", pod.Spec.InitContainers, env, mounts, devices)...)
 
 	// 3. Audit annotation (also documents that injection happened).
 	if pod.Annotations == nil {
@@ -122,7 +122,7 @@ func containerMounts(cfg Config, devices bool) []corev1.VolumeMount {
 }
 
 func containerOps(base string, ctrs []corev1.Container, env []corev1.EnvVar,
-	mounts []corev1.VolumeMount, devices bool, cfg Config) []PatchOp {
+	mounts []corev1.VolumeMount, devices bool) []PatchOp {
 	var ops []PatchOp
 	for i, c := range ctrs {
 		ops = append(ops, addOrReplace(len(c.VolumeMounts) == 0,
@@ -134,8 +134,11 @@ func containerOps(base string, ctrs []corev1.Container, env []corev1.EnvVar,
 
 		if devices {
 			priv := true
-			sc := c.SecurityContext
-			if sc == nil {
+			// Deep-copy so we never mutate the caller's pod in place.
+			var sc *corev1.SecurityContext
+			if c.SecurityContext != nil {
+				sc = c.SecurityContext.DeepCopy()
+			} else {
 				sc = &corev1.SecurityContext{}
 			}
 			sc.Privileged = &priv
@@ -192,6 +195,12 @@ func mergeEnv(existing, ours []corev1.EnvVar) []corev1.EnvVar {
 		if !found {
 			out = append(out, e)
 			idx[e.Name] = len(out) - 1
+			continue
+		}
+		// Never write .Value onto an entry sourced via ValueFrom: doing so
+		// produces an invalid EnvVar (both Value and ValueFrom set) that the
+		// API server rejects. Leave such unusual vars untouched.
+		if out[i].ValueFrom != nil {
 			continue
 		}
 		switch e.Name {

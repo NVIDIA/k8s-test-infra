@@ -126,6 +126,47 @@ func TestMutate_DeviceOptIn(t *testing.T) {
 	require.True(t, names["nvml-mock-dev-nvidiactl"])
 }
 
+func TestMutate_EnvValueFromLeftIntact(t *testing.T) {
+	pod := plainPod()
+	pod.Spec.Containers[0].Env = []corev1.EnvVar{
+		{Name: "PATH", ValueFrom: &corev1.EnvVarSource{
+			FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"},
+		}},
+	}
+	ops, err := Mutate(pod, testConfig())
+	require.NoError(t, err)
+	by := opsByPath(ops)
+
+	// Pod still gets the overlay volume.
+	_, ok := by["/spec/volumes"]
+	require.True(t, ok)
+
+	envOp := by["/spec/containers/0/env"]
+	env := envOp.Value.([]corev1.EnvVar)
+	var pathVar *corev1.EnvVar
+	for i := range env {
+		if env[i].Name == "PATH" {
+			pathVar = &env[i]
+		}
+	}
+	require.NotNil(t, pathVar)
+	// The ValueFrom-sourced PATH must not be corrupted with a literal Value.
+	require.NotNil(t, pathVar.ValueFrom)
+	require.Empty(t, pathVar.Value)
+}
+
+func TestMutate_DoesNotMutateInputPod(t *testing.T) {
+	pod := plainPod()
+	pod.Annotations = map[string]string{"nvml-mock.nvidia.com/devices": "true"}
+	pod.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{}
+
+	_, err := Mutate(pod, testConfig())
+	require.NoError(t, err)
+
+	// The input pod's securityContext must be untouched (no in-place privilege).
+	require.Nil(t, pod.Spec.Containers[0].SecurityContext.Privileged)
+}
+
 func TestMutate_InitContainersToo(t *testing.T) {
 	pod := plainPod()
 	pod.Spec.InitContainers = []corev1.Container{{Name: "init"}}
