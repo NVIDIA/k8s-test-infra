@@ -65,11 +65,15 @@ static int rewrite_path(const char *path, char *out, size_t out_size) {
     for (size_t i = 0; k_prefixes[i] != NULL; ++i) {
         const char *p = k_prefixes[i];
         size_t plen = strlen(p);
-        /* Every PCI prefix is a pure "starts-with" match: the canonical
-         * device path /sys/devices/pci0000:00/<bdf>/numa_node has a digit
-         * (not '/') right after "/sys/devices/pci", so a trailing-slash
-         * boundary check would leak it to the real /sys. */
         if (strncmp(path, p, plen) != 0) continue;
+        /* /sys/devices/pci is a pure starts-with (its canonical child is
+         * /sys/devices/pci0000:00 -- a digit, not '/', follows the prefix).
+         * Every other bare prefix keeps a boundary check so /sys/bus/pci does
+         * not swallow siblings such as /sys/bus/pci_express. */
+        if (p[plen - 1] != '/' && strcmp(p, "/sys/devices/pci") != 0 &&
+            path[plen] != '\0' && path[plen] != '/') {
+            continue;
+        }
         size_t total = root_len_cached + strlen(path);
         if (total + 1 > out_size) return -1;
         memcpy(out, root_cached, root_len_cached);
