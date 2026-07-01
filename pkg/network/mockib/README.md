@@ -132,7 +132,7 @@ intercepts run before sysfs path rewriting.
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `MOCK_IB` | `off` | Tri-state mock tier (case-insensitive): `full` (all three shims + `mock-ib` daemon), `sysfs` (`libibmocksys` path redirect only), or `off` (no-op; also the default for unset/empty/unrecognized values). `MOCK_IB=off` is the escape hatch to see the real host (e.g. `MOCK_IB=off ibv_devinfo -l`) |
-| `MOCK_IB_PING_SOCKET` | `/run/mock-ib.sock` | Unix socket between shim and daemon |
+| `MOCK_IB_PING_SOCKET` | `/run/mock-ib.sock` | Unix socket between shim and daemon. All supported deployments set this to `/var/lib/nvml-mock/run/mock-ib.sock` (on the shared host tree), which overrides the compiled-in default; consumers and tools should rely on the env var rather than the compiled default. |
 | `MOCK_IB_PING_FABRIC` | `0` | Enable Phase 2 TCP fabric relay between pods |
 | `MOCK_IB_PEERS` | (unset) | Comma-separated peer pod IPs for fabric registration (optional when Service discovery is used) |
 | `MOCK_IB_DEBUG_SMP` | `0` | When `1`, the daemon logs every synthesized SMP (attribute, DLID, hop count, first 4 outbound path bytes, resolved target). Useful for debugging `iblinkinfo` / DR-walk regressions. |

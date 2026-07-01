@@ -77,7 +77,7 @@ cp -a /usr/local/lib/libibmockumad.so.* /usr/local/lib/libibmockverbs.so.* \
 for tool in ibnetdiscover ibstat ibstatus iblinkinfo sminfo ibping; do
   src=$(command -v "$tool" 2>/dev/null || echo "/usr/sbin/$tool")
   [ -x "$src" ] || continue
-  cp -a "$src" "$DRIVER_ROOT/usr/bin/$tool"
+  cp -a "$src" "$DRIVER_ROOT/usr/bin/$tool" || continue
   # Copy dependent libs (skip the dynamic loader and libc/libpthread/libm/libdl,
   # which the target pod already provides via its own glibc).
   ldd "$src" 2>/dev/null | awk '/=>/ {print $3} !/=>/ && /^\// {print $1}' | \
@@ -85,7 +85,7 @@ for tool in ibnetdiscover ibstat ibstatus iblinkinfo sminfo ibping; do
     case "$lib" in
       ""|*/ld-linux*|*/libc.so*|*/libpthread.so*|*/libm.so*|*/libdl.so*|*/librt.so*) continue ;;
     esac
-    [ -e "$lib" ] && cp -a "$lib" "$DRIVER_ROOT/usr/lib64/" 2>/dev/null || true
+    [ -e "$lib" ] && cp -aL "$lib" "$DRIVER_ROOT/usr/lib64/" 2>/dev/null || true
   done
 done
 
