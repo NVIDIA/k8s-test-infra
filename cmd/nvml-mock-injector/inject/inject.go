@@ -20,6 +20,12 @@ const (
 
 	// InjectedAnnotation is recorded on mutated pods for debugging.
 	InjectedAnnotation = "nvml-mock.nvidia.com/injected"
+
+	// defaultPATH is the conservative system PATH appended after the overlay
+	// dir when a container declares no PATH of its own. A container env entry
+	// overrides the image's built-in PATH, so injecting only the overlay dir
+	// would strip /usr/bin, /bin, etc. and break bare-name entrypoints.
+	defaultPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 )
 
 // Config parameterizes a mutation. Values come from the injector Deployment env
@@ -193,6 +199,12 @@ func mergeEnv(existing, ours []corev1.EnvVar) []corev1.EnvVar {
 	for _, e := range ours {
 		i, found := idx[e.Name]
 		if !found {
+			// The container inherits PATH from the image, which is invisible at
+			// admission time and is clobbered by any env entry we add. Append a
+			// conservative system default so bare-name executables still resolve.
+			if e.Name == "PATH" {
+				e.Value = e.Value + ":" + defaultPATH
+			}
 			out = append(out, e)
 			idx[e.Name] = len(out) - 1
 			continue

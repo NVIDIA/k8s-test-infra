@@ -55,6 +55,17 @@ func TestMutate_PlainPod_AddsOverlay(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "add", envOp.Op)
 
+	// With no existing PATH the injected value must be the overlay dir PLUS the
+	// conservative system default, so bare-name executables still resolve.
+	env := envOp.Value.([]corev1.EnvVar)
+	got := map[string]string{}
+	for _, e := range env {
+		got[e.Name] = e.Value
+	}
+	require.Equal(t,
+		"/opt/nvml-mock/driver/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		got["PATH"])
+
 	// Idempotency/audit annotation recorded.
 	_, ok = by["/metadata/annotations"]
 	require.True(t, ok)
