@@ -15,6 +15,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -31,7 +32,12 @@ func envOr(k, def string) string {
 }
 
 func loadConfig() inject.Config {
-	gpu, _ := strconv.Atoi(envOr("GPU_COUNT", "0"))
+	gpuRaw := envOr("GPU_COUNT", "0")
+	gpu, err := strconv.Atoi(gpuRaw)
+	if err != nil {
+		log.Printf("invalid GPU_COUNT %q: %v (defaulting to 0)", gpuRaw, err)
+		gpu = 0
+	}
 	return inject.Config{
 		HostPath:          envOr("OVERLAY_HOST_PATH", "/var/lib/nvml-mock"),
 		MountPath:         envOr("OVERLAY_MOUNT_PATH", "/opt/nvml-mock"),
@@ -57,19 +63,34 @@ func main() {
 		handleMutate(w, r, cfg)
 	})
 
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
 	log.Printf("nvml-mock-injector listening on %s (mountPath=%s ib=%t pci=%t gpuCount=%d)",
 		addr, cfg.MountPath, cfg.EnableIB, cfg.EnablePCI, cfg.GPUCount)
-	log.Fatal(http.ListenAndServeTLS(addr, cert, key, mux))
+	log.Fatal(srv.ListenAndServeTLS(cert, key))
 }
 
 func handleMutate(w http.ResponseWriter, r *http.Request, cfg inject.Config) {
+	// Cap the request body: a pod object is comfortably under 3 MiB, so anything
+	// larger is malformed or hostile. MaxBytesReader also protects io.ReadAll.
+	r.Body = http.MaxBytesReader(w, r.Body, 3<<20)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		// Can't fail open here: with no readable body we have no request UID to
+		// echo, so a valid AdmissionReview response is impossible. Return 400.
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	var review admissionv1.AdmissionReview
 	if err := json.Unmarshal(body, &review); err != nil || review.Request == nil {
+		// Can't fail open here either: without a decodable Request there is no
+		// UID to echo, so no valid AdmissionReview response can be built.
 		http.Error(w, "invalid AdmissionReview", http.StatusBadRequest)
 		return
 	}
@@ -79,37 +100,36 @@ func handleMutate(w http.ResponseWriter, r *http.Request, cfg inject.Config) {
 	var pod corev1.Pod
 	if err := json.Unmarshal(req.Object.Raw, &pod); err != nil {
 		// Fail open: allow unmodified rather than block scheduling.
-		log.Printf("decode pod %s/%s: %v (allowing unmodified)", req.Namespace, req.Name, err)
-		writeReview(w, review, resp)
+		log.Printf("decode pod %s/%s (uid=%s): %v (allowing unmodified)", req.Namespace, req.Name, req.UID, err)
+		writeReview(w, resp)
 		return
 	}
 
 	ops, err := inject.Mutate(&pod, cfg)
 	if err != nil {
-		log.Printf("mutate pod %s/%s: %v (allowing unmodified)", req.Namespace, req.Name, err)
-		writeReview(w, review, resp)
+		log.Printf("mutate pod %s/%s (uid=%s): %v (allowing unmodified)", req.Namespace, req.Name, req.UID, err)
+		writeReview(w, resp)
 		return
 	}
 	if len(ops) > 0 {
 		patch, mErr := json.Marshal(ops)
 		if mErr != nil {
-			log.Printf("marshal patch: %v (allowing unmodified)", mErr)
-			writeReview(w, review, resp)
+			log.Printf("marshal patch for pod %s/%s (uid=%s): %v (allowing unmodified)", req.Namespace, req.Name, req.UID, mErr)
+			writeReview(w, resp)
 			return
 		}
 		pt := admissionv1.PatchTypeJSONPatch
 		resp.PatchType = &pt
 		resp.Patch = patch
 	}
-	writeReview(w, review, resp)
+	writeReview(w, resp)
 }
 
-func writeReview(w http.ResponseWriter, in admissionv1.AdmissionReview, resp *admissionv1.AdmissionResponse) {
+func writeReview(w http.ResponseWriter, resp *admissionv1.AdmissionResponse) {
 	out := admissionv1.AdmissionReview{
 		TypeMeta: metav1.TypeMeta{APIVersion: "admission.k8s.io/v1", Kind: "AdmissionReview"},
 		Response: resp,
 	}
-	_ = in
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(out); err != nil {
 		http.Error(w, fmt.Sprintf("encode response: %v", err), http.StatusInternalServerError)
