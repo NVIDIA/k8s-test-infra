@@ -117,14 +117,41 @@ infiniband:
   # that per profile. Set it explicitly to override (an invalid value fails
   # `helm template`).
   mockTier: ""
+  # rdma enables the RDMA verbs data path (issue #374): the chart LD_PRELOADs
+  # libibmockrdma (an in-process libibverbs provider) and sets MOCK_IB_RDMA=1
+  # so perftest tools (ib_write_bw / ib_read_bw / ib_send_bw) and GPUDirect-RDMA
+  # bandwidth runs complete and report NON-ZERO bandwidth across pods.
+  #
+  # Enabled by default. The provider is inert unless the data path is exercised
+  # and degrades safely when the mock-ib daemon socket is absent (e.g. non-full
+  # tiers), so it is harmless when unused; set to false to drop it entirely.
+  #
+  # IMPORTANT: the bandwidth is a functional artifact of relaying each RDMA
+  # operation over the mock-ib JSON/TCP fabric, NOT a real InfiniBand
+  # measurement — do not use it for performance characterization. The data path
+  # requires mockTier "full" (the verbs/UMAD shims and the mock-ib daemon).
+  rdma:
+    enabled: true
+    # perftest's out-of-band TCP sync port for the cross-pod RDMA verbs
+    # data-path validation (tests/e2e/validate-rdma.sh, env RDMA_E2E_PORT).
+    # Stock ib_write_bw/ib_read_bw exchange QP endpoint info over this plain
+    # TCP port BEFORE creating the QP, so it must be reachable between peer
+    # nvml-mock pods or the handshake wedges before any fabric traffic. It is
+    # deliberately distinct from ping.port (the mock-ib fabric listener) and is
+    # admitted by the ibping NetworkPolicy below. Keep in sync with
+    # RDMA_E2E_PORT in tests/e2e/validate-rdma.sh.
+    oobPort: 18516
   ping:
     port: 18515
     # The mock-ib TCP fabric listener binds 0.0.0.0:<port> with no auth and
     # the DaemonSet runs privileged. This NetworkPolicy restricts inbound
     # access to that port to peer nvml-mock pods (the only legitimate
     # clients), limiting the blast radius on clusters whose CNI enforces
-    # NetworkPolicy. NOTE: Kind's default CNI (kindnet) does NOT enforce
-    # NetworkPolicy, so this is a no-op there; it matters on Calico/Cilium.
+    # NetworkPolicy. This is enforced by Calico/Cilium AND by Kind's default
+    # CNI (kindnet) as of kind v0.24.0, which integrates kube-network-policies
+    # into kindnetd (Network Policies on by default) — so the e2e Kind fixture
+    # DOES enforce it. When the RDMA data path is enabled, the policy also
+    # admits rdma.oobPort so perftest's OOB handshake is not dropped.
     networkPolicy:
       enabled: true
 

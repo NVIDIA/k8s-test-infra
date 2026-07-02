@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- mock-ib RDMA verbs data path: a new in-process `libibverbs` provider shim
+  (`libibmockrdma.so`, from `pkg/network/mockib/c/rdma_shim.c`) carries RDMA
+  WRITE/READ/SEND over the existing mock-ib JSON/TCP fabric, so stock
+  `perftest` tools (`ib_write_bw` / `ib_read_bw` / `ib_send_bw`) complete and
+  report **non-zero** bandwidth between nvml-mock pods without IB hardware. It
+  owns a real `verbs_context` and implements both the classic
+  `ibv_post_send`/`ibv_poll_cq` path and the extended `ibv_qp_ex` `ibv_wr_*`
+  op table, so it works with unmodified `perftest` 4.5. Enabled by default via
+  the new Helm value `infiniband.rdma.enabled` (sets `MOCK_IB_RDMA=1` and
+  prepends the provider to `LD_PRELOAD`; the data path requires
+  `infiniband.mockTier: full` and degrades safely otherwise — set the value to
+  `false` to drop the provider). The Go
+  daemon gains the verbs relay (`verbs_op` routing, attach/route tables,
+  per-QP backpressure) and a gated cross-node E2E
+  (`tests/e2e/validate-rdma.sh`). The reported bandwidth is a functional
+  artifact of the relay, **not** an InfiniBand measurement; GPUDirect-RDMA
+  (`--use_cuda`) is out of scope. (#374)
+
 ## [0.2.1] - 2026-06-12
 
 ### Fixed

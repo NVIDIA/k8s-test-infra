@@ -972,6 +972,10 @@ jobs:
 
   ibping-multinode:
     runs-on: ubuntu-latest
+    # Backstop so a wedged data-path validation (e.g. a blocked ib_write_bw)
+    # cannot ride GitHub's 6h default; the in-script `timeout` should fail the
+    # RDMA step long before this, leaving this as a hard safety net.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1061,6 +1065,16 @@ jobs:
           W2=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w2 \
             -o jsonpath='{.items[0].metadata.name}')
           ./tests/e2e/validate-ibnetdiscover.sh "$W1" "$W2" a100 2
+
+      - name: Validate cross-node RDMA bandwidth (ib_write_bw)
+        run: |
+          SERVER_POD=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w1 \
+            -o jsonpath='{.items[0].metadata.name}')
+          CLIENT_POD=$(kubectl get pods -l app.kubernetes.io/instance=nvml-mock-w2 \
+            -o jsonpath='{.items[0].metadata.name}')
+          echo "Server pod: $SERVER_POD"
+          echo "Client pod: $CLIENT_POD"
+          ./tests/e2e/validate-rdma.sh "$SERVER_POD" "$CLIENT_POD"
 
       - name: Collect logs on failure
         if: failure()

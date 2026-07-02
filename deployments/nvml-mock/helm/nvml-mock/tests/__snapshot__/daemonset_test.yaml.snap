@@ -54,7 +54,9 @@ should match snapshot with all overrides:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: nvml-mock-custom-ibping.gpu-system.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                  value: /usr/local/lib/libibmockrdma.so.1:/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                - name: MOCK_IB_RDMA
+                  value: "1"
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
               image: custom-registry/nvml-mock:v2.0.0
@@ -69,6 +71,16 @@ should match snapshot with all overrides:
                 - containerPort: 18515
                   name: ibping
                   protocol: TCP
+              readinessProbe:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - test -f /tmp/nvml-mock-setup-complete
+                failureThreshold: 60
+                initialDelaySeconds: 1
+                periodSeconds: 2
+                timeoutSeconds: 2
               resources:
                 limits:
                   cpu: 500m
@@ -175,7 +187,9 @@ should match snapshot with b200 profile:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                  value: /usr/local/lib/libibmockrdma.so.1:/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                - name: MOCK_IB_RDMA
+                  value: "1"
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
               image: ghcr.io/nvidia/nvml-mock:latest
@@ -190,6 +204,16 @@ should match snapshot with b200 profile:
                 - containerPort: 18515
                   name: ibping
                   protocol: TCP
+              readinessProbe:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - test -f /tmp/nvml-mock-setup-complete
+                failureThreshold: 60
+                initialDelaySeconds: 1
+                periodSeconds: 2
+                timeoutSeconds: 2
               securityContext:
                 privileged: true
               volumeMounts:
@@ -283,7 +307,9 @@ should match snapshot with default values:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                  value: /usr/local/lib/libibmockrdma.so.1:/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                - name: MOCK_IB_RDMA
+                  value: "1"
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
               image: ghcr.io/nvidia/nvml-mock:latest
@@ -298,6 +324,16 @@ should match snapshot with default values:
                 - containerPort: 18515
                   name: ibping
                   protocol: TCP
+              readinessProbe:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - test -f /tmp/nvml-mock-setup-complete
+                failureThreshold: 60
+                initialDelaySeconds: 1
+                periodSeconds: 2
+                timeoutSeconds: 2
               securityContext:
                 privileged: true
               volumeMounts:

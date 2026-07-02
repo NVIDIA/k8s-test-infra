@@ -120,6 +120,12 @@ func (s *Server) dispatchFabric(c net.Conn, env protocol.Envelope) error {
 			return err
 		}
 		return s.handleFabricPing(c, ping)
+	case protocol.TypeVerbsOp:
+		var op protocol.VerbsOp
+		if err := protocol.DecodeBody(env, &op); err != nil {
+			return err
+		}
+		return s.handleFabricVerbsOp(op)
 	default:
 		return fmt.Errorf("unknown fabric message type %q", env.Type)
 	}

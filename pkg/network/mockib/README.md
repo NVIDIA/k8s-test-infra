@@ -15,7 +15,8 @@ pkg/network/mockib/
 ├── c/shim.c          # libibmocksys.so   – LD_PRELOAD: redirects libc paths to MOCK_IB_ROOT
 ├── c/umad_shim.c     # libibmockumad.so  – LD_PRELOAD: proxies libibumad ↔ mock-ib
 ├── c/verbs_shim.c    # libibmockverbs.so – LD_PRELOAD: proxies /dev/infiniband/uverbsN ↔ mock-ib
-├── Makefile          # builds all three .so libraries (in this dir)
+├── c/rdma_shim.c     # libibmockrdma.so  – LD_PRELOAD: in-process libibverbs provider, RDMA data path (gated by MOCK_IB_RDMA)
+├── Makefile          # builds all four .so libraries (in this dir)
 ├── config/           # YAML schema for the `infiniband:` profile block
 ├── render/           # writes a kernel-faithful sysfs tree from the schema
 ├── sysfs/            # scans rendered tree (port GUID, LID, GID)
@@ -136,6 +137,8 @@ intercepts run before sysfs path rewriting.
 | `MOCK_IB_PING_FABRIC` | `0` | Enable Phase 2 TCP fabric relay between pods |
 | `MOCK_IB_PEERS` | (unset) | Comma-separated peer pod IPs for fabric registration (optional when Service discovery is used) |
 | `MOCK_IB_DEBUG_SMP` | `0` | When `1`, the daemon logs every synthesized SMP (attribute, DLID, hop count, first 4 outbound path bytes, resolved target). Useful for debugging `iblinkinfo` / DR-walk regressions. |
+| `MOCK_IB_RDMA` | (unset) | When `1`, arms the `libibmockrdma` provider so the RDMA verbs data path (`ib_write_bw`/`ib_read_bw`/`ib_send_bw`) relays operations over the fabric. Requires `MOCK_IB=full`. See [RDMA verbs data path](#rdma-verbs-data-path). |
+| `MOCK_IB_DEBUG_VERBS` | `0` | When `1`, the daemon logs verbs data-path routing events (QP create/connect/destroy, egress/ingress drops). |
 
 Related: `MOCK_IB_PING_PORT` (default `18515`) sets the TCP fabric listen
 port; `MOCK_IB_ROOT` must point at the rendered sysfs tree (same as for
@@ -189,6 +192,42 @@ only 16 bits, so they use the configured HCA count as a stride across the
 unicast range (`0x0100..0xbfff`) to avoid HCA index wrap and maximize available
 node buckets for that profile. GUID-mode `ibping` has the larger identity
 space; LID-mode remains bounded by the IB LID range, as on real fabrics.
+
+## RDMA verbs data path
+
+When `MOCK_IB_RDMA=1` (chart: `infiniband.rdma.enabled`, on by default, on top
+of `MOCK_IB=full`), a fourth shim — **`libibmockrdma.so`** (`c/rdma_shim.c`) — is
+LD_PRELOAD'd ahead of the others. Unlike the passive interposers, it is a
+**minimal in-process `libibverbs` provider**: it owns a real `verbs_context`
+and implements both the classic `ibv_post_send`/`ibv_poll_cq` path and the
+extended `ibv_qp_ex` `ibv_wr_*` op table, so stock `perftest` 4.5 runs with no
+flags. It carries the RDMA WRITE/READ/SEND data path so bandwidth tools
+complete and report **non-zero** bandwidth across pods.
+
+How a WRITE flows:
+
+1. `ibv_reg_mr` records the buffer `{addr, length, lkey, rkey}` so inbound ops
+   can be bounds-checked and applied to real memory.
+2. `ibv_create_qp` assigns a shim-side QPN, announces it (`verbs_qp_create`),
+   and opens a long-lived `verbs_attach` stream to the local daemon.
+3. `ibv_modify_qp(->RTR)` extracts the remote QPN + LID/GID and sends
+   `verbs_qp_connect`; the daemon resolves the peer pod via the same registry
+   used by `ibping` (GID/GUID first, then LID).
+4. `ibv_post_send`/`ibv_wr_rdma_write` chunks the payload under
+   `protocol.VerbsSegMax` (512 KiB) into `verbs_op` frames relayed by the
+   daemon to the peer, which delivers the bytes into the responder's MR at
+   `remote_addr` (after an rkey + bounds check) and reassembles by offset.
+
+> **Bandwidth is an artifact, not a measurement.** Every operation is relayed
+> as length-prefixed JSON over the existing TCP fabric (port 18515), so the
+> MB/sec figure reflects the JSON/TCP relay, **not** InfiniBand throughput. Use
+> it to prove the data path is wired end to end, never for performance work.
+> GPUDirect-RDMA flags (`--use_cuda`) are out of scope; there is no real GPU
+> peer memory. E2E: `tests/e2e/validate-rdma.sh`.
+>
+> Device **enumeration** still goes through the existing
+> `libibmocksys`/`libibmockverbs` + mock-sysfs path; the provider deliberately
+> does not fake `ibv_get_device_list`.
 
 ## iblinkinfo and ibv_devinfo
 

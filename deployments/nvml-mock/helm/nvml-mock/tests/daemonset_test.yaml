@@ -56,6 +56,12 @@ tests:
           path: metadata.name
           value: RELEASE-NAME-nvml-mock
 
+  - it: should gate readiness on the setup-complete marker
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.exec.command
+          value: ["/bin/sh", "-c", "test -f /tmp/nvml-mock-setup-complete"]
+
   - it: should include standard labels
     asserts:
       - equal:
@@ -558,11 +564,18 @@ tests:
           content:
             name: MOCK_IB_PING_SERVICE_HOST
             value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
+      # RDMA data path is on by default: libibmockrdma is prepended so its ibv_*
+      # provider symbols win over the real libibverbs, and MOCK_IB_RDMA=1 arms it.
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: LD_PRELOAD
-            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+            value: /usr/local/lib/libibmockrdma.so.1:/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_RDMA
+            value: "1"
       - equal:
           path: spec.template.spec.containers[0].ports[0].name
           value: ibping
@@ -572,6 +585,25 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].ports[0].protocol
           value: TCP
+
+  - it: should drop the RDMA verbs data path when infiniband.rdma.enabled=false
+    set:
+      infiniband:
+        rdma:
+          enabled: false
+    asserts:
+      # libibmockrdma is NOT preloaded and MOCK_IB_RDMA is unset, so the verbs
+      # provider is absent entirely.
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LD_PRELOAD
+            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_RDMA
+            value: "1"
 
   - it: should disable ping mock (but keep sysfs masking) for profiles without InfiniBand
     set:

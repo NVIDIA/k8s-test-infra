@@ -2,4 +2,6 @@
 # nvml-mock image via the Dockerfile; never check binaries into git).
 libibmocksys.so
 libibmocksys.so.*
+libibmockrdma.so
+libibmockrdma.so.*
 *.o

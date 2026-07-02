@@ -346,3 +346,11 @@ if [ "$MOCK_FM_MODE" != "off" ]; then
 fi
 
 echo "Mock GPU environment ready: $GPU_COUNT GPUs at $HOST"
+
+# Signal setup completion for the container readiness probe. The DaemonSet has
+# no other readiness gate, so without this the pod reports Ready the instant the
+# process starts — while the driver tree above is still being laid down. That
+# lets `helm --wait` / `kubectl rollout status` return early and races e2e
+# validations (e.g. tests/e2e/validate-nvidia-smi.sh) against this script. The
+# readinessProbe in templates/daemonset.yaml gates on this marker.
+touch /tmp/nvml-mock-setup-complete

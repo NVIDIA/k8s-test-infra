@@ -15,6 +15,12 @@
 ARG GOLANG_VERSION=1.26.4
 FROM golang:${GOLANG_VERSION}-bookworm AS builder
 WORKDIR /src
+# libibmockrdma.so (c/rdma_shim.c) #includes <infiniband/verbs.h>, so the
+# builder needs the libibverbs dev headers. This is build-only; the runtime
+# image already ships rdma-core/ibverbs-providers for the .so to load against.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libibverbs-dev \
+    && rm -rf /var/lib/apt/lists/*
 COPY go.mod go.sum ./
 COPY vendor/ vendor/
 COPY pkg/gpu/mocknvml/ pkg/gpu/mocknvml/
@@ -48,6 +54,11 @@ COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmocksys.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmockumad.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmockverbs.so.* /usr/local/lib/
+# libibmockrdma.so: in-process libibverbs provider that carries the RDMA verbs
+# data path (perftest / GPUDirect bandwidth) over the mock-ib JSON/TCP relay.
+# Only LD_PRELOAD'd (and active) when infiniband.rdma.enabled sets MOCK_IB_RDMA;
+# see deployments/nvml-mock/helm/nvml-mock/templates/daemonset.yaml. Issue #374.
+COPY --from=builder /src/pkg/network/mockib/libibmockrdma.so.* /usr/local/lib/
 COPY --from=builder /out/mock-ib /usr/local/bin/mock-ib
 COPY --from=builder /out/render-pci-sysfs /usr/local/bin/render-pci-sysfs
 # Fake IMEX binaries used for ComputeDomain simulation on KIND. Installed
@@ -67,10 +78,14 @@ COPY --from=builder /out/nv-fabricmanager-ctl /usr/bin/nv-fabricmanager-ctl
 # to confirm the topology overlay assigned the expected clique to each
 # node. See NVIDIA/k8s-test-infra#304.
 COPY --from=builder /out/check-fabric    /usr/local/bin/check-fabric
+# perftest provides ib_write_bw/ib_read_bw, the stock RDMA bandwidth tools the
+# verbs data path is exercised with: tests/e2e/validate-rdma.sh runs them inside
+# the pod against the LD_PRELOAD'd libibmockrdma shim. Without it the RDMA e2e
+# job fails with "ib_write_bw: not found". See NVIDIA/k8s-test-infra#374.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
-        infiniband-diags rdma-core ibverbs-utils ibverbs-providers; \
+        infiniband-diags rdma-core ibverbs-utils ibverbs-providers perftest; \
     rm -rf /var/lib/apt/lists/*; \
     # libibverbs prints "couldn't open config directory '/etc/libibverbs.d'"
     # when the dir is missing. ibverbs-providers ships .driver files there,
