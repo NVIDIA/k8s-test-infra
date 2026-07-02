@@ -31,7 +31,7 @@ func newSwitchFabricDevice(t *testing.T) *ConfigurableDevice {
 		NVLink: &NVLinkConfig{
 			Version:              5,
 			LinksPerGPU:          18,
-			BandwidthPerLinkGBPS: 53,
+			BandwidthPerLinkMbps: 53000,
 			Switches: []NVSwitchConfig{
 				{BDF: "0000:01:00.0"},
 				{BDF: "0000:02:00.0"},
@@ -85,7 +85,7 @@ func TestGetNvLinkFieldValue_SwitchFabric(t *testing.T) {
 	})
 
 	t.Run("speed_mbps", func(t *testing.T) {
-		// 53 GB/s/link -> 53 * 1e9 bytes/s / 1e6 = 53000 MB/s.
+		// 53000 Mbps/link -> 53000 * 1e6 bytes/s / 1e6 = 53000 MB/s.
 		for _, fid := range []uint32{fiNvlinkGetSpeed, fiNvlinkSpeedMbpsCommon, fiNvlinkSpeedMbpsL0} {
 			vt, val, ret := cd.GetNvLinkFieldValue(fid, 0)
 			require.Equal(t, nvml.SUCCESS, ret, "speed field %d = (type=%d,val=%d,ret=%v), want (Uint,53000,SUCCESS)", fid, vt, val, ret)

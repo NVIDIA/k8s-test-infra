@@ -271,15 +271,12 @@ func (f *NodeFabric) resolveLinks(yc *YAMLConfig, n int, bdfOfDev []string, bdfT
 		defaults = *nv.Defaults
 	}
 
-	// bwBytesSec drives NvLinkSpeedMbps (= bw/1e6). Prefer the precise Mbps
-	// field when set so non-integer GB/s rates (NVLink5 = 53.125 GB/s =
-	// 53125 Mbps) render exactly; fall back to the whole-GB/s field.
+	// bwBytesSec drives NvLinkSpeedMbps (= bw/1e6). The per-link speed is
+	// configured in Mbps so non-integer GB/s rates (NVLink5 = 53.125 GB/s =
+	// 53125 Mbps) render exactly.
 	var bw uint64
-	switch {
-	case nv.BandwidthPerLinkMbps > 0:
+	if nv.BandwidthPerLinkMbps > 0 {
 		bw = uint64(nv.BandwidthPerLinkMbps) * 1_000_000
-	case nv.BandwidthPerLinkGBPS > 0:
-		bw = uint64(nv.BandwidthPerLinkGBPS) * 1_000_000_000
 	}
 	dutyCycle := defaults.DutyCycle
 	if dutyCycle <= 0 {
