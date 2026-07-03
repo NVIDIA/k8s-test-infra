@@ -230,6 +230,28 @@ func TestFakeImex_ProbeContractAndDeprecation(t *testing.T) {
 	require.Contains(t, stderr.String(), "DEPRECATED", "ctl failure path must announce deprecation")
 	require.Contains(t, stderr.String(), "--nogpu", "notice must state the replacement")
 
+	// Usage-error path (no -q): exit 2 + deprecation notice.
+	stdout.Reset()
+	stderr.Reset()
+	ctl = exec.Command(ctlBin, "-c", "/dev/null")
+	ctl.Env = env
+	ctl.Stdout, ctl.Stderr = &stdout, &stderr
+	err = ctl.Run()
+	require.ErrorAs(t, err, &ee)
+	require.Equal(t, 2, ee.ExitCode())
+	require.Contains(t, stderr.String(), "DEPRECATED", "usage-error path must announce deprecation")
+
+	// nodes.cfg read-error path: exit 1 + deprecation notice.
+	stdout.Reset()
+	stderr.Reset()
+	ctl = exec.Command(ctlBin, "-c", "/dev/null", "-q")
+	ctl.Env = append(append([]string{}, env...), "IMEX_NODES_CONFIG="+filepath.Join(tmp, "missing-nodes.cfg"))
+	ctl.Stdout, ctl.Stderr = &stdout, &stderr
+	err = ctl.Run()
+	require.ErrorAs(t, err, &ee)
+	require.Equal(t, 1, ee.ExitCode())
+	require.Contains(t, stderr.String(), "DEPRECATED", "read-error path must announce deprecation")
+
 	// Daemon startup log (written to a file to avoid racing the pipe
 	// copier; the notice is logged before WriteMarker, so the marker's
 	// existence implies the notice is on disk).
