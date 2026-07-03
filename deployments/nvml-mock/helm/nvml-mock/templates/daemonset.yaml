@@ -53,6 +53,12 @@ spec:
             - name: imex
               containerPort: 50000
               protocol: TCP
+            # IMEX command/status port — peers query each other's node
+            # status and version over it; without it the domain never
+            # converges past DEGRADED (see NVIDIA/k8s-test-infra#304).
+            - name: imex-cmd
+              containerPort: 50005
+              protocol: TCP
           {{- end }}
           command: ["/scripts/entrypoint.sh"]
           env:

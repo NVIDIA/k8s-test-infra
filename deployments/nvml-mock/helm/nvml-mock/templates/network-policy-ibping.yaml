@@ -5,9 +5,9 @@
 # with no authentication, and the DaemonSet runs privileged. This policy
 # limits the blast radius by allowing inbound fabric traffic only from peer
 # nvml-mock pods (the only legitimate clients) — it also admits the real
-# nvidia-imex NO GPU mode gRPC peer traffic (port 50000) between those same
-# pods. Egress is left unrestricted so DNS-based peer discovery and
-# registration keep working.
+# nvidia-imex NO GPU mode gRPC peer traffic (port 50000) and command/status
+# traffic (port 50005) between those same pods. Egress is left unrestricted
+# so DNS-based peer discovery and registration keep working.
 #
 # NOTE: kind's kindnetd ENFORCES NetworkPolicy on current kind releases, so
 # this allow-list is load-bearing on Kind, not just on Calico/Cilium clusters.
@@ -46,5 +46,7 @@ spec:
         - port: ibping
           protocol: TCP
         - port: imex
+          protocol: TCP
+        - port: imex-cmd
           protocol: TCP
 {{- end }}

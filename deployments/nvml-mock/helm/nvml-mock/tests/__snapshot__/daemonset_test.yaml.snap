@@ -72,6 +72,9 @@ should match snapshot with all overrides:
                 - containerPort: 50000
                   name: imex
                   protocol: TCP
+                - containerPort: 50005
+                  name: imex-cmd
+                  protocol: TCP
               resources:
                 limits:
                   cpu: 500m
@@ -196,6 +199,9 @@ should match snapshot with b200 profile:
                 - containerPort: 50000
                   name: imex
                   protocol: TCP
+                - containerPort: 50005
+                  name: imex-cmd
+                  protocol: TCP
               securityContext:
                 privileged: true
               volumeMounts:
@@ -306,6 +312,9 @@ should match snapshot with default values:
                   protocol: TCP
                 - containerPort: 50000
                   name: imex
+                  protocol: TCP
+                - containerPort: 50005
+                  name: imex-cmd
                   protocol: TCP
               securityContext:
                 privileged: true

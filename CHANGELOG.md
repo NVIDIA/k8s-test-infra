@@ -15,8 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from Ubuntu jammy multiverse at LOCAL build time (never published),
   and the compute-domain demo asserts real gRPC domain readiness over
   the pod network, including peer-death detection. (#304) The chart's
-  ibping NetworkPolicy now also admits the IMEX peer port between
-  nvml-mock pods (kind's kindnetd enforces NetworkPolicy on current
+  ibping NetworkPolicy now also admits the IMEX peer and command ports
+  between nvml-mock pods (kind's kindnetd enforces NetworkPolicy on current
   releases, so the allow-list is load-bearing on Kind).
 
 ### Deprecated
