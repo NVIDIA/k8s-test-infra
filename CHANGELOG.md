@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- ComputeDomain simulation now runs the REAL `nvidia-imex` daemon in NO
+  GPU mode (`--nogpu`) instead of the fake marker-file binaries: the new
+  `imex-nogpu-shim` injects the flag around upstream's hard-coded argv,
+  `Dockerfile.compute-domain-daemon` installs the 595-branch package
+  from Ubuntu jammy multiverse at LOCAL build time (never published),
+  and the compute-domain demo asserts real gRPC domain readiness over
+  the pod network, including peer-death detection. (#304)
+
+### Deprecated
+- The fake `nvidia-imex` / `nvidia-imex-ctl` binaries, `pkg/imexcoord`,
+  and the chart's `imex.enabled` hostPath coordination — superseded by
+  the real daemon's NO GPU mode; removal in a follow-up release. Both
+  fakes print a deprecation notice (the ctl only on non-READY paths, to
+  preserve the upstream `CombinedOutput == "READY\n"` probe contract). (#304)
+
 ## [0.2.1] - 2026-06-12
 
 ### Fixed
