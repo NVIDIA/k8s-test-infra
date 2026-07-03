@@ -29,7 +29,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/imexcoord"
+	"github.com/NVIDIA/k8s-test-infra/pkg/imexcoord" //nolint:staticcheck // the fakes ARE the deprecated subsystem; removed together with imexcoord (#304)
 )
 
 func main() {

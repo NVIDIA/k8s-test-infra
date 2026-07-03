@@ -123,8 +123,9 @@ infiniband:
     # the DaemonSet runs privileged. This NetworkPolicy restricts inbound
     # access to that port to peer nvml-mock pods (the only legitimate
     # clients), limiting the blast radius on clusters whose CNI enforces
-    # NetworkPolicy. NOTE: Kind's default CNI (kindnet) does NOT enforce
-    # NetworkPolicy, so this is a no-op there; it matters on Calico/Cilium.
+    # NetworkPolicy. NOTE: Kind's default CNI (kindnet) ENFORCES
+    # NetworkPolicy on current releases, so this allow-list is load-bearing
+    # there; it also matters on Calico/Cilium.
     networkPolicy:
       enabled: true
 

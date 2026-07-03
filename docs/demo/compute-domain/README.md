@@ -29,7 +29,7 @@ The demo expects the following tools on `$PATH`:
 
 | Tool      | Tested version | Notes |
 |---        |---             |---    |
-| `docker`  | 24+            | Daemon must be running. Multi-stage build uses Go 1.25 base. |
+| `docker`  | 24+            | Daemon must be running. Multi-stage builds use the repo's pinned Go base (hack/golang-version.sh). |
 | `kind`    | v0.24+         | Provisions the demo's dedicated 4-worker cluster. |
 | `kubectl` | v1.30+         | Used for `exec`, `rollout`, `get` against the in-cluster pods. |
 | `helm`    | v3.13+         | Chart install + `helm upgrade --reuse-values`. |

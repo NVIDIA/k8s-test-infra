@@ -152,7 +152,7 @@ info "Loading image into Kind"
 kind load docker-image "${DEMO_IMAGE_NAME}" --name "${CLUSTER_NAME}"
 
 ###############################################################################
-# Step 3 — Install nvml-mock with gb200 + topology + IMEX
+# Step 3 — Install nvml-mock with gb200 + topology (real IMEX via demo image)
 ###############################################################################
 # NOTE: `--set-file topology.domains=...` cannot be used here. That
 # flag stuffs the raw file bytes in as a string literal, which would
@@ -160,7 +160,7 @@ kind load docker-image "${DEMO_IMAGE_NAME}" --name "${CLUSTER_NAME}"
 # as an indented block scalar instead of the structured array the
 # engine expects. Using `-f <values-file>` lets helm parse the file
 # normally and deep-merge it with the defaults.
-info "Installing chart (gb200 + topology + IMEX)"
+info "Installing chart (gb200 + topology; real IMEX via demo image)"
 # NOTE: `--set gpu.count=...` is intentionally NOT passed. The flag
 # only controls the host-side CDI spec / /dev/nvidia* device nodes
 # emitted by setup.sh; the in-pod ConfigMap mounted at
@@ -373,10 +373,10 @@ cat <<EOF
 
 ==> The upstream compute-domain-controller and compute-domain-daemon
     can now run unmodified against this cluster: their NVML calls land
-    on the mock library, and their fork of nvidia-imex / nvidia-imex-ctl
-    is shadowed by the fakes shipped in the nvml-mock image (see
+    on the mock library, and the real nvidia-imex / nvidia-imex-ctl are
+    fronted by the imex-nogpu-shim overlay image (see
     deployments/nvml-mock/Dockerfile.compute-domain-daemon for the
-    thin overlay image).
+    thin overlay that runs the real IMEX daemon with --nogpu).
 
 ==> Tear down
     kind delete cluster --name ${CLUSTER_NAME}
