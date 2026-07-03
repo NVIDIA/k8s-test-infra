@@ -91,12 +91,24 @@ The demo expects the following tools on `$PATH`:
 ## Quick start
 
 ```bash
-./run.sh
+./docs/demo/compute-domain/run.sh
 ```
 
-The script is idempotent — rerun it as often as you like; the
-existing cluster is reused and `helm upgrade --install` covers both
-first-time install and follow-up upgrades.
+The script locates the repository itself, so it works from any
+directory; the **manual-reproduction commands below assume you run
+them from the repository root**.
+
+Expect roughly 10–20 minutes on a first run (Kind cluster creation
+plus two image builds dominate; Scenario 2's domain convergence alone
+may legitimately take up to 4 minutes — see Troubleshooting). Reruns
+are much faster: the script is idempotent, the existing cluster is
+reused, and `helm upgrade --install` covers both first-time install
+and follow-up upgrades.
+
+> **One runner per host.** The cluster name, Helm release, and image
+> tags are fixed, so two concurrent runs of this demo on the same
+> machine will corrupt each other's Helm revisions and topology
+> assertions. Run one at a time.
 
 ## Manual reproduction
 
@@ -220,8 +232,39 @@ and is passed to Helm with `-f topology.yaml` (not `--set-file`, which
 would inline the file as a string literal rather than as a parsed
 list).
 
+## Troubleshooting
+
+* **Scenario 2 seems stuck on "domain status UP".** First convergence
+  after a fresh rollout can take a few minutes: kind's CNI (kindnetd)
+  reconciles NetworkPolicy asynchronously, and the IMEX daemon retries
+  failed peer connections with exponential backoff (15s, 31s, 62s,
+  125s…). The script already waits up to 240s — let it finish before
+  concluding failure. On timeout it prints the daemon log tail.
+* **Peers never connect at all.** The nvml-mock chart ships a
+  NetworkPolicy that allow-lists pod-to-pod ingress between nvml-mock
+  pods (TCP 18515 ibping, 50000 IMEX gRPC peer, 50005 IMEX
+  command/status). kindnetd **enforces** NetworkPolicy on current kind
+  releases, so if you add any new pod-to-pod listener to the stack it
+  must also be admitted in
+  `deployments/nvml-mock/helm/nvml-mock/templates/network-policy-ibping.yaml`
+  — otherwise its SYNs are silently dropped.
+* **Rerunning after a failed Scenario 2.** A run that dies mid-scenario
+  leaves real `nvidia-imex` daemons holding port 50000 inside the pods,
+  and a rerun's daemons will fail to bind. Recycle the pods first:
+  `kubectl delete pods -l app.kubernetes.io/name=nvml-mock` (the
+  DaemonSet recreates them clean), or delete the cluster for a truly
+  fresh start. Successful runs clean up after themselves.
+* **`nvidia-imex-ctl -N -j` shows the peer `UNAVAILABLE` with an empty
+  version while connections look established.** Node status and version
+  are exchanged over the IMEX *command* port (50005), separate from the
+  gRPC peer port (50000). If only 50000 is reachable the domain sticks
+  at `DEGRADED` — check that both ports are admitted (see the
+  NetworkPolicy bullet above).
+
 ## Clean up
 
 ```bash
 kind delete cluster --name nvml-mock-compute-domain
+# Optional: also remove the locally built demo images.
+docker rmi nvml-mock:compute-domain nvml-mock:compute-domain-imex
 ```
