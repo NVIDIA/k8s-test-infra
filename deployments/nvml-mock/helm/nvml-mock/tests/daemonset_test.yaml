@@ -572,6 +572,15 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].ports[0].protocol
           value: TCP
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].name
+          value: imex
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].containerPort
+          value: 50000
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].protocol
+          value: TCP
 
   - it: should disable ping mock (but keep sysfs masking) for profiles without InfiniBand
     set:
