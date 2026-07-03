@@ -247,7 +247,10 @@ imex_domain_status() {
 
 wait_domain_status() {
   local pod=$1 want=$2 reason=$3
-  for _ in $(seq 1 60); do
+  # 240s: after a fresh rollout, kindnetd's NetworkPolicy dataplane
+  # reconcile plus the daemon's exponential reconnect backoff (15s,
+  # 31s, 62s, 125s...) can push first convergence past 60s.
+  for _ in $(seq 1 240); do
     if [[ "$(imex_domain_status "${pod}")" == "${want}" ]]; then
       ok "domain status ${want} ${reason}"
       return 0
