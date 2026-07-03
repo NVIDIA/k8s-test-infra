@@ -26,6 +26,16 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/imexcoord"
 )
 
+// deprecationNotice is printed on non-success paths ONLY: the upstream
+// compute-domain-daemon readiness check compares CombinedOutput()
+// against exactly "READY\n", so the success path must stay silent on
+// both stdout and stderr.
+func deprecationNotice() {
+	fmt.Fprintln(os.Stderr, "fake-imex-ctl: DEPRECATED — this fake nvidia-imex-ctl "+
+		"will be removed in a follow-up release; the ComputeDomain simulation now "+
+		"runs the real nvidia-imex daemon in NO GPU mode (--nogpu) via imex-nogpu-shim.")
+}
+
 func main() {
 	cfg := flag.String("c", "", "imexd config file (ignored)")
 	query := flag.Bool("q", false, "query readiness (only supported mode)")
@@ -34,6 +44,7 @@ func main() {
 
 	if !*query {
 		fmt.Fprintln(os.Stderr, "fake-imex-ctl: only -q (query) mode is supported")
+		deprecationNotice()
 		os.Exit(2)
 	}
 
@@ -44,6 +55,7 @@ func main() {
 		// READY. Avoids a race where the controller marks a domain
 		// ready before its members have actually started.
 		fmt.Fprintf(os.Stderr, "fake-imex-ctl: read nodes.cfg: %v\n", err)
+		deprecationNotice()
 		os.Exit(1)
 	}
 
@@ -55,6 +67,7 @@ func main() {
 	ready, missing := imexcoord.AllPeersReady(imexcoord.StateDir(), expected)
 	if !ready {
 		fmt.Fprintf(os.Stderr, "fake-imex-ctl: peer %s not ready\n", missing)
+		deprecationNotice()
 		os.Exit(1)
 	}
 	fmt.Print("READY\n")

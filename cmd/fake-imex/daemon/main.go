@@ -39,6 +39,11 @@ func main() {
 	flag.Parse()
 	_ = cfg
 
+	log.Printf("fake-imex: DEPRECATED — this fake nvidia-imex will be removed " +
+		"in a follow-up release; the ComputeDomain simulation now runs the real " +
+		"nvidia-imex daemon in NO GPU mode (--nogpu) via imex-nogpu-shim. See " +
+		"NVIDIA/k8s-test-infra#304.")
+
 	podIP := os.Getenv(imexcoord.EnvPodIP)
 	if podIP == "" {
 		log.Fatalf("fake-imex: %s is required (set via downward API)", imexcoord.EnvPodIP)
