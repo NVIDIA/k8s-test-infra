@@ -4,13 +4,16 @@
 # The mock-ib TCP fabric listener binds 0.0.0.0:{{ .Values.infiniband.ping.port }}
 # with no authentication, and the DaemonSet runs privileged. This policy
 # limits the blast radius by allowing inbound fabric traffic only from peer
-# nvml-mock pods (the only legitimate clients). Egress is left unrestricted
-# so DNS-based peer discovery and registration keep working.
+# nvml-mock pods (the only legitimate clients) — it also admits the real
+# nvidia-imex NO GPU mode gRPC peer traffic (port 50000) between those same
+# pods. Egress is left unrestricted so DNS-based peer discovery and
+# registration keep working.
 #
-# NOTE: NetworkPolicy is only enforced by CNIs that implement it (Calico,
-# Cilium, ...). Kind's default CNI (kindnet) ignores NetworkPolicy, so this
-# is a no-op in the typical Kind fixture and matters on policy-enforcing
-# clusters. Harmless either way.
+# NOTE: kind's kindnetd ENFORCES NetworkPolicy on current kind releases, so
+# this allow-list is load-bearing on Kind, not just on Calico/Cilium clusters.
+# Any new pod-to-pod listener added to the mock stack must be allowed here —
+# the imex port below is required by the ComputeDomain demo's real
+# nvidia-imex daemons (NVIDIA/k8s-test-infra#304).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -41,5 +44,7 @@ spec:
               app.kubernetes.io/name: {{ include "nvml-mock.name" . }}
       ports:
         - port: ibping
+          protocol: TCP
+        - port: imex
           protocol: TCP
 {{- end }}

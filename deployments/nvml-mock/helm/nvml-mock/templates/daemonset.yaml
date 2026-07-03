@@ -47,6 +47,12 @@ spec:
             - name: ibping
               containerPort: {{ .Values.infiniband.ping.port }}
               protocol: TCP
+            # Real nvidia-imex (NO GPU mode) gRPC peer port — used by the
+            # ComputeDomain demo (see NVIDIA/k8s-test-infra#304). Declared
+            # here so the ibping NetworkPolicy's named-port entry resolves.
+            - name: imex
+              containerPort: 50000
+              protocol: TCP
           {{- end }}
           command: ["/scripts/entrypoint.sh"]
           env:

@@ -69,6 +69,9 @@ should match snapshot with all overrides:
                 - containerPort: 18515
                   name: ibping
                   protocol: TCP
+                - containerPort: 50000
+                  name: imex
+                  protocol: TCP
               resources:
                 limits:
                   cpu: 500m
@@ -190,6 +193,9 @@ should match snapshot with b200 profile:
                 - containerPort: 18515
                   name: ibping
                   protocol: TCP
+                - containerPort: 50000
+                  name: imex
+                  protocol: TCP
               securityContext:
                 privileged: true
               volumeMounts:
@@ -297,6 +303,9 @@ should match snapshot with default values:
               ports:
                 - containerPort: 18515
                   name: ibping
+                  protocol: TCP
+                - containerPort: 50000
+                  name: imex
                   protocol: TCP
               securityContext:
                 privileged: true
