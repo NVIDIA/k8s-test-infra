@@ -378,6 +378,6 @@ cat <<EOF
     deployments/nvml-mock/Dockerfile.compute-domain-daemon for the
     thin overlay that runs the real IMEX daemon with --nogpu).
 
-==> Tear down
+==> The cluster is left running for inspection. To tear it down:
     kind delete cluster --name ${CLUSTER_NAME}
 EOF

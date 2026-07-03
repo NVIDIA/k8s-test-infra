@@ -32,7 +32,7 @@ The demo expects the following tools on `$PATH`:
 | `docker`  | 24+            | Daemon must be running. Multi-stage builds use the repo's pinned Go base (hack/golang-version.sh). |
 | `kind`    | v0.24+         | Provisions the demo's dedicated 4-worker cluster. |
 | `kubectl` | v1.30+         | Used for `exec`, `rollout`, `get` against the in-cluster pods. |
-| `helm`    | v3.13+         | Chart install + `helm upgrade --reuse-values`. |
+| `helm`    | v3.13+ (v4 works) | Chart install + `helm upgrade --reuse-values`. |
 | `bash`    | 3.2+           | `run.sh` uses `set -euo pipefail` — no bash 4+ features. |
 | `jq`      | any recent     | Scenario 2 parses `nvidia-imex-ctl -N -j` JSON. |
 
@@ -125,8 +125,10 @@ kind create cluster --name nvml-mock-compute-domain \
 
 # 2. Build the demo image (bundles check-fabric on top of the standard
 #    nvml-mock image), then layer the REAL nvidia-imex (NO GPU mode
-#    via imex-nogpu-shim) on top. Local build only — this image
-#    repackages the proprietary nvidia-imex.
+#    via imex-nogpu-shim) on top. nvidia-imex is proprietary but comes
+#    from the PUBLIC Ubuntu 22.04 multiverse repo (nvidia-imex-595) —
+#    no NVIDIA credentials or internal access needed. Local build only:
+#    never publish the resulting image.
 docker build -t nvml-mock:compute-domain -f deployments/nvml-mock/Dockerfile .
 docker build -t nvml-mock:compute-domain-imex \
     --target demo \
