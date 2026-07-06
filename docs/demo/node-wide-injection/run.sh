@@ -79,8 +79,17 @@ if grep -q "nvidia.com/gpu" <<<"${GPU_AGENT_RESOURCES}"; then
   fail "gpu-agent unexpectedly requests nvidia.com/gpu"
 fi
 
-info "Verifying gpu-agent runs nvidia-smi from NRI injection"
-kubectl -n "${WORKLOAD_NAMESPACE}" logs daemonset/gpu-agent --tail=80 | grep -q "GPU 0:"
+info "Verifying gpu-agent sees mock GPUs from NRI injection"
+kubectl -n "${WORKLOAD_NAMESPACE}" wait --for=condition=Ready pod -l app=gpu-agent --timeout=120s
+GPU_AGENT_POD=$(kubectl -n "${WORKLOAD_NAMESPACE}" get pod -l app=gpu-agent -o jsonpath='{.items[0].metadata.name}')
+GPU_AGENT_GPUS=$(kubectl -n "${WORKLOAD_NAMESPACE}" exec "${GPU_AGENT_POD}" -- nvidia-smi -L)
+echo "${GPU_AGENT_GPUS}"
+GPU_AGENT_GPU_COUNT=$(grep -c '^GPU [0-9]\+:' <<<"${GPU_AGENT_GPUS}" || true)
+if [[ "${GPU_AGENT_GPU_COUNT}" -lt 1 ]]; then
+  fail "gpu-agent did not report any GPUs:
+${GPU_AGENT_GPUS}"
+fi
+info "gpu-agent sees ${GPU_AGENT_GPU_COUNT} GPU(s)"
 
 info "Creating demo pods"
 kubectl -n "${WORKLOAD_NAMESPACE}" delete pod node-wide-plain node-wide-opt-out node-wide-device-opt-in --ignore-not-found
