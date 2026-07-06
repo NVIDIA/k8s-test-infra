@@ -776,6 +776,376 @@ jobs:
           echo "=== node describe ==="
           kubectl describe nodes || true
 
+  # Runs the GPU Operator's containerized-driver lifecycle (driver.enabled=true)
+  # against the mock-driver image: DaemonSet rendering + image-tag resolution,
+  # the k8s-driver-manager init flow, the startup-probe -> .driver-ctr-ready
+  # handshake, and the validator's operator-managed driver branch. Complements
+  # e2e-gpu-operator, which keeps the driver disabled. Single profile: this
+  # lane tests the driver lifecycle, not per-profile NVML behavior (that is
+  # covered by the other jobs' matrices).
+  e2e-gpu-operator-driver:
+    runs-on: ubuntu-latest
+    env:
+      CLUSTER_NAME: nvml-mock-drv
+      # Pinned: the mock-driver image satisfies this version's driver-container
+      # contract, vendored at tests/e2e/contract/. Bump both together.
+      GPU_OPERATOR_VERSION: v26.3.3
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Check driver-container contract drift
+        run: tests/e2e/check-driver-contract.sh "$GPU_OPERATOR_VERSION"
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+
+      - name: Create Kind cluster for GPU Operator
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          config: tests/e2e/kind-gpu-operator-config.yaml
+
+      - name: Set up NVIDIA container toolkit (CDI mode)
+        uses: ./.github/actions/setup-kind-nvidia-toolkit
+        with:
+          node_containers: ${{ env.CLUSTER_NAME }}-control-plane
+
+      - name: Build nvml-mock image
+        run: |
+          docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile \
+            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+
+      - name: Build mock-driver image
+        run: |
+          docker build -t docker.io/library/mock-driver:e2e -f deployments/mock-driver/Dockerfile \
+            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+
+      - name: Tag mock-driver with OS suffix and load images into Kind
+        run: |
+          NODE_CONTAINER=$CLUSTER_NAME-control-plane
+          # The operator resolves the driver image as
+          # <repository>/<image>:<version>-<osID><osVersionID>, where the OS
+          # values come from the node's NFD system-os_release labels. Read the
+          # same source (the node's /etc/os-release) to compute the tag.
+          OSTAG=$(docker exec "$NODE_CONTAINER" sh -c '. /etc/os-release && echo "${ID}${VERSION_ID}"')
+          echo "Node OS tag: $OSTAG"
+          docker tag docker.io/library/mock-driver:e2e "docker.io/library/mock-driver:e2e-$OSTAG"
+          kind load docker-image nvml-mock:e2e --name "$CLUSTER_NAME"
+          kind load docker-image "docker.io/library/mock-driver:e2e-$OSTAG" --name "$CLUSTER_NAME"
+
+      - name: Install nvml-mock Helm chart (driver symlink disabled)
+        run: |
+          helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+            --set image.repository=nvml-mock \
+            --set image.tag=e2e \
+            --set gpu.profile=a100 \
+            --set gpu.count=2 \
+            --set gpuOperator.driverSymlink.enabled=false \
+            --wait --timeout 120s
+          kubectl rollout status daemonset/nvml-mock --timeout=60s
+
+      - name: Verify /run/nvidia/driver is not a symlink
+        run: |
+          NODE_CONTAINER=$CLUSTER_NAME-control-plane
+          if docker exec "$NODE_CONTAINER" test -L /run/nvidia/driver; then
+            echo "FAIL: /run/nvidia/driver is a symlink -- driverSymlink flag not honored"
+            exit 1
+          fi
+          echo "PASS: /run/nvidia/driver left for the driver DaemonSet"
+
+      - name: Add NVIDIA Helm repo
+        run: |
+          helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+          helm repo update
+
+      - name: Install GPU Operator (managed driver, mock image)
+        run: |
+          # Layered values: driver-disabled baseline + managed-driver delta
+          helm install gpu-operator nvidia/gpu-operator \
+            -n gpu-operator --create-namespace \
+            --version "$GPU_OPERATOR_VERSION" \
+            -f tests/e2e/gpu-operator-values.yaml \
+            -f tests/e2e/gpu-operator-driver-values.yaml \
+            --wait --timeout 300s
+
+      - name: Wait for driver DaemonSet readiness
+        run: |
+          # The operator renders the driver DaemonSet with updateStrategy
+          # OnDelete (see tests/e2e/contract/), and kubectl rollout status
+          # only supports RollingUpdate -- poll the readiness counters instead.
+          CREATED=""
+          for i in $(seq 1 60); do
+            if kubectl -n gpu-operator get daemonset nvidia-driver-daemonset >/dev/null 2>&1; then
+              CREATED=yes
+              break
+            fi
+            echo "Attempt $i/60: driver DaemonSet not created yet, waiting..."
+            sleep 5
+          done
+          if [ -z "$CREATED" ]; then
+            echo "FAIL: driver DaemonSet was never created -- check operator logs and driver image tag resolution"
+            kubectl -n gpu-operator logs -l app.kubernetes.io/component=gpu-operator --tail=50 || true
+            exit 1
+          fi
+          for i in $(seq 1 60); do
+            DESIRED=$(kubectl -n gpu-operator get daemonset nvidia-driver-daemonset -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || echo "")
+            READY=$(kubectl -n gpu-operator get daemonset nvidia-driver-daemonset -o jsonpath='{.status.numberReady}' 2>/dev/null || echo "")
+            if [ -n "$DESIRED" ] && [ "$DESIRED" != "0" ] && [ "$READY" = "$DESIRED" ]; then
+              echo "PASS: driver DaemonSet ready ($READY/$DESIRED)"
+              kubectl -n gpu-operator get pods -l app=nvidia-driver-daemonset -o wide
+              exit 0
+            fi
+            echo "Attempt $i/60: driver pods ready=$READY desired=$DESIRED, waiting..."
+            sleep 5
+          done
+          echo "FAIL: driver DaemonSet did not become ready"
+          kubectl -n gpu-operator describe daemonset nvidia-driver-daemonset || true
+          kubectl -n gpu-operator describe pods -l app=nvidia-driver-daemonset || true
+          exit 1
+
+      - name: Verify driver contract on node
+        run: |
+          NODE_CONTAINER=$CLUSTER_NAME-control-plane
+          echo "=== .driver-ctr-ready (written by the operator's startup probe) ==="
+          docker exec "$NODE_CONTAINER" cat /run/nvidia/validations/.driver-ctr-ready
+          echo "=== driver rootfs visible on host through the rbind ==="
+          docker exec "$NODE_CONTAINER" test -x /run/nvidia/driver/usr/bin/nvidia-smi
+          docker exec "$NODE_CONTAINER" test -f /run/nvidia/driver/usr/lib64/libnvidia-ml.so.1
+          docker exec "$NODE_CONTAINER" test -f /run/nvidia/driver/config/config.yaml
+          echo "=== /proc/driver/nvidia/version through the driver root (informational) ==="
+          docker exec "$NODE_CONTAINER" cat /run/nvidia/driver/proc/driver/nvidia/version || \
+            echo "WARNING: proc submount not visible through rbind (non-blocking)"
+          echo "Driver contract verified"
+
+      - name: Wait for operator-validator pod
+        uses: ./.github/actions/wait-operator-validator
+
+      - name: Verify driver-ready sentinel (managed-driver values)
+        run: |
+          NODE_CONTAINER=$CLUSTER_NAME-control-plane
+          echo "=== driver-ready (written by the validator's managed branch) ==="
+          docker exec "$NODE_CONTAINER" cat /run/nvidia/validations/driver-ready
+          docker exec "$NODE_CONTAINER" grep -q "/run/nvidia/driver" /run/nvidia/validations/driver-ready
+          echo "PASS: driver-ready points at the managed driver root"
+
+      - name: Verify allocatable GPUs
+        uses: ./.github/actions/verify-allocatable-gpus
+        with:
+          expected: "2"
+
+      - name: Verify ClusterPolicy is ready
+        run: |
+          for i in $(seq 1 30); do
+            STATE=$(kubectl get clusterpolicies.nvidia.com -o jsonpath='{.items[0].status.state}' 2>/dev/null || echo "NotFound")
+            if [ "$STATE" = "ready" ]; then
+              echo "PASS: ClusterPolicy state=ready"
+              exit 0
+            fi
+            echo "Attempt $i/30: ClusterPolicy state=$STATE, waiting..."
+            sleep 5
+          done
+          echo "FAIL: ClusterPolicy did not reach ready state"
+          kubectl get clusterpolicies.nvidia.com -o yaml || true
+          exit 1
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          NODE_CONTAINER=$CLUSTER_NAME-control-plane
+          echo "=== GPU Operator pods ==="
+          kubectl -n gpu-operator get pods -o wide || true
+          echo "=== driver DaemonSet describe ==="
+          kubectl -n gpu-operator describe daemonset nvidia-driver-daemonset || true
+          echo "=== driver pod describe ==="
+          kubectl -n gpu-operator describe pods -l app=nvidia-driver-daemonset || true
+          echo "=== k8s-driver-manager init logs ==="
+          kubectl -n gpu-operator logs -l app=nvidia-driver-daemonset -c k8s-driver-manager --tail=100 || true
+          echo "=== nvidia-driver-ctr logs ==="
+          kubectl -n gpu-operator logs -l app=nvidia-driver-daemonset -c nvidia-driver-ctr --tail=100 || true
+          echo "=== /run/nvidia on node ==="
+          docker exec "$NODE_CONTAINER" ls -laR /run/nvidia 2>/dev/null | head -60 || true
+          echo "=== node labels ==="
+          kubectl get nodes --show-labels || true
+          echo "=== gpu-operator controller logs ==="
+          kubectl -n gpu-operator logs -l app.kubernetes.io/component=gpu-operator --tail=100 || true
+          echo "=== ClusterPolicy ==="
+          kubectl get clusterpolicies.nvidia.com -o yaml || true
+          echo "=== nvml-mock pod logs ==="
+          kubectl logs -l app.kubernetes.io/name=nvml-mock --tail=50 || true
+
+      - name: Dump operator-validator init logs
+        if: failure()
+        uses: ./.github/actions/dump-validator-logs
+
+  # Runs the GPU Operator against the host-driver masquerade: nvml-mock
+  # installs nvidia-smi + mock libs at the node's STANDARD paths, so the
+  # validator takes its preinstalled host-driver branch and no component
+  # needs driver-root plumbing. Complements e2e-gpu-operator (symlinked
+  # driver root + env overrides) and e2e-gpu-operator-driver (managed
+  # driver DaemonSet). Single profile: this lane tests the host topology,
+  # not per-profile NVML behavior.
+  e2e-gpu-operator-hostdriver:
+    runs-on: ubuntu-latest
+    env:
+      CLUSTER_NAME: nvml-mock-host
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+
+      - name: Create Kind cluster for GPU Operator
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          config: tests/e2e/kind-gpu-operator-config.yaml
+
+      - name: Set up NVIDIA container toolkit (CDI mode)
+        uses: ./.github/actions/setup-kind-nvidia-toolkit
+        with:
+          node_containers: ${{ env.CLUSTER_NAME }}-control-plane
+
+      - name: Build nvml-mock image
+        run: |
+          docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile \
+            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image nvml-mock:e2e --name "$CLUSTER_NAME"
+
+      - name: Install nvml-mock Helm chart (host driver masquerade)
+        run: |
+          helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+            --set image.repository=nvml-mock \
+            --set image.tag=e2e \
+            --set gpu.profile=a100 \
+            --set gpu.count=2 \
+            --set hostDriver.enabled=true \
+            --wait --timeout 120s
+          kubectl rollout status daemonset/nvml-mock --timeout=60s
+
+      - name: Verify zero-plumbing host paths
+        run: |
+          NODE_CONTAINER=$CLUSTER_NAME-control-plane
+          # The DaemonSet has no readiness probe, so poll for setup.sh's host
+          # masquerade install before asserting.
+          for i in $(seq 1 12); do
+            if docker exec "$NODE_CONTAINER" test -f /usr/bin/nvidia-smi; then
+              break
+            fi
+            echo "Attempt $i/12: waiting for host masquerade install..."
+            sleep 5
+          done
+          echo "=== plain nvidia-smi at the standard path, no env plumbing ==="
+          docker exec "$NODE_CONTAINER" /usr/bin/nvidia-smi -L
+          COUNT=$(docker exec "$NODE_CONTAINER" /usr/bin/nvidia-smi -L | grep -c "^GPU")
+          [ "$COUNT" = "2" ] || { echo "FAIL: expected 2 GPUs, got $COUNT"; exit 1; }
+          echo "=== libnvidia-ml resolvable through the ldcache ==="
+          docker exec "$NODE_CONTAINER" sh -c 'ldconfig -p | grep libnvidia-ml.so.1'
+          echo "=== manifest recorded ==="
+          docker exec "$NODE_CONTAINER" cat /var/lib/nvml-mock/host-driver-manifest.txt
+          echo "PASS: host driver masquerade verified"
+
+      - name: Add NVIDIA Helm repo
+        run: |
+          helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+          helm repo update
+
+      - name: Install GPU Operator (preinstalled host driver)
+        run: |
+          # Layered values: driver-disabled baseline + host-driver delta
+          helm install gpu-operator nvidia/gpu-operator \
+            -n gpu-operator --create-namespace \
+            -f tests/e2e/gpu-operator-values.yaml \
+            -f tests/e2e/gpu-operator-hostdriver-values.yaml \
+            --wait --timeout 300s
+
+      - name: Wait for operator-validator pod
+        uses: ./.github/actions/wait-operator-validator
+
+      - name: Verify driver-ready sentinel (host-driver values)
+        run: |
+          NODE_CONTAINER=$CLUSTER_NAME-control-plane
+          echo "=== driver-ready (written by the validator's host branch) ==="
+          docker exec "$NODE_CONTAINER" cat /run/nvidia/validations/driver-ready
+          docker exec "$NODE_CONTAINER" grep -qi "IS_HOST_DRIVER.*true" /run/nvidia/validations/driver-ready
+          echo "PASS: validator took the preinstalled host-driver branch"
+
+      - name: Verify allocatable GPUs
+        uses: ./.github/actions/verify-allocatable-gpus
+        with:
+          expected: "2"
+
+      - name: Run a GPU workload pod through the allocation path
+        run: |
+          # Covers device-plugin CDI allocation end-to-end (Allocate ->
+          # plugin-generated CDI spec -> containerd injection), which the
+          # NVIDIA_VISIBLE_DEVICES-based CDI test in e2e-gpu-operator bypasses.
+          cat << 'PODEOF' | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: gpu-workload
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: cuda-app
+                image: ubuntu:22.04
+                command: ["sh", "-c", "ls -la /dev/nvidia* && nvidia-smi -L"]
+                resources:
+                  limits:
+                    nvidia.com/gpu: 1
+          PODEOF
+          for i in $(seq 1 30); do
+            PHASE=$(kubectl get pod gpu-workload -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)
+            [ "$PHASE" = "Succeeded" ] && break
+            [ "$PHASE" = "Failed" ] && { kubectl describe pod gpu-workload | tail -15; exit 1; }
+            echo "attempt $i: workload phase=$PHASE"
+            sleep 5
+          done
+          kubectl logs gpu-workload
+          kubectl logs gpu-workload | grep -q "^GPU 0:" || { echo "FAIL: workload did not see a GPU"; exit 1; }
+          kubectl delete pod gpu-workload --ignore-not-found
+          echo "PASS: allocation path delivered a GPU to the workload"
+
+      - name: Verify uninstall removes host files
+        run: |
+          NODE_CONTAINER=$CLUSTER_NAME-control-plane
+          helm uninstall nvml-mock --wait --timeout 120s
+          for i in $(seq 1 12); do
+            if docker exec "$NODE_CONTAINER" test ! -f /usr/bin/nvidia-smi; then
+              break
+            fi
+            echo "Attempt $i/12: waiting for preStop cleanup..."
+            sleep 5
+          done
+          docker exec "$NODE_CONTAINER" test ! -f /usr/bin/nvidia-smi
+          docker exec "$NODE_CONTAINER" test ! -e /config
+          docker exec "$NODE_CONTAINER" test ! -f /etc/ld.so.conf.d/00-nvml-mock.conf
+          docker exec "$NODE_CONTAINER" sh -c 'ls /usr/lib64/libnvidia-ml.so* /usr/lib64/libcuda* 2>/dev/null | grep . && exit 1 || exit 0'
+          docker exec "$NODE_CONTAINER" sh -c 'ldconfig -p | grep libnvidia-ml && exit 1 || exit 0'
+          echo "PASS: uninstall left no host residue"
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          NODE_CONTAINER=$CLUSTER_NAME-control-plane
+          echo "=== nvml-mock pod logs ==="
+          kubectl logs -l app.kubernetes.io/name=nvml-mock --tail=50 || true
+          echo "=== host paths ==="
+          docker exec "$NODE_CONTAINER" ls -la /usr/bin/nvidia-smi /usr/lib64/ /config 2>/dev/null || true
+          echo "=== GPU Operator pods ==="
+          kubectl -n gpu-operator get pods -o wide || true
+          echo "=== driver-ready ==="
+          docker exec "$NODE_CONTAINER" cat /run/nvidia/validations/driver-ready 2>/dev/null || true
+          echo "=== node describe ==="
+          kubectl describe nodes || true
+
+      - name: Dump operator-validator init logs
+        if: failure()
+        uses: ./.github/actions/dump-validator-logs
+
   e2e-multi-node:
     runs-on: ubuntu-latest
     steps:

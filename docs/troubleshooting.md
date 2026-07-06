@@ -346,9 +346,23 @@ kubectl logs -l app.kubernetes.io/name=nvml-mock | grep -i cdi
 kubectl -n gpu-operator logs -l app=nvidia-device-plugin-daemonset | head -20
 ```
 
-The GPU Operator must be installed with `--set driver.enabled=false` and
-`--set toolkit.enabled=false` when using mock GPUs, since there is no real
-NVIDIA driver to manage.
+The GPU Operator supports three modes with mock GPUs (`toolkit.enabled=false`
+in all, since mock libs reach containers via CDI):
+
+- `driver.enabled=false` (default, [gpu-operator-values.yaml](../tests/e2e/gpu-operator-values.yaml)):
+  no driver DaemonSet; nvml-mock's `/run/nvidia/driver` symlink satisfies the
+  validator.
+- `driver.enabled=false` + host driver masquerade
+  (`hostDriver.enabled=true` on nvml-mock, plus the
+  [gpu-operator-hostdriver-values.yaml](../tests/e2e/gpu-operator-hostdriver-values.yaml)
+  delta): nvidia-smi and libs at standard host paths; the validator takes its
+  preinstalled host-driver branch with zero env overrides.
+- `driver.enabled=true` with the [mock-driver image](mock-driver.md)
+  ([gpu-operator-driver-values.yaml](../tests/e2e/gpu-operator-driver-values.yaml)
+  delta): the operator manages a mock driver DaemonSet; nvml-mock must be
+  installed with `gpuOperator.driverSymlink.enabled=false` and must NOT have
+  `hostDriver.enabled=true` (a host nvidia-smi flips driver-manager's
+  preinstalled-driver detection).
 
 ## Getting Help
 

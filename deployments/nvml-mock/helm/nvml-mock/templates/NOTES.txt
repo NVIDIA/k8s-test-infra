@@ -50,15 +50,30 @@ OPTION B: NVIDIA DRA Driver (requires DRA-enabled cluster)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-OPTION C: GPU Operator (UNTESTED — contributions welcome)
+OPTION C: GPU Operator (tested in CI -- two modes)
 
-  helm install gpu-operator nvidia/gpu-operator \
-    --set driver.enabled=false \
-    --set toolkit.enabled=true \
-    --set devicePlugin.enabled=true
+  Driver disabled (default -- this chart's /run/nvidia/driver symlink serves
+  the operator validator):
 
-  ⚠ This integration has no E2E test coverage. If you get it working,
-  please contribute the test back.
+    helm install gpu-operator nvidia/gpu-operator \
+      -n gpu-operator --create-namespace \
+      -f tests/e2e/gpu-operator-values.yaml
+
+  Operator-managed mock driver: install this chart with
+  --set gpuOperator.driverSymlink.enabled=false, then follow
+  docs/mock-driver.md (mock-driver image tagged for your nodes' OS,
+  layered values files, operator version pin).
+{{- if not (eq (include "nvml-mock.driverSymlinkEnabled" .) "true") }}
+
+  gpuOperator.driverSymlink is DISABLED for this release -- /run/nvidia/driver
+  is left to an operator-managed (mock) driver DaemonSet.
+{{- end }}
+{{- if eq (include "nvml-mock.hostDriverEnabled" .) "true" }}
+
+  hostDriver masquerade is ENABLED -- nvidia-smi and the mock libraries are
+  installed at the node's standard paths (/usr/bin, /usr/lib64, ldcache).
+  Consumers on the node need zero configuration. Test nodes only.
+{{- end }}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {{- if .Values.integrations.fakeGpuOperator.enabled }}

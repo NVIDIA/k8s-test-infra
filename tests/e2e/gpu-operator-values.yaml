@@ -13,7 +13,8 @@
 #   - Node labelled nvidia.com/gpu.present=true (done by nvml-mock chart)
 #
 # Tested versions:
-#   - GPU Operator: v24.9.x
+#   - GPU Operator: latest (installed unpinned in CI; originally validated
+#     against v24.9.x -- see tests/e2e/VERSION-MATRIX.md)
 #   - Device Plugin: v0.17.x (bundled with operator)
 #   - GFD: v0.17.x (bundled with operator)
 #   - DRA Driver: v0.10.x (standalone Helm chart, not part of operator)

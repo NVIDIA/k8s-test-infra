@@ -1,0 +1,31 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+name: Dump operator-validator init logs
+description: >-
+  Print the logs of every nvidia-operator-validator init container. Meant for
+  if-failure diagnostics steps in the GPU Operator e2e jobs.
+
+inputs:
+  namespace:
+    description: "Namespace the GPU Operator is installed in"
+    required: false
+    default: "gpu-operator"
+
+runs:
+  using: composite
+  steps:
+    - name: Dump validator init container logs
+      shell: bash
+      run: |
+        NS='${{ inputs.namespace }}'
+        echo "=== operator-validator init container logs ==="
+        VALIDATOR_POD=$(kubectl -n "$NS" get pods -l app=nvidia-operator-validator \
+          --no-headers -o custom-columns=':metadata.name' | head -1)
+        if [ -n "$VALIDATOR_POD" ]; then
+          for INIT in driver-validation toolkit-validation cuda-validation plugin-validation; do
+            echo "--- $INIT ---"
+            kubectl -n "$NS" logs "$VALIDATOR_POD" -c "$INIT" --tail=30 || true
+          done
+        else
+          echo "no validator pod found"
+        fi

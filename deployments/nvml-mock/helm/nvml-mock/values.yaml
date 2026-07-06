@@ -58,6 +58,19 @@ image:
 
 driverVersion: ""                  # Auto-derived from profile. Override: "550.163.01"
 
+# GPU Operator interoperability
+gpuOperator:
+  driverSymlink:
+    enabled: true         # Disable for operator-managed driver mode (docs/mock-driver.md)
+
+# Host driver masquerade: install nvidia-smi and the mock libraries at the
+# node's standard paths (/usr/bin, /usr/lib64 + ldconfig) so consumers need
+# zero configuration. MUTATES THE HOST -- test nodes only. Never combine with
+# an operator-managed driver DaemonSet (a host nvidia-smi flips
+# k8s-driver-manager's preinstalled-driver detection). See the chart README.
+hostDriver:
+  enabled: false
+
 nodeSelector: {}
 tolerations:
   - operator: Exists
