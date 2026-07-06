@@ -69,6 +69,6 @@ func TestRealBin(t *testing.T) {
 	})
 	t.Run("constant pins the documented literal", func(t *testing.T) {
 		assert.Equal(t, "IMEX_SHIM_REAL_BIN", envRealBin,
-			"documented escape hatch (README/Dockerfile contract); the constant must match")
+			"documented in Dockerfile.compute-domain-daemon's shim stage; the constant must match")
 	})
 }

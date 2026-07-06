@@ -39,7 +39,10 @@ ARG NVML_MOCK_IMAGE=ghcr.io/nvidia/nvml-mock:latest
 # Verified live 2026-07-03. No `latest` tag is published — bump the
 # pinned version deliberately.
 ARG COMPUTE_DOMAIN_DAEMON_IMAGE=registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.4.1
-ARG GOLANG_VERSION=1.26
+# Default kept in lockstep with hack/golang-version.sh (repo-wide pin,
+# see the #394 CVE refresh); the demo script overrides it with the
+# script's output anyway.
+ARG GOLANG_VERSION=1.26.4
 
 # Real IMEX daemon + ctl. Ubuntu redistributes the NVIDIA driver stack
 # in multiverse; nvidia-imex-595 is the 595-branch package (same
@@ -55,6 +58,10 @@ RUN export DEBIAN_FRONTEND=noninteractive \
  && dpkg-query -W -f='${Version}\n' nvidia-imex-595 | tee /imex-version \
  && grep -q '^595\.' /imex-version
 
+# imex-nogpu-shim (installed below as /usr/bin/nvidia-imex) execs
+# /usr/bin/nvidia-imex.real with --nogpu appended. Setting
+# IMEX_SHIM_REAL_BIN in the container environment overrides the
+# real-binary path for non-standard installs.
 FROM golang:${GOLANG_VERSION} AS shim
 WORKDIR /src
 COPY go.mod go.sum ./
