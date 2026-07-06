@@ -20,10 +20,12 @@ COPY vendor/ vendor/
 COPY pkg/gpu/mocknvml/ pkg/gpu/mocknvml/
 COPY pkg/gpu/mockcuda/ pkg/gpu/mockcuda/
 COPY pkg/network/mockib/ pkg/network/mockib/
+COPY pkg/nri/ pkg/nri/
 COPY pkg/system/mockpcisysfs/ pkg/system/mockpcisysfs/
 COPY pkg/imexcoord/ pkg/imexcoord/
 COPY pkg/fmcoord/ pkg/fmcoord/
 COPY cmd/mock-ib/ cmd/mock-ib/
+COPY cmd/nvml-mock-nri/ cmd/nvml-mock-nri/
 COPY cmd/render-pci-sysfs/ cmd/render-pci-sysfs/
 COPY cmd/fake-imex/ cmd/fake-imex/
 COPY cmd/fake-fabricmanager/ cmd/fake-fabricmanager/
@@ -31,8 +33,10 @@ COPY cmd/check-fabric/ cmd/check-fabric/
 RUN cd pkg/gpu/mocknvml && make clean && make
 RUN cd pkg/gpu/mockcuda && make clean && make
 RUN cd pkg/network/mockib && make clean && make
+RUN cd pkg/system/mockpcisysfs && make clean && make
 RUN mkdir -p /out \
     && go build -mod=vendor -o /out/mock-ib ./cmd/mock-ib \
+    && go build -mod=vendor -o /out/nvml-mock-nri ./cmd/nvml-mock-nri \
     && go build -mod=vendor -o /out/render-pci-sysfs ./cmd/render-pci-sysfs \
     && go build -mod=vendor -o /out/nvidia-imex     ./cmd/fake-imex/daemon \
     && go build -mod=vendor -o /out/nvidia-imex-ctl ./cmd/fake-imex/ctl \
@@ -48,7 +52,9 @@ COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmocksys.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmockumad.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmockverbs.so.* /usr/local/lib/
+COPY --from=builder /src/pkg/system/mockpcisysfs/libpcimocksys.so.* /usr/local/lib/
 COPY --from=builder /out/mock-ib /usr/local/bin/mock-ib
+COPY --from=builder /out/nvml-mock-nri /usr/local/bin/nvml-mock-nri
 COPY --from=builder /out/render-pci-sysfs /usr/local/bin/render-pci-sysfs
 # Fake IMEX binaries used for ComputeDomain simulation on KIND. Installed
 # at the same paths the upstream compute-domain-daemon expects in $PATH,

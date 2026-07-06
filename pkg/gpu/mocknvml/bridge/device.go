@@ -881,6 +881,18 @@ func nvmlDeviceGetRemappedRows(nvmlDevice C.nvmlDevice_t, corrRows *C.uint, uncR
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetRemappedRows"); !ok {
 		return ret
 	}
+	return deviceGetRemappedRows(nvmlDevice, corrRows, uncRows, isPending, failureOccurred)
+}
+
+//export nvmlDeviceGetRemappedRows_v2
+func nvmlDeviceGetRemappedRows_v2(nvmlDevice C.nvmlDevice_t, corrRows *C.uint, uncRows *C.uint, isPending *C.uint, failureOccurred *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetRemappedRows_v2"); !ok {
+		return ret
+	}
+	return deviceGetRemappedRows(nvmlDevice, corrRows, uncRows, isPending, failureOccurred)
+}
+
+func deviceGetRemappedRows(nvmlDevice C.nvmlDevice_t, corrRows *C.uint, uncRows *C.uint, isPending *C.uint, failureOccurred *C.uint) C.nvmlReturn_t {
 	if corrRows == nil || uncRows == nil || isPending == nil || failureOccurred == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}

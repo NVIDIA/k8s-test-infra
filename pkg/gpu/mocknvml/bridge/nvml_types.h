@@ -476,6 +476,10 @@ typedef struct nvmlHostname_v1_st                           nvmlHostname_v1_t;
 typedef struct nvmlPRMCounterList_v1_st                     nvmlPRMCounterList_v1_t;
 typedef struct nvmlRusdSettings_v1_st                       nvmlRusdSettings_v1_t;
 typedef struct nvmlUnrepairableMemoryStatus_v1_st           nvmlUnrepairableMemoryStatus_v1_t;
+typedef struct nvmlVgpuSchedulerLogInfo_v2_st               nvmlVgpuSchedulerLogInfo_v2_t;
+typedef struct nvmlVgpuSchedulerSetState_v2_st              nvmlVgpuSchedulerSetState_v2_t;
+typedef struct nvmlVgpuSchedulerState_v2_st                 nvmlVgpuSchedulerState_v2_t;
+typedef struct nvmlVgpuSchedulerStateInfo_v2_st             nvmlVgpuSchedulerStateInfo_v2_t;
 typedef struct nvmlWorkloadPowerProfileUpdateProfiles_v1_st nvmlWorkloadPowerProfileUpdateProfiles_v1_t;
 
 /*

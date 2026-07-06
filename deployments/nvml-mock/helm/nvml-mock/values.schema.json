@@ -129,6 +129,44 @@
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },
     "resources": { "type": "object" },
+    "nri": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Node-wide ambient injection via containerd NRI.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "socketPath": { "type": "string", "minLength": 1 },
+        "pluginName": { "type": "string", "minLength": 1 },
+        "pluginIndex": { "type": ["string", "integer"] },
+        "image": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "repository": { "type": "string" },
+            "tag": { "type": "string" },
+            "pullPolicy": {
+              "type": "string",
+              "enum": ["Always", "IfNotPresent", "Never"]
+            }
+          }
+        },
+        "overlay": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "hostPath": { "type": "string", "minLength": 1 },
+            "mountPath": { "type": "string", "minLength": 1 }
+          }
+        },
+        "optOutAnnotation": { "type": "string", "minLength": 1 },
+        "deviceAnnotation": { "type": "string", "minLength": 1 },
+        "excludedNamespaces": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "resources": { "type": "object" }
+      }
+    },
     "terminationGracePeriodSeconds": {
       "type": "integer",
       "description": "Pod termination grace period (seconds). Lower values speed up rollouts; preStop cleanup is fast so 5-15s is typical.",

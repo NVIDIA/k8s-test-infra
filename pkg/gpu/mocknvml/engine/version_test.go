@@ -116,9 +116,17 @@ func TestFunctionRegistry_Coverage(t *testing.T) {
 		"nvmlDeviceGetGraphicsRunningProcesses_v3",
 		"nvmlDeviceGetGpuMaxPcieLinkGeneration",
 		"nvmlDeviceGetRemappedRows",
+		"nvmlDeviceGetRemappedRows_v2",
 		"nvmlDeviceGetGspFirmwareMode",
 		"nvmlGpmQueryDeviceSupport",
 		"nvmlDeviceGetPlatformInfo",
+		"nvmlDeviceGetVgpuSchedulerLog_v2",
+		"nvmlDeviceGetVgpuSchedulerState_v2",
+		"nvmlDeviceSetVgpuSchedulerState_v2",
+		"nvmlDeviceVgpuForceGspUnload",
+		"nvmlGpuInstanceGetVgpuSchedulerLog_v2",
+		"nvmlGpuInstanceGetVgpuSchedulerState_v2",
+		"nvmlGpuInstanceSetVgpuSchedulerState_v2",
 	}
 
 	registry := GetFunctionRegistry()

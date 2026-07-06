@@ -26,8 +26,9 @@ fi
 echo "Setting up mock GPU environment: $GPU_COUNT GPUs, driver $DRIVER_VERSION"
 
 # 1. Create directory structure
-mkdir -p "$DRIVER_ROOT/usr/lib64" "$DRIVER_ROOT/usr/bin" "$DRIVER_ROOT/config"
+mkdir -p "$DRIVER_ROOT/usr/lib64" "$DRIVER_ROOT/usr/bin" "$DRIVER_ROOT/usr/local/lib" "$DRIVER_ROOT/config"
 mkdir -p "$DEV_ROOT" "$CONFIG_DIR"
+mkdir -p "$HOST/run"
 
 # 2. Copy mock NVML library + create symlinks
 #    The .so is built with a fixed version (Makefile LIB_VERSION); rename to match
@@ -201,7 +202,19 @@ echo "CUDA Version: 12.4"
 NVIDIA_SMI_EOF
 chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi.sh"
 
-# 4b. Create /proc/driver/nvidia mock files (read by nvidia-smi)
+# 4b. Stage InfiniBand tools and preload shims for node-wide NRI injection.
+#     The NRI plugin mounts /var/lib/nvml-mock at /opt/nvml-mock in each
+#     workload, then prepends driver/usr/bin and driver/usr/lib64 and appends
+#     driver/usr/local/lib shims to LD_PRELOAD.
+for tool in ibnetdiscover ibstat iblinkinfo ibstatus sminfo ibping ibv_devinfo; do
+  if command -v "$tool" >/dev/null 2>&1; then
+    cp "$(command -v "$tool")" "$DRIVER_ROOT/usr/bin/$tool"
+  fi
+done
+cp -a /usr/local/lib/libibmock*.so* "$DRIVER_ROOT/usr/local/lib/" 2>/dev/null || true
+cp -a /usr/local/lib/libpcimocksys.so* "$DRIVER_ROOT/usr/local/lib/" 2>/dev/null || true
+
+# 4c. Create /proc/driver/nvidia mock files (read by nvidia-smi)
 PROC_DIR="$DRIVER_ROOT/proc/driver/nvidia"
 mkdir -p "$PROC_DIR"
 cat > "$PROC_DIR/version" << PROC_VERSION_EOF

@@ -1,10 +1,17 @@
 # Node-Wide Mock GPU Injection (Every Pod) Design
 
 **Date:** 2026-07-01
-**Status:** Approved
+**Status:** Superseded by [`2026-07-06-node-wide-mock-injection-nri-design.md`](2026-07-06-node-wide-mock-injection-nri-design.md)
 **Authors:** Design session (brainstorming)
 **Supersedes:** [`2026-06-30-node-wide-mock-injection-design.md`](2026-06-30-node-wide-mock-injection-design.md)
 and its plan [`plans/2026-06-30-node-wide-mock-injection.md`](plans/2026-06-30-node-wide-mock-injection.md)
+
+> **Superseded (2026-07-06):** Injecting at the API-server admission layer works
+> but rewrites every pod spec and carries a TLS webhook + `caBundle` + a
+> cluster-wide `failurePolicy`. The successor design keeps this exact overlay
+> contract (mount + `PATH`/`LD_*`/`MOCK_*` env) but moves the injection point
+> down into containerd via an NRI plugin, so the pod spec is untouched and the
+> failure blast radius is node-local. See the successor design.
 
 ## Summary
 

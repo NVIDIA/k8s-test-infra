@@ -1,0 +1,29 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: v1
+kind: Pod
+metadata:
+  name: node-wide-plain
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  containers:
+    - name: ubuntu
+      image: ubuntu:22.04
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -eu
+          echo "[node-wide-plain] checking ambient NRI injection"
+          test -d /opt/nvml-mock
+          command -v nvidia-smi
+          nvidia-smi -L
+          echo "[node-wide-plain] ambient injection OK"
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi

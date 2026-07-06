@@ -64,6 +64,23 @@ tolerations:
 
 resources: {}
 
+# Node-wide ambient injection via containerd NRI. When enabled, a lightweight
+# node-local plugin appends the nvml-mock overlay mount and environment to each
+# container at runtime without mutating pod specs.
+nri:
+  enabled: true
+  socketPath: /var/run/nri/nri.sock
+  pluginName: nvml-mock
+  pluginIndex: "10"
+  image: {}
+  overlay:
+    hostPath: /var/lib/nvml-mock
+    mountPath: /opt/nvml-mock
+  optOutAnnotation: nvml-mock.nvidia.com/inject
+  deviceAnnotation: nvml-mock.nvidia.com/devices
+  excludedNamespaces: []
+  resources: {}
+
 # DaemonSet rolling update strategy.
 updateStrategy:
   type: RollingUpdate

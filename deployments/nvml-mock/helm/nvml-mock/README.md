@@ -22,6 +22,13 @@ Deploys a DaemonSet that creates on every node:
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
 
+When `nri.enabled=true` (default), the chart also deploys `nvml-mock-nri`, a
+node-local containerd NRI plugin. It mounts the host overlay into newly created
+containers at `/opt/nvml-mock` and injects the mock environment at runtime, so
+plain pods can run `nvidia-smi` without GPU resource requests or pod-spec
+mutation. Kind clusters must have containerd NRI enabled; see
+[`docs/demo/node-wide-injection`](../../../../docs/demo/node-wide-injection).
+
 ## Prerequisites
 
 | Tool | Version | Required For |

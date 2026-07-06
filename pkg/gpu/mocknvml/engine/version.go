@@ -36,7 +36,8 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceGetProcessUtilization": {Added: "418.0"},
 
 	// 450.x additions
-	"nvmlDeviceGetRemappedRows": {Added: "450.0"},
+	"nvmlDeviceGetRemappedRows":    {Added: "450.0"},
+	"nvmlDeviceGetRemappedRows_v2": {Added: "450.0"},
 
 	// 470.x additions
 	"nvmlDeviceGetArchitecture":             {Added: "470.0"},
@@ -53,6 +54,15 @@ var functionRegistry = map[string]FunctionVersion{
 
 	// 560.x additions
 	"nvmlDeviceGetPlatformInfo": {Added: "560.0"},
+
+	// 580.x / NVML 13.0 additions
+	"nvmlDeviceGetVgpuSchedulerLog_v2":        {Added: "580.0"},
+	"nvmlDeviceGetVgpuSchedulerState_v2":      {Added: "580.0"},
+	"nvmlDeviceSetVgpuSchedulerState_v2":      {Added: "580.0"},
+	"nvmlDeviceVgpuForceGspUnload":            {Added: "580.0"},
+	"nvmlGpuInstanceGetVgpuSchedulerLog_v2":   {Added: "580.0"},
+	"nvmlGpuInstanceGetVgpuSchedulerState_v2": {Added: "580.0"},
+	"nvmlGpuInstanceSetVgpuSchedulerState_v2": {Added: "580.0"},
 
 	// Topology functions (available since early NVML)
 	"nvmlDeviceGetTopologyCommonAncestor": {Added: "331.0"},

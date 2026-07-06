@@ -47,6 +47,8 @@ should match snapshot with all overrides:
                   value: "1"
                 - name: MOCK_IB_PING_PORT
                   value: "18515"
+                - name: MOCK_IB_PING_SOCKET
+                  value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: POD_IP
                   valueFrom:
                     fieldRef:
@@ -54,9 +56,11 @@ should match snapshot with all overrides:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: nvml-mock-custom-ibping.gpu-system.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
+                - name: MOCK_PCI_ROOT
+                  value: /var/lib/nvml-mock
               image: custom-registry/nvml-mock:v2.0.0
               imagePullPolicy: Always
               lifecycle:
@@ -174,6 +178,8 @@ should match snapshot with b200 profile:
                   value: "1"
                 - name: MOCK_IB_PING_PORT
                   value: "18515"
+                - name: MOCK_IB_PING_SOCKET
+                  value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: POD_IP
                   valueFrom:
                     fieldRef:
@@ -181,9 +187,11 @@ should match snapshot with b200 profile:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
+                - name: MOCK_PCI_ROOT
+                  value: /var/lib/nvml-mock
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               lifecycle:
@@ -288,6 +296,8 @@ should match snapshot with default values:
                   value: "1"
                 - name: MOCK_IB_PING_PORT
                   value: "18515"
+                - name: MOCK_IB_PING_SOCKET
+                  value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: POD_IP
                   valueFrom:
                     fieldRef:
@@ -295,9 +305,11 @@ should match snapshot with default values:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
+                - name: MOCK_PCI_ROOT
+                  value: /var/lib/nvml-mock
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               lifecycle:

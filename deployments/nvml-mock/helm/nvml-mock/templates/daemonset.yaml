@@ -120,6 +120,8 @@ spec:
               value: {{ ternary "1" "0" $ibEnabled | quote }}
             - name: MOCK_IB_PING_PORT
               value: "{{ .Values.infiniband.ping.port }}"
+            - name: MOCK_IB_PING_SOCKET
+              value: /var/lib/nvml-mock/run/mock-ib.sock
             - name: POD_IP
               valueFrom:
                 fieldRef:
@@ -134,9 +136,11 @@ spec:
             # libibmockumad must precede libibmocksys so UMAD ioctls are
             # intercepted before sysfs path rewriting.
             - name: LD_PRELOAD
-              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1"
+              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1"
             - name: MOCK_IB_ROOT
               value: "/var/lib/nvml-mock/ib"
+            - name: MOCK_PCI_ROOT
+              value: "/var/lib/nvml-mock"
           lifecycle:
             preStop:
               exec:
