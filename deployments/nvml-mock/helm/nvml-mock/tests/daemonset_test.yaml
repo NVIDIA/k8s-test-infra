@@ -726,3 +726,135 @@ tests:
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /run/nvidia-fabricmanager
+
+  # -- GPU Operator driver symlink / host driver masquerade -----------------
+  - it: should enable the GPU Operator driver symlink by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DRIVER_SYMLINK
+            value: "true"
+
+  - it: should disable the driver symlink for managed-driver mode
+    set:
+      gpuOperator:
+        driverSymlink:
+          enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DRIVER_SYMLINK
+            value: "false"
+
+  - it: should default the driver symlink to enabled when gpuOperator is absent
+    set:
+      gpuOperator: null
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DRIVER_SYMLINK
+            value: "true"
+
+  - it: should accept the bool shorthand for driverSymlink
+    set:
+      gpuOperator:
+        driverSymlink: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DRIVER_SYMLINK
+            value: "false"
+
+  - it: should fail loudly when driverSymlink is a non-bool scalar
+    set:
+      gpuOperator:
+        driverSymlink: "nope"
+    asserts:
+      - failedTemplate:
+          errorPattern: "gpuOperator.driverSymlink must be a map or bool"
+
+  - it: should fail loudly when gpuOperator is a falsy scalar
+    set:
+      gpuOperator: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "gpuOperator must be a map"
+
+  - it: should fail loudly when driverSymlink.enabled is a non-bool
+    set:
+      gpuOperator:
+        driverSymlink:
+          enabled: "True"
+    asserts:
+      - failedTemplate:
+          errorPattern: "gpuOperator.driverSymlink.enabled must be a bool"
+
+  - it: should disable the host driver masquerade by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HOST_DRIVER
+            value: "false"
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-root
+            mountPath: /hostroot
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-root
+            hostPath:
+              path: /
+
+  - it: should mount the host root when hostDriver is enabled
+    set:
+      hostDriver:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HOST_DRIVER
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-root
+            mountPath: /hostroot
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-root
+            hostPath:
+              path: /
+
+  - it: should accept the bool shorthand for hostDriver
+    set:
+      hostDriver: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HOST_DRIVER
+            value: "true"
+
+  - it: should fail loudly when hostDriver is a non-bool scalar
+    set:
+      hostDriver: "yes"
+    asserts:
+      - failedTemplate:
+          errorPattern: "hostDriver must be a map or bool"
+
+  - it: should fail loudly when hostDriver.enabled is a non-bool
+    set:
+      hostDriver:
+        enabled: "True"
+    asserts:
+      - failedTemplate:
+          errorPattern: "hostDriver.enabled must be a bool"

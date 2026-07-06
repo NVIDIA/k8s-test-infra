@@ -53,15 +53,19 @@ should match snapshot with b200 profile:
 
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-      OPTION C: GPU Operator (UNTESTED — contributions welcome)
+      OPTION C: GPU Operator (tested in CI -- two modes)
 
-        helm install gpu-operator nvidia/gpu-operator \
-          --set driver.enabled=false \
-          --set toolkit.enabled=true \
-          --set devicePlugin.enabled=true
+        Driver disabled (default -- this chart's /run/nvidia/driver symlink serves
+        the operator validator):
 
-        ⚠ This integration has no E2E test coverage. If you get it working,
-        please contribute the test back.
+          helm install gpu-operator nvidia/gpu-operator \
+            -n gpu-operator --create-namespace \
+            -f tests/e2e/gpu-operator-values.yaml
+
+        Operator-managed mock driver: install this chart with
+        --set gpuOperator.driverSymlink.enabled=false, then follow
+        docs/mock-driver.md (mock-driver image tagged for your nodes' OS,
+        layered values files, operator version pin).
 
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -123,15 +127,19 @@ should match snapshot with default values:
 
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-      OPTION C: GPU Operator (UNTESTED — contributions welcome)
+      OPTION C: GPU Operator (tested in CI -- two modes)
 
-        helm install gpu-operator nvidia/gpu-operator \
-          --set driver.enabled=false \
-          --set toolkit.enabled=true \
-          --set devicePlugin.enabled=true
+        Driver disabled (default -- this chart's /run/nvidia/driver symlink serves
+        the operator validator):
 
-        ⚠ This integration has no E2E test coverage. If you get it working,
-        please contribute the test back.
+          helm install gpu-operator nvidia/gpu-operator \
+            -n gpu-operator --create-namespace \
+            -f tests/e2e/gpu-operator-values.yaml
+
+        Operator-managed mock driver: install this chart with
+        --set gpuOperator.driverSymlink.enabled=false, then follow
+        docs/mock-driver.md (mock-driver image tagged for your nodes' OS,
+        layered values files, operator version pin).
 
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

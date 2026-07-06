@@ -1,0 +1,42 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# GPU Operator values DELTA for host-driver-masquerade E2E testing on Kind.
+#
+# Layer on top of the driver-disabled baseline (later -f wins per key; env
+# lists are replaced wholesale, which this file relies on):
+#
+#   helm install gpu-operator nvidia/gpu-operator \
+#     -n gpu-operator --create-namespace \
+#     -f tests/e2e/gpu-operator-values.yaml \
+#     -f tests/e2e/gpu-operator-hostdriver-values.yaml
+#
+# Prerequisite: nvml-mock installed with hostDriver.enabled=true, which puts
+# nvidia-smi and the mock libraries at the node's STANDARD paths (/usr/bin,
+# /usr/lib64 + ldcache). The operator validator then takes its preinstalled
+# host-driver branch (Lstat /host/usr/bin/nvidia-smi + chroot exec) and writes
+# /run/nvidia/validations/driver-ready with authentic host-driver values
+# (IS_HOST_DRIVER=true, NVIDIA_DRIVER_ROOT=/), which operand entrypoints
+# source exactly as on real preinstalled-driver clusters. The point of this
+# lane is ZERO plumbing: no driver-root env overrides anywhere.
+
+# The baseline's synthetic driver-validation env overrides are dropped (list
+# replacement); only the dev-char guard remains -- host mode still attempts
+# dev-char symlink creation against mock device nodes. The plugin-validation
+# LD_LIBRARY_PATH crutch is dropped too (CDI injection + ldcache cover it).
+validator:
+  driver:
+    env:
+      - name: DISABLE_DEV_CHAR_SYMLINK_CREATION
+        value: "true"
+  plugin:
+    env: []
+
+# Zero-plumbing: consumers discover the driver via driver-ready sourcing and
+# standard host paths; the baseline's NVIDIA_DRIVER_ROOT overrides are
+# deliberately removed (empty lists replace the baseline's).
+devicePlugin:
+  env: []
+
+gfd:
+  env: []

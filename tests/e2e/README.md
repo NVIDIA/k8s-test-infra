@@ -65,6 +65,10 @@ Once confirmed that the standalone `nvcr.io` images are publicly accessible:
 | `device-plugin-mock.yaml` | Device plugin DaemonSet for mock GPUs |
 | `gfd-mock.yaml` | GPU Feature Discovery DaemonSet |
 | `validator-mock.yaml` | CUDA vectorAdd validator Job |
-| `gpu-operator-values.yaml` | GPU Operator Helm values overlay |
+| `gpu-operator-values.yaml` | GPU Operator Helm values overlay (driver disabled) |
+| `gpu-operator-driver-values.yaml` | Managed mock-driver values delta (layered on the baseline overlay) |
+| `gpu-operator-hostdriver-values.yaml` | Host-driver-masquerade values delta (layered on the baseline overlay) |
+| `check-driver-contract.sh` | Drift check for the vendored driver-container contract |
+| `contract/` | Vendored GPU Operator driver DaemonSet + startup-probe assets |
 | `kind-dra-config.yaml` | Kind config with DRA feature gates |
 | `VERSION-MATRIX.md` | Tested component versions |

@@ -1,0 +1,35 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+name: Verify allocatable GPUs
+description: >-
+  Poll the first node until its allocatable nvidia.com/gpu count matches the
+  expected value. Shared by the device-plugin and GPU Operator e2e jobs.
+
+inputs:
+  expected:
+    description: "Expected allocatable nvidia.com/gpu count"
+    required: false
+    default: "2"
+  attempts:
+    description: "Number of 2-second poll attempts"
+    required: false
+    default: "30"
+
+runs:
+  using: composite
+  steps:
+    - name: Verify allocatable GPUs
+      shell: bash
+      run: |
+        NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+        for i in $(seq 1 ${{ inputs.attempts }}); do
+          GPUS=$(kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}')
+          if [ "$GPUS" = "${{ inputs.expected }}" ]; then
+            echo "PASS: Node reports $GPUS allocatable GPUs"
+            exit 0
+          fi
+          echo "Attempt $i: allocatable GPUs=$GPUS (expected ${{ inputs.expected }}), waiting..."
+          sleep 2
+        done
+        echo "FAIL: Expected ${{ inputs.expected }} allocatable GPUs, got $GPUS"
+        exit 1

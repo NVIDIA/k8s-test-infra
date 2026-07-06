@@ -256,3 +256,60 @@ driver_version the engine reports via NVML. Fails if neither is set.
 {{- end -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Driver symlink flag helper.
+Defaults to true when the key is absent (e.g. helm upgrade --reuse-values
+from a release that predates gpuOperator.driverSymlink). hasKey is used
+instead of `default` so an explicit false is not coerced back to true.
+Accepts the bool shorthand `gpuOperator.driverSymlink=false` and fails
+loudly on any other scalar so misconfigurations never silently fall back.
+*/}}
+{{- define "nvml-mock.driverSymlinkEnabled" -}}
+{{- $gpuOpRaw := .Values.gpuOperator -}}
+{{- if and (not (kindIs "invalid" $gpuOpRaw)) (not (kindIs "map" $gpuOpRaw)) -}}
+{{- fail (printf "gpuOperator must be a map, got %s (%v)" (kindOf $gpuOpRaw) $gpuOpRaw) -}}
+{{- end -}}
+{{- $gpuOp := $gpuOpRaw | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $gpuOp "driverSymlink" -}}
+{{- $symlink := get $gpuOp "driverSymlink" -}}
+{{- if kindIs "map" $symlink -}}
+{{- if hasKey $symlink "enabled" -}}
+{{- $enabled = get $symlink "enabled" -}}
+{{- end -}}
+{{- else if kindIs "bool" $symlink -}}
+{{- $enabled = $symlink -}}
+{{- else -}}
+{{- fail (printf "gpuOperator.driverSymlink must be a map or bool, got %s (%v)" (kindOf $symlink) $symlink) -}}
+{{- end -}}
+{{- end -}}
+{{- if not (kindIs "bool" $enabled) -}}
+{{- fail (printf "gpuOperator.driverSymlink.enabled must be a bool, got %s (%v)" (kindOf $enabled) $enabled) -}}
+{{- end -}}
+{{- $enabled -}}
+{{- end }}
+
+{{/*
+Host driver masquerade flag helper.
+Defaults to false when the key is absent (upgrade-safe for --reuse-values).
+Accepts the bool shorthand `hostDriver=true` and fails loudly on any other
+scalar, mirroring nvml-mock.driverSymlinkEnabled.
+*/}}
+{{- define "nvml-mock.hostDriverEnabled" -}}
+{{- $hdRaw := .Values.hostDriver -}}
+{{- $enabled := false -}}
+{{- if kindIs "map" $hdRaw -}}
+{{- if hasKey $hdRaw "enabled" -}}
+{{- $enabled = get $hdRaw "enabled" -}}
+{{- end -}}
+{{- else if kindIs "bool" $hdRaw -}}
+{{- $enabled = $hdRaw -}}
+{{- else if not (kindIs "invalid" $hdRaw) -}}
+{{- fail (printf "hostDriver must be a map or bool, got %s (%v)" (kindOf $hdRaw) $hdRaw) -}}
+{{- end -}}
+{{- if not (kindIs "bool" $enabled) -}}
+{{- fail (printf "hostDriver.enabled must be a bool, got %s (%v)" (kindOf $enabled) $enabled) -}}
+{{- end -}}
+{{- $enabled -}}
+{{- end }}

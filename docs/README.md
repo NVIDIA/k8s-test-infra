@@ -12,6 +12,7 @@ Linux system -- no hardware required.
 | nvidia-smi | Real binary with RPATH patch, backed by mock NVML | Production |
 | Helm Chart | DaemonSet deployment with 6 GPU profiles | Production |
 | CDI Injection | Container Device Interface specs for GPU Operator | Production |
+| Mock Driver Container (`mock-driver`) | GPU Operator-substitutable driver image for managed-driver (`driver.enabled=true`) testing | Early |
 
 ## GPU Profiles
 
@@ -45,6 +46,7 @@ full walkthrough.
 | [Architecture](architecture.md) | System design and component overview |
 | [Configuration Reference](configuration.md) | Complete YAML configuration guide |
 | [CUDA Mock](cuda-mock.md) | Mock CUDA driver library details |
+| [Mock Driver](mock-driver.md) | GPU Operator managed-driver testing with the mock-driver image |
 | [Development Guide](development.md) | Contributing and extending the project |
 | [Examples](examples.md) | Common usage patterns and scenarios |
 | [Troubleshooting](troubleshooting.md) | Common issues and solutions |

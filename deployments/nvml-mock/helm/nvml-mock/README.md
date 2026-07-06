@@ -326,6 +326,32 @@ Expected: `8` (default gpu.count).
 kind delete cluster --name nvml-mock-operator
 ```
 
+### Variant: host driver masquerade (zero-plumbing)
+
+`--set hostDriver.enabled=true` additionally installs nvidia-smi and the mock
+libraries at the node's standard paths (`/usr/bin/nvidia-smi`, `/usr/lib64`,
+registered in the ldcache), making the node indistinguishable at the file
+layer from one with a preinstalled driver. The operator validator then takes
+its preinstalled host-driver branch and no component needs driver-root env
+overrides (install the operator with
+`-f tests/e2e/gpu-operator-values.yaml -f tests/e2e/gpu-operator-hostdriver-values.yaml`).
+Consumers that expect standard paths -- plain `nvidia-smi` on the node,
+slurmd GRES `AutoDetect=nvml`, ldcache-based `dlopen` -- work with zero
+configuration. Every host path written is manifest-tracked and removed on
+uninstall; installation refuses to overwrite a foreign `nvidia-smi`.
+Test nodes only. Never combine with an operator-managed driver DaemonSet on
+the same node (a host `nvidia-smi` flips k8s-driver-manager's
+preinstalled-driver detection).
+
+### Variant: operator-managed driver (mock-driver image)
+
+The steps above run the operator with `driver.enabled=false`. To exercise the
+operator's containerized-driver lifecycle instead (driver DaemonSet,
+startup-probe handshake, managed-branch validation), install nvml-mock with
+`--set gpuOperator.driverSymlink.enabled=false` and follow
+[docs/mock-driver.md](../../../../docs/mock-driver.md), which substitutes the
+`mock-driver` image via `driver.repository/image/version`.
+
 ## Quick Start: Multi-Node Heterogeneous GPU Fleet
 
 Simulate a cluster with different GPU types on different nodes by installing
@@ -722,6 +748,8 @@ for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 | `image.tag` | `latest` | Container image tag |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (e.g. GB200 → `580.65.06`, B200 → `560.35.03`, GB300 → `570.124.06`, others → `550.163.01`). Set explicitly only to override the profile. |
+| `gpuOperator.driverSymlink.enabled` | `true` | Symlink `/run/nvidia/driver` to the mock driver root for the GPU Operator validator. Set `false` when the operator manages a driver DaemonSet ([mock-driver](../../../../docs/mock-driver.md)) |
+| `hostDriver.enabled` | `false` | Host driver masquerade: install nvidia-smi + mock libs at the node's standard paths (`/usr/bin`, `/usr/lib64`, ldcache) so consumers need zero configuration. Mutates the host -- test nodes only, manifest-tracked and removed on uninstall. Never combine with an operator-managed driver DaemonSet |
 | `nodeSelector` | `{}` | Node selector for DaemonSet |
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
 | `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps for fake-gpu-operator discovery |

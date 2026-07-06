@@ -66,6 +66,10 @@ spec:
               value: "{{ include "nvml-mock.gpuCount" . }}"
             - name: DRIVER_VERSION
               value: "{{ include "nvml-mock.driverVersion" . }}"
+            - name: DRIVER_SYMLINK
+              value: "{{ include "nvml-mock.driverSymlinkEnabled" . }}"
+            - name: HOST_DRIVER
+              value: "{{ include "nvml-mock.hostDriverEnabled" . }}"
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -158,6 +162,10 @@ spec:
               mountPath: /host/var/run/cdi
             - name: host-run-nvidia
               mountPath: /host/run/nvidia
+            {{- if eq (include "nvml-mock.hostDriverEnabled" .) "true" }}
+            - name: host-root
+              mountPath: /hostroot
+            {{- end }}
             {{- if .Values.topology.enabled }}
             - name: gpu-topology
               mountPath: /etc/nvml-mock/topology
@@ -186,6 +194,13 @@ spec:
           hostPath:
             path: /run/nvidia
             type: DirectoryOrCreate
+        {{- if eq (include "nvml-mock.hostDriverEnabled" .) "true" }}
+        # Host driver masquerade writes to /usr/bin, /usr/lib64 and
+        # /etc/ld.so.conf.d and runs chroot ldconfig -- needs the node root
+        - name: host-root
+          hostPath:
+            path: /
+        {{- end }}
         {{- if .Values.topology.enabled }}
         - name: gpu-topology
           configMap:
