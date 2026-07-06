@@ -12,17 +12,16 @@ introduced by [NVIDIA/k8s-test-infra#304](https://github.com/NVIDIA/k8s-test-inf
   domains and which Kubernetes nodes belong to which clique. The mock
   NVML library overlays it on top of the per-profile YAML at
   `LoadConfig()` time.
-* **Fake `nvidia-imex` / `nvidia-imex-ctl`** — file-based readiness
-  protocol over a shared hostPath. `nvidia-imex-ctl` exits 0 + prints
-  `READY` only when every peer in `nodes.cfg` has dropped a marker
-  file; SIGTERM-ing a daemon removes its marker and trips the probe.
+* **Real `nvidia-imex` in NO GPU mode** — the demo overlay image fronts
+  the real daemon with `imex-nogpu-shim` (`/usr/bin/nvidia-imex` exec's
+  `/usr/bin/nvidia-imex.real --nogpu`), so IMEX readiness is the real
+  gRPC peer protocol over the pod network: `nvidia-imex-ctl -q` prints
+  `READY`, `-N -j` reports the domain `UP` with version `NO_GPU`, and
+  killing a peer daemon degrades the domain.
 
 The demo lives in its own cluster (`nvml-mock-compute-domain`) and its
 own 4-worker Kind topology
-([`tests/e2e/kind-compute-domain-config.yaml`](../../../tests/e2e/kind-compute-domain-config.yaml))
-that mounts `/tmp/nvml-mock-imex-state` from the host into every worker
-node container — the cross-node shared volume the real
-compute-domain-daemon would normally get from a CSI driver.
+([`tests/e2e/kind-compute-domain-config.yaml`](../../../tests/e2e/kind-compute-domain-config.yaml)).
 
 ## Prerequisites
 
@@ -30,38 +29,34 @@ The demo expects the following tools on `$PATH`:
 
 | Tool      | Tested version | Notes |
 |---        |---             |---    |
-| `docker`  | 24+            | Daemon must be running. Multi-stage build uses Go 1.25 base. |
-| `kind`    | v0.24+         | Kind clusters mount a shared hostPath via `extraMounts`. |
+| `docker`  | 24+            | Daemon must be running. Multi-stage builds use the repo's pinned Go base (hack/golang-version.sh). |
+| `kind`    | v0.24+         | Provisions the demo's dedicated 4-worker cluster. |
 | `kubectl` | v1.30+         | Used for `exec`, `rollout`, `get` against the in-cluster pods. |
-| `helm`    | v3.13+         | Chart install + `helm upgrade --reuse-values`. |
+| `helm`    | v3.13+ (v4 works) | Chart install + `helm upgrade --reuse-values`. |
 | `bash`    | 3.2+           | `run.sh` uses `set -euo pipefail` — no bash 4+ features. |
-
-If you intend to follow the manual reproduction below instead of running
-the script, you'll also want `kubectl-cp` (bundled with `kubectl`) for
-copying `nodes.cfg` into pods.
+| `jq`      | any recent     | Scenario 2 parses `nvidia-imex-ctl -N -j` JSON. |
 
 ## What the script does
 
 1. (Re)creates the dedicated Kind cluster (idempotent: an existing
-   `nvml-mock-compute-domain` cluster is reused) and clears
-   `/tmp/nvml-mock-imex-state` so the IMEX assertions start from a
-   clean slate.
-2. Builds and loads the `nvml-mock:compute-domain` image, which
-   bundles three new binaries on top of the standard nvml-mock image:
-   `/usr/bin/nvidia-imex`, `/usr/bin/nvidia-imex-ctl`, and
-   `/usr/local/bin/check-fabric`.
+   `nvml-mock-compute-domain` cluster is reused).
+2. Builds and loads the `nvml-mock:compute-domain` image (bundles
+   `/usr/local/bin/check-fabric` on top of the standard nvml-mock
+   image), then builds the `nvml-mock:compute-domain-imex` overlay via
+   the `demo` target of
+   [`Dockerfile.compute-domain-daemon`](../../../deployments/nvml-mock/Dockerfile.compute-domain-daemon),
+   which layers the real `nvidia-imex` (NO GPU mode via
+   `imex-nogpu-shim`) on top — the image the DaemonSet actually runs.
 3. Installs the chart with:
 
    ```text
    gpu.profile=gb200
    topology.enabled=true
    topology.domains=<demo topology>
-   imex.enabled=true
    ```
 
    This renders both ConfigMaps (`nvml-mock-config` and
-   `nvml-mock-topology`) and mounts the shared hostPath state
-   directory into every pod.
+   `nvml-mock-topology`).
 
    The script intentionally does **not** pass `--set gpu.count=...`.
    That flag only sizes the host-side CDI spec produced by
@@ -78,16 +73,14 @@ copying `nodes.cfg` into pods.
    * `-worker3` / `-worker4` report **clique 1**,
    * every node reports the demo cluster UUID
      `00000000-0000-0000-0000-0000000000ab` and `state=completed`.
-5. **Scenario 2 — fake IMEX coordination**. Hand-writes a `nodes.cfg`
-   listing both clique-0 pod IPs and walks the readiness probe
-   through three transitions:
-   * 1 of 2 markers present → `nvidia-imex-ctl` exits 1,
-   * 2 of 2 markers present → `nvidia-imex-ctl` prints `READY`,
-   * peer SIGTERMed → marker removed → `nvidia-imex-ctl` exits 1.
-
-   The script reads the markers directly off the host filesystem
-   (`/tmp/nvml-mock-imex-state/<pod-ip>`) to prove the coordination
-   actually traverses the shared volume.
+5. **Scenario 2 — real IMEX domain (NO GPU mode)**. Renders a per-pod
+   IMEX config, starts the real `nvidia-imex` (the shim appends
+   `--nogpu`) in both clique-0 pods, and asserts three transitions:
+   * daemon A alone → local `-q` probe `READY`, domain not `UP`,
+   * daemon B joins → `-N -j` reports `UP`, 2/2 nodes `READY`,
+     version `NO_GPU` (real gRPC over the pod network),
+   * daemon B SIGTERMed → domain leaves `UP` (real liveness — the
+     deprecated marker files couldn't detect a dead peer).
 6. **Scenario 3 — topology rebinding (no image rebuild)**. A
    `helm upgrade --reuse-values` swaps the topology document so every
    node is now a member of clique 99 in a brand-new domain UUID. After
@@ -98,12 +91,24 @@ copying `nodes.cfg` into pods.
 ## Quick start
 
 ```bash
-./run.sh
+./docs/demo/compute-domain/run.sh
 ```
 
-The script is idempotent — rerun it as often as you like; the
-existing cluster is reused and `helm upgrade --install` covers both
-first-time install and follow-up upgrades.
+The script locates the repository itself, so it works from any
+directory; the **manual-reproduction commands below assume you run
+them from the repository root**.
+
+Expect roughly 10–20 minutes on a first run (Kind cluster creation
+plus two image builds dominate; Scenario 2's domain convergence alone
+may legitimately take up to 4 minutes — see Troubleshooting). Reruns
+are much faster: the script is idempotent, the existing cluster is
+reused, and `helm upgrade --install` covers both first-time install
+and follow-up upgrades.
+
+> **One runner per host.** The cluster name, Helm release, and image
+> tags are fixed, so two concurrent runs of this demo on the same
+> machine will corrupt each other's Helm revisions and topology
+> assertions. Run one at a time.
 
 ## Manual reproduction
 
@@ -114,28 +119,35 @@ commands the script issues. They're written for the default
 note at the end of this section if you need to rename it.
 
 ```bash
-# 1. Create the dedicated cluster + shared hostPath.
-mkdir -p /tmp/nvml-mock-imex-state
+# 1. Create the dedicated cluster.
 kind create cluster --name nvml-mock-compute-domain \
     --config tests/e2e/kind-compute-domain-config.yaml
 
-# 2. Build the demo image (bundles fake-imex + check-fabric on top of
-#    the standard nvml-mock image).
+# 2. Build the demo image (bundles check-fabric on top of the standard
+#    nvml-mock image), then layer the REAL nvidia-imex (NO GPU mode
+#    via imex-nogpu-shim) on top. nvidia-imex is proprietary but comes
+#    from the PUBLIC Ubuntu 22.04 multiverse repo (nvidia-imex-595) —
+#    no NVIDIA credentials or internal access needed. Local build only:
+#    never publish the resulting image.
 docker build -t nvml-mock:compute-domain -f deployments/nvml-mock/Dockerfile .
+docker build -t nvml-mock:compute-domain-imex \
+    --target demo \
+    --build-arg NVML_MOCK_IMAGE=nvml-mock:compute-domain \
+    --build-arg GOLANG_VERSION=$(hack/golang-version.sh) \
+    -f deployments/nvml-mock/Dockerfile.compute-domain-daemon .
 
-# 3. Load the image into the Kind cluster.
-kind load docker-image nvml-mock:compute-domain --name nvml-mock-compute-domain
+# 3. Load the demo image into the Kind cluster.
+kind load docker-image nvml-mock:compute-domain-imex --name nvml-mock-compute-domain
 
 # 4. Install the chart. The --set image.* flags point the DaemonSet at
 #    the locally-loaded image (these are required — without them the
 #    chart pulls the default upstream image which does not have the
-#    fake binaries baked in).
+#    real IMEX layer baked in).
 helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
     -f docs/demo/compute-domain/topology.yaml \
     --set image.repository=nvml-mock \
-    --set image.tag=compute-domain \
+    --set image.tag=compute-domain-imex \
     --set gpu.profile=gb200 \
-    --set imex.enabled=true \
     --wait --timeout 180s
 
 # 5. Verify the per-node fabric overlay (Scenario 1).
@@ -155,39 +167,35 @@ demo `clusterUuid : 00000000-0000-0000-0000-0000000000ab` and
 `state : completed (3)`.
 
 Scenarios 2 and 3 are best read directly from
-[`run.sh`](./run.sh) — they involve writing a `nodes.cfg`,
-inspecting markers under `/tmp/nvml-mock-imex-state`, and a
+[`run.sh`](./run.sh) — they involve rendering a per-pod `nodes.cfg`,
+running the real `nvidia-imex` daemons, and a
 `helm upgrade --reuse-values` with a substituted topology. None of
 those steps are non-obvious once Scenario 1 works.
 
 **Custom cluster name.** If you rename the Kind cluster (e.g., to
-parallelise demos), three things need to change in lockstep:
+parallelise demos), two things need to change in lockstep:
 
 1. The `nodes:` lists in [`topology.yaml`](./topology.yaml) — each
    Kind worker is named `<cluster-name>-worker[N]`, so renaming the
    cluster renames every entry in the topology.
-2. The `hostPath:` under `extraMounts:` in
-   [`tests/e2e/kind-compute-domain-config.yaml`](../../../tests/e2e/kind-compute-domain-config.yaml)
-   if you also want an isolated state directory — otherwise the new
-   cluster shares `/tmp/nvml-mock-imex-state` with whatever else is
-   running.
-3. Cluster name in every `kind` / `kubectl --context` / `kind load`
+2. Cluster name in every `kind` / `kubectl --context` / `kind load`
    call below.
 
 The script doesn't expose this as a flag because the demo is
 documentation-by-example; the canonical name keeps the example
 faithful to what's checked in.
 
-## How the fakes fit alongside the real compute-domain-daemon
+## How the real IMEX fits alongside the compute-domain-daemon
 
-The upstream daemon spawns `nvidia-imex` as a subprocess and runs
-`nvidia-imex-ctl -c /imexd/imexd.cfg -q` from its readiness probe. With
-this demo's image installed, both binaries are already in `$PATH` at
-the canonical locations. To run the real daemon against this cluster
-without modifying it, point its container image at
-[`deployments/nvml-mock/Dockerfile.compute-domain-daemon`](../../../deployments/nvml-mock/Dockerfile.compute-domain-daemon),
-which is a 2-line `FROM upstream-daemon` overlay that copies in the
-fakes from the nvml-mock image.
+The upstream daemon spawns `nvidia-imex` as a subprocess and probes
+readiness with `nvidia-imex-ctl -c /imexd/imexd.cfg -q`,
+comparing the combined output to exactly `READY`. With this demo's
+overlay installed both paths hold the real binaries: the shim at
+`/usr/bin/nvidia-imex` execs `/usr/bin/nvidia-imex.real --nogpu`, so
+the upstream daemon runs unmodified — same argv, same probe, real
+protocol, no GPUs. Point its container image at the default (`daemon`)
+target of
+[`deployments/nvml-mock/Dockerfile.compute-domain-daemon`](../../../deployments/nvml-mock/Dockerfile.compute-domain-daemon).
 
 > **Heads up — patching the upstream chart.** The nvml-mock chart wires
 > `NODE_NAME` (downward API), `MOCK_TOPOLOGY_CONFIG`, and the topology
@@ -226,9 +234,39 @@ and is passed to Helm with `-f topology.yaml` (not `--set-file`, which
 would inline the file as a string literal rather than as a parsed
 list).
 
+## Troubleshooting
+
+* **Scenario 2 seems stuck on "domain status UP".** First convergence
+  after a fresh rollout can take a few minutes: kind's CNI (kindnetd)
+  reconciles NetworkPolicy asynchronously, and the IMEX daemon retries
+  failed peer connections with exponential backoff (15s, 31s, 62s,
+  125s…). The script already waits up to 240s — let it finish before
+  concluding failure. On timeout it prints the daemon log tail.
+* **Peers never connect at all.** The nvml-mock chart ships a
+  NetworkPolicy that allow-lists pod-to-pod ingress between nvml-mock
+  pods (TCP 18515 ibping, 50000 IMEX gRPC peer, 50005 IMEX
+  command/status). kindnetd **enforces** NetworkPolicy on current kind
+  releases, so if you add any new pod-to-pod listener to the stack it
+  must also be admitted in
+  `deployments/nvml-mock/helm/nvml-mock/templates/network-policy-ibping.yaml`
+  — otherwise its SYNs are silently dropped.
+* **Rerunning after a failed Scenario 2.** A run that dies mid-scenario
+  leaves real `nvidia-imex` daemons holding port 50000 inside the pods,
+  and a rerun's daemons will fail to bind. Recycle the pods first:
+  `kubectl delete pods -l app.kubernetes.io/name=nvml-mock` (the
+  DaemonSet recreates them clean), or delete the cluster for a truly
+  fresh start. Successful runs clean up after themselves.
+* **`nvidia-imex-ctl -N -j` shows the peer `UNAVAILABLE` with an empty
+  version while connections look established.** Node status and version
+  are exchanged over the IMEX *command* port (50005), separate from the
+  gRPC peer port (50000). If only 50000 is reachable the domain sticks
+  at `DEGRADED` — check that both ports are admitted (see the
+  NetworkPolicy bullet above).
+
 ## Clean up
 
 ```bash
 kind delete cluster --name nvml-mock-compute-domain
-rm -rf /tmp/nvml-mock-imex-state
+# Optional: also remove the locally built demo images.
+docker rmi nvml-mock:compute-domain nvml-mock:compute-domain-imex
 ```

@@ -29,7 +29,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/imexcoord"
+	"github.com/NVIDIA/k8s-test-infra/pkg/imexcoord" //nolint:staticcheck // the fakes ARE the deprecated subsystem; removed together with imexcoord (#304)
 )
 
 func main() {
@@ -38,6 +38,11 @@ func main() {
 	cfg := flag.String("c", "", "imexd config file (ignored)")
 	flag.Parse()
 	_ = cfg
+
+	log.Printf("fake-imex: DEPRECATED — this fake nvidia-imex will be removed " +
+		"in a follow-up release; the ComputeDomain simulation now runs the real " +
+		"nvidia-imex daemon in NO GPU mode (--nogpu) via imex-nogpu-shim. See " +
+		"NVIDIA/k8s-test-infra#304.")
 
 	podIP := os.Getenv(imexcoord.EnvPodIP)
 	if podIP == "" {

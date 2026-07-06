@@ -12,18 +12,76 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Thin overlay on the upstream compute-domain-daemon image that swaps in
-# the fake nvidia-imex / nvidia-imex-ctl binaries from the nvml-mock
-# image. With this image deployed (via the upstream Helm chart's image
-# override), the real compute-domain-controller and -daemon run
-# unmodified against the mock NVML fabric APIs on a hardware-free KIND
-# cluster. See NVIDIA/k8s-test-infra#304.
+# Overlay images pairing the REAL nvidia-imex (NO GPU mode) with the
+# mock stack. Two targets:
+#
+#   daemon (default) — the upstream compute-domain-daemon image with
+#       the real nvidia-imex / nvidia-imex-ctl and the imex-nogpu-shim
+#       swapped in. Upstream spawns `nvidia-imex -c /imexd/imexd.cfg`
+#       with a hard-coded argv (no flag passthrough), so the shim at
+#       /usr/bin/nvidia-imex exec's /usr/bin/nvidia-imex.real with
+#       --nogpu appended: the real daemon then runs the real gRPC peer
+#       protocol without GPUs.
+#
+#   demo — the same real-IMEX trio layered onto the nvml-mock image;
+#       used by docs/demo/compute-domain/run.sh Scenario 2.
+#
+# LOCAL BUILD ONLY — never publish these images: they repackage the
+# proprietary nvidia-imex binary (installed from Ubuntu jammy
+# multiverse at build time).
+#
+# See NVIDIA/k8s-test-infra#304.
 
 ARG NVML_MOCK_IMAGE=ghcr.io/nvidia/nvml-mock:latest
-ARG COMPUTE_DOMAIN_DAEMON_IMAGE=registry.k8s.io/dra-driver-nvidia-gpu/compute-domain-daemon:latest
+# Upstream ships ONE image for all DRA driver components (the chart's
+# image.repository); there is no per-component compute-domain-daemon
+# image on registry.k8s.io (that path exists but has zero tags).
+# Verified live 2026-07-03. No `latest` tag is published — bump the
+# pinned version deliberately.
+ARG COMPUTE_DOMAIN_DAEMON_IMAGE=registry.k8s.io/dra-driver-nvidia/dra-driver-nvidia-gpu:v0.4.1
+# Default kept in lockstep with hack/golang-version.sh (repo-wide pin,
+# see the #394 CVE refresh); the demo script overrides it with the
+# script's output anyway.
+ARG GOLANG_VERSION=1.26.4
 
-FROM ${NVML_MOCK_IMAGE} AS imex
+# Real IMEX daemon + ctl. Ubuntu redistributes the NVIDIA driver stack
+# in multiverse; nvidia-imex-595 is the 595-branch package (same
+# version on amd64 and arm64: 595.71.05-0ubuntu0.22.04.1 as of
+# 2026-07-03), so no external repo and no arch mapping are needed. The
+# branch NAME is the pin — jammy only ever carries 595.x under it —
+# and the grep makes a packaging surprise fail the build loudly.
+FROM ubuntu:22.04 AS imex
+RUN export DEBIAN_FRONTEND=noninteractive \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends nvidia-imex-595 \
+ && rm -rf /var/lib/apt/lists/* \
+ && dpkg-query -W -f='${Version}\n' nvidia-imex-595 | tee /imex-version \
+ && grep -q '^595\.' /imex-version
 
+# imex-nogpu-shim (installed below as /usr/bin/nvidia-imex) execs
+# /usr/bin/nvidia-imex.real with --nogpu appended. Setting
+# IMEX_SHIM_REAL_BIN in the container environment overrides the
+# real-binary path for non-standard installs.
+FROM golang:${GOLANG_VERSION} AS shim
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY vendor/ vendor/
+COPY cmd/imex-nogpu-shim/ cmd/imex-nogpu-shim/
+RUN CGO_ENABLED=0 go build -mod=vendor -o /out/imex-nogpu-shim ./cmd/imex-nogpu-shim
+
+# demo: real IMEX on top of the nvml-mock image, replacing the
+# deprecated fakes at their canonical paths. The package's default
+# config.cfg ships too — the demo renders its per-pod config from it.
+FROM ${NVML_MOCK_IMAGE} AS demo
+COPY --from=imex /usr/bin/nvidia-imex         /usr/bin/nvidia-imex.real
+COPY --from=imex /usr/bin/nvidia-imex-ctl     /usr/bin/nvidia-imex-ctl
+COPY --from=imex /etc/nvidia-imex/config.cfg  /etc/nvidia-imex/config.cfg
+COPY --from=shim /out/imex-nogpu-shim         /usr/bin/nvidia-imex
+
+# daemon (default target): real IMEX on top of the upstream
+# compute-domain-daemon image. Upstream renders its own imexd.cfg from
+# its template, so no config.cfg is copied here.
 FROM ${COMPUTE_DOMAIN_DAEMON_IMAGE}
-COPY --from=imex /usr/bin/nvidia-imex     /usr/bin/nvidia-imex
-COPY --from=imex /usr/bin/nvidia-imex-ctl /usr/bin/nvidia-imex-ctl
+COPY --from=imex /usr/bin/nvidia-imex         /usr/bin/nvidia-imex.real
+COPY --from=imex /usr/bin/nvidia-imex-ctl     /usr/bin/nvidia-imex-ctl
+COPY --from=shim /out/imex-nogpu-shim         /usr/bin/nvidia-imex

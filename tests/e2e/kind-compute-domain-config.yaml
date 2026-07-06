@@ -3,29 +3,21 @@
 #
 # Kind cluster config for ComputeDomain (NVLink fabric) simulation.
 #
-# Each worker mounts the same hostPath into /var/lib/nvml-mock/imex-state
-# so the fake nvidia-imex daemons on every node coordinate readiness via
-# shared marker files. The mock NVML library reads the topology overlay
-# (Helm value topology.enabled=true) to learn its clique / cluster UUID.
+# The real nvidia-imex daemons (NO GPU mode via imex-nogpu-shim)
+# coordinate over the pod network, so no shared hostPath is required.
+# The mock NVML library reads the topology overlay (Helm value
+# topology.enabled=true) to learn its clique / cluster UUID.
 #
 # Pair with the gb200 profile and topology enabled:
 #   helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
 #     --set gpu.profile=gb200 \
-#     --set gpu.count=4 \
 #     --set topology.enabled=true \
-#     --set imex.enabled=true \
 #     -f docs/demo/compute-domain/topology.yaml
-#
-# Usage:
-#   mkdir -p /tmp/nvml-mock-imex-state
-#   kind create cluster --name nvml-mock-compute-domain \
-#       --config tests/e2e/kind-compute-domain-config.yaml
 #
 # Cluster-name convention: Kind names each worker
 # `<cluster-name>-worker[N]`. The demo's topology.yaml lists nodes as
 # `nvml-mock-compute-domain-worker[2..4]`, so renaming the cluster
-# requires updating the node names in topology.yaml in lockstep (and
-# changing the hostPath below if you also want an isolated state dir).
+# requires updating the node names in topology.yaml in lockstep.
 #
 # See NVIDIA/k8s-test-infra#304 for the full design.
 kind: Cluster
@@ -39,24 +31,12 @@ nodes:
   - role: worker
     labels:
       nvml-mock/clique: "0"
-    extraMounts:
-      - hostPath: /tmp/nvml-mock-imex-state
-        containerPath: /var/lib/nvml-mock/imex-state
   - role: worker
     labels:
       nvml-mock/clique: "0"
-    extraMounts:
-      - hostPath: /tmp/nvml-mock-imex-state
-        containerPath: /var/lib/nvml-mock/imex-state
   - role: worker
     labels:
       nvml-mock/clique: "1"
-    extraMounts:
-      - hostPath: /tmp/nvml-mock-imex-state
-        containerPath: /var/lib/nvml-mock/imex-state
   - role: worker
     labels:
       nvml-mock/clique: "1"
-    extraMounts:
-      - hostPath: /tmp/nvml-mock-imex-state
-        containerPath: /var/lib/nvml-mock/imex-state

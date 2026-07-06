@@ -6,10 +6,9 @@
 # End-to-end demo of nvml-mock ComputeDomain simulation
 # (NVIDIA/k8s-test-infra#304).
 #
-# Spins up a dedicated 4-worker Kind cluster wired with extraMounts
-# that share a hostPath (/tmp/nvml-mock-imex-state) across every
-# worker, installs nvml-mock with the gb200 profile + topology overlay
-# + fake IMEX coordination, and walks through four assertions:
+# Spins up a dedicated 4-worker Kind cluster, installs nvml-mock with
+# the gb200 profile + topology overlay, and walks through four
+# assertions:
 #
 #   1. Mock NVML fabric API
 #      Each pod's nvmlDeviceGetGpuFabricInfo (via the bundled
@@ -21,11 +20,13 @@
 #      kind-compute-domain-worker / -worker2 report clique 0;
 #      -worker3 / -worker4 report clique 1.
 #
-#   3. Fake IMEX peer coordination
-#      With a hand-written nodes.cfg listing every pod IP in a clique,
-#      nvidia-imex-ctl prints `READY` once the fake nvidia-imex daemon
-#      has dropped a marker file for every peer; it exits 1 as soon as
-#      one peer's marker is removed.
+#   3. Real IMEX domain formation (NO GPU mode)
+#      Two real nvidia-imex daemons (started via imex-nogpu-shim, which
+#      execs nvidia-imex.real --nogpu) form a domain over the pod
+#      network: nvidia-imex-ctl -q reports READY for a single daemon's
+#      local probe, -N -j reports the domain UP with every peer READY
+#      and version NO_GPU once both daemons are running, and killing a
+#      peer degrades the domain.
 #
 #   4. Topology rebinding without rebuilding the image
 #      `helm upgrade --reuse-values` with a different topology document
@@ -40,12 +41,12 @@ set -euo pipefail
 ###############################################################################
 CLUSTER_NAME="nvml-mock-compute-domain"
 IMAGE_NAME="nvml-mock:compute-domain"
+DEMO_IMAGE_NAME="nvml-mock:compute-domain-imex"
 RELEASE_NAME="nvml-mock"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 KIND_CONFIG="${REPO_ROOT}/tests/e2e/kind-compute-domain-config.yaml"
 TOPOLOGY_FILE="${REPO_ROOT}/docs/demo/compute-domain/topology.yaml"
-HOST_STATE_DIR="/tmp/nvml-mock-imex-state"
 EXPECTED_DOMAIN_UUID="00000000-0000-0000-0000-0000000000ab"
 # Kind names worker nodes "<cluster>-worker[N]". Keep these in sync
 # with the node lists in topology.yaml and tests/e2e/kind-compute-domain-config.yaml.
@@ -61,6 +62,8 @@ info() { printf '\n==> %s\n' "$*" >&2; }
 sub()  { printf '    %s\n' "$*" >&2; }
 ok()   { printf '    \xE2\x9C\x93 %s\n' "$*" >&2; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+command -v jq >/dev/null 2>&1 || fail "jq is required (Scenario 2 parses nvidia-imex-ctl JSON)"
 
 # pod_on_node: echo the name of the running nvml-mock pod scheduled on
 # the given Kubernetes node. Used both to query fabric info per node
@@ -119,42 +122,9 @@ assert_clique() {
   ok "${node}: clique=${expected_clique} uuid=${expected_uuid} state=completed"
 }
 
-# expect_ctl_not_ready: run nvidia-imex-ctl inside `pod` and assert it
-# exits 1 (the "peer not ready" path). Stdout/stderr are captured and
-# replayed as a single indented status line so the demo log stays
-# legible — without this helper kubectl spills both
-# `fake-imex-ctl: peer X not ready` and `command terminated with exit
-# code 1` onto separate lines, which is technically correct but reads
-# like an error from the demo itself.
-expect_ctl_not_ready() {
-  local pod=$1 reason=$2
-  local out rc
-  set +e
-  out=$(kubectl exec "${pod}" -- env "IMEX_NODES_CONFIG=${NODES_CFG}" \
-    nvidia-imex-ctl -c /dev/null -q 2>&1)
-  rc=$?
-  set -e
-  if [[ "${rc}" -ne 1 ]]; then
-    printf '%s\n' "${out}" | sed 's/^/      /' >&2
-    fail "nvidia-imex-ctl ${reason}: rc=${rc} (want 1), out=${out}"
-  fi
-  # Surface only the informative line from fake-imex-ctl's stderr
-  # (drops the trailing "command terminated with exit code 1" that
-  # kubectl injects after the container exits non-zero).
-  local detail
-  detail=$(printf '%s\n' "${out}" | grep -E '^fake-imex-ctl:' | head -1)
-  ok "nvidia-imex-ctl ${reason} (rc=1) — ${detail:-peer not ready}"
-}
-
 ###############################################################################
-# Step 1 — Kind cluster (with shared hostPath for IMEX state)
+# Step 1 — Kind cluster
 ###############################################################################
-info "Preparing shared hostPath: ${HOST_STATE_DIR}"
-mkdir -p "${HOST_STATE_DIR}"
-# Wipe stale markers from a previous run so the IMEX assertions below
-# can rely on a clean baseline.
-rm -f "${HOST_STATE_DIR}"/* 2>/dev/null || true
-
 info "Creating Kind cluster: ${CLUSTER_NAME}"
 if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
   sub "Cluster already exists, reusing it"
@@ -169,11 +139,20 @@ info "Building image: ${IMAGE_NAME}"
 docker build -t "${IMAGE_NAME}" \
   -f "${REPO_ROOT}/deployments/nvml-mock/Dockerfile" "${REPO_ROOT}"
 
+# Layer the REAL nvidia-imex (NO GPU mode via imex-nogpu-shim) on top.
+# Local build only — this image repackages the proprietary nvidia-imex.
+info "Building demo overlay with real nvidia-imex: ${DEMO_IMAGE_NAME}"
+docker build -t "${DEMO_IMAGE_NAME}" \
+  --target demo \
+  --build-arg "NVML_MOCK_IMAGE=${IMAGE_NAME}" \
+  --build-arg "GOLANG_VERSION=$("${REPO_ROOT}/hack/golang-version.sh")" \
+  -f "${REPO_ROOT}/deployments/nvml-mock/Dockerfile.compute-domain-daemon" "${REPO_ROOT}"
+
 info "Loading image into Kind"
-kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
+kind load docker-image "${DEMO_IMAGE_NAME}" --name "${CLUSTER_NAME}"
 
 ###############################################################################
-# Step 3 — Install nvml-mock with gb200 + topology + IMEX
+# Step 3 — Install nvml-mock with gb200 + topology (real IMEX via demo image)
 ###############################################################################
 # NOTE: `--set-file topology.domains=...` cannot be used here. That
 # flag stuffs the raw file bytes in as a string literal, which would
@@ -181,7 +160,7 @@ kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 # as an indented block scalar instead of the structured array the
 # engine expects. Using `-f <values-file>` lets helm parse the file
 # normally and deep-merge it with the defaults.
-info "Installing chart (gb200 + topology + IMEX)"
+info "Installing chart (gb200 + topology; real IMEX via demo image)"
 # NOTE: `--set gpu.count=...` is intentionally NOT passed. The flag
 # only controls the host-side CDI spec / /dev/nvidia* device nodes
 # emitted by setup.sh; the in-pod ConfigMap mounted at
@@ -194,9 +173,8 @@ info "Installing chart (gb200 + topology + IMEX)"
 helm upgrade --install "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
   -f "${TOPOLOGY_FILE}" \
   --set image.repository=nvml-mock \
-  --set image.tag=compute-domain \
+  --set image.tag=compute-domain-imex \
   --set gpu.profile=gb200 \
-  --set imex.enabled=true \
   --set-string updateStrategy.rollingUpdate.maxUnavailable=100% \
   --set terminationGracePeriodSeconds=1 \
   --wait --timeout 180s >/dev/null
@@ -221,93 +199,116 @@ assert_clique "${WORKER3}" 1 "${EXPECTED_DOMAIN_UUID}"
 assert_clique "${WORKER4}" 1 "${EXPECTED_DOMAIN_UUID}"
 
 ###############################################################################
-# Scenario 2 — Fake IMEX peer coordination (shared hostPath markers)
+# Scenario 2 — Real IMEX domain (NO GPU mode) over the pod network
 ###############################################################################
-# Each nvml-mock pod's entrypoint does NOT start nvidia-imex
-# automatically — the real compute-domain-daemon would. To exercise
-# the coordination protocol without deploying upstream, we run the
-# fake daemon ad-hoc inside one pod per clique-0 worker and verify
-# nvidia-imex-ctl from a peer.
-info "Scenario 2: fake IMEX peer coordination"
+# The demo image carries the real nvidia-imex behind imex-nogpu-shim:
+# /usr/bin/nvidia-imex exec's /usr/bin/nvidia-imex.real --nogpu. The
+# daemons below speak the real gRPC peer protocol (port 50000) across
+# pods — no shared hostPath, no marker files. This is the protocol the
+# upstream compute-domain-daemon drives; the fake marker binaries it
+# replaces are deprecated.
+info "Scenario 2: real IMEX domain (NO GPU mode) over the pod network"
 
 POD_A=$(pod_on_node "${WORKER1}")
 POD_B=$(pod_on_node "${WORKER2}")
 sub "clique 0 pods: ${POD_A}, ${POD_B}"
 
-# Read both pod IPs so we can write a synthetic nodes.cfg.
 IP_A=$(kubectl get pod "${POD_A}" -o jsonpath='{.status.podIP}')
 IP_B=$(kubectl get pod "${POD_B}" -o jsonpath='{.status.podIP}')
 sub "pod IPs: ${POD_A}=${IP_A}  ${POD_B}=${IP_B}"
 
-# Write nodes.cfg into both pods. The chart already mounts the shared
-# state dir at /var/lib/nvml-mock/imex-state; the fakes read
-# IMEX_NODES_CONFIG with default /imexd/nodes.cfg, so we override
-# with a writable path inside /tmp.
+# Render a per-pod IMEX config: foreground daemon, our nodes file, a
+# pod-local log. Everything else keeps the package defaults.
+IMEX_CFG=/tmp/imex.cfg
 NODES_CFG=/tmp/nodes.cfg
 for pod in "${POD_A}" "${POD_B}"; do
-  kubectl exec "${pod}" -- sh -c "printf '%s\n%s\n' '${IP_A}' '${IP_B}' > ${NODES_CFG}"
+  kubectl exec "${pod}" -- sh -c "
+    printf '%s\n%s\n' '${IP_A}' '${IP_B}' > '${NODES_CFG}'
+    sed -e 's/^DAEMONIZE=1/DAEMONIZE=0/' \
+        -e 's|^IMEX_NODE_CONFIG_FILE=.*|IMEX_NODE_CONFIG_FILE=${NODES_CFG}|' \
+        -e 's|^LOG_FILE_NAME=.*|LOG_FILE_NAME=/tmp/nvidia-imex.log|' \
+        /etc/nvidia-imex/config.cfg > '${IMEX_CFG}'"
 done
 
-# Start the fake daemon in pod A and check from pod B. We background
-# the daemon and capture its PID so we can SIGTERM it later.
-sub "starting fake nvidia-imex in ${POD_A}"
-kubectl exec "${POD_A}" -- sh -c \
-  "POD_IP=${IP_A} IMEX_NODES_CONFIG=${NODES_CFG} \
-   nvidia-imex -c /dev/null >/tmp/imex.log 2>&1 &
-   echo \$! > /tmp/imex.pid"
+start_imex() {
+  local pod=$1
+  kubectl exec "${pod}" -- sh -c \
+    "nvidia-imex -c ${IMEX_CFG} >/tmp/imex.stdout 2>&1 & echo \$! > /tmp/imex.pid"
+}
 
-# Poll up to 5s for the marker to appear under the shared hostPath.
-sub "waiting for marker ${IP_A} under ${HOST_STATE_DIR}"
-for _ in $(seq 1 25); do
-  if [[ -f "${HOST_STATE_DIR}/${IP_A}" ]]; then break; fi
-  sleep 0.2
+# imex_domain_status: the ctl's JSON domain status ("UP", "DEGRADED",
+# ...) as seen from `pod`; "UNREACHABLE" while the local daemon is
+# still coming up.
+imex_domain_status() {
+  local pod=$1
+  kubectl exec "${pod}" -- nvidia-imex-ctl -c "${IMEX_CFG}" -N -j 2>/dev/null \
+    | jq -r '.status' 2>/dev/null || printf 'UNREACHABLE\n'
+}
+
+wait_domain_status() {
+  local pod=$1 want=$2 reason=$3
+  # 240s: after a fresh rollout, kindnetd's NetworkPolicy dataplane
+  # reconcile plus the daemon's exponential reconnect backoff (15s,
+  # 31s, 62s, 125s...) can push first convergence past 60s.
+  for _ in $(seq 1 240); do
+    if [[ "$(imex_domain_status "${pod}")" == "${want}" ]]; then
+      ok "domain status ${want} ${reason}"
+      return 0
+    fi
+    sleep 1
+  done
+  kubectl exec "${pod}" -- sh -c 'tail -20 /tmp/nvidia-imex.log 2>/dev/null' >&2 || true
+  fail "domain status never became ${want} ${reason}"
+}
+
+# Start the daemon in pod A only. Its local probe (-q) must go READY —
+# upstream probes local readiness, not the whole domain — while the
+# domain-wide status stays degraded because pod B never connected.
+sub "starting real nvidia-imex (--nogpu via shim) in ${POD_A}"
+start_imex "${POD_A}"
+Q_OUT=""
+for _ in $(seq 1 30); do
+  Q_OUT=$(kubectl exec "${POD_A}" -- nvidia-imex-ctl -c "${IMEX_CFG}" -q 2>/dev/null || true)
+  [[ "${Q_OUT}" == "READY" ]] && break
+  sleep 1
 done
-[[ -f "${HOST_STATE_DIR}/${IP_A}" ]] || fail "marker ${IP_A} never appeared"
-ok "marker for ${IP_A} present on host"
+[[ "${Q_OUT}" == "READY" ]] || fail "nvidia-imex-ctl -q never reported READY in ${POD_A}"
+ok "local probe READY in ${POD_A} (real ctl, exact upstream contract)"
 
-# 1 of 2 markers → ctl exits 1.
-expect_ctl_not_ready "${POD_B}" "with 1/2 markers"
+STATUS_ONE=$(imex_domain_status "${POD_A}")
+[[ "${STATUS_ONE}" != "UP" ]] || fail "domain claims UP with 1/2 daemons (want degraded)"
+ok "domain not UP with 1/2 daemons (status=${STATUS_ONE})"
 
-# Bring up pod B's daemon → 2/2 markers → ctl prints READY.
-sub "starting fake nvidia-imex in ${POD_B}"
-kubectl exec "${POD_B}" -- sh -c \
-  "POD_IP=${IP_B} IMEX_NODES_CONFIG=${NODES_CFG} \
-   nvidia-imex -c /dev/null >/tmp/imex.log 2>&1 &
-   echo \$! > /tmp/imex.pid"
+# Start pod B's daemon: the daemons find each other over the pod
+# network and the domain converges to UP.
+sub "starting real nvidia-imex (--nogpu via shim) in ${POD_B}"
+start_imex "${POD_B}"
+wait_domain_status "${POD_A}" "UP" "after both daemons started (real cross-node gRPC)"
 
-for _ in $(seq 1 25); do
-  if [[ -f "${HOST_STATE_DIR}/${IP_B}" ]]; then break; fi
-  sleep 0.2
+# Every member must be READY and report the NO_GPU version handshake.
+NODES_JSON=$(kubectl exec "${POD_A}" -- nvidia-imex-ctl -c "${IMEX_CFG}" -N -j 2>/dev/null)
+READY_NODES=$(printf '%s' "${NODES_JSON}" | jq -r '[.nodes[] | select(.status=="READY")] | length')
+NOGPU_NODES=$(printf '%s' "${NODES_JSON}" | jq -r '[.nodes[] | select(.version=="NO_GPU")] | length')
+[[ "${READY_NODES}" == "2" ]] || fail "want 2 READY nodes, got ${READY_NODES}: ${NODES_JSON}"
+[[ "${NOGPU_NODES}" == "2" ]] || fail "want 2 NO_GPU-version nodes, got ${NOGPU_NODES}: ${NODES_JSON}"
+ok "2/2 nodes READY, version NO_GPU — real IMEX domain over the pod network"
+
+# Kill pod B's daemon: pod A's view must degrade. This is real
+# liveness detection — the property the deprecated marker files could
+# not provide (a SIGKILLed fake left its marker behind).
+sub "killing nvidia-imex in ${POD_B}"
+kubectl exec "${POD_B}" -- sh -c 'kill -TERM "$(cat /tmp/imex.pid)" 2>/dev/null || true'
+STATUS_AFTER="UP"
+for _ in $(seq 1 60); do
+  STATUS_AFTER=$(imex_domain_status "${POD_A}")
+  [[ "${STATUS_AFTER}" != "UP" ]] && break
+  sleep 1
 done
-[[ -f "${HOST_STATE_DIR}/${IP_B}" ]] || fail "marker ${IP_B} never appeared"
+[[ "${STATUS_AFTER}" != "UP" ]] || fail "domain still UP after peer daemon died"
+ok "peer death detected: domain status=${STATUS_AFTER} (real liveness)"
 
-CTL_OUT=$(kubectl exec "${POD_B}" -- env "IMEX_NODES_CONFIG=${NODES_CFG}" \
-  nvidia-imex-ctl -c /dev/null -q 2>/dev/null)
-if [[ "${CTL_OUT}" == "READY" ]]; then
-  ok "nvidia-imex-ctl prints READY with 2/2 markers"
-else
-  fail "nvidia-imex-ctl with 2/2 markers printed '${CTL_OUT}' (want READY)"
-fi
-
-# SIGTERM the daemon in pod A → marker removed → ctl exits 1 again.
-sub "killing nvidia-imex in ${POD_A}"
-kubectl exec "${POD_A}" -- sh -c \
-  'kill -TERM "$(cat /tmp/imex.pid)"; sleep 1' || true
-
-for _ in $(seq 1 25); do
-  if [[ ! -f "${HOST_STATE_DIR}/${IP_A}" ]]; then break; fi
-  sleep 0.2
-done
-[[ ! -f "${HOST_STATE_DIR}/${IP_A}" ]] || fail "marker ${IP_A} did not get cleaned up"
-ok "marker for ${IP_A} removed by SIGTERM"
-
-expect_ctl_not_ready "${POD_B}" "after peer SIGTERM"
-
-# Tidy up the surviving daemon so the rollout in Scenario 3 doesn't
-# inherit stale state.
-kubectl exec "${POD_B}" -- sh -c \
-  'kill -TERM "$(cat /tmp/imex.pid)" 2>/dev/null || true' || true
-rm -f "${HOST_STATE_DIR}"/* 2>/dev/null || true
+# Tidy up daemon A so Scenario 3's rollout starts clean.
+kubectl exec "${POD_A}" -- sh -c 'kill -TERM "$(cat /tmp/imex.pid)" 2>/dev/null || true' || true
 
 ###############################################################################
 # Scenario 3 — Topology rebinding (helm upgrade, no image rebuild)
@@ -360,21 +361,23 @@ cat <<EOF
    Scenario 1  fabric API     : every node reports its assigned clique
                                 (workers 1-2 -> clique 0, workers 3-4 -> clique 1)
                                 via nvmlDeviceGetGpuFabricInfo.
-   Scenario 2  fake IMEX      : nvidia-imex-ctl transitions
-                                NOT-READY -> READY -> NOT-READY in lockstep
-                                with marker files on the shared hostPath.
+   Scenario 2  real IMEX      : two real nvidia-imex daemons (NO GPU
+                                mode via imex-nogpu-shim) formed a
+                                domain over the pod network; ctl -q
+                                printed READY, -N -j reported UP with
+                                version NO_GPU, and killing a peer
+                                degraded the domain (real liveness).
    Scenario 3  rebind         : helm upgrade + DaemonSet rollout promoted
                                 every node to clique 99 with a new cluster
                                 UUID — no image rebuild required.
 
 ==> The upstream compute-domain-controller and compute-domain-daemon
     can now run unmodified against this cluster: their NVML calls land
-    on the mock library, and their fork of nvidia-imex / nvidia-imex-ctl
-    is shadowed by the fakes shipped in the nvml-mock image (see
+    on the mock library, and the real nvidia-imex / nvidia-imex-ctl are
+    fronted by the imex-nogpu-shim overlay image (see
     deployments/nvml-mock/Dockerfile.compute-domain-daemon for the
-    thin overlay image).
+    thin overlay that runs the real IMEX daemon with --nogpu).
 
-==> Tear down
+==> The cluster is left running for inspection. To tear it down:
     kind delete cluster --name ${CLUSTER_NAME}
-    rm -rf ${HOST_STATE_DIR}
 EOF

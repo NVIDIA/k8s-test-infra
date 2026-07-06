@@ -123,17 +123,19 @@ infiniband:
     # the DaemonSet runs privileged. This NetworkPolicy restricts inbound
     # access to that port to peer nvml-mock pods (the only legitimate
     # clients), limiting the blast radius on clusters whose CNI enforces
-    # NetworkPolicy. NOTE: Kind's default CNI (kindnet) does NOT enforce
-    # NetworkPolicy, so this is a no-op there; it matters on Calico/Cilium.
+    # NetworkPolicy. NOTE: Kind's default CNI (kindnet) ENFORCES
+    # NetworkPolicy on current releases, so this allow-list is load-bearing
+    # there; it also matters on Calico/Cilium.
     networkPolicy:
       enabled: true
 
-# Fake IMEX coordination. When `imex.enabled` is true the chart mounts a
-# hostPath state directory into the nvml-mock pod so the fake nvidia-imex
-# / nvidia-imex-ctl binaries (compiled into the image) can coordinate
-# peer readiness via marker files. Real compute-domain-daemon pods reuse
-# the same hostPath via a thin image layer (see
-# deployments/nvml-mock/Dockerfile.compute-domain-daemon).
+# DEPRECATED — fake IMEX coordination, removed in a follow-up release.
+# The fake nvidia-imex / nvidia-imex-ctl marker protocol is superseded
+# by the REAL nvidia-imex daemon running in NO GPU mode (--nogpu) via
+# imex-nogpu-shim; real daemons coordinate over the pod network and
+# need no hostPath (see deployments/nvml-mock/Dockerfile.compute-domain-daemon
+# and NVIDIA/k8s-test-infra#304). While deprecated, `imex.enabled: true`
+# still mounts the hostPath state directory the fakes' marker files use.
 imex:
   enabled: false
   stateDir: /var/lib/nvml-mock/imex-state

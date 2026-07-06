@@ -16,6 +16,11 @@
 // simulate ComputeDomain peer discovery on KIND clusters without real
 // GB200 hardware. See NVIDIA/k8s-test-infra#304 for the full design.
 //
+// Deprecated: the fake IMEX marker protocol is superseded by the real
+// nvidia-imex daemon running in NO GPU mode (--nogpu) via imex-nogpu-shim;
+// this package will be removed in a follow-up release. See
+// NVIDIA/k8s-test-infra#304.
+//
 // Protocol (single-clique view; the real compute-domain-daemon writes a
 // per-clique nodes.cfg so the fake never has to know cliques itself):
 //
@@ -66,8 +71,9 @@ import (
 )
 
 // DefaultStateDir is the canonical hostPath shared between KIND
-// workers. KIND mounts /tmp/nvml-mock-imex-state on the host to this
-// path inside each node container via extraMounts.
+// workers. This constant is retained for the deprecated imex.enabled
+// toggle; KIND's extraMounts wiring was removed with the real-IMEX
+// migration, but the hostPath path remains for backward compatibility.
 const DefaultStateDir = "/var/lib/nvml-mock/imex-state"
 
 // DefaultNodesConfig matches the path the upstream compute-domain-daemon

@@ -33,6 +33,18 @@ tests:
       - equal:
           path: spec.ingress[0].ports[0].protocol
           value: TCP
+      - equal:
+          path: spec.ingress[0].ports[1].port
+          value: imex
+      - equal:
+          path: spec.ingress[0].ports[1].protocol
+          value: TCP
+      - equal:
+          path: spec.ingress[0].ports[2].port
+          value: imex-cmd
+      - equal:
+          path: spec.ingress[0].ports[2].protocol
+          value: TCP
 
   - it: should not render when disabled
     set:
