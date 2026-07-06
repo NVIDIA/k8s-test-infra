@@ -92,7 +92,8 @@ helm install gpu-operator nvidia/gpu-operator \
 ```
 
 GPU profile and count are passed to the driver container through ClusterPolicy
-`driver.env` (`MOCK_GPU_PROFILE`, `MOCK_GPU_COUNT`); the driver version string
+`driver.env` (`MOCK_GPU_PROFILE`, `MOCK_GPU_COUNT`, and optionally
+`MOCK_KMOD` -- see below); the driver version string
 is derived from the profile (overridable via `DRIVER_VERSION`, which is also
 pinned into the NVML config) so the library filename, nvidia-smi output,
 `/proc/driver/nvidia/version` content, and NVML answers always agree.
@@ -147,6 +148,41 @@ driver pod's rbind both conflict with nvml-mock's symlink.
 A green `e2e-gpu-operator-driver` CI run means the operator's driver
 *lifecycle* works -- it does not mean driver *functionality* (DCGM, MIG,
 upgrades) is covered. See the vendored contract for the exact surface tested.
+
+## Real Kernel-Global /proc and /sys (MOCK_KMOD)
+
+By default the kernel interfaces are faked only inside the driver container's
+mount namespace -- enough for the operator's own gating, but checks that read
+the NODE's real `/proc/driver/nvidia` or `/sys/module/nvidia` (or a plain
+pod's own `/proc`/`/sys`) fail, because on real clusters those entries exist
+only as a side effect of a genuine module load.
+
+`MOCK_KMOD` closes that gap the one legitimate way: a ~70-line stub kernel
+module named `nvidia` (`deployments/mock-driver/kmod/`). Loading any module
+with that name makes the kernel itself create `/sys/module/nvidia` (refcnt,
+version); the stub additionally serves `/proc/driver/nvidia/{version,params}`
+in NVRM format. It registers no devices and touches no hardware. Because the
+kernel is shared, the entries appear on the node and in every pod -- exactly
+like a real driver.
+
+| Value | Behavior |
+|-------|----------|
+| `off` (default) | Namespace fakes only |
+| `auto` | Try the stub (prebuilt, then in-container build); fall back to fakes |
+| `on` | Require the stub; fail the pod if it cannot be loaded |
+
+Module acquisition order: a prebuilt `/run/nvidia/mock-kmod/nvidia.ko`
+(build it host-side where kernel headers always match -- what the CI
+`mock_kmod: on` matrix leg does), then an in-container build via
+`linux-headers-$(uname -r)` (works when the image's distro carries headers
+for the node kernel). Guards: never loads when `/sys/module/nvidia` already
+exists; unloads on shutdown only if it loaded the module. Not available
+where the environment forbids module loading (kernel lockdown, no headers --
+e.g. Docker Desktop VMs).
+
+With `MOCK_KMOD=on`, the where-checks-run table above becomes all-green:
+node-level and in-pod reads of `/proc/driver/nvidia` and
+`/sys/module/nvidia` see real kernel entries.
 
 ## Teardown Behavior
 

@@ -785,8 +785,15 @@ jobs:
   # covered by the other jobs' matrices).
   e2e-gpu-operator-driver:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # off: kernel interfaces faked in the driver container's namespace
+        # on:  stub kernel module (prebuilt on the runner, injected via
+        #      /run/nvidia/mock-kmod) gives REAL kernel-global /proc and /sys
+        mock_kmod: ["off", "on"]
     env:
-      CLUSTER_NAME: nvml-mock-drv
+      CLUSTER_NAME: nvml-mock-drv-${{ matrix.mock_kmod }}
       # Pinned: the mock-driver image satisfies this version's driver-container
       # contract, vendored at tests/e2e/contract/. Bump both together.
       GPU_OPERATOR_VERSION: v26.3.3
@@ -853,6 +860,20 @@ jobs:
           fi
           echo "PASS: /run/nvidia/driver left for the driver DaemonSet"
 
+      - name: Prebuild the stub kernel module on the runner
+        if: matrix.mock_kmod == 'on'
+        run: |
+          # Built host-side where apt always has matching kernel headers,
+          # then dropped where the driver container already mounts
+          # (/run/nvidia) -- see deployments/mock-driver/kmod/.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "linux-headers-$(uname -r)" build-essential
+          make -C "/lib/modules/$(uname -r)/build" M="$PWD/deployments/mock-driver/kmod" modules
+          NODE_CONTAINER=$CLUSTER_NAME-control-plane
+          docker exec "$NODE_CONTAINER" mkdir -p /run/nvidia/mock-kmod
+          docker cp deployments/mock-driver/kmod/nvidia.ko "$NODE_CONTAINER":/run/nvidia/mock-kmod/nvidia.ko
+          echo "stub module staged on the node"
+
       - name: Add NVIDIA Helm repo
         run: |
           helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
@@ -866,6 +887,7 @@ jobs:
             --version "$GPU_OPERATOR_VERSION" \
             -f tests/e2e/gpu-operator-values.yaml \
             -f tests/e2e/gpu-operator-driver-values.yaml \
+            --set driver.env[2].value=${{ matrix.mock_kmod }} \
             --wait --timeout 300s
 
       - name: Wait for driver DaemonSet readiness
@@ -916,6 +938,22 @@ jobs:
           docker exec "$NODE_CONTAINER" cat /run/nvidia/driver/proc/driver/nvidia/version || \
             echo "WARNING: proc submount not visible through rbind (non-blocking)"
           echo "Driver contract verified"
+
+      - name: Verify kernel-global /proc and /sys (kmod mode)
+        if: matrix.mock_kmod == 'on'
+        run: |
+          NODE_CONTAINER=$CLUSTER_NAME-control-plane
+          echo "=== node-level: REAL procfs/sysfs entries ==="
+          docker exec "$NODE_CONTAINER" cat /proc/driver/nvidia/version
+          docker exec "$NODE_CONTAINER" cat /sys/module/nvidia/refcnt /sys/module/nvidia/version
+          echo "=== inside an ordinary pod (kernel-global visibility) ==="
+          kubectl run kmod-check --image=ubuntu:22.04 --restart=Never --command -- \
+            sh -c 'cat /proc/driver/nvidia/version && cat /sys/module/nvidia/refcnt'
+          kubectl wait pod/kmod-check --for=jsonpath='{.status.phase}'=Succeeded --timeout=90s
+          kubectl logs kmod-check
+          kubectl logs kmod-check | grep -q "NVRM version" || { echo "FAIL: pod did not see kernel-global /proc"; exit 1; }
+          kubectl delete pod kmod-check --ignore-not-found
+          echo "PASS: real /proc/driver/nvidia and /sys/module/nvidia, node-wide"
 
       - name: Wait for operator-validator pod
         uses: ./.github/actions/wait-operator-validator

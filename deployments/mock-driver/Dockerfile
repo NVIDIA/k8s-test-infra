@@ -39,7 +39,7 @@ COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends curl ca-certificates gnupg2; \
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg2 kmod; \
     rm -rf /var/lib/apt/lists/*; \
     # Extract just the nvidia-smi binary from nvidia-utils, mirroring the
     # extraction in deployments/nvml-mock/Dockerfile (same 580 pin, same
@@ -65,6 +65,10 @@ RUN set -eux; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
     apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
+    # (kmod survives the purge: explicitly installed, needed for MOCK_KMOD)
+# Stub kernel module sources for MOCK_KMOD (built at runtime against the
+# node kernel, or prebuilt host-side and injected via /run/nvidia/mock-kmod)
+COPY deployments/mock-driver/kmod/ /kmod/
 # GPU profiles and the driver-root layout library are shared with the
 # nvml-mock chart/image (single source of truth).
 COPY deployments/nvml-mock/helm/nvml-mock/profiles/ /profiles/
