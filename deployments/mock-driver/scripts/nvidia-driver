@@ -30,6 +30,9 @@
 #   MOCK_GPU_PROFILE  GPU profile to emulate (default: a100)
 #   MOCK_GPU_COUNT    number of GPUs (default: 8, capped at profile devices)
 #   DRIVER_VERSION    override driver version (default: from profile config)
+#   MOCK_KMOD         off|auto|on (default: off) -- load the stub kernel
+#                     module for REAL kernel-global /proc/driver/nvidia and
+#                     /sys/module/nvidia on the node and in every pod
 set -eu
 
 . /scripts/lib-driver-root.sh
@@ -61,6 +64,15 @@ _load_profile() {
   fi
 
   MOCK_GPU_COUNT=$(drl_cap_gpu_count "$PROFILE_FILE" "$MOCK_GPU_COUNT")
+}
+
+_load_stub_kmod() {
+  # Delegate to the helper (invoked by path, like start-mock-ib.sh) so this
+  # entrypoint never runs a package manager or compiler inline. The helper
+  # exits non-zero if the module cannot be loaded.
+  mkdir -p "$STAGE_DIR"
+  RUN_DIR="$RUN_DIR" KMOD_SRC=/kmod DRIVER_VERSION="$DRIVER_VERSION" \
+    /scripts/load-stub-kmod.sh
 }
 
 _fake_kernel_interfaces() {
@@ -115,6 +127,12 @@ _mount_rootfs() {
 
 _shutdown() {
   echo "Shutting down mock driver"
+  # Intentionally do NOT rmmod the stub kernel module here: a loaded module is
+  # node-global state and, like a real NVIDIA driver, must persist across
+  # driver-pod restarts (unloading it on every graceful restart would yank
+  # /proc/driver/nvidia and /sys/module/nvidia out from under other pods on
+  # the node). It stays loaded until the node is recreated -- matching real
+  # driver semantics. See MOCK_KMOD in docs/mock-driver.md.
   if mountpoint -q "$DRIVER_ROOT" 2>/dev/null; then
     umount -l -R "$DRIVER_ROOT" || true
   fi
@@ -137,6 +155,25 @@ init() {
   mkdir -p /config
   drl_write_config "$PROFILE_FILE" /config/config.yaml "$MOCK_GPU_COUNT" "$DRIVER_VERSION"
 
+  MOCK_KMOD_MODE=$(printf '%s' "${MOCK_KMOD:-off}" | tr '[:upper:]' '[:lower:]')
+  case "$MOCK_KMOD_MODE" in
+    off) ;;
+    auto)
+      _load_stub_kmod || echo "Falling back to mount-namespace kernel-interface fakes"
+      ;;
+    on)
+      _load_stub_kmod || {
+        echo "ERROR: MOCK_KMOD=on but the stub module could not be loaded" >&2
+        exit 1
+      }
+      ;;
+    *)
+      echo "ERROR: MOCK_KMOD='$MOCK_KMOD' is invalid; expected off, auto, or on" >&2
+      exit 1
+      ;;
+  esac
+  # The namespace fakes below self-skip whatever the stub module now provides
+  # for real (their guards test for existing refcnt / proc entries).
   _fake_kernel_interfaces
   _mount_rootfs
   echo "Mock driver rootfs mounted at $DRIVER_ROOT -- waiting for signal"
