@@ -83,11 +83,6 @@ driver:
       value: "a100"
     - name: MOCK_GPU_COUNT
       value: "2"
-    # off|auto|on: load the stub kernel module for real kernel-global
-    # /proc/driver/nvidia and /sys/module/nvidia (CI sets this per matrix leg
-    # via --set driver.env[2].value=...)
-    - name: MOCK_KMOD
-      value: "off"
 
 # GPUDirect Storage / GDRCopy would add sidecars to the driver pod -- keep off.
 gds:

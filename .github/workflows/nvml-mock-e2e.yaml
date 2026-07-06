@@ -791,9 +791,9 @@ jobs:
         # off: kernel interfaces faked in the driver container's namespace
         # on:  stub kernel module (prebuilt on the runner, injected via
         #      /run/nvidia/mock-kmod) gives REAL kernel-global /proc and /sys
-        mock_kmod: ["off", "on"]
+        mock-kmod: ["off", "on"]
     env:
-      CLUSTER_NAME: nvml-mock-drv-${{ matrix.mock_kmod }}
+      CLUSTER_NAME: nvml-mock-drv-${{ matrix.mock-kmod }}
       # Pinned: the mock-driver image satisfies this version's driver-container
       # contract, vendored at tests/e2e/contract/. Bump both together.
       GPU_OPERATOR_VERSION: v26.3.3
@@ -861,13 +861,19 @@ jobs:
           echo "PASS: /run/nvidia/driver left for the driver DaemonSet"
 
       - name: Prebuild the stub kernel module on the runner
-        if: matrix.mock_kmod == 'on'
+        if: matrix.mock-kmod == 'on'
         run: |
           # Built host-side where apt always has matching kernel headers,
           # then dropped where the driver container already mounts
           # (/run/nvidia) -- see deployments/mock-driver/kmod/.
           sudo apt-get update -qq
           sudo apt-get install -y -qq "linux-headers-$(uname -r)" build-essential
+          # Bake the profile's driver version into the module so the kernel
+          # reports the same version as NVML (the a100 driver_version, matching
+          # the driver.env MOCK_GPU_PROFILE below).
+          DV=$(sed -n 's/^[[:space:]]*driver_version:[[:space:]]*"\{0,1\}\([0-9][0-9.]*\).*/\1/p' \
+                 deployments/nvml-mock/helm/nvml-mock/profiles/a100.yaml | head -1)
+          printf '#define STUB_DRIVER_VERSION "%s"\n' "$DV" > deployments/mock-driver/kmod/stub_version.h
           make -C "/lib/modules/$(uname -r)/build" M="$PWD/deployments/mock-driver/kmod" modules
           NODE_CONTAINER=$CLUSTER_NAME-control-plane
           docker exec "$NODE_CONTAINER" mkdir -p /run/nvidia/mock-kmod
@@ -881,13 +887,19 @@ jobs:
 
       - name: Install GPU Operator (managed driver, mock image)
         run: |
-          # Layered values: driver-disabled baseline + managed-driver delta
+          # Layered values: driver-disabled baseline + managed-driver delta,
+          # plus the kmod delta on the "on" leg (shell branch avoids a
+          # hyphenated-matrix-key boolean expression).
+          EXTRA=""
+          if [ "${{ matrix.mock-kmod }}" = "on" ]; then
+            EXTRA="-f tests/e2e/gpu-operator-driver-kmod-values.yaml"
+          fi
           helm install gpu-operator nvidia/gpu-operator \
             -n gpu-operator --create-namespace \
             --version "$GPU_OPERATOR_VERSION" \
             -f tests/e2e/gpu-operator-values.yaml \
             -f tests/e2e/gpu-operator-driver-values.yaml \
-            --set driver.env[2].value=${{ matrix.mock_kmod }} \
+            $EXTRA \
             --wait --timeout 300s
 
       - name: Wait for driver DaemonSet readiness
@@ -940,7 +952,7 @@ jobs:
           echo "Driver contract verified"
 
       - name: Verify kernel-global /proc and /sys (kmod mode)
-        if: matrix.mock_kmod == 'on'
+        if: matrix.mock-kmod == 'on'
         run: |
           NODE_CONTAINER=$CLUSTER_NAME-control-plane
           echo "=== node-level: REAL procfs/sysfs entries ==="

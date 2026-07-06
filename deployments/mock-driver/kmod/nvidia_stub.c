@@ -1,5 +1,5 @@
-// Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: GPL-2.0
+// Copyright 2026 NVIDIA CORPORATION
 //
 // Stub kernel module named "nvidia": provides real, kernel-global
 // /sys/module/nvidia and /proc/driver/nvidia entries for GPU mocking on
@@ -34,6 +34,12 @@ MODULE_VERSION(STUB_DRIVER_VERSION);
 
 static struct proc_dir_entry *nv_dir;
 
+/*
+ * The version and params text must stay byte-compatible with
+ * drl_write_proc_files() in deployments/nvml-mock/scripts/lib-driver-root.sh,
+ * which produces the same files for the non-kmod (mount-namespace) path. Keep
+ * the two in sync so /proc/driver/nvidia looks identical in either mode.
+ */
 static int version_show(struct seq_file *m, void *v)
 {
 	seq_printf(m,
@@ -58,11 +64,19 @@ static int params_show(struct seq_file *m, void *v)
 
 static int __init nv_init(void)
 {
+	/*
+	 * proc_mkdir("driver/nvidia") creates only the "nvidia" leaf; the
+	 * "driver" parent already exists in every procfs, so remove_proc_subtree
+	 * on exit takes down exactly what we created and never the shared parent.
+	 */
 	nv_dir = proc_mkdir("driver/nvidia", NULL);
 	if (!nv_dir)
 		return -ENOMEM;
-	proc_create_single("version", 0444, nv_dir, version_show);
-	proc_create_single("params", 0444, nv_dir, params_show);
+	if (!proc_create_single("version", 0444, nv_dir, version_show) ||
+	    !proc_create_single("params", 0444, nv_dir, params_show)) {
+		remove_proc_subtree("driver/nvidia", NULL);
+		return -ENOMEM;
+	}
 	return 0;
 }
 

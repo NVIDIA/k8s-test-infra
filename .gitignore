@@ -17,3 +17,5 @@ docs/plans/
 docs/superpowers/
 docs/magi/
 .worktrees/
+deployments/mock-driver/kmod/stub_version.h
+deployments/mock-driver/kmod/*.ko

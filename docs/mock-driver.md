@@ -171,18 +171,39 @@ like a real driver.
 | `auto` | Try the stub (prebuilt, then in-container build); fall back to fakes |
 | `on` | Require the stub; fail the pod if it cannot be loaded |
 
+What each mode makes pass, by where the check reads `/proc/driver/nvidia`
+or `/sys/module/nvidia`:
+
+| Where the check runs | `off` (namespace fakes) | `on` (stub module) |
+|----------------------|:-----------------------:|:------------------:|
+| Inside the driver container (operator probe, `kubectl exec`) | pass | pass |
+| Through the driver root (`/run/nvidia/driver/...`) | pass (`/proc`) | pass |
+| Node's real `/proc`//`/sys` (host, node-problem-detector) | fail | pass |
+| An ordinary pod's own `/proc`//`/sys` | fail | pass |
+
 Module acquisition order: a prebuilt `/run/nvidia/mock-kmod/nvidia.ko`
 (build it host-side where kernel headers always match -- what the CI
-`mock_kmod: on` matrix leg does), then an in-container build via
+`mock-kmod: on` matrix leg does), then an in-container build via
 `linux-headers-$(uname -r)` (works when the image's distro carries headers
-for the node kernel). Guards: never loads when `/sys/module/nvidia` already
-exists; unloads on shutdown only if it loaded the module. Not available
-where the environment forbids module loading (kernel lockdown, no headers --
-e.g. Docker Desktop VMs).
+for the node kernel). Not available where the environment forbids module
+loading (kernel lockdown, no headers -- e.g. Docker Desktop VMs); `auto`
+degrades to the namespace fakes, `on` fails the pod.
 
-With `MOCK_KMOD=on`, the where-checks-run table above becomes all-green:
-node-level and in-pod reads of `/proc/driver/nvidia` and
-`/sys/module/nvidia` see real kernel entries.
+**Lifecycle:** the module is node-global and, like a real driver, persists
+across driver-pod restarts -- the entrypoint never `rmmod`s it, so a graceful
+restart does not yank `/proc`//`/sys` out from under other pods. It is loaded
+once (subsequent starts see it and no-op) and stays until the node is
+recreated. Consequently the driver version is fixed at load time: changing
+`DRIVER_VERSION`/profile requires recreating the node, exactly as a real
+driver upgrade would. A prebuilt module bakes its version when built (the CI
+prebuild generates it from the profile; a hand-built prebuilt module carries
+whatever version it was compiled with).
+
+**Scope:** kmod mode provides the real `/sys/module/nvidia` (the entry the
+operator probe actually checks) plus `/proc/driver/nvidia`. The cosmetic
+`/sys/module/nvidia_uvm` and `/sys/module/nvidia_modeset` entries that the
+namespace-fake path fabricates are not created in kmod mode (nothing in the
+stack reads them); `/sys/module/nvidia` is what matters.
 
 ## Teardown Behavior
 

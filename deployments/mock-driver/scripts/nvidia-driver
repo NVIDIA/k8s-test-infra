@@ -67,44 +67,12 @@ _load_profile() {
 }
 
 _load_stub_kmod() {
-  # Load the stub kernel module (deployments/mock-driver/kmod/) so the NODE
-  # and every pod on it get real, kernel-global /proc/driver/nvidia and
-  # /sys/module/nvidia entries -- the one thing mount-namespace fakes cannot
-  # provide. Preference order: a prebuilt module dropped at
-  # /run/nvidia/mock-kmod/nvidia.ko (built host-side where kernel headers
-  # always match -- what CI does), then an in-container build (works when
-  # this image's distro carries headers for the node kernel). Non-zero
-  # return means neither worked; the caller falls back to namespace fakes.
+  # Delegate to the helper (invoked by path, like start-mock-ib.sh) so this
+  # entrypoint never runs a package manager or compiler inline. The helper
+  # exits non-zero if the module cannot be loaded.
   mkdir -p "$STAGE_DIR"
-  if [ -e /sys/module/nvidia ]; then
-    echo "kmod: /sys/module/nvidia already present; not loading the stub"
-    return 0
-  fi
-  if [ -f "$RUN_DIR/mock-kmod/nvidia.ko" ]; then
-    if insmod "$RUN_DIR/mock-kmod/nvidia.ko"; then
-      touch "$STAGE_DIR/stub-kmod-loaded"
-      echo "kmod: prebuilt stub module loaded (kernel-global /proc and /sys active)"
-      return 0
-    fi
-    echo "kmod: prebuilt module failed to load (kernel mismatch?); trying in-container build"
-  fi
-  KVER=$(uname -r)
-  if ! { apt-get update -qq && \
-         apt-get install -y -qq "linux-headers-$KVER" build-essential kmod; } > /dev/null 2>&1; then
-    echo "kmod: kernel headers/toolchain unavailable for $KVER"
-    return 1
-  fi
-  printf '#define STUB_DRIVER_VERSION "%s"\n' "$DRIVER_VERSION" > /kmod/stub_version.h
-  if ! make -s -C "/lib/modules/$KVER/build" M=/kmod modules; then
-    echo "kmod: stub build failed for $KVER"
-    return 1
-  fi
-  if ! insmod /kmod/nvidia.ko; then
-    echo "kmod: insmod failed"
-    return 1
-  fi
-  touch "$STAGE_DIR/stub-kmod-loaded"
-  echo "kmod: stub module built and loaded (kernel-global /proc and /sys active)"
+  RUN_DIR="$RUN_DIR" KMOD_SRC=/kmod DRIVER_VERSION="$DRIVER_VERSION" \
+    /scripts/load-stub-kmod.sh
 }
 
 _fake_kernel_interfaces() {
@@ -159,9 +127,12 @@ _mount_rootfs() {
 
 _shutdown() {
   echo "Shutting down mock driver"
-  if [ -f "$STAGE_DIR/stub-kmod-loaded" ]; then
-    rmmod nvidia 2>/dev/null || true
-  fi
+  # Intentionally do NOT rmmod the stub kernel module here: a loaded module is
+  # node-global state and, like a real NVIDIA driver, must persist across
+  # driver-pod restarts (unloading it on every graceful restart would yank
+  # /proc/driver/nvidia and /sys/module/nvidia out from under other pods on
+  # the node). It stays loaded until the node is recreated -- matching real
+  # driver semantics. See MOCK_KMOD in docs/mock-driver.md.
   if mountpoint -q "$DRIVER_ROOT" 2>/dev/null; then
     umount -l -R "$DRIVER_ROOT" || true
   fi
@@ -184,10 +155,11 @@ init() {
   mkdir -p /config
   drl_write_config "$PROFILE_FILE" /config/config.yaml "$MOCK_GPU_COUNT" "$DRIVER_VERSION"
 
-  case "${MOCK_KMOD:-off}" in
+  MOCK_KMOD_MODE=$(printf '%s' "${MOCK_KMOD:-off}" | tr '[:upper:]' '[:lower:]')
+  case "$MOCK_KMOD_MODE" in
     off) ;;
     auto)
-      _load_stub_kmod || echo "kmod: falling back to mount-namespace fakes"
+      _load_stub_kmod || echo "Falling back to mount-namespace kernel-interface fakes"
       ;;
     on)
       _load_stub_kmod || {
