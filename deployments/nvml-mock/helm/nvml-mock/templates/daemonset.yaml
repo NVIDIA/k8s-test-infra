@@ -8,6 +8,7 @@ metadata:
   name: {{ include "nvml-mock.fullname" . }}
   labels:
     {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: daemon
 spec:
   selector:
     matchLabels:
@@ -18,6 +19,7 @@ spec:
     metadata:
       labels:
         {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: daemon
       annotations:
         # Roll the DaemonSet on any config.yaml change.
         checksum/config: {{ include "nvml-mock.gpuConfig" . | sha256sum }}

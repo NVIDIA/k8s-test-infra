@@ -24,14 +24,16 @@ spec:
   podSelector:
     matchLabels:
       {{- include "nvml-mock.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: daemon
   policyTypes:
     - Ingress
   ingress:
     - from:
-        # Match by app name only (not instance): the fabric spans every
-        # nvml-mock pod cluster-wide, which may be deployed as multiple Helm
-        # releases (e.g. one per node in the ibping-multinode e2e). Scoping to
-        # the release's own instance would block cross-release registration.
+        # Match by app name + daemon component (not instance): the fabric spans
+        # every nvml-mock daemon pod cluster-wide, which may be deployed as
+        # multiple Helm releases (e.g. one per node in the ibping-multinode
+        # e2e). Scoping to the release's own instance would block cross-release
+        # registration; the component keeps the sidecar NRI DaemonSet out.
         #
         # The namespaceSelector and podSelector are combined in a single peer
         # (logical AND), so this admits nvml-mock pods in ANY namespace. Without
@@ -42,6 +44,7 @@ spec:
           podSelector:
             matchLabels:
               app.kubernetes.io/name: {{ include "nvml-mock.name" . }}
+              app.kubernetes.io/component: daemon
       ports:
         - port: ibping
           protocol: TCP
