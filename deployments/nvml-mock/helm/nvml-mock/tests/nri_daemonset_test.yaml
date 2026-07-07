@@ -4,7 +4,15 @@ suite: NRI DaemonSet
 templates:
   - templates/nri-daemonset.yaml
 tests:
-  - it: should render an NRI DaemonSet by default
+  - it: should not render by default (opt-in feature)
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render an NRI DaemonSet when enabled
+    set:
+      nri:
+        enabled: true
     asserts:
       - isKind:
           of: DaemonSet
@@ -21,15 +29,10 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --excluded-namespaces=NAMESPACE,kube-system
 
-  - it: should not render when disabled
+  - it: should mount the NRI socket directory and overlay host path
     set:
       nri:
-        enabled: false
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: should mount the NRI socket directory and overlay host path
+        enabled: true
     asserts:
       - contains:
           path: spec.template.spec.volumes
@@ -55,6 +58,7 @@ tests:
   - it: should apply custom NRI image and resources
     set:
       nri:
+        enabled: true
         image:
           repository: custom/nvml-mock-nri
           tag: v1
@@ -80,6 +84,7 @@ tests:
   - it: should pass custom overlay and namespace exclusions
     set:
       nri:
+        enabled: true
         socketPath: /run/custom-nri/nri.sock
         overlay:
           hostPath: /custom/nvml-mock

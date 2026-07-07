@@ -66,9 +66,12 @@ resources: {}
 
 # Node-wide ambient injection via containerd NRI. When enabled, a lightweight
 # node-local plugin appends the nvml-mock overlay mount and environment to each
-# container at runtime without mutating pod specs.
+# container at runtime without mutating pod specs. Opt-in (default false): it
+# injects into workloads cluster-wide and adds a second DaemonSet that shares
+# the release labels, so enable it only for the node-wide-injection demo/use
+# case. See docs/demo/node-wide-injection.
 nri:
-  enabled: true
+  enabled: false
   socketPath: /var/run/nri/nri.sock
   pluginName: nvml-mock
   pluginIndex: "10"
