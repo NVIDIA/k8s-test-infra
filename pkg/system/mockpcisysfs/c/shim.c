@@ -58,10 +58,8 @@ static int rewrite_path(const char *path, char *out, size_t out_size) {
     for (size_t i = 0; k_prefixes[i] != NULL; ++i) {
         const char *p = k_prefixes[i];
         size_t plen = strlen(p);
-        if (p[plen - 1] == '/') {
-            if (strncmp(path, p, plen) != 0) continue;
-        } else {
-            if (strncmp(path, p, plen) != 0) continue;
+        if (strncmp(path, p, plen) != 0) continue;
+        if (p[plen - 1] != '/' && strcmp(p, "/sys/devices/pci") != 0) {
             if (path[plen] != '\0' && path[plen] != '/') continue;
         }
         size_t total = root_len_cached + strlen(path);

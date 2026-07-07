@@ -24,6 +24,7 @@ spec:
         app.kubernetes.io/component: nri
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

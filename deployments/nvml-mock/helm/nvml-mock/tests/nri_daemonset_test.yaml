@@ -20,6 +20,9 @@ tests:
           path: metadata.name
           value: RELEASE-NAME-nvml-mock-nri
       - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
           path: spec.template.spec.containers[0].image
           value: ghcr.io/nvidia/nvml-mock:latest
       - contains:
