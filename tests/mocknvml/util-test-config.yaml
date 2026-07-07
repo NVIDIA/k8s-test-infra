@@ -379,7 +379,7 @@ devices:
 nvlink:
   version: 3
   links_per_gpu: 12
-  bandwidth_per_link_gbps: 50       # 50 GB/s per link = 600 GB/s total per GPU
+  bandwidth_per_link_mbps: 25781    # NVLink3 25.781 GB/s/link unidirectional; 12 links ~= 600 GB/s bidir
   # NVLink state per link (12 links)
   links:
     - link: 0
