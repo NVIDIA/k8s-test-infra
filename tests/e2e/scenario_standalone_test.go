@@ -6,6 +6,8 @@
 package e2e
 
 import (
+	"strconv"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -14,6 +16,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/assertions"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/harness"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/helm"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/kube"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/profile"
 )
@@ -110,6 +113,124 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertions.IBPing(ctx, h.Kube, server, client, "both", ibPingRetries, ibPingRetrySleep)
 				assertions.IBLinkInfo(ctx, h.Kube, server, client, p)
 			})
+
+			It("handles GPU failure injection modes", Label("failure-injection"), func(ctx SpecContext) {
+				if name != "h100" {
+					Skip("failure-injection demo is defined against the h100 profile")
+				}
+				runFailureInjectionScenarios(ctx, h, pod, p.ExpectedGPUs())
+			})
 		})
 	}
 })
+
+func runFailureInjectionScenarios(ctx SpecContext, h *harness.Harness, pod kube.PodRef, expectedGPUs int) {
+	GinkgoHelper()
+
+	By("failure-injection healthy baseline")
+	cfg := configMapData(ctx, h)
+	Expect(cfg).NotTo(ContainSubstring("failure:"), "healthy baseline should not render a failure block")
+	listCount := nvidiaSMILCount(ctx, h, pod)
+	Expect(listCount).To(Equal(expectedGPUs), "healthy baseline should list all profile GPUs")
+
+	eccPod := upgradeFailureMode(ctx, h, "ecc_uncorrectable", map[string]string{
+		"gpu.failureInjection.enabled":     "true",
+		"gpu.failureInjection.mode":        "ecc_uncorrectable",
+		"gpu.failureInjection.after_calls": "1",
+		"gpu.failureInjection.xid.code":    "79",
+	})
+	assertConfigContains(ctx, h, "mode: ecc_uncorrectable")
+	Expect(nvidiaSMILCount(ctx, h, eccPod)).To(Equal(expectedGPUs), "ecc_uncorrectable keeps devices addressable")
+	Expect(maxIntegerLine(eccQuery(ctx, h, eccPod))).To(BeNumerically(">", 0), "ecc_uncorrectable should trip ECC counters")
+
+	lostPod := upgradeFailureMode(ctx, h, "lost", map[string]string{
+		"gpu.failureInjection.mode":        "lost",
+		"gpu.failureInjection.after_calls": "1",
+		"gpu.failureInjection.xid.code":    "0",
+	})
+	assertConfigContains(ctx, h, "mode: lost")
+	Expect(hasFailureMarker(temperatureQuery(ctx, h, lostPod))).To(BeTrue(), "lost mode should surface nvidia-smi error markers")
+
+	fobPod := upgradeFailureMode(ctx, h, "fallen_off_bus", map[string]string{
+		"gpu.failureInjection.mode":        "fallen_off_bus",
+		"gpu.failureInjection.after_calls": "1",
+		"gpu.failureInjection.xid.code":    "79",
+	})
+	assertConfigContains(ctx, h, "mode: fallen_off_bus")
+	assertConfigContains(ctx, h, "code: 79")
+	Expect(hasFailureMarker(temperatureQuery(ctx, h, fobPod))).To(BeTrue(), "fallen_off_bus should surface nvidia-smi error markers")
+}
+
+func upgradeFailureMode(ctx SpecContext, h *harness.Harness, mode string, set map[string]string) kube.PodRef {
+	GinkgoHelper()
+	By("helm upgrade --reuse-values failure mode " + mode)
+	err := h.Helm.UpgradeInstall(ctx, helm.Release{
+		Name:        "nvml-mock",
+		Chart:       chartDir(),
+		Namespace:   nvmlMockNamespace,
+		ReuseValues: true,
+		Set:         set,
+		Wait:        true,
+		Timeout:     config.HelmTimeout(),
+	})
+	Expect(err).NotTo(HaveOccurred(), "helm upgrade failure mode %s", mode)
+	_, _ = h.Kube.KubectlCombined(ctx, "delete", "pods", "-n", nvmlMockNamespace, "-l", "app.kubernetes.io/name=nvml-mock", "--ignore-not-found")
+	assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
+	return firstNvmlPod(ctx, h)
+}
+
+func configMapData(ctx SpecContext, h *harness.Harness) string {
+	GinkgoHelper()
+	out, err := h.Kube.KubectlCombined(ctx, "get", "configmap/nvml-mock-config", "-n", nvmlMockNamespace, "-o", "jsonpath={.data.config\\.yaml}")
+	Expect(err).NotTo(HaveOccurred(), "read nvml-mock configmap")
+	return out
+}
+
+func assertConfigContains(ctx SpecContext, h *harness.Harness, needle string) {
+	GinkgoHelper()
+	Expect(configMapData(ctx, h)).To(ContainSubstring(needle), "ConfigMap should contain %q", needle)
+}
+
+func nvidiaSMILCount(ctx SpecContext, h *harness.Harness, pod kube.PodRef) int {
+	GinkgoHelper()
+	res, err := h.Kube.Exec(ctx, pod, "nvidia-smi", "-L")
+	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -L: %s", res.Combined())
+	count := 0
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "GPU ") {
+			count++
+		}
+	}
+	return count
+}
+
+func eccQuery(ctx SpecContext, h *harness.Harness, pod kube.PodRef) string {
+	GinkgoHelper()
+	res, _ := h.Kube.Exec(ctx, pod, "nvidia-smi", "--query-gpu=ecc.errors.uncorrected.aggregate.total", "--format=csv,noheader,nounits")
+	return res.Combined()
+}
+
+func temperatureQuery(ctx SpecContext, h *harness.Harness, pod kube.PodRef) string {
+	GinkgoHelper()
+	res, _ := h.Kube.Exec(ctx, pod, "nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits")
+	return res.Combined()
+}
+
+func maxIntegerLine(out string) int {
+	max := 0
+	for _, line := range strings.Split(out, "\n") {
+		v, err := strconv.Atoi(strings.TrimSpace(line))
+		if err == nil && v > max {
+			max = v
+		}
+	}
+	return max
+}
+
+func hasFailureMarker(out string) bool {
+	lower := strings.ToLower(out)
+	return strings.Contains(lower, "[n/a]") ||
+		strings.Contains(lower, "[unknown error]") ||
+		strings.Contains(lower, "gpu is lost") ||
+		strings.Contains(lower, "err")
+}

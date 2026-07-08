@@ -53,6 +53,7 @@ Each profile runs, against the shared cluster:
 | InfiniBand mock (`ibstat` / `ibv_devinfo`) | step 8 | `profiles/<name>.yaml` |
 | PCI sysfs topology (device count, relative symlinks, numa_node, root complexes) | step 9 | `profiles/<name>.yaml` `pcie_topology` |
 | cross-node `ibping` + `iblinkinfo` | steps 10–11 | `profiles/<name>.yaml` |
+| failure injection (`healthy`, `ecc_uncorrectable`, `lost`, `fallen_off_bus`) | `docs/demo/failure-injection/run.sh` | `h100` profile |
 
 ### Environment knobs
 

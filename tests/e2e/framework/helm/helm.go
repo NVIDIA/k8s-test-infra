@@ -30,6 +30,7 @@ type Release struct {
 	Chart           string
 	Namespace       string
 	CreateNamespace bool
+	ReuseValues     bool
 	ValuesFiles     []string
 	Set             map[string]string
 	Wait            bool
@@ -77,6 +78,9 @@ func (c *Client) run(ctx context.Context, verb string, rel Release, extra ...str
 	}
 	if rel.CreateNamespace {
 		args = append(args, "--create-namespace")
+	}
+	if rel.ReuseValues {
+		args = append(args, "--reuse-values")
 	}
 	for _, vf := range rel.ValuesFiles {
 		args = append(args, "-f", vf)
