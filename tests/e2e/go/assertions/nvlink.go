@@ -16,13 +16,14 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/nodes"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
 
 var (
-	gpuRowRE  = regexp.MustCompile(`^GPU[0-9]`)
-	nvTokenRE = regexp.MustCompile(`^NV[0-9]+$`)
+	gpuRowRE             = regexp.MustCompile(`^GPU[0-9]`)
+	nvTokenRE            = regexp.MustCompile(`^NV[0-9]+$`)
+	nvlinkLogOutputLines = 50
 )
 
 // nvTokens applies the column-windowed parse from validate-nvlink.sh: in a
@@ -61,14 +62,14 @@ func distinctSorted(toks []string) []string {
 // NVLink ports validate-nvlink.sh. fabricmanager readiness must already be
 // gated by the caller (FabricManagerGate) BEFORE this assertion, matching the
 // real HGX/GB200 ordering.
-func NVLink(ctx context.Context, n nodes.Docker, node string, p profile.Profile) {
+func NVLink(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
 	ginkgo.GinkgoHelper()
 
 	count := p.ExpectedGPUs()
 	expectNV := p.ExpectedNV()
 
 	ginkgo.By("nvidia-smi topo -m")
-	res, err := n.Exec(ctx, node, DriverNvidiaSMI, "topo", "-m")
+	res, err := k.Exec(ctx, pod, "nvidia-smi", "topo", "-m")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "topo -m exited with error: %s", res.Combined())
 	topo := res.Combined()
 	gomega.Expect(topo).To(gomega.MatchRegexp(`(?i)Legend|NV# =`), "topo -m did not print a legend")
@@ -89,18 +90,18 @@ func NVLink(ctx context.Context, n nodes.Docker, node string, p profile.Profile)
 			p.Name, offDiag, want, len(tokens))
 
 		ginkgo.By("nvidia-smi nvlink -s (status) enumerates links")
-		s, err := n.Exec(ctx, node, DriverNvidiaSMI, "nvlink", "-s")
+		s, err := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-s")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvlink -s exited with error: %s", s.Combined())
 		gomega.Expect(s.Combined()).To(gomega.MatchRegexp(`Link[[:space:]]+0`),
 			"nvlink -s printed no links for NVLink profile %q", p.Name)
 
 		ginkgo.By("nvidia-smi nvlink -c (capabilities) enumerates links")
-		c, err := n.Exec(ctx, node, DriverNvidiaSMI, "nvlink", "-c")
+		c, err := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-c")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvlink -c exited with error: %s", c.Combined())
 		gomega.Expect(c.Combined()).To(gomega.MatchRegexp(`Link[[:space:]]+0`),
 			"nvlink -c printed no capabilities for NVLink profile %q", p.Name)
 
-		nvlinkCountersTriState(ctx, n, node)
+		nvlinkCountersTriState(ctx, k, pod)
 		return
 	}
 
@@ -112,10 +113,10 @@ func NVLink(ctx context.Context, n nodes.Docker, node string, p profile.Profile)
 // nvlinkCountersTriState samples `nvlink -gt d` twice and is tri-state:
 // SKIP if no counters are surfaced, PASS if non-decreasing, FAIL if they
 // decrease — never silent-pass and never hard-fail on zero.
-func nvlinkCountersTriState(ctx context.Context, n nodes.Docker, node string) {
+func nvlinkCountersTriState(ctx context.Context, k *kube.Client, pod kube.PodRef) {
 	ginkgo.By("NVLink throughput counters are non-decreasing (tri-state)")
 	sum := func() int {
-		res, _ := n.Exec(ctx, node, DriverNvidiaSMI, "nvlink", "-gt", "d")
+		res, _ := k.ExecTruncated(ctx, pod, nvlinkLogOutputLines, "nvidia-smi", "nvlink", "-gt", "d")
 		return sumInts(res.Stdout)
 	}
 	s1 := sum()

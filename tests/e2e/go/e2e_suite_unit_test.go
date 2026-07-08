@@ -53,6 +53,7 @@ func TestUseCaseLabels(t *testing.T) {
 		"pcisysfs",
 		"ibping",
 		"failure-injection",
+		"validator",
 	}
 	if len(useCaseLabels) != len(want) {
 		t.Fatalf("expected labels %#v, got %#v", want, useCaseLabels)

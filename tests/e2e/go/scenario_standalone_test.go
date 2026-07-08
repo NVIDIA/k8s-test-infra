@@ -37,6 +37,7 @@ var useCaseLabels = []string{
 	"pcisysfs",
 	"ibping",
 	"failure-injection",
+	"validator",
 }
 
 // Go port of docs/demo/standalone/demo.sh. ONE shared multi-node cluster is
@@ -86,7 +87,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
-				assertions.NVLink(ctx, h.Nodes, node, p)
+				assertions.NVLink(ctx, h.Kube, pod, p)
 			})
 
 			It("exposes the InfiniBand mock", Label("ib"), func(ctx SpecContext) {

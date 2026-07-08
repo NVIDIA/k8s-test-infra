@@ -1,78 +1,187 @@
-# nvml-mock E2E Tests
+# nvml-mock Go E2E
 
-End-to-end tests that deploy NVIDIA GPU consumers on a Kind cluster using the
-nvml-mock chart (mock NVML + CUDA libraries instead of real hardware).
+This directory contains the end-to-end tests for `nvml-mock`, the mock
+`libnvidia-ml.so` chart used to simulate GPU nodes on Kind without physical GPU
+hardware.
 
-## Go harness (Ginkgo)
+The active E2E entrypoint is the Go/Ginkgo harness under [`go/`](go/). It is the
+Go port of [`docs/demo/standalone/demo.sh`](../../docs/demo/standalone/demo.sh)
+and also covers the failure-injection flow from
+[`docs/demo/failure-injection/run.sh`](../../docs/demo/failure-injection/run.sh).
 
-The e2e suite is the Go/Ginkgo port of [`docs/demo/standalone/demo.sh`](../../docs/demo/standalone/demo.sh).
-It owns the **full lifecycle** — Kind cluster create/teardown, image
-build/load, `helm upgrade --install`, validation, and failure diagnostics —
-behind a single entrypoint that runs identically locally and in CI. It is gated
-by the `e2e` build tag, so it never affects the normal `go test ./...` /
-`go build ./...` paths.
+## What The Harness Does
 
-All Go harness code lives under [`tests/e2e/go`](go/) so the legacy shell
-validators and manifests can stay directly under `tests/e2e/`.
+`make e2e` runs one Ginkgo suite that owns the full test lifecycle:
 
-**One shared cluster.** A single multi-node Kind cluster
-([`docs/demo/kind.yaml`](../../docs/demo/kind.yaml): 1 control-plane + 3
-workers) is created **once** for the whole suite. Each selected GPU profile is
-then deployed onto that same cluster via `helm upgrade --install` (a chart
-upgrade, **not** a cluster rebuild) and validated in place. The cluster is only
-rebuilt when a scenario genuinely needs different cluster-level config; the demo
-flow uses one topology for everything, including cross-node ibping (the 3
-workers each run an nvml-mock pod).
+1. Build the `nvml-mock:e2e` image, unless `E2E_SKIP_BUILD=true`.
+2. Create one multi-node Kind cluster from [`docs/demo/kind.yaml`](../../docs/demo/kind.yaml).
+3. Load the image into Kind.
+4. Install `nvml-mock` into the dedicated `nvml-mock-system` namespace.
+5. Run the standalone demo checks for each selected GPU profile.
+6. Collect diagnostics on failure.
+7. Keep the Kind cluster by default for debugging.
+
+The suite uses the default kubeconfig but always passes the explicit Kind context
+`kind-nvml-mock-e2e` to Helm and kubectl.
+
+## Running Locally
+
+Prerequisites:
+
+- `docker`
+- `kind`
+- `kubectl`
+- `helm`
+- Go toolchain matching the project version
+
+Common commands:
 
 ```bash
-# Default single-profile run (gb200)
+# Default local run: one profile, gb200.
 make e2e
 
-# One profile, fast inner loop
+# Run a single explicit profile.
 make e2e E2E_PROFILES=a100
 
-# Scope with Ginkgo labels (each profile and use case is a label)
+# Run multiple profiles on the same cluster.
+make e2e E2E_PROFILES="a100 h100"
+
+# Run only selected use cases with Ginkgo labels.
 make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
 
-# Reuse a pre-built image (skip the in-suite build)
+# Reuse a pre-built image and skip the in-suite Docker build.
 docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile .
 make e2e E2E_SKIP_BUILD=true E2E_IMAGE=nvml-mock:e2e E2E_PROFILES=a100
+
+# Delete the Kind cluster during teardown instead of keeping it.
+make e2e E2E_KEEP_CLUSTER=false
 ```
 
-Prerequisites: `docker`, `kind`, `kubectl`, `helm`, and a Go toolchain. The
-cluster uses the default kubeconfig with the explicit Kind context
-(`kind-nvml-mock-e2e`) and is kept by default for debugging; set
-`E2E_KEEP_CLUSTER=false` to delete it during teardown.
+`make e2e` intentionally targets only `./tests/e2e/go`, not `./tests/e2e/go/...`.
+The suite package launches real Kind, Docker, Helm, and kubectl operations.
+Helper packages such as `profile` and `ibutil` are ordinary unit-test packages.
 
-### Checks per profile (ported from `demo.sh`)
+## Profiles
 
-Each profile runs, against the shared cluster:
+Profiles describe the GPU topology the chart should render. The harness reads
+the selected profile names from `E2E_PROFILES`.
 
-| Check | demo.sh step | Source of truth |
-|---|---|---|
-| fake-GPU-operator profile ConfigMaps (`run.ai/gpu-profile=true`) | profile ConfigMaps | chart `integrations-fgo.yaml` |
-| `nvidia-smi` GPU inventory | step 7 | `profiles/<name>.yaml` |
-| NVLink topology (gated on fabricmanager) | step 7b | `profiles/<name>.yaml` |
-| InfiniBand mock (`ibstat` / `ibv_devinfo`) | step 8 | `profiles/<name>.yaml` |
-| PCI sysfs topology (device count, relative symlinks, numa_node, root complexes) | step 9 | `profiles/<name>.yaml` `pcie_topology` |
-| cross-node `ibping` + `iblinkinfo` | steps 10–11 | `profiles/<name>.yaml` |
-| failure injection (`healthy`, `ecc_uncorrectable`, `lost`, `fallen_off_bus`) | `docs/demo/failure-injection/run.sh` | selected profile |
+Local default:
 
-### Environment knobs
+```text
+gb200
+```
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `E2E_PROFILES` | `gb200` | profiles to run against the shared cluster |
-| `E2E_IMAGE` | `nvml-mock:e2e` | image ref the harness builds + kind-loads |
-| `E2E_SKIP_BUILD` | `false` | reuse a pre-built `E2E_IMAGE` |
-| `E2E_KEEP_CLUSTER` | `true` | keep the Kind cluster after the suite; set `false` to delete it |
-| `E2E_ARTIFACTS` | `artifacts/e2e` | where failure diagnostics are written |
-| `E2E_BUILDX_GHA_CACHE` | `false` | add `--cache-to/--cache-from type=gha` to the in-suite build (CI) |
+CI default:
 
-### Labels
+```text
+a100, h100, b200, gb200, gb300, t4
+```
 
-Each profile is a label (`a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`,
-`t4`). Use-case labels are:
+The profile data source is:
+
+```text
+deployments/nvml-mock/helm/nvml-mock/profiles/
+```
+
+The `profile` package decodes those chart files and derives the expected GPU
+count, NVLink topology, InfiniBand devices, fabricmanager behavior, and PCI root
+complexes used by the assertions.
+
+## Kind Config Selection
+
+The default cluster topology is:
+
+```text
+docs/demo/kind.yaml
+```
+
+Profiles that need special cluster wiring can add:
+
+```text
+docs/demo/kind-<profile>.yaml
+```
+
+All profiles in a single `E2E_PROFILES` run must resolve to the same Kind config.
+If two selected profiles require different configs, run them separately. The CI
+matrix already runs each profile in its own job, so profile-specific Kind config
+files are naturally isolated there.
+
+## Scenario Layout
+
+The Go suite is organized so scenario files read like a test map and supporting
+code lives in small helper files:
+
+```text
+tests/e2e/go/
+  e2e_suite_test.go              # Ginkgo entrypoint and suite lifecycle
+  suite_build.go                 # Docker image build
+  suite_paths.go                 # repo/chart/profile/Kind path resolution
+  suite_cluster.go               # Kind setup, teardown, diagnostics, pod lookup
+  suite_helm.go                  # nvml-mock Helm release construction
+  scenario_standalone_test.go    # standalone demo scenario map
+  scenario_standalone_setup.go   # per-profile install/setup helper
+  scenario_failure_injection.go  # failure-injection scenario helpers
+  scenario_validator_test.go     # CUDA vectorAdd validator scenario
+  framework/                     # thin wrappers for kind, helm, kubectl, docker
+  assertions/                    # domain assertions for nvidia-smi, NVLink, IB, PCI
+  profile/                       # profile parser and topology expectations
+  ibutil/                        # InfiniBand output normalization helpers
+```
+
+Keep new test scenarios in separate `scenario_*.go` files. Keep framework code
+generic; scenario-specific chart values and assertions should stay in the suite
+or `assertions/`.
+
+## Standalone Scenario
+
+For each selected profile, the standalone scenario installs or upgrades the
+`nvml-mock` release on the shared cluster and runs these checks:
+
+- `labels`: record node labels once for the suite.
+- `fgo`: verify fake GPU operator profile ConfigMaps.
+- `nvidia-smi`: verify host and in-pod GPU inventory.
+- `nvlink`: verify NVLink topology, gated by fabricmanager settings.
+- `ib`: verify InfiniBand mock devices and commands.
+- `pcisysfs`: verify PCI sysfs topology.
+- `ibping`: verify cross-node `ibping` and `iblinkinfo`.
+- `failure-injection`: verify healthy, ECC, lost GPU, and fallen-off-bus modes.
+
+The failure-injection upgrades reuse the installed Helm values and set fast
+rolling-update options on the baseline release:
+
+```text
+updateStrategy.rollingUpdate.maxUnavailable=100%
+terminationGracePeriodSeconds=1
+```
+
+Helm release stdout for `nvml-mock` is hidden during normal runs, but it remains
+captured and is included in command errors.
+
+## CUDA Validator Scenario
+
+The `validator` scenario applies [`go/assets/validator-mock.yaml`](go/assets/validator-mock.yaml),
+which runs the CUDA vectorAdd sample against the mock CUDA library mounted from
+the `nvml-mock` DaemonSet.
+
+The validator Job requests `nvidia.com/gpu`, so the scenario first applies
+[`go/assets/device-plugin-mock.yaml`](go/assets/device-plugin-mock.yaml), waits
+for the mock device plugin DaemonSet, and waits for allocatable GPUs on the
+profile node.
+
+This scenario is skipped by default because the validator and device-plugin
+images are pulled from `nvcr.io`. Enable it when those images are available:
+
+```bash
+make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
+```
+
+## Labels
+
+Every profile is also a Ginkgo label, for example `a100`, `h100`, `gb200`, or
+`t4`.
+
+Use-case labels:
 
 - `labels`
 - `fgo`
@@ -82,6 +191,7 @@ Each profile is a label (`a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`,
 - `pcisysfs`
 - `ibping`
 - `failure-injection`
+- `validator`
 
 Examples:
 
@@ -89,87 +199,80 @@ Examples:
 make e2e E2E_PROFILES=h100 E2E_GINKGO_FLAGS='--label-filter="failure-injection"'
 make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
 make e2e E2E_GINKGO_FLAGS='--label-filter="gb200 && ibping"'
+make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
 ```
 
-The single source of truth for per-profile expectations (GPU count, HCA count,
-NV# links, fabricmanager state, PCIe root complexes) is the chart `profiles/`
-directory, decoded by the `profile` package. `profile/profile_test.go` cross-checks those derivations
-against the engine oracle (`pkg/gpu/mocknvml/engine/topology_test.go`) so the
-chart and engine profile copies cannot silently drift.
+## Environment Variables
 
-The default Kind topology comes from [`docs/demo/kind.yaml`](../../docs/demo/kind.yaml).
-Profiles that need different cluster wiring can add
-`docs/demo/kind-<profile>.yaml`; the harness uses that file when the selected
-profile matches. A single run must use one Kind config, so profiles that need
-different configs should run in separate `E2E_PROFILES` invocations (the CI
-matrix already does this).
+| Variable | Default | Purpose |
+|---|---:|---|
+| `E2E_PROFILES` | `gb200` | Space- or comma-separated profile names. |
+| `E2E_IMAGE` | `nvml-mock:e2e` | Image ref to build and Kind-load. |
+| `E2E_SKIP_BUILD` | `false` | Skip the in-suite Docker build and reuse `E2E_IMAGE`. |
+| `E2E_KEEP_CLUSTER` | `true` | Keep the Kind cluster after the suite. Set `false` to delete it. |
+| `E2E_ARTIFACTS` | `artifacts/e2e` | Directory for failure diagnostics. |
+| `E2E_BUILDX_GHA_CACHE` | `false` | Enable buildx GitHub Actions cache flags. |
+| `E2E_GOLANG_VERSION` | empty | Optional Docker build arg override. |
+| `E2E_RUN_NGC` | `false` | Run scenarios that need `nvcr.io` images, such as `validator`. |
+| `E2E_CLUSTER_TIMEOUT` | `5m` | Kind cluster setup timeout. |
+| `E2E_HELM_TIMEOUT` | `5m` | Helm install/upgrade timeout. |
+| `E2E_READY_TIMEOUT` | `2m` | Kubernetes readiness wait timeout. |
+| `E2E_POLL_INTERVAL` | `2s` | Polling interval for readiness checks. |
 
-CI runs this suite via [`nvml-mock-e2e-go.yaml`](../../.github/workflows/nvml-mock-e2e-go.yaml),
-which builds the image once per leg with the buildx GHA layer cache and then
-runs the harness with `E2E_SKIP_BUILD=true`.
+## CI Behavior
 
-## What runs in CI
+CI runs the harness through
+[`nvml-mock-e2e-go.yaml`](../../.github/workflows/nvml-mock-e2e-go.yaml).
 
-The `e2e-device-plugin` and `e2e-dra` jobs run automatically on every push.
-They verify:
+The workflow:
 
-- nvml-mock DaemonSet deploys and creates mock device files
-- NVIDIA device plugin discovers mock GPUs and registers `nvidia.com/gpu`
-- DRA driver discovers mock GPUs and publishes ResourceSlices
+1. Detects the project Go version unless one is explicitly provided.
+2. Builds `nvml-mock:e2e` once per matrix leg with buildx and GHA cache.
+3. Sets `E2E_SKIP_BUILD=true` so the harness reuses that image.
+4. Runs one GPU profile per matrix job.
+5. Prints collected diagnostics if the job fails.
 
-## Standalone GFD/validator steps (disabled)
+Manual workflow dispatch defaults to `gb200` for a fast run. The reusable CI
+workflow defaults to the full profile matrix.
 
-The `e2e-device-plugin` job has standalone GFD and CUDA validator steps that
-pull directly from `nvcr.io`. These are disabled (`if: false`) because the
-standalone images may require NGC authentication. GPU Operator images are
-public and do not require NGC credentials -- the separate `e2e-gpu-operator`
-job uses that path and works without auth.
+## Diagnostics
 
-To run the standalone steps locally (NGC auth may be needed):
+On spec failure, the harness writes diagnostics under `E2E_ARTIFACTS`. The
+collector captures common Kubernetes state, `nvml-mock` logs, and relevant node
+files where possible.
+
+Because `E2E_KEEP_CLUSTER=true` by default, local failures leave the Kind cluster
+available for inspection:
 
 ```bash
-# 1. Create Kind cluster
-kind create cluster --name nvml-mock-e2e
-
-# 2. Build and load nvml-mock image
-docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile .
-kind load docker-image nvml-mock:e2e --name nvml-mock-e2e
-
-# 3. Install nvml-mock chart
-helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
-  --set image.repository=nvml-mock --set image.tag=e2e --set gpu.count=2 \
-  --wait --timeout 120s
-
-# 4. Deploy device plugin
-kubectl apply -f tests/e2e/device-plugin-mock.yaml
-kubectl -n kube-system wait --for=condition=ready pod -l name=nvidia-device-plugin-mock --timeout=120s
-
-# 5. Pull, load, and deploy GFD (may require: docker login nvcr.io)
-docker pull nvcr.io/nvidia/gpu-feature-discovery:v0.17.0
-kind load docker-image nvcr.io/nvidia/gpu-feature-discovery:v0.17.0 --name nvml-mock-e2e
-kubectl apply -f tests/e2e/gfd-mock.yaml
-
-# 6. Pull, load, and run CUDA validator (may require: docker login nvcr.io)
-docker pull nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
-kind load docker-image nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 --name nvml-mock-e2e
-kubectl apply -f tests/e2e/validator-mock.yaml
-kubectl wait --for=condition=complete job/gpu-validator-mock --timeout=120s
+kubectl --context kind-nvml-mock-e2e get pods -A
+helm --kube-context kind-nvml-mock-e2e -n nvml-mock-system status nvml-mock
 ```
 
-## Enabling standalone GFD/validator in CI
+Delete it manually when done:
 
-Once confirmed that the standalone `nvcr.io` images are publicly accessible:
+```bash
+kind delete cluster --name nvml-mock-e2e
+```
 
-1. Remove the `if: false` conditions from the GFD and validator steps
-2. The image pull + kind load is already embedded in the step scripts
+## Unit And Helper Tests
 
-## Files
+The root e2e package contains the real Ginkgo suite, so this command launches
+Docker and Kind:
 
-| File | Purpose |
-|---|---|
-| `device-plugin-mock.yaml` | Device plugin DaemonSet for mock GPUs |
-| `gfd-mock.yaml` | GPU Feature Discovery DaemonSet |
-| `validator-mock.yaml` | CUDA vectorAdd validator Job |
-| `gpu-operator-values.yaml` | GPU Operator Helm values overlay |
-| `kind-dra-config.yaml` | Kind config with DRA feature gates |
-| `VERSION-MATRIX.md` | Tested component versions |
+```bash
+go test -tags=e2e ./tests/e2e/go
+```
+
+For quick helper checks, run focused tests instead:
+
+```bash
+GOCACHE="$PWD/.cache/go-build" GOWORK=off go test -tags=e2e ./tests/e2e/go \
+  -run 'TestDemoReleaseTargetsDedicatedNamespace|TestUseCaseLabels|TestKindConfig|TestSelectedKindConfig|TestMaxIntegerLine|TestHasFailureMarker'
+
+GOCACHE="$PWD/.cache/go-build" GOWORK=off go test -tags=e2e ./tests/e2e/go/framework/...
+GOCACHE="$PWD/.cache/go-build" GOWORK=off go test ./tests/e2e/go/profile ./tests/e2e/go/ibutil
+```
+
+The `e2e` build tag keeps the harness out of normal `go test ./...` and
+`go build ./...` paths.

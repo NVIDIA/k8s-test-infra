@@ -26,6 +26,13 @@ func (Docker) Exec(ctx context.Context, node string, argv ...string) (runner.Res
 	return runner.Run(ctx, "docker", args...)
 }
 
+// ExecQuiet is Exec without streaming stdout to the Ginkgo writer. The output is
+// still captured for assertions and command errors.
+func (Docker) ExecQuiet(ctx context.Context, node string, argv ...string) (runner.Result, error) {
+	args := append([]string{"exec", node}, argv...)
+	return runner.RunQuiet(ctx, "docker", args...)
+}
+
 // ExecSh runs `sh -c shCmd` inside the node container.
 func (Docker) ExecSh(ctx context.Context, node, shCmd string) (runner.Result, error) {
 	return runner.Run(ctx, "docker", "exec", node, "sh", "-c", shCmd)

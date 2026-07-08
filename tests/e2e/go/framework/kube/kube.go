@@ -25,7 +25,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 )
@@ -104,6 +103,10 @@ type podObj struct {
 	} `json:"status"`
 }
 
+type configMapObj struct {
+	Data map[string]string `json:"data"`
+}
+
 type podList struct {
 	Items []podObj `json:"items"`
 }
@@ -130,6 +133,12 @@ type daemonSetObj struct {
 	Status struct {
 		DesiredNumberScheduled int `json:"desiredNumberScheduled"`
 		NumberReady            int `json:"numberReady"`
+	} `json:"status"`
+}
+
+type jobObj struct {
+	Status struct {
+		Succeeded int `json:"succeeded"`
 	} `json:"status"`
 }
 
@@ -261,9 +270,15 @@ func (c *Client) CountConfigMaps(ctx context.Context, ns, selector string) (int,
 
 // ConfigMapData returns a single key from a ConfigMap's data field.
 func (c *Client) ConfigMapData(ctx context.Context, ns, name, key string) (string, error) {
-	jsonPathKey := strings.ReplaceAll(key, ".", "\\.")
-	res, err := c.kubectl(ctx, "get", "configmap/"+name, "-n", ns, "-o", "jsonpath={.data."+jsonPathKey+"}")
-	return res.Combined(), err
+	var cm configMapObj
+	if err := c.getJSON(ctx, &cm, "configmap", "-n", ns, name); err != nil {
+		return "", err
+	}
+	v, ok := cm.Data[key]
+	if !ok {
+		return "", fmt.Errorf("configmap %s/%s missing data key %q", ns, name, key)
+	}
+	return v, nil
 }
 
 // DaemonSetReady reports whether all desired DaemonSet pods are ready.
@@ -295,6 +310,15 @@ func (c *Client) DaemonSetContainerEnv(ctx context.Context, ns, name, envName st
 	return "", false, nil
 }
 
+// JobComplete reports whether a Job has at least one successful completion.
+func (c *Client) JobComplete(ctx context.Context, ns, name string) (bool, error) {
+	var job jobObj
+	if err := c.getJSON(ctx, &job, "job", "-n", ns, name); err != nil {
+		return false, err
+	}
+	return job.Status.Succeeded > 0, nil
+}
+
 // ---------------------------------------------------------------------------
 // exec / apply / ResourceSlice
 // ---------------------------------------------------------------------------
@@ -308,6 +332,24 @@ type PodRef struct {
 
 // Exec runs argv in a pod via `kubectl exec`.
 func (c *Client) Exec(ctx context.Context, ref PodRef, argv ...string) (runner.Result, error) {
+	return c.kubectl(ctx, execArgs(ref, argv...)...)
+}
+
+// ExecQuiet is Exec without streaming stdout to the Ginkgo writer. The output is
+// still captured for assertions and command errors.
+func (c *Client) ExecQuiet(ctx context.Context, ref PodRef, argv ...string) (runner.Result, error) {
+	full := append(c.base(), execArgs(ref, argv...)...)
+	return runner.RunQuiet(ctx, "kubectl", full...)
+}
+
+// ExecTruncated is Exec but streams only the first maxStdoutLines stdout lines.
+// Full stdout is still captured for assertions and command errors.
+func (c *Client) ExecTruncated(ctx context.Context, ref PodRef, maxStdoutLines int, argv ...string) (runner.Result, error) {
+	full := append(c.base(), execArgs(ref, argv...)...)
+	return runner.RunTruncated(ctx, maxStdoutLines, "kubectl", full...)
+}
+
+func execArgs(ref PodRef, argv ...string) []string {
 	args := []string{"exec"}
 	if ref.Namespace != "" {
 		args = append(args, "-n", ref.Namespace)
@@ -318,7 +360,7 @@ func (c *Client) Exec(ctx context.Context, ref PodRef, argv ...string) (runner.R
 	}
 	args = append(args, "--")
 	args = append(args, argv...)
-	return c.kubectl(ctx, args...)
+	return args
 }
 
 // ExecSh runs `sh -c shCmd` in a pod via `kubectl exec`.

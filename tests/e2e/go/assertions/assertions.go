@@ -5,10 +5,10 @@
 
 // Package assertions ports the bash validate-*.sh checks and the inline
 // workflow verification steps to typed Go helpers, one per concern (not one
-// blurred AssertIB). Host-level checks (nvidia-smi, mock files, CDI) use docker
-// node exec; in-pod IB tooling uses kubectl pod exec. Each helper is a Ginkgo
-// helper (GinkgoHelper) so failures point at the calling spec line, and every
-// exec result is attached to the Gomega failure message.
+// blurred AssertIB). Host-level checks (mock files, CDI, host-driver-root
+// nvidia-smi) use docker node exec; in-pod checks use kubectl pod exec. Each
+// helper is a Ginkgo helper (GinkgoHelper) so failures point at the calling spec
+// line, and every exec result is attached to the Gomega failure message.
 package assertions
 
 import (

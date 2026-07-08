@@ -69,6 +69,16 @@ func WaitPodPhase(ctx context.Context, k *kube.Client, ns, name, phase string, t
 		Should(gomega.Equal(phase), "pod %s/%s phase", ns, name)
 }
 
+// WaitJobComplete polls until a Job records at least one successful completion.
+func WaitJobComplete(ctx context.Context, k *kube.Client, ns, name string, timeout, poll time.Duration) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By(fmt.Sprintf("waiting for job %s/%s complete", ns, name))
+	gomega.Eventually(func() (bool, error) {
+		return k.JobComplete(ctx, ns, name)
+	}).WithContext(ctx).WithTimeout(timeout).WithPolling(poll).
+		Should(gomega.BeTrue(), "job %s/%s did not complete", ns, name)
+}
+
 // NodeLabelEquals asserts a node label has an exact value (HARD check, e.g.
 // nvidia.com/gpu.present=true in the device-plugin job).
 func NodeLabelEquals(ctx context.Context, k *kube.Client, node, key, want string) {

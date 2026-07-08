@@ -73,7 +73,7 @@ func redactArgs(args []string) []string {
 
 // Run executes name+args under ctx, teeing stdout+stderr to the Ginkgo writer.
 func Run(ctx context.Context, name string, args ...string) (Result, error) {
-	return run(ctx, "", false, name, args...)
+	return run(ctx, "", 0, name, args...)
 }
 
 // RunQuiet is Run but does NOT stream stdout to the Ginkgo writer. The output
@@ -82,24 +82,33 @@ func Run(ctx context.Context, name string, args ...string) (Result, error) {
 // of high-frequency read-only bodies (e.g. `kubectl get -o json` polled inside
 // Eventually loops), which otherwise flood `-v` output.
 func RunQuiet(ctx context.Context, name string, args ...string) (Result, error) {
-	return run(ctx, "", true, name, args...)
+	return run(ctx, "", -1, name, args...)
+}
+
+// RunTruncated is Run but streams only the first maxStdoutLines stdout lines to
+// the Ginkgo writer. Full stdout is still captured in Result/CmdError.
+func RunTruncated(ctx context.Context, maxStdoutLines int, name string, args ...string) (Result, error) {
+	return run(ctx, "", maxStdoutLines, name, args...)
 }
 
 // RunInput is Run with stdin piped from the given string (used for
 // `kubectl apply -f -` and `kind create cluster --config /dev/stdin`).
 func RunInput(ctx context.Context, stdin, name string, args ...string) (Result, error) {
-	return run(ctx, stdin, false, name, args...)
+	return run(ctx, stdin, 0, name, args...)
 }
 
-func run(ctx context.Context, stdin string, quiet bool, name string, args ...string) (Result, error) {
+func run(ctx context.Context, stdin string, maxStdoutLines int, name string, args ...string) (Result, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
 	var outBuf, errBuf bytes.Buffer
-	if quiet {
+	switch {
+	case maxStdoutLines < 0:
 		cmd.Stdout = &outBuf
-	} else {
+	case maxStdoutLines > 0:
+		cmd.Stdout = io.MultiWriter(&outBuf, &lineLimitWriter{dst: ginkgo.GinkgoWriter, remaining: maxStdoutLines})
+	default:
 		cmd.Stdout = io.MultiWriter(&outBuf, ginkgo.GinkgoWriter)
 	}
 	cmd.Stderr = io.MultiWriter(&errBuf, ginkgo.GinkgoWriter)
@@ -116,4 +125,26 @@ func run(ctx context.Context, stdin string, quiet bool, name string, args ...str
 		return res, &CmdError{Cmd: full, Stdout: res.Stdout, Stderr: res.Stderr, ExitCode: res.ExitCode, Err: err}
 	}
 	return res, nil
+}
+
+type lineLimitWriter struct {
+	dst       io.Writer
+	remaining int
+}
+
+func (w *lineLimitWriter) Write(p []byte) (int, error) {
+	written := len(p)
+	for len(p) > 0 && w.remaining > 0 {
+		i := bytes.IndexByte(p, '\n')
+		if i < 0 {
+			_, err := w.dst.Write(p)
+			return written, err
+		}
+		if _, err := w.dst.Write(p[:i+1]); err != nil {
+			return written, err
+		}
+		w.remaining--
+		p = p[i+1:]
+	}
+	return written, nil
 }
