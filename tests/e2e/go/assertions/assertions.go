@@ -5,10 +5,10 @@
 
 // Package assertions ports the bash validate-*.sh checks and the inline
 // workflow verification steps to typed Go helpers, one per concern (not one
-// blurred AssertIB). Host-level checks (mock files, CDI, host-driver-root
-// nvidia-smi) use docker node exec; in-pod checks use kubectl pod exec. Each
-// helper is a Ginkgo helper (GinkgoHelper) so failures point at the calling spec
-// line, and every exec result is attached to the Gomega failure message.
+// blurred AssertIB). Checks run through kubectl pod exec and typed Kubernetes
+// reads. Each helper is a Ginkgo helper (GinkgoHelper) so failures point at the
+// calling spec line, and every exec result is attached to the Gomega failure
+// message.
 package assertions
 
 import (
@@ -18,10 +18,6 @@ import (
 	"strings"
 	"time"
 )
-
-// DriverNvidiaSMI is the host-driver-root nvidia-smi path inside Kind nodes
-// (RPATH=$ORIGIN/../lib64, so it self-resolves its libs).
-const DriverNvidiaSMI = "/var/lib/nvml-mock/driver/usr/bin/nvidia-smi"
 
 // NVMLLink is the versioned NVML symlink the chart installs.
 const NVMLLink = "/var/lib/nvml-mock/driver/usr/lib64/libnvidia-ml.so.1"

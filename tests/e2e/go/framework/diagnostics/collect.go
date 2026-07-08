@@ -19,14 +19,12 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/nodes"
 )
 
 // Collector writes diagnostics under a per-spec directory.
 type Collector struct {
 	Dir               string
 	Kube              *kube.Client
-	Nodes             nodes.Docker
 	Clust             *cluster.Cluster
 	NvmlMockNamespace string
 }
@@ -71,10 +69,4 @@ func (c *Collector) Common(ctx context.Context) {
 	if out, err := c.Kube.Logs(ctx, c.NvmlMockNamespace, "app.kubernetes.io/name=nvml-mock", 100); err == nil {
 		c.write("nvml-mock-logs.txt", out)
 	}
-}
-
-// NodeFile dumps the contents of a node-container file (e.g. CDI spec).
-func (c *Collector) NodeFile(ctx context.Context, node, path, name string) {
-	res, _ := c.Nodes.ExecSh(ctx, node, "cat "+path)
-	c.write(name, res.Combined())
 }

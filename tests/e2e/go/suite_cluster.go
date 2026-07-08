@@ -30,8 +30,7 @@ func firstNvmlPod(ctx context.Context, h *harness.Harness) kube.PodRef {
 	return kube.PodRef{Namespace: nvmlMockNamespace, Pod: name}
 }
 
-// podNode resolves the node (== Kind node container) a pod is scheduled on, for
-// host-level docker-exec assertions (nvidia-smi, NVLink).
+// podNode resolves the Kubernetes node a pod is scheduled on.
 func podNode(ctx context.Context, h *harness.Harness, pod kube.PodRef) string {
 	GinkgoHelper()
 	n, err := h.Kube.PodNode(ctx, pod.Namespace, pod.Pod)
@@ -48,7 +47,6 @@ func collectOnFailure(ctx context.Context, h *harness.Harness, sub ...string) {
 	}
 	c := diagnostics.New(config.ArtifactsDir(), h.Kube, h.Cluster, sub...)
 	c.NvmlMockNamespace = nvmlMockNamespace
-	c.Nodes = h.Nodes
 	c.Common(ctx)
 }
 

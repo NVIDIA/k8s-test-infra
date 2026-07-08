@@ -67,13 +67,12 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 		name := name
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (
-				p    profile.Profile
-				pod  kube.PodRef
-				node string
+				p   profile.Profile
+				pod kube.PodRef
 			)
 
 			BeforeAll(func(ctx SpecContext) {
-				p, pod, node = setupStandaloneProfile(ctx, h, name)
+				p, pod, _ = setupStandaloneProfile(ctx, h, name)
 			})
 
 			It("renders the fake-GPU-operator profile ConfigMaps", Label("fgo"), func(ctx SpecContext) {
@@ -81,8 +80,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 			})
 
 			It("reports the profile GPUs via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
-				assertions.NvidiaSMI(ctx, h.Nodes, node, p)
-				assertions.NvidiaSMIPod(ctx, h.Kube, pod, p)
+				assertions.NvidiaSMI(ctx, h.Kube, pod, p)
 			})
 
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {

@@ -3,8 +3,8 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package harness composes the per-scenario adapters (cluster + kube + helm +
-// nodes) bound to one isolated Kind cluster, and owns its lifecycle.
+// Package harness composes the per-scenario adapters (cluster + kube + helm)
+// bound to one isolated Kind cluster, and owns its lifecycle.
 package harness
 
 import (
@@ -14,7 +14,6 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/nodes"
 )
 
 // Harness is the wired set of adapters for one cluster.
@@ -22,7 +21,6 @@ type Harness struct {
 	Cluster *cluster.Cluster
 	Kube    *kube.Client
 	Helm    *helm.Client
-	Nodes   nodes.Docker
 	Image   string
 }
 

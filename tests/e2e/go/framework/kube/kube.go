@@ -245,9 +245,7 @@ func (c *Client) RunningPodNames(ctx context.Context, ns, selector string) ([]st
 	return out, nil
 }
 
-// PodNode returns the node a pod is scheduled on. In Kind the node name is also
-// the node's docker container name, so this is the target for `docker exec`
-// host-level assertions (nvidia-smi, NVLink).
+// PodNode returns the Kubernetes node a pod is scheduled on.
 func (c *Client) PodNode(ctx context.Context, ns, name string) (string, error) {
 	var p podObj
 	if err := c.getJSON(ctx, &p, "pod", "-n", ns, name); err != nil {

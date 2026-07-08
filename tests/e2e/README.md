@@ -123,7 +123,7 @@ tests/e2e/go/
   scenario_standalone_setup.go   # per-profile install/setup helper
   scenario_failure_injection.go  # failure-injection scenario helpers
   scenario_validator_test.go     # CUDA vectorAdd validator scenario
-  framework/                     # thin wrappers for kind, helm, kubectl, docker
+  framework/                     # thin wrappers for kind, helm, and kubectl
   assertions/                    # domain assertions for nvidia-smi, NVLink, IB, PCI
   profile/                       # profile parser and topology expectations
   ibutil/                        # InfiniBand output normalization helpers
