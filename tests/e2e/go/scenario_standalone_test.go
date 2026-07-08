@@ -126,9 +126,6 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 			})
 
 			It("handles GPU failure injection modes", Label("failure-injection"), func(ctx SpecContext) {
-				if name != "h100" {
-					Skip("failure-injection demo is defined against the h100 profile")
-				}
 				runFailureInjectionScenarios(ctx, h, pod, p.ExpectedGPUs())
 			})
 		})
