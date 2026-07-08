@@ -8,7 +8,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-.PHONY: build fmt verify release lint vendor check-vendor helm-unittest
+.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
@@ -86,3 +86,30 @@ helm-unittest:
 .PHONY: generate
 generate:
 	go generate ./pkg/gpu/mocknvml/bridge/...
+
+# ---------------------------------------------------------------------------
+# Go end-to-end suite (tests/e2e) — the Go port of docs/demo/standalone/demo.sh.
+# One entrypoint for local + CI: the harness owns the full lifecycle (Kind
+# create/teardown, image build/load, Helm upgrade --install, validation,
+# diagnostics). A SINGLE shared multi-node cluster is created once and every
+# selected profile runs against it (profile switch = `helm upgrade`, not a
+# cluster rebuild). Defaults to gb200; scope with E2E_PROFILES /
+# E2E_GINKGO_FLAGS. Examples:
+#   make e2e                       # gb200
+#   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
+#   make e2e E2E_GINKGO_FLAGS='--label-filter=a100'
+# CI builds the image once per job and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
+#
+# NOTE: this targets ./tests/e2e (the Ginkgo suite package) only, NOT
+# ./tests/e2e/... — the subpackages (profile, ibutil) hold plain `go test`
+# unit tests (e.g. the profile drift-guard oracle, which always checks ALL
+# profiles regardless of E2E_PROFILES). Those run in the normal unit-test/CI
+# path; keeping them out of `make e2e` means the output reflects only the
+# E2E_PROFILES-scoped cluster suite.
+# ---------------------------------------------------------------------------
+GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
+E2E_TIMEOUT ?= 90m
+E2E_GINKGO_FLAGS ?=
+
+e2e:
+	$(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e | tee e2e.log

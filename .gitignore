@@ -5,6 +5,10 @@
 *.out
 *.test
 
+# E2E harness failure diagnostics (E2E_ARTIFACTS default)
+e2e.log
+tests/e2e/artifacts/
+
 pkg/network/*/libibmock*
 # Stray binaries from `go build ./cmd/...` at repo root
 /check-fabric

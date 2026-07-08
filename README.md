@@ -49,7 +49,7 @@ on PRs.
 
 Manual dispatch supports all 7 profiles: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`.
 
-See [`.github/workflows/nvml-mock-e2e.yaml`](.github/workflows/nvml-mock-e2e.yaml) for details.
+See [`.github/workflows/nvml-mock-e2e-go.yaml`](.github/workflows/nvml-mock-e2e-go.yaml) for details.
 
 ## Mock NVML Library
 

@@ -54,7 +54,7 @@ use "Option B: Build from source" in the quick start sections below.
 
 This path uses the NVIDIA device plugin to expose mock GPUs as
 `nvidia.com/gpu` allocatable resources. Tested in CI via
-`.github/workflows/nvml-mock-e2e.yaml` → `e2e-device-plugin` job.
+`.github/workflows/nvml-mock-e2e-go.yaml`.
 
 ### 1. Create a KIND cluster
 
@@ -133,7 +133,7 @@ kind delete cluster --name nvml-mock-test
 
 This path uses the NVIDIA DRA (Dynamic Resource Allocation) driver to expose
 mock GPUs as ResourceSlices. DRA requires a cluster with specific feature
-gates. Tested in CI via `.github/workflows/nvml-mock-e2e.yaml` → `e2e-dra` job.
+gates. Tested in CI via `.github/workflows/nvml-mock-e2e-go.yaml`.
 
 ### 1. Create a KIND cluster with DRA enabled
 
@@ -1103,6 +1103,6 @@ clusters, you may need to create a PodSecurity exception for the nvml-mock names
 ## Related Documentation
 
 - [Mock NVML Library Documentation](../../../../docs/README.md)
-- [E2E Test Workflow](../../../../.github/workflows/nvml-mock-e2e.yaml)
+- [E2E Test Workflow](../../../../.github/workflows/nvml-mock-e2e-go.yaml)
 - [KIND DRA Config](../../../../tests/e2e/kind-dra-config.yaml)
 - [Device Plugin Mock Manifest](../../../../tests/e2e/device-plugin-mock.yaml)
