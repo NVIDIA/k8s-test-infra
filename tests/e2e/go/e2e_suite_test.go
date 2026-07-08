@@ -13,7 +13,7 @@
 //
 // It is gated by the `e2e` build tag so it never affects the fast
 // `go test ./...` / `go build ./...` paths; run it with
-// `ginkgo --tags e2e ./tests/e2e/...` (see the Makefile `e2e` target).
+// `ginkgo --tags e2e ./tests/e2e/go/...` (see the Makefile `e2e` target).
 package e2e
 
 import (
@@ -29,13 +29,13 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/config"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/diagnostics"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/harness"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/helm"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/kube"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/runner"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/profile"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/diagnostics"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
 
 const (

@@ -14,8 +14,8 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/kube"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/profile"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
 
 var guid16RE = regexp.MustCompile(`(?i)0x[0-9a-f]{16}`)

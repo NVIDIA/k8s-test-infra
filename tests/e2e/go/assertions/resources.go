@@ -14,7 +14,7 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/kube"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 )
 
 // WaitDaemonSetReady polls until the DaemonSet has all desired pods ready.

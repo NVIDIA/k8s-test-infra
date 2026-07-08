@@ -17,7 +17,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/runner"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 )
 
 // Role is a Kind node role.

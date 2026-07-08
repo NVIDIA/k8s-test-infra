@@ -17,9 +17,9 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/cluster"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/kube"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/nodes"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/nodes"
 )
 
 // Collector writes diagnostics under a per-spec directory.

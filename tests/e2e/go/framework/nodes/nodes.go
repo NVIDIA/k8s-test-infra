@@ -14,7 +14,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/runner"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 )
 
 // Docker execs into Kind node containers via the docker CLI.

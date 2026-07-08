@@ -11,10 +11,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/cluster"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/helm"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/kube"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/nodes"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/nodes"
 )
 
 // Harness is the wired set of adapters for one cluster.

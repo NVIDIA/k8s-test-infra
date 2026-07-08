@@ -26,7 +26,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/runner"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 )
 
 // GPUResourceName is the extended resource the device plugin / operator expose.

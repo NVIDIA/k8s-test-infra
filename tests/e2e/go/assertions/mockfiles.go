@@ -12,7 +12,7 @@ import (
 	ginkgo "github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/nodes"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/nodes"
 )
 
 // NVMLSymlink asserts the versioned libnvidia-ml.so.1 symlink exists on the

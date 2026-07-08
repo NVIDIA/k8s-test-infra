@@ -13,7 +13,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/runner"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 )
 
 // Client runs helm against a specific kube context in the default kubeconfig.

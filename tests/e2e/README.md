@@ -12,6 +12,9 @@ behind a single entrypoint that runs identically locally and in CI. It is gated
 by the `e2e` build tag, so it never affects the normal `go test ./...` /
 `go build ./...` paths.
 
+All Go harness code lives under [`tests/e2e/go`](go/) so the legacy shell
+validators and manifests can stay directly under `tests/e2e/`.
+
 **One shared cluster.** A single multi-node Kind cluster
 ([`docs/demo/kind.yaml`](../../docs/demo/kind.yaml): 1 control-plane + 3
 workers) is created **once** for the whole suite. Each selected GPU profile is

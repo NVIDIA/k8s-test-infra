@@ -13,12 +13,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/assertions"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/config"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/harness"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/helm"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/framework/kube"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/profile"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
 
 const (

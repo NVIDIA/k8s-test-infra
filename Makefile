@@ -100,8 +100,8 @@ generate:
 #   make e2e E2E_GINKGO_FLAGS='--label-filter=a100'
 # CI builds the image once per job and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
 #
-# NOTE: this targets ./tests/e2e (the Ginkgo suite package) only, NOT
-# ./tests/e2e/... — the subpackages (profile, ibutil) hold plain `go test`
+# NOTE: this targets ./tests/e2e/go (the Ginkgo suite package) only, NOT
+# ./tests/e2e/go/... — the subpackages (profile, ibutil) hold plain `go test`
 # unit tests (e.g. the profile drift-guard oracle, which always checks ALL
 # profiles regardless of E2E_PROFILES). Those run in the normal unit-test/CI
 # path; keeping them out of `make e2e` means the output reflects only the
@@ -112,4 +112,4 @@ E2E_TIMEOUT ?= 90m
 E2E_GINKGO_FLAGS ?=
 
 e2e:
-	$(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e | tee e2e.log
+	$(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log

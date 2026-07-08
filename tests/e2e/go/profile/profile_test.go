@@ -6,9 +6,9 @@ package profile
 import "testing"
 
 // profilesDir is the chart profiles directory relative to this test package
-// (tests/e2e/profile -> repo root -> deployments/...). `go test` runs with the
+// (tests/e2e/go/profile -> repo root -> deployments/...). `go test` runs with the
 // package directory as the working directory.
-const profilesDir = "../../../deployments/nvml-mock/helm/nvml-mock/profiles"
+const profilesDir = "../../../../deployments/nvml-mock/helm/nvml-mock/profiles"
 
 // TestDerivations cross-checks the values derived from the real chart profile
 // YAML against an authoritative table. The NV# column matches the engine
