@@ -32,6 +32,15 @@ func TestDemoReleaseTargetsDedicatedNamespace(t *testing.T) {
 	if !rel.CreateNamespace {
 		t.Fatal("expected nvml-mock release to create its dedicated namespace")
 	}
+	if !rel.HideOutput {
+		t.Fatal("expected nvml-mock release to hide Helm output")
+	}
+	if got := rel.Set["updateStrategy.rollingUpdate.maxUnavailable"]; got != "100%" {
+		t.Fatalf("expected maxUnavailable 100%% for fast scenario rollouts, got %q", got)
+	}
+	if got := rel.Set["terminationGracePeriodSeconds"]; got != "1" {
+		t.Fatalf("expected terminationGracePeriodSeconds=1 for fast scenario rollouts, got %q", got)
+	}
 }
 
 func TestUseCaseLabels(t *testing.T) {

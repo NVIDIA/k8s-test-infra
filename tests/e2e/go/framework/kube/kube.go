@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 )
@@ -258,6 +259,13 @@ func (c *Client) CountConfigMaps(ctx context.Context, ns, selector string) (int,
 	return len(list.Items), nil
 }
 
+// ConfigMapData returns a single key from a ConfigMap's data field.
+func (c *Client) ConfigMapData(ctx context.Context, ns, name, key string) (string, error) {
+	jsonPathKey := strings.ReplaceAll(key, ".", "\\.")
+	res, err := c.kubectl(ctx, "get", "configmap/"+name, "-n", ns, "-o", "jsonpath={.data."+jsonPathKey+"}")
+	return res.Combined(), err
+}
+
 // DaemonSetReady reports whether all desired DaemonSet pods are ready.
 func (c *Client) DaemonSetReady(ctx context.Context, ns, name string) (bool, error) {
 	var ds daemonSetObj
@@ -329,6 +337,12 @@ func (c *Client) Apply(ctx context.Context, manifest []byte) error {
 func (c *Client) Delete(ctx context.Context, manifest []byte) error {
 	full := append(c.base(), "delete", "--ignore-not-found", "-f", "-")
 	_, err := runner.RunInput(ctx, string(manifest), "kubectl", full...)
+	return err
+}
+
+// DeletePodsByLabel deletes pods matching selector in ns, ignoring not-found.
+func (c *Client) DeletePodsByLabel(ctx context.Context, ns, selector string) error {
+	_, err := c.kubectl(ctx, "delete", "pods", "-n", ns, "-l", selector, "--ignore-not-found")
 	return err
 }
 

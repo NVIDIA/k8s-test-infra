@@ -30,12 +30,18 @@ type Release struct {
 	Chart           string
 	Namespace       string
 	CreateNamespace bool
+	HideOutput      bool
 	ReuseValues     bool
 	ValuesFiles     []string
 	Set             map[string]string
 	Wait            bool
 	Timeout         time.Duration
 }
+
+var (
+	runCommand      = runner.Run
+	runQuietCommand = runner.RunQuiet
+)
 
 func (c *Client) base() []string {
 	if c.Context == "" {
@@ -100,7 +106,11 @@ func (c *Client) run(ctx context.Context, verb string, rel Release, extra ...str
 	if rel.Timeout > 0 {
 		args = append(args, "--timeout", rel.Timeout.String())
 	}
-	_, err := runner.Run(ctx, "helm", args...)
+	run := runCommand
+	if rel.HideOutput {
+		run = runQuietCommand
+	}
+	_, err := run(ctx, "helm", args...)
 	return err
 }
 
