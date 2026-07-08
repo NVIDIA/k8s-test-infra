@@ -32,13 +32,14 @@ const (
 // created once (BeforeAll on the outer Ordered container); each selected GPU
 // profile then re-installs the chart via `helm upgrade --install` (a chart
 // upgrade, not a cluster rebuild) and runs the demo's validation steps against
-// that same cluster. Set E2E_PROFILES to scope which profiles run (default: the
-// required set); locally `make e2e E2E_PROFILES=a100` is the fast inner loop.
+// that same cluster. Set E2E_PROFILES to scope which profiles run (default:
+// gb200); locally `make e2e E2E_PROFILES=a100` is the fast inner loop.
 var _ = Describe("nvml-mock standalone", Ordered, func() {
 	var h *harness.Harness
+	selectedProfiles := config.SelectedProfileNames()
 
 	BeforeAll(func(ctx SpecContext) {
-		h = setupCluster(ctx, ClusterName, demoKindConfig(), "standalone")
+		h = setupCluster(ctx, ClusterName, demoKindConfig(selectedProfiles), "standalone")
 	})
 
 	// demo.sh step 11: node labels. Cluster topology is static (set by
@@ -50,7 +51,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 		AddReportEntry("node labels", out)
 	})
 
-	for _, name := range config.SelectedProfileNames() {
+	for _, name := range selectedProfiles {
 		name := name
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (

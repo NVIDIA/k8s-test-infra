@@ -71,6 +71,13 @@ directory, decoded by the `profile` package. `profile/profile_test.go` cross-che
 against the engine oracle (`pkg/gpu/mocknvml/engine/topology_test.go`) so the
 chart and engine profile copies cannot silently drift.
 
+The default Kind topology comes from [`docs/demo/kind.yaml`](../../docs/demo/kind.yaml).
+Profiles that need different cluster wiring can add
+`docs/demo/kind-<profile>.yaml`; the harness uses that file when the selected
+profile matches. A single run must use one Kind config, so profiles that need
+different configs should run in separate `E2E_PROFILES` invocations (the CI
+matrix already does this).
+
 CI runs this suite via [`nvml-mock-e2e-go.yaml`](../../.github/workflows/nvml-mock-e2e-go.yaml),
 which builds the image once per leg with the buildx GHA layer cache and then
 runs the harness with `E2E_SKIP_BUILD=true`.
