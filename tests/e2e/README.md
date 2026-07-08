@@ -31,8 +31,8 @@ make e2e
 # One profile, fast inner loop
 make e2e E2E_PROFILES=a100
 
-# Scope with Ginkgo labels (each profile is also a label)
-make e2e E2E_GINKGO_FLAGS='--label-filter=a100'
+# Scope with Ginkgo labels (each profile and use case is a label)
+make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
 
 # Reuse a pre-built image (skip the in-suite build)
 docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile .
@@ -68,6 +68,28 @@ Each profile runs, against the shared cluster:
 | `E2E_KEEP_CLUSTER` | `true` | keep the Kind cluster after the suite; set `false` to delete it |
 | `E2E_ARTIFACTS` | `artifacts/e2e` | where failure diagnostics are written |
 | `E2E_BUILDX_GHA_CACHE` | `false` | add `--cache-to/--cache-from type=gha` to the in-suite build (CI) |
+
+### Labels
+
+Each profile is a label (`a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`,
+`t4`). Use-case labels are:
+
+- `labels`
+- `fgo`
+- `nvidia-smi`
+- `nvlink`
+- `ib`
+- `pcisysfs`
+- `ibping`
+- `failure-injection`
+
+Examples:
+
+```bash
+make e2e E2E_PROFILES=h100 E2E_GINKGO_FLAGS='--label-filter="failure-injection"'
+make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
+make e2e E2E_GINKGO_FLAGS='--label-filter="gb200 && ibping"'
+```
 
 The single source of truth for per-profile expectations (GPU count, HCA count,
 NV# links, fabricmanager state, PCIe root complexes) is the chart `profiles/`

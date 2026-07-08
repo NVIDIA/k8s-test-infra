@@ -34,6 +34,27 @@ func TestDemoReleaseTargetsDedicatedNamespace(t *testing.T) {
 	}
 }
 
+func TestUseCaseLabels(t *testing.T) {
+	want := []string{
+		"labels",
+		"fgo",
+		"nvidia-smi",
+		"nvlink",
+		"ib",
+		"pcisysfs",
+		"ibping",
+		"failure-injection",
+	}
+	if len(useCaseLabels) != len(want) {
+		t.Fatalf("expected labels %#v, got %#v", want, useCaseLabels)
+	}
+	for i := range want {
+		if useCaseLabels[i] != want[i] {
+			t.Fatalf("expected labels %#v, got %#v", want, useCaseLabels)
+		}
+	}
+}
+
 func TestKindConfigPathForProfileUsesProfileOverride(t *testing.T) {
 	root := t.TempDir()
 	writeKindConfig(t, root, "kind.yaml")

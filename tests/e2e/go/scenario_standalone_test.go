@@ -31,6 +31,17 @@ const (
 	fgoProfileConfigMin = 6
 )
 
+var useCaseLabels = []string{
+	"labels",
+	"fgo",
+	"nvidia-smi",
+	"nvlink",
+	"ib",
+	"pcisysfs",
+	"ibping",
+	"failure-injection",
+}
+
 // Go port of docs/demo/standalone/demo.sh. ONE shared multi-node cluster is
 // created once (BeforeAll on the outer Ordered container); each selected GPU
 // profile then re-installs the chart via `helm upgrade --install` (a chart
@@ -48,7 +59,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 	// demo.sh step 11: node labels. Cluster topology is static (set by
 	// docs/demo/kind.yaml), so capture it once as an informational report entry
 	// rather than per profile.
-	It("records node labels (informational)", func(ctx SpecContext) {
+	It("records node labels (informational)", Label("labels"), func(ctx SpecContext) {
 		out, err := h.Kube.KubectlCombined(ctx, "get", "nodes", "--show-labels")
 		Expect(err).NotTo(HaveOccurred())
 		AddReportEntry("node labels", out)
@@ -71,21 +82,21 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				node = podNode(ctx, h, pod)
 			})
 
-			It("renders the fake-GPU-operator profile ConfigMaps", func(ctx SpecContext) {
+			It("renders the fake-GPU-operator profile ConfigMaps", Label("fgo"), func(ctx SpecContext) {
 				assertions.ProfileConfigMaps(ctx, h.Kube, nvmlMockNamespace, fgoProfileSelector, fgoProfileConfigMin)
 			})
 
-			It("reports the profile GPUs via nvidia-smi", func(ctx SpecContext) {
+			It("reports the profile GPUs via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
 				assertions.NvidiaSMI(ctx, h.Nodes, node, p)
 				assertions.NvidiaSMIPod(ctx, h.Kube, pod, p)
 			})
 
-			It("exposes the NVLink topology (gated on fabricmanager)", func(ctx SpecContext) {
+			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Nodes, node, p)
 			})
 
-			It("exposes the InfiniBand mock", func(ctx SpecContext) {
+			It("exposes the InfiniBand mock", Label("ib"), func(ctx SpecContext) {
 				assertions.IBStat(ctx, h.Kube, pod, p)
 				if p.IBEnabled() {
 					assertions.IBVDevinfo(ctx, h.Kube, pod, p)
@@ -96,11 +107,11 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				}
 			})
 
-			It("renders the PCI sysfs topology", func(ctx SpecContext) {
+			It("renders the PCI sysfs topology", Label("pcisysfs"), func(ctx SpecContext) {
 				assertions.PCISysfs(ctx, h.Kube, pod, p.ExpectedGPUs(), p.ExpectedPCIRoots())
 			})
 
-			It("performs cross-node ibping + iblinkinfo", func(ctx SpecContext) {
+			It("performs cross-node ibping + iblinkinfo", Label("ibping"), func(ctx SpecContext) {
 				if !p.IBEnabled() {
 					Skip("InfiniBand disabled for profile " + name)
 				}

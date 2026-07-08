@@ -97,7 +97,7 @@ generate:
 # E2E_GINKGO_FLAGS. Examples:
 #   make e2e                       # gb200
 #   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
-#   make e2e E2E_GINKGO_FLAGS='--label-filter=a100'
+#   make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
 # CI builds the image once per job and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
 #
 # NOTE: this targets ./tests/e2e/go (the Ginkgo suite package) only, NOT
