@@ -1073,3 +1073,105 @@ jobs:
           kubectl logs -l app.kubernetes.io/instance=nvml-mock-w2 --tail=50 || true
           echo "=== events ==="
           kubectl get events --sort-by=.lastTimestamp | tail -30 || true
+
+  # Verifies the nvml-mock delivery path under the Kata Containers runtime
+  # class (issue #377 / Kata-CoCo integration, v1 = plain kata-qemu).
+  # Workloads run inside a lightweight VM: CDI library mounts arrive via
+  # virtiofs, CDI device nodes are mknod'd in the guest by kata-agent.
+  # Spec: docs/superpowers/specs/2026-07-09-kata-containers-nvml-mock-design.md
+  e2e-kata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLUSTER_NAME: nvml-mock-kata
+      KATA_VERSION: "3.32.0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Verify KVM on the runner
+        run: |
+          ls -l /dev/kvm
+          sudo chmod 666 /dev/kvm
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+
+      - name: Create Kind cluster (KVM + CDI)
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          config: tests/e2e/kind-kata-config.yaml
+
+      - name: Install kata-deploy
+        run: |
+          helm install kata-deploy \
+            oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy \
+            --version "$KATA_VERSION" \
+            -n kube-system \
+            --set k8sDistribution=k8s \
+            --set defaultShim=qemu \
+            --set shims.qemu.enabled=true \
+            --set node-feature-discovery.enabled=false \
+            --wait --timeout 300s
+
+      - name: Wait for kata runtime readiness
+        run: |
+          NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+          # kata-deploy labels the node when the runtime is installed and
+          # containerd has been reconfigured.
+          for i in $(seq 1 36); do
+            LABEL=$(kubectl get node "$NODE" \
+              -o jsonpath='{.metadata.labels.katacontainers\.io/kata-runtime}' 2>/dev/null || true)
+            [ "$LABEL" = "true" ] && break
+            echo "attempt $i/36: kata-runtime label=$LABEL"
+            sleep 5
+          done
+          [ "$LABEL" = "true" ] || { echo "FAIL: kata-deploy never labeled the node"; exit 1; }
+          # RuntimeClass is created by the chart for each enabled shim.
+          kubectl get runtimeclass kata-qemu
+
+      - name: Kata smoke — pod boots a real guest kernel
+        run: |
+          NODE_KERNEL=$(docker exec "$CLUSTER_NAME-control-plane" uname -r)
+          cat << 'PODEOF' | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: kata-smoke
+          spec:
+            runtimeClassName: kata-qemu
+            restartPolicy: Never
+            containers:
+              - name: probe
+                image: ubuntu:22.04
+                command: ["sh", "-c", "echo GUEST_KERNEL=$(uname -r)"]
+          PODEOF
+          for i in $(seq 1 36); do
+            PHASE=$(kubectl get pod kata-smoke -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)
+            [ "$PHASE" = "Succeeded" ] && break
+            [ "$PHASE" = "Failed" ] && { kubectl describe pod kata-smoke | tail -20; exit 1; }
+            echo "attempt $i/36: phase=$PHASE"
+            sleep 5
+          done
+          [ "$PHASE" = "Succeeded" ] || { kubectl describe pod kata-smoke | tail -30; exit 1; }
+          kubectl logs kata-smoke
+          GUEST_KERNEL=$(kubectl logs kata-smoke | sed -n 's/^GUEST_KERNEL=//p')
+          # THE discriminating assertion. GitHub runners are themselves VMs,
+          # so /proc/cpuinfo shows 'hypervisor' even in runc pods — kernel
+          # inequality is the only signal that survives a silent runc
+          # fallback (runc pod == node kernel; kata guest boots its own).
+          [ -n "$GUEST_KERNEL" ] || { echo "FAIL: no guest kernel captured"; exit 1; }
+          if [ "$GUEST_KERNEL" = "$NODE_KERNEL" ]; then
+            echo "FAIL: pod kernel ($GUEST_KERNEL) == node kernel — runc fallback, not a VM"
+            exit 1
+          fi
+          echo "PASS: kata guest kernel $GUEST_KERNEL != node kernel $NODE_KERNEL"
+          kubectl delete pod kata-smoke --ignore-not-found
+
+      - name: Collect kata logs on failure
+        if: failure()
+        run: |
+          kubectl -n kube-system logs -l name=kata-deploy --tail=100 || true
+          kubectl -n kube-system get pods -o wide || true
+          docker exec "$CLUSTER_NAME-control-plane" \
+            sh -c 'ls /opt/kata/bin 2>/dev/null; grep -A5 kata /etc/containerd/config.toml 2>/dev/null' || true

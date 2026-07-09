@@ -1,0 +1,20 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kind cluster config for the Kata Containers E2E lane.
+# - /dev/kvm passthrough: kata-deploy's QEMU needs KVM inside the node
+#   container (GitHub ubuntu-latest amd64 runners expose /dev/kvm).
+# - enable_cdi: CRI-native CDI injection, required because the kata
+#   runtime handler bypasses the NVIDIA container runtime wrapper that
+#   the runc lanes rely on (same patch as kind-dra-config.yaml).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri"]
+      enable_cdi = true
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: /dev/kvm
+        containerPath: /dev/kvm
