@@ -48,6 +48,27 @@ func WaitAllocatableGPU(ctx context.Context, k *kube.Client, node string, want i
 		Should(gomega.Equal(want), "node %s allocatable GPUs", node)
 }
 
+// WaitNodeLabelsPresent polls until every requested node label is set to a
+// non-empty value.
+func WaitNodeLabelsPresent(ctx context.Context, k *kube.Client, node string, labels []string, timeout, poll time.Duration) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By(fmt.Sprintf("waiting for node %s labels %s", node, strings.Join(labels, ", ")))
+	gomega.Eventually(func() ([]string, error) {
+		var missing []string
+		for _, label := range labels {
+			v, ok, err := k.NodeLabel(ctx, node, label)
+			if err != nil {
+				return nil, err
+			}
+			if !ok || v == "" {
+				missing = append(missing, label)
+			}
+		}
+		return missing, nil
+	}).WithContext(ctx).WithTimeout(timeout).WithPolling(poll).
+		Should(gomega.BeEmpty(), "node %s missing labels", node)
+}
+
 // WaitResourceSliceTotal polls until the summed ResourceSlice device count
 // equals want (DRA driver published the GPUs). Pinned to v1beta1 in kube.
 func WaitResourceSliceTotal(ctx context.Context, k *kube.Client, want int, timeout, poll time.Duration) {

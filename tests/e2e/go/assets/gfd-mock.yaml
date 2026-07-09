@@ -31,7 +31,7 @@ spec:
       serviceAccountName: nvidia-gfd-mock
       containers:
         - name: gpu-feature-discovery
-          image: nvcr.io/nvidia/gpu-feature-discovery:v0.17.0
+          image: nvcr.io/nvidia/gpu-feature-discovery:v0.8.2
           imagePullPolicy: IfNotPresent
           args:
             - "--nvidia-driver-root=/var/lib/nvml-mock/driver"
@@ -41,7 +41,7 @@ spec:
                 fieldRef:
                   fieldPath: spec.nodeName
             - name: GFD_SLEEP_INTERVAL
-              value: "60"
+              value: "60s"
           securityContext:
             privileged: true
           volumeMounts:

@@ -31,11 +31,14 @@ const (
 var useCaseLabels = []string{
 	"labels",
 	"fgo",
+	"mockfiles",
 	"nvidia-smi",
 	"nvlink",
 	"ib",
 	"pcisysfs",
 	"ibping",
+	"device-plugin",
+	"dra",
 	"failure-injection",
 	"validator",
 }
@@ -67,16 +70,25 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 		name := name
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (
-				p   profile.Profile
-				pod kube.PodRef
+				p    profile.Profile
+				pod  kube.PodRef
+				node string
 			)
 
 			BeforeAll(func(ctx SpecContext) {
-				p, pod, _ = setupStandaloneProfile(ctx, h, name)
+				p, pod, node = setupStandaloneProfile(ctx, h, name)
+			})
+
+			It("sets the GPU-present node label", Label("labels"), func(ctx SpecContext) {
+				assertions.NodeLabelEquals(ctx, h.Kube, node, "nvidia.com/gpu.present", "true")
 			})
 
 			It("renders the fake-GPU-operator profile ConfigMaps", Label("fgo"), func(ctx SpecContext) {
 				assertions.ProfileConfigMaps(ctx, h.Kube, nvmlMockNamespace, fgoProfileSelector, fgoProfileConfigMin)
+			})
+
+			It("lays out the mock driver files on the profile node", Label("mockfiles"), func(ctx SpecContext) {
+				assertions.DevicePluginMockFiles(ctx, h.Kube, pod, p.ExpectedGPUs())
 			})
 
 			It("reports the profile GPUs via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
@@ -115,6 +127,10 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				client := kube.PodRef{Namespace: nvmlMockNamespace, Pod: pods[1]}
 				assertions.IBPing(ctx, h.Kube, server, client, "both", ibPingRetries, ibPingRetrySleep)
 				assertions.IBLinkInfo(ctx, h.Kube, server, client, p)
+			})
+
+			It("registers allocatable GPUs via the NVIDIA device plugin", Label("device-plugin"), func(ctx SpecContext) {
+				deployDevicePlugin(ctx, h, node, p.ExpectedGPUs())
 			})
 
 			Context("failure injection", Label("failure-injection"), Ordered, func() {

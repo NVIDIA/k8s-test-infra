@@ -20,6 +20,12 @@ spec:
       labels:
         name: nvidia-device-plugin-mock
     spec:
+      # Only schedule where the nvml-mock chart actually installed the driver.
+      # setup.sh labels those nodes nvidia.com/gpu.present=true; without this
+      # the DaemonSet (which tolerates all taints) also lands on the multi-node
+      # control-plane, where /var/lib/nvml-mock/driver is absent, so NVML init
+      # fails with ERROR_LIBRARY_NOT_FOUND and the rollout never completes.
+      # Single-node clusters label their control-plane too, so it still runs there.
       nodeSelector:
         nvidia.com/gpu.present: "true"
       tolerations:

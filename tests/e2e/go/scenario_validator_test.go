@@ -21,20 +21,25 @@ const (
 	devicePluginName      = "nvidia-device-plugin-mock"
 	devicePluginSelector  = "name=nvidia-device-plugin-mock"
 
+	gfdNamespace = "kube-system"
+	gfdName      = "nvidia-gfd-mock"
+	gfdSelector  = "name=nvidia-gfd-mock"
+
 	validatorNamespace = "default"
 	validatorJobName   = "gpu-validator-mock"
 	validatorSelector  = "name=gpu-validator-mock"
 )
 
-// CUDA validator scenario. This is gated because the validator and device
-// plugin images are pulled from nvcr.io.
+// CUDA validator scenario. This is gated because the GFD and CUDA validator
+// images are pulled from nvcr.io; keep it disabled by default until #446
+// resolves the CI image/auth path.
 var _ = Describe("nvml-mock CUDA validator", Label("validator"), Ordered, func() {
 	var h *harness.Harness
 	selectedProfiles := config.SelectedProfileNames()
 
 	BeforeAll(func(ctx SpecContext) {
 		if !config.RunNGCSpecs() {
-			Skip("set E2E_RUN_NGC=true to run nvcr.io-backed validator scenario")
+			Skip("set E2E_RUN_NGC=true to run nvcr.io-backed validator scenario; see #446")
 		}
 		h = setupCluster(ctx, ClusterName, demoKindConfig(selectedProfiles), "validator")
 	})
@@ -50,6 +55,7 @@ var _ = Describe("nvml-mock CUDA validator", Label("validator"), Ordered, func()
 			BeforeAll(func(ctx SpecContext) {
 				p, _, node = setupStandaloneProfile(ctx, h, name)
 				deployDevicePlugin(ctx, h, node, p.ExpectedGPUs())
+				deployGPUFeatureDiscovery(ctx, h, node)
 			})
 
 			It("runs CUDA vectorAdd against mock libcuda", func(ctx SpecContext) {
@@ -65,6 +71,22 @@ func deployDevicePlugin(ctx SpecContext, h *harness.Harness, node string, expect
 	Expect(h.Kube.DeletePodsByLabel(ctx, devicePluginNamespace, devicePluginSelector)).To(Succeed(), "restart device plugin pods")
 	assertions.WaitDaemonSetReady(ctx, h.Kube, devicePluginNamespace, devicePluginName, config.ReadyTimeout(), config.PollInterval())
 	assertions.WaitAllocatableGPU(ctx, h.Kube, node, expectedGPUs, config.ReadyTimeout(), config.PollInterval())
+}
+
+func deployGPUFeatureDiscovery(ctx SpecContext, h *harness.Harness, node string) {
+	GinkgoHelper()
+	Expect(h.Kube.Apply(ctx, assets.GFDManifest)).To(Succeed(), "apply GFD manifest")
+	Expect(h.Kube.DeletePodsByLabel(ctx, gfdNamespace, gfdSelector)).To(Succeed(), "restart GFD pods")
+	assertions.WaitDaemonSetReady(ctx, h.Kube, gfdNamespace, gfdName, config.ReadyTimeout(), config.PollInterval())
+	assertions.WaitNodeLabelsPresent(ctx, h.Kube, node, validatorGFDRequiredLabels(), config.ReadyTimeout(), config.PollInterval())
+}
+
+func validatorGFDRequiredLabels() []string {
+	return []string{
+		"nvidia.com/gpu.product",
+		"nvidia.com/gpu.memory",
+		"nvidia.com/gpu.compute.major",
+	}
 }
 
 func runValidatorJob(ctx SpecContext, h *harness.Harness) {

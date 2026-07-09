@@ -47,11 +47,14 @@ func TestUseCaseLabels(t *testing.T) {
 	want := []string{
 		"labels",
 		"fgo",
+		"mockfiles",
 		"nvidia-smi",
 		"nvlink",
 		"ib",
 		"pcisysfs",
 		"ibping",
+		"device-plugin",
+		"dra",
 		"failure-injection",
 		"validator",
 	}

@@ -140,11 +140,13 @@ For each selected profile, the standalone scenario installs or upgrades the
 
 - `labels`: record node labels once for the suite.
 - `fgo`: verify fake GPU operator profile ConfigMaps.
+- `mockfiles`: verify mock driver files, device nodes, NVML symlink, and config.
 - `nvidia-smi`: verify host and in-pod GPU inventory.
 - `nvlink`: verify NVLink topology, gated by fabricmanager settings.
 - `ib`: verify InfiniBand mock devices and commands.
 - `pcisysfs`: verify PCI sysfs topology.
 - `ibping`: verify cross-node `ibping` and `iblinkinfo`.
+- `device-plugin`: verify device-plugin registration and allocatable GPUs.
 - `failure-injection`: verify healthy, ECC, lost GPU, and fallen-off-bus modes.
 
 The failure-injection upgrades reuse the installed Helm values and set fast
@@ -158,6 +160,17 @@ terminationGracePeriodSeconds=1
 Helm release stdout for `nvml-mock` is hidden during normal runs, but it remains
 captured and is included in command errors.
 
+## DRA Scenario
+
+The `dra` scenario creates a Kind cluster from
+[`go/assets/kind-dra-config.yaml`](go/assets/kind-dra-config.yaml), installs the
+selected `nvml-mock` profile, validates the DRA driver-root mock files,
+`nvidia-smi`, and NVLink topology, then installs the NVIDIA DRA driver.
+
+After the DRA driver is ready, the scenario verifies ResourceSlice GPU count and
+applies a `ResourceClaimTemplate` plus test pod. The pod must reach `Running`,
+which proves DRA scheduling and `NodePrepareResources` succeeded.
+
 ## CUDA Validator Scenario
 
 The `validator` scenario applies [`go/assets/validator-mock.yaml`](go/assets/validator-mock.yaml),
@@ -166,11 +179,15 @@ the `nvml-mock` DaemonSet.
 
 The validator Job requests `nvidia.com/gpu`, so the scenario first applies
 [`go/assets/device-plugin-mock.yaml`](go/assets/device-plugin-mock.yaml), waits
-for the mock device plugin DaemonSet, and waits for allocatable GPUs on the
-profile node.
+for the mock device plugin DaemonSet, waits for allocatable GPUs on the profile
+node, applies [`go/assets/gfd-mock.yaml`](go/assets/gfd-mock.yaml), and verifies
+the required GFD node labels.
 
-This scenario is skipped by default because the validator and device-plugin
-images are pulled from `nvcr.io`. Enable it when those images are available:
+This scenario is skipped by default because the standalone GFD and CUDA
+validator images are pulled from `nvcr.io`. The Go workflow also excludes the
+`validator` label until [#446](https://github.com/NVIDIA/k8s-test-infra/issues/446)
+resolves the CI image/auth path. Enable it locally when those images are
+available:
 
 ```bash
 make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
@@ -185,11 +202,14 @@ Use-case labels:
 
 - `labels`
 - `fgo`
+- `mockfiles`
 - `nvidia-smi`
 - `nvlink`
 - `ib`
 - `pcisysfs`
 - `ibping`
+- `device-plugin`
+- `dra`
 - `failure-injection`
 - `validator`
 
@@ -199,6 +219,7 @@ Examples:
 make e2e E2E_PROFILES=h100 E2E_GINKGO_FLAGS='--label-filter="failure-injection"'
 make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
 make e2e E2E_GINKGO_FLAGS='--label-filter="gb200 && ibping"'
+make e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter="dra"'
 make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
 ```
 

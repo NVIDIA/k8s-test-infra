@@ -12,13 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Go/Ginkgo nvml-mock E2E — the Go port of docs/demo/standalone/demo.sh. The
-# harness under tests/e2e owns the full lifecycle (Kind create/teardown, image
-# build/load, Helm upgrade --install, validation, diagnostics) behind one
-# entrypoint (`make e2e`) that runs identically locally and here. Each matrix
-# leg stands up a SINGLE shared multi-node cluster (docs/demo/kind.yaml) and
-# runs that profile's demo checks against it — including cross-node ibping,
-# since the demo cluster has 3 workers.
+# Go/Ginkgo nvml-mock E2E. The harness under tests/e2e owns lifecycle (Kind
+# create/teardown, image build/load, Helm, validation, diagnostics) behind one
+# entrypoint (`make e2e`) that runs identically locally and here. Each matrix leg
+# runs the standalone demo checks plus the DRA scenario for one GPU profile.
 #
 # Image distribution: each leg builds nvml-mock:e2e once via buildx with the
 # GitHub Actions layer cache (no registry dependency -> works on fork PRs),
@@ -65,9 +62,8 @@ env:
   E2E_ARTIFACTS: ${{ github.workspace }}/artifacts/e2e
 
 jobs:
-  # One leg per GPU profile. Each leg stands up a single shared multi-node
-  # cluster and runs that profile's demo checks (nvidia-smi, NVLink, IB, PCI
-  # sysfs, profile ConfigMaps, cross-node ibping) against it.
+  # One leg per GPU profile. Each leg runs the non-validator Go E2E scenarios
+  # for that profile; the standalone validator remains skipped until #446.
   e2e:
     runs-on: ubuntu-latest
     strategy:
@@ -114,6 +110,9 @@ jobs:
       - name: Run E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
+          # Standalone GFD/CUDA validator uses nvcr.io images and remains
+          # disabled by default until #446 resolves the CI image/auth path.
+          E2E_GINKGO_FLAGS: '--label-filter=!validator'
         run: make e2e
 
       - name: Print diagnostics on failure
