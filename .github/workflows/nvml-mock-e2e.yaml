@@ -1236,13 +1236,24 @@ jobs:
             containers:
               - name: probe
                 image: ubuntu:22.04
-                # Ubuntu's loader does not search /usr/lib64, and the CDI
-                # update-ldcache hook runs host-side under kata (never in
-                # the guest). nvidia-smi survives via its RPATH; generic
-                # dlopen consumers need this env — the documented caveat.
+                # Two kata realities (CI round 1, Task 2):
+                # 1. The device plugin's generated CDI spec mounts the lib at
+                #    its VERSIONED path only; the .so.1 soname link is normally
+                #    created by the update-ldcache createContainer hook, which
+                #    runs host-side under kata — never in the guest. The probe
+                #    creates the soname link itself (documented workaround).
+                # 2. That spec carries no mock config mount/env either, so the
+                #    profile config is delivered as an explicit hostPath volume
+                #    (virtiofs) + MOCK_NVML_CONFIG.
+                # LD_LIBRARY_PATH: Ubuntu's loader does not search /usr/lib64.
                 env:
                   - name: LD_LIBRARY_PATH
                     value: /usr/lib64
+                  - name: MOCK_NVML_CONFIG
+                    value: /etc/nvml-mock/config.yaml
+                volumeMounts:
+                  - name: mock-config
+                    mountPath: /etc/nvml-mock/config.yaml
                 command:
                   - sh
                   - -c
@@ -1251,8 +1262,10 @@ jobs:
                     echo "GUEST_KERNEL=$(uname -r)"
                     echo "=== device nodes (kata-agent mknod from CDI/OCI devices) ==="
                     ls -la /dev/nvidia0 /dev/nvidiactl
-                    echo "=== virtiofs-mounted mock stack ==="
-                    ls -la /usr/bin/nvidia-smi /usr/lib64/libnvidia-ml.so.1
+                    echo "=== virtiofs-delivered mock stack (versioned lib = CDI mount) ==="
+                    ls -la /usr/bin/nvidia-smi /usr/lib64/libnvidia-ml.so.*.*.*
+                    echo "=== soname link (hook does not run in-guest; consumer creates it) ==="
+                    ln -sf "$(ls /usr/lib64/libnvidia-ml.so.*.*.* | head -1)" /usr/lib64/libnvidia-ml.so.1
                     echo "=== nvidia-smi -L ==="
                     nvidia-smi -L
                     echo "=== nvidia-smi ==="
@@ -1260,6 +1273,11 @@ jobs:
                 resources:
                   limits:
                     nvidia.com/gpu: 1
+            volumes:
+              - name: mock-config
+                hostPath:
+                  path: /var/lib/nvml-mock/driver/config/config.yaml
+                  type: File
           PODEOF
           for i in $(seq 1 36); do
             PHASE=$(kubectl get pod kata-gpu-workload -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)
