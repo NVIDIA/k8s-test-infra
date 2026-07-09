@@ -36,7 +36,7 @@ on:
         description: 'Go version'
         required: true
         # Canonical version comes from hack/golang-version.sh; keep this default in sync.
-        default: '1.26.4'
+        default: '1.26.5'
         type: string
       gpu_profiles:
         description: 'GPU profiles to test (JSON array)'

@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   between nvml-mock pods (kind's kindnetd enforces NetworkPolicy on current
   releases, so the allow-list is load-bearing on Kind).
 
+### Security
+- Go pins bumped 1.26.4 -> 1.26.5 across the build (deployment and test
+  Dockerfiles, mocknvml/mockcuda Makefiles, e2e dispatch default, helper
+  scripts) to resolve `GO-2026-5856` (Encrypted Client Hello privacy leak
+  in `crypto/tls`), which was failing the `govulncheck` CI check.
+
 ### Deprecated
 - The fake `nvidia-imex` / `nvidia-imex-ctl` binaries, `pkg/imexcoord`,
   and the chart's `imex.enabled` hostPath coordination — superseded by
