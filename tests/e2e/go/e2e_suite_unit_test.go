@@ -55,6 +55,8 @@ func TestUseCaseLabels(t *testing.T) {
 		"ibping",
 		"device-plugin",
 		"dra",
+		"gpu-operator",
+		"multi-node",
 		"failure-injection",
 		"validator",
 	}

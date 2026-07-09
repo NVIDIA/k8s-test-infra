@@ -39,6 +39,8 @@ var useCaseLabels = []string{
 	"ibping",
 	"device-plugin",
 	"dra",
+	"gpu-operator",
+	"multi-node",
 	"failure-injection",
 	"validator",
 }

@@ -171,6 +171,25 @@ After the DRA driver is ready, the scenario verifies ResourceSlice GPU count and
 applies a `ResourceClaimTemplate` plus test pod. The pod must reach `Running`,
 which proves DRA scheduling and `NodePrepareResources` succeeded.
 
+## GPU Operator Scenario
+
+The `gpu-operator` scenario creates a Kind cluster from
+[`go/assets/kind-gpu-operator-config.yaml`](go/assets/kind-gpu-operator-config.yaml),
+installs NVIDIA Container Toolkit in the Kind node, configures containerd for
+CDI mode, installs the selected `nvml-mock` profile, and installs GPU Operator
+with [`go/assets/gpu-operator-values.yaml`](go/assets/gpu-operator-values.yaml).
+
+The scenario waits for the operator validator pod, records GFD labels, and
+verifies profile-derived allocatable `nvidia.com/gpu` resources.
+
+## Multi-Node Scenario
+
+The `multi-node` scenario creates a heterogeneous Kind fleet from
+[`go/assets/kind-multi-node-config.yaml`](go/assets/kind-multi-node-config.yaml),
+installs A100 and T4 `nvml-mock` releases on separate workers, verifies mock
+files and InfiniBand behavior on both nodes, deploys the device plugin, and
+schedules a GPU workload across the fleet.
+
 ## CUDA Validator Scenario
 
 The `validator` scenario applies [`go/assets/validator-mock.yaml`](go/assets/validator-mock.yaml),
@@ -210,6 +229,8 @@ Use-case labels:
 - `ibping`
 - `device-plugin`
 - `dra`
+- `gpu-operator`
+- `multi-node`
 - `failure-injection`
 - `validator`
 
@@ -220,6 +241,8 @@ make e2e E2E_PROFILES=h100 E2E_GINKGO_FLAGS='--label-filter="failure-injection"'
 make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
 make e2e E2E_GINKGO_FLAGS='--label-filter="gb200 && ibping"'
 make e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter="dra"'
+make e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter="gpu-operator"'
+make e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter="multi-node"'
 make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
 ```
 

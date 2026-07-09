@@ -11,7 +11,7 @@
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -o pipefail -ec
 
-.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e
+.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
@@ -101,6 +101,9 @@ generate:
 #   make e2e                       # gb200
 #   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
 #   make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
+#   make e2e-dra                   # DRA scenario
+#   make e2e-gpu-operator          # GPU Operator scenario
+#   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 # CI builds the image once per job and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
 #
 # NOTE: this targets ./tests/e2e/go (the Ginkgo suite package) only, NOT
@@ -116,3 +119,12 @@ E2E_GINKGO_FLAGS ?=
 
 e2e:
 	$(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
+
+e2e-dra:
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'
+
+e2e-gpu-operator:
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=gpu-operator'
+
+e2e-multi-node:
+	$(MAKE) e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter=multi-node'
