@@ -50,3 +50,11 @@ func TestKeepClusterCanBeDisabled(t *testing.T) {
 		})
 	}
 }
+
+func TestArtifactsDirDefaultsToGoHarnessPath(t *testing.T) {
+	t.Setenv("E2E_ARTIFACTS", "")
+
+	if got := ArtifactsDir(); got != "artifacts/e2e/go" {
+		t.Fatalf("expected default artifacts dir %q, got %q", "artifacts/e2e/go", got)
+	}
+}

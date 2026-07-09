@@ -131,10 +131,6 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertions.IBLinkInfo(ctx, h.Kube, server, client, p)
 			})
 
-			It("registers allocatable GPUs via the NVIDIA device plugin", Label("device-plugin"), func(ctx SpecContext) {
-				deployDevicePlugin(ctx, h, node, p.ExpectedGPUs())
-			})
-
 			Context("failure injection", Label("failure-injection"), Ordered, func() {
 				It("starts from a healthy baseline", func(ctx SpecContext) {
 					assertFailureInjectionBaseline(ctx, h, pod, p.ExpectedGPUs())

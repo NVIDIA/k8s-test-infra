@@ -59,7 +59,7 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 				verifyGPUOperatorNodeSetup(ctx, podName)
 			})
 
-			It("installs GPU Operator and publishes GPUs", func(ctx SpecContext) {
+			It("installs GPU Operator and publishes GPUs", Label("device-plugin"), func(ctx SpecContext) {
 				installGPUOperator(ctx, h)
 				waitOperatorValidatorRunning(ctx, h)
 				for _, label := range []string{"nvidia.com/gpu.product", "nvidia.com/gpu.memory", "nvidia.com/gpu.count"} {

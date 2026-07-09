@@ -146,7 +146,6 @@ For each selected profile, the standalone scenario installs or upgrades the
 - `ib`: verify InfiniBand mock devices and commands.
 - `pcisysfs`: verify PCI sysfs topology.
 - `ibping`: verify cross-node `ibping` and `iblinkinfo`.
-- `device-plugin`: verify device-plugin registration and allocatable GPUs.
 - `failure-injection`: verify healthy, ECC, lost GPU, and fallen-off-bus modes.
 
 The failure-injection upgrades reuse the installed Helm values and set fast
@@ -180,7 +179,8 @@ CDI mode, installs the selected `nvml-mock` profile, and installs GPU Operator
 with [`go/assets/gpu-operator-values.yaml`](go/assets/gpu-operator-values.yaml).
 
 The scenario waits for the operator validator pod, records GFD labels, and
-verifies profile-derived allocatable `nvidia.com/gpu` resources.
+verifies profile-derived allocatable `nvidia.com/gpu` resources from the bundled
+device plugin.
 
 ## Multi-Node Scenario
 
@@ -254,7 +254,7 @@ make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
 | `E2E_IMAGE` | `nvml-mock:e2e` | Image ref to build and Kind-load. |
 | `E2E_SKIP_BUILD` | `false` | Skip the in-suite Docker build and reuse `E2E_IMAGE`. |
 | `E2E_KEEP_CLUSTER` | `true` | Keep the Kind cluster after the suite. Set `false` to delete it. |
-| `E2E_ARTIFACTS` | `artifacts/e2e` | Directory for failure diagnostics. |
+| `E2E_ARTIFACTS` | `artifacts/e2e/go` | Directory for failure diagnostics. |
 | `E2E_BUILDX_GHA_CACHE` | `false` | Enable buildx GitHub Actions cache flags. |
 | `E2E_GOLANG_VERSION` | empty | Optional Docker build arg override. |
 | `E2E_RUN_NGC` | `false` | Run scenarios that need `nvcr.io` images, such as `validator`. |

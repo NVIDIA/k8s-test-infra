@@ -25,7 +25,7 @@ var DefaultProfiles = []string{"gb200"}
 const (
 	defaultProfilesDir = "deployments/nvml-mock/helm/nvml-mock/profiles"
 	defaultImage       = "nvml-mock:e2e"
-	defaultArtifacts   = "artifacts/e2e"
+	defaultArtifacts   = "artifacts/e2e/go"
 	defaultDockerfile  = "deployments/nvml-mock/Dockerfile"
 )
 

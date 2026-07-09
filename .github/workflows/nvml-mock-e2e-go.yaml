@@ -45,7 +45,7 @@ env:
   KIND_VERSION: "v0.31.0"
   E2E_IMAGE: nvml-mock:e2e
   E2E_SKIP_BUILD: "true"
-  E2E_ARTIFACTS: ${{ github.workspace }}/artifacts/e2e
+  E2E_ARTIFACTS: ${{ github.workspace }}/artifacts/e2e/go
 
 jobs:
   e2e:
