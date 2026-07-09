@@ -1107,6 +1107,16 @@ jobs:
           cluster_name: ${{ env.CLUSTER_NAME }}
           config: tests/e2e/kind-kata-config.yaml
 
+      - name: Enlarge node /dev/shm for kata guest memory
+        run: |
+          # QEMU backs the guest's RAM with a file on the NODE's /dev/shm
+          # (share=on, required by virtiofsd). Kind node containers get the
+          # Docker default of 64M, so the 2G guest hangs before the agent
+          # starts (CI round 3: vsock timeout, journal "shm-size detected:
+          # 67108864"). tmpfs is virtual — the size costs nothing unless used.
+          docker exec "$CLUSTER_NAME-control-plane" mount -o remount,size=8G /dev/shm
+          docker exec "$CLUSTER_NAME-control-plane" df -h /dev/shm
+
       - name: Install kata-deploy
         run: |
           helm install kata-deploy \
