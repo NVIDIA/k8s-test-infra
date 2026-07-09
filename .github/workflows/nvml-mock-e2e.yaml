@@ -1183,6 +1183,140 @@ jobs:
           echo "PASS: kata guest kernel $GUEST_KERNEL != node kernel $NODE_KERNEL"
           kubectl delete pod kata-smoke --ignore-not-found
 
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ inputs.golang_version }}
+
+      - name: Build nvml-mock image
+        run: |
+          docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile \
+            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image nvml-mock:e2e --name "$CLUSTER_NAME"
+
+      - name: Install nvml-mock Helm chart
+        run: |
+          helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+            --set image.repository=nvml-mock \
+            --set image.tag=e2e \
+            --set gpu.profile=a100 \
+            --set gpu.count=2 \
+            --wait --timeout 120s
+          kubectl rollout status daemonset/nvml-mock --timeout=60s
+
+      - name: Deploy device plugin (cdi-cri mode)
+        run: |
+          kubectl apply -f tests/e2e/device-plugin-kata.yaml
+          kubectl -n kube-system rollout status \
+            daemonset/nvidia-device-plugin-kata --timeout=120s
+          NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+          for i in $(seq 1 24); do
+            ALLOC=$(kubectl get node "$NODE" \
+              -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' 2>/dev/null || echo 0)
+            [ "$ALLOC" = "2" ] && break
+            echo "attempt $i/24: allocatable nvidia.com/gpu=$ALLOC"
+            sleep 5
+          done
+          [ "$ALLOC" = "2" ] || { echo "FAIL: expected 2 allocatable GPUs, got $ALLOC"; exit 1; }
+
+      - name: Kata GPU workload — mock NVML inside the guest
+        run: |
+          NODE_KERNEL=$(docker exec "$CLUSTER_NAME-control-plane" uname -r)
+          cat << 'PODEOF' | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: kata-gpu-workload
+          spec:
+            runtimeClassName: kata-qemu
+            restartPolicy: Never
+            containers:
+              - name: probe
+                image: ubuntu:22.04
+                # Ubuntu's loader does not search /usr/lib64, and the CDI
+                # update-ldcache hook runs host-side under kata (never in
+                # the guest). nvidia-smi survives via its RPATH; generic
+                # dlopen consumers need this env — the documented caveat.
+                env:
+                  - name: LD_LIBRARY_PATH
+                    value: /usr/lib64
+                command:
+                  - sh
+                  - -c
+                  - |
+                    set -e
+                    echo "GUEST_KERNEL=$(uname -r)"
+                    echo "=== device nodes (kata-agent mknod from CDI/OCI devices) ==="
+                    ls -la /dev/nvidia0 /dev/nvidiactl
+                    echo "=== virtiofs-mounted mock stack ==="
+                    ls -la /usr/bin/nvidia-smi /usr/lib64/libnvidia-ml.so.1
+                    echo "=== nvidia-smi -L ==="
+                    nvidia-smi -L
+                    echo "=== nvidia-smi ==="
+                    nvidia-smi
+                resources:
+                  limits:
+                    nvidia.com/gpu: 1
+          PODEOF
+          for i in $(seq 1 36); do
+            PHASE=$(kubectl get pod kata-gpu-workload -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)
+            [ "$PHASE" = "Succeeded" ] && break
+            [ "$PHASE" = "Failed" ] && { kubectl describe pod kata-gpu-workload | tail -25; kubectl logs kata-gpu-workload || true; exit 1; }
+            echo "attempt $i/36: phase=$PHASE"
+            sleep 5
+          done
+          [ "$PHASE" = "Succeeded" ] || { kubectl describe pod kata-gpu-workload | tail -30; exit 1; }
+          kubectl logs kata-gpu-workload
+          LOGS=$(kubectl logs kata-gpu-workload)
+          # 1. VM guard again — allocation must not have knocked us to runc.
+          GUEST_KERNEL=$(sed -n 's/^GUEST_KERNEL=//p' <<< "$LOGS")
+          [ -n "$GUEST_KERNEL" ] && [ "$GUEST_KERNEL" != "$NODE_KERNEL" ] \
+            || { echo "FAIL: workload not in a kata VM (guest=$GUEST_KERNEL node=$NODE_KERNEL)"; exit 1; }
+          # 2. Exact profile literal (not a prefix) — the discriminating value.
+          grep -qF "NVIDIA A100-SXM4-40GB" <<< "$LOGS" \
+            || { echo "FAIL: profile GPU name not reported by nvidia-smi in guest"; exit 1; }
+          # 3. Mock enumerates from config (num_devices=2), independent of the
+          #    single allocated device — same semantics as the runc lanes.
+          COUNT=$(grep -c "^GPU " <<< "$LOGS" || true)
+          [ "$COUNT" = "2" ] || { echo "FAIL: expected 2 GPUs in -L output, got $COUNT"; exit 1; }
+          kubectl delete pod kata-gpu-workload --ignore-not-found
+          echo "PASS: mock NVML surface fully served inside the kata guest"
+
+      - name: Negative control — no GPU request, no injection
+        run: |
+          cat << 'PODEOF' | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: kata-no-gpu
+          spec:
+            runtimeClassName: kata-qemu
+            restartPolicy: Never
+            containers:
+              - name: probe
+                image: ubuntu:22.04
+                command:
+                  - sh
+                  - -c
+                  - |
+                    ! test -e /dev/nvidia0 || exit 1
+                    ! test -e /usr/lib64/libnvidia-ml.so.1 || exit 1
+                    echo CLEAN
+          PODEOF
+          for i in $(seq 1 24); do
+            PHASE=$(kubectl get pod kata-no-gpu -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)
+            [ "$PHASE" = "Succeeded" ] && break
+            [ "$PHASE" = "Failed" ] && { echo "FAIL: mock leaked into an unrequesting kata pod"; kubectl logs kata-no-gpu || true; exit 1; }
+            sleep 5
+          done
+          kubectl logs kata-no-gpu | grep -q "^CLEAN$" \
+            || { echo "FAIL: negative control did not report CLEAN"; exit 1; }
+          kubectl delete pod kata-no-gpu --ignore-not-found
+          echo "PASS: no injection without a GPU request"
+
       - name: Collect kata logs on failure
         if: failure()
         run: |
@@ -1202,3 +1336,5 @@ jobs:
           echo "=== kata-deploy containerd drop-in ==="
           docker exec "$CLUSTER_NAME-control-plane" \
             cat /opt/kata/containerd/config.d/kata-deploy.toml || true
+          kubectl -n kube-system logs -l name=nvidia-device-plugin-kata --tail=50 || true
+          docker exec "$CLUSTER_NAME-control-plane" sh -c 'ls -la /var/run/cdi/ && head -40 /var/run/cdi/*.yaml' || true
