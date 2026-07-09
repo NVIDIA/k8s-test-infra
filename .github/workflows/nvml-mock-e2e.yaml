@@ -1109,7 +1109,6 @@ jobs:
             --version "$KATA_VERSION" \
             -n kube-system \
             --set k8sDistribution=k8s \
-            --set defaultShim=qemu \
             --set shims.qemu.enabled=true \
             --set node-feature-discovery.enabled=false \
             --wait --timeout 300s
