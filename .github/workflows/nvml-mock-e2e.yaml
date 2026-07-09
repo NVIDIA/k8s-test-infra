@@ -1078,7 +1078,7 @@ jobs:
   # class (issue #377 / Kata-CoCo integration, v1 = plain kata-qemu).
   # Workloads run inside a lightweight VM: CDI library mounts arrive via
   # virtiofs, CDI device nodes are mknod'd in the guest by kata-agent.
-  # Spec: docs/superpowers/specs/2026-07-09-kata-containers-nvml-mock-design.md
+  # Docs: docs/integrations/kata.md
   e2e-kata:
     runs-on: ubuntu-latest
     timeout-minutes: 30
