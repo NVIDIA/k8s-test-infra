@@ -73,6 +73,7 @@ COPY --from=builder /out/nv-fabricmanager-ctl /usr/bin/nv-fabricmanager-ctl
 # to confirm the topology overlay assigned the expected clique to each
 # node. See NVIDIA/k8s-test-infra#304.
 COPY --from=builder /out/check-fabric    /usr/local/bin/check-fabric
+ADD --chmod=755  https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl /usr/local/bin/kubectl
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
@@ -83,13 +84,6 @@ RUN set -eux; \
     # but keep an explicit mkdir as a belt-and-braces guarantee so the
     # warning never appears even if the providers package is purged. \
     mkdir -p /etc/libibverbs.d; \
-    curl -fsSLo /usr/local/bin/kubectl \
-      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl"; \
-    curl -fsSLo /tmp/kubectl.sha256 \
-      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256"; \
-    echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum --check; \
-    chmod +x /usr/local/bin/kubectl; \
-    rm /tmp/kubectl.sha256; \
     # Extract just the nvidia-smi binary from nvidia-utils (Ubuntu 22.04 repo:
     # glibc 2.35, runs on bookworm). The 580 branch renders the full GB200/GB300
     # NVLink5 surface (`nvlink -e/-info/-gLowPwrInfo/-gLWidth`); older binaries
