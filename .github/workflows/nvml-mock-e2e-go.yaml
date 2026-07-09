@@ -88,11 +88,10 @@ jobs:
           kind version
 
       - name: Run E2E (${{ matrix.gpu-profile }})
+        # Standalone GFD/CUDA validator uses nvcr.io images and remains
+        # disabled by default until #446 resolves the CI image/auth path.
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
-          # Standalone GFD/CUDA validator uses nvcr.io images and remains
-          # disabled by default until #446 resolves the CI image/auth path.
-          E2E_GINKGO_FLAGS: '--label-filter=!validator && !dra && !gpu-operator && !multi-node'
         run: make e2e
 
       - name: Print diagnostics on failure
@@ -149,8 +148,7 @@ jobs:
       - name: Run DRA E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
-          E2E_GINKGO_FLAGS: '--label-filter=dra'
-        run: make e2e
+        run: make e2e-dra
 
       - name: Print diagnostics on failure
         if: failure()
@@ -206,8 +204,7 @@ jobs:
       - name: Run GPU Operator E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
-          E2E_GINKGO_FLAGS: '--label-filter=gpu-operator'
-        run: make e2e
+        run: make e2e-gpu-operator
 
       - name: Print diagnostics on failure
         if: failure()
@@ -257,10 +254,7 @@ jobs:
           kind version
 
       - name: Run multi-node E2E
-        env:
-          E2E_PROFILES: a100,t4
-          E2E_GINKGO_FLAGS: '--label-filter=multi-node'
-        run: make e2e
+        run: make e2e-multi-node
 
       - name: Print diagnostics on failure
         if: failure()
