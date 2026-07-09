@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Device plugin DaemonSet for the Kata E2E lane.
-# Differs from device-plugin-mock.yaml in ONE way: allocation uses
+# Differs from device-plugin-mock.yaml in the allocation strategy — two
+# args plus a /var/run/cdi volume for the generated spec: allocation uses
 # --device-list-strategy=cdi-cri. The default envvar strategy relies on
 # the NVIDIA container runtime rewriting the container config on the
 # host — the kata runtime handler bypasses that wrapper entirely, so

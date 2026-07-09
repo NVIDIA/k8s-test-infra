@@ -62,8 +62,13 @@ root:root) is a faithful substitute for device passthrough.
   helm install kata-deploy \
     oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy \
     --version 3.32.0 -n kube-system \
-    --set shims.qemu.enabled=true
+    --set shims.qemu.enabled=true \
+    --set node-feature-discovery.enabled=false
   ```
+
+  (`node-feature-discovery.enabled=false` skips the chart's bundled NFD
+  dependency; drop that flag if you want kata-deploy's NFD-based node
+  labeling.)
 
   > Do **not** add a `--set defaultShim=...` flag. Chart 3.32.0 models
   > `defaultShim` as a per-arch map that already defaults to `qemu`; a scalar
@@ -117,6 +122,7 @@ spec:
       volumeMounts:
         - name: mock-config
           mountPath: /etc/nvml-mock/config.yaml
+          readOnly: true
       command:
         - sh
         - -c

@@ -1128,6 +1128,9 @@ jobs:
             --set node-feature-discovery.enabled=false \
             --set debug=true \
             --wait --timeout 300s
+          # debug=true above is deliberate: the kata runtime/agent journal and
+          # guest console on this CI node are the primary evidence when this
+          # VM lane flakes — do not drop it as cleanup.
 
       - name: Wait for kata runtime readiness
         run: |
@@ -1254,6 +1257,7 @@ jobs:
                 volumeMounts:
                   - name: mock-config
                     mountPath: /etc/nvml-mock/config.yaml
+                    readOnly: true
                 command:
                   - sh
                   - -c
@@ -1364,4 +1368,4 @@ jobs:
           docker exec "$CLUSTER_NAME-control-plane" \
             cat /opt/kata/containerd/config.d/kata-deploy.toml || true
           kubectl -n kube-system logs -l name=nvidia-device-plugin-kata --tail=50 || true
-          docker exec "$CLUSTER_NAME-control-plane" sh -c 'ls -la /var/run/cdi/ && head -40 /var/run/cdi/*.yaml' || true
+          docker exec "$CLUSTER_NAME-control-plane" sh -c 'ls -la /var/run/cdi/ && head -40 /var/run/cdi/*' || true
