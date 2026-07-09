@@ -8,6 +8,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+SHELL := /usr/bin/env bash
+.SHELLFLAGS := -o pipefail -ec
+
 .PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e
 
 GO_CMD ?= go

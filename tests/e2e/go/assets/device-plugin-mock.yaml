@@ -20,6 +20,8 @@ spec:
       labels:
         name: nvidia-device-plugin-mock
     spec:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
       tolerations:
         - operator: Exists
       containers:

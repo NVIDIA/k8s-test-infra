@@ -8,6 +8,7 @@
 # E2E harness failure diagnostics (E2E_ARTIFACTS default)
 e2e.log
 tests/e2e/artifacts/
+tests/e2e/go/artifacts/
 
 pkg/network/*/libibmock*
 # Stray binaries from `go build ./cmd/...` at repo root

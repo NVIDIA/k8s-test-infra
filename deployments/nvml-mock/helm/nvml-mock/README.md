@@ -53,8 +53,8 @@ use "Option B: Build from source" in the quick start sections below.
 ## Quick Start: Device Plugin on KIND
 
 This path uses the NVIDIA device plugin to expose mock GPUs as
-`nvidia.com/gpu` allocatable resources. Tested in CI via
-`.github/workflows/nvml-mock-e2e-go.yaml`.
+`nvidia.com/gpu` allocatable resources. Use this quick start for local/manual
+validation; the current Go E2E workflow gates the standalone demo path.
 
 ### 1. Create a KIND cluster
 
@@ -133,7 +133,8 @@ kind delete cluster --name nvml-mock-test
 
 This path uses the NVIDIA DRA (Dynamic Resource Allocation) driver to expose
 mock GPUs as ResourceSlices. DRA requires a cluster with specific feature
-gates. Tested in CI via `.github/workflows/nvml-mock-e2e-go.yaml`.
+gates. Use this quick start for local/manual validation; the current Go E2E
+workflow does not yet include a DRA scenario.
 
 ### 1. Create a KIND cluster with DRA enabled
 

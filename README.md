@@ -36,18 +36,17 @@ After install, deploy a consumer to test:
 
 ## E2E Testing
 
-The nvml-mock E2E workflow tests all GPU consumers across multiple profiles
-and node topologies. Run manually via `workflow_dispatch` or automatically
-on PRs.
+The nvml-mock Go E2E workflow currently gates the standalone demo coverage
+across selected GPU profiles. Run manually via `workflow_dispatch` or
+automatically on PRs.
 
 | Test Suite | What It Validates | Profiles |
 |------------|-------------------|----------|
-| **Device Plugin** | `nvidia.com/gpu` allocatable resources | A100, H100, T4 |
-| **DRA Driver** | ResourceSlices via Dynamic Resource Allocation | A100, H100, T4 |
-| **GPU Operator** | Operator components: device plugin + GFD + validator (CDI injection) | A100, H100, T4 |
-| **Multi-Node Fleet** | Cross-node scheduling with heterogeneous GPUs | A100 + T4 |
+| **Standalone Demo** | nvml-mock chart install, `nvidia-smi`, NVLink/fabricmanager, InfiniBand, PCI sysfs, and cross-node checks | Workflow-selected profiles |
+| **Failure Injection** | Healthy, ECC, lost, and fallen-off-bus modes | Workflow-selected profiles |
 
-Manual dispatch supports all 7 profiles: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`.
+Manual dispatch accepts a JSON array of GPU profiles; local runs default to
+`gb200`.
 
 See [`.github/workflows/nvml-mock-e2e-go.yaml`](.github/workflows/nvml-mock-e2e-go.yaml) for details.
 
