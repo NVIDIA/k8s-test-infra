@@ -1261,7 +1261,12 @@ jobs:
                     set -e
                     echo "GUEST_KERNEL=$(uname -r)"
                     echo "=== device nodes (kata-agent mknod from CDI/OCI devices) ==="
-                    ls -la /dev/nvidia0 /dev/nvidiactl
+                    # The per-GPU node index follows the scheduler's allocation
+                    # (CI: round 1 got /dev/nvidia0, round 2 /dev/nvidia1) —
+                    # assert exactly ONE allocated GPU node, whichever index.
+                    ls -la /dev/nvidia[0-9]* /dev/nvidiactl
+                    NDEV=$(ls /dev/nvidia[0-9]* | wc -l)
+                    [ "$NDEV" = "1" ] || { echo "FAIL: expected exactly 1 allocated GPU node, got $NDEV"; exit 1; }
                     echo "=== virtiofs-delivered mock stack (versioned lib = CDI mount) ==="
                     ls -la /usr/bin/nvidia-smi /usr/lib64/libnvidia-ml.so.*.*.*
                     echo "=== soname link (hook does not run in-guest; consumer creates it) ==="
@@ -1320,8 +1325,8 @@ jobs:
                   - sh
                   - -c
                   - |
-                    ! test -e /dev/nvidia0 || exit 1
-                    ! test -e /usr/lib64/libnvidia-ml.so.1 || exit 1
+                    ! ls /dev/nvidia[0-9]* >/dev/null 2>&1 || exit 1
+                    ! ls /usr/lib64/libnvidia-ml.so.* >/dev/null 2>&1 || exit 1
                     echo CLEAN
           PODEOF
           for i in $(seq 1 24); do
