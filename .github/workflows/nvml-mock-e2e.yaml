@@ -1088,10 +1088,15 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Verify KVM on the runner
+      - name: Verify KVM and vsock on the runner
         run: |
           ls -l /dev/kvm
           sudo chmod 666 /dev/kvm
+          # kata's shim reaches the guest agent over AF_VSOCK; the module is
+          # available on GitHub runners but not auto-loaded (CI round 2:
+          # sandbox creation timed out connecting to vsock CID:1024).
+          sudo modprobe vhost_vsock
+          ls -l /dev/vhost-vsock
 
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
@@ -1111,6 +1116,7 @@ jobs:
             --set k8sDistribution=k8s \
             --set shims.qemu.enabled=true \
             --set node-feature-discovery.enabled=false \
+            --set debug=true \
             --wait --timeout 300s
 
       - name: Wait for kata runtime readiness
@@ -1174,3 +1180,15 @@ jobs:
           kubectl -n kube-system get pods -o wide || true
           docker exec "$CLUSTER_NAME-control-plane" \
             sh -c 'ls /opt/kata/bin 2>/dev/null; grep -A5 kata /etc/containerd/config.toml 2>/dev/null' || true
+          echo "=== devices + qemu processes in the node container ==="
+          docker exec "$CLUSTER_NAME-control-plane" \
+            sh -c 'ls -l /dev/kvm /dev/vhost-vsock 2>&1; ps aux | grep -i [q]emu | head -5' || true
+          echo "=== kata runtime journal ==="
+          docker exec "$CLUSTER_NAME-control-plane" \
+            sh -c 'journalctl --no-pager -t kata -n 80 2>/dev/null | tail -80' || true
+          echo "=== containerd journal (kata lines) ==="
+          docker exec "$CLUSTER_NAME-control-plane" \
+            sh -c 'journalctl --no-pager -u containerd -n 200 2>/dev/null | grep -i kata | tail -60' || true
+          echo "=== kata-deploy containerd drop-in ==="
+          docker exec "$CLUSTER_NAME-control-plane" \
+            cat /opt/kata/containerd/config.d/kata-deploy.toml || true

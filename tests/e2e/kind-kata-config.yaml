@@ -18,3 +18,8 @@ nodes:
     extraMounts:
       - hostPath: /dev/kvm
         containerPath: /dev/kvm
+      # AF_VSOCK control channel between the kata shim and the guest agent.
+      # Requires `modprobe vhost_vsock` on the host before cluster creation
+      # (the workflow's KVM/vsock step does this).
+      - hostPath: /dev/vhost-vsock
+        containerPath: /dev/vhost-vsock
