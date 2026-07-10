@@ -31,16 +31,6 @@ EXPECTED_DOMAIN_UUID="00000000-0000-0000-0000-0000000000cd"
 info() { echo "==> $*"; }
 fail() { echo "ERROR: $*" >&2; exit 1; }
 
-wait_for_pod_success() {
-  local pod="$1"
-  if ! kubectl -n "${WORKLOAD_NAMESPACE}" wait --for=jsonpath='{.status.phase}'=Succeeded "pod/${pod}" --timeout=120s; then
-    kubectl -n "${WORKLOAD_NAMESPACE}" logs "pod/${pod}" --all-containers=true || true
-    kubectl -n "${WORKLOAD_NAMESPACE}" describe "pod/${pod}" || true
-    fail "${pod} self-check failed"
-  fi
-  kubectl -n "${WORKLOAD_NAMESPACE}" logs "pod/${pod}" --all-containers=true
-}
-
 if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
   if [[ "${FORCE_RECREATE}" == "true" ]]; then
     info "Deleting existing Kind cluster '${CLUSTER_NAME}'"
@@ -157,24 +147,6 @@ if [[ "${WITH_COMPUTE_DOMAIN}" == "true" ]]; then
   assert_clique "${WORKER4}" 1
   info "All nodes report their assigned ComputeDomain clique via NRI injection"
 fi
-
-# info "Creating demo pods"
-# kubectl -n "${WORKLOAD_NAMESPACE}" delete pod node-wide-plain node-wide-opt-out node-wide-device-opt-in --ignore-not-found
-# kubectl -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/plain-pod.yaml"
-# kubectl -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/opt-out-pod.yaml"
-# kubectl -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/device-opt-in-pod.yaml"
-
-# info "Waiting for demo pod self-checks"
-# wait_for_pod_success node-wide-plain
-# wait_for_pod_success node-wide-opt-out
-# wait_for_pod_success node-wide-device-opt-in
-
-# info "Verifying the authored pod spec has no injected volumes or env"
-# VOLUME_COUNT=$(kubectl -n "${WORKLOAD_NAMESPACE}" get pod node-wide-plain -o jsonpath='{.spec.volumes}' | wc -c | tr -d ' ')
-# ENV_COUNT=$(kubectl -n "${WORKLOAD_NAMESPACE}" get pod node-wide-plain -o jsonpath='{.spec.containers[0].env}' | wc -c | tr -d ' ')
-# if [[ "${VOLUME_COUNT}" != "0" || "${ENV_COUNT}" != "0" ]]; then
-#   fail "Expected pod spec to remain unmodified (volumes bytes=${VOLUME_COUNT}, env bytes=${ENV_COUNT})"
-# fi
 
 echo
 info "Node-wide NRI injection demo complete."

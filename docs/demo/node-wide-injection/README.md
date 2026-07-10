@@ -48,22 +48,9 @@ Install these tools locally before running the demo:
    - no `nvidia.com/gpu` request;
    - no hostPath or mock-library volumes;
    - no `LD_PRELOAD`, `MOCK_*`, or `PATH` env.
-   Each `gpu-agent` pod runs `check-fabric` and the script asserts every node
-   reports its assigned clique / cluster UUID (skip with
-   `WITH_COMPUTE_DOMAIN=false`).
-6. Starts three self-checking ordinary pods:
-   - `node-wide-plain`: no annotations, no GPU request; verifies the ambient
-     overlay and `nvidia-smi -L`.
-   - `node-wide-opt-out`: `nvml-mock.nvidia.com/inject: "false"`; verifies the
-     overlay and `nvidia-smi` are absent.
-   - `node-wide-device-opt-in`: `nvml-mock.nvidia.com/devices: "true"`;
-     verifies `/dev/nvidia0` is injected.
-7. Verifies:
-   - `gpu-agent` runs `nvidia-smi` from the ambient NRI injection;
-- the plain pod self-check sees `/opt/nvml-mock` and can run `nvidia-smi -L`;
-   - the pod spec still has no injected volumes or env;
-- the opt-out pod self-check does not see the overlay;
-- the device opt-in pod self-check gets `/dev/nvidia0`.
+   Its self-test asserts the ambient overlay (`/opt/nvml-mock`) and `nvidia-smi`
+   are present, then runs `check-fabric`; the script asserts every node reports
+   its assigned clique / cluster UUID (skip with `WITH_COMPUTE_DOMAIN=false`).
 
 ## Quick Start
 
@@ -99,14 +86,10 @@ After the script completes, the important checks are:
 kubectl -n nvml-mock-system get daemonset nvml-mock nvml-mock-nri
 kubectl get daemonset gpu-agent
 kubectl logs daemonset/gpu-agent --tail=80
-kubectl get pods node-wide-plain node-wide-opt-out node-wide-device-opt-in
-kubectl logs pod/node-wide-plain
-kubectl logs pod/node-wide-opt-out
-kubectl logs pod/node-wide-device-opt-in
 ```
 
-The `gpu-agent` and demo pod specs should remain plain; the mock GPU stack is
-injected by containerd NRI when each container is created.
+The `gpu-agent` pod spec stays plain; the mock GPU stack is injected by
+containerd NRI when each container is created.
 
 ## Clean Up
 
@@ -119,7 +102,6 @@ the demo resources:
 
 ```bash
 kubectl delete daemonset gpu-agent --ignore-not-found
-kubectl delete pod node-wide-plain node-wide-opt-out node-wide-device-opt-in --ignore-not-found
 helm uninstall nvml-mock --namespace nvml-mock-system --ignore-not-found
 kubectl delete namespace nvml-mock-system --ignore-not-found
 ```
