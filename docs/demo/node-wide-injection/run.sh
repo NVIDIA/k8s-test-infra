@@ -5,6 +5,10 @@
 set -euo pipefail
 
 CLUSTER_NAME="nvml-mock-node-wide-demo"
+# Kind creates a kubeconfig context named "kind-<cluster>". Pin every kubectl
+# and helm call to it so the demo never operates on whatever context happens to
+# be current (which could be a real cluster).
+KUBE_CONTEXT="kind-${CLUSTER_NAME}"
 IMAGE_NAME="nvml-mock:node-wide-demo"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 DEMO_DIR="docs/demo/node-wide-injection"
@@ -30,6 +34,11 @@ EXPECTED_DOMAIN_UUID="00000000-0000-0000-0000-0000000000cd"
 
 info() { echo "==> $*"; }
 fail() { echo "ERROR: $*" >&2; exit 1; }
+
+# Wrap kubectl so every call is pinned to the demo's kind context without
+# repeating --context at each call site. helm keeps --kube-context inline
+# (there is only one invocation).
+kubectl_ctx() { command kubectl --context "${KUBE_CONTEXT}" "$@"; }
 
 if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
   if [[ "${FORCE_RECREATE}" == "true" ]]; then
@@ -62,6 +71,7 @@ fi
 
 info "Installing nvml-mock with NRI enabled in namespace: ${NVML_MOCK_NAMESPACE}"
 helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
+  --kube-context "${KUBE_CONTEXT}" \
   --namespace "${NVML_MOCK_NAMESPACE}" \
   --create-namespace \
   --set image.repository=nvml-mock \
@@ -76,30 +86,30 @@ info "Waiting for setup and NRI DaemonSets"
 # Restart the daemon so setup.sh re-runs and (re)stages the topology overlay
 # into /var/lib/nvml-mock/topology on every node, even when reusing a cluster
 # whose pods predate a topology change.
-kubectl -n "${NVML_MOCK_NAMESPACE}" rollout restart daemonset/nvml-mock
-kubectl -n "${NVML_MOCK_NAMESPACE}" rollout status daemonset/nvml-mock --timeout=120s
-kubectl -n "${NVML_MOCK_NAMESPACE}" rollout status daemonset/nvml-mock-nri --timeout=90s
+kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" rollout restart daemonset/nvml-mock
+kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" rollout status daemonset/nvml-mock --timeout=120s
+kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" rollout status daemonset/nvml-mock-nri --timeout=90s
 
 if [[ "${WORKLOAD_NAMESPACE}" != "default" ]]; then
   info "Preparing workload namespace: ${WORKLOAD_NAMESPACE}"
-  kubectl create namespace "${WORKLOAD_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+  kubectl_ctx create namespace "${WORKLOAD_NAMESPACE}" --dry-run=client -o yaml | kubectl_ctx apply -f -
 fi
 
 info "Deploying gpu-agent DaemonSet (plain workload; GPU stack comes from NRI)"
-kubectl -n "${WORKLOAD_NAMESPACE}" delete daemonset gpu-agent --ignore-not-found
-kubectl -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/gpu-agent.yaml"
-kubectl -n "${WORKLOAD_NAMESPACE}" rollout status daemonset/gpu-agent --timeout=120s
+kubectl_ctx -n "${WORKLOAD_NAMESPACE}" delete daemonset gpu-agent --ignore-not-found
+kubectl_ctx -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/gpu-agent.yaml"
+kubectl_ctx -n "${WORKLOAD_NAMESPACE}" rollout status daemonset/gpu-agent --timeout=120s
 
 info "Verifying gpu-agent has no nvidia.com/gpu resource request"
-GPU_AGENT_RESOURCES=$(kubectl -n "${WORKLOAD_NAMESPACE}" get daemonset gpu-agent -o jsonpath='{.spec.template.spec.containers[0].resources}' || true)
+GPU_AGENT_RESOURCES=$(kubectl_ctx -n "${WORKLOAD_NAMESPACE}" get daemonset gpu-agent -o jsonpath='{.spec.template.spec.containers[0].resources}' || true)
 if grep -q "nvidia.com/gpu" <<<"${GPU_AGENT_RESOURCES}"; then
   fail "gpu-agent unexpectedly requests nvidia.com/gpu"
 fi
 
 info "Verifying gpu-agent sees mock GPUs from NRI injection"
-kubectl -n "${WORKLOAD_NAMESPACE}" wait --for=condition=Ready pod -l app=gpu-agent --timeout=120s
-GPU_AGENT_POD=$(kubectl -n "${WORKLOAD_NAMESPACE}" get pod -l app=gpu-agent -o jsonpath='{.items[0].metadata.name}')
-GPU_AGENT_GPUS=$(kubectl -n "${WORKLOAD_NAMESPACE}" exec "${GPU_AGENT_POD}" -- nvidia-smi -L)
+kubectl_ctx -n "${WORKLOAD_NAMESPACE}" wait --for=condition=Ready pod -l app=gpu-agent --timeout=120s
+GPU_AGENT_POD=$(kubectl_ctx -n "${WORKLOAD_NAMESPACE}" get pod -l app=gpu-agent -o jsonpath='{.items[0].metadata.name}')
+GPU_AGENT_GPUS=$(kubectl_ctx -n "${WORKLOAD_NAMESPACE}" exec "${GPU_AGENT_POD}" -- nvidia-smi -L)
 echo "${GPU_AGENT_GPUS}"
 GPU_AGENT_GPU_COUNT=$(grep -c '^GPU [0-9]\+:' <<<"${GPU_AGENT_GPUS}" || true)
 if [[ "${GPU_AGENT_GPU_COUNT}" -lt 1 ]]; then
@@ -123,14 +133,14 @@ if [[ "${WITH_COMPUTE_DOMAIN}" == "true" ]]; then
   assert_clique() {
     local node="$1" expected_clique="$2"
     local pod
-    pod=$(kubectl -n "${WORKLOAD_NAMESPACE}" get pod -l app=gpu-agent \
+    pod=$(kubectl_ctx -n "${WORKLOAD_NAMESPACE}" get pod -l app=gpu-agent \
       --field-selector "spec.nodeName=${node}" \
       -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
     if [[ -z "${pod}" ]]; then
       fail "no gpu-agent pod found on node ${node}"
     fi
     local out
-    out=$(kubectl -n "${WORKLOAD_NAMESPACE}" exec "${pod}" -- check-fabric 2>&1 || true)
+    out=$(kubectl_ctx -n "${WORKLOAD_NAMESPACE}" exec "${pod}" -- check-fabric 2>&1 || true)
     echo "${out}" | sed 's/^/    /'
     if ! grep -q "cliqueId    : ${expected_clique}" <<<"${out}"; then
       fail "${node}: expected cliqueId ${expected_clique} from check-fabric"
