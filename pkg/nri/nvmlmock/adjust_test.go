@@ -6,6 +6,7 @@ package nvmlmock
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -41,6 +42,85 @@ func TestAdjustPlainContainerAddsOverlayAndEnvironment(t *testing.T) {
 	require.Contains(t, adjustment.Env, "MOCK_IB_ROOT=/opt/nvml-mock/ib")
 	require.Contains(t, adjustment.Env, "MOCK_IB_PING_SOCKET=/opt/nvml-mock/run/mock-ib.sock")
 	require.Contains(t, adjustment.Env, "MOCK_PCI_ROOT=/opt/nvml-mock")
+}
+
+func TestAdjustInjectsTopologyEnvWhenStaged(t *testing.T) {
+	overlayHost := t.TempDir()
+	topoDir := filepath.Join(overlayHost, "topology")
+	require.NoError(t, os.MkdirAll(topoDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(topoDir, "topology.yaml"), []byte("version: 1\n"), 0o644))
+
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = overlayHost
+	cfg.NodeName = "kind-worker3"
+
+	adjustment, ok, err := Adjust(cfg, Container{Namespace: "default"})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.Contains(t, adjustment.Env, "NODE_NAME=kind-worker3")
+	require.Contains(t, adjustment.Env, "MOCK_TOPOLOGY_CONFIG=/opt/nvml-mock/topology/topology.yaml")
+}
+
+func TestAdjustSkipsTopologyEnvWhenNotConfigured(t *testing.T) {
+	t.Run("no node name", func(t *testing.T) {
+		overlayHost := t.TempDir()
+		topoDir := filepath.Join(overlayHost, "topology")
+		require.NoError(t, os.MkdirAll(topoDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(topoDir, "topology.yaml"), []byte("version: 1\n"), 0o644))
+
+		cfg := DefaultConfig()
+		cfg.HostOverlayPath = overlayHost
+
+		adjustment, ok, err := Adjust(cfg, Container{Namespace: "default"})
+		require.NoError(t, err)
+		require.True(t, ok)
+		requireNoEnvKey(t, adjustment.Env, "MOCK_TOPOLOGY_CONFIG")
+		requireNoEnvKey(t, adjustment.Env, "NODE_NAME")
+	})
+
+	t.Run("no staged topology document", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.HostOverlayPath = t.TempDir()
+		cfg.NodeName = "kind-worker3"
+
+		adjustment, ok, err := Adjust(cfg, Container{Namespace: "default"})
+		require.NoError(t, err)
+		require.True(t, ok)
+		requireNoEnvKey(t, adjustment.Env, "MOCK_TOPOLOGY_CONFIG")
+		requireNoEnvKey(t, adjustment.Env, "NODE_NAME")
+	})
+}
+
+func TestAdjustDoesNotOverrideAuthoredNodeName(t *testing.T) {
+	overlayHost := t.TempDir()
+	topoDir := filepath.Join(overlayHost, "topology")
+	require.NoError(t, os.MkdirAll(topoDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(topoDir, "topology.yaml"), []byte("version: 1\n"), 0o644))
+
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = overlayHost
+	cfg.NodeName = "kind-worker3"
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Namespace: "default",
+		Env:       []string{"NODE_NAME=authored-node"},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.Contains(t, adjustment.Env, "NODE_NAME=authored-node")
+	require.NotContains(t, adjustment.Env, "NODE_NAME=kind-worker3")
+	require.Contains(t, adjustment.Env, "MOCK_TOPOLOGY_CONFIG=/opt/nvml-mock/topology/topology.yaml")
+}
+
+func requireNoEnvKey(t *testing.T, env []string, key string) {
+	t.Helper()
+	for _, item := range env {
+		if name, _, ok := strings.Cut(item, "="); ok && name == key {
+			t.Fatalf("expected env not to contain key %q, got %q", key, item)
+		}
+	}
 }
 
 func TestAdjustSkipsOptOutExcludedNamespaceAndExistingMount(t *testing.T) {

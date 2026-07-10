@@ -31,6 +31,16 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --excluded-namespaces=NAMESPACE,kube-system
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-name=$(NODE_NAME)
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
 
   - it: should mount the NRI socket directory and overlay host path
     set:

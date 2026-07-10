@@ -49,6 +49,17 @@ spec:
             - --opt-out-annotation={{ .Values.nri.optOutAnnotation }}
             - --device-annotation={{ .Values.nri.deviceAnnotation }}
             - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
+            # NODE_NAME (below) gates ComputeDomain topology injection: when
+            # topology.enabled stages a topology document into the overlay,
+            # the plugin injects NODE_NAME + MOCK_TOPOLOGY_CONFIG into each
+            # workload so its mock GPUs report this node's clique / cluster
+            # UUID. Harmless when topology is disabled (no document to stage).
+            - --node-name=$(NODE_NAME)
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           securityContext:
             allowPrivilegeEscalation: false
             runAsUser: 0

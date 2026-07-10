@@ -211,6 +211,13 @@ for tool in ibnetdiscover ibstat iblinkinfo ibstatus sminfo ibping ibv_devinfo; 
     cp "$(command -v "$tool")" "$DRIVER_ROOT/usr/bin/$tool"
   fi
 done
+# Stage the fabric consumer so node-wide NRI-injected pods can verify their
+# per-node ComputeDomain identity (nvmlDeviceGetGpuFabricInfo) the same way the
+# compute-domain demo does inside the daemon pod. It resolves the mock NVML
+# library via the LD_LIBRARY_PATH the NRI plugin injects.
+if [ -x /usr/local/bin/check-fabric ]; then
+  cp /usr/local/bin/check-fabric "$DRIVER_ROOT/usr/bin/check-fabric"
+fi
 cp -a /usr/local/lib/libibmock*.so* "$DRIVER_ROOT/usr/local/lib/" 2>/dev/null || true
 cp -a /usr/local/lib/libpcimocksys.so* "$DRIVER_ROOT/usr/local/lib/" 2>/dev/null || true
 
@@ -243,6 +250,19 @@ cp /etc/nvml-mock/config.yaml "$DRIVER_ROOT/config/config.yaml"
 #    This makes the on-host config self-contained — consumers just point at driver root.
 sed -i "/^system:/a\\  num_devices: $GPU_COUNT" "$CONFIG_DIR/config.yaml"
 sed -i "/^system:/a\\  num_devices: $GPU_COUNT" "$DRIVER_ROOT/config/config.yaml"
+
+# 6b. Stage the cluster-level ComputeDomain topology document into the overlay
+#     tree so node-wide NRI injection can surface per-node fabric identity.
+#     The daemon mounts the topology ConfigMap at /etc/nvml-mock/topology when
+#     topology.enabled=true; the NRI plugin bind-mounts $HOST at the container
+#     overlay path and injects MOCK_TOPOLOGY_CONFIG pointing here (plus the
+#     node's NODE_NAME) so the mock NVML engine's applyTopologyOverlay() rewrites
+#     each GPU's clique_id / cluster_uuid. No-op when topology is disabled.
+if [ -f /etc/nvml-mock/topology/topology.yaml ]; then
+  mkdir -p "$HOST/topology"
+  cp /etc/nvml-mock/topology/topology.yaml "$HOST/topology/topology.yaml"
+  echo "Staged ComputeDomain topology overlay at $HOST/topology/topology.yaml"
+fi
 
 # 7. Label node (requires RBAC: get+patch on nodes)
 if command -v kubectl >/dev/null 2>&1; then

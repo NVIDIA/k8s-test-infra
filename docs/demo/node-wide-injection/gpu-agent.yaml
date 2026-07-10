@@ -34,6 +34,8 @@ spec:
               nvidia-smi
               echo "=== nvidia-smi -q (fabric clique) ==="
               nvidia-smi -q | grep -iE "ClusterUUID|CliqueId" || true
+              echo "=== check-fabric (ComputeDomain identity via NRI) ==="
+              command -v check-fabric >/dev/null 2>&1 && check-fabric || true
               echo "[gpu-agent] entering nvidia-smi -L loop"
               while true; do
                 nvidia-smi -L

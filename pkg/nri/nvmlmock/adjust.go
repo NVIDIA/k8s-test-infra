@@ -16,6 +16,12 @@ const (
 	defaultDeviceHostPath       = "/var/lib/nvml-mock/driver/dev"
 	defaultOptOutAnnotation     = "nvml-mock.nvidia.com/inject"
 	defaultDeviceAnnotation     = "nvml-mock.nvidia.com/devices"
+	// defaultTopologyRelPath is where setup.sh stages the cluster-level
+	// ComputeDomain topology document inside the overlay tree. It is
+	// resolved relative to the host overlay path (for the existence
+	// check) and the container overlay path (for the injected
+	// MOCK_TOPOLOGY_CONFIG env).
+	defaultTopologyRelPath = "topology/topology.yaml"
 )
 
 var defaultShims = []string{
@@ -34,6 +40,21 @@ type Config struct {
 	DeviceAnnotation     string
 	ExcludedNamespaces   []string
 	Shims                []string
+
+	// NodeName is the Kubernetes node this plugin runs on. When set (and a
+	// topology document is staged in the overlay) it is injected as the
+	// default NODE_NAME so the mock NVML engine's ComputeDomain topology
+	// overlay resolves the container's per-node clique / cluster UUID. Empty
+	// disables topology injection (the historical node-wide behavior).
+	NodeName string
+	// TopologyHostPath is where the plugin checks whether a topology
+	// document has been staged (by setup.sh) into the overlay tree. Empty
+	// defaults to <HostOverlayPath>/topology/topology.yaml.
+	TopologyHostPath string
+	// TopologyContainerPath is the in-container path injected as
+	// MOCK_TOPOLOGY_CONFIG. Empty defaults to
+	// <ContainerOverlayPath>/topology/topology.yaml.
+	TopologyContainerPath string
 }
 
 // Container is the subset of container and pod state needed to decide whether
@@ -96,7 +117,7 @@ func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 				Options:     []string{"rbind", "ro", "nosuid", "nodev"},
 			},
 		},
-		Env: buildEnv(cfg, container.Env),
+		Env: buildEnv(cfg, container.Env, topologyInjectable(cfg)),
 	}
 
 	if strings.EqualFold(container.PodAnnotations[cfg.DeviceAnnotation], "true") {
@@ -130,7 +151,27 @@ func withDefaults(cfg Config) Config {
 	if len(cfg.Shims) == 0 {
 		cfg.Shims = defaults.Shims
 	}
+	if cfg.TopologyHostPath == "" {
+		cfg.TopologyHostPath = filepath.Join(cfg.HostOverlayPath, defaultTopologyRelPath)
+	}
+	if cfg.TopologyContainerPath == "" {
+		cfg.TopologyContainerPath = filepath.Join(cfg.ContainerOverlayPath, defaultTopologyRelPath)
+	}
 	return cfg
+}
+
+// topologyInjectable reports whether this container should get the
+// ComputeDomain topology environment. It requires a known node name (so the
+// engine's per-node overlay has a lookup key) and a topology document staged
+// in the overlay (so the injected MOCK_TOPOLOGY_CONFIG resolves to a real
+// file inside the container). The stat runs per container so the plugin
+// tolerates the daemon staging the file after the plugin starts.
+func topologyInjectable(cfg Config) bool {
+	if cfg.NodeName == "" || cfg.TopologyHostPath == "" || cfg.TopologyContainerPath == "" {
+		return false
+	}
+	_, err := os.Stat(cfg.TopologyHostPath)
+	return err == nil
 }
 
 func shouldSkip(cfg Config, container Container) bool {
@@ -150,7 +191,7 @@ func shouldSkip(cfg Config, container Container) bool {
 	return false
 }
 
-func buildEnv(cfg Config, existing []string) []string {
+func buildEnv(cfg Config, existing []string, injectTopology bool) []string {
 	env := make(map[string]string, len(existing)+8)
 	order := make([]string, 0, len(existing)+8)
 	for _, item := range existing {
@@ -172,6 +213,16 @@ func buildEnv(cfg Config, existing []string) []string {
 	setDefaultEnv(env, &order, "MOCK_IB_ROOT", filepath.Join(cfg.ContainerOverlayPath, "ib"))
 	setDefaultEnv(env, &order, "MOCK_IB_PING_SOCKET", filepath.Join(cfg.ContainerOverlayPath, "run/mock-ib.sock"))
 	setDefaultEnv(env, &order, "MOCK_PCI_ROOT", cfg.ContainerOverlayPath)
+
+	// ComputeDomain topology overlay: point the mock NVML engine at the
+	// staged cluster-level topology document and tell it which node this
+	// container runs on, so every mock GPU reports the node's clique /
+	// cluster UUID (nvmlDeviceGetGpuFabricInfo). setDefaultEnv leaves any
+	// value the workload authored in place.
+	if injectTopology {
+		setDefaultEnv(env, &order, "NODE_NAME", cfg.NodeName)
+		setDefaultEnv(env, &order, "MOCK_TOPOLOGY_CONFIG", cfg.TopologyContainerPath)
+	}
 
 	result := make([]string, 0, len(order))
 	for _, key := range order {
