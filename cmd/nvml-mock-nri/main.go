@@ -129,7 +129,10 @@ func toNRI(adjustment nvmlmock.Adjustment) (*api.ContainerAdjustment, error) {
 	for _, device := range adjustment.Devices {
 		nriDevice, err := nriDevice(device)
 		if err != nil {
-			return nil, err
+			// Fail open on a per-device basis: a device node that vanished or
+			// is not yet staged shouldn't fail creation of the whole container.
+			log.Printf("nvml-mock-nri: skipping device %s: %v", device.Path, err)
+			continue
 		}
 		result.AddDevice(nriDevice)
 	}

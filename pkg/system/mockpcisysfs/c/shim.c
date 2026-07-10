@@ -71,6 +71,24 @@ static int rewrite_path(const char *path, char *out, size_t out_size) {
     return 0;
 }
 
+/*
+ * RESOLVE_OR_FAIL runs rewrite_path and yields the path to hand to the real
+ * syscall: the rewritten buffer on a match, the original path otherwise. On
+ * overflow (rewrite_path returns -1) it sets errno = ENAMETOOLONG and makes
+ * the caller return `failret` instead of silently falling back to the real
+ * host path — the same silent-escape class the prefix bug caused. The path
+ * argument is always a plain parameter, so evaluating it twice is safe.
+ */
+#define RESOLVE_OR_FAIL(pathexpr, buf, failret)                         \
+    ({                                                                  \
+        int _rc = rewrite_path((pathexpr), (buf), sizeof(buf));         \
+        if (_rc < 0) {                                                  \
+            errno = ENAMETOOLONG;                                       \
+            return (failret);                                           \
+        }                                                               \
+        _rc == 1 ? (const char *)(buf) : (pathexpr);                    \
+    })
+
 #define REAL(name) static __typeof__(name) *real_##name = NULL
 #define LOAD_REAL(name)                                                 \
     do {                                                                \
@@ -98,8 +116,8 @@ int open(const char *path, int flags, ...) {
     va_start(ap, flags);
     mode_t mode = extract_mode(flags, ap);
     va_end(ap);
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_open(rc == 1 ? buf : path, flags, mode);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_open(target, flags, mode);
 }
 
 int open64(const char *path, int flags, ...) {
@@ -109,8 +127,8 @@ int open64(const char *path, int flags, ...) {
     va_start(ap, flags);
     mode_t mode = extract_mode(flags, ap);
     va_end(ap);
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_open64(rc == 1 ? buf : path, flags, mode);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_open64(target, flags, mode);
 }
 
 int openat(int dirfd, const char *path, int flags, ...) {
@@ -120,8 +138,8 @@ int openat(int dirfd, const char *path, int flags, ...) {
     va_start(ap, flags);
     mode_t mode = extract_mode(flags, ap);
     va_end(ap);
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_openat(dirfd, rc == 1 ? buf : path, flags, mode);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_openat(dirfd, target, flags, mode);
 }
 
 int openat64(int dirfd, const char *path, int flags, ...) {
@@ -131,8 +149,8 @@ int openat64(int dirfd, const char *path, int flags, ...) {
     va_start(ap, flags);
     mode_t mode = extract_mode(flags, ap);
     va_end(ap);
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_openat64(dirfd, rc == 1 ? buf : path, flags, mode);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_openat64(dirfd, target, flags, mode);
 }
 
 REAL(opendir);
@@ -140,8 +158,8 @@ REAL(opendir);
 DIR *opendir(const char *name) {
     LOAD_REAL(opendir);
     char buf[PATH_MAX];
-    int rc = rewrite_path(name, buf, sizeof(buf));
-    return real_opendir(rc == 1 ? buf : name);
+    const char *target = RESOLVE_OR_FAIL(name, buf, NULL);
+    return real_opendir(target);
 }
 
 REAL(stat);
@@ -154,43 +172,43 @@ REAL(fstatat64);
 int stat(const char *path, struct stat *st) {
     LOAD_REAL(stat);
     char buf[PATH_MAX];
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_stat(rc == 1 ? buf : path, st);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_stat(target, st);
 }
 
 int stat64(const char *path, struct stat64 *st) {
     LOAD_REAL(stat64);
     char buf[PATH_MAX];
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_stat64(rc == 1 ? buf : path, st);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_stat64(target, st);
 }
 
 int lstat(const char *path, struct stat *st) {
     LOAD_REAL(lstat);
     char buf[PATH_MAX];
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_lstat(rc == 1 ? buf : path, st);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_lstat(target, st);
 }
 
 int lstat64(const char *path, struct stat64 *st) {
     LOAD_REAL(lstat64);
     char buf[PATH_MAX];
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_lstat64(rc == 1 ? buf : path, st);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_lstat64(target, st);
 }
 
 int fstatat(int dirfd, const char *path, struct stat *st, int flags) {
     LOAD_REAL(fstatat);
     char buf[PATH_MAX];
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_fstatat(dirfd, rc == 1 ? buf : path, st, flags);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_fstatat(dirfd, target, st, flags);
 }
 
 int fstatat64(int dirfd, const char *path, struct stat64 *st, int flags) {
     LOAD_REAL(fstatat64);
     char buf[PATH_MAX];
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_fstatat64(dirfd, rc == 1 ? buf : path, st, flags);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_fstatat64(dirfd, target, st, flags);
 }
 
 int statx(int dirfd, const char *path, int flags, unsigned int mask, struct statx *st) {
@@ -201,8 +219,8 @@ int statx(int dirfd, const char *path, int flags, unsigned int mask, struct stat
         return -1;
     }
     char buf[PATH_MAX];
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real(dirfd, rc == 1 ? buf : path, flags, mask, st);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real(dirfd, target, flags, mask, st);
 }
 
 REAL(access);
@@ -213,27 +231,27 @@ REAL(readlinkat);
 int access(const char *path, int mode) {
     LOAD_REAL(access);
     char buf[PATH_MAX];
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_access(rc == 1 ? buf : path, mode);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_access(target, mode);
 }
 
 int faccessat(int dirfd, const char *path, int mode, int flags) {
     LOAD_REAL(faccessat);
     char buf[PATH_MAX];
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_faccessat(dirfd, rc == 1 ? buf : path, mode, flags);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_faccessat(dirfd, target, mode, flags);
 }
 
 ssize_t readlink(const char *path, char *out, size_t out_size) {
     LOAD_REAL(readlink);
     char buf[PATH_MAX];
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_readlink(rc == 1 ? buf : path, out, out_size);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_readlink(target, out, out_size);
 }
 
 ssize_t readlinkat(int dirfd, const char *path, char *out, size_t out_size) {
     LOAD_REAL(readlinkat);
     char buf[PATH_MAX];
-    int rc = rewrite_path(path, buf, sizeof(buf));
-    return real_readlinkat(dirfd, rc == 1 ? buf : path, out, out_size);
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real_readlinkat(dirfd, target, out, out_size);
 }

@@ -4,11 +4,18 @@
 package nvmlmock
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
+
+// warnf logs a non-fatal condition. It is a package var so tests can capture
+// or silence the output.
+var warnf = func(format string, args ...any) {
+	log.Printf("nvml-mock-nri: "+format, args...)
+}
 
 const (
 	defaultHostOverlayPath      = "/var/lib/nvml-mock"
@@ -121,11 +128,16 @@ func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 	}
 
 	if strings.EqualFold(container.PodAnnotations[cfg.DeviceAnnotation], "true") {
+		// Fail open: the device tree is staged by the main nvml-mock DaemonSet,
+		// and nothing orders this plugin's DaemonSet after it. If the tree is
+		// missing (fresh node) or unreadable, degrade to overlay-only injection
+		// rather than failing container creation for the whole pod.
 		devices, err := discoverDevices(cfg.DeviceHostPath)
 		if err != nil {
-			return Adjustment{}, false, err
+			warnf("device injection requested but device tree at %s is unavailable (%v); injecting overlay only", cfg.DeviceHostPath, err)
+		} else {
+			adjustment.Devices = devices
 		}
-		adjustment.Devices = devices
 	}
 
 	return adjustment, true, nil
@@ -194,6 +206,12 @@ func shouldSkip(cfg Config, container Container) bool {
 func buildEnv(cfg Config, existing []string, injectTopology bool) []string {
 	env := make(map[string]string, len(existing)+8)
 	order := make([]string, 0, len(existing)+8)
+	// original records the container's authored env so we only emit the keys
+	// the plugin actually adds or changes. Emitting untouched keys would have
+	// the NRI runtime mark them plugin-owned, turning any other plugin that
+	// edits the same key into a hard per-key conflict that fails container
+	// creation.
+	original := make(map[string]string, len(existing))
 	for _, item := range existing {
 		key, value, ok := strings.Cut(item, "=")
 		if !ok {
@@ -203,6 +221,7 @@ func buildEnv(cfg Config, existing []string, injectTopology bool) []string {
 			order = append(order, key)
 		}
 		env[key] = value
+		original[key] = value
 	}
 
 	prependEnv(env, &order, "PATH", filepath.Join(cfg.ContainerOverlayPath, "driver/usr/bin"))
@@ -226,6 +245,9 @@ func buildEnv(cfg Config, existing []string, injectTopology bool) []string {
 
 	result := make([]string, 0, len(order))
 	for _, key := range order {
+		if prev, existed := original[key]; existed && prev == env[key] {
+			continue
+		}
 		result = append(result, key+"="+env[key])
 	}
 	return result
