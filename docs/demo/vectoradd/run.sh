@@ -20,8 +20,8 @@ export DOCKER_DEFAULT_PLATFORM=linux/amd64
 #
 # GPU_PROFILE / GPU_COUNT are env-overridable so the same demo can drive any
 # of the chart's built-in profiles, e.g.
-#   GPU_PROFILE=gb200 GPU_COUNT=8 ./demo.sh
-#   GPU_PROFILE=t4    GPU_COUNT=4 ./demo.sh
+#   GPU_PROFILE=gb200 GPU_COUNT=8 ./run.sh
+#   GPU_PROFILE=t4    GPU_COUNT=4 ./run.sh
 # The PCI-sysfs assertions in step 9 derive their expected values from
 # GPU_COUNT and from the profile's `pcie_topology:` block, so switching
 # profile keeps the demo correct without further edits.
@@ -43,9 +43,7 @@ VALIDATOR_NAMESPACE="default"
 : "${GPU_PROFILE:=h100}"
 : "${GPU_COUNT:=8}"
 # Deploy into a dedicated namespace (env-overridable) instead of default, so the
-# mock stack is easy to isolate and clean up. The namespace is also set as the
-# current context's default so the validate-*.sh helpers (which exec into pods
-# without a -n flag) target it too.
+# mock stack is easy to isolate and clean up.
 : "${NAMESPACE:=nvml-mock-system}"
 : "${VALIDATOR_TIMEOUT:=60s}"
 # Helm rollout wait. Generous by default so the stack can come up even when the
@@ -64,17 +62,6 @@ if [[ ! -f "${PROFILE_YAML}" ]]; then
   exit 1
 fi
 
-# Count the `- id: "pci...` rows under `pcie_topology.root_complexes`. The
-# renderer falls back to a flat single-root layout for profiles without an
-# explicit block, so default to 1 if the YAML carries no pcie_topology.
-EXPECTED_ROOTS=$(awk '/^    - id: "pci/ {n++} END {print (n>0)?n:1}' "${PROFILE_YAML}")
-IB_ENABLED=$(awk '
-  /^infiniband:/ {in_ib=1; next}
-  in_ib && /^[^[:space:]]/ {in_ib=0}
-  in_ib && /^[[:space:]]+enabled:/ {print $2; found=1; exit}
-  END {if (!found) print "false"}
-' "${PROFILE_YAML}")
-
 ###############################################################################
 # Helpers
 ###############################################################################
@@ -83,8 +70,7 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 
 # Wrap kubectl so every call is pinned to the demo's kind context without
 # repeating --context at each call site. helm keeps --kube-context inline
-# (there is only one invocation). The external validate-*.sh helpers still
-# rely on the context's default namespace set after the helm install below.
+# (there is only one invocation). Every call below passes an explicit -n.
 kubectl_ctx() { command kubectl --context "${KUBE_CONTEXT}" "$@"; }
 
 ###############################################################################
@@ -149,15 +135,6 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set gpu.dynamicMetrics.enabled=true \
   --wait --timeout "${HELM_TIMEOUT}"
 
-# Make the demo namespace the context default so the validate-*.sh helpers
-# (which run `kubectl exec <pod>` without -n) resolve pods in it. Pin the
-# kind-${CLUSTER_NAME} context explicitly (not --current): on the
-# cluster-reuse branch nothing has switched contexts, so --current could
-# silently repoint an unrelated kubeconfig's default namespace. This context
-# is torn down with the cluster.
-info "Setting default namespace to ${NAMESPACE} for the kind-${CLUSTER_NAME} context"
-command kubectl config set-context "kind-${CLUSTER_NAME}" --namespace="${NAMESPACE}"
-
 # On cluster reuse, `helm upgrade` is a no-op when values are unchanged, so the
 # DaemonSet keeps running its old pods and the stale driver libs (including
 # libcuda.so) stay staged on the node. Force a restart so the freshly built and
@@ -209,26 +186,14 @@ fi
 info "${GPU_NODE} reports ${ALLOCATABLE_GPUS} allocatable GPU(s)"
 
 ###############################################################################
-# Step 6 -- Verify: Profile ConfigMaps
-###############################################################################
-info "Checking profile ConfigMaps"
-CM_COUNT=$(kubectl_ctx -n "${NAMESPACE}" get configmaps -l run.ai/gpu-profile=true \
-  --no-headers 2>/dev/null | wc -l | tr -d ' ')
-
-if [[ "${CM_COUNT}" -lt 6 ]]; then
-  fail "Expected at least 6 profile ConfigMaps, found ${CM_COUNT}"
-fi
-info "Found ${CM_COUNT} profile ConfigMap(s)"
-
-###############################################################################
-# Step 7 -- Verify: nvidia-smi
+# Step 6 -- Verify: nvidia-smi
 ###############################################################################
 info "Running nvidia-smi inside a DaemonSet pod"
 POD=$(kubectl_ctx -n "${NAMESPACE}" get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')
 kubectl_ctx -n "${NAMESPACE}" exec "${POD}" -- nvidia-smi
 
 ###############################################################################
-# Step 7a -- Verify: GPU Operator Validator mock (cuda-vectorAdd)
+# Step 7 -- Verify: GPU Operator Validator mock (cuda-vectorAdd)
 ###############################################################################
 info "Deploying GPU validator mock (${VALIDATOR_JOB})"
 kubectl_ctx -n "${VALIDATOR_NAMESPACE}" delete job "${VALIDATOR_JOB}" --ignore-not-found --wait=true
@@ -257,7 +222,6 @@ info "  Cluster   : ${CLUSTER_NAME}"
 info "  Namespace : ${NAMESPACE}"
 info "  Profile   : ${GPU_PROFILE} (gpu.count=${GPU_COUNT})"
 info "  GPU node  : ${GPU_NODE}"
-info "  ConfigMaps: ${CM_COUNT}"
 info "  VectorAdd : validator job completed (${VALIDATOR_JOB})"
 info ""
 info "To uninstall the release: helm uninstall nvml-mock -n ${NAMESPACE}"

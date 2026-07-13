@@ -26,7 +26,7 @@ device plugin, and run the GPU Operator validator mock (`cuda-vectorAdd`) from
 **Requirements:** Docker, Kind, Helm, kubectl
 
 ```bash
-cd vectoradd && ./demo.sh
+cd vectoradd && ./run.sh
 ```
 
 See [vectoradd/README.md](vectoradd/README.md) for the walkthrough.

@@ -314,7 +314,7 @@ jobs:
         run: |
           GPU_PROFILE=${{ matrix.gpu-profile }} \
           GPU_COUNT=${{ steps.gpu-info.outputs.gpu-count }} \
-          bash docs/demo/vectoradd/demo.sh
+          bash docs/demo/vectoradd/run.sh
 
       - name: Collect logs on failure
         if: failure()

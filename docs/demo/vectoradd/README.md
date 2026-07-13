@@ -22,20 +22,20 @@ kernel through the mock driver root.
 ## Quick start
 
 ```bash
-./demo.sh
+./run.sh
 ```
 
 The default GPU setup is H100 with 8 GPUs per node. Override it the same way as
 the standalone demo:
 
 ```bash
-GPU_PROFILE=gb200 GPU_COUNT=8 ./demo.sh
+GPU_PROFILE=gb200 GPU_COUNT=8 ./run.sh
 ```
 
 The validator waits 75 seconds by default and the job itself has a 60-second deadline. Override the wait if you are debugging slow image pulls:
 
 ```bash
-VALIDATOR_TIMEOUT=120s ./demo.sh
+VALIDATOR_TIMEOUT=120s ./run.sh
 ```
 
 ## Clean up
