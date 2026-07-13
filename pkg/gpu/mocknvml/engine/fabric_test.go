@@ -20,13 +20,14 @@ import (
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
+	mockserver "github.com/NVIDIA/go-nvml/pkg/nvml/mock/server"
 	"github.com/stretchr/testify/require"
 )
 
 func makeFabricDevice(t *testing.T, fabric *FabricConfig) *ConfigurableDevice {
 	t.Helper()
 	base := dgxa100.New()
-	bd, _ := base.Devices[0].(*dgxa100.Device)
+	bd, _ := base.Devices[0].(*mockserver.Device)
 	return NewConfigurableDevice(0, bd, &DeviceConfig{Fabric: fabric},
 		"GPU-00000000-0000-0000-0000-000000000000", "0000:01:00.0", 0, (*NodeFabric)(nil))
 }

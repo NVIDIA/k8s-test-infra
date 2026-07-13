@@ -1,12 +1,14 @@
-# github.com/Masterminds/semver/v3 v3.4.0
+# github.com/Masterminds/semver/v3 v3.5.0
 ## explicit; go 1.21
 github.com/Masterminds/semver/v3
-# github.com/NVIDIA/go-nvml v0.13.2-0
+# github.com/NVIDIA/go-nvml v0.13.3-1
 ## explicit; go 1.20
 github.com/NVIDIA/go-nvml/pkg/dl
 github.com/NVIDIA/go-nvml/pkg/nvml
 github.com/NVIDIA/go-nvml/pkg/nvml/mock
 github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100
+github.com/NVIDIA/go-nvml/pkg/nvml/mock/gpus
+github.com/NVIDIA/go-nvml/pkg/nvml/mock/server
 # github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 ## explicit
 github.com/davecgh/go-spew/spew
@@ -142,8 +144,8 @@ golang.org/x/net/http2/hpack
 golang.org/x/net/idna
 golang.org/x/net/internal/httpcommon
 golang.org/x/net/internal/httpsfv
-# golang.org/x/oauth2 v0.34.0
-## explicit; go 1.24.0
+# golang.org/x/oauth2 v0.36.0
+## explicit; go 1.25.0
 golang.org/x/oauth2
 golang.org/x/oauth2/internal
 # golang.org/x/sync v0.21.0
@@ -179,8 +181,8 @@ golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
-# golang.org/x/time v0.14.0
-## explicit; go 1.24.0
+# golang.org/x/time v0.15.0
+## explicit; go 1.25.0
 golang.org/x/time/rate
 # golang.org/x/tools v0.45.0
 ## explicit; go 1.25.0
@@ -531,19 +533,20 @@ k8s.io/utils/ptr
 ## explicit; go 1.23
 sigs.k8s.io/json
 sigs.k8s.io/json/internal/golang/encoding/json
-# sigs.k8s.io/node-feature-discovery v0.18.3
-## explicit; go 1.25.0
+# sigs.k8s.io/node-feature-discovery v0.19.0
+## explicit; go 1.26
+sigs.k8s.io/node-feature-discovery/api/generated/applyconfiguration/nfd/v1alpha1
 sigs.k8s.io/node-feature-discovery/api/generated/clientset/versioned
 sigs.k8s.io/node-feature-discovery/api/generated/clientset/versioned/scheme
 sigs.k8s.io/node-feature-discovery/api/generated/clientset/versioned/typed/nfd/v1alpha1
-# sigs.k8s.io/node-feature-discovery/api/nfd v0.18.3
-## explicit; go 1.23.0
+# sigs.k8s.io/node-feature-discovery/api/nfd v0.19.0
+## explicit; go 1.25.0
 sigs.k8s.io/node-feature-discovery/api/nfd/v1alpha1
 # sigs.k8s.io/randfill v1.0.0
 ## explicit; go 1.18
 sigs.k8s.io/randfill
 sigs.k8s.io/randfill/bytesource
-# sigs.k8s.io/structured-merge-diff/v6 v6.3.2
+# sigs.k8s.io/structured-merge-diff/v6 v6.4.0
 ## explicit; go 1.23
 sigs.k8s.io/structured-merge-diff/v6/fieldpath
 sigs.k8s.io/structured-merge-diff/v6/merge

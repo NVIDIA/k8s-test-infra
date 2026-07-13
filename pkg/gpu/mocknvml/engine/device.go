@@ -21,6 +21,7 @@ import (
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
+	mockserver "github.com/NVIDIA/go-nvml/pkg/nvml/mock/server"
 )
 
 // nvmlStructVersion computes NVML_STRUCT_VERSION(size, ver) = size | (ver << 24).
@@ -65,7 +66,7 @@ type ConfigurableDevice struct {
 // affinity topology; this device only needs its own index to derive its
 // per-device view. fabric may be nil (legacy/default mode) in which case
 // the NVLink and topology getters fall back to per-device defaults.
-func NewConfigurableDevice(index int, baseDevice *dgxa100.Device, config *DeviceConfig, uuid string, pciBusID string, minorNumber int, fabric *NodeFabric) *ConfigurableDevice {
+func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *DeviceConfig, uuid string, pciBusID string, minorNumber int, fabric *NodeFabric) *ConfigurableDevice {
 	dev := &ConfigurableDevice{
 		Device:      baseDevice,
 		config:      config,
@@ -77,19 +78,17 @@ func NewConfigurableDevice(index int, baseDevice *dgxa100.Device, config *Device
 	// Override base device properties from config
 	if config != nil {
 		if config.Name != "" {
-			dev.Name = config.Name
+			dev.Config.Name = config.Name
 		}
 		if config.Architecture != "" {
-			dev.Architecture = parseArchitecture(config.Architecture)
+			dev.Config.Architecture = parseArchitecture(config.Architecture)
 		}
 		if config.Brand != "" {
-			dev.Brand = parseBrand(config.Brand)
+			dev.Config.Brand = parseBrand(config.Brand)
 		}
 		if config.ComputeCapability != nil {
-			dev.CudaComputeCapability = dgxa100.CudaComputeCapability{
-				Major: config.ComputeCapability.Major,
-				Minor: config.ComputeCapability.Minor,
-			}
+			dev.Config.CudaMajor = config.ComputeCapability.Major
+			dev.Config.CudaMinor = config.ComputeCapability.Minor
 		}
 		if config.Memory != nil {
 			dev.MemoryInfo = nvml.Memory{
@@ -131,7 +130,7 @@ func NewConfigurableDevice(index int, baseDevice *dgxa100.Device, config *Device
 		dev.failure = newFailureInjector(config.Failure)
 	}
 
-	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Name, dev.UUID, dev.PciBusID)
+	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Config.Name, dev.UUID, dev.PciBusID)
 
 	return dev
 }
@@ -251,8 +250,8 @@ func (d *ConfigurableDevice) GetName() (string, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return "", ret
 	}
-	debugLog("[NVML] nvmlDeviceGetName -> %s\n", d.Name)
-	return d.Name, nvml.SUCCESS
+	debugLog("[NVML] nvmlDeviceGetName -> %s\n", d.Config.Name)
+	return d.Config.Name, nvml.SUCCESS
 }
 
 // GetMinorNumber returns the device minor number
@@ -1416,14 +1415,14 @@ func (d *ConfigurableDevice) GetGpmSupport() (uint32, nvml.Return) {
 
 // GetArchitecture returns GPU architecture
 func (d *ConfigurableDevice) GetArchitecture() (nvml.DeviceArchitecture, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetArchitecture -> %d\n", d.Architecture)
-	return d.Architecture, nvml.SUCCESS
+	debugLog("[NVML] nvmlDeviceGetArchitecture -> %d\n", d.Config.Architecture)
+	return d.Config.Architecture, nvml.SUCCESS
 }
 
 // GetCudaComputeCapability returns CUDA compute capability
 func (d *ConfigurableDevice) GetCudaComputeCapability() (int, int, nvml.Return) {
-	major := d.CudaComputeCapability.Major
-	minor := d.CudaComputeCapability.Minor
+	major := d.Config.CudaMajor
+	minor := d.Config.CudaMinor
 	debugLog("[NVML] nvmlDeviceGetCudaComputeCapability -> %d.%d\n", major, minor)
 	return major, minor, nvml.SUCCESS
 }
@@ -1433,8 +1432,8 @@ func (d *ConfigurableDevice) GetBrand() (nvml.BrandType, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
-	debugLog("[NVML] nvmlDeviceGetBrand -> %d\n", d.Brand)
-	return d.Brand, nvml.SUCCESS
+	debugLog("[NVML] nvmlDeviceGetBrand -> %d\n", d.Config.Brand)
+	return d.Config.Brand, nvml.SUCCESS
 }
 
 // GetEncoderUtilization returns encoder utilization

@@ -489,6 +489,58 @@ typedef struct nvmlVgpuSchedulerLogInfo_v2_st               nvmlVgpuSchedulerLog
 typedef struct nvmlVgpuSchedulerStateInfo_v2_st             nvmlVgpuSchedulerStateInfo_v2_t;
 typedef struct nvmlVgpuSchedulerState_v2_st                 nvmlVgpuSchedulerState_v2_t;
 
+/*
+ * NVML additions (go-nvml v0.13.3-1, deps-consolidated-20260713). Unlike the
+ * #400/#410 additions above, these need full ABI-accurate definitions, not
+ * opaque forward declarations: go-nvml's own cgo wrapper functions
+ * (nvmlDeviceGetAccountingStats_v2, nvmlDeviceGetBBXTimeData_v1,
+ * nvmlSystemGetCPER_v1 in vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go)
+ * fail to compile against an opaque C.nvmlXxx_t with "could not determine
+ * what C.nvmlXxx_t refers to" unless the full struct body is visible.
+ * Definitions extracted verbatim from
+ * vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h.
+ */
+typedef struct {
+    unsigned int       pid;               //!< Process Id of the target process to query stats for
+    unsigned int       isRunning;         //!< Flag to represent if the process is running (1 for running, 0 for terminated)
+    unsigned int       gpuUtilization;    //!< Percent of time over the process's lifetime during which one or more kernels was executing on the GPU
+    unsigned int       memoryUtilization; //!< Percent of time over the process's lifetime during which global (device) memory was being read or written
+    unsigned long long maxMemoryUsage;    //!< Maximum total memory in bytes that was ever allocated by the process
+    unsigned int       sampleCount;       //!< The sample counts since the process starts
+    unsigned long long sumGpuUtil;        //!< The sum of process's GR engine utilization in unit of pct * 100
+    unsigned long long sumFbUtil;         //!< The sum of process's FB bandwidth utilization in unit of pct * 100
+    unsigned long long time;              //!< Amount of time in ms during which the compute context was active
+    unsigned long long startTime;         //!< CPU Timestamp in usec representing start time for the process
+} nvmlAccountingStats_v2_t;
+
+typedef struct {
+    unsigned int timeRun; //!< [out] Cumulative number of seconds the GPU has had the driver loaded
+} nvmlBBXTimeData_v1_t;
+
+#define NVML_DEVICE_UUID_BUFFER_SIZE 80
+
+typedef unsigned long long nvmlCPERCursorHandle_t; //!< Opaque handle to a CPER read position
+#define NVML_CPER_CURSOR_HANDLE_INIT ((nvmlCPERCursorHandle_t) 0)
+
+typedef struct
+{
+    unsigned int           cperTypeMask; //!< [IN] Bitmask of nvmlCPERType_t values
+    char                   uuid[NVML_DEVICE_UUID_BUFFER_SIZE]; //!< [IN] UUID of target to filter records for
+    nvmlCPERCursorHandle_t handle;       //!< [IN/OUT] Opaque handle tracking read position
+} nvmlCPERCursor_v1_t;
+
+typedef enum
+{
+    NVML_CPER_ACCESS_TYPE_GPU = (1 << 0) //!< Access GPU CPER records
+} nvmlCPERType_t;
+
+typedef struct
+{
+    nvmlCPERCursor_v1_t cursor;     //!< [IN/OUT] Query parameters and cursor
+    unsigned char        *buffer;   //!< [OUT] Buffer to be filled (allocated by client)
+    unsigned int          bufferSize; //!< [IN/OUT] Size of buffer
+} nvmlGetCPER_v1_t;
+
 #ifdef __cplusplus
 }
 #endif
