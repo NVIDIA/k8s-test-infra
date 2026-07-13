@@ -21,6 +21,7 @@ import (
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
+	mockserver "github.com/NVIDIA/go-nvml/pkg/nvml/mock/server"
 )
 
 // nvmlStructVersion computes NVML_STRUCT_VERSION(size, ver) = size | (ver << 24).
@@ -65,7 +66,7 @@ type ConfigurableDevice struct {
 // affinity topology; this device only needs its own index to derive its
 // per-device view. fabric may be nil (legacy/default mode) in which case
 // the NVLink and topology getters fall back to per-device defaults.
-func NewConfigurableDevice(index int, baseDevice *dgxa100.Device, config *DeviceConfig, uuid string, pciBusID string, minorNumber int, fabric *NodeFabric) *ConfigurableDevice {
+func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *DeviceConfig, uuid string, pciBusID string, minorNumber int, fabric *NodeFabric) *ConfigurableDevice {
 	dev := &ConfigurableDevice{
 		Device:      baseDevice,
 		config:      config,
