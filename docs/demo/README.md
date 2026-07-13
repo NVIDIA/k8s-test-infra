@@ -17,6 +17,20 @@ itself.
 cd standalone && ./demo.sh
 ```
 
+### VectorAdd Validator
+
+Deploy nvml-mock with the H100 profile by default, install the mock NVIDIA
+device plugin, and run the GPU Operator validator mock (`cuda-vectorAdd`) from
+`tests/e2e/validator-mock.yaml`.
+
+**Requirements:** Docker, Kind, Helm, kubectl
+
+```bash
+cd vectoradd && ./demo.sh
+```
+
+See [vectoradd/README.md](vectoradd/README.md) for the walkthrough.
+
 ### With fake-gpu-operator
 
 Full integration with Run:ai's fake-gpu-operator. nvml-mock handles the

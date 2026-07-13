@@ -26,6 +26,7 @@ typedef enum cudaError_enum {
     cudaErrorInvalidDevice          = 10,
     cudaErrorInvalidMemcpyDirection = 21,
     cudaErrorNotReady               = 34,
+    cudaErrorNotSupported           = 801,
     cudaErrorUnknown                = 999
 } cudaError_t;
 
@@ -34,6 +35,13 @@ typedef enum cudaError_enum {
  * since we only use low error codes. If consumers check driver API constants
  * (e.g. CUDA_ERROR_INVALID_VALUE), split into a separate enum. */
 typedef cudaError_t CUresult;
+typedef int CUdevice;
+typedef void* CUcontext;
+typedef void* CUmodule;
+typedef void* CUfunction;
+typedef void* CUlibrary;
+typedef void* CUkernel;
+typedef unsigned long long CUdeviceptr;
 
 /*
  * Memory copy direction

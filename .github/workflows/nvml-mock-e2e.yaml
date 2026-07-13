@@ -253,20 +253,6 @@ jobs:
           done
           echo "PASS: GFD labels verified"
 
-      - name: Run CUDA validator job
-        if: false
-        run: |
-          docker pull nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
-          kind load docker-image nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 --name nvml-mock-e2e-${{ matrix.gpu-profile }}
-          kubectl apply -f tests/e2e/validator-mock.yaml
-          kubectl wait --for=condition=complete job/gpu-validator-mock --timeout=120s || {
-            echo "Validator job did not complete. Checking status..."
-            kubectl describe job/gpu-validator-mock
-            kubectl logs -l name=gpu-validator-mock --tail=50 || true
-            exit 1
-          }
-          echo "PASS: CUDA validator job completed successfully"
-
       - name: Collect logs on failure
         if: failure()
         run: |
@@ -284,6 +270,79 @@ jobs:
           kubectl get pods -A || true
           echo "=== node describe ==="
           kubectl describe nodes || true
+
+  e2e-vectoradd:
+    # Dedicated job for the self-contained vectorAdd demo. demo.sh stands up its
+    # own Kind cluster, builds and loads the nvml-mock image, installs the chart
+    # plus the NVIDIA device plugin, then runs NVIDIA's official, unmodified
+    # nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 with the mock
+    # libcuda.so LD_PRELOADed and waits for it to print "Test PASSED". Run across
+    # every profile so the demo's profile-derived GPU_COUNT / node assertions are
+    # exercised for each one.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu-profile: ${{ fromJson(inputs.gpu_profiles) }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Resolve GPU count
+        id: gpu-info
+        run: |
+          PROFILE_FILE="deployments/nvml-mock/helm/nvml-mock/profiles/${{ matrix.gpu-profile }}.yaml"
+          COUNT=$(awk '/^devices:/{f=1;next} /^[^[:space:]]/{f=0} f&&/^[[:space:]]*-[[:space:]]*index:/{c++} END{print c+0}' "$PROFILE_FILE")
+          if [ -z "$COUNT" ] || [ "$COUNT" -lt 1 ]; then
+            echo "FAIL: could not derive GPU count from $PROFILE_FILE"; exit 1
+          fi
+          echo "gpu-count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Resolved profile '${{ matrix.gpu-profile }}': $COUNT GPUs"
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+
+      - name: Install kind & kubectl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # demo.sh creates, loads and tears down its own Kind cluster, so this
+          # job only needs the CLIs — not a pre-created cluster (hence no
+          # helm/kind-action here). Docker is already available on the runner.
+          KIND_VERSION="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+            https://api.github.com/repos/kubernetes-sigs/kind/releases/latest \
+            | grep -m1 '"tag_name":' | cut -d '"' -f4)"
+          curl -fsSLo /usr/local/bin/kind \
+            "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x /usr/local/bin/kind
+          KUBECTL_VERSION="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"
+          curl -fsSLo /usr/local/bin/kubectl \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          chmod +x /usr/local/bin/kubectl
+          kind version
+          kubectl version --client
+
+      - name: Run vectorAdd demo
+        run: |
+          GPU_PROFILE=${{ matrix.gpu-profile }} \
+          GPU_COUNT=${{ steps.gpu-info.outputs.gpu-count }} \
+          FORCE_RECREATE=true \
+          bash docs/demo/vectoradd/demo.sh
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          CTX=kind-nvml-mock-vectoradd-demo
+          echo "=== pods (all namespaces) ==="
+          kubectl --context "$CTX" get pods -A || true
+          echo "=== nvml-mock logs ==="
+          kubectl --context "$CTX" -n nvml-mock-system logs -l app.kubernetes.io/name=nvml-mock --tail=100 || true
+          echo "=== device plugin logs ==="
+          kubectl --context "$CTX" -n kube-system logs -l name=nvidia-device-plugin-mock --tail=100 || true
+          echo "=== validator job describe ==="
+          kubectl --context "$CTX" -n default describe job/gpu-validator-mock || true
+          echo "=== validator job logs ==="
+          kubectl --context "$CTX" -n default logs job/gpu-validator-mock --all-containers=true --tail=200 || true
 
   e2e-dra:
     runs-on: ubuntu-latest

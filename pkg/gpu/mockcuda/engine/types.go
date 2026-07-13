@@ -24,6 +24,7 @@ const (
 	CudaErrorInvalidDevice          CudaError = 10
 	CudaErrorInvalidMemcpyDirection CudaError = 21
 	CudaErrorNotReady               CudaError = 34
+	CudaErrorNotSupported           CudaError = 801
 	CudaErrorUnknown                CudaError = 999
 )
 
@@ -54,6 +55,7 @@ var errorStrings = map[CudaError]string{
 	CudaErrorInvalidDevice:          "invalid device ordinal",
 	CudaErrorInvalidMemcpyDirection: "invalid memcpy direction",
 	CudaErrorNotReady:               "device not ready",
+	CudaErrorNotSupported:           "operation not supported",
 	CudaErrorUnknown:                "unknown error",
 }
 
