@@ -272,13 +272,14 @@ jobs:
           kubectl describe nodes || true
 
   e2e-vectoradd:
-    # Dedicated job for the self-contained vectorAdd demo. demo.sh stands up its
-    # own Kind cluster, builds and loads the nvml-mock image, installs the chart
-    # plus the NVIDIA device plugin, then runs NVIDIA's official, unmodified
-    # nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0 with the mock
-    # libcuda.so LD_PRELOADed and waits for it to print "Test PASSED". Run across
-    # every profile so the demo's profile-derived GPU_COUNT / node assertions are
-    # exercised for each one.
+    # Dedicated job for the vectorAdd demo. The Kind cluster is created with
+    # helm/kind-action (same as the other e2e jobs), using the name and config
+    # demo.sh expects so the demo reuses it. demo.sh then builds and loads the
+    # nvml-mock image, installs the chart plus the NVIDIA device plugin, and runs
+    # NVIDIA's official, unmodified nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
+    # with the mock libcuda.so LD_PRELOADed until it prints "Test PASSED". Run
+    # across every profile so the demo's profile-derived GPU_COUNT / node
+    # assertions are exercised for each one.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -301,36 +302,18 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Install kind & kubectl
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # demo.sh creates, loads and tears down its own Kind cluster, so this
-          # job only needs the CLIs — not a pre-created cluster (hence no
-          # helm/kind-action here). Docker is already available on the runner.
-          # /usr/local/bin is root-owned on GitHub runners, so download to the
-          # workspace and install with sudo.
-          KIND_VERSION="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
-            https://api.github.com/repos/kubernetes-sigs/kind/releases/latest \
-            | grep -m1 '"tag_name":' | cut -d '"' -f4)"
-          curl -fsSLo ./kind \
-            "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
-          sudo install -m 0755 ./kind /usr/local/bin/kind
-          rm -f ./kind
-          KUBECTL_VERSION="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"
-          curl -fsSLo ./kubectl \
-            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
-          sudo install -m 0755 ./kubectl /usr/local/bin/kubectl
-          rm -f ./kubectl
-          kind version
-          kubectl version --client
+      - name: Create Kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          # Match the cluster name and config demo.sh expects so it reuses this
+          # cluster instead of standing up its own (FORCE_RECREATE stays unset).
+          cluster_name: nvml-mock-vectoradd-demo
+          config: docs/demo/kind.yaml
 
       - name: Run vectorAdd demo
         run: |
           GPU_PROFILE=${{ matrix.gpu-profile }} \
           GPU_COUNT=${{ steps.gpu-info.outputs.gpu-count }} \
-          FORCE_RECREATE=true \
           bash docs/demo/vectoradd/demo.sh
 
       - name: Collect logs on failure
