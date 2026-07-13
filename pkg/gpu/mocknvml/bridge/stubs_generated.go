@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 287 stub functions for unimplemented NVML functions.
+// 290 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -94,6 +94,11 @@ func nvmlDeviceGetAccountingStats(device C.nvmlDevice_t, pid C.uint, stats *C.nv
 	return stubReturn("nvmlDeviceGetAccountingStats")
 }
 
+//export nvmlDeviceGetAccountingStats_v2
+func nvmlDeviceGetAccountingStats_v2(device C.nvmlDevice_t, stats *C.nvmlAccountingStats_v2_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetAccountingStats_v2")
+}
+
 //export nvmlDeviceGetActiveVgpus
 func nvmlDeviceGetActiveVgpus(device C.nvmlDevice_t, vgpuCount *C.uint, vgpuInstances *C.nvmlVgpuInstance_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetActiveVgpus")
@@ -117,6 +122,11 @@ func nvmlDeviceGetAttributes_v1(device C.nvmlDevice_t, attributes *C.nvmlDeviceA
 //export nvmlDeviceGetAttributes_v2
 func nvmlDeviceGetAttributes_v2(device C.nvmlDevice_t, attributes *C.nvmlDeviceAttributes_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetAttributes_v2")
+}
+
+//export nvmlDeviceGetBBXTimeData_v1
+func nvmlDeviceGetBBXTimeData_v1(device C.nvmlDevice_t, timeData *C.nvmlBBXTimeData_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlDeviceGetBBXTimeData_v1")
 }
 
 //export nvmlDeviceGetBridgeChipInfo
@@ -1137,6 +1147,11 @@ func nvmlSystemEventSetFree(request *C.nvmlSystemEventSetFreeRequest_t) C.nvmlRe
 //export nvmlSystemEventSetWait
 func nvmlSystemEventSetWait(request *C.nvmlSystemEventSetWaitRequest_t) C.nvmlReturn_t {
 	return stubReturn("nvmlSystemEventSetWait")
+}
+
+//export nvmlSystemGetCPER_v1
+func nvmlSystemGetCPER_v1(cper *C.nvmlGetCPER_v1_t) C.nvmlReturn_t {
+	return stubReturn("nvmlSystemGetCPER_v1")
 }
 
 //export nvmlSystemGetConfComputeCapabilities
