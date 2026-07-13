@@ -133,8 +133,8 @@ kind delete cluster --name nvml-mock-test
 
 This path uses the NVIDIA DRA (Dynamic Resource Allocation) driver to expose
 mock GPUs as ResourceSlices. DRA requires a cluster with specific feature
-gates. Use this quick start for local/manual validation; the current Go E2E
-workflow does not yet include a DRA scenario.
+gates. Tested in CI via `.github/workflows/nvml-mock-e2e-go.yaml` →
+`e2e-dra` job; use this quick start for local/manual validation.
 
 ### 1. Create a KIND cluster with DRA enabled
 

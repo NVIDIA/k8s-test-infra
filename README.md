@@ -36,14 +36,17 @@ After install, deploy a consumer to test:
 
 ## E2E Testing
 
-The nvml-mock Go E2E workflow currently gates the standalone demo coverage
-across selected GPU profiles. Run manually via `workflow_dispatch` or
-automatically on PRs.
+The nvml-mock Go E2E workflow gates standalone, DRA, GPU Operator, and
+multi-node coverage. Run manually via `workflow_dispatch` or automatically on
+PRs.
 
 | Test Suite | What It Validates | Profiles |
 |------------|-------------------|----------|
 | **Standalone Demo** | nvml-mock chart install, `nvidia-smi`, NVLink/fabricmanager, InfiniBand, PCI sysfs, and cross-node checks | Workflow-selected profiles |
 | **Failure Injection** | Healthy, ECC, lost, and fallen-off-bus modes | Workflow-selected profiles |
+| **DRA Driver** | Mock driver files, `nvidia-smi`, ResourceSlices, and DRA ResourceClaim scheduling | Workflow-selected profiles |
+| **GPU Operator** | GPU Operator install, validator pod startup, GFD labels, and allocatable GPUs | Workflow-selected profiles |
+| **Multi-Node Fleet** | Heterogeneous A100/T4 workers, mock files, InfiniBand behavior, device plugin resources, and GPU workload scheduling | Fixed multi-node topology |
 
 Manual dispatch accepts a JSON array of GPU profiles; local runs default to
 `gb200`.

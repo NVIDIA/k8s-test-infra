@@ -16,6 +16,8 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 )
 
+type kubeClientFactory func(context string) (*kube.Client, error)
+
 // Harness is the wired set of adapters for one cluster.
 type Harness struct {
 	Cluster *cluster.Cluster
@@ -33,11 +35,9 @@ func Setup(ctx context.Context, name string, kindConfig []byte, image string) (*
 
 	c, err := cluster.Create(ctx, name, kindConfig)
 	if c != nil {
-		h.Cluster = c
-		if k, kerr := kube.New(c.Context); kerr == nil {
-			h.Kube = k
+		if kerr := h.attachCluster(c, kube.New); kerr != nil {
+			return h, kerr
 		}
-		h.Helm = helm.New(c.Context)
 	}
 	if err != nil {
 		return h, err
@@ -48,6 +48,17 @@ func Setup(ctx context.Context, name string, kindConfig []byte, image string) (*
 		}
 	}
 	return h, nil
+}
+
+func (h *Harness) attachCluster(c *cluster.Cluster, newKube kubeClientFactory) error {
+	h.Cluster = c
+	k, err := newKube(c.Context)
+	if err != nil {
+		return fmt.Errorf("create kube client for context %q: %w", c.Context, err)
+	}
+	h.Kube = k
+	h.Helm = helm.New(c.Context)
+	return nil
 }
 
 // Teardown deletes the cluster (unless keep is set).

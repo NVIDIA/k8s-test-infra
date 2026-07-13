@@ -28,23 +28,6 @@ const (
 	fgoProfileConfigMin = 6
 )
 
-var useCaseLabels = []string{
-	"labels",
-	"fgo",
-	"mockfiles",
-	"nvidia-smi",
-	"nvlink",
-	"ib",
-	"pcisysfs",
-	"ibping",
-	"device-plugin",
-	"dra",
-	"gpu-operator",
-	"multi-node",
-	"failure-injection",
-	"validator",
-}
-
 // Go port of docs/demo/standalone/demo.sh. ONE shared multi-node cluster is
 // created once (BeforeAll on the outer Ordered container); each selected GPU
 // profile then re-installs the chart via `helm upgrade --install` (a chart
