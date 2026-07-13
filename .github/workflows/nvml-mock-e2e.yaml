@@ -309,16 +309,20 @@ jobs:
           # demo.sh creates, loads and tears down its own Kind cluster, so this
           # job only needs the CLIs — not a pre-created cluster (hence no
           # helm/kind-action here). Docker is already available on the runner.
+          # /usr/local/bin is root-owned on GitHub runners, so download to the
+          # workspace and install with sudo.
           KIND_VERSION="$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
             https://api.github.com/repos/kubernetes-sigs/kind/releases/latest \
             | grep -m1 '"tag_name":' | cut -d '"' -f4)"
-          curl -fsSLo /usr/local/bin/kind \
+          curl -fsSLo ./kind \
             "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
-          chmod +x /usr/local/bin/kind
+          sudo install -m 0755 ./kind /usr/local/bin/kind
+          rm -f ./kind
           KUBECTL_VERSION="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"
-          curl -fsSLo /usr/local/bin/kubectl \
+          curl -fsSLo ./kubectl \
             "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
-          chmod +x /usr/local/bin/kubectl
+          sudo install -m 0755 ./kubectl /usr/local/bin/kubectl
+          rm -f ./kubectl
           kind version
           kubectl version --client
 
