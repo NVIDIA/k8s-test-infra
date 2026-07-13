@@ -93,6 +93,10 @@ kubectl_ctx() { command kubectl --context "${KUBE_CONTEXT}" "$@"; }
 # Reuse an existing cluster of the same name unless FORCE_RECREATE=true, in
 # which case tear it down first and create a fresh one.
 ###############################################################################
+# CLUSTER_REUSED tracks whether we kept an existing cluster (vs created a fresh
+# one). It gates the DaemonSet restart in Step 4: a fresh cluster already runs
+# the just-loaded image, so the restart is only needed on reuse.
+CLUSTER_REUSED=false
 if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
   if [[ "${FORCE_RECREATE}" == "true" ]]; then
     info "Kind cluster '${CLUSTER_NAME}' exists; FORCE_RECREATE=true -> deleting it"
@@ -101,6 +105,7 @@ if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
     kind create cluster --name "${CLUSTER_NAME}" --config="$REPO_ROOT/docs/demo/kind.yaml"
   else
     info "Reusing existing Kind cluster '${CLUSTER_NAME}' (set FORCE_RECREATE=true to recreate)"
+    CLUSTER_REUSED=true
   fi
 else
   info "Creating Kind cluster: ${CLUSTER_NAME}"
@@ -156,9 +161,12 @@ command kubectl config set-context "kind-${CLUSTER_NAME}" --namespace="${NAMESPA
 # On cluster reuse, `helm upgrade` is a no-op when values are unchanged, so the
 # DaemonSet keeps running its old pods and the stale driver libs (including
 # libcuda.so) stay staged on the node. Force a restart so the freshly built and
-# kind-loaded ${IMAGE_NAME} — and its libcuda.so interposition — is deployed.
-info "Restarting nvml-mock DaemonSet to pick up the freshly loaded image"
-kubectl_ctx -n "${NAMESPACE}" rollout restart daemonset/nvml-mock
+# kind-loaded ${IMAGE_NAME} — and its libcuda.so interposition — is deployed. A
+# freshly created cluster already runs the just-loaded image, so skip it there.
+if [[ "${CLUSTER_REUSED}" == "true" ]]; then
+  info "Restarting nvml-mock DaemonSet to pick up the freshly loaded image"
+  kubectl_ctx -n "${NAMESPACE}" rollout restart daemonset/nvml-mock
+fi
 
 ###############################################################################
 # Step 5 -- Verify: DaemonSet rollout
