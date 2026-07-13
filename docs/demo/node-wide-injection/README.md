@@ -78,6 +78,14 @@ non-fabric profile such as `t4`.
 `WORKLOAD_NAMESPACE` must be different from `NVML_MOCK_NAMESPACE` and should not
 be `kube-system`, because those namespaces are excluded from NRI injection.
 
+## Trust Boundary
+
+The NRI plugin treats the configured device annotation
+(`nvml-mock.nvidia.com/devices=true` by default) as pod-authored opt-in for
+mounting host GPU device nodes from the staged mock overlay. Run the demo only
+in trusted workload namespaces, or add namespaces to `nri.excludedNamespaces`
+when pod authors should not control that device opt-in.
+
 ## Manual Checks
 
 After the script completes, the important checks are:

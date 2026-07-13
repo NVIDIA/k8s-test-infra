@@ -67,9 +67,8 @@ resources: {}
 # Node-wide ambient injection via containerd NRI. When enabled, a lightweight
 # node-local plugin appends the nvml-mock overlay mount and environment to each
 # container at runtime without mutating pod specs. Opt-in (default false): it
-# injects into workloads cluster-wide and adds a second DaemonSet that shares
-# the release labels, so enable it only for the node-wide-injection demo/use
-# case. See docs/demo/node-wide-injection.
+# injects into workloads cluster-wide, so enable it only for the
+# node-wide-injection demo/use case. See docs/demo/node-wide-injection.
 nri:
   enabled: false
   socketPath: /var/run/nri/nri.sock
@@ -80,6 +79,9 @@ nri:
     hostPath: /var/lib/nvml-mock
     mountPath: /opt/nvml-mock
   optOutAnnotation: nvml-mock.nvidia.com/inject
+  # Workloads that can set this pod annotation to "true" can opt into host GPU
+  # device-node mounts from the staged mock overlay. Treat that pod-authored
+  # control as part of the demo trust boundary and exclude namespaces as needed.
   deviceAnnotation: nvml-mock.nvidia.com/devices
   excludedNamespaces: []
   resources: {}

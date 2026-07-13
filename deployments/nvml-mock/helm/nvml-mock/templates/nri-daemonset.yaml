@@ -8,19 +8,19 @@ kind: DaemonSet
 metadata:
   name: {{ include "nvml-mock.fullname" . }}-nri
   labels:
-    {{- include "nvml-mock.labels" . | nindent 4 }}
+    {{- include "nvml-mock.nriLabels" . | nindent 4 }}
     app.kubernetes.io/component: nri
 spec:
   selector:
     matchLabels:
-      {{- include "nvml-mock.selectorLabels" . | nindent 6 }}
+      {{- include "nvml-mock.nriSelectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: nri
   updateStrategy:
     {{- toYaml .Values.updateStrategy | nindent 4 }}
   template:
     metadata:
       labels:
-        {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
+        {{- include "nvml-mock.nriSelectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: nri
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}

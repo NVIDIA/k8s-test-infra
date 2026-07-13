@@ -54,6 +54,34 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+NRI app name.
+*/}}
+{{- define "nvml-mock.nriName" -}}
+{{- printf "%s-nri" (include "nvml-mock.name" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+NRI common labels.
+*/}}
+{{- define "nvml-mock.nriLabels" -}}
+helm.sh/chart: {{ include "nvml-mock.chart" . }}
+{{ include "nvml-mock.nriSelectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+NRI selector labels. Keep app.kubernetes.io/name distinct from the main
+DaemonSet so Kubernetes controllers cannot adopt each other's pods.
+*/}}
+{{- define "nvml-mock.nriSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "nvml-mock.nriName" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
 GPU configuration helper.
 Returns the GPU profile configuration YAML content.
 Priority: customConfig > profile file lookup > fail with error.

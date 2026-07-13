@@ -20,6 +20,18 @@ tests:
           path: metadata.name
           value: RELEASE-NAME-nvml-mock-nri
       - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: nvml-mock-nri
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: nvml-mock-nri
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/name"]
+          value: nvml-mock-nri
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: nri
+      - equal:
           path: spec.template.spec.automountServiceAccountToken
           value: false
       - equal:
