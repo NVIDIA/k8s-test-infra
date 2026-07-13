@@ -32,10 +32,6 @@ CLUSTER_NAME="nvml-mock-vectoradd-demo"
 # be current (which could be a real cluster).
 KUBE_CONTEXT="kind-${CLUSTER_NAME}"
 IMAGE_NAME="nvml-mock:demo"
-# The validator runs NVIDIA's official, unmodified CUDA sample. The mock driver
-# (libcuda.so) is LD_PRELOADed into it by validator-mock.yaml and makes it pass
-# without a real GPU (see pkg/gpu/mockcuda/bridge/cuda.go).
-VALIDATOR_IMAGE="nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 DEVICE_PLUGIN_MANIFEST="${REPO_ROOT}/tests/e2e/device-plugin-mock.yaml"
@@ -126,8 +122,9 @@ docker build --provenance=false -t "${IMAGE_NAME}" -f "${REPO_ROOT}/deployments/
 # Step 3 -- Load the nvml-mock image into Kind
 #
 # Only the locally built nvml-mock image needs loading. The validator runs the
-# public ${VALIDATOR_IMAGE}, which the kubelet pulls directly (imagePullPolicy
-# IfNotPresent), so there is no need to import it into the cluster.
+# public CUDA sample image pinned in validator-mock.yaml, which the kubelet
+# pulls directly (imagePullPolicy IfNotPresent), so there is no need to import
+# it into the cluster.
 ###############################################################################
 info "Loading image into Kind cluster"
 kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
