@@ -13,8 +13,7 @@ metadata:
   name: gpu-validator-mock
   namespace: default
 spec:
-  backoffLimit: 0
-  activeDeadlineSeconds: 60
+  backoffLimit: 2
   template:
     metadata:
       labels:
@@ -30,12 +29,6 @@ spec:
           env:
             - name: LD_LIBRARY_PATH
               value: "/var/lib/nvml-mock/driver/usr/lib64"
-            # Force-load the mock driver before main() so it can install its
-            # CUDA runtime-API interposition (the vectoradd-cuda12.5.0 sample
-            # links the CUDA runtime statically and never dlopens libcuda early
-            # enough otherwise).
-            - name: LD_PRELOAD
-              value: "/var/lib/nvml-mock/driver/usr/lib64/libcuda.so.1"
           volumeMounts:
             - name: mock-root
               mountPath: /var/lib/nvml-mock
