@@ -803,15 +803,25 @@ func cudaRuntimeGetVersion(runtimeVersion *C.int) C.cudaError_t {
 // zeroed heap buffers (rather than fake integer pointers) so that any field the
 // runtime reads from a handle returns 0 instead of faulting.
 var (
-	mockContext  = unsafe.Pointer(uintptr(0x1))
+	mockContext  = newOpaqueHandle()
 	mockModule   = newOpaqueHandle()
 	mockFunction = newOpaqueHandle()
 	mockLibrary  = newOpaqueHandle()
 	mockKernel   = newOpaqueHandle()
+	mockMemPool  = newOpaqueHandle()
+	mockStream   = newOpaqueHandle()
 )
 
 func newOpaqueHandle() unsafe.Pointer {
 	return unsafe.Pointer(C.calloc(1, 65536))
+}
+
+// devicePtr reinterprets a CUdeviceptr as the host address it aliases. In this
+// mock, "device" memory is backed by ordinary host malloc() blocks, so a
+// device pointer value is always a real host address. This is the one place
+// that turns that integer back into a pointer.
+func devicePtr(d C.CUdeviceptr) unsafe.Pointer {
+	return unsafe.Pointer(uintptr(d)) //nolint:govet // mock device pointers are host addresses by construction
 }
 
 func cudaDebug(format string, args ...any) {
@@ -1145,7 +1155,7 @@ func cuMemAlloc_v2(dptr *C.CUdeviceptr, bytesize C.size_t) C.CUresult {
 
 //export cuMemFree_v2
 func cuMemFree_v2(dptr C.CUdeviceptr) C.CUresult {
-	ptr := unsafe.Pointer(uintptr(dptr))
+	ptr := devicePtr(dptr)
 	err := engine.GetEngine().Free(uintptr(ptr))
 	if err == engine.CudaSuccess && ptr != nil {
 		C.free(ptr)
@@ -1162,7 +1172,7 @@ func cuMemcpyHtoD_v2(dstDevice C.CUdeviceptr, srcHost unsafe.Pointer, byteCount 
 	if dstDevice == 0 || srcHost == nil {
 		return C.CUresult(C.cudaErrorInvalidValue)
 	}
-	C.memcpy(unsafe.Pointer(uintptr(dstDevice)), srcHost, byteCount)
+	C.memcpy(devicePtr(dstDevice), srcHost, byteCount)
 	return C.CUresult(C.cudaSuccess)
 }
 
@@ -1175,7 +1185,7 @@ func cuMemcpyDtoH_v2(dstHost unsafe.Pointer, srcDevice C.CUdeviceptr, byteCount 
 	if dstHost == nil || srcDevice == 0 {
 		return C.CUresult(C.cudaErrorInvalidValue)
 	}
-	C.memcpy(dstHost, unsafe.Pointer(uintptr(srcDevice)), byteCount)
+	C.memcpy(dstHost, devicePtr(srcDevice), byteCount)
 	return C.CUresult(C.cudaSuccess)
 }
 
@@ -1295,7 +1305,7 @@ func cuDeviceGetDefaultMemPool(pool *unsafe.Pointer, device C.CUdevice) C.CUresu
 	if pool == nil {
 		return C.CUresult(C.cudaErrorInvalidValue)
 	}
-	*pool = unsafe.Pointer(uintptr(0x4))
+	*pool = mockMemPool
 	return C.CUresult(C.cudaSuccess)
 }
 
@@ -1442,7 +1452,7 @@ func cuMemcpy(dst C.CUdeviceptr, src C.CUdeviceptr, byteCount C.size_t) C.CUresu
 	if dst == 0 || src == 0 {
 		return C.CUresult(C.cudaErrorInvalidValue)
 	}
-	C.memcpy(unsafe.Pointer(uintptr(dst)), unsafe.Pointer(uintptr(src)), byteCount)
+	C.memcpy(devicePtr(dst), devicePtr(src), byteCount)
 	return C.CUresult(C.cudaSuccess)
 }
 
@@ -1476,7 +1486,7 @@ func cuMemsetD8(dstDevice C.CUdeviceptr, value C.uchar, count C.size_t) C.CUresu
 	if dstDevice == 0 {
 		return C.CUresult(C.cudaErrorInvalidValue)
 	}
-	C.memset(unsafe.Pointer(uintptr(dstDevice)), C.int(value), count)
+	C.memset(devicePtr(dstDevice), C.int(value), count)
 	return C.CUresult(C.cudaSuccess)
 }
 
@@ -1488,7 +1498,7 @@ func cuMemsetD8Async(dstDevice C.CUdeviceptr, value C.uchar, count C.size_t, str
 //export cuMemsetD2D8
 func cuMemsetD2D8(dstDevice C.CUdeviceptr, dstPitch C.size_t, value C.uchar, width C.size_t, height C.size_t) C.CUresult {
 	for row := uintptr(0); row < uintptr(height); row++ {
-		C.memset(unsafe.Pointer(uintptr(dstDevice)+row*uintptr(dstPitch)), C.int(value), width)
+		C.memset(unsafe.Pointer(uintptr(devicePtr(dstDevice))+row*uintptr(dstPitch)), C.int(value), width)
 	}
 	return C.CUresult(C.cudaSuccess)
 }
@@ -1549,7 +1559,7 @@ func cuMemPoolCreate(pool *unsafe.Pointer, props unsafe.Pointer) C.CUresult {
 	if pool == nil {
 		return C.CUresult(C.cudaErrorInvalidValue)
 	}
-	*pool = unsafe.Pointer(uintptr(0x4))
+	*pool = mockMemPool
 	return C.CUresult(C.cudaSuccess)
 }
 
@@ -1661,7 +1671,7 @@ func cuStreamCreate(stream *C.cudaStream_t, flags C.uint) C.CUresult {
 	if stream == nil {
 		return C.CUresult(C.cudaErrorInvalidValue)
 	}
-	*stream = C.cudaStream_t(unsafe.Pointer(uintptr(0x5)))
+	*stream = C.cudaStream_t(mockStream)
 	return C.CUresult(C.cudaSuccess)
 }
 
