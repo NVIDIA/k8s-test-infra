@@ -5,15 +5,23 @@
 
 set -euo pipefail
 
-# This demo is an amd64 stack: the official validator image
-# (nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0) ships only linux/amd64,
-# and the mock's libcuda.so interposition is amd64-specific. Every consumer of
-# the mock driver (the nvml-mock DaemonSet, the NVIDIA device plugin, and the
-# validator) must therefore be amd64 too, so they all load the same amd64
-# driver libs. Forcing linux/amd64 here makes Kind create amd64 nodes and all
-# docker build/pull operations target amd64 — natively on an amd64 host, or via
-# qemu emulation on arm64 (e.g. Apple Silicon).
-export DOCKER_DEFAULT_PLATFORM=linux/amd64
+# Every consumer of the mock driver (the nvml-mock DaemonSet, the NVIDIA device
+# plugin, and the validator) must share one architecture so they all load the
+# same mock driver libs. The whole stack is arch-portable on both linux/amd64
+# and linux/arm64: the validator sample
+# (nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0) publishes both, the mock
+# libcuda.so's runtime-API interposition is arch-aware (it carries the cudaMalloc
+# et al. offsets and an absolute-jump trampoline for each arch; see
+# pkg/gpu/mockcuda/bridge/cuda.go), and the chart Dockerfile builds it natively.
+#
+# So on arm64 (e.g. Apple Silicon) we intentionally do NOT force linux/amd64:
+# doing so makes Kind pull an amd64 kindest/node and run it under qemu, which
+# fails to boot. We only pin amd64 on non-arm64 hosts, where it keeps every
+# build/pull on a single native platform.
+case "$(uname -m)" in
+  arm64 | aarch64) ;;
+  *) export DOCKER_DEFAULT_PLATFORM=linux/amd64 ;;
+esac
 
 ###############################################################################
 # Configuration

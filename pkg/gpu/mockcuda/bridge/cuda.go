@@ -421,13 +421,25 @@ static void mockPatchAttestation(void) {
 // runs NVIDIA's genuine, unmodified binary; only the CUDA runtime calls are
 // serviced on the CPU (there is no real GPU).
 //
-// Offsets are specific to nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0.
+// Offsets are specific to nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0
+// and differ per architecture (the image publishes both linux/amd64 and
+// linux/arm64). The amd64 build is stripped, so its offsets were recovered by
+// disassembly; the arm64 build ships symbols, so its offsets are the addresses
+// of the like-named cuda* entry points.
 // ---------------------------------------------------------------------------
+#if defined(__x86_64__)
 #define MOCK_RT_MALLOC       0x56760
 #define MOCK_RT_FREE         0x56f40
 #define MOCK_RT_MEMCPY       0x6f4d0
 #define MOCK_RT_LAUNCH       0x746c0
 #define MOCK_RT_GETLASTERROR 0x4d310
+#elif defined(__aarch64__)
+#define MOCK_RT_MALLOC       0x4acc8
+#define MOCK_RT_FREE         0x4b338
+#define MOCK_RT_MEMCPY       0x5f1c8
+#define MOCK_RT_LAUNCH       0x63648
+#define MOCK_RT_GETLASTERROR 0x43190
+#endif
 
 static cudaError_t mockRtMalloc(void** devPtr, size_t size) {
 	if (devPtr == NULL) {
@@ -470,17 +482,33 @@ static cudaError_t mockRtLaunch(const void* func, dim3 gridDim, dim3 blockDim,
 	return cudaSuccess;
 }
 
-// mockPatchOne overwrites the 12-byte prologue at base+off with
-//   movabs $target,%rax ; jmp *%rax
+// mockPatchOne overwrites the entry-point prologue at base+off with an absolute
+// jump to target. The replacement never returns to the original body and does
+// not touch the return-address register/stack, so the redirected host function
+// returns straight to the sample's caller.
+//
+//   x86-64  (12 bytes): movabs $target,%rax ; jmp *%rax
+//   aarch64 (16 bytes): ldr x16,#8 ; br x16 ; .quad target
 static void mockPatchOne(unsigned long base, unsigned long off, void* target) {
 	unsigned char* dst = (unsigned char*)(base + off);
-	unsigned char code[12];
 	unsigned long a = (unsigned long)target;
+#if defined(__x86_64__)
+	unsigned char code[12];
 	code[0] = 0x48;
 	code[1] = 0xB8;
 	memcpy(code + 2, &a, 8);
 	code[10] = 0xFF;
 	code[11] = 0xE0;
+#elif defined(__aarch64__)
+	// insn[0] = ldr x16,#8 ; insn[1] = br x16 ; followed by the 8-byte target.
+	unsigned char code[16];
+	uint32_t insn[2] = { 0x58000050u, 0xD61F0200u };
+	memcpy(code, insn, sizeof(insn));
+	memcpy(code + 8, &a, 8);
+#else
+	(void)a;
+	return;
+#endif
 	long ps = sysconf(_SC_PAGESIZE);
 	if (ps <= 0) {
 		ps = 4096;
@@ -492,6 +520,8 @@ static void mockPatchOne(unsigned long base, unsigned long off, void* target) {
 	}
 	memcpy(dst, code, sizeof(code));
 	mprotect((void*)start, span, PROT_READ | PROT_EXEC);
+	// aarch64 needs an explicit I-cache flush after writing code; x86 does not.
+	__builtin___clear_cache((char*)dst, (char*)dst + sizeof(code));
 }
 
 static void mockPatchRuntime(void) {
@@ -504,11 +534,24 @@ static void mockPatchRuntime(void) {
 	if (base == 0) {
 		return;
 	}
-	// Only patch if this really is the expected sample: the cudaMalloc prologue
-	// must be `push %rbp; mov %rsp,%rbp` (55 48 89 E5). Guards against
+	// Only patch if this really is the expected sample: verify the cudaMalloc
+	// prologue matches the known build for this architecture. Guards against
 	// mis-patching any other binary this library might be preloaded into.
+	//   x86-64 : push %rbp; mov %rsp,%rbp        (55 48 89 E5)
+	//   aarch64: stp x29,x30,[sp,#-N]!; mov x29,sp
+	//            (stp masked to 0xA9007BFD, then 0x910003FD)
 	unsigned char* probe = (unsigned char*)(base + MOCK_RT_MALLOC);
-	if (!(probe[0] == 0x55 && probe[1] == 0x48 && probe[2] == 0x89 && probe[3] == 0xE5)) {
+#if defined(__x86_64__)
+	int prologueOK = (probe[0] == 0x55 && probe[1] == 0x48 && probe[2] == 0x89 && probe[3] == 0xE5);
+#elif defined(__aarch64__)
+	uint32_t i0, i1;
+	memcpy(&i0, probe, 4);
+	memcpy(&i1, probe + 4, 4);
+	int prologueOK = ((i0 & 0xFF00FFFFu) == 0xA9007BFDu && i1 == 0x910003FDu);
+#else
+	int prologueOK = 0;
+#endif
+	if (!prologueOK) {
 		if (getenv("MOCK_CUDA_DEBUG")) {
 			fprintf(stderr, "[CUDA] runtime patch skipped (unexpected binary) base=0x%lx\n", base);
 		}
