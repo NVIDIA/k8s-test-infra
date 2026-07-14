@@ -62,7 +62,7 @@ func TestGetNvLinkFieldValue_SwitchFabric(t *testing.T) {
 	t.Run("link_count", func(t *testing.T) {
 		vt, val, ret := cd.GetNvLinkFieldValue(fiNvlinkLinkCount, 0)
 		require.Equal(t, nvml.SUCCESS, ret, "LINK_COUNT = (type=%d,val=%d,ret=%v), want (Uint,18,SUCCESS)", vt, val, ret)
-		require.Equal(t, NVLinkFieldUint, vt, "LINK_COUNT = (type=%d,val=%d,ret=%v), want (Uint,18,SUCCESS)", vt, val, ret)
+		require.Equal(t, FieldValueUint, vt, "LINK_COUNT = (type=%d,val=%d,ret=%v), want (Uint,18,SUCCESS)", vt, val, ret)
 		require.Equal(t, uint64(18), val, "LINK_COUNT = (type=%d,val=%d,ret=%v), want (Uint,18,SUCCESS)", vt, val, ret)
 	})
 
@@ -75,7 +75,7 @@ func TestGetNvLinkFieldValue_SwitchFabric(t *testing.T) {
 	t.Run("state_out_of_range_unsupported", func(t *testing.T) {
 		vt, _, ret := cd.GetNvLinkFieldValue(fiNvlinkGetState, 99)
 		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "GET_STATE(link99) = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", vt, ret)
-		require.Equal(t, NVLinkFieldUnsupported, vt, "GET_STATE(link99) = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", vt, ret)
+		require.Equal(t, FieldValueUnsupported, vt, "GET_STATE(link99) = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", vt, ret)
 	})
 
 	t.Run("version", func(t *testing.T) {
@@ -89,7 +89,7 @@ func TestGetNvLinkFieldValue_SwitchFabric(t *testing.T) {
 		for _, fid := range []uint32{fiNvlinkGetSpeed, fiNvlinkSpeedMbpsCommon, fiNvlinkSpeedMbpsL0} {
 			vt, val, ret := cd.GetNvLinkFieldValue(fid, 0)
 			require.Equal(t, nvml.SUCCESS, ret, "speed field %d = (type=%d,val=%d,ret=%v), want (Uint,53000,SUCCESS)", fid, vt, val, ret)
-			require.Equal(t, NVLinkFieldUint, vt, "speed field %d = (type=%d,val=%d,ret=%v), want (Uint,53000,SUCCESS)", fid, vt, val, ret)
+			require.Equal(t, FieldValueUint, vt, "speed field %d = (type=%d,val=%d,ret=%v), want (Uint,53000,SUCCESS)", fid, vt, val, ret)
 			require.Equal(t, uint64(53000), val, "speed field %d = (type=%d,val=%d,ret=%v), want (Uint,53000,SUCCESS)", fid, vt, val, ret)
 		}
 	})
@@ -97,13 +97,13 @@ func TestGetNvLinkFieldValue_SwitchFabric(t *testing.T) {
 	t.Run("throughput_is_uint64", func(t *testing.T) {
 		vt, _, ret := cd.GetNvLinkFieldValue(fiNvlinkThroughputDataRx, 0)
 		require.Equal(t, nvml.SUCCESS, ret, "THROUGHPUT_DATA_RX = (type=%d,ret=%v), want (Uint64,SUCCESS)", vt, ret)
-		require.Equal(t, NVLinkFieldUint64, vt, "THROUGHPUT_DATA_RX = (type=%d,ret=%v), want (Uint64,SUCCESS)", vt, ret)
+		require.Equal(t, FieldValueUint64, vt, "THROUGHPUT_DATA_RX = (type=%d,ret=%v), want (Uint64,SUCCESS)", vt, ret)
 	})
 
 	t.Run("unknown_field_unsupported", func(t *testing.T) {
 		vt, _, ret := cd.GetNvLinkFieldValue(99999, 0)
 		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "unknown field = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", vt, ret)
-		require.Equal(t, NVLinkFieldUnsupported, vt, "unknown field = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", vt, ret)
+		require.Equal(t, FieldValueUnsupported, vt, "unknown field = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", vt, ret)
 	})
 
 	// `nvidia-smi nvlink -e` reads the NVLink5 COUNT_* fields; each must be
@@ -122,19 +122,19 @@ func TestGetNvLinkFieldValue_SwitchFabric(t *testing.T) {
 		for _, fid := range ullFields {
 			vt, _, ret := cd.GetNvLinkFieldValue(fid, 0)
 			require.Equal(t, nvml.SUCCESS, ret, "field %d = (type=%d,ret=%v), want (Uint64,SUCCESS)", fid, vt, ret)
-			require.Equal(t, NVLinkFieldUint64, vt, "field %d = (type=%d,ret=%v), want (Uint64,SUCCESS)", fid, vt, ret)
+			require.Equal(t, FieldValueUint64, vt, "field %d = (type=%d,ret=%v), want (Uint64,SUCCESS)", fid, vt, ret)
 		}
 		// FEC histogram: all 16 bins present.
 		for fid := uint32(fiNvlinkCountFecHistory0); fid <= fiNvlinkCountFecHistory15; fid++ {
 			vt, _, ret := cd.GetNvLinkFieldValue(fid, 0)
 			require.Equal(t, nvml.SUCCESS, ret, "FEC field %d = (type=%d,ret=%v), want (Uint64,SUCCESS)", fid, vt, ret)
-			require.Equal(t, NVLinkFieldUint64, vt, "FEC field %d = (type=%d,ret=%v), want (Uint64,SUCCESS)", fid, vt, ret)
+			require.Equal(t, FieldValueUint64, vt, "FEC field %d = (type=%d,ret=%v), want (Uint64,SUCCESS)", fid, vt, ret)
 		}
 		// BER fields are doubles.
 		for _, fid := range []uint32{fiNvlinkCountEffectiveBer, fiNvlinkCountSymbolBer} {
 			vt, _, ret := cd.GetNvLinkFieldValue(fid, 0)
 			require.Equal(t, nvml.SUCCESS, ret, "BER field %d = (type=%d,ret=%v), want (Double,SUCCESS)", fid, vt, ret)
-			require.Equal(t, NVLinkFieldDouble, vt, "BER field %d = (type=%d,ret=%v), want (Double,SUCCESS)", fid, vt, ret)
+			require.Equal(t, FieldValueDouble, vt, "BER field %d = (type=%d,ret=%v), want (Double,SUCCESS)", fid, vt, ret)
 		}
 	})
 
@@ -169,21 +169,21 @@ func TestGetNvLinkFieldValue_RemoteAndLowPower(t *testing.T) {
 	t.Run("nvswitch_connected_link_count", func(t *testing.T) {
 		vt, val, ret := cd.GetNvLinkFieldValue(fiNvswitchConnectedLinkCount, 0)
 		require.Equal(t, nvml.SUCCESS, ret, "NVSWITCH_CONNECTED_LINK_COUNT = (type=%d,val=%d,ret=%v), want (Uint,18,SUCCESS)", vt, val, ret)
-		require.Equal(t, NVLinkFieldUint, vt, "NVSWITCH_CONNECTED_LINK_COUNT = (type=%d,val=%d,ret=%v), want (Uint,18,SUCCESS)", vt, val, ret)
+		require.Equal(t, FieldValueUint, vt, "NVSWITCH_CONNECTED_LINK_COUNT = (type=%d,val=%d,ret=%v), want (Uint,18,SUCCESS)", vt, val, ret)
 		require.Equal(t, uint64(18), val, "NVSWITCH_CONNECTED_LINK_COUNT = (type=%d,val=%d,ret=%v), want (Uint,18,SUCCESS)", vt, val, ret)
 	})
 
 	t.Run("remote_nvlink_id_active", func(t *testing.T) {
 		vt, val, ret := cd.GetNvLinkFieldValue(fiNvlinkRemoteNvlinkID, 0)
 		require.Equal(t, nvml.SUCCESS, ret, "REMOTE_NVLINK_ID(link0) = (type=%d,val=%d,ret=%v), want (Uint,0,SUCCESS)", vt, val, ret)
-		require.Equal(t, NVLinkFieldUint, vt, "REMOTE_NVLINK_ID(link0) = (type=%d,val=%d,ret=%v), want (Uint,0,SUCCESS)", vt, val, ret)
+		require.Equal(t, FieldValueUint, vt, "REMOTE_NVLINK_ID(link0) = (type=%d,val=%d,ret=%v), want (Uint,0,SUCCESS)", vt, val, ret)
 		require.Equal(t, uint64(0), val, "REMOTE_NVLINK_ID(link0) = (type=%d,val=%d,ret=%v), want (Uint,0,SUCCESS)", vt, val, ret)
 	})
 
 	t.Run("remote_nvlink_id_out_of_range", func(t *testing.T) {
 		vt, _, ret := cd.GetNvLinkFieldValue(fiNvlinkRemoteNvlinkID, 99)
 		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "REMOTE_NVLINK_ID(link99) = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", vt, ret)
-		require.Equal(t, NVLinkFieldUnsupported, vt, "REMOTE_NVLINK_ID(link99) = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", vt, ret)
+		require.Equal(t, FieldValueUnsupported, vt, "REMOTE_NVLINK_ID(link99) = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", vt, ret)
 	})
 
 	t.Run("low_power_per_link", func(t *testing.T) {
@@ -205,7 +205,7 @@ func TestGetNvLinkFieldValue_RemoteAndLowPower(t *testing.T) {
 		for fid, want := range cases {
 			vt, val, ret := cd.GetNvLinkFieldValue(fid, 0)
 			require.Equal(t, nvml.SUCCESS, ret, "field %d = (type=%d,val=%d,ret=%v), want (Uint,%d,SUCCESS)", fid, vt, val, ret, want)
-			require.Equal(t, NVLinkFieldUint, vt, "field %d = (type=%d,val=%d,ret=%v), want (Uint,%d,SUCCESS)", fid, vt, val, ret, want)
+			require.Equal(t, FieldValueUint, vt, "field %d = (type=%d,val=%d,ret=%v), want (Uint,%d,SUCCESS)", fid, vt, val, ret, want)
 			require.Equal(t, want, val, "field %d = (type=%d,val=%d,ret=%v), want (Uint,%d,SUCCESS)", fid, vt, val, ret, want)
 		}
 	})
@@ -241,7 +241,7 @@ func TestGetNvLinkFieldValue_NoNVLink(t *testing.T) {
 
 	vt, val, ret := cd.GetNvLinkFieldValue(fiNvlinkLinkCount, 0)
 	require.Equal(t, nvml.SUCCESS, ret, "LINK_COUNT (no nvlink) = (type=%d,val=%d,ret=%v), want (Uint,0,SUCCESS)", vt, val, ret)
-	require.Equal(t, NVLinkFieldUint, vt, "LINK_COUNT (no nvlink) = (type=%d,val=%d,ret=%v), want (Uint,0,SUCCESS)", vt, val, ret)
+	require.Equal(t, FieldValueUint, vt, "LINK_COUNT (no nvlink) = (type=%d,val=%d,ret=%v), want (Uint,0,SUCCESS)", vt, val, ret)
 	require.Equal(t, uint64(0), val, "LINK_COUNT (no nvlink) = (type=%d,val=%d,ret=%v), want (Uint,0,SUCCESS)", vt, val, ret)
 
 	// Low-power info must report NOT_SUPPORTED when the GPU has no NVLinks, so
@@ -254,6 +254,6 @@ func TestGetNvLinkFieldValue_NoNVLink(t *testing.T) {
 	} {
 		vt, _, ret := cd.GetNvLinkFieldValue(fid, 0)
 		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "field %d (no nvlink) = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", fid, vt, ret)
-		require.Equal(t, NVLinkFieldUnsupported, vt, "field %d (no nvlink) = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", fid, vt, ret)
+		require.Equal(t, FieldValueUnsupported, vt, "field %d (no nvlink) = (type=%d,ret=%v), want (Unsupported,NOT_SUPPORTED)", fid, vt, ret)
 	}
 }

@@ -136,6 +136,7 @@ docker-build: .build-image
 		--rm \
 		-e GOCACHE=/tmp/.cache/go \
 		-e GOMODCACHE=/tmp/.cache/gomod \
+		-e GOFLAGS=-buildvcs=false \
 		-v $(REPO_ROOT):/work \
 		-w /work/pkg/gpu/mocknvml \
 		--user $$(id -u):$$(id -g) \
