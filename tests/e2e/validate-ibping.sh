@@ -33,7 +33,12 @@ RETRY_SLEEP="${IBPING_E2E_RETRY_SLEEP:-5}"
 IB_ROOT='${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib}'
 LID_PATH="${IB_ROOT}/sys/class/infiniband/mlx5_0/ports/1/lid"
 GUID_PATH="${IB_ROOT}/sys/class/infiniband/mlx5_0/ports/1/port_guid"
-MOCK_IBPING_SOCKET="${MOCK_IB_PING_SOCKET:-/run/mock-ib.sock}"
+# Single-quoted like IB_ROOT above: the socket path must expand inside the pod's
+# `sh -c` against the pod's env, not here on the host runner. The chart points
+# MOCK_IB_PING_SOCKET at an overlay path (e.g. /var/lib/nvml-mock/run/mock-ib.sock);
+# expanding it host-side (where the var is unset) would check the wrong path and
+# time out even though the daemon's socket is ready.
+MOCK_IBPING_SOCKET='${MOCK_IB_PING_SOCKET:-/run/mock-ib.sock}'
 MOCK_IBPING_PORT="${MOCK_IB_PING_PORT:-18515}"
 IBPING_E2E_MODE="${IBPING_E2E_MODE:-both}"
 
@@ -126,12 +131,14 @@ wait_for_socket() {
   local pod=$1
   local i
   for i in $(seq 1 30); do
-    if kubectl exec "$pod" -- test -S "${MOCK_IBPING_SOCKET}" 2>/dev/null; then
+    # MOCK_IBPING_SOCKET is a single-quoted literal so it resolves against the
+    # pod's env inside `sh -c`, matching the path the daemon actually binds.
+    if kubectl exec "$pod" -- sh -c "test -S \"${MOCK_IBPING_SOCKET}\"" 2>/dev/null; then
       return 0
     fi
     sleep 1
   done
-  echo "FAIL: mock-ib socket not ready on $pod"
+  echo "FAIL: mock-ib socket not ready on $pod (MOCK_IB_PING_SOCKET, default /run/mock-ib.sock)"
   kubectl exec "$pod" -- tail -20 /tmp/mock-ib.log 2>/dev/null || true
   return 1
 }

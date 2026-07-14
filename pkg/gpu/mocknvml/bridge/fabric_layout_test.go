@@ -47,9 +47,10 @@ import (
 //	    + 3 inner pad + healthMask(4) = 36
 //	v3: v2 layout + healthSummary(1) + 3 trailing pad = 40
 const (
-	expectedFabricInfoSize   uintptr = 28
-	expectedFabricInfoV2Size uintptr = 36
-	expectedFabricInfoV3Size uintptr = 40
+	expectedFabricInfoSize         uintptr = 28
+	expectedFabricInfoV2Size       uintptr = 36
+	expectedFabricInfoV3Size       uintptr = 40
+	expectedRemappedRowsInfoV2Size uintptr = 24
 )
 
 func TestFabricStructLayouts(t *testing.T) {
@@ -63,6 +64,7 @@ func TestFabricStructLayouts(t *testing.T) {
 		{"GpuFabricInfo_v3", unsafe.Sizeof(nvml.GpuFabricInfo_v3{}), expectedFabricInfoV3Size},
 		// V is the typedef alias for v3 in nvml_types.h.
 		{"GpuFabricInfoV (v3 alias)", unsafe.Sizeof(nvml.GpuFabricInfoV{}), expectedFabricInfoV3Size},
+		{"RemappedRowsInfo_v2", unsafe.Sizeof(nvml.RemappedRowsInfo_v2{}), expectedRemappedRowsInfoV2Size},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

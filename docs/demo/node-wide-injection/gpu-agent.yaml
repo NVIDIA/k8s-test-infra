@@ -1,0 +1,60 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# gpu-agent is an ordinary workload: no nvidia.com/gpu request, no hostPath
+# mounts, no LD_PRELOAD/MOCK_* env, and no runtimeClassName. The nvml-mock NRI
+# plugin injects the mock overlay at container creation time.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gpu-agent
+  labels:
+    app: gpu-agent
+spec:
+  selector:
+    matchLabels:
+      app: gpu-agent
+  template:
+    metadata:
+      labels:
+        app: gpu-agent
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: agent
+          image: debian:bookworm-slim
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              echo "[gpu-agent] node=${NODE_NAME} verifying ambient NRI injection"
+              # Basic checks: the overlay and nvidia-smi come entirely from NRI
+              # (this pod requests no nvidia.com/gpu and mounts no volumes).
+              test -d /opt/nvml-mock
+              command -v nvidia-smi
+              echo "=== nvidia-smi ==="
+              nvidia-smi
+              echo "=== nvidia-smi -q (fabric clique) ==="
+              nvidia-smi -q | grep -iE "ClusterUUID|CliqueId" || true
+              echo "=== check-fabric (ComputeDomain identity via NRI) ==="
+              command -v check-fabric >/dev/null 2>&1 && check-fabric || true
+              echo "[gpu-agent] ambient injection OK; entering nvidia-smi -L loop"
+              while true; do
+                nvidia-smi -L
+                sleep 300
+              done
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

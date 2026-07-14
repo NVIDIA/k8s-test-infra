@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 290 stub functions for unimplemented NVML functions.
+// 289 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -527,11 +527,6 @@ func nvmlDeviceGetPowerSource(device C.nvmlDevice_t, powerSource *C.nvmlPowerSou
 //export nvmlDeviceGetProcessesUtilizationInfo
 func nvmlDeviceGetProcessesUtilizationInfo(device C.nvmlDevice_t, procesesUtilInfo *C.nvmlProcessesUtilizationInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetProcessesUtilizationInfo")
-}
-
-//export nvmlDeviceGetRemappedRows_v2
-func nvmlDeviceGetRemappedRows_v2(device C.nvmlDevice_t, info *C.nvmlRemappedRowsInfo_v2_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetRemappedRows_v2")
 }
 
 //export nvmlDeviceGetRepairStatus

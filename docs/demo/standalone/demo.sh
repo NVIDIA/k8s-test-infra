@@ -17,11 +17,20 @@ set -euo pipefail
 # profile keeps the demo correct without further edits.
 ###############################################################################
 CLUSTER_NAME="nvml-mock-demo"
+# Kind creates a kubeconfig context named "kind-<cluster>". Pin every kubectl
+# and helm call to it so the demo never operates on whatever context happens to
+# be current (which could be a real cluster).
+KUBE_CONTEXT="kind-${CLUSTER_NAME}"
 IMAGE_NAME="nvml-mock:demo"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${GPU_PROFILE:=h100}"
 : "${GPU_COUNT:=8}"
+# Deploy into a dedicated namespace (env-overridable) instead of default, so the
+# mock stack is easy to isolate and clean up. The namespace is also set as the
+# current context's default so the validate-*.sh helpers (which exec into pods
+# without a -n flag) target it too.
+: "${NAMESPACE:=nvml-mock-system}"
 # FORCE_RECREATE=true tears down an existing cluster of the same name and
 # recreates it; otherwise an existing cluster is reused as-is.
 : "${FORCE_RECREATE:=false}"
@@ -49,6 +58,12 @@ IB_ENABLED=$(awk '
 ###############################################################################
 info() { echo "==> $*"; }
 fail() { echo "ERROR: $*" >&2; exit 1; }
+
+# Wrap kubectl so every call is pinned to the demo's kind context without
+# repeating --context at each call site. helm keeps --kube-context inline
+# (there is only one invocation). The external validate-*.sh helpers still
+# rely on the context's default namespace set after the helm install below.
+kubectl_ctx() { command kubectl --context "${KUBE_CONTEXT}" "$@"; }
 
 ###############################################################################
 # Step 1 -- Create a Kind cluster
@@ -85,8 +100,10 @@ kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 ###############################################################################
 # Step 4 -- Install nvml-mock via Helm
 ###############################################################################
-info "Installing nvml-mock Helm chart (profile=${GPU_PROFILE}, count=${GPU_COUNT})"
+info "Installing nvml-mock Helm chart (profile=${GPU_PROFILE}, count=${GPU_COUNT}, namespace=${NAMESPACE})"
 helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
+  --kube-context "${KUBE_CONTEXT}" \
+  --namespace "${NAMESPACE}" --create-namespace \
   --set image.repository=nvml-mock \
   --set image.tag=demo \
   --set integrations.fakeGpuOperator.enabled=true \
@@ -95,17 +112,26 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set gpu.dynamicMetrics.enabled=true \
   --wait --timeout 120s
 
+# Make the demo namespace the context default so the validate-*.sh helpers
+# (which run `kubectl exec <pod>` without -n) resolve pods in it. Pin the
+# kind-${CLUSTER_NAME} context explicitly (not --current): on the
+# cluster-reuse branch nothing has switched contexts, so --current could
+# silently repoint an unrelated kubeconfig's default namespace. This context
+# is torn down with the cluster.
+info "Setting default namespace to ${NAMESPACE} for the kind-${CLUSTER_NAME} context"
+command kubectl config set-context "kind-${CLUSTER_NAME}" --namespace="${NAMESPACE}"
+
 ###############################################################################
 # Step 5 -- Verify: DaemonSet rollout
 ###############################################################################
 info "Waiting for DaemonSet rollout"
-kubectl rollout status daemonset/nvml-mock --timeout=60s
+kubectl_ctx -n "${NAMESPACE}" rollout status daemonset/nvml-mock --timeout=60s
 
 ###############################################################################
 # Step 6 -- Verify: Profile ConfigMaps
 ###############################################################################
 info "Checking profile ConfigMaps"
-CM_COUNT=$(kubectl get configmaps -l run.ai/gpu-profile=true \
+CM_COUNT=$(kubectl_ctx -n "${NAMESPACE}" get configmaps -l run.ai/gpu-profile=true \
   --no-headers 2>/dev/null | wc -l | tr -d ' ')
 
 if [[ "${CM_COUNT}" -lt 6 ]]; then
@@ -117,8 +143,8 @@ info "Found ${CM_COUNT} profile ConfigMap(s)"
 # Step 7 -- Verify: nvidia-smi
 ###############################################################################
 info "Running nvidia-smi inside a DaemonSet pod"
-POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')
-kubectl exec "${POD}" -- nvidia-smi
+POD=$(kubectl_ctx -n "${NAMESPACE}" get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')
+kubectl_ctx -n "${NAMESPACE}" exec "${POD}" -- nvidia-smi
 
 ###############################################################################
 # Step 7b -- Verify: NVLink / NVSwitch topology (nvidia-smi topo -m + nvlink)
@@ -131,7 +157,7 @@ kubectl exec "${POD}" -- nvidia-smi
 # Kubernetes node name in Kind) from the pod we just exec'd into.
 ###############################################################################
 info "Validating NVLink / NVSwitch topology"
-NODE_CONTAINER=$(kubectl get pod "${POD}" -o jsonpath='{.spec.nodeName}')
+NODE_CONTAINER=$(kubectl_ctx -n "${NAMESPACE}" get pod "${POD}" -o jsonpath='{.spec.nodeName}')
 "${REPO_ROOT}/tests/e2e/validate-nvlink.sh" "${NODE_CONTAINER}" "${GPU_PROFILE}" "${GPU_COUNT}"
 
 ###############################################################################
@@ -140,13 +166,13 @@ NODE_CONTAINER=$(kubectl get pod "${POD}" -o jsonpath='{.spec.nodeName}')
 HCA_COUNT=0
 if [[ "${IB_ENABLED}" == "true" ]]; then
   info "Listing simulated InfiniBand HCAs (ibstat -l)"
-  kubectl exec "${POD}" -- ibstat -l
+  kubectl_ctx -n "${NAMESPACE}" exec "${POD}" -- ibstat -l
 
   info "Running ibstatus inside the DaemonSet pod (first 40 lines)"
   # Run head inside the pod: piping locally triggers SIGPIPE (exit 141) with set -o pipefail.
-  kubectl exec "${POD}" -- sh -c 'ibstatus | head -40'
+  kubectl_ctx -n "${NAMESPACE}" exec "${POD}" -- sh -c 'ibstatus | head -40'
 
-  HCA_COUNT=$(kubectl exec "${POD}" -- ibstat -l | wc -l | tr -d ' ')
+  HCA_COUNT=$(kubectl_ctx -n "${NAMESPACE}" exec "${POD}" -- ibstat -l | wc -l | tr -d ' ')
   if [[ "${HCA_COUNT}" -lt 1 ]]; then
     fail "Expected at least 1 mock HCA, found ${HCA_COUNT}"
   fi
@@ -171,9 +197,9 @@ fi
 PCI_DEV_DIR="/var/lib/nvml-mock/sys/bus/pci/devices"
 
 info "Listing rendered PCI devices under ${PCI_DEV_DIR}"
-kubectl exec "${POD}" -- ls "${PCI_DEV_DIR}"
+kubectl_ctx -n "${NAMESPACE}" exec "${POD}" -- ls "${PCI_DEV_DIR}"
 
-PCI_DEV_COUNT=$(kubectl exec "${POD}" -- sh -c "ls ${PCI_DEV_DIR} 2>/dev/null | wc -l" \
+PCI_DEV_COUNT=$(kubectl_ctx -n "${NAMESPACE}" exec "${POD}" -- sh -c "ls ${PCI_DEV_DIR} 2>/dev/null | wc -l" \
   | tr -d ' ')
 # One symlink per device must appear under bus/pci/devices. We expect
 # exactly GPU_COUNT of them (the helm install above set gpu.count to the
@@ -187,9 +213,9 @@ info "Found ${PCI_DEV_COUNT} rendered PCI device symlink(s)"
 # readlink()'ing the device path and parsing out the "pciDDDD:BB"
 # component. Exercise that exact contract on the first device so a
 # missing or absolute-path symlink would fail the demo loudly.
-FIRST_DEV=$(kubectl exec "${POD}" -- sh -c "ls ${PCI_DEV_DIR} | sort | head -1" \
+FIRST_DEV=$(kubectl_ctx -n "${NAMESPACE}" exec "${POD}" -- sh -c "ls ${PCI_DEV_DIR} | sort | head -1" \
   | tr -d '[:space:]')
-TARGET=$(kubectl exec "${POD}" -- readlink "${PCI_DEV_DIR}/${FIRST_DEV}" \
+TARGET=$(kubectl_ctx -n "${NAMESPACE}" exec "${POD}" -- readlink "${PCI_DEV_DIR}/${FIRST_DEV}" \
   | tr -d '[:space:]')
 info "readlink ${FIRST_DEV} -> ${TARGET}"
 if [[ "${TARGET}" != ../../../devices/pci*/* ]]; then
@@ -198,7 +224,7 @@ fi
 
 # numa_node is the second half of the contract: the DRA driver may also
 # read it to surface a NUMA hint alongside pcieRoot.
-NUMA_NODE=$(kubectl exec "${POD}" -- cat "${PCI_DEV_DIR}/${FIRST_DEV}/numa_node" \
+NUMA_NODE=$(kubectl_ctx -n "${NAMESPACE}" exec "${POD}" -- cat "${PCI_DEV_DIR}/${FIRST_DEV}/numa_node" \
   | tr -d '[:space:]')
 if ! [[ "${NUMA_NODE}" =~ ^-?[0-9]+$ ]]; then
   fail "numa_node for ${FIRST_DEV} is not a number: '${NUMA_NODE}'"
@@ -213,7 +239,7 @@ info "${FIRST_DEV} numa_node=${NUMA_NODE}"
 # readlink target shape: "../../../devices/pciDDDD:BB/<bdf>"
 # Splitting on "/" yields: $1=.. $2=.. $3=.. $4=devices $5=pciDDDD:BB
 # so the root complex is field #5.
-ROOT_COUNT=$(kubectl exec "${POD}" -- sh -c \
+ROOT_COUNT=$(kubectl_ctx -n "${NAMESPACE}" exec "${POD}" -- sh -c \
   "for d in ${PCI_DEV_DIR}/*; do readlink \"\$d\"; done" \
   | awk -F/ '{print $5}' | sort -u | wc -l | tr -d ' ')
 if [[ "${ROOT_COUNT}" -ne "${EXPECTED_ROOTS}" ]]; then
@@ -238,7 +264,7 @@ if [[ "${IB_ENABLED}" == "true" ]]; then
   IB_PODS=()
   while IFS= read -r ib_pod; do
     [[ -n "${ib_pod}" ]] && IB_PODS+=("${ib_pod}")
-  done < <(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+  done < <(kubectl_ctx -n "${NAMESPACE}" get pods -l app.kubernetes.io/name=nvml-mock \
     --field-selector=status.phase=Running \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
   if [[ "${#IB_PODS[@]}" -lt 2 ]]; then
@@ -260,9 +286,9 @@ fi
 # Step 11 -- Show node labels
 ###############################################################################
 info "Node labels"
-kubectl get nodes --show-labels
+kubectl_ctx get nodes --show-labels
 
-WORKERS=($(kubectl get nodes --no-headers -o custom-columns=":metadata.name" \
+WORKERS=($(kubectl_ctx get nodes --no-headers -o custom-columns=":metadata.name" \
   | grep -v control-plane))
 
 ###############################################################################
@@ -271,6 +297,7 @@ WORKERS=($(kubectl get nodes --no-headers -o custom-columns=":metadata.name" \
 echo
 info "Demo complete."
 info "  Cluster   : ${CLUSTER_NAME}"
+info "  Namespace : ${NAMESPACE}"
 info "  Profile   : ${GPU_PROFILE} (gpu.count=${GPU_COUNT})"
 info "  Workers   : ${#WORKERS[@]}"
 info "  ConfigMaps: ${CM_COUNT}"
@@ -285,4 +312,5 @@ else
   info "  ibv_devinfo / iblinkinfo: skipped"
 fi
 info ""
+info "To uninstall the release: helm uninstall nvml-mock -n ${NAMESPACE}"
 info "To tear down: kind delete cluster --name ${CLUSTER_NAME}"

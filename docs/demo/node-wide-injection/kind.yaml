@@ -1,0 +1,19 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      socket_path = "/var/run/nri/nri.sock"
+# Four workers so the ComputeDomain topology overlay has two cliques to
+# assign (workers 1-2 -> clique 0, workers 3-4 -> clique 1). Node names
+# follow Kind's "<cluster>-worker[N]" convention and must stay in sync with
+# topology.yaml.
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+  - role: worker
+  - role: worker

@@ -10,9 +10,11 @@ the node labels that downstream consumers expect.
 1. Creates a Kind cluster (`nvml-mock-demo`: 1 control-plane, 3 workers).
 2. Builds the `nvml-mock:demo` container image from the repository root.
 3. Loads the image into the Kind cluster.
-4. Installs the nvml-mock Helm chart with
+4. Installs the nvml-mock Helm chart into a dedicated `nvml-mock-system`
+   namespace (override with `NAMESPACE=...`) with
    `integrations.fakeGpuOperator.enabled=true`, an H100 profile, and 8 GPUs
-   per node.
+   per node. The demo sets this namespace as the current context default so the
+   validation helpers resolve pods in it.
 5. Verifies the deployment:
    - DaemonSet pods are running on all workers.
    - Six GPU profile ConfigMaps are created (one per profile field group).
@@ -37,5 +39,9 @@ the node labels that downstream consumers expect.
 ## Clean up
 
 ```bash
+# Remove just the release (keeps the cluster):
+helm uninstall nvml-mock -n nvml-mock-system
+
+# Or tear down the whole cluster:
 kind delete cluster --name nvml-mock-demo
 ```

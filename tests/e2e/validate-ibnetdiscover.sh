@@ -26,7 +26,9 @@ case "$PROFILE" in
   l40s|t4) EXPECTED=0 ;;
 esac
 
-MOCK_IBPING_SOCKET="${MOCK_IB_PING_SOCKET:-/run/mock-ib.sock}"
+# Single-quoted on purpose: the socket path must expand inside the pod's
+# `sh -c` against the pod's env, not here on the host runner.
+MOCK_IBPING_SOCKET='${MOCK_IB_PING_SOCKET:-/run/mock-ib.sock}'
 MAX_RETRIES="${IBNETDISCOVER_E2E_RETRIES:-3}"
 RETRY_SLEEP="${IBNETDISCOVER_E2E_RETRY_SLEEP:-5}"
 
@@ -42,7 +44,7 @@ fi
 wait_for_socket() {
   local pod=$1 i
   for i in $(seq 1 30); do
-    if kubectl exec "$pod" -- test -S "${MOCK_IBPING_SOCKET}" 2>/dev/null; then
+    if kubectl exec "$pod" -- sh -c "test -S \"${MOCK_IBPING_SOCKET}\"" 2>/dev/null; then
       return 0
     fi
     sleep 1

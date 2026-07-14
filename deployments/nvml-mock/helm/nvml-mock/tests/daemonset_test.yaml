@@ -549,6 +549,11 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
+            name: MOCK_IB_PING_SOCKET
+            value: /var/lib/nvml-mock/run/mock-ib.sock
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
             name: POD_IP
             valueFrom:
               fieldRef:
@@ -562,7 +567,12 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: LD_PRELOAD
-            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_PCI_ROOT
+            value: /var/lib/nvml-mock
       - equal:
           path: spec.template.spec.containers[0].ports[0].name
           value: ibping

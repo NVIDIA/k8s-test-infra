@@ -1,0 +1,33 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Helm values fragment for the node-wide-injection ComputeDomain overlay
+# (docs/demo/node-wide-injection/run.sh). Passed to `helm upgrade --install`
+# via `-f <this file>` so the chart merges it on top of its defaults.
+#
+# `--set-file` is NOT used here: that flag stuffs the raw file bytes into the
+# target key as a string literal, which would defeat the structured list helm
+# expects under `topology.domains`.
+#
+# Node names follow Kind's `<cluster-name>-worker[N]` convention. The cluster
+# is created as `nvml-mock-node-wide-demo`, so the four workers land at
+# `nvml-mock-node-wide-demo-worker`, `-worker2`, `-worker3`, `-worker4`.
+#
+# Layout:
+#   domain "node-wide-domain"
+#     clique 0: -worker, -worker2
+#     clique 1: -worker3, -worker4
+topology:
+  enabled: true
+  domains:
+    - name: node-wide-domain
+      uuid: "00000000-0000-0000-0000-0000000000cd"
+      cliques:
+        - id: 0
+          nodes:
+            - nvml-mock-node-wide-demo-worker
+            - nvml-mock-node-wide-demo-worker2
+        - id: 1
+          nodes:
+            - nvml-mock-node-wide-demo-worker3
+            - nvml-mock-node-wide-demo-worker4

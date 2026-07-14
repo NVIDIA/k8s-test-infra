@@ -8,10 +8,13 @@ metadata:
   labels:
     {{- include "nvml-mock.labels" . | nindent 4 }}
 spec:
-  # Headless: DNS returns all nvml-mock pod IPs for fabric peer discovery.
+  # Headless: DNS returns fabric daemon pod IPs for peer discovery. Scoped to
+  # the daemon component so the sidecar NRI DaemonSet (which shares the app
+  # name but does not listen on the fabric port) is never returned as a peer.
   clusterIP: None
   selector:
     app.kubernetes.io/name: {{ include "nvml-mock.name" . }}
+    app.kubernetes.io/component: daemon
   ports:
     - name: ibping
       port: {{ .Values.infiniband.ping.port }}
