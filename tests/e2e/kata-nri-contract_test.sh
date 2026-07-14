@@ -9,7 +9,6 @@ RUNNER="$ROOT/tests/e2e/run-kata-nri.sh"
 DOC="$ROOT/docs/integrations/kata.md"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain: $2"; }
-not_contains() { ! grep -Fq -- "$2" "$1" || fail "$1 still contains: $2"; }
 contains_text() { grep -Fq -- "$3" <<<"$2" || fail "$1 does not contain: $3"; }
 not_contains_text() { ! grep -Fq -- "$3" <<<"$2" || fail "$1 still contains: $3"; }
 not_matches_text() { ! grep -Eqi -- "$3" <<<"$2" || fail "$1 still matches prohibited pattern: $3"; }
@@ -82,8 +81,11 @@ AMBIENT_DOC=$(extract_doc_section 'Ambient workload')
 DEVICES_DOC=$(extract_doc_section 'Optional mock device nodes')
 OPTOUT_DOC=$(extract_doc_section 'Opting out')
 VERIFY_DOC=$(extract_doc_section 'Verifying the runtime')
+COCO_DOC=$(extract_doc_section 'Plain Kata versus Confidential Containers')
 AMBIENT_YAML=$(extract_fenced_yaml "$AMBIENT_DOC")
 DOC_YAML=$(extract_fenced_yaml "$DOC_TEXT")
+DEVICES_FLAT=$(tr '\n' ' ' <<<"$DEVICES_DOC")
+DOC_FLAT=$(tr '\n' ' ' <<<"$DOC_TEXT")
 
 contains "$KIND_CONFIG" '[plugins."io.containerd.nri.v1.nri"]'
 contains "$KIND_CONFIG" 'socket_path = "/var/run/nri/nri.sock"'
@@ -163,6 +165,7 @@ not_contains_text "runner" "$RUNNER_TEXT" 'nvidia.com/gpu'
 not_matches_text "Kata guide" "$DOC_TEXT" '(^|[^[:alnum:]])CDI([^[:alnum:]]|$)|cdi-cri|device[- ]plugin'
 not_matches_text "Kata guide" "$DOC_TEXT" 'nvidia\.com/gpu:[[:space:]]*[0-9]'
 not_matches_text "Kata guide" "$DOC_TEXT" '(export[[:space:]]+MOCK_|name:[[:space:]]*MOCK_|MOCK_[A-Z0-9_]+[[:space:]]*=)'
+not_matches_text "Kata guide" "$DOC_FLAT" '(manual.{0,120}(soname|library[ -]?link|symbolic[ -]?link|symlink)|(create|add|make).{0,120}(soname|libnvidia-ml\.so\.1)|ln[[:space:]]+-s(f)?[[:space:]])'
 not_contains_text "Kata guide YAML examples" "$DOC_YAML" 'nvidia.com/gpu'
 not_contains_text "Kata guide YAML examples" "$DOC_YAML" 'MOCK_'
 not_contains_text "Kata guide YAML examples" "$DOC_YAML" 'env:'
@@ -177,6 +180,7 @@ contains_text "Kata delivery model" "$DELIVERY_DOC" 'NODE_NAME'
 contains_text "Kata delivery model" "$DELIVERY_DOC" 'MOCK_TOPOLOGY_CONFIG'
 contains_text "Kata delivery model" "$DELIVERY_DOC" 'topology.enabled=true'
 contains_text "Kata delivery model" "$DELIVERY_DOC" 'defaults to `false`'
+contains_text "Kata delivery model" "$DELIVERY_DOC" 'perform manual library setup'
 
 contains_text "Kata requirements" "$REQUIREMENTS_DOC" '/dev/kvm'
 contains_text "Kata requirements" "$REQUIREMENTS_DOC" 'vhost_vsock'
@@ -192,6 +196,7 @@ contains_text "Kata requirements" "$REQUIREMENTS_DOC" 'nri.enabled=true'
 contains_text "Kata ambient guide" "$AMBIENT_DOC" 'runtimeClassName: kata-qemu'
 contains_text "Kata ambient guide" "$AMBIENT_DOC" 'namespace: default'
 not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'nvidia.com/gpu'
+not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'annotations:'
 not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'MOCK_'
 not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'env:'
 not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'resources:'
@@ -200,16 +205,25 @@ not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'volumes:'
 
 contains_text "Kata optional device guide" "$DEVICES_DOC" 'nvml-mock.nvidia.com/devices: "true"'
 contains_text "Kata optional device guide" "$DEVICES_DOC" 'trusted workload namespaces'
+contains_text "Kata optional device guide" "$DEVICES_FLAT" 'Helm release namespace'
+contains_text "Kata optional device guide" "$DEVICES_DOC" '`kube-system`'
+contains_text "Kata optional device guide" "$DEVICES_DOC" 'excluded automatically'
 contains_text "Kata opt-out guide" "$OPTOUT_DOC" 'nvml-mock.nvidia.com/inject: "false"'
 contains_text "Kata opt-out guide" "$OPTOUT_DOC" '/opt/nvml-mock'
+contains_text "Kata opt-out guide" "$OPTOUT_DOC" 'injected environment'
 
 contains_text "Kata runtime verification" "$VERIFY_DOC" 'NODE_KERNEL='
 contains_text "Kata runtime verification" "$VERIFY_DOC" 'GUEST_KERNEL='
 contains_text "Kata runtime verification" "$VERIFY_DOC" 'test "$GUEST_KERNEL" != "$NODE_KERNEL"'
 contains_text "Kata runtime verification" "$VERIFY_DOC" 'guest kernel must differ from the node kernel'
 
+contains_text "Kata/CoCo boundary" "$COCO_DOC" 'Plain `kata-qemu`'
+contains_text "Kata/CoCo boundary" "$COCO_DOC" 'host filesystem sharing'
+contains_text "Kata/CoCo boundary" "$COCO_DOC" 'Confidential Containers'
+contains_text "Kata/CoCo boundary" "$COCO_DOC" 'future guest payload'
+contains_text "Kata/CoCo boundary" "$COCO_DOC" 'not part of the NRI-native lane'
+
 contains "$DOC" '](../../.github/workflows/nvml-mock-e2e.yaml)'
 contains "$DOC" '](../../tests/e2e/kind-kata-config.yaml)'
 contains "$DOC" '](../../tests/e2e/run-kata-nri.sh)'
-not_contains "$DOC" 'create the soname link'
 echo "PASS: Kata NRI repository contracts"
