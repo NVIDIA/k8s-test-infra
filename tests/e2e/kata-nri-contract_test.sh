@@ -83,10 +83,16 @@ DEVICES_DOC=$(extract_doc_section 'Optional mock device nodes')
 OPTOUT_DOC=$(extract_doc_section 'Opting out')
 VERIFY_DOC=$(extract_doc_section 'Verifying the runtime')
 EXPECTED_VERIFY_SEQUENCE=$(cat <<'VERIFYEOF'
-kubectl -n default wait --for=jsonpath='{.status.phase}'=Succeeded pod/kata-nvml --timeout=180s
-GUEST_KERNEL=$(kubectl -n default logs kata-nvml | sed -n 's/^GUEST_KERNEL=//p')
-test -n "$GUEST_KERNEL"
-test "$GUEST_KERNEL" != "$NODE_KERNEL"
+(
+  set -eu
+  NODE_KERNEL=$(docker exec nvml-mock-kata-control-plane uname -r)
+  test -n "$NODE_KERNEL"
+  kubectl -n default wait --for=jsonpath='{.status.phase}'=Succeeded pod/kata-nvml --timeout=180s
+  GUEST_LOGS=$(kubectl -n default logs kata-nvml)
+  GUEST_KERNEL=$(printf '%s\n' "$GUEST_LOGS" | sed -n 's/^GUEST_KERNEL=//p')
+  test -n "$GUEST_KERNEL"
+  test "$GUEST_KERNEL" != "$NODE_KERNEL"
+)
 VERIFYEOF
 )
 COCO_DOC=$(extract_doc_section 'Plain Kata versus Confidential Containers')
@@ -230,6 +236,8 @@ contains_text "Kata runtime verification" "$VERIFY_DOC" 'guest kernel must diffe
 not_contains_text "Kata runtime verification" "$VERIFY_DOC" 'kubectl exec'
 not_contains_text "Kata runtime verification" "$VERIFY_DOC" \
   'GUEST_KERNEL=$(kubectl logs kata-nvml'
+not_contains_text "Kata runtime verification" "$VERIFY_DOC" \
+  'GUEST_KERNEL=$(kubectl -n default logs kata-nvml'
 
 contains_text "Kata/CoCo boundary" "$COCO_DOC" 'Plain `kata-qemu`'
 contains_text "Kata/CoCo boundary" "$COCO_DOC" 'host filesystem sharing'
