@@ -8,25 +8,26 @@ NODE_KERNEL=$(docker exec "$CLUSTER_NAME-control-plane" uname -r)
 wait_for_success() {
   local pod=$1 attempts=${2:-36} phase
   for i in $(seq 1 "$attempts"); do
-    phase=$(kubectl get pod "$pod" -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)
+    phase=$(kubectl -n default get pod "$pod" -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)
     [[ "$phase" == Succeeded ]] && return 0
     if [[ "$phase" == Failed ]]; then
-      kubectl describe pod "$pod" | tail -40 || true
-      kubectl logs "$pod" || true
+      kubectl -n default describe pod "$pod" | tail -40 || true
+      kubectl -n default logs "$pod" || true
       return 1
     fi
     echo "attempt $i/$attempts: $pod phase=$phase"
     sleep 5
   done
-  kubectl describe pod "$pod" | tail -40 || true
+  kubectl -n default describe pod "$pod" | tail -40 || true
   return 1
 }
 
-cat <<'PODEOF' | kubectl apply -f -
+cat <<'PODEOF' | kubectl -n default apply -f -
 apiVersion: v1
 kind: Pod
 metadata:
   name: kata-nri-ambient
+  namespace: default
 spec:
   runtimeClassName: kata-qemu
   restartPolicy: Never
@@ -48,7 +49,7 @@ spec:
           nvidia-smi
 PODEOF
 wait_for_success kata-nri-ambient
-AMBIENT_LOGS=$(kubectl logs kata-nri-ambient)
+AMBIENT_LOGS=$(kubectl -n default logs kata-nri-ambient)
 echo "$AMBIENT_LOGS"
 GUEST_KERNEL=$(sed -n 's/^GUEST_KERNEL=//p' <<<"$AMBIENT_LOGS")
 [[ -n "$GUEST_KERNEL" ]] || { echo "FAIL: no guest kernel captured"; exit 1; }
@@ -59,13 +60,14 @@ grep -qF "NVIDIA A100-SXM4-40GB" <<<"$AMBIENT_LOGS" \
 GPU_COUNT=$(grep -c '^GPU ' <<<"$AMBIENT_LOGS" || true)
 [[ "$GPU_COUNT" == 2 ]] \
   || { echo "FAIL: expected 2 ambient GPUs in -L output, got $GPU_COUNT"; exit 1; }
-kubectl delete pod kata-nri-ambient --ignore-not-found
+kubectl -n default delete pod kata-nri-ambient --ignore-not-found
 
-cat <<'PODEOF' | kubectl apply -f -
+cat <<'PODEOF' | kubectl -n default apply -f -
 apiVersion: v1
 kind: Pod
 metadata:
   name: kata-nri-devices
+  namespace: default
   annotations:
     nvml-mock.nvidia.com/devices: "true"
 spec:
@@ -84,14 +86,15 @@ spec:
           nvidia-smi -L
 PODEOF
 wait_for_success kata-nri-devices
-kubectl logs kata-nri-devices
-kubectl delete pod kata-nri-devices --ignore-not-found
+kubectl -n default logs kata-nri-devices
+kubectl -n default delete pod kata-nri-devices --ignore-not-found
 
-cat <<'PODEOF' | kubectl apply -f -
+cat <<'PODEOF' | kubectl -n default apply -f -
 apiVersion: v1
 kind: Pod
 metadata:
   name: kata-nri-optout
+  namespace: default
   annotations:
     nvml-mock.nvidia.com/inject: "false"
 spec:
@@ -109,7 +112,7 @@ spec:
           echo CLEAN
 PODEOF
 wait_for_success kata-nri-optout 24
-kubectl logs kata-nri-optout | grep -q '^CLEAN$' \
+kubectl -n default logs kata-nri-optout | grep -q '^CLEAN$' \
   || { echo "FAIL: opt-out pod did not report CLEAN"; exit 1; }
-kubectl delete pod kata-nri-optout --ignore-not-found
+kubectl -n default delete pod kata-nri-optout --ignore-not-found
 echo "PASS: NRI ambient, device opt-in, and opt-out contracts work under Kata"
