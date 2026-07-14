@@ -37,15 +37,15 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 DEVICE_PLUGIN_MANIFEST="${REPO_ROOT}/tests/e2e/device-plugin-mock.yaml"
 # Validator Job manifest lives alongside this demo so the folder is
 # self-contained.
-VALIDATOR_MANIFEST="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/validator-mock.yaml"
-VALIDATOR_JOB="gpu-validator-mock"
+VALIDATOR_MANIFEST="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/vectoradd.yaml"
+VALIDATOR_JOB="vectoradd"
 VALIDATOR_NAMESPACE="default"
 : "${GPU_PROFILE:=h100}"
 : "${GPU_COUNT:=8}"
 # Deploy into a dedicated namespace (env-overridable) instead of default, so the
 # mock stack is easy to isolate and clean up.
 : "${NAMESPACE:=nvml-mock-system}"
-: "${VALIDATOR_TIMEOUT:=60s}"
+: "${VALIDATOR_TIMEOUT:=20s}"
 # Helm rollout wait. Generous by default so the stack can come up even when the
 # amd64 images run under qemu emulation (e.g. on an arm64 host).
 : "${HELM_TIMEOUT:=600s}"
@@ -113,7 +113,7 @@ docker build --provenance=false -t "${IMAGE_NAME}" -f "${REPO_ROOT}/deployments/
 # Step 3 -- Load the nvml-mock image into Kind
 #
 # Only the locally built nvml-mock image needs loading. The validator runs the
-# public CUDA sample image pinned in validator-mock.yaml, which the kubelet
+# public CUDA sample image pinned in vectoradd.yaml, which the kubelet
 # pulls directly (imagePullPolicy IfNotPresent), so there is no need to import
 # it into the cluster.
 ###############################################################################
@@ -190,7 +190,7 @@ info "${GPU_NODE} reports ${ALLOCATABLE_GPUS} allocatable GPU(s)"
 ###############################################################################
 info "Running nvidia-smi inside a DaemonSet pod"
 POD=$(kubectl_ctx -n "${NAMESPACE}" get pods -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')
-kubectl_ctx -n "${NAMESPACE}" exec "${POD}" -- nvidia-smi
+kubectl_ctx -n "${NAMESPACE}" exec "${POD}" -- nvidia-smi -L
 
 ###############################################################################
 # Step 7 -- Verify: GPU Operator Validator mock (cuda-vectorAdd)

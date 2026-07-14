@@ -10,7 +10,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: gpu-validator-mock
+  name: vectoradd
   namespace: default
 spec:
   backoffLimit: 0
@@ -18,7 +18,7 @@ spec:
   template:
     metadata:
       labels:
-        name: gpu-validator-mock
+        name: vectoradd
     spec:
       restartPolicy: Never
       tolerations:
