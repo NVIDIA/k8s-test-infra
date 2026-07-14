@@ -6,9 +6,7 @@ for testing GPU-dependent software without physical NVIDIA hardware.
 ## Key Features
 
 - **nvidia-smi compatible**: Works with the real `nvidia-smi` binary
-- **DCGM compatible**: Real nv-hostengine / dcgmi / dcgm-exporter run against
-  the mock — DEV telemetry, health watches, and `DCGM_FI_PROF_*` profiling
-  metrics via a mock GPM implementation (Hopper+ profiles)
+- **DCGM compatible**: Works with real dcgm-exporter / dcgmi (DEV telemetry + `DCGM_FI_PROF_*` via mock GPM)
 - **YAML-based configuration**: Full control over GPU profiles (A100, GB200, custom)
 - **Zero-config default**: Simulates DGX A100 system (8 GPUs) out of the box
 - **Broad NVML surface**: Comprehensive API coverage for nvidia-smi compatibility
