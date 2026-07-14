@@ -8,6 +8,7 @@ KIND_CONFIG="$ROOT/tests/e2e/kind-kata-config.yaml"
 RUNNER="$ROOT/tests/e2e/run-kata-nri.sh"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain: $2"; }
+not_contains() { ! grep -Fq -- "$2" "$1" || fail "$1 still contains: $2"; }
 contains_text() { grep -Fq -- "$3" <<<"$2" || fail "$1 does not contain: $3"; }
 not_contains_text() { ! grep -Fq -- "$3" <<<"$2" || fail "$1 still contains: $3"; }
 count_text() {
@@ -132,4 +133,12 @@ not_contains_text "runner" "$RUNNER_TEXT" 'kubectl describe pod'
 not_contains_text "runner" "$RUNNER_TEXT" 'kubectl logs'
 not_contains_text "runner" "$RUNNER_TEXT" 'kubectl delete pod'
 not_contains_text "runner" "$RUNNER_TEXT" 'nvidia.com/gpu'
+
+DOC="$ROOT/docs/integrations/kata.md"
+contains "$DOC" 'nri.enabled=true'
+contains "$DOC" 'nvml-mock.nvidia.com/devices: "true"'
+contains "$DOC" 'nvml-mock.nvidia.com/inject: "false"'
+contains "$DOC" '/opt/nvml-mock'
+not_contains "$DOC" 'device-plugin-kata.yaml'
+not_contains "$DOC" 'create the soname link'
 echo "PASS: Kata NRI repository contracts"

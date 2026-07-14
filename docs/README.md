@@ -54,7 +54,7 @@ full walkthrough.
 | Integration | Description |
 |-------------|-------------|
 | [fake-gpu-operator](integrations/fake-gpu-operator.md) | Run:ai's K8s-level GPU simulation + nvml-mock driver fidelity |
-| [kata](integrations/kata.md) | Kata Containers runtime class: virtiofs delivery + in-guest device nodes |
+| [kata](integrations/kata.md) | Kata Containers runtime class: ambient NRI delivery into plain Kata guests |
 
 ## Tested Consumers
 
