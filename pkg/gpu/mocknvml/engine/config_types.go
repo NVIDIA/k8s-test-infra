@@ -140,6 +140,11 @@ type DeviceConfig struct {
 	// sections are returned as-is.
 	DynamicMetrics *DynamicMetricsConfig `json:"dynamic_metrics,omitempty"`
 
+	// GPM tunes the GPU Performance Monitoring surface DCGM's profiling
+	// module reads (DCGM_FI_PROF_*). When nil, GPM support follows the
+	// device architecture (Hopper and newer, matching real NVML).
+	GPM *GPMConfig `json:"gpm,omitempty"`
+
 	// Failure enables GPU failure injection (lost device, fallen-off-bus,
 	// uncorrectable ECC, Xid). When nil (default) the device behaves as
 	// healthy hardware.
@@ -489,6 +494,19 @@ type DynamicUtilizationConfig struct {
 	MemoryMin      uint32 `json:"memory_min,omitempty"`
 	MemoryMax      uint32 `json:"memory_max,omitempty"`
 	BurstPeriodSec int    `json:"burst_period_sec,omitempty"`
+}
+
+// GPMConfig tunes the GPM (GPU Performance Monitoring) profiling surface
+// DCGM's profiling module reads (DCGM_FI_PROF_*, dcgmi dmon -e 1001..).
+type GPMConfig struct {
+	// Supported overrides architecture-based GPM support detection
+	// (default: supported on Hopper and newer, matching real NVML).
+	Supported *bool `json:"supported,omitempty"`
+	// Full-utilization PCIe rates for the PCIE_TX/RX_PER_SEC metrics, in
+	// MiB/s. The reported rate is scaled by current GPU utilization.
+	// Default: 2048 MiB/s each direction.
+	PcieTxMiBPerSec uint64 `json:"pcie_tx_mib_per_sec,omitempty"`
+	PcieRxMiBPerSec uint64 `json:"pcie_rx_mib_per_sec,omitempty"`
 }
 
 // Failure mode constants used by FailureInjectionConfig.Mode. Anything else

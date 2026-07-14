@@ -210,10 +210,14 @@ typedef unsigned int nvmlVgpuTypeId_t;
 /* --- Opaque handle types (passed by value as pointers) --- */
 typedef struct nvmlComputeInstance_st* nvmlComputeInstance_t;
 typedef struct nvmlEventSet_st*       nvmlEventSet_t;
-typedef struct nvmlGpmSample_st*      nvmlGpmSample_t;
 typedef struct nvmlGpuInstance_st*     nvmlGpuInstance_t;
 typedef struct nvmlUnit_st*           nvmlUnit_t;
 typedef struct nvmlVgpuInstance_st*    nvmlVgpuInstance_t;
+
+/* Upstream wraps the opaque GPM sample pointer in a one-field struct. */
+typedef struct {
+    struct nvmlGpmSample_st* handle;
+} nvmlGpmSample_t;
 
 /* --- Opaque struct types (only used via pointer in function signatures) --- */
 typedef struct nvmlAccountingStats_st                       nvmlAccountingStats_t;
@@ -309,12 +313,37 @@ typedef struct nvmlFieldValue_st {
     nvmlReturn_t    nvmlReturn;  //!< Per-field return code; check before value
     nvmlValue_t     value;       //!< Field value (valid iff nvmlReturn == SUCCESS)
 } nvmlFieldValue_t;
-typedef struct nvmlGpmMetricsGet_st                         nvmlGpmMetricsGet_t;
+/* GPM metrics query — full definition needed by the bridge so
+ * nvmlGpmMetricsGet (see bridge/gpm.go) can read the requested metricIds and
+ * populate value/nvmlReturn/metricInfo per metric. Layout matches the
+ * upstream NVML public header (NVML_GPM_METRIC_MAX = 333 for driver 550 /
+ * go-nvml 0.13.x). */
+#define NVML_GPM_METRIC_MAX 333
+#define NVML_GPM_METRICS_GET_VERSION 1
+typedef struct {
+    char *shortName;
+    char *longName;
+    char *unit;
+} nvmlGpmMetricMetricInfo_t;
+typedef struct {
+    unsigned int metricId;                 //!< IN: NVML_GPM_METRIC_? id to retrieve
+    nvmlReturn_t nvmlReturn;               //!< OUT: status of this metric
+    double value;                          //!< OUT: value, valid iff nvmlReturn == SUCCESS
+    nvmlGpmMetricMetricInfo_t metricInfo;  //!< OUT: metric name and unit (may be NULL)
+} nvmlGpmMetric_t;
+typedef struct nvmlGpmMetricsGet_st {
+    unsigned int version;                          //!< IN: NVML_GPM_METRICS_GET_VERSION
+    unsigned int numMetrics;                       //!< IN: number of entries in metrics[]
+    nvmlGpmSample_t sample1;                       //!< IN: first sample buffer
+    nvmlGpmSample_t sample2;                       //!< IN: second sample buffer
+    nvmlGpmMetric_t metrics[NVML_GPM_METRIC_MAX];  //!< IN/OUT: metricId in, value out
+} nvmlGpmMetricsGet_t;
 /* GPM support - full definition needed by bridge */
 typedef struct nvmlGpmSupport_st {
     unsigned int version;
     unsigned int isSupportedDevice;
 } nvmlGpmSupport_t;
+#define NVML_GPM_SUPPORT_VERSION 1
 typedef struct nvmlGpuDynamicPstatesInfo_st                 nvmlGpuDynamicPstatesInfo_t;
 
 /* GPU Fabric information — full definitions needed by the bridge so

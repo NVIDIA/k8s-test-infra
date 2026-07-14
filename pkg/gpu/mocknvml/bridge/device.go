@@ -615,6 +615,9 @@ func nvmlGpmQueryDeviceSupport(device C.nvmlDevice_t, gpmSupport *C.nvmlGpmSuppo
 	if gpmSupport == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
+	if !validGpmSupportVersion(uint32(gpmSupport.version)) {
+		return C.NVML_ERROR_ARGUMENT_VERSION_MISMATCH
+	}
 	handle := uintptr(unsafe.Pointer(device.handle))
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
