@@ -21,10 +21,12 @@ the staged nvml-mock overlay read-only at `/opt/nvml-mock`. Kata then shares
 that host path with the guest.
 
 The same NRI adjustment supplies the executable and library search paths, the
-NVML profile location, and the PCI, InfiniBand, and ComputeDomain topology
-environment. Workloads do not need to author mock environment variables,
-mount the profile, or perform manual library setup. This path is ambient NRI
-delivery; it does not depend on GPU allocation.
+NVML profile location, and the PCI and InfiniBand environment. ComputeDomain
+topology is conditional: `NODE_NAME` and `MOCK_TOPOLOGY_CONFIG` are injected
+only when `topology.enabled=true` has staged a topology document; the chart
+value defaults to `false`. Workloads do not need to author mock environment
+variables, mount the profile, or perform manual library setup. This path is
+ambient NRI delivery; it does not depend on GPU allocation.
 
 ## Requirements
 

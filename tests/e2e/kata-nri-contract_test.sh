@@ -6,11 +6,13 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 WORKFLOW="$ROOT/.github/workflows/nvml-mock-e2e.yaml"
 KIND_CONFIG="$ROOT/tests/e2e/kind-kata-config.yaml"
 RUNNER="$ROOT/tests/e2e/run-kata-nri.sh"
+DOC="$ROOT/docs/integrations/kata.md"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain: $2"; }
 not_contains() { ! grep -Fq -- "$2" "$1" || fail "$1 still contains: $2"; }
 contains_text() { grep -Fq -- "$3" <<<"$2" || fail "$1 does not contain: $3"; }
 not_contains_text() { ! grep -Fq -- "$3" <<<"$2" || fail "$1 still contains: $3"; }
+not_matches_text() { ! grep -Eqi -- "$3" <<<"$2" || fail "$1 still matches prohibited pattern: $3"; }
 count_text() {
   local label=$1 text=$2 expected=$3 needle=$4 actual
   actual=$(grep -Fc -- "$needle" <<<"$text" || true)
@@ -47,6 +49,21 @@ extract_kata_step() {
     found { print }
   ' <<<"$KATA_JOB"
 }
+extract_doc_section() {
+  local heading=$1
+  awk -v heading="## $heading" '
+    $0 == heading { found=1 }
+    found && /^## / && $0 != heading { exit }
+    found { print }
+  ' "$DOC"
+}
+extract_fenced_yaml() {
+  awk '
+    /^```yaml$/ { yaml=1; next }
+    yaml && /^```$/ { yaml=0; next }
+    yaml { print }
+  ' <<<"$1"
+}
 
 test -x "$RUNNER" || fail "$RUNNER is missing or not executable"
 RUNNER_TEXT=$(<"$RUNNER")
@@ -58,6 +75,15 @@ OPTOUT_MANIFEST=$(extract_manifest kata-nri-optout)
 AMBIENT_SECTION=$(extract_section kata-nri-ambient kata-nri-devices)
 DEVICE_SECTION=$(extract_section kata-nri-devices kata-nri-optout)
 OPTOUT_SECTION=$(extract_section kata-nri-optout)
+DOC_TEXT=$(<"$DOC")
+DELIVERY_DOC=$(extract_doc_section 'Delivery model')
+REQUIREMENTS_DOC=$(extract_doc_section Requirements)
+AMBIENT_DOC=$(extract_doc_section 'Ambient workload')
+DEVICES_DOC=$(extract_doc_section 'Optional mock device nodes')
+OPTOUT_DOC=$(extract_doc_section 'Opting out')
+VERIFY_DOC=$(extract_doc_section 'Verifying the runtime')
+AMBIENT_YAML=$(extract_fenced_yaml "$AMBIENT_DOC")
+DOC_YAML=$(extract_fenced_yaml "$DOC_TEXT")
 
 contains "$KIND_CONFIG" '[plugins."io.containerd.nri.v1.nri"]'
 contains "$KIND_CONFIG" 'socket_path = "/var/run/nri/nri.sock"'
@@ -134,11 +160,56 @@ not_contains_text "runner" "$RUNNER_TEXT" 'kubectl logs'
 not_contains_text "runner" "$RUNNER_TEXT" 'kubectl delete pod'
 not_contains_text "runner" "$RUNNER_TEXT" 'nvidia.com/gpu'
 
-DOC="$ROOT/docs/integrations/kata.md"
-contains "$DOC" 'nri.enabled=true'
-contains "$DOC" 'nvml-mock.nvidia.com/devices: "true"'
-contains "$DOC" 'nvml-mock.nvidia.com/inject: "false"'
-contains "$DOC" '/opt/nvml-mock'
-not_contains "$DOC" 'device-plugin-kata.yaml'
+not_matches_text "Kata guide" "$DOC_TEXT" '(^|[^[:alnum:]])CDI([^[:alnum:]]|$)|cdi-cri|device[- ]plugin'
+not_matches_text "Kata guide" "$DOC_TEXT" 'nvidia\.com/gpu:[[:space:]]*[0-9]'
+not_matches_text "Kata guide" "$DOC_TEXT" '(export[[:space:]]+MOCK_|name:[[:space:]]*MOCK_|MOCK_[A-Z0-9_]+[[:space:]]*=)'
+not_contains_text "Kata guide YAML examples" "$DOC_YAML" 'nvidia.com/gpu'
+not_contains_text "Kata guide YAML examples" "$DOC_YAML" 'MOCK_'
+not_contains_text "Kata guide YAML examples" "$DOC_YAML" 'env:'
+not_contains_text "Kata guide YAML examples" "$DOC_YAML" 'resources:'
+not_contains_text "Kata guide YAML examples" "$DOC_YAML" 'volumeMounts:'
+not_contains_text "Kata guide YAML examples" "$DOC_YAML" 'volumes:'
+not_contains_text "Kata guide YAML examples" "$DOC_YAML" 'hostPath:'
+
+contains_text "Kata delivery model" "$DELIVERY_DOC" '/opt/nvml-mock'
+contains_text "Kata delivery model" "$DELIVERY_DOC" 'read-only'
+contains_text "Kata delivery model" "$DELIVERY_DOC" 'NODE_NAME'
+contains_text "Kata delivery model" "$DELIVERY_DOC" 'MOCK_TOPOLOGY_CONFIG'
+contains_text "Kata delivery model" "$DELIVERY_DOC" 'topology.enabled=true'
+contains_text "Kata delivery model" "$DELIVERY_DOC" 'defaults to `false`'
+
+contains_text "Kata requirements" "$REQUIREMENTS_DOC" '/dev/kvm'
+contains_text "Kata requirements" "$REQUIREMENTS_DOC" 'vhost_vsock'
+contains_text "Kata requirements" "$REQUIREMENTS_DOC" '/dev/vhost-vsock'
+contains_text "Kata requirements" "$REQUIREMENTS_DOC" '/dev/shm'
+contains_text "Kata requirements" "$REQUIREMENTS_DOC" '8 GiB'
+contains_text "Kata requirements" "$REQUIREMENTS_DOC" 'remount,size=8G'
+contains_text "Kata requirements" "$REQUIREMENTS_DOC" '/var/run/nri/nri.sock'
+contains_text "Kata requirements" "$REQUIREMENTS_DOC" '--set debug=true'
+contains_text "Kata requirements" "$REQUIREMENTS_DOC" 'nvml-mock-system'
+contains_text "Kata requirements" "$REQUIREMENTS_DOC" 'nri.enabled=true'
+
+contains_text "Kata ambient guide" "$AMBIENT_DOC" 'runtimeClassName: kata-qemu'
+contains_text "Kata ambient guide" "$AMBIENT_DOC" 'namespace: default'
+not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'nvidia.com/gpu'
+not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'MOCK_'
+not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'env:'
+not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'resources:'
+not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'volumeMounts:'
+not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'volumes:'
+
+contains_text "Kata optional device guide" "$DEVICES_DOC" 'nvml-mock.nvidia.com/devices: "true"'
+contains_text "Kata optional device guide" "$DEVICES_DOC" 'trusted workload namespaces'
+contains_text "Kata opt-out guide" "$OPTOUT_DOC" 'nvml-mock.nvidia.com/inject: "false"'
+contains_text "Kata opt-out guide" "$OPTOUT_DOC" '/opt/nvml-mock'
+
+contains_text "Kata runtime verification" "$VERIFY_DOC" 'NODE_KERNEL='
+contains_text "Kata runtime verification" "$VERIFY_DOC" 'GUEST_KERNEL='
+contains_text "Kata runtime verification" "$VERIFY_DOC" 'test "$GUEST_KERNEL" != "$NODE_KERNEL"'
+contains_text "Kata runtime verification" "$VERIFY_DOC" 'guest kernel must differ from the node kernel'
+
+contains "$DOC" '](../../.github/workflows/nvml-mock-e2e.yaml)'
+contains "$DOC" '](../../tests/e2e/kind-kata-config.yaml)'
+contains "$DOC" '](../../tests/e2e/run-kata-nri.sh)'
 not_contains "$DOC" 'create the soname link'
 echo "PASS: Kata NRI repository contracts"
