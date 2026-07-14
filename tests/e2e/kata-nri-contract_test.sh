@@ -10,6 +10,7 @@ DOC="$ROOT/docs/integrations/kata.md"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 contains() { grep -Fq -- "$2" "$1" || fail "$1 does not contain: $2"; }
 contains_text() { grep -Fq -- "$3" <<<"$2" || fail "$1 does not contain: $3"; }
+contains_block() { [[ "$2" == *"$3"* ]] || fail "$1 does not contain the required command sequence"; }
 not_contains_text() { ! grep -Fq -- "$3" <<<"$2" || fail "$1 still contains: $3"; }
 not_matches_text() { ! grep -Eqi -- "$3" <<<"$2" || fail "$1 still matches prohibited pattern: $3"; }
 count_text() {
@@ -81,6 +82,13 @@ AMBIENT_DOC=$(extract_doc_section 'Ambient workload')
 DEVICES_DOC=$(extract_doc_section 'Optional mock device nodes')
 OPTOUT_DOC=$(extract_doc_section 'Opting out')
 VERIFY_DOC=$(extract_doc_section 'Verifying the runtime')
+EXPECTED_VERIFY_SEQUENCE=$(cat <<'VERIFYEOF'
+kubectl -n default wait --for=jsonpath='{.status.phase}'=Succeeded pod/kata-nvml --timeout=180s
+GUEST_KERNEL=$(kubectl -n default logs kata-nvml | sed -n 's/^GUEST_KERNEL=//p')
+test -n "$GUEST_KERNEL"
+test "$GUEST_KERNEL" != "$NODE_KERNEL"
+VERIFYEOF
+)
 COCO_DOC=$(extract_doc_section 'Plain Kata versus Confidential Containers')
 AMBIENT_YAML=$(extract_fenced_yaml "$AMBIENT_DOC")
 DOC_YAML=$(extract_fenced_yaml "$DOC_TEXT")
@@ -217,11 +225,11 @@ contains_text "Kata opt-out guide" "$OPTOUT_DOC" '/opt/nvml-mock'
 contains_text "Kata opt-out guide" "$OPTOUT_DOC" 'injected environment'
 
 contains_text "Kata runtime verification" "$VERIFY_DOC" 'NODE_KERNEL='
-contains_text "Kata runtime verification" "$VERIFY_DOC" \
-  "GUEST_KERNEL=\$(kubectl logs kata-nvml | sed -n 's/^GUEST_KERNEL=//p')"
-contains_text "Kata runtime verification" "$VERIFY_DOC" 'test "$GUEST_KERNEL" != "$NODE_KERNEL"'
+contains_block "Kata runtime verification" "$VERIFY_DOC" "$EXPECTED_VERIFY_SEQUENCE"
 contains_text "Kata runtime verification" "$VERIFY_DOC" 'guest kernel must differ from the node kernel'
 not_contains_text "Kata runtime verification" "$VERIFY_DOC" 'kubectl exec'
+not_contains_text "Kata runtime verification" "$VERIFY_DOC" \
+  'GUEST_KERNEL=$(kubectl logs kata-nvml'
 
 contains_text "Kata/CoCo boundary" "$COCO_DOC" 'Plain `kata-qemu`'
 contains_text "Kata/CoCo boundary" "$COCO_DOC" 'host filesystem sharing'

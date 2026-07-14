@@ -130,7 +130,9 @@ Verify that the workload actually booted a Kata guest by comparing kernels:
 
 ```sh
 NODE_KERNEL=$(docker exec nvml-mock-kata-control-plane uname -r)
-GUEST_KERNEL=$(kubectl logs kata-nvml | sed -n 's/^GUEST_KERNEL=//p')
+kubectl -n default wait --for=jsonpath='{.status.phase}'=Succeeded pod/kata-nvml --timeout=180s
+GUEST_KERNEL=$(kubectl -n default logs kata-nvml | sed -n 's/^GUEST_KERNEL=//p')
+test -n "$GUEST_KERNEL"
 test "$GUEST_KERNEL" != "$NODE_KERNEL"
 ```
 
