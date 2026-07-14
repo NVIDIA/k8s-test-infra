@@ -1234,7 +1234,7 @@ jobs:
           kubectl -n "$NVML_MOCK_NAMESPACE" get pods -o wide || true
           kubectl -n "$NVML_MOCK_NAMESPACE" logs daemonset/nvml-mock --all-containers --tail=100 || true
           kubectl -n "$NVML_MOCK_NAMESPACE" logs daemonset/nvml-mock-nri --all-containers --tail=100 || true
-          for pod in kata-nri-ambient kata-nri-devices kata-nri-optout; do
+          for pod in kata-smoke kata-nri-ambient kata-nri-devices kata-nri-optout; do
             echo "=== $pod describe ==="
             kubectl -n default describe pod "$pod" || true
             echo "=== $pod logs ==="

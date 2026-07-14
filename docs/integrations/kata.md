@@ -84,7 +84,7 @@ spec:
   containers:
     - name: app
       image: ubuntu:22.04
-      command: ["nvidia-smi", "-L"]
+      command: ["sh", "-c", "echo GUEST_KERNEL=$(uname -r); nvidia-smi -L"]
 ```
 
 The default ambient pod intentionally has no visible `/dev/nvidia*` device
@@ -130,7 +130,7 @@ Verify that the workload actually booted a Kata guest by comparing kernels:
 
 ```sh
 NODE_KERNEL=$(docker exec nvml-mock-kata-control-plane uname -r)
-GUEST_KERNEL=$(kubectl exec kata-nvml -- uname -r)
+GUEST_KERNEL=$(kubectl logs kata-nvml | sed -n 's/^GUEST_KERNEL=//p')
 test "$GUEST_KERNEL" != "$NODE_KERNEL"
 ```
 

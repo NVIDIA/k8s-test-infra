@@ -106,6 +106,8 @@ test ! -e "$ROOT/tests/e2e/device-plugin-kata.yaml" || fail "obsolete device-plu
 
 contains_text "Kata failure collector" "$FAILURE_COLLECTOR" "kubectl -n default describe pod \"\$pod\""
 contains_text "Kata failure collector" "$FAILURE_COLLECTOR" "kubectl -n default logs \"\$pod\""
+contains_text "Kata failure collector" "$FAILURE_COLLECTOR" \
+  'for pod in kata-smoke kata-nri-ambient kata-nri-devices kata-nri-optout; do'
 not_contains_text "Kata failure collector" "$FAILURE_COLLECTOR" 'kubectl describe pod'
 not_contains_text "Kata failure collector" "$FAILURE_COLLECTOR" "kubectl logs \"\$pod\""
 
@@ -195,6 +197,8 @@ contains_text "Kata requirements" "$REQUIREMENTS_DOC" 'nri.enabled=true'
 
 contains_text "Kata ambient guide" "$AMBIENT_DOC" 'runtimeClassName: kata-qemu'
 contains_text "Kata ambient guide" "$AMBIENT_DOC" 'namespace: default'
+contains_text "Kata ambient YAML" "$AMBIENT_YAML" \
+  'command: ["sh", "-c", "echo GUEST_KERNEL=$(uname -r); nvidia-smi -L"]'
 not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'nvidia.com/gpu'
 not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'annotations:'
 not_contains_text "Kata ambient YAML" "$AMBIENT_YAML" 'MOCK_'
@@ -213,9 +217,11 @@ contains_text "Kata opt-out guide" "$OPTOUT_DOC" '/opt/nvml-mock'
 contains_text "Kata opt-out guide" "$OPTOUT_DOC" 'injected environment'
 
 contains_text "Kata runtime verification" "$VERIFY_DOC" 'NODE_KERNEL='
-contains_text "Kata runtime verification" "$VERIFY_DOC" 'GUEST_KERNEL='
+contains_text "Kata runtime verification" "$VERIFY_DOC" \
+  "GUEST_KERNEL=\$(kubectl logs kata-nvml | sed -n 's/^GUEST_KERNEL=//p')"
 contains_text "Kata runtime verification" "$VERIFY_DOC" 'test "$GUEST_KERNEL" != "$NODE_KERNEL"'
 contains_text "Kata runtime verification" "$VERIFY_DOC" 'guest kernel must differ from the node kernel'
+not_contains_text "Kata runtime verification" "$VERIFY_DOC" 'kubectl exec'
 
 contains_text "Kata/CoCo boundary" "$COCO_DOC" 'Plain `kata-qemu`'
 contains_text "Kata/CoCo boundary" "$COCO_DOC" 'host filesystem sharing'
