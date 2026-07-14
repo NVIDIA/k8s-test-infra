@@ -38,10 +38,19 @@ extract_section() {
     found { print }
   ' "$RUNNER"
 }
+extract_kata_step() {
+  local step=$1
+  awk -v step="$step" '
+    $0 == "      - name: " step { found=1 }
+    found && /^      - name:/ && $0 != "      - name: " step { exit }
+    found { print }
+  ' <<<"$KATA_JOB"
+}
 
 test -x "$RUNNER" || fail "$RUNNER is missing or not executable"
 RUNNER_TEXT=$(<"$RUNNER")
 KATA_JOB=$(extract_kata_job)
+FAILURE_COLLECTOR=$(extract_kata_step 'Collect kata logs on failure')
 AMBIENT_MANIFEST=$(extract_manifest kata-nri-ambient)
 DEVICE_MANIFEST=$(extract_manifest kata-nri-devices)
 OPTOUT_MANIFEST=$(extract_manifest kata-nri-optout)
@@ -66,6 +75,11 @@ contains_text "e2e-kata job" "$KATA_JOB" "if [ \"\$GUEST_KERNEL\" = \"\$NODE_KER
 not_contains_text "e2e-kata job" "$KATA_JOB" 'device-plugin-kata'
 test ! -e "$ROOT/tests/e2e/device-plugin-kata.yaml" || fail "obsolete device-plugin-kata.yaml still exists"
 
+contains_text "Kata failure collector" "$FAILURE_COLLECTOR" "kubectl -n default describe pod \"\$pod\""
+contains_text "Kata failure collector" "$FAILURE_COLLECTOR" "kubectl -n default logs \"\$pod\""
+not_contains_text "Kata failure collector" "$FAILURE_COLLECTOR" 'kubectl describe pod'
+not_contains_text "Kata failure collector" "$FAILURE_COLLECTOR" "kubectl logs \"\$pod\""
+
 contains_text "ambient manifest" "$AMBIENT_MANIFEST" 'namespace: default'
 contains_text "ambient manifest" "$AMBIENT_MANIFEST" 'runtimeClassName: kata-qemu'
 contains_text "ambient manifest" "$AMBIENT_MANIFEST" 'test -d /opt/nvml-mock'
@@ -84,6 +98,8 @@ contains_text "ambient section" "$AMBIENT_SECTION" 'kubectl -n default logs kata
 contains_text "ambient section" "$AMBIENT_SECTION" 'kubectl -n default delete pod kata-nri-ambient'
 contains_text "ambient section" "$AMBIENT_SECTION" "[[ \"\$GUEST_KERNEL\" != \"\$NODE_KERNEL\" ]]"
 contains_text "ambient section" "$AMBIENT_SECTION" "[[ \"\$GPU_COUNT\" == 2 ]]"
+contains_text "ambient section" "$AMBIENT_SECTION" \
+  "grep -qF \"NVIDIA A100-SXM4-40GB\" <<<\"\$AMBIENT_LOGS\""
 
 contains_text "device manifest" "$DEVICE_MANIFEST" 'namespace: default'
 contains_text "device manifest" "$DEVICE_MANIFEST" 'runtimeClassName: kata-qemu'
@@ -115,4 +131,5 @@ not_contains_text "runner" "$RUNNER_TEXT" 'kubectl get pod'
 not_contains_text "runner" "$RUNNER_TEXT" 'kubectl describe pod'
 not_contains_text "runner" "$RUNNER_TEXT" 'kubectl logs'
 not_contains_text "runner" "$RUNNER_TEXT" 'kubectl delete pod'
+not_contains_text "runner" "$RUNNER_TEXT" 'nvidia.com/gpu'
 echo "PASS: Kata NRI repository contracts"

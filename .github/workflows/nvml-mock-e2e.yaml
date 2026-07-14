@@ -1236,9 +1236,9 @@ jobs:
           kubectl -n "$NVML_MOCK_NAMESPACE" logs daemonset/nvml-mock-nri --all-containers --tail=100 || true
           for pod in kata-nri-ambient kata-nri-devices kata-nri-optout; do
             echo "=== $pod describe ==="
-            kubectl describe pod "$pod" || true
+            kubectl -n default describe pod "$pod" || true
             echo "=== $pod logs ==="
-            kubectl logs "$pod" || true
+            kubectl -n default logs "$pod" || true
           done
           docker exec "$CLUSTER_NAME-control-plane" \
             sh -c 'ls /opt/kata/bin 2>/dev/null; grep -A5 kata /etc/containerd/config.toml 2>/dev/null' || true
