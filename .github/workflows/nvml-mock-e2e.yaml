@@ -1076,8 +1076,8 @@ jobs:
 
   # Verifies the nvml-mock delivery path under the Kata Containers runtime
   # class (issue #377 / Kata-CoCo integration, v1 = plain kata-qemu).
-  # Workloads run inside a lightweight VM: CDI library mounts arrive via
-  # virtiofs, CDI device nodes are mknod'd in the guest by kata-agent.
+  # Workloads run inside a lightweight VM; NRI supplies the mock stack and,
+  # when requested by annotation, device nodes to the guest.
   # Docs: docs/integrations/kata.md
   e2e-kata:
     runs-on: ubuntu-latest
@@ -1085,6 +1085,7 @@ jobs:
     env:
       CLUSTER_NAME: nvml-mock-kata
       KATA_VERSION: "3.32.0"
+      NVML_MOCK_NAMESPACE: nvml-mock-system
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1101,7 +1102,7 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Create Kind cluster (KVM + CDI)
+      - name: Create Kind cluster (KVM + NRI)
         uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
         with:
           cluster_name: ${{ env.CLUSTER_NAME }}
@@ -1200,159 +1201,45 @@ jobs:
         run: |
           kind load docker-image nvml-mock:e2e --name "$CLUSTER_NAME"
 
-      - name: Install nvml-mock Helm chart
+      - name: Install nvml-mock with NRI injection
         run: |
           helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
-            --set image.repository=nvml-mock \
-            --set image.tag=e2e \
-            --set gpu.profile=a100 \
-            --set gpu.count=2 \
-            --wait --timeout 120s
-          kubectl rollout status daemonset/nvml-mock --timeout=60s
+            --namespace "$NVML_MOCK_NAMESPACE" --create-namespace \
+            --set image.repository=nvml-mock --set image.tag=e2e \
+            --set gpu.profile=a100 --set gpu.count=2 \
+            --set nri.enabled=true --wait --timeout 180s
+          kubectl -n "$NVML_MOCK_NAMESPACE" rollout status daemonset/nvml-mock --timeout=120s
+          kubectl -n "$NVML_MOCK_NAMESPACE" rollout status daemonset/nvml-mock-nri --timeout=90s
 
-      - name: Deploy device plugin (cdi-cri mode)
+      - name: Verify NRI registration
         run: |
-          kubectl apply -f tests/e2e/device-plugin-kata.yaml
-          kubectl -n kube-system rollout status \
-            daemonset/nvidia-device-plugin-kata --timeout=120s
-          NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
           for i in $(seq 1 24); do
-            ALLOC=$(kubectl get node "$NODE" \
-              -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' 2>/dev/null || echo 0)
-            [ "$ALLOC" = "2" ] && break
-            echo "attempt $i/24: allocatable nvidia.com/gpu=$ALLOC"
+            LOGS=$(kubectl -n "$NVML_MOCK_NAMESPACE" logs daemonset/nvml-mock-nri --tail=100 2>&1 || true)
+            grep -q "configured by runtime" <<<"$LOGS" && break
+            echo "attempt $i/24: waiting for nvml-mock NRI registration"
             sleep 5
           done
-          [ "$ALLOC" = "2" ] || { echo "FAIL: expected 2 allocatable GPUs, got $ALLOC"; exit 1; }
+          grep -q "configured by runtime" <<<"$LOGS" \
+            || { echo "$LOGS"; echo "FAIL: NRI plugin did not register"; exit 1; }
 
-      - name: Kata GPU workload — mock NVML inside the guest
-        run: |
-          NODE_KERNEL=$(docker exec "$CLUSTER_NAME-control-plane" uname -r)
-          cat << 'PODEOF' | kubectl apply -f -
-          apiVersion: v1
-          kind: Pod
-          metadata:
-            name: kata-gpu-workload
-          spec:
-            runtimeClassName: kata-qemu
-            restartPolicy: Never
-            containers:
-              - name: probe
-                image: ubuntu:22.04
-                # Two kata realities (CI round 1, Task 2):
-                # 1. The device plugin's generated CDI spec mounts the lib at
-                #    its VERSIONED path only; the .so.1 soname link is normally
-                #    created by the update-ldcache createContainer hook, which
-                #    runs host-side under kata — never in the guest. The probe
-                #    creates the soname link itself (documented workaround).
-                # 2. That spec carries no mock config mount/env either, so the
-                #    profile config is delivered as an explicit hostPath volume
-                #    (virtiofs) + MOCK_NVML_CONFIG.
-                # LD_LIBRARY_PATH: Ubuntu's loader does not search /usr/lib64.
-                env:
-                  - name: LD_LIBRARY_PATH
-                    value: /usr/lib64
-                  - name: MOCK_NVML_CONFIG
-                    value: /etc/nvml-mock/config.yaml
-                volumeMounts:
-                  - name: mock-config
-                    mountPath: /etc/nvml-mock/config.yaml
-                    readOnly: true
-                command:
-                  - sh
-                  - -c
-                  - |
-                    set -e
-                    echo "GUEST_KERNEL=$(uname -r)"
-                    echo "=== device nodes (kata-agent mknod from CDI/OCI devices) ==="
-                    # The per-GPU node index follows the scheduler's allocation
-                    # (CI: round 1 got /dev/nvidia0, round 2 /dev/nvidia1) —
-                    # assert exactly ONE allocated GPU node, whichever index.
-                    ls -la /dev/nvidia[0-9]* /dev/nvidiactl
-                    NDEV=$(ls /dev/nvidia[0-9]* | wc -l)
-                    [ "$NDEV" = "1" ] || { echo "FAIL: expected exactly 1 allocated GPU node, got $NDEV"; exit 1; }
-                    echo "=== virtiofs-delivered mock stack (versioned lib = CDI mount) ==="
-                    ls -la /usr/bin/nvidia-smi /usr/lib64/libnvidia-ml.so.*.*.*
-                    echo "=== soname link (hook does not run in-guest; consumer creates it) ==="
-                    ln -sf "$(ls /usr/lib64/libnvidia-ml.so.*.*.* | head -1)" /usr/lib64/libnvidia-ml.so.1
-                    echo "=== nvidia-smi -L ==="
-                    nvidia-smi -L
-                    echo "=== nvidia-smi ==="
-                    nvidia-smi
-                resources:
-                  limits:
-                    nvidia.com/gpu: 1
-            volumes:
-              - name: mock-config
-                hostPath:
-                  path: /var/lib/nvml-mock/driver/config/config.yaml
-                  type: File
-          PODEOF
-          for i in $(seq 1 36); do
-            PHASE=$(kubectl get pod kata-gpu-workload -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)
-            [ "$PHASE" = "Succeeded" ] && break
-            [ "$PHASE" = "Failed" ] && { kubectl describe pod kata-gpu-workload | tail -25; kubectl logs kata-gpu-workload || true; exit 1; }
-            echo "attempt $i/36: phase=$PHASE"
-            sleep 5
-          done
-          [ "$PHASE" = "Succeeded" ] || { kubectl describe pod kata-gpu-workload | tail -30; exit 1; }
-          kubectl logs kata-gpu-workload
-          LOGS=$(kubectl logs kata-gpu-workload)
-          # 1. VM guard again — allocation must not have knocked us to runc.
-          GUEST_KERNEL=$(sed -n 's/^GUEST_KERNEL=//p' <<< "$LOGS")
-          [ -n "$GUEST_KERNEL" ] && [ "$GUEST_KERNEL" != "$NODE_KERNEL" ] \
-            || { echo "FAIL: workload not in a kata VM (guest=$GUEST_KERNEL node=$NODE_KERNEL)"; exit 1; }
-          # 2. Exact profile literal (not a prefix) — the discriminating value.
-          grep -qF "NVIDIA A100-SXM4-40GB" <<< "$LOGS" \
-            || { echo "FAIL: profile GPU name not reported by nvidia-smi in guest"; exit 1; }
-          # 3. Enumeration is allocation-scoped: the engine's
-          #    detectVisibleDevices() (pkg/gpu/mocknvml/engine/engine.go)
-          #    enumerates only devices whose /dev/nvidiaN node exists, and
-          #    kata-agent mknod'd exactly the allocated one — so the guest
-          #    sees 1 GPU of the 2 configured. Same semantics a real driver
-          #    gives an allocated container.
-          COUNT=$(grep -c "^GPU " <<< "$LOGS" || true)
-          [ "$COUNT" = "1" ] || { echo "FAIL: expected 1 allocation-scoped GPU in -L output, got $COUNT"; exit 1; }
-          kubectl delete pod kata-gpu-workload --ignore-not-found
-          echo "PASS: mock NVML surface fully served inside the kata guest"
-
-      - name: Negative control — no GPU request, no injection
-        run: |
-          cat << 'PODEOF' | kubectl apply -f -
-          apiVersion: v1
-          kind: Pod
-          metadata:
-            name: kata-no-gpu
-          spec:
-            runtimeClassName: kata-qemu
-            restartPolicy: Never
-            containers:
-              - name: probe
-                image: ubuntu:22.04
-                command:
-                  - sh
-                  - -c
-                  - |
-                    ! ls /dev/nvidia[0-9]* >/dev/null 2>&1 || exit 1
-                    ! ls /usr/lib64/libnvidia-ml.so.* >/dev/null 2>&1 || exit 1
-                    echo CLEAN
-          PODEOF
-          for i in $(seq 1 24); do
-            PHASE=$(kubectl get pod kata-no-gpu -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)
-            [ "$PHASE" = "Succeeded" ] && break
-            [ "$PHASE" = "Failed" ] && { echo "FAIL: mock leaked into an unrequesting kata pod"; kubectl logs kata-no-gpu || true; exit 1; }
-            sleep 5
-          done
-          kubectl logs kata-no-gpu | grep -q "^CLEAN$" \
-            || { echo "FAIL: negative control did not report CLEAN"; exit 1; }
-          kubectl delete pod kata-no-gpu --ignore-not-found
-          echo "PASS: no injection without a GPU request"
+      - name: Exercise NRI injection under Kata
+        run: ./tests/e2e/run-kata-nri.sh
 
       - name: Collect kata logs on failure
         if: failure()
         run: |
           kubectl -n kube-system logs -l name=kata-deploy --tail=100 || true
           kubectl -n kube-system get pods -o wide || true
+          echo "=== nvml-mock/NRI pods ==="
+          kubectl -n "$NVML_MOCK_NAMESPACE" get pods -o wide || true
+          kubectl -n "$NVML_MOCK_NAMESPACE" logs daemonset/nvml-mock --all-containers --tail=100 || true
+          kubectl -n "$NVML_MOCK_NAMESPACE" logs daemonset/nvml-mock-nri --all-containers --tail=100 || true
+          for pod in kata-nri-ambient kata-nri-devices kata-nri-optout; do
+            echo "=== $pod describe ==="
+            kubectl describe pod "$pod" || true
+            echo "=== $pod logs ==="
+            kubectl logs "$pod" || true
+          done
           docker exec "$CLUSTER_NAME-control-plane" \
             sh -c 'ls /opt/kata/bin 2>/dev/null; grep -A5 kata /etc/containerd/config.toml 2>/dev/null' || true
           echo "=== devices + qemu processes in the node container ==="
@@ -1361,11 +1248,14 @@ jobs:
           echo "=== kata runtime journal ==="
           docker exec "$CLUSTER_NAME-control-plane" \
             sh -c 'journalctl --no-pager -t kata -n 80 2>/dev/null | tail -80' || true
-          echo "=== containerd journal (kata lines) ==="
+          echo "=== NRI socket ==="
+          docker exec "$CLUSTER_NAME-control-plane" ls -l /var/run/nri/nri.sock || true
+          echo "=== NRI containerd config ==="
           docker exec "$CLUSTER_NAME-control-plane" \
-            sh -c 'journalctl --no-pager -u containerd -n 200 2>/dev/null | grep -i kata | tail -60' || true
+            sh -c 'grep -A4 -B1 "io.containerd.nri.v1.nri" /etc/containerd/config.toml 2>/dev/null' || true
+          echo "=== containerd journal (NRI/Kata lines) ==="
+          docker exec "$CLUSTER_NAME-control-plane" \
+            sh -c 'journalctl --no-pager -u containerd -n 300 2>/dev/null | grep -Ei "nri|kata" | tail -100' || true
           echo "=== kata-deploy containerd drop-in ==="
           docker exec "$CLUSTER_NAME-control-plane" \
             cat /opt/kata/containerd/config.d/kata-deploy.toml || true
-          kubectl -n kube-system logs -l name=nvidia-device-plugin-kata --tail=50 || true
-          docker exec "$CLUSTER_NAME-control-plane" sh -c 'ls -la /var/run/cdi/ && head -40 /var/run/cdi/*' || true
