@@ -13,7 +13,7 @@ They verify:
 - DRA driver discovers mock GPUs and publishes ResourceSlices
 
 CI builds the `nvml-mock` image once per workflow run, pushes it to the
-ephemeral [ttl.sh](https://ttl.sh) registry (`ttl.sh/<run_id>/nvml-mock:<sha>`),
+ephemeral [ttl.sh](https://ttl.sh) registry (`ttl.sh/nvml-mock-<sha>:1h`),
 and all E2E jobs pull that shared image instead of rebuilding locally.
 
 ## Standalone GFD/validator steps (disabled)

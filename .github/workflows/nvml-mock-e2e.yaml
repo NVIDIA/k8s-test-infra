@@ -57,8 +57,8 @@ jobs:
       - name: Build and push nvml-mock image to ttl.sh
         id: meta
         run: |
-          REPOSITORY="ttl.sh/${{ github.run_id }}/nvml-mock"
-          TAG="${{ github.sha }}"
+          REPOSITORY="ttl.sh/nvml-mock-${{ github.sha }}"
+          TAG="1h"
           IMAGE="${REPOSITORY}:${TAG}"
           docker build -t "$IMAGE" -f deployments/nvml-mock/Dockerfile \
             --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
