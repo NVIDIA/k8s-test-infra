@@ -43,9 +43,8 @@ on:
         default: '["gb200"]'
         type: string
       golang_version:
-        description: 'Go version to use'
-        required: false
-        default: '1.26.5'
+        description: 'Go version to use (match go.mod / hack/golang-version.sh)'
+        required: true
         type: string
 
 env:

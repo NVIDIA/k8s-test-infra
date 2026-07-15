@@ -194,11 +194,14 @@ func firstNRIAgentPod(ctx context.Context, h *harness.Harness) kube.PodRef {
 	GinkgoHelper()
 	var name string
 	Eventually(func() (string, error) {
-		n, err := h.Kube.FirstPodName(ctx, nriWorkloadNS, nriAgentSelector)
-		name = n
-		return n, err
+		pods, err := h.Kube.RunningPodNames(ctx, nriWorkloadNS, nriAgentSelector)
+		if err != nil || len(pods) == 0 {
+			return "", err
+		}
+		name = pods[0]
+		return name, nil
 	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
-		ShouldNot(BeEmpty(), "no gpu-agent pod found")
+		ShouldNot(BeEmpty(), "no running gpu-agent pod found")
 	return kube.PodRef{Namespace: nriWorkloadNS, Pod: name}
 }
 
@@ -206,12 +209,23 @@ func nriAgentPodOnNode(ctx context.Context, h *harness.Harness, node string) kub
 	GinkgoHelper()
 	var name string
 	Eventually(func() (string, error) {
-		out, err := h.Kube.KubectlCombined(ctx, "get", "pod", "-n", nriWorkloadNS, "-l", nriAgentSelector,
-			"--field-selector", "spec.nodeName="+node, "-o", "jsonpath={.items[0].metadata.name}")
-		name = strings.TrimSpace(out)
-		return name, err
+		pods, err := h.Kube.RunningPodNames(ctx, nriWorkloadNS, nriAgentSelector)
+		if err != nil {
+			return "", err
+		}
+		for _, pod := range pods {
+			podNode, err := h.Kube.PodNode(ctx, nriWorkloadNS, pod)
+			if err != nil {
+				return "", err
+			}
+			if podNode == node {
+				name = pod
+				return name, nil
+			}
+		}
+		return "", nil
 	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
-		ShouldNot(BeEmpty(), "no gpu-agent pod on node %s", node)
+		ShouldNot(BeEmpty(), "no running gpu-agent pod on node %s", node)
 	return kube.PodRef{Namespace: nriWorkloadNS, Pod: name}
 }
 

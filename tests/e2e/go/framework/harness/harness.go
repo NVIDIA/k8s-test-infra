@@ -34,12 +34,14 @@ func Setup(ctx context.Context, name string, kindConfig []byte, image string) (*
 	h := &Harness{Image: image}
 
 	c, err := cluster.Create(ctx, name, kindConfig)
-	if c != nil {
-		if kerr := h.attachCluster(c, kube.New); kerr != nil {
-			return h, kerr
-		}
-	}
 	if err != nil {
+		// Preserve the create failure as the primary error. In failed Kind
+		// creates, kube client setup commonly fails too and would otherwise mask
+		// the actionable cluster-create output.
+		h.Cluster = c
+		return h, err
+	}
+	if err := h.attachCluster(c, kube.New); err != nil {
 		return h, err
 	}
 	if image != "" {
