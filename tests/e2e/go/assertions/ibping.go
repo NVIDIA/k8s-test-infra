@@ -22,10 +22,16 @@ import (
 const (
 	// These embed the literal `${MOCK_IB_ROOT:-...}` so they expand pod-side
 	// inside `sh -c`, against the pod's env (matching validate-ibping.sh).
-	ibLIDPath    = `${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib}/sys/class/infiniband/mlx5_0/ports/1/lid`
-	ibGUIDPath   = `${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib}/sys/class/infiniband/mlx5_0/ports/1/port_guid`
-	mockIBSock   = "/run/mock-ib.sock"
-	ibPingRecvRE = `[0-9]+ packets transmitted, [1-9][0-9]* received`
+	ibLIDPath  = `${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib}/sys/class/infiniband/mlx5_0/ports/1/lid`
+	ibGUIDPath = `${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib}/sys/class/infiniband/mlx5_0/ports/1/port_guid`
+	// mockIBSockExpr resolves the mock-ib socket path pod-side. The chart sets
+	// MOCK_IB_PING_SOCKET under the overlay tree
+	// (/var/lib/nvml-mock/run/mock-ib.sock) so the NRI node-wide-injection plugin
+	// can bind-mount it into injected pods; fall back to the daemon's own default
+	// (/run/mock-ib.sock) only when the env is unset. Expanded inside `sh -c`
+	// against the pod's env, matching the ${MOCK_IB_ROOT:-...} sysfs paths above.
+	mockIBSockExpr = `${MOCK_IB_PING_SOCKET:-/run/mock-ib.sock}`
+	ibPingRecvRE   = `[0-9]+ packets transmitted, [1-9][0-9]* received`
 )
 
 // ibForbidden are the substrings that mark an ibping failure even if the
@@ -114,7 +120,7 @@ func IBPing(ctx context.Context, k *kube.Client, server, client kube.PodRef, mod
 func waitMockIBSocket(ctx context.Context, k *kube.Client, pod kube.PodRef) {
 	ginkgo.By("waiting for mock-ib socket on " + pod.Pod)
 	gomega.Eventually(func() error {
-		_, err := k.Exec(ctx, pod, "test", "-S", mockIBSock)
+		_, err := k.ExecSh(ctx, pod, `test -S "`+mockIBSockExpr+`"`)
 		return err
 	}).WithContext(ctx).WithTimeout(30*time.Second).WithPolling(time.Second).
 		Should(gomega.Succeed(), "mock-ib socket not ready on %s", pod.Pod)
