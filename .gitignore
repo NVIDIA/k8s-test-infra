@@ -1,3 +1,5 @@
+.idea
+
 # Build artifacts
 *.so
 *.dll

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 gpu:
-  profile: a100           # a100 | h100 | b200 | gb200 | gb300 | l40s | t4
+  profile: a100           # any *.yaml basename under profiles/ (e.g. a100, h100, b200, gb200, gb300, l40s, t4)
   # Number of GPUs to expose. Empty (default) derives the count from the
   # selected profile's `devices:` list (t4 -> 4, all NVSwitch baseboards/NVL
   # slices -> 8), so the profile is the single source of truth. Set to a
