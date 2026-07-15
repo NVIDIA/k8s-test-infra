@@ -102,23 +102,18 @@ and key order) or round-trip it through fromYaml/toYaml for overlays.
 {{- define "nvml-mock.gpuConfigBase" -}}
 {{- if .Values.gpu.customConfig }}
 {{- .Values.gpu.customConfig }}
-{{- else if eq .Values.gpu.profile "a100" }}
-{{- .Files.Get "profiles/a100.yaml" }}
-{{- else if eq .Values.gpu.profile "h100" }}
-{{- .Files.Get "profiles/h100.yaml" }}
-{{- else if eq .Values.gpu.profile "b200" }}
-{{- .Files.Get "profiles/b200.yaml" }}
-{{- else if eq .Values.gpu.profile "gb200" }}
-{{- .Files.Get "profiles/gb200.yaml" }}
-{{- else if eq .Values.gpu.profile "gb300" }}
-{{- .Files.Get "profiles/gb300.yaml" }}
-{{- else if eq .Values.gpu.profile "l40s" }}
-{{- .Files.Get "profiles/l40s.yaml" }}
-{{- else if eq .Values.gpu.profile "t4" }}
-{{- .Files.Get "profiles/t4.yaml" }}
-{{- else }}
-{{- fail (printf "Unknown GPU profile %q. Supported profiles: a100, h100, b200, gb200, gb300, l40s, t4. Or set gpu.customConfig with inline YAML." .Values.gpu.profile) }}
-{{- end }}
+{{- else -}}
+{{- $profilePath := printf "profiles/%s.yaml" .Values.gpu.profile -}}
+{{- $content := .Files.Get $profilePath -}}
+{{- if not $content -}}
+{{- $available := list -}}
+{{- range $path, $_ := .Files.Glob "profiles/*.yaml" -}}
+{{- $available = append $available ($path | base | trimSuffix ".yaml") -}}
+{{- end -}}
+{{- fail (printf "Unknown GPU profile %q: %s not found in chart. Available profiles: %s. Or set gpu.customConfig with inline YAML." .Values.gpu.profile $profilePath (join ", " ($available | sortAlpha))) -}}
+{{- end -}}
+{{- $content -}}
+{{- end -}}
 {{- end }}
 
 {{/*
