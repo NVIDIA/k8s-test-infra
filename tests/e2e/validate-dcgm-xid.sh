@@ -61,8 +61,20 @@ kubectl rollout status daemonset/nvml-mock --timeout=120s
 echo "--- Restarting dcgm-exporter ---"
 kubectl -n "$NAMESPACE" rollout restart daemonset/nvidia-dcgm-exporter
 kubectl -n "$NAMESPACE" rollout status daemonset/nvidia-dcgm-exporter --timeout=180s
-kubectl -n "$NAMESPACE" wait pod -l app=nvidia-dcgm-exporter \
-  --for=condition=Ready --timeout=180s
+# The GPU operator reconciles the dcgm-exporter DaemonSet right after the
+# restart, so there is a brief window with no pods matching the selector. A
+# bare `kubectl wait` errors out with "no matching resources found" during
+# that window; poll until a pod is actually Ready instead.
+READY=0
+for _ in $(seq 1 30); do
+  if kubectl -n "$NAMESPACE" wait pod -l app=nvidia-dcgm-exporter \
+      --for=condition=Ready --timeout=10s >/dev/null 2>&1; then
+    READY=1
+    break
+  fi
+  sleep 2
+done
+[ "$READY" -eq 1 ] || fail "dcgm-exporter pod did not become Ready after restart"
 
 POD=$(kubectl -n "$NAMESPACE" get pods -l app=nvidia-dcgm-exporter \
   -o jsonpath='{.items[0].metadata.name}')

@@ -282,6 +282,72 @@ tests:
           path: data["config.yaml"]
           pattern: "pattern: idle"
 
+  - it: should use the profile power default over the chart baseline (b200)
+    set:
+      gpu:
+        profile: b200
+        dynamicMetrics:
+          enabled: true
+    asserts:
+      # b200's [400W, 1200W] envelope excludes the 250W chart baseline, so the
+      # profile default (600W) must win — otherwise power clamps to a constant.
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "base_mw: 600000"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "base_mw: 250000"
+      # Non-power fields still come from the chart baseline.
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "base_c: 55"
+
+  - it: should use the profile power default over the chart baseline (t4)
+    set:
+      gpu:
+        profile: t4
+        dynamicMetrics:
+          enabled: true
+    asserts:
+      # t4's 70W ceiling is below the 250W baseline; profile default (65W) wins.
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "base_mw: 65000"
+
+  - it: should let a user override win over the profile power default
+    set:
+      gpu:
+        profile: b200
+        dynamicMetrics:
+          enabled: true
+          power:
+            base_mw: 900000
+    asserts:
+      # User-supplied value beats both the profile default (600W) and baseline.
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "base_mw: 900000"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "base_mw: 600000"
+      # variance_mw was not overridden, so it falls back to the profile default.
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "variance_mw: 50000"
+
+  - it: should fall back to the chart baseline power for profiles without a default (a100)
+    set:
+      gpu:
+        profile: a100
+        dynamicMetrics:
+          enabled: true
+    asserts:
+      # a100's [100W, 400W] window contains the 250W baseline, so no per-profile
+      # override is needed and the baseline is used verbatim.
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "base_mw: 250000"
+
   - it: should not emit the dynamicMetrics 'enabled' flag into the rendered config
     set:
       gpu:

@@ -110,6 +110,10 @@ func (s *dynamicMetricsSimulator) Temperature(static uint32, shutdownC int) uint
 // Power returns a dynamic power reading in milliwatts if configured,
 // otherwise the supplied static value. minMW / maxMW (when > 0) clamp the
 // result to the device's advertised power limits.
+//
+// The caller is responsible for supplying a base_mw that sits inside the
+// [minMW, maxMW] envelope (the Helm chart seeds per-profile defaults for
+// this); a base outside the window will clamp to a bound and stop varying.
 func (s *dynamicMetricsSimulator) Power(static, minMW, maxMW uint32) uint32 {
 	if s == nil || s.cfg == nil || s.cfg.Power == nil {
 		return static

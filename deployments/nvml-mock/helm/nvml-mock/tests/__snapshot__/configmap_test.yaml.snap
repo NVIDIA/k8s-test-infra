@@ -19,6 +19,13 @@ should match snapshot with b200 profile:
           cuda_version_major: 12
           cuda_version_minor: 6
 
+        # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
+        # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
+        dynamic_metrics_defaults:
+          power:
+            base_mw: 600000                 # 600W, within [400W, 1200W]
+            variance_mw: 50000
+
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
         # =============================================================================
@@ -911,6 +918,13 @@ should match snapshot with gb200 profile:
           cuda_version_major: 13
           cuda_version_minor: 0
 
+        # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
+        # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
+        dynamic_metrics_defaults:
+          power:
+            base_mw: 600000                 # 600W, within [400W, 1200W]
+            variance_mw: 50000
+
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
         # =============================================================================
@@ -1403,6 +1417,13 @@ should match snapshot with gb300 profile:
           cuda_version: "12.8"
           cuda_version_major: 12
           cuda_version_minor: 8
+
+        # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
+        # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
+        dynamic_metrics_defaults:
+          power:
+            base_mw: 800000                 # 800W, within [500W, 1600W]
+            variance_mw: 75000
 
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
@@ -2768,6 +2789,13 @@ should match snapshot with t4 profile:
           cuda_version: "12.4"
           cuda_version_major: 12
           cuda_version_minor: 4
+
+        # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
+        # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
+        dynamic_metrics_defaults:
+          power:
+            base_mw: 65000                  # 65W, within [60W, 70W]
+            variance_mw: 5000
 
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
