@@ -1,0 +1,25 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kind cluster config for the Kata Containers E2E lane.
+# - /dev/kvm passthrough: kata-deploy's QEMU needs KVM inside the node
+#   container (GitHub ubuntu-latest amd64 runners expose /dev/kvm).
+# - NRI: nvml-mock injects the mock stack into Kata guests through
+#   containerd's Node Resource Interface plugin.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      socket_path = "/var/run/nri/nri.sock"
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: /dev/kvm
+        containerPath: /dev/kvm
+      # AF_VSOCK control channel between the kata shim and the guest agent.
+      # Requires `modprobe vhost_vsock` on the host before cluster creation
+      # (the workflow's KVM/vsock step does this).
+      - hostPath: /dev/vhost-vsock
+        containerPath: /dev/vhost-vsock

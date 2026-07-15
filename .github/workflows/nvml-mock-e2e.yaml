@@ -1073,3 +1073,189 @@ jobs:
           kubectl logs -l app.kubernetes.io/instance=nvml-mock-w2 --tail=50 || true
           echo "=== events ==="
           kubectl get events --sort-by=.lastTimestamp | tail -30 || true
+
+  # Verifies the nvml-mock delivery path under the Kata Containers runtime
+  # class (issue #377 / Kata-CoCo integration, v1 = plain kata-qemu).
+  # Workloads run inside a lightweight VM; NRI supplies the mock stack and,
+  # when requested by annotation, device nodes to the guest.
+  # Docs: docs/integrations/kata.md
+  e2e-kata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLUSTER_NAME: nvml-mock-kata
+      KATA_VERSION: "3.32.0"
+      NVML_MOCK_NAMESPACE: nvml-mock-system
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Verify KVM and vsock on the runner
+        run: |
+          ls -l /dev/kvm
+          sudo chmod 666 /dev/kvm
+          # kata's shim reaches the guest agent over AF_VSOCK; the module is
+          # available on GitHub runners but not auto-loaded (CI round 2:
+          # sandbox creation timed out connecting to vsock CID:1024).
+          sudo modprobe vhost_vsock
+          ls -l /dev/vhost-vsock
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+
+      - name: Create Kind cluster (KVM + NRI)
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+        with:
+          cluster_name: ${{ env.CLUSTER_NAME }}
+          config: tests/e2e/kind-kata-config.yaml
+
+      - name: Enlarge node /dev/shm for kata guest memory
+        run: |
+          # QEMU backs the guest's RAM with a file on the NODE's /dev/shm
+          # (share=on, required by virtiofsd). Kind node containers get the
+          # Docker default of 64M, so the 2G guest hangs before the agent
+          # starts (CI round 3: vsock timeout, journal "shm-size detected:
+          # 67108864"). tmpfs is virtual — the size costs nothing unless used.
+          docker exec "$CLUSTER_NAME-control-plane" mount -o remount,size=8G /dev/shm
+          docker exec "$CLUSTER_NAME-control-plane" df -h /dev/shm
+
+      - name: Install kata-deploy
+        run: |
+          helm install kata-deploy \
+            oci://ghcr.io/kata-containers/kata-deploy-charts/kata-deploy \
+            --version "$KATA_VERSION" \
+            -n kube-system \
+            --set k8sDistribution=k8s \
+            --set shims.qemu.enabled=true \
+            --set node-feature-discovery.enabled=false \
+            --set debug=true \
+            --wait --timeout 300s
+          # debug=true above is deliberate: the kata runtime/agent journal and
+          # guest console on this CI node are the primary evidence when this
+          # VM lane flakes — do not drop it as cleanup.
+
+      - name: Wait for kata runtime readiness
+        run: |
+          NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
+          # kata-deploy labels the node when the runtime is installed and
+          # containerd has been reconfigured.
+          for i in $(seq 1 36); do
+            LABEL=$(kubectl get node "$NODE" \
+              -o jsonpath='{.metadata.labels.katacontainers\.io/kata-runtime}' 2>/dev/null || true)
+            [ "$LABEL" = "true" ] && break
+            echo "attempt $i/36: kata-runtime label=$LABEL"
+            sleep 5
+          done
+          [ "$LABEL" = "true" ] || { echo "FAIL: kata-deploy never labeled the node"; exit 1; }
+          # RuntimeClass is created by the chart for each enabled shim.
+          kubectl get runtimeclass kata-qemu
+
+      - name: Kata smoke — pod boots a real guest kernel
+        run: |
+          NODE_KERNEL=$(docker exec "$CLUSTER_NAME-control-plane" uname -r)
+          cat << 'PODEOF' | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: kata-smoke
+          spec:
+            runtimeClassName: kata-qemu
+            restartPolicy: Never
+            containers:
+              - name: probe
+                image: ubuntu:22.04
+                command: ["sh", "-c", "echo GUEST_KERNEL=$(uname -r)"]
+          PODEOF
+          for i in $(seq 1 36); do
+            PHASE=$(kubectl get pod kata-smoke -o jsonpath='{.status.phase}' 2>/dev/null || echo Pending)
+            [ "$PHASE" = "Succeeded" ] && break
+            [ "$PHASE" = "Failed" ] && { kubectl describe pod kata-smoke | tail -20; exit 1; }
+            echo "attempt $i/36: phase=$PHASE"
+            sleep 5
+          done
+          [ "$PHASE" = "Succeeded" ] || { kubectl describe pod kata-smoke | tail -30; exit 1; }
+          kubectl logs kata-smoke
+          GUEST_KERNEL=$(kubectl logs kata-smoke | sed -n 's/^GUEST_KERNEL=//p')
+          # THE discriminating assertion. GitHub runners are themselves VMs,
+          # so /proc/cpuinfo shows 'hypervisor' even in runc pods — kernel
+          # inequality is the only signal that survives a silent runc
+          # fallback (runc pod == node kernel; kata guest boots its own).
+          [ -n "$GUEST_KERNEL" ] || { echo "FAIL: no guest kernel captured"; exit 1; }
+          if [ "$GUEST_KERNEL" = "$NODE_KERNEL" ]; then
+            echo "FAIL: pod kernel ($GUEST_KERNEL) == node kernel — runc fallback, not a VM"
+            exit 1
+          fi
+          echo "PASS: kata guest kernel $GUEST_KERNEL != node kernel $NODE_KERNEL"
+          kubectl delete pod kata-smoke --ignore-not-found
+
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ inputs.golang_version }}
+
+      - name: Build nvml-mock image
+        run: |
+          docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile \
+            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+
+      - name: Load image into Kind
+        run: |
+          kind load docker-image nvml-mock:e2e --name "$CLUSTER_NAME"
+
+      - name: Install nvml-mock with NRI injection
+        run: |
+          helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+            --namespace "$NVML_MOCK_NAMESPACE" --create-namespace \
+            --set image.repository=nvml-mock --set image.tag=e2e \
+            --set gpu.profile=a100 --set gpu.count=2 \
+            --set nri.enabled=true --wait --timeout 180s
+          kubectl -n "$NVML_MOCK_NAMESPACE" rollout status daemonset/nvml-mock --timeout=120s
+          kubectl -n "$NVML_MOCK_NAMESPACE" rollout status daemonset/nvml-mock-nri --timeout=90s
+
+      - name: Verify NRI registration
+        run: |
+          for i in $(seq 1 24); do
+            LOGS=$(kubectl -n "$NVML_MOCK_NAMESPACE" logs daemonset/nvml-mock-nri --tail=100 2>&1 || true)
+            grep -q "configured by runtime" <<<"$LOGS" && break
+            echo "attempt $i/24: waiting for nvml-mock NRI registration"
+            sleep 5
+          done
+          grep -q "configured by runtime" <<<"$LOGS" \
+            || { echo "$LOGS"; echo "FAIL: NRI plugin did not register"; exit 1; }
+
+      - name: Exercise NRI injection under Kata
+        run: ./tests/e2e/run-kata-nri.sh
+
+      - name: Collect kata logs on failure
+        if: failure()
+        run: |
+          kubectl -n kube-system logs -l name=kata-deploy --tail=100 || true
+          kubectl -n kube-system get pods -o wide || true
+          echo "=== nvml-mock/NRI pods ==="
+          kubectl -n "$NVML_MOCK_NAMESPACE" get pods -o wide || true
+          kubectl -n "$NVML_MOCK_NAMESPACE" logs daemonset/nvml-mock --all-containers --tail=100 || true
+          kubectl -n "$NVML_MOCK_NAMESPACE" logs daemonset/nvml-mock-nri --all-containers --tail=100 || true
+          for pod in kata-smoke kata-nri-ambient kata-nri-devices kata-nri-optout; do
+            echo "=== $pod describe ==="
+            kubectl -n default describe pod "$pod" || true
+            echo "=== $pod logs ==="
+            kubectl -n default logs "$pod" || true
+          done
+          docker exec "$CLUSTER_NAME-control-plane" \
+            sh -c 'ls /opt/kata/bin 2>/dev/null; grep -A5 kata /etc/containerd/config.toml 2>/dev/null' || true
+          echo "=== devices + qemu processes in the node container ==="
+          docker exec "$CLUSTER_NAME-control-plane" \
+            sh -c 'ls -l /dev/kvm /dev/vhost-vsock 2>&1; ps aux | grep -i [q]emu | head -5' || true
+          echo "=== kata runtime journal ==="
+          docker exec "$CLUSTER_NAME-control-plane" \
+            sh -c 'journalctl --no-pager -t kata -n 80 2>/dev/null | tail -80' || true
+          echo "=== NRI socket ==="
+          docker exec "$CLUSTER_NAME-control-plane" ls -l /var/run/nri/nri.sock || true
+          echo "=== NRI containerd config ==="
+          docker exec "$CLUSTER_NAME-control-plane" \
+            sh -c 'grep -A4 -B1 "io.containerd.nri.v1.nri" /etc/containerd/config.toml 2>/dev/null' || true
+          echo "=== containerd journal (NRI/Kata lines) ==="
+          docker exec "$CLUSTER_NAME-control-plane" \
+            sh -c 'journalctl --no-pager -u containerd -n 300 2>/dev/null | grep -Ei "nri|kata" | tail -100' || true
+          echo "=== kata-deploy containerd drop-in ==="
+          docker exec "$CLUSTER_NAME-control-plane" \
+            cat /opt/kata/containerd/config.d/kata-deploy.toml || true
