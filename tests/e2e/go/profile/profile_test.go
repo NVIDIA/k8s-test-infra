@@ -25,16 +25,17 @@ func TestDerivations(t *testing.T) {
 		hcas        int
 		nv          int
 		fabricMgr   bool
+		hasFabric   bool
 		ibEnabled   bool
 		pciRoots    int
 	}{
-		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, true, 2},
-		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, 2},
-		{"b200", "NVIDIA B200", 8, 8, 0, false, true, 2}, // NVLink negative control, IB enabled
-		{"gb200", "NVIDIA GB200", 8, 8, 18, true, true, 4},
-		{"gb300", "NVIDIA GB300 NVL", 8, 8, 18, true, true, 4},
-		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, 2}, // IB + NVLink negative control
-		{"t4", "NVIDIA T4", 4, 0, 0, false, false, 1},
+		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
+		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2},
+		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2}, // NVLink negative control, IB enabled
+		{"gb200", "NVIDIA GB200", 8, 8, 18, true, true, true, 4},
+		{"gb300", "NVIDIA GB300 NVL", 8, 8, 18, true, true, true, 4},
+		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2}, // IB + NVLink negative control
+		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1},
 	}
 
 	for _, c := range cases {
@@ -56,6 +57,7 @@ func TestDerivations(t *testing.T) {
 				{"ExpectedHCAs", p.ExpectedHCAs(), c.hcas},
 				{"ExpectedNV", p.ExpectedNV(), c.nv},
 				{"FabricMgr", p.FabricMgr(), c.fabricMgr},
+				{"HasFabric", p.HasFabric(), c.hasFabric},
 				{"IBEnabled", p.IBEnabled(), c.ibEnabled},
 				{"ExpectedPCIRoots", p.ExpectedPCIRoots(), c.pciRoots},
 			}

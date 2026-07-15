@@ -70,14 +70,17 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		name := name
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (
-				p      profile.Profile
-				fabric bool
+				p             profile.Profile
+				computeDomain bool
 			)
 
 			BeforeAll(func(ctx SpecContext) {
 				p = loadProfile(name)
-				fabric = p.FabricMgr()
-				installNRIChart(ctx, h, p, topoValues, fabric)
+				// Only profiles that declare a device_defaults.fabric block
+				// (h100/gb200/gb300) expose ComputeDomain identity; NVSwitch-only
+				// profiles like a100 report "fabric NOT SUPPORTED".
+				computeDomain = p.HasFabric()
+				installNRIChart(ctx, h, p, topoValues, computeDomain)
 				assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
 				assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
 				deployNRIAgent(ctx, h)
@@ -94,8 +97,8 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			})
 
 			It("carries per-node ComputeDomain fabric identity through NRI", Label("compute-domain"), func(ctx SpecContext) {
-				if !fabric {
-					Skip("profile " + name + " has no NVLink fabric; the ComputeDomain overlay is a no-op")
+				if !computeDomain {
+					Skip("profile " + name + " declares no device_defaults.fabric block; ComputeDomain identity is unsupported")
 				}
 				assertNodeCliqueIdentities(ctx, h, workers)
 			})
@@ -107,7 +110,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 // enabled. Fabric-attached profiles additionally get the generated
 // ComputeDomain overlay via `-f` (a structured merge of topology.domains, never
 // --set-file which would stuff the raw bytes in as a string literal).
-func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile, topoValues string, fabric bool) {
+func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile, topoValues string, withComputeDomain bool) {
 	GinkgoHelper()
 	repo, tag := splitImage(config.Image())
 	rel := helm.Release{
@@ -126,7 +129,7 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 		Wait:    true,
 		Timeout: config.HelmTimeout(),
 	}
-	if fabric {
+	if withComputeDomain {
 		rel.ValuesFiles = []string{topoValues}
 	}
 	By("helm upgrade --install nvml-mock with NRI enabled (profile=" + p.Name + ")")

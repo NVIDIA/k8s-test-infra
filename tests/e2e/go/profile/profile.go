@@ -81,6 +81,7 @@ type Profile struct {
 	linksPerGPU int
 	hasSwitches bool
 	fabricAuto  bool
+	hasFabric   bool
 	pciRoots    int
 }
 
@@ -112,6 +113,7 @@ func Load(profilesDir, name string) (Profile, error) {
 		hasSwitches: len(raw.NVLink.Switches) > 0,
 	}
 	if raw.DeviceDefaults.Fabric != nil {
+		p.hasFabric = true
 		p.fabricAuto = strings.EqualFold(strings.TrimSpace(raw.DeviceDefaults.Fabric.State), "auto")
 	}
 	// render-pci-sysfs falls back to a flat single-root layout when a profile
@@ -181,3 +183,12 @@ func (p Profile) ExpectedPCIRoots() int { return p.pciRoots }
 // deployed DaemonSet's MOCK_FABRICMANAGER env at runtime as the authoritative
 // gate; this is the profile-derived expectation.
 func (p Profile) FabricMgr() bool { return p.hasSwitches || p.fabricAuto }
+
+// HasFabric reports whether the profile declares a device_defaults.fabric block
+// (cluster_uuid / clique_id). Only these profiles (h100, gb200, gb300) expose
+// ComputeDomain fabric identity via nvmlDeviceGetGpuFabricInfo, so the mock's
+// check-fabric consumer succeeds and the topology overlay has something to
+// rewrite. This is DISTINCT from FabricMgr: an NVSwitch profile like a100 runs
+// the fabricmanager daemon (FabricMgr true) yet reports fabric NOT SUPPORTED
+// (HasFabric false).
+func (p Profile) HasFabric() bool { return p.hasFabric }
