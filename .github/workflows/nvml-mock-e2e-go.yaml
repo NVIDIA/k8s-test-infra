@@ -280,3 +280,60 @@ jobs:
           else
             echo "no diagnostics written"
           fi
+
+  e2e-nri:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu-profile: ${{ fromJson(inputs.gpu_profiles) }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build nvml-mock image (buildx + GHA cache)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          file: deployments/nvml-mock/Dockerfile
+          tags: ${{ env.E2E_IMAGE }}
+          load: true
+          build-args: |
+            GOLANG_VERSION=${{ env.GO_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
+          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Run node-wide NRI injection E2E (${{ matrix.gpu-profile }})
+        env:
+          E2E_PROFILES: ${{ matrix.gpu-profile }}
+        run: make e2e-nri
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-nri diagnostics (${{ matrix.gpu-profile }}) ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi

@@ -123,6 +123,7 @@ tests/e2e/go/
   scenario_standalone_setup.go   # per-profile install/setup helper
   scenario_failure_injection.go  # failure-injection scenario helpers
   scenario_validator_test.go     # CUDA vectorAdd validator scenario
+  scenario_nri_test.go           # node-wide NRI ambient-injection scenario
   framework/                     # thin wrappers for kind, helm, and kubectl
   assertions/                    # domain assertions for nvidia-smi, NVLink, IB, PCI
   profile/                       # profile parser and topology expectations
@@ -190,6 +191,31 @@ installs A100 and T4 `nvml-mock` releases on separate workers, verifies mock
 files and InfiniBand behavior on both nodes, deploys the device plugin, and
 schedules a GPU workload across the fleet.
 
+## Node-Wide NRI Injection Scenario
+
+The `nri` scenario is the Go port of
+[`docs/demo/node-wide-injection/run.sh`](../../docs/demo/node-wide-injection).
+It creates a dedicated Kind cluster from
+[`go/assets/kind-nri-config.yaml`](go/assets/kind-nri-config.yaml) (four workers
+with containerd NRI enabled), installs the selected `nvml-mock` profile with
+`nri.enabled=true`, and — for fabric-attached profiles — a generated two-clique
+ComputeDomain overlay derived from the discovered worker names.
+
+It then applies a plain [`go/assets/nri-gpu-agent.yaml`](go/assets/nri-gpu-agent.yaml)
+DaemonSet — no `nvidia.com/gpu` request, no hostPath/mock volumes, no `MOCK_*`
+env — and asserts:
+
+- the gpu-agent pod spec never requests `nvidia.com/gpu`;
+- `nvidia-smi -L` inside the ambiently injected pod lists the profile's GPUs;
+- `compute-domain`: on fabric profiles, each node reports its assigned clique /
+  cluster UUID via the staged `check-fabric` consumer (skipped on non-fabric
+  profiles such as `t4`, where the overlay is a no-op).
+
+```bash
+make e2e-nri                       # default gb200 (fabric + ComputeDomain)
+make e2e-nri E2E_PROFILES=t4       # plain node-wide injection, no fabric checks
+```
+
 ## CUDA Validator Scenario
 
 The `validator` scenario applies [`go/assets/validator-mock.yaml`](go/assets/validator-mock.yaml),
@@ -231,6 +257,9 @@ Use-case labels:
 - `dra`
 - `gpu-operator`
 - `multi-node`
+- `nri`
+- `nri-inject`
+- `compute-domain`
 - `failure-injection`
 - `validator`
 
@@ -243,6 +272,7 @@ make e2e E2E_GINKGO_FLAGS='--label-filter="gb200 && ibping"'
 make e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter="dra"'
 make e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter="gpu-operator"'
 make e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter="multi-node"'
+make e2e E2E_GINKGO_FLAGS='--label-filter="nri"'
 make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
 ```
 

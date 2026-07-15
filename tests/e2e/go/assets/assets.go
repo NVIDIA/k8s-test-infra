@@ -24,8 +24,14 @@ var KindGPUOperatorConfig []byte
 //go:embed kind-multi-node-config.yaml
 var KindMultiNodeConfig []byte
 
+//go:embed kind-nri-config.yaml
+var KindNRIConfig []byte
+
 //go:embed device-plugin-mock.yaml
 var DevicePluginManifest []byte
+
+//go:embed nri-gpu-agent.yaml
+var NRIGpuAgentManifest []byte
 
 //go:embed gpu-operator-values.yaml
 var GPUOperatorValues []byte
