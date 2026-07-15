@@ -45,7 +45,30 @@ on:
         type: string
 
 jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      repository: ${{ steps.meta.outputs.repository }}
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Build and push nvml-mock image to ttl.sh
+        id: meta
+        run: |
+          REPOSITORY="ttl.sh/${{ github.run_id }}/nvml-mock"
+          TAG="${{ github.sha }}"
+          IMAGE="${REPOSITORY}:${TAG}"
+          docker build -t "$IMAGE" -f deployments/nvml-mock/Dockerfile \
+            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "repository=$REPOSITORY" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
   e2e-device-plugin:
+    needs: [build-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -70,11 +93,6 @@ jobs:
           echo "gpu-count=$COUNT" >> "$GITHUB_OUTPUT"
           echo "Resolved profile '${{ matrix.gpu-profile }}': name='$NAME', $COUNT GPUs"
 
-      - name: Install Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: ${{ inputs.golang_version }}
-
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
@@ -83,20 +101,18 @@ jobs:
         with:
           cluster_name: nvml-mock-e2e-${{ matrix.gpu-profile }}
 
-      - name: Build nvml-mock image
-        run: |
-          docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile \
-            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+      - name: Pull pre-built nvml-mock image
+        run: docker pull ${{ needs.build-image.outputs.image }}
 
       - name: Load image into Kind
         run: |
-          kind load docker-image nvml-mock:e2e --name nvml-mock-e2e-${{ matrix.gpu-profile }}
+          kind load docker-image ${{ needs.build-image.outputs.image }} --name nvml-mock-e2e-${{ matrix.gpu-profile }}
 
       - name: Install nvml-mock Helm chart
         run: |
           helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
-            --set image.repository=nvml-mock \
-            --set image.tag=e2e \
+            --set image.repository=${{ needs.build-image.outputs.repository }} \
+            --set image.tag=${{ needs.build-image.outputs.tag }} \
             --set gpu.profile=${{ matrix.gpu-profile }} \
             --wait --timeout 120s
 
@@ -286,6 +302,7 @@ jobs:
           kubectl describe nodes || true
 
   e2e-dra:
+    needs: [build-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -310,11 +327,6 @@ jobs:
           echo "gpu-count=$COUNT" >> "$GITHUB_OUTPUT"
           echo "Resolved profile '${{ matrix.gpu-profile }}': name='$NAME', $COUNT GPUs"
 
-      - name: Install Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: ${{ inputs.golang_version }}
-
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
@@ -324,20 +336,18 @@ jobs:
           cluster_name: nvml-mock-dra-${{ matrix.gpu-profile }}
           config: tests/e2e/kind-dra-config.yaml
 
-      - name: Build nvml-mock image
-        run: |
-          docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile \
-            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+      - name: Pull pre-built nvml-mock image
+        run: docker pull ${{ needs.build-image.outputs.image }}
 
       - name: Load image into Kind
         run: |
-          kind load docker-image nvml-mock:e2e --name nvml-mock-dra-${{ matrix.gpu-profile }}
+          kind load docker-image ${{ needs.build-image.outputs.image }} --name nvml-mock-dra-${{ matrix.gpu-profile }}
 
       - name: Install nvml-mock Helm chart
         run: |
           helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
-            --set image.repository=nvml-mock \
-            --set image.tag=e2e \
+            --set image.repository=${{ needs.build-image.outputs.repository }} \
+            --set image.tag=${{ needs.build-image.outputs.tag }} \
             --set gpu.profile=${{ matrix.gpu-profile }} \
             --wait --timeout 120s
 
@@ -507,6 +517,7 @@ jobs:
           kubectl describe nodes || true
 
   e2e-gpu-operator:
+    needs: [build-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -528,11 +539,6 @@ jobs:
           fi
           echo "gpu-count=$COUNT" >> "$GITHUB_OUTPUT"
           echo "Resolved profile '${{ matrix.gpu-profile }}': $COUNT GPUs"
-
-      - name: Install Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: ${{ inputs.golang_version }}
 
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
@@ -581,20 +587,18 @@ jobs:
           sleep 5
           docker exec "$NODE_CONTAINER" crictl info | head -5
 
-      - name: Build nvml-mock image
-        run: |
-          docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile \
-            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+      - name: Pull pre-built nvml-mock image
+        run: docker pull ${{ needs.build-image.outputs.image }}
 
       - name: Load image into Kind
         run: |
-          kind load docker-image nvml-mock:e2e --name nvml-mock-op-${{ matrix.gpu-profile }}
+          kind load docker-image ${{ needs.build-image.outputs.image }} --name nvml-mock-op-${{ matrix.gpu-profile }}
 
       - name: Install nvml-mock Helm chart
         run: |
           helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
-            --set image.repository=nvml-mock \
-            --set image.tag=e2e \
+            --set image.repository=${{ needs.build-image.outputs.repository }} \
+            --set image.tag=${{ needs.build-image.outputs.tag }} \
             --set gpu.profile=${{ matrix.gpu-profile }} \
             --wait --timeout 120s
 
@@ -777,14 +781,10 @@ jobs:
           kubectl describe nodes || true
 
   e2e-multi-node:
+    needs: [build-image]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Install Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: ${{ inputs.golang_version }}
 
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
@@ -795,14 +795,12 @@ jobs:
           cluster_name: gpu-fleet
           config: tests/e2e/kind-multi-node-config.yaml
 
-      - name: Build nvml-mock image
-        run: |
-          docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile \
-            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+      - name: Pull pre-built nvml-mock image
+        run: docker pull ${{ needs.build-image.outputs.image }}
 
       - name: Load image into Kind
         run: |
-          kind load docker-image nvml-mock:e2e --name gpu-fleet
+          kind load docker-image ${{ needs.build-image.outputs.image }} --name gpu-fleet
 
       - name: Discover worker node names
         id: nodes
@@ -845,8 +843,8 @@ jobs:
       - name: Install nvml-mock on worker-1 (A100 profile)
         run: |
           helm install nvml-mock-a100 deployments/nvml-mock/helm/nvml-mock \
-            --set image.repository=nvml-mock \
-            --set image.tag=e2e \
+            --set image.repository=${{ needs.build-image.outputs.repository }} \
+            --set image.tag=${{ needs.build-image.outputs.tag }} \
             --set gpu.profile=a100 \
             --set "nodeSelector.nvml-mock/profile=a100" \
             --wait --timeout 120s
@@ -854,8 +852,8 @@ jobs:
       - name: Install nvml-mock on worker-2 (T4 profile)
         run: |
           helm install nvml-mock-t4 deployments/nvml-mock/helm/nvml-mock \
-            --set image.repository=nvml-mock \
-            --set image.tag=e2e \
+            --set image.repository=${{ needs.build-image.outputs.repository }} \
+            --set image.tag=${{ needs.build-image.outputs.tag }} \
             --set gpu.profile=t4 \
             --set "nodeSelector.nvml-mock/profile=t4" \
             --wait --timeout 120s
@@ -971,6 +969,7 @@ jobs:
           kubectl describe nodes || true
 
   ibping-multinode:
+    needs: [build-image]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -984,14 +983,12 @@ jobs:
           cluster_name: ibping-fleet
           config: tests/e2e/kind-multi-node-config.yaml
 
-      - name: Build nvml-mock image
-        run: |
-          docker build -t nvml-mock:e2e -f deployments/nvml-mock/Dockerfile \
-            --build-arg GOLANG_VERSION=${{ inputs.golang_version }} .
+      - name: Pull pre-built nvml-mock image
+        run: docker pull ${{ needs.build-image.outputs.image }}
 
       - name: Load image into Kind
         run: |
-          kind load docker-image nvml-mock:e2e --name ibping-fleet
+          kind load docker-image ${{ needs.build-image.outputs.image }} --name ibping-fleet
 
       - name: Discover worker node names
         id: nodes
@@ -1006,8 +1003,8 @@ jobs:
       - name: Install nvml-mock on worker-1 (A100 + ibping)
         run: |
           helm install nvml-mock-w1 deployments/nvml-mock/helm/nvml-mock \
-            --set image.repository=nvml-mock \
-            --set image.tag=e2e \
+            --set image.repository=${{ needs.build-image.outputs.repository }} \
+            --set image.tag=${{ needs.build-image.outputs.tag }} \
             --set gpu.profile=a100 \
             --set "nodeSelector.kubernetes\.io/hostname=${{ steps.nodes.outputs.worker1 }}" \
             --wait --timeout 120s
@@ -1015,8 +1012,8 @@ jobs:
       - name: Install nvml-mock on worker-2 (A100 + ibping)
         run: |
           helm install nvml-mock-w2 deployments/nvml-mock/helm/nvml-mock \
-            --set image.repository=nvml-mock \
-            --set image.tag=e2e \
+            --set image.repository=${{ needs.build-image.outputs.repository }} \
+            --set image.tag=${{ needs.build-image.outputs.tag }} \
             --set gpu.profile=a100 \
             --set "nodeSelector.kubernetes\.io/hostname=${{ steps.nodes.outputs.worker2 }}" \
             --wait --timeout 120s

@@ -12,6 +12,10 @@ They verify:
 - NVIDIA device plugin discovers mock GPUs and registers `nvidia.com/gpu`
 - DRA driver discovers mock GPUs and publishes ResourceSlices
 
+CI builds the `nvml-mock` image once per workflow run, pushes it to the
+ephemeral [ttl.sh](https://ttl.sh) registry (`ttl.sh/<run_id>/nvml-mock:<sha>`),
+and all E2E jobs pull that shared image instead of rebuilding locally.
+
 ## Standalone GFD/validator steps (disabled)
 
 The `e2e-device-plugin` job has standalone GFD and CUDA validator steps that
