@@ -1,0 +1,10 @@
+# nvml-mock overlay for FGO integration.
+# Pins nvml-mock to the integration node pool and enables per-profile
+# ConfigMaps that FGO uses to discover GPU profiles (label: run.ai/gpu-profile=true).
+
+integrations:
+  fakeGpuOperator:
+    enabled: true
+
+nodeSelector:
+  run.ai/simulated-gpu-node-pool: integration

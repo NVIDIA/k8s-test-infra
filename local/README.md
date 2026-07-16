@@ -24,11 +24,11 @@ tilt up
 
 All profiles use the same custom Kind node image (`kind-node-nv:latest`) built from `local/kind/Dockerfile`, which pre-installs the NVIDIA container runtime.
 
-| `PROFILE=`        | Kind config                          | Cluster name                  | Use with         |
-|-------------------|--------------------------------------|-------------------------------|------------------|
-| `single` (default)| `local/kind/single.kind.yaml`        | `kind-gpu-test`               | basic, gpu-operator, dra |
-| `multi`           | `local/kind/multi.kind.yaml`         | `kind-gpu-test`               | `--multi`, dra (heterogeneous fleet) |
-| `compute-domain`  | `local/kind/compute-domain.kind.yaml`| `kind-nvml-mock-compute-domain` | `--compute-domain` |
+| `PROFILE=`         | Kind config                           | Cluster name                    | Use with                                                                 |
+|--------------------|---------------------------------------|---------------------------------|--------------------------------------------------------------------------|
+| `single` (default) | `local/kind/single.kind.yaml`         | `kind-gpu-test`                 | basic, gpu-operator, dra                                                 |
+| `multi`            | `local/kind/multi.kind.yaml`          | `kind-gpu-test`                 | `--multi`, dra (heterogeneous fleet), `--fgo` (run:ai fake GPU Operator) |
+| `compute-domain`   | `local/kind/compute-domain.kind.yaml` | `kind-nvml-mock-compute-domain` | `--compute-domain`                                                       |
 
 ```bash
 make cluster-create                      # single-node (default)
@@ -76,6 +76,30 @@ Deploys the DRA driver on top of nvml-mock. Compatible with all cluster profiles
 tilt up -- --dra
 tilt up -- --multi --dra
 tilt up -- --gpu-operator --dra          # GPU Operator + DRA together
+```
+
+### With Run:ai Fake GPU Operator (FGO)
+
+Deploys [FGO](https://github.com/run-ai/fake-gpu-operator) alongside nvml-mock, splitting workers into two pools:
+- **integration** (a100 worker) — nvml-mock provides the NVML shim, full `nvidia-smi` output
+- **scale** (t4 worker) — FGO fake backend, no nvml-mock required
+
+Mutually exclusive with `--gpu-operator` (FGO replaces it) and `--compute-domain`.
+
+```bash
+make cluster-create PROFILE=multi        # creates both pool workers
+tilt up -- --fgo                         # single integration node only
+tilt up -- --multi --fgo                 # both integration + scale pools
+```
+
+Verify:
+```bash
+# nvml-mock running on integration worker
+kubectl get pods -l app.kubernetes.io/name=nvml-mock -o wide
+kubectl get configmaps -l run.ai/gpu-profile=true
+
+# FGO managing scale worker
+kubectl get pods -n gpu-operator -o wide
 ```
 
 ### Compute-domain scenario (requires `PROFILE=compute-domain` cluster)

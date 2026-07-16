@@ -33,6 +33,7 @@ load('./local/compute-domain/compute_domain.tiltfile',
      compute_domain_daemon_image='DAEMON_IMAGE')
 load('./local/gpu-operator/gpu_operator.tiltfile', gpu_operator_install='install')
 load('./local/dra/dra.tiltfile', dra_install='install')
+load('./local/fgo/fgo.tiltfile', fgo_install='install')
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
@@ -50,6 +51,8 @@ config.define_bool('gpu-operator', args=False,
     usage='Also deploy NVIDIA GPU Operator on top of nvml-mock')
 config.define_bool('dra', args=False,
     usage='Also deploy NVIDIA DRA driver on top of nvml-mock')
+config.define_bool('fgo', args=False,
+    usage='Also deploy Run:ai Fake GPU Operator (recommended: PROFILE=multi cluster for integration + scale pools)')
 
 cfg = config.parse()
 
@@ -57,6 +60,7 @@ multi               = cfg.get('multi', False)
 with_compute_domain = cfg.get('compute-domain', False)
 with_gpu_operator   = cfg.get('gpu-operator', False)
 with_dra            = cfg.get('dra', False)
+with_fgo            = cfg.get('fgo', False)
 
 # --- Guardrails ----------------------------------------------------------
 # compute-domain forces its own cluster shape (4 workers with clique
@@ -68,6 +72,11 @@ with_dra            = cfg.get('dra', False)
 if with_compute_domain and multi:
     fail('--compute-domain is mutually exclusive with --multi ' +
          '(compute-domain uses its own 4-worker cluster shape)')
+
+if with_fgo and with_gpu_operator:
+    fail('--fgo is mutually exclusive with --gpu-operator (FGO replaces the GPU Operator)')
+if with_fgo and with_compute_domain:
+    fail('--fgo is mutually exclusive with --compute-domain')
 
 gpu_profile_raw = cfg.get('gpu-profile', None)
 
@@ -94,6 +103,9 @@ if with_gpu_operator:
 
 if with_dra:
     active_consumers.append('dra')
+
+if with_fgo:
+    active_consumers.append('fgo')
 
 # --- Safety guard --------------------------------------------------------
 allow_k8s_contexts(k8s_context)
@@ -145,6 +157,9 @@ if with_dra:
       image_deps=dra_image_deps,
       image_keys=dra_image_keys,
     )
+
+if with_fgo:
+    fgo_install(nvml_mock_releases)
 
 # --- Test workload -------------------------------------------------------
 # GPU validator pod, disabled by default (enable from the Tilt UI). Requests

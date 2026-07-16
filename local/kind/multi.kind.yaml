@@ -9,12 +9,17 @@
 # (nvml-mock/profile=t4). Mirrors tests/e2e/kind-multi-node-config.yaml so
 # local dev exercises the same fleet layout the CI multi-node job exercises.
 #
+# Workers also carry run.ai/simulated-gpu-node-pool labels so the --fgo
+# consumer can split them into integration (mock backend, nvml-mock runs) and
+# scale (fake backend, FGO manages) pools without a separate cluster config.
+#
 # Usage:
 #   make cluster-create PROFILE=multi
 #   tilt up -- --multi                       # nvml-mock per worker, no consumer
 #   tilt up -- --multi --dra                 # + NVIDIA DRA driver
 #   tilt up -- --multi --gpu-operator        # + NVIDIA GPU Operator
 #   tilt up -- --multi --gpu-operator --dra  # both consumers side by side
+#   tilt up -- --multi --fgo                 # + Run:ai Fake GPU Operator
 #
 # Cluster-level features are identical to local/kind/single.kind.yaml — see that file
 # for why merging DRA + Operator toggles into one shape is safe. Feature gates
@@ -55,6 +60,8 @@ nodes:
   - role: worker
     labels:
       nvml-mock/profile: a100
+      run.ai/simulated-gpu-node-pool: integration
   - role: worker
     labels:
       nvml-mock/profile: t4
+      run.ai/simulated-gpu-node-pool: scale
