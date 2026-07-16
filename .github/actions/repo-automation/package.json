@@ -13,6 +13,7 @@
   "dependencies": {
     "@actions/core": "3.0.1",
     "@actions/github": "9.1.1",
+    "minimatch": "10.2.5",
     "yaml": "2.9.0"
   },
   "devDependencies": {
