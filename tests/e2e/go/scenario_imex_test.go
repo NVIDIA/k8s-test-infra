@@ -38,7 +38,13 @@ const (
 // device nodes on every worker, with consistent ComputeDomain identity. The
 // real nvidia-imex domain-status check is demo-only (see docs/demo/nri-imex),
 // so it is intentionally absent here to keep e2e hermetic.
-var _ = Describe("nvml-mock NRI IMEX channel injection", Label("imex"), Ordered, func() {
+//
+// This scenario depends on the NRI plugin (it installs with nri.enabled=true on
+// an NRI-enabled Kind cluster), so it carries the shared "nri" label: the
+// default `make e2e` filter excludes it via `!nri`, and it runs only when NRI is
+// enabled (`make e2e-nri` / --label-filter=nri). The "imex" label still selects
+// it on its own (--label-filter=imex).
+var _ = Describe("nvml-mock NRI IMEX channel injection", Label("imex", "nri"), Ordered, func() {
 	var (
 		h          *harness.Harness
 		workers    []cluster.Node
