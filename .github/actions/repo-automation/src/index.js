@@ -58,6 +58,7 @@ async function run(dependencies) {
     } else {
       summary = await runMergeEvaluate({
         event: dependencies.event,
+        eventName: dependencies.eventName,
         github: client,
         config,
         dryRun,
@@ -83,7 +84,14 @@ async function executeAction() {
   try {
     const { owner, repo } = github.context.repo;
     const octokit = github.getOctokit(process.env.GITHUB_TOKEN);
-    await run({ core, octokit, owner, repo, event: github.context.payload });
+    await run({
+      core,
+      octokit,
+      owner,
+      repo,
+      event: github.context.payload,
+      eventName: github.context.eventName,
+    });
   } catch (error) {
     core.setFailed(error instanceof Error ? error.message : String(error));
   }

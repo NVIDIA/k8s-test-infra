@@ -124,6 +124,11 @@ async function run(state = evaluatorState(), options = {}) {
     config: options.config ?? loadConfig(repositoryRoot),
     dryRun: options.dryRun ?? false,
     prNumber: options.prNumber ?? "42",
+    eventName: options.eventName ?? (
+      options.event?.workflow_run !== undefined
+        ? "workflow_run"
+        : options.event?.schedule !== undefined ? "schedule" : "workflow_dispatch"
+    ),
   });
   return { github, result };
 }
@@ -233,6 +238,41 @@ test("workflow completion uses only a re-fetched strict identity", async (t) => 
       assert.deepEqual(result.candidates, []);
     });
   }
+});
+
+test("event name authenticates exactly one trigger class before PR reads", async (t) => {
+  const cases = [
+    ["workflow run with explicit PR", "workflow_run", workflowEvent, "42"],
+    ["schedule with explicit PR", "schedule", { repository: workflowEvent.repository, schedule: "*/15 * * * *" }, "42"],
+    ["unsupported review", "pull_request_review", { repository: workflowEvent.repository }, ""],
+    ["unsupported empty", "", { repository: workflowEvent.repository }, ""],
+    ["workflow run carrying schedule", "workflow_run", { ...workflowEvent, schedule: "*/15 * * * *" }, ""],
+    ["schedule carrying workflow run", "schedule", { ...workflowEvent, schedule: "*/15 * * * *" }, ""],
+  ];
+  for (const [name, eventName, selectedEvent, prNumber] of cases) {
+    await t.test(name, async () => {
+      const github = createFakeGitHub(evaluatorState({ openPullRequestNumbers: [42] }));
+      const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+      await assert.rejects(() => runMergeEvaluate({
+        event: selectedEvent,
+        eventName,
+        github,
+        config: loadConfig(repositoryRoot),
+        dryRun: false,
+        prNumber,
+      }), /event|explicit|trigger/i);
+      assert.deepEqual(github.calls.getPullRequest, []);
+    });
+  }
+
+  await t.test("dispatch without PR scans open", async () => {
+    const { result } = await run(evaluatorState({ openPullRequestNumbers: [42] }), {
+      event: { repository: workflowEvent.repository },
+      eventName: "workflow_dispatch",
+      prNumber: "",
+    });
+    assert.deepEqual(result.candidates, [42]);
+  });
 });
 
 test("Commands completion and schedule use a bounded all-open scan", async (t) => {
@@ -468,6 +508,7 @@ test("GitHub client uses exact GraphQL documents and variables and validates liv
     id: 7001,
     name: "Review observer",
     workflowPath: ".github/workflows/review-observer.yml",
+    workflowSourceRef: "main",
     event: "pull_request_review",
     status: "completed",
     repository: "nvidia/k8s-test-infra",
@@ -484,6 +525,159 @@ test("GitHub client uses exact GraphQL documents and variables and validates liv
     { pullRequestId: "PR_node_42" },
   ]);
   assert.equal(calls.every(({ document }) => !document.includes("event-")), true);
+});
+
+test("live evaluator workflow source suffix is retained only when structurally safe", async (t) => {
+  const { createGitHubClient } = require("../src/github-client.js");
+  for (const [suffix, expected] of [
+    ["main", "main"],
+    ["release/v1", "release/v1"],
+    ["refs/heads/main", "refs/heads/main"],
+    ["", null],
+    ["../main", null],
+    ["main@evil", null],
+    ["refs//heads/main", null],
+  ]) {
+    await t.test(JSON.stringify(suffix), async () => {
+      const octokit = { rest: { actions: { getWorkflowRun: async () => ({ data: {
+        id: 7001,
+        name: "Review observer",
+        path: `.github/workflows/review-observer.yml@${suffix}`,
+        event: "pull_request_review",
+        status: "completed",
+        repository: { full_name: "NVIDIA/k8s-test-infra" },
+        pull_requests: [{ number: 42 }],
+      } }) } } };
+      const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+      const run = await client.getEvaluationWorkflowRun(7001);
+      if (expected === null) assert.equal(run, null);
+      else assert.equal(run.workflowSourceRef, expected);
+    });
+  }
+});
+
+test("armed native auto-merge is safely disabled after later authority failures", async (t) => {
+  const methods = ["SQUASH", "MERGE", "REBASE"];
+  const failures = [
+    "listPullRequestFiles",
+    "listPullRequestReviews",
+    "getPolicyComment",
+    "getContentAtRevision",
+    "getBranchProtection",
+  ];
+  for (const method of methods) {
+    for (const operation of failures) {
+      await t.test(`${method} ${operation}`, async () => {
+        const failure = new Error(`${operation} unavailable`);
+        const { github, result } = await run(evaluatorState({
+          failures: { [operation]: failure },
+          mergeStates: [mergeState({ autoMergeMethod: method }), mergeState({ autoMergeMethod: method })],
+        }));
+        assert.equal(result.status, "partial");
+        assert.deepEqual(github.calls.addPolicyLabel, []);
+        assert.deepEqual(github.calls.removePolicyLabel, []);
+        assert.deepEqual(github.calls.disableAutoMerge, [{ pullRequestId: "PR_node_42" }]);
+        assert.equal(github.calls.getMergeState.length, 2);
+      });
+    }
+  }
+
+  await t.test("invalid policy disables without authority-label mutation", async () => {
+    const config = loadConfig(repositoryRoot);
+    const { github, result } = await run(evaluatorState({
+      mergeStates: [mergeState({ autoMergeMethod: "SQUASH" }), mergeState({ autoMergeMethod: "SQUASH" })],
+    }), { config: { ...config, policy: { ...config.policy, protectedBranches: [] } } });
+    assert.equal(result.status, "partial");
+    assert.deepEqual(github.calls.disableAutoMerge, [{ pullRequestId: "PR_node_42" }]);
+    assert.deepEqual(github.calls.addPolicyLabel, []);
+  });
+
+  for (const [name, state] of [
+    ["file bound", { files: Array.from({ length: 1001 }, (_, index) => ({ path: `file-${index}`, additions: 1, deletions: 0, status: "modified" })) }],
+    ["review bound", { reviews: Array.from({ length: 1001 }, (_, index) => approvedReview({ id: index + 1 })) }],
+    ["default branch API", { failures: { getDefaultBranchRevision: new Error("revision unavailable") } }],
+  ]) {
+    await t.test(name, async () => {
+      const { github, result } = await run(evaluatorState({
+        ...state,
+        mergeStates: [mergeState({ autoMergeMethod: "SQUASH" }), mergeState({ autoMergeMethod: "SQUASH" })],
+      }));
+      assert.equal(result.status, "partial");
+      assert.deepEqual(github.calls.disableAutoMerge, [{ pullRequestId: "PR_node_42" }]);
+      assert.deepEqual(github.calls.addPolicyLabel, []);
+    });
+  }
+
+  await t.test("changed head during safe-disable fence mutates nothing", async () => {
+    const { github } = await run(evaluatorState({
+      failures: { listPullRequestFiles: new Error("files unavailable") },
+      pullRequests: [pullRequest(), pullRequest({ headOid: NEXT_HEAD })],
+      mergeStates: [mergeState({ autoMergeMethod: "SQUASH" })],
+    }));
+    assert.deepEqual(writes(github), []);
+  });
+
+  await t.test("ambiguous final GraphQL read mutates nothing", async () => {
+    const { github } = await run(evaluatorState({
+      failures: { listPullRequestFiles: new Error("files unavailable"), getMergeState: [null, new Error("ambiguous")] },
+      mergeStates: [mergeState({ autoMergeMethod: "SQUASH" })],
+    }));
+    assert.deepEqual(writes(github), []);
+  });
+});
+
+test("Task 7 bounded pagination stops at limit plus one without requesting later pages", async (t) => {
+  const { createGitHubClient } = require("../src/github-client.js");
+  function endpoint(name, pages, calls) {
+    return async (parameters) => {
+      calls.push({ name, page: parameters.page ?? 1 });
+      return { data: pages[(parameters.page ?? 1) - 1] ?? [] };
+    };
+  }
+  async function assertStops(name, pages, invoke, restFactory) {
+    const calls = [];
+    const octokit = {
+      rest: restFactory(endpoint(name, pages, calls)),
+      async paginate(handler, parameters, map) {
+        const values = [];
+        let stopped = false;
+        const done = () => { stopped = true; };
+        for (let page = 1; page <= pages.length && !stopped; page += 1) {
+          const response = await handler({ ...parameters, page });
+          values.push(...map(response, done));
+        }
+        return values;
+      },
+    };
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+    await assert.rejects(() => invoke(client), /exceeds limit/i);
+    assert.equal(calls.at(-1).page < pages.length, true, `${name} must stop before the sentinel page`);
+  }
+
+  await t.test("open PRs", () => assertStops(
+    "pulls",
+    [Array.from({ length: 100 }, (_, index) => ({ number: index + 1 })), [{ number: 101 }], [{ number: 102 }]],
+    (client) => client.listOpenPullRequestNumbers(),
+    (handler) => ({ pulls: { list: handler } }),
+  ));
+  await t.test("files", () => assertStops(
+    "files",
+    Array.from({ length: 12 }, (_, page) => Array.from({ length: 100 }, (_, index) => ({ filename: `${page}-${index}`, additions: 1, deletions: 0, status: "modified" }))),
+    (client) => client.listPullRequestFiles(42),
+    (handler) => ({ pulls: { listFiles: handler } }),
+  ));
+  await t.test("reviews", () => assertStops(
+    "reviews",
+    Array.from({ length: 12 }, (_, page) => Array.from({ length: 100 }, (_, index) => ({ id: page * 100 + index + 1 }))),
+    (client) => client.listPullRequestReviews(42),
+    (handler) => ({ pulls: { listReviews: handler } }),
+  ));
+  await t.test("comments", () => assertStops(
+    "comments",
+    Array.from({ length: 12 }, (_, page) => Array.from({ length: 100 }, (_, index) => ({ id: page * 100 + index + 1, body: "ordinary" }))),
+    (client) => client.getPolicyComment(42, MARKER),
+    (handler) => ({ issues: { listComments: handler } }),
+  ));
 });
 
 test("candidate failures are isolated and bounded API ambiguity never enables", async () => {
@@ -518,6 +712,7 @@ test("index dispatches merge-evaluate with explicit inputs and preserves dry-run
     githubClient,
     event: { repository: workflowEvent.repository },
     workspace: repositoryRoot,
+    eventName: "workflow_dispatch",
   });
   assert.equal(result.status, "planned");
   assert.deepEqual(writes(githubClient), []);

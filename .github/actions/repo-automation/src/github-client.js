@@ -21,6 +21,11 @@ const MAX_OPEN_PULL_REQUESTS = 100;
 const MAX_PULL_REQUEST_FILES = 1000;
 const MAX_PULL_REQUEST_REVIEWS = 1000;
 const MAX_POLICY_COMMENTS = 1000;
+const EVALUATOR_WORKFLOW_PATHS = new Set([
+  ".github/workflows/review-observer.yml",
+  ".github/workflows/pr-metadata.yml",
+  ".github/workflows/commands.yml",
+]);
 const MERGE_STATE_QUERY = `query RepositoryAutomationMergeState($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     nameWithOwner
@@ -155,6 +160,38 @@ function loginList(values, name) {
   return normalized;
 }
 
+function safeWorkflowSourceRef(value) {
+  if (
+    typeof value !== "string"
+    || value === ""
+    || value.length > 256
+    || /[\0-\x20\x7f~^:?*\[\]\\]/.test(value)
+    || value.includes("@")
+    || value.includes("//")
+    || value.includes("..")
+    || value.includes("@{")
+  ) return null;
+  const segments = value.split("/");
+  if (segments.some((segment) => (
+    segment === ""
+    || segment.startsWith(".")
+    || segment.endsWith(".")
+    || segment.endsWith(".lock")
+  ))) return null;
+  return value;
+}
+
+function evaluatorWorkflowIdentity(value) {
+  if (typeof value !== "string" || value.length > 512 || /[\0\r\n\\]/.test(value)) return null;
+  const separator = value.indexOf("@");
+  if (separator <= 0 || value.indexOf("@", separator + 1) !== -1) return null;
+  const workflowPath = value.slice(0, separator);
+  const workflowSourceRef = safeWorkflowSourceRef(value.slice(separator + 1));
+  return EVALUATOR_WORKFLOW_PATHS.has(workflowPath) && workflowSourceRef !== null
+    ? { workflowPath, workflowSourceRef }
+    : null;
+}
+
 function workflowRun(data, expected) {
   if (data === null || typeof data !== "object" || Array.isArray(data)) return null;
   try {
@@ -279,6 +316,29 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
     );
   }
 
+  async function paginateLimited(operation, endpoint, parameters, limit, map = (response) => response.data) {
+    let count = 0;
+    let overflow = false;
+    const values = await call(operation, () => octokit.paginate(
+      endpoint,
+      { ...parameters, per_page: 100 },
+      (response, done) => {
+        const page = map(response);
+        if (!Array.isArray(page)) throw new TypeError(`${operation} page must be an array`);
+        const remaining = (limit + 1) - count;
+        const selected = remaining > 0 ? page.slice(0, remaining) : [];
+        count += selected.length;
+        if (count > limit) {
+          overflow = true;
+          if (typeof done === "function") done();
+        }
+        return selected;
+      },
+    ), true);
+    if (overflow || values.length > limit) throw new TypeError(`${operation} exceeds limit`);
+    return values;
+  }
+
   const rootTreeByRevision = new Map();
   const entriesByTree = new Map();
 
@@ -342,12 +402,11 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
   async function readCommentPlan(prNumber, marker) {
     positiveInteger(prNumber, "PR number");
     nonEmptyString(marker, "comment marker");
-    const comments = await paginate("listIssueComments", octokit.rest.issues.listComments, {
+    const comments = await paginateLimited("listIssueComments", octokit.rest.issues.listComments, {
       owner,
       repo,
       issue_number: prNumber,
-    });
-    if (comments.length > MAX_POLICY_COMMENTS) throw new TypeError("policy comment scan exceeds limit");
+    }, MAX_POLICY_COMMENTS);
     const matches = comments.filter((comment) => (
       typeof comment.body === "string"
       && comment.body.includes(marker)
@@ -365,12 +424,11 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
   async function readPolicyComment(prNumber, marker) {
     positiveInteger(prNumber, "PR number");
     nonEmptyString(marker, "comment marker");
-    const comments = await paginate("listIssueComments", octokit.rest.issues.listComments, {
+    const comments = await paginateLimited("listIssueComments", octokit.rest.issues.listComments, {
       owner,
       repo,
       issue_number: prNumber,
-    });
-    if (comments.length > MAX_POLICY_COMMENTS) throw new TypeError("policy comment scan exceeds limit");
+    }, MAX_POLICY_COMMENTS);
     const matches = comments.filter((comment) => (
       typeof comment.body === "string"
       && comment.body.includes(marker)
@@ -463,12 +521,9 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
     },
 
     async listOpenPullRequestNumbers() {
-      const pulls = await paginate("listOpenPullRequests", octokit.rest.pulls.list, {
+      const pulls = await paginateLimited("listOpenPullRequests", octokit.rest.pulls.list, {
         owner, repo, state: "open",
-      });
-      if (pulls.length > MAX_OPEN_PULL_REQUESTS) {
-        throw new TypeError("open pull request scan exceeds limit");
-      }
+      }, MAX_OPEN_PULL_REQUESTS);
       const numbers = pulls.map((pull) => positiveInteger(pull.number, "open PR number"));
       if (new Set(numbers).size !== numbers.length) throw new TypeError("open PR scan contains duplicates");
       return numbers.sort((left, right) => left - right);
@@ -481,9 +536,8 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       }), true);
       try {
         const runRepository = nonEmptyString(data.repository?.full_name, "workflow run repository").toLowerCase();
-        const rawPath = nonEmptyString(data.path, "workflow path");
-        const workflowPath = rawPath.split("@", 1)[0];
-        if (!/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(workflowPath)) return null;
+        const workflow = evaluatorWorkflowIdentity(nonEmptyString(data.path, "workflow path"));
+        if (workflow === null) return null;
         if (!Array.isArray(data.pull_requests) || data.pull_requests.length > 100) return null;
         const pullRequestNumbers = data.pull_requests.map((pull) => positiveInteger(pull?.number, "workflow PR number"));
         if (new Set(pullRequestNumbers).size !== pullRequestNumbers.length) return null;
@@ -492,7 +546,8 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         return {
           id: liveId,
           name: nonEmptyString(data.name, "workflow name"),
-          workflowPath,
+          workflowPath: workflow.workflowPath,
+          workflowSourceRef: workflow.workflowSourceRef,
           event: nonEmptyString(data.event, "workflow source event"),
           status: nonEmptyString(data.status, "workflow run status"),
           repository: runRepository,
@@ -648,10 +703,9 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
 
     async listPullRequestFiles(prNumber) {
       positiveInteger(prNumber, "PR number");
-      const files = await paginate("listPullRequestFiles", octokit.rest.pulls.listFiles, {
+      const files = await paginateLimited("listPullRequestFiles", octokit.rest.pulls.listFiles, {
         owner, repo, pull_number: prNumber,
-      });
-      if (files.length > MAX_PULL_REQUEST_FILES) throw new TypeError("pull request file scan exceeds limit");
+      }, MAX_PULL_REQUEST_FILES);
       return files.map((file) => ({
         path: nonEmptyString(file.filename, "changed path"),
         additions: file.additions,
@@ -677,10 +731,9 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
 
     async listPullRequestReviews(prNumber) {
       positiveInteger(prNumber, "PR number");
-      const reviews = await paginate("listPullRequestReviews", octokit.rest.pulls.listReviews, {
+      const reviews = await paginateLimited("listPullRequestReviews", octokit.rest.pulls.listReviews, {
         owner, repo, pull_number: prNumber,
-      });
-      if (reviews.length > MAX_PULL_REQUEST_REVIEWS) throw new TypeError("pull request review scan exceeds limit");
+      }, MAX_PULL_REQUEST_REVIEWS);
       return reviews.map((review) => ({
         id: positiveInteger(review.id, "review id"),
         user: nonEmptyString(review.user?.login, "review user"),

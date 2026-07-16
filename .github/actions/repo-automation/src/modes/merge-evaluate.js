@@ -93,11 +93,18 @@ function trustedRun(run, repository) {
   return expected;
 }
 
-async function candidatesFor({ event, github, repository, prNumber }) {
+async function candidatesFor({ event, eventName, github, repository, prNumber }) {
   const explicit = explicitNumber(prNumber);
-  if (explicit !== null) return [explicit];
-  if (event?.workflow_run !== undefined) {
-    if (event.action !== "completed" || !Number.isSafeInteger(event.workflow_run?.id) || event.workflow_run.id <= 0) {
+  if (eventName === "workflow_run") {
+    if (explicit !== null) throw new TypeError("workflow_run rejects an explicit pull request");
+    if (
+      event?.schedule !== undefined
+      || event?.workflow_run === null
+      || event?.action !== "completed"
+      || event?.workflow_run?.status !== "completed"
+      || !Number.isSafeInteger(event.workflow_run?.id)
+      || event.workflow_run.id <= 0
+    ) {
       throw new TypeError("workflow completion event is invalid");
     }
     const run = await github.getEvaluationWorkflowRun(event.workflow_run.id);
@@ -107,7 +114,26 @@ async function candidatesFor({ event, github, repository, prNumber }) {
     if (expected.allOpen) return boundedCandidates(await github.listOpenPullRequestNumbers());
     return boundedCandidates(run.pullRequestNumbers);
   }
-  return boundedCandidates(await github.listOpenPullRequestNumbers());
+  if (eventName === "schedule") {
+    if (explicit !== null) throw new TypeError("schedule rejects an explicit pull request");
+    if (
+      event?.workflow_run !== undefined
+      || typeof event?.schedule !== "string"
+      || event.schedule === ""
+    ) {
+      throw new TypeError("schedule event is invalid");
+    }
+    return boundedCandidates(await github.listOpenPullRequestNumbers());
+  }
+  if (eventName === "workflow_dispatch") {
+    if (event?.workflow_run !== undefined || event?.schedule !== undefined) {
+      throw new TypeError("workflow_dispatch event is ambiguous");
+    }
+    return explicit === null
+      ? boundedCandidates(await github.listOpenPullRequestNumbers())
+      : [explicit];
+  }
+  throw new TypeError("unsupported evaluator event name");
 }
 
 function activeOwnerPaths(config) {
@@ -252,23 +278,63 @@ function raceResult(number, headOid, attempts, authority = undefined) {
   };
 }
 
+async function safelyDisableArmed({ github, repository, pullRequest, initialGraph }) {
+  try {
+    const currentPullRequest = validatePullRequest(
+      await github.getPullRequest(pullRequest.number),
+      pullRequest.number,
+      repository,
+    );
+    if (!sameHeadIdentity(pullRequest, currentPullRequest)) return false;
+    const currentGraph = validateGraphState(
+      await github.getMergeState(pullRequest.number),
+      currentPullRequest,
+      repository,
+    );
+    if (
+      currentGraph.headOid !== pullRequest.headOid
+      || currentGraph.autoMergeMethod !== initialGraph.autoMergeMethod
+      || currentGraph.autoMergeMethod === null
+    ) return false;
+    await github.disableAutoMerge(currentGraph.nodeId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function reconcileAttempt({ github, config, repository, number, dryRun, attempts }) {
   const pullRequest = validatePullRequest(await github.getPullRequest(number), number, repository);
-  const authority = await loadAuthority({ github, config, pullRequest });
   const initialGraph = validateGraphState(
     await github.getMergeState(number),
     pullRequest,
     repository,
   );
-  const protectedLive = await github.getBranchProtection(pullRequest.baseBranch);
+  if (initialGraph.headOid !== pullRequest.headOid) {
+    return { race: true, result: raceResult(number, pullRequest.headOid, attempts) };
+  }
+  let authority;
+  let protectedLive;
+  try {
+    validateConfig(config);
+    authority = await loadAuthority({ github, config, pullRequest });
+    protectedLive = await github.getBranchProtection(pullRequest.baseBranch);
+  } catch (error) {
+    if (!dryRun && initialGraph.autoMergeMethod !== null) {
+      await safelyDisableArmed({
+        github,
+        repository,
+        pullRequest,
+        initialGraph,
+      });
+    }
+    throw error;
+  }
   const labelsPlan = labelPlan(authority.labels, {
     lgtm: authority.lgtm !== null,
     approved: authority.approved,
   });
   authority.labelsPlan = labelsPlan;
-  if (initialGraph.headOid !== pullRequest.headOid) {
-    return { race: true, result: raceResult(number, pullRequest.headOid, attempts, authority) };
-  }
 
   const preWrite = validatePullRequest(await github.getPullRequest(number), number, repository);
   if (!sameHeadIdentity(pullRequest, preWrite)) {
@@ -341,11 +407,10 @@ async function reconcile({ github, config, repository, number, dryRun }) {
   return last;
 }
 
-async function runMergeEvaluate({ event, github, config, dryRun, prNumber = "" }) {
+async function runMergeEvaluate({ event, eventName, github, config, dryRun, prNumber = "" }) {
   if (typeof dryRun !== "boolean") throw new TypeError("dry-run must be a boolean");
-  validateConfig(config);
   const repository = eventRepository(event);
-  const candidates = await candidatesFor({ event, github, repository, prNumber });
+  const candidates = await candidatesFor({ event, eventName, github, repository, prNumber });
   const pullRequests = [];
   let partial = false;
   for (const number of candidates) {
