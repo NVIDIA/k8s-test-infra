@@ -8,6 +8,7 @@ package e2e
 import (
 	"context"
 	"os"
+	"strconv"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -67,9 +68,64 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 				}
 				assertions.WaitAllocatableGPU(ctx, h.Kube, node, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
 			})
+
+			It("exports DCGM device metrics that vary over time", Label("dcgm"), func(ctx SpecContext) {
+				assertions.DCGMDeviceMetrics(ctx, h.Kube, gpuOperatorNamespace,
+					p.DisplayName, p.ExpectedGPUs(), gpmProfiles[name],
+					config.ReadyTimeout(), config.PollInterval())
+			})
+
+			It("surfaces an injected Xid through dcgm-exporter", Label("dcgm", "xid"), func(ctx SpecContext) {
+				// Runs last: leaves the mock in a failed state.
+				injectXidAndValidate(ctx, h, xidTestCode)
+			})
 		})
 	}
 })
+
+// gpmProfiles are the Hopper+ profiles that serve DCGM_FI_PROF_* GPM metrics.
+var gpmProfiles = map[string]bool{"h100": true, "b200": true, "gb200": true, "gb300": true}
+
+// xidTestCode is the Xid injected and asserted on (79 = GPU fallen off the bus).
+const xidTestCode = 79
+
+// injectXidAndValidate enables failure injection, rolls nvml-mock and
+// dcgm-exporter to reload the mock config, then asserts DCGM_FI_DEV_XID_ERRORS.
+// ecc_uncorrectable keeps the device scrapable while the Xid event fires.
+func injectXidAndValidate(ctx context.Context, h *harness.Harness, xid int) {
+	GinkgoHelper()
+	By("enabling failure injection (ecc_uncorrectable, xid) on nvml-mock")
+	Expect(h.Helm.UpgradeInstall(ctx, helm.Release{
+		Name:        "nvml-mock",
+		Chart:       chartDir(),
+		Namespace:   nvmlMockNamespace,
+		ReuseValues: true,
+		Set: map[string]string{
+			"gpu.failureInjection.enabled":     "true",
+			"gpu.failureInjection.mode":        "ecc_uncorrectable",
+			"gpu.failureInjection.after_calls": "1",
+			"gpu.failureInjection.seed":        "1",
+			"gpu.failureInjection.xid.code":    strconv.Itoa(xid),
+		},
+		Wait:    true,
+		Timeout: config.HelmTimeout(),
+	})).To(Succeed(), "enable failure injection on nvml-mock")
+
+	rolloutRestart(ctx, h, nvmlMockNamespace, "nvml-mock")
+	rolloutRestart(ctx, h, gpuOperatorNamespace, "nvidia-dcgm-exporter")
+
+	assertions.DCGMXidReported(ctx, h.Kube, gpuOperatorNamespace, xid,
+		config.ReadyTimeout(), config.PollInterval())
+}
+
+// rolloutRestart restarts a DaemonSet and blocks until the rollout completes.
+func rolloutRestart(ctx context.Context, h *harness.Harness, ns, ds string) {
+	GinkgoHelper()
+	_, err := h.Kube.KubectlCombined(ctx, "rollout", "restart", "daemonset/"+ds, "-n", ns)
+	Expect(err).NotTo(HaveOccurred(), "rollout restart %s/%s", ns, ds)
+	_, err = h.Kube.KubectlCombined(ctx, "rollout", "status", "daemonset/"+ds, "-n", ns, "--timeout=120s")
+	Expect(err).NotTo(HaveOccurred(), "rollout status %s/%s", ns, ds)
+}
 
 func installNVIDIAContainerToolkit(ctx context.Context, h *harness.Harness, node cluster.Node) {
 	GinkgoHelper()

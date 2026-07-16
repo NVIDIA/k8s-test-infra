@@ -14,9 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DCGM_FI_PROF_*` profiling metrics on Hopper+ profiles — architecture-gated
   like real NVML, with `gpm.supported` / PCIe-rate config overrides; pre-Hopper
   reports GPM unsupported. E2E coverage runs real dcgm-exporter under the GPU
-  Operator: `validate-dcgm-metrics.sh` asserts DEV + PROF and time-varying 
-  telemetry, `validate-dcgm-xid.sh` asserts `DCGM_FI_DEV_XID_ERRORS` under 
-  failure injection, and `spike-dcgm.sh` providesa container-level recipe. (#370)
+  Operator via the Go harness (`gpu-operator` scenario, `dcgm`/`xid` labels):
+  it asserts DEV + PROF and time-varying telemetry, plus `DCGM_FI_DEV_XID_ERRORS`
+  under failure injection. `spike-dcgm.sh` provides a container-level recipe. (#370)
 
 ### Changed
 - ComputeDomain simulation now runs the REAL `nvidia-imex` daemon in NO

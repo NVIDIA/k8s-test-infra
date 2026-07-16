@@ -41,10 +41,10 @@ dcgm-exporter runs with its embedded nv-hostengine against the mock NVML:
   driver-internal perfworks path there, which cannot be mocked.
 - **Failure injection** (`DCGM_FI_DEV_XID_ERRORS`): CI injects an Xid via the
   nvml-mock failure-injection knobs and asserts dcgm-exporter surfaces the code
-  (`tests/e2e/validate-dcgm-xid.sh`). Health watches (`dcgmi health`) for
+  (Go `gpu-operator` scenario, `xid` label). Health watches (`dcgmi health`) for
   PCIe/ECC/NVLink/thermal/power also work in the container-level spike.
-- Validated in CI by `tests/e2e/validate-dcgm-metrics.sh` and
-  `tests/e2e/validate-dcgm-xid.sh`; the container-level recipe is
+- Validated in CI by the Go `gpu-operator` scenario (`dcgm`/`xid` labels,
+  `tests/e2e/go/assertions/dcgm.go`); the container-level recipe is
   `tests/e2e/spike-dcgm.sh`.
 
 ### Not Supported

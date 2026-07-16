@@ -425,3 +425,12 @@ func (c *Client) KubectlCombined(ctx context.Context, args ...string) (string, e
 	res, err := c.kubectl(ctx, args...)
 	return res.Combined(), err
 }
+
+// GetRawQuiet fetches an API path via `kubectl get --raw` without streaming the
+// (potentially large) response body to the Ginkgo writer. The body is still
+// captured and returned.
+func (c *Client) GetRawQuiet(ctx context.Context, path string) (string, error) {
+	full := append(c.base(), "get", "--raw", path)
+	res, err := runner.RunQuiet(ctx, "kubectl", full...)
+	return res.Combined(), err
+}

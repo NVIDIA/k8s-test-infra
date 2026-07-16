@@ -40,12 +40,20 @@ func installDemoChart(ctx context.Context, h *harness.Harness, prof string, coun
 func demoRelease(prof string, count int) helm.Release {
 	repo, tag := splitImage(config.Image())
 	set := map[string]string{
-		"gpu.count":                                   strconv.Itoa(count),
-		"gpu.dynamicMetrics.enabled":                  "true",
-		"gpu.profile":                                 prof,
-		"image.repository":                            repo,
-		"image.tag":                                   tag,
-		"integrations.fakeGpuOperator.enabled":        "true",
+		"gpu.count":                            strconv.Itoa(count),
+		"gpu.dynamicMetrics.enabled":           "true",
+		"gpu.profile":                          prof,
+		"image.repository":                     repo,
+		"image.tag":                            tag,
+		"integrations.fakeGpuOperator.enabled": "true",
+		// Steady, positive utilization so DCGM GPM PCIe throughput stays
+		// nonzero on Hopper+; seed=1 for reproducibility.
+		"gpu.dynamicMetrics.seed":                     "1",
+		"gpu.dynamicMetrics.utilization.pattern":      "steady",
+		"gpu.dynamicMetrics.utilization.gpu_min":      "50",
+		"gpu.dynamicMetrics.utilization.gpu_max":      "50",
+		"gpu.dynamicMetrics.utilization.memory_min":   "25",
+		"gpu.dynamicMetrics.utilization.memory_max":   "25",
 		"terminationGracePeriodSeconds":               "1",
 		"updateStrategy.rollingUpdate.maxUnavailable": "100%",
 	}
