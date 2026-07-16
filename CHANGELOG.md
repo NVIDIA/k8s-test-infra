@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- feat(nri): inject mock IMEX channel device nodes
+  (`/dev/nvidia-caps-imex-channels/*`) into annotated workloads over the
+  NRI foundation, with a dedicated `nri-imex` demo and e2e scenario. (#437)
+
 ### Changed
 - ComputeDomain simulation now runs the REAL `nvidia-imex` daemon in NO
   GPU mode (`--nogpu`) instead of the fake marker-file binaries: the new
