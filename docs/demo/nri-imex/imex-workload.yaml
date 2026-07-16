@@ -1,0 +1,54 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Ordinary workload: no nvidia.com/gpu request, no volumes, no MOCK_* env. The
+# nvml-mock NRI plugin injects the overlay AND (because of the imex-channels
+# annotation) the mock /dev/nvidia-caps-imex-channels/* nodes at creation time.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: imex-workload
+  labels:
+    app: imex-workload
+spec:
+  selector:
+    matchLabels:
+      app: imex-workload
+  template:
+    metadata:
+      labels:
+        app: imex-workload
+      annotations:
+        nvml-mock.nvidia.com/imex-channels: "true"
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: agent
+          image: debian:bookworm-slim
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              echo "[imex-workload] node=${NODE_NAME} verifying NRI channel injection"
+              test -d /opt/nvml-mock
+              echo "=== /dev/nvidia-caps-imex-channels ==="
+              ls -1 /dev/nvidia-caps-imex-channels
+              echo "=== check-fabric (ComputeDomain identity via NRI) ==="
+              command -v check-fabric >/dev/null 2>&1 && check-fabric || true
+              echo "[imex-workload] OK; sleeping"
+              while true; do sleep 300; done
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
