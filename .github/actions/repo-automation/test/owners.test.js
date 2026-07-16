@@ -298,6 +298,46 @@ test("returns sorted files, candidates, and uncovered paths for multiple changed
   ]);
 });
 
+test("requires a valid invocation-only pull request author before resolving owners", async (t) => {
+  const invalidAuthors = [
+    ["missing", undefined, false],
+    ["null", null, true],
+    ["empty", "", true],
+    ["whitespace", "  ", true],
+    ["non-string", 42, true],
+    ["unsafe control", "alice\u001b[31m", true],
+    ["malformed login", "alice--admin", true],
+  ];
+  const ownerFiles = [parseOwnersFile(
+    "reviewers: [pr-author]\napprovers: [PR-AUTHOR]\n",
+    "/OWNERS",
+  )];
+
+  for (const [name, pullRequestAuthor, includeAuthor] of invalidAuthors) {
+    await t.test(name, () => {
+      const policy = { activeOwnerFiles: ["/OWNERS"] };
+      if (includeAuthor) {
+        policy.pullRequestAuthor = pullRequestAuthor;
+      }
+
+      assert.throws(
+        () => resolveOwners(["file.go"], ownerFiles, new Map(), policy),
+        (error) => {
+          assert.equal(error instanceof TypeError, true);
+          assert.equal(
+            error.message,
+            "policy.pullRequestAuthor must be a GitHub login",
+          );
+          if (typeof pullRequestAuthor === "string" && pullRequestAuthor !== "") {
+            assert.equal(error.message.includes(pullRequestAuthor), false);
+          }
+          return true;
+        },
+      );
+    });
+  }
+});
+
 test("excludes the PR author case-insensitively and reports author-only coverage missing", () => {
   const ownerFiles = [
     parseOwnersFile(

@@ -275,13 +275,10 @@ function normalizePolicy(policy) {
     activeOwnerFiles.add(normalizeOwnerPath(ownerPath));
   }
 
-  let pullRequestAuthor;
-  if (policy.pullRequestAuthor !== undefined && policy.pullRequestAuthor !== null) {
-    if (!isSafeText(policy.pullRequestAuthor) || !GITHUB_LOGIN.test(policy.pullRequestAuthor)) {
-      throw new TypeError("policy.pullRequestAuthor must be a GitHub login");
-    }
-    pullRequestAuthor = policy.pullRequestAuthor.toLowerCase();
+  if (!isSafeText(policy.pullRequestAuthor) || !GITHUB_LOGIN.test(policy.pullRequestAuthor)) {
+    throw new TypeError("policy.pullRequestAuthor must be a GitHub login");
   }
+  const pullRequestAuthor = policy.pullRequestAuthor.toLowerCase();
   return { activeOwnerFiles, pullRequestAuthor };
 }
 
