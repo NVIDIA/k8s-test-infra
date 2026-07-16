@@ -90,6 +90,12 @@ When .Values.gpu.dynamicMetrics.enabled is true, a `dynamic_metrics:`
 block is injected under `device_defaults:` in the resulting YAML so that
 the mock returns time-varying temperature/power/utilization readings.
 
+Resolved in three layers, highest priority last: chart baseline <
+per-profile defaults (each profile's `dynamic_metrics_defaults` key) < user
+overrides (.Values.gpu.dynamicMetrics). Per-profile defaults keep the power
+base inside each profile's [min_limit_mw, max_limit_mw] envelope so it varies
+instead of clamping to a bound.
+
 When .Values.gpu.failureInjection.enabled is true, a `failure:` block is
 injected under `device_defaults:` so consumers can test how device-plugin,
 GPU operator and monitoring stacks behave when GPUs go lost / fall off
@@ -109,12 +115,24 @@ preserves comments and key order from the profile file.
 {{- end -}}
 {{- $defaults := get $cfg "device_defaults" | default (dict) -}}
 {{- if $dynEnabled -}}
-{{- $_ := set $defaults "dynamic_metrics" (omit .Values.gpu.dynamicMetrics "enabled") -}}
+{{- $baseline := dict
+      "seed" 0
+      "temperature" (dict "base_c" 55 "variance_c" 3 "ramp_c" 15 "ramp_period_sec" 120)
+      "power" (dict "base_mw" 250000 "variance_mw" 25000)
+      "utilization" (dict "pattern" "burst" "gpu_min" 0 "gpu_max" 100 "memory_min" 0 "memory_max" 100 "burst_period_sec" 30)
+-}}
+{{- /* Per-profile layer from the config's own dynamic_metrics_defaults key. */ -}}
+{{- $profileDyn := get $cfg "dynamic_metrics_defaults" | default (dict) -}}
+{{- $userDyn := omit .Values.gpu.dynamicMetrics "enabled" -}}
+{{- $effective := mergeOverwrite (deepCopy $baseline) (deepCopy $profileDyn) $userDyn -}}
+{{- $_ := set $defaults "dynamic_metrics" $effective -}}
 {{- end -}}
 {{- if $failEnabled -}}
 {{- $_ := set $defaults "failure" (omit .Values.gpu.failureInjection "enabled") -}}
 {{- end -}}
 {{- $_ := set $cfg "device_defaults" $defaults -}}
+{{- /* Drop the Helm-only key now it's folded into dynamic_metrics. */ -}}
+{{- $_ := unset $cfg "dynamic_metrics_defaults" -}}
 {{- toYaml $cfg -}}
 {{- else -}}
 {{- $base -}}

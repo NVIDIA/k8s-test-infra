@@ -11,29 +11,33 @@ gpu:
   count: ""
   customConfig: ""
 
-  # Opt-in: make GetTemperature / GetPowerUsage / GetUtilizationRates return
-  # time-varying values instead of the static figures from the profile.
-  # When `enabled: false` (default), the rendered ConfigMap is unchanged
-  # and the mock reproduces the historical static behavior.
-  # See pkg/gpu/mocknvml/README.md#dynamic-metrics-optional for semantics.
+  # Opt-in time-varying temperature / power / utilization. Disabled by default
+  # (static profile values). See pkg/gpu/mocknvml/README.md#dynamic-metrics-optional.
+  #
+  # Per-field resolution, highest priority last:
+  #   chart baseline  <  GPU profile default  <  user override (below / --set)
+  # Leave a field unset to inherit. Profiles set a power base that fits their
+  # TDP envelope (t4 ~65W, b200/gb200 ~600W, gb300 ~800W; others use the 250W
+  # baseline) so it isn't force-clamped to a bound.
   dynamicMetrics:
     enabled: false
-    seed: 0                              # 0 = time-based; non-zero for reproducibility
-    temperature:
-      base_c: 55
-      variance_c: 3
-      ramp_c: 15
-      ramp_period_sec: 120
-    power:
-      base_mw: 250000
-      variance_mw: 25000
-    utilization:
-      pattern: burst                     # idle | busy | burst | steady
-      gpu_min: 0
-      gpu_max: 100
-      memory_min: 0
-      memory_max: 100
-      burst_period_sec: 30
+    # Chart baseline defaults, shown for reference. Uncomment to override:
+    # seed: 0                            # 0 = time-based; non-zero for reproducibility
+    # temperature:
+    #   base_c: 55
+    #   variance_c: 3
+    #   ramp_c: 15
+    #   ramp_period_sec: 120
+    # power:                             # profile default wins unless set here
+    #   base_mw: 250000
+    #   variance_mw: 25000
+    # utilization:
+    #   pattern: burst                   # idle | busy | burst | steady
+    #   gpu_min: 0
+    #   gpu_max: 100
+    #   memory_min: 0
+    #   memory_max: 100
+    #   burst_period_sec: 30
 
   # Opt-in simulation of GPU failure scenarios: lost device, fallen-off-bus,
   # uncorrectable ECC errors, and Xid critical events. When `enabled: false`

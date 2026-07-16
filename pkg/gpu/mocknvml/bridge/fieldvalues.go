@@ -15,8 +15,10 @@
 // NVLink subcommands (`nvlink -s/-c/-e`) by first reading
 // NVML_FI_DEV_NVLINK_LINK_COUNT via this API; while it was an unimplemented
 // stub (NVML_ERROR_NOT_SUPPORTED) nvidia-smi saw zero NVLinks and printed
-// nothing. This marshals the request array and fills the NVLink field set
-// from the immutable NodeFabric (see engine/nvlink_fields.go).
+// nothing. This marshals the request array and resolves each entry through the
+// engine's field dispatch: device-scope fields (ECC, remapped rows, memory
+// temperature — see engine/field_values.go, read by DCGM) and the NVLink field
+// set from the immutable NodeFabric (see engine/nvlink_fields.go).
 
 package main
 
@@ -84,17 +86,17 @@ func nvmlDeviceGetFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *
 		scopeID := uint32(C.fvScopeId(fv))
 		C.fvSetTimestamp(fv, ts)
 
-		vt, val, ret := dev.GetNvLinkFieldValue(fieldID, scopeID)
+		vt, val, ret := dev.GetFieldValue(fieldID, scopeID)
 		if ret != nvml.SUCCESS {
 			C.fvSetReturn(fv, toReturn(ret))
 			continue
 		}
 		switch vt {
-		case engine.NVLinkFieldUint:
+		case engine.FieldValueUint:
 			C.fvSetUInt(fv, C.uint(val))
-		case engine.NVLinkFieldUint64:
+		case engine.FieldValueUint64:
 			C.fvSetULL(fv, C.ulonglong(val))
-		case engine.NVLinkFieldDouble:
+		case engine.FieldValueDouble:
 			C.fvSetDoubleBits(fv, C.ulonglong(val))
 		default:
 			C.fvSetReturn(fv, C.NVML_ERROR_NOT_SUPPORTED)

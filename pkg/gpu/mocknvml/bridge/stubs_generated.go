@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 289 stub functions for unimplemented NVML functions.
+// 285 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -984,11 +984,6 @@ func nvmlGetVgpuVersion(supported *C.nvmlVgpuVersion_t, current *C.nvmlVgpuVersi
 	return stubReturn("nvmlGetVgpuVersion")
 }
 
-//export nvmlGpmMetricsGet
-func nvmlGpmMetricsGet(metricsGet *C.nvmlGpmMetricsGet_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGpmMetricsGet")
-}
-
 //export nvmlGpmMigSampleGet
 func nvmlGpmMigSampleGet(device C.nvmlDevice_t, gpuInstanceId C.uint, gpmSample C.nvmlGpmSample_t) C.nvmlReturn_t {
 	return stubReturn("nvmlGpmMigSampleGet")
@@ -997,21 +992,6 @@ func nvmlGpmMigSampleGet(device C.nvmlDevice_t, gpuInstanceId C.uint, gpmSample 
 //export nvmlGpmQueryIfStreamingEnabled
 func nvmlGpmQueryIfStreamingEnabled(device C.nvmlDevice_t, state *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlGpmQueryIfStreamingEnabled")
-}
-
-//export nvmlGpmSampleAlloc
-func nvmlGpmSampleAlloc(gpmSample *C.nvmlGpmSample_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGpmSampleAlloc")
-}
-
-//export nvmlGpmSampleFree
-func nvmlGpmSampleFree(gpmSample C.nvmlGpmSample_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGpmSampleFree")
-}
-
-//export nvmlGpmSampleGet
-func nvmlGpmSampleGet(device C.nvmlDevice_t, gpmSample C.nvmlGpmSample_t) C.nvmlReturn_t {
-	return stubReturn("nvmlGpmSampleGet")
 }
 
 //export nvmlGpmSetStreamingEnabled

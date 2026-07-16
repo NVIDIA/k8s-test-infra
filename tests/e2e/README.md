@@ -183,6 +183,13 @@ The scenario waits for the operator validator pod, records GFD labels, and
 verifies profile-derived allocatable `nvidia.com/gpu` resources from the bundled
 device plugin.
 
+With `dcgmExporter` enabled in the operator values, the scenario also validates
+DCGM against the mock NVML ([`go/assertions/dcgm.go`](go/assertions/dcgm.go),
+`dcgm` / `xid` labels). It scrapes dcgm-exporter through the API-server pod proxy
+and asserts `DCGM_FI_DEV_*` telemetry, time-varying power, and `DCGM_FI_PROF_*`
+GPM metrics on Hopper+ profiles, then injects an Xid and asserts
+`DCGM_FI_DEV_XID_ERRORS` (last, since it leaves the mock in a failed state).
+
 ## Multi-Node Scenario
 
 The `multi-node` scenario creates a heterogeneous Kind fleet from
@@ -256,6 +263,8 @@ Use-case labels:
 - `device-plugin`
 - `dra`
 - `gpu-operator`
+- `dcgm`
+- `xid`
 - `multi-node`
 - `nri`
 - `nri-inject`

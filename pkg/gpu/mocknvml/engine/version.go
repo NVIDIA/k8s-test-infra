@@ -49,8 +49,17 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceGetGraphicsRunningProcesses_v3": {Added: "510.0"},
 	"nvmlDeviceGetGspFirmwareMode":             {Added: "510.0"},
 
-	// 535.x additions
+	// 535.x additions. GPM (GPU Performance Monitoring) — DCGM's profiling
+	// path on Hopper+ (DCGM_FI_PROF_*).
 	"nvmlGpmQueryDeviceSupport": {Added: "535.0"},
+	"nvmlGpmSampleAlloc":        {Added: "535.0"},
+	"nvmlGpmSampleFree":         {Added: "535.0"},
+	"nvmlGpmSampleGet":          {Added: "535.0"},
+	"nvmlGpmMetricsGet":         {Added: "535.0"},
+
+	// 555.x additions
+	"nvmlGpmQueryIfStreamingEnabled": {Added: "555.0"},
+	"nvmlGpmSetStreamingEnabled":     {Added: "555.0"},
 
 	// 560.x additions
 	"nvmlDeviceGetPlatformInfo": {Added: "560.0"},

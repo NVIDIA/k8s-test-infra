@@ -14,6 +14,13 @@ system:
   cuda_version_major: 12
   cuda_version_minor: 8
 
+# Helm-only dynamic-metrics defaults (engine ignores this key). Used when
+# gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
+dynamic_metrics_defaults:
+  power:
+    base_mw: 800000                 # 800W, within [500W, 1600W]
+    variance_mw: 75000
+
 # =============================================================================
 # Default device configuration (applied to all devices unless overridden)
 # =============================================================================

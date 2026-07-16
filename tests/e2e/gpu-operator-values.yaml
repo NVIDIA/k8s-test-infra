@@ -28,12 +28,21 @@ driver:
 toolkit:
   enabled: false
 
-# DCGM is not supported by the mock NVML (requires full driver stack).
+# Standalone nv-hostengine DaemonSet is not needed: dcgm-exporter embeds the
+# host engine in-process (libdcgm loads the mock NVML like any other consumer).
 dcgm:
   enabled: false
 
+# dcgm-exporter runs against the mock NVML: DEV metrics come from the standard
+# telemetry getters/field values, PROF metrics (DCGM_FI_PROF_*) from the mock
+# GPM implementation on Hopper+ profiles (see pkg/gpu/mocknvml/engine/gpm.go).
 dcgmExporter:
-  enabled: false
+  enabled: true
+  env:
+    - name: NVIDIA_DRIVER_ROOT
+      value: "/var/lib/nvml-mock/driver"
+    - name: DCGM_EXPORTER_COLLECT_INTERVAL
+      value: "5000"
 
 # MIG is not supported by the mock NVML — disable manager and set strategy to none.
 # Without this, the device-plugin enumerates MIG devices and the CDI spec generator
@@ -43,7 +52,8 @@ mig:
 migManager:
   enabled: false
 
-# Node status exporter depends on DCGM — disable.
+# Node status exporter is untested with the mock — keep disabled for now
+# (dcgm-exporter itself works; see dcgmExporter above).
 nodeStatusExporter:
   enabled: false
 
