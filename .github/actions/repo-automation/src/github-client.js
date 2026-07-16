@@ -188,6 +188,66 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
     );
   }
 
+  const rootTreeByRevision = new Map();
+  const entriesByTree = new Map();
+
+  async function rootTreeForRevision(revision) {
+    if (!rootTreeByRevision.has(revision)) {
+      rootTreeByRevision.set(revision, (async () => {
+        const response = await call("getPolicyCommit", () => octokit.rest.git.getCommit({
+          owner,
+          repo,
+          commit_sha: revision,
+        }), true);
+        return nonEmptyString(response.data?.tree?.sha, "policy commit root tree OID");
+      })());
+    }
+    return rootTreeByRevision.get(revision);
+  }
+
+  async function entriesForTree(treeOid) {
+    if (!entriesByTree.has(treeOid)) {
+      entriesByTree.set(treeOid, (async () => {
+        const response = await call("getPolicyTree", () => octokit.rest.git.getTree({
+          owner,
+          repo,
+          tree_sha: treeOid,
+        }), true);
+        if (response.data?.truncated !== false || !Array.isArray(response.data.tree)) {
+          throw new TypeError("repository policy Git tree is truncated or malformed");
+        }
+        return response.data.tree;
+      })());
+    }
+    return entriesByTree.get(treeOid);
+  }
+
+  async function regularBlobForPath(path, revision) {
+    const segments = repositoryPath(path).split("/");
+    let treeOid = await rootTreeForRevision(revision);
+    for (let index = 0; index < segments.length; index += 1) {
+      const entries = await entriesForTree(treeOid);
+      const matches = entries.filter((entry) => entry?.path === segments[index]);
+      if (matches.length !== 1) {
+        throw new TypeError("repository policy path is missing or ambiguous in Git tree");
+      }
+      const entry = matches[0];
+      const oid = nonEmptyString(entry.sha, "policy Git tree entry OID");
+      const final = index === segments.length - 1;
+      if (final) {
+        if (entry.type !== "blob" || entry.mode !== "100644") {
+          throw new TypeError("repository policy path must be a regular Git blob");
+        }
+        return oid;
+      }
+      if (entry.type !== "tree" || entry.mode !== "040000") {
+        throw new TypeError("repository policy path parent must be a Git tree");
+      }
+      treeOid = oid;
+    }
+    throw new Error("unreachable repository policy path traversal");
+  }
+
   async function readCommentPlan(prNumber, marker) {
     positiveInteger(prNumber, "PR number");
     nonEmptyString(marker, "comment marker");
@@ -350,6 +410,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
     async getContentAtRevision(path, revision) {
       const repositoryContentPath = repositoryPath(path);
       nonEmptyString(revision, "content revision");
+      const treeBlobOid = await regularBlobForPath(repositoryContentPath, revision);
       const response = await call("getContentAtDefaultBranch", () => octokit.rest.repos.getContent({
         owner, repo, path: repositoryContentPath, ref: revision,
       }), true);
@@ -366,8 +427,11 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       ) {
         throw new TypeError("repository policy content must be a regular blob");
       }
+      if (metadata.sha !== treeBlobOid) {
+        throw new TypeError("repository policy Contents SHA does not match Git tree");
+      }
       const blob = await call("getPolicyBlob", () => octokit.rest.git.getBlob({
-        owner, repo, file_sha: metadata.sha,
+        owner, repo, file_sha: treeBlobOid,
       }), true);
       return decodeBlob(blob.data);
     },

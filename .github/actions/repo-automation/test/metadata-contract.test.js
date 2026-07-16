@@ -380,10 +380,22 @@ test("GitHub boundary re-fetches PR and default branch content without an event 
           return { data: { commit: { sha: "live-base-oid" } } };
         },
       },
-      git: { async getBlob(parameters) {
-        calls.push({ operation: "blob", parameters });
-        return { data: { encoding: "base64", content: Buffer.from("aliases: {}\n").toString("base64") } };
-      } },
+      git: {
+        async getCommit(parameters) {
+          calls.push({ operation: "commit", parameters });
+          return { data: { tree: { sha: "root-tree" } } };
+        },
+        async getTree(parameters) {
+          calls.push({ operation: "tree", parameters });
+          return { data: { truncated: false, tree: [{
+            path: "OWNERS_ALIASES", mode: "100644", type: "blob", sha: "alias-blob",
+          }] } };
+        },
+        async getBlob(parameters) {
+          calls.push({ operation: "blob", parameters });
+          return { data: { encoding: "base64", content: Buffer.from("aliases: {}\n").toString("base64") } };
+        },
+      },
     },
   };
   const github = createGitHubClient(octokit, "nvidia", "k8s-test-infra");
@@ -772,11 +784,24 @@ test("default-branch policy content uses one immutable commit and rejects non-bl
         return { data: contents.get(contentPath) };
       },
     },
-    git: { async getBlob({ file_sha: sha }) {
-      calls.push(`blob:${sha}`);
-      const text = blobs.get(sha);
-      return { data: { encoding: "base64", content: Buffer.from(text).toString("base64"), size: Buffer.byteLength(text) } };
-    } },
+    git: {
+      async getCommit({ commit_sha: sha }) {
+        calls.push(`commit:${sha}`);
+        return { data: { tree: { sha: "root-tree" } } };
+      },
+      async getTree({ tree_sha: sha }) {
+        calls.push(`tree:${sha}`);
+        return { data: { truncated: false, tree: [
+          { path: "OWNERS", mode: "100644", type: "blob", sha: "blob-owners" },
+          { path: "OWNERS_ALIASES", mode: "100644", type: "blob", sha: "blob-aliases" },
+        ] } };
+      },
+      async getBlob({ file_sha: sha }) {
+        calls.push(`blob:${sha}`);
+        const text = blobs.get(sha);
+        return { data: { encoding: "base64", content: Buffer.from(text).toString("base64"), size: Buffer.byteLength(text) } };
+      },
+    },
   } };
   const github = createGitHubClient(octokit, "nvidia", "k8s-test-infra");
   const revision = await github.getDefaultBranchRevision();
@@ -794,6 +819,120 @@ test("default-branch policy content uses one immutable commit and rejects non-bl
     contents.set("OWNERS", shape);
     await assert.rejects(() => github.getContentAtRevision("/OWNERS", revision), /regular blob/i);
   }
+});
+
+function createTreeContentClient(rootEntries, options = {}) {
+  const calls = [];
+  const contentByPath = options.contentByPath ?? {
+    OWNERS: { type: "file", sha: "owners-blob" },
+    OWNERS_ALIASES: { type: "file", sha: "aliases-blob" },
+  };
+  const textBySha = options.textBySha ?? {
+    "owners-blob": "reviewers: [alice]\n",
+    "aliases-blob": "aliases: {}\n",
+    "transparent-target": "reviewers: [attacker]\n",
+  };
+  const trees = options.trees ?? { "root-tree": rootEntries };
+  const octokit = { rest: {
+    git: {
+      async getCommit({ commit_sha: revision }) {
+        calls.push(`commit:${revision}`);
+        return { data: { tree: { sha: "root-tree" } } };
+      },
+      async getTree({ tree_sha: sha }) {
+        calls.push(`tree:${sha}`);
+        return {
+          data: {
+            tree: trees[sha] ?? [],
+            truncated: options.truncatedTrees?.includes(sha) ?? false,
+          },
+        };
+      },
+      async getBlob({ file_sha: sha }) {
+        calls.push(`blob:${sha}`);
+        const text = textBySha[sha] ?? "aliases: {}\n";
+        return { data: {
+          encoding: "base64",
+          content: Buffer.from(text).toString("base64"),
+          size: Buffer.byteLength(text),
+        } };
+      },
+    },
+    repos: {
+      async getContent({ path: contentPath, ref }) {
+        calls.push(`content:${contentPath}:${ref}`);
+        return { data: contentByPath[contentPath] };
+      },
+    },
+  } };
+  return {
+    calls,
+    github: createGitHubClient(octokit, "nvidia", "k8s-test-infra"),
+  };
+}
+
+test("policy paths resolve to exact regular Git tree blobs", async (t) => {
+  const regularEntries = [
+    { path: "OWNERS", mode: "100644", type: "blob", sha: "owners-blob" },
+    { path: "OWNERS_ALIASES", mode: "100644", type: "blob", sha: "aliases-blob" },
+  ];
+  const regular = createTreeContentClient(regularEntries);
+  assert.match(await regular.github.getContentAtRevision("/OWNERS", "base-oid"), /alice/);
+  assert.match(await regular.github.getContentAtRevision("/OWNERS_ALIASES", "base-oid"), /aliases/);
+  assert.equal(regular.calls.filter((call) => call === "commit:base-oid").length, 1);
+  assert.equal(regular.calls.filter((call) => call === "tree:root-tree").length, 1);
+
+  const cases = [
+    ["symlink", [{ path: "OWNERS", mode: "120000", type: "blob", sha: "link-blob" }], {
+      contentByPath: { OWNERS: { type: "file", sha: "transparent-target" } },
+    }],
+    ["gitlink", [{ path: "OWNERS", mode: "160000", type: "commit", sha: "submodule" }]],
+    ["tree", [{ path: "OWNERS", mode: "040000", type: "tree", sha: "owners-tree" }]],
+    ["missing", [{ path: "OTHER", mode: "100644", type: "blob", sha: "other" }]],
+    ["duplicate", [
+      { path: "OWNERS", mode: "100644", type: "blob", sha: "owners-blob" },
+      { path: "OWNERS", mode: "100644", type: "blob", sha: "other-blob" },
+    ]],
+    ["truncated", regularEntries, { truncatedTrees: ["root-tree"] }],
+    ["SHA mismatch", regularEntries, {
+      contentByPath: { OWNERS: { type: "file", sha: "different-blob" } },
+    }],
+  ];
+  for (const [name, entries, options] of cases) {
+    await t.test(name, async () => {
+      const candidate = createTreeContentClient(entries, options);
+      await assert.rejects(
+        () => candidate.github.getContentAtRevision("/OWNERS", "base-oid"),
+        /regular|tree|path|ambiguous|SHA/i,
+      );
+      if (name === "symlink") {
+        assert.equal(candidate.calls.some((call) => call.startsWith("content:")), false);
+        assert.equal(candidate.calls.some((call) => call.startsWith("blob:")), false);
+      }
+    });
+  }
+});
+
+test("transparent internal OWNERS symlink fails metadata before every mutation", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const fake = createFakeGitHub(metadataState());
+  const tree = createTreeContentClient(
+    [{ path: "OWNERS", mode: "120000", type: "blob", sha: "link-blob" }],
+    { contentByPath: { OWNERS: { type: "file", sha: "transparent-target" } } },
+  );
+  const github = {
+    ...fake,
+    getDefaultBranchRevision: async () => "base-oid",
+    getContentAtRevision: tree.github.getContentAtRevision,
+  };
+
+  await assert.rejects(
+    () => runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false }),
+    /regular|tree|symlink/i,
+  );
+  assert.deepEqual(mutations(fake), []);
+  assert.equal(tree.calls.some((call) => call.startsWith("content:")), false);
+  assert.equal(tree.calls.some((call) => call.startsWith("blob:")), false);
 });
 
 test("mutation failures attach bounded partial state and rerun reconciles", async (t) => {
