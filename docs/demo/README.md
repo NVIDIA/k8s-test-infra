@@ -20,6 +20,21 @@ cd node-wide-injection && ./run.sh
 See [node-wide-injection/README.md](node-wide-injection/README.md) for the
 walkthrough.
 
+### IMEX channels (NRI)
+
+Dedicated cluster (`nvml-mock-nri-imex`) with containerd NRI enabled.
+Provisions mock IMEX channel device nodes on the host and proves an
+annotated workload sees `/dev/nvidia-caps-imex-channels/*` injected over
+NRI, without GPU requests or pod-spec mutation.
+
+**Requirements:** Docker, Kind, Helm
+
+```bash
+cd nri-imex && ./run.sh
+```
+
+See [nri-imex/README.md](nri-imex/README.md) for the walkthrough.
+
 ### Standalone
 
 Deploy nvml-mock with FGO-style GPU labels on a Kind cluster. No external

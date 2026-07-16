@@ -1,0 +1,15 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Single ComputeDomain spanning both demo workers. Node names follow Kind's
+# "<cluster>-worker[N]" convention (cluster: nvml-mock-nri-imex).
+topology:
+  enabled: true
+  domains:
+    - name: nri-imex-domain
+      uuid: "00000000-0000-0000-0000-0000000000ce"
+      cliques:
+        - id: 0
+          nodes:
+            - nvml-mock-nri-imex-worker
+            - nvml-mock-nri-imex-worker2

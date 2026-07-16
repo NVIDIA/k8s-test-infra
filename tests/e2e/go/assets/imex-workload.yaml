@@ -1,0 +1,48 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# e2e workload for the imex scenario: ordinary pod (no nvidia.com/gpu request,
+# no volumes, no MOCK_* env) annotated to opt into NRI IMEX channel injection.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: imex-agent
+  labels:
+    app: imex-agent
+spec:
+  selector:
+    matchLabels:
+      app: imex-agent
+  template:
+    metadata:
+      labels:
+        app: imex-agent
+      annotations:
+        nvml-mock.nvidia.com/imex-channels: "true"
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: agent
+          image: ubuntu:24.04
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              test -d /opt/nvml-mock
+              ls -1 /dev/nvidia-caps-imex-channels
+              while true; do sleep 300; done
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

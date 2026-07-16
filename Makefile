@@ -104,7 +104,8 @@ generate:
 #   make e2e-dra                   # DRA scenario
 #   make e2e-gpu-operator          # GPU Operator scenario
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
-#   make e2e-nri                   # node-wide NRI ambient-injection scenario
+#   make e2e-nri                   # NRI scenarios (node-wide injection + IMEX channels)
+#   make e2e-imex                  # mock IMEX channel injection over NRI (subset of e2e-nri)
 # CI builds the image once per job and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
 #
 # NOTE: this targets ./tests/e2e/go (the Ginkgo suite package) only, NOT
@@ -133,3 +134,6 @@ e2e-multi-node:
 
 e2e-nri:
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=nri'
+
+e2e-imex:
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=imex'

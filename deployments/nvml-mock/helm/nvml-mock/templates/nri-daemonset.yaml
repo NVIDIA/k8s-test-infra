@@ -48,6 +48,8 @@ spec:
             - --device-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev
             - --opt-out-annotation={{ .Values.nri.optOutAnnotation }}
             - --device-annotation={{ .Values.nri.deviceAnnotation }}
+            - --imex-channel-annotation={{ .Values.nri.imexChannelAnnotation }}
+            - --imex-channel-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev/nvidia-caps-imex-channels
             - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
             # NODE_NAME (below) gates ComputeDomain topology injection: when
             # topology.enabled stages a topology document into the overlay,

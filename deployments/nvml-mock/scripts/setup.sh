@@ -66,6 +66,21 @@ mknod -m 666 "$DEV_ROOT/nvidiactl" c 195 255 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm" c 510 0 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm-tools" c 510 1 2>/dev/null || true
 
+# 3c. Create mock IMEX channel device nodes (issue #437).
+#     Presence-only: a major with no bound kernel driver, so the nodes are
+#     statable/listable (ls /dev/nvidia-caps-imex-channels) but not openable,
+#     mirroring the mock /dev/nvidia* nodes created in step 3.
+CHANNEL_COUNT="${MOCK_IMEX_CHANNELS:-0}"
+CHANNEL_MAJOR="${MOCK_IMEX_CHANNEL_MAJOR:-240}"
+if [ "$CHANNEL_COUNT" -gt 0 ]; then
+  mkdir -p "$DEV_ROOT/nvidia-caps-imex-channels"
+  i=0
+  while [ "$i" -lt "$CHANNEL_COUNT" ]; do
+    mknod -m 666 "$DEV_ROOT/nvidia-caps-imex-channels/channel$i" c "$CHANNEL_MAJOR" "$i" 2>/dev/null || true
+    i=$((i + 1))
+  done
+fi
+
 # 3b. Generate CDI spec for nvidia-container-runtime CDI mode.
 #     This allows the toolkit to inject our mock libs into containers without
 #     needing libnvidia-container or kernel modules.
