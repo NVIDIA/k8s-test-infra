@@ -12,13 +12,27 @@ a single ComputeDomain spanning two Kind nodes (issue
 ./docs/demo/nri-imex/run.sh
 ```
 
+## Prerequisites
+
+- Docker, Kind, kubectl, Helm.
+- `jq` — Scenario 3 parses `nvidia-imex-ctl -N -j` JSON.
+
+The demo builds a local overlay image (`nvml-mock:nri-imex-real-imex`) that
+layers the real `nvidia-imex` / `nvidia-imex-ctl` (NO GPU mode via
+`imex-nogpu-shim`) onto the mock stack. This image is **local build only** — it
+repackages the proprietary `nvidia-imex` binary and is never published (see
+`deployments/nvml-mock/Dockerfile.compute-domain-daemon`).
+
 ## What it proves
 
 1. A plain workload annotated `nvml-mock.nvidia.com/imex-channels: "true"` sees
    `channel0..15` on **both** workers.
 2. `check-fabric` reports the same `clusterUuid` on both workers (consistent
    ComputeDomain identity, injected purely through NRI).
-3. The real `nvidia-imex` domain reports `READY`.
+3. Two real `nvidia-imex` NO-GPU daemons (started via `imex-nogpu-shim`) form a
+   domain across both workers: `nvidia-imex-ctl -q` reports `READY` locally and
+   `nvidia-imex-ctl -N -j` reports the domain `UP` with both nodes `READY` and
+   version `NO_GPU`.
 
 ## Limitation: presence-only channels
 

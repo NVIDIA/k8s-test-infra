@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   NRI foundation, with a dedicated `nri-imex` demo and e2e scenario. (#437)
 
 ### Changed
+- The nri-imex demo now exercises the REAL `nvidia-imex-ctl` against a live
+  NO-GPU IMEX domain formed across both workers (`-q` READY, `-N -j` UP with
+  2 nodes READY/NO_GPU), replacing the previous best-effort domain-status
+  check. (#437)
 - ComputeDomain simulation now runs the REAL `nvidia-imex` daemon in NO
   GPU mode (`--nogpu`) instead of the fake marker-file binaries: the new
   `imex-nogpu-shim` injects the flag around upstream's hard-coded argv,
