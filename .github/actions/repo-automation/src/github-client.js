@@ -9,16 +9,23 @@ function copyLabel(label) {
 }
 
 function sensitiveValues(error) {
-  const values = [];
-  const headers = error?.request?.request?.headers;
+  const values = new Set();
+  const headers = error?.request?.headers;
   if (headers && typeof headers === "object") {
     for (const [name, value] of Object.entries(headers)) {
-      if (/authorization|token|secret/i.test(name) && typeof value === "string") {
-        values.push(value);
+      if (/authorization|token|secret|api[-_]?key/i.test(name) && typeof value === "string") {
+        const trimmed = value.trim();
+        if (trimmed !== "") {
+          values.add(trimmed);
+          const separator = trimmed.indexOf(" ");
+          if (separator !== -1 && trimmed.slice(separator + 1).trim() !== "") {
+            values.add(trimmed.slice(separator + 1).trim());
+          }
+        }
       }
     }
   }
-  return values;
+  return [...values].sort((left, right) => right.length - left.length);
 }
 
 function normalizeError(operation, error) {

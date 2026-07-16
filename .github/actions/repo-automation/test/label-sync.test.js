@@ -199,6 +199,47 @@ test("GitHub client normalizes API failures at its boundary", async () => {
   });
 });
 
+test("GitHub client redacts credentials from the actual Octokit error shape", async () => {
+  const { createGitHubClient } = require("../src/github-client.js");
+  const authorization = "token octokit-sensitive-sentinel-9347";
+  const alternateToken = "alternate-sensitive-sentinel-6218";
+  const apiError = Object.assign(
+    new Error(`service unavailable; echoed ${authorization} and ${alternateToken}`),
+    {
+      status: 503,
+      request: {
+        headers: {
+          Authorization: authorization,
+          "X-Auth-Token": alternateToken,
+        },
+      },
+      config: { headers: { authorization } },
+      response: { headers: { "x-auth-token": alternateToken } },
+    },
+  );
+  const listLabelsForRepo = async () => {
+    throw apiError;
+  };
+  const octokit = {
+    rest: { issues: { listLabelsForRepo } },
+    paginate: (endpoint, parameters) => endpoint(parameters),
+  };
+  const github = createGitHubClient(octokit, "nvidia", "k8s-test-infra");
+
+  await assert.rejects(github.listLabels(), (error) => {
+    assert.equal(error.name, "GitHubClientError");
+    assert.equal(error.operation, "listLabels");
+    assert.equal(error.status, 503);
+    assert.match(error.message, /listLabels.*service unavailable/i);
+    assert.equal(error.message.includes(authorization), false);
+    assert.equal(error.message.includes(alternateToken), false);
+    assert.equal(Object.hasOwn(error, "request"), false);
+    assert.equal(Object.hasOwn(error, "config"), false);
+    assert.equal(Object.hasOwn(error, "response"), false);
+    return true;
+  });
+});
+
 test("dispatcher rejects an unknown mode as a hard error", async () => {
   const { run } = require("../src/index.js");
   const core = {
@@ -236,6 +277,10 @@ test("action metadata pins the Node 24 entry point and stable input/output contr
 
   assert.deepEqual(action.runs, { using: "node24", main: "dist/index.js" });
   assert.deepEqual(Object.keys(action.inputs).sort(), ["dry-run", "mode", "pr-number"]);
+  for (const input of ["mode", "pr-number", "dry-run"]) {
+    assert.equal(typeof action.inputs[input].description, "string");
+    assert.notEqual(action.inputs[input].description.trim(), "");
+  }
   assert.equal(action.inputs.mode.required, true);
   assert.equal(action.inputs["pr-number"].required, false);
   assert.equal(action.inputs["dry-run"].required, false);
