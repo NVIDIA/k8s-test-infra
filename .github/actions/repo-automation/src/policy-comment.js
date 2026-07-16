@@ -4,6 +4,8 @@ const { parsePolicyState, serializePolicyState } = require("./commands/state.js"
 
 const POLICY_COMMENT_MARKER = "<!-- repo-automation-policy:v1 -->";
 const COMMAND_SUMMARY_MARKER = "<!-- repo-automation-command-summary:v1 -->";
+const METADATA_HEAD_INTRODUCTION = "<!-- repo-automation-metadata-head:";
+const METADATA_HEAD_LINE = /^<!-- repo-automation-metadata-head:v1 \{"headOid":"([0-9a-f]{40}|[0-9a-f]{64})"\} -->$/;
 const SAFE_LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const STATE_MARKER_INTRODUCTION = "<!-- repo-automation-state:";
@@ -140,10 +142,13 @@ function policyCommentStructure(body) {
     || body.includes("\r")
     || body.split(POLICY_COMMENT_MARKER).length - 1 !== 1
     || body.split(STATE_MARKER_INTRODUCTION).length - 1 !== 1
+    || body.split(METADATA_HEAD_INTRODUCTION).length - 1 > 1
     || body.split(COMMAND_SUMMARY_MARKER).length - 1 > 1
   ) return null;
   const lines = body.split("\n");
   if (lines[0] !== POLICY_COMMENT_MARKER || !STATE_MARKER_LINE.test(lines[1] ?? "")) return null;
+  const metadataCount = body.split(METADATA_HEAD_INTRODUCTION).length - 1;
+  if (metadataCount === 1 && !METADATA_HEAD_LINE.test(lines[2] ?? "")) return null;
   const commandIndex = lines.indexOf(COMMAND_SUMMARY_MARKER);
   if (
     (body.includes(COMMAND_SUMMARY_MARKER) && commandIndex < 2)
@@ -154,6 +159,22 @@ function policyCommentStructure(body) {
     ))
   ) return null;
   return { commandIndex, stateMarker: lines[1] };
+}
+
+function serializeMetadataHeadEvidence(headOid) {
+  if (typeof headOid !== "string" || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(headOid)) {
+    throw new TypeError("metadata head evidence must contain a normalized Git OID");
+  }
+  return `<!-- repo-automation-metadata-head:v1 {"headOid":"${headOid}"} -->`;
+}
+
+function parseMetadataHeadEvidence(body) {
+  if (typeof body !== "string" || body.split(METADATA_HEAD_INTRODUCTION).length - 1 !== 1) {
+    return null;
+  }
+  const line = body.split("\n")[2];
+  const match = METADATA_HEAD_LINE.exec(line ?? "");
+  return match === null ? null : match[1];
 }
 
 function hasValidPolicyCommentStructure(body) {
@@ -172,6 +193,7 @@ function renderPolicyComment(result, state = undefined) {
   const lines = [
     POLICY_COMMENT_MARKER,
     stateMarker,
+    serializeMetadataHeadEvidence(value.headOid),
     "## PR metadata policy",
     "",
     `Head: ${code(value.headOid)}`,
@@ -269,6 +291,8 @@ module.exports = {
   COMMAND_SUMMARY_MARKER,
   POLICY_COMMENT_MARKER,
   hasValidPolicyCommentStructure,
+  parseMetadataHeadEvidence,
   renderCommandPolicyComment,
   renderPolicyComment,
+  serializeMetadataHeadEvidence,
 };

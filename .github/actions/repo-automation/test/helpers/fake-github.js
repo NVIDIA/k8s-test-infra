@@ -68,6 +68,12 @@ function createFakeGitHub(initialState = []) {
     planPolicyComment: [],
     getPolicyComment: [],
     upsertPolicyComment: [],
+    listOpenPullRequestNumbers: [],
+    getEvaluationWorkflowRun: [],
+    getBranchProtection: [],
+    getMergeState: [],
+    enableAutoMerge: [],
+    disableAutoMerge: [],
   };
   const callOrder = [];
 
@@ -121,6 +127,37 @@ function createFakeGitHub(initialState = []) {
       record("getPullRequest", { prNumber });
       const index = Math.min(calls.getPullRequest.length - 1, pullRequests.length - 1);
       return clone(pullRequests[index]);
+    },
+
+    async listOpenPullRequestNumbers() {
+      record("listOpenPullRequestNumbers", {});
+      return clone(options.openPullRequestNumbers ?? [42]);
+    },
+
+    async getEvaluationWorkflowRun(runId) {
+      record("getEvaluationWorkflowRun", { runId });
+      return clone(options.evaluationWorkflowRuns?.[runId] ?? null);
+    },
+
+    async getBranchProtection(branch) {
+      record("getBranchProtection", { branch });
+      if (!Object.hasOwn(options.branchProtection ?? {}, branch)) return null;
+      return options.branchProtection[branch];
+    },
+
+    async getMergeState(prNumber) {
+      record("getMergeState", { prNumber });
+      const states = options.mergeStates ?? [];
+      const index = Math.min(calls.getMergeState.length - 1, states.length - 1);
+      return clone(states[index]);
+    },
+
+    async enableAutoMerge(pullRequestId, mergeMethod) {
+      record("enableAutoMerge", { pullRequestId, mergeMethod });
+    },
+
+    async disableAutoMerge(pullRequestId) {
+      record("disableAutoMerge", { pullRequestId });
     },
 
     async getIssueComment(commentId) {

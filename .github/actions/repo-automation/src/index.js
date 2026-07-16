@@ -5,11 +5,12 @@ const { createGitHubClient } = require("./github-client.js");
 const { syncLabels } = require("./modes/label-sync.js");
 const { runCommand } = require("./modes/command.js");
 const { runMetadata } = require("./modes/metadata.js");
+const { runMergeEvaluate } = require("./modes/merge-evaluate.js");
 
 async function run(dependencies) {
   const { core } = dependencies;
   const mode = core.getInput("mode", { required: true });
-  if (mode !== "label-sync" && mode !== "metadata" && mode !== "command") {
+  if (mode !== "label-sync" && mode !== "metadata" && mode !== "command" && mode !== "merge-evaluate") {
     throw new Error(`Unsupported mode: ${mode}`);
   }
 
@@ -22,7 +23,7 @@ async function run(dependencies) {
   const client = dependencies.githubClient ?? createGitHubClient(octokit, owner, repo);
   const dryRun = core.getBooleanInput("dry-run");
   let config;
-  if (mode === "metadata" || mode === "command") {
+  if (mode === "metadata" || mode === "command" || mode === "merge-evaluate") {
     try {
       config = loadConfig(workspace);
     } catch {
@@ -46,13 +47,21 @@ async function run(dependencies) {
         config,
         dryRun,
       });
-    } else {
+    } else if (mode === "command") {
       summary = await runCommand({
         event: dependencies.event,
         github: client,
         config,
         dryRun,
         now: dependencies.now,
+      });
+    } else {
+      summary = await runMergeEvaluate({
+        event: dependencies.event,
+        github: client,
+        config,
+        dryRun,
+        prNumber: core.getInput("pr-number"),
       });
     }
   } catch (error) {

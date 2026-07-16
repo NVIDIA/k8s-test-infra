@@ -1,0 +1,18 @@
+{
+  "action": "completed",
+  "repository": {
+    "name": "k8s-test-infra",
+    "full_name": "NVIDIA/k8s-test-infra",
+    "owner": { "login": "NVIDIA" }
+  },
+  "workflow_run": {
+    "id": 7001,
+    "name": "event-name-must-not-be-trusted",
+    "status": "completed",
+    "conclusion": "success",
+    "pull_requests": [{ "number": 999 }],
+    "artifacts_url": "event-artifact-must-not-be-used",
+    "head_sha": "event-head-must-not-be-used",
+    "head_branch": "event-ref-must-not-be-used"
+  }
+}

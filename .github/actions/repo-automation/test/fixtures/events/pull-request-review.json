@@ -1,0 +1,16 @@
+{
+  "action": "submitted",
+  "repository": {
+    "name": "k8s-test-infra",
+    "full_name": "NVIDIA/k8s-test-infra",
+    "owner": { "login": "NVIDIA" }
+  },
+  "pull_request": {
+    "number": 42,
+    "head": { "sha": "event-head-must-not-be-trusted" }
+  },
+  "review": {
+    "state": "approved",
+    "body": "event-review-body-must-not-be-trusted"
+  }
+}

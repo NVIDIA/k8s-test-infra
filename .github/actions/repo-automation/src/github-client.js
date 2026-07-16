@@ -17,6 +17,35 @@ const ACTIONS_COMMENT_AUTHOR = Object.freeze({
   login: "github-actions[bot]",
   type: "Bot",
 });
+const MAX_OPEN_PULL_REQUESTS = 100;
+const MAX_PULL_REQUEST_FILES = 1000;
+const MAX_PULL_REQUEST_REVIEWS = 1000;
+const MAX_POLICY_COMMENTS = 1000;
+const MERGE_STATE_QUERY = `query RepositoryAutomationMergeState($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    nameWithOwner
+    pullRequest(number: $number) {
+      id
+      number
+      state
+      isDraft
+      baseRefName
+      headRefOid
+      mergeable
+      autoMergeRequest { mergeMethod }
+    }
+  }
+}`;
+const ENABLE_AUTO_MERGE_MUTATION = `mutation RepositoryAutomationEnableAutoMerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
+  enablePullRequestAutoMerge(input: {pullRequestId: $pullRequestId, mergeMethod: $mergeMethod}) {
+    pullRequest { id }
+  }
+}`;
+const DISABLE_AUTO_MERGE_MUTATION = `mutation RepositoryAutomationDisableAutoMerge($pullRequestId: ID!) {
+  disablePullRequestAutoMerge(input: {pullRequestId: $pullRequestId}) {
+    pullRequest { id }
+  }
+}`;
 
 function copyLabel(label) {
   return {
@@ -318,6 +347,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       repo,
       issue_number: prNumber,
     });
+    if (comments.length > MAX_POLICY_COMMENTS) throw new TypeError("policy comment scan exceeds limit");
     const matches = comments.filter((comment) => (
       typeof comment.body === "string"
       && comment.body.includes(marker)
@@ -340,6 +370,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       repo,
       issue_number: prNumber,
     });
+    if (comments.length > MAX_POLICY_COMMENTS) throw new TypeError("policy comment scan exceeds limit");
     const matches = comments.filter((comment) => (
       typeof comment.body === "string"
       && comment.body.includes(marker)
@@ -422,11 +453,120 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         author: nonEmptyString(data.user?.login, "live PR author"),
         headOid: nonEmptyString(data.head?.sha, "live PR head OID"),
         state: nonEmptyString(data.state, "live PR state").toLowerCase(),
+        ...(data.node_id === undefined ? {} : { nodeId: nonEmptyString(data.node_id, "live PR node ID") }),
+        ...(data.base?.ref === undefined ? {} : { baseBranch: nonEmptyString(data.base.ref, "live PR base branch") }),
         baseRepository: {
           owner: nonEmptyString(data.base?.repo?.owner?.login, "base repository owner").toLowerCase(),
           repo: nonEmptyString(data.base?.repo?.name, "base repository name").toLowerCase(),
         },
       };
+    },
+
+    async listOpenPullRequestNumbers() {
+      const pulls = await paginate("listOpenPullRequests", octokit.rest.pulls.list, {
+        owner, repo, state: "open",
+      });
+      if (pulls.length > MAX_OPEN_PULL_REQUESTS) {
+        throw new TypeError("open pull request scan exceeds limit");
+      }
+      const numbers = pulls.map((pull) => positiveInteger(pull.number, "open PR number"));
+      if (new Set(numbers).size !== numbers.length) throw new TypeError("open PR scan contains duplicates");
+      return numbers.sort((left, right) => left - right);
+    },
+
+    async getEvaluationWorkflowRun(runId) {
+      positiveInteger(runId, "workflow run id");
+      const { data } = await call("getEvaluationWorkflowRun", () => octokit.rest.actions.getWorkflowRun({
+        owner, repo, run_id: runId,
+      }), true);
+      try {
+        const runRepository = nonEmptyString(data.repository?.full_name, "workflow run repository").toLowerCase();
+        const rawPath = nonEmptyString(data.path, "workflow path");
+        const workflowPath = rawPath.split("@", 1)[0];
+        if (!/^\.github\/workflows\/[A-Za-z0-9_.-]+\.ya?ml$/.test(workflowPath)) return null;
+        if (!Array.isArray(data.pull_requests) || data.pull_requests.length > 100) return null;
+        const pullRequestNumbers = data.pull_requests.map((pull) => positiveInteger(pull?.number, "workflow PR number"));
+        if (new Set(pullRequestNumbers).size !== pullRequestNumbers.length) return null;
+        const liveId = positiveInteger(data.id, "workflow run id");
+        if (liveId !== runId) return null;
+        return {
+          id: liveId,
+          name: nonEmptyString(data.name, "workflow name"),
+          workflowPath,
+          event: nonEmptyString(data.event, "workflow source event"),
+          status: nonEmptyString(data.status, "workflow run status"),
+          repository: runRepository,
+          pullRequestNumbers: pullRequestNumbers.sort((left, right) => left - right),
+        };
+      } catch {
+        return null;
+      }
+    },
+
+    async getBranchProtection(branch) {
+      nonEmptyString(branch, "branch");
+      const { data } = await call("getBranchProtection", () => octokit.rest.repos.getBranch({
+        owner, repo, branch,
+      }), true);
+      return typeof data?.protected === "boolean" ? data.protected : null;
+    },
+
+    async getMergeState(prNumber) {
+      positiveInteger(prNumber, "PR number");
+      const data = await call("getMergeState", () => octokit.graphql(MERGE_STATE_QUERY, {
+        owner, repo, number: prNumber,
+      }), true);
+      const repository = data?.repository;
+      const pull = repository?.pullRequest;
+      if (repository === null || pull === null || typeof repository !== "object" || typeof pull !== "object") {
+        throw new TypeError("GraphQL pull request state is missing");
+      }
+      const method = pull.autoMergeRequest === null
+        ? null
+        : nonEmptyString(pull.autoMergeRequest?.mergeMethod, "auto-merge method");
+      const result = {
+        number: positiveInteger(pull.number, "GraphQL PR number"),
+        nodeId: nonEmptyString(pull.id, "GraphQL PR node ID"),
+        state: nonEmptyString(pull.state, "GraphQL PR state"),
+        draft: pull.isDraft,
+        baseBranch: nonEmptyString(pull.baseRefName, "GraphQL base branch"),
+        headOid: gitOid(pull.headRefOid, "GraphQL head OID"),
+        mergeability: nonEmptyString(pull.mergeable, "GraphQL mergeability"),
+        autoMergeMethod: method,
+        repository: nonEmptyString(repository.nameWithOwner, "GraphQL repository").toLowerCase(),
+      };
+      if (typeof result.draft !== "boolean" || !["OPEN", "CLOSED", "MERGED"].includes(result.state)) {
+        throw new TypeError("GraphQL pull request state is malformed");
+      }
+      if (!["MERGEABLE", "CONFLICTING", "UNKNOWN"].includes(result.mergeability)) {
+        throw new TypeError("GraphQL mergeability is malformed");
+      }
+      if (result.autoMergeMethod !== null && !["MERGE", "REBASE", "SQUASH"].includes(result.autoMergeMethod)) {
+        throw new TypeError("GraphQL auto-merge method is malformed");
+      }
+      return result;
+    },
+
+    async enableAutoMerge(pullRequestId, mergeMethod) {
+      nonEmptyString(pullRequestId, "pull request node ID");
+      if (mergeMethod !== "SQUASH") throw new TypeError("native auto-merge method must be SQUASH");
+      const data = await call("enableAutoMerge", () => octokit.graphql(ENABLE_AUTO_MERGE_MUTATION, {
+        pullRequestId,
+        mergeMethod,
+      }), false);
+      if (data?.enablePullRequestAutoMerge?.pullRequest?.id !== pullRequestId) {
+        throw new TypeError("enable auto-merge response is ambiguous");
+      }
+    },
+
+    async disableAutoMerge(pullRequestId) {
+      nonEmptyString(pullRequestId, "pull request node ID");
+      const data = await call("disableAutoMerge", () => octokit.graphql(DISABLE_AUTO_MERGE_MUTATION, {
+        pullRequestId,
+      }), false);
+      if (data?.disablePullRequestAutoMerge?.pullRequest?.id !== pullRequestId) {
+        throw new TypeError("disable auto-merge response is ambiguous");
+      }
     },
 
     async getIssueComment(commentId) {
@@ -511,6 +651,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       const files = await paginate("listPullRequestFiles", octokit.rest.pulls.listFiles, {
         owner, repo, pull_number: prNumber,
       });
+      if (files.length > MAX_PULL_REQUEST_FILES) throw new TypeError("pull request file scan exceeds limit");
       return files.map((file) => ({
         path: nonEmptyString(file.filename, "changed path"),
         additions: file.additions,
@@ -539,6 +680,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       const reviews = await paginate("listPullRequestReviews", octokit.rest.pulls.listReviews, {
         owner, repo, pull_number: prNumber,
       });
+      if (reviews.length > MAX_PULL_REQUEST_REVIEWS) throw new TypeError("pull request review scan exceeds limit");
       return reviews.map((review) => ({
         id: positiveInteger(review.id, "review id"),
         user: nonEmptyString(review.user?.login, "review user"),
