@@ -88,7 +88,11 @@ git commit -s -S -m "feat: classify pull request titles"
 
 ### Step 1: Add and lock the glob dependency
 
-Add exact dependency `minimatch: 10.0.3` and regenerate the lockfile with `npm install --package-lock-only`.
+Add exact dependency `minimatch: 10.2.5` and regenerate the lockfile with
+`npm install --package-lock-only`. Version 10.0.3 is prohibited: npm audit
+reports three high-severity ReDoS advisories in the 10.0.0--10.2.2 range.
+Require `npm audit --audit-level=high` to pass before implementing or packaging
+the area matcher.
 
 ### Step 2: Write failing boundaries
 
