@@ -4,20 +4,21 @@
 # nvml-mock helm values overlay for the compute-domain scenario.
 # Layered on top of local/compute-domain/topology.yaml.
 #
-# Mirrors the flags passed by docs/demo/compute-domain/run.sh step 3
-# (gpu.profile=gb200, updateStrategy, terminationGracePeriodSeconds).
-# image.repository/tag are NOT set here: compute_domain.tiltfile injects
-# them via helm_resource image_keys pointing at the demo overlay image
-# (matches how local/nvml_mock.tiltfile injects ghcr.io/nvidia/nvml-mock).
+# Mirrors the flags passed by docs/demo/compute-domain/run.sh step 3.
+# Two settings from run.sh live outside this file:
+#   - image.repository/tag: injected by compute_domain.tiltfile via
+#     helm_resource image_keys (matches local/nvml_mock.tiltfile's pattern).
+#   - terminationGracePeriodSeconds: set via --set in compute_domain.tiltfile
+#     so the "local-dev rollout speedup" rationale lives next to the same
+#     setting in nvml_mock.tiltfile — one place, one reason.
 
 # GB200 profile — the fabric API mock (nvmlDeviceGetGpuFabricInfo)
 # is the only profile that reports NVLink5 fabric identity.
 gpu:
   profile: gb200
 
-# Speed up the DaemonSet rollout during Scenario 3's topology rebind so
-# every pod picks up the new MOCK_TOPOLOGY_CONFIG in seconds, not tens.
-terminationGracePeriodSeconds: 1
+# Speed up Scenario 3's DaemonSet rollout so every pod re-reads
+# MOCK_TOPOLOGY_CONFIG in seconds, not tens.
 updateStrategy:
   rollingUpdate:
     maxUnavailable: "100%"

@@ -112,12 +112,20 @@ def install(active_consumers):
     # nvml-mock.values.yaml layers profile/rollout overrides on top,
     # per-consumer overlays get last say. Image ref is injected by Tilt
     # via image_keys below — not passed as a --values flag.
+    # terminationGracePeriodSeconds is set here (not in the values file)
+    # so the "local-dev rollout speedup" reason lives next to the same
+    # setting in local/nvml_mock.tiltfile — one place, one rationale.
     flags = [
         '--values', 'local/compute-domain/topology.yaml',
         '--values', 'local/compute-domain/nvml-mock.values.yaml',
+        '--set', 'terminationGracePeriodSeconds=1',
     ]
+    # Optional per-consumer overlays. Consumers with no mock-side needs
+    # don't create the file, and this loop skips them.
     for consumer in active_consumers:
-        flags += ['--values', 'local/' + consumer + '/nvml-mock.values.yaml']
+        overlay = 'local/' + consumer + '/nvml-mock.values.yaml'
+        if os.path.exists(overlay):
+            flags += ['--values', overlay]
 
     helm_resource(
         'nvml-mock',

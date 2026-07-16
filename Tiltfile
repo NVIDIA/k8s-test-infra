@@ -8,12 +8,14 @@
 #
 # Adding a new consumer:
 #   1. Create local/<name>/ with <name>.tiltfile exposing install(nvml_mock_releases).
-#   2. Create local/<name>/nvml-mock.values.yaml (may be empty header only).
-#   3. Add config.define_bool('with-<name>', ...) below.
-#   4. Add a load(...) for the new tiltfile.
-#   5. Add `if with_<name>: active_consumers.append('<name>')`.
-#   6. Add `if with_<name>: <name>_install(nvml_mock_releases)`.
+#   2. Add config.define_bool('with-<name>', ...) below.
+#   3. Add a load(...) for the new tiltfile.
+#   4. Add `if with_<name>: active_consumers.append('<name>')`.
+#   5. Add `if with_<name>: <name>_install(nvml_mock_releases)`.
 # The nvml-mock stack itself needs no changes to add a consumer.
+# Optional: drop local/<name>/nvml-mock.values.yaml if the consumer
+# needs mock-side tweaks (MOCK_* env vars, gpu.count overrides, etc.).
+# The install helpers detect the file's presence via os.path.exists.
 #
 # Adding a new scenario (e.g. compute-domain):
 #   Scenarios reshape the nvml-mock stack itself — different image, forced

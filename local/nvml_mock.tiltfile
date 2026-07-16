@@ -43,16 +43,28 @@ def build_nvml_mock_image():
     )
 
 def _install(release, profile, active_consumers, extra_set):
-    flags = ['--set', 'gpu.profile=' + profile]
+    flags = [
+        '--set', 'gpu.profile=' + profile,
+    ]
+
     for kv in extra_set:
         flags += ['--set', kv]
-    # Overlay per-consumer mock tweaks in declaration order. Files always passed
-    # even when empty — placeholder headers exist in every local/<c>/ dir so a
-    # consumer can later add MOCK_* env vars, gpu.count overrides, etc. without
-    # touching the Tiltfile. Later overlays win on key conflicts (helm --values
-    # ordering semantics).
+    # Shared committed baseline for local-dev (e.g. MOCK_IB, gpu.count tweaks).
+    if os.path.exists('local/nvml-mock.values.yaml'):
+        flags += ['--values', 'local/nvml-mock.values.yaml']
+    # Overlay per-consumer mock tweaks if the consumer ships an overlay.
+    # Optional: consumers with no mock-side needs don't create the file, and
+    # this loop skips them. See local/compute-domain/nvml-mock.values.yaml
+    # for the shape when one is needed. Later overlays win on key conflicts
+    # (helm --values ordering semantics).
     for consumer in active_consumers:
-        flags += ['--values', 'local/' + consumer + '/nvml-mock.values.yaml']
+        overlay = 'local/' + consumer + '/nvml-mock.values.yaml'
+        if os.path.exists(overlay):
+            flags += ['--values', overlay]
+
+    # Personal per-machine override — wins over everything; gitignored.
+    if os.path.exists('local/nvml-mock.values.local.yaml'):
+        flags += ['--values', 'local/nvml-mock.values.local.yaml']
 
     helm_resource(
         release,
