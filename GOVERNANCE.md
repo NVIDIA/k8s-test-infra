@@ -16,16 +16,18 @@ Contributors must sign off their commits per the [DCO](CONTRIBUTING.md).
 ### Reviewers
 
 Reviewers are listed in `OWNERS` and are expected to review PRs in their area
-of expertise. An applicable reviewer or approver may grant or cancel LGTM with
-`/lgtm` or `/lgtm cancel`. LGTM records technical review; it is not a GitHub
+of expertise. When repository command automation is enabled, an applicable
+reviewer or approver will be able to grant or cancel LGTM with `/lgtm` or
+`/lgtm cancel`. LGTM will record technical review; it will not be a GitHub
 approval.
 
 ### Approvers
 
-Approvers are listed in `OWNERS`. An applicable approver authorizes a change by
-submitting a GitHub `APPROVED` review for the current pull request head. Approval
-coverage follows the `OWNERS` hierarchy and must cover every changed file.
-`/approve` is not supported.
+Approvers are listed in `OWNERS`, and project approval is expressed through a
+GitHub `APPROVED` review. `/approve` is unsupported. When ownership and review
+automation is enabled, it will count only a current-head review from an
+applicable approver. Approval coverage will follow the `OWNERS` hierarchy and
+must cover every changed file.
 
 ### Maintainers
 
@@ -35,15 +37,16 @@ reviewer and approver entries. Maintainers are responsible for:
 
 - Triaging issues and shepherding public project decisions
 - Maintaining reviewer and approver rosters
-- Merging pull requests after automated policy and required checks pass
+- Merging pull requests after current repository rules and required checks pass
 - Cutting releases and maintaining release policy
 - Managing repository settings, rules, workflows, and emergency access
 
 ## Decision Making
 
-- **Code changes:** Require reviewer LGTM and current-head GitHub approval from
-  applicable approvers in `OWNERS`, covering every changed file. Required checks
-  and merge policy must also pass.
+- **Code changes:** Follow the currently enabled GitHub branch rules and
+  required checks. When command and review automation is enabled, the planned
+  policy will additionally require reviewer LGTM and current-head GitHub
+  approval from applicable approvers in `OWNERS`, covering every changed file.
 - **Architectural decisions:** Discussed in GitHub issues and decided by
   maintainer consensus. If consensus cannot be reached, maintainers decide by
   majority.
