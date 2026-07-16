@@ -3,10 +3,19 @@
 const { Buffer } = require("node:buffer");
 const { setTimeout: delay } = require("node:timers/promises");
 const { TextDecoder } = require("node:util");
+const { isManagedMetadataLabel } = require("./managed-labels.js");
 
 const MAX_CONTENT_BYTES = 1024 * 1024;
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
-const MANAGED_STATE_LABELS = new Set(["do-not-merge/work-in-progress"]);
+const TRANSIENT_CODES = new Set([
+  "ECONNRESET", "ECONNREFUSED", "EAI_AGAIN", "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_SOCKET",
+]);
+const MAX_RETRY_DELAY_MS = 30000;
+const ACTIONS_COMMENT_AUTHOR = Object.freeze({
+  login: "github-actions[bot]",
+  type: "Bot",
+});
 
 function copyLabel(label) {
   return {
@@ -43,10 +52,15 @@ function sensitiveValues(error) {
 }
 
 function normalizeError(operation, error) {
-  let detail = error instanceof Error ? error.message : String(error);
-  for (const value of sensitiveValues(error)) {
-    detail = detail.replaceAll(value, "[REDACTED]");
-  }
+  const status = Number.isInteger(error?.status) ? error.status : undefined;
+  const code = typeof error?.code === "string" ? error.code : undefined;
+  let detail = "GitHub API request failed";
+  if (status === 422) detail = "GitHub API validation rejected the request";
+  else if (status === 401 || status === 403) detail = "GitHub API authorization or rate limit rejected the request";
+  else if (status === 404) detail = "GitHub API resource was not found";
+  else if (status !== undefined && status >= 500) detail = "GitHub service unavailable";
+  else if (code !== undefined && TRANSIENT_CODES.has(code)) detail = "transient GitHub network failure";
+  for (const value of sensitiveValues(error)) detail = detail.replaceAll(value, "[REDACTED]");
 
   const normalized = new Error(`${operation} failed: ${detail}`);
   normalized.name = "GitHubClientError";
@@ -84,30 +98,47 @@ function repositoryPath(value) {
   return withoutSlash;
 }
 
-function managedMetadataLabel(label) {
-  return typeof label === "string"
-    && (label.startsWith("kind/") || label.startsWith("size/") || label.startsWith("area/")
-      || MANAGED_STATE_LABELS.has(label));
+function headersFor(error) {
+  const source = error?.response?.headers ?? error?.request?.headers;
+  if (!source || typeof source !== "object") return {};
+  return Object.fromEntries(Object.entries(source).map(([name, value]) => [name.toLowerCase(), value]));
 }
 
 function transientError(error) {
   if (TRANSIENT_STATUSES.has(error?.status)) return true;
+  if (typeof error?.code === "string" && TRANSIENT_CODES.has(error.code)) return true;
   if (error?.status !== 403) return false;
-  const headers = error?.response?.headers ?? error?.request?.headers;
+  const headers = headersFor(error);
   return headers?.["retry-after"] !== undefined || String(headers?.["x-ratelimit-remaining"]) === "0";
 }
 
-function decodeContent(data) {
+function retryDelay(error, attempt, now) {
+  const headers = headersFor(error);
+  const retryAfter = Number(headers["retry-after"]);
+  if (Number.isFinite(retryAfter) && retryAfter >= 0) {
+    return Math.min(MAX_RETRY_DELAY_MS, Math.ceil(retryAfter * 1000));
+  }
+  const retryDate = Date.parse(headers["retry-after"]);
+  if (Number.isFinite(retryDate)) {
+    return Math.min(MAX_RETRY_DELAY_MS, Math.max(0, Math.ceil(retryDate - now())));
+  }
+  const reset = Number(headers["x-ratelimit-reset"]);
+  if (Number.isFinite(reset) && reset >= 0) {
+    return Math.min(MAX_RETRY_DELAY_MS, Math.max(0, Math.ceil((reset * 1000) - now())));
+  }
+  return Math.min(MAX_RETRY_DELAY_MS, 100 * (2 ** (attempt - 1)));
+}
+
+function decodeBlob(data) {
   if (
     data === null
     || typeof data !== "object"
     || Array.isArray(data)
-    || data.type !== "file"
     || data.encoding !== "base64"
     || typeof data.content !== "string"
     || (data.size !== undefined && (!Number.isSafeInteger(data.size) || data.size < 0 || data.size > MAX_CONTENT_BYTES))
   ) {
-    throw new TypeError("repository content must be a bounded base64 file");
+    throw new TypeError("repository blob must be bounded base64 content");
   }
   const encoded = data.content.replace(/[\r\n]/g, "");
   if (encoded.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
@@ -132,6 +163,8 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
   if (maxAttempts > 5) throw new TypeError("maxAttempts must not exceed 5");
   const sleep = options.sleep ?? (async (milliseconds) => delay(milliseconds));
   if (typeof sleep !== "function") throw new TypeError("sleep must be a function");
+  const now = options.now ?? Date.now;
+  if (typeof now !== "function") throw new TypeError("now must be a function");
 
   async function call(operation, request, retrySafe = false) {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -141,7 +174,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         if (!retrySafe || attempt === maxAttempts || !transientError(error)) {
           throw normalizeError(operation, error);
         }
-        await sleep(100 * (2 ** (attempt - 1)));
+        await sleep(retryDelay(error, attempt, now));
       }
     }
     throw new Error("unreachable retry state");
@@ -163,7 +196,13 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       repo,
       issue_number: prNumber,
     });
-    const matches = comments.filter((comment) => typeof comment.body === "string" && comment.body.includes(marker));
+    const matches = comments.filter((comment) => (
+      typeof comment.body === "string"
+      && comment.body.includes(marker)
+      && typeof comment.user?.login === "string"
+      && comment.user.login.toLowerCase() === ACTIONS_COMMENT_AUTHOR.login
+      && comment.user.type === ACTIONS_COMMENT_AUTHOR.type
+    ));
     if (matches.length > 1) throw new Error("duplicate policy comments");
     if (matches.length === 1) {
       return { action: "update", id: positiveInteger(matches[0].id, "comment id") };
@@ -225,13 +264,21 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       const { data } = await call("getPullRequest", () => octokit.rest.pulls.get({
         owner, repo, pull_number: prNumber,
       }), true);
+      if (typeof data.draft !== "boolean") {
+        throw new TypeError("live PR draft state must be a boolean");
+      }
       return {
         number: positiveInteger(data.number, "live PR number"),
         title: nonEmptyString(data.title, "live PR title"),
         body: typeof data.body === "string" ? data.body : "",
-        draft: Boolean(data.draft),
+        draft: data.draft,
         author: nonEmptyString(data.user?.login, "live PR author"),
         headOid: nonEmptyString(data.head?.sha, "live PR head OID"),
+        state: nonEmptyString(data.state, "live PR state").toLowerCase(),
+        baseRepository: {
+          owner: nonEmptyString(data.base?.repo?.owner?.login, "base repository owner").toLowerCase(),
+          repo: nonEmptyString(data.base?.repo?.name, "base repository name").toLowerCase(),
+        },
       };
     },
 
@@ -291,14 +338,43 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       return labels.map((label) => nonEmptyString(label.name, "issue label"));
     },
 
-    async getContentAtDefaultBranch(path) {
-      const repositoryContentPath = repositoryPath(path);
+    async getDefaultBranchRevision() {
       const repository = await call("getRepository", () => octokit.rest.repos.get({ owner, repo }), true);
       const defaultBranch = nonEmptyString(repository.data.default_branch, "default branch");
-      const response = await call("getContentAtDefaultBranch", () => octokit.rest.repos.getContent({
-        owner, repo, path: repositoryContentPath, ref: defaultBranch,
+      const branch = await call("getDefaultBranch", () => octokit.rest.repos.getBranch({
+        owner, repo, branch: defaultBranch,
       }), true);
-      return decodeContent(response.data);
+      return nonEmptyString(branch.data?.commit?.sha, "default branch commit OID");
+    },
+
+    async getContentAtRevision(path, revision) {
+      const repositoryContentPath = repositoryPath(path);
+      nonEmptyString(revision, "content revision");
+      const response = await call("getContentAtDefaultBranch", () => octokit.rest.repos.getContent({
+        owner, repo, path: repositoryContentPath, ref: revision,
+      }), true);
+      const metadata = response.data;
+      if (
+        metadata === null
+        || typeof metadata !== "object"
+        || Array.isArray(metadata)
+        || metadata.type !== "file"
+        || typeof metadata.sha !== "string"
+        || metadata.sha === ""
+        || Object.hasOwn(metadata, "target")
+        || Object.hasOwn(metadata, "submodule_git_url")
+      ) {
+        throw new TypeError("repository policy content must be a regular blob");
+      }
+      const blob = await call("getPolicyBlob", () => octokit.rest.git.getBlob({
+        owner, repo, file_sha: metadata.sha,
+      }), true);
+      return decodeBlob(blob.data);
+    },
+
+    async getContentAtDefaultBranch(path) {
+      const revision = await this.getDefaultBranchRevision();
+      return this.getContentAtRevision(path, revision);
     },
 
     async requestReviewers(prNumber, reviewers) {
@@ -311,7 +387,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
 
     async addIssueLabel(prNumber, label) {
       positiveInteger(prNumber, "PR number");
-      if (!managedMetadataLabel(label)) throw new TypeError("label is not metadata-managed");
+      if (!isManagedMetadataLabel(label)) throw new TypeError("label is not metadata-managed");
       await call("addIssueLabel", () => octokit.rest.issues.addLabels({
         owner, repo, issue_number: prNumber, labels: [label],
       }), true);
@@ -319,7 +395,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
 
     async removeIssueLabel(prNumber, label) {
       positiveInteger(prNumber, "PR number");
-      if (!managedMetadataLabel(label)) throw new TypeError("label is not metadata-managed");
+      if (!isManagedMetadataLabel(label)) throw new TypeError("label is not metadata-managed");
       try {
         await call("removeIssueLabel", () => octokit.rest.issues.removeLabel({
           owner, repo, issue_number: prNumber, name: label,

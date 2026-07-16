@@ -3,6 +3,7 @@
 const { deriveAreaLabels } = require("../areas.js");
 const { validateConfig } = require("../config.js");
 const { evaluateDco } = require("../dco.js");
+const { isManagedMetadataLabel } = require("../managed-labels.js");
 const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
 const { POLICY_COMMENT_MARKER, renderPolicyComment } = require("../policy-comment.js");
 const { selectReviewers } = require("../reviewer-selection.js");
@@ -33,6 +34,10 @@ function eventIdentity(event) {
     || repo === ".."
     || !Number.isSafeInteger(prNumber)
     || prNumber <= 0
+    || event?.pull_request === null
+    || typeof event?.pull_request !== "object"
+    || Array.isArray(event?.pull_request)
+    || event.pull_request.number !== prNumber
   ) {
     throw new TypeError("event must identify a valid repository and pull request number");
   }
@@ -61,14 +66,6 @@ function activeOwnerPaths(config) {
   return paths.sort();
 }
 
-function managedLabel(label) {
-  const normalized = label.toLowerCase();
-  return normalized.startsWith("kind/")
-    || normalized.startsWith("size/")
-    || normalized.startsWith("area/")
-    || normalized === "do-not-merge/work-in-progress";
-}
-
 function labelPlan(current, desired) {
   if (
     !Array.isArray(current)
@@ -89,7 +86,7 @@ function labelPlan(current, desired) {
       .map(([, label]) => label)
       .sort(),
     remove: [...currentByName]
-      .filter(([name, label]) => managedLabel(label) && !desiredByName.has(name))
+      .filter(([name, label]) => isManagedMetadataLabel(label) && !desiredByName.has(name))
       .map(([, label]) => label)
       .sort(),
   };
@@ -141,6 +138,41 @@ function policyFailureNames(result) {
   return failures;
 }
 
+function validateLivePullRequest(pullRequest, identity) {
+  if (
+    pullRequest === null
+    || typeof pullRequest !== "object"
+    || Array.isArray(pullRequest)
+    || pullRequest.number !== identity.prNumber
+    || pullRequest.state !== "open"
+    || typeof pullRequest.draft !== "boolean"
+    || typeof pullRequest.title !== "string"
+    || typeof pullRequest.author !== "string"
+    || !GITHUB_LOGIN.test(pullRequest.author)
+    || typeof pullRequest.headOid !== "string"
+    || pullRequest.headOid === ""
+    || pullRequest.baseRepository?.owner?.toLowerCase() !== identity.owner
+    || pullRequest.baseRepository?.repo?.toLowerCase() !== identity.repo
+  ) {
+    throw new Error("live pull request state or base repository is invalid");
+  }
+}
+
+function samePullRequestFence(planned, current) {
+  return planned.number === current.number
+    && planned.state === current.state
+    && planned.headOid === current.headOid
+    && planned.title === current.title
+    && planned.draft === current.draft
+    && planned.author.toLowerCase() === current.author.toLowerCase()
+    && planned.baseRepository.owner.toLowerCase() === current.baseRepository.owner.toLowerCase()
+    && planned.baseRepository.repo.toLowerCase() === current.baseRepository.repo.toLowerCase();
+}
+
+function operation(name, details = {}) {
+  return { operation: name, ...details };
+}
+
 async function runMetadata({ event, github, config, dryRun }) {
   if (typeof dryRun !== "boolean") throw new TypeError("dryRun must be a boolean");
   const identity = eventIdentity(event);
@@ -148,15 +180,7 @@ async function runMetadata({ event, github, config, dryRun }) {
   const ownerPaths = activeOwnerPaths(config);
 
   const pullRequest = await github.getPullRequest(identity.prNumber);
-  if (
-    pullRequest.number !== identity.prNumber
-    || typeof pullRequest.draft !== "boolean"
-    || typeof pullRequest.title !== "string"
-    || typeof pullRequest.author !== "string"
-    || !GITHUB_LOGIN.test(pullRequest.author)
-  ) {
-    throw new Error("live pull request metadata is invalid or inconsistent");
-  }
+  validateLivePullRequest(pullRequest, identity);
   const files = await github.listPullRequestFiles(identity.prNumber);
   const commits = await github.listPullRequestCommits(identity.prNumber);
   const reviews = await github.listPullRequestReviews(identity.prNumber);
@@ -165,12 +189,22 @@ async function runMetadata({ event, github, config, dryRun }) {
   if (!Array.isArray(files) || !Array.isArray(commits) || !Array.isArray(reviews) || !Array.isArray(requested)) {
     throw new TypeError("GitHub list responses must be arrays");
   }
+  if (commits.length === 0 || commits.at(-1)?.sha !== pullRequest.headOid) {
+    throw new Error("commit snapshot does not end at the live pull request head");
+  }
 
+  const defaultBranchRevision = await github.getDefaultBranchRevision();
   const ownerSources = [];
   for (const path of ownerPaths) {
-    ownerSources.push({ path, source: await github.getContentAtDefaultBranch(path) });
+    ownerSources.push({
+      path,
+      source: await github.getContentAtRevision(path, defaultBranchRevision),
+    });
   }
-  const aliasSource = await github.getContentAtDefaultBranch("/OWNERS_ALIASES");
+  const aliasSource = await github.getContentAtRevision(
+    "/OWNERS_ALIASES",
+    defaultBranchRevision,
+  );
 
   const title = classifyTitle(pullRequest.title);
   const totals = changedLineTotals(files);
@@ -253,6 +287,7 @@ async function runMetadata({ event, github, config, dryRun }) {
     ownership,
     labels,
     reviewers,
+    apply: { status: dryRun ? "planned" : "pending", attempted: [], applied: [], failed: null },
   };
   const commentBody = renderPolicyComment(resultBase);
   const existingComment = await github.planPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER);
@@ -263,19 +298,53 @@ async function runMetadata({ event, github, config, dryRun }) {
   const failures = policyFailureNames(result);
 
   if (!dryRun) {
-    await github.upsertPolicyComment(
-      identity.prNumber,
-      POLICY_COMMENT_MARKER,
-      commentBody,
-      existingComment,
-    );
+    const currentPullRequest = await github.getPullRequest(identity.prNumber);
+    validateLivePullRequest(currentPullRequest, identity);
+    if (!samePullRequestFence(pullRequest, currentPullRequest)) {
+      throw new Error("pull request state changed after planning; refusing stale writes");
+    }
+
+    const apply = async (descriptor, mutation) => {
+      result.apply.attempted.push(descriptor);
+      try {
+        await mutation();
+        result.apply.applied.push(descriptor);
+      } catch (error) {
+        result.apply.status = "partial";
+        result.apply.failed = descriptor;
+        const failure = error instanceof Error
+          ? error
+          : new Error("metadata mutation failed");
+        failure.summary = result;
+        throw failure;
+      }
+    };
     if (failures.length === 0) {
-      for (const label of labels.add) await github.addIssueLabel(identity.prNumber, label);
-      for (const label of labels.remove) await github.removeIssueLabel(identity.prNumber, label);
+      for (const label of labels.add) {
+        await apply(operation("addIssueLabel", { label }), () => (
+          github.addIssueLabel(identity.prNumber, label)
+        ));
+      }
+      for (const label of labels.remove) {
+        await apply(operation("removeIssueLabel", { label }), () => (
+          github.removeIssueLabel(identity.prNumber, label)
+        ));
+      }
       if (reviewers.request.length > 0) {
-        await github.requestReviewers(identity.prNumber, reviewers.request);
+        await apply(operation("requestReviewers", { reviewers: [...reviewers.request] }), () => (
+          github.requestReviewers(identity.prNumber, reviewers.request)
+        ));
       }
     }
+    await apply(operation("upsertPolicyComment", { action: existingComment.action }), () => (
+      github.upsertPolicyComment(
+        identity.prNumber,
+        POLICY_COMMENT_MARKER,
+        commentBody,
+        existingComment,
+      )
+    ));
+    result.apply.status = "complete";
   }
 
   if (failures.length > 0) throw new MetadataPolicyError(failures, result);

@@ -40,6 +40,9 @@ const readOperations = new Set([
   "listRequestedReviewers",
   "listIssueLabels",
   "getContentAtDefaultBranch",
+  "getDefaultBranchRevision",
+  "getContentAtRevision",
+  "planPolicyComment",
 ]);
 const writeOperations = new Set([
   "requestReviewers",
@@ -50,7 +53,7 @@ const writeOperations = new Set([
 
 function signedCommit(overrides = {}) {
   return {
-    sha: "signed-commit",
+    sha: "live-head-oid-6f9d",
     commit: {
       author: { name: "Contributor", email: "contributor@example.com" },
       message: "feat: secure metadata\n\nSigned-off-by: Contributor <contributor@example.com>",
@@ -70,6 +73,8 @@ function metadataState(overrides = {}) {
       draft: true,
       author: "pr-author",
       headOid: "live-head-oid-6f9d",
+      state: "open",
+      baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
     },
     filePages: [
       [{ path: "docs/guide.md", additions: 30, deletions: 10, status: "modified" }],
@@ -148,10 +153,11 @@ test("metadata re-fetches live PR state and applies only the complete safe plan"
   assert.deepEqual(result.labels, expectedLabelChanges());
   assert.equal(result.reviewers.request.includes("pr-author"), false);
   assert.equal(result.reviewers.request.every((login) => ["alice", "bob"].includes(login)), true);
-  assert.deepEqual(github.calls.getPullRequest, [{ prNumber: 42 }]);
-  assert.deepEqual(github.calls.getContentAtDefaultBranch, [
-    { path: "/OWNERS" },
-    { path: "/OWNERS_ALIASES" },
+  assert.deepEqual(github.calls.getPullRequest, [{ prNumber: 42 }, { prNumber: 42 }]);
+  assert.deepEqual(github.calls.getDefaultBranchRevision, [{}]);
+  assert.deepEqual(github.calls.getContentAtRevision, [
+    { path: "/OWNERS", revision: "base-commit-oid-91ab" },
+    { path: "/OWNERS_ALIASES", revision: "base-commit-oid-91ab" },
   ]);
   assert.deepEqual(github.calls.addIssueLabel.map(({ label }) => label).sort(), expectedLabelChanges().add);
   assert.deepEqual(
@@ -230,7 +236,10 @@ test("invalid title, DCO, configuration, and ownership upsert diagnostics then f
   const validConfig = loadConfig(repositoryRoot);
   const cases = [
     ["title", metadataState({ pullRequest: { ...metadataState().pullRequest, title: "not conventional" } }), validConfig],
-    ["DCO", metadataState({ commitPages: [[signedCommit({
+    ["DCO", metadataState({ pullRequest: {
+      ...metadataState().pullRequest,
+      headOid: "unsigned-commit",
+    }, commitPages: [[signedCommit({
       sha: "unsigned-commit",
       commit: {
         author: { name: "Contributor", email: "contributor@example.com" },
@@ -350,8 +359,10 @@ test("GitHub boundary re-fetches PR and default branch content without an event 
             title: "feat: live",
             body: "private-live-body",
             draft: false,
+            state: "open",
             user: { login: "author" },
             head: { sha: "live-head" },
+            base: { repo: { name: "k8s-test-infra", owner: { login: "nvidia" } } },
           } };
         },
       },
@@ -362,9 +373,17 @@ test("GitHub boundary re-fetches PR and default branch content without an event 
         },
         async getContent(parameters) {
           calls.push({ operation: "content", parameters });
-          return { data: { type: "file", encoding: "base64", content: Buffer.from("aliases: {}\n").toString("base64") } };
+          return { data: { type: "file", sha: "alias-blob" } };
+        },
+        async getBranch(parameters) {
+          calls.push({ operation: "branch", parameters });
+          return { data: { commit: { sha: "live-base-oid" } } };
         },
       },
+      git: { async getBlob(parameters) {
+        calls.push({ operation: "blob", parameters });
+        return { data: { encoding: "base64", content: Buffer.from("aliases: {}\n").toString("base64") } };
+      } },
     },
   };
   const github = createGitHubClient(octokit, "nvidia", "k8s-test-infra");
@@ -376,19 +395,21 @@ test("GitHub boundary re-fetches PR and default branch content without an event 
     draft: false,
     author: "author",
     headOid: "live-head",
+    state: "open",
+    baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
   });
   assert.equal(await github.getContentAtDefaultBranch("/OWNERS_ALIASES"), "aliases: {}\n");
-  assert.deepEqual(calls.at(-1).parameters, {
+  assert.deepEqual(calls.find(({ operation }) => operation === "content").parameters, {
     owner: "nvidia",
     repo: "k8s-test-infra",
     path: "OWNERS_ALIASES",
-    ref: "live-main",
+    ref: "live-base-oid",
   });
   assertNoEventMutableValue(calls);
 });
 
 test("marker upsert paginates, creates once, updates on rerun, and rejects duplicates", async () => {
-  const commentPages = [[{ id: 1, body: "unmanaged" }], []];
+  const commentPages = [[{ id: 1, body: "unmanaged", user: { login: "someone", type: "User" } }], []];
   const listedPages = [];
   const writes = [];
   const listComments = async ({ page }) => {
@@ -397,11 +418,12 @@ test("marker upsert paginates, creates once, updates on rerun, and rejects dupli
   };
   const octokit = {
     rest: {
+      users: { async getAuthenticated() { assert.fail("installation tokens cannot call GET /user"); } },
       issues: {
         listComments,
         async createComment({ body }) {
           writes.push("create");
-          const created = { id: 2, body };
+          const created = { id: 2, body, user: { login: "github-actions[bot]", type: "Bot" } };
           commentPages[1].push(created);
           return { data: created };
         },
@@ -429,7 +451,11 @@ test("marker upsert paginates, creates once, updates on rerun, and rejects dupli
   assert.deepEqual(writes, ["create", "update"]);
   assert.equal(commentPages.flat().length, 2);
   assert.deepEqual(listedPages, [1, 2, 1, 2]);
-  commentPages[0].push({ id: 3, body: `${marker}\nduplicate` });
+  commentPages[0].push({
+    id: 3,
+    body: `${marker}\nduplicate`,
+    user: { login: "github-actions[bot]", type: "Bot" },
+  });
   await assert.rejects(() => github.upsertPolicyComment(42, marker, secondBody), /duplicate/i);
   assert.deepEqual(writes, ["create", "update"]);
 });
@@ -497,8 +523,10 @@ test("GitHub boundary retries transient idempotent operations only and never uns
             title: "feat: live",
             body: "",
             draft: false,
+            state: "open",
             user: { login: "author" },
             head: { sha: "head" },
+            base: { repo: { name: "k8s-test-infra", owner: { login: "nvidia" } } },
           } };
         },
         async requestReviewers() {
@@ -583,4 +611,272 @@ test("index emits the diagnostic summary before propagating metadata failure", a
   assert.equal(summary.title.valid, false);
   assert.equal(summary.headOid, "live-head-oid-6f9d");
   assertNoEventMutableValue(outputs);
+});
+
+test("metadata fences the commit snapshot and final live PR before every write", async (t) => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const base = metadataState().pullRequest;
+  const cases = [
+    ["commit snapshot", metadataState({ commitPages: [[signedCommit({ sha: "stale-head" })]] })],
+    ["head changed", metadataState({ pullRequests: [base, { ...base, headOid: "new-head-oid" }] })],
+    ["PR closed", metadataState({ pullRequests: [base, { ...base, state: "closed" }] })],
+    ["base repository changed", metadataState({ pullRequests: [
+      base,
+      { ...base, baseRepository: { owner: "attacker", repo: "fork" } },
+    ] })],
+  ];
+
+  for (const [name, state] of cases) {
+    await t.test(name, async () => {
+      const github = createFakeGitHub(state);
+      await assert.rejects(
+        () => runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false }),
+        /head|state|repository|snapshot|stale/i,
+      );
+      assert.deepEqual(mutations(github), []);
+    });
+  }
+});
+
+test("metadata rejects non-PR events and live base-repository mismatch before writes", async (t) => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const cases = [
+    ["non-PR event", (() => {
+      const value = JSON.parse(JSON.stringify(event));
+      delete value.pull_request;
+      return value;
+    })(), metadataState()],
+    ["base mismatch", event, metadataState({ pullRequest: {
+      ...metadataState().pullRequest,
+      baseRepository: { owner: "attacker", repo: "fork" },
+    } })],
+  ];
+  for (const [name, inputEvent, state] of cases) {
+    await t.test(name, async () => {
+      const github = createFakeGitHub(state);
+      await assert.rejects(
+        () => runMetadata({ event: inputEvent, github, config: loadConfig(repositoryRoot), dryRun: false }),
+        /pull request|repository/i,
+      );
+      assert.deepEqual(mutations(github), []);
+    });
+  }
+});
+
+test("marker ownership ignores hostile markers and fails only on owned duplicates", async () => {
+  const markerBody = `${marker}\nowned`;
+  const pages = [[
+    { id: 1, body: `${marker}\nhostile`, user: { login: "attacker", type: "User" } },
+    { id: 2, body: markerBody, user: { login: "github-actions[bot]", type: "Bot" } },
+  ]];
+  const writes = [];
+  const octokit = {
+    rest: {
+      users: { async getAuthenticated() { assert.fail("installation tokens cannot call GET /user"); } },
+      issues: {
+        async listComments() { return { data: pages[0] }; },
+        async updateComment({ comment_id: id }) { writes.push(id); return { data: { id } }; },
+        async createComment() { assert.fail("owned comment already exists"); },
+      },
+    },
+    async paginate(fn, parameters) { return (await fn(parameters)).data; },
+  };
+  const github = createGitHubClient(octokit, "nvidia", "k8s-test-infra");
+
+  assert.deepEqual(await github.upsertPolicyComment(42, marker, markerBody), {
+    action: "updated", id: 2,
+  });
+  assert.deepEqual(writes, [2]);
+  pages[0].push({
+    id: 3,
+    body: markerBody,
+    user: { login: "github-actions[bot]", type: "Bot" },
+  });
+  await assert.rejects(() => github.upsertPolicyComment(42, marker, markerBody), /duplicate/i);
+});
+
+test("ambiguous policy-comment creation is not retried and rerun updates the owned comment", async () => {
+  const comments = [];
+  let creates = 0;
+  const octokit = {
+    rest: {
+      users: { async getAuthenticated() { assert.fail("installation tokens cannot call GET /user"); } },
+      issues: {
+        async listComments() { return { data: comments }; },
+        async createComment({ body }) {
+          creates += 1;
+          comments.push({
+            id: 7,
+            body,
+            user: { login: "github-actions[bot]", type: "Bot" },
+          });
+          throw Object.assign(new Error("socket closed"), { code: "ECONNRESET" });
+        },
+        async updateComment({ comment_id: id, body }) { return { data: { id, body } }; },
+      },
+    },
+    async paginate(fn, parameters) { return (await fn(parameters)).data; },
+  };
+  const github = createGitHubClient(octokit, "nvidia", "k8s-test-infra", {
+    sleep: async () => assert.fail("comment creation must not retry"),
+  });
+  const body = `${marker}\nhead`;
+  await assert.rejects(() => github.upsertPolicyComment(42, marker, body), /createPolicyComment/);
+  assert.equal(creates, 1);
+  assert.deepEqual(await github.upsertPolicyComment(42, marker, body), { action: "updated", id: 7 });
+});
+
+test("real configuration load failures produce bounded diagnostics before failure", async (t) => {
+  const { run } = require("../src/index.js");
+  for (const dryRun of [true, false]) {
+    await t.test(dryRun ? "dry-run" : "apply", async () => {
+      const githubClient = createFakeGitHub(metadataState());
+      const outputs = [];
+      const core = {
+        getInput: (name) => name === "mode" ? "metadata" : "",
+        getBooleanInput: () => dryRun,
+        setOutput: (name, value) => outputs.push({ name, value }),
+      };
+      await assert.rejects(() => run({
+        core,
+        owner: "nvidia",
+        repo: "k8s-test-infra",
+        workspace: path.join(__dirname, "fixtures", "missing-config-root"),
+        event,
+        githubClient,
+      }), /configuration/i);
+      assert.equal(outputs.length, 1);
+      assert.equal(JSON.parse(outputs[0].value).configuration.valid, false);
+      assert.equal(githubClient.calls.upsertPolicyComment.length, dryRun ? 0 : 1);
+      assert.equal(mutations(githubClient).every(({ operation }) => operation === "upsertPolicyComment"), true);
+    });
+  }
+});
+
+test("default-branch policy content uses one immutable commit and rejects non-blobs", async () => {
+  const calls = [];
+  const contents = new Map([
+    ["OWNERS", { type: "file", sha: "blob-owners" }],
+    ["OWNERS_ALIASES", { type: "file", sha: "blob-aliases" }],
+  ]);
+  const blobs = new Map([
+    ["blob-owners", "reviewers: [alice]\n"],
+    ["blob-aliases", "aliases: {}\n"],
+  ]);
+  const octokit = { rest: {
+    repos: {
+      async get() { calls.push("repo"); return { data: { default_branch: "main" } }; },
+      async getBranch({ branch }) { calls.push(`branch:${branch}`); return { data: { commit: { sha: "base-oid" } } }; },
+      async getContent({ path: contentPath, ref }) {
+        calls.push(`content:${contentPath}:${ref}`);
+        return { data: contents.get(contentPath) };
+      },
+    },
+    git: { async getBlob({ file_sha: sha }) {
+      calls.push(`blob:${sha}`);
+      const text = blobs.get(sha);
+      return { data: { encoding: "base64", content: Buffer.from(text).toString("base64"), size: Buffer.byteLength(text) } };
+    } },
+  } };
+  const github = createGitHubClient(octokit, "nvidia", "k8s-test-infra");
+  const revision = await github.getDefaultBranchRevision();
+  assert.equal(revision, "base-oid");
+  assert.match(await github.getContentAtRevision("/OWNERS", revision), /alice/);
+  assert.match(await github.getContentAtRevision("/OWNERS_ALIASES", revision), /aliases/);
+  assert.deepEqual(calls.slice(0, 2), ["repo", "branch:main"]);
+  assert.equal(calls.filter((call) => call.startsWith("content:")).every((call) => call.endsWith(":base-oid")), true);
+
+  for (const shape of [
+    { type: "file", sha: "blob-owners", target: "secret/OWNERS" },
+    { type: "file", sha: "blob-owners", submodule_git_url: "https://example.invalid/repo" },
+    { type: "dir", sha: "tree" },
+  ]) {
+    contents.set("OWNERS", shape);
+    await assert.rejects(() => github.getContentAtRevision("/OWNERS", revision), /regular blob/i);
+  }
+});
+
+test("mutation failures attach bounded partial state and rerun reconciles", async (t) => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  for (const operation of ["addIssueLabel", "removeIssueLabel", "requestReviewers", "upsertPolicyComment"]) {
+    await t.test(operation, async () => {
+      const failure = Object.assign(new Error("hostile\nbody secret"), { status: 422 });
+      const github = createFakeGitHub(metadataState({ failures: { [operation]: failure } }));
+      let caught;
+      try {
+        await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false });
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught?.summary, "mutation error must carry a summary");
+      assert.equal(caught.summary.apply.status, "partial");
+      assert.equal(caught.summary.apply.failed.operation, operation);
+      assert.equal(JSON.stringify(caught.summary).includes("secret"), false);
+
+      const rerun = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false });
+      assert.equal(rerun.apply.status, "complete");
+      const snapshot = github.metadataSnapshot();
+      for (const label of expectedLabelChanges().add) assert.equal(snapshot.labels.includes(label), true);
+      for (const label of expectedLabelChanges().remove) assert.equal(snapshot.labels.includes(label), false);
+      assert.equal(snapshot.requestedReviewers.includes("bob"), true);
+      assert.equal(snapshot.comments.length, 1);
+    });
+  }
+});
+
+test("retry policy handles transports and server-directed rate limits only", async (t) => {
+  const cases = [
+    ["network", Object.assign(new Error("reset"), { code: "ECONNRESET" }), 100],
+    ["429 retry-after", Object.assign(new Error("limited"), {
+      status: 429, response: { headers: { "retry-after": "2" } },
+    }), 2000],
+    ["403 reset", Object.assign(new Error("limited"), {
+      status: 403, response: { headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "1010" } },
+    }), 10000],
+  ];
+  for (const [name, failure, expectedDelay] of cases) {
+    await t.test(name, async () => {
+      let attempts = 0;
+      const sleeps = [];
+      const octokit = { rest: { pulls: { async get() {
+        attempts += 1;
+        if (attempts === 1) throw failure;
+        return { data: {
+          number: 42, title: "feat: live", body: "", draft: false, state: "open",
+          user: { login: "author" }, head: { sha: "head" },
+          base: { repo: { name: "k8s-test-infra", owner: { login: "nvidia" } } },
+        } };
+      } } } };
+      const github = createGitHubClient(octokit, "nvidia", "k8s-test-infra", {
+        sleep: async (value) => sleeps.push(value), now: () => 1000 * 1000,
+      });
+      await github.getPullRequest(42);
+      assert.equal(attempts, 2);
+      assert.deepEqual(sleeps, [expectedDelay]);
+    });
+  }
+
+  await t.test("422 and sanitized message", async () => {
+    let attempts = 0;
+    const octokit = { rest: { pulls: { async requestReviewers() {
+      attempts += 1;
+      throw Object.assign(new Error("identity@example.com\nsecret-body"), { status: 422 });
+    } } } };
+    const github = createGitHubClient(octokit, "nvidia", "k8s-test-infra", { sleep: async () => {} });
+    await assert.rejects(() => github.requestReviewers(42, ["alice"]), (error) => {
+      assert.equal(error.message.includes("identity@example.com"), false);
+      assert.equal(error.message.includes("secret-body"), false);
+      assert.equal(error.message.length < 256, true);
+      return true;
+    });
+    assert.equal(attempts, 1);
+  });
+
+  await t.test("remove 404 is success", async () => {
+    const octokit = { rest: { issues: { async removeLabel() {
+      throw Object.assign(new Error("missing"), { status: 404 });
+    } } } };
+    const github = createGitHubClient(octokit, "nvidia", "k8s-test-infra");
+    await github.removeIssueLabel(42, "Kind/Bug");
+  });
 });

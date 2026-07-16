@@ -18,9 +18,18 @@ async function run(dependencies) {
     repo,
     workspace = process.env.GITHUB_WORKSPACE,
   } = dependencies;
-  const config = loadConfig(workspace);
   const client = dependencies.githubClient ?? createGitHubClient(octokit, owner, repo);
   const dryRun = core.getBooleanInput("dry-run");
+  let config;
+  if (mode === "metadata") {
+    try {
+      config = loadConfig(workspace);
+    } catch {
+      config = undefined;
+    }
+  } else {
+    config = loadConfig(workspace);
+  }
   let summary;
   try {
     summary = mode === "label-sync"

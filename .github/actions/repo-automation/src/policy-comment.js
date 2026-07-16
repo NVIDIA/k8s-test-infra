@@ -1,7 +1,6 @@
 "use strict";
 
 const POLICY_COMMENT_MARKER = "<!-- repo-automation-policy:v1 -->";
-const SAFE_HEAD = /^[A-Za-z0-9._:-]{1,160}$/;
 const SAFE_LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
@@ -22,7 +21,11 @@ function safeText(value, name, maximum = 512) {
 }
 
 function escaped(value) {
-  return value.replace(/[\\`*_[\]<>]/g, "\\$&");
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function code(value) {
+  return `<code>${escaped(value)}</code>`;
 }
 
 function sortedStrings(values, name, validator = (value) => safeText(value, name)) {
@@ -33,9 +36,10 @@ function sortedStrings(values, name, validator = (value) => safeText(value, name
 }
 
 function validateResult(result) {
-  if (!isRecord(result) || !SAFE_HEAD.test(result.headOid)) {
+  if (!isRecord(result)) {
     throw new TypeError("policy result must contain a safe head OID");
   }
+  safeText(result.headOid, "head OID", 160);
   for (const name of ["title", "dco", "ownership"]) {
     if (!isRecord(result[name]) || typeof result[name].valid !== "boolean") {
       throw new TypeError(`policy result must contain ${name} validation`);
@@ -112,7 +116,7 @@ function list(values) {
   if (values.length === 0) return "none";
   const maximumItems = 20;
   const displayed = values.slice(0, maximumItems)
-    .map((value) => `\`${escaped(value)}\``)
+    .map(code)
     .join(", ");
   return values.length <= maximumItems
     ? displayed
@@ -129,7 +133,7 @@ function renderPolicyComment(result) {
     POLICY_COMMENT_MARKER,
     "## PR metadata policy",
     "",
-    `Head: \`${escaped(value.headOid)}\``,
+    `Head: ${code(value.headOid)}`,
     "",
     `- Title: **${status(value.title.valid)}**${value.title.error === null ? "" : ` — ${escaped(value.title.error)}`}`,
     `- DCO: **${status(value.dco.valid)}**${value.dco.failureOids.length === 0 ? "" : ` — failing commits: ${list(value.dco.failureOids)}`}`,

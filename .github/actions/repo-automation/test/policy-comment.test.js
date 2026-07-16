@@ -86,3 +86,20 @@ test("rejects malformed policy results instead of emitting ambiguous comments", 
     });
   }
 });
+
+test("renders adversarial OIDs and paths without breaking diagnostic delimiters", () => {
+  const { renderPolicyComment } = require("../src/policy-comment.js");
+  const body = renderPolicyComment(policyResult({
+    headOid: "head`</code><script>alert(1)</script>",
+    valid: false,
+    ownership: {
+      valid: false,
+      uncoveredPaths: ["docs/` @everyone [click](https://example.invalid).md"],
+    },
+  }));
+
+  assert.equal(body.includes("</code><script>"), false);
+  assert.equal(body.includes("<script>"), false);
+  assert.match(body, /&lt;script&gt;/);
+  assert.match(body, /<code>.*@everyone.*<\/code>/);
+});

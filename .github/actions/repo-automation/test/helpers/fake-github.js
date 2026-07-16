@@ -25,6 +25,11 @@ function createFakeGitHub(initialState = []) {
     Object.hasOwn(label, "color") ? copyLabel(label) : { name: label.name ?? label }
   ));
   const comments = clone(options.comments ?? []);
+  const automationLogin = options.automationLogin ?? "github-actions[bot]";
+  for (const comment of comments) {
+    if (comment.author === undefined) comment.author = automationLogin;
+  }
+  const pullRequests = clone(options.pullRequests ?? [options.pullRequest]);
   const requestedReviewers = [...(options.requestedReviewers ?? [])];
   const failureQueues = new Map(
     Object.entries(options.failures ?? {}).map(([operation, failures]) => [
@@ -43,6 +48,8 @@ function createFakeGitHub(initialState = []) {
     listRequestedReviewers: [],
     listIssueLabels: [],
     getContentAtDefaultBranch: [],
+    getDefaultBranchRevision: [],
+    getContentAtRevision: [],
     requestReviewers: [],
     addIssueLabel: [],
     removeIssueLabel: [],
@@ -99,7 +106,8 @@ function createFakeGitHub(initialState = []) {
 
     async getPullRequest(prNumber) {
       record("getPullRequest", { prNumber });
-      return clone(options.pullRequest);
+      const index = Math.min(calls.getPullRequest.length - 1, pullRequests.length - 1);
+      return clone(pullRequests[index]);
     },
 
     async listPullRequestFiles(prNumber) {
@@ -135,6 +143,19 @@ function createFakeGitHub(initialState = []) {
       return options.contents[path];
     },
 
+    async getDefaultBranchRevision() {
+      record("getDefaultBranchRevision", {});
+      return options.defaultBranchRevision ?? "base-commit-oid-91ab";
+    },
+
+    async getContentAtRevision(path, revision) {
+      record("getContentAtRevision", { path, revision });
+      if (!Object.hasOwn(options.contents ?? {}, path)) {
+        throw new Error(`missing revision content: ${path}`);
+      }
+      return options.contents[path];
+    },
+
     async requestReviewers(prNumber, reviewers) {
       record("requestReviewers", { prNumber, reviewers: [...reviewers] });
       for (const reviewer of reviewers) {
@@ -161,7 +182,9 @@ function createFakeGitHub(initialState = []) {
 
     async planPolicyComment(prNumber, marker) {
       record("planPolicyComment", { prNumber, marker });
-      const matches = comments.filter((comment) => comment.body.includes(marker));
+      const matches = comments.filter(
+        (comment) => comment.author === automationLogin && comment.body.includes(marker),
+      );
       if (matches.length > 1) {
         throw new Error("duplicate policy comments");
       }
@@ -175,7 +198,9 @@ function createFakeGitHub(initialState = []) {
       if (commentMarkerCount(body, marker) !== 1) {
         throw new Error("policy comment body must contain exactly one marker");
       }
-      const matches = comments.filter((comment) => comment.body.includes(marker));
+      const matches = comments.filter(
+        (comment) => comment.author === automationLogin && comment.body.includes(marker),
+      );
       if (matches.length > 1) {
         throw new Error("duplicate policy comments");
       }
@@ -189,7 +214,7 @@ function createFakeGitHub(initialState = []) {
         matches[0].body = body;
         return { action: "updated", id: matches[0].id };
       }
-      const comment = { id: comments.length + 1, body };
+      const comment = { id: comments.length + 1, body, author: automationLogin };
       comments.push(comment);
       return { action: "created", id: comment.id };
     },
