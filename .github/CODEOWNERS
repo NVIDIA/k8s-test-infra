@@ -15,3 +15,11 @@
 
 # E2E tests
 /tests/e2e/ @ArangoGutierrez
+
+# Repository automation and release policy
+/.github/actions/repo-automation/ @ArangoGutierrez
+/.github/repo-automation/ @ArangoGutierrez
+/OWNERS @ArangoGutierrez
+/OWNERS_ALIASES @ArangoGutierrez
+/release-please-config.json @ArangoGutierrez
+/.release-please-manifest.json @ArangoGutierrez
