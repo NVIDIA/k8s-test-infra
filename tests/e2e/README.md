@@ -301,8 +301,13 @@ CI runs the harness through
 The workflow:
 
 1. Detects the project Go version unless one is explicitly provided.
-2. Builds `nvml-mock:e2e` once per matrix leg with buildx and GHA cache.
-3. Sets `E2E_SKIP_BUILD=true` so the harness reuses that image.
+2. Builds the `nvml-mock` image exactly once in a dedicated `build-image` job
+   (buildx + GHA cache) and pushes it to the ephemeral, auth-free `ttl.sh`
+   registry as `E2E_IMAGE` (`ttl.sh/nvml-mock-<sha>:1h`). Using `ttl.sh` keeps
+   this working on fork PRs, which cannot access authenticated registries.
+3. Makes every leg `needs: build-image`, pulls that pre-built ref, and sets
+   `E2E_SKIP_BUILD=true` so the harness Kind-loads it instead of rebuilding the
+   image per leg.
 4. Runs one GPU profile per matrix job.
 5. Prints collected diagnostics if the job fails.
 

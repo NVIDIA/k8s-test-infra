@@ -17,9 +17,10 @@
 # entrypoint (`make e2e`) that runs identically locally and here. Jobs mirror the
 # legacy nvml-mock E2E workflow and select the related Go scenario by label.
 #
-# Image distribution: each leg builds nvml-mock:e2e once via buildx with the
-# GitHub Actions layer cache (no registry dependency -> works on fork PRs),
-# then the harness kind-loads it (E2E_SKIP_BUILD=true).
+# Image distribution: a single `build-image` job builds the nvml-mock image once
+# and pushes it to the ephemeral, auth-free ttl.sh registry (works on fork PRs)
+# as E2E_IMAGE. Every leg then pulls that ref and the harness kind-loads it
+# (E2E_SKIP_BUILD=true) instead of rebuilding per leg.
 name: nvml-mock E2E (Go)
 
 permissions:
@@ -51,12 +52,38 @@ env:
   GO_VERSION: ${{ inputs.golang_version }}
   KIND_VERSION: "v0.31.0"
   KIND_AMD64_SHA256: "eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa"
-  E2E_IMAGE: nvml-mock:e2e
+  # Per-commit, ephemeral (1h TTL) ttl.sh ref the build-image job publishes and
+  # every leg pulls. Auth-free, so it also works on fork PRs.
+  E2E_IMAGE: ttl.sh/nvml-mock-${{ github.sha }}:1h
   E2E_SKIP_BUILD: "true"
   E2E_ARTIFACTS: ${{ github.workspace }}/artifacts/e2e/go
 
 jobs:
+  # Build nvml-mock once and publish to ttl.sh; all legs consume this artifact
+  # instead of rebuilding the image per job (see issue #460).
+  build-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build and push nvml-mock image to ttl.sh
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          file: deployments/nvml-mock/Dockerfile
+          tags: ${{ env.E2E_IMAGE }}
+          push: true
+          build-args: |
+            GOLANG_VERSION=${{ env.GO_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   e2e:
+    needs: build-image
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -73,20 +100,8 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
-
-      - name: Build nvml-mock image (buildx + GHA cache)
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
-        with:
-          context: .
-          file: deployments/nvml-mock/Dockerfile
-          tags: ${{ env.E2E_IMAGE }}
-          load: true
-          build-args: |
-            GOLANG_VERSION=${{ env.GO_VERSION }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Pull pre-built nvml-mock image from ttl.sh
+        run: docker pull "${{ env.E2E_IMAGE }}"
 
       - name: Install Kind
         run: |
@@ -116,6 +131,7 @@ jobs:
           fi
 
   e2e-dra:
+    needs: build-image
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -132,20 +148,8 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
-
-      - name: Build nvml-mock image (buildx + GHA cache)
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
-        with:
-          context: .
-          file: deployments/nvml-mock/Dockerfile
-          tags: ${{ env.E2E_IMAGE }}
-          load: true
-          build-args: |
-            GOLANG_VERSION=${{ env.GO_VERSION }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Pull pre-built nvml-mock image from ttl.sh
+        run: docker pull "${{ env.E2E_IMAGE }}"
 
       - name: Install Kind
         run: |
@@ -173,6 +177,7 @@ jobs:
           fi
 
   e2e-gpu-operator:
+    needs: build-image
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -189,20 +194,8 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
-
-      - name: Build nvml-mock image (buildx + GHA cache)
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
-        with:
-          context: .
-          file: deployments/nvml-mock/Dockerfile
-          tags: ${{ env.E2E_IMAGE }}
-          load: true
-          build-args: |
-            GOLANG_VERSION=${{ env.GO_VERSION }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Pull pre-built nvml-mock image from ttl.sh
+        run: docker pull "${{ env.E2E_IMAGE }}"
 
       - name: Install Kind
         run: |
@@ -230,6 +223,7 @@ jobs:
           fi
 
   e2e-multi-node:
+    needs: build-image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -242,20 +236,8 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
-
-      - name: Build nvml-mock image (buildx + GHA cache)
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
-        with:
-          context: .
-          file: deployments/nvml-mock/Dockerfile
-          tags: ${{ env.E2E_IMAGE }}
-          load: true
-          build-args: |
-            GOLANG_VERSION=${{ env.GO_VERSION }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Pull pre-built nvml-mock image from ttl.sh
+        run: docker pull "${{ env.E2E_IMAGE }}"
 
       - name: Install Kind
         run: |
@@ -281,6 +263,7 @@ jobs:
           fi
 
   e2e-nri:
+    needs: build-image
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -297,20 +280,8 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
-
-      - name: Build nvml-mock image (buildx + GHA cache)
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
-        with:
-          context: .
-          file: deployments/nvml-mock/Dockerfile
-          tags: ${{ env.E2E_IMAGE }}
-          load: true
-          build-args: |
-            GOLANG_VERSION=${{ env.GO_VERSION }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Pull pre-built nvml-mock image from ttl.sh
+        run: docker pull "${{ env.E2E_IMAGE }}"
 
       - name: Install Kind
         run: |
