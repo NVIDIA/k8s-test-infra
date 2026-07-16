@@ -1,0 +1,47 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+name: Pull request metadata
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+      - ready_for_review
+      - converted_to_draft
+    branches:
+      - main
+      - release-*
+
+permissions: {}
+
+jobs:
+  metadata:
+    name: PR metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: pr-metadata-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Check out trusted default branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Classify and route pull request
+        uses: ./.github/actions/repo-automation
+        with:
+          mode: metadata
+          pr-number: ${{ github.event.pull_request.number }}
+          dry-run: false
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

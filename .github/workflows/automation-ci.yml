@@ -1,0 +1,50 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+name: Repository automation CI
+
+on:
+  pull_request:
+    paths:
+      - .github/actions/repo-automation/**
+      - .github/repo-automation/**
+      - .github/workflows/**
+      - OWNERS
+      - OWNERS_ALIASES
+
+permissions:
+  contents: read
+
+jobs:
+  automation-ci:
+    name: Repository automation CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: .github/actions/repo-automation
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Package action
+        run: npm run package
+
+      - name: Verify packaged action is current
+        run: git diff --exit-code -- dist
