@@ -1,0 +1,6 @@
+reviewers:
+  - isolated-reviewer
+approvers:
+  - isolated-approver
+options:
+  no_parent_owners: true
