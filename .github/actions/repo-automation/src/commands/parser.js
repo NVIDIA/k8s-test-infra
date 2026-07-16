@@ -30,15 +30,18 @@ function commandLike(line) {
 }
 
 function openingFence(line) {
-  const match = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line);
+  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
   if (match === null) {
+    return null;
+  }
+  if (match[1][0] === "`" && match[2].includes("`")) {
     return null;
   }
   return { character: match[1][0], length: match[1].length };
 }
 
 function closesFence(line, fence) {
-  const content = line.replace(/^[ \t]{0,3}/, "");
+  const content = line.replace(/^ {0,3}/, "");
   let markerLength = 0;
   while (content[markerLength] === fence.character) {
     markerLength += 1;

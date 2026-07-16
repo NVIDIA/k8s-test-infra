@@ -82,6 +82,54 @@ test("ignores commands inside backtick and tilde fenced blocks", () => {
   assert.deepEqual(result.diagnostics, []);
 });
 
+test("does not close a fence with a tab-indented delimiter", () => {
+  const result = parseCommands([
+    "```",
+    "\t```",
+    "/lgtm",
+  ].join("\n"));
+
+  assert.deepEqual(result, { commands: [], diagnostics: [] });
+});
+
+test("does not open a fence with a tab-indented delimiter", () => {
+  const result = parseCommands([
+    "\t```",
+    "/lgtm",
+  ].join("\n"));
+
+  assert.deepEqual(result, {
+    commands: [command("lgtm", "apply", [], 2, "/lgtm")],
+    diagnostics: [],
+  });
+});
+
+test("rejects a backtick fence opener whose info string contains a backtick", () => {
+  const result = parseCommands([
+    "```lang`bad",
+    "/lgtm",
+  ].join("\n"));
+
+  assert.deepEqual(result, {
+    commands: [command("lgtm", "apply", [], 2, "/lgtm")],
+    diagnostics: [],
+  });
+});
+
+test("accepts backticks in a tilde fence info string", () => {
+  const result = parseCommands([
+    "   ~~~lang`valid",
+    "/lgtm",
+    "   ~~~",
+    "/help",
+  ].join("\n"));
+
+  assert.deepEqual(result, {
+    commands: [command("help", "show", [], 4, "/help")],
+    diagnostics: [],
+  });
+});
+
 test("ignores Markdown blockquote command examples", () => {
   const result = parseCommands([
     "> /lgtm",
