@@ -58,6 +58,16 @@ image:
 
 driverVersion: ""                  # Auto-derived from profile. Override: "550.163.01"
 
+# Mock IMEX channel device nodes (issue #437). The main DaemonSet provisions
+# /dev/nvidia-caps-imex-channels/channel0..count-1 on each node via setup.sh;
+# the NRI plugin injects them into pods annotated
+# nvml-mock.nvidia.com/imex-channels: "true". Presence-only: the nodes use a
+# driverless major, so they are statable/listable but not openable (see
+# docs/demo/nri-imex). Set count to 0 to disable host provisioning.
+imexChannels:
+  count: 16
+  major: 240
+
 nodeSelector: {}
 tolerations:
   - operator: Exists
@@ -83,6 +93,9 @@ nri:
   # device-node mounts from the staged mock overlay. Treat that pod-authored
   # control as part of the demo trust boundary and exclude namespaces as needed.
   deviceAnnotation: nvml-mock.nvidia.com/devices
+  # Workloads that set this pod annotation to "true" opt into mock IMEX channel
+  # device nodes (/dev/nvidia-caps-imex-channels/*) from the staged overlay.
+  imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
   excludedNamespaces: []
   resources: {}
 

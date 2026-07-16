@@ -736,3 +736,20 @@ tests:
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /run/nvidia-fabricmanager
+
+  - it: should export MOCK_IMEX_CHANNELS env from imexChannels values
+    set:
+      imexChannels:
+        count: 16
+        major: 240
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IMEX_CHANNELS
+            value: "16"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IMEX_CHANNEL_MAJOR
+            value: "240"

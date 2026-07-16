@@ -130,3 +130,15 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --excluded-namespaces=NAMESPACE,kube-system,monitoring,gpu-system
+
+  - it: should pass IMEX channel args to the NRI plugin
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels

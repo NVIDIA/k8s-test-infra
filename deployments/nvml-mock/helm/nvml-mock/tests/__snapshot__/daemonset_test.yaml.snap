@@ -63,6 +63,10 @@ should match snapshot with all overrides:
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
                   value: /var/lib/nvml-mock
+                - name: MOCK_IMEX_CHANNELS
+                  value: "16"
+                - name: MOCK_IMEX_CHANNEL_MAJOR
+                  value: "240"
               image: custom-registry/nvml-mock:v2.0.0
               imagePullPolicy: Always
               lifecycle:
@@ -196,6 +200,10 @@ should match snapshot with b200 profile:
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
                   value: /var/lib/nvml-mock
+                - name: MOCK_IMEX_CHANNELS
+                  value: "16"
+                - name: MOCK_IMEX_CHANNEL_MAJOR
+                  value: "240"
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               lifecycle:
@@ -316,6 +324,10 @@ should match snapshot with default values:
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
                   value: /var/lib/nvml-mock
+                - name: MOCK_IMEX_CHANNELS
+                  value: "16"
+                - name: MOCK_IMEX_CHANNEL_MAJOR
+                  value: "240"
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               lifecycle:
