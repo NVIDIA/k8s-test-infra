@@ -1,0 +1,47 @@
+name: "Support request"
+description: "Request best-effort help that may require tracked project work."
+title: "[Support]: "
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Community support is best effort and has no guaranteed response time. For general usage questions, use GitHub Discussions first: https://github.com/NVIDIA/k8s-test-infra/discussions
+  - type: input
+    id: version
+    attributes:
+      label: Component and version
+      description: Identify the component, release, or commit you are using.
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+      description: Describe the intended outcome and what is blocking you.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include relevant OS, Kubernetes, container runtime, GPU, and driver versions.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: attempts
+    attributes:
+      label: What have you tried?
+      description: Include commands, configuration, and redacted logs where useful.
+    validations:
+      required: true
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues and Discussions for an answer.
+          required: true
+        - label: This request does not disclose a security vulnerability.
+          required: true

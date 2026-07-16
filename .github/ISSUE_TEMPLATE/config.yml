@@ -1,13 +1,8 @@
-# DGXC OSS Policy: only the four official entry points are exposed.
-# Questions are routed to GitHub Discussions per policy guidance.
 blank_issues_enabled: false
 contact_links:
   - name: Question / Help / Usage
     url: https://github.com/NVIDIA/k8s-test-infra/discussions
     about: Please use Discussions for usage questions; the issue tracker is for tracked work only.
-  - name: DGXC OSS Working Group (Slack, internal)
-    url: https://nvidia.enterprise.slack.com/archives/C0APQLRC6KD
-    about: Internal-only channel for OSS policy / process questions.
   - name: Security vulnerability disclosure
-    url: ../blob/main/SECURITY.md
+    url: https://github.com/NVIDIA/k8s-test-infra/blob/main/SECURITY.md
     about: Do NOT open a public issue for vulnerabilities — see SECURITY.md.

@@ -8,9 +8,9 @@
 
 ## Checklist
 
-- [ ] Commits are signed off (`git commit -s`)
-- [ ] Tests pass (`go test -v -race ./...`)
-- [ ] Linter passes (`golangci-lint run`)
-- [ ] New code has SPDX license headers
-- [ ] Documentation updated (if applicable)
-- [ ] CHANGELOG.md updated (if user-facing change)
+- [ ] I linked the related issue above, or explained why no issue is needed.
+- [ ] I added or updated tests and ran the relevant test and lint commands.
+- [ ] I updated the documentation for user-visible or operator-visible changes.
+- [ ] I considered compatibility with supported configurations and existing users.
+- [ ] I identified any breaking change and documented its migration path, or this change is not breaking.
+- [ ] Every commit has a DCO `Signed-off-by` trailer (`git commit -s`).

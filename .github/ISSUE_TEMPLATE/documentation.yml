@@ -1,7 +1,7 @@
 name: "Documentation request or correction"
-description: "Missing, outdated, or incorrect docs (DGXC OSS policy: kind/documentation)."
+description: "Report missing, outdated, or incorrect documentation."
 title: "[Docs]: "
-labels: ["kind/documentation", "needs-triage", "priority/unprioritized"]
+labels: ["kind/documentation", "needs-triage"]
 body:
   - type: input
     id: location
