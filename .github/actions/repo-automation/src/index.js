@@ -3,12 +3,13 @@
 const { loadConfig } = require("./config.js");
 const { createGitHubClient } = require("./github-client.js");
 const { syncLabels } = require("./modes/label-sync.js");
+const { runCommand } = require("./modes/command.js");
 const { runMetadata } = require("./modes/metadata.js");
 
 async function run(dependencies) {
   const { core } = dependencies;
   const mode = core.getInput("mode", { required: true });
-  if (mode !== "label-sync" && mode !== "metadata") {
+  if (mode !== "label-sync" && mode !== "metadata" && mode !== "command") {
     throw new Error(`Unsupported mode: ${mode}`);
   }
 
@@ -21,7 +22,7 @@ async function run(dependencies) {
   const client = dependencies.githubClient ?? createGitHubClient(octokit, owner, repo);
   const dryRun = core.getBooleanInput("dry-run");
   let config;
-  if (mode === "metadata") {
+  if (mode === "metadata" || mode === "command") {
     try {
       config = loadConfig(workspace);
     } catch {
@@ -32,18 +33,28 @@ async function run(dependencies) {
   }
   let summary;
   try {
-    summary = mode === "label-sync"
-      ? await syncLabels({
+    if (mode === "label-sync") {
+      summary = await syncLabels({
         github: client,
         declaredLabels: config.labels.labels,
         dryRun,
-      })
-      : await runMetadata({
+      });
+    } else if (mode === "metadata") {
+      summary = await runMetadata({
         event: dependencies.event,
         github: client,
         config,
         dryRun,
       });
+    } else {
+      summary = await runCommand({
+        event: dependencies.event,
+        github: client,
+        config,
+        dryRun,
+        now: dependencies.now,
+      });
+    }
   } catch (error) {
     if (error?.summary !== undefined) {
       core.setOutput("summary", JSON.stringify(error.summary));

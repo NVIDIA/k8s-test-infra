@@ -304,7 +304,13 @@ test("GitHub boundary paginates and normalizes every metadata list", async () =>
     [{ filename: "b.go", additions: 3, deletions: 4, status: "added" }],
   ]);
   const listCommits = endpoint("commits", [[signedCommit()], [signedCommit({ sha: "second" })]]);
-  const listReviews = endpoint("reviews", [[{ user: { login: "alice" }, state: "APPROVED", commit_id: "head" }], []]);
+  const listReviews = endpoint("reviews", [[{
+    id: 1,
+    user: { login: "alice" },
+    state: "APPROVED",
+    commit_id: "head",
+    submitted_at: "2026-07-16T08:00:00Z",
+  }], []]);
   const listRequested = endpoint("requested", [[{ users: [{ login: "alice" }], teams: [] }], [{ users: [{ login: "bob" }], teams: [] }]]);
   const listLabels = endpoint("labels", [[{ name: "kind/bug" }], [{ name: "lgtm" }]]);
   const octokit = {
@@ -338,7 +344,13 @@ test("GitHub boundary paginates and normalizes every metadata list", async () =>
   ]);
   assert.equal((await github.listPullRequestCommits(42)).length, 2);
   assert.deepEqual(await github.listPullRequestReviews(42), [
-    { user: "alice", state: "APPROVED", commitOid: "head" },
+    {
+      id: 1,
+      user: "alice",
+      state: "APPROVED",
+      commitOid: "head",
+      submittedAt: "2026-07-16T08:00:00Z",
+    },
   ]);
   assert.deepEqual(await github.listRequestedReviewers(42), ["alice", "bob"]);
   assert.deepEqual(await github.listIssueLabels(42), ["kind/bug", "lgtm"]);

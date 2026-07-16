@@ -103,13 +103,12 @@ function validatePolicy(policy, errors) {
   if (requireRecord(policy.commands, "policy.commands", errors)) {
     rejectUnknownKeys(policy.commands, ["retestCooldownSeconds"], "policy.commands", errors);
     if (
-      !Number.isInteger(policy.commands.retestCooldownSeconds)
-      || policy.commands.retestCooldownSeconds < 0
+      policy.commands.retestCooldownSeconds !== 600
     ) {
       addError(
         errors,
         "policy.commands.retestCooldownSeconds",
-        "must be a non-negative integer",
+        "must be exactly 600 seconds",
       );
     }
   }

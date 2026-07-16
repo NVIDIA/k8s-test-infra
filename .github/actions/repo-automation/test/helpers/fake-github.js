@@ -28,6 +28,7 @@ function createFakeGitHub(initialState = []) {
   const automationLogin = options.automationLogin ?? "github-actions[bot]";
   for (const comment of comments) {
     if (comment.author === undefined) comment.author = automationLogin;
+    if (comment.type === undefined) comment.type = comment.author === automationLogin ? "Bot" : "User";
   }
   const pullRequests = clone(options.pullRequests ?? [options.pullRequest]);
   const requestedReviewers = [...(options.requestedReviewers ?? [])];
@@ -42,18 +43,30 @@ function createFakeGitHub(initialState = []) {
     createLabel: [],
     updateLabel: [],
     getPullRequest: [],
+    getIssueComment: [],
+    getUserIdentity: [],
+    getCollaboratorAccess: [],
+    listIssueAssignees: [],
     listPullRequestFiles: [],
     listPullRequestCommits: [],
     listPullRequestReviews: [],
     listRequestedReviewers: [],
     listIssueLabels: [],
+    listWorkflowRunsForHead: [],
+    getWorkflowRun: [],
     getContentAtDefaultBranch: [],
     getDefaultBranchRevision: [],
     getContentAtRevision: [],
     requestReviewers: [],
+    addAssignees: [],
+    removeAssignees: [],
+    rerunFailedJobs: [],
     addIssueLabel: [],
     removeIssueLabel: [],
+    addPolicyLabel: [],
+    removePolicyLabel: [],
     planPolicyComment: [],
+    getPolicyComment: [],
     upsertPolicyComment: [],
   };
   const callOrder = [];
@@ -110,6 +123,34 @@ function createFakeGitHub(initialState = []) {
       return clone(pullRequests[index]);
     },
 
+    async getIssueComment(commentId) {
+      record("getIssueComment", { commentId });
+      return clone(options.issueComment);
+    },
+
+    async getUserIdentity(login) {
+      record("getUserIdentity", { login });
+      return clone(options.identities?.[login.toLowerCase()] ?? {
+        login,
+        type: "User",
+        resolved: false,
+        deleted: false,
+      });
+    },
+
+    async getCollaboratorAccess(login) {
+      record("getCollaboratorAccess", { login });
+      return clone(options.collaboratorAccess?.[login.toLowerCase()] ?? {
+        liveCollaborator: false,
+        permission: "none",
+      });
+    },
+
+    async listIssueAssignees(prNumber) {
+      record("listIssueAssignees", { prNumber });
+      return clone(options.assignees ?? []);
+    },
+
     async listPullRequestFiles(prNumber) {
       record("listPullRequestFiles", { prNumber });
       return clone((options.filePages ?? [options.files ?? []]).flat());
@@ -133,6 +174,20 @@ function createFakeGitHub(initialState = []) {
     async listIssueLabels(prNumber) {
       record("listIssueLabels", { prNumber });
       return labels.map(({ name }) => name);
+    },
+
+    async listWorkflowRunsForHead(requestedHeadOid) {
+      record("listWorkflowRunsForHead", { headOid: requestedHeadOid });
+      return clone(options.workflowRuns ?? []);
+    },
+
+    async getWorkflowRun(runId) {
+      record("getWorkflowRun", { runId });
+      const configured = options.workflowRunReads?.[runId];
+      if (Array.isArray(configured) && configured.length > 0) {
+        return clone(configured[Math.min(calls.getWorkflowRun.length - 1, configured.length - 1)]);
+      }
+      return clone((options.workflowRuns ?? []).find((run) => run.id === runId));
     },
 
     async getContentAtDefaultBranch(path) {
@@ -165,9 +220,44 @@ function createFakeGitHub(initialState = []) {
       }
     },
 
+    async addAssignees(prNumber, assignees) {
+      record("addAssignees", { prNumber, assignees: [...assignees] });
+      const state = options.assignees ?? (options.assignees = []);
+      for (const assignee of assignees) {
+        if (!state.some((current) => current.toLowerCase() === assignee.toLowerCase())) {
+          state.push(assignee);
+        }
+      }
+    },
+
+    async removeAssignees(prNumber, assignees) {
+      record("removeAssignees", { prNumber, assignees: [...assignees] });
+      const state = options.assignees ?? (options.assignees = []);
+      for (const assignee of assignees) {
+        const index = state.findIndex((current) => current.toLowerCase() === assignee.toLowerCase());
+        if (index !== -1) state.splice(index, 1);
+      }
+    },
+
+    async rerunFailedJobs(runId) {
+      record("rerunFailedJobs", { runId });
+      const run = (options.workflowRuns ?? []).find((candidate) => candidate.id === runId);
+      if (run !== undefined) {
+        run.status = "queued";
+        run.conclusion = null;
+      }
+    },
+
     async addIssueLabel(prNumber, label) {
       record("addIssueLabel", { prNumber, label });
       if (!labels.some((entry) => entry.name === label)) {
+        labels.push({ name: label });
+      }
+    },
+
+    async addPolicyLabel(prNumber, label) {
+      record("addPolicyLabel", { prNumber, label });
+      if (!labels.some((entry) => entry.name.toLowerCase() === label.toLowerCase())) {
         labels.push({ name: label });
       }
     },
@@ -180,10 +270,18 @@ function createFakeGitHub(initialState = []) {
       }
     },
 
+    async removePolicyLabel(prNumber, label) {
+      record("removePolicyLabel", { prNumber, label });
+      const index = labels.findIndex((entry) => entry.name.toLowerCase() === label.toLowerCase());
+      if (index !== -1) labels.splice(index, 1);
+    },
+
     async planPolicyComment(prNumber, marker) {
       record("planPolicyComment", { prNumber, marker });
       const matches = comments.filter(
-        (comment) => comment.author === automationLogin && comment.body.includes(marker),
+        (comment) => comment.author === automationLogin
+          && comment.type === "Bot"
+          && comment.body.includes(marker),
       );
       if (matches.length > 1) {
         throw new Error("duplicate policy comments");
@@ -193,13 +291,28 @@ function createFakeGitHub(initialState = []) {
         : { action: "create", id: null };
     },
 
+    async getPolicyComment(prNumber, marker) {
+      record("getPolicyComment", { prNumber, marker });
+      const matches = comments.filter(
+        (comment) => comment.author === automationLogin
+          && comment.type === "Bot"
+          && comment.body.includes(marker),
+      );
+      if (matches.length > 1) throw new Error("duplicate policy comments");
+      return matches.length === 1
+        ? { action: "update", id: matches[0].id, body: matches[0].body }
+        : { action: "create", id: null, body: null };
+    },
+
     async upsertPolicyComment(prNumber, marker, body, plan) {
       record("upsertPolicyComment", { prNumber, marker, body });
       if (commentMarkerCount(body, marker) !== 1) {
         throw new Error("policy comment body must contain exactly one marker");
       }
       const matches = comments.filter(
-        (comment) => comment.author === automationLogin && comment.body.includes(marker),
+        (comment) => comment.author === automationLogin
+          && comment.type === "Bot"
+          && comment.body.includes(marker),
       );
       if (matches.length > 1) {
         throw new Error("duplicate policy comments");
@@ -214,7 +327,7 @@ function createFakeGitHub(initialState = []) {
         matches[0].body = body;
         return { action: "updated", id: matches[0].id };
       }
-      const comment = { id: comments.length + 1, body, author: automationLogin };
+      const comment = { id: comments.length + 1, body, author: automationLogin, type: "Bot" };
       comments.push(comment);
       return { action: "created", id: comment.id };
     },
@@ -228,6 +341,16 @@ function createFakeGitHub(initialState = []) {
         labels: labels.map(({ name }) => name),
         requestedReviewers: [...requestedReviewers],
         comments: clone(comments),
+      };
+    },
+
+    commandSnapshot() {
+      return {
+        labels: labels.map(({ name }) => name).sort(),
+        requestedReviewers: [...requestedReviewers].sort(),
+        assignees: [...(options.assignees ?? [])].sort(),
+        comments: clone(comments),
+        workflowRuns: clone(options.workflowRuns ?? []),
       };
     },
   };

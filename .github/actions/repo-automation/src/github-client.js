@@ -3,7 +3,7 @@
 const { Buffer } = require("node:buffer");
 const { setTimeout: delay } = require("node:timers/promises");
 const { TextDecoder } = require("node:util");
-const { isManagedMetadataLabel } = require("./managed-labels.js");
+const { isManagedMetadataLabel, isManagedPolicyLabel } = require("./managed-labels.js");
 
 const MAX_CONTENT_BYTES = 1024 * 1024;
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -96,6 +96,45 @@ function repositoryPath(value) {
     throw new TypeError("content path must be a safe repository path");
   }
   return withoutSlash;
+}
+
+function githubLogin(value, name = "GitHub login") {
+  nonEmptyString(value, name);
+  if (!/^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(value)) {
+    throw new TypeError(`${name} must be a GitHub login`);
+  }
+  return value.toLowerCase();
+}
+
+function gitOid(value, name = "Git OID") {
+  nonEmptyString(value, name);
+  if (!/^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(value)) {
+    throw new TypeError(`${name} must be a 40- or 64-character Git OID`);
+  }
+  return value.toLowerCase();
+}
+
+function loginList(values, name) {
+  if (!Array.isArray(values) || values.length === 0 || values.length > 20) {
+    throw new TypeError(`${name} must be a non-empty bounded login array`);
+  }
+  const normalized = values.map((value) => githubLogin(value, `${name} member`));
+  if (new Set(normalized).size !== normalized.length) {
+    throw new TypeError(`${name} must not contain duplicate logins`);
+  }
+  return normalized;
+}
+
+function workflowRun(data) {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    throw new TypeError("workflow run must be an object");
+  }
+  return {
+    id: positiveInteger(data.id, "workflow run id"),
+    headOid: gitOid(data.head_sha, "workflow run head OID"),
+    status: nonEmptyString(data.status, "workflow run status"),
+    conclusion: data.conclusion === null ? null : nonEmptyString(data.conclusion, "workflow run conclusion"),
+  };
 }
 
 function headersFor(error) {
@@ -270,6 +309,31 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
     return { action: "create", id: null };
   }
 
+  async function readPolicyComment(prNumber, marker) {
+    positiveInteger(prNumber, "PR number");
+    nonEmptyString(marker, "comment marker");
+    const comments = await paginate("listIssueComments", octokit.rest.issues.listComments, {
+      owner,
+      repo,
+      issue_number: prNumber,
+    });
+    const matches = comments.filter((comment) => (
+      typeof comment.body === "string"
+      && comment.body.includes(marker)
+      && typeof comment.user?.login === "string"
+      && comment.user.login.toLowerCase() === ACTIONS_COMMENT_AUTHOR.login
+      && comment.user.type === ACTIONS_COMMENT_AUTHOR.type
+    ));
+    if (matches.length > 1) throw new Error("duplicate policy comments");
+    if (matches.length === 0) return { action: "create", id: null, body: null };
+    if (matches[0].body.length > 65_536) throw new TypeError("policy comment body exceeds limit");
+    return {
+      action: "update",
+      id: positiveInteger(matches[0].id, "comment id"),
+      body: matches[0].body,
+    };
+  }
+
   async function writePolicyComment(prNumber, marker, body, plan) {
     positiveInteger(prNumber, "PR number");
     nonEmptyString(marker, "comment marker");
@@ -342,6 +406,83 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       };
     },
 
+    async getIssueComment(commentId) {
+      positiveInteger(commentId, "comment id");
+      const { data } = await call("getIssueComment", () => octokit.rest.issues.getComment({
+        owner, repo, comment_id: commentId,
+      }), true);
+      const issueUrl = nonEmptyString(data.issue_url, "comment issue URL");
+      const escapedOwner = owner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const escapedRepo = repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = new RegExp(`/repos/${escapedOwner}/${escapedRepo}/issues/(\\d+)$`, "i").exec(issueUrl);
+      if (match === null) throw new TypeError("comment issue mapping is invalid");
+      const issueNumber = Number.parseInt(match[1], 10);
+      positiveInteger(issueNumber, "comment issue number");
+      const createdAt = data.created_at === undefined ? null : nonEmptyString(data.created_at, "comment creation time");
+      const updatedAt = data.updated_at === undefined ? createdAt : nonEmptyString(data.updated_at, "comment update time");
+      const liveId = positiveInteger(data.id, "live comment id");
+      if (liveId !== commentId) throw new TypeError("live comment id does not match request");
+      const body = typeof data.body === "string" ? data.body : "";
+      if (body.length > 65_536) throw new TypeError("live comment body exceeds limit");
+      return {
+        id: liveId,
+        issueNumber,
+        body,
+        author: githubLogin(data.user?.login, "live comment author"),
+        edited: createdAt !== null && updatedAt !== createdAt,
+      };
+    },
+
+    async getUserIdentity(login) {
+      const requested = githubLogin(login);
+      try {
+        const { data } = await call("getUserIdentity", () => octokit.rest.users.getByUsername({
+          username: requested,
+        }), true);
+        return {
+          login: githubLogin(data.login, "live user login"),
+          type: nonEmptyString(data.type, "live user type"),
+          resolved: true,
+          deleted: false,
+        };
+      } catch (error) {
+        if (error.status === 404) {
+          return { login: requested, type: "User", resolved: true, deleted: true };
+        }
+        throw error;
+      }
+    },
+
+    async getCollaboratorAccess(login) {
+      const requested = githubLogin(login);
+      try {
+        await call("checkCollaborator", () => octokit.rest.repos.checkCollaborator({
+          owner, repo, username: requested,
+        }), true);
+      } catch (error) {
+        if (error.status === 404) {
+          return { liveCollaborator: false, permission: "none" };
+        }
+        throw error;
+      }
+      const { data } = await call("getCollaboratorPermission", () => (
+        octokit.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username: requested })
+      ), true);
+      return {
+        liveCollaborator: true,
+        permission: nonEmptyString(data.permission, "collaborator permission").toLowerCase(),
+      };
+    },
+
+    async listIssueAssignees(prNumber) {
+      positiveInteger(prNumber, "PR number");
+      const { data } = await call("getIssueAssignees", () => octokit.rest.issues.get({
+        owner, repo, issue_number: prNumber,
+      }), true);
+      if (!Array.isArray(data.assignees)) throw new TypeError("issue assignees must be an array");
+      return data.assignees.map((assignee) => githubLogin(assignee?.login, "assignee"));
+    },
+
     async listPullRequestFiles(prNumber) {
       positiveInteger(prNumber, "PR number");
       const files = await paginate("listPullRequestFiles", octokit.rest.pulls.listFiles, {
@@ -376,9 +517,13 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         owner, repo, pull_number: prNumber,
       });
       return reviews.map((review) => ({
+        id: positiveInteger(review.id, "review id"),
         user: nonEmptyString(review.user?.login, "review user"),
         state: nonEmptyString(review.state, "review state"),
         commitOid: review.commit_id === null ? null : nonEmptyString(review.commit_id, "review commit OID"),
+        ...(review.state === "PENDING"
+          ? {}
+          : { submittedAt: nonEmptyString(review.submitted_at, "review submission time") }),
       }));
     },
 
@@ -396,6 +541,24 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         owner, repo, issue_number: prNumber,
       });
       return labels.map((label) => nonEmptyString(label.name, "issue label"));
+    },
+
+    async listWorkflowRunsForHead(headOid) {
+      const requestedHead = gitOid(headOid, "head OID");
+      const runs = await paginate("listWorkflowRunsForHead", octokit.rest.actions.listWorkflowRunsForRepo, {
+        owner,
+        repo,
+        head_sha: requestedHead,
+      }, (response) => response.data.workflow_runs);
+      return runs.map(workflowRun);
+    },
+
+    async getWorkflowRun(runId) {
+      positiveInteger(runId, "workflow run id");
+      const { data } = await call("getWorkflowRun", () => octokit.rest.actions.getWorkflowRun({
+        owner, repo, run_id: runId,
+      }), true);
+      return workflowRun(data);
     },
 
     async getDefaultBranchRevision() {
@@ -449,10 +612,41 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       }), true);
     },
 
+    async addAssignees(prNumber, assignees) {
+      positiveInteger(prNumber, "PR number");
+      const normalized = loginList(assignees, "assignees");
+      await call("addAssignees", () => octokit.rest.issues.addAssignees({
+        owner, repo, issue_number: prNumber, assignees: normalized,
+      }), true);
+    },
+
+    async removeAssignees(prNumber, assignees) {
+      positiveInteger(prNumber, "PR number");
+      const normalized = loginList(assignees, "assignees");
+      await call("removeAssignees", () => octokit.rest.issues.removeAssignees({
+        owner, repo, issue_number: prNumber, assignees: normalized,
+      }), true);
+    },
+
+    async rerunFailedJobs(runId) {
+      positiveInteger(runId, "workflow run id");
+      await call("rerunFailedJobs", () => octokit.rest.actions.reRunWorkflowFailedJobs({
+        owner, repo, run_id: runId,
+      }), false);
+    },
+
     async addIssueLabel(prNumber, label) {
       positiveInteger(prNumber, "PR number");
       if (!isManagedMetadataLabel(label)) throw new TypeError("label is not metadata-managed");
       await call("addIssueLabel", () => octokit.rest.issues.addLabels({
+        owner, repo, issue_number: prNumber, labels: [label],
+      }), true);
+    },
+
+    async addPolicyLabel(prNumber, label) {
+      positiveInteger(prNumber, "PR number");
+      if (!isManagedPolicyLabel(label)) throw new TypeError("label is not policy-managed");
+      await call("addPolicyLabel", () => octokit.rest.issues.addLabels({
         owner, repo, issue_number: prNumber, labels: [label],
       }), true);
     },
@@ -469,8 +663,24 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       }
     },
 
+    async removePolicyLabel(prNumber, label) {
+      positiveInteger(prNumber, "PR number");
+      if (!isManagedPolicyLabel(label)) throw new TypeError("label is not policy-managed");
+      try {
+        await call("removePolicyLabel", () => octokit.rest.issues.removeLabel({
+          owner, repo, issue_number: prNumber, name: label,
+        }), true);
+      } catch (error) {
+        if (error.status !== 404) throw error;
+      }
+    },
+
     async planPolicyComment(prNumber, marker) {
       return readCommentPlan(prNumber, marker);
+    },
+
+    async getPolicyComment(prNumber, marker) {
+      return readPolicyComment(prNumber, marker);
     },
 
     async upsertPolicyComment(prNumber, marker, body, existingPlan) {

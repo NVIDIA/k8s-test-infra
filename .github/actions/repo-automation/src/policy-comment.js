@@ -3,6 +3,7 @@
 const { serializePolicyState } = require("./commands/state.js");
 
 const POLICY_COMMENT_MARKER = "<!-- repo-automation-policy:v1 -->";
+const COMMAND_SUMMARY_MARKER = "<!-- repo-automation-command-summary:v1 -->";
 const SAFE_LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
@@ -153,4 +154,88 @@ function renderPolicyComment(result, state = undefined) {
   return `${lines.join("\n")}\n`;
 }
 
-module.exports = { POLICY_COMMENT_MARKER, renderPolicyComment };
+function renderCommandPolicyComment({ existingBody = null, state, items, policy }) {
+  if (!isRecord(policy) || !Array.isArray(items)) {
+    throw new TypeError("command policy summary must be structured");
+  }
+  const stateMarker = serializePolicyState(state);
+  const headOid = safeText(state.headOid, "head OID", 160);
+  for (const name of ["lgtm", "approved", "hold", "needsApproval"]) {
+    if (typeof policy[name] !== "boolean") {
+      throw new TypeError(`command policy ${name} must be a boolean`);
+    }
+  }
+  const displayed = items.slice(0, 50).map((item) => {
+    if (!isRecord(item) || !Number.isSafeInteger(item.line) || item.line < 0) {
+      throw new TypeError("command summary item line must be safe");
+    }
+    const itemCode = safeText(item.code, "command summary code", 64);
+    if (!/^[a-z0-9-]+$/.test(itemCode)) {
+      throw new TypeError("command summary code must be fixed text");
+    }
+    return `- Line ${item.line}: ${code(itemCode)}`;
+  });
+  if (items.length > displayed.length) {
+    displayed.push(`- ${items.length - displayed.length} additional bounded results omitted`);
+  }
+  let preserved;
+  if (existingBody === null) {
+    preserved = `${POLICY_COMMENT_MARKER}\n${stateMarker}`;
+  } else {
+    if (
+      typeof existingBody !== "string"
+      || existingBody.length > 65_536
+      || existingBody.split(POLICY_COMMENT_MARKER).length - 1 !== 1
+      || existingBody.split(COMMAND_SUMMARY_MARKER).length - 1 > 1
+    ) {
+      throw new TypeError("existing policy comment must be bounded and singular");
+    }
+    const stateMatches = [...existingBody.matchAll(/<!-- repo-automation-state:v1 [^\r\n]* -->/g)];
+    if (stateMatches.length !== 1) {
+      throw new TypeError("existing policy comment state must be singular");
+    }
+    const withoutOldSummary = existingBody.split(COMMAND_SUMMARY_MARKER, 1)[0].trimEnd();
+    preserved = withoutOldSummary.replace(stateMatches[0][0], stateMarker);
+  }
+  const lines = [
+    preserved,
+    COMMAND_SUMMARY_MARKER,
+    "## Command policy",
+    "",
+    `Head: ${code(headOid)}`,
+    "",
+    `- LGTM: **${status(policy.lgtm)}**`,
+    `- Approval coverage: **${status(policy.approved)}**`,
+    `- Hold: **${policy.hold ? "ACTIVE" : "CLEAR"}**`,
+    `- Needs approval: **${policy.needsApproval ? "ACTIVE" : "CLEAR"}**`,
+    "",
+    "### Command results",
+    "",
+    ...(displayed.length === 0 ? ["No command-like lines were found."] : displayed),
+  ];
+  if (items.some((item) => item.code === "help")) {
+    lines.push(
+      "",
+      "### Supported commands",
+      "",
+      `- ${code("/lgtm")} or ${code("/lgtm cancel")}: applicable non-author reviewer or approver; cancellation also permits the giver, author, or write collaborator.`,
+      `- ${code("/assign @user...")}: author, applicable owner, or triage collaborator.`,
+      `- ${code("/unassign @user...")}: author or triage collaborator; an ordinary current assignee may target only themselves.`,
+      `- ${code("/hold")} or ${code("/hold cancel")}, and ${code("/retest")}: author or write collaborator.`,
+      `- ${code("/help")}: any resolved human.`,
+      `- Approval authority comes only from an applicable GitHub ${code("APPROVED")} review for the current head; ${code("/approve")} is unsupported.`,
+    );
+  }
+  const body = `${lines.join("\n")}\n`;
+  if (body.length > 65_536) {
+    throw new TypeError("rendered command policy comment exceeds limit");
+  }
+  return body;
+}
+
+module.exports = {
+  COMMAND_SUMMARY_MARKER,
+  POLICY_COMMENT_MARKER,
+  renderCommandPolicyComment,
+  renderPolicyComment,
+};
