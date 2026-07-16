@@ -313,88 +313,88 @@ async function reconcileAttempt({ github, config, repository, number, dryRun, at
   if (initialGraph.headOid !== pullRequest.headOid) {
     return { race: true, result: raceResult(number, pullRequest.headOid, attempts) };
   }
-  let authority;
-  let protectedLive;
+  let nativeMutationAttempted = false;
   try {
     validateConfig(config);
-    authority = await loadAuthority({ github, config, pullRequest });
-    protectedLive = await github.getBranchProtection(pullRequest.baseBranch);
+    const authority = await loadAuthority({ github, config, pullRequest });
+    const protectedLive = await github.getBranchProtection(pullRequest.baseBranch);
+    const labelsPlan = labelPlan(authority.labels, {
+      lgtm: authority.lgtm !== null,
+      approved: authority.approved,
+    });
+    authority.labelsPlan = labelsPlan;
+
+    const preWrite = validatePullRequest(await github.getPullRequest(number), number, repository);
+    if (!sameHeadIdentity(pullRequest, preWrite)) {
+      return { race: true, result: raceResult(number, pullRequest.headOid, attempts, authority) };
+    }
+
+    if (!dryRun) {
+      for (const label of labelsPlan.add) await github.addPolicyLabel(number, label);
+      for (const label of labelsPlan.remove) await github.removePolicyLabel(number, label);
+    }
+
+    const finalPullRequest = validatePullRequest(await github.getPullRequest(number), number, repository);
+    const [liveLabels, finalGraphRaw] = await Promise.all([
+      github.listIssueLabels(number),
+      github.getMergeState(number),
+    ]);
+    if (!sameHeadIdentity(pullRequest, finalPullRequest)) {
+      return { race: true, result: raceResult(number, pullRequest.headOid, attempts, authority) };
+    }
+    const finalGraph = validateGraphState(finalGraphRaw, finalPullRequest, repository);
+    if (finalGraph.headOid !== pullRequest.headOid) {
+      return { race: true, result: raceResult(number, pullRequest.headOid, attempts, authority) };
+    }
+    const decisionLabels = dryRun ? applyLabelPlan(liveLabels, labelsPlan) : liveLabels;
+    const merge = decideMergeAction({
+      pullRequestState: finalGraph.state === "OPEN" ? "OPEN" : "CLOSED",
+      draft: finalGraph.draft,
+      baseBranch: finalGraph.baseBranch,
+      baseBranchAllowed: branchAllowed(finalGraph.baseBranch, config.policy.protectedBranches),
+      baseBranchProtected: protectedLive === true,
+      headOid: pullRequest.headOid,
+      finalHeadOid: finalGraph.headOid,
+      metadataHeadOid: authority.metadataHead ?? "0".repeat(40),
+      approvalHeadOid: pullRequest.headOid,
+      lgtm: authority.lgtm,
+      lgtmStateOwnedByBot: authority.lgtmOwned,
+      approvalCoverageComplete: authority.approved,
+      mergeability: finalGraph.mergeability,
+      labels: decisionLabels,
+      loadError: false,
+      ciState: "PENDING",
+      autoMergeMethod: finalGraph.autoMergeMethod,
+    });
+    if (!dryRun && merge.action === "ENABLE") {
+      nativeMutationAttempted = true;
+      await github.enableAutoMerge(finalGraph.nodeId, "SQUASH");
+    } else if (!dryRun && merge.action === "DISABLE") {
+      nativeMutationAttempted = true;
+      await github.disableAutoMerge(finalGraph.nodeId);
+    }
+    return {
+      race: false,
+      result: {
+        number,
+        headOid: pullRequest.headOid,
+        attempts,
+        lgtm: authority.lgtm !== null,
+        approved: authority.approved,
+        labels: labelsPlan,
+        merge,
+      },
+    };
   } catch (error) {
-    if (!dryRun && initialGraph.autoMergeMethod !== null) {
-      await safelyDisableArmed({
-        github,
-        repository,
-        pullRequest,
-        initialGraph,
-      });
+    if (
+      !dryRun
+      && !nativeMutationAttempted
+      && initialGraph.autoMergeMethod !== null
+    ) {
+      await safelyDisableArmed({ github, repository, pullRequest, initialGraph });
     }
     throw error;
   }
-  const labelsPlan = labelPlan(authority.labels, {
-    lgtm: authority.lgtm !== null,
-    approved: authority.approved,
-  });
-  authority.labelsPlan = labelsPlan;
-
-  const preWrite = validatePullRequest(await github.getPullRequest(number), number, repository);
-  if (!sameHeadIdentity(pullRequest, preWrite)) {
-    return { race: true, result: raceResult(number, pullRequest.headOid, attempts, authority) };
-  }
-
-  if (!dryRun) {
-    for (const label of labelsPlan.add) await github.addPolicyLabel(number, label);
-    for (const label of labelsPlan.remove) await github.removePolicyLabel(number, label);
-  }
-
-  const finalPullRequest = validatePullRequest(await github.getPullRequest(number), number, repository);
-  const [liveLabels, finalGraphRaw] = await Promise.all([
-    github.listIssueLabels(number),
-    github.getMergeState(number),
-  ]);
-  if (!sameHeadIdentity(pullRequest, finalPullRequest)) {
-    return { race: true, result: raceResult(number, pullRequest.headOid, attempts, authority) };
-  }
-  const finalGraph = validateGraphState(finalGraphRaw, finalPullRequest, repository);
-  if (finalGraph.headOid !== pullRequest.headOid) {
-    return { race: true, result: raceResult(number, pullRequest.headOid, attempts, authority) };
-  }
-  const decisionLabels = dryRun ? applyLabelPlan(liveLabels, labelsPlan) : liveLabels;
-  const merge = decideMergeAction({
-    pullRequestState: finalGraph.state === "OPEN" ? "OPEN" : "CLOSED",
-    draft: finalGraph.draft,
-    baseBranch: finalGraph.baseBranch,
-    baseBranchAllowed: branchAllowed(finalGraph.baseBranch, config.policy.protectedBranches),
-    baseBranchProtected: protectedLive === true,
-    headOid: pullRequest.headOid,
-    finalHeadOid: finalGraph.headOid,
-    metadataHeadOid: authority.metadataHead ?? "0".repeat(40),
-    approvalHeadOid: pullRequest.headOid,
-    lgtm: authority.lgtm,
-    lgtmStateOwnedByBot: authority.lgtmOwned,
-    approvalCoverageComplete: authority.approved,
-    mergeability: finalGraph.mergeability,
-    labels: decisionLabels,
-    loadError: false,
-    ciState: "PENDING",
-    autoMergeMethod: finalGraph.autoMergeMethod,
-  });
-  if (!dryRun && merge.action === "ENABLE") {
-    await github.enableAutoMerge(finalGraph.nodeId, "SQUASH");
-  } else if (!dryRun && merge.action === "DISABLE") {
-    await github.disableAutoMerge(finalGraph.nodeId);
-  }
-  return {
-    race: false,
-    result: {
-      number,
-      headOid: pullRequest.headOid,
-      attempts,
-      lgtm: authority.lgtm !== null,
-      approved: authority.approved,
-      labels: labelsPlan,
-      merge,
-    },
-  };
 }
 
 async function reconcile({ github, config, repository, number, dryRun }) {

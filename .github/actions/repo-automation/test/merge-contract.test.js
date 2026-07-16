@@ -626,6 +626,135 @@ test("armed native auto-merge is safely disabled after later authority failures"
   });
 });
 
+test("armed native auto-merge fail-safe covers every post-authority failure", async (t) => {
+  async function assertFailSafe(state, expectedOperation) {
+    const { github, result } = await run(evaluatorState(state));
+    assert.equal(result.status, "partial");
+    assert.equal(github.calls[expectedOperation].length > 0, true);
+    assert.deepEqual(github.calls.disableAutoMerge, [{ pullRequestId: "PR_node_42" }]);
+    assert.deepEqual(github.calls.enableAutoMerge, []);
+    return github;
+  }
+
+  await t.test("known hold plus final label read failure disables SQUASH once", async () => {
+    const github = await assertFailSafe({
+      labels: ["lgtm", "approved", "do-not-merge/hold"],
+      failures: { listIssueLabels: [null, new Error("final labels unavailable")] },
+      mergeStates: [mergeState({ autoMergeMethod: "SQUASH" }), mergeState({ autoMergeMethod: "SQUASH" })],
+    }, "listIssueLabels");
+    assert.equal(github.calls.listIssueLabels.length, 2);
+  });
+
+  for (const [name, method, labels, operation] of [
+    ["add display label", "MERGE", ["do-not-merge/hold"], "addPolicyLabel"],
+    ["remove stale display label", "REBASE", ["lgtm", "approved", "do-not-merge/needs-approval", "do-not-merge/hold"], "removePolicyLabel"],
+  ]) {
+    await t.test(`${name} failure disables ${method}`, async () => {
+      const github = await assertFailSafe({
+        labels,
+        failures: { [operation]: new Error(`${operation} unavailable`) },
+        mergeStates: [mergeState({ autoMergeMethod: method }), mergeState({ autoMergeMethod: method })],
+      }, operation);
+      assert.equal(github.calls.disableAutoMerge.length, 1);
+    });
+  }
+
+  await t.test("pre-write REST failure disables proven request", async () => {
+    const github = await assertFailSafe({
+      failures: { getPullRequest: [null, new Error("pre-write PR unavailable")] },
+      mergeStates: [mergeState({ autoMergeMethod: "SQUASH" }), mergeState({ autoMergeMethod: "SQUASH" })],
+    }, "getPullRequest");
+    assert.equal(github.calls.getPullRequest.length, 3);
+  });
+
+  for (const method of ["SQUASH", "MERGE", "REBASE"]) {
+    await t.test(`final GraphQL failure disables ${method}`, async () => {
+      const github = await assertFailSafe({
+        failures: { getMergeState: [null, new Error("final GraphQL unavailable")] },
+        mergeStates: [mergeState({ autoMergeMethod: method }), mergeState({ autoMergeMethod: method })],
+      }, "getMergeState");
+      assert.equal(github.calls.getMergeState.length, 3);
+    });
+  }
+
+  await t.test("persistent final ambiguity performs no mutation", async () => {
+    const { github, result } = await run(evaluatorState({
+      failures: { getMergeState: [null, new Error("final GraphQL unavailable"), new Error("still ambiguous")] },
+      mergeStates: [mergeState({ autoMergeMethod: "SQUASH" })],
+    }));
+    assert.equal(result.status, "partial");
+    assert.deepEqual(github.calls.enableAutoMerge, []);
+    assert.deepEqual(github.calls.disableAutoMerge, []);
+  });
+
+  await t.test("a concurrently changed native method is not the same request", async () => {
+    const { github } = await run(evaluatorState({
+      failures: { listIssueLabels: [null, new Error("final labels unavailable")] },
+      mergeStates: [mergeState({ autoMergeMethod: "SQUASH" }), mergeState({ autoMergeMethod: "MERGE" })],
+    }));
+    assert.deepEqual(github.calls.disableAutoMerge, []);
+  });
+
+  await t.test("failed fail-safe disable is attempted exactly once without retry", async () => {
+    const { github, result } = await run(evaluatorState({
+      failures: {
+        listIssueLabels: [null, new Error("final labels unavailable")],
+        disableAutoMerge: new Error("disable unavailable"),
+      },
+      mergeStates: [mergeState({ autoMergeMethod: "SQUASH" }), mergeState({ autoMergeMethod: "SQUASH" })],
+    }));
+    assert.equal(result.status, "partial");
+    assert.equal(github.calls.disableAutoMerge.length, 1);
+  });
+
+  await t.test("failed normal disable never falls through to fail-safe retry", async () => {
+    const { github, result } = await run(evaluatorState({
+      labels: ["lgtm", "approved", "do-not-merge/hold"],
+      failures: { disableAutoMerge: new Error("normal disable unavailable") },
+      mergeStates: [mergeState({ autoMergeMethod: "SQUASH" }), mergeState({ autoMergeMethod: "SQUASH" })],
+    }));
+    assert.equal(result.status, "partial");
+    assert.equal(github.calls.disableAutoMerge.length, 1);
+  });
+
+  await t.test("dry-run post-authority failure never invokes fail-safe disable", async () => {
+    const { github, result } = await run(evaluatorState({
+      failures: { listIssueLabels: [null, new Error("final labels unavailable")] },
+      mergeStates: [mergeState({ autoMergeMethod: "SQUASH" })],
+    }), { dryRun: true });
+    assert.equal(result.status, "partial");
+    assert.deepEqual(writes(github), []);
+  });
+
+  await t.test("redelivery converges after fail-safe disable and a partial display write", async () => {
+    const { runMergeEvaluate } = require("../src/modes/merge-evaluate.js");
+    const github = createFakeGitHub(evaluatorState({
+      labels: ["do-not-merge/hold"],
+      failures: { addPolicyLabel: [new Error("first add unavailable")] },
+      mergeStates: [
+        mergeState({ autoMergeMethod: "MERGE" }),
+        mergeState({ autoMergeMethod: "MERGE" }),
+        mergeState(),
+        mergeState(),
+      ],
+    }));
+    const options = {
+      event: { repository: workflowEvent.repository },
+      eventName: "workflow_dispatch",
+      github,
+      config: loadConfig(repositoryRoot),
+      dryRun: false,
+      prNumber: "42",
+    };
+    const first = await runMergeEvaluate(options);
+    const second = await runMergeEvaluate(options);
+    assert.equal(first.status, "partial");
+    assert.equal(second.status, "complete");
+    assert.equal(github.calls.disableAutoMerge.length, 1);
+    assert.equal(github.calls.enableAutoMerge.length, 0);
+  });
+});
+
 test("Task 7 bounded pagination stops at limit plus one without requesting later pages", async (t) => {
   const { createGitHubClient } = require("../src/github-client.js");
   function endpoint(name, pages, calls) {

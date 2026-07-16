@@ -86,3 +86,28 @@
 - Five correction mutants were killed: explicit-input trigger bypass, omission
   of fail-safe disable, omission of its fresh REST head fence, omission of the
   limited paginator stop callback, and lossy workflow-source normalization.
+
+## Residual fail-safe correction
+
+- The proven armed-request boundary now covers every error after the initial
+  REST/GraphQL identity and method read, including pre-write identity refresh,
+  add/remove display-label calls, final REST and label reads, and the final
+  GraphQL refresh. Before any normal native mutation is attempted, such an
+  error uses the same fresh REST/GraphQL same-head, same-node, same-method fence
+  and attempts at most one non-retried disable.
+- A normal enable/disable mutation marks the native attempt before its API call,
+  so an ambiguous mutation response can never trigger a second mutation.
+  Persistent read ambiguity, changed head, or concurrently changed method does
+  not invoke the fail-safe mutation. Dry-run never invokes it.
+- Residual RED reproduced ten missing fail-safe cases. GREEN focused coverage
+  passes 97/97, including known hold plus final-label failure, partial add/remove
+  display writes for MERGE and REBASE, pre-write REST failure, final GraphQL
+  failure for every native method, persistent ambiguity, changed method,
+  one-attempt disable failure, dry-run, and redelivery convergence.
+- Four residual mutants were killed: skipping all late fail-safe disable,
+  accepting a concurrently changed native method, allowing dry-run fail-safe
+  mutation, and retrying a failed normal disable through the fail-safe path.
+- Residual full suite with loopback permission: 708/708 pass. ESLint and
+  `git diff --check` pass. Two package builds were byte-identical; final
+  `dist/index.js` is 891kB with SHA-256
+  `f465ecfa755934f19451a095c573112544646600db12294616626bb87a11ee14`.
