@@ -29,18 +29,24 @@ The repository already has:
 - Go, Helm, E2E, CodeQL, publishing, and Pages workflows.
 - Dependabot for Go modules, GitHub Actions, and Docker.
 - A Kubernetes-format root `OWNERS` file.
-- DCO instructions in `CONTRIBUTING.md`.
-- A multi-platform `nvml-mock` image published to GHCR.
+- Issue forms, a pull request template, `CODEOWNERS`, DCO instructions, and
+  initial community-health documents.
+- A multi-platform `nvml-mock` image and an OCI Helm chart published to GHCR.
+- Keyless Cosign signing and image SBOM generation in the existing publishers.
+- Scheduled stale handling and OpenSSF Scorecard reporting.
 
 The repository does not currently have:
 
-- Issue forms or a pull request template.
-- Repository-level `SECURITY.md`, `CODE_OF_CONDUCT.md`, `GOVERNANCE.md`, or
-  `SUPPORT.md`.
+- A `SUPPORT.md`; the existing contribution, security, conduct, governance,
+  issue, and pull request documents also need consistency and public-channel
+  corrections.
 - A repository label taxonomy or synchronization mechanism.
 - Automated PR sizing, type labeling, area labeling, or reviewer routing.
 - Slash-command processing or ownership-aware merge policy.
-- OCI Helm chart publication, release notes, or a coordinated version source.
+- Release Please or one coordinated version source for the existing image,
+  chart, changelog, and GitHub Release publishers.
+- Full-SHA pinning and the approved issue/PR timing in the existing stale
+  workflow.
 
 The Makefile references `cmd/nv-ci-bot/main.go`, but that command no longer
 exists. This design does not restore that stale bot. Repository automation is a
@@ -75,7 +81,7 @@ requires no hosted service.
 
 ### Repository layout
 
-The implementation adds these logical components:
+The implementation adds or refines these logical components:
 
 ```text
 .github/
@@ -96,7 +102,7 @@ The implementation adds these logical components:
     review-observer.yml
     merge-evaluator.yml
     label-sync.yml
-    stale.yml
+    stale.yaml
     release.yml
     automation-ci.yml
   ISSUE_TEMPLATE/
@@ -341,7 +347,8 @@ Priority and community labels are maintainer-managed in the initial scope.
 
 ## Community health
 
-The repository adds:
+The repository refines its existing community files and adds the missing
+support policy:
 
 - Issue forms for bugs, features, documentation, and support questions.
 - A template chooser that links security reporters to NVIDIA PSIRT and prevents
@@ -358,13 +365,20 @@ The repository adds:
   confidential reporting channel to project spaces.
 - Expanded `CONTRIBUTING.md` describing the automated contribution lifecycle.
 
+Existing issue forms and the pull request template are retained as the
+starting point, then aligned to the declared label taxonomy and corrected to
+use valid public links. Existing governance, conduct, and security text is
+edited narrowly: unsupported service-level promises and misuse of the security
+response channel for conduct complaints are removed.
+
 `.github/CODEOWNERS` protects workflows, local actions, `OWNERS`,
 `OWNERS_ALIASES`, label policy, and release configuration. It supplements but
 does not replace the custom hierarchical approval evaluator.
 
 ## Stale policy
 
-The workflow uses the verified first-party `actions/stale` action.
+The existing workflow is updated to use the verified first-party
+`actions/stale` action at an immutable full SHA.
 
 - Issues become stale after 90 inactive days and close 30 days later.
 - Pull requests become stale after 30 inactive days and close 14 days later.
@@ -392,6 +406,11 @@ Conventional Commit history. Merging that PR creates the Git tag and GitHub
 Release. Release creation and artifact publication stay in the same workflow
 because events created by the default `GITHUB_TOKEN` do not trigger another
 workflow.
+
+The existing `nvml-mock-publish.yaml` and `helm-publish.yaml` capabilities are
+consolidated into that release workflow. Their working multi-architecture
+build, GHCR retry, digest signing, and SBOM patterns are preserved while their
+independent triggers and conflicting tag policy are removed.
 
 ### Artifacts
 
@@ -423,8 +442,7 @@ not a release artifact.
 
 - Retain existing Go, Helm, E2E, and CodeQL jobs.
 - Add GitHub dependency review for pull requests.
-- Add a scheduled OpenSSF Scorecard workflow and publish its SARIF through the
-  existing GitHub security surface.
+- Retain the scheduled OpenSSF Scorecard workflow and its SARIF publication.
 - Extend Dependabot to the local JavaScript action's npm lockfile.
 - Validate all workflows with a checksum-pinned `actionlint` binary.
 - Protect workflow and automation changes with `CODEOWNERS` review.
@@ -486,8 +504,8 @@ release paths.
 
 ## Rollout
 
-1. Add community files, policy, labels, action tests, and non-blocking metadata
-   reporting.
+1. Reconcile community files, then add policy, labels, action tests, and
+   non-blocking metadata reporting.
 2. Confirm nested `OWNERS` rosters and run additive label synchronization.
 3. Enable command processing and reviewer requests.
 4. Configure repository rules, then make metadata and ownership checks required
@@ -503,7 +521,8 @@ is enabled.
 This document is the program-level contract. The implementation plan must split
 it into reviewable workstreams with explicit dependencies:
 
-1. Community-health files, label policy, and additive label synchronization.
+1. Community-health reconciliation, label policy, and additive label
+   synchronization.
 2. The tested JavaScript action foundation, PR metadata, DCO, and reviewer
    routing.
 3. Slash commands, approval coverage, the review privilege bridge, and the
