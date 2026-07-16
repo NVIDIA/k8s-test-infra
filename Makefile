@@ -87,15 +87,24 @@ helm-unittest:
 generate:
 	go generate ./pkg/gpu/mocknvml/bridge/...
 
-KIND_CLUSTER_NAME ?= gpu-test
 KIND_NODE_IMAGE   ?= kind-node-nv:latest
-# Cluster shape:
-#   - default:            local/kind/single.kind.yaml       (1 control-plane, single-node)
-#   - FLEET=<any value>:  local/kind/multi.kind.yaml (1 control-plane + 2 workers
-#                                                        labelled a100 / t4)
-# Consumer selection (--gpu-operator / --dra) happens in the Tiltfile;
-# both cluster shapes support every consumer.
-KIND_CLUSTER_CONFIG ?= $(if $(FLEET),local/kind/multi.kind.yaml,local/kind/single.kind.yaml)
+# Cluster profile (select via PROFILE=<name>):
+#   - PROFILE=single (default)  local/kind/single.kind.yaml         (1 CP, single-node)
+#   - PROFILE=multi             local/kind/multi.kind.yaml          (1 CP + 2 workers labelled a100 / t4)
+#   - PROFILE=compute-domain    local/kind/compute-domain.kind.yaml (1 CP + 4 workers labelled clique 0 / 1)
+# Consumer selection (--gpu-operator / --dra) happens in the Tiltfile.
+# compute-domain also changes the cluster name because topology.yaml
+# hardcodes worker names as <cluster-name>-worker[N] — see
+# local/compute-domain/topology.yaml and local/kind/compute-domain.kind.yaml.
+# Note: distinct from Tilt's --gpu-profile (a100|gb200|...) — this PROFILE
+# picks the Kind cluster topology; --gpu-profile picks the simulated GPU.
+PROFILE ?= single
+_VALID_PROFILES := single multi compute-domain
+ifeq ($(filter $(PROFILE),$(_VALID_PROFILES)),)
+$(error PROFILE=$(PROFILE) is not valid. Choose one of: $(_VALID_PROFILES))
+endif
+KIND_CLUSTER_NAME   ?= $(if $(filter compute-domain,$(PROFILE)),nvml-mock-compute-domain,gpu-test)
+KIND_CLUSTER_CONFIG ?= local/kind/$(PROFILE).kind.yaml
 
 .PHONY: kind-node-image cluster-create cluster-delete
 image-kind-node:

@@ -3,17 +3,17 @@
 #
 # Multi-node ("fleet") Kind cluster config for local dev.
 # 1 control-plane + 2 heterogeneous workers labelled with their GPU profile.
-# Sibling of local/kind/single.kind.yaml (single-node); switch between them via FLEET=.
+# Sibling of local/kind/single.kind.yaml (single-node); switch between them via PROFILE=.
 #
 # Fixed shape: worker-a100 (nvml-mock/profile=a100) + worker-t4
 # (nvml-mock/profile=t4). Mirrors tests/e2e/kind-multi-node-config.yaml so
 # local dev exercises the same fleet layout the CI multi-node job exercises.
 #
 # Usage:
-#   make cluster-create FLEET=1
-#   tilt up -- --multi                              # nvml-mock per worker, no consumer
-#   tilt up -- --multi --dra                   # + NVIDIA DRA driver
-#   tilt up -- --multi --gpu-operator          # + NVIDIA GPU Operator
+#   make cluster-create PROFILE=multi
+#   tilt up -- --multi                       # nvml-mock per worker, no consumer
+#   tilt up -- --multi --dra                 # + NVIDIA DRA driver
+#   tilt up -- --multi --gpu-operator        # + NVIDIA GPU Operator
 #   tilt up -- --multi --gpu-operator --dra  # both consumers side by side
 #
 # Cluster-level features are identical to local/kind/single.kind.yaml — see that file

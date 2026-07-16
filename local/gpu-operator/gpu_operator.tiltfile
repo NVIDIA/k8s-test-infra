@@ -15,6 +15,7 @@ def install(nvml_mock_releases):
     # local/gpu-operator/gpu-operator.values.yaml disables driver/toolkit/DCGM
     # (not needed with nvml-mock) and enables CDI mode so the Operator reads
     # /var/run/cdi/nvidia.yaml written by the nvml-mock DaemonSet.
+
     helm_resource(
         'gpu-operator',
         'nvidia/gpu-operator',

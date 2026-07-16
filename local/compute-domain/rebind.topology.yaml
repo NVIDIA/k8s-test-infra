@@ -1,0 +1,21 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Alternate topology fragment used by the `topology-rebind` Tilt
+# trigger to prove that a helm upgrade can shift every node into a new
+# clique / domain UUID without rebuilding the image.
+#
+# Transcribed from docs/demo/compute-domain/run.sh Scenario 3
+# (lines 316-351). Node names match local/compute-domain/topology.yaml.
+topology:
+  enabled: true
+  domains:
+    - name: rebinder
+      uuid: "00000000-0000-0000-0000-0000000000ff"
+      cliques:
+        - id: 99
+          nodes:
+            - nvml-mock-compute-domain-worker
+            - nvml-mock-compute-domain-worker2
+            - nvml-mock-compute-domain-worker3
+            - nvml-mock-compute-domain-worker4

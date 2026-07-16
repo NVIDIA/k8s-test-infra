@@ -5,7 +5,7 @@
 # 'dra' local dev scenario.
 #
 # Usage (via Tilt):
-#   tilt up -- --scenario dra
+#   tilt up -- --dra
 #
 # Prerequisites:
 #   - Cluster created with DRA feature gates (make cluster-create).

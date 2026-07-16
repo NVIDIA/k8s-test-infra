@@ -8,9 +8,9 @@
 #
 # Usage:
 #   make cluster-create
-#   tilt up                                            # nvml-mock only, no consumer
-#   tilt up -- --gpu-operator                     # + NVIDIA GPU Operator
-#   tilt up -- --dra                              # + NVIDIA DRA driver
+#   tilt up                                  # nvml-mock only, no consumer
+#   tilt up -- --gpu-operator                # + NVIDIA GPU Operator
+#   tilt up -- --dra                         # + NVIDIA DRA driver
 #   tilt up -- --gpu-operator --dra          # both consumers side by side
 #
 # The custom node image (local/kind/Dockerfile) pre-bakes nvidia-container-toolkit

@@ -4,11 +4,10 @@
 # GPU Operator Helm values overlay for the gpu-operator local dev scenario.
 #
 # Usage (via Tilt):
-#   tilt up -- --scenario gpu-operator
+#   tilt up -- --gpu-operator
 #
 # Prerequisites:
-#   - Custom Kind node image built and cluster created:
-#       make cluster-create SCENARIO=gpu-operator
+#   - make cluster-create
 #   - nvml-mock deployed first (Tilt handles ordering via resource_deps)
 
 # Driver is replaced by nvml-mock chart — no real kernel module needed.

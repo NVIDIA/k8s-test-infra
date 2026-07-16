@@ -1,0 +1,23 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# nvml-mock helm values overlay for the compute-domain scenario.
+# Layered on top of local/compute-domain/topology.yaml.
+#
+# Mirrors the flags passed by docs/demo/compute-domain/run.sh step 3
+# (gpu.profile=gb200, updateStrategy, terminationGracePeriodSeconds).
+# image.repository/tag are NOT set here: compute_domain.tiltfile injects
+# them via helm_resource image_keys pointing at the demo overlay image
+# (matches how local/nvml_mock.tiltfile injects ghcr.io/nvidia/nvml-mock).
+
+# GB200 profile — the fabric API mock (nvmlDeviceGetGpuFabricInfo)
+# is the only profile that reports NVLink5 fabric identity.
+gpu:
+  profile: gb200
+
+# Speed up the DaemonSet rollout during Scenario 3's topology rebind so
+# every pod picks up the new MOCK_TOPOLOGY_CONFIG in seconds, not tens.
+terminationGracePeriodSeconds: 1
+updateStrategy:
+  rollingUpdate:
+    maxUnavailable: "100%"

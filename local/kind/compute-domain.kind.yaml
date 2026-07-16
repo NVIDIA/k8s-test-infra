@@ -1,0 +1,61 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kind cluster config for the compute-domain Tilt scenario.
+#
+# Copied from tests/e2e/kind-compute-domain-config.yaml with three
+# deltas for local dev:
+#
+#   1. Explicit `name: nvml-mock-compute-domain` at cluster level.
+#      The tests/e2e file relies on `kind create --name` for this; the
+#      Tilt Makefile passes --name too, but hardcoding it here documents
+#      the load-bearing worker-name coupling — Kind derives worker names
+#      as <cluster>-worker[N], and topology.yaml (both in this dir and
+#      in docs/demo/compute-domain) hardcodes those worker names.
+#
+#   2. DRA feature gates + apiServer runtime-config.
+#      tests/e2e's compute-domain config omits these because CI runs DRA
+#      on separate clusters. The Tilt scenario supports the
+#      --compute-domain --dra combo, so DRA support is baked in here.
+#
+#   3. containerd runtimes.nvidia block.
+#      Matches local/kind/single.kind.yaml — the nvidia-container-runtime
+#      handler is needed by any consumer that sets runtimeClassName=nvidia
+#      (GPU Operator does; DRA does not). Inert when unused.
+#
+# Usage:
+#   make cluster-create PROFILE=compute-domain
+#   tilt up -- --compute-domain --k8s-context=kind-nvml-mock-compute-domain
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: nvml-mock-compute-domain
+featureGates:
+  DynamicResourceAllocation: true
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri"]
+      enable_cdi = true
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
+      runtime_type = "io.containerd.runc.v2"
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
+      BinaryName = "/usr/bin/nvidia-container-runtime"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          extraArgs:
+            runtime-config: "resource.k8s.io/v1beta1=true"
+  - role: worker
+    labels:
+      nvml-mock/clique: "0"
+  - role: worker
+    labels:
+      nvml-mock/clique: "0"
+  - role: worker
+    labels:
+      nvml-mock/clique: "1"
+  - role: worker
+    labels:
+      nvml-mock/clique: "1"
