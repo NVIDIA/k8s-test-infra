@@ -74,13 +74,13 @@
 - `/retest` now accepts only the fixed source-controlled workflow allowlist
   `.github/workflows/automation-ci.yml`,
   `.github/workflows/basic-checks.yaml`, and
-  `.github/workflows/helm.yaml`. The GitHub boundary safely normalizes an
-  optional `@refs/...` suffix and filters by workflow path, `pull_request`
-  event, exact head, current PR association, and base-repository identity at
-  list time. The final non-retried rerun read validates the same identity and
-  compares it with the planned record. Publisher, manual, push, wrong-PR,
-  wrong-repository, malformed/traversal, stale-head, and list/get mutation cases
-  are covered.
+  `.github/workflows/helm.yaml`. The GitHub boundary safely parses GitHub's
+  documented optional `@<ref>` suffix, retains that exact safe source ref, and
+  filters by workflow path, `pull_request` event, exact head, current PR
+  association, and base-repository identity at list time. The final non-retried
+  rerun read validates and compares the same complete identity. Publisher,
+  manual, push, wrong-PR, wrong-repository, malformed/traversal, stale-head,
+  path mutation, and source-ref mutation cases are covered.
 - An untrustworthy command-policy state now forces LGTM and approval false,
   requests no approvers, removes either display-authority label, and
   preserves/adds `do-not-merge/needs-approval`. Malformed and duplicated state
@@ -112,6 +112,30 @@
   approval from invalid state; trusting marker presence without marker order;
   and omitting the renderer's exact state replacement.
 - No workflow file changed, so `actionlint` remains not applicable.
+
+### Production workflow-path shape correction
+
+- RED client evidence reproduced the official
+  `.github/workflows/automation-ci.yml@main` shape being filtered by the prior
+  `@refs/...`-only parser. RED planner and orchestration evidence also showed
+  that the accepted suffix was absent from normalized identity and could not be
+  compared after the final live read.
+- The normalized run now carries both the exact allowlisted `workflowPath` and
+  a canonical `workflowSourceRef` containing the exact validated suffix, or
+  `null` for the previously supported suffix-less shape. Documented short refs
+  such as `main` and `feature/ci`, plus explicit legacy `refs/...` forms, are
+  accepted. Empty, control-bearing, traversal, dot-component, repeated-`@`, and
+  otherwise ambiguous suffixes are rejected without weakening the base-path,
+  event, PR, head, or repository gates.
+- Focused retest, policy-comment, client, and command integration suite:
+  116/116 pass. Full suite with loopback permission: 611/611 pass. ESLint and
+  `git diff --check` pass.
+- Two consecutive package builds are byte-identical. The generated `867kB`
+  bundle SHA-256 is
+  `d606513512f6cc06239fb51023d084bcce496d25a8e3f1dc60234f4c308d6299`.
+- Four targeted mutants were killed: requiring the obsolete `refs/` prefix;
+  discarding the parsed source ref; omitting the final source-ref comparison;
+  and accepting an ambiguous repeated-`@` suffix.
 
 ## Delivery
 

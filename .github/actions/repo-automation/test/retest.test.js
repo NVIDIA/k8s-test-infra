@@ -18,6 +18,7 @@ function run(id, overrides = {}) {
     status: "completed",
     conclusion: "failure",
     workflowPath: ".github/workflows/automation-ci.yml",
+    workflowSourceRef: "main",
     event: "pull_request",
     prNumber: PR_NUMBER,
     repository: REPOSITORY,
@@ -180,6 +181,7 @@ test("fails closed without a partial plan for malformed or API-error-shaped runs
     [run(1), { ...run(2), unexpected: true }],
     [run(1), run(1, { conclusion: "success" })],
     [run(1), run(1, { workflowPath: ".github/workflows/basic-checks.yaml" })],
+    [run(1), run(1, { workflowSourceRef: "release" })],
   ];
 
   for (const runs of invalidRunSets) {

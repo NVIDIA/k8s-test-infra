@@ -4,7 +4,7 @@ const { Buffer } = require("node:buffer");
 const { setTimeout: delay } = require("node:timers/promises");
 const { TextDecoder } = require("node:util");
 const { isManagedMetadataLabel, isManagedPolicyLabel } = require("./managed-labels.js");
-const { trustedWorkflowPath } = require("./retest.js");
+const { trustedWorkflowIdentity } = require("./retest.js");
 
 const MAX_CONTENT_BYTES = 1024 * 1024;
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -129,13 +129,13 @@ function loginList(values, name) {
 function workflowRun(data, expected) {
   if (data === null || typeof data !== "object" || Array.isArray(data)) return null;
   try {
-    const workflowPath = trustedWorkflowPath(data.path);
+    const workflow = trustedWorkflowIdentity(data.path);
     const runRepository = nonEmptyString(
       data.repository?.full_name,
       "workflow run repository",
     ).toLowerCase();
     if (
-      workflowPath === null
+      workflow === null
       || data.event !== "pull_request"
       || !Array.isArray(data.pull_requests)
       || data.pull_requests.length !== 1
@@ -147,7 +147,8 @@ function workflowRun(data, expected) {
       headOid: gitOid(data.head_sha, "workflow run head OID"),
       status: nonEmptyString(data.status, "workflow run status"),
       conclusion: data.conclusion === null ? null : nonEmptyString(data.conclusion, "workflow run conclusion"),
-      workflowPath,
+      workflowPath: workflow.workflowPath,
+      workflowSourceRef: workflow.workflowSourceRef,
       event: data.event,
       prNumber: expected.prNumber,
       repository: runRepository,

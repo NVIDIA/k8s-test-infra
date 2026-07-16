@@ -6,7 +6,8 @@ const INPUT_KEYS = [
   "runs", "headOid", "now", "lastRetest", "cooldownSeconds", "commentId", "prNumber", "repository",
 ];
 const RUN_KEYS = [
-  "id", "headOid", "status", "conclusion", "workflowPath", "event", "prNumber", "repository",
+  "id", "headOid", "status", "conclusion", "workflowPath", "workflowSourceRef",
+  "event", "prNumber", "repository",
 ];
 const RETEST_KEYS = ["commentId", "headOid", "createdAt"];
 const STATUSES = new Set(["requested", "waiting", "pending", "queued", "in_progress", "completed"]);
@@ -54,35 +55,47 @@ function isPositiveId(value) {
   return Number.isSafeInteger(value) && value > 0;
 }
 
-function trustedWorkflowPath(value) {
+function safeWorkflowSourceRef(value) {
+  if (
+    typeof value !== "string"
+    || value === ""
+    || value.length > 256
+    || /[\0-\x20\x7f~^:?*\[\]\\]/.test(value)
+    || value.includes("@")
+    || value.includes("//")
+    || value.includes("..")
+    || value.includes("@{")
+  ) return null;
+  const segments = value.split("/");
+  if (segments.some((segment) => (
+    segment === ""
+    || segment.startsWith(".")
+    || segment.endsWith(".")
+    || segment.endsWith(".lock")
+  ))) return null;
+  return value;
+}
+
+function trustedWorkflowIdentity(value) {
   if (typeof value !== "string" || value === "" || value.length > 512 || /[\0\r\n\\]/.test(value)) {
     return null;
   }
   const separator = value.indexOf("@");
   const path = separator === -1 ? value : value.slice(0, separator);
   if (!TRUSTED_WORKFLOW_PATHS.has(path)) return null;
-  if (separator === -1) return path;
-  const ref = value.slice(separator + 1);
-  if (
-    ref === ""
-    || ref.includes("@")
-    || ref.includes("//")
-    || ref.includes("..")
-    || ref.includes("@{")
-    || /[\x00-\x20~^:?*\[\]]/.test(ref)
-  ) return null;
-  if (/^refs\/pull\/[1-9]\d*\/(?:head|merge)$/.test(ref)) return path;
-  if (!/^refs\/(?:heads|tags)\/[A-Za-z0-9._/-]+$/.test(ref)) return null;
-  const segments = ref.split("/");
-  if (segments.some((segment) => (
-    segment === ""
-    || segment.startsWith(".")
-    || segment.endsWith(".")
-    || segment.endsWith(".lock")
-  ))) {
-    return null;
-  }
-  return path;
+  if (separator === -1) return { workflowPath: path, workflowSourceRef: null };
+  const workflowSourceRef = safeWorkflowSourceRef(value.slice(separator + 1));
+  return workflowSourceRef === null ? null : { workflowPath: path, workflowSourceRef };
+}
+
+function normalizedWorkflowIdentity(run) {
+  const raw = run.workflowSourceRef === null
+    ? run.workflowPath
+    : `${run.workflowPath}@${run.workflowSourceRef}`;
+  const identity = trustedWorkflowIdentity(raw);
+  return identity !== null
+    && identity.workflowPath === run.workflowPath
+    && identity.workflowSourceRef === run.workflowSourceRef;
 }
 
 function validRepository(value) {
@@ -113,6 +126,13 @@ function validRun(value) {
     || value.workflowPath === ""
     || value.workflowPath.length > 512
     || /[\0\r\n]/.test(value.workflowPath)
+    || (
+      value.workflowSourceRef !== null
+      && (
+        typeof value.workflowSourceRef !== "string"
+        || safeWorkflowSourceRef(value.workflowSourceRef) === null
+      )
+    )
     || typeof value.event !== "string"
     || value.event === ""
     || value.event.length > 64
@@ -180,7 +200,7 @@ function planRetest(input) {
       run.headOid === input.headOid
       && run.status === "completed"
       && run.conclusion === "failure"
-      && trustedWorkflowPath(run.workflowPath) === run.workflowPath
+      && normalizedWorkflowIdentity(run)
       && run.event === "pull_request"
       && run.prNumber === input.prNumber
       && run.repository === input.repository
@@ -192,4 +212,4 @@ function planRetest(input) {
     : { rerunRunIds, nextAllowedAt: null, reason: "rerun-failed" };
 }
 
-module.exports = { planRetest, trustedWorkflowPath };
+module.exports = { planRetest, trustedWorkflowIdentity };

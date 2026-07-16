@@ -383,6 +383,7 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
       || run.status !== "completed"
       || run.conclusion !== "failure"
       || run.workflowPath !== plannedRun.workflowPath
+      || run.workflowSourceRef !== plannedRun.workflowSourceRef
       || run.event !== plannedRun.event
       || run.prNumber !== plannedRun.prNumber
       || run.repository !== plannedRun.repository

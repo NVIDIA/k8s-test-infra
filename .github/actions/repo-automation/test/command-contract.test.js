@@ -52,6 +52,7 @@ function trustedRun(id, overrides = {}) {
     status: "completed",
     conclusion: "failure",
     workflowPath: ".github/workflows/automation-ci.yml",
+    workflowSourceRef: "main",
     event: "pull_request",
     prNumber: 42,
     repository: "nvidia/k8s-test-infra",
@@ -65,7 +66,7 @@ function apiRun(id, overrides = {}) {
     head_sha: headOid,
     status: "completed",
     conclusion: "failure",
-    path: ".github/workflows/automation-ci.yml@refs/pull/42/merge",
+    path: ".github/workflows/automation-ci.yml@main",
     event: "pull_request",
     pull_requests: [{ number: 42 }],
     repository: { full_name: "NVIDIA/k8s-test-infra" },
@@ -701,6 +702,14 @@ test("retest is exact-head failure-only, cooldown-bound, and duplicate safe", as
     }));
     assert.deepEqual(github.calls.rerunFailedJobs, []);
   });
+  await t.test("run source ref changed between list and final get", async () => {
+    const base = commandState();
+    const { github } = await run(commandState({
+      issueComment: { ...base.issueComment, author: "pr-author", body: "/retest" },
+      workflowRunReads: { 301: [trustedRun(301, { workflowSourceRef: "release" })] },
+    }));
+    assert.deepEqual(github.calls.rerunFailedJobs, []);
+  });
   await t.test("partial multi-run delivery is at-most-once", async () => {
     const base = commandState();
     const secondFailure = new Error("second rerun failed");
@@ -970,7 +979,7 @@ test("GitHub client maps complete review/state authority and never retries rerun
   await t.test("workflow runs are filtered by fixed path, safe ref, event, PR, head, and repository", async () => {
     const listWorkflowRunsForRepo = Object.assign(async () => ({ data: { workflow_runs: [
       apiRun(1),
-      apiRun(2, { path: ".github/workflows/basic-checks.yaml" }),
+      apiRun(2, { path: ".github/workflows/basic-checks.yaml@feature/ci" }),
       apiRun(3, { path: ".github/workflows/helm.yaml@refs/heads/main" }),
       apiRun(4, { path: ".github/workflows/nvml-mock-publish.yaml", event: "workflow_dispatch" }),
       apiRun(5, { event: "workflow_dispatch" }),
@@ -982,6 +991,11 @@ test("GitHub client maps complete review/state authority and never retries rerun
       apiRun(11, { path: ".github/workflows/../workflows/automation-ci.yml" }),
       apiRun(12, { path: ".github/workflows/automation-ci.yml@refs/heads/.hidden" }),
       apiRun(13, { path: ".github/workflows/automation-ci.yml@refs/heads/main." }),
+      apiRun(14, { path: ".github/workflows/automation-ci.yml@" }),
+      apiRun(15, { path: ".github/workflows/automation-ci.yml@main@release" }),
+      apiRun(16, { path: ".github/workflows/automation-ci.yml@../main" }),
+      apiRun(17, { path: ".github/workflows/automation-ci.yml@main\nforged" }),
+      apiRun(18, { path: ".github/workflows/automation-ci.yml" }),
     ] } }), { endpointName: "listWorkflowRunsForRepo" });
     const octokit = {
       paginate: async (handler, parameters, map) => map(await handler(parameters)),
@@ -990,8 +1004,15 @@ test("GitHub client maps complete review/state authority and never retries rerun
     const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
     assert.deepEqual(await client.listWorkflowRunsForHead(headOid, 42), [
       trustedRun(1),
-      trustedRun(2, { workflowPath: ".github/workflows/basic-checks.yaml" }),
-      trustedRun(3, { workflowPath: ".github/workflows/helm.yaml" }),
+      trustedRun(2, {
+        workflowPath: ".github/workflows/basic-checks.yaml",
+        workflowSourceRef: "feature/ci",
+      }),
+      trustedRun(3, {
+        workflowPath: ".github/workflows/helm.yaml",
+        workflowSourceRef: "refs/heads/main",
+      }),
+      trustedRun(18, { workflowSourceRef: null }),
     ]);
   });
 });
