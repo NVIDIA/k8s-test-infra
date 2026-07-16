@@ -1407,10 +1407,21 @@ func (d *ConfigurableDevice) GetMigDeviceHandleByIndex(index int) (nvml.Device, 
 }
 
 // GetGpmSupport returns whether GPM (GPU Performance Monitoring) is supported.
-// Returns 0 (not supported) by default.
+// Like real NVML, GPM is supported on Hopper and newer; DCGM's profiling
+// module keys its NVML-GPM path (the only mockable profiling path — pre-Hopper
+// profiling goes through driver-internal perfworks) off this answer. The
+// architecture default can be overridden via the gpm.supported config knob.
 func (d *ConfigurableDevice) GetGpmSupport() (uint32, nvml.Return) {
-	debugLog("[NVML] nvmlGpmQueryDeviceSupport -> 0 (not supported)\n")
-	return 0, nvml.SUCCESS
+	supported := d.Config.Architecture >= nvml.DEVICE_ARCH_HOPPER && d.Config.Architecture != nvml.DEVICE_ARCH_UNKNOWN
+	if d.config != nil && d.config.GPM != nil && d.config.GPM.Supported != nil {
+		supported = *d.config.GPM.Supported
+	}
+	val := uint32(0)
+	if supported {
+		val = 1
+	}
+	debugLog("[NVML] nvmlGpmQueryDeviceSupport -> %d\n", val)
+	return val, nvml.SUCCESS
 }
 
 // GetArchitecture returns GPU architecture

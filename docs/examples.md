@@ -245,13 +245,28 @@ export MOCK_NVML_CONFIG=$(pwd)/pkg/gpu/mocknvml/configs/mock-nvml-config-a100.ya
 
 ### Testing DCGM
 
+Real DCGM (nv-hostengine, dcgmi, dcgm-exporter) runs against the mock: DEV
+telemetry comes from the standard NVML getters and field values, and
+profiling metrics (`DCGM_FI_PROF_*`) come from the mock GPM implementation
+on Hopper+ profiles (h100, b200, gb200, gb300 — pre-Hopper profiling uses
+driver-internal perfworks, which cannot be mocked).
+
 ```bash
 export LD_LIBRARY_PATH=$(pwd)/pkg/gpu/mocknvml
-export MOCK_NVML_CONFIG=$(pwd)/pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml
+export MOCK_NVML_CONFIG=$(pwd)/pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml
 
-# Run DCGM exporter
+# Run DCGM exporter (embedded host engine)
 dcgm-exporter
+
+# Or drive DCGM directly
+nv-hostengine -n &
+dcgmi discovery -l
+dcgmi dmon -e 150,155,203 -c 3           # DEV: temp, power, util
+dcgmi dmon -e 1001,1002,1009,1010 -c 3   # PROF via GPM: activity, PCIe
 ```
+
+The end-to-end container recipe (mock built for the container arch, injected
+via `LD_LIBRARY_PATH`) lives in `tests/e2e/spike-dcgm.sh`.
 
 ### CI/CD Pipeline Example
 

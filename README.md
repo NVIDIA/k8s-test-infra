@@ -36,20 +36,23 @@ After install, deploy a consumer to test:
 
 ## E2E Testing
 
-The nvml-mock E2E workflow tests all GPU consumers across multiple profiles
-and node topologies. Run manually via `workflow_dispatch` or automatically
-on PRs.
+The nvml-mock Go E2E workflow gates standalone, DRA, GPU Operator, multi-node,
+and node-wide NRI coverage. Run manually via `workflow_dispatch` or
+automatically on PRs.
 
 | Test Suite | What It Validates | Profiles |
 |------------|-------------------|----------|
-| **Device Plugin** | `nvidia.com/gpu` allocatable resources | A100, H100, T4 |
-| **DRA Driver** | ResourceSlices via Dynamic Resource Allocation | A100, H100, T4 |
-| **GPU Operator** | Operator components: device plugin + GFD + validator (CDI injection) | A100, H100, T4 |
-| **Multi-Node Fleet** | Cross-node scheduling with heterogeneous GPUs | A100 + T4 |
+| **Standalone Demo** | nvml-mock chart install, `nvidia-smi`, NVLink/fabricmanager, InfiniBand, PCI sysfs, and cross-node checks | Workflow-selected profiles |
+| **Failure Injection** | Healthy, ECC, lost, and fallen-off-bus modes | Workflow-selected profiles |
+| **DRA Driver** | Mock driver files, `nvidia-smi`, ResourceSlices, and DRA ResourceClaim scheduling | Workflow-selected profiles |
+| **GPU Operator** | GPU Operator install, validator pod startup, GFD labels, and allocatable GPUs | Workflow-selected profiles |
+| **Multi-Node Fleet** | Heterogeneous A100/T4 workers, mock files, InfiniBand behavior, device plugin resources, and GPU workload scheduling | Fixed multi-node topology |
+| **Node-Wide NRI Injection** | Ambient mock GPU injection into ordinary pods without GPU requests or hostPath mounts | Workflow-selected profiles |
 
-Manual dispatch supports all 7 profiles: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`.
+Manual dispatch accepts a JSON array of GPU profiles; local runs default to
+`gb200`.
 
-See [`.github/workflows/nvml-mock-e2e.yaml`](.github/workflows/nvml-mock-e2e.yaml) for details.
+See [`.github/workflows/nvml-mock-e2e-go.yaml`](.github/workflows/nvml-mock-e2e-go.yaml) for details.
 
 ## Mock NVML Library
 

@@ -94,6 +94,8 @@ func TestFunctionAvailable(t *testing.T) {
 		{"gpm not available on 510", "510.0", "nvmlGpmQueryDeviceSupport", false},
 		{"gpm available on 535", "535.0", "nvmlGpmQueryDeviceSupport", true},
 		{"gpm available on 560", "560.0", "nvmlGpmQueryDeviceSupport", true},
+		{"gpm streaming not available on 550", "550.163.01", "nvmlGpmQueryIfStreamingEnabled", false},
+		{"gpm streaming available on 555", "555.0", "nvmlGpmQueryIfStreamingEnabled", true},
 	}
 
 	for _, tt := range tests {
@@ -119,6 +121,8 @@ func TestFunctionRegistry_Coverage(t *testing.T) {
 		"nvmlDeviceGetRemappedRows_v2",
 		"nvmlDeviceGetGspFirmwareMode",
 		"nvmlGpmQueryDeviceSupport",
+		"nvmlGpmQueryIfStreamingEnabled",
+		"nvmlGpmSetStreamingEnabled",
 		"nvmlDeviceGetPlatformInfo",
 		"nvmlDeviceGetVgpuSchedulerLog_v2",
 		"nvmlDeviceGetVgpuSchedulerState_v2",

@@ -6,9 +6,10 @@ for testing GPU-dependent software without physical NVIDIA hardware.
 ## Key Features
 
 - **nvidia-smi compatible**: Works with the real `nvidia-smi` binary
+- **DCGM compatible**: Works with real dcgm-exporter / dcgmi (DEV telemetry + `DCGM_FI_PROF_*` via mock GPM)
 - **YAML-based configuration**: Full control over GPU profiles (A100, GB200, custom)
 - **Zero-config default**: Simulates DGX A100 system (8 GPUs) out of the box
-- **89 NVML functions**: Comprehensive API coverage for nvidia-smi compatibility
+- **Broad NVML surface**: Comprehensive API coverage for nvidia-smi compatibility
 - **Auto-generated bridge**: Scalable CGo bridge generated from `go-nvml`
 - **Docker build support**: Build Linux binaries on macOS
 - **Thread-safe**: Proper synchronization for concurrent access
@@ -261,6 +262,29 @@ Pattern semantics for utilization (values always clamped to 0..100):
 | `burst`  | alternates `idle` / `busy` every `burst_period_sec`   |
 | `steady` | full `[gpu_min, gpu_max]` range (default if omitted)  |
 
+#### GPM / DCGM Profiling Metrics (optional)
+
+DCGM's profiling module (`DCGM_FI_PROF_*`, `dcgmi dmon -e 1001..`) reads
+Hopper+ GPUs through the NVML GPM API, which the mock implements
+(`engine/gpm.go`): activity ratios (GR/SM/tensor/DRAM/FP64/32/16) are derived
+from the same utilization source as `nvmlDeviceGetUtilizationRates` — so they
+vary over time when `dynamic_metrics` is enabled — and NVLink rates come from
+the boot-anchored NVLink counters. GPM support follows the device
+architecture (Hopper and newer), like real NVML; pre-Hopper profiles report
+GPM unsupported because real DCGM would use the driver-internal perfworks
+path there, which cannot be mocked.
+
+```yaml
+device_defaults:
+  gpm:
+    supported: true          # override the architecture-based default
+    pcie_tx_mib_per_sec: 4096  # full-utilization PCIe rate (default 2048)
+    pcie_rx_mib_per_sec: 4096
+```
+
+See `tests/e2e/spike-dcgm.sh` for the end-to-end container recipe
+(nv-hostengine, dcgmi, dcgm-exporter).
+
 #### Failure Injection (optional)
 
 Real GPUs occasionally fall off the bus, accumulate uncorrectable ECC errors,
@@ -480,7 +504,7 @@ pkg/gpu/mocknvml/
 │   ├── system.go                  # System functions
 │   ├── internal.go                # Internal export table (nvidia-smi)
 │   ├── nvml_types.h               # C type definitions for CGo preamble
-│   └── stubs_generated.go         # Auto-generated stubs (~289 functions)
+│   └── stubs_generated.go         # Auto-generated stubs (all non-hand-written NVML functions)
 ├── engine/
 │   ├── config.go                  # Configuration loading
 │   ├── config_types.go            # YAML struct definitions
