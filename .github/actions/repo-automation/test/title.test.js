@@ -5,15 +5,22 @@ const test = require("node:test");
 
 const { classifyTitle } = require("../src/title.js");
 
-const invalidTitle = {
-  valid: false,
-  type: null,
-  scope: null,
-  breaking: false,
-  description: null,
-  label: null,
-  error: "invalid pull request title",
-};
+const inputError = "title must be a single-line string";
+const formatError = "title must match <type>[optional scope][optional !]: <description>";
+const typeError = "title type must be one of: feat, fix, docs, test, refactor, perf, build, ci, chore, revert";
+const dependencyScopeError = "chore dependency scopes must use exact scope deps";
+
+function invalidTitle(error) {
+  return {
+    valid: false,
+    type: null,
+    scope: null,
+    breaking: false,
+    description: null,
+    label: null,
+    error,
+  };
+}
 
 test("maps each supported Conventional Commit type to exactly one kind label", async (t) => {
   const cases = [
@@ -75,25 +82,41 @@ test("accepts an optional scope and breaking marker", async (t) => {
   }
 });
 
+test("maps an ordinary chore scope to the cleanup label", () => {
+  assert.deepEqual(classifyTitle("chore(tooling): refresh scripts"), {
+    valid: true,
+    type: "chore",
+    scope: "tooling",
+    breaking: false,
+    description: "refresh scripts",
+    label: "kind/cleanup",
+    error: null,
+  });
+});
+
 test("rejects titles outside the full supported grammar", async (t) => {
   const cases = [
-    ["leading whitespace", " feat: add feature"],
-    ["missing separator space", "feat:add feature"],
-    ["missing description", "feat:"],
-    ["empty description", "feat: "],
-    ["whitespace-only description", "feat:    "],
-    ["bracket-style title", "[Feature] add feature"],
-    ["unsupported type", "style: format code"],
-    ["line-feed injection", "feat: add feature\nfix: injected"],
-    ["carriage-return injection", "feat: add feature\rfix: injected"],
-    ["carriage-return line-feed injection", "feat: add feature\r\nfix: injected"],
-    ["dependency-like chore scope", "chore(deps-extra): update dependency"],
-    ["other chore scope", "chore(tooling): update tooling"],
+    ["non-string input", null, inputError],
+    ["leading whitespace", " feat: add feature", formatError],
+    ["missing separator space", "feat:add feature", formatError],
+    ["missing description", "feat:", formatError],
+    ["empty description", "feat: ", formatError],
+    ["whitespace-only description", "feat:    ", formatError],
+    ["bracket-style title", "[Feature] add feature", formatError],
+    ["unsupported type", "style: format code", typeError],
+    ["line-feed injection", "feat: add feature\nfix: injected", inputError],
+    ["carriage-return injection", "feat: add feature\rfix: injected", inputError],
+    ["carriage-return line-feed injection", "feat: add feature\r\nfix: injected", inputError],
+    [
+      "dependency-like chore scope",
+      "chore(deps-extra): update dependency",
+      dependencyScopeError,
+    ],
   ];
 
-  for (const [name, title] of cases) {
+  for (const [name, title, error] of cases) {
     await t.test(name, () => {
-      assert.deepEqual(classifyTitle(title), invalidTitle);
+      assert.deepEqual(classifyTitle(title), invalidTitle(error));
       assert.deepEqual(
         Object.values(classifyTitle(title)).filter(
           (value) => typeof value === "string" && value.startsWith("kind/"),

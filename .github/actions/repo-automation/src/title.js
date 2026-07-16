@@ -13,9 +13,13 @@ const labelsByType = {
   revert: "kind/revert",
 };
 
-const titlePattern = /^(feat|fix|docs|test|refactor|perf|build|ci|chore|revert)(?:\(([^()\r\n]+)\))?(!)?: (.+)$/;
+const inputError = "title must be a single-line string";
+const formatError = "title must match <type>[optional scope][optional !]: <description>";
+const typeError = "title type must be one of: feat, fix, docs, test, refactor, perf, build, ci, chore, revert";
+const dependencyScopeError = "chore dependency scopes must use exact scope deps";
+const titlePattern = /^([a-z]+)(?:\(([^()\r\n]+)\))?(!)?: (.+)$/;
 
-function invalidTitle() {
+function invalidTitle(error) {
   return {
     valid: false,
     type: null,
@@ -23,24 +27,30 @@ function invalidTitle() {
     breaking: false,
     description: null,
     label: null,
-    error: "invalid pull request title",
+    error,
   };
 }
 
 function classifyTitle(title) {
   if (typeof title !== "string" || /[\r\n]/.test(title)) {
-    return invalidTitle();
+    return invalidTitle(inputError);
   }
 
   const match = titlePattern.exec(title);
   if (match === null) {
-    return invalidTitle();
+    return invalidTitle(formatError);
   }
 
   const [, type, matchedScope, breakingMarker, description] = match;
   const scope = matchedScope ?? null;
-  if (description.trim() === "" || (type === "chore" && scope !== null && scope !== "deps")) {
-    return invalidTitle();
+  if (description.trim() === "") {
+    return invalidTitle(formatError);
+  }
+  if (!Object.hasOwn(labelsByType, type)) {
+    return invalidTitle(typeError);
+  }
+  if (type === "chore" && scope !== "deps" && scope?.startsWith("deps")) {
+    return invalidTitle(dependencyScopeError);
   }
 
   return {
