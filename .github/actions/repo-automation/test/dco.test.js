@@ -233,6 +233,169 @@ test("preserves original identities in safe diagnostics without echoing commit m
   assert.doesNotMatch(JSON.stringify(result), /private-body-marker/);
 });
 
+test("preserves ordinary Unicode identities in mismatch diagnostics", () => {
+  const result = evaluateDco([commit({
+    sha: "unicode-identities",
+    name: "Ålice 李",
+    email: "alice@例え.example",
+    message: "feat: unicode identity\n\nSigned-off-by: Боб Example <bob@пример.example>",
+  })], botPolicy);
+
+  assert.deepEqual(result, {
+    valid: false,
+    failures: [{
+      sha: "unicode-identities",
+      reason: "commit author Ålice 李 <alice@例え.example> does not match Signed-off-by trailer(s): Боб Example <bob@пример.example>",
+    }],
+    exempted: [],
+  });
+});
+
+test("never echoes unsafe mismatched Signed-off-by identities", async (t) => {
+  const escape = String.fromCharCode(0x1b);
+  const nul = String.fromCharCode(0x00);
+  const c1 = String.fromCharCode(0x85);
+  const lineSeparator = "\u2028";
+  const paragraphSeparator = "\u2029";
+  const bidiOverride = "\u202e";
+  const bidiIsolate = "\u2066";
+  const cases = [
+    ["ESC in name", `Mallory${escape}sentinel`, "mallory@example.com", escape],
+    ["C0 NUL in email", "Mallory", `mallory${nul}@example.com`, nul],
+    ["C1 in name", `Mallory${c1}sentinel`, "mallory@example.com", c1],
+    ["C1 in email", "Mallory", `mallory${c1}@example.com`, c1],
+    ["line separator in name", `Mallory${lineSeparator}sentinel`, "mallory@example.com", lineSeparator],
+    ["paragraph separator in email", "Mallory", `mallory${paragraphSeparator}@example.com`, paragraphSeparator],
+    ["bidi override in name", `Mallory${bidiOverride}sentinel`, "mallory@example.com", bidiOverride],
+    ["bidi isolate in email", "Mallory", `mallory${bidiIsolate}@example.com`, bidiIsolate],
+  ];
+
+  for (const [name, signerName, signerEmail, unsafeSentinel] of cases) {
+    await t.test(name, () => {
+      const sha = `unsafe-signoff-${name}`;
+      const result = evaluateDco([commit({
+        sha,
+        message: `feat: unsafe signer\n\nSigned-off-by: ${signerName} <${signerEmail}>`,
+      })], botPolicy);
+
+      assert.deepEqual(result, {
+        valid: false,
+        failures: [{ sha, reason: "Signed-off-by identity is unsafe" }],
+        exempted: [],
+      });
+      assert.equal(JSON.stringify(result).includes(unsafeSentinel), false);
+      assert.equal(result.failures[0].reason.includes("Mallory"), false);
+    });
+  }
+});
+
+test("never echoes unsafe commit author identities", async (t) => {
+  const escape = String.fromCharCode(0x1b);
+  const nul = String.fromCharCode(0x00);
+  const c1 = String.fromCharCode(0x85);
+  const lineSeparator = "\u2028";
+  const paragraphSeparator = "\u2029";
+  const bidiOverride = "\u202e";
+  const bidiIsolate = "\u2066";
+  const cases = [
+    ["ESC in name", `Alice${escape}sentinel`, "alice@example.com", escape],
+    ["C0 NUL in email", "Alice", `alice${nul}@example.com`, nul],
+    ["C1 in name", `Alice${c1}sentinel`, "alice@example.com", c1],
+    ["C1 in email", "Alice", `alice${c1}@example.com`, c1],
+    ["line separator in name", `Alice${lineSeparator}sentinel`, "alice@example.com", lineSeparator],
+    ["paragraph separator in email", "Alice", `alice${paragraphSeparator}@example.com`, paragraphSeparator],
+    ["bidi override in name", `Alice${bidiOverride}sentinel`, "alice@example.com", bidiOverride],
+    ["bidi isolate in email", "Alice", `alice${bidiIsolate}@example.com`, bidiIsolate],
+  ];
+
+  for (const [name, authorName, authorEmail, unsafeSentinel] of cases) {
+    await t.test(name, () => {
+      const sha = `unsafe-author-${name}`;
+      const result = evaluateDco([commit({
+        sha,
+        name: authorName,
+        email: authorEmail,
+      })], botPolicy);
+
+      assert.deepEqual(result, {
+        valid: false,
+        failures: [{ sha, reason: "commit author identity is unsafe" }],
+        exempted: [],
+      });
+      assert.equal(JSON.stringify(result).includes(unsafeSentinel), false);
+      assert.equal(result.failures[0].reason.includes("Alice"), false);
+    });
+  }
+});
+
+test("fails unsafe linked-author identity closed without echoing it", () => {
+  const bidiOverride = "\u202e";
+  const input = commit({ sha: "unsafe-login", login: `alice${bidiOverride}admin` });
+
+  assert.deepEqual(evaluateDco([input], botPolicy), {
+    valid: false,
+    failures: [{ sha: "unsafe-login", reason: "linked author identity is unsafe" }],
+    exempted: [],
+  });
+});
+
+test("rejects unsafe bot identities and SHAs with safe TypeErrors", async (t) => {
+  const controls = [
+    ["ESC", String.fromCharCode(0x1b)],
+    ["C0 NUL", String.fromCharCode(0x00)],
+    ["C1", String.fromCharCode(0x85)],
+    ["line separator", "\u2028"],
+    ["paragraph separator", "\u2029"],
+    ["bidi override", "\u202e"],
+    ["format isolate", "\u2066"],
+  ];
+
+  for (const [name, unsafeSentinel] of controls) {
+    await t.test(`${name} in bot login`, () => {
+      assert.throws(
+        () => evaluateDco([commit()], [{
+          login: `bot${unsafeSentinel}sentinel`,
+          emails: ["bot@example.com"],
+        }]),
+        (error) => {
+          assert.equal(error.name, "TypeError");
+          assert.equal(error.message, "botPolicy[0].login must be a safe non-empty string");
+          assert.equal(error.message.includes(unsafeSentinel), false);
+          return true;
+        },
+      );
+    });
+
+    await t.test(`${name} in bot email`, () => {
+      assert.throws(
+        () => evaluateDco([commit()], [{
+          login: "bot",
+          emails: [`bot${unsafeSentinel}@example.com`],
+        }]),
+        (error) => {
+          assert.equal(error.name, "TypeError");
+          assert.equal(error.message, "botPolicy[0].emails[0] must be a safe non-empty string");
+          assert.equal(error.message.includes(unsafeSentinel), false);
+          return true;
+        },
+      );
+    });
+  }
+
+  await t.test("unsafe SHA", () => {
+    const unsafeSentinel = "\u202e";
+    assert.throws(
+      () => evaluateDco([{ ...commit(), sha: `abc${unsafeSentinel}def` }], botPolicy),
+      (error) => {
+        assert.equal(error.name, "TypeError");
+        assert.equal(error.message, "commits[0].sha must be a safe non-empty string");
+        assert.equal(error.message.includes(unsafeSentinel), false);
+        return true;
+      },
+    );
+  });
+});
+
 test("rejects invalid commit and bot-policy structures instead of guessing", async (t) => {
   const invalidArguments = [
     ["commits null", null, botPolicy],
@@ -242,7 +405,7 @@ test("rejects invalid commit and bot-policy structures instead of guessing", asy
     ["missing nested commit", [{ sha: "bad", author: { login: "alice" } }], botPolicy],
     ["missing message", [{ ...commit(), commit: { author: { name: "Alice", email: "alice@example.com" } } }], botPolicy],
     ["missing author name", [{ ...commit(), commit: { author: { email: "alice@example.com" }, message: "unsigned" } }], botPolicy],
-    ["unsafe author identity", [commit({ name: "Alice\nInjected" })], botPolicy],
+    ["empty author identity", [commit({ name: "" })], botPolicy],
     ["invalid linked author", [{ ...commit(), author: {} }], botPolicy],
     ["bot policy null", [commit()], null],
     ["bot policy empty", [commit()], []],

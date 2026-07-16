@@ -1,20 +1,28 @@
 "use strict";
 
-const TRAILER_LINE = /^([A-Za-z0-9][A-Za-z0-9-]*):[ \t]*(.*)$/;
-const CONTINUATION_LINE = /^[ \t]+(.+)$/;
-const SAFE_TEXT = /^[^\u0000-\u0008\u000B-\u001F\u007F\r\n]+$/;
+const TRAILER_LINE = /^([A-Za-z0-9][A-Za-z0-9-]*):[ \t]*([\s\S]*)$/;
+const CONTINUATION_LINE = /^[ \t]+([\s\S]+)$/;
+const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const EMAIL = /^[^<>\s@]+@[^<>\s@]+$/;
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function isSafeNonEmptyString(value) {
+  return typeof value === "string"
+    && !UNSAFE_TEXT.test(value)
+    && value.trim() !== "";
+}
+
+function requireNonEmptyString(value, name) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new TypeError(`${name} must be a non-empty string`);
+  }
+}
+
 function requireSafeNonEmptyString(value, name) {
-  if (
-    typeof value !== "string"
-    || value.trim() === ""
-    || !SAFE_TEXT.test(value)
-  ) {
+  if (!isSafeNonEmptyString(value)) {
     throw new TypeError(`${name} must be a safe non-empty string`);
   }
 }
@@ -70,15 +78,21 @@ function validateCommit(entry, index) {
   if (!isRecord(entry.commit.author)) {
     throw new TypeError(`commits[${index}].commit.author must be an object`);
   }
-  requireSafeNonEmptyString(entry.commit.author.name, `commits[${index}].commit.author.name`);
-  requireEmail(entry.commit.author.email, `commits[${index}].commit.author.email`);
+  requireNonEmptyString(entry.commit.author.name, `commits[${index}].commit.author.name`);
+  requireNonEmptyString(entry.commit.author.email, `commits[${index}].commit.author.email`);
+  if (
+    isSafeNonEmptyString(entry.commit.author.email)
+    && (!EMAIL.test(entry.commit.author.email) || entry.commit.author.email !== entry.commit.author.email.trim())
+  ) {
+    throw new TypeError(`commits[${index}].commit.author.email must be an email address`);
+  }
 
   if (entry.author !== null) {
     if (!isRecord(entry.author)) {
       throw new TypeError(`commits[${index}].author must be an object or null`);
     }
-    requireSafeNonEmptyString(entry.author.login, `commits[${index}].author.login`);
-    if (entry.author.login !== entry.author.login.trim()) {
+    requireNonEmptyString(entry.author.login, `commits[${index}].author.login`);
+    if (isSafeNonEmptyString(entry.author.login) && entry.author.login !== entry.author.login.trim()) {
       throw new TypeError(`commits[${index}].author.login must not have surrounding whitespace`);
     }
   }
@@ -125,11 +139,18 @@ function parseFinalTrailers(message) {
 }
 
 function parseIdentity(value) {
-  const match = /^([^<>\r\n]+?)[ \t]+<([^<>\s]+)>$/.exec(value.trim());
-  if (match === null || !EMAIL.test(match[2])) {
-    return null;
+  if (UNSAFE_TEXT.test(value)) {
+    return { identity: null, unsafe: true };
   }
-  return { name: match[1].trim(), email: match[2] };
+  const match = /^([^<>\r\n]+?)[ \t]+<([^<>\r\n]+)>$/.exec(value.trim());
+  if (match === null || !EMAIL.test(match[2])) {
+    return { identity: null, unsafe: false };
+  }
+  const identity = { name: match[1].trim(), email: match[2] };
+  if (!isSafeNonEmptyString(identity.name) || !isSafeNonEmptyString(identity.email)) {
+    return { identity: null, unsafe: true };
+  }
+  return { identity, unsafe: false };
 }
 
 function normalizedName(name) {
@@ -149,6 +170,19 @@ function formatIdentity(identity) {
   return `${identity.name.trim().replace(/[ \t]+/g, " ")} <${identity.email}>`;
 }
 
+function identitySafetyFailure(entry) {
+  if (
+    !isSafeNonEmptyString(entry.commit.author.name)
+    || !isSafeNonEmptyString(entry.commit.author.email)
+  ) {
+    return { sha: entry.sha, reason: "commit author identity is unsafe" };
+  }
+  if (entry.author !== null && !isSafeNonEmptyString(entry.author.login)) {
+    return { sha: entry.sha, reason: "linked author identity is unsafe" };
+  }
+  return null;
+}
+
 function matchingBot(entry, botPolicy) {
   if (entry.author === null) {
     return null;
@@ -164,12 +198,17 @@ function dcoFailure(entry) {
   const authorDisplay = formatIdentity(author);
   const signoffTrailers = parseFinalTrailers(entry.commit.message)
     .filter(({ key }) => key.toLowerCase() === "signed-off-by");
-  const malformed = signoffTrailers.some((trailer) => (
-    trailer.continued || parseIdentity(trailer.value) === null
+  const parsedSignoffs = signoffTrailers.map((trailer) => (
+    trailer.continued
+      ? { identity: null, unsafe: false }
+      : parseIdentity(trailer.value)
   ));
-  const signoffs = signoffTrailers
-    .filter(({ continued }) => !continued)
-    .map(({ value }) => parseIdentity(value))
+  if (parsedSignoffs.some(({ unsafe }) => unsafe)) {
+    return { sha: entry.sha, reason: "Signed-off-by identity is unsafe" };
+  }
+  const malformed = parsedSignoffs.some(({ identity }) => identity === null);
+  const signoffs = parsedSignoffs
+    .map(({ identity }) => identity)
     .filter((identity) => identity !== null);
 
   if (malformed || signoffs.length === 0) {
@@ -197,6 +236,11 @@ function evaluateDco(commits, botPolicy) {
   const failures = [];
   const exempted = [];
   for (const entry of commits) {
+    const safetyFailure = identitySafetyFailure(entry);
+    if (safetyFailure !== null) {
+      failures.push(safetyFailure);
+      continue;
+    }
     if (matchingBot(entry, botPolicy) !== null) {
       exempted.push(entry.sha);
       continue;
