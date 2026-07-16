@@ -181,8 +181,14 @@ function hasValidPolicyCommentStructure(body) {
   return policyCommentStructure(body) !== null;
 }
 
-function renderPolicyComment(result, state = undefined) {
+function renderPolicyComment(result, state = undefined, options = {}) {
   const value = validateResult(result);
+  if (
+    !isRecord(options)
+    || (options.reviewStateReset !== undefined && typeof options.reviewStateReset !== "boolean")
+  ) {
+    throw new TypeError("policy comment options must be structured");
+  }
   const policyState = state === undefined
     ? { headOid: value.headOid, lgtm: null, lastRetest: null }
     : state;
@@ -198,6 +204,9 @@ function renderPolicyComment(result, state = undefined) {
     "",
     `Head: ${code(value.headOid)}`,
     "",
+    ...(options.reviewStateReset === true
+      ? ["Review state reset: pull request head changed.", ""]
+      : []),
     `- Title: **${status(value.title.valid)}**${value.title.error === null ? "" : ` — ${escaped(value.title.error)}`}`,
     `- DCO: **${status(value.dco.valid)}**${value.dco.failureOids.length === 0 ? "" : ` — failing commits: ${list(value.dco.failureOids)}`}`,
     `- Ownership: **${status(value.ownership.valid)}**${value.ownership.uncoveredPaths.length === 0 ? "" : ` — uncovered paths: ${list(value.ownership.uncoveredPaths)}`}`,

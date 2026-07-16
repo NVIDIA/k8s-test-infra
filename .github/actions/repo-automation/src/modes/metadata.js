@@ -5,7 +5,12 @@ const { validateConfig } = require("../config.js");
 const { evaluateDco } = require("../dco.js");
 const { isManagedMetadataLabel } = require("../managed-labels.js");
 const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
-const { POLICY_COMMENT_MARKER, renderPolicyComment } = require("../policy-comment.js");
+const {
+  POLICY_COMMENT_MARKER,
+  hasValidPolicyCommentStructure,
+  renderPolicyComment,
+} = require("../policy-comment.js");
+const { parsePolicyState } = require("../commands/state.js");
 const { selectReviewers } = require("../reviewer-selection.js");
 const { classifySize } = require("../size.js");
 const { classifyTitle } = require("../title.js");
@@ -173,6 +178,32 @@ function operation(name, details = {}) {
   return { operation: name, ...details };
 }
 
+function classifyReviewState(commentBody, headOid) {
+  const parsed = hasValidPolicyCommentStructure(commentBody)
+    ? parsePolicyState(commentBody)
+    : null;
+  if (parsed !== null && parsed.headOid === headOid) {
+    return { reset: false, state: parsed };
+  }
+  return {
+    reset: true,
+    state: { headOid, lgtm: null, lastRetest: null },
+  };
+}
+
+function reviewLabelPlan(current, reset) {
+  if (!reset) return { add: [], remove: [] };
+  const byName = new Map(current.map((label) => [label.toLowerCase(), label]));
+  return {
+    add: byName.has("do-not-merge/needs-approval")
+      ? []
+      : ["do-not-merge/needs-approval"],
+    remove: ["lgtm", "approved"]
+      .map((name) => byName.get(name))
+      .filter((label) => label !== undefined),
+  };
+}
+
 async function runMetadata({ event, github, config, dryRun }) {
   if (typeof dryRun !== "boolean") throw new TypeError("dryRun must be a boolean");
   const identity = eventIdentity(event);
@@ -278,6 +309,11 @@ async function runMetadata({ event, github, config, dryRun }) {
     ...(pullRequest.draft ? ["do-not-merge/work-in-progress"] : []),
   ];
   const labels = labelPlan(issueLabels, desiredLabels);
+  const existingComment = await github.getPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER);
+  const reviewState = classifyReviewState(existingComment.body, pullRequest.headOid);
+  const reviewLabels = reviewLabelPlan(issueLabels, reviewState.reset);
+  const showResetReason = reviewState.reset
+    || existingComment.body?.includes("Review state reset: pull request head changed.") === true;
   const resultBase = {
     headOid: pullRequest.headOid,
     valid: configuration.valid && title.valid && dco.valid && ownership.valid,
@@ -286,14 +322,20 @@ async function runMetadata({ event, github, config, dryRun }) {
     dco,
     ownership,
     labels,
+    reviewState: {
+      reset: reviewState.reset,
+      reason: reviewState.reset ? "Review state reset: pull request head changed." : null,
+      labels: reviewLabels,
+    },
     reviewers,
     apply: { status: dryRun ? "planned" : "pending", attempted: [], applied: [], failed: null },
   };
-  const commentBody = renderPolicyComment(resultBase);
-  const existingComment = await github.planPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER);
+  const commentBody = renderPolicyComment(resultBase, reviewState.state, {
+    reviewStateReset: showResetReason,
+  });
   const result = {
     ...resultBase,
-    comment: { marker: POLICY_COMMENT_MARKER, body: commentBody, ...existingComment },
+    comment: { marker: POLICY_COMMENT_MARKER, ...existingComment, body: commentBody },
   };
   const failures = policyFailureNames(result);
 
@@ -319,6 +361,16 @@ async function runMetadata({ event, github, config, dryRun }) {
         throw failure;
       }
     };
+    if (reviewLabels.add.length > 0) {
+      await apply(operation("addPolicyLabel", { label: reviewLabels.add[0] }), () => (
+        github.addPolicyLabel(identity.prNumber, reviewLabels.add[0])
+      ));
+    }
+    for (const label of reviewLabels.remove) {
+      await apply(operation("removePolicyLabel", { label }), () => (
+        github.removePolicyLabel(identity.prNumber, label)
+      ));
+    }
     if (failures.length === 0) {
       for (const label of labels.add) {
         await apply(operation("addIssueLabel", { label }), () => (
@@ -335,6 +387,21 @@ async function runMetadata({ event, github, config, dryRun }) {
           github.requestReviewers(identity.prNumber, reviewers.request)
         ));
       }
+    }
+    try {
+      const finalPullRequest = await github.getPullRequest(identity.prNumber);
+      validateLivePullRequest(finalPullRequest, identity);
+      if (!samePullRequestFence(pullRequest, finalPullRequest)) {
+        throw new Error("pull request state changed before policy comment; refusing stale evidence");
+      }
+    } catch (error) {
+      result.apply.status = "partial";
+      result.apply.failed = operation("finalHeadFence");
+      const failure = error instanceof Error
+        ? error
+        : new Error("final pull request identity fence failed");
+      failure.summary = result;
+      throw failure;
     }
     await apply(operation("upsertPolicyComment", { action: existingComment.action }), () => (
       github.upsertPolicyComment(

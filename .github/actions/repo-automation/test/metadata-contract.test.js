@@ -16,6 +16,8 @@ const event = JSON.parse(fs.readFileSync(
   "utf8",
 ));
 const marker = "<!-- repo-automation-policy:v1 -->";
+const liveHead = "6666666666666666666666666666666666666666";
+const oldHead = "5555555555555555555555555555555555555555";
 const mutableEventSentinels = [
   "event-default-branch-must-not-be-used",
   "event-title-must-not-execute",
@@ -43,13 +45,44 @@ const readOperations = new Set([
   "getDefaultBranchRevision",
   "getContentAtRevision",
   "planPolicyComment",
+  "getPolicyComment",
 ]);
 const writeOperations = new Set([
   "requestReviewers",
   "addIssueLabel",
   "removeIssueLabel",
+  "addPolicyLabel",
+  "removePolicyLabel",
   "upsertPolicyComment",
 ]);
+
+function commandStateBody(headOid, { metadataHead = headOid, malformed = false } = {}) {
+  const state = malformed
+    ? "{not-json}"
+    : JSON.stringify({
+      headOid,
+      lgtm: {
+        actor: "alice",
+        commentId: 701,
+        headOid,
+        createdAt: "2026-07-16T08:00:00.000Z",
+      },
+      lastRetest: {
+        commentId: 702,
+        headOid,
+        createdAt: "2026-07-16T08:01:00.000Z",
+      },
+    });
+  return [
+    marker,
+    `<!-- repo-automation-state:v1 ${state} -->`,
+    ...(metadataHead === null ? [] : [
+      `<!-- repo-automation-metadata-head:v1 {"headOid":"${metadataHead}"} -->`,
+    ]),
+    "## PR metadata policy",
+    "",
+  ].join("\n");
+}
 
 function signedCommit(overrides = {}) {
   return {
@@ -153,7 +186,7 @@ test("metadata re-fetches live PR state and applies only the complete safe plan"
   assert.deepEqual(result.labels, expectedLabelChanges());
   assert.equal(result.reviewers.request.includes("pr-author"), false);
   assert.equal(result.reviewers.request.every((login) => ["alice", "bob"].includes(login)), true);
-  assert.deepEqual(github.calls.getPullRequest, [{ prNumber: 42 }, { prNumber: 42 }]);
+  assert.equal(github.calls.getPullRequest.length, 3);
   assert.deepEqual(github.calls.getDefaultBranchRevision, [{}]);
   assert.deepEqual(github.calls.getContentAtRevision, [
     { path: "/OWNERS", revision: "base-commit-oid-91ab" },
@@ -167,9 +200,12 @@ test("metadata re-fetches live PR state and applies only the complete safe plan"
   assert.equal(github.calls.requestReviewers.flatMap(({ reviewers }) => reviewers).includes("pr-author"), false);
 
   const snapshot = github.metadataSnapshot();
-  for (const preserved of ["lgtm", "approved", "do-not-merge/hold", "maintainer/custom"] ) {
+  for (const preserved of ["do-not-merge/hold", "maintainer/custom"] ) {
     assert.equal(snapshot.labels.includes(preserved), true, `${preserved} must be preserved`);
   }
+  assert.equal(snapshot.labels.includes("lgtm"), false);
+  assert.equal(snapshot.labels.includes("approved"), false);
+  assert.equal(snapshot.labels.includes("do-not-merge/needs-approval"), true);
   assert.equal(snapshot.comments.length, 1);
   assert.equal(snapshot.comments[0].body.split(marker).length - 1, 1);
   assert.match(snapshot.comments[0].body, /6666666666666666666666666666666666666666/);
@@ -178,11 +214,208 @@ test("metadata re-fetches live PR state and applies only the complete safe plan"
 
   const firstWrite = github.callOrder.findIndex(({ operation }) => writeOperations.has(operation));
   assert.notEqual(firstWrite, -1);
-  assert.equal(
-    github.callOrder.slice(firstWrite).some(({ operation }) => readOperations.has(operation)),
-    false,
-    "all reads and planning must finish before the first write",
+  assert.deepEqual(
+    github.callOrder.slice(firstWrite).filter(({ operation }) => readOperations.has(operation))
+      .map(({ operation }) => operation),
+    ["getPullRequest"],
+    "only the final live head fence may read after writes",
   );
+});
+
+test("new head resets both command provenances before metadata and publishes evidence last", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const github = createFakeGitHub(metadataState({
+    labels: ["LgTm", "APPROVED", "Do-Not-Merge/Hold", "custom/keep"],
+    comments: [{ id: 9, body: commandStateBody(oldHead), author: "github-actions[bot]", type: "Bot" }],
+  }));
+
+  const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false });
+  const writes = mutations(github);
+
+  assert.deepEqual(writes.slice(0, 3), [
+    { operation: "addPolicyLabel", parameters: { prNumber: 42, label: "do-not-merge/needs-approval" } },
+    { operation: "removePolicyLabel", parameters: { prNumber: 42, label: "LgTm" } },
+    { operation: "removePolicyLabel", parameters: { prNumber: 42, label: "APPROVED" } },
+  ]);
+  assert.equal(writes.at(-1).operation, "upsertPolicyComment");
+  assert.match(result.comment.body, new RegExp(`repo-automation-state:v1 \\{\\"headOid\\":\\"${liveHead}\\",\\"lgtm\\":null,\\"lastRetest\\":null\\}`));
+  assert.match(result.comment.body, new RegExp(`repo-automation-metadata-head:v1 \\{\\"headOid\\":\\"${liveHead}\\"\\}`));
+  assert.match(result.comment.body, /Review state reset: pull request head changed\./);
+  assert.deepEqual(github.metadataSnapshot().labels.filter((label) => /hold|custom/i.test(label)).sort(), ["Do-Not-Merge/Hold", "custom/keep"]);
+});
+
+test("same-head command state survives missing metadata evidence without policy-label churn", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const existing = commandStateBody(liveHead, { metadataHead: null });
+  const github = createFakeGitHub(metadataState({
+    labels: ["lgtm", "approved", "do-not-merge/hold"],
+    comments: [{ id: 9, body: existing, author: "github-actions[bot]", type: "Bot" }],
+  }));
+
+  const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false });
+
+  assert.equal(github.calls.addPolicyLabel.length, 0);
+  assert.equal(github.calls.removePolicyLabel.length, 0);
+  assert.equal(result.comment.body.split("\n")[1], existing.split("\n")[1]);
+  assert.equal(result.comment.body.split("\n")[2], `<!-- repo-automation-metadata-head:v1 {"headOid":"${liveHead}"} -->`);
+});
+
+test("same-head command state survives stale metadata evidence", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const existing = commandStateBody(liveHead, { metadataHead: oldHead });
+  const github = createFakeGitHub(metadataState({
+    labels: ["lgtm", "approved"],
+    comments: [{ id: 9, body: existing, author: "github-actions[bot]", type: "Bot" }],
+  }));
+
+  const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false });
+
+  assert.equal(result.comment.body.split("\n")[1], existing.split("\n")[1]);
+  assert.equal(result.comment.body.split("\n")[2], `<!-- repo-automation-metadata-head:v1 {"headOid":"${liveHead}"} -->`);
+  assert.equal(github.calls.addPolicyLabel.length + github.calls.removePolicyLabel.length, 0);
+});
+
+test("malformed owned state resets while a user-owned marker lookalike is ignored", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const github = createFakeGitHub(metadataState({
+    labels: ["lgtm", "approved"],
+    comments: [
+      { id: 8, body: commandStateBody(liveHead), author: "intruder", type: "User" },
+      { id: 9, body: commandStateBody(liveHead, { malformed: true }), author: "github-actions[bot]", type: "Bot" },
+    ],
+  }));
+
+  const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false });
+
+  assert.deepEqual(github.calls.addPolicyLabel.map(({ label }) => label), ["do-not-merge/needs-approval"]);
+  assert.deepEqual(github.calls.removePolicyLabel.map(({ label }) => label), ["lgtm", "approved"]);
+  assert.match(result.comment.body, /"lgtm":null,"lastRetest":null/);
+  assert.equal(github.metadataSnapshot().comments.length, 2);
+});
+
+test("multiple action-owned policy comments abort before writes", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const github = createFakeGitHub(metadataState({ comments: [
+    { id: 8, body: commandStateBody(liveHead), author: "github-actions[bot]", type: "Bot" },
+    { id: 9, body: commandStateBody(oldHead), author: "github-actions[bot]", type: "Bot" },
+  ] }));
+
+  await assert.rejects(
+    () => runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false }),
+    /duplicate policy comments/i,
+  );
+  assert.deepEqual(mutations(github), []);
+});
+
+test("missing, duplicated, and misplaced state markers repair fail-closed", async (t) => {
+  const valid = commandStateBody(liveHead);
+  const stateLine = valid.split("\n")[1];
+  const cases = [
+    ["missing", `${marker}\n## PR metadata policy\n`],
+    ["duplicated", `${valid}${stateLine}\n`],
+    ["misplaced", `${stateLine}\n${marker}\n## PR metadata policy\n`],
+  ];
+  for (const [name, body] of cases) {
+    await t.test(name, async () => {
+      const { runMetadata } = require("../src/modes/metadata.js");
+      const github = createFakeGitHub(metadataState({ comments: [
+        { id: 9, body, author: "github-actions[bot]", type: "Bot" },
+      ] }));
+      const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: true });
+      assert.match(result.comment.body, /"lgtm":null,"lastRetest":null/);
+      assert.equal(result.reviewState.reset, true);
+      assert.deepEqual(mutations(github), []);
+    });
+  }
+});
+
+test("case-variant existing eligible reviewers are preserved and the author is never requested", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const github = createFakeGitHub(metadataState({
+    requestedReviewers: ["ALICE", "BOB"],
+    comments: [{ id: 9, body: commandStateBody(liveHead), author: "github-actions[bot]", type: "Bot" }],
+  }));
+
+  const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false });
+
+  assert.deepEqual(result.reviewers.request, []);
+  assert.equal(result.reviewers.preserved.every((login) => ["alice", "bob"].includes(login)), true);
+  assert.equal(github.calls.requestReviewers.length, 0);
+  assert.equal(result.reviewers.preserved.some((login) => login.toLowerCase() === "pr-author"), false);
+});
+
+test("a newly changed ownership area requests only its newly needed reviewer", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const config = loadConfig(repositoryRoot);
+  const github = createFakeGitHub(metadataState({
+    requestedReviewers: ["ALICE"],
+    contents: {
+      ...metadataState().contents,
+      "/docs/OWNERS": [
+        "reviewers: [carol]",
+        "approvers: [carol]",
+        "options:",
+        "  no_parent_owners: true",
+        "",
+      ].join("\n"),
+    },
+    comments: [{ id: 9, body: commandStateBody(liveHead), author: "github-actions[bot]", type: "Bot" }],
+  }));
+
+  const result = await runMetadata({
+    event,
+    github,
+    config: {
+      ...config,
+      policy: { ...config.policy, activeOwnerFiles: ["/OWNERS", "/docs/OWNERS"] },
+    },
+    dryRun: false,
+  });
+
+  assert.deepEqual(result.reviewers.preserved, ["alice"]);
+  assert.deepEqual(result.reviewers.request, ["carol"]);
+  assert.deepEqual(github.calls.requestReviewers, [{ prNumber: 42, reviewers: ["carol"] }]);
+});
+
+test("a head race immediately before the comment leaves no stale canonical evidence", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const base = metadataState().pullRequest;
+  const github = createFakeGitHub(metadataState({
+    pullRequests: [base, base, { ...base, headOid: oldHead }],
+  }));
+
+  await assert.rejects(
+    () => runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false }),
+    (error) => {
+      assert.equal(error.summary?.apply.status, "partial");
+      assert.equal(error.summary?.apply.failed.operation, "finalHeadFence");
+      return /stale|changed|head/i.test(error.message);
+    },
+  );
+  assert.equal(github.calls.upsertPolicyComment.length, 0);
+  assert.equal(mutations(github).length > 0, true);
+});
+
+test("dry-run classifies new-head and malformed state with zero writes", async (t) => {
+  for (const [name, body, expectedLgtm] of [
+    ["new-head", commandStateBody(oldHead), null],
+    ["same-head", commandStateBody(liveHead), "alice"],
+    ["malformed", commandStateBody(liveHead, { malformed: true }), null],
+  ]) {
+    await t.test(name, async () => {
+      const { runMetadata } = require("../src/modes/metadata.js");
+      const github = createFakeGitHub(metadataState({ comments: [
+        { id: 9, body, author: "github-actions[bot]", type: "Bot" },
+      ] }));
+      const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: true });
+      if (expectedLgtm === null) {
+        assert.match(result.comment.body, /"lgtm":null,"lastRetest":null/);
+      } else {
+        assert.match(result.comment.body, /"lgtm":\{"actor":"alice"/);
+      }
+      assert.deepEqual(mutations(github), []);
+    });
+  }
 });
 
 test("metadata rerun updates the single marker comment deterministically", async () => {
@@ -268,7 +501,11 @@ test("invalid title, DCO, configuration, and ownership upsert diagnostics then f
       assert.equal(github.calls.upsertPolicyComment.length, 1);
       assert.match(github.calls.upsertPolicyComment[0].body, new RegExp(name, "i"));
       assert.equal(
-        mutations(github).every(({ operation }) => operation === "upsertPolicyComment"),
+        mutations(github).every(({ operation }) => [
+          "addPolicyLabel",
+          "removePolicyLabel",
+          "upsertPolicyComment",
+        ].includes(operation)),
         true,
       );
     });
@@ -772,7 +1009,11 @@ test("real configuration load failures produce bounded diagnostics before failur
       assert.equal(outputs.length, 1);
       assert.equal(JSON.parse(outputs[0].value).configuration.valid, false);
       assert.equal(githubClient.calls.upsertPolicyComment.length, dryRun ? 0 : 1);
-      assert.equal(mutations(githubClient).every(({ operation }) => operation === "upsertPolicyComment"), true);
+      assert.equal(mutations(githubClient).every(({ operation }) => [
+        "addPolicyLabel",
+        "removePolicyLabel",
+        "upsertPolicyComment",
+      ].includes(operation)), true);
     });
   }
 });
@@ -949,7 +1190,14 @@ test("transparent internal OWNERS symlink fails metadata before every mutation",
 
 test("mutation failures attach bounded partial state and rerun reconciles", async (t) => {
   const { runMetadata } = require("../src/modes/metadata.js");
-  for (const operation of ["addIssueLabel", "removeIssueLabel", "requestReviewers", "upsertPolicyComment"]) {
+  for (const operation of [
+    "addPolicyLabel",
+    "removePolicyLabel",
+    "addIssueLabel",
+    "removeIssueLabel",
+    "requestReviewers",
+    "upsertPolicyComment",
+  ]) {
     await t.test(operation, async () => {
       const failure = Object.assign(new Error("hostile\nbody secret"), { status: 422 });
       const github = createFakeGitHub(metadataState({ failures: { [operation]: failure } }));
