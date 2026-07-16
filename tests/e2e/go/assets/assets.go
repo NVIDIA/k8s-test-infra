@@ -33,6 +33,9 @@ var DevicePluginManifest []byte
 //go:embed nri-gpu-agent.yaml
 var NRIGpuAgentManifest []byte
 
+//go:embed imex-workload.yaml
+var ImexWorkloadManifest []byte
+
 //go:embed gpu-operator-values.yaml
 var GPUOperatorValues []byte
 
