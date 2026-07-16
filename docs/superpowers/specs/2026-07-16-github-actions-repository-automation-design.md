@@ -237,6 +237,12 @@ The existing root `OWNERS` is the fallback. Implementation must not grant new
 reviewer or approver authority based only on commit history. Nested owner
 rosters are activated only after maintainers explicitly confirm them.
 
+Production ownership discovery is allowlist-based, initially containing only
+`/OWNERS`. The repository contains vendored upstream `OWNERS` files; recursive
+filename discovery would incorrectly turn those files into project authority.
+Each project-maintained nested file must therefore be added to the allowlist in
+the same reviewed change that confirms its roster.
+
 ### Reviewer selection
 
 The default target is two reviewers. For each candidate, weight equals the sum
@@ -406,6 +412,12 @@ Conventional Commit history. Merging that PR creates the Git tag and GitHub
 Release. Release creation and artifact publication stay in the same workflow
 because events created by the default `GITHUB_TOKEN` do not trigger another
 workflow.
+
+The no-PAT choice also means a Release Please pull request created by the
+default `GITHUB_TOKEN` does not itself trigger new pull request workflow runs.
+Maintainers must explicitly run the required checks against that PR head, or
+make a signed maintainer update that emits a synchronization event, before
+merge. Branch protection is not weakened to hide this GitHub token behavior.
 
 The existing `nvml-mock-publish.yaml` and `helm-publish.yaml` capabilities are
 consolidated into that release workflow. Their working multi-architecture
