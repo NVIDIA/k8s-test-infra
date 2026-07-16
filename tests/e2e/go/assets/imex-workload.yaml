@@ -25,7 +25,7 @@ spec:
         nvidia.com/gpu.present: "true"
       containers:
         - name: agent
-          image: debian:bookworm-slim
+          image: ubuntu:24.04
           command:
             - /bin/sh
             - -c
