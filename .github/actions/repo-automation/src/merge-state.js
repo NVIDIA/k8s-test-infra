@@ -53,11 +53,7 @@ function captureBoundedDescriptorMap(value, maximumOwnKeys, field) {
   return descriptors;
 }
 
-function captureExactDataRecord(value, keys, field) {
-  if (!isPlainRecord(value)) {
-    throw new TypeError(`${field} must be a plain object`);
-  }
-  const descriptors = captureBoundedDescriptorMap(value, keys.length, field);
+function captureExactDescriptorValues(descriptors, keys, field) {
   const ownKeys = Reflect.ownKeys(descriptors);
   if (
     ownKeys.length !== keys.length
@@ -75,6 +71,83 @@ function captureExactDataRecord(value, keys, field) {
     captured[key] = descriptor.value;
   }
   return captured;
+}
+
+function captureExactDataRecord(value, keys, field) {
+  if (!isPlainRecord(value)) {
+    throw new TypeError(`${field} must be a plain object`);
+  }
+  const descriptors = captureBoundedDescriptorMap(value, keys.length, field);
+  return captureExactDescriptorValues(descriptors, keys, field);
+}
+
+function hasEnabledMethodEvidence(descriptor) {
+  return descriptor !== undefined
+    && Object.hasOwn(descriptor, "value")
+    && descriptor.value !== null
+    && descriptor.value !== undefined;
+}
+
+function captureSnapshotBoundary(value) {
+  const failed = {
+    complete: false,
+    descriptors: null,
+    enabledMethodEvidence: false,
+    plain: false,
+  };
+  if (
+    value === null
+    || (typeof value !== "object" && typeof value !== "function")
+  ) {
+    return failed;
+  }
+
+  let ownKeys;
+  try {
+    ownKeys = Reflect.ownKeys(value);
+  } catch {
+    return failed;
+  }
+
+  const descriptors = Object.create(null);
+  let enabledMethodEvidence = false;
+  if (ownKeys.includes("autoMergeMethod")) {
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(value, "autoMergeMethod");
+      if (descriptor === undefined) return failed;
+      descriptors.autoMergeMethod = descriptor;
+      enabledMethodEvidence = hasEnabledMethodEvidence(descriptor);
+    } catch {
+      return failed;
+    }
+  }
+
+  const incomplete = () => ({
+    complete: false,
+    descriptors: null,
+    enabledMethodEvidence,
+    plain: false,
+  });
+  if (ownKeys.length > SNAPSHOT_KEYS.length) return incomplete();
+
+  try {
+    for (const key of ownKeys) {
+      if (key === "autoMergeMethod") continue;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined) return incomplete();
+      descriptors[key] = descriptor;
+    }
+    return {
+      complete: true,
+      descriptors,
+      enabledMethodEvidence,
+      plain: typeof value === "object"
+        && !Array.isArray(value)
+        && Object.getPrototypeOf(value) === Object.prototype,
+    };
+  } catch {
+    return incomplete();
+  }
 }
 
 function requireBoolean(value, field) {
@@ -175,8 +248,15 @@ function normalizeLabels(value) {
   return [...normalized].sort();
 }
 
-function normalizeSnapshot(value) {
-  const snapshot = captureExactDataRecord(value, SNAPSHOT_KEYS, "merge snapshot");
+function normalizeSnapshot(capture) {
+  if (!capture.complete || !capture.plain) {
+    throw new TypeError("merge snapshot must be a plain object");
+  }
+  const snapshot = captureExactDescriptorValues(
+    capture.descriptors,
+    SNAPSHOT_KEYS,
+    "merge snapshot",
+  );
   return {
     pullRequestState: requireEnum(
       snapshot.pullRequestState,
@@ -210,32 +290,20 @@ function normalizeSnapshot(value) {
   };
 }
 
-function malformedDecision(value) {
-  let enabled = false;
-  try {
-    const descriptor = value !== null
-      && (typeof value === "object" || typeof value === "function")
-      ? Object.getOwnPropertyDescriptor(value, "autoMergeMethod")
-      : undefined;
-    enabled = descriptor !== undefined
-      && Object.hasOwn(descriptor, "value")
-      && descriptor.value !== null
-      && descriptor.value !== undefined;
-  } catch {
-    enabled = false;
-  }
+function malformedDecision(enabledMethodEvidence) {
   return {
-    action: enabled ? "DISABLE" : "NOOP",
+    action: enabledMethodEvidence ? "DISABLE" : "NOOP",
     blockers: ["invalid-snapshot"],
   };
 }
 
 function decideMergeAction(input) {
+  const capture = captureSnapshotBoundary(input);
   let state;
   try {
-    state = normalizeSnapshot(input);
+    state = normalizeSnapshot(capture);
   } catch {
-    return malformedDecision(input);
+    return malformedDecision(capture.enabledMethodEvidence);
   }
 
   const blockers = [];

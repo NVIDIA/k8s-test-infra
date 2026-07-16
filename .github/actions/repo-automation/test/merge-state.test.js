@@ -362,6 +362,73 @@ test("malformed containers disable every trustworthy own enabled method without 
   });
 });
 
+test("retains the first captured enabled method when later validation fails", () => {
+  let methodDescriptorCalls = 0;
+  const alternatingMethod = new Proxy(snapshot({
+    autoMergeMethod: "SQUASH",
+    draft: "invalid",
+  }), {
+    getOwnPropertyDescriptor(target, property) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(target, property);
+      if (property !== "autoMergeMethod") return descriptor;
+      methodDescriptorCalls += 1;
+      return {
+        ...descriptor,
+        value: methodDescriptorCalls === 1 ? "SQUASH" : null,
+      };
+    },
+  });
+
+  assert.deepEqual(decideMergeAction(alternatingMethod), {
+    action: "DISABLE",
+    blockers: ["invalid-snapshot"],
+  });
+  assert.equal(methodDescriptorCalls, 1);
+});
+
+test("nested LGTM and label failures preserve the single captured enabled method", () => {
+  for (const nestedOverride of [
+    { lgtm: { ...lgtm(), actor: "invalid actor" } },
+    { labels: ["bad\u0000label"] },
+  ]) {
+    let methodDescriptorCalls = 0;
+    const state = new Proxy(snapshot({
+      autoMergeMethod: "SQUASH",
+      ...nestedOverride,
+    }), {
+      getOwnPropertyDescriptor(target, property) {
+        if (property === "autoMergeMethod") methodDescriptorCalls += 1;
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      },
+    });
+
+    assert.deepEqual(decideMergeAction(state), {
+      action: "DISABLE",
+      blockers: ["invalid-snapshot"],
+    });
+    assert.equal(methodDescriptorCalls, 1);
+  }
+});
+
+test("an own-key trap failure yields no method evidence and never probes a descriptor", () => {
+  let methodDescriptorCalls = 0;
+  const unreadableKeys = new Proxy(snapshot({ autoMergeMethod: "SQUASH" }), {
+    ownKeys() {
+      throw new Error("own keys unavailable");
+    },
+    getOwnPropertyDescriptor(target, property) {
+      if (property === "autoMergeMethod") methodDescriptorCalls += 1;
+      return Reflect.getOwnPropertyDescriptor(target, property);
+    },
+  });
+
+  assert.deepEqual(decideMergeAction(unreadableKeys), {
+    action: "NOOP",
+    blockers: ["invalid-snapshot"],
+  });
+  assert.equal(methodDescriptorCalls, 0);
+});
+
 test("captures top-level descriptor values once and never consults hostile get traps", () => {
   let getterCalls = 0;
   const hiddenApproval = new Proxy(snapshot({ approvalCoverageComplete: false }), {
