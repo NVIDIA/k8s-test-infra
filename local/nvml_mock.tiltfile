@@ -52,7 +52,7 @@ def _install(release, profile, active_consumers, extra_set):
     # touching the Tiltfile. Later overlays win on key conflicts (helm --values
     # ordering semantics).
     for consumer in active_consumers:
-        flags += ['--values', 'local/' + consumer + '/nvml-mock-values.yaml']
+        flags += ['--values', 'local/' + consumer + '/nvml-mock.values.yaml']
 
     helm_resource(
         release,
