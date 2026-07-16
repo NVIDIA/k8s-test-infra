@@ -70,4 +70,8 @@
 
 ## Delivery
 
-- Commit: pending.
+- Source, tests, fixture, and generated bundle commit:
+  `d85b1685b9554068ea033af8c060c13818eb74fb` (`feat: execute authorized
+  repository commands`), with a valid GPG signature and DCO signoff.
+- Post-commit `npm run package` regenerated `864kB dist/index.js`; `git diff
+  --exit-code -- dist` passed.
