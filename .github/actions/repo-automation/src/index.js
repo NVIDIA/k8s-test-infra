@@ -3,11 +3,12 @@
 const { loadConfig } = require("./config.js");
 const { createGitHubClient } = require("./github-client.js");
 const { syncLabels } = require("./modes/label-sync.js");
+const { runMetadata } = require("./modes/metadata.js");
 
 async function run(dependencies) {
   const { core } = dependencies;
   const mode = core.getInput("mode", { required: true });
-  if (mode !== "label-sync") {
+  if (mode !== "label-sync" && mode !== "metadata") {
     throw new Error(`Unsupported mode: ${mode}`);
   }
 
@@ -18,12 +19,28 @@ async function run(dependencies) {
     workspace = process.env.GITHUB_WORKSPACE,
   } = dependencies;
   const config = loadConfig(workspace);
-  const client = createGitHubClient(octokit, owner, repo);
-  const summary = await syncLabels({
-    github: client,
-    declaredLabels: config.labels.labels,
-    dryRun: core.getBooleanInput("dry-run"),
-  });
+  const client = dependencies.githubClient ?? createGitHubClient(octokit, owner, repo);
+  const dryRun = core.getBooleanInput("dry-run");
+  let summary;
+  try {
+    summary = mode === "label-sync"
+      ? await syncLabels({
+        github: client,
+        declaredLabels: config.labels.labels,
+        dryRun,
+      })
+      : await runMetadata({
+        event: dependencies.event,
+        github: client,
+        config,
+        dryRun,
+      });
+  } catch (error) {
+    if (error?.summary !== undefined) {
+      core.setOutput("summary", JSON.stringify(error.summary));
+    }
+    throw error;
+  }
   core.setOutput("summary", JSON.stringify(summary));
   return summary;
 }
@@ -37,7 +54,7 @@ async function executeAction() {
   try {
     const { owner, repo } = github.context.repo;
     const octokit = github.getOctokit(process.env.GITHUB_TOKEN);
-    await run({ core, octokit, owner, repo });
+    await run({ core, octokit, owner, repo, event: github.context.payload });
   } catch (error) {
     core.setFailed(error instanceof Error ? error.message : String(error));
   }
