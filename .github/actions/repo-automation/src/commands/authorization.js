@@ -47,14 +47,20 @@ function normalizeIdentity(identity) {
   if (
     !isRecord(identity)
     || identity.resolved !== true
-    || identity.error === true
+    || (Object.hasOwn(identity, "error") && identity.error !== false)
   ) {
     return { status: "unavailable" };
   }
 
+  if (Object.hasOwn(identity, "deleted") && identity.deleted !== false) {
+    return identity.deleted === true
+      ? { status: "not-human" }
+      : { status: "unavailable" };
+  }
+
   const login = normalizeLogin(identity.login);
   const type = typeof identity.type === "string" ? identity.type.toLowerCase() : null;
-  if (login === null || type !== "user" || identity.deleted === true) {
+  if (login === null || type !== "user") {
     return { status: "not-human" };
   }
 
@@ -209,7 +215,11 @@ function authorizeCommand(commandValue, context) {
     }
     return allowed(
       isAuthor
-      || (assignees.has(actor.login) && command.users.has(actor.login))
+      || (
+        assignees.has(actor.login)
+        && command.users.size === 1
+        && command.users.has(actor.login)
+      )
       || permissionAtLeast(actor, "triage"),
     );
   }

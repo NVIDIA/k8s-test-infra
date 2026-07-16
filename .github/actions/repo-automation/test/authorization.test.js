@@ -155,6 +155,43 @@ test("authorizes unassign for a named current assignee, the author, or triage-ca
   }
 });
 
+test("limits the ordinary assignee unassign exception to exactly the actor", () => {
+  const assigneeContext = { currentAssignees: ["assignee", "other"] };
+
+  for (const users of [
+    ["assignee", "other"],
+    ["other", "assignee"],
+    ["other"],
+    ["other", "third"],
+  ]) {
+    assert.deepEqual(
+      decision("unassign", "apply", human("assignee"), assigneeContext, users),
+      { allowed: false, reason: "not-authorized" },
+    );
+  }
+
+  assert.deepEqual(
+    decision(
+      "unassign",
+      "apply",
+      human("AsSiGnEe"),
+      assigneeContext,
+      ["ASSIGNEE", "assignee"],
+    ),
+    { allowed: true, reason: "authorized" },
+  );
+
+  for (const actor of [
+    human("author"),
+    human("triager", { liveCollaborator: true, permission: "triage" }),
+  ]) {
+    assert.deepEqual(
+      decision("unassign", "apply", actor, assigneeContext, ["assignee", "other"]),
+      { allowed: true, reason: "authorized" },
+    );
+  }
+});
+
 test("requires write capability for collaborator hold and retest operations", () => {
   for (const [name, operation] of [
     ["hold", "apply"],
@@ -248,6 +285,38 @@ test("explicit actor API errors fail closed even when other fields look resolved
   );
 });
 
+test("accepts only exact optional actor error and deletion evidence", () => {
+  for (const actor of [
+    human("actor"),
+    human("actor", { error: false }),
+    human("actor", { deleted: false }),
+    human("actor", { error: false, deleted: false }),
+  ]) {
+    assert.deepEqual(
+      decision("help", "show", actor),
+      { allowed: true, reason: "authorized" },
+    );
+  }
+
+  for (const error of [true, "lookup-failed", new Error("lookup failed"), {}, null, undefined]) {
+    assert.deepEqual(
+      decision("help", "show", human("actor", { error })),
+      { allowed: false, reason: "actor-unavailable" },
+    );
+  }
+
+  assert.deepEqual(
+    decision("help", "show", human("actor", { deleted: true })),
+    { allowed: false, reason: "actor-not-human" },
+  );
+  for (const deleted of ["true", {}, null, 0, undefined]) {
+    assert.deepEqual(
+      decision("help", "show", human("actor", { deleted })),
+      { allowed: false, reason: "actor-unavailable" },
+    );
+  }
+});
+
 test("rejects malformed command shapes without throwing or echoing hostile fields", () => {
   const hostile = "secret-sentinel-91ef";
   for (const invalidCommand of [
@@ -337,6 +406,49 @@ test("accepts only resolved human owners, participants, or proven read collabora
       ],
     },
   );
+});
+
+test("accepts only exact optional target error and deletion evidence without echoing it", () => {
+  const sentinel = "secret-sentinel-f38d";
+  const targetPermissions = new Map([
+    ["absent", human("absent")],
+    ["explicit-false", human("explicit-false", { error: false, deleted: false })],
+    ["error-true", human("error-true", { error: true })],
+    ["error-string", human("error-string", { error: sentinel })],
+    ["error-object", human("error-object", { error: new Error(sentinel) })],
+    ["error-null", human("error-null", { error: null })],
+    ["error-undefined", human("error-undefined", { error: undefined })],
+    ["deleted-true", human("deleted-true", { deleted: true })],
+    ["deleted-string", human("deleted-string", { deleted: "true" })],
+    ["deleted-object", human("deleted-object", { deleted: { detail: sentinel } })],
+    ["deleted-null", human("deleted-null", { deleted: null })],
+    ["deleted-undefined", human("deleted-undefined", { deleted: undefined })],
+  ]);
+  const users = [...targetPermissions.keys()];
+  const result = eligibleAssignmentTargets(
+    users,
+    context(human("author"), {
+      reviewers: users,
+      targetPermissions,
+    }),
+  );
+
+  assert.deepEqual(result, {
+    eligible: ["absent", "explicit-false"],
+    rejected: [
+      { login: "error-true", reason: "target-unavailable" },
+      { login: "error-string", reason: "target-unavailable" },
+      { login: "error-object", reason: "target-unavailable" },
+      { login: "error-null", reason: "target-unavailable" },
+      { login: "error-undefined", reason: "target-unavailable" },
+      { login: "deleted-true", reason: "target-not-human" },
+      { login: "deleted-string", reason: "target-unavailable" },
+      { login: "deleted-object", reason: "target-unavailable" },
+      { login: "deleted-null", reason: "target-unavailable" },
+      { login: "deleted-undefined", reason: "target-unavailable" },
+    ],
+  });
+  assert.equal(JSON.stringify(result).includes(sentinel), false);
 });
 
 test("does not use actor permission as assignment target permission", () => {
