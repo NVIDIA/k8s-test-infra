@@ -21,6 +21,8 @@ KIND_CONFIG="${REPO_ROOT}/docs/demo/nri-imex/kind.yaml"
 TOPOLOGY_FILE="${REPO_ROOT}/docs/demo/nri-imex/topology.yaml"
 WORKLOAD_FILE="${REPO_ROOT}/docs/demo/nri-imex/imex-workload.yaml"
 IMAGE_NAME="${IMAGE_NAME:-nvml-mock:nri-imex}"
+OVERLAY_IMAGE_NAME="${OVERLAY_IMAGE_NAME:-nvml-mock:nri-imex-real-imex}"
+SYSTEM_NS="nvml-mock-system"
 CHANNEL_COUNT="${CHANNEL_COUNT:-16}"
 EXPECTED_DOMAIN_UUID="00000000-0000-0000-0000-0000000000ce"
 WORKER1="${CLUSTER_NAME}-worker"
@@ -29,6 +31,8 @@ WORKER2="${CLUSTER_NAME}-worker2"
 info() { printf '\n==> %s\n' "$*" >&2; }
 ok()   { printf '    \xE2\x9C\x93 %s\n' "$*" >&2; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+command -v jq >/dev/null 2>&1 || fail "jq is required (Scenario 3 parses nvidia-imex-ctl JSON)"
 
 cleanup() { kind delete cluster --name "$CLUSTER_NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
@@ -41,16 +45,23 @@ workload_pod_on_node() {
 info "Building nvml-mock image"
 docker build -t "$IMAGE_NAME" -f "${REPO_ROOT}/deployments/nvml-mock/Dockerfile" "$REPO_ROOT"
 
+info "Building real-IMEX overlay (--nogpu via imex-nogpu-shim); LOCAL BUILD ONLY"
+docker build -t "$OVERLAY_IMAGE_NAME" \
+  --target demo \
+  --build-arg "NVML_MOCK_IMAGE=${IMAGE_NAME}" \
+  --build-arg "GOLANG_VERSION=$("${REPO_ROOT}/hack/golang-version.sh")" \
+  -f "${REPO_ROOT}/deployments/nvml-mock/Dockerfile.compute-domain-daemon" "$REPO_ROOT"
+
 info "Creating Kind cluster $CLUSTER_NAME"
 kind create cluster --name "$CLUSTER_NAME" --config "$KIND_CONFIG"
-kind load docker-image "$IMAGE_NAME" --name "$CLUSTER_NAME"
+kind load docker-image "$OVERLAY_IMAGE_NAME" --name "$CLUSTER_NAME"
 
 info "Installing nvml-mock (gb200) with NRI + IMEX channels + topology"
 helm upgrade --install "$RELEASE_NAME" "$CHART_PATH" \
   --namespace nvml-mock-system --create-namespace --wait \
   --set gpu.profile=gb200 \
-  --set image.repository="${IMAGE_NAME%%:*}" \
-  --set image.tag="${IMAGE_NAME##*:}" \
+  --set image.repository="${OVERLAY_IMAGE_NAME%%:*}" \
+  --set image.tag="${OVERLAY_IMAGE_NAME##*:}" \
   --set nri.enabled=true \
   --set imexChannels.count="$CHANNEL_COUNT" \
   -f "$TOPOLOGY_FILE"
