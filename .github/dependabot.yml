@@ -10,26 +10,37 @@ updates:
       interval: "weekly"
       day: "sunday"
     labels:
-    - dependencies
+      - "kind/dependencies"
     groups:
       k8sio:
         patterns:
-        - k8s.io/*
+          - "k8s.io/*"
         exclude-patterns:
-        - k8s.io/klog/*
+          - "k8s.io/klog/*"
 
   - package-ecosystem: "github-actions"
     target-branch: main
     directory: "/"
     schedule:
       interval: "daily"
+    labels:
+      - "kind/dependencies"
 
   - package-ecosystem: "docker"
     target-branch: main
     directories:
-    # Golang version
-    - "/deployments/devel"
+      # Golang version
+      - "/deployments/devel"
     schedule:
       interval: "daily"
     labels:
-    - dependencies
+      - "kind/dependencies"
+
+  - package-ecosystem: "npm"
+    target-branch: main
+    directory: "/.github/actions/repo-automation"
+    schedule:
+      interval: "weekly"
+      day: "sunday"
+    labels:
+      - "kind/dependencies"
