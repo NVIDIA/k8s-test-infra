@@ -19,6 +19,7 @@ pkg/network/*/libibmock*
 
 # Agentic working artifacts
 .agents/
+.superpowers/
 AGENTS.md
 docs/plans/
 docs/superpowers/
