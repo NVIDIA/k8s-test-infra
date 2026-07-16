@@ -45,8 +45,8 @@ Create a private CommonJS package with these scripts:
   },
   "dependencies": {
     "@actions/core": "1.11.1",
-    "@actions/github": "6.0.1",
-    "yaml": "2.8.1"
+    "@actions/github": "9.1.1",
+    "yaml": "2.9.0"
   },
   "devDependencies": {
     "@vercel/ncc": "0.38.4",
