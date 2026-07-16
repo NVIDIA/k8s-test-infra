@@ -53,7 +53,7 @@ const writeOperations = new Set([
 
 function signedCommit(overrides = {}) {
   return {
-    sha: "live-head-oid-6f9d",
+    sha: "6666666666666666666666666666666666666666",
     commit: {
       author: { name: "Contributor", email: "contributor@example.com" },
       message: "feat: secure metadata\n\nSigned-off-by: Contributor <contributor@example.com>",
@@ -72,7 +72,7 @@ function metadataState(overrides = {}) {
       body: "live-private-body-secret-sentinel-b037",
       draft: true,
       author: "pr-author",
-      headOid: "live-head-oid-6f9d",
+      headOid: "6666666666666666666666666666666666666666",
       state: "open",
       baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
     },
@@ -83,7 +83,7 @@ function metadataState(overrides = {}) {
     commitPages: [[signedCommit()]],
     reviewPages: [
       [{ user: "old-reviewer", state: "APPROVED", commitOid: "old-head" }],
-      [{ user: "alice", state: "COMMENTED", commitOid: "live-head-oid-6f9d" }],
+      [{ user: "alice", state: "COMMENTED", commitOid: "6666666666666666666666666666666666666666" }],
     ],
     requestedReviewers: ["alice", "outsider"],
     labels: [
@@ -148,7 +148,7 @@ test("metadata re-fetches live PR state and applies only the complete safe plan"
     dryRun: false,
   });
 
-  assert.equal(result.headOid, "live-head-oid-6f9d");
+  assert.equal(result.headOid, "6666666666666666666666666666666666666666");
   assert.equal(result.valid, true);
   assert.deepEqual(result.labels, expectedLabelChanges());
   assert.equal(result.reviewers.request.includes("pr-author"), false);
@@ -172,7 +172,7 @@ test("metadata re-fetches live PR state and applies only the complete safe plan"
   }
   assert.equal(snapshot.comments.length, 1);
   assert.equal(snapshot.comments[0].body.split(marker).length - 1, 1);
-  assert.match(snapshot.comments[0].body, /live-head-oid-6f9d/);
+  assert.match(snapshot.comments[0].body, /6666666666666666666666666666666666666666/);
   assert.equal(JSON.stringify(result).includes("live-private-body-secret-sentinel-b037"), false);
   assertNoEventMutableValue({ calls: github.callOrder, result, snapshot });
 
@@ -213,7 +213,7 @@ test("dry-run returns the complete plan and performs zero writes", async () => {
     dryRun: true,
   });
 
-  assert.equal(result.headOid, "live-head-oid-6f9d");
+  assert.equal(result.headOid, "6666666666666666666666666666666666666666");
   assert.deepEqual(result.labels, expectedLabelChanges());
   assert.equal(result.reviewers.request.length > 0, true);
   assert.match(result.comment.body, /repo-automation-policy:v1/);
@@ -238,9 +238,9 @@ test("invalid title, DCO, configuration, and ownership upsert diagnostics then f
     ["title", metadataState({ pullRequest: { ...metadataState().pullRequest, title: "not conventional" } }), validConfig],
     ["DCO", metadataState({ pullRequest: {
       ...metadataState().pullRequest,
-      headOid: "unsigned-commit",
+      headOid: "7".repeat(40),
     }, commitPages: [[signedCommit({
-      sha: "unsigned-commit",
+      sha: "7".repeat(40),
       commit: {
         author: { name: "Contributor", email: "contributor@example.com" },
         message: "feat: unsigned",
@@ -585,7 +585,7 @@ test("index dispatches metadata, writes summary output, and never executes the i
     githubClient,
   });
 
-  assert.equal(result.headOid, "live-head-oid-6f9d");
+  assert.equal(result.headOid, "6666666666666666666666666666666666666666");
   assert.deepEqual(outputs, [{ name: "summary", value: JSON.stringify(result) }]);
   assertNoEventMutableValue(outputs);
 });
@@ -621,7 +621,7 @@ test("index emits the diagnostic summary before propagating metadata failure", a
   const summary = JSON.parse(outputs[0].value);
   assert.equal(summary.valid, false);
   assert.equal(summary.title.valid, false);
-  assert.equal(summary.headOid, "live-head-oid-6f9d");
+  assert.equal(summary.headOid, "6666666666666666666666666666666666666666");
   assertNoEventMutableValue(outputs);
 });
 

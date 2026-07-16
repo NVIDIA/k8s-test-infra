@@ -1,5 +1,7 @@
 "use strict";
 
+const { serializePolicyState } = require("./commands/state.js");
+
 const POLICY_COMMENT_MARKER = "<!-- repo-automation-policy:v1 -->";
 const SAFE_LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
@@ -127,10 +129,18 @@ function status(valid) {
   return valid ? "PASS" : "FAIL";
 }
 
-function renderPolicyComment(result) {
+function renderPolicyComment(result, state = undefined) {
   const value = validateResult(result);
+  const policyState = state === undefined
+    ? { headOid: value.headOid, lgtm: null, lastRetest: null }
+    : state;
+  if (policyState?.headOid !== value.headOid) {
+    throw new TypeError("policy state must match the rendered head OID");
+  }
+  const stateMarker = serializePolicyState(policyState);
   const lines = [
     POLICY_COMMENT_MARKER,
+    stateMarker,
     "## PR metadata policy",
     "",
     `Head: ${code(value.headOid)}`,

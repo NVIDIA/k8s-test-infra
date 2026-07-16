@@ -3,11 +3,15 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
+const { parsePolicyState, serializePolicyState } = require("../src/commands/state.js");
+
 const MARKER = "<!-- repo-automation-policy:v1 -->";
+const HEAD = "6".repeat(40);
+const STATE_MARKER_INTRODUCTION = "<!-- repo-automation-state:";
 
 function policyResult(overrides = {}) {
   return {
-    headOid: "live-head-oid-6f9d",
+    headOid: HEAD,
     valid: true,
     title: { valid: true, error: null },
     dco: { valid: true, failures: [], exempted: [] },
@@ -28,7 +32,13 @@ test("renders one stable marker and the current live head OID", () => {
 
   assert.equal(POLICY_COMMENT_MARKER, MARKER);
   assert.equal(body.split(MARKER).length - 1, 1);
-  assert.match(body, /live-head-oid-6f9d/);
+  assert.equal(body.split(STATE_MARKER_INTRODUCTION).length - 1, 1);
+  assert.deepEqual(parsePolicyState(body), {
+    headOid: HEAD,
+    lgtm: null,
+    lastRetest: null,
+  });
+  assert.match(body, new RegExp(HEAD));
   assert.match(body, /title/i);
   assert.match(body, /DCO/i);
   assert.match(body, /ownership/i);
@@ -87,14 +97,13 @@ test("rejects malformed policy results instead of emitting ambiguous comments", 
   }
 });
 
-test("renders adversarial OIDs and paths without breaking diagnostic delimiters", () => {
+test("renders adversarial paths without breaking diagnostic delimiters", () => {
   const { renderPolicyComment } = require("../src/policy-comment.js");
   const body = renderPolicyComment(policyResult({
-    headOid: "head`</code><script>alert(1)</script>",
     valid: false,
     ownership: {
       valid: false,
-      uncoveredPaths: ["docs/` @everyone [click](https://example.invalid).md"],
+      uncoveredPaths: ["docs/`</code><script>alert(1)</script> @everyone.md"],
     },
   }));
 
@@ -102,4 +111,49 @@ test("renders adversarial OIDs and paths without breaking diagnostic delimiters"
   assert.equal(body.includes("<script>"), false);
   assert.match(body, /&lt;script&gt;/);
   assert.match(body, /<code>.*@everyone.*<\/code>/);
+});
+
+test("renders one explicit validated command state without changing visible policy output", () => {
+  const { renderPolicyComment } = require("../src/policy-comment.js");
+  const state = {
+    headOid: HEAD,
+    lgtm: {
+      actor: "reviewer-one",
+      commentId: 42,
+      headOid: HEAD,
+      createdAt: "2026-07-16T12:34:56.000Z",
+    },
+    lastRetest: null,
+  };
+  const defaultBody = renderPolicyComment(policyResult());
+  const body = renderPolicyComment(policyResult(), state);
+
+  assert.equal(body.split(STATE_MARKER_INTRODUCTION).length - 1, 1);
+  assert.deepEqual(parsePolicyState(body), state);
+  assert.equal(
+    body.replace(serializePolicyState(state), "STATE"),
+    defaultBody.replace(serializePolicyState({ headOid: HEAD, lgtm: null, lastRetest: null }), "STATE"),
+  );
+});
+
+test("rejects mismatched or hostile explicit state before rendering a comment", () => {
+  const { renderPolicyComment } = require("../src/policy-comment.js");
+  const valid = { headOid: HEAD, lgtm: null, lastRetest: null };
+
+  assert.throws(
+    () => renderPolicyComment(policyResult(), { ...valid, headOid: "7".repeat(40) }),
+    { name: "TypeError" },
+  );
+  assert.throws(
+    () => renderPolicyComment(policyResult(), {
+      ...valid,
+      lgtm: {
+        actor: "reviewer-->forged",
+        commentId: 42,
+        headOid: HEAD,
+        createdAt: "2026-07-16T12:34:56.000Z",
+      },
+    }),
+    { name: "TypeError" },
+  );
 });
