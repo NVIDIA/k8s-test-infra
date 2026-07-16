@@ -194,6 +194,32 @@ function chooseCandidate(remaining, uncovered) {
   return covering.sort(compareRace)[0];
 }
 
+function capRequestedReviewers(requested, details, files, target) {
+  const eligible = requested.filter((login) => details.has(login));
+  if (eligible.length <= target) {
+    return eligible;
+  }
+
+  const preserved = [];
+  const covered = new Set();
+  const used = new Set();
+  while (preserved.length < target) {
+    const remaining = eligible
+      .filter((login) => !used.has(login))
+      .map((login) => details.get(login));
+    const uncovered = new Set(
+      files.filter((file) => !covered.has(file.path)).map((file) => file.path),
+    );
+    const chosen = chooseCandidate(remaining, uncovered);
+    preserved.push(chosen.login);
+    used.add(chosen.login);
+    for (const path of chosen.reviewedPaths) {
+      covered.add(path);
+    }
+  }
+  return preserved.sort();
+}
+
 function selectReviewers(options) {
   if (!isRecord(options)) {
     throw new TypeError("options must be an object");
@@ -216,9 +242,12 @@ function selectReviewers(options) {
     `${seed.owner}/${seed.repo}#${seed.pr}`,
   );
   const detailsByLogin = new Map(details.map((candidate) => [candidate.login, candidate]));
-  const preserved = requested
-    .filter((login) => detailsByLogin.has(login))
-    .slice(0, options.target);
+  const preserved = capRequestedReviewers(
+    requested,
+    detailsByLogin,
+    files,
+    options.target,
+  );
   const selected = [];
   const covered = coveredPaths(preserved, detailsByLogin);
   const used = new Set(preserved);

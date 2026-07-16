@@ -155,17 +155,71 @@ test("preserves only eligible non-author requests and counts them toward the tar
   assert.deepEqual(result.uncoveredPaths, []);
 });
 
-test("caps preserved requests deterministically so the combined result is the exact target", () => {
-  const result = selection({
-    candidates: ["carol", "Bob", "alice"],
-    requested: ["CAROL", "bob", "ALICE"],
-    target: 2,
-  });
+test("breaks equal-coverage requested ties deterministically regardless of input order", () => {
+  const variants = [
+    {
+      candidates: ["carol", "Bob", "alice"],
+      files: [changedFile("src/main.go", ["carol", "bob", "alice"], 8, 2)],
+      requested: ["CAROL", "bob", "ALICE"],
+    },
+    {
+      candidates: ["ALICE", "carol", "bob"],
+      files: [changedFile("src/main.go", ["Alice", "BOB", "CAROL"], 8, 2)],
+      requested: ["alice", "carol", "BOB"],
+    },
+  ];
 
-  assert.deepEqual(result, {
+  for (const variant of variants) {
+    assert.deepEqual(selection({ ...variant, target: 2 }), {
+      selected: [],
+      preserved: ["alice", "bob"],
+      uncoveredPaths: [],
+    });
+  }
+});
+
+test("caps over-target requests by achievable changed-path coverage", () => {
+  const variants = [
+    {
+      candidates: ["alice", "bob", "carol"],
+      files: [
+        changedFile("old/a.go", ["alice", "bob"], 8, 2),
+        changedFile("new/b.go", ["carol"], 1, 0),
+      ],
+      requested: ["alice", "bob", "carol"],
+    },
+    {
+      candidates: ["CAROL", "Bob", "ALICE"],
+      files: [
+        changedFile("new/b.go", ["CAROL"], 1, 0),
+        changedFile("old/a.go", ["BOB", "Alice"], 8, 2),
+      ],
+      requested: ["carol", "ALICE", "bob"],
+    },
+  ];
+
+  for (const variant of variants) {
+    assert.deepEqual(selection({ ...variant, target: 2 }), {
+      selected: [],
+      preserved: ["alice", "carol"],
+      uncoveredPaths: [],
+    });
+  }
+});
+
+test("preserves every eligible request when their count does not exceed the target", () => {
+  assert.deepEqual(selection({
+    candidates: ["alice", "bob", "carol"],
+    files: [
+      changedFile("old/a.go", ["alice", "bob"], 8, 2),
+      changedFile("new/b.go", ["carol"], 1, 0),
+    ],
+    requested: ["Bob", "ALICE"],
+    target: 2,
+  }), {
     selected: [],
     preserved: ["alice", "bob"],
-    uncoveredPaths: [],
+    uncoveredPaths: ["new/b.go"],
   });
 });
 
