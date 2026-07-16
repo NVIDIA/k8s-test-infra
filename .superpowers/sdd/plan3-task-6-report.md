@@ -14,12 +14,13 @@
 - The mode plans from one live snapshot, then re-fetches and compares repository,
   number, open state, draft state, author, base repository, and head OID directly
   before any write. Dry-run stops before this write fence and performs no writes.
-- Mutation order is deterministic: assignee deltas, hold display state, newly
-  needed reviewer requests, LGTM/approval/needs-approval display state, policy
-  state/comment checkpoint, then retest reruns. Mutations are either reconciled
-  from live state or use an idempotent endpoint. Retest state is checkpointed
-  before reruns, and each planned run is re-fetched immediately before its
-  non-retried rerun call; a changed/non-failed run is skipped.
+- Mutation order is deterministic: assignee deltas; all policy-label deltas in
+  fixed LGTM, approved, hold, and needs-approval order; newly needed reviewer
+  requests; the policy state/comment checkpoint; then retest reruns. Mutations
+  are either reconciled from live state or use an idempotent endpoint. Retest
+  state is checkpointed before reruns, and each planned run is re-fetched
+  immediately before its non-retried rerun call; a changed/non-failed run is
+  skipped.
 - A failure stops later operations. The returned/thrown summary contains only
   fixed operation and reason codes plus validated identifiers. Successfully
   applied operations remain listed, enabling a safe live-state retry.
@@ -67,6 +68,50 @@
   fence; manual label as LGTM authority; same-comment LGTM timestamp overwrite;
   automatic transient rerun retry; and invalid-policy command execution.
 - No workflow file changed, so `actionlint` was not applicable to this task.
+
+## Independent-review corrections
+
+- `/retest` now accepts only the fixed source-controlled workflow allowlist
+  `.github/workflows/automation-ci.yml`,
+  `.github/workflows/basic-checks.yaml`, and
+  `.github/workflows/helm.yaml`. The GitHub boundary safely normalizes an
+  optional `@refs/...` suffix and filters by workflow path, `pull_request`
+  event, exact head, current PR association, and base-repository identity at
+  list time. The final non-retried rerun read validates the same identity and
+  compares it with the planned record. Publisher, manual, push, wrong-PR,
+  wrong-repository, malformed/traversal, stale-head, and list/get mutation cases
+  are covered.
+- An untrustworthy command-policy state now forces LGTM and approval false,
+  requests no approvers, removes either display-authority label, and
+  preserves/adds `do-not-merge/needs-approval`. Malformed and duplicated state
+  with otherwise complete current-head review coverage are covered in both
+  apply and dry-run modes; dry-run exposes the complete label delta without
+  writing.
+- State authority and rendering now share one exact policy/state/command marker
+  structure. The policy marker must be first and the single canonical state
+  marker second; an optional single command marker may only follow the metadata
+  prefix. Reordered, missing, duplicated, or malformed structure resets to null
+  authority. Rendering validates its input prefix, replaces exactly one state
+  marker, emits exactly one canonical marker, and validates the final body.
+  Valid metadata-prefix round trips remain byte-stable.
+
+### Correction verification evidence
+
+- RED was observed for all three findings before production changes: expanded
+  workflow identity was rejected by the old planner; reordered markers were
+  trusted; and complete approval coverage survived malformed/duplicate state.
+- Focused retest, policy-comment, and command integration suite: 115/115 pass.
+- Full suite with loopback permission: 610/610 pass. The ordinary sandbox run
+  is 609/610 solely because the existing packaged-action smoke server cannot
+  bind `127.0.0.1` there (`EPERM`).
+- ESLint and `git diff --check` pass. Two consecutive `npm run package` builds
+  were byte-identical; the generated `867kB dist/index.js` SHA-256 is
+  `de168570b3aac4a99ee05d4dd0932244448af6e9a0c38b01c0f0447c182dfc52`.
+- Six targeted mutants were killed: broadening the workflow allowlist; removing
+  the event gate; removing final workflow-path identity comparison; restoring
+  approval from invalid state; trusting marker presence without marker order;
+  and omitting the renderer's exact state replacement.
+- No workflow file changed, so `actionlint` remains not applicable.
 
 ## Delivery
 

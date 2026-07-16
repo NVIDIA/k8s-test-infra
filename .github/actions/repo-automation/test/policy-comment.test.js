@@ -6,6 +6,7 @@ const test = require("node:test");
 const { parsePolicyState, serializePolicyState } = require("../src/commands/state.js");
 
 const MARKER = "<!-- repo-automation-policy:v1 -->";
+const COMMAND_MARKER = "<!-- repo-automation-command-summary:v1 -->";
 const HEAD = "6".repeat(40);
 const STATE_MARKER_INTRODUCTION = "<!-- repo-automation-state:";
 
@@ -156,4 +157,66 @@ test("rejects mismatched or hostile explicit state before rendering a comment", 
     }),
     { name: "TypeError" },
   );
+});
+
+test("command rendering rejects reordered, missing, and duplicated state markers", () => {
+  const { renderCommandPolicyComment } = require("../src/policy-comment.js");
+  const state = { headOid: HEAD, lgtm: null, lastRetest: null };
+  const canonicalState = serializePolicyState(state);
+  const input = {
+    state,
+    items: [],
+    policy: { lgtm: false, approved: false, hold: false, needsApproval: true },
+  };
+  const malformed = [
+    `${MARKER}\n${COMMAND_MARKER}\n## Command policy\n${canonicalState}\n`,
+    `${MARKER}\n## PR metadata policy\n`,
+    `${MARKER}\n${canonicalState}\n${canonicalState}\n`,
+  ];
+
+  for (const existingBody of malformed) {
+    assert.throws(
+      () => renderCommandPolicyComment({ ...input, existingBody }),
+      /policy comment|state|structure/i,
+    );
+  }
+});
+
+test("command rendering preserves a valid metadata prefix and emits one canonical state", () => {
+  const { renderCommandPolicyComment } = require("../src/policy-comment.js");
+  const initialState = { headOid: HEAD, lgtm: null, lastRetest: null };
+  const nextState = {
+    headOid: HEAD,
+    lgtm: {
+      actor: "alice",
+      commentId: 42,
+      headOid: HEAD,
+      createdAt: "2026-07-16T12:34:56.000Z",
+    },
+    lastRetest: null,
+  };
+  const metadata = [
+    MARKER,
+    serializePolicyState(initialState),
+    "## PR metadata policy",
+    "",
+    "- Title: **PASS**",
+    "- DCO: **PASS**",
+  ].join("\n");
+  const input = {
+    existingBody: metadata,
+    state: nextState,
+    items: [],
+    policy: { lgtm: true, approved: false, hold: false, needsApproval: true },
+  };
+
+  const first = renderCommandPolicyComment(input);
+  const second = renderCommandPolicyComment({ ...input, existingBody: first });
+  const expectedPrefix = metadata.replace(serializePolicyState(initialState), serializePolicyState(nextState));
+
+  assert.equal(first, second);
+  assert.equal(first.split(STATE_MARKER_INTRODUCTION).length - 1, 1);
+  assert.equal(first.split(COMMAND_MARKER).length - 1, 1);
+  assert.equal(first.startsWith(`${expectedPrefix}\n${COMMAND_MARKER}\n`), true);
+  assert.deepEqual(parsePolicyState(first), nextState);
 });

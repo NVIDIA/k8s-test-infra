@@ -1,11 +1,13 @@
 "use strict";
 
-const { serializePolicyState } = require("./commands/state.js");
+const { parsePolicyState, serializePolicyState } = require("./commands/state.js");
 
 const POLICY_COMMENT_MARKER = "<!-- repo-automation-policy:v1 -->";
 const COMMAND_SUMMARY_MARKER = "<!-- repo-automation-command-summary:v1 -->";
 const SAFE_LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+const STATE_MARKER_INTRODUCTION = "<!-- repo-automation-state:";
+const STATE_MARKER_LINE = /^<!-- repo-automation-state:v1 [^\r\n]+ -->$/;
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -130,6 +132,34 @@ function status(valid) {
   return valid ? "PASS" : "FAIL";
 }
 
+function policyCommentStructure(body) {
+  if (
+    typeof body !== "string"
+    || body === ""
+    || body.length > 65_536
+    || body.includes("\r")
+    || body.split(POLICY_COMMENT_MARKER).length - 1 !== 1
+    || body.split(STATE_MARKER_INTRODUCTION).length - 1 !== 1
+    || body.split(COMMAND_SUMMARY_MARKER).length - 1 > 1
+  ) return null;
+  const lines = body.split("\n");
+  if (lines[0] !== POLICY_COMMENT_MARKER || !STATE_MARKER_LINE.test(lines[1] ?? "")) return null;
+  const commandIndex = lines.indexOf(COMMAND_SUMMARY_MARKER);
+  if (
+    (body.includes(COMMAND_SUMMARY_MARKER) && commandIndex < 2)
+    || lines.slice(2).some((line, index) => (
+      line === POLICY_COMMENT_MARKER
+      || STATE_MARKER_LINE.test(line)
+      || (line === COMMAND_SUMMARY_MARKER && index + 2 !== commandIndex)
+    ))
+  ) return null;
+  return { commandIndex, stateMarker: lines[1] };
+}
+
+function hasValidPolicyCommentStructure(body) {
+  return policyCommentStructure(body) !== null;
+}
+
 function renderPolicyComment(result, state = undefined) {
   const value = validateResult(result);
   const policyState = state === undefined
@@ -182,20 +212,15 @@ function renderCommandPolicyComment({ existingBody = null, state, items, policy 
   if (existingBody === null) {
     preserved = `${POLICY_COMMENT_MARKER}\n${stateMarker}`;
   } else {
-    if (
-      typeof existingBody !== "string"
-      || existingBody.length > 65_536
-      || existingBody.split(POLICY_COMMENT_MARKER).length - 1 !== 1
-      || existingBody.split(COMMAND_SUMMARY_MARKER).length - 1 > 1
-    ) {
-      throw new TypeError("existing policy comment must be bounded and singular");
+    const structure = policyCommentStructure(existingBody);
+    if (structure === null || parsePolicyState(existingBody) === null) {
+      throw new TypeError("existing policy comment structure is invalid");
     }
-    const stateMatches = [...existingBody.matchAll(/<!-- repo-automation-state:v1 [^\r\n]* -->/g)];
-    if (stateMatches.length !== 1) {
-      throw new TypeError("existing policy comment state must be singular");
-    }
-    const withoutOldSummary = existingBody.split(COMMAND_SUMMARY_MARKER, 1)[0].trimEnd();
-    preserved = withoutOldSummary.replace(stateMatches[0][0], stateMarker);
+    const lines = existingBody.split("\n");
+    const prefixLines = lines.slice(0, structure.commandIndex === -1 ? lines.length : structure.commandIndex);
+    if (prefixLines.at(-1) === "") prefixLines.pop();
+    prefixLines[1] = stateMarker;
+    preserved = prefixLines.join("\n");
   }
   const lines = [
     preserved,
@@ -230,12 +255,20 @@ function renderCommandPolicyComment({ existingBody = null, state, items, policy 
   if (body.length > 65_536) {
     throw new TypeError("rendered command policy comment exceeds limit");
   }
+  if (
+    policyCommentStructure(body) === null
+    || body.split(stateMarker).length - 1 !== 1
+    || JSON.stringify(parsePolicyState(body)) !== JSON.stringify(state)
+  ) {
+    throw new TypeError("rendered command policy comment structure is invalid");
+  }
   return body;
 }
 
 module.exports = {
   COMMAND_SUMMARY_MARKER,
   POLICY_COMMENT_MARKER,
+  hasValidPolicyCommentStructure,
   renderCommandPolicyComment,
   renderPolicyComment,
 };

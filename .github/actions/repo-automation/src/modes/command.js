@@ -7,6 +7,7 @@ const { validateConfig } = require("../config.js");
 const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
 const {
   POLICY_COMMENT_MARKER,
+  hasValidPolicyCommentStructure,
   renderCommandPolicyComment,
 } = require("../policy-comment.js");
 
@@ -145,7 +146,7 @@ function currentState(comment, headOid) {
       renderBody: null,
     };
   }
-  if (comment.body.split(POLICY_COMMENT_MARKER).length - 1 !== 1) {
+  if (!hasValidPolicyCommentStructure(comment.body)) {
     return {
       state: { headOid, lgtm: null, lastRetest: null },
       trustworthy: false,
@@ -266,7 +267,9 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
   ])].sort();
   const needsRuns = ownerAuthorityValid
     && parsed.commands.some((command) => command.name === "retest");
-  const runs = needsRuns ? await github.listWorkflowRunsForHead(pullRequest.headOid) : [];
+  const runs = needsRuns
+    ? await github.listWorkflowRunsForHead(pullRequest.headOid, identity.prNumber)
+    : [];
   const timestamp = now();
   const state = ownerAuthorityValid
     ? stored.state
@@ -288,6 +291,8 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     commentId: identity.commentId,
     now: timestamp,
     cooldownSeconds: 600,
+    prNumber: identity.prNumber,
+    repository: `${identity.owner}/${identity.repo}`,
     authorityValid: ownerAuthorityValid,
     assignmentFanoutExceeded: targetPlan.exceeded,
   });
@@ -301,6 +306,10 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     commands: plan.commands,
     diagnostics: plan.diagnostics,
     policy: plan.policy,
+    labels: {
+      add: plan.mutations.addLabels,
+      remove: plan.mutations.removeLabels,
+    },
     apply: { attempted: [], applied: [], failed: null },
   };
   const commentBody = renderCommandPolicyComment({
@@ -365,12 +374,18 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
 
   for (const runId of plan.mutations.rerunRunIds) {
     await fence();
-    const run = await github.getWorkflowRun(runId);
+    const plannedRun = runs.find((candidate) => candidate.id === runId);
+    const run = await github.getWorkflowRun(runId, pullRequest.headOid, identity.prNumber);
     if (
-      run?.id !== runId
-      || run.headOid !== pullRequest.headOid
+      plannedRun === undefined
+      || run?.id !== plannedRun.id
+      || run.headOid !== plannedRun.headOid
       || run.status !== "completed"
       || run.conclusion !== "failure"
+      || run.workflowPath !== plannedRun.workflowPath
+      || run.event !== plannedRun.event
+      || run.prNumber !== plannedRun.prNumber
+      || run.repository !== plannedRun.repository
     ) continue;
     await apply(descriptor("rerunFailedJobs", { runId }), () => github.rerunFailedJobs(runId));
   }

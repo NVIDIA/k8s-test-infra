@@ -4,6 +4,7 @@ const { Buffer } = require("node:buffer");
 const { setTimeout: delay } = require("node:timers/promises");
 const { TextDecoder } = require("node:util");
 const { isManagedMetadataLabel, isManagedPolicyLabel } = require("./managed-labels.js");
+const { trustedWorkflowPath } = require("./retest.js");
 
 const MAX_CONTENT_BYTES = 1024 * 1024;
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -125,16 +126,36 @@ function loginList(values, name) {
   return normalized;
 }
 
-function workflowRun(data) {
-  if (data === null || typeof data !== "object" || Array.isArray(data)) {
-    throw new TypeError("workflow run must be an object");
+function workflowRun(data, expected) {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) return null;
+  try {
+    const workflowPath = trustedWorkflowPath(data.path);
+    const runRepository = nonEmptyString(
+      data.repository?.full_name,
+      "workflow run repository",
+    ).toLowerCase();
+    if (
+      workflowPath === null
+      || data.event !== "pull_request"
+      || !Array.isArray(data.pull_requests)
+      || data.pull_requests.length !== 1
+      || positiveInteger(data.pull_requests[0]?.number, "workflow run PR number") !== expected.prNumber
+      || runRepository !== expected.repository
+    ) return null;
+    const run = {
+      id: positiveInteger(data.id, "workflow run id"),
+      headOid: gitOid(data.head_sha, "workflow run head OID"),
+      status: nonEmptyString(data.status, "workflow run status"),
+      conclusion: data.conclusion === null ? null : nonEmptyString(data.conclusion, "workflow run conclusion"),
+      workflowPath,
+      event: data.event,
+      prNumber: expected.prNumber,
+      repository: runRepository,
+    };
+    return run.headOid === expected.headOid ? run : null;
+  } catch {
+    return null;
   }
-  return {
-    id: positiveInteger(data.id, "workflow run id"),
-    headOid: gitOid(data.head_sha, "workflow run head OID"),
-    status: nonEmptyString(data.status, "workflow run status"),
-    conclusion: data.conclusion === null ? null : nonEmptyString(data.conclusion, "workflow run conclusion"),
-  };
 }
 
 function headersFor(error) {
@@ -204,6 +225,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
   if (typeof sleep !== "function") throw new TypeError("sleep must be a function");
   const now = options.now ?? Date.now;
   if (typeof now !== "function") throw new TypeError("now must be a function");
+  const repositoryIdentity = `${owner}/${repo}`.toLowerCase();
 
   async function call(operation, request, retrySafe = false) {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -543,22 +565,35 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       return labels.map((label) => nonEmptyString(label.name, "issue label"));
     },
 
-    async listWorkflowRunsForHead(headOid) {
+    async listWorkflowRunsForHead(headOid, prNumber) {
       const requestedHead = gitOid(headOid, "head OID");
+      const requestedPr = positiveInteger(prNumber, "PR number");
       const runs = await paginate("listWorkflowRunsForHead", octokit.rest.actions.listWorkflowRunsForRepo, {
         owner,
         repo,
         head_sha: requestedHead,
       }, (response) => response.data.workflow_runs);
-      return runs.map(workflowRun);
+      return runs
+        .map((run) => workflowRun(run, {
+          headOid: requestedHead,
+          prNumber: requestedPr,
+          repository: repositoryIdentity,
+        }))
+        .filter((run) => run !== null);
     },
 
-    async getWorkflowRun(runId) {
+    async getWorkflowRun(runId, headOid, prNumber) {
       positiveInteger(runId, "workflow run id");
+      const requestedHead = gitOid(headOid, "head OID");
+      const requestedPr = positiveInteger(prNumber, "PR number");
       const { data } = await call("getWorkflowRun", () => octokit.rest.actions.getWorkflowRun({
         owner, repo, run_id: runId,
       }), true);
-      return workflowRun(data);
+      return workflowRun(data, {
+        headOid: requestedHead,
+        prNumber: requestedPr,
+        repository: repositoryIdentity,
+      });
     },
 
     async getDefaultBranchRevision() {

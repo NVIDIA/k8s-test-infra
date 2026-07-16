@@ -8,6 +8,8 @@ const { planRetest } = require("../src/retest.js");
 const HEAD = "c".repeat(40);
 const OTHER_HEAD = "d".repeat(40);
 const NOW = "2026-07-16T12:10:00.000Z";
+const PR_NUMBER = 42;
+const REPOSITORY = "nvidia/k8s-test-infra";
 
 function run(id, overrides = {}) {
   return {
@@ -15,6 +17,10 @@ function run(id, overrides = {}) {
     headOid: HEAD,
     status: "completed",
     conclusion: "failure",
+    workflowPath: ".github/workflows/automation-ci.yml",
+    event: "pull_request",
+    prNumber: PR_NUMBER,
+    repository: REPOSITORY,
     ...overrides,
   };
 }
@@ -36,6 +42,8 @@ function input(overrides = {}) {
     lastRetest: null,
     cooldownSeconds: 600,
     commentId: 101,
+    prNumber: PR_NUMBER,
+    repository: REPOSITORY,
     ...overrides,
   };
 }
@@ -60,6 +68,29 @@ test("plans only completed failed workflow runs for the exact current head", () 
 
   assert.deepEqual(result, {
     rerunRunIds: [2, 10],
+    nextAllowedAt: null,
+    reason: "rerun-failed",
+  });
+});
+
+test("plans only fixed source-controlled pull-request CI for this repository and PR", () => {
+  const result = planRetest(input({
+    runs: [
+      run(1),
+      run(2, { workflowPath: ".github/workflows/basic-checks.yaml" }),
+      run(3, { workflowPath: ".github/workflows/helm.yaml" }),
+      run(4, { workflowPath: ".github/workflows/nvml-mock-publish.yaml", event: "workflow_dispatch" }),
+      run(5, { workflowPath: ".github/workflows/release.yaml", event: "push" }),
+      run(6, { event: "workflow_dispatch" }),
+      run(7, { prNumber: 99 }),
+      run(8, { repository: "attacker/fork" }),
+      run(9, { workflowPath: ".github/workflows/../workflows/automation-ci.yml" }),
+      run(10, { workflowPath: ".github/workflows/nvml-mock-publish.yaml" }),
+    ],
+  }));
+
+  assert.deepEqual(result, {
+    rerunRunIds: [1, 2, 3],
     nextAllowedAt: null,
     reason: "rerun-failed",
   });
@@ -148,6 +179,7 @@ test("fails closed without a partial plan for malformed or API-error-shaped runs
     [run(1), run(2, { status: "mystery", conclusion: "failure" })],
     [run(1), { ...run(2), unexpected: true }],
     [run(1), run(1, { conclusion: "success" })],
+    [run(1), run(1, { workflowPath: ".github/workflows/basic-checks.yaml" })],
   ];
 
   for (const runs of invalidRunSets) {
@@ -167,6 +199,9 @@ test("validates all planner and persisted-state fields without throwing", () => 
     input({ cooldownSeconds: "600" }),
     input({ commentId: 0 }),
     input({ commentId: Number.MAX_SAFE_INTEGER + 1 }),
+    input({ prNumber: 0 }),
+    input({ repository: "NVIDIA/k8s-test-infra" }),
+    input({ repository: "nvidia/../k8s-test-infra" }),
     input({ lastRetest: { ...lastRetest(), commentId: -1 } }),
     input({ lastRetest: { ...lastRetest(), createdAt: "2026-07-16T12:00:00Z" } }),
     input({ lastRetest: { ...lastRetest(), extra: true } }),

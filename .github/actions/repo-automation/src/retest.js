@@ -2,8 +2,12 @@
 
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-const INPUT_KEYS = ["runs", "headOid", "now", "lastRetest", "cooldownSeconds", "commentId"];
-const RUN_KEYS = ["id", "headOid", "status", "conclusion"];
+const INPUT_KEYS = [
+  "runs", "headOid", "now", "lastRetest", "cooldownSeconds", "commentId", "prNumber", "repository",
+];
+const RUN_KEYS = [
+  "id", "headOid", "status", "conclusion", "workflowPath", "event", "prNumber", "repository",
+];
 const RETEST_KEYS = ["commentId", "headOid", "createdAt"];
 const STATUSES = new Set(["requested", "waiting", "pending", "queued", "in_progress", "completed"]);
 const CONCLUSIONS = new Set([
@@ -17,6 +21,12 @@ const CONCLUSIONS = new Set([
   "success",
   "timed_out",
 ]);
+const TRUSTED_WORKFLOW_PATHS = new Set([
+  ".github/workflows/automation-ci.yml",
+  ".github/workflows/basic-checks.yaml",
+  ".github/workflows/helm.yaml",
+]);
+const REPOSITORY = /^[a-z0-9](?:[a-z0-9.-]{0,99})\/[a-z0-9](?:[a-z0-9._-]{0,99})$/;
 
 function noRerun(reason, nextAllowedAt = null) {
   return { rerunRunIds: [], nextAllowedAt, reason };
@@ -44,6 +54,41 @@ function isPositiveId(value) {
   return Number.isSafeInteger(value) && value > 0;
 }
 
+function trustedWorkflowPath(value) {
+  if (typeof value !== "string" || value === "" || value.length > 512 || /[\0\r\n\\]/.test(value)) {
+    return null;
+  }
+  const separator = value.indexOf("@");
+  const path = separator === -1 ? value : value.slice(0, separator);
+  if (!TRUSTED_WORKFLOW_PATHS.has(path)) return null;
+  if (separator === -1) return path;
+  const ref = value.slice(separator + 1);
+  if (
+    ref === ""
+    || ref.includes("@")
+    || ref.includes("//")
+    || ref.includes("..")
+    || ref.includes("@{")
+    || /[\x00-\x20~^:?*\[\]]/.test(ref)
+  ) return null;
+  if (/^refs\/pull\/[1-9]\d*\/(?:head|merge)$/.test(ref)) return path;
+  if (!/^refs\/(?:heads|tags)\/[A-Za-z0-9._/-]+$/.test(ref)) return null;
+  const segments = ref.split("/");
+  if (segments.some((segment) => (
+    segment === ""
+    || segment.startsWith(".")
+    || segment.endsWith(".")
+    || segment.endsWith(".lock")
+  ))) {
+    return null;
+  }
+  return path;
+}
+
+function validRepository(value) {
+  return typeof value === "string" && value.length <= 201 && REPOSITORY.test(value);
+}
+
 function timestampMilliseconds(value) {
   if (typeof value !== "string" || !UTC_TIMESTAMP.test(value)) return null;
   const milliseconds = Date.parse(value);
@@ -64,6 +109,16 @@ function validRun(value) {
     || !isPositiveId(value.id)
     || !isOid(value.headOid)
     || !STATUSES.has(value.status)
+    || typeof value.workflowPath !== "string"
+    || value.workflowPath === ""
+    || value.workflowPath.length > 512
+    || /[\0\r\n]/.test(value.workflowPath)
+    || typeof value.event !== "string"
+    || value.event === ""
+    || value.event.length > 64
+    || /[^a-z_]/.test(value.event)
+    || !isPositiveId(value.prNumber)
+    || !validRepository(value.repository)
   ) return false;
   if (value.status === "completed") return CONCLUSIONS.has(value.conclusion);
   return value.conclusion === null;
@@ -79,6 +134,8 @@ function planRetest(input) {
     || nowMilliseconds === null
     || input.cooldownSeconds !== 600
     || !isPositiveId(input.commentId)
+    || !isPositiveId(input.prNumber)
+    || !validRepository(input.repository)
     || (input.lastRetest !== null && !validLastRetest(input.lastRetest))
   ) return noRerun("invalid-input");
 
@@ -91,7 +148,7 @@ function planRetest(input) {
       && (
         previous.headOid !== run.headOid
         || previous.status !== run.status
-        || previous.conclusion !== run.conclusion
+        || RUN_KEYS.some((key) => previous[key] !== run[key])
       )
     ) return noRerun("invalid-runs");
     runById.set(run.id, run);
@@ -123,6 +180,10 @@ function planRetest(input) {
       run.headOid === input.headOid
       && run.status === "completed"
       && run.conclusion === "failure"
+      && trustedWorkflowPath(run.workflowPath) === run.workflowPath
+      && run.event === "pull_request"
+      && run.prNumber === input.prNumber
+      && run.repository === input.repository
     ))
     .map((run) => run.id)
     .sort((left, right) => left - right);
@@ -131,4 +192,4 @@ function planRetest(input) {
     : { rerunRunIds, nextAllowedAt: null, reason: "rerun-failed" };
 }
 
-module.exports = { planRetest };
+module.exports = { planRetest, trustedWorkflowPath };

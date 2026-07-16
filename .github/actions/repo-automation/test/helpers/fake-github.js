@@ -176,13 +176,13 @@ function createFakeGitHub(initialState = []) {
       return labels.map(({ name }) => name);
     },
 
-    async listWorkflowRunsForHead(requestedHeadOid) {
-      record("listWorkflowRunsForHead", { headOid: requestedHeadOid });
+    async listWorkflowRunsForHead(requestedHeadOid, prNumber) {
+      record("listWorkflowRunsForHead", { headOid: requestedHeadOid, prNumber });
       return clone(options.workflowRuns ?? []);
     },
 
-    async getWorkflowRun(runId) {
-      record("getWorkflowRun", { runId });
+    async getWorkflowRun(runId, requestedHeadOid, prNumber) {
+      record("getWorkflowRun", { runId, headOid: requestedHeadOid, prNumber });
       const configured = options.workflowRunReads?.[runId];
       if (Array.isArray(configured) && configured.length > 0) {
         return clone(configured[Math.min(calls.getWorkflowRun.length - 1, configured.length - 1)]);

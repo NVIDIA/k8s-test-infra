@@ -17,6 +17,7 @@ const event = JSON.parse(fs.readFileSync(
 const headOid = "6".repeat(40);
 const oldOid = "5".repeat(40);
 const marker = "<!-- repo-automation-policy:v1 -->";
+const commandMarker = "<!-- repo-automation-command-summary:v1 -->";
 const writeOperations = new Set([
   "addAssignees",
   "removeAssignees",
@@ -40,6 +41,34 @@ function approvedReview(overrides = {}) {
     state: "APPROVED",
     commitOid: headOid,
     submittedAt: "2026-07-16T08:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function trustedRun(id, overrides = {}) {
+  return {
+    id,
+    headOid,
+    status: "completed",
+    conclusion: "failure",
+    workflowPath: ".github/workflows/automation-ci.yml",
+    event: "pull_request",
+    prNumber: 42,
+    repository: "nvidia/k8s-test-infra",
+    ...overrides,
+  };
+}
+
+function apiRun(id, overrides = {}) {
+  return {
+    id,
+    head_sha: headOid,
+    status: "completed",
+    conclusion: "failure",
+    path: ".github/workflows/automation-ci.yml@refs/pull/42/merge",
+    event: "pull_request",
+    pull_requests: [{ number: 42 }],
+    repository: { full_name: "NVIDIA/k8s-test-infra" },
     ...overrides,
   };
 }
@@ -83,9 +112,9 @@ function commandState(overrides = {}) {
     assignees: [],
     labels: ["do-not-merge/needs-approval"],
     workflowRuns: [
-      { id: 301, headOid, status: "completed", conclusion: "failure" },
-      { id: 302, headOid, status: "completed", conclusion: "success" },
-      { id: 303, headOid: oldOid, status: "completed", conclusion: "failure" },
+      trustedRun(301),
+      trustedRun(302, { conclusion: "success" }),
+      trustedRun(303, { headOid: oldOid }),
     ],
     contents: {
       "/OWNERS": [
@@ -507,6 +536,67 @@ test("state parsing is current-head, action-owned, singular, and fail closed", a
       true,
     );
   });
+
+  for (const [name, body] of [
+    ["reordered markers", `${marker}\n${commandMarker}\n## Command policy\n${serializePolicyState({ headOid, lgtm: null, lastRetest: null })}\n`],
+    ["missing state", `${marker}\n## PR metadata policy\n`],
+    ["duplicated state", `${marker}\n${serializePolicyState({ headOid, lgtm: null, lastRetest: null })}\n${serializePolicyState({ headOid, lgtm: null, lastRetest: null })}\n`],
+  ]) {
+    await t.test(name, async () => {
+      const base = commandState();
+      const { github, result } = await run(commandState({
+        issueComment: { ...base.issueComment, author: "pr-author", body: "/help" },
+        comments: [{ id: 77, author: "github-actions[bot]", body }],
+      }));
+      const rendered = github.commandSnapshot().comments[0].body;
+      assert.equal(result.status, "partial");
+      assert.equal(result.policy.lgtm, false);
+      assert.equal(rendered.split("<!-- repo-automation-state:").length - 1, 1);
+      assert.equal(rendered.split(commandMarker).length - 1, 1);
+      assert.equal(rendered.startsWith(`${marker}\n${serializePolicyState({ headOid, lgtm: null, lastRetest: null })}\n`), true);
+    });
+  }
+});
+
+test("invalid state authority clears approval and approver requests in apply and dry-run", async (t) => {
+  const canonical = serializePolicyState({ headOid, lgtm: null, lastRetest: null });
+  for (const [shape, body] of [
+    ["malformed", `${marker}\n<!-- repo-automation-state:v1 {} -->\n`],
+    ["duplicate", `${marker}\n${canonical}\n${canonical}\n`],
+  ]) {
+    for (const dryRun of [false, true]) {
+      await t.test(`${shape} ${dryRun ? "dry-run" : "apply"}`, async () => {
+        const base = commandState();
+        const { github, result } = await run(commandState({
+          issueComment: { ...base.issueComment, author: "pr-author", body: "/help" },
+          comments: [{ id: 77, author: "github-actions[bot]", body }],
+          labels: ["lgtm", "approved"],
+          reviews: [approvedReview()],
+        }), { dryRun });
+
+        assert.equal(result.status, "partial");
+        assert.deepEqual(result.policy, {
+          lgtm: false,
+          approved: false,
+          hold: false,
+          needsApproval: true,
+          uncoveredPaths: [],
+          approverUncoveredPaths: [],
+          requestApprovers: [],
+        });
+        assert.deepEqual(result.labels, {
+          add: ["do-not-merge/needs-approval"],
+          remove: ["lgtm", "approved"],
+        });
+        if (dryRun) {
+          assert.deepEqual(writes(github), []);
+        } else {
+          assert.deepEqual(github.commandSnapshot().labels, ["do-not-merge/needs-approval"]);
+          assert.deepEqual(github.calls.requestReviewers, []);
+        }
+      });
+    }
+  }
 });
 
 test("same-comment LGTM and cancellation redelivery preserve provenance and converge", async (t) => {
@@ -548,13 +638,29 @@ test("retest is exact-head failure-only, cooldown-bound, and duplicate safe", as
     }));
     assert.deepEqual(github.calls.rerunFailedJobs, [{ runId: 301 }]);
     assert.equal(result.commands[0].code, "retest-planned");
-    assert.deepEqual(github.calls.getWorkflowRun, [{ runId: 301 }]);
+    assert.deepEqual(github.calls.listWorkflowRunsForHead, [{ headOid, prNumber: 42 }]);
+    assert.deepEqual(github.calls.getWorkflowRun, [{ runId: 301, headOid, prNumber: 42 }]);
+  });
+  await t.test("never reruns privileged, manual, push, publisher, or wrong-PR runs on the same head", async () => {
+    const base = commandState();
+    const { github } = await run(commandState({
+      issueComment: { ...base.issueComment, author: "pr-author", body: "/retest" },
+      workflowRuns: [
+        trustedRun(301),
+        trustedRun(304, { workflowPath: ".github/workflows/nvml-mock-publish.yaml", event: "workflow_dispatch" }),
+        trustedRun(305, { event: "workflow_dispatch" }),
+        trustedRun(306, { event: "push" }),
+        trustedRun(307, { prNumber: 99 }),
+        trustedRun(308, { workflowPath: ".github/workflows/release.yaml" }),
+      ],
+    }));
+    assert.deepEqual(github.calls.rerunFailedJobs, [{ runId: 301 }]);
   });
   await t.test("no failures", async () => {
     const base = commandState();
     const { github, result } = await run(commandState({
       issueComment: { ...base.issueComment, author: "pr-author", body: "/retest" },
-      workflowRuns: [{ id: 302, headOid, status: "completed", conclusion: "success" }],
+      workflowRuns: [trustedRun(302, { conclusion: "success" })],
     }));
     assert.equal(result.commands[0].code, "no-failed-runs");
     assert.deepEqual(github.calls.rerunFailedJobs, []);
@@ -583,7 +689,15 @@ test("retest is exact-head failure-only, cooldown-bound, and duplicate safe", as
     const base = commandState();
     const { github } = await run(commandState({
       issueComment: { ...base.issueComment, author: "pr-author", body: "/retest" },
-      workflowRunReads: { 301: [{ id: 301, headOid, status: "in_progress", conclusion: null }] },
+      workflowRunReads: { 301: [trustedRun(301, { status: "in_progress", conclusion: null })] },
+    }));
+    assert.deepEqual(github.calls.rerunFailedJobs, []);
+  });
+  await t.test("run identity changed between list and final get", async () => {
+    const base = commandState();
+    const { github } = await run(commandState({
+      issueComment: { ...base.issueComment, author: "pr-author", body: "/retest" },
+      workflowRunReads: { 301: [trustedRun(301, { workflowPath: ".github/workflows/basic-checks.yaml" })] },
     }));
     assert.deepEqual(github.calls.rerunFailedJobs, []);
   });
@@ -593,8 +707,8 @@ test("retest is exact-head failure-only, cooldown-bound, and duplicate safe", as
     const github = createFakeGitHub(commandState({
       issueComment: { ...base.issueComment, author: "pr-author", body: "/retest" },
       workflowRuns: [
-        { id: 301, headOid, status: "completed", conclusion: "failure" },
-        { id: 304, headOid, status: "completed", conclusion: "failure" },
+        trustedRun(301),
+        trustedRun(304),
       ],
       failures: { rerunFailedJobs: [null, secondFailure] },
     }));
@@ -763,8 +877,8 @@ test("GitHub client exposes fixed validated command endpoint contracts", async (
     },
     rest: {
       actions: {
-        listWorkflowRunsForRepo: endpoint("listWorkflowRunsForRepo", { workflow_runs: [{ id: 301, head_sha: headOid, status: "completed", conclusion: "failure" }] }),
-        getWorkflowRun: endpoint("getWorkflowRun", { id: 301, head_sha: headOid, status: "completed", conclusion: "failure" }),
+        listWorkflowRunsForRepo: endpoint("listWorkflowRunsForRepo", { workflow_runs: [apiRun(301)] }),
+        getWorkflowRun: endpoint("getWorkflowRun", apiRun(301)),
         reRunWorkflowFailedJobs: endpoint("reRunWorkflowFailedJobs", {}),
       },
       issues: {
@@ -789,8 +903,8 @@ test("GitHub client exposes fixed validated command endpoint contracts", async (
   assert.deepEqual(await client.getUserIdentity("alice"), { login: "alice", type: "User", resolved: true, deleted: false });
   assert.deepEqual(await client.getCollaboratorAccess("alice"), { liveCollaborator: true, permission: "write" });
   assert.deepEqual(await client.listIssueAssignees(42), ["alice"]);
-  assert.deepEqual(await client.listWorkflowRunsForHead(headOid), [{ id: 301, headOid, status: "completed", conclusion: "failure" }]);
-  assert.deepEqual(await client.getWorkflowRun(301), { id: 301, headOid, status: "completed", conclusion: "failure" });
+  assert.deepEqual(await client.listWorkflowRunsForHead(headOid, 42), [trustedRun(301)]);
+  assert.deepEqual(await client.getWorkflowRun(301, headOid, 42), trustedRun(301));
   await client.addAssignees(42, ["alice"]);
   await client.removeAssignees(42, ["alice"]);
   await client.rerunFailedJobs(301);
@@ -852,6 +966,33 @@ test("GitHub client maps complete review/state authority and never retries rerun
     const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 3, sleep: async () => {} });
     await assert.rejects(() => client.rerunFailedJobs(301), /rerunFailedJobs/);
     assert.equal(attempts, 1);
+  });
+  await t.test("workflow runs are filtered by fixed path, safe ref, event, PR, head, and repository", async () => {
+    const listWorkflowRunsForRepo = Object.assign(async () => ({ data: { workflow_runs: [
+      apiRun(1),
+      apiRun(2, { path: ".github/workflows/basic-checks.yaml" }),
+      apiRun(3, { path: ".github/workflows/helm.yaml@refs/heads/main" }),
+      apiRun(4, { path: ".github/workflows/nvml-mock-publish.yaml", event: "workflow_dispatch" }),
+      apiRun(5, { event: "workflow_dispatch" }),
+      apiRun(6, { event: "push" }),
+      apiRun(7, { pull_requests: [{ number: 99 }] }),
+      apiRun(8, { repository: { full_name: "attacker/fork" } }),
+      apiRun(9, { head_sha: oldOid }),
+      apiRun(10, { path: ".github/workflows/automation-ci.yml@refs/pull/42/../../heads/main" }),
+      apiRun(11, { path: ".github/workflows/../workflows/automation-ci.yml" }),
+      apiRun(12, { path: ".github/workflows/automation-ci.yml@refs/heads/.hidden" }),
+      apiRun(13, { path: ".github/workflows/automation-ci.yml@refs/heads/main." }),
+    ] } }), { endpointName: "listWorkflowRunsForRepo" });
+    const octokit = {
+      paginate: async (handler, parameters, map) => map(await handler(parameters)),
+      rest: { actions: { listWorkflowRunsForRepo } },
+    };
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+    assert.deepEqual(await client.listWorkflowRunsForHead(headOid, 42), [
+      trustedRun(1),
+      trustedRun(2, { workflowPath: ".github/workflows/basic-checks.yaml" }),
+      trustedRun(3, { workflowPath: ".github/workflows/helm.yaml" }),
+    ]);
   });
 });
 

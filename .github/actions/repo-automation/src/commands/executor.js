@@ -162,6 +162,8 @@ function planCommandExecution(input) {
         lastRetest: state.lastRetest,
         cooldownSeconds: input.cooldownSeconds,
         commentId: input.commentId,
+        prNumber: input.prNumber,
+        repository: input.repository,
       });
       if (retest.rerunRunIds.length > 0) {
         state.lastRetest = {
@@ -187,10 +189,11 @@ function planCommandExecution(input) {
     headOid: input.headOid,
     author: input.author,
   });
-  const lgtm = currentLgtm(state, input.headOid) !== null;
+  const lgtm = input.authorityValid === true && currentLgtm(state, input.headOid) !== null;
+  const approved = input.authorityValid === true && approval.approved;
   let selected = [];
   let approverUncoveredPaths = approval.uncoveredPaths;
-  if (lgtmApplied && lgtm) {
+  if (input.authorityValid === true && lgtmApplied && lgtm) {
     const selection = selectApprovers({
       files: input.ownedFiles.map((file) => ({ path: file.path, approvers: file.approvers })),
       effectiveReviews: approval.effectiveReviews,
@@ -201,10 +204,10 @@ function planCommandExecution(input) {
     selected = selection.selected;
     approverUncoveredPaths = selection.uncoveredPaths;
   }
-  const needsApproval = !(lgtm && approval.approved);
+  const needsApproval = !(lgtm && approved);
   const desiredLabels = [
     ...(lgtm ? ["lgtm"] : []),
-    ...(approval.approved ? ["approved"] : []),
+    ...(approved ? ["approved"] : []),
     ...(hold ? ["do-not-merge/hold"] : []),
     ...(needsApproval ? ["do-not-merge/needs-approval"] : []),
   ];
@@ -219,7 +222,7 @@ function planCommandExecution(input) {
     diagnostics: results.filter((result) => result.name === "diagnostic"),
     policy: {
       lgtm,
-      approved: approval.approved,
+      approved,
       hold,
       needsApproval,
       uncoveredPaths: approval.uncoveredPaths,
