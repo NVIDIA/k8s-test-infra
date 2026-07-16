@@ -1,0 +1,59 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Merged Kind cluster config for local dev — one cluster shape supports every
+# consumer scenario. Instead of recreating the cluster to switch consumers,
+# create it once and let the Tiltfile install the consumer of your choice on
+# top of nvml-mock.
+#
+# Usage:
+#   make cluster-create
+#   tilt up                                            # nvml-mock only, no consumer
+#   tilt up -- --gpu-operator                     # + NVIDIA GPU Operator
+#   tilt up -- --dra                              # + NVIDIA DRA driver
+#   tilt up -- --gpu-operator --dra          # both consumers side by side
+#
+# The custom node image (local/kind/Dockerfile) pre-bakes nvidia-container-toolkit
+# so the 'nvidia' runtime handler resolves to /usr/bin/nvidia-container-runtime
+# without any post-cluster setup. This matches what CI does via docker exec after
+# cluster creation (see .github/workflows/nvml-mock-e2e.yaml).
+#
+# Three cluster-level features are enabled here. Each is inert for consumers that
+# don't need it, so combining them does not break isolation:
+#
+#   1. featureGates.DynamicResourceAllocation + apiServer runtime-config
+#      resource.k8s.io/v1beta1=true — required for the DRA driver to publish
+#      ResourceSlices. If no ResourceClaim exists, the scheduler paths never
+#      fire, so leaving this on for non-DRA scenarios costs nothing at runtime.
+#
+#   2. enable_cdi = true in containerd — activates native CDI so the spec at
+#      /var/run/cdi/nvidia.yaml (written by the nvml-mock setup.sh) is honoured
+#      for device injection. Consumed by both nvidia-container-runtime (Operator
+#      path) and the DRA kubelet plugin.
+#
+#   3. runtimes.nvidia → nvidia-container-runtime — the GPU Operator creates
+#      RuntimeClass "nvidia" and its operand pods use it. nvidia-container-runtime
+#      in CDI mode intercepts NVIDIA_VISIBLE_DEVICES=all and performs CDI injection
+#      so toolkit-validation passes. Inert for DRA workloads (they don't set
+#      runtimeClassName).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: gpu-test
+featureGates:
+  DynamicResourceAllocation: true
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri"]
+      enable_cdi = true
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
+      runtime_type = "io.containerd.runc.v2"
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
+      BinaryName = "/usr/bin/nvidia-container-runtime"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          extraArgs:
+            runtime-config: "resource.k8s.io/v1beta1=true"

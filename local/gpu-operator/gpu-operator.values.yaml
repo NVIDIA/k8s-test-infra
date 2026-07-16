@@ -1,23 +1,15 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# GPU Operator Helm values overlay for mock GPU E2E testing on Kind.
+# GPU Operator Helm values overlay for the gpu-operator local dev scenario.
 #
-# Usage:
-#   helm install gpu-operator nvidia/gpu-operator \
-#     -n gpu-operator --create-namespace \
-#     -f tests/e2e/gpu-operator.values.yaml
+# Usage (via Tilt):
+#   tilt up -- --scenario gpu-operator
 #
 # Prerequisites:
-#   - nvml-mock Helm chart already installed (provides mock NVML + CUDA libs)
-#   - Node labelled nvidia.com/gpu.present=true (done by nvml-mock chart)
-#
-# Tested versions:
-#   - GPU Operator: v24.9.x
-#   - Device Plugin: v0.17.x (bundled with operator)
-#   - GFD: v0.17.x (bundled with operator)
-#   - DRA Driver: v0.10.x (standalone Helm chart, not part of operator)
-#   - CDI: nvidia-container-toolkit v1.17.x
+#   - Custom Kind node image built and cluster created:
+#       make cluster-create SCENARIO=gpu-operator
+#   - nvml-mock deployed first (Tilt handles ordering via resource_deps)
 
 # Driver is replaced by nvml-mock chart — no real kernel module needed.
 driver:
@@ -69,10 +61,15 @@ gfd:
       value: "/var/lib/nvml-mock/driver"
 
 # Validator checks that the GPU stack is functional.
-# driver-validation: mounts hostPath /run/nvidia/driver → our mock (via symlink).
-# toolkit-validation: CDI injection makes nvidia-smi available inside containers.
-# cuda-validation: WITH_WORKLOAD=false skips vectorAdd (kernel launch is a no-op).
-# plugin-validation: checks nvidia.com/gpu in node allocatable.
+#
+# driver-validation passes: it finds nvidia-smi via DRIVER_INSTALL_DIR and loads
+# libnvidia-ml.so via LD_LIBRARY_PATH, both pointing at the mock driver root.
+# DISABLE_DEV_CHAR_SYMLINK_CREATION=true is required because the /dev/char symlink
+# step tries modprobe nvidia which fails in a Kind container.
+#
+# toolkit-validation passes: nvidia-container-runtime (pre-baked in the custom
+# Kind node image) intercepts NVIDIA_VISIBLE_DEVICES=all, performs CDI injection
+# using /var/run/cdi/nvidia.yaml written by nvml-mock, and nvidia-smi is found.
 validator:
   driver:
     env:

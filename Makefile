@@ -86,3 +86,23 @@ helm-unittest:
 .PHONY: generate
 generate:
 	go generate ./pkg/gpu/mocknvml/bridge/...
+
+KIND_CLUSTER_NAME ?= gpu-test
+KIND_NODE_IMAGE   ?= kind-node-nv:latest
+# Cluster shape:
+#   - default:            local/kind/single.kind.yaml       (1 control-plane, single-node)
+#   - FLEET=<any value>:  local/kind/multi.kind.yaml (1 control-plane + 2 workers
+#                                                        labelled a100 / t4)
+# Consumer selection (--gpu-operator / --dra) happens in the Tiltfile;
+# both cluster shapes support every consumer.
+KIND_CLUSTER_CONFIG ?= $(if $(FLEET),local/kind/multi.kind.yaml,local/kind/single.kind.yaml)
+
+.PHONY: kind-node-image cluster-create cluster-delete
+image-kind-node:
+	@docker build -t $(KIND_NODE_IMAGE) ./local/kind
+
+cluster-create: image-kind-node
+	@kind create cluster --name $(KIND_CLUSTER_NAME) --image $(KIND_NODE_IMAGE) --config $(KIND_CLUSTER_CONFIG)
+
+cluster-delete:
+	@kind delete cluster --name $(KIND_CLUSTER_NAME)

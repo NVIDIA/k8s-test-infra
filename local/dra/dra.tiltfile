@@ -1,0 +1,34 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loadable Tiltfile: NVIDIA DRA driver consumer.
+#
+# Exports:
+#   install(nvml_mock_releases) — install the DRA driver on top of nvml-mock.
+#
+# Requires the shared 'nvidia' helm_repo to be registered by the caller
+# (main Tiltfile) before install() is invoked. Also requires the cluster to
+# have DynamicResourceAllocation + resource.k8s.io/v1beta1 enabled (both are
+# set by local/kind/cluster.yaml and local/kind/cluster-multi.yaml).
+#
+# In --multi mode the driver publishes a distinct ResourceSlice per worker,
+# so the fleet's two profiles surface as heterogeneous devices in a single
+# cluster. Composes with the GPU Operator consumer — the two live on different
+# Kubernetes surfaces (ResourceClaim vs. nvidia.com/gpu) and both talk to the
+# same mock NVML library.
+
+load('ext://helm_resource', 'helm_resource')
+
+def install(nvml_mock_releases):
+    helm_resource(
+        'nvidia-dra-driver',
+        'nvidia/nvidia-dra-driver-gpu',
+        namespace='nvidia',
+        flags=[
+            '--create-namespace',
+            '--values', 'local/dra/dra-driver.values.yaml',
+            '--timeout', '300s',
+        ],
+        resource_deps=nvml_mock_releases,
+        labels=['dra'],
+    )

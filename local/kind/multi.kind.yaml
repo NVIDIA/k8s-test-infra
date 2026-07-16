@@ -1,0 +1,60 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Multi-node ("fleet") Kind cluster config for local dev.
+# 1 control-plane + 2 heterogeneous workers labelled with their GPU profile.
+# Sibling of local/kind/single.kind.yaml (single-node); switch between them via FLEET=.
+#
+# Fixed shape: worker-a100 (nvml-mock/profile=a100) + worker-t4
+# (nvml-mock/profile=t4). Mirrors tests/e2e/kind-multi-node-config.yaml so
+# local dev exercises the same fleet layout the CI multi-node job exercises.
+#
+# Usage:
+#   make cluster-create FLEET=1
+#   tilt up -- --multi                              # nvml-mock per worker, no consumer
+#   tilt up -- --multi --dra                   # + NVIDIA DRA driver
+#   tilt up -- --multi --gpu-operator          # + NVIDIA GPU Operator
+#   tilt up -- --multi --gpu-operator --dra  # both consumers side by side
+#
+# Cluster-level features are identical to local/kind/single.kind.yaml — see that file
+# for why merging DRA + Operator toggles into one shape is safe. Feature gates
+# and API-group activation live only on the control-plane's kubeadm config;
+# workers inherit whatever the apiserver publishes.
+#
+# Node design notes:
+#   - Control-plane: kind's multi-node default keeps the standard
+#     node-role.kubernetes.io/control-plane:NoSchedule taint. The nvml-mock
+#     DaemonSets use nodeSelector on the per-worker profile label, so they
+#     never land on the control-plane. This matches how a real GPU fleet is
+#     structured (control-plane runs no workloads).
+#   - Workers: each carries an nvml-mock/profile label. Per-profile Helm
+#     releases (installed by the Tiltfile in --multi mode) target exactly
+#     one worker via `--set nodeSelector.nvml-mock/profile=<profile>`, so a
+#     single cluster ends up simulating a heterogeneous fleet.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: gpu-test
+featureGates:
+  DynamicResourceAllocation: true
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri"]
+      enable_cdi = true
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
+      runtime_type = "io.containerd.runc.v2"
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
+      BinaryName = "/usr/bin/nvidia-container-runtime"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          extraArgs:
+            runtime-config: "resource.k8s.io/v1beta1=true"
+  - role: worker
+    labels:
+      nvml-mock/profile: a100
+  - role: worker
+    labels:
+      nvml-mock/profile: t4
