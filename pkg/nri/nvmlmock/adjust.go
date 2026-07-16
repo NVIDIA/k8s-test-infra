@@ -330,6 +330,9 @@ func discoverDevices(deviceHostPath string) ([]Device, error) {
 
 	devices := make([]Device, 0, len(entries))
 	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
 		name := entry.Name()
 		if !strings.HasPrefix(name, "nvidia") {
 			continue
@@ -353,6 +356,9 @@ func discoverImexChannels(channelHostPath string) ([]Device, error) {
 
 	devices := make([]Device, 0, len(entries))
 	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
 		name := entry.Name()
 		if !strings.HasPrefix(name, "channel") {
 			continue

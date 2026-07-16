@@ -240,6 +240,37 @@ func TestAdjustDeviceOptInAddsNvidiaDeviceEntries(t *testing.T) {
 	}, adjustment.Devices)
 }
 
+func TestDiscoverDevicesSkipsDirectories(t *testing.T) {
+	// setup.sh stages the IMEX channel nodes in a subdirectory
+	// (nvidia-caps-imex-channels) inside the device host path. Its name starts
+	// with "nvidia", so without an IsDir guard discoverDevices would emit a
+	// bogus device for the directory, which nriDevice later rejects as "not a
+	// character device". Ensure the directory is skipped.
+	deviceRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(deviceRoot, "nvidia0"), []byte{}, 0o644))
+	require.NoError(t, os.Mkdir(filepath.Join(deviceRoot, "nvidia-caps-imex-channels"), 0o755))
+
+	cfg := DefaultConfig()
+	cfg.DeviceHostPath = deviceRoot
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Namespace: "default",
+		PodAnnotations: map[string]string{
+			"nvml-mock.nvidia.com/devices": "true",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.ElementsMatch(t, []Device{
+		{HostPath: filepath.Join(deviceRoot, "nvidia0"), Path: "/dev/nvidia0"},
+	}, adjustment.Devices)
+	require.NotContains(t, adjustment.Devices, Device{
+		HostPath: filepath.Join(deviceRoot, "nvidia-caps-imex-channels"),
+		Path:     "/dev/nvidia-caps-imex-channels",
+	})
+}
+
 func TestAdjustImexChannelsOptInAddsChannelDevices(t *testing.T) {
 	channelRoot := t.TempDir()
 	for _, name := range []string{"channel0", "channel1", "channel2", "not-a-channel"} {
