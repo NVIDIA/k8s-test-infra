@@ -1,0 +1,107 @@
+schemaVersion: 1
+labels:
+  - name: kind/feature
+    color: 0e8a16
+    description: PR metadata automation manages feature changes.
+  - name: kind/bug
+    color: 0e8a16
+    description: PR metadata automation manages bug fixes.
+  - name: kind/documentation
+    color: 0e8a16
+    description: PR metadata automation manages documentation changes.
+  - name: kind/test
+    color: 0e8a16
+    description: PR metadata automation manages test changes.
+  - name: kind/refactor
+    color: 0e8a16
+    description: PR metadata automation manages refactoring changes.
+  - name: kind/performance
+    color: 0e8a16
+    description: PR metadata automation manages performance changes.
+  - name: kind/ci
+    color: 0e8a16
+    description: PR metadata automation manages build and CI changes.
+  - name: kind/cleanup
+    color: 0e8a16
+    description: PR metadata automation manages maintenance changes.
+  - name: kind/dependencies
+    color: 0e8a16
+    description: PR metadata automation manages dependency updates.
+  - name: kind/revert
+    color: 0e8a16
+    description: PR metadata automation manages reverted changes.
+  - name: size/S
+    color: c2e0c6
+    description: PR metadata automation manages changes with fewer than 50 changed lines.
+  - name: size/M
+    color: fef2c0
+    description: PR metadata automation manages changes with 50 to 249 changed lines.
+  - name: size/L
+    color: f9d0c4
+    description: PR metadata automation manages changes with 250 to 999 changed lines.
+  - name: size/XL
+    color: d93f0b
+    description: PR metadata automation manages changes with at least 1000 changed lines.
+  - name: area/nvml-mock
+    color: 1d76db
+    description: Area automation manages changes to NVML mock components.
+  - name: area/mockcuda
+    color: 1d76db
+    description: Area automation manages changes to mock CUDA components.
+  - name: area/helm
+    color: 1d76db
+    description: Area automation manages changes to Helm assets.
+  - name: area/kubernetes
+    color: 1d76db
+    description: Area automation manages changes to Kubernetes end-to-end assets.
+  - name: area/ci
+    color: 1d76db
+    description: Area automation manages changes to continuous integration assets.
+  - name: area/docs
+    color: 1d76db
+    description: Area automation manages documentation changes.
+  - name: lgtm
+    color: 0e8a16
+    description: Review automation manages reviewer LGTM state.
+  - name: approved
+    color: 0e8a16
+    description: Review automation manages approver approval state.
+  - name: needs-rebase
+    color: b60205
+    description: PR metadata automation manages merge-conflict state.
+  - name: lifecycle/stale
+    color: fbca04
+    description: Stale automation manages inactive issues and pull requests.
+  - name: lifecycle/frozen
+    color: fbca04
+    description: Maintainers manage exemptions from stale automation.
+  - name: do-not-merge/hold
+    color: b60205
+    description: Maintainers manage explicit merge holds.
+  - name: do-not-merge/work-in-progress
+    color: b60205
+    description: PR metadata automation manages draft pull request state.
+  - name: do-not-merge/needs-approval
+    color: b60205
+    description: Review automation manages missing approval state.
+  - name: good first issue
+    color: 7057ff
+    description: Maintainers manage issues suitable for new contributors.
+  - name: help wanted
+    color: 7057ff
+    description: Maintainers manage issues seeking community contributions.
+  - name: priority/critical-urgent
+    color: b60205
+    description: Maintainers manage work requiring critical and urgent attention.
+  - name: priority/important-soon
+    color: d93f0b
+    description: Maintainers manage important work planned soon.
+  - name: priority/important-longterm
+    color: fbca04
+    description: Maintainers manage important long-term work.
+  - name: priority/backlog
+    color: c5def5
+    description: Maintainers manage work retained in the backlog.
+  - name: needs-triage
+    color: fbca04
+    description: Issue forms and maintainers manage work awaiting triage.

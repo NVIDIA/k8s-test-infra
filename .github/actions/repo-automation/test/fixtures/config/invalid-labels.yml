@@ -1,0 +1,8 @@
+schemaVersion: 1
+labels:
+  - name: kind/bug
+    color: "#0e8a16"
+    description: ""
+  - name: kind/bug
+    color: zzzzzz
+    description: Duplicate label managed by the invalid fixture.
