@@ -1,7 +1,7 @@
 # DGXC OSS stale lifecycle — mirrors the policy:
-#   - 90 days inactive  -> label `lifecycle/stale`
-#   - +30 days inactive -> close
-#   - exempt: label `lifecycle/frozen`
+#   - issues: 90 days inactive -> stale; 30 more days -> close
+#   - pull requests: 30 days inactive -> stale; 14 more days -> close
+#   - exempt: `lifecycle/frozen`; feature issues are also exempt
 # Reference: https://github.com/NVIDIA/gpu-operator/blob/main/.github/workflows/stale.yaml
 name: "Mark and close stale issues"
 
@@ -17,38 +17,41 @@ permissions:
 jobs:
   stale:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: stale-lifecycle
+      cancel-in-progress: false
     steps:
-      - uses: actions/stale@v10
+      - uses: actions/stale@1e223db275d687790206a7acac4d1a11bd6fe629 # v10
         with:
           # --- thresholds (policy) ---
           days-before-issue-stale: 90
           days-before-issue-close: 30
-          days-before-pr-stale: 90
-          days-before-pr-close: 30
+          days-before-pr-stale: 30
+          days-before-pr-close: 14
 
           # --- labels ---
           stale-issue-label: "lifecycle/stale"
           stale-pr-label: "lifecycle/stale"
-          exempt-issue-labels: "lifecycle/frozen"
+          exempt-issue-labels: "lifecycle/frozen,kind/feature"
           exempt-pr-labels: "lifecycle/frozen"
 
           # --- messages ---
           stale-issue-message: |
-            This issue has had no activity for 90 days and is being marked `lifecycle/stale`
-            per the DGXC OSS Issue Mgmt policy. It will be auto-closed in 30 days unless:
-              * a maintainer adds the `lifecycle/frozen` label, or
-              * a comment / commit reactivates it.
+            This issue has been inactive for 90 days and is now marked `lifecycle/stale`.
+            It will close in 30 days unless activity resumes or a maintainer adds `lifecycle/frozen`.
           close-issue-message: |
-            Closing per DGXC OSS stale policy (no activity for 120 days). Re-open with new
-            evidence if still relevant.
+            Closing because this issue remained inactive for 30 days after it was marked `lifecycle/stale`.
           stale-pr-message: |
-            This PR has had no activity for 90 days and is being marked `lifecycle/stale`.
-            It will be auto-closed in 30 days unless updated or labeled `lifecycle/frozen`.
+            This pull request has been inactive for 30 days and is now marked `lifecycle/stale`.
+            It will close in 14 days unless activity resumes or a maintainer adds `lifecycle/frozen`.
           close-pr-message: |
-            Closing per DGXC OSS stale policy (no activity for 120 days).
+            Closing because this pull request remained inactive for 14 days after it was marked `lifecycle/stale`.
 
           # --- behaviour ---
           remove-stale-when-updated: true
+          close-issue-reason: not_planned
+          debug-only: true
           operations-per-run: 200
           ascending: true
           delete-branch: false
