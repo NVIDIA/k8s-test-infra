@@ -24,8 +24,11 @@
 # kind-loads it (E2E_SKIP_BUILD=true) instead of rebuilding per leg.
 name: nvml-mock E2E (Go)
 
-permissions:
-  contents: read
+permissions: {}
+
+concurrency:
+  group: nvml-mock-e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 on:
   workflow_call:
@@ -94,6 +97,10 @@ jobs:
   e2e:
     needs: build-image
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -137,8 +144,10 @@ jobs:
 
       - name: Print diagnostics on failure
         if: failure()
+        env:
+          GPU_PROFILE: ${{ matrix.gpu-profile }}
         run: |
-          echo "=== e2e diagnostics (${{ matrix.gpu-profile }}) ==="
+          echo "=== e2e diagnostics (${GPU_PROFILE}) ==="
           if [ -d "$E2E_ARTIFACTS" ]; then
             find "$E2E_ARTIFACTS" -type f | while read -r f; do
               echo "----- $f -----"; cat "$f"; echo;
@@ -150,6 +159,10 @@ jobs:
   e2e-dra:
     needs: build-image
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -191,8 +204,10 @@ jobs:
 
       - name: Print diagnostics on failure
         if: failure()
+        env:
+          GPU_PROFILE: ${{ matrix.gpu-profile }}
         run: |
-          echo "=== e2e-dra diagnostics (${{ matrix.gpu-profile }}) ==="
+          echo "=== e2e-dra diagnostics (${GPU_PROFILE}) ==="
           if [ -d "$E2E_ARTIFACTS" ]; then
             find "$E2E_ARTIFACTS" -type f | while read -r f; do
               echo "----- $f -----"; cat "$f"; echo;
@@ -204,6 +219,10 @@ jobs:
   e2e-gpu-operator:
     needs: build-image
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -245,8 +264,10 @@ jobs:
 
       - name: Print diagnostics on failure
         if: failure()
+        env:
+          GPU_PROFILE: ${{ matrix.gpu-profile }}
         run: |
-          echo "=== e2e-gpu-operator diagnostics (${{ matrix.gpu-profile }}) ==="
+          echo "=== e2e-gpu-operator diagnostics (${GPU_PROFILE}) ==="
           if [ -d "$E2E_ARTIFACTS" ]; then
             find "$E2E_ARTIFACTS" -type f | while read -r f; do
               echo "----- $f -----"; cat "$f"; echo;
@@ -258,6 +279,10 @@ jobs:
   e2e-multi-node:
     needs: build-image
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -306,6 +331,10 @@ jobs:
   e2e-nri:
     needs: build-image
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -347,8 +376,10 @@ jobs:
 
       - name: Print diagnostics on failure
         if: failure()
+        env:
+          GPU_PROFILE: ${{ matrix.gpu-profile }}
         run: |
-          echo "=== e2e-nri diagnostics (${{ matrix.gpu-profile }}) ==="
+          echo "=== e2e-nri diagnostics (${GPU_PROFILE}) ==="
           if [ -d "$E2E_ARTIFACTS" ]; then
             find "$E2E_ARTIFACTS" -type f | while read -r f; do
               echo "----- $f -----"; cat "$f"; echo;

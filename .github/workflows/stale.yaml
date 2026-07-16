@@ -10,9 +10,7 @@ on:
     - cron: "30 1 * * *"   # daily 01:30 UTC
   workflow_dispatch:
 
-permissions:
-  issues: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   stale:
@@ -21,6 +19,9 @@ jobs:
     concurrency:
       group: stale-lifecycle
       cancel-in-progress: false
+    permissions:
+      issues: write
+      pull-requests: write
     steps:
       - uses: actions/stale@1e223db275d687790206a7acac4d1a11bd6fe629 # v10
         with:

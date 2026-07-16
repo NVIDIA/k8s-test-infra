@@ -183,6 +183,7 @@ test("automation CI stays unprivileged and validates every runtime mode", () => 
     "npm ci",
     "npm test",
     "npm run lint",
+    "make actionlint",
     "npm run package",
     "git diff --exit-code -- dist",
   ]);

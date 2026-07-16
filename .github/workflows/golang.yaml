@@ -14,8 +14,7 @@
 
 name: Golang
 
-permissions:
-  contents: read
+permissions: {}
 
 on:
   workflow_call:
@@ -27,6 +26,9 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
     - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       name: Checkout code
@@ -49,7 +51,7 @@ jobs:
 
     - name: Run unit tests
       run: |
-        go test -v -race -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v vendor)
+        go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
     - name: Run govulncheck
       run: |

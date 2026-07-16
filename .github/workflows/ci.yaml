@@ -13,11 +13,11 @@
 # limitations under the License.
 name: CI Pipeline
 
-permissions:
-  contents: read
-  security-events: write
-  actions: read
-  packages: read
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 on:
   push:
@@ -29,9 +29,17 @@ on:
 jobs:
   basic:
     uses: ./.github/workflows/basic-checks.yaml
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      security-events: write
 
   nvml-mock-e2e:
     needs: [basic]
     uses: ./.github/workflows/nvml-mock-e2e-go.yaml
+    permissions:
+      actions: read
+      contents: read
     with:
       golang_version: ${{ needs.basic.outputs.golang_version }}

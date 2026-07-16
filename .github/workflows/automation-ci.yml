@@ -13,6 +13,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: automation-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   automation-ci:
     name: Repository automation CI
@@ -43,6 +47,10 @@ jobs:
 
       - name: Run lint
         run: npm run lint
+
+      - name: Validate workflows
+        working-directory: .
+        run: make actionlint
 
       - name: Package action
         run: npm run package
