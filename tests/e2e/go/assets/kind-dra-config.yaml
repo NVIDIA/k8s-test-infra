@@ -1,0 +1,23 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kind cluster config with DRA (Dynamic Resource Allocation) feature gates enabled.
+# Used by the DRA E2E test job.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+featureGates:
+  DynamicResourceAllocation: true
+containerdConfigPatches:
+  # Enable CDI (Container Device Interface) for DRA driver device management.
+  # See: https://tags.cncf.io/container-device-interface#containerd-configuration
+  - |-
+    [plugins."io.containerd.grpc.v1.cri"]
+      enable_cdi = true
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          extraArgs:
+            runtime-config: "resource.k8s.io/v1beta1=true"

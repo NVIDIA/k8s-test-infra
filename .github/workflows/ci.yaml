@@ -32,6 +32,6 @@ jobs:
 
   nvml-mock-e2e:
     needs: [basic]
-    uses: ./.github/workflows/nvml-mock-e2e.yaml
+    uses: ./.github/workflows/nvml-mock-e2e-go.yaml
     with:
       golang_version: ${{ needs.basic.outputs.golang_version }}

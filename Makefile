@@ -8,7 +8,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-.PHONY: build fmt verify release lint vendor check-vendor helm-unittest
+SHELL := /usr/bin/env bash
+.SHELLFLAGS := -o pipefail -ec
+
+.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
@@ -86,3 +89,47 @@ helm-unittest:
 .PHONY: generate
 generate:
 	go generate ./pkg/gpu/mocknvml/bridge/...
+
+# ---------------------------------------------------------------------------
+# Go end-to-end suite (tests/e2e) — the Go port of docs/demo/standalone/demo.sh.
+# One entrypoint for local + CI: the harness owns the full lifecycle (Kind
+# create/teardown, image build/load, Helm upgrade --install, validation,
+# diagnostics). A SINGLE shared multi-node cluster is created once and every
+# selected profile runs against it (profile switch = `helm upgrade`, not a
+# cluster rebuild). Defaults to gb200; scope with E2E_PROFILES /
+# E2E_GINKGO_FLAGS. Examples:
+#   make e2e                       # gb200
+#   make e2e E2E_PROFILES=a100     # fast inner loop, single profile
+#   make e2e E2E_GINKGO_FLAGS='--label-filter="nvidia-smi || nvlink"'
+#   make e2e-dra                   # DRA scenario
+#   make e2e-gpu-operator          # GPU Operator scenario
+#   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
+#   make e2e-nri                   # node-wide NRI ambient-injection scenario
+# CI builds the image once per job and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
+#
+# NOTE: this targets ./tests/e2e/go (the Ginkgo suite package) only, NOT
+# ./tests/e2e/go/... — the subpackages (profile, ibutil) hold plain `go test`
+# unit tests (e.g. the profile drift-guard oracle, which always checks ALL
+# profiles regardless of E2E_PROFILES). Those run in the normal unit-test/CI
+# path; keeping them out of `make e2e` means the output reflects only the
+# E2E_PROFILES-scoped cluster suite.
+# ---------------------------------------------------------------------------
+GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
+E2E_TIMEOUT ?= 90m
+E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri
+E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
+
+e2e:
+	$(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
+
+e2e-dra:
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'
+
+e2e-gpu-operator:
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=gpu-operator'
+
+e2e-multi-node:
+	$(MAKE) e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter=multi-node'
+
+e2e-nri:
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=nri'

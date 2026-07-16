@@ -1,0 +1,338 @@
+# Copyright 2026 NVIDIA CORPORATION
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Go/Ginkgo nvml-mock E2E. The harness under tests/e2e owns lifecycle (Kind
+# create/teardown, image build/load, Helm, validation, diagnostics) behind one
+# entrypoint (`make e2e`) that runs identically locally and here. Jobs mirror the
+# legacy nvml-mock E2E workflow and select the related Go scenario by label.
+#
+# Image distribution: each leg builds nvml-mock:e2e once via buildx with the
+# GitHub Actions layer cache (no registry dependency -> works on fork PRs),
+# then the harness kind-loads it (E2E_SKIP_BUILD=true).
+name: nvml-mock E2E (Go)
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      gpu_profiles:
+        required: false
+        type: string
+        default: '["a100", "h100", "b200", "gb200", "gb300", "t4"]'
+      golang_version:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      gpu_profiles:
+        description: 'GPU profiles to test (JSON array)'
+        required: false
+        default: '["gb200"]'
+        type: string
+      golang_version:
+        description: 'Go version to use (match go.mod / hack/golang-version.sh)'
+        required: true
+        type: string
+
+env:
+  GO_VERSION: ${{ inputs.golang_version }}
+  KIND_VERSION: "v0.31.0"
+  KIND_AMD64_SHA256: "eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa"
+  E2E_IMAGE: nvml-mock:e2e
+  E2E_SKIP_BUILD: "true"
+  E2E_ARTIFACTS: ${{ github.workspace }}/artifacts/e2e/go
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu-profile: ${{ fromJson(inputs.gpu_profiles) }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build nvml-mock image (buildx + GHA cache)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          file: deployments/nvml-mock/Dockerfile
+          tags: ${{ env.E2E_IMAGE }}
+          load: true
+          build-args: |
+            GOLANG_VERSION=${{ env.GO_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
+          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Run E2E (${{ matrix.gpu-profile }})
+        # Standalone GFD/CUDA validator uses nvcr.io images and remains
+        # disabled by default until #446 resolves the CI image/auth path.
+        env:
+          E2E_PROFILES: ${{ matrix.gpu-profile }}
+        run: make e2e
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e diagnostics (${{ matrix.gpu-profile }}) ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
+
+  e2e-dra:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu-profile: ${{ fromJson(inputs.gpu_profiles) }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build nvml-mock image (buildx + GHA cache)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          file: deployments/nvml-mock/Dockerfile
+          tags: ${{ env.E2E_IMAGE }}
+          load: true
+          build-args: |
+            GOLANG_VERSION=${{ env.GO_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
+          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Run DRA E2E (${{ matrix.gpu-profile }})
+        env:
+          E2E_PROFILES: ${{ matrix.gpu-profile }}
+        run: make e2e-dra
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-dra diagnostics (${{ matrix.gpu-profile }}) ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
+
+  e2e-gpu-operator:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu-profile: ${{ fromJson(inputs.gpu_profiles) }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build nvml-mock image (buildx + GHA cache)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          file: deployments/nvml-mock/Dockerfile
+          tags: ${{ env.E2E_IMAGE }}
+          load: true
+          build-args: |
+            GOLANG_VERSION=${{ env.GO_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
+          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Run GPU Operator E2E (${{ matrix.gpu-profile }})
+        env:
+          E2E_PROFILES: ${{ matrix.gpu-profile }}
+        run: make e2e-gpu-operator
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-gpu-operator diagnostics (${{ matrix.gpu-profile }}) ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
+
+  e2e-multi-node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build nvml-mock image (buildx + GHA cache)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          file: deployments/nvml-mock/Dockerfile
+          tags: ${{ env.E2E_IMAGE }}
+          load: true
+          build-args: |
+            GOLANG_VERSION=${{ env.GO_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
+          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Run multi-node E2E
+        run: make e2e-multi-node
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-multi-node diagnostics ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
+
+  e2e-nri:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gpu-profile: ${{ fromJson(inputs.gpu_profiles) }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build nvml-mock image (buildx + GHA cache)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          file: deployments/nvml-mock/Dockerfile
+          tags: ${{ env.E2E_IMAGE }}
+          load: true
+          build-args: |
+            GOLANG_VERSION=${{ env.GO_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
+          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Run node-wide NRI injection E2E (${{ matrix.gpu-profile }})
+        env:
+          E2E_PROFILES: ${{ matrix.gpu-profile }}
+        run: make e2e-nri
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-nri diagnostics (${{ matrix.gpu-profile }}) ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
