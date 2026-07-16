@@ -11,14 +11,15 @@ on:
       - OWNERS
       - OWNERS_ALIASES
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   automation-ci:
     name: Repository automation CI
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: .github/actions/repo-automation
