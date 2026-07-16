@@ -84,7 +84,7 @@ var _ = Describe("nvml-mock NRI IMEX channel injection", Label("imex", "nri"), O
 				if !p.HasFabric() {
 					Skip("profile " + name + " declares no device_defaults.fabric block")
 				}
-				assertNodeCliqueIdentities(ctx, h, workers)
+				assertNodeCliqueIdentities(ctx, h, imexWorkloadNS, imexAgentSelector, workers)
 			})
 		})
 	}
@@ -146,8 +146,8 @@ func assertWorkloadSeesImexChannels(ctx context.Context, h *harness.Harness, wor
 	}
 }
 
-// agentPodOnNode generalizes nriAgentPodOnNode with namespace + selector
-// parameters so multiple scenarios can locate their per-node agent pod.
+// agentPodOnNode locates a running agent pod on the given node by namespace and
+// label selector, so multiple scenarios (gpu-agent, imex-agent) can share it.
 func agentPodOnNode(ctx context.Context, h *harness.Harness, ns, selector, node string) kube.PodRef {
 	GinkgoHelper()
 	var name string

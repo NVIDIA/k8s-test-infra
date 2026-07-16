@@ -100,7 +100,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				if !computeDomain {
 					Skip("profile " + name + " declares no device_defaults.fabric block; ComputeDomain identity is unsupported")
 				}
-				assertNodeCliqueIdentities(ctx, h, workers)
+				assertNodeCliqueIdentities(ctx, h, nriWorkloadNS, nriAgentSelector, workers)
 			})
 		})
 	}
@@ -171,15 +171,17 @@ func assertAgentSeesGPUs(ctx context.Context, h *harness.Harness, expectedGPUs i
 }
 
 // assertNodeCliqueIdentities runs the staged `check-fabric` consumer inside the
-// gpu-agent pod on every worker and asserts each node reports the clique /
-// cluster UUID the topology overlay assigned to it — with no nvidia.com/gpu
-// request and no MOCK_* env in the pod spec (identity comes only from NRI).
-func assertNodeCliqueIdentities(ctx context.Context, h *harness.Harness, workers []cluster.Node) {
+// agent pod (identified by ns/selector) on every worker and asserts each node
+// reports the clique / cluster UUID the topology overlay assigned to it — with
+// no nvidia.com/gpu request and no MOCK_* env in the pod spec (identity comes
+// only from NRI). ns/selector are parameterized so both the node-wide (gpu-agent)
+// and IMEX (imex-agent) scenarios can share this assertion.
+func assertNodeCliqueIdentities(ctx context.Context, h *harness.Harness, ns, selector string, workers []cluster.Node) {
 	GinkgoHelper()
 	cliqueByNode := nriCliqueByNode(workers)
 	for _, w := range workers {
 		expected := cliqueByNode[w.Name]
-		pod := nriAgentPodOnNode(ctx, h, w.Name)
+		pod := agentPodOnNode(ctx, h, ns, selector, w.Name)
 		res, err := h.Kube.ExecSh(ctx, pod, "check-fabric 2>&1")
 		Expect(err).NotTo(HaveOccurred(), "check-fabric on %s: %s", w.Name, res.Combined())
 		out := res.Combined()
@@ -202,30 +204,6 @@ func firstNRIAgentPod(ctx context.Context, h *harness.Harness) kube.PodRef {
 		return name, nil
 	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
 		ShouldNot(BeEmpty(), "no running gpu-agent pod found")
-	return kube.PodRef{Namespace: nriWorkloadNS, Pod: name}
-}
-
-func nriAgentPodOnNode(ctx context.Context, h *harness.Harness, node string) kube.PodRef {
-	GinkgoHelper()
-	var name string
-	Eventually(func() (string, error) {
-		pods, err := h.Kube.RunningPodNames(ctx, nriWorkloadNS, nriAgentSelector)
-		if err != nil {
-			return "", err
-		}
-		for _, pod := range pods {
-			podNode, err := h.Kube.PodNode(ctx, nriWorkloadNS, pod)
-			if err != nil {
-				return "", err
-			}
-			if podNode == node {
-				name = pod
-				return name, nil
-			}
-		}
-		return "", nil
-	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
-		ShouldNot(BeEmpty(), "no running gpu-agent pod on node %s", node)
 	return kube.PodRef{Namespace: nriWorkloadNS, Pod: name}
 }
 
