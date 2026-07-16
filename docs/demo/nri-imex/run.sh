@@ -10,7 +10,9 @@
 # spanning both workers, deploys a plain annotated workload, and asserts:
 #   1. Both workers' workloads see /dev/nvidia-caps-imex-channels/channel0..15.
 #   2. check-fabric reports the same clusterUuid on both workers.
-#   3. The real nvidia-imex domain reports READY (nvidia-imex-ctl -q).
+#   3. Real nvidia-imex NO-GPU daemons on both workers form a domain:
+#      nvidia-imex-ctl -q reports READY, -N -j reports UP with 2 nodes
+#      READY / version NO_GPU.
 set -euo pipefail
 
 CLUSTER_NAME="nvml-mock-nri-imex"
@@ -40,6 +42,12 @@ trap cleanup EXIT
 workload_pod_on_node() {
   kubectl get pods -l app=imex-workload -o \
     jsonpath="{range .items[?(@.spec.nodeName=='$1')]}{.metadata.name}{end}"
+}
+
+nvml_pod_on_node() {
+  kubectl get pods -n "$SYSTEM_NS" -l app.kubernetes.io/name=nvml-mock \
+    --field-selector="spec.nodeName=$1,status.phase=Running" \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true
 }
 
 info "Building nvml-mock image"
@@ -88,14 +96,80 @@ for w in "$WORKER1" "$WORKER2"; do
   ok "$w: clusterUuid $EXPECTED_DOMAIN_UUID"
 done
 
-info "Scenario 3: real nvidia-imex domain status"
-imex_pod="$(kubectl get pods -n nvml-mock-system -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')"
-if kubectl exec -n nvml-mock-system "$imex_pod" -- sh -c 'command -v nvidia-imex-ctl >/dev/null 2>&1'; then
-  status="$(kubectl exec -n nvml-mock-system "$imex_pod" -- nvidia-imex-ctl -q 2>&1 || true)"
-  echo "$status" | grep -qi READY && ok "nvidia-imex domain READY" \
-    || info "nvidia-imex-ctl output (informational):\n$status"
-else
-  info "nvidia-imex-ctl not present in this image; skipping domain status (see README)"
+info "Scenario 3: real IMEX domain (NO GPU mode) queried with nvidia-imex-ctl"
+IMEX_CFG=/tmp/imex.cfg
+NODES_CFG=/tmp/nodes.cfg
+
+POD_A="$(nvml_pod_on_node "$WORKER1")"
+POD_B="$(nvml_pod_on_node "$WORKER2")"
+[ -n "$POD_A" ] || fail "no running nvml-mock pod on $WORKER1"
+[ -n "$POD_B" ] || fail "no running nvml-mock pod on $WORKER2"
+
+IP_A="$(kubectl get pod -n "$SYSTEM_NS" "$POD_A" -o jsonpath='{.status.podIP}')"
+IP_B="$(kubectl get pod -n "$SYSTEM_NS" "$POD_B" -o jsonpath='{.status.podIP}')"
+
+# Render a per-pod IMEX config from the package default: foreground
+# daemon, our two-node file (both pod IPs), pod-local log.
+for pod in "$POD_A" "$POD_B"; do
+  kubectl exec -n "$SYSTEM_NS" "$pod" -- sh -c "
+    printf '%s\n%s\n' '$IP_A' '$IP_B' > '$NODES_CFG'
+    sed -e 's/^DAEMONIZE=1/DAEMONIZE=0/' \
+        -e 's|^IMEX_NODE_CONFIG_FILE=.*|IMEX_NODE_CONFIG_FILE=$NODES_CFG|' \
+        -e 's|^LOG_FILE_NAME=.*|LOG_FILE_NAME=/tmp/nvidia-imex.log|' \
+        /etc/nvidia-imex/config.cfg > '$IMEX_CFG'"
+done
+
+start_imex() {
+  kubectl exec -n "$SYSTEM_NS" "$1" -- sh -c \
+    "nvidia-imex -c $IMEX_CFG >/tmp/imex.stdout 2>&1 & echo \$! > /tmp/imex.pid"
+}
+
+domain_status() {
+  kubectl exec -n "$SYSTEM_NS" "$1" -- nvidia-imex-ctl -c "$IMEX_CFG" -N -j 2>/dev/null \
+    | jq -r '.status' 2>/dev/null || printf 'UNREACHABLE\n'
+}
+
+info "Starting real nvidia-imex (--nogpu via shim) on both workers"
+start_imex "$POD_A"
+start_imex "$POD_B"
+
+# Local readiness probe (-q): exact upstream contract, prints "READY".
+for pod in "$POD_A" "$POD_B"; do
+  q=""
+  for _ in $(seq 1 30); do
+    q="$(kubectl exec -n "$SYSTEM_NS" "$pod" -- nvidia-imex-ctl -c "$IMEX_CFG" -q 2>/dev/null || true)"
+    [ "$q" = "READY" ] && break
+    sleep 1
+  done
+  [ "$q" = "READY" ] || fail "$pod: nvidia-imex-ctl -q never reported READY"
+  ok "$pod: nvidia-imex-ctl -q READY"
+done
+
+# Domain-wide status converges to UP once both daemons connect over the
+# pod network (gRPC :50000). Backoff + NetworkPolicy reconcile can take
+# a couple of minutes, so poll up to 240s.
+status="UNREACHABLE"
+for _ in $(seq 1 240); do
+  status="$(domain_status "$POD_A")"
+  [ "$status" = "UP" ] && break
+  sleep 1
+done
+if [ "$status" != "UP" ]; then
+  kubectl exec -n "$SYSTEM_NS" "$POD_A" -- sh -c 'tail -20 /tmp/nvidia-imex.log 2>/dev/null' >&2 || true
+  fail "domain never reached UP (status=$status)"
 fi
+ok "nvidia-imex-ctl -N -j: domain UP"
+
+nodes_json="$(kubectl exec -n "$SYSTEM_NS" "$POD_A" -- nvidia-imex-ctl -c "$IMEX_CFG" -N -j 2>/dev/null)"
+ready="$(printf '%s' "$nodes_json" | jq -r '[.nodes[] | select(.status=="READY")] | length')"
+nogpu="$(printf '%s' "$nodes_json" | jq -r '[.nodes[] | select(.version=="NO_GPU")] | length')"
+[ "$ready" = "2" ] || fail "want 2 READY nodes, got $ready: $nodes_json"
+[ "$nogpu" = "2" ] || fail "want 2 NO_GPU nodes, got $nogpu: $nodes_json"
+ok "2/2 nodes READY, version NO_GPU"
+
+# Tidy up the demo daemons.
+for pod in "$POD_A" "$POD_B"; do
+  kubectl exec -n "$SYSTEM_NS" "$pod" -- sh -c 'kill -TERM "$(cat /tmp/imex.pid)" 2>/dev/null || true' || true
+done
 
 info "Demo complete."
