@@ -2,12 +2,11 @@
 
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const GITHUB_LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
-const GIT_OID = /^[0-9a-fA-F]{40}$/;
+const GIT_OID = /^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/;
 const UTC_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{3}))?Z$/;
 const FILE_KEYS = ["approvers", "path"];
 const REVIEW_KEYS = ["commitOid", "id", "state", "submittedAt", "user"];
 const EFFECTIVE_REVIEW_KEYS = [
-  "approved",
   "commitOid",
   "reviewId",
   "state",
@@ -15,12 +14,13 @@ const EFFECTIVE_REVIEW_KEYS = [
   "user",
 ];
 const EVALUATION_KEYS = ["author", "files", "headOid", "reviews"];
-const SELECTION_KEYS = ["author", "effectiveReviews", "files", "requested"];
+const SELECTION_KEYS = ["author", "effectiveReviews", "files", "headOid", "requested"];
 const REVIEW_STATES = new Set([
   "APPROVED",
   "CHANGES_REQUESTED",
   "COMMENTED",
   "DISMISSED",
+  "PENDING",
 ]);
 
 function isPlainObject(value) {
@@ -102,9 +102,12 @@ function normalizeFiles(files) {
   return normalized.sort((left, right) => compareText(left.path, right.path));
 }
 
-function normalizeOid(value, field) {
+function normalizeOid(value, field, nullable = false) {
+  if (nullable && value === null) {
+    return null;
+  }
   if (!isSafeText(value) || !GIT_OID.test(value)) {
-    throw new TypeError(`${field} must be a 40-character Git OID`);
+    throw new TypeError(`${field} must be a 40- or 64-character Git OID`);
   }
   return value.toLowerCase();
 }
@@ -178,25 +181,45 @@ function normalizeReviews(reviews) {
       throw new TypeError("review ids must be unique");
     }
     ids.add(id);
+    const state = normalizeReviewState(review.state, "review state");
+    const commitOid = normalizeOid(review.commitOid, "review commit OID", true);
+    if (state === "PENDING") {
+      if (Object.hasOwn(review, "submittedAt")) {
+        throw new TypeError("pending review must be unsubmitted");
+      }
+      return {
+        id,
+        user: normalizeLogin(review.user, "review user"),
+        state,
+        commitOid,
+        submittedAt: null,
+        submittedSortKey: null,
+      };
+    }
+    if (!Object.hasOwn(review, "submittedAt")) {
+      throw new TypeError("submitted review must have a valid submission time");
+    }
     const submittedAt = normalizeTimestamp(review.submittedAt, "review submitted time");
     return {
       id,
       user: normalizeLogin(review.user, "review user"),
-      state: normalizeReviewState(review.state, "review state"),
-      commitOid: normalizeOid(review.commitOid, "review commit OID"),
+      state,
+      commitOid,
       submittedAt: submittedAt.value,
       submittedSortKey: submittedAt.sortKey,
     };
   });
 
-  return normalized.sort((left, right) => (
-    left.submittedSortKey - right.submittedSortKey || left.id - right.id
-  ));
+  return normalized
+    .filter((review) => review.state !== "PENDING")
+    .sort((left, right) => (
+      left.submittedSortKey - right.submittedSortKey || left.id - right.id
+    ));
 }
 
 // COMMENTED is not an effective review decision in GitHub's protection model.
 // It therefore cannot create approval and does not revoke an earlier decision.
-function reduceReviews(reviews, headOid, author) {
+function reduceReviews(reviews) {
   const byUser = new Map();
   for (const review of reviews) {
     const previous = byUser.get(review.user);
@@ -213,11 +236,14 @@ function reduceReviews(reviews, headOid, author) {
       commitOid: review.commitOid,
       reviewId: review.id,
       submittedAt: review.submittedAt,
-      approved: review.state === "APPROVED"
-        && review.commitOid === headOid
-        && review.user !== author,
     }))
     .sort((left, right) => compareText(left.user, right.user));
+}
+
+function isAuthoritativeApproval(review, headOid, author) {
+  return review.state === "APPROVED"
+    && review.commitOid === headOid
+    && review.user !== author;
 }
 
 function coverageFor(files, approvers) {
@@ -238,9 +264,11 @@ function evaluateApprovalCoverage(options) {
   const reviews = normalizeReviews(options.reviews);
   const headOid = normalizeOid(options.headOid, "head OID");
   const author = normalizeLogin(options.author, "author");
-  const effectiveReviews = reduceReviews(reviews, headOid, author);
+  const effectiveReviews = reduceReviews(reviews);
   const approvedApprovers = new Set(
-    effectiveReviews.filter((review) => review.approved).map((review) => review.user),
+    effectiveReviews
+      .filter((review) => isAuthoritativeApproval(review, headOid, author))
+      .map((review) => review.user),
   );
   const { coveredPaths, uncoveredPaths } = coverageFor(files, approvedApprovers);
 
@@ -267,19 +295,18 @@ function normalizeEffectiveReviews(reviews) {
     }
     users.add(user);
     const state = normalizeReviewState(review.state, "effective review state");
-    if (typeof review.approved !== "boolean" || (review.approved && state !== "APPROVED")) {
-      throw new TypeError("effective review approval must match its state");
+    if (state === "PENDING") {
+      throw new TypeError("effective review state must be submitted");
     }
     return {
       user,
       state,
-      commitOid: normalizeOid(review.commitOid, "effective review commit OID"),
+      commitOid: normalizeOid(review.commitOid, "effective review commit OID", true),
       reviewId: normalizeReviewId(review.reviewId, "effective review id"),
       submittedAt: normalizeTimestamp(
         review.submittedAt,
         "effective review submitted time",
       ).value,
-      approved: review.approved,
     };
   });
 }
@@ -312,13 +339,17 @@ function selectApprovers(options) {
   const files = normalizeFiles(options.files);
   const effectiveReviews = normalizeEffectiveReviews(options.effectiveReviews);
   const requested = normalizeLogins(options.requested, "requested");
+  const headOid = normalizeOid(options.headOid, "head OID");
   const author = normalizeLogin(options.author, "author");
   const candidates = candidatePaths(files, author);
   const covered = new Set();
   const used = new Set();
 
   for (const review of effectiveReviews) {
-    if (!review.approved || review.user === author || !candidates.has(review.user)) {
+    if (
+      !isAuthoritativeApproval(review, headOid, author)
+      || !candidates.has(review.user)
+    ) {
       continue;
     }
     coverPaths(covered, candidates.get(review.user));

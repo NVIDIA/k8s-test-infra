@@ -13,6 +13,8 @@ const {
 const sourcePath = path.join(__dirname, "..", "src", "approval-coverage.js");
 const HEAD = "a".repeat(40);
 const OLD_HEAD = "b".repeat(40);
+const HEAD_64 = "c".repeat(64);
+const OLD_HEAD_64 = "d".repeat(64);
 
 function changedFile(filePath, approvers) {
   return { path: filePath, approvers };
@@ -28,6 +30,10 @@ function review(id, user, state, commitOid = HEAD, submittedAt) {
   };
 }
 
+function pendingReview(id, user, commitOid = HEAD) {
+  return { id, user, state: "PENDING", commitOid };
+}
+
 function evaluation(overrides = {}) {
   return evaluateApprovalCoverage({
     files: [changedFile("src/main.go", ["alice", "bob"])],
@@ -38,14 +44,13 @@ function evaluation(overrides = {}) {
   });
 }
 
-function effectiveReview(user, approved = true, overrides = {}) {
+function effectiveReview(user, overrides = {}) {
   return {
     user,
-    state: approved ? "APPROVED" : "CHANGES_REQUESTED",
+    state: "APPROVED",
     commitOid: HEAD,
     reviewId: 1,
     submittedAt: "2026-07-16T10:01:00Z",
-    approved,
     ...overrides,
   };
 }
@@ -55,6 +60,7 @@ function selection(overrides = {}) {
     files: [changedFile("src/main.go", ["alice", "bob"])],
     effectiveReviews: [],
     requested: [],
+    headOid: HEAD,
     author: "pr-author",
     ...overrides,
   });
@@ -77,7 +83,6 @@ test("counts only a current-head approval from an applicable non-author approver
       commitOid: HEAD,
       reviewId: 1,
       submittedAt: "2026-07-16T10:01:00Z",
-      approved: true,
     }],
     coveredPaths: ["src/main.go"],
     uncoveredPaths: [],
@@ -93,10 +98,36 @@ test("counts only a current-head approval from an applicable non-author approver
       commitOid: OLD_HEAD,
       reviewId: 1,
       submittedAt: "2026-07-16T10:01:00Z",
-      approved: false,
     }],
     coveredPaths: [],
     uncoveredPaths: ["src/main.go"],
+  });
+});
+
+test("binds normalized 40-or-64-character review OIDs to the exact current head", async (t) => {
+  await t.test("matching 64-character OID", () => {
+    const result = evaluation({
+      headOid: HEAD_64.toUpperCase(),
+      reviews: [review(1, "alice", "APPROVED", HEAD_64.toUpperCase())],
+    });
+    assert.equal(result.approved, true);
+    assert.equal(result.effectiveReviews[0].commitOid, HEAD_64);
+  });
+
+  await t.test("stale 64-character OID", () => {
+    const result = evaluation({
+      headOid: HEAD_64,
+      reviews: [review(1, "alice", "APPROVED", OLD_HEAD_64)],
+    });
+    assert.equal(result.approved, false);
+  });
+
+  await t.test("mixed-length OIDs are not equal", () => {
+    const result = evaluation({
+      headOid: "e".repeat(64),
+      reviews: [review(1, "alice", "APPROVED", "E".repeat(40))],
+    });
+    assert.equal(result.approved, false);
   });
 });
 
@@ -138,10 +169,45 @@ test("a later COMMENTED review preserves an approval but never creates one", () 
 
   const commentOnly = evaluation({ reviews: [review(1, "alice", "COMMENTED")] });
   assert.equal(commentOnly.approved, false);
-  assert.deepEqual(commentOnly.effectiveReviews.map(({ state, approved }) => ({
-    state,
-    approved,
-  })), [{ state: "COMMENTED", approved: false }]);
+  assert.deepEqual(commentOnly.effectiveReviews.map(({ state }) => state), ["COMMENTED"]);
+});
+
+test("ignores REST-valid unsubmitted PENDING reviews before or after approval", () => {
+  const variants = [
+    [pendingReview(2, "ALICE"), review(1, "alice", "APPROVED")],
+    [review(1, "alice", "APPROVED"), pendingReview(2, "ALICE", null)],
+  ];
+
+  for (const reviews of variants) {
+    const result = evaluation({ reviews });
+    assert.equal(result.approved, true);
+    assert.deepEqual(result.effectiveReviews.map(({ state }) => state), ["APPROVED"]);
+  }
+
+  const pendingOnly = evaluation({ reviews: [pendingReview(1, "alice", null)] });
+  assert.equal(pendingOnly.approved, false);
+  assert.deepEqual(pendingOnly.effectiveReviews, []);
+});
+
+test("accepts nullable submitted commit OIDs but never grants them head authority", () => {
+  const superseded = evaluation({
+    reviews: [
+      review(1, "alice", "APPROVED", null),
+      review(2, "alice", "APPROVED", HEAD),
+    ],
+  });
+  assert.equal(superseded.approved, true);
+  assert.equal(superseded.effectiveReviews[0].commitOid, HEAD);
+
+  const latestIsNullable = evaluation({
+    reviews: [
+      review(1, "alice", "APPROVED", HEAD),
+      review(2, "alice", "APPROVED", null),
+    ],
+  });
+  assert.equal(latestIsNullable.approved, false);
+  assert.equal(latestIsNullable.effectiveReviews[0].commitOid, null);
+  assert.deepEqual(latestIsNullable.uncoveredPaths, ["src/main.go"]);
 });
 
 test("later CHANGES_REQUESTED and DISMISSED reviews cancel prior approvals", async (t) => {
@@ -156,7 +222,6 @@ test("later CHANGES_REQUESTED and DISMISSED reviews cancel prior approvals", asy
       assert.equal(result.approved, false);
       assert.deepEqual(result.coveredPaths, []);
       assert.equal(result.effectiveReviews[0].state, state);
-      assert.equal(result.effectiveReviews[0].approved, false);
     });
   }
 });
@@ -173,10 +238,7 @@ test("never counts the author or a non-applicable reviewer", () => {
   assert.equal(result.approved, false);
   assert.deepEqual(result.coveredPaths, []);
   assert.deepEqual(result.uncoveredPaths, ["src/main.go"]);
-  assert.deepEqual(result.effectiveReviews.map(({ user, approved }) => ({ user, approved })), [
-    { user: "outsider", approved: true },
-    { user: "pr-author", approved: false },
-  ]);
+  assert.deepEqual(result.effectiveReviews.map(({ user }) => user), ["outsider", "pr-author"]);
 });
 
 test("requires hierarchical per-file approver coverage without a repository-wide shortcut", () => {
@@ -248,8 +310,7 @@ test("existing approvals and pending eligible requests cover paths without dupli
     effectiveReviews: [
       effectiveReview("ALICE"),
       effectiveReview("outsider"),
-      effectiveReview("old-head", false, {
-        state: "APPROVED",
+      effectiveReview("old-head", {
         commitOid: OLD_HEAD,
       }),
     ],
@@ -259,6 +320,54 @@ test("existing approvals and pending eligible requests cover paths without dupli
   assert.deepEqual(result, {
     selected: ["carol"],
     uncoveredPaths: [],
+  });
+});
+
+test("selectApprovers independently binds approval records to its exact head OID", async (t) => {
+  const files = [changedFile("x.go", ["alice"])];
+
+  await t.test("current 64-character head suppresses a duplicate request", () => {
+    assert.deepEqual(selection({
+      files,
+      headOid: HEAD_64,
+      effectiveReviews: [effectiveReview("alice", {
+        commitOid: HEAD_64.toUpperCase(),
+      })],
+    }), { selected: [], uncoveredPaths: [] });
+  });
+
+  await t.test("stale 64-character approval does not suppress a request", () => {
+    assert.deepEqual(selection({
+      files,
+      headOid: HEAD_64,
+      effectiveReviews: [effectiveReview("alice", { commitOid: OLD_HEAD_64 })],
+    }), { selected: ["alice"], uncoveredPaths: [] });
+  });
+
+  await t.test("mixed-length approval does not suppress a request", () => {
+    assert.deepEqual(selection({
+      files,
+      headOid: "f".repeat(64),
+      effectiveReviews: [effectiveReview("alice", { commitOid: "F".repeat(40) })],
+    }), { selected: ["alice"], uncoveredPaths: [] });
+  });
+
+  await t.test("nullable approval OID does not suppress a request", () => {
+    assert.deepEqual(selection({
+      files,
+      effectiveReviews: [effectiveReview("alice", { commitOid: null })],
+    }), { selected: ["alice"], uncoveredPaths: [] });
+  });
+
+  await t.test("externally asserted approval authority is rejected", () => {
+    assert.throws(() => selection({
+      files,
+      headOid: HEAD,
+      effectiveReviews: [{
+        ...effectiveReview("alice", { commitOid: OLD_HEAD }),
+        approved: true,
+      }],
+    }), /effective review.*unknown/i);
   });
 });
 
@@ -328,8 +437,20 @@ test("rejects malformed top-level, file, review, and effective-review schemas", 
     ["bad user", () => evaluation({
       reviews: [review(1, "bad--login", "APPROVED")],
     }), /review user.*login/i],
-    ["bad state", () => evaluation({
+    ["pending with submitted time", () => evaluation({
       reviews: [review(1, "alice", "PENDING")],
+    }), /pending review.*unsubmitted/i],
+    ["submitted state without time", () => evaluation({
+      reviews: [{ id: 1, user: "alice", state: "APPROVED", commitOid: HEAD }],
+    }), /submitted review.*time/i],
+    ["pending review without commit field", () => evaluation({
+      reviews: [{ id: 1, user: "alice", state: "PENDING" }],
+    }), /review commit OID/i],
+    ["pending review with null time", () => evaluation({
+      reviews: [{ ...pendingReview(1, "alice"), submittedAt: null }],
+    }), /pending review.*unsubmitted/i],
+    ["unsupported state", () => evaluation({
+      reviews: [review(1, "alice", "OUTDATED")],
     }), /review state/i],
     ["bad commit", () => evaluation({
       reviews: [review(1, "alice", "APPROVED", "main")],
@@ -344,11 +465,20 @@ test("rejects malformed top-level, file, review, and effective-review schemas", 
     ["bad author", () => evaluation({ author: "bad--author" }), /author.*login/i],
     ["selection effective object", () => selection({ effectiveReviews: {} }), /effectiveReviews.*array/i],
     ["selection duplicate effective user", () => selection({
-      effectiveReviews: [effectiveReview("alice"), effectiveReview("ALICE", false)],
+      effectiveReviews: [
+        effectiveReview("alice"),
+        effectiveReview("ALICE", { state: "CHANGES_REQUESTED" }),
+      ],
     }), /effective review user.*unique/i],
-    ["selection forged approval state", () => selection({
-      effectiveReviews: [effectiveReview("alice", true, { state: "DISMISSED" })],
-    }), /effective review approval/i],
+    ["selection forged approval boolean", () => selection({
+      effectiveReviews: [{ ...effectiveReview("alice"), approved: true }],
+    }), /effective review.*unknown/i],
+    ["selection missing head", () => selectApprovers({
+      files: [changedFile("x.go", ["alice"])],
+      effectiveReviews: [],
+      requested: [],
+      author: "author",
+    }), /head OID/i],
     ["selection requested object", () => selection({ requested: {} }), /requested.*array/i],
   ];
 
