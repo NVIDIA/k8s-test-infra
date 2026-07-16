@@ -6,7 +6,7 @@
 
 **Architecture:** This plan creates the smallest usable slice of the local Node 24 action: a strict configuration loader, a GitHub API adapter, a pure label reconciliation engine, and the `label-sync` mode. Later plans extend the same dispatcher and fake API. Repository labels remain declarative in YAML; synchronization can create or update declared labels but cannot delete unmanaged labels.
 
-**Tech stack:** GitHub Actions, CommonJS JavaScript on Node 24, `node:test`, `@actions/core`, `@actions/github`, `yaml`, `@vercel/ncc`, ESLint 9.
+**Tech stack:** GitHub Actions, CommonJS application modules on Node 24, `node:test`, ESM-only `@actions/core` loaded at the action boundary, `@actions/github`, `yaml`, `@vercel/ncc`, ESLint 9.
 
 **Depends on:** Approved design at `docs/superpowers/specs/2026-07-16-github-actions-repository-automation-design.md`.
 
@@ -44,7 +44,7 @@ Create a private CommonJS package with these scripts:
     "package": "ncc build src/index.js -o dist --minify"
   },
   "dependencies": {
-    "@actions/core": "1.11.1",
+    "@actions/core": "3.0.1",
     "@actions/github": "9.1.1",
     "yaml": "2.9.0"
   },
@@ -232,13 +232,36 @@ git commit -s -S -m "feat: plan additive label reconciliation"
 - Create: `.github/actions/repo-automation/test/helpers/fake-github.js`
 - Create: `.github/actions/repo-automation/test/label-sync.test.js`
 - Create: `.github/actions/repo-automation/dist/index.js`
+- Modify: `.github/actions/repo-automation/package.json`
+- Modify: `.github/actions/repo-automation/package-lock.json`
 - Modify: `.gitignore`
 
-### Step 1: Write failing mode tests
+### Step 1: Remove the vulnerable runtime dependency before adding an entry point
+
+Update the exact `@actions/core` pin from `1.11.1` to `3.0.1` and regenerate the
+lockfile with npm. The 1.x dependency tree resolves `undici@5.29.0`, which has a
+high-severity advisory and no compatible lockfile-only update. Version 3.0.1 is
+the current official package and resolves `@actions/http-client` 4.x with
+`undici` 6.x.
+
+Keep the repository's application modules in CommonJS. Because
+`@actions/core@3.0.1` is ESM-only, load it with `import()` only at the real action
+entry boundary and inject the resulting interface into `run(dependencies)`.
+Tests must prove importing the application modules does not execute the action
+entry point. Before packaging, require:
+
+```bash
+npm audit --audit-level=high
+```
+
+Expected: PASS with no high or critical advisory. Do not package or stage a
+bundle while this gate fails.
+
+### Step 2: Write failing mode tests
 
 The fake client records calls to `listLabels`, `createLabel`, and `updateLabel`. Cover dry-run, apply, retry-safe rerun, pagination, and an API failure. Assert dry-run returns the complete plan without mutation.
 
-### Step 2: Define the stable action contract
+### Step 3: Define the stable action contract
 
 `action.yml` must use `runs.using: node24`, `runs.main: dist/index.js`, and inputs:
 
@@ -260,7 +283,7 @@ outputs:
 
 `createGitHubClient(octokit, owner, repo)` is the only module that calls Octokit. It owns pagination and normalizes errors; policy modules receive plain objects.
 
-### Step 3: Implement and package
+### Step 4: Implement and package
 
 Run:
 
@@ -268,13 +291,18 @@ Run:
 cd .github/actions/repo-automation
 npm test
 npm run lint
+npm audit --audit-level=high
 npm run package
 git diff --exit-code -- dist/index.js
 ```
 
 The final command is expected to PASS after the generated bundle is staged once. Add an anchored `.gitignore` exception so `dist/index.js` remains tracked even if a broad `dist/` rule exists.
 
-### Step 4: Commit
+The package test must also execute the generated `dist/index.js` in dry-run mode
+with stubbed action environment inputs, proving the ESM boundary was bundled
+into a single runnable Node 24 file without an external chunk.
+
+### Step 5: Commit
 
 ```bash
 git add .gitignore .github/actions/repo-automation
