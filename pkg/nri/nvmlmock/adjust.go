@@ -18,11 +18,18 @@ var warnf = func(format string, args ...any) {
 }
 
 const (
-	defaultHostOverlayPath      = "/var/lib/nvml-mock"
-	defaultContainerOverlayPath = "/opt/nvml-mock"
-	defaultDeviceHostPath       = "/var/lib/nvml-mock/driver/dev"
-	defaultOptOutAnnotation     = "nvml-mock.nvidia.com/inject"
-	defaultDeviceAnnotation     = "nvml-mock.nvidia.com/devices"
+	defaultHostOverlayPath       = "/var/lib/nvml-mock"
+	defaultContainerOverlayPath  = "/opt/nvml-mock"
+	defaultDeviceHostPath        = "/var/lib/nvml-mock/driver/dev"
+	defaultOptOutAnnotation      = "nvml-mock.nvidia.com/inject"
+	defaultDeviceAnnotation      = "nvml-mock.nvidia.com/devices"
+	defaultImexChannelAnnotation = "nvml-mock.nvidia.com/imex-channels"
+	// defaultImexChannelRelPath is where setup.sh mknod's the mock IMEX channel
+	// device nodes inside the overlay tree, resolved relative to the host
+	// overlay path. The nested destination dir is fixed to the real kernel
+	// location (imexChannelContainerDir) inside the container.
+	defaultImexChannelRelPath = "driver/dev/nvidia-caps-imex-channels"
+	imexChannelContainerDir   = "/dev/nvidia-caps-imex-channels"
 	// defaultTopologyRelPath is where setup.sh stages the cluster-level
 	// ComputeDomain topology document inside the overlay tree. It is
 	// resolved relative to the host overlay path (for the existence
@@ -45,8 +52,14 @@ type Config struct {
 	DeviceHostPath       string
 	OptOutAnnotation     string
 	DeviceAnnotation     string
-	ExcludedNamespaces   []string
-	Shims                []string
+	// ImexChannelAnnotation is the pod annotation key whose value "true" opts a
+	// container into mock /dev/nvidia-caps-imex-channels/* device injection.
+	ImexChannelAnnotation string
+	// ImexChannelHostPath is the host directory containing the mock channel
+	// nodes (channel0..N-1), staged by the main nvml-mock DaemonSet's setup.sh.
+	ImexChannelHostPath string
+	ExcludedNamespaces  []string
+	Shims               []string
 
 	// NodeName is the Kubernetes node this plugin runs on. When set (and a
 	// topology document is staged in the overlay) it is injected as the
@@ -97,13 +110,15 @@ type Device struct {
 // DefaultConfig returns the overlay contract described by the NRI design.
 func DefaultConfig() Config {
 	return Config{
-		HostOverlayPath:      defaultHostOverlayPath,
-		ContainerOverlayPath: defaultContainerOverlayPath,
-		DeviceHostPath:       defaultDeviceHostPath,
-		OptOutAnnotation:     defaultOptOutAnnotation,
-		DeviceAnnotation:     defaultDeviceAnnotation,
-		ExcludedNamespaces:   []string{"kube-system"},
-		Shims:                append([]string(nil), defaultShims...),
+		HostOverlayPath:       defaultHostOverlayPath,
+		ContainerOverlayPath:  defaultContainerOverlayPath,
+		DeviceHostPath:        defaultDeviceHostPath,
+		OptOutAnnotation:      defaultOptOutAnnotation,
+		DeviceAnnotation:      defaultDeviceAnnotation,
+		ImexChannelAnnotation: defaultImexChannelAnnotation,
+		ImexChannelHostPath:   filepath.Join(defaultHostOverlayPath, defaultImexChannelRelPath),
+		ExcludedNamespaces:    []string{"kube-system"},
+		Shims:                 append([]string(nil), defaultShims...),
 	}
 }
 
@@ -140,6 +155,17 @@ func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 		}
 	}
 
+	if strings.EqualFold(container.PodAnnotations[cfg.ImexChannelAnnotation], "true") {
+		// Fail open like the device path above: channels are staged by the main
+		// DaemonSet's setup.sh, and nothing orders this plugin after it.
+		channels, err := discoverImexChannels(cfg.ImexChannelHostPath)
+		if err != nil {
+			warnf("imex channel injection requested but channel tree at %s is unavailable (%v); injecting without channels", cfg.ImexChannelHostPath, err)
+		} else {
+			adjustment.Devices = append(adjustment.Devices, channels...)
+		}
+	}
+
 	return adjustment, true, nil
 }
 
@@ -159,6 +185,12 @@ func withDefaults(cfg Config) Config {
 	}
 	if cfg.DeviceAnnotation == "" {
 		cfg.DeviceAnnotation = defaults.DeviceAnnotation
+	}
+	if cfg.ImexChannelAnnotation == "" {
+		cfg.ImexChannelAnnotation = defaults.ImexChannelAnnotation
+	}
+	if cfg.ImexChannelHostPath == "" {
+		cfg.ImexChannelHostPath = filepath.Join(cfg.HostOverlayPath, defaultImexChannelRelPath)
 	}
 	if len(cfg.Shims) == 0 {
 		cfg.Shims = defaults.Shims
@@ -305,6 +337,29 @@ func discoverDevices(deviceHostPath string) ([]Device, error) {
 		devices = append(devices, Device{
 			HostPath: filepath.Join(deviceHostPath, name),
 			Path:     filepath.Join("/dev", name),
+		})
+	}
+	sort.Slice(devices, func(i, j int) bool {
+		return devices[i].Path < devices[j].Path
+	})
+	return devices, nil
+}
+
+func discoverImexChannels(channelHostPath string) ([]Device, error) {
+	entries, err := os.ReadDir(channelHostPath)
+	if err != nil {
+		return nil, err
+	}
+
+	devices := make([]Device, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, "channel") {
+			continue
+		}
+		devices = append(devices, Device{
+			HostPath: filepath.Join(channelHostPath, name),
+			Path:     filepath.Join(imexChannelContainerDir, name),
 		})
 	}
 	sort.Slice(devices, func(i, j int) bool {

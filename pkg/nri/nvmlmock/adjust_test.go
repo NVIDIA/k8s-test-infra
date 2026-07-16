@@ -239,3 +239,94 @@ func TestAdjustDeviceOptInAddsNvidiaDeviceEntries(t *testing.T) {
 		{HostPath: filepath.Join(deviceRoot, "nvidia-uvm"), Path: "/dev/nvidia-uvm"},
 	}, adjustment.Devices)
 }
+
+func TestAdjustImexChannelsOptInAddsChannelDevices(t *testing.T) {
+	channelRoot := t.TempDir()
+	for _, name := range []string{"channel0", "channel1", "channel2", "not-a-channel"} {
+		require.NoError(t, os.WriteFile(filepath.Join(channelRoot, name), []byte{}, 0o644))
+	}
+
+	cfg := DefaultConfig()
+	cfg.ImexChannelHostPath = channelRoot
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Namespace: "default",
+		PodAnnotations: map[string]string{
+			"nvml-mock.nvidia.com/imex-channels": "true",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.ElementsMatch(t, []Device{
+		{HostPath: filepath.Join(channelRoot, "channel0"), Path: "/dev/nvidia-caps-imex-channels/channel0"},
+		{HostPath: filepath.Join(channelRoot, "channel1"), Path: "/dev/nvidia-caps-imex-channels/channel1"},
+		{HostPath: filepath.Join(channelRoot, "channel2"), Path: "/dev/nvidia-caps-imex-channels/channel2"},
+	}, adjustment.Devices)
+}
+
+func TestAdjustImexChannelsNotRequestedInjectsNoChannels(t *testing.T) {
+	channelRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(channelRoot, "channel0"), []byte{}, 0o644))
+
+	cfg := DefaultConfig()
+	cfg.ImexChannelHostPath = channelRoot
+
+	adjustment, ok, err := Adjust(cfg, Container{Namespace: "default"})
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Empty(t, adjustment.Devices)
+}
+
+func TestAdjustImexChannelsFailsOpenWhenTreeMissing(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ImexChannelHostPath = filepath.Join(t.TempDir(), "does-not-exist")
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Namespace: "default",
+		PodAnnotations: map[string]string{
+			"nvml-mock.nvidia.com/imex-channels": "true",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Empty(t, adjustment.Devices)
+	require.Contains(t, adjustment.Mounts, Mount{
+		Source:      "/var/lib/nvml-mock",
+		Destination: "/opt/nvml-mock",
+		Type:        "bind",
+		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+	})
+}
+
+func TestAdjustDevicesAndImexChannelsAreAdditive(t *testing.T) {
+	deviceRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(deviceRoot, "nvidia0"), []byte{}, 0o644))
+	channelRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(channelRoot, "channel0"), []byte{}, 0o644))
+
+	cfg := DefaultConfig()
+	cfg.DeviceHostPath = deviceRoot
+	cfg.ImexChannelHostPath = channelRoot
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Namespace: "default",
+		PodAnnotations: map[string]string{
+			"nvml-mock.nvidia.com/devices":       "true",
+			"nvml-mock.nvidia.com/imex-channels": "true",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.ElementsMatch(t, []Device{
+		{HostPath: filepath.Join(deviceRoot, "nvidia0"), Path: "/dev/nvidia0"},
+		{HostPath: filepath.Join(channelRoot, "channel0"), Path: "/dev/nvidia-caps-imex-channels/channel0"},
+	}, adjustment.Devices)
+}
+
+func TestDefaultConfigSetsImexChannelDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	require.Equal(t, "nvml-mock.nvidia.com/imex-channels", cfg.ImexChannelAnnotation)
+	require.Equal(t, "/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels", cfg.ImexChannelHostPath)
+}
