@@ -24,6 +24,13 @@ var _ = ReportAfterSuite("skipped specs summary", func(report Report) {
 		return
 	}
 
+	// A skipped spec with an empty Failure.Message was not skipped via a
+	// programmatic Skip("..."); it could be a label-filter/focus/skip-string
+	// exclusion, a suite-wide skip, an interrupt, or a deadline. We cannot tell
+	// these apart per spec, so fall back to a cause-neutral marker that only
+	// names the filters actually configured for this run.
+	fallback := emptySkipReason(report.SuiteConfig)
+
 	var lines []string
 	for _, spec := range report.SpecReports {
 		if spec.State != types.SpecStateSkipped {
@@ -31,7 +38,7 @@ var _ = ReportAfterSuite("skipped specs summary", func(report Report) {
 		}
 		reason := strings.TrimSpace(spec.Failure.Message)
 		if reason == "" {
-			reason = "(filtered: did not match label filter)"
+			reason = fallback
 		}
 		lines = append(lines, fmt.Sprintf("- %s\n    reason: %s", spec.FullText(), reason))
 	}
@@ -48,3 +55,24 @@ var _ = ReportAfterSuite("skipped specs summary", func(report Report) {
 
 	fmt.Fprint(GinkgoWriter, b.String())
 })
+
+// emptySkipReason returns a cause-neutral marker for skipped specs that carry no
+// Failure.Message. Such skips have no per-spec reason we can recover, so we only
+// hint at the filters actually configured for this run rather than asserting a
+// single cause.
+func emptySkipReason(cfg types.SuiteConfig) string {
+	var filters []string
+	if strings.TrimSpace(cfg.LabelFilter) != "" {
+		filters = append(filters, fmt.Sprintf("label-filter %q", cfg.LabelFilter))
+	}
+	if len(cfg.FocusStrings) > 0 {
+		filters = append(filters, fmt.Sprintf("focus %v", cfg.FocusStrings))
+	}
+	if len(cfg.SkipStrings) > 0 {
+		filters = append(filters, fmt.Sprintf("skip %v", cfg.SkipStrings))
+	}
+	if len(filters) == 0 {
+		return "(no skip reason reported)"
+	}
+	return fmt.Sprintf("(no skip reason reported; possibly excluded by %s)", strings.Join(filters, ", "))
+}
