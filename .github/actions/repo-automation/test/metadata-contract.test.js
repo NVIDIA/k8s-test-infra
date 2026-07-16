@@ -7,6 +7,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const { loadConfig } = require("../src/config.js");
+const { parsePolicyState } = require("../src/commands/state.js");
 const { createGitHubClient } = require("../src/github-client.js");
 const { createFakeGitHub } = require("./helpers/fake-github.js");
 
@@ -56,20 +57,25 @@ const writeOperations = new Set([
   "upsertPolicyComment",
 ]);
 
-function commandStateBody(headOid, { metadataHead = headOid, malformed = false } = {}) {
+function commandStateBody(headOid, {
+  metadataHead = headOid,
+  malformed = false,
+  lgtmHead = headOid,
+  lastRetestHead = headOid,
+} = {}) {
   const state = malformed
     ? "{not-json}"
     : JSON.stringify({
       headOid,
-      lgtm: {
+      lgtm: lgtmHead === null ? null : {
         actor: "alice",
         commentId: 701,
-        headOid,
+        headOid: lgtmHead,
         createdAt: "2026-07-16T08:00:00.000Z",
       },
-      lastRetest: {
+      lastRetest: lastRetestHead === null ? null : {
         commentId: 702,
-        headOid,
+        headOid: lastRetestHead,
         createdAt: "2026-07-16T08:01:00.000Z",
       },
     });
@@ -273,6 +279,68 @@ test("same-head command state survives stale metadata evidence", async () => {
   assert.equal(result.comment.body.split("\n")[1], existing.split("\n")[1]);
   assert.equal(result.comment.body.split("\n")[2], `<!-- repo-automation-metadata-head:v1 {"headOid":"${liveHead}"} -->`);
   assert.equal(github.calls.addPolicyLabel.length + github.calls.removePolicyLabel.length, 0);
+});
+
+test("live top-level state resets both provenances when either nested head is stale", async (t) => {
+  const cases = [
+    ["stale LGTM", oldHead, liveHead],
+    ["stale retest", liveHead, oldHead],
+    ["both stale", oldHead, oldHead],
+    ["stale LGTM and null retest", oldHead, null],
+    ["null LGTM and stale retest", null, oldHead],
+  ];
+  for (const [name, lgtmHead, lastRetestHead] of cases) {
+    await t.test(name, async () => {
+      const { runMetadata } = require("../src/modes/metadata.js");
+      const github = createFakeGitHub(metadataState({
+        labels: ["lgtm", "approved", "do-not-merge/hold"],
+        comments: [{
+          id: 9,
+          body: commandStateBody(liveHead, { lgtmHead, lastRetestHead }),
+          author: "github-actions[bot]",
+          type: "Bot",
+        }],
+      }));
+
+      const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false });
+
+      assert.equal(result.reviewState.reset, true);
+      assert.deepEqual(github.calls.addPolicyLabel.map(({ label }) => label), ["do-not-merge/needs-approval"]);
+      assert.deepEqual(github.calls.removePolicyLabel.map(({ label }) => label), ["lgtm", "approved"]);
+      assert.deepEqual(parsePolicyState(result.comment.body), {
+        headOid: liveHead,
+        lgtm: null,
+        lastRetest: null,
+      });
+    });
+  }
+});
+
+test("live top-level state preserves only null or exactly live nested provenances", async (t) => {
+  const cases = [
+    ["both live", liveHead, liveHead],
+    ["live LGTM and null retest", liveHead, null],
+    ["null LGTM and live retest", null, liveHead],
+    ["both null", null, null],
+  ];
+  for (const [name, lgtmHead, lastRetestHead] of cases) {
+    await t.test(name, async () => {
+      const { runMetadata } = require("../src/modes/metadata.js");
+      const body = commandStateBody(liveHead, { lgtmHead, lastRetestHead });
+      const github = createFakeGitHub(metadataState({ comments: [{
+        id: 9,
+        body,
+        author: "github-actions[bot]",
+        type: "Bot",
+      }] }));
+
+      const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: true });
+
+      assert.equal(result.reviewState.reset, false);
+      assert.deepEqual(parsePolicyState(result.comment.body), parsePolicyState(body));
+      assert.deepEqual(mutations(github), []);
+    });
+  }
 });
 
 test("malformed owned state resets while a user-owned marker lookalike is ignored", async () => {

@@ -182,7 +182,12 @@ function classifyReviewState(commentBody, headOid) {
   const parsed = hasValidPolicyCommentStructure(commentBody)
     ? parsePolicyState(commentBody)
     : null;
-  if (parsed !== null && parsed.headOid === headOid) {
+  if (
+    parsed !== null
+    && parsed.headOid === headOid
+    && (parsed.lgtm === null || parsed.lgtm.headOid === headOid)
+    && (parsed.lastRetest === null || parsed.lastRetest.headOid === headOid)
+  ) {
     return { reset: false, state: parsed };
   }
   return {

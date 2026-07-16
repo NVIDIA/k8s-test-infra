@@ -173,6 +173,47 @@ test("labels never grant authority and invalid current-head approval disables ex
   assert.deepEqual(github.calls.enableAutoMerge, []);
 });
 
+test("Task 8 partial reset states cannot enable native auto-merge", async (t) => {
+  await t.test("pre-comment partial reset has conservative labels and stale comment evidence", async () => {
+    const { github, result } = await run(evaluatorState({
+      labels: ["do-not-merge/needs-approval", "maintainer/custom"],
+      comments: [{
+        id: 77,
+        author: "github-actions[bot]",
+        type: "Bot",
+        body: policyBody({
+          head: NEXT_HEAD,
+          metadataHead: NEXT_HEAD,
+          approval: lgtm(NEXT_HEAD),
+        }),
+      }],
+    }));
+
+    assert.equal(result.pullRequests[0].merge.action, "NOOP");
+    assert.deepEqual(result.pullRequests[0].merge.blockers, [
+      "lgtm-missing",
+      "metadata-stale",
+    ]);
+    assert.deepEqual(github.calls.enableAutoMerge, []);
+  });
+
+  await t.test("post-comment canonical reset has null current-head authority", async () => {
+    const { github, result } = await run(evaluatorState({
+      labels: ["do-not-merge/needs-approval", "maintainer/custom"],
+      comments: [{
+        id: 77,
+        author: "github-actions[bot]",
+        type: "Bot",
+        body: policyBody({ approval: null }),
+      }],
+    }));
+
+    assert.equal(result.pullRequests[0].merge.action, "NOOP");
+    assert.deepEqual(result.pullRequests[0].merge.blockers, ["lgtm-missing"]);
+    assert.deepEqual(github.calls.enableAutoMerge, []);
+  });
+});
+
 test("workflow completion uses only a re-fetched strict identity", async (t) => {
   const trusted = {
     id: 7001,

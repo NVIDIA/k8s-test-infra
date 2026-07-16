@@ -48,3 +48,26 @@
   omitted needs-approval, reversed authority-label removal order, and disabled
   the final live-head fence. Every mutant was restored before final gates.
 - No workflow file changed, so actionlint is not applicable to Task 8.
+
+## Independent-review correction
+
+- Metadata classification now requires the top-level state head and every
+  non-null nested LGTM or retest provenance head to equal the live PR head.
+  One stale nested provenance resets both provenances together; null nested
+  provenance remains valid.
+- Correction RED reproduced all five missing boundaries: independently stale
+  LGTM, independently stale retest, both stale, stale LGTM with null retest,
+  and null LGTM with stale retest. The parent suite plus those five cases
+  reported 6 failures before GREEN.
+- Exact-state preservation now covers both live, either live with the other
+  null, and both null. The combined metadata/evaluator focused suite passes
+  180/180.
+- Added Task 7 integration regressions for the pre-comment partial-reset state
+  and post-comment canonical-reset state. Both recompute live authority and
+  prove native auto-merge remains `NOOP` with zero enable calls.
+- Three correction mutants were killed: omitting nested LGTM binding, omitting
+  nested retest binding, and accepting either provenance instead of requiring
+  every non-null provenance to match.
+- Corrected full action suite with loopback permission: 740/740 passed. ESLint,
+  package, and `git diff --check` passed. Corrected `dist/index.js` SHA-256 is
+  `1a1ce164c7058e256ca15932e859f0e7c42a721bfc67de0ad20f42dcaa7ab14c`.
