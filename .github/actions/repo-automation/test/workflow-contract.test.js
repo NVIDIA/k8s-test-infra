@@ -113,6 +113,7 @@ test("Review observer emits completion using only one literal colon", () => {
   assert.deepEqual(workflow.permissions, {});
   const job = singleJob(workflow);
   assert.equal(job["timeout-minutes"], 5);
+  assert.equal(job.permissions === undefined || Object.keys(job.permissions).length === 0, true);
   assert.equal(job.steps.length, 1);
   assert.deepEqual(Object.keys(job.steps[0]).sort(), ["name", "run"]);
   assert.equal(job.steps[0].run, ":");
@@ -145,7 +146,12 @@ test("Merge evaluator accepts only exact trusted workflow identities and safe ma
   const job = singleJob(workflow);
   assert.equal(job["timeout-minutes"], 15);
   assert.deepEqual(job.concurrency, sharedConcurrency);
-  assert.deepEqual(job.permissions, { contents: "write", issues: "write", "pull-requests": "write" });
+  assert.deepEqual(job.permissions, {
+    contents: "write",
+    actions: "read",
+    issues: "write",
+    "pull-requests": "write",
+  });
   assertTrustedCheckout(job);
   assert.deepEqual(localActionStep(job).with, {
     mode: "merge-evaluate",

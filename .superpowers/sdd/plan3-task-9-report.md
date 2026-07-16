@@ -56,3 +56,22 @@ to reissue the command. This task deliberately does not build a separate queue.
 
 No workflow was dispatched and no remote repository setting or other remote
 state was changed.
+
+## Independent review fix
+
+The evaluator now grants exact `actions: read` authority so its Task 7 live
+`Get workflow run` identity refresh is operational; no Actions write authority
+was added. The parsed contract ties that runtime requirement to the evaluator's
+exact job permission map. The observer contract also requires its sole job to
+have either no permission override or an exactly empty one, preventing a later
+job-level token grant.
+
+- RED: focused workflow contracts passed 4/5 and failed only because evaluator
+  `actions: read` was absent; the observer isolation contract passed against
+  the already-safe absent override.
+- GREEN: focused workflow contracts passed 5/5.
+- Full permitted-loopback suite passed 745/745; lint, touched-workflow
+  actionlint, package, dist parity, diff, and security scans passed.
+- The fix made no source-runtime change, and the canonical bundle SHA-256
+  remained `1a1ce164c7058e256ca15932e859f0e7c42a721bfc67de0ad20f42dcaa7ab14c`.
+- No workflow was dispatched and no remote state was mutated.
