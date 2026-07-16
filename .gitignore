@@ -31,3 +31,6 @@ docs/magi/
 /.github/actions/repo-automation/node_modules/
 !/.github/actions/repo-automation/dist/
 !/.github/actions/repo-automation/dist/index.js
+
+# Checksum-verified workflow linter cache.
+.cache/actionlint/

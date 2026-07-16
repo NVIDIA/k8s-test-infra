@@ -11,7 +11,7 @@
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -o pipefail -ec
 
-.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri
+.PHONY: build fmt verify release lint vendor check-vendor actionlint helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
@@ -28,8 +28,7 @@ IMAGE_TAG := $(IMAGE_REPO):$(IMAGE_TAG_NAME)
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 
 build:
-	@rm -rf bin
-	$(GO_CMD) build -o bin/$(BINARY_NAME) cmd/nv-ci-bot/main.go
+	$(GO_CMD) build ./...
 
 fmt:
 	@$(GO_FMT) -w -l $$(find . -name '*.go')
@@ -43,6 +42,9 @@ verify:
 
 lint:
 	golangci-lint run ./...
+
+actionlint:
+	./hack/actionlint.sh
 
 vendor:
 	go mod tidy
