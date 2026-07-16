@@ -4,10 +4,11 @@ const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const OID = /^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/;
 const LOGIN = /^(?!.*--)[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$/;
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const MAX_LABELS = 1000;
 const SNAPSHOT_KEYS = [
   "approvalCoverageComplete",
   "approvalHeadOid",
-  "autoMergeEnabled",
+  "autoMergeMethod",
   "baseBranch",
   "baseBranchAllowed",
   "baseBranchProtected",
@@ -27,6 +28,7 @@ const LGTM_KEYS = ["actor", "commentId", "createdAt", "headOid"];
 const PULL_REQUEST_STATES = new Set(["OPEN", "CLOSED"]);
 const MERGEABILITY_STATES = new Set(["MERGEABLE", "CONFLICTING", "UNKNOWN"]);
 const CI_STATES = new Set(["SUCCESS", "PENDING", "FAILED"]);
+const AUTO_MERGE_METHODS = new Set(["MERGE", "REBASE", "SQUASH"]);
 
 function isPlainRecord(value) {
   return value !== null
@@ -35,22 +37,44 @@ function isPlainRecord(value) {
     && Object.getPrototypeOf(value) === Object.prototype;
 }
 
-function requireExactDataRecord(value, keys, field) {
+function captureBoundedDescriptorMap(value, maximumOwnKeys, field) {
+  const ownKeys = Reflect.ownKeys(value);
+  if (ownKeys.length > maximumOwnKeys) {
+    throw new TypeError(`${field} has too many fields`);
+  }
+  const descriptors = Object.create(null);
+  for (const key of ownKeys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined) {
+      throw new TypeError(`${field} fields changed during capture`);
+    }
+    descriptors[key] = descriptor;
+  }
+  return descriptors;
+}
+
+function captureExactDataRecord(value, keys, field) {
   if (!isPlainRecord(value)) {
     throw new TypeError(`${field} must be a plain object`);
   }
-  const ownKeys = Reflect.ownKeys(value);
+  const descriptors = captureBoundedDescriptorMap(value, keys.length, field);
+  const ownKeys = Reflect.ownKeys(descriptors);
   if (
     ownKeys.length !== keys.length
-    || keys.some((key) => !Object.hasOwn(value, key))
+    || keys.some((key) => !Object.hasOwn(descriptors, key))
     || ownKeys.some((key) => typeof key !== "string" || !keys.includes(key))
   ) {
     throw new TypeError(`${field} must match the exact schema`);
   }
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  if (keys.some((key) => !("value" in descriptors[key]))) {
-    throw new TypeError(`${field} fields must be data properties`);
+  const captured = Object.create(null);
+  for (const key of keys) {
+    const descriptor = descriptors[key];
+    if (descriptor === undefined || !Object.hasOwn(descriptor, "value")) {
+      throw new TypeError(`${field} fields must be data properties`);
+    }
+    captured[key] = descriptor.value;
   }
+  return captured;
 }
 
 function requireBoolean(value, field) {
@@ -99,18 +123,18 @@ function normalizeTimestamp(value) {
 
 function normalizeLgtm(value) {
   if (value === null) return null;
-  requireExactDataRecord(value, LGTM_KEYS, "LGTM provenance");
-  if (typeof value.actor !== "string" || !LOGIN.test(value.actor)) {
+  const lgtm = captureExactDataRecord(value, LGTM_KEYS, "LGTM provenance");
+  if (typeof lgtm.actor !== "string" || !LOGIN.test(lgtm.actor)) {
     throw new TypeError("LGTM actor must be a normalized GitHub login");
   }
-  if (!Number.isSafeInteger(value.commentId) || value.commentId <= 0) {
+  if (!Number.isSafeInteger(lgtm.commentId) || lgtm.commentId <= 0) {
     throw new TypeError("LGTM comment ID must be a positive safe integer");
   }
   return {
-    actor: value.actor,
-    commentId: value.commentId,
-    headOid: normalizeOid(value.headOid, "LGTM head OID"),
-    createdAt: normalizeTimestamp(value.createdAt),
+    actor: lgtm.actor,
+    commentId: lgtm.commentId,
+    headOid: normalizeOid(lgtm.headOid, "LGTM head OID"),
+    createdAt: normalizeTimestamp(lgtm.createdAt),
   };
 }
 
@@ -118,62 +142,85 @@ function normalizeLabels(value) {
   if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) {
     throw new TypeError("labels must be an array");
   }
-  const ownKeys = Reflect.ownKeys(value);
+  const descriptors = captureBoundedDescriptorMap(value, MAX_LABELS + 1, "labels");
+  const ownKeys = Reflect.ownKeys(descriptors);
+  const lengthDescriptor = descriptors.length;
   if (
-    ownKeys.some((key) => typeof key === "symbol")
-    || Object.keys(value).length !== value.length
+    lengthDescriptor === undefined
+    || !Object.hasOwn(lengthDescriptor, "value")
+    || lengthDescriptor.enumerable
+    || !Number.isSafeInteger(lengthDescriptor.value)
+    || lengthDescriptor.value < 0
+    || lengthDescriptor.value > MAX_LABELS
   ) {
+    throw new TypeError("labels must have a bounded ordinary length");
+  }
+  const length = lengthDescriptor.value;
+  if (ownKeys.length !== length + 1 || ownKeys.some((key) => typeof key === "symbol")) {
     throw new TypeError("labels must be a dense ordinary array");
   }
   const normalized = new Set();
-  for (const label of value) {
-    normalized.add(requireSafeText(label, 50, "label").toLowerCase());
+  for (let index = 0; index < length; index += 1) {
+    const key = String(index);
+    const descriptor = descriptors[key];
+    if (
+      descriptor === undefined
+      || !Object.hasOwn(descriptor, "value")
+      || !descriptor.enumerable
+    ) {
+      throw new TypeError("labels must contain enumerable indexed data properties");
+    }
+    normalized.add(requireSafeText(descriptor.value, 50, "label").toLowerCase());
   }
   return [...normalized].sort();
 }
 
 function normalizeSnapshot(value) {
-  requireExactDataRecord(value, SNAPSHOT_KEYS, "merge snapshot");
+  const snapshot = captureExactDataRecord(value, SNAPSHOT_KEYS, "merge snapshot");
   return {
     pullRequestState: requireEnum(
-      value.pullRequestState,
+      snapshot.pullRequestState,
       PULL_REQUEST_STATES,
       "pull request state",
     ),
-    draft: requireBoolean(value.draft, "draft"),
-    baseBranch: requireSafeText(value.baseBranch, 255, "base branch"),
-    baseBranchAllowed: requireBoolean(value.baseBranchAllowed, "base branch allowed"),
-    baseBranchProtected: requireBoolean(value.baseBranchProtected, "base branch protected"),
-    headOid: normalizeOid(value.headOid, "head OID"),
-    finalHeadOid: normalizeOid(value.finalHeadOid, "final head OID"),
-    metadataHeadOid: normalizeOid(value.metadataHeadOid, "metadata head OID"),
-    approvalHeadOid: normalizeOid(value.approvalHeadOid, "approval head OID"),
-    lgtm: normalizeLgtm(value.lgtm),
+    draft: requireBoolean(snapshot.draft, "draft"),
+    baseBranch: requireSafeText(snapshot.baseBranch, 255, "base branch"),
+    baseBranchAllowed: requireBoolean(snapshot.baseBranchAllowed, "base branch allowed"),
+    baseBranchProtected: requireBoolean(snapshot.baseBranchProtected, "base branch protected"),
+    headOid: normalizeOid(snapshot.headOid, "head OID"),
+    finalHeadOid: normalizeOid(snapshot.finalHeadOid, "final head OID"),
+    metadataHeadOid: normalizeOid(snapshot.metadataHeadOid, "metadata head OID"),
+    approvalHeadOid: normalizeOid(snapshot.approvalHeadOid, "approval head OID"),
+    lgtm: normalizeLgtm(snapshot.lgtm),
     lgtmStateOwnedByBot: requireBoolean(
-      value.lgtmStateOwnedByBot,
+      snapshot.lgtmStateOwnedByBot,
       "LGTM state ownership",
     ),
     approvalCoverageComplete: requireBoolean(
-      value.approvalCoverageComplete,
+      snapshot.approvalCoverageComplete,
       "approval coverage",
     ),
-    mergeability: requireEnum(value.mergeability, MERGEABILITY_STATES, "mergeability"),
-    labels: normalizeLabels(value.labels),
-    loadError: requireBoolean(value.loadError, "load error"),
-    ciState: requireEnum(value.ciState, CI_STATES, "CI state"),
-    autoMergeEnabled: requireBoolean(value.autoMergeEnabled, "auto-merge state"),
+    mergeability: requireEnum(snapshot.mergeability, MERGEABILITY_STATES, "mergeability"),
+    labels: normalizeLabels(snapshot.labels),
+    loadError: requireBoolean(snapshot.loadError, "load error"),
+    ciState: requireEnum(snapshot.ciState, CI_STATES, "CI state"),
+    autoMergeMethod: snapshot.autoMergeMethod === null
+      ? null
+      : requireEnum(snapshot.autoMergeMethod, AUTO_MERGE_METHODS, "auto-merge method"),
   };
 }
 
 function malformedDecision(value) {
   let enabled = false;
   try {
-    if (isPlainRecord(value)) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, "autoMergeEnabled");
-      enabled = descriptor !== undefined
-        && "value" in descriptor
-        && descriptor.value === true;
-    }
+    const descriptor = value !== null
+      && (typeof value === "object" || typeof value === "function")
+      ? Object.getOwnPropertyDescriptor(value, "autoMergeMethod")
+      : undefined;
+    enabled = descriptor !== undefined
+      && Object.hasOwn(descriptor, "value")
+      && descriptor.value !== null
+      && descriptor.value !== undefined;
   } catch {
     enabled = false;
   }
@@ -211,15 +258,18 @@ function decideMergeAction(input) {
     blockers.push("do-not-merge-label");
   }
   if (state.finalHeadOid !== state.headOid) blockers.push("head-changed");
+  if (state.autoMergeMethod === "MERGE" || state.autoMergeMethod === "REBASE") {
+    blockers.push("auto-merge-method-mismatch");
+  }
 
   if (blockers.length === 0) {
     return {
-      action: state.autoMergeEnabled ? "NOOP" : "ENABLE",
+      action: state.autoMergeMethod === "SQUASH" ? "NOOP" : "ENABLE",
       blockers,
     };
   }
   return {
-    action: state.autoMergeEnabled ? "DISABLE" : "NOOP",
+    action: state.autoMergeMethod === null ? "NOOP" : "DISABLE",
     blockers,
   };
 }

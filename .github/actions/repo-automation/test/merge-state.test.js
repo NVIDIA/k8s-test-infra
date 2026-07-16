@@ -39,7 +39,7 @@ function snapshot(overrides = {}) {
     labels: [],
     loadError: false,
     ciState: "SUCCESS",
-    autoMergeEnabled: false,
+    autoMergeMethod: null,
     ...overrides,
   };
 }
@@ -53,18 +53,28 @@ function assertBlocked(overrides, blocker) {
     action: "NOOP",
     blockers: [blocker],
   });
-  assert.deepEqual(decide({ ...overrides, autoMergeEnabled: true }), {
+  assert.deepEqual(decide({ ...overrides, autoMergeMethod: "SQUASH" }), {
     action: "DISABLE",
     blockers: [blocker],
   });
+  for (const autoMergeMethod of ["MERGE", "REBASE"]) {
+    assert.deepEqual(decide({ ...overrides, autoMergeMethod }), {
+      action: "DISABLE",
+      blockers: [blocker, "auto-merge-method-mismatch"],
+    });
+  }
 }
 
-test("enables native auto-merge only when every repository prerequisite is proven", () => {
-  assert.deepEqual(decide(), { action: "ENABLE", blockers: [] });
-  assert.deepEqual(decide({ autoMergeEnabled: true }), {
-    action: "NOOP",
-    blockers: [],
-  });
+test("converges eligible native auto-merge to squash in two idempotent steps", () => {
+  const expected = new Map([
+    [null, { action: "ENABLE", blockers: [] }],
+    ["SQUASH", { action: "NOOP", blockers: [] }],
+    ["MERGE", { action: "DISABLE", blockers: ["auto-merge-method-mismatch"] }],
+    ["REBASE", { action: "DISABLE", blockers: ["auto-merge-method-mismatch"] }],
+  ]);
+  for (const [autoMergeMethod, result] of expected) {
+    assert.deepEqual(decide({ autoMergeMethod }), result);
+  }
 });
 
 test("blocks closed and draft pull requests independently", () => {
@@ -126,7 +136,7 @@ test("requires metadata bound to the current head and no upstream load error", (
 test("lets GitHub enforce required checks for success, pending, and failed CI", () => {
   for (const ciState of ["SUCCESS", "PENDING", "FAILED"]) {
     assert.deepEqual(decide({ ciState }), { action: "ENABLE", blockers: [] });
-    assert.deepEqual(decide({ ciState, autoMergeEnabled: true }), {
+    assert.deepEqual(decide({ ciState, autoMergeMethod: "SQUASH" }), {
       action: "NOOP",
       blockers: [],
     });
@@ -237,7 +247,11 @@ test("fails closed for unknown keys, missing fields, and non-plain snapshots", (
     });
   }
 
-  assert.deepEqual(decideMergeAction({ ...snapshot(), unexpected: true, autoMergeEnabled: true }), {
+  assert.deepEqual(decideMergeAction({
+    ...snapshot(),
+    unexpected: true,
+    autoMergeMethod: "SQUASH",
+  }), {
     action: "DISABLE",
     blockers: ["invalid-snapshot"],
   });
@@ -251,7 +265,6 @@ test("fails closed for invalid booleans, enums, OIDs, labels, branches, and prov
     { lgtmStateOwnedByBot: 1 },
     { approvalCoverageComplete: "yes" },
     { loadError: "false" },
-    { autoMergeEnabled: 0 },
     { pullRequestState: "MERGED" },
     { mergeability: "CLEAN" },
     { ciState: "CANCELLED" },
@@ -274,6 +287,257 @@ test("fails closed for invalid booleans, enums, OIDs, labels, branches, and prov
       blockers: ["invalid-snapshot"],
     });
   }
+});
+
+test("unknown and malformed auto-merge methods fail closed according to live evidence", () => {
+  for (const autoMergeMethod of ["FAST_FORWARD", 0, false, {}, Symbol("method")]) {
+    assert.deepEqual(decide({ autoMergeMethod }), {
+      action: "DISABLE",
+      blockers: ["invalid-snapshot"],
+    });
+  }
+  assert.deepEqual(decide({ autoMergeMethod: undefined }), {
+    action: "NOOP",
+    blockers: ["invalid-snapshot"],
+  });
+});
+
+test("malformed containers disable every trustworthy own enabled method without invoking accessors", () => {
+  class LiveSnapshot {
+    constructor(autoMergeMethod) {
+      this.autoMergeMethod = autoMergeMethod;
+    }
+  }
+
+  const nullPrototypeEnabled = Object.create(null);
+  nullPrototypeEnabled.autoMergeMethod = "SQUASH";
+  const nullPrototypeDisabled = Object.create(null);
+  nullPrototypeDisabled.autoMergeMethod = null;
+
+  for (const state of [
+    nullPrototypeEnabled,
+    new LiveSnapshot("MERGE"),
+    { autoMergeMethod: "REBASE", unexpected: true },
+  ]) {
+    assert.deepEqual(decideMergeAction(state), {
+      action: "DISABLE",
+      blockers: ["invalid-snapshot"],
+    });
+  }
+  for (const state of [
+    nullPrototypeDisabled,
+    new LiveSnapshot(null),
+    { autoMergeMethod: null, unexpected: true },
+    null,
+  ]) {
+    assert.deepEqual(decideMergeAction(state), {
+      action: "NOOP",
+      blockers: ["invalid-snapshot"],
+    });
+  }
+
+  let getterCalls = 0;
+  const accessor = {};
+  Object.defineProperty(accessor, "autoMergeMethod", {
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      return "SQUASH";
+    },
+  });
+  assert.deepEqual(decideMergeAction(accessor), {
+    action: "NOOP",
+    blockers: ["invalid-snapshot"],
+  });
+  assert.equal(getterCalls, 0);
+
+  const trapFailure = new Proxy({}, {
+    getOwnPropertyDescriptor() {
+      throw new Error("descriptor trap failed");
+    },
+  });
+  assert.deepEqual(decideMergeAction(trapFailure), {
+    action: "NOOP",
+    blockers: ["invalid-snapshot"],
+  });
+});
+
+test("captures top-level descriptor values once and never consults hostile get traps", () => {
+  let getterCalls = 0;
+  const hiddenApproval = new Proxy(snapshot({ approvalCoverageComplete: false }), {
+    get(target, property, receiver) {
+      getterCalls += 1;
+      if (property === "approvalCoverageComplete") return true;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  assert.deepEqual(decideMergeAction(hiddenApproval), {
+    action: "NOOP",
+    blockers: ["approval-coverage-incomplete"],
+  });
+  assert.equal(getterCalls, 0);
+
+  const hiddenHold = new Proxy(snapshot({ labels: ["do-not-merge/hold"] }), {
+    get(target, property, receiver) {
+      getterCalls += 1;
+      if (property === "labels") return [];
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  assert.deepEqual(decideMergeAction(hiddenHold), {
+    action: "NOOP",
+    blockers: ["do-not-merge-label"],
+  });
+  assert.equal(getterCalls, 0);
+});
+
+test("captures one top-level descriptor map so alternating proxies cannot flip gates", () => {
+  let approvalDescriptorCalls = 0;
+  const alternatingApproval = new Proxy(snapshot({ approvalCoverageComplete: false }), {
+    getOwnPropertyDescriptor(target, property) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(target, property);
+      if (property !== "approvalCoverageComplete") return descriptor;
+      approvalDescriptorCalls += 1;
+      return {
+        ...descriptor,
+        value: approvalDescriptorCalls === 1 ? false : true,
+      };
+    },
+  });
+
+  assert.deepEqual(decideMergeAction(alternatingApproval), {
+    action: "NOOP",
+    blockers: ["approval-coverage-incomplete"],
+  });
+  assert.equal(approvalDescriptorCalls, 1);
+});
+
+test("captures one label descriptor map before validating length and values", () => {
+  let lengthDescriptorCalls = 0;
+  let indexDescriptorCalls = 0;
+  const alternatingLabel = new Proxy(["do-not-merge/hold"], {
+    getOwnPropertyDescriptor(target, property) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(target, property);
+      if (property === "length") {
+        lengthDescriptorCalls += 1;
+        return descriptor;
+      }
+      if (property === "0") {
+        indexDescriptorCalls += 1;
+        return {
+          ...descriptor,
+          value: lengthDescriptorCalls === 0 ? "do-not-merge/hold" : "safe",
+        };
+      }
+      return descriptor;
+    },
+  });
+
+  assert.deepEqual(decide({ labels: alternatingLabel }), {
+    action: "NOOP",
+    blockers: ["do-not-merge-label"],
+  });
+  assert.equal(lengthDescriptorCalls, 1);
+  assert.equal(indexDescriptorCalls, 1);
+});
+
+test("rejects top-level and LGTM accessors without executing them", () => {
+  let getterCalls = 0;
+  const accessorState = snapshot({ autoMergeMethod: "SQUASH" });
+  Object.defineProperty(accessorState, "approvalCoverageComplete", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      return true;
+    },
+  });
+  assert.deepEqual(decideMergeAction(accessorState), {
+    action: "DISABLE",
+    blockers: ["invalid-snapshot"],
+  });
+
+  const methodAccessorState = snapshot();
+  Object.defineProperty(methodAccessorState, "autoMergeMethod", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      return "SQUASH";
+    },
+  });
+  assert.deepEqual(decideMergeAction(methodAccessorState), {
+    action: "NOOP",
+    blockers: ["invalid-snapshot"],
+  });
+
+  const accessorLgtm = lgtm();
+  Object.defineProperty(accessorLgtm, "headOid", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      return HEAD;
+    },
+  });
+  assert.deepEqual(decide({ lgtm: accessorLgtm }), {
+    action: "NOOP",
+    blockers: ["invalid-snapshot"],
+  });
+  assert.equal(getterCalls, 0);
+});
+
+test("accepts only bounded dense exact label arrays of own enumerable data values", () => {
+  let getterCalls = 0;
+  const accessor = [];
+  Object.defineProperty(accessor, "0", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      return "do-not-merge/hold";
+    },
+  });
+  accessor.length = 1;
+
+  const hiddenExtra = ["safe"];
+  Object.defineProperty(hiddenExtra, "extra", { value: true });
+  const nonEnumerableIndex = [];
+  Object.defineProperty(nonEnumerableIndex, "0", { value: "safe" });
+  nonEnumerableIndex.length = 1;
+  const symbolExtra = ["safe"];
+  symbolExtra[Symbol("extra")] = true;
+  const enumerableExtra = ["safe"];
+  enumerableExtra.extra = true;
+
+  for (const labels of [
+    accessor,
+    hiddenExtra,
+    nonEnumerableIndex,
+    symbolExtra,
+    enumerableExtra,
+    Array(1),
+    Array.from({ length: 1001 }, () => "safe"),
+  ]) {
+    assert.deepEqual(decide({ labels }), {
+      action: "NOOP",
+      blockers: ["invalid-snapshot"],
+    });
+  }
+  assert.equal(getterCalls, 0);
+
+  let oversizedDescriptorCalls = 0;
+  const oversized = new Proxy(Array.from({ length: 1001 }, () => "safe"), {
+    getOwnPropertyDescriptor(target, property) {
+      oversizedDescriptorCalls += 1;
+      return Reflect.getOwnPropertyDescriptor(target, property);
+    },
+  });
+  assert.deepEqual(decide({ labels: oversized }), {
+    action: "NOOP",
+    blockers: ["invalid-snapshot"],
+  });
+  assert.equal(oversizedDescriptorCalls, 0);
 });
 
 test("never reflects unsafe attacker-controlled text in blockers", () => {
@@ -305,7 +569,7 @@ test("source keeps CI diagnostic-only and all high-risk enable gates explicit", 
     "state.mergeability === \"CONFLICTING\"",
     "state.mergeability === \"UNKNOWN\"",
     "state.finalHeadOid !== state.headOid",
-    "state.autoMergeEnabled ? \"NOOP\" : \"ENABLE\"",
+    "state.autoMergeMethod === \"SQUASH\" ? \"NOOP\" : \"ENABLE\"",
   ]) {
     assert.equal(source.includes(fragment), true, `missing explicit gate: ${fragment}`);
   }
