@@ -1,0 +1,16 @@
+name: Repository automation
+description: Apply repository automation policy idempotently
+inputs:
+  mode:
+    required: true
+  pr-number:
+    required: false
+  dry-run:
+    required: false
+    default: "true"
+outputs:
+  summary:
+    description: JSON summary of the idempotent operation
+runs:
+  using: node24
+  main: dist/index.js

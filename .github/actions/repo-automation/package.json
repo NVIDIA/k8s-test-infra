@@ -11,7 +11,7 @@
     "package": "ncc build src/index.js -o dist --minify"
   },
   "dependencies": {
-    "@actions/core": "1.11.1",
+    "@actions/core": "3.0.1",
     "@actions/github": "9.1.1",
     "yaml": "2.9.0"
   },

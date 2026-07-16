@@ -26,3 +26,8 @@ docs/superpowers/
 docs/magi/
 .worktrees/
 .spike-dcgm/
+
+# Repository automation action dependencies and checked-in bundle.
+/.github/actions/repo-automation/node_modules/
+!/.github/actions/repo-automation/dist/
+!/.github/actions/repo-automation/dist/index.js
