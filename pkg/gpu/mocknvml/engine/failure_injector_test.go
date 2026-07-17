@@ -624,7 +624,7 @@ func TestFailureInjection_HealthyConfigIsNoOp(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, withFailure(&FailureInjectionConfig{
 		Mode: FailureModeHealthy,
 	}))
-	require.Nil(t, dev.failure, "healthy mode must not allocate a failureInjector")
+	require.Nil(t, dev.failureInjector(), "healthy mode must not allocate a failureInjector")
 	for i := 0; i < 50; i++ {
 		temp, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
 		require.Equal(t, nvml.SUCCESS, ret, "call %d", i)

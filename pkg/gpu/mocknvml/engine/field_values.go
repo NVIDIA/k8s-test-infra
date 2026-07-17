@@ -142,10 +142,11 @@ func (d *ConfigurableDevice) getDeviceFieldValue(fieldID uint32) (FieldValueType
 		return FieldValueUint, boolField(state == nvml.FEATURE_ENABLED), nvml.SUCCESS, true
 
 	case fiMemoryTemp:
-		if d.config == nil || d.config.Thermal == nil || d.config.Thermal.TemperatureMemory_C == 0 {
+		cfg := d.cfg()
+		if cfg.Thermal == nil || cfg.Thermal.TemperatureMemory_C == 0 {
 			return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
 		}
-		return FieldValueUint, uint64(d.config.Thermal.TemperatureMemory_C), nvml.SUCCESS, true
+		return FieldValueUint, uint64(cfg.Thermal.TemperatureMemory_C), nvml.SUCCESS, true
 
 	case fiTotalEnergyConsumption:
 		energy, ret := d.GetTotalEnergyConsumption()
