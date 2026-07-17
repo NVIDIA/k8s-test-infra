@@ -1,12 +1,14 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 
 const YAML = require("yaml");
 const Ajv = require("ajv");
+const addFormats = require("ajv-formats");
 
 const repositoryRoot = path.resolve(__dirname, "../../../..");
 
@@ -19,6 +21,11 @@ function readText(name) {
 }
 
 test("Release Please has one exact root version authority", () => {
+  assert.equal(readJson(".github/actions/repo-automation/package.json").devDependencies["release-please"], "17.6.0");
+  assert.equal(readJson(".github/actions/repo-automation/package.json").devDependencies.ajv, "8.20.0");
+  assert.equal(readJson(".github/actions/repo-automation/package.json").devDependencies["ajv-formats"], "3.0.1");
+  assert.equal(createHash("sha256").update(readText(".github/schemas/spdx-2.3.schema.json")).digest("hex"), "1e7a377f428c24d4b13dd786afe219d1517df18de76114b67040a0ce6ca18afa");
+  assert.match(readText(".github/scripts/spdx-schema-validator.mjs"), /upstream sha256:239208b7ac287b3cf5d9a9af23f9d69863971102a5e1587a27a398b43490b89b/);
   assert.deepEqual(readJson(".release-please-manifest.json"), { ".": "0.2.1" });
   assert.deepEqual(readJson("release-please-config.json"), {
     $schema: "https://raw.githubusercontent.com/googleapis/release-please/712fcf01effd08d7b0e7b1fd3861f2cb388bc8d1/schemas/config.json",
@@ -45,30 +52,11 @@ test("Release Please has one exact root version authority", () => {
     },
   });
   const config = readJson("release-please-config.json");
-  const pinnedV5Subset = {
-    type: "object",
-    additionalProperties: false,
-    required: ["$schema", "packages"],
-    properties: {
-      $schema: { const: "https://raw.githubusercontent.com/googleapis/release-please/712fcf01effd08d7b0e7b1fd3861f2cb388bc8d1/schemas/config.json" },
-      packages: {
-        type: "object", additionalProperties: false, required: ["."],
-        properties: {
-          ".": {
-            type: "object", additionalProperties: false,
-            required: ["release-type", "package-name", "changelog-path", "include-v-in-tag", "include-component-in-tag", "extra-files"],
-            properties: {
-              "release-type": { const: "simple" }, "package-name": { const: "nvml-mock" },
-              "changelog-path": { const: "CHANGELOG.md" }, "include-v-in-tag": { const: true },
-              "include-component-in-tag": { const: false },
-              "extra-files": { type: "array", minItems: 2, maxItems: 2 },
-            },
-          },
-        },
-      },
-    },
-  };
-  const validate = new Ajv({ strict: true }).compile(pinnedV5Subset);
+  const releasePleaseRoot = path.dirname(require.resolve("release-please/package.json"));
+  const pinnedV5Schema = JSON.parse(fs.readFileSync(path.join(releasePleaseRoot, "schemas/config.json"), "utf8"));
+  const ajv = new Ajv({ strict: false });
+  addFormats(ajv);
+  const validate = ajv.compile(pinnedV5Schema);
   assert.equal(validate(config), true, JSON.stringify(validate.errors));
 });
 
@@ -120,6 +108,7 @@ test("staged release workflow is read-only until one hard activation guard is re
   assert.match(guard.steps[0].run, /automation not activated/);
   assert.match(guard.steps[0].run, /exit 1/);
   assert.deepEqual(workflow.jobs["release-context"].needs, ["activation-guard", "release-please"]);
+  assert.match(workflow.jobs["release-context"].if, /github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\)/);
   assert.deepEqual(workflow.jobs["publish-image"].needs, ["release-context"]);
   assert.deepEqual(workflow.jobs["publish-chart"].needs, ["release-context"]);
 
@@ -159,12 +148,17 @@ test("staged release workflow is read-only until one hard activation guard is re
   assert.match(source, /release-reader\.mjs github-release/);
   assert.match(source, /image-sbom\.spdx\.json/);
   assert.match(source, /chart-sbom\.spdx\.json/);
-  assert.match(source, /gh release download/);
+  assert.match(source, /gh api[^\n]*releases\/assets/);
   assert.match(source, /gh release upload/);
   assert.match(source, /docker buildx imagetools create/);
   assert.match(source, /cosign verify /);
   assert.match(source, /cosign verify-attestation --type spdxjson/);
   assert.match(source, /gh attestation verify/);
+  assert.match(source, /release-state\.mjs final-digest/);
+  assert.match(source, /spdx\.mjs normalize/);
+  assert.match(source, /provenance:\s*false/);
+  assert.match(source, /push-by-digest=true/);
+  assert.doesNotMatch(source, /certificate-identity-regexp[^\n]*tags\/v/);
   assert.match(source, /release-reader\.mjs chart/);
   assert.match(source, /git rev-parse HEAD/);
   assert.match(source, /push-to-registry:\s*true/);
@@ -179,6 +173,13 @@ test("staged release workflow is read-only until one hard activation guard is re
   const imageSteps = workflow.jobs["publish-image"].steps;
   const imageNames = imageSteps.map((step) => step.name);
   assert.ok(imageNames.indexOf("Gather and validate release, registry, evidence, and asset state") < imageNames.indexOf("Log in to GHCR"));
+  const stagedBuild = imageSteps.find((step) => step.uses?.startsWith("docker/build-push-action@"));
+  assert.equal(Object.hasOwn(stagedBuild.with, "tags"), false);
+  assert.match(stagedBuild.with.outputs, /push-by-digest=true/);
+  const immutablePromotion = imageSteps.find((step) => step.name === "Re-read immutable image immediately before final tag promotion");
+  assert.match(immutablePromotion.run, /release-reader\.mjs/);
+  assert.match(immutablePromotion.run, /immutable-promotion/);
+  assert.match(immutablePromotion.run, /imagetools create/);
   assert.ok(imageSteps.some((step) => step.if === "${{ steps.image-plan.outputs.alias_minor == 'update' }}"));
   assert.ok(imageSteps.some((step) => step.if === "${{ steps.image-plan.outputs.alias_major == 'update' }}"));
   assert.ok(imageSteps.some((step) => step.if === "${{ steps.image-plan.outputs.alias_latest == 'update' }}"));
@@ -187,6 +188,12 @@ test("staged release workflow is read-only until one hard activation guard is re
   assert.ok(imageSteps.some((step) => step.if?.includes("steps.image-plan.outputs.signature == 'true'")));
   assert.ok(imageSteps.some((step) => step.if?.includes("steps.image-plan.outputs.sbom == 'true'")));
   assert.ok(imageSteps.some((step) => step.if?.includes("steps.image-plan.outputs.provenance == 'true'")));
+  for (const name of ["Promote collision-checked short SHA tag by digest", "Promote edge tag by digest", "Promote minor alias by digest", "Promote major alias by digest", "Promote latest alias by digest"]) {
+    const step = imageSteps.find((candidate) => candidate.name === name);
+    assert.match(step.run, /release-reader\.mjs/);
+    assert.match(step.run, /image-plan\.outputs\.digest|FINAL_IMAGE_DIGEST/);
+  }
+  assert.ok(imageSteps.some((step) => step.name === "Converge image SBOM asset after final re-query" && !step.if));
 
   const chartSteps = workflow.jobs["publish-chart"].steps;
   const chartNames = chartSteps.map((step) => step.name);
@@ -195,6 +202,8 @@ test("staged release workflow is read-only until one hard activation guard is re
   assert.ok(chartSteps.some((step) => step.id === "chart-digest"));
   const chartSbom = chartSteps.find((step) => step.uses?.startsWith("anchore/sbom-action@"));
   assert.equal(chartSbom.with.path, "${{ steps.chart-package.outputs.archive }}");
+  assert.ok(chartSteps.some((step) => step.name === "Inspect evidence for the final chart digest"));
+  assert.ok(chartSteps.some((step) => step.name === "Converge chart SBOM asset after final re-query" && !step.if));
 
   for (const [jobName, job] of Object.entries(workflow.jobs)) {
     for (const step of job.steps ?? []) {

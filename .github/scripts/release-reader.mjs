@@ -82,7 +82,7 @@ function descriptor(value, name) {
   return result;
 }
 
-async function readConfig(request, repo, configDescriptor) {
+async function readConfig(request, repo, configDescriptor, expectedPlatform) {
   descriptor(configDescriptor, "OCI config descriptor");
   if (configDescriptor.mediaType !== "application/vnd.oci.image.config.v1+json" &&
       configDescriptor.mediaType !== "application/vnd.docker.container.image.v1+json") {
@@ -95,6 +95,9 @@ async function readConfig(request, repo, configDescriptor) {
   if (response.status !== 200) fail("OCI config blob read failed");
   const config = jsonResponse(response, "OCI image config");
   exactKeys(config, ["architecture", "author", "config", "container", "container_config", "created", "docker_version", "history", "os", "rootfs", "variant"], "OCI image config");
+  if (typeof config.os !== "string" || typeof config.architecture !== "string" || `${config.os}/${config.architecture}` !== expectedPlatform) {
+    fail("OCI image config platform does not match its index descriptor");
+  }
   const runtime = object(config.config, "OCI runtime config");
   const labels = object(runtime.Labels, "OCI image labels");
   const sourceRevision = sha(labels["org.opencontainers.image.revision"], "OCI source revision label");
@@ -102,7 +105,7 @@ async function readConfig(request, repo, configDescriptor) {
   return { sourceRevision, version: imageVersion };
 }
 
-async function readImageManifest(request, repo, reference, expectedDigest = null) {
+async function readImageManifest(request, repo, reference, expectedDigest = null, expectedPlatform = null) {
   const response = await request({
     url: `https://ghcr.io/v2/${repo}/manifests/${encodeURIComponent(reference)}`,
     headers: { accept: MANIFEST_ACCEPT },
@@ -115,11 +118,48 @@ async function readImageManifest(request, repo, reference, expectedDigest = null
   if (manifest.schemaVersion !== 2 || typeof manifest.mediaType !== "string") fail("OCI manifest schema is invalid");
   if (manifest.mediaType === "application/vnd.oci.image.index.v1+json" ||
       manifest.mediaType === "application/vnd.docker.distribution.manifest.list.v2+json") {
+    if (expectedDigest !== null) fail("nested OCI image indexes are not allowed");
+    exactKeys(manifest, ["schemaVersion", "mediaType", "manifests", "annotations"], "OCI image index");
     if (!Array.isArray(manifest.manifests) || manifest.manifests.length === 0 || manifest.manifests.length > 16) fail("OCI image index is invalid");
-    let identity = null;
+    const runnable = new Map();
+    const attestations = new Set();
+    const descriptorDigests = new Set();
     for (const item of manifest.manifests) {
       const child = descriptor(item, "OCI platform descriptor");
-      const current = await readImageManifest(request, repo, child.digest, child.digest);
+      if (descriptorDigests.has(child.digest)) fail("OCI image index contains a duplicate descriptor digest");
+      descriptorDigests.add(child.digest);
+      const platform = object(child.platform, "OCI descriptor platform");
+      exactKeys(platform, ["os", "architecture"], "OCI descriptor platform");
+      const platformName = `${platform.os}/${platform.architecture}`;
+      if (platformName === "linux/amd64" || platformName === "linux/arm64") {
+        if (child.annotations !== undefined || child.artifactType !== undefined) fail("runnable OCI descriptor contains evidence metadata");
+        if (!["application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"].includes(child.mediaType)) {
+          fail("runnable OCI descriptor media type is invalid");
+        }
+        if (runnable.has(platformName)) fail("OCI image index contains a duplicate runnable platform");
+        runnable.set(platformName, child);
+        continue;
+      }
+      if (platformName !== "unknown/unknown") fail("OCI image index contains an unsupported runnable platform");
+      if (child.mediaType !== "application/vnd.oci.image.manifest.v1+json" || child.artifactType !== undefined) {
+        fail("Buildx attestation descriptor shape is invalid");
+      }
+      const annotations = object(child.annotations, "Buildx attestation annotations");
+      exactKeys(annotations, ["vnd.docker.reference.digest", "vnd.docker.reference.type"], "Buildx attestation annotations");
+      if (annotations["vnd.docker.reference.type"] !== "attestation-manifest") fail("OCI unknown platform descriptor is not a Buildx attestation");
+      const subject = digest(annotations["vnd.docker.reference.digest"], "Buildx attestation subject");
+      if (attestations.has(subject)) fail("OCI image index contains ambiguous Buildx attestations");
+      attestations.add(subject);
+    }
+    if (runnable.size !== 2 || !runnable.has("linux/amd64") || !runnable.has("linux/arm64")) {
+      fail("OCI image index must contain exactly linux/amd64 and linux/arm64");
+    }
+    for (const subject of attestations) {
+      if (![...runnable.values()].some((item) => item.digest === subject)) fail("Buildx attestation subject is not a runnable platform");
+    }
+    let identity = null;
+    for (const [platformName, child] of runnable.entries()) {
+      const current = await readImageManifest(request, repo, child.digest, child.digest, platformName);
       if (current === null) fail("OCI platform manifest is absent");
       const candidate = { sourceRevision: current.sourceRevision, version: current.version };
       if (identity !== null && (identity.sourceRevision !== candidate.sourceRevision || identity.version !== candidate.version)) {
@@ -129,31 +169,34 @@ async function readImageManifest(request, repo, reference, expectedDigest = null
     }
     return { digest: manifestDigest, ...identity };
   }
+  if (expectedDigest === null) fail("OCI image tag must resolve to a multi-platform index");
   if (manifest.mediaType !== "application/vnd.oci.image.manifest.v1+json" &&
       manifest.mediaType !== "application/vnd.docker.distribution.manifest.v2+json") {
     fail("OCI image manifest media type is invalid");
   }
   exactKeys(manifest, ["schemaVersion", "mediaType", "artifactType", "config", "layers", "subject", "annotations"], "OCI manifest");
   if (!Array.isArray(manifest.layers) || manifest.layers.length > 256) fail("OCI image layers are invalid");
-  const identity = await readConfig(request, repo, manifest.config);
+  if (expectedPlatform === null) fail("OCI platform expectation is missing");
+  const identity = await readConfig(request, repo, manifest.config, expectedPlatform);
   return { digest: manifestDigest, ...identity };
 }
 
 function evidence(value) {
   const result = object(value, "image evidence");
-  exactKeys(result, ["signature", "sbom", "provenance"], "image evidence");
+  exactKeys(result, ["subjectDigest", "signature", "sbom", "provenance"], "image evidence");
+  if (!Object.hasOwn(result, "subjectDigest")) fail("image evidence is missing subjectDigest");
+  if (result.subjectDigest !== null) digest(result.subjectDigest, "image evidence subject digest");
   for (const key of ["signature", "sbom", "provenance"]) if (typeof result[key] !== "boolean") fail(`image evidence ${key} must be boolean`);
   return result;
 }
 
-export async function gatherImageState(options) {
+export async function gatherImageIdentityState(options) {
   const value = object(options, "image reader options");
-  exactKeys(value, ["request", "repository", "version", "releaseSha", "evidence"], "image reader options");
+  exactKeys(value, ["request", "repository", "version", "releaseSha"], "image reader options");
   if (typeof value.request !== "function") fail("image reader request must be a function");
   const repo = repository(value.repository);
   const targetVersion = version(value.version);
   const releaseSha = sha(value.releaseSha, "release SHA");
-  const proof = evidence(value.evidence);
   const [stable, short, minor, major, latest] = await Promise.all([
     readImageManifest(value.request, repo, targetVersion),
     readImageManifest(value.request, repo, `sha-${releaseSha.slice(0, 12)}`),
@@ -165,12 +208,28 @@ export async function gatherImageState(options) {
   return {
     version: targetVersion,
     releaseSha,
-    stable: stable === null ? null : { digest: stable.digest, sourceRevision: stable.sourceRevision, ...proof },
+    stable: stable === null ? null : { digest: stable.digest, sourceRevision: stable.sourceRevision },
     short: short === null ? null : { digest: short.digest, sourceRevision: short.sourceRevision },
     minor: minor === null ? null : { digest: minor.digest, version: minor.version },
     major: major === null ? null : { digest: major.digest, version: major.version },
     latest: latest === null ? null : { digest: latest.digest, version: latest.version },
   };
+}
+
+export async function gatherImageState(options) {
+  const value = object(options, "image reader options");
+  exactKeys(value, ["request", "repository", "version", "releaseSha", "evidence"], "image reader options");
+  const proof = evidence(value.evidence);
+  const identity = await gatherImageIdentityState({
+    request: value.request, repository: value.repository, version: value.version, releaseSha: value.releaseSha,
+  });
+  if (identity.stable === null) {
+    if (proof.subjectDigest !== null || proof.signature || proof.sbom || proof.provenance) fail("evidence exists without an immutable image subject");
+    return identity;
+  }
+  if (proof.subjectDigest !== identity.stable.digest) fail("image evidence subject does not match the immutable image digest");
+  const booleans = { signature: proof.signature, sbom: proof.sbom, provenance: proof.provenance };
+  return { ...identity, stable: { ...identity.stable, ...booleans } };
 }
 
 export async function gatherDevelopmentState(options) {
@@ -314,6 +373,9 @@ async function main(argv) {
   if (command === "image") {
     const proof = JSON.parse(readFileSync(process.env.EVIDENCE_FILE, "utf8"));
     return gatherImageState({ request: createGhcrRequest(imageRepository, username, token), repository: imageRepository, version: process.env.RELEASE_VERSION, releaseSha, evidence: proof });
+  }
+  if (command === "image-identity") {
+    return gatherImageIdentityState({ request: createGhcrRequest(imageRepository, username, token), repository: imageRepository, version: process.env.RELEASE_VERSION, releaseSha });
   }
   if (command === "development") {
     return gatherDevelopmentState({ request: createGhcrRequest(imageRepository, username, token), repository: imageRepository, releaseSha });

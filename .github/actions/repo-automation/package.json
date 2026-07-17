@@ -18,6 +18,9 @@
   },
   "devDependencies": {
     "@vercel/ncc": "0.38.4",
-    "eslint": "9.39.1"
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "eslint": "9.39.1",
+    "release-please": "17.6.0"
   }
 }

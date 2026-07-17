@@ -38,6 +38,16 @@ function fullSha(value, name) {
   return value;
 }
 
+export function validateDefaultBranch(value) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 255 ||
+      !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(value) || value.includes("..") || value.includes("//") ||
+      value.includes("@{") || value.endsWith(".") || value.endsWith(".lock") ||
+      value.split("/").some((part) => part.length === 0 || part.startsWith(".") || part.endsWith("."))) {
+    fail("default branch is invalid");
+  }
+  return value;
+}
+
 function digest(value, name) {
   if (typeof value !== "string" || !DIGEST_RE.test(value)) fail(`${name} must be a sha256 digest`);
   return value;
@@ -168,10 +178,23 @@ function developmentRecord(value, name) {
   };
 }
 
+export function classifyEdgeAncestry(options, isAncestor) {
+  const value = plainObject(options, "edge ancestry input");
+  exactKeys(value, ["edgeSha", "releaseSha"], "edge ancestry input");
+  const releaseSha = fullSha(value.releaseSha, "edge target SHA");
+  if (value.edgeSha === null) return "absent";
+  const edgeSha = fullSha(value.edgeSha, "edge source SHA");
+  if (typeof isAncestor !== "function") fail("edge ancestry resolver must be a function");
+  if (edgeSha === releaseSha) return "equal";
+  if (isAncestor(edgeSha, releaseSha) === true) return "ancestor";
+  if (isAncestor(releaseSha, edgeSha) === true) return "descendant";
+  return "unrelated";
+}
+
 export function planDevelopmentPublication(options) {
   const value = plainObject(options, "development publication state");
-  exactKeys(value, ["releaseSha", "immutable", "short", "edge"], "development publication state");
-  for (const field of ["releaseSha", "immutable", "short", "edge"]) {
+  exactKeys(value, ["releaseSha", "immutable", "short", "edge", "edgeRelation"], "development publication state");
+  for (const field of ["releaseSha", "immutable", "short", "edge", "edgeRelation"]) {
     if (!Object.hasOwn(value, field)) fail(`development publication state is missing ${field}`);
   }
   const releaseSha = fullSha(value.releaseSha, "releaseSha");
@@ -194,12 +217,47 @@ export function planDevelopmentPublication(options) {
   }
   let edge;
   if (value.edge === null) {
+    if (value.edgeRelation !== "absent") fail("absent edge tag has an invalid ancestry relation");
     edge = targetDigest === null ? "defer" : "update";
   } else {
     const record = developmentRecord(value.edge, "edge tag state");
+    if (!["equal", "ancestor", "descendant", "unrelated"].includes(value.edgeRelation)) fail("edge ancestry relation is invalid");
+    if (value.edgeRelation === "equal" && record.sourceRevision !== releaseSha) fail("equal edge ancestry has a different source revision");
+    if (value.edgeRelation !== "equal" && record.sourceRevision === releaseSha) fail("edge ancestry does not match its source revision");
+    if (record.digest === targetDigest && value.edgeRelation !== "equal") fail("edge digest identity conflicts with its source ancestry");
+    if (value.edgeRelation === "descendant") fail("edge points to a newer default-branch commit");
+    if (value.edgeRelation === "unrelated") fail("edge points outside the target default-branch ancestry");
     edge = targetDigest === null ? "defer" : record.digest === targetDigest ? "skip" : "update";
   }
   return { immutable, short, edge };
+}
+
+export function bindFinalDigest(options) {
+  const value = plainObject(options, "final digest binding");
+  exactKeys(value, ["selectedDigest", "finalDigest"], "final digest binding");
+  if (!Object.hasOwn(value, "selectedDigest") || !Object.hasOwn(value, "finalDigest")) fail("final digest binding is incomplete");
+  const selected = digest(value.selectedDigest, "selected digest");
+  const final = digest(value.finalDigest, "final digest");
+  if (selected !== final) fail("final immutable digest changed after selection");
+  return final;
+}
+
+export function planImmutableImagePromotion(options) {
+  const value = plainObject(options, "immutable image promotion state");
+  exactKeys(value, ["initialDigest", "stagedDigest", "finalDigest"], "immutable image promotion state");
+  for (const field of ["initialDigest", "stagedDigest", "finalDigest"]) {
+    if (!Object.hasOwn(value, field)) fail(`immutable image promotion state is missing ${field}`);
+    if (value[field] !== null) digest(value[field], field);
+  }
+  if (value.initialDigest === null) {
+    if (value.stagedDigest === null) fail("absent immutable image requires a staged digest");
+    if (value.finalDigest === null) return { action: "update", digest: value.stagedDigest };
+    if (value.finalDigest !== value.stagedDigest) fail("immutable image tag appeared with a different digest");
+    return { action: "skip", digest: value.stagedDigest };
+  }
+  if (value.stagedDigest !== null) fail("reused immutable image cannot contain a staged digest");
+  if (value.finalDigest !== value.initialDigest) fail("reused immutable image digest changed before publication");
+  return { action: "skip", digest: value.initialDigest };
 }
 
 export function resolveReleaseIntent(options) {
@@ -265,8 +323,9 @@ export function planAssetPublication(options) {
 
 export function planEvidencePublication(options) {
   const value = plainObject(options, "evidence state");
-  exactKeys(value, ["signature", "sbom", "provenance"], "evidence state");
-  const result = {};
+  exactKeys(value, ["subjectDigest", "signature", "sbom", "provenance"], "evidence state");
+  if (!Object.hasOwn(value, "subjectDigest")) fail("evidence state is missing subjectDigest");
+  const result = { subjectDigest: digest(value.subjectDigest, "evidence subject digest") };
   for (const field of ["signature", "sbom", "provenance"]) {
     if (typeof value[field] !== "boolean") fail(`evidence ${field} must be boolean`);
     result[field] = !value[field];
@@ -370,7 +429,7 @@ async function main(argv) {
   const [command, inputPath, extra] = argv;
   if (command === "plan") return planFromChart(inputPath, process.env.SOURCE_SHA);
   if (command === "tree") return { digest: normalizedChartTreeDigest(readFileSync(inputPath), extra) };
-  if (!["binding", "image", "development", "intent", "chart", "asset", "evidence"].includes(command)) fail("unsupported release-state command");
+  if (!["binding", "image", "development", "intent", "chart", "asset", "evidence", "final-digest", "immutable-promotion"].includes(command)) fail("unsupported release-state command");
   const input = JSON.parse(readFileSync(inputPath, "utf8"));
   return {
     binding: validateReleaseBinding,
@@ -380,6 +439,8 @@ async function main(argv) {
     chart: planChartPublication,
     asset: planAssetPublication,
     evidence: planEvidencePublication,
+    "final-digest": bindFinalDigest,
+    "immutable-promotion": planImmutableImagePromotion,
   }[command](input);
 }
 

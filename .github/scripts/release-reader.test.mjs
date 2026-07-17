@@ -6,6 +6,7 @@ import { planChartPublication, planImagePublication } from "./release-state.mjs"
 import {
   gatherChartState,
   gatherGitHubReleaseState,
+  gatherImageIdentityState,
   gatherImageState,
 } from "./release-reader.mjs";
 
@@ -23,10 +24,23 @@ function response(status, body, digest = null) {
   };
 }
 
-function imageFixture({ collision = false, absent = false, aliasVersion = "1.2.3", aliasDigest = DIGEST_A } = {}) {
+function imageFixture({
+  collision = false,
+  absent = false,
+  aliasVersion = "1.2.3",
+  aliasDigest = DIGEST_A,
+  platforms = [{ os: "linux", architecture: "amd64" }, { os: "linux", architecture: "arm64" }],
+  attestations = true,
+  ambiguousAttestation = false,
+  configPlatform = null,
+  duplicateRunnableDigest = false,
+  runnableMediaType = "application/vnd.oci.image.manifest.v1+json",
+  attestationMediaType = "application/vnd.oci.image.manifest.v1+json",
+  attestationArtifactType = undefined,
+} = {}) {
   const tags = new Map([
     ["1.2.3", { digest: DIGEST_A, revision: SHA_A, version: "1.2.3" }],
-    [`sha-${SHA_A.slice(0, 12)}`, { digest: DIGEST_A, revision: collision ? SHA_B : SHA_A, version: "1.2.3" }],
+    [`sha-${SHA_A.slice(0, 12)}`, { digest: collision ? DIGEST_B : DIGEST_A, revision: collision ? SHA_B : SHA_A, version: "1.2.3" }],
     ["1.2", { digest: aliasDigest, revision: SHA_A, version: aliasVersion }],
     ["1", { digest: aliasDigest, revision: SHA_A, version: aliasVersion }],
     ["latest", { digest: aliasDigest, revision: SHA_A, version: aliasVersion }],
@@ -34,23 +48,47 @@ function imageFixture({ collision = false, absent = false, aliasVersion = "1.2.3
   ]);
   if (absent) tags.clear();
   let index = 1;
+  const nextDigest = () => `sha256:${(index++).toString(16).padStart(64, "0")}`;
   const configs = new Map();
+  const manifests = new Map();
+  const indexes = new Map();
   for (const item of tags.values()) {
-    item.config = `sha256:${String(index).repeat(64)}`;
-    configs.set(item.config, item);
-    index += 1;
+    if (indexes.has(item.digest)) continue;
+    const descriptors = [];
+    let firstChildDigest = null;
+    for (const [platformIndex, platform] of platforms.entries()) {
+      const childDigest = duplicateRunnableDigest && platformIndex > 0 ? firstChildDigest : nextDigest();
+      firstChildDigest ??= childDigest;
+      const configDigest = nextDigest();
+      configs.set(configDigest, { ...item, platform: configPlatform ?? platform });
+      if (!manifests.has(childDigest)) manifests.set(childDigest, {
+        schemaVersion: 2,
+        mediaType: "application/vnd.oci.image.manifest.v1+json",
+        config: { mediaType: "application/vnd.oci.image.config.v1+json", digest: configDigest, size: 100 },
+        layers: [],
+      });
+      descriptors.push({ mediaType: runnableMediaType, digest: childDigest, size: 500, platform });
+      if (attestations) {
+        descriptors.push({
+          mediaType: attestationMediaType, digest: nextDigest(), size: 400, artifactType: attestationArtifactType,
+          platform: { os: "unknown", architecture: "unknown" },
+          annotations: {
+            "vnd.docker.reference.digest": childDigest,
+            "vnd.docker.reference.type": ambiguousAttestation ? "unknown" : "attestation-manifest",
+          },
+        });
+      }
+    }
+    indexes.set(item.digest, { schemaVersion: 2, mediaType: "application/vnd.oci.image.index.v1+json", manifests: descriptors });
   }
   return async ({ url }) => {
     const manifest = /\/manifests\/([^/]+)$/.exec(url);
     if (manifest) {
-      const item = tags.get(decodeURIComponent(manifest[1]));
-      if (!item) return response(404, "");
-      return response(200, {
-        schemaVersion: 2,
-        mediaType: "application/vnd.oci.image.manifest.v1+json",
-        config: { mediaType: "application/vnd.oci.image.config.v1+json", digest: item.config, size: 100 },
-        layers: [],
-      }, item.digest);
+      const reference = decodeURIComponent(manifest[1]);
+      const item = tags.get(reference);
+      if (item) return response(200, indexes.get(item.digest), item.digest);
+      if (manifests.has(reference)) return response(200, manifests.get(reference), reference);
+      return response(404, "");
     }
     const blob = /\/blobs\/(sha256:[0-9a-f]{64})$/.exec(url);
     if (blob && configs.has(blob[1])) {
@@ -58,7 +96,7 @@ function imageFixture({ collision = false, absent = false, aliasVersion = "1.2.3
       return response(200, { config: { Labels: {
         "org.opencontainers.image.revision": item.revision,
         "org.opencontainers.image.version": item.version,
-      } } });
+      } }, os: item.platform.os, architecture: item.platform.architecture });
     }
     throw new Error(`unexpected fixture request: ${url}`);
   };
@@ -67,7 +105,7 @@ function imageFixture({ collision = false, absent = false, aliasVersion = "1.2.3
 test("OCI image reader creates the exact planner state and rejects a short-SHA collision", async () => {
   const state = await gatherImageState({
     request: imageFixture(), repository: "nvidia/nvml-mock", version: "1.2.3", releaseSha: SHA_A,
-    evidence: { signature: true, sbom: false, provenance: true },
+    evidence: { subjectDigest: DIGEST_A, signature: true, sbom: false, provenance: true },
   });
   assert.deepEqual(state.stable, { digest: DIGEST_A, sourceRevision: SHA_A, signature: true, sbom: false, provenance: true });
   assert.deepEqual(state.short, { digest: DIGEST_A, sourceRevision: SHA_A });
@@ -76,16 +114,33 @@ test("OCI image reader creates the exact planner state and rejects a short-SHA c
   assert.deepEqual(state.latest, { digest: DIGEST_A, version: "1.2.3" });
   await assert.rejects(() => gatherImageState({
     request: imageFixture({ collision: true }), repository: "nvidia/nvml-mock", version: "1.2.3", releaseSha: SHA_A,
-    evidence: { signature: false, sbom: false, provenance: false },
+    evidence: { subjectDigest: DIGEST_A, signature: false, sbom: false, provenance: false },
   }), { name: "TypeError" });
 });
 
-test("gathered image fixtures drive absent, identical, older, equal-mismatch, and newer planner decisions", async () => {
+test("OCI image reader requires exactly linux/amd64 and linux/arm64 and safely ignores Buildx attestations", async () => {
   const options = (request) => ({
     request, repository: "nvidia/nvml-mock", version: "1.2.3", releaseSha: SHA_A,
-    evidence: { signature: true, sbom: false, provenance: true },
+    evidence: { subjectDigest: DIGEST_A, signature: false, sbom: false, provenance: false },
   });
-  assert.deepEqual(planImagePublication(await gatherImageState(options(imageFixture({ absent: true })))), {
+  assert.equal((await gatherImageState(options(imageFixture()))).stable.digest, DIGEST_A);
+  await assert.rejects(() => gatherImageState(options(imageFixture({ platforms: [{ os: "linux", architecture: "amd64" }] }))), { name: "TypeError" });
+  await assert.rejects(() => gatherImageState(options(imageFixture({ platforms: [{ os: "linux", architecture: "amd64" }, { os: "linux", architecture: "arm64" }, { os: "linux", architecture: "ppc64le" }] }))), { name: "TypeError" });
+  await assert.rejects(() => gatherImageState(options(imageFixture({ platforms: [{ os: "linux", architecture: "amd64" }, { os: "linux", architecture: "amd64" }, { os: "linux", architecture: "arm64" }] }))), { name: "TypeError" });
+  await assert.rejects(() => gatherImageState(options(imageFixture({ ambiguousAttestation: true }))), { name: "TypeError" });
+  await assert.rejects(() => gatherImageState(options(imageFixture({ configPlatform: { os: "linux", architecture: "amd64" } }))), { name: "TypeError" });
+  await assert.rejects(() => gatherImageState(options(imageFixture({ duplicateRunnableDigest: true }))), { name: "TypeError" });
+  await assert.rejects(() => gatherImageState(options(imageFixture({ runnableMediaType: "application/octet-stream" }))), { name: "TypeError" });
+  await assert.rejects(() => gatherImageState(options(imageFixture({ attestationMediaType: "application/octet-stream" }))), { name: "TypeError" });
+  await assert.rejects(() => gatherImageState(options(imageFixture({ attestationArtifactType: "application/spdx+json" }))), { name: "TypeError" });
+});
+
+test("gathered image fixtures drive absent, identical, older, equal-mismatch, and newer planner decisions", async () => {
+  const options = (request, subjectDigest = DIGEST_A) => ({
+    request, repository: "nvidia/nvml-mock", version: "1.2.3", releaseSha: SHA_A,
+    evidence: { subjectDigest, signature: subjectDigest !== null, sbom: false, provenance: subjectDigest !== null },
+  });
+  assert.deepEqual(planImagePublication(await gatherImageState(options(imageFixture({ absent: true }), null))), {
     immutable: { action: "publish", digest: null }, development: { short: "defer" },
     aliases: { minor: "defer", major: "defer", latest: "defer" },
     resume: { signature: true, sbom: true, provenance: true },
@@ -100,6 +155,14 @@ test("gathered image fixtures drive absent, identical, older, equal-mismatch, an
   assert.throws(() => planImagePublication(equalMismatch), { name: "TypeError" });
   const newer = await gatherImageState(options(imageFixture({ aliasVersion: "1.2.4", aliasDigest: DIGEST_B })));
   assert.throws(() => planImagePublication(newer), { name: "TypeError" });
+});
+
+test("image evidence is bound to the exact stable digest and identity discovery does not accept evidence", async () => {
+  const options = { request: imageFixture(), repository: "nvidia/nvml-mock", version: "1.2.3", releaseSha: SHA_A };
+  assert.equal((await gatherImageIdentityState(options)).stable.digest, DIGEST_A);
+  await assert.rejects(() => gatherImageState({
+    ...options, evidence: { subjectDigest: DIGEST_B, signature: true, sbom: true, provenance: true },
+  }), { name: "TypeError" });
 });
 
 test("OCI chart reader pulls the explicit archive layer and returns normalized tree and manifest digests", async () => {
