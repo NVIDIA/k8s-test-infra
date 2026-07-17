@@ -122,8 +122,34 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				// Runtime control runs before the Helm-driven injections below:
 				// the consumer (pod) is still the original, running DaemonSet pod,
 				// so we validate the "both observers, no restart" path against it.
+				// Each scenario maps to a documented nvml-mock-ctl example
+				// (docs/nvml-mock-ctl.md) and validates the effect via nvidia-smi.
 				It("injects ECC at runtime via nvml-mock-ctl without restart", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimeECCInjection(ctx, h, pod)
+				})
+
+				It("marks all GPUs lost and recovers via nvml-mock-ctl", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeFailAllLost(ctx, h, pod, p.ExpectedGPUs())
+				})
+
+				It("sets a per-GPU field via nvml-mock-ctl set", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeSetField(ctx, h, pod)
+				})
+
+				It("applies a multi-field patch via nvml-mock-ctl apply", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeApplyPatch(ctx, h, pod)
+				})
+
+				It("targets a GPU by UUID via nvml-mock-ctl", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeUUIDTargeting(ctx, h, pod)
+				})
+
+				It("reports active overrides via nvml-mock-ctl status", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeStatus(ctx, h, pod)
+				})
+
+				It("recovers a GPU via nvml-mock-ctl fail --mode healthy", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeHealthyRecovery(ctx, h, pod)
 				})
 
 				It("injects ECC uncorrectable errors", func(ctx SpecContext) {

@@ -127,6 +127,40 @@ func DCGMXidReported(ctx context.Context, k *kube.Client, ns string, xid int, ti
 		Should(gomega.BeTrue(), "%s did not report injected Xid %d", fiDevXidErrors, xid)
 }
 
+// DCGMXidReportedForGPU polls until dcgm-exporter reports the injected xid for
+// the target GPU index via DCGM_FI_DEV_XID_ERRORS, then asserts every other GPU
+// stays at xid 0. It never restarts dcgm-exporter, so it validates that a
+// runtime, single-GPU failure injection (via nvml-mock-ctl) propagates to an
+// already-running consumer through the bind-mounted overlay.
+func DCGMXidReportedForGPU(ctx context.Context, k *kube.Client, ns string, targetGPU, xid int, timeout, poll time.Duration) {
+	ginkgo.GinkgoHelper()
+
+	WaitDaemonSetReady(ctx, k, ns, dcgmExporterDaemonSet, timeout, poll)
+	pod := dcgmExporterPod(ctx, k, ns)
+
+	ginkgo.By(fmt.Sprintf("waiting for %s == %d on GPU %d (runtime injection, no restart)", fiDevXidErrors, xid, targetGPU))
+	var byGPU map[int]float64
+	gomega.Eventually(func() (bool, error) {
+		metrics, err := scrapeDCGM(ctx, k, ns, pod)
+		if err != nil {
+			return false, err
+		}
+		byGPU = promValuesByGPU(metrics, fiDevXidErrors)
+		v, ok := byGPU[targetGPU]
+		return ok && int(v) == xid, nil
+	}).WithContext(ctx).WithTimeout(timeout).WithPolling(poll).
+		Should(gomega.BeTrue(), "%s did not report xid %d on GPU %d (last scrape: %v)", fiDevXidErrors, xid, targetGPU, byGPU)
+
+	ginkgo.By("confirming the failure is scoped to the target GPU")
+	for gpu, v := range byGPU {
+		if gpu == targetGPU {
+			continue
+		}
+		gomega.Expect(int(v)).To(gomega.Equal(0),
+			"GPU %d reported xid %d but only GPU %d was targeted", gpu, int(v), targetGPU)
+	}
+}
+
 func dcgmExporterPod(ctx context.Context, k *kube.Client, ns string) string {
 	ginkgo.GinkgoHelper()
 	pod, err := k.FirstPodName(ctx, ns, dcgmExporterSelector)
@@ -167,4 +201,51 @@ func promValues(metrics, metric string) []float64 {
 		}
 	}
 	return out
+}
+
+// promValuesByGPU returns the value of every `metric{...}` series keyed by the
+// dcgm-exporter `gpu="N"` index label. Series without a parseable gpu label or
+// value are skipped.
+func promValuesByGPU(metrics, metric string) map[int]float64 {
+	prefix := metric + "{"
+	out := map[int]float64{}
+	for _, line := range strings.Split(metrics, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		gpu, ok := labelInt(line, "gpu")
+		if !ok {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if v, err := strconv.ParseFloat(fields[len(fields)-1], 64); err == nil {
+			out[gpu] = v
+		}
+	}
+	return out
+}
+
+// labelInt extracts an integer Prometheus label value (key="N"), matching only
+// at a label boundary ({ or ,) so e.g. "gpu" never matches inside another key.
+func labelInt(line, key string) (int, bool) {
+	for _, sep := range []string{"{", ","} {
+		needle := sep + key + `="`
+		i := strings.Index(line, needle)
+		if i < 0 {
+			continue
+		}
+		rest := line[i+len(needle):]
+		j := strings.IndexByte(rest, '"')
+		if j < 0 {
+			continue
+		}
+		if n, err := strconv.Atoi(rest[:j]); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
 }

@@ -75,6 +75,10 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 					config.ReadyTimeout(), config.PollInterval())
 			})
 
+			It("surfaces a runtime single-GPU failure through dcgm-exporter without restart", Label("dcgm", "runtime-control"), func(ctx SpecContext) {
+				assertRuntimeXidViaDCGM(ctx, h, xidTestCode)
+			})
+
 			It("surfaces an injected Xid through dcgm-exporter", Label("dcgm", "xid"), func(ctx SpecContext) {
 				// Runs last: leaves the mock in a failed state.
 				injectXidAndValidate(ctx, h, xidTestCode)
@@ -88,6 +92,23 @@ var gpmProfiles = map[string]bool{"h100": true, "b200": true, "gb200": true, "gb
 
 // xidTestCode is the Xid injected and asserted on (79 = GPU fallen off the bus).
 const xidTestCode = 79
+
+// assertRuntimeXidViaDCGM injects an ecc_uncorrectable failure with a Xid on a
+// single GPU at runtime via nvml-mock-ctl — no Helm upgrade, no pod restart —
+// and asserts the already-running dcgm-exporter reports the Xid for that GPU
+// only, picking it up through the bind-mounted runtime overlay within the TTL.
+func assertRuntimeXidViaDCGM(ctx SpecContext, h *harness.Harness, xid int) {
+	GinkgoHelper()
+	const targetGPU = 0
+
+	By("inject ecc_uncorrectable + Xid on GPU 0 at runtime via nvml-mock-ctl (no restart)")
+	nvmlMockCtl(ctx, h, "fail", "--gpu", strconv.Itoa(targetGPU),
+		"--mode", "ecc_uncorrectable", "--after-calls", "1", "--xid", strconv.Itoa(xid))
+	DeferCleanup(func(ctx SpecContext) { resetRuntimeOverrides(ctx, h) })
+
+	assertions.DCGMXidReportedForGPU(ctx, h.Kube, gpuOperatorNamespace, targetGPU, xid,
+		config.ReadyTimeout(), config.PollInterval())
+}
 
 // injectXidAndValidate enables failure injection, rolls nvml-mock and
 // dcgm-exporter to reload the mock config, then asserts DCGM_FI_DEV_XID_ERRORS.
