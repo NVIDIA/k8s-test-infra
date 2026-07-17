@@ -82,8 +82,26 @@ function descriptor(value, name) {
   return result;
 }
 
+function imageAnnotations(value, name) {
+  if (value === undefined) return;
+  const annotations = object(value, name);
+  const entries = Object.entries(annotations);
+  if (entries.length > 128) fail(`${name} contains too many entries`);
+  for (const [key, annotation] of entries) {
+    if (key.length === 0 || key.length > 256 || /[\u0000-\u001f\u007f]/.test(key) ||
+        typeof annotation !== "string" || annotation.length > 4096 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(annotation)) {
+      fail(`${name} is invalid`);
+    }
+    if (key === "vnd.docker.reference.digest" || key === "vnd.docker.reference.type") {
+      fail(`${name} contains artifact reference metadata`);
+    }
+  }
+}
+
 async function readConfig(request, repo, configDescriptor, expectedPlatform) {
   descriptor(configDescriptor, "OCI config descriptor");
+  if (configDescriptor.artifactType !== undefined) fail("OCI image config descriptor contains artifact metadata");
+  imageAnnotations(configDescriptor.annotations, "OCI image config descriptor annotations");
   if (configDescriptor.mediaType !== "application/vnd.oci.image.config.v1+json" &&
       configDescriptor.mediaType !== "application/vnd.docker.container.image.v1+json") {
     fail("OCI image config media type is invalid");
@@ -175,6 +193,8 @@ async function readImageManifest(request, repo, reference, expectedDigest = null
     fail("OCI image manifest media type is invalid");
   }
   exactKeys(manifest, ["schemaVersion", "mediaType", "artifactType", "config", "layers", "subject", "annotations"], "OCI manifest");
+  if (manifest.artifactType !== undefined || manifest.subject !== undefined) fail("runnable OCI manifest contains artifact metadata");
+  imageAnnotations(manifest.annotations, "runnable OCI manifest annotations");
   if (!Array.isArray(manifest.layers) || manifest.layers.length > 256) fail("OCI image layers are invalid");
   if (expectedPlatform === null) fail("OCI platform expectation is missing");
   const identity = await readConfig(request, repo, manifest.config, expectedPlatform);

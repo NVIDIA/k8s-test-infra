@@ -35,6 +35,11 @@ function imageFixture({
   configPlatform = null,
   duplicateRunnableDigest = false,
   runnableMediaType = "application/vnd.oci.image.manifest.v1+json",
+  runnableArtifactType = undefined,
+  runnableSubject = undefined,
+  runnableAnnotations = undefined,
+  configDescriptorArtifactType = undefined,
+  configDescriptorAnnotations = undefined,
   attestationMediaType = "application/vnd.oci.image.manifest.v1+json",
   attestationArtifactType = undefined,
 } = {}) {
@@ -64,7 +69,13 @@ function imageFixture({
       if (!manifests.has(childDigest)) manifests.set(childDigest, {
         schemaVersion: 2,
         mediaType: "application/vnd.oci.image.manifest.v1+json",
-        config: { mediaType: "application/vnd.oci.image.config.v1+json", digest: configDigest, size: 100 },
+        artifactType: runnableArtifactType,
+        subject: runnableSubject,
+        annotations: runnableAnnotations,
+        config: {
+          mediaType: "application/vnd.oci.image.config.v1+json", digest: configDigest, size: 100,
+          artifactType: configDescriptorArtifactType, annotations: configDescriptorAnnotations,
+        },
         layers: [],
       });
       descriptors.push({ mediaType: runnableMediaType, digest: childDigest, size: 500, platform });
@@ -133,6 +144,28 @@ test("OCI image reader requires exactly linux/amd64 and linux/arm64 and safely i
   await assert.rejects(() => gatherImageState(options(imageFixture({ runnableMediaType: "application/octet-stream" }))), { name: "TypeError" });
   await assert.rejects(() => gatherImageState(options(imageFixture({ attestationMediaType: "application/octet-stream" }))), { name: "TypeError" });
   await assert.rejects(() => gatherImageState(options(imageFixture({ attestationArtifactType: "application/spdx+json" }))), { name: "TypeError" });
+});
+
+test("OCI image reader rejects artifact metadata in runnable manifests and config descriptors", async () => {
+  const options = (request) => ({
+    request, repository: "nvidia/nvml-mock", version: "1.2.3", releaseSha: SHA_A,
+    evidence: { subjectDigest: DIGEST_A, signature: false, sbom: false, provenance: false },
+  });
+  const normalAnnotations = { "org.opencontainers.image.source": "https://github.com/NVIDIA/k8s-test-infra" };
+  assert.equal((await gatherImageState(options(imageFixture({
+    runnableAnnotations: normalAnnotations, configDescriptorAnnotations: normalAnnotations,
+  })))).stable.digest, DIGEST_A);
+  await assert.rejects(() => gatherImageState(options(imageFixture({ runnableArtifactType: "application/spdx+json" }))), { name: "TypeError" });
+  await assert.rejects(() => gatherImageState(options(imageFixture({ runnableSubject: {
+    mediaType: "application/vnd.oci.image.manifest.v1+json", digest: DIGEST_B, size: 500,
+  } }))), { name: "TypeError" });
+  await assert.rejects(() => gatherImageState(options(imageFixture({ configDescriptorArtifactType: "application/spdx+json" }))), { name: "TypeError" });
+  await assert.rejects(() => gatherImageState(options(imageFixture({ runnableAnnotations: {
+    "vnd.docker.reference.digest": DIGEST_B, "vnd.docker.reference.type": "attestation-manifest",
+  } }))), { name: "TypeError" });
+  await assert.rejects(() => gatherImageState(options(imageFixture({ configDescriptorAnnotations: {
+    "vnd.docker.reference.digest": DIGEST_B, "vnd.docker.reference.type": "attestation-manifest",
+  } }))), { name: "TypeError" });
 });
 
 test("gathered image fixtures drive absent, identical, older, equal-mismatch, and newer planner decisions", async () => {
