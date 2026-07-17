@@ -140,6 +140,19 @@ func LoadConfig() *Config {
 	return config
 }
 
+// OverlayPathFor resolves the runtime overrides file path from the resolved
+// config path. MOCK_NVML_OVERRIDES wins; otherwise overrides.yaml sits next to
+// config.yaml. Returns "" when no config path is known.
+func OverlayPathFor(configPath string) string {
+	if p := os.Getenv("MOCK_NVML_OVERRIDES"); p != "" {
+		return p
+	}
+	if configPath == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(configPath), "overrides.yaml")
+}
+
 // discoverConfigPath attempts to locate the config file by reading /proc/self/maps
 // to find the path of the loaded mock NVML .so, then navigating to the config directory.
 //
