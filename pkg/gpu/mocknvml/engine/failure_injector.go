@@ -25,9 +25,10 @@ import (
 // failureInjector implements GPU failure injection for a single device.
 //
 // The injector is sticky: once a device trips into the failed state it stays
-// failed for the lifetime of the engine, mirroring real "lost" or "fallen
-// off the bus" GPUs that don't recover without a reboot. ECC uncorrectable
-// errors are also accumulative on real hardware, so the same model applies.
+// failed until the injector is replaced or Reset() is called (runtime
+// control), mirroring real "lost" or "fallen off the bus" GPUs that don't
+// recover without a reboot. ECC uncorrectable errors are also accumulative on
+// real hardware, so the same model applies.
 //
 // All exported methods are safe for concurrent use. A nil receiver is
 // permitted everywhere, in which case the injector reports a healthy
@@ -225,6 +226,20 @@ func (f *failureInjector) ClaimXid() (uint64, bool) {
 		return 0, false
 	}
 	return xid, true
+}
+
+// Reset returns the injector to its untripped state. It is used by runtime
+// control (nvml-mock-ctl reset / mode healthy) to recover a device without a
+// process restart. Callers that want a genuinely healthy device should drop
+// the injector entirely (set it to nil); Reset exists for the case where the
+// same injector object is reused. Safe on a nil receiver.
+func (f *failureInjector) Reset() {
+	if f == nil {
+		return
+	}
+	f.tripped.Store(false)
+	f.xidDelivered.Store(false)
+	f.callCount.Store(0)
 }
 
 // CallCount returns the number of Tick()s observed so far. Exposed for

@@ -631,3 +631,20 @@ func TestFailureInjection_HealthyConfigIsNoOp(t *testing.T) {
 		require.Equal(t, uint32(33), temp, "call %d", i)
 	}
 }
+
+func TestFailureInjector_ResetRecoversHealthy(t *testing.T) {
+	f := newFailureInjector(&FailureInjectionConfig{Mode: FailureModeLost})
+	if f == nil {
+		t.Fatal("expected injector")
+	}
+	if !f.Tick() || !f.IsLost() {
+		t.Fatal("expected tripped lost device")
+	}
+	f.Reset()
+	if f.Triggered() || f.IsLost() {
+		t.Fatalf("Reset should clear tripped state")
+	}
+	if f.CallCount() != 0 {
+		t.Fatalf("Reset should zero call count, got %d", f.CallCount())
+	}
+}
