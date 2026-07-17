@@ -83,6 +83,14 @@ spec:
             # workloads) all see the config at the same in-container location.
             - name: MOCK_NVML_CONFIG
               value: /etc/nvml-mock/config.yaml
+            # Point nvml-mock-ctl (run via `kubectl exec ds/nvml-mock -- ...`)
+            # at the host-mounted overlay path so the runtime overrides it
+            # writes land in the driver config dir that setup.sh's CDI spec
+            # bind-mounts into consumers. host-nvml-mock is mounted here at
+            # /host/var/lib/nvml-mock, so this maps to the host file
+            # /var/lib/nvml-mock/driver/config/overrides.yaml.
+            - name: MOCK_NVML_OVERRIDES
+              value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
             {{- if .Values.topology.enabled }}
             # Point the engine's topology overlay at the in-pod mount of
             # the cluster-level topology ConfigMap. See
