@@ -178,6 +178,43 @@ Before activation:
    `main` push trigger. Retiring the legacy workflows requires the separate
    destructive confirmation and remains recoverable from Git history.
 
+Run the local artifact checks from the repository root. They build only a local
+`linux/amd64` image and write the packaged chart under `/tmp`; they do not log
+in to GHCR or publish anything.
+
+```bash
+jq empty release-please-config.json .release-please-manifest.json
+docker buildx build --platform linux/amd64 --load \
+  -f deployments/nvml-mock/Dockerfile \
+  -t nvml-mock:release-test .
+helm lint deployments/nvml-mock/helm/nvml-mock
+helm unittest deployments/nvml-mock/helm/nvml-mock
+mkdir -p /tmp/nvml-mock-chart
+helm package deployments/nvml-mock/helm/nvml-mock \
+  --destination /tmp/nvml-mock-chart
+helm show chart /tmp/nvml-mock-chart/nvml-mock-0.2.1.tgz
+```
+
+The final command must report both `version: 0.2.1` and
+`appVersion: 0.2.1` before the first Release Please version bump.
+
+The manual dry-run is a post-merge activation check because GitHub can dispatch
+only workflow revisions available in the repository. Dispatch the workflow
+from the default branch with `publish: false`, then inspect that exact run:
+
+```bash
+gh workflow run release.yml --repo NVIDIA/k8s-test-infra --ref main \
+  -f publish=false
+gh run list --repo NVIDIA/k8s-test-infra --workflow release.yml \
+  --branch main --event workflow_dispatch --limit 1
+gh run view <run-id> --repo NVIDIA/k8s-test-infra --log
+```
+
+Do not use a feature-branch dispatch for an authorized publication. The
+workflow rejects `publish: true` unless it is dispatched from the repository's
+default branch, and publication remains disabled until the legacy publishers
+are retired through the confirmed activation change.
+
 Pull request events created by the default `GITHUB_TOKEN` may produce workflow
 runs that require maintainer approval. Before merging a Release Please PR:
 
