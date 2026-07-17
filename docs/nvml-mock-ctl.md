@@ -50,6 +50,8 @@ pod restart or a Helm change:
 - `compute_capability`
 - `uuid`
 - PCI `bus_id`
+- device memory totals — `memory` / `bar1_memory` (baked at construction, so e.g.
+  `set --gpu 0 memory.total_bytes=...` won't take effect until a pod restart)
 
 If you need to change any of those, edit the profile / Helm values and restart
 the DaemonSet (or the affected pod).
@@ -114,7 +116,8 @@ Sets the `failure` block for the target. Modes:
 - `--after-calls N` — trip deterministically after `N` guarded NVML calls
   (omit for "trip on first guarded call").
 - `--xid CODE` — surface this Xid code through the NVML event set once the
-  device trips (pair with `ecc_uncorrectable`, e.g. `--xid 79`).
+  device trips (delivered for any tripped failure mode with a Xid configured,
+  e.g. `--mode ecc_uncorrectable --xid 79`).
 
 `fail --mode healthy` is how you *recover* a single device (it deletes the
 `failure` block from that bucket). See the failure-injection section of the
@@ -155,7 +158,7 @@ the pristine profile within one TTL.
 | `nvml-mock-ctl fail --gpu <t> --mode healthy` | removes just the `failure` block for the target | that device recovers within one TTL; other overrides stay |
 | DaemonSet pod restart | `setup.sh` deletes `overrides.yaml` on startup | **all** overrides wiped; back to pristine profile |
 | Consumer pod restart | none — the overlay lives on the node, not in the consumer | consumer re-reads and picks up the *current* overlay (does **not** reset it) |
-| `helm upgrade` (profile/values change) | rewrites the base `config.yaml` | changes boot-time state; existing overlay still merges on top |
+| `helm upgrade` (profile/values change) | rolls the DaemonSet pod (config checksum + `RollingUpdate`), so `setup.sh` wipes `overrides.yaml` on the new pod | **all** overrides reset to the new pristine config; only an upgrade that does not recreate the nvml-mock pod leaves an overlay in place |
 
 ## Worked examples
 
