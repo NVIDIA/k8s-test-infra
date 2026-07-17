@@ -9,6 +9,8 @@ const YAML = require("yaml");
 
 const repositoryRoot = path.resolve(__dirname, "../../../..");
 const workflowRoot = path.join(repositoryRoot, ".github", "workflows");
+const HELM_UNITTEST_COMMIT = "6f82a998e0b5461762ca959f87f5dd344af5e4eb";
+const LEGACY_HELM_PUBLISH_IF = "${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'push' }}";
 
 const REUSABLE_CALL_EXEMPTIONS_V1 = new Set([
   "basic-checks.yaml/variables",
@@ -54,6 +56,31 @@ function externalUsesLines(source) {
 function hasPrivilegedTrigger(workflow) {
   return ["pull_request_target", "issue_comment", "workflow_run"]
     .some((event) => Object.hasOwn(workflow.on ?? {}, event));
+}
+
+function assertImmutableHelmPluginInstall(run) {
+  assert.equal(typeof run, "string");
+  const installCommands = run.split("\n").filter((line) => line.includes("helm plugin install"));
+  assert.deepEqual(installCommands.map((line) => line.trim()), [
+    `helm plugin install https://github.com/helm-unittest/helm-unittest.git --version ${HELM_UNITTEST_COMMIT}`,
+  ]);
+  assert.doesNotMatch(run, /--verify=false|--version\s+(?:v?\d|main|master)\b/);
+}
+
+function assertTrustedLegacyHelmPublisher(workflow) {
+  assert.deepEqual(workflow.on.workflow_run, {
+    workflows: ["helm"],
+    types: ["completed"],
+    branches: ["main"],
+  });
+  const job = workflow.jobs.publish;
+  assert.equal(job.if, LEGACY_HELM_PUBLISH_IF);
+  const checkout = job.steps.find((step) => step.uses?.startsWith("actions/checkout@"));
+  assert.deepEqual(checkout.with, {
+    ref: "${{ github.event.workflow_run.head_sha }}",
+    "persist-credentials": false,
+    submodules: false,
+  });
 }
 
 test("every workflow has explicit least-privilege job boundaries", () => {
@@ -114,22 +141,64 @@ test("privileged event workflows consume only trusted repository code", () => {
     const { source, workflow } = readWorkflow(name);
     if (!hasPrivilegedTrigger(workflow)) continue;
 
-    assert.doesNotMatch(source, /pull_request\.head|head\.ref|workflow_run\.head_sha|refs\/pull\//,
+    assert.doesNotMatch(source, /pull_request\.head|head\.ref|refs\/pull\//,
       `${name}: privileged workflow cannot select a PR or workflow head`);
     assert.doesNotMatch(source, /\b(?:cache-from|cache-to):|submodules:\s*true/,
       `${name}: privileged workflow cannot consume untrusted cache or submodules`);
-    for (const job of Object.values(workflow.jobs ?? {})) {
+    if (name === "helm-publish.yaml") {
+      assertTrustedLegacyHelmPublisher(workflow);
+      assert.equal(source.match(/workflow_run\.head_sha/g)?.length, 1);
+    } else {
+      assert.doesNotMatch(source, /workflow_run\.head_sha/,
+        `${name}: only the exactly gated temporary Helm publisher may select a workflow-run SHA`);
+    }
+    for (const [jobName, job] of Object.entries(workflow.jobs ?? {})) {
       for (const step of job.steps ?? []) {
         assert.doesNotMatch(step.uses ?? "", /(?:cache|download-artifact)/i,
           `${name}: privileged workflow cannot restore caches or artifacts`);
         if (step.uses?.startsWith("actions/checkout@")) {
-          assert.equal(step.with?.ref, "${{ github.event.repository.default_branch }}");
+          const trustedLegacyCheckout = name === "helm-publish.yaml" && jobName === "publish";
+          assert.equal(step.with?.ref, trustedLegacyCheckout
+            ? "${{ github.event.workflow_run.head_sha }}"
+            : "${{ github.event.repository.default_branch }}");
           assert.equal(step.with?.["persist-credentials"], false);
           assert.equal(step.with?.submodules, false);
         }
       }
     }
   }
+});
+
+test("helm-unittest executes only the verified immutable release commit", () => {
+  const { workflow } = readWorkflow("helm.yaml");
+  const install = workflow.jobs.unittest.steps.find((step) => step.name === "Install helm-unittest plugin");
+  assertImmutableHelmPluginInstall(install.run);
+
+  for (const unsafe of [
+    "helm plugin install https://github.com/helm-unittest/helm-unittest.git --version v1.0.3 # 6f82a998e0b5461762ca959f87f5dd344af5e4eb",
+    "helm plugin install https://github.com/helm-unittest/helm-unittest.git --version main",
+    `helm plugin install https://github.com/helm-unittest/helm-unittest.git --verify=false --version ${HELM_UNITTEST_COMMIT}`,
+  ]) {
+    assert.throws(() => assertImmutableHelmPluginInstall(unsafe));
+  }
+});
+
+test("temporary Helm publisher binds writes to the successful trusted push revision", () => {
+  const { workflow } = readWorkflow("helm-publish.yaml");
+  assertTrustedLegacyHelmPublisher(workflow);
+
+  for (const unsafeIf of [
+    "${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'push' }}",
+    "${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.event == 'push' }}",
+    "${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' }}",
+  ]) {
+    const candidate = globalThis.structuredClone(workflow);
+    candidate.jobs.publish.if = unsafeIf;
+    assert.throws(() => assertTrustedLegacyHelmPublisher(candidate));
+  }
+  const movingCheckout = globalThis.structuredClone(workflow);
+  movingCheckout.jobs.publish.steps.find((step) => step.uses?.startsWith("actions/checkout@")).with.ref = "${{ github.event.repository.default_branch }}";
+  assert.throws(() => assertTrustedLegacyHelmPublisher(movingCheckout));
 });
 
 test("shell scripts receive event, input, and matrix values through env", () => {
