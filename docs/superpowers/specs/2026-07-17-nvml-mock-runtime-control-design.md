@@ -194,6 +194,39 @@ installed config snapshot.
   within the TTL.
 - `reset` restores healthy for the running consumer.
 
+## Documentation
+
+A dedicated user-facing document, `docs/nvml-mock-ctl.md`, is a required
+deliverable. It explains the principle and provides multiple worked examples.
+
+**Structure:**
+
+1. **Overview / principle** — what `nvml-mock-ctl` does and, crucially, *how* it
+   works: nvml-mock is a per-process shared library, so the tool writes a node-local
+   overlay file that the engine re-reads on a short TTL and merges over the pristine
+   `config.yaml`. Explain bounded staleness (TTL), the "both observers" behavior,
+   and that base config is never mutated.
+2. **Where it runs** — via `kubectl exec` into the target node's nvml-mock
+   DaemonSet pod; per-node scope.
+3. **Command reference** — `fail`, `set`, `apply`, `status`, `reset`, with
+   targeting (`--gpu <idx|all|uuid>`).
+4. **Reset semantics** — the reset table (ctl reset / DaemonSet restart / consumer
+   restart / Helm upgrade).
+5. **Worked examples** (multiple, copy-pasteable), including at least:
+   - Force `ecc_uncorrectable` on a single GPU and verify with `nvidia-smi` / DCGM.
+   - Force `lost` on **all** GPUs.
+   - Set an arbitrary field via `set` (e.g. `temperature.gpu_temp_c=95`).
+   - Apply a multi-field snippet via `apply -f patch.yaml`.
+   - Target by UUID.
+   - Inspect active overrides with `status`.
+   - Recover a single GPU and reset everything with `reset`.
+   - Show that restarting the nvml-mock DaemonSet pod restores pristine YAML.
+6. **Troubleshooting** — propagation delay (TTL), how to confirm the overlay file,
+   common validation errors.
+
+Cross-link from `pkg/gpu/mocknvml/README.md` (failure-injection section) and the
+top-level docs index where appropriate.
+
 ## Open questions / future work
 
 - Cross-node convenience wrapper (kubectl plugin) to fan out to multiple nodes.
