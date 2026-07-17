@@ -1,5 +1,6 @@
 {{- if .Values.nri.enabled }}
 {{- $image := mergeOverwrite (deepCopy .Values.image) (.Values.nri.image | default dict) }}
+{{- $imageTag := default $.Chart.AppVersion $image.tag }}
 {{- $socketDir := dir .Values.nri.socketPath }}
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
@@ -36,7 +37,7 @@ spec:
       {{- end }}
       containers:
         - name: nvml-mock-nri
-          image: "{{ $image.repository }}:{{ $image.tag }}"
+          image: "{{ $image.repository }}:{{ $imageTag }}"
           imagePullPolicy: {{ $image.pullPolicy }}
           command: ["/usr/local/bin/nvml-mock-nri"]
           args:

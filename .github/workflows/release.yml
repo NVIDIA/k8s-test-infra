@@ -1,0 +1,383 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish an existing canonical release after activation
+        required: true
+        type: boolean
+        default: false
+      version:
+        description: Canonical X.Y.Z version for an authorized resume
+        required: false
+        type: string
+        default: ''
+
+permissions: {}
+
+concurrency:
+  group: artifact-publication
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/nvidia/nvml-mock
+  CHART_TARGET: oci://ghcr.io/nvidia/charts
+  CHART_NAME: nvml-mock
+  CHART_DIR: deployments/nvml-mock/helm/nvml-mock
+
+jobs:
+  plan:
+    name: Release plan (read-only)
+    if: ${{ !inputs.publish }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out trusted default branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+
+      - name: Validate release configuration
+        run: jq empty release-please-config.json .release-please-manifest.json
+
+      - name: Print prospective immutable release plan
+        run: node .github/scripts/release-state.mjs plan deployments/nvml-mock/helm/nvml-mock/Chart.yaml | tee -a "$GITHUB_STEP_SUMMARY"
+
+  activation-guard:
+    name: Publication activation guard
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Reject publication before atomic activation
+        run: |
+          echo "release automation not activated; publish=false is the only permitted mode" >&2
+          exit 1
+
+  release-please:
+    name: Release Please
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      major: ${{ steps.release.outputs.major }}
+      minor: ${{ steps.release.outputs.minor }}
+      patch: ${{ steps.release.outputs.patch }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - name: Create or update the release pull request
+        id: release
+        uses: googleapis/release-please-action@0dfd8538845b8e92600d271a895a5372865d4062 # v5
+        with:
+          token: ${{ github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  release-context:
+    name: Validate authorized release identity
+    needs: activation-guard
+    if: ${{ needs.activation-guard.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      tag_name: ${{ steps.identity.outputs.tag_name }}
+      major: ${{ steps.identity.outputs.major }}
+      minor: ${{ steps.identity.outputs.minor }}
+      patch: ${{ steps.identity.outputs.patch }}
+      sha: ${{ steps.identity.outputs.sha }}
+    steps:
+      - name: Check out trusted default branch before resolving the tag
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - name: Resolve and validate the canonical tag without trusting dispatch ref
+        id: identity
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$REQUESTED_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "version must be canonical X.Y.Z" >&2
+            exit 1
+          fi
+          TAG="v${REQUESTED_VERSION}"
+          git fetch --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          TAG_SHA=$(git rev-parse "${TAG}^{commit}")
+          git checkout --detach "$TAG_SHA"
+          HEAD_SHA=$(git rev-parse HEAD)
+          if [[ "$TAG_SHA" != "$HEAD_SHA" ]]; then
+            echo "tag and checkout identity mismatch" >&2
+            exit 1
+          fi
+          IFS=. read -r MAJOR MINOR PATCH <<<"$REQUESTED_VERSION"
+          {
+            echo "version=$REQUESTED_VERSION"
+            echo "tag_name=$TAG"
+            echo "major=$MAJOR"
+            echo "minor=$MINOR"
+            echo "patch=$PATCH"
+            echo "sha=$TAG_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+  publish-image:
+    name: Publish image by digest
+    needs: [release-context]
+    if: ${{ needs.release-context.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Check out the validated release commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.release-context.outputs.sha }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Plan immutable and moving image state
+        id: image-plan
+        env:
+          STATE_FILE: ${{ runner.temp }}/image-state.json
+        run: |
+          test -s "$STATE_FILE"
+          node .github/scripts/release-state.mjs image "$STATE_FILE" > "$RUNNER_TEMP/image-plan.json"
+          node --input-type=module - "$RUNNER_TEMP/image-plan.json" "$GITHUB_OUTPUT" <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const [planPath, outputPath] = process.argv.slice(2);
+          const plan = JSON.parse(readFileSync(planPath, "utf8"));
+          if (!["publish", "reuse"].includes(plan.immutable?.action)) throw new Error("invalid image plan");
+          appendFileSync(outputPath, `action=${plan.immutable.action}\n`);
+          if (plan.immutable.digest !== null) appendFileSync(outputPath, `digest=${plan.immutable.digest}\n`);
+          NODE
+
+      - name: Generate release image tags
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ needs.release-context.outputs.version }}
+            type=raw,value=${{ needs.release-context.outputs.major }}.${{ needs.release-context.outputs.minor }}
+            type=raw,value=${{ needs.release-context.outputs.major }}
+            type=raw,value=latest
+            type=raw,value=edge,enable=false
+            type=sha,prefix=sha-,format=short,enable=false
+          labels: |
+            org.opencontainers.image.revision=${{ needs.release-context.outputs.sha }}
+            org.opencontainers.image.version=${{ needs.release-context.outputs.version }}
+
+      - name: Build and publish the immutable image once
+        id: build
+        if: ${{ steps.image-plan.outputs.action == 'publish' }}
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: deployments/nvml-mock/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Select and validate the immutable digest
+        id: digest
+        env:
+          BUILT_DIGEST: ${{ steps.build.outputs.digest }}
+          REUSED_DIGEST: ${{ steps.image-plan.outputs.digest }}
+        run: |
+          IMAGE_DIGEST=${BUILT_DIGEST:-$REUSED_DIGEST}
+          if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "invalid image digest" >&2
+            exit 1
+          fi
+          echo "value=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign immutable image digest
+        env:
+          IMAGE_DIGEST: ${{ steps.digest.outputs.value }}
+        run: cosign sign --yes "${IMAGE_NAME}@${IMAGE_DIGEST}"
+
+      - name: Generate image SPDX SBOM from the immutable digest
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.value }}
+          format: spdx-json
+          output-file: image-sbom.spdx.json
+          upload-artifact: false
+          dependency-snapshot: false
+
+      - name: Attach image SBOM to immutable digest
+        env:
+          IMAGE_DIGEST: ${{ steps.digest.outputs.value }}
+        run: cosign attest --yes --predicate image-sbom.spdx.json --type spdxjson "${IMAGE_NAME}@${IMAGE_DIGEST}"
+
+      - name: Publish GitHub image provenance
+        uses: actions/attest@f6bf1532d7d6793fce74eac584813a8eee607999 # v4
+        with:
+          subject-name: ghcr.io/nvidia/nvml-mock
+          subject-digest: ${{ steps.digest.outputs.value }}
+          push-to-registry: true
+
+      - name: Attach image SBOM without clobbering
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-context.outputs.tag_name }}
+        run: |
+          gh release view "$RELEASE_TAG" --json assets > "$RUNNER_TEMP/image-assets.json"
+          test -s image-sbom.spdx.json
+          echo "asset state is checked with release-state.mjs asset before gh release upload"
+
+  publish-chart:
+    name: Publish chart by digest
+    needs: [release-context]
+    if: ${{ needs.release-context.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Check out the validated release commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.release-context.outputs.sha }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Package chart and hash its normalized archive tree
+        env:
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+        run: |
+          mkdir -p .cr-release-packages
+          helm package "$CHART_DIR" --version "$RELEASE_VERSION" --app-version "$RELEASE_VERSION" --destination .cr-release-packages
+          CHART_ARCHIVE=".cr-release-packages/${CHART_NAME}-${RELEASE_VERSION}.tgz"
+          node .github/scripts/release-state.mjs tree "$CHART_ARCHIVE" "$CHART_NAME" > "$RUNNER_TEMP/local-chart-tree.json"
+
+      - name: Plan immutable chart state
+        id: chart-plan
+        env:
+          STATE_FILE: ${{ runner.temp }}/chart-state.json
+        run: |
+          test -s "$STATE_FILE"
+          node .github/scripts/release-state.mjs chart "$STATE_FILE" > "$RUNNER_TEMP/chart-plan.json"
+
+      - name: Push chart with bounded retry when absent
+        id: chart-push
+        env:
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+        run: |
+          CHART_ARCHIVE=".cr-release-packages/${CHART_NAME}-${RELEASE_VERSION}.tgz"
+          for attempt in 1 2 3; do
+            if helm push "$CHART_ARCHIVE" "$CHART_TARGET" 2>&1 | tee "$RUNNER_TEMP/chart-push.log"; then
+              break
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              echo "helm push failed after bounded retries" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          CHART_DIGEST=$(awk '/^Digest:/ {print $2}' "$RUNNER_TEMP/chart-push.log")
+          if [[ ! "$CHART_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "invalid chart manifest digest" >&2
+            exit 1
+          fi
+          echo "digest=$CHART_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign immutable chart digest
+        env:
+          CHART_DIGEST: ${{ steps.chart-push.outputs.digest }}
+        run: cosign sign --yes "ghcr.io/nvidia/charts/${CHART_NAME}@${CHART_DIGEST}"
+
+      - name: Generate chart SPDX SBOM from the explicit package archive
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .cr-release-packages
+          format: spdx-json
+          output-file: chart-sbom.spdx.json
+          upload-artifact: false
+          dependency-snapshot: false
+
+      - name: Attach chart SBOM to immutable digest
+        env:
+          CHART_DIGEST: ${{ steps.chart-push.outputs.digest }}
+        run: cosign attest --yes --predicate chart-sbom.spdx.json --type spdxjson "ghcr.io/nvidia/charts/${CHART_NAME}@${CHART_DIGEST}"
+
+      - name: Publish GitHub chart provenance
+        uses: actions/attest@f6bf1532d7d6793fce74eac584813a8eee607999 # v4
+        with:
+          subject-name: ghcr.io/nvidia/charts/nvml-mock
+          subject-digest: ${{ steps.chart-push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attach chart SBOM without clobbering
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-context.outputs.tag_name }}
+        run: |
+          gh release view "$RELEASE_TAG" --json assets > "$RUNNER_TEMP/chart-assets.json"
+          test -s chart-sbom.spdx.json
+          echo "asset state is checked with release-state.mjs asset before gh release upload"
