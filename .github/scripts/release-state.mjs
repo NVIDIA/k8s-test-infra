@@ -159,6 +159,87 @@ export function planImagePublication(options) {
   };
 }
 
+function developmentRecord(value, name) {
+  const record = plainObject(value, name);
+  exactKeys(record, ["digest", "sourceRevision"], name);
+  return {
+    digest: digest(record.digest, `${name} digest`),
+    sourceRevision: fullSha(record.sourceRevision, `${name} source revision`),
+  };
+}
+
+export function planDevelopmentPublication(options) {
+  const value = plainObject(options, "development publication state");
+  exactKeys(value, ["releaseSha", "immutable", "short", "edge"], "development publication state");
+  for (const field of ["releaseSha", "immutable", "short", "edge"]) {
+    if (!Object.hasOwn(value, field)) fail(`development publication state is missing ${field}`);
+  }
+  const releaseSha = fullSha(value.releaseSha, "releaseSha");
+  let immutable;
+  if (value.immutable === null) {
+    immutable = { action: "publish", digest: null };
+  } else {
+    const record = developmentRecord(value.immutable, "immutable SHA state");
+    if (record.sourceRevision !== releaseSha) fail("immutable SHA source revision mismatch");
+    immutable = { action: "reuse", digest: record.digest };
+  }
+  const targetDigest = immutable.digest;
+  let short;
+  if (value.short === null) {
+    short = targetDigest === null ? "defer" : "update";
+  } else {
+    const record = developmentRecord(value.short, "short-SHA tag state");
+    if (record.sourceRevision !== releaseSha) fail("short-SHA tag source revision collision");
+    short = targetDigest === null ? "preserve" : record.digest === targetDigest ? "skip" : "update";
+  }
+  let edge;
+  if (value.edge === null) {
+    edge = targetDigest === null ? "defer" : "update";
+  } else {
+    const record = developmentRecord(value.edge, "edge tag state");
+    edge = targetDigest === null ? "defer" : record.digest === targetDigest ? "skip" : "update";
+  }
+  return { immutable, short, edge };
+}
+
+export function resolveReleaseIntent(options) {
+  const value = plainObject(options, "release intent");
+  exactKeys(value, ["eventName", "pushSha", "manualVersion", "manualSha", "releasePlease"], "release intent");
+  for (const field of ["eventName", "pushSha", "manualVersion", "manualSha", "releasePlease"]) {
+    if (!Object.hasOwn(value, field)) fail(`release intent is missing ${field}`);
+  }
+  if (value.eventName === "workflow_dispatch") {
+    const parsed = canonicalVersion(value.manualVersion, "manual version");
+    const sha = fullSha(value.manualSha, "manual SHA");
+    if (value.releasePlease !== null) fail("manual release intent cannot contain Release Please state");
+    return {
+      mode: "release", version: parsed.version, tagName: `v${parsed.version}`,
+      major: parsed.major, minor: parsed.minor, patch: parsed.patch, sha,
+    };
+  }
+  if (value.eventName !== "push") fail("unsupported release event");
+  const pushSha = fullSha(value.pushSha, "push SHA");
+  if (value.manualVersion !== "" || value.manualSha !== "") fail("push intent cannot contain manual identity");
+  const releasePlease = plainObject(value.releasePlease, "Release Please outputs");
+  if (releasePlease.releaseCreated === "false") {
+    exactKeys(releasePlease, ["releaseCreated"], "Release Please outputs");
+    return { mode: "development", version: "", tagName: "", major: "", minor: "", patch: "", sha: pushSha };
+  }
+  exactKeys(releasePlease, ["releaseCreated", "tagName", "major", "minor", "patch", "sha"], "Release Please outputs");
+  if (releasePlease.releaseCreated !== "true") fail("releaseCreated must be true or false");
+  if (typeof releasePlease.tagName !== "string" || !releasePlease.tagName.startsWith("v")) fail("Release Please tag is invalid");
+  const parsed = canonicalVersion(releasePlease.tagName.slice(1), "Release Please tag");
+  if (releasePlease.major !== parsed.major || releasePlease.minor !== parsed.minor || releasePlease.patch !== parsed.patch) {
+    fail("Release Please version components mismatch");
+  }
+  const sha = fullSha(releasePlease.sha, "Release Please SHA");
+  if (sha !== pushSha) fail("Release Please SHA does not match push SHA");
+  return {
+    mode: "release", version: parsed.version, tagName: releasePlease.tagName,
+    major: parsed.major, minor: parsed.minor, patch: parsed.patch, sha,
+  };
+}
+
 export function planChartPublication(options) {
   const value = plainObject(options, "chart publication state");
   exactKeys(value, ["version", "localTreeDigest", "remoteTreeDigest", "remoteManifestDigest"], "chart publication state");
@@ -180,6 +261,17 @@ export function planAssetPublication(options) {
   if (typeof value.remoteSha256 !== "string" || !HEX_SHA256_RE.test(value.remoteSha256)) fail("remote asset checksum is invalid");
   if (value.localSha256 !== value.remoteSha256) fail("release asset content mismatch");
   return "skip";
+}
+
+export function planEvidencePublication(options) {
+  const value = plainObject(options, "evidence state");
+  exactKeys(value, ["signature", "sbom", "provenance"], "evidence state");
+  const result = {};
+  for (const field of ["signature", "sbom", "provenance"]) {
+    if (typeof value[field] !== "boolean") fail(`evidence ${field} must be boolean`);
+    result[field] = !value[field];
+  }
+  return result;
 }
 
 function tarOctal(buffer, offset, length, name) {
@@ -257,13 +349,13 @@ export function normalizedChartTreeDigest(archive, expectedRoot) {
   return `sha256:${hash.digest("hex")}`;
 }
 
-function planFromChart(chartPath) {
+function planFromChart(chartPath, sourceSha) {
   const source = readFileSync(chartPath, "utf8");
   const version = /^version:\s*["']?([^\s"']+)["']?\s*$/m.exec(source)?.[1];
   const appVersion = /^appVersion:\s*["']?([^\s"']+)["']?\s*$/m.exec(source)?.[1];
   const parsed = canonicalVersion(version, "chart version");
   if (appVersion !== parsed.version) fail("chart appVersion does not match version");
-  const sha = fullSha(process.env.GITHUB_SHA, "GITHUB_SHA");
+  const sha = fullSha(sourceSha, "source SHA");
   return {
     publish: false,
     image: "ghcr.io/nvidia/nvml-mock",
@@ -276,15 +368,18 @@ function planFromChart(chartPath) {
 
 async function main(argv) {
   const [command, inputPath, extra] = argv;
-  if (command === "plan") return planFromChart(inputPath);
+  if (command === "plan") return planFromChart(inputPath, process.env.SOURCE_SHA);
   if (command === "tree") return { digest: normalizedChartTreeDigest(readFileSync(inputPath), extra) };
-  if (!["binding", "image", "chart", "asset"].includes(command)) fail("unsupported release-state command");
+  if (!["binding", "image", "development", "intent", "chart", "asset", "evidence"].includes(command)) fail("unsupported release-state command");
   const input = JSON.parse(readFileSync(inputPath, "utf8"));
   return {
     binding: validateReleaseBinding,
     image: planImagePublication,
+    development: planDevelopmentPublication,
+    intent: resolveReleaseIntent,
     chart: planChartPublication,
     asset: planAssetPublication,
+    evidence: planEvidencePublication,
   }[command](input);
 }
 

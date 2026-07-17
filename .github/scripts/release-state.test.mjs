@@ -5,7 +5,10 @@ import {
   normalizedChartTreeDigest,
   planAssetPublication,
   planChartPublication,
+  planDevelopmentPublication,
+  planEvidencePublication,
   planImagePublication,
+  resolveReleaseIntent,
   validateReleaseBinding,
 } from "./release-state.mjs";
 import { chartArchive } from "./release-state-test-helpers.mjs";
@@ -89,6 +92,41 @@ test("image publication decisions are immutable, resumable, collision-safe, and 
   }
 });
 
+test("ordinary pushes publish one immutable SHA then promote collision-safe development tags", () => {
+  const absent = { releaseSha: SHA_A, immutable: null, short: null, edge: null };
+  assert.deepEqual(planDevelopmentPublication(absent), {
+    immutable: { action: "publish", digest: null },
+    short: "defer",
+    edge: "defer",
+  });
+  const immutable = { digest: DIGEST_A, sourceRevision: SHA_A };
+  assert.deepEqual(planDevelopmentPublication({ ...absent, immutable }), {
+    immutable: { action: "reuse", digest: DIGEST_A },
+    short: "update",
+    edge: "update",
+  });
+  assert.equal(planDevelopmentPublication({ ...absent, immutable, short: immutable, edge: immutable }).short, "skip");
+  assert.throws(() => planDevelopmentPublication({ ...absent, immutable, short: { digest: DIGEST_B, sourceRevision: SHA_B } }), { name: "TypeError" });
+  assert.equal(planDevelopmentPublication({ ...absent, immutable, edge: { digest: DIGEST_B, sourceRevision: SHA_B } }).edge, "update");
+});
+
+test("push and manual release paths converge on one validated intent contract", () => {
+  const released = {
+    releaseCreated: "true", tagName: "v1.2.3", major: "1", minor: "2", patch: "3", sha: SHA_A,
+  };
+  assert.deepEqual(resolveReleaseIntent({ eventName: "push", pushSha: SHA_A, manualVersion: "", manualSha: "", releasePlease: released }), {
+    mode: "release", version: "1.2.3", tagName: "v1.2.3", major: "1", minor: "2", patch: "3", sha: SHA_A,
+  });
+  assert.deepEqual(resolveReleaseIntent({ eventName: "push", pushSha: SHA_A, manualVersion: "", manualSha: "", releasePlease: { releaseCreated: "false" } }), {
+    mode: "development", version: "", tagName: "", major: "", minor: "", patch: "", sha: SHA_A,
+  });
+  assert.deepEqual(resolveReleaseIntent({ eventName: "workflow_dispatch", pushSha: "", manualVersion: "1.2.3", manualSha: SHA_A, releasePlease: null }), {
+    mode: "release", version: "1.2.3", tagName: "v1.2.3", major: "1", minor: "2", patch: "3", sha: SHA_A,
+  });
+  assert.throws(() => resolveReleaseIntent({ eventName: "push", pushSha: SHA_A, manualVersion: "", manualSha: "", releasePlease: { ...released, sha: SHA_B } }), { name: "TypeError" });
+  assert.throws(() => resolveReleaseIntent({ eventName: "workflow_dispatch", pushSha: "", manualVersion: "01.2.3", manualSha: SHA_A, releasePlease: null }), { name: "TypeError" });
+});
+
 test("chart publication compares normalized trees and reuses only the exact manifest", () => {
   const base = { version: "1.2.3", localTreeDigest: DIGEST_A, remoteTreeDigest: null, remoteManifestDigest: null };
   assert.deepEqual(planChartPublication(base), { action: "publish", digest: null });
@@ -100,6 +138,17 @@ test("chart publication compares normalized trees and reuses only the exact mani
   ]) {
     assert.throws(() => planChartPublication({ ...base, ...remote }), { name: "TypeError" });
   }
+});
+
+test("evidence publication resumes only independently missing immutable evidence", () => {
+  assert.deepEqual(planEvidencePublication({ signature: true, sbom: false, provenance: true }), {
+    signature: false, sbom: true, provenance: false,
+  });
+  assert.deepEqual(planEvidencePublication({ signature: false, sbom: false, provenance: false }), {
+    signature: true, sbom: true, provenance: true,
+  });
+  assert.throws(() => planEvidencePublication({ signature: "yes", sbom: false, provenance: false }), { name: "TypeError" });
+  assert.throws(() => planEvidencePublication({ signature: false, sbom: false, provenance: false, extra: true }), { name: "TypeError" });
 });
 
 test("release assets upload once, skip identical content, and never clobber", () => {

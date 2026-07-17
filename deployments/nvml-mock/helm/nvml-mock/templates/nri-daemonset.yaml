@@ -1,6 +1,8 @@
 {{- if .Values.nri.enabled }}
-{{- $image := mergeOverwrite (deepCopy .Values.image) (.Values.nri.image | default dict) }}
-{{- $imageTag := default $.Chart.AppVersion $image.tag }}
+{{- $rootImage := .Values.image }}
+{{- $nriImage := .Values.nri.image | default dict }}
+{{- $image := mergeOverwrite (deepCopy $rootImage) $nriImage }}
+{{- $imageTag := default (default $.Chart.AppVersion $rootImage.tag) $nriImage.tag }}
 {{- $socketDir := dir .Values.nri.socketPath }}
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0

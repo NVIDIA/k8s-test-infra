@@ -65,6 +65,19 @@ tests:
           path: spec.template.spec.containers[0].image
           value: ghcr.io/nvidia/nvml-mock:root-override
 
+  - it: should treat an empty NRI tag as absent and inherit the root tag
+    set:
+      image:
+        tag: root-override
+      nri:
+        enabled: true
+        image:
+          tag: ""
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/nvml-mock:root-override
+
   - it: should prefer an explicit NRI image tag over the root tag
     set:
       image:

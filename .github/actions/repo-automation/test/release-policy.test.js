@@ -6,6 +6,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const YAML = require("yaml");
+const Ajv = require("ajv");
 
 const repositoryRoot = path.resolve(__dirname, "../../../..");
 
@@ -20,7 +21,7 @@ function readText(name) {
 test("Release Please has one exact root version authority", () => {
   assert.deepEqual(readJson(".release-please-manifest.json"), { ".": "0.2.1" });
   assert.deepEqual(readJson("release-please-config.json"), {
-    $schema: "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+    $schema: "https://raw.githubusercontent.com/googleapis/release-please/712fcf01effd08d7b0e7b1fd3861f2cb388bc8d1/schemas/config.json",
     packages: {
       ".": {
         "release-type": "simple",
@@ -43,6 +44,32 @@ test("Release Please has one exact root version authority", () => {
       },
     },
   });
+  const config = readJson("release-please-config.json");
+  const pinnedV5Subset = {
+    type: "object",
+    additionalProperties: false,
+    required: ["$schema", "packages"],
+    properties: {
+      $schema: { const: "https://raw.githubusercontent.com/googleapis/release-please/712fcf01effd08d7b0e7b1fd3861f2cb388bc8d1/schemas/config.json" },
+      packages: {
+        type: "object", additionalProperties: false, required: ["."],
+        properties: {
+          ".": {
+            type: "object", additionalProperties: false,
+            required: ["release-type", "package-name", "changelog-path", "include-v-in-tag", "include-component-in-tag", "extra-files"],
+            properties: {
+              "release-type": { const: "simple" }, "package-name": { const: "nvml-mock" },
+              "changelog-path": { const: "CHANGELOG.md" }, "include-v-in-tag": { const: true },
+              "include-component-in-tag": { const: false },
+              "extra-files": { type: "array", minItems: 2, maxItems: 2 },
+            },
+          },
+        },
+      },
+    },
+  };
+  const validate = new Ajv({ strict: true }).compile(pinnedV5Subset);
+  assert.equal(validate(config), true, JSON.stringify(validate.errors));
 });
 
 test("chart defaults bind root and NRI images to the release appVersion", () => {
@@ -54,7 +81,7 @@ test("chart defaults bind root and NRI images to the release appVersion", () => 
   assert.match(readText("deployments/nvml-mock/helm/nvml-mock/templates/daemonset.yaml"),
     /default \.Chart\.AppVersion \.Values\.image\.tag/);
   assert.match(readText("deployments/nvml-mock/helm/nvml-mock/templates/nri-daemonset.yaml"),
-    /\$imageTag := default \$\.Chart\.AppVersion \$image\.tag/);
+    /\$imageTag := default \(default \$\.Chart\.AppVersion \$rootImage\.tag\) \$nriImage\.tag/);
 });
 
 test("staged release workflow is read-only until one hard activation guard is removed", () => {
@@ -89,10 +116,10 @@ test("staged release workflow is read-only until one hard activation guard is re
   assert.doesNotMatch(planSource, /login-action|build-push-action|cosign|actions\/attest|helm push|docker push|gh release/);
 
   const guard = workflow.jobs["activation-guard"];
-  assert.equal(guard.if, "${{ inputs.publish }}");
+  assert.equal(guard.if, "${{ inputs.publish || github.event_name == 'push' }}");
   assert.match(guard.steps[0].run, /automation not activated/);
   assert.match(guard.steps[0].run, /exit 1/);
-  assert.equal(workflow.jobs["release-context"].needs, "activation-guard");
+  assert.deepEqual(workflow.jobs["release-context"].needs, ["activation-guard", "release-please"]);
   assert.deepEqual(workflow.jobs["publish-image"].needs, ["release-context"]);
   assert.deepEqual(workflow.jobs["publish-chart"].needs, ["release-context"]);
 
@@ -108,7 +135,7 @@ test("staged release workflow is read-only until one hard activation guard is re
     sha: "${{ steps.release.outputs.sha }}",
   });
   assert.equal(Object.hasOwn(releasePlease.outputs, "version"), false);
-  assert.ok(releasePlease.steps.some((step) => step.uses === "googleapis/release-please-action@0dfd8538845b8e92600d271a895a5372865d4062"));
+  assert.ok(releasePlease.steps.some((step) => step.uses === "googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7"));
 
   const publishPermissions = {
     contents: "write",
@@ -122,13 +149,52 @@ test("staged release workflow is read-only until one hard activation guard is re
   assert.match(source, /oci:\/\/ghcr\.io\/nvidia\/charts/);
   assert.match(source, /ghcr\.io\/nvidia\/nvml-mock/);
   assert.match(source, /release-state\.mjs image/);
+  assert.match(source, /release-state\.mjs development/);
   assert.match(source, /release-state\.mjs chart/);
   assert.match(source, /release-state\.mjs tree/);
+  assert.match(source, /release-state\.mjs binding/);
+  assert.match(source, /release-state\.mjs asset/);
+  assert.match(source, /release-reader\.mjs image/);
+  assert.match(source, /release-reader\.mjs chart/);
+  assert.match(source, /release-reader\.mjs github-release/);
   assert.match(source, /image-sbom\.spdx\.json/);
   assert.match(source, /chart-sbom\.spdx\.json/);
+  assert.match(source, /gh release download/);
+  assert.match(source, /gh release upload/);
+  assert.match(source, /docker buildx imagetools create/);
+  assert.match(source, /cosign verify /);
+  assert.match(source, /cosign verify-attestation --type spdxjson/);
+  assert.match(source, /gh attestation verify/);
+  assert.match(source, /release-reader\.mjs chart/);
+  assert.match(source, /git rev-parse HEAD/);
   assert.match(source, /push-to-registry:\s*true/);
   assert.doesNotMatch(source, /\b(?:PAT|RELEASE_PLEASE_TOKEN|private[-_ ]key)\b/i);
   assert.doesNotMatch(source, /gh release upload[^\n]*--clobber/);
+  assert.doesNotMatch(source, /automation not activated[\s\S]*state is checked with/);
+  assert.doesNotMatch(source, /test -s "\$STATE_FILE"/);
+  assert.doesNotMatch(source, /helm package[^\n]*(?:--version|--app-version)/);
+  assert.doesNotMatch(source, /path:\s*\.cr-release-packages\s*$/m);
+  assert.doesNotMatch(source, /chart-evidence-state\.json", JSON\.stringify\(\{ signature: false, sbom: false, provenance: false \}\)/);
+
+  const imageSteps = workflow.jobs["publish-image"].steps;
+  const imageNames = imageSteps.map((step) => step.name);
+  assert.ok(imageNames.indexOf("Gather and validate release, registry, evidence, and asset state") < imageNames.indexOf("Log in to GHCR"));
+  assert.ok(imageSteps.some((step) => step.if === "${{ steps.image-plan.outputs.alias_minor == 'update' }}"));
+  assert.ok(imageSteps.some((step) => step.if === "${{ steps.image-plan.outputs.alias_major == 'update' }}"));
+  assert.ok(imageSteps.some((step) => step.if === "${{ steps.image-plan.outputs.alias_latest == 'update' }}"));
+  assert.ok(imageSteps.some((step) => step.if === "${{ steps.image-plan.outputs.short == 'update' }}"));
+  assert.ok(imageSteps.some((step) => step.if === "${{ steps.image-plan.outputs.edge == 'update' }}"));
+  assert.ok(imageSteps.some((step) => step.if?.includes("steps.image-plan.outputs.signature == 'true'")));
+  assert.ok(imageSteps.some((step) => step.if?.includes("steps.image-plan.outputs.sbom == 'true'")));
+  assert.ok(imageSteps.some((step) => step.if?.includes("steps.image-plan.outputs.provenance == 'true'")));
+
+  const chartSteps = workflow.jobs["publish-chart"].steps;
+  const chartNames = chartSteps.map((step) => step.name);
+  assert.ok(chartNames.indexOf("Gather and validate release, registry, evidence, and asset state") < chartNames.indexOf("Log in to GHCR"));
+  assert.ok(chartSteps.some((step) => step.if === "${{ steps.final-chart-plan.outputs.action == 'publish' }}"));
+  assert.ok(chartSteps.some((step) => step.id === "chart-digest"));
+  const chartSbom = chartSteps.find((step) => step.uses?.startsWith("anchore/sbom-action@"));
+  assert.equal(chartSbom.with.path, "${{ steps.chart-package.outputs.archive }}");
 
   for (const [jobName, job] of Object.entries(workflow.jobs)) {
     for (const step of job.steps ?? []) {
