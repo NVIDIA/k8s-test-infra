@@ -119,6 +119,13 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertFailureInjectionBaseline(ctx, h, pod, p.ExpectedGPUs())
 				})
 
+				// Runtime control runs before the Helm-driven injections below:
+				// the consumer (pod) is still the original, running DaemonSet pod,
+				// so we validate the "both observers, no restart" path against it.
+				It("injects ECC at runtime via nvml-mock-ctl without restart", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeECCInjection(ctx, h, pod)
+				})
+
 				It("injects ECC uncorrectable errors", func(ctx SpecContext) {
 					assertECCUncorrectableFailure(ctx, h, p.ExpectedGPUs())
 				})
