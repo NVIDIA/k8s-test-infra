@@ -72,6 +72,21 @@ test("chart defaults bind root and NRI images to the release appVersion", () => 
     /\$imageTag := default \(default \$\.Chart\.AppVersion \$rootImage\.tag\) \$nriImage\.tag/);
 });
 
+test("user-facing Helm commands use the sole published OCI chart target", () => {
+  for (const name of [
+    "README.md",
+    "docs/README.md",
+    "docs/quickstart.md",
+    "docs/examples.md",
+    "docs/integrations/fake-gpu-operator.md",
+    "docs/demo/with-fgo/README.md",
+  ]) {
+    const source = readText(name);
+    assert.match(source, /oci:\/\/ghcr\.io\/nvidia\/charts\/nvml-mock/, `${name}: unified chart target missing`);
+    assert.doesNotMatch(source, /oci:\/\/ghcr\.io\/nvidia\/k8s-test-infra\/chart/, `${name}: retired chart target`);
+  }
+});
+
 test("activated release workflow owns main pushes and preserves a read-only manual plan", () => {
   const source = readText(".github/workflows/release.yml");
   const workflow = YAML.parse(source);

@@ -21,7 +21,7 @@ docker pull ghcr.io/nvidia/nvml-mock:latest
 kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name gpu-test
 
 # 3. Install
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock
 ```
 
 After install, deploy a consumer to test:
