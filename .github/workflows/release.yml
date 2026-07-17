@@ -3,6 +3,8 @@
 name: Release
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       publish:
@@ -58,18 +60,6 @@ jobs:
           HEAD_SHA=$(git rev-parse HEAD)
           SOURCE_SHA="$HEAD_SHA" node .github/scripts/release-state.mjs plan "$CHART_DIR/Chart.yaml" | tee -a "$GITHUB_STEP_SUMMARY"
 
-  activation-guard:
-    name: Publication activation guard
-    if: ${{ inputs.publish || github.event_name == 'push' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    permissions: {}
-    steps:
-      - name: Reject publication before atomic activation
-        run: |
-          echo "release automation not activated; publish=false is the only permitted mode" >&2
-          exit 1
-
   release-please:
     name: Release Please
     if: ${{ github.event_name == 'push' }}
@@ -97,8 +87,8 @@ jobs:
 
   release-context:
     name: Resolve one trusted publication identity
-    needs: [activation-guard, release-please]
-    if: ${{ always() && needs.activation-guard.result == 'success' && (github.event_name != 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) && (github.event_name == 'workflow_dispatch' || needs.release-please.result == 'success') }}
+    needs: [release-please]
+    if: ${{ always() && (github.event_name == 'push' || inputs.publish) && (github.event_name != 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) && (github.event_name == 'workflow_dispatch' || needs.release-please.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

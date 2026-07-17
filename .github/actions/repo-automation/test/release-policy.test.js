@@ -72,10 +72,11 @@ test("chart defaults bind root and NRI images to the release appVersion", () => 
     /\$imageTag := default \(default \$\.Chart\.AppVersion \$rootImage\.tag\) \$nriImage\.tag/);
 });
 
-test("staged release workflow is read-only until one hard activation guard is removed", () => {
+test("activated release workflow owns main pushes and preserves a read-only manual plan", () => {
   const source = readText(".github/workflows/release.yml");
   const workflow = YAML.parse(source);
   assert.deepEqual(workflow.on, {
+    push: { branches: ["main"] },
     workflow_dispatch: {
       inputs: {
         publish: {
@@ -103,11 +104,11 @@ test("staged release workflow is read-only until one hard activation guard is re
   const planSource = YAML.stringify(plan);
   assert.doesNotMatch(planSource, /login-action|build-push-action|cosign|actions\/attest|helm push|docker push|gh release/);
 
-  const guard = workflow.jobs["activation-guard"];
-  assert.equal(guard.if, "${{ inputs.publish || github.event_name == 'push' }}");
-  assert.match(guard.steps[0].run, /automation not activated/);
-  assert.match(guard.steps[0].run, /exit 1/);
-  assert.deepEqual(workflow.jobs["release-context"].needs, ["activation-guard", "release-please"]);
+  assert.equal(Object.hasOwn(workflow.jobs, "activation-guard"), false);
+  assert.doesNotMatch(source, /automation not activated/);
+  assert.deepEqual(workflow.jobs["release-context"].needs, ["release-please"]);
+  assert.match(workflow.jobs["release-context"].if,
+    /\(github\.event_name == 'push' \|\| inputs\.publish\)/);
   assert.match(workflow.jobs["release-context"].if, /github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\)/);
   assert.deepEqual(workflow.jobs["publish-image"].needs, ["release-context"]);
   assert.deepEqual(workflow.jobs["publish-chart"].needs, ["release-context"]);
