@@ -21,6 +21,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"golang.org/x/sys/unix"
 	"sigs.k8s.io/yaml"
@@ -115,7 +116,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		usage(stdout)
 		return 0
 	case "status":
-		return doStatus(overlayPath, stdout, stderr)
+		return doStatus(overlayPath, gpu, stdout, stderr)
 	case "fail", "set", "apply", "reset":
 		return mutate(cmd, overlayPath, gpu, mode, patchFile, afterCalls, xid, positional, cfg, base, stdout, stderr)
 	default:
@@ -250,12 +251,39 @@ func gpuLabel(g string) string {
 	return g
 }
 
-func doStatus(overlayPath string, stdout, stderr io.Writer) int {
+func doStatus(overlayPath, gpu string, stdout, stderr io.Writer) int {
 	doc, err := mockctl.Load(overlayPath)
 	if err != nil {
 		fprintf(stderr, "load: %v\n", err)
 		return 1
 	}
+
+	// A targeted status only reports a single device's bucket (plus the
+	// shared "all" bucket). Only an integer index is supported here.
+	if gpu != "" {
+		idx, err := strconv.Atoi(gpu)
+		if err != nil {
+			fprintf(stderr, "status --gpu expects an integer index, got %q\n", gpu)
+			return 2
+		}
+		dev := doc.Devices[strconv.Itoa(idx)]
+		if dev == nil && doc.All == nil {
+			fprintf(stdout, "no active overrides for gpu %d\n", idx)
+			return 0
+		}
+		filtered := &mockctl.Doc{Version: doc.Version, All: doc.All}
+		if dev != nil {
+			filtered.Devices = map[string]map[string]any{strconv.Itoa(idx): dev}
+		}
+		b, err := filtered.Bytes()
+		if err != nil {
+			fprintf(stderr, "%v\n", err)
+			return 1
+		}
+		fprint(stdout, string(b))
+		return 0
+	}
+
 	if doc.All == nil && len(doc.Devices) == 0 {
 		fprintln(stdout, "no active overrides")
 		return 0
@@ -315,6 +343,13 @@ func writeAtomic(path string, doc *mockctl.Doc) error {
 		return err
 	}
 	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// os.CreateTemp makes the file 0600, but the published overlay is
+	// bind-mounted into consumer containers and read by the mock library,
+	// which may run as a non-root UID. Make it world-readable (matching how
+	// config.yaml is consumed) so those reads don't silently fail.
+	if err := os.Chmod(tmpName, 0o644); err != nil {
 		return err
 	}
 	return os.Rename(tmpName, path)

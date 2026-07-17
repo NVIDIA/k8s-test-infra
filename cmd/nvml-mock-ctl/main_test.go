@@ -63,6 +63,58 @@ func TestCLI_StatusEmpty(t *testing.T) {
 	}
 }
 
+func TestCLI_OverlayFileWorldReadable(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	if _, e, c := runCLI(t, overlay, "fail", "--gpu", "0", "--mode", "lost"); c != 0 {
+		t.Fatalf("fail command exited %d: %s", c, e)
+	}
+	fi, err := os.Stat(overlay)
+	if err != nil {
+		t.Fatalf("stat overlay: %v", err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o644 {
+		t.Fatalf("overlay mode = %o, want 0644", perm)
+	}
+}
+
+func TestCLI_StatusFilterByGPU(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	if _, e, c := runCLI(t, overlay, "fail", "--gpu", "0", "--mode", "lost"); c != 0 {
+		t.Fatalf("setup gpu 0: %s", e)
+	}
+	if _, e, c := runCLI(t, overlay, "fail", "--gpu", "1", "--mode", "ecc_uncorrectable"); c != 0 {
+		t.Fatalf("setup gpu 1: %s", e)
+	}
+
+	// Targeted status shows only the requested device's bucket.
+	out, _, code := runCLI(t, overlay, "status", "--gpu", "0")
+	if code != 0 {
+		t.Fatalf("status --gpu 0 exited %d", code)
+	}
+	if !strings.Contains(out, "lost") {
+		t.Fatalf("status --gpu 0 missing device 0 override: %s", out)
+	}
+	if strings.Contains(out, "ecc_uncorrectable") {
+		t.Fatalf("status --gpu 0 leaked device 1 override: %s", out)
+	}
+
+	// A device with no overrides reports so explicitly.
+	out, _, code = runCLI(t, overlay, "status", "--gpu", "5")
+	if code != 0 {
+		t.Fatalf("status --gpu 5 exited %d", code)
+	}
+	if !strings.Contains(out, "no active overrides for gpu 5") {
+		t.Fatalf("unexpected status for empty gpu: %s", out)
+	}
+
+	// Non-integer index is a usage error.
+	if _, _, code := runCLI(t, overlay, "status", "--gpu", "all"); code != 2 {
+		t.Fatalf("status --gpu all exit = %d, want 2", code)
+	}
+}
+
 func TestCLI_ResetGPU(t *testing.T) {
 	dir := t.TempDir()
 	overlay := filepath.Join(dir, "overrides.yaml")
