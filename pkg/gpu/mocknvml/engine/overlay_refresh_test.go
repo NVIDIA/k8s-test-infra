@@ -78,3 +78,36 @@ func TestRefresh_AllAppliesToDevice(t *testing.T) {
 	}
 	_ = nvml.SUCCESS
 }
+
+// TestRefresh_HotReloadsDynamicTemperature verifies that editing
+// dynamic_metrics.temperature through the overlay rebuilds the (otherwise
+// construction-time-frozen) simulator so a running consumer observes the new
+// value — the mechanism behind `nvml-mock-ctl set dynamic_metrics.temperature`.
+func TestRefresh_HotReloadsDynamicTemperature(t *testing.T) {
+	// ramp_c/variance_c default to 0 so the simulator returns base_c verbatim.
+	base := &DeviceConfig{
+		Thermal: &ThermalConfig{TemperatureGPU_C: 30, ShutdownThreshold_C: 100},
+		DynamicMetrics: &DynamicMetricsConfig{
+			Temperature: &DynamicTemperatureConfig{BaseC: 50},
+		},
+	}
+	dev, path, clock := newTestDevice(t, base)
+
+	if got, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS || got != 50 {
+		t.Fatalf("baseline temperature = %d (ret=%v), want 50", got, ret)
+	}
+
+	writeOverlay(t, path, "devices:\n  \"0\":\n    dynamic_metrics:\n      temperature:\n        base_c: 85\n", clock)
+	if got, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS || got != 85 {
+		t.Fatalf("after overlay temperature = %d (ret=%v), want 85", got, ret)
+	}
+
+	// Clearing the overlay reverts to the base config's simulator.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	*clock = clock.Add(2 * time.Second)
+	if got, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS || got != 50 {
+		t.Fatalf("after reset temperature = %d (ret=%v), want 50", got, ret)
+	}
+}

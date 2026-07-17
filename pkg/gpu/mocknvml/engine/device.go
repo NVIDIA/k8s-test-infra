@@ -15,6 +15,7 @@ package engine
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -61,9 +62,11 @@ type ConfigurableDevice struct {
 	// Mutable in-memory state (not persisted across restarts)
 	persistenceModeOverride *nvml.EnableState
 
-	// dynamicMetrics is non-nil when DeviceConfig.DynamicMetrics is set.
-	// When nil, the device returns static values from config unchanged.
-	dynamicMetrics *dynamicMetricsSimulator
+	// dynamicMetrics holds the current simulator (nil == static mode). It is
+	// swapped atomically on refresh so a runtime overlay that edits
+	// dynamic_metrics (e.g. pinning temperature) takes effect on the next
+	// getter without restarting the consumer. Read via Load() in the getters.
+	dynamicMetrics atomic.Pointer[dynamicMetricsSimulator]
 
 	// failure holds the current injector (nil == healthy). Swapped atomically
 	// on refresh. Read via failureInjector().
@@ -133,7 +136,7 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 	// Enable dynamic metric simulation if the YAML opts in. Leaving
 	// config.DynamicMetrics nil preserves the historical static behavior.
 	if config != nil && config.DynamicMetrics != nil {
-		dev.dynamicMetrics = newDynamicMetricsSimulator(config.DynamicMetrics)
+		dev.dynamicMetrics.Store(newDynamicMetricsSimulator(config.DynamicMetrics))
 	}
 
 	// Seed effective config + injector from the base. appliedGen stays 0 so
@@ -201,7 +204,27 @@ func (d *ConfigurableDevice) refresh() {
 	}
 	d.effective.Store(merged)
 	d.reconcileFailure(merged.Failure)
+	d.reconcileDynamicMetrics(merged.DynamicMetrics)
 	atomic.StoreUint64(&d.appliedGen, gen)
+}
+
+// reconcileDynamicMetrics rebuilds the dynamic-metrics simulator when the
+// effective DynamicMetrics config changed — e.g. a runtime overlay pinned
+// dynamic_metrics.temperature. Without this the simulator would stay frozen at
+// its construction-time config and runtime edits to temperature/power/
+// utilization would never surface. The rebuild resets the simulator's ramp
+// phase and RNG, which is acceptable for a mock; we skip it (preserving the
+// running ramp) whenever the config is byte-for-byte unchanged so overlay edits
+// to unrelated fields don't disturb the simulation.
+func (d *ConfigurableDevice) reconcileDynamicMetrics(cfg *DynamicMetricsConfig) {
+	var curCfg *DynamicMetricsConfig
+	if cur := d.dynamicMetrics.Load(); cur != nil {
+		curCfg = cur.cfg
+	}
+	if reflect.DeepEqual(curCfg, cfg) {
+		return
+	}
+	d.dynamicMetrics.Store(newDynamicMetricsSimulator(cfg))
 }
 
 // reconcileFailure aligns the injector with the effective failure config.
@@ -554,8 +577,8 @@ func (d *ConfigurableDevice) GetTemperature(sensor nvml.TemperatureSensors) (uin
 		}
 		shutdownC = c.Thermal.ShutdownThreshold_C
 	}
-	if d.dynamicMetrics != nil {
-		temp = d.dynamicMetrics.Temperature(temp, shutdownC)
+	if dm := d.dynamicMetrics.Load(); dm != nil {
+		temp = dm.Temperature(temp, shutdownC)
 	}
 	debugLog("[NVML] nvmlDeviceGetTemperature(sensor=%d) -> %d\n", sensor, temp)
 	return temp, nvml.SUCCESS
@@ -582,6 +605,40 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 	return temp, nvml.SUCCESS
 }
 
+// GetMarginTemperature returns the GPU's headroom to its thermal limit in
+// degrees C — the value nvidia-smi renders as "GPU T.Limit Temp" (via
+// nvmlDeviceGetMarginTemperature). It is the slowdown threshold (falling back
+// to shutdown, then max-operating) minus the current temperature, clamped at 0.
+// A thermal config is required; a lost/failing device propagates its error
+// through GetTemperature so the margin reports [N/A] too. The signature matches
+// the go-nvml Device interface so it overrides the embedded default.
+func (d *ConfigurableDevice) GetMarginTemperature() (nvml.MarginTemperature, nvml.Return) {
+	c := d.cfg()
+	if c.Thermal == nil {
+		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED
+	}
+	limit := c.Thermal.SlowdownThreshold_C
+	if limit == 0 {
+		limit = c.Thermal.ShutdownThreshold_C
+	}
+	if limit == 0 {
+		limit = c.Thermal.MaxOperating_C
+	}
+	if limit == 0 {
+		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED
+	}
+	cur, ret := d.GetTemperature(nvml.TEMPERATURE_GPU)
+	if ret != nvml.SUCCESS {
+		return nvml.MarginTemperature{}, ret
+	}
+	margin := limit - int(cur)
+	if margin < 0 {
+		margin = 0
+	}
+	debugLog("[NVML] nvmlDeviceGetMarginTemperature -> %d C (limit=%d cur=%d)\n", margin, limit, cur)
+	return nvml.MarginTemperature{MarginTemperature: int32(margin)}, nvml.SUCCESS
+}
+
 // GetPowerUsage returns current power draw in milliwatts. Either a static
 // `power:` block or a `dynamic_metrics.power` block is sufficient; only when
 // neither is configured do we report ERROR_NOT_SUPPORTED. When both are
@@ -603,8 +660,8 @@ func (d *ConfigurableDevice) GetPowerUsage() (uint32, nvml.Return) {
 		minMW = c.Power.MinLimitMW
 		maxMW = c.Power.MaxLimitMW
 	}
-	if d.dynamicMetrics != nil {
-		power = d.dynamicMetrics.Power(power, minMW, maxMW)
+	if dm := d.dynamicMetrics.Load(); dm != nil {
+		power = dm.Power(power, minMW, maxMW)
 	}
 	debugLog("[NVML] nvmlDeviceGetPowerUsage -> %d mW\n", power)
 	return power, nvml.SUCCESS
@@ -749,8 +806,8 @@ func (d *ConfigurableDevice) GetUtilizationRates() (nvml.Utilization, nvml.Retur
 		util.Gpu = c.Utilization.GPU
 		util.Memory = c.Utilization.Memory
 	}
-	if d.dynamicMetrics != nil {
-		util.Gpu, util.Memory = d.dynamicMetrics.Utilization(util.Gpu, util.Memory)
+	if dm := d.dynamicMetrics.Load(); dm != nil {
+		util.Gpu, util.Memory = dm.Utilization(util.Gpu, util.Memory)
 	}
 	debugLog("[NVML] nvmlDeviceGetUtilizationRates -> gpu=%d%% mem=%d%%\n", util.Gpu, util.Memory)
 	return util, nvml.SUCCESS
