@@ -383,8 +383,8 @@ func (d *ConfigurableDevice) GetMemoryInfo_v2() (nvml.Memory_v2, nvml.Return) {
 		Used:     d.MemoryInfo.Used,
 	}
 	// If we have config with reserved bytes, use it
-	if d.cfg() != nil && d.cfg().Memory != nil {
-		mem.Reserved = d.cfg().Memory.ReservedBytes
+	if c := d.cfg(); c.Memory != nil {
+		mem.Reserved = c.Memory.ReservedBytes
 	}
 	debugLog("[NVML] nvmlDeviceGetMemoryInfo_v2 -> total=%d reserved=%d\n", mem.Total, mem.Reserved)
 	return mem, nvml.SUCCESS
@@ -402,12 +402,13 @@ func (d *ConfigurableDevice) GetPciInfo() (nvml.PciInfo, nvml.Return) {
 // GetComputeRunningProcesses returns running compute processes
 func (d *ConfigurableDevice) GetComputeRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetComputeRunningProcesses\n")
-	if d.cfg() == nil || len(d.cfg().Processes) == 0 {
+	c := d.cfg()
+	if len(c.Processes) == 0 {
 		return []nvml.ProcessInfo{}, nvml.SUCCESS
 	}
 
 	var procs []nvml.ProcessInfo
-	for _, p := range d.cfg().Processes {
+	for _, p := range c.Processes {
 		if p.Type == "C" || p.Type == "" { // Compute process
 			procs = append(procs, nvml.ProcessInfo{
 				Pid:           p.PID,
@@ -421,12 +422,13 @@ func (d *ConfigurableDevice) GetComputeRunningProcesses() ([]nvml.ProcessInfo, n
 // GetGraphicsRunningProcesses returns running graphics processes
 func (d *ConfigurableDevice) GetGraphicsRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetGraphicsRunningProcesses\n")
-	if d.cfg() == nil || len(d.cfg().Processes) == 0 {
+	c := d.cfg()
+	if len(c.Processes) == 0 {
 		return []nvml.ProcessInfo{}, nvml.SUCCESS
 	}
 
 	var procs []nvml.ProcessInfo
-	for _, p := range d.cfg().Processes {
+	for _, p := range c.Processes {
 		if p.Type == "G" { // Graphics process
 			procs = append(procs, nvml.ProcessInfo{
 				Pid:           p.PID,
@@ -445,12 +447,13 @@ func (d *ConfigurableDevice) GetGraphicsRunningProcesses() ([]nvml.ProcessInfo, 
 // configured values.
 func (d *ConfigurableDevice) GetProcessUtilization(lastSeenTimestamp uint64) ([]nvml.ProcessUtilizationSample, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetProcessUtilization(lastSeen=%d)\n", lastSeenTimestamp)
-	if d.cfg() == nil || len(d.cfg().Processes) == 0 {
+	c := d.cfg()
+	if len(c.Processes) == 0 {
 		return nil, nvml.SUCCESS
 	}
 	ts := uint64(time.Now().UnixMicro())
 	var out []nvml.ProcessUtilizationSample
-	for _, p := range d.cfg().Processes {
+	for _, p := range c.Processes {
 		out = append(out, nvml.ProcessUtilizationSample{
 			Pid:       p.PID,
 			TimeStamp: ts,
@@ -472,8 +475,8 @@ func (d *ConfigurableDevice) GetCurrentClocksEventReasons() (uint64, nvml.Return
 func (d *ConfigurableDevice) GetGspFirmwareMode() (bool, bool, nvml.Return) {
 	isEnabled := false
 	defaultMode := false
-	if d.cfg() != nil && d.cfg().GSPFirmware != nil {
-		isEnabled = d.cfg().GSPFirmware.Mode == "enabled"
+	if c := d.cfg(); c.GSPFirmware != nil {
+		isEnabled = c.GSPFirmware.Mode == "enabled"
 		defaultMode = isEnabled // default mode follows mode unless overridden
 	}
 	debugLog("[NVML] nvmlDeviceGetGspFirmwareMode -> enabled=%v default=%v\n", isEnabled, defaultMode)
@@ -486,8 +489,8 @@ func (d *ConfigurableDevice) GetSerial() (string, nvml.Return) {
 		return "", ret
 	}
 	serial := ""
-	if d.cfg() != nil && d.cfg().Serial != "" {
-		serial = d.cfg().Serial
+	if c := d.cfg(); c.Serial != "" {
+		serial = c.Serial
 	}
 	debugLog("[NVML] nvmlDeviceGetSerial -> %s\n", serial)
 	if serial == "" {
@@ -499,8 +502,8 @@ func (d *ConfigurableDevice) GetSerial() (string, nvml.Return) {
 // GetVbiosVersion returns the VBIOS version
 func (d *ConfigurableDevice) GetVbiosVersion() (string, nvml.Return) {
 	version := ""
-	if d.cfg() != nil && d.cfg().VBIOSVersion != "" {
-		version = d.cfg().VBIOSVersion
+	if c := d.cfg(); c.VBIOSVersion != "" {
+		version = c.VBIOSVersion
 	}
 	debugLog("[NVML] nvmlDeviceGetVbiosVersion -> %s\n", version)
 	if version == "" {
@@ -515,8 +518,8 @@ func (d *ConfigurableDevice) GetBoardPartNumber() (string, nvml.Return) {
 		return "", ret
 	}
 	partNumber := ""
-	if d.cfg() != nil && d.cfg().BoardPartNumber != "" {
-		partNumber = d.cfg().BoardPartNumber
+	if c := d.cfg(); c.BoardPartNumber != "" {
+		partNumber = c.BoardPartNumber
 	}
 	debugLog("[NVML] nvmlDeviceGetBoardPartNumber -> %s\n", partNumber)
 	if partNumber == "" {
@@ -533,11 +536,9 @@ func (d *ConfigurableDevice) GetTemperature(sensor nvml.TemperatureSensors) (uin
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
-	if d.cfg() == nil {
-		return 0, nvml.ERROR_NOT_SUPPORTED
-	}
-	hasStatic := d.cfg().Thermal != nil
-	hasDynamic := d.cfg().DynamicMetrics != nil && d.cfg().DynamicMetrics.Temperature != nil
+	c := d.cfg()
+	hasStatic := c.Thermal != nil
+	hasDynamic := c.DynamicMetrics != nil && c.DynamicMetrics.Temperature != nil
 	if !hasStatic && !hasDynamic {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
@@ -547,11 +548,11 @@ func (d *ConfigurableDevice) GetTemperature(sensor nvml.TemperatureSensors) (uin
 	if hasStatic {
 		switch sensor {
 		case nvml.TEMPERATURE_GPU:
-			temp = uint32(d.cfg().Thermal.TemperatureGPU_C)
+			temp = uint32(c.Thermal.TemperatureGPU_C)
 		default:
-			temp = uint32(d.cfg().Thermal.TemperatureGPU_C)
+			temp = uint32(c.Thermal.TemperatureGPU_C)
 		}
-		shutdownC = d.cfg().Thermal.ShutdownThreshold_C
+		shutdownC = c.Thermal.ShutdownThreshold_C
 	}
 	if d.dynamicMetrics != nil {
 		temp = d.dynamicMetrics.Temperature(temp, shutdownC)
@@ -562,19 +563,20 @@ func (d *ConfigurableDevice) GetTemperature(sensor nvml.TemperatureSensors) (uin
 
 // GetTemperatureThreshold returns temperature thresholds
 func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.TemperatureThresholds) (uint32, nvml.Return) {
-	if d.cfg() == nil || d.cfg().Thermal == nil {
+	c := d.cfg()
+	if c.Thermal == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	var temp uint32
 	switch thresholdType {
 	case nvml.TEMPERATURE_THRESHOLD_SHUTDOWN:
-		temp = uint32(d.cfg().Thermal.ShutdownThreshold_C)
+		temp = uint32(c.Thermal.ShutdownThreshold_C)
 	case nvml.TEMPERATURE_THRESHOLD_SLOWDOWN:
-		temp = uint32(d.cfg().Thermal.SlowdownThreshold_C)
+		temp = uint32(c.Thermal.SlowdownThreshold_C)
 	case nvml.TEMPERATURE_THRESHOLD_GPU_MAX:
-		temp = uint32(d.cfg().Thermal.MaxOperating_C)
+		temp = uint32(c.Thermal.MaxOperating_C)
 	default:
-		temp = uint32(d.cfg().Thermal.MaxOperating_C)
+		temp = uint32(c.Thermal.MaxOperating_C)
 	}
 	debugLog("[NVML] nvmlDeviceGetTemperatureThreshold(type=%d) -> %d\n", thresholdType, temp)
 	return temp, nvml.SUCCESS
@@ -588,20 +590,18 @@ func (d *ConfigurableDevice) GetPowerUsage() (uint32, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
-	if d.cfg() == nil {
-		return 0, nvml.ERROR_NOT_SUPPORTED
-	}
-	hasStatic := d.cfg().Power != nil
-	hasDynamic := d.cfg().DynamicMetrics != nil && d.cfg().DynamicMetrics.Power != nil
+	c := d.cfg()
+	hasStatic := c.Power != nil
+	hasDynamic := c.DynamicMetrics != nil && c.DynamicMetrics.Power != nil
 	if !hasStatic && !hasDynamic {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 
 	var power, minMW, maxMW uint32
 	if hasStatic {
-		power = d.cfg().Power.CurrentDrawMW
-		minMW = d.cfg().Power.MinLimitMW
-		maxMW = d.cfg().Power.MaxLimitMW
+		power = c.Power.CurrentDrawMW
+		minMW = c.Power.MinLimitMW
+		maxMW = c.Power.MaxLimitMW
 	}
 	if d.dynamicMetrics != nil {
 		power = d.dynamicMetrics.Power(power, minMW, maxMW)
@@ -612,41 +612,45 @@ func (d *ConfigurableDevice) GetPowerUsage() (uint32, nvml.Return) {
 
 // GetPowerManagementLimit returns the power management limit in milliwatts
 func (d *ConfigurableDevice) GetPowerManagementLimit() (uint32, nvml.Return) {
-	if d.cfg() == nil || d.cfg().Power == nil {
+	c := d.cfg()
+	if c.Power == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
-	limit := d.cfg().Power.EnforcedLimitMW
+	limit := c.Power.EnforcedLimitMW
 	debugLog("[NVML] nvmlDeviceGetPowerManagementLimit -> %d mW\n", limit)
 	return limit, nvml.SUCCESS
 }
 
 // GetPowerManagementDefaultLimit returns the default power limit
 func (d *ConfigurableDevice) GetPowerManagementDefaultLimit() (uint32, nvml.Return) {
-	if d.cfg() == nil || d.cfg().Power == nil {
+	c := d.cfg()
+	if c.Power == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
-	limit := d.cfg().Power.DefaultLimitMW
+	limit := c.Power.DefaultLimitMW
 	debugLog("[NVML] nvmlDeviceGetPowerManagementDefaultLimit -> %d mW\n", limit)
 	return limit, nvml.SUCCESS
 }
 
 // GetEnforcedPowerLimit returns the enforced power limit
 func (d *ConfigurableDevice) GetEnforcedPowerLimit() (uint32, nvml.Return) {
-	if d.cfg() == nil || d.cfg().Power == nil {
+	c := d.cfg()
+	if c.Power == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
-	limit := d.cfg().Power.EnforcedLimitMW
+	limit := c.Power.EnforcedLimitMW
 	debugLog("[NVML] nvmlDeviceGetEnforcedPowerLimit -> %d mW\n", limit)
 	return limit, nvml.SUCCESS
 }
 
 // GetPowerManagementLimitConstraints returns min/max power limits
 func (d *ConfigurableDevice) GetPowerManagementLimitConstraints() (uint32, uint32, nvml.Return) {
-	if d.cfg() == nil || d.cfg().Power == nil {
+	c := d.cfg()
+	if c.Power == nil {
 		return 0, 0, nvml.ERROR_NOT_SUPPORTED
 	}
-	minLimit := d.cfg().Power.MinLimitMW
-	maxLimit := d.cfg().Power.MaxLimitMW
+	minLimit := c.Power.MinLimitMW
+	maxLimit := c.Power.MaxLimitMW
 	debugLog("[NVML] nvmlDeviceGetPowerManagementLimitConstraints -> min=%d max=%d mW\n", minLimit, maxLimit)
 	return minLimit, maxLimit, nvml.SUCCESS
 }
@@ -656,19 +660,20 @@ func (d *ConfigurableDevice) GetClockInfo(clockType nvml.ClockType) (uint32, nvm
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
-	if d.cfg() == nil || d.cfg().Clocks == nil {
+	c := d.cfg()
+	if c.Clocks == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	var clock uint32
 	switch clockType {
 	case nvml.CLOCK_GRAPHICS:
-		clock = d.cfg().Clocks.GraphicsCurrent
+		clock = c.Clocks.GraphicsCurrent
 	case nvml.CLOCK_SM:
-		clock = d.cfg().Clocks.SMCurrent
+		clock = c.Clocks.SMCurrent
 	case nvml.CLOCK_MEM:
-		clock = d.cfg().Clocks.MemoryCurrent
+		clock = c.Clocks.MemoryCurrent
 	case nvml.CLOCK_VIDEO:
-		clock = d.cfg().Clocks.VideoCurrent
+		clock = c.Clocks.VideoCurrent
 	}
 	debugLog("[NVML] nvmlDeviceGetClockInfo(type=%d) -> %d MHz\n", clockType, clock)
 	return clock, nvml.SUCCESS
@@ -676,19 +681,20 @@ func (d *ConfigurableDevice) GetClockInfo(clockType nvml.ClockType) (uint32, nvm
 
 // GetMaxClockInfo returns maximum clock frequencies
 func (d *ConfigurableDevice) GetMaxClockInfo(clockType nvml.ClockType) (uint32, nvml.Return) {
-	if d.cfg() == nil || d.cfg().Clocks == nil {
+	c := d.cfg()
+	if c.Clocks == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	var clock uint32
 	switch clockType {
 	case nvml.CLOCK_GRAPHICS:
-		clock = d.cfg().Clocks.GraphicsMax
+		clock = c.Clocks.GraphicsMax
 	case nvml.CLOCK_SM:
-		clock = d.cfg().Clocks.SMMax
+		clock = c.Clocks.SMMax
 	case nvml.CLOCK_MEM:
-		clock = d.cfg().Clocks.MemoryMax
+		clock = c.Clocks.MemoryMax
 	case nvml.CLOCK_VIDEO:
-		clock = d.cfg().Clocks.VideoMax
+		clock = c.Clocks.VideoMax
 	}
 	debugLog("[NVML] nvmlDeviceGetMaxClockInfo(type=%d) -> %d MHz\n", clockType, clock)
 	return clock, nvml.SUCCESS
@@ -697,12 +703,12 @@ func (d *ConfigurableDevice) GetMaxClockInfo(clockType nvml.ClockType) (uint32, 
 // GetApplicationsClock returns application clock settings
 func (d *ConfigurableDevice) GetApplicationsClock(clockType nvml.ClockType) (uint32, nvml.Return) {
 	clock := uint32(0)
-	if d.cfg() != nil && d.cfg().Clocks != nil {
+	if c := d.cfg(); c.Clocks != nil {
 		switch clockType {
 		case nvml.CLOCK_GRAPHICS:
-			clock = d.cfg().Clocks.GraphicsApp
+			clock = c.Clocks.GraphicsApp
 		case nvml.CLOCK_MEM:
-			clock = d.cfg().Clocks.MemoryApp
+			clock = c.Clocks.MemoryApp
 		}
 	}
 	debugLog("[NVML] nvmlDeviceGetApplicationsClock(type=%d) -> %d MHz\n", clockType, clock)
@@ -715,12 +721,12 @@ func (d *ConfigurableDevice) GetApplicationsClock(clockType nvml.ClockType) (uin
 // GetDefaultApplicationsClock returns default application clock settings
 func (d *ConfigurableDevice) GetDefaultApplicationsClock(clockType nvml.ClockType) (uint32, nvml.Return) {
 	clock := uint32(0)
-	if d.cfg() != nil && d.cfg().Clocks != nil {
+	if c := d.cfg(); c.Clocks != nil {
 		switch clockType {
 		case nvml.CLOCK_GRAPHICS:
-			clock = d.cfg().Clocks.GraphicsAppDefault
+			clock = c.Clocks.GraphicsAppDefault
 		case nvml.CLOCK_MEM:
-			clock = d.cfg().Clocks.MemoryAppDefault
+			clock = c.Clocks.MemoryAppDefault
 		}
 	}
 	debugLog("[NVML] nvmlDeviceGetDefaultApplicationsClock(type=%d) -> %d MHz\n", clockType, clock)
@@ -739,9 +745,9 @@ func (d *ConfigurableDevice) GetUtilizationRates() (nvml.Utilization, nvml.Retur
 		return nvml.Utilization{}, ret
 	}
 	util := nvml.Utilization{}
-	if d.cfg() != nil && d.cfg().Utilization != nil {
-		util.Gpu = d.cfg().Utilization.GPU
-		util.Memory = d.cfg().Utilization.Memory
+	if c := d.cfg(); c.Utilization != nil {
+		util.Gpu = c.Utilization.GPU
+		util.Memory = c.Utilization.Memory
 	}
 	if d.dynamicMetrics != nil {
 		util.Gpu, util.Memory = d.dynamicMetrics.Utilization(util.Gpu, util.Memory)
@@ -753,8 +759,8 @@ func (d *ConfigurableDevice) GetUtilizationRates() (nvml.Utilization, nvml.Retur
 // GetPerformanceState returns the current performance state
 func (d *ConfigurableDevice) GetPerformanceState() (nvml.Pstates, nvml.Return) {
 	pstate := nvml.PSTATE_0 // Default P0
-	if d.cfg() != nil && d.cfg().PerformanceState != "" {
-		pstate = parsePstate(d.cfg().PerformanceState)
+	if c := d.cfg(); c.PerformanceState != "" {
+		pstate = parsePstate(c.PerformanceState)
 	}
 	debugLog("[NVML] nvmlDeviceGetPerformanceState -> %d\n", pstate)
 	return pstate, nvml.SUCCESS
@@ -768,7 +774,7 @@ func (d *ConfigurableDevice) GetPersistenceMode() (nvml.EnableState, nvml.Return
 		return *d.persistenceModeOverride, nvml.SUCCESS
 	}
 	enabled := nvml.FEATURE_DISABLED
-	if d.cfg() != nil && d.cfg().PersistenceMode == "enabled" {
+	if c := d.cfg(); c.PersistenceMode == "enabled" {
 		enabled = nvml.FEATURE_ENABLED
 	}
 	debugLog("[NVML] nvmlDeviceGetPersistenceMode -> %d\n", enabled)
@@ -785,8 +791,8 @@ func (d *ConfigurableDevice) SetPersistenceMode(mode nvml.EnableState) nvml.Retu
 // GetComputeMode returns compute mode
 func (d *ConfigurableDevice) GetComputeMode() (nvml.ComputeMode, nvml.Return) {
 	mode := nvml.COMPUTEMODE_DEFAULT
-	if d.cfg() != nil && d.cfg().ComputeMode != "" {
-		mode = parseComputeMode(d.cfg().ComputeMode)
+	if c := d.cfg(); c.ComputeMode != "" {
+		mode = parseComputeMode(c.ComputeMode)
 	}
 	debugLog("[NVML] nvmlDeviceGetComputeMode -> %d\n", mode)
 	return mode, nvml.SUCCESS
@@ -796,11 +802,11 @@ func (d *ConfigurableDevice) GetComputeMode() (nvml.ComputeMode, nvml.Return) {
 func (d *ConfigurableDevice) GetEccMode() (nvml.EnableState, nvml.EnableState, nvml.Return) {
 	current := nvml.FEATURE_DISABLED
 	pending := nvml.FEATURE_DISABLED
-	if d.cfg() != nil && d.cfg().ECC != nil {
-		if d.cfg().ECC.ModeCurrent == "enabled" {
+	if c := d.cfg(); c.ECC != nil {
+		if c.ECC.ModeCurrent == "enabled" {
 			current = nvml.FEATURE_ENABLED
 		}
-		if d.cfg().ECC.ModePending == "enabled" {
+		if c.ECC.ModePending == "enabled" {
 			pending = nvml.FEATURE_ENABLED
 		}
 	}
@@ -810,15 +816,16 @@ func (d *ConfigurableDevice) GetEccMode() (nvml.EnableState, nvml.EnableState, n
 
 // GetFanSpeed returns fan speed percentage
 func (d *ConfigurableDevice) GetFanSpeed() (uint32, nvml.Return) {
+	c := d.cfg()
 	speed := uint32(0)
-	if d.cfg() != nil && d.cfg().Fan != nil {
-		if d.cfg().Fan.SpeedPercent != "" && d.cfg().Fan.SpeedPercent != "N/A" {
-			_, _ = fmt.Sscanf(d.cfg().Fan.SpeedPercent, "%d", &speed)
+	if c.Fan != nil {
+		if c.Fan.SpeedPercent != "" && c.Fan.SpeedPercent != "N/A" {
+			_, _ = fmt.Sscanf(c.Fan.SpeedPercent, "%d", &speed)
 		}
 	}
 	debugLog("[NVML] nvmlDeviceGetFanSpeed -> %d%%\n", speed)
 	// Fan speed of 0 with count 0 means no fans (liquid cooled)
-	if d.cfg() != nil && d.cfg().Fan != nil && d.cfg().Fan.Count == 0 {
+	if c.Fan != nil && c.Fan.Count == 0 {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	return speed, nvml.SUCCESS
@@ -827,8 +834,8 @@ func (d *ConfigurableDevice) GetFanSpeed() (uint32, nvml.Return) {
 // GetNumFans returns the number of fans
 func (d *ConfigurableDevice) GetNumFans() (int, nvml.Return) {
 	count := 0
-	if d.cfg() != nil && d.cfg().Fan != nil {
-		count = d.cfg().Fan.Count
+	if c := d.cfg(); c.Fan != nil {
+		count = c.Fan.Count
 	}
 	debugLog("[NVML] nvmlDeviceGetNumFans -> %d\n", count)
 	return count, nvml.SUCCESS
@@ -837,8 +844,8 @@ func (d *ConfigurableDevice) GetNumFans() (int, nvml.Return) {
 // GetCurrPcieLinkGeneration returns current PCIe link generation
 func (d *ConfigurableDevice) GetCurrPcieLinkGeneration() (int, nvml.Return) {
 	gen := 0
-	if d.cfg() != nil && d.cfg().PCIe != nil {
-		gen = d.cfg().PCIe.CurrentLinkGen
+	if c := d.cfg(); c.PCIe != nil {
+		gen = c.PCIe.CurrentLinkGen
 	}
 	debugLog("[NVML] nvmlDeviceGetCurrPcieLinkGeneration -> %d\n", gen)
 	if gen == 0 {
@@ -850,8 +857,8 @@ func (d *ConfigurableDevice) GetCurrPcieLinkGeneration() (int, nvml.Return) {
 // GetMaxPcieLinkGeneration returns max PCIe link generation
 func (d *ConfigurableDevice) GetMaxPcieLinkGeneration() (int, nvml.Return) {
 	gen := 0
-	if d.cfg() != nil && d.cfg().PCIe != nil {
-		gen = d.cfg().PCIe.MaxLinkGen
+	if c := d.cfg(); c.PCIe != nil {
+		gen = c.PCIe.MaxLinkGen
 	}
 	debugLog("[NVML] nvmlDeviceGetMaxPcieLinkGeneration -> %d\n", gen)
 	if gen == 0 {
@@ -863,8 +870,8 @@ func (d *ConfigurableDevice) GetMaxPcieLinkGeneration() (int, nvml.Return) {
 // GetCurrPcieLinkWidth returns current PCIe link width
 func (d *ConfigurableDevice) GetCurrPcieLinkWidth() (int, nvml.Return) {
 	width := 0
-	if d.cfg() != nil && d.cfg().PCIe != nil {
-		width = d.cfg().PCIe.CurrentLinkWidth
+	if c := d.cfg(); c.PCIe != nil {
+		width = c.PCIe.CurrentLinkWidth
 	}
 	debugLog("[NVML] nvmlDeviceGetCurrPcieLinkWidth -> %d\n", width)
 	if width == 0 {
@@ -876,8 +883,8 @@ func (d *ConfigurableDevice) GetCurrPcieLinkWidth() (int, nvml.Return) {
 // GetMaxPcieLinkWidth returns max PCIe link width
 func (d *ConfigurableDevice) GetMaxPcieLinkWidth() (int, nvml.Return) {
 	width := 0
-	if d.cfg() != nil && d.cfg().PCIe != nil {
-		width = d.cfg().PCIe.MaxLinkWidth
+	if c := d.cfg(); c.PCIe != nil {
+		width = c.PCIe.MaxLinkWidth
 	}
 	debugLog("[NVML] nvmlDeviceGetMaxPcieLinkWidth -> %d\n", width)
 	if width == 0 {
@@ -889,17 +896,17 @@ func (d *ConfigurableDevice) GetMaxPcieLinkWidth() (int, nvml.Return) {
 // GetInforomVersion returns InfoROM version
 func (d *ConfigurableDevice) GetInforomVersion(object nvml.InforomObject) (string, nvml.Return) {
 	version := ""
-	if d.cfg() != nil && d.cfg().InfoROM != nil {
+	if c := d.cfg(); c.InfoROM != nil {
 		switch object {
 		case nvml.INFOROM_OEM:
-			version = d.cfg().InfoROM.OEMObject
+			version = c.InfoROM.OEMObject
 		case nvml.INFOROM_ECC:
-			version = d.cfg().InfoROM.ECCObject
+			version = c.InfoROM.ECCObject
 		case nvml.INFOROM_POWER:
-			version = d.cfg().InfoROM.PWRObject
+			version = c.InfoROM.PWRObject
 		default:
 			// For INFOROM_IMG and others, use ImageVersion
-			version = d.cfg().InfoROM.ImageVersion
+			version = c.InfoROM.ImageVersion
 		}
 	}
 	debugLog("[NVML] nvmlDeviceGetInforomVersion(object=%d) -> %s\n", object, version)
@@ -912,8 +919,8 @@ func (d *ConfigurableDevice) GetInforomVersion(object nvml.InforomObject) (strin
 // GetInforomImageVersion returns InfoROM image version
 func (d *ConfigurableDevice) GetInforomImageVersion() (string, nvml.Return) {
 	version := ""
-	if d.cfg() != nil && d.cfg().InfoROM != nil {
-		version = d.cfg().InfoROM.ImageVersion
+	if c := d.cfg(); c.InfoROM != nil {
+		version = c.InfoROM.ImageVersion
 	}
 	debugLog("[NVML] nvmlDeviceGetInforomImageVersion -> %s\n", version)
 	if version == "" {
@@ -925,8 +932,8 @@ func (d *ConfigurableDevice) GetInforomImageVersion() (string, nvml.Return) {
 // GetCurrentClocksThrottleReasons returns clock throttle reasons bitmask
 func (d *ConfigurableDevice) GetCurrentClocksThrottleReasons() (uint64, nvml.Return) {
 	reasons := uint64(0)
-	if d.cfg() != nil && d.cfg().ClocksThrottleReasons != nil {
-		ctr := d.cfg().ClocksThrottleReasons
+	if c := d.cfg(); c.ClocksThrottleReasons != nil {
+		ctr := c.ClocksThrottleReasons
 		if ctr.GPUIdle {
 			reasons |= nvml.ClocksThrottleReasonGpuIdle
 		}
@@ -963,7 +970,7 @@ func (d *ConfigurableDevice) GetCurrentClocksThrottleReasons() (uint64, nvml.Ret
 // GetDisplayActive returns display active status
 func (d *ConfigurableDevice) GetDisplayActive() (nvml.EnableState, nvml.Return) {
 	active := nvml.FEATURE_DISABLED
-	if d.cfg() != nil && d.cfg().Display != nil && d.cfg().Display.Active == "enabled" {
+	if c := d.cfg(); c.Display != nil && c.Display.Active == "enabled" {
 		active = nvml.FEATURE_ENABLED
 	}
 	debugLog("[NVML] nvmlDeviceGetDisplayActive -> %d\n", active)
@@ -973,7 +980,7 @@ func (d *ConfigurableDevice) GetDisplayActive() (nvml.EnableState, nvml.Return) 
 // GetDisplayMode returns display mode
 func (d *ConfigurableDevice) GetDisplayMode() (nvml.EnableState, nvml.Return) {
 	mode := nvml.FEATURE_DISABLED
-	if d.cfg() != nil && d.cfg().Display != nil && d.cfg().Display.Mode == "enabled" {
+	if c := d.cfg(); c.Display != nil && c.Display.Mode == "enabled" {
 		mode = nvml.FEATURE_ENABLED
 	}
 	debugLog("[NVML] nvmlDeviceGetDisplayMode -> %d\n", mode)
@@ -983,7 +990,7 @@ func (d *ConfigurableDevice) GetDisplayMode() (nvml.EnableState, nvml.Return) {
 // GetAccountingMode returns accounting mode
 func (d *ConfigurableDevice) GetAccountingMode() (nvml.EnableState, nvml.Return) {
 	mode := nvml.FEATURE_DISABLED
-	if d.cfg() != nil && d.cfg().Accounting != nil && d.cfg().Accounting.Mode == "enabled" {
+	if c := d.cfg(); c.Accounting != nil && c.Accounting.Mode == "enabled" {
 		mode = nvml.FEATURE_ENABLED
 	}
 	debugLog("[NVML] nvmlDeviceGetAccountingMode -> %d\n", mode)
@@ -993,8 +1000,8 @@ func (d *ConfigurableDevice) GetAccountingMode() (nvml.EnableState, nvml.Return)
 // GetAccountingBufferSize returns accounting buffer size
 func (d *ConfigurableDevice) GetAccountingBufferSize() (int, nvml.Return) {
 	size := 4000 // Default
-	if d.cfg() != nil && d.cfg().Accounting != nil && d.cfg().Accounting.BufferSize > 0 {
-		size = d.cfg().Accounting.BufferSize
+	if c := d.cfg(); c.Accounting != nil && c.Accounting.BufferSize > 0 {
+		size = c.Accounting.BufferSize
 	}
 	debugLog("[NVML] nvmlDeviceGetAccountingBufferSize -> %d\n", size)
 	return size, nvml.SUCCESS
@@ -1003,10 +1010,10 @@ func (d *ConfigurableDevice) GetAccountingBufferSize() (int, nvml.Return) {
 // GetEncoderStats returns encoder statistics
 func (d *ConfigurableDevice) GetEncoderStats() (int, uint32, uint32, nvml.Return) {
 	sessionCount, avgFps, avgLatency := 0, uint32(0), uint32(0)
-	if d.cfg() != nil && d.cfg().EncoderStats != nil {
-		sessionCount = int(d.cfg().EncoderStats.SessionCount)
-		avgFps = d.cfg().EncoderStats.AverageFPS
-		avgLatency = d.cfg().EncoderStats.AverageLatencyUS
+	if c := d.cfg(); c.EncoderStats != nil {
+		sessionCount = int(c.EncoderStats.SessionCount)
+		avgFps = c.EncoderStats.AverageFPS
+		avgLatency = c.EncoderStats.AverageLatencyUS
 	}
 	debugLog("[NVML] nvmlDeviceGetEncoderStats -> sessions=%d fps=%d latency=%d\n", sessionCount, avgFps, avgLatency)
 	return sessionCount, avgFps, avgLatency, nvml.SUCCESS
@@ -1015,10 +1022,10 @@ func (d *ConfigurableDevice) GetEncoderStats() (int, uint32, uint32, nvml.Return
 // GetFBCStats returns FBC statistics
 func (d *ConfigurableDevice) GetFBCStats() (nvml.FBCStats, nvml.Return) {
 	stats := nvml.FBCStats{}
-	if d.cfg() != nil && d.cfg().FBCStats != nil {
-		stats.SessionsCount = d.cfg().FBCStats.SessionCount
-		stats.AverageFPS = d.cfg().FBCStats.AverageFPS
-		stats.AverageLatency = d.cfg().FBCStats.AverageLatencyUS
+	if c := d.cfg(); c.FBCStats != nil {
+		stats.SessionsCount = c.FBCStats.SessionCount
+		stats.AverageFPS = c.FBCStats.AverageFPS
+		stats.AverageLatency = c.FBCStats.AverageLatencyUS
 	}
 	debugLog("[NVML] nvmlDeviceGetFBCStats -> sessions=%d\n", stats.SessionsCount)
 	return stats, nvml.SUCCESS
@@ -1039,8 +1046,8 @@ func (d *ConfigurableDevice) GetBoardId() (uint32, nvml.Return) {
 // GetMemoryBusWidth returns the memory bus width in bits.
 func (d *ConfigurableDevice) GetMemoryBusWidth() (uint32, nvml.Return) {
 	width := uint32(0)
-	if d.cfg() != nil && d.cfg().Memory != nil {
-		width = d.cfg().Memory.MemoryBusWidth
+	if c := d.cfg(); c.Memory != nil {
+		width = c.Memory.MemoryBusWidth
 	}
 	if width == 0 {
 		return 0, nvml.ERROR_NOT_SUPPORTED
@@ -1051,11 +1058,12 @@ func (d *ConfigurableDevice) GetMemoryBusWidth() (uint32, nvml.Return) {
 
 // GetDefaultEccMode returns the default ECC mode.
 func (d *ConfigurableDevice) GetDefaultEccMode() (nvml.EnableState, nvml.Return) {
-	if d.cfg() == nil || d.cfg().ECC == nil {
+	c := d.cfg()
+	if c.ECC == nil {
 		return nvml.FEATURE_DISABLED, nvml.SUCCESS
 	}
 	mode := nvml.FEATURE_DISABLED
-	if d.cfg().ECC.DefaultMode == "enabled" {
+	if c.ECC.DefaultMode == "enabled" {
 		mode = nvml.FEATURE_ENABLED
 	}
 	debugLog("[NVML] nvmlDeviceGetDefaultEccMode -> %d\n", mode)
@@ -1077,19 +1085,21 @@ func (d *ConfigurableDevice) GetAutoBoostedClocksEnabled() (nvml.EnableState, nv
 
 // GetGspFirmwareVersion returns the GSP firmware version string.
 func (d *ConfigurableDevice) GetGspFirmwareVersion() (string, nvml.Return) {
-	if d.cfg() == nil || d.cfg().GSPFirmware == nil || d.cfg().GSPFirmware.Version == "" {
+	c := d.cfg()
+	if c.GSPFirmware == nil || c.GSPFirmware.Version == "" {
 		return "", nvml.ERROR_NOT_SUPPORTED
 	}
-	debugLog("[NVML] nvmlDeviceGetGspFirmwareVersion -> %s\n", d.cfg().GSPFirmware.Version)
-	return d.cfg().GSPFirmware.Version, nvml.SUCCESS
+	debugLog("[NVML] nvmlDeviceGetGspFirmwareVersion -> %s\n", c.GSPFirmware.Version)
+	return c.GSPFirmware.Version, nvml.SUCCESS
 }
 
 // GetTotalEnergyConsumption returns cumulative energy in millijoules.
 func (d *ConfigurableDevice) GetTotalEnergyConsumption() (uint64, nvml.Return) {
-	if d.cfg() == nil || d.cfg().Power == nil {
+	c := d.cfg()
+	if c.Power == nil {
 		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
-	energy := d.cfg().Power.TotalEnergyConsumptionMJ
+	energy := c.Power.TotalEnergyConsumptionMJ
 	debugLog("[NVML] nvmlDeviceGetTotalEnergyConsumption -> %d mJ\n", energy)
 	return energy, nvml.SUCCESS
 }
@@ -1097,7 +1107,7 @@ func (d *ConfigurableDevice) GetTotalEnergyConsumption() (uint64, nvml.Return) {
 // GetDetailedEccErrors returns per-location ECC error counts.
 func (d *ConfigurableDevice) GetDetailedEccErrors(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType) (nvml.EccErrorCounts, nvml.Return) {
 	counts := nvml.EccErrorCounts{}
-	if d.cfg() == nil || d.cfg().ECC == nil {
+	if c := d.cfg(); c.ECC == nil {
 		return counts, nvml.SUCCESS
 	}
 	debugLog("[NVML] nvmlDeviceGetDetailedEccErrors(errorType=%d, counterType=%d) -> zeros\n", errorType, counterType)
@@ -1220,8 +1230,8 @@ func (d *ConfigurableDevice) GetTopologyCommonAncestor(other nvml.Device) (nvml.
 		}
 	}
 	level := nvml.TOPOLOGY_SINGLE
-	if d.cfg() != nil && d.cfg().Topology != nil {
-		level = parseTopologyLevel(d.cfg().Topology.DefaultLevel)
+	if c := d.cfg(); c.Topology != nil {
+		level = parseTopologyLevel(c.Topology.DefaultLevel)
 	}
 	debugLog("[NVML] nvmlDeviceGetTopologyCommonAncestor -> %d (default)\n", level)
 	return level, nvml.SUCCESS
@@ -1439,7 +1449,7 @@ func wordsToUint(words []uint64) []uint {
 // GetThermalSettings returns thermal sensor settings.
 func (d *ConfigurableDevice) GetThermalSettings(sensorIndex uint32) (nvml.GpuThermalSettings, nvml.Return) {
 	settings := nvml.GpuThermalSettings{}
-	if d.cfg() != nil && d.cfg().Thermal != nil {
+	if c := d.cfg(); c.Thermal != nil {
 		settings.Count = 1
 		// Note: Sensor[0] fields are set via the opaque _Ctype_struct___28 type,
 		// which we cannot directly populate from Go. The Count field is the
@@ -1452,7 +1462,7 @@ func (d *ConfigurableDevice) GetThermalSettings(sensorIndex uint32) (nvml.GpuThe
 // GetPowerManagementMode returns whether power management is enabled.
 func (d *ConfigurableDevice) GetPowerManagementMode() (nvml.EnableState, nvml.Return) {
 	mode := nvml.FEATURE_DISABLED
-	if d.cfg() != nil && d.cfg().Power != nil && d.cfg().Power.ManagementMode == "enabled" {
+	if c := d.cfg(); c.Power != nil && c.Power.ManagementMode == "enabled" {
 		mode = nvml.FEATURE_ENABLED
 	}
 	debugLog("[NVML] nvmlDeviceGetPowerManagementMode -> %d\n", mode)
@@ -1467,11 +1477,11 @@ func (d *ConfigurableDevice) GetPowerState() (nvml.Pstates, nvml.Return) {
 // GetMigMode returns MIG mode (current, pending)
 func (d *ConfigurableDevice) GetMigMode() (int, int, nvml.Return) {
 	current, pending := 0, 0
-	if d.cfg() != nil && d.cfg().MIG != nil {
-		if d.cfg().MIG.ModeCurrent == "enabled" {
+	if c := d.cfg(); c.MIG != nil {
+		if c.MIG.ModeCurrent == "enabled" {
 			current = 1
 		}
-		if d.cfg().MIG.ModePending == "enabled" {
+		if c.MIG.ModePending == "enabled" {
 			pending = 1
 		}
 	}
@@ -1482,8 +1492,8 @@ func (d *ConfigurableDevice) GetMigMode() (int, int, nvml.Return) {
 // GetMaxMigDeviceCount returns the maximum number of MIG devices
 func (d *ConfigurableDevice) GetMaxMigDeviceCount() (int, nvml.Return) {
 	count := 0
-	if d.cfg() != nil && d.cfg().MIG != nil {
-		count = d.cfg().MIG.MaxGPUInstances
+	if c := d.cfg(); c.MIG != nil {
+		count = c.MIG.MaxGPUInstances
 	}
 	debugLog("[NVML] nvmlDeviceGetMaxMigDeviceCount -> %d\n", count)
 	return count, nvml.SUCCESS
@@ -1505,8 +1515,8 @@ func (d *ConfigurableDevice) GetMigDeviceHandleByIndex(index int) (nvml.Device, 
 // architecture default can be overridden via the gpm.supported config knob.
 func (d *ConfigurableDevice) GetGpmSupport() (uint32, nvml.Return) {
 	supported := d.Config.Architecture >= nvml.DEVICE_ARCH_HOPPER && d.Config.Architecture != nvml.DEVICE_ARCH_UNKNOWN
-	if d.cfg() != nil && d.cfg().GPM != nil && d.cfg().GPM.Supported != nil {
-		supported = *d.cfg().GPM.Supported
+	if c := d.cfg(); c.GPM != nil && c.GPM.Supported != nil {
+		supported = *c.GPM.Supported
 	}
 	val := uint32(0)
 	if supported {

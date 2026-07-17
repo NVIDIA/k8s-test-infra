@@ -16,6 +16,7 @@ package engine
 import (
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -44,6 +45,17 @@ type overlayStore struct {
 	lastSize int64
 	present  bool
 
+	// Lock-free fast path. Within the TTL window snapshot() returns the last
+	// published generation/doc without taking mu, avoiding contention when
+	// many devices poll concurrently. These are published under mu on the way
+	// out of the slow path, with checkedNanos stored LAST so a reader that
+	// observes a fresh timestamp also observes the matching gen+doc. A
+	// checkedNanos value of 0 is the "never checked" sentinel that forces the
+	// first call down the mutex-guarded slow path.
+	checkedNanos atomic.Int64
+	genAtomic    atomic.Uint64
+	docAtomic    atomic.Pointer[OverlayDoc]
+
 	now    func() time.Time
 	pathFn func() string
 	ttl    time.Duration
@@ -68,10 +80,29 @@ func resolveOverlayPath() string {
 }
 
 func (s *overlayStore) snapshot() (uint64, *OverlayDoc) {
+	now := s.now()
+
+	// Lock-free fast path: within the TTL window return the last published
+	// generation/doc without touching the mutex. checkedNanos == 0 means
+	// "never checked" and always falls through to the slow path so the first
+	// call performs a real stat/read under the mutex.
+	if checked := s.checkedNanos.Load(); checked != 0 && now.UnixNano()-checked < int64(s.ttl) {
+		return s.genAtomic.Load(), s.docAtomic.Load()
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	now := s.now()
+	// Publish the mutex-guarded result to the lock-free fast path on the way
+	// out (for every slow-path exit). checkedNanos is stored LAST so a
+	// concurrent reader that sees the fresh timestamp also sees the matching
+	// gen+doc.
+	defer func() {
+		s.docAtomic.Store(s.doc)
+		s.genAtomic.Store(s.gen)
+		s.checkedNanos.Store(s.checked.UnixNano())
+	}()
+
 	if !s.checked.IsZero() && now.Sub(s.checked) < s.ttl {
 		return s.gen, s.doc
 	}
