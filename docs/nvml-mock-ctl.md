@@ -81,6 +81,9 @@ usage: nvml-mock-ctl <command> [flags]
 
 commands:
   fail   --gpu <idx|all|uuid> --mode <healthy|lost|fallen_off_bus|ecc_uncorrectable> [--after-calls N] [--xid CODE]
+  temp   --gpu <idx|all|uuid> <celsius>    pin reported GPU temperature
+  power  --gpu <idx|all|uuid> <watts>      pin reported power draw
+  fan    --gpu <idx|all|uuid> <percent>    pin reported fan speed (forces fan count >= 1)
   set    --gpu <idx|all|uuid> key.path=value [key.path=value ...]
   apply  --gpu <idx|all|uuid> -f patch.yaml
   status [--gpu <idx>]
@@ -124,12 +127,72 @@ Sets the `failure` block for the target. Modes:
 [mock NVML README](../pkg/gpu/mocknvml/README.md#failure-injection-optional) for
 the full per-mode semantics.
 
+### `temp` / `power` / `fan` — pin a common metric
+
+These convenience commands pin the three most-tweaked readings to a fixed value
+and take a single positional argument:
+
+| command                    | argument   | pins                                              |
+| -------------------------- | ---------- | ------------------------------------------------- |
+| `temp --gpu <t> <celsius>` | 0–200 °C   | `nvidia-smi ... temperature.gpu`                  |
+| `power --gpu <t> <watts>`  | watts (≥0) | `nvidia-smi ... power.draw` (converted to mW)     |
+| `fan --gpu <t> <percent>`  | 0–100 %    | `nvidia-smi ... fan.speed`                        |
+
+They exist because pinning these fields by hand is fiddly (see [Dynamic metrics
+mask their static counterparts](#dynamic-metrics-mask-their-static-counterparts)
+below). Each command does the right thing regardless of how the profile is
+configured:
+
+- **`temp`** and **`power`** write *both* the static block **and** a
+  zero-variation dynamic block (`ramp_c`/`variance_c` = 0, `variance_mw` = 0), so
+  the reading is deterministic whether or not the profile runs the dynamic-metrics
+  simulator. The engine rebuilds the simulator on the next TTL, so running
+  consumers converge without a restart. `power` accepts **watts** (the unit
+  `nvidia-smi` displays) and converts to the milliwatts NVML uses; the value is
+  still clamped to the profile's `[min_limit_mw, max_limit_mw]` envelope.
+- **`fan`** sets `fan.speed_percent` and forces `fan.count` to at least 1 (a
+  larger baseline count is preserved). Liquid/passively-cooled profiles ship
+  `fan.count: 0`, which makes `fan.speed` report `[N/A]`; forcing the count makes
+  the pinned speed observable. There is no dynamic fan simulator, so this touches
+  only the static fan block.
+
+`reset` clears these overrides and returns the metric to the profile baseline
+(varying again, if the profile drives it dynamically). For anything these three
+don't cover, use `set` / `apply` below.
+
 ### `set` — set arbitrary fields
 
 `set` takes one or more `key.path=value` pairs. The path is the YAML/JSON path
 into the device config; the value is parsed as a YAML scalar (so numbers, bools,
 and strings get their natural type). Example paths: `thermal.temperature_gpu_c`,
 `utilization.gpu`, `ecc.mode_current`, `power.current_draw_mw`.
+
+#### Dynamic metrics mask their static counterparts
+
+When the profile enables **dynamic metrics** (`gpu.dynamicMetrics.enabled=true`,
+which the demo/e2e charts do), the simulator drives `temperature`, `power`, and
+`utilization` and **masks the static blocks** for those fields. In that mode:
+
+- `set thermal.temperature_gpu_c=<n>` has **no visible effect** — the simulator
+  keeps producing its own reading.
+- To pin temperature, override the dynamic block and zero its variation so the
+  reading is deterministic:
+
+  ```bash
+  nvml-mock-ctl set --gpu 0 \
+    dynamic_metrics.temperature.base_c=85 \
+    dynamic_metrics.temperature.ramp_c=0 \
+    dynamic_metrics.temperature.variance_c=0
+  ```
+
+  The engine rebuilds the simulator on the next TTL, so a running consumer sees
+  the pinned value without a restart; `reset` returns it to the varying baseline.
+  The **`temp` command above does exactly this for you** — prefer it unless you
+  need a field `temp`/`power`/`fan` don't cover.
+
+If dynamic metrics is **disabled**, the static `thermal.temperature_gpu_c` (and
+`power.*`) are authoritative and hot-reload directly. The same masking applies to
+`power` (`dynamic_metrics.power`) and `utilization` (`dynamic_metrics.utilization`).
 
 ### `apply` — apply a multi-field YAML snippet
 
@@ -177,8 +240,19 @@ kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fail --gpu all --mode lost
 ```
 
 ```bash
-# 3) Set an arbitrary field (raise GPU 3's reported temperature to 95 C)
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl set --gpu 3 thermal.temperature_gpu_c=95
+# 3) Pin GPU 3's reported temperature to 85 C (works whether or not the
+# profile drives temperature dynamically — the temp command handles both).
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl temp --gpu 3 85
+# verify from any consumer pod:
+kubectl exec <consumer> -- nvidia-smi --id=3 --query-gpu=temperature.gpu --format=csv,noheader,nounits
+```
+
+```bash
+# 3b) Pin power draw to 350 W on all GPUs, and fan speed to 60% on GPU 0.
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl power --gpu all 350
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fan --gpu 0 60
+# verify from any consumer pod:
+kubectl exec <consumer> -- nvidia-smi --query-gpu=index,power.draw,fan.speed --format=csv,noheader
 ```
 
 ```bash

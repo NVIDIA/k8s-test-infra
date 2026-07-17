@@ -121,6 +121,64 @@ func (d *Doc) Fail(t Target, mode string, afterCalls int, xidCode uint64) error 
 	return nil
 }
 
+// TemperaturePatch builds an overlay patch that pins the reported GPU
+// temperature to celsius. It writes both the static thermal block and a
+// zero-variation dynamic block: profiles that enable dynamic metrics (the
+// demo/e2e default) drive temperature.gpu through the simulator, which masks
+// the static thermal reading, so setting only thermal.temperature_gpu_c would
+// have no visible effect. Zeroing ramp_c/variance_c makes the simulator emit
+// base_c verbatim, so the reading is deterministic whether or not the profile
+// runs the simulator. `reset` removes both, restoring the profile baseline.
+func TemperaturePatch(celsius int) map[string]any {
+	return map[string]any{
+		"thermal": map[string]any{"temperature_gpu_c": celsius},
+		"dynamic_metrics": map[string]any{
+			"temperature": map[string]any{
+				"base_c":     celsius,
+				"ramp_c":     0,
+				"variance_c": 0,
+			},
+		},
+	}
+}
+
+// PowerPatch builds an overlay patch that pins the reported power draw to
+// milliwatts. Like TemperaturePatch it writes both the static power block and a
+// zero-variation dynamic block so the reading is deterministic in either mode.
+// The engine still clamps the value to the profile's [min_limit_mw,
+// max_limit_mw] envelope, so a value outside that window will read as the
+// nearest bound.
+func PowerPatch(milliwatts uint32) map[string]any {
+	return map[string]any{
+		"power": map[string]any{"current_draw_mw": milliwatts},
+		"dynamic_metrics": map[string]any{
+			"power": map[string]any{
+				"base_mw":     milliwatts,
+				"variance_mw": 0,
+			},
+		},
+	}
+}
+
+// FanPatch builds an overlay patch that pins the reported fan speed to percent.
+// There is no dynamic fan simulator, so this only touches the static fan block.
+// GetFanSpeed reports ERROR_NOT_SUPPORTED (nvidia-smi shows [N/A]) whenever
+// count is 0 — the case for every liquid/passively-cooled profile — so we force
+// count to at least 1 (preserving a larger baseCount) to make the speed
+// observable. speed_percent is a string field in the schema, hence the itoa.
+func FanPatch(percent, baseCount int) map[string]any {
+	count := baseCount
+	if count < 1 {
+		count = 1
+	}
+	return map[string]any{
+		"fan": map[string]any{
+			"count":         count,
+			"speed_percent": strconv.Itoa(percent),
+		},
+	}
+}
+
 // Reset removes overrides for the target, or clears everything when All is set.
 func (d *Doc) Reset(t Target) {
 	if t.All {

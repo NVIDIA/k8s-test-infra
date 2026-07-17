@@ -49,6 +49,9 @@ func usage(w io.Writer) {
 
 commands:
   fail   --gpu <idx|all|uuid> --mode <healthy|lost|fallen_off_bus|ecc_uncorrectable> [--after-calls N] [--xid CODE]
+  temp   --gpu <idx|all|uuid> <celsius>    pin reported GPU temperature
+  power  --gpu <idx|all|uuid> <watts>      pin reported power draw
+  fan    --gpu <idx|all|uuid> <percent>    pin reported fan speed (forces fan count >= 1)
   set    --gpu <idx|all|uuid> key.path=value [key.path=value ...]
   apply  --gpu <idx|all|uuid> -f patch.yaml
   status [--gpu <idx>]
@@ -117,7 +120,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "status":
 		return doStatus(overlayPath, gpu, stdout, stderr)
-	case "fail", "set", "apply", "reset":
+	case "fail", "temp", "temperature", "power", "fan", "set", "apply", "reset":
 		return mutate(cmd, overlayPath, gpu, mode, patchFile, afterCalls, xid, positional, cfg, base, stdout, stderr)
 	default:
 		fprintf(stderr, "unknown command %q\n", cmd)
@@ -167,6 +170,40 @@ func mutate(cmd, overlayPath, gpu, mode, patchFile string, afterCalls int, xid u
 		if err := doc.Fail(target, mode, afterCalls, xid); err != nil {
 			fprintf(stderr, "%v\n", err)
 			return 2
+		}
+	case "temp", "temperature":
+		celsius, perr := singleIntArg(positional, cmd, 0, 200)
+		if perr != nil {
+			fprintf(stderr, "%v\n", perr)
+			return 2
+		}
+		if code := applyPatch(doc, target, base, mockctl.TemperaturePatch(celsius), stderr); code != 0 {
+			return code
+		}
+	case "power":
+		watts, perr := singleFloatArg(positional, cmd)
+		if perr != nil {
+			fprintf(stderr, "%v\n", perr)
+			return 2
+		}
+		if watts < 0 {
+			fprintln(stderr, "power watts must be >= 0")
+			return 2
+		}
+		// NVML power fields are milliwatts; the CLI takes the watts value
+		// nvidia-smi displays and converts.
+		mw := uint32(watts*1000 + 0.5)
+		if code := applyPatch(doc, target, base, mockctl.PowerPatch(mw), stderr); code != 0 {
+			return code
+		}
+	case "fan":
+		pct, perr := singleIntArg(positional, cmd, 0, 100)
+		if perr != nil {
+			fprintf(stderr, "%v\n", perr)
+			return 2
+		}
+		if code := applyPatch(doc, target, base, mockctl.FanPatch(pct, baseFanCount(base)), stderr); code != 0 {
+			return code
 		}
 	case "set":
 		if len(positional) == 0 {
@@ -218,6 +255,56 @@ func mutate(cmd, overlayPath, gpu, mode, patchFile string, afterCalls int, xid u
 		return 1
 	}
 	fprintf(stdout, "ok: %s applied to %s\n", cmd, gpuLabel(gpu))
+	return 0
+}
+
+// applyPatch validates a convenience-command patch against the device schema
+// and merges it into the target bucket, returning a non-zero exit code (already
+// reported to stderr) on failure so callers can propagate it.
+func applyPatch(doc *mockctl.Doc, target mockctl.Target, base *engine.DeviceConfig, patch map[string]any, stderr io.Writer) int {
+	if err := mockctl.Validate(base, patch); err != nil {
+		fprintf(stderr, "invalid: %v\n", err)
+		return 2
+	}
+	doc.SetFields(target, patch)
+	return 0
+}
+
+// singleIntArg parses the lone positional value of a convenience command as an
+// integer within [lo, hi].
+func singleIntArg(positional []string, name string, lo, hi int) (int, error) {
+	if len(positional) != 1 {
+		return 0, fmt.Errorf("%s requires exactly one value (got %d)", name, len(positional))
+	}
+	v, err := strconv.Atoi(positional[0])
+	if err != nil {
+		return 0, fmt.Errorf("%s value %q must be an integer", name, positional[0])
+	}
+	if v < lo || v > hi {
+		return 0, fmt.Errorf("%s value %d out of range [%d,%d]", name, v, lo, hi)
+	}
+	return v, nil
+}
+
+// singleFloatArg parses the lone positional value of a convenience command as a
+// floating-point number.
+func singleFloatArg(positional []string, name string) (float64, error) {
+	if len(positional) != 1 {
+		return 0, fmt.Errorf("%s requires exactly one value (got %d)", name, len(positional))
+	}
+	v, err := strconv.ParseFloat(positional[0], 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s value %q must be a number", name, positional[0])
+	}
+	return v, nil
+}
+
+// baseFanCount reports the fan count declared by the base config so the fan
+// command can preserve a multi-fan count instead of collapsing it to 1.
+func baseFanCount(base *engine.DeviceConfig) int {
+	if base != nil && base.Fan != nil {
+		return base.Fan.Count
+	}
 	return 0
 }
 

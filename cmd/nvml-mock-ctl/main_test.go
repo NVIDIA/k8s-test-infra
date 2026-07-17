@@ -51,6 +51,64 @@ func TestCLI_SetRejectsUnknownField(t *testing.T) {
 	}
 }
 
+func TestCLI_TempWritesStaticAndDynamic(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	if _, e, c := runCLI(t, overlay, "temp", "--gpu", "2", "85"); c != 0 {
+		t.Fatalf("temp exited %d: %s", c, e)
+	}
+	data, _ := os.ReadFile(overlay)
+	s := string(data)
+	for _, want := range []string{"temperature_gpu_c: 85", "base_c: 85", "ramp_c: 0", "variance_c: 0"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("overlay missing %q:\n%s", want, s)
+		}
+	}
+}
+
+func TestCLI_PowerConvertsWattsToMilliwatts(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	if _, e, c := runCLI(t, overlay, "power", "--gpu", "all", "350"); c != 0 {
+		t.Fatalf("power exited %d: %s", c, e)
+	}
+	data, _ := os.ReadFile(overlay)
+	s := string(data)
+	if !strings.Contains(s, "current_draw_mw: 350000") || !strings.Contains(s, "base_mw: 350000") {
+		t.Fatalf("power overlay did not convert watts->mW:\n%s", s)
+	}
+}
+
+func TestCLI_FanForcesCount(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	if _, e, c := runCLI(t, overlay, "fan", "--gpu", "0", "60"); c != 0 {
+		t.Fatalf("fan exited %d: %s", c, e)
+	}
+	data, _ := os.ReadFile(overlay)
+	s := string(data)
+	if !strings.Contains(s, "count: 1") || !strings.Contains(s, `speed_percent: "60"`) {
+		t.Fatalf("fan overlay missing forced count / string speed:\n%s", s)
+	}
+}
+
+func TestCLI_ConvenienceArgValidation(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	cases := [][]string{
+		{"temp", "--gpu", "0"},            // missing value
+		{"temp", "--gpu", "0", "hot"},     // non-integer
+		{"fan", "--gpu", "0", "150"},      // out of range
+		{"power", "--gpu", "0", "-5"},     // negative watts
+		{"power", "--gpu", "0", "1", "2"}, // too many values
+	}
+	for _, args := range cases {
+		if _, _, code := runCLI(t, overlay, args...); code != 2 {
+			t.Fatalf("args %v exit = %d, want 2", args, code)
+		}
+	}
+}
+
 func TestCLI_StatusEmpty(t *testing.T) {
 	dir := t.TempDir()
 	overlay := filepath.Join(dir, "overrides.yaml")

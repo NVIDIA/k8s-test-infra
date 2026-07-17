@@ -26,13 +26,15 @@ import (
 //
 // Fields are only asserted through nvidia-smi when they are actually
 // hot-reloadable AND observable under the e2e chart's dynamic-metrics config
-// (see demoRelease): failure injection, ECC counters/mode and the enforced
-// power limit flow through. GPU utilization is driven by the dynamic-metrics
-// simulator, and this mock reports temperature.gpu as [N/A] regardless of
-// config (nvidia-smi prefers the unimplemented nvmlDeviceGetTemperatureV), so
-// neither is asserted here. Lost / fallen_off_bus GPUs are detected via the ECC
-// counter query, which returns "[GPU is lost]" for a tripped device — nvidia-smi
-// -L keeps listing lost GPUs, so it is not a reliable failure signal.
+// (see demoRelease): failure injection, ECC counters/mode, the enforced power
+// limit and temperature all flow through. GPU temperature is driven by the
+// dynamic-metrics simulator under this chart, so the temperature scenario pins
+// it deterministically by overriding dynamic_metrics.temperature (base_c with
+// ramp_c=0/variance_c=0) and reads it back via temperature.gpu. GPU utilization
+// is likewise simulator-driven but is left unasserted (its value oscillates by
+// pattern). Lost / fallen_off_bus GPUs are detected via the ECC counter query,
+// which returns "[GPU is lost]" for a tripped device — nvidia-smi -L keeps
+// listing lost GPUs, so it is not a reliable failure signal.
 
 const (
 	runtimeTTLTimeout = 30 * time.Second
@@ -98,6 +100,23 @@ func smiGPUPowerLimitW(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx
 	f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
 	Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi power.limit for gpu %d: %q", idx, v)
 	return int(f)
+}
+
+// smiGPUFloat is smiGPUValue parsed as a float (e.g. power.draw "600.00").
+func smiGPUFloat(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int, field string) float64 {
+	GinkgoHelper()
+	v := smiGPUValue(ctx, h, pod, idx, field)
+	f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi %s for gpu %d: %q", field, idx, v)
+	return f
+}
+
+// absInt returns the absolute value of an int.
+func absInt(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 // smiGPUValueRaw queries a single GPU without asserting success — a lost GPU
@@ -181,8 +200,7 @@ func assertRuntimeFailAllLost(ctx SpecContext, h *harness.Harness, consumer kube
 // (the enforced power limit) on one GPU and read it back through nvidia-smi,
 // confirming the target changed, its neighbour did not, and reset restores the
 // baseline. power.enforced_limit_mw is a static, hot-reloadable scalar that
-// nvidia-smi reports reliably as power.limit (unlike temperature.gpu, which this
-// mock surfaces as [N/A]).
+// nvidia-smi reports reliably as power.limit.
 func assertRuntimeSetField(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
 	GinkgoHelper()
 	resetRuntimeOverrides(ctx, h)
@@ -218,6 +236,192 @@ func assertRuntimeSetField(ctx SpecContext, h *harness.Harness, consumer kube.Po
 		return smiGPUPowerLimitW(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(baseline), "GPU %d power limit should return to baseline after reset", target)
+}
+
+// assertRuntimeSetTemperature covers runtime temperature control: pin a GPU's
+// temperature to a fixed value and read it back through nvidia-smi. The e2e
+// chart runs the dynamic-metrics simulator, which drives temperature.gpu and
+// masks the static thermal block, so we override dynamic_metrics.temperature
+// with ramp_c=0/variance_c=0 to get a deterministic reading. The engine
+// rebuilds the simulator on overlay refresh, so the running consumer observes
+// the change without a restart; reset returns temperature to the (varying)
+// simulator baseline.
+func assertRuntimeSetTemperature(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	count := gpuCount(ctx, h, consumer)
+	target := count - 1 // exercise a non-zero index where possible
+	// Distinct from the ~55-70 dynamic baseline and below every profile's
+	// shutdown threshold (min 92), so nvidia-smi never clamps the reading.
+	const overrideC = 85
+
+	baseline := smiGPUInt(ctx, h, consumer, target, "temperature.gpu")
+	Expect(baseline).NotTo(Equal(overrideC), "baseline temperature must differ from the override for a meaningful assertion")
+
+	By(fmt.Sprintf("pin temperature to %dC on GPU %d via nvml-mock-ctl set", overrideC, target))
+	nvmlMockCtl(ctx, h, "set", "--gpu", strconv.Itoa(target),
+		"dynamic_metrics.temperature.base_c="+strconv.Itoa(overrideC),
+		"dynamic_metrics.temperature.ramp_c=0",
+		"dynamic_metrics.temperature.variance_c=0")
+
+	Eventually(func() int {
+		return smiGPUInt(ctx, h, consumer, target, "temperature.gpu")
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(overrideC), "GPU %d temperature should reflect the runtime override", target)
+
+	if count > 1 {
+		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
+		Expect(smiGPUInt(ctx, h, consumer, 0, "temperature.gpu")).
+			NotTo(Equal(overrideC), "GPU 0 must keep its baseline (simulator-driven) temperature")
+	}
+
+	By("reset runtime overrides")
+	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+
+	Eventually(func() int {
+		return smiGPUInt(ctx, h, consumer, target, "temperature.gpu")
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(And(BeNumerically(">", 0), BeNumerically("<", overrideC)),
+			"GPU %d temperature should return to the simulator baseline after reset", target)
+}
+
+// assertRuntimeTempCommand covers the `temp` convenience command: pin a GPU's
+// temperature to a fixed value with a single positional argument and read it
+// back through nvidia-smi. Unlike assertRuntimeSetTemperature (which exercises
+// the raw `set` path against dynamic_metrics.temperature), this validates that
+// the convenience wrapper writes both the static and zero-variation dynamic
+// blocks so the reading is deterministic under the e2e chart's dynamic-metrics
+// simulator, without the caller spelling out the dynamic keys.
+func assertRuntimeTempCommand(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	count := gpuCount(ctx, h, consumer)
+	target := count - 1 // exercise a non-zero index where possible
+	// Distinct from the dynamic baseline and below every profile's shutdown
+	// threshold (min 92), so nvidia-smi never clamps the reading.
+	const overrideC = 84
+
+	baseline := smiGPUInt(ctx, h, consumer, target, "temperature.gpu")
+	Expect(baseline).NotTo(Equal(overrideC), "baseline temperature must differ from the override for a meaningful assertion")
+
+	By(fmt.Sprintf("pin temperature to %dC on GPU %d via nvml-mock-ctl temp", overrideC, target))
+	nvmlMockCtl(ctx, h, "temp", "--gpu", strconv.Itoa(target), strconv.Itoa(overrideC))
+
+	Eventually(func() int {
+		return smiGPUInt(ctx, h, consumer, target, "temperature.gpu")
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(overrideC), "GPU %d temperature should reflect the temp command", target)
+
+	if count > 1 {
+		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
+		Expect(smiGPUInt(ctx, h, consumer, 0, "temperature.gpu")).
+			NotTo(Equal(overrideC), "GPU 0 must keep its baseline (simulator-driven) temperature")
+	}
+
+	By("reset runtime overrides")
+	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+
+	Eventually(func() int {
+		return smiGPUInt(ctx, h, consumer, target, "temperature.gpu")
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(And(BeNumerically(">", 0), BeNumerically("<", overrideC)),
+			"GPU %d temperature should return to the simulator baseline after reset", target)
+}
+
+// assertRuntimePowerCommand covers the `power` convenience command: pin a GPU's
+// power draw (in watts, the unit nvidia-smi displays) and read it back through
+// power.draw. The command writes both the static and zero-variation dynamic
+// power blocks, so the reading is deterministic. The target watts is chosen
+// inside the profile's [min_limit, max_limit] envelope (queried at runtime so
+// the test is profile-agnostic) and far from the dynamic baseline.
+func assertRuntimePowerCommand(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	count := gpuCount(ctx, h, consumer)
+	target := count - 1 // exercise a non-zero index where possible
+
+	minW := int(smiGPUFloat(ctx, h, consumer, target, "power.min_limit"))
+	maxW := int(smiGPUFloat(ctx, h, consumer, target, "power.max_limit"))
+	Expect(maxW).To(BeNumerically(">", minW), "profile must advertise a usable power envelope")
+	baseline := int(smiGPUFloat(ctx, h, consumer, target, "power.draw"))
+
+	// Pick whichever of the 25%/75% marks sits farther from the (varying)
+	// baseline, so the override is unambiguously observable and stays inside
+	// [min_limit, max_limit] where the engine won't clamp it.
+	lo := minW + (maxW-minW)/4
+	hi := minW + (maxW-minW)*3/4
+	overrideW := lo
+	if absInt(hi-baseline) > absInt(lo-baseline) {
+		overrideW = hi
+	}
+
+	By(fmt.Sprintf("pin power draw to %dW on GPU %d via nvml-mock-ctl power", overrideW, target))
+	nvmlMockCtl(ctx, h, "power", "--gpu", strconv.Itoa(target), strconv.Itoa(overrideW))
+
+	Eventually(func() int {
+		return int(smiGPUFloat(ctx, h, consumer, target, "power.draw"))
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(overrideW), "GPU %d power draw should reflect the power command", target)
+
+	if count > 1 {
+		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
+		Expect(int(smiGPUFloat(ctx, h, consumer, 0, "power.draw"))).
+			NotTo(Equal(overrideW), "GPU 0 must keep its baseline (simulator-driven) power draw")
+	}
+
+	By("reset runtime overrides")
+	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+
+	Eventually(func() int {
+		return int(smiGPUFloat(ctx, h, consumer, target, "power.draw"))
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(And(BeNumerically(">=", minW), BeNumerically("<=", maxW), Not(Equal(overrideW))),
+			"GPU %d power draw should return to the simulator baseline after reset", target)
+}
+
+// assertRuntimeFanCommand covers the `fan` convenience command: pin a GPU's fan
+// speed and read it back through fan.speed. Liquid/passively-cooled profiles
+// ship fan.count: 0 (fan.speed reports "[N/A]"); the command forces the count
+// to at least 1 so the pinned speed becomes observable, and reset returns it to
+// the profile baseline.
+func assertRuntimeFanCommand(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	count := gpuCount(ctx, h, consumer)
+	target := count - 1 // exercise a non-zero index where possible
+
+	baseline := smiGPUValue(ctx, h, consumer, target, "fan.speed")
+	overridePct := 57 // uncommon value unlikely to match a profile default
+	if baseline == strconv.Itoa(overridePct) {
+		overridePct = 43
+	}
+	overrideStr := strconv.Itoa(overridePct)
+
+	By(fmt.Sprintf("pin fan speed to %d%% on GPU %d via nvml-mock-ctl fan", overridePct, target))
+	nvmlMockCtl(ctx, h, "fan", "--gpu", strconv.Itoa(target), overrideStr)
+
+	Eventually(func() string {
+		return smiGPUValue(ctx, h, consumer, target, "fan.speed")
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(overrideStr), "GPU %d fan speed should reflect the fan command", target)
+
+	if count > 1 {
+		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
+		Expect(smiGPUValue(ctx, h, consumer, 0, "fan.speed")).
+			NotTo(Equal(overrideStr), "GPU 0 must keep its baseline fan reading")
+	}
+
+	By("reset runtime overrides")
+	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+
+	Eventually(func() string {
+		return smiGPUValue(ctx, h, consumer, target, "fan.speed")
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(baseline), "GPU %d fan speed should return to the profile baseline after reset", target)
 }
 
 // assertRuntimeApplyPatch covers docs example #4: apply a multi-field YAML

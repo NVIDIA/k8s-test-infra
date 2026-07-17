@@ -136,6 +136,22 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertRuntimeSetField(ctx, h, pod)
 				})
 
+				It("pins a per-GPU temperature via nvml-mock-ctl set", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeSetTemperature(ctx, h, pod)
+				})
+
+				It("pins temperature via the nvml-mock-ctl temp command", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeTempCommand(ctx, h, pod)
+				})
+
+				It("pins power draw via the nvml-mock-ctl power command", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimePowerCommand(ctx, h, pod)
+				})
+
+				It("pins fan speed via the nvml-mock-ctl fan command", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeFanCommand(ctx, h, pod)
+				})
+
 				It("applies a multi-field patch via nvml-mock-ctl apply", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimeApplyPatch(ctx, h, pod)
 				})
