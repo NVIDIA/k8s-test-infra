@@ -1,0 +1,79 @@
+// Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package main
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func runCLI(t *testing.T, overlay string, args ...string) (string, string, int) {
+	t.Helper()
+	full := append([]string{"--file", overlay}, args...)
+	var out, errb bytes.Buffer
+	code := run(full, &out, &errb)
+	return out.String(), errb.String(), code
+}
+
+func TestCLI_FailWritesOverlay(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	_, errStr, code := runCLI(t, overlay, "fail", "--gpu", "0", "--mode", "ecc_uncorrectable")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errStr)
+	}
+	data, _ := os.ReadFile(overlay)
+	if !strings.Contains(string(data), "ecc_uncorrectable") {
+		t.Fatalf("overlay missing mode: %s", data)
+	}
+}
+
+func TestCLI_SetRejectsUnknownField(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	_, _, code := runCLI(t, overlay, "set", "--gpu", "all", "bogus.field=1")
+	if code == 0 {
+		t.Fatal("expected non-zero exit for unknown field")
+	}
+}
+
+func TestCLI_StatusEmpty(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	out, _, code := runCLI(t, overlay, "status")
+	if code != 0 {
+		t.Fatal("status should succeed on absent overlay")
+	}
+	if !strings.Contains(out, "no active overrides") {
+		t.Fatalf("unexpected status: %s", out)
+	}
+}
+
+func TestCLI_ResetGPU(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	if _, e, c := runCLI(t, overlay, "fail", "--gpu", "1", "--mode", "lost"); c != 0 {
+		t.Fatalf("setup fail: %s", e)
+	}
+	if _, e, c := runCLI(t, overlay, "reset", "--gpu", "1"); c != 0 {
+		t.Fatalf("reset: %s", e)
+	}
+	data, _ := os.ReadFile(overlay)
+	if strings.Contains(string(data), "lost") {
+		t.Fatalf("reset did not remove device 1: %s", data)
+	}
+}
