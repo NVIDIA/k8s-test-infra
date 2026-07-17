@@ -45,26 +45,35 @@ has completed.
 
 ### Required check identities
 
-Use only checks that have completed successfully on an actual pull request to
-the protected branch. GitHub can decorate reusable-workflow and matrix jobs
-with caller and matrix suffixes, so select the observed context in the ruleset
-UI instead of typing a guessed context. These are the exact workflow and job
-identities declared by the current YAML:
+A context may become a branch-wide required check only after proving that it
+reports on every applicable pull request head. A required workflow skipped by
+path or branch filtering can remain `Pending` and block an unrelated pull
+request indefinitely. Completing a conditional check on one PR does not prove
+that it is safe to require globally.
 
-| Purpose | Workflow name | Job name or job key from YAML |
-| --- | --- | --- |
-| PR policy, DCO, and ownership | `PR metadata` | `PR metadata` |
-| Dependency policy | `Dependency review` | `Dependency review` |
-| Local action and workflow validation | `Repository automation CI` | `Repository automation CI` |
-| Go checks | `basic checks` calling `Golang` | caller key `golang`; called job key `check` |
-| CodeQL | `basic checks` calling `CodeQL` | caller key `code-scanning`; called job name `Analyze Go code with CodeQL` |
-| Helm lint | `helm` | job key `lint` |
-| Helm unit tests | `helm` | job key `unittest` |
-| E2E | `CI Pipeline` calling `nvml-mock E2E (Go)` | caller key `nvml-mock-e2e`; called job keys `e2e`, `e2e-dra`, `e2e-gpu-operator`, `e2e-multi-node`, and `e2e-nri` |
+GitHub can decorate reusable-workflow and matrix jobs with caller and matrix
+suffixes, so select an observed context in the ruleset UI instead of typing a
+guessed context. These are the exact workflow and job identities declared by
+the current YAML and their present branch-wide suitability:
 
-Matrix E2E jobs have a generated profile suffix. Require the specific contexts
-selected by repository policy only after each has reported on the target
-branch. Do not require `Commands`, `Review observer`, `Merge evaluator`, stale,
+| Purpose | Workflow name | Job name or job key from YAML | Branch-wide use |
+| --- | --- | --- | --- |
+| PR policy, DCO, and ownership | `PR metadata` | `PR metadata` | Candidate after proving it reports on every protected-branch PR head |
+| Dependency policy | `Dependency review` | `Dependency review` | Candidate after proving API availability and reporting on every protected-branch PR head |
+| Local action and workflow validation | `Repository automation CI` | `Repository automation CI` | Conditional only; its path filter makes it unsafe as a global requirement |
+| Go checks | `basic checks` calling `Golang` | caller key `golang`; called job key `check` | Candidate after proving the observed reusable context reports on every PR head |
+| CodeQL | `basic checks` calling `CodeQL` | caller key `code-scanning`; called job name `Analyze Go code with CodeQL` | Candidate after proving the observed reusable context reports on every PR head |
+| Helm lint | `helm` | job key `lint` | Conditional only; its Helm path filter makes it unsafe as a global requirement |
+| Helm unit tests | `helm` | job key `unittest` | Conditional only; its Helm path filter makes it unsafe as a global requirement |
+| E2E | `CI Pipeline` calling `nvml-mock E2E (Go)` | caller key `nvml-mock-e2e`; called job keys `e2e`, `e2e-dra`, `e2e-gpu-operator`, `e2e-multi-node`, and `e2e-nri` | Conditional only; the current caller is push-only rather than an ordinary PR gate |
+
+Do not globally require the current path-filtered Automation CI or Helm
+contexts, or the push-only E2E contexts. Defer those requirements until an
+always-reporting PR or aggregate gate exists and is proven on unrelated paths
+as well as matching paths. Matrix E2E jobs also have generated profile suffixes;
+preserve the observed-context rule when an always-reporting gate is introduced.
+
+Do not require `Commands`, `Review observer`, `Merge evaluator`, stale,
 Scorecard, label synchronization, or publication workflows as pull request
 checks; those workflows do not provide ordinary PR check contexts.
 
@@ -96,9 +105,11 @@ branch settings changed at each checkpoint.
    and inspect its logs. Confirm a current-head approval, LGTM provenance,
    ownership coverage, blockers, and the final head fence are evaluated from
    live state.
-6. Add the observed required checks to the protected-branch ruleset. Require
-   reviews, stale-review dismissal, and conversation resolution before enabling
-   native auto-merge.
+6. Add only the observed checks proven to report on every applicable PR head to
+   the protected-branch ruleset. Keep path-filtered and push-only checks
+   informational until an always-reporting PR or aggregate gate replaces them.
+   Require reviews, stale-review dismissal, and conversation resolution before
+   enabling native auto-merge.
 7. Enable native auto-merge and exercise one non-release test pull request.
    Confirm GitHub waits for every required check and review rule before merging.
 
@@ -167,16 +178,34 @@ Before activation:
    `main` push trigger. Retiring the legacy workflows requires the separate
    destructive confirmation and remains recoverable from Git history.
 
-Release Please pull requests created by the default `GITHUB_TOKEN` do not
-trigger another workflow run. Before merging such a release PR, explicitly run
-the required checks against its head using the repository's manual dispatch or
-rerun path, or add a signed and DCO-compliant maintainer commit that emits a
-`synchronize` event. Never weaken branch protection to merge the release PR.
+Pull request events created by the default `GITHUB_TOKEN` may produce workflow
+runs that require maintainer approval. Before merging a Release Please PR:
+
+1. Inspect the checks attached to its exact head commit.
+2. Approve supported approval-required runs and confirm every required context
+   reports against that exact head.
+3. If a required context is absent, use its supported manual dispatch or rerun
+   path for the exact head. As a fallback only, add a signed and DCO-compliant
+   maintainer commit to emit a `synchronize` event.
+
+Never weaken branch protection or mark a missing context successful.
 
 For the first authorized stable release, replace `X.Y.Z` and digest placeholders
-below with the published values:
+below with the published values. First confirm GitHub CLI authentication and log
+in to GHCR with a human credential limited to registry/package read access. Use
+a short-lived credential where available, enter it through stdin, and retain it
+only in the local Docker credential store for this verification. Do not add it
+as a repository PAT, Actions secret, or other long-lived workflow credential.
 
 ```bash
+gh auth status
+
+export GHCR_USER='<github-login>'
+read -r -s GHCR_READ_TOKEN
+printf '%s' "${GHCR_READ_TOKEN}" | \
+  docker login ghcr.io --username "${GHCR_USER}" --password-stdin
+unset GHCR_READ_TOKEN
+
 gh release view vX.Y.Z --repo NVIDIA/k8s-test-infra
 docker buildx imagetools inspect ghcr.io/nvidia/nvml-mock:X.Y.Z
 helm pull oci://ghcr.io/nvidia/charts/nvml-mock --version X.Y.Z
@@ -203,6 +232,8 @@ gh attestation verify oci://ghcr.io/nvidia/nvml-mock:X.Y.Z \
   --repo NVIDIA/k8s-test-infra
 gh attestation verify oci://ghcr.io/nvidia/charts/nvml-mock:X.Y.Z \
   --repo NVIDIA/k8s-test-infra
+
+docker logout ghcr.io
 ```
 
 Also confirm:
