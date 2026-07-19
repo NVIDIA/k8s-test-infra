@@ -174,7 +174,8 @@ test("Merge evaluator accepts only exact trusted workflow identities and safe ma
 test("automation CI stays unprivileged and validates every runtime mode", () => {
   const { source, workflow } = readWorkflow("automation-ci.yml");
   assert.deepEqual(workflow.permissions, {});
-  const job = singleJob(workflow);
+  assert.deepEqual(Object.keys(workflow.jobs), ["automation-ci", "scripts-ci"]);
+  const job = workflow.jobs["automation-ci"];
   assert.deepEqual(job.permissions, { contents: "read" });
   const checkout = job.steps.find((step) => step.uses?.startsWith("actions/checkout@"));
   assert.deepEqual(checkout.with, { "persist-credentials": false, submodules: false });
@@ -187,6 +188,16 @@ test("automation CI stays unprivileged and validates every runtime mode", () => 
     "npm run package",
     "git diff --exit-code -- dist",
   ]);
+
+  const scriptsJob = workflow.jobs["scripts-ci"];
+  assert.deepEqual(scriptsJob.permissions, { contents: "read" });
+  const scriptsCheckout = scriptsJob.steps.find((step) => step.uses?.startsWith("actions/checkout@"));
+  assert.deepEqual(scriptsCheckout.with, { "persist-credentials": false, submodules: false });
+  assert.equal(scriptsJob.steps.some((step) => step.uses?.startsWith("actions/setup-node@") && step.with?.["node-version"] === 24), true);
+  assert.deepEqual(scriptsJob.steps.filter((step) => step.run).map((step) => step.run), [
+    'node --test --test-reporter=spec ".github/scripts/*.test.mjs"',
+  ]);
+
   assertOfficialPinnedUses(source, workflow);
 
   const action = YAML.parse(fs.readFileSync(path.join(actionRoot, "action.yml"), "utf8"));
