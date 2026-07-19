@@ -58,6 +58,29 @@ function hasPrivilegedTrigger(workflow) {
     .some((event) => Object.hasOwn(workflow.on ?? {}, event));
 }
 
+// Resolve a single `with.tags` entry one level through a bare `${{ env.NAME }}`
+// expression (the only indirection build-image uses) so the ttl.sh carve-out
+// below inspects the real registry ref rather than the literal expression text.
+function resolveEnvExpression(value, workflow, job) {
+  const match = typeof value === "string" && value.match(/^\$\{\{\s*env\.([A-Za-z0-9_]+)\s*\}\}$/);
+  if (!match) return value;
+  const resolved = (job.env ?? {})[match[1]] ?? (workflow.env ?? {})[match[1]];
+  return typeof resolved === "string" ? resolved : value;
+}
+
+// ttl.sh is an anonymous, auth-free, auto-expiring registry. nvml-mock-e2e-go.yaml's
+// build-image job pushes there purely to hand the just-built image to later jobs of
+// the SAME workflow run (see its header comment) - that's intra-run transport, not
+// artifact publication, so a build-push step whose tags ALL resolve to ttl.sh/ is
+// exempt from the sole-publisher gate. Any tag resolving elsewhere still counts.
+function isEphemeralTtlShOnlyPush(step, workflow, job) {
+  const rawTags = step.with?.tags;
+  if (typeof rawTags !== "string") return false;
+  const tags = rawTags.split(/[\n,]/).map((tag) => tag.trim()).filter(Boolean);
+  return tags.length > 0 &&
+    tags.every((tag) => resolveEnvExpression(tag, workflow, job).startsWith("ttl.sh/"));
+}
+
 function assertImmutableHelmPluginInstall(run) {
   assert.equal(typeof run, "string");
   const installCommands = run.split("\n").filter((line) => line.includes("helm plugin install"));
@@ -168,7 +191,8 @@ test("release workflow is the sole image and chart publisher", () => {
     return Object.values(workflow.jobs ?? {}).some((job) => (job.steps ?? []).some((step) => {
       const buildPush = step.uses?.startsWith("docker/build-push-action@") &&
         (step.with?.push === true || /(?:^|,)push=true(?:,|$)/.test(step.with?.outputs ?? ""));
-      return buildPush || /docker buildx imagetools create|\bhelm push\b/.test(step.run ?? "");
+      const durableBuildPush = buildPush && !isEphemeralTtlShOnlyPush(step, workflow, job);
+      return durableBuildPush || /docker buildx imagetools create|\bhelm push\b/.test(step.run ?? "");
     }));
   });
   assert.deepEqual(publishers, ["release.yml"]);
