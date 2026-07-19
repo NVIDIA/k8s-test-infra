@@ -59,7 +59,8 @@ jobs:
       - name: Install helm-unittest plugin
         run: |
           echo "Installing helm-unittest plugin..."
-          helm plugin install https://github.com/helm-unittest/helm-unittest.git --version 6f82a998e0b5461762ca959f87f5dd344af5e4eb
+          # helm >=4 defaults --verify=true; git-source plugins are unverifiable, integrity comes from the pinned commit
+          helm plugin install https://github.com/helm-unittest/helm-unittest.git --version 6f82a998e0b5461762ca959f87f5dd344af5e4eb --verify=false
 
       - name: Run helm unittest
         run: helm unittest ${{ env.CHART_DIR }}/${{ env.CHART_NAME }}

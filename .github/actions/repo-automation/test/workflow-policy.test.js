@@ -10,6 +10,7 @@ const YAML = require("yaml");
 const repositoryRoot = path.resolve(__dirname, "../../../..");
 const workflowRoot = path.join(repositoryRoot, ".github", "workflows");
 const HELM_UNITTEST_COMMIT = "6f82a998e0b5461762ca959f87f5dd344af5e4eb";
+const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/;
 
 const REUSABLE_CALL_EXEMPTIONS_V1 = new Set([
   "basic-checks.yaml/variables",
@@ -81,13 +82,27 @@ function isEphemeralTtlShOnlyPush(step, workflow, job) {
     tags.every((tag) => resolveEnvExpression(tag, workflow, job).startsWith("ttl.sh/"));
 }
 
+// helm >=4 defaults `helm plugin install` to --verify=true, which checks a
+// provenance/signature file. Git-source plugins (like helm-unittest here) can
+// never carry one, so the default would always fail. --verify=false is safe
+// ONLY when paired with a full 40-hex commit SHA pin: git's content-addressed
+// object model makes that pinned commit the actual integrity anchor. A tag,
+// branch, or short SHA is mutable and must never be combined with --verify=false.
+function assertVerifySkipRequiresFullShaPin(line) {
+  if (!/--verify=false/.test(line)) return;
+  const versionMatch = line.match(/--version\s+(\S+)/);
+  assert.ok(versionMatch && FULL_COMMIT_SHA.test(versionMatch[1]),
+    `--verify=false requires --version to pin a full 40-hex commit SHA: ${line}`);
+}
+
 function assertImmutableHelmPluginInstall(run) {
   assert.equal(typeof run, "string");
   const installCommands = run.split("\n").filter((line) => line.includes("helm plugin install"));
-  assert.deepEqual(installCommands.map((line) => line.trim()), [
-    `helm plugin install https://github.com/helm-unittest/helm-unittest.git --version ${HELM_UNITTEST_COMMIT}`,
+  const trimmed = installCommands.map((line) => line.trim());
+  assert.deepEqual(trimmed, [
+    `helm plugin install https://github.com/helm-unittest/helm-unittest.git --version ${HELM_UNITTEST_COMMIT} --verify=false`,
   ]);
-  assert.doesNotMatch(run, /--verify=false|--version\s+(?:v?\d|main|master)\b/);
+  trimmed.forEach(assertVerifySkipRequiresFullShaPin);
 }
 
 test("every workflow has explicit least-privilege job boundaries", () => {
@@ -168,18 +183,31 @@ test("privileged event workflows consume only trusted repository code", () => {
   }
 });
 
-test("helm-unittest executes only the verified immutable release commit", () => {
+test("helm-unittest executes an immutable commit; --verify=false is permitted only under a full-SHA pin", () => {
   const { workflow } = readWorkflow("helm.yaml");
   const install = workflow.jobs.unittest.steps.find((step) => step.name === "Install helm-unittest plugin");
   assertImmutableHelmPluginInstall(install.run);
 
+  // The commit itself must always be pinned by the exact full SHA, regardless of --verify.
   for (const unsafe of [
     "helm plugin install https://github.com/helm-unittest/helm-unittest.git --version v1.0.3 # 6f82a998e0b5461762ca959f87f5dd344af5e4eb",
     "helm plugin install https://github.com/helm-unittest/helm-unittest.git --version main",
-    `helm plugin install https://github.com/helm-unittest/helm-unittest.git --verify=false --version ${HELM_UNITTEST_COMMIT}`,
   ]) {
     assert.throws(() => assertImmutableHelmPluginInstall(unsafe));
   }
+
+  // --verify=false must never be combined with a missing, tag, branch, or short-SHA pin.
+  for (const unsafe of [
+    "helm plugin install https://github.com/helm-unittest/helm-unittest.git --verify=false",
+    "helm plugin install https://github.com/helm-unittest/helm-unittest.git --version v1.0.3 --verify=false",
+    "helm plugin install https://github.com/helm-unittest/helm-unittest.git --version 6f82a99 --verify=false",
+  ]) {
+    assert.throws(() => assertVerifySkipRequiresFullShaPin(unsafe));
+  }
+
+  // The permitted shape: --verify=false paired with a full 40-hex commit SHA.
+  assert.doesNotThrow(() => assertVerifySkipRequiresFullShaPin(
+    `helm plugin install https://github.com/helm-unittest/helm-unittest.git --version ${HELM_UNITTEST_COMMIT} --verify=false`));
 });
 
 test("release workflow is the sole image and chart publisher", () => {
