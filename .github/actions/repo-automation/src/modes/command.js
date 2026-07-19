@@ -203,12 +203,14 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     github.getCollaboratorAccess(comment.author.toLowerCase()),
   ]);
   const actor = actorIdentity(liveUser, access, comment.author);
-  const files = await github.listPullRequestFiles(identity.prNumber);
-  const reviews = await github.listPullRequestReviews(identity.prNumber);
-  const requestedReviewers = await github.listRequestedReviewers(identity.prNumber);
-  const currentAssignees = await github.listIssueAssignees(identity.prNumber);
-  const currentLabels = await github.listIssueLabels(identity.prNumber);
-  const policyComment = await github.getPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER);
+  const [files, reviews, requestedReviewers, currentAssignees, currentLabels, policyComment] = await Promise.all([
+    github.listPullRequestFiles(identity.prNumber),
+    github.listPullRequestReviews(identity.prNumber),
+    github.listRequestedReviewers(identity.prNumber),
+    github.listIssueAssignees(identity.prNumber),
+    github.listIssueLabels(identity.prNumber),
+    github.getPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER),
+  ]);
   if (
     !Array.isArray(files)
     || files.length === 0

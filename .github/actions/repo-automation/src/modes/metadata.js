@@ -217,12 +217,14 @@ async function runMetadata({ event, github, config, dryRun }) {
 
   const pullRequest = await github.getPullRequest(identity.prNumber);
   validateLivePullRequest(pullRequest, identity);
-  const files = await github.listPullRequestFiles(identity.prNumber);
-  const commits = await github.listPullRequestCommits(identity.prNumber);
-  const reviews = await github.listPullRequestReviews(identity.prNumber);
-  const requested = await github.listRequestedReviewers(identity.prNumber);
-  const issueLabels = await github.listIssueLabels(identity.prNumber);
-  const mergeable = await github.getPullRequestMergeable(identity.prNumber);
+  const [files, commits, reviews, requested, issueLabels, mergeable] = await Promise.all([
+    github.listPullRequestFiles(identity.prNumber),
+    github.listPullRequestCommits(identity.prNumber),
+    github.listPullRequestReviews(identity.prNumber),
+    github.listRequestedReviewers(identity.prNumber),
+    github.listIssueLabels(identity.prNumber),
+    github.getPullRequestMergeable(identity.prNumber),
+  ]);
   if (!Array.isArray(files) || !Array.isArray(commits) || !Array.isArray(reviews) || !Array.isArray(requested)) {
     throw new TypeError("GitHub list responses must be arrays");
   }
