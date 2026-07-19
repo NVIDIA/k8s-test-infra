@@ -76,12 +76,13 @@ async function run(dependencies) {
 }
 
 async function executeAction() {
-  const [core, github] = await Promise.all([
-    import(/* webpackMode: "eager" */ "@actions/core"),
-    import(/* webpackMode: "eager" */ "@actions/github"),
-  ]);
-
+  let core = null;
   try {
+    const [coreModule, github] = await Promise.all([
+      import(/* webpackMode: "eager" */ "@actions/core"),
+      import(/* webpackMode: "eager" */ "@actions/github"),
+    ]);
+    core = coreModule;
     const { owner, repo } = github.context.repo;
     const octokit = github.getOctokit(process.env.GITHUB_TOKEN);
     await run({
@@ -93,7 +94,13 @@ async function executeAction() {
       eventName: github.context.eventName,
     });
   } catch (error) {
-    core.setFailed(error instanceof Error ? error.message : String(error));
+    const message = error instanceof Error ? error.message : String(error);
+    if (core === null) {
+      process.stderr.write(`${message}\n`);
+      process.exitCode = 1;
+    } else {
+      core.setFailed(message);
+    }
   }
 }
 
