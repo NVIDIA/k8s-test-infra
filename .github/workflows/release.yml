@@ -57,6 +57,7 @@ jobs:
 
       - name: Print prospective immutable release plan from checked-out HEAD
         run: |
+          set -o pipefail
           HEAD_SHA=$(git rev-parse HEAD)
           SOURCE_SHA="$HEAD_SHA" node .github/scripts/release-state.mjs plan "$CHART_DIR/Chart.yaml" | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -856,6 +857,7 @@ jobs:
         env:
           CHART_ARCHIVE: ${{ steps.chart-package.outputs.archive }}
         run: |
+          set -o pipefail
           for attempt in 1 2 3; do
             if helm push "$CHART_ARCHIVE" "$CHART_TARGET" 2>&1 | tee "$RUNNER_TEMP/chart-push.log"; then
               break
