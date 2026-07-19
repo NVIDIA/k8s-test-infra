@@ -3,6 +3,9 @@
 suite: NRI DaemonSet
 templates:
   - templates/nri-daemonset.yaml
+chart:
+  version: 0.0.0-tests
+  appVersion: 0.0.0-tests
 tests:
   - it: should not render by default (opt-in feature)
     asserts:
@@ -36,7 +39,7 @@ tests:
           value: false
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/nvidia/nvml-mock:0.2.1
+          value: ghcr.io/nvidia/nvml-mock:0.0.0-tests
       - contains:
           path: spec.template.spec.containers[0].args
           content: --socket-path=/var/run/nri/nri.sock

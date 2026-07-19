@@ -3,6 +3,9 @@
 suite: RBAC
 templates:
   - templates/rbac.yaml
+chart:
+  version: 0.0.0-tests
+  appVersion: 0.0.0-tests
 tests:
   # ── Snapshots ───────────────────────────────────────────────────────
   - it: should match ServiceAccount snapshot
@@ -35,7 +38,7 @@ tests:
     asserts:
       - equal:
           path: metadata.labels["helm.sh/chart"]
-          value: nvml-mock-0.2.1
+          value: nvml-mock-0.0.0-tests
       - equal:
           path: metadata.labels["app.kubernetes.io/name"]
           value: nvml-mock
@@ -71,7 +74,7 @@ tests:
     asserts:
       - equal:
           path: metadata.labels["helm.sh/chart"]
-          value: nvml-mock-0.2.1
+          value: nvml-mock-0.0.0-tests
       - equal:
           path: metadata.labels["app.kubernetes.io/name"]
           value: nvml-mock
@@ -114,7 +117,7 @@ tests:
     asserts:
       - equal:
           path: metadata.labels["helm.sh/chart"]
-          value: nvml-mock-0.2.1
+          value: nvml-mock-0.0.0-tests
       - equal:
           path: metadata.labels["app.kubernetes.io/name"]
           value: nvml-mock
