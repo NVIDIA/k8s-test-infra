@@ -290,7 +290,7 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     headOid: pullRequest.headOid,
     commentId: identity.commentId,
     now: timestamp,
-    cooldownSeconds: 600,
+    cooldownSeconds: validConfiguration ? config.policy.commands.retestCooldownSeconds : 600,
     prNumber: identity.prNumber,
     repository: `${identity.owner}/${identity.repo}`,
     authorityValid: ownerAuthorityValid,

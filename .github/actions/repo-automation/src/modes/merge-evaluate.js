@@ -368,7 +368,7 @@ async function reconcileAttempt({ github, config, repository, number, dryRun, at
     });
     if (!dryRun && merge.action === "ENABLE") {
       nativeMutationAttempted = true;
-      await github.enableAutoMerge(finalGraph.nodeId, "SQUASH");
+      await github.enableAutoMerge(finalGraph.nodeId, config.policy.merge.method);
     } else if (!dryRun && merge.action === "DISABLE") {
       nativeMutationAttempted = true;
       await github.disableAutoMerge(finalGraph.nodeId);
