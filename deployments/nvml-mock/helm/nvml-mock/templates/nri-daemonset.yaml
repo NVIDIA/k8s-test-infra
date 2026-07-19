@@ -1,7 +1,8 @@
 {{- if .Values.nri.enabled }}
 {{- $rootImage := .Values.image }}
 {{- $nriImage := .Values.nri.image | default dict }}
-{{- $image := mergeOverwrite (deepCopy $rootImage) $nriImage }}
+{{- /* tag is intentionally omitted: the container image tag comes from $imageTag below */ -}}
+{{- $image := mergeOverwrite (deepCopy (omit $rootImage "tag")) (omit $nriImage "tag") }}
 {{- $imageTag := default (default $.Chart.AppVersion $rootImage.tag) $nriImage.tag }}
 {{- $socketDir := dir .Values.nri.socketPath }}
 # Copyright 2026 NVIDIA CORPORATION
