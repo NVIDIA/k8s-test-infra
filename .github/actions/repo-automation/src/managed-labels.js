@@ -1,6 +1,6 @@
 "use strict";
 
-const MANAGED_STATE_LABELS = new Set(["do-not-merge/work-in-progress"]);
+const MANAGED_STATE_LABELS = new Set(["do-not-merge/work-in-progress", "needs-rebase"]);
 const MANAGED_POLICY_LABELS = new Set([
   "approved",
   "do-not-merge/hold",

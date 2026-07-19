@@ -43,6 +43,7 @@ function createFakeGitHub(initialState = []) {
     createLabel: [],
     updateLabel: [],
     getPullRequest: [],
+    getPullRequestMergeable: [],
     getIssueComment: [],
     getUserIdentity: [],
     getCollaboratorAccess: [],
@@ -127,6 +128,11 @@ function createFakeGitHub(initialState = []) {
       record("getPullRequest", { prNumber });
       const index = Math.min(calls.getPullRequest.length - 1, pullRequests.length - 1);
       return clone(pullRequests[index]);
+    },
+
+    async getPullRequestMergeable(prNumber) {
+      record("getPullRequestMergeable", { prNumber });
+      return clone(options.mergeable ?? "UNKNOWN");
     },
 
     async listOpenPullRequestNumbers() {

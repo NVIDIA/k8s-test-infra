@@ -228,6 +228,43 @@ test("metadata re-fetches live PR state and applies only the complete safe plan"
   );
 });
 
+test("adds needs-rebase when the live pull request is conflicting", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const github = createFakeGitHub(metadataState({ mergeable: "CONFLICTING" }));
+
+  const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false });
+
+  assert.equal(result.labels.add.includes("needs-rebase"), true);
+  assert.equal(github.metadataSnapshot().labels.includes("needs-rebase"), true);
+});
+
+test("removes needs-rebase when the live pull request is mergeable again", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const github = createFakeGitHub(metadataState({
+    mergeable: "MERGEABLE",
+    labels: ["kind/bug", "size/S", "area/ci", "lgtm", "approved", "do-not-merge/hold", "maintainer/custom", "needs-rebase"],
+  }));
+
+  const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false });
+
+  assert.equal(result.labels.remove.includes("needs-rebase"), true);
+  assert.equal(github.metadataSnapshot().labels.includes("needs-rebase"), false);
+});
+
+test("preserves needs-rebase while mergeability is unknown", async () => {
+  const { runMetadata } = require("../src/modes/metadata.js");
+  const github = createFakeGitHub(metadataState({
+    mergeable: "UNKNOWN",
+    labels: ["kind/bug", "size/S", "area/ci", "lgtm", "approved", "do-not-merge/hold", "maintainer/custom", "needs-rebase"],
+  }));
+
+  const result = await runMetadata({ event, github, config: loadConfig(repositoryRoot), dryRun: false });
+
+  assert.equal(result.labels.add.includes("needs-rebase"), false);
+  assert.equal(result.labels.remove.includes("needs-rebase"), false);
+  assert.equal(github.metadataSnapshot().labels.includes("needs-rebase"), true);
+});
+
 test("new head resets both command provenances before metadata and publishes evidence last", async () => {
   const { runMetadata } = require("../src/modes/metadata.js");
   const github = createFakeGitHub(metadataState({

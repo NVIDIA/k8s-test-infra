@@ -523,6 +523,16 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       };
     },
 
+    async getPullRequestMergeable(prNumber) {
+      positiveInteger(prNumber, "PR number");
+      const { data } = await call("getPullRequestMergeable", () => octokit.rest.pulls.get({
+        owner, repo, pull_number: prNumber,
+      }), true);
+      if (data.mergeable === true) return "MERGEABLE";
+      if (data.mergeable === false) return "CONFLICTING";
+      return "UNKNOWN";
+    },
+
     async listOpenPullRequestNumbers() {
       const pulls = await paginateLimited("listOpenPullRequests", octokit.rest.pulls.list, {
         owner, repo, state: "open",

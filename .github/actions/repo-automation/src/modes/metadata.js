@@ -222,6 +222,7 @@ async function runMetadata({ event, github, config, dryRun }) {
   const reviews = await github.listPullRequestReviews(identity.prNumber);
   const requested = await github.listRequestedReviewers(identity.prNumber);
   const issueLabels = await github.listIssueLabels(identity.prNumber);
+  const mergeable = await github.getPullRequestMergeable(identity.prNumber);
   if (!Array.isArray(files) || !Array.isArray(commits) || !Array.isArray(reviews) || !Array.isArray(requested)) {
     throw new TypeError("GitHub list responses must be arrays");
   }
@@ -307,11 +308,17 @@ async function runMetadata({ event, github, config, dryRun }) {
     preserved: reviewerSelection.preserved.sort(),
   };
 
+  const currentNeedsRebase = issueLabels.some(
+    (label) => typeof label === "string" && label.toLowerCase() === "needs-rebase",
+  );
+  const needsRebase = mergeable === "CONFLICTING"
+    || (mergeable === "UNKNOWN" && currentNeedsRebase);
   const desiredLabels = [
     ...(title.valid ? [title.label] : []),
     ...(size === null ? [] : [size.label]),
     ...areas,
     ...(pullRequest.draft ? ["do-not-merge/work-in-progress"] : []),
+    ...(needsRebase ? ["needs-rebase"] : []),
   ];
   const labels = labelPlan(issueLabels, desiredLabels);
   const existingComment = await github.getPolicyComment(identity.prNumber, POLICY_COMMENT_MARKER);
