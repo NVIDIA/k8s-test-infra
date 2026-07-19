@@ -22,11 +22,13 @@ const CONCLUSIONS = new Set([
   "success",
   "timed_out",
 ]);
-const TRUSTED_WORKFLOW_PATHS = new Set([
-  ".github/workflows/automation-ci.yml",
-  ".github/workflows/basic-checks.yaml",
-  ".github/workflows/helm.yaml",
+const TRUSTED_WORKFLOW_EVENTS = new Map([
+  [".github/workflows/automation-ci.yml", new Set(["pull_request"])],
+  [".github/workflows/basic-checks.yaml", new Set(["pull_request"])],
+  [".github/workflows/ci.yaml", new Set(["push"])],
+  [".github/workflows/helm.yaml", new Set(["pull_request"])],
 ]);
+const TRUSTED_WORKFLOW_PATHS = new Set(TRUSTED_WORKFLOW_EVENTS.keys());
 const REPOSITORY = /^[a-z0-9](?:[a-z0-9.-]{0,99})\/[a-z0-9](?:[a-z0-9._-]{0,99})$/;
 
 function noRerun(reason, nextAllowedAt = null) {
@@ -201,7 +203,7 @@ function planRetest(input) {
       && run.status === "completed"
       && run.conclusion === "failure"
       && normalizedWorkflowIdentity(run)
-      && run.event === "pull_request"
+      && TRUSTED_WORKFLOW_EVENTS.get(run.workflowPath).has(run.event)
       && run.prNumber === input.prNumber
       && run.repository === input.repository
     ))

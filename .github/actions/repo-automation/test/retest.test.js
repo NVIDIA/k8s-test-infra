@@ -87,11 +87,14 @@ test("plans only fixed source-controlled pull-request CI for this repository and
       run(8, { repository: "attacker/fork" }),
       run(9, { workflowPath: ".github/workflows/../workflows/automation-ci.yml" }),
       run(10, { workflowPath: ".github/workflows/nvml-mock-publish.yaml" }),
+      run(11, { workflowPath: ".github/workflows/ci.yaml", event: "push" }),
+      run(12, { workflowPath: ".github/workflows/ci.yaml", event: "workflow_dispatch" }),
+      run(13, { workflowPath: ".github/workflows/automation-ci.yml", event: "push" }),
     ],
   }));
 
   assert.deepEqual(result, {
-    rerunRunIds: [1, 2, 3],
+    rerunRunIds: [1, 2, 3, 11],
     nextAllowedAt: null,
     reason: "rerun-failed",
   });
