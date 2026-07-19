@@ -976,7 +976,7 @@ test("GitHub client maps complete review/state authority and never retries rerun
     await assert.rejects(() => client.rerunFailedJobs(301), /rerunFailedJobs/);
     assert.equal(attempts, 1);
   });
-  await t.test("workflow runs are filtered by fixed path, safe ref, event, PR, head, and repository", async () => {
+  await t.test("workflow runs are filtered by fixed path, safe ref, rerunnable event, PR, head, and repository", async () => {
     const listWorkflowRunsForRepo = Object.assign(async () => ({ data: { workflow_runs: [
       apiRun(1),
       apiRun(2, { path: ".github/workflows/basic-checks.yaml@feature/ci" }),
@@ -1012,7 +1012,26 @@ test("GitHub client maps complete review/state authority and never retries rerun
         workflowPath: ".github/workflows/helm.yaml",
         workflowSourceRef: "refs/heads/main",
       }),
+      trustedRun(6, { event: "push" }),
       trustedRun(18, { workflowSourceRef: null }),
+    ]);
+  });
+  await t.test("push runs for a trusted push-only workflow survive normalization but workflow_dispatch does not", async () => {
+    const listWorkflowRunsForRepo = Object.assign(async () => ({ data: { workflow_runs: [
+      apiRun(20, { path: ".github/workflows/ci.yaml@main", event: "push" }),
+      apiRun(21, { path: ".github/workflows/ci.yaml@main", event: "workflow_dispatch" }),
+    ] } }), { endpointName: "listWorkflowRunsForRepo" });
+    const octokit = {
+      paginate: async (handler, parameters, map) => map(await handler(parameters)),
+      rest: { actions: { listWorkflowRunsForRepo } },
+    };
+    const client = createGitHubClient(octokit, "NVIDIA", "k8s-test-infra", { maxAttempts: 1 });
+    assert.deepEqual(await client.listWorkflowRunsForHead(headOid, 42), [
+      trustedRun(20, {
+        workflowPath: ".github/workflows/ci.yaml",
+        workflowSourceRef: "main",
+        event: "push",
+      }),
     ]);
   });
 });

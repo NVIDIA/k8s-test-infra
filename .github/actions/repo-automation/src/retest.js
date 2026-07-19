@@ -29,6 +29,7 @@ const TRUSTED_WORKFLOW_EVENTS = new Map([
   [".github/workflows/helm.yaml", new Set(["pull_request"])],
 ]);
 const TRUSTED_WORKFLOW_PATHS = new Set(TRUSTED_WORKFLOW_EVENTS.keys());
+const RERUNNABLE_EVENTS = new Set([...TRUSTED_WORKFLOW_EVENTS.values()].flatMap((events) => [...events]));
 const REPOSITORY = /^[a-z0-9](?:[a-z0-9.-]{0,99})\/[a-z0-9](?:[a-z0-9._-]{0,99})$/;
 
 function noRerun(reason, nextAllowedAt = null) {
@@ -214,4 +215,4 @@ function planRetest(input) {
     : { rerunRunIds, nextAllowedAt: null, reason: "rerun-failed" };
 }
 
-module.exports = { planRetest, trustedWorkflowIdentity };
+module.exports = { planRetest, trustedWorkflowIdentity, RERUNNABLE_EVENTS };

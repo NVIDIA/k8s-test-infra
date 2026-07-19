@@ -4,7 +4,7 @@ const { Buffer } = require("node:buffer");
 const { setTimeout: delay } = require("node:timers/promises");
 const { TextDecoder } = require("node:util");
 const { isManagedMetadataLabel, isManagedPolicyLabel } = require("./managed-labels.js");
-const { trustedWorkflowIdentity } = require("./retest.js");
+const { trustedWorkflowIdentity, RERUNNABLE_EVENTS } = require("./retest.js");
 
 const MAX_CONTENT_BYTES = 1024 * 1024;
 const TRANSIENT_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
@@ -202,7 +202,10 @@ function workflowRun(data, expected) {
     ).toLowerCase();
     if (
       workflow === null
-      || data.event !== "pull_request"
+      // Coarse fence: any event admitted by some workflow's trusted-event
+      // set in retest.js. planRetest remains the precise per-workflow
+      // authority (ci.yaml <-> push, automation-ci <-> pull_request, etc.).
+      || !RERUNNABLE_EVENTS.has(data.event)
       || !Array.isArray(data.pull_requests)
       || data.pull_requests.length !== 1
       || positiveInteger(data.pull_requests[0]?.number, "workflow run PR number") !== expected.prNumber
