@@ -329,13 +329,19 @@ if [ "$MOCK_IB_MODE" != "off" ] && [ -x /usr/local/bin/mock-ib ]; then
   if [ "${HCA_COUNT:-0}" -gt 0 ]; then
     idx=0
     while [ "$idx" -lt "$HCA_COUNT" ]; do
+      # mock-ib -render-only already staged these as placeholder regular files;
+      # mknod fails with EEXIST on an existing path, so remove the placeholder
+      # first — otherwise the node keeps a 0-byte regular file and NRI (which
+      # only injects real char devices) skips it.
       # Majors are mock values (231 = infiniband_verbs on real Linux; umad/issm
       # use a fixed mock major here since existence, not ioctl, is the contract).
+      rm -f "$IB_DEV/uverbs$idx" "$IB_DEV/umad$idx" "$IB_DEV/issm$idx"
       mknod -m 666 "$IB_DEV/uverbs$idx" c 231 "$idx" 2>/dev/null || true
       mknod -m 666 "$IB_DEV/umad$idx"   c 232 "$idx" 2>/dev/null || true
       mknod -m 666 "$IB_DEV/issm$idx"   c 232 "$((idx + 128))" 2>/dev/null || true
       idx=$((idx + 1))
     done
+    rm -f "$IB_DEV/rdma_cm"
     mknod -m 666 "$IB_DEV/rdma_cm" c 233 0 2>/dev/null || true
   fi
   if [ "$MOCK_IB_MODE" = "full" ]; then
