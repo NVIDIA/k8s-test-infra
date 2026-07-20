@@ -336,6 +336,7 @@ mkdir -p "$PCI_ROOT"
 if [ -x /usr/local/bin/render-pci-sysfs ]; then
   /usr/local/bin/render-pci-sysfs \
     --config /etc/nvml-mock/config.yaml \
+    --gpu-count "$GPU_COUNT" \
     --output "$PCI_ROOT"
 fi
 
