@@ -61,15 +61,15 @@ FORCE_RECREATE=true ./run.sh
 | `ib-agent` (plain pod) | Sees mock ConnectX-7 HCAs via `ibstat`/`ibv_devinfo` | NRI injects the mock IB sysfs + `LD_PRELOAD` shims into the pod |
 | Operator controller + NFD | Running | Standard controllers; no device dependency |
 | NFD node labels | No `pci-15b3.present` | NFD scans the node's real `/sys/bus/pci`; the mock devices exist only inside pods |
-| `rdma-shared-device-plugin` (after push) | Runs, advertises **no** `rdma/*` | The operator schedules it in its own namespace, which the demo excludes from NRI injection, so it reads the node's real (empty) host sysfs (and even if injected, a static Go binary's raw syscalls would bypass the `LD_PRELOAD`-simulated fabric) |
+| `rdma-shared-device-plugin` (after push) | **Crash-loops** at startup; advertises **no** `rdma/*` | Exits with `can not get RDMA subsystem network namespace mode` — it needs a real RDMA kernel subsystem (rdma netlink) that Kind's kernel does not expose, so it never reaches device enumeration (and it runs in the NRI-excluded operator namespace and is a static Go binary, so it would miss the pod-only mock anyway) |
 | OFED/DOCA driver | Not enabled | Builds kernel modules against the host kernel — unsupported on Kind |
 
 The takeaway: NRI node-wide injection makes the mock devices real **to
 libc-based userspace tools in injected pods**, but the Network Operator's
-node-level detection (NFD, which scans host PCI) and its own components (which
-run in the NRI-excluded operator namespace — and are static Go binaries that
-would bypass the glibc-level shims even if injected) operate outside that
-layer, so they do not see the mocks.
+node-level detection (NFD, which scans host PCI) and its device plugins/drivers
+(which need real kernel-level RDMA/driver support, run in the NRI-excluded
+operator namespace, and are static Go binaries) operate outside that layer, so
+they never see the mocks.
 
 ## NRI boundary (why the operator is excluded)
 

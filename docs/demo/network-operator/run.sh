@@ -10,8 +10,9 @@
 # This is an EXPLORATORY demo. The operator controller + NFD come up healthy,
 # but the RDMA/driver components stay blocked against the mocks because:
 #   - NFD scans the node's real /sys/bus/pci (mock devices exist only in pods);
-#   - the RDMA device plugin runs in the operator namespace, which this demo
-#     excludes from NRI injection, so it reads the node's real (empty) sysfs;
+#   - the RDMA shared device plugin crash-loops at startup ("can not get RDMA
+#     subsystem network namespace mode"): it needs a real RDMA kernel subsystem
+#     (rdma netlink) that Kind's kernel does not expose;
 #   - the OFED/DOCA driver builds kernel modules, unsupported on Kind.
 # The "push" phase manually applies the pci-15b3 NFD label + a NicClusterPolicy
 # to drive the operator further and shows exactly where it stops.
@@ -95,8 +96,10 @@ kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" rollout status daemonset/nvml-mock-nri -
 # --- Prove NRI node-wide injection of the mock IB stack ----------------------
 info "Deploying ib-agent (plain workload; mock RDMA comes from NRI)"
 kubectl_ctx -n "${WORKLOAD_NAMESPACE}" delete daemonset ib-agent --ignore-not-found
+# The ib-agent installs IB userspace tools at start; its readiness probe only
+# passes once they load the NRI-injected mock fabric, so allow generous time.
 kubectl_ctx -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/ib-agent.yaml"
-kubectl_ctx -n "${WORKLOAD_NAMESPACE}" rollout status daemonset/ib-agent --timeout=180s
+kubectl_ctx -n "${WORKLOAD_NAMESPACE}" rollout status daemonset/ib-agent --timeout=240s
 
 info "Verifying ib-agent requests no nvidia.com/gpu"
 IB_AGENT_RES=$(kubectl_ctx -n "${WORKLOAD_NAMESPACE}" get daemonset ib-agent -o jsonpath='{.spec.template.spec.containers[0].resources}' || true)
@@ -104,7 +107,7 @@ if grep -q "nvidia.com/gpu" <<<"${IB_AGENT_RES}"; then
   fail "ib-agent unexpectedly requests nvidia.com/gpu"
 fi
 
-kubectl_ctx -n "${WORKLOAD_NAMESPACE}" wait --for=condition=Ready pod -l app=ib-agent --timeout=180s
+kubectl_ctx -n "${WORKLOAD_NAMESPACE}" wait --for=condition=Ready pod -l app=ib-agent --timeout=240s
 IB_POD=$(kubectl_ctx -n "${WORKLOAD_NAMESPACE}" get pod -l app=ib-agent -o jsonpath='{.items[0].metadata.name}')
 info "Mock RDMA devices visible inside a plain pod (${IB_POD}) via NRI:"
 observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" exec "${IB_POD}" -- ibstat -l
@@ -172,10 +175,11 @@ cat <<EOF
     - NFD did not label nodes pci-15b3.present: it scans the node's real
       /sys/bus/pci, but the mock devices exist only inside pods.
     - After faking that label + applying a NicClusterPolicy, the
-      rdma-shared-device-plugin runs but advertises no rdma/* resources: it
-      runs in the NRI-excluded operator namespace, so it reads the node's
-      real (empty) host sysfs (the mock IB fabric is injected only into
-      workloads in non-excluded namespaces).
+      rdma-shared-device-plugin crash-loops at startup ("can not get RDMA
+      subsystem network namespace mode") and advertises no rdma/* resources:
+      it needs a real RDMA kernel subsystem (rdma netlink) that Kind does not
+      expose. It also runs in the NRI-excluded operator namespace and is a
+      static Go binary, so it would not see the pod-only mock fabric anyway.
     - The OFED/DOCA driver is intentionally not enabled: it builds kernel
       modules against the host kernel, which Kind cannot support.
 

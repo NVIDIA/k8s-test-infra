@@ -47,6 +47,16 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+          # Gate readiness on the IB tools being installed AND able to load the
+          # NRI-injected mock fabric. Without this the pod reports Ready the
+          # instant the shell starts — before `apt-get install` finishes — and
+          # any `kubectl exec ibstat` races the install and fails to load libs.
+          readinessProbe:
+            exec:
+              command: ["ibstat", "-l"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 36
           resources:
             requests:
               cpu: 10m

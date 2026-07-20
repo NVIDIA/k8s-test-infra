@@ -2,15 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Applied by run.sh during the "push" phase, after the pci-15b3 NFD label is
-# faked onto the workers. Enables only the RDMA shared device plugin: it is a
-# lightweight component that reads /sys/class/infiniband to advertise rdma/*
-# resources. On this cluster it runs but advertises NO resources: the operator
-# schedules it in its own namespace, which this demo excludes from NRI
-# injection, so it reads the node's real (empty) host sysfs. (Even in an
-# injected namespace it would miss the mock: the mock IB fabric is simulated at
-# the glibc layer via LD_PRELOAD, which a static Go binary's raw syscalls
-# bypass.) The OFED/DOCA driver is intentionally omitted: it builds kernel
-# modules, which Kind's shared kernel cannot support.
+# faked onto the workers. Enables only the RDMA shared device plugin: a
+# lightweight component that would read /sys/class/infiniband to advertise
+# rdma/* resources. On Kind it crash-loops at startup with "can not get RDMA
+# subsystem network namespace mode": it needs a real RDMA kernel subsystem
+# (rdma netlink) that Kind's kernel does not expose, so it never reaches device
+# enumeration. (It also runs in the NRI-excluded operator namespace and is a
+# static Go binary, so it would not see the pod-only mock fabric regardless.)
+# The OFED/DOCA driver is intentionally omitted: it builds kernel modules,
+# which Kind's shared kernel cannot support.
 #
 # repository/image/version below are the chart defaults for network-operator
 # v26.4.0 (image tag tracks the operator release; see run.sh notes).
