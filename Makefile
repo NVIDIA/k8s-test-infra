@@ -90,6 +90,36 @@ helm-unittest:
 generate:
 	go generate ./pkg/gpu/mocknvml/bridge/...
 
+KIND_NODE_IMAGE   ?= kind-node-nv:latest
+# Cluster profile (select via PROFILE=<name>):
+#   - PROFILE=default (default)  local/kind/default.kind.yaml        (1 CP + 2 workers labelled a100 / t4)
+#   - PROFILE=compute-domain     local/kind/compute-domain.kind.yaml (1 CP + 4 workers labelled clique 0 / 1)
+# Consumer selection (--gpu-operator / --dra / --fgo / --multi-gpu-profile)
+# happens in the Tiltfile — the default cluster shape supports every consumer
+# scenario without a rebuild.
+# compute-domain also changes the cluster name because topology.yaml
+# hardcodes worker names as <cluster-name>-worker[N] — see
+# local/compute-domain/topology.yaml and local/kind/compute-domain.kind.yaml.
+# Note: distinct from Tilt's --gpu-profile (a100|gb200|...) — this PROFILE
+# picks the Kind cluster topology; --gpu-profile picks the simulated GPU.
+PROFILE ?= default
+_VALID_PROFILES := default compute-domain
+ifeq ($(filter $(PROFILE),$(_VALID_PROFILES)),)
+$(error PROFILE=$(PROFILE) is not valid. Choose one of: $(_VALID_PROFILES))
+endif
+KIND_CLUSTER_NAME   ?= $(if $(filter compute-domain,$(PROFILE)),nvml-mock-compute-domain,gpu-test)
+KIND_CLUSTER_CONFIG ?= local/kind/$(PROFILE).kind.yaml
+
+.PHONY: image-kind-node cluster-create cluster-delete
+image-kind-node:
+	@docker build -t $(KIND_NODE_IMAGE) ./local/kind
+
+cluster-create: image-kind-node
+	@kind create cluster --name $(KIND_CLUSTER_NAME) --image $(KIND_NODE_IMAGE) --config $(KIND_CLUSTER_CONFIG)
+
+cluster-delete:
+	@kind delete cluster --name $(KIND_CLUSTER_NAME)
+
 # ---------------------------------------------------------------------------
 # Go end-to-end suite (tests/e2e) — the Go port of docs/demo/standalone/demo.sh.
 # One entrypoint for local + CI: the harness owns the full lifecycle (Kind

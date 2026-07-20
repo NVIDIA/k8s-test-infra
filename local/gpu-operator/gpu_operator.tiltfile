@@ -1,0 +1,30 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loadable Tiltfile: NVIDIA GPU Operator consumer.
+#
+# Exports:
+#   install(nvml_mock_releases) — install the Operator on top of nvml-mock.
+#
+# Requires the shared 'nvidia' helm_repo to be registered by the caller
+# (main Tiltfile) before install() is invoked.
+
+load('ext://helm_resource', 'helm_resource')
+
+def install(nvml_mock_releases):
+    # local/gpu-operator/gpu-operator.values.yaml disables driver/toolkit/DCGM
+    # (not needed with nvml-mock) and enables CDI mode so the Operator reads
+    # /var/run/cdi/nvidia.yaml written by the nvml-mock DaemonSet.
+
+    helm_resource(
+        'gpu-operator',
+        'nvidia/gpu-operator',
+        namespace='gpu-operator',
+        flags=[
+            '--create-namespace',
+            '--values', 'local/gpu-operator/gpu-operator.values.yaml',
+            '--timeout', '300s',
+        ],
+        resource_deps=nvml_mock_releases,
+        labels=['gpu-operator'],
+    )

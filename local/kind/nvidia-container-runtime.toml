@@ -1,0 +1,9 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+[nvidia-container-runtime]
+mode = "cdi"
+
+[nvidia-container-runtime.modes.cdi]
+default-kind = "nvidia.com/gpu"
+spec-dirs = ["/var/run/cdi", "/etc/cdi"]

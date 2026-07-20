@@ -1,0 +1,160 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loadable Tiltfile for the compute-domain scenario.
+#
+# Scenario, not consumer: compute-domain reconfigures the nvml-mock stack
+# itself (image overlay, gb200 profile, topology ConfigMap, 4-worker
+# cluster) rather than sitting on top of it. So it exports build/install
+# the way local/nvml_mock.tiltfile does — the root Tiltfile calls
+# compute_domain.install() as the BASE install path when --compute-domain
+# is set, replacing the install_single()/install_fleet() calls.
+#
+# Ports docs/demo/compute-domain/run.sh Scenario 1 (per-node fabric
+# identity) and Scenario 3 (topology rebind) as auto_init=False
+# local_resource triggers. Scenario 2 (real IMEX daemon coordination)
+# stays in run.sh — stateful multi-pod state machine that doesn't fit
+# Tilt's model.
+#
+# Exports:
+#   build_images(with_dra) — build 2 images (or 3 if with_dra).
+#   install(active_consumers) — install one nvml-mock helm release
+#     with the topology overlay + scenario triggers. Returns ['nvml-mock'].
+#
+# All side effects inside functions so load()ing this file is a pure import.
+
+load('ext://helm_resource', 'helm_resource')
+
+_BASE_IMAGE         = 'nvml-mock:compute-domain'
+_DEMO_IMAGE         = 'nvml-mock:compute-domain-imex'
+# Exported (no leading underscore): the root Tiltfile loads this so it
+# can pass image_deps=[DAEMON_IMAGE] into dra_install() when composing
+# --compute-domain --dra. That both drives Tilt's build of this image
+# and pins the DRA chart's image.repository/tag to it via image_keys.
+DAEMON_IMAGE        = 'nvml-mock:compute-domain-daemon'
+_CHART              = 'deployments/nvml-mock/helm/nvml-mock'
+_MOCK_DOCKERFILE    = 'deployments/nvml-mock/Dockerfile'
+_OVERLAY_DOCKERFILE = 'deployments/nvml-mock/Dockerfile.compute-domain-daemon'
+
+
+def build_images(with_dra):
+    """Build the compute-domain image trio.
+
+    Always builds the nvml-mock base image and the demo overlay (real
+    nvidia-imex + shim on top of the mock). When with_dra is True, also
+    builds the daemon overlay (real nvidia-imex + shim on top of the
+    upstream compute-domain-daemon image) that dra-driver.values.yaml
+    pins the DRA chart image to.
+    """
+    # Base nvml-mock image. Locally tagged (nvml-mock:compute-domain)
+    # rather than the ghcr.io ref used by local/nvml_mock.tiltfile — the
+    # demo overlay's NVML_MOCK_IMAGE build-arg targets this exact ref.
+    docker_build(
+        _BASE_IMAGE,
+        context='.',
+        dockerfile=_MOCK_DOCKERFILE,
+        only=[
+            'go.mod',
+            'go.sum',
+            'vendor/',
+            'cmd/',
+            'pkg/',
+            'deployments/nvml-mock/',
+        ],
+    )
+
+    # Demo overlay: real nvidia-imex + imex-nogpu-shim on top of the
+    # mock. Powers the nvml-mock DaemonSet pods (image_keys pin below)
+    # so kubectl exec workflows (check-fabric, IMEX daemon start/kill)
+    # find the real binaries at their canonical paths.
+    docker_build(
+        _DEMO_IMAGE,
+        context='.',
+        dockerfile=_OVERLAY_DOCKERFILE,
+        target='demo',
+        build_args={'NVML_MOCK_IMAGE': _BASE_IMAGE},
+        only=[
+            'go.mod',
+            'go.sum',
+            'vendor/',
+            'cmd/imex-nogpu-shim/',
+        ],
+    )
+
+    if with_dra:
+        # Daemon overlay: real nvidia-imex + imex-nogpu-shim on top of
+        # the upstream DRA compute-domain-daemon image. Pinned by
+        # local/compute-domain/dra-driver.values.yaml so the DRA
+        # driver's compute-domain-daemon pods run the shim'd real IMEX
+        # in NO-GPU mode instead of the GPU-required upstream binary.
+        # The Dockerfile's last stage is unnamed, so target= is omitted;
+        # docker builds the last stage by default.
+        docker_build(
+            DAEMON_IMAGE,
+            context='.',
+            dockerfile=_OVERLAY_DOCKERFILE,
+            only=[
+                'go.mod',
+                'go.sum',
+                'vendor/',
+                'cmd/imex-nogpu-shim/',
+            ],
+        )
+
+
+def install(active_consumers):
+    """Install the nvml-mock helm release with the compute-domain topology.
+
+    Returns ['nvml-mock'] so downstream consumers (dra, gpu-operator)
+    can pass it as resource_deps.
+    """
+    # Order matters: topology.yaml supplies the domains structure,
+    # nvml-mock.values.yaml layers profile/rollout overrides on top,
+    # per-consumer overlays get last say. Image ref is injected by Tilt
+    # via image_keys below — not passed as a --values flag.
+    # terminationGracePeriodSeconds is set here (not in the values file)
+    # so the "local-dev rollout speedup" reason lives next to the same
+    # setting in local/nvml_mock.tiltfile — one place, one rationale.
+    flags = [
+        '--values', 'local/compute-domain/topology.yaml',
+        '--values', 'local/compute-domain/nvml-mock.values.yaml',
+        '--set', 'terminationGracePeriodSeconds=1',
+    ]
+    # Optional per-consumer overlays. Consumers with no mock-side needs
+    # don't create the file, and this loop skips them.
+    for consumer in active_consumers:
+        overlay = 'local/' + consumer + '/nvml-mock.values.yaml'
+        if os.path.exists(overlay):
+            flags += ['--values', overlay]
+
+    helm_resource(
+        'nvml-mock',
+        _CHART,
+        image_deps=[_DEMO_IMAGE],
+        image_keys=[('image.repository', 'image.tag')],
+        flags=flags,
+    )
+
+    # Scenario 1: per-node fabric identity via check-fabric. Manually
+    # triggered — hitting the button asserts the topology overlay
+    # rendered the expected cliqueId / clusterUuid / state on each node.
+    local_resource(
+        'check-fabric',
+        cmd='bash local/compute-domain/scenarios/check-fabric.sh',
+        resource_deps=['nvml-mock'],
+        auto_init=False,
+        labels=['compute-domain-tests'],
+    )
+
+    # Scenario 3: helm upgrade --reuse-values -f rebind.topology.yaml,
+    # evict DaemonSet pods so mock NVML re-reads MOCK_TOPOLOGY_CONFIG,
+    # re-assert new clique/UUID on every worker.
+    local_resource(
+        'topology-rebind',
+        cmd='bash local/compute-domain/scenarios/topology-rebind.sh',
+        resource_deps=['nvml-mock'],
+        auto_init=False,
+        labels=['compute-domain-tests'],
+    )
+
+    return ['nvml-mock']

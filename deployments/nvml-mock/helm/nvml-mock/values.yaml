@@ -99,7 +99,7 @@ updateStrategy:
 # Pod termination grace period. preStop cleanup is a few rm -rf
 # calls plus kubectl label requests, so the upstream 30s default
 # is overkill and slows rollouts.
-terminationGracePeriodSeconds: 10
+terminationGracePeriodSeconds: 2
 
 # ComputeDomain (NVLink fabric) simulation. Opt-in: when `topology.enabled`
 # is true a cluster-level ConfigMap declaring domain UUID + per-clique node

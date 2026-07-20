@@ -1,0 +1,20 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# DRA driver values overlay layered on top of local/dra/dra-driver.values.yaml
+# when both --compute-domain and --dra are set.
+#
+# Flips resources.computeDomains.enabled=true so the DRA driver deploys
+# its ComputeDomain controller + compute-domain-daemon pods against
+# nvml-mock's simulated fabric. Default is off (see
+# local/dra/dra-driver.values.yaml) because single-node dev doesn't
+# need it.
+#
+# image.repository/tag are NOT set here — Tilt injects them via
+# image_keys=[('image.repository', 'image.tag')] in the root Tiltfile
+# when compute-domain is composed, pointing at the locally-built
+# nvml-mock:compute-domain-daemon overlay. Setting them here too would
+# race with Tilt's injection and defeat the automatic rebuild wiring.
+resources:
+  computeDomains:
+    enabled: true
