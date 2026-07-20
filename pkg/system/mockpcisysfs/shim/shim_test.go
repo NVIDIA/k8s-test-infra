@@ -118,8 +118,8 @@ func TestFortifiedOpenPCIRedirect(t *testing.T) {
 	// Helper: open(argv[2], flags=atoi(argv[1])) — the runtime flags value
 	// forces the compiler to emit __open_2 under _FORTIFY_SOURCE. It prints
 	// the first byte of config as a decimal so the test can assert 0xde.
-	src := filepath.Join(t.TempDir(), "fortopen.c")
-	const prog = `#include <fcntl.h>
+	// -O2 + _FORTIFY_SOURCE are required for the fortified rewrite to happen.
+	bin := compileCHelper(t, cc, `#include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -132,13 +132,7 @@ int main(int argc, char **argv) {
     printf("%d\n", b);
     return 0;
 }
-`
-	require.NoError(t, os.WriteFile(src, []byte(prog), 0o644))
-	bin := filepath.Join(t.TempDir(), "fortopen")
-	// -O2 is required for _FORTIFY_SOURCE to take effect.
-	build := exec.Command(cc, "-O2", "-D_FORTIFY_SOURCE=2", "-o", bin, src)
-	buildOut, buildErr := build.CombinedOutput()
-	require.NoError(t, buildErr, "compile helper: %s", buildOut)
+`, "-O2", "-D_FORTIFY_SOURCE=2")
 
 	cmd := exec.Command(bin, "0", "/sys/bus/pci/devices/0000:07:00.0/config") // flags 0 == O_RDONLY
 	cmd.Env = append(os.Environ(),
@@ -148,6 +142,77 @@ int main(int argc, char **argv) {
 	out, runErr := cmd.CombinedOutput()
 	require.NoError(t, runErr, "fortified open failed (config not redirected): %s", out)
 	require.Equal(t, "222\n", string(out), "config[0] should be 0xde (222) from the mock tree")
+}
+
+// TestFopenPCIRedirect guards the fopen hook. libpci reads a device's
+// `resource` file via fopen() (used by `lspci -v`), and glibc's fopen goes
+// straight to an internal, non-interposable open — so without a dedicated
+// fopen interposer the read escapes redirection and hits the real host path.
+// Go never calls fopen, so this needs a small C consumer.
+func TestFopenPCIRedirect(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires linux")
+	}
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	shim := filepath.Join(wd, "..", "libpcimocksys.so")
+	if _, statErr := os.Stat(shim); statErr != nil {
+		t.Skipf("shim not built: %v (run make -C pkg/system/mockpcisysfs)", statErr)
+	}
+	cc, lookErr := exec.LookPath("cc")
+	if lookErr != nil {
+		t.Skipf("cc not available: %v", lookErr)
+	}
+
+	root := t.TempDir()
+	topo := &config.PCIeTopology{
+		RootComplexes: []config.RootComplex{{
+			ID: "pci0000:00", NUMANode: 0,
+			Devices: []string{"0000:07:00.0"},
+		}},
+	}
+	// device_id 0x233010DE -> vendor 0x10de, so config[0] == 0xde (222).
+	ids := map[string]config.PCI{
+		"0000:07:00.0": {BusID: "0000:07:00.0", DeviceID: 0x233010DE},
+	}
+	require.NoError(t, render.Render(render.Options{Topology: topo, Identities: ids, Output: root}))
+
+	bin := compileCHelper(t, cc, `#include <stdio.h>
+int main(int argc, char **argv) {
+    FILE *f = fopen(argv[1], "rb");
+    if (!f) { perror("fopen"); return 1; }
+    int c = fgetc(f);
+    if (c == EOF) return 2;
+    printf("%d\n", c);
+    return 0;
+}
+`, "-O2")
+
+	cmd := exec.Command(bin, "/sys/bus/pci/devices/0000:07:00.0/config")
+	cmd.Env = append(os.Environ(),
+		"LD_PRELOAD="+shim,
+		"MOCK_PCI_ROOT="+root,
+	)
+	out, runErr := cmd.CombinedOutput()
+	require.NoError(t, runErr, "fopen failed (config not redirected): %s", out)
+	require.Equal(t, "222\n", string(out), "config[0] should be 0xde (222) via the fopen hook")
+}
+
+// compileCHelper compiles a small C program with the given extra cc flags and
+// returns the built binary path. It centralizes the cc invocation shared by
+// the shim's runtime-behavior tests, which need a real C consumer to exercise
+// libc symbols (fortified open, fopen) that Go never calls directly.
+func compileCHelper(t *testing.T, cc, src string, extraFlags ...string) string {
+	t.Helper()
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "helper.c")
+	require.NoError(t, os.WriteFile(srcPath, []byte(src), 0o644))
+	bin := filepath.Join(dir, "helper")
+	args := append([]string{}, extraFlags...)
+	args = append(args, "-o", bin, srcPath)
+	out, err := exec.Command(cc, args...).CombinedOutput()
+	require.NoError(t, err, "compile helper: %s", out)
+	return bin
 }
 
 // TestRewriteOverflowFailsClosed asserts that when MOCK_PCI_ROOT is so long
