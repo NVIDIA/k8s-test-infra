@@ -16,53 +16,40 @@ package mockctl
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
 func TestParseSet_TypesAndNesting(t *testing.T) {
 	m, err := ParseSet([]string{"ecc.mode_current=disabled", "failure.after_calls=1", "failure.mode=lost"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ecc := m["ecc"].(map[string]any)
-	if ecc["mode_current"] != "disabled" {
-		t.Fatalf("bad ecc: %v", ecc)
-	}
+	require.Equal(t, "disabled", ecc["mode_current"])
 	fail := m["failure"].(map[string]any)
-	if fail["after_calls"] != float64(1) && fail["after_calls"] != 1 {
-		t.Fatalf("after_calls should parse numeric: %#v", fail["after_calls"])
-	}
+	require.Contains(t, []any{float64(1), 1}, fail["after_calls"], "after_calls should parse numeric")
 }
 
 func TestDocFail_SetsFailureForIndex(t *testing.T) {
 	d := &Doc{}
-	if err := d.Fail(Target{Index: 2}, "ecc_uncorrectable", 1, 79); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, d.Fail(Target{Index: 2}, "ecc_uncorrectable", 1, 79))
 	f := d.Devices["2"]["failure"].(map[string]any)
-	if f["mode"] != "ecc_uncorrectable" {
-		t.Fatalf("mode not set: %v", f)
-	}
+	require.Equal(t, "ecc_uncorrectable", f["mode"])
 }
 
 func TestDocFail_RejectsBadMode(t *testing.T) {
-	if err := (&Doc{}).Fail(Target{All: true}, "banana", 0, 0); err == nil {
-		t.Fatal("expected invalid mode error")
-	}
+	require.Error(t, (&Doc{}).Fail(Target{All: true}, "banana", 0, 0), "expected invalid mode error")
 }
 
 func TestReset_All(t *testing.T) {
 	d := &Doc{All: map[string]any{"x": 1}, Devices: map[string]map[string]any{"0": {"y": 2}}}
 	d.Reset(Target{All: true})
-	if d.All != nil || len(d.Devices) != 0 {
-		t.Fatalf("reset all should clear everything: %+v", d)
-	}
+	require.Nil(t, d.All)
+	require.Empty(t, d.Devices)
 }
 
 func TestValidate_RejectsUnknownField(t *testing.T) {
-	if err := Validate(&engine.DeviceConfig{}, map[string]any{"nope": 1}); err == nil {
-		t.Fatal("expected validation error")
-	}
+	require.Error(t, Validate(&engine.DeviceConfig{}, map[string]any{"nope": 1}), "expected validation error")
 }
 
 func TestTemperaturePatch_MergesStaticAndDynamic(t *testing.T) {
@@ -73,24 +60,16 @@ func TestTemperaturePatch_MergesStaticAndDynamic(t *testing.T) {
 		},
 	}
 	patch := TemperaturePatch(85)
-	if err := Validate(base, patch); err != nil {
-		t.Fatalf("validate: %v", err)
-	}
+	require.NoError(t, Validate(base, patch))
 	merged, err := engine.MergeDeviceConfig(base, patch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if merged.Thermal.TemperatureGPU_C != 85 {
-		t.Fatalf("static temp = %d, want 85", merged.Thermal.TemperatureGPU_C)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 85, merged.Thermal.TemperatureGPU_C)
 	// Shutdown threshold from the base must survive the merge.
-	if merged.Thermal.ShutdownThreshold_C != 95 {
-		t.Fatalf("shutdown threshold = %d, want 95 (base preserved)", merged.Thermal.ShutdownThreshold_C)
-	}
+	require.Equal(t, 95, merged.Thermal.ShutdownThreshold_C, "base shutdown threshold preserved")
 	dt := merged.DynamicMetrics.Temperature
-	if dt.BaseC != 85 || dt.RampC != 0 || dt.VarianceC != 0 {
-		t.Fatalf("dynamic temp = %+v, want base_c=85 ramp_c=0 variance_c=0", dt)
-	}
+	require.Equal(t, 85, dt.BaseC)
+	require.Zero(t, dt.RampC)
+	require.Zero(t, dt.VarianceC)
 }
 
 func TestPowerPatch_MergesStaticAndDynamic(t *testing.T) {
@@ -101,52 +80,32 @@ func TestPowerPatch_MergesStaticAndDynamic(t *testing.T) {
 		},
 	}
 	patch := PowerPatch(350000)
-	if err := Validate(base, patch); err != nil {
-		t.Fatalf("validate: %v", err)
-	}
+	require.NoError(t, Validate(base, patch))
 	merged, err := engine.MergeDeviceConfig(base, patch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if merged.Power.CurrentDrawMW != 350000 {
-		t.Fatalf("static draw = %d, want 350000", merged.Power.CurrentDrawMW)
-	}
-	if merged.Power.MaxLimitMW != 700000 {
-		t.Fatalf("max limit = %d, want 700000 (base preserved)", merged.Power.MaxLimitMW)
-	}
+	require.NoError(t, err)
+	require.Equal(t, uint32(350000), merged.Power.CurrentDrawMW)
+	require.Equal(t, uint32(700000), merged.Power.MaxLimitMW, "base max limit preserved")
 	dp := merged.DynamicMetrics.Power
-	if dp.BaseMW != 350000 || dp.VarianceMW != 0 {
-		t.Fatalf("dynamic power = %+v, want base_mw=350000 variance_mw=0", dp)
-	}
+	require.Equal(t, uint32(350000), dp.BaseMW)
+	require.Zero(t, dp.VarianceMW)
 }
 
 func TestFanPatch_ForcesCountAndStringSpeed(t *testing.T) {
 	// Liquid-cooled base (count 0) must be forced to a visible fan.
 	patch := FanPatch(60, 0)
 	fan := patch["fan"].(map[string]any)
-	if fan["count"] != 1 {
-		t.Fatalf("count = %v, want 1 (forced from 0)", fan["count"])
-	}
-	if fan["speed_percent"] != "60" {
-		t.Fatalf("speed_percent = %#v, want string \"60\"", fan["speed_percent"])
-	}
+	require.Equal(t, 1, fan["count"], "count forced from 0")
+	require.Equal(t, "60", fan["speed_percent"])
 
 	// A larger baseline fan count is preserved.
-	if got := FanPatch(30, 3)["fan"].(map[string]any)["count"]; got != 3 {
-		t.Fatalf("count = %v, want 3 (baseline preserved)", got)
-	}
+	require.Equal(t, 3, FanPatch(30, 3)["fan"].(map[string]any)["count"], "baseline count preserved")
 
 	base := &engine.DeviceConfig{Fan: &engine.FanConfig{Count: 0, SpeedPercent: "N/A"}}
-	if err := Validate(base, patch); err != nil {
-		t.Fatalf("validate: %v", err)
-	}
+	require.NoError(t, Validate(base, patch))
 	merged, err := engine.MergeDeviceConfig(base, patch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if merged.Fan.Count != 1 || merged.Fan.SpeedPercent != "60" {
-		t.Fatalf("merged fan = %+v, want count=1 speed_percent=60", merged.Fan)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 1, merged.Fan.Count)
+	require.Equal(t, "60", merged.Fan.SpeedPercent)
 }
 
 func TestUtilizationPatch_PinsStaticAndDisablesDynamic(t *testing.T) {
@@ -157,19 +116,12 @@ func TestUtilizationPatch_PinsStaticAndDisablesDynamic(t *testing.T) {
 		},
 	}
 	patch := UtilizationPatch(90)
-	if err := Validate(base, patch); err != nil {
-		t.Fatalf("validate: %v", err)
-	}
+	require.NoError(t, Validate(base, patch))
 	merged, err := engine.MergeDeviceConfig(base, patch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if merged.Utilization.GPU != 90 || merged.Utilization.Memory != 90 {
-		t.Fatalf("static util = %+v, want gpu=90 memory=90", merged.Utilization)
-	}
-	if merged.DynamicMetrics.Utilization != nil {
-		t.Fatalf("dynamic utilization should be disabled (nil), got %+v", merged.DynamicMetrics.Utilization)
-	}
+	require.NoError(t, err)
+	require.Equal(t, uint32(90), merged.Utilization.GPU)
+	require.Equal(t, uint32(90), merged.Utilization.Memory)
+	require.Nil(t, merged.DynamicMetrics.Utilization, "dynamic utilization should be disabled")
 }
 
 func TestUtilizationPatch_ZeroIsDeterministic(t *testing.T) {
@@ -181,13 +133,9 @@ func TestUtilizationPatch_ZeroIsDeterministic(t *testing.T) {
 		},
 	}
 	merged, err := engine.MergeDeviceConfig(base, UtilizationPatch(0))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if merged.Utilization.GPU != 0 || merged.DynamicMetrics.Utilization != nil {
-		t.Fatalf("util 0 = %+v (dyn util %+v), want static gpu=0 and nil dynamic util",
-			merged.Utilization, merged.DynamicMetrics.Utilization)
-	}
+	require.NoError(t, err)
+	require.Zero(t, merged.Utilization.GPU)
+	require.Nil(t, merged.DynamicMetrics.Utilization)
 }
 
 func TestClocksPatch_PinsSMAndGraphics(t *testing.T) {
@@ -195,87 +143,55 @@ func TestClocksPatch_PinsSMAndGraphics(t *testing.T) {
 		Clocks: &engine.ClocksConfig{GraphicsCurrent: 300, SMCurrent: 300, MemoryCurrent: 1200},
 	}
 	patch := ClocksPatch(1980)
-	if err := Validate(base, patch); err != nil {
-		t.Fatalf("validate: %v", err)
-	}
+	require.NoError(t, Validate(base, patch))
 	merged, err := engine.MergeDeviceConfig(base, patch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if merged.Clocks.GraphicsCurrent != 1980 || merged.Clocks.SMCurrent != 1980 {
-		t.Fatalf("clocks = %+v, want graphics/sm = 1980", merged.Clocks)
-	}
-	if merged.Clocks.MemoryCurrent != 1200 {
-		t.Fatalf("memory clock = %d, want 1200 (base preserved)", merged.Clocks.MemoryCurrent)
-	}
+	require.NoError(t, err)
+	require.Equal(t, uint32(1980), merged.Clocks.GraphicsCurrent)
+	require.Equal(t, uint32(1980), merged.Clocks.SMCurrent)
+	require.Equal(t, uint32(1200), merged.Clocks.MemoryCurrent, "base memory clock preserved")
 }
 
 func TestPStatePatch_FormatsPState(t *testing.T) {
 	patch := PStatePatch(8)
-	if patch["performance_state"] != "P8" {
-		t.Fatalf("performance_state = %#v, want \"P8\"", patch["performance_state"])
-	}
+	require.Equal(t, "P8", patch["performance_state"])
 	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, PStatePatch(12))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if merged.PerformanceState != "P12" {
-		t.Fatalf("performance_state = %q, want P12", merged.PerformanceState)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "P12", merged.PerformanceState)
 }
 
 func TestThrottlePatch_AuthoritativeFlags(t *testing.T) {
 	patch, err := ThrottlePatch([]string{"thermal"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	base := &engine.DeviceConfig{
 		ClocksThrottleReasons: &engine.ClocksThrottleReasonsConfig{SWPowerCap: true},
 	}
-	if err := Validate(base, patch); err != nil {
-		t.Fatalf("validate: %v", err)
-	}
+	require.NoError(t, Validate(base, patch))
 	merged, err := engine.MergeDeviceConfig(base, patch)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	ctr := merged.ClocksThrottleReasons
-	if !ctr.HWThermalSlowdown {
-		t.Fatalf("hw_thermal_slowdown should be true: %+v", ctr)
-	}
+	require.True(t, ctr.HWThermalSlowdown, "hw_thermal_slowdown should be true")
 	// Authoritative: a previously-set reason must be cleared.
-	if ctr.SWPowerCap {
-		t.Fatalf("sw_power_cap should be cleared by authoritative patch: %+v", ctr)
-	}
+	require.False(t, ctr.SWPowerCap, "sw_power_cap should be cleared by authoritative patch")
 }
 
 func TestThrottlePatch_NoneClearsAll(t *testing.T) {
 	patch, err := ThrottlePatch([]string{"none"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	merged, err := engine.MergeDeviceConfig(
 		&engine.DeviceConfig{ClocksThrottleReasons: &engine.ClocksThrottleReasonsConfig{HWSlowdown: true}},
 		patch,
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if merged.ClocksThrottleReasons.HWSlowdown {
-		t.Fatalf("none should clear all reasons: %+v", merged.ClocksThrottleReasons)
-	}
+	require.NoError(t, err)
+	require.False(t, merged.ClocksThrottleReasons.HWSlowdown, "none should clear all reasons")
 }
 
 func TestThrottlePatch_Errors(t *testing.T) {
-	if _, err := ThrottlePatch(nil); err == nil {
-		t.Fatal("expected error for no reasons")
-	}
-	if _, err := ThrottlePatch([]string{"banana"}); err == nil {
-		t.Fatal("expected error for unknown reason")
-	}
-	if _, err := ThrottlePatch([]string{"none", "thermal"}); err == nil {
-		t.Fatal("expected error combining none with other reasons")
-	}
+	_, err := ThrottlePatch(nil)
+	require.Error(t, err, "expected error for no reasons")
+	_, err = ThrottlePatch([]string{"banana"})
+	require.Error(t, err, "expected error for unknown reason")
+	_, err = ThrottlePatch([]string{"none", "thermal"})
+	require.Error(t, err, "expected error combining none with other reasons")
 }
 
 func TestResolveTarget_UUID(t *testing.T) {
@@ -283,7 +199,6 @@ func TestResolveTarget_UUID(t *testing.T) {
 		Devices: []engine.DeviceOverride{{Index: 3, UUID: "GPU-abc"}},
 	}}
 	tg, err := ResolveTarget("GPU-abc", cfg)
-	if err != nil || tg.Index != 3 {
-		t.Fatalf("uuid resolve failed: %+v %v", tg, err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 3, tg.Index)
 }
