@@ -10,7 +10,7 @@
 # and "Configure toolkit for CDI mode" steps).
 #
 # Build and create a cluster:
-#   make cluster-create SCENARIO=gpu-operator
+#   make cluster-create
 
 ARG KIND_NODE_VERSION=v1.35.0
 FROM kindest/node:${KIND_NODE_VERSION}

@@ -6,7 +6,7 @@
 # Usage:
 #   helm install gpu-operator nvidia/gpu-operator \
 #     -n gpu-operator --create-namespace \
-#     -f tests/e2e/gpu-operator.values.yaml
+#     -f tests/e2e/gpu-operator-values.yaml
 #
 # Prerequisites:
 #   - nvml-mock Helm chart already installed (provides mock NVML + CUDA libs)

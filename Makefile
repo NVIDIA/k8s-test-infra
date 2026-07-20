@@ -110,7 +110,7 @@ endif
 KIND_CLUSTER_NAME   ?= $(if $(filter compute-domain,$(PROFILE)),nvml-mock-compute-domain,gpu-test)
 KIND_CLUSTER_CONFIG ?= local/kind/$(PROFILE).kind.yaml
 
-.PHONY: kind-node-image cluster-create cluster-delete
+.PHONY: image-kind-node cluster-create cluster-delete
 image-kind-node:
 	@docker build -t $(KIND_NODE_IMAGE) ./local/kind
 

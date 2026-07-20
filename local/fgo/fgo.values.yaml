@@ -1,3 +1,6 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
 # FGO topology matching the default cluster workers.
 # integration: real worker (a100) — nvml-mock provides the NVML shim.
 # scale:       real worker (t4)   — FGO fake backend, no nvml-mock required.

@@ -4,11 +4,11 @@
 # Loadable Tiltfile for the nvml-mock stack.
 #
 # Exports:
-#   FLEET_PROFILES     — list[str], GPU profiles that make up the per-profile fleet.
-#   build_image()      — build the ghcr.io/nvidia/nvml-mock image.
-#   install_single()   — install one nvml-mock Helm release. Returns list[str] of Tilt resource names.
-#   install_fleet()    — install one nvml-mock release per profile, node-pinned via
-#                        nodeSelector.nvml-mock/profile=<p>. Returns list[str].
+#   FLEET_PROFILES                — list[str], GPU profiles that make up the per-profile fleet.
+#   build_nvml_mock_image()       — build the ghcr.io/nvidia/nvml-mock image.
+#   install_single()              — install one nvml-mock Helm release. Returns list[str] of Tilt resource names.
+#   install_fleet()               — install one nvml-mock release per profile, node-pinned via
+#                                   nodeSelector.nvml-mock/profile=<p>. Returns list[str].
 #
 # All side effects (docker_build / helm_resource) are inside functions so
 # `load()`ing this file is a pure import; the orchestrator controls order.
