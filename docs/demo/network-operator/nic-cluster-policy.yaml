@@ -4,11 +4,13 @@
 # Applied by run.sh during the "push" phase, after the pci-15b3 NFD label is
 # faked onto the workers. Enables only the RDMA shared device plugin: it is a
 # lightweight component that reads /sys/class/infiniband to advertise rdma/*
-# resources. On this cluster it runs but advertises ZERO resources, because it
-# is a static Go binary that makes raw syscalls and therefore bypasses the
-# nvml-mock LD_PRELOAD sysfs redirect (it reads the node's empty host sysfs).
-# The OFED/DOCA driver is intentionally omitted: it builds kernel modules,
-# which Kind's shared kernel cannot support.
+# resources. On this cluster it runs but advertises NO resources: the operator
+# schedules it in its own namespace, which this demo excludes from NRI
+# injection, so it reads the node's real (empty) host sysfs. (Even in an
+# injected namespace it would miss the mock: the mock IB fabric is simulated at
+# the glibc layer via LD_PRELOAD, which a static Go binary's raw syscalls
+# bypass.) The OFED/DOCA driver is intentionally omitted: it builds kernel
+# modules, which Kind's shared kernel cannot support.
 #
 # repository/image/version below are the chart defaults for network-operator
 # v26.4.0 (image tag tracks the operator release; see run.sh notes).

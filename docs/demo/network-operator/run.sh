@@ -10,7 +10,8 @@
 # This is an EXPLORATORY demo. The operator controller + NFD come up healthy,
 # but the RDMA/driver components stay blocked against the mocks because:
 #   - NFD scans the node's real /sys/bus/pci (mock devices exist only in pods);
-#   - the RDMA device plugin is a static Go binary that bypasses LD_PRELOAD;
+#   - the RDMA device plugin runs in the operator namespace, which this demo
+#     excludes from NRI injection, so it reads the node's real (empty) sysfs;
 #   - the OFED/DOCA driver builds kernel modules, unsupported on Kind.
 # The "push" phase manually applies the pci-15b3 NFD label + a NicClusterPolicy
 # to drive the operator further and shows exactly where it stops.
@@ -171,9 +172,10 @@ cat <<EOF
     - NFD did not label nodes pci-15b3.present: it scans the node's real
       /sys/bus/pci, but the mock devices exist only inside pods.
     - After faking that label + applying a NicClusterPolicy, the
-      rdma-shared-device-plugin runs but advertises 0 rdma/* resources: it is
-      a static Go binary that reads host sysfs directly, bypassing the
-      nvml-mock LD_PRELOAD shim.
+      rdma-shared-device-plugin runs but advertises no rdma/* resources: it
+      runs in the NRI-excluded operator namespace, so it reads the node's
+      real (empty) host sysfs (the mock IB fabric is injected only into
+      workloads in non-excluded namespaces).
     - The OFED/DOCA driver is intentionally not enabled: it builds kernel
       modules against the host kernel, which Kind cannot support.
 
