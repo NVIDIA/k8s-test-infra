@@ -1,0 +1,29 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Tilt dev-loop copy of docs/demo/compute-domain/topology.yaml. Kept in
+# lockstep with the source so the demo script and the Tilt scenario
+# render the same topology ConfigMap; edit both together.
+#
+# Node names are Kind-derived from the cluster name. This file assumes
+# cluster `nvml-mock-compute-domain` (see local/kind/compute-domain.kind.yaml).
+# Renaming the cluster requires updating the node lists here in lockstep.
+#
+# Layout:
+#   domain "demo-domain"
+#     clique 0: -worker, -worker2
+#     clique 1: -worker3, -worker4
+topology:
+  enabled: true
+  domains:
+    - name: demo-domain
+      uuid: "00000000-0000-0000-0000-0000000000ab"
+      cliques:
+        - id: 0
+          nodes:
+            - nvml-mock-compute-domain-worker
+            - nvml-mock-compute-domain-worker2
+        - id: 1
+          nodes:
+            - nvml-mock-compute-domain-worker3
+            - nvml-mock-compute-domain-worker4

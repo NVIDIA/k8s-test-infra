@@ -1,0 +1,86 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Merged Kind cluster config for local dev — one cluster shape supports every
+# consumer scenario, from a single Helm release covering all nodes to a
+# heterogeneous per-worker fleet. Instead of recreating the cluster to switch
+# consumers or nvml-mock installation strategies, create it once and let the
+# Tiltfile install the consumer(s) of your choice on top of nvml-mock.
+#
+# Usage:
+#   make cluster-create
+#   tilt up                                       # nvml-mock (single release), no consumer
+#   tilt up -- --multi-gpu-profile                # nvml-mock per GPU profile (a100 + t4)
+#   tilt up -- --gpu-operator                     # + NVIDIA GPU Operator
+#   tilt up -- --dra                              # + NVIDIA DRA driver
+#   tilt up -- --gpu-operator --dra               # both consumers side by side
+#   tilt up -- --multi-gpu-profile --fgo          # + Run:ai Fake GPU Operator (integration + scale pools)
+#
+# Node shape: 1 control-plane + 2 workers. Two workers is the minimum that
+# still exercises heterogeneous fleet semantics (per-profile Helm releases,
+# ResourceSlice-per-node, FGO integration/scale split) while staying cheap
+# enough for laptop dev. Worker profiles are fixed to a100 and t4 — small
+# enough to fit in memory, disparate enough to exercise different GPU counts
+# (8 vs 4) and InfiniBand toggles (a100 on, t4 off).
+#
+# The custom node image (local/kind/Dockerfile) pre-bakes nvidia-container-toolkit
+# so the 'nvidia' runtime handler resolves to /usr/bin/nvidia-container-runtime
+# without any post-cluster setup. This matches what CI does via docker exec after
+# cluster creation (see .github/workflows/nvml-mock-e2e.yaml).
+#
+# Three cluster-level features are enabled here. Each is inert for consumers
+# that don't need it, so combining them does not break isolation:
+#
+#   1. featureGates.DynamicResourceAllocation + apiServer runtime-config
+#      resource.k8s.io/v1beta1=true — required for the DRA driver to publish
+#      ResourceSlices. If no ResourceClaim exists, the scheduler paths never
+#      fire, so leaving this on for non-DRA scenarios costs nothing at runtime.
+#
+#   2. enable_cdi = true in containerd — activates native CDI so the spec at
+#      /var/run/cdi/nvidia.yaml (written by the nvml-mock setup.sh) is honoured
+#      for device injection. Consumed by both nvidia-container-runtime (Operator
+#      path) and the DRA kubelet plugin.
+#
+#   3. runtimes.nvidia → nvidia-container-runtime — the GPU Operator creates
+#      RuntimeClass "nvidia" and its operand pods use it. nvidia-container-runtime
+#      in CDI mode intercepts NVIDIA_VISIBLE_DEVICES=all and performs CDI injection
+#      so toolkit-validation passes. Inert for DRA workloads (they don't set
+#      runtimeClassName).
+#
+# Worker labels drive two orthogonal consumer paths without conflict:
+#   - nvml-mock/profile=<a100|t4>            — targeted by install_fleet() in
+#     local/nvml_mock.tiltfile under --multi-gpu-profile, so each worker runs
+#     its own nvml-mock release simulating the labelled GPU.
+#   - run.ai/simulated-gpu-node-pool=<integration|scale> — FGO node-pool split.
+#     integration (a100) runs nvml-mock as the NVML shim; scale (t4) is managed
+#     entirely by FGO's fake backend. Consumers that ignore these labels see
+#     both workers as generic schedulable nodes.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: gpu-test
+featureGates:
+  DynamicResourceAllocation: true
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri"]
+      enable_cdi = true
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
+      runtime_type = "io.containerd.runc.v2"
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
+      BinaryName = "/usr/bin/nvidia-container-runtime"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: ClusterConfiguration
+        apiServer:
+          extraArgs:
+            runtime-config: "resource.k8s.io/v1beta1=true"
+  - role: worker
+    labels:
+      nvml-mock/profile: a100
+      run.ai/simulated-gpu-node-pool: integration
+  - role: worker
+    labels:
+      nvml-mock/profile: t4
+      run.ai/simulated-gpu-node-pool: scale
