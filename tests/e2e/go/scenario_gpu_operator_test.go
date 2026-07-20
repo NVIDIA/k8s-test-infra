@@ -111,7 +111,7 @@ const tempPinC = 85
 // assertRuntimeTempViaDCGM pins a single GPU's temperature at runtime via
 // nvml-mock-ctl — no Helm upgrade, no pod restart — and asserts the already-
 // running dcgm-exporter reports the pinned DCGM_FI_DEV_GPU_TEMP for that GPU
-// only, picking it up through the bind-mounted runtime overlay within the TTL.
+// only, picking it up through the bind-mounted runtime config override within the TTL.
 func assertRuntimeTempViaDCGM(ctx SpecContext, h *harness.Harness, wantC int) {
 	GinkgoHelper()
 	const targetGPU = 0
@@ -159,7 +159,7 @@ func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
 // assertRuntimeXidViaDCGM injects an ecc_uncorrectable failure with a Xid on a
 // single GPU at runtime via nvml-mock-ctl — no Helm upgrade, no pod restart —
 // and asserts the already-running dcgm-exporter reports the Xid for that GPU
-// only, picking it up through the bind-mounted runtime overlay within the TTL.
+// only, picking it up through the bind-mounted runtime config override within the TTL.
 func assertRuntimeXidViaDCGM(ctx SpecContext, h *harness.Harness, xid int) {
 	GinkgoHelper()
 	const targetGPU = 0

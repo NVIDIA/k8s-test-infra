@@ -53,7 +53,7 @@ type Config struct {
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
 	return &Config{
-		NumDevices:    8, // Default to DGX A100 behavior
+		NumDevices:    8,            // Default to DGX A100 behavior
 		DriverVersion: "550.163.01", // Must match nvidia-smi version
 	}
 }
@@ -140,10 +140,10 @@ func LoadConfig() *Config {
 	return config
 }
 
-// OverlayPathFor resolves the runtime overrides file path from the resolved
+// ConfigOverridePathFor resolves the runtime overrides file path from the resolved
 // config path. MOCK_NVML_OVERRIDES wins; otherwise overrides.yaml sits next to
 // config.yaml. Returns "" when no config path is known.
-func OverlayPathFor(configPath string) string {
+func ConfigOverridePathFor(configPath string) string {
 	if p := os.Getenv("MOCK_NVML_OVERRIDES"); p != "" {
 		return p
 	}

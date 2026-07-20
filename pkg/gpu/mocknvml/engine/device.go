@@ -47,11 +47,11 @@ type ConfigurableDevice struct {
 	minorNumber int
 
 	// baseConfig is the pristine, merged (defaults+per-device) YAML config.
-	// It is immutable after construction and is the base every overlay merges
+	// It is immutable after construction and is the base every config override merges
 	// over. May be nil in legacy/default mode.
 	baseConfig *DeviceConfig
 
-	// effective holds the current DeviceConfig (baseConfig + overlay). Swapped
+	// effective holds the current DeviceConfig (baseConfig + config override). Swapped
 	// atomically on refresh so concurrent getters never see a torn value.
 	effective atomic.Pointer[DeviceConfig]
 
@@ -63,7 +63,7 @@ type ConfigurableDevice struct {
 	persistenceModeOverride *nvml.EnableState
 
 	// dynamicMetrics holds the current simulator (nil == static mode). It is
-	// swapped atomically on refresh so a runtime overlay that edits
+	// swapped atomically on refresh so a runtime config override that edits
 	// dynamic_metrics (e.g. pinning temperature) takes effect on the next
 	// getter without restarting the consumer. Read via Load() in the getters.
 	dynamicMetrics atomic.Pointer[dynamicMetricsSimulator]
@@ -129,7 +129,7 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 	dev.Minor = minorNumber
 
 	// Initialize cached values from the base config. These run once at
-	// construction and intentionally use the base (pre-overlay) config.
+	// construction and intentionally use the base (pre-config override) config.
 	dev.initBAR1Memory(config)
 	dev.initPciInfo(config)
 
@@ -140,7 +140,7 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 	}
 
 	// Seed effective config + injector from the base. appliedGen stays 0 so
-	// the first overlay generation observed triggers a refresh.
+	// the first config override generation observed triggers a refresh.
 	initial := config
 	if initial == nil {
 		initial = &DeviceConfig{}
@@ -161,7 +161,7 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 }
 
 // cfg returns the current effective device config, applying any pending
-// overlay refresh first. Never returns nil (returns an empty config when the
+// config override refresh first. Never returns nil (returns an empty config when the
 // device was built without YAML, matching the previous nil-config getters that
 // checked for nil).
 func (d *ConfigurableDevice) cfg() *DeviceConfig {
@@ -170,18 +170,18 @@ func (d *ConfigurableDevice) cfg() *DeviceConfig {
 }
 
 // failureInjector returns the current injector (nil == healthy) after applying
-// any pending overlay refresh.
+// any pending config override refresh.
 func (d *ConfigurableDevice) failureInjector() *failureInjector {
 	d.refresh()
 	return d.failure.Load()
 }
 
 // refresh recomputes the effective config and failure injector when the
-// overlay generation has advanced since this device last applied it. The
+// config override generation has advanced since this device last applied it. The
 // generation check is a cheap atomic compare on the hot path; the merge only
 // runs when overrides actually changed.
 func (d *ConfigurableDevice) refresh() {
-	gen, doc := overlays.snapshot()
+	gen, doc := configOverrides.snapshot()
 	if atomic.LoadUint64(&d.appliedGen) == gen {
 		return
 	}
@@ -195,10 +195,10 @@ func (d *ConfigurableDevice) refresh() {
 	if base == nil {
 		base = &DeviceConfig{}
 	}
-	patch := doc.DeviceOverlay(d.index)
+	patch := doc.DeviceConfigOverride(d.index)
 	merged, err := MergeDeviceConfig(base, patch)
 	if err != nil {
-		warnLog("[OVERLAY] device %d: %v (keeping previous config)\n", d.index, err)
+		warnLog("[CONFIG-OVERRIDE] device %d: %v (keeping previous config)\n", d.index, err)
 		atomic.StoreUint64(&d.appliedGen, gen) // avoid hot re-merge on a bad doc
 		return
 	}
@@ -209,12 +209,12 @@ func (d *ConfigurableDevice) refresh() {
 }
 
 // reconcileDynamicMetrics rebuilds the dynamic-metrics simulator when the
-// effective DynamicMetrics config changed — e.g. a runtime overlay pinned
+// effective DynamicMetrics config changed — e.g. a runtime config override pinned
 // dynamic_metrics.temperature. Without this the simulator would stay frozen at
 // its construction-time config and runtime edits to temperature/power/
 // utilization would never surface. The rebuild resets the simulator's ramp
 // phase and RNG, which is acceptable for a mock; we skip it (preserving the
-// running ramp) whenever the config is byte-for-byte unchanged so overlay edits
+// running ramp) whenever the config is byte-for-byte unchanged so config override edits
 // to unrelated fields don't disturb the simulation.
 func (d *ConfigurableDevice) reconcileDynamicMetrics(cfg *DynamicMetricsConfig) {
 	var curCfg *DynamicMetricsConfig

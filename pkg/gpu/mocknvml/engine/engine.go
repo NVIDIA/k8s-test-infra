@@ -566,7 +566,7 @@ func ResetForTesting() {
 	ClearConfigCache()
 
 	resetFabricReadinessForTesting()
-	resetOverlayStoreForTesting()
+	resetConfigOverrideStoreForTesting()
 
 	// Reset engine singleton
 	engineOnce = sync.Once{}

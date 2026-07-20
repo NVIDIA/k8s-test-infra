@@ -28,15 +28,15 @@ func TestDeepMergeMaps_NestedOverrideAndPreserve(t *testing.T) {
 	}
 }
 
-func TestDeviceOverlay_AllThenPerIndexPrecedence(t *testing.T) {
-	o := &OverlayDoc{
+func TestDeviceConfigOverride_AllThenPerIndexPrecedence(t *testing.T) {
+	o := &ConfigOverrideDoc{
 		All:     map[string]any{"failure": map[string]any{"mode": "lost"}},
 		Devices: map[string]map[string]any{"0": {"failure": map[string]any{"mode": "ecc_uncorrectable"}}},
 	}
-	if got := o.DeviceOverlay(1)["failure"].(map[string]any)["mode"]; got != "lost" {
+	if got := o.DeviceConfigOverride(1)["failure"].(map[string]any)["mode"]; got != "lost" {
 		t.Fatalf("device 1 should inherit All: %v", got)
 	}
-	if got := o.DeviceOverlay(0)["failure"].(map[string]any)["mode"]; got != "ecc_uncorrectable" {
+	if got := o.DeviceConfigOverride(0)["failure"].(map[string]any)["mode"]; got != "ecc_uncorrectable" {
 		t.Fatalf("device 0 per-index should win: %v", got)
 	}
 }
@@ -62,9 +62,9 @@ func TestMergeDeviceConfig_RejectsUnknownField(t *testing.T) {
 	}
 }
 
-func TestParseOverlay_Empty(t *testing.T) {
-	o, err := ParseOverlay(nil)
+func TestParseConfigOverride_Empty(t *testing.T) {
+	o, err := ParseConfigOverride(nil)
 	if err != nil || o != nil {
-		t.Fatalf("empty overlay should be (nil,nil): %v %v", o, err)
+		t.Fatalf("empty config override should be (nil,nil): %v %v", o, err)
 	}
 }

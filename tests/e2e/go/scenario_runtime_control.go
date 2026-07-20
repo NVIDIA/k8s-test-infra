@@ -19,7 +19,7 @@ import (
 )
 
 // These scenarios exercise every command documented in docs/nvml-mock-ctl.md
-// end to end: each mutates the runtime overlay via nvml-mock-ctl on the running
+// end to end: each mutates the runtime config override via nvml-mock-ctl on the running
 // DaemonSet pod (no Helm upgrade, no pod delete) and then validates the effect
 // through nvidia-smi in that same pod. The consumer is never restarted between
 // mutate and assert — that is the whole point of the runtime override path.
@@ -243,7 +243,7 @@ func assertRuntimeSetField(ctx SpecContext, h *harness.Harness, consumer kube.Po
 // chart runs the dynamic-metrics simulator, which drives temperature.gpu and
 // masks the static thermal block, so we override dynamic_metrics.temperature
 // with ramp_c=0/variance_c=0 to get a deterministic reading. The engine
-// rebuilds the simulator on overlay refresh, so the running consumer observes
+// rebuilds the simulator on config override refresh, so the running consumer observes
 // the change without a restart; reset returns temperature to the (varying)
 // simulator baseline.
 func assertRuntimeSetTemperature(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {

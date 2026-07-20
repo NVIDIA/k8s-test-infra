@@ -20,30 +20,30 @@ import (
 	"time"
 )
 
-func TestOverlayPathFor_SiblingDefault(t *testing.T) {
+func TestConfigOverridePathFor_SiblingDefault(t *testing.T) {
 	t.Setenv("MOCK_NVML_OVERRIDES", "")
-	got := OverlayPathFor("/x/config/config.yaml")
+	got := ConfigOverridePathFor("/x/config/config.yaml")
 	if got != "/x/config/overrides.yaml" {
 		t.Fatalf("got %q", got)
 	}
 }
 
-func TestOverlayPathFor_EnvWins(t *testing.T) {
+func TestConfigOverridePathFor_EnvWins(t *testing.T) {
 	t.Setenv("MOCK_NVML_OVERRIDES", "/custom/o.yaml")
-	if got := OverlayPathFor("/x/config/config.yaml"); got != "/custom/o.yaml" {
+	if got := ConfigOverridePathFor("/x/config/config.yaml"); got != "/custom/o.yaml" {
 		t.Fatalf("got %q", got)
 	}
 }
 
-func TestOverlayStore_GenBumpsOnChange(t *testing.T) {
+func TestConfigOverrideStore_GenBumpsOnChange(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "overrides.yaml")
 	now := time.Unix(0, 0)
-	s := newOverlayStoreAt(func() string { return path }, func() time.Time { return now })
+	s := newConfigOverrideStoreAt(func() string { return path }, func() time.Time { return now })
 
 	// Absent file: gen 0, nil doc.
 	if gen, doc := s.snapshot(); gen != 0 || doc != nil {
-		t.Fatalf("absent overlay: gen=%d doc=%v", gen, doc)
+		t.Fatalf("absent config override: gen=%d doc=%v", gen, doc)
 	}
 
 	// Write a file; TTL not elapsed yet -> still cached as absent.

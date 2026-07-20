@@ -83,11 +83,11 @@ spec:
             # workloads) all see the config at the same in-container location.
             - name: MOCK_NVML_CONFIG
               value: /etc/nvml-mock/config.yaml
-            # Align both the runtime-overlay writer and the in-pod reader on
-            # one host-backed path. nvml-mock-ctl (run via
+            # Align both the runtime config-override writer and the in-pod reader
+            # on one host-backed path. nvml-mock-ctl (run via
             # `kubectl exec ds/nvml-mock -- ...`) writes overrides here, and the
             # mock NVML engine loaded by nvidia-smi INSIDE this pod resolves the
-            # overlay via OverlayPathFor(), which honors MOCK_NVML_OVERRIDES.
+            # config override via ConfigOverridePathFor(), which honors MOCK_NVML_OVERRIDES.
             # Without this the engine would look next to MOCK_NVML_CONFIG
             # (/etc/nvml-mock, a read-only ConfigMap mount) and never see the
             # overrides the CLI writes. host-nvml-mock is mounted here at

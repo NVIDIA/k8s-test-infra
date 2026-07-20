@@ -15,19 +15,19 @@ clocks, fan, …) on the fly while a test is in flight.
 nvml-mock is a per-process shared library (`libnvidia-ml.so`), **not** a daemon.
 There is no server to send commands to. Instead:
 
-1. `nvml-mock-ctl` atomically writes a node-local **overlay** file,
+1. `nvml-mock-ctl` atomically writes a node-local **config override** file,
    `overrides.yaml`, that sits next to the pristine `config.yaml`.
-2. The mock engine loaded inside every consumer process re-reads that overlay on
-   a short TTL (default **1s**, `MOCK_NVML_OVERLAY_TTL`) and **deep-merges** it
+2. The mock engine loaded inside every consumer process re-reads that config override on
+   a short TTL (default **1s**, `MOCK_NVML_OVERRIDES_TTL`) and **deep-merges** it
    over the pristine base config. The base `config.yaml` is never mutated.
-3. Because the overlay is bind-mounted into consumer containers (via CDI), both
+3. Because the config override is bind-mounted into consumer containers (via CDI), both
    already-running processes and freshly-started ones converge on the new state
    within one TTL.
 
 The merge order is:
 
 ```
-base config.yaml  <  overlay "all:" block  <  overlay "devices[<idx>]:" block
+base config.yaml  <  config override "all:" block  <  config override "devices[<idx>]:" block
 ```
 
 So a per-device override wins over an `all` override, which wins over the base
@@ -36,7 +36,7 @@ fails the command instead of silently doing nothing.
 
 ### v1 scope — what is and isn't hot-reloadable
 
-The overlay drives every *config-derived getter*: failure injection, ECC
+The config override drives every *config-derived getter*: failure injection, ECC
 mode/counters, temperature, power, utilization, clocks, fan, performance state,
 and the like. These change within one TTL.
 
@@ -64,7 +64,7 @@ the DaemonSet (or the affected pod).
 nodes, repeat the command against each node's pod.
 
 Inside the pod the config path is wired through `MOCK_NVML_CONFIG`, and the
-overlay defaults to the host-mounted driver config dir
+config override defaults to the host-mounted driver config dir
 (`/var/lib/nvml-mock/driver/config/overrides.yaml`), so you normally run the
 subcommands with no path flags. (Set `MOCK_NVML_OVERRIDES` / `--file` only to
 override that default.)
@@ -95,7 +95,7 @@ commands:
   reset  [--gpu <idx|all|uuid>]
 
 global flags:
-  --file    overlay path (default $MOCK_NVML_OVERRIDES or /var/lib/nvml-mock/driver/config/overrides.yaml)
+  --file    config override path (default $MOCK_NVML_OVERRIDES or /var/lib/nvml-mock/driver/config/overrides.yaml)
   --config  config path for UUID resolution/validation (default $MOCK_NVML_CONFIG or /var/lib/nvml-mock/driver/config/config.yaml)
 ```
 
@@ -250,8 +250,8 @@ the pristine profile within one TTL.
 | `nvml-mock-ctl reset [--gpu <t>]` | clears the targeted bucket(s) from `overrides.yaml` | device(s) revert to pristine profile within one TTL |
 | `nvml-mock-ctl fail --gpu <t> --mode healthy` | removes just the `failure` block for the target | that device recovers within one TTL; other overrides stay |
 | DaemonSet pod restart | `setup.sh` deletes `overrides.yaml` on startup | **all** overrides wiped; back to pristine profile |
-| Consumer pod restart | none — the overlay lives on the node, not in the consumer | consumer re-reads and picks up the *current* overlay (does **not** reset it) |
-| `helm upgrade` (profile/values change) | rolls the DaemonSet pod (config checksum + `RollingUpdate`), so `setup.sh` wipes `overrides.yaml` on the new pod | **all** overrides reset to the new pristine config; only an upgrade that does not recreate the nvml-mock pod leaves an overlay in place |
+| Consumer pod restart | none — the config override lives on the node, not in the consumer | consumer re-reads and picks up the *current* config override (does **not** reset it) |
+| `helm upgrade` (profile/values change) | rolls the DaemonSet pod (config checksum + `RollingUpdate`), so `setup.sh` wipes `overrides.yaml` on the new pod | **all** overrides reset to the new pristine config; only an upgrade that does not recreate the nvml-mock pod leaves an config override in place |
 
 ## Worked examples
 
@@ -331,10 +331,10 @@ kubectl -n nvml-mock delete pod "$POD"
 
 ## Troubleshooting
 
-- **Changes aren't visible immediately.** Propagation is bounded by the overlay
-  TTL (~1s default, `MOCK_NVML_OVERLAY_TTL`). Wait one TTL and re-check.
+- **Changes aren't visible immediately.** Propagation is bounded by the config override
+  TTL (~1s default, `MOCK_NVML_OVERRIDES_TTL`). Wait one TTL and re-check.
   `nvidia-smi` spawns a fresh process on every call, so it always reflects the
-  current overlay once the TTL has elapsed; long-lived in-process NVML clients
+  current config override once the TTL has elapsed; long-lived in-process NVML clients
   pick up the change on their next getter after the TTL.
 - **Confirm what's actually applied.** Run `nvml-mock-ctl status` (optionally
   `--gpu <idx>`), or read `overrides.yaml` directly on the node.

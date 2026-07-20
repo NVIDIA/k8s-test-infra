@@ -25,15 +25,15 @@ import (
 )
 
 // newTestDevice builds a ConfigurableDevice backed by a dgxa100 base device
-// and points the package overlay store at a temp file with a controllable clock.
+// and points the package config override store at a temp file with a controllable clock.
 func newTestDevice(t *testing.T, base *DeviceConfig) (*ConfigurableDevice, string, *time.Time) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "overrides.yaml")
 	now := time.Unix(0, 0)
 	clock := &now
-	overlays = newOverlayStoreAt(func() string { return path }, func() time.Time { return *clock })
-	t.Cleanup(resetOverlayStoreForTesting)
+	configOverrides = newConfigOverrideStoreAt(func() string { return path }, func() time.Time { return *clock })
+	t.Cleanup(resetConfigOverrideStoreForTesting)
 
 	srv := dgxa100.New()
 	bd := srv.Devices[0].(*mockserver.Device)
@@ -41,7 +41,7 @@ func newTestDevice(t *testing.T, base *DeviceConfig) (*ConfigurableDevice, strin
 	return dev, path, clock
 }
 
-func writeOverlay(t *testing.T, path, content string, clock *time.Time) {
+func writeConfigOverride(t *testing.T, path, content string, clock *time.Time) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -54,24 +54,24 @@ func TestRefresh_InjectsLostThenResets(t *testing.T) {
 	if dev.failureInjector() != nil {
 		t.Fatal("device should start healthy")
 	}
-	writeOverlay(t, path, "devices:\n  \"0\":\n    failure:\n      mode: lost\n", clock)
+	writeConfigOverride(t, path, "devices:\n  \"0\":\n    failure:\n      mode: lost\n", clock)
 	fi := dev.failureInjector()
 	if fi == nil || fi.Mode() != FailureModeLost {
 		t.Fatalf("expected lost injector, got %+v", fi)
 	}
-	// Clear overlay -> back to healthy.
+	// Clear config override -> back to healthy.
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 	*clock = clock.Add(2 * time.Second)
 	if dev.failureInjector() != nil {
-		t.Fatal("device should recover to healthy after overlay removed")
+		t.Fatal("device should recover to healthy after config override removed")
 	}
 }
 
 func TestRefresh_AllAppliesToDevice(t *testing.T) {
 	dev, path, clock := newTestDevice(t, &DeviceConfig{})
-	writeOverlay(t, path, "all:\n  failure:\n    mode: ecc_uncorrectable\n    after_calls: 1\n", clock)
+	writeConfigOverride(t, path, "all:\n  failure:\n    mode: ecc_uncorrectable\n    after_calls: 1\n", clock)
 	fi := dev.failureInjector()
 	if fi == nil || fi.Mode() != FailureModeECCUncorrectable {
 		t.Fatalf("expected ecc_uncorrectable from all: %+v", fi)
@@ -80,7 +80,7 @@ func TestRefresh_AllAppliesToDevice(t *testing.T) {
 }
 
 // TestRefresh_HotReloadsDynamicTemperature verifies that editing
-// dynamic_metrics.temperature through the overlay rebuilds the (otherwise
+// dynamic_metrics.temperature through the config override rebuilds the (otherwise
 // construction-time-frozen) simulator so a running consumer observes the new
 // value — the mechanism behind `nvml-mock-ctl set dynamic_metrics.temperature`.
 func TestRefresh_HotReloadsDynamicTemperature(t *testing.T) {
@@ -97,12 +97,12 @@ func TestRefresh_HotReloadsDynamicTemperature(t *testing.T) {
 		t.Fatalf("baseline temperature = %d (ret=%v), want 50", got, ret)
 	}
 
-	writeOverlay(t, path, "devices:\n  \"0\":\n    dynamic_metrics:\n      temperature:\n        base_c: 85\n", clock)
+	writeConfigOverride(t, path, "devices:\n  \"0\":\n    dynamic_metrics:\n      temperature:\n        base_c: 85\n", clock)
 	if got, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS || got != 85 {
-		t.Fatalf("after overlay temperature = %d (ret=%v), want 85", got, ret)
+		t.Fatalf("after config override temperature = %d (ret=%v), want 85", got, ret)
 	}
 
-	// Clearing the overlay reverts to the base config's simulator.
+	// Clearing the config override reverts to the base config's simulator.
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}

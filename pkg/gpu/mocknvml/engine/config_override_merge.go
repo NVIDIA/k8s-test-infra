@@ -22,32 +22,32 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// OverlayDoc is the runtime override document written by nvml-mock-ctl and
+// ConfigOverrideDoc is the runtime override document written by nvml-mock-ctl and
 // read by the engine. It is intentionally schema-light: All and per-device
 // patches are generic maps deep-merged over the pristine DeviceConfig, so any
 // config field is controllable without per-field plumbing.
-type OverlayDoc struct {
+type ConfigOverrideDoc struct {
 	Version int                       `json:"version,omitempty"`
 	All     map[string]any            `json:"all,omitempty"`
 	Devices map[string]map[string]any `json:"devices,omitempty"`
 }
 
-// ParseOverlay strictly parses overlay bytes. Empty/whitespace input returns
-// (nil, nil) so an absent or empty overlay is treated as "no overrides".
-func ParseOverlay(data []byte) (*OverlayDoc, error) {
+// ParseConfigOverride strictly parses config override bytes. Empty/whitespace input returns
+// (nil, nil) so an absent or empty config override is treated as "no overrides".
+func ParseConfigOverride(data []byte) (*ConfigOverrideDoc, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, nil
 	}
-	var doc OverlayDoc
+	var doc ConfigOverrideDoc
 	if err := yaml.UnmarshalStrict(data, &doc); err != nil {
-		return nil, fmt.Errorf("parsing overlay: %w", err)
+		return nil, fmt.Errorf("parsing config override: %w", err)
 	}
 	return &doc, nil
 }
 
-// DeviceOverlay returns the deep-merged patch for a device index: All first,
+// DeviceConfigOverride returns the deep-merged patch for a device index: All first,
 // then the per-index entry (which wins). Returns nil when neither is present.
-func (o *OverlayDoc) DeviceOverlay(index int) map[string]any {
+func (o *ConfigOverrideDoc) DeviceConfigOverride(index int) map[string]any {
 	if o == nil {
 		return nil
 	}
@@ -66,7 +66,7 @@ func (o *OverlayDoc) DeviceOverlay(index int) map[string]any {
 
 // MergeDeviceConfig deep-merges patch over a JSON view of base and unmarshals
 // the result into a new *DeviceConfig. Unknown fields are rejected so typos in
-// overlays fail loudly. base is never mutated.
+// configOverrides fail loudly. base is never mutated.
 func MergeDeviceConfig(base *DeviceConfig, patch map[string]any) (*DeviceConfig, error) {
 	baseJSON, err := json.Marshal(base)
 	if err != nil {

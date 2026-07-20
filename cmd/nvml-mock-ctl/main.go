@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// nvml-mock-ctl mutates the nvml-mock runtime overlay so a running node's
+// nvml-mock-ctl mutates the nvml-mock runtime config override so a running node's
 // simulated GPU state can be changed without a Helm upgrade or pod restart.
 package main
 
@@ -30,8 +30,8 @@ import (
 )
 
 const (
-	defaultOverlay = "/var/lib/nvml-mock/driver/config/overrides.yaml"
-	defaultConfig  = "/var/lib/nvml-mock/driver/config/config.yaml"
+	defaultConfigOverride = "/var/lib/nvml-mock/driver/config/overrides.yaml"
+	defaultConfig         = "/var/lib/nvml-mock/driver/config/config.yaml"
 )
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
@@ -60,19 +60,19 @@ commands:
   reset  [--gpu <idx|all|uuid>]
 
 global flags:
-  --file    overlay path (default $MOCK_NVML_OVERRIDES or `+defaultOverlay+`)
+  --file    config override path (default $MOCK_NVML_OVERRIDES or `+defaultConfigOverride+`)
   --config  config path for UUID resolution/validation (default $MOCK_NVML_CONFIG or `+defaultConfig+`)
 `)
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	var overlayPath, configPath, gpu, mode string
+	var configOverridePath, configPath, gpu, mode string
 	var afterCalls int
 	var xid uint64
 	fs := flag.NewFlagSet("nvml-mock-ctl", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {} // usage printed explicitly below so it isn't duplicated
-	fs.StringVar(&overlayPath, "file", envOr("MOCK_NVML_OVERRIDES", defaultOverlay), "overlay path")
+	fs.StringVar(&configOverridePath, "file", envOr("MOCK_NVML_OVERRIDES", defaultConfigOverride), "config override path")
 	fs.StringVar(&configPath, "config", envOr("MOCK_NVML_CONFIG", defaultConfig), "config path")
 	fs.StringVar(&gpu, "gpu", "", "target: index, 'all', or UUID")
 	fs.StringVar(&mode, "mode", "", "failure mode (fail command)")
@@ -120,10 +120,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		usage(stdout)
 		return 0
 	case "status":
-		return doStatus(overlayPath, gpu, stdout, stderr)
+		return doStatus(configOverridePath, gpu, stdout, stderr)
 	case "fail", "temp", "temperature", "power", "fan", "util", "utilization",
 		"clocks", "throttle", "pstate", "set", "reset":
-		return mutate(cmd, overlayPath, gpu, mode, afterCalls, xid, positional, cfg, base, stdout, stderr)
+		return mutate(cmd, configOverridePath, gpu, mode, afterCalls, xid, positional, cfg, base, stdout, stderr)
 	default:
 		fprintf(stderr, "unknown command %q\n", cmd)
 		usage(stderr)
@@ -131,7 +131,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-func mutate(cmd, overlayPath, gpu, mode string, afterCalls int, xid uint64,
+func mutate(cmd, configOverridePath, gpu, mode string, afterCalls int, xid uint64,
 	positional []string, cfg *engine.Config, base *engine.DeviceConfig, stdout, stderr io.Writer) int {
 
 	if gpu == "" && cmd != "reset" {
@@ -139,14 +139,14 @@ func mutate(cmd, overlayPath, gpu, mode string, afterCalls int, xid uint64,
 		return 2
 	}
 
-	unlock, err := lockOverlay(overlayPath)
+	unlock, err := lockConfigOverride(configOverridePath)
 	if err != nil {
 		fprintf(stderr, "lock: %v\n", err)
 		return 1
 	}
 	defer unlock()
 
-	doc, err := mockctl.Load(overlayPath)
+	doc, err := mockctl.Load(configOverridePath)
 	if err != nil {
 		fprintf(stderr, "load: %v\n", err)
 		return 1
@@ -268,11 +268,11 @@ func mutate(cmd, overlayPath, gpu, mode string, afterCalls int, xid uint64,
 
 	// Validate the resulting merged config for the affected bucket(s).
 	if err := validateDoc(doc, base); err != nil {
-		fprintf(stderr, "invalid overlay: %v\n", err)
+		fprintf(stderr, "invalid config override: %v\n", err)
 		return 2
 	}
 
-	if err := writeAtomic(overlayPath, doc); err != nil {
+	if err := writeAtomic(configOverridePath, doc); err != nil {
 		fprintf(stderr, "write: %v\n", err)
 		return 1
 	}
@@ -360,8 +360,8 @@ func gpuLabel(g string) string {
 	return g
 }
 
-func doStatus(overlayPath, gpu string, stdout, stderr io.Writer) int {
-	doc, err := mockctl.Load(overlayPath)
+func doStatus(configOverridePath, gpu string, stdout, stderr io.Writer) int {
+	doc, err := mockctl.Load(configOverridePath)
 	if err != nil {
 		fprintf(stderr, "load: %v\n", err)
 		return 1
@@ -446,7 +446,7 @@ func writeAtomic(path string, doc *mockctl.Doc) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	// os.CreateTemp makes the file 0600, but the published overlay is
+	// os.CreateTemp makes the file 0600, but the published config override is
 	// bind-mounted into consumer containers and read by the mock library,
 	// which may run as a non-root UID. Make it world-readable (matching how
 	// config.yaml is consumed) so those reads don't silently fail.
@@ -456,9 +456,9 @@ func writeAtomic(path string, doc *mockctl.Doc) error {
 	return os.Rename(tmpName, path)
 }
 
-// lockOverlay takes an exclusive flock on a sibling .lock file so concurrent
+// lockConfigOverride takes an exclusive flock on a sibling .lock file so concurrent
 // kubectl exec invocations serialize their read-modify-write.
-func lockOverlay(path string) (func(), error) {
+func lockConfigOverride(path string) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}

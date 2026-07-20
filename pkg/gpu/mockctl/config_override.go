@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package mockctl holds the pure overlay-mutation logic used by the
+// Package mockctl holds the pure config override-mutation logic used by the
 // nvml-mock-ctl CLI. It lives outside the engine package so the CLI never
 // links the CGo bridge/build tags, while still reusing engine's Go types and
 // merge/validation helpers for a single source of truth on the schema.
@@ -29,7 +29,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
-// Doc mirrors engine.OverlayDoc but lives in the CLI package so nvml-mock-ctl
+// Doc mirrors engine.ConfigOverrideDoc but lives in the CLI package so nvml-mock-ctl
 // never links the CGo bridge/build tags. The on-disk schema is identical.
 type Doc struct {
 	Version int                       `json:"version,omitempty"`
@@ -37,14 +37,14 @@ type Doc struct {
 	Devices map[string]map[string]any `json:"devices,omitempty"`
 }
 
-// Target identifies which overlay bucket a mutation applies to: the shared
+// Target identifies which config override bucket a mutation applies to: the shared
 // "all" block, or a specific device index.
 type Target struct {
 	All   bool
 	Index int
 }
 
-// Load reads an overlay document from path. A missing or empty file yields an
+// Load reads an config override document from path. A missing or empty file yields an
 // empty *Doc (never nil) so callers can mutate and write it back.
 func Load(path string) (*Doc, error) {
 	data, err := os.ReadFile(path)
@@ -121,7 +121,7 @@ func (d *Doc) Fail(t Target, mode string, afterCalls int, xidCode uint64) error 
 	return nil
 }
 
-// TemperaturePatch builds an overlay patch that pins the reported GPU
+// TemperaturePatch builds an config override patch that pins the reported GPU
 // temperature to celsius. It writes both the static thermal block and a
 // zero-variation dynamic block: profiles that enable dynamic metrics (the
 // demo/e2e default) drive temperature.gpu through the simulator, which masks
@@ -142,7 +142,7 @@ func TemperaturePatch(celsius int) map[string]any {
 	}
 }
 
-// PowerPatch builds an overlay patch that pins the reported power draw to
+// PowerPatch builds an config override patch that pins the reported power draw to
 // milliwatts. Like TemperaturePatch it writes both the static power block and a
 // zero-variation dynamic block so the reading is deterministic in either mode.
 // The engine still clamps the value to the profile's [min_limit_mw,
@@ -160,7 +160,7 @@ func PowerPatch(milliwatts uint32) map[string]any {
 	}
 }
 
-// FanPatch builds an overlay patch that pins the reported fan speed to percent.
+// FanPatch builds an config override patch that pins the reported fan speed to percent.
 // There is no dynamic fan simulator, so this only touches the static fan block.
 // GetFanSpeed reports ERROR_NOT_SUPPORTED (nvidia-smi shows [N/A]) whenever
 // count is 0 — the case for every liquid/passively-cooled profile — so we force
@@ -179,7 +179,7 @@ func FanPatch(percent, baseCount int) map[string]any {
 	}
 }
 
-// UtilizationPatch builds an overlay patch that pins GPU and memory
+// UtilizationPatch builds an config override patch that pins GPU and memory
 // utilization to percent. Profiles that enable dynamic metrics (the demo/e2e
 // default) drive utilization through the simulator, which masks the static
 // UtilizationConfig; unlike temperature/power we cannot pin it with a
@@ -197,11 +197,11 @@ func UtilizationPatch(percent int) map[string]any {
 	}
 }
 
-// ClocksPatch builds an overlay patch that pins the reported SM and graphics
+// ClocksPatch builds an config override patch that pins the reported SM and graphics
 // clocks to mhz. There is no dynamic clock simulator, so this hot-reloads
 // directly from the static clocks block. Memory/video clocks are left at their
 // profile baseline (use `set clocks.memory_current=...` to change those). mhz
-// is an int (the CLI validates it as non-negative); the generic overlay map
+// is an int (the CLI validates it as non-negative); the generic config override map
 // carries it as-is and the JSON round-trip in MergeDeviceConfig decodes it into
 // the uint32 schema field.
 func ClocksPatch(mhz int) map[string]any {
@@ -213,7 +213,7 @@ func ClocksPatch(mhz int) map[string]any {
 	}
 }
 
-// PStatePatch builds an overlay patch that pins the reported performance state
+// PStatePatch builds an config override patch that pins the reported performance state
 // to P<n>. GetPerformanceState reads the static performance_state string, so it
 // hot-reloads directly.
 func PStatePatch(n int) map[string]any {
@@ -251,7 +251,7 @@ var allThrottleKeys = []string{
 	"sw_thermal_slowdown", "display_clocks_setting",
 }
 
-// ThrottlePatch builds an overlay patch that sets the GPU's active clock
+// ThrottlePatch builds an config override patch that sets the GPU's active clock
 // throttle reasons. reasons are CLI-friendly names (see throttleReasonKeys);
 // the special reason "none" clears all reasons and cannot be combined with
 // others. The patch is authoritative: every known flag is written (requested

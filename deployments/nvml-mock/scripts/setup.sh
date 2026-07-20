@@ -106,7 +106,7 @@ containerEdits:
     # Bind-mount the GPU profile config DIRECTORY (not just config.yaml) so the
     # mock NVML library finds config.yaml via MOCK_NVML_CONFIG below AND sees
     # overrides.yaml when nvml-mock-ctl writes it at runtime. The CLI creates
-    # the overlay via temp-file+rename in this same dir; a directory bind makes
+    # the config override via temp-file+rename in this same dir; a directory bind makes
     # that atomic rename observable to CDI-injected consumers (a single-file
     # bind would pin the original inode and hide the replacement). Without the
     # config the mock .so falls back to "no-YAML" defaults — temperature, power
