@@ -153,6 +153,55 @@ int openat64(int dirfd, const char *path, int flags, ...) {
     return real_openat64(dirfd, target, flags, mode);
 }
 
+/*
+ * _FORTIFY_SOURCE variants. When a caller invokes open()/openat() with a
+ * *non-constant* flags argument (e.g. libpci opening a PCI `config` file with
+ * an intent-derived O_RDONLY/O_RDWR), glibc's fortify headers rewrite the call
+ * to __open_2 / __openat_2 (and the 64-bit forms) instead of open / openat.
+ * These are distinct exported symbols, so interposing open/openat alone leaves
+ * such calls hitting the real host path — the exact reason `lspci` printed
+ * "pcilib: Cannot open .../config" even with the redirector loaded. The
+ * fortified forms never carry a mode argument (they abort if O_CREAT is set
+ * without one), so they take no varargs. Declare them ourselves: fcntl.h only
+ * exposes them under _FORTIFY_SOURCE, which this shim is not built with.
+ */
+extern int __open_2(const char *path, int flags);
+extern int __open64_2(const char *path, int flags);
+extern int __openat_2(int dirfd, const char *path, int flags);
+extern int __openat64_2(int dirfd, const char *path, int flags);
+
+int __open_2(const char *path, int flags) {
+    static int (*real)(const char *, int) = NULL;
+    if (!real) real = (int (*)(const char *, int))dlsym(RTLD_NEXT, "__open_2");
+    char buf[PATH_MAX];
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real(target, flags);
+}
+
+int __open64_2(const char *path, int flags) {
+    static int (*real)(const char *, int) = NULL;
+    if (!real) real = (int (*)(const char *, int))dlsym(RTLD_NEXT, "__open64_2");
+    char buf[PATH_MAX];
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real(target, flags);
+}
+
+int __openat_2(int dirfd, const char *path, int flags) {
+    static int (*real)(int, const char *, int) = NULL;
+    if (!real) real = (int (*)(int, const char *, int))dlsym(RTLD_NEXT, "__openat_2");
+    char buf[PATH_MAX];
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real(dirfd, target, flags);
+}
+
+int __openat64_2(int dirfd, const char *path, int flags) {
+    static int (*real)(int, const char *, int) = NULL;
+    if (!real) real = (int (*)(int, const char *, int))dlsym(RTLD_NEXT, "__openat64_2");
+    char buf[PATH_MAX];
+    const char *target = RESOLVE_OR_FAIL(path, buf, -1);
+    return real(dirfd, target, flags);
+}
+
 REAL(opendir);
 
 DIR *opendir(const char *name) {
@@ -160,6 +209,29 @@ DIR *opendir(const char *name) {
     char buf[PATH_MAX];
     const char *target = RESOLVE_OR_FAIL(name, buf, NULL);
     return real_opendir(target);
+}
+
+/*
+ * stdio openers. libpci reads a device's `resource` file via fopen(), so a
+ * missing hook here leaves `lspci -v` reading the real host path. Only paths
+ * under the PCI sysfs prefixes are rewritten; every other fopen (pci.ids,
+ * /proc, ...) passes through untouched.
+ */
+REAL(fopen);
+REAL(fopen64);
+
+FILE *fopen(const char *path, const char *mode) {
+    LOAD_REAL(fopen);
+    char buf[PATH_MAX];
+    const char *target = RESOLVE_OR_FAIL(path, buf, NULL);
+    return real_fopen(target, mode);
+}
+
+FILE *fopen64(const char *path, const char *mode) {
+    LOAD_REAL(fopen64);
+    char buf[PATH_MAX];
+    const char *target = RESOLVE_OR_FAIL(path, buf, NULL);
+    return real_fopen64(target, mode);
 }
 
 REAL(stat);
