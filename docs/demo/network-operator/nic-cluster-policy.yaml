@@ -1,0 +1,33 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Applied by run.sh during the "push" phase, after the pci-15b3 NFD label is
+# faked onto the workers. Enables only the RDMA shared device plugin: it is a
+# lightweight component that reads /sys/class/infiniband to advertise rdma/*
+# resources. On this cluster it runs but advertises ZERO resources, because it
+# is a static Go binary that makes raw syscalls and therefore bypasses the
+# nvml-mock LD_PRELOAD sysfs redirect (it reads the node's empty host sysfs).
+# The OFED/DOCA driver is intentionally omitted: it builds kernel modules,
+# which Kind's shared kernel cannot support.
+#
+# repository/image/version below are the chart defaults for network-operator
+# v26.4.0 (image tag tracks the operator release; see run.sh notes).
+apiVersion: mellanox.com/v1alpha1
+kind: NicClusterPolicy
+metadata:
+  name: nic-cluster-policy
+spec:
+  rdmaSharedDevicePlugin:
+    repository: nvcr.io/nvidia/mellanox
+    image: k8s-rdma-shared-dev-plugin
+    version: network-operator-v26.4.0
+    config: |
+      {
+        "configList": [
+          {
+            "resourceName": "rdma_shared_device_a",
+            "rdmaHcaMax": 63,
+            "selectors": { "vendors": ["15b3"] }
+          }
+        ]
+      }
