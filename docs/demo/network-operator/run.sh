@@ -139,10 +139,26 @@ kubectl_ctx -n "${NET_OPERATOR_NAMESPACE}" rollout status daemonset/"${NFD_DS}" 
 # --- Observe the natural blockers --------------------------------------------
 info "OBSERVE: operator + NFD pods"
 observe kubectl_ctx -n "${NET_OPERATOR_NAMESPACE}" get pods -o wide
-info "OBSERVE: pci-15b3 NFD label per node (NFD derives it from the redirected mock PCI tree; expect true on workers, <none> on control-plane)"
+
+# The label key is dotted, so the jsonpath MUST escape the dots — the unescaped
+# bracket form silently returns empty even when the label is set.
+label_jp='jsonpath={.metadata.labels['"'"'feature\.node\.kubernetes\.io/pci-15b3\.present'"'"']}'
+
+# After the host-sys remount, NFD's worker must rescan and its master must
+# reconcile the nvidia-nics-rules NodeFeatureRule before pci-15b3.present lands
+# (a minute or two). Poll a worker so the observation reflects the derived
+# state instead of racing it and misreporting <none>.
+info "Waiting for NFD to derive pci-15b3.present on the workers (up to 180s)"
+first_worker=$(kubectl_ctx get nodes -l '!node-role.kubernetes.io/control-plane' -o 'jsonpath={.items[0].metadata.name}' 2>/dev/null || true)
+for _ in $(seq 1 36); do
+  [[ "$(kubectl_ctx get node "${first_worker}" -o "${label_jp}" 2>/dev/null || true)" == "true" ]] && break
+  sleep 5
+done
+
+info "OBSERVE: pci-15b3 NFD label per node (NFD self-derives it from the redirected mock PCI tree on every node running the mock stack)"
 while IFS= read -r node; do
   [ -n "${node}" ] || continue
-  label=$(kubectl_ctx get node "${node}" -o "jsonpath={.metadata.labels['feature.node.kubernetes.io/pci-15b3.present']}" 2>/dev/null || true)
+  label=$(kubectl_ctx get node "${node}" -o "${label_jp}" 2>/dev/null || true)
   printf '    %s pci-15b3.present=%s\n' "${node}" "${label:-<none>}"
 done < <(kubectl_ctx get nodes -o 'jsonpath={range .items[*]}{.metadata.name}{"\n"}{end}')
 
@@ -181,10 +197,10 @@ cat <<EOF
   What worked:
     - Mock RDMA HCAs visible inside a PLAIN pod via NRI (ibstat/ibv_devinfo).
     - Network Operator controller + bundled NFD installed and running.
-    - NFD self-derives pci-15b3.present on the workers: run.sh repoints NFD's
-      host-sys mount at the mock PCI tree (/var/lib/nvml-mock/sys), whose
-      synthesized 15b3 entries NFD's pci.device source reads directly — no
-      manual kind.yaml stamp.
+    - NFD self-derives pci-15b3.present on every node running the mock stack:
+      run.sh repoints NFD's host-sys mount at the mock PCI tree
+      (/var/lib/nvml-mock/sys), whose synthesized 15b3 entries NFD's pci.device
+      source reads directly — no manual kind.yaml stamp.
 
   What stayed blocked (mock semantics vs the real operator):
     - Even with that self-derived label + a NicClusterPolicy, the rdma-shared-device-plugin

@@ -36,8 +36,8 @@ does not interact with the mocks.
 8. **Pushes**: applies a `NicClusterPolicy` (RDMA shared device plugin), then
    reports what progresses versus what remains blocked.
 
-NFD derives `feature.node.kubernetes.io/pci-15b3.present=true` on the workers
-**itself** — the exact label the operator's default `NodeFeatureRule`
+NFD derives `feature.node.kubernetes.io/pci-15b3.present=true` on every node
+running the mock stack **itself** — the exact label the operator's default `NodeFeatureRule`
 (`nvidia-nics-rules`) derives for Mellanox NICs. It can do so because run.sh
 repoints NFD's `host-sys` volume at the mock PCI tree (`/var/lib/nvml-mock/sys`),
 whose synthesized `15b3` NIC entries (with `vendor`/`class` files) NFD's
@@ -68,7 +68,7 @@ FORCE_RECREATE=true ./run.sh
 |-----------|---------|-----|
 | `ib-agent` (plain pod) | Sees mock ConnectX-7 HCAs via `ibstat`/`ibv_devinfo` | NRI injects the mock IB sysfs + `LD_PRELOAD` shims into the pod |
 | Operator controller + NFD | Running | Standard controllers; no device dependency |
-| pci-15b3.present node label | true on workers (NFD-derived via redirected sysfs mount) | NFD's pci.device source reads the mock PCI tree we mount at /host-sys; the real kernel /sys still can't be faked |
+| pci-15b3.present node label | true on every node running the mock stack (NFD-derived via redirected sysfs mount) | NFD's pci.device source reads the mock PCI tree we mount at /host-sys; the real kernel /sys still can't be faked. The label takes a minute or two to appear after the remount (NFD rescan + NodeFeatureRule reconcile) |
 | `rdma-shared-device-plugin` (after push) | **Crash-loops** at startup; advertises **no** `rdma/*` | Exits with `can not get RDMA subsystem network namespace mode` — it needs a real RDMA kernel subsystem (rdma netlink) that Kind's kernel does not expose, so it never reaches device enumeration (and it runs in the NRI-excluded operator namespace and is a static Go binary, so it would miss the pod-only mock anyway) |
 | OFED/DOCA driver | Not enabled | Builds kernel modules against the host kernel — unsupported on Kind |
 
@@ -91,7 +91,9 @@ patches the NFD worker DaemonSet
 (`network-operator-node-feature-discovery-worker`) to repoint its `host-sys`
 volume at `/var/lib/nvml-mock/sys`, which carries the synthesized `15b3` entries
 with `vendor`/`class` files. NFD then discovers the NICs on its own and labels
-the workers `feature.node.kubernetes.io/pci-15b3.present=true`.
+every node running the mock stack `feature.node.kubernetes.io/pci-15b3.present=true`
+(a minute or two after the remount, once NFD rescans and the master reconciles
+the `nvidia-nics-rules` `NodeFeatureRule`).
 
 The patch is a strategic merge that names only the `host-sys` volume; because
 `volumes` uses `name` as its merge key, every other NFD mount (`/boot`,
