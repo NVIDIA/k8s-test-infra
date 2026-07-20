@@ -37,14 +37,14 @@ load('./local/fgo/fgo.tiltfile', fgo_install='install')
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
-    usage='GPU profile to simulate (single-node mode only): a100 | h100 | b200 | gb200 | gb300 | l40s | t4')
+    usage='GPU profile to simulate (used unless --multi-gpu-profile is set): a100 | h100 | b200 | gb200 | gb300 | l40s | t4')
 config.define_string('k8s-context', args=False,
     usage='kubectl context to deploy into (must be a local cluster)')
-# Boolean toggles use config.define_bool so `--multi --gpu-operator
+# Boolean toggles use config.define_bool so `--multi-gpu-profile --gpu-operator
 # --dra` parses as three separate flags without positional-value
 # ambiguity that Tilt's string-flag parser can exhibit for `=X` forms.
-config.define_bool('multi', args=False,
-    usage='Multi-node fleet mode: install one nvml-mock release per worker in local/kind/multi.kind.yaml')
+config.define_bool('multi-gpu-profile', args=False,
+    usage='Install one nvml-mock release per GPU profile, node-pinned via nodeSelector.nvml-mock/profile=<profile>. Simulates a heterogeneous fleet on the default cluster (a100 + t4 workers). Without this flag, a single nvml-mock release covers all nodes with the profile from --gpu-profile.')
 config.define_bool('compute-domain', args=False,
     usage='ComputeDomain scenario: 4-worker cluster with GB200 profile + NVLink topology overlay (requires PROFILE=compute-domain cluster)')
 config.define_bool('gpu-operator', args=False,
@@ -52,11 +52,11 @@ config.define_bool('gpu-operator', args=False,
 config.define_bool('dra', args=False,
     usage='Also deploy NVIDIA DRA driver on top of nvml-mock')
 config.define_bool('fgo', args=False,
-    usage='Also deploy Run:ai Fake GPU Operator (recommended: PROFILE=multi cluster for integration + scale pools)')
+    usage='Also deploy Run:ai Fake GPU Operator (combine with --multi-gpu-profile to exercise both integration and scale pools)')
 
 cfg = config.parse()
 
-multi               = cfg.get('multi', False)
+multi_gpu_profile   = cfg.get('multi-gpu-profile', False)
 with_compute_domain = cfg.get('compute-domain', False)
 with_gpu_operator   = cfg.get('gpu-operator', False)
 with_dra            = cfg.get('dra', False)
@@ -65,12 +65,12 @@ with_fgo            = cfg.get('fgo', False)
 # --- Guardrails ----------------------------------------------------------
 # compute-domain forces its own cluster shape (4 workers with clique
 # labels, hardcoded worker names in topology.yaml) and its own profile
-# (gb200 for NVLink5 fabric APIs), so it cannot compose with --multi
+# (gb200 for NVLink5 fabric APIs), so it cannot compose with --multi-gpu-profile
 # or with any --gpu-profile the user might pass. --gpu-operator is
 # allowed but experimental — the Operator's RuntimeClass path with the
 # compute-domain-imex layered image is untested.
-if with_compute_domain and multi:
-    fail('--compute-domain is mutually exclusive with --multi ' +
+if with_compute_domain and multi_gpu_profile:
+    fail('--compute-domain is mutually exclusive with --multi-gpu-profile ' +
          '(compute-domain uses its own 4-worker cluster shape)')
 
 if with_fgo and with_gpu_operator:
@@ -117,7 +117,7 @@ allow_k8s_contexts(k8s_context)
 if with_compute_domain:
     compute_domain_build_images(with_dra)
     nvml_mock_releases = compute_domain_install(active_consumers)
-elif multi:
+elif multi_gpu_profile:
     build_nvml_mock_image()
     nvml_mock_releases = install_fleet(active_consumers)
 else:

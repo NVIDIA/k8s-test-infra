@@ -16,13 +16,13 @@
 # Requires the shared 'nvidia' helm_repo to be registered by the caller
 # (main Tiltfile) before install() is invoked. Also requires the cluster to
 # have DynamicResourceAllocation + resource.k8s.io/v1beta1 enabled (both are
-# set by local/kind/cluster.yaml and local/kind/cluster-multi.yaml).
+# set by local/kind/default.kind.yaml).
 #
-# In --multi mode the driver publishes a distinct ResourceSlice per worker,
-# so the fleet's two profiles surface as heterogeneous devices in a single
-# cluster. Composes with the GPU Operator consumer — the two live on different
-# Kubernetes surfaces (ResourceClaim vs. nvidia.com/gpu) and both talk to the
-# same mock NVML library.
+# In --multi-gpu-profile mode the driver publishes a distinct ResourceSlice per
+# worker, so the fleet's two profiles surface as heterogeneous devices in a
+# single cluster. Composes with the GPU Operator consumer — the two live on
+# different Kubernetes surfaces (ResourceClaim vs. nvidia.com/gpu) and both
+# talk to the same mock NVML library.
 
 load('ext://helm_resource', 'helm_resource')
 

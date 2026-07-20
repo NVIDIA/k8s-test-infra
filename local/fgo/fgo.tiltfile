@@ -6,10 +6,11 @@
 # Exports:
 #   install(nvml_mock_releases) — install FGO on top of nvml-mock.
 #
-# Recommended cluster: PROFILE=multi (a100 integration + t4 scale workers).
-# The integration worker runs nvml-mock (mock backend); the scale worker is
-# managed entirely by FGO (fake backend). See local/kind/multi.kind.yaml for
-# the run.ai/simulated-gpu-node-pool labels that drive this split.
+# Cluster: the default profile already provisions the a100 (integration) and
+# t4 (scale) workers this consumer expects. The integration worker runs
+# nvml-mock (mock backend); the scale worker is managed entirely by FGO
+# (fake backend). See local/kind/default.kind.yaml for the
+# run.ai/simulated-gpu-node-pool labels that drive this split.
 
 load('ext://helm_resource', 'helm_resource')
 

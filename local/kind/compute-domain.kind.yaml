@@ -19,7 +19,7 @@
 #      --compute-domain --dra combo, so DRA support is baked in here.
 #
 #   3. containerd runtimes.nvidia block.
-#      Matches local/kind/single.kind.yaml — the nvidia-container-runtime
+#      Matches local/kind/default.kind.yaml — the nvidia-container-runtime
 #      handler is needed by any consumer that sets runtimeClassName=nvidia
 #      (GPU Operator does; DRA does not). Inert when unused.
 #

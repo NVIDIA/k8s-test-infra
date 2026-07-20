@@ -16,7 +16,7 @@ This directory contains Tiltfiles, Helm value overrides, and Kind cluster config
 # 1. Build the Kind node image and create a cluster
 make cluster-create
 
-# 2. Start the dev stack (default: a100 profile, single node)
+# 2. Start the dev stack (default: a100 profile, homogeneous fleet)
 tilt up
 ```
 
@@ -24,23 +24,25 @@ tilt up
 
 All profiles use the same custom Kind node image (`kind-node-nv:latest`) built from `local/kind/Dockerfile`, which pre-installs the NVIDIA container runtime.
 
-| `PROFILE=`         | Kind config                           | Cluster name                    | Use with                                                                 |
-|--------------------|---------------------------------------|---------------------------------|--------------------------------------------------------------------------|
-| `single` (default) | `local/kind/single.kind.yaml`         | `kind-gpu-test`                 | basic, gpu-operator, dra                                                 |
-| `multi`            | `local/kind/multi.kind.yaml`          | `kind-gpu-test`                 | `--multi`, dra (heterogeneous fleet), `--fgo` (run:ai fake GPU Operator) |
-| `compute-domain`   | `local/kind/compute-domain.kind.yaml` | `kind-nvml-mock-compute-domain` | `--compute-domain`                                                       |
+The default profile spans 1 control-plane + 2 workers (a100 + t4), so no cluster rebuild is needed when switching between homogeneous (single Helm release) and heterogeneous (per-GPU-profile) nvml-mock installation, or when enabling `--fgo`.
+
+| `PROFILE=`          | Kind config                           | Cluster name                    | Use with                                                             |
+|---------------------|---------------------------------------|---------------------------------|----------------------------------------------------------------------|
+| `default` (default) | `local/kind/default.kind.yaml`        | `kind-gpu-test`                 | basic, gpu-operator, dra, `--multi-gpu-profile`, `--fgo`             |
+| `compute-domain`    | `local/kind/compute-domain.kind.yaml` | `kind-nvml-mock-compute-domain` | `--compute-domain`                                                   |
 
 ```bash
-make cluster-create                      # single-node (default)
-make cluster-create PROFILE=multi        # 1 CP + 2 workers (a100 / t4)
+make cluster-create                         # 1 CP + 2 workers (a100 / t4) — the default
 make cluster-create PROFILE=compute-domain  # 1 CP + 4 workers (NVLink cliques)
 
-make cluster-delete                      # tear down (PROFILE= must match creation)
+make cluster-delete                         # tear down (PROFILE= must match creation)
 ```
 
 ## Step 2 — Start Tilt
 
-### Basic: Single-node GPU profile
+### Homogeneous fleet (single Helm release)
+
+Installs one nvml-mock release that covers every node in the cluster (control-plane + both workers) with the same GPU profile. Pick the profile via `--gpu-profile`.
 
 ```bash
 tilt up                                  # default: a100
@@ -50,31 +52,31 @@ tilt up -- --gpu-profile gb200
 
 Supported `--gpu-profile` values: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`, `vr200`.
 
-### Multi-node heterogeneous fleet (requires `PROFILE=multi` cluster)
+### Heterogeneous fleet (per-GPU-profile releases)
 
-Installs one nvml-mock release per worker, pinned by node selector. Profiles are fixed to `a100` and `t4` (matching the worker labels in `local/kind/multi.kind.yaml`).
+Installs one nvml-mock release per worker, pinned by node selector `nvml-mock/profile=<profile>`. Profiles are fixed to `a100` and `t4` (matching the worker labels in `local/kind/default.kind.yaml`). `--gpu-profile` is ignored in this mode.
 
 ```bash
-tilt up -- --multi
+tilt up -- --multi-gpu-profile
 ```
 
 ### With NVIDIA GPU Operator
 
-Deploys the GPU Operator on top of nvml-mock using CDI mode. Compatible with `single` and `multi` cluster profiles.
+Deploys the GPU Operator on top of nvml-mock using CDI mode. Composes with both homogeneous and heterogeneous nvml-mock modes.
 
 ```bash
 tilt up -- --gpu-operator
 tilt up -- --gpu-operator --gpu-profile gb200
-tilt up -- --multi --gpu-operator
+tilt up -- --multi-gpu-profile --gpu-operator
 ```
 
 ### With NVIDIA DRA driver
 
-Deploys the DRA driver on top of nvml-mock. Compatible with all cluster profiles including `--multi` (each worker publishes a distinct ResourceSlice).
+Deploys the DRA driver on top of nvml-mock. Composes with both homogeneous and heterogeneous modes; under `--multi-gpu-profile` each worker publishes a distinct ResourceSlice.
 
 ```bash
 tilt up -- --dra
-tilt up -- --multi --dra
+tilt up -- --multi-gpu-profile --dra
 tilt up -- --gpu-operator --dra          # GPU Operator + DRA together
 ```
 
@@ -84,12 +86,11 @@ Deploys [FGO](https://github.com/run-ai/fake-gpu-operator) alongside nvml-mock, 
 - **integration** (a100 worker) — nvml-mock provides the NVML shim, full `nvidia-smi` output
 - **scale** (t4 worker) — FGO fake backend, no nvml-mock required
 
-Mutually exclusive with `--gpu-operator` (FGO replaces it) and `--compute-domain`.
+Mutually exclusive with `--gpu-operator` (FGO replaces it) and `--compute-domain`. The FGO overlay pins nvml-mock to the integration pool regardless of `--multi-gpu-profile`, so both invocations produce the same runtime shape (single nvml-mock release on the a100 worker; FGO manages the t4 worker).
 
 ```bash
-make cluster-create PROFILE=multi        # creates both pool workers
-tilt up -- --fgo                         # single integration node only
-tilt up -- --multi --fgo                 # both integration + scale pools
+tilt up -- --fgo                         # nvml-mock on integration pool, FGO on scale
+tilt up -- --multi-gpu-profile --fgo     # same runtime shape, per-profile release plumbing
 ```
 
 Verify:
@@ -104,7 +105,7 @@ kubectl get pods -n gpu-operator -o wide
 
 ### Compute-domain scenario (requires `PROFILE=compute-domain` cluster)
 
-Reconfigures nvml-mock with a GB200 profile and NVLink topology overlay. Mutually exclusive with `--multi` and `--gpu-profile`.
+Reconfigures nvml-mock with a GB200 profile and NVLink topology overlay. Mutually exclusive with `--multi-gpu-profile` and `--gpu-profile`.
 
 ```bash
 make cluster-create PROFILE=compute-domain

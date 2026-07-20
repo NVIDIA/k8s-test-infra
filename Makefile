@@ -92,17 +92,18 @@ generate:
 
 KIND_NODE_IMAGE   ?= kind-node-nv:latest
 # Cluster profile (select via PROFILE=<name>):
-#   - PROFILE=single (default)  local/kind/single.kind.yaml         (1 CP, single-node)
-#   - PROFILE=multi             local/kind/multi.kind.yaml          (1 CP + 2 workers labelled a100 / t4)
-#   - PROFILE=compute-domain    local/kind/compute-domain.kind.yaml (1 CP + 4 workers labelled clique 0 / 1)
-# Consumer selection (--gpu-operator / --dra) happens in the Tiltfile.
+#   - PROFILE=default (default)  local/kind/default.kind.yaml        (1 CP + 2 workers labelled a100 / t4)
+#   - PROFILE=compute-domain     local/kind/compute-domain.kind.yaml (1 CP + 4 workers labelled clique 0 / 1)
+# Consumer selection (--gpu-operator / --dra / --fgo / --multi-gpu-profile)
+# happens in the Tiltfile — the default cluster shape supports every consumer
+# scenario without a rebuild.
 # compute-domain also changes the cluster name because topology.yaml
 # hardcodes worker names as <cluster-name>-worker[N] — see
 # local/compute-domain/topology.yaml and local/kind/compute-domain.kind.yaml.
 # Note: distinct from Tilt's --gpu-profile (a100|gb200|...) — this PROFILE
 # picks the Kind cluster topology; --gpu-profile picks the simulated GPU.
-PROFILE ?= single
-_VALID_PROFILES := single multi compute-domain
+PROFILE ?= default
+_VALID_PROFILES := default compute-domain
 ifeq ($(filter $(PROFILE),$(_VALID_PROFILES)),)
 $(error PROFILE=$(PROFILE) is not valid. Choose one of: $(_VALID_PROFILES))
 endif
