@@ -239,3 +239,32 @@ func TestAdjustDeviceOptInAddsNvidiaDeviceEntries(t *testing.T) {
 		{HostPath: filepath.Join(deviceRoot, "nvidia-uvm"), Path: "/dev/nvidia-uvm"},
 	}, adjustment.Devices)
 }
+
+func TestAdjust_InjectsIBDevices(t *testing.T) {
+	overlay := t.TempDir()
+	ibDev := filepath.Join(overlay, "ib/dev/infiniband")
+	require.NoError(t, os.MkdirAll(ibDev, 0o755))
+	for _, n := range []string{"uverbs0", "umad0", "issm0", "rdma_cm"} {
+		require.NoError(t, os.WriteFile(filepath.Join(ibDev, n), nil, 0o644))
+	}
+	// nvidia device dir empty is fine; we only assert IB mapping here.
+	require.NoError(t, os.MkdirAll(filepath.Join(overlay, "driver/dev"), 0o755))
+
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = overlay
+	cfg.DeviceHostPath = filepath.Join(overlay, "driver/dev")
+
+	adj, ok, err := Adjust(cfg, Container{
+		Namespace:      "default",
+		PodAnnotations: map[string]string{cfg.DeviceAnnotation: "true"},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	got := map[string]string{}
+	for _, d := range adj.Devices {
+		got[d.Path] = d.HostPath
+	}
+	require.Equal(t, filepath.Join(ibDev, "uverbs0"), got["/dev/infiniband/uverbs0"])
+	require.Equal(t, filepath.Join(ibDev, "rdma_cm"), got["/dev/infiniband/rdma_cm"])
+}
