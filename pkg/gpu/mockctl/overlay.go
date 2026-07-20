@@ -200,8 +200,11 @@ func UtilizationPatch(percent int) map[string]any {
 // ClocksPatch builds an overlay patch that pins the reported SM and graphics
 // clocks to mhz. There is no dynamic clock simulator, so this hot-reloads
 // directly from the static clocks block. Memory/video clocks are left at their
-// profile baseline (use `set clocks.memory_current=...` to change those).
-func ClocksPatch(mhz uint32) map[string]any {
+// profile baseline (use `set clocks.memory_current=...` to change those). mhz
+// is an int (the CLI validates it as non-negative); the generic overlay map
+// carries it as-is and the JSON round-trip in MergeDeviceConfig decodes it into
+// the uint32 schema field.
+func ClocksPatch(mhz int) map[string]any {
 	return map[string]any{
 		"clocks": map[string]any{
 			"graphics_current": mhz,

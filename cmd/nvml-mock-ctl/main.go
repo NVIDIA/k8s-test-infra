@@ -222,7 +222,7 @@ func mutate(cmd, overlayPath, gpu, mode string, afterCalls int, xid uint64,
 			fprintf(stderr, "%v\n", perr)
 			return 2
 		}
-		if code := applyPatch(doc, target, base, mockctl.ClocksPatch(uint32(mhz)), stderr); code != 0 {
+		if code := applyPatch(doc, target, base, mockctl.ClocksPatch(mhz), stderr); code != 0 {
 			return code
 		}
 	case "throttle":
