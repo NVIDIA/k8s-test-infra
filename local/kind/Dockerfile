@@ -12,7 +12,7 @@
 # Build and create a cluster:
 #   make cluster-create SCENARIO=gpu-operator
 
-ARG KIND_NODE_VERSION=v1.33.0
+ARG KIND_NODE_VERSION=v1.35.0
 FROM kindest/node:${KIND_NODE_VERSION}
 
 RUN apt-get update -qq && \

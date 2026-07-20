@@ -1,7 +1,3 @@
 # Local-dev Helm value overrides for nvml-mock (committed, shared baseline).
 # To add personal overrides that won't be committed, create:
 #   local/nvml-mock.values.local.yaml  (gitignored, wins over this file)
-
-# Speed up rollouts in local clusters — the mock stack has no in-flight work
-# worth graceful-shutdown latency for.
-terminationGracePeriodSeconds: 1
