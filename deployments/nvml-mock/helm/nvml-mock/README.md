@@ -596,6 +596,43 @@ Two options, depending on intent:
     --set-file gpu.customConfig=my-h100-no-ib.yaml
   ```
 
+### Node-level NIC / IB device surface
+
+For IB-enabled profiles the mock also exposes a node-level NIC/IB surface so
+PCI-scanning consumers (e.g. NFD's `pci.device` source, the NVIDIA Network
+Operator's `nvidia-nics-rules`) can match on a real-looking Mellanox device:
+
+- **`15b3` NIC PCI entries.** Alongside the GPU topology, `render-pci-sysfs`
+  synthesizes one Mellanox (`15b3`) NIC per mock HCA under a synthetic root
+  complex (`pci0000:e0`) in the same tree at `/var/lib/nvml-mock/sys/...`. Each
+  NIC entry carries the attribute files a scanner reads — `vendor` (`0x15b3`),
+  `device`, `class` (`0x0207` InfiniBand, or `0x0200` when `link_layer:
+  Ethernet`), and `subsystem_vendor` / `subsystem_device` — in addition to the
+  usual symlink + `numa_node`. The HCA count mirrors the IB block (`hca_count`
+  override, or `gpu.count * hcas_per_gpu`).
+- **Real `/dev/infiniband/*` char devices.** `mock-ib` backs
+  `/dev/infiniband/{uverbsN,umadN,...}` with real character devices (not stub
+  files). When `nri.enabled=true`, the NRI plugin injects these char devices
+  into pods annotated `nvml-mock.nvidia.com/devices=true`, so an ordinary pod
+  sees them at `/dev/infiniband/` without a device-plugin claim.
+
+**Limits — what this does *not* do.** These entries are only visible to
+consumers that read the mock tree:
+
+- consumers with the IB `LD_PRELOAD` shims (which redirect `/sys/class/infiniband*`
+  and `/dev/infiniband`), NRI-injected pods, or a consumer whose sysfs mount is
+  redirected at the mock tree (as the network-operator demo does, mounting
+  `/var/lib/nvml-mock/sys` so NFD self-derives `pci-15b3.present`);
+- they do **not** populate the host kernel's real `/sys` — that cannot be faked
+  without a kernel module, so tools reading the node's native `/sys` see nothing;
+- the `rdma-shared-device-plugin` still needs a real kernel RDMA-netlink
+  subsystem, which Kind does not provide, so it cannot advertise `rdma/*`
+  resources even with the mock NICs present.
+
+GPU PCI entries are unchanged: they remain symlink + `numa_node` only (no
+attribute files). Only the synthesized NIC entries carry `vendor`/`device`/
+`class`/`subsystem_*` attributes.
+
 ## PCIe topology mocking
 
 Each profile carries a `pcie_topology:` block describing the host's PCI
