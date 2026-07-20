@@ -41,6 +41,18 @@ func TestDocFail_RejectsBadMode(t *testing.T) {
 	require.Error(t, (&Doc{}).Fail(Target{All: true}, "banana", 0, 0), "expected invalid mode error")
 }
 
+func TestDocFail_IsAuthoritative(t *testing.T) {
+	d := &Doc{}
+	require.NoError(t, d.Fail(Target{Index: 0}, "ecc_uncorrectable", 1, 79))
+	// Re-failing with a different mode and no xid must replace the whole
+	// failure block, not deep-merge, so the stale xid/after_calls are gone.
+	require.NoError(t, d.Fail(Target{Index: 0}, "lost", 0, 0))
+	f := d.Devices["0"]["failure"].(map[string]any)
+	require.Equal(t, "lost", f["mode"])
+	require.NotContains(t, f, "xid", "stale xid should be cleared")
+	require.NotContains(t, f, "after_calls", "stale after_calls should be cleared")
+}
+
 func TestReset_All(t *testing.T) {
 	d := &Doc{All: map[string]any{"x": 1}, Devices: map[string]map[string]any{"0": {"y": 2}}}
 	d.Reset(Target{All: true})
@@ -201,4 +213,22 @@ func TestResolveTarget_UUID(t *testing.T) {
 	tg, err := ResolveTarget("GPU-abc", cfg)
 	require.NoError(t, err)
 	require.Equal(t, 3, tg.Index)
+}
+
+func TestResolveTarget_IndexBounds(t *testing.T) {
+	cfg := &engine.Config{NumDevices: 8}
+
+	tg, err := ResolveTarget("7", cfg)
+	require.NoError(t, err)
+	require.Equal(t, 7, tg.Index)
+
+	_, err = ResolveTarget("8", cfg)
+	require.Error(t, err, "index == NumDevices is out of range")
+	_, err = ResolveTarget("-1", cfg)
+	require.Error(t, err, "negative index is out of range")
+
+	// Without a resolved config (NumDevices unknown) the check is skipped.
+	tg, err = ResolveTarget("99", nil)
+	require.NoError(t, err)
+	require.Equal(t, 99, tg.Index)
 }

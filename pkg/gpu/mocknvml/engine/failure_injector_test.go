@@ -632,19 +632,15 @@ func TestFailureInjection_HealthyConfigIsNoOp(t *testing.T) {
 	}
 }
 
-func TestFailureInjector_ResetRecoversHealthy(t *testing.T) {
-	f := newFailureInjector(&FailureInjectionConfig{Mode: FailureModeLost})
-	if f == nil {
-		t.Fatal("expected injector")
-	}
-	if !f.Tick() || !f.IsLost() {
-		t.Fatal("expected tripped lost device")
-	}
-	f.Reset()
-	if f.Triggered() || f.IsLost() {
-		t.Fatalf("Reset should clear tripped state")
-	}
-	if f.CallCount() != 0 {
-		t.Fatalf("Reset should zero call count, got %d", f.CallCount())
-	}
+func TestFailureInjector_SameConfig(t *testing.T) {
+	f := newFailureInjector(&FailureInjectionConfig{Mode: FailureModeLost, AfterCalls: 100})
+	require.NotNil(t, f, "expected injector")
+
+	// Identical config matches; a changed parameter does not.
+	require.True(t, f.sameConfig(&FailureInjectionConfig{Mode: FailureModeLost, AfterCalls: 100}))
+	require.False(t, f.sameConfig(&FailureInjectionConfig{Mode: FailureModeLost, AfterCalls: 5}))
+
+	// A nil injector never matches a non-nil config.
+	var nilInjector *failureInjector
+	require.False(t, nilInjector.sameConfig(&FailureInjectionConfig{Mode: FailureModeLost}))
 }

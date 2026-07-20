@@ -228,23 +228,26 @@ func (d *ConfigurableDevice) reconcileDynamicMetrics(cfg *DynamicMetricsConfig) 
 }
 
 // reconcileFailure aligns the injector with the effective failure config.
-// Unchanged mode keeps the existing injector (preserving accumulated ECC
-// counters); a changed mode installs a fresh injector; healthy clears it.
+// The existing injector is kept only when the mode AND its parameters are
+// unchanged, so accumulated ECC counters survive a config override edit to an
+// unrelated field. A changed mode — or a same-mode edit to after_calls / xid /
+// probability / seed — installs a fresh injector so runtime parameter changes
+// take effect. healthy clears the injector entirely.
 func (d *ConfigurableDevice) reconcileFailure(cfg *FailureInjectionConfig) {
 	cur := d.failure.Load()
 	newMode := FailureModeHealthy
 	if cfg != nil {
 		newMode = normalizedMode(cfg.Mode)
 	}
-	if cur.Mode() == newMode {
-		if newMode == FailureModeHealthy {
-			return
+	if newMode == FailureModeHealthy {
+		if cur.Mode() != FailureModeHealthy {
+			d.failure.Store(nil)
 		}
-		// Same non-healthy mode: keep accumulated state.
 		return
 	}
-	if newMode == FailureModeHealthy {
-		d.failure.Store(nil)
+	// Same mode and identical parameters: keep the injector so its accumulated
+	// state (call count, tripped, ECC counters) is preserved.
+	if cur.Mode() == newMode && cur.sameConfig(cfg) {
 		return
 	}
 	d.failure.Store(newFailureInjector(cfg))

@@ -22,6 +22,7 @@ import (
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
 	mockserver "github.com/NVIDIA/go-nvml/pkg/nvml/mock/server"
+	"github.com/stretchr/testify/require"
 )
 
 // newTestDevice builds a ConfigurableDevice backed by a dgxa100 base device
@@ -77,6 +78,27 @@ func TestRefresh_AllAppliesToDevice(t *testing.T) {
 		t.Fatalf("expected ecc_uncorrectable from all: %+v", fi)
 	}
 	_ = nvml.SUCCESS
+}
+
+// TestRefresh_SameModeParamChangeReinstallsInjector verifies that a same-mode
+// config override edit to a failure parameter (here after_calls) installs a
+// fresh injector at runtime rather than silently keeping the old one.
+func TestRefresh_SameModeParamChangeReinstallsInjector(t *testing.T) {
+	dev, path, clock := newTestDevice(t, &DeviceConfig{})
+	writeConfigOverride(t, path, "devices:\n  \"0\":\n    failure:\n      mode: ecc_uncorrectable\n      after_calls: 100\n", clock)
+	fi1 := dev.failureInjector()
+	require.NotNil(t, fi1, "expected ecc injector")
+	fi1.Tick()
+	fi1.Tick()
+	require.Equal(t, int64(2), fi1.CallCount())
+
+	// Same mode, different after_calls: a fresh injector must be installed so
+	// the new parameter takes effect (accumulated call count resets).
+	writeConfigOverride(t, path, "devices:\n  \"0\":\n    failure:\n      mode: ecc_uncorrectable\n      after_calls: 1\n", clock)
+	fi2 := dev.failureInjector()
+	require.NotNil(t, fi2)
+	require.NotSame(t, fi1, fi2, "expected a fresh injector after a same-mode param change")
+	require.Equal(t, int64(0), fi2.CallCount(), "fresh injector should start with a zero call count")
 }
 
 // TestRefresh_HotReloadsDynamicTemperature verifies that editing

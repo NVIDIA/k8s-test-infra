@@ -117,7 +117,10 @@ func (d *Doc) Fail(t Target, mode string, afterCalls int, xidCode uint64) error 
 	if xidCode > 0 {
 		failure["xid"] = map[string]any{"code": xidCode}
 	}
-	d.SetFields(t, map[string]any{"failure": failure})
+	// Authoritative: replace the whole failure block instead of deep-merging
+	// it, so parameters from a previous fail (e.g. a stale xid.code) don't
+	// linger. This matches the temp/power/fan/util convenience builders.
+	d.bucket(t)["failure"] = failure
 	return nil
 }
 
@@ -335,11 +338,17 @@ func Validate(base *engine.DeviceConfig, patch map[string]any) error {
 }
 
 // ResolveTarget interprets a --gpu spec: "all", a device index, or a UUID.
+// A numeric index is bounds-checked against cfg.NumDevices when available, so
+// a typo like `--gpu 8` on an 8-GPU node fails loudly instead of silently
+// writing overrides to a bucket no device ever reads.
 func ResolveTarget(spec string, cfg *engine.Config) (Target, error) {
 	if spec == "all" {
 		return Target{All: true}, nil
 	}
 	if idx, err := strconv.Atoi(spec); err == nil {
+		if cfg != nil && cfg.NumDevices > 0 && (idx < 0 || idx >= cfg.NumDevices) {
+			return Target{}, fmt.Errorf("--gpu index %d out of range [0,%d)", idx, cfg.NumDevices)
+		}
 		return Target{Index: idx}, nil
 	}
 	if cfg != nil && cfg.YAMLConfig != nil {

@@ -46,19 +46,28 @@ type configOverrideStore struct {
 	present  bool
 
 	// Lock-free fast path. Within the TTL window snapshot() returns the last
-	// published generation/doc without taking mu, avoiding contention when
-	// many devices poll concurrently. These are published under mu on the way
-	// out of the slow path, with checkedNanos stored LAST so a reader that
-	// observes a fresh timestamp also observes the matching gen+doc. A
-	// checkedNanos value of 0 is the "never checked" sentinel that forces the
-	// first call down the mutex-guarded slow path.
+	// published generation+doc without taking mu, avoiding contention when
+	// many devices poll concurrently. gen and doc are bundled into a single
+	// immutable snapshot published via one atomic pointer, so a reader can
+	// never observe a torn pair (gen from one generation, doc from another).
+	// The snapshot is stored under mu on the way out of the slow path, with
+	// checkedNanos stored LAST so a reader that observes a fresh timestamp
+	// also observes the matching snapshot. A checkedNanos value of 0 is the
+	// "never checked" sentinel that forces the first call down the
+	// mutex-guarded slow path.
 	checkedNanos atomic.Int64
-	genAtomic    atomic.Uint64
-	docAtomic    atomic.Pointer[ConfigOverrideDoc]
+	snapAtomic   atomic.Pointer[configOverrideSnapshot]
 
 	now    func() time.Time
 	pathFn func() string
 	ttl    time.Duration
+}
+
+// configOverrideSnapshot is an immutable (gen, doc) pair published atomically
+// so the lock-free fast path always returns a matching generation and document.
+type configOverrideSnapshot struct {
+	gen uint64
+	doc *ConfigOverrideDoc
 }
 
 func newConfigOverrideStore() *configOverrideStore {
@@ -83,23 +92,25 @@ func (s *configOverrideStore) snapshot() (uint64, *ConfigOverrideDoc) {
 	now := s.now()
 
 	// Lock-free fast path: within the TTL window return the last published
-	// generation/doc without touching the mutex. checkedNanos == 0 means
-	// "never checked" and always falls through to the slow path so the first
-	// call performs a real stat/read under the mutex.
+	// snapshot without touching the mutex. checkedNanos == 0 means "never
+	// checked" and always falls through to the slow path so the first call
+	// performs a real stat/read under the mutex.
 	if checked := s.checkedNanos.Load(); checked != 0 && now.UnixNano()-checked < int64(s.ttl) {
-		return s.genAtomic.Load(), s.docAtomic.Load()
+		if snap := s.snapAtomic.Load(); snap != nil {
+			return snap.gen, snap.doc
+		}
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Publish the mutex-guarded result to the lock-free fast path on the way
-	// out (for every slow-path exit). checkedNanos is stored LAST so a
-	// concurrent reader that sees the fresh timestamp also sees the matching
-	// gen+doc.
+	// out (for every slow-path exit). The (gen, doc) pair is bundled into one
+	// immutable snapshot and stored via a single atomic pointer; checkedNanos
+	// is stored LAST so a concurrent reader that sees the fresh timestamp also
+	// sees the matching snapshot.
 	defer func() {
-		s.docAtomic.Store(s.doc)
-		s.genAtomic.Store(s.gen)
+		s.snapAtomic.Store(&configOverrideSnapshot{gen: s.gen, doc: s.doc})
 		s.checkedNanos.Store(s.checked.UnixNano())
 	}()
 
