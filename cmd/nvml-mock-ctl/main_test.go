@@ -92,15 +92,76 @@ func TestCLI_FanForcesCount(t *testing.T) {
 	}
 }
 
+func TestCLI_UtilWritesStaticAndDisablesDynamic(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	if _, e, c := runCLI(t, overlay, "util", "--gpu", "0", "90"); c != 0 {
+		t.Fatalf("util exited %d: %s", c, e)
+	}
+	data, _ := os.ReadFile(overlay)
+	s := string(data)
+	for _, want := range []string{"gpu: 90", "memory: 90", "utilization: null"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("util overlay missing %q:\n%s", want, s)
+		}
+	}
+}
+
+func TestCLI_ClocksPinsSMAndGraphics(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	if _, e, c := runCLI(t, overlay, "clocks", "--gpu", "all", "1980"); c != 0 {
+		t.Fatalf("clocks exited %d: %s", c, e)
+	}
+	data, _ := os.ReadFile(overlay)
+	s := string(data)
+	if !strings.Contains(s, "graphics_current: 1980") || !strings.Contains(s, "sm_current: 1980") {
+		t.Fatalf("clocks overlay missing pinned clocks:\n%s", s)
+	}
+}
+
+func TestCLI_ThrottleSetsReason(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	if _, e, c := runCLI(t, overlay, "throttle", "--gpu", "0", "thermal"); c != 0 {
+		t.Fatalf("throttle exited %d: %s", c, e)
+	}
+	data, _ := os.ReadFile(overlay)
+	s := string(data)
+	if !strings.Contains(s, "hw_thermal_slowdown: true") {
+		t.Fatalf("throttle overlay missing thermal reason:\n%s", s)
+	}
+	if !strings.Contains(s, "sw_power_cap: false") {
+		t.Fatalf("throttle overlay should write authoritative false flags:\n%s", s)
+	}
+}
+
+func TestCLI_PStatePins(t *testing.T) {
+	dir := t.TempDir()
+	overlay := filepath.Join(dir, "overrides.yaml")
+	if _, e, c := runCLI(t, overlay, "pstate", "--gpu", "0", "8"); c != 0 {
+		t.Fatalf("pstate exited %d: %s", c, e)
+	}
+	data, _ := os.ReadFile(overlay)
+	if !strings.Contains(string(data), "performance_state: P8") {
+		t.Fatalf("pstate overlay missing P8:\n%s", data)
+	}
+}
+
 func TestCLI_ConvenienceArgValidation(t *testing.T) {
 	dir := t.TempDir()
 	overlay := filepath.Join(dir, "overrides.yaml")
 	cases := [][]string{
-		{"temp", "--gpu", "0"},            // missing value
-		{"temp", "--gpu", "0", "hot"},     // non-integer
-		{"fan", "--gpu", "0", "150"},      // out of range
-		{"power", "--gpu", "0", "-5"},     // negative watts
-		{"power", "--gpu", "0", "1", "2"}, // too many values
+		{"temp", "--gpu", "0"},                        // missing value
+		{"temp", "--gpu", "0", "hot"},                 // non-integer
+		{"fan", "--gpu", "0", "150"},                  // out of range
+		{"power", "--gpu", "0", "-5"},                 // negative watts
+		{"power", "--gpu", "0", "1", "2"},             // too many values
+		{"util", "--gpu", "0", "150"},                 // out of range
+		{"pstate", "--gpu", "0", "16"},                // out of range
+		{"throttle", "--gpu", "0"},                    // missing reason
+		{"throttle", "--gpu", "0", "nope"},            // unknown reason
+		{"throttle", "--gpu", "0", "none", "thermal"}, // none + reason
 	}
 	for _, args := range cases {
 		if _, _, code := runCLI(t, overlay, args...); code != 2 {

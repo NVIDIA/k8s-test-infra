@@ -1778,6 +1778,20 @@ func parsePstate(state string) nvml.Pstates {
 		return nvml.PSTATE_7
 	case "P8":
 		return nvml.PSTATE_8
+	case "P9":
+		return nvml.PSTATE_9
+	case "P10":
+		return nvml.PSTATE_10
+	case "P11":
+		return nvml.PSTATE_11
+	case "P12":
+		return nvml.PSTATE_12
+	case "P13":
+		return nvml.PSTATE_13
+	case "P14":
+		return nvml.PSTATE_14
+	case "P15":
+		return nvml.PSTATE_15
 	default:
 		return nvml.PSTATE_0
 	}

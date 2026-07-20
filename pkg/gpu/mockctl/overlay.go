@@ -179,6 +179,106 @@ func FanPatch(percent, baseCount int) map[string]any {
 	}
 }
 
+// UtilizationPatch builds an overlay patch that pins GPU and memory
+// utilization to percent. Profiles that enable dynamic metrics (the demo/e2e
+// default) drive utilization through the simulator, which masks the static
+// UtilizationConfig; unlike temperature/power we cannot pin it with a
+// zero-variation dynamic block because the simulator treats min==max==0 as
+// "unbounded" (0..100), so `util 0` would not be deterministic. Instead we set
+// the static block and disable the dynamic utilization sub-simulator (null), so
+// the static value is authoritative for any percent in [0,100]. `reset`
+// restores the profile baseline.
+func UtilizationPatch(percent int) map[string]any {
+	return map[string]any{
+		"utilization": map[string]any{"gpu": percent, "memory": percent},
+		"dynamic_metrics": map[string]any{
+			"utilization": nil,
+		},
+	}
+}
+
+// ClocksPatch builds an overlay patch that pins the reported SM and graphics
+// clocks to mhz. There is no dynamic clock simulator, so this hot-reloads
+// directly from the static clocks block. Memory/video clocks are left at their
+// profile baseline (use `set clocks.memory_current=...` to change those).
+func ClocksPatch(mhz uint32) map[string]any {
+	return map[string]any{
+		"clocks": map[string]any{
+			"graphics_current": mhz,
+			"sm_current":       mhz,
+		},
+	}
+}
+
+// PStatePatch builds an overlay patch that pins the reported performance state
+// to P<n>. GetPerformanceState reads the static performance_state string, so it
+// hot-reloads directly.
+func PStatePatch(n int) map[string]any {
+	return map[string]any{"performance_state": fmt.Sprintf("P%d", n)}
+}
+
+// throttleReasonKeys maps CLI-friendly throttle reason names to the
+// clocks_throttle_reasons config field they enable. The canonical JSON keys are
+// accepted directly; short aliases cover the common thermal/power cases.
+var throttleReasonKeys = map[string]string{
+	"gpu_idle":                    "gpu_idle",
+	"idle":                        "gpu_idle",
+	"applications_clocks_setting": "applications_clocks_setting",
+	"app_clocks":                  "applications_clocks_setting",
+	"sw_power_cap":                "sw_power_cap",
+	"power":                       "sw_power_cap",
+	"hw_slowdown":                 "hw_slowdown",
+	"hw_thermal_slowdown":         "hw_thermal_slowdown",
+	"thermal":                     "hw_thermal_slowdown",
+	"hw_power_brake_slowdown":     "hw_power_brake_slowdown",
+	"power_brake":                 "hw_power_brake_slowdown",
+	"sync_boost":                  "sync_boost",
+	"sw_thermal_slowdown":         "sw_thermal_slowdown",
+	"sw_thermal":                  "sw_thermal_slowdown",
+	"display_clocks_setting":      "display_clocks_setting",
+	"display_clocks":              "display_clocks_setting",
+}
+
+// allThrottleKeys is the full set of clocks_throttle_reasons config flags, used
+// to write an authoritative all-false baseline so a ThrottlePatch represents
+// exactly the requested reasons (and "none" clears them all).
+var allThrottleKeys = []string{
+	"gpu_idle", "applications_clocks_setting", "sw_power_cap", "hw_slowdown",
+	"hw_thermal_slowdown", "hw_power_brake_slowdown", "sync_boost",
+	"sw_thermal_slowdown", "display_clocks_setting",
+}
+
+// ThrottlePatch builds an overlay patch that sets the GPU's active clock
+// throttle reasons. reasons are CLI-friendly names (see throttleReasonKeys);
+// the special reason "none" clears all reasons and cannot be combined with
+// others. The patch is authoritative: every known flag is written (requested
+// ones true, the rest false) so repeated invocations replace rather than
+// accumulate state.
+func ThrottlePatch(reasons []string) (map[string]any, error) {
+	if len(reasons) == 0 {
+		return nil, errors.New("throttle requires at least one reason (or 'none')")
+	}
+	flags := map[string]any{}
+	for _, k := range allThrottleKeys {
+		flags[k] = false
+	}
+	for _, r := range reasons {
+		key := strings.ToLower(strings.TrimSpace(r))
+		if key == "none" {
+			if len(reasons) != 1 {
+				return nil, errors.New("throttle 'none' cannot be combined with other reasons")
+			}
+			break
+		}
+		canonical, ok := throttleReasonKeys[key]
+		if !ok {
+			return nil, fmt.Errorf("unknown throttle reason %q", r)
+		}
+		flags[canonical] = true
+	}
+	return map[string]any{"clocks_throttle_reasons": flags}, nil
+}
+
 // Reset removes overrides for the target, or clears everything when All is set.
 func (d *Doc) Reset(t Target) {
 	if t.All {

@@ -149,6 +149,135 @@ func TestFanPatch_ForcesCountAndStringSpeed(t *testing.T) {
 	}
 }
 
+func TestUtilizationPatch_PinsStaticAndDisablesDynamic(t *testing.T) {
+	base := &engine.DeviceConfig{
+		Utilization: &engine.UtilizationConfig{GPU: 10, Memory: 5},
+		DynamicMetrics: &engine.DynamicMetricsConfig{
+			Utilization: &engine.DynamicUtilizationConfig{Pattern: "busy", GPUMax: 90},
+		},
+	}
+	patch := UtilizationPatch(90)
+	if err := Validate(base, patch); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	merged, err := engine.MergeDeviceConfig(base, patch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.Utilization.GPU != 90 || merged.Utilization.Memory != 90 {
+		t.Fatalf("static util = %+v, want gpu=90 memory=90", merged.Utilization)
+	}
+	if merged.DynamicMetrics.Utilization != nil {
+		t.Fatalf("dynamic utilization should be disabled (nil), got %+v", merged.DynamicMetrics.Utilization)
+	}
+}
+
+func TestUtilizationPatch_ZeroIsDeterministic(t *testing.T) {
+	// 0% must not fall through the simulator's min==max==0 "unbounded" rule.
+	base := &engine.DeviceConfig{
+		Utilization: &engine.UtilizationConfig{GPU: 50},
+		DynamicMetrics: &engine.DynamicMetricsConfig{
+			Utilization: &engine.DynamicUtilizationConfig{Pattern: "steady", GPUMin: 20, GPUMax: 80},
+		},
+	}
+	merged, err := engine.MergeDeviceConfig(base, UtilizationPatch(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.Utilization.GPU != 0 || merged.DynamicMetrics.Utilization != nil {
+		t.Fatalf("util 0 = %+v (dyn util %+v), want static gpu=0 and nil dynamic util",
+			merged.Utilization, merged.DynamicMetrics.Utilization)
+	}
+}
+
+func TestClocksPatch_PinsSMAndGraphics(t *testing.T) {
+	base := &engine.DeviceConfig{
+		Clocks: &engine.ClocksConfig{GraphicsCurrent: 300, SMCurrent: 300, MemoryCurrent: 1200},
+	}
+	patch := ClocksPatch(1980)
+	if err := Validate(base, patch); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	merged, err := engine.MergeDeviceConfig(base, patch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.Clocks.GraphicsCurrent != 1980 || merged.Clocks.SMCurrent != 1980 {
+		t.Fatalf("clocks = %+v, want graphics/sm = 1980", merged.Clocks)
+	}
+	if merged.Clocks.MemoryCurrent != 1200 {
+		t.Fatalf("memory clock = %d, want 1200 (base preserved)", merged.Clocks.MemoryCurrent)
+	}
+}
+
+func TestPStatePatch_FormatsPState(t *testing.T) {
+	patch := PStatePatch(8)
+	if patch["performance_state"] != "P8" {
+		t.Fatalf("performance_state = %#v, want \"P8\"", patch["performance_state"])
+	}
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, PStatePatch(12))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.PerformanceState != "P12" {
+		t.Fatalf("performance_state = %q, want P12", merged.PerformanceState)
+	}
+}
+
+func TestThrottlePatch_AuthoritativeFlags(t *testing.T) {
+	patch, err := ThrottlePatch([]string{"thermal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := &engine.DeviceConfig{
+		ClocksThrottleReasons: &engine.ClocksThrottleReasonsConfig{SWPowerCap: true},
+	}
+	if err := Validate(base, patch); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	merged, err := engine.MergeDeviceConfig(base, patch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctr := merged.ClocksThrottleReasons
+	if !ctr.HWThermalSlowdown {
+		t.Fatalf("hw_thermal_slowdown should be true: %+v", ctr)
+	}
+	// Authoritative: a previously-set reason must be cleared.
+	if ctr.SWPowerCap {
+		t.Fatalf("sw_power_cap should be cleared by authoritative patch: %+v", ctr)
+	}
+}
+
+func TestThrottlePatch_NoneClearsAll(t *testing.T) {
+	patch, err := ThrottlePatch([]string{"none"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := engine.MergeDeviceConfig(
+		&engine.DeviceConfig{ClocksThrottleReasons: &engine.ClocksThrottleReasonsConfig{HWSlowdown: true}},
+		patch,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.ClocksThrottleReasons.HWSlowdown {
+		t.Fatalf("none should clear all reasons: %+v", merged.ClocksThrottleReasons)
+	}
+}
+
+func TestThrottlePatch_Errors(t *testing.T) {
+	if _, err := ThrottlePatch(nil); err == nil {
+		t.Fatal("expected error for no reasons")
+	}
+	if _, err := ThrottlePatch([]string{"banana"}); err == nil {
+		t.Fatal("expected error for unknown reason")
+	}
+	if _, err := ThrottlePatch([]string{"none", "thermal"}); err == nil {
+		t.Fatal("expected error combining none with other reasons")
+	}
+}
+
 func TestResolveTarget_UUID(t *testing.T) {
 	cfg := &engine.Config{YAMLConfig: &engine.YAMLConfig{
 		Devices: []engine.DeviceOverride{{Index: 3, UUID: "GPU-abc"}},

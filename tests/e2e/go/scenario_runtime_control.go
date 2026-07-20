@@ -424,42 +424,169 @@ func assertRuntimeFanCommand(ctx SpecContext, h *harness.Harness, consumer kube.
 		Should(Equal(baseline), "GPU %d fan speed should return to the profile baseline after reset", target)
 }
 
-// assertRuntimeApplyPatch covers docs example #4: apply a multi-field YAML
-// snippet to one GPU. The e2e chart drives GPU utilization from the
-// dynamic-metrics simulator, so we assert the deterministic, hot-reloadable ECC
-// mode field through nvidia-smi (utilization is included in the patch to mirror
-// the docs but is simulator-driven and not asserted).
-func assertRuntimeApplyPatch(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+// assertRuntimeUtilCommand covers the `util` convenience command: pin a GPU's
+// GPU and memory utilization to a fixed percent and read both back through
+// nvidia-smi. Utilization is simulator-driven under the e2e chart, so the
+// command disables the dynamic utilization sub-simulator (rather than zeroing
+// its variation) to make the reading deterministic for any percent. reset lets
+// the simulator resume.
+func assertRuntimeUtilCommand(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
 	GinkgoHelper()
 	resetRuntimeOverrides(ctx, h)
 
-	baseline := smiGPUValue(ctx, h, consumer, 0, "ecc.mode.current")
-	// Flip to the opposite of the baseline so the change is observable
-	// regardless of the profile's default ECC mode.
-	wantCfg, wantSMI := "disabled", "Disabled"
-	if strings.EqualFold(baseline, "Disabled") {
-		wantCfg, wantSMI = "enabled", "Enabled"
+	count := gpuCount(ctx, h, consumer)
+	target := count - 1 // exercise a non-zero index where possible
+
+	// Pick an override far from the (oscillating) dynamic baseline so it is
+	// unambiguously observable and the simulator never emits it on its own.
+	baseline := smiGPUInt(ctx, h, consumer, target, "utilization.gpu")
+	overridePct := 90
+	if baseline >= 50 {
+		overridePct = 10
 	}
 
-	patch := fmt.Sprintf("ecc:\n  mode_current: %s\nutilization:\n  gpu: 100\n", wantCfg)
-	pod := firstNvmlPod(ctx, h)
-	By("stage a patch file inside the pod and apply it to GPU 0")
-	writePatch, err := h.Kube.ExecSh(ctx, pod, "cat > /tmp/nvml-mock-ctl-patch.yaml <<'EOF'\n"+patch+"EOF")
-	Expect(err).NotTo(HaveOccurred(), "write patch file: %s", writePatch.Combined())
-	nvmlMockCtl(ctx, h, "apply", "--gpu", "0", "-f", "/tmp/nvml-mock-ctl-patch.yaml")
+	By(fmt.Sprintf("pin utilization to %d%% on GPU %d via nvml-mock-ctl util", overridePct, target))
+	nvmlMockCtl(ctx, h, "util", "--gpu", strconv.Itoa(target), strconv.Itoa(overridePct))
+
+	Eventually(func() int {
+		return smiGPUInt(ctx, h, consumer, target, "utilization.gpu")
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(overridePct), "GPU %d GPU utilization should reflect the util command", target)
+	Expect(smiGPUInt(ctx, h, consumer, target, "utilization.memory")).
+		To(Equal(overridePct), "GPU %d memory utilization should also be pinned", target)
+
+	if count > 1 {
+		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
+		Expect(smiGPUInt(ctx, h, consumer, 0, "utilization.gpu")).
+			NotTo(Equal(overridePct), "GPU 0 must keep its baseline (simulator-driven) utilization")
+	}
+
+	By("reset runtime overrides")
+	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+
+	Eventually(func() int {
+		return smiGPUInt(ctx, h, consumer, target, "utilization.gpu")
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Not(Equal(overridePct)), "GPU %d utilization should resume varying after reset", target)
+}
+
+// assertRuntimeClocksCommand covers the `clocks` convenience command: pin a
+// GPU's SM/graphics clocks and read clocks.sm back. Clocks are static (no
+// dynamic simulator), so the reading is exact both after the pin and after
+// reset returns it to the profile baseline.
+func assertRuntimeClocksCommand(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	count := gpuCount(ctx, h, consumer)
+	target := count - 1 // exercise a non-zero index where possible
+
+	baseline := smiGPUInt(ctx, h, consumer, target, "clocks.sm")
+	overrideMHz := 1410
+	if baseline == overrideMHz {
+		overrideMHz = 1215
+	}
+
+	By(fmt.Sprintf("pin SM/graphics clocks to %d MHz on GPU %d via nvml-mock-ctl clocks", overrideMHz, target))
+	nvmlMockCtl(ctx, h, "clocks", "--gpu", strconv.Itoa(target), strconv.Itoa(overrideMHz))
+
+	Eventually(func() int {
+		return smiGPUInt(ctx, h, consumer, target, "clocks.sm")
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(overrideMHz), "GPU %d SM clock should reflect the clocks command", target)
+
+	if count > 1 {
+		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
+		Expect(smiGPUInt(ctx, h, consumer, 0, "clocks.sm")).
+			NotTo(Equal(overrideMHz), "GPU 0 must keep its baseline SM clock")
+	}
+
+	By("reset runtime overrides")
+	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+
+	Eventually(func() int {
+		return smiGPUInt(ctx, h, consumer, target, "clocks.sm")
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(baseline), "GPU %d SM clock should return to the profile baseline after reset", target)
+}
+
+// assertRuntimeThrottleCommand covers the `throttle` convenience command: set
+// the hw_thermal_slowdown reason on a GPU and read it back via
+// clocks_throttle_reasons.hw_thermal_slowdown ("Active"/"Not Active"), then let
+// reset restore the profile baseline. Profiles ship this reason off, so the
+// transition is observable.
+func assertRuntimeThrottleCommand(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	count := gpuCount(ctx, h, consumer)
+	target := count - 1 // exercise a non-zero index where possible
+
+	const field = "clocks_throttle_reasons.hw_thermal_slowdown"
+	baseline := smiGPUValue(ctx, h, consumer, target, field)
+	Expect(baseline).To(Equal("Not Active"), "profile must ship hw_thermal_slowdown off for a meaningful assertion")
+
+	By(fmt.Sprintf("set the thermal throttle reason on GPU %d via nvml-mock-ctl throttle", target))
+	nvmlMockCtl(ctx, h, "throttle", "--gpu", strconv.Itoa(target), "thermal")
 
 	Eventually(func() string {
-		return smiGPUValue(ctx, h, consumer, 0, "ecc.mode.current")
+		return smiGPUValue(ctx, h, consumer, target, field)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
-		Should(Equal(wantSMI), "GPU 0 ECC mode should reflect the applied patch")
+		Should(Equal("Active"), "GPU %d hw_thermal_slowdown should be active after the throttle command", target)
+
+	if count > 1 {
+		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
+		Expect(smiGPUValue(ctx, h, consumer, 0, field)).
+			To(Equal("Not Active"), "GPU 0 must keep its baseline throttle state")
+	}
 
 	By("reset runtime overrides")
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 
 	Eventually(func() string {
-		return smiGPUValue(ctx, h, consumer, 0, "ecc.mode.current")
+		return smiGPUValue(ctx, h, consumer, target, field)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
-		Should(Equal(baseline), "GPU 0 ECC mode should return to baseline after reset")
+		Should(Equal(baseline), "GPU %d throttle reason should return to the profile baseline after reset", target)
+}
+
+// assertRuntimePStateCommand covers the `pstate` convenience command: pin a
+// GPU's performance state and read pstate back ("P0".."P15"). The value is
+// static, so it is exact after the pin and after reset restores the baseline.
+func assertRuntimePStateCommand(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	count := gpuCount(ctx, h, consumer)
+	target := count - 1 // exercise a non-zero index where possible
+
+	baseline := smiGPUValue(ctx, h, consumer, target, "pstate")
+	overrideN := 8
+	if baseline == "P8" {
+		overrideN = 5
+	}
+	overrideStr := fmt.Sprintf("P%d", overrideN)
+
+	By(fmt.Sprintf("pin performance state to %s on GPU %d via nvml-mock-ctl pstate", overrideStr, target))
+	nvmlMockCtl(ctx, h, "pstate", "--gpu", strconv.Itoa(target), strconv.Itoa(overrideN))
+
+	Eventually(func() string {
+		return smiGPUValue(ctx, h, consumer, target, "pstate")
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(overrideStr), "GPU %d pstate should reflect the pstate command", target)
+
+	if count > 1 {
+		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
+		Expect(smiGPUValue(ctx, h, consumer, 0, "pstate")).
+			NotTo(Equal(overrideStr), "GPU 0 must keep its baseline pstate")
+	}
+
+	By("reset runtime overrides")
+	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+
+	Eventually(func() string {
+		return smiGPUValue(ctx, h, consumer, target, "pstate")
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(baseline), "GPU %d pstate should return to the profile baseline after reset", target)
 }
 
 // assertRuntimeUUIDTargeting covers docs example #5: target a GPU by its UUID.

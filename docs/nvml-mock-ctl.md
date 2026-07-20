@@ -63,9 +63,11 @@ the DaemonSet (or the affected pod).
 **per-node**: it only affects the node whose pod you exec into. To change several
 nodes, repeat the command against each node's pod.
 
-Inside the pod the overlay/config paths are already wired through environment
-variables (`MOCK_NVML_OVERRIDES`, `MOCK_NVML_CONFIG`), so you normally run the
-subcommands with no path flags.
+Inside the pod the config path is wired through `MOCK_NVML_CONFIG`, and the
+overlay defaults to the host-mounted driver config dir
+(`/var/lib/nvml-mock/driver/config/overrides.yaml`), so you normally run the
+subcommands with no path flags. (Set `MOCK_NVML_OVERRIDES` / `--file` only to
+override that default.)
 
 ```bash
 # Pick the nvml-mock pod on a specific node.
@@ -84,8 +86,11 @@ commands:
   temp   --gpu <idx|all|uuid> <celsius>    pin reported GPU temperature
   power  --gpu <idx|all|uuid> <watts>      pin reported power draw
   fan    --gpu <idx|all|uuid> <percent>    pin reported fan speed (forces fan count >= 1)
+  util   --gpu <idx|all|uuid> <percent>    pin reported GPU + memory utilization
+  clocks --gpu <idx|all|uuid> <mhz>        pin reported SM + graphics clocks
+  throttle --gpu <idx|all|uuid> <reason>[ reason ...]  set active throttle reasons ('none' clears)
+  pstate --gpu <idx|all|uuid> <0-15>       pin reported performance state (P-state)
   set    --gpu <idx|all|uuid> key.path=value [key.path=value ...]
-  apply  --gpu <idx|all|uuid> -f patch.yaml
   status [--gpu <idx>]
   reset  [--gpu <idx|all|uuid>]
 
@@ -127,16 +132,20 @@ Sets the `failure` block for the target. Modes:
 [mock NVML README](../pkg/gpu/mocknvml/README.md#failure-injection-optional) for
 the full per-mode semantics.
 
-### `temp` / `power` / `fan` — pin a common metric
+### `temp` / `power` / `fan` / `util` / `clocks` / `throttle` / `pstate` — pin a common metric
 
-These convenience commands pin the three most-tweaked readings to a fixed value
-and take a single positional argument:
+These convenience commands pin the most-tweaked readings to a fixed value.
+Except for `throttle` they take a single positional argument:
 
-| command                    | argument   | pins                                              |
-| -------------------------- | ---------- | ------------------------------------------------- |
-| `temp --gpu <t> <celsius>` | 0–200 °C   | `nvidia-smi ... temperature.gpu`                  |
-| `power --gpu <t> <watts>`  | watts (≥0) | `nvidia-smi ... power.draw` (converted to mW)     |
-| `fan --gpu <t> <percent>`  | 0–100 %    | `nvidia-smi ... fan.speed`                        |
+| command                            | argument       | pins                                              |
+| ---------------------------------- | -------------- | ------------------------------------------------- |
+| `temp --gpu <t> <celsius>`         | 0–200 °C       | `nvidia-smi ... temperature.gpu`                  |
+| `power --gpu <t> <watts>`          | watts (≥0)     | `nvidia-smi ... power.draw` (converted to mW)     |
+| `fan --gpu <t> <percent>`          | 0–100 %        | `nvidia-smi ... fan.speed`                        |
+| `util --gpu <t> <percent>`         | 0–100 %        | `nvidia-smi ... utilization.gpu,utilization.memory` |
+| `clocks --gpu <t> <mhz>`           | 0–100000 MHz   | `nvidia-smi ... clocks.sm,clocks.gr`              |
+| `throttle --gpu <t> <reason>...`   | reason name(s) | `nvidia-smi ... clocks_throttle_reasons.*`        |
+| `pstate --gpu <t> <0-15>`          | P-state number | `nvidia-smi ... pstate`                           |
 
 They exist because pinning these fields by hand is fiddly (see [Dynamic metrics
 mask their static counterparts](#dynamic-metrics-mask-their-static-counterparts)
@@ -155,10 +164,30 @@ configured:
   `fan.count: 0`, which makes `fan.speed` report `[N/A]`; forcing the count makes
   the pinned speed observable. There is no dynamic fan simulator, so this touches
   only the static fan block.
+- **`util`** pins GPU **and** memory utilization to the same percent. It sets the
+  static `utilization` block and **disables** the dynamic utilization
+  sub-simulator (writes `dynamic_metrics.utilization: null`), so the value is
+  deterministic for any percent — including `0`, which a zero-variation dynamic
+  block could not express (the simulator treats `min==max==0` as "unbounded").
+- **`clocks`** pins the reported SM and graphics clocks (`clocks.sm_current` and
+  `clocks.graphics_current`). There is no dynamic clock simulator, so it
+  hot-reloads directly. Memory/video clocks keep their profile baseline — use
+  `set clocks.memory_current=<mhz>` to change those.
+- **`throttle`** sets the active clock-throttle reasons. It is *authoritative*:
+  the requested reasons are turned on and every other reason is turned off, so
+  repeated calls replace (not accumulate) state. Pass one or more reason names,
+  or `none` (on its own) to clear them all. Accepted names are the
+  `clocks_throttle_reasons` field names plus short aliases: `thermal`
+  (`hw_thermal_slowdown`), `sw_thermal` (`sw_thermal_slowdown`), `power`
+  (`sw_power_cap`), `power_brake` (`hw_power_brake_slowdown`), `idle`
+  (`gpu_idle`), `app_clocks` (`applications_clocks_setting`),
+  `display_clocks` (`display_clocks_setting`), plus `hw_slowdown` and
+  `sync_boost`.
+- **`pstate`** pins the performance state to `P<n>` for `n` in `0–15`.
 
 `reset` clears these overrides and returns the metric to the profile baseline
-(varying again, if the profile drives it dynamically). For anything these three
-don't cover, use `set` / `apply` below.
+(varying again, if the profile drives it dynamically). For anything these
+commands don't cover, use `set` below.
 
 ### `set` — set arbitrary fields
 
@@ -187,18 +216,19 @@ which the demo/e2e charts do), the simulator drives `temperature`, `power`, and
 
   The engine rebuilds the simulator on the next TTL, so a running consumer sees
   the pinned value without a restart; `reset` returns it to the varying baseline.
-  The **`temp` command above does exactly this for you** — prefer it unless you
-  need a field `temp`/`power`/`fan` don't cover.
+  The **`temp` command above does exactly this for you** — prefer it (and the
+  `power`/`util` commands) unless you need a field the convenience commands don't
+  cover.
 
 If dynamic metrics is **disabled**, the static `thermal.temperature_gpu_c` (and
-`power.*`) are authoritative and hot-reload directly. The same masking applies to
-`power` (`dynamic_metrics.power`) and `utilization` (`dynamic_metrics.utilization`).
+`power.*`, `utilization.*`) are authoritative and hot-reload directly. The same
+masking applies to `power` (`dynamic_metrics.power`) and `utilization`
+(`dynamic_metrics.utilization`). Note `util` handles this by *disabling* the
+dynamic utilization sub-simulator rather than zeroing its variation, so it pins
+correctly even at `0%`.
 
-### `apply` — apply a multi-field YAML snippet
-
-`apply --gpu <t> -f patch.yaml` deep-merges a YAML fragment (the same schema as a
-device block in `config.yaml`) into the target bucket. Good for changing several
-fields at once.
+To change several fields at once, pass multiple `key.path=value` pairs to a
+single `set` invocation.
 
 ### `status` — inspect active overrides
 
@@ -256,15 +286,24 @@ kubectl exec <consumer> -- nvidia-smi --query-gpu=index,power.draw,fan.speed --f
 ```
 
 ```bash
-# 4) Apply a multi-field snippet to GPU 0
-cat > /tmp/patch.yaml <<'EOF'
-ecc:
-  mode_current: disabled
-utilization:
-  gpu: 100
-EOF
-kubectl cp /tmp/patch.yaml "$POD":/tmp/patch.yaml -n nvml-mock
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl apply --gpu 0 -f /tmp/patch.yaml
+# 3c) Pin utilization, clocks, a throttle reason and the P-state on GPU 0.
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl util --gpu 0 90
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl clocks --gpu 0 1200
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl throttle --gpu 0 thermal
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl pstate --gpu 0 8
+# verify from any consumer pod:
+kubectl exec <consumer> -- nvidia-smi --id=0 \
+  --query-gpu=utilization.gpu,clocks.sm,clocks_throttle_reasons.hw_thermal_slowdown,pstate \
+  --format=csv,noheader
+# clear the throttle reason again:
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl throttle --gpu 0 none
+```
+
+```bash
+# 4) Set several fields on GPU 0 in one call
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl set --gpu 0 \
+  ecc.mode_current=disabled \
+  utilization.gpu=100
 ```
 
 ```bash

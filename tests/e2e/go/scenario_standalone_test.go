@@ -152,8 +152,20 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertRuntimeFanCommand(ctx, h, pod)
 				})
 
-				It("applies a multi-field patch via nvml-mock-ctl apply", Label("runtime-control"), func(ctx SpecContext) {
-					assertRuntimeApplyPatch(ctx, h, pod)
+				It("pins utilization via the nvml-mock-ctl util command", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeUtilCommand(ctx, h, pod)
+				})
+
+				It("pins SM/graphics clocks via the nvml-mock-ctl clocks command", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeClocksCommand(ctx, h, pod)
+				})
+
+				It("sets a throttle reason via the nvml-mock-ctl throttle command", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeThrottleCommand(ctx, h, pod)
+				})
+
+				It("pins the performance state via the nvml-mock-ctl pstate command", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimePStateCommand(ctx, h, pod)
 				})
 
 				It("targets a GPU by UUID via nvml-mock-ctl", Label("runtime-control"), func(ctx SpecContext) {

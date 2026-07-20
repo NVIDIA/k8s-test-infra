@@ -24,7 +24,6 @@ import (
 	"strconv"
 
 	"golang.org/x/sys/unix"
-	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mockctl"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
@@ -52,8 +51,11 @@ commands:
   temp   --gpu <idx|all|uuid> <celsius>    pin reported GPU temperature
   power  --gpu <idx|all|uuid> <watts>      pin reported power draw
   fan    --gpu <idx|all|uuid> <percent>    pin reported fan speed (forces fan count >= 1)
+  util   --gpu <idx|all|uuid> <percent>    pin reported GPU + memory utilization
+  clocks --gpu <idx|all|uuid> <mhz>        pin reported SM + graphics clocks
+  throttle --gpu <idx|all|uuid> <reason>[ reason ...]  set active throttle reasons ('none' clears)
+  pstate --gpu <idx|all|uuid> <0-15>       pin reported performance state (P-state)
   set    --gpu <idx|all|uuid> key.path=value [key.path=value ...]
-  apply  --gpu <idx|all|uuid> -f patch.yaml
   status [--gpu <idx>]
   reset  [--gpu <idx|all|uuid>]
 
@@ -64,7 +66,7 @@ global flags:
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	var overlayPath, configPath, gpu, mode, patchFile string
+	var overlayPath, configPath, gpu, mode string
 	var afterCalls int
 	var xid uint64
 	fs := flag.NewFlagSet("nvml-mock-ctl", flag.ContinueOnError)
@@ -74,7 +76,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&configPath, "config", envOr("MOCK_NVML_CONFIG", defaultConfig), "config path")
 	fs.StringVar(&gpu, "gpu", "", "target: index, 'all', or UUID")
 	fs.StringVar(&mode, "mode", "", "failure mode (fail command)")
-	fs.StringVar(&patchFile, "f", "", "patch file (apply command)")
 	fs.IntVar(&afterCalls, "after-calls", 0, "trip after N guarded calls (fail)")
 	fs.Uint64Var(&xid, "xid", 0, "Xid code to surface (fail)")
 
@@ -120,8 +121,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "status":
 		return doStatus(overlayPath, gpu, stdout, stderr)
-	case "fail", "temp", "temperature", "power", "fan", "set", "apply", "reset":
-		return mutate(cmd, overlayPath, gpu, mode, patchFile, afterCalls, xid, positional, cfg, base, stdout, stderr)
+	case "fail", "temp", "temperature", "power", "fan", "util", "utilization",
+		"clocks", "throttle", "pstate", "set", "reset":
+		return mutate(cmd, overlayPath, gpu, mode, afterCalls, xid, positional, cfg, base, stdout, stderr)
 	default:
 		fprintf(stderr, "unknown command %q\n", cmd)
 		usage(stderr)
@@ -129,7 +131,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-func mutate(cmd, overlayPath, gpu, mode, patchFile string, afterCalls int, xid uint64,
+func mutate(cmd, overlayPath, gpu, mode string, afterCalls int, xid uint64,
 	positional []string, cfg *engine.Config, base *engine.DeviceConfig, stdout, stderr io.Writer) int {
 
 	if gpu == "" && cmd != "reset" {
@@ -205,6 +207,46 @@ func mutate(cmd, overlayPath, gpu, mode, patchFile string, afterCalls int, xid u
 		if code := applyPatch(doc, target, base, mockctl.FanPatch(pct, baseFanCount(base)), stderr); code != 0 {
 			return code
 		}
+	case "util", "utilization":
+		pct, perr := singleIntArg(positional, cmd, 0, 100)
+		if perr != nil {
+			fprintf(stderr, "%v\n", perr)
+			return 2
+		}
+		if code := applyPatch(doc, target, base, mockctl.UtilizationPatch(pct), stderr); code != 0 {
+			return code
+		}
+	case "clocks":
+		mhz, perr := singleIntArg(positional, cmd, 0, 100000)
+		if perr != nil {
+			fprintf(stderr, "%v\n", perr)
+			return 2
+		}
+		if code := applyPatch(doc, target, base, mockctl.ClocksPatch(uint32(mhz)), stderr); code != 0 {
+			return code
+		}
+	case "throttle":
+		if len(positional) == 0 {
+			fprintln(stderr, "throttle requires at least one reason (or 'none')")
+			return 2
+		}
+		patch, perr := mockctl.ThrottlePatch(positional)
+		if perr != nil {
+			fprintf(stderr, "%v\n", perr)
+			return 2
+		}
+		if code := applyPatch(doc, target, base, patch, stderr); code != 0 {
+			return code
+		}
+	case "pstate":
+		n, perr := singleIntArg(positional, cmd, 0, 15)
+		if perr != nil {
+			fprintf(stderr, "%v\n", perr)
+			return 2
+		}
+		if code := applyPatch(doc, target, base, mockctl.PStatePatch(n), stderr); code != 0 {
+			return code
+		}
 	case "set":
 		if len(positional) == 0 {
 			fprintln(stderr, "set requires at least one key.path=value")
@@ -220,26 +262,6 @@ func mutate(cmd, overlayPath, gpu, mode, patchFile string, afterCalls int, xid u
 			return 2
 		}
 		doc.SetFields(target, kv)
-	case "apply":
-		if patchFile == "" {
-			fprintln(stderr, "-f patch file is required for apply")
-			return 2
-		}
-		data, err := os.ReadFile(patchFile)
-		if err != nil {
-			fprintf(stderr, "read patch: %v\n", err)
-			return 1
-		}
-		patch, err := parseYAMLMap(data)
-		if err != nil {
-			fprintf(stderr, "parse patch: %v\n", err)
-			return 2
-		}
-		if err := mockctl.Validate(base, patch); err != nil {
-			fprintf(stderr, "invalid patch: %v\n", err)
-			return 2
-		}
-		doc.SetFields(target, patch)
 	case "reset":
 		doc.Reset(target)
 	}
@@ -398,14 +420,6 @@ func validateDoc(doc *mockctl.Doc, base *engine.DeviceConfig) error {
 		}
 	}
 	return nil
-}
-
-func parseYAMLMap(data []byte) (map[string]any, error) {
-	var m map[string]any
-	if err := yaml.UnmarshalStrict(data, &m); err != nil {
-		return nil, err
-	}
-	return m, nil
 }
 
 // writeAtomic writes the doc via a temp file + rename in the same directory so
