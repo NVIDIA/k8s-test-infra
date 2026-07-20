@@ -8,6 +8,7 @@ package assertions
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -158,6 +159,64 @@ func DCGMXidReportedForGPU(ctx context.Context, k *kube.Client, ns string, targe
 		}
 		gomega.Expect(int(v)).To(gomega.Equal(0),
 			"GPU %d reported xid %d but only GPU %d was targeted", gpu, int(v), targetGPU)
+	}
+}
+
+// DCGMTempReportedForGPU polls until dcgm-exporter reports wantC as
+// DCGM_FI_DEV_GPU_TEMP for the target GPU, then asserts every other GPU keeps a
+// different (simulator-driven) reading. It never restarts dcgm-exporter, so it
+// validates that a runtime, single-GPU temperature pin (via nvml-mock-ctl)
+// propagates to an already-running consumer through the bind-mounted overlay.
+func DCGMTempReportedForGPU(ctx context.Context, k *kube.Client, ns string, targetGPU, wantC int, timeout, poll time.Duration) {
+	ginkgo.GinkgoHelper()
+	// GPU temperature is a whole-degree integer in the mock; a 0.5 tolerance
+	// asserts an exact match while staying float-formatting agnostic.
+	dcgmGaugeReportedForGPU(ctx, k, ns, fiDevGPUTemp, targetGPU, float64(wantC), 0.5, timeout, poll)
+}
+
+// DCGMPowerReportedForGPU polls until dcgm-exporter reports ~wantW as
+// DCGM_FI_DEV_POWER_USAGE (watts) for the target GPU, then asserts every other
+// GPU keeps a different (simulator-driven) reading. Like the temperature
+// variant it never restarts dcgm-exporter, validating that a runtime power pin
+// (via nvml-mock-ctl) reaches an already-running consumer through the overlay.
+func DCGMPowerReportedForGPU(ctx context.Context, k *kube.Client, ns string, targetGPU, wantW int, timeout, poll time.Duration) {
+	ginkgo.GinkgoHelper()
+	// dcgm-exporter reports power in watts; the mock has zero variance under a
+	// pin, so a 1W tolerance only absorbs float formatting.
+	dcgmGaugeReportedForGPU(ctx, k, ns, fiDevPowerUsage, targetGPU, float64(wantW), 1, timeout, poll)
+}
+
+// dcgmGaugeReportedForGPU polls until dcgm-exporter reports a value within tol
+// of want for the target GPU via metric, then asserts every other GPU differs
+// from want by more than tol (i.e. the change is scoped to the target). It
+// never restarts dcgm-exporter, validating runtime-overlay propagation to an
+// already-running consumer.
+func dcgmGaugeReportedForGPU(ctx context.Context, k *kube.Client, ns, metric string, targetGPU int, want, tol float64, timeout, poll time.Duration) {
+	ginkgo.GinkgoHelper()
+
+	WaitDaemonSetReady(ctx, k, ns, dcgmExporterDaemonSet, timeout, poll)
+	pod := dcgmExporterPod(ctx, k, ns)
+
+	ginkgo.By(fmt.Sprintf("waiting for %s ~= %g on GPU %d (runtime change, no restart)", metric, want, targetGPU))
+	var byGPU map[int]float64
+	gomega.Eventually(func() (bool, error) {
+		metrics, err := scrapeDCGM(ctx, k, ns, pod)
+		if err != nil {
+			return false, err
+		}
+		byGPU = promValuesByGPU(metrics, metric)
+		v, ok := byGPU[targetGPU]
+		return ok && math.Abs(v-want) <= tol, nil
+	}).WithContext(ctx).WithTimeout(timeout).WithPolling(poll).
+		Should(gomega.BeTrue(), "%s did not report ~%g on GPU %d (last scrape: %v)", metric, want, targetGPU, byGPU)
+
+	ginkgo.By("confirming the change is scoped to the target GPU")
+	for gpu, v := range byGPU {
+		if gpu == targetGPU {
+			continue
+		}
+		gomega.Expect(math.Abs(v-want)).To(gomega.BeNumerically(">", tol),
+			"GPU %d also reported ~%g but only GPU %d was targeted (value %g)", gpu, want, targetGPU, v)
 	}
 }
 
