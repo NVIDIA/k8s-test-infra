@@ -324,7 +324,7 @@ if [ "$MOCK_IB_MODE" != "off" ] && [ -x /usr/local/bin/mock-ib ]; then
   # so ioctls still fail (the MOCK_IB=full daemon shims remain the functional
   # path) — this mirrors the mock /dev/nvidia* nodes.
   IB_DEV="$IB_ROOT/dev/infiniband"
-  mkdir -p "$IB_DEV"
+  mkdir -p "$IB_DEV" || true
   HCA_COUNT=$(find "$IB_ROOT/sys/class/infiniband" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
   if [ "${HCA_COUNT:-0}" -gt 0 ]; then
     idx=0

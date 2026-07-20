@@ -19,8 +19,10 @@
 // `revision`, `irq`, and a synthetic binary `config` space. This is what
 // lets `lspci` enumerate the mock GPUs inside the pod (via the
 // libpcimocksys.so redirector) instead of failing with "Cannot open
-// .../vendor". It is still *not* a full sysfs simulation — resource ranges,
-// capabilities, and driver bindings are out of scope.
+// .../vendor". Attribute-bearing [Device] entries (e.g. synthesized Mellanox
+// NICs) render the same device-class files so a NIC also looks real to PCI
+// scanners like NFD. It is still *not* a full sysfs simulation — resource
+// ranges, capabilities, and driver bindings are out of scope.
 package render
 
 import (

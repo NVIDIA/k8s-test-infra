@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// renderNICs is the extracted helper the CLI uses; keeping it testable avoids
-// shelling out to a built binary.
+// renderFromConfig is the extracted helper the CLI uses; keeping it testable
+// avoids shelling out to a built binary.
 func TestRenderNICs_WritesMellanoxEntry(t *testing.T) {
 	dir := t.TempDir()
 	cfg := []byte(`
