@@ -6,6 +6,7 @@
 MOCK_GPU_DIR="/host/var/lib/nvml-mock"
 
 if [ -d "$MOCK_GPU_DIR" ] && [ "$MOCK_GPU_DIR" = "/host/var/lib/nvml-mock" ]; then
+  # Also removes the IB char devices under ib/dev/infiniband created by setup.sh.
   rm -rf "$MOCK_GPU_DIR"/*
 fi
 # Remove GPU Operator compatibility symlink

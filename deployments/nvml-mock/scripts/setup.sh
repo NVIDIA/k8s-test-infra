@@ -317,6 +317,27 @@ if [ "$MOCK_IB_MODE" != "off" ] && [ -x /usr/local/bin/mock-ib ]; then
     -node-name "$NODE_NAME" \
     -ib-root "$IB_ROOT" \
     -render-only
+  # Back /dev/infiniband with real char devices. mock-ib renders placeholder
+  # regular files (no CAP_MKNOD needed for sysfs-only tools); here in the
+  # privileged DaemonSet we upgrade them to real char nodes so consumers that
+  # open() device nodes by path succeed. There is no kernel driver behind them,
+  # so ioctls still fail (the MOCK_IB=full daemon shims remain the functional
+  # path) — this mirrors the mock /dev/nvidia* nodes.
+  IB_DEV="$IB_ROOT/dev/infiniband"
+  mkdir -p "$IB_DEV"
+  HCA_COUNT=$(find "$IB_ROOT/sys/class/infiniband" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+  if [ "${HCA_COUNT:-0}" -gt 0 ]; then
+    idx=0
+    while [ "$idx" -lt "$HCA_COUNT" ]; do
+      # Majors are mock values (231 = infiniband_verbs on real Linux; umad/issm
+      # use a fixed mock major here since existence, not ioctl, is the contract).
+      mknod -m 666 "$IB_DEV/uverbs$idx" c 231 "$idx" 2>/dev/null || true
+      mknod -m 666 "$IB_DEV/umad$idx"   c 232 "$idx" 2>/dev/null || true
+      mknod -m 666 "$IB_DEV/issm$idx"   c 232 "$((idx + 128))" 2>/dev/null || true
+      idx=$((idx + 1))
+    done
+    mknod -m 666 "$IB_DEV/rdma_cm" c 233 0 2>/dev/null || true
+  fi
   if [ "$MOCK_IB_MODE" = "full" ]; then
     /scripts/start-mock-ib.sh &
   fi
