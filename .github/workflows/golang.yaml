@@ -51,6 +51,17 @@ jobs:
       run: |
         go test -v -race -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v vendor)
 
+    # The mockpcisysfs LD_PRELOAD shim (libpcimocksys.so) is exercised only by
+    # tests behind the `integration` build tag, which the untagged unit-test run
+    # above skips. Build the shim and run them explicitly so the sysfs
+    # redirection (incl. the _FORTIFY_SOURCE open and fopen paths that lspci
+    # relies on) has automated enforcement.
+    - name: Build mockpcisysfs shim
+      run: make -C pkg/system/mockpcisysfs
+
+    - name: Run mockpcisysfs integration tests
+      run: go test -tags integration -v ./pkg/system/mockpcisysfs/...
+
     - name: Run govulncheck
       run: |
         go install golang.org/x/vuln/cmd/govulncheck@latest

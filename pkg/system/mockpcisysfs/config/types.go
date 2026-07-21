@@ -18,26 +18,40 @@ import (
 )
 
 // Profile is the minimal slice of the mock-nvml profile YAML that the PCI
-// sysfs renderer cares about. It deliberately ignores every GPU detail
-// other than the per-device bus_id, which is the join key into the
-// topology block.
+// sysfs renderer cares about: the per-device bus_id (the join key into the
+// topology block), the PCI identity IDs used to populate lspci-visible
+// attribute files, and the topology layout itself.
 type Profile struct {
-	Devices      []Device      `json:"devices"      yaml:"devices"`
-	PCIeTopology *PCIeTopology `json:"pcie_topology,omitempty" yaml:"pcie_topology,omitempty"`
+	DeviceDefaults *DeviceDefaults `json:"device_defaults,omitempty" yaml:"device_defaults,omitempty"`
+	Devices        []Device        `json:"devices"      yaml:"devices"`
+	PCIeTopology   *PCIeTopology   `json:"pcie_topology,omitempty" yaml:"pcie_topology,omitempty"`
 }
 
-// Device captures the per-GPU PCI bus_id used as the join key into the
-// topology block. Index is unmarshaled for YAML shape compatibility with
-// the full profile but is not consulted by Validate or the renderer.
-// Every other profile field is ignored at unmarshal time.
+// DeviceDefaults mirrors the profile's `device_defaults:` block. Only the
+// `pci:` sub-block matters here — it carries the device_id / subsystem_id
+// shared by every GPU unless a per-device entry overrides them.
+type DeviceDefaults struct {
+	PCI PCI `json:"pci" yaml:"pci"`
+}
+
+// Device captures the per-GPU PCI block used as the join key into the
+// topology block and the source of PCI identity attributes. Index is
+// unmarshaled for YAML shape compatibility with the full profile but is
+// not consulted by Validate or the renderer. Every other profile field is
+// ignored at unmarshal time.
 type Device struct {
 	Index int `json:"index" yaml:"index"`
 	PCI   PCI `json:"pci"   yaml:"pci"`
 }
 
-// PCI is the inner block on each device entry. Only bus_id matters here.
+// PCI is the inner block on each device entry (and on device_defaults).
+// bus_id is the topology join key; device_id / subsystem_id are the NVML
+// packed identity words the renderer unpacks into lspci-visible attribute
+// files (vendor, device, subsystem_vendor, subsystem_device).
 type PCI struct {
-	BusID string `json:"bus_id" yaml:"bus_id"`
+	BusID       string `json:"bus_id" yaml:"bus_id"`
+	DeviceID    uint32 `json:"device_id,omitempty"    yaml:"device_id,omitempty"`
+	SubsystemID uint32 `json:"subsystem_id,omitempty" yaml:"subsystem_id,omitempty"`
 }
 
 // PCIeTopology describes the root-complex layout that the renderer
@@ -151,4 +165,37 @@ func (p *Profile) EffectiveTopology() *PCIeTopology {
 		return p.PCIeTopology
 	}
 	return p.DefaultTopology()
+}
+
+// DeviceIdentities returns the effective PCI identity for every device that
+// declares a bus_id, keyed by lowercased BDF. Each device inherits
+// device_id / subsystem_id from `device_defaults.pci` unless it sets its
+// own non-zero value — mirroring how the mock NVML engine resolves the same
+// fields. The renderer consumes this map to emit lspci-visible attribute
+// files (vendor, device, class, ...) alongside the topology tree.
+func (p *Profile) DeviceIdentities() map[string]PCI {
+	var def PCI
+	if p.DeviceDefaults != nil {
+		def = p.DeviceDefaults.PCI
+	}
+
+	out := make(map[string]PCI, len(p.Devices))
+	for _, d := range p.Devices {
+		if d.PCI.BusID == "" {
+			continue
+		}
+		merged := PCI{
+			BusID:       d.PCI.BusID,
+			DeviceID:    def.DeviceID,
+			SubsystemID: def.SubsystemID,
+		}
+		if d.PCI.DeviceID != 0 {
+			merged.DeviceID = d.PCI.DeviceID
+		}
+		if d.PCI.SubsystemID != 0 {
+			merged.SubsystemID = d.PCI.SubsystemID
+		}
+		out[strings.ToLower(d.PCI.BusID)] = merged
+	}
+	return out
 }

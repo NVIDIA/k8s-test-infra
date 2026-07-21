@@ -4,11 +4,12 @@
 // Command render-pci-sysfs reads the `pcie_topology:` block from a
 // mock-nvml profile YAML and writes a fake PCI sysfs tree under --output.
 //
-// The tree carries exactly what topology-aware schedulers need (symlinks
-// under /sys/bus/pci/devices and numa_node under /sys/devices/pciDDDD:BB),
+// The tree carries what topology-aware schedulers need (symlinks under
+// /sys/bus/pci/devices and numa_node under /sys/devices/pciDDDD:BB),
 // matching the layout the k8s deviceattribute library expects when it
-// resolves "PCIe root" for a GPU. See pkg/system/mockpcisysfs/render
-// for the layout details.
+// resolves "PCIe root" for a GPU, plus the PCI identity attribute files
+// (vendor, device, class, config, ...) that let `lspci` enumerate the mock
+// GPUs. See pkg/system/mockpcisysfs/render for the layout details.
 //
 // Usage:
 //
@@ -73,7 +74,11 @@ func main() {
 		return
 	}
 
-	if err := render.Render(render.Options{Topology: topo, Output: *outDir}); err != nil {
+	if err := render.Render(render.Options{
+		Topology:   topo,
+		Identities: prof.DeviceIdentities(),
+		Output:     *outDir,
+	}); err != nil {
 		fatalf("render: %v", err)
 	}
 }

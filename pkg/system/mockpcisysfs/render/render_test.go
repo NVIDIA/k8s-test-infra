@@ -4,6 +4,7 @@
 package render
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,6 +90,83 @@ func TestRender_FullTree(t *testing.T) {
 	require.NoError(t, err, "EvalSymlinks")
 	require.True(t, strings.HasSuffix(resolved, "sys/devices/pci0000:00/0000:07:00.0"),
 		"resolved=%q does not land under expected root complex", resolved)
+}
+
+// TestRender_PCIAttributeFiles is the regression net for the lspci fix:
+// each rendered device must carry the sysfs identity attribute files that
+// libpci reads with die-on-error, plus a binary config space. Without them
+// `lspci` fails with "Cannot open .../vendor" inside the mock pod.
+func TestRender_PCIAttributeFiles(t *testing.T) {
+	dir := t.TempDir()
+	topo := &config.PCIeTopology{
+		RootComplexes: []config.RootComplex{{
+			ID: "pci0000:00", NUMANode: 0,
+			Devices: []string{"0000:1A:00.0"},
+		}},
+	}
+	ids := map[string]config.PCI{
+		// H100 SXM: device_id 0x233010DE, subsystem_id 0x165810DE.
+		"0000:1a:00.0": {BusID: "0000:1A:00.0", DeviceID: 0x233010DE, SubsystemID: 0x165810DE},
+	}
+	require.NoError(t, Render(Options{Topology: topo, Identities: ids, Output: dir}), "Render")
+
+	devDir := filepath.Join(dir, "sys/devices/pci0000:00/0000:1a:00.0")
+	mustRead := func(name, want string) {
+		t.Helper()
+		got, err := os.ReadFile(filepath.Join(devDir, name))
+		require.NoError(t, err, "read %s", name)
+		require.Equal(t, want, string(got), "%s", name)
+	}
+	mustRead("vendor", "0x10de\n")
+	mustRead("device", "0x2330\n")
+	mustRead("subsystem_vendor", "0x10de\n")
+	mustRead("subsystem_device", "0x1658\n")
+	mustRead("class", "0x030200\n")
+	mustRead("revision", "0x00\n")
+	mustRead("irq", "0\n")
+
+	// `resource` must match the kernel's 7-row "start end flags" layout so
+	// `lspci -v` parses it without erroring.
+	resource, err := os.ReadFile(filepath.Join(devDir, "resource"))
+	require.NoError(t, err, "read resource")
+	lines := strings.Split(strings.TrimRight(string(resource), "\n"), "\n")
+	require.Len(t, lines, 7, "resource BAR rows")
+	require.Equal(t, "0x0000000000000000 0x0000000000000000 0x0000000000000000", lines[0],
+		"resource row format")
+
+	// The binary config space must decode to the same identity so
+	// `lspci -x` and the pcilib config-open path agree with the text files.
+	cfg, err := os.ReadFile(filepath.Join(devDir, "config"))
+	require.NoError(t, err, "read config")
+	require.Len(t, cfg, 256, "config space size")
+	require.Equal(t, uint16(0x10de), binary.LittleEndian.Uint16(cfg[0x00:]), "config vendor")
+	require.Equal(t, uint16(0x2330), binary.LittleEndian.Uint16(cfg[0x02:]), "config device")
+	require.Equal(t, byte(0x03), cfg[0x0b], "config class base")
+	require.Equal(t, byte(0x02), cfg[0x0a], "config subclass")
+	require.Equal(t, uint16(0x10de), binary.LittleEndian.Uint16(cfg[0x2c:]), "config subsystem vendor")
+	require.Equal(t, uint16(0x1658), binary.LittleEndian.Uint16(cfg[0x2e:]), "config subsystem device")
+}
+
+// TestRender_PCIAttributeFilesDefaultVendor ensures a device present in the
+// topology but missing an identity still gets well-formed attribute files
+// (NVIDIA vendor default) so lspci never fatals on a missing `vendor`.
+func TestRender_PCIAttributeFilesDefaultVendor(t *testing.T) {
+	dir := t.TempDir()
+	topo := &config.PCIeTopology{
+		RootComplexes: []config.RootComplex{{
+			ID: "pci0000:00", NUMANode: 0,
+			Devices: []string{"0000:07:00.0"},
+		}},
+	}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}), "Render")
+
+	devDir := filepath.Join(dir, "sys/devices/pci0000:00/0000:07:00.0")
+	got, err := os.ReadFile(filepath.Join(devDir, "vendor"))
+	require.NoError(t, err, "read vendor")
+	require.Equal(t, "0x10de\n", string(got), "vendor should default to NVIDIA")
+	got, err = os.ReadFile(filepath.Join(devDir, "device"))
+	require.NoError(t, err, "read device")
+	require.Equal(t, "0x0000\n", string(got), "device without identity")
 }
 
 func TestRender_IdempotentRerender(t *testing.T) {
@@ -239,6 +317,49 @@ func TestEffectiveTopology_DefaultFlatRoot(t *testing.T) {
 	require.Equal(t, "pci0000:00", topo.RootComplexes[0].ID, "default root id")
 	require.Equal(t, 0, topo.RootComplexes[0].NUMANode, "default numa_node")
 	require.Len(t, topo.RootComplexes[0].Devices, 2, "default root should contain all devices")
+}
+
+func TestDeviceIdentities_InheritsDefaults(t *testing.T) {
+	// Per-device entries carry only bus_id; device_id / subsystem_id live
+	// under device_defaults.pci. DeviceIdentities must merge them so every
+	// BDF resolves to the shared identity.
+	var p config.Profile
+	require.NoError(t, yaml.Unmarshal([]byte(`
+device_defaults:
+  pci:
+    device_id: 0x233010DE
+    subsystem_id: 0x165810DE
+devices:
+  - index: 0
+    pci:
+      bus_id: "0000:1A:00.0"
+  - index: 1
+    pci:
+      bus_id: "0000:1B:00.0"
+      device_id: 0x232110DE
+`), &p), "unmarshal")
+
+	ids := p.DeviceIdentities()
+	require.Len(t, ids, 2, "one identity per device with a bus_id")
+
+	// Inherited from defaults (lowercased key).
+	require.Equal(t, uint32(0x233010DE), ids["0000:1a:00.0"].DeviceID, "inherited device_id")
+	require.Equal(t, uint32(0x165810DE), ids["0000:1a:00.0"].SubsystemID, "inherited subsystem_id")
+
+	// Per-device override wins for device_id, subsystem_id still inherited.
+	require.Equal(t, uint32(0x232110DE), ids["0000:1b:00.0"].DeviceID, "overridden device_id")
+	require.Equal(t, uint32(0x165810DE), ids["0000:1b:00.0"].SubsystemID, "inherited subsystem_id")
+}
+
+func TestDeviceIdentities_NoDefaults(t *testing.T) {
+	// A profile without device_defaults still yields one entry per device;
+	// the zero identity is fine (the renderer falls back to NVIDIA vendor).
+	p := config.Profile{Devices: []config.Device{
+		{Index: 0, PCI: config.PCI{BusID: "0000:07:00.0"}},
+	}}
+	ids := p.DeviceIdentities()
+	require.Len(t, ids, 1)
+	require.Equal(t, uint32(0), ids["0000:07:00.0"].DeviceID)
 }
 
 func TestEffectiveTopology_PrefersExplicit(t *testing.T) {
