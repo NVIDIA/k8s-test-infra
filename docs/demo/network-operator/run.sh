@@ -39,6 +39,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${NET_OPERATOR_RELEASE:=network-operator}"
 : "${NET_OPERATOR_VERSION:=v26.4.0}"
 : "${SKIP_PUSH:=false}"
+# Tier 3: Soft-RoCE (rdma_rxe) makes the real rdma-shared-device-plugin
+# advertise rdma/*. Requires a Linux host with the rdma_rxe module. Auto: on
+# for Linux, off otherwise. Set explicitly to force.
+: "${ENABLE_SOFT_ROCE:=auto}"
+if [[ "${ENABLE_SOFT_ROCE}" == "auto" ]]; then
+  if [[ "$(uname -s)" == "Linux" ]]; then ENABLE_SOFT_ROCE=true; else ENABLE_SOFT_ROCE=false; fi
+fi
 
 info() { echo "==> $*"; }
 warn() { echo "WARN: $*" >&2; }
@@ -123,6 +130,25 @@ helm upgrade --install "${NET_OPERATOR_RELEASE}" --repo https://helm.ngc.nvidia.
   -f "${REPO_ROOT}/${DEMO_DIR}/network-operator-values.yaml" \
   --wait --timeout 300s || warn "operator install did not fully converge; continuing to observe"
 
+# --- Tier 3: Soft-RoCE so the real RDMA plugin can advertise rdma/* ----------
+if [[ "${ENABLE_SOFT_ROCE}" == "true" ]]; then
+  info "Tier 3: enabling Soft-RoCE (rdma_rxe) on the host kernel"
+  # Global, host-level bits done once here (module load + netns mode) to avoid
+  # a per-node race; the DaemonSet creates the per-node rxe link.
+  SUDO=""; [[ "$(id -u)" != "0" ]] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
+  ${SUDO} modprobe rdma_rxe 2>/dev/null || \
+    warn "modprobe rdma_rxe failed; install it (e.g. apt-get install linux-modules-extra-\$(uname -r)) — Tier 3 will not advertise rdma/*"
+  ${SUDO} rdma system set netns exclusive 2>/dev/null || true
+
+  info "Applying Soft-RoCE setup DaemonSet"
+  kubectl_ctx -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/soft-roce.yaml"
+  kubectl_ctx -n "${WORKLOAD_NAMESPACE}" rollout status daemonset/soft-roce-setup --timeout=180s || \
+    warn "soft-roce-setup not Ready; rdma/* may stay unadvertised"
+  observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" logs -l app=soft-roce-setup --tail=20
+else
+  info "Tier 3: Soft-RoCE disabled (ENABLE_SOFT_ROCE=${ENABLE_SOFT_ROCE}); the RDMA plugin will stay blocked on this host's kernel"
+fi
+
 # --- NFD picks up the mock NIC label from the features.d file ----------------
 # We do NOT patch NFD's DaemonSet: the operator reconciles it and would revert
 # any live host-sys remount, and NFD exposes no values-based sysfs redirect.
@@ -175,12 +201,29 @@ info "Waiting for the operator to reconcile the NicClusterPolicy"
 sleep 30
 observe kubectl_ctx -n "${NET_OPERATOR_NAMESPACE}" get pods -o wide
 observe kubectl_ctx get nicclusterpolicy nic-cluster-policy -o yaml
-info "OBSERVE: rdma resources advertised per node (expect <none> — plugin crash-loops on Kind's kernel)"
+if [[ "${ENABLE_SOFT_ROCE}" == "true" ]]; then
+  info "OBSERVE: rdma resources advertised per node (expect a count — Soft-RoCE gives the plugin a real RDMA device)"
+else
+  info "OBSERVE: rdma resources advertised per node (expect <none> — no RDMA kernel subsystem on this host)"
+fi
 while IFS= read -r node; do
   [ -n "${node}" ] || continue
   rdma=$(kubectl_ctx get node "${node}" -o "jsonpath={.status.allocatable['rdma/rdma_shared_device_a']}" 2>/dev/null || true)
   printf '    %s rdma/rdma_shared_device_a=%s\n' "${node}" "${rdma:-<none>}"
 done < <(kubectl_ctx get nodes -o 'jsonpath={range .items[*]}{.metadata.name}{"\n"}{end}')
+
+if [[ "${ENABLE_SOFT_ROCE}" == "true" ]]; then
+  info "Deploying GPUDirect-RDMA-style test pod (requests rdma/rdma_shared_device_a)"
+  kubectl_ctx -n "${WORKLOAD_NAMESPACE}" delete pod rdma-test --ignore-not-found
+  kubectl_ctx -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/rdma-test-pod.yaml"
+  if kubectl_ctx -n "${WORKLOAD_NAMESPACE}" wait --for=condition=Ready pod/rdma-test --timeout=120s; then
+    info "OBSERVE: rdma-test pod scheduled and running; injected devices:"
+    observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" logs rdma-test
+  else
+    warn "rdma-test pod did not become Ready; check scheduling/resource advertisement"
+    observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" describe pod rdma-test
+  fi
+fi
 
 # --- Summary -----------------------------------------------------------------
 cat <<EOF
@@ -201,12 +244,13 @@ cat <<EOF
       kind.yaml stamp, and durable across operator reconciles.
 
   What stayed blocked (mock semantics vs the real operator):
-    - Even with that self-derived label + a NicClusterPolicy, the rdma-shared-device-plugin
-      crash-loops at startup ("can not get RDMA subsystem network namespace
-      mode") and advertises no rdma/* resources: it needs a real RDMA kernel
-      subsystem (rdma netlink) that Kind does not expose. It also runs in the
-      NRI-excluded operator namespace and is a static Go binary, so it would
-      not see the pod-only mock fabric anyway.
+    - RDMA plugin (rdma-shared-device-plugin):
+      * On Linux with Soft-RoCE (ENABLE_SOFT_ROCE=true): a real software RDMA
+        device (rxe0 over eth0) lets the plugin enumerate a device and
+        advertise rdma/rdma_shared_device_a; the rdma-test pod schedules.
+      * Without Soft-RoCE (e.g. macOS/Kind kernel): it crash-loops with "can
+        not get RDMA subsystem network namespace mode" — no RDMA netlink
+        subsystem — and advertises no rdma/*. rxe is unavailable there.
     - The OFED/DOCA driver is intentionally not enabled: it builds kernel
       modules against the host kernel, which Kind cannot support.
 
