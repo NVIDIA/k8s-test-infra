@@ -4,8 +4,9 @@
 # Applied by run.sh during the "push" phase. Enables the RDMA shared device
 # plugin, which reads the RDMA subsystem to advertise rdma/* resources.
 #
-# On Linux, run.sh first sets up Soft-RoCE (rdma_rxe) via soft-roce.yaml, which
-# creates a real software RDMA device rxe0 over each node's eth0. The selector
+# On Linux, run.sh first sets up Soft-RoCE (rdma_rxe) per node via docker exec
+# into the kind-rdma node image, which creates a real software RDMA device rxe0
+# over each node's eth0. The selector
 # below matches that device by its netdev (ifNames: eth0) — NOT by vendor,
 # because rxe is generic software RDMA, not a 15b3 Mellanox NIC. With rxe
 # present the plugin enumerates the device and advertises
