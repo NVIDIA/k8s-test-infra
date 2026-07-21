@@ -1,0 +1,22 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+name: Review observer
+
+on:
+  pull_request_review:
+    types:
+      - submitted
+      - edited
+      - dismissed
+
+permissions: {}
+
+jobs:
+  observe:
+    name: Review observer
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Emit workflow completion
+        run: ':'

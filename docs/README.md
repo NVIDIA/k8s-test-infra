@@ -31,7 +31,7 @@ Linux system -- no hardware required.
 kind create cluster --name test
 docker pull ghcr.io/nvidia/nvml-mock:latest
 kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name test
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock
 ```
 
 See [Helm Chart README](../deployments/nvml-mock/helm/nvml-mock/README.md) for

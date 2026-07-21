@@ -1,0 +1,58 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+name: Merge evaluator
+
+on:
+  workflow_run:
+    workflows:
+      - Review observer
+      - PR metadata
+      - Commands
+    types:
+      - completed
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        description: Pull request number; empty scans all open pull requests
+        required: false
+        type: string
+        default: ''
+      dry-run:
+        description: Plan without mutating repository state
+        required: false
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  evaluate:
+    name: Merge evaluator
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: repository-automation-state
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Check out trusted default branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Reconcile native auto-merge
+        uses: ./.github/actions/repo-automation
+        with:
+          mode: merge-evaluate
+          pr-number: ${{ github.event_name == 'workflow_dispatch' && inputs['pr-number'] || '' }}
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs['dry-run'] || false }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

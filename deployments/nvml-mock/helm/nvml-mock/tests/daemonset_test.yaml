@@ -3,6 +3,9 @@
 suite: DaemonSet
 templates:
   - templates/daemonset.yaml
+chart:
+  version: 0.0.0-tests
+  appVersion: 0.0.0-tests
 tests:
   # ── Snapshots ───────────────────────────────────────────────────────
   - it: should match snapshot with default values
@@ -60,7 +63,7 @@ tests:
     asserts:
       - equal:
           path: metadata.labels["helm.sh/chart"]
-          value: nvml-mock-0.2.1
+          value: nvml-mock-0.0.0-tests
       - equal:
           path: metadata.labels["app.kubernetes.io/name"]
           value: nvml-mock
@@ -69,7 +72,7 @@ tests:
           value: RELEASE-NAME
       - equal:
           path: metadata.labels["app.kubernetes.io/version"]
-          value: "550.163.01"
+          value: "0.0.0-tests"
       - equal:
           path: metadata.labels["app.kubernetes.io/managed-by"]
           value: Helm
@@ -102,10 +105,19 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: "ghcr.io/nvidia/nvml-mock:latest"
+          value: "ghcr.io/nvidia/nvml-mock:0.0.0-tests"
       - equal:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: IfNotPresent
+
+  - it: should let an explicit root image tag override appVersion
+    set:
+      image:
+        tag: explicit-root
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/nvidia/nvml-mock:explicit-root"
 
   - it: should set the container as privileged
     asserts:

@@ -13,11 +13,11 @@
 # limitations under the License.
 name: "basic checks"
 
-permissions:
-  contents: read
-  security-events: write
-  actions: read
-  packages: read
+permissions: {}
+
+concurrency:
+  group: basic-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 on:
   workflow_call:
@@ -39,11 +39,16 @@ on:
 jobs:
   variables:
     uses: ./.github/workflows/variables.yaml
+    permissions:
+      contents: read
 
   golang:
     needs:
     - variables
     uses: ./.github/workflows/golang.yaml
+    permissions:
+      contents: read
+      packages: read
     with:
       golang_version: ${{ needs.variables.outputs.golang_version }}
 
@@ -51,5 +56,10 @@ jobs:
     needs:
     - variables
     uses: ./.github/workflows/code_scanning.yaml
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      security-events: write
     with:
       golang_version: ${{ needs.variables.outputs.golang_version }}

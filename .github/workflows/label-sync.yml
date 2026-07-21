@@ -1,0 +1,43 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+name: Label synchronization
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply label changes
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+    paths:
+      - .github/repo-automation/labels.yml
+      - .github/actions/repo-automation/**
+
+permissions: {}
+
+jobs:
+  label-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency: label-sync
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Synchronize labels
+        uses: ./.github/actions/repo-automation
+        with:
+          mode: label-sync
+          dry-run: ${{ github.event_name != 'workflow_dispatch' || !inputs.apply }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

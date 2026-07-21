@@ -3,6 +3,9 @@
 suite: IB ping NetworkPolicy
 templates:
   - templates/network-policy-ibping.yaml
+chart:
+  version: 0.0.0-tests
+  appVersion: 0.0.0-tests
 tests:
   - it: should render a NetworkPolicy by default
     asserts:

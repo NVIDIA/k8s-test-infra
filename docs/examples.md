@@ -416,7 +416,7 @@ nm -D pkg/gpu/mocknvml/libnvidia-ml.so | grep nvml | head -20
 Deploy nvml-mock with profile ConfigMaps for fake-gpu-operator discovery:
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set integrations.fakeGpuOperator.enabled=true \
   --set gpu.profile=h100
 

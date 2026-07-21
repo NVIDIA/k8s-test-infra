@@ -32,7 +32,7 @@ kind load docker-image nvml-mock:demo --name nvml-mock-fgo-demo
 ## Step 3 -- Install nvml-mock
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set integrations.fakeGpuOperator.enabled=true \
   --set gpu.profile=h100 \
   --set gpu.count=8 \

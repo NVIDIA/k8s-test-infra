@@ -19,14 +19,17 @@ on:
     - cron: "0 */6 * * *"
   workflow_dispatch:
 
-permissions:
-  actions: write
+permissions: {}
 
 jobs:
   trigger:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
     steps:
       - name: Trigger gh-pages deploy
-        run: gh workflow run deploy.yaml --ref gh-pages --repo ${{ github.repository }}
+        run: gh workflow run deploy.yaml --ref gh-pages --repo "$REPOSITORY"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}

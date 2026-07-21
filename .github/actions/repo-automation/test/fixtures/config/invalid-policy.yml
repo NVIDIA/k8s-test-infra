@@ -1,0 +1,12 @@
+schemaVersion: 1
+protectedBranches: []
+activeOwnerFiles: []
+review: {}
+commands: {}
+merge:
+  method: MERGE
+bots:
+  - login: dependabot[bot]
+    emails: []
+sizeThresholds: {}
+unexpected: must-not-be-ignored

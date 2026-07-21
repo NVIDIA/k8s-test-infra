@@ -8,8 +8,8 @@ should match snapshot with all overrides:
         app.kubernetes.io/instance: custom
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
-        app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.2.1
+        app.kubernetes.io/version: 0.0.0-tests
+        helm.sh/chart: nvml-mock-0.0.0-tests
       name: nvml-mock-custom
     spec:
       selector:
@@ -145,8 +145,8 @@ should match snapshot with b200 profile:
         app.kubernetes.io/instance: RELEASE-NAME
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
-        app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.2.1
+        app.kubernetes.io/version: 0.0.0-tests
+        helm.sh/chart: nvml-mock-0.0.0-tests
       name: RELEASE-NAME-nvml-mock
     spec:
       selector:
@@ -196,7 +196,7 @@ should match snapshot with b200 profile:
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
                   value: /var/lib/nvml-mock
-              image: ghcr.io/nvidia/nvml-mock:latest
+              image: ghcr.io/nvidia/nvml-mock:0.0.0-tests
               imagePullPolicy: IfNotPresent
               lifecycle:
                 preStop:
@@ -261,8 +261,8 @@ should match snapshot with default values:
         app.kubernetes.io/instance: RELEASE-NAME
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
-        app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.2.1
+        app.kubernetes.io/version: 0.0.0-tests
+        helm.sh/chart: nvml-mock-0.0.0-tests
       name: RELEASE-NAME-nvml-mock
     spec:
       selector:
@@ -316,7 +316,7 @@ should match snapshot with default values:
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
                   value: /var/lib/nvml-mock
-              image: ghcr.io/nvidia/nvml-mock:latest
+              image: ghcr.io/nvidia/nvml-mock:0.0.0-tests
               imagePullPolicy: IfNotPresent
               lifecycle:
                 preStop:

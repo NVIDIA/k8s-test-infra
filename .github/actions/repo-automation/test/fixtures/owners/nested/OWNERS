@@ -1,0 +1,9 @@
+reviewers:
+  - nested_reviewers
+  - nested-reviewer
+  - SHARED-REVIEWER
+approvers:
+  - nested-approver
+  - SHARED-APPROVER
+labels:
+  - area/nested

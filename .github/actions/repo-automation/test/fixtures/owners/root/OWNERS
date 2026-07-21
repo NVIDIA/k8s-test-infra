@@ -1,0 +1,8 @@
+reviewers:
+  - root-reviewer
+  - shared-reviewer
+approvers:
+  - root-approver
+  - shared-approver
+labels:
+  - area/root

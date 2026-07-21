@@ -41,10 +41,11 @@ default. Kind clusters must have containerd NRI enabled; see
 | [Go](https://go.dev/dl/) | 1.25+ | Building from source |
 | [jq](https://jqlang.github.io/jq/) | any | DRA verification only |
 
-**Published image:** The nvml-mock container image is published at
-`ghcr.io/nvidia/nvml-mock:latest` and is built automatically on pushes to
-`main`. If the image is not yet available (e.g., before the first release),
-use "Option B: Build from source" in the quick start sections below.
+**Published image:** Stable releases use SemVer tags (`X.Y.Z`, `X.Y`, and `X`)
+and `latest`; development builds use only `edge` and `sha-<short-commit>`.
+The chart's empty default image tag resolves to its `appVersion`, binding a
+chart release to the matching immutable image version. If an image is not yet
+available, use "Option B: Build from source" in the quick start sections below.
 
 **Cluster requirements:**
 - Privileged pods must be allowed (nvml-mock DaemonSet uses `privileged: true` for `mknod`)
@@ -84,14 +85,14 @@ kind load docker-image nvml-mock:local --name nvml-mock-test
 **With published image:**
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --wait --timeout 120s
 ```
 
 **With locally built image:**
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --wait --timeout 120s
@@ -168,14 +169,14 @@ kind load docker-image nvml-mock:local --name nvml-mock-dra
 **With published image:**
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --wait --timeout 120s
 ```
 
 **With locally built image:**
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --wait --timeout 120s
@@ -294,14 +295,14 @@ kind load docker-image nvml-mock:local --name nvml-mock-operator
 **With published image:**
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --wait --timeout 120s
 ```
 
 **With locally built image:**
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --wait --timeout 120s
@@ -394,13 +395,13 @@ sleep 5
 **With published image:**
 
 ```bash
-helm install nvml-mock-a100 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock-a100 oci://ghcr.io/nvidia/charts/nvml-mock \
   --set gpu.profile=a100 \
   --set gpu.count=4 \
   --set "nodeSelector.nvml-mock/profile=a100" \
   --wait --timeout 120s
 
-helm install nvml-mock-t4 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock-t4 oci://ghcr.io/nvidia/charts/nvml-mock \
   --set gpu.profile=t4 \
   --set gpu.count=2 \
   --set "nodeSelector.nvml-mock/profile=t4" \
@@ -410,7 +411,7 @@ helm install nvml-mock-t4 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 **With locally built image:**
 
 ```bash
-helm install nvml-mock-a100 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock-a100 oci://ghcr.io/nvidia/charts/nvml-mock \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --set gpu.profile=a100 \
@@ -418,7 +419,7 @@ helm install nvml-mock-a100 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock 
   --set "nodeSelector.nvml-mock/profile=a100" \
   --wait --timeout 120s
 
-helm install nvml-mock-t4 oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock-t4 oci://ghcr.io/nvidia/charts/nvml-mock \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --set gpu.profile=t4 \
@@ -469,7 +470,7 @@ fake-gpu-operator handles KWOK virtual nodes.
 ### Enable Profile Discovery
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set integrations.fakeGpuOperator.enabled=true
 ```
 
@@ -493,7 +494,7 @@ nvml-mock-profile-t4              1      10s
 ### Custom Labels
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set integrations.fakeGpuOperator.enabled=true \
   --set 'integrations.fakeGpuOperator.profileLabels.my-org/gpu-profile=true'
 ```
@@ -575,7 +576,7 @@ Two options, depending on intent:
   daemon, shims become no-ops) without editing the profile:
 
   ```bash
-  helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
     --set gpu.profile=h100 \
     --set infiniband.mockTier=off
   ```
@@ -592,7 +593,7 @@ Two options, depending on intent:
   away all the GPU settings — pass a complete config file instead:
 
   ```bash
-  helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
     --set-file gpu.customConfig=my-h100-no-ib.yaml
   ```
 
@@ -671,7 +672,7 @@ fixture but limits exposure on Calico/Cilium-backed clusters. mock-ib is a
 test fixture — don't deploy it to a shared or production cluster.
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set gpu.profile=a100 \
   --set gpu.count=2 \
   --wait --timeout 120s
@@ -728,7 +729,7 @@ for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 | `gpu.failureInjection.seed` | `0` | RNG seed for probability rolls; `0` uses a time-based seed. |
 | `gpu.failureInjection.xid.code` | `0` | Xid error code delivered via the NVML event set (`NVML_EVENT_TYPE_XID_CRITICAL_ERROR`) once tripped. `0` = no Xid. |
 | `image.repository` | `ghcr.io/nvidia/nvml-mock` | Container image repository |
-| `image.tag` | `latest` | Container image tag |
+| `image.tag` | `""` (chart `appVersion`) | Container image tag. Empty binds the chart to its stable release version; override with `edge`, `sha-*`, or a local tag only when explicitly requested. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (e.g. GB200 → `580.65.06`, B200 → `560.35.03`, GB300 → `570.124.06`, others → `550.163.01`). Set explicitly only to override the profile. |
 | `nodeSelector` | `{}` | Node selector for DaemonSet |
@@ -746,13 +747,13 @@ Select a profile with `--set gpu.profile=<name>`:
 
 ```bash
 # Deploy as an 8-GPU H100 node
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --set gpu.profile=h100
 
 # Deploy as a 4-GPU B200 node
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --set gpu.profile=b200 \
@@ -799,7 +800,7 @@ For GPU types not covered by built-in profiles, provide your own config YAML.
 Create a YAML file following the profile format, then pass it at install time:
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --set-file gpu.customConfig=my-custom-gpus.yaml
@@ -840,7 +841,7 @@ gpu:
 ```
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   -f custom-values.yaml
@@ -896,7 +897,7 @@ baseline declare their own base via a Helm-only `dynamic_metrics_defaults` key
 it only takes effect once `enabled: true` folds it into `dynamic_metrics`.
 
 ```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set image.repository=nvml-mock \
   --set image.tag=local \
   --set gpu.profile=h100 \
@@ -951,7 +952,7 @@ configured failure mode based on the trigger you choose:
 
 ```bash
 # Deterministic: device goes "lost" after the 200th NVML call
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+helm install nvml-mock oci://ghcr.io/nvidia/charts/nvml-mock \
   --set gpu.profile=h100 \
   --set gpu.failureInjection.enabled=true \
   --set gpu.failureInjection.mode=lost \

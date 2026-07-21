@@ -1,0 +1,26 @@
+{
+  "name": "k8s-test-infra-repo-automation",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test --test-reporter=spec",
+    "lint": "eslint src test",
+    "package": "ncc build src/index.js -o dist --minify"
+  },
+  "dependencies": {
+    "@actions/core": "3.0.1",
+    "@actions/github": "9.1.1",
+    "minimatch": "10.2.5",
+    "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "0.38.4",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "eslint": "9.39.1",
+    "release-please": "17.6.0"
+  }
+}

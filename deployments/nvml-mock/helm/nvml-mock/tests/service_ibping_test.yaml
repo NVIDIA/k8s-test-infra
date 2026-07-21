@@ -3,6 +3,9 @@
 suite: IB ping Service
 templates:
   - templates/service-ibping.yaml
+chart:
+  version: 0.0.0-tests
+  appVersion: 0.0.0-tests
 tests:
   - it: should render a headless Service
     asserts:

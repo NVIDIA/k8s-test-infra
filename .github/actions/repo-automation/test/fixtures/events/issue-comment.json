@@ -1,0 +1,20 @@
+{
+  "action": "created",
+  "repository": {
+    "name": "k8s-test-infra",
+    "full_name": "NVIDIA/k8s-test-infra",
+    "owner": { "login": "NVIDIA" }
+  },
+  "issue": {
+    "number": 42,
+    "pull_request": { "url": "https://api.github.com/repos/NVIDIA/k8s-test-infra/pulls/42" },
+    "body": "event-issue-body-must-not-be-used"
+  },
+  "comment": {
+    "id": 9001,
+    "body": "/hold\nevent-comment-body-must-not-be-used",
+    "user": { "login": "event-actor-must-not-be-used", "type": "User" },
+    "author_association": "OWNER"
+  },
+  "sender": { "login": "event-sender-must-not-be-used", "type": "User" }
+}

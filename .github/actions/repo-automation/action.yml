@@ -1,0 +1,19 @@
+name: Repository automation
+description: Apply repository automation policy idempotently
+inputs:
+  mode:
+    description: Repository automation mode to run
+    required: true
+  pr-number:
+    description: Pull request number for modes that operate on a pull request
+    required: false
+  dry-run:
+    description: Plan changes without mutating GitHub
+    required: false
+    default: "true"
+outputs:
+  summary:
+    description: JSON summary of the idempotent operation
+runs:
+  using: node24
+  main: dist/index.js

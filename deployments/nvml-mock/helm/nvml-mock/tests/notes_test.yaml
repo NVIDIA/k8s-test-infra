@@ -3,6 +3,9 @@
 suite: NOTES.txt
 templates:
   - templates/NOTES.txt
+chart:
+  version: 0.0.0-tests
+  appVersion: 0.0.0-tests
 tests:
   # ── Snapshots ───────────────────────────────────────────────────────
   - it: should match snapshot with default values

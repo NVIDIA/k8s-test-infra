@@ -1,0 +1,33 @@
+{
+  "action": "synchronize",
+  "number": 42,
+  "repository": {
+    "name": "k8s-test-infra",
+    "full_name": "nvidia/k8s-test-infra",
+    "owner": { "login": "nvidia" },
+    "default_branch": "event-default-branch-must-not-be-used"
+  },
+  "pull_request": {
+    "number": 42,
+    "title": "$(event-title-must-not-execute)",
+    "body": "event-body-secret-sentinel-7c91\n`event-command-sentinel`",
+    "draft": false,
+    "user": { "login": "event-author-must-not-be-used" },
+    "head": {
+      "ref": "event-head-ref-must-not-be-used",
+      "sha": "event-head-sha-must-not-be-used",
+      "repo": { "full_name": "attacker/fork" }
+    },
+    "base": { "ref": "event-base-ref-must-not-be-used" },
+    "changed_files": [
+      "../../event-path-must-not-be-used",
+      "/tmp/event-executable-must-not-run"
+    ]
+  },
+  "automation": {
+    "config_path": "../../event-config-must-not-be-used.yml",
+    "checkout_ref": "refs/pull/42/merge",
+    "command": "sh -c event-command-must-not-execute",
+    "artifact_path": "/tmp/event-artifact-must-not-be-used.tgz"
+  }
+}

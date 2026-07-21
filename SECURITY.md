@@ -2,9 +2,9 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-|---------|--------------------|
-| 0.1.x   | :white_check_mark: |
+Supported versions are identified in project releases and security advisories.
+Because support may change as the project evolves, this policy does not make a
+permanent support commitment for a hard-coded version line.
 
 ## Reporting a Vulnerability
 
@@ -19,17 +19,21 @@ Instead, please report them via GitHub's private vulnerability reporting:
 2. Click **"Report a vulnerability"**
 3. Fill in the details
 
-Alternatively, email **psirt@nvidia.com** with:
+Alternatively, report the vulnerability to
+[NVIDIA PSIRT](https://www.nvidia.com/en-us/security/report-vulnerability/),
+including by email at **psirt@nvidia.com**, with:
+
 - Description of the vulnerability
 - Steps to reproduce
 - Affected versions
 - Any potential impact
 
-## Response Timeline
+## What to Expect
 
-- **Acknowledgment:** within 3 business days
-- **Initial assessment:** within 10 business days
-- **Fix timeline:** depends on severity, typically within 30-90 days
+The responding security team will communicate the report's status as it is
+triaged, investigated, and resolved. Response and remediation timing depends on
+the report's complexity, severity, and affected components; this project does
+not promise fixed deadlines.
 
 ## Scope
 

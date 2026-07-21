@@ -3,6 +3,9 @@
 suite: NRI DaemonSet
 templates:
   - templates/nri-daemonset.yaml
+chart:
+  version: 0.0.0-tests
+  appVersion: 0.0.0-tests
 tests:
   - it: should not render by default (opt-in feature)
     asserts:
@@ -36,7 +39,7 @@ tests:
           value: false
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/nvidia/nvml-mock:latest
+          value: ghcr.io/nvidia/nvml-mock:0.0.0-tests
       - contains:
           path: spec.template.spec.containers[0].args
           content: --socket-path=/var/run/nri/nri.sock
@@ -53,6 +56,43 @@ tests:
             valueFrom:
               fieldRef:
                 fieldPath: spec.nodeName
+
+  - it: should inherit an explicit root image tag before appVersion
+    set:
+      image:
+        tag: root-override
+      nri:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/nvml-mock:root-override
+
+  - it: should treat an empty NRI tag as absent and inherit the root tag
+    set:
+      image:
+        tag: root-override
+      nri:
+        enabled: true
+        image:
+          tag: ""
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/nvml-mock:root-override
+
+  - it: should prefer an explicit NRI image tag over the root tag
+    set:
+      image:
+        tag: root-override
+      nri:
+        enabled: true
+        image:
+          tag: nri-override
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/nvml-mock:nri-override
 
   - it: should mount the NRI socket directory and overlay host path
     set:

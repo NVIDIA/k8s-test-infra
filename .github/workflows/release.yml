@@ -1,0 +1,1049 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish an existing canonical release after activation
+        required: true
+        type: boolean
+        default: false
+      version:
+        description: Canonical X.Y.Z version for an authorized resume
+        required: false
+        type: string
+        default: ''
+
+permissions: {}
+
+concurrency:
+  group: artifact-publication
+  cancel-in-progress: false
+
+env:
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+  IMAGE_NAME: ghcr.io/nvidia/nvml-mock
+  CHART_TARGET: oci://ghcr.io/nvidia/charts
+  CHART_NAME: nvml-mock
+  CHART_DIR: deployments/nvml-mock/helm/nvml-mock
+
+jobs:
+  plan:
+    name: Release plan (read-only)
+    if: ${{ !inputs.publish }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out trusted default branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+
+      - name: Validate release configuration
+        run: jq empty release-please-config.json .release-please-manifest.json
+
+      - name: Print prospective immutable release plan from checked-out HEAD
+        run: |
+          set -o pipefail
+          HEAD_SHA=$(git rev-parse HEAD)
+          SOURCE_SHA="$HEAD_SHA" node .github/scripts/release-state.mjs plan "$CHART_DIR/Chart.yaml" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  release-please:
+    name: Release Please
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      major: ${{ steps.release.outputs.major }}
+      minor: ${{ steps.release.outputs.minor }}
+      patch: ${{ steps.release.outputs.patch }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - name: Create or update the release pull request
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  release-context:
+    name: Resolve one trusted publication identity
+    needs: [release-please]
+    if: ${{ always() && (github.event_name == 'push' || inputs.publish) && (github.event_name != 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) && (github.event_name == 'workflow_dispatch' || needs.release-please.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      mode: ${{ steps.identity.outputs.mode }}
+      version: ${{ steps.identity.outputs.version }}
+      tag_name: ${{ steps.identity.outputs.tag_name }}
+      major: ${{ steps.identity.outputs.major }}
+      minor: ${{ steps.identity.outputs.minor }}
+      patch: ${{ steps.identity.outputs.patch }}
+      sha: ${{ steps.identity.outputs.sha }}
+    steps:
+      - name: Check out trusted repository history
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event_name == 'push' && github.sha || github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+
+      - name: Resolve push release, development, or authorized resume intent
+        id: identity
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_SHA: ${{ github.sha }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          RP_RELEASE_CREATED: ${{ needs.release-please.outputs.release_created }}
+          RP_TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+          RP_MAJOR: ${{ needs.release-please.outputs.major }}
+          RP_MINOR: ${{ needs.release-please.outputs.minor }}
+          RP_PATCH: ${{ needs.release-please.outputs.patch }}
+          RP_SHA: ${{ needs.release-please.outputs.sha }}
+        run: |
+          MANUAL_SHA=""
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ ! "$REQUESTED_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo "version must be canonical X.Y.Z" >&2
+              exit 1
+            fi
+            TAG="v${REQUESTED_VERSION}"
+            git fetch --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}"
+            MANUAL_SHA=$(git rev-parse "${TAG}^{commit}")
+          fi
+          MANUAL_SHA="$MANUAL_SHA" node --input-type=module <<'NODE'
+          import { writeFileSync } from "node:fs";
+          const releasePlease = process.env.EVENT_NAME === "push"
+            ? process.env.RP_RELEASE_CREATED === "true"
+              ? { releaseCreated: process.env.RP_RELEASE_CREATED, tagName: process.env.RP_TAG_NAME, major: process.env.RP_MAJOR, minor: process.env.RP_MINOR, patch: process.env.RP_PATCH, sha: process.env.RP_SHA }
+              : { releaseCreated: process.env.RP_RELEASE_CREATED }
+            : null;
+          writeFileSync(process.env.RUNNER_TEMP + "/release-intent-input.json", JSON.stringify({
+            eventName: process.env.EVENT_NAME,
+            pushSha: process.env.EVENT_NAME === "push" ? process.env.PUSH_SHA : "",
+            manualVersion: process.env.EVENT_NAME === "workflow_dispatch" ? process.env.REQUESTED_VERSION : "",
+            manualSha: process.env.EVENT_NAME === "workflow_dispatch" ? process.env.MANUAL_SHA : "",
+            releasePlease,
+          }), { flag: "wx" });
+          NODE
+          node .github/scripts/release-state.mjs intent "$RUNNER_TEMP/release-intent-input.json" > "$RUNNER_TEMP/release-intent.json"
+          MODE=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(JSON.parse(readFileSync(process.argv[1])).mode)' "$RUNNER_TEMP/release-intent.json")
+          if [[ "$MODE" == "release" ]]; then
+            TAG=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(JSON.parse(readFileSync(process.argv[1])).tagName)' "$RUNNER_TEMP/release-intent.json")
+            SELECTED_SHA=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(JSON.parse(readFileSync(process.argv[1])).sha)' "$RUNNER_TEMP/release-intent.json")
+            if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ || ! "$SELECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "invalid validated release identity" >&2
+              exit 1
+            fi
+            git fetch --no-tags origin "refs/tags/${TAG}:refs/tags/${TAG}"
+            test "$(git rev-parse "${TAG}^{commit}")" = "$SELECTED_SHA"
+          fi
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const value = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/release-intent.json", "utf8"));
+          for (const key of ["mode", "version", "tagName", "major", "minor", "patch", "sha"]) {
+            const output = key === "tagName" ? "tag_name" : key;
+            appendFileSync(process.env.GITHUB_OUTPUT, `${output}=${value[key]}\n`);
+          }
+          NODE
+
+      - name: Check out the selected immutable commit
+        env:
+          SELECTED_SHA: ${{ steps.identity.outputs.sha }}
+        run: |
+          if [[ ! "$SELECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "invalid selected SHA" >&2
+            exit 1
+          fi
+          git checkout --detach "$SELECTED_SHA"
+          test "$(git rev-parse HEAD)" = "$SELECTED_SHA"
+
+      - name: Validate GitHub Release before publication
+        if: ${{ steps.identity.outputs.mode == 'release' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.identity.outputs.tag_name }}
+          RELEASE_SHA: ${{ steps.identity.outputs.sha }}
+        run: node .github/scripts/release-reader.mjs github-release > "$RUNNER_TEMP/github-release.json"
+
+  publish-image:
+    name: Publish image by immutable digest
+    needs: [release-context]
+    if: ${{ needs.release-context.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Check out the validated publication commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.release-context.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Inspect existing immutable image evidence
+        env:
+          MODE: ${{ needs.release-context.outputs.mode }}
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$MODE" == "release" ]]; then
+            node .github/scripts/release-reader.mjs image-identity > "$RUNNER_TEMP/image-state-initial.json"
+          else
+            node .github/scripts/release-reader.mjs development > "$RUNNER_TEMP/image-state-initial.json"
+            node .github/scripts/release-edge-state.mjs --validate-branch
+            git fetch --no-tags origin "refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+            RELEASE_SHA="$RELEASE_SHA" node .github/scripts/release-edge-state.mjs "$RUNNER_TEMP/image-state-initial.json"
+          fi
+          node --input-type=module <<'NODE'
+          import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+          const state = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/image-state-initial.json", "utf8"));
+          const digest = state.stable?.digest ?? state.immutable?.digest ?? "";
+          if (digest !== "" && !/^sha256:[0-9a-f]{64}$/.test(digest)) throw new Error("invalid existing image digest");
+          appendFileSync(process.env.GITHUB_ENV, `EXISTING_IMAGE_DIGEST=${digest}\n`);
+          const directory = process.env.RUNNER_TEMP + "/read-auth";
+          mkdirSync(directory, { recursive: true, mode: 0o700 });
+          const auth = Buffer.from(`${process.env.GHCR_USER}:${process.env.GHCR_TOKEN}`).toString("base64");
+          writeFileSync(directory + "/config.json", JSON.stringify({ auths: { "ghcr.io": { auth } } }), { mode: 0o600, flag: "wx" });
+          NODE
+          EXISTING_IMAGE_DIGEST=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; const v=JSON.parse(readFileSync(process.argv[1])); process.stdout.write(v.stable?.digest ?? v.immutable?.digest ?? "")' "$RUNNER_TEMP/image-state-initial.json")
+          SIGNATURE=false
+          SBOM=false
+          PROVENANCE=false
+          if [[ "$MODE" == "release" && -n "$EXISTING_IMAGE_DIGEST" ]]; then
+            if DOCKER_CONFIG="$RUNNER_TEMP/read-auth" cosign verify --certificate-identity-regexp '^https://github.com/NVIDIA/k8s-test-infra/.github/workflows/release.yml@refs/heads/main$' --certificate-oidc-issuer https://token.actions.githubusercontent.com "${IMAGE_NAME}@${EXISTING_IMAGE_DIGEST}" > "$RUNNER_TEMP/image-signature.json"; then
+              SIGNATURE=true
+            fi
+            if DOCKER_CONFIG="$RUNNER_TEMP/read-auth" cosign verify-attestation --type spdxjson --certificate-identity-regexp '^https://github.com/NVIDIA/k8s-test-infra/.github/workflows/release.yml@refs/heads/main$' --certificate-oidc-issuer https://token.actions.githubusercontent.com "${IMAGE_NAME}@${EXISTING_IMAGE_DIGEST}" > "$RUNNER_TEMP/image-sbom-attestation.json"; then
+              SBOM=true
+            fi
+            if gh attestation verify "oci://${IMAGE_NAME}@${EXISTING_IMAGE_DIGEST}" --repo NVIDIA/k8s-test-infra > "$RUNNER_TEMP/image-provenance.json"; then
+              PROVENANCE=true
+            fi
+          fi
+          EXISTING_IMAGE_DIGEST="$EXISTING_IMAGE_DIGEST" SIGNATURE="$SIGNATURE" SBOM="$SBOM" PROVENANCE="$PROVENANCE" node --input-type=module <<'NODE'
+          import { writeFileSync } from "node:fs";
+          const boolean = (name) => {
+            if (!['true', 'false'].includes(process.env[name])) throw new Error(`invalid ${name}`);
+            return process.env[name] === 'true';
+          };
+          const subjectDigest = process.env.EXISTING_IMAGE_DIGEST || null;
+          writeFileSync(process.env.RUNNER_TEMP + "/image-evidence-final.json", JSON.stringify({ subjectDigest, signature: boolean("SIGNATURE"), sbom: boolean("SBOM"), provenance: boolean("PROVENANCE") }), { flag: "wx" });
+          NODE
+
+      - name: Gather and validate release, registry, evidence, and asset state
+        env:
+          MODE: ${{ needs.release-context.outputs.mode }}
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+          RELEASE_TAG: ${{ needs.release-context.outputs.tag_name }}
+          RELEASE_MAJOR: ${{ needs.release-context.outputs.major }}
+          RELEASE_MINOR: ${{ needs.release-context.outputs.minor }}
+          RELEASE_PATCH: ${{ needs.release-context.outputs.patch }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          EVIDENCE_FILE: ${{ runner.temp }}/image-evidence-final.json
+        run: |
+          HEAD_SHA=$(git rev-parse HEAD)
+          test "$HEAD_SHA" = "$RELEASE_SHA"
+          if [[ "$MODE" == "release" ]]; then
+            if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo "invalid release tag" >&2
+              exit 1
+            fi
+            git fetch --no-tags origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+            test "$(git rev-parse "${RELEASE_TAG}^{commit}")" = "$RELEASE_SHA"
+            node .github/scripts/release-reader.mjs github-release > "$RUNNER_TEMP/github-release.json"
+            node .github/scripts/release-reader.mjs image > "$RUNNER_TEMP/image-state.json"
+          else
+            node .github/scripts/release-reader.mjs development > "$RUNNER_TEMP/image-state.json"
+            node .github/scripts/release-edge-state.mjs --validate-branch
+            git fetch --no-tags origin "refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+            node .github/scripts/release-edge-state.mjs "$RUNNER_TEMP/image-state.json"
+          fi
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          if (process.env.MODE === "release") {
+            const chartSource = readFileSync(process.env.CHART_DIR + "/Chart.yaml", "utf8");
+            const field = (name) => new RegExp(`^${name}:\\s*["']?([^\\s"']+)["']?\\s*$`, "m").exec(chartSource)?.[1];
+            const chart = { version: field("version"), appVersion: field("appVersion") };
+            const github = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/github-release.json", "utf8"));
+            const image = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/image-state.json", "utf8"));
+            writeFileSync(process.env.RUNNER_TEMP + "/image-binding.json", JSON.stringify({
+              tagName: process.env.RELEASE_TAG, major: process.env.RELEASE_MAJOR, minor: process.env.RELEASE_MINOR, patch: process.env.RELEASE_PATCH,
+              releaseSha: process.env.RELEASE_SHA, peeledTagSha: process.env.RELEASE_SHA, checkoutSha: process.env.RELEASE_SHA,
+              chartVersion: chart.version, chartAppVersion: chart.appVersion,
+              imageSourceRevision: image.stable?.sourceRevision ?? process.env.RELEASE_SHA,
+              githubReleaseTag: github.tagName, githubReleaseTarget: github.target,
+            }), { flag: "wx" });
+          }
+          NODE
+          if [[ "$MODE" == "release" ]]; then
+            node .github/scripts/release-state.mjs binding "$RUNNER_TEMP/image-binding.json" > "$RUNNER_TEMP/image-binding-result.json"
+          fi
+
+      - name: Plan initial immutable image publication
+        id: initial-image-plan
+        env:
+          MODE: ${{ needs.release-context.outputs.mode }}
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+        run: |
+          if [[ "$MODE" == "release" ]]; then
+            node .github/scripts/release-state.mjs image "$RUNNER_TEMP/image-state.json" > "$RUNNER_TEMP/image-plan-initial.json"
+            IMMUTABLE_TAG="$RELEASE_VERSION"
+          else
+            node .github/scripts/release-state.mjs development "$RUNNER_TEMP/image-state.json" > "$RUNNER_TEMP/image-plan-initial.json"
+            IMMUTABLE_TAG="sha-${RELEASE_SHA}"
+          fi
+          IMMUTABLE_TAG="$IMMUTABLE_TAG" node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const plan = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/image-plan-initial.json", "utf8"));
+          if (!/^(?:[0-9]+\.[0-9]+\.[0-9]+|sha-[0-9a-f]{40})$/.test(process.env.IMMUTABLE_TAG)) throw new Error("invalid immutable tag");
+          appendFileSync(process.env.GITHUB_OUTPUT, `action=${plan.immutable.action}\nimmutable_tag=${process.env.IMMUTABLE_TAG}\n`);
+          if (plan.immutable.digest !== null) appendFileSync(process.env.GITHUB_OUTPUT, `digest=${plan.immutable.digest}\n`);
+          NODE
+
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push a workflow-unique staging image by digest
+        id: build
+        if: ${{ steps.initial-image-plan.outputs.action == 'publish' }}
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: deployments/nvml-mock/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          labels: |
+            org.opencontainers.image.revision=${{ needs.release-context.outputs.sha }}
+            org.opencontainers.image.version=${{ needs.release-context.outputs.mode == 'release' && needs.release-context.outputs.version || '0.0.0' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+
+      - name: Re-read immutable image immediately before final tag promotion
+        id: immutable-image-promotion
+        env:
+          MODE: ${{ needs.release-context.outputs.mode }}
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          INITIAL_DIGEST: ${{ steps.initial-image-plan.outputs.digest }}
+          STAGED_DIGEST: ${{ steps.build.outputs.digest }}
+          IMMUTABLE_TAG: ${{ steps.initial-image-plan.outputs.immutable_tag }}
+        run: |
+          if [[ "$MODE" == "release" ]]; then
+            node .github/scripts/release-reader.mjs image-identity > "$RUNNER_TEMP/immutable-boundary-state.json"
+            FINAL_DIGEST=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; const v=JSON.parse(readFileSync(process.argv[1])); process.stdout.write(v.stable?.digest ?? "")' "$RUNNER_TEMP/immutable-boundary-state.json")
+          else
+            node .github/scripts/release-reader.mjs development > "$RUNNER_TEMP/immutable-boundary-state.json"
+            FINAL_DIGEST=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; const v=JSON.parse(readFileSync(process.argv[1])); process.stdout.write(v.immutable?.digest ?? "")' "$RUNNER_TEMP/immutable-boundary-state.json")
+          fi
+          INITIAL_DIGEST="$INITIAL_DIGEST" STAGED_DIGEST="$STAGED_DIGEST" FINAL_DIGEST="$FINAL_DIGEST" node --input-type=module <<'NODE'
+          import { writeFileSync } from "node:fs";
+          const nullable = (value) => value || null;
+          writeFileSync(process.env.RUNNER_TEMP + "/immutable-promotion-state.json", JSON.stringify({
+            initialDigest: nullable(process.env.INITIAL_DIGEST),
+            stagedDigest: nullable(process.env.STAGED_DIGEST),
+            finalDigest: nullable(process.env.FINAL_DIGEST),
+          }), { flag: "wx" });
+          NODE
+          node .github/scripts/release-state.mjs immutable-promotion "$RUNNER_TEMP/immutable-promotion-state.json" > "$RUNNER_TEMP/immutable-promotion-plan.json"
+          ACTION=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(JSON.parse(readFileSync(process.argv[1])).action)' "$RUNNER_TEMP/immutable-promotion-plan.json")
+          DIGEST=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; process.stdout.write(JSON.parse(readFileSync(process.argv[1])).digest)' "$RUNNER_TEMP/immutable-promotion-plan.json")
+          if [[ "$ACTION" == "update" ]]; then
+            docker buildx imagetools create --tag "${IMAGE_NAME}:${IMMUTABLE_TAG}" "${IMAGE_NAME}@${DIGEST}"
+          elif [[ "$ACTION" != "skip" ]]; then
+            echo "invalid immutable image promotion action" >&2
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Select and validate the immutable image digest
+        id: image-digest
+        env:
+          BOUND_DIGEST: ${{ steps.immutable-image-promotion.outputs.digest }}
+        run: |
+          IMAGE_DIGEST=$BOUND_DIGEST
+          if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "invalid image digest" >&2
+            exit 1
+          fi
+          echo "value=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect evidence for the final image digest
+        if: ${{ needs.release-context.outputs.mode == 'release' }}
+        env:
+          FINAL_IMAGE_DIGEST: ${{ steps.image-digest.outputs.value }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SIGNATURE=false
+          SBOM=false
+          PROVENANCE=false
+          if DOCKER_CONFIG="$RUNNER_TEMP/read-auth" cosign verify --certificate-identity-regexp '^https://github.com/NVIDIA/k8s-test-infra/.github/workflows/release.yml@refs/heads/main$' --certificate-oidc-issuer https://token.actions.githubusercontent.com "${IMAGE_NAME}@${FINAL_IMAGE_DIGEST}" > "$RUNNER_TEMP/final-image-signature.json"; then
+            SIGNATURE=true
+          fi
+          if DOCKER_CONFIG="$RUNNER_TEMP/read-auth" cosign verify-attestation --type spdxjson --certificate-identity-regexp '^https://github.com/NVIDIA/k8s-test-infra/.github/workflows/release.yml@refs/heads/main$' --certificate-oidc-issuer https://token.actions.githubusercontent.com "${IMAGE_NAME}@${FINAL_IMAGE_DIGEST}" > "$RUNNER_TEMP/final-image-sbom-attestation.json"; then
+            SBOM=true
+          fi
+          if gh attestation verify "oci://${IMAGE_NAME}@${FINAL_IMAGE_DIGEST}" --repo NVIDIA/k8s-test-infra > "$RUNNER_TEMP/final-image-provenance.json"; then
+            PROVENANCE=true
+          fi
+          FINAL_IMAGE_DIGEST="$FINAL_IMAGE_DIGEST" SIGNATURE="$SIGNATURE" SBOM="$SBOM" PROVENANCE="$PROVENANCE" node --input-type=module <<'NODE'
+          import { writeFileSync } from "node:fs";
+          const boolean = (name) => {
+            if (!["true", "false"].includes(process.env[name])) throw new Error(`invalid ${name}`);
+            return process.env[name] === "true";
+          };
+          writeFileSync(process.env.RUNNER_TEMP + "/image-evidence-selected.json", JSON.stringify({
+            subjectDigest: process.env.FINAL_IMAGE_DIGEST,
+            signature: boolean("SIGNATURE"), sbom: boolean("SBOM"), provenance: boolean("PROVENANCE"),
+          }), { flag: "wx" });
+          NODE
+
+      - name: Re-read image state immediately before digest promotions
+        id: image-plan
+        env:
+          MODE: ${{ needs.release-context.outputs.mode }}
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          EVIDENCE_FILE: ${{ runner.temp }}/image-evidence-selected.json
+          SELECTED_IMAGE_DIGEST: ${{ steps.image-digest.outputs.value }}
+        run: |
+          if [[ "$MODE" == "release" ]]; then
+            node .github/scripts/release-reader.mjs image > "$RUNNER_TEMP/image-state-final.json"
+            node .github/scripts/release-state.mjs image "$RUNNER_TEMP/image-state-final.json" > "$RUNNER_TEMP/image-plan-final.json"
+          else
+            node .github/scripts/release-reader.mjs development > "$RUNNER_TEMP/image-state-final.json"
+            node .github/scripts/release-edge-state.mjs --validate-branch
+            git fetch --no-tags origin "refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+            node .github/scripts/release-edge-state.mjs "$RUNNER_TEMP/image-state-final.json"
+            node .github/scripts/release-state.mjs development "$RUNNER_TEMP/image-state-final.json" > "$RUNNER_TEMP/image-plan-final.json"
+          fi
+          FINAL_DIGEST=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; const plan=JSON.parse(readFileSync(process.argv[1])); process.stdout.write(plan.immutable.digest ?? "")' "$RUNNER_TEMP/image-plan-final.json")
+          SELECTED_IMAGE_DIGEST="$SELECTED_IMAGE_DIGEST" FINAL_DIGEST="$FINAL_DIGEST" node --input-type=module <<'NODE'
+          import { writeFileSync } from "node:fs";
+          writeFileSync(process.env.RUNNER_TEMP + "/final-image-digest.json", JSON.stringify({ selectedDigest: process.env.SELECTED_IMAGE_DIGEST, finalDigest: process.env.FINAL_DIGEST }), { flag: "wx" });
+          NODE
+          node .github/scripts/release-state.mjs final-digest "$RUNNER_TEMP/final-image-digest.json" > "$RUNNER_TEMP/final-image-digest-result.json"
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const plan = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/image-plan-final.json", "utf8"));
+          const digest = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/final-image-digest-result.json", "utf8"));
+          const values = {
+            short: plan.development?.short ?? plan.short ?? "skip",
+            edge: plan.edge ?? "skip",
+            alias_minor: plan.aliases?.minor ?? "skip", alias_major: plan.aliases?.major ?? "skip", alias_latest: plan.aliases?.latest ?? "skip",
+            signature: String(plan.resume?.signature ?? false), sbom: String(plan.resume?.sbom ?? false), provenance: String(plan.resume?.provenance ?? false),
+          };
+          for (const [key, value] of Object.entries({ ...values, digest })) appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
+          NODE
+
+      - name: Promote collision-checked short SHA tag by digest
+        if: ${{ steps.image-plan.outputs.short == 'update' }}
+        env:
+          FINAL_IMAGE_DIGEST: ${{ steps.image-plan.outputs.digest }}
+          MODE: ${{ needs.release-context.outputs.mode }}
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          EVIDENCE_FILE: ${{ runner.temp }}/image-evidence-selected.json
+        run: |
+          if [[ "$MODE" == "release" ]]; then
+            node .github/scripts/release-reader.mjs image > "$RUNNER_TEMP/short-boundary-state.json"
+            node .github/scripts/release-state.mjs image "$RUNNER_TEMP/short-boundary-state.json" > "$RUNNER_TEMP/short-boundary-plan.json"
+          else
+            node .github/scripts/release-reader.mjs development > "$RUNNER_TEMP/short-boundary-state.json"
+            node .github/scripts/release-edge-state.mjs --validate-branch
+            git fetch --no-tags origin "refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+            node .github/scripts/release-edge-state.mjs "$RUNNER_TEMP/short-boundary-state.json"
+            node .github/scripts/release-state.mjs development "$RUNNER_TEMP/short-boundary-state.json" > "$RUNNER_TEMP/short-boundary-plan.json"
+          fi
+          FINAL_IMAGE_DIGEST="$FINAL_IMAGE_DIGEST" MODE="$MODE" node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const plan = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/short-boundary-plan.json", "utf8"));
+          const action = process.env.MODE === "release" ? plan.development.short : plan.short;
+          if (plan.immutable.digest !== process.env.FINAL_IMAGE_DIGEST || action !== "update") throw new Error("short tag boundary changed");
+          NODE
+          docker buildx imagetools create --tag "${IMAGE_NAME}:sha-${RELEASE_SHA:0:12}" "${IMAGE_NAME}@${FINAL_IMAGE_DIGEST}"
+
+      - name: Promote edge tag by digest
+        if: ${{ steps.image-plan.outputs.edge == 'update' }}
+        env:
+          FINAL_IMAGE_DIGEST: ${{ steps.image-plan.outputs.digest }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          node .github/scripts/release-reader.mjs development > "$RUNNER_TEMP/edge-boundary-state.json"
+          node .github/scripts/release-edge-state.mjs --validate-branch
+          git fetch --no-tags origin "refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          node .github/scripts/release-edge-state.mjs "$RUNNER_TEMP/edge-boundary-state.json"
+          node .github/scripts/release-state.mjs development "$RUNNER_TEMP/edge-boundary-state.json" > "$RUNNER_TEMP/edge-boundary-plan.json"
+          FINAL_IMAGE_DIGEST="$FINAL_IMAGE_DIGEST" node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const plan = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/edge-boundary-plan.json", "utf8"));
+          if (plan.immutable.digest !== process.env.FINAL_IMAGE_DIGEST || plan.edge !== "update") throw new Error("edge tag boundary changed");
+          NODE
+          docker buildx imagetools create --tag "${IMAGE_NAME}:edge" "${IMAGE_NAME}@${FINAL_IMAGE_DIGEST}"
+
+      - name: Promote minor alias by digest
+        if: ${{ steps.image-plan.outputs.alias_minor == 'update' }}
+        env:
+          FINAL_IMAGE_DIGEST: ${{ steps.image-plan.outputs.digest }}
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          EVIDENCE_FILE: ${{ runner.temp }}/image-evidence-selected.json
+          RELEASE_MAJOR: ${{ needs.release-context.outputs.major }}
+          RELEASE_MINOR: ${{ needs.release-context.outputs.minor }}
+        run: |
+          node .github/scripts/release-reader.mjs image > "$RUNNER_TEMP/minor-boundary-state.json"
+          node .github/scripts/release-state.mjs image "$RUNNER_TEMP/minor-boundary-state.json" > "$RUNNER_TEMP/minor-boundary-plan.json"
+          FINAL_IMAGE_DIGEST="$FINAL_IMAGE_DIGEST" node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const plan = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/minor-boundary-plan.json", "utf8"));
+          if (plan.immutable.digest !== process.env.FINAL_IMAGE_DIGEST || plan.aliases.minor !== "update") throw new Error("minor alias boundary changed");
+          NODE
+          docker buildx imagetools create --tag "${IMAGE_NAME}:${RELEASE_MAJOR}.${RELEASE_MINOR}" "${IMAGE_NAME}@${FINAL_IMAGE_DIGEST}"
+
+      - name: Promote major alias by digest
+        if: ${{ steps.image-plan.outputs.alias_major == 'update' }}
+        env:
+          FINAL_IMAGE_DIGEST: ${{ steps.image-plan.outputs.digest }}
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          EVIDENCE_FILE: ${{ runner.temp }}/image-evidence-selected.json
+          RELEASE_MAJOR: ${{ needs.release-context.outputs.major }}
+        run: |
+          node .github/scripts/release-reader.mjs image > "$RUNNER_TEMP/major-boundary-state.json"
+          node .github/scripts/release-state.mjs image "$RUNNER_TEMP/major-boundary-state.json" > "$RUNNER_TEMP/major-boundary-plan.json"
+          FINAL_IMAGE_DIGEST="$FINAL_IMAGE_DIGEST" node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const plan = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/major-boundary-plan.json", "utf8"));
+          if (plan.immutable.digest !== process.env.FINAL_IMAGE_DIGEST || plan.aliases.major !== "update") throw new Error("major alias boundary changed");
+          NODE
+          docker buildx imagetools create --tag "${IMAGE_NAME}:${RELEASE_MAJOR}" "${IMAGE_NAME}@${FINAL_IMAGE_DIGEST}"
+
+      - name: Promote latest alias by digest
+        if: ${{ steps.image-plan.outputs.alias_latest == 'update' }}
+        env:
+          FINAL_IMAGE_DIGEST: ${{ steps.image-plan.outputs.digest }}
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          EVIDENCE_FILE: ${{ runner.temp }}/image-evidence-selected.json
+        run: |
+          node .github/scripts/release-reader.mjs image > "$RUNNER_TEMP/latest-boundary-state.json"
+          node .github/scripts/release-state.mjs image "$RUNNER_TEMP/latest-boundary-state.json" > "$RUNNER_TEMP/latest-boundary-plan.json"
+          FINAL_IMAGE_DIGEST="$FINAL_IMAGE_DIGEST" node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const plan = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/latest-boundary-plan.json", "utf8"));
+          if (plan.immutable.digest !== process.env.FINAL_IMAGE_DIGEST || plan.aliases.latest !== "update") throw new Error("latest alias boundary changed");
+          NODE
+          docker buildx imagetools create --tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}@${FINAL_IMAGE_DIGEST}"
+
+      - name: Sign missing immutable image evidence
+        if: ${{ needs.release-context.outputs.mode == 'release' && steps.image-plan.outputs.signature == 'true' }}
+        env:
+          IMAGE_DIGEST: ${{ steps.image-plan.outputs.digest }}
+        run: cosign sign --yes "${IMAGE_NAME}@${IMAGE_DIGEST}"
+
+      - name: Generate image SPDX SBOM from the immutable digest
+        if: ${{ needs.release-context.outputs.mode == 'release' }}
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ env.IMAGE_NAME }}@${{ steps.image-plan.outputs.digest }}
+          format: spdx-json
+          output-file: image-sbom.spdx.json
+          upload-artifact: false
+          dependency-snapshot: false
+
+      - name: Canonicalize image SPDX SBOM
+        if: ${{ needs.release-context.outputs.mode == 'release' }}
+        run: node .github/scripts/spdx.mjs normalize image-sbom.spdx.json
+
+      - name: Attach missing image SBOM evidence
+        if: ${{ needs.release-context.outputs.mode == 'release' && steps.image-plan.outputs.sbom == 'true' }}
+        env:
+          IMAGE_DIGEST: ${{ steps.image-plan.outputs.digest }}
+        run: cosign attest --yes --predicate image-sbom.spdx.json --type spdxjson "${IMAGE_NAME}@${IMAGE_DIGEST}"
+
+      - name: Publish missing GitHub image provenance
+        if: ${{ needs.release-context.outputs.mode == 'release' && steps.image-plan.outputs.provenance == 'true' }}
+        uses: actions/attest@f6bf1532d7d6793fce74eac584813a8eee607999 # v4
+        with:
+          subject-name: ghcr.io/nvidia/nvml-mock
+          subject-digest: ${{ steps.image-plan.outputs.digest }}
+          push-to-registry: true
+
+      - name: Plan exact image SBOM release asset
+        if: ${{ needs.release-context.outputs.mode == 'release' }}
+        id: image-asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-context.outputs.tag_name }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+        run: |
+          node .github/scripts/release-reader.mjs github-release > "$RUNNER_TEMP/image-release-assets.json"
+          ASSET_ID=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; const v=JSON.parse(readFileSync(process.argv[1])); process.stdout.write(v.assets.image?.id?.toString() ?? "")' "$RUNNER_TEMP/image-release-assets.json")
+          mkdir -p "$RUNNER_TEMP/image-remote-asset"
+          if [[ -n "$ASSET_ID" ]]; then
+            if [[ ! "$ASSET_ID" =~ ^[1-9][0-9]*$ ]]; then exit 1; fi
+            gh api -H "Accept: application/octet-stream" "/repos/NVIDIA/k8s-test-infra/releases/assets/${ASSET_ID}" > "$RUNNER_TEMP/image-remote-asset/image-sbom.spdx.json"
+            node .github/scripts/spdx.mjs normalize "$RUNNER_TEMP/image-remote-asset/image-sbom.spdx.json"
+          fi
+          node --input-type=module <<'NODE'
+          import { existsSync, writeFileSync } from "node:fs";
+          import { canonicalSpdxDigest } from "./.github/scripts/spdx.mjs";
+          import { readFileSync } from "node:fs";
+          const sum = (path) => canonicalSpdxDigest(JSON.parse(readFileSync(path, "utf8")));
+          const remote = process.env.RUNNER_TEMP + "/image-remote-asset/image-sbom.spdx.json";
+          writeFileSync(process.env.RUNNER_TEMP + "/image-asset-state.json", JSON.stringify({ localSha256: sum("image-sbom.spdx.json"), remoteSha256: existsSync(remote) ? sum(remote) : null }), { flag: "wx" });
+          NODE
+          node .github/scripts/release-state.mjs asset "$RUNNER_TEMP/image-asset-state.json" > "$RUNNER_TEMP/image-asset-plan.json"
+          ASSET_ID="$ASSET_ID" node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const action = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/image-asset-plan.json", "utf8"));
+          if (!["upload", "skip"].includes(action)) throw new Error("invalid asset plan");
+          appendFileSync(process.env.GITHUB_OUTPUT, `action=${action}\nasset_id=${process.env.ASSET_ID ?? ""}\n`);
+          NODE
+
+      - name: Converge image SBOM asset after final re-query
+        env:
+          MODE: ${{ needs.release-context.outputs.mode }}
+          PLANNED_ACTION: ${{ steps.image-asset.outputs.action }}
+          PLANNED_ASSET_ID: ${{ steps.image-asset.outputs.asset_id }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-context.outputs.tag_name }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+        run: |
+          if [[ "$MODE" != "release" ]]; then exit 0; fi
+          node .github/scripts/release-reader.mjs github-release > "$RUNNER_TEMP/image-release-assets-final.json"
+          FINAL_ASSET_ID=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; const v=JSON.parse(readFileSync(process.argv[1])); process.stdout.write(v.assets.image?.id?.toString() ?? "")' "$RUNNER_TEMP/image-release-assets-final.json")
+          if [[ "$PLANNED_ACTION" == "upload" ]]; then
+            if [[ -n "$FINAL_ASSET_ID" ]]; then echo "image SBOM asset appeared during publication" >&2; exit 1; fi
+            gh release upload "$RELEASE_TAG" "image-sbom.spdx.json#image-sbom.spdx.json"
+            exit 0
+          fi
+          if [[ "$PLANNED_ACTION" != "skip" || "$FINAL_ASSET_ID" != "$PLANNED_ASSET_ID" || ! "$FINAL_ASSET_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "image SBOM asset identity changed" >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/image-remote-asset-final"
+          gh api -H "Accept: application/octet-stream" "/repos/NVIDIA/k8s-test-infra/releases/assets/${FINAL_ASSET_ID}" > "$RUNNER_TEMP/image-remote-asset-final/image-sbom.spdx.json"
+          node .github/scripts/spdx.mjs normalize "$RUNNER_TEMP/image-remote-asset-final/image-sbom.spdx.json"
+          FINAL_ASSET_ID="$FINAL_ASSET_ID" node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { canonicalSpdxDigest } from "./.github/scripts/spdx.mjs";
+          const release = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/image-release-assets-final.json", "utf8"));
+          if (release.assets.image.id.toString() !== process.env.FINAL_ASSET_ID) throw new Error("image SBOM asset identity changed");
+          const sum = (path) => canonicalSpdxDigest(JSON.parse(readFileSync(path, "utf8")));
+          writeFileSync(process.env.RUNNER_TEMP + "/image-asset-state-final.json", JSON.stringify({
+            localSha256: sum("image-sbom.spdx.json"),
+            remoteSha256: sum(process.env.RUNNER_TEMP + "/image-remote-asset-final/image-sbom.spdx.json"),
+          }), { flag: "wx" });
+          NODE
+          test "$(node .github/scripts/release-state.mjs asset "$RUNNER_TEMP/image-asset-state-final.json")" = '"skip"'
+
+  publish-chart:
+    name: Publish chart by immutable digest
+    needs: [release-context]
+    if: ${{ needs.release-context.result == 'success' && needs.release-context.outputs.mode == 'release' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Check out the validated release commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.release-context.outputs.sha }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Gather and validate release, registry, evidence, and asset state
+        id: chart-package
+        env:
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+          RELEASE_TAG: ${{ needs.release-context.outputs.tag_name }}
+          RELEASE_MAJOR: ${{ needs.release-context.outputs.major }}
+          RELEASE_MINOR: ${{ needs.release-context.outputs.minor }}
+          RELEASE_PATCH: ${{ needs.release-context.outputs.patch }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          REMOTE_CHART_ARCHIVE: ${{ runner.temp }}/remote-chart.tgz
+        run: |
+          HEAD_SHA=$(git rev-parse HEAD)
+          test "$HEAD_SHA" = "$RELEASE_SHA"
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "invalid release tag" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          test "$(git rev-parse "${RELEASE_TAG}^{commit}")" = "$RELEASE_SHA"
+          node --input-type=module <<'NODE'
+          import { mkdirSync, writeFileSync } from "node:fs";
+          const directory = process.env.RUNNER_TEMP + "/read-auth";
+          mkdirSync(directory, { recursive: true, mode: 0o700 });
+          const auth = Buffer.from(`${process.env.GHCR_USER}:${process.env.GHCR_TOKEN}`).toString("base64");
+          writeFileSync(directory + "/config.json", JSON.stringify({ auths: { "ghcr.io": { auth } } }), { mode: 0o600, flag: "wx" });
+          NODE
+          node .github/scripts/release-reader.mjs github-release > "$RUNNER_TEMP/chart-github-release.json"
+          node .github/scripts/release-reader.mjs image-identity > "$RUNNER_TEMP/chart-image-state.json"
+          node .github/scripts/release-reader.mjs chart > "$RUNNER_TEMP/chart-remote-state.json"
+          mkdir -p .cr-release-packages
+          helm package "$CHART_DIR" --destination .cr-release-packages
+          CHART_ARCHIVE=".cr-release-packages/${CHART_NAME}-${RELEASE_VERSION}.tgz"
+          test -s "$CHART_ARCHIVE"
+          node .github/scripts/release-state.mjs tree "$CHART_ARCHIVE" "$CHART_NAME" > "$RUNNER_TEMP/chart-local-tree.json"
+          CHART_ARCHIVE="$CHART_ARCHIVE" node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const chartSource = readFileSync(process.env.CHART_DIR + "/Chart.yaml", "utf8");
+          const field = (name) => new RegExp(`^${name}:\\s*["']?([^\\s"']+)["']?\\s*$`, "m").exec(chartSource)?.[1];
+          const chart = { version: field("version"), appVersion: field("appVersion") };
+          const github = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/chart-github-release.json", "utf8"));
+          const image = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/chart-image-state.json", "utf8"));
+          const remote = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/chart-remote-state.json", "utf8"));
+          const local = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/chart-local-tree.json", "utf8"));
+          writeFileSync(process.env.RUNNER_TEMP + "/chart-binding.json", JSON.stringify({
+            tagName: process.env.RELEASE_TAG, major: process.env.RELEASE_MAJOR, minor: process.env.RELEASE_MINOR, patch: process.env.RELEASE_PATCH,
+            releaseSha: process.env.RELEASE_SHA, peeledTagSha: process.env.RELEASE_SHA, checkoutSha: process.env.RELEASE_SHA,
+            chartVersion: chart.version, chartAppVersion: chart.appVersion,
+            imageSourceRevision: image.stable?.sourceRevision ?? process.env.RELEASE_SHA,
+            githubReleaseTag: github.tagName, githubReleaseTarget: github.target,
+          }), { flag: "wx" });
+          writeFileSync(process.env.RUNNER_TEMP + "/chart-state.json", JSON.stringify({
+            version: process.env.RELEASE_VERSION, localTreeDigest: local.digest,
+            remoteTreeDigest: remote.remoteTreeDigest, remoteManifestDigest: remote.remoteManifestDigest,
+          }), { flag: "wx" });
+          writeFileSync(process.env.GITHUB_OUTPUT, `archive=${process.env.CHART_ARCHIVE}\n`, { flag: "a" });
+          NODE
+          node .github/scripts/release-state.mjs binding "$RUNNER_TEMP/chart-binding.json" > "$RUNNER_TEMP/chart-binding-result.json"
+
+      - name: Plan immutable chart publication
+        id: chart-plan
+        run: |
+          node .github/scripts/release-state.mjs chart "$RUNNER_TEMP/chart-state.json" > "$RUNNER_TEMP/chart-plan.json"
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const plan = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/chart-plan.json", "utf8"));
+          appendFileSync(process.env.GITHUB_OUTPUT, `action=${plan.action}\n`);
+          if (plan.digest !== null) appendFileSync(process.env.GITHUB_OUTPUT, `digest=${plan.digest}\n`);
+          NODE
+
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Re-read chart state immediately before immutable mutation
+        id: final-chart-plan
+        env:
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          REMOTE_CHART_ARCHIVE: ${{ runner.temp }}/remote-chart-final.tgz
+        run: |
+          node .github/scripts/release-reader.mjs chart > "$RUNNER_TEMP/chart-remote-state-final.json"
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const prior = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/chart-state.json", "utf8"));
+          const remote = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/chart-remote-state-final.json", "utf8"));
+          writeFileSync(process.env.RUNNER_TEMP + "/chart-state-final.json", JSON.stringify({
+            version: prior.version, localTreeDigest: prior.localTreeDigest,
+            remoteTreeDigest: remote.remoteTreeDigest, remoteManifestDigest: remote.remoteManifestDigest,
+          }), { flag: "wx" });
+          NODE
+          node .github/scripts/release-state.mjs chart "$RUNNER_TEMP/chart-state-final.json" > "$RUNNER_TEMP/chart-plan-final.json"
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const plan = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/chart-plan-final.json", "utf8"));
+          appendFileSync(process.env.GITHUB_OUTPUT, `action=${plan.action}\n`);
+          if (plan.digest !== null) appendFileSync(process.env.GITHUB_OUTPUT, `digest=${plan.digest}\n`);
+          NODE
+
+      - name: Push chart once when the immutable version is absent
+        id: chart-push
+        if: ${{ steps.final-chart-plan.outputs.action == 'publish' }}
+        env:
+          CHART_ARCHIVE: ${{ steps.chart-package.outputs.archive }}
+        run: |
+          set -o pipefail
+          for attempt in 1 2 3; do
+            if helm push "$CHART_ARCHIVE" "$CHART_TARGET" 2>&1 | tee "$RUNNER_TEMP/chart-push.log"; then
+              break
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              echo "helm push failed after bounded retries" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          CHART_DIGEST=$(awk '/^Digest:/ {print $2}' "$RUNNER_TEMP/chart-push.log")
+          if [[ ! "$CHART_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "invalid chart manifest digest" >&2
+            exit 1
+          fi
+          echo "digest=$CHART_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Select one validated pushed or reused chart digest
+        id: chart-digest
+        env:
+          PUSHED_DIGEST: ${{ steps.chart-push.outputs.digest }}
+          REUSED_DIGEST: ${{ steps.final-chart-plan.outputs.digest }}
+        run: |
+          CHART_DIGEST=${PUSHED_DIGEST:-$REUSED_DIGEST}
+          if [[ ! "$CHART_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "invalid selected chart digest" >&2
+            exit 1
+          fi
+          echo "value=$CHART_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Re-read and bind the final immutable chart digest
+        id: final-chart-digest
+        env:
+          RELEASE_VERSION: ${{ needs.release-context.outputs.version }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ github.token }}
+          SELECTED_CHART_DIGEST: ${{ steps.chart-digest.outputs.value }}
+          REMOTE_CHART_ARCHIVE: ${{ runner.temp }}/remote-chart-bound.tgz
+        run: |
+          node .github/scripts/release-reader.mjs chart > "$RUNNER_TEMP/chart-remote-state-bound.json"
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const prior = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/chart-state.json", "utf8"));
+          const remote = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/chart-remote-state-bound.json", "utf8"));
+          writeFileSync(process.env.RUNNER_TEMP + "/chart-state-bound.json", JSON.stringify({
+            version: prior.version, localTreeDigest: prior.localTreeDigest,
+            remoteTreeDigest: remote.remoteTreeDigest, remoteManifestDigest: remote.remoteManifestDigest,
+          }), { flag: "wx" });
+          writeFileSync(process.env.RUNNER_TEMP + "/final-chart-digest.json", JSON.stringify({
+            selectedDigest: process.env.SELECTED_CHART_DIGEST, finalDigest: remote.remoteManifestDigest,
+          }), { flag: "wx" });
+          NODE
+          test "$(node .github/scripts/release-state.mjs chart "$RUNNER_TEMP/chart-state-bound.json" | jq -r .action)" = reuse
+          FINAL_CHART_DIGEST=$(node .github/scripts/release-state.mjs final-digest "$RUNNER_TEMP/final-chart-digest.json" | jq -r .)
+          echo "value=$FINAL_CHART_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect evidence for the final chart digest
+        id: final-chart-evidence
+        env:
+          CHART_DIGEST: ${{ steps.final-chart-digest.outputs.value }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SIGNATURE=false
+          SBOM=false
+          PROVENANCE=false
+          if DOCKER_CONFIG="$RUNNER_TEMP/read-auth" cosign verify --certificate-identity-regexp '^https://github.com/NVIDIA/k8s-test-infra/.github/workflows/release.yml@refs/heads/main$' --certificate-oidc-issuer https://token.actions.githubusercontent.com "ghcr.io/nvidia/charts/${CHART_NAME}@${CHART_DIGEST}" > "$RUNNER_TEMP/final-chart-signature.json"; then
+            SIGNATURE=true
+          fi
+          if DOCKER_CONFIG="$RUNNER_TEMP/read-auth" cosign verify-attestation --type spdxjson --certificate-identity-regexp '^https://github.com/NVIDIA/k8s-test-infra/.github/workflows/release.yml@refs/heads/main$' --certificate-oidc-issuer https://token.actions.githubusercontent.com "ghcr.io/nvidia/charts/${CHART_NAME}@${CHART_DIGEST}" > "$RUNNER_TEMP/final-chart-sbom-attestation.json"; then
+            SBOM=true
+          fi
+          if gh attestation verify "oci://ghcr.io/nvidia/charts/${CHART_NAME}@${CHART_DIGEST}" --repo NVIDIA/k8s-test-infra > "$RUNNER_TEMP/final-chart-provenance.json"; then
+            PROVENANCE=true
+          fi
+          CHART_DIGEST="$CHART_DIGEST" SIGNATURE="$SIGNATURE" SBOM="$SBOM" PROVENANCE="$PROVENANCE" node --input-type=module <<'NODE'
+          import { writeFileSync } from "node:fs";
+          const boolean = (name) => {
+            if (!["true", "false"].includes(process.env[name])) throw new Error(`invalid ${name}`);
+            return process.env[name] === "true";
+          };
+          writeFileSync(process.env.RUNNER_TEMP + "/chart-evidence-final.json", JSON.stringify({
+            subjectDigest: process.env.CHART_DIGEST,
+            signature: boolean("SIGNATURE"), sbom: boolean("SBOM"), provenance: boolean("PROVENANCE"),
+          }), { flag: "wx" });
+          NODE
+          node .github/scripts/release-state.mjs evidence "$RUNNER_TEMP/chart-evidence-final.json" > "$RUNNER_TEMP/chart-evidence-plan-final.json"
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const plan = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/chart-evidence-plan-final.json", "utf8"));
+          appendFileSync(process.env.GITHUB_OUTPUT, `signature=${plan.signature}\nsbom=${plan.sbom}\nprovenance=${plan.provenance}\n`);
+          NODE
+
+      - name: Sign missing immutable chart evidence
+        if: ${{ steps.final-chart-evidence.outputs.signature == 'true' }}
+        env:
+          CHART_DIGEST: ${{ steps.final-chart-digest.outputs.value }}
+        run: cosign sign --yes "ghcr.io/nvidia/charts/${CHART_NAME}@${CHART_DIGEST}"
+
+      - name: Generate chart SPDX SBOM from the exact package archive
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: ${{ steps.chart-package.outputs.archive }}
+          format: spdx-json
+          output-file: chart-sbom.spdx.json
+          upload-artifact: false
+          dependency-snapshot: false
+
+      - name: Canonicalize chart SPDX SBOM
+        run: node .github/scripts/spdx.mjs normalize chart-sbom.spdx.json
+
+      - name: Attach missing chart SBOM evidence
+        if: ${{ steps.final-chart-evidence.outputs.sbom == 'true' }}
+        env:
+          CHART_DIGEST: ${{ steps.final-chart-digest.outputs.value }}
+        run: cosign attest --yes --predicate chart-sbom.spdx.json --type spdxjson "ghcr.io/nvidia/charts/${CHART_NAME}@${CHART_DIGEST}"
+
+      - name: Publish missing GitHub chart provenance
+        if: ${{ steps.final-chart-evidence.outputs.provenance == 'true' }}
+        uses: actions/attest@f6bf1532d7d6793fce74eac584813a8eee607999 # v4
+        with:
+          subject-name: ghcr.io/nvidia/charts/nvml-mock
+          subject-digest: ${{ steps.final-chart-digest.outputs.value }}
+          push-to-registry: true
+
+      - name: Plan exact chart SBOM release asset
+        id: chart-asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-context.outputs.tag_name }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+        run: |
+          node .github/scripts/release-reader.mjs github-release > "$RUNNER_TEMP/chart-release-assets.json"
+          ASSET_ID=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; const v=JSON.parse(readFileSync(process.argv[1])); process.stdout.write(v.assets.chart?.id?.toString() ?? "")' "$RUNNER_TEMP/chart-release-assets.json")
+          mkdir -p "$RUNNER_TEMP/chart-remote-asset"
+          if [[ -n "$ASSET_ID" ]]; then
+            if [[ ! "$ASSET_ID" =~ ^[1-9][0-9]*$ ]]; then exit 1; fi
+            gh api -H "Accept: application/octet-stream" "/repos/NVIDIA/k8s-test-infra/releases/assets/${ASSET_ID}" > "$RUNNER_TEMP/chart-remote-asset/chart-sbom.spdx.json"
+            node .github/scripts/spdx.mjs normalize "$RUNNER_TEMP/chart-remote-asset/chart-sbom.spdx.json"
+          fi
+          node --input-type=module <<'NODE'
+          import { existsSync, readFileSync, writeFileSync } from "node:fs";
+          import { canonicalSpdxDigest } from "./.github/scripts/spdx.mjs";
+          const sum = (path) => canonicalSpdxDigest(JSON.parse(readFileSync(path, "utf8")));
+          const remote = process.env.RUNNER_TEMP + "/chart-remote-asset/chart-sbom.spdx.json";
+          writeFileSync(process.env.RUNNER_TEMP + "/chart-asset-state.json", JSON.stringify({ localSha256: sum("chart-sbom.spdx.json"), remoteSha256: existsSync(remote) ? sum(remote) : null }), { flag: "wx" });
+          NODE
+          node .github/scripts/release-state.mjs asset "$RUNNER_TEMP/chart-asset-state.json" > "$RUNNER_TEMP/chart-asset-plan.json"
+          ASSET_ID="$ASSET_ID" node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const action = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/chart-asset-plan.json", "utf8"));
+          if (!["upload", "skip"].includes(action)) throw new Error("invalid asset plan");
+          appendFileSync(process.env.GITHUB_OUTPUT, `action=${action}\nasset_id=${process.env.ASSET_ID ?? ""}\n`);
+          NODE
+
+      - name: Converge chart SBOM asset after final re-query
+        env:
+          PLANNED_ACTION: ${{ steps.chart-asset.outputs.action }}
+          PLANNED_ASSET_ID: ${{ steps.chart-asset.outputs.asset_id }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-context.outputs.tag_name }}
+          RELEASE_SHA: ${{ needs.release-context.outputs.sha }}
+        run: |
+          node .github/scripts/release-reader.mjs github-release > "$RUNNER_TEMP/chart-release-assets-final.json"
+          FINAL_ASSET_ID=$(node --input-type=module -e 'import {readFileSync} from "node:fs"; const v=JSON.parse(readFileSync(process.argv[1])); process.stdout.write(v.assets.chart?.id?.toString() ?? "")' "$RUNNER_TEMP/chart-release-assets-final.json")
+          if [[ "$PLANNED_ACTION" == "upload" ]]; then
+            if [[ -n "$FINAL_ASSET_ID" ]]; then echo "chart SBOM asset appeared during publication" >&2; exit 1; fi
+            gh release upload "$RELEASE_TAG" "chart-sbom.spdx.json#chart-sbom.spdx.json"
+            exit 0
+          fi
+          if [[ "$PLANNED_ACTION" != "skip" || "$FINAL_ASSET_ID" != "$PLANNED_ASSET_ID" || ! "$FINAL_ASSET_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "chart SBOM asset identity changed" >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/chart-remote-asset-final"
+          gh api -H "Accept: application/octet-stream" "/repos/NVIDIA/k8s-test-infra/releases/assets/${FINAL_ASSET_ID}" > "$RUNNER_TEMP/chart-remote-asset-final/chart-sbom.spdx.json"
+          node .github/scripts/spdx.mjs normalize "$RUNNER_TEMP/chart-remote-asset-final/chart-sbom.spdx.json"
+          FINAL_ASSET_ID="$FINAL_ASSET_ID" node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { canonicalSpdxDigest } from "./.github/scripts/spdx.mjs";
+          const release = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/chart-release-assets-final.json", "utf8"));
+          if (release.assets.chart.id.toString() !== process.env.FINAL_ASSET_ID) throw new Error("chart SBOM asset identity changed");
+          const sum = (path) => canonicalSpdxDigest(JSON.parse(readFileSync(path, "utf8")));
+          writeFileSync(process.env.RUNNER_TEMP + "/chart-asset-state-final.json", JSON.stringify({
+            localSha256: sum("chart-sbom.spdx.json"),
+            remoteSha256: sum(process.env.RUNNER_TEMP + "/chart-remote-asset-final/chart-sbom.spdx.json"),
+          }), { flag: "wx" });
+          NODE
+          test "$(node .github/scripts/release-state.mjs asset "$RUNNER_TEMP/chart-asset-state-final.json")" = '"skip"'
