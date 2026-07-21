@@ -42,6 +42,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${NET_OPERATOR_RELEASE:=network-operator}"
 : "${NET_OPERATOR_VERSION:=v26.4.0}"
 : "${SKIP_PUSH:=false}"
+# Dedicated Kind node image (deployments/kind-rdma) with the RDMA userspace
+# stack baked in, so Tier 3's Soft-RoCE setup needs no runtime installs.
+: "${KIND_NODE_BASE:=kindest/node:v1.32.2}"
+: "${KIND_NODE_IMAGE:=nvml-mock/kind-rdma:soft-roce}"
 # Tier 3: Soft-RoCE (rdma_rxe) makes the real rdma-shared-device-plugin
 # advertise rdma/*. Requires a Linux host with the rdma_rxe module. Auto: on
 # for Linux, off otherwise. Set explicitly to force.
@@ -75,8 +79,14 @@ if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
   fi
 fi
 if ! kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
+  info "Building Kind node image with the RDMA userspace stack: ${KIND_NODE_IMAGE}"
+  docker build -t "${KIND_NODE_IMAGE}" \
+    --build-arg "BASE_IMAGE=${KIND_NODE_BASE}" \
+    "${REPO_ROOT}/deployments/kind-rdma"
   info "Creating Kind cluster with containerd NRI enabled"
-  kind create cluster --name "${CLUSTER_NAME}" --config="${REPO_ROOT}/${DEMO_DIR}/kind.yaml"
+  kind create cluster --name "${CLUSTER_NAME}" \
+    --image "${KIND_NODE_IMAGE}" \
+    --config="${REPO_ROOT}/${DEMO_DIR}/kind.yaml"
 fi
 
 # --- Build + load nvml-mock --------------------------------------------------
@@ -135,19 +145,19 @@ helm upgrade --install "${NET_OPERATOR_RELEASE}" --repo https://helm.ngc.nvidia.
 
 # --- Tier 3: Soft-RoCE so the real RDMA plugin can advertise rdma/* ----------
 if [[ "${ENABLE_SOFT_ROCE}" == "true" ]]; then
-  info "Tier 3: enabling Soft-RoCE (rdma_rxe) on the host kernel"
-  # Global, host-level bits done once here (module load + netns mode) to avoid
-  # a per-node race; the DaemonSet creates the per-node rxe link.
-  SUDO=""; [[ "$(id -u)" != "0" ]] && command -v sudo >/dev/null 2>&1 && SUDO="sudo"
-  ${SUDO} modprobe rdma_rxe 2>/dev/null || \
-    warn "modprobe rdma_rxe failed; install it (e.g. apt-get install linux-modules-extra-\$(uname -r)) — Tier 3 will not advertise rdma/*"
-  ${SUDO} rdma system set netns exclusive 2>/dev/null || true
-
-  info "Applying Soft-RoCE setup DaemonSet"
-  observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/soft-roce.yaml"
-  kubectl_ctx -n "${WORKLOAD_NAMESPACE}" rollout status daemonset/soft-roce-setup --timeout=180s || \
-    warn "soft-roce-setup not Ready; rdma/* may stay unadvertised"
-  observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" logs -l app=soft-roce-setup --tail=20
+  info "Tier 3: setting up Soft-RoCE (rdma_rxe) on each Kind node"
+  # Each Kind node runs on the host kernel and has its own net namespace. The
+  # node image (KIND_NODE_IMAGE) already carries the rdma/iproute2 userspace
+  # stack, so setup runs directly on the node via docker exec — no pod, no
+  # runtime installs. modprobe loads the host module (Kind bind-mounts
+  # /lib/modules read-only); rxe0 is created over the node's kube netdev (eth0).
+  for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
+    observe docker exec "${node}" sh -c '
+      modprobe rdma_rxe 2>/dev/null || echo "WARN: modprobe rdma_rxe failed (host kernel missing the module?)"
+      rdma system set netns exclusive 2>/dev/null || true
+      rdma link show rxe0 >/dev/null 2>&1 || rdma link add rxe0 type rxe netdev eth0 || echo "WARN: rdma link add rxe0 failed"
+      rdma link show 2>&1 || true'
+  done
 else
   info "Tier 3: Soft-RoCE disabled (ENABLE_SOFT_ROCE=${ENABLE_SOFT_ROCE}); the RDMA plugin will stay blocked on this host's kernel"
 fi
