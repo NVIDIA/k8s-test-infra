@@ -141,7 +141,7 @@ if [[ "${ENABLE_SOFT_ROCE}" == "true" ]]; then
   ${SUDO} rdma system set netns exclusive 2>/dev/null || true
 
   info "Applying Soft-RoCE setup DaemonSet"
-  kubectl_ctx -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/soft-roce.yaml"
+  observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/soft-roce.yaml"
   kubectl_ctx -n "${WORKLOAD_NAMESPACE}" rollout status daemonset/soft-roce-setup --timeout=180s || \
     warn "soft-roce-setup not Ready; rdma/* may stay unadvertised"
   observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" logs -l app=soft-roce-setup --tail=20
@@ -214,8 +214,8 @@ done < <(kubectl_ctx get nodes -o 'jsonpath={range .items[*]}{.metadata.name}{"\
 
 if [[ "${ENABLE_SOFT_ROCE}" == "true" ]]; then
   info "Deploying GPUDirect-RDMA-style test pod (requests rdma/rdma_shared_device_a)"
-  kubectl_ctx -n "${WORKLOAD_NAMESPACE}" delete pod rdma-test --ignore-not-found
-  kubectl_ctx -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/rdma-test-pod.yaml"
+  kubectl_ctx -n "${WORKLOAD_NAMESPACE}" delete pod rdma-test --ignore-not-found || true
+  observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" apply -f "${REPO_ROOT}/${DEMO_DIR}/rdma-test-pod.yaml"
   if kubectl_ctx -n "${WORKLOAD_NAMESPACE}" wait --for=condition=Ready pod/rdma-test --timeout=120s; then
     info "OBSERVE: rdma-test pod scheduled and running; injected devices:"
     observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" logs rdma-test
