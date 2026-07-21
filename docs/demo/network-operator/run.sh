@@ -8,15 +8,18 @@
 # devices that exist only inside pods.
 #
 # This is an EXPLORATORY demo. The operator controller + NFD come up healthy,
-# but the RDMA/driver components stay blocked against the mocks because:
+# and the demo shows how far the operator gets; remaining limits include:
 #   - NFD scans the node's real /sys/bus/pci, which has no 15b3 devices (the
 #     mock NICs live only in the overlay) and the kernel's sysfs can't be
 #     faked, so the nvml-mock chart advertises the NIC to NFD's "local" source
 #     via a features.d file (infiniband.nfd.publishNicLabel) and NFD then
 #     publishes pci-15b3.present=true on every node running the mock stack;
 #   - the RDMA shared device plugin crash-loops at startup ("can not get RDMA
-#     subsystem network namespace mode"): it needs a real RDMA kernel subsystem
-#     (rdma netlink) that Kind's kernel does not expose;
+#     subsystem network namespace mode") when the host kernel exposes no RDMA
+#     subsystem (e.g. macOS/Docker Desktop linuxkit); optional Tier 3
+#     (ENABLE_SOFT_ROCE, Linux-only) loads rdma_rxe (Soft-RoCE) for a real
+#     generic software RDMA device (rxe0 over eth0), letting the plugin advertise
+#     rdma/rdma_shared_device_a — skipped on non-Linux hosts;
 #   - the OFED/DOCA driver builds kernel modules, unsupported on Kind.
 # The "push" phase applies a NicClusterPolicy on top of that self-derived label
 # to drive the operator further and shows exactly where it stops.
