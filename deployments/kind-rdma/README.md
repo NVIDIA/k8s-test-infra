@@ -15,6 +15,12 @@ present on every node.
 `iproute2`, `rdma-core`, `ibverbs-providers`, `ibverbs-utils`, `libibverbs1`, `infiniband-diags`,
 `perftest`, `kmod` — installed on top of the pinned `kindest/node` base.
 
+It also ships `/usr/local/bin/setup-soft-roce.sh`, which loads `rdma_rxe`, puts
+the RDMA subsystem in exclusive-netns mode, and creates an `rxe0` link over a
+netdev (default `eth0`). The demo runs it once per node via `docker exec`; you
+can override the netdev/link name with args (`setup-soft-roce.sh <netdev>
+<link>`) or the `RXE_NETDEV` / `RXE_LINK` env vars.
+
 ## Kernel module caveat (Linux only)
 
 Kind nodes run on the **host kernel**, so this image cannot ship an

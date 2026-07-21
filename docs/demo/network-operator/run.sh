@@ -147,16 +147,13 @@ helm upgrade --install "${NET_OPERATOR_RELEASE}" --repo https://helm.ngc.nvidia.
 if [[ "${ENABLE_SOFT_ROCE}" == "true" ]]; then
   info "Tier 3: setting up Soft-RoCE (rdma_rxe) on each Kind node"
   # Each Kind node runs on the host kernel and has its own net namespace. The
-  # node image (KIND_NODE_IMAGE) already carries the rdma/iproute2 userspace
-  # stack, so setup runs directly on the node via docker exec — no pod, no
-  # runtime installs. modprobe loads the host module (Kind bind-mounts
-  # /lib/modules read-only); rxe0 is created over the node's kube netdev (eth0).
+  # node image (KIND_NODE_IMAGE) bakes in both the rdma/iproute2 userspace stack
+  # and /usr/local/bin/setup-soft-roce.sh, so setup runs directly on the node
+  # via docker exec — no pod, no runtime installs. The script modprobes the host
+  # module (Kind bind-mounts /lib/modules read-only) and creates rxe0 over the
+  # node's kube netdev (eth0).
   for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
-    observe docker exec "${node}" sh -c '
-      modprobe rdma_rxe 2>/dev/null || echo "WARN: modprobe rdma_rxe failed (host kernel missing the module?)"
-      rdma system set netns exclusive 2>/dev/null || true
-      rdma link show rxe0 >/dev/null 2>&1 || rdma link add rxe0 type rxe netdev eth0 || echo "WARN: rdma link add rxe0 failed"
-      rdma link show 2>&1 || true'
+    observe docker exec "${node}" setup-soft-roce.sh
   done
 else
   info "Tier 3: Soft-RoCE disabled (ENABLE_SOFT_ROCE=${ENABLE_SOFT_ROCE}); the RDMA plugin will stay blocked on this host's kernel"
