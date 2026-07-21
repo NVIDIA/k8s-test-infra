@@ -34,7 +34,7 @@ demo's Soft-RoCE phase self-skips.
 
 ```bash
 docker build -t nvml-mock/kind-rdma:soft-roce deployments/kind-rdma
-# Override the base (defaults to kindest/node:v1.32.2):
+# Override the base (defaults to kindest/node:v1.35.0):
 docker build -t nvml-mock/kind-rdma:soft-roce \
   --build-arg BASE_IMAGE=kindest/node:v1.31.4 deployments/kind-rdma
 ```

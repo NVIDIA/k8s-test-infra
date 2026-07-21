@@ -44,7 +44,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${SKIP_PUSH:=false}"
 # Dedicated Kind node image (deployments/kind-rdma) with the RDMA userspace
 # stack baked in, so Tier 3's Soft-RoCE setup needs no runtime installs.
-: "${KIND_NODE_BASE:=kindest/node:v1.32.2}"
+: "${KIND_NODE_BASE:=kindest/node:v1.35.0}"
 : "${KIND_NODE_IMAGE:=nvml-mock/kind-rdma:soft-roce}"
 # Tier 3: Soft-RoCE (rdma_rxe) makes the real rdma-shared-device-plugin
 # advertise rdma/*. Requires a Linux host with the rdma_rxe module. Auto: on

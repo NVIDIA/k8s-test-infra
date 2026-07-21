@@ -11,7 +11,7 @@
 # NOTE: the rdma_rxe *kernel module* still comes from the host kernel (Kind
 # bind-mounts /lib/modules read-only into each node); this image only provides
 # the userspace tooling, so the Soft-RoCE path is Linux-only.
-ARG BASE_IMAGE=kindest/node:v1.32.2
+ARG BASE_IMAGE=kindest/node:v1.35.0
 FROM ${BASE_IMAGE}
 
 RUN apt-get update \
@@ -26,5 +26,5 @@ RUN apt-get update \
       kmod \
  && rm -rf /var/lib/apt/lists/*
 
-COPY setup-soft-roce.sh /usr/local/bin/setup-soft-roce.sh
-RUN chmod 0755 /usr/local/bin/setup-soft-roce.sh
+COPY --chmod=0755 setup-soft-roce.sh /usr/local/bin/setup-soft-roce.sh
+RUN /usr/local/bin/setup-soft-roce.sh
