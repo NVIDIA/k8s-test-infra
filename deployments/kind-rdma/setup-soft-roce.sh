@@ -5,7 +5,7 @@
 # Sets up Soft-RoCE (rdma_rxe) on the node this runs inside: loads the host
 # rdma_rxe module, puts the RDMA subsystem in exclusive-netns mode, and creates
 # an rxe link over a netdev (default eth0). Baked into the kind-rdma node image
-# and invoked once per node by the network-operator demo via `docker exec`.
+# and run automatically at node boot by soft-roce.service.
 #
 # All steps are best-effort and idempotent: the rdma_rxe *kernel module* comes
 # from the host kernel (Kind bind-mounts /lib/modules read-only), so this only

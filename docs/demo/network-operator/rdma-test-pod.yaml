@@ -3,9 +3,9 @@
 #
 # GPUDirect-RDMA-style consumer: a plain pod (no nvidia.com/gpu) that requests
 # one rdma/rdma_shared_device_a. It only schedules once the real
-# rdma-shared-device-plugin advertises the resource (Soft-RoCE set up per node
-# via docker exec into the kind-rdma node image). The nvml-mock NRI plugin also
-# injects the mock IB stack, and
+# rdma-shared-device-plugin advertises the resource (Soft-RoCE set up at node
+# boot by the kind-rdma node image's baked soft-roce.service). The nvml-mock NRI
+# plugin also injects the mock IB stack, and
 # the devices annotation opts this pod into the mock /dev/infiniband char
 # devices — so it sees the mock ConnectX HCAs (userspace) on top of the real
 # rxe-backed rdma/* resource (kernel).
