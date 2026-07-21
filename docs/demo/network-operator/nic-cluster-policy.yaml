@@ -1,14 +1,17 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Applied by run.sh during the "push" phase, after the pci-15b3 NFD label is
-# faked onto the workers. Enables only the RDMA shared device plugin: a
-# lightweight component that would read /sys/class/infiniband to advertise
-# rdma/* resources. On Kind it crash-loops at startup with "can not get RDMA
-# subsystem network namespace mode": it needs a real RDMA kernel subsystem
-# (rdma netlink) that Kind's kernel does not expose, so it never reaches device
-# enumeration. (It also runs in the NRI-excluded operator namespace and is a
-# static Go binary, so it would not see the pod-only mock fabric regardless.)
+# Applied by run.sh during the "push" phase. Enables the RDMA shared device
+# plugin, which reads the RDMA subsystem to advertise rdma/* resources.
+#
+# On Linux, run.sh first sets up Soft-RoCE (rdma_rxe) via soft-roce.yaml, which
+# creates a real software RDMA device rxe0 over each node's eth0. The selector
+# below matches that device by its netdev (ifNames: eth0) — NOT by vendor,
+# because rxe is generic software RDMA, not a 15b3 Mellanox NIC. With rxe
+# present the plugin enumerates the device and advertises
+# rdma/rdma_shared_device_a. On non-Linux hosts run.sh skips Soft-RoCE and the
+# plugin stays blocked (no RDMA kernel subsystem).
+#
 # The OFED/DOCA driver is intentionally omitted: it builds kernel modules,
 # which Kind's shared kernel cannot support.
 #
@@ -29,7 +32,7 @@ spec:
           {
             "resourceName": "rdma_shared_device_a",
             "rdmaHcaMax": 63,
-            "selectors": { "vendors": ["15b3"] }
+            "selectors": { "ifNames": ["eth0"] }
           }
         ]
       }
