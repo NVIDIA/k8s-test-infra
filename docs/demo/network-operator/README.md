@@ -69,7 +69,7 @@ FORCE_RECREATE=true ./run.sh
 | `ib-agent` (plain pod) | Sees mock ConnectX-7 HCAs via `ibstat`/`ibv_devinfo` | NRI injects the mock IB sysfs + `LD_PRELOAD` shims into the pod |
 | Operator controller + NFD | Running | Standard controllers; no device dependency |
 | pci-15b3.present node label | true on every node running the mock stack (NFD publishes it from the nvml-mock features.d file) | The kernel's `/sys` can't be faked, so the nvml-mock chart writes an NFD `local` source feature file to `features.d`; NFD's worker reads it and labels the node. The label takes a scan interval or two to appear (NFD rescan + master apply) |
-| `rdma-shared-device-plugin` (after push) | **Crash-loops** at startup; advertises **no** `rdma/*` | Exits with `can not get RDMA subsystem network namespace mode` — it needs a real RDMA kernel subsystem (rdma netlink) that Kind's kernel does not expose, so it never reaches device enumeration (and it runs in the NRI-excluded operator namespace and is a static Go binary, so it would miss the pod-only mock anyway) |
+| `rdma-shared-device-plugin` (after push) | **Linux + Soft-RoCE:** advertises `rdma/rdma_shared_device_a`; the `rdma-test` pod schedules. **Otherwise:** crash-loops (`can not get RDMA subsystem network namespace mode`), no `rdma/*` | On Linux, `run.sh` loads `rdma_rxe` and `soft-roce.yaml` creates a real software RDMA device (`rxe0` over `eth0`), so the plugin enumerates it. On macOS/Kind's kernel there is no RDMA netlink subsystem and `rdma_rxe` is unavailable, so it stays blocked |
 | OFED/DOCA driver | Not enabled | Builds kernel modules against the host kernel — unsupported on Kind |
 
 The takeaway: NRI node-wide injection makes the mock devices real **to
@@ -111,6 +111,43 @@ This is **demo-only** scaffolding. It exists solely to let NFD publish the mock
 NIC label on a Kind node where the real kernel `/sys` cannot be populated; a
 real cluster with physical Mellanox NICs needs none of it (NFD reads the genuine
 `/sys/bus/pci` and derives the label via `pci.device`).
+
+## Tier 3: Soft-RoCE — real RDMA so the plugin advances (Linux only)
+
+The `rdma-shared-device-plugin` is a static Go binary that opens a
+`NETLINK_RDMA` socket. On Kind's kernel that socket cannot even be created
+(`rdma system` → `Failed to open NETLINK_RDMA socket`): there is no RDMA
+subsystem, and because the binary makes raw syscalls, `LD_PRELOAD` cannot fake
+it. There is no userspace shortcut.
+
+The tractable fix is to give the kernel a **real software RDMA device**:
+Soft-RoCE (`rdma_rxe`), an in-tree module that layers RDMA over an ordinary
+netdev. With it loaded, `NETLINK_RDMA` registers for real and the plugin
+enumerates a device.
+
+`run.sh` (when `ENABLE_SOFT_ROCE=true`, auto-on for Linux hosts):
+
+1. Loads the module on the host: `modprobe rdma_rxe` (install it first if
+   missing, e.g. `apt-get install linux-modules-extra-$(uname -r)`), and sets
+   `rdma system set netns exclusive` so each Kind node's net namespace owns its
+   own device.
+2. Applies `soft-roce.yaml`, a privileged `hostNetwork` DaemonSet that runs
+   `rdma link add rxe0 type rxe netdev eth0` in each node's namespace.
+3. The `NicClusterPolicy` selector is `ifNames: ["eth0"]` (matching the rxe
+   netdev — rxe is generic software RDMA, not a `15b3` Mellanox NIC).
+4. The plugin advertises `rdma/rdma_shared_device_a`; the `rdma-test` pod
+   requesting it schedules and runs. NRI still injects the mock ConnectX HCAs,
+   so the pod sees both the real rxe-backed resource (kernel) and the mock IB
+   fabric (userspace).
+
+**Requirements & limits:**
+- Linux host with `rdma_rxe` available. **Not** possible on macOS Docker
+  Desktop (the linuxkit kernel ships no `rdma_rxe`); Tier 3 self-skips there.
+- Loading `rdma_rxe` mutates the shared host kernel. Cleanup:
+  `rdma link del rxe0` per node netns (removed automatically when the Kind node
+  containers are deleted) and optionally `modprobe -r rdma_rxe` on the host.
+- This provides *generic* software RDMA to unblock the plugin; it does not make
+  the mock ConnectX HCAs themselves kernel-visible.
 
 ## NRI boundary (why the operator is excluded)
 
