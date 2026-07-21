@@ -69,7 +69,7 @@ FORCE_RECREATE=true ./run.sh
 | `ib-agent` (plain pod) | Sees mock ConnectX-7 HCAs via `ibstat`/`ibv_devinfo` | NRI injects the mock IB sysfs + `LD_PRELOAD` shims into the pod |
 | Operator controller + NFD | Running | Standard controllers; no device dependency |
 | pci-15b3.present node label | true on every node running the mock stack (NFD publishes it from the nvml-mock features.d file) | The kernel's `/sys` can't be faked, so the nvml-mock chart writes an NFD `local` source feature file to `features.d`; NFD's worker reads it and labels the node. The label takes a scan interval or two to appear (NFD rescan + master apply) |
-| `rdma-shared-device-plugin` (after push) | **Linux + Soft-RoCE:** advertises `rdma/rdma_shared_device_a`; the `rdma-test` pod schedules. **Otherwise:** crash-loops (`can not get RDMA subsystem network namespace mode`), no `rdma/*` | On Linux, `run.sh` loads `rdma_rxe` and `soft-roce.yaml` creates a real software RDMA device (`rxe0` over `eth0`), so the plugin enumerates it. On macOS/Kind's kernel there is no RDMA netlink subsystem and `rdma_rxe` is unavailable, so it stays blocked |
+| `rdma-shared-device-plugin` (after push) | **Linux + Soft-RoCE:** advertises `rdma/rdma_shared_device_a`; the `rdma-test` pod schedules. **Otherwise:** crash-loops (`can not get RDMA subsystem network namespace mode`), no `rdma/*` | On Linux, `run.sh` uses a kind-rdma node image and `docker exec` per node to load `rdma_rxe` and create a real software RDMA device (`rxe0` over `eth0`), so the plugin enumerates it. On macOS/Kind's kernel there is no RDMA netlink subsystem and `rdma_rxe` is unavailable, so it stays blocked |
 | OFED/DOCA driver | Not enabled | Builds kernel modules against the host kernel — unsupported on Kind |
 
 The takeaway: NRI node-wide injection makes the mock devices real **to
@@ -131,15 +131,23 @@ explicitly to force either behavior. The phase only runs where `rdma_rxe` is
 available on a real Linux host; on macOS/Docker Desktop's linuxkit kernel it
 is skipped:
 
-1. Loads the module on the host: `modprobe rdma_rxe` (install it first if
-   missing, e.g. `apt-get install linux-modules-extra-$(uname -r)`), and sets
-   `rdma system set netns exclusive` so each Kind node's net namespace owns its
-   own device.
-2. Applies `soft-roce.yaml`, a privileged `hostNetwork` DaemonSet that runs
-   `rdma link add rxe0 type rxe netdev eth0` in each node's namespace.
-3. The `NicClusterPolicy` selector is `ifNames: ["eth0"]` (matching the rxe
+Soft-RoCE setup runs directly on each Kind node. The demo builds a dedicated
+node image (`deployments/kind-rdma`, overridable via `KIND_NODE_IMAGE` /
+`KIND_NODE_BASE`) with the RDMA userspace stack baked in — `rdma` (iproute2),
+`modprobe`, the ibverbs **rxe** provider, and `ib_write_bw` — and creates the
+cluster from it. `run.sh` then, for each node, runs `docker exec <node> …` to
+`modprobe rdma_rxe`, set `rdma system` netns mode to `exclusive`, and
+`rdma link add rxe0 type rxe netdev eth0`. This creates a real software RDMA
+device on the node's kube netdev, so the operator's `rdma-shared-device-plugin`
+enumerates a device and advertises `rdma/rdma_shared_device_a`.
+
+The `rdma_rxe` kernel module still comes from the host (Kind bind-mounts
+`/lib/modules` read-only); it is available only on Linux hosts, so the phase
+self-skips on macOS/Docker Desktop.
+
+1. The `NicClusterPolicy` selector is `ifNames: ["eth0"]` (matching the rxe
    netdev — rxe is generic software RDMA, not a `15b3` Mellanox NIC).
-4. The plugin advertises `rdma/rdma_shared_device_a`; the `rdma-test` pod
+2. The plugin advertises `rdma/rdma_shared_device_a`; the `rdma-test` pod
    requesting it schedules and runs. NRI still injects the mock ConnectX HCAs,
    so the pod sees both the real rxe-backed resource (kernel) and the mock IB
    fabric (userspace).
