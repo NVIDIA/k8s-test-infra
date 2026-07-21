@@ -17,6 +17,7 @@ RUN apt-get update \
       iproute2 \
       rdma-core \
       ibverbs-providers \
+      ibverbs-utils \
       libibverbs1 \
       infiniband-diags \
       perftest \

@@ -12,7 +12,7 @@ present on every node.
 
 ## What's inside
 
-`iproute2`, `rdma-core`, `ibverbs-providers`, `libibverbs1`, `infiniband-diags`,
+`iproute2`, `rdma-core`, `ibverbs-providers`, `ibverbs-utils`, `libibverbs1`, `infiniband-diags`,
 `perftest`, `kmod` — installed on top of the pinned `kindest/node` base.
 
 ## Kernel module caveat (Linux only)
