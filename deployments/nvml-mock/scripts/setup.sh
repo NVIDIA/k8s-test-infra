@@ -367,6 +367,27 @@ if [ -x /usr/local/bin/render-pci-sysfs ]; then
     --output "$PCI_ROOT"
 fi
 
+# 10b. Advertise the mock Mellanox NIC to Node Feature Discovery (opt-in via
+#      infiniband.nfd.publishNicLabel). The real kernel /sys cannot be
+#      populated with fake PCI devices and NFD offers no values-based way to
+#      redirect its sysfs, so instead of patching NFD's DaemonSet we write an
+#      NFD "local" source feature file. NFD reads its features.d directory on
+#      every scan and turns each `name=value` line into
+#      feature.node.kubernetes.io/<name>=<value> — here
+#      feature.node.kubernetes.io/pci-15b3.present=true, the label the NVIDIA
+#      Network Operator's nvidia-nics-rules NodeFeatureRule derives for real
+#      Mellanox NICs. The file is durable across operator reconciles of NFD's
+#      DaemonSet (they don't manage features.d content).
+if [ "${MOCK_IB_NFD_LOCAL_LABELS:-off}" = "on" ] && [ "$MOCK_IB_MODE" != "off" ]; then
+  NFD_FEATURES_DIR="${MOCK_IB_NFD_FEATURES_DIR:-/host-nfd-features}"
+  if mkdir -p "$NFD_FEATURES_DIR" 2>/dev/null; then
+    printf 'pci-15b3.present=true\n' > "$NFD_FEATURES_DIR/nvml-mock-ib.features"
+    echo "Wrote NFD local feature file: $NFD_FEATURES_DIR/nvml-mock-ib.features"
+  else
+    echo "WARNING: NFD features dir $NFD_FEATURES_DIR not writable; skipping pci-15b3 label" >&2
+  fi
+fi
+
 # 11. Fabric Manager: on NVSwitch platforms (HGX H100 / GB200 / GB300) the
 #     real nvidia-fabricmanager registers the GPUs with the NVSwitch fabric
 #     before they are usable. When MOCK_FABRICMANAGER is enabled we start the

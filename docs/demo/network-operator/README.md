@@ -29,20 +29,20 @@ does not interact with the mocks.
    volumes, no `MOCK_*`/`LD_PRELOAD` env — and runs `ibstat -l` /
    `ibv_devinfo -l` to prove the mock RDMA fabric is present purely from NRI.
 5. Installs the real **NVIDIA Network Operator** (bundled NFD).
-6. **Redirects NFD's `host-sys` mount** at the mock PCI tree
-   (`/var/lib/nvml-mock/sys`) so NFD self-derives the `pci-15b3` label (see
-   [The NFD sysfs redirect](#the-nfd-sysfs-redirect-demo-only)).
+6. **Lets NFD publish the `pci-15b3` label** from the feature file the
+   nvml-mock chart already wrote to each node's `features.d` directory (see
+   [How NFD sees the mock NIC](#how-nfd-sees-the-mock-nic-demo-only)).
 7. **Observes** the operator + NFD pod phases and the per-node `pci-15b3` label.
 8. **Pushes**: applies a `NicClusterPolicy` (RDMA shared device plugin), then
    reports what progresses versus what remains blocked.
 
-NFD derives `feature.node.kubernetes.io/pci-15b3.present=true` on every node
-running the mock stack **itself** — the exact label the operator's default `NodeFeatureRule`
-(`nvidia-nics-rules`) derives for Mellanox NICs. It can do so because run.sh
-repoints NFD's `host-sys` volume at the mock PCI tree (`/var/lib/nvml-mock/sys`),
-whose synthesized `15b3` NIC entries (with `vendor`/`class` files) NFD's
-`pci.device` source reads via `/host-sys`. No `kind.yaml` stamp or manual
-`kubectl label` is used.
+NFD publishes `feature.node.kubernetes.io/pci-15b3.present=true` on every node
+running the mock stack — the exact label the operator's default `NodeFeatureRule`
+(`nvidia-nics-rules`) derives for Mellanox NICs. It can do so because the
+nvml-mock chart (installed with `infiniband.nfd.publishNicLabel=true`) writes an
+NFD **local** source feature file into each node's `features.d` directory, which
+NFD's bundled worker reads on its next scan. No `kind.yaml` stamp, no
+`kubectl patch`, and no manual `kubectl label` is used.
 
 ## Quick start
 
@@ -68,42 +68,49 @@ FORCE_RECREATE=true ./run.sh
 |-----------|---------|-----|
 | `ib-agent` (plain pod) | Sees mock ConnectX-7 HCAs via `ibstat`/`ibv_devinfo` | NRI injects the mock IB sysfs + `LD_PRELOAD` shims into the pod |
 | Operator controller + NFD | Running | Standard controllers; no device dependency |
-| pci-15b3.present node label | true on every node running the mock stack (NFD-derived via redirected sysfs mount) | NFD's pci.device source reads the mock PCI tree we mount at /host-sys; the real kernel /sys still can't be faked. The label takes a minute or two to appear after the remount (NFD rescan + NodeFeatureRule reconcile) |
+| pci-15b3.present node label | true on every node running the mock stack (NFD publishes it from the nvml-mock features.d file) | The kernel's `/sys` can't be faked, so the nvml-mock chart writes an NFD `local` source feature file to `features.d`; NFD's worker reads it and labels the node. The label takes a scan interval or two to appear (NFD rescan + master apply) |
 | `rdma-shared-device-plugin` (after push) | **Crash-loops** at startup; advertises **no** `rdma/*` | Exits with `can not get RDMA subsystem network namespace mode` — it needs a real RDMA kernel subsystem (rdma netlink) that Kind's kernel does not expose, so it never reaches device enumeration (and it runs in the NRI-excluded operator namespace and is a static Go binary, so it would miss the pod-only mock anyway) |
 | OFED/DOCA driver | Not enabled | Builds kernel modules against the host kernel — unsupported on Kind |
 
 The takeaway: NRI node-wide injection makes the mock devices real **to
 libc-based userspace tools in injected pods**. NFD's node-level PCI detection is
-handled separately, by redirecting its `host-sys` mount at the mock PCI tree so
-it self-derives `pci-15b3.present` (see below). But the operator's device
+handled separately, by advertising the mock NIC to NFD's `local` source so it
+publishes `pci-15b3.present` (see below). But the operator's device
 plugins/drivers (which need real kernel-level RDMA/driver support, run in the
 NRI-excluded operator namespace, and are static Go binaries) operate outside
 both layers, so they never see the mocks.
 
-## The NFD sysfs redirect (demo-only)
+## How NFD sees the mock NIC (demo-only)
 
 NFD's `pci.device` source enumerates PCI devices by reading
-`/host-sys/bus/pci/devices/*`; that `host-sys` mount is `hostPath: /sys` by
-default. On Kind, the real kernel `/sys/bus/pci` has no Mellanox `15b3` devices
-— the mock NICs live only inside the overlay staged at `/var/lib/nvml-mock/sys`,
-and the kernel's sysfs cannot be faked. So after installing the operator, run.sh
-patches the NFD worker DaemonSet
-(`network-operator-node-feature-discovery-worker`) to repoint its `host-sys`
-volume at `/var/lib/nvml-mock/sys`, which carries the synthesized `15b3` entries
-with `vendor`/`class` files. NFD then discovers the NICs on its own and labels
-every node running the mock stack `feature.node.kubernetes.io/pci-15b3.present=true`
-(a minute or two after the remount, once NFD rescans and the master reconciles
-the `nvidia-nics-rules` `NodeFeatureRule`).
+`/host-sys/bus/pci/devices/*`; that `host-sys` mount is `hostPath: /sys`. On
+Kind the real kernel `/sys/bus/pci` has no Mellanox `15b3` devices — the mock
+NICs live only inside the overlay staged at `/var/lib/nvml-mock/sys`, and the
+kernel's sysfs cannot be faked. NFD also exposes **no values-based way** to
+redirect `host-sys` (the hostPath is hardcoded in the chart), and patching the
+worker DaemonSet directly is non-durable: the Network Operator reconciles that
+DaemonSet and reverts the remount, dropping the derived label.
 
-The patch is a strategic merge that names only the `host-sys` volume; because
-`volumes` uses `name` as its merge key, every other NFD mount (`/boot`,
-`/etc/os-release`, `/usr/lib`, `/lib`, `/proc/swaps`, `features.d`, and the
-worker ConfigMap) is left untouched.
+So instead of touching NFD, the **nvml-mock chart advertises the NIC to NFD's
+`local` source**. With `infiniband.nfd.publishNicLabel=true`, the node agent
+(`setup.sh`) writes a feature file to the node's NFD `features.d` directory
+(`/etc/kubernetes/node-feature-discovery/features.d/nvml-mock-ib.features`)
+containing:
 
-This redirect is **demo-only**. It exists solely to let NFD "see" the mock NICs
-on a Kind node where the real kernel `/sys` cannot be populated; a real cluster
-with physical Mellanox NICs needs no such redirect (NFD reads the genuine
-`/sys/bus/pci`).
+```
+pci-15b3.present=true
+```
+
+NFD's bundled worker mounts that same directory, reads it on its next scan, and
+publishes `feature.node.kubernetes.io/pci-15b3.present=true` — the same label
+`nvidia-nics-rules` derives for a real Mellanox NIC. Because the file lives on
+the node (not in NFD's pod spec), it survives operator reconciles of the NFD
+DaemonSet; `cleanup.sh` removes it on pod teardown.
+
+This is **demo-only** scaffolding. It exists solely to let NFD publish the mock
+NIC label on a Kind node where the real kernel `/sys` cannot be populated; a
+real cluster with physical Mellanox NICs needs none of it (NFD reads the genuine
+`/sys/bus/pci` and derives the label via `pci.device`).
 
 ## NRI boundary (why the operator is excluded)
 

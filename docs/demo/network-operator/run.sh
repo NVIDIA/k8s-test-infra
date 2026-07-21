@@ -10,9 +10,10 @@
 # This is an EXPLORATORY demo. The operator controller + NFD come up healthy,
 # but the RDMA/driver components stay blocked against the mocks because:
 #   - NFD scans the node's real /sys/bus/pci, which has no 15b3 devices (the
-#     mock NICs live only in the overlay), so run.sh repoints NFD's host-sys
-#     mount at the mock PCI tree (/var/lib/nvml-mock/sys) and NFD then derives
-#     pci-15b3.present=true on the workers itself — no kind.yaml stamp;
+#     mock NICs live only in the overlay) and the kernel's sysfs can't be
+#     faked, so the nvml-mock chart advertises the NIC to NFD's "local" source
+#     via a features.d file (infiniband.nfd.publishNicLabel) and NFD then
+#     publishes pci-15b3.present=true on every node running the mock stack;
 #   - the RDMA shared device plugin crash-loops at startup ("can not get RDMA
 #     subsystem network namespace mode"): it needs a real RDMA kernel subsystem
 #     (rdma netlink) that Kind's kernel does not expose;
@@ -85,6 +86,7 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set "gpu.count=${GPU_COUNT}" \
   --set nri.enabled=true \
   --set "nri.excludedNamespaces={${NET_OPERATOR_NAMESPACE},node-feature-discovery}" \
+  --set infiniband.nfd.publishNicLabel=true \
   --wait --timeout 180s
 
 info "Restarting DaemonSets so setup.sh re-stages the overlay"
@@ -121,20 +123,15 @@ helm upgrade --install "${NET_OPERATOR_RELEASE}" --repo https://helm.ngc.nvidia.
   -f "${REPO_ROOT}/${DEMO_DIR}/network-operator-values.yaml" \
   --wait --timeout 300s || warn "operator install did not fully converge; continuing to observe"
 
-# --- Redirect NFD's sysfs to the mock PCI tree ------------------------------
-# NFD's pci.device source reads /host-sys/bus/pci/devices/*; its host-sys volume
-# is hostPath:/sys. The real Kind kernel /sys has no 15b3 devices (the mock NICs
-# live only in the overlay) and we cannot fake the kernel's sysfs. So repoint
-# NFD's host-sys volume at the mock PCI root (/var/lib/nvml-mock/sys), which now
-# carries the synthesized 15b3 NIC entries with vendor/class files. NFD then
-# derives feature.node.kubernetes.io/pci-15b3.present on its own — no manual stamp.
-# volumes uses name as its strategic-merge key, so only host-sys is changed.
-info "Redirecting NFD worker host-sys mount to the mock PCI tree"
-NFD_DS=network-operator-node-feature-discovery-worker
-kubectl_ctx -n "${NET_OPERATOR_NAMESPACE}" patch daemonset "${NFD_DS}" -p \
-  '{"spec":{"template":{"spec":{"volumes":[{"name":"host-sys","hostPath":{"path":"/var/lib/nvml-mock/sys"}}]}}}}' \
-  || warn "NFD host-sys redirect patch failed; NFD may not self-derive the pci-15b3 label"
-kubectl_ctx -n "${NET_OPERATOR_NAMESPACE}" rollout status daemonset/"${NFD_DS}" --timeout=120s || true
+# --- NFD picks up the mock NIC label from the features.d file ----------------
+# We do NOT patch NFD's DaemonSet: the operator reconciles it and would revert
+# any live host-sys remount, and NFD exposes no values-based sysfs redirect.
+# Instead the nvml-mock chart (installed above with
+# infiniband.nfd.publishNicLabel=true) wrote an NFD "local" source feature file
+# to each node's features.d directory. NFD's bundled worker mounts that same
+# directory, reads it on its next scan, and publishes
+# feature.node.kubernetes.io/pci-15b3.present=true — durably, since the file
+# lives on the node and the operator manages NFD's DaemonSet, not its contents.
 
 # --- Observe the natural blockers --------------------------------------------
 info "OBSERVE: operator + NFD pods"
@@ -144,18 +141,18 @@ observe kubectl_ctx -n "${NET_OPERATOR_NAMESPACE}" get pods -o wide
 # bracket form silently returns empty even when the label is set.
 label_jp='jsonpath={.metadata.labels['"'"'feature\.node\.kubernetes\.io/pci-15b3\.present'"'"']}'
 
-# After the host-sys remount, NFD's worker must rescan and its master must
-# reconcile the nvidia-nics-rules NodeFeatureRule before pci-15b3.present lands
-# (a minute or two). Poll a worker so the observation reflects the derived
-# state instead of racing it and misreporting <none>.
-info "Waiting for NFD to derive pci-15b3.present on the workers (up to 180s)"
+# NFD's worker must rescan its features.d directory and its master must apply
+# the local-source label before pci-15b3.present lands (a scan interval or two).
+# Poll a worker so the observation reflects the published state instead of
+# racing it and misreporting <none>.
+info "Waiting for NFD to publish pci-15b3.present on the workers (up to 180s)"
 first_worker=$(kubectl_ctx get nodes -l '!node-role.kubernetes.io/control-plane' -o 'jsonpath={.items[0].metadata.name}' 2>/dev/null || true)
 for _ in $(seq 1 36); do
   [[ "$(kubectl_ctx get node "${first_worker}" -o "${label_jp}" 2>/dev/null || true)" == "true" ]] && break
   sleep 5
 done
 
-info "OBSERVE: pci-15b3 NFD label per node (NFD self-derives it from the redirected mock PCI tree on every node running the mock stack)"
+info "OBSERVE: pci-15b3 NFD label per node (NFD publishes it from the nvml-mock features.d file on every node running the mock stack)"
 while IFS= read -r node; do
   [ -n "${node}" ] || continue
   label=$(kubectl_ctx get node "${node}" -o "${label_jp}" 2>/dev/null || true)
@@ -168,9 +165,9 @@ if [[ "${SKIP_PUSH}" == "true" ]]; then
 fi
 
 # --- Push: apply a NicClusterPolicy ------------------------------------------
-# The pci-15b3.present label the operator keys on is now self-derived by NFD
-# from the redirected mock PCI tree (see the NFD sysfs redirect above), so the
-# push is just the policy.
+# The pci-15b3.present label the operator keys on is already published by NFD
+# from the nvml-mock features.d file (see above), so the push is just the
+# policy.
 info "PUSH: applying NicClusterPolicy (rdma-shared-device-plugin)"
 observe kubectl_ctx apply -f "${REPO_ROOT}/${DEMO_DIR}/nic-cluster-policy.yaml"
 
@@ -197,10 +194,11 @@ cat <<EOF
   What worked:
     - Mock RDMA HCAs visible inside a PLAIN pod via NRI (ibstat/ibv_devinfo).
     - Network Operator controller + bundled NFD installed and running.
-    - NFD self-derives pci-15b3.present on every node running the mock stack:
-      run.sh repoints NFD's host-sys mount at the mock PCI tree
-      (/var/lib/nvml-mock/sys), whose synthesized 15b3 entries NFD's pci.device
-      source reads directly — no manual kind.yaml stamp.
+    - NFD publishes pci-15b3.present on every node running the mock stack:
+      the nvml-mock chart (infiniband.nfd.publishNicLabel) writes an NFD
+      "local" source feature file into each node's features.d directory, which
+      NFD's bundled worker reads on its next scan — no kubectl patch, no
+      kind.yaml stamp, and durable across operator reconciles.
 
   What stayed blocked (mock semantics vs the real operator):
     - Even with that self-derived label + a NicClusterPolicy, the rdma-shared-device-plugin

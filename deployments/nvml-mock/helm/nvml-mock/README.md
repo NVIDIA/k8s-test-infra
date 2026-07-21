@@ -599,11 +599,13 @@ Two options, depending on intent:
 ### Node-level NIC / IB device surface
 
 For IB-enabled profiles the mock also exposes a node-level NIC/IB surface so
-PCI-scanning consumers (e.g. NFD's `pci.device` source, the NVIDIA Network
-Operator's `nvidia-nics-rules`) can match on a real-looking Mellanox device.
-NFD only matches these NICs when its sysfs mount is redirected at the mock
-tree (as the network-operator demo does); it does not see them against the
-node's native `/sys`:
+PCI-scanning consumers can resolve a real-looking Mellanox device. These entries
+live in the mock tree, not the kernel's `/sys`, so a consumer only sees them if
+it reads the mock tree (via the IB `LD_PRELOAD` shims or an NRI-injected pod).
+Node Feature Discovery reads the node's native `/sys` and therefore cannot see
+them; to still get the `pci-15b3.present` label, set
+`infiniband.nfd.publishNicLabel=true` (see
+[Advertising the NIC to NFD](#advertising-the-nic-to-nfd) below):
 
 - **`15b3` NIC PCI entries.** Alongside the GPU topology, `render-pci-sysfs`
   synthesizes one Mellanox (`15b3`) NIC per mock HCA under a synthetic root
@@ -625,11 +627,10 @@ node's native `/sys`:
 consumers that read the mock tree:
 
 - consumers with the IB `LD_PRELOAD` shims (which redirect `/sys/class/infiniband*`
-  and `/dev/infiniband`), NRI-injected pods, or a consumer whose sysfs mount is
-  redirected at the mock tree (as the network-operator demo does, mounting
-  `/var/lib/nvml-mock/sys` so NFD self-derives `pci-15b3.present`);
+  and `/dev/infiniband`) or NRI-injected pods;
 - they do **not** populate the host kernel's real `/sys` — that cannot be faked
-  without a kernel module, so tools reading the node's native `/sys` see nothing;
+  without a kernel module, so tools reading the node's native `/sys` (including
+  NFD's `pci.device` source) see nothing;
 - the `rdma-shared-device-plugin` still needs a real kernel RDMA-netlink
   subsystem, which Kind does not provide, so it cannot advertise `rdma/*`
   resources even with the mock NICs present.
@@ -637,6 +638,27 @@ consumers that read the mock tree:
 GPU PCI entries are unchanged: they remain symlink + `numa_node` only (no
 attribute files). Only the synthesized NIC entries carry `vendor`/`device`/
 `class`/`subsystem_*` attributes.
+
+#### Advertising the NIC to NFD
+
+Because the kernel's `/sys` can't be faked and NFD offers no values-based way to
+redirect its sysfs, setting `infiniband.nfd.publishNicLabel=true` (on an
+IB-enabled profile) makes the node agent write an NFD **local** source feature
+file to the node's `features.d` directory
+(`infiniband.nfd.featuresDir`, default
+`/etc/kubernetes/node-feature-discovery/features.d`):
+
+```
+pci-15b3.present=true
+```
+
+NFD reads that directory on every scan and publishes
+`feature.node.kubernetes.io/pci-15b3.present=true` — the same label the NVIDIA
+Network Operator's `nvidia-nics-rules` `NodeFeatureRule` derives for a real
+Mellanox NIC. The file lives on the node, so it is durable across operator
+reconciles of NFD's DaemonSet (they manage the DaemonSet, not `features.d`
+content); `cleanup.sh` removes it on pod teardown. This is opt-in demo
+scaffolding — a real cluster with physical NICs needs none of it.
 
 ## PCIe topology mocking
 
@@ -780,6 +802,8 @@ for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
+| `infiniband.nfd.publishNicLabel` | `false` | On an IB-enabled profile, write an NFD `local` source feature file so NFD publishes `feature.node.kubernetes.io/pci-15b3.present=true` for the mock NIC (the kernel `/sys` can't be faked; see [Advertising the NIC to NFD](#advertising-the-nic-to-nfd)) |
+| `infiniband.nfd.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Node directory NFD's `local` source reads. Default matches the NFD / Network Operator chart's hostPath |
 
 ### GPU Profiles
 
@@ -1103,7 +1127,7 @@ discovery and monitoring. Some host-level subsystems are not mocked:
 |----------------|-------------------|--------|
 | `/sys/bus/pci/devices/{busID}` sysfs entries | DRA driver | `dra.k8s.io/pcieRoot` attribute absent from ResourceSlices — **blocks topology-aware scheduling demos** (e.g., GPU + SR-IOV VF alignment) |
 | `/sys/bus/pci/devices/{busID}/numa_node` | Device plugin | NUMA-aware topology hints unavailable; scheduling works but NUMA affinity not enforced |
-| `/sys/bus/pci/devices/*/vendor,device,class` | NFD (Node Feature Discovery) | PCI feature labels not auto-detected (nvml-mock sets `nvidia.com/gpu.present` and `pci-10de.present` directly) |
+| `/sys/bus/pci/devices/*/vendor,device,class` | NFD (Node Feature Discovery) | PCI feature labels not auto-detected from the node's native `/sys`; enable `infiniband.nfd.publishNicLabel` to publish `pci-15b3.present` via NFD's `local` source (see [Advertising the NIC to NFD](#advertising-the-nic-to-nfd)) |
 
 ### PCIe Root Complex (DRA driver)
 

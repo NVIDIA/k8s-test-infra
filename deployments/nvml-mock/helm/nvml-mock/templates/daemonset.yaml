@@ -143,6 +143,16 @@ spec:
               value: "/var/lib/nvml-mock/ib"
             - name: MOCK_PCI_ROOT
               value: "/var/lib/nvml-mock"
+            {{- if and $ibEnabled .Values.infiniband.nfd.publishNicLabel }}
+            # Write an NFD "local" source feature file so Node Feature Discovery
+            # publishes feature.node.kubernetes.io/pci-15b3.present for the mock
+            # NIC (see infiniband.nfd). setup.sh writes into the mounted node
+            # features.d directory below.
+            - name: MOCK_IB_NFD_LOCAL_LABELS
+              value: "on"
+            - name: MOCK_IB_NFD_FEATURES_DIR
+              value: /host-nfd-features
+            {{- end }}
           lifecycle:
             preStop:
               exec:
@@ -164,6 +174,10 @@ spec:
               mountPath: /host/var/run/cdi
             - name: host-run-nvidia
               mountPath: /host/run/nvidia
+            {{- if and $ibEnabled .Values.infiniband.nfd.publishNicLabel }}
+            - name: host-nfd-features
+              mountPath: /host-nfd-features
+            {{- end }}
             {{- if .Values.topology.enabled }}
             - name: gpu-topology
               mountPath: /etc/nvml-mock/topology
@@ -192,6 +206,12 @@ spec:
           hostPath:
             path: /run/nvidia
             type: DirectoryOrCreate
+        {{- if and $ibEnabled .Values.infiniband.nfd.publishNicLabel }}
+        - name: host-nfd-features
+          hostPath:
+            path: {{ .Values.infiniband.nfd.featuresDir }}
+            type: DirectoryOrCreate
+        {{- end }}
         {{- if .Values.topology.enabled }}
         - name: gpu-topology
           configMap:

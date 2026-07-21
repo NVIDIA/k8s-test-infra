@@ -154,6 +154,21 @@ infiniband:
     # there; it also matters on Calico/Cilium.
     networkPolicy:
       enabled: true
+  # Advertise the mock Mellanox NIC to Node Feature Discovery (NFD). The real
+  # kernel /sys cannot be populated with fake PCI devices, and NFD exposes no
+  # values-based way to redirect its sysfs, so instead of patching NFD's
+  # DaemonSet the node agent writes an NFD "local" source feature file into the
+  # node's features.d directory. NFD reads that directory on every scan and
+  # publishes feature.node.kubernetes.io/pci-15b3.present=true — the same label
+  # the NVIDIA Network Operator's nvidia-nics-rules NodeFeatureRule derives for
+  # real Mellanox NICs. The file lives on the node and is durable across
+  # operator reconciles of NFD's DaemonSet (they manage the DaemonSet, not the
+  # features.d content). Off by default; requires an InfiniBand-enabled profile.
+  nfd:
+    publishNicLabel: false
+    # Node directory NFD's local source reads. Default matches the NFD /
+    # Network Operator chart's host-features-d hostPath.
+    featuresDir: /etc/kubernetes/node-feature-discovery/features.d
 
 # DEPRECATED — fake IMEX coordination, removed in a follow-up release.
 # The fake nvidia-imex / nvidia-imex-ctl marker protocol is superseded

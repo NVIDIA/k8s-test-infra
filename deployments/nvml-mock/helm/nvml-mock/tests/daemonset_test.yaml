@@ -214,6 +214,86 @@ tests:
             name: MOCK_FABRICMANAGER
             value: "on"
 
+  - it: should wire the NFD local feature file when publishNicLabel on an IB profile
+    set:
+      gpu:
+        profile: h100
+      infiniband:
+        nfd:
+          publishNicLabel: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_NFD_LOCAL_LABELS
+            value: "on"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_NFD_FEATURES_DIR
+            value: /host-nfd-features
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-nfd-features
+            mountPath: /host-nfd-features
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-nfd-features
+            hostPath:
+              path: /etc/kubernetes/node-feature-discovery/features.d
+              type: DirectoryOrCreate
+
+  - it: should honor a custom NFD featuresDir
+    set:
+      gpu:
+        profile: h100
+      infiniband:
+        nfd:
+          publishNicLabel: true
+          featuresDir: /custom/features.d
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-nfd-features
+            hostPath:
+              path: /custom/features.d
+              type: DirectoryOrCreate
+
+  - it: should not wire the NFD feature file by default
+    set:
+      gpu:
+        profile: h100
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_NFD_LOCAL_LABELS
+            value: "on"
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-nfd-features
+            hostPath:
+              path: /etc/kubernetes/node-feature-discovery/features.d
+              type: DirectoryOrCreate
+
+  - it: should not wire the NFD feature file on a non-IB profile even if enabled
+    set:
+      gpu:
+        profile: t4
+      infiniband:
+        nfd:
+          publishNicLabel: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_NFD_LOCAL_LABELS
+            value: "on"
+
   - it: should derive Blackwell Ultra driver version for gb300 profile
     set:
       gpu:
