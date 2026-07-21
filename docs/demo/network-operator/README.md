@@ -125,7 +125,11 @@ Soft-RoCE (`rdma_rxe`), an in-tree module that layers RDMA over an ordinary
 netdev. With it loaded, `NETLINK_RDMA` registers for real and the plugin
 enumerates a device.
 
-`run.sh` (when `ENABLE_SOFT_ROCE=true`, auto-on for Linux hosts):
+`run.sh` gates Tier 3 on `ENABLE_SOFT_ROCE` (default `auto`: enabled on Linux
+hosts, disabled elsewhere such as macOS/Docker Desktop). Set `true` or `false`
+explicitly to force either behavior. The phase only runs where `rdma_rxe` is
+available on a real Linux host; on macOS/Docker Desktop's linuxkit kernel it
+is skipped:
 
 1. Loads the module on the host: `modprobe rdma_rxe` (install it first if
    missing, e.g. `apt-get install linux-modules-extra-$(uname -r)`), and sets
