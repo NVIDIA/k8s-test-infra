@@ -63,6 +63,10 @@ should match snapshot with all overrides:
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
                   value: /var/lib/nvml-mock
+                - name: MOCK_IB_NFD_LOCAL_LABELS
+                  value: "on"
+                - name: MOCK_IB_NFD_FEATURES_DIR
+                  value: /host-nfd-features
               image: custom-registry/nvml-mock:v2.0.0
               imagePullPolicy: Always
               lifecycle:
@@ -101,6 +105,8 @@ should match snapshot with all overrides:
                   name: host-cdi
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
+                - mountPath: /host-nfd-features
+                  name: host-nfd-features
                 - mountPath: /var/lib/nvml-mock/fabric-state
                   name: host-fabric-state
           nodeSelector:
@@ -127,6 +133,10 @@ should match snapshot with all overrides:
                 path: /run/nvidia
                 type: DirectoryOrCreate
               name: host-run-nvidia
+            - hostPath:
+                path: /etc/kubernetes/node-feature-discovery/features.d
+                type: DirectoryOrCreate
+              name: host-nfd-features
             - hostPath:
                 path: /var/lib/nvml-mock/fabric-state
                 type: DirectoryOrCreate
@@ -196,6 +206,10 @@ should match snapshot with b200 profile:
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
                   value: /var/lib/nvml-mock
+                - name: MOCK_IB_NFD_LOCAL_LABELS
+                  value: "on"
+                - name: MOCK_IB_NFD_FEATURES_DIR
+                  value: /host-nfd-features
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               lifecycle:
@@ -227,6 +241,8 @@ should match snapshot with b200 profile:
                   name: host-cdi
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
+                - mountPath: /host-nfd-features
+                  name: host-nfd-features
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 2
           tolerations:
@@ -247,6 +263,10 @@ should match snapshot with b200 profile:
                 path: /run/nvidia
                 type: DirectoryOrCreate
               name: host-run-nvidia
+            - hostPath:
+                path: /etc/kubernetes/node-feature-discovery/features.d
+                type: DirectoryOrCreate
+              name: host-nfd-features
       updateStrategy:
         rollingUpdate:
           maxUnavailable: 25%
@@ -316,6 +336,10 @@ should match snapshot with default values:
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
                   value: /var/lib/nvml-mock
+                - name: MOCK_IB_NFD_LOCAL_LABELS
+                  value: "on"
+                - name: MOCK_IB_NFD_FEATURES_DIR
+                  value: /host-nfd-features
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               lifecycle:
@@ -347,6 +371,8 @@ should match snapshot with default values:
                   name: host-cdi
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
+                - mountPath: /host-nfd-features
+                  name: host-nfd-features
                 - mountPath: /var/lib/nvml-mock/fabric-state
                   name: host-fabric-state
           serviceAccountName: RELEASE-NAME-nvml-mock
@@ -369,6 +395,10 @@ should match snapshot with default values:
                 path: /run/nvidia
                 type: DirectoryOrCreate
               name: host-run-nvidia
+            - hostPath:
+                path: /etc/kubernetes/node-feature-discovery/features.d
+                type: DirectoryOrCreate
+              name: host-nfd-features
             - hostPath:
                 path: /var/lib/nvml-mock/fabric-state
                 type: DirectoryOrCreate

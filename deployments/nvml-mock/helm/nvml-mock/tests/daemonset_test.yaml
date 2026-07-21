@@ -262,10 +262,31 @@ tests:
               path: /custom/features.d
               type: DirectoryOrCreate
 
-  - it: should not wire the NFD feature file by default
+  - it: should wire the NFD feature file by default on an IB profile
     set:
       gpu:
         profile: h100
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_IB_NFD_LOCAL_LABELS
+            value: "on"
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-nfd-features
+            hostPath:
+              path: /etc/kubernetes/node-feature-discovery/features.d
+              type: DirectoryOrCreate
+
+  - it: should not wire the NFD feature file when publishNicLabel is disabled
+    set:
+      gpu:
+        profile: h100
+      infiniband:
+        nfd:
+          publishNicLabel: false
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].env
