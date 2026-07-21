@@ -134,7 +134,7 @@ is skipped:
 Soft-RoCE setup runs directly on each Kind node. The demo builds a dedicated
 node image (`deployments/kind-rdma`, overridable via `KIND_NODE_IMAGE` /
 `KIND_NODE_BASE`) with the RDMA userspace stack baked in — `rdma` (iproute2),
-`modprobe`, the ibverbs **rxe** provider, and `ib_write_bw` — and creates the
+`modprobe`, the ibverbs **rxe** provider, `ibv_devinfo`, and `ib_write_bw` — and creates the
 cluster from it. `run.sh` then, for each node, runs `docker exec <node> …` to
 `modprobe rdma_rxe`, set `rdma system` netns mode to `exclusive`, and
 `rdma link add rxe0 type rxe netdev eth0`. This creates a real software RDMA
