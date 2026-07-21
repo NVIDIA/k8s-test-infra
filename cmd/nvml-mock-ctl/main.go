@@ -19,6 +19,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -32,6 +33,11 @@ import (
 const (
 	defaultConfigOverride = "/var/lib/nvml-mock/driver/config/overrides.yaml"
 	defaultConfig         = "/var/lib/nvml-mock/driver/config/config.yaml"
+
+	// maxPowerWatts bounds the `power` command. Real GPUs top out around ~1.5kW;
+	// this generous cap keeps watts*1000 far under the uint32 milliwatt ceiling
+	// (~4.29e6 W) so the schema-field conversion can never overflow.
+	maxPowerWatts = 100000
 )
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
@@ -112,7 +118,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	cfg := loadConfig(configPath) // best-effort; nil-safe downstream
+	cfg := loadConfig(configPath, stderr) // best-effort; nil-safe downstream
 	base := deviceDefaults(cfg)
 
 	switch cmd {
@@ -183,13 +189,11 @@ func mutate(cmd, configOverridePath, gpu, mode string, afterCalls int, xid uint6
 			return code
 		}
 	case "power":
-		watts, perr := singleFloatArg(positional, cmd)
+		// Bound watts to a finite, non-negative range well under the uint32
+		// milliwatt ceiling so watts*1000 can't overflow the schema field.
+		watts, perr := singleFloatArg(positional, cmd, 0, maxPowerWatts)
 		if perr != nil {
 			fprintf(stderr, "%v\n", perr)
-			return 2
-		}
-		if watts < 0 {
-			fprintln(stderr, "power watts must be >= 0")
 			return 2
 		}
 		// NVML power fields are milliwatts; the CLI takes the watts value
@@ -309,14 +313,22 @@ func singleIntArg(positional []string, name string, lo, hi int) (int, error) {
 }
 
 // singleFloatArg parses the lone positional value of a convenience command as a
-// floating-point number.
-func singleFloatArg(positional []string, name string) (float64, error) {
+// finite floating-point number within [lo, hi]. NaN and +/-Inf are rejected:
+// strconv.ParseFloat accepts them with a nil error, and they would otherwise
+// slip past a bare comparison and overflow a downstream integer conversion.
+func singleFloatArg(positional []string, name string, lo, hi float64) (float64, error) {
 	if len(positional) != 1 {
 		return 0, fmt.Errorf("%s requires exactly one value (got %d)", name, len(positional))
 	}
 	v, err := strconv.ParseFloat(positional[0], 64)
 	if err != nil {
 		return 0, fmt.Errorf("%s value %q must be a number", name, positional[0])
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, fmt.Errorf("%s value %q must be finite", name, positional[0])
+	}
+	if v < lo || v > hi {
+		return 0, fmt.Errorf("%s value %v out of range [%v,%v]", name, v, lo, hi)
 	}
 	return v, nil
 }
@@ -337,12 +349,28 @@ func envOr(k, def string) string {
 	return def
 }
 
-func loadConfig(path string) *engine.Config {
+// loadConfig loads the pristine profile so `--gpu` can resolve UUIDs and the
+// index bounds check knows the real device count. NumDevices is resolved the
+// same way the engine's LoadConfig does: the device-list length, unless
+// system.num_devices (which setup.sh injects from GPU_COUNT) overrides it — so
+// the bounds check matches the count the running engine actually serves even
+// when gpu.count differs from the profile's device list. A load failure is
+// non-fatal (UUID resolution and the bounds check degrade to best-effort) but
+// is surfaced as a warning instead of being swallowed silently.
+func loadConfig(path string, stderr io.Writer) *engine.Config {
 	yc, err := engine.LoadYAMLConfig(path)
 	if err != nil {
+		fprintf(stderr, "warning: could not load config %q: %v; UUID resolution and --gpu bounds checks are disabled\n", path, err)
 		return nil
 	}
-	return &engine.Config{YAMLConfig: yc, NumDevices: len(yc.Devices), DriverVersion: yc.System.DriverVersion}
+	numDevices := len(yc.Devices)
+	if numDevices == 0 {
+		numDevices = 8 // engine default when no device list is present
+	}
+	if yc.System.NumDevices > 0 {
+		numDevices = yc.System.NumDevices // system.num_devices wins, matching the engine
+	}
+	return &engine.Config{YAMLConfig: yc, NumDevices: numDevices, DriverVersion: yc.System.DriverVersion}
 }
 
 func deviceDefaults(cfg *engine.Config) *engine.DeviceConfig {

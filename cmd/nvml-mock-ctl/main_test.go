@@ -129,7 +129,10 @@ func TestCLI_ConvenienceArgValidation(t *testing.T) {
 		{"temp", "--gpu", "0"},                        // missing value
 		{"temp", "--gpu", "0", "hot"},                 // non-integer
 		{"fan", "--gpu", "0", "150"},                  // out of range
-		{"power", "--gpu", "0", "-5"},                 // negative watts
+		{"power", "--gpu", "0", "--", "-5"},           // negative watts (-- so it reaches the guard, not flag.Parse)
+		{"power", "--gpu", "0", "NaN"},                // non-finite watts
+		{"power", "--gpu", "0", "Inf"},                // non-finite watts
+		{"power", "--gpu", "0", "10000000"},           // watts overflow guard
 		{"power", "--gpu", "0", "1", "2"},             // too many values
 		{"util", "--gpu", "0", "150"},                 // out of range
 		{"pstate", "--gpu", "0", "16"},                // out of range

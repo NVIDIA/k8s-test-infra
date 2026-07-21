@@ -603,7 +603,13 @@ func assertRuntimeUUIDTargeting(ctx SpecContext, h *harness.Harness, consumer ku
 	By("target GPU 0 by UUID with fallen_off_bus via nvml-mock-ctl")
 	out, err := nvmlMockCtlTry(ctx, h, "fail", "--gpu", uuid, "--mode", "fallen_off_bus")
 	if err != nil {
-		Skip(fmt.Sprintf("profile uses UUIDs nvml-mock-ctl cannot resolve (v1 limitation): %s", strings.TrimSpace(out)))
+		// Only the documented v1 limitation (the profile's UUID isn't in the
+		// config the CLI can read, so ResolveTarget can't map it) is a valid
+		// skip. Any other exec failure is a real regression and must fail.
+		if strings.Contains(out, "cannot resolve") {
+			Skip(fmt.Sprintf("profile uses UUIDs nvml-mock-ctl cannot resolve (v1 limitation): %s", strings.TrimSpace(out)))
+		}
+		Expect(err).NotTo(HaveOccurred(), "nvml-mock-ctl fail --gpu <uuid> failed unexpectedly: %s", strings.TrimSpace(out))
 	}
 
 	const lostSignal = "ecc.errors.uncorrected.aggregate.total"
