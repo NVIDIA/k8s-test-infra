@@ -12,6 +12,11 @@
 #
 # All side effects (docker_build / helm_resource) are inside functions so
 # `load()`ing this file is a pure import; the orchestrator controls order.
+#
+# `nvmlmock_image` (optional, all install helpers): when set to a `repo:tag` or
+# `repo@digest` ref, docker_build is skipped and the image is pinned via
+# `--set image.repository=<repo> --set image.tag=<tag>`. This is how CI hands
+# Tilt a pre-built ttl.sh image without asking it to run the docker build.
 
 load('ext://helm_resource', 'helm_resource')
 
@@ -21,7 +26,26 @@ FLEET_PROFILES = ['a100', 't4']
 _IMAGE = 'ghcr.io/nvidia/nvml-mock'
 _CHART = 'deployments/nvml-mock/helm/nvml-mock'
 
-def build_nvml_mock_image():
+def _split_image(ref):
+    # Digest refs (repo@sha256:...) are NOT supported here: the chart renders
+    # `image: {{ .Values.image.repository }}:{{ .Values.image.tag }}` (see
+    # templates/daemonset.yaml), so a digest would silently produce the invalid
+    # form `repo:sha256:abc`. If you need digest pinning, add image.digest to
+    # the chart first.
+    if ref.rfind('@') >= 0:
+        fail('--nvmlmock-image=%s is a digest ref; the nvml-mock chart only supports repo:tag' % ref)
+    colon = ref.rfind(':')
+    # No colon at all, or the last colon is inside the registry (before the
+    # last '/'), means there's no tag — e.g. 'ttl.sh/foo' or 'reg:5000/foo'.
+    if colon < 0 or colon < ref.rfind('/'):
+        fail('--nvmlmock-image=%s must be repo:tag' % ref)
+    return ref[:colon], ref[colon+1:]
+
+def build_nvml_mock_image(nvmlmock_image=''):
+    # In CI, the image is pre-built (e.g. to ttl.sh) and kind-loaded before
+    # `tilt ci` runs. Skip docker_build so Tilt doesn't try to rebuild it.
+    if nvmlmock_image:
+        return
     # Build the nvml-mock image from the repo root. The Dockerfile COPYs
     # go.mod/vendor/pkg/cmd from the root, so the context must be '.'.
     # only= is intentionally coarse (top-level dirs): the Dockerfile's
@@ -42,13 +66,19 @@ def build_nvml_mock_image():
         ],
     )
 
-def _install(release, profile, active_consumers, extra_set):
+def _install(release, profile, active_consumers, extra_set, nvmlmock_image=''):
     flags = [
         '--set', 'gpu.profile=' + profile,
     ]
 
     for kv in extra_set:
         flags += ['--set', kv]
+
+    # CI: pin image via --set instead of relying on docker_build's image_deps
+    # wiring (which is inactive when build_nvml_mock_image() no-ops).
+    if nvmlmock_image:
+        repo, tag = _split_image(nvmlmock_image)
+        flags += ['--set', 'image.repository=' + repo, '--set', 'image.tag=' + tag]
 
     # Shared committed baseline for local-dev (e.g. MOCK_IB, gpu.count tweaks).
     if os.path.exists('local/nvml-mock.values.yaml'):
@@ -65,24 +95,36 @@ def _install(release, profile, active_consumers, extra_set):
             flags += ['--values', overlay]
 
     # Personal per-machine override — wins over everything; gitignored.
+    # CI writes its scenario-specific tuning here before invoking `tilt ci`
+    # (see tests/e2e/ci/nvml-mock.values.yaml).
     if os.path.exists('local/nvml-mock.values.local.yaml'):
         flags += ['--values', 'local/nvml-mock.values.local.yaml']
 
-    helm_resource(
-        release,
-        _CHART,
-        image_deps=[_IMAGE],
-        image_keys=[('image.repository', 'image.tag')],
-        flags=flags,
-    )
+    # image_deps/image_keys only make sense when docker_build actually ran,
+    # otherwise Tilt would look for an image manifest reference that isn't
+    # in the resource graph.
+    if nvmlmock_image:
+        helm_resource(
+            release,
+            _CHART,
+            flags=flags,
+        )
+    else:
+        helm_resource(
+            release,
+            _CHART,
+            image_deps=[_IMAGE],
+            image_keys=[('image.repository', 'image.tag')],
+            flags=flags,
+        )
 
-def install_single(profile, active_consumers):
+def install_single(profile, active_consumers, nvmlmock_image=''):
     """Install one nvml-mock release named 'nvml-mock'."""
-    _install('nvml-mock', profile, active_consumers, extra_set=[])
+    _install('nvml-mock', profile, active_consumers, extra_set=[], nvmlmock_image=nvmlmock_image)
 
     return ['nvml-mock']
 
-def install_fleet(active_consumers, profiles = FLEET_PROFILES):
+def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image=''):
     """Install one nvml-mock release per profile, node-pinned to workers.
 
     The chart's fullname template collapses to the release name when it already
@@ -95,6 +137,7 @@ def install_fleet(active_consumers, profiles = FLEET_PROFILES):
             p,
             active_consumers,
             extra_set=['nodeSelector.nvml-mock/profile=' + p],
+            nvmlmock_image=nvmlmock_image,
         )
 
     return ['nvml-mock-' + p for p in profiles]

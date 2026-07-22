@@ -111,8 +111,18 @@ KIND_CLUSTER_NAME   ?= $(if $(filter compute-domain,$(PROFILE)),nvml-mock-comput
 KIND_CLUSTER_CONFIG ?= local/kind/$(PROFILE).kind.yaml
 
 .PHONY: image-kind-node cluster-create cluster-delete
+# KIND_NODE_IMAGE_PREBUILT (env, any non-empty value): skip the local docker
+# build and trust that $(KIND_NODE_IMAGE) is already present in the local
+# daemon. CI sets this after `docker pull` + `docker tag` of the pre-built
+# image from ttl.sh (see .github/workflows/nvml-mock-e2e-go.yaml build-kind-node
+# job); local devs leave it unset and get the rebuild-when-Dockerfile-changes
+# behavior.
 image-kind-node:
-	@docker build -t $(KIND_NODE_IMAGE) ./local/kind
+	@if [ -n "$$KIND_NODE_IMAGE_PREBUILT" ]; then \
+		echo "Skipping kind-node build; expecting $(KIND_NODE_IMAGE) already present locally"; \
+	else \
+		docker build -t $(KIND_NODE_IMAGE) ./local/kind; \
+	fi
 
 cluster-create: image-kind-node
 	@kind create cluster --name $(KIND_CLUSTER_NAME) --image $(KIND_NODE_IMAGE) --config $(KIND_CLUSTER_CONFIG)
