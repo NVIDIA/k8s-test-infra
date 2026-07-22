@@ -91,6 +91,10 @@ Use standalone for local development and CI pipelines.
 | [Standalone](docs/demo/standalone/) | nvml-mock with FGO-style labels on Kind |
 | [With fake-gpu-operator](docs/demo/with-fgo/) | Full FGO + nvml-mock integration |
 
+## Credits
+
+- Logo designed by [Roman Hlushko](https://github.com/roma-glushko) with the assistance of OpenAI's ChatGPT.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
