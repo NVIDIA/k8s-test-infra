@@ -325,6 +325,46 @@ func nvmlDeviceGetPciInfo_v1(nvmlDevice C.nvmlDevice_t, pci *C.nvmlPciInfo_t) C.
 	return nvmlDeviceGetPciInfo_v3(nvmlDevice, pci)
 }
 
+// nvmlDeviceGetPciInfoExt fills the extended PCI struct that modern nvidia-smi
+// reads for its detailed "PCI" section (Bus / Device / Domain / Bus Id / Sub
+// System Id / Device Id / class codes). The top-line "GPU <busid>" uses
+// nvmlDeviceGetPciInfo_v3; leaving this getter stubbed made the whole detailed
+// PCI block report N/A even though the config carries the values.
+//
+//export nvmlDeviceGetPciInfoExt
+func nvmlDeviceGetPciInfoExt(nvmlDevice C.nvmlDevice_t, pci *C.nvmlPciInfoExt_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetPciInfoExt"); !ok {
+		return ret
+	}
+	if pci == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	info, ret := dev.GetPciInfo()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	pci.domain = C.uint(info.Domain)
+	pci.bus = C.uint(info.Bus)
+	pci.device = C.uint(info.Device)
+	pci.pciDeviceId = C.uint(info.PciDeviceId)
+	pci.pciSubSystemId = C.uint(info.PciSubSystemId)
+	// NVIDIA GPUs enumerate as a 3D controller: PCI base class 0x03, sub class
+	// 0x02 (matches real hardware; nvidia-smi renders these as Base/Sub
+	// Classcode). The config does not carry class codes, so use the fixed pair.
+	pci.baseClass = C.uint(0x03)
+	pci.subClass = C.uint(0x02)
+	// Copy BusId (32 bytes = NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE).
+	for i := 0; i < len(info.BusId) && i < 32; i++ {
+		pci.busId[i] = C.char(info.BusId[i])
+	}
+	return C.NVML_SUCCESS
+}
+
 // =============================================================================
 // Device Memory Info Functions
 // =============================================================================
@@ -1133,6 +1173,58 @@ func nvmlDeviceGetTemperature(device C.nvmlDevice_t, sensorType C.nvmlTemperatur
 		return toReturn(ret)
 	}
 	*temp = C.uint(val)
+	return C.NVML_SUCCESS
+}
+
+// nvmlDeviceGetTemperatureV implements the versioned temperature getter. Modern
+// nvidia-smi / NVML clients call this in preference to nvmlDeviceGetTemperature,
+// reading temperature.gpu exclusively through it; leaving it stubbed made
+// `nvidia-smi --query-gpu=temperature.gpu` report [N/A]. sensorType is an input
+// field on the struct; the resolved value is written back to temperature.
+//
+//export nvmlDeviceGetTemperatureV
+func nvmlDeviceGetTemperatureV(device C.nvmlDevice_t, temperature *C.nvmlTemperature_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetTemperatureV"); !ok {
+		return ret
+	}
+	if temperature == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	val, ret := dev.GetTemperature(nvml.TemperatureSensors(temperature.sensorType))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	temperature.temperature = C.int(val)
+	return C.NVML_SUCCESS
+}
+
+// nvmlDeviceGetMarginTemperature reports the GPU's headroom to its thermal
+// limit, which modern nvidia-smi renders as "GPU T.Limit Temp". Leaving it
+// stubbed made that field report N/A.
+//
+//export nvmlDeviceGetMarginTemperature
+func nvmlDeviceGetMarginTemperature(device C.nvmlDevice_t, marginTempInfo *C.nvmlMarginTemperature_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetMarginTemperature"); !ok {
+		return ret
+	}
+	if marginTempInfo == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := uintptr(unsafe.Pointer(device.handle))
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	margin, ret := dev.GetMarginTemperature()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	marginTempInfo.marginTemperature = C.int(margin.MarginTemperature)
 	return C.NVML_SUCCESS
 }
 

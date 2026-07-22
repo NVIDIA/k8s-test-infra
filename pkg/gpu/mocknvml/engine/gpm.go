@@ -184,12 +184,12 @@ func (d *ConfigurableDevice) GpmSnapshotInto(key uint64) nvml.Return {
 
 // gpmPcieMiBPerSec returns the full-utilization PCIe rate for one direction.
 func (d *ConfigurableDevice) gpmPcieMiBPerSec(tx bool) uint64 {
-	if d.config != nil && d.config.GPM != nil {
-		if tx && d.config.GPM.PcieTxMiBPerSec > 0 {
-			return d.config.GPM.PcieTxMiBPerSec
+	if cfg := d.cfg(); cfg.GPM != nil {
+		if tx && cfg.GPM.PcieTxMiBPerSec > 0 {
+			return cfg.GPM.PcieTxMiBPerSec
 		}
-		if !tx && d.config.GPM.PcieRxMiBPerSec > 0 {
-			return d.config.GPM.PcieRxMiBPerSec
+		if !tx && cfg.GPM.PcieRxMiBPerSec > 0 {
+			return cfg.GPM.PcieRxMiBPerSec
 		}
 	}
 	return gpmDefaultPcieMiBPerSec

@@ -7,6 +7,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -75,6 +76,18 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 					config.ReadyTimeout(), config.PollInterval())
 			})
 
+			It("pins a single-GPU temperature surfaced through dcgm-exporter without restart", Label("dcgm", "runtime-control"), func(ctx SpecContext) {
+				assertRuntimeTempViaDCGM(ctx, h, tempPinC)
+			})
+
+			It("pins a single-GPU power draw surfaced through dcgm-exporter without restart", Label("dcgm", "runtime-control"), func(ctx SpecContext) {
+				assertRuntimePowerViaDCGM(ctx, h)
+			})
+
+			It("surfaces a runtime single-GPU failure through dcgm-exporter without restart", Label("dcgm", "runtime-control"), func(ctx SpecContext) {
+				assertRuntimeXidViaDCGM(ctx, h, xidTestCode)
+			})
+
 			It("surfaces an injected Xid through dcgm-exporter", Label("dcgm", "xid"), func(ctx SpecContext) {
 				// Runs last: leaves the mock in a failed state.
 				injectXidAndValidate(ctx, h, xidTestCode)
@@ -88,6 +101,77 @@ var gpmProfiles = map[string]bool{"h100": true, "b200": true, "gb200": true, "gb
 
 // xidTestCode is the Xid injected and asserted on (79 = GPU fallen off the bus).
 const xidTestCode = 79
+
+// tempPinC is the temperature pinned at runtime and asserted through
+// dcgm-exporter. Distinct from the dynamic-metrics baseline and below every
+// profile's shutdown threshold, so DCGM never clamps the reading and the change
+// is unambiguous.
+const tempPinC = 85
+
+// assertRuntimeTempViaDCGM pins a single GPU's temperature at runtime via
+// nvml-mock-ctl — no Helm upgrade, no pod restart — and asserts the already-
+// running dcgm-exporter reports the pinned DCGM_FI_DEV_GPU_TEMP for that GPU
+// only, picking it up through the bind-mounted runtime config override within the TTL.
+func assertRuntimeTempViaDCGM(ctx SpecContext, h *harness.Harness, wantC int) {
+	GinkgoHelper()
+	const targetGPU = 0
+
+	By(fmt.Sprintf("pin temperature to %dC on GPU %d at runtime via nvml-mock-ctl (no restart)", wantC, targetGPU))
+	nvmlMockCtl(ctx, h, "temp", "--gpu", strconv.Itoa(targetGPU), strconv.Itoa(wantC))
+	DeferCleanup(func(ctx SpecContext) { resetRuntimeOverrides(ctx, h) })
+
+	assertions.DCGMTempReportedForGPU(ctx, h.Kube, gpuOperatorNamespace, targetGPU, wantC,
+		config.ReadyTimeout(), config.PollInterval())
+}
+
+// assertRuntimePowerViaDCGM pins a single GPU's power draw at runtime via
+// nvml-mock-ctl — no Helm upgrade, no pod restart — and asserts the already-
+// running dcgm-exporter reports the pinned DCGM_FI_DEV_POWER_USAGE (watts) for
+// that GPU only. The target watts is chosen inside the profile's advertised
+// [min_limit, max_limit] envelope (queried via nvidia-smi so the test is
+// profile-agnostic) and far from the dynamic baseline, so the engine never
+// clamps it and the change is unambiguous.
+func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
+	GinkgoHelper()
+	const targetGPU = 0
+
+	pod := firstNvmlPod(ctx, h)
+	minW := int(smiGPUFloat(ctx, h, pod, targetGPU, "power.min_limit"))
+	maxW := int(smiGPUFloat(ctx, h, pod, targetGPU, "power.max_limit"))
+	Expect(maxW).To(BeNumerically(">", minW), "profile must advertise a usable power envelope")
+	baseline := int(smiGPUFloat(ctx, h, pod, targetGPU, "power.draw"))
+
+	lo := minW + (maxW-minW)/4
+	hi := minW + (maxW-minW)*3/4
+	wantW := lo
+	if absInt(hi-baseline) > absInt(lo-baseline) {
+		wantW = hi
+	}
+
+	By(fmt.Sprintf("pin power draw to %dW on GPU %d at runtime via nvml-mock-ctl (no restart)", wantW, targetGPU))
+	nvmlMockCtl(ctx, h, "power", "--gpu", strconv.Itoa(targetGPU), strconv.Itoa(wantW))
+	DeferCleanup(func(ctx SpecContext) { resetRuntimeOverrides(ctx, h) })
+
+	assertions.DCGMPowerReportedForGPU(ctx, h.Kube, gpuOperatorNamespace, targetGPU, wantW,
+		config.ReadyTimeout(), config.PollInterval())
+}
+
+// assertRuntimeXidViaDCGM injects an ecc_uncorrectable failure with a Xid on a
+// single GPU at runtime via nvml-mock-ctl — no Helm upgrade, no pod restart —
+// and asserts the already-running dcgm-exporter reports the Xid for that GPU
+// only, picking it up through the bind-mounted runtime config override within the TTL.
+func assertRuntimeXidViaDCGM(ctx SpecContext, h *harness.Harness, xid int) {
+	GinkgoHelper()
+	const targetGPU = 0
+
+	By("inject ecc_uncorrectable + Xid on GPU 0 at runtime via nvml-mock-ctl (no restart)")
+	nvmlMockCtl(ctx, h, "fail", "--gpu", strconv.Itoa(targetGPU),
+		"--mode", "ecc_uncorrectable", "--after-calls", "1", "--xid", strconv.Itoa(xid))
+	DeferCleanup(func(ctx SpecContext) { resetRuntimeOverrides(ctx, h) })
+
+	assertions.DCGMXidReportedForGPU(ctx, h.Kube, gpuOperatorNamespace, targetGPU, xid,
+		config.ReadyTimeout(), config.PollInterval())
+}
 
 // injectXidAndValidate enables failure injection, rolls nvml-mock and
 // dcgm-exporter to reload the mock config, then asserts DCGM_FI_DEV_XID_ERRORS.

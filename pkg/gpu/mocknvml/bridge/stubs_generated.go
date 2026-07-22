@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 285 stub functions for unimplemented NVML functions.
+// 282 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -414,11 +414,6 @@ func nvmlDeviceGetMPSComputeRunningProcesses_v3(device C.nvmlDevice_t, infoCount
 	return stubReturn("nvmlDeviceGetMPSComputeRunningProcesses_v3")
 }
 
-//export nvmlDeviceGetMarginTemperature
-func nvmlDeviceGetMarginTemperature(device C.nvmlDevice_t, marginTempInfo *C.nvmlMarginTemperature_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMarginTemperature")
-}
-
 //export nvmlDeviceGetMaxCustomerBoostClock
 func nvmlDeviceGetMaxCustomerBoostClock(device C.nvmlDevice_t, clockType C.nvmlClockType_t, clockMHz *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetMaxCustomerBoostClock")
@@ -477,11 +472,6 @@ func nvmlDeviceGetNvlinkSupportedBwModes(device C.nvmlDevice_t, supportedBwMode 
 //export nvmlDeviceGetOfaUtilization
 func nvmlDeviceGetOfaUtilization(device C.nvmlDevice_t, utilization *C.uint, samplingPeriodUs *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetOfaUtilization")
-}
-
-//export nvmlDeviceGetPciInfoExt
-func nvmlDeviceGetPciInfoExt(device C.nvmlDevice_t, pci *C.nvmlPciInfoExt_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetPciInfoExt")
 }
 
 //export nvmlDeviceGetPcieLinkMaxSpeed
@@ -592,11 +582,6 @@ func nvmlDeviceGetSupportedVgpus(device C.nvmlDevice_t, vgpuCount *C.uint, vgpuT
 //export nvmlDeviceGetTargetFanSpeed
 func nvmlDeviceGetTargetFanSpeed(device C.nvmlDevice_t, fan C.uint, targetSpeed *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetTargetFanSpeed")
-}
-
-//export nvmlDeviceGetTemperatureV
-func nvmlDeviceGetTemperatureV(device C.nvmlDevice_t, temperature *C.nvmlTemperature_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetTemperatureV")
 }
 
 //export nvmlDeviceGetUnrepairableMemoryFlag_v1
