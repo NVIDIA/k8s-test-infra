@@ -1,8 +1,16 @@
-# k8s-test-infra
-
-[![CI](https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml/badge.svg)](https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/NVIDIA/k8s-test-infra/badge)](https://scorecard.dev/viewer/?uri=github.com/NVIDIA/k8s-test-infra)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+<div align="center">
+    <img src="./docs/img/logo.png" width="350px" alt="Mokka" />
+    <h1>Mokka</h1>
+    <a href="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml">
+        <img src="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml/badge.svg" alt="CI pipelines" />
+    </a>
+    <a href="https://scorecard.dev/viewer/?uri=github.com/NVIDIA/k8s-test-infra">
+        <img src="https://api.scorecard.dev/projects/github.com/NVIDIA/k8s-test-infra/badge" alt="OpenSSF Scorecard" />
+    </a>
+    <a href="LICENSE">
+        <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" />
+    </a>
+</div>
 
 Kubernetes test infrastructure for NVIDIA GPU software — mock GPU environments,
 CI tooling, and testing utilities.
@@ -82,6 +90,10 @@ Use standalone for local development and CI pipelines.
 |------|-------------|
 | [Standalone](docs/demo/standalone/) | nvml-mock with FGO-style labels on Kind |
 | [With fake-gpu-operator](docs/demo/with-fgo/) | Full FGO + nvml-mock integration |
+
+## Credits
+
+- Logo designed by [Roman Hlushko](https://github.com/roma-glushko) with the assistance of OpenAI's ChatGPT.
 
 ## License
 
