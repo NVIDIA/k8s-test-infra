@@ -1,5 +1,5 @@
 <div align="center">
-    <img src="./docs/img/logo.png" width="400px" alt="Mokka" />
+    <img src="./docs/img/logo.png" width="350px" alt="Mokka" />
     <h1>Mokka</h1>
     <a href="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml">
         <img src="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml/badge.svg" alt="CI pipelines" />
