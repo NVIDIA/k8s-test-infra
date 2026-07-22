@@ -175,7 +175,7 @@ jobs:
           # anonymous ttl.sh tag overwrites cannot substitute a different image
           # between the build-kind-node push and this pull. Re-tag to the local
           # ref `make cluster-create` expects (kind-node-nv:latest).
-          pinned="ttl.sh/kind-node-nv-${{ github.sha }}@${{ needs.build-kind-node.outputs.digest }}"
+          pinned="ttl.sh/kind-node-nv-${{ github.sha }}@${{ needs.build-kind-node-image.outputs.digest }}"
           docker pull "$pinned"
           docker tag "$pinned" kind-node-nv:latest
 
@@ -254,7 +254,7 @@ jobs:
           # the anonymous ttl.sh registry, the digest fetches exactly what
           # build-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
           # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-image.outputs.digest }}"
+          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
           docker pull "$pinned"
           docker tag "$pinned" "${{ env.E2E_IMAGE }}"
 
@@ -308,7 +308,7 @@ jobs:
           # the anonymous ttl.sh registry, the digest fetches exactly what
           # build-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
           # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-image.outputs.digest }}"
+          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
           docker pull "$pinned"
           docker tag "$pinned" "${{ env.E2E_IMAGE }}"
 
@@ -358,7 +358,7 @@ jobs:
           # the anonymous ttl.sh registry, the digest fetches exactly what
           # build-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
           # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-image.outputs.digest }}"
+          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
           docker pull "$pinned"
           docker tag "$pinned" "${{ env.E2E_IMAGE }}"
 
@@ -410,7 +410,7 @@ jobs:
           # the anonymous ttl.sh registry, the digest fetches exactly what
           # build-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
           # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-image.outputs.digest }}"
+          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
           docker pull "$pinned"
           docker tag "$pinned" "${{ env.E2E_IMAGE }}"
 
