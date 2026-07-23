@@ -4,8 +4,10 @@ const MAX_BODY_LENGTH = 65_536;
 const MAX_LINE_LENGTH = 4_096;
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const LOGIN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
+const BRANCH_TOKEN = /^(?=.{1,120}$)(?!.*\.\.)(?!.*\/\/)(?!.*\.lock$)(?!.*\/$)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const SUPPORTED_COMMANDS = new Set([
   "assign",
+  "cherry-pick",
   "help",
   "hold",
   "lgtm",
@@ -89,6 +91,21 @@ function parsedCommand(name, argumentText, line, raw) {
     return argumentText === ""
       ? { name, operation: "run", users: [], line, raw }
       : null;
+  }
+
+  if (name === "cherry-pick") {
+    const parts = argumentText === "" ? [] : argumentText.split(/[ \t]+/);
+    if (parts.length === 0 || parts.length > 2) return null;
+    if (parts.length === 2 && parts[1] !== "cancel") return null;
+    if (!BRANCH_TOKEN.test(parts[0])) return null;
+    return {
+      name,
+      operation: parts.length === 2 ? "cancel" : "apply",
+      users: [],
+      branch: parts[0],
+      line,
+      raw,
+    };
   }
 
   return argumentText === ""
