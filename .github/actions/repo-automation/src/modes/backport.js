@@ -170,7 +170,7 @@ async function planTargets({ github, prNumber, patterns, baseBranch, labels }) {
   return plans;
 }
 
-async function graftTarget({ github, prNumber, plan, squash, parentTree, title, author }) {
+async function graftTarget({ github, prNumber, plan, squash, title, author }) {
   const backportBranch = backportBranchName(prNumber, plan.branch);
   const backportRef = `heads/${backportBranch}`;
   let refCreated = false;
@@ -178,10 +178,14 @@ async function graftTarget({ github, prNumber, plan, squash, parentTree, title, 
     assertBackportRef(backportRef);
     await github.createRef(backportRef, plan.targetHead);
     refCreated = true;
+    // Graft: tree of the target branch, parented on the squash parent P, so
+    // merge-base(graft, M) = P and mergeBranches replays only diff(P->M) onto
+    // the release tree. The transposed orientation (tree of P parented on the
+    // release head) instead merges the whole main-vs-release delta.
     const graft = await github.createCommit({
       message: `Graft base for ${backportBranch}`,
-      treeOid: parentTree,
-      parentOids: [plan.targetHead],
+      treeOid: plan.targetTree,
+      parentOids: [squash.parents[0]],
     });
     await github.updateRef(backportRef, graft);
     const merge = await github.mergeBranches(backportBranch, squash.oid);
@@ -233,7 +237,6 @@ async function runBackport({ event, github, config, dryRun, now = () => new Date
   if (!Array.isArray(squash.parents) || squash.parents.length === 0) {
     return { status: "skipped", prNumber, targets: [] };
   }
-  const parent = await github.getCommitInfo(squash.parents[0]);
   const labels = await github.listIssueLabels(prNumber);
 
   const patterns = configurationValid(config)
@@ -272,7 +275,6 @@ async function runBackport({ event, github, config, dryRun, now = () => new Date
         prNumber,
         plan,
         squash,
-        parentTree: parent.treeOid,
         title: planned.title,
         author: planned.author,
       }));
