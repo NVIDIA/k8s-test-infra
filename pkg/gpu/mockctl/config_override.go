@@ -223,6 +223,27 @@ func PStatePatch(n int) map[string]any {
 	return map[string]any{"performance_state": fmt.Sprintf("P%d", n)}
 }
 
+// NVLinkErrorPatch builds a config override patch that injects NVLink DL error
+// accrual on a device's links (nvlink_error block). rate is errors/second; a
+// rate of 0 heals the device by pinning the block to a no-op (the engine reads
+// rate<=0 as "no injection") without disturbing other overrides. links, when
+// non-empty, restricts injection to those link ids; nil injects on every active
+// link. The block is authoritative — it replaces any prior nvlink_error so a
+// stale link filter never lingers — matching the fail/throttle builders.
+func NVLinkErrorPatch(rate float64, links []int) map[string]any {
+	block := map[string]any{"rate": rate}
+	if len(links) > 0 {
+		// []any so the JSON round-trip in MergeDeviceConfig decodes cleanly
+		// into the []int schema field.
+		ls := make([]any, len(links))
+		for i, l := range links {
+			ls[i] = l
+		}
+		block["links"] = ls
+	}
+	return map[string]any{"nvlink_error": block}
+}
+
 // throttleReasonKeys maps CLI-friendly throttle reason names to the
 // clocks_throttle_reasons config field they enable. The canonical JSON keys are
 // accepted directly; short aliases cover the common thermal/power cases.

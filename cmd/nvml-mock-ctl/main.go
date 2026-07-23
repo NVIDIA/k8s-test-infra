@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"golang.org/x/sys/unix"
 
@@ -38,6 +39,11 @@ const (
 	// this generous cap keeps watts*1000 far under the uint32 milliwatt ceiling
 	// (~4.29e6 W) so the schema-field conversion can never overflow.
 	maxPowerWatts = 100000
+
+	// maxNvlinkErrorRate bounds the `nvlink-error` command (errors/second). A
+	// degrading NVLink tops out well below this; the generous cap keeps the
+	// accrual math (rate * elapsed seconds) far from overflowing uint64.
+	maxNvlinkErrorRate = 1e9
 )
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
@@ -61,6 +67,7 @@ commands:
   clocks --gpu <idx|all|uuid> <mhz>        pin reported SM + graphics clocks
   throttle --gpu <idx|all|uuid> <reason>[ reason ...]  set active throttle reasons ('none' clears)
   pstate --gpu <idx|all|uuid> <0-15>       pin reported performance state (P-state)
+  nvlink-error --gpu <idx|all|uuid> <errors_per_sec> [--links a,b,c]  inject NVLink DL errors (0 heals)
   set    --gpu <idx|all|uuid> key.path=value [key.path=value ...]
   status [--gpu <idx>]
   reset  [--gpu <idx|all|uuid>]
@@ -72,7 +79,7 @@ global flags:
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	var configOverridePath, configPath, gpu, mode string
+	var configOverridePath, configPath, gpu, mode, links string
 	var afterCalls int
 	var xid uint64
 	fs := flag.NewFlagSet("nvml-mock-ctl", flag.ContinueOnError)
@@ -84,6 +91,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&mode, "mode", "", "failure mode (fail command)")
 	fs.IntVar(&afterCalls, "after-calls", 0, "trip after N guarded calls (fail)")
 	fs.Uint64Var(&xid, "xid", 0, "Xid code to surface (fail)")
+	fs.StringVar(&links, "links", "", "comma-separated NVLink ids for nvlink-error (default: all active links)")
 
 	// Global flags may appear before or after the subcommand, interspersed
 	// with the command's positional key.path=value args. The stdlib flag
@@ -128,8 +136,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "status":
 		return doStatus(configOverridePath, gpu, stdout, stderr)
 	case "fail", "temp", "temperature", "power", "fan", "util", "utilization",
-		"clocks", "throttle", "pstate", "set", "reset":
-		return mutate(cmd, configOverridePath, gpu, mode, afterCalls, xid, positional, cfg, base, stdout, stderr)
+		"clocks", "throttle", "pstate", "nvlink-error", "set", "reset":
+		return mutate(cmd, configOverridePath, gpu, mode, links, afterCalls, xid, positional, cfg, base, stdout, stderr)
 	default:
 		fprintf(stderr, "unknown command %q\n", cmd)
 		usage(stderr)
@@ -137,7 +145,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-func mutate(cmd, configOverridePath, gpu, mode string, afterCalls int, xid uint64,
+func mutate(cmd, configOverridePath, gpu, mode, links string, afterCalls int, xid uint64,
 	positional []string, cfg *engine.Config, base *engine.DeviceConfig, stdout, stderr io.Writer) int {
 
 	if gpu == "" && cmd != "reset" {
@@ -251,6 +259,20 @@ func mutate(cmd, configOverridePath, gpu, mode string, afterCalls int, xid uint6
 		if code := applyPatch(doc, target, base, mockctl.PStatePatch(n), stderr); code != 0 {
 			return code
 		}
+	case "nvlink-error":
+		rate, perr := singleFloatArg(positional, cmd, 0, maxNvlinkErrorRate)
+		if perr != nil {
+			fprintf(stderr, "%v\n", perr)
+			return 2
+		}
+		linkIDs, perr := parseLinkIDs(links)
+		if perr != nil {
+			fprintf(stderr, "%v\n", perr)
+			return 2
+		}
+		if code := applyPatch(doc, target, base, mockctl.NVLinkErrorPatch(rate, linkIDs), stderr); code != 0 {
+			return code
+		}
 	case "set":
 		if len(positional) == 0 {
 			fprintln(stderr, "set requires at least one key.path=value")
@@ -331,6 +353,32 @@ func singleFloatArg(positional []string, name string, lo, hi float64) (float64, 
 		return 0, fmt.Errorf("%s value %v out of range [%v,%v]", name, v, lo, hi)
 	}
 	return v, nil
+}
+
+// parseLinkIDs parses the --links CSV (e.g. "0,3,7") into a sorted-as-given
+// slice of non-negative link ids. An empty string yields nil (inject on all
+// active links). Whitespace around entries is tolerated.
+func parseLinkIDs(csv string) ([]int, error) {
+	csv = strings.TrimSpace(csv)
+	if csv == "" {
+		return nil, nil
+	}
+	var out []int
+	for _, tok := range strings.Split(csv, ",") {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		v, err := strconv.Atoi(tok)
+		if err != nil {
+			return nil, fmt.Errorf("--links entry %q must be an integer", tok)
+		}
+		if v < 0 {
+			return nil, fmt.Errorf("--links entry %d must be non-negative", v)
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }
 
 // baseFanCount reports the fan count declared by the base config so the fan

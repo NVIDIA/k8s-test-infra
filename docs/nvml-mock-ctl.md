@@ -90,6 +90,7 @@ commands:
   clocks --gpu <idx|all|uuid> <mhz>        pin reported SM + graphics clocks
   throttle --gpu <idx|all|uuid> <reason>[ reason ...]  set active throttle reasons ('none' clears)
   pstate --gpu <idx|all|uuid> <0-15>       pin reported performance state (P-state)
+  nvlink-error --gpu <idx|all|uuid> <errors_per_sec> [--links a,b,c]  inject NVLink DL errors (0 heals)
   set    --gpu <idx|all|uuid> key.path=value [key.path=value ...]
   status [--gpu <idx>]
   reset  [--gpu <idx|all|uuid>]
@@ -188,6 +189,39 @@ configured:
 `reset` clears these overrides and returns the metric to the profile baseline
 (varying again, if the profile drives it dynamically). For anything these
 commands don't cover, use `set` below.
+
+### `nvlink-error` — inject NVLink DL errors on switch links
+
+Injects a per-link NVLink data-link error accrual on the target device's links
+to its NVSwitch, so the GPU's uplinks report *climbing* DL errors. The positional
+argument is the error **rate in errors/second** (0–1e9); `0` heals (no injection).
+
+```bash
+# ramp 250 NVLink errors/sec on every active link of GPU 0
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl nvlink-error --gpu 0 250
+# restrict to specific link ids
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl nvlink-error --gpu 0 250 --links 0,3,7
+# heal
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl nvlink-error --gpu 0 0
+```
+
+The count climbs monotonically off the shared counter epoch (the same accrual
+model as the profile's `nvlink.defaults.error_rate`), so consumers that sample
+over time see a *rising error rate* rather than a one-shot step. It surfaces on
+both the per-counter direct API (`nvmlDeviceGetNvLinkErrorCounter`) and the DL
+error field values (`NVML_FI_DEV_NVLINK_ERROR_DL_{REPLAY,RECOVERY,CRC}`, field
+ids 161–163, e.g. `dcgmi dmon -e 161,162,163`). Injection lands only on links the
+device actually has **active** — a nonexistent link is never conjured into an
+errored one — and `--links` (comma-separated ids) narrows it further; omit it to
+target all active links (the "GPU lost its switch uplinks" fault).
+
+> **Why this and not an "NVSwitch health" injection?** DCGM's NVSwitch entity
+> health (`DCGM_HEALTH_WATCH_NVSWITCH_*`) and SXID errors are sourced from NSCQ
+> (`libnvidia-nscq.so`) and kernel logs, **not** NVML, so a `libnvidia-ml.so`
+> mock cannot drive them. The GPU-side NVLink error surface this command feeds is
+> what DCGM's `DCGM_HEALTH_WATCH_NVLINK` reads (→ `DCGM_FR_NVLINK_*`), which is
+> the switch-link fault NVSentinel's gpu-health-monitor can actually detect and
+> remediate.
 
 ### `set` — set arbitrary fields
 

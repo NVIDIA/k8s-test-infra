@@ -180,6 +180,16 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertRuntimeHealthyRecovery(ctx, h, pod)
 				})
 
+				It("injects rising NVLink DL errors via the nvml-mock-ctl nvlink-error command", Label("runtime-control"), func(ctx SpecContext) {
+					if p.ExpectedNV() == 0 {
+						Skip("profile " + name + " has no NVLink switch topology; nvlink-error has no links to fault")
+					}
+					// nvlink -e is read through fabricmanager; gate on it being
+					// ready before injecting, matching the topology assertion.
+					assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
+					assertRuntimeNVLinkErrorInjection(ctx, h, pod)
+				})
+
 				It("injects ECC uncorrectable errors", func(ctx SpecContext) {
 					assertECCUncorrectableFailure(ctx, h, p.ExpectedGPUs())
 				})

@@ -254,7 +254,10 @@ func (d *ConfigurableDevice) GetNvLinkFieldValue(fieldID, scopeID uint32) (Field
 		return FieldValueUint64, rx, nvml.SUCCESS
 
 	case fiNvlinkErrorDlReplay, fiNvlinkErrorDlRecovery, fiNvlinkErrorDlCrc:
-		return FieldValueUint64, f.NvLinkErrorCount(d.index, link, f.now()), nvml.SUCCESS
+		// Baseline accrual plus any runtime NVLinkError injection so `dcgmi
+		// dmon` / field-value consumers see the same rising DL error rate the
+		// direct nvmlDeviceGetNvLinkErrorCounter API reports.
+		return FieldValueUint64, f.NvLinkErrorCount(d.index, link, f.now()) + d.nvLinkInjectedErrorCount(link), nvml.SUCCESS
 
 	case fiNvlinkCountXmitPackets, fiNvlinkCountRcvPackets:
 		v, ok := d.nvLinkActiveCounter(link)

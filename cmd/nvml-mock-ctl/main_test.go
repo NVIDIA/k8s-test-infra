@@ -122,23 +122,56 @@ func TestCLI_PStatePins(t *testing.T) {
 	require.Contains(t, readConfigOverride(t, configOverride), "performance_state: P8")
 }
 
+func TestCLI_NVLinkErrorWritesRate(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	_, e, c := runCLI(t, configOverride, "nvlink-error", "--gpu", "0", "250")
+	require.Equalf(t, 0, c, "nvlink-error exited %d: %s", c, e)
+	s := readConfigOverride(t, configOverride)
+	require.Contains(t, s, "nvlink_error")
+	require.Contains(t, s, "rate: 250")
+}
+
+func TestCLI_NVLinkErrorWithLinks(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	_, e, c := runCLI(t, configOverride, "nvlink-error", "--gpu", "1", "--links", "0,3,7", "100")
+	require.Equalf(t, 0, c, "nvlink-error exited %d: %s", c, e)
+	s := readConfigOverride(t, configOverride)
+	for _, want := range []string{"rate: 100", "- 0", "- 3", "- 7"} {
+		require.Containsf(t, s, want, "configOverride missing %q", want)
+	}
+}
+
+func TestCLI_NVLinkErrorZeroHeals(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	_, e, c := runCLI(t, configOverride, "nvlink-error", "--gpu", "0", "0")
+	require.Equalf(t, 0, c, "nvlink-error exited %d: %s", c, e)
+	require.Contains(t, readConfigOverride(t, configOverride), "rate: 0")
+}
+
 func TestCLI_ConvenienceArgValidation(t *testing.T) {
 	dir := t.TempDir()
 	configOverride := filepath.Join(dir, "overrides.yaml")
 	cases := [][]string{
-		{"temp", "--gpu", "0"},                        // missing value
-		{"temp", "--gpu", "0", "hot"},                 // non-integer
-		{"fan", "--gpu", "0", "150"},                  // out of range
-		{"power", "--gpu", "0", "--", "-5"},           // negative watts (-- so it reaches the guard, not flag.Parse)
-		{"power", "--gpu", "0", "NaN"},                // non-finite watts
-		{"power", "--gpu", "0", "Inf"},                // non-finite watts
-		{"power", "--gpu", "0", "10000000"},           // watts overflow guard
-		{"power", "--gpu", "0", "1", "2"},             // too many values
-		{"util", "--gpu", "0", "150"},                 // out of range
-		{"pstate", "--gpu", "0", "16"},                // out of range
-		{"throttle", "--gpu", "0"},                    // missing reason
-		{"throttle", "--gpu", "0", "nope"},            // unknown reason
-		{"throttle", "--gpu", "0", "none", "thermal"}, // none + reason
+		{"temp", "--gpu", "0"},                              // missing value
+		{"temp", "--gpu", "0", "hot"},                       // non-integer
+		{"fan", "--gpu", "0", "150"},                        // out of range
+		{"power", "--gpu", "0", "--", "-5"},                 // negative watts (-- so it reaches the guard, not flag.Parse)
+		{"power", "--gpu", "0", "NaN"},                      // non-finite watts
+		{"power", "--gpu", "0", "Inf"},                      // non-finite watts
+		{"power", "--gpu", "0", "10000000"},                 // watts overflow guard
+		{"power", "--gpu", "0", "1", "2"},                   // too many values
+		{"util", "--gpu", "0", "150"},                       // out of range
+		{"pstate", "--gpu", "0", "16"},                      // out of range
+		{"throttle", "--gpu", "0"},                          // missing reason
+		{"throttle", "--gpu", "0", "nope"},                  // unknown reason
+		{"throttle", "--gpu", "0", "none", "thermal"},       // none + reason
+		{"nvlink-error", "--gpu", "0"},                      // missing rate
+		{"nvlink-error", "--gpu", "0", "-5"},                // negative rate (flag.Parse stops at -5 -> missing value)
+		{"nvlink-error", "--gpu", "0", "2000000000"},        // rate over cap
+		{"nvlink-error", "--gpu", "0", "--links", "x", "1"}, // non-integer link id
 	}
 	for _, args := range cases {
 		_, _, code := runCLI(t, configOverride, args...)
