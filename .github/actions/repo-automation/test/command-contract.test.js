@@ -1133,6 +1133,19 @@ test("cherry-pick is a no-op in both directions when the label already matches",
   });
 });
 
+test("cherry-pick recognizes an existing variant-cased label and converges to a no-op", async () => {
+  const { github, result } = await run(cherryPickState({
+    labels: ["do-not-merge/needs-approval", "Cherry-pick/release-1.2"],
+  }));
+
+  // GitHub stores labels case-insensitively; the already-present label must be
+  // seen so the command reports noop instead of re-adding a duplicate.
+  assert.equal(result.commands[0].status, "noop");
+  assert.equal(result.commands[0].code, "cherry-pick-noop");
+  assert.deepEqual(github.calls.ensureLabel, []);
+  assert.deepEqual(github.calls.addCherryPickLabel, []);
+});
+
 test("cherry-pick rejects targets outside the pattern or equal to the base branch", async (t) => {
   await t.test("pattern mismatch", async () => {
     const { github, result } = await run(cherryPickState({

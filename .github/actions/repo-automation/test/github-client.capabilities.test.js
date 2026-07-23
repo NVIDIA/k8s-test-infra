@@ -44,6 +44,10 @@ test("isManagedCherryPickLabel accepts only cherry-pick/<branch-token>", () => {
     "cherry-pick/release/1.2",
     "cherry-pick/v1.2.3",
     "cherry-pick/a",
+    // GitHub matches label names case-insensitively, so a variant-cased prefix
+    // is the same managed label and must be recognized.
+    "Cherry-pick/release-1.2",
+    "CHERRY-PICK/release-1.2",
   ]) {
     assert.equal(isManagedCherryPickLabel(good), true, `should accept ${good}`);
   }
