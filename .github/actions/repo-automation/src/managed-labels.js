@@ -25,10 +25,12 @@ function isManagedPolicyLabel(label) {
 }
 
 function isManagedCherryPickLabel(label) {
-  if (typeof label !== "string" || !label.startsWith(CHERRY_PICK_LABEL_PREFIX)) {
-    return false;
-  }
-  return BRANCH_TOKEN.test(label.slice(CHERRY_PICK_LABEL_PREFIX.length));
+  if (typeof label !== "string") return false;
+  // GitHub label names are case-insensitive; fold case like the metadata and
+  // policy checks before matching the managed prefix and branch token.
+  const normalized = label.toLowerCase();
+  if (!normalized.startsWith(CHERRY_PICK_LABEL_PREFIX)) return false;
+  return BRANCH_TOKEN.test(normalized.slice(CHERRY_PICK_LABEL_PREFIX.length));
 }
 
 module.exports = {

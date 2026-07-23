@@ -71,10 +71,12 @@ function planCommandExecution(input) {
   const open = input.open !== false;
   const cherryPickPatterns = Array.isArray(input.cherryPickPatterns) ? input.cherryPickPatterns : [];
   const cherryPickTargets = input.cherryPickTargets instanceof Map ? input.cherryPickTargets : new Map();
-  const currentLabelSet = new Set(input.currentLabels);
+  // GitHub label names are case-insensitive, so compare cherry-pick labels
+  // case-folded; a variant-cased label already on the PR must count as present.
+  const currentLabelSet = new Set(input.currentLabels.map((label) => label.toLowerCase()));
   const desiredCherryPick = new Map();
   const cherryPickPresent = (label) => (
-    desiredCherryPick.has(label) ? desiredCherryPick.get(label) : currentLabelSet.has(label)
+    desiredCherryPick.has(label) ? desiredCherryPick.get(label) : currentLabelSet.has(label.toLowerCase())
   );
 
   for (const item of orderedItems(input.parsed)) {
@@ -246,8 +248,8 @@ function planCommandExecution(input) {
   const addCherryPickLabels = [];
   const removeCherryPickLabels = [];
   for (const [label, present] of desiredCherryPick) {
-    if (present && !currentLabelSet.has(label)) addCherryPickLabels.push(label);
-    if (!present && currentLabelSet.has(label)) removeCherryPickLabels.push(label);
+    if (present && !currentLabelSet.has(label.toLowerCase())) addCherryPickLabels.push(label);
+    if (!present && currentLabelSet.has(label.toLowerCase())) removeCherryPickLabels.push(label);
   }
   addCherryPickLabels.sort();
   removeCherryPickLabels.sort();
