@@ -165,7 +165,16 @@ async function planTargets({ github, prNumber, patterns, baseBranch, labels }) {
       continue;
     }
     const targetCommit = await github.getCommitInfo(targetRef.oid);
-    plans.push({ branch, action: "create", targetHead: targetRef.oid, targetTree: targetCommit.treeOid });
+    plans.push({
+      branch,
+      action: "create",
+      targetHead: targetRef.oid,
+      targetTree: targetCommit.treeOid,
+      // A branch left behind by a closed backport PR (or a crashed prior run) is
+      // reusable state, not a reason to fail: force-update it instead of a
+      // createRef that would 422 and wedge the target forever.
+      existingBranch: existingBackport !== null,
+    });
   }
   return plans;
 }
@@ -176,7 +185,11 @@ async function graftTarget({ github, prNumber, plan, squash, title, author }) {
   let refCreated = false;
   try {
     assertBackportRef(backportRef);
-    await github.createRef(backportRef, plan.targetHead);
+    if (plan.existingBranch === true) {
+      await github.updateRef(backportRef, plan.targetHead);
+    } else {
+      await github.createRef(backportRef, plan.targetHead);
+    }
     refCreated = true;
     // Graft: tree of the target branch, parented on the squash parent P, so
     // merge-base(graft, M) = P and mergeBranches replays only diff(P->M) onto
@@ -285,8 +298,12 @@ async function runBackport({ event, github, config, dryRun, now = () => new Date
     }
   }
 
+  // A merged PR with no cherry-pick targets has nothing to report; only touch
+  // the PR when there is a target or an existing status comment to keep current,
+  // so ordinary merges never collect an empty "## Backport status" comment.
   const commentBody = renderBackportStatusComment(targets);
-  if (existingComment.body !== commentBody) {
+  const shouldComment = targets.length > 0 || existingComment.body !== null;
+  if (shouldComment && existingComment.body !== commentBody) {
     await github.upsertPolicyComment(prNumber, BACKPORT_STATUS_MARKER, commentBody, existingComment);
   }
 
