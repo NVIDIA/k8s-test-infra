@@ -500,3 +500,99 @@ test("a leftover backport branch with no open PR is reused instead of wedging in
   assert.equal(github.calls.updateRef[0].oid, TARGET_HEAD);
   assert.equal(github.backportSnapshot().pulls.length, 1);
 });
+
+// --- workflow_dispatch trigger chain ------------------------------------
+
+// A workflow_dispatch payload carries no pull_request; the mode reads the
+// pr-number and target-branch action inputs and re-reads the live PR instead.
+function dispatchEvent() {
+  return { inputs: {} };
+}
+
+async function runDispatch(state = backportState(), options = {}) {
+  const github = createFakeGitHub(state);
+  const result = await runBackport({
+    event: dispatchEvent(),
+    eventName: "workflow_dispatch",
+    github,
+    config: options.config ?? loadConfig(repositoryRoot),
+    dryRun: options.dryRun ?? false,
+    prNumber: options.prNumber ?? String(PR_NUMBER),
+    targetBranch: options.targetBranch ?? "",
+    now: () => "2026-07-23T10:00:00.000Z",
+  });
+  return { github, result };
+}
+
+test("a workflow_dispatch with a target branch backports even when the cherry-pick label is absent", async () => {
+  // The race the dispatch chain mitigates: the command just added the label but
+  // GitHub may not yet expose it; the scoped target-branch input drives the graft.
+  const { github, result } = await runDispatch(backportState({ labels: [] }), { targetBranch: "release-1.2" });
+
+  assert.equal(result.status, "complete");
+  assert.deepEqual(result.targets, [
+    { branch: "release-1.2", outcome: "created", backportPr: { number: 1000, url: "https://github.com/NVIDIA/k8s-test-infra/pull/1000" } },
+  ]);
+  // The scoped path never reads issue labels; it processes only the input branch.
+  assert.deepEqual(github.calls.listIssueLabels, []);
+  assert.deepEqual(github.calls.getBranch.map(({ branch }) => branch), ["release-1.2", BACKPORT_BRANCH]);
+  assert.equal(github.calls.createPullRequest.length, 1);
+});
+
+test("a workflow_dispatch without a target branch processes the pull request cherry-pick labels", async () => {
+  const { github, result } = await runDispatch(backportState(), { targetBranch: "" });
+
+  assert.equal(result.status, "complete");
+  assert.equal(result.targets[0].branch, "release-1.2");
+  assert.equal(result.targets[0].outcome, "created");
+  // With no target-branch input the dispatch path derives targets from labels.
+  assert.deepEqual(github.calls.listIssueLabels, [{ prNumber: PR_NUMBER }]);
+});
+
+test("a workflow_dispatch on an unmerged pull request is skipped with zero writes", async () => {
+  const { github, result } = await runDispatch(
+    backportState({ pullRequests: [mergedPullRequest({ merged: false, state: "open" })] }),
+    { targetBranch: "release-1.2" },
+  );
+
+  assert.equal(result.status, "skipped");
+  assert.deepEqual(github.callOrder.map(({ operation }) => operation), ["getPullRequest"]);
+  assert.deepEqual(writes(github), []);
+});
+
+test("a workflow_dispatch with a target branch outside the pattern reports invalid-target", async () => {
+  const { github, result } = await runDispatch(backportState({ labels: [] }), { targetBranch: "feature-x" });
+
+  assert.equal(result.status, "complete");
+  assert.equal(result.targets[0].branch, "feature-x");
+  assert.equal(result.targets[0].outcome, "invalid-target");
+  assert.deepEqual(github.calls.getBranch, []); // pattern reject precedes any branch lookup
+  assert.deepEqual(github.calls.createRef, []);
+  assert.deepEqual(github.calls.createPullRequest, []);
+});
+
+test("a workflow_dispatch derives the squash oid from the live merge commit, not an event sha", async () => {
+  // No event carries merge_commit_sha on a dispatch run, so the live PR's
+  // mergeCommitOid must anchor getCommitInfo; a wrong live oid would skip.
+  const { github, result } = await runDispatch(backportState(), { targetBranch: "release-1.2" });
+
+  assert.equal(result.status, "complete");
+  assert.deepEqual(github.calls.getCommitInfo[0], { oid: MERGE_COMMIT });
+  assert.deepEqual(github.calls.mergeBranches, [{ base: BACKPORT_BRANCH, head: MERGE_COMMIT }]);
+});
+
+test("a workflow_dispatch rejects a non-positive-integer pr-number input", async () => {
+  await assert.rejects(
+    () => runBackport({
+      event: dispatchEvent(),
+      eventName: "workflow_dispatch",
+      github: createFakeGitHub(backportState()),
+      config: loadConfig(repositoryRoot),
+      dryRun: false,
+      prNumber: "not-a-number",
+      targetBranch: "release-1.2",
+      now: () => "2026-07-23T10:00:00.000Z",
+    }),
+    /pr-number/i,
+  );
+});

@@ -104,21 +104,36 @@ test("Commands is created-only, PR-only, serialized, and cannot merge", () => {
   assertNoPrivilegedSupplyChain(source, job);
 });
 
-test("Backport is a merged-PR-only, per-PR-serialized trusted default-branch writer", () => {
+test("Backport is a merged-PR-or-dispatch, per-PR-serialized trusted default-branch writer", () => {
   const { source, workflow } = readWorkflow("backport.yml");
   assert.equal(workflow.name, "Backport");
   assert.deepEqual(workflow.on, {
     pull_request_target: { types: ["closed", "labeled"] },
+    workflow_dispatch: {
+      inputs: {
+        "pr-number": {
+          description: "Merged pull request number to backport",
+          required: true,
+          type: "string",
+        },
+        "target-branch": {
+          description: "Single release branch to backport to; empty processes the pull request cherry-pick labels",
+          required: false,
+          type: "string",
+          default: "",
+        },
+      },
+    },
   });
   assert.deepEqual(workflow.permissions, {});
   const job = singleJob(workflow);
   assert.equal(
     job.if,
-    "${{ github.event.pull_request.merged == true && (github.event.action == 'closed' || startsWith(github.event.label.name, 'cherry-pick/')) }}",
+    "${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && (github.event.action == 'closed' || startsWith(github.event.label.name, 'cherry-pick/'))) }}",
   );
   assert.equal(job["timeout-minutes"], 15);
   assert.deepEqual(job.concurrency, {
-    group: "backport-${{ github.event.pull_request.number }}",
+    group: "backport-${{ github.event_name == 'workflow_dispatch' && inputs['pr-number'] || github.event.pull_request.number }}",
     "cancel-in-progress": false,
   });
   assert.deepEqual(job.permissions, {
@@ -129,7 +144,8 @@ test("Backport is a merged-PR-only, per-PR-serialized trusted default-branch wri
   assertTrustedCheckout(job);
   assert.deepEqual(localActionStep(job).with, {
     mode: "backport",
-    "pr-number": "${{ github.event.pull_request.number }}",
+    "pr-number": "${{ github.event_name == 'workflow_dispatch' && inputs['pr-number'] || github.event.pull_request.number }}",
+    "target-branch": "${{ github.event_name == 'workflow_dispatch' && inputs['target-branch'] || '' }}",
     "dry-run": false,
   });
   assertOfficialPinnedUses(source, workflow);

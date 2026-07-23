@@ -31,6 +31,7 @@ const writeOperations = new Set([
   "addCherryPickLabel",
   "removeCherryPickLabel",
   "ensureLabel",
+  "dispatchWorkflow",
 ]);
 
 function stateMarker(state = { headOid, lgtm: null, lastRetest: null }) {
@@ -1244,6 +1245,88 @@ test("cherry-pick on a merged PR denies a non-write author and writes nothing", 
   assert.deepEqual(github.calls.addCherryPickLabel, []);
   assert.deepEqual(github.calls.removeCherryPickLabel, []);
   assert.equal(github.commandSnapshot().labels.includes("cherry-pick/release-1.2"), false);
+});
+
+test("cherry-pick apply on a merged PR dispatches the backport workflow with exact inputs", async () => {
+  const { github, result } = await run(cherryPickState({
+    pullRequest: { state: "closed", merged: true },
+    issueComment: { author: "carol" },
+    labels: ["lgtm", "approved"],
+    // A non-default name proves the dispatch ref is read from the client, not a literal.
+    defaultBranchName: "trunk",
+  }));
+
+  assert.equal(result.commands[0].status, "applied");
+  assert.equal(result.commands[0].code, "cherry-pick-planned");
+  assert.deepEqual(github.calls.getDefaultBranchName, [{}]);
+  assert.deepEqual(github.calls.dispatchWorkflow, [{
+    workflowFileName: "backport.yml",
+    ref: "trunk",
+    inputs: { "pr-number": "42", "target-branch": "release-1.2" },
+  }]);
+  // The dispatch is recorded after the label write, inside the same apply discipline.
+  assert.deepEqual(
+    orderOf(github, ["addCherryPickLabel", "dispatchWorkflow"]),
+    ["addCherryPickLabel", "dispatchWorkflow"],
+  );
+});
+
+test("cherry-pick apply on an open PR performs no backport dispatch", async () => {
+  const { github, result } = await run(cherryPickState());
+
+  assert.equal(result.commands[0].code, "cherry-pick-planned");
+  assert.deepEqual(github.calls.dispatchWorkflow, []);
+  assert.deepEqual(github.calls.getDefaultBranchName, []);
+  assert.equal(github.commandSnapshot().labels.includes("cherry-pick/release-1.2"), true);
+});
+
+test("cherry-pick noop on a merged PR performs no backport dispatch", async () => {
+  const { github, result } = await run(cherryPickState({
+    pullRequest: { state: "closed", merged: true },
+    issueComment: { author: "carol" },
+    labels: ["lgtm", "approved", "cherry-pick/release-1.2"],
+  }));
+
+  assert.equal(result.commands[0].code, "cherry-pick-noop");
+  assert.deepEqual(github.calls.dispatchWorkflow, []);
+  assert.deepEqual(github.calls.getDefaultBranchName, []);
+});
+
+test("cherry-pick dry-run on a merged PR plans no dispatch and no writes", async () => {
+  const { github, result } = await run(cherryPickState({
+    pullRequest: { state: "closed", merged: true },
+    issueComment: { author: "carol" },
+    labels: ["lgtm", "approved"],
+  }), { dryRun: true });
+
+  assert.equal(result.status, "planned");
+  assert.equal(result.commands[0].code, "cherry-pick-planned");
+  assert.deepEqual(github.calls.dispatchWorkflow, []);
+  assert.deepEqual(writes(github), []);
+});
+
+test("cherry-pick on a merged PR fails closed when the backport dispatch fails after the label is applied", async () => {
+  const failure = new Error("secret-dispatch-token-321");
+  const github = createFakeGitHub(cherryPickState({
+    pullRequest: { state: "closed", merged: true },
+    issueComment: { author: "carol" },
+    labels: ["lgtm", "approved"],
+    failures: { dispatchWorkflow: failure },
+  }));
+  const { runCommand } = require("../src/modes/command.js");
+  let caught;
+  try {
+    await runCommand({ event, github, config: loadConfig(repositoryRoot), dryRun: false, now: () => "2026-07-16T10:00:00.000Z" });
+  } catch (error) {
+    caught = error;
+  }
+  assert.equal(caught?.summary?.status, "partial");
+  assert.equal(caught?.summary?.apply?.failed?.operation, "dispatchWorkflow");
+  assert.equal(caught?.summary?.apply?.failed?.branch, "release-1.2");
+  // The cherry-pick label write succeeded before the dispatch failed.
+  assert.equal(github.calls.addCherryPickLabel.length, 1);
+  assert.equal(github.commandSnapshot().labels.includes("cherry-pick/release-1.2"), true);
+  assert.equal(JSON.stringify(caught?.summary).includes("secret-dispatch-token-321"), false);
 });
 
 test("cherry-pick on a closed unmerged PR is rejected before any branch lookup", async () => {

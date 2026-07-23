@@ -118,6 +118,8 @@ function createFakeGitHub(initialState = []) {
     getMergeState: [],
     enableAutoMerge: [],
     disableAutoMerge: [],
+    dispatchWorkflow: [],
+    getDefaultBranchName: [],
   };
   const callOrder = [];
 
@@ -287,6 +289,15 @@ function createFakeGitHub(initialState = []) {
     async getDefaultBranchRevision() {
       record("getDefaultBranchRevision", {});
       return options.defaultBranchRevision ?? "base-commit-oid-91ab";
+    },
+
+    async getDefaultBranchName() {
+      record("getDefaultBranchName", {});
+      return options.defaultBranchName ?? "main";
+    },
+
+    async dispatchWorkflow(workflowFileName, ref, inputs) {
+      record("dispatchWorkflow", { workflowFileName, ref, inputs });
     },
 
     async getContentAtRevision(path, revision) {

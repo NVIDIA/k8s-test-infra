@@ -361,6 +361,76 @@ test("client mergeBranches non-conflict failure never leaks the auth token", asy
   });
 });
 
+// --- real client: workflow dispatch -------------------------------------
+
+test("client dispatchWorkflow posts to the allowlisted workflow with string inputs", async () => {
+  const calls = [];
+  const c = client({ actions: {
+    createWorkflowDispatch: async (p) => { calls.push(p); return { data: {} }; },
+  } });
+  await c.dispatchWorkflow("backport.yml", "main", { "pr-number": "42", "target-branch": "release-1.2" });
+  assert.deepEqual(calls, [{
+    owner: "NVIDIA", repo: "k8s-test-infra", workflow_id: "backport.yml", ref: "main",
+    inputs: { "pr-number": "42", "target-branch": "release-1.2" },
+  }]);
+});
+
+test("client dispatchWorkflow rejects a non-allowlisted workflow before octokit", async () => {
+  const c = client({ actions: {
+    createWorkflowDispatch: async () => { throw new Error("must not call"); },
+  } });
+  await assert.rejects(() => c.dispatchWorkflow("ci.yaml", "main", { "pr-number": "42" }), TypeError);
+  await assert.rejects(() => c.dispatchWorkflow("commands.yml", "main", {}), TypeError);
+});
+
+test("client dispatchWorkflow rejects an empty ref and non-string input values before octokit", async () => {
+  const c = client({ actions: {
+    createWorkflowDispatch: async () => { throw new Error("must not call"); },
+  } });
+  await assert.rejects(() => c.dispatchWorkflow("backport.yml", "", { "pr-number": "42" }), TypeError);
+  await assert.rejects(() => c.dispatchWorkflow("backport.yml", "main", { "pr-number": 42 }), TypeError);
+  await assert.rejects(() => c.dispatchWorkflow("backport.yml", "main", null), TypeError);
+});
+
+test("client dispatchWorkflow failure never leaks the auth token", async () => {
+  const token = "ghp_DISPATCHSECRET0987654321";
+  const raw = Object.assign(new Error(`boom ${token}`), {
+    status: 403,
+    request: { headers: { authorization: `token ${token}` } },
+  });
+  const c = client({ actions: { createWorkflowDispatch: async () => { throw raw; } } });
+  await assert.rejects(() => c.dispatchWorkflow("backport.yml", "main", { "pr-number": "42" }), (error) => {
+    assert.equal(error.name, "GitHubClientError");
+    assert.equal(error.message.includes(token), false, "token must be scrubbed");
+    return true;
+  });
+});
+
+test("client getDefaultBranchName returns the repository default branch", async () => {
+  const c = client({ repos: { get: async () => ({ data: { default_branch: "main" } }) } });
+  assert.equal(await c.getDefaultBranchName(), "main");
+});
+
+test("fake exposes the dispatch and default-branch-name capabilities the real client has", () => {
+  const realClient = client({});
+  const fake = createFakeGitHub();
+  for (const name of ["dispatchWorkflow", "getDefaultBranchName"]) {
+    assert.equal(typeof realClient[name], "function", `real client is missing ${name}`);
+    assert.equal(typeof fake[name], "function", `fake is missing ${name}`);
+  }
+});
+
+test("fake dispatchWorkflow and getDefaultBranchName record calls and inject failures", async () => {
+  const fake = createFakeGitHub({
+    defaultBranchName: "trunk",
+    failures: { dispatchWorkflow: [new Error("dispatch-injected")] },
+  });
+  assert.equal(await fake.getDefaultBranchName(), "trunk");
+  await assert.rejects(() => fake.dispatchWorkflow("backport.yml", "trunk", { "pr-number": "1" }), /dispatch-injected/);
+  assert.deepEqual(fake.calls.dispatchWorkflow, [{ workflowFileName: "backport.yml", ref: "trunk", inputs: { "pr-number": "1" } }]);
+  assert.deepEqual(fake.calls.getDefaultBranchName, [{}]);
+});
+
 // --- fake: git-data / ref / PR model ------------------------------------
 
 test("fake models branches, refs, and commits with call recording", async () => {
