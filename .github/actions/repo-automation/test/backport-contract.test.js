@@ -21,8 +21,8 @@ const MERGE_COMMIT = "2".repeat(40); // M = merge_commit_sha
 const MERGE_PARENT = "3".repeat(40); // P = M^1
 const TARGET_HEAD = "1".repeat(40); // release-1.2 branch head T
 const MERGE_TREE_OF_M = "5".repeat(40); // tree(M) — unused by graft, present for realism
-const PARENT_TREE = "6".repeat(40); // tree(P) — grafted onto T
-const TARGET_TREE = "4".repeat(40); // tree(T)
+const PARENT_TREE = "6".repeat(40); // tree(P) — unused by the corrected graft, present for realism
+const TARGET_TREE = "4".repeat(40); // tree(T) — grafted onto the squash parent P
 const PR_HEAD = "7".repeat(40);
 const BACKPORT_BRANCH = `backport/${PR_NUMBER}-to-release-1.2`;
 const BACKPORT_REF = `heads/${BACKPORT_BRANCH}`;
@@ -155,12 +155,12 @@ test("happy path grafts the squash commit and opens a namespaced backport PR", a
     { branch: "release-1.2", outcome: "created", backportPr: { number: 1000, url: "https://github.com/NVIDIA/k8s-test-infra/pull/1000" } },
   ]);
 
-  // Exact graft sequence: create ref at T, graft tree(P) onto T, merge M,
-  // re-parent the merge tree onto T with author + trailer, open the PR.
+  // Exact graft sequence: create ref at T, graft tree(T) parented on the squash
+  // parent P, merge M so the replay is only diff(P->M), re-parent the merge tree
+  // onto T with author + trailer, open the PR.
   const ops = github.callOrder.map(({ operation }) => operation);
   assert.deepEqual(ops, [
     "getPullRequest",
-    "getCommitInfo",
     "getCommitInfo",
     "listIssueLabels",
     "getBranch",
@@ -183,8 +183,8 @@ test("happy path grafts the squash commit and opens a namespaced backport PR", a
   assert.deepEqual(github.calls.mergeBranches, [{ base: BACKPORT_BRANCH, head: MERGE_COMMIT }]);
   assert.deepEqual(github.calls.createCommit[0], {
     message: `Graft base for ${BACKPORT_BRANCH}`,
-    treeOid: PARENT_TREE,
-    parentOids: [TARGET_HEAD],
+    treeOid: TARGET_TREE,
+    parentOids: [MERGE_PARENT],
   });
   assert.deepEqual(github.calls.createCommit[1], {
     message: `${ORIGINAL_MESSAGE}\n\n(cherry picked from commit ${MERGE_COMMIT})`,
