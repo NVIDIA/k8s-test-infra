@@ -442,3 +442,45 @@ test("renderBackportStatusComment carries the marker exactly once and every outc
   assert.match(body, /#10/);
   assert.match(body, /manually/i);
 });
+
+test("a merged PR with no cherry-pick labels and no prior status comment gets no comment", async () => {
+  const { github, result } = await run(backportState({ labels: [] }));
+
+  assert.equal(result.status, "complete");
+  assert.deepEqual(result.targets, []);
+  // Nothing to report and nothing to update: no bot comment on an ordinary PR.
+  assert.deepEqual(github.calls.upsertPolicyComment, []);
+  assert.equal(github.backportSnapshot().comments.length, 0);
+});
+
+test("a merged PR with no cherry-pick labels still updates a prior status comment", async () => {
+  const stale = renderBackportStatusComment([
+    { branch: "release-1.2", outcome: "created", backportPr: { number: 9, url: "https://github.com/NVIDIA/k8s-test-infra/pull/9" } },
+  ]);
+  const { github } = await run(backportState({
+    labels: [],
+    comments: [{ id: 3, author: "github-actions[bot]", body: stale }],
+  }));
+
+  // An existing status comment is kept current even once every label is gone.
+  assert.equal(github.calls.upsertPolicyComment.length, 1);
+  const updated = github.backportSnapshot().comments[0].body;
+  assert.doesNotMatch(updated, /#9/);
+  assert.match(updated, /Backport status/);
+});
+
+test("a leftover backport branch with no open PR is reused instead of wedging in error", async () => {
+  const staleOid = "9".repeat(40);
+  const { github, result } = await run(backportState({
+    branches: { "release-1.2": TARGET_HEAD, [BACKPORT_BRANCH]: staleOid },
+    pulls: [], // the backport PR was closed without deleting its branch
+  }));
+
+  assert.equal(result.targets[0].outcome, "created");
+  // The stale ref is force-updated through the guard, never re-created (which
+  // would 422 "Reference already exists" and wedge the target forever).
+  assert.deepEqual(github.calls.createRef, []);
+  assert.equal(github.calls.updateRef[0].name, BACKPORT_REF);
+  assert.equal(github.calls.updateRef[0].oid, TARGET_HEAD);
+  assert.equal(github.backportSnapshot().pulls.length, 1);
+});
