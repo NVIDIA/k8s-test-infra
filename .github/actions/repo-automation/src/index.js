@@ -6,11 +6,12 @@ const { syncLabels } = require("./modes/label-sync.js");
 const { runCommand } = require("./modes/command.js");
 const { runMetadata } = require("./modes/metadata.js");
 const { runMergeEvaluate } = require("./modes/merge-evaluate.js");
+const { runBackport } = require("./modes/backport.js");
 
 async function run(dependencies) {
   const { core } = dependencies;
   const mode = core.getInput("mode", { required: true });
-  if (mode !== "label-sync" && mode !== "metadata" && mode !== "command" && mode !== "merge-evaluate") {
+  if (mode !== "label-sync" && mode !== "metadata" && mode !== "command" && mode !== "merge-evaluate" && mode !== "backport") {
     throw new Error(`Unsupported mode: ${mode}`);
   }
 
@@ -23,7 +24,7 @@ async function run(dependencies) {
   const client = dependencies.githubClient ?? createGitHubClient(octokit, owner, repo);
   const dryRun = core.getBooleanInput("dry-run");
   let config;
-  if (mode === "metadata" || mode === "command" || mode === "merge-evaluate") {
+  if (mode === "metadata" || mode === "command" || mode === "merge-evaluate" || mode === "backport") {
     try {
       config = loadConfig(workspace);
     } catch {
@@ -49,6 +50,14 @@ async function run(dependencies) {
       });
     } else if (mode === "command") {
       summary = await runCommand({
+        event: dependencies.event,
+        github: client,
+        config,
+        dryRun,
+        now: dependencies.now,
+      });
+    } else if (mode === "backport") {
+      summary = await runBackport({
         event: dependencies.event,
         github: client,
         config,
