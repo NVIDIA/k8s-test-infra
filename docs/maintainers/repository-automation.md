@@ -165,8 +165,16 @@ Two equivalent triggers request a backport of a pull request:
 
 - Comment `/cherry-pick <target-branch>` on the pull request. Request several
   targets with one comment each. `/cherry-pick <target-branch> cancel` removes
-  the corresponding `cherry-pick/<target-branch>` label.
-- Add a `cherry-pick/<target-branch>` label through the GitHub UI.
+  the corresponding `cherry-pick/<target-branch>` label. On an already-merged
+  pull request the command both adds the `cherry-pick/<target-branch>` label and
+  dispatches the `Backport` workflow for that target. GitHub does not raise a
+  `labeled` event for a label added by the `GITHUB_TOKEN`, so the command cannot
+  rely on the label alone to start the backport; it uses `workflow_dispatch`,
+  GitHub's sanctioned exception, and passes the target branch explicitly so the
+  dispatched run never depends on re-reading the just-added label.
+- Add a `cherry-pick/<target-branch>` label through the GitHub UI. A human label
+  add raises the `labeled` event and triggers the `Backport` workflow directly;
+  on a merged pull request it is the manual alternative to the command.
 
 Command authorization is tiered and fail-closed:
 
