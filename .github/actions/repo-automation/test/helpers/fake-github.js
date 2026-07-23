@@ -53,6 +53,9 @@ function createFakeGitHub(initialState = []) {
   const mergeConflicts = new Set(
     (options.mergeConflicts ?? []).map(([base, head]) => JSON.stringify([base, head])),
   );
+  const mergeNoops = new Set(
+    (options.mergeNoops ?? []).map(([base, head]) => JSON.stringify([base, head])),
+  );
   const repositoryUrl = options.repositoryUrl ?? "https://github.com/NVIDIA/k8s-test-infra";
   let nextPullNumber = options.nextPullNumber ?? 1000;
   let oidCounter = options.oidSeed ?? 0xdec0de;
@@ -433,6 +436,9 @@ function createFakeGitHub(initialState = []) {
       record("mergeBranches", { base, head });
       if (mergeConflicts.has(JSON.stringify([base, head]))) {
         return { merged: false };
+      }
+      if (mergeNoops.has(JSON.stringify([base, head]))) {
+        return { merged: false, alreadyMerged: true };
       }
       const oid = nextOid();
       const treeOid = nextOid();

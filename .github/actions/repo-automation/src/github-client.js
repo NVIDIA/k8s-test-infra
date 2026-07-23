@@ -1087,7 +1087,10 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         if (error.status === 409) return { merged: false };
         throw error;
       }
-      if (response?.status === 204 || typeof response?.data?.sha !== "string") {
+      if (response?.status === 204) {
+        return { merged: false, alreadyMerged: true };
+      }
+      if (typeof response?.data?.sha !== "string") {
         return { merged: false };
       }
       return {
