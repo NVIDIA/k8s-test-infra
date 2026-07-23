@@ -80,15 +80,16 @@ cd compute-domain && ./run.sh
 See [compute-domain/README.md](compute-domain/README.md) for the
 walkthrough.
 
-### NVSentinel XID detection + remediation
+### NVSentinel thermal-margin detection + remediation
 
 Dedicated cluster (`nvml-mock-nvsentinel`) with 1 control-plane + 2 workers.
 Wires the mock GPUs into the NVIDIA GPU Operator's standalone DCGM and then into
-[NVSentinel](https://github.com/NVIDIA/nvsentinel). Injects an XID 79
-("fallen off the bus") on one worker and proves the full loop: NVSentinel
-**detects** the XID via DCGM, **remediates** by cordoning + draining the node
-(the sample GPU workload reschedules to the healthy worker), and then
-**recovers** — resetting the mock GPU uncordons the node automatically.
+[NVSentinel](https://github.com/NVIDIA/nvsentinel). Heats one worker's GPU past
+its slowdown limit and proves the full loop: NVSentinel **detects** the thermal
+margin crossing via DCGM + the metadata-collector's slowdown offset,
+**remediates** by cordoning + draining the node (the sample GPU workload
+reschedules to the healthy worker), and then **auto-recovers** — cooling the GPU
+uncordons the node automatically, with no DCGM restart.
 
 **Requirements:** Docker, Kind, Helm, kubectl (jq optional)
 

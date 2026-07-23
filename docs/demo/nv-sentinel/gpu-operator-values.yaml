@@ -1,7 +1,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# GPU Operator values for the NVSentinel XID-detection demo (mock GPUs on Kind).
+# GPU Operator values for the NVSentinel thermal-margin demo (mock GPUs on Kind).
 #
 # This mirrors tests/e2e/go/assets/gpu-operator-values.yaml with ONE key
 # difference: the standalone DCGM (nv-hostengine) DaemonSet is ENABLED so it
@@ -25,7 +25,7 @@ dcgm:
     - name: NVIDIA_DRIVER_ROOT
       value: "/var/lib/nvml-mock/driver"
 
-# dcgm-exporter kept on for an independent cross-check of DCGM_FI_DEV_XID_ERRORS.
+# dcgm-exporter kept on for an independent cross-check of DCGM_FI_DEV_MEMORY_TEMP / margin fields.
 dcgmExporter:
   enabled: true
   env:

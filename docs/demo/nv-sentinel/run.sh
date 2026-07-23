@@ -2,20 +2,30 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Demo: prove that NVIDIA NVSentinel DETECTS a GPU XID error on mock GPUs and
-# REMEDIATES the node (cordon + drain), then RECOVERS it (uncordon) once the
-# fault is reset — all on a local Kind cluster with no physical GPUs.
+# Demo: prove that NVIDIA NVSentinel DETECTS a GPU thermal condition on mock
+# GPUs and REMEDIATES the node (cordon + drain), then AUTO-RECOVERS it (uncordon)
+# once the GPU cools down — all on a local Kind cluster with no physical GPUs.
+#
+# The fault under test is a THERMAL MARGIN violation. NVSentinel's
+# GpuThermalMarginWatch compares each GPU's live signed T.Limit margin
+# (DCGM field 153) against the per-GPU hardware slowdown offset that the
+# metadata-collector reads once from NVML field 194
+# (NVML_FI_DEV_TEMPERATURE_SLOWDOWN_TLIMIT) and publishes to gpu_metadata.json.
+# When the margin drops below that offset the GPU is unhealthy; when it recovers
+# the check clears on its own — no DCGM restart required (unlike latched XID/ECC
+# faults).
 #
 # Pipeline exercised:
 #   nvml-mock (fake libnvidia-ml) --> GPU Operator standalone DCGM (nv-hostengine)
-#     --> NVSentinel GPU Health Monitor --> platform-connector --> MongoDB
-#     --> fault-quarantine (cordon) --> node-drainer (drain)
-#   reset --> DCGM clears --> healthy events --> fault-quarantine UNCORDON
+#     --> NVSentinel GPU Health Monitor (GpuThermalMarginWatch, field 153 vs the
+#         slowdown offset from metadata-collector) --> platform-connector
+#     --> MongoDB --> fault-quarantine (cordon) --> node-drainer (drain)
+#   cool down --> margin re-opens --> healthy events --> fault-quarantine UNCORDON
 #
 # Topology: 1 control-plane + 2 workers. The mock GPUs + GPU Operator operands
 # run on the workers (labeled nvml-mock-gpu=true); the NVSentinel control-plane
 # pipeline + MongoDB are pinned to the control-plane so draining a GPU worker
-# never evicts the pipeline doing the draining. When one worker's GPU is failed,
+# never evicts the pipeline doing the draining. When one worker's GPU overheats,
 # NVSentinel cordons/drains it and the sample GPU workload reschedules onto the
 # second, healthy worker.
 #
@@ -44,10 +54,14 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${NVSENTINEL_VERSION:=v1.15.0}"
 : "${NVSENTINEL_CHART:=oci://ghcr.io/nvidia/nvsentinel}"
 
-# XID injected and asserted on. 79 = "GPU has fallen off the bus" (fatal).
-: "${XID:=79}"
-# The GPU (index) failed on the target worker.
+# The GPU (index) overheated on the target worker.
 : "${TARGET_GPU:=0}"
+# Temperature (C) to pin on the target GPU. It must exceed the mock profile's
+# slowdown threshold so the T.Limit margin (DCGM field 153) goes negative and
+# crosses the slowdown offset. The default h100 mock profile slows down at 87C
+# (shutdown 92C), so 90C yields a small negative margin (~ -3C) — a thermal
+# slowdown, not a shutdown.
+: "${HOT_TEMP_C:=90}"
 # Node label that pins the mock + GPU operands to the GPU workers.
 GPU_NODE_LABEL="nvml-mock-gpu=true"
 # MongoDB Secret consumed by NVSentinel (global.datastore.credentialsFromSecret).
@@ -172,7 +186,7 @@ info "Waiting for cert-manager to be ready"
 # Generous timeout: on a busy host (e.g. several Kind clusters at once) the GPU
 # workers can be CPU-saturated during GPU Operator bring-up, slowing the
 # cert-manager image pulls.
-kubectl_ctx -n cert-manager wait --for=condition=Available deploy --all --timeout=420s
+kubectl_ctx -n cert-manager wait --for=condition=Available deploy --all --timeout=600s
 
 # --- Standalone MongoDB (public.ecr.aws mongo:8.0.3, TLS via cert-manager) -----
 # The chart's built-in Bitnami MongoDB is amd64-only (bitnamilegacy images) and
@@ -241,7 +255,7 @@ WORKLOAD_NODE=$(kubectl_ctx -n "${WORKLOAD_NAMESPACE}" get pod -l app=gpu-sample
 info "Sample workload scheduled on: ${WORKLOAD_NODE:-<pending>}"
 
 # ==============================================================================
-# PHASE 1 — INJECT XID and observe DETECTION + REMEDIATION (cordon + drain)
+# PHASE 1 — HEAT the GPU and observe DETECTION + REMEDIATION (cordon + drain)
 # ==============================================================================
 # Target the mock on the same worker the sample workload landed on (so the drain
 # is observable), else the first GPU worker.
@@ -250,9 +264,9 @@ MOCK_POD=$(kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" get pod -l app.kubernetes.io/
   --field-selector "spec.nodeName=${TARGET_NODE}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 [[ -n "${MOCK_POD}" ]] || { TARGET_NODE="${WORKERS[0]}"; MOCK_POD=$(kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" get pod -l app.kubernetes.io/name=nvml-mock --field-selector "spec.nodeName=${TARGET_NODE}" -o jsonpath='{.items[0].metadata.name}'); }
 
-info "PHASE 1: injecting XID ${XID} on GPU ${TARGET_GPU} of node ${TARGET_NODE} (pod ${MOCK_POD})"
+info "PHASE 1: heating GPU ${TARGET_GPU} to ${HOT_TEMP_C}C on node ${TARGET_NODE} (pod ${MOCK_POD})"
 kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" exec "${MOCK_POD}" -- \
-  nvml-mock-ctl fail --gpu "${TARGET_GPU}" --mode ecc_uncorrectable --after-calls 1 --xid "${XID}"
+  nvml-mock-ctl temp --gpu "${TARGET_GPU}" "${HOT_TEMP_C}"
 
 info "Waiting for NVSentinel to cordon ${TARGET_NODE} (detect -> quarantine)"
 cordoned=false
@@ -268,7 +282,7 @@ else
   warn "node not cordoned within timeout; inspect fault-quarantine logs"
 fi
 echo "--- node status ---";           observe kubectl_ctx get nodes
-echo "--- quarantine condition ---";  observe bash -c "kubectl --context ${KUBE_CONTEXT} get node ${TARGET_NODE} -o json | jq -r '.status.conditions[] | select(.type|test(\"Gpu\")) | \"\(.type)=\(.status): \(.message)\"' | grep -iE 'NotHealthy|fallen|xid|ecc' | head"
+echo "--- thermal-margin condition ---";  observe bash -c "kubectl --context ${KUBE_CONTEXT} get node ${TARGET_NODE} -o json | jq -r '.status.conditions[] | select(.type|test(\"Gpu\")) | \"\(.type)=\(.status): \(.message)\"' | grep -iE 'ThermalMargin|slowdown|margin' | head"
 echo "--- fault-quarantine cordon ---"; observe bash -c "kubectl --context ${KUBE_CONTEXT} -n ${NVSENTINEL_NAMESPACE} logs -l app.kubernetes.io/instance=nvsentinel --tail=200 --prefix 2>/dev/null | grep -iE 'Cordoning node|Quarantined' | tail -5"
 info "Waiting for the drained workload to reschedule off ${TARGET_NODE}"
 rescheduled=false
@@ -285,19 +299,18 @@ done
 observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" get pods -l app=gpu-sample-workload -o wide
 
 # ==============================================================================
-# PHASE 2 — RESET the GPU and observe RECOVERY (uncordon)
+# PHASE 2 — COOL the GPU and observe AUTO-RECOVERY (uncordon)
 # ==============================================================================
-info "PHASE 2: resetting the injected fault on ${TARGET_NODE}"
-kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" exec "${MOCK_POD}" -- nvml-mock-ctl reset --gpu all
+# Clearing the pinned temperature returns the GPU to its normal (cool) reading,
+# so the T.Limit margin re-opens above the slowdown offset. Unlike a latched
+# XID/ECC fault, DCGM field 153 is a live gauge: the next Health Monitor poll
+# sees the healthy margin and fault-quarantine uncordons the node — NO DCGM
+# restart needed. That live self-clearing behavior is the whole point of driving
+# the demo through the thermal-margin check.
+info "PHASE 2: cooling GPU ${TARGET_GPU} back down on ${TARGET_NODE} (clear temp override)"
+kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" exec "${MOCK_POD}" -- nvml-mock-ctl reset --gpu "${TARGET_GPU}"
 
-# DCGM latches XID/DBE errors until the hostengine re-reads the (now healthy)
-# mock, so restart the standalone DCGM + exporter to clear them. The GPU Health
-# Monitor then emits healthy events and fault-quarantine uncordons the node.
-info "Restarting standalone DCGM so it clears the latched XID"
-kubectl_ctx -n "${GPU_OPERATOR_NAMESPACE}" rollout restart daemonset/nvidia-dcgm daemonset/nvidia-dcgm-exporter
-kubectl_ctx -n "${GPU_OPERATOR_NAMESPACE}" rollout status daemonset/nvidia-dcgm --timeout=180s
-
-info "Waiting for NVSentinel to uncordon ${TARGET_NODE} (reset -> recovery)"
+info "Waiting for NVSentinel to uncordon ${TARGET_NODE} (cooldown -> recovery)"
 recovered=false
 for _ in $(seq 1 60); do
   if [[ "$(kubectl_ctx get node "${TARGET_NODE}" -o jsonpath='{.spec.unschedulable}' 2>/dev/null || true)" != "true" ]]; then
@@ -315,19 +328,22 @@ observe kubectl_ctx get nodes
 # --- Summary ------------------------------------------------------------------
 cat <<EOF
 
-==> NVSentinel XID detect + remediate + recover demo complete.
+==> NVSentinel thermal-margin detect + remediate + auto-recover demo complete.
 
   Cluster            : ${CLUSTER_NAME} (1 control-plane + ${#WORKERS[@]} workers)
-  Failed node        : ${TARGET_NODE} (GPU ${TARGET_GPU}, XID ${XID})
+  Overheated node    : ${TARGET_NODE} (GPU ${TARGET_GPU} pinned to ${HOT_TEMP_C}C)
   MongoDB            : standalone mongo:8.0.3 (external datastore, cert-manager TLS)
 
   What was shown:
-    1. DETECT     : GPU Health Monitor (via standalone DCGM) saw the injected
-                    XID ${XID} on GPU ${TARGET_GPU} and emitted a fatal health event.
+    1. DETECT     : the metadata-collector published GPU ${TARGET_GPU}'s slowdown
+                    T.Limit offset (NVML field 194) to gpu_metadata.json; heating
+                    the GPU drove DCGM field 153 negative, so GpuThermalMarginWatch
+                    fired GPU_TEMP_HW_SLOWDOWN_VIOLATION.
     2. REMEDIATE  : fault-quarantine cordoned ${TARGET_NODE}; node-drainer drained
                     it; the sample GPU workload rescheduled to the healthy worker.
-    3. RECOVER    : after 'nvml-mock-ctl reset' + DCGM restart, health went green
-                    and fault-quarantine UNCORDONED ${TARGET_NODE}.
+    3. RECOVER    : clearing the temperature re-opened the margin; the next Health
+                    Monitor poll saw it healthy and fault-quarantine UNCORDONED
+                    ${TARGET_NODE} — no DCGM restart needed.
 
   Inspect further:
     kubectl --context ${KUBE_CONTEXT} -n ${NVSENTINEL_NAMESPACE} get pods
@@ -336,8 +352,8 @@ cat <<EOF
 
   Re-run the fault manually:
     MOCK=\$(kubectl --context ${KUBE_CONTEXT} -n ${NVML_MOCK_NAMESPACE} get pod -l app.kubernetes.io/name=nvml-mock --field-selector spec.nodeName=${TARGET_NODE} -o jsonpath='{.items[0].metadata.name}')
-    kubectl --context ${KUBE_CONTEXT} -n ${NVML_MOCK_NAMESPACE} exec \$MOCK -- nvml-mock-ctl fail --gpu ${TARGET_GPU} --mode ecc_uncorrectable --after-calls 1 --xid ${XID}
-    kubectl --context ${KUBE_CONTEXT} -n ${NVML_MOCK_NAMESPACE} exec \$MOCK -- nvml-mock-ctl reset --gpu all   # then restart nvidia-dcgm
+    kubectl --context ${KUBE_CONTEXT} -n ${NVML_MOCK_NAMESPACE} exec \$MOCK -- nvml-mock-ctl temp --gpu ${TARGET_GPU} ${HOT_TEMP_C}   # heat -> cordon
+    kubectl --context ${KUBE_CONTEXT} -n ${NVML_MOCK_NAMESPACE} exec \$MOCK -- nvml-mock-ctl reset --gpu ${TARGET_GPU}               # cool -> auto-uncordon
 
   Cleanup:
     kind delete cluster --name ${CLUSTER_NAME}

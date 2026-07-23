@@ -1,13 +1,13 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Kind cluster for the NVSentinel XID-detection demo.
+# Kind cluster for the NVSentinel thermal-margin demo.
 #
 # One control-plane + two workers. The mock GPUs and GPU Operator operands are
 # pinned to the workers (run.sh labels them nvml-mock-gpu=true), while the
 # NVSentinel control-plane pipeline (MongoDB, platform-connector, fault-quarantine,
 # node-drainer) is pinned to the control-plane. When NVSentinel remediates an
-# injected XID it cordons and drains the *faulty* GPU worker; a GPU workload can
+# a thermal-margin violation it cordons and drains the *faulty* GPU worker; a GPU workload can
 # then reschedule onto the second, healthy worker.
 #
 # Default kind node naming is used (no kubeadm name overrides) so each node's

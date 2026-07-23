@@ -1,12 +1,13 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# NVSentinel values for the mock-GPU XID-detection demo on Kind.
+# NVSentinel values for the mock-GPU thermal-margin demo on Kind.
 #
-# Enables the DCGM-based GPU Health Monitor plus the remediation pipeline
-# (MongoDB store -> Fault Quarantine -> Node Drainer) so an injected XID is
-# detected AND remediated (worker cordoned + drained). Syslog/CSP monitors are
-# off (the mock does not write NRVM: Xid kernel lines; detection is via DCGM).
+# Enables the DCGM-based GPU Health Monitor (GpuThermalMarginWatch) plus the
+# remediation pipeline (MongoDB store -> Fault Quarantine -> Node Drainer) so a
+# GPU thermal-margin violation is detected AND remediated (worker cordoned +
+# drained), then auto-recovered on cooldown. Syslog/CSP monitors are off
+# (detection is via DCGM field 153, not kernel logs).
 #
 # Prometheus Operator and cluster NetworkPolicies are not installed in this
 # demo, so podMonitor and the metrics-access NetworkPolicy are disabled.
@@ -84,8 +85,14 @@ global:
   # Housekeeping modules kept minimal
   labeler:
     enabled: true
+  # The metadata-collector DaemonSet reads each GPU's signed slowdown T.Limit
+  # offset (NVML field 194, NVML_FI_DEV_TEMPERATURE_SLOWDOWN_TLIMIT) once and
+  # writes it to global.metadataPath (gpu_metadata.json). The GPU Health
+  # Monitor needs that offset to arm GpuThermalMarginWatch; without it the
+  # thermal-margin check stays inactive ("missing slowdown TLIMIT threshold
+  # metadata"). The nvml-mock exposes field 194 so this works on the mock GPUs.
   metadataCollector:
-    enabled: false
+    enabled: true
   eventExporter:
     enabled: false
   preflight:
@@ -108,17 +115,36 @@ networkPolicy:
 
 # --- Subchart overrides -------------------------------------------------------
 
+# labeler: this demo runs the GPU Operator with the real driver disabled (the
+# nvml-mock supplies libnvidia-ml.so instead), so there is no
+# nvidia-driver-daemonset pod for the labeler to detect and it never sets
+# nvsentinel.dgxc.nvidia.com/driver.installed=true. assumeDriverInstalled makes
+# the labeler set that label on every nvidia.com/gpu.present node, which the
+# metadata-collector DaemonSet requires in its node selector. (This is the same
+# knob NVIDIA documents for hosts with pre-baked drivers.)
+labeler:
+  assumeDriverInstalled: true
+
 # gpu-health-monitor: suppress the mock's baseline NVLink effective-BER
 # "failure". The mock reports DCGM_FR_NVLINK_EFFECTIVE_BER_THRESHOLD on every GPU
 # at boot; that is a mock-data artifact (recommendedAction CONTACT_SUPPORT, not
 # the fault under test). If left active it stays a "failing check" forever and
-# keeps the node quarantined even after the injected XID is reset, so the
+# keeps the node quarantined even after the GPU cools back down, so the
 # recovery/uncordon path never completes. Suppressing it lets all checks clear
-# once the injected fault is reset.
+# once the thermal margin recovers.
 gpu-health-monitor:
   dcgmHealthCheck:
     suppressedErrorCodes:
       - DCGM_FR_NVLINK_EFFECTIVE_BER_THRESHOLD
+  # GpuThermalMarginWatch (DCGM field 153 vs the per-GPU slowdown T.Limit offset
+  # from gpu_metadata.json) is the fault this demo exercises. By default the
+  # watch is enabled but runs dry (gpuTempLimitStoreOnly=true), so its events
+  # are emitted STORE_ONLY and never cordon. Turn store-only OFF so a closing
+  # thermal margin drives the full detect -> cordon -> drain pipeline; when the
+  # GPU cools and the margin re-opens the watch clears and the node uncordons.
+  dcgmFieldsMonitoring:
+    gpuTempLimitMonitoringEnabled: true
+    gpuTempLimitStoreOnly: false
 
 # node-drainer: evict user-namespace pods immediately on drain. The default mode
 # is "AllowCompletion", which waits for each pod to finish gracefully (respecting
@@ -136,7 +162,7 @@ node-drainer:
 # breaker trips when >= 50% of GPU nodes are cordoned within a 5m window; with
 # only two GPU workers a single legitimate cordon already meets that threshold
 # and halts ALL further processing (including the uncordon on recovery), leaving
-# the node stuck. Disabling it keeps the detect -> cordon -> reset -> uncordon
+# the node stuck. Disabling it keeps the detect -> cordon -> cooldown -> uncordon
 # loop observable. Leave it enabled (the default) on real, larger clusters.
 fault-quarantine:
   circuitBreaker:
