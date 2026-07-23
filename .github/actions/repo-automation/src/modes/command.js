@@ -4,6 +4,7 @@ const { parseCommands } = require("../commands/parser.js");
 const { parsePolicyState } = require("../commands/state.js");
 const { planCommandExecution } = require("../commands/executor.js");
 const { validateConfig } = require("../config.js");
+const { CHERRY_PICK_LABEL_PREFIX } = require("../managed-labels.js");
 const { parseAliases, parseOwnersFile, resolveOwners } = require("../owners.js");
 const {
   POLICY_COMMENT_MARKER,
@@ -49,12 +50,13 @@ function eventIdentity(event) {
   };
 }
 
-function openPullRequest(value, identity) {
-  if (value === null || value === undefined || value.state !== "open") return null;
+function livePullRequest(value, identity) {
+  if (value === null || value === undefined) return null;
   if (
     typeof value !== "object"
     || Array.isArray(value)
     || value.number !== identity.prNumber
+    || typeof value.state !== "string"
     || typeof value.draft !== "boolean"
     || typeof value.title !== "string"
     || typeof value.author !== "string"
@@ -77,6 +79,7 @@ function samePullRequest(left, right) {
     && left.title === right.title
     && left.author.toLowerCase() === right.author.toLowerCase()
     && left.headOid === right.headOid
+    && (left.merged === true) === (right.merged === true)
     && left.baseRepository.owner.toLowerCase() === right.baseRepository.owner.toLowerCase()
     && left.baseRepository.repo.toLowerCase() === right.baseRepository.repo.toLowerCase();
 }
@@ -195,8 +198,14 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     return { status: "ignored", reason: "no-command" };
   }
 
-  const pullRequest = openPullRequest(await github.getPullRequest(identity.prNumber), identity);
+  const pullRequest = livePullRequest(await github.getPullRequest(identity.prNumber), identity);
   if (pullRequest === null) return { status: "ignored", reason: "not-open-pull-request" };
+  const prOpen = pullRequest.state === "open";
+  const merged = pullRequest.merged === true;
+  const cherryPickRequested = parsed.commands.some((command) => command.name === "cherry-pick");
+  if (!prOpen && !cherryPickRequested) {
+    return { status: "ignored", reason: "not-open-pull-request" };
+  }
 
   const [liveUser, access] = await Promise.all([
     github.getUserIdentity(comment.author.toLowerCase()),
@@ -268,10 +277,24 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     ...reviews.map((review) => review.user.toLowerCase()),
   ])].sort();
   const needsRuns = ownerAuthorityValid
+    && prOpen
     && parsed.commands.some((command) => command.name === "retest");
   const runs = needsRuns
     ? await github.listWorkflowRunsForHead(pullRequest.headOid, identity.prNumber)
     : [];
+  const cherryPickPatterns = validConfiguration
+    ? config.policy.commands.cherryPick.targetBranchPatterns
+    : [];
+  const cherryPickTargets = new Map();
+  if (cherryPickRequested && (prOpen || merged)) {
+    const branches = [...new Set(parsed.commands
+      .filter((command) => command.name === "cherry-pick")
+      .map((command) => command.branch))].sort();
+    for (const branch of branches) {
+      const ref = await github.getBranch(branch);
+      cherryPickTargets.set(branch, { exists: ref !== null });
+    }
+  }
   const timestamp = now();
   const state = ownerAuthorityValid
     ? stored.state
@@ -297,6 +320,11 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     repository: `${identity.owner}/${identity.repo}`,
     authorityValid: ownerAuthorityValid,
     assignmentFanoutExceeded: targetPlan.exceeded,
+    open: prOpen,
+    merged,
+    baseRef: pullRequest.baseBranch,
+    cherryPickPatterns,
+    cherryPickTargets,
   });
   const result = {
     status: ownerAuthorityValid
@@ -312,6 +340,10 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
       add: plan.mutations.addLabels,
       remove: plan.mutations.removeLabels,
     },
+    cherryPickLabels: {
+      add: plan.mutations.addCherryPickLabels,
+      remove: plan.mutations.removeCherryPickLabels,
+    },
     apply: { attempted: [], applied: [], failed: null },
   };
   const commentBody = renderCommandPolicyComment({
@@ -323,7 +355,7 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
 
   if (dryRun) return result;
   const fence = async () => {
-    const current = openPullRequest(await github.getPullRequest(identity.prNumber), identity);
+    const current = livePullRequest(await github.getPullRequest(identity.prNumber), identity);
     if (!samePullRequest(pullRequest, current)) {
       throw new Error("pull request state changed after planning; refusing stale writes");
     }
@@ -361,6 +393,17 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
   if (plan.mutations.requestReviewers.length > 0) {
     const operation = descriptor("requestReviewers", { reviewers: plan.mutations.requestReviewers });
     await apply(operation, () => github.requestReviewers(identity.prNumber, plan.mutations.requestReviewers));
+  }
+  for (const label of plan.mutations.addCherryPickLabels) {
+    await apply(descriptor("ensureLabel", { label }), () => github.ensureLabel({
+      name: label,
+      color: "bfdadc",
+      description: `Backport this PR to ${label.slice(CHERRY_PICK_LABEL_PREFIX.length)} on merge`,
+    }));
+    await apply(descriptor("addCherryPickLabel", { label }), () => github.addCherryPickLabel(identity.prNumber, label));
+  }
+  for (const label of plan.mutations.removeCherryPickLabels) {
+    await apply(descriptor("removeCherryPickLabel", { label }), () => github.removeCherryPickLabel(identity.prNumber, label));
   }
 
   await fence();

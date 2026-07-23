@@ -278,6 +278,7 @@ function renderCommandPolicyComment({ existingBody = null, state, items, policy 
       `- ${code("/assign @user...")}: author, applicable owner, or triage collaborator.`,
       `- ${code("/unassign @user...")}: author or triage collaborator; an ordinary current assignee may target only themselves.`,
       `- ${code("/hold")} or ${code("/hold cancel")}, and ${code("/retest")}: author or write collaborator.`,
+      `- ${code("/cherry-pick <branch>")} or ${code("/cherry-pick <branch> cancel")}: author or write collaborator while open; write collaborator once merged. Labels the pull request for backport on merge.`,
       `- ${code("/help")}: any resolved human.`,
       `- Approval authority comes only from an applicable GitHub ${code("APPROVED")} review for the current head; ${code("/approve")} is unsupported.`,
     );
