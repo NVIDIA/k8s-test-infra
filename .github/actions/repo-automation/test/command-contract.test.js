@@ -761,6 +761,7 @@ test("final head and PR identity fence aborts every stale write", async (t) => {
     ["draft", { draft: true }],
     ["author", { author: "mallory" }],
     ["base", { baseRepository: { owner: "other", repo: "repo" } }],
+    ["merged", { merged: true }],
   ]) {
     await t.test(name, async () => {
       const initial = commandState().pullRequest;
@@ -1143,6 +1144,32 @@ test("cherry-pick recognizes an existing variant-cased label and converges to a 
   assert.equal(result.commands[0].status, "noop");
   assert.equal(result.commands[0].code, "cherry-pick-noop");
   assert.deepEqual(github.calls.ensureLabel, []);
+  assert.deepEqual(github.calls.addCherryPickLabel, []);
+});
+
+test("intra-comment cherry-pick apply then cancel nets no label mutation", async () => {
+  const { github, result } = await run(cherryPickState({
+    issueComment: { body: "/cherry-pick release-1.2\n/cherry-pick release-1.2 cancel" },
+  }));
+
+  // The cancel must see the same-comment apply (desiredCherryPick), not the
+  // absent live label, so the net effect is nothing added.
+  assert.equal(result.commands[0].code, "cherry-pick-planned");
+  assert.equal(result.commands[1].code, "cherry-pick-cancelled");
+  assert.deepEqual(github.calls.addCherryPickLabel, []);
+  assert.deepEqual(github.calls.removeCherryPickLabel, []);
+  assert.deepEqual(github.calls.ensureLabel, []);
+});
+
+test("intra-comment cherry-pick cancel then re-apply on a labelled PR nets no removal", async () => {
+  const { github, result } = await run(cherryPickState({
+    issueComment: { body: "/cherry-pick release-1.2 cancel\n/cherry-pick release-1.2" },
+    labels: ["do-not-merge/needs-approval", "cherry-pick/release-1.2"],
+  }));
+
+  assert.equal(result.commands[0].code, "cherry-pick-cancelled");
+  assert.equal(result.commands[1].code, "cherry-pick-planned");
+  assert.deepEqual(github.calls.removeCherryPickLabel, []);
   assert.deepEqual(github.calls.addCherryPickLabel, []);
 });
 

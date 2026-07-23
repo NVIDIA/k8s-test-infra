@@ -194,6 +194,27 @@ test("client createCommit omits author when not provided", async () => {
   assert.equal(Object.hasOwn(received, "author"), false);
 });
 
+test("client createCommit rejects an empty, NUL-bearing, or oversize message before octokit", async () => {
+  // A successful stub: if the message guard is gutted the call resolves and the
+  // rejection assertion fails, so this discriminates the guard.
+  const c = client({ git: { createCommit: async () => ({ data: { sha: NEW_COMMIT_OID } }) } });
+  await assert.rejects(() => c.createCommit({ message: "", treeOid: TREE_OID, parentOids: [BASE_OID] }), /commit message/);
+  await assert.rejects(() => c.createCommit({ message: "a\0b", treeOid: TREE_OID, parentOids: [BASE_OID] }), /commit message/);
+  await assert.rejects(
+    () => c.createCommit({ message: "x".repeat(1024 * 1024 + 1), treeOid: TREE_OID, parentOids: [BASE_OID] }),
+    /commit message/,
+  );
+});
+
+test("client createCommit rejects zero, too-many, or malformed parent OIDs before octokit", async () => {
+  const c = client({ git: { createCommit: async () => ({ data: { sha: NEW_COMMIT_OID } }) } });
+  await assert.rejects(() => c.createCommit({ message: "m", treeOid: TREE_OID, parentOids: [] }), /commit parents/);
+  const seventeen = Array.from({ length: 17 }, (_, index) => index.toString(16).padStart(40, "0"));
+  await assert.rejects(() => c.createCommit({ message: "m", treeOid: TREE_OID, parentOids: seventeen }), /commit parents/);
+  await assert.rejects(() => c.createCommit({ message: "m", treeOid: TREE_OID, parentOids: "notarray" }), /commit parents/);
+  await assert.rejects(() => c.createCommit({ message: "m", treeOid: TREE_OID, parentOids: ["not-a-valid-oid"] }), /commit parent OID/);
+});
+
 test("client createRef fully-qualifies the ref; update/delete use the bare heads form", async () => {
   const calls = [];
   const c = client({ git: {
@@ -449,8 +470,12 @@ test("fake exposes exactly the same new capability method names as the real clie
     assert.equal(realMethods.has(name), true, `real client is missing ${name}`);
     assert.equal(fakeMethods.has(name), true, `fake is missing ${name}`);
   }
-  assert.deepEqual(
-    NEW_CAPABILITIES.filter((name) => fakeMethods.has(name)),
-    NEW_CAPABILITIES.filter((name) => realMethods.has(name)),
-  );
+  // Derive each capability surface from the object's own method keys and compare
+  // it to the enumerated list, so a removed or renamed method on either side
+  // drops out and fails — unlike filtering the enumerated list by membership,
+  // which is guaranteed true once the loop above has passed.
+  const capabilities = new Set(NEW_CAPABILITIES);
+  const expected = [...NEW_CAPABILITIES].sort();
+  assert.deepEqual([...realMethods].filter((name) => capabilities.has(name)).sort(), expected);
+  assert.deepEqual([...fakeMethods].filter((name) => capabilities.has(name)).sort(), expected);
 });

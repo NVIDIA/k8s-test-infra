@@ -469,6 +469,22 @@ test("a merged PR with no cherry-pick labels still updates a prior status commen
   assert.match(updated, /Backport status/);
 });
 
+test("an invalid policy configuration fails closed: every labelled target is invalid-target", async () => {
+  const invalidConfig = loadConfig(repositoryRoot);
+  invalidConfig.policy.commands.retestCooldownSeconds = 601; // out of bounds -> validateConfig rejects
+  const { github, result } = await run(backportState(), { config: invalidConfig });
+
+  // With no trusted patterns the labelled target degrades to invalid-target and
+  // does no graft work, instead of reading config.policy.* and throwing.
+  assert.equal(result.status, "complete");
+  assert.equal(result.targets[0].branch, "release-1.2");
+  assert.equal(result.targets[0].outcome, "invalid-target");
+  assert.deepEqual(github.calls.getBranch, []);
+  assert.deepEqual(github.calls.createRef, []);
+  assert.deepEqual(github.calls.mergeBranches, []);
+  assert.deepEqual(github.calls.createPullRequest, []);
+});
+
 test("a leftover backport branch with no open PR is reused instead of wedging in error", async () => {
   const staleOid = "9".repeat(40);
   const { github, result } = await run(backportState({
