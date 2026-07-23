@@ -3,7 +3,11 @@
 const { Buffer } = require("node:buffer");
 const { setTimeout: delay } = require("node:timers/promises");
 const { TextDecoder } = require("node:util");
-const { isManagedMetadataLabel, isManagedPolicyLabel } = require("./managed-labels.js");
+const {
+  isManagedCherryPickLabel,
+  isManagedMetadataLabel,
+  isManagedPolicyLabel,
+} = require("./managed-labels.js");
 const { trustedWorkflowIdentity, RERUNNABLE_EVENTS } = require("./retest.js");
 
 const MAX_CONTENT_BYTES = 1024 * 1024;
@@ -147,6 +151,41 @@ function gitOid(value, name = "Git OID") {
     throw new TypeError(`${name} must be a 40- or 64-character Git OID`);
   }
   return value.toLowerCase();
+}
+
+function gitRefName(value, name = "ref name") {
+  nonEmptyString(value, name);
+  if (
+    value.length > 256
+    || !value.startsWith("heads/")
+    || /[\0-\x20\x7f~^:?*\[\]\\]/.test(value)
+    || value.includes("@")
+    || value.includes("//")
+    || value.includes("..")
+    || value.includes("@{")
+  ) {
+    throw new TypeError(`${name} must be a heads/ ref`);
+  }
+  const segments = value.split("/");
+  if (
+    segments.length < 2
+    || segments.some((segment) => (
+      segment === ""
+      || segment.startsWith(".")
+      || segment.endsWith(".")
+      || segment.endsWith(".lock")
+    ))
+  ) {
+    throw new TypeError(`${name} must be a heads/ ref`);
+  }
+  return value;
+}
+
+function commitMessage(value, name = "commit message") {
+  if (typeof value !== "string" || value === "" || value.includes("\0") || value.length > MAX_CONTENT_BYTES) {
+    throw new TypeError(`${name} must be bounded non-empty text`);
+  }
+  return value;
 }
 
 function loginList(values, name) {
@@ -917,6 +956,174 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
       } catch (error) {
         if (error.status !== 404) throw error;
       }
+    },
+
+    async addCherryPickLabel(prNumber, label) {
+      positiveInteger(prNumber, "PR number");
+      if (!isManagedCherryPickLabel(label)) throw new TypeError("label is not cherry-pick-managed");
+      await call("addCherryPickLabel", () => octokit.rest.issues.addLabels({
+        owner, repo, issue_number: prNumber, labels: [label],
+      }), true);
+    },
+
+    async removeCherryPickLabel(prNumber, label) {
+      positiveInteger(prNumber, "PR number");
+      if (!isManagedCherryPickLabel(label)) throw new TypeError("label is not cherry-pick-managed");
+      try {
+        await call("removeCherryPickLabel", () => octokit.rest.issues.removeLabel({
+          owner, repo, issue_number: prNumber, name: label,
+        }), true);
+      } catch (error) {
+        if (error.status !== 404) throw error;
+      }
+    },
+
+    async ensureLabel(label) {
+      const requested = copyLabel(label);
+      nonEmptyString(requested.name, "label name");
+      try {
+        const existing = await call("getLabel", () => octokit.rest.issues.getLabel({
+          owner, repo, name: requested.name,
+        }), true);
+        return copyLabel(existing.data);
+      } catch (error) {
+        if (error.status !== 404) throw error;
+      }
+      const created = await call("createLabel", () => octokit.rest.issues.createLabel({
+        owner, repo, ...requested,
+      }), false);
+      return copyLabel(created.data);
+    },
+
+    async getBranch(branch) {
+      nonEmptyString(branch, "branch");
+      try {
+        const { data } = await call("getBranch", () => octokit.rest.repos.getBranch({
+          owner, repo, branch,
+        }), true);
+        return {
+          name: nonEmptyString(data?.name, "branch name"),
+          oid: gitOid(data?.commit?.sha, "branch commit OID"),
+        };
+      } catch (error) {
+        if (error.status === 404) return null;
+        throw error;
+      }
+    },
+
+    async getCommitInfo(oid) {
+      const commitOid = gitOid(oid, "commit OID");
+      const { data } = await call("getCommitInfo", () => octokit.rest.git.getCommit({
+        owner, repo, commit_sha: commitOid,
+      }), true);
+      if (!Array.isArray(data?.parents)) {
+        throw new TypeError("commit parents must be an array");
+      }
+      return {
+        oid: gitOid(data.sha, "commit OID"),
+        treeOid: gitOid(data.tree?.sha, "commit tree OID"),
+        parents: data.parents.map((parent) => gitOid(parent?.sha, "commit parent OID")),
+        message: typeof data.message === "string" ? data.message : "",
+        author: {
+          name: nonEmptyString(data.author?.name, "commit author name"),
+          email: nonEmptyString(data.author?.email, "commit author email"),
+          date: nonEmptyString(data.author?.date, "commit author date"),
+        },
+      };
+    },
+
+    async createCommit({ message, treeOid, parentOids, author } = {}) {
+      commitMessage(message);
+      const tree = gitOid(treeOid, "commit tree OID");
+      if (!Array.isArray(parentOids) || parentOids.length === 0 || parentOids.length > 16) {
+        throw new TypeError("commit parents must be a bounded non-empty array");
+      }
+      const parents = parentOids.map((parent) => gitOid(parent, "commit parent OID"));
+      const request = { owner, repo, message, tree, parents };
+      if (author !== undefined) {
+        request.author = {
+          name: nonEmptyString(author?.name, "commit author name"),
+          email: nonEmptyString(author?.email, "commit author email"),
+          ...(author?.date === undefined ? {} : { date: nonEmptyString(author.date, "commit author date") }),
+        };
+      }
+      const { data } = await call("createCommit", () => octokit.rest.git.createCommit(request), false);
+      return gitOid(data?.sha, "created commit OID");
+    },
+
+    async createRef(name, oid) {
+      gitRefName(name);
+      const sha = gitOid(oid, "ref OID");
+      await call("createRef", () => octokit.rest.git.createRef({
+        owner, repo, ref: `refs/${name}`, sha,
+      }), false);
+    },
+
+    async updateRef(name, oid, force = true) {
+      gitRefName(name);
+      const sha = gitOid(oid, "ref OID");
+      if (typeof force !== "boolean") throw new TypeError("force must be a boolean");
+      await call("updateRef", () => octokit.rest.git.updateRef({
+        owner, repo, ref: name, sha, force,
+      }), true);
+    },
+
+    async deleteRef(name) {
+      gitRefName(name);
+      await call("deleteRef", () => octokit.rest.git.deleteRef({
+        owner, repo, ref: name,
+      }), false);
+    },
+
+    async mergeBranches(base, head) {
+      nonEmptyString(base, "merge base");
+      nonEmptyString(head, "merge head");
+      let response;
+      try {
+        response = await call("mergeBranches", () => octokit.rest.repos.merge({
+          owner, repo, base, head,
+        }), false);
+      } catch (error) {
+        if (error.status === 409) return { merged: false };
+        throw error;
+      }
+      if (response?.status === 204 || typeof response?.data?.sha !== "string") {
+        return { merged: false };
+      }
+      return {
+        merged: true,
+        oid: gitOid(response.data.sha, "merge commit OID"),
+        treeOid: gitOid(response.data.commit?.tree?.sha, "merge tree OID"),
+      };
+    },
+
+    async createPullRequest({ base, head, title, body } = {}) {
+      nonEmptyString(base, "pull request base");
+      nonEmptyString(head, "pull request head");
+      nonEmptyString(title, "pull request title");
+      if (typeof body !== "string") throw new TypeError("pull request body must be a string");
+      const { data } = await call("createPullRequest", () => octokit.rest.pulls.create({
+        owner, repo, base, head, title, body,
+      }), false);
+      return {
+        number: positiveInteger(data?.number, "created pull request number"),
+        url: nonEmptyString(data?.html_url, "created pull request URL"),
+      };
+    },
+
+    async findOpenPullRequest(head, base) {
+      nonEmptyString(head, "pull request head");
+      nonEmptyString(base, "pull request base");
+      const pulls = await paginateLimited("findOpenPullRequest", octokit.rest.pulls.list, {
+        owner, repo, state: "open", base, head: `${owner}:${head}`,
+      }, MAX_OPEN_PULL_REQUESTS);
+      const match = pulls.find((pull) => (
+        pull?.base?.ref === base && pull?.head?.ref === head
+      ));
+      return match === undefined ? null : {
+        number: positiveInteger(match.number, "open pull request number"),
+        url: nonEmptyString(match.html_url, "open pull request URL"),
+      };
     },
 
     async planPolicyComment(prNumber, marker) {

@@ -1,5 +1,7 @@
 "use strict";
 
+const { BRANCH_TOKEN } = require("./commands/parser.js");
+
 const MANAGED_STATE_LABELS = new Set(["do-not-merge/work-in-progress", "needs-rebase"]);
 const MANAGED_POLICY_LABELS = new Set([
   "approved",
@@ -7,6 +9,7 @@ const MANAGED_POLICY_LABELS = new Set([
   "do-not-merge/needs-approval",
   "lgtm",
 ]);
+const CHERRY_PICK_LABEL_PREFIX = "cherry-pick/";
 
 function isManagedMetadataLabel(label) {
   if (typeof label !== "string") return false;
@@ -21,4 +24,16 @@ function isManagedPolicyLabel(label) {
   return typeof label === "string" && MANAGED_POLICY_LABELS.has(label.toLowerCase());
 }
 
-module.exports = { isManagedMetadataLabel, isManagedPolicyLabel };
+function isManagedCherryPickLabel(label) {
+  if (typeof label !== "string" || !label.startsWith(CHERRY_PICK_LABEL_PREFIX)) {
+    return false;
+  }
+  return BRANCH_TOKEN.test(label.slice(CHERRY_PICK_LABEL_PREFIX.length));
+}
+
+module.exports = {
+  CHERRY_PICK_LABEL_PREFIX,
+  isManagedCherryPickLabel,
+  isManagedMetadataLabel,
+  isManagedPolicyLabel,
+};

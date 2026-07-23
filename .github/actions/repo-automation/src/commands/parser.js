@@ -199,4 +199,4 @@ function parseCommands(body) {
   return { commands, diagnostics };
 }
 
-module.exports = { parseCommands };
+module.exports = { parseCommands, BRANCH_TOKEN };

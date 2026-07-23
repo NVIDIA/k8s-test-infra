@@ -19,6 +19,10 @@ function normalizedOptions(initialState) {
   return initialState ?? {};
 }
 
+function syntheticOid(counter) {
+  return counter.toString(16).padStart(40, "0");
+}
+
 function createFakeGitHub(initialState = []) {
   const options = normalizedOptions(initialState);
   const labels = (options.labels ?? []).map((label) => (
@@ -32,6 +36,30 @@ function createFakeGitHub(initialState = []) {
   }
   const pullRequests = clone(options.pullRequests ?? [options.pullRequest]);
   const requestedReviewers = [...(options.requestedReviewers ?? [])];
+  const refs = new Map();
+  for (const [name, oid] of Object.entries(options.branches ?? {})) {
+    refs.set(`heads/${name}`, oid);
+  }
+  for (const [ref, oid] of Object.entries(options.refs ?? {})) {
+    refs.set(ref, oid);
+  }
+  const commits = new Map(
+    Object.entries(options.commits ?? {}).map(([oid, info]) => [
+      oid,
+      clone({ oid, message: "", author: null, parents: [], ...info }),
+    ]),
+  );
+  const pulls = clone(options.pulls ?? []);
+  const mergeConflicts = new Set(
+    (options.mergeConflicts ?? []).map(([base, head]) => JSON.stringify([base, head])),
+  );
+  const repositoryUrl = options.repositoryUrl ?? "https://github.com/NVIDIA/k8s-test-infra";
+  let nextPullNumber = options.nextPullNumber ?? 1000;
+  let oidCounter = options.oidSeed ?? 0xdec0de;
+  function nextOid() {
+    oidCounter += 1;
+    return syntheticOid(oidCounter);
+  }
   const failureQueues = new Map(
     Object.entries(options.failures ?? {}).map(([operation, failures]) => [
       operation,
@@ -66,6 +94,18 @@ function createFakeGitHub(initialState = []) {
     removeIssueLabel: [],
     addPolicyLabel: [],
     removePolicyLabel: [],
+    addCherryPickLabel: [],
+    removeCherryPickLabel: [],
+    ensureLabel: [],
+    getBranch: [],
+    getCommitInfo: [],
+    createCommit: [],
+    createRef: [],
+    updateRef: [],
+    deleteRef: [],
+    mergeBranches: [],
+    createPullRequest: [],
+    findOpenPullRequest: [],
     planPolicyComment: [],
     getPolicyComment: [],
     upsertPolicyComment: [],
@@ -319,6 +359,108 @@ function createFakeGitHub(initialState = []) {
       if (index !== -1) labels.splice(index, 1);
     },
 
+    async addCherryPickLabel(prNumber, label) {
+      record("addCherryPickLabel", { prNumber, label });
+      if (!labels.some((entry) => entry.name === label)) {
+        labels.push({ name: label });
+      }
+    },
+
+    async removeCherryPickLabel(prNumber, label) {
+      record("removeCherryPickLabel", { prNumber, label });
+      const index = labels.findIndex((entry) => entry.name === label);
+      if (index !== -1) labels.splice(index, 1);
+    },
+
+    async ensureLabel(label) {
+      record("ensureLabel", label);
+      const existing = labels.find((entry) => entry.name.toLowerCase() === label.name.toLowerCase());
+      if (existing !== undefined) {
+        return Object.hasOwn(existing, "color") ? copyLabel(existing) : { name: existing.name };
+      }
+      const created = copyLabel(label);
+      labels.push(created);
+      return copyLabel(created);
+    },
+
+    async getBranch(branch) {
+      record("getBranch", { branch });
+      const ref = `heads/${branch}`;
+      if (!refs.has(ref)) return null;
+      return { name: branch, oid: refs.get(ref) };
+    },
+
+    async getCommitInfo(oid) {
+      record("getCommitInfo", { oid });
+      if (!commits.has(oid)) {
+        throw new Error(`missing commit: ${oid}`);
+      }
+      return clone(commits.get(oid));
+    },
+
+    async createCommit({ message, treeOid, parentOids, author } = {}) {
+      record("createCommit", { message, treeOid, parentOids, author });
+      const oid = nextOid();
+      commits.set(oid, clone({
+        oid,
+        treeOid,
+        parents: [...(parentOids ?? [])],
+        message: message ?? "",
+        author: author ?? null,
+      }));
+      return oid;
+    },
+
+    async createRef(name, oid) {
+      record("createRef", { name, oid });
+      if (refs.has(name)) {
+        throw new Error(`ref already exists: ${name}`);
+      }
+      refs.set(name, oid);
+    },
+
+    async updateRef(name, oid, force = true) {
+      record("updateRef", { name, oid, force });
+      refs.set(name, oid);
+    },
+
+    async deleteRef(name) {
+      record("deleteRef", { name });
+      refs.delete(name);
+    },
+
+    async mergeBranches(base, head) {
+      record("mergeBranches", { base, head });
+      if (mergeConflicts.has(JSON.stringify([base, head]))) {
+        return { merged: false };
+      }
+      const oid = nextOid();
+      const treeOid = nextOid();
+      commits.set(oid, clone({
+        oid, treeOid, parents: [], message: `Merge ${head} into ${base}`, author: null,
+      }));
+      const baseRef = `heads/${base}`;
+      if (refs.has(baseRef)) refs.set(baseRef, oid);
+      return { merged: true, oid, treeOid };
+    },
+
+    async createPullRequest({ base, head, title, body } = {}) {
+      record("createPullRequest", { base, head, title, body });
+      const number = nextPullNumber;
+      nextPullNumber += 1;
+      const url = `${repositoryUrl}/pull/${number}`;
+      pulls.push({ number, url, base, head, title, body, state: "open" });
+      return { number, url };
+    },
+
+    async findOpenPullRequest(head, base) {
+      record("findOpenPullRequest", { head, base });
+      const match = pulls.find((pull) => (
+        pull.state !== "closed" && pull.head === head && pull.base === base
+      ));
+      return match === undefined ? null : { number: match.number, url: match.url };
+    },
+
     async planPolicyComment(prNumber, marker) {
       record("planPolicyComment", { prNumber, marker });
       const matches = comments.filter(
@@ -394,6 +536,16 @@ function createFakeGitHub(initialState = []) {
         assignees: [...(options.assignees ?? [])].sort(),
         comments: clone(comments),
         workflowRuns: clone(options.workflowRuns ?? []),
+      };
+    },
+
+    backportSnapshot() {
+      return {
+        refs: Object.fromEntries([...refs.entries()].sort(([left], [right]) => (
+          left < right ? -1 : left > right ? 1 : 0
+        ))),
+        pulls: clone(pulls),
+        comments: clone(comments),
       };
     },
   };
