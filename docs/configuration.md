@@ -357,6 +357,27 @@ nvlink:
       remote_pci_bus_id: "0000:0F:00.0"
 ```
 
+### NVLink error injection (per device)
+
+A device can be given a rising NVLink DL error rate on its switch links, so its
+uplinks report climbing replay/recovery/CRC errors — the GPU-side signal DCGM's
+`DCGM_HEALTH_WATCH_NVLINK` reads (→ `DCGM_FR_NVLINK_*`). Set it in a device
+override, or at runtime with [`nvml-mock-ctl nvlink-error`](nvml-mock-ctl.md#nvlink-error--inject-nvlink-dl-errors-on-switch-links):
+
+```yaml
+devices:
+  - index: 0
+    nvlink_error:
+      rate: 250        # errors/second added on top of the healthy baseline
+      links: [0, 1, 2] # optional; omit to inject on all active links
+```
+
+The count accrues monotonically off the shared counter epoch (same model as
+`nvlink.defaults.error_rate`); `rate: 0` (or omitting the block) is healthy. This
+is deliberately *not* an "NVSwitch entity health" knob — DCGM's NVSwitch/SXID
+health is NSCQ/kernel-log sourced and cannot be driven from a `libnvidia-ml.so`
+mock.
+
 ## Available GPU Profiles
 
 Standalone configuration files are provided for each supported GPU model:

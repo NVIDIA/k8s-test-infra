@@ -688,3 +688,86 @@ func assertRuntimeHealthyRecovery(ctx SpecContext, h *harness.Harness, consumer 
 	By("final reset")
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 }
+
+// nvlinkErrorSum sums the Replay/Recovery/CRC error counters nvidia-smi reports
+// for a single GPU via `nvlink -e`. The second return is false when the bundled
+// nvidia-smi does not surface per-link error counters at all, so callers can
+// tri-state (SKIP) rather than hard-fail — the same philosophy as
+// assertions.nvlinkCountersTriState for throughput counters.
+func nvlinkErrorSum(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) (int, bool) {
+	GinkgoHelper()
+	res, err := h.Kube.Exec(ctx, pod, "nvidia-smi", "nvlink", "-e", "-i", strconv.Itoa(idx))
+	Expect(err).NotTo(HaveOccurred(), "nvidia-smi nvlink -e -i %d: %s", idx, res.Combined())
+	sum, surfaced := 0, false
+	for _, line := range strings.Split(res.Stdout, "\n") {
+		// e.g. "\t Link 0: Replay Errors: 12"
+		if !strings.Contains(line, "Errors:") {
+			continue
+		}
+		n, perr := strconv.Atoi(strings.TrimSpace(line[strings.LastIndex(line, ":")+1:]))
+		if perr != nil {
+			continue
+		}
+		surfaced = true
+		sum += n
+	}
+	return sum, surfaced
+}
+
+// assertRuntimeNVLinkErrorInjection covers the `nvlink-error` command: inject a
+// rising NVLink DL error rate on a GPU's switch-attached links and observe the
+// per-link error counters climb through nvidia-smi nvlink -e, confirm the
+// injection is scoped to the target GPU, then heal with rate 0 (no reset) and a
+// final reset, verifying the counters return to the healthy baseline. The
+// injected errors accrue monotonically off the fabric epoch, which is exactly
+// the rising rate DCGM's delta-based NVLink health watch consumes. Requires an
+// NVLink (switch-attached) profile — the caller gates on ExpectedNV()>0.
+func assertRuntimeNVLinkErrorInjection(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	count := gpuCount(ctx, h, consumer)
+	target := count - 1 // exercise a non-zero index where possible
+
+	baseSum, surfaced := nvlinkErrorSum(ctx, h, consumer, target)
+	if !surfaced {
+		Skip("bundled nvidia-smi did not surface NVLink error counters via 'nvlink -e'")
+	}
+	// The recovery half of this scenario asserts the counters return to their
+	// pre-injection value; that is only unambiguous when the profile ships a
+	// static-zero NVLink error baseline (every shipped profile does — none set
+	// nvlink error_rate). Skip rather than fail if a profile pins a rising
+	// baseline, so the test stays portable across E2E_PROFILES selections.
+	if baseSum != 0 {
+		Skip(fmt.Sprintf("profile ships a non-zero NVLink error baseline (%d); nvlink-error recovery needs a static-zero baseline", baseSum))
+	}
+
+	const rate = 500 // errors/second — climbs fast enough to observe within the TTL
+
+	By(fmt.Sprintf("inject NVLink DL errors at %d/s on GPU %d via nvml-mock-ctl nvlink-error", rate, target))
+	nvmlMockCtl(ctx, h, "nvlink-error", "--gpu", strconv.Itoa(target), strconv.Itoa(rate))
+
+	Eventually(func() int {
+		s, _ := nvlinkErrorSum(ctx, h, consumer, target)
+		return s
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(BeNumerically(">", 0), "GPU %d NVLink error counters should climb after injection", target)
+
+	if count > 1 {
+		By("verify the injection is scoped to the target GPU (GPU 0 unchanged)")
+		s0, _ := nvlinkErrorSum(ctx, h, consumer, 0)
+		Expect(s0).To(Equal(0), "GPU 0 must not accrue NVLink errors when only GPU %d was targeted", target)
+	}
+
+	By("heal the GPU with nvlink-error rate 0 (no reset)")
+	nvmlMockCtl(ctx, h, "nvlink-error", "--gpu", strconv.Itoa(target), "0")
+
+	Eventually(func() int {
+		s, _ := nvlinkErrorSum(ctx, h, consumer, target)
+		return s
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(0), "GPU %d NVLink error counters should return to the healthy baseline after rate 0", target)
+
+	By("final reset")
+	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+}

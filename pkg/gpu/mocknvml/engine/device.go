@@ -1344,8 +1344,38 @@ func (d *ConfigurableDevice) GetNvLinkErrorCounter(link int, counter nvml.NvLink
 	if d.fabric != nil {
 		val = d.fabric.NvLinkErrorCount(d.index, link, d.fabric.now())
 	}
+	val += d.nvLinkInjectedErrorCount(link)
 	debugLog("[NVML] nvmlDeviceGetNvLinkErrorCounter(link=%d, counter=%d) -> %d\n", link, counter, val)
 	return val, nvml.SUCCESS
+}
+
+// nvLinkInjectedErrorCount returns the extra DL error count contributed by a
+// runtime NVLinkError injection override for this link, or 0 when none applies.
+// The count climbs monotonically off the fabric epoch (accrue), so consumers
+// that sample it over time — e.g. DCGM's NVLink health watch — see a rising
+// error rate. Injection only lands on links that actually exist and are up: a
+// degraded switch uplink still enumerates, but a nonexistent link stays absent.
+func (d *ConfigurableDevice) nvLinkInjectedErrorCount(link int) uint64 {
+	inj := d.cfg().NVLinkError
+	if inj == nil || inj.Rate <= 0 || d.fabric == nil {
+		return 0
+	}
+	if l, ok := d.fabric.Link(d.index, link); !ok || !l.Active {
+		return 0
+	}
+	if len(inj.Links) > 0 {
+		found := false
+		for _, l := range inj.Links {
+			if l == link {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return 0
+		}
+	}
+	return accrue(0, inj.Rate, d.fabric.epoch, d.fabric.now())
 }
 
 // GetNvLinkUtilizationCounter returns the deterministic (rx, tx)

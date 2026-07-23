@@ -171,6 +171,34 @@ func TestPStatePatch_FormatsPState(t *testing.T) {
 	require.Equal(t, "P12", merged.PerformanceState)
 }
 
+func TestNVLinkErrorPatch_MergesRateAndLinks(t *testing.T) {
+	patch := NVLinkErrorPatch(250, []int{0, 3, 7})
+	require.NoError(t, Validate(&engine.DeviceConfig{}, patch))
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, patch)
+	require.NoError(t, err)
+	require.NotNil(t, merged.NVLinkError)
+	require.Equal(t, float64(250), merged.NVLinkError.Rate)
+	require.Equal(t, []int{0, 3, 7}, merged.NVLinkError.Links)
+}
+
+func TestNVLinkErrorPatch_NoLinksOmitsFilter(t *testing.T) {
+	patch := NVLinkErrorPatch(100, nil)
+	block, ok := patch["nvlink_error"].(map[string]any)
+	require.True(t, ok)
+	_, hasLinks := block["links"]
+	require.False(t, hasLinks, "empty links must be omitted so injection targets all active links")
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, patch)
+	require.NoError(t, err)
+	require.Nil(t, merged.NVLinkError.Links)
+}
+
+func TestNVLinkErrorPatch_ZeroRateHeals(t *testing.T) {
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, NVLinkErrorPatch(0, nil))
+	require.NoError(t, err)
+	require.NotNil(t, merged.NVLinkError)
+	require.Equal(t, float64(0), merged.NVLinkError.Rate, "rate 0 is the healthy/no-injection value")
+}
+
 func TestThrottlePatch_AuthoritativeFlags(t *testing.T) {
 	patch, err := ThrottlePatch([]string{"thermal"})
 	require.NoError(t, err)
