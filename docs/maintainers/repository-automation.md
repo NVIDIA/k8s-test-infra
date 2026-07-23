@@ -73,9 +73,9 @@ always-reporting PR or aggregate gate exists and is proven on unrelated paths
 as well as matching paths. Matrix E2E jobs also have generated profile suffixes;
 preserve the observed-context rule when an always-reporting gate is introduced.
 
-Do not require `Commands`, `Review observer`, `Merge evaluator`, stale,
-Scorecard, label synchronization, or publication workflows as pull request
-checks; those workflows do not provide ordinary PR check contexts.
+Do not require `Commands`, `Review observer`, `Merge evaluator`, `Backport`,
+stale, Scorecard, label synchronization, or publication workflows as pull
+request checks; those workflows do not provide ordinary PR check contexts.
 
 For a private repository, confirm that its GitHub plan and GitHub Advanced
 Security or GitHub Code Security entitlement, as applicable, provides the
@@ -112,6 +112,13 @@ branch settings changed at each checkpoint.
    enabling native auto-merge.
 7. Enable native auto-merge and exercise one non-release test pull request.
    Confirm GitHub waits for every required check and review rule before merging.
+8. Enable and exercise the `Backport` workflow. On a merged test pull request,
+   add a `cherry-pick/<target>` label or comment `/cherry-pick <target>`, and
+   confirm the workflow opens a `backport/<pr>-to-<target>` pull request from the
+   default `GITHUB_TOKEN`, or, on conflict, aborts with no residual branch and a
+   single status comment. See the [Backports](#backports) section for command
+   tiers, the conflict contract, and the CI-trigger limitation on token-created
+   backport pull requests.
 
 After any workflow or local-action change is merged, repeat the manual evaluator
 dry-run and fork exercise before treating the new revision as operational.
@@ -144,6 +151,74 @@ path, then obtain the explicit confirmation required by `AGENTS.md`. Do not
 dispatch or activate stale processing merely as part of repository-settings
 setup.
 
+## Backports
+
+The `Backport` workflow copies a merged pull request onto a protected
+`release-*` branch by cherry-picking its squash merge commit through the GitHub
+API. It never checks out or executes fork content: the job checks out only the
+trusted default branch and treats the pull request number and labels as API
+data.
+
+### Triggering a backport
+
+Two equivalent triggers request a backport of a pull request:
+
+- Comment `/cherry-pick <target-branch>` on the pull request. Request several
+  targets with one comment each. `/cherry-pick <target-branch> cancel` removes
+  the corresponding `cherry-pick/<target-branch>` label.
+- Add a `cherry-pick/<target-branch>` label through the GitHub UI.
+
+Command authorization is tiered and fail-closed:
+
+- On an open pull request, the pull request author or any user with write access
+  or above may request a backport label.
+- On a merged pull request, only a user with write access or above may do so,
+  because the label then drives an immediate cherry-pick.
+- Adding the `cherry-pick/<target-branch>` label directly through the GitHub UI
+  is an equivalent trigger, available to users with triage access or above per
+  GitHub's own label permission.
+
+If the pull request's changed paths are not covered by `.github/OWNERS`,
+`/cherry-pick` returns a `policy-unavailable` result and takes no action,
+consistent with every command's fail-closed behavior. A UI label-add on the
+same pull request still triggers the `Backport` workflow, because the label
+event does not run the command authorization path.
+
+### Backport outcomes
+
+For each labelled target the workflow records one outcome in a single status
+comment, upserted in place and marked with `repo-automation-backport-status:v1`:
+`created`, `already-exists`, `conflicts`, `empty`, `invalid-target`,
+`branch-missing`, or `error`. A `created` outcome opens a
+`backport/<pull-request-number>-to-<target-branch>` pull request.
+
+### Conflict behavior
+
+A cherry-pick that does not apply cleanly aborts with zero residue: no
+`backport/*` branch is created or left behind, and conflict markers are never
+committed. The status comment records the `conflicts` outcome and manual
+recovery instructions. Resolve it by hand on a local
+`backport/<pull-request-number>-to-<target-branch>` branch with
+`git cherry-pick -x <merge-commit>`, then open the pull request yourself.
+
+### CI-trigger limitation
+
+A backport pull request opened by the default `GITHUB_TOKEN` starts no check
+runs, because events created by that token do not trigger further workflow
+runs. To start CI on a token-created backport pull request, close and reopen it
+or push a commit to its `backport/*` branch.
+
+### Release-branch-cut checklist
+
+When cutting a release branch that should accept backports:
+
+1. Create the `release-X.Y` branch from the intended commit and apply the same
+   protected-branch settings as `main`.
+2. Optionally declare a `cherry-pick/release-X.Y` label in
+   `.github/repo-automation/labels.yml`. This is advisory: label synchronization
+   only creates and updates managed labels and never prunes, and `/cherry-pick`
+   auto-creates the label with color `bfdadc` on first use when it is absent.
+
 ## Emergency rollback
 
 1. Disable the affected workflow in GitHub Actions or revert its default-branch
@@ -154,6 +229,10 @@ setup.
    PR state.
 4. Run `Merge evaluator` with `dry-run: true` for affected PRs and record the
    remaining labels, reviews, and blockers.
+5. When rolling back `Backport`, disabling the workflow stops new backports but
+   does not close ones already opened; close or repurpose each affected
+   `backport/<pr>-to-<target>` pull request and its branch manually. Backport
+   never commits conflict markers, so no partial cherry-pick needs reverting.
 
 Rollback does not require deleting labels, comments, branches, releases, or
 artifacts. Preserve those records for audit and repair the declarative policy
