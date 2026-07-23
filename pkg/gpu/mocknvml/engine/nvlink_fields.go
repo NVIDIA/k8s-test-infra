@@ -273,8 +273,13 @@ func (d *ConfigurableDevice) GetNvLinkFieldValue(fieldID, scopeID uint32) (Field
 		}
 		return FieldValueUint64, v * avgBytesPerNvlinkPacket, nvml.SUCCESS
 
-	// Healthy-link error/recovery counters: present but zero (matches a clean
-	// real GB200). The link must exist, else nvidia-smi should stop enumerating.
+	// NVLink5 error/recovery counters (the NVML_FI_DEV_NVLINK_COUNT_* fields
+	// `nvidia-smi nvlink -e` reads on an NVLink5 GPU, and the surface DCGM's
+	// NVLink health watch keys on). Healthy links report 0; a runtime
+	// NVLinkError injection makes them climb in lockstep with the legacy DL
+	// error counters (161-163) and the direct nvmlDeviceGetNvLinkErrorCounter
+	// API, so the same rising error rate is observable on NVLink5 as on
+	// NVLink3/4. The link must exist, else nvidia-smi stops enumerating.
 	case fiNvlinkCountMalformedPacketErrors, fiNvlinkCountBufferOverrunErrors,
 		fiNvlinkCountRcvErrors, fiNvlinkCountRcvRemoteErrors,
 		fiNvlinkCountRcvGeneralErrors, fiNvlinkCountLocalLinkIntegrityErrors,
@@ -284,7 +289,7 @@ func (d *ConfigurableDevice) GetNvLinkFieldValue(fieldID, scopeID uint32) (Field
 		if _, ok := f.Link(d.index, link); !ok {
 			return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED
 		}
-		return FieldValueUint64, 0, nvml.SUCCESS
+		return FieldValueUint64, d.nvLinkInjectedErrorCount(link), nvml.SUCCESS
 
 	case fiNvlinkCountEffectiveBer, fiNvlinkCountSymbolBer:
 		if _, ok := f.Link(d.index, link); !ok {

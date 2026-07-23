@@ -86,6 +86,38 @@ func TestNVLinkErrorInjection_HealthyByDefault(t *testing.T) {
 	require.Zero(t, got, "no injection should read 0 errors")
 }
 
+// TestNVLinkErrorInjection_NVLink5CountFields asserts the injection also drives
+// the NVLink5 COUNT_* error/recovery fields — the surface `nvidia-smi nvlink -e`
+// reads on an NVLink5 GPU (and DCGM's NVLink health watch keys on) — so the
+// rising error rate is observable on NVLink5, not just via the legacy DL error
+// counters (161-163) and the direct API. Healthy links report 0.
+func TestNVLinkErrorInjection_NVLink5CountFields(t *testing.T) {
+	errFields := []uint32{
+		fiNvlinkCountMalformedPacketErrors, fiNvlinkCountBufferOverrunErrors,
+		fiNvlinkCountRcvErrors, fiNvlinkCountRcvRemoteErrors,
+		fiNvlinkCountRcvGeneralErrors, fiNvlinkCountLocalLinkIntegrityErrors,
+		fiNvlinkCountXmitDiscards, fiNvlinkCountLinkRecoverySuccessfulEvents,
+		fiNvlinkCountLinkRecoveryFailedEvents, fiNvlinkCountLinkRecoveryEvents,
+		fiNvlinkCountEffectiveErrors, fiNvlinkCountSymbolErrors,
+	}
+
+	healthy := injectionDevice(t, 4, nil, time.Hour)
+	for _, id := range errFields {
+		ft, v, ret := healthy.GetNvLinkFieldValue(id, 0)
+		require.Equal(t, nvml.SUCCESS, ret, "field %d", id)
+		require.Equal(t, FieldValueUint64, ft, "field %d", id)
+		require.Zerof(t, v, "healthy link should report 0 for field %d", id)
+	}
+
+	hot := injectionDevice(t, 4, &NVLinkErrorInjectionConfig{Rate: 100}, 10*time.Second)
+	for _, id := range errFields {
+		ft, v, ret := hot.GetNvLinkFieldValue(id, 0)
+		require.Equal(t, nvml.SUCCESS, ret, "field %d", id)
+		require.Equal(t, FieldValueUint64, ft, "field %d", id)
+		require.Equalf(t, uint64(1000), v, "field %d should climb with injection (100 err/s * 10s)", id)
+	}
+}
+
 // TestNVLinkErrorInjection_ZeroRateHeals asserts an explicit rate of 0 is the
 // healthy value (the `nvlink-error 0` heal path), not an injection.
 func TestNVLinkErrorInjection_ZeroRateHeals(t *testing.T) {
