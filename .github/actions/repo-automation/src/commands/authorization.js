@@ -98,7 +98,7 @@ function normalizeCommand(value) {
     retest: "run",
     unassign: "apply",
   };
-  if (name === "lgtm" || name === "hold") {
+  if (name === "lgtm" || name === "hold" || name === "cherry-pick") {
     if (value.operation !== "apply" && value.operation !== "cancel") {
       return null;
     }
@@ -113,6 +113,12 @@ function normalizeCommand(value) {
   const assignment = name === "assign" || name === "unassign";
   if ((assignment && users.size === 0) || (!assignment && users.size !== 0)) {
     return null;
+  }
+  if (name === "cherry-pick") {
+    if (typeof value.branch !== "string" || value.branch.length === 0) {
+      return null;
+    }
+    return { name, operation: value.operation, users, branch: value.branch };
   }
   return { name, operation: value.operation, users };
 }
@@ -222,6 +228,13 @@ function authorizeCommand(commandValue, context) {
       )
       || permissionAtLeast(actor, "triage"),
     );
+  }
+
+  if (command.name === "cherry-pick") {
+    if (context.merged === true) {
+      return allowed(permissionAtLeast(actor, "write"));
+    }
+    return allowed(isAuthor || permissionAtLeast(actor, "write"));
   }
 
   return allowed(isAuthor || permissionAtLeast(actor, "write"));
