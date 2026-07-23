@@ -29,20 +29,5 @@ containerdConfigPatches:
       BinaryName = "/usr/bin/nvidia-container-runtime"
 nodes:
   - role: control-plane
-    kubeadmConfigPatches:
-      - |
-        kind: JoinConfiguration
-        nodeRegistration:
-          name: control-plane
   - role: worker
-    kubeadmConfigPatches:
-      - |
-        kind: JoinConfiguration
-        nodeRegistration:
-          name: worker-1
   - role: worker
-    kubeadmConfigPatches:
-      - |
-        kind: JoinConfiguration
-        nodeRegistration:
-          name: worker-2

@@ -94,10 +94,13 @@ for node in "${WORKERS[@]}"; do
   info "Installing nvidia-container-toolkit into ${node}"
   docker exec "${node}" bash -c '
 set -e
+export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl gpg
+# --no-tty/--batch so this works when stdin is not a terminal (e.g. the script
+# is run detached / in CI); otherwise gpg tries to open /dev/tty and fails.
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-  | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  | gpg --no-tty --batch --yes --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
 curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
   | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" \
   | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
@@ -166,13 +169,19 @@ if ! kubectl_ctx get ns cert-manager >/dev/null 2>&1; then
   kubectl_ctx apply -f "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
 fi
 info "Waiting for cert-manager to be ready"
-kubectl_ctx -n cert-manager wait --for=condition=Available deploy --all --timeout=180s
+# Generous timeout: on a busy host (e.g. several Kind clusters at once) the GPU
+# workers can be CPU-saturated during GPU Operator bring-up, slowing the
+# cert-manager image pulls.
+kubectl_ctx -n cert-manager wait --for=condition=Available deploy --all --timeout=420s
 
 # --- Standalone MongoDB (public.ecr.aws mongo:8.0.3, TLS via cert-manager) -----
 # The chart's built-in Bitnami MongoDB is amd64-only (bitnamilegacy images) and
 # cannot run on arm64, so we run the official multi-arch image as an EXTERNAL
 # datastore (single-node replica set, TLS). See mongodb.yaml + README.
 info "Deploying standalone MongoDB (mongo:8.0.3, cert-manager TLS, replica set)"
+# Create the namespace up front: mongodb.yaml lives in it, and it is applied
+# before the NVSentinel Helm install that would otherwise --create-namespace it.
+kubectl_ctx create namespace "${NVSENTINEL_NAMESPACE}" --dry-run=client -o yaml | kubectl_ctx apply -f -
 kubectl_ctx apply -f "${REPO_ROOT}/${DEMO_DIR}/mongodb.yaml"
 kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" rollout status statefulset/mongodb-ext --timeout=180s
 info "Waiting for the replica-set init Job"
@@ -199,8 +208,17 @@ helm upgrade --install nvsentinel "${NVSENTINEL_CHART}" \
 
 info "Waiting for the external-MongoDB setup Job to create collections"
 kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" wait --for=condition=complete \
-  job/nvsentinel-external-mongodb-setup --timeout=180s || \
+  job/nvsentinel-external-mongodb-setup --timeout=300s || \
   warn "setup job not found/complete yet; connectors will retry"
+
+# The DB-consuming pods (platform-connectors, fault-quarantine, node-drainer)
+# start before the setup Job creates the collections and land in
+# CrashLoopBackOff. Once the Job is done, force a clean restart so they come up
+# immediately instead of waiting out the exponential backoff.
+info "Restarting DB-consuming pods now that collections exist"
+kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" delete pod \
+  -l app.kubernetes.io/instance=nvsentinel --field-selector=status.phase=Running \
+  --ignore-not-found >/dev/null 2>&1 || true
 
 info "Waiting for NVSentinel pods to become Ready"
 for _ in $(seq 1 60); do
@@ -252,7 +270,18 @@ fi
 echo "--- node status ---";           observe kubectl_ctx get nodes
 echo "--- quarantine condition ---";  observe bash -c "kubectl --context ${KUBE_CONTEXT} get node ${TARGET_NODE} -o json | jq -r '.status.conditions[] | select(.type|test(\"Gpu\")) | \"\(.type)=\(.status): \(.message)\"' | grep -iE 'NotHealthy|fallen|xid|ecc' | head"
 echo "--- fault-quarantine cordon ---"; observe bash -c "kubectl --context ${KUBE_CONTEXT} -n ${NVSENTINEL_NAMESPACE} logs -l app.kubernetes.io/instance=nvsentinel --tail=200 --prefix 2>/dev/null | grep -iE 'Cordoning node|Quarantined' | tail -5"
-info "Sample workload after drain (should move off ${TARGET_NODE} to the healthy worker):"
+info "Waiting for the drained workload to reschedule off ${TARGET_NODE}"
+rescheduled=false
+for _ in $(seq 1 48); do
+  wl_node=$(kubectl_ctx -n "${WORKLOAD_NAMESPACE}" get pod -l app=gpu-sample-workload \
+    -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true)
+  if [[ -n "${wl_node}" && "${wl_node}" != "${TARGET_NODE}" ]]; then
+    info "DRAINED: sample workload rescheduled onto healthy worker ${wl_node}"
+    rescheduled=true; break
+  fi
+  sleep 5
+done
+[[ "${rescheduled}" == "true" ]] || warn "workload has not rescheduled yet; check node-drainer logs"
 observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" get pods -l app=gpu-sample-workload -o wide
 
 # ==============================================================================

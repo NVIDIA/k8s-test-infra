@@ -112,10 +112,10 @@ DCGM latches XID/DBE errors until the hostengine re-reads the (now healthy) mock
 so the DCGM restart is required to clear them. Once the checks go green,
 `fault-quarantine` uncordons the node.
 
-## Why these two config choices matter
+## Why these config choices matter
 
-`nvsentinel-values.yaml` sets two non-default options that are essential for the
-demo to complete cleanly (both documented inline in that file):
+`nvsentinel-values.yaml` sets three non-default options that are essential for the
+demo to complete cleanly (all documented inline in that file):
 
 - **`gpu-health-monitor.dcgmHealthCheck.suppressedErrorCodes`** includes
   `DCGM_FR_NVLINK_EFFECTIVE_BER_THRESHOLD`. The mock reports an NVLink effective-BER
@@ -128,6 +128,20 @@ demo to complete cleanly (both documented inline in that file):
   event processing (including the uncordon on recovery). With only two GPU workers a
   single legitimate cordon already meets that threshold, so it is disabled for this
   tiny cluster. **Leave it enabled (the default) on real, larger clusters.**
+- **`node-drainer.userNamespaces[*].mode: Immediate`**. The default `AllowCompletion`
+  mode waits for each pod to finish gracefully; the sample GPU workload never
+  completes on its own, so it would never be evicted and you would not see it move to
+  the healthy worker. `Immediate` makes the drain → reschedule step observable. Real
+  clusters typically keep `AllowCompletion`.
+
+## A note on host resources
+
+The demo runs GPU Operator + DCGM + MongoDB + the full NVSentinel pipeline. On a
+busy host — for example if you have several Kind clusters running at once — the GPU
+workers can be CPU-saturated during GPU Operator bring-up, which slows image pulls
+and pod readiness (cert-manager and DCGM in particular). `run.sh` uses generous
+waits, but if a step times out, re-running it (it reuses the cluster) or freeing up
+other clusters usually resolves it.
 
 ## Why standalone MongoDB instead of the chart's built-in one
 

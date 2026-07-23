@@ -120,6 +120,18 @@ gpu-health-monitor:
     suppressedErrorCodes:
       - DCGM_FR_NVLINK_EFFECTIVE_BER_THRESHOLD
 
+# node-drainer: evict user-namespace pods immediately on drain. The default mode
+# is "AllowCompletion", which waits for each pod to finish gracefully (respecting
+# terminationGracePeriodSeconds). The demo's sample GPU workload is a long-running
+# pod that never completes on its own, so under the default it would never be
+# evicted and you would not see it reschedule onto the healthy worker. "Immediate"
+# makes the drain -> reschedule step observable. Real clusters typically keep
+# "AllowCompletion" for graceful eviction.
+node-drainer:
+  userNamespaces:
+    - name: "*"
+      mode: "Immediate"
+
 # fault-quarantine: disable the circuit breaker for this tiny demo cluster. The
 # breaker trips when >= 50% of GPU nodes are cordoned within a 5m window; with
 # only two GPU workers a single legitimate cordon already meets that threshold
