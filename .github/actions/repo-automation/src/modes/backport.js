@@ -70,11 +70,16 @@ function livePullRequest(value, prNumber) {
   return value;
 }
 
-// The write-time fence analog: the pull request must still be merged and its
-// identity unchanged from the planning read before any repository write.
-function stablePullRequest(planned, current) {
+// The write-time fence analog: the pull request must still be merged, its
+// identity unchanged from the planning read, and its live merge commit still
+// the exact squash commit named by the event — before any repository write.
+// A missing or mismatched mergeCommitOid means the merge the event described is
+// no longer the head of record, so every write for this run is refused.
+function stablePullRequest(planned, current, mergeCommitSha) {
   return current !== null
     && current.merged === true
+    && typeof current.mergeCommitOid === "string"
+    && current.mergeCommitOid.toLowerCase() === mergeCommitSha
     && planned.number === current.number
     && planned.state === current.state
     && planned.title === current.title
@@ -255,7 +260,7 @@ async function runBackport({ event, github, config, dryRun, now = () => new Date
   }
 
   const fenced = await github.getPullRequest(prNumber);
-  if (!stablePullRequest(planned, fenced)) {
+  if (!stablePullRequest(planned, fenced, mergeCommitSha)) {
     throw new Error("pull request state changed after planning; refusing stale writes");
   }
 

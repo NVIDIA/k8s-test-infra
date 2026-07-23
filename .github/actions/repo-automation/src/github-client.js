@@ -554,6 +554,7 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         headOid: nonEmptyString(data.head?.sha, "live PR head OID"),
         state: nonEmptyString(data.state, "live PR state").toLowerCase(),
         ...(typeof data.merged === "boolean" ? { merged: data.merged } : {}),
+        ...(typeof data.merge_commit_sha === "string" ? { mergeCommitOid: data.merge_commit_sha } : {}),
         ...(data.node_id === undefined ? {} : { nodeId: nonEmptyString(data.node_id, "live PR node ID") }),
         ...(data.base?.ref === undefined ? {} : { baseBranch: nonEmptyString(data.base.ref, "live PR base branch") }),
         baseRepository: {
