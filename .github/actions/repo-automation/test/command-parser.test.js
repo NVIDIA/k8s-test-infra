@@ -9,6 +9,10 @@ function command(name, operation, users, line, raw) {
   return { name, operation, users, line, raw };
 }
 
+function cherryPick(operation, branch, line, raw) {
+  return { name: "cherry-pick", operation, users: [], branch, line, raw };
+}
+
 test("parses only the approved command grammar", () => {
   const body = [
     "/lgtm",
@@ -239,4 +243,63 @@ test("handles non-string bodies without throwing or exposing values", () => {
       { line: 0, code: "invalid-body", message: "comment body must be a string" },
     ],
   });
+});
+
+test("parses the /cherry-pick apply and cancel grammar with a lowercased name", () => {
+  const body = [
+    "/cherry-pick release-0.2",
+    "/CHERRY-PICK release-0.2",
+    "/cherry-pick release-0.2 cancel",
+  ].join("\n");
+
+  assert.deepEqual(parseCommands(body), {
+    commands: [
+      cherryPick("apply", "release-0.2", 1, "/cherry-pick release-0.2"),
+      cherryPick("apply", "release-0.2", 2, "/CHERRY-PICK release-0.2"),
+      cherryPick("cancel", "release-0.2", 3, "/cherry-pick release-0.2 cancel"),
+    ],
+    diagnostics: [],
+  });
+});
+
+test("rejects malformed /cherry-pick arguments and branch tokens with a safe diagnostic", () => {
+  const body = [
+    "/cherry-pick",
+    "/cherry-pick a b c",
+    "/cherry-pick release-0.2 nope",
+    "/cherry-pick -bad",
+    "/cherry-pick a..b",
+    "/cherry-pick a//b",
+    "/cherry-pick bad/",
+    "/cherry-pick x.lock",
+    `/cherry-pick ${"a".repeat(121)}`,
+    "/cherry-pick @user",
+  ].join("\n");
+
+  const result = parseCommands(body);
+
+  assert.deepEqual(result.commands, []);
+  assert.equal(result.diagnostics.length, 10);
+  for (const [index, diagnostic] of result.diagnostics.entries()) {
+    assert.deepEqual(diagnostic, {
+      line: index + 1,
+      code: "invalid-command",
+      message: "command arguments do not match the supported syntax",
+    });
+  }
+});
+
+test("ignores /cherry-pick inside fenced and blockquoted regions", () => {
+  const result = parseCommands([
+    "```",
+    "/cherry-pick release-0.2",
+    "```",
+    "> /cherry-pick release-0.2",
+    "/cherry-pick release-0.3",
+  ].join("\n"));
+
+  assert.deepEqual(result.commands, [
+    cherryPick("apply", "release-0.3", 5, "/cherry-pick release-0.3"),
+  ]);
+  assert.deepEqual(result.diagnostics, []);
 });
