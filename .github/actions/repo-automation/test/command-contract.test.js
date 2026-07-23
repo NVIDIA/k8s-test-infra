@@ -28,6 +28,9 @@ const writeOperations = new Set([
   "addPolicyLabel",
   "removePolicyLabel",
   "upsertPolicyComment",
+  "addCherryPickLabel",
+  "removeCherryPickLabel",
+  "ensureLabel",
 ]);
 
 function stateMarker(state = { headOid, lgtm: null, lastRetest: null }) {
@@ -1054,4 +1057,257 @@ test("GitHub client reads exact action-owned policy body and rejects arbitrary p
   assert.deepEqual(await client.getPolicyComment(42, marker), { action: "update", id: 12, body: stateMarker() });
   await assert.rejects(() => client.addPolicyLabel(42, "maintainer/custom"), /policy-managed/);
   await assert.rejects(() => client.removePolicyLabel(42, "kind/bug"), /policy-managed/);
+});
+
+const releaseOid = "a".repeat(40);
+
+function cherryPickState(overrides = {}) {
+  const base = commandState();
+  const { pullRequest, issueComment, branches, labels, ...rest } = overrides;
+  return commandState({
+    pullRequest: { ...base.pullRequest, baseBranch: "main", ...(pullRequest ?? {}) },
+    issueComment: { ...base.issueComment, author: "pr-author", body: "/cherry-pick release-1.2", ...(issueComment ?? {}) },
+    branches: branches ?? { "release-1.2": releaseOid },
+    labels: labels ?? ["do-not-merge/needs-approval"],
+    ...rest,
+  });
+}
+
+function orderOf(github, operations) {
+  const set = new Set(operations);
+  return github.callOrder.filter(({ operation }) => set.has(operation)).map(({ operation }) => operation);
+}
+
+test("cherry-pick apply on an open PR ensures the label then adds it with exact calls", async () => {
+  const { github, result } = await run(cherryPickState());
+
+  assert.equal(result.commands[0].status, "applied");
+  assert.equal(result.commands[0].code, "cherry-pick-planned");
+  assert.deepEqual(github.calls.getBranch, [{ branch: "release-1.2" }]);
+  assert.deepEqual(github.calls.ensureLabel, [{
+    name: "cherry-pick/release-1.2",
+    color: "bfdadc",
+    description: "Backport this PR to release-1.2 on merge",
+  }]);
+  assert.deepEqual(github.calls.addCherryPickLabel, [{ prNumber: 42, label: "cherry-pick/release-1.2" }]);
+  assert.deepEqual(github.calls.removeCherryPickLabel, []);
+  assert.deepEqual(orderOf(github, ["ensureLabel", "addCherryPickLabel"]), ["ensureLabel", "addCherryPickLabel"]);
+  assert.deepEqual(github.calls.addPolicyLabel, []);
+  assert.deepEqual(github.calls.removePolicyLabel, []);
+  assert.equal(github.commandSnapshot().labels.includes("cherry-pick/release-1.2"), true);
+});
+
+test("cherry-pick cancel on an open PR removes only the label", async () => {
+  const { github, result } = await run(cherryPickState({
+    issueComment: { body: "/cherry-pick release-1.2 cancel" },
+    labels: ["do-not-merge/needs-approval", "cherry-pick/release-1.2"],
+  }));
+
+  assert.equal(result.commands[0].status, "applied");
+  assert.equal(result.commands[0].code, "cherry-pick-cancelled");
+  assert.deepEqual(github.calls.removeCherryPickLabel, [{ prNumber: 42, label: "cherry-pick/release-1.2" }]);
+  assert.deepEqual(github.calls.ensureLabel, []);
+  assert.deepEqual(github.calls.addCherryPickLabel, []);
+  assert.equal(github.commandSnapshot().labels.includes("cherry-pick/release-1.2"), false);
+});
+
+test("cherry-pick is a no-op in both directions when the label already matches", async (t) => {
+  await t.test("apply when present", async () => {
+    const { github, result } = await run(cherryPickState({
+      labels: ["do-not-merge/needs-approval", "cherry-pick/release-1.2"],
+    }));
+    assert.equal(result.commands[0].status, "noop");
+    assert.equal(result.commands[0].code, "cherry-pick-noop");
+    assert.deepEqual(github.calls.ensureLabel, []);
+    assert.deepEqual(github.calls.addCherryPickLabel, []);
+    assert.deepEqual(github.calls.removeCherryPickLabel, []);
+  });
+  await t.test("cancel when absent", async () => {
+    const { github, result } = await run(cherryPickState({
+      issueComment: { body: "/cherry-pick release-1.2 cancel" },
+    }));
+    assert.equal(result.commands[0].status, "noop");
+    assert.equal(result.commands[0].code, "cherry-pick-noop");
+    assert.deepEqual(github.calls.removeCherryPickLabel, []);
+    assert.deepEqual(github.calls.addCherryPickLabel, []);
+  });
+});
+
+test("cherry-pick rejects targets outside the pattern or equal to the base branch", async (t) => {
+  await t.test("pattern mismatch", async () => {
+    const { github, result } = await run(cherryPickState({
+      issueComment: { body: "/cherry-pick feature-x" },
+      branches: { "feature-x": releaseOid },
+    }));
+    assert.equal(result.commands[0].status, "rejected");
+    assert.equal(result.commands[0].code, "cherry-pick-invalid-target");
+    assert.deepEqual(writes(github).filter(({ operation }) => operation !== "upsertPolicyComment"), []);
+  });
+  await t.test("equals base branch", async () => {
+    const { github, result } = await run(cherryPickState({
+      pullRequest: { baseBranch: "release-1.2" },
+      issueComment: { body: "/cherry-pick release-1.2" },
+    }));
+    assert.equal(result.commands[0].status, "rejected");
+    assert.equal(result.commands[0].code, "cherry-pick-invalid-target");
+    assert.deepEqual(github.calls.addCherryPickLabel, []);
+  });
+});
+
+test("cherry-pick rejects a matching target that does not exist live", async () => {
+  const { github, result } = await run(cherryPickState({
+    issueComment: { body: "/cherry-pick release-9.9" },
+    branches: { "release-1.2": releaseOid },
+  }));
+  assert.equal(result.commands[0].status, "rejected");
+  assert.equal(result.commands[0].code, "cherry-pick-branch-missing");
+  assert.deepEqual(github.calls.getBranch, [{ branch: "release-9.9" }]);
+  assert.deepEqual(github.calls.ensureLabel, []);
+  assert.deepEqual(github.calls.addCherryPickLabel, []);
+});
+
+test("cherry-pick on a merged PR admits a write collaborator and touches only the cherry-pick label", async () => {
+  const { github, result } = await run(cherryPickState({
+    pullRequest: { state: "closed", merged: true },
+    issueComment: { author: "carol" },
+    labels: ["lgtm", "approved"],
+  }));
+
+  assert.equal(result.commands[0].status, "applied");
+  assert.equal(result.commands[0].code, "cherry-pick-planned");
+  assert.deepEqual(github.calls.ensureLabel, [{
+    name: "cherry-pick/release-1.2",
+    color: "bfdadc",
+    description: "Backport this PR to release-1.2 on merge",
+  }]);
+  assert.deepEqual(github.calls.addCherryPickLabel, [{ prNumber: 42, label: "cherry-pick/release-1.2" }]);
+  assert.deepEqual(github.calls.addPolicyLabel, []);
+  assert.deepEqual(github.calls.removePolicyLabel, []);
+  assert.deepEqual(github.calls.addAssignees, []);
+  assert.deepEqual(github.calls.requestReviewers, []);
+  const labels = github.commandSnapshot().labels;
+  assert.equal(labels.includes("lgtm"), true);
+  assert.equal(labels.includes("approved"), true);
+  assert.equal(labels.includes("do-not-merge/needs-approval"), false);
+  assert.equal(labels.includes("cherry-pick/release-1.2"), true);
+});
+
+test("cherry-pick on a merged PR denies a non-write author and writes nothing", async () => {
+  const { github, result } = await run(cherryPickState({
+    pullRequest: { state: "closed", merged: true },
+    issueComment: { author: "pr-author" },
+  }));
+
+  assert.equal(result.commands[0].status, "rejected");
+  assert.equal(result.commands[0].code, "not-authorized");
+  assert.deepEqual(github.calls.ensureLabel, []);
+  assert.deepEqual(github.calls.addCherryPickLabel, []);
+  assert.deepEqual(github.calls.removeCherryPickLabel, []);
+  assert.equal(github.commandSnapshot().labels.includes("cherry-pick/release-1.2"), false);
+});
+
+test("cherry-pick on a closed unmerged PR is rejected before any branch lookup", async () => {
+  const { github, result } = await run(cherryPickState({
+    pullRequest: { state: "closed", merged: false },
+    issueComment: { author: "pr-author" },
+  }));
+
+  assert.equal(result.commands[0].status, "rejected");
+  assert.equal(result.commands[0].code, "cherry-pick-pr-not-merged");
+  assert.deepEqual(github.calls.getBranch, []);
+  assert.deepEqual(github.calls.ensureLabel, []);
+  assert.deepEqual(github.calls.addCherryPickLabel, []);
+});
+
+test("non-cherry-pick commands on a merged PR are rejected as pr-not-open", async () => {
+  const { github, result } = await run(cherryPickState({
+    pullRequest: { state: "closed", merged: true },
+    issueComment: { author: "carol", body: "/hold\n/cherry-pick release-1.2" },
+    labels: ["lgtm", "approved"],
+  }));
+
+  assert.deepEqual(result.items.map(({ line, code }) => [line, code]), [
+    [1, "pr-not-open"],
+    [2, "cherry-pick-planned"],
+  ]);
+  assert.deepEqual(github.calls.addPolicyLabel, []);
+  assert.deepEqual(github.calls.removePolicyLabel, []);
+  assert.equal(github.commandSnapshot().labels.includes("do-not-merge/hold"), false);
+});
+
+test("cherry-pick dry-run plans the label without any writes", async () => {
+  const { github, result } = await run(cherryPickState(), { dryRun: true });
+
+  assert.equal(result.status, "planned");
+  assert.equal(result.commands[0].code, "cherry-pick-planned");
+  assert.deepEqual(result.cherryPickLabels, { add: ["cherry-pick/release-1.2"], remove: [] });
+  assert.deepEqual(writes(github), []);
+});
+
+test("cherry-pick redelivery converges to a no-op with zero further label writes", async () => {
+  const github = createFakeGitHub(cherryPickState());
+  const { runCommand } = require("../src/modes/command.js");
+  const options = { event, github, config: loadConfig(repositoryRoot), dryRun: false, now: () => "2026-07-16T10:00:00.000Z" };
+
+  const first = await runCommand(options);
+  assert.equal(first.commands[0].code, "cherry-pick-planned");
+  assert.equal(github.calls.ensureLabel.length, 1);
+  assert.equal(github.calls.addCherryPickLabel.length, 1);
+
+  const second = await runCommand(options);
+  assert.equal(second.commands[0].code, "cherry-pick-noop");
+  assert.equal(github.calls.ensureLabel.length, 1);
+  assert.equal(github.calls.addCherryPickLabel.length, 1);
+  assert.equal(github.calls.removeCherryPickLabel.length, 0);
+});
+
+test("cherry-pick fails closed when the label add write fails, without leaking the error", async () => {
+  const failure = new Error("secret-cherry-pick-token-777");
+  const github = createFakeGitHub(cherryPickState({ failures: { addCherryPickLabel: failure } }));
+  const { runCommand } = require("../src/modes/command.js");
+  let caught;
+  try {
+    await runCommand({ event, github, config: loadConfig(repositoryRoot), dryRun: false, now: () => "2026-07-16T10:00:00.000Z" });
+  } catch (error) {
+    caught = error;
+  }
+  assert.equal(caught?.summary?.status, "partial");
+  assert.equal(caught?.summary?.apply?.failed?.operation, "addCherryPickLabel");
+  assert.equal(github.calls.ensureLabel.length, 1);
+  assert.equal(JSON.stringify(caught?.summary).includes("secret-cherry-pick-token-777"), false);
+});
+
+test("the help block advertises the cherry-pick command", async () => {
+  const { github } = await run(cherryPickState({ issueComment: { body: "/help" } }));
+  const body = github.commandSnapshot().comments[0].body;
+  assert.match(body, /\/cherry-pick/);
+  assert.match(body, /backport on merge/i);
+});
+
+test("the GitHub client maps the live merged flag as a strict boolean", async (t) => {
+  const { createGitHubClient } = require("../src/github-client.js");
+  const pullData = (merged) => ({
+    number: 42,
+    title: "feat: live",
+    body: "b",
+    draft: false,
+    state: merged === undefined ? "open" : "closed",
+    user: { login: "author" },
+    head: { sha: "f".repeat(40) },
+    base: { ref: "main", repo: { name: "k8s-test-infra", owner: { login: "nvidia" } } },
+    ...(merged === undefined ? {} : { merged }),
+  });
+  const clientFor = (merged) => createGitHubClient({
+    rest: { pulls: { get: async () => ({ data: pullData(merged) }) } },
+  }, "nvidia", "k8s-test-infra", { maxAttempts: 1 });
+
+  await t.test("merged true", async () => {
+    assert.equal((await clientFor(true).getPullRequest(42)).merged, true);
+  });
+  await t.test("merged false", async () => {
+    assert.equal((await clientFor(false).getPullRequest(42)).merged, false);
+  });
+  await t.test("absent merged is omitted", async () => {
+    assert.equal(Object.hasOwn(await clientFor(undefined).getPullRequest(42), "merged"), false);
+  });
 });
