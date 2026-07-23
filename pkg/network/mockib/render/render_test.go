@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
@@ -256,4 +257,27 @@ func TestRender_BadGUIDPrefix(t *testing.T) {
 		Output:   dir,
 	})
 	require.Error(t, err, "expected error for bad guid_prefix")
+}
+
+// TestRender_PreservesExistingDevNode reproduces the crash where a privileged
+// setup.sh upgrades a /dev/infiniband placeholder to a real character device
+// and the MOCK_IB=full daemon then re-renders: writing a mock char device
+// (no backing driver) fails with ENXIO. A FIFO stands in for the special file
+// (mknod char devices need CAP_MKNOD, unavailable in unit tests). A correct
+// re-render must leave the special file untouched, not try to open/truncate it.
+func TestRender_PreservesExistingDevNode(t *testing.T) {
+	dir := t.TempDir()
+	opts := Options{IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "host1", Output: dir}
+	require.NoError(t, Render(opts), "initial render")
+
+	umad0 := filepath.Join(dir, "dev/infiniband/umad0")
+	require.NoError(t, os.Remove(umad0), "remove placeholder umad0")
+	require.NoError(t, syscall.Mkfifo(umad0, 0o644), "stage special dev node at umad0")
+
+	// Idempotent re-render must not error on (or overwrite) the special file.
+	require.NoError(t, Render(opts), "re-render over existing dev node")
+
+	fi, err := os.Lstat(umad0)
+	require.NoError(t, err, "lstat umad0 after re-render")
+	require.False(t, fi.Mode().IsRegular(), "re-render clobbered the special dev node umad0")
 }

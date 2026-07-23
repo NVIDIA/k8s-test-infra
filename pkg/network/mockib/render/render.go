@@ -256,7 +256,7 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCou
 		fmt.Sprintf("dev/infiniband/issm%d", idx),
 		fmt.Sprintf("dev/infiniband/uverbs%d", idx),
 	} {
-		if err := writeFile(root, f, ""); err != nil {
+		if err := writeDevNodePlaceholder(root, f); err != nil {
 			return err
 		}
 	}
@@ -404,4 +404,21 @@ func writeFile(root, rel, contents string) error {
 		return fmt.Errorf("write %s: %w", rel, err)
 	}
 	return nil
+}
+
+// writeDevNodePlaceholder stages an empty placeholder regular file for a
+// /dev/infiniband node, but leaves an existing *special* file untouched. A
+// privileged deployment (deployments/nvml-mock/scripts/setup.sh) upgrades
+// these placeholders to real character devices via mknod; the MOCK_IB=full
+// daemon then re-renders idempotently before serving. Opening a mock char
+// device (bogus major/minor, no backing driver) for writing fails with ENXIO
+// ("no such device or address"), which previously crashed that re-render and
+// left the ping socket unbound. So only (re)write a placeholder when the path
+// is absent or already a regular file.
+func writeDevNodePlaceholder(root, rel string) error {
+	full := filepath.Join(root, rel)
+	if fi, err := os.Lstat(full); err == nil && !fi.Mode().IsRegular() {
+		return nil
+	}
+	return writeFile(root, rel, "")
 }
