@@ -102,6 +102,7 @@ function mergedPullRequest(overrides = {}) {
     headOid: PR_HEAD,
     state: "closed",
     merged: true,
+    mergeCommitOid: MERGE_COMMIT,
     baseBranch: "main",
     baseRepository: { owner: "nvidia", repo: "k8s-test-infra" },
     ...overrides,
@@ -329,6 +330,45 @@ test("the pre-write fence aborts every write when the live PR is no longer merge
     /stale/i,
   );
   assert.deepEqual(writes(github), []);
+});
+
+test("the pre-write fence aborts every write when the live merge commit OID no longer matches the event", async () => {
+  const state = backportState({
+    pullRequests: [mergedPullRequest(), mergedPullRequest({ mergeCommitOid: "d".repeat(40) })],
+  });
+  const github = createFakeGitHub(state);
+  await assert.rejects(
+    () => runBackport({ event: closedEvent(), github, config: loadConfig(repositoryRoot), dryRun: false, now: () => "2026-07-23T10:00:00.000Z" }),
+    /stale/i,
+  );
+  assert.deepEqual(writes(github), []);
+});
+
+test("the pre-write fence aborts every write when the live re-read omits the merge commit OID", async () => {
+  const omitOid = mergedPullRequest();
+  delete omitOid.mergeCommitOid;
+  const state = backportState({
+    pullRequests: [mergedPullRequest(), omitOid],
+  });
+  const github = createFakeGitHub(state);
+  await assert.rejects(
+    () => runBackport({ event: closedEvent(), github, config: loadConfig(repositoryRoot), dryRun: false, now: () => "2026-07-23T10:00:00.000Z" }),
+    /stale/i,
+  );
+  assert.deepEqual(writes(github), []);
+});
+
+test("the pre-write fence proceeds when the live re-read carries the event merge commit OID", async () => {
+  // Two distinct reads (planning and the fence re-read) both carry the event's
+  // merge_commit_sha, so the fence's merge-anchor check passes and the graft runs.
+  const { github, result } = await run(backportState({
+    pullRequests: [mergedPullRequest(), mergedPullRequest()],
+  }));
+
+  assert.equal(result.status, "complete");
+  assert.equal(result.targets[0].outcome, "created");
+  assert.equal(github.calls.getPullRequest.length, 2); // planning read + fence re-read
+  assert.equal(github.calls.createPullRequest.length, 1);
 });
 
 test("dry-run plans the backport with zero writes and no fence re-read", async () => {

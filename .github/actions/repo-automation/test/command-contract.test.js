@@ -1311,3 +1311,31 @@ test("the GitHub client maps the live merged flag as a strict boolean", async (t
     assert.equal(Object.hasOwn(await clientFor(undefined).getPullRequest(42), "merged"), false);
   });
 });
+
+test("the GitHub client maps the live merge commit OID as a strict string", async (t) => {
+  const { createGitHubClient } = require("../src/github-client.js");
+  const pullData = (mergeCommitSha) => ({
+    number: 42,
+    title: "feat: live",
+    body: "b",
+    draft: false,
+    state: "closed",
+    user: { login: "author" },
+    head: { sha: "f".repeat(40) },
+    base: { ref: "main", repo: { name: "k8s-test-infra", owner: { login: "nvidia" } } },
+    ...(mergeCommitSha === undefined ? {} : { merge_commit_sha: mergeCommitSha }),
+  });
+  const clientFor = (mergeCommitSha) => createGitHubClient({
+    rest: { pulls: { get: async () => ({ data: pullData(mergeCommitSha) }) } },
+  }, "nvidia", "k8s-test-infra", { maxAttempts: 1 });
+
+  await t.test("string merge_commit_sha is exposed as mergeCommitOid", async () => {
+    assert.equal((await clientFor("a".repeat(40)).getPullRequest(42)).mergeCommitOid, "a".repeat(40));
+  });
+  await t.test("absent merge_commit_sha omits mergeCommitOid", async () => {
+    assert.equal(Object.hasOwn(await clientFor(undefined).getPullRequest(42), "mergeCommitOid"), false);
+  });
+  await t.test("null merge_commit_sha omits mergeCommitOid", async () => {
+    assert.equal(Object.hasOwn(await clientFor(null).getPullRequest(42), "mergeCommitOid"), false);
+  });
+});
