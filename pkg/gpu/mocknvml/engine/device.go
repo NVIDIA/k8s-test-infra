@@ -611,10 +611,15 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 // GetMarginTemperature returns the GPU's headroom to its thermal limit in
 // degrees C — the value nvidia-smi renders as "GPU T.Limit Temp" (via
 // nvmlDeviceGetMarginTemperature). It is the slowdown threshold (falling back
-// to shutdown, then max-operating) minus the current temperature, clamped at 0.
-// A thermal config is required; a lost/failing device propagates its error
-// through GetTemperature so the margin reports [N/A] too. The signature matches
-// the go-nvml Device interface so it overrides the embedded default.
+// to shutdown, then max-operating) minus the current temperature. The margin is
+// SIGNED and goes negative once the current temperature passes the limit,
+// mirroring real T.Limit hardware; consumers such as NVSentinel's
+// GpuThermalMarginWatch key on that sign crossing (it FAILs when the margin
+// drops below the per-GPU slowdown offset), so the value is deliberately not
+// clamped at 0. A thermal config is required; a lost/failing device propagates
+// its error through GetTemperature so the margin reports [N/A] too. The
+// signature matches the go-nvml Device interface so it overrides the embedded
+// default.
 func (d *ConfigurableDevice) GetMarginTemperature() (nvml.MarginTemperature, nvml.Return) {
 	c := d.cfg()
 	if c.Thermal == nil {
@@ -635,9 +640,6 @@ func (d *ConfigurableDevice) GetMarginTemperature() (nvml.MarginTemperature, nvm
 		return nvml.MarginTemperature{}, ret
 	}
 	margin := limit - int(cur)
-	if margin < 0 {
-		margin = 0
-	}
 	debugLog("[NVML] nvmlDeviceGetMarginTemperature -> %d C (limit=%d cur=%d)\n", margin, limit, cur)
 	return nvml.MarginTemperature{MarginTemperature: int32(margin)}, nvml.SUCCESS
 }
