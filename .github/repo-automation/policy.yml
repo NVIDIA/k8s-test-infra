@@ -5,6 +5,9 @@ review:
   reviewerTarget: 2
 commands:
   retestCooldownSeconds: 600
+  cherryPick:
+    targetBranchPatterns:
+      - release-*
 merge:
   method: SQUASH
 bots:

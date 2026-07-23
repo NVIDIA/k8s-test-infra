@@ -136,6 +136,7 @@ test("loads exact authority, branch, review, command, bot, and size policy", () 
   assert.deepEqual(policy.protectedBranches, ["main", "release-*"]);
   assert.equal(policy.review.reviewerTarget, 2);
   assert.equal(policy.commands.retestCooldownSeconds, 600);
+  assert.deepEqual(policy.commands.cherryPick.targetBranchPatterns, ["release-*"]);
   assert.deepEqual(policy.bots, [
     {
       login: "dependabot[bot]",
@@ -174,9 +175,51 @@ test("rejects invalid policy values with path-specific errors instead of default
     "policy.activeOwnerFiles",
     "policy.review.reviewerTarget",
     "policy.commands.retestCooldownSeconds",
+    "policy.commands.cherryPick",
     "policy.merge.method",
     "policy.bots[0].emails",
     "policy.sizeThresholds.S",
+  ]);
+});
+
+function withCommands(commands) {
+  const valid = loadConfig(repositoryRoot);
+  return { ...valid, policy: { ...valid.policy, commands } };
+}
+
+test("rejects an empty cherry-pick target branch pattern list", () => {
+  const config = withCommands({
+    retestCooldownSeconds: 600,
+    cherryPick: { targetBranchPatterns: [] },
+  });
+
+  assertConfigError(() => validateConfig(config), [
+    "policy.commands.cherryPick.targetBranchPatterns",
+  ]);
+});
+
+test("rejects cherry-pick patterns that are non-string, interior-wildcard, or leading-dash", () => {
+  const config = withCommands({
+    retestCooldownSeconds: 600,
+    cherryPick: { targetBranchPatterns: [123, "rel*ease", "-release", "release**"] },
+  });
+
+  assertConfigError(() => validateConfig(config), [
+    "policy.commands.cherryPick.targetBranchPatterns[0]",
+    "policy.commands.cherryPick.targetBranchPatterns[1]",
+    "policy.commands.cherryPick.targetBranchPatterns[2]",
+    "policy.commands.cherryPick.targetBranchPatterns[3]",
+  ]);
+});
+
+test("rejects unknown keys under the cherry-pick command block", () => {
+  const config = withCommands({
+    retestCooldownSeconds: 600,
+    cherryPick: { targetBranchPatterns: ["release-*"], unexpected: true },
+  });
+
+  assertConfigError(() => validateConfig(config), [
+    "policy.commands.cherryPick.unexpected",
   ]);
 });
 

@@ -101,7 +101,7 @@ function validatePolicy(policy, errors) {
   }
 
   if (requireRecord(policy.commands, "policy.commands", errors)) {
-    rejectUnknownKeys(policy.commands, ["retestCooldownSeconds"], "policy.commands", errors);
+    rejectUnknownKeys(policy.commands, ["retestCooldownSeconds", "cherryPick"], "policy.commands", errors);
     if (
       policy.commands.retestCooldownSeconds !== 600
     ) {
@@ -110,6 +110,28 @@ function validatePolicy(policy, errors) {
         "policy.commands.retestCooldownSeconds",
         "must be exactly 600 seconds",
       );
+    }
+
+    if (requireRecord(policy.commands.cherryPick, "policy.commands.cherryPick", errors)) {
+      rejectUnknownKeys(
+        policy.commands.cherryPick,
+        ["targetBranchPatterns"],
+        "policy.commands.cherryPick",
+        errors,
+      );
+      const patterns = policy.commands.cherryPick.targetBranchPatterns;
+      if (requireStringArray(patterns, "policy.commands.cherryPick.targetBranchPatterns", errors)) {
+        for (let index = 0; index < patterns.length; index += 1) {
+          const pattern = patterns[index];
+          if (typeof pattern === "string" && !/^[A-Za-z0-9][A-Za-z0-9._/-]*\*?$/.test(pattern)) {
+            addError(
+              errors,
+              `policy.commands.cherryPick.targetBranchPatterns[${index}]`,
+              "must be a branch name pattern with an optional single trailing wildcard",
+            );
+          }
+        }
+      }
     }
   }
 
