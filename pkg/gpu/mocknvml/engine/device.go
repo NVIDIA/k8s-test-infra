@@ -328,9 +328,26 @@ func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 		d.pciInfo.PciSubSystemId = 0x134710DE
 	}
 
-	// Copy bus ID string
-	for i := 0; i < len(d.PciBusID) && i < 32; i++ {
-		d.pciInfo.BusId[i] = int8(d.PciBusID[i])
+	// Populate both the modern busId ([32]) and the legacy busIdLegacy ([16])
+	// strings. Real NVML fills both; consumers that read busIdLegacy — e.g.
+	// NVSentinel's metadata-collector, which derives each GPU's pci_address
+	// from nvmlPciInfo_t.busIdLegacy — get an empty string otherwise.
+	writeBusID(d.pciInfo.BusId[:], d.PciBusID)
+	writeBusID(d.pciInfo.BusIdLegacy[:], d.PciBusID)
+}
+
+// writeBusID copies an ASCII PCI bus-ID string into an NVML C char array
+// (go-nvml models nvmlPciInfo_t.busId/busIdLegacy as [N]int8; bus-ID bytes are
+// ASCII so the int8 conversion is lossless). It NUL-terminates when the string
+// is shorter than the destination; callers pass a bus ID that fits the buffer
+// (the legacy [16] field takes the 4-digit-domain form).
+func writeBusID(dst []int8, s string) {
+	i := 0
+	for ; i < len(s) && i < len(dst); i++ {
+		dst[i] = int8(s[i])
+	}
+	if i < len(dst) {
+		dst[i] = 0
 	}
 }
 
@@ -1448,9 +1465,8 @@ func (d *ConfigurableDevice) GetNvLinkRemotePciInfo(link int) (nvml.PciInfo, nvm
 				pci.Domain = domain
 				pci.Bus = bus
 				pci.Device = device
-				for i := 0; i < len(l.RemoteBDF) && i < 32; i++ {
-					pci.BusId[i] = int8(l.RemoteBDF[i])
-				}
+				writeBusID(pci.BusId[:], l.RemoteBDF)
+				writeBusID(pci.BusIdLegacy[:], l.RemoteBDF)
 			}
 			debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> %s\n", link, l.RemoteBDF)
 			return pci, nvml.SUCCESS
@@ -1465,17 +1481,19 @@ func (d *ConfigurableDevice) GetNvLinkRemotePciInfo(link int) (nvml.PciInfo, nvm
 // report this for every switch-attached link.
 const invalidRemotePciBusID = "FFFFFFFF:FF:FF.0"
 
+// invalidRemotePciBusIDLegacy is the 4-digit-domain form of the sentinel for
+// the [16]byte busIdLegacy field — the 8-digit busId form is exactly 16 chars
+// and would leave no room for a NUL terminator.
+const invalidRemotePciBusIDLegacy = "FFFF:FF:FF.0"
+
 // setInvalidRemotePci fills a PciInfo with the all-0xFF sentinel that NVML uses
 // for non-enumerable NVLink remote endpoints (NVSwitch).
 func setInvalidRemotePci(pci *nvml.PciInfo) {
 	pci.Domain = 0xFFFFFFFF
 	pci.Bus = 0xFF
 	pci.Device = 0xFF
-	for i := 0; i < len(invalidRemotePciBusID) && i < len(pci.BusId); i++ {
-		// go-nvml v0.13.1-0 (#400) changed PciInfo.BusId to [32]int8; bus-ID
-		// bytes are ASCII so the int8 conversion is lossless.
-		pci.BusId[i] = int8(invalidRemotePciBusID[i])
-	}
+	writeBusID(pci.BusId[:], invalidRemotePciBusID)
+	writeBusID(pci.BusIdLegacy[:], invalidRemotePciBusIDLegacy)
 }
 
 // GetNumaNodeId returns the device's NUMA node from the fabric. Reports
