@@ -44,6 +44,13 @@ function decision(name, operation, actor, overrides = {}, users = []) {
   );
 }
 
+function cherryPickDecision(operation, actor, overrides = {}) {
+  return authorizeCommand(
+    { name: "cherry-pick", operation, users: [], branch: "release-0.2" },
+    context(actor, overrides),
+  );
+}
+
 test("authorizes lgtm only for applicable reviewers or approvers and never the author", () => {
   assert.deepEqual(
     decision("lgtm", "apply", human("ReViEwEr")),
@@ -216,6 +223,65 @@ test("requires write capability for collaborator hold and retest operations", ()
         `${name} ${operation} ${permission}`,
       );
     }
+  }
+});
+
+test("authorizes open-PR cherry-pick for the author or any write-capable collaborator", () => {
+  for (const operation of ["apply", "cancel"]) {
+    assert.deepEqual(
+      cherryPickDecision(operation, human("AUTHOR"), { merged: false }),
+      { allowed: true, reason: "authorized" },
+      `${operation} author`,
+    );
+    assert.deepEqual(
+      cherryPickDecision(operation, human("collaborator", {
+        liveCollaborator: true,
+        permission: "write",
+      }), { merged: false }),
+      { allowed: true, reason: "authorized" },
+      `${operation} write`,
+    );
+    assert.deepEqual(
+      cherryPickDecision(operation, human("collaborator", {
+        liveCollaborator: true,
+        permission: "read",
+      }), { merged: false }),
+      { allowed: false, reason: "not-authorized" },
+      `${operation} read`,
+    );
+  }
+});
+
+test("restricts merged-PR cherry-pick to write-capable collaborators, denying a non-write author", () => {
+  for (const operation of ["apply", "cancel"]) {
+    assert.deepEqual(
+      cherryPickDecision(operation, human("AUTHOR"), { merged: true }),
+      { allowed: false, reason: "not-authorized" },
+      `${operation} author`,
+    );
+    assert.deepEqual(
+      cherryPickDecision(operation, human("collaborator", {
+        liveCollaborator: true,
+        permission: "write",
+      }), { merged: true }),
+      { allowed: true, reason: "authorized" },
+      `${operation} write`,
+    );
+  }
+});
+
+test("rejects cherry-pick commands carrying users, a missing or non-string branch, or a non-apply-cancel operation", () => {
+  for (const invalidCommand of [
+    { name: "cherry-pick", operation: "apply", users: ["extra"], branch: "release-0.2" },
+    { name: "cherry-pick", operation: "apply", users: [] },
+    { name: "cherry-pick", operation: "apply", users: [], branch: "" },
+    { name: "cherry-pick", operation: "apply", users: [], branch: 123 },
+    { name: "cherry-pick", operation: "run", users: [], branch: "release-0.2" },
+  ]) {
+    assert.deepEqual(
+      authorizeCommand(invalidCommand, context(human("author"))),
+      { allowed: false, reason: "invalid-command" },
+    );
   }
 });
 
