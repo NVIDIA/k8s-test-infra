@@ -230,16 +230,30 @@ test("client mergeBranches returns the merge commit on success", async () => {
   });
 });
 
-test("client mergeBranches maps a 409 conflict to merged:false", async () => {
+test("client mergeBranches maps a 409 conflict to merged:false without alreadyMerged", async () => {
   const c = client({ repos: {
     merge: async () => { throw Object.assign(new Error("conflict"), { status: 409 }); },
   } });
-  assert.deepEqual(await c.mergeBranches("release-1.2", HEAD_OID), { merged: false });
+  const result = await c.mergeBranches("release-1.2", HEAD_OID);
+  assert.deepEqual(result, { merged: false });
+  assert.ok(!result.alreadyMerged, "409 conflict must not report alreadyMerged");
 });
 
-test("client mergeBranches maps a 204 nothing-to-merge to merged:false", async () => {
+test("client mergeBranches maps a 204 base-already-contains-head to merged:false, alreadyMerged:true", async () => {
   const c = client({ repos: { merge: async () => ({ status: 204, data: undefined }) } });
-  assert.deepEqual(await c.mergeBranches("release-1.2", HEAD_OID), { merged: false });
+  assert.deepEqual(
+    await c.mergeBranches("release-1.2", HEAD_OID),
+    { merged: false, alreadyMerged: true },
+  );
+});
+
+test("client mergeBranches maps a malformed 201 (non-string sha) to bare merged:false", async () => {
+  const c = client({ repos: {
+    merge: async () => ({ status: 201, data: { sha: 12345, commit: { tree: { sha: TREE_OID } } } }),
+  } });
+  const result = await c.mergeBranches("release-1.2", HEAD_OID);
+  assert.deepEqual(result, { merged: false });
+  assert.ok(!result.alreadyMerged, "malformed 201 must not report alreadyMerged");
 });
 
 test("client mergeBranches throws normalized on other errors", async () => {
@@ -370,6 +384,19 @@ test("fake mergeBranches honors the mergeConflicts injection and advances the ba
   assert.match(clean.oid, /^[0-9a-f]{40}$/);
   assert.match(clean.treeOid, /^[0-9a-f]{40}$/);
   assert.deepEqual(await fake.getBranch("release-1.2"), { name: "release-1.2", oid: clean.oid });
+});
+
+test("fake mergeBranches honors the mergeNoops injection with the real 204 shape", async () => {
+  const fake = createFakeGitHub({
+    branches: { "release-1.2": BASE_OID },
+    mergeNoops: [["release-1.2", HEAD_OID]],
+  });
+  assert.deepEqual(
+    await fake.mergeBranches("release-1.2", HEAD_OID),
+    { merged: false, alreadyMerged: true },
+  );
+  // A no-op merge must not advance the base ref.
+  assert.deepEqual(await fake.getBranch("release-1.2"), { name: "release-1.2", oid: BASE_OID });
 });
 
 test("fake createPullRequest, findOpenPullRequest, and backportSnapshot cohere", async () => {
