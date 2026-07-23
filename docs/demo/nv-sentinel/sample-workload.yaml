@@ -1,0 +1,31 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# A trivial "GPU workload" pinned to the GPU worker so the NVSentinel Node
+# Drainer has something observable to evict once the node is cordoned after the
+# injected XID is detected. It requests 1 nvidia.com/gpu so it only schedules
+# where the mock GPUs are advertised.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-sample-workload
+  labels:
+    app: gpu-sample-workload
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gpu-sample-workload
+  template:
+    metadata:
+      labels:
+        app: gpu-sample-workload
+    spec:
+      nodeSelector:
+        nvml-mock-gpu: "true"
+      containers:
+        - name: sleeper
+          image: registry.k8s.io/pause:3.10
+          resources:
+            limits:
+              nvidia.com/gpu: 1

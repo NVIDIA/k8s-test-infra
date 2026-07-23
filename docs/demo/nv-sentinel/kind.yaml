@@ -1,0 +1,48 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kind cluster for the NVSentinel XID-detection demo.
+#
+# One control-plane + two workers. The mock GPUs and GPU Operator operands are
+# pinned to the workers (run.sh labels them nvml-mock-gpu=true), while the
+# NVSentinel control-plane pipeline (MongoDB, platform-connector, fault-quarantine,
+# node-drainer) is pinned to the control-plane. When NVSentinel remediates an
+# injected XID it cordons and drains the *faulty* GPU worker; a GPU workload can
+# then reschedule onto the second, healthy worker.
+#
+# Default kind node naming is used (no kubeadm name overrides) so each node's
+# Kubernetes name matches its docker container name — run.sh uses the same names
+# for `kubectl` and for `docker exec` (nvidia-container-toolkit install).
+#
+# CDI is enabled in containerd and the nvidia runtime handler is registered on
+# every node; the nvidia-container-toolkit package is installed into each worker
+# after creation and containerd restarted (see run.sh).
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri"]
+      enable_cdi = true
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
+      runtime_type = "io.containerd.runc.v2"
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
+      BinaryName = "/usr/bin/nvidia-container-runtime"
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: control-plane
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-1
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-2
