@@ -30,6 +30,10 @@ const EVALUATOR_WORKFLOW_PATHS = new Set([
   ".github/workflows/pr-metadata.yml",
   ".github/workflows/commands.yml",
 ]);
+// The only workflow the automation may dispatch. Fail-closed: any other name is
+// rejected before an API call, so a compromised caller cannot trigger arbitrary
+// workflows through this capability.
+const DISPATCHABLE_WORKFLOWS = new Set(["backport.yml"]);
 const MERGE_STATE_QUERY = `query RepositoryAutomationMergeState($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     nameWithOwner
@@ -853,6 +857,31 @@ function createGitHubClient(octokit, owner, repo, options = {}) {
         owner, repo, branch: defaultBranch,
       }), true);
       return nonEmptyString(branch.data?.commit?.sha, "default branch commit OID");
+    },
+
+    async getDefaultBranchName() {
+      const repository = await call("getRepository", () => octokit.rest.repos.get({ owner, repo }), true);
+      return nonEmptyString(repository.data.default_branch, "default branch");
+    },
+
+    async dispatchWorkflow(workflowFileName, ref, inputs) {
+      if (typeof workflowFileName !== "string" || !DISPATCHABLE_WORKFLOWS.has(workflowFileName)) {
+        throw new TypeError("workflow file is not dispatch-allowlisted");
+      }
+      nonEmptyString(ref, "workflow dispatch ref");
+      if (inputs === null || typeof inputs !== "object" || Array.isArray(inputs)) {
+        throw new TypeError("workflow dispatch inputs must be an object");
+      }
+      for (const value of Object.values(inputs)) {
+        if (typeof value !== "string") {
+          throw new TypeError("workflow dispatch input values must be strings");
+        }
+      }
+      // retrySafe: the backport mode is idempotent by its own pre-checks
+      // (branch/PR existence, fence), so a retried dispatch cannot double-apply.
+      await call("dispatchWorkflow", () => octokit.rest.actions.createWorkflowDispatch({
+        owner, repo, workflow_id: workflowFileName, ref, inputs: { ...inputs },
+      }), true);
     },
 
     async getContentAtRevision(path, revision) {

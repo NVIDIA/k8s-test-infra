@@ -138,12 +138,30 @@ function backportBranchName(prNumber, target) {
   return `backport/${prNumber}-to-${target}`;
 }
 
-// Plan every labelled target from live state: what outcome it will get and,
-// for a graftable target, the branch head T and tree(T) needed by the graft.
-async function planTargets({ github, prNumber, patterns, baseBranch, labels }) {
-  const branches = [...new Set(labels
+// The sorted, de-duplicated set of cherry-pick target branches carried by the
+// live issue labels.
+function branchesFromLabels(labels) {
+  return [...new Set(labels
     .filter((label) => isManagedCherryPickLabel(label))
     .map((label) => label.slice(CHERRY_PICK_LABEL_PREFIX.length)))].sort();
+}
+
+// A dispatched pr-number arrives as a decimal string action input; validate and
+// parse it into the same positive-integer domain the event path derives.
+function dispatchPrNumber(value) {
+  if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) {
+    throw new TypeError("workflow_dispatch pr-number input must be a positive integer");
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new TypeError("workflow_dispatch pr-number input must be a positive integer");
+  }
+  return parsed;
+}
+
+// Plan every target branch from live state: what outcome it will get and,
+// for a graftable target, the branch head T and tree(T) needed by the graft.
+async function planTargets({ github, prNumber, patterns, baseBranch, branches }) {
   const plans = [];
   for (const branch of branches) {
     if (!matchesCherryPickPattern(branch, patterns) || branch === baseBranch) {
@@ -236,31 +254,63 @@ async function graftTarget({ github, prNumber, plan, squash, title, author }) {
   }
 }
 
-async function runBackport({ event, github, config, dryRun, now = () => new Date().toISOString() }) {
+async function runBackport({
+  event,
+  eventName,
+  github,
+  config,
+  dryRun,
+  prNumber: prNumberInput,
+  targetBranch = "",
+  now = () => new Date().toISOString(),
+}) {
   if (typeof dryRun !== "boolean" || typeof now !== "function") {
     throw new TypeError("backport mode inputs are invalid");
   }
-  const { prNumber, mergeCommitSha } = eventIdentity(event);
+  // A dispatch run carries no pull_request payload: the pr-number and
+  // target-branch come from the action inputs and the squash oid from the live
+  // read. Closed/labeled events keep their event-sha identity and fence exactly.
+  const dispatch = eventName === "workflow_dispatch";
+  let prNumber;
+  let mergeCommitSha;
+  if (dispatch) {
+    prNumber = dispatchPrNumber(prNumberInput);
+  } else {
+    ({ prNumber, mergeCommitSha } = eventIdentity(event));
+  }
   const planned = livePullRequest(await github.getPullRequest(prNumber), prNumber);
   if (planned.merged !== true) {
     return { status: "skipped", prNumber, targets: [] };
+  }
+  if (dispatch) {
+    // For a dispatch run the live merge commit is the squash anchor and the
+    // fence source; stablePullRequest still requires the fence re-read to carry
+    // this exact oid, so a merge that changed after planning refuses every write.
+    if (typeof planned.mergeCommitOid !== "string" || !GIT_OID.test(planned.mergeCommitOid.toLowerCase())) {
+      return { status: "skipped", prNumber, targets: [] };
+    }
+    mergeCommitSha = planned.mergeCommitOid.toLowerCase();
   }
 
   const squash = await github.getCommitInfo(mergeCommitSha);
   if (!Array.isArray(squash.parents) || squash.parents.length === 0) {
     return { status: "skipped", prNumber, targets: [] };
   }
-  const labels = await github.listIssueLabels(prNumber);
 
   const patterns = configurationValid(config)
     ? config.policy.commands.cherryPick.targetBranchPatterns
     : [];
+  // A scoped dispatch processes only its input branch and never reads labels,
+  // so it proceeds even before the just-added cherry-pick label is visible.
+  const branches = dispatch && targetBranch !== ""
+    ? [targetBranch]
+    : branchesFromLabels(await github.listIssueLabels(prNumber));
   const plans = await planTargets({
     github,
     prNumber,
     patterns,
     baseBranch: planned.baseBranch,
-    labels,
+    branches,
   });
   const existingComment = await github.getPolicyComment(prNumber, BACKPORT_STATUS_MARKER);
 

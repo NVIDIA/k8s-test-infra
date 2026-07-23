@@ -59,9 +59,12 @@ async function run(dependencies) {
     } else if (mode === "backport") {
       summary = await runBackport({
         event: dependencies.event,
+        eventName: dependencies.eventName,
         github: client,
         config,
         dryRun,
+        prNumber: core.getInput("pr-number"),
+        targetBranch: core.getInput("target-branch"),
         now: dependencies.now,
       });
     } else {

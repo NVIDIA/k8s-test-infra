@@ -7,17 +7,33 @@ on:
     types:
       - closed
       - labeled
+  # GitHub suppresses further workflow triggers for events caused by the
+  # GITHUB_TOKEN, so the command's label-add on a merged PR never fires the
+  # labeled trigger above. workflow_dispatch is GitHub's sanctioned exception:
+  # command mode dispatches this workflow with the target branch passed
+  # explicitly, so the dispatched run does not depend on re-reading the label.
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        description: Merged pull request number to backport
+        required: true
+        type: string
+      target-branch:
+        description: Single release branch to backport to; empty processes the pull request cherry-pick labels
+        required: false
+        type: string
+        default: ""
 
 permissions: {}
 
 jobs:
   backport:
     name: Backport
-    if: ${{ github.event.pull_request.merged == true && (github.event.action == 'closed' || startsWith(github.event.label.name, 'cherry-pick/')) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && (github.event.action == 'closed' || startsWith(github.event.label.name, 'cherry-pick/'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
-      group: backport-${{ github.event.pull_request.number }}
+      group: backport-${{ github.event_name == 'workflow_dispatch' && inputs['pr-number'] || github.event.pull_request.number }}
       cancel-in-progress: false
     permissions:
       contents: write
@@ -35,7 +51,8 @@ jobs:
         uses: ./.github/actions/repo-automation
         with:
           mode: backport
-          pr-number: ${{ github.event.pull_request.number }}
+          pr-number: ${{ github.event_name == 'workflow_dispatch' && inputs['pr-number'] || github.event.pull_request.number }}
+          target-branch: ${{ github.event_name == 'workflow_dispatch' && inputs['target-branch'] || '' }}
           dry-run: false
         env:
           GITHUB_TOKEN: ${{ github.token }}

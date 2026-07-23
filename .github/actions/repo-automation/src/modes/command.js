@@ -394,6 +394,13 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
     const operation = descriptor("requestReviewers", { reviewers: plan.mutations.requestReviewers });
     await apply(operation, () => github.requestReviewers(identity.prNumber, plan.mutations.requestReviewers));
   }
+  // On a merged PR the label alone cannot start the backport: GitHub suppresses
+  // the labeled trigger for GITHUB_TOKEN-caused events, so command mode dispatches
+  // backport.yml with the target branch passed explicitly. The default branch is
+  // the trusted checkout ref; resolve its name once, only when a dispatch follows.
+  const backportDefaultBranch = merged && plan.mutations.addCherryPickLabels.length > 0
+    ? await github.getDefaultBranchName()
+    : null;
   for (const label of plan.mutations.addCherryPickLabels) {
     await apply(descriptor("ensureLabel", { label }), () => github.ensureLabel({
       name: label,
@@ -401,6 +408,16 @@ async function runCommand({ event, github, config, dryRun, now = () => new Date(
       description: `Backport this PR to ${label.slice(CHERRY_PICK_LABEL_PREFIX.length)} on merge`,
     }));
     await apply(descriptor("addCherryPickLabel", { label }), () => github.addCherryPickLabel(identity.prNumber, label));
+    if (merged) {
+      const branch = label.slice(CHERRY_PICK_LABEL_PREFIX.length);
+      await apply(
+        descriptor("dispatchWorkflow", { branch }),
+        () => github.dispatchWorkflow("backport.yml", backportDefaultBranch, {
+          "pr-number": String(identity.prNumber),
+          "target-branch": branch,
+        }),
+      );
+    }
   }
   for (const label of plan.mutations.removeCherryPickLabels) {
     await apply(descriptor("removeCherryPickLabel", { label }), () => github.removeCherryPickLabel(identity.prNumber, label));

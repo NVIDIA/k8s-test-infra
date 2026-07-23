@@ -7,6 +7,9 @@ inputs:
   pr-number:
     description: Pull request number for modes that operate on a pull request
     required: false
+  target-branch:
+    description: Single target branch for a dispatched backport run; empty processes cherry-pick labels
+    required: false
   dry-run:
     description: Plan changes without mutating GitHub
     required: false
