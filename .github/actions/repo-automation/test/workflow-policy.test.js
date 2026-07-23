@@ -22,6 +22,7 @@ const REUSABLE_CALL_EXEMPTIONS_V1 = new Set([
 
 // Exact, versioned write boundary for every workflow job.
 const WRITE_PERMISSION_ALLOWLIST_V1 = Object.freeze({
+  "backport.yml/backport": ["contents", "issues", "pull-requests"],
   "basic-checks.yaml/code-scanning": ["security-events"],
   "ci.yaml/basic": ["security-events"],
   "code_scanning.yaml/analyze": ["security-events"],

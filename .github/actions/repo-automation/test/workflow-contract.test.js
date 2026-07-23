@@ -104,6 +104,38 @@ test("Commands is created-only, PR-only, serialized, and cannot merge", () => {
   assertNoPrivilegedSupplyChain(source, job);
 });
 
+test("Backport is a merged-PR-only, per-PR-serialized trusted default-branch writer", () => {
+  const { source, workflow } = readWorkflow("backport.yml");
+  assert.equal(workflow.name, "Backport");
+  assert.deepEqual(workflow.on, {
+    pull_request_target: { types: ["closed", "labeled"] },
+  });
+  assert.deepEqual(workflow.permissions, {});
+  const job = singleJob(workflow);
+  assert.equal(
+    job.if,
+    "${{ github.event.pull_request.merged == true && (github.event.action == 'closed' || startsWith(github.event.label.name, 'cherry-pick/')) }}",
+  );
+  assert.equal(job["timeout-minutes"], 15);
+  assert.deepEqual(job.concurrency, {
+    group: "backport-${{ github.event.pull_request.number }}",
+    "cancel-in-progress": false,
+  });
+  assert.deepEqual(job.permissions, {
+    contents: "write",
+    issues: "write",
+    "pull-requests": "write",
+  });
+  assertTrustedCheckout(job);
+  assert.deepEqual(localActionStep(job).with, {
+    mode: "backport",
+    "pr-number": "${{ github.event.pull_request.number }}",
+    "dry-run": false,
+  });
+  assertOfficialPinnedUses(source, workflow);
+  assertNoPrivilegedSupplyChain(source, job);
+});
+
 test("Review observer emits completion using only one literal colon", () => {
   const { source, workflow } = readWorkflow("review-observer.yml");
   assert.equal(workflow.name, "Review observer");
@@ -205,7 +237,7 @@ test("automation CI stays unprivileged and validates every runtime mode", () => 
   assert.equal(action.runs.main, "dist/index.js");
   const sourceIndex = fs.readFileSync(path.join(actionRoot, "src", "index.js"), "utf8");
   const bundledIndex = fs.readFileSync(path.join(actionRoot, "dist", "index.js"), "utf8");
-  for (const mode of ["metadata", "command", "merge-evaluate"]) {
+  for (const mode of ["metadata", "command", "merge-evaluate", "backport"]) {
     assert.match(sourceIndex, new RegExp(`"${mode}"`));
     assert.equal(bundledIndex.includes(mode), true, `bundle must expose ${mode}`);
   }
