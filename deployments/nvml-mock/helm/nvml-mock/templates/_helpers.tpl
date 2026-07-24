@@ -54,6 +54,34 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+NRI app name.
+*/}}
+{{- define "nvml-mock.nriName" -}}
+{{- printf "%s-nri" (include "nvml-mock.name" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+NRI common labels.
+*/}}
+{{- define "nvml-mock.nriLabels" -}}
+helm.sh/chart: {{ include "nvml-mock.chart" . }}
+{{ include "nvml-mock.nriSelectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+NRI selector labels. Keep app.kubernetes.io/name distinct from the main
+DaemonSet so Kubernetes controllers cannot adopt each other's pods.
+*/}}
+{{- define "nvml-mock.nriSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "nvml-mock.nriName" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
 GPU configuration helper.
 Returns the GPU profile configuration YAML content.
 Priority: customConfig > profile file lookup > fail with error.
@@ -61,6 +89,12 @@ Priority: customConfig > profile file lookup > fail with error.
 When .Values.gpu.dynamicMetrics.enabled is true, a `dynamic_metrics:`
 block is injected under `device_defaults:` in the resulting YAML so that
 the mock returns time-varying temperature/power/utilization readings.
+
+Resolved in three layers, highest priority last: chart baseline <
+per-profile defaults (each profile's `dynamic_metrics_defaults` key) < user
+overrides (.Values.gpu.dynamicMetrics). Per-profile defaults keep the power
+base inside each profile's [min_limit_mw, max_limit_mw] envelope so it varies
+instead of clamping to a bound.
 
 When .Values.gpu.failureInjection.enabled is true, a `failure:` block is
 injected under `device_defaults:` so consumers can test how device-plugin,
@@ -81,12 +115,24 @@ preserves comments and key order from the profile file.
 {{- end -}}
 {{- $defaults := get $cfg "device_defaults" | default (dict) -}}
 {{- if $dynEnabled -}}
-{{- $_ := set $defaults "dynamic_metrics" (omit .Values.gpu.dynamicMetrics "enabled") -}}
+{{- $baseline := dict
+      "seed" 0
+      "temperature" (dict "base_c" 55 "variance_c" 3 "ramp_c" 15 "ramp_period_sec" 120)
+      "power" (dict "base_mw" 250000 "variance_mw" 25000)
+      "utilization" (dict "pattern" "burst" "gpu_min" 0 "gpu_max" 100 "memory_min" 0 "memory_max" 100 "burst_period_sec" 30)
+-}}
+{{- /* Per-profile layer from the config's own dynamic_metrics_defaults key. */ -}}
+{{- $profileDyn := get $cfg "dynamic_metrics_defaults" | default (dict) -}}
+{{- $userDyn := omit .Values.gpu.dynamicMetrics "enabled" -}}
+{{- $effective := mergeOverwrite (deepCopy $baseline) (deepCopy $profileDyn) $userDyn -}}
+{{- $_ := set $defaults "dynamic_metrics" $effective -}}
 {{- end -}}
 {{- if $failEnabled -}}
 {{- $_ := set $defaults "failure" (omit .Values.gpu.failureInjection "enabled") -}}
 {{- end -}}
 {{- $_ := set $cfg "device_defaults" $defaults -}}
+{{- /* Drop the Helm-only key now it's folded into dynamic_metrics. */ -}}
+{{- $_ := unset $cfg "dynamic_metrics_defaults" -}}
 {{- toYaml $cfg -}}
 {{- else -}}
 {{- $base -}}
@@ -102,23 +148,18 @@ and key order) or round-trip it through fromYaml/toYaml for overlays.
 {{- define "nvml-mock.gpuConfigBase" -}}
 {{- if .Values.gpu.customConfig }}
 {{- .Values.gpu.customConfig }}
-{{- else if eq .Values.gpu.profile "a100" }}
-{{- .Files.Get "profiles/a100.yaml" }}
-{{- else if eq .Values.gpu.profile "h100" }}
-{{- .Files.Get "profiles/h100.yaml" }}
-{{- else if eq .Values.gpu.profile "b200" }}
-{{- .Files.Get "profiles/b200.yaml" }}
-{{- else if eq .Values.gpu.profile "gb200" }}
-{{- .Files.Get "profiles/gb200.yaml" }}
-{{- else if eq .Values.gpu.profile "gb300" }}
-{{- .Files.Get "profiles/gb300.yaml" }}
-{{- else if eq .Values.gpu.profile "l40s" }}
-{{- .Files.Get "profiles/l40s.yaml" }}
-{{- else if eq .Values.gpu.profile "t4" }}
-{{- .Files.Get "profiles/t4.yaml" }}
-{{- else }}
-{{- fail (printf "Unknown GPU profile %q. Supported profiles: a100, h100, b200, gb200, gb300, l40s, t4. Or set gpu.customConfig with inline YAML." .Values.gpu.profile) }}
-{{- end }}
+{{- else -}}
+{{- $profilePath := printf "profiles/%s.yaml" .Values.gpu.profile -}}
+{{- $content := .Files.Get $profilePath -}}
+{{- if not $content -}}
+{{- $available := list -}}
+{{- range $path, $_ := .Files.Glob "profiles/*.yaml" -}}
+{{- $available = append $available ($path | base | trimSuffix ".yaml") -}}
+{{- end -}}
+{{- fail (printf "Unknown GPU profile %q: %s not found in chart. Available profiles: %s. Or set gpu.customConfig with inline YAML." .Values.gpu.profile $profilePath (join ", " ($available | sortAlpha))) -}}
+{{- end -}}
+{{- $content -}}
+{{- end -}}
 {{- end }}
 
 {{/*
@@ -259,11 +300,11 @@ driver_version the engine reports via NVML. Fails if neither is set.
 
 {{/*
 Driver symlink flag helper.
-Defaults to true when the key is absent (e.g. helm upgrade --reuse-values
-from a release that predates gpuOperator.driverSymlink). hasKey is used
-instead of `default` so an explicit false is not coerced back to true.
-Accepts the bool shorthand `gpuOperator.driverSymlink=false` and fails
-loudly on any other scalar so misconfigurations never silently fall back.
+Reads gpuOperator.driverSymlink.enabled. Defaults to true when the key is
+absent (e.g. helm upgrade --reuse-values from a release that predates the
+key). Only the structured form is accepted; a non-map gpuOperator or a
+non-bool .enabled fails the render loudly so misconfigurations never
+silently fall back.
 */}}
 {{- define "nvml-mock.driverSymlinkEnabled" -}}
 {{- $gpuOpRaw := .Values.gpuOperator -}}
@@ -274,14 +315,11 @@ loudly on any other scalar so misconfigurations never silently fall back.
 {{- $enabled := true -}}
 {{- if hasKey $gpuOp "driverSymlink" -}}
 {{- $symlink := get $gpuOp "driverSymlink" -}}
-{{- if kindIs "map" $symlink -}}
+{{- if not (kindIs "map" $symlink) -}}
+{{- fail (printf "gpuOperator.driverSymlink must be a map with an `enabled` bool, got %s (%v)" (kindOf $symlink) $symlink) -}}
+{{- end -}}
 {{- if hasKey $symlink "enabled" -}}
 {{- $enabled = get $symlink "enabled" -}}
-{{- end -}}
-{{- else if kindIs "bool" $symlink -}}
-{{- $enabled = $symlink -}}
-{{- else -}}
-{{- fail (printf "gpuOperator.driverSymlink must be a map or bool, got %s (%v)" (kindOf $symlink) $symlink) -}}
 {{- end -}}
 {{- end -}}
 {{- if not (kindIs "bool" $enabled) -}}
@@ -292,24 +330,45 @@ loudly on any other scalar so misconfigurations never silently fall back.
 
 {{/*
 Host driver masquerade flag helper.
-Defaults to false when the key is absent (upgrade-safe for --reuse-values).
-Accepts the bool shorthand `hostDriver=true` and fails loudly on any other
-scalar, mirroring nvml-mock.driverSymlinkEnabled.
+Reads hostDriver.enabled. Defaults to false when the key is absent
+(upgrade-safe for --reuse-values). Only the structured form is accepted;
+a non-map hostDriver or a non-bool .enabled fails the render, matching
+nvml-mock.driverSymlinkEnabled.
 */}}
 {{- define "nvml-mock.hostDriverEnabled" -}}
 {{- $hdRaw := .Values.hostDriver -}}
-{{- $enabled := false -}}
-{{- if kindIs "map" $hdRaw -}}
-{{- if hasKey $hdRaw "enabled" -}}
-{{- $enabled = get $hdRaw "enabled" -}}
+{{- if and (not (kindIs "invalid" $hdRaw)) (not (kindIs "map" $hdRaw)) -}}
+{{- fail (printf "hostDriver must be a map with an `enabled` bool, got %s (%v)" (kindOf $hdRaw) $hdRaw) -}}
 {{- end -}}
-{{- else if kindIs "bool" $hdRaw -}}
-{{- $enabled = $hdRaw -}}
-{{- else if not (kindIs "invalid" $hdRaw) -}}
-{{- fail (printf "hostDriver must be a map or bool, got %s (%v)" (kindOf $hdRaw) $hdRaw) -}}
+{{- $hd := $hdRaw | default dict -}}
+{{- $enabled := false -}}
+{{- if hasKey $hd "enabled" -}}
+{{- $enabled = get $hd "enabled" -}}
 {{- end -}}
 {{- if not (kindIs "bool" $enabled) -}}
 {{- fail (printf "hostDriver.enabled must be a bool, got %s (%v)" (kindOf $enabled) $enabled) -}}
 {{- end -}}
 {{- $enabled -}}
+{{- end }}
+
+{{/*
+Termination grace period helper.
+The chart default (see values.yaml) targets fast rollouts because the
+default preStop cleanup is a handful of rm -rf calls plus kubectl label
+requests. HostDriver mode walks a manifest and runs `chroot ldconfig`,
+which needs measurably more time; when hostDriver is enabled the helper
+clamps the effective grace period to at least 10s so shutdowns finish
+before SIGKILL leaves partial host mutation on the node.
+*/}}
+{{- define "nvml-mock.terminationGracePeriodSeconds" -}}
+{{- $grace := .Values.terminationGracePeriodSeconds -}}
+{{- if not (kindIs "int" $grace) -}}
+{{- $grace = int (toString $grace) -}}
+{{- end -}}
+{{- if eq (include "nvml-mock.hostDriverEnabled" .) "true" -}}
+{{- if lt $grace 10 -}}
+{{- $grace = 10 -}}
+{{- end -}}
+{{- end -}}
+{{- $grace -}}
 {{- end }}

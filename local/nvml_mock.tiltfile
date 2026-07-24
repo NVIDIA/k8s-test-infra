@@ -1,0 +1,100 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loadable Tiltfile for the nvml-mock stack.
+#
+# Exports:
+#   FLEET_PROFILES                — list[str], GPU profiles that make up the per-profile fleet.
+#   build_nvml_mock_image()       — build the ghcr.io/nvidia/nvml-mock image.
+#   install_single()              — install one nvml-mock Helm release. Returns list[str] of Tilt resource names.
+#   install_fleet()               — install one nvml-mock release per profile, node-pinned via
+#                                   nodeSelector.nvml-mock/profile=<p>. Returns list[str].
+#
+# All side effects (docker_build / helm_resource) are inside functions so
+# `load()`ing this file is a pure import; the orchestrator controls order.
+
+load('ext://helm_resource', 'helm_resource')
+
+# Must match the worker labels in local/kind/default.kind.yaml. Keep in sync.
+FLEET_PROFILES = ['a100', 't4']
+
+_IMAGE = 'ghcr.io/nvidia/nvml-mock'
+_CHART = 'deployments/nvml-mock/helm/nvml-mock'
+
+def build_nvml_mock_image():
+    # Build the nvml-mock image from the repo root. The Dockerfile COPYs
+    # go.mod/vendor/pkg/cmd from the root, so the context must be '.'.
+    # only= is intentionally coarse (top-level dirs): the Dockerfile's
+    # per-subpath COPYs drive layer-cache invalidation, so listing whole
+    # trees here avoids drift when new cmd/pkg subdirs are added without
+    # forcing extra rebuilds.
+    docker_build(
+        _IMAGE,
+        context='.',
+        dockerfile='deployments/nvml-mock/Dockerfile',
+        only=[
+            'go.mod',
+            'go.sum',
+            'vendor/',
+            'cmd/',
+            'pkg/',
+            'deployments/nvml-mock/',
+        ],
+    )
+
+def _install(release, profile, active_consumers, extra_set):
+    flags = [
+        '--set', 'gpu.profile=' + profile,
+    ]
+
+    for kv in extra_set:
+        flags += ['--set', kv]
+
+    # Shared committed baseline for local-dev (e.g. MOCK_IB, gpu.count tweaks).
+    if os.path.exists('local/nvml-mock.values.yaml'):
+        flags += ['--values', 'local/nvml-mock.values.yaml']
+
+    # Overlay per-consumer mock tweaks if the consumer ships an overlay.
+    # Optional: consumers with no mock-side needs don't create the file, and
+    # this loop skips them. See local/compute-domain/nvml-mock.values.yaml
+    # for the shape when one is needed. Later overlays win on key conflicts
+    # (helm --values ordering semantics).
+    for consumer in active_consumers:
+        overlay = 'local/' + consumer + '/nvml-mock.values.yaml'
+        if os.path.exists(overlay):
+            flags += ['--values', overlay]
+
+    # Personal per-machine override — wins over everything; gitignored.
+    if os.path.exists('local/nvml-mock.values.local.yaml'):
+        flags += ['--values', 'local/nvml-mock.values.local.yaml']
+
+    helm_resource(
+        release,
+        _CHART,
+        image_deps=[_IMAGE],
+        image_keys=[('image.repository', 'image.tag')],
+        flags=flags,
+    )
+
+def install_single(profile, active_consumers):
+    """Install one nvml-mock release named 'nvml-mock'."""
+    _install('nvml-mock', profile, active_consumers, extra_set=[])
+
+    return ['nvml-mock']
+
+def install_fleet(active_consumers, profiles = FLEET_PROFILES):
+    """Install one nvml-mock release per profile, node-pinned to workers.
+
+    The chart's fullname template collapses to the release name when it already
+    contains the chart name ('nvml-mock'), so 'nvml-mock-a100' / 'nvml-mock-t4'
+    produce collision-free DaemonSets, ConfigMaps, RBAC across releases.
+    """
+    for p in profiles:
+        _install(
+            'nvml-mock-' + p,
+            p,
+            active_consumers,
+            extra_set=['nodeSelector.nvml-mock/profile=' + p],
+        )
+
+    return ['nvml-mock-' + p for p in profiles]

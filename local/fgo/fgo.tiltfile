@@ -1,0 +1,29 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loadable Tiltfile: Run:ai Fake GPU Operator (FGO) consumer.
+#
+# Exports:
+#   install(nvml_mock_releases) — install FGO on top of nvml-mock.
+#
+# Cluster: the default profile already provisions the a100 (integration) and
+# t4 (scale) workers this consumer expects. The integration worker runs
+# nvml-mock (mock backend); the scale worker is managed entirely by FGO
+# (fake backend). See local/kind/default.kind.yaml for the
+# run.ai/simulated-gpu-node-pool labels that drive this split.
+
+load('ext://helm_resource', 'helm_resource')
+
+def install(nvml_mock_releases):
+    helm_resource(
+        'fgo',
+        'oci://ghcr.io/run-ai/fake-gpu-operator/fake-gpu-operator',
+        namespace='gpu-operator',
+        flags=[
+            '--create-namespace',
+            '--values', 'local/fgo/fgo.values.yaml',
+            '--timeout', '300s',
+        ],
+        resource_deps=nvml_mock_releases,
+        labels=['fgo'],
+    )

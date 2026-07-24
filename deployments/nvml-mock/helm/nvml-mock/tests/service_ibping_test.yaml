@@ -19,6 +19,11 @@ tests:
       - equal:
           path: spec.selector["app.kubernetes.io/name"]
           value: nvml-mock
+      # Scoped to the daemon component so the NRI DaemonSet pods (same app
+      # name, no fabric listener) are never returned as fabric peers.
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: daemon
       - notExists:
           path: spec.selector["app.kubernetes.io/instance"]
       - equal:

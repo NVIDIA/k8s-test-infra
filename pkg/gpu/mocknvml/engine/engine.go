@@ -20,6 +20,7 @@ import (
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
+	mockserver "github.com/NVIDIA/go-nvml/pkg/nvml/mock/server"
 )
 
 // Engine manages the mock NVML lifecycle and handle mapping.
@@ -123,7 +124,7 @@ func (e *Engine) createServer() (*MockServer, error) {
 }
 
 // createDevicesFromYAML creates ConfigurableDevices from YAML configuration
-func (e *Engine) createDevicesFromYAML(server *MockServer, base *dgxa100.Server) {
+func (e *Engine) createDevicesFromYAML(server *MockServer, base *mockserver.Server) {
 	debugLog("[ENGINE] Creating devices from YAML config\n")
 
 	// Build the node-level topology model once. It is immutable and shared
@@ -144,9 +145,9 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *dgxa100.Server)
 		minorNumber := e.config.GetDeviceMinorNumber(i)
 
 		// Get base device from dgxa100
-		baseDevice, ok := base.Devices[i].(*dgxa100.Device)
+		baseDevice, ok := base.Devices[i].(*mockserver.Device)
 		if !ok {
-			debugLog("[ENGINE] Device %d is not dgxa100.Device type, skipping\n", i)
+			debugLog("[ENGINE] Device %d is not mockserver.Device type, skipping\n", i)
 			continue
 		}
 
@@ -169,14 +170,14 @@ func (e *Engine) createDevicesFromYAML(server *MockServer, base *dgxa100.Server)
 // Uses deterministic UUIDs and PCI bus IDs so that multiple processes loading the
 // library for the same device index see identical identifiers -- critical for shared
 // GPU scenarios where two pods must agree on the UUID of a shared device.
-func (e *Engine) createDefaultDevices(server *MockServer, base *dgxa100.Server) {
+func (e *Engine) createDefaultDevices(server *MockServer, base *mockserver.Server) {
 	debugLog("[ENGINE] Creating devices with default config\n")
 
 	for i := 0; i < e.config.NumDevices && i < MaxDevices; i++ {
 		// Get base device from dgxa100
-		baseDevice, ok := base.Devices[i].(*dgxa100.Device)
+		baseDevice, ok := base.Devices[i].(*mockserver.Device)
 		if !ok {
-			debugLog("[ENGINE] Device %d is not dgxa100.Device type, skipping\n", i)
+			debugLog("[ENGINE] Device %d is not mockserver.Device type, skipping\n", i)
 			continue
 		}
 
@@ -525,10 +526,14 @@ func (e *Engine) PendingXidEvent() (uintptr, uint64, bool) {
 	}
 
 	for _, dev := range e.server.configurableDevices {
-		if dev == nil || dev.failure == nil {
+		if dev == nil {
 			continue
 		}
-		xid, ok := dev.failure.ClaimXid()
+		fi := dev.failureInjector()
+		if fi == nil {
+			continue
+		}
+		xid, ok := fi.ClaimXid()
 		if !ok {
 			continue
 		}
@@ -561,6 +566,7 @@ func ResetForTesting() {
 	ClearConfigCache()
 
 	resetFabricReadinessForTesting()
+	resetConfigOverrideStoreForTesting()
 
 	// Reset engine singleton
 	engineOnce = sync.Once{}

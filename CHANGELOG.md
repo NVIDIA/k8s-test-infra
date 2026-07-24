@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- DCGM / dcgm-exporter support for the mock GPU stack. `nvmlDeviceGetFieldValues`
+  now backs the `DCGM_FI_DEV_*` field surface (ECC, remapped rows, memory
+  temperature, and the NVLink field set), and a mock GPM implementation serves
+  `DCGM_FI_PROF_*` profiling metrics on Hopper+ profiles — architecture-gated
+  like real NVML, with `gpm.supported` / PCIe-rate config overrides; pre-Hopper
+  reports GPM unsupported. E2E coverage runs real dcgm-exporter under the GPU
+  Operator via the Go harness (`gpu-operator` scenario, `dcgm`/`xid` labels):
+  it asserts DEV + PROF and time-varying telemetry, plus `DCGM_FI_DEV_XID_ERRORS`
+  under failure injection. `spike-dcgm.sh` provides a container-level recipe. (#370)
+
 ### Changed
 - ComputeDomain simulation now runs the REAL `nvidia-imex` daemon in NO
   GPU mode (`--nogpu`) instead of the fake marker-file binaries: the new
@@ -18,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ibping NetworkPolicy now also admits the IMEX peer and command ports
   between nvml-mock pods (kind's kindnetd enforces NetworkPolicy on current
   releases, so the allow-list is load-bearing on Kind).
+
+### Security
+- Go pins bumped 1.26.4 -> 1.26.5 across the build (deployment and test
+  Dockerfiles, mocknvml/mockcuda Makefiles, e2e dispatch default, helper
+  scripts) to resolve `GO-2026-5856` (Encrypted Client Hello privacy leak
+  in `crypto/tls`), which was failing the `govulncheck` CI check.
 
 ### Deprecated
 - The fake `nvidia-imex` / `nvidia-imex-ctl` binaries, `pkg/imexcoord`,

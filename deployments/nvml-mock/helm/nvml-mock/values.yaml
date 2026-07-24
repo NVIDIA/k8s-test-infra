@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 gpu:
-  profile: a100           # a100 | h100 | b200 | gb200 | gb300 | l40s | t4
+  profile: a100           # any *.yaml basename under profiles/ (e.g. a100, h100, b200, gb200, gb300, l40s, t4)
   # Number of GPUs to expose. Empty (default) derives the count from the
   # selected profile's `devices:` list (t4 -> 4, all NVSwitch baseboards/NVL
   # slices -> 8), so the profile is the single source of truth. Set to a
@@ -11,29 +11,33 @@ gpu:
   count: ""
   customConfig: ""
 
-  # Opt-in: make GetTemperature / GetPowerUsage / GetUtilizationRates return
-  # time-varying values instead of the static figures from the profile.
-  # When `enabled: false` (default), the rendered ConfigMap is unchanged
-  # and the mock reproduces the historical static behavior.
-  # See pkg/gpu/mocknvml/README.md#dynamic-metrics-optional for semantics.
+  # Opt-in time-varying temperature / power / utilization. Disabled by default
+  # (static profile values). See pkg/gpu/mocknvml/README.md#dynamic-metrics-optional.
+  #
+  # Per-field resolution, highest priority last:
+  #   chart baseline  <  GPU profile default  <  user override (below / --set)
+  # Leave a field unset to inherit. Profiles set a power base that fits their
+  # TDP envelope (t4 ~65W, b200/gb200 ~600W, gb300 ~800W; others use the 250W
+  # baseline) so it isn't force-clamped to a bound.
   dynamicMetrics:
     enabled: false
-    seed: 0                              # 0 = time-based; non-zero for reproducibility
-    temperature:
-      base_c: 55
-      variance_c: 3
-      ramp_c: 15
-      ramp_period_sec: 120
-    power:
-      base_mw: 250000
-      variance_mw: 25000
-    utilization:
-      pattern: burst                     # idle | busy | burst | steady
-      gpu_min: 0
-      gpu_max: 100
-      memory_min: 0
-      memory_max: 100
-      burst_period_sec: 30
+    # Chart baseline defaults, shown for reference. Uncomment to override:
+    # seed: 0                            # 0 = time-based; non-zero for reproducibility
+    # temperature:
+    #   base_c: 55
+    #   variance_c: 3
+    #   ramp_c: 15
+    #   ramp_period_sec: 120
+    # power:                             # profile default wins unless set here
+    #   base_mw: 250000
+    #   variance_mw: 25000
+    # utilization:
+    #   pattern: burst                   # idle | busy | burst | steady
+    #   gpu_min: 0
+    #   gpu_max: 100
+    #   memory_min: 0
+    #   memory_max: 100
+    #   burst_period_sec: 30
 
   # Opt-in simulation of GPU failure scenarios: lost device, fallen-off-bus,
   # uncorrectable ECC errors, and Xid critical events. When `enabled: false`
@@ -77,6 +81,28 @@ tolerations:
 
 resources: {}
 
+# Node-wide ambient injection via containerd NRI. When enabled, a lightweight
+# node-local plugin appends the nvml-mock overlay mount and environment to each
+# container at runtime without mutating pod specs. Opt-in (default false): it
+# injects into workloads cluster-wide, so enable it only for the
+# node-wide-injection demo/use case. See docs/demo/node-wide-injection.
+nri:
+  enabled: false
+  socketPath: /var/run/nri/nri.sock
+  pluginName: nvml-mock
+  pluginIndex: "10"
+  image: {}
+  overlay:
+    hostPath: /var/lib/nvml-mock
+    mountPath: /opt/nvml-mock
+  optOutAnnotation: nvml-mock.nvidia.com/inject
+  # Workloads that can set this pod annotation to "true" can opt into host GPU
+  # device-node mounts from the staged mock overlay. Treat that pod-authored
+  # control as part of the demo trust boundary and exclude namespaces as needed.
+  deviceAnnotation: nvml-mock.nvidia.com/devices
+  excludedNamespaces: []
+  resources: {}
+
 # DaemonSet rolling update strategy.
 updateStrategy:
   type: RollingUpdate
@@ -86,7 +112,7 @@ updateStrategy:
 # Pod termination grace period. preStop cleanup is a few rm -rf
 # calls plus kubectl label requests, so the upstream 30s default
 # is overkill and slows rollouts.
-terminationGracePeriodSeconds: 10
+terminationGracePeriodSeconds: 2
 
 # ComputeDomain (NVLink fabric) simulation. Opt-in: when `topology.enabled`
 # is true a cluster-level ConfigMap declaring domain UUID + per-clique node

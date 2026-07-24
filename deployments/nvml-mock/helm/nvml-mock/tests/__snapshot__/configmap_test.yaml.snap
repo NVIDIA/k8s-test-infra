@@ -19,6 +19,13 @@ should match snapshot with b200 profile:
           cuda_version_major: 12
           cuda_version_minor: 6
 
+        # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
+        # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
+        dynamic_metrics_defaults:
+          power:
+            base_mw: 600000                 # 600W, within [400W, 1200W]
+            variance_mw: 50000
+
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
         # =============================================================================
@@ -385,7 +392,7 @@ should match snapshot with b200 profile:
         nvlink:
           version: 5
           links_per_gpu: 18
-          bandwidth_per_link_gbps: 100      # 100 GB/s per link = 1.8 TB/s total per GPU
+          bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
           c2c_enabled: false                # no Grace C2C
           # Standalone B200: negative-control profile -- no NVSwitch, no fabricmanager.
           # topo -m shows PCIe paths only (no NV#); nvmlDeviceGetGpuFabricInfo returns
@@ -819,7 +826,7 @@ should match snapshot with default a100 profile:
         nvlink:
           version: 3
           links_per_gpu: 12
-          bandwidth_per_link_gbps: 50       # 50 GB/s per link = 600 GB/s total per GPU
+          bandwidth_per_link_mbps: 25781    # NVLink3 25.781 GB/s/link unidirectional (`nvlink -s`); 12 links ~= 309 GB/s/GPU (600 GB/s bidir)
           c2c_enabled: false                # no Grace C2C on DGX A100
           # DGX A100: 6x NVSwitch -> NV12 all-to-all. Switch-link auto-expansion
           # (switches declared + links_per_gpu > 0, and no explicit per-device links)
@@ -910,6 +917,13 @@ should match snapshot with gb200 profile:
           cuda_version: "13.0"
           cuda_version_major: 13
           cuda_version_minor: 0
+
+        # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
+        # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
+        dynamic_metrics_defaults:
+          power:
+            base_mw: 600000                 # 600W, within [400W, 1200W]
+            variance_mw: 50000
 
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
@@ -1311,7 +1325,6 @@ should match snapshot with gb200 profile:
         nvlink:
           version: 5
           links_per_gpu: 18
-          bandwidth_per_link_gbps: 53       # whole-GB/s fallback; superseded by _mbps below
           bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
           c2c_enabled: true                 # NVLink-C2C to Grace CPU
           # Switch-link auto-expansion: because switches are declared and
@@ -1404,6 +1417,13 @@ should match snapshot with gb300 profile:
           cuda_version: "12.8"
           cuda_version_major: 12
           cuda_version_minor: 8
+
+        # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
+        # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
+        dynamic_metrics_defaults:
+          power:
+            base_mw: 800000                 # 800W, within [500W, 1600W]
+            variance_mw: 75000
 
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)
@@ -1808,7 +1828,6 @@ should match snapshot with gb300 profile:
         nvlink:
           version: 5
           links_per_gpu: 18
-          bandwidth_per_link_gbps: 53       # whole-GB/s fallback; superseded by _mbps below
           bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
           c2c_enabled: true                 # NVLink-C2C to Grace CPU
           # Switch-link auto-expansion: because switches are declared and
@@ -2277,7 +2296,7 @@ should match snapshot with h100 profile:
         nvlink:
           version: 4
           links_per_gpu: 18
-          bandwidth_per_link_gbps: 50       # 50 GB/s per link = 900 GB/s total per GPU
+          bandwidth_per_link_mbps: 26562    # NVLink4 26.562 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 478 GB/s/GPU (900 GB/s bidir)
           c2c_enabled: false                # no Grace C2C on HGX H100
           # Switch-link auto-expansion: switches declared + links_per_gpu > 0 (and no
           # explicit per-device links) makes the engine synthesize 18 active links per
@@ -2770,6 +2789,13 @@ should match snapshot with t4 profile:
           cuda_version: "12.4"
           cuda_version_major: 12
           cuda_version_minor: 4
+
+        # Helm-only dynamic-metrics defaults (engine ignores this key). Used when
+        # gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
+        dynamic_metrics_defaults:
+          power:
+            base_mw: 65000                  # 65W, within [60W, 70W]
+            variance_mw: 5000
 
         # =============================================================================
         # Default device configuration (applied to all devices unless overridden)

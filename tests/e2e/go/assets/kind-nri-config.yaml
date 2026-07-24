@@ -1,0 +1,24 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kind config for the node-wide NRI injection scenario (Go port of
+# docs/demo/node-wide-injection/run.sh). containerd NRI is enabled so the
+# nvml-mock-nri plugin can inject the mock GPU overlay into ordinary pods at
+# container creation time.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      socket_path = "/var/run/nri/nri.sock"
+# Four workers so the ComputeDomain topology overlay has two cliques to assign
+# (workers 1-2 -> clique 0, workers 3-4 -> clique 1). Node names follow Kind's
+# "<cluster>-worker[N]" convention; the scenario derives the clique mapping
+# from the discovered worker names, so this stays cluster-name agnostic.
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+  - role: worker
+  - role: worker

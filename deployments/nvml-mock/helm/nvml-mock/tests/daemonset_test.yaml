@@ -549,6 +549,11 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
+            name: MOCK_IB_PING_SOCKET
+            value: /var/lib/nvml-mock/run/mock-ib.sock
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
             name: POD_IP
             valueFrom:
               fieldRef:
@@ -562,7 +567,12 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: LD_PRELOAD
-            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_PCI_ROOT
+            value: /var/lib/nvml-mock
       - equal:
           path: spec.template.spec.containers[0].ports[0].name
           value: ibping
@@ -758,24 +768,21 @@ tests:
             name: DRIVER_SYMLINK
             value: "true"
 
-  - it: should accept the bool shorthand for driverSymlink
+  - it: should fail loudly when driverSymlink is a bare scalar
     set:
       gpuOperator:
         driverSymlink: false
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: DRIVER_SYMLINK
-            value: "false"
+      - failedTemplate:
+          errorPattern: "gpuOperator.driverSymlink must be a map with an `enabled` bool"
 
-  - it: should fail loudly when driverSymlink is a non-bool scalar
+  - it: should fail loudly when driverSymlink is a non-map scalar
     set:
       gpuOperator:
         driverSymlink: "nope"
     asserts:
       - failedTemplate:
-          errorPattern: "gpuOperator.driverSymlink must be a map or bool"
+          errorPattern: "gpuOperator.driverSymlink must be a map with an `enabled` bool"
 
   - it: should fail loudly when gpuOperator is a falsy scalar
     set:
@@ -834,22 +841,19 @@ tests:
             hostPath:
               path: /
 
-  - it: should accept the bool shorthand for hostDriver
+  - it: should fail loudly when hostDriver is a bare scalar
     set:
       hostDriver: true
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: HOST_DRIVER
-            value: "true"
+      - failedTemplate:
+          errorPattern: "hostDriver must be a map with an `enabled` bool"
 
-  - it: should fail loudly when hostDriver is a non-bool scalar
+  - it: should fail loudly when hostDriver is a non-map scalar
     set:
       hostDriver: "yes"
     asserts:
       - failedTemplate:
-          errorPattern: "hostDriver must be a map or bool"
+          errorPattern: "hostDriver must be a map with an `enabled` bool"
 
   - it: should fail loudly when hostDriver.enabled is a non-bool
     set:
@@ -858,3 +862,38 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "hostDriver.enabled must be a bool"
+
+  - it: should keep the chart default termination grace when hostDriver is disabled
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 2
+
+  - it: should clamp termination grace up when hostDriver is enabled
+    set:
+      hostDriver:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 10
+
+  - it: should honor an explicit termination grace when hostDriver is enabled
+    set:
+      hostDriver:
+        enabled: true
+      terminationGracePeriodSeconds: 30
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 30
+
+  - it: should not clamp below the explicit termination grace for hostDriver
+    set:
+      hostDriver:
+        enabled: true
+      terminationGracePeriodSeconds: 15
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 15

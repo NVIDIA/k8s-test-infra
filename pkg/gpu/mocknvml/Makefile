@@ -14,7 +14,7 @@
 DOCKER   ?= docker
 MKDIR    ?= mkdir
 
-GOLANG_VERSION ?= 1.26.4
+GOLANG_VERSION ?= 1.26.5
 IMAGE_TAG ?= mock-nvml-builder
 BUILDIMAGE ?= $(IMAGE_TAG)
 
@@ -136,6 +136,7 @@ docker-build: .build-image
 		--rm \
 		-e GOCACHE=/tmp/.cache/go \
 		-e GOMODCACHE=/tmp/.cache/gomod \
+		-e GOFLAGS=-buildvcs=false \
 		-v $(REPO_ROOT):/work \
 		-w /work/pkg/gpu/mocknvml \
 		--user $$(id -u):$$(id -g) \

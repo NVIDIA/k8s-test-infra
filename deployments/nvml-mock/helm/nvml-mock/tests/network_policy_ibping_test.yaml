@@ -16,12 +16,18 @@ tests:
       - equal:
           path: spec.podSelector.matchLabels["app.kubernetes.io/name"]
           value: nvml-mock
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/component"]
+          value: daemon
       - contains:
           path: spec.policyTypes
           content: Ingress
       - equal:
           path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/name"]
           value: nvml-mock
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: daemon
       # namespaceSelector + podSelector in one peer (AND) admits nvml-mock
       # pods in any namespace, so a cross-namespace fleet isn't dropped on
       # enforcing CNIs.

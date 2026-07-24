@@ -207,13 +207,29 @@ typedef unsigned int nvmlVgpuCapability_t;
 typedef unsigned int nvmlVgpuDriverCapability_t;
 typedef unsigned int nvmlVgpuTypeId_t;
 
+/*
+ * Temperature info (v1) — used by the versioned nvmlDeviceGetTemperatureV API.
+ * sensorType is an input (which sensor to read); temperature is the output.
+ * Defined after nvmlTemperatureSensors_t above so the field type is complete.
+ */
+typedef struct nvmlTemperature_st
+{
+    unsigned int             version;      //!< IN: NVML_STRUCT_VERSION(Temperature, 1)
+    nvmlTemperatureSensors_t sensorType;   //!< IN: sensor to query (e.g. NVML_TEMPERATURE_GPU)
+    int                      temperature;  //!< OUT: temperature in degrees C
+} nvmlTemperature_t;
+
 /* --- Opaque handle types (passed by value as pointers) --- */
 typedef struct nvmlComputeInstance_st* nvmlComputeInstance_t;
 typedef struct nvmlEventSet_st*       nvmlEventSet_t;
-typedef struct nvmlGpmSample_st*      nvmlGpmSample_t;
 typedef struct nvmlGpuInstance_st*     nvmlGpuInstance_t;
 typedef struct nvmlUnit_st*           nvmlUnit_t;
 typedef struct nvmlVgpuInstance_st*    nvmlVgpuInstance_t;
+
+/* Upstream wraps the opaque GPM sample pointer in a one-field struct. */
+typedef struct {
+    struct nvmlGpmSample_st* handle;
+} nvmlGpmSample_t;
 
 /* --- Opaque struct types (only used via pointer in function signatures) --- */
 typedef struct nvmlAccountingStats_st                       nvmlAccountingStats_t;
@@ -309,12 +325,37 @@ typedef struct nvmlFieldValue_st {
     nvmlReturn_t    nvmlReturn;  //!< Per-field return code; check before value
     nvmlValue_t     value;       //!< Field value (valid iff nvmlReturn == SUCCESS)
 } nvmlFieldValue_t;
-typedef struct nvmlGpmMetricsGet_st                         nvmlGpmMetricsGet_t;
+/* GPM metrics query — full definition needed by the bridge so
+ * nvmlGpmMetricsGet (see bridge/gpm.go) can read the requested metricIds and
+ * populate value/nvmlReturn/metricInfo per metric. Layout matches the
+ * upstream NVML public header (NVML_GPM_METRIC_MAX = 333 for driver 550 /
+ * go-nvml 0.13.x). */
+#define NVML_GPM_METRIC_MAX 333
+#define NVML_GPM_METRICS_GET_VERSION 1
+typedef struct {
+    char *shortName;
+    char *longName;
+    char *unit;
+} nvmlGpmMetricMetricInfo_t;
+typedef struct {
+    unsigned int metricId;                 //!< IN: NVML_GPM_METRIC_? id to retrieve
+    nvmlReturn_t nvmlReturn;               //!< OUT: status of this metric
+    double value;                          //!< OUT: value, valid iff nvmlReturn == SUCCESS
+    nvmlGpmMetricMetricInfo_t metricInfo;  //!< OUT: metric name and unit (may be NULL)
+} nvmlGpmMetric_t;
+typedef struct nvmlGpmMetricsGet_st {
+    unsigned int version;                          //!< IN: NVML_GPM_METRICS_GET_VERSION
+    unsigned int numMetrics;                       //!< IN: number of entries in metrics[]
+    nvmlGpmSample_t sample1;                       //!< IN: first sample buffer
+    nvmlGpmSample_t sample2;                       //!< IN: second sample buffer
+    nvmlGpmMetric_t metrics[NVML_GPM_METRIC_MAX];  //!< IN/OUT: metricId in, value out
+} nvmlGpmMetricsGet_t;
 /* GPM support - full definition needed by bridge */
 typedef struct nvmlGpmSupport_st {
     unsigned int version;
     unsigned int isSupportedDevice;
 } nvmlGpmSupport_t;
+#define NVML_GPM_SUPPORT_VERSION 1
 typedef struct nvmlGpuDynamicPstatesInfo_st                 nvmlGpuDynamicPstatesInfo_t;
 
 /* GPU Fabric information — full definitions needed by the bridge so
@@ -433,7 +474,6 @@ typedef struct nvmlSystemEventSetCreateRequest_st           nvmlSystemEventSetCr
 typedef struct nvmlSystemEventSetFreeRequest_st             nvmlSystemEventSetFreeRequest_t;
 typedef struct nvmlSystemEventSetWaitRequest_st             nvmlSystemEventSetWaitRequest_t;
 typedef struct nvmlSystemRegisterEventRequest_st            nvmlSystemRegisterEventRequest_t;
-typedef struct nvmlTemperature_st                           nvmlTemperature_t;
 typedef struct nvmlUUID_st                                  nvmlUUID_t;
 typedef struct nvmlUnitFanSpeeds_st                         nvmlUnitFanSpeeds_t;
 typedef struct nvmlUnitInfo_st                              nvmlUnitInfo_t;
@@ -476,18 +516,112 @@ typedef struct nvmlHostname_v1_st                           nvmlHostname_v1_t;
 typedef struct nvmlPRMCounterList_v1_st                     nvmlPRMCounterList_v1_t;
 typedef struct nvmlRusdSettings_v1_st                       nvmlRusdSettings_v1_t;
 typedef struct nvmlUnrepairableMemoryStatus_v1_st           nvmlUnrepairableMemoryStatus_v1_t;
+typedef struct nvmlVgpuSchedulerLogInfo_v2_st               nvmlVgpuSchedulerLogInfo_v2_t;
+typedef struct nvmlVgpuSchedulerSetState_v2_st              nvmlVgpuSchedulerSetState_v2_t;
+typedef struct nvmlVgpuSchedulerState_v2_st                 nvmlVgpuSchedulerState_v2_t;
+typedef struct nvmlVgpuSchedulerStateInfo_v2_st             nvmlVgpuSchedulerStateInfo_v2_t;
 typedef struct nvmlWorkloadPowerProfileUpdateProfiles_v1_st nvmlWorkloadPowerProfileUpdateProfiles_v1_t;
 
 /*
- * NVML additions (go-nvml v0.13.2-0, #410). Versioned _v2 info structs for
- * remapped rows and the vGPU scheduler APIs. Only ever passed by pointer
- * through NOT_SUPPORTED stubs, so opaque forward declarations are sufficient
- * and ABI-safe.
+ * Completed struct bodies for the versioned getters implemented by hand
+ * (nvmlDeviceGetPciInfoExt, nvmlDeviceGetMarginTemperature). The opaque
+ * forward declarations above only name the typedefs; these complete the struct
+ * tags so the bridge can read/write their fields. Layouts mirror
+ * vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h (v1). version is an input
+ * the caller stamps with the NVML_STRUCT_VERSION macro.
  */
-typedef struct nvmlRemappedRowsInfo_v2_st                   nvmlRemappedRowsInfo_v2_t;
+struct nvmlPciInfoExt_st
+{
+    unsigned int version;         //!< IN: NVML_STRUCT_VERSION(PciInfoExt, 1)
+    unsigned int domain;          //!< OUT: PCI domain
+    unsigned int bus;             //!< OUT: PCI bus
+    unsigned int device;          //!< OUT: PCI device
+    unsigned int pciDeviceId;     //!< OUT: combined 16-bit device + 16-bit vendor id
+    unsigned int pciSubSystemId;  //!< OUT: 32-bit subsystem device id
+    unsigned int baseClass;       //!< OUT: 8-bit PCI base class code
+    unsigned int subClass;        //!< OUT: 8-bit PCI sub class code
+    char busId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE]; //!< OUT: domain:bus:device.function
+};
+
+struct nvmlMarginTemperature_st
+{
+    unsigned int version;            //!< IN: NVML_STRUCT_VERSION(MarginTemperature, 1)
+    int          marginTemperature;  //!< OUT: margin to the thermal limit, degrees C
+};
+
+/*
+ * NVML additions (go-nvml v0.13.2-0, #410). Remapped rows v2 is written by the
+ * bridge, so keep this layout in sync with go-nvml's vendored nvml.h.
+ */
+typedef struct nvmlRemappedRowsInfo_v2_t
+{
+    unsigned int corrActiveRemaps;
+    unsigned int corrInactiveRemaps;
+    unsigned int uncActiveRemaps;
+    unsigned int uncInactiveRemaps;
+    unsigned int bPending;
+    unsigned int bFailureOccurred;
+} nvmlRemappedRowsInfo_v2_t;
+
+/*
+ * The vGPU scheduler APIs are only ever passed by pointer through NOT_SUPPORTED
+ * stubs, so opaque forward declarations are sufficient and ABI-safe.
+ */
 typedef struct nvmlVgpuSchedulerLogInfo_v2_st               nvmlVgpuSchedulerLogInfo_v2_t;
 typedef struct nvmlVgpuSchedulerStateInfo_v2_st             nvmlVgpuSchedulerStateInfo_v2_t;
 typedef struct nvmlVgpuSchedulerState_v2_st                 nvmlVgpuSchedulerState_v2_t;
+
+/*
+ * NVML additions (go-nvml v0.13.3-1, deps-consolidated-20260713). Unlike the
+ * #400/#410 additions above, these need full ABI-accurate definitions, not
+ * opaque forward declarations: go-nvml's own cgo wrapper functions
+ * (nvmlDeviceGetAccountingStats_v2, nvmlDeviceGetBBXTimeData_v1,
+ * nvmlSystemGetCPER_v1 in vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go)
+ * fail to compile against an opaque C.nvmlXxx_t with "could not determine
+ * what C.nvmlXxx_t refers to" unless the full struct body is visible.
+ * Definitions extracted verbatim from
+ * vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h.
+ */
+typedef struct {
+    unsigned int       pid;               //!< Process Id of the target process to query stats for
+    unsigned int       isRunning;         //!< Flag to represent if the process is running (1 for running, 0 for terminated)
+    unsigned int       gpuUtilization;    //!< Percent of time over the process's lifetime during which one or more kernels was executing on the GPU
+    unsigned int       memoryUtilization; //!< Percent of time over the process's lifetime during which global (device) memory was being read or written
+    unsigned long long maxMemoryUsage;    //!< Maximum total memory in bytes that was ever allocated by the process
+    unsigned int       sampleCount;       //!< The sample counts since the process starts
+    unsigned long long sumGpuUtil;        //!< The sum of process's GR engine utilization in unit of pct * 100
+    unsigned long long sumFbUtil;         //!< The sum of process's FB bandwidth utilization in unit of pct * 100
+    unsigned long long time;              //!< Amount of time in ms during which the compute context was active
+    unsigned long long startTime;         //!< CPU Timestamp in usec representing start time for the process
+} nvmlAccountingStats_v2_t;
+
+typedef struct {
+    unsigned int timeRun; //!< [out] Cumulative number of seconds the GPU has had the driver loaded
+} nvmlBBXTimeData_v1_t;
+
+#define NVML_DEVICE_UUID_BUFFER_SIZE 80
+
+typedef unsigned long long nvmlCPERCursorHandle_t; //!< Opaque handle to a CPER read position
+#define NVML_CPER_CURSOR_HANDLE_INIT ((nvmlCPERCursorHandle_t) 0)
+
+typedef struct
+{
+    unsigned int           cperTypeMask; //!< [IN] Bitmask of nvmlCPERType_t values
+    char                   uuid[NVML_DEVICE_UUID_BUFFER_SIZE]; //!< [IN] UUID of target to filter records for
+    nvmlCPERCursorHandle_t handle;       //!< [IN/OUT] Opaque handle tracking read position
+} nvmlCPERCursor_v1_t;
+
+typedef enum
+{
+    NVML_CPER_ACCESS_TYPE_GPU = (1 << 0) //!< Access GPU CPER records
+} nvmlCPERType_t;
+
+typedef struct
+{
+    nvmlCPERCursor_v1_t cursor;     //!< [IN/OUT] Query parameters and cursor
+    unsigned char        *buffer;   //!< [OUT] Buffer to be filled (allocated by client)
+    unsigned int          bufferSize; //!< [IN/OUT] Size of buffer
+} nvmlGetCPER_v1_t;
 
 #ifdef __cplusplus
 }

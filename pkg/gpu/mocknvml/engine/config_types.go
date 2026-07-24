@@ -140,6 +140,11 @@ type DeviceConfig struct {
 	// sections are returned as-is.
 	DynamicMetrics *DynamicMetricsConfig `json:"dynamic_metrics,omitempty"`
 
+	// GPM tunes the GPU Performance Monitoring surface DCGM's profiling
+	// module reads (DCGM_FI_PROF_*). When nil, GPM support follows the
+	// device architecture (Hopper and newer, matching real NVML).
+	GPM *GPMConfig `json:"gpm,omitempty"`
+
 	// Failure enables GPU failure injection (lost device, fallen-off-bus,
 	// uncorrectable ECC, Xid). When nil (default) the device behaves as
 	// healthy hardware.
@@ -149,6 +154,38 @@ type DeviceConfig struct {
 	// (default) GetGpuFabricInfo / GetGpuFabricInfoV report
 	// ERROR_NOT_SUPPORTED — matching every non-fabric-attached GPU.
 	Fabric *FabricConfig `json:"fabric,omitempty"`
+
+	// NVLinkError injects per-link NVLink DL error accrual on this device's
+	// links to its NVSwitch. When nil (default) the links report the healthy
+	// baseline. See NVLinkErrorInjectionConfig.
+	NVLinkError *NVLinkErrorInjectionConfig `json:"nvlink_error,omitempty"`
+}
+
+// NVLinkErrorInjectionConfig injects NVLink data-link error accrual on a
+// device's links so the GPU's uplinks to its NVSwitch report climbing DL
+// errors — the closest an NVML-only mock can get to an NVSwitch-side fault.
+//
+// It exists because DCGM's NVSwitch entity health (DCGM_HEALTH_WATCH_NVSWITCH_*)
+// is sourced from NSCQ, not NVML, so a libnvidia-ml mock cannot drive it. What
+// the mock CAN drive is the GPU-side NVLink error surface DCGM's
+// DCGM_HEALTH_WATCH_NVLINK reads: the per-link/per-counter direct API
+// (nvmlDeviceGetNvLinkErrorCounter) and the DL error field values
+// (NVML_FI_DEV_NVLINK_ERROR_DL_{REPLAY,RECOVERY,CRC}, field ids 161-163).
+// A rising error rate there surfaces as DCGM_FR_NVLINK_* and is detected and
+// remediated by NVSentinel's gpu-health-monitor.
+type NVLinkErrorInjectionConfig struct {
+	// Rate is the injected error accrual in errors/second, added on top of
+	// each affected link's baseline. The counter climbs monotonically off the
+	// shared epoch (the same accrual model as NVLinkDefaults.ErrorRate), so
+	// DCGM's delta-based NVLink health watch observes a rising error rate
+	// rather than a one-shot step it would treat as stale after the first
+	// sample. 0 (default) disables injection — the healthy baseline.
+	Rate float64 `json:"rate,omitempty"`
+
+	// Links restricts injection to specific link ids. Empty (default) injects
+	// on every active link on the device — the "GPU lost its switch uplinks"
+	// fault. Ids that don't map to an active link are ignored.
+	Links []int `json:"links,omitempty"`
 }
 
 // DeviceOverride contains per-device settings that override defaults
@@ -491,6 +528,19 @@ type DynamicUtilizationConfig struct {
 	BurstPeriodSec int    `json:"burst_period_sec,omitempty"`
 }
 
+// GPMConfig tunes the GPM (GPU Performance Monitoring) profiling surface
+// DCGM's profiling module reads (DCGM_FI_PROF_*, dcgmi dmon -e 1001..).
+type GPMConfig struct {
+	// Supported overrides architecture-based GPM support detection
+	// (default: supported on Hopper and newer, matching real NVML).
+	Supported *bool `json:"supported,omitempty"`
+	// Full-utilization PCIe rates for the PCIE_TX/RX_PER_SEC metrics, in
+	// MiB/s. The reported rate is scaled by current GPU utilization.
+	// Default: 2048 MiB/s each direction.
+	PcieTxMiBPerSec uint64 `json:"pcie_tx_mib_per_sec,omitempty"`
+	PcieRxMiBPerSec uint64 `json:"pcie_rx_mib_per_sec,omitempty"`
+}
+
 // Failure mode constants used by FailureInjectionConfig.Mode. Anything else
 // (including the empty string) is treated as "healthy" — i.e. failure
 // injection disabled for the device.
@@ -612,13 +662,12 @@ type TopologyClique struct {
 
 // NVLinkConfig defines NVLink topology
 type NVLinkConfig struct {
-	Version              int `json:"version,omitempty"`
-	LinksPerGPU          int `json:"links_per_gpu,omitempty"`
-	BandwidthPerLinkGBPS int `json:"bandwidth_per_link_gbps,omitempty"`
-	// BandwidthPerLinkMbps, when > 0, sets the per-link speed precisely in
-	// Mbps (what NVML/`nvidia-smi nvlink -s` reports, GB/s = Mbps/1000). It
-	// overrides BandwidthPerLinkGBPS, which can only express whole GB/s — e.g.
-	// NVLink5 is 53.125 GB/s, i.e. 53125 Mbps, not 53.
+	Version     int `json:"version,omitempty"`
+	LinksPerGPU int `json:"links_per_gpu,omitempty"`
+	// BandwidthPerLinkMbps sets the per-link speed in Mbps (what
+	// NVML/`nvidia-smi nvlink -s` reports, GB/s = Mbps/1000). Mbps lets
+	// non-integer GB/s rates render exactly — e.g. NVLink5 is 53.125 GB/s,
+	// i.e. 53125 Mbps.
 	BandwidthPerLinkMbps int  `json:"bandwidth_per_link_mbps,omitempty"`
 	C2CEnabled           bool `json:"c2c_enabled,omitempty"`
 	// Links is the legacy flat link list. It is kept for backward

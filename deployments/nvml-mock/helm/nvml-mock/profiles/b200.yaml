@@ -14,6 +14,13 @@ system:
   cuda_version_major: 12
   cuda_version_minor: 6
 
+# Helm-only dynamic-metrics defaults (engine ignores this key). Used when
+# gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
+dynamic_metrics_defaults:
+  power:
+    base_mw: 600000                 # 600W, within [400W, 1200W]
+    variance_mw: 50000
+
 # =============================================================================
 # Default device configuration (applied to all devices unless overridden)
 # =============================================================================
@@ -380,7 +387,7 @@ devices:
 nvlink:
   version: 5
   links_per_gpu: 18
-  bandwidth_per_link_gbps: 100      # 100 GB/s per link = 1.8 TB/s total per GPU
+  bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
   c2c_enabled: false                # no Grace C2C
   # Standalone B200: negative-control profile -- no NVSwitch, no fabricmanager.
   # topo -m shows PCIe paths only (no NV#); nvmlDeviceGetGpuFabricInfo returns

@@ -1,0 +1,6 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Local-dev Helm value overrides for nvml-mock (committed, shared baseline).
+# To add personal overrides that won't be committed, create:
+#   local/nvml-mock.values.local.yaml  (gitignored, wins over this file)

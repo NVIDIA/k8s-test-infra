@@ -1,8 +1,16 @@
-# k8s-test-infra
-
-[![CI](https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml/badge.svg)](https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/NVIDIA/k8s-test-infra/badge)](https://scorecard.dev/viewer/?uri=github.com/NVIDIA/k8s-test-infra)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+<div align="center">
+    <img src="./docs/img/logo.png" width="350px" alt="Mokka" />
+    <h1>Mokka</h1>
+    <a href="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml">
+        <img src="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml/badge.svg" alt="CI pipelines" />
+    </a>
+    <a href="https://scorecard.dev/viewer/?uri=github.com/NVIDIA/k8s-test-infra">
+        <img src="https://api.scorecard.dev/projects/github.com/NVIDIA/k8s-test-infra/badge" alt="OpenSSF Scorecard" />
+    </a>
+    <a href="LICENSE">
+        <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" />
+    </a>
+</div>
 
 Kubernetes test infrastructure for NVIDIA GPU software — mock GPU environments,
 CI tooling, and testing utilities.
@@ -36,22 +44,25 @@ After install, deploy a consumer to test:
 
 ## E2E Testing
 
-The nvml-mock E2E workflow tests all GPU consumers across multiple profiles
-and node topologies. Run manually via `workflow_dispatch` or automatically
-on PRs.
+The nvml-mock Go E2E workflow gates standalone, DRA, GPU Operator, multi-node,
+and node-wide NRI coverage. Run manually via `workflow_dispatch` or
+automatically on PRs.
 
 | Test Suite | What It Validates | Profiles |
 |------------|-------------------|----------|
-| **Device Plugin** | `nvidia.com/gpu` allocatable resources | A100, H100, T4 |
-| **DRA Driver** | ResourceSlices via Dynamic Resource Allocation | A100, H100, T4 |
-| **GPU Operator** | Operator components: device plugin + GFD + validator (CDI injection) | A100, H100, T4 |
+| **Standalone Demo** | nvml-mock chart install, `nvidia-smi`, NVLink/fabricmanager, InfiniBand, PCI sysfs, and cross-node checks | Workflow-selected profiles |
+| **Failure Injection** | Healthy, ECC, lost, and fallen-off-bus modes | Workflow-selected profiles |
+| **DRA Driver** | Mock driver files, `nvidia-smi`, ResourceSlices, and DRA ResourceClaim scheduling | Workflow-selected profiles |
+| **GPU Operator (driver disabled)** | GPU Operator install with `driver.enabled=false`, validator pod startup, GFD labels, allocatable GPUs, and DCGM/runtime-control coverage | Workflow-selected profiles |
 | **GPU Operator (managed driver)** | Containerized-driver lifecycle via the [mock-driver image](docs/mock-driver.md): driver DaemonSet, startup-probe handshake, managed-branch validation | A100 |
 | **GPU Operator (host driver)** | Preinstalled-driver masquerade: nvidia-smi + libs at standard host paths, validator host branch, zero env overrides, clean uninstall | A100 |
-| **Multi-Node Fleet** | Cross-node scheduling with heterogeneous GPUs | A100 + T4 |
+| **Multi-Node Fleet** | Heterogeneous A100/T4 workers, mock files, InfiniBand behavior, device plugin resources, and GPU workload scheduling | Fixed multi-node topology |
+| **Node-Wide NRI Injection** | Ambient mock GPU injection into ordinary pods without GPU requests or hostPath mounts | Workflow-selected profiles |
 
-Manual dispatch supports all 7 profiles: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`.
+Manual dispatch accepts a JSON array of GPU profiles; local runs default to
+`gb200`.
 
-See [`.github/workflows/nvml-mock-e2e.yaml`](.github/workflows/nvml-mock-e2e.yaml) for details.
+See [`.github/workflows/nvml-mock-e2e-go.yaml`](.github/workflows/nvml-mock-e2e-go.yaml) for details.
 
 ## Mock NVML Library
 
@@ -82,6 +93,10 @@ Use standalone for local development and CI pipelines.
 |------|-------------|
 | [Standalone](docs/demo/standalone/) | nvml-mock with FGO-style labels on Kind |
 | [With fake-gpu-operator](docs/demo/with-fgo/) | Full FGO + nvml-mock integration |
+
+## Credits
+
+- Logo designed by [Roman Hlushko](https://github.com/roma-glushko) with the assistance of OpenAI's ChatGPT.
 
 ## License
 

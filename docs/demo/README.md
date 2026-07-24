@@ -5,6 +5,21 @@ local Kind cluster.
 
 ## Available Demos
 
+### Node-wide injection (NRI)
+
+Dedicated cluster (`nvml-mock-node-wide-demo`) with containerd NRI enabled.
+Installs the `nvml-mock-nri` DaemonSet and proves a plain pod can run
+`nvidia-smi` without GPU requests, annotations, or pod-spec mutation.
+
+**Requirements:** Docker, Kind, Helm
+
+```bash
+cd node-wide-injection && ./run.sh
+```
+
+See [node-wide-injection/README.md](node-wide-injection/README.md) for the
+walkthrough.
+
 ### Standalone
 
 Deploy nvml-mock with FGO-style GPU labels on a Kind cluster. No external

@@ -8,6 +8,7 @@ metadata:
   name: {{ include "nvml-mock.fullname" . }}
   labels:
     {{- include "nvml-mock.labels" . | nindent 4 }}
+    app.kubernetes.io/component: daemon
 spec:
   selector:
     matchLabels:
@@ -18,12 +19,17 @@ spec:
     metadata:
       labels:
         {{- include "nvml-mock.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: daemon
       annotations:
         # Roll the DaemonSet on any config.yaml change.
         checksum/config: {{ include "nvml-mock.gpuConfig" . | sha256sum }}
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
-      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      # HostDriver cleanup walks a manifest and runs `chroot ldconfig`, which
+      # takes measurably longer than the default preStop (a few rm -rf + kubectl
+      # label calls). Clamp the grace period up when hostDriver is enabled so a
+      # cleaner shutdown finishes before SIGKILL leaves partial host mutation.
+      terminationGracePeriodSeconds: {{ include "nvml-mock.terminationGracePeriodSeconds" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -85,6 +91,19 @@ spec:
             # workloads) all see the config at the same in-container location.
             - name: MOCK_NVML_CONFIG
               value: /etc/nvml-mock/config.yaml
+            # Align both the runtime config-override writer and the in-pod reader
+            # on one host-backed path. nvml-mock-ctl (run via
+            # `kubectl exec ds/nvml-mock -- ...`) writes overrides here, and the
+            # mock NVML engine loaded by nvidia-smi INSIDE this pod resolves the
+            # config override via ConfigOverridePathFor(), which honors MOCK_NVML_OVERRIDES.
+            # Without this the engine would look next to MOCK_NVML_CONFIG
+            # (/etc/nvml-mock, a read-only ConfigMap mount) and never see the
+            # overrides the CLI writes. host-nvml-mock is mounted here at
+            # /host/var/lib/nvml-mock, so this maps to the host file
+            # /var/lib/nvml-mock/driver/config/overrides.yaml that setup.sh's
+            # CDI spec also bind-mounts into external consumers.
+            - name: MOCK_NVML_OVERRIDES
+              value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
             {{- if .Values.topology.enabled }}
             # Point the engine's topology overlay at the in-pod mount of
             # the cluster-level topology ConfigMap. See
@@ -124,6 +143,8 @@ spec:
               value: {{ ternary "1" "0" $ibEnabled | quote }}
             - name: MOCK_IB_PING_PORT
               value: "{{ .Values.infiniband.ping.port }}"
+            - name: MOCK_IB_PING_SOCKET
+              value: /var/lib/nvml-mock/run/mock-ib.sock
             - name: POD_IP
               valueFrom:
                 fieldRef:
@@ -138,9 +159,11 @@ spec:
             # libibmockumad must precede libibmocksys so UMAD ioctls are
             # intercepted before sysfs path rewriting.
             - name: LD_PRELOAD
-              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1"
+              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1"
             - name: MOCK_IB_ROOT
               value: "/var/lib/nvml-mock/ib"
+            - name: MOCK_PCI_ROOT
+              value: "/var/lib/nvml-mock"
           lifecycle:
             preStop:
               exec:

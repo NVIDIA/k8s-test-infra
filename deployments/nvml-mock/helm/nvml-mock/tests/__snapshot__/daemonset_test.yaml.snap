@@ -4,6 +4,7 @@ should match snapshot with all overrides:
     kind: DaemonSet
     metadata:
       labels:
+        app.kubernetes.io/component: daemon
         app.kubernetes.io/instance: custom
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
@@ -18,8 +19,9 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: 787051305b6f43b315c462cacfd8f801526d31f91729045e22ff2ddce653ef48
+            checksum/config: 55bb2f5a4208bf44b344cc0227800acef90b155558045d62d3f2bbf1c55b2184
           labels:
+            app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: custom
             app.kubernetes.io/name: nvml-mock
         spec:
@@ -41,6 +43,8 @@ should match snapshot with all overrides:
                       fieldPath: spec.nodeName
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
+                - name: MOCK_NVML_OVERRIDES
+                  value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_FABRICMANAGER
                   value: "on"
                 - name: MOCK_FABRICMANAGER_STATE_DIR
@@ -51,6 +55,8 @@ should match snapshot with all overrides:
                   value: "1"
                 - name: MOCK_IB_PING_PORT
                   value: "18515"
+                - name: MOCK_IB_PING_SOCKET
+                  value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: POD_IP
                   valueFrom:
                     fieldRef:
@@ -58,9 +64,11 @@ should match snapshot with all overrides:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: nvml-mock-custom-ibping.gpu-system.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
+                - name: MOCK_PCI_ROOT
+                  value: /var/lib/nvml-mock
               image: custom-registry/nvml-mock:v2.0.0
               imagePullPolicy: Always
               lifecycle:
@@ -104,7 +112,7 @@ should match snapshot with all overrides:
           nodeSelector:
             nvidia.com/gpu.present: "true"
           serviceAccountName: nvml-mock-custom
-          terminationGracePeriodSeconds: 10
+          terminationGracePeriodSeconds: 2
           tolerations:
             - effect: NoSchedule
               key: nvidia.com/gpu
@@ -139,6 +147,7 @@ should match snapshot with b200 profile:
     kind: DaemonSet
     metadata:
       labels:
+        app.kubernetes.io/component: daemon
         app.kubernetes.io/instance: RELEASE-NAME
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
@@ -153,8 +162,9 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: 4ab59c604e1085c8ec7053eada55fedefa12271b050269412744eaad9f13c68b
+            checksum/config: 91abd6528f3069e2f6b12ae59bbaac06c73a8f4dc5fa573d15b51778c1f73258
           labels:
+            app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME
             app.kubernetes.io/name: nvml-mock
         spec:
@@ -176,12 +186,16 @@ should match snapshot with b200 profile:
                       fieldPath: spec.nodeName
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
+                - name: MOCK_NVML_OVERRIDES
+                  value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_IB
                   value: full
                 - name: MOCK_IB_PING_FABRIC
                   value: "1"
                 - name: MOCK_IB_PING_PORT
                   value: "18515"
+                - name: MOCK_IB_PING_SOCKET
+                  value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: POD_IP
                   valueFrom:
                     fieldRef:
@@ -189,9 +203,11 @@ should match snapshot with b200 profile:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
+                - name: MOCK_PCI_ROOT
+                  value: /var/lib/nvml-mock
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               lifecycle:
@@ -224,7 +240,7 @@ should match snapshot with b200 profile:
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
           serviceAccountName: RELEASE-NAME-nvml-mock
-          terminationGracePeriodSeconds: 10
+          terminationGracePeriodSeconds: 2
           tolerations:
             - operator: Exists
           volumes:
@@ -253,6 +269,7 @@ should match snapshot with default values:
     kind: DaemonSet
     metadata:
       labels:
+        app.kubernetes.io/component: daemon
         app.kubernetes.io/instance: RELEASE-NAME
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
@@ -267,8 +284,9 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: 7378a4b9df71acdd4160488ec177b81cd691948f1e9c61b3802198c9a88a000c
+            checksum/config: 9b3eb20285d8ff1481993ed8af7a3f69d2999cbf8e9097c308c13cc191a79c44
           labels:
+            app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME
             app.kubernetes.io/name: nvml-mock
         spec:
@@ -290,6 +308,8 @@ should match snapshot with default values:
                       fieldPath: spec.nodeName
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
+                - name: MOCK_NVML_OVERRIDES
+                  value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_FABRICMANAGER
                   value: "on"
                 - name: MOCK_FABRICMANAGER_STATE_DIR
@@ -300,6 +320,8 @@ should match snapshot with default values:
                   value: "1"
                 - name: MOCK_IB_PING_PORT
                   value: "18515"
+                - name: MOCK_IB_PING_SOCKET
+                  value: /var/lib/nvml-mock/run/mock-ib.sock
                 - name: POD_IP
                   valueFrom:
                     fieldRef:
@@ -307,9 +329,11 @@ should match snapshot with default values:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1
+                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
+                - name: MOCK_PCI_ROOT
+                  value: /var/lib/nvml-mock
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               lifecycle:
@@ -344,7 +368,7 @@ should match snapshot with default values:
                 - mountPath: /var/lib/nvml-mock/fabric-state
                   name: host-fabric-state
           serviceAccountName: RELEASE-NAME-nvml-mock
-          terminationGracePeriodSeconds: 10
+          terminationGracePeriodSeconds: 2
           tolerations:
             - operator: Exists
           volumes:

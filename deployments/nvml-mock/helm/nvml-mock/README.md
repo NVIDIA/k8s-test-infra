@@ -22,6 +22,14 @@ Deploys a DaemonSet that creates on every node:
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
 
+When `nri.enabled=true` (opt-in; default `false`), the chart also deploys
+`nvml-mock-nri`, a node-local containerd NRI plugin. It mounts the host overlay
+into newly created containers at `/opt/nvml-mock` and injects the mock
+environment at runtime, so plain pods can run `nvidia-smi` without GPU resource
+requests or pod-spec mutation. Because it injects cluster-wide, it is off by
+default. Kind clusters must have containerd NRI enabled; see
+[`docs/demo/node-wide-injection`](../../../../docs/demo/node-wide-injection).
+
 ## Prerequisites
 
 | Tool | Version | Required For |
@@ -45,8 +53,8 @@ use "Option B: Build from source" in the quick start sections below.
 ## Quick Start: Device Plugin on KIND
 
 This path uses the NVIDIA device plugin to expose mock GPUs as
-`nvidia.com/gpu` allocatable resources. Tested in CI via
-`.github/workflows/nvml-mock-e2e.yaml` → `e2e-device-plugin` job.
+`nvidia.com/gpu` allocatable resources. Use this quick start for local/manual
+validation; the current Go E2E workflow gates the standalone demo path.
 
 ### 1. Create a KIND cluster
 
@@ -125,7 +133,8 @@ kind delete cluster --name nvml-mock-test
 
 This path uses the NVIDIA DRA (Dynamic Resource Allocation) driver to expose
 mock GPUs as ResourceSlices. DRA requires a cluster with specific feature
-gates. Tested in CI via `.github/workflows/nvml-mock-e2e.yaml` → `e2e-dra` job.
+gates. Tested in CI via `.github/workflows/nvml-mock-e2e-go.yaml` →
+`e2e-dra` job; use this quick start for local/manual validation.
 
 ### 1. Create a KIND cluster with DRA enabled
 
@@ -734,10 +743,10 @@ for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 | `gpu.count` | `8` | Number of mock GPUs per node |
 | `gpu.customConfig` | `""` | Inline YAML to override profile config entirely |
 | `gpu.dynamicMetrics.enabled` | `false` | Make the mock return time-varying temperature / power / utilization readings instead of the static profile values. See [Dynamic Metrics](#dynamic-metrics) below. |
-| `gpu.dynamicMetrics.seed` | `0` | RNG seed; `0` uses a time-based seed, non-zero produces reproducible sequences. |
-| `gpu.dynamicMetrics.temperature.*` | see `values.yaml` | `base_c`, `variance_c`, `ramp_c`, `ramp_period_sec` for the GPU temperature generator. |
-| `gpu.dynamicMetrics.power.*` | see `values.yaml` | `base_mw`, `variance_mw` for the power-draw generator (clamped to `power.min_limit_mw`/`max_limit_mw` from the profile). |
-| `gpu.dynamicMetrics.utilization.*` | see `values.yaml` | `pattern` (`idle` \| `busy` \| `burst` \| `steady`), `gpu_min/max`, `memory_min/max`, `burst_period_sec`. |
+| `gpu.dynamicMetrics.seed` | `0` (baseline) | RNG seed; `0` uses a time-based seed, non-zero produces reproducible sequences. |
+| `gpu.dynamicMetrics.temperature.*` | baseline (`base_c: 55`, …) | `base_c`, `variance_c`, `ramp_c`, `ramp_period_sec` for the GPU temperature generator. |
+| `gpu.dynamicMetrics.power.*` | profile default, else baseline `250000`/`25000` | `base_mw`, `variance_mw` for the power generator (clamped to the profile's `min/max_limit_mw`). Resolved **baseline < profile default < user override**; profiles outside the 250W baseline set their own (`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W). See [Dynamic Metrics](#dynamic-metrics). |
+| `gpu.dynamicMetrics.utilization.*` | baseline (`pattern: burst`, …) | `pattern` (`idle` \| `busy` \| `burst` \| `steady`), `gpu_min/max`, `memory_min/max`, `burst_period_sec`. |
 | `gpu.failureInjection.enabled` | `false` | Enable simulated GPU failures (lost / fallen off bus / uncorrectable ECC). See [Failure Injection](#failure-injection) below. |
 | `gpu.failureInjection.mode` | `healthy` | Failure mode: `healthy` (default, no-op), `lost`, `fallen_off_bus`, or `ecc_uncorrectable`. With the inert default, `enabled: true` alone produces a healthy device — you must set `mode` explicitly to engage failures. |
 | `gpu.failureInjection.probability` | `0.0` | Per-call probability `[0, 1]` for stochastic failure activation. |
@@ -901,6 +910,18 @@ fluctuating values from `GetTemperature`, `GetPowerUsage`, and
 `GetUtilizationRates`. Each sub-section (`temperature`, `power`,
 `utilization`) can be tuned independently; the overlay works with any
 built-in profile and with `gpu.customConfig`.
+
+Each field resolves in three layers, highest priority last:
+
+```
+chart baseline  <  GPU profile default  <  user override (values / --set)
+```
+
+The profile layer matters for **power**: one global `base_mw` can't fit every
+profile's `[min_limit_mw, max_limit_mw]` envelope, so profiles outside the 250W
+baseline declare their own base via a Helm-only `dynamic_metrics_defaults` key
+(`t4` ~65W, `b200`/`gb200` ~600W, `gb300` ~800W). The engine ignores that key;
+it only takes effect once `enabled: true` folds it into `dynamic_metrics`.
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
@@ -1123,6 +1144,6 @@ clusters, you may need to create a PodSecurity exception for the nvml-mock names
 ## Related Documentation
 
 - [Mock NVML Library Documentation](../../../../docs/README.md)
-- [E2E Test Workflow](../../../../.github/workflows/nvml-mock-e2e.yaml)
+- [E2E Test Workflow](../../../../.github/workflows/nvml-mock-e2e-go.yaml)
 - [KIND DRA Config](../../../../tests/e2e/kind-dra-config.yaml)
 - [Device Plugin Mock Manifest](../../../../tests/e2e/device-plugin-mock.yaml)

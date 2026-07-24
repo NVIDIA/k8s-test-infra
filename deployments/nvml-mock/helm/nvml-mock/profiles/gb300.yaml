@@ -14,6 +14,13 @@ system:
   cuda_version_major: 12
   cuda_version_minor: 8
 
+# Helm-only dynamic-metrics defaults (engine ignores this key). Used when
+# gpu.dynamicMetrics.enabled=true; base sits inside the power limits so it varies.
+dynamic_metrics_defaults:
+  power:
+    base_mw: 800000                 # 800W, within [500W, 1600W]
+    variance_mw: 75000
+
 # =============================================================================
 # Default device configuration (applied to all devices unless overridden)
 # =============================================================================
@@ -417,7 +424,6 @@ devices:
 nvlink:
   version: 5
   links_per_gpu: 18
-  bandwidth_per_link_gbps: 53       # whole-GB/s fallback; superseded by _mbps below
   bandwidth_per_link_mbps: 53125    # NVLink5 53.125 GB/s/link unidirectional (`nvlink -s`); 18 links ~= 0.95 TB/s/GPU (1.8 TB/s bidir)
   c2c_enabled: true                 # NVLink-C2C to Grace CPU
   # Switch-link auto-expansion: because switches are declared and

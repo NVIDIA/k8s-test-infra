@@ -1,0 +1,85 @@
+{{- if .Values.nri.enabled }}
+{{- $image := mergeOverwrite (deepCopy .Values.image) (.Values.nri.image | default dict) }}
+{{- $socketDir := dir .Values.nri.socketPath }}
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "nvml-mock.fullname" . }}-nri
+  labels:
+    {{- include "nvml-mock.nriLabels" . | nindent 4 }}
+    app.kubernetes.io/component: nri
+spec:
+  selector:
+    matchLabels:
+      {{- include "nvml-mock.nriSelectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: nri
+  updateStrategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nvml-mock.nriSelectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: nri
+    spec:
+      serviceAccountName: {{ include "nvml-mock.fullname" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: nvml-mock-nri
+          image: "{{ $image.repository }}:{{ $image.tag }}"
+          imagePullPolicy: {{ $image.pullPolicy }}
+          command: ["/usr/local/bin/nvml-mock-nri"]
+          args:
+            - --socket-path={{ .Values.nri.socketPath }}
+            - --plugin-name={{ .Values.nri.pluginName }}
+            - --plugin-index={{ .Values.nri.pluginIndex }}
+            - --overlay-host-path={{ .Values.nri.overlay.hostPath }}
+            - --overlay-mount-path={{ .Values.nri.overlay.mountPath }}
+            - --device-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev
+            - --opt-out-annotation={{ .Values.nri.optOutAnnotation }}
+            - --device-annotation={{ .Values.nri.deviceAnnotation }}
+            - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
+            # NODE_NAME (below) gates ComputeDomain topology injection: when
+            # topology.enabled stages a topology document into the overlay,
+            # the plugin injects NODE_NAME + MOCK_TOPOLOGY_CONFIG into each
+            # workload so its mock GPUs report this node's clique / cluster
+            # UUID. Harmless when topology is disabled (no document to stage).
+            - --node-name=$(NODE_NAME)
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsUser: 0
+          {{- with .Values.nri.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: nri-socket-dir
+              mountPath: {{ $socketDir }}
+            - name: nvml-mock-overlay
+              mountPath: {{ .Values.nri.overlay.hostPath }}
+              readOnly: true
+      volumes:
+        - name: nri-socket-dir
+          hostPath:
+            path: {{ $socketDir }}
+            type: DirectoryOrCreate
+        - name: nvml-mock-overlay
+          hostPath:
+            path: {{ .Values.nri.overlay.hostPath }}
+            type: DirectoryOrCreate
+{{- end }}

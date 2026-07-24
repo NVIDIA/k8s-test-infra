@@ -36,7 +36,8 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceGetProcessUtilization": {Added: "418.0"},
 
 	// 450.x additions
-	"nvmlDeviceGetRemappedRows": {Added: "450.0"},
+	"nvmlDeviceGetRemappedRows":    {Added: "450.0"},
+	"nvmlDeviceGetRemappedRows_v2": {Added: "450.0"},
 
 	// 470.x additions
 	"nvmlDeviceGetArchitecture":             {Added: "470.0"},
@@ -48,11 +49,29 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceGetGraphicsRunningProcesses_v3": {Added: "510.0"},
 	"nvmlDeviceGetGspFirmwareMode":             {Added: "510.0"},
 
-	// 535.x additions
+	// 535.x additions. GPM (GPU Performance Monitoring) — DCGM's profiling
+	// path on Hopper+ (DCGM_FI_PROF_*).
 	"nvmlGpmQueryDeviceSupport": {Added: "535.0"},
+	"nvmlGpmSampleAlloc":        {Added: "535.0"},
+	"nvmlGpmSampleFree":         {Added: "535.0"},
+	"nvmlGpmSampleGet":          {Added: "535.0"},
+	"nvmlGpmMetricsGet":         {Added: "535.0"},
+
+	// 555.x additions
+	"nvmlGpmQueryIfStreamingEnabled": {Added: "555.0"},
+	"nvmlGpmSetStreamingEnabled":     {Added: "555.0"},
 
 	// 560.x additions
 	"nvmlDeviceGetPlatformInfo": {Added: "560.0"},
+
+	// 580.x / NVML 13.0 additions
+	"nvmlDeviceGetVgpuSchedulerLog_v2":        {Added: "580.0"},
+	"nvmlDeviceGetVgpuSchedulerState_v2":      {Added: "580.0"},
+	"nvmlDeviceSetVgpuSchedulerState_v2":      {Added: "580.0"},
+	"nvmlDeviceVgpuForceGspUnload":            {Added: "580.0"},
+	"nvmlGpuInstanceGetVgpuSchedulerLog_v2":   {Added: "580.0"},
+	"nvmlGpuInstanceGetVgpuSchedulerState_v2": {Added: "580.0"},
+	"nvmlGpuInstanceSetVgpuSchedulerState_v2": {Added: "580.0"},
 
 	// Topology functions (available since early NVML)
 	"nvmlDeviceGetTopologyCommonAncestor": {Added: "331.0"},
