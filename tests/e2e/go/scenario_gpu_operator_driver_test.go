@@ -57,7 +57,7 @@ var _ = Describe("nvml-mock GPU Operator managed driver", Label("gpu-operator-dr
 
 	It("runs the operator-managed driver DaemonSet and publishes GPUs", Label("device-plugin"), func(ctx SpecContext) {
 		installGPUOperatorManagedDriver(ctx, h, assets.GPUOperatorValues, assets.GPUOperatorDriverValues)
-		assertions.WaitDaemonSetReady(ctx, h.Kube, gpuOperatorNamespace, "nvidia-driver-daemonset", config.ReadyTimeout(), config.PollInterval())
+		waitDriverPodRunning(ctx, h)
 		waitOperatorValidatorRunning(ctx, h)
 		assertions.WaitAllocatableGPU(ctx, h.Kube, node, managedDriverGPUs, config.ReadyTimeout(), config.PollInterval())
 	})
@@ -94,7 +94,7 @@ var _ = Describe("nvml-mock GPU Operator managed driver (MOCK_KMOD)", Label("gpu
 	It("loads the prebuilt stub module and publishes GPUs", Label("device-plugin"), func(ctx SpecContext) {
 		installGPUOperatorManagedDriver(ctx, h,
 			assets.GPUOperatorValues, assets.GPUOperatorDriverValues, assets.GPUOperatorDriverKmodValues)
-		assertions.WaitDaemonSetReady(ctx, h.Kube, gpuOperatorNamespace, "nvidia-driver-daemonset", config.ReadyTimeout(), config.PollInterval())
+		waitDriverPodRunning(ctx, h)
 		waitOperatorValidatorRunning(ctx, h)
 		assertions.WaitAllocatableGPU(ctx, h.Kube, node, managedDriverGPUs, config.ReadyTimeout(), config.PollInterval())
 	})
@@ -108,19 +108,42 @@ var _ = Describe("nvml-mock GPU Operator managed driver (MOCK_KMOD)", Label("gpu
 	})
 })
 
+// waitDriverPodRunning waits for the operator-managed driver pod to reach
+// Running, keyed off the STABLE component label (app.kubernetes.io/component=
+// nvidia-driver) rather than the DaemonSet name, which the operator may suffix
+// with the driver version / OS tag at render time.
+func waitDriverPodRunning(ctx SpecContext, h *harness.Harness) {
+	GinkgoHelper()
+	var pod string
+	Eventually(func() (string, error) {
+		p, err := h.Kube.FirstPodName(ctx, gpuOperatorNamespace, nvidiaDriverSelector)
+		pod = p
+		return p, err
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		ShouldNot(BeEmpty(), "nvidia-driver daemonset pod not found")
+	assertions.WaitPodPhase(ctx, h.Kube, gpuOperatorNamespace, pod, "Running", config.ReadyTimeout(), config.PollInterval())
+}
+
+// firstDriverPod returns the running driver pod name (by the stable component
+// label).
+func firstDriverPod(ctx context.Context, h *harness.Harness) string {
+	GinkgoHelper()
+	var pod string
+	Eventually(func() (string, error) {
+		p, err := h.Kube.FirstPodName(ctx, gpuOperatorNamespace, nvidiaDriverSelector)
+		pod = p
+		return p, err
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		ShouldNot(BeEmpty(), "nvidia-driver daemonset pod not found")
+	return pod
+}
+
 // assertManagedDriverContract verifies the driver pod satisfies the operator's
 // contract: the startup-probe sentinel exists and nvidia-smi runs from the
 // rbind-exposed driver root inside the driver container.
 func assertManagedDriverContract(ctx context.Context, h *harness.Harness) {
 	GinkgoHelper()
-	var driverPod string
-	Eventually(func() (string, error) {
-		p, err := h.Kube.FirstPodName(ctx, gpuOperatorNamespace, nvidiaDriverSelector)
-		driverPod = p
-		return p, err
-	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
-		ShouldNot(BeEmpty(), "nvidia-driver daemonset pod not found")
-
+	driverPod := firstDriverPod(ctx, h)
 	ref := kube.PodRef{Namespace: gpuOperatorNamespace, Pod: driverPod, Container: "nvidia-driver-ctr"}
 	By("checking /sys/module/nvidia/refcnt exists in the driver container")
 	_, err := h.Kube.ExecSh(ctx, ref, "test -f /sys/module/nvidia/refcnt")
