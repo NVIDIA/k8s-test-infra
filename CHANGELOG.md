@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Mock NVIDIA driver container image (`deployments/mock-driver/`) plus two new
+  ways to test the unmodified GPU Operator on GPU-less clusters, alongside the
+  existing `driver.enabled=false` baseline:
+  - **Managed mock driver** (`driver.enabled=true`): the operator deploys the
+    `mock-driver` image as its driver DaemonSet via standard image
+    substitution, exercising the containerized-driver lifecycle (DaemonSet
+    render, k8s-driver-manager init, startup-probe -> `.driver-ctr-ready`
+    handshake, validator managed branch). The driver-container contract is
+    vendored under `tests/e2e/contract/v26.3.3/` and drift-checked by
+    `tests/e2e/check-driver-contract.sh`.
+  - **Host driver masquerade** (`hostDriver.enabled=true` on the nvml-mock
+    chart): installs `nvidia-smi` and the mock libraries at the node's standard
+    paths so the operator validator takes its preinstalled host-driver branch
+    with zero driver-root env overrides. Every host path is recorded in a typed
+    manifest, guarded against overwriting foreign files, and removed on
+    uninstall.
+  - Optional `MOCK_KMOD=on` loads a prebuilt stub `nvidia` kernel module for
+    real kernel-global `/proc/driver/nvidia` and `/sys/module/nvidia` (node and
+    every pod). Prebuilt-only and intended for disposable Kind nodes.
+  - E2E coverage runs in the Go/Ginkgo harness (`gpu-operator-driver`,
+    `gpu-operator-driver-kmod`, `gpu-operator-hostdriver` scenarios); the
+    `mock-driver` image publishes multi-arch (amd64 + sbsa arm64) with
+    `-debian12` tag aliases mirroring the hardened nvml-mock publish pipeline.
 - DCGM / dcgm-exporter support for the mock GPU stack. `nvmlDeviceGetFieldValues`
   now backs the `DCGM_FI_DEV_*` field surface (ECC, remapped rows, memory
   temperature, and the NVLink field set), and a mock GPM implementation serves
