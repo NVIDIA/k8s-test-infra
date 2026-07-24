@@ -60,6 +60,67 @@ func TestGetFieldValue_DeviceScope(t *testing.T) {
 	}
 }
 
+func TestGetFieldValue_PowerScope(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Architecture: "hopper",
+		Power: &PowerConfig{
+			CurrentDrawMW:   350000,
+			EnforcedLimitMW: 600000,
+			DefaultLimitMW:  700000,
+			MinLimitMW:      100000,
+			MaxLimitMW:      900000,
+		},
+	})
+
+	tests := []struct {
+		name    string
+		fieldID uint32
+		value   uint64
+	}{
+		{"POWER_AVERAGE", fiPowerAverage, 350000},
+		{"POWER_INSTANT", fiPowerInstant, 350000},
+		{"POWER_MIN_LIMIT", fiPowerMinLimit, 100000},
+		{"POWER_MAX_LIMIT", fiPowerMaxLimit, 900000},
+		{"POWER_DEFAULT_LIMIT", fiPowerDefaultLimit, 700000},
+		{"POWER_CURRENT_LIMIT", fiPowerCurrentLimit, 600000},
+		{"POWER_REQUESTED_LIMIT", fiPowerRequestedLimit, 600000},
+	}
+	for _, tt := range tests {
+		// scopeId 0 == whole-GPU: resolves to the power getters.
+		vt, val, ret := dev.GetFieldValue(tt.fieldID, 0)
+		require.Equal(t, nvml.SUCCESS, ret, "%s (field %d)", tt.name, tt.fieldID)
+		require.Equal(t, FieldValueUint, vt, "%s value type", tt.name)
+		require.Equal(t, tt.value, val, "%s value", tt.name)
+
+		// Non-zero scope (per-module / per-memory) is not modeled -> blank.
+		_, _, ret = dev.GetFieldValue(tt.fieldID, 1)
+		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "%s non-GPU scope", tt.name)
+	}
+}
+
+func TestGetMarginTemperature(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Thermal: &ThermalConfig{TemperatureGPU_C: 34, SlowdownThreshold_C: 87},
+	})
+	margin, ret := dev.GetMarginTemperature()
+	require.Equal(t, nvml.SUCCESS, ret)
+	// margin = slowdown (87) - current (34).
+	require.Equal(t, int32(53), margin.MarginTemperature)
+
+	// Current above the limit clamps the margin at 0 rather than going negative.
+	hot := newTestDeviceWithConfig(t, &DeviceConfig{
+		Thermal: &ThermalConfig{TemperatureGPU_C: 120, SlowdownThreshold_C: 87},
+	})
+	margin, ret = hot.GetMarginTemperature()
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, int32(0), margin.MarginTemperature)
+
+	// No thermal config -> not supported.
+	none := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "hopper"})
+	_, ret = none.GetMarginTemperature()
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+}
+
 func TestGetFieldValue_UnknownFieldNotSupported(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "hopper"})
 	vt, _, ret := dev.GetFieldValue(9999, 0)

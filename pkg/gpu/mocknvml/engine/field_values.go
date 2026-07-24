@@ -47,6 +47,14 @@ const (
 	fiPcieReplayCounter         = 94
 	fiPcieReplayRolloverCounter = 95
 
+	fiPowerAverage        = 185
+	fiPowerInstant        = 186
+	fiPowerMinLimit       = 187
+	fiPowerMaxLimit       = 188
+	fiPowerDefaultLimit   = 189
+	fiPowerCurrentLimit   = 190
+	fiPowerRequestedLimit = 192
+
 	fiRemappedCor     = 142
 	fiRemappedUnc     = 143
 	fiRemappedPending = 144
@@ -78,7 +86,7 @@ const (
 // that entry unsupported while succeeding the overall call (matching real NVML
 // semantics — DCGM renders such entries as blank, not as errors).
 func (d *ConfigurableDevice) GetFieldValue(fieldID, scopeID uint32) (FieldValueType, uint64, nvml.Return) {
-	if vt, val, ret, handled := d.getDeviceFieldValue(fieldID); handled {
+	if vt, val, ret, handled := d.getDeviceFieldValue(fieldID, scopeID); handled {
 		return vt, val, ret
 	}
 	return d.GetNvLinkFieldValue(fieldID, scopeID)
@@ -95,7 +103,7 @@ func boolField(b bool) uint64 {
 // getDeviceFieldValue resolves the device-scope (non-NVLink) field set. The
 // fourth return reports whether the field id belongs to this set at all;
 // unknown ids fall through to the NVLink dispatch in GetFieldValue.
-func (d *ConfigurableDevice) getDeviceFieldValue(fieldID uint32) (FieldValueType, uint64, nvml.Return, bool) {
+func (d *ConfigurableDevice) getDeviceFieldValue(fieldID, scopeID uint32) (FieldValueType, uint64, nvml.Return, bool) {
 	switch fieldID {
 	case fiEccCurrent, fiEccPending:
 		current, pending, ret := d.GetEccMode()
@@ -142,10 +150,11 @@ func (d *ConfigurableDevice) getDeviceFieldValue(fieldID uint32) (FieldValueType
 		return FieldValueUint, boolField(state == nvml.FEATURE_ENABLED), nvml.SUCCESS, true
 
 	case fiMemoryTemp:
-		if d.config == nil || d.config.Thermal == nil || d.config.Thermal.TemperatureMemory_C == 0 {
+		cfg := d.cfg()
+		if cfg.Thermal == nil || cfg.Thermal.TemperatureMemory_C == 0 {
 			return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
 		}
-		return FieldValueUint, uint64(d.config.Thermal.TemperatureMemory_C), nvml.SUCCESS, true
+		return FieldValueUint, uint64(cfg.Thermal.TemperatureMemory_C), nvml.SUCCESS, true
 
 	case fiTotalEnergyConsumption:
 		energy, ret := d.GetTotalEnergyConsumption()
@@ -163,6 +172,17 @@ func (d *ConfigurableDevice) getDeviceFieldValue(fieldID uint32) (FieldValueType
 			return FieldValueUnsupported, 0, ret, true
 		}
 		return FieldValueUint, uint64(count), nvml.SUCCESS, true
+
+	case fiPowerAverage, fiPowerInstant, fiPowerMinLimit, fiPowerMaxLimit,
+		fiPowerDefaultLimit, fiPowerCurrentLimit, fiPowerRequestedLimit:
+		// Power field values are modeled only for the whole-GPU scope (scopeId
+		// 0). Per-module / per-memory scopes (used by nvidia-smi -q's "Module"
+		// and "GPU Memory" power sections) aren't simulated, so leave them
+		// blank rather than fabricating a per-scope reading.
+		if scopeID != 0 {
+			return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
+		}
+		return d.powerFieldValue(fieldID)
 
 	case fiRemappedCor, fiRemappedUnc, fiRemappedPending, fiRemappedFailure:
 		corr, unc, pending, failure, ret := d.GetRemappedRows()
@@ -183,4 +203,32 @@ func (d *ConfigurableDevice) getDeviceFieldValue(fieldID uint32) (FieldValueType
 	default:
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, false
 	}
+}
+
+// powerFieldValue resolves the whole-GPU power field values (mW) from the same
+// getters as the dedicated power APIs, so the field-value path (used by
+// nvidia-smi's power.draw.instant / -q power readings and by DCGM) stays
+// consistent with nvmlDeviceGetPowerUsage & friends. The mock has no separate
+// "instantaneous" sensor, so average and instant return the same draw.
+func (d *ConfigurableDevice) powerFieldValue(fieldID uint32) (FieldValueType, uint64, nvml.Return, bool) {
+	var (
+		val uint32
+		ret nvml.Return
+	)
+	switch fieldID {
+	case fiPowerAverage, fiPowerInstant:
+		val, ret = d.GetPowerUsage()
+	case fiPowerMinLimit:
+		val, _, ret = d.GetPowerManagementLimitConstraints()
+	case fiPowerMaxLimit:
+		_, val, ret = d.GetPowerManagementLimitConstraints()
+	case fiPowerDefaultLimit:
+		val, ret = d.GetPowerManagementDefaultLimit()
+	case fiPowerCurrentLimit, fiPowerRequestedLimit:
+		val, ret = d.GetPowerManagementLimit()
+	}
+	if ret != nvml.SUCCESS {
+		return FieldValueUnsupported, 0, ret, true
+	}
+	return FieldValueUint, uint64(val), nvml.SUCCESS, true
 }

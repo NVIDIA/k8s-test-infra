@@ -372,6 +372,18 @@ nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.dram  --format=csv
 MOCK_NVML_DEBUG=1 nvidia-smi -q -d ECC 2>&1 | grep -E 'failure|GPU_IS_LOST|Xid'
 ```
 
+#### Runtime control (`nvml-mock-ctl`)
+
+The `failure:` block above (and every other config field) is **boot-time**
+state: it is baked into the profile / Helm values and takes effect when a
+consumer process starts. To change simulated GPU state on a **running** node —
+inject a failure, flip ECC, or tweak metrics mid-test — without a Helm upgrade or
+pod restart, use `nvml-mock-ctl`. It writes a node-local `overrides.yaml` config override
+that the engine deep-merges over the pristine config and re-reads on a short TTL.
+
+See [docs/nvml-mock-ctl.md](../../../docs/nvml-mock-ctl.md) for the command
+reference, reset semantics, worked examples, and v1 caveats.
+
 ### Debugging
 
 Enable verbose logging to troubleshoot issues:

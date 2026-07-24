@@ -526,10 +526,14 @@ func (e *Engine) PendingXidEvent() (uintptr, uint64, bool) {
 	}
 
 	for _, dev := range e.server.configurableDevices {
-		if dev == nil || dev.failure == nil {
+		if dev == nil {
 			continue
 		}
-		xid, ok := dev.failure.ClaimXid()
+		fi := dev.failureInjector()
+		if fi == nil {
+			continue
+		}
+		xid, ok := fi.ClaimXid()
 		if !ok {
 			continue
 		}
@@ -562,6 +566,7 @@ func ResetForTesting() {
 	ClearConfigCache()
 
 	resetFabricReadinessForTesting()
+	resetConfigOverrideStoreForTesting()
 
 	// Reset engine singleton
 	engineOnce = sync.Once{}

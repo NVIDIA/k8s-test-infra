@@ -207,6 +207,18 @@ typedef unsigned int nvmlVgpuCapability_t;
 typedef unsigned int nvmlVgpuDriverCapability_t;
 typedef unsigned int nvmlVgpuTypeId_t;
 
+/*
+ * Temperature info (v1) — used by the versioned nvmlDeviceGetTemperatureV API.
+ * sensorType is an input (which sensor to read); temperature is the output.
+ * Defined after nvmlTemperatureSensors_t above so the field type is complete.
+ */
+typedef struct nvmlTemperature_st
+{
+    unsigned int             version;      //!< IN: NVML_STRUCT_VERSION(Temperature, 1)
+    nvmlTemperatureSensors_t sensorType;   //!< IN: sensor to query (e.g. NVML_TEMPERATURE_GPU)
+    int                      temperature;  //!< OUT: temperature in degrees C
+} nvmlTemperature_t;
+
 /* --- Opaque handle types (passed by value as pointers) --- */
 typedef struct nvmlComputeInstance_st* nvmlComputeInstance_t;
 typedef struct nvmlEventSet_st*       nvmlEventSet_t;
@@ -462,7 +474,6 @@ typedef struct nvmlSystemEventSetCreateRequest_st           nvmlSystemEventSetCr
 typedef struct nvmlSystemEventSetFreeRequest_st             nvmlSystemEventSetFreeRequest_t;
 typedef struct nvmlSystemEventSetWaitRequest_st             nvmlSystemEventSetWaitRequest_t;
 typedef struct nvmlSystemRegisterEventRequest_st            nvmlSystemRegisterEventRequest_t;
-typedef struct nvmlTemperature_st                           nvmlTemperature_t;
 typedef struct nvmlUUID_st                                  nvmlUUID_t;
 typedef struct nvmlUnitFanSpeeds_st                         nvmlUnitFanSpeeds_t;
 typedef struct nvmlUnitInfo_st                              nvmlUnitInfo_t;
@@ -510,6 +521,33 @@ typedef struct nvmlVgpuSchedulerSetState_v2_st              nvmlVgpuSchedulerSet
 typedef struct nvmlVgpuSchedulerState_v2_st                 nvmlVgpuSchedulerState_v2_t;
 typedef struct nvmlVgpuSchedulerStateInfo_v2_st             nvmlVgpuSchedulerStateInfo_v2_t;
 typedef struct nvmlWorkloadPowerProfileUpdateProfiles_v1_st nvmlWorkloadPowerProfileUpdateProfiles_v1_t;
+
+/*
+ * Completed struct bodies for the versioned getters implemented by hand
+ * (nvmlDeviceGetPciInfoExt, nvmlDeviceGetMarginTemperature). The opaque
+ * forward declarations above only name the typedefs; these complete the struct
+ * tags so the bridge can read/write their fields. Layouts mirror
+ * vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h (v1). version is an input
+ * the caller stamps with the NVML_STRUCT_VERSION macro.
+ */
+struct nvmlPciInfoExt_st
+{
+    unsigned int version;         //!< IN: NVML_STRUCT_VERSION(PciInfoExt, 1)
+    unsigned int domain;          //!< OUT: PCI domain
+    unsigned int bus;             //!< OUT: PCI bus
+    unsigned int device;          //!< OUT: PCI device
+    unsigned int pciDeviceId;     //!< OUT: combined 16-bit device + 16-bit vendor id
+    unsigned int pciSubSystemId;  //!< OUT: 32-bit subsystem device id
+    unsigned int baseClass;       //!< OUT: 8-bit PCI base class code
+    unsigned int subClass;        //!< OUT: 8-bit PCI sub class code
+    char busId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE]; //!< OUT: domain:bus:device.function
+};
+
+struct nvmlMarginTemperature_st
+{
+    unsigned int version;            //!< IN: NVML_STRUCT_VERSION(MarginTemperature, 1)
+    int          marginTemperature;  //!< OUT: margin to the thermal limit, degrees C
+};
 
 /*
  * NVML additions (go-nvml v0.13.2-0, #410). Remapped rows v2 is written by the

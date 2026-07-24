@@ -39,6 +39,8 @@ should match snapshot with all overrides:
                       fieldPath: spec.nodeName
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
+                - name: MOCK_NVML_OVERRIDES
+                  value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_FABRICMANAGER
                   value: "on"
                 - name: MOCK_FABRICMANAGER_STATE_DIR
@@ -176,6 +178,8 @@ should match snapshot with b200 profile:
                       fieldPath: spec.nodeName
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
+                - name: MOCK_NVML_OVERRIDES
+                  value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_IB
                   value: full
                 - name: MOCK_IB_PING_FABRIC
@@ -292,6 +296,8 @@ should match snapshot with default values:
                       fieldPath: spec.nodeName
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
+                - name: MOCK_NVML_OVERRIDES
+                  value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_FABRICMANAGER
                   value: "on"
                 - name: MOCK_FABRICMANAGER_STATE_DIR

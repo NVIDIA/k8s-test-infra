@@ -103,12 +103,16 @@ containerEdits:
     - hostPath: /var/lib/nvml-mock/driver/usr/bin/nvidia-smi
       containerPath: /usr/bin/nvidia-smi
       options: [ro, nosuid, nodev, bind]
-    # Bind-mount the GPU profile config so the mock NVML library finds it via
-    # MOCK_NVML_CONFIG below. Without this CDI-injected workloads load the
-    # mock .so but fall back to "no-YAML" defaults — temperature, power and
-    # similar metrics surface as N/A in nvidia-smi.
-    - hostPath: /var/lib/nvml-mock/driver/config/config.yaml
-      containerPath: /etc/nvml-mock/config.yaml
+    # Bind-mount the GPU profile config DIRECTORY (not just config.yaml) so the
+    # mock NVML library finds config.yaml via MOCK_NVML_CONFIG below AND sees
+    # overrides.yaml when nvml-mock-ctl writes it at runtime. The CLI creates
+    # the config override via temp-file+rename in this same dir; a directory bind makes
+    # that atomic rename observable to CDI-injected consumers (a single-file
+    # bind would pin the original inode and hide the replacement). Without the
+    # config the mock .so falls back to "no-YAML" defaults — temperature, power
+    # and similar metrics surface as N/A in nvidia-smi.
+    - hostPath: /var/lib/nvml-mock/driver/config
+      containerPath: /etc/nvml-mock
       options: [ro, nosuid, nodev, bind]
 CDI_HEADER
 
@@ -134,6 +138,7 @@ cat >> "$CDI_DIR/nvidia.yaml" << 'CDI_HOOKS_ENV'
   env:
     - NVIDIA_VISIBLE_DEVICES=void
     - MOCK_NVML_CONFIG=/etc/nvml-mock/config.yaml
+    - MOCK_NVML_OVERRIDES=/etc/nvml-mock/overrides.yaml
 CDI_HOOKS_ENV
 
 if [ "$MOCK_FM_MODE" != "off" ]; then
@@ -250,6 +255,11 @@ cp /etc/nvml-mock/config.yaml "$DRIVER_ROOT/config/config.yaml"
 #    This makes the on-host config self-contained — consumers just point at driver root.
 sed -i "/^system:/a\\  num_devices: $GPU_COUNT" "$CONFIG_DIR/config.yaml"
 sed -i "/^system:/a\\  num_devices: $GPU_COUNT" "$DRIVER_ROOT/config/config.yaml"
+
+# Runtime overrides (written by nvml-mock-ctl) are ephemeral: wipe them on
+# every pod start so a restart of this DaemonSet resets simulated GPU state
+# back to the pristine profile config.
+rm -f "$CONFIG_DIR/overrides.yaml" "$DRIVER_ROOT/config/overrides.yaml"
 
 # 6b. Stage the cluster-level ComputeDomain topology document into the overlay
 #     tree so node-wide NRI injection can surface per-node fabric identity.

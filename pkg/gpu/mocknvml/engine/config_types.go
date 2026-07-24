@@ -154,6 +154,38 @@ type DeviceConfig struct {
 	// (default) GetGpuFabricInfo / GetGpuFabricInfoV report
 	// ERROR_NOT_SUPPORTED — matching every non-fabric-attached GPU.
 	Fabric *FabricConfig `json:"fabric,omitempty"`
+
+	// NVLinkError injects per-link NVLink DL error accrual on this device's
+	// links to its NVSwitch. When nil (default) the links report the healthy
+	// baseline. See NVLinkErrorInjectionConfig.
+	NVLinkError *NVLinkErrorInjectionConfig `json:"nvlink_error,omitempty"`
+}
+
+// NVLinkErrorInjectionConfig injects NVLink data-link error accrual on a
+// device's links so the GPU's uplinks to its NVSwitch report climbing DL
+// errors — the closest an NVML-only mock can get to an NVSwitch-side fault.
+//
+// It exists because DCGM's NVSwitch entity health (DCGM_HEALTH_WATCH_NVSWITCH_*)
+// is sourced from NSCQ, not NVML, so a libnvidia-ml mock cannot drive it. What
+// the mock CAN drive is the GPU-side NVLink error surface DCGM's
+// DCGM_HEALTH_WATCH_NVLINK reads: the per-link/per-counter direct API
+// (nvmlDeviceGetNvLinkErrorCounter) and the DL error field values
+// (NVML_FI_DEV_NVLINK_ERROR_DL_{REPLAY,RECOVERY,CRC}, field ids 161-163).
+// A rising error rate there surfaces as DCGM_FR_NVLINK_* and is detected and
+// remediated by NVSentinel's gpu-health-monitor.
+type NVLinkErrorInjectionConfig struct {
+	// Rate is the injected error accrual in errors/second, added on top of
+	// each affected link's baseline. The counter climbs monotonically off the
+	// shared epoch (the same accrual model as NVLinkDefaults.ErrorRate), so
+	// DCGM's delta-based NVLink health watch observes a rising error rate
+	// rather than a one-shot step it would treat as stale after the first
+	// sample. 0 (default) disables injection — the healthy baseline.
+	Rate float64 `json:"rate,omitempty"`
+
+	// Links restricts injection to specific link ids. Empty (default) injects
+	// on every active link on the device — the "GPU lost its switch uplinks"
+	// fault. Ids that don't map to an active link are ignored.
+	Links []int `json:"links,omitempty"`
 }
 
 // DeviceOverride contains per-device settings that override defaults
