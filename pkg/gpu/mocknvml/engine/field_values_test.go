@@ -107,17 +107,59 @@ func TestGetMarginTemperature(t *testing.T) {
 	// margin = slowdown (87) - current (34).
 	require.Equal(t, int32(53), margin.MarginTemperature)
 
-	// Current above the limit clamps the margin at 0 rather than going negative.
+	// Current above the limit yields a NEGATIVE (signed) margin, mirroring real
+	// T.Limit hardware: this is the sign crossing GpuThermalMarginWatch keys on.
 	hot := newTestDeviceWithConfig(t, &DeviceConfig{
 		Thermal: &ThermalConfig{TemperatureGPU_C: 120, SlowdownThreshold_C: 87},
 	})
 	margin, ret = hot.GetMarginTemperature()
 	require.Equal(t, nvml.SUCCESS, ret)
-	require.Equal(t, int32(0), margin.MarginTemperature)
+	// margin = slowdown (87) - current (120) = -33.
+	require.Equal(t, int32(-33), margin.MarginTemperature)
 
 	// No thermal config -> not supported.
 	none := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "hopper"})
 	_, ret = none.GetMarginTemperature()
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+}
+
+func TestGetFieldValue_TlimitThresholds(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Thermal: &ThermalConfig{
+			TemperatureGPU_C:    34,
+			SlowdownThreshold_C: 87,
+			ShutdownThreshold_C: 92,
+			MaxOperating_C:      85,
+		},
+	})
+
+	// Offsets are signed distances from the slowdown reference (87): slowdown
+	// is 0, shutdown a hotter (negative) limit, GPU-max the cooler gap. These
+	// are the metadata NVSentinel's GpuThermalMarginWatch needs to arm and are
+	// independent of the live temperature.
+	cases := []struct {
+		name    string
+		fieldID uint32
+		offset  int32
+	}{
+		{"SLOWDOWN_TLIMIT", fiTempSlowdownTlimit, 0},
+		{"SHUTDOWN_TLIMIT", fiTempShutdownTlimit, -5},
+		{"GPU_MAX_TLIMIT", fiTempGpuMaxTlimit, 2},
+	}
+	for _, tc := range cases {
+		vt, val, ret := dev.GetFieldValue(tc.fieldID, 0)
+		require.Equal(t, nvml.SUCCESS, ret, "%s (field %d)", tc.name, tc.fieldID)
+		require.Equal(t, FieldValueInt, vt, "%s value type", tc.name)
+		require.Equal(t, tc.offset, int32(uint32(val)), "%s offset", tc.name)
+	}
+
+	// The memory-max T.Limit entry is not modeled -> blank.
+	_, _, ret := dev.GetFieldValue(fiTempMemMaxTlimit, 0)
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+
+	// No thermal config at all -> every T.Limit entry is blank.
+	none := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "hopper"})
+	_, _, ret = none.GetFieldValue(fiTempSlowdownTlimit, 0)
 	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
 }
 
