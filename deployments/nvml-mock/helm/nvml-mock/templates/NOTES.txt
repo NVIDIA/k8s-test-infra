@@ -50,7 +50,7 @@ OPTION B: NVIDIA DRA Driver (requires DRA-enabled cluster)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-OPTION C: GPU Operator (tested in CI -- two modes)
+OPTION C: GPU Operator (tested in CI -- three modes)
 
   Driver disabled (default -- this chart's /run/nvidia/driver symlink serves
   the operator validator):
@@ -63,6 +63,11 @@ OPTION C: GPU Operator (tested in CI -- two modes)
   --set gpuOperator.driverSymlink.enabled=false, then follow
   docs/mock-driver.md (mock-driver image tagged for your nodes' OS,
   layered values files, operator version pin).
+
+  Host driver masquerade: install this chart with --set hostDriver.enabled=true
+  (nvidia-smi + mock libs at standard host paths; zero operator env overrides),
+  then layer tests/e2e/go/assets/gpu-operator-hostdriver-values.yaml. Test
+  nodes only. See docs/mock-driver.md.
 {{- if not (eq (include "nvml-mock.driverSymlinkEnabled" .) "true") }}
 
   gpuOperator.driverSymlink is DISABLED for this release -- /run/nvidia/driver
