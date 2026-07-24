@@ -58,3 +58,35 @@ func TestArtifactsDirDefaultsToGoHarnessPath(t *testing.T) {
 		t.Fatalf("expected default artifacts dir %q, got %q", "artifacts/e2e/go", got)
 	}
 }
+
+func TestMockDriverImageDefault(t *testing.T) {
+	t.Setenv("E2E_MOCK_DRIVER_IMAGE", "")
+
+	if got := MockDriverImage(); got != "docker.io/library/mock-driver:e2e" {
+		t.Fatalf("expected default mock-driver image, got %q", got)
+	}
+}
+
+func TestMockDriverImageOverride(t *testing.T) {
+	t.Setenv("E2E_MOCK_DRIVER_IMAGE", "ttl.sh/mock-driver-abc:24h")
+
+	if got := MockDriverImage(); got != "ttl.sh/mock-driver-abc:24h" {
+		t.Fatalf("expected overridden mock-driver image, got %q", got)
+	}
+}
+
+func TestGPUOperatorVersionDefaultsToContractPin(t *testing.T) {
+	t.Setenv("E2E_GPU_OPERATOR_VERSION", "")
+
+	if got := GPUOperatorVersion(); got != "v26.3.3" {
+		t.Fatalf("expected default GPU Operator pin v26.3.3, got %q", got)
+	}
+}
+
+func TestMockDriverSkipBuildDefaultsFalse(t *testing.T) {
+	t.Setenv("E2E_MOCK_DRIVER_SKIP_BUILD", "")
+
+	if MockDriverSkipBuild() {
+		t.Fatal("expected mock-driver build not to be skipped by default")
+	}
+}

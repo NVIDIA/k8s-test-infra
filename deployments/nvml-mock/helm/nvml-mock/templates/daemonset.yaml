@@ -25,7 +25,11 @@ spec:
         checksum/config: {{ include "nvml-mock.gpuConfig" . | sha256sum }}
     spec:
       serviceAccountName: {{ include "nvml-mock.fullname" . }}
-      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      # HostDriver cleanup walks a manifest and runs `chroot ldconfig`, which
+      # takes measurably longer than the default preStop (a few rm -rf + kubectl
+      # label calls). Clamp the grace period up when hostDriver is enabled so a
+      # cleaner shutdown finishes before SIGKILL leaves partial host mutation.
+      terminationGracePeriodSeconds: {{ include "nvml-mock.terminationGracePeriodSeconds" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -68,6 +72,10 @@ spec:
               value: "{{ include "nvml-mock.gpuCount" . }}"
             - name: DRIVER_VERSION
               value: "{{ include "nvml-mock.driverVersion" . }}"
+            - name: DRIVER_SYMLINK
+              value: "{{ include "nvml-mock.driverSymlinkEnabled" . }}"
+            - name: HOST_DRIVER
+              value: "{{ include "nvml-mock.hostDriverEnabled" . }}"
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -177,6 +185,10 @@ spec:
               mountPath: /host/var/run/cdi
             - name: host-run-nvidia
               mountPath: /host/run/nvidia
+            {{- if eq (include "nvml-mock.hostDriverEnabled" .) "true" }}
+            - name: host-root
+              mountPath: /hostroot
+            {{- end }}
             {{- if .Values.topology.enabled }}
             - name: gpu-topology
               mountPath: /etc/nvml-mock/topology
@@ -205,6 +217,13 @@ spec:
           hostPath:
             path: /run/nvidia
             type: DirectoryOrCreate
+        {{- if eq (include "nvml-mock.hostDriverEnabled" .) "true" }}
+        # Host driver masquerade writes to /usr/bin, /usr/lib64 and
+        # /etc/ld.so.conf.d and runs chroot ldconfig -- needs the node root
+        - name: host-root
+          hostPath:
+            path: /
+        {{- end }}
         {{- if .Values.topology.enabled }}
         - name: gpu-topology
           configMap:

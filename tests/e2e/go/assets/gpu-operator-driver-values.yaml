@@ -1,0 +1,117 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# GPU Operator values DELTA for mock DRIVER E2E testing on Kind.
+#
+# This file is EMBEDDED by tests/e2e/go/assets/assets.go and consumed by the
+# Go/Ginkgo `gpu-operator-driver` scenario. It layers on top of the
+# driver-disabled baseline (tests/e2e/go/assets/gpu-operator-values.yaml);
+# later -f wins per key, and env lists are replaced wholesale, which this
+# file relies on.
+#
+# Unlike the baseline (driver.enabled=false), this layer runs the operator's
+# full containerized-driver lifecycle against the mock-driver image: DaemonSet
+# rendering and image-tag resolution, the k8s-driver-manager init flow, the
+# startup-probe → .driver-ctr-ready handshake, and the validator's
+# operator-managed driver branch.
+#
+# Prerequisites (satisfied by the Go scenario):
+#   - nvml-mock Helm chart installed with gpuOperator.driverSymlink.enabled=false
+#     (the driver DaemonSet owns /run/nvidia/driver in this mode)
+#   - mock-driver image loaded and tagged so that
+#     <repository>/<image>:<version>-<osID><osVersionID> resolves on the node
+#     (the operator always appends the OS suffix from NFD labels unless the
+#     reference is digest-pinned with "sha256:")
+#
+# Contract baseline: tests/e2e/contract/ (vendored from the pinned operator
+# version; checked for drift by tests/e2e/check-driver-contract.sh).
+
+# The driver DaemonSet is deployed by the operator, substituted with the
+# mock-driver image. See deployments/mock-driver/.
+driver:
+  enabled: true
+  repository: docker.io/library
+  image: mock-driver
+  version: "e2e"                  # CI builds mock-driver:e2e; tag before OS-suffix append
+  imagePullPolicy: IfNotPresent
+  # Phase 1 keeps the upgrade controller out of the picture; the
+  # gpu-driver-upgrade-state machine is a planned follow-up test.
+  upgradePolicy:
+    autoUpgrade: false
+  # Disable everything that would render extra sidecars in the driver pod
+  # (peermem/nvidia-fs/gdrcopy); the mock supports none of them. Kernel module
+  # type is irrelevant to the mock (nothing is ever loaded).
+  rdma:
+    enabled: false
+  usePrecompiled: false
+  # The operator-owned startup probe defaults to initialDelaySeconds=60;
+  # the mock is ready in seconds, so tighten timings (only timings are
+  # overridable -- the probe script itself is fixed by the operator).
+  startupProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 60
+    failureThreshold: 60
+  # The real k8s-driver-manager init container runs. These envs suppress
+  # cordoning/draining of user GPU workload pods on the single Kind node.
+  # Note: driver-manager still pauses/reschedules the operator's own operands
+  # (validator/plugin/GFD) unconditionally on every driver pod (re)start --
+  # that churn is inherent and not configurable.
+  manager:
+    env:
+      - name: ENABLE_GPU_POD_EVICTION
+        value: "false"
+      - name: ENABLE_AUTO_DRAIN
+        value: "false"
+  # Consumed by the mock-driver entrypoint (env lands on nvidia-driver-ctr).
+  # COUPLING: MOCK_GPU_PROFILE/MOCK_GPU_COUNT drive what the device plugin
+  # advertises (NVML from the driver root), while nvml-mock's gpu.profile/
+  # gpu.count drive the CDI device list -- they MUST match, or the plugin
+  # advertises GPUs that have no CDI device and workloads fail at container
+  # create. CI runs a100/2 on both sides.
+  env:
+    - name: MOCK_GPU_PROFILE
+      value: "a100"
+    - name: MOCK_GPU_COUNT
+      value: "2"
+
+# GPUDirect Storage / GDRCopy would add sidecars to the driver pod -- keep off.
+gds:
+  enabled: false
+gdrcopy:
+  enabled: false
+
+# DCGM exporter stays disabled in the managed-driver lane: the baseline points
+# it at NVIDIA_DRIVER_ROOT=/var/lib/nvml-mock/driver, which is the nvml-mock
+# path, not the operator-managed /run/nvidia/driver. Leaving it enabled would
+# implicitly exercise the driver-disabled lane's plumbing under this test,
+# masking a managed-driver regression. DCGM coverage lives in the
+# `gpu-operator` scenario against `driver.enabled=false`.
+dcgmExporter:
+  enabled: false
+
+# In managed-driver mode the driver root is /run/nvidia/driver (the
+# mock-driver rootfs rbind), matching what the validator writes into
+# /run/nvidia/validations/driver-ready. (env lists replace the baseline's.)
+devicePlugin:
+  env:
+    - name: NVIDIA_DRIVER_ROOT
+      value: "/run/nvidia/driver"
+
+gfd:
+  env:
+    - name: NVIDIA_DRIVER_ROOT
+      value: "/run/nvidia/driver"
+
+# driver-validation takes the operator-managed branch -- waits for the
+# probe-written /run/nvidia/validations/.driver-ctr-ready, then execs
+# nvidia-smi from the driver root. The baseline's DRIVER_INSTALL_DIR /
+# LD_LIBRARY_PATH crutches are not needed (this env list replaces the
+# baseline's for validator.driver only; toolkit/cuda/plugin are inherited).
+validator:
+  driver:
+    env:
+      # The rbind-exposed rootfs contains /dev; without this the validator
+      # would try to create dev-char symlinks against mock device nodes.
+      - name: DISABLE_DEV_CHAR_SYMLINK_CREATION
+        value: "true"

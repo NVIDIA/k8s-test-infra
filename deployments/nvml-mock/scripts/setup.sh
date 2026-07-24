@@ -6,7 +6,11 @@
 # Runs as an entrypoint in the nvml-mock DaemonSet container.
 #
 # Required env vars: GPU_COUNT, DRIVER_VERSION, NODE_NAME
+# Optional env vars: DRIVER_SYMLINK (default true), HOST_DRIVER (default false)
 set -e
+
+. /scripts/lib-driver-root.sh
+. /scripts/lib-host-driver.sh
 
 HOST=/host/var/lib/nvml-mock
 DRIVER_ROOT=$HOST/driver
@@ -16,12 +20,10 @@ DRIVER_ROOT=$HOST/driver
 DEV_ROOT=$DRIVER_ROOT/dev
 CONFIG_DIR=$HOST/config
 
-# Validate GPU_COUNT does not exceed profile device count
-PROFILE_COUNT=$(grep -c "^[[:space:]]*- index:" /etc/nvml-mock/config.yaml || echo 0)
-if [ "$PROFILE_COUNT" -gt 0 ] && [ "$GPU_COUNT" -gt "$PROFILE_COUNT" ]; then
-  echo "WARNING: gpu.count ($GPU_COUNT) exceeds profile devices ($PROFILE_COUNT). Capping to $PROFILE_COUNT."
-  GPU_COUNT=$PROFILE_COUNT
-fi
+# Validate GPU_COUNT does not exceed profile device count. drl_cap_gpu_count is
+# the shared cap (lib-driver-root.sh); it warns to stderr and echoes the capped
+# value.
+GPU_COUNT=$(drl_cap_gpu_count /etc/nvml-mock/config.yaml "$GPU_COUNT")
 
 echo "Setting up mock GPU environment: $GPU_COUNT GPUs, driver $DRIVER_VERSION"
 
@@ -30,41 +32,14 @@ mkdir -p "$DRIVER_ROOT/usr/lib64" "$DRIVER_ROOT/usr/bin" "$DRIVER_ROOT/usr/local
 mkdir -p "$DEV_ROOT" "$CONFIG_DIR"
 mkdir -p "$HOST/run"
 
-# 2. Copy mock NVML library + create symlinks
-#    The .so is built with a fixed version (Makefile LIB_VERSION); rename to match
-#    the target DRIVER_VERSION so consumers see a consistent version string.
-BUILT_SO=$(ls /usr/local/lib/libnvidia-ml.so.*.*.* 2>/dev/null | head -1)
-if [ -z "$BUILT_SO" ]; then
-  echo "ERROR: No mock NVML library found in /usr/local/lib/" >&2
-  exit 1
-fi
-cp "$BUILT_SO" "$DRIVER_ROOT/usr/lib64/libnvidia-ml.so.$DRIVER_VERSION"
-ln -sf "libnvidia-ml.so.$DRIVER_VERSION" "$DRIVER_ROOT/usr/lib64/libnvidia-ml.so.1"
-ln -sf "libnvidia-ml.so.1" "$DRIVER_ROOT/usr/lib64/libnvidia-ml.so"
+# 2. Install mock NVML + CUDA libraries under the runtime DRIVER_VERSION name
+#    with their consumer-facing symlink chains. Shared with the mock-driver
+#    image via lib-driver-root.sh (single source of truth for the layout; also
+#    unlinks before copy so a live-mmap'd .so from a prior pod is not truncated).
+drl_install_libs /usr/local/lib "$DRIVER_ROOT/usr/lib64" "$DRIVER_VERSION"
 
-# 2b. Copy mock CUDA library + create symlinks
-BUILT_CUDA_SO=$(ls /usr/local/lib/libcuda.so.*.*.* 2>/dev/null | head -1)
-if [ -z "$BUILT_CUDA_SO" ]; then
-  echo "WARNING: No mock CUDA library found in /usr/local/lib/, skipping libcuda.so setup"
-else
-  cp "$BUILT_CUDA_SO" "$DRIVER_ROOT/usr/lib64/libcuda.so.$DRIVER_VERSION"
-  ln -sf "libcuda.so.$DRIVER_VERSION" "$DRIVER_ROOT/usr/lib64/libcuda.so.1"
-  ln -sf "libcuda.so.1" "$DRIVER_ROOT/usr/lib64/libcuda.so"
-  # TODO: properly split driver API (libcuda.so) and runtime API (libcudart.so)
-  # For now, our mock exports CUDA Runtime API symbols but is built as libcuda.so.
-  # CUDA samples (e.g. vectorAdd) link against libcudart.so, so create a symlink.
-  ln -sf "libcuda.so.1" "$DRIVER_ROOT/usr/lib64/libcudart.so.12"
-  ln -sf "libcudart.so.12" "$DRIVER_ROOT/usr/lib64/libcudart.so"
-fi
-
-# 3. Create char device nodes
-#    Major 195 = nvidia, Major 510 = nvidia-uvm (standard NVIDIA major numbers)
-for i in $(seq 0 $((GPU_COUNT - 1))); do
-  mknod -m 666 "$DEV_ROOT/nvidia$i" c 195 "$i" 2>/dev/null || true
-done
-mknod -m 666 "$DEV_ROOT/nvidiactl" c 195 255 2>/dev/null || true
-mknod -m 666 "$DEV_ROOT/nvidia-uvm" c 510 0 2>/dev/null || true
-mknod -m 666 "$DEV_ROOT/nvidia-uvm-tools" c 510 1 2>/dev/null || true
+# 3. Create char device nodes (nvidia0..N-1, nvidiactl, nvidia-uvm[-tools]).
+drl_mknod_devices "$DEV_ROOT" "$GPU_COUNT"
 
 # 3b. Generate CDI spec for nvidia-container-runtime CDI mode.
 #     This allows the toolkit to inject our mock libs into containers without
@@ -226,35 +201,21 @@ fi
 cp -a /usr/local/lib/libibmock*.so* "$DRIVER_ROOT/usr/local/lib/" 2>/dev/null || true
 cp -a /usr/local/lib/libpcimocksys.so* "$DRIVER_ROOT/usr/local/lib/" 2>/dev/null || true
 
-# 4c. Create /proc/driver/nvidia mock files (read by nvidia-smi)
+# 4c. Create /proc/driver/nvidia mock files (read by nvidia-smi). Shared with
+#     the mock-driver image via lib-driver-root.sh so the two roots stay
+#     byte-identical.
 PROC_DIR="$DRIVER_ROOT/proc/driver/nvidia"
-mkdir -p "$PROC_DIR"
-cat > "$PROC_DIR/version" << PROC_VERSION_EOF
-NVRM version: NVIDIA UNIX x86_64 Kernel Module  $DRIVER_VERSION  Thu Feb 20 23:41:34 UTC 2026
-GCC version:  gcc version 12.2.0 (Debian 12.2.0-14)
-PROC_VERSION_EOF
+drl_write_proc_files "$PROC_DIR" "$DRIVER_VERSION"
 
-cat > "$PROC_DIR/params" << PROC_PARAMS_EOF
-EnableMSI: 1
-NVreg_RegistryDwords:
-NVreg_DeviceFileGID: 0
-NVreg_DeviceFileMode: 438
-NVreg_DeviceFileUID: 0
-NVreg_ModifyDeviceFiles: 1
-NVreg_PreserveVideoMemoryAllocations: 0
-NVreg_EnableResizableBar: 0
-PROC_PARAMS_EOF
-
-# 5. Copy GPU profile config to both locations:
-#    - config/config.yaml (canonical, used by device plugin)
-#    - driver/config/config.yaml (auto-discovered by .so via /proc/self/maps)
-cp /etc/nvml-mock/config.yaml "$CONFIG_DIR/config.yaml"
-cp /etc/nvml-mock/config.yaml "$DRIVER_ROOT/config/config.yaml"
-
-# 6. Inject num_devices into config so the .so knows GPU count without env vars.
-#    This makes the on-host config self-contained — consumers just point at driver root.
-sed -i "/^system:/a\\  num_devices: $GPU_COUNT" "$CONFIG_DIR/config.yaml"
-sed -i "/^system:/a\\  num_devices: $GPU_COUNT" "$DRIVER_ROOT/config/config.yaml"
+# 5/6. Write the GPU profile config to both locations, injecting num_devices and
+#      pinning system.driver_version / nvml_version to DRIVER_VERSION (so the
+#      config agrees with the .so filename and nvidia-smi even when
+#      .Values.driverVersion overrides the profile). drl_write_config is the
+#      shared writer (lib-driver-root.sh).
+#      - config/config.yaml           canonical, used by the device plugin
+#      - driver/config/config.yaml    auto-discovered by the .so via /proc/self/maps
+drl_write_config /etc/nvml-mock/config.yaml "$CONFIG_DIR/config.yaml" "$GPU_COUNT" "$DRIVER_VERSION"
+drl_write_config /etc/nvml-mock/config.yaml "$DRIVER_ROOT/config/config.yaml" "$GPU_COUNT" "$DRIVER_VERSION"
 
 # Runtime overrides (written by nvml-mock-ctl) are ephemeral: wipe them on
 # every pod start so a restart of this DaemonSet resets simulated GPU state
@@ -284,8 +245,53 @@ fi
 #    The GPU Operator's validator DaemonSet mounts hostPath /run/nvidia/driver
 #    into the driver-validation init container. By symlinking to our mock driver
 #    root, the validator finds nvidia-smi and mock NVML at the expected path.
+#    Disabled (DRIVER_SYMLINK=false) when the operator manages a driver
+#    DaemonSet (driver.enabled=true with the mock-driver image), which owns
+#    /run/nvidia/driver itself.
+#
+#    Ownership is strict: this branch OWNS the /run/nvidia/driver path only
+#    when it is a symlink to /var/lib/nvml-mock/driver. Anything else --
+#    directory, mountpoint, foreign symlink -- is off-limits, so the script
+#    can never accidentally detach a running operator-managed driver or
+#    unmount a host path through the replicated Bidirectional bind.
+NVML_MOCK_SYMLINK_TARGET=/var/lib/nvml-mock/driver
 mkdir -p /host/run/nvidia
-ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
+if [ "${DRIVER_SYMLINK:-true}" = "true" ]; then
+  if [ -L /host/run/nvidia/driver ]; then
+    _cur_target=$(readlink /host/run/nvidia/driver)
+    if [ "$_cur_target" != "$NVML_MOCK_SYMLINK_TARGET" ]; then
+      echo "ERROR: /run/nvidia/driver is a symlink to $_cur_target; refusing" >&2
+      echo "to replace it. Remove or fix it on the node before restarting nvml-mock." >&2
+      exit 1
+    fi
+    # Already our symlink, nothing to do (idempotent restart).
+  elif [ -e /host/run/nvidia/driver ]; then
+    echo "ERROR: /run/nvidia/driver exists and is not the nvml-mock symlink;" >&2
+    echo "refusing to touch it (an operator-managed driver DaemonSet or a" >&2
+    echo "real driver install owns this path). Uninstall the conflicting owner" >&2
+    echo "before restarting nvml-mock." >&2
+    exit 1
+  else
+    ln -sfn "$NVML_MOCK_SYMLINK_TARGET" /host/run/nvidia/driver
+  fi
+else
+  echo "Skipping /run/nvidia/driver symlink (gpuOperator.driverSymlink.enabled=false)"
+  # Self-heal: a previous symlink-enabled install torn down without its
+  # preStop hook may leave OUR symlink dangling and wedge the operator's
+  # driver DaemonSet (its mkdir fails through the link). Only remove the
+  # symlink when it is ours; refuse to touch anything else.
+  if [ -L /host/run/nvidia/driver ]; then
+    _cur_target=$(readlink /host/run/nvidia/driver)
+    if [ "$_cur_target" = "$NVML_MOCK_SYMLINK_TARGET" ]; then
+      rm -f /host/run/nvidia/driver
+      echo "Removed stale nvml-mock /run/nvidia/driver symlink"
+    else
+      echo "WARNING: /run/nvidia/driver is a symlink to $_cur_target; not ours, leaving it alone"
+    fi
+  elif [ -e /host/run/nvidia/driver ]; then
+    echo "WARNING: /run/nvidia/driver exists and is not the nvml-mock symlink; leaving it alone"
+  fi
+fi
 
 # 8b. Write the toolkit-ready marker that GPU Operator operand pods poll for.
 #     Operand DaemonSets (device-plugin, gpu-feature-discovery) ship with a
@@ -296,6 +302,136 @@ ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 #     it — so we do, here, alongside the existing /run/nvidia/driver setup.
 mkdir -p /host/run/nvidia/validations
 touch /host/run/nvidia/validations/toolkit-ready
+
+# 8c. Host driver masquerade (hostDriver.enabled): install nvidia-smi and the
+#     mock libraries at the node's standard paths so consumers need zero
+#     configuration (GPU Operator validator host branch, plain `nvidia-smi` on
+#     the node, slurmd GRES AutoDetect=nvml, ldcache lookups). Every host path
+#     written is recorded in a TYPED manifest (see lib-host-driver.sh) so
+#     cleanup and mode switches only ever remove entries that still match
+#     their recorded type/content/target -- foreign or modified files fail
+#     closed and preserve the manifest for manual review.
+HOST_MANIFEST=$(hdrl_manifest_path "$HOST")
+# Symlink target for the /config discovery hook; aligned with main's runtime
+# override path (nvml-mock-ctl writes /var/lib/nvml-mock/driver/config/overrides.yaml)
+# so host-loaded consumers see the same overrides as CDI-injected ones.
+HOST_CONFIG_TARGET=/var/lib/nvml-mock/driver/config
+
+if [ "${HOST_DRIVER:-false}" = "true" ]; then
+  if [ ! -d /hostroot/usr/bin ]; then
+    echo "ERROR: HOST_DRIVER=true but /hostroot is not mounted" >&2
+    exit 1
+  fi
+  # nvidia-smi source: the real ELF, or the shell fallback when it is absent
+  if [ -f /usr/local/bin/nvidia-smi ]; then
+    SMI_SRC=/usr/local/bin/nvidia-smi
+  else
+    SMI_SRC=$DRIVER_ROOT/usr/bin/nvidia-smi.sh
+  fi
+
+  # --- Verify EVERY recorded entry before we do anything destructive. If a
+  # single entry has been modified, or replaced by a foreign file, abort and
+  # preserve the manifest so a human can inspect what changed. This is the
+  # load-bearing safety pass: it prevents converge from deleting a real
+  # driver install after any subsequent tampering with the manifest.
+  if [ -f "$HOST_MANIFEST" ]; then
+    if ! hdrl_verify_manifest /hostroot "$HOST_MANIFEST"; then
+      echo "ERROR: host driver manifest at $HOST_MANIFEST no longer matches the" >&2
+      echo "actual host state (see errors above). Refusing to remove or overwrite" >&2
+      echo "anything. Reconcile the manifest manually before re-enabling nvml-mock" >&2
+      echo "hostDriver." >&2
+      exit 1
+    fi
+  else
+    # First-install guard: a driver library already resolvable through the host
+    # ldcache (any path, e.g. Debian multiarch) means real driver userspace.
+    if chroot /hostroot ldconfig -p 2>/dev/null | grep -q 'libnvidia-ml\.so'; then
+      echo "ERROR: a libnvidia-ml library is already registered in the host ldcache;" >&2
+      echo "refusing to masquerade over a real NVIDIA driver installation." >&2
+      exit 1
+    fi
+    if [ -f /hostroot/usr/bin/nvidia-smi ]; then
+      echo "ERROR: /usr/bin/nvidia-smi already exists on the host and no nvml-mock" >&2
+      echo "manifest is present; refusing to overwrite it. Is this a real GPU node?" >&2
+      exit 1
+    fi
+  fi
+
+  # --- Converge: remove every previously recorded entry (unlink -- keeps
+  # existing mmaps valid so version switches never SIGBUS a live consumer).
+  if [ -f "$HOST_MANIFEST" ]; then
+    hdrl_remove_verified_manifest /hostroot "$HOST_MANIFEST"
+  fi
+
+  # Rebuild the manifest APPEND-BEFORE-WRITE: every entry is recorded before
+  # the corresponding host artifact is created, so a crash between record
+  # and write leaves a dangling reference (safe -- verify treats "missing"
+  # as OK) rather than an untracked host file.
+  : > "$HOST_MANIFEST"
+
+  # nvidia-smi at the standard path.
+  install -m 755 "$SMI_SRC" /hostroot/usr/bin/nvidia-smi
+  hdrl_manifest_add "$HOST_MANIFEST" file /usr/bin/nvidia-smi "$(hdrl_hash /hostroot/usr/bin/nvidia-smi)"
+
+  # Library files. drl_install_libs creates the real .so, then a chain of
+  # symlinks pointing at it (see drl_lib_filenames). Record each entry with
+  # its actual filesystem shape so verify can distinguish a modified real
+  # file from a foreign symlink.
+  drl_install_libs /usr/local/lib /hostroot/usr/lib64 "$DRIVER_VERSION"
+  for f in $(drl_lib_filenames "$DRIVER_VERSION"); do
+    _host_path=/usr/lib64/$f
+    _full=/hostroot$_host_path
+    if [ -L "$_full" ]; then
+      hdrl_manifest_add "$HOST_MANIFEST" symlink "$_host_path" "$(readlink "$_full")"
+    elif [ -f "$_full" ]; then
+      hdrl_manifest_add "$HOST_MANIFEST" file "$_host_path" "$(hdrl_hash "$_full")"
+    fi
+  done
+
+  # Real device nodes at the node's /dev: with the driver root at "/", the
+  # device plugin's CDI spec generation enumerates /dev/nvidia* under the
+  # host dev root (per-GPU device edits are empty without them and the spec
+  # is rejected). A real preinstalled-driver node has these too.
+  drl_mknod_devices /hostroot/dev "$GPU_COUNT"
+  i=0
+  while [ "$i" -lt "$GPU_COUNT" ]; do
+    hdrl_manifest_add "$HOST_MANIFEST" device "/dev/nvidia$i" "$(hdrl_devnum 195 "$i")"
+    i=$((i + 1))
+  done
+  hdrl_manifest_add "$HOST_MANIFEST" device /dev/nvidiactl "$(hdrl_devnum 195 255)"
+  hdrl_manifest_add "$HOST_MANIFEST" device /dev/nvidia-uvm "$(hdrl_devnum 510 0)"
+  hdrl_manifest_add "$HOST_MANIFEST" device /dev/nvidia-uvm-tools "$(hdrl_devnum 510 1)"
+
+  # Make libnvidia-ml.so.1 resolvable through the ldcache.
+  mkdir -p /hostroot/etc/ld.so.conf.d
+  echo /usr/lib64 > /hostroot/etc/ld.so.conf.d/00-nvml-mock.conf
+  hdrl_manifest_add "$HOST_MANIFEST" ldconfig /etc/ld.so.conf.d/00-nvml-mock.conf
+  chroot /hostroot ldconfig || \
+    echo "WARNING: chroot ldconfig failed; ldcache lookups may miss the mock libs"
+
+  # Config discovery for host-loaded libs: the .so strips usr/lib64 from its
+  # own path and reads <root>/config/config.yaml -> /config/config.yaml on
+  # the host. Point it at the driver-root config dir so any runtime overrides
+  # written by nvml-mock-ctl are visible to host-loaded consumers.
+  if [ ! -e /hostroot/config ] && [ ! -L /hostroot/config ]; then
+    ln -sfn "$HOST_CONFIG_TARGET" /hostroot/config
+    hdrl_manifest_add "$HOST_MANIFEST" symlink /config "$HOST_CONFIG_TARGET"
+  elif [ -L /hostroot/config ] && [ "$(readlink /hostroot/config)" = "$HOST_CONFIG_TARGET" ]; then
+    hdrl_manifest_add "$HOST_MANIFEST" symlink /config "$HOST_CONFIG_TARGET"
+  else
+    echo "WARNING: /config exists on the host and is not our symlink; host-loaded mock NVML may fall back to defaults"
+  fi
+  echo "Host driver masquerade installed ($(wc -l < "$HOST_MANIFEST") host paths, manifest at $HOST_MANIFEST)"
+elif [ -f "$HOST_MANIFEST" ]; then
+  # A previous hostDriver install was torn down without its preStop hook and
+  # the mode is now off, so /hostroot is not mounted and the stale host files
+  # cannot be removed from here. The manifest is preserved (cleanup.sh spares
+  # it too) so a later hostDriver.enabled=true install replays and removes
+  # every recorded path.
+  echo "WARNING: stale host driver masquerade files remain on this node (see" >&2
+  echo "$HOST_MANIFEST). Reinstall with hostDriver.enabled=true to converge" >&2
+  echo "them, or remove the listed paths manually." >&2
+fi
 
 # 9. InfiniBand: render sysfs via mock-ib; optionally run UMAD/fabric daemon.
 #    MOCK_IB selects the mock tier (case-insensitive):

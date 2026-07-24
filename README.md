@@ -53,7 +53,9 @@ automatically on PRs.
 | **Standalone Demo** | nvml-mock chart install, `nvidia-smi`, NVLink/fabricmanager, InfiniBand, PCI sysfs, and cross-node checks | Workflow-selected profiles |
 | **Failure Injection** | Healthy, ECC, lost, and fallen-off-bus modes | Workflow-selected profiles |
 | **DRA Driver** | Mock driver files, `nvidia-smi`, ResourceSlices, and DRA ResourceClaim scheduling | Workflow-selected profiles |
-| **GPU Operator** | GPU Operator install, validator pod startup, GFD labels, and allocatable GPUs | Workflow-selected profiles |
+| **GPU Operator (driver disabled)** | GPU Operator install with `driver.enabled=false`, validator pod startup, GFD labels, allocatable GPUs, and DCGM/runtime-control coverage | Workflow-selected profiles |
+| **GPU Operator (managed driver)** | Containerized-driver lifecycle via the [mock-driver image](docs/mock-driver.md): driver DaemonSet, startup-probe handshake, managed-branch validation | A100 |
+| **GPU Operator (host driver)** | Preinstalled-driver masquerade: nvidia-smi + libs at standard host paths, validator host branch, zero env overrides, clean uninstall | A100 |
 | **Multi-Node Fleet** | Heterogeneous A100/T4 workers, mock files, InfiniBand behavior, device plugin resources, and GPU workload scheduling | Fixed multi-node topology |
 | **Node-Wide NRI Injection** | Ambient mock GPU injection into ordinary pods without GPU requests or hostPath mounts | Workflow-selected profiles |
 
@@ -74,6 +76,7 @@ Use standalone for local development and CI pipelines.
 | [Configuration](docs/configuration.md) | YAML configuration reference |
 | [Architecture](docs/architecture.md) | System design and components |
 | [CUDA Mock](docs/cuda-mock.md) | Mock CUDA library overview |
+| [Mock Driver](docs/mock-driver.md) | GPU Operator managed-driver (`driver.enabled=true`) testing |
 | [Development](docs/development.md) | Contributing and extending the library |
 | [Examples](docs/examples.md) | Usage patterns and scenarios |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |

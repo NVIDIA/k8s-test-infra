@@ -58,6 +58,10 @@ func dockerfilePath() string {
 	return filepath.Join(repoRoot(), "deployments", "nvml-mock", "Dockerfile")
 }
 
+func mockDriverDockerfilePath() string {
+	return filepath.Join(repoRoot(), "deployments", "mock-driver", "Dockerfile")
+}
+
 // demoKindConfig is the shared multi-node cluster config. It defaults to
 // docs/demo/kind.yaml and allows profile-specific overrides at
 // docs/demo/kind-<profile>.yaml for profiles that need special cluster wiring.

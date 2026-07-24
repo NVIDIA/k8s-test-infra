@@ -1,0 +1,122 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Mirrors nvml-mock-publish.yaml (same hardened pipeline: SHA-pinned actions,
+# cosign keyless signing, SBOM attestation) for the mock-driver image --
+# keep the two in sync.
+name: mock-driver Publish
+
+permissions: {}
+
+# No paths filter here: GitHub applies paths filters to tag pushes too, and
+# a tag push has no changed-files diff, so a paths filter silently suppresses
+# every tag-triggered run. workflow_dispatch allows re-running a publish at
+# any ref without re-pushing tags.
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: nvidia/mock-driver
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # needed for keyless cosign signing
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # On push to main: tag as "latest"
+            type=raw,value=latest,enable={{is_default_branch}}
+            # On tag push: use the tag (e.g., v0.1.0)
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            # Always: short SHA for traceability
+            type=sha,prefix=sha-,format=short
+
+      # The GPU Operator resolves the driver image as
+      # <repository>/<image>:<version>-<osID><osVersionID> (from NFD labels)
+      # unless the reference is digest-pinned. Publish OS-suffixed aliases of
+      # every tag for Kind nodes (debian12); other OSes should digest-pin:
+      #   driver.version: "sha256:<digest>"
+      - name: Extract metadata (OS-suffixed aliases)
+        id: meta-os
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            suffix=-debian12,onlatest=true
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: deployments/mock-driver/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ steps.meta-os.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=mock-driver
+          cache-to: type=gha,mode=max,scope=mock-driver
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign container image
+        run: |
+          cosign sign --yes \
+            "$(echo "${{ steps.meta.outputs.tags }}" | head -1)"
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+          dependency-snapshot: false
+
+      - name: Attach SBOM to image
+        run: |
+          cosign attest --yes --predicate sbom.spdx.json \
+            --type spdxjson \
+            "$(echo "${{ steps.meta.outputs.tags }}" | head -1)"

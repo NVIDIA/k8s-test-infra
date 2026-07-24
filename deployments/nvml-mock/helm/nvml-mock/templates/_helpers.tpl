@@ -297,3 +297,78 @@ driver_version the engine reports via NVML. Fails if neither is set.
 {{- end -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Driver symlink flag helper.
+Reads gpuOperator.driverSymlink.enabled. Defaults to true when the key is
+absent (e.g. helm upgrade --reuse-values from a release that predates the
+key). Only the structured form is accepted; a non-map gpuOperator or a
+non-bool .enabled fails the render loudly so misconfigurations never
+silently fall back.
+*/}}
+{{- define "nvml-mock.driverSymlinkEnabled" -}}
+{{- $gpuOpRaw := .Values.gpuOperator -}}
+{{- if and (not (kindIs "invalid" $gpuOpRaw)) (not (kindIs "map" $gpuOpRaw)) -}}
+{{- fail (printf "gpuOperator must be a map, got %s (%v)" (kindOf $gpuOpRaw) $gpuOpRaw) -}}
+{{- end -}}
+{{- $gpuOp := $gpuOpRaw | default dict -}}
+{{- $enabled := true -}}
+{{- if hasKey $gpuOp "driverSymlink" -}}
+{{- $symlink := get $gpuOp "driverSymlink" -}}
+{{- if not (kindIs "map" $symlink) -}}
+{{- fail (printf "gpuOperator.driverSymlink must be a map with an `enabled` bool, got %s (%v)" (kindOf $symlink) $symlink) -}}
+{{- end -}}
+{{- if hasKey $symlink "enabled" -}}
+{{- $enabled = get $symlink "enabled" -}}
+{{- end -}}
+{{- end -}}
+{{- if not (kindIs "bool" $enabled) -}}
+{{- fail (printf "gpuOperator.driverSymlink.enabled must be a bool, got %s (%v)" (kindOf $enabled) $enabled) -}}
+{{- end -}}
+{{- $enabled -}}
+{{- end }}
+
+{{/*
+Host driver masquerade flag helper.
+Reads hostDriver.enabled. Defaults to false when the key is absent
+(upgrade-safe for --reuse-values). Only the structured form is accepted;
+a non-map hostDriver or a non-bool .enabled fails the render, matching
+nvml-mock.driverSymlinkEnabled.
+*/}}
+{{- define "nvml-mock.hostDriverEnabled" -}}
+{{- $hdRaw := .Values.hostDriver -}}
+{{- if and (not (kindIs "invalid" $hdRaw)) (not (kindIs "map" $hdRaw)) -}}
+{{- fail (printf "hostDriver must be a map with an `enabled` bool, got %s (%v)" (kindOf $hdRaw) $hdRaw) -}}
+{{- end -}}
+{{- $hd := $hdRaw | default dict -}}
+{{- $enabled := false -}}
+{{- if hasKey $hd "enabled" -}}
+{{- $enabled = get $hd "enabled" -}}
+{{- end -}}
+{{- if not (kindIs "bool" $enabled) -}}
+{{- fail (printf "hostDriver.enabled must be a bool, got %s (%v)" (kindOf $enabled) $enabled) -}}
+{{- end -}}
+{{- $enabled -}}
+{{- end }}
+
+{{/*
+Termination grace period helper.
+The chart default (see values.yaml) targets fast rollouts because the
+default preStop cleanup is a handful of rm -rf calls plus kubectl label
+requests. HostDriver mode walks a manifest and runs `chroot ldconfig`,
+which needs measurably more time; when hostDriver is enabled the helper
+clamps the effective grace period to at least 10s so shutdowns finish
+before SIGKILL leaves partial host mutation on the node.
+*/}}
+{{- define "nvml-mock.terminationGracePeriodSeconds" -}}
+{{- $grace := .Values.terminationGracePeriodSeconds -}}
+{{- if not (kindIs "int" $grace) -}}
+{{- $grace = int (toString $grace) -}}
+{{- end -}}
+{{- if eq (include "nvml-mock.hostDriverEnabled" .) "true" -}}
+{{- if lt $grace 10 -}}
+{{- $grace = 10 -}}
+{{- end -}}
+{{- end -}}
+{{- $grace -}}
+{{- end }}

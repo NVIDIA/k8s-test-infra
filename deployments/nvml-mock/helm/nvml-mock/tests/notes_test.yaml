@@ -18,6 +18,35 @@ tests:
       - matchSnapshotRaw: {}
 
   # ── Assertions ──────────────────────────────────────────────────────
+  - it: should not mention a disabled driver symlink by default
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "driverSymlink is DISABLED"
+
+  - it: should call out a disabled driver symlink
+    set:
+      gpuOperator:
+        driverSymlink:
+          enabled: false
+    asserts:
+      - matchRegexRaw:
+          pattern: "driverSymlink is DISABLED"
+      - matchRegexRaw:
+          pattern: "operator-managed \\(mock\\) driver DaemonSet"
+
+  - it: should not mention the host driver masquerade by default
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "hostDriver masquerade is ENABLED"
+
+  - it: should call out an enabled host driver masquerade
+    set:
+      hostDriver:
+        enabled: true
+    asserts:
+      - matchRegexRaw:
+          pattern: "hostDriver masquerade is ENABLED"
+
   - it: should render NOTES with default profile and count
     asserts:
       - matchRegexRaw:

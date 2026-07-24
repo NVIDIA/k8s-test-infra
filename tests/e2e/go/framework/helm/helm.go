@@ -34,8 +34,13 @@ type Release struct {
 	ReuseValues     bool
 	ValuesFiles     []string
 	Set             map[string]string
-	Wait            bool
-	Timeout         time.Duration
+	// Version pins the chart version to install via `--version`. Load-bearing
+	// for the managed-driver GPU Operator scenario, which requires the exact
+	// operator release whose driver-container contract is vendored under
+	// tests/e2e/contract/. Leave empty to install latest.
+	Version string
+	Wait    bool
+	Timeout time.Duration
 }
 
 var (
@@ -87,6 +92,9 @@ func (c *Client) run(ctx context.Context, verb string, rel Release, extra ...str
 	}
 	if rel.ReuseValues {
 		args = append(args, "--reuse-values")
+	}
+	if rel.Version != "" {
+		args = append(args, "--version", rel.Version)
 	}
 	for _, vf := range rel.ValuesFiles {
 		args = append(args, "-f", vf)
