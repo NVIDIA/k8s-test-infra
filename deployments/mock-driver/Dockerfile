@@ -23,7 +23,11 @@
 # NOTE: the builder stage mirrors the mocknvml/mockcuda part of the one in
 # deployments/nvml-mock/Dockerfile -- keep them in sync (this image does not
 # need the IB/IMEX/fabricmanager components).
-ARG GOLANG_VERSION=1.26.4
+#
+# Go pin: kept in lockstep with deployments/nvml-mock/Dockerfile and the rest
+# of the tree; 1.26.5 fixes GO-2026-5856 (Encrypted Client Hello privacy leak
+# in crypto/tls) which govulncheck rejects on 1.26.4.
+ARG GOLANG_VERSION=1.26.5
 FROM golang:${GOLANG_VERSION}-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -65,10 +69,13 @@ RUN set -eux; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
     apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
-# kmod (insmod/rmmod) is installed above and survives the purge -- it is a
-# runtime dependency of MOCK_KMOD, not part of the nvidia-smi extraction.
-# Stub kernel module sources for MOCK_KMOD (built at runtime against the
-# node kernel, or prebuilt host-side and injected via /run/nvidia/mock-kmod)
+# kmod (insmod/rmmod) is installed above and survives the purge -- it is the
+# only runtime dependency the prebuilt MOCK_KMOD path needs, not part of the
+# nvidia-smi extraction. The image intentionally does NOT ship kernel headers
+# or a compiler: the stub kernel module MUST be prebuilt host-side (see the
+# Go E2E harness, which stages it at /run/nvidia/mock-kmod/nvidia.ko).
+# Stub kernel module sources are kept in the image so a developer can
+# reproduce the build outside the container; the entrypoint never compiles.
 COPY deployments/mock-driver/kmod/ /kmod/
 # GPU profiles and the driver-root layout library are shared with the
 # nvml-mock chart/image (single source of truth).

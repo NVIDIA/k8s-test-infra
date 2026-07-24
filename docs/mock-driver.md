@@ -135,7 +135,10 @@ driver pod's rbind both conflict with nvml-mock's symlink.
 
 ## Non-Goals
 
-- **No kernel module** -- nothing is loaded, built, or modprobe'd, ever.
+- **Default mode never loads a kernel module** -- with `MOCK_KMOD=off` (the
+  default) nothing is loaded, built, or modprobe'd. See the opt-in
+  [MOCK_KMOD](#optional-real-kernel-global-proc-and-sys-mock_kmod) section
+  below for the disposable-Kind-only path that loads a prebuilt stub.
 - **No DCGM / MIG / GPUDirect (GDS, GDRCopy, peermem)** -- these require the
   real driver stack and stay disabled in the values overlay.
 - **No toolkit testing** -- the container toolkit remains disabled; mock libs
@@ -149,7 +152,12 @@ A green `e2e-gpu-operator-driver` CI run means the operator's driver
 *lifecycle* works -- it does not mean driver *functionality* (DCGM, MIG,
 upgrades) is covered. See the vendored contract for the exact surface tested.
 
-## Real Kernel-Global /proc and /sys (MOCK_KMOD)
+## Optional Real Kernel-Global /proc and /sys (MOCK_KMOD)
+
+**Disposable Kind nodes only.** The stub module is node-global state that
+outlives the pod, and k8s-driver-manager (v0.11.0+) will `rmmod nvidia`
+whenever it detects a module without a matching `/run/nvidia/nvidia-driver.state`
+digest; do not enable this on any node you cannot recreate.
 
 By default the kernel interfaces are faked only inside the driver container's
 mount namespace -- enough for the operator's own gating, but checks that read
@@ -157,7 +165,7 @@ the NODE's real `/proc/driver/nvidia` or `/sys/module/nvidia` (or a plain
 pod's own `/proc`/`/sys`) fail, because on real clusters those entries exist
 only as a side effect of a genuine module load.
 
-`MOCK_KMOD` closes that gap the one legitimate way: a ~70-line stub kernel
+`MOCK_KMOD=on` closes that gap the one legitimate way: a ~70-line stub kernel
 module named `nvidia` (`deployments/mock-driver/kmod/`). Loading any module
 with that name makes the kernel itself create `/sys/module/nvidia` (refcnt,
 version); the stub additionally serves `/proc/driver/nvidia/{version,params}`
@@ -167,9 +175,8 @@ like a real driver.
 
 | Value | Behavior |
 |-------|----------|
-| `off` (default) | Namespace fakes only |
-| `auto` | Try the stub (prebuilt, then in-container build); fall back to fakes |
-| `on` | Require the stub; fail the pod if it cannot be loaded |
+| `off` (default) | Namespace fakes only; no module ever loaded |
+| `on` | Load the PREBUILT stub from `/run/nvidia/mock-kmod/nvidia.ko`; fail the pod if it is missing, mis-named, or version-mismatched |
 
 What each mode makes pass, by where the check reads `/proc/driver/nvidia`
 or `/sys/module/nvidia`:
@@ -181,23 +188,29 @@ or `/sys/module/nvidia`:
 | Node's real `/proc`//`/sys` (host, node-problem-detector) | fail | pass |
 | An ordinary pod's own `/proc`//`/sys` | fail | pass |
 
-Module acquisition order: a prebuilt `/run/nvidia/mock-kmod/nvidia.ko`
-(build it host-side where kernel headers always match -- what the CI
-`mock-kmod: on` matrix leg does), then an in-container build via
-`linux-headers-$(uname -r)` (works when the image's distro carries headers
-for the node kernel). Not available where the environment forbids module
-loading (kernel lockdown, no headers -- e.g. Docker Desktop VMs); `auto`
-degrades to the namespace fakes, `on` fails the pod.
+**Prebuilt only.** The entrypoint never installs kernel headers or a
+compiler. Build the module host-side (`make -C /lib/modules/$(uname -r)/build
+M=$PWD/deployments/mock-driver/kmod modules` after generating
+`stub_version.h` with the profile driver version), stage it into the Kind
+node under `/run/nvidia/mock-kmod/nvidia.ko`, and then start the mock-driver
+pod. The Go E2E harness's `gpu-operator-driver` + `mock-kmod` label does
+exactly this -- see `tests/e2e/go/` for the reproducible recipe.
 
-**Lifecycle:** the module is node-global and, like a real driver, persists
-across driver-pod restarts -- the entrypoint never `rmmod`s it, so a graceful
-restart does not yank `/proc`//`/sys` out from under other pods. It is loaded
-once (subsequent starts see it and no-op) and stays until the node is
-recreated. Consequently the driver version is fixed at load time: changing
-`DRIVER_VERSION`/profile requires recreating the node, exactly as a real
-driver upgrade would. A prebuilt module bakes its version when built (the CI
-prebuild generates it from the profile; a hand-built prebuilt module carries
-whatever version it was compiled with).
+**Lifecycle:** the module is node-global and persists across a *graceful*
+driver-pod restart (the entrypoint never `rmmod`s it, matching real-driver
+semantics; the namespace fakes below self-skip when the real entries exist).
+However, k8s-driver-manager runs an `uninstall_driver` init container on
+EVERY new driver pod; when it sees a resident `nvidia` module without a
+matching state file, it unloads it before the mock's main container starts.
+As a result, MOCK_KMOD is not suitable for any node where a real driver may
+be reinstalled, or where the operator manages driver upgrades. Use it for a
+single cluster lifecycle on a disposable node.
+
+Changing `DRIVER_VERSION` or profile requires recreating the node (the same
+constraint a real driver upgrade imposes). A prebuilt module bakes its
+version at compile time from the profile's `driver_version`; the load helper
+rejects a module whose recorded version disagrees with the pod's
+`DRIVER_VERSION`.
 
 **Scope:** kmod mode provides the real `/sys/module/nvidia` (the entry the
 operator probe actually checks) plus `/proc/driver/nvidia`. The cosmetic
@@ -218,11 +231,11 @@ remounts fresh (verified: restart-over-stale-mount recovers cleanly).
 ## Versioning
 
 The image satisfies the driver-container contract of the GPU Operator version
-pinned in `.github/workflows/nvml-mock-e2e.yaml` (`GPU_OPERATOR_VERSION`) and
-vendored under `tests/e2e/contract/<version>/`. The contract has changed
-between operator releases before (v25.x used an inline `nvidia-smi && touch`
-probe; v26.x requires `/sys/module/nvidia/refcnt`), so bump the pin, the
-vendored assets, and the entrypoint together.
+pinned in the Go E2E harness's managed-driver scenario
+(`tests/e2e/go/`) and vendored under `tests/e2e/contract/<version>/`. The
+contract has changed between operator releases before (v25.x used an inline
+`nvidia-smi && touch` probe; v26.x requires `/sys/module/nvidia/refcnt`), so
+bump the pin, the vendored assets, and the entrypoint together.
 
 GPU profiles are baked into the image at build time (from the nvml-mock
 chart's `profiles/` directory); published images are rebuilt whenever the

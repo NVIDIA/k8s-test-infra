@@ -22,15 +22,23 @@
 #      written by the operator's probe and removed by the operator's preStop
 #      hook -- this script never writes them.
 #
-# No modprobe, no insmod, no kernel headers. Nothing here can fail for
-# hardware reasons. Driver-root layout comes from the shared library
-# /scripts/lib-driver-root.sh so it cannot diverge from nvml-mock's.
+# Driver-root layout comes from the shared library /scripts/lib-driver-root.sh
+# so it cannot diverge from nvml-mock's. The default kernel-interface path
+# never modprobes, insmods, or ships kernel headers -- everything the operator
+# gating requires is faked in this container's own mount namespace, so nothing
+# below can fail for hardware reasons.
+#
+# The optional MOCK_KMOD path loads a PREBUILT stub kernel module (never built
+# in-container -- see docs/mock-driver.md). Because k8s-driver-manager's
+# uninstall init container detects a resident "nvidia" module and unloads it
+# when its state file is missing, MOCK_KMOD is intended for disposable Kind
+# nodes; see the Go E2E harness for the reload-on-restart lifecycle test.
 #
 # Env vars (all optional, settable via ClusterPolicy driver.env):
 #   MOCK_GPU_PROFILE  GPU profile to emulate (default: a100)
 #   MOCK_GPU_COUNT    number of GPUs (default: 8, capped at profile devices)
 #   DRIVER_VERSION    override driver version (default: from profile config)
-#   MOCK_KMOD         off|auto|on (default: off) -- load the stub kernel
+#   MOCK_KMOD         off|on (default: off) -- load the PREBUILT stub kernel
 #                     module for REAL kernel-global /proc/driver/nvidia and
 #                     /sys/module/nvidia on the node and in every pod
 set -eu
@@ -68,10 +76,11 @@ _load_profile() {
 
 _load_stub_kmod() {
   # Delegate to the helper (invoked by path, like start-mock-ib.sh) so this
-  # entrypoint never runs a package manager or compiler inline. The helper
-  # exits non-zero if the module cannot be loaded.
+  # entrypoint never runs a compiler inline. The helper is prebuilt-only:
+  # /run/nvidia/mock-kmod/nvidia.ko must exist (staged host-side by the E2E
+  # harness) or it exits non-zero.
   mkdir -p "$STAGE_DIR"
-  RUN_DIR="$RUN_DIR" KMOD_SRC=/kmod DRIVER_VERSION="$DRIVER_VERSION" \
+  RUN_DIR="$RUN_DIR" DRIVER_VERSION="$DRIVER_VERSION" \
     /scripts/load-stub-kmod.sh
 }
 
@@ -158,17 +167,17 @@ init() {
   MOCK_KMOD_MODE=$(printf '%s' "${MOCK_KMOD:-off}" | tr '[:upper:]' '[:lower:]')
   case "$MOCK_KMOD_MODE" in
     off) ;;
-    auto)
-      _load_stub_kmod || echo "Falling back to mount-namespace kernel-interface fakes"
-      ;;
     on)
       _load_stub_kmod || {
-        echo "ERROR: MOCK_KMOD=on but the stub module could not be loaded" >&2
+        echo "ERROR: MOCK_KMOD=on but the prebuilt stub module could not be loaded" >&2
         exit 1
       }
       ;;
     *)
-      echo "ERROR: MOCK_KMOD='$MOCK_KMOD' is invalid; expected off, auto, or on" >&2
+      # The prior `auto` mode compiled the module in-container by installing
+      # linux-headers/build-essential at pod start; it has been removed. Load
+      # succeeds only from the prebuilt path, so `on` is the one opt-in mode.
+      echo "ERROR: MOCK_KMOD='$MOCK_KMOD' is invalid; expected off or on" >&2
       exit 1
       ;;
   esac
