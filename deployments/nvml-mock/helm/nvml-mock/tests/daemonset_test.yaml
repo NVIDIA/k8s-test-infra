@@ -768,37 +768,42 @@ tests:
             name: DRIVER_SYMLINK
             value: "true"
 
-  - it: should fail loudly when driverSymlink is a bare scalar
+  # values.schema.json catches non-map / non-bool inputs before the helpers
+  # even run; the helpers below are defense-in-depth for chart consumers who
+  # bypass the schema (helm --skip-schema-validation, upstream mergeOverwrite
+  # wrappers). Assert the schema-level path first, then keep helper-level
+  # regressions covered by the non-bool `.enabled` case.
+  - it: should reject a scalar driverSymlink at the schema level
     set:
       gpuOperator:
         driverSymlink: false
     asserts:
       - failedTemplate:
-          errorPattern: "gpuOperator.driverSymlink must be a map with an `enabled` bool"
+          errorPattern: "at '/gpuOperator/driverSymlink': got boolean, want object"
 
-  - it: should fail loudly when driverSymlink is a non-map scalar
+  - it: should reject a string driverSymlink at the schema level
     set:
       gpuOperator:
         driverSymlink: "nope"
     asserts:
       - failedTemplate:
-          errorPattern: "gpuOperator.driverSymlink must be a map with an `enabled` bool"
+          errorPattern: "at '/gpuOperator/driverSymlink': got string, want object"
 
-  - it: should fail loudly when gpuOperator is a falsy scalar
+  - it: should reject a falsy gpuOperator at the schema level
     set:
       gpuOperator: false
     asserts:
       - failedTemplate:
-          errorPattern: "gpuOperator must be a map"
+          errorPattern: "at '/gpuOperator': got boolean, want object"
 
-  - it: should fail loudly when driverSymlink.enabled is a non-bool
+  - it: should reject a non-bool driverSymlink.enabled at the schema level
     set:
       gpuOperator:
         driverSymlink:
           enabled: "True"
     asserts:
       - failedTemplate:
-          errorPattern: "gpuOperator.driverSymlink.enabled must be a bool"
+          errorPattern: "at '/gpuOperator/driverSymlink/enabled': got string, want boolean"
 
   - it: should disable the host driver masquerade by default
     asserts:
@@ -841,27 +846,27 @@ tests:
             hostPath:
               path: /
 
-  - it: should fail loudly when hostDriver is a bare scalar
+  - it: should reject a scalar hostDriver at the schema level
     set:
       hostDriver: true
     asserts:
       - failedTemplate:
-          errorPattern: "hostDriver must be a map with an `enabled` bool"
+          errorPattern: "at '/hostDriver': got boolean, want object"
 
-  - it: should fail loudly when hostDriver is a non-map scalar
+  - it: should reject a string hostDriver at the schema level
     set:
       hostDriver: "yes"
     asserts:
       - failedTemplate:
-          errorPattern: "hostDriver must be a map with an `enabled` bool"
+          errorPattern: "at '/hostDriver': got string, want object"
 
-  - it: should fail loudly when hostDriver.enabled is a non-bool
+  - it: should reject a non-bool hostDriver.enabled at the schema level
     set:
       hostDriver:
         enabled: "True"
     asserts:
       - failedTemplate:
-          errorPattern: "hostDriver.enabled must be a bool"
+          errorPattern: "at '/hostDriver/enabled': got string, want boolean"
 
   - it: should keep the chart default termination grace when hostDriver is disabled
     asserts:
