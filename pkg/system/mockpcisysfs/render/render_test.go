@@ -216,6 +216,43 @@ func TestRender_NormalizesUppercaseBDF(t *testing.T) {
 	require.NoError(t, err, "expected lowercase symlink")
 }
 
+func TestRender_AttributeBearingDevice(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, Render(Options{
+		Output: dir,
+		Devices: []Device{{
+			BDF:         "0000:E0:00.0",
+			RootComplex: "pci0000:e0",
+			NUMANode:    0,
+			Attrs: Attrs{
+				Vendor:          "0x15b3",
+				Device:          "0x1021",
+				Class:           "0x020700",
+				SubsystemVendor: "0x15b3",
+				SubsystemDevice: "0x0000",
+			},
+		}},
+	}), "Render(devices)")
+
+	base := "sys/devices/pci0000:e0/0000:e0:00.0"
+	read := func(rel, want string) {
+		t.Helper()
+		got, err := os.ReadFile(filepath.Join(dir, base, rel))
+		require.NoError(t, err, "read %s", rel)
+		require.Equal(t, want, string(got), rel)
+	}
+	read("vendor", "0x15b3\n")
+	read("device", "0x1021\n")
+	read("class", "0x020700\n")
+	read("subsystem_vendor", "0x15b3\n")
+	read("subsystem_device", "0x0000\n")
+	read("numa_node", "0\n")
+
+	target, err := os.Readlink(filepath.Join(dir, "sys/bus/pci/devices/0000:e0:00.0"))
+	require.NoError(t, err, "readlink")
+	require.Equal(t, "../../../devices/pci0000:e0/0000:e0:00.0", target, "nic symlink target")
+}
+
 // --- Config / Validate tests --------------------------------------------------
 
 func TestValidate_AcceptsCanonicalProfile(t *testing.T) {

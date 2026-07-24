@@ -6,6 +6,7 @@
 MOCK_GPU_DIR="/host/var/lib/nvml-mock"
 
 if [ -d "$MOCK_GPU_DIR" ] && [ "$MOCK_GPU_DIR" = "/host/var/lib/nvml-mock" ]; then
+  # Also removes the IB char devices under ib/dev/infiniband created by setup.sh.
   rm -rf "$MOCK_GPU_DIR"/*
 fi
 # Remove GPU Operator compatibility symlink
@@ -25,4 +26,10 @@ if command -v kubectl >/dev/null 2>&1; then
   kubectl label node "$NODE_NAME" nvidia.com/gpu.present- || true
   kubectl label node "$NODE_NAME" feature.node.kubernetes.io/pci-10de.present- || true
 fi
+# Remove the NFD local-source feature file (written by setup.sh when
+# infiniband.nfd.publishNicLabel is enabled). NFD drops the derived
+# feature.node.kubernetes.io/pci-15b3.present label on its next scan. The
+# mount only exists when the feature is enabled, so this is best-effort.
+NFD_FEATURES_DIR="${MOCK_IB_NFD_FEATURES_DIR:-/host-nfd-features}"
+rm -f "$NFD_FEATURES_DIR/nvml-mock-ib.features" 2>/dev/null || true
 echo "Mock GPU environment cleaned up on $NODE_NAME"

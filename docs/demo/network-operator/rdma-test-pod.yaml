@@ -1,0 +1,47 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# GPUDirect-RDMA-style consumer: a plain pod (no nvidia.com/gpu) that requests
+# one rdma/rdma_shared_device_a. It only schedules once the real
+# rdma-shared-device-plugin advertises the resource (Soft-RoCE set up at node
+# boot by the kind-rdma node image's baked soft-roce.service). The nvml-mock NRI
+# plugin also injects the mock IB stack, and
+# the devices annotation opts this pod into the mock /dev/infiniband char
+# devices — so it sees the mock ConnectX HCAs (userspace) on top of the real
+# rxe-backed rdma/* resource (kernel).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rdma-test
+  labels:
+    app: rdma-test
+  annotations:
+    nvml-mock.nvidia.com/devices: "true"
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  containers:
+    - name: rdma-test
+      image: debian:bookworm-slim
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -eu
+          echo "[rdma-test] scheduled on ${NODE_NAME}"
+          echo "=== /dev/infiniband (mock devices via NRI) ==="
+          ls -l /dev/infiniband 2>&1 || echo "(none)"
+          echo "[rdma-test] holding"
+          sleep 3600
+      env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+      resources:
+        limits:
+          rdma/rdma_shared_device_a: 1
+        requests:
+          rdma/rdma_shared_device_a: 1
+          cpu: 10m
+          memory: 32Mi

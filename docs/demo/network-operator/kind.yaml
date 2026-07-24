@@ -1,0 +1,33 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      socket_path = "/var/run/nri/nri.sock"
+# One control-plane + two workers. The workers get the mock GPU/InfiniBand
+# stack ambiently via NRI; the NVIDIA Network Operator + bundled NFD run on
+# the same cluster so the demo can observe how far the operator gets against
+# devices that exist only inside pods.
+#
+# No pci-15b3.present node label is stamped here. NFD now derives
+# feature.node.kubernetes.io/pci-15b3.present itself by reading the mock PCI
+# tree: run.sh repoints NFD's host-sys mount at /var/lib/nvml-mock/sys (see the
+# NFD sysfs redirect in run.sh), where the synthesized Mellanox 15b3 NIC entries
+# with vendor/class files live. So no kind-level stamp is needed.
+nodes:
+  - role: control-plane
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-1
+  - role: worker
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-2

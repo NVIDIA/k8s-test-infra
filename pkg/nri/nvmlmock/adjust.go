@@ -138,6 +138,13 @@ func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 		} else {
 			adjustment.Devices = devices
 		}
+		ibDevPath := filepath.Join(cfg.HostOverlayPath, "ib/dev/infiniband")
+		ibDevices, err := discoverIBDevices(ibDevPath)
+		if err != nil {
+			warnf("IB device injection: tree at %s unavailable (%v); skipping", ibDevPath, err)
+		} else {
+			adjustment.Devices = append(adjustment.Devices, ibDevices...)
+		}
 	}
 
 	return adjustment, true, nil
@@ -310,5 +317,34 @@ func discoverDevices(deviceHostPath string) ([]Device, error) {
 	sort.Slice(devices, func(i, j int) bool {
 		return devices[i].Path < devices[j].Path
 	})
+	return devices, nil
+}
+
+// discoverIBDevices enumerates the mock InfiniBand device nodes staged under
+// <overlay>/ib/dev/infiniband and maps them to /dev/infiniband/<name>. It
+// returns an empty slice (not an error) when the directory is absent, since a
+// GPU-only profile stages no IB devices. main.go's nriDevice validates that
+// each host path is a real char device and fails open, so any placeholder
+// regular files are silently skipped at conversion time.
+func discoverIBDevices(ibDevHostPath string) ([]Device, error) {
+	entries, err := os.ReadDir(ibDevHostPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	devices := make([]Device, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		devices = append(devices, Device{
+			HostPath: filepath.Join(ibDevHostPath, name),
+			Path:     filepath.Join("/dev/infiniband", name),
+		})
+	}
+	sort.Slice(devices, func(i, j int) bool { return devices[i].Path < devices[j].Path })
 	return devices, nil
 }

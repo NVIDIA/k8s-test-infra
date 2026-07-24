@@ -96,8 +96,20 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				}
 			})
 
+			It("backs /dev/infiniband with real char devices", Label("ib", "chardev"), func(ctx SpecContext) {
+				assertions.IBCharDevices(ctx, h.Kube, pod, p)
+			})
+
+			It("advertises the mock NIC to NFD via a local feature file", Label("ib", "nfd"), func(ctx SpecContext) {
+				assertions.NFDNicFeatureFile(ctx, h.Kube, pod, p)
+			})
+
 			It("renders the PCI sysfs topology", Label("pcisysfs"), func(ctx SpecContext) {
-				assertions.PCISysfs(ctx, h.Kube, pod, p.ExpectedGPUs(), p.ExpectedPCIRoots())
+				assertions.PCISysfs(ctx, h.Kube, pod, p.ExpectedGPUs(), p.ExpectedHCAs(), p.ExpectedPCIRoots())
+			})
+
+			It("renders the synthesized 15b3 NIC PCI devices", Label("pcisysfs", "nic"), func(ctx SpecContext) {
+				assertions.NICSysfs(ctx, h.Kube, pod, p.ExpectedHCAs())
 			})
 
 			It("performs cross-node ibping + iblinkinfo", Label("ibping"), func(ctx SpecContext) {

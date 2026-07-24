@@ -327,6 +327,33 @@ if [ "$MOCK_IB_MODE" != "off" ] && [ -x /usr/local/bin/mock-ib ]; then
     -node-name "$NODE_NAME" \
     -ib-root "$IB_ROOT" \
     -render-only
+  # Back /dev/infiniband with real char devices. mock-ib renders placeholder
+  # regular files (no CAP_MKNOD needed for sysfs-only tools); here in the
+  # privileged DaemonSet we upgrade them to real char nodes so consumers that
+  # open() device nodes by path succeed. There is no kernel driver behind them,
+  # so ioctls still fail (the MOCK_IB=full daemon shims remain the functional
+  # path) — this mirrors the mock /dev/nvidia* nodes.
+  IB_DEV="$IB_ROOT/dev/infiniband"
+  mkdir -p "$IB_DEV" || true
+  HCA_COUNT=$(find "$IB_ROOT/sys/class/infiniband" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+  if [ "${HCA_COUNT:-0}" -gt 0 ]; then
+    idx=0
+    while [ "$idx" -lt "$HCA_COUNT" ]; do
+      # mock-ib -render-only already staged these as placeholder regular files;
+      # mknod fails with EEXIST on an existing path, so remove the placeholder
+      # first — otherwise the node keeps a 0-byte regular file and NRI (which
+      # only injects real char devices) skips it.
+      # Majors are mock values (231 = infiniband_verbs on real Linux; umad/issm
+      # use a fixed mock major here since existence, not ioctl, is the contract).
+      rm -f "$IB_DEV/uverbs$idx" "$IB_DEV/umad$idx" "$IB_DEV/issm$idx"
+      mknod -m 666 "$IB_DEV/uverbs$idx" c 231 "$idx" 2>/dev/null || true
+      mknod -m 666 "$IB_DEV/umad$idx"   c 232 "$idx" 2>/dev/null || true
+      mknod -m 666 "$IB_DEV/issm$idx"   c 232 "$((idx + 128))" 2>/dev/null || true
+      idx=$((idx + 1))
+    done
+    rm -f "$IB_DEV/rdma_cm"
+    mknod -m 666 "$IB_DEV/rdma_cm" c 233 0 2>/dev/null || true
+  fi
   if [ "$MOCK_IB_MODE" = "full" ]; then
     /scripts/start-mock-ib.sh &
   fi
@@ -346,7 +373,29 @@ mkdir -p "$PCI_ROOT"
 if [ -x /usr/local/bin/render-pci-sysfs ]; then
   /usr/local/bin/render-pci-sysfs \
     --config /etc/nvml-mock/config.yaml \
+    --gpu-count "$GPU_COUNT" \
     --output "$PCI_ROOT"
+fi
+
+# 10b. Advertise the mock Mellanox NIC to Node Feature Discovery (opt-in via
+#      infiniband.nfd.publishNicLabel). The real kernel /sys cannot be
+#      populated with fake PCI devices and NFD offers no values-based way to
+#      redirect its sysfs, so instead of patching NFD's DaemonSet we write an
+#      NFD "local" source feature file. NFD reads its features.d directory on
+#      every scan and turns each `name=value` line into
+#      feature.node.kubernetes.io/<name>=<value> — here
+#      feature.node.kubernetes.io/pci-15b3.present=true, the label the NVIDIA
+#      Network Operator's nvidia-nics-rules NodeFeatureRule derives for real
+#      Mellanox NICs. The file is durable across operator reconciles of NFD's
+#      DaemonSet (they don't manage features.d content).
+if [ "${MOCK_IB_NFD_LOCAL_LABELS:-off}" = "on" ] && [ "$MOCK_IB_MODE" != "off" ]; then
+  NFD_FEATURES_DIR="${MOCK_IB_NFD_FEATURES_DIR:-/host-nfd-features}"
+  if mkdir -p "$NFD_FEATURES_DIR" 2>/dev/null; then
+    printf 'pci-15b3.present=true\n' > "$NFD_FEATURES_DIR/nvml-mock-ib.features"
+    echo "Wrote NFD local feature file: $NFD_FEATURES_DIR/nvml-mock-ib.features"
+  else
+    echo "WARNING: NFD features dir $NFD_FEATURES_DIR not writable; skipping pci-15b3 label" >&2
+  fi
 fi
 
 # 11. Fabric Manager: on NVSwitch platforms (HGX H100 / GB200 / GB300) the

@@ -29,58 +29,72 @@ import (
 
 	"sigs.k8s.io/yaml"
 
+	mockibconfig "github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockpcisysfs/config"
 	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockpcisysfs/render"
 )
 
 func main() {
 	var (
-		cfgPath = flag.String("config", "", "path to mock-nvml profile YAML")
-		outDir  = flag.String("output", "", "fake-root directory; tree is written under <output>/sys/...")
-		strict  = flag.Bool("strict", false, "fail if the profile does not declare `pcie_topology:`")
-		dryRun  = flag.Bool("dry-run", false, "validate the config and exit without writing files")
+		cfgPath  = flag.String("config", "", "path to mock-nvml profile YAML")
+		outDir   = flag.String("output", "", "fake-root directory; tree is written under <output>/sys/...")
+		strict   = flag.Bool("strict", false, "fail if the profile does not declare `pcie_topology:`")
+		dryRun   = flag.Bool("dry-run", false, "validate the config and exit without writing files")
+		gpuCount = flag.Int("gpu-count", 0, "number of GPUs; drives synthesized 15b3 NIC count when the profile enables InfiniBand")
 	)
 	flag.Parse()
 
 	if *cfgPath == "" || *outDir == "" {
-		fmt.Fprintln(os.Stderr, "usage: render-pci-sysfs --config <yaml> --output <dir> [--strict] [--dry-run]")
+		fmt.Fprintln(os.Stderr, "usage: render-pci-sysfs --config <yaml> --output <dir> [--gpu-count N] [--strict] [--dry-run]")
 		os.Exit(2)
 	}
+	if err := renderFromConfig(*cfgPath, *outDir, *gpuCount, *strict, *dryRun); err != nil {
+		fatalf("%v", err)
+	}
+}
 
-	data, err := os.ReadFile(*cfgPath)
+// renderFromConfig loads the profile, renders the GPU topology, and appends
+// synthesized Mellanox NIC entries when the profile enables InfiniBand.
+func renderFromConfig(cfgPath, outDir string, gpuCount int, strict, dryRun bool) error {
+	data, err := os.ReadFile(cfgPath)
 	if err != nil {
-		fatalf("read config: %v", err)
+		return fmt.Errorf("read config: %w", err)
 	}
 	var prof config.Profile
 	if err := yaml.Unmarshal(data, &prof); err != nil {
-		fatalf("parse config: %v", err)
+		return fmt.Errorf("parse config: %w", err)
 	}
 	if err := prof.Validate(); err != nil {
-		fatalf("%v", err)
+		return err
 	}
+	var ibProf mockibconfig.Profile
+	if err := yaml.Unmarshal(data, &ibProf); err != nil {
+		return fmt.Errorf("parse infiniband block: %w", err)
+	}
+	nics := render.SynthesizeNICs(ibProf.Infiniband, gpuCount)
 
 	topo := prof.EffectiveTopology()
-	if topo == nil {
-		fmt.Fprintf(os.Stderr, "render-pci-sysfs: no devices in %s, nothing to render\n", *cfgPath)
-		return
+	if topo == nil && len(nics) == 0 {
+		fmt.Fprintf(os.Stderr, "render-pci-sysfs: no devices in %s, nothing to render\n", cfgPath)
+		return nil
 	}
-	if *strict && prof.PCIeTopology == nil {
-		fatalf("--strict: profile %s does not declare `pcie_topology:`", *cfgPath)
+	if strict && prof.PCIeTopology == nil {
+		return fmt.Errorf("--strict: profile %s does not declare `pcie_topology:`", cfgPath)
 	}
-
-	if *dryRun {
-		fmt.Fprintf(os.Stderr, "render-pci-sysfs: %d root complex(es), %d device(s) — config OK\n",
-			len(topo.RootComplexes), countDevices(topo))
-		return
+	if dryRun {
+		n := 0
+		if topo != nil {
+			n = countDevices(topo)
+		}
+		fmt.Fprintf(os.Stderr, "render-pci-sysfs: %d GPU device(s), %d NIC(s) — config OK\n", n, len(nics))
+		return nil
 	}
-
-	if err := render.Render(render.Options{
+	return render.Render(render.Options{
 		Topology:   topo,
 		Identities: prof.DeviceIdentities(),
-		Output:     *outDir,
-	}); err != nil {
-		fatalf("render: %v", err)
-	}
+		Devices:    nics,
+		Output:     outDir,
+	})
 }
 
 func countDevices(t *config.PCIeTopology) int {

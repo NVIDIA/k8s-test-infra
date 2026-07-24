@@ -19,8 +19,10 @@
 // `revision`, `irq`, and a synthetic binary `config` space. This is what
 // lets `lspci` enumerate the mock GPUs inside the pod (via the
 // libpcimocksys.so redirector) instead of failing with "Cannot open
-// .../vendor". It is still *not* a full sysfs simulation — resource ranges,
-// capabilities, and driver bindings are out of scope.
+// .../vendor". Attribute-bearing [Device] entries (e.g. synthesized Mellanox
+// NICs) render the same device-class files so a NIC also looks real to PCI
+// scanners like NFD. It is still *not* a full sysfs simulation — resource
+// ranges, capabilities, and driver bindings are out of scope.
 package render
 
 import (
@@ -56,6 +58,33 @@ type Options struct {
 	// unconditionally). A non-nil Topology with a non-empty Output is
 	// required; otherwise Render returns an error.
 	Output string
+
+	// Devices are self-contained PCI devices rendered in addition to
+	// Topology. Unlike topology entries (symlink + numa_node only),
+	// each Device can carry attribute files. Used for synthesized NIC
+	// entries that consumers match on vendor/class.
+	Devices []Device
+}
+
+// Attrs holds the PCI attribute files a device exposes. Empty fields are
+// skipped so callers only materialize what they set. Values use the kernel
+// sysfs format (lowercase "0x" + hex), e.g. "0x15b3".
+type Attrs struct {
+	Vendor          string
+	Device          string
+	Class           string
+	SubsystemVendor string
+	SubsystemDevice string
+}
+
+// Device is a self-contained PCI device: symlink + numa_node (like the
+// topology path) plus attribute files. Used for synthesized NIC entries that
+// consumers (NFD's pci.device source) match on vendor/class.
+type Device struct {
+	BDF         string
+	RootComplex string
+	NUMANode    int
+	Attrs       Attrs
 }
 
 // Render writes the entire tree. It is idempotent: existing directories
@@ -63,7 +92,7 @@ type Options struct {
 // symlinks are removed and recreated so a stale relative target does not
 // linger across re-renders.
 func Render(o Options) error {
-	if o.Topology == nil || len(o.Topology.RootComplexes) == 0 {
+	if (o.Topology == nil || len(o.Topology.RootComplexes) == 0) && len(o.Devices) == 0 {
 		// Nothing to do — caller decided to render a profile with no
 		// declared topology and no devices. Treat as a no-op so the
 		// renderer can be invoked unconditionally from setup.sh.
@@ -81,12 +110,51 @@ func Render(o Options) error {
 		return err
 	}
 
-	for _, rc := range o.Topology.RootComplexes {
-		if err := renderRootComplex(root, rc, o.Identities); err != nil {
-			return fmt.Errorf("rendering %s: %w", rc.ID, err)
+	if o.Topology != nil {
+		for _, rc := range o.Topology.RootComplexes {
+			if err := renderRootComplex(root, rc, o.Identities); err != nil {
+				return fmt.Errorf("rendering %s: %w", rc.ID, err)
+			}
+		}
+	}
+
+	for _, d := range o.Devices {
+		if err := renderDevice(root, d); err != nil {
+			return fmt.Errorf("rendering device %s: %w", d.BDF, err)
 		}
 	}
 	return nil
+}
+
+// renderDevice writes a self-contained PCI device: its root-complex dir,
+// numa_node, attribute files, and the /sys/bus/pci/devices relative symlink.
+func renderDevice(root string, d Device) error {
+	bdfLC := strings.ToLower(d.BDF)
+	devDir := filepath.Join("sys/devices", d.RootComplex, bdfLC)
+	if err := mkdirAll(root, devDir); err != nil {
+		return err
+	}
+	if err := writeFile(root, filepath.Join(devDir, "numa_node"),
+		fmt.Sprintf("%d\n", d.NUMANode)); err != nil {
+		return err
+	}
+	for _, kv := range []struct{ name, val string }{
+		{"vendor", d.Attrs.Vendor},
+		{"device", d.Attrs.Device},
+		{"class", d.Attrs.Class},
+		{"subsystem_vendor", d.Attrs.SubsystemVendor},
+		{"subsystem_device", d.Attrs.SubsystemDevice},
+	} {
+		if kv.val == "" {
+			continue
+		}
+		if err := writeFile(root, filepath.Join(devDir, kv.name), kv.val+"\n"); err != nil {
+			return err
+		}
+	}
+	linkPath := filepath.Join(root, "sys/bus/pci/devices", bdfLC)
+	linkTarget := filepath.Join("..", "..", "..", "devices", d.RootComplex, bdfLC)
+	return replaceSymlink(linkPath, linkTarget)
 }
 
 func renderRootComplex(root string, rc config.RootComplex, ids map[string]config.PCI) error {
