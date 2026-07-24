@@ -354,11 +354,11 @@ in all, since mock libs reach containers via CDI):
   validator.
 - `driver.enabled=false` + host driver masquerade
   (`hostDriver.enabled=true` on nvml-mock, plus the
-  [gpu-operator-hostdriver-values.yaml](../tests/e2e/gpu-operator-hostdriver-values.yaml)
+  [gpu-operator-hostdriver-values.yaml](../tests/e2e/go/assets/gpu-operator-hostdriver-values.yaml)
   delta): nvidia-smi and libs at standard host paths; the validator takes its
   preinstalled host-driver branch with zero env overrides.
 - `driver.enabled=true` with the [mock-driver image](mock-driver.md)
-  ([gpu-operator-driver-values.yaml](../tests/e2e/gpu-operator-driver-values.yaml)
+  ([gpu-operator-driver-values.yaml](../tests/e2e/go/assets/gpu-operator-driver-values.yaml)
   delta): the operator manages a mock driver DaemonSet; nvml-mock must be
   installed with `gpuOperator.driverSymlink.enabled=false` and must NOT have
   `hostDriver.enabled=true` (a host nvidia-smi flips driver-manager's

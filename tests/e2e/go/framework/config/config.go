@@ -23,10 +23,13 @@ import (
 var DefaultProfiles = []string{"gb200"}
 
 const (
-	defaultProfilesDir = "deployments/nvml-mock/helm/nvml-mock/profiles"
-	defaultImage       = "nvml-mock:e2e"
-	defaultArtifacts   = "artifacts/e2e/go"
-	defaultDockerfile  = "deployments/nvml-mock/Dockerfile"
+	defaultProfilesDir     = "deployments/nvml-mock/helm/nvml-mock/profiles"
+	defaultImage           = "nvml-mock:e2e"
+	defaultArtifacts       = "artifacts/e2e/go"
+	defaultDockerfile      = "deployments/nvml-mock/Dockerfile"
+	defaultMockDriverImage = "docker.io/library/mock-driver:e2e"
+	defaultMockDriverFile  = "deployments/mock-driver/Dockerfile"
+	defaultGPUOperatorPin  = "v26.3.3"
 )
 
 func env(key, def string) string {
@@ -82,6 +85,26 @@ func Image() string { return env("E2E_IMAGE", defaultImage) }
 
 // Dockerfile is the path to the nvml-mock Dockerfile.
 func Dockerfile() string { return env("E2E_DOCKERFILE", defaultDockerfile) }
+
+// MockDriverImage is the local image ref the managed-driver scenario builds
+// and kind-loads (before the operator appends its OS suffix). The `docker.io/
+// library` prefix keeps it consistent with the gpu-operator-driver-values.yaml
+// driver.repository so the OS-suffixed tag resolves on the node.
+func MockDriverImage() string { return env("E2E_MOCK_DRIVER_IMAGE", defaultMockDriverImage) }
+
+// MockDriverDockerfile is the path to the mock-driver Dockerfile.
+func MockDriverDockerfile() string { return env("E2E_MOCK_DRIVER_DOCKERFILE", defaultMockDriverFile) }
+
+// MockDriverSkipBuild reports whether the managed-driver scenario should skip
+// the mock-driver image build and reuse E2E_MOCK_DRIVER_IMAGE (CI builds it
+// once in a dedicated job and pulls it by digest, like the nvml-mock image).
+func MockDriverSkipBuild() bool { return envBool("E2E_MOCK_DRIVER_SKIP_BUILD") }
+
+// GPUOperatorVersion is the GPU Operator chart version the managed-driver
+// scenario pins (its driver-container contract is vendored under
+// tests/e2e/contract/<version>/). Empty installs latest; the managed-driver
+// lane always pins because the contract is version-specific.
+func GPUOperatorVersion() string { return env("E2E_GPU_OPERATOR_VERSION", defaultGPUOperatorPin) }
 
 // GolangVersion is the --build-arg GOLANG_VERSION passed to the image build
 // (empty => Dockerfile default).

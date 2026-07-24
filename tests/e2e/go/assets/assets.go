@@ -5,9 +5,17 @@
 
 // Package assets embeds the Kind cluster configs and Kubernetes manifests the
 // scenarios need, so the harness binary is cwd-independent (removes a
-// local/CI drift source). These are COPIES of the files under tests/e2e/; the
-// originals are retained until the bash jobs are deleted in a follow-up
-// (staged migration).
+// local/CI drift source).
+//
+// Some baseline assets (device-plugin-mock.yaml, gfd-mock.yaml,
+// gpu-operator-values.yaml, kind-*.yaml) are COPIES of human-facing files
+// under tests/e2e/ that docs and the chart NOTES still reference by path.
+//
+// The GPU Operator managed-driver / host-driver / kmod overlays
+// (gpu-operator-driver-values.yaml, gpu-operator-driver-kmod-values.yaml,
+// gpu-operator-hostdriver-values.yaml) live ONLY here: they are consumed
+// exclusively by the Go scenarios, so there is no top-level copy to drift
+// against.
 package assets
 
 import (
@@ -35,6 +43,15 @@ var NRIGpuAgentManifest []byte
 
 //go:embed gpu-operator-values.yaml
 var GPUOperatorValues []byte
+
+//go:embed gpu-operator-driver-values.yaml
+var GPUOperatorDriverValues []byte
+
+//go:embed gpu-operator-driver-kmod-values.yaml
+var GPUOperatorDriverKmodValues []byte
+
+//go:embed gpu-operator-hostdriver-values.yaml
+var GPUOperatorHostDriverValues []byte
 
 //go:embed gfd-mock.yaml
 var GFDManifest []byte

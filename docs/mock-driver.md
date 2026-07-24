@@ -87,7 +87,7 @@ helm install gpu-operator nvidia/gpu-operator \
   -n gpu-operator --create-namespace \
   --version v26.3.3 \
   -f tests/e2e/gpu-operator-values.yaml \
-  -f tests/e2e/gpu-operator-driver-values.yaml \
+  -f tests/e2e/go/assets/gpu-operator-driver-values.yaml \
   --set driver.version=local
 ```
 

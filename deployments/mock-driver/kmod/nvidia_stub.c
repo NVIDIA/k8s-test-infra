@@ -10,10 +10,11 @@
 // per-request, and touches no hardware -- the entire runtime surface is two
 // read-only procfs files.
 //
-// Built and loaded at runtime by deployments/mock-driver/scripts/nvidia-driver
-// when MOCK_KMOD is enabled (mirroring how the real driver container builds
-// the real module); the entrypoint falls back to mount-namespace fakes when
-// building or loading is not possible.
+// Built HOST-SIDE (against a matching kernel), staged on the node at
+// /run/nvidia/mock-kmod/nvidia.ko, and loaded by
+// deployments/mock-driver/scripts/load-stub-kmod.sh when MOCK_KMOD=on. The
+// entrypoint never compiles it in-container; when the prebuilt module is
+// absent it fails loudly (see docs/mock-driver.md#MOCK_KMOD).
 
 #include <linux/module.h>
 #include <linux/proc_fs.h>

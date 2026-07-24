@@ -343,7 +343,7 @@ registered in the ldcache), making the node indistinguishable at the file
 layer from one with a preinstalled driver. The operator validator then takes
 its preinstalled host-driver branch and no component needs driver-root env
 overrides (install the operator with
-`-f tests/e2e/gpu-operator-values.yaml -f tests/e2e/gpu-operator-hostdriver-values.yaml`).
+`-f tests/e2e/gpu-operator-values.yaml -f tests/e2e/go/assets/gpu-operator-hostdriver-values.yaml`).
 Consumers that expect standard paths -- plain `nvidia-smi` on the node,
 slurmd GRES `AutoDetect=nvml`, ldcache-based `dlopen` -- work with zero
 configuration. Every host path written is manifest-tracked and removed on

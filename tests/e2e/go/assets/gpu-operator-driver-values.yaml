@@ -3,20 +3,11 @@
 #
 # GPU Operator values DELTA for mock DRIVER E2E testing on Kind.
 #
-# This file is a layer on top of the driver-disabled baseline and MUST be
-# applied together with it (later -f wins per key; env lists are replaced
-# wholesale, which this file relies on):
-#
-#   helm install gpu-operator nvidia/gpu-operator \
-#     -n gpu-operator --create-namespace \
-#     --version v26.3.3 \                        # contract pin, see contract/
-#     -f tests/e2e/gpu-operator-values.yaml \
-#     -f tests/e2e/gpu-operator-driver-values.yaml \
-#     --set driver.version=<tag>                 # operator appends -<osID><osVersionID>
-#
-# Everything not overridden here (toolkit/dcgm/mig/nodeStatusExporter/cdi,
-# validator toolkit/cuda/plugin env) is inherited from the baseline, so mock
-# component policy lives in exactly one file.
+# This file is EMBEDDED by tests/e2e/go/assets/assets.go and consumed by the
+# Go/Ginkgo `gpu-operator-driver` scenario. It layers on top of the
+# driver-disabled baseline (tests/e2e/go/assets/gpu-operator-values.yaml);
+# later -f wins per key, and env lists are replaced wholesale, which this
+# file relies on.
 #
 # Unlike the baseline (driver.enabled=false), this layer runs the operator's
 # full containerized-driver lifecycle against the mock-driver image: DaemonSet
@@ -24,7 +15,7 @@
 # startup-probe → .driver-ctr-ready handshake, and the validator's
 # operator-managed driver branch.
 #
-# Prerequisites:
+# Prerequisites (satisfied by the Go scenario):
 #   - nvml-mock Helm chart installed with gpuOperator.driverSymlink.enabled=false
 #     (the driver DaemonSet owns /run/nvidia/driver in this mode)
 #   - mock-driver image loaded and tagged so that
@@ -88,6 +79,15 @@ driver:
 gds:
   enabled: false
 gdrcopy:
+  enabled: false
+
+# DCGM exporter stays disabled in the managed-driver lane: the baseline points
+# it at NVIDIA_DRIVER_ROOT=/var/lib/nvml-mock/driver, which is the nvml-mock
+# path, not the operator-managed /run/nvidia/driver. Leaving it enabled would
+# implicitly exercise the driver-disabled lane's plumbing under this test,
+# masking a managed-driver regression. DCGM coverage lives in the
+# `gpu-operator` scenario against `driver.enabled=false`.
+dcgmExporter:
   enabled: false
 
 # In managed-driver mode the driver root is /run/nvidia/driver (the
