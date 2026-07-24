@@ -8,21 +8,17 @@
 #     nvml-mock stack. Returns nothing.
 #
 # Coupling (implicit in the root Tiltfile):
-#   --topograph implies --compute-domain and --dra. The compute-domain
-#   scenario is the only place cliques exist (see topology.yaml + the
-#   nvml-mock/clique kind labels), and the NVIDIA DRA driver's
-#   compute-domain-kubelet-plugin is the component that reads mock NVML
-#   and writes the nvidia.com/gpu.clique node label topograph consumes.
-#   The label writer is gated by kubeletPlugin.containers.computeDomains.
-#   gpuCliqueLabelEnabled (default false); local/topograph/dra-driver.
-#   values.yaml flips it on and is layered into the DRA install by the
-#   root Tiltfile's DRA overlay chain.
+#   --topograph implies --compute-domain (cliques only exist in that
+#   scenario). --dra is NOT implied: nvidia.com/gpu.clique is a static
+#   Kind node label in local/kind/compute-domain.kind.yaml, so topograph
+#   reads it directly from the Kubernetes API — no runtime label writer
+#   required.
 #
 # Data path:
-#   nvml-mock topology.yaml → mock NVML clique_id → DRA kubelet-plugin
-#   patches nvidia.com/gpu.clique on nodes → topograph 'dra' provider
-#   reads that label → topograph writes network.topology.nvidia.com/*
-#   labels.
+#   nvidia.com/gpu.clique static Kind label (per worker, set by
+#   local/kind/compute-domain.kind.yaml) → topograph infiniband-k8s
+#   provider reads the label → writes network.topology.nvidia.com/*
+#   tier topology labels on all nodes.
 
 load('ext://helm_resource', 'helm_resource')
 
@@ -36,10 +32,9 @@ def install(nvml_mock_releases):
             '--values', 'local/topograph/topograph.values.yaml',
             '--timeout', '300s',
         ],
-        # Wait for nvml-mock (mock NVML must be serving fabric info) and
-        # the DRA driver (its kubelet-plugin writes the clique label
-        # topograph reads). The plugin patches on startup, so ordering
-        # by the DRA release's readiness is sufficient.
-        resource_deps=nvml_mock_releases + ['nvidia-dra-driver'],
+        # nvml-mock dep is for Tilt UI ordering; topograph reads from
+        # the Kubernetes API (static node labels) so there is no
+        # technical runtime dependency on nvml-mock.
+        resource_deps=nvml_mock_releases,
         labels=['topograph'],
     )

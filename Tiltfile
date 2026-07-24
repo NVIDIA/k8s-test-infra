@@ -67,14 +67,13 @@ with_fgo            = cfg.get('fgo', False)
 with_topograph      = cfg.get('topograph', False)
 
 # --- Implicit flags ------------------------------------------------------
-# --topograph is only useful when the DRA driver's compute-domain-kubelet-
-# plugin writes the nvidia.com/gpu.clique node label topograph reads —
-# and cliques only exist in the compute-domain cluster scenario.
-# The compute-domain Kind cluster is still required
-# (make cluster-create PROFILE=compute-domain)
+# --topograph implies --compute-domain: cliques only exist in the
+# compute-domain cluster (local/kind/compute-domain.kind.yaml carries
+# nvidia.com/gpu.clique labels as static node labels; topograph reads
+# them without requiring the DRA driver). The compute-domain Kind
+# cluster is still required (make cluster-create PROFILE=compute-domain).
 if with_topograph:
     with_compute_domain = True
-    with_dra            = True
 
 # --- Guardrails ----------------------------------------------------------
 # compute-domain forces its own cluster shape (4 workers with clique
@@ -160,9 +159,6 @@ if with_dra:
     #   image_keys so Tilt actually builds it (a docker_build with no
     #   manifest reference is pruned) and injects it as the chart's
     #   image.repository/tag.
-    # - --topograph: enable the DRA driver
-    #   to patch nvidia.com/gpu.clique on each node (from mock NVML clique_id)
-    #   for topograph to read.
     dra_extra_values = []
     dra_image_deps   = []
     dra_image_keys   = []
@@ -171,9 +167,6 @@ if with_dra:
         dra_extra_values.append('local/compute-domain/dra-driver.values.yaml')
         dra_image_deps.append(compute_domain_daemon_image)
         dra_image_keys.append(('image.repository', 'image.tag'))
-
-    if with_topograph:
-        dra_extra_values.append('local/topograph/dra-driver.values.yaml')
 
     dra_install(
       nvml_mock_releases,

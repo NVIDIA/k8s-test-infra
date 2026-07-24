@@ -107,7 +107,7 @@ _VALID_PROFILES := default compute-domain
 ifeq ($(filter $(PROFILE),$(_VALID_PROFILES)),)
 $(error PROFILE=$(PROFILE) is not valid. Choose one of: $(_VALID_PROFILES))
 endif
-KIND_CLUSTER_NAME   ?= $(if $(filter compute-domain,$(PROFILE)),nvml-mock-compute-domain,gpu-test)
+KIND_CLUSTER_NAME   ?= $(if $(filter compute-domain,$(PROFILE)),mokka-compute-domain,mokka)
 KIND_CLUSTER_CONFIG ?= local/kind/$(PROFILE).kind.yaml
 
 .PHONY: image-kind-node cluster-create cluster-delete
