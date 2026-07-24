@@ -17,7 +17,7 @@ This directory contains Tiltfiles, Helm value overrides, and Kind cluster config
 make cluster-create
 
 # 2. Start the dev stack (default: a100 profile, homogeneous fleet)
-tilt up
+tilt up -- --gpu-operator
 ```
 
 ## Step 1 — Create a cluster
@@ -95,9 +95,10 @@ tilt up -- --multi-gpu-profile --fgo     # same runtime shape, per-profile relea
 
 Verify:
 ```bash
-# nvml-mock running on integration worker
-kubectl get pods -l app.kubernetes.io/name=nvml-mock -o wide
-kubectl get configmaps -l run.ai/gpu-profile=true
+# nvml-mock running on integration worker (release is installed to
+# `mokka` — same namespace CI's Ginkgo suite queries).
+kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock -o wide
+kubectl get configmaps -A -l run.ai/gpu-profile=true
 
 # FGO managing scale worker
 kubectl get pods -n gpu-operator -o wide

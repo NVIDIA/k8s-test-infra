@@ -16,7 +16,7 @@ and also covers the failure-injection flow from
 1. Build the `nvml-mock:e2e` image, unless `E2E_SKIP_BUILD=true`.
 2. Create one multi-node Kind cluster from [`docs/demo/kind.yaml`](../../docs/demo/kind.yaml).
 3. Load the image into Kind.
-4. Install `nvml-mock` into the dedicated `nvml-mock-system` namespace.
+4. Install `nvml-mock` into the dedicated `mokka` namespace.
 5. Run the standalone demo checks for each selected GPU profile.
 6. Collect diagnostics on failure.
 7. Keep the Kind cluster by default for debugging.
@@ -338,7 +338,7 @@ available for inspection:
 
 ```bash
 kubectl --context kind-nvml-mock-e2e get pods -A
-helm --kube-context kind-nvml-mock-e2e -n nvml-mock-system status nvml-mock
+helm --kube-context kind-nvml-mock-e2e -n mokka status nvml-mock
 ```
 
 Delete it manually when done:

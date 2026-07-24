@@ -25,6 +25,10 @@ FLEET_PROFILES = ['a100', 't4']
 
 _IMAGE = 'ghcr.io/nvidia/nvml-mock'
 _CHART = 'deployments/nvml-mock/helm/nvml-mock'
+# Must match nvmlMockNamespace in tests/e2e/go/e2e_suite_test.go — the Ginkgo
+# suite queries kube by that namespace name. "mokka" is the project name.
+# --create-namespace makes helm provision it if missing.
+_NAMESPACE = 'mokka'
 
 def _split_image(ref):
     # Digest refs (repo@sha256:...) are NOT supported here: the chart renders
@@ -100,6 +104,10 @@ def _install(release, profile, active_consumers, extra_set, nvmlmock_image=''):
     if os.path.exists('local/nvml-mock.values.local.yaml'):
         flags += ['--values', 'local/nvml-mock.values.local.yaml']
 
+    # helm needs --create-namespace as a flag (it's not a chart value); the
+    # release itself is namespaced by the helm_resource extension's namespace=.
+    flags = flags + ['--create-namespace']
+
     # image_deps/image_keys only make sense when docker_build actually ran,
     # otherwise Tilt would look for an image manifest reference that isn't
     # in the resource graph.
@@ -107,12 +115,14 @@ def _install(release, profile, active_consumers, extra_set, nvmlmock_image=''):
         helm_resource(
             release,
             _CHART,
+            namespace=_NAMESPACE,
             flags=flags,
         )
     else:
         helm_resource(
             release,
             _CHART,
+            namespace=_NAMESPACE,
             image_deps=[_IMAGE],
             image_keys=[('image.repository', 'image.tag')],
             flags=flags,
