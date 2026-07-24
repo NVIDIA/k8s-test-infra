@@ -24,13 +24,14 @@
 # With useGpuCliqueLabel=true the node-data-broker's GetNodeAnnotations
 # returns {instance: hostname, region: "local"} — no ibnetdiscover, no
 # nvidia-smi exec, no InfiniBand hardware required.
-provider:
-  name: infiniband-k8s
-  params:
-    useGpuCliqueLabel: true
+global:
+  provider:
+    name: infiniband-k8s
+    params:
+      useGpuCliqueLabel: true
 
-# 'k8s' writes plain node labels under network.topology.nvidia.com/
-# (accelerator + tier-0/tier-1/…). Alternative 'nfd' engine emits
-# NodeFeature CRs; not needed for local dev.
-engine:
-  name: k8s
+  # 'k8s' writes plain node labels under network.topology.nvidia.com/
+  # (accelerator + tier-0/tier-1/…). Alternative 'nfd' engine emits
+  # NodeFeature CRs; not needed for local dev.
+  engine:
+    name: k8s

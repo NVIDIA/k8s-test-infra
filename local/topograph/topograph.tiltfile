@@ -25,7 +25,7 @@ load('ext://helm_resource', 'helm_resource')
 def install(nvml_mock_releases):
     helm_resource(
         'topograph',
-        'oci://ghcr.io/nvidia/topograph/topograph',
+        'topograph-repo/topograph',
         namespace='topograph',
         flags=[
             '--create-namespace',

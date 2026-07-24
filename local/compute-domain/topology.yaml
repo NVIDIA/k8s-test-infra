@@ -1,29 +1,56 @@
-# Copyright 2026 NVIDIA CORPORATION
-# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026, NVIDIA CORPORATION. All rights reserved.
 #
-# Tilt dev-loop copy of docs/demo/compute-domain/topology.yaml. Kept in
-# lockstep with the source so the demo script and the Tilt scenario
-# render the same topology ConfigMap; edit both together.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Node names are Kind-derived from the cluster name. This file assumes
-# cluster `nvml-mock-compute-domain` (see local/kind/compute-domain.kind.yaml).
-# Renaming the cluster requires updating the node lists here in lockstep.
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
-# Layout:
-#   domain "demo-domain"
-#     clique 0: -worker, -worker2
-#     clique 1: -worker3, -worker4
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Keep this aligned with the nvidia.com/gpu.clique labels in kind-cluster.yaml.
+# nvml-mock models compute domains and cliques, so this fixture represents a
+# small leaf/spine layout as two spine domains, each with two leaf cliques.
+#
+#   spine-1 (00000000-0000-0000-0000-0000000000ab)
+#      |                         |
+#   leaf-1-1                  leaf-1-2
+#   clique 0                  clique 1
+#      |                         |
+#   worker-0                  worker-1
+#
+#   spine-2 (00000000-0000-0000-0000-0000000000cd)
+#      |                         |
+#   leaf-2-1                  leaf-2-2
+#   clique 0                  clique 1
+#      |                         |
+#   worker-2                  worker-3
 topology:
   enabled: true
   domains:
-    - name: demo-domain
+    - name: spine-1
       uuid: "00000000-0000-0000-0000-0000000000ab"
       cliques:
+        # leaf-1-1
         - id: 0
           nodes:
-            - nvml-mock-compute-domain-worker
-            - nvml-mock-compute-domain-worker2
+            - worker-0
+        # leaf-1-2
         - id: 1
           nodes:
-            - nvml-mock-compute-domain-worker3
-            - nvml-mock-compute-domain-worker4
+            - worker-1
+    - name: spine-2
+      uuid: "00000000-0000-0000-0000-0000000000cd"
+      cliques:
+        # leaf-2-1
+        - id: 0
+          nodes:
+            - worker-2
+        # leaf-2-2
+        - id: 1
+          nodes:
+            - worker-3

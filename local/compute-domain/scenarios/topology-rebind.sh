@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-CLUSTER_NAME="nvml-mock-compute-domain"
+CLUSTER_NAME="mokka-compute-domain"
 RELEASE_NAME="nvml-mock"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 REBIND_TOPO="local/compute-domain/rebind.topology.yaml"

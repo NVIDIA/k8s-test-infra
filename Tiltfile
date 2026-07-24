@@ -98,9 +98,7 @@ if with_compute_domain and gpu_profile_raw != None:
 
 gpu_profile = gpu_profile_raw or 'a100'
 
-# Default kubectl context matches the cluster name the Makefile creates.
-# PROFILE=compute-domain → nvml-mock-compute-domain, otherwise gpu-test.
-k8s_context_default = 'kind-nvml-mock-compute-domain' if with_compute_domain else 'kind-gpu-test'
+k8s_context_default = 'kind-mokka-compute-domain' if with_compute_domain else 'kind-mokka'
 k8s_context         = cfg.get('k8s-context', k8s_context_default)
 
 # --- Derived state -------------------------------------------------------
@@ -146,6 +144,9 @@ else:
 # per active consumer so the repo groups next to whichever consumers are on.
 if active_consumers:
     helm_repo('nvidia', 'https://helm.ngc.nvidia.com/nvidia', labels=active_consumers)
+
+if with_topograph:
+    helm_repo('topograph-repo', 'https://NVIDIA.github.io/topograph', labels=['topograph'])
 
 # --- Consumers -----------------------------------------------------------
 if with_gpu_operator:

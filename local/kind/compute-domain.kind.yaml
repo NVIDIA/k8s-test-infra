@@ -47,19 +47,43 @@ nodes:
         apiServer:
           extraArgs:
             runtime-config: "resource.k8s.io/v1beta1=true"
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: control-0
   - role: worker
     labels:
       nvml-mock/clique: "0"
-      nvidia.com/gpu.clique: "0"
+      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000ab.0"
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-0
   - role: worker
     labels:
       nvml-mock/clique: "0"
-      nvidia.com/gpu.clique: "0"
+      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000ab.0"
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-1
   - role: worker
     labels:
       nvml-mock/clique: "1"
-      nvidia.com/gpu.clique: "1"
+      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000ab.1"
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-2
   - role: worker
     labels:
       nvml-mock/clique: "1"
-      nvidia.com/gpu.clique: "1"
+      nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000ab.1"
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-3

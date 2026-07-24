@@ -105,7 +105,7 @@ def build_images(with_dra):
 def install(active_consumers):
     """Install the nvml-mock helm release with the compute-domain topology.
 
-    Returns ['nvml-mock'] so downstream consumers (dra, gpu-operator)
+    Returns ['mokka'] so downstream consumers (dra, gpu-operator)
     can pass it as resource_deps.
     """
     # Order matters: topology.yaml supplies the domains structure,
@@ -133,6 +133,7 @@ def install(active_consumers):
         image_deps=[_DEMO_IMAGE],
         image_keys=[('image.repository', 'image.tag')],
         flags=flags,
+        labels=['mokka'],
     )
 
     # Scenario 1: per-node fabric identity via check-fabric. Manually

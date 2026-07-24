@@ -15,7 +15,7 @@ topology:
       cliques:
         - id: 99
           nodes:
-            - nvml-mock-compute-domain-worker
-            - nvml-mock-compute-domain-worker2
-            - nvml-mock-compute-domain-worker3
-            - nvml-mock-compute-domain-worker4
+            - mokka-compute-domain-worker
+            - mokka-compute-domain-worker2
+            - mokka-compute-domain-worker3
+            - mokka-compute-domain-worker4

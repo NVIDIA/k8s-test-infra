@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-CLUSTER_NAME="nvml-mock-compute-domain"
+CLUSTER_NAME="mokka-compute-domain"
 RELEASE_NAME="nvml-mock"
 EXPECTED_UUID="00000000-0000-0000-0000-0000000000ab"
 
