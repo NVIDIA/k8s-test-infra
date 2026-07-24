@@ -1,0 +1,32 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Helm values for topograph when running against nvml-mock in the
+# compute-domain local dev scenario.
+#
+# Usage (via Tilt):
+#   tilt up -- --topograph            # implies --compute-domain --dra
+#
+# Prerequisites (implied by --topograph in the root Tiltfile; still
+# requires `make cluster-create PROFILE=compute-domain` for the cluster
+# shape):
+#   - --compute-domain: 4-worker Kind cluster + topology.yaml declaring
+#     two cliques (workers 1-2 → clique 0, workers 3-4 → clique 1).
+#   - --dra: NVIDIA DRA driver with local/topograph/dra-driver.values.yaml
+#     overlaying kubeletPlugin.containers.computeDomains.gpuCliqueLabelEnabled=true
+#     so its compute-domain-kubelet-plugin patches nvidia.com/gpu.clique
+#     on each node from mock NVML clique_id (10-min refresh).
+
+# 'dra' is a label reader (misleadingly named — it does NOT read DRA
+# ResourceSlices). It looks up nvidia.com/gpu.clique on each node and
+# groups nodes into topology domains by clique. See
+# /tmp/topograph/topograph/pkg/providers/dra/provider.go:29,101 and
+# pkg/topology/topology.go:37 (KeyNvidiaGPUClique = "nvidia.com/gpu.clique").
+provider:
+  name: dra
+
+# 'k8s' writes plain node labels under network.topology.nvidia.com/
+# (accelerator + tier-0/tier-1/…). Alternative 'nfd' engine emits
+# NodeFeature CRs; not needed for local dev.
+engine:
+  name: k8s

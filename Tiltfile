@@ -34,6 +34,7 @@ load('./local/compute-domain/compute_domain.tiltfile',
 load('./local/gpu-operator/gpu_operator.tiltfile', gpu_operator_install='install')
 load('./local/dra/dra.tiltfile', dra_install='install')
 load('./local/fgo/fgo.tiltfile', fgo_install='install')
+load('./local/topograph/topograph.tiltfile', topograph_install='install')
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
@@ -53,6 +54,8 @@ config.define_bool('dra', args=False,
     usage='Also deploy NVIDIA DRA driver on top of nvml-mock')
 config.define_bool('fgo', args=False,
     usage='Also deploy Run:ai Fake GPU Operator (combine with --multi-gpu-profile to exercise both integration and scale pools)')
+config.define_bool('topograph', args=False,
+    usage='Also deploy NVIDIA topograph. Implies --compute-domain --dra (needed to produce the nvidia.com/gpu.clique labels topograph reads). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
 
 cfg = config.parse()
 
@@ -61,6 +64,17 @@ with_compute_domain = cfg.get('compute-domain', False)
 with_gpu_operator   = cfg.get('gpu-operator', False)
 with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
+with_topograph      = cfg.get('topograph', False)
+
+# --- Implicit flags ------------------------------------------------------
+# --topograph is only useful when the DRA driver's compute-domain-kubelet-
+# plugin writes the nvidia.com/gpu.clique node label topograph reads —
+# and cliques only exist in the compute-domain cluster scenario.
+# The compute-domain Kind cluster is still required
+# (make cluster-create PROFILE=compute-domain)
+if with_topograph:
+    with_compute_domain = True
+    with_dra            = True
 
 # --- Guardrails ----------------------------------------------------------
 # compute-domain forces its own cluster shape (4 workers with clique
@@ -107,6 +121,9 @@ if with_dra:
 if with_fgo:
     active_consumers.append('fgo')
 
+if with_topograph:
+    active_consumers.append('topograph')
+
 # --- Safety guard --------------------------------------------------------
 allow_k8s_contexts(k8s_context)
 
@@ -136,20 +153,27 @@ if with_gpu_operator:
     gpu_operator_install(nvml_mock_releases)
 
 if with_dra:
-    # --compute-domain --dra composition: (1) layer the compute-domain
-    # overlay values on top of dra-driver.values.yaml to flip
-    # resources.computeDomains.enabled, and (2) route the daemon image
-    # through image_deps + image_keys so Tilt actually builds it (a
-    # docker_build with no manifest reference is pruned) and injects it
-    # as the chart's image.repository/tag.
+    # DRA overlay chain (order matters — later --values files win):
+    # - --compute-domain: (1) layer the compute-domain overlay values on
+    #   top of dra-driver.values.yaml to flip resources.computeDomains.
+    #   enabled, and (2) route the daemon image through image_deps +
+    #   image_keys so Tilt actually builds it (a docker_build with no
+    #   manifest reference is pruned) and injects it as the chart's
+    #   image.repository/tag.
+    # - --topograph: enable the DRA driver
+    #   to patch nvidia.com/gpu.clique on each node (from mock NVML clique_id)
+    #   for topograph to read.
     dra_extra_values = []
     dra_image_deps   = []
     dra_image_keys   = []
 
     if with_compute_domain:
-        dra_extra_values = ['local/compute-domain/dra-driver.values.yaml']
-        dra_image_deps   = [compute_domain_daemon_image]
-        dra_image_keys   = [('image.repository', 'image.tag')]
+        dra_extra_values.append('local/compute-domain/dra-driver.values.yaml')
+        dra_image_deps.append(compute_domain_daemon_image)
+        dra_image_keys.append(('image.repository', 'image.tag'))
+
+    if with_topograph:
+        dra_extra_values.append('local/topograph/dra-driver.values.yaml')
 
     dra_install(
       nvml_mock_releases,
@@ -160,6 +184,9 @@ if with_dra:
 
 if with_fgo:
     fgo_install(nvml_mock_releases)
+
+if with_topograph:
+    topograph_install(nvml_mock_releases)
 
 # --- Test workload -------------------------------------------------------
 # GPU validator pod, disabled by default (enable from the Tilt UI). Requests

@@ -1,0 +1,21 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# DRA driver values overlay layered on top of local/dra/dra-driver.values.yaml
+# and local/compute-domain/dra-driver.values.yaml when --topograph is set
+# (--topograph implies --compute-domain --dra; see the root Tiltfile's
+# implicit-flags block). Wired in by the root Tiltfile's DRA overlay chain
+# so --topograph adds this file to dra_extra_values.
+#
+# Flips gpuCliqueLabelEnabled=true so the compute-domain-kubelet-plugin
+# writes the nvidia.com/gpu.clique node label — the sole surface
+# topograph's dra provider reads. Chart default is false (see
+# tmp/dra-driver-nvidia-gpu/deployments/helm/dra-driver-nvidia-gpu/
+# values.yaml:307). Label writer implementation:
+# tmp/dra-driver-nvidia-gpu/cmd/compute-domain-kubelet-plugin/
+# computedomain.go:429-453 (SetGPUCliqueLabel — MergePatch on nodes,
+# 10-minute refresh loop).
+kubeletPlugin:
+  containers:
+    computeDomains:
+      gpuCliqueLabelEnabled: true

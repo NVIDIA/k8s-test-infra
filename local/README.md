@@ -117,6 +117,31 @@ The Tilt UI exposes two manual triggers under the `compute-domain-tests` label:
 - **check-fabric** — asserts the topology overlay assigned the expected `cliqueId`/`clusterUUID` to each node
 - **topology-rebind** — live-rebinds the NVLink topology and re-asserts the new clique assignment
 
+### With NVIDIA topograph
+
+Deploys [topograph](https://github.com/NVIDIA/topograph), a network-topology discovery service, on top of the compute-domain cluster. Topograph reads `nvidia.com/gpu.clique` node labels and translates them into `network.topology.nvidia.com/*` labels (`accelerator`, `tier-0`, ...) that topology-aware schedulers (KAI, Kueue TAS) consume.
+
+`--topograph` implies `--compute-domain --dra` — no need to spell them out. Reason: cliques as a concept only exist in the compute-domain cluster configuration, and the DRA driver's compute-domain-kubelet-plugin is the sole writer of the `nvidia.com/gpu.clique` label (gated by `gpuCliqueLabelEnabled`, which `local/topograph/dra-driver.values.yaml` flips on when `--topograph` is set). Incompatible combos (`--topograph --fgo`, `--topograph --multi-gpu-profile`, `--topograph --gpu-profile <p>`) surface via the existing compute-domain guardrails.
+
+Data path: mock topology.yaml → mock NVML `clique_id` → DRA kubelet-plugin patches `nvidia.com/gpu.clique` on each node (10-min refresh) → topograph's `dra` provider reads the label → topograph writes `network.topology.nvidia.com/*` labels.
+
+```bash
+make cluster-create PROFILE=compute-domain   # still required for the cluster shape
+tilt up -- --topograph                        # implies --compute-domain --dra
+```
+
+Verify:
+```bash
+# 1. DRA kubelet-plugin wrote the clique label on each worker
+kubectl get nodes -l '!node-role.kubernetes.io/control-plane' \
+  -o custom-columns=NAME:.metadata.name,CLIQUE:.metadata.labels.nvidia\\.com/gpu\\.clique
+# expect: worker/worker2 share one clique id, worker3/worker4 share another
+
+# 2. Topograph wrote the topology labels
+kubectl get nodes -o json | jq '.items[] | {name:.metadata.name,
+    topo:(.metadata.labels | with_entries(select(.key | startswith("network.topology.nvidia.com/"))))}'
+```
+
 ## Helm value overrides for nvml-mock
 
 Values are layered in this order (last wins):
