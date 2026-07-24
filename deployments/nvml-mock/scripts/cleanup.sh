@@ -40,7 +40,9 @@ if [ -d "$MOCK_GPU_DIR" ] && [ "$MOCK_GPU_DIR" = "/host/var/lib/nvml-mock" ]; th
     # replays it to self-heal (or an operator inspects it manually).
     find "$MOCK_GPU_DIR" -mindepth 1 -maxdepth 1 ! -name host-driver-manifest.txt -exec rm -rf {} +
   else
-    rm -rf "$MOCK_GPU_DIR"/*
+    # ${MOCK_GPU_DIR:?} guards against an empty expansion to /* even though the
+    # enclosing test already pins it to the literal state dir.
+    rm -rf "${MOCK_GPU_DIR:?}"/*
   fi
 fi
 # Remove the GPU Operator compatibility symlink ONLY when it is ours. A
