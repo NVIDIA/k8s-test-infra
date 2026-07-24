@@ -30,7 +30,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 # mock stack is easy to isolate and clean up. The namespace is also set as the
 # current context's default so the validate-*.sh helpers (which exec into pods
 # without a -n flag) target it too.
-: "${NAMESPACE:=nvml-mock-system}"
+: "${NAMESPACE:=mokka}"
 # FORCE_RECREATE=true tears down an existing cluster of the same name and
 # recreates it; otherwise an existing cluster is reused as-is.
 : "${FORCE_RECREATE:=false}"

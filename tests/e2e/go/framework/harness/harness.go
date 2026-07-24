@@ -52,6 +52,29 @@ func Setup(ctx context.Context, name string, kindConfig []byte, image string) (*
 	return h, nil
 }
 
+// AttachExisting wires adapters to a pre-existing cluster/context without
+// creating it or loading images. Used when an external tool (e.g. `tilt ci`)
+// owns cluster provisioning and rollout; the harness only observes and tests.
+// clusterName is the Kind cluster name (used by `kind get nodes --name` in
+// node-role assertions); kubeContext is the kubeconfig context to route
+// kubectl/helm through. image is the ref already present in the cluster and is
+// carried on the Harness for scenarios that reference it (they must not attempt
+// to (re)load it).
+func AttachExisting(ctx context.Context, clusterName, kubeContext, image string) (*Harness, error) {
+	if err := cluster.ValidateName(clusterName); err != nil {
+		return nil, err
+	}
+	if kubeContext == "" {
+		return nil, fmt.Errorf("attach existing: kubeContext must not be empty")
+	}
+	h := &Harness{Image: image}
+	c := &cluster.Cluster{Name: clusterName, Context: kubeContext}
+	if err := h.attachCluster(c, kube.New); err != nil {
+		return h, err
+	}
+	return h, nil
+}
+
 func (h *Harness) attachCluster(c *cluster.Cluster, newKube kubeClientFactory) error {
 	h.Cluster = c
 	k, err := newKube(c.Context)

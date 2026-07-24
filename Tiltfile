@@ -53,6 +53,12 @@ config.define_bool('dra', args=False,
     usage='Also deploy NVIDIA DRA driver on top of nvml-mock')
 config.define_bool('fgo', args=False,
     usage='Also deploy Run:ai Fake GPU Operator (combine with --multi-gpu-profile to exercise both integration and scale pools)')
+# CI hook: hand Tilt a pre-built image (e.g. from ttl.sh) instead of running
+# docker_build. When set, docker_build is skipped and the nvml-mock chart's
+# image.repository / image.tag are pinned via --set to the parsed <repo>/<tag>.
+# Ref must be in `repo:tag` or `repo@digest` form.
+config.define_string('nvmlmock-image', args=False,
+    usage='Pre-built nvml-mock image ref (repo:tag). Skips docker_build and pins the chart image.repository/image.tag via --set. Used by CI to consume the ttl.sh image the build-image job publishes.')
 
 cfg = config.parse()
 
@@ -61,6 +67,7 @@ with_compute_domain = cfg.get('compute-domain', False)
 with_gpu_operator   = cfg.get('gpu-operator', False)
 with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
+nvmlmock_image      = cfg.get('nvmlmock-image', '')
 
 # --- Guardrails ----------------------------------------------------------
 # compute-domain forces its own cluster shape (4 workers with clique
@@ -77,6 +84,12 @@ if with_fgo and with_gpu_operator:
     fail('--fgo is mutually exclusive with --gpu-operator (FGO replaces the GPU Operator)')
 if with_fgo and with_compute_domain:
     fail('--fgo is mutually exclusive with --compute-domain')
+
+# --nvmlmock-image only wires the standard nvml-mock build/install path. The
+# compute-domain scenario builds three layered images (base + imex + optional
+# daemon) and cannot consume a single pre-built ref.
+if nvmlmock_image and with_compute_domain:
+    fail('--nvmlmock-image is not supported with --compute-domain (scenario builds its own layered images)')
 
 gpu_profile_raw = cfg.get('gpu-profile', None)
 
@@ -118,11 +131,11 @@ if with_compute_domain:
     compute_domain_build_images(with_dra)
     nvml_mock_releases = compute_domain_install(active_consumers)
 elif multi_gpu_profile:
-    build_nvml_mock_image()
-    nvml_mock_releases = install_fleet(active_consumers)
+    build_nvml_mock_image(nvmlmock_image=nvmlmock_image)
+    nvml_mock_releases = install_fleet(active_consumers, nvmlmock_image=nvmlmock_image)
 else:
-    build_nvml_mock_image()
-    nvml_mock_releases = install_single(gpu_profile, active_consumers)
+    build_nvml_mock_image(nvmlmock_image=nvmlmock_image)
+    nvml_mock_releases = install_single(gpu_profile, active_consumers, nvmlmock_image=nvmlmock_image)
 
 # --- Shared NVIDIA Helm repo --------------------------------------------
 # Both consumer subfiles pull from nvidia/... — register the repo once here so
