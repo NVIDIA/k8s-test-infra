@@ -29,6 +29,10 @@ package main
 // Forward declaration of our device handle getter (defined in device.go)
 extern nvmlReturn_t nvmlDeviceGetHandleByIndex_v2(unsigned int index, nvmlDevice_t* device);
 
+// Forward declaration of our device-handle validator (defined below in Go).
+// Returns 1 if the raw handle value belongs to a registered mock device.
+extern int mockInternalIsDeviceHandle(void* handle);
+
 // Debug mode - check MOCK_NVML_DEBUG env var once at startup
 static int debugChecked = 0;
 static int debugEnabled = 0;
@@ -62,8 +66,29 @@ static nvmlReturn_t internalStubFunction(void* arg0, void* arg1, void* arg2, voi
         }
     }
 
-    // Non-device call - return SUCCESS to acknowledge
-    return NVML_SUCCESS;
+    // Per-device list query: fn(nvmlDevice_t device, unsigned int* count, ...).
+    // nvidia-smi enumerates running processes for `-q` and
+    // `--query-compute-apps` through this internal entry point rather than the
+    // public nvmlDeviceGet*RunningProcesses APIs. arg0 is a device handle we
+    // handed out and arg1 points to the caller's buffer capacity (pre-filled,
+    // e.g. 250). The caller expects the callee to overwrite that count with the
+    // real number of entries. If we leave it untouched, nvidia-smi renders its
+    // entire uninitialized buffer as phantom processes (PID 0, empty name,
+    // 0 MiB). Report zero entries: write 0 to the count and return SUCCESS.
+    if (arg1 != NULL && mockInternalIsDeviceHandle(arg0)) {
+        *(unsigned int*)arg1 = 0;
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] device list query (handle=%p) -> 0 entries\n", arg0);
+        }
+        return NVML_SUCCESS;
+    }
+
+    // Any other internal entry point is genuinely unimplemented; report it so
+    // callers degrade gracefully instead of trusting an unwritten output.
+    if (isDebugEnabled()) {
+        fprintf(stderr, "[C-STUB] non-device internal call -> NOT_SUPPORTED\n");
+    }
+    return NVML_ERROR_NOT_SUPPORTED;
 }
 
 // Get address of stub function
@@ -75,7 +100,22 @@ import "C"
 import (
 	"fmt"
 	"unsafe"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
+
+// mockInternalIsDeviceHandle reports whether the raw handle value passed by
+// nvidia-smi through the internal export table belongs to a registered mock
+// device. The internal process-enumeration call is per-device, so a valid
+// handle is how the C stub distinguishes it from unrelated internal calls.
+//
+//export mockInternalIsDeviceHandle
+func mockInternalIsDeviceHandle(handle unsafe.Pointer) C.int {
+	if engine.GetEngine().LookupConfigurableDevice(handle) != nil {
+		return 1
+	}
+	return 0
+}
 
 // Internal export table for nvidia-smi compatibility
 // Based on reverse engineering: table[0] = size (must be > 648), table[648/8] = function pointer

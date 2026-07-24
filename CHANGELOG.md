@@ -130,6 +130,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI closes the tier-1 gaps found by the AICR pre-silicon preflight review.
   (#512)
 
+### Fixed
+- mocknvml: `nvidia-smi -q` and `nvidia-smi --query-compute-apps` no longer
+  report hundreds of phantom processes (PID 0, empty name, 0 MiB) per GPU when
+  no processes are configured. nvidia-smi enumerates processes through the
+  internal export table, whose catch-all C stub returned `NVML_SUCCESS` without
+  writing back the caller's count, so nvidia-smi rendered its uninitialized
+  buffer. The stub now returns `NVML_ERROR_NOT_SUPPORTED` for unrecognized
+  (non-device) internal calls, so nvidia-smi falls back to the public process
+  APIs (which correctly report none). E2E `NvidiaSMI` gained a regression guard.
+
 ### Deprecated
 - The fake `nvidia-imex` / `nvidia-imex-ctl` binaries, `pkg/imexcoord`,
   and the chart's `imex.enabled` hostPath coordination — superseded by
