@@ -1,7 +1,7 @@
 # Repository Automation Maintainer Runbook
 
 This runbook describes the repository settings and activation checks required
-by the [approved repository automation design](../superpowers/specs/2026-07-16-github-actions-repository-automation-design.md).
+by the approved repository automation design.
 The files in this repository do not change GitHub repository, organization, or
 ruleset settings. A repository administrator must apply and review those
 settings separately.
