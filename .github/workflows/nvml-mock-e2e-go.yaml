@@ -60,6 +60,11 @@ env:
   E2E_IMAGE: ttl.sh/nvml-mock-${{ github.sha }}:24h
   E2E_SKIP_BUILD: "true"
   E2E_ARTIFACTS: ${{ github.workspace }}/artifacts/e2e/go
+  # Local tag the managed-driver legs use; the OS suffix the operator appends
+  # (e.g. -debian12) is added by the scenario. Kept in lockstep with
+  # driver.repository/image in tests/e2e/go/assets/gpu-operator-driver-values.yaml.
+  E2E_MOCK_DRIVER_IMAGE: docker.io/library/mock-driver:e2e
+  E2E_MOCK_DRIVER_SKIP_BUILD: "true"
 
 jobs:
   # Build nvml-mock once and publish to ttl.sh; all legs consume this artifact
@@ -90,6 +95,33 @@ jobs:
             GOLANG_VERSION=${{ env.GO_VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Build the mock-driver image once for the managed-driver legs, same
+  # build-once/pull-by-digest pattern as build-image. Only the two
+  # managed-driver jobs consume it; the hostDriver lane needs no driver image.
+  build-mock-driver-image:
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build and push mock-driver image to ttl.sh
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          file: deployments/mock-driver/Dockerfile
+          tags: ttl.sh/mock-driver-${{ github.sha }}:24h
+          push: true
+          build-args: |
+            GOLANG_VERSION=${{ env.GO_VERSION }}
+          cache-from: type=gha,scope=mock-driver
+          cache-to: type=gha,mode=max,scope=mock-driver
 
   e2e:
     needs: build-image
@@ -349,6 +381,156 @@ jobs:
         if: failure()
         run: |
           echo "=== e2e-nri diagnostics (${{ matrix.gpu-profile }}) ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
+
+  # Managed mock-driver lifecycle (driver.enabled=true), single fixed profile
+  # (a100). Consumes both prebuilt images by digest. MOCK_KMOD=off leg.
+  e2e-gpu-operator-driver:
+    needs: [build-image, build-mock-driver-image]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+
+      - name: Pull pre-built images from ttl.sh (pinned by digest)
+        run: |
+          nvml="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-image.outputs.digest }}"
+          docker pull "$nvml"
+          docker tag "$nvml" "${{ env.E2E_IMAGE }}"
+          drv="ttl.sh/mock-driver-${{ github.sha }}@${{ needs.build-mock-driver-image.outputs.digest }}"
+          docker pull "$drv"
+          docker tag "$drv" "${{ env.E2E_MOCK_DRIVER_IMAGE }}"
+
+      - name: Install Kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
+          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Verify vendored driver-container contract
+        run: tests/e2e/check-driver-contract.sh
+
+      - name: Run managed-driver E2E (MOCK_KMOD=off)
+        run: make e2e-gpu-operator-driver
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-gpu-operator-driver diagnostics ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
+
+  # Managed mock-driver lifecycle + prebuilt stub kernel module (MOCK_KMOD=on).
+  # Separate cluster/job from the kmod-off leg because the loaded module is
+  # kernel-global and persists for the node's lifetime. The scenario builds the
+  # module host-side (matching runner kernel) and stages it on the node.
+  e2e-gpu-operator-driver-kmod:
+    needs: [build-image, build-mock-driver-image]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+
+      - name: Pull pre-built images from ttl.sh (pinned by digest)
+        run: |
+          nvml="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-image.outputs.digest }}"
+          docker pull "$nvml"
+          docker tag "$nvml" "${{ env.E2E_IMAGE }}"
+          drv="ttl.sh/mock-driver-${{ github.sha }}@${{ needs.build-mock-driver-image.outputs.digest }}"
+          docker pull "$drv"
+          docker tag "$drv" "${{ env.E2E_MOCK_DRIVER_IMAGE }}"
+
+      - name: Install Kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
+          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Run managed-driver E2E (MOCK_KMOD=on)
+        run: make e2e-gpu-operator-driver-kmod
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-gpu-operator-driver-kmod diagnostics ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
+
+  # Host-driver masquerade (hostDriver.enabled=true). Needs no mock-driver
+  # image (nvidia-smi + libs are installed at host paths, not deployed as a
+  # driver DaemonSet). Asserts the uninstall leaves zero host residue.
+  e2e-gpu-operator-hostdriver:
+    needs: build-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+
+      - name: Pull pre-built nvml-mock image from ttl.sh (pinned by digest)
+        run: |
+          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-image.outputs.digest }}"
+          docker pull "$pinned"
+          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
+
+      - name: Install Kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
+          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Run host-driver E2E
+        run: make e2e-gpu-operator-hostdriver
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-gpu-operator-hostdriver diagnostics ==="
           if [ -d "$E2E_ARTIFACTS" ]; then
             find "$E2E_ARTIFACTS" -type f | while read -r f; do
               echo "----- $f -----"; cat "$f"; echo;

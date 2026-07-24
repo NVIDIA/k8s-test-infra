@@ -368,3 +368,13 @@ GOCACHE="$PWD/.cache/go-build" GOWORK=off go test ./tests/e2e/go/profile ./tests
 
 The `e2e` build tag keeps the harness out of normal `go test ./...` and
 `go build ./...` paths.
+
+## Additional Assets
+
+The GPU Operator managed-driver lane pins the operator chart to a specific
+version and depends on a vendored copy of the driver DaemonSet contract:
+
+| Path | Purpose |
+|---|---|
+| `contract/` | Vendored GPU Operator driver DaemonSet + startup-probe assets |
+| `check-driver-contract.sh` | Drift check for the vendored driver-container contract |

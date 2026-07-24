@@ -73,7 +73,14 @@ func redactArgs(args []string) []string {
 
 // Run executes name+args under ctx, teeing stdout+stderr to the Ginkgo writer.
 func Run(ctx context.Context, name string, args ...string) (Result, error) {
-	return run(ctx, "", 0, name, args...)
+	return run(ctx, runOpts{}, name, args...)
+}
+
+// RunInDir is Run with the command's working directory set to dir (used for
+// host-side builds that must run from the repo root, e.g. the stub kmod
+// prebuild's `make -C /lib/modules/.../build M=$PWD/...`).
+func RunInDir(ctx context.Context, dir, name string, args ...string) (Result, error) {
+	return run(ctx, runOpts{dir: dir}, name, args...)
 }
 
 // RunQuiet is Run but does NOT stream stdout to the Ginkgo writer. The output
@@ -82,32 +89,42 @@ func Run(ctx context.Context, name string, args ...string) (Result, error) {
 // of high-frequency read-only bodies (e.g. `kubectl get -o json` polled inside
 // Eventually loops), which otherwise flood `-v` output.
 func RunQuiet(ctx context.Context, name string, args ...string) (Result, error) {
-	return run(ctx, "", -1, name, args...)
+	return run(ctx, runOpts{maxStdoutLines: -1}, name, args...)
 }
 
 // RunTruncated is Run but streams only the first maxStdoutLines stdout lines to
 // the Ginkgo writer. Full stdout is still captured in Result/CmdError.
 func RunTruncated(ctx context.Context, maxStdoutLines int, name string, args ...string) (Result, error) {
-	return run(ctx, "", maxStdoutLines, name, args...)
+	return run(ctx, runOpts{maxStdoutLines: maxStdoutLines}, name, args...)
 }
 
 // RunInput is Run with stdin piped from the given string (used for
 // `kubectl apply -f -` and `kind create cluster --config /dev/stdin`).
 func RunInput(ctx context.Context, stdin, name string, args ...string) (Result, error) {
-	return run(ctx, stdin, 0, name, args...)
+	return run(ctx, runOpts{stdin: stdin}, name, args...)
 }
 
-func run(ctx context.Context, stdin string, maxStdoutLines int, name string, args ...string) (Result, error) {
+// runOpts collects the optional knobs threaded into run.
+type runOpts struct {
+	stdin          string
+	maxStdoutLines int
+	dir            string
+}
+
+func run(ctx context.Context, opts runOpts, name string, args ...string) (Result, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
-	if stdin != "" {
-		cmd.Stdin = strings.NewReader(stdin)
+	if opts.stdin != "" {
+		cmd.Stdin = strings.NewReader(opts.stdin)
+	}
+	if opts.dir != "" {
+		cmd.Dir = opts.dir
 	}
 	var outBuf, errBuf bytes.Buffer
 	switch {
-	case maxStdoutLines < 0:
+	case opts.maxStdoutLines < 0:
 		cmd.Stdout = &outBuf
-	case maxStdoutLines > 0:
-		cmd.Stdout = io.MultiWriter(&outBuf, &lineLimitWriter{dst: ginkgo.GinkgoWriter, remaining: maxStdoutLines})
+	case opts.maxStdoutLines > 0:
+		cmd.Stdout = io.MultiWriter(&outBuf, &lineLimitWriter{dst: ginkgo.GinkgoWriter, remaining: opts.maxStdoutLines})
 	default:
 		cmd.Stdout = io.MultiWriter(&outBuf, ginkgo.GinkgoWriter)
 	}

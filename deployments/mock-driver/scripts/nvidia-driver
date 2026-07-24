@@ -1,0 +1,235 @@
+#!/bin/sh
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Mock replacement for the NVIDIA driver container entrypoint (nvidia-driver).
+#
+# The GPU Operator deploys this image as the driver DaemonSet via image
+# substitution (driver.repository/image/version) with driver.enabled=true.
+# The operator renders the pod itself -- command ["nvidia-driver"],
+# args ["init"], privileged, /run/nvidia hostPath with Bidirectional mount
+# propagation, and an operator-owned startup probe -- so this script's job is
+# to satisfy the driver-container contract without touching the kernel:
+#
+#   1. The startup probe (vendored at tests/e2e/contract/) requires
+#      /sys/module/nvidia/refcnt to exist and nvidia-smi to exit 0 INSIDE
+#      this container. Both are faked in this container's own mount
+#      namespace; the host's /sys and /proc are never modified.
+#   2. The driver rootfs must appear at /run/nvidia/driver. Like the real
+#      entrypoint, this is done with `mount --rbind / /run/nvidia/driver`
+#      through the Bidirectional hostPath.
+#   3. Readiness sentinels (/run/nvidia/validations/.driver-ctr-ready) are
+#      written by the operator's probe and removed by the operator's preStop
+#      hook -- this script never writes them.
+#
+# Driver-root layout comes from the shared library /scripts/lib-driver-root.sh
+# so it cannot diverge from nvml-mock's. The default kernel-interface path
+# never modprobes, insmods, or ships kernel headers -- everything the operator
+# gating requires is faked in this container's own mount namespace, so nothing
+# below can fail for hardware reasons.
+#
+# The optional MOCK_KMOD path loads a PREBUILT stub kernel module (never built
+# in-container -- see docs/mock-driver.md). Because k8s-driver-manager's
+# uninstall init container detects a resident "nvidia" module and unloads it
+# when its state file is missing, MOCK_KMOD is intended for disposable Kind
+# nodes; see the Go E2E harness for the reload-on-restart lifecycle test.
+#
+# Env vars (all optional, settable via ClusterPolicy driver.env):
+#   MOCK_GPU_PROFILE  GPU profile to emulate (default: a100)
+#   MOCK_GPU_COUNT    number of GPUs (default: 8, capped at profile devices)
+#   DRIVER_VERSION    override driver version (default: from profile config)
+#   MOCK_KMOD         off|on (default: off) -- load the PREBUILT stub kernel
+#                     module for REAL kernel-global /proc/driver/nvidia and
+#                     /sys/module/nvidia on the node and in every pod
+set -eu
+
+. /scripts/lib-driver-root.sh
+
+RUN_DIR=/run/nvidia
+DRIVER_ROOT=$RUN_DIR/driver
+STAGE_DIR=/run/mock-driver
+
+MOCK_GPU_PROFILE=${MOCK_GPU_PROFILE:-a100}
+MOCK_GPU_COUNT=${MOCK_GPU_COUNT:-8}
+
+_load_profile() {
+  PROFILE_FILE=/profiles/$MOCK_GPU_PROFILE.yaml
+  if [ ! -f "$PROFILE_FILE" ]; then
+    echo "ERROR: unknown GPU profile '$MOCK_GPU_PROFILE' (no $PROFILE_FILE)" >&2
+    exit 1
+  fi
+
+  # Derive the driver version from the profile unless explicitly overridden;
+  # drl_write_config later pins the config to whatever version wins, so all
+  # version-bearing artifacts (library filename, nvidia-smi output, proc
+  # version file, NVML answers) agree either way.
+  if [ -z "${DRIVER_VERSION:-}" ]; then
+    DRIVER_VERSION=$(sed -n 's/^[[:space:]]*driver_version:[[:space:]]*"\{0,1\}\([0-9][0-9.]*\).*/\1/p' "$PROFILE_FILE" | head -1)
+  fi
+  if [ -z "$DRIVER_VERSION" ]; then
+    echo "ERROR: could not derive driver version from $PROFILE_FILE and DRIVER_VERSION is not set" >&2
+    exit 1
+  fi
+
+  MOCK_GPU_COUNT=$(drl_cap_gpu_count "$PROFILE_FILE" "$MOCK_GPU_COUNT")
+}
+
+_load_stub_kmod() {
+  # Delegate to the helper (invoked by path, like start-mock-ib.sh) so this
+  # entrypoint never runs a compiler inline. The helper is prebuilt-only:
+  # /run/nvidia/mock-kmod/nvidia.ko must exist (staged host-side by the E2E
+  # harness) or it exits non-zero.
+  mkdir -p "$STAGE_DIR"
+  RUN_DIR="$RUN_DIR" DRIVER_VERSION="$DRIVER_VERSION" \
+    /scripts/load-stub-kmod.sh
+}
+
+_fake_kernel_interfaces() {
+  # Fake the kernel-owned files the driver-container contract reads -- in this
+  # container's OWN mount namespace only. Pod volumeMounts cannot shadow
+  # /proc or /sys (runc rejects them), but a privileged entrypoint mounting
+  # over them at runtime is permitted, and the operator's startup probe execs
+  # in this namespace, so this is exactly where the fakes must live.
+
+  # /sys/module/nvidia/refcnt -- existence-checked by the startup probe.
+  # Note: the tmpfs shadows the kubelet's firmware-search-path file mount at
+  # /sys/module/firmware_class/parameters/path; nothing here uses it.
+  if [ ! -f /sys/module/nvidia/refcnt ]; then
+    mount -t tmpfs -o mode=0755 tmpfs /sys/module
+    for module in nvidia nvidia_uvm nvidia_modeset; do
+      mkdir -p "/sys/module/$module"
+      printf '0\n' > "/sys/module/$module/refcnt"
+    done
+    printf '%s\n' "$DRIVER_VERSION" > /sys/module/nvidia/version
+  fi
+
+  # /proc/driver/nvidia -- nothing in the operator gating path reads it, but
+  # it is provided for fidelity (exec-into-pod UX, workload diagnostics) and
+  # is exposed through the rbind at /run/nvidia/driver/proc/driver/nvidia.
+  # Bind a staging dir over /proc/driver so the fake lands at
+  # /proc/driver/nvidia (not /proc/driver/driver/nvidia).
+  drl_write_proc_files "$STAGE_DIR/proc-driver/nvidia" "$DRIVER_VERSION"
+  if [ ! -f /proc/driver/nvidia/version ]; then
+    mount --bind "$STAGE_DIR/proc-driver" /proc/driver
+  fi
+
+  # Char device nodes in the container's /dev (tmpfs). Consumers get device
+  # nodes via nvml-mock's CDI spec; these exist for driver-root fidelity.
+  drl_mknod_devices /dev "$MOCK_GPU_COUNT"
+}
+
+_mount_rootfs() {
+  # Same sequence as the real nvidia-driver entrypoint: expose this
+  # container's rootfs as the driver root on the host through the
+  # Bidirectional /run/nvidia hostPath. /sys is excluded from the rbind
+  # (runbindable), so the fake /sys/module tmpfs never leaves this container.
+  mkdir -p "$RUN_DIR/validations" "$DRIVER_ROOT"
+  if mountpoint -q "$DRIVER_ROOT"; then
+    echo "Unmounting stale driver rootfs at $DRIVER_ROOT"
+    umount -l -R "$DRIVER_ROOT" || true
+  fi
+  mount --make-runbindable /sys
+  mount --make-private /sys
+  mount --rbind / "$DRIVER_ROOT"
+  echo "$$" > "$RUN_DIR/nvidia-driver.pid"
+}
+
+_shutdown() {
+  echo "Shutting down mock driver"
+  # Intentionally do NOT rmmod the stub kernel module here: a loaded module is
+  # node-global state and, like a real NVIDIA driver, must persist across
+  # driver-pod restarts (unloading it on every graceful restart would yank
+  # /proc/driver/nvidia and /sys/module/nvidia out from under other pods on
+  # the node). It stays loaded until the node is recreated -- matching real
+  # driver semantics. See MOCK_KMOD in docs/mock-driver.md.
+  if mountpoint -q "$DRIVER_ROOT" 2>/dev/null; then
+    umount -l -R "$DRIVER_ROOT" || true
+  fi
+  rm -f "$RUN_DIR/nvidia-driver.pid"
+  exit 0
+}
+
+init() {
+  _load_profile
+  echo "Mock NVIDIA driver init: profile=$MOCK_GPU_PROFILE gpus=$MOCK_GPU_COUNT driver=$DRIVER_VERSION"
+
+  # Install libs at the driver rootfs paths consumers expect. nvidia-smi
+  # (already at /usr/bin) has RPATH=$ORIGIN/../lib64 and resolves these
+  # without ldconfig. The config lands at /config/config.yaml: the mock NVML
+  # .so auto-discovers it relative to its own path (/proc/self/maps →
+  # /usr/lib64 → driver root "/"), and after the rbind the same file is found
+  # by consumers loading the library from /run/nvidia/driver (e.g. the
+  # operator validator's LD_PRELOAD exec of nvidia-smi).
+  drl_install_libs /usr/local/lib /usr/lib64 "$DRIVER_VERSION"
+  mkdir -p /config
+  drl_write_config "$PROFILE_FILE" /config/config.yaml "$MOCK_GPU_COUNT" "$DRIVER_VERSION"
+
+  MOCK_KMOD_MODE=$(printf '%s' "${MOCK_KMOD:-off}" | tr '[:upper:]' '[:lower:]')
+  case "$MOCK_KMOD_MODE" in
+    off) ;;
+    on)
+      _load_stub_kmod || {
+        echo "ERROR: MOCK_KMOD=on but the prebuilt stub module could not be loaded" >&2
+        exit 1
+      }
+      ;;
+    *)
+      # The prior `auto` mode compiled the module in-container by installing
+      # linux-headers/build-essential at pod start; it has been removed. Load
+      # succeeds only from the prebuilt path, so `on` is the one opt-in mode.
+      echo "ERROR: MOCK_KMOD='$MOCK_KMOD' is invalid; expected off or on" >&2
+      exit 1
+      ;;
+  esac
+  # The namespace fakes below self-skip whatever the stub module now provides
+  # for real (their guards test for existing refcnt / proc entries).
+  _fake_kernel_interfaces
+  _mount_rootfs
+  echo "Mock driver rootfs mounted at $DRIVER_ROOT -- waiting for signal"
+
+  # The startup probe now passes and writes .driver-ctr-ready itself.
+  # Sleep in short intervals so the TERM trap fires promptly.
+  trap _shutdown TERM INT
+  while true; do
+    sleep 15 &
+    wait $!
+  done
+}
+
+usage() {
+  cat >&2 << USAGE_EOF
+Usage: $0 COMMAND
+
+Commands:
+  init                    set up the mock driver rootfs and wait (main container)
+  probe_nvidia_peermem    no-op probe (peermem sidecar compatibility)
+  reload_nvidia_peermem   no-op wait loop (peermem sidecar compatibility)
+USAGE_EOF
+  exit 1
+}
+
+if [ $# -eq 0 ]; then
+  usage
+fi
+
+case "$1" in
+  init)
+    init
+    ;;
+  # The operator only renders the peermem sidecar when driver.rdma is
+  # enabled (it is not, in the mock values overlay), but handle its
+  # subcommands anyway so an unexpected sidecar never crash-loops.
+  probe_nvidia_peermem)
+    exit 0
+    ;;
+  reload_nvidia_peermem)
+    trap 'exit 0' TERM INT
+    while true; do
+      sleep 60 &
+      wait $!
+    done
+    ;;
+  *)
+    usage
+    ;;
+esac

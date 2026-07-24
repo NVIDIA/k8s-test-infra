@@ -28,10 +28,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"sigs.k8s.io/yaml"
 )
+
+// driverVersionRE matches the same character set the mock-driver's shell
+// guard (drl_require_version) accepts: digits and dots only. Keeping the
+// regex here means an invalid version fails profile.Load rather than at
+// insmod / helm render time.
+var driverVersionRE = regexp.MustCompile(`^[0-9.]+$`)
 
 // KnownProfiles is the full set of chart profiles shipped in the repo. The
 // required CI matrix is a subset chosen by the workflow input; this list is
@@ -42,6 +49,9 @@ var KnownProfiles = []string{"a100", "h100", "b200", "gb200", "gb300", "l40s", "
 // YAML. sigs.k8s.io/yaml maps via JSON tags, so the tags are the snake_case
 // keys used in the profile files.
 type rawProfile struct {
+	System struct {
+		DriverVersion string `json:"driver_version"`
+	} `json:"system"`
 	DeviceDefaults struct {
 		Name   string `json:"name"`
 		Fabric *struct {
@@ -74,6 +84,10 @@ type Profile struct {
 	Name string
 	// DisplayName is device_defaults.name, e.g. "NVIDIA A100-SXM4-40GB".
 	DisplayName string
+	// DriverVersion is system.driver_version, e.g. "550.163.01". Consumed by
+	// the managed-driver GPU Operator scenario to derive the mock-driver
+	// image tag and MOCK_KMOD prebuild version.
+	DriverVersion string
 
 	gpuCount    int
 	ibEnabled   bool
@@ -102,15 +116,23 @@ func Load(profilesDir, name string) (Profile, error) {
 	if len(raw.Devices) == 0 {
 		return Profile{}, fmt.Errorf("profile %q: devices list is empty", path)
 	}
+	driverVersion := strings.TrimSpace(raw.System.DriverVersion)
+	if driverVersion == "" {
+		return Profile{}, fmt.Errorf("profile %q: system.driver_version is empty", path)
+	}
+	if !driverVersionRE.MatchString(driverVersion) {
+		return Profile{}, fmt.Errorf("profile %q: system.driver_version %q must be digits and dots only", path, driverVersion)
+	}
 
 	p := Profile{
-		Name:        name,
-		DisplayName: raw.DeviceDefaults.Name,
-		gpuCount:    len(raw.Devices),
-		ibEnabled:   raw.Infiniband.Enabled,
-		hcasPerGPU:  raw.Infiniband.HCAsPerGPU,
-		linksPerGPU: raw.NVLink.LinksPerGPU,
-		hasSwitches: len(raw.NVLink.Switches) > 0,
+		Name:          name,
+		DisplayName:   raw.DeviceDefaults.Name,
+		DriverVersion: driverVersion,
+		gpuCount:      len(raw.Devices),
+		ibEnabled:     raw.Infiniband.Enabled,
+		hcasPerGPU:    raw.Infiniband.HCAsPerGPU,
+		linksPerGPU:   raw.NVLink.LinksPerGPU,
+		hasSwitches:   len(raw.NVLink.Switches) > 0,
 	}
 	if raw.DeviceDefaults.Fabric != nil {
 		p.hasFabric = true

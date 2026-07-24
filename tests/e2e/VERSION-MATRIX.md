@@ -10,9 +10,10 @@ Tested component versions for the mock GPU E2E test suite.
 | DRA Driver (GPU) | v0.10.x | `nvidia/nvidia-dra-driver-gpu` (Helm) | Tested in CI |
 | GPU Feature Discovery | v0.17.0 | `nvcr.io/nvidia/gpu-feature-discovery:v0.17.0` | Tested in CI |
 | CUDA vectorAdd sample | cuda12.5.0 | `nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0` | Tested in CI |
-| GPU Operator | v24.9.2 | `nvidia/gpu-operator` (Helm) | Pinned + tested in CI |
-| DCGM | 3.3.9 | `nvcr.io/nvidia/cloud-native/dcgm:3.3.9-1-ubuntu22.04` | Spike script (`spike-dcgm.sh`) |
-| DCGM Exporter | 3.3.9-3.6.1 | `nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04` | Tested in CI (via GPU Operator) |
+| GPU Operator (driver disabled) | latest (unpinned) | `nvidia/gpu-operator` (Helm) | Tested in CI |
+| GPU Operator (managed driver) | v26.3.3 (pinned) | `nvidia/gpu-operator` (Helm) + `mock-driver` image | Tested in CI |
+| GPU Operator (host driver masquerade) | latest (unpinned) | `nvidia/gpu-operator` (Helm) | Tested in CI |
+| DCGM Exporter | 3.3.9-3.6.1 | `nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04` | Tested in CI (via GPU Operator, driver-disabled lane) |
 
 ## Component Coverage
 
@@ -22,13 +23,37 @@ Tested component versions for the mock GPU E2E test suite.
 - **GPU Feature Discovery** (standalone DaemonSet): reads GPU attributes via NVML, labels nodes
 - **CUDA Validator** (Job): runs vectorAdd against mock libcuda.so
 
-### Values Overlay Only (GPU Operator)
-The GPU Operator is tested via a values overlay (`gpu-operator-values.yaml`) that:
-- Disables driver, toolkit, standalone DCGM host engine, MIG manager (require real kernel modules)
-- Enables device plugin, GFD, dcgm-exporter, and validator with mock driver root
+### GPU Operator (three modes, all in CI)
+- **Driver disabled** (`tests/e2e/go/assets/gpu-operator-values.yaml`, Go scenario
+  labelled `gpu-operator`): disables driver, toolkit, MIG manager; enables device
+  plugin, GFD, dcgm-exporter, and validator against nvml-mock's
+  `/run/nvidia/driver` symlink. Installs the latest operator chart (unpinned).
+  Adds DCGM assertions and runtime-control (`nvml-mock-ctl`) coverage.
+- **Host driver masquerade** (baseline + `tests/e2e/go/assets/gpu-operator-hostdriver-values.yaml`
+  delta, Go scenario labelled `gpu-operator-hostdriver`): nvml-mock's
+  `hostDriver.enabled` puts nvidia-smi and the mock libs at standard host paths;
+  the validator takes its preinstalled host-driver branch (`IS_HOST_DRIVER=true`)
+  and no component carries driver-root env overrides. Also asserts manifest-driven
+  uninstall leaves no host residue. Installs the latest operator chart
+  (unpinned; the host-driver detection contract is version-stable). DCGM
+  exporter is disabled in this lane so the test does not implicitly exercise the
+  driver-disabled path.
+- **Managed driver** (baseline + `tests/e2e/go/assets/gpu-operator-driver-values.yaml`
+  delta, Go scenario labelled `gpu-operator-driver`): `driver.enabled=true` with
+  the [mock-driver image](../../docs/mock-driver.md) substituted via
+  `driver.repository/image/version`. Exercises DaemonSet rendering, the
+  k8s-driver-manager init flow, the startup-probe → `.driver-ctr-ready`
+  handshake, and the validator's operator-managed branch. Pinned to the
+  operator version whose contract is vendored under `contract/` — a lifecycle
+  test, not driver functionality (DCGM/MIG/upgrades remain uncovered). DCGM
+  exporter is disabled here for the same reason as the hostDriver lane.
 
 ### DCGM / DCGM Exporter
-dcgm-exporter runs with its embedded nv-hostengine against the mock NVML:
+dcgm-exporter runs with its embedded nv-hostengine against the mock NVML, in
+the driver-disabled GPU Operator lane only. In the managed-driver and
+host-driver lanes DCGM exporter is disabled so the lane isolates the driver
+lifecycle under test.
+
 - **DEV telemetry** (`DCGM_FI_DEV_*`): temperature, power, clocks, utilization,
   memory, ECC, remapped rows, energy, Xid — via the standard NVML getters and
   `nvmlDeviceGetFieldValues`.

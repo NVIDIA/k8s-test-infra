@@ -12,6 +12,9 @@
 e2e.log
 tests/e2e/go/artifacts/
 
+# Local Go build/test cache (the README's focused-test recipes point GOCACHE here)
+.cache/
+
 pkg/network/*/libibmock*
 # Stray binaries from `go build ./cmd/...` at repo root
 /check-fabric
@@ -25,3 +28,8 @@ docs/superpowers/
 docs/magi/
 .worktrees/
 .spike-dcgm/
+
+# mock-driver stub kernel module build artifacts (built host-side for CI or
+# locally; generated header baked with the profile driver version)
+deployments/mock-driver/kmod/stub_version.h
+deployments/mock-driver/kmod/*.ko

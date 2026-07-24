@@ -736,3 +736,169 @@ tests:
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /run/nvidia-fabricmanager
+
+  # -- GPU Operator driver symlink / host driver masquerade -----------------
+  - it: should enable the GPU Operator driver symlink by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DRIVER_SYMLINK
+            value: "true"
+
+  - it: should disable the driver symlink for managed-driver mode
+    set:
+      gpuOperator:
+        driverSymlink:
+          enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DRIVER_SYMLINK
+            value: "false"
+
+  - it: should default the driver symlink to enabled when gpuOperator is absent
+    set:
+      gpuOperator: null
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DRIVER_SYMLINK
+            value: "true"
+
+  # values.schema.json catches non-map / non-bool inputs before the helpers
+  # even run; the helpers below are defense-in-depth for chart consumers who
+  # bypass the schema (helm --skip-schema-validation, upstream mergeOverwrite
+  # wrappers). Assert the schema-level path first, then keep helper-level
+  # regressions covered by the non-bool `.enabled` case.
+  - it: should reject a scalar driverSymlink at the schema level
+    set:
+      gpuOperator:
+        driverSymlink: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/gpuOperator/driverSymlink': got boolean, want object"
+
+  - it: should reject a string driverSymlink at the schema level
+    set:
+      gpuOperator:
+        driverSymlink: "nope"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/gpuOperator/driverSymlink': got string, want object"
+
+  - it: should reject a falsy gpuOperator at the schema level
+    set:
+      gpuOperator: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/gpuOperator': got boolean, want object"
+
+  - it: should reject a non-bool driverSymlink.enabled at the schema level
+    set:
+      gpuOperator:
+        driverSymlink:
+          enabled: "True"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/gpuOperator/driverSymlink/enabled': got string, want boolean"
+
+  - it: should disable the host driver masquerade by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HOST_DRIVER
+            value: "false"
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-root
+            mountPath: /hostroot
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-root
+            hostPath:
+              path: /
+
+  - it: should mount the host root when hostDriver is enabled
+    set:
+      hostDriver:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HOST_DRIVER
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-root
+            mountPath: /hostroot
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-root
+            hostPath:
+              path: /
+
+  - it: should reject a scalar hostDriver at the schema level
+    set:
+      hostDriver: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/hostDriver': got boolean, want object"
+
+  - it: should reject a string hostDriver at the schema level
+    set:
+      hostDriver: "yes"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/hostDriver': got string, want object"
+
+  - it: should reject a non-bool hostDriver.enabled at the schema level
+    set:
+      hostDriver:
+        enabled: "True"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/hostDriver/enabled': got string, want boolean"
+
+  - it: should keep the chart default termination grace when hostDriver is disabled
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 2
+
+  - it: should clamp termination grace up when hostDriver is enabled
+    set:
+      hostDriver:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 10
+
+  - it: should honor an explicit termination grace when hostDriver is enabled
+    set:
+      hostDriver:
+        enabled: true
+      terminationGracePeriodSeconds: 30
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 30
+
+  - it: should not clamp below the explicit termination grace for hostDriver
+    set:
+      hostDriver:
+        enabled: true
+      terminationGracePeriodSeconds: 15
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 15

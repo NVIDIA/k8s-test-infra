@@ -11,7 +11,7 @@
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -o pipefail -ec
 
-.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri
+.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-gpu-operator-driver e2e-gpu-operator-driver-kmod e2e-gpu-operator-hostdriver e2e-multi-node e2e-nri
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
@@ -146,7 +146,10 @@ cluster-delete:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri
+# Ginkgo label matching is exact set membership (NOT substring), so the
+# managed-driver / hostDriver lanes carry distinct labels and must each be
+# excluded from the default standalone sweep explicitly.
+E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !gpu-operator-driver && !gpu-operator-driver-kmod && !gpu-operator-hostdriver && !multi-node && !nri
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
 e2e:
@@ -157,6 +160,20 @@ e2e-dra:
 
 e2e-gpu-operator:
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=gpu-operator'
+
+# Managed mock-driver lifecycle (driver.enabled=true). Single fixed profile
+# (a100/2); the values overlays hardcode the profile on both sides.
+e2e-gpu-operator-driver:
+	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=gpu-operator-driver'
+
+# Managed driver + prebuilt stub kernel module (MOCK_KMOD=on). Separate cluster
+# from the kmod-off lane (the module is node-global).
+e2e-gpu-operator-driver-kmod:
+	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=gpu-operator-driver-kmod'
+
+# Host-driver masquerade (hostDriver.enabled=true) + uninstall-residue assert.
+e2e-gpu-operator-hostdriver:
+	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=gpu-operator-hostdriver'
 
 e2e-multi-node:
 	$(MAKE) e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter=multi-node'

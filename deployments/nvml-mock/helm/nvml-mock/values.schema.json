@@ -126,6 +126,29 @@
       }
     },
     "driverVersion": { "type": "string" },
+    "gpuOperator": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "GPU Operator interoperability toggles.",
+      "properties": {
+        "driverSymlink": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Manage the /run/nvidia/driver -> /var/lib/nvml-mock/driver symlink used by the operator validator's mock branch. Disable for operator-managed driver mode.",
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "hostDriver": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Host driver masquerade. When enabled, nvml-mock installs nvidia-smi and the mock libraries at the node's standard paths (/usr/bin, /usr/lib64 + ldconfig). MUTATES THE HOST — test nodes only. Never combine with an operator-managed driver DaemonSet.",
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },
     "resources": { "type": "object" },
