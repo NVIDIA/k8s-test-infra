@@ -17,21 +17,8 @@ FROM golang:${GOLANG_VERSION}-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY vendor/ vendor/
-COPY pkg/gpu/mocknvml/ pkg/gpu/mocknvml/
-COPY pkg/gpu/mockctl/ pkg/gpu/mockctl/
-COPY pkg/gpu/mockcuda/ pkg/gpu/mockcuda/
-COPY pkg/network/mockib/ pkg/network/mockib/
-COPY pkg/nri/ pkg/nri/
-COPY pkg/system/mockpcisysfs/ pkg/system/mockpcisysfs/
-COPY pkg/imexcoord/ pkg/imexcoord/
-COPY pkg/fmcoord/ pkg/fmcoord/
-COPY cmd/mock-ib/ cmd/mock-ib/
-COPY cmd/nvml-mock-nri/ cmd/nvml-mock-nri/
-COPY cmd/nvml-mock-ctl/ cmd/nvml-mock-ctl/
-COPY cmd/render-pci-sysfs/ cmd/render-pci-sysfs/
-COPY cmd/fake-imex/ cmd/fake-imex/
-COPY cmd/fake-fabricmanager/ cmd/fake-fabricmanager/
-COPY cmd/check-fabric/ cmd/check-fabric/
+COPY pkg/ pkg/
+COPY cmd/ cmd/
 RUN cd pkg/gpu/mocknvml && make clean && make
 RUN cd pkg/gpu/mockcuda && make clean && make
 RUN cd pkg/network/mockib && make clean && make
