@@ -347,9 +347,9 @@ fi
 mkdir -p /host/run/nvidia
 ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 
-# 8b. Pre-create the toolkit-ready marker that GPU Operator operand pods poll for.
-#     Six operand DaemonSets ship an unconditional `toolkit-validation` init
-#     container that loops on:
+# 8b. Deliberately NOT written here: /run/nvidia/validations/toolkit-ready.
+#     Six GPU Operator operand DaemonSets ship an unconditional
+#     `toolkit-validation` init container that loops on:
 #       until [ -f /run/nvidia/validations/toolkit-ready ]; do sleep 5; done
 #     (gpu-operator v26.3.0: assets/state-device-plugin/0500_daemonset.yaml:29,31;
 #     gpu-feature-discovery/0500_daemonset.yaml:29,32;
@@ -357,20 +357,25 @@ ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 #     state-mps-control-daemon/0400_daemonset.yaml:31,33;
 #     state-mig-manager/0600_daemonset.yaml:28,31.)
 #
-#     The marker's real writer is NOT nvidia-container-toolkit. It is GPU
-#     Operator's own nvidia-validator, running as the operator-validator
-#     DaemonSet's `toolkit-validation` init container with COMPONENT=toolkit
-#     (assets/state-operator-validation/0500_daemonset.yaml:59-69). That
+#     That gate is real, but nvml-mock is not its satisfier and must not
+#     pre-empt it. The marker's writer is GPU Operator's own nvidia-validator,
+#     running as the operator-validator DaemonSet's `toolkit-validation` init
+#     container with COMPONENT=toolkit
+#     (assets/state-operator-validation/0500_daemonset.yaml:59-69); that
 #     DaemonSet is deployed unconditionally. Toolkit.validate() DELETES the
-#     marker (cmd/nvidia-validator/main.go:1134), runs nvidia-smi, and re-creates
-#     it only on success (main.go:1153); the validator's preStop hook then
-#     removes every *-ready file on shutdown (0500_daemonset.yaml:133-136).
+#     marker (cmd/nvidia-validator/main.go:1134), runs nvidia-smi against our
+#     mock driver, and re-creates it only on success (main.go:1153).
 #
-#     So the write below is not durable and validates nothing. Its only effect is
-#     to let operands clear the gate before that check has run — read a green
-#     operand as "scheduled", never as "toolkit validated". See #504.
-mkdir -p /host/run/nvidia/validations
-touch /host/run/nvidia/validations/toolkit-ready
+#     Writing it here was never durable — the validator deletes it on every run
+#     and its preStop hook removes every *-ready file on shutdown
+#     (0500_daemonset.yaml:133-136) — and it let operands clear the gate before
+#     any toolkit check had run, turning an ordering barrier into a no-op and
+#     making a green operand look like a validated one. See #504.
+#
+#     The directory needs no mkdir either: every DaemonSet that mounts it
+#     declares hostPath type DirectoryOrCreate
+#     (0500_daemonset.yaml:142-145, state-device-plugin/0500_daemonset.yaml:146-149)
+#     and the validator itself does os.Mkdir on the status dir (main.go:524).
 
 # 9. InfiniBand: render sysfs via mock-ib; optionally run UMAD/fabric daemon.
 #    MOCK_IB selects the mock tier (case-insensitive):

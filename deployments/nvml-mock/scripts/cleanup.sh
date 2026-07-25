@@ -13,8 +13,11 @@ if [ -L "/host/run/nvidia/driver" ]; then
   rm -f "/host/run/nvidia/driver"
   echo "GPU Operator driver symlink removed"
 fi
-# Remove GPU Operator toolkit-ready marker (counterpart to setup.sh:8b)
-rm -f "/host/run/nvidia/validations/toolkit-ready"
+# NOTE: /run/nvidia/validations/toolkit-ready is deliberately NOT removed here.
+# setup.sh no longer creates it (see setup.sh step 8b); its owner is GPU
+# Operator's nvidia-validator. This hook is nvml-mock's preStop, so removing the
+# marker would delete another component's state on every nvml-mock restart and
+# re-arm the operand gate with nothing scheduled to re-satisfy it.
 # Remove CDI spec
 CDI_FILE="/host/var/run/cdi/nvidia.yaml"
 if [ -f "$CDI_FILE" ]; then
