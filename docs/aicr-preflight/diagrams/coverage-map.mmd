@@ -1,0 +1,17 @@
+%% AICR check coverage under Mokka. 21 checks, run 2026-07-25, provenance sim.
+%% Counts MUST match tests/aicr-preflight/catalog.yaml and the generated report.
+flowchart TB
+  T["AICR validate catalog: 21 checks"]
+
+  T --> A["<b>Bucket A, meaningful pre-silicon: 14</b><br/>9 GPU-dependent (Mokka unlocks these)<br/>5 GPU-independent (any cluster runs these)"]
+  T --> B["<b>Bucket B, trivial against the mock: 0</b><br/>AICR checks are integration assertions,<br/>not value assertions"]
+  T --> G["<b>Bucket G, closable gap: 3</b><br/>#498 dra-support, slinky-slurm-imex-channel<br/>#499 cluster-autoscaling"]
+  T --> C["<b>Bucket C, hardware-dependent: 4</b><br/>nccl-all-reduce-bw / -net / -nvls<br/>inference-perf (TTFT)"]
+
+  A --> TODAY["TODAY: 14/21 = 66.7%<br/>Mokka-specific: 9/21 = 42.9%"]
+  G --> REACH["REACHABLE once gaps close:<br/>(14+3)/21 = 81.0%<br/>roadmap, NOT a current claim"]
+
+  C --> GATE["<b>FINAL GATE BOUNDARY</b><br/>AICR validation on real silicon.<br/>No gap closure ever reaches these."]
+
+  E["Executed in this run: 9 of 21, giving 6 pass, 3 fail.<br/>12 not run: their buckets are analysis, not observation."]
+  T -.- E

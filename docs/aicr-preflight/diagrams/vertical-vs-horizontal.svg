@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 430" width="720" height="430" role="img" aria-label="KWOK provides horizontal node-count breadth, Mokka provides vertical GPU-stack depth. They are orthogonal and compose. Fidelity at KWOK scale is unproven.">
+  <title>Vertical versus horizontal: Mokka and KWOK are orthogonal axes</title>
+  <style>
+    .t   { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .hd  { font-size: 15px; font-weight: 600; fill: #1f2328; }
+    .lb  { font-size: 12.5px; fill: #1f2328; }
+    .cap { font-size: 11.5px; fill: #57606a; }
+    .ax  { stroke: #57606a; stroke-width: 2; fill: none; }
+    .box { fill: #ffffff; stroke: #57606a; stroke-width: 1.5; }
+    .vbox { fill: #f6f8fa; stroke: #57606a; stroke-width: 2.5; }
+    .warn { fill: #fff8e6; stroke: #9a6700; stroke-width: 2; }
+    .warntx { fill: #7d4e00; font-size: 11.5px; }
+    @media (prefers-color-scheme: dark) {
+      .hd, .lb { fill: #e6edf3; }
+      .cap { fill: #9198a1; }
+      .ax { stroke: #8b949e; }
+      .box { fill: #161b22; stroke: #8b949e; }
+      .vbox { fill: #21262d; stroke: #8b949e; }
+      .warn { fill: #2b2411; stroke: #d29922; }
+      .warntx { fill: #e3b341; }
+    }
+  </style>
+  <g class="t">
+    <text x="16" y="24" class="hd">Orthogonal axes, not competitors</text>
+    <text x="16" y="42" class="cap">Combine them. Do not pick one.</text>
+
+    <path d="M70 330 L680 330" class="ax" marker-end="url(#b)"/>
+    <path d="M70 330 L70 62" class="ax" marker-end="url(#b)"/>
+    <text x="360" y="352" class="lb" text-anchor="middle" font-weight="600">HORIZONTAL: node count (KWOK)</text>
+    <text x="26" y="200" class="lb" font-weight="600" transform="rotate(-90 26 200)" text-anchor="middle">VERTICAL: stack depth (Mokka)</text>
+
+    <rect x="92" y="238" width="228" height="80" rx="6" class="box"/>
+    <text x="104" y="258" class="lb" font-weight="600">KWOK</text>
+    <text x="104" y="276" class="cap">hollow nodes, no kubelet</text>
+    <text x="104" y="292" class="cap">control-plane scale, very cheap</text>
+    <text x="104" y="308" class="cap">blind spot: no GPU stack exists</text>
+
+    <rect x="92" y="86" width="228" height="86" rx="6" class="vbox"/>
+    <text x="104" y="106" class="lb" font-weight="600">Mokka Sim</text>
+    <text x="104" y="124" class="cap">real kubelet on real CPU nodes</text>
+    <text x="104" y="140" class="cap">GPU Operator, DRA, NVML, DCGM run</text>
+    <text x="104" y="156" class="cap">blind spot: costliest way to add nodes</text>
+
+    <rect x="366" y="150" width="300" height="76" rx="6" class="box"/>
+    <text x="378" y="170" class="lb" font-weight="600">Run:ai fake-gpu-operator: combines both</text>
+    <text x="378" y="189" class="cap">selects a backend per nodepool.</text>
+    <text x="378" y="205" class="cap">fake = KWOK-compatible · mock = Mokka on real nodes</text>
+    <text x="378" y="220" class="cap">External adoption of this chart, merged upstream.</text>
+
+    <rect x="366" y="240" width="300" height="78" rx="6" class="warn"/>
+    <text x="378" y="260" class="lb" font-weight="600">UNPROVEN: fidelity AT scale</text>
+    <text x="378" y="279" class="warntx">Mokka cannot run on KWOK nodes. It replaces a</text>
+    <text x="378" y="295" class="warntx">host library and needs a real kubelet.</text>
+    <text x="378" y="311" class="warntx">This POC ran on 1 node. Do not assert otherwise.</text>
+  </g>
+  <defs>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+</svg>

@@ -1,0 +1,27 @@
+I0725 07:17:03.032044       1 utils.go:43] 
+Feature gates: map[string]bool{"AllAlpha":false, "AllBeta":false, "ComputeDomainCliques":true, "ContextualLogging":true, "CrashOnNVLinkFabricErrors":true, "DynamicMIG":false, "IMEXDaemonsWithDNSNames":true, "LoggingAlphaOptions":false, "LoggingBetaOptions":true, "MPSSupport":false, "NVMLDeviceHealthCheck":false, "PassthroughSupport":false, "TimeSlicingSettings":false}
+Flags: (*main.Flags)({
+  kubeClientConfig: (flags.KubeClientConfig) {
+    KubeConfig: (string) "",
+    KubeAPIQPS: (float64) 5,
+    KubeAPIBurst: (int) 10
+  },
+  nodeName: (string) (len=26) "nvml-mock-op-control-plane",
+  namespace: (string) (len=17) "nvidia-dra-driver",
+  cdiRoot: (string) (len=12) "/var/run/cdi",
+  containerDriverRoot: (string) (len=12) "/driver-root",
+  hostDriverRoot: (string) (len=25) "/var/lib/nvml-mock/driver",
+  nvidiaCDIHookPath: (string) "",
+  kubeletRegistrarDirectoryPath: (string) (len=33) "/var/lib/kubelet/plugins_registry",
+  kubeletPluginsDirectoryPath: (string) (len=24) "/var/lib/kubelet/plugins",
+  healthcheckPort: (int) 51515,
+  klogVerbosity: (int) 4
+})
+I0725 07:17:03.032465       1 envvar.go:172] "Feature gate default state" feature="InformerResourceVersion" enabled=false
+I0725 07:17:03.032477       1 envvar.go:172] "Feature gate default state" feature="WatchListClient" enabled=false
+I0725 07:17:03.032479       1 envvar.go:172] "Feature gate default state" feature="ClientsAllowCBOR" enabled=false
+I0725 07:17:03.032480       1 envvar.go:172] "Feature gate default state" feature="ClientsPreferCBOR" enabled=false
+I0725 07:17:03.032484       1 envvar.go:172] "Feature gate default state" feature="InOrderInformers" enabled=true
+I0725 07:17:03.032857       1 util.go:69] Started debug signal handler(s)
+I0725 07:17:03.046012       1 main.go:194] shutdown
+Error: error creating driver: failed to create device library: error getting nvcap for IMEX channel '0': error getting device major: error parsing '/proc/devices': unexpected regex match: []

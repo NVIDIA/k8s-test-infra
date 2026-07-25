@@ -1,0 +1,26 @@
+%% KWOK and Mokka are orthogonal axes, not competitors.
+%% KWOK = horizontal (node-count breadth). Mokka = vertical (GPU-stack depth).
+%% Run:ai's fake-gpu-operator combines both per nodepool.
+flowchart LR
+  subgraph H["KWOK, HORIZONTAL: node-count breadth"]
+    H1["hollow nodes, no kubelet"]
+    H2["API and control-plane scale"]
+    H3["very cheap per node"]
+    H4["blind spot: no GPU stack exists"]
+  end
+
+  subgraph V["Mokka Sim, VERTICAL: GPU-stack depth"]
+    V1["real kubelet on real CPU nodes"]
+    V2["GPU Operator, DRA, NVML, DCGM all run"]
+    V3["one CPU node per simulated GPU node"]
+    V4["blind spot: not the cheapest way to add node count"]
+  end
+
+  H -.->|"orthogonal, they compose"| V
+
+  C["Run:ai fake-gpu-operator<br/>selects backend per nodepool:<br/>fake (KWOK-compatible) or mock (Mokka)"]
+  H --> C
+  V --> C
+
+  N["UNPROVEN: GPU-stack fidelity AT KWOK scale.<br/>Mokka cannot run on KWOK nodes: it replaces a<br/>host library and needs a real kubelet."]
+  C -.- N

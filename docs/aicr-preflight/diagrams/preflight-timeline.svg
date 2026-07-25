@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400" role="img" aria-label="Two tracks over the procurement window. Without preflight, engineers are idle then integration failures consume silicon time. With preflight, integration failures are found pre-silicon so silicon time goes to hardware-dependent validation. AICR on silicon remains the final gate.">
+  <title>Preflight timeline: where integration failures get found</title>
+  <style>
+    .t   { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .hd  { font-size: 15px; font-weight: 600; fill: #1f2328; }
+    .lb  { font-size: 12px; fill: #1f2328; }
+    .sm  { font-size: 10.5px; fill: #1f2328; }
+    .cap { font-size: 11px; fill: #57606a; }
+    .idle { fill: #ffffff; stroke: #57606a; stroke-width: 1.5; stroke-dasharray: 6 4; }
+    .work { fill: #f6f8fa; stroke: #57606a; stroke-width: 1.5; }
+    .bad  { fill: #ffebe9; stroke: #cf222e; stroke-width: 2; }
+    .badtx{ fill: #a40e26; }
+    .gate { fill: #ddf4ff; stroke: #0969da; stroke-width: 2.5; }
+    .gatetx { fill: #0a3069; }
+    .line { stroke: #57606a; stroke-width: 1.5; stroke-dasharray: 3 3; }
+    .note { fill: #ffffff; stroke: #57606a; stroke-width: 1; }
+    @media (prefers-color-scheme: dark) {
+      .hd, .lb, .sm { fill: #e6edf3; }
+      .cap { fill: #9198a1; }
+      .idle { fill: #161b22; stroke: #8b949e; }
+      .work { fill: #21262d; stroke: #8b949e; }
+      .bad  { fill: #3c1618; stroke: #f85149; }
+      .badtx{ fill: #ff9492; }
+      .gate { fill: #121d2f; stroke: #58a6ff; }
+      .gatetx { fill: #79c0ff; }
+      .line { stroke: #8b949e; }
+      .note { fill: #161b22; stroke: #8b949e; }
+    }
+  </style>
+  <g class="t">
+    <text x="16" y="22" class="hd">Where integration failures get found</text>
+
+    <line x1="404" y1="40" x2="404" y2="290" class="line"/>
+    <text x="404" y="54" class="cap" text-anchor="middle">silicon arrives</text>
+
+    <text x="16" y="86" class="lb" font-weight="600">WITHOUT preflight</text>
+    <rect x="16" y="96" width="384" height="52" rx="5" class="idle"/>
+    <text x="28" y="118" class="sm" font-weight="600">~3 months procurement</text>
+    <text x="28" y="136" class="cap">engineers idle, nothing to integrate against</text>
+
+    <rect x="408" y="96" width="184" height="52" rx="5" class="bad"/>
+    <text x="418" y="115" class="sm badtx" font-weight="600">integration failures</text>
+    <text x="418" y="130" class="sm badtx">prereq ordering, version skew,</text>
+    <text x="418" y="143" class="sm badtx">advertisement, lib resolution</text>
+
+    <rect x="596" y="96" width="150" height="52" rx="5" class="gate"/>
+    <text x="606" y="115" class="sm gatetx" font-weight="600">hardware-dependent</text>
+    <text x="606" y="130" class="sm gatetx">CUDA, firmware,</text>
+    <text x="606" y="143" class="sm gatetx">NCCL/NVLink, TTFT</text>
+
+    <text x="16" y="196" class="lb" font-weight="600">WITH preflight</text>
+    <rect x="16" y="206" width="384" height="60" rx="5" class="work"/>
+    <text x="28" y="226" class="sm" font-weight="600">~3 months procurement: PREFLIGHT on Mokka</text>
+    <text x="28" y="243" class="cap">AICR runs unmodified on simulated GPU nodes.</text>
+    <text x="28" y="258" class="cap">Integration failures found and fixed here.</text>
+
+    <rect x="408" y="206" width="338" height="60" rx="5" class="gate"/>
+    <text x="418" y="226" class="sm gatetx" font-weight="600">hardware-dependent validation only</text>
+    <text x="418" y="243" class="sm gatetx">CUDA, firmware and driver, NCCL / NVLink / NVLS, TTFT</text>
+    <text x="418" y="258" class="sm gatetx" font-weight="600">AICR on silicon = FINAL READINESS GATE</text>
+
+    <rect x="16" y="286" width="730" height="98" rx="5" class="note"/>
+    <text x="28" y="306" class="lb" font-weight="600">What the evidence actually shows (2026-07-25, provenance: sim)</text>
+    <text x="28" y="325" class="cap">2 of 4 real hardware-encountered failures would have been caught pre-silicon.</text>
+    <text x="28" y="341" class="cap">2 missed: kernel and driver state, and cloud credential lifetime. Neither is a closable gap.</text>
+    <text x="28" y="357" class="cap">Proxy set is cloud GB200, n=4, NOT a DSX-OS NVL72 rack bring-up. Too small to generalize.</text>
+    <text x="28" y="373" class="cap" font-weight="600">Time saved per bring-up is NOT YET QUANTIFIED. No "day one first token" claim is made.</text>
+  </g>
+</svg>

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 420" width="760" height="420" role="img" aria-label="Coverage map of 21 AICR checks: 14 bucket A meaningful pre-silicon of which 9 are GPU-dependent, 0 bucket B, 3 bucket G closable gaps, 4 bucket C hardware-dependent behind the final gate boundary.">
+  <title>AICR check coverage under Mokka: 21 checks</title>
+  <style>
+    .t   { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .hd  { font-size: 15px; font-weight: 600; fill: #1f2328; }
+    .lb  { font-size: 12.5px; fill: #1f2328; }
+    .sm  { font-size: 11px; fill: #1f2328; }
+    .cap { font-size: 11px; fill: #57606a; }
+    .bA  { fill: #ffffff; stroke: #1a7f37; stroke-width: 2.5; }
+    .bB  { fill: #ffffff; stroke: #57606a; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .bG  { fill: #fff8e6; stroke: #9a6700; stroke-width: 2.5; }
+    .bC  { fill: #ffebe9; stroke: #cf222e; stroke-width: 2.5; }
+    .txA { fill: #0f5323; } .txG { fill: #7d4e00; } .txC { fill: #a40e26; }
+    .note { fill: #f6f8fa; stroke: #57606a; stroke-width: 1; }
+    .gate { stroke: #cf222e; stroke-width: 2.5; stroke-dasharray: 8 5; }
+    @media (prefers-color-scheme: dark) {
+      .hd, .lb, .sm { fill: #e6edf3; }
+      .cap { fill: #9198a1; }
+      .bA { fill: #161b22; stroke: #3fb950; }
+      .bB { fill: #161b22; stroke: #8b949e; }
+      .bG { fill: #2b2411; stroke: #d29922; }
+      .bC { fill: #3c1618; stroke: #f85149; }
+      .txA { fill: #7ee787; } .txG { fill: #e3b341; } .txC { fill: #ff9492; }
+      .note { fill: #21262d; stroke: #8b949e; }
+      .gate { stroke: #f85149; }
+    }
+  </style>
+  <g class="t">
+    <text x="16" y="22" class="hd">AICR check coverage under Mokka: 21 checks</text>
+    <text x="16" y="40" class="cap">Run 2026-07-25 · provenance: sim · counts match tests/aicr-preflight/catalog.yaml</text>
+
+    <rect x="16" y="56" width="352" height="96" rx="6" class="bA"/>
+    <text x="30" y="78" class="lb txA" font-weight="600">Bucket A, meaningful pre-silicon: 14 of 21</text>
+    <text x="30" y="99" class="sm">9 GPU-dependent, which is what Mokka unlocks</text>
+    <text x="30" y="117" class="sm">5 GPU-independent, which any cluster would run</text>
+    <text x="30" y="140" class="cap">operator-health · check-nvidia-smi · accelerator-metrics · gpu-operator-health · …</text>
+
+    <rect x="16" y="164" width="352" height="62" rx="6" class="bB"/>
+    <text x="30" y="186" class="lb" font-weight="600">Bucket B, trivial against the mock: 0</text>
+    <text x="30" y="206" class="cap">AICR checks are integration assertions, not value assertions,</text>
+    <text x="30" y="220" class="cap">so none is green purely because the mock answered.</text>
+
+    <rect x="16" y="238" width="352" height="76" rx="6" class="bG"/>
+    <text x="30" y="260" class="lb txG" font-weight="600">Bucket G, closable gap: 3</text>
+    <text x="30" y="280" class="sm">#498 dra-support, slinky-slurm-imex-channel</text>
+    <text x="30" y="297" class="sm">#499 cluster-autoscaling</text>
+
+    <line x1="392" y1="56" x2="392" y2="400" class="gate"/>
+    <text x="400" y="72" class="cap txC" font-weight="600">FINAL GATE BOUNDARY</text>
+
+    <rect x="408" y="86" width="338" height="112" rx="6" class="bC"/>
+    <text x="422" y="108" class="lb txC" font-weight="600">Bucket C, hardware-dependent: 4</text>
+    <text x="422" y="130" class="sm txC">nccl-all-reduce-bw</text>
+    <text x="422" y="147" class="sm txC">nccl-all-reduce-bw-net</text>
+    <text x="422" y="164" class="sm txC">nccl-all-reduce-bw-nvls</text>
+    <text x="422" y="181" class="sm txC">inference-perf (CUDA, TTFT, throughput)</text>
+
+    <rect x="408" y="212" width="338" height="52" rx="6" class="note"/>
+    <text x="422" y="233" class="lb" font-weight="600">AICR validation on real silicon</text>
+    <text x="422" y="252" class="cap">No gap closure ever reaches these. This is why the gate stays.</text>
+
+    <rect x="16" y="330" width="730" height="72" rx="6" class="note"/>
+    <text x="30" y="352" class="lb" font-weight="600">TODAY 66.7% (14/21) · Mokka-specific 42.9% (9/21) · REACHABLE 81.0% (17/21)</text>
+    <text x="30" y="372" class="cap">Reachable is the roadmap number once #498 and #499 close. It is never the current number.</text>
+    <text x="30" y="390" class="cap">Executed in this run: 9 of 21, 6 pass and 3 fail. The other 12 are analysis, not observation.</text>
+  </g>
+</svg>

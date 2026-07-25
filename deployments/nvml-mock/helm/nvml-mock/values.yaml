@@ -166,6 +166,38 @@ imex:
   enabled: false
   stateDir: /var/lib/nvml-mock/imex-state
 
+  # Mock IMEX capability surface for the NVIDIA DRA driver's compute-domain
+  # kubelet plugin. That plugin reads a device major for
+  # nvidia-caps-imex-channels out of /proc/devices at startup; on a mock node
+  # there is no NVIDIA kernel module, so the entry is absent and the plugin
+  # aborts with "error parsing '/proc/devices': unexpected regex match: []".
+  #
+  # When enabled, the DaemonSet renders:
+  #   <hostPath>/imex/proc-devices                       substitute /proc/devices
+  #   <driverRoot>/proc/driver/nvidia/capabilities/...   fabric-imex-mgmt
+  #   <driverRoot>/dev/nvidia-caps-imex-channels/channelN  channel device nodes
+  #
+  # Pair it with the DRA driver, on a release that supports altProcDevices:
+  #   --set altProcDevices=/var/lib/nvml-mock/imex/proc-devices
+  #   --set resources.computeDomains.enabled=true
+  #
+  # NOTE: as of 2026-07-25 altProcDevices is on the DRA driver's main branch
+  # but is NOT in any release (absent at v25.12.0), so enabling this alone does
+  # not yet make ComputeDomains work with released artifacts. See
+  # NVIDIA/k8s-test-infra#498.
+  #
+  # Off by default: it creates channelCount device nodes per node.
+  mockChannels:
+    enabled: false
+    # Number of channel device nodes. 2048 matches getImexChannelCount() in the
+    # DRA driver's compute-domain kubelet plugin.
+    channelCount: 2048
+    # Device majors advertised in the rendered proc-devices file. Defaults match
+    # the DRA driver's own CI fixtures. They must differ from each other and
+    # must not collide with a major already present on the node.
+    channelMajor: 235
+    capsMajor: 236
+
 # Fake nvidia-fabricmanager. NVSwitch platforms (HGX H100 / GB200 / GB300)
 # run nvidia-fabricmanager to register GPUs with the NVSwitch fabric. When
 # enabled the entrypoint starts the fake nvidia-fabricmanager daemon (baked

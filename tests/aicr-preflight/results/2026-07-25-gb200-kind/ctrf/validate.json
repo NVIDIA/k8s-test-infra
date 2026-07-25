@@ -1,0 +1,277 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.0.1",
+  "timestamp": "2026-07-25T09:09:14Z",
+  "generatedBy": "aicr",
+  "results": {
+    "tool": {
+      "name": "aicr",
+      "version": "dev"
+    },
+    "summary": {
+      "tests": 9,
+      "passed": 6,
+      "failed": 3,
+      "skipped": 0,
+      "pending": 0,
+      "other": 0,
+      "start": 1784970417469,
+      "stop": 1784970571839
+    },
+    "tests": [
+      {
+        "name": "operator-health",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "deployment"
+        ],
+        "stdout": [
+          "time=2026-07-25T09:06:58.458Z level=INFO msg=\"starting check\" name=operator-health",
+          "time=2026-07-25T09:06:58.464Z level=INFO msg=\"listing pods\" namespace=gpu-operator label=\"app=gpu-operator\"",
+          "Found 1 gpu-operator pod(s):",
+          "  gpu-operator-57d75775c8-strvb: Running",
+          "Running: 1/1",
+          "time=2026-07-25T09:06:58.468Z level=INFO msg=\"operator-health: passed\" running=1"
+        ]
+      },
+      {
+        "name": "expected-resources",
+        "status": "failed",
+        "duration": 120000,
+        "suite": [
+          "deployment"
+        ],
+        "message": "[NOT_FOUND] Deployment agentgateway-system/agentgateway not found: deployments.apps \"agentgateway\" not found",
+        "stdout": [
+          "time=2026-07-25T09:07:01.496Z level=INFO msg=\"starting check\" name=expected-resources",
+          "  Namespace cert-manager: Active",
+          "  Namespace gpu-operator: Active",
+          "  Namespace monitoring: Active",
+          "  Namespace node-feature-discovery: Active",
+          "  Namespace nvidia-dra-driver: Active",
+          "  DaemonSet nvidia-dra-driver/nvidia-dra-driver-gpu-kubelet-plugin: healthy (stable ≥1m0s)",
+          "time=2026-07-25T09:08:01.557Z level=INFO msg=\"running health check assertions\" components=14",
+          "time=2026-07-25T09:08:01.593Z level=INFO msg=\"health check passed\" component=gpu-operator",
+          "time=2026-07-25T09:08:01.596Z level=INFO msg=\"health check passed\" component=cert-manager",
+          "time=2026-07-25T09:08:31.561Z level=WARN msg=\"health check failed\" component=agentgateway step=validate-deployment-exists error=\"[NOT_FOUND] Deployment agentgateway-system/agentgateway not found: deployments.apps \\\"agentgateway\\\" not found\"",
+          "time=2026-07-25T09:08:31.561Z level=WARN msg=\"health check failed\" component=agentgateway-crds step=validate-gateway-api-crds-established error=\"[NOT_FOUND] CustomResourceDefinition /gatewayclasses.gateway.networking.k8s.io not found: customresourcedefinitions.apiextensions.k8s.io \\\"gatewayclasses.gateway.networking.k8s.io\\\" not found\"",
+          "time=2026-07-25T09:08:31.596Z level=WARN msg=\"health check failed\" component=k8s-ephemeral-storage-metrics step=validate-deployment-exists error=\"[NOT_FOUND] Deployment monitoring/k8s-ephemeral-storage-metrics not found: deployments.apps \\\"k8s-ephemeral-storage-metrics\\\" not found\"",
+          "time=2026-07-25T09:08:31.596Z level=WARN msg=\"health check failed\" component=kai-scheduler step=validate-deployment-exists error=\"[NOT_FOUND] Deployment kai-scheduler/kai-operator not found: deployments.apps \\\"kai-operator\\\" not found\"",
+          "time=2026-07-25T09:08:31.608Z level=INFO msg=\"health check passed\" component=nfd",
+          "time=2026-07-25T09:08:31.615Z level=INFO msg=\"health check passed\" component=nvidia-dra-driver-gpu",
+          "time=2026-07-25T09:09:01.567Z level=WARN msg=\"health check failed\" component=kube-prometheus-stack step=validate-deployment-exists error=\"[NOT_FOUND] Deployment monitoring/kube-prometheus-operator not found: deployments.apps \\\"kube-prometheus-operator\\\" not found\"",
+          "time=2026-07-25T09:09:01.567Z level=WARN msg=\"health check failed\" component=network-operator step=validate-deployment-exists error=\"[NOT_FOUND] Deployment nvidia-network-operator/network-operator not found: deployments.apps \\\"network-operator\\\" not found\"",
+          "time=2026-07-25T09:09:01.576Z level=INFO msg=\"health check passed\" component=prometheus-adapter",
+          "time=2026-07-25T09:09:01.598Z level=WARN msg=\"health check failed\" component=nodewright-operator step=validate-skyhook-crd-established error=\"[NOT_FOUND] CustomResourceDefinition /skyhooks.skyhook.nvidia.com not found: customresourcedefinitions.apiextensions.k8s.io \\\"skyhooks.skyhook.nvidia.com\\\" not found\"",
+          "time=2026-07-25T09:09:01.617Z level=WARN msg=\"health check failed\" component=nvsentinel step=validate-deployment-exists error=\"[NOT_FOUND] Deployment nvsentinel/labeler not found: deployments.apps \\\"labeler\\\" not found\"",
+          "  [chainsaw] cert-manager: health check passed",
+          "  [chainsaw] gpu-operator: health check passed",
+          "  [chainsaw] nfd: health check passed",
+          "  [chainsaw] nvidia-dra-driver-gpu: health check passed",
+          "  [chainsaw] prometheus-adapter: health check passed",
+          "  [chainsaw] prometheus-operator-crds: health check passed",
+          "Failed resources:",
+          "  namespace agentgateway-system: namespaces \"agentgateway-system\" not found",
+          "  namespace kai-scheduler: namespaces \"kai-scheduler\" not found",
+          "  namespace nvidia-network-operator: namespaces \"nvidia-network-operator\" not found",
+          "  namespace skyhook: namespaces \"skyhook\" not found",
+          "  namespace nvsentinel: namespaces \"nvsentinel\" not found",
+          "  [chainsaw] agentgateway: health check failed:",
+          "[NOT_FOUND] Deployment agentgateway-system/agentgateway not found: deployments.apps \"agentgateway\" not found",
+          "error: [NOT_FOUND] Deployment agentgateway-system/agentgateway not found: deployments.apps \"agentgateway\" not found",
+          "  [chainsaw] agentgateway-crds: health check failed:",
+          "[NOT_FOUND] CustomResourceDefinition /gatewayclasses.gateway.networking.k8s.io not found: customresourcedefinitions.apiextensions.k8s.io \"gatewayclasses.gateway.networking.k8s.io\" not found",
+          "error: [NOT_FOUND] CustomResourceDefinition /gatewayclasses.gateway.networking.k8s.io not found: customresourcedefinitions.apiextensions.k8s.io \"gatewayclasses.gateway.networking.k8s.io\" not found",
+          "  [chainsaw] k8s-ephemeral-storage-metrics: health check failed:",
+          "[NOT_FOUND] Deployment monitoring/k8s-ephemeral-storage-metrics not found: deployments.apps \"k8s-ephemeral-storage-metrics\" not found",
+          "error: [NOT_FOUND] Deployment monitoring/k8s-ephemeral-storage-metrics not found: deployments.apps \"k8s-ephemeral-storage-metrics\" not found",
+          "  [chainsaw] kai-scheduler: health check failed:",
+          "[NOT_FOUND] Deployment kai-scheduler/kai-operator not found: deployments.apps \"kai-operator\" not found",
+          "error: [NOT_FOUND] Deployment kai-scheduler/kai-operator not found: deployments.apps \"kai-operator\" not found",
+          "  [chainsaw] kube-prometheus-stack: health check failed:",
+          "[NOT_FOUND] Deployment monitoring/kube-prometheus-operator not found: deployments.apps \"kube-prometheus-operator\" not found",
+          "error: [NOT_FOUND] Deployment monitoring/kube-prometheus-operator not found: deployments.apps \"kube-prometheus-operator\" not found",
+          "  [chainsaw] network-operator: health check failed:",
+          "[NOT_FOUND] Deployment nvidia-network-operator/network-operator not found: deployments.apps \"network-operator\" not found",
+          "error: [NOT_FOUND] Deployment nvidia-network-operator/network-operator not found: deployments.apps \"network-operator\" not found",
+          "  [chainsaw] nodewright-operator: health check failed:",
+          "[NOT_FOUND] CustomResourceDefinition /skyhooks.skyhook.nvidia.com not found: customresourcedefinitions.apiextensions.k8s.io \"skyhooks.skyhook.nvidia.com\" not found",
+          "error: [NOT_FOUND] CustomResourceDefinition /skyhooks.skyhook.nvidia.com not found: customresourcedefinitions.apiextensions.k8s.io \"skyhooks.skyhook.nvidia.com\" not found",
+          "  [chainsaw] nvsentinel: health check failed:",
+          "[NOT_FOUND] Deployment nvsentinel/labeler not found: deployments.apps \"labeler\" not found",
+          "error: [NOT_FOUND] Deployment nvsentinel/labeler not found: deployments.apps \"labeler\" not found",
+          "time=2026-07-25T09:09:01.658Z level=INFO msg=\"health check passed\" component=prometheus-operator-crds",
+          "time=2026-07-25T09:09:01.658Z level=ERROR msg=FAIL message=\"[NOT_FOUND] Deployment agentgateway-system/agentgateway not found: deployments.apps \\\"agentgateway\\\" not found\""
+        ]
+      },
+      {
+        "name": "gpu-operator-version",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "deployment"
+        ],
+        "stdout": [
+          "time=2026-07-25T09:09:05.728Z level=INFO msg=\"starting check\" name=gpu-operator-version",
+          "Detected GPU Operator version: v26.3.3",
+          "Constraint: \u003e= v25.10.0 → true"
+        ]
+      },
+      {
+        "name": "check-nvidia-smi",
+        "status": "passed",
+        "duration": 2000,
+        "suite": [
+          "deployment"
+        ],
+        "stdout": [
+          "time=2026-07-25T09:09:09.785Z level=INFO msg=\"starting check\" name=check-nvidia-smi",
+          "Found 1 GPU node(s):",
+          "  nvml-mock-op-control-plane",
+          "All 1 GPU node(s) available. Verifying...",
+          "time=2026-07-25T09:09:09.796Z level=INFO msg=\"verifying node\" node=nvml-mock-op-control-plane",
+          "time=2026-07-25T09:09:09.796Z level=INFO msg=\"deploying nvidia-smi verify pod\" node=nvml-mock-op-control-plane podName=nvidia-smi-verify-nvml-mock-op-control-plane image=nvcr.io/nvidia/cuda:13.0.0-base-ubuntu22.04 namespace=aicr-validation",
+          "time=2026-07-25T09:09:09.799Z level=INFO msg=\"waiting for pod to reach Succeeded state\" name=nvidia-smi-verify-nvml-mock-op-control-plane",
+          "time=2026-07-25T09:09:09.958Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-nvml-mock-op-control-plane status=Pending waitingReason=ContainerCreating",
+          "time=2026-07-25T09:09:10.323Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-nvml-mock-op-control-plane status=Pending waitingReason=ContainerCreating",
+          "time=2026-07-25T09:09:10.388Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-nvml-mock-op-control-plane status=Running",
+          "time=2026-07-25T09:09:10.676Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-nvml-mock-op-control-plane status=Running",
+          "time=2026-07-25T09:09:11.743Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-nvml-mock-op-control-plane status=Succeeded",
+          "time=2026-07-25T09:09:11.743Z level=INFO msg=\"pod successfully completed\" name=nvidia-smi-verify-nvml-mock-op-control-plane",
+          "  nvml-mock-op-control-plane: OK",
+          "Successfully verified GPU on all 1 nodes"
+        ]
+      },
+      {
+        "name": "dra-support",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "message": "[NOT_FOUND] deployment nvidia-dra-driver/nvidia-dra-driver-gpu-controller not found: deployments.apps \"nvidia-dra-driver-gpu-controller\" not found",
+        "stdout": [
+          "time=2026-07-25T09:09:15.660Z level=INFO msg=\"starting check\" name=dra-support",
+          "--- DRA driver namespace ---",
+          "Namespace: nvidia-dra-driver",
+          "Source:    resolved recipe componentRef nvidia-dra-driver-gpu",
+          "--- DRA API resources ---",
+          "Equivalent: kubectl api-resources --api-group=resource.k8s.io",
+          "",
+          "Served version: resource.k8s.io/v1",
+          "deviceclasses              DeviceClass            namespaced=false",
+          "resourceclaims             ResourceClaim          namespaced=true",
+          "resourceclaims/status      ResourceClaim          namespaced=true",
+          "resourceclaimtemplates     ResourceClaimTemplate  namespaced=true",
+          "resourceslices             ResourceSlice          namespaced=false",
+          "",
+          "--- DRA driver pods ---",
+          "Equivalent: kubectl get pods -n nvidia-dra-driver -o wide",
+          "",
+          "nvidia-dra-driver-gpu-kubelet-plugin-4wthw       ready=1/1 phase=Running node=nvml-mock-op-control-plane",
+          "",
+          "time=2026-07-25T09:09:15.669Z level=ERROR msg=FAIL message=\"[NOT_FOUND] deployment nvidia-dra-driver/nvidia-dra-driver-gpu-controller not found: deployments.apps \\\"nvidia-dra-driver-gpu-controller\\\" not found\""
+        ]
+      },
+      {
+        "name": "accelerator-metrics",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "stdout": [
+          "time=2026-07-25T09:09:19.767Z level=INFO msg=\"starting check\" name=accelerator-metrics",
+          "--- DCGM Exporter Metrics (sample) ---",
+          "# HELP DCGM_FI_DEV_SM_CLOCK SM clock frequency (in MHz).",
+          "# TYPE DCGM_FI_DEV_SM_CLOCK gauge",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"0\",UUID=\"GPU-b200b200-0000-0000-0000-000000000000\",pci_bus_id=\"0000:0A:00.0\",device=\"nvidia0\",modelName=\"NVIDIA GB200\",Hostname=\"nvml-mock-op-control-plane\",DCGM_FI_DRIVER_VERSION=\"580.65.06\"} 345",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"1\",UUID=\"GPU-b200b200-0000-0000-0000-000000000001\",pci_bus_id=\"0000:0B:00.0\",device=\"nvidia1\",modelName=\"NVIDIA GB200\",Hostname=\"nvml-mock-op-control-plane\",DCGM_FI_DRIVER_VERSION=\"580.65.06\"} 345",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"2\",UUID=\"GPU-b200b200-0000-0000-0000-000000000002\",pci_bus_id=\"0000:4A:00.0\",device=\"nvidia2\",modelName=\"NVIDIA GB200\",Hostname=\"nvml-mock-op-control-plane\",DCGM_FI_DRIVER_VERSION=\"580.65.06\"} 345",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"3\",UUID=\"GPU-b200b200-0000-0000-0000-000000000003\",pci_bus_id=\"0000:4B:00.0\",device=\"nvidia3\",modelName=\"NVIDIA GB200\",Hostname=\"nvml-mock-op-control-plane\",DCGM_FI_DRIVER_VERSION=\"580.65.06\"} 345",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"4\",UUID=\"GPU-b200b200-0000-0000-0000-000000000004\",pci_bus_id=\"0000:8A:00.0\",device=\"nvidia4\",modelName=\"NVIDIA GB200\",Hostname=\"nvml-mock-op-control-plane\",DCGM_FI_DRIVER_VERSION=\"580.65.06\"} 345",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"5\",UUID=\"GPU-b200b200-0000-0000-0000-000000000005\",pci_bus_id=\"0000:8B:00.0\",device=\"nvidia5\",modelName=\"NVIDIA GB200\",Hostname=\"nvml-mock-op-control-plane\",DCGM_FI_DRIVER_VERSION=\"580.65.06\"} 345",
+          "... [truncated]",
+          "--- Required DCGM Metrics ---",
+          "  DCGM_FI_DEV_GPU_UTIL           FOUND",
+          "  DCGM_FI_DEV_FB_USED            FOUND",
+          "  DCGM_FI_DEV_GPU_TEMP           FOUND",
+          "  DCGM_FI_DEV_POWER_USAGE        FOUND"
+        ]
+      },
+      {
+        "name": "ai-service-metrics",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "stdout": [
+          "time=2026-07-25T09:09:22.845Z level=INFO msg=\"starting check\" name=ai-service-metrics",
+          "--- Prometheus Query: DCGM_FI_DEV_GPU_UTIL ---",
+          "Equivalent: curl -sf 'http://kube-prometheus-stack-prometheus.monitoring.svc:9090/api/v1/query?query=DCGM_FI_DEV_GPU_UTIL'",
+          "",
+          "Status:            success",
+          "Time series count: 8",
+          "--- Prometheus query response (GPU util) ---",
+          "Equivalent: curl -sf 'http://kube-prometheus-stack-prometheus.monitoring.svc:9090/api/v1/query?query=DCGM_FI_DEV_GPU_UTIL'",
+          "",
+          "{\"status\":\"success\",\"data\":{\"resultType\":\"vector\",\"result\":[{\"metric\":{\"DCGM_FI_DRIVER_VERSION\":\"580.65.06\",\"Hostname\":\"nvml-mock-op-control-plane\",\"UUID\":\"GPU-b200b200-0000-0000-0000-000000000000\",\"__name__\":\"DCGM_FI_DEV_GPU_UTIL\",\"container\":\"nvidia-dcgm-exporter\",\"device\":\"nvidia0\",\"endpoint\":\"gpu-metrics\",\"gpu\":\"0\",\"instance\":\"10.244.0.19:9400\",\"job\":\"nvidia-dcgm-exporter\",\"modelName\":\"NVIDIA GB200\",\"namespace\":\"gpu-operator\",\"pci_bus_id\":\"0000:0A:00.0\",\"pod\":\"nvidia-dcgm-exporter-m6lzm\",\"service\":\"nvid... [truncated 3566 chars]",
+          "--- Custom Metrics API ---",
+          "Equivalent: kubectl get --raw /apis/custom.metrics.k8s.io/v1beta1",
+          "",
+          "HTTP Status:    200",
+          "GroupVersion:   custom.metrics.k8s.io/v1beta1",
+          "Resource count: 5355",
+          "",
+          "Resources:",
+          "- jobs.batch/node_sockstat_TCP_inuse (namespaced=true)",
+          "- services/go_goroutines (namespaced=true)",
+          "- services/process_virtual_memory_max_bytes (namespaced=true)",
+          "- jobs.batch/prometheus_tsdb_compaction_chunk_size_bytes_sum (namespaced=true)",
+          "- pods/node_network_receive_nohandler (namespaced=true)",
+          "- services/rest_client_rate_limiter_duration_seconds_bucket (namespaced=true)",
+          "- services/node_nf_conntrack_stat_drop (namespaced=true)",
+          "- namespaces/node_disk_read_bytes (namespaced=false)",
+          "- jobs.batch/node_scrape_collector_success (namespaced=true)",
+          "- namespaces/kube_pod_container_status_restarts (namespaced=false)",
+          "- pods/prometheus_target_scrapes_cache_flush_forced (namespaced=true)",
+          "- namespaces/go_sched_goroutines_runnable_goroutines (namespaced=false)",
+          "- jobs.batch/kubelet_pod_start_duration_seconds_count (namespaced=true)",
+          "- nodes/kubelet_pod_worker_start_duration_seconds_count (namespaced=false)",
+          "- services/apiserver_watch_cache_resource_version (namespaced=true)",
+          "- jobs.batch/prometheus_sd_file_scan_duration_seconds_sum (namespaced=true)",
+          "- pods/prometheus_tsdb_compactions_skipped (namespaced=true)",
+          "- namespaces/node_nfsd_read_ahead_cache_not_found (namespaced=false)",
+          "- namespaces/memory_failures (namespaced=false)",
+          "- services/go_memstats_mcache_inuse_bytes (namespaced=true)"
+        ]
+      },
+      {
+        "name": "gpu-operator-health",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "stdout": [
+          "time=2026-07-25T09:09:26.675Z level=INFO msg=\"starting check\" name=gpu-operator-health"
+        ]
+      },
+      {
+        "name": "platform-health",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "message": "[NOT_FOUND] platform health check failed (5 issues):\n  namespace agentgateway-system: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace skyhook: not found\n  namespace nvsentinel: not found",
+        "stdout": [
+          "time=2026-07-25T09:09:29.779Z level=INFO msg=\"starting check\" name=platform-health",
+          "time=2026-07-25T09:09:29.791Z level=ERROR msg=FAIL message=\"[NOT_FOUND] platform health check failed (5 issues):\\n  namespace agentgateway-system: not found\\n  namespace kai-scheduler: not found\\n  namespace nvidia-network-operator: not found\\n  namespace skyhook: not found\\n  namespace nvsentinel: not found\""
+        ]
+      }
+    ]
+  }
+}

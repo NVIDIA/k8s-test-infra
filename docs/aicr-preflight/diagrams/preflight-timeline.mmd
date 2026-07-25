@@ -1,0 +1,25 @@
+%% The customer value, honestly drawn.
+%% NOTE: no "day-one first token" claim. Silicon time still ends with the
+%% hardware-dependent validation that actually needs silicon.
+flowchart TB
+  subgraph WITHOUT["WITHOUT preflight"]
+    direction LR
+    W1["~3 months procurement<br/>engineers idle,<br/>nothing to integrate against"]
+    W2["silicon arrives"]
+    W3["integration failures<br/>discovered HERE:<br/>prereq ordering, version skew,<br/>resource advertisement,<br/>driver-userspace resolution"]
+    W4["hardware-dependent validation<br/>CUDA, firmware, NCCL/NVLink, TTFT"]
+    W5["first token"]
+    W1 --> W2 --> W3 --> W4 --> W5
+  end
+
+  subgraph WITH["WITH preflight"]
+    direction LR
+    P1["~3 months procurement<br/>PREFLIGHT on Mokka:<br/>AICR runs unmodified,<br/>integration failures found and fixed"]
+    P2["silicon arrives"]
+    P3["hardware-dependent validation<br/>CUDA, firmware, NCCL/NVLink, TTFT<br/>AICR on silicon = FINAL GATE"]
+    P4["first token, sooner"]
+    P1 --> P2 --> P3 --> P4
+  end
+
+  N["Evidence, 2026-07-25 (sim, n=4 proxy on cloud GB200, NOT NVL72):<br/>2 of 4 real failures would have been caught pre-silicon.<br/>2 missed: kernel/driver state and cloud credential lifetime.<br/>Time saved per bring-up: NOT YET QUANTIFIED (see issue #501)."]
+  WITH -.- N

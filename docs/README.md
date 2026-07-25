@@ -55,6 +55,7 @@ full walkthrough.
 | Integration | Description |
 |-------------|-------------|
 | [fake-gpu-operator](integrations/fake-gpu-operator.md) | Run:ai's K8s-level GPU simulation + nvml-mock driver fidelity |
+| [AICR pre-silicon preflight](aicr-preflight/README.md) | Run the AICR validate/conformance suite against nvml-mock before silicon lands |
 
 ## Tested Consumers
 
