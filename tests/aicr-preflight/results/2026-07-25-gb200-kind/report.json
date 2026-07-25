@@ -1,0 +1,267 @@
+{
+  "schema": "nvidia.com/aicr-preflight/v1alpha1",
+  "generatedAt": "2026-07-25T07:29:58Z",
+  "provenance": "sim",
+  "catalogSource": "NVIDIA/aicr recipes/validators/catalog.yaml @06256cc8 (21 checks)",
+  "cluster": "kind-nvml-mock-op",
+  "profile": "gb200",
+  "summary": {
+    "total": 21,
+    "byBucket": {
+      "A": 14,
+      "B": 0,
+      "C": 4,
+      "G": 3
+    },
+    "byOutcome": {
+      "fail": 4,
+      "not-run": 12,
+      "pass": 5
+    },
+    "meaningfulTodayPct": 66.66666666666666,
+    "reachablePct": 80.95238095238095,
+    "suspectCount": 0,
+    "mokkaUnlockedA": 9,
+    "gpuIndependentA": 5
+  },
+  "records": [
+    {
+      "name": "operator-health",
+      "area": "operator-install",
+      "phase": "deployment",
+      "bucket": "A",
+      "outcome": "pass",
+      "provenance": "sim",
+      "rationale": "Installs and reconciles the real NVIDIA GPU Operator against the mock driver surface, then requires its pods to actually reach a healthy state. Fails for real reasons: a broken operand, an unschedulable DaemonSet, a driver-root misconfiguration. This is integration work that genuinely moves left.",
+      "gpuDependent": true,
+      "evidence": "validators/deployment/operator_health.go:32-45"
+    },
+    {
+      "name": "expected-resources",
+      "area": "control-plane",
+      "phase": "deployment",
+      "bucket": "A",
+      "outcome": "fail",
+      "provenance": "sim",
+      "rationale": "Verifies every resource declared in the recipe's componentRefs exists and is healthy, and dispatches 34 nested chainsaw component health checks plus verifyGPUReadinessSignals. Real control-plane reconciliation against a real cluster; a missing prerequisite or a stuck operand fails it.",
+      "gpuDependent": true,
+      "evidence": "validators/deployment/expected_resources.go:153-155,215,226-248",
+      "message": "[NOT_FOUND] Deployment agentgateway-system/agentgateway not found: deployments.apps \"agentgateway\" not found"
+    },
+    {
+      "name": "gpu-operator-version",
+      "area": "operator-install",
+      "phase": "deployment",
+      "bucket": "A",
+      "outcome": "pass",
+      "provenance": "sim",
+      "rationale": "Reads the deployed operator version and evaluates it against the recipe constraint, so a wrong or unpinned chart version fails it for a real reason. Marked GPU-independent: it inspects a Helm release and would work on any cluster with the operator installed, so Mokka is not what unlocks it.",
+      "gpuDependent": false,
+      "evidence": "validators/deployment/gpu_operator_version.go:29-31"
+    },
+    {
+      "name": "check-nvidia-smi",
+      "area": "nvml-surface",
+      "phase": "deployment",
+      "bucket": "A",
+      "outcome": "pass",
+      "provenance": "sim",
+      "rationale": "The strongest bucket-A case in the suite. Schedules a pod requesting nvidia.com/gpu and runs nvidia-smi inside it, which exercises the whole chain: device-plugin allocation, CDI injection, container-toolkit wiring, and dlopen resolution of libnvidia-ml.so.1. This is exactly the class of failure that shipped as NVIDIA/k8s-test-infra#455, where three missing //export symbols made RTLD_NOW abort while build, unit tests, and lint all stayed green. It does NOT prove the GPU computes anything; it proves the plumbing resolves.",
+      "gpuDependent": true,
+      "evidence": "validators/deployment/nvidia_smi.go:38-39; testdata/nvidia-smi-verify-pod.yaml:40,42"
+    },
+    {
+      "name": "nccl-all-reduce-bw",
+      "area": "nccl-nvlink-fabric",
+      "phase": "performance",
+      "bucket": "C",
+      "outcome": "not-run",
+      "provenance": "sim",
+      "rationale": "Runs all_reduce_perf across GPU nodes and measures achieved bandwidth. Mokka simulates no collective transport and no fabric, and measured bandwidth is meaningless without real links. Hardware-dependent by construction.",
+      "gpuDependent": true,
+      "evidence": "validators/performance/nccl_all_reduce_bw.go:26-30"
+    },
+    {
+      "name": "nccl-all-reduce-bw-net",
+      "area": "nccl-nvlink-fabric",
+      "phase": "performance",
+      "bucket": "C",
+      "outcome": "not-run",
+      "provenance": "sim",
+      "rationale": "Asserts the NET transport (EFA and equivalents) actually carried the traffic. Requires a real network fabric.",
+      "gpuDependent": true,
+      "evidence": "validators/performance/nccl_all_reduce_bw.go:33-36"
+    },
+    {
+      "name": "nccl-all-reduce-bw-nvls",
+      "area": "nccl-nvlink-fabric",
+      "phase": "performance",
+      "bucket": "C",
+      "outcome": "not-run",
+      "provenance": "sim",
+      "rationale": "Asserts NVLS/MNNVL initialized and carried traffic, and fails loudly if a broken IMEX domain makes NCCL fall back to NET. This is precisely the GB200 NVL72 failure mode that matters most on real silicon, and precisely what simulation cannot judge.",
+      "gpuDependent": true,
+      "evidence": "validators/performance/nccl_all_reduce_bw.go:39-42; catalog.yaml:258-260"
+    },
+    {
+      "name": "inference-perf",
+      "area": "ttft-throughput",
+      "phase": "performance",
+      "bucket": "C",
+      "outcome": "not-run",
+      "provenance": "sim",
+      "rationale": "Runs AIPerf against a live inference endpoint backed by vLLM/Dynamo GPU workers and evaluates throughput and TTFT p99 constraints. Requires real CUDA execution and real model serving. This check is the definition of time to first token, and it is the reason preflight reduces bring-up time rather than proving readiness.",
+      "gpuDependent": true,
+      "evidence": "validators/performance/inference_perf.go:25-28; catalog.yaml:88-146"
+    },
+    {
+      "name": "dra-support",
+      "area": "dra",
+      "phase": "conformance",
+      "bucket": "G",
+      "outcome": "fail",
+      "provenance": "sim",
+      "rationale": "Half of this check already works under Mokka and half is blocked, so the precise split matters. WORKS: the real nvidia-dra-driver-gpu chart installs, the kubelet plugin runs, and ResourceSlices publish all 8 GB200 devices off the mock NVML (observed 2026-07-25). BLOCKED: the check also requires the nvidia-dra-driver-gpu-controller Deployment, which chart v25.12.0 templates only when resources.computeDomains.enabled=true. Turning that on makes the kubelet plugin's compute-domains container CrashLoopBackOff with \"error getting nvcap for IMEX channel '0': error parsing '/proc/devices': unexpected regex match: []\", because Mokka registers no nvidia-caps-imex-channels char-device major and creates no /dev/nvidia-caps-imex-channels nodes. Not hardware-dependent, therefore bucket G rather than C: this is device-node and /proc/devices plumbing, not fabric transport.",
+      "gpuDependent": true,
+      "gapIssue": "#498",
+      "evidence": "validators/conformance/dra_support_check.go:42-54,242-264; observed CrashLoopBackOff on nvidia-dra-driver-gpu 25.12.0 templates/controller.yaml",
+      "message": "[NOT_FOUND] deployment nvidia-dra-driver/nvidia-dra-driver-gpu-controller not found: deployments.apps \"nvidia-dra-driver-gpu-controller\" not found"
+    },
+    {
+      "name": "gang-scheduling",
+      "area": "scheduling",
+      "phase": "conformance",
+      "bucket": "A",
+      "outcome": "not-run",
+      "provenance": "sim",
+      "rationale": "Verifies KAI scheduler deployments and CRDs, then co-schedules a PodGroup. Upstream deliberately keeps the workload CPU-only so one-GPU CI clusters can run the full conformance phase, so this exercises real scheduling behaviour but touches no GPU at all. It moves left, but any cluster runs it and Mokka is not what unlocks it.",
+      "gpuDependent": false,
+      "evidence": "validators/conformance/gang_scheduling_check.go:94-99"
+    },
+    {
+      "name": "accelerator-metrics",
+      "area": "nvml-surface",
+      "phase": "conformance",
+      "bucket": "A",
+      "outcome": "pass",
+      "provenance": "sim",
+      "rationale": "Scrapes the DCGM exporter and requires DCGM_FI_DEV_GPU_UTIL, FB_USED, GPU_TEMP and POWER_USAGE to be present. Under Mokka the real dcgm-exporter runs against the mock NVML, so a broken exporter-to-NVML path fails this for a real reason. Bounded honestly: the assertion is presence-only, and Mokka's values are synthetic (FB_USED is a constant 0), so this validates the telemetry path, not telemetry correctness.",
+      "gpuDependent": true,
+      "evidence": "validators/conformance/accelerator_metrics_check.go:28-38"
+    },
+    {
+      "name": "ai-service-metrics",
+      "area": "control-plane",
+      "phase": "conformance",
+      "bucket": "A",
+      "outcome": "fail",
+      "provenance": "sim",
+      "rationale": "Discovers Prometheus from the recipe and verifies GPU metric time series exist and the custom metrics API is available. Real integration of the monitoring stack with the GPU telemetry source; same value caveat as accelerator-metrics.",
+      "gpuDependent": true,
+      "evidence": "validators/conformance/ai_service_metrics_check.go:37-40",
+      "message": "[NOT_FOUND] no Prometheus service with port 9090 found in namespace \"monitoring\""
+    },
+    {
+      "name": "inference-gateway",
+      "area": "control-plane",
+      "phase": "conformance",
+      "bucket": "A",
+      "outcome": "not-run",
+      "provenance": "sim",
+      "rationale": "Verifies the agentgateway GatewayClass is accepted, the Gateway is programmed, and the Gateway API plus InferencePool CRDs exist. Pure control-plane status reconciliation with no GPU involvement.",
+      "gpuDependent": false,
+      "evidence": "validators/conformance/inference_gateway_check.go:51-53"
+    },
+    {
+      "name": "pod-autoscaling",
+      "area": "scheduling",
+      "phase": "conformance",
+      "bucket": "A",
+      "outcome": "not-run",
+      "provenance": "sim",
+      "rationale": "Requires the external metrics API to expose a cluster-wide GPU metric (dcgm_gpu_power_usage) and proves the capability with an HPA scale-up and scale-down. Mokka's power values vary over time, which this repo's e2e already asserts, so the metrics-to-autoscaler loop is genuinely driven.",
+      "gpuDependent": true,
+      "evidence": "validators/conformance/pod_autoscaling_check.go:55-69,208"
+    },
+    {
+      "name": "cluster-autoscaling",
+      "area": "scheduling",
+      "phase": "conformance",
+      "bucket": "G",
+      "outcome": "not-run",
+      "provenance": "sim",
+      "rationale": "Checks Karpenter, EKS node groups, or the GKE cluster autoscaler, and skips gracefully when none is detectable, which is what happens on a kind cluster. Not hardware-dependent: AICR's own CI already exercises the Karpenter path against KWOK-faked nodes. Blocked only because this harness composes no simulated provisioner, which is a closable gap and the exact point where Mokka's vertical depth should compose with KWOK's horizontal breadth.",
+      "gpuDependent": false,
+      "gapIssue": "#499",
+      "evidence": "validators/conformance/cluster_autoscaling_check.go:61-67; .github/actions/gpu-validate-conformance/action.yml:38-43"
+    },
+    {
+      "name": "robust-controller",
+      "area": "control-plane",
+      "phase": "conformance",
+      "bucket": "A",
+      "outcome": "not-run",
+      "provenance": "sim",
+      "rationale": "Proves a complex AI operator with a CRD is installed and reconciles custom resources, with running pods and operational webhooks. Real controller behaviour, no GPU dependency.",
+      "gpuDependent": false,
+      "evidence": "validators/conformance/robust_controller_check.go:69-77"
+    },
+    {
+      "name": "secure-accelerator-access",
+      "area": "dra",
+      "phase": "conformance",
+      "bucket": "A",
+      "outcome": "not-run",
+      "provenance": "sim",
+      "rationale": "Grants a GPU to one container and requires an unauthorized sibling container, plus a standalone no-allocation probe pod, to see no accelerator at all. Isolation is enforced by CDI and device-plugin allocation, which Mokka drives for real, so a leak fails this for a real reason. Worth watching under Mokka's node-wide NRI ambient injection mode, where a genuine isolation failure would be the correct result.",
+      "gpuDependent": true,
+      "evidence": "validators/conformance/secure_access_check.go:268-275"
+    },
+    {
+      "name": "slinky-slurm-health",
+      "area": "scheduling",
+      "phase": "conformance",
+      "bucket": "A",
+      "outcome": "not-run",
+      "provenance": "sim",
+      "rationale": "Requires a Slinky-managed Slurm cluster to be reachable, to have idle or mixed workers, and to schedule a minimal job; GPU-backed NodeSets also run a bounded containerized GPU job through Pyxis. The GPU job runs plain alpine rather than a CUDA workload, so it tests allocation and injection rather than computation, which Mokka can drive.",
+      "gpuDependent": true,
+      "evidence": "validators/conformance/slinky_slurm_health_check.go:91-94,162"
+    },
+    {
+      "name": "slinky-slurm-imex-channel",
+      "area": "nccl-nvlink-fabric",
+      "phase": "conformance",
+      "bucket": "G",
+      "outcome": "not-run",
+      "provenance": "sim",
+      "rationale": "Verifies two concurrent Slurm jobs each receive a distinct NVIDIA IMEX channel. Bucketed G rather than C, and the distinction matters: whether the fabric carries traffic is hardware-dependent (bucket C, see nccl-all-reduce-bw-nvls), but whether channel ALLOCATION hands out distinct channels is driver-surface and control-plane behaviour that is simulatable. Same root cause as dra-support: Mokka registers no nvidia-caps-imex-channels char-device major and creates no channel device nodes, which the DRA driver's own compute-domains component confirmed by crashing on /proc/devices. Flagged for Mark's review as the closest call in the catalog, since it sits nearest his hardware-dependent boundary.",
+      "gpuDependent": true,
+      "gapIssue": "#498",
+      "evidence": "validators/conformance/slinky_slurm_imex_channel_check.go:82-84"
+    },
+    {
+      "name": "gpu-operator-health",
+      "area": "operator-install",
+      "phase": "conformance",
+      "bucket": "A",
+      "outcome": "pass",
+      "provenance": "sim",
+      "rationale": "Verifies the GPU Operator deployment, ClusterPolicy state=ready, and the DCGM exporter DaemonSet. ClusterPolicy reaching ready requires the driver, toolkit, CUDA and plugin validators to pass, which is real reconciliation. Bounded honestly: under Mokka two of those sub-validations are weakened, because cuda-validation runs with WITH_WORKLOAD=false (kernel launch is a no-op) and the toolkit stage is short-circuited by a pre-touched /run/nvidia/validations/toolkit-ready marker. So ready under simulation is a weaker statement than ready on silicon, and this row should not be read as validating the driver or toolkit.",
+      "gpuDependent": true,
+      "evidence": "validators/conformance/gpu_operator_health_check.go:28-29; tests/e2e/go/assets/gpu-operator-values.yaml (WITH_WORKLOAD=false)"
+    },
+    {
+      "name": "platform-health",
+      "area": "control-plane",
+      "phase": "conformance",
+      "bucket": "A",
+      "outcome": "fail",
+      "provenance": "sim",
+      "rationale": "Validates namespace existence and expectedResources health for every componentRef in the recipe. Real deployment verification, no GPU dependency.",
+      "gpuDependent": false,
+      "evidence": "validators/conformance/platform_health_check.go:28-30",
+      "message": "[NOT_FOUND] platform health check failed (8 issues):\n  namespace agentgateway-system: not found\n  namespace cert-manager: not found\n  namespace monitoring: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace node-feature-discovery: not found\n  namespace skyhook: not found\n  namespace nvsentinel: not found"
+    }
+  ]
+}
