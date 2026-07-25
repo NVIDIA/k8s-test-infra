@@ -38,7 +38,16 @@ fails the command instead of silently doing nothing.
 
 The config override drives every *config-derived getter*: failure injection, ECC
 mode/counters, temperature, power, utilization, clocks, fan, performance state,
-and the like. These change within one TTL.
+device memory (`memory.total_bytes` / `free_bytes` / `used_bytes` /
+`reserved_bytes` / `memory_bus_width`), and the like. These change within one TTL.
+
+Memory values are reported **verbatim** from the effective config — setting
+`memory.used_bytes` alone does not recompute `memory.free_bytes`. Set both in one
+command to keep the reported triple coherent:
+
+```bash
+nvml-mock-ctl set --gpu 0 memory.used_bytes=1073741824 memory.free_bytes=41264611328
+```
 
 A handful of **identity / topology** fields are baked onto the device at
 construction time and are **not** hot-reloadable in v1 — changing them requires a
@@ -50,8 +59,8 @@ pod restart or a Helm change:
 - `compute_capability`
 - `uuid`
 - PCI `bus_id`
-- device memory totals — `memory` / `bar1_memory` (baked at construction, so e.g.
-  `set --gpu 0 memory.total_bytes=...` won't take effect until a pod restart)
+- the BAR1 aperture — `bar1_memory` (baked at construction, so e.g.
+  `set --gpu 0 bar1_memory.total_bytes=...` won't take effect until a pod restart)
 
 If you need to change any of those, edit the profile / Helm values and restart
 the DaemonSet (or the affected pod).

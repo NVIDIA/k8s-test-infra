@@ -387,13 +387,33 @@ func (d *ConfigurableDevice) GetBAR1MemoryInfo() (nvml.BAR1Memory, nvml.Return) 
 	return d.bar1Memory, nvml.SUCCESS
 }
 
+// memoryInfo resolves device memory from the effective config so a runtime
+// config override of memory.{total,free,used}_bytes is observed without a
+// restart, matching how the process and thermal getters already read d.cfg().
+// The values are reported verbatim: overriding used_bytes alone does not
+// recompute free_bytes, because free_bytes is an explicit profile field and
+// silently deriving it would make that field dead. Falls back to the
+// construction-time struct when the device was built without a memory block
+// (legacy/default mode), where d.MemoryInfo carries the base mock's values.
+func (d *ConfigurableDevice) memoryInfo() nvml.Memory {
+	if c := d.cfg(); c.Memory != nil {
+		return nvml.Memory{
+			Total: c.Memory.TotalBytes,
+			Free:  c.Memory.FreeBytes,
+			Used:  c.Memory.UsedBytes,
+		}
+	}
+	return d.MemoryInfo
+}
+
 // GetMemoryInfo returns GPU memory information
 func (d *ConfigurableDevice) GetMemoryInfo() (nvml.Memory, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return nvml.Memory{}, ret
 	}
-	debugLog("[NVML] nvmlDeviceGetMemoryInfo -> total=%d\n", d.MemoryInfo.Total)
-	return d.MemoryInfo, nvml.SUCCESS
+	mem := d.memoryInfo()
+	debugLog("[NVML] nvmlDeviceGetMemoryInfo -> total=%d used=%d\n", mem.Total, mem.Used)
+	return mem, nvml.SUCCESS
 }
 
 // GetMemoryInfo_v2 returns GPU memory information (v2 API)
@@ -401,18 +421,19 @@ func (d *ConfigurableDevice) GetMemoryInfo_v2() (nvml.Memory_v2, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return nvml.Memory_v2{}, ret
 	}
+	base := d.memoryInfo()
 	mem := nvml.Memory_v2{
 		Version:  nvmlStructVersion(unsafe.Sizeof(nvml.Memory_v2{}), 2),
-		Total:    d.MemoryInfo.Total,
+		Total:    base.Total,
 		Reserved: 0,
-		Free:     d.MemoryInfo.Free,
-		Used:     d.MemoryInfo.Used,
+		Free:     base.Free,
+		Used:     base.Used,
 	}
 	// If we have config with reserved bytes, use it
 	if c := d.cfg(); c.Memory != nil {
 		mem.Reserved = c.Memory.ReservedBytes
 	}
-	debugLog("[NVML] nvmlDeviceGetMemoryInfo_v2 -> total=%d reserved=%d\n", mem.Total, mem.Reserved)
+	debugLog("[NVML] nvmlDeviceGetMemoryInfo_v2 -> total=%d reserved=%d used=%d\n", mem.Total, mem.Reserved, mem.Used)
 	return mem, nvml.SUCCESS
 }
 

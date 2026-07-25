@@ -36,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scripts) to resolve `GO-2026-5856` (Encrypted Client Hello privacy leak
   in `crypto/tls`), which was failing the `govulncheck` CI check.
 
+### Fixed
+- `nvml-mock-ctl set --gpu <n> memory.total_bytes|free_bytes|used_bytes=...` now
+  takes effect within one override TTL instead of silently doing nothing until
+  the pod restarts. `nvmlDeviceGetMemoryInfo` and `nvmlDeviceGetMemoryInfo_v2`
+  read device memory from the effective (override-merged) config rather than a
+  struct baked at device construction. Values are reported verbatim: overriding
+  `used_bytes` alone does not recompute `free_bytes`. The BAR1 aperture
+  (`bar1_memory`) is still baked at construction. (#506)
+
 ### Deprecated
 - The fake `nvidia-imex` / `nvidia-imex-ctl` binaries, `pkg/imexcoord`,
   and the chart's `imex.enabled` hostPath coordination — superseded by
