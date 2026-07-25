@@ -368,9 +368,10 @@ ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 #
 #     Writing it here was never durable — the validator deletes it on every run
 #     and its preStop hook removes every *-ready file on shutdown
-#     (0500_daemonset.yaml:133-136) — and it let operands clear the gate before
-#     any toolkit check had run, turning an ordering barrier into a no-op and
-#     making a green operand look like a validated one. See #504.
+#     (state-operator-validation/0500_daemonset.yaml:133-136) — and it let
+#     operands clear the gate before any toolkit check had run, turning an
+#     ordering barrier into a no-op and making a green operand look like a
+#     validated one. See #504.
 #
 #     The directory needs no mkdir either. The DaemonSets that mount the
 #     validations dir directly — device-plugin
@@ -388,11 +389,16 @@ ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 #
 #     Residual hazard, as a debugging pointer: nvidia-validator has a cleanup-all
 #     flag (main.go:302-309, env CLEANUP_ALL, default false) that os.RemoveAll's
-#     the output dir and recreates it (main.go:513-527), replacing the directory
-#     inode. device-plugin and mig-manager bind-mount the validations dir itself,
-#     so a pod already blocked on the gate would poll an unlinked inode forever.
-#     Nothing in assets/ or controllers/ sets CLEANUP_ALL, so this is unreachable
-#     by default — but if an operand ever hangs here, check this first.
+#     the output dir before recreating it (main.go:513-527), wiping every marker;
+#     because the validator's own /run/nvidia/validations is a bind mount
+#     (state-operator-validation/0500_daemonset.yaml:54-55, 73-74, 96-97,
+#     123-124, 138-139, over the hostPath volume cited above), the RemoveAll then
+#     fails EBUSY on the mount point and the validator exits before recreating
+#     anything (main.go:516-520 returns ahead of the os.Mkdir at :524), so
+#     already-gated pods block on a marker that never returns while the validator
+#     itself sits in CrashLoopBackOff. Nothing in assets/ or controllers/ sets
+#     CLEANUP_ALL, so this is unreachable by default — but if an operand ever
+#     hangs here, check this first.
 
 # 9. InfiniBand: render sysfs via mock-ib; optionally run UMAD/fabric daemon.
 #    MOCK_IB selects the mock tier (case-insensitive):
