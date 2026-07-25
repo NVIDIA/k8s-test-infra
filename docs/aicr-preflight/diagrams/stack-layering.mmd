@@ -1,0 +1,19 @@
+%% AICR runs ON a Mokka-enabled Kubernetes cluster.
+%% Direction matters: AICR is the workload, Mokka is the substrate.
+%% Simulation does NOT live "inside" AICR.
+flowchart TB
+  L5["<b>AICR</b><br/>recipes, validate and conformance suite<br/><i>runs unmodified</i>"]
+  L4["<b>GPU stack</b><br/>GPU Operator · DRA driver · device plugin · GFD · DCGM<br/><i>real software, unmodified</i>"]
+  L3["<b>kubelet + containerd</b><br/>CDI injection"]
+  L2["<b>Mokka Sim (nvml-mock)</b><br/>libnvidia-ml.so.1 replacement · /dev/nvidia* nodes · CDI spec<br/><i>THE SIMULATION BOUNDARY</i>"]
+  L1["<b>Real CPU nodes</b><br/>Kubernetes · real kubelet · real container runtime"]
+
+  L1 --> L2 --> L3 --> L4 --> L5
+
+  NOTE["No NVIDIA kernel module.<br/>Nothing below the boundary is simulated."]
+  NOTE -.- L2
+
+  classDef sim stroke-width:3px
+  classDef real stroke-width:1px
+  class L2 sim
+  class L1,L3,L4,L5 real
