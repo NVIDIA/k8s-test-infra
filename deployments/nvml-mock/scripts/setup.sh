@@ -276,9 +276,13 @@ fi
 
 # 7. Label node (requires RBAC: get+patch on nodes)
 #
-#    The pci-10de label is written by hand because NFD structurally cannot
-#    derive it on a mock node — not because its class filter excludes us. NFD's
-#    PCI source reads exactly one path, fixed at link time: source/pci/utils.go
+#    Keep the pci-10de line below: nothing else writes that label on a mock
+#    node, so removing it silently drops it.
+#
+#    It is hand-written because NFD's *PCI source* cannot see our fake devices.
+#    (Upstream facts here are as of NFD v0.19.0, the version pinned in go.mod;
+#    the worker actually deployed comes from GPU Operator and may differ.)
+#    That source reads exactly one path, fixed at link time: source/pci/utils.go
 #    resolves hostpath.SysfsDir.Path("bus/pci/devices"), and pkg/utils/hostpath
 #    builds SysfsDir from a private `pathPrefix` var set only via linker -X.
 #    Upstream's container build passes HOSTMOUNT_PREFIX=/host- (Makefile), so the
@@ -288,18 +292,30 @@ fi
 #    Our fake tree lives at /var/lib/nvml-mock/sys/bus/pci/devices and is
 #    reachable only through libpcimocksys.so, which the NRI plugin does inject
 #    into the NFD worker (it is opt-out, and NFD is not in an excluded
-#    namespace). The injection is inert for two independent reasons:
+#    namespace). The injection is inert. Either of the following alone would be
+#    enough; both hold:
 #      a) the shim rewrites only paths starting "/sys/" (see k_prefixes[] in
-#         pkg/system/mockpcisysfs/c/shim.c); "/host-sys/..." never matches; and
+#         pkg/system/mockpcisysfs/c/shim.c), so "/host-sys/..." never matches.
 #      b) nfd-worker is built -extldflags=-static, so the binary has no
 #         PT_INTERP and LD_PRELOAD is ignored outright.
 #
 #    The key itself is correct: GPU Operator configures NFD with
 #    deviceLabelFields:[vendor] and whitelists class 0302, which is exactly the
 #    "pci-<vendor>.present" form below, and our rendered devices carry all five
-#    attributes NFD treats as mandatory. Only visibility is missing. Removing
-#    this line would silently drop the label.
-#    Full analysis with file:line citations: refs #505.
+#    attributes NFD treats as mandatory. Only visibility is missing.
+#
+#    None of this rules out NFD entirely — only its PCI source. NFD's *local*
+#    source reads feature files from
+#    /etc/kubernetes/node-feature-discovery/features.d/ (source/local/local.go,
+#    a plain literal, not host-prefixed like the PCI path above), and the worker
+#    mounts that host directory at the same path. We already mount that exact
+#    directory as the GFD mock's output dir (tests/e2e/gfd-mock.yaml:52), so
+#    writing a feature file there is the supported way to retire this kubectl
+#    call — no node RBAC needed.
+#
+#    Full analysis with file:line citations is in the commit message that added
+#    this comment (#505 poses the question; it does not answer it):
+#      git log -S 'pci-10de' -- deployments/nvml-mock/scripts/setup.sh
 if command -v kubectl >/dev/null 2>&1; then
   kubectl label node "$NODE_NAME" nvidia.com/gpu.present=true --overwrite || true
   kubectl label node "$NODE_NAME" feature.node.kubernetes.io/pci-10de.present=true --overwrite || true
