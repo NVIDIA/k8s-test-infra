@@ -64,9 +64,13 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 			It("installs GPU Operator and publishes GPUs", Label("device-plugin"), func(ctx SpecContext) {
 				installGPUOperator(ctx, h)
 				waitOperatorValidatorRunning(ctx, h)
-				for _, label := range []string{"nvidia.com/gpu.product", "nvidia.com/gpu.memory", "nvidia.com/gpu.count"} {
-					assertions.NodeLabelSoft(ctx, h.Kube, node, label)
-				}
+				// Hard assertion, derived from the profile rather than read back
+				// off the node. The previous warning-only check could never fail,
+				// so GPU Feature Discovery could have been removed entirely and
+				// this scenario would still have gone green.
+				assertions.WaitGFDLabels(ctx, h.Kube, node,
+					assertions.ExpectedGFDLabels(p.GFDProductName(), p.MemoryMiB(), p.ExpectedGPUs()),
+					config.ReadyTimeout(), config.PollInterval())
 				assertions.WaitAllocatableGPU(ctx, h.Kube, node, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
 			})
 
