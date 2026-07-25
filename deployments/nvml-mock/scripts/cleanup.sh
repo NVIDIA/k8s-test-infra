@@ -16,8 +16,12 @@ fi
 # NOTE: /run/nvidia/validations/toolkit-ready is deliberately NOT removed here.
 # setup.sh no longer creates it (see setup.sh step 8b); its owner is GPU
 # Operator's nvidia-validator. This hook is nvml-mock's preStop, so removing the
-# marker would delete another component's state on every nvml-mock restart and
-# re-arm the operand gate with nothing scheduled to re-satisfy it.
+# marker would delete another component's state from a hook we own. In the
+# GPU-Operator e2e that was probably benign in practice: dropping the
+# nvidia.com/gpu.present label below recycles the operator-validator alongside
+# us, and it rewrites the marker within seconds (observed live). The rm is dead
+# code either way, and the hazard is real wherever the validator does not
+# happen to restart.
 # Remove CDI spec
 CDI_FILE="/host/var/run/cdi/nvidia.yaml"
 if [ -f "$CDI_FILE" ]; then

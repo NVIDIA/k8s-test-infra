@@ -372,10 +372,27 @@ ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 #     any toolkit check had run, turning an ordering barrier into a no-op and
 #     making a green operand look like a validated one. See #504.
 #
-#     The directory needs no mkdir either: every DaemonSet that mounts it
-#     declares hostPath type DirectoryOrCreate
-#     (0500_daemonset.yaml:142-145, state-device-plugin/0500_daemonset.yaml:146-149)
-#     and the validator itself does os.Mkdir on the status dir (main.go:524).
+#     The directory needs no mkdir either. The DaemonSets that mount the
+#     validations dir directly — device-plugin
+#     (state-device-plugin/0500_daemonset.yaml:146-149), mig-manager
+#     (state-mig-manager/0600_daemonset.yaml:96-99) and the validator
+#     (state-operator-validation/0500_daemonset.yaml:142-145) — all declare
+#     hostPath type DirectoryOrCreate. The other four gated operands mount the
+#     parent /run/nvidia instead: gpu-feature-discovery/0500_daemonset.yaml:129-132,
+#     state-dcgm/0400_dcgm.yml:55-58 and
+#     state-mps-control-daemon/0400_daemonset.yaml:125-128 as type Directory
+#     (which requires the parent to pre-exist), and
+#     state-dcgm-exporter/0800_daemonset.yaml:76-78 with no type at all — step 8
+#     above still creates that parent. The validator also does os.Mkdir on the
+#     status dir itself (main.go:524).
+#
+#     Residual hazard, as a debugging pointer: nvidia-validator has a cleanup-all
+#     flag (main.go:302-309, env CLEANUP_ALL, default false) that os.RemoveAll's
+#     the output dir and recreates it (main.go:513-527), replacing the directory
+#     inode. device-plugin and mig-manager bind-mount the validations dir itself,
+#     so a pod already blocked on the gate would poll an unlinked inode forever.
+#     Nothing in assets/ or controllers/ sets CLEANUP_ALL, so this is unreachable
+#     by default — but if an operand ever hangs here, check this first.
 
 # 9. InfiniBand: render sysfs via mock-ib; optionally run UMAD/fabric daemon.
 #    MOCK_IB selects the mock tier (case-insensitive):
