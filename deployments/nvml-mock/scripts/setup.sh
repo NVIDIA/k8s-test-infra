@@ -66,6 +66,54 @@ mknod -m 666 "$DEV_ROOT/nvidiactl" c 195 255 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm" c 510 0 2>/dev/null || true
 mknod -m 666 "$DEV_ROOT/nvidia-uvm-tools" c 510 1 2>/dev/null || true
 
+# 3a. Mock IMEX capability surface (opt-in via IMEX_MOCK_CHANNELS).
+#     The NVIDIA DRA driver's compute-domain kubelet plugin reads a device major
+#     for nvidia-caps-imex-channels out of /proc/devices at startup. There is no
+#     NVIDIA kernel module here, so that entry does not exist and the plugin
+#     aborts. The DRA driver supports a substitute file via its chart's
+#     altProcDevices value (env ALT_PROC_DEVICES_PATH); this renders it.
+#
+#     Pair with, on the DRA driver release that supports it:
+#       --set altProcDevices=/var/lib/nvml-mock/imex/proc-devices
+#       --set resources.computeDomains.enabled=true
+#
+#     Bind-mounting over /proc/devices is not an option: runc rejects it
+#     ("cannot be mounted because it is inside /proc"), which is why the
+#     consumer uses an env-var indirection instead.
+if [ "${IMEX_MOCK_CHANNELS:-false}" = "true" ]; then
+  IMEX_DIR=$HOST/imex
+  IMEX_MAJOR=${IMEX_CHANNEL_MAJOR:-235}
+  CAPS_MAJOR=${IMEX_CAPS_MAJOR:-236}
+  IMEX_CHANNELS=${IMEX_CHANNEL_COUNT:-2048}
+
+  mkdir -p "$IMEX_DIR"
+  # Rendering is idempotent, so a DaemonSet restart re-runs this safely.
+  render-imex-procdevices \
+    --source /proc/devices \
+    --output "$IMEX_DIR/proc-devices" \
+    --imex-major "$IMEX_MAJOR" \
+    --caps-major "$CAPS_MAJOR"
+
+  # The plugin also reads the fabric IMEX management capability.
+  mkdir -p "$DRIVER_ROOT/proc/driver/nvidia/capabilities"
+  cat > "$DRIVER_ROOT/proc/driver/nvidia/capabilities/fabric-imex-mgmt" <<CAPS_EOF
+DeviceFileMinor: 512
+DeviceFileMode: 438
+DeviceFileModify: 0
+CAPS_EOF
+
+  # Channel device nodes, injected into workload pods by the compute-domain CDI
+  # spec. They must exist as character devices for that injection to succeed.
+  mkdir -p "$DEV_ROOT/nvidia-caps-imex-channels"
+  i=0
+  while [ "$i" -lt "$IMEX_CHANNELS" ]; do
+    mknod -m 666 "$DEV_ROOT/nvidia-caps-imex-channels/channel$i" c "$IMEX_MAJOR" "$i" 2>/dev/null || true
+    i=$((i + 1))
+  done
+
+  echo "Mock IMEX surface ready: $IMEX_CHANNELS channels, major $IMEX_MAJOR, proc-devices at $IMEX_DIR/proc-devices"
+fi
+
 # 3b. Generate CDI spec for nvidia-container-runtime CDI mode.
 #     This allows the toolkit to inject our mock libs into containers without
 #     needing libnvidia-container or kernel modules.
