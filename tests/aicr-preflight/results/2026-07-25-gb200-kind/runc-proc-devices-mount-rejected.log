@@ -1,0 +1,1 @@
+back-off 2m40s restarting failed container=compute-domains pod=nvidia-dra-driver-gpu-kubelet-plugin-5cpq7_nvidia-dra-driver(b2b7240c-39c4-452f-b68f-ec1c7e20572f)

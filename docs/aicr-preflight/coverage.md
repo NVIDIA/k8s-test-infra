@@ -103,7 +103,7 @@ Summary issue: [#502](https://github.com/NVIDIA/k8s-test-infra/issues/502).
 
 | Gap | Issue | Unlocks | Size | Status |
 |---|---|---|---:|---|
-| No `nvidia-caps-imex-channels` device class, blocks DRA ComputeDomains | [#498](https://github.com/NVIDIA/k8s-test-infra/issues/498) | 2 checks, G to A | M | open |
+| nvml-mock does not ship the mock IMEX surface the DRA compute-domain plugin needs | [#498](https://github.com/NVIDIA/k8s-test-infra/issues/498) | 2 checks, G to A | S | open |
 | No simulated node provisioner | [#499](https://github.com/NVIDIA/k8s-test-infra/issues/499) | 1 check, G to A | M | open |
 | GFD e2e assertion warning-only, can never fail | [#500](https://github.com/NVIDIA/k8s-test-infra/issues/500) | test quality, no bucket move | S | closed |
 

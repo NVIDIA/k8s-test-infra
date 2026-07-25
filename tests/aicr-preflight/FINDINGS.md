@@ -94,20 +94,43 @@ precisely the chain that broke in NVIDIA/k8s-test-infra#455, where three missing
 made `RTLD_NOW` abort while build, unit tests, and lint all stayed green. It proves the plumbing
 resolves. It does not prove the GPU computes anything.
 
-`dra-support` failing is more informative still. On this cluster the real `nvidia-dra-driver-gpu` chart
-installs and publishes all 8 GB200 devices as DRA ResourceSlices off the mock NVML. The check still
-fails, because it also requires a `nvidia-dra-driver-gpu-controller` Deployment that chart v25.12.0
-templates only when `resources.computeDomains.enabled=true`. Enabling that makes the kubelet plugin's
-`compute-domains` container CrashLoopBackOff:
+`dra-support` failing is more informative still, and it took two passes to characterise correctly.
+
+On this cluster the real `nvidia-dra-driver-gpu` chart installs and publishes all 8 GB200 devices as
+DRA ResourceSlices off the mock NVML. The check still fails, because it also requires a
+`nvidia-dra-driver-gpu-controller` Deployment that the chart templates only when
+`resources.computeDomains.enabled=true`. Enabling that makes the kubelet plugin's `compute-domains`
+container CrashLoopBackOff:
 
 ```
 error getting nvcap for IMEX channel '0': error getting device major:
 error parsing '/proc/devices': unexpected regex match: []
 ```
 
-Mokka registers no `nvidia-caps-imex-channels` char-device major and creates no channel device nodes.
-That is a concrete, closable gap (#498), found on a laptop, that would otherwise have surfaced during
-bring-up.
+**The first conclusion drawn from this was wrong**, and it is worth recording because the correction
+changes the recommendation. The initial reading was that Mokka lacks an `nvidia-caps-imex-channels`
+device class and that closing it meant inventing a way to fake `/proc/devices`, sized M.
+
+In fact the DRA driver already solves this. Its chart exposes an `altProcDevices` value whose
+documented example path is literally `/var/lib/nvml-mock/imex/proc-devices`, mounting an alternate
+file and passing `ALT_PROC_DEVICES_PATH`. Its CI (`hack/ci/mock-nvml/setup-mock-gpu.sh`, step 7b)
+builds the whole surface against `nvml-mock`: the proc-devices file with `235 nvidia-caps-imex-channels`
+appended, a `fabric-imex-mgmt` capability file, and 2048 channel device nodes.
+
+So the real gap is **packaging, not capability**, and it is smaller: `nvml-mock` does not ship that
+surface, and the released NGC chart v25.12.0 that this repo's e2e uses has no `altProcDevices` key.
+Both halves exist; neither is reachable from the `nvml-mock` chart.
+
+Attempting the obvious workaround confirmed why the indirection exists. Building the surface by hand
+and mounting it over `/proc/devices` in the container is rejected by runc:
+
+```
+error mounting "/var/lib/nvml-mock/imex/proc-devices" to rootfs at "/proc/devices":
+... cannot be mounted because it is inside /proc
+```
+
+The bucket does not change: a user of the `nvml-mock` chart alone still cannot run this check, so it
+stays G. The size drops to S and the fix is adaptation rather than invention. Tracked as #498.
 
 ## 3. Back-test against real failures
 
@@ -165,14 +188,15 @@ Summary issue: **#502**.
 
 | Gap | Issue | Blocks | Coverage unlocked | Size | Status |
 |---|---|---|---|---:|---|
-| No `nvidia-caps-imex-channels` device class, blocks DRA ComputeDomains | [#498](https://github.com/NVIDIA/k8s-test-infra/issues/498) | `dra-support`, `slinky-slurm-imex-channel` | 2 checks, G to A | M | open |
+| nvml-mock does not ship the mock IMEX surface the DRA compute-domain plugin needs | [#498](https://github.com/NVIDIA/k8s-test-infra/issues/498) | `dra-support`, `slinky-slurm-imex-channel` | 2 checks, G to A | S | open |
 | No simulated node provisioner | [#499](https://github.com/NVIDIA/k8s-test-infra/issues/499) | `cluster-autoscaling` | 1 check, G to A | M | open |
 | GFD e2e assertion is warning-only and can never fail | [#500](https://github.com/NVIDIA/k8s-test-infra/issues/500) | confidence in the resource-advertisement surface | test quality | S | **closed in this PR** |
 
 - **Closed during this POC:** 1 gap (#500). It did not move a bucket, because it was a defect in our
   own e2e rather than in Mokka's capability. It is reported as a test-quality fix, not as coverage.
-- **Highest-leverage remaining:** #498. It unlocks 2 checks and is the only gap on the GB200 critical
-  path, since ComputeDomains is how IMEX is expressed in DRA.
+- **Highest-leverage remaining:** #498. It unlocks 2 checks, is the only gap on the GB200 critical
+  path since ComputeDomains is how IMEX is expressed in DRA, and is now sized S because the DRA
+  driver already ships the consumption mechanism and the setup shell already exists in its CI.
 - **Deliberately not worth closing:** MIG. Mokka's MIG coverage is zero (every GpuInstance and
   ComputeInstance call is a stub), but **no check in the AICR catalog requires MIG**, so closing it
   would unlock no coverage. Filed nowhere on purpose, recorded here so nobody refiles it as a blocker.

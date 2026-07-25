@@ -115,12 +115,20 @@ error getting nvcap for IMEX channel '0': error getting device major:
 error parsing '/proc/devices': unexpected regex match: []
 ```
 
-Mokka registers no `nvidia-caps-imex-channels` char-device major. The check was right, the cluster was
-wrong, and the gap is closable because it is device-node plumbing rather than fabric transport. It is
-tracked as [#498](https://github.com/NVIDIA/k8s-test-infra/issues/498).
+The check was right and the cluster was wrong. The gap is closable, and it is smaller than it first
+looks: the DRA driver already exposes an `altProcDevices` value (documented example path:
+`/var/lib/nvml-mock/imex/proc-devices`) that mounts an alternate file and passes
+`ALT_PROC_DEVICES_PATH`, and its own CI builds that surface against `nvml-mock`. What is missing is
+that `nvml-mock` does not ship the surface and the released NGC chart has no `altProcDevices` key.
+Tracked as [#498](https://github.com/NVIDIA/k8s-test-infra/issues/498).
 
-Note the discipline in that conclusion: the first hypothesis (a stale expectation in AICR) was wrong,
-and checking the chart templates rather than assuming is what produced the correct one.
+Two wrong hypotheses preceded that conclusion, which is the point of the triage step. The first was
+that AICR carried a stale expectation; checking the chart templates disproved it. The second was that
+Mokka needed a way to fake `/proc/devices` invented from scratch; reading the DRA driver's own CI
+disproved that too. Do not stop at the first plausible story.
+
+Also worth knowing: mounting a file over `/proc/devices` inside a container does not work, because
+runc rejects it. That is exactly why the `ALT_PROC_DEVICES_PATH` indirection exists.
 
 ## Guarantees the harness gives you
 

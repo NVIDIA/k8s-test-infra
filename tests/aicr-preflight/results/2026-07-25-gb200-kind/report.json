@@ -1,6 +1,6 @@
 {
   "schema": "nvidia.com/aicr-preflight/v1alpha1",
-  "generatedAt": "2026-07-25T07:29:58Z",
+  "generatedAt": "2026-07-25T08:27:54Z",
   "provenance": "sim",
   "catalogSource": "NVIDIA/aicr recipes/validators/catalog.yaml @06256cc8 (21 checks)",
   "cluster": "kind-nvml-mock-op",
@@ -121,10 +121,10 @@
       "bucket": "G",
       "outcome": "fail",
       "provenance": "sim",
-      "rationale": "Half of this check already works under Mokka and half is blocked, so the precise split matters. WORKS: the real nvidia-dra-driver-gpu chart installs, the kubelet plugin runs, and ResourceSlices publish all 8 GB200 devices off the mock NVML (observed 2026-07-25). BLOCKED: the check also requires the nvidia-dra-driver-gpu-controller Deployment, which chart v25.12.0 templates only when resources.computeDomains.enabled=true. Turning that on makes the kubelet plugin's compute-domains container CrashLoopBackOff with \"error getting nvcap for IMEX channel '0': error parsing '/proc/devices': unexpected regex match: []\", because Mokka registers no nvidia-caps-imex-channels char-device major and creates no /dev/nvidia-caps-imex-channels nodes. Not hardware-dependent, therefore bucket G rather than C: this is device-node and /proc/devices plumbing, not fabric transport.",
+      "rationale": "Half of this check already works under Mokka and half is blocked by PACKAGING, not by a capability limit. WORKS: the real nvidia-dra-driver-gpu chart installs, the kubelet plugin runs, and ResourceSlices publish all 8 GB200 devices off the mock NVML (observed 2026-07-25). BLOCKED: the check also requires the nvidia-dra-driver-gpu-controller Deployment, which the chart templates only when resources.computeDomains.enabled=true, and enabling that crashes the kubelet plugin's compute-domains container on \"error getting nvcap for IMEX channel '0': error parsing '/proc/devices'\". The DRA driver already solves this: its chart exposes altProcDevices, which mounts an alternate proc-devices file and passes ALT_PROC_DEVICES_PATH, and its own CI (hack/ci/mock-nvml/setup-mock-gpu.sh) builds the surface against nvml-mock. Two things are missing: nvml-mock does not ship that surface, and the released NGC chart v25.12.0 has no altProcDevices key. Bucket G because a user of the nvml-mock chart alone cannot run this check today, but the gap is packaging and is small. See issue #498.",
       "gpuDependent": true,
       "gapIssue": "#498",
-      "evidence": "validators/conformance/dra_support_check.go:42-54,242-264; observed CrashLoopBackOff on nvidia-dra-driver-gpu 25.12.0 templates/controller.yaml",
+      "evidence": "validators/conformance/dra_support_check.go:42-54,242-264; kubernetes-sigs/dra-driver-nvidia-gpu values.yaml altProcDevices + hack/ci/mock-nvml/setup-mock-gpu.sh step 7b",
       "message": "[NOT_FOUND] deployment nvidia-dra-driver/nvidia-dra-driver-gpu-controller not found: deployments.apps \"nvidia-dra-driver-gpu-controller\" not found"
     },
     {
@@ -235,7 +235,7 @@
       "bucket": "G",
       "outcome": "not-run",
       "provenance": "sim",
-      "rationale": "Verifies two concurrent Slurm jobs each receive a distinct NVIDIA IMEX channel. Bucketed G rather than C, and the distinction matters: whether the fabric carries traffic is hardware-dependent (bucket C, see nccl-all-reduce-bw-nvls), but whether channel ALLOCATION hands out distinct channels is driver-surface and control-plane behaviour that is simulatable. Same root cause as dra-support: Mokka registers no nvidia-caps-imex-channels char-device major and creates no channel device nodes, which the DRA driver's own compute-domains component confirmed by crashing on /proc/devices. Flagged for Mark's review as the closest call in the catalog, since it sits nearest his hardware-dependent boundary.",
+      "rationale": "Verifies two concurrent Slurm jobs each receive a distinct NVIDIA IMEX channel. Bucketed G rather than C, and the distinction matters: whether the fabric carries traffic is hardware-dependent (bucket C, see nccl-all-reduce-bw-nvls), but whether channel ALLOCATION hands out distinct channels is driver-surface and control-plane behaviour that is simulatable. Same root cause and same issue as dra-support (#498): nvml-mock does not ship the mock IMEX surface (proc-devices entries, fabric-imex-mgmt capability file, channel device nodes) that the DRA driver's compute-domain plugin consumes via ALT_PROC_DEVICES_PATH. The DRA driver's own CI builds that surface against nvml-mock, so this is packaging rather than a capability limit. Flagged for Mark's review as the closest call in the catalog, since it sits nearest his hardware-dependent boundary. The allocation-distinctness behaviour itself is unverified here: static channel device nodes may or may not model per-job allocation faithfully.",
       "gpuDependent": true,
       "gapIssue": "#498",
       "evidence": "validators/conformance/slinky_slurm_imex_channel_check.go:82-84"
