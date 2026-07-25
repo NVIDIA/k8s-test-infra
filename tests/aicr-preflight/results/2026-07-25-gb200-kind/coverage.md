@@ -1,6 +1,6 @@
 # AICR check coverage under Mokka
 
-Generated 2026-07-25T08:27:54Z. Provenance: `sim`. Cluster: `kind-nvml-mock-op`. Profile: `gb200`.
+Generated 2026-07-25T09:10:12Z. Provenance: `sim`. Cluster: `kind-nvml-mock-op`. Profile: `gb200`.
 
 Catalog source: NVIDIA/aicr recipes/validators/catalog.yaml @06256cc8 (21 checks)
 
@@ -10,7 +10,7 @@ Catalog source: NVIDIA/aicr recipes/validators/catalog.yaml @06256cc8 (21 checks
 - Meaningful pre-silicon TODAY: 66.7% (A / total)
 - Reachable once tracked gaps close: 81.0% ((A + G) / total). Roadmap, not a current claim.
 - Of the 14 bucket-A checks, 9 depend on the GPU stack (unlocked by Mokka) and 5 are GPU-independent (any cluster runs them).
-- Executed in this run: 9 of 21 (5 pass, 4 fail, 0 skip). **12 were not run** and carry no evidence either way.
+- Executed in this run: 9 of 21 (6 pass, 3 fail, 0 skip). **12 were not run** and carry no evidence either way.
 - Bucket B is empty. That is a real result, not an oversight: AICR's checks are written as integration assertions rather than value assertions, so none of them is green purely because the mock answered. The corresponding limitation is that where Mokka's values are synthetic, a check validates the path and stays silent on the values.
 
 ## Catalog
@@ -28,7 +28,7 @@ Catalog source: NVIDIA/aicr recipes/validators/catalog.yaml @06256cc8 (21 checks
 | 9 | `dra-support` | dra | conformance | G | yes | fail | sim | #498 |
 | 10 | `gang-scheduling` | scheduling | conformance | A | no | not-run | sim | - |
 | 11 | `accelerator-metrics` | nvml-surface | conformance | A | yes | pass | sim | - |
-| 12 | `ai-service-metrics` | control-plane | conformance | A | yes | fail | sim | - |
+| 12 | `ai-service-metrics` | control-plane | conformance | A | yes | pass | sim | - |
 | 13 | `inference-gateway` | control-plane | conformance | A | no | not-run | sim | - |
 | 14 | `pod-autoscaling` | scheduling | conformance | A | yes | not-run | sim | - |
 | 15 | `cluster-autoscaling` | scheduling | conformance | G | no | not-run | sim | #499 |

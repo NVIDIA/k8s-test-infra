@@ -62,6 +62,6 @@
     <rect x="16" y="330" width="730" height="72" rx="6" class="note"/>
     <text x="30" y="352" class="lb" font-weight="600">TODAY 66.7% (14/21) · Mokka-specific 42.9% (9/21) · REACHABLE 81.0% (17/21)</text>
     <text x="30" y="372" class="cap">Reachable is the roadmap number once #498 and #499 close. It is never the current number.</text>
-    <text x="30" y="390" class="cap">Executed in this run: 9 of 21, 5 pass and 4 fail. The other 12 are analysis, not observation.</text>
+    <text x="30" y="390" class="cap">Executed in this run: 9 of 21, 6 pass and 3 fail. The other 12 are analysis, not observation.</text>
   </g>
 </svg>

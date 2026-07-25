@@ -27,7 +27,7 @@ Current values, from the 2026-07-25 run (provenance `sim`):
 
 - 21 checks total: A 14, B 0, C 4, G 3
 - Today 66.7% (A / total), Mokka-specific 42.9% (9 / 21), reachable 81.0% ((A + G) / total)
-- Executed 9 of 21: 5 pass, 4 fail, 12 not run
+- Executed 9 of 21: 6 pass, 3 fail, 12 not run
 - Proxy back-test: 2 of 4 caught
 
 Verify with:

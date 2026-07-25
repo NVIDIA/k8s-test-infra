@@ -1,6 +1,6 @@
 {
   "schema": "nvidia.com/aicr-preflight/v1alpha1",
-  "generatedAt": "2026-07-25T08:27:54Z",
+  "generatedAt": "2026-07-25T09:10:12Z",
   "provenance": "sim",
   "catalogSource": "NVIDIA/aicr recipes/validators/catalog.yaml @06256cc8 (21 checks)",
   "cluster": "kind-nvml-mock-op",
@@ -14,9 +14,9 @@
       "G": 3
     },
     "byOutcome": {
-      "fail": 4,
+      "fail": 3,
       "not-run": 12,
-      "pass": 5
+      "pass": 6
     },
     "meaningfulTodayPct": 66.66666666666666,
     "reachablePct": 80.95238095238095,
@@ -154,12 +154,11 @@
       "area": "control-plane",
       "phase": "conformance",
       "bucket": "A",
-      "outcome": "fail",
+      "outcome": "pass",
       "provenance": "sim",
       "rationale": "Discovers Prometheus from the recipe and verifies GPU metric time series exist and the custom metrics API is available. Real integration of the monitoring stack with the GPU telemetry source; same value caveat as accelerator-metrics.",
       "gpuDependent": true,
-      "evidence": "validators/conformance/ai_service_metrics_check.go:37-40",
-      "message": "[NOT_FOUND] no Prometheus service with port 9090 found in namespace \"monitoring\""
+      "evidence": "validators/conformance/ai_service_metrics_check.go:37-40"
     },
     {
       "name": "inference-gateway",
@@ -261,7 +260,7 @@
       "rationale": "Validates namespace existence and expectedResources health for every componentRef in the recipe. Real deployment verification, no GPU dependency.",
       "gpuDependent": false,
       "evidence": "validators/conformance/platform_health_check.go:28-30",
-      "message": "[NOT_FOUND] platform health check failed (8 issues):\n  namespace agentgateway-system: not found\n  namespace cert-manager: not found\n  namespace monitoring: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace node-feature-discovery: not found\n  namespace skyhook: not found\n  namespace nvsentinel: not found"
+      "message": "[NOT_FOUND] platform health check failed (5 issues):\n  namespace agentgateway-system: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace skyhook: not found\n  namespace nvsentinel: not found"
     }
   ]
 }

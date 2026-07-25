@@ -19,7 +19,7 @@ Of the **21** checks in the AICR validate catalog:
 - **Reachable: 81.0%** once the tracked gaps close ((A + G) / total). Roadmap, not a current claim.
 - **Mokka specifically unlocks 42.9%** (9 of 21), because 5 of the 14 bucket-A checks are
   control-plane checks any cluster would run.
-- **Executed: 9 of 21** (5 pass, 4 fail). 12 were not selected by the recipe and carry no evidence.
+- **Executed: 9 of 21** (6 pass, 3 fail). 12 were not selected by the recipe and carry no evidence.
 
 ```mermaid
 pie showData

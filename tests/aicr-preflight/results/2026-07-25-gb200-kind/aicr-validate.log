@@ -6,23 +6,23 @@
 [cli] deploying agent: namespace=aicr-validation
 [cli] agent deployed successfully
 [cli] waiting for Job completion: job=aicr-validate timeout=12m0s
-[cli] pod current phase: name=aicr-validate-l5l6c status=Pending
-[cli] pod current phase: name=aicr-validate-l5l6c status=Pending waitingReason=ContainerCreating
-[cli] pod current phase: name=aicr-validate-l5l6c status=Pending waitingReason=ContainerCreating
-[cli] pod current phase: name=aicr-validate-l5l6c status=Running
+[cli] pod current phase: name=aicr-validate-fcsr5 status=Pending
+[cli] pod current phase: name=aicr-validate-fcsr5 status=Pending waitingReason=ContainerCreating
+[cli] pod current phase: name=aicr-validate-fcsr5 status=Pending waitingReason=ContainerCreating
+[cli] pod current phase: name=aicr-validate-fcsr5 status=Running
 [agent] collecting GPU information
+[agent] collecting OS configuration
 [agent] collecting Kubernetes cluster information
 [agent] collecting SystemD service configurations
-E0725 07:06:47.822960   16726 kernel.go:150] "failed to get builtin kernel modules" err="failed to read file /lib/modules/6.12.76-linuxkit/modules.builtin: open /lib/modules/6.12.76-linuxkit/modules.builtin: no such file or directory"
+E0725 09:06:54.626197   37093 kernel.go:150] "failed to get builtin kernel modules" err="failed to read file /lib/modules/6.12.76-linuxkit/modules.builtin: open /lib/modules/6.12.76-linuxkit/modules.builtin: no such file or directory"
 [agent] collecting node topology information
-[agent] collecting OS configuration
-[agent] node topology collection complete: nodes=1 taints=0 labels=95
+[agent] node topology collection complete: nodes=1 taints=0 labels=96
 [agent] configmap operation: namespace=aicr-validation name=aicr-snapshot auth_method=bearer-token format=yaml
 [agent] applying ConfigMap: namespace=aicr-validation name=aicr-snapshot format=yaml
 [cli] job completed successfully
 [cli] snapshot has no GPU data but cluster topology shows GPU-capable nodes — agent likely ran on a non-GPU node: detection_note=relies on nvidia.com/gpu.present/product labels (NFD); clusters without these labels are not detected fix_1=--node-selector nvidia.com/gpu.present=true (after GPU Operator/NFD) fix_2=--node-selector kubernetes.io/hostname=<gpu-node> (before GPU Operator) fix_3=--require-gpu (requests nvidia.com/gpu resource; needs Device Plugin) fix_4=--runtime-class nvidia (nvidia-smi access without consuming a GPU slot)
 [cli] running validation: phases=[deployment conformance]
-[cli] running validation phases: runID=20260725-090650-71cdbfe2fcfd8d50 phases=[deployment conformance]
+[cli] running validation phases: runID=20260725-110657-6c7bc170e27a951d phases=[deployment conformance]
 [cli] readiness pre-flight: constraints=1
 [cli] readiness constraint passed: name=K8s.server.version expected=>= 1.30 actual=v1.36.1
 [cli] running validation phase: phase=deployment catalog=4 selected=4
@@ -34,20 +34,19 @@ E0725 07:06:47.822960   16726 kernel.go:150] "failed to get builtin kernel modul
 [cli] validator completed: name=gpu-operator-version status=passed
 [cli] running validator: name=check-nvidia-smi phase=deployment
 [cli] validator completed: name=check-nvidia-smi status=passed
-[cli] phase completed: phase=deployment status=failed validators=4 passed=3 failed=1 duration=2m47.322568708s
+[cli] phase completed: phase=deployment status=failed validators=4 passed=3 failed=1 duration=2m17.238596917s
 [cli] running validation phase: phase=conformance catalog=13 selected=5
 [cli] running validator: name=dra-support phase=conformance
 [cli] validator completed: name=dra-support status=failed
 [cli] running validator: name=accelerator-metrics phase=conformance
 [cli] validator completed: name=accelerator-metrics status=passed
 [cli] running validator: name=ai-service-metrics phase=conformance
-[cli] dependencyAffinity selector matched zero pods at deploy time; affinity term will be a no-op until matching pods appear: validator=ai-service-metrics namespace=monitoring selector=app.kubernetes.io/name=prometheus reason=zero-match
-[cli] validator completed: name=ai-service-metrics status=failed
+[cli] validator completed: name=ai-service-metrics status=passed
 [cli] running validator: name=gpu-operator-health phase=conformance
 [cli] validator completed: name=gpu-operator-health status=passed
 [cli] running validator: name=platform-health phase=conformance
 [cli] validator completed: name=platform-health status=failed
-[cli] phase completed: phase=conformance status=failed validators=5 passed=2 failed=3 duration=17.111289083s
-[cli] all phases completed: runID=20260725-090650-71cdbfe2fcfd8d50 phases=2
-[cli] phase result: phase=deployment status=failed duration=2m47.322568708s
-[cli] phase result: phase=conformance status=failed duration=17.111289083s
+[cli] phase completed: phase=conformance status=failed validators=5 passed=3 failed=2 duration=17.135913791s
+[cli] all phases completed: runID=20260725-110657-6c7bc170e27a951d phases=2
+[cli] phase result: phase=deployment status=failed duration=2m17.238596917s
+[cli] phase result: phase=conformance status=failed duration=17.135913791s

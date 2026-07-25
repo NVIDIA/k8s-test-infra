@@ -13,8 +13,9 @@ against mocked APIs? (Mark Chmarny, 2026-07-24.)
 ## Answer
 
 It does more than prove deployment against mocked APIs, but by less than the headline coverage number
-suggests, and the strongest single result is a real integration defect found pre-silicon rather than a
-green suite. Of 21 AICR checks, 14 are analytically meaningful under Mokka, but only 9 of those depend
+suggests, and the strongest results are two real integration defects found pre-silicon rather than a
+green suite: a missing IMEX device surface, and an AICR recipe that declares a conformance check its
+own bundle cannot satisfy. Of 21 AICR checks, 14 are analytically meaningful under Mokka, but only 9 of those depend
 on the GPU stack at all, and only 9 checks of the 21 actually executed in this run. The honest verdict
 is go-with-scope: preflight is real for operator install, NVML-facing components, resource
 advertisement and control-plane behaviour, and it is nothing at all for the hardware-dependent path
@@ -35,7 +36,7 @@ Two qualifications, both of which cut against the headline:
    `platform-health`) are control-plane checks that any cluster would run. `gang-scheduling` is
    deliberately CPU-only upstream. They move left, but Mokka is not what unlocks them. **The share
    Mokka specifically unlocks is 9/21, or 42.9%.**
-2. **Only 9 of 21 checks executed.** 5 passed, 4 failed, 12 were not run because the generated
+2. **Only 9 of 21 checks executed.** 6 passed, 3 failed, 12 were not run because the generated
    `kind` + `gb200` recipe did not select them. Bucket assignment is analysis over the whole catalog;
    it is not evidence that the other 12 would behave as classified.
 
@@ -65,19 +66,30 @@ Machine-readable: [`report.json`](results/2026-07-25-gb200-kind/report.json).
 | `operator-health` | deployment | A | pass | real operator reconciled against the mock |
 | `gpu-operator-version` | deployment | A | pass | constraint `>= v25.10.0` satisfied |
 | `check-nvidia-smi` | deployment | A | **pass** | device plugin, CDI, toolkit, `libnvidia-ml.so.1` resolution |
-| `expected-resources` | deployment | A | fail | missing `agentgateway` Deployment (prerequisite absent) |
+| `expected-resources` | deployment | A | fail | missing `agentgateway` Deployment (component not installed) |
 | `gpu-operator-health` | conformance | A | pass | ClusterPolicy `ready`, see caveat below |
 | `accelerator-metrics` | conformance | A | pass | real dcgm-exporter against mock NVML |
+| `ai-service-metrics` | conformance | A | **pass** | passes only after two real integration fixes, see below |
 | `dra-support` | conformance | G | fail | see gap #498 |
-| `ai-service-metrics` | conformance | A | fail | no Prometheus in `monitoring` (prerequisite absent) |
-| `platform-health` | conformance | A | fail | 8 namespaces absent (prerequisites) |
+| `platform-health` | conformance | A | fail | 5 namespaces absent (components not installed) |
 
-Three of the four failures are missing prerequisite components rather than simulation limits: this
-harness deployed the GPU Operator and the DRA driver, while the recipe declares 14 components. That is
-harness scoping, and it is recorded as such rather than counted against Mokka.
+Two of the three failures are components this harness did not install, not simulation limits: the
+recipe declares 14 components and this cluster ran 7. That is harness scoping and is recorded as such
+rather than counted against Mokka.
 
-Evidence that these checks read live state rather than passing trivially: installing the DRA driver
-mid-run moved `platform-health` from 9 missing namespaces to 8.
+**These checks demonstrably read live state.** Coverage improved monotonically as components were
+added, and each fix moved a check to its next real requirement rather than flipping it green:
+
+| Cluster state | pass / fail | What moved |
+|---|---|---|
+| GPU Operator + DRA driver | 5 / 4 | baseline |
+| plus cert-manager, NFD, kube-prometheus-stack | 5 / 4 | `platform-health` 8 missing namespaces to 5; `ai-service-metrics` moved from "no Prometheus service" to "no `DCGM_FI_DEV_GPU_UTIL` time series" |
+| plus dcgm-exporter ServiceMonitor | 5 / 4 | `ai-service-metrics` moved past the time-series assertion to "custom metrics API not available" |
+| plus prometheus-adapter | **6 / 3** | **`ai-service-metrics` passes** |
+
+That progression is the strongest evidence in this POC that the A-bucket checks carry real signal. A
+check that passed trivially against a mock could not have failed four different ways for four
+different real reasons.
 
 **Caveat on `gpu-operator-health`.** ClusterPolicy reaching `ready` is a weaker statement under Mokka
 than on silicon. Two sub-validations are deliberately neutered: cuda-validation runs with
@@ -131,6 +143,37 @@ error mounting "/var/lib/nvml-mock/imex/proc-devices" to rootfs at "/proc/device
 
 The bucket does not change: a user of the `nvml-mock` chart alone still cannot run this check, so it
 stays G. The size drops to S and the fix is adaptation rather than invention. Tracked as #498.
+
+## 2b. A defect in AICR's own recipe, found pre-silicon
+
+The `ai-service-metrics` progression above surfaced something worth Mark's attention directly.
+
+**The generated `kind` + `gb200` recipe declares a check its own bundle cannot satisfy.** It selects
+`ai-service-metrics` as a conformance check, and it declares both `kube-prometheus-stack` and
+`prometheus-adapter` as components. But nothing in it wires the GPU Operator's dcgm-exporter into
+Prometheus, so no GPU time series ever exists and the check cannot pass from a clean deploy of that
+bundle.
+
+Verified three ways against the generated recipe, because a single negative grep is not evidence:
+
+1. The `gpu-operator` component's `dcgmExporter` overrides contain only `config: {create: false, data: '', name: ''}`. There is no `serviceMonitor` block, and the chart default is disabled. On the live cluster, no `nvidia-dcgm-exporter` ServiceMonitor existed until it was enabled by hand.
+2. The `kube-prometheus-stack` overrides touch only `alertmanager`, `defaultRules`, `grafana`, `prometheus` (resources, retention, storage) and `prometheusOperator`. No `additionalScrapeConfigs`, no widened `serviceMonitorSelector`.
+3. The recipe mentions DCGM exactly twice, both inside the gpu-operator block quoted above. There is no scrape configuration for it anywhere.
+
+Prometheus selects ServiceMonitors labelled `release: kube-prometheus-stack`. With no ServiceMonitor
+created at all, no selector can help.
+
+Setting `dcgmExporter.serviceMonitor.enabled=true` with that label made the metric appear
+(`DCGM_FI_DEV_GPU_UTIL`, carrying `DCGM_FI_DRIVER_VERSION: 580.65.06` and the GB200 model name off the
+mock), and the check advanced. Installing `prometheus-adapter` made it pass.
+
+This is an AICR-side finding, not a Mokka gap, and **it has not been filed**: NVIDIA/aicr is Mark's
+repo. It is raised here for him to confirm or correct, since he may know a deployment path that
+configures the wiring and that the generated recipe simply does not express.
+
+It is also the cleanest single answer to the POC's question. A misconfiguration that would otherwise
+surface during bring-up, when a customer wonders why their GPU dashboards are empty, was found on a
+laptop with no GPU present.
 
 ## 3. Back-test against real failures
 
@@ -216,7 +259,7 @@ Summary issue: **#502**.
 
 | Claim | Supported? | Basis |
 |---|---|---|
-| Pre-silicon **integration preflight** for the A-bucket checks | **Yes, scoped** | 5 checks passed and 4 failed for real, diagnosable reasons on a simulated cluster; `check-nvidia-smi` exercised the full allocation-to-NVML chain |
+| Pre-silicon **integration preflight** for the A-bucket checks | **Yes, scoped** | 6 checks passed and 3 failed for real, diagnosable reasons; coverage improved monotonically as components were added, and two genuine integration defects were found |
 | **Reduces** time to first token | **Directionally, not quantified** | 2 of 4 proxy failures were control-plane class and would surface pre-silicon; no timeline data exists to attach hours to that |
 | **Hit** first token on day one | **No** | simulation cannot prove it; the entire hardware-dependent path is untested by construction |
 | AICR-on-silicon remains the final readiness gate | **Yes** | bucket C is non-empty by construction: NCCL, NVLS, firmware and driver, and TTFT are all unrunnable here |

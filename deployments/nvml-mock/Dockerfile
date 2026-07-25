@@ -23,6 +23,7 @@ COPY pkg/gpu/mockcuda/ pkg/gpu/mockcuda/
 COPY pkg/network/mockib/ pkg/network/mockib/
 COPY pkg/nri/ pkg/nri/
 COPY pkg/system/mockpcisysfs/ pkg/system/mockpcisysfs/
+COPY pkg/system/mockimex/ pkg/system/mockimex/
 COPY pkg/imexcoord/ pkg/imexcoord/
 COPY pkg/fmcoord/ pkg/fmcoord/
 COPY cmd/mock-ib/ cmd/mock-ib/

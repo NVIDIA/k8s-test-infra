@@ -106,7 +106,7 @@ Of the 21 checks in the AICR validate catalog:
 
 Two limits on that headline, stated plainly because they matter more than the percentage:
 
-1. **9 of 21 checks actually executed** in the reference run (5 passed, 4 failed). The remaining 12
+1. **9 of 21 checks actually executed** in the reference run (6 passed, 3 failed). The remaining 12
    were not selected by the generated recipe. Their buckets are analysis, not observation.
 2. **The run used one node.** It says nothing about GPU-stack fidelity at large node counts.
 
@@ -120,11 +120,18 @@ wiring, and dynamic-library resolution. That is the exact chain that broke in a 
 three missing exported symbols made the library fail to load while the build, unit tests, and linters
 all stayed green.
 
-The more useful result: `dra-support` failed, and the reason was a genuine, previously unknown gap.
-The DRA driver installs and publishes all 8 simulated GB200 devices as ResourceSlices, but enabling
-ComputeDomains crashes the plugin because Mokka registers no IMEX channel device class. That is a
-concrete defect found on a laptop, months before any hardware arrives, and it is now tracked as
+The more useful results were two real defects.
+
+`dra-support` failed because the DRA driver's compute-domain plugin needs an IMEX device surface that
+the mock does not ship. The driver installs and publishes all 8 simulated GB200 devices as
+ResourceSlices, but enabling ComputeDomains crashes the plugin. Tracked as
 [#498](https://github.com/NVIDIA/k8s-test-infra/issues/498).
+
+`ai-service-metrics` failed because the generated recipe never wires the GPU Operator's dcgm-exporter
+into Prometheus, so no GPU time series exists and a check the recipe itself selects cannot pass from
+its own bundle. Enabling the ServiceMonitor and installing prometheus-adapter made it pass. That is a
+misconfiguration a customer would otherwise hit during bring-up, wondering why their GPU dashboards
+are empty.
 
 Finding real defects is the point. A suite that goes uniformly green against a mock would be evidence
 of nothing.
