@@ -275,6 +275,31 @@ if [ -f /etc/nvml-mock/topology/topology.yaml ]; then
 fi
 
 # 7. Label node (requires RBAC: get+patch on nodes)
+#
+#    The pci-10de label is written by hand because NFD structurally cannot
+#    derive it on a mock node — not because its class filter excludes us. NFD's
+#    PCI source reads exactly one path, fixed at link time: source/pci/utils.go
+#    resolves hostpath.SysfsDir.Path("bus/pci/devices"), and pkg/utils/hostpath
+#    builds SysfsDir from a private `pathPrefix` var set only via linker -X.
+#    Upstream's container build passes HOSTMOUNT_PREFIX=/host- (Makefile), so the
+#    shipped worker reads /host-sys/bus/pci/devices — the real host /sys,
+#    hostPath-mounted read-only by the worker DaemonSet.
+#
+#    Our fake tree lives at /var/lib/nvml-mock/sys/bus/pci/devices and is
+#    reachable only through libpcimocksys.so, which the NRI plugin does inject
+#    into the NFD worker (it is opt-out, and NFD is not in an excluded
+#    namespace). The injection is inert for two independent reasons:
+#      a) the shim rewrites only paths starting "/sys/" (see k_prefixes[] in
+#         pkg/system/mockpcisysfs/c/shim.c); "/host-sys/..." never matches; and
+#      b) nfd-worker is built -extldflags=-static, so the binary has no
+#         PT_INTERP and LD_PRELOAD is ignored outright.
+#
+#    The key itself is correct: GPU Operator configures NFD with
+#    deviceLabelFields:[vendor] and whitelists class 0302, which is exactly the
+#    "pci-<vendor>.present" form below, and our rendered devices carry all five
+#    attributes NFD treats as mandatory. Only visibility is missing. Removing
+#    this line would silently drop the label.
+#    Full analysis with file:line citations: refs #505.
 if command -v kubectl >/dev/null 2>&1; then
   kubectl label node "$NODE_NAME" nvidia.com/gpu.present=true --overwrite || true
   kubectl label node "$NODE_NAME" feature.node.kubernetes.io/pci-10de.present=true --overwrite || true
