@@ -347,13 +347,28 @@ fi
 mkdir -p /host/run/nvidia
 ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 
-# 8b. Write the toolkit-ready marker that GPU Operator operand pods poll for.
-#     Operand DaemonSets (device-plugin, gpu-feature-discovery) ship with a
-#     hardcoded `toolkit-validation` init container that loops on:
+# 8b. Pre-create the toolkit-ready marker that GPU Operator operand pods poll for.
+#     Six operand DaemonSets ship an unconditional `toolkit-validation` init
+#     container that loops on:
 #       until [ -f /run/nvidia/validations/toolkit-ready ]; do sleep 5; done
-#     Real nvidia-container-toolkit writes this marker as part of its install.
-#     When nvml-mock substitutes for the toolkit, no other component writes
-#     it — so we do, here, alongside the existing /run/nvidia/driver setup.
+#     (gpu-operator v26.3.0: assets/state-device-plugin/0500_daemonset.yaml:29,31;
+#     gpu-feature-discovery/0500_daemonset.yaml:29,32;
+#     state-dcgm-exporter/0800_daemonset.yaml:28,31; state-dcgm/0400_dcgm.yml:28,31;
+#     state-mps-control-daemon/0400_daemonset.yaml:31,33;
+#     state-mig-manager/0600_daemonset.yaml:28,31.)
+#
+#     The marker's real writer is NOT nvidia-container-toolkit. It is GPU
+#     Operator's own nvidia-validator, running as the operator-validator
+#     DaemonSet's `toolkit-validation` init container with COMPONENT=toolkit
+#     (assets/state-operator-validation/0500_daemonset.yaml:59-69). That
+#     DaemonSet is deployed unconditionally. Toolkit.validate() DELETES the
+#     marker (cmd/nvidia-validator/main.go:1134), runs nvidia-smi, and re-creates
+#     it only on success (main.go:1153); the validator's preStop hook then
+#     removes every *-ready file on shutdown (0500_daemonset.yaml:133-136).
+#
+#     So the write below is not durable and validates nothing. Its only effect is
+#     to let operands clear the gate before that check has run — read a green
+#     operand as "scheduled", never as "toolkit validated". See #504.
 mkdir -p /host/run/nvidia/validations
 touch /host/run/nvidia/validations/toolkit-ready
 
