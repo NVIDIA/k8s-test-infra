@@ -42,7 +42,19 @@ linters:
       # files guarded by `//go:build e2e`; they are test-only code in the same
       # package as the _test.go files beside them, and miss staticcheck's
       # carve-out purely on the filename. ST1001 stays enabled everywhere else.
-      - path: ^tests/e2e/go/
+      #
+      # Anchored to files directly under tests/e2e/go/ so it covers the suite
+      # itself and not its subpackages (assertions/, framework/..., ibutil/,
+      # profile/), which are ordinary libraries with no reason to dot-import.
+      - path: ^tests/e2e/go/[^/]+\.go$
         linters:
           - staticcheck
         text: "ST1001:"
+
+issues:
+  # Report every occurrence, not the first three. The default of 3 groups by
+  # message text, so a finding repeated across many files is silently truncated:
+  # this tree looked like it had 4 issues behind the e2e tag when it had 14, and
+  # the discrepancy was invisible until the cap was lifted. Under-reporting a
+  # gate is worse than a long log.
+  max-same-issues: 0
