@@ -53,7 +53,7 @@ var _ = ReportAfterSuite("skipped specs summary", func(report Report) {
 	}
 	b.WriteString("=======================================\n")
 
-	fmt.Fprint(GinkgoWriter, b.String())
+	GinkgoWriter.Print(b.String())
 })
 
 // emptySkipReason returns a cause-neutral marker for skipped specs that carry no
