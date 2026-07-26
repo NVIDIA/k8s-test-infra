@@ -148,10 +148,10 @@ func nvmlDeviceGetHandleByIndex_v2(index C.uint, nvmlDevice *C.nvmlDevice_t) C.n
 	debugLog("[NVML] nvmlDeviceGetHandleByIndex(%d)\n", index)
 	handle, ret := engine.GetEngine().DeviceGetHandleByIndex(int(index))
 	if ret == nvml.SUCCESS {
-		// nvmlDevice_t is a struct with a handle field pointing to opaque nvmlDevice_st
-		//nolint:govet // Converting uintptr to unsafe.Pointer is intentional - handle was allocated
-		// as C memory by HandleTable.Register() and we need to pass it back to the C caller
-		nvmlDevice.handle = (*C.struct_nvmlDevice_st)(unsafe.Pointer(handle))
+		// nvmlDevice_t is a struct with a handle field pointing to opaque
+		// nvmlDevice_st. The engine hands back the C block it allocated, so
+		// this is a pointer-to-pointer conversion, not an integer round-trip.
+		nvmlDevice.handle = (*C.struct_nvmlDevice_st)(handle)
 		debugLog("[NVML]   -> handle=0x%x ret=%d\n", uintptr(handle), ret)
 	}
 	return toReturn(ret)
@@ -175,9 +175,7 @@ func nvmlDeviceGetHandleByUUID(uuid *C.char, nvmlDevice *C.nvmlDevice_t) C.nvmlR
 	goUUID := C.GoString(uuid)
 	handle, ret := engine.GetEngine().DeviceGetHandleByUUID(goUUID)
 	if ret == nvml.SUCCESS {
-		//nolint:govet // Converting uintptr to unsafe.Pointer is intentional - handle was allocated
-		// as C memory by HandleTable.Register() and we need to pass it back to the C caller
-		nvmlDevice.handle = (*C.struct_nvmlDevice_st)(unsafe.Pointer(handle))
+		nvmlDevice.handle = (*C.struct_nvmlDevice_st)(handle)
 	}
 	return toReturn(ret)
 }
@@ -190,9 +188,7 @@ func nvmlDeviceGetHandleByPciBusId_v2(pciBusId *C.char, nvmlDevice *C.nvmlDevice
 	goPciBusId := C.GoString(pciBusId)
 	handle, ret := engine.GetEngine().DeviceGetHandleByPciBusId(goPciBusId)
 	if ret == nvml.SUCCESS {
-		//nolint:govet // Converting uintptr to unsafe.Pointer is intentional - handle was allocated
-		// as C memory by HandleTable.Register() and we need to pass it back to the C caller
-		nvmlDevice.handle = (*C.struct_nvmlDevice_st)(unsafe.Pointer(handle))
+		nvmlDevice.handle = (*C.struct_nvmlDevice_st)(handle)
 	}
 	return toReturn(ret)
 }
@@ -208,7 +204,7 @@ func nvmlDeviceGetHandleByPciBusId_v1(pciBusId *C.char, nvmlDevice *C.nvmlDevice
 
 //export nvmlDeviceGetName
 func nvmlDeviceGetName(nvmlDevice C.nvmlDevice_t, name *C.char, length C.uint) C.nvmlReturn_t {
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupDevice(handle)
 	devName, ret := dev.GetName()
 	if ret != nvml.SUCCESS {
@@ -219,7 +215,7 @@ func nvmlDeviceGetName(nvmlDevice C.nvmlDevice_t, name *C.char, length C.uint) C
 
 //export nvmlDeviceGetUUID
 func nvmlDeviceGetUUID(nvmlDevice C.nvmlDevice_t, uuid *C.char, length C.uint) C.nvmlReturn_t {
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupDevice(handle)
 	devUUID, ret := dev.GetUUID()
 	if ret != nvml.SUCCESS {
@@ -233,7 +229,7 @@ func nvmlDeviceGetIndex(nvmlDevice C.nvmlDevice_t, index *C.uint) C.nvmlReturn_t
 	if index == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupDevice(handle)
 	idx, ret := dev.GetIndex()
 	if ret != nvml.SUCCESS {
@@ -248,7 +244,7 @@ func nvmlDeviceGetBrand(nvmlDevice C.nvmlDevice_t, _type *C.nvmlBrandType_t) C.n
 	if _type == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupDevice(handle)
 	brand, ret := dev.GetBrand()
 	if ret != nvml.SUCCESS {
@@ -260,7 +256,7 @@ func nvmlDeviceGetBrand(nvmlDevice C.nvmlDevice_t, _type *C.nvmlBrandType_t) C.n
 
 //export nvmlDeviceGetSerial
 func nvmlDeviceGetSerial(nvmlDevice C.nvmlDevice_t, serial *C.char, length C.uint) C.nvmlReturn_t {
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupDevice(handle)
 	devSerial, ret := dev.GetSerial()
 	if ret != nvml.SUCCESS {
@@ -274,7 +270,7 @@ func nvmlDeviceGetMinorNumber(nvmlDevice C.nvmlDevice_t, minorNumber *C.uint) C.
 	if minorNumber == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupDevice(handle)
 	minor, ret := dev.GetMinorNumber()
 	if ret != nvml.SUCCESS {
@@ -293,7 +289,7 @@ func nvmlDeviceGetPciInfo_v3(nvmlDevice C.nvmlDevice_t, pci *C.nvmlPciInfo_t) C.
 	if pci == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupDevice(handle)
 	info, ret := dev.GetPciInfo()
 	if ret != nvml.SUCCESS {
@@ -339,7 +335,7 @@ func nvmlDeviceGetPciInfoExt(nvmlDevice C.nvmlDevice_t, pci *C.nvmlPciInfoExt_t)
 	if pci == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -374,7 +370,7 @@ func nvmlDeviceGetMemoryInfo(nvmlDevice C.nvmlDevice_t, memory *C.nvmlMemory_t) 
 	if memory == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupDevice(handle)
 	mem, ret := dev.GetMemoryInfo()
 	if ret != nvml.SUCCESS {
@@ -398,8 +394,8 @@ func nvmlDeviceGetTopologyCommonAncestor(device1 C.nvmlDevice_t, device2 C.nvmlD
 	if pathInfo == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle1 := uintptr(unsafe.Pointer(device1.handle))
-	handle2 := uintptr(unsafe.Pointer(device2.handle))
+	handle1 := unsafe.Pointer(device1.handle)
+	handle2 := unsafe.Pointer(device2.handle)
 	dev1 := engine.GetEngine().LookupConfigurableDevice(handle1)
 	if dev1 == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -432,7 +428,7 @@ func nvmlDeviceGetNvLinkState(device C.nvmlDevice_t, link C.uint, isActive *C.nv
 	if isActive == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -453,7 +449,7 @@ func nvmlDeviceGetNvLinkErrorCounter(device C.nvmlDevice_t, link C.uint, counter
 	if counterValue == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -474,7 +470,7 @@ func nvmlDeviceGetNvLinkRemotePciInfo_v2(device C.nvmlDevice_t, link C.uint, pci
 	if pci == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -512,7 +508,7 @@ func nvmlDeviceGetTemperatureThreshold(device C.nvmlDevice_t, thresholdType C.nv
 	if temp == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -533,7 +529,7 @@ func nvmlDeviceGetThermalSettings(device C.nvmlDevice_t, sensorIndex C.uint, pTh
 	if pThermalSettings == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -567,7 +563,7 @@ func nvmlDeviceGetEnforcedPowerLimit(device C.nvmlDevice_t, limit *C.uint) C.nvm
 	if limit == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -588,7 +584,7 @@ func nvmlDeviceGetPowerManagementMode(device C.nvmlDevice_t, mode *C.nvmlEnableS
 	if mode == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -613,7 +609,7 @@ func nvmlDeviceGetMaxMigDeviceCount(device C.nvmlDevice_t, count *C.uint) C.nvml
 	if count == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -634,7 +630,7 @@ func nvmlDeviceGetMigDeviceHandleByIndex(device C.nvmlDevice_t, index C.uint, mi
 	if migDevice == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -658,7 +654,7 @@ func nvmlGpmQueryDeviceSupport(device C.nvmlDevice_t, gpmSupport *C.nvmlGpmSuppo
 	if !validGpmSupportVersion(uint32(gpmSupport.version)) {
 		return C.NVML_ERROR_ARGUMENT_VERSION_MISMATCH
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -683,7 +679,7 @@ func nvmlDeviceGetMemoryInfo_v2(nvmlDevice C.nvmlDevice_t, memory *C.nvmlMemory_
 	if memory == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupDevice(handle)
 	mem, ret := dev.GetMemoryInfo_v2()
 	if ret != nvml.SUCCESS {
@@ -705,7 +701,7 @@ func nvmlDeviceGetArchitecture(nvmlDevice C.nvmlDevice_t, arch *C.nvmlDeviceArch
 	if arch == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupDevice(handle)
 	architecture, ret := dev.GetArchitecture()
 	if ret != nvml.SUCCESS {
@@ -720,7 +716,7 @@ func nvmlDeviceGetCudaComputeCapability(nvmlDevice C.nvmlDevice_t, major *C.int,
 	if major == nil || minor == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupDevice(handle)
 	maj, min, ret := dev.GetCudaComputeCapability()
 	if ret != nvml.SUCCESS {
@@ -736,7 +732,7 @@ func nvmlDeviceGetMigMode(nvmlDevice C.nvmlDevice_t, currentMode *C.uint, pendin
 	if currentMode == nil || pendingMode == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupDevice(handle)
 	current, pending, ret := dev.GetMigMode()
 	if ret != nvml.SUCCESS {
@@ -759,7 +755,7 @@ func nvmlDeviceGetComputeRunningProcesses_v3(nvmlDevice C.nvmlDevice_t, infoCoun
 	if infoCount == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -800,7 +796,7 @@ func nvmlDeviceGetProcessUtilization(nvmlDevice C.nvmlDevice_t, utilization *C.n
 	if processSamplesCount == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -851,7 +847,7 @@ func nvmlDeviceGetPerformanceState(nvmlDevice C.nvmlDevice_t, pState *C.nvmlPsta
 	if pState == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -869,7 +865,7 @@ func nvmlDeviceGetCurrentClocksEventReasons(nvmlDevice C.nvmlDevice_t, clocksEve
 	if clocksEventReasons == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -891,7 +887,7 @@ func nvmlDeviceGetPersistenceMode(nvmlDevice C.nvmlDevice_t, mode *C.nvmlEnableS
 	if mode == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -906,7 +902,7 @@ func nvmlDeviceGetPersistenceMode(nvmlDevice C.nvmlDevice_t, mode *C.nvmlEnableS
 
 //export nvmlDeviceSetPersistenceMode
 func nvmlDeviceSetPersistenceMode(nvmlDevice C.nvmlDevice_t, mode C.nvmlEnableState_t) C.nvmlReturn_t {
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -939,7 +935,7 @@ func deviceGetRemappedRows(nvmlDevice C.nvmlDevice_t, corrRows *C.uint, uncRows 
 	if corrRows == nil || uncRows == nil || isPending == nil || failureOccurred == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -967,7 +963,7 @@ func deviceGetRemappedRowsV2(nvmlDevice C.nvmlDevice_t, info *C.nvmlRemappedRows
 	if info == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1001,7 +997,7 @@ func nvmlDeviceGetGspFirmwareMode(nvmlDevice C.nvmlDevice_t, isEnabled *C.uint, 
 	if isEnabled == nil || defaultMode == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1028,7 +1024,7 @@ func nvmlDeviceGetDisplayActive(nvmlDevice C.nvmlDevice_t, isActive *C.nvmlEnabl
 	if isActive == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(nvmlDevice.handle))
+	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1053,7 +1049,7 @@ func nvmlDeviceGetPowerUsage(device C.nvmlDevice_t, power *C.uint) C.nvmlReturn_
 	if power == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1074,7 +1070,7 @@ func nvmlDeviceGetPowerManagementLimit(device C.nvmlDevice_t, limit *C.uint) C.n
 	if limit == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1095,7 +1091,7 @@ func nvmlDeviceGetPowerManagementDefaultLimit(device C.nvmlDevice_t, defaultLimi
 	if defaultLimit == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1116,7 +1112,7 @@ func nvmlDeviceGetPowerManagementLimitConstraints(device C.nvmlDevice_t, minLimi
 	if minLimit == nil || maxLimit == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1138,7 +1134,7 @@ func nvmlDeviceGetPowerState(device C.nvmlDevice_t, pState *C.nvmlPstates_t) C.n
 	if pState == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1163,7 +1159,7 @@ func nvmlDeviceGetTemperature(device C.nvmlDevice_t, sensorType C.nvmlTemperatur
 	if temp == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1190,7 +1186,7 @@ func nvmlDeviceGetTemperatureV(device C.nvmlDevice_t, temperature *C.nvmlTempera
 	if temperature == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1215,7 +1211,7 @@ func nvmlDeviceGetMarginTemperature(device C.nvmlDevice_t, marginTempInfo *C.nvm
 	if marginTempInfo == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1236,7 +1232,7 @@ func nvmlDeviceGetClockInfo(device C.nvmlDevice_t, clockType C.nvmlClockType_t, 
 	if clock == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1257,7 +1253,7 @@ func nvmlDeviceGetMaxClockInfo(device C.nvmlDevice_t, clockType C.nvmlClockType_
 	if clock == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1278,7 +1274,7 @@ func nvmlDeviceGetApplicationsClock(device C.nvmlDevice_t, clockType C.nvmlClock
 	if clockMHz == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1299,7 +1295,7 @@ func nvmlDeviceGetDefaultApplicationsClock(device C.nvmlDevice_t, clockType C.nv
 	if clockMHz == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1320,7 +1316,7 @@ func nvmlDeviceGetCurrentClocksThrottleReasons(device C.nvmlDevice_t, clocksThro
 	if clocksThrottleReasons == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1345,7 +1341,7 @@ func nvmlDeviceGetUtilizationRates(device C.nvmlDevice_t, utilization *C.nvmlUti
 	if utilization == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1367,7 +1363,7 @@ func nvmlDeviceGetComputeMode(device C.nvmlDevice_t, mode *C.nvmlComputeMode_t) 
 	if mode == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1388,7 +1384,7 @@ func nvmlDeviceGetEccMode(device C.nvmlDevice_t, current *C.nvmlEnableState_t, p
 	if current == nil || pending == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1410,7 +1406,7 @@ func nvmlDeviceGetDisplayMode(device C.nvmlDevice_t, mode *C.nvmlEnableState_t) 
 	if mode == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1431,7 +1427,7 @@ func nvmlDeviceGetAccountingMode(device C.nvmlDevice_t, mode *C.nvmlEnableState_
 	if mode == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1452,7 +1448,7 @@ func nvmlDeviceGetGpuOperationMode(device C.nvmlDevice_t, current *C.nvmlGpuOper
 	if current == nil || pending == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1474,7 +1470,7 @@ func nvmlDeviceGetMultiGpuBoard(device C.nvmlDevice_t, multiGpuBool *C.uint) C.n
 	if multiGpuBool == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1499,7 +1495,7 @@ func nvmlDeviceGetFanSpeed(device C.nvmlDevice_t, speed *C.uint) C.nvmlReturn_t 
 	if speed == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1520,7 +1516,7 @@ func nvmlDeviceGetFanSpeed_v2(device C.nvmlDevice_t, fan C.uint, speed *C.uint) 
 	if speed == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1541,7 +1537,7 @@ func nvmlDeviceGetNumFans(device C.nvmlDevice_t, numFans *C.uint) C.nvmlReturn_t
 	if numFans == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1562,7 +1558,7 @@ func nvmlDeviceGetBAR1MemoryInfo(device C.nvmlDevice_t, bar1Memory *C.nvmlBAR1Me
 	if bar1Memory == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1582,7 +1578,7 @@ func nvmlDeviceGetVbiosVersion(device C.nvmlDevice_t, version *C.char, length C.
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetVbiosVersion"); !ok {
 		return ret
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1599,7 +1595,7 @@ func nvmlDeviceGetBoardPartNumber(device C.nvmlDevice_t, partNumber *C.char, len
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetBoardPartNumber"); !ok {
 		return ret
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1616,7 +1612,7 @@ func nvmlDeviceGetInforomImageVersion(device C.nvmlDevice_t, version *C.char, le
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetInforomImageVersion"); !ok {
 		return ret
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1633,7 +1629,7 @@ func nvmlDeviceGetInforomVersion(device C.nvmlDevice_t, object C.nvmlInforomObje
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetInforomVersion"); !ok {
 		return ret
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1657,7 +1653,7 @@ func nvmlDeviceGetCurrPcieLinkGeneration(device C.nvmlDevice_t, currLinkGen *C.u
 	if currLinkGen == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1678,7 +1674,7 @@ func nvmlDeviceGetCurrPcieLinkWidth(device C.nvmlDevice_t, currLinkWidth *C.uint
 	if currLinkWidth == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1699,7 +1695,7 @@ func nvmlDeviceGetMaxPcieLinkGeneration(device C.nvmlDevice_t, maxLinkGen *C.uin
 	if maxLinkGen == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1720,7 +1716,7 @@ func nvmlDeviceGetMaxPcieLinkWidth(device C.nvmlDevice_t, maxLinkWidth *C.uint) 
 	if maxLinkWidth == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1741,7 +1737,7 @@ func nvmlDeviceGetPcieReplayCounter(device C.nvmlDevice_t, value *C.uint) C.nvml
 	if value == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1762,7 +1758,7 @@ func nvmlDeviceGetPcieThroughput(device C.nvmlDevice_t, counter C.nvmlPcieUtilCo
 	if value == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1783,7 +1779,7 @@ func nvmlDeviceGetTotalEccErrors(device C.nvmlDevice_t, errorType C.nvmlMemoryEr
 	if eccCounts == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1804,7 +1800,7 @@ func nvmlDeviceGetRetiredPages(device C.nvmlDevice_t, cause C.nvmlPageRetirement
 	if pageCount == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1841,7 +1837,7 @@ func nvmlDeviceGetRetiredPagesPendingStatus(device C.nvmlDevice_t, isPending *C.
 	if isPending == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1862,7 +1858,7 @@ func nvmlDeviceGetBoardId(device C.nvmlDevice_t, boardId *C.uint) C.nvmlReturn_t
 	if boardId == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1887,7 +1883,7 @@ func nvmlDeviceGetEncoderUtilization(device C.nvmlDevice_t, utilization *C.uint,
 	if utilization == nil || samplingPeriodUs == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1909,7 +1905,7 @@ func nvmlDeviceGetDecoderUtilization(device C.nvmlDevice_t, utilization *C.uint,
 	if utilization == nil || samplingPeriodUs == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1931,7 +1927,7 @@ func nvmlDeviceGetGraphicsRunningProcesses_v3(device C.nvmlDevice_t, infoCount *
 	if infoCount == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1971,7 +1967,7 @@ func nvmlDeviceGetNvLinkVersion(device C.nvmlDevice_t, link C.uint, version *C.u
 	if version == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -1992,7 +1988,7 @@ func nvmlDeviceGetNvLinkCapability(device C.nvmlDevice_t, link C.uint, capabilit
 	if capResult == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -2013,7 +2009,7 @@ func nvmlDeviceGetMemoryErrorCounter(device C.nvmlDevice_t, errorType C.nvmlMemo
 	if count == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -2038,7 +2034,7 @@ func nvmlDeviceGetMemoryBusWidth(device C.nvmlDevice_t, busWidth *C.uint) C.nvml
 	if busWidth == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -2059,7 +2055,7 @@ func nvmlDeviceGetDefaultEccMode(device C.nvmlDevice_t, defaultMode *C.nvmlEnabl
 	if defaultMode == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -2080,7 +2076,7 @@ func nvmlDeviceGetSupportedClocksThrottleReasons(device C.nvmlDevice_t, supporte
 	if supportedClocksThrottleReasons == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -2101,7 +2097,7 @@ func nvmlDeviceGetAutoBoostedClocksEnabled(device C.nvmlDevice_t, isEnabled *C.n
 	if isEnabled == nil || defaultIsEnabled == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -2123,7 +2119,7 @@ func nvmlDeviceGetGspFirmwareVersion(device C.nvmlDevice_t, version *C.char) C.n
 	if version == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -2143,7 +2139,7 @@ func nvmlDeviceGetTotalEnergyConsumption(device C.nvmlDevice_t, energy *C.ulongl
 	if energy == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -2164,7 +2160,7 @@ func nvmlDeviceGetDetailedEccErrors(device C.nvmlDevice_t, errorType C.nvmlMemor
 	if eccCounts == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev := engine.GetEngine().LookupConfigurableDevice(handle)
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT

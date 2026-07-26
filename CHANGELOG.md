@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Operator via the Go harness (`gpu-operator` scenario, `dcgm`/`xid` labels):
   it asserts DEV + PROF and time-varying telemetry, plus `DCGM_FI_DEV_XID_ERRORS`
   under failure injection. `spike-dcgm.sh` provides a container-level recipe. (#370)
+- `docs/configuration.md` gains a **Metric Fidelity** section stating, per metric,
+  which reported values are simulated (clock-driven via `dynamic_metrics`), which
+  are static until the config changes, and which are fixed by design — including
+  the exact fractions of `utilization.gpu` behind each `DCGM_FI_PROF_*` activity
+  metric, and why tying them to real work is out of scope for a library that
+  never runs a kernel. It also records that no reported value is workload-aware:
+  a pod holding an `nvidia.com/gpu` claim does not move `memory.used_bytes`,
+  `processes`, or `utilization.gpu`. (#506)
 
 ### Changed
 - ComputeDomain simulation now runs the REAL `nvidia-imex` daemon in NO
@@ -35,6 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Dockerfiles, mocknvml/mockcuda Makefiles, e2e dispatch default, helper
   scripts) to resolve `GO-2026-5856` (Encrypted Client Hello privacy leak
   in `crypto/tls`), which was failing the `govulncheck` CI check.
+
+### Fixed
+- `nvml-mock-ctl set --gpu <n> memory.total_bytes|free_bytes|used_bytes=...` now
+  takes effect within one override TTL instead of silently doing nothing until
+  the pod restarts. `nvmlDeviceGetMemoryInfo` and `nvmlDeviceGetMemoryInfo_v2`
+  read device memory from the effective (override-merged) config rather than a
+  struct baked at device construction. Values are reported verbatim: overriding
+  `used_bytes` alone does not recompute `free_bytes`. The BAR1 aperture
+  (`bar1_memory`) is still baked at construction. (#506)
 
 ### Deprecated
 - The fake `nvidia-imex` / `nvidia-imex-ctl` binaries, `pkg/imexcoord`,

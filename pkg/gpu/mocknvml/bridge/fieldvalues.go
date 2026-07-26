@@ -73,7 +73,7 @@ func nvmlDeviceGetFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *
 	if values == nil || valuesCount <= 0 {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	dev := engine.GetEngine().LookupConfigurableDevice(uintptr(unsafe.Pointer(device.handle)))
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}

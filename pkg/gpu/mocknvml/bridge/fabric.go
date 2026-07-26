@@ -53,7 +53,7 @@ func nvmlDeviceGetGpuFabricInfo(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpuF
 	if gpuFabricInfo == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev, ok := engine.GetEngine().LookupDevice(handle).(*engine.ConfigurableDevice)
 	if !ok {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -76,7 +76,7 @@ func nvmlDeviceGetGpuFabricInfoV(device C.nvmlDevice_t, gpuFabricInfo *C.nvmlGpu
 	if gpuFabricInfo == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	dev, ok := engine.GetEngine().LookupDevice(handle).(*engine.ConfigurableDevice)
 	if !ok {
 		return C.NVML_ERROR_INVALID_ARGUMENT

@@ -129,6 +129,17 @@
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },
     "resources": { "type": "object" },
+    "nodeLabels": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Node labels written by setup.sh and removed by the preStop cleanup.sh.",
+      "properties": {
+        "pciVendorPresent": {
+          "type": "boolean",
+          "description": "Write feature.node.kubernetes.io/pci-10de.present=true on the node. Hand-written because NFD's PCI source reads a link-time-fixed /host-sys path and nfd-worker is statically linked, so it can see neither our rendered PCI tree nor our LD_PRELOAD sysfs shim. Set false when a real NFD owns feature.node.kubernetes.io/*. Typed as a boolean here because the DaemonSet renders it with `ternary`, which rejects a string with a template error rather than silently treating \"false\" as true."
+        }
+      }
+    },
     "nri": {
       "type": "object",
       "additionalProperties": true,

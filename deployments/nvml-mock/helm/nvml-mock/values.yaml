@@ -68,6 +68,25 @@ tolerations:
 
 resources: {}
 
+# Node labels written by setup.sh (`kubectl label`) and removed again by the
+# preStop cleanup.sh. Both scripts read the same switch, so a disabled label is
+# neither written nor deleted — the mock never touches a key it does not own.
+nodeLabels:
+  # feature.node.kubernetes.io/pci-10de.present=true
+  #
+  # Hand-written, because NFD's PCI source cannot see our devices: it reads a
+  # host-prefixed sysfs path fixed at link time (/host-sys/bus/pci/devices) and
+  # nfd-worker is statically linked, so neither our LD_PRELOAD sysfs shim nor
+  # our rendered PCI tree is reachable from it. See setup.sh step 7 for the
+  # full analysis.
+  #
+  # Default true preserves the historical behaviour: consumers that gate on the
+  # NFD PCI label (GPU Operator operands, nfd-based nodeSelectors) schedule on a
+  # mock node out of the box. Set to false when a real NFD — or anything else
+  # that owns feature.node.kubernetes.io/* — runs on the cluster and the forged
+  # label would conflict with it.
+  pciVendorPresent: true
+
 # Node-wide ambient injection via containerd NRI. When enabled, a lightweight
 # node-local plugin appends the nvml-mock overlay mount and environment to each
 # container at runtime without mutating pod specs. Opt-in (default false): it
