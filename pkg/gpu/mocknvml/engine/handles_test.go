@@ -14,6 +14,7 @@
 package engine
 
 import (
+	"encoding/binary"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -83,6 +84,41 @@ func TestHandleTable_Lookup(t *testing.T) {
 	// Lookup nil handle - returns InvalidDeviceInstance
 	zero := ht.Lookup(nil)
 	require.Equal(t, InvalidDeviceInstance, zero, "Expected InvalidDeviceInstance for nil handle")
+}
+
+// TestHandleTable_LookupRejectsForgedHandle pins where the handle table's
+// trust boundary sits: membership in the table authorises a handle, NOT the
+// magic number in the block it points at.
+//
+// This matters because the bridge forwards whatever pointer the C caller
+// supplied -- every nvmlDeviceGetX(nvmlDevice_t device, ...) export reads
+// device.handle straight out of the caller's struct and passes it to
+// LookupDevice. So an address that merely looks like a HandleBlock has to be
+// refused.
+//
+// The block below carries the exact magic value isValidHandle checks for.
+// With the map-membership check in place, Lookup returns before C is ever
+// reached. Remove that check, or reorder it after the C validation on the
+// theory that the magic number is sufficient, and this forged handle passes
+// isValidHandle; Lookup then returns the map's zero value -- a nil
+// nvml.Device -- instead of InvalidDeviceInstance, and every bridge caller
+// nil-derefs where it should have returned ERROR_INVALID_ARGUMENT.
+func TestHandleTable_LookupRejectsForgedHandle(t *testing.T) {
+	ht := NewHandleTable()
+	defer ht.Clear()
+
+	// A real registration, so the table is populated and the forged lookup
+	// has to actually miss rather than hit an empty map.
+	require.NotNil(t, ht.Register(dgxa100.NewDevice(0)), "setup: Register must succeed")
+
+	// Mimic the C HandleBlock prefix: a 4-byte magic field at offset 0
+	// holding "NVML" (0x4E564D4C), in native byte order.
+	forged := make([]byte, 64)
+	binary.NativeEndian.PutUint32(forged[:4], 0x4E564D4C)
+
+	got := ht.Lookup(unsafe.Pointer(&forged[0]))
+	require.Equal(t, InvalidDeviceInstance, got,
+		"a pointer the table never issued must be rejected even when it carries a valid magic number")
 }
 
 func TestHandleTable_Clear(t *testing.T) {
