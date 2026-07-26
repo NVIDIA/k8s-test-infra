@@ -55,21 +55,22 @@ import (
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
-// handleEntry pairs a registered device with the C pointer its handle was
-// allocated from. Keeping the pointer alongside the device means the
-// validation and free paths never convert a uintptr back to unsafe.Pointer,
-// which is what go vet's unsafeptr check flags. The map key stays a uintptr
-// so the engine's public API is unchanged.
-type handleEntry struct {
-	dev nvml.Device
-	ptr unsafe.Pointer
-}
-
-// HandleTable manages the mapping between C handles (uintptr) and Go device
-// objects. This is necessary because CGo doesn't allow passing Go pointers
-// with nested Go pointers to C code.
+// HandleTable manages the mapping between C handles and Go device objects.
+// This is necessary because CGo doesn't allow passing Go pointers with nested
+// Go pointers to C code.
 //
-// Handles are C-allocated memory blocks that nvidia-smi can safely dereference.
+// Handles are C-allocated memory blocks (see allocHandle above) that
+// nvidia-smi can safely dereference. They are typed unsafe.Pointer rather
+// than uintptr on purpose: a handle IS a pointer, it is dereferenced by
+// isValidHandle and by the C caller, and uintptr is documented as an integer
+// that does not hold a reference. Keeping the pointer type end to end means
+// no code path ever has to convert an integer back into a pointer, which is
+// both the honest model and what lets `go vet`'s unsafeptr check pass without
+// suppression.
+//
+// The memory these handles point at is libc heap, not Go heap, so the Go
+// garbage collector never scans, moves or frees it; the C block outlives any
+// Go reference and is released only by Clear().
 //
 // LIFECYCLE:
 //   - Handles are allocated via Register() when devices are first accessed
@@ -81,25 +82,25 @@ type handleEntry struct {
 //   - All methods are thread-safe via RWMutex
 //   - Lookup() validates handle magic number to detect use-after-free
 type HandleTable struct {
-	devices map[uintptr]handleEntry
-	reverse map[nvml.Device]uintptr
+	devices map[unsafe.Pointer]nvml.Device
+	reverse map[nvml.Device]unsafe.Pointer
 	mu      sync.RWMutex
 }
 
 // NewHandleTable creates a new HandleTable.
 func NewHandleTable() *HandleTable {
 	return &HandleTable{
-		devices: make(map[uintptr]handleEntry),
-		reverse: make(map[nvml.Device]uintptr),
+		devices: make(map[unsafe.Pointer]nvml.Device),
+		reverse: make(map[nvml.Device]unsafe.Pointer),
 	}
 }
 
 // Register adds a device to the handle table and returns its handle.
 // If the device is already registered, returns the existing handle.
 // The handle is a pointer to C-allocated memory.
-func (ht *HandleTable) Register(dev nvml.Device) uintptr {
+func (ht *HandleTable) Register(dev nvml.Device) unsafe.Pointer {
 	if dev == nil {
-		return 0
+		return nil
 	}
 
 	ht.mu.Lock()
@@ -112,20 +113,19 @@ func (ht *HandleTable) Register(dev nvml.Device) uintptr {
 
 	// Check bounds to prevent device index overflow
 	if len(ht.devices) >= MaxDevices {
-		return 0
+		return nil
 	}
 
-	// Allocate a C handle block with device index
+	// Allocate a C handle block with device index. cgo maps C's void* to
+	// unsafe.Pointer, so the handle is already correctly typed here.
 	deviceIndex := uint32(len(ht.devices))
-	cHandle := C.allocHandle(C.uint(deviceIndex))
-	if cHandle == nil {
+	handle := C.allocHandle(C.uint(deviceIndex))
+	if handle == nil {
 		// Memory allocation failed
-		return 0
+		return nil
 	}
-	ptr := unsafe.Pointer(cHandle)
-	handle := uintptr(ptr)
 
-	ht.devices[handle] = handleEntry{dev: dev, ptr: ptr}
+	ht.devices[handle] = dev
 	ht.reverse[dev] = handle
 	return handle
 }
@@ -134,15 +134,18 @@ func (ht *HandleTable) Register(dev nvml.Device) uintptr {
 // Returns InvalidDeviceInstance if the handle is invalid (null-object pattern).
 // This eliminates nil checks in the bridge layer - callers can safely call
 // methods on the returned device; invalid devices return ERROR_INVALID_ARGUMENT.
-func (ht *HandleTable) Lookup(handle uintptr) nvml.Device {
-	if handle == 0 {
+func (ht *HandleTable) Lookup(handle unsafe.Pointer) nvml.Device {
+	if handle == nil {
 		return InvalidDeviceInstance
 	}
 
 	// First check if handle exists in our map - this avoids calling C code
-	// with arbitrary invalid pointers which can trigger Go's checkptr panic
+	// with arbitrary invalid pointers which can trigger Go's checkptr panic.
+	// The bridge passes through whatever pointer the C caller supplied, so
+	// this map check is the trust boundary: an address we never handed out
+	// is rejected before anything dereferences it.
 	ht.mu.RLock()
-	entry, ok := ht.devices[handle]
+	dev, ok := ht.devices[handle]
 	ht.mu.RUnlock()
 
 	if !ok {
@@ -150,22 +153,22 @@ func (ht *HandleTable) Lookup(handle uintptr) nvml.Device {
 	}
 
 	// Validate the handle's magic number to detect use-after-free or corruption
-	if C.isValidHandle(entry.ptr) == 0 {
+	if C.isValidHandle(handle) == 0 {
 		return InvalidDeviceInstance
 	}
 
-	return entry.dev
+	return dev
 }
 
-// HandleFor returns the registered handle for the given device, or 0 when
+// HandleFor returns the registered handle for the given device, or nil when
 // the device has not yet been registered. Used by event-set wiring that
 // needs to translate a tripped device back to a handle the caller
 // already holds (e.g. the Xid critical-error event delivery path). Real
 // NVML accepts events for devices the caller has resolved a handle for;
-// returning 0 here lets the caller treat that case as "no event yet".
-func (ht *HandleTable) HandleFor(dev nvml.Device) uintptr {
+// returning nil here lets the caller treat that case as "no event yet".
+func (ht *HandleTable) HandleFor(dev nvml.Device) unsafe.Pointer {
 	if dev == nil {
-		return 0
+		return nil
 	}
 	ht.mu.RLock()
 	defer ht.mu.RUnlock()
@@ -178,12 +181,12 @@ func (ht *HandleTable) Clear() {
 	defer ht.mu.Unlock()
 
 	// Free all allocated C handle blocks
-	for _, entry := range ht.devices {
-		C.freeHandle(entry.ptr)
+	for handle := range ht.devices {
+		C.freeHandle(handle)
 	}
 
-	ht.devices = make(map[uintptr]handleEntry)
-	ht.reverse = make(map[nvml.Device]uintptr)
+	ht.devices = make(map[unsafe.Pointer]nvml.Device)
+	ht.reverse = make(map[nvml.Device]unsafe.Pointer)
 }
 
 // Count returns the number of registered handles.

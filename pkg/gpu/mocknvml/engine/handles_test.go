@@ -17,11 +17,26 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
 	"github.com/stretchr/testify/require"
 )
+
+// unregisteredHandle returns a valid, non-nil pointer that no HandleTable has
+// ever issued.
+//
+// Negative-path tests used to fabricate handles from integer literals
+// (Lookup(999)). Now that a handle is an unsafe.Pointer, that form is only
+// expressible as unsafe.Pointer(uintptr(999)) -- itself exactly the "possible
+// misuse of unsafe.Pointer" this package was cleaned of, and a real hazard
+// under -race's checkptr instrumentation. Backing the handle with a genuine Go
+// allocation keeps the pointer legal while still landing on the branch under
+// test: an address absent from the table.
+func unregisteredHandle() unsafe.Pointer {
+	return unsafe.Pointer(new([64]byte))
+}
 
 func TestHandleTable_NewHandleTable(t *testing.T) {
 	ht := NewHandleTable()
@@ -60,13 +75,14 @@ func TestHandleTable_Lookup(t *testing.T) {
 	retrieved := ht.Lookup(handle)
 	require.Equal(t, dev, retrieved, "Lookup returned different device")
 
-	// Lookup invalid handle - returns InvalidDeviceInstance (null-object pattern)
-	invalid := ht.Lookup(999)
+	// Lookup a handle this table never issued - returns InvalidDeviceInstance
+	// (null-object pattern)
+	invalid := ht.Lookup(unregisteredHandle())
 	require.Equal(t, InvalidDeviceInstance, invalid, "Expected InvalidDeviceInstance for invalid handle")
 
-	// Lookup zero handle - returns InvalidDeviceInstance
-	zero := ht.Lookup(0)
-	require.Equal(t, InvalidDeviceInstance, zero, "Expected InvalidDeviceInstance for zero handle")
+	// Lookup nil handle - returns InvalidDeviceInstance
+	zero := ht.Lookup(nil)
+	require.Equal(t, InvalidDeviceInstance, zero, "Expected InvalidDeviceInstance for nil handle")
 }
 
 func TestHandleTable_Clear(t *testing.T) {
@@ -92,7 +108,7 @@ func TestHandleTable_MultipleDevices(t *testing.T) {
 	ht := NewHandleTable()
 	// Use MaxDevices to respect the handle table limit
 	devices := make([]nvml.Device, MaxDevices)
-	handles := make([]uintptr, MaxDevices)
+	handles := make([]unsafe.Pointer, MaxDevices)
 
 	// Register multiple devices
 	for i := 0; i < MaxDevices; i++ {
@@ -103,9 +119,9 @@ func TestHandleTable_MultipleDevices(t *testing.T) {
 	require.Equal(t, MaxDevices, ht.Count(), "Expected count %d", MaxDevices)
 
 	// Verify all handles are unique
-	seen := make(map[uintptr]bool)
+	seen := make(map[unsafe.Pointer]bool)
 	for _, h := range handles {
-		require.False(t, seen[h], "Duplicate handle detected: %d", h)
+		require.False(t, seen[h], "Duplicate handle detected: %p", h)
 		seen[h] = true
 	}
 
@@ -130,7 +146,7 @@ func TestHandleTable_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			dev := dgxa100.NewDevice(id)
 			handle := ht.Register(dev)
-			if handle != 0 {
+			if handle != nil {
 				atomic.AddInt32(&successCount, 1)
 			}
 		}(i)
@@ -150,7 +166,7 @@ func TestHandleTable_ConcurrentRegisterAndLookup(t *testing.T) {
 	numGoroutines := 50
 
 	// Pre-register devices up to MaxDevices limit
-	handles := make([]uintptr, MaxDevices)
+	handles := make([]unsafe.Pointer, MaxDevices)
 	devices := make([]nvml.Device, MaxDevices)
 	for i := 0; i < MaxDevices; i++ {
 		devices[i] = dgxa100.NewDevice(i)
@@ -188,6 +204,7 @@ func TestHandleTable_ConcurrentClear(t *testing.T) {
 	}
 
 	// Concurrent clear and operations
+	late := dgxa100.NewDevice(100)
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
@@ -195,14 +212,30 @@ func TestHandleTable_ConcurrentClear(t *testing.T) {
 	}()
 	go func() {
 		defer wg.Done()
-		dev := dgxa100.NewDevice(100)
-		ht.Register(dev)
+		ht.Register(late)
 	}()
 	go func() {
 		defer wg.Done()
-		ht.Lookup(1)
+		ht.Lookup(unregisteredHandle())
 	}()
 	wg.Wait()
 
-	// Should not crash - that's the main test
+	// Clear() and Register() serialise on the mutex, so exactly two orderings
+	// are reachable: Register first (table already at MaxDevices, so it is
+	// refused) then Clear wipes everything -> 0 entries; or Clear first then
+	// Register admits `late` -> 1 entry. Any other count means a pre-Clear
+	// entry survived, i.e. the two operations interleaved instead of
+	// serialising.
+	count := ht.Count()
+	require.LessOrEqual(t, count, 1,
+		"Clear() must not interleave with Register(): at most the one late device may survive, got %d", count)
+
+	// Whichever ordering won, devices and reverse must still agree with each
+	// other -- Clear() resets both maps, so a surviving entry has to round-trip
+	// device -> handle -> device.
+	if count == 1 {
+		h := ht.HandleFor(late)
+		require.NotNil(t, h, "surviving device must still resolve to a handle")
+		require.Equal(t, late, ht.Lookup(h), "surviving handle must resolve back to its device")
+	}
 }

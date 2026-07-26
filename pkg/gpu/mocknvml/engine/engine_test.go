@@ -184,14 +184,15 @@ func TestEngine_LookupDevice(t *testing.T) {
 	dev := e.LookupDevice(handle)
 	require.NotNil(t, dev, "LookupDevice returned nil for valid handle")
 
-	// Invalid handle - returns InvalidDeviceInstance (null-object pattern)
-	invalidDev := e.LookupDevice(999)
+	// Handle the engine never issued - returns InvalidDeviceInstance
+	// (null-object pattern)
+	invalidDev := e.LookupDevice(unregisteredHandle())
 	require.Equal(t, InvalidDeviceInstance, invalidDev, "Expected InvalidDeviceInstance for invalid handle")
 }
 
 func TestEngine_LookupDeviceBeforeInit(t *testing.T) {
 	e := NewEngine(nil)
-	dev := e.LookupDevice(1)
+	dev := e.LookupDevice(unregisteredHandle())
 	require.NotNil(t, dev, "LookupDevice on uninitialized engine returned nil, expected InvalidDeviceInstance")
 	require.Equal(t, InvalidDeviceInstance, dev, "Expected InvalidDeviceInstance")
 	_, ret := dev.GetName()
@@ -200,7 +201,7 @@ func TestEngine_LookupDeviceBeforeInit(t *testing.T) {
 
 func TestEngine_LookupConfigurableDevice_UninitializedReturnsNil(t *testing.T) {
 	e := NewEngine(nil)
-	dev := e.LookupConfigurableDevice(0x1234)
+	dev := e.LookupConfigurableDevice(unregisteredHandle())
 	require.Nil(t, dev, "LookupConfigurableDevice on uninitialized engine should return nil")
 }
 
