@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Operator via the Go harness (`gpu-operator` scenario, `dcgm`/`xid` labels):
   it asserts DEV + PROF and time-varying telemetry, plus `DCGM_FI_DEV_XID_ERRORS`
   under failure injection. `spike-dcgm.sh` provides a container-level recipe. (#370)
+- `docs/configuration.md` gains a **Metric Fidelity** section stating, per metric,
+  which reported values are simulated (clock-driven via `dynamic_metrics`), which
+  are static until the config changes, and which are fixed by design — including
+  the exact fractions of `utilization.gpu` behind each `DCGM_FI_PROF_*` activity
+  metric, and why tying them to real work is out of scope for a library that
+  never runs a kernel. It also records that no reported value is workload-aware:
+  a pod holding an `nvidia.com/gpu` claim does not move `memory.used_bytes`,
+  `processes`, or `utilization.gpu`. (#506)
 
 ### Changed
 - ComputeDomain simulation now runs the REAL `nvidia-imex` daemon in NO

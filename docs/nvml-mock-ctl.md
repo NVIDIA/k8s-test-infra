@@ -65,6 +65,11 @@ pod restart or a Helm change:
 If you need to change any of those, edit the profile / Helm values and restart
 the DaemonSet (or the affected pod).
 
+For which reported values are simulated, which are static, and which are fixed
+by design — including why `DCGM_FI_PROF_*` does not track real work, and why no
+value responds to a pod holding an `nvidia.com/gpu` claim — see
+[Metric Fidelity](configuration.md#metric-fidelity).
+
 ## Where it runs
 
 `nvml-mock-ctl` ships inside the nvml-mock DaemonSet image and runs via
