@@ -16,6 +16,15 @@ version: "2"
 
 run:
   timeout: 5m
+  # Lint tag-guarded sources too. Without these, `//go:build e2e` and
+  # `//go:build integration` files are invisible to every lint invocation --
+  # CI, `make lint`, and local runs alike -- which is how 14 findings
+  # accumulated unnoticed in tests/e2e/go/. Declaring the tags here rather than
+  # in the workflow keeps every invocation identical, so a clean tree locally
+  # means a clean tree in CI.
+  build-tags:
+    - e2e
+    - integration
 
 linters:
   settings:
@@ -25,3 +34,15 @@ linters:
         - "-ST1000"
         - "-ST1003"
         - "-QF*"
+  exclusions:
+    rules:
+      # Ginkgo suites conventionally dot-import ginkgo and gomega, and
+      # staticcheck already exempts _test.go files from ST1001 for exactly that
+      # reason. The e2e suite keeps its scenario and suite helpers in plain .go
+      # files guarded by `//go:build e2e`; they are test-only code in the same
+      # package as the _test.go files beside them, and miss staticcheck's
+      # carve-out purely on the filename. ST1001 stays enabled everywhere else.
+      - path: ^tests/e2e/go/
+        linters:
+          - staticcheck
+        text: "ST1001:"
