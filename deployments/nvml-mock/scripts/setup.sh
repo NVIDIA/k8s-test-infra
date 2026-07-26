@@ -316,9 +316,28 @@ fi
 #    Full analysis with file:line citations is in the commit message that added
 #    this comment (#505 poses the question; it does not answer it):
 #      git log -S 'pci-10de' -- deployments/nvml-mock/scripts/setup.sh
+#
+#    MOCK_NFD_PCI_LABEL (chart value `nodeLabels.pciVendorPresent`, default
+#    true/on) gates only the pci-10de line. Turn it off on a cluster where a
+#    real NFD owns feature.node.kubernetes.io/*, so the mock does not forge a
+#    key another controller reconciles. cleanup.sh reads the same variable and
+#    skips the corresponding delete, so the preStop hook removes exactly the
+#    labels this step wrote and never one it did not.
+PCI_LABEL_MODE=$(printf '%s' "${MOCK_NFD_PCI_LABEL:-on}" | tr '[:upper:]' '[:lower:]')
+case "$PCI_LABEL_MODE" in
+  off | on) ;;
+  *)
+    echo "ERROR: MOCK_NFD_PCI_LABEL='$MOCK_NFD_PCI_LABEL' is invalid; expected off or on" >&2
+    exit 1
+    ;;
+esac
 if command -v kubectl >/dev/null 2>&1; then
   kubectl label node "$NODE_NAME" nvidia.com/gpu.present=true --overwrite || true
-  kubectl label node "$NODE_NAME" feature.node.kubernetes.io/pci-10de.present=true --overwrite || true
+  if [ "$PCI_LABEL_MODE" = "on" ]; then
+    kubectl label node "$NODE_NAME" feature.node.kubernetes.io/pci-10de.present=true --overwrite || true
+  else
+    echo "Skipping feature.node.kubernetes.io/pci-10de.present (nodeLabels.pciVendorPresent=false)"
+  fi
 fi
 
 # 8. Create GPU Operator compatibility symlink.
