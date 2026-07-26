@@ -44,11 +44,22 @@ jobs:
         skip-cache: true
 
     - name: Run go vet
-      # pkg/gpu/mocknvml/bridge is excluded: its 6 unsafe.Pointer findings
-      # need the engine handle type changed from uintptr to unsafe.Pointer,
-      # which is 8 API signatures plus 102 bridge call sites. Tracked
-      # separately; do not widen this exclusion.
-      run: go vet $(go list ./... | grep -v '/mocknvml/bridge')
+      # Every package, no exclusions. This overlaps the govet linter inside
+      # golangci-lint above, but it is not redundant with it -- both reasons
+      # were measured on the pre-#511 tree, not assumed:
+      #   * golangci-lint honours //nolint:govet. The bridge carried 7 such
+      #     comments and golangci-lint reported 0 findings; stripping them
+      #     produced findings immediately. Bare go vet has no suppression
+      #     mechanism at all, so this step is the one that cannot be silenced
+      #     one site at a time.
+      #   * golangci-lint caps repeats of the same finding
+      #     (--max-same-issues, default 3). It surfaced 3 where go vet
+      #     surfaced 8, so it under-reports exactly the kind of spreading
+      #     problem this gate exists to catch.
+      # Consequence: if this goes red, fix the code. There is no middle
+      # ground to retreat to, and an exclusion here is a blind spot rather
+      # than a filter.
+      run: go vet ./...
 
     - name: Check golang modules
       run: |
