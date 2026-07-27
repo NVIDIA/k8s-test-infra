@@ -30,6 +30,58 @@ func TestBaseTargetsKubeContext(t *testing.T) {
 	}
 }
 
+func TestRunPinsChartVersionOnlyWhenSet(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		version     string
+		wantVersion bool
+	}{
+		{name: "pinned chart", version: "0.19.0", wantVersion: true},
+		{name: "unpinned chart", version: "", wantVersion: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			oldRunCommand := runCommand
+			t.Cleanup(func() { runCommand = oldRunCommand })
+
+			var args []string
+			runCommand = func(_ context.Context, _ string, a ...string) (runner.Result, error) {
+				args = a
+				return runner.Result{}, nil
+			}
+
+			err := New("kind-nvml-mock-e2e").Install(context.Background(), Release{
+				Name:    "nfd",
+				Chart:   "nfd/node-feature-discovery",
+				Version: tc.version,
+			})
+			if err != nil {
+				t.Fatalf("expected helm install to succeed, got %v", err)
+			}
+
+			flag := -1
+			for i, arg := range args {
+				if arg == "--version" {
+					flag = i
+					break
+				}
+			}
+
+			if !tc.wantVersion {
+				if flag != -1 {
+					t.Fatalf("expected no --version for a release without a pinned version, got %#v", args)
+				}
+				return
+			}
+			if flag == -1 {
+				t.Fatalf("expected --version in the helm argv, got %#v", args)
+			}
+			if flag+1 >= len(args) || args[flag+1] != tc.version {
+				t.Fatalf("expected --version to be followed by %q, got %#v", tc.version, args)
+			}
+		})
+	}
+}
+
 func TestRunHidesReleaseOutputWhenRequested(t *testing.T) {
 	oldRunCommand := runCommand
 	oldRunQuietCommand := runQuietCommand
