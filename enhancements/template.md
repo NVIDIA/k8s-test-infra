@@ -95,7 +95,8 @@ This might be a good place to talk about core concepts and how they relate.
 
 <!--
 What are the risks of this proposal, and how do we mitigate? Think broadly.
-For example, consider both operational overhead, resource consumption and how this will impact our users.
+For example, consider operational overhead, resource consumption, and how
+this will impact our users.
 -->
 
 ## Design Details

@@ -1,6 +1,6 @@
 # Mokka Enhancement Proposals (MEPs)
 
-A MEP is a design document that captures a substantial change to Mokka -
+A MEP is a design document that captures a substantial change to Mokka —
 new components, major cross-cutting refactors, or breaking API changes.
 
 Small bug fixes and routine features do **not** need a
