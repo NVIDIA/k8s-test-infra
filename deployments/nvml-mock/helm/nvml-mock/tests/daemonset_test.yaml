@@ -165,11 +165,12 @@ tests:
             name: DRIVER_VERSION
             value: "580.65.06"
 
-  # ── NFD pci-10de label gate (nodeLabels.pciVendorPresent) ───────────
+  # ── NFD pci-10de feature-file gate (nodeLabels.pciVendorPresent) ─────
   # setup.sh and cleanup.sh both branch on MOCK_NFD_PCI_LABEL. They accept
   # only "on"/"off" and abort the pod on anything else, so the exact string
-  # matters, not merely the presence of the variable.
-  - it: should write the NFD pci-10de label by default
+  # matters, not merely the presence of the variable. The value gates the
+  # feature FILE; NFD is what turns that file into the label.
+  - it: should enable the NFD pci-10de feature file by default
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -177,7 +178,7 @@ tests:
             name: MOCK_NFD_PCI_LABEL
             value: "on"
 
-  - it: should suppress the NFD pci-10de label when nodeLabels.pciVendorPresent=false
+  - it: should suppress the NFD pci-10de feature file when nodeLabels.pciVendorPresent=false
     set:
       nodeLabels:
         pciVendorPresent: false

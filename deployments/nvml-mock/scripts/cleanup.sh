@@ -32,9 +32,10 @@ if command -v kubectl >/dev/null 2>&1; then
   kubectl label node "$NODE_NAME" nvidia.com/gpu.present- || true
 fi
 
-# Mirror of setup.sh step 7: remove the feature file we wrote. NFD drops the
-# label on its next scan. Gated on the same variable so a pod that never
-# wrote the file never deletes it.
+# Mirror of setup.sh step 7: unwind only the write that step made. NFD drops
+# the label on its next scan once the file is gone. Gated on the same variable,
+# so with the gate off this does nothing — setup.sh never wrote the file on
+# this pod and already removed any copy an earlier run left behind.
 if [ "$(printf '%s' "${MOCK_NFD_PCI_LABEL:-on}" | tr '[:upper:]' '[:lower:]')" = "on" ]; then
   rm -f /host/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features
 fi

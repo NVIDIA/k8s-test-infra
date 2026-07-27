@@ -312,8 +312,11 @@ fi
 #
 #    MOCK_NFD_PCI_LABEL (chart value `nodeLabels.pciVendorPresent`, default
 #    true/on) gates only the feature file. Turn it off on a cluster where
-#    something else already supplies the key. cleanup.sh reads the same
-#    variable and removes exactly the file this step wrote.
+#    something else already supplies the key. This step converges either way:
+#    with the gate on it writes the file, with the gate off it removes any
+#    file an earlier run left behind. cleanup.sh reads the same variable and
+#    unwinds only the write this step makes — with the gate off it has nothing
+#    to remove, because the removal already happened here.
 PCI_LABEL_MODE=$(printf '%s' "${MOCK_NFD_PCI_LABEL:-on}" | tr '[:upper:]' '[:lower:]')
 case "$PCI_LABEL_MODE" in
   off | on) ;;
@@ -336,9 +339,21 @@ fi
 NFD_FEATURES_DIR=/host/etc/kubernetes/node-feature-discovery/features.d
 NFD_FEATURE_FILE="$NFD_FEATURES_DIR/nvml-mock.features"
 if [ "$PCI_LABEL_MODE" = "on" ]; then
-  mkdir -p "$NFD_FEATURES_DIR"
-  echo "pci-10de.present=true" > "$NFD_FEATURE_FILE"
-  echo "Wrote $NFD_FEATURE_FILE (NFD derives feature.node.kubernetes.io/pci-10de.present)"
+  # Tolerant on purpose — the one write in this script that is not fatal. It
+  # replaced two `kubectl label` calls that both carried `|| true`, and under
+  # `set -e` (line 9) a bare failure here would abort the entrypoint before
+  # step 8's /host/run/nvidia/driver symlink, crash-looping the whole mock for
+  # an optional, gated feature. When the write fails no label appears, which is
+  # the honest state (#505), and nothing downstream is corrupted — unlike the
+  # IB and PCI renders in steps 9 and 10, which are deliberately fatal because
+  # a partial tree silently misleads its consumers. A failing `if` CONDITION
+  # does not trip `set -e`, so this form warns and continues rather than
+  # swallowing the error the way `|| true` would.
+  if mkdir -p "$NFD_FEATURES_DIR" && echo "pci-10de.present=true" > "$NFD_FEATURE_FILE"; then
+    echo "Wrote $NFD_FEATURE_FILE (NFD derives feature.node.kubernetes.io/pci-10de.present)"
+  else
+    echo "WARNING: could not write $NFD_FEATURE_FILE — feature.node.kubernetes.io/pci-10de.present will not be created; the mock is otherwise unaffected" >&2
+  fi
 else
   rm -f "$NFD_FEATURE_FILE"
   echo "Skipping NFD pci-10de feature file (nodeLabels.pciVendorPresent=false)"

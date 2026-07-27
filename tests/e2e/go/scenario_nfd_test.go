@@ -44,8 +44,9 @@ const (
 	nfdOwnedLabelsAnnotation = "nfd.node.kubernetes.io/feature-labels"
 	pciVendorFeature         = "pci-10de.present"
 
-	// Written unconditionally by setup.sh one line BEFORE the pci-10de label,
-	// and used here only as a synchronisation barrier. See spec 1.
+	// Written unconditionally by setup.sh in step 7, before anything
+	// pci-10de-related, and used here only as a synchronisation barrier.
+	// See spec 1.
 	gpuPresentLabel = "nvidia.com/gpu.present"
 
 	// Container path of the feature file setup.sh writes (chart mount from
@@ -100,10 +101,10 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 		// DaemonSet declares no readinessProbe, demoRelease sets
 		// maxUnavailable=100% so `helm --wait` returns on merely-scheduled
 		// pods, and pod selection waits only for phase Running. setup.sh writes
-		// nvidia.com/gpu.present unconditionally on the line immediately BEFORE
-		// the pci-10de label, so observing it proves setup.sh reached the
-		// labelling block — and that a still-absent pci-10de label is a real
-		// absence, not a race we won.
+		// nvidia.com/gpu.present unconditionally in step 7, still ahead of the
+		// pci-10de feature-file block that follows it, so observing it proves
+		// setup.sh reached the labelling block — and that a still-absent
+		// pci-10de label is a real absence, not a race we won.
 		assertions.WaitNodeLabelsPresent(ctx, h.Kube, node,
 			[]string{gpuPresentLabel}, nfdLabelTimeout, nfdLabelPoll)
 
