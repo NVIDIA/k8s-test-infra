@@ -21,6 +21,7 @@ Tested component versions for the mock GPU E2E test suite.
 - **Device Plugin** (standalone DaemonSet): discovers mock GPUs via NVML, registers `nvidia.com/gpu` resource
 - **DRA Driver** (Helm chart): discovers mock GPUs via NVML, publishes ResourceSlices
 - **GPU Feature Discovery** (standalone DaemonSet): reads GPU attributes via NVML, labels nodes
+- **Node Feature Discovery** (Helm chart): derives the PCI vendor label from the feature file nvml-mock writes, not nvml-mock itself
 - **CUDA Validator** (Job): runs vectorAdd against mock libcuda.so
 
 ### Values Overlay Only (GPU Operator)
