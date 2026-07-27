@@ -30,12 +30,12 @@ if [ -f "$CDI_FILE" ]; then
 fi
 if command -v kubectl >/dev/null 2>&1; then
   kubectl label node "$NODE_NAME" nvidia.com/gpu.present- || true
-  # Mirror of setup.sh step 7: remove the NFD PCI label only when this pod was
-  # the one that wrote it. Chart value nodeLabels.pciVendorPresent maps to
-  # MOCK_NFD_PCI_LABEL; with the gate off a real NFD owns that key, and an
-  # unconditional delete here would strip a label the mock never created.
-  if [ "$(printf '%s' "${MOCK_NFD_PCI_LABEL:-on}" | tr '[:upper:]' '[:lower:]')" = "on" ]; then
-    kubectl label node "$NODE_NAME" feature.node.kubernetes.io/pci-10de.present- || true
-  fi
+fi
+
+# Mirror of setup.sh step 7: remove the feature file we wrote. NFD drops the
+# label on its next scan. Gated on the same variable so a pod that never
+# wrote the file never deletes it.
+if [ "$(printf '%s' "${MOCK_NFD_PCI_LABEL:-on}" | tr '[:upper:]' '[:lower:]')" = "on" ]; then
+  rm -f /host/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features
 fi
 echo "Mock GPU environment cleaned up on $NODE_NAME"
