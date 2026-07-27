@@ -363,7 +363,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        gpu-profile: ${{ fromJson(inputs.gpu_profiles) }}
+        # Deliberately NOT fanned out over inputs.gpu_profiles like the sibling
+        # jobs. The label under test (feature.node.kubernetes.io/pci-10de.present)
+        # is vendor-only — byte-identical for every profile, since every mock GPU
+        # is PCI vendor 0x10de — and the scenario itself hardcodes a100, so extra
+        # legs would spend a kind cluster each to re-run the identical assertion
+        # while reporting a profile name they never exercised.
+        gpu-profile: [a100]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
