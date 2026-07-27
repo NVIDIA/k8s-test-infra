@@ -141,7 +141,7 @@
         "featuresDir": {
           "type": "string",
           "minLength": 1,
-          "description": "Host directory NFD's local source reads feature files from. Must be the featureFilesDir the deployed NFD actually reads. Typed as a non-empty string because an empty or null value renders an invalid hostPath that the API server rejects only at apply time."
+          "description": "Host directory NFD's local source reads feature files from. Must be the featureFilesDir the deployed NFD actually reads. Typed as a non-empty string so that an empty string or a non-string value is rejected at `helm template` time instead of rendering an invalid hostPath the API server rejects only at apply time."
         }
       }
     },

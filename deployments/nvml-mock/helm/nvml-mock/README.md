@@ -11,6 +11,10 @@ Deploys a DaemonSet that creates on every node:
 - Mock device nodes at `/var/lib/nvml-mock/driver/dev/nvidia{N,ctl,-uvm,-uvm-tools}` (consumers see them at `/dev/nvidia*` via CDI bind-mount)
 - GPU configuration at `/var/lib/nvml-mock/driver/config/config.yaml`
 - Node label `nvidia.com/gpu.present=true`
+- An NFD feature file at
+  `/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features`, which
+  NFD turns into the node label
+  `feature.node.kubernetes.io/pci-10de.present=true` (see [Node Labels](#node-labels))
 - A fake InfiniBand sysfs tree at `/var/lib/nvml-mock/ib/sys/class/infiniband/...`
   paired with `libibmocksys.so` (`LD_PRELOAD`) so real `ibstat`, `ibstatus`,
   `iblinkinfo`, ... read mock HCAs
@@ -745,7 +749,8 @@ for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 
 The DaemonSet's `setup.sh` writes one node label directly with `kubectl label`,
 and drops a feature file that NFD turns into a second. The preStop `cleanup.sh`
-reverses both:
+removes the first label and deletes the feature file; NFD retires the second
+label itself on its next cycle:
 
 | Label | Written by | Gated by | Default |
 |-------|-----------|----------|---------|

@@ -9,6 +9,7 @@ Tested component versions for the mock GPU E2E test suite.
 | NVIDIA Device Plugin | v0.18.2 | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | Tested in CI |
 | DRA Driver (GPU) | v0.10.x | `nvidia/nvidia-dra-driver-gpu` (Helm) | Tested in CI |
 | GPU Feature Discovery | v0.17.0 | `nvcr.io/nvidia/gpu-feature-discovery:v0.17.0` | Tested in CI |
+| Node Feature Discovery | v0.19.0 | `nfd/node-feature-discovery` (Helm) | Pinned + tested in CI |
 | CUDA vectorAdd sample | cuda12.5.0 | `nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0` | Tested in CI |
 | GPU Operator | v24.9.2 | `nvidia/gpu-operator` (Helm) | Pinned + tested in CI |
 | DCGM | 3.3.9 | `nvcr.io/nvidia/cloud-native/dcgm:3.3.9-1-ubuntu22.04` | Spike script (`spike-dcgm.sh`) |

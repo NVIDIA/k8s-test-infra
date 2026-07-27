@@ -339,9 +339,9 @@ fi
 NFD_FEATURES_DIR=/host/etc/kubernetes/node-feature-discovery/features.d
 NFD_FEATURE_FILE="$NFD_FEATURES_DIR/nvml-mock.features"
 if [ "$PCI_LABEL_MODE" = "on" ]; then
-  # Tolerant on purpose — the one write in this script that is not fatal. It
-  # replaced a `kubectl label` call here that carried `|| true` (cleanup.sh
-  # carried the matching one for the removal), and under
+  # Tolerant on purpose — the one host-filesystem write in this script that is
+  # not fatal. It replaced a `kubectl label` call here that carried `|| true`
+  # (cleanup.sh carried the matching one for the removal), and under
   # `set -e` (line 9) a bare failure here would abort the entrypoint before
   # step 8's /host/run/nvidia/driver symlink, crash-looping the whole mock for
   # an optional, gated feature. When the write fails no label appears, which is
