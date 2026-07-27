@@ -760,9 +760,9 @@ does not exist — which is the honest state, and is what the e2e in
 `tests/e2e/go/scenario_nfd_test.go` asserts.
 
 NFD's *PCI* source still cannot see mock GPUs as deployed: it reads a
-host-prefixed sysfs path fixed at link time
-(`/host-sys/bus/pci/devices`, from `HOSTMOUNT_PREFIX`), while nvml-mock's
-rendered PCI tree lives under `/var/lib/nvml-mock/sys` and is reachable only
+host-prefixed sysfs path fixed at link time (`/host-sys/bus/pci/devices`, from
+`HOSTMOUNT_PREFIX`), while nvml-mock's rendered PCI tree lives under
+`/var/lib/nvml-mock/sys` and is reachable at the canonical `/sys` path only
 through an `LD_PRELOAD` sysfs shim — and `nfd-worker` ships statically linked,
 so `LD_PRELOAD` is inert in it. Either fact alone is enough; both hold. The
 `setup.sh` comment at step 7 carries the full analysis with upstream file
@@ -787,11 +787,12 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --set nodeLabels.pciVendorPresent=false
 ```
 
-`setup.sh` and `cleanup.sh` read the same switch, so a disabled feature file is
-neither written nor deleted — the mock never removes an input it did not
-supply. Because the label itself belongs to NFD, disabling the switch does not
-delete an existing label directly; NFD retires it on its next discovery cycle
-once the feature file is gone.
+`setup.sh` converges either way: with the switch on it writes the feature file,
+with it off it removes any file an earlier run left behind. `cleanup.sh` reads
+the same switch and unwinds only the write `setup.sh` makes, so with the switch
+off it has nothing to undo. Because the label itself belongs to NFD, disabling
+the switch does not delete an existing label directly; NFD retires it on its
+next discovery cycle once the feature file is gone.
 
 Writing a feature file rather than the label is also why the DaemonSet needs no
 `patch` on `nodes` for this key — `nvidia.com/gpu.present` is the only label it

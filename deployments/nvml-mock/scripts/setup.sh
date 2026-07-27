@@ -284,7 +284,7 @@ fi
 #    one writer and "NFD works" stays distinguishable from "we set it
 #    ourselves" (#505).
 #
-#    Why not NFD's PCI source? It structurally cannot see our devices.
+#    Why not NFD's PCI source? As deployed it cannot see our devices.
 #    (Upstream facts as of NFD v0.19.0, the version pinned in go.mod; the
 #    worker actually deployed comes from GPU Operator and may differ.)
 #    source/pci/utils.go resolves hostpath.SysfsDir.Path("bus/pci/devices"),
@@ -340,7 +340,8 @@ NFD_FEATURES_DIR=/host/etc/kubernetes/node-feature-discovery/features.d
 NFD_FEATURE_FILE="$NFD_FEATURES_DIR/nvml-mock.features"
 if [ "$PCI_LABEL_MODE" = "on" ]; then
   # Tolerant on purpose — the one write in this script that is not fatal. It
-  # replaced two `kubectl label` calls that both carried `|| true`, and under
+  # replaced a `kubectl label` call here that carried `|| true` (cleanup.sh
+  # carried the matching one for the removal), and under
   # `set -e` (line 9) a bare failure here would abort the entrypoint before
   # step 8's /host/run/nvidia/driver symlink, crash-looping the whole mock for
   # an optional, gated feature. When the write fails no label appears, which is
@@ -355,8 +356,14 @@ if [ "$PCI_LABEL_MODE" = "on" ]; then
     echo "WARNING: could not write $NFD_FEATURE_FILE — feature.node.kubernetes.io/pci-10de.present will not be created; the mock is otherwise unaffected" >&2
   fi
 else
-  rm -f "$NFD_FEATURE_FILE"
-  echo "Skipping NFD pci-10de feature file (nodeLabels.pciVendorPresent=false)"
+  # Mirror of the tolerant write above: the removal is the same optional,
+  # gated feature on its other arm, so an EROFS or unwritable directory must
+  # not abort the entrypoint before step 8 either.
+  if rm -f "$NFD_FEATURE_FILE"; then
+    echo "Skipping NFD pci-10de feature file (nodeLabels.pciVendorPresent=false)"
+  else
+    echo "WARNING: could not remove $NFD_FEATURE_FILE — a stale feature file may keep feature.node.kubernetes.io/pci-10de.present alive; the mock is otherwise unaffected" >&2
+  fi
 fi
 
 # 8. Create GPU Operator compatibility symlink.
