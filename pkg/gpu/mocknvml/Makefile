@@ -24,7 +24,8 @@ LIB_NAME := libnvidia-ml.so
 LIB_SONAME := $(LIB_NAME).1
 LIB_REALNAME := $(LIB_NAME).$(LIB_VERSION)
 
-REPO_ROOT := $(shell git rev-parse --show-toplevel)
+# Lazy: only docker-build needs it, and the Docker build context is no git checkout.
+REPO_ROOT = $(shell git rev-parse --show-toplevel)
 
 # Library-size padding (issue #247). The real libnvidia-ml.so for driver
 # 550.x is ~14 MiB. Some detection / security tools sanity-check the file

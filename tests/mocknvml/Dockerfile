@@ -22,11 +22,11 @@ COPY vendor/ ./vendor/
 COPY pkg/ ./pkg/
 COPY cmd/ ./cmd/
 
-# Build the mock NVML library
+# Build via the Makefile, not a bare `go build`: it owns the --defsym aliases
+# for the unversioned entry points (nvmlEventSetWait, ...), the SONAME and the
+# symlinks. nopadding keeps the test image small.
 WORKDIR /build/pkg/gpu/mocknvml
-RUN go build -buildmode=c-shared -o libnvidia-ml.so.550.54.15 ./bridge && \
-    ln -sf libnvidia-ml.so.550.54.15 libnvidia-ml.so.1 && \
-    ln -sf libnvidia-ml.so.1 libnvidia-ml.so
+RUN make LIB_VERSION=550.54.15 BUILD_TAGS=nopadding
 
 # Build the test binary
 FROM golang:${GOLANG_VERSION} AS test-builder
