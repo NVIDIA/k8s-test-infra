@@ -15,13 +15,16 @@
 //
 // nvidia-smi calls nvmlEventSetCreate during initialization and fails
 // if it returns an error, so the create/free/register stubs must always
-// succeed. nvmlEventSetWait_v2 is wired through to the engine's failure
+// succeed. nvmlEventSetWait_v1/_v2 are wired through to the engine's failure
 // injector: when a device trips with a `failure.xid:` block configured,
 // the next wait call returns NVML_SUCCESS with the configured Xid in
 // the standard nvmlEventData_t structure (NVML_EVENT_TYPE_XID_CRITICAL_ERROR).
 // Real NVML clients (dcgm-exporter, the device plugin's health monitor)
 // see the Xid through the API designed for it instead of having to
 // scrape it out of an overloaded ViolationTime field.
+//
+// With no event pending they block for the caller's timeout, as real NVML
+// does: clients loop on the wait with no sleep of their own.
 
 package main
 
@@ -31,10 +34,15 @@ package main
 */
 import "C"
 import (
+	"time"
 	"unsafe"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
+
+// waitPollInterval bounds how long a blocking wait sits before re-checking for
+// an injected Xid, trading delivery latency against wakeups.
+const waitPollInterval = 100 * time.Millisecond
 
 //export nvmlEventSetCreate
 func nvmlEventSetCreate(set *C.nvmlEventSet_t) C.nvmlReturn_t {
@@ -99,20 +107,70 @@ func pollPendingXid(data *C.nvmlEventData_t) bool {
 	return true
 }
 
-//export nvmlEventSetWait_v1
-func nvmlEventSetWait_v1(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
-	if pollPendingXid(data) {
+// waitForDelivery blocks until deliver reports an event or timeout elapses,
+// re-checking every pollInterval. Free of C types so the blocking contract is
+// unit-testable. Returning early would spin the caller's health loop.
+func waitForDelivery(timeout, pollInterval time.Duration, deliver func() bool) bool {
+	if deliver() {
+		return true
+	}
+	// Zero timeout is a non-blocking poll.
+	if timeout <= 0 {
+		return false
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return false
+		}
+		if remaining > pollInterval {
+			remaining = pollInterval
+		}
+		time.Sleep(remaining)
+		if deliver() {
+			return true
+		}
+	}
+}
+
+// waitForXid mirrors real nvmlEventSetWait semantics: NVML_SUCCESS as soon as
+// an injected Xid is pending, otherwise NVML_ERROR_TIMEOUT after blocking for
+// up to timeoutms.
+func waitForXid(data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
+	// NVML rejects a NULL payload; fail fast instead of after the timeout.
+	if data == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	delivered := waitForDelivery(
+		time.Duration(timeoutms)*time.Millisecond,
+		waitPollInterval,
+		func() bool { return pollPendingXid(data) },
+	)
+	if delivered {
 		return C.NVML_SUCCESS
 	}
-	// No injected event pending — report TIMEOUT so callers treat the
-	// wait as "no events occurred" rather than an error.
 	return C.NVML_ERROR_TIMEOUT
+}
+
+//export nvmlEventSetWait_v1
+func nvmlEventSetWait_v1(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
+	return waitForXid(data, timeoutms)
 }
 
 //export nvmlEventSetWait_v2
 func nvmlEventSetWait_v2(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
-	if pollPendingXid(data) {
-		return C.NVML_SUCCESS
-	}
-	return C.NVML_ERROR_TIMEOUT
+	return waitForXid(data, timeoutms)
+}
+
+// Test files cannot construct an nvmlEventData_t (no cgo in _test.go), so
+// these hooks drive the exported entry points with a valid payload.
+func eventSetWaitV1ForTest(timeoutms uint32) uint32 {
+	var data C.nvmlEventData_t
+	return uint32(nvmlEventSetWait_v1(nil, &data, C.uint(timeoutms)))
+}
+
+func eventSetWaitV2ForTest(timeoutms uint32) uint32 {
+	var data C.nvmlEventData_t
+	return uint32(nvmlEventSetWait_v2(nil, &data, C.uint(timeoutms)))
 }

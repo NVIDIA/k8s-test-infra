@@ -332,13 +332,21 @@ not recover without a reboot. Per-mode behaviour:
 
 The `xid.code` field is surfaced through the standard NVML event set
 (`NVML_EVENT_TYPE_XID_CRITICAL_ERROR`) the first time
-`nvmlEventSetWait_v2` is called after the device trips. Combine it with
+`nvmlEventSetWait_v1`/`nvmlEventSetWait_v2` is called after the device
+trips. Combine it with
 `mode: ecc_uncorrectable` to inject a specific Xid (for example `64` for
 ECC double-bit, `79` for "GPU has fallen off the bus") without taking
 the GPU off the API surface. Real NVML reports each critical Xid exactly
 once per occurrence, so the mock delivers the configured code on the
 first wait and reports `NVML_ERROR_TIMEOUT` (no event) on subsequent
 waits — exactly like real hardware.
+
+Those subsequent waits block for the caller's timeout before returning
+`NVML_ERROR_TIMEOUT`, as real NVML does; an Xid injected while a caller
+is parked is delivered within about 100 ms. This matters because NVML
+clients (the device-plugin health monitor, dcgm-exporter) loop on the
+wait with no sleep of their own — a wait that returned immediately would
+turn their health-check loop into a busy spin that burns a CPU core.
 
 `Device.GetViolationStatus` deliberately does **not** carry the Xid
 code; that field is reserved for cumulative throttle time in nanoseconds
@@ -363,7 +371,7 @@ nvidia-smi -q                                        # "GPU is lost" sections
 echo "exit=$?"                                       # non-zero after trip
 
 # mode: ecc_uncorrectable  ─  device stays addressable; counters grow and
-# nvmlEventSetWait_v2 delivers the configured Xid once per trip.
+# nvmlEventSetWait_v1/_v2 delivers the configured Xid once per trip.
 nvidia-smi -q -d ECC                                 # uncorrectable counts
 nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv
 nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.dram  --format=csv
@@ -582,7 +590,7 @@ The mock library implements 89 NVML functions required by nvidia-smi:
 - **ECC**: `nvmlDeviceGetEccMode`, `nvmlDeviceGetTotalEccErrors`
 - **PCIe**: `nvmlDeviceGetPciInfo`, `nvmlDeviceGetCurrPcieLinkGeneration`
 - **MIG**: `nvmlDeviceGetMigMode`
-- **Events**: `nvmlEventSetCreate`, `nvmlEventSetWait` (EventSetCreate returns `SUCCESS`; EventSetWait returns `TIMEOUT`)
+- **Events**: `nvmlEventSetCreate`, `nvmlEventSetWait_v1`/`nvmlEventSetWait_v2` (EventSetCreate returns `SUCCESS`; the waits deliver an injected Xid, otherwise block for the caller's timeout and return `TIMEOUT`)
 
 All other NVML functions return `NVML_ERROR_NOT_SUPPORTED`, providing full API
 coverage for linking.

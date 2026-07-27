@@ -69,7 +69,7 @@ first-time install and follow-up upgrades.
 
 ### The Xid event is delivered through the NVML event set, not nvidia-smi
 
-`nvidia-smi` doesn't subscribe to `nvmlEventSetWait_v2`, so it never
+`nvidia-smi` doesn't subscribe to `nvmlEventSetWait`, so it never
 prints `Xid 79`. The mock delivers the configured Xid through the
 standard NVML event set
 (`NVML_EVENT_TYPE_XID_CRITICAL_ERROR`), exactly once per engine
@@ -90,6 +90,12 @@ lifetime — matching real NVML semantics. Real consumers see it via:
   ev, _ := nvml.EventSetWait(set, 1000)
   // ev.EventType == 0x8 (XID_CRITICAL_ERROR), ev.EventData == 79
   ```
+
+  Both `nvmlEventSetWait_v1` and `nvmlEventSetWait_v2` are exported and
+  behave identically. As with real NVML, a wait with no event pending
+  blocks for the full timeout (1000 ms above) and then returns
+  `NVML_ERROR_TIMEOUT`; an Xid raised while the caller is parked
+  surfaces within about 100 ms.
 
 ### The injector counter is per-process
 
