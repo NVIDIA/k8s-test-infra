@@ -12,6 +12,8 @@ highlighting any additional information provided beyond the standard MEP
 template.
 -->
 
+Author: [Your Name]()
+
 <!-- toc -->
 - [Summary](#summary)
 - [Motivation](#motivation)
