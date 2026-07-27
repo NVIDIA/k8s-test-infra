@@ -188,6 +188,38 @@ tests:
             name: MOCK_NFD_PCI_LABEL
             value: "off"
 
+  # ── NFD features.d mount (nodeLabels.featuresDir) ────────────────────
+  # setup.sh writes the pci-10de feature file here instead of calling
+  # kubectl label. Without this mount the write silently lands inside the
+  # container and NFD never sees it, so the mount IS the contract.
+  - it: should mount the NFD features.d host directory
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-nfd-features
+            mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-nfd-features
+            hostPath:
+              path: /etc/kubernetes/node-feature-discovery/features.d
+              type: DirectoryOrCreate
+
+  - it: should honour a custom nodeLabels.featuresDir
+    set:
+      nodeLabels:
+        featuresDir: /custom/features.d
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-nfd-features
+            hostPath:
+              path: /custom/features.d
+              type: DirectoryOrCreate
+
   # ── fabricmanager enablement (derived from the profile) ─────────────
   - it: should start fabricmanager for an auto-state profile (gb200)
     set:

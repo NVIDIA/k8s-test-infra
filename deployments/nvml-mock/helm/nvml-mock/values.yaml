@@ -87,6 +87,14 @@ nodeLabels:
   # label would conflict with it.
   pciVendorPresent: true
 
+  # Host directory NFD's *local* source reads feature files from
+  # (source/local/local.go featureFilesDir, a plain literal — unlike the PCI
+  # source's /host-sys path it is not host-prefixed). setup.sh drops the
+  # pci-10de feature file here and NFD turns it into the label, so the mock
+  # never writes to the node API. Override only if NFD is deployed with a
+  # non-default features.d location.
+  featuresDir: /etc/kubernetes/node-feature-discovery/features.d
+
 # Node-wide ambient injection via containerd NRI. When enabled, a lightweight
 # node-local plugin appends the nvml-mock overlay mount and environment to each
 # container at runtime without mutating pod specs. Opt-in (default false): it

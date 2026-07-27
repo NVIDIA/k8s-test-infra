@@ -184,6 +184,8 @@ spec:
               mountPath: /host/var/run/cdi
             - name: host-run-nvidia
               mountPath: /host/run/nvidia
+            - name: host-nfd-features
+              mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
             {{- if .Values.topology.enabled }}
             - name: gpu-topology
               mountPath: /etc/nvml-mock/topology
@@ -211,6 +213,10 @@ spec:
         - name: host-run-nvidia
           hostPath:
             path: /run/nvidia
+            type: DirectoryOrCreate
+        - name: host-nfd-features
+          hostPath:
+            path: {{ .Values.nodeLabels.featuresDir | quote }}
             type: DirectoryOrCreate
         {{- if .Values.topology.enabled }}
         - name: gpu-topology
