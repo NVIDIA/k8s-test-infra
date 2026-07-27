@@ -125,6 +125,43 @@ func NodeLabelSoft(ctx context.Context, k *kube.Client, node, key string) {
 	}
 }
 
+// NodeLabelAbsent asserts a node label is not set at all. This is the guard
+// that proves provenance: with NFD absent, nothing in nvml-mock may create
+// feature.node.kubernetes.io/pci-10de.present. Reinstating a direct
+// `kubectl label` for that key turns this red.
+func NodeLabelAbsent(ctx context.Context, k *kube.Client, node, key string) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By(fmt.Sprintf("node %s has no label %s", node, key))
+	v, ok, err := k.NodeLabel(ctx, node, key)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(ok).To(gomega.BeFalse(),
+		"node %s unexpectedly carries %s=%s — nvml-mock must not write this label", node, key, v)
+}
+
+// NodeAnnotationListContains asserts a node annotation holds a comma-separated
+// list with item as one of its ELEMENTS. This is the ownership half of the
+// provenance guard: NFD records every label it owns in
+// nfd.node.kubernetes.io/feature-labels, and a label written by anything else
+// (a `kubectl label` in setup.sh, say) never appears there — so presence of the
+// label plus membership here is the direct discriminator, independent of any
+// ordering argument.
+//
+// Membership, never strings.Contains on the raw value: a substring match would
+// also accept a neighbouring entry that merely contains item (`xpci-10de.presentx`).
+func NodeAnnotationListContains(ctx context.Context, k *kube.Client, node, key, item string) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By(fmt.Sprintf("node %s annotation %s lists %s", node, key, item))
+	v, ok, err := k.NodeAnnotation(ctx, node, key)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(ok).To(gomega.BeTrue(), "node %s missing annotation %s", node, key)
+	items := strings.Split(v, ",")
+	for i := range items {
+		items[i] = strings.TrimSpace(items[i])
+	}
+	gomega.Expect(items).To(gomega.ContainElement(item),
+		"node %s annotation %s=%q does not list %s", node, key, v, item)
+}
+
 // DRAEmptyDeviceEdits classifies a stuck gpu-test-pod: if the pod events show
 // the "empty device edits" string the failure is the dev-node layout
 // regression (preserved from the bash diagnosis). Returns true if seen.

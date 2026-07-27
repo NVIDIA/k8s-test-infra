@@ -268,6 +268,7 @@ Use-case labels:
 - `multi-node`
 - `nri`
 - `nri-inject`
+- `nfd`
 - `compute-domain`
 - `failure-injection`
 - `validator`
@@ -282,6 +283,7 @@ make e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter="dra"'
 make e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter="gpu-operator"'
 make e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter="multi-node"'
 make e2e E2E_GINKGO_FLAGS='--label-filter="nri"'
+make e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter="nfd"'
 make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
 ```
 

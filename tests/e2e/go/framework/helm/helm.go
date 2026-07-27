@@ -28,6 +28,7 @@ func New(context string) *Client { return &Client{Context: context} }
 type Release struct {
 	Name            string
 	Chart           string
+	Version         string
 	Namespace       string
 	CreateNamespace bool
 	HideOutput      bool
@@ -84,6 +85,9 @@ func (c *Client) run(ctx context.Context, verb string, rel Release, extra ...str
 	}
 	if rel.CreateNamespace {
 		args = append(args, "--create-namespace")
+	}
+	if rel.Version != "" {
+		args = append(args, "--version", rel.Version)
 	}
 	if rel.ReuseValues {
 		args = append(args, "--reuse-values")
