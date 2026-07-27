@@ -125,6 +125,19 @@ func NodeLabelSoft(ctx context.Context, k *kube.Client, node, key string) {
 	}
 }
 
+// NodeLabelAbsent asserts a node label is not set at all. This is the guard
+// that proves provenance: with NFD absent, nothing in nvml-mock may create
+// feature.node.kubernetes.io/pci-10de.present. Reinstating a direct
+// `kubectl label` for that key turns this red.
+func NodeLabelAbsent(ctx context.Context, k *kube.Client, node, key string) {
+	ginkgo.GinkgoHelper()
+	ginkgo.By(fmt.Sprintf("node %s has no label %s", node, key))
+	v, ok, err := k.NodeLabel(ctx, node, key)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(ok).To(gomega.BeFalse(),
+		"node %s unexpectedly carries %s=%s — nvml-mock must not write this label", node, key, v)
+}
+
 // DRAEmptyDeviceEdits classifies a stuck gpu-test-pod: if the pod events show
 // the "empty device edits" string the failure is the dev-node layout
 // regression (preserved from the bash diagnosis). Returns true if seen.
