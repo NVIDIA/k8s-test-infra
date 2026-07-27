@@ -67,7 +67,7 @@ func TestGPUOperatorManagedDriverRelease(t *testing.T) {
 }
 
 func TestManagedDriverClusterNamesAreDedicated(t *testing.T) {
-	names := []string{managedDriverClusterName, hostDriverClusterName}
+	names := []string{managedDriverClusterName, managedDriverKmodClusterName, hostDriverClusterName}
 	// Seed with every OTHER scenario's cluster name so a future collision with
 	// any of them (not just the standalone/DRA/gpu-operator trio) is caught.
 	seen := map[string]bool{
@@ -82,6 +82,42 @@ func TestManagedDriverClusterNamesAreDedicated(t *testing.T) {
 			t.Fatalf("cluster name %q collides with another scenario's cluster", n)
 		}
 		seen[n] = true
+	}
+}
+
+func TestStubKmodBuildScriptBakesVersionAndBuilds(t *testing.T) {
+	script := stubKmodBuildScript("550.163.01")
+	for _, want := range []string{
+		`STUB_DRIVER_VERSION "550.163.01"`,
+		"deployments/mock-driver/kmod/stub_version.h",
+		`make -s -C "/lib/modules/$KVER/build"`,
+		"test -f deployments/mock-driver/kmod/nvidia.ko",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("stub kmod build script missing %q:\n%s", want, script)
+		}
+	}
+	// The entrypoint is prebuilt-only, so the build MUST NOT happen in the
+	// container: the script runs host-side and never invokes the mock-driver
+	// image's entrypoint.
+	if strings.Contains(script, "nvidia-driver init") {
+		t.Fatalf("stub kmod build script must not invoke the container entrypoint:\n%s", script)
+	}
+}
+
+func TestKmodCheckPodRequestsNoGPU(t *testing.T) {
+	manifest := string(kmodCheckPodManifest())
+	if strings.Contains(manifest, "nvidia.com/gpu") {
+		t.Fatalf("kmod-check pod must not request nvidia.com/gpu:\n%s", manifest)
+	}
+	for _, want := range []string{
+		"name: kmod-check",
+		"/proc/driver/nvidia/version",
+		"/sys/module/nvidia/refcnt",
+	} {
+		if !strings.Contains(manifest, want) {
+			t.Fatalf("kmod-check manifest missing %q:\n%s", want, manifest)
+		}
 	}
 }
 

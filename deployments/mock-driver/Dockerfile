@@ -43,7 +43,7 @@ COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends curl ca-certificates gnupg2; \
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg2 kmod; \
     rm -rf /var/lib/apt/lists/*; \
     # Extract just the nvidia-smi binary from nvidia-utils, mirroring the
     # extraction in deployments/nvml-mock/Dockerfile (same 580 pin, same
@@ -69,12 +69,21 @@ RUN set -eux; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
     apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
+# kmod (insmod/rmmod) is installed above and survives the purge -- it is the
+# only runtime dependency the prebuilt MOCK_KMOD path needs, not part of the
+# nvidia-smi extraction. The image intentionally does NOT ship kernel headers
+# or a compiler: the stub kernel module MUST be prebuilt host-side (see the
+# Go E2E harness, which stages it at /run/nvidia/mock-kmod/nvidia.ko).
+# Stub kernel module sources are kept in the image so a developer can
+# reproduce the build outside the container; the entrypoint never compiles.
+COPY deployments/mock-driver/kmod/ /kmod/
 # GPU profiles and the driver-root layout library are shared with the
 # nvml-mock chart/image (single source of truth).
 COPY deployments/nvml-mock/helm/nvml-mock/profiles/ /profiles/
 COPY deployments/nvml-mock/scripts/lib-driver-root.sh /scripts/lib-driver-root.sh
+COPY deployments/mock-driver/scripts/load-stub-kmod.sh /scripts/load-stub-kmod.sh
 COPY deployments/mock-driver/scripts/nvidia-driver /usr/local/bin/nvidia-driver
-RUN chmod +x /usr/local/bin/nvidia-driver
+RUN chmod +x /usr/local/bin/nvidia-driver /scripts/load-stub-kmod.sh
 # The GPU Operator sets command ["nvidia-driver"] / args ["init"] explicitly;
 # the entrypoint here is for standalone `docker run` parity.
 ENTRYPOINT ["nvidia-driver"]

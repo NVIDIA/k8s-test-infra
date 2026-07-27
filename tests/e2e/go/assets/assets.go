@@ -11,10 +11,11 @@
 // gpu-operator-values.yaml, kind-*.yaml) are COPIES of human-facing files
 // under tests/e2e/ that docs and the chart NOTES still reference by path.
 //
-// The GPU Operator managed-driver / host-driver overlays
-// (gpu-operator-driver-values.yaml, gpu-operator-hostdriver-values.yaml) live
-// ONLY here: they are consumed exclusively by the Go scenarios, so there is no
-// top-level copy to drift against.
+// The GPU Operator managed-driver / host-driver / kmod overlays
+// (gpu-operator-driver-values.yaml, gpu-operator-driver-kmod-values.yaml,
+// gpu-operator-hostdriver-values.yaml) live ONLY here: they are consumed
+// exclusively by the Go scenarios, so there is no top-level copy to drift
+// against.
 package assets
 
 import (
@@ -45,6 +46,9 @@ var GPUOperatorValues []byte
 
 //go:embed gpu-operator-driver-values.yaml
 var GPUOperatorDriverValues []byte
+
+//go:embed gpu-operator-driver-kmod-values.yaml
+var GPUOperatorDriverKmodValues []byte
 
 //go:embed gpu-operator-hostdriver-values.yaml
 var GPUOperatorHostDriverValues []byte

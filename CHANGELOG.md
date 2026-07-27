@@ -24,10 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     with zero driver-root env overrides. Every host path is recorded in a typed
     manifest, guarded against overwriting foreign files, and removed on
     uninstall.
+  - Optional `MOCK_KMOD=on` loads a prebuilt stub `nvidia` kernel module for
+    real kernel-global `/proc/driver/nvidia` and `/sys/module/nvidia` (node and
+    every pod). Prebuilt-only and intended for disposable Kind nodes.
   - E2E coverage runs in the Go/Ginkgo harness (`gpu-operator-driver`,
-    `gpu-operator-hostdriver` scenarios); the `mock-driver` image publishes
-    multi-arch (amd64 + sbsa arm64) with `-debian12` tag aliases mirroring the
-    hardened nvml-mock publish pipeline.
+    `gpu-operator-driver-kmod`, `gpu-operator-hostdriver` scenarios); the
+    `mock-driver` image publishes multi-arch (amd64 + sbsa arm64) with
+    `-debian12` tag aliases mirroring the hardened nvml-mock publish pipeline.
 - DCGM / dcgm-exporter support for the mock GPU stack. `nvmlDeviceGetFieldValues`
   now backs the `DCGM_FI_DEV_*` field surface (ECC, remapped rows, memory
   temperature, and the NVLink field set), and a mock GPM implementation serves

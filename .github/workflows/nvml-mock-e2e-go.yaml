@@ -441,6 +441,57 @@ jobs:
             echo "no diagnostics written"
           fi
 
+  # Managed mock-driver lifecycle + prebuilt stub kernel module (MOCK_KMOD=on).
+  # Separate cluster/job from the kmod-off leg because the loaded module is
+  # kernel-global and persists for the node's lifetime. The scenario builds the
+  # module host-side (matching runner kernel) and stages it on the node.
+  e2e-gpu-operator-driver-kmod:
+    needs: [build-image, build-mock-driver-image]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+
+      - name: Pull pre-built images from ttl.sh (pinned by digest)
+        run: |
+          nvml="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-image.outputs.digest }}"
+          docker pull "$nvml"
+          docker tag "$nvml" "${{ env.E2E_IMAGE }}"
+          drv="ttl.sh/mock-driver-${{ github.sha }}@${{ needs.build-mock-driver-image.outputs.digest }}"
+          docker pull "$drv"
+          docker tag "$drv" "${{ env.E2E_MOCK_DRIVER_IMAGE }}"
+
+      - name: Install Kind
+        run: |
+          curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
+          echo "${{ env.KIND_AMD64_SHA256 }}  ./kind" | sha256sum --check
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Run managed-driver E2E (MOCK_KMOD=on)
+        run: make e2e-gpu-operator-driver-kmod
+
+      - name: Print diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== e2e-gpu-operator-driver-kmod diagnostics ==="
+          if [ -d "$E2E_ARTIFACTS" ]; then
+            find "$E2E_ARTIFACTS" -type f | while read -r f; do
+              echo "----- $f -----"; cat "$f"; echo;
+            done
+          else
+            echo "no diagnostics written"
+          fi
+
   # Host-driver masquerade (hostDriver.enabled=true). Needs no mock-driver
   # image (nvidia-smi + libs are installed at host paths, not deployed as a
   # driver DaemonSet). Asserts the uninstall leaves zero host residue.

@@ -19,23 +19,24 @@ const profilesDir = "../../../../deployments/nvml-mock/helm/nvml-mock/profiles"
 // configs/ copies from drifting in a way the e2e would not catch.
 func TestDerivations(t *testing.T) {
 	cases := []struct {
-		name        string
-		displayName string
-		gpus        int
-		hcas        int
-		nv          int
-		fabricMgr   bool
-		hasFabric   bool
-		ibEnabled   bool
-		pciRoots    int
+		name          string
+		displayName   string
+		gpus          int
+		hcas          int
+		nv            int
+		fabricMgr     bool
+		hasFabric     bool
+		ibEnabled     bool
+		pciRoots      int
+		driverVersion string
 	}{
-		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
-		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2},
-		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2}, // NVLink negative control, IB enabled
-		{"gb200", "NVIDIA GB200", 8, 8, 18, true, true, true, 4},
-		{"gb300", "NVIDIA GB300 NVL", 8, 8, 18, true, true, true, 4},
-		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2}, // IB + NVLink negative control
-		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1},
+		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, "550.163.01"}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
+		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, "550.163.01"},
+		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, "560.35.03"}, // NVLink negative control, IB enabled
+		{"gb200", "NVIDIA GB200", 8, 8, 18, true, true, true, 4, "580.65.06"},
+		{"gb300", "NVIDIA GB300 NVL", 8, 8, 18, true, true, true, 4, "570.124.06"},
+		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, "550.163.01"}, // IB + NVLink negative control
+		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, "550.163.01"},
 	}
 
 	for _, c := range cases {
@@ -53,6 +54,7 @@ func TestDerivations(t *testing.T) {
 				want any
 			}{
 				{"DisplayName", p.DisplayName, c.displayName},
+				{"DriverVersion", p.DriverVersion, c.driverVersion},
 				{"ExpectedGPUs", p.ExpectedGPUs(), c.gpus},
 				{"ExpectedHCAs", p.ExpectedHCAs(), c.hcas},
 				{"ExpectedNV", p.ExpectedNV(), c.nv},

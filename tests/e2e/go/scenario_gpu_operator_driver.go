@@ -20,6 +20,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
 
 // managedDriverProfile is the single profile the managed-driver lane runs. It
@@ -100,8 +101,9 @@ func installNvmlMockManagedDriver(ctx context.Context, h *harness.Harness, prof 
 }
 
 // gpuOperatorManagedDriverRelease builds the pinned GPU Operator release for
-// the managed-driver lane: baseline + driver delta, pinned to the operator
-// version whose contract is vendored under tests/e2e/contract/.
+// the managed-driver lane: baseline + driver delta (+ optional kmod delta),
+// pinned to the operator version whose contract is vendored under
+// tests/e2e/contract/.
 func gpuOperatorManagedDriverRelease(valuesFiles []string) helm.Release {
 	return helm.Release{
 		Name:            gpuOperatorRelease,
@@ -147,4 +149,52 @@ func installGPUOperatorManagedDriver(ctx SpecContext, h *harness.Harness, overla
 	DeferCleanup(cleanup)
 	Expect(h.Helm.UpgradeInstall(ctx, gpuOperatorManagedDriverRelease(paths))).
 		To(Succeed(), "install pinned GPU Operator (managed driver)")
+}
+
+// stubKmodBuildScript is the host-side prebuild for the stub nvidia.ko. It runs
+// in repoRoot() against the RUNNER kernel (which the Kind node shares), bakes
+// the profile driver version into the module, and prints the resulting .ko
+// path. Kept as a function so the unit test can assert its invariants without
+// executing it.
+func stubKmodBuildScript(driverVersion string) string {
+	return fmt.Sprintf(`set -euo pipefail
+KVER="$(uname -r)"
+sudo apt-get update -qq
+sudo apt-get install -y -qq "linux-headers-$KVER" build-essential
+printf '#define STUB_DRIVER_VERSION "%s"\n' %q > deployments/mock-driver/kmod/stub_version.h
+make -s -C "/lib/modules/$KVER/build" M="$PWD/deployments/mock-driver/kmod" modules
+test -f deployments/mock-driver/kmod/nvidia.ko
+`, driverVersion, driverVersion)
+}
+
+// prebuildAndStageStubKmod builds the stub module host-side and stages it on
+// the node at /run/nvidia/mock-kmod/nvidia.ko, where load-stub-kmod.sh expects
+// it. /run is a tmpfs on the Kind node so `docker cp` cannot traverse into it;
+// the module is streamed through a shell instead (matching the prior bash job).
+func prebuildAndStageStubKmod(ctx context.Context, node, driverVersion string) {
+	GinkgoHelper()
+	By("prebuilding the stub nvidia.ko host-side (driver_version=" + driverVersion + ")")
+	_, err := runner.RunInDir(ctx, repoRoot(), "bash", "-c", stubKmodBuildScript(driverVersion))
+	Expect(err).NotTo(HaveOccurred(), "prebuild stub kmod")
+
+	ko := repoRoot() + "/deployments/mock-driver/kmod/nvidia.ko"
+	data, err := os.ReadFile(ko)
+	Expect(err).NotTo(HaveOccurred(), "read prebuilt nvidia.ko")
+
+	_, err = runner.Run(ctx, "docker", "exec", node, "mkdir", "-p", "/run/nvidia/mock-kmod")
+	Expect(err).NotTo(HaveOccurred(), "mkdir /run/nvidia/mock-kmod on node")
+	_, err = runner.RunInput(ctx, string(data), "docker", "exec", "-i", node, "sh", "-c", "cat > /run/nvidia/mock-kmod/nvidia.ko")
+	Expect(err).NotTo(HaveOccurred(), "stage nvidia.ko on node")
+	_, err = runner.Run(ctx, "docker", "exec", node, "test", "-s", "/run/nvidia/mock-kmod/nvidia.ko")
+	Expect(err).NotTo(HaveOccurred(), "staged nvidia.ko is non-empty")
+	By("staged prebuilt stub module on " + node)
+}
+
+// managedDriverProfileVersion loads the fixed managed-driver profile and
+// returns its driver version (used to bake the kmod).
+func managedDriverProfileVersion() string {
+	GinkgoHelper()
+	p, err := profile.Load(profilesDir(), managedDriverProfile)
+	Expect(err).NotTo(HaveOccurred(), "load managed-driver profile %q", managedDriverProfile)
+	return p.DriverVersion
 }
