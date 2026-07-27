@@ -405,6 +405,81 @@ When deploying via Helm, additional values control integration with external pro
 
 See [fake-gpu-operator integration](integrations/fake-gpu-operator.md) for setup details.
 
+## Metric Fidelity
+
+Every value the mock reports comes from configuration, from a clock-driven
+simulator, or from a fixed derivation — never from real GPU work, because the
+mock never executes a kernel. This section states which is which, so a dashboard
+built against nvml-mock is read with the right expectations.
+
+### Simulated — changes between calls
+
+Opt in per metric via `dynamic_metrics`; with that block absent, all of these are
+static. The driver is **elapsed time, not workload**: the numbers move on a
+completely idle node, and they do not move any faster under load.
+
+| Metric | Config | Behaviour |
+|--------|--------|-----------|
+| `temperature.gpu` | `dynamic_metrics.temperature` | `base_c`, plus a sine ramp over `ramp_period_sec` bounded by `ramp_c`, plus uniform noise in ±`variance_c`; clamped to the thermal shutdown threshold when known |
+| `power.draw` | `dynamic_metrics.power` | `base_mw` ± `variance_mw`, clamped to `min_limit_mw` / `max_limit_mw` when those are set |
+| `utilization.gpu`, `utilization.memory` | `dynamic_metrics.utilization` | random within the configured band, shaped by `pattern` (`idle` / `busy` / `burst` / `steady`) |
+| NVLink throughput counters | — | accrue deterministically from a process-independent epoch (`MOCK_NVML_EPOCH`, else `/proc/stat` btime), so they grow monotonically across separate `nvidia-smi` runs |
+
+### Static — held until the config changes
+
+Everything else resolved through the effective config: device memory
+(`memory.total_bytes` / `free_bytes` / `used_bytes` / `reserved_bytes`), ECC mode
+and counters, clocks, fan speed, performance state, power limits, `processes`,
+and failure injection. Each holds its configured value until the profile changes
+or `nvml-mock-ctl` writes a runtime override, which takes effect within one
+override TTL — see [nvml-mock-ctl](nvml-mock-ctl.md).
+
+### Deliberately fixed
+
+**Profiling metrics (`DCGM_FI_PROF_*`).** DCGM reads these on Hopper+ through the
+NVML GPM API. The mock derives every activity metric as a fixed fraction of
+`utilization.gpu`:
+
+| GPM metric | Fraction of `utilization.gpu` |
+|------------|-------------------------------|
+| SM utilization, graphics utilization | 1.00 |
+| SM occupancy | 0.75 |
+| Any-tensor activity | 0.50 |
+| HMMA (FP16 tensor) | 0.40 |
+| FP16 | 0.35 |
+| FP32 | 0.25 |
+| Integer | 0.10 |
+| FP64, DMMA, IMMA | 0.05 |
+| DFMA | 0.02 |
+
+DRAM bandwidth activity mirrors `utilization.memory`, and PCIe / NVLink
+throughput come from the counter snapshots. The fractions approximate the shape
+of a tensor-dominated Hopper training step; they are **intentionally not** tied to
+execution. SM occupancy and tensor-core activity are properties of kernels the
+mock does not run, so deriving them from anything other than the configured
+utilization would be fabrication rather than simulation. They stay fixed by
+design and are not a gap to be closed.
+
+**Identity and topology.** Device `name`, `architecture`, `brand`,
+`compute_capability`, `uuid`, PCI `bus_id`, and the BAR1 aperture
+(`bar1_memory`) are baked onto the device at construction and need a pod restart
+to change.
+
+### Not workload-aware — known gap
+
+No reported value responds to Kubernetes scheduling. A pod holding an
+`nvidia.com/gpu` claim does not move `memory.used_bytes`, does not appear in
+`processes`, and does not raise `utilization.gpu`; the values change only when
+something writes the config.
+
+Nothing in the deployment observes allocation today. The nvml-mock DaemonSet
+stages the driver tree and then sleeps, and the optional NRI plugin subscribes
+only to container **creation** and mounts the overlay read-only. Making memory
+and processes allocation-aware is tracked in
+[#506](https://github.com/NVIDIA/k8s-test-infra/issues/506).
+
+To move these numbers today, drive them explicitly with `nvml-mock-ctl set`.
+
 ## Validation
 
 The configuration is validated on load:

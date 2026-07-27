@@ -42,7 +42,7 @@ func nvmlDeviceGetNvLinkRemoteDeviceType(device C.nvmlDevice_t, link C.uint, pNv
 	if pNvLinkDeviceType == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	dev := engine.GetEngine().LookupConfigurableDevice(uintptr(unsafe.Pointer(device.handle)))
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -62,11 +62,11 @@ func nvmlDeviceGetP2PStatus(device1 C.nvmlDevice_t, device2 C.nvmlDevice_t, p2pI
 	if p2pStatus == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	dev1 := engine.GetEngine().LookupConfigurableDevice(uintptr(unsafe.Pointer(device1.handle)))
+	dev1 := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device1.handle))
 	if dev1 == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	dev2 := engine.GetEngine().LookupDevice(uintptr(unsafe.Pointer(device2.handle)))
+	dev2 := engine.GetEngine().LookupDevice(unsafe.Pointer(device2.handle))
 	if dev2 == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -86,7 +86,7 @@ func nvmlDeviceGetNvLinkUtilizationCounter(device C.nvmlDevice_t, link C.uint, c
 	if rxcounter == nil || txcounter == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	dev := engine.GetEngine().LookupConfigurableDevice(uintptr(unsafe.Pointer(device.handle)))
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -104,7 +104,7 @@ func nvmlDeviceFreezeNvLinkUtilizationCounter(device C.nvmlDevice_t, link C.uint
 	if ret, ok := bridgeVersionCheck("nvmlDeviceFreezeNvLinkUtilizationCounter"); !ok {
 		return ret
 	}
-	dev := engine.GetEngine().LookupConfigurableDevice(uintptr(unsafe.Pointer(device.handle)))
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -116,7 +116,7 @@ func nvmlDeviceResetNvLinkUtilizationCounter(device C.nvmlDevice_t, link C.uint,
 	if ret, ok := bridgeVersionCheck("nvmlDeviceResetNvLinkUtilizationCounter"); !ok {
 		return ret
 	}
-	dev := engine.GetEngine().LookupConfigurableDevice(uintptr(unsafe.Pointer(device.handle)))
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -128,7 +128,7 @@ func nvmlDeviceResetNvLinkErrorCounters(device C.nvmlDevice_t, link C.uint) C.nv
 	if ret, ok := bridgeVersionCheck("nvmlDeviceResetNvLinkErrorCounters"); !ok {
 		return ret
 	}
-	dev := engine.GetEngine().LookupConfigurableDevice(uintptr(unsafe.Pointer(device.handle)))
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}

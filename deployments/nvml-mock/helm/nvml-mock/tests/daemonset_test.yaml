@@ -165,6 +165,29 @@ tests:
             name: DRIVER_VERSION
             value: "580.65.06"
 
+  # ── NFD pci-10de label gate (nodeLabels.pciVendorPresent) ───────────
+  # setup.sh and cleanup.sh both branch on MOCK_NFD_PCI_LABEL. They accept
+  # only "on"/"off" and abort the pod on anything else, so the exact string
+  # matters, not merely the presence of the variable.
+  - it: should write the NFD pci-10de label by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_NFD_PCI_LABEL
+            value: "on"
+
+  - it: should suppress the NFD pci-10de label when nodeLabels.pciVendorPresent=false
+    set:
+      nodeLabels:
+        pciVendorPresent: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_NFD_PCI_LABEL
+            value: "off"
+
   # ── fabricmanager enablement (derived from the profile) ─────────────
   - it: should start fabricmanager for an auto-state profile (gb200)
     set:

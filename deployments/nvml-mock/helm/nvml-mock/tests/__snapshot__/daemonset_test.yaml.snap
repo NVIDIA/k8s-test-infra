@@ -41,6 +41,8 @@ should match snapshot with all overrides:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
+                - name: MOCK_NFD_PCI_LABEL
+                  value: "on"
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
@@ -184,6 +186,8 @@ should match snapshot with b200 profile:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
+                - name: MOCK_NFD_PCI_LABEL
+                  value: "on"
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
@@ -306,6 +310,8 @@ should match snapshot with default values:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
+                - name: MOCK_NFD_PCI_LABEL
+                  value: "on"
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
