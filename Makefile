@@ -135,6 +135,7 @@ cluster-delete:
 #   make e2e-gpu-operator          # GPU Operator scenario
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # node-wide NRI ambient-injection scenario
+#   make e2e-nfd                   # NFD label-provenance scenario
 # CI builds the image once per job and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
 #
 # NOTE: this targets ./tests/e2e/go (the Ginkgo suite package) only, NOT

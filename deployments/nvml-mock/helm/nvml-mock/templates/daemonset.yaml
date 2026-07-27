@@ -72,11 +72,13 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            # Gates the hand-written NFD label
+            # Gates the NFD feature file that yields
             # feature.node.kubernetes.io/pci-10de.present=true. setup.sh writes
-            # it and cleanup.sh removes it only when this is "on", so the mock
-            # never deletes a label it did not create. NFD's PCI source cannot
-            # derive the label on a mock node — see setup.sh step 7.
+            # the file and cleanup.sh removes it only when this is "on", so the
+            # mock never deletes an input it did not supply. NFD, not the mock,
+            # creates the label. NFD's PCI source cannot derive it as deployed —
+            # nfd-worker reads a link-time-fixed /host-sys path, so the rendered
+            # tree is not on a path it reads; see setup.sh step 7.
             - name: MOCK_NFD_PCI_LABEL
               value: {{ ternary "on" "off" .Values.nodeLabels.pciVendorPresent | quote }}
             # Point the mock NVML library at the in-pod ConfigMap mount so any
