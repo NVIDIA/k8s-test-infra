@@ -35,6 +35,19 @@ const (
 	// "pci-10de.present=true" into exactly this key.
 	pciVendorLabel = "feature.node.kubernetes.io/pci-10de.present"
 
+	// NFD records every label it owns in this annotation, as a comma-separated
+	// list of label names WITHOUT the feature.node.kubernetes.io/ prefix (its
+	// default namespace). A label written by anything else — setup.sh's
+	// `kubectl label`, say — never appears here, which makes this the direct
+	// ownership discriminator rather than an inference from ordering. Measured
+	// in the Task 1 experiment.
+	nfdOwnedLabelsAnnotation = "nfd.node.kubernetes.io/feature-labels"
+	pciVendorFeature         = "pci-10de.present"
+
+	// Written unconditionally by setup.sh one line BEFORE the pci-10de label,
+	// and used here only as a synchronisation barrier. See spec 1.
+	gpuPresentLabel = "nvidia.com/gpu.present"
+
 	// Container path of the feature file setup.sh writes (chart mount from
 	// Task 2; the hostPath behind it is nodeLabels.featuresDir).
 	nfdFeatureFile = "/host/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features"
@@ -43,9 +56,13 @@ const (
 	nfdLabelPoll    = 5 * time.Second
 )
 
-// Proves provenance of the NFD PCI vendor label by ordering, not inspection:
-// with NFD absent the label must not exist (nothing in nvml-mock may write
-// it), and once NFD is installed it must appear. See issue #505.
+// Proves provenance of the NFD PCI vendor label two independent ways: by
+// ordering (with NFD absent the label must not exist, because nothing in
+// nvml-mock may write it, and it must appear once NFD is installed) and by
+// ownership (NFD lists the label in its own feature-labels annotation, which a
+// hand-written label never reaches). Either one alone can be fooled — the
+// ordering half by a race, the ownership half by an NFD version that stops
+// annotating — so both are asserted. See issue #505.
 //
 // Ordered because the absent-check is only meaningful before NFD is installed;
 // ContinueOnFailure because the three specs report independent facts (no label,
@@ -69,13 +86,27 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 		// the absent-check pass for the wrong reason and the present-check
 		// fail forever. Measured in the Task 1 experiment.
 		// Using the mock pod's node also guarantees the feature file and the
-		// label assertion refer to the same machine.
+		// label assertion refer to the same machine. The worker-role invariant
+		// is enforced inside that helper, by Kind's own node classification.
 		pod, node = nvmlMockPodOnWorker(ctx, h)
-		Expect(node).NotTo(ContainSubstring("control-plane"),
-			"nvml-mock pod landed on the control plane; NFD runs no worker there")
 	})
 
 	It("does not create the PCI vendor label without NFD", Label("nfd-provenance"), func(ctx SpecContext) {
+		// SYNCHRONISATION BARRIER — not a feature assertion. Do not "tidy" it
+		// away: without it this negative check is unordered against setup.sh
+		// and can pass vacuously, which would make the whole guard useless.
+		//
+		// Nothing else orders us after setup.sh's labelling step: the nvml-mock
+		// DaemonSet declares no readinessProbe, demoRelease sets
+		// maxUnavailable=100% so `helm --wait` returns on merely-scheduled
+		// pods, and pod selection waits only for phase Running. setup.sh writes
+		// nvidia.com/gpu.present unconditionally on the line immediately BEFORE
+		// the pci-10de label, so observing it proves setup.sh reached the
+		// labelling block — and that a still-absent pci-10de label is a real
+		// absence, not a race we won.
+		assertions.WaitNodeLabelsPresent(ctx, h.Kube, node,
+			[]string{gpuPresentLabel}, nfdLabelTimeout, nfdLabelPoll)
+
 		assertions.NodeLabelAbsent(ctx, h.Kube, node, pciVendorLabel)
 	})
 
@@ -101,6 +132,13 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 		assertions.WaitNodeLabelsPresent(ctx, h.Kube, node,
 			[]string{pciVendorLabel}, nfdLabelTimeout, nfdLabelPoll)
 		assertions.NodeLabelEquals(ctx, h.Kube, node, pciVendorLabel, "true")
+
+		// Presence alone cannot tell "NFD derived it" from "setup.sh wrote it",
+		// so assert ownership directly: NFD patches the label and this
+		// annotation in the same node update, so once the label is observed the
+		// annotation is too — no second wait needed.
+		assertions.NodeAnnotationListContains(ctx, h.Kube, node,
+			nfdOwnedLabelsAnnotation, pciVendorFeature)
 	})
 })
 
