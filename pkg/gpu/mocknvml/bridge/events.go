@@ -84,6 +84,12 @@ func nvmlDeviceGetSupportedEventTypes(device C.nvmlDevice_t, eventTypes *C.ulong
 	return C.NVML_SUCCESS
 }
 
+// pendingXidClaim is the engine call pollPendingXid consults. A variable only
+// so tests can drive delivery without the engine singleton.
+var pendingXidClaim = func() (unsafe.Pointer, uint64, bool) {
+	return engine.GetEngine().PendingXidEvent()
+}
+
 // pollPendingXid asks the engine for the next undelivered Xid critical
 // error (produced by failure injection) and, if one exists, populates
 // `data` with the standard NVML event payload. Returns true when an
@@ -92,7 +98,7 @@ func pollPendingXid(data *C.nvmlEventData_t) bool {
 	if data == nil {
 		return false
 	}
-	handle, xid, ok := engine.GetEngine().PendingXidEvent()
+	handle, xid, ok := pendingXidClaim()
 	if !ok {
 		return false
 	}
@@ -117,6 +123,10 @@ func waitForDelivery(timeout, pollInterval time.Duration, deliver func() bool) b
 	// Zero timeout is a non-blocking poll.
 	if timeout <= 0 {
 		return false
+	}
+	// A non-positive interval would spin the loop below without ever sleeping.
+	if pollInterval <= 0 {
+		pollInterval = waitPollInterval
 	}
 	deadline := time.Now().Add(timeout)
 	for {
@@ -173,4 +183,45 @@ func eventSetWaitV1ForTest(timeoutms uint32) uint32 {
 func eventSetWaitV2ForTest(timeoutms uint32) uint32 {
 	var data C.nvmlEventData_t
 	return uint32(nvmlEventSetWait_v2(nil, &data, C.uint(timeoutms)))
+}
+
+// xidDelivery is what the bridge wrote into the caller's nvmlEventData_t.
+type xidDelivery struct {
+	status     uint32
+	eventType  uint64
+	eventData  uint64
+	deviceSet  bool
+	claimCount int
+}
+
+// eventSetWaitWithPendingXidForTest stubs the engine claim with one pending Xid
+// and drives the exported wait, covering the delivery branch and its payload.
+// availableAfter delays the claim, for the already-parked case.
+func eventSetWaitWithPendingXidForTest(xid uint64, timeoutms uint32, availableAfter time.Duration) xidDelivery {
+	// Stands in for the engine's per-device C block; the bridge only copies the
+	// pointer through, so any valid allocation proves the wiring.
+	handle := C.malloc(1)
+	defer C.free(handle)
+
+	var out xidDelivery
+	available := time.Now().Add(availableAfter)
+	claimed := false
+
+	restore := pendingXidClaim
+	pendingXidClaim = func() (unsafe.Pointer, uint64, bool) {
+		out.claimCount++
+		if claimed || time.Now().Before(available) {
+			return nil, 0, false
+		}
+		claimed = true
+		return unsafe.Pointer(handle), xid, true
+	}
+	defer func() { pendingXidClaim = restore }()
+
+	var data C.nvmlEventData_t
+	out.status = uint32(nvmlEventSetWait_v2(nil, &data, C.uint(timeoutms)))
+	out.eventType = uint64(data.eventType)
+	out.eventData = uint64(data.eventData)
+	out.deviceSet = unsafe.Pointer(data.device.handle) == unsafe.Pointer(handle)
+	return out
 }

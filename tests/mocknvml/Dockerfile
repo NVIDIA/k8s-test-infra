@@ -12,6 +12,8 @@
 # limitations under the License.
 
 ARG GOLANG_VERSION=1.26.5
+# Named by both the build and the runtime stage.
+ARG LIB_VERSION=550.54.15
 FROM golang:${GOLANG_VERSION} AS lib-builder
 
 WORKDIR /build
@@ -25,8 +27,11 @@ COPY cmd/ ./cmd/
 # Build via the Makefile, not a bare `go build`: it owns the --defsym aliases
 # for the unversioned entry points (nvmlEventSetWait, ...), the SONAME and the
 # symlinks. nopadding keeps the test image small.
+# `clean` first: the library target has no prerequisites, so a host-built
+# libnvidia-ml.so.* carried in by `COPY pkg/` would satisfy it unrebuilt.
 WORKDIR /build/pkg/gpu/mocknvml
-RUN make LIB_VERSION=550.54.15 BUILD_TAGS=nopadding
+ARG LIB_VERSION
+RUN make clean && make LIB_VERSION=${LIB_VERSION} BUILD_TAGS=nopadding
 
 # Build the test binary
 FROM golang:${GOLANG_VERSION} AS test-builder
@@ -58,8 +63,12 @@ COPY --from=test-builder /build/mocknvml-test /app/
 # a real profile config rather than the env-var fallback.
 COPY tests/mocknvml/util-test-config.yaml /app/util-test-config.yaml
 
-# Copy the mock NVML library to /usr/local/lib (architecture-independent)
-COPY --from=lib-builder /build/pkg/gpu/mocknvml/libnvidia-ml.so* /usr/local/lib/
+# The real file only: a wildcard also drags in the cgo header (ldconfig rejects
+# it) and flattens the sonames into three 12 MiB copies.
+ARG LIB_VERSION
+COPY --from=lib-builder /build/pkg/gpu/mocknvml/libnvidia-ml.so.${LIB_VERSION} /usr/local/lib/
+RUN ln -sf libnvidia-ml.so.${LIB_VERSION} /usr/local/lib/libnvidia-ml.so.1 \
+    && ln -sf libnvidia-ml.so.1 /usr/local/lib/libnvidia-ml.so
 
 # Update library cache
 RUN ldconfig

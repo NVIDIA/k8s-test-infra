@@ -80,6 +80,11 @@ jobs:
     - name: Run mockpcisysfs integration tests
       run: go test -tags integration -v ./pkg/system/mockpcisysfs/...
 
+    # The unit run above never links the shared object, so a missing export or
+    # a broken --defsym alias passes it. This drives the real .so via go-nvml.
+    - name: Run mock NVML bridge integration tests
+      run: make test-mocknvml-bridge
+
     - name: Run govulncheck
       run: |
         go install golang.org/x/vuln/cmd/govulncheck@latest

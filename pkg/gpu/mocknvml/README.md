@@ -341,12 +341,20 @@ once per occurrence, so the mock delivers the configured code on the
 first wait and reports `NVML_ERROR_TIMEOUT` (no event) on subsequent
 waits — exactly like real hardware.
 
-Those subsequent waits block for the caller's timeout before returning
-`NVML_ERROR_TIMEOUT`, as real NVML does; an Xid injected while a caller
-is parked is delivered within about 100 ms. This matters because NVML
-clients (the device-plugin health monitor, dcgm-exporter) loop on the
-wait with no sleep of their own — a wait that returned immediately would
-turn their health-check loop into a busy spin that burns a CPU core.
+With no event pending the wait blocks for the caller's timeout,
+re-checking every 100 ms, as real NVML does. Clients (device-plugin
+health monitor, dcgm-exporter) loop on the wait with no sleep of their
+own, so an immediate return busy-spins their health loop and burns a CPU
+core.
+
+The 100 ms re-check only claims an Xid that is *already* pending. A
+device trips its failure injector on a guarded **device** call
+(`GetTemperature`, `GetEccErrors`, …), never on the wait itself — so a
+client that only calls `nvmlEventSetWait` in a loop never advances the
+injector and its wait is a plain sleep. Drive a device getter
+(`nvidia-smi -q`, a dcgm-exporter scrape) to trip it. `nvml-mock-ctl`
+only writes the override file, so it configures the failure but cannot
+trip it on its own.
 
 `Device.GetViolationStatus` deliberately does **not** carry the Xid
 code; that field is reserved for cumulative throttle time in nanoseconds

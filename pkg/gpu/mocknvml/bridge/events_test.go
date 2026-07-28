@@ -70,6 +70,34 @@ func TestWaitForDelivery_BlocksForRequestedTimeoutWhenIdle(t *testing.T) {
 		calls.Load(), maxCalls)
 }
 
+// A non-positive interval must still sleep between polls, not spin.
+func TestWaitForDelivery_ClampsNonPositivePollInterval(t *testing.T) {
+	const timeout = 250 * time.Millisecond
+
+	for _, pollInterval := range []time.Duration{0, -time.Second} {
+		t.Run(pollInterval.String(), func(t *testing.T) {
+			var calls atomic.Int32
+			start := time.Now()
+			delivered := waitForDelivery(timeout, pollInterval, func() bool {
+				calls.Add(1)
+				return false
+			})
+			elapsed := time.Since(start)
+
+			require.False(t, delivered)
+			require.GreaterOrEqual(t, elapsed, timeout, "an idle wait must block for the full timeout")
+			require.Less(t, elapsed, timeout+schedulerSlack,
+				"an idle wait must return at the timeout, not block past it")
+
+			// Clamped to waitPollInterval; a spin polls orders of magnitude more.
+			maxCalls := int32(timeout/waitPollInterval) + 3
+			require.LessOrEqual(t, calls.Load(), maxCalls,
+				"polled %d times (max %d) — interval %s was not clamped",
+				calls.Load(), maxCalls, pollInterval)
+		})
+	}
+}
+
 // Fault injection must stay responsive: the event is raised while the wait is
 // already parked, and latency is measured from the injection itself.
 func TestWaitForDelivery_DeliversWithinOnePollOfInjection(t *testing.T) {
@@ -137,6 +165,36 @@ func TestEventSetWait_RejectsNilEventData(t *testing.T) {
 				"an invalid call must not wait out the timeout")
 		})
 	}
+}
+
+// A pending Xid must return SUCCESS with the full payload filled in, not just
+// "not a timeout".
+func TestEventSetWait_DeliversPendingXid(t *testing.T) {
+	const xid = 79
+
+	got := eventSetWaitWithPendingXidForTest(xid, 10_000, 0)
+
+	require.Equal(t, uint32(nvml.SUCCESS), got.status, "a pending Xid must be reported as SUCCESS")
+	require.Equal(t, uint64(nvml.EventTypeXidCriticalError), got.eventType,
+		"clients filter on eventType; a wrong class is an undelivered event")
+	require.Equal(t, uint64(xid), got.eventData, "the configured Xid code must reach the caller")
+	require.True(t, got.deviceSet, "the event must name the device the Xid came from")
+}
+
+// An Xid pending while the caller is parked must arrive within one poll
+// interval — what the polling loop buys.
+func TestEventSetWait_DeliversXidInjectedMidWait(t *testing.T) {
+	const xid = 64
+
+	start := time.Now()
+	got := eventSetWaitWithPendingXidForTest(xid, 30_000, 250*time.Millisecond)
+	elapsed := time.Since(start)
+
+	require.Equal(t, uint32(nvml.SUCCESS), got.status, "an Xid injected mid-wait must be delivered")
+	require.Equal(t, uint64(xid), got.eventData)
+	require.Greater(t, got.claimCount, 1, "delivery must come from the poll loop, not the fast path")
+	require.Less(t, elapsed, 250*time.Millisecond+waitPollInterval+schedulerSlack,
+		"delivery took %s; must land within one poll interval of the injection", elapsed)
 }
 
 // Exercises the exported entry points, pinning the millisecond conversion and

@@ -1051,8 +1051,15 @@ A configured Xid is delivered once per trip, through either
 the wait blocks for the caller's timeout and then returns
 `NVML_ERROR_TIMEOUT`, like real NVML — clients such as the device-plugin
 health monitor and dcgm-exporter loop on the wait with no sleep of their
-own, so an immediate return would spin a CPU core. An Xid injected while
-a client is parked in a wait surfaces within about 100 ms.
+own, so an immediate return would spin a CPU core.
+
+The wait re-checks every 100 ms, but only ever claims an Xid that is
+*already* pending: a device trips its injector on a guarded **device**
+call (`GetTemperature`, `GetEccErrors`, …), never on the wait itself. A
+client that only loops on `nvmlEventSetWait` never advances the injector,
+so something must drive a device getter (`nvidia-smi -q`, a
+dcgm-exporter scrape) for the trip to happen. `nvml-mock-ctl` only writes
+the override file — it configures the failure, it does not trip it.
 
 Values rendered into the ConfigMap are validated against
 [`values.schema.json`](./values.schema.json) at install / upgrade time:

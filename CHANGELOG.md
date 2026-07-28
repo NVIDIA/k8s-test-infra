@@ -45,6 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in `crypto/tls`), which was failing the `govulncheck` CI check.
 
 ### Fixed
+- `nvmlEventSetWait_v1`/`_v2` now block for the caller's timeout (re-checking
+  every 100 ms) instead of returning `NVML_ERROR_TIMEOUT` immediately. Clients
+  loop on the wait with no sleep of their own, so the immediate return turned
+  `nvidia-device-plugin`'s health monitor into a busy spin that burned a full
+  CPU core per pod. A pending Xid is still delivered on the first poll;
+  `timeoutms=0` remains a non-blocking poll.
+- `pkg/gpu/mocknvml` no longer drops `BUILD_TAGS` in the default (two-pass,
+  padded) build path — `make BUILD_TAGS=foo` compiled without `foo` unless the
+  tag set also disabled padding.
 - `nvml-mock-ctl set --gpu <n> memory.total_bytes|free_bytes|used_bytes=...` now
   takes effect within one override TTL instead of silently doing nothing until
   the pod restarts. `nvmlDeviceGetMemoryInfo` and `nvmlDeviceGetMemoryInfo_v2`
