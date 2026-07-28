@@ -130,6 +130,40 @@ nri:
   deviceAnnotation: nvml-mock.nvidia.com/devices
   excludedNamespaces: []
   resources: {}
+  # Port serving the plugin's /healthz and /readyz endpoints. The NRI DaemonSet
+  # does not use host networking, so this port lives only inside the pod's own
+  # network namespace: it is reachable by the kubelet on the pod IP and is not
+  # bound on the node.
+  healthPort: 8080
+  # Probes for the two ways this plugin fails while its process stays alive.
+  # See the "NRI plugin failure modes" section of the chart README before
+  # retuning either: both thresholds are stated relative to containerd's
+  # plugin_request_timeout.
+  #
+  # readinessProbe reports whether the plugin is registered with the runtime
+  # and answering. It does not restart anything; it makes the window in which
+  # injection has silently stopped visible as a NotReady pod.
+  #
+  # livenessProbe restarts the container when a container-creation request has
+  # been in flight past the wedge threshold. That is the one state the plugin
+  # cannot leave on its own — losing the connection already exits the process.
+  #
+  # Set either to null to drop that probe (an empty map merges with the
+  # default rather than replacing it).
+  readinessProbe:
+    httpGet:
+      path: /readyz
+      port: health
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 2
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: health
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
 
 # DaemonSet rolling update strategy.
 updateStrategy:

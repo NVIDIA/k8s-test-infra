@@ -55,11 +55,24 @@ spec:
             # workload so its mock GPUs report this node's clique / cluster
             # UUID. Harmless when topology is disabled (no document to stage).
             - --node-name=$(NODE_NAME)
+            - --health-addr=:{{ .Values.nri.healthPort }}
           env:
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+          ports:
+            - name: health
+              containerPort: {{ .Values.nri.healthPort }}
+              protocol: TCP
+          {{- with .Values.nri.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.nri.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             runAsUser: 0
