@@ -17,9 +17,11 @@
 ARG KIND_NODE_IMAGE=kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 FROM ${KIND_NODE_IMAGE}
 
-# nvidia-container-runtime config (CDI mode) and the full containerd config
-# (CDI + nvidia runtime baked in). See the respective files for details.
-COPY nvidia-container-runtime.toml /etc/nvidia-container-runtime/config.toml
+# Pin the toolkit. The four packages ship in lockstep, so pinning only the
+# top-level one leaves apt free to resolve the dependencies to another release.
+ARG NVIDIA_CONTAINER_TOOLKIT_VERSION=1.19.1-1
+
+# The full containerd config (CDI + nvidia runtime baked in). See the file for details.
 COPY containerd-config.toml /etc/containerd/config.toml
 
 RUN apt-get update -qq \
@@ -30,5 +32,14 @@ RUN apt-get update -qq \
       | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
       | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list \
     && apt-get update -qq \
-    && apt-get install -y -qq nvidia-container-toolkit \
+    && apt-get install -y -qq \
+      nvidia-container-toolkit=${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+      nvidia-container-toolkit-base=${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+      libnvidia-container-tools=${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
+      libnvidia-container1=${NVIDIA_CONTAINER_TOOLKIT_VERSION} \
     && rm -rf /var/lib/apt/lists/*
+
+# nvidia-container-runtime config (CDI mode). This COPY runs AFTER the package
+# install on purpose: the toolkit ships its own config at the same path and
+# rewrites it during setup, so an earlier COPY is not authoritative.
+COPY nvidia-container-runtime.toml /etc/nvidia-container-runtime/config.toml
