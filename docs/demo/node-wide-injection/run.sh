@@ -19,7 +19,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${GPU_PROFILE:=gb200}"
 : "${GPU_COUNT:=8}"
 : "${FORCE_RECREATE:=false}"
-: "${NVML_MOCK_NAMESPACE:=nvml-mock-system}"
+: "${NVML_MOCK_NAMESPACE:=mokka}"
 : "${WORKLOAD_NAMESPACE:=default}"
 # Enable the ComputeDomain overlay by default only for fabric-attached profiles
 # (gb200/gb300); other profiles have no fabric block for the overlay to rewrite.

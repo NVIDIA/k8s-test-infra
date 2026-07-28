@@ -32,7 +32,7 @@ const (
 	ClusterName = "nvml-mock-e2e"
 
 	// nvmlMockNamespace isolates the chart under test from the default namespace.
-	nvmlMockNamespace = "nvml-mock-system"
+	nvmlMockNamespace = "mokka"
 
 	nvmlMockSelector = "app.kubernetes.io/name=nvml-mock"
 )

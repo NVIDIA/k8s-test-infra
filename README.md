@@ -1,6 +1,7 @@
 <div align="center">
     <img src="./docs/img/logo.png" width="350px" alt="Mokka" />
     <h1>Mokka</h1>
+    <p>Simulate your GPU infrastructure on CPU nodes.</p>
     <a href="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml">
         <img src="https://github.com/NVIDIA/k8s-test-infra/actions/workflows/ci.yaml/badge.svg" alt="CI pipelines" />
     </a>
@@ -11,6 +12,8 @@
         <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" />
     </a>
 </div>
+
+---
 
 Kubernetes test infrastructure for NVIDIA GPU software — mock GPU environments,
 CI tooling, and testing utilities.
@@ -34,11 +37,11 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock
 
 After install, deploy a consumer to test:
 
-| Consumer | Guide |
-|----------|-------|
+| Consumer                 | Guide                                                                                           |
+|--------------------------|-------------------------------------------------------------------------------------------------|
 | **NVIDIA Device Plugin** | [Quick Start](deployments/nvml-mock/helm/nvml-mock/README.md#quick-start-device-plugin-on-kind) |
-| **NVIDIA DRA Driver** | [Quick Start](deployments/nvml-mock/helm/nvml-mock/README.md#quick-start-dra-driver-on-kind) |
-| **NVIDIA GPU Operator** | [Quick Start](deployments/nvml-mock/helm/nvml-mock/README.md#quick-start-gpu-operator-on-kind) |
+| **NVIDIA DRA Driver**    | [Quick Start](deployments/nvml-mock/helm/nvml-mock/README.md#quick-start-dra-driver-on-kind)    |
+| **NVIDIA GPU Operator**  | [Quick Start](deployments/nvml-mock/helm/nvml-mock/README.md#quick-start-gpu-operator-on-kind)  |
 
 **Full documentation:** [nvml-mock Helm chart README](deployments/nvml-mock/helm/nvml-mock/README.md)
 

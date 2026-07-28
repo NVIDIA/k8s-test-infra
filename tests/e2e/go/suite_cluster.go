@@ -52,8 +52,21 @@ func collectOnFailure(ctx context.Context, h *harness.Harness, sub ...string) {
 
 // setupCluster creates the shared cluster (delete-if-exists), wires adapters,
 // kind-loads the image, and registers teardown + diagnostics cleanup.
+//
+// When E2E_ATTACH_EXISTING is set, the shared cluster is externally owned
+// (e.g. by `tilt ci` in the workflow) and this function skips creation, image
+// load, and teardown — it only wires adapters to the existing context and
+// keeps failure diagnostics collection.
 func setupCluster(ctx context.Context, name string, kindConfig []byte, diagSub ...string) *harness.Harness {
 	GinkgoHelper()
+	if config.AttachExisting() {
+		h, err := harness.AttachExisting(ctx, config.ClusterName(), config.KubeContext(), builtImage)
+		DeferCleanup(func(ctx SpecContext) {
+			collectOnFailure(ctx, h, diagSub...)
+		})
+		Expect(err).NotTo(HaveOccurred(), "attach cluster name=%q context=%q", config.ClusterName(), config.KubeContext())
+		return h
+	}
 	h, err := harness.Setup(ctx, name, kindConfig, builtImage)
 	DeferCleanup(func(ctx SpecContext) {
 		collectOnFailure(ctx, h, diagSub...)
