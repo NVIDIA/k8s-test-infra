@@ -711,6 +711,133 @@ See [`pkg/network/mockib/README.md`](../../../../pkg/network/mockib/README.md#mo
 for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 `MOCK_IB_DEBUG_SMP`, …) and architecture details.
 
+## NRI plugin failure modes
+
+Applies only when `nri.enabled=true`.
+
+The NRI plugin injects the mock GPU stack at container-creation time, which is
+what lets ordinary pods see mock GPUs without a pod-spec change. It also means
+the injection is written into the container's OCI spec once, at creation. A pod
+that is already running keeps everything it was given, whatever happens to the
+plugin afterwards. **Only pods created after a failure are affected**, and they
+are affected silently.
+
+That is the property that makes this worth hardening: a test suite that creates
+its pods early and asserts against them later keeps passing on a node where
+injection stopped hours ago.
+
+### The two modes
+
+| | Fail-closed | Fail-open |
+|---|---|---|
+| What the runtime does | Refuses to create the container | Creates the container without the plugin's adjustment |
+| What you see | Pods stuck in `ContainerCreating` / `CreateContainerError` | Pods start normally |
+| What the workload gets | Nothing — it never runs | A container with **no mock GPU stack** |
+| Risk | Test runs stop | Test runs continue and report results that no longer mean what they claim |
+
+Fail-closed is loud and self-announcing. On a dedicated test cluster it is
+arguably the preferable posture: a broken mock stops the run instead of
+corrupting it.
+
+Fail-open is the dangerous one, and it is the mode this chart is built to
+survive. It cannot be prevented from the plugin side — the decision belongs to
+containerd, not to the plugin — so the chart's posture is: **assume fail-open
+can happen, and make it impossible for it to happen quietly.**
+
+### Posture this chart targets
+
+**Detectable fail-open.** Both probes exist to convert a silent window into a
+visible one, not to prevent it:
+
+- **Readiness (`/readyz`)** reports serving only while the plugin is registered
+  with the runtime *and* its handler is answering. Any window in which the node
+  is not injecting shows up as a NotReady pod and a short DaemonSet count.
+  Readiness restarts nothing; it is purely the detection surface.
+- **Liveness (`/healthz`)** fails only when a container-creation request has
+  been in flight past the wedge threshold, and restarts the container into a
+  fresh registration.
+
+Neither probe reduces to "is the process alive", because the process stays
+alive in every mode that matters:
+
+| State | Process | Connection | `/readyz` | `/healthz` |
+|---|---|---|---|---|
+| Registered and serving | up | up | 200 | 200 |
+| Started, not yet registered | up | — | 503 | 200 |
+| Unregistered by the runtime | up | dropped | 503 | 200 |
+| Handler wedged | up | **up** | 503 | **503 → restart** |
+
+A wedged handler is the case that defeats every simpler check: `pgrep
+nvml-mock-nri` finds the process, and a plain TCP check finds the socket bound,
+in exactly the state where nothing is being injected.
+
+Losing the connection is deliberately *not* a liveness failure. The NRI stub's
+`Run` returns when the connection drops and the plugin exits on its own, so the
+kubelet already restarts it; failing liveness on "not registered" as well would
+only add restart loops whenever containerd is slow to come up.
+
+### containerd `plugin_request_timeout`
+
+The wedge threshold is not a constant in the chart. The plugin derives it from
+the request timeout containerd itself reports at registration, and trips at
+**twice** that value. Past one whole timeout the runtime has already abandoned
+the request, so the container it belonged to was created without injection
+whatever happens next; the second is tolerance, so a single slow-but-completing
+request cannot restart the plugin.
+
+NRI's defaults, from `containerd/nri/pkg/api`:
+
+| Setting | Default |
+|---|---|
+| `plugin_request_timeout` | `2s` (wedge threshold `4s`) |
+| `plugin_registration_timeout` | `5s` |
+
+Both are set on the runtime, not in this chart:
+
+```toml
+[plugins."io.containerd.nri.v1.nri"]
+  disable = false
+  socket_path = "/var/run/nri/nri.sock"
+  # Raise only if the plugin legitimately needs longer than 2s to answer.
+  plugin_request_timeout = "2s"
+```
+
+Guidance:
+
+- **Leave it at the default unless you have evidence.** The plugin's
+  `CreateContainer` path does a `stat` of the topology document, a directory
+  read of the device directory, and one `stat` per device node — all against
+  the hostPath-mounted overlay, and nothing else. On a healthy node that is
+  well under 2s. A raised timeout does not make injection more reliable; it
+  widens the window in which each container creation blocks on a plugin that
+  may already be wedged.
+- **Those filesystem calls are the realistic wedge.** They are the only
+  blocking operations in the handler, so an overlay backed by a hung mount is
+  how this plugin stops answering while staying alive and connected.
+- **Raising it widens the wedge threshold automatically.** No chart change is
+  needed, and none should be made — `nri.livenessProbe` tuning and
+  `plugin_request_timeout` are not independent knobs.
+- **Do not raise it to paper over a wedge.** A plugin that needs more than 2s
+  is the failure this hardening detects, not a tuning problem.
+
+### Checking a node by hand
+
+```bash
+# Which nodes are actually injecting right now
+kubectl get pods -n nvml-mock -l app.kubernetes.io/name=nvml-mock-nri -o wide
+
+# Why a given node is not
+kubectl describe pod -n nvml-mock <nvml-mock-nri-pod>
+```
+
+Both probe endpoints answer with the reason in the body, so a readiness failure
+in `kubectl describe` reads as `not registered with the container runtime; new
+containers are not being injected` rather than a bare status code.
+
+The port is not reachable from the node: this DaemonSet does not set
+`hostNetwork`, so `nri.healthPort` is bound only inside the pod's own network
+namespace, on the pod IP where the kubelet reaches it.
+
 ## Configuration
 
 ### Values
@@ -744,6 +871,17 @@ for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
+| `nri.enabled` | `false` | Deploy the `nvml-mock-nri` containerd NRI plugin DaemonSet. Injects cluster-wide at container-creation time, so it is opt-in. Requires containerd NRI enabled on every node |
+| `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
+| `nri.pluginName` / `nri.pluginIndex` | `nvml-mock` / `"10"` | NRI registration identity. The index orders this plugin against others |
+| `nri.overlay.hostPath` / `nri.overlay.mountPath` | `/var/lib/nvml-mock` / `/opt/nvml-mock` | Host overlay staged by the main DaemonSet, and the path it is injected at inside workloads |
+| `nri.optOutAnnotation` | `nvml-mock.nvidia.com/inject` | Pod annotation; value `false` disables injection for that pod |
+| `nri.deviceAnnotation` | `nvml-mock.nvidia.com/devices` | Pod annotation; value `true` adds mock `/dev/nvidia*` device nodes. Pod-authored, so treat it as part of the demo trust boundary |
+| `nri.excludedNamespaces` | `[]` | Extra namespaces to skip. The release namespace and `kube-system` are always excluded |
+| `nri.healthPort` | `8080` | Port serving `/healthz` and `/readyz`. Bound only in the pod's network namespace — this DaemonSet does not use `hostNetwork`, so nothing is exposed on the node |
+| `nri.readinessProbe` | `/readyz`, `periodSeconds: 10`, `failureThreshold: 2` | Detects that the node has stopped injecting. Set to `null` to drop. See [NRI plugin failure modes](#nri-plugin-failure-modes) |
+| `nri.livenessProbe` | `/healthz`, `periodSeconds: 10`, `failureThreshold: 3` | Restarts a wedged plugin. Threshold follows containerd's `plugin_request_timeout`; do not tune the two independently. Set to `null` to drop |
+| `nri.resources` | `{}` | Resource requests/limits for the plugin container |
 
 ### Node Labels
 
