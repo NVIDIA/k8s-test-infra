@@ -442,7 +442,7 @@ jobs:
           fi
 
   e2e-nfd:
-    needs: build-image
+    needs: build-nvmlmock-image
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
