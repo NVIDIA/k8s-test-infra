@@ -7,13 +7,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/nri/nvmlmock"
 	"github.com/containerd/nri/pkg/api"
@@ -22,12 +26,14 @@ import (
 
 type plugin struct {
 	config nvmlmock.Config
+	health *health
 }
 
 func main() {
 	cfg := nvmlmock.DefaultConfig()
 
 	socketPath := flag.String("socket-path", envOr("NRI_SOCKET_PATH", "/var/run/nri/nri.sock"), "NRI socket path")
+	healthAddr := flag.String("health-addr", envOr("NVML_MOCK_HEALTH_ADDR", ":8080"), "address for the /healthz and /readyz probe endpoints; empty disables them")
 	pluginName := flag.String("plugin-name", envOr("NRI_PLUGIN_NAME", "nvml-mock"), "NRI plugin name")
 	pluginIndex := flag.String("plugin-index", envOr("NRI_PLUGIN_INDEX", "10"), "NRI plugin index")
 	flag.StringVar(&cfg.HostOverlayPath, "overlay-host-path", envOr("NVML_MOCK_OVERLAY_HOST_PATH", cfg.HostOverlayPath), "host path for the nvml-mock overlay")
@@ -45,19 +51,37 @@ func main() {
 	cfg.ExcludedNamespaces = splitCSV(*excludedNamespaces)
 	cfg.Shims = splitCSV(*shims)
 
-	p := &plugin{config: cfg}
+	p := &plugin{config: cfg, health: newHealth(time.Now, wedgeFactor)}
 	s, err := stub.New(
 		p,
 		stub.WithSocketPath(*socketPath),
 		stub.WithPluginName(*pluginName),
 		stub.WithPluginIdx(*pluginIndex),
+		// The runtime dropping the connection is the fail-open failure mode:
+		// the process stays up but stops being asked to inject anything, and
+		// containers created from here on come up unmocked. Clearing the
+		// registered flag is what makes that window visible as a NotReady pod.
+		stub.WithOnClose(func() {
+			log.Printf("nvml-mock-nri: runtime closed the connection; no longer registered")
+			p.health.setRegistered(false)
+		}),
 	)
 	if err != nil {
 		log.Fatalf("nvml-mock-nri: create stub: %v", err)
 	}
+	p.health.setTimeoutSource(s)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	// Serve the probes before Run, so the un-registered startup window is
+	// reported as a 503 rather than a refused connection, and so a plugin that
+	// never manages to register is visibly NotReady instead of silently idle.
+	if stopHealth, err := serveHealth(*healthAddr, p.health); err != nil {
+		log.Fatalf("nvml-mock-nri: serve health endpoints: %v", err)
+	} else {
+		defer stopHealth()
+	}
 
 	log.Printf("nvml-mock-nri: registering plugin %s/%s on %s", *pluginIndex, *pluginName, *socketPath)
 	if err := s.Run(ctx); err != nil && ctx.Err() == nil {
@@ -65,8 +89,41 @@ func main() {
 	}
 }
 
+// serveHealth starts the probe listener and returns a shutdown function. The
+// listener is bound synchronously so a port clash fails startup loudly instead
+// of leaving the plugin running with no probe surface — which would read as
+// healthy forever.
+func serveHealth(addr string, h *health) (func(), error) {
+	if addr == "" {
+		log.Printf("nvml-mock-nri: health endpoints disabled")
+		return func() {}, nil
+	}
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %s: %w", addr, err)
+	}
+
+	srv := &http.Server{
+		Handler:           h.handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("nvml-mock-nri: health server: %v", err)
+		}
+	}()
+	log.Printf("nvml-mock-nri: serving /healthz and /readyz on %s", listener.Addr())
+
+	return func() { _ = srv.Close() }, nil
+}
+
 func (p *plugin) Configure(_ context.Context, _, runtime, version string) (stub.EventMask, error) {
 	log.Printf("nvml-mock-nri: configured by runtime %s NRI %s", runtime, version)
+
+	// The runtime calls Configure as the last step of registration, so this is
+	// the point at which the plugin actually starts receiving containers.
+	p.health.setRegistered(true)
 
 	var events stub.EventMask
 	events.Set(api.Event_CREATE_CONTAINER)
@@ -74,6 +131,11 @@ func (p *plugin) Configure(_ context.Context, _, runtime, version string) (stub.
 }
 
 func (p *plugin) CreateContainer(_ context.Context, pod *api.PodSandbox, container *api.Container) (*api.ContainerAdjustment, []*api.ContainerUpdate, error) {
+	// Bracket the handler so a call that never returns is visible to the
+	// probes. A wedged handler keeps both the process and the connection
+	// alive, so nothing else notices it.
+	defer p.health.begin()()
+
 	adjustment, ok, err := nvmlmock.Adjust(p.config, fromNRI(pod, container))
 	if err != nil {
 		return nil, nil, err
