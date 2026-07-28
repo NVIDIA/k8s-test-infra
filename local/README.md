@@ -16,7 +16,7 @@ This directory contains Tiltfiles, Helm value overrides, and Kind cluster config
 # 1. Build the Kind node image and create a cluster
 make cluster-create
 
-# 2. Start the dev stack (default: a100 profile, homogeneous fleet)
+# 2. Start the dev stack
 tilt up -- --gpu-operator
 ```
 

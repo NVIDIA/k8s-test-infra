@@ -188,6 +188,14 @@ jobs:
           KIND_NODE_IMAGE_PREBUILT: "1"
         run: make cluster-create
 
+      - name: Pull pre-built nvml-mock image from ttl.sh
+        # Pre-pulling the image by digest in order to avoid image tag poisoning
+        run: |
+          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
+          docker pull "$pinned"
+          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
+          kind load docker-image "${{ env.E2E_IMAGE }}" --name gpu-test
+
       - name: Stage CI Helm values for Tilt
         # local/nvml-mock.values.local.yaml is the Tiltfile's "wins over
         # everything" overlay hook (nvml_mock.tiltfile:68). Copying our CI
@@ -197,13 +205,7 @@ jobs:
 
       - name: Roll out nvml-mock via Tilt (${{ matrix.gpu-profile }})
         # `tilt ci` runs the Tiltfile headless: waits for every resource to
-        # become ready, then exits 0/1. --nvmlmock-image tells Tilt to skip
-        # docker_build and pin image.repository/tag directly to the ttl.sh
-        # ref the build-image job published. Kubelet inside kind pulls it
-        # over the docker-bridge egress; ttl.sh is auth-free so no
-        # `docker pull` / `kind load` dance is needed. The sha-scoped URL
-        # (`ttl.sh/nvml-mock-<sha>:24h`) makes tag collisions effectively
-        # impossible for this commit.
+        # become ready, then exits 0/1.
         run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --nvmlmock-image="$E2E_IMAGE"
 
       - name: Run E2E (${{ matrix.gpu-profile }})
