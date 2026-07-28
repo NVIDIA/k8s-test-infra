@@ -41,7 +41,7 @@ func nvmlDeviceGetTopologyNearestGpus(device C.nvmlDevice_t, level C.nvmlGpuTopo
 	if count == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	handle := uintptr(unsafe.Pointer(device.handle))
+	handle := unsafe.Pointer(device.handle)
 	peers, ret := engine.GetEngine().TopologyNearestGpus(handle, nvml.GpuTopologyLevel(level))
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
@@ -60,8 +60,7 @@ func nvmlDeviceGetTopologyNearestGpus(device C.nvmlDevice_t, level C.nvmlGpuTopo
 
 	out := unsafe.Slice(deviceArray, len(peers))
 	for i, h := range peers {
-		//nolint:govet // uintptr->unsafe.Pointer: handle is C memory from HandleTable.Register
-		out[i].handle = (*C.struct_nvmlDevice_st)(unsafe.Pointer(h))
+		out[i].handle = (*C.struct_nvmlDevice_st)(h)
 	}
 	*count = C.uint(len(peers))
 	return C.NVML_SUCCESS
@@ -92,8 +91,7 @@ func nvmlSystemGetTopologyGpuSet(cpuNumber C.uint, count *C.uint, deviceArray *C
 
 	out := unsafe.Slice(deviceArray, len(gpus))
 	for i, h := range gpus {
-		//nolint:govet // uintptr->unsafe.Pointer: handle is C memory from HandleTable.Register
-		out[i].handle = (*C.struct_nvmlDevice_st)(unsafe.Pointer(h))
+		out[i].handle = (*C.struct_nvmlDevice_st)(h)
 	}
 	*count = C.uint(len(gpus))
 	return C.NVML_SUCCESS

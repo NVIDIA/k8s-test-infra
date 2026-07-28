@@ -48,8 +48,8 @@ After install, deploy a consumer to test:
 ## E2E Testing
 
 The nvml-mock Go E2E workflow gates standalone, DRA, GPU Operator, multi-node,
-and node-wide NRI coverage. Run manually via `workflow_dispatch` or
-automatically on PRs.
+node-wide NRI, and NFD label-provenance coverage. Run manually via
+`workflow_dispatch` or automatically on PRs.
 
 | Test Suite | What It Validates | Profiles |
 |------------|-------------------|----------|
@@ -59,6 +59,7 @@ automatically on PRs.
 | **GPU Operator** | GPU Operator install, validator pod startup, GFD labels, and allocatable GPUs | Workflow-selected profiles |
 | **Multi-Node Fleet** | Heterogeneous A100/T4 workers, mock files, InfiniBand behavior, device plugin resources, and GPU workload scheduling | Fixed multi-node topology |
 | **Node-Wide NRI Injection** | Ambient mock GPU injection into ordinary pods without GPU requests or hostPath mounts | Workflow-selected profiles |
+| **NFD Label Provenance** | That NFD creates `feature.node.kubernetes.io/pci-10de.present` from the feature file nvml-mock writes, and that nvml-mock does not write the label itself | Pinned to `a100` — the label is vendor-only and byte-identical across profiles |
 
 Manual dispatch accepts a JSON array of GPU profiles; local runs default to
 `gb200`.

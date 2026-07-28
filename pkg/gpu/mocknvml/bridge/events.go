@@ -52,7 +52,6 @@ func nvmlEventSetCreate(set *C.nvmlEventSet_t) C.nvmlReturn_t {
 //export nvmlEventSetFree
 func nvmlEventSetFree(set C.nvmlEventSet_t) C.nvmlReturn_t {
 	if set != nil {
-		//nolint:govet // CGo struct pointer to unsafe.Pointer for C.free
 		C.free(unsafe.Pointer(set))
 	}
 	return C.NVML_SUCCESS
@@ -89,11 +88,10 @@ func pollPendingXid(data *C.nvmlEventData_t) bool {
 	if !ok {
 		return false
 	}
-	//nolint:govet // Converting uintptr (handle table key, originally
-	// allocated as C memory) to *C.struct_nvmlDevice_st is intentional
-	// and matches the conversion used in device.go's handle lookup
-	// helpers.
-	data.device.handle = (*C.struct_nvmlDevice_st)(unsafe.Pointer(handle))
+	// The engine returns the C block it allocated for this device, so this
+	// is the same pointer-to-pointer conversion device.go's handle lookup
+	// helpers do.
+	data.device.handle = (*C.struct_nvmlDevice_st)(handle)
 	data.eventType = C.NVML_EVENT_TYPE_XID_CRITICAL_ERROR
 	data.eventData = C.ulonglong(xid)
 	data.gpuInstanceId = 0

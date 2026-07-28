@@ -58,7 +58,7 @@ func nvmlDeviceGetCpuAffinity(device C.nvmlDevice_t, cpuSetSize C.uint, cpuSet *
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetCpuAffinity"); !ok {
 		return ret
 	}
-	dev := engine.GetEngine().LookupConfigurableDevice(uintptr(unsafe.Pointer(device.handle)))
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -74,7 +74,7 @@ func nvmlDeviceGetCpuAffinityWithinScope(device C.nvmlDevice_t, cpuSetSize C.uin
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetCpuAffinityWithinScope"); !ok {
 		return ret
 	}
-	dev := engine.GetEngine().LookupConfigurableDevice(uintptr(unsafe.Pointer(device.handle)))
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -90,7 +90,7 @@ func nvmlDeviceGetMemoryAffinity(device C.nvmlDevice_t, nodeSetSize C.uint, node
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetMemoryAffinity"); !ok {
 		return ret
 	}
-	dev := engine.GetEngine().LookupConfigurableDevice(uintptr(unsafe.Pointer(device.handle)))
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
@@ -109,7 +109,7 @@ func nvmlDeviceGetNumaNodeId(device C.nvmlDevice_t, node *C.uint) C.nvmlReturn_t
 	if node == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	dev := engine.GetEngine().LookupConfigurableDevice(uintptr(unsafe.Pointer(device.handle)))
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}

@@ -274,10 +274,98 @@ if [ -f /etc/nvml-mock/topology/topology.yaml ]; then
   echo "Staged ComputeDomain topology overlay at $HOST/topology/topology.yaml"
 fi
 
-# 7. Label node (requires RBAC: get+patch on nodes)
+# 7. Label node (requires RBAC: get+patch on nodes, for gpu.present only)
+#
+#    nvidia.com/gpu.present is written directly: it is an NVIDIA-namespaced key
+#    no NFD source derives.
+#
+#    feature.node.kubernetes.io/pci-10de.present is NOT written directly. We
+#    drop a feature file and let NFD create the label, so that key has exactly
+#    one writer and "NFD works" stays distinguishable from "we set it
+#    ourselves" (#505).
+#
+#    Why not NFD's PCI source? As deployed it cannot see our devices.
+#    (Upstream facts as of NFD v0.19.0, the version pinned in go.mod; the
+#    worker actually deployed comes from GPU Operator and may differ.)
+#    source/pci/utils.go resolves hostpath.SysfsDir.Path("bus/pci/devices"),
+#    and pkg/utils/hostpath builds SysfsDir from a private `pathPrefix` set
+#    only via linker -X. Upstream's container build passes
+#    HOSTMOUNT_PREFIX=/host- (Makefile), so the shipped worker reads
+#    /host-sys/bus/pci/devices — the real host /sys, hostPath-mounted by the
+#    worker DaemonSet. Our tree is at /var/lib/nvml-mock/sys and is reachable
+#    only through libpcimocksys.so, whose injection into the worker is inert
+#    twice over:
+#      a) the shim rewrites only paths starting "/sys/" (k_prefixes[] in
+#         pkg/system/mockpcisysfs/c/shim.c), so "/host-sys/..." never matches.
+#      b) nfd-worker is built -extldflags=-static, so it has no PT_INTERP and
+#         ignores LD_PRELOAD outright.
+#    The key itself is right: GPU Operator configures NFD with
+#    deviceLabelFields:[vendor] and whitelists class 0302, which is exactly the
+#    "pci-<vendor>.present" form, and our rendered devices carry all five
+#    attributes NFD treats as mandatory. Only visibility is missing.
+#
+#    NFD's *local* source has no such limit: source/local/local.go reads
+#    featureFilesDir, a plain literal (not host-prefixed), and the worker
+#    mounts that host directory at the same path. Each line parses as
+#    key[=value]. That is the supported route, and it needs no node RBAC. The
+#    GFD mock already writes to that same directory (tests/e2e/gfd-mock.yaml:52).
+#
+#    MOCK_NFD_PCI_LABEL (chart value `nodeLabels.pciVendorPresent`, default
+#    true/on) gates only the feature file. Turn it off on a cluster where
+#    something else already supplies the key. This step converges either way:
+#    with the gate on it writes the file, with the gate off it removes any
+#    file an earlier run left behind. cleanup.sh reads the same variable and
+#    unwinds only the write this step makes — with the gate off it has nothing
+#    to remove, because the removal already happened here.
+PCI_LABEL_MODE=$(printf '%s' "${MOCK_NFD_PCI_LABEL:-on}" | tr '[:upper:]' '[:lower:]')
+case "$PCI_LABEL_MODE" in
+  off | on) ;;
+  *)
+    echo "ERROR: MOCK_NFD_PCI_LABEL='$MOCK_NFD_PCI_LABEL' is invalid; expected off or on" >&2
+    exit 1
+    ;;
+esac
 if command -v kubectl >/dev/null 2>&1; then
   kubectl label node "$NODE_NAME" nvidia.com/gpu.present=true --overwrite || true
-  kubectl label node "$NODE_NAME" feature.node.kubernetes.io/pci-10de.present=true --overwrite || true
+fi
+
+# NFD local source: drop a feature file instead of writing the label
+# ourselves. source/local/local.go reads every file in featureFilesDir and
+# parses each line as key[=value], so this one line becomes
+# feature.node.kubernetes.io/pci-10de.present=true — created by NFD, not by
+# us. Requires no node RBAC, unlike the kubectl label call it replaces.
+# With no NFD on the cluster the file is inert and the label simply does not
+# exist, which is the honest state (#505).
+NFD_FEATURES_DIR=/host/etc/kubernetes/node-feature-discovery/features.d
+NFD_FEATURE_FILE="$NFD_FEATURES_DIR/nvml-mock.features"
+if [ "$PCI_LABEL_MODE" = "on" ]; then
+  # Tolerant on purpose — a failure here must not be fatal, as with the `mknod`
+  # calls in step 3, the `cp` calls in step 4b and the `kubectl label` above.
+  # Those three discard the failure with `|| true`; this one reports it on
+  # stderr. It replaced a `kubectl label` call here that carried `|| true`
+  # (cleanup.sh carried the matching one for the removal), and under
+  # `set -e` (line 9) a bare failure here would abort the entrypoint before
+  # step 8's /host/run/nvidia/driver symlink, crash-looping the whole mock for
+  # an optional, gated feature. When the write fails no label appears, which is
+  # the honest state (#505), and nothing downstream is corrupted — unlike the
+  # IB and PCI renders in steps 9 and 10, which are deliberately fatal because
+  # a partial tree silently misleads its consumers. A failing `if` CONDITION
+  # does not trip `set -e`, so this form warns and continues rather than
+  # swallowing the error the way `|| true` would.
+  if mkdir -p "$NFD_FEATURES_DIR" && echo "pci-10de.present=true" > "$NFD_FEATURE_FILE"; then
+    echo "Wrote $NFD_FEATURE_FILE (NFD derives feature.node.kubernetes.io/pci-10de.present)"
+  else
+    echo "WARNING: could not write $NFD_FEATURE_FILE — feature.node.kubernetes.io/pci-10de.present will not be created; the mock is otherwise unaffected" >&2
+  fi
+else
+  # Mirror of the tolerant write above: the removal is the same optional,
+  # gated feature on its other arm, so an EROFS or unwritable directory must
+  # not abort the entrypoint before step 8 either.
+  if rm -f "$NFD_FEATURE_FILE"; then
+    echo "Skipping NFD pci-10de feature file (nodeLabels.pciVendorPresent=false)"
+  else
+    echo "WARNING: could not remove $NFD_FEATURE_FILE — a stale feature file may keep feature.node.kubernetes.io/pci-10de.present alive; the mock is otherwise unaffected" >&2
+  fi
 fi
 
 # 8. Create GPU Operator compatibility symlink.
@@ -287,15 +375,58 @@ fi
 mkdir -p /host/run/nvidia
 ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 
-# 8b. Write the toolkit-ready marker that GPU Operator operand pods poll for.
-#     Operand DaemonSets (device-plugin, gpu-feature-discovery) ship with a
-#     hardcoded `toolkit-validation` init container that loops on:
+# 8b. Deliberately NOT written here: /run/nvidia/validations/toolkit-ready.
+#     Six GPU Operator operand DaemonSets ship an unconditional
+#     `toolkit-validation` init container that loops on:
 #       until [ -f /run/nvidia/validations/toolkit-ready ]; do sleep 5; done
-#     Real nvidia-container-toolkit writes this marker as part of its install.
-#     When nvml-mock substitutes for the toolkit, no other component writes
-#     it — so we do, here, alongside the existing /run/nvidia/driver setup.
-mkdir -p /host/run/nvidia/validations
-touch /host/run/nvidia/validations/toolkit-ready
+#     (gpu-operator v26.3.0: assets/state-device-plugin/0500_daemonset.yaml:29,31;
+#     gpu-feature-discovery/0500_daemonset.yaml:29,32;
+#     state-dcgm-exporter/0800_daemonset.yaml:28,31; state-dcgm/0400_dcgm.yml:28,31;
+#     state-mps-control-daemon/0400_daemonset.yaml:31,33;
+#     state-mig-manager/0600_daemonset.yaml:28,31.)
+#
+#     That gate is real, but nvml-mock is not its satisfier and must not
+#     pre-empt it. The marker's writer is GPU Operator's own nvidia-validator,
+#     running as the operator-validator DaemonSet's `toolkit-validation` init
+#     container with COMPONENT=toolkit
+#     (assets/state-operator-validation/0500_daemonset.yaml:59-69); that
+#     DaemonSet is deployed unconditionally. Toolkit.validate() DELETES the
+#     marker (cmd/nvidia-validator/main.go:1134), runs nvidia-smi against our
+#     mock driver, and re-creates it only on success (main.go:1153).
+#
+#     Writing it here was never durable — the validator deletes it on every run
+#     and its preStop hook removes every *-ready file on shutdown
+#     (state-operator-validation/0500_daemonset.yaml:133-136) — and it let
+#     operands clear the gate before any toolkit check had run, turning an
+#     ordering barrier into a no-op and making a green operand look like a
+#     validated one. See #504.
+#
+#     The directory needs no mkdir either. The DaemonSets that mount the
+#     validations dir directly — device-plugin
+#     (state-device-plugin/0500_daemonset.yaml:146-149), mig-manager
+#     (state-mig-manager/0600_daemonset.yaml:96-99) and the validator
+#     (state-operator-validation/0500_daemonset.yaml:142-145) — all declare
+#     hostPath type DirectoryOrCreate. The other four gated operands mount the
+#     parent /run/nvidia instead: gpu-feature-discovery/0500_daemonset.yaml:129-132,
+#     state-dcgm/0400_dcgm.yml:55-58 and
+#     state-mps-control-daemon/0400_daemonset.yaml:125-128 as type Directory
+#     (which requires the parent to pre-exist), and
+#     state-dcgm-exporter/0800_daemonset.yaml:76-78 with no type at all — step 8
+#     above still creates that parent. The validator also does os.Mkdir on the
+#     status dir itself (main.go:524).
+#
+#     Residual hazard, as a debugging pointer: nvidia-validator has a cleanup-all
+#     flag (main.go:302-309, env CLEANUP_ALL, default false) that os.RemoveAll's
+#     the output dir before recreating it (main.go:513-527), wiping every marker;
+#     because the validator's own /run/nvidia/validations is a bind mount
+#     (state-operator-validation/0500_daemonset.yaml:54-55, 73-74, 96-97,
+#     123-124, 138-139, over the hostPath volume cited above), the RemoveAll then
+#     fails EBUSY on the mount point and the validator exits before recreating
+#     anything (main.go:516-520 returns ahead of the os.Mkdir at :524), so
+#     already-gated pods block on a marker that never returns while the validator
+#     itself sits in CrashLoopBackOff. Nothing in assets/ or controllers/ sets
+#     CLEANUP_ALL, so this is unreachable by default — but if an operand ever
+#     hangs here, check this first.
 
 # 9. InfiniBand: render sysfs via mock-ib; optionally run UMAD/fabric daemon.
 #    MOCK_IB selects the mock tier (case-insensitive):

@@ -11,7 +11,7 @@
 SHELL := /usr/bin/env bash
 .SHELLFLAGS := -o pipefail -ec
 
-.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri
+.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
@@ -153,6 +153,7 @@ cluster-delete:
 #   make e2e-gpu-operator          # GPU Operator scenario
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # node-wide NRI ambient-injection scenario
+#   make e2e-nfd                   # NFD label-provenance scenario
 # CI builds the image once per job and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
 #
 # NOTE: this targets ./tests/e2e/go (the Ginkgo suite package) only, NOT
@@ -164,7 +165,7 @@ cluster-delete:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri
+E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
 e2e:
@@ -181,3 +182,6 @@ e2e-multi-node:
 
 e2e-nri:
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=nri'
+
+e2e-nfd:
+	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=nfd'

@@ -11,6 +11,10 @@ Deploys a DaemonSet that creates on every node:
 - Mock device nodes at `/var/lib/nvml-mock/driver/dev/nvidia{N,ctl,-uvm,-uvm-tools}` (consumers see them at `/dev/nvidia*` via CDI bind-mount)
 - GPU configuration at `/var/lib/nvml-mock/driver/config/config.yaml`
 - Node label `nvidia.com/gpu.present=true`
+- An NFD feature file at
+  `/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features`, which
+  NFD turns into the node label
+  `feature.node.kubernetes.io/pci-10de.present=true` (see [Node Labels](#node-labels))
 - A fake InfiniBand sysfs tree at `/var/lib/nvml-mock/ib/sys/class/infiniband/...`
   paired with `libibmocksys.so` (`LD_PRELOAD`) so real `ibstat`, `ibstatus`,
   `iblinkinfo`, ... read mock HCAs
@@ -733,11 +737,71 @@ for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 | `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (e.g. GB200 → `580.65.06`, B200 → `560.35.03`, GB300 → `570.124.06`, others → `550.163.01`). Set explicitly only to override the profile. |
 | `nodeSelector` | `{}` | Node selector for DaemonSet |
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
+| `nodeLabels.pciVendorPresent` | `true` | Write the NFD feature file that makes `feature.node.kubernetes.io/pci-10de.present=true` appear. The label is created by NFD, not by nvml-mock. Set to `false` when something else already supplies that key. See [Node Labels](#node-labels) |
+| `nodeLabels.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Host directory NFD's local source reads feature files from. Override only if NFD runs with a non-default `featureFilesDir` |
 | `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps for fake-gpu-operator discovery |
 | `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Labels on profile ConfigMaps for discovery |
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
+
+### Node Labels
+
+The DaemonSet's `setup.sh` writes one node label directly with `kubectl label`,
+and drops a feature file that NFD turns into a second. The preStop `cleanup.sh`
+removes the first label and deletes the feature file; NFD retires the second
+label itself on its next cycle:
+
+| Label | Written by | Gated by | Default |
+|-------|-----------|----------|---------|
+| `nvidia.com/gpu.present=true` | nvml-mock (`kubectl label`) | not gated — always written | n/a |
+| `feature.node.kubernetes.io/pci-10de.present=true` | **NFD**, from a feature file nvml-mock writes | `nodeLabels.pciVendorPresent` | `true` |
+
+The second label is produced by Node Feature Discovery. nvml-mock only supplies
+the input: it writes `pci-10de.present=true` into
+`nodeLabels.featuresDir`, which NFD's local source reads and turns into the
+namespaced label. With no NFD on the cluster the file is inert and the label
+does not exist — which is the honest state, and is what the e2e in
+`tests/e2e/go/scenario_nfd_test.go` asserts.
+
+NFD's *PCI* source still cannot see mock GPUs as deployed: it reads a
+host-prefixed sysfs path fixed at link time (`/host-sys/bus/pci/devices`, from
+`HOSTMOUNT_PREFIX`), while nvml-mock's rendered PCI tree lives under
+`/var/lib/nvml-mock/sys` and is reachable at the canonical `/sys` path only
+through an `LD_PRELOAD` sysfs shim — and `nfd-worker` ships statically linked,
+so `LD_PRELOAD` is inert in it. Either fact alone is enough; both hold. The
+`setup.sh` comment at step 7 carries the full analysis with upstream file
+references (verified against NFD v0.19.0).
+
+That is a limit of how NFD is deployed, not of the rendered tree. Pointed at
+`/var/lib/nvml-mock/sys`, NFD v0.19.0 enumerates every mock GPU and — with the
+`sources.pci.deviceLabelFields: [vendor]` that GPU Operator configures — derives
+exactly `pci-10de.present` on its own. The rendered devices already carry all
+five attributes its PCI source treats as mandatory. Only visibility is missing,
+and nothing nvml-mock can do supplies it without editing a third party's
+DaemonSet, which is why the local source is the route the chart uses.
+
+Keep the default (`true`) on a mock-only cluster running NFD: consumers that
+gate on the NFD PCI label — GPU Operator operands, NFD-based `nodeSelector`s —
+need it to schedule. Disable it when something else already supplies
+`feature.node.kubernetes.io/pci-10de.present` and a second writer would
+conflict:
+
+```bash
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --set nodeLabels.pciVendorPresent=false
+```
+
+`setup.sh` converges either way: with the switch on it writes the feature file,
+with it off it removes any file an earlier run left behind. `cleanup.sh` reads
+the same switch and unwinds only the write `setup.sh` makes, so with the switch
+off it has nothing to undo. Because the label itself belongs to NFD, disabling
+the switch does not delete an existing label directly; NFD retires it on its
+next discovery cycle once the feature file is gone.
+
+Writing a feature file rather than the label is also why the DaemonSet needs no
+`patch` on `nodes` for this key — `nvidia.com/gpu.present` is the only label it
+sets through the API.
 
 ### GPU Profiles
 
@@ -1044,7 +1108,9 @@ The chart deploys:
    - Creates symlinks (`libnvidia-ml.so.1` → `libnvidia-ml.so.{version}`)
    - Creates mock device nodes at `/var/lib/nvml-mock/driver/dev/nvidia{N,ctl,-uvm,-uvm-tools}` (CDI bind-mounts them to `/dev/nvidia*` in consumer containers)
    - Writes GPU config YAML at `/var/lib/nvml-mock/driver/config/config.yaml`
-   - Labels the node `nvidia.com/gpu.present=true`
+   - Labels the node `nvidia.com/gpu.present=true`, and writes the NFD feature
+     file that makes `feature.node.kubernetes.io/pci-10de.present=true` appear
+     (unless `nodeLabels.pciVendorPresent=false`) — see [Node Labels](#node-labels)
 2. **ConfigMap** — GPU configuration from the selected profile
 3. **RBAC** — ServiceAccount with permission to patch node labels
 
@@ -1061,7 +1127,7 @@ discovery and monitoring. Some host-level subsystems are not mocked:
 |----------------|-------------------|--------|
 | `/sys/bus/pci/devices/{busID}` sysfs entries | DRA driver | `dra.k8s.io/pcieRoot` attribute absent from ResourceSlices — **blocks topology-aware scheduling demos** (e.g., GPU + SR-IOV VF alignment) |
 | `/sys/bus/pci/devices/{busID}/numa_node` | Device plugin | NUMA-aware topology hints unavailable; scheduling works but NUMA affinity not enforced |
-| `/sys/bus/pci/devices/*/vendor,device,class` | NFD (Node Feature Discovery) | PCI feature labels not auto-detected (nvml-mock sets `nvidia.com/gpu.present` and `pci-10de.present` directly) |
+| `/sys/bus/pci/devices/*/vendor,device,class` **as NFD reads them** (`/host-sys/…`, fixed at link time) | NFD (Node Feature Discovery) | PCI feature labels not auto-detected. `nvidia.com/gpu.present` is written directly by nvml-mock; `pci-10de.present` is created by NFD from a feature file nvml-mock drops in `nodeLabels.featuresDir` — see [Node Labels](#node-labels) |
 
 ### PCIe Root Complex (DRA driver)
 

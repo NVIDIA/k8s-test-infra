@@ -13,8 +13,15 @@ if [ -L "/host/run/nvidia/driver" ]; then
   rm -f "/host/run/nvidia/driver"
   echo "GPU Operator driver symlink removed"
 fi
-# Remove GPU Operator toolkit-ready marker (counterpart to setup.sh:8b)
-rm -f "/host/run/nvidia/validations/toolkit-ready"
+# NOTE: /run/nvidia/validations/toolkit-ready is deliberately NOT removed here.
+# setup.sh no longer creates it (see setup.sh step 8b); its owner is GPU
+# Operator's nvidia-validator. This hook is nvml-mock's preStop, so removing the
+# marker would delete another component's state from a hook we own. In the
+# GPU-Operator e2e that was probably benign in practice: dropping the
+# nvidia.com/gpu.present label below recycles the operator-validator alongside
+# us, and it rewrites the marker within seconds (observed live). The rm is dead
+# code either way, and the hazard is real wherever the validator does not
+# happen to restart.
 # Remove CDI spec
 CDI_FILE="/host/var/run/cdi/nvidia.yaml"
 if [ -f "$CDI_FILE" ]; then
@@ -23,6 +30,13 @@ if [ -f "$CDI_FILE" ]; then
 fi
 if command -v kubectl >/dev/null 2>&1; then
   kubectl label node "$NODE_NAME" nvidia.com/gpu.present- || true
-  kubectl label node "$NODE_NAME" feature.node.kubernetes.io/pci-10de.present- || true
+fi
+
+# Mirror of setup.sh step 7: unwind only the write that step made. NFD drops
+# the label on its next scan once the file is gone. Gated on the same variable,
+# so with the gate off this does nothing — setup.sh never wrote the file on
+# this pod and already removed any copy an earlier run left behind.
+if [ "$(printf '%s' "${MOCK_NFD_PCI_LABEL:-on}" | tr '[:upper:]' '[:lower:]')" = "on" ]; then
+  rm -f /host/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features
 fi
 echo "Mock GPU environment cleaned up on $NODE_NAME"
