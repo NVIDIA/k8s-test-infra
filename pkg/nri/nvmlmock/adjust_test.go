@@ -171,6 +171,86 @@ func TestAdjustDeviceOptInFailsOpenWhenTreeMissing(t *testing.T) {
 	})
 }
 
+// TestAdjustSuppressesDeviceInjectionWhenDevicePluginServedContainer pins the
+// composition rule from MEP-0002. The device plugin delivers exactly the GPU the
+// scheduler allocated; blanket-injecting every /dev/nvidiaN on top of that makes
+// the mock engine's detectVisibleDevices filter see a full set, return nil, and
+// expose every GPU to a pod that was allocated one.
+func TestAdjustSuppressesDeviceInjectionWhenDevicePluginServedContainer(t *testing.T) {
+	deviceRoot := t.TempDir()
+	for _, name := range []string{"nvidia0", "nvidia1", "nvidiactl"} {
+		require.NoError(t, os.WriteFile(filepath.Join(deviceRoot, name), []byte{}, 0o644))
+	}
+
+	cfg := DefaultConfig()
+	cfg.DeviceHostPath = deviceRoot
+
+	tests := map[string]struct {
+		container       Container
+		wantSuppression bool
+	}{
+		"device plugin already supplied a gpu device node": {
+			container: Container{
+				Devices: []Device{{HostPath: "/var/lib/nvml-mock/driver/dev/nvidia0", Path: "/dev/nvidia0"}},
+			},
+			wantSuppression: true,
+		},
+		"device plugin already supplied an nvidia cdi device": {
+			container:       Container{CDIDevices: []string{"nvidia.com/gpu=0"}},
+			wantSuppression: true,
+		},
+		// Discrimination: a container carrying an unrelated device must still get
+		// the full opt-in injection, otherwise the guard is a constant.
+		"unrelated device node does not suppress": {
+			container: Container{
+				Devices: []Device{{HostPath: "/dev/fuse", Path: "/dev/fuse"}},
+			},
+			wantSuppression: false,
+		},
+		"unrelated cdi vendor does not suppress": {
+			container:       Container{CDIDevices: []string{"example.com/widget=0"}},
+			wantSuppression: false,
+		},
+		"no devices at all keeps the historical opt-in behaviour": {
+			container:       Container{},
+			wantSuppression: false,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			container := test.container
+			container.Namespace = "default"
+			container.PodAnnotations = map[string]string{"nvml-mock.nvidia.com/devices": "true"}
+
+			adjustment, ok, err := Adjust(cfg, container)
+			require.NoError(t, err)
+			require.True(t, ok, "the container must still be adjusted; only the device list is suppressed")
+
+			if test.wantSuppression {
+				require.Empty(t, adjustment.Devices,
+					"device plugin already served this container, so the plugin must not add device nodes")
+			} else {
+				require.ElementsMatch(t, []Device{
+					{HostPath: filepath.Join(deviceRoot, "nvidia0"), Path: "/dev/nvidia0"},
+					{HostPath: filepath.Join(deviceRoot, "nvidia1"), Path: "/dev/nvidia1"},
+					{HostPath: filepath.Join(deviceRoot, "nvidiactl"), Path: "/dev/nvidiactl"},
+				}, adjustment.Devices)
+			}
+
+			// Suppression is scoped to devices: the overlay and env still arrive,
+			// because the device plugin delivers neither.
+			require.Contains(t, adjustment.Mounts, Mount{
+				Source:      "/var/lib/nvml-mock",
+				Destination: "/opt/nvml-mock",
+				Type:        "bind",
+				Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+			})
+			require.Contains(t, adjustment.Env, "MOCK_NVML_CONFIG=/opt/nvml-mock/driver/config/config.yaml")
+		})
+	}
+}
+
 func TestAdjustSkipsOptOutExcludedNamespaceAndExistingMount(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ExcludedNamespaces = []string{"kube-system", "nvml-mock"}

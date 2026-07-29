@@ -37,6 +37,13 @@ spec:
             - "--nvidia-driver-root=/var/lib/nvml-mock/driver"
             - "--driver-root-ctr-path=/var/lib/nvml-mock/driver"
             - "--device-discovery-strategy=nvml"
+            # MEP-0002: deliver the allocated GPU's device node into the
+            # container. The mock NVML engine derives a container's visible
+            # GPU set from which /dev/nvidiaN nodes are present, so without
+            # this a pod requesting nvidia.com/gpu:1 still sees every GPU.
+            # A real node gets this from the container runtime hook; a kind
+            # node has none, so the device plugin must do it directly.
+            - "--pass-device-specs=true"
           securityContext:
             privileged: true
           volumeMounts:
