@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -22,6 +23,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
 
@@ -31,6 +33,7 @@ const (
 	nriAgentDaemonSet = "gpu-agent"
 	nriAgentSelector  = "app=gpu-agent"
 	nriNRIDaemonSet   = "nvml-mock-nri"
+	nriPluginSelector = "app.kubernetes.io/name=nvml-mock-nri"
 
 	// nriDomainName / nriDomainUUID identify the single ComputeDomain the
 	// generated topology overlay declares. The UUID is arbitrary but must match
@@ -104,7 +107,174 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			})
 		})
 	}
+
+	// Failure-mode hardening (#434). Everything above asserts that injection
+	// works. This asserts what happens when it stops working mid-run.
+	//
+	// The specs above cannot catch that on their own, and not by oversight:
+	// injection is baked into the OCI spec at container-creation time, so pods
+	// created while the plugin was healthy keep their injection no matter what
+	// happens to the plugin afterwards. A suite that creates its pods early and
+	// asserts later passes cleanly against a node that lost injection halfway
+	// through. Only pods created *after* the failure come up unmocked.
+	//
+	// SIGSTOP is the honest reproduction of a wedged plugin: the process stays
+	// alive, the ttRPC connection stays open, and the handler never answers.
+	// `pgrep nvml-mock-nri` and any check that only proves the socket is bound
+	// both report healthy throughout.
+	Context("when the plugin wedges mid-run", Label("nri-failure"), Ordered, func() {
+		var (
+			victim     cluster.Node
+			pluginPod  kube.PodRef
+			restartsAt int
+		)
+
+		BeforeAll(func(ctx SpecContext) {
+			Expect(selectedProfiles).NotTo(BeEmpty())
+			p := loadProfile(selectedProfiles[0])
+			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			deployNRIAgent(ctx, h)
+
+			victim = workers[0]
+			pluginPod = nriPluginPodOnNode(ctx, h, victim.Name)
+			var err error
+			restartsAt, err = nriRestartCount(ctx, h, pluginPod)
+			Expect(err).NotTo(HaveOccurred(), "read baseline restart count")
+
+			By("SIGSTOP the nvml-mock-nri process on " + victim.Name)
+			wedgeNRIPlugin(ctx, victim.Name)
+		})
+
+		// The readiness probe is the detectable half of the fail-open posture:
+		// without it the DaemonSet keeps reporting its full desired count while
+		// the node silently injects nothing.
+		It("reports the wedged node as NotReady", Label("nri-failure-detect"), func(ctx SpecContext) {
+			Eventually(func() (bool, error) {
+				return h.Kube.DaemonSetReady(ctx, nvmlMockNamespace, nriNRIDaemonSet)
+			}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(time.Second).
+				Should(BeFalse(), "daemonset %s/%s stayed Ready while the plugin on %s was wedged",
+					nvmlMockNamespace, nriNRIDaemonSet, victim.Name)
+		})
+
+		// The liveness probe is the recovery half. A wedged plugin cannot exit
+		// on its own -- unlike a dropped connection, which makes stub.Run
+		// return and the process exit -- so only a probe-driven restart clears
+		// it. Asserting the kubelet's own reason pins that the restart came
+		// from the liveness probe and not from something incidental.
+		It("restarts the wedged plugin", Label("nri-failure-recover"), func(ctx SpecContext) {
+			Eventually(func() (int, error) {
+				return nriRestartCount(ctx, h, pluginPod)
+			}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+				Should(BeNumerically(">", restartsAt),
+					"plugin container on %s never restarted; a wedged plugin cannot recover on its own", victim.Name)
+
+			described, err := h.Kube.DescribePod(ctx, pluginPod.Namespace, pluginPod.Pod)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(described).To(ContainSubstring("Liveness probe failed"),
+				"restart was not attributed to the liveness probe:\n%s", described)
+		})
+
+		// The acceptance criterion: a pod created after the failure must be
+		// correctly injected once the plugin recovers. This is the assertion
+		// the positive specs above structurally cannot make.
+		It("injects into a workload created after the wedge", Label("nri-failure-inject"), func(ctx SpecContext) {
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+
+			By("recreating gpu-agent so its containers are created after the wedge")
+			deployNRIAgent(ctx, h)
+
+			p := loadProfile(selectedProfiles[0])
+			pod := nriAgentPodOnNode(ctx, h, victim.Name)
+			res, err := h.Kube.Exec(ctx, pod, "nvidia-smi", "-L")
+			Expect(err).NotTo(HaveOccurred(), "nvidia-smi -L in the post-wedge gpu-agent pod: %s", res.Combined())
+			Expect(countGPULines(res.Combined())).To(Equal(p.ExpectedGPUs()),
+				"a pod created after the wedge must still see %d injected GPUs\n%s",
+				p.ExpectedGPUs(), strings.TrimSpace(res.Combined()))
+		})
+	})
 })
+
+// nriPluginPodOnNode returns the nvml-mock-nri pod scheduled on node.
+func nriPluginPodOnNode(ctx context.Context, h *harness.Harness, node string) kube.PodRef {
+	GinkgoHelper()
+	var name string
+	Eventually(func() (string, error) {
+		pods, err := h.Kube.RunningPodNames(ctx, nvmlMockNamespace, nriPluginSelector)
+		if err != nil {
+			return "", err
+		}
+		for _, pod := range pods {
+			podNode, err := h.Kube.PodNode(ctx, nvmlMockNamespace, pod)
+			if err != nil {
+				return "", err
+			}
+			if podNode == node {
+				name = pod
+				return name, nil
+			}
+		}
+		return "", nil
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		ShouldNot(BeEmpty(), "no running nvml-mock-nri pod on node %s", node)
+	return kube.PodRef{Namespace: nvmlMockNamespace, Pod: name}
+}
+
+func nriRestartCount(ctx context.Context, h *harness.Harness, pod kube.PodRef) (int, error) {
+	out, err := h.Kube.KubectlCombined(ctx, "get", "pod", "-n", pod.Namespace, pod.Pod,
+		"-o", "jsonpath={.status.containerStatuses[0].restartCount}")
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(out))
+}
+
+// wedgeNRIPlugin freezes the plugin process with SIGSTOP, reproducing a handler
+// that never answers while the process and its runtime connection stay up.
+//
+// The signal is sent from the Kind node's PID namespace, not from inside the
+// container, and that is load-bearing: the plugin is PID 1 of its container's
+// PID namespace, and the kernel discards signals with a default action that are
+// sent to a namespace init from within that same namespace. `kubectl exec ...
+// kill -STOP 1` is silently a no-op. From the node -- an ancestor namespace --
+// the signal is delivered.
+func wedgeNRIPlugin(ctx context.Context, node string) {
+	GinkgoHelper()
+	pid := nriPluginHostPID(ctx, node)
+	_, err := runner.Run(ctx, "docker", "exec", node, "kill", "-STOP", pid)
+	Expect(err).NotTo(HaveOccurred(), "SIGSTOP nvml-mock-nri (pid %s) on %s", pid, node)
+
+	// Confirm the process really is stopped rather than trusting kill's exit
+	// code: a wedge that did not take would make every assertion below vacuous.
+	Eventually(func() (string, error) {
+		res, err := runner.RunQuiet(ctx, "docker", "exec", node, "cat", "/proc/"+pid+"/stat")
+		if err != nil {
+			return "", err
+		}
+		fields := strings.Fields(res.Stdout)
+		if len(fields) < 3 {
+			return "", fmt.Errorf("unexpected /proc/%s/stat: %q", pid, res.Stdout)
+		}
+		return fields[2], nil // state: T = stopped
+	}).WithContext(ctx).WithTimeout(30*time.Second).WithPolling(time.Second).
+		Should(Equal("T"), "nvml-mock-nri (pid %s) on %s did not enter the stopped state", pid, node)
+}
+
+// nriPluginHostPID finds the plugin process in the Kind node's PID namespace.
+// It reads /proc/<pid>/exe rather than shelling out to pgrep: procps is not
+// guaranteed in the node image, and matching on a command line would also match
+// the matching process itself.
+func nriPluginHostPID(ctx context.Context, node string) string {
+	GinkgoHelper()
+	const script = `for p in /proc/[0-9]*; do case "$(readlink "$p/exe" 2>/dev/null)" in */nvml-mock-nri) echo "${p##*/}";; esac; done`
+	res, err := runner.Run(ctx, "docker", "exec", node, "sh", "-c", script)
+	Expect(err).NotTo(HaveOccurred(), "locate nvml-mock-nri on %s: %s", node, res.Combined())
+
+	pids := strings.Fields(res.Stdout)
+	Expect(pids).NotTo(BeEmpty(), "no nvml-mock-nri process found on %s", node)
+	return pids[0]
+}
 
 // installNRIChart (re)installs the nvml-mock release with the NRI plugin
 // enabled. Fabric-attached profiles additionally get the generated

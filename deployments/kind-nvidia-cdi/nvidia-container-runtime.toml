@@ -1,0 +1,16 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Config for the nvidia-container-runtime daemon. Baked into the node image at
+# /etc/nvidia-container-runtime/config.toml by deployments/kind-nvidia-cdi/Dockerfile.
+#
+# The matching containerd-side settings (CDI, nvidia runtime handler) live in
+# containerd-config.toml and are baked into /etc/containerd/config.toml by the
+# same Dockerfile.
+
+[nvidia-container-runtime]
+mode = "cdi"
+
+[nvidia-container-runtime.modes.cdi]
+default-kind = "nvidia.com/gpu"
+spec-dirs = ["/var/run/cdi", "/etc/cdi"]
