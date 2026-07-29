@@ -198,6 +198,11 @@ That's all. Mokka Control Plane should be able to distribute the capacity withou
 The main drawback is that we push the system to be more complicated. 
 We add one more component, introduce network communication between control-data plane, have to think about control plane state.
 
+Since we plan to keep all Mokka Control Plane state in the Kubernetes etcd, 
+we will add some load to the Kubernetes Control plane during node allocation.
+The hot path which is feeding Mokka node agents with sGPU information should pull data from in-memory cache 
+and update periodically, so little impact here.
+
 ## Alternatives
 
 <!--
