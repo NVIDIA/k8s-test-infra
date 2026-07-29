@@ -205,6 +205,43 @@
       }
     },
     "integrations": { "type": "object" },
+    "imex": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "IMEX simulation. enabled/stateDir cover the deprecated hostPath-backed fake IMEX daemons; mockChannels covers the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "stateDir": {
+          "type": "string",
+          "description": "HostPath directory for the fake IMEX daemons' marker files."
+        },
+        "mockChannels": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Renders a substitute /proc/devices, the fabric-imex-mgmt capability file, and the channel device nodes. Consumed via the DRA driver's altProcDevices value. See NVIDIA/k8s-test-infra#498.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "channelCount": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of channel device nodes to create. 2048 matches getImexChannelCount() in the DRA driver's compute-domain kubelet plugin."
+            },
+            "channelMajor": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4095,
+              "description": "Character-device major advertised for nvidia-caps-imex-channels. Must differ from capsMajor and must not collide with a major already present on the node; the renderer rejects both cases."
+            },
+            "capsMajor": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4095,
+              "description": "Character-device major advertised for nvidia-caps. Must differ from channelMajor."
+            }
+          }
+        }
+      }
+    },
     "fabricmanager": {
       "type": "object",
       "additionalProperties": true,
