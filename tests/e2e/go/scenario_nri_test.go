@@ -42,6 +42,17 @@ const (
 	// what check-fabric reports inside the injected pods.
 	nriDomainName = "node-wide-domain"
 	nriDomainUUID = "00000000-0000-0000-0000-0000000000cd"
+
+	// Mock IMEX channel injection (#437). imex.mockChannels defaults to 2048
+	// channels to match the DRA driver's getImexChannelCount(); the count is
+	// irrelevant to the injection path and every channel is a real mknod on
+	// every node, so the suite runs a small one.
+	nriImexChannelCount = 8
+	nriImexChannelDir   = "/dev/nvidia-caps-imex-channels"
+	nriImexAnnotation   = "nvml-mock.nvidia.com/imex-channels"
+	// nriImexChannelMajor must equal imex.mockChannels.channelMajor, which is
+	// also the major the rendered proc-devices advertises to the DRA driver.
+	nriImexChannelMajor = 235
 )
 
 // Go port of docs/demo/node-wide-injection/run.sh. A dedicated Kind cluster
@@ -241,6 +252,78 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		})
 	})
 
+	// Mock IMEX channel injection (#437). The NRI plugin already delivers the
+	// mock GPU tree; ComputeDomain workloads additionally need the IMEX channel
+	// nodes, which no mock node has because there is no NVIDIA kernel module to
+	// create them.
+	//
+	// This rides the cluster the specs above already built. An earlier revision
+	// of this work stood up a second five-node Kind cluster for the IMEX specs
+	// and exhausted the runner's disk during `kind load docker-image`, which
+	// surfaced as an unrelated-looking failure on whichever profile happened to
+	// be running when the disk filled.
+	Context("when a pod opts into mock IMEX channels", Label("nri-imex"), Ordered, func() {
+		var gpuNode string
+
+		BeforeAll(func(ctx SpecContext) {
+			Expect(selectedProfiles).NotTo(BeEmpty())
+			p := loadProfile(selectedProfiles[0])
+			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+			gpuNode = workers[0].Name
+		})
+
+		It("delivers every staged channel into an annotated pod", Label("imex-channels"), func(ctx SpecContext) {
+			pod := applyNRIWorkload(ctx, h,
+				nriImexPodManifest("nri-imex-annotated", gpuNode, true),
+				"nri-imex-annotated")
+
+			Expect(imexChannelNames(ctx, h, pod)).To(HaveLen(nriImexChannelCount),
+				"annotated pod should see all %d channels staged by imex.mockChannels", nriImexChannelCount)
+		})
+
+		// The opt-in has to be a real gate. Without this, a plugin that injected
+		// channels unconditionally would pass the spec above.
+		It("keeps channels out of a pod that did not ask for them", Label("imex-channels"), func(ctx SpecContext) {
+			pod := applyNRIWorkload(ctx, h,
+				nriImexPodManifest("nri-imex-plain", gpuNode, false),
+				"nri-imex-plain")
+
+			res, err := h.Kube.ExecSh(ctx, pod, `ls `+nriImexChannelDir+` 2>&1 || true`)
+			Expect(err).NotTo(HaveOccurred(), "probe %s in nri-imex-plain", nriImexChannelDir)
+			Expect(res.Combined()).To(ContainSubstring("No such file or directory"),
+				"an unannotated pod must not receive %s, got:\n%s", nriImexChannelDir, res.Combined())
+		})
+
+		// The invariant that keeps the mock self-consistent, and the reason this
+		// feature consumes imex.mockChannels instead of provisioning its own
+		// nodes. The DRA driver's compute-domain plugin reads the channel major
+		// out of the rendered proc-devices; the injected nodes must carry that
+		// same major. Two provisioning paths with different majors would leave
+		// the directory split across majors while proc-devices advertised one,
+		// and nothing else in the suite would notice.
+		It("injects channels whose major matches the advertised proc-devices major", Label("imex-channels"), func(ctx SpecContext) {
+			pod := applyNRIWorkload(ctx, h,
+				nriImexPodManifest("nri-imex-major", gpuNode, true),
+				"nri-imex-major")
+
+			advertised := advertisedImexMajor(ctx, h, gpuNode)
+			Expect(advertised).To(Equal(nriImexChannelMajor),
+				"rendered proc-devices should advertise the chart's channelMajor")
+
+			for _, name := range imexChannelNames(ctx, h, pod) {
+				res, err := h.Kube.ExecSh(ctx, pod, `stat -c %t `+nriImexChannelDir+`/`+name)
+				Expect(err).NotTo(HaveOccurred(), "stat %s: %s", name, res.Combined())
+				major, parseErr := strconv.ParseInt(strings.TrimSpace(res.Combined()), 16, 32)
+				Expect(parseErr).NotTo(HaveOccurred(), "parse major of %s from %q", name, res.Combined())
+				Expect(int(major)).To(Equal(advertised),
+					"%s carries major %d but proc-devices advertises %d; the node has more than one channel provisioner",
+					name, major, advertised)
+			}
+		})
+	})
+
 	// Failure-mode hardening (#434). Everything above asserts that injection
 	// works. This asserts what happens when it stops working mid-run.
 	//
@@ -428,6 +511,11 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 			"image.repository": repo,
 			"image.tag":        tag,
 			"nri.enabled":      "true",
+			// Stage the mock IMEX channel nodes so the NRI channel opt-in has
+			// something to deliver (#437). This is the ONLY mechanism that
+			// creates them; the NRI plugin consumes what this stages.
+			"imex.mockChannels.enabled":      "true",
+			"imex.mockChannels.channelCount": strconv.Itoa(nriImexChannelCount),
 		},
 		Wait:    true,
 		Timeout: config.HelmTimeout(),
@@ -571,6 +659,79 @@ spec:
       image: ` + nriWorkloadImage + `
       command: ["/bin/sh", "-c", "sleep 3600"]
 `)
+}
+
+// nriImexPodManifest renders a pod pinned to one node that optionally opts into
+// mock IMEX channel injection. It requests no GPU resources.
+func nriImexPodManifest(name, node string, wantChannels bool) []byte {
+	annotations := ""
+	if wantChannels {
+		annotations = "  annotations:\n    " + nriImexAnnotation + ": \"true\"\n"
+	}
+	return []byte(`apiVersion: v1
+kind: Pod
+metadata:
+  name: ` + name + `
+  namespace: ` + nriWorkloadNS + `
+` + annotations + `spec:
+  restartPolicy: Never
+  nodeName: ` + node + `
+  containers:
+    - name: app
+      image: ` + nriWorkloadImage + `
+      command: ["/bin/sh", "-c", "sleep 3600"]
+`)
+}
+
+// imexChannelNames lists the channel nodes visible inside a pod.
+func imexChannelNames(ctx context.Context, h *harness.Harness, pod kube.PodRef) []string {
+	GinkgoHelper()
+	res, err := h.Kube.ExecSh(ctx, pod, `ls `+nriImexChannelDir)
+	Expect(err).NotTo(HaveOccurred(), "list %s in %s: %s", nriImexChannelDir, pod.Pod, res.Combined())
+	var names []string
+	for _, line := range strings.Split(res.Combined(), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "channel") {
+			names = append(names, line)
+		}
+	}
+	return names
+}
+
+// advertisedImexMajor reads the channel major out of the proc-devices file that
+// imex.mockChannels renders for the DRA driver, as staged on the node itself.
+func advertisedImexMajor(ctx context.Context, h *harness.Harness, node string) int {
+	GinkgoHelper()
+	pod := nriMockPodOnNode(ctx, h, node)
+	res, err := h.Kube.ExecSh(ctx, pod, `cat /host/var/lib/nvml-mock/imex/proc-devices`)
+	Expect(err).NotTo(HaveOccurred(), "read rendered proc-devices on %s: %s", node, res.Combined())
+
+	for _, line := range strings.Split(res.Combined(), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) == 2 && fields[1] == "nvidia-caps-imex-channels" {
+			major, parseErr := strconv.Atoi(fields[0])
+			Expect(parseErr).NotTo(HaveOccurred(), "parse major from %q", line)
+			return major
+		}
+	}
+	Fail("rendered proc-devices carries no nvidia-caps-imex-channels entry:\n" + res.Combined())
+	return 0
+}
+
+// nriMockPodOnNode resolves the main nvml-mock DaemonSet pod on a given node.
+func nriMockPodOnNode(ctx context.Context, h *harness.Harness, node string) kube.PodRef {
+	GinkgoHelper()
+	names, err := h.Kube.RunningPodNames(ctx, nvmlMockNamespace, "app.kubernetes.io/name=nvml-mock")
+	Expect(err).NotTo(HaveOccurred(), "list nvml-mock pods")
+	for _, name := range names {
+		on, nodeErr := h.Kube.PodNode(ctx, nvmlMockNamespace, name)
+		Expect(nodeErr).NotTo(HaveOccurred(), "read node of %s", name)
+		if on == node {
+			return kube.PodRef{Namespace: nvmlMockNamespace, Pod: name}
+		}
+	}
+	Fail("no running nvml-mock pod on node " + node)
+	return kube.PodRef{}
 }
 
 // allocatedGPUUUID returns the UUID the device plugin allocated to the pod, as
