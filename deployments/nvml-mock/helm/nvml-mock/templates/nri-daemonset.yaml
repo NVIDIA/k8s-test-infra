@@ -48,6 +48,13 @@ spec:
             - --device-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev
             - --opt-out-annotation={{ .Values.nri.optOutAnnotation }}
             - --device-annotation={{ .Values.nri.deviceAnnotation }}
+            # Mock IMEX channel delivery (#437). The nodes are staged by the
+            # main DaemonSet under imex.mockChannels; the plugin only injects
+            # them into pods carrying this annotation. Harmless when
+            # imex.mockChannels is disabled: the tree is absent, the plugin
+            # warns and injects everything else.
+            - --imex-channel-annotation={{ .Values.nri.imexChannelAnnotation }}
+            - --imex-channel-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev/nvidia-caps-imex-channels
             - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
             # NODE_NAME (below) gates ComputeDomain topology injection: when
             # topology.enabled stages a topology document into the overlay,
