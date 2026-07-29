@@ -167,6 +167,14 @@ func fromNRI(pod *api.PodSandbox, container *api.Container) nvmlmock.Container {
 				Options:     append([]string(nil), mount.GetOptions()...),
 			})
 		}
+		// What the runtime already applied, so Adjust can tell whether the device
+		// plugin served this container. GetLinux() is nil-safe.
+		for _, device := range container.GetLinux().GetDevices() {
+			result.Devices = append(result.Devices, nvmlmock.Device{Path: device.GetPath()})
+		}
+		for _, device := range container.GetCDIDevices() {
+			result.CDIDevices = append(result.CDIDevices, device.GetName())
+		}
 	}
 	return result
 }

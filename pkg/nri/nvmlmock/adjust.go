@@ -71,6 +71,13 @@ type Container struct {
 	PodAnnotations map[string]string
 	Env            []string
 	Mounts         []Mount
+
+	// Devices and CDIDevices are what the container already carries when the
+	// runtime asks the plugin to adjust it. The kubelet applies the device
+	// plugin's Allocate response before this point, so a non-empty NVIDIA entry
+	// here means the device plugin already served this container. See MEP-0002.
+	Devices    []Device
+	CDIDevices []string
 }
 
 // Adjustment is the mount/env/device delta that a runtime plugin applies.
@@ -128,15 +135,25 @@ func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 	}
 
 	if strings.EqualFold(container.PodAnnotations[cfg.DeviceAnnotation], "true") {
-		// Fail open: the device tree is staged by the main nvml-mock DaemonSet,
-		// and nothing orders this plugin's DaemonSet after it. If the tree is
-		// missing (fresh node) or unreadable, degrade to overlay-only injection
-		// rather than failing container creation for the whole pod.
-		devices, err := discoverDevices(cfg.DeviceHostPath)
-		if err != nil {
-			warnf("device injection requested but device tree at %s is unavailable (%v); injecting overlay only", cfg.DeviceHostPath, err)
-		} else {
-			adjustment.Devices = devices
+		switch {
+		case alreadyHasGPUDevices(container):
+			// MEP-0002: the device plugin allocated a specific GPU and the kubelet
+			// already applied it. Adding the whole device tree on top would widen
+			// the container past its allocation, and would defeat the mock
+			// engine's visibility filter, which derives the visible GPU set from
+			// which /dev/nvidiaN nodes are present.
+			warnf("device injection requested but the device plugin already served this container; leaving its allocation intact")
+		default:
+			// Fail open: the device tree is staged by the main nvml-mock DaemonSet,
+			// and nothing orders this plugin's DaemonSet after it. If the tree is
+			// missing (fresh node) or unreadable, degrade to overlay-only injection
+			// rather than failing container creation for the whole pod.
+			devices, err := discoverDevices(cfg.DeviceHostPath)
+			if err != nil {
+				warnf("device injection requested but device tree at %s is unavailable (%v); injecting overlay only", cfg.DeviceHostPath, err)
+			} else {
+				adjustment.Devices = devices
+			}
 		}
 	}
 
@@ -288,6 +305,26 @@ func shimPaths(cfg Config) []string {
 		paths = append(paths, filepath.Join(cfg.ContainerOverlayPath, shim))
 	}
 	return paths
+}
+
+// alreadyHasGPUDevices reports whether the container arrived carrying GPU
+// devices that something else put there — in practice the NVIDIA device plugin,
+// whose Allocate response the kubelet applies before the runtime asks this
+// plugin to adjust anything. It recognises both delivery mechanisms the plugin
+// supports: raw device nodes (--pass-device-specs) and CDI device references
+// (--device-list-strategy=cdi-*).
+func alreadyHasGPUDevices(container Container) bool {
+	for _, device := range container.Devices {
+		if strings.HasPrefix(device.Path, "/dev/nvidia") {
+			return true
+		}
+	}
+	for _, device := range container.CDIDevices {
+		if strings.HasPrefix(device, "nvidia.com/") {
+			return true
+		}
+	}
+	return false
 }
 
 func discoverDevices(deviceHostPath string) ([]Device, error) {
