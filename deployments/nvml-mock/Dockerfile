@@ -28,6 +28,7 @@ RUN mkdir -p /out \
     && go build -mod=vendor -o /out/nvml-mock-nri ./cmd/nvml-mock-nri \
     && go build -mod=vendor -o /out/nvml-mock-ctl ./cmd/nvml-mock-ctl \
     && go build -mod=vendor -o /out/render-pci-sysfs ./cmd/render-pci-sysfs \
+    && go build -mod=vendor -o /out/render-imex-procdevices ./cmd/render-imex-procdevices \
     && go build -mod=vendor -o /out/nvidia-imex     ./cmd/fake-imex/daemon \
     && go build -mod=vendor -o /out/nvidia-imex-ctl ./cmd/fake-imex/ctl \
     && go build -mod=vendor -o /out/nv-fabricmanager     ./cmd/fake-fabricmanager/daemon \
@@ -47,6 +48,7 @@ COPY --from=builder /out/mock-ib /usr/local/bin/mock-ib
 COPY --from=builder /out/nvml-mock-nri /usr/local/bin/nvml-mock-nri
 COPY --from=builder /out/nvml-mock-ctl /usr/local/bin/nvml-mock-ctl
 COPY --from=builder /out/render-pci-sysfs /usr/local/bin/render-pci-sysfs
+COPY --from=builder /out/render-imex-procdevices /usr/local/bin/render-imex-procdevices
 # Fake IMEX binaries used for ComputeDomain simulation on KIND. Installed
 # at the same paths the upstream compute-domain-daemon expects in $PATH,
 # so the thin daemon image layer (Dockerfile.compute-domain-daemon) can

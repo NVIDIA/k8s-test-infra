@@ -130,3 +130,92 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --excluded-namespaces=NAMESPACE,kube-system,monitoring,gpu-system
+
+  # A probe that cannot reach the plugin is worse than no probe: the pod never
+  # goes Ready and the DaemonSet stalls. These pin the three values that have
+  # to agree -- the flag the plugin binds, the declared containerPort, and the
+  # port the probes name.
+  - it: should serve probes on a port the plugin actually binds
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --health-addr=:8080
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: health
+            containerPort: 8080
+            protocol: TCP
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /readyz
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: health
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: health
+
+  # Readiness must interrogate /readyz, not /healthz. /healthz stays 200 while
+  # the plugin is unregistered -- pointing readiness at it would report a
+  # plugin that is injecting nothing as Ready, which is the exact silent
+  # failure these probes exist to surface.
+  - it: should not point readiness at the liveness endpoint
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - notEqual:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /healthz
+
+  - it: should move both the bind address and the container port together
+    set:
+      nri:
+        enabled: true
+        healthPort: 9310
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --health-addr=:9310
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: health
+            containerPort: 9310
+            protocol: TCP
+
+  - it: should allow dropping either probe
+    set:
+      nri:
+        enabled: true
+        livenessProbe: null
+    asserts:
+      - isNull:
+          path: spec.template.spec.containers[0].livenessProbe
+      - isNotNull:
+          path: spec.template.spec.containers[0].readinessProbe
+
+  - it: should apply custom probe tuning
+    set:
+      nri:
+        enabled: true
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          periodSeconds: 3
+          failureThreshold: 5
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.periodSeconds
+          value: 3
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.failureThreshold
+          value: 5

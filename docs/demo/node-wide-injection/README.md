@@ -39,7 +39,7 @@ Install these tools locally before running the demo:
 1. Creates a 4-worker Kind cluster with containerd NRI enabled.
 2. Builds and loads the local `nvml-mock` image.
 3. Installs the Helm chart with the `nvml-mock-nri` DaemonSet enabled in the
-   `nvml-mock-system` namespace, plus the ComputeDomain topology overlay
+   `mokka` namespace, plus the ComputeDomain topology overlay
    (`gb200` profile; workers 1-2 -> clique 0, workers 3-4 -> clique 1).
 4. Uses `default` as the workload namespace. The NRI plugin excludes its own
    Helm release namespace and `kube-system`, so keeping workloads in `default`
@@ -66,7 +66,7 @@ Optional overrides:
 
 ```bash
 GPU_PROFILE=t4 GPU_COUNT=4 WITH_COMPUTE_DOMAIN=false ./run.sh
-NVML_MOCK_NAMESPACE=my-nvml-mock-system ./run.sh
+NVML_MOCK_NAMESPACE=my-mokka ./run.sh
 WORKLOAD_NAMESPACE=my-demo ./run.sh
 FORCE_RECREATE=true ./run.sh
 ```
@@ -91,7 +91,7 @@ when pod authors should not control that device opt-in.
 After the script completes, the important checks are:
 
 ```bash
-kubectl -n nvml-mock-system get daemonset nvml-mock nvml-mock-nri
+kubectl -n mokka get daemonset nvml-mock nvml-mock-nri
 kubectl get daemonset gpu-agent
 kubectl logs daemonset/gpu-agent --tail=80
 ```
@@ -110,6 +110,6 @@ the demo resources:
 
 ```bash
 kubectl delete daemonset gpu-agent --ignore-not-found
-helm uninstall nvml-mock --namespace nvml-mock-system --ignore-not-found
-kubectl delete namespace nvml-mock-system --ignore-not-found
+helm uninstall nvml-mock --namespace mokka --ignore-not-found
+kubectl delete namespace mokka --ignore-not-found
 ```

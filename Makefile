@@ -117,8 +117,26 @@ KIND_CLUSTER_NAME   ?= $(if $(filter compute-domain,$(PROFILE)),nvml-mock-comput
 KIND_CLUSTER_CONFIG ?= local/kind/$(PROFILE).kind.yaml
 
 .PHONY: image-kind-node cluster-create cluster-delete
+# KIND_NODE_IMAGE_PREBUILT (env, any non-empty value): skip the local docker
+# build and use the pre-built $(KIND_NODE_IMAGE) already loaded in the local
+# daemon. Verify with `docker image inspect` before skipping, so a botched
+# staging step fails here (with a clear message) instead of surfacing later
+# as an opaque `kind create cluster` pull error. CI sets this after
+# `docker pull` + `docker tag` of the pre-built image from ttl.sh (see
+# .github/workflows/nvml-mock-e2e-go.yaml build-kind-node job); local devs
+# leave it unset and get the rebuild-when-Dockerfile-changes behavior.
 image-kind-node:
-	@docker build -t $(KIND_NODE_IMAGE) ./local/kind
+	@if [ -n "$$KIND_NODE_IMAGE_PREBUILT" ]; then \
+		docker image inspect $(KIND_NODE_IMAGE) >/dev/null 2>&1 || { \
+			echo "ERROR: KIND_NODE_IMAGE_PREBUILT is set but $(KIND_NODE_IMAGE) is not in the local docker daemon."; \
+			echo "       Ensure a preceding step ran: docker pull <ref> && docker tag <ref> $(KIND_NODE_IMAGE)"; \
+			echo "       (Or unset KIND_NODE_IMAGE_PREBUILT to build it locally.)"; \
+			exit 1; \
+		}; \
+		echo "Using pre-built $(KIND_NODE_IMAGE) already present locally"; \
+	else \
+		docker build -t $(KIND_NODE_IMAGE) ./local/kind; \
+	fi
 
 cluster-create: image-kind-node
 	@kind create cluster --name $(KIND_CLUSTER_NAME) --image $(KIND_NODE_IMAGE) --config $(KIND_CLUSTER_CONFIG)
