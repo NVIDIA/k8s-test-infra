@@ -1,22 +1,21 @@
-//go:build e2e
-
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
 package assertions
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strconv"
-	"time"
-
-	ginkgo "github.com/onsi/ginkgo/v2"
-	"github.com/onsi/gomega"
-
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 )
+
+// This file carries no build tag on purpose. The rest of the package is
+// //go:build e2e because it imports the Kubernetes client, which would drag a
+// cluster dependency into the normal unit-test run. The derivation and
+// comparison below need nothing but the standard library, so keeping them
+// untagged is what makes their tests run in the regular `go test ./...` job
+// rather than only under -tags e2e. The cluster-facing poll that consumes them
+// lives in gfd_labels_wait.go.
 
 // GFD label keys asserted against GPU Feature Discovery.
 const (
@@ -60,33 +59,4 @@ func DiffGFDLabels(want, got map[string]string) []string {
 	}
 
 	return problems
-}
-
-// WaitGFDLabels polls until the node carries every expected GFD label with the
-// expected value, and fails the spec otherwise.
-//
-// This replaces a warning-only check that could never fail: GPU Feature
-// Discovery could have been removed entirely and the scenario would still have
-// gone green. Labels are published asynchronously after the operator settles,
-// hence the poll rather than a single read.
-func WaitGFDLabels(ctx context.Context, k *kube.Client, node string, want map[string]string, timeout, poll time.Duration) {
-	ginkgo.GinkgoHelper()
-	ginkgo.By(fmt.Sprintf("waiting for GFD labels on %s", node))
-
-	var last []string
-	gomega.Eventually(func() ([]string, error) {
-		got := make(map[string]string, len(want))
-		for key := range want {
-			value, ok, err := k.NodeLabel(ctx, node, key)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
-				got[key] = value
-			}
-		}
-		last = DiffGFDLabels(want, got)
-		return last, nil
-	}).WithContext(ctx).WithTimeout(timeout).WithPolling(poll).
-		Should(gomega.BeEmpty(), "GFD labels on node %s did not match the profile: %v", node, &last)
 }
