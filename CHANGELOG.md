@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Mock IMEX channel injection through the NRI plugin. A pod annotated
+  `nvml-mock.nvidia.com/imex-channels: "true"` receives the mock
+  `/dev/nvidia-caps-imex-channels/channelN` nodes, so a ComputeDomain-style
+  workload can see an IMEX fabric surface on a node with no NVIDIA kernel
+  module. The channels come from the existing `imex.mockChannels` surface —
+  enable it too, or the annotation is a no-op that logs a warning and starts
+  the pod anyway. Injection is independent of the MEP-0002 device-plugin
+  suppression, because the device plugin never allocates an IMEX channel.
+  Configured by `nri.imexChannelAnnotation`. (#437)
+
+### Fixed
+- The NRI device opt-in no longer offers the `nvidia-caps-imex-channels`
+  DIRECTORY to the runtime as a device node. It sits inside the device root the
+  plugin scans and matched the `nvidia` prefix filter, so any annotated pod on a
+  node with `imex.mockChannels` enabled was affected. (#437)
+
 ## [0.3.0-rc1] - 2026-07-31
 
 ### Added
