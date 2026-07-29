@@ -47,6 +47,9 @@ type rawProfile struct {
 		Fabric *struct {
 			State string `json:"state"`
 		} `json:"fabric"`
+		Memory struct {
+			TotalBytes int64 `json:"total_bytes"`
+		} `json:"memory"`
 	} `json:"device_defaults"`
 	Devices []struct {
 		Index int `json:"index"`
@@ -83,7 +86,23 @@ type Profile struct {
 	fabricAuto  bool
 	hasFabric   bool
 	pciRoots    int
+	memoryBytes int64
 }
+
+// bytesPerMiB is the divisor GPU Feature Discovery uses when it publishes
+// nvidia.com/gpu.memory, which is reported in MiB.
+const bytesPerMiB = 1024 * 1024
+
+// GFDProductName is DisplayName in the form GPU Feature Discovery publishes as
+// nvidia.com/gpu.product: spaces become dashes. For example "NVIDIA GB200"
+// becomes "NVIDIA-GB200".
+func (p Profile) GFDProductName() string {
+	return strings.ReplaceAll(p.DisplayName, " ", "-")
+}
+
+// MemoryMiB is per-device memory in MiB, matching what GFD publishes as
+// nvidia.com/gpu.memory.
+func (p Profile) MemoryMiB() int { return int(p.memoryBytes / bytesPerMiB) }
 
 // Load reads profilesDir/<name>.yaml and returns the typed Profile.
 func Load(profilesDir, name string) (Profile, error) {
@@ -111,6 +130,7 @@ func Load(profilesDir, name string) (Profile, error) {
 		hcasPerGPU:  raw.Infiniband.HCAsPerGPU,
 		linksPerGPU: raw.NVLink.LinksPerGPU,
 		hasSwitches: len(raw.NVLink.Switches) > 0,
+		memoryBytes: raw.DeviceDefaults.Memory.TotalBytes,
 	}
 	if raw.DeviceDefaults.Fabric != nil {
 		p.hasFabric = true
