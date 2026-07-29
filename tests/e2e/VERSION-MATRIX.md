@@ -9,6 +9,7 @@ Tested component versions for the mock GPU E2E test suite.
 | NVIDIA Device Plugin | v0.18.2 | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | Tested in CI |
 | DRA Driver (GPU) | v0.10.x | `nvidia/nvidia-dra-driver-gpu` (Helm) | Tested in CI |
 | GPU Feature Discovery | v0.17.0 | `nvcr.io/nvidia/gpu-feature-discovery:v0.17.0` | Tested in CI |
+| Node Feature Discovery | v0.19.0 | `nfd/node-feature-discovery` (Helm) | Pinned + tested in CI |
 | CUDA vectorAdd sample | cuda12.5.0 | `nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0` | Tested in CI |
 | GPU Operator (driver disabled) | latest (unpinned) | `nvidia/gpu-operator` (Helm) | Tested in CI |
 | GPU Operator (managed driver) | v26.3.3 (pinned) | `nvidia/gpu-operator` (Helm) + `mock-driver` image | Tested in CI |
@@ -21,6 +22,7 @@ Tested component versions for the mock GPU E2E test suite.
 - **Device Plugin** (standalone DaemonSet): discovers mock GPUs via NVML, registers `nvidia.com/gpu` resource
 - **DRA Driver** (Helm chart): discovers mock GPUs via NVML, publishes ResourceSlices
 - **GPU Feature Discovery** (standalone DaemonSet): reads GPU attributes via NVML, labels nodes
+- **Node Feature Discovery** (Helm chart): derives the PCI vendor label from the feature file nvml-mock writes, not nvml-mock itself
 - **CUDA Validator** (Job): runs vectorAdd against mock libcuda.so
 
 ### GPU Operator (three modes, all in CI)

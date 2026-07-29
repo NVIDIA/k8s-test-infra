@@ -75,8 +75,9 @@ func (c *Client) getJSON(ctx context.Context, out any, args ...string) error {
 // ---------------------------------------------------------------------------
 
 type objectMeta struct {
-	Name   string            `json:"name"`
-	Labels map[string]string `json:"labels"`
+	Name        string            `json:"name"`
+	Labels      map[string]string `json:"labels"`
+	Annotations map[string]string `json:"annotations"`
 }
 
 type nodeCondition struct {
@@ -165,6 +166,16 @@ func (c *Client) NodeLabel(ctx context.Context, node, key string) (string, bool,
 		return "", false, err
 	}
 	v, ok := n.Metadata.Labels[key]
+	return v, ok, nil
+}
+
+// NodeAnnotation returns a node annotation value and whether it was set.
+func (c *Client) NodeAnnotation(ctx context.Context, node, key string) (string, bool, error) {
+	var n nodeObj
+	if err := c.getJSON(ctx, &n, "node", node); err != nil {
+		return "", false, err
+	}
+	v, ok := n.Metadata.Annotations[key]
 	return v, ok, nil
 }
 

@@ -33,6 +33,7 @@ package main
 #define MOCK_NVML_VALUE_TYPE_DOUBLE             0
 #define MOCK_NVML_VALUE_TYPE_UNSIGNED_INT       1
 #define MOCK_NVML_VALUE_TYPE_UNSIGNED_LONG_LONG 3
+#define MOCK_NVML_VALUE_TYPE_SIGNED_INT         5
 
 // Accessors/mutators for nvmlFieldValue_t. CGo represents the nvmlValue_t
 // union as an opaque byte array, so the union members are written here in C
@@ -44,6 +45,10 @@ static void fvSetReturn(nvmlFieldValue_t *fv, nvmlReturn_t r)  { fv->nvmlReturn 
 static void fvSetUInt(nvmlFieldValue_t *fv, unsigned int v) {
 	fv->valueType = MOCK_NVML_VALUE_TYPE_UNSIGNED_INT;
 	fv->value.uiVal = v;
+}
+static void fvSetInt(nvmlFieldValue_t *fv, int v) {
+	fv->valueType = MOCK_NVML_VALUE_TYPE_SIGNED_INT;
+	fv->value.siVal = v;
 }
 static void fvSetULL(nvmlFieldValue_t *fv, unsigned long long v) {
 	fv->valueType = MOCK_NVML_VALUE_TYPE_UNSIGNED_LONG_LONG;
@@ -94,6 +99,8 @@ func nvmlDeviceGetFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *
 		switch vt {
 		case engine.FieldValueUint:
 			C.fvSetUInt(fv, C.uint(val))
+		case engine.FieldValueInt:
+			C.fvSetInt(fv, C.int(int32(val)))
 		case engine.FieldValueUint64:
 			C.fvSetULL(fv, C.ulonglong(val))
 		case engine.FieldValueDouble:

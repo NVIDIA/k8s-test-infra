@@ -81,24 +81,46 @@ tolerations:
 
 resources: {}
 
-# Node labels written by setup.sh (`kubectl label`) and removed again by the
-# preStop cleanup.sh. Both scripts read the same switch, so a disabled label is
-# neither written nor deleted — the mock never touches a key it does not own.
+# Node labels nvml-mock causes to exist, reversed again by the preStop
+# cleanup.sh. setup.sh writes nvidia.com/gpu.present directly with `kubectl
+# label`; feature.node.kubernetes.io/pci-10de.present is created by NFD from a
+# feature file setup.sh drops in featuresDir below. setup.sh converges either
+# way: with the switch on it writes that file, with it off it removes any file
+# an earlier run left behind. cleanup.sh unwinds only setup.sh's own write, so
+# with the switch off it has nothing to undo. The label belongs to NFD, which
+# retires it on its next discovery cycle once the file is gone.
 nodeLabels:
   # feature.node.kubernetes.io/pci-10de.present=true
   #
-  # Hand-written, because NFD's PCI source cannot see our devices: it reads a
-  # host-prefixed sysfs path fixed at link time (/host-sys/bus/pci/devices) and
-  # nfd-worker is statically linked, so neither our LD_PRELOAD sysfs shim nor
-  # our rendered PCI tree is reachable from it. See setup.sh step 7 for the
-  # full analysis.
+  # NFD creates this label; nvml-mock only writes the feature file it derives
+  # it from. That keeps the key to exactly one writer, so "NFD works" stays
+  # distinguishable from "we set it ourselves" (#505), and it needs no node
+  # RBAC. With no NFD on the cluster the file is inert and the label does not
+  # exist.
   #
-  # Default true preserves the historical behaviour: consumers that gate on the
-  # NFD PCI label (GPU Operator operands, nfd-based nodeSelectors) schedule on a
-  # mock node out of the box. Set to false when a real NFD — or anything else
-  # that owns feature.node.kubernetes.io/* — runs on the cluster and the forged
-  # label would conflict with it.
+  # NFD's PCI source cannot derive it as deployed: nfd-worker reads a
+  # host-prefixed sysfs path fixed at link time (/host-sys/bus/pci/devices), so
+  # our rendered tree at /var/lib/nvml-mock/sys is not on a path it reads. The
+  # tree itself is complete — pointed at it, NFD enumerates every mock GPU and
+  # derives exactly this label. See setup.sh step 7 for the full analysis.
+  #
+  # Keep the default (true) on a mock-only cluster running NFD: consumers that
+  # gate on the NFD PCI label (GPU Operator operands, nfd-based nodeSelectors)
+  # need it to schedule. The default supplies the input, not the label — with no
+  # NFD on the cluster nothing derives the label and those consumers do not
+  # schedule. Set to false when something else already supplies
+  # feature.node.kubernetes.io/pci-10de.present and a second writer would
+  # conflict with it.
   pciVendorPresent: true
+
+  # Host directory NFD's *local* source reads feature files from
+  # (source/local/local.go featureFilesDir, a plain literal — unlike the PCI
+  # source's /host-sys path it is not host-prefixed). setup.sh drops the
+  # pci-10de feature file here and NFD turns it into the label, so the mock
+  # never writes that key to the node API (nvidia.com/gpu.present is the only
+  # label it still sets directly). Override only if NFD is deployed with a
+  # non-default features.d location.
+  featuresDir: /etc/kubernetes/node-feature-discovery/features.d
 
 # Node-wide ambient injection via containerd NRI. When enabled, a lightweight
 # node-local plugin appends the nvml-mock overlay mount and environment to each

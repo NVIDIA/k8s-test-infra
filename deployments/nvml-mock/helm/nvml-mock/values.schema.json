@@ -155,11 +155,16 @@
     "nodeLabels": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Node labels written by setup.sh and removed by the preStop cleanup.sh.",
+      "description": "Node labels nvml-mock causes to exist, reversed by the preStop cleanup.sh.",
       "properties": {
         "pciVendorPresent": {
           "type": "boolean",
-          "description": "Write feature.node.kubernetes.io/pci-10de.present=true on the node. Hand-written because NFD's PCI source reads a link-time-fixed /host-sys path and nfd-worker is statically linked, so it can see neither our rendered PCI tree nor our LD_PRELOAD sysfs shim. Set false when a real NFD owns feature.node.kubernetes.io/*. Typed as a boolean here because the DaemonSet renders it with `ternary`, which rejects a string with a template error rather than silently treating \"false\" as true."
+          "description": "Cause feature.node.kubernetes.io/pci-10de.present=true to exist on the node by writing an NFD feature file; NFD creates the label. Set false when something else already supplies that key. NFD's PCI source cannot derive it as deployed — nfd-worker reads a link-time-fixed /host-sys path, so the rendered PCI tree is not on a path it reads — but the tree itself is complete: given visibility, NFD derives this exact label. Typed as a boolean here because the DaemonSet renders it with `ternary`, which rejects a string with a template error rather than silently treating \"false\" as true."
+        },
+        "featuresDir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Host directory NFD's local source reads feature files from. Must be the featureFilesDir the deployed NFD actually reads. Typed as a non-empty string so that an empty string, or a boolean/number/array, is rejected at `helm template` time. An explicit `null` deletes the key and is not caught (there is no `required`), rendering a blank hostPath the API server rejects only at apply time."
         }
       }
     },

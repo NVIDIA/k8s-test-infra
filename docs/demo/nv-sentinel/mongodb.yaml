@@ -1,0 +1,239 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Standalone MongoDB for the NVSentinel demo, using the official multi-arch
+# image public.ecr.aws/docker/library/mongo:8.0.3.
+#
+# Why not the chart's built-in MongoDB? NVSentinel's mongodb-store subchart uses
+# the Bitnami MongoDB chart, whose containers run Bitnami-only scripts
+# (/opt/bitnami/scripts/*, /scripts/setup.sh) and whose images (bitnamilegacy/*)
+# are published amd64-only. On arm64 (and after Bitnami's image relocation) that
+# MongoDB cannot start. We therefore run a plain MongoDB here and point
+# NVSentinel at it as an EXTERNAL datastore (global.mongodbStore.enabled=false +
+# global.datastore).
+#
+# NVSentinel's platform-connector expects to read a MongoDB CA certificate and
+# talks TLS to the datastore, so this MongoDB serves TLS using a certificate
+# issued by cert-manager (already a NVSentinel dependency). The CA secret
+# (mongodb-ca) is handed to NVSentinel via global.datastore.tls.caSecretName.
+#
+# NVSentinel also requires MongoDB change streams (fault-quarantine and
+# health-events-analyzer watch them), which need a replica set. This runs a
+# single-node replica set (rs0). Everything is pinned to the control-plane so the
+# Node Drainer does not evict MongoDB when it drains the GPU worker.
+#
+# ---------------------------------------------------------------------------
+# cert-manager: self-signed root CA -> CA issuer -> MongoDB server certificate
+# ---------------------------------------------------------------------------
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: mongodb-selfsigned
+  namespace: nvsentinel
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: mongodb-ca
+  namespace: nvsentinel
+spec:
+  isCA: true
+  commonName: nvsentinel-demo-mongodb-ca
+  secretName: mongodb-ca            # data keys: ca.crt, tls.crt, tls.key
+  duration: 87600h                  # 10y
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  issuerRef:
+    name: mongodb-selfsigned
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: mongodb-ca-issuer
+  namespace: nvsentinel
+spec:
+  ca:
+    secretName: mongodb-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: mongodb-server
+  namespace: nvsentinel
+spec:
+  secretName: mongodb-server-tls    # data keys: ca.crt, tls.crt, tls.key
+  duration: 87600h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  # SANs must cover the service DNS NVSentinel connects to and the replica-set
+  # member host advertised by rs.initiate below.
+  dnsNames:
+    - mongodb-ext
+    - mongodb-ext.nvsentinel
+    - mongodb-ext.nvsentinel.svc
+    - mongodb-ext.nvsentinel.svc.cluster.local
+    - mongodb-ext-0.mongodb-ext.nvsentinel.svc.cluster.local
+    - localhost
+  ipAddresses:
+    - 127.0.0.1
+  issuerRef:
+    name: mongodb-ca-issuer
+    kind: Issuer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-ext
+  namespace: nvsentinel
+  labels:
+    app: mongodb-ext
+spec:
+  clusterIP: None
+  # Publish the pod's DNS before it is Ready so the replica-set init Job and the
+  # readiness probe can resolve it during startup.
+  publishNotReadyAddresses: true
+  selector:
+    app: mongodb-ext
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: 27017
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb-ext
+  namespace: nvsentinel
+  labels:
+    app: mongodb-ext
+spec:
+  serviceName: mongodb-ext
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb-ext
+  template:
+    metadata:
+      labels:
+        app: mongodb-ext
+    spec:
+      # Keep MongoDB off the GPU worker so a remediation drain never evicts it.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      initContainers:
+        # mongod wants cert + key in a single PEM; cert-manager emits them
+        # separately, so concatenate into an emptyDir the main container reads.
+        - name: mk-pem
+          image: public.ecr.aws/docker/library/mongo:8.0.3
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              cat /certs/tls.key /certs/tls.crt > /tls/server.pem
+              cp /certs/ca.crt /tls/ca.crt
+              chmod 644 /tls/server.pem /tls/ca.crt
+          volumeMounts:
+            - name: server-cert
+              mountPath: /certs
+              readOnly: true
+            - name: tls-pem
+              mountPath: /tls
+      containers:
+        - name: mongodb
+          image: public.ecr.aws/docker/library/mongo:8.0.3
+          args:
+            - "--replSet"
+            - "rs0"
+            - "--bind_ip_all"
+            - "--tlsMode"
+            - "requireTLS"
+            - "--tlsCertificateKeyFile"
+            - "/tls/server.pem"
+            - "--tlsCAFile"
+            - "/tls/ca.crt"
+            - "--tlsAllowConnectionsWithoutCertificates"
+          ports:
+            - containerPort: 27017
+          volumeMounts:
+            - name: data
+              mountPath: /data/db
+            - name: tls-pem
+              mountPath: /tls
+              readOnly: true
+          readinessProbe:
+            exec:
+              command:
+                - mongosh
+                - --tls
+                - --tlsAllowInvalidCertificates
+                - --host
+                - localhost
+                - --quiet
+                - --eval
+                - db.adminCommand('ping').ok
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: server-cert
+          secret:
+            secretName: mongodb-server-tls
+        - name: tls-pem
+          emptyDir: {}
+---
+# Initialize the single-node replica set once MongoDB is reachable over TLS.
+# Idempotent: skips if the replica set is already initialized.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongodb-ext-rs-init
+  namespace: nvsentinel
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: rs-init
+          image: public.ecr.aws/docker/library/mongo:8.0.3
+          command:
+            - bash
+            - -c
+            - |
+              set -e
+              host="mongodb-ext.nvsentinel.svc.cluster.local:27017"
+              tls=(--tls --tlsAllowInvalidCertificates)
+              echo "waiting for mongod at ${host}..."
+              until mongosh "${tls[@]}" --host "${host}" --quiet --eval "db.adminCommand('ping').ok" >/dev/null 2>&1; do
+                sleep 3
+              done
+              mongosh "${tls[@]}" --host "${host}" --quiet --eval '
+                try {
+                  if (rs.status().ok === 1) { print("replica set already initialized"); quit(0); }
+                } catch (e) {
+                  rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongodb-ext.nvsentinel.svc.cluster.local:27017"}]});
+                  print("replica set initiated");
+                }
+              '
+              # Wait until the node reports PRIMARY so consumers can use change streams.
+              until mongosh "${tls[@]}" --host "${host}" --quiet --eval 'db.hello().isWritablePrimary' | grep -q true; do
+                echo "waiting for PRIMARY..."; sleep 3
+              done
+              echo "mongodb replica set ready"
