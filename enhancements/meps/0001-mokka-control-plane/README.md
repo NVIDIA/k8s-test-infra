@@ -27,24 +27,24 @@ This proposal introduces a new component called Mokka Control Plane that central
 ## Motivation
 
 The current architecture includes:
-- one single central component NVML mock that acts as a node agent that applies nvml mock configuration and topology from configmaps
-- each NVML instance is an independent component that knows nothing about existence of any other NVML mock instances
-- if you want to have different GPU profiles for different nodes you need to label those nodes differently and deploy multiple mokka helm charts with different node selectors.
+- a single central NVML mock component that acts as a node agent that applies nvml mock configuration and topology from configmaps
+- each NVML instance is an independent component that knows nothing about the existence of any other NVML mock instances
+- if you want to have different GPU profiles for different nodes, you need to label those nodes differently and deploy multiple mokka helm charts with different node selectors.
 
 ![todays-architecture.png](./img/todays-architecture.png)
 
 This architecture has given us a chance to focus on developing the core simulation logic so far.
-However, we are approaching use cases to push it to the limits:
+However, we are approaching use cases that push it to its limits:
 
-- there is no way to simulate capacity distribution of GPU platforms like GB300. For example, if you want to simulate two GB300 instances in the cluster, you should be able to schedule no more than 2 * 18 = 36 nodes with 4x GPU each. Today it's a responsibility of Mokka users to properly configure that which may lead to unrealistic cluster topologies.
-- we would like to have a simple way to change simulated GPU runtime state like temperature, failure modes, etc. So there is quick way for a cluster operator to propagate a failure across thousands nodes.
+- there is no way to simulate capacity distribution of GPU platforms like GB300. For example, if you want to simulate two GB300 instances in the cluster, you should be able to schedule no more than 2 * 18 = 36 nodes with 4x GPU each. Today it's the responsibility of Mokka users to properly configure that which may lead to unrealistic cluster topologies.
+- we would like to have a simple way to change simulated GPU runtime state like temperature, failure modes, etc. So there is a quick way for a cluster operator to propagate a failure across thousands of nodes.
 - we ask cluster administrators to set `nvidia.com/clique` labels while it should be based on the GPU rack the node belongs to.
 
 ### Goals
 
 We aim for:
 - decoupling of the simulated GPU profiles and runtime state from NVML mocks in order to control it in a centralized way
-- being able to schedule only realistic number of GPU nodes based on provided configuration.
+- being able to schedule only a realistic number of GPU nodes based on provided configuration.
 
 ### Non-Goals
 
@@ -66,7 +66,7 @@ When you buy a GPU platform like GB300 in clouds like AWS,
 it becomes reserved for you.
 You can then distribute available number of GPUs across accounts and clusters as much as that capacity allows.
 
-The reservation takes time and this is where Mokka can useful.
+The reservation takes time and this is where Mokka can be useful.
 
 ### Mental Model
 
@@ -74,13 +74,13 @@ Let's think about the GPU infrastructure we want to simulate in terms of simulat
 and networking between them. That's our simulated GPU inventory.
 
 The GPU inventory holds the capacity that we can distribute in the cluster. 
-For example, if we have 2x GB300 racks in our simulated GPU inventory this gives 2x * 18 = 36 GPU nodes each has 4 sGPUs attached.
+For example, if we have 2x GB300 racks in our simulated GPU inventory this gives 2 × 18 = 36 GPU nodes, each with 4 sGPUs attached.
 If we wanted to schedule 40 GPU nodes with that inventory, 40-36 = 4 would be without GPU.
 
-The sGPU rack are characterized by:
+The sGPU racks are characterized by:
 
 - sGPU rack profile that contains physical and operational features and facts about the real GPU we simulate. This is our static ground truth. This includes expected node-level GPU profile (e.g. each of 18 GB300 nodes has 4 GPU).
-- sGPU runtime state which is potentially dynamic set of simulated sGPU characteristics like temperature, failure modes, fan state, etc. This is not sGPU rack-level information, it's a sGPU-level information.
+- sGPU runtime state which is potentially dynamic set of simulated sGPU characteristics like temperature, failure modes, fan state, etc. This is not sGPU rack-level information, it's sGPU-level information.
 
 ### Architecture
 
@@ -90,26 +90,26 @@ We propose to transform the current system state into a classic control-data pla
 
 ![proposed-architecture.png](./img/proposed-architecture.png)
 
-With this, NVNL mock becomes a node-level agent (or Mokka Node Agent). 
+With this, NVML mock becomes a node-level agent (or Mokka Node Agent). 
 Since it makes sure sGPU and networking reflects the desired state, 
-so it could be thought as a virtual device set (virtual GPU and network card).
+so it could be thought of as a virtual device set (virtual GPU and network card).
 
 At the same time, Control Plane is responsible for distributing and assigning sGPU capacity to the node agents, 
-receiving any changes external clients want to sGPUs runtime state.
+receiving changes that external clients want to apply to the sGPUs' runtime state.
 
 ### User Stories
 
 #### S1: Precise Multi-GPU Distribution Simulation
 
-I as a cluster administrator don't need to think about GPU rack architecture and 
+As a cluster administrator, I don't need to think about GPU rack architecture and 
 details in order to simulate the GPU capacity my team expects.
 
-I just specify the GPU racks we are waiting for and rough network topology between them and my cluster is representative.
+I just specify the GPU racks we expect to have and rough network topology between them, and my cluster topology will be representative.
 
 #### S2: Dynamic Failure Injection
 
-I as a cluster administrator can manage runtime state of my simulated GPU inventory in one place via Kubernetes Custom Resources.
-I can write an automation that modifies the Kubernetes CR state and expect it to be propagated down the road without being concerned with cluster topology.
+As a cluster administrator, I can manage runtime state of my simulated GPU inventory in one place via Kubernetes Custom Resources.
+I can write an automation that modifies the Kubernetes CR state and expect it to be propagated to all nodes without being concerned with cluster topology.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -135,25 +135,25 @@ this will impact our users.
 Control Plane holds the currently configured sGPU inventory.
 Then, cluster admins are free to label their CPU nodes with a custom label (for example, `mokka.nvidia.com/sgpu: gb300`) that indicate which sGPU type should be available on that node.
 
-When node agent reaches out to Control Plane, it provides information about the current node it was installed into.
+When the node agent reaches out to the Control Plane, it provides information about the current node it was installed on.
 Based on that data, Control Plane does the following:
 
 - resolves the current Kubernetes node information
-- finds sGPU type in the `mokka.nvidia.com/sgpu` label
-- look into the current sGPU inventory to see whether this is a newly created node that requires sGPU capacity assignment or a node with existing assignment
-- for newly created node, Control Plane tries to find capacity and assign it, generating some runtime information like GPU, PCI IDs to make them unique. Control Plane also label the K8s node with `nvidia.com/clique` when sGPU is assigned to the node.
+- finds the sGPU type in the `mokka.nvidia.com/sgpu` label
+- looks into the current sGPU inventory to see whether this is a newly created node that requires sGPU capacity assignment or a node with existing assignment
+- for a newly created node, Control Plane tries to find capacity and assign it, generating some runtime information like GPU, PCI IDs to make them unique. Control Plane also labels the K8s node with `nvidia.com/clique` when sGPU is assigned to the node.
 
 For both existing and new assignments, Control Plane returns sGPU profile information and runtime status.
 Control Plane may return an error that indicates that we are out of capacity (because there is not enough sGPU in the inventory or because the capacity was reduced in runtime).
 
 ### Node Agent
 
-The node agents focuses purely on what NVML mock does today which is how to mock the given expected state of NVML and networking.
+The node agent focuses purely on what NVML mock does today which is how to mock the given expected state of NVML and networking.
 
-However, the agent doesn't control the expected state, it merely receives and apply it (similarly, to kubelet).
+However, the agent doesn't control the expected state, it merely receives and applies it (similarly to kubelet).
 
 In order to get the most recent sGPU state, the agent should periodically poll Control Plane (a.k.a. node agent heartbeat).
-It should cache the previous state in memory, so we survive any temporary Control Plane crashes.
+It should cache the previous state in memory, so we can survive any temporary Control Plane crashes.
 
 If node agent fails to send a heartbeat, it would be assumed inactive and the capacity it was holding will return back to sGPU inventory to reuse.
 This is also a self-healing mechanism in case the node dies and node agent had no chance to inform us about shutdown.
@@ -183,13 +183,13 @@ Currently, it contains both GPU facts and spec and some runtime information mock
 
 ### Cluster Admin Experience
 
-The main high-level goal of this proposal is to simply and reduce the number of things
+The main high-level goal of this proposal is to simplify and reduce the number of things
 the cluster admins who deploy mokka and setup sGPU clusters should be responsible for.
 
 After this proposal is implemented, the following steps would be needed to setup a new sGPU cluster:
 - Deploy one single instance of Mokka helm chart.
 - Configure sGPU inventory via K8s CRs
-- Label the nodes that are supposed to have sGPU with `mokka.nvidia.com/sgpu: auto` (or specific sGPU type lik `h100`).
+- Label the nodes that are supposed to have sGPU with `mokka.nvidia.com/sgpu: auto` (or specific sGPU type like `h100`).
 
 That's all. Mokka Control Plane should be able to distribute the capacity without any other help.
 
