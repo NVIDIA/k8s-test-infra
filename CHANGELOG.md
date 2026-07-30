@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Every shipped GPU profile now reports a moving, non-zero `utilization.gpu`.
+  Each profile carries its own live `device_defaults.dynamic_metrics.utilization`
+  block (`pattern: steady`, GPU 10-45%, memory 5-25%), so a default install no
+  longer reads a constant 0 through `DCGM_FI_DEV_GPU_UTIL` — nor through the
+  `DCGM_FI_PROF_*` metrics, which the mock derives as fixed fractions of it.
+  The floor sits above 0 deliberately, so "utilization is reported" is a
+  deterministic assertion rather than a flaky one. The value still tracks
+  **elapsed time, not workload**: it moves on a fully idle node. Temperature and
+  power simulation stays opt-in behind `gpu.dynamicMetrics.enabled`; note that
+  enabling that overlay replaces the profile block with the chart baseline,
+  whose `burst` 0-100 band does dip to near 0. (#506)
+
 ### Added
 - Mock IMEX channel injection through the NRI plugin. A pod annotated
   `nvml-mock.nvidia.com/imex-channels: "true"` receives the mock

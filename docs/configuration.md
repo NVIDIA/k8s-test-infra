@@ -414,9 +414,24 @@ built against nvml-mock is read with the right expectations.
 
 ### Simulated — changes between calls
 
-Opt in per metric via `dynamic_metrics`; with that block absent, all of these are
-static. The driver is **elapsed time, not workload**: the numbers move on a
-completely idle node, and they do not move any faster under load.
+The driver is **elapsed time, not workload**: these numbers move on a completely
+idle node, and they do not move any faster under load.
+
+**Utilization is live in every shipped profile.** Each profile carries its own
+`device_defaults.dynamic_metrics.utilization` block — `pattern: steady`, GPU
+10–45%, memory 5–25% — so `nvmlDeviceGetUtilizationRates`, and therefore
+`DCGM_FI_DEV_GPU_UTIL`, never reports a constant 0 on a default install. The
+floor is deliberately above 0 so "utilization is reported" is a deterministic
+assertion rather than a flaky one. Because every `DCGM_FI_PROF_*` activity
+metric is a fixed fraction of `utilization.gpu` (see *Deliberately fixed*
+below), the whole profiling surface is non-zero as a consequence.
+
+Temperature and power stay **opt-in**: set `gpu.dynamicMetrics.enabled=true`
+(Helm) or add `dynamic_metrics.temperature` / `dynamic_metrics.power` to the
+config. Note that enabling the Helm overlay *replaces* the profile's
+`dynamic_metrics` block wholesale with the chart baseline, whose utilization
+default is `pattern: burst` across 0–100 — that band's idle phase does report
+near 0. Pin `gpu.dynamicMetrics.utilization.*` if you need a floor.
 
 | Metric | Config | Behaviour |
 |--------|--------|-----------|
@@ -468,15 +483,24 @@ to change.
 ### Not workload-aware — known gap
 
 No reported value responds to Kubernetes scheduling. A pod holding an
-`nvidia.com/gpu` claim does not move `memory.used_bytes`, does not appear in
-`processes`, and does not raise `utilization.gpu`; the values change only when
-something writes the config.
+`nvidia.com/gpu` claim does not move `memory.used_bytes` and does not appear in
+`processes`; those values change only when something writes the config.
+
+Read the *Simulated* section above carefully here: `utilization.gpu` is no
+longer a constant 0, but it is **not** evidence of work either. It moves on
+elapsed time. A busy-looking utilization on an idle node is exactly what that
+block produces, by design.
 
 Nothing in the deployment observes allocation today. The nvml-mock DaemonSet
 stages the driver tree and then sleeps, and the optional NRI plugin subscribes
 only to container **creation** and mounts the overlay read-only. Making memory
-and processes allocation-aware is tracked in
+and `processes` allocation-aware is tracked in
 [#506](https://github.com/NVIDIA/k8s-test-infra/issues/506).
+
+What each container *can see* is already allocation-aware, and is a separate
+thing from what the values say: the engine filters its visible GPU set by which
+`/dev/nvidia*` nodes are present, so a pod allocated one GPU on an eight-GPU
+node sees exactly one in `nvidia-smi -L`. Only the reported metrics are static.
 
 To move these numbers today, drive them explicitly with `nvml-mock-ctl set`.
 
