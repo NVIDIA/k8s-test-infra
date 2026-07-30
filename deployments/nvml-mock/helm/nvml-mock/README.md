@@ -541,6 +541,30 @@ same port-level information (state, phys state, GID, LID, rate, link layer)
 is available through `ibstatus`, which reads it from the rendered sysfs
 tree.
 
+### In NRI-injected pods
+
+With `nri.enabled=true` the same tools are staged into the node overlay and
+reachable from any injected workload at
+`/opt/nvml-mock/driver/usr/bin/<tool>`. They carry their shared libraries
+(`libibmad`, `libibumad`, `libibverbs`, `libnl`) alongside them in
+`driver/usr/lib64` and an RPATH of `$ORIGIN/../lib64`, so they run from an
+image that ships no InfiniBand stack of its own — a distroless or scratch
+workload, not just a full distro image.
+
+Two limits apply there, both independent of the staging:
+
+- `ibstatus` is a `/bin/sh` script rather than an ELF binary, so it needs an
+  image with a shell.
+- `ibv_devinfo -l` reports `0 HCAs found` in an injected pod. Enumeration
+  needs libibverbs to match the device to a provider driver (`libmlx5`), and
+  the provider ships in the nvml-mock image rather than in the workload. Use
+  `ibstat -l`, which reads the rendered sysfs through `libibmocksys.so` and
+  lists every mock HCA.
+
+The tools are glibc binaries. On a musl image (Alpine) they fail to exec at
+all, because `PT_INTERP` names `/lib/ld-linux-*.so.*` by absolute path and no
+RPATH can redirect that.
+
 ### Defaults per profile
 
 | Profile | Enabled | HCA | Speed | HCAs per GPU |
