@@ -44,6 +44,8 @@ func main() {
 	flag.StringVar(&cfg.DeviceHostPath, "device-host-path", envOr("NVML_MOCK_DEVICE_HOST_PATH", cfg.DeviceHostPath), "host path containing mock /dev/nvidia* nodes")
 	flag.StringVar(&cfg.OptOutAnnotation, "opt-out-annotation", envOr("NVML_MOCK_OPT_OUT_ANNOTATION", cfg.OptOutAnnotation), "pod annotation key; value false disables injection")
 	flag.StringVar(&cfg.DeviceAnnotation, "device-annotation", envOr("NVML_MOCK_DEVICE_ANNOTATION", cfg.DeviceAnnotation), "pod annotation key; value true adds /dev/nvidia* device nodes")
+	flag.StringVar(&cfg.ImexChannelAnnotation, "imex-channel-annotation", envOr("NVML_MOCK_IMEX_CHANNEL_ANNOTATION", cfg.ImexChannelAnnotation), "pod annotation key; value true adds /dev/nvidia-caps-imex-channels/* nodes")
+	flag.StringVar(&cfg.ImexChannelHostPath, "imex-channel-host-path", envOr("NVML_MOCK_IMEX_CHANNEL_HOST_PATH", cfg.ImexChannelHostPath), "host path containing the mock IMEX channel nodes staged by imex.mockChannels (defaults to <overlay-host-path>/driver/dev/nvidia-caps-imex-channels)")
 	excludedNamespaces := flag.String("excluded-namespaces", envOr("NVML_MOCK_EXCLUDED_NAMESPACES", strings.Join(cfg.ExcludedNamespaces, ",")), "comma-separated namespaces to skip")
 	shims := flag.String("ld-preload-shims", envOr("NVML_MOCK_LD_PRELOAD_SHIMS", strings.Join(cfg.Shims, ",")), "comma-separated LD_PRELOAD shim paths relative to the overlay mount or absolute paths")
 	flag.Parse()

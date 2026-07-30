@@ -128,6 +128,18 @@ nri:
   # device-node mounts from the staged mock overlay. Treat that pod-authored
   # control as part of the demo trust boundary and exclude namespaces as needed.
   deviceAnnotation: nvml-mock.nvidia.com/devices
+  # Workloads that set this pod annotation to "true" additionally get the mock
+  # IMEX channel nodes at /dev/nvidia-caps-imex-channels/channelN — the fabric
+  # surface a ComputeDomain workload expects. Same trust boundary as
+  # deviceAnnotation above.
+  #
+  # The channels themselves come from imex.mockChannels; this plugin only
+  # delivers what that already staged, so enable imex.mockChannels too or the
+  # annotation is a no-op (the plugin logs a warning and the pod still starts).
+  # Every channel staged on the node is injected, so a large
+  # imex.mockChannels.channelCount adds real container-start cost: creating the
+  # default 2048 nodes measures around one second.
+  imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
   excludedNamespaces: []
   resources: {}
   # Port serving the plugin's /healthz and /readyz endpoints. The NRI DaemonSet

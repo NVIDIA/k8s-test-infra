@@ -877,6 +877,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nri.overlay.hostPath` / `nri.overlay.mountPath` | `/var/lib/nvml-mock` / `/opt/nvml-mock` | Host overlay staged by the main DaemonSet, and the path it is injected at inside workloads |
 | `nri.optOutAnnotation` | `nvml-mock.nvidia.com/inject` | Pod annotation; value `false` disables injection for that pod |
 | `nri.deviceAnnotation` | `nvml-mock.nvidia.com/devices` | Pod annotation; value `true` adds mock `/dev/nvidia*` device nodes. Pod-authored, so treat it as part of the demo trust boundary |
+| `nri.imexChannelAnnotation` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation; value `true` adds the mock `/dev/nvidia-caps-imex-channels/channelN` nodes staged by `imex.mockChannels`. A no-op when that is disabled. Same trust boundary as `nri.deviceAnnotation` |
 | `nri.excludedNamespaces` | `[]` | Extra namespaces to skip. The release namespace and `kube-system` are always excluded |
 | `nri.healthPort` | `8080` | Port serving `/healthz` and `/readyz`. Bound only in the pod's network namespace — this DaemonSet does not use `hostNetwork`, so nothing is exposed on the node |
 | `nri.readinessProbe` | `/readyz`, `periodSeconds: 10`, `failureThreshold: 2` | Detects that the node has stopped injecting. Set to `null` to drop. See [NRI plugin failure modes](#nri-plugin-failure-modes) |
