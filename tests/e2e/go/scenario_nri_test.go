@@ -216,7 +216,14 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		BeforeAll(func(ctx SpecContext) {
 			Expect(selectedProfiles).NotTo(BeEmpty())
 			p = loadProfile(selectedProfiles[0])
-			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			// The allocation watcher (#506) rides in this context because it is
+			// the only one where the device plugin actually allocates GPUs.
+			installNRIChart(ctx, h, p, topoValues, p.HasFabric(), map[string]string{
+				"allocationWatcher.enabled": "true",
+				// Poll faster than the 2s default so the e2e is not dominated
+				// by waiting; the engine's own override TTL still applies.
+				"allocationWatcher.interval": "500ms",
+			})
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			deployDevicePluginOnWorkers(ctx, h, workers, p.ExpectedGPUs())
@@ -287,6 +294,66 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			Expect(visible[0]).To(Equal(allocated),
 				"pod was allocated %s but sees %s", allocated, visible[0])
 		})
+
+		// #506 item 1. The acceptance criterion is explicitly BOTH directions:
+		// the number must move when a workload is scheduled AND come back when
+		// it is removed. An increase-only assertion passes trivially against a
+		// monotonic counter that never returns, so the release half is the
+		// half that carries the weight.
+		//
+		// The observer is a SEPARATE pod that holds no GPU claim of its own and
+		// sees every GPU on the node. That matters: reading memory from inside
+		// the claiming pod would prove only that the pod sees itself, whereas
+		// the surface #506 is about is a node-level one (dcgm-exporter's
+		// FB_USED). The observer also survives the workload's deletion, which
+		// is what makes the return observable at all.
+		It("moves memory.used_bytes when a pod claims a GPU and returns it on delete",
+			Label("nri-alloc-memory"), func(ctx SpecContext) {
+				observer := applyNRIWorkload(ctx, h, nriAnnotatedPodManifest("nri-alloc-observer"), "nri-alloc-observer")
+
+				allGPUs := visibleGPUUUIDs(ctx, h, observer)
+				Expect(allGPUs).To(HaveLen(p.ExpectedGPUs()), "the observer must see the whole node")
+
+				claimantManifest := nriRequestPodManifest("nri-alloc-claimant", gpuNode, 1)
+				workload := applyNRIWorkload(ctx, h, claimantManifest, "nri-alloc-claimant")
+				claimed := allocatedGPUUUID(ctx, h, workload)
+
+				idx := indexOfGPUUUID(allGPUs, claimed)
+				Expect(idx).To(BeNumerically(">=", 0),
+					"allocated GPU %s is not among the observer's %d GPUs", claimed, len(allGPUs))
+
+				// Poll: the watcher writes at its interval and the engine
+				// re-reads the override file at its own TTL, so the change is
+				// eventually-consistent by design, not instant.
+				Eventually(func(ctx SpecContext) int {
+					return smiGPUInt(ctx, h, observer, idx, "memory.used")
+				}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+					Should(BeNumerically(">", 0),
+						"a pod holding %s on GPU %d did not move memory.used; the allocation watcher "+
+							"is not reaching the engine", kube.GPUResourceName, idx)
+
+				// Every OTHER GPU must stay idle. Without this, a watcher that
+				// reported node-wide totals on every device would pass the
+				// assertion above.
+				for other := range allGPUs {
+					if other == idx {
+						continue
+					}
+					Expect(smiGPUInt(ctx, h, observer, other, "memory.used")).To(Equal(0),
+						"GPU %d holds no claim but reports memory in use; the watcher is not "+
+							"attributing per device", other)
+				}
+
+				By("deleting the claimant and asserting the number returns")
+				Expect(h.Kube.Delete(ctx, claimantManifest)).To(Succeed(), "delete %s", workload.Pod)
+
+				Eventually(func(ctx SpecContext) int {
+					return smiGPUInt(ctx, h, observer, idx, "memory.used")
+				}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+					Should(Equal(0),
+						"GPU %d still reports memory in use after its pod was deleted; the reading "+
+							"is monotonic, not allocation-driven", idx)
+			})
 
 		It("still gives an annotated pod with no request every GPU", Label("nri-dp-optin"), func(ctx SpecContext) {
 			pod := applyNRIWorkload(ctx, h, nriAnnotatedPodManifest("nri-dp-annotated"), "nri-dp-annotated")
@@ -642,7 +709,8 @@ func nriPluginHostPID(ctx context.Context, node string) string {
 // enabled. Fabric-attached profiles additionally get the generated
 // ComputeDomain overlay via `-f` (a structured merge of topology.domains, never
 // --set-file which would stuff the raw bytes in as a string literal).
-func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile, topoValues string, withComputeDomain bool) {
+func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile, topoValues string,
+	withComputeDomain bool, extraSet ...map[string]string) {
 	GinkgoHelper()
 	repo, tag := splitImage(config.Image())
 	rel := helm.Release{
@@ -665,6 +733,11 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 		},
 		Wait:    true,
 		Timeout: config.HelmTimeout(),
+	}
+	for _, set := range extraSet {
+		for k, v := range set {
+			rel.Set[k] = v
+		}
 	}
 	if withComputeDomain {
 		rel.ValuesFiles = []string{topoValues}
@@ -1113,4 +1186,15 @@ func countGPULines(out string) int {
 		}
 	}
 	return count
+}
+
+// indexOfGPUUUID returns the position of uuid in the observer's GPU list, or -1.
+// nvidia-smi indexes by position in that list, which is what smiGPUInt takes.
+func indexOfGPUUUID(uuids []string, uuid string) int {
+	for i, u := range uuids {
+		if u == uuid {
+			return i
+		}
+	}
+	return -1
 }

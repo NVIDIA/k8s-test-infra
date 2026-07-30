@@ -792,3 +792,95 @@ tests:
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /run/nvidia-fabricmanager
+
+  # ── Allocation watcher (#506) ───────────────────────────────────────
+  - it: should not run the allocation watcher by default
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 1
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-pod-resources
+            hostPath:
+              path: /var/lib/kubelet/pod-resources
+              type: Directory
+
+  - it: should add the allocation watcher sidecar and its socket mount when enabled
+    set:
+      allocationWatcher:
+        enabled: true
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 2
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: allocation-watcher
+      # The image installs the binary at /usr/local/bin. A wrong path here is
+      # a CrashLoop that no unit test outside the chart would catch.
+      - equal:
+          path: spec.template.spec.containers[1].command[0]
+          value: /usr/local/bin/nvml-mock-ctl
+      - equal:
+          path: spec.template.spec.containers[1].command[1]
+          value: watch-allocations
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: host-pod-resources
+            mountPath: /var/lib/kubelet/pod-resources
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-pod-resources
+            hostPath:
+              path: /var/lib/kubelet/pod-resources
+              type: Directory
+      # It writes only into the driver root; the socket is read-only and the
+      # container drops every capability.
+      - equal:
+          path: spec.template.spec.containers[1].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[1].securityContext.allowPrivilegeEscalation
+          value: false
+
+  - it: should thread the poll interval and per-claim fraction into the watcher argv
+    set:
+      allocationWatcher:
+        enabled: true
+        interval: 500ms
+        usedFractionPerClaim: 0.25
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].command
+          content: --interval=500ms
+      - contains:
+          path: spec.template.spec.containers[1].command
+          content: --used-fraction=0.25
+
+  - it: should follow a custom pod-resources socket path into both mount and volume
+    set:
+      allocationWatcher:
+        enabled: true
+        podResourcesSocket: /var/lib/k0s/kubelet/pod-resources/kubelet.sock
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].command
+          content: --socket=/var/lib/k0s/kubelet/pod-resources/kubelet.sock
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: host-pod-resources
+            mountPath: /var/lib/k0s/kubelet/pod-resources
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-pod-resources
+            hostPath:
+              path: /var/lib/k0s/kubelet/pod-resources
+              type: Directory

@@ -480,29 +480,55 @@ design and are not a gap to be closed.
 (`bar1_memory`) are baked onto the device at construction and need a pod restart
 to change.
 
-### Not workload-aware — known gap
+### Allocation-aware — opt in
 
-No reported value responds to Kubernetes scheduling. A pod holding an
-`nvidia.com/gpu` claim does not move `memory.used_bytes` and does not appear in
-`processes`; those values change only when something writes the config.
+`memory.used_bytes` and `memory.free_bytes` follow Kubernetes GPU allocation
+when `allocationWatcher.enabled=true`. A sidecar in the nvml-mock DaemonSet
+polls the kubelet pod-resources API and writes the same runtime override file
+`nvml-mock-ctl` writes, which the engine re-reads within one override TTL.
+Scheduling a pod that claims a GPU moves that GPU's number; deleting the pod
+returns it.
 
-Read the *Simulated* section above carefully here: `utilization.gpu` is no
-longer a constant 0, but it is **not** evidence of work either. It moves on
-elapsed time. A busy-looking utilization on an idle node is exactly what that
-block produces, by design.
+| Value | Behaviour |
+|-------|-----------|
+| `allocationWatcher.usedFractionPerClaim` | Share of the usable aperture (`total - reserved`) attributed per claim. Default `0.5` |
+| Time-sliced GPUs | Each holding container is a separate claim; claims on one device add up and clamp at the aperture |
+| Unclaimed GPUs | Report `used_bytes: 0` and the profile's idle `free_bytes` |
 
-Nothing in the deployment observes allocation today. The nvml-mock DaemonSet
-stages the driver tree and then sleeps, and the optional NRI plugin subscribes
-only to container **creation** and mounts the overlay read-only. Making memory
-and `processes` allocation-aware is tracked in
-[#506](https://github.com/NVIDIA/k8s-test-infra/issues/506).
+The reported bytes are **synthetic**. The mock runs no kernel and allocates no
+device memory, so the number says a claim *exists* — not what a workload
+touched. It reads per device: a claim on GPU 3 moves GPU 3 only.
 
-What each container *can see* is already allocation-aware, and is a separate
-thing from what the values say: the engine filters its visible GPU set by which
-`/dev/nvidia*` nodes are present, so a pod allocated one GPU on an eight-GPU
-node sees exactly one in `nvidia-smi -L`. Only the reported metrics are static.
+The design is level-triggered. Each poll recomputes every device from the full
+current allocation, so a missed event self-heals on the next tick rather than
+leaving a GPU pinned at a stale value. A failed poll publishes nothing and keeps
+the previous reading, because publishing zeros on a transient kubelet error
+would report the whole node idle.
 
-To move these numbers today, drive them explicitly with `nvml-mock-ctl set`.
+While the watcher runs it **owns** those two fields: an `nvml-mock-ctl set --gpu
+N memory.used_bytes=…` is overwritten on the next poll. Every other field
+`nvml-mock-ctl` writes is preserved — both writers take the same lock.
+
+Off by default, because enabling it mounts the kubelet pod-resources socket
+(read-only, node-local; no RBAC, since it is not the API server).
+
+### Still not workload-aware — known gap
+
+`processes` stays empty regardless of allocation, so `nvidia-smi` reports no
+running processes even on a claimed GPU. Tracked in
+[#506](https://github.com/NVIDIA/k8s-test-infra/issues/506) item 2.
+
+Read the *Simulated* section carefully here too: `utilization.gpu` is no longer
+a constant 0, but it is **not** evidence of work either. It moves on elapsed
+time. A busy-looking utilization on an idle node is exactly what that block
+produces, by design.
+
+What each container *can see* has always been allocation-aware, and is a
+separate thing from what the values say: the engine filters its visible GPU set
+by which `/dev/nvidia*` nodes are present, so a pod allocated one GPU on an
+eight-GPU node sees exactly one in `nvidia-smi -L`.
+
+To move any of these explicitly, use `nvml-mock-ctl set`.
 
 ## Validation
 
