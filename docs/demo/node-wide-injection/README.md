@@ -86,6 +86,12 @@ mounting host GPU device nodes from the staged mock overlay. Run the demo only
 in trusted workload namespaces, or add namespaces to `nri.excludedNamespaces`
 when pod authors should not control that device opt-in.
 
+The boundary is the same whichever mechanism delivers the devices. Setting
+`nri.deviceInjectionMode=cdi` makes the runtime resolve them from a CDI spec
+instead of having the plugin stage them, but the annotation that triggers it is
+still pod-authored. See
+[Device injection mode](../../../deployments/nvml-mock/helm/nvml-mock/README.md#device-injection-mode).
+
 ## Manual Checks
 
 After the script completes, the important checks are:

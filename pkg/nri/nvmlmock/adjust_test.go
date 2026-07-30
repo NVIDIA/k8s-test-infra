@@ -453,3 +453,168 @@ func TestAdjustImexChannelsSurviveDevicePluginAllocation(t *testing.T) {
 		{HostPath: filepath.Join(channelRoot, "channel0"), Path: "/dev/nvidia-caps-imex-channels/channel0"},
 	}, adjustment.Devices)
 }
+
+// TestAdjustCDIModeEmitsCDIReferenceInsteadOfRawNodes pins the #436 behaviour:
+// in CDI mode the annotation-gated path hands the runtime a CDI device
+// reference and stops staging raw device nodes itself. Both halves matter — a
+// version that emitted the reference AND the raw nodes would double-serve the
+// container and defeat the mock engine's detectVisibleDevices filter, which is
+// MEP-0002's most important constraint because it fails green.
+func TestAdjustCDIModeEmitsCDIReferenceInsteadOfRawNodes(t *testing.T) {
+	deviceRoot := t.TempDir()
+	for _, name := range []string{"nvidia0", "nvidia1"} {
+		require.NoError(t, os.WriteFile(filepath.Join(deviceRoot, name), []byte{}, 0o644))
+	}
+	specPath := filepath.Join(t.TempDir(), "nvml-mock-nri.yaml")
+	require.NoError(t, os.WriteFile(specPath, []byte("cdiVersion: \"0.6.0\"\n"), 0o644))
+
+	cfg := DefaultConfig()
+	cfg.DeviceHostPath = deviceRoot
+	cfg.DeviceInjectionMode = DeviceInjectionModeCDI
+	cfg.CDISpecHostPath = specPath
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Namespace:      "default",
+		PodAnnotations: map[string]string{"nvml-mock.nvidia.com/devices": "true"},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.Equal(t, []string{"nvml-mock.nvidia.com/gpu=all"}, adjustment.CDIDevices)
+	require.Empty(t, adjustment.Devices,
+		"CDI mode must not also stage raw device nodes; two sources for one container is exactly what MEP-0002 forbids")
+}
+
+// TestAdjustCDIModeFallsBackToRawWhenSpecMissing keeps the raw path reachable.
+// MEP-0002 requires the fallback to survive, and a missing spec is a hard
+// container-creation failure in containerd rather than a degraded start, so the
+// plugin checks before it commits to the CDI reference.
+func TestAdjustCDIModeFallsBackToRawWhenSpecMissing(t *testing.T) {
+	deviceRoot := t.TempDir()
+	for _, name := range []string{"nvidia0", "nvidia1"} {
+		require.NoError(t, os.WriteFile(filepath.Join(deviceRoot, name), []byte{}, 0o644))
+	}
+
+	cfg := DefaultConfig()
+	cfg.DeviceHostPath = deviceRoot
+	cfg.DeviceInjectionMode = DeviceInjectionModeCDI
+	cfg.CDISpecHostPath = filepath.Join(t.TempDir(), "absent.yaml")
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Namespace:      "default",
+		PodAnnotations: map[string]string{"nvml-mock.nvidia.com/devices": "true"},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.Empty(t, adjustment.CDIDevices, "no staged spec means no CDI reference the runtime could resolve")
+	require.ElementsMatch(t, []Device{
+		{HostPath: filepath.Join(deviceRoot, "nvidia0"), Path: "/dev/nvidia0"},
+		{HostPath: filepath.Join(deviceRoot, "nvidia1"), Path: "/dev/nvidia1"},
+	}, adjustment.Devices)
+}
+
+// TestAdjustRawModeEmitsNoCDIReference is the discriminating half of the pair
+// above: the default mode must stay on raw nodes and never emit a CDI device,
+// even when a spec is staged on the node.
+func TestAdjustRawModeEmitsNoCDIReference(t *testing.T) {
+	deviceRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(deviceRoot, "nvidia0"), []byte{}, 0o644))
+	specPath := filepath.Join(t.TempDir(), "nvml-mock-nri.yaml")
+	require.NoError(t, os.WriteFile(specPath, []byte("cdiVersion: \"0.6.0\"\n"), 0o644))
+
+	cfg := DefaultConfig()
+	cfg.DeviceHostPath = deviceRoot
+	cfg.CDISpecHostPath = specPath
+
+	require.Equal(t, DeviceInjectionModeRaw, DefaultConfig().DeviceInjectionMode,
+		"raw stays the default per MEP-0002; CDI is the opt-in path")
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Namespace:      "default",
+		PodAnnotations: map[string]string{"nvml-mock.nvidia.com/devices": "true"},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.Empty(t, adjustment.CDIDevices)
+	require.ElementsMatch(t, []Device{
+		{HostPath: filepath.Join(deviceRoot, "nvidia0"), Path: "/dev/nvidia0"},
+	}, adjustment.Devices)
+}
+
+// TestAdjustCDIModeStillSuppressesWhenDevicePluginServedContainer is the
+// MEP-0002 "must not bypass the suppression rule" clause. The rule is about who
+// already served the container, not about which mechanism serves it, so
+// switching the mechanism to CDI must not reopen the hole.
+func TestAdjustCDIModeStillSuppressesWhenDevicePluginServedContainer(t *testing.T) {
+	deviceRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(deviceRoot, "nvidia0"), []byte{}, 0o644))
+	specPath := filepath.Join(t.TempDir(), "nvml-mock-nri.yaml")
+	require.NoError(t, os.WriteFile(specPath, []byte("cdiVersion: \"0.6.0\"\n"), 0o644))
+
+	cfg := DefaultConfig()
+	cfg.DeviceHostPath = deviceRoot
+	cfg.DeviceInjectionMode = DeviceInjectionModeCDI
+	cfg.CDISpecHostPath = specPath
+
+	tests := map[string]Container{
+		"raw device node from the device plugin": {
+			Devices: []Device{{HostPath: "/var/lib/nvml-mock/driver/dev/nvidia0", Path: "/dev/nvidia0"}},
+		},
+		"cdi device from the device plugin": {CDIDevices: []string{"nvidia.com/gpu=0"}},
+	}
+
+	for name, container := range tests {
+		t.Run(name, func(t *testing.T) {
+			container.Namespace = "default"
+			container.PodAnnotations = map[string]string{"nvml-mock.nvidia.com/devices": "true"}
+
+			adjustment, ok, err := Adjust(cfg, container)
+			require.NoError(t, err)
+			require.True(t, ok)
+
+			require.Empty(t, adjustment.CDIDevices, "suppression must hold in CDI mode too")
+			require.Empty(t, adjustment.Devices)
+			require.Contains(t, adjustment.Env, "MOCK_NVML_CONFIG=/opt/nvml-mock/driver/config/config.yaml")
+		})
+	}
+}
+
+// TestAdjustCDIModeStillDeliversImexChannelsAsRawDevices pins the interaction
+// between the two opt-ins. IMEX channels are deliberately outside the CDI spec:
+// they are a fabric capability with their own annotation, staged by
+// imex.mockChannels rather than by the GPU device tree. So a container that asks
+// for both gets its GPUs through CDI and its channels as raw device nodes, in
+// one adjustment. Losing the channels here would deny a ComputeDomain workload
+// the fabric it explicitly requested.
+func TestAdjustCDIModeStillDeliversImexChannelsAsRawDevices(t *testing.T) {
+	deviceRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(deviceRoot, "nvidia0"), []byte{}, 0o644))
+	channelRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(channelRoot, "channel0"), []byte{}, 0o644))
+	specPath := filepath.Join(t.TempDir(), "nvml-mock-nri.yaml")
+	require.NoError(t, os.WriteFile(specPath, []byte("cdiVersion: \"0.6.0\"\n"), 0o644))
+
+	cfg := DefaultConfig()
+	cfg.DeviceHostPath = deviceRoot
+	cfg.ImexChannelHostPath = channelRoot
+	cfg.DeviceInjectionMode = DeviceInjectionModeCDI
+	cfg.CDISpecHostPath = specPath
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Namespace: "default",
+		PodAnnotations: map[string]string{
+			"nvml-mock.nvidia.com/devices":       "true",
+			"nvml-mock.nvidia.com/imex-channels": "true",
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.Equal(t, []string{"nvml-mock.nvidia.com/gpu=all"}, adjustment.CDIDevices)
+	require.Equal(t, []Device{
+		{HostPath: filepath.Join(channelRoot, "channel0"), Path: "/dev/nvidia-caps-imex-channels/channel0"},
+	}, adjustment.Devices,
+		"channels ride the raw device list even in cdi mode; the GPU tree must not reappear alongside them")
+}
