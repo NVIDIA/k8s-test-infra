@@ -393,15 +393,32 @@ document. The contract:
   #436 wants it, it comes back as an amendment to this MEP with its own
   evidence. The invariant to preserve is: **exactly one component emits CDI
   device references for a given container.**
-- **Remove the raw-device fallback.** The `e2e-nri` job — the only CI leg that
-  runs the NRI plugin — installs stock kind and creates its cluster from
-  `tests/e2e/go/assets/kind-nri-config.yaml`, which names no node image. It
-  therefore runs on the default `kindest/node`, with no container toolkit and no
-  CDI configuration at all. Only the `e2e` job uses a toolkit-bearing node image
-  (`local/kind`, built by the `build-kind-node-image` job). A third image,
-  `deployments/kind-nvidia-cdi/`, is pinned more strictly but is built by no CI
-  job. Until #436 resolves which image the NRI legs run on, raw injection stays
-  the default and CDI is the opt-in path.
+- **Remove the raw-device fallback.** Raw injection stays the default and CDI is
+  the opt-in path.
+
+  > **Amended by #436.** This clause originally rested on the claim that the
+  > stock `kindest/node` has "no container toolkit and no CDI configuration at
+  > all", and therefore that CDI could not be verified until the NRI legs moved
+  > to a toolkit-bearing image. **The second half of that claim is wrong.** The
+  > toolkit is indeed absent, but containerd 2.2.0 — the version in
+  > `kindest/node:v1.35.0` — ships `enable_cdi = true` with
+  > `cdi_spec_dirs = ['/etc/cdi', '/var/run/cdi']` by default, and an NRI
+  > plugin's `ContainerAdjustment.CDIDevices` resolves against it. Measured on
+  > stock kind with a throwaway NRI plugin: a spec staged in `/var/run/cdi`
+  > applied both its `env` and its `deviceNodes` to the container, with no
+  > toolkit binary present. CDI injection therefore needs no new node image, and
+  > #436 verifies it on the existing `e2e-nri` leg.
+  >
+  > The directive survives the correction, on grounds the correction does not
+  > touch: the raw path is the only one that works where the runtime's CDI
+  > support is absent or disabled (containerd 1.x gates it behind `enable_cdi`),
+  > and it is what every current deployment uses. Removing it would migrate the
+  > majority onto a path they have not exercised. Retiring it is a separate
+  > decision needing its own evidence, not a consequence of this correction.
+  >
+  > `deployments/kind-nvidia-cdi/` remains built by no *runtime* CI job. #436
+  > added a paths-filtered build guard so an edit cannot break it silently; that
+  > guard proves the image builds, not that it works.
 - **Break the `detectVisibleDevices` oracle.** Whatever CDI spec #436 generates
   must land the correct *subset* of `/dev/nvidiaN` inside the container. A CDI
   spec that stages all `N` devices reintroduces case F and silently un-isolates
