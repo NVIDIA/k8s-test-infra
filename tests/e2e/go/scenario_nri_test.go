@@ -309,7 +309,12 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		// is what makes the return observable at all.
 		It("moves memory.used_bytes when a pod claims a GPU and returns it on delete",
 			Label("nri-alloc-memory"), func(ctx SpecContext) {
-				observer := applyNRIWorkload(ctx, h, nriAnnotatedPodManifest("nri-alloc-observer"), "nri-alloc-observer")
+				// Pinned to the SAME node as the claimant. The override file is a
+				// per-node hostPath, so an observer on another node reads a node
+				// that never saw the claim — which is exactly how this spec passed
+				// locally and failed in CI before the pin.
+				observer := applyNRIWorkload(ctx, h,
+					nriAnnotatedPodManifest("nri-alloc-observer", gpuNode), "nri-alloc-observer")
 
 				allGPUs := visibleGPUUUIDs(ctx, h, observer)
 				Expect(allGPUs).To(HaveLen(p.ExpectedGPUs()), "the observer must see the whole node")
@@ -861,7 +866,17 @@ metadata:
 
 // nriAnnotatedPodManifest renders a pod that opts into device nodes via the
 // annotation and requests no GPU resources.
-func nriAnnotatedPodManifest(name string) []byte {
+// nriAnnotatedPodManifest renders an opt-in pod. Pass a node to pin it there.
+//
+// Pinning matters whenever the pod observes node-local state: the runtime
+// override file lives on a per-node hostPath, so an unpinned observer can be
+// scheduled onto a different node from the workload it is meant to watch and
+// will then read a node that never saw the allocation.
+func nriAnnotatedPodManifest(name string, node ...string) []byte {
+	placement := "  nodeSelector:\n    nvidia.com/gpu.present: \"true\"\n"
+	if len(node) > 0 && node[0] != "" {
+		placement = "  nodeName: " + node[0] + "\n"
+	}
 	return []byte(`apiVersion: v1
 kind: Pod
 metadata:
@@ -871,9 +886,7 @@ metadata:
     nvml-mock.nvidia.com/devices: "true"
 spec:
   restartPolicy: Never
-  nodeSelector:
-    nvidia.com/gpu.present: "true"
-  containers:
+` + placement + `  containers:
     - name: app
       image: ` + nriWorkloadImage + `
       command: ["/bin/sh", "-c", "sleep 3600"]
