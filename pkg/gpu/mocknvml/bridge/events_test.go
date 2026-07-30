@@ -144,26 +144,35 @@ func TestWaitForDelivery_ZeroTimeoutIsNonBlockingPoll(t *testing.T) {
 	require.Less(t, elapsed, schedulerSlack, "zero timeout must not block")
 }
 
-// A NULL payload must fail fast with INVALID_ARGUMENT, not wait out the
-// timeout and report TIMEOUT.
-func TestEventSetWait_RejectsNilEventData(t *testing.T) {
-	for _, tc := range []struct {
-		version string
-		wait    func() uint32
+// A NULL set or payload must fail fast with INVALID_ARGUMENT, as real NVML
+// does, not wait out the timeout and report TIMEOUT.
+func TestEventSetWait_RejectsNilArguments(t *testing.T) {
+	for _, version := range []struct {
+		name string
+		wait func(eventSetWaitTestArgs, uint32) uint32
 	}{
-		{"v1", func() uint32 { return uint32(nvmlEventSetWait_v1(nil, nil, 10_000)) }},
-		{"v2", func() uint32 { return uint32(nvmlEventSetWait_v2(nil, nil, 10_000)) }},
+		{"v1", eventSetWaitV1ForTest},
+		{"v2", eventSetWaitV2ForTest},
 	} {
-		t.Run(tc.version, func(t *testing.T) {
-			start := time.Now()
-			ret := tc.wait()
-			elapsed := time.Since(start)
+		for _, tc := range []struct {
+			name string
+			args eventSetWaitTestArgs
+		}{
+			{"nil event data", eventSetWaitTestArgs{nilData: true}},
+			{"nil event set", eventSetWaitTestArgs{nilSet: true}},
+			{"both nil", eventSetWaitTestArgs{nilSet: true, nilData: true}},
+		} {
+			t.Run(version.name+"/"+tc.name, func(t *testing.T) {
+				start := time.Now()
+				ret := version.wait(tc.args, 10_000)
+				elapsed := time.Since(start)
 
-			require.Equal(t, uint32(nvml.ERROR_INVALID_ARGUMENT), ret,
-				"NULL event data must be rejected")
-			require.Less(t, elapsed, schedulerSlack,
-				"an invalid call must not wait out the timeout")
-		})
+				require.Equal(t, uint32(nvml.ERROR_INVALID_ARGUMENT), ret,
+					"a NULL argument must be rejected")
+				require.Less(t, elapsed, schedulerSlack,
+					"an invalid call must not wait out the timeout")
+			})
+		}
 	}
 }
 
@@ -204,14 +213,14 @@ func TestEventSetWait_BlocksForRequestedMilliseconds(t *testing.T) {
 
 	for _, tc := range []struct {
 		version string
-		wait    func(timeoutms uint32) uint32
+		wait    func(args eventSetWaitTestArgs, timeoutms uint32) uint32
 	}{
 		{"v1", eventSetWaitV1ForTest},
 		{"v2", eventSetWaitV2ForTest},
 	} {
 		t.Run(tc.version, func(t *testing.T) {
 			start := time.Now()
-			ret := tc.wait(uint32(timeout.Milliseconds()))
+			ret := tc.wait(eventSetWaitTestArgs{}, uint32(timeout.Milliseconds()))
 			elapsed := time.Since(start)
 
 			require.Equal(t, uint32(nvml.ERROR_TIMEOUT), ret,

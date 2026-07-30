@@ -147,9 +147,9 @@ func waitForDelivery(timeout, pollInterval time.Duration, deliver func() bool) b
 // waitForXid mirrors real nvmlEventSetWait semantics: NVML_SUCCESS as soon as
 // an injected Xid is pending, otherwise NVML_ERROR_TIMEOUT after blocking for
 // up to timeoutms.
-func waitForXid(data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
-	// NVML rejects a NULL payload; fail fast instead of after the timeout.
-	if data == nil {
+func waitForXid(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
+	// NVML rejects a NULL set or payload; fail fast instead of after the timeout.
+	if set == nil || data == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
 	delivered := waitForDelivery(
@@ -165,24 +165,50 @@ func waitForXid(data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
 
 //export nvmlEventSetWait_v1
 func nvmlEventSetWait_v1(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
-	return waitForXid(data, timeoutms)
+	return waitForXid(set, data, timeoutms)
 }
 
 //export nvmlEventSetWait_v2
 func nvmlEventSetWait_v2(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
-	return waitForXid(data, timeoutms)
+	return waitForXid(set, data, timeoutms)
 }
 
-// Test files cannot construct an nvmlEventData_t (no cgo in _test.go), so
-// these hooks drive the exported entry points with a valid payload.
-func eventSetWaitV1ForTest(timeoutms uint32) uint32 {
-	var data C.nvmlEventData_t
-	return uint32(nvmlEventSetWait_v1(nil, &data, C.uint(timeoutms)))
+// eventSetWaitTestArgs selects which of the wait's pointer arguments are NULL,
+// so tests can cover the rejection paths without naming C types.
+type eventSetWaitTestArgs struct {
+	nilSet  bool
+	nilData bool
 }
 
-func eventSetWaitV2ForTest(timeoutms uint32) uint32 {
+// Test files cannot construct an nvmlEventSet_t or an nvmlEventData_t (no cgo
+// in _test.go), so these hooks drive the exported entry points, allocating both
+// the way a real caller does unless args asks for a NULL.
+func eventSetWaitV1ForTest(args eventSetWaitTestArgs, timeoutms uint32) uint32 {
+	return eventSetWaitForTest(nvmlEventSetWait_v1, args, timeoutms)
+}
+
+func eventSetWaitV2ForTest(args eventSetWaitTestArgs, timeoutms uint32) uint32 {
+	return eventSetWaitForTest(nvmlEventSetWait_v2, args, timeoutms)
+}
+
+func eventSetWaitForTest(
+	wait func(C.nvmlEventSet_t, *C.nvmlEventData_t, C.uint) C.nvmlReturn_t,
+	args eventSetWaitTestArgs,
+	timeoutms uint32,
+) uint32 {
+	var set C.nvmlEventSet_t
+	if !args.nilSet {
+		if ret := nvmlEventSetCreate(&set); ret != C.NVML_SUCCESS {
+			return uint32(ret)
+		}
+		defer nvmlEventSetFree(set)
+	}
 	var data C.nvmlEventData_t
-	return uint32(nvmlEventSetWait_v2(nil, &data, C.uint(timeoutms)))
+	payload := &data
+	if args.nilData {
+		payload = nil
+	}
+	return uint32(wait(set, payload, C.uint(timeoutms)))
 }
 
 // xidDelivery is what the bridge wrote into the caller's nvmlEventData_t.
@@ -218,8 +244,15 @@ func eventSetWaitWithPendingXidForTest(xid uint64, timeoutms uint32, availableAf
 	}
 	defer func() { pendingXidClaim = restore }()
 
+	var set C.nvmlEventSet_t
+	if ret := nvmlEventSetCreate(&set); ret != C.NVML_SUCCESS {
+		out.status = uint32(ret)
+		return out
+	}
+	defer nvmlEventSetFree(set)
+
 	var data C.nvmlEventData_t
-	out.status = uint32(nvmlEventSetWait_v2(nil, &data, C.uint(timeoutms)))
+	out.status = uint32(nvmlEventSetWait_v2(set, &data, C.uint(timeoutms)))
 	out.eventType = uint64(data.eventType)
 	out.eventData = uint64(data.eventData)
 	out.deviceSet = unsafe.Pointer(data.device.handle) == unsafe.Pointer(handle)
