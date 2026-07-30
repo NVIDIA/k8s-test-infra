@@ -18,11 +18,21 @@ var warnf = func(format string, args ...any) {
 }
 
 const (
-	defaultHostOverlayPath      = "/var/lib/nvml-mock"
-	defaultContainerOverlayPath = "/opt/nvml-mock"
-	defaultDeviceHostPath       = "/var/lib/nvml-mock/driver/dev"
-	defaultOptOutAnnotation     = "nvml-mock.nvidia.com/inject"
-	defaultDeviceAnnotation     = "nvml-mock.nvidia.com/devices"
+	defaultHostOverlayPath       = "/var/lib/nvml-mock"
+	defaultContainerOverlayPath  = "/opt/nvml-mock"
+	defaultDeviceHostPath        = "/var/lib/nvml-mock/driver/dev"
+	defaultOptOutAnnotation      = "nvml-mock.nvidia.com/inject"
+	defaultDeviceAnnotation      = "nvml-mock.nvidia.com/devices"
+	defaultImexChannelAnnotation = "nvml-mock.nvidia.com/imex-channels"
+	// defaultImexChannelRelPath is where the main DaemonSet's setup.sh mknods
+	// the mock IMEX channel nodes, resolved relative to the host overlay path.
+	// It must track the imex.mockChannels surface in the chart: setup.sh writes
+	// them to $DRIVER_ROOT/dev/nvidia-caps-imex-channels.
+	defaultImexChannelRelPath = "driver/dev/nvidia-caps-imex-channels"
+	// imexChannelContainerDir is the fixed kernel location the channels must
+	// appear at inside the container. Consumers (nvidia-imex, the DRA driver's
+	// compute-domain plugin) hard-code this path.
+	imexChannelContainerDir = "/dev/nvidia-caps-imex-channels"
 	// defaultTopologyRelPath is where setup.sh stages the cluster-level
 	// ComputeDomain topology document inside the overlay tree. It is
 	// resolved relative to the host overlay path (for the existence
@@ -45,8 +55,18 @@ type Config struct {
 	DeviceHostPath       string
 	OptOutAnnotation     string
 	DeviceAnnotation     string
-	ExcludedNamespaces   []string
-	Shims                []string
+	// ImexChannelAnnotation is the pod annotation key whose value "true" opts a
+	// container into mock /dev/nvidia-caps-imex-channels/* injection. It is a
+	// separate opt-in from DeviceAnnotation because an IMEX channel is a fabric
+	// capability, not a GPU: a ComputeDomain workload may want channels without
+	// the whole mock GPU device tree, and vice versa.
+	ImexChannelAnnotation string
+	// ImexChannelHostPath is the host directory holding the mock channel nodes
+	// (channel0..N-1). The main nvml-mock DaemonSet stages them when
+	// imex.mockChannels.enabled is set; this plugin only consumes them.
+	ImexChannelHostPath string
+	ExcludedNamespaces  []string
+	Shims               []string
 
 	// NodeName is the Kubernetes node this plugin runs on. When set (and a
 	// topology document is staged in the overlay) it is injected as the
@@ -71,6 +91,13 @@ type Container struct {
 	PodAnnotations map[string]string
 	Env            []string
 	Mounts         []Mount
+
+	// Devices and CDIDevices are what the container already carries when the
+	// runtime asks the plugin to adjust it. The kubelet applies the device
+	// plugin's Allocate response before this point, so a non-empty NVIDIA entry
+	// here means the device plugin already served this container. See MEP-0002.
+	Devices    []Device
+	CDIDevices []string
 }
 
 // Adjustment is the mount/env/device delta that a runtime plugin applies.
@@ -97,13 +124,15 @@ type Device struct {
 // DefaultConfig returns the overlay contract described by the NRI design.
 func DefaultConfig() Config {
 	return Config{
-		HostOverlayPath:      defaultHostOverlayPath,
-		ContainerOverlayPath: defaultContainerOverlayPath,
-		DeviceHostPath:       defaultDeviceHostPath,
-		OptOutAnnotation:     defaultOptOutAnnotation,
-		DeviceAnnotation:     defaultDeviceAnnotation,
-		ExcludedNamespaces:   []string{"kube-system"},
-		Shims:                append([]string(nil), defaultShims...),
+		HostOverlayPath:       defaultHostOverlayPath,
+		ContainerOverlayPath:  defaultContainerOverlayPath,
+		DeviceHostPath:        defaultDeviceHostPath,
+		OptOutAnnotation:      defaultOptOutAnnotation,
+		DeviceAnnotation:      defaultDeviceAnnotation,
+		ImexChannelAnnotation: defaultImexChannelAnnotation,
+		ImexChannelHostPath:   filepath.Join(defaultHostOverlayPath, defaultImexChannelRelPath),
+		ExcludedNamespaces:    []string{"kube-system"},
+		Shims:                 append([]string(nil), defaultShims...),
 	}
 }
 
@@ -128,15 +157,46 @@ func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 	}
 
 	if strings.EqualFold(container.PodAnnotations[cfg.DeviceAnnotation], "true") {
-		// Fail open: the device tree is staged by the main nvml-mock DaemonSet,
-		// and nothing orders this plugin's DaemonSet after it. If the tree is
-		// missing (fresh node) or unreadable, degrade to overlay-only injection
-		// rather than failing container creation for the whole pod.
-		devices, err := discoverDevices(cfg.DeviceHostPath)
+		switch {
+		case alreadyHasGPUDevices(container):
+			// MEP-0002: the device plugin allocated a specific GPU and the kubelet
+			// already applied it. Adding the whole device tree on top would widen
+			// the container past its allocation, and would defeat the mock
+			// engine's visibility filter, which derives the visible GPU set from
+			// which /dev/nvidiaN nodes are present.
+			warnf("device injection requested but the device plugin already served this container; leaving its allocation intact")
+		default:
+			// Fail open: the device tree is staged by the main nvml-mock DaemonSet,
+			// and nothing orders this plugin's DaemonSet after it. If the tree is
+			// missing (fresh node) or unreadable, degrade to overlay-only injection
+			// rather than failing container creation for the whole pod.
+			devices, err := discoverDevices(cfg.DeviceHostPath)
+			if err != nil {
+				warnf("device injection requested but device tree at %s is unavailable (%v); injecting overlay only", cfg.DeviceHostPath, err)
+			} else {
+				adjustment.Devices = devices
+			}
+		}
+	}
+
+	// IMEX channels are a separate opt-in and deliberately outside the MEP-0002
+	// suppression above. That rule exists because the device plugin already
+	// delivered the GPUs the scheduler allocated, so re-injecting the GPU tree
+	// would widen the container past its allocation. The device plugin has no
+	// concept of an IMEX channel and never delivers one, so there is no
+	// allocation to widen — suppressing channels here would instead deny a
+	// ComputeDomain workload the fabric it explicitly asked for.
+	if strings.EqualFold(container.PodAnnotations[cfg.ImexChannelAnnotation], "true") {
+		// Fail open like the device path: channels are staged by the main
+		// DaemonSet's setup.sh (imex.mockChannels.enabled), and nothing orders
+		// this plugin's DaemonSet after it. They are also off by default, so an
+		// annotation on a node without them must not block the pod.
+		channels, err := discoverImexChannels(cfg.ImexChannelHostPath)
 		if err != nil {
-			warnf("device injection requested but device tree at %s is unavailable (%v); injecting overlay only", cfg.DeviceHostPath, err)
+			warnf("imex channel injection requested but the channel tree at %s is unavailable (%v); "+
+				"injecting without channels (is imex.mockChannels.enabled set?)", cfg.ImexChannelHostPath, err)
 		} else {
-			adjustment.Devices = devices
+			adjustment.Devices = append(adjustment.Devices, channels...)
 		}
 	}
 
@@ -159,6 +219,12 @@ func withDefaults(cfg Config) Config {
 	}
 	if cfg.DeviceAnnotation == "" {
 		cfg.DeviceAnnotation = defaults.DeviceAnnotation
+	}
+	if cfg.ImexChannelAnnotation == "" {
+		cfg.ImexChannelAnnotation = defaults.ImexChannelAnnotation
+	}
+	if cfg.ImexChannelHostPath == "" {
+		cfg.ImexChannelHostPath = filepath.Join(cfg.HostOverlayPath, defaultImexChannelRelPath)
 	}
 	if len(cfg.Shims) == 0 {
 		cfg.Shims = defaults.Shims
@@ -290,21 +356,62 @@ func shimPaths(cfg Config) []string {
 	return paths
 }
 
+// alreadyHasGPUDevices reports whether the container arrived carrying GPU
+// devices that something else put there — in practice the NVIDIA device plugin,
+// whose Allocate response the kubelet applies before the runtime asks this
+// plugin to adjust anything. It recognises both delivery mechanisms the plugin
+// supports: raw device nodes (--pass-device-specs) and CDI device references
+// (--device-list-strategy=cdi-*).
+func alreadyHasGPUDevices(container Container) bool {
+	for _, device := range container.Devices {
+		if strings.HasPrefix(device.Path, "/dev/nvidia") {
+			return true
+		}
+	}
+	for _, device := range container.CDIDevices {
+		if strings.HasPrefix(device, "nvidia.com/") {
+			return true
+		}
+	}
+	return false
+}
+
+// discoverDevices lists the mock /dev/nvidia* nodes staged in the overlay.
 func discoverDevices(deviceHostPath string) ([]Device, error) {
-	entries, err := os.ReadDir(deviceHostPath)
+	return scanDeviceDir(deviceHostPath, "nvidia", "/dev")
+}
+
+// discoverImexChannels lists the mock IMEX channel nodes staged by
+// imex.mockChannels, mapping them onto the fixed kernel path consumers expect.
+func discoverImexChannels(channelHostPath string) ([]Device, error) {
+	return scanDeviceDir(channelHostPath, "channel", imexChannelContainerDir)
+}
+
+// scanDeviceDir collects the device nodes directly under hostDir whose names
+// carry prefix, mapping each onto containerDir inside the container.
+//
+// Directories are skipped: hostDir is a device root, not a tree to recurse, and
+// the mock device root holds a nvidia-caps-imex-channels DIRECTORY that matches
+// the "nvidia" prefix. Handing a directory to the runtime as a device node
+// cannot work, so it must never enter the adjustment.
+func scanDeviceDir(hostDir, prefix, containerDir string) ([]Device, error) {
+	entries, err := os.ReadDir(hostDir)
 	if err != nil {
 		return nil, err
 	}
 
 	devices := make([]Device, 0, len(entries))
 	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
 		name := entry.Name()
-		if !strings.HasPrefix(name, "nvidia") {
+		if !strings.HasPrefix(name, prefix) {
 			continue
 		}
 		devices = append(devices, Device{
-			HostPath: filepath.Join(deviceHostPath, name),
-			Path:     filepath.Join("/dev", name),
+			HostPath: filepath.Join(hostDir, name),
+			Path:     filepath.Join(containerDir, name),
 		})
 	}
 	sort.Slice(devices, func(i, j int) bool {

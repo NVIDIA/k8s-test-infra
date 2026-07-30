@@ -171,6 +171,86 @@ func TestAdjustDeviceOptInFailsOpenWhenTreeMissing(t *testing.T) {
 	})
 }
 
+// TestAdjustSuppressesDeviceInjectionWhenDevicePluginServedContainer pins the
+// composition rule from MEP-0002. The device plugin delivers exactly the GPU the
+// scheduler allocated; blanket-injecting every /dev/nvidiaN on top of that makes
+// the mock engine's detectVisibleDevices filter see a full set, return nil, and
+// expose every GPU to a pod that was allocated one.
+func TestAdjustSuppressesDeviceInjectionWhenDevicePluginServedContainer(t *testing.T) {
+	deviceRoot := t.TempDir()
+	for _, name := range []string{"nvidia0", "nvidia1", "nvidiactl"} {
+		require.NoError(t, os.WriteFile(filepath.Join(deviceRoot, name), []byte{}, 0o644))
+	}
+
+	cfg := DefaultConfig()
+	cfg.DeviceHostPath = deviceRoot
+
+	tests := map[string]struct {
+		container       Container
+		wantSuppression bool
+	}{
+		"device plugin already supplied a gpu device node": {
+			container: Container{
+				Devices: []Device{{HostPath: "/var/lib/nvml-mock/driver/dev/nvidia0", Path: "/dev/nvidia0"}},
+			},
+			wantSuppression: true,
+		},
+		"device plugin already supplied an nvidia cdi device": {
+			container:       Container{CDIDevices: []string{"nvidia.com/gpu=0"}},
+			wantSuppression: true,
+		},
+		// Discrimination: a container carrying an unrelated device must still get
+		// the full opt-in injection, otherwise the guard is a constant.
+		"unrelated device node does not suppress": {
+			container: Container{
+				Devices: []Device{{HostPath: "/dev/fuse", Path: "/dev/fuse"}},
+			},
+			wantSuppression: false,
+		},
+		"unrelated cdi vendor does not suppress": {
+			container:       Container{CDIDevices: []string{"example.com/widget=0"}},
+			wantSuppression: false,
+		},
+		"no devices at all keeps the historical opt-in behaviour": {
+			container:       Container{},
+			wantSuppression: false,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			container := test.container
+			container.Namespace = "default"
+			container.PodAnnotations = map[string]string{"nvml-mock.nvidia.com/devices": "true"}
+
+			adjustment, ok, err := Adjust(cfg, container)
+			require.NoError(t, err)
+			require.True(t, ok, "the container must still be adjusted; only the device list is suppressed")
+
+			if test.wantSuppression {
+				require.Empty(t, adjustment.Devices,
+					"device plugin already served this container, so the plugin must not add device nodes")
+			} else {
+				require.ElementsMatch(t, []Device{
+					{HostPath: filepath.Join(deviceRoot, "nvidia0"), Path: "/dev/nvidia0"},
+					{HostPath: filepath.Join(deviceRoot, "nvidia1"), Path: "/dev/nvidia1"},
+					{HostPath: filepath.Join(deviceRoot, "nvidiactl"), Path: "/dev/nvidiactl"},
+				}, adjustment.Devices)
+			}
+
+			// Suppression is scoped to devices: the overlay and env still arrive,
+			// because the device plugin delivers neither.
+			require.Contains(t, adjustment.Mounts, Mount{
+				Source:      "/var/lib/nvml-mock",
+				Destination: "/opt/nvml-mock",
+				Type:        "bind",
+				Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+			})
+			require.Contains(t, adjustment.Env, "MOCK_NVML_CONFIG=/opt/nvml-mock/driver/config/config.yaml")
+		})
+	}
+}
+
 func TestAdjustSkipsOptOutExcludedNamespaceAndExistingMount(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ExcludedNamespaces = []string{"kube-system", "nvml-mock"}
@@ -237,5 +317,139 @@ func TestAdjustDeviceOptInAddsNvidiaDeviceEntries(t *testing.T) {
 		{HostPath: filepath.Join(deviceRoot, "nvidia1"), Path: "/dev/nvidia1"},
 		{HostPath: filepath.Join(deviceRoot, "nvidiactl"), Path: "/dev/nvidiactl"},
 		{HostPath: filepath.Join(deviceRoot, "nvidia-uvm"), Path: "/dev/nvidia-uvm"},
+	}, adjustment.Devices)
+}
+
+// TestDiscoverDevicesSkipsChannelDirectory pins a defect that predates IMEX
+// channel injection. imex.mockChannels (#541) mknods the channel nodes into a
+// nvidia-caps-imex-channels DIRECTORY inside the same device root the plugin
+// scans, and that directory name matches the "nvidia" prefix filter. Injecting
+// a directory as a LinuxDevice is not a device node, so the runtime cannot
+// create it in the container.
+func TestDiscoverDevicesSkipsChannelDirectory(t *testing.T) {
+	deviceRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(deviceRoot, "nvidia0"), []byte{}, 0o644))
+	require.NoError(t, os.Mkdir(filepath.Join(deviceRoot, "nvidia-caps-imex-channels"), 0o755))
+
+	cfg := DefaultConfig()
+	cfg.DeviceHostPath = deviceRoot
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Namespace:      "default",
+		PodAnnotations: map[string]string{"nvml-mock.nvidia.com/devices": "true"},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.Equal(t, []Device{
+		{HostPath: filepath.Join(deviceRoot, "nvidia0"), Path: "/dev/nvidia0"},
+	}, adjustment.Devices)
+}
+
+// TestAdjustImexChannelOptInAddsChannelDevices covers #437: an annotated pod
+// gets the channel nodes staged by imex.mockChannels at their real kernel path.
+func TestAdjustImexChannelOptInAddsChannelDevices(t *testing.T) {
+	channelRoot := t.TempDir()
+	for _, name := range []string{"channel0", "channel1", "channel2", "not-a-channel"} {
+		require.NoError(t, os.WriteFile(filepath.Join(channelRoot, name), []byte{}, 0o644))
+	}
+	require.NoError(t, os.Mkdir(filepath.Join(channelRoot, "channel-subdir"), 0o755))
+
+	cfg := DefaultConfig()
+	cfg.ImexChannelHostPath = channelRoot
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Namespace:      "default",
+		PodAnnotations: map[string]string{"nvml-mock.nvidia.com/imex-channels": "true"},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.Equal(t, []Device{
+		{HostPath: filepath.Join(channelRoot, "channel0"), Path: "/dev/nvidia-caps-imex-channels/channel0"},
+		{HostPath: filepath.Join(channelRoot, "channel1"), Path: "/dev/nvidia-caps-imex-channels/channel1"},
+		{HostPath: filepath.Join(channelRoot, "channel2"), Path: "/dev/nvidia-caps-imex-channels/channel2"},
+	}, adjustment.Devices)
+}
+
+// TestAdjustWithoutImexAnnotationInjectsNoChannels proves the opt-in gate is a
+// real gate: a fully staged channel tree must stay out of an unannotated pod.
+func TestAdjustWithoutImexAnnotationInjectsNoChannels(t *testing.T) {
+	channelRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(channelRoot, "channel0"), []byte{}, 0o644))
+
+	cfg := DefaultConfig()
+	cfg.ImexChannelHostPath = channelRoot
+
+	for name, annotations := range map[string]map[string]string{
+		"no annotations at all": nil,
+		"opt-in set to false":   {"nvml-mock.nvidia.com/imex-channels": "false"},
+		"only the device opt-in": {
+			"nvml-mock.nvidia.com/devices": "true",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := cfg
+			cfg.DeviceHostPath = t.TempDir()
+			adjustment, ok, err := Adjust(cfg, Container{Namespace: "default", PodAnnotations: annotations})
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Empty(t, adjustment.Devices)
+		})
+	}
+}
+
+// TestAdjustImexChannelOptInFailsOpenWhenTreeMissing mirrors the device path:
+// imex.mockChannels is off by default, so an annotation on a node that never
+// staged channels must degrade to overlay-only rather than block the pod.
+func TestAdjustImexChannelOptInFailsOpenWhenTreeMissing(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ImexChannelHostPath = filepath.Join(t.TempDir(), "does-not-exist")
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Namespace:      "default",
+		PodAnnotations: map[string]string{"nvml-mock.nvidia.com/imex-channels": "true"},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Empty(t, adjustment.Devices)
+	require.Contains(t, adjustment.Mounts, Mount{
+		Source:      "/var/lib/nvml-mock",
+		Destination: "/opt/nvml-mock",
+		Type:        "bind",
+		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+	})
+}
+
+// TestAdjustImexChannelsSurviveDevicePluginAllocation pins the composition rule
+// against MEP-0002 (#548). The device plugin allocates GPUs; it has no concept
+// of an IMEX channel and never delivers one. Suppressing channels because a GPU
+// was allocated would deny a ComputeDomain workload the fabric it asked for, so
+// the GPU suppression must NOT extend to channels.
+func TestAdjustImexChannelsSurviveDevicePluginAllocation(t *testing.T) {
+	deviceRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(deviceRoot, "nvidia0"), []byte{}, 0o644))
+	channelRoot := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(channelRoot, "channel0"), []byte{}, 0o644))
+
+	cfg := DefaultConfig()
+	cfg.DeviceHostPath = deviceRoot
+	cfg.ImexChannelHostPath = channelRoot
+
+	adjustment, ok, err := Adjust(cfg, Container{
+		Namespace: "default",
+		PodAnnotations: map[string]string{
+			"nvml-mock.nvidia.com/devices":       "true",
+			"nvml-mock.nvidia.com/imex-channels": "true",
+		},
+		// The kubelet already applied the device plugin's Allocate response.
+		Devices: []Device{{HostPath: filepath.Join(deviceRoot, "nvidia0"), Path: "/dev/nvidia0"}},
+	})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	// The GPU tree is suppressed (MEP-0002) but the channel stays.
+	require.Equal(t, []Device{
+		{HostPath: filepath.Join(channelRoot, "channel0"), Path: "/dev/nvidia-caps-imex-channels/channel0"},
 	}, adjustment.Devices)
 }

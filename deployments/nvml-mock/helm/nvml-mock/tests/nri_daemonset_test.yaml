@@ -131,6 +131,42 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --excluded-namespaces=NAMESPACE,kube-system,monitoring,gpu-system
 
+  # Mock IMEX channel delivery (#437). The channel nodes are staged by the main
+  # DaemonSet under imex.mockChannels; the plugin must read them from that one
+  # location. A host path that disagrees with where setup.sh writes them makes
+  # the annotation a silent no-op, so pin it against the overlay root.
+  - it: should point IMEX channel injection at the staged channel directory
+    set:
+      nri:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --imex-channel-annotation=nvml-mock.nvidia.com/imex-channels
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --imex-channel-host-path=/var/lib/nvml-mock/driver/dev/nvidia-caps-imex-channels
+
+  - it: should track a relocated overlay root for IMEX channels
+    set:
+      nri:
+        enabled: true
+        overlay:
+          hostPath: /custom/nvml-mock
+        imexChannelAnnotation: example.com/channels
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --imex-channel-annotation=example.com/channels
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --imex-channel-host-path=/custom/nvml-mock/driver/dev/nvidia-caps-imex-channels
+      # The GPU device root and the channel root must stay siblings under the
+      # same relocated overlay; they are staged by the same setup.sh run.
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --device-host-path=/custom/nvml-mock/driver/dev
+
   # A probe that cannot reach the plugin is worse than no probe: the pod never
   # goes Ready and the DaemonSet stalls. These pin the three values that have
   # to agree -- the flag the plugin binds, the declared containerPort, and the
