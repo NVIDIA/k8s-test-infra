@@ -36,6 +36,21 @@ const (
 	nriPluginSelector = "app.kubernetes.io/name=nvml-mock-nri"
 	// Device-plugin composition (#440, MEP-0002).
 	nriWorkloadImage = "debian:bookworm-slim"
+	// nriMinimalImage is the negative control for overlay self-containment
+	// (#438): glibc, so the tools' ELF interpreter resolves, but shipping no
+	// InfiniBand stack and no shell. Running the tools here proves they load
+	// their libraries from the overlay rather than from the image.
+	//
+	// Distroless and not Alpine, deliberately. These tools are glibc binaries
+	// with PT_INTERP=/lib/ld-linux-*.so.*, an absolute path that RPATH cannot
+	// redirect; on musl they fail to exec at all ("no such file or directory")
+	// no matter what the overlay stages. Alpine would need glibc itself
+	// staged, which is a different problem from this one.
+	nriMinimalImage = "gcr.io/distroless/base-debian12:latest"
+	// nriOverlayBinDir is where the NRI plugin mounts the staged tools. The
+	// pod names them by absolute path because a shell-less image has no PATH
+	// lookup to fall back on.
+	nriOverlayBinDir = "/opt/nvml-mock/driver/usr/bin"
 
 	// nriDomainName / nriDomainUUID identify the single ComputeDomain the
 	// generated topology overlay declares. The UUID is arbitrary but must match
@@ -110,6 +125,69 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 
 			It("reports the profile GPUs via nvidia-smi in the injected pod", Label("nvidia-smi"), func(ctx SpecContext) {
 				assertAgentSeesGPUs(ctx, h, p.ExpectedGPUs())
+			})
+
+			// #438. The IB CLI tools are dynamically linked and setup.sh
+			// relocates them into the overlay, which until this change carried
+			// none of their libraries. Nothing in CI ran them from an injected
+			// pod, so the breakage was invisible.
+			//
+			// It was also wider than "minimal images only". Reverting the
+			// library staging and running ibstat from an injected
+			// debian:bookworm-slim pod reproduces the identical
+			// "libibmad.so.5: cannot open shared object file" — neither
+			// debian:bookworm-slim nor ubuntu:22.04 ships libibmad/libibumad/
+			// libibverbs. A minimal image is simply the honest place to assert
+			// it: nothing there can mask a missing library.
+			It("runs the IB CLI tools from an image that ships no IB libraries", Label("nri-ib-minimal"), func(ctx SpecContext) {
+				if !p.IBEnabled() {
+					Skip("profile " + name + " ships infiniband.enabled=false; it exposes no HCAs to enumerate")
+				}
+				for _, tc := range []struct {
+					name, tool     string
+					wantEnumerated bool
+				}{
+					// ibstat links libibmad/libibumad directly and reads the
+					// mock sysfs through the LD_PRELOAD shim, so it enumerates.
+					{"nri-ib-ibstat", "ibstat", true},
+					// ibv_devinfo covers the transitive dependency: it names
+					// libnl nowhere and reaches it through libibverbs, so it is
+					// the tool that catches a staging tree which resolves only
+					// direct dependencies.
+					//
+					// It is NOT asserted to enumerate. In an NRI-injected pod
+					// it reports "0 HCAs found" — and it does so identically on
+					// debian:bookworm-slim, which was measured on the same
+					// cluster. That gap predates this change and belongs to the
+					// verbs path (libibverbs discards a device it cannot match
+					// to a provider driver), not to library staging. Asserting
+					// enumeration here would be asserting a bug fix that this
+					// change does not make.
+					{"nri-ib-ibv-devinfo", "ibv_devinfo", false},
+				} {
+					phase, logs := runIBToolInMinimalImage(ctx, h, tc.name, tc.tool, "-l")
+
+					// The failure mode this issue is about, asserted by name so
+					// a regression reports the linkage error itself rather than
+					// a bare "substring not found".
+					Expect(logs).NotTo(ContainSubstring("error while loading shared libraries"),
+						"%s could not resolve its shared libraries from the overlay in %s:\n%s",
+						tc.tool, nriMinimalImage, logs)
+					Expect(phase).To(Equal("Succeeded"),
+						"%s exited non-zero in %s:\n%s", tc.tool, nriMinimalImage, logs)
+
+					if tc.wantEnumerated {
+						// Assert the mock HCA by name, not a zero exit. ibstat
+						// exits 0 while printing nothing when it finds no
+						// devices, so an exit-code assertion would hold even
+						// with the mock absent. The device name is what proves
+						// the binary both loaded its libraries and got an
+						// answer back.
+						Expect(logs).To(ContainSubstring("mlx5_0"),
+							"%s did not enumerate the mock HCA from %s\nphase=%s\noutput:\n%s",
+							tc.tool, nriMinimalImage, phase, logs)
+					}
+				}
 			})
 
 			It("carries per-node ComputeDomain fabric identity through NRI", Label("compute-domain"), func(ctx SpecContext) {
@@ -747,6 +825,58 @@ spec:
       image: ` + nriWorkloadImage + `
       command: ["/bin/sh", "-c", "sleep 3600"]
 `)
+}
+
+// nriMinimalIBPodManifest renders a run-to-completion pod on a minimal image
+// that invokes one IB tool from the overlay by absolute path. There is no
+// `sleep` wrapper and no `sh -c`: the image has no shell, which is the whole
+// point of using it.
+func nriMinimalIBPodManifest(name, tool string, args ...string) []byte {
+	argv := `"` + nriOverlayBinDir + "/" + tool + `"`
+	for _, a := range args {
+		argv += `, "` + a + `"`
+	}
+	return []byte(`apiVersion: v1
+kind: Pod
+metadata:
+  name: ` + name + `
+  namespace: ` + nriWorkloadNS + `
+  labels:
+    app: ` + name + `
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
+  containers:
+    - name: app
+      image: ` + nriMinimalImage + `
+      command: [` + argv + `]
+`)
+}
+
+// runIBToolInMinimalImage applies the pod, waits for it to terminate, and
+// returns its final phase together with its logs. It waits for a terminal
+// phase rather than Running because the pod is expected to run once and exit;
+// both outcomes are returned so the caller asserts on the output instead of on
+// the wait succeeding.
+func runIBToolInMinimalImage(ctx context.Context, h *harness.Harness, name, tool string, args ...string) (string, string) {
+	GinkgoHelper()
+	manifest := nriMinimalIBPodManifest(name, tool, args...)
+	Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply %s", name)
+	DeferCleanup(func(ctx SpecContext) { _ = h.Kube.Delete(ctx, manifest) })
+
+	var phase string
+	Eventually(func() (string, error) {
+		var err error
+		phase, err = h.Kube.PodPhase(ctx, nriWorkloadNS, name)
+		return phase, err
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		Should(BeElementOf("Succeeded", "Failed"),
+			"%s never reached a terminal phase", name)
+
+	logs, err := h.Kube.Logs(ctx, nriWorkloadNS, "app="+name, 100)
+	Expect(err).NotTo(HaveOccurred(), "read logs from %s", name)
+	return phase, logs
 }
 
 // nriDeviceSource reads NVML_MOCK_DEVICE_SOURCE from inside the pod. The

@@ -347,11 +347,43 @@ chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi.sh"
 #     The NRI plugin mounts /var/lib/nvml-mock at /opt/nvml-mock in each
 #     workload, then prepends driver/usr/bin and driver/usr/lib64 and appends
 #     driver/usr/local/lib shims to LD_PRELOAD.
+#
+#     The ELF tools arrive pre-staged and pre-patched from the image build
+#     (stage-ib-tools.sh): each carries RPATH=$ORIGIN/../lib64 and its shared
+#     libraries sit alongside, so they resolve libibmad/libibumad/libibverbs/
+#     libnl from the overlay itself.
+#
+#     Before this, the overlay carried the binaries and none of their
+#     libraries, so an injected pod got "error while loading shared
+#     libraries" on the first tool it ran — measured on debian:bookworm-slim
+#     as well as on distroless, since neither that image nor ubuntu:22.04
+#     ships the IB stack. See NVIDIA/k8s-test-infra#438.
+if [ -d /usr/local/nvml-mock-ib/bin ]; then
+  cp -a /usr/local/nvml-mock-ib/bin/. "$DRIVER_ROOT/usr/bin/"
+  cp -a /usr/local/nvml-mock-ib/lib64/. "$DRIVER_ROOT/usr/lib64/"
+  echo "Staged IB CLI tools + shared libraries (RPATH-enabled)"
+else
+  echo "WARNING: no pre-staged IB tools in the image; falling back to unpatched copies" >&2
+fi
+# Anything the build did not pre-stage. In practice this is ibstatus, which is
+# a /bin/sh script rather than an ELF binary: there is no RPATH to give it, and
+# it only runs in images that ship a shell. Never overwrite a pre-staged tool —
+# the copy under /usr/sbin has no RPATH.
 for tool in ibnetdiscover ibstat iblinkinfo ibstatus sminfo ibping ibv_devinfo; do
-  if command -v "$tool" >/dev/null 2>&1; then
+  if [ ! -e "$DRIVER_ROOT/usr/bin/$tool" ] && command -v "$tool" >/dev/null 2>&1; then
     cp "$(command -v "$tool")" "$DRIVER_ROOT/usr/bin/$tool"
   fi
 done
+# Stage the ibverbs provider config. libibverbs reads this directory from a
+# compile-time absolute path (/etc/libibverbs.d) and offers no environment
+# override, so this copy does not redirect an injected container's lookup — the
+# mock answers the verbs API through the LD_PRELOAD shim libibmockverbs.so.1
+# and never consults it. It is here for consumers that mount the overlay as a
+# root, and so the provider set travels with the tools it belongs to.
+if [ -d /etc/libibverbs.d ]; then
+  mkdir -p "$DRIVER_ROOT/etc/libibverbs.d"
+  cp -a /etc/libibverbs.d/. "$DRIVER_ROOT/etc/libibverbs.d/" 2>/dev/null || true
+fi
 # Stage the fabric consumer so node-wide NRI-injected pods can verify their
 # per-node ComputeDomain identity (nvmlDeviceGetGpuFabricInfo) the same way the
 # compute-domain demo does inside the daemon pod. It resolves the mock NVML
