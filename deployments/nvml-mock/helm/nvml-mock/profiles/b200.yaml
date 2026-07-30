@@ -172,6 +172,23 @@ device_defaults:
     ofa: 0
 
   # ---------------------------------------------------------------------------
+  # Dynamic utilization (#506)
+  #
+  # Live without any Helm overlay, so `utilization.gpu` -- and every
+  # DCGM_FI_PROF_* fraction derived from it -- is never a constant 0.
+  # The driver is elapsed time, NOT workload: these numbers move on a fully
+  # idle node and do not rise under load. gpu_min is deliberately > 0 so
+  # "utilization is reported" is a deterministic assertion, not a flaky one.
+  # ---------------------------------------------------------------------------
+  dynamic_metrics:
+    utilization:
+      pattern: "steady"
+      gpu_min: 10
+      gpu_max: 45
+      memory_min: 5
+      memory_max: 25
+
+  # ---------------------------------------------------------------------------
   # Encoder/Decoder statistics
   # ---------------------------------------------------------------------------
   encoder_stats:

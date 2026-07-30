@@ -114,6 +114,37 @@ nodeLabels:
 # container at runtime without mutating pod specs. Opt-in (default false): it
 # injects into workloads cluster-wide, so enable it only for the
 # node-wide-injection demo/use case. See docs/demo/node-wide-injection.
+# Allocation-aware GPU memory (#506). When enabled, a sidecar in the nvml-mock
+# DaemonSet polls the kubelet pod-resources API and mirrors each pod's
+# nvidia.com/gpu claim into memory.used_bytes / memory.free_bytes, so a
+# scheduled workload moves the number and deleting it returns the number.
+#
+# Off by default: it mounts the kubelet pod-resources socket, and a cluster
+# that only wants a static mock should not take that mount. The reported bytes
+# are SYNTHETIC — the mock runs no kernel and allocates no device memory, so
+# the value says a claim exists, not what a workload touched.
+#
+# While enabled, the watcher owns memory.used_bytes/free_bytes: an
+# `nvml-mock-ctl set --gpu N memory.used_bytes=...` is overwritten on the next
+# poll. Every other field nvml-mock-ctl writes is preserved.
+allocationWatcher:
+  enabled: false
+  # Poll period. The engine re-reads the override file at most once per its own
+  # TTL (1s), so polling much faster is not observable.
+  interval: 2s
+  # Share of the usable aperture (total - reserved) attributed to each claim.
+  # Claims on one device add up and clamp at the aperture, so a time-sliced GPU
+  # held by two containers reads as full at the 0.5 default.
+  usedFractionPerClaim: 0.5
+  podResourcesSocket: /var/lib/kubelet/pod-resources/kubelet.sock
+  resources:
+    limits:
+      cpu: 100m
+      memory: 64Mi
+    requests:
+      cpu: 10m
+      memory: 32Mi
+
 nri:
   enabled: false
   socketPath: /var/run/nri/nri.sock
