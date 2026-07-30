@@ -255,3 +255,75 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].readinessProbe.failureThreshold
           value: 5
+
+  - it: should default device injection to raw and stage the CDI spec dir
+    set:
+      nri:
+        enabled: true
+    asserts:
+      # raw is the default per MEP-0002. If this flips, every existing NRI
+      # deployment silently changes injection mechanism on upgrade.
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --device-injection-mode=raw
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cdi-spec-host-path=/var/run/cdi/nvml-mock-nri.yaml
+      # The plugin cannot check whether its spec is staged unless the spec
+      # directory is actually mounted into it.
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: cdi-spec-dir
+            mountPath: /var/run/cdi
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: cdi-spec-dir
+            hostPath:
+              path: /var/run/cdi
+              type: DirectoryOrCreate
+
+  - it: should switch to CDI injection and follow a relocated CDI spec dir
+    set:
+      nri:
+        enabled: true
+        deviceInjectionMode: cdi
+        cdiSpecDir: /etc/cdi
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --device-injection-mode=cdi
+      # The flag and the mount must track the same directory; a spec path the
+      # plugin cannot stat makes it fall back to raw and look like cdi mode
+      # simply did not take effect.
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cdi-spec-host-path=/etc/cdi/nvml-mock-nri.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: cdi-spec-dir
+            mountPath: /etc/cdi
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: cdi-spec-dir
+            hostPath:
+              path: /etc/cdi
+              type: DirectoryOrCreate
+
+  - it: should reject an invalid device injection mode at template time
+    set:
+      nri:
+        enabled: true
+        deviceInjectionMode: cdi-annotations
+    asserts:
+      # Without this the typo reaches the plugin, which exits on it — so the
+      # first sign of a bad value is a CrashLoopBackOff rather than a failed
+      # install. "cdi-annotations" specifically is a plausible typo: it is a real
+      # device-plugin --device-list-strategy value, and MEP-0002 forbids it here.
+      - failedTemplate:
+          errorMessage: 'nri.deviceInjectionMode must be "raw" or "cdi", got "cdi-annotations"'

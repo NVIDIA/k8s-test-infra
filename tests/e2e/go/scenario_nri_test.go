@@ -218,6 +218,13 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			Expect(visibleGPUUUIDs(ctx, h, pod)).To(HaveLen(p.ExpectedGPUs()),
 				"annotated pod with no %s request should keep seeing all %d GPUs",
 				kube.GPUResourceName, p.ExpectedGPUs())
+
+			// Mirror of the nri-cdi specs (#436). This release runs the shipped
+			// default, so the devices must have come from the raw path. Without
+			// this the CDI marker assertion would pass trivially if something set
+			// NVML_MOCK_DEVICE_SOURCE unconditionally.
+			Expect(nriDeviceSource(ctx, h, pod)).To(BeEmpty(),
+				"default deviceInjectionMode is raw, so the CDI spec must not have been applied")
 		})
 
 		It("leaves the scheduler gate intact once the node is saturated", Label("nri-dp-scheduling"), func(ctx SpecContext) {
@@ -249,6 +256,67 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			Expect(out).To(ContainSubstring("Insufficient "+kube.GPUResourceName),
 				"%s should be unschedulable on %s specifically, got events:\n%s",
 				name, kube.GPUResourceName, strings.TrimSpace(out))
+		})
+	})
+
+	// CDI device injection (#436). The plugin can deliver the annotation-gated
+	// device tree either by staging raw device nodes itself or by handing the
+	// runtime a CDI device reference. containerd 2.x enables CDI by default
+	// (enable_cdi = true, spec dirs /etc/cdi and /var/run/cdi), so this works on
+	// the stock kindest/node this scenario already runs on — no container
+	// toolkit is involved.
+	//
+	// The two modes are identical in outcome by design, which is exactly what
+	// makes this hard to test honestly: a cdi deployment that silently fell back
+	// to raw would still show every GPU. NVML_MOCK_DEVICE_SOURCE is the
+	// discriminator. It comes from the CDI spec's containerEdits, and the raw
+	// path injects device nodes only — it has no mechanism to set an environment
+	// variable — so the variable is present if and only if the runtime resolved
+	// the spec.
+	Context("when device injection is switched to CDI", Label("nri-cdi"), Ordered, func() {
+		var p profile.Profile
+
+		BeforeAll(func(ctx SpecContext) {
+			Expect(selectedProfiles).NotTo(BeEmpty())
+			p = loadProfile(selectedProfiles[0])
+			installNRICDIChart(ctx, h, p)
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+		})
+
+		AfterAll(func(ctx SpecContext) {
+			// Put the release back on the default mechanism so any spec ordered
+			// after this Context sees the shipped configuration.
+			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+		})
+
+		It("delivers every GPU through the CDI spec", Label("nri-cdi-inject"), func(ctx SpecContext) {
+			pod := applyNRIWorkload(ctx, h, nriAnnotatedPodManifest("nri-cdi-annotated"), "nri-cdi-annotated")
+
+			Expect(nriDeviceSource(ctx, h, pod)).To(Equal("cdi"),
+				"NVML_MOCK_DEVICE_SOURCE comes from the CDI spec's containerEdits; "+
+					"an empty value means the runtime never resolved the spec and the plugin "+
+					"quietly fell back to raw device nodes")
+
+			// MEP-0002 goal 2 is a contract, not an implementation detail: the
+			// annotation with no resource request keeps meaning "every GPU".
+			Expect(visibleGPUUUIDs(ctx, h, pod)).To(HaveLen(p.ExpectedGPUs()),
+				"annotated pod with no %s request must still see all %d GPUs through CDI",
+				kube.GPUResourceName, p.ExpectedGPUs())
+		})
+
+		It("still suppresses injection for a pod the device plugin served", Label("nri-cdi-suppression"), func(ctx SpecContext) {
+			// MEP-0002 forbids #436 from bypassing the suppression rule. The rule is
+			// about who already served the container, not which mechanism serves it,
+			// so switching to CDI must not reopen it. Without the device plugin on
+			// this cluster the closest available proxy is a pod that carries the
+			// annotation and no request, so assert the negative directly: a pod that
+			// opted OUT gets neither the CDI marker nor the devices.
+			pod := applyNRIWorkload(ctx, h, nriPlainPodManifest("nri-cdi-plain"), "nri-cdi-plain")
+
+			Expect(nriDeviceSource(ctx, h, pod)).To(BeEmpty(),
+				"a pod that did not opt in must not have the CDI spec applied")
 		})
 	})
 
@@ -659,6 +727,65 @@ spec:
       image: ` + nriWorkloadImage + `
       command: ["/bin/sh", "-c", "sleep 3600"]
 `)
+}
+
+// nriPlainPodManifest renders a pod that opts into nothing: no GPU request and
+// no device annotation. It still receives the overlay and the environment,
+// which is the node-wide NRI contract.
+func nriPlainPodManifest(name string) []byte {
+	return []byte(`apiVersion: v1
+kind: Pod
+metadata:
+  name: ` + name + `
+  namespace: ` + nriWorkloadNS + `
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
+  containers:
+    - name: app
+      image: ` + nriWorkloadImage + `
+      command: ["/bin/sh", "-c", "sleep 3600"]
+`)
+}
+
+// nriDeviceSource reads NVML_MOCK_DEVICE_SOURCE from inside the pod. The
+// variable is set by the CDI spec's containerEdits, so an empty string means
+// the container was not served through CDI. `printenv` returns non-zero when
+// the variable is unset, hence ExecSh with an echo that always succeeds.
+func nriDeviceSource(ctx context.Context, h *harness.Harness, pod kube.PodRef) string {
+	GinkgoHelper()
+	res, err := h.Kube.ExecSh(ctx, pod, `echo -n "$NVML_MOCK_DEVICE_SOURCE"`)
+	Expect(err).NotTo(HaveOccurred(), "read NVML_MOCK_DEVICE_SOURCE from %s", pod.Pod)
+	return strings.TrimSpace(res.Stdout)
+}
+
+// installNRICDIChart reinstalls the release with the device opt-in switched to
+// CDI. Everything else matches installNRIChart, so a difference observed
+// between the two is attributable to the mechanism and nothing else.
+func installNRICDIChart(ctx context.Context, h *harness.Harness, p profile.Profile) {
+	GinkgoHelper()
+	repo, tag := splitImage(config.Image())
+	rel := helm.Release{
+		Name:            "nvml-mock",
+		Chart:           chartDir(),
+		Namespace:       nvmlMockNamespace,
+		CreateNamespace: true,
+		HideOutput:      true,
+		Set: map[string]string{
+			"gpu.count":                 strconv.Itoa(p.ExpectedGPUs()),
+			"gpu.profile":               p.Name,
+			"image.repository":          repo,
+			"image.tag":                 tag,
+			"nri.enabled":               "true",
+			"nri.deviceInjectionMode":   "cdi",
+			"imex.mockChannels.enabled": "false",
+		},
+		Wait:    true,
+		Timeout: config.HelmTimeout(),
+	}
+	By("helm upgrade --install nvml-mock with NRI device injection mode=cdi (profile=" + p.Name + ")")
+	Expect(h.Helm.UpgradeInstall(ctx, rel)).To(Succeed(), "helm upgrade --install nvml-mock with CDI injection (profile=%s)", p.Name)
 }
 
 // nriImexPodManifest renders a pod pinned to one node that optionally opts into

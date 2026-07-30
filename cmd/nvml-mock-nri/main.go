@@ -42,6 +42,9 @@ func main() {
 	flag.StringVar(&cfg.TopologyHostPath, "topology-host-path", envOr("NVML_MOCK_TOPOLOGY_HOST_PATH", cfg.TopologyHostPath), "host path checked for the staged topology document (defaults to <overlay-host-path>/topology/topology.yaml)")
 	flag.StringVar(&cfg.TopologyContainerPath, "topology-mount-path", envOr("NVML_MOCK_TOPOLOGY_MOUNT_PATH", cfg.TopologyContainerPath), "container path injected as MOCK_TOPOLOGY_CONFIG (defaults to <overlay-mount-path>/topology/topology.yaml)")
 	flag.StringVar(&cfg.DeviceHostPath, "device-host-path", envOr("NVML_MOCK_DEVICE_HOST_PATH", cfg.DeviceHostPath), "host path containing mock /dev/nvidia* nodes")
+	flag.StringVar(&cfg.DeviceInjectionMode, "device-injection-mode", envOr("NVML_MOCK_DEVICE_INJECTION_MODE", cfg.DeviceInjectionMode), "how the device opt-in delivers GPUs: raw (device nodes) or cdi (CDI device reference)")
+	flag.StringVar(&cfg.CDIDeviceName, "cdi-device-name", envOr("NVML_MOCK_CDI_DEVICE_NAME", cfg.CDIDeviceName), "fully-qualified CDI device injected in cdi mode")
+	flag.StringVar(&cfg.CDISpecHostPath, "cdi-spec-host-path", envOr("NVML_MOCK_CDI_SPEC_HOST_PATH", cfg.CDISpecHostPath), "staged CDI spec checked before a CDI reference is emitted; a missing spec falls back to raw injection")
 	flag.StringVar(&cfg.OptOutAnnotation, "opt-out-annotation", envOr("NVML_MOCK_OPT_OUT_ANNOTATION", cfg.OptOutAnnotation), "pod annotation key; value false disables injection")
 	flag.StringVar(&cfg.DeviceAnnotation, "device-annotation", envOr("NVML_MOCK_DEVICE_ANNOTATION", cfg.DeviceAnnotation), "pod annotation key; value true adds /dev/nvidia* device nodes")
 	flag.StringVar(&cfg.ImexChannelAnnotation, "imex-channel-annotation", envOr("NVML_MOCK_IMEX_CHANNEL_ANNOTATION", cfg.ImexChannelAnnotation), "pod annotation key; value true adds /dev/nvidia-caps-imex-channels/* nodes")
@@ -52,6 +55,16 @@ func main() {
 
 	cfg.ExcludedNamespaces = splitCSV(*excludedNamespaces)
 	cfg.Shims = splitCSV(*shims)
+
+	// Reject an unknown mode rather than coercing it. A typo that silently
+	// resolved to raw would look exactly like a working CDI deployment, and the
+	// difference is only visible in the OCI spec of an already-running pod.
+	switch cfg.DeviceInjectionMode {
+	case nvmlmock.DeviceInjectionModeRaw, nvmlmock.DeviceInjectionModeCDI:
+	default:
+		log.Fatalf("nvml-mock-nri: --device-injection-mode=%q is invalid; expected %q or %q",
+			cfg.DeviceInjectionMode, nvmlmock.DeviceInjectionModeRaw, nvmlmock.DeviceInjectionModeCDI)
+	}
 
 	p := &plugin{config: cfg, health: newHealth(time.Now, wedgeFactor)}
 	s, err := stub.New(
@@ -207,6 +220,12 @@ func toNRI(adjustment nvmlmock.Adjustment) (*api.ContainerAdjustment, error) {
 			continue
 		}
 		result.AddDevice(nriDevice)
+	}
+	// CDI references are resolved by the runtime from the spec setup.sh stages,
+	// so there is nothing to stat here — an unresolvable name fails container
+	// creation, which is why Adjust only emits one once it has seen the spec.
+	for _, name := range adjustment.CDIDevices {
+		result.AddCDIDevice(&api.CDIDevice{Name: name})
 	}
 	return result, nil
 }

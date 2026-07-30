@@ -128,6 +128,26 @@ nri:
   # device-node mounts from the staged mock overlay. Treat that pod-authored
   # control as part of the demo trust boundary and exclude namespaces as needed.
   deviceAnnotation: nvml-mock.nvidia.com/devices
+  # How the deviceAnnotation opt-in delivers mock GPUs to a container:
+  #   raw - stage the /dev/nvidiaN nodes directly in the NRI adjustment.
+  #   cdi - emit a CDI device reference and let the runtime resolve it from the
+  #         spec setup.sh stages at cdiSpecDir/nvml-mock-nri.yaml.
+  #
+  # raw is the default. It is the only mode that works where the runtime has no
+  # CDI support, and MEP-0002 requires it to stay reachable. containerd 2.x
+  # enables CDI by default, so cdi mode needs no container toolkit on the node;
+  # containerd 1.x gates it behind enable_cdi.
+  #
+  # Neither mode changes WHETHER a container is served. A container the device
+  # plugin already served is left alone in both.
+  #
+  # If cdi is selected and no spec is staged, the plugin logs a warning and
+  # falls back to raw rather than failing container creation.
+  deviceInjectionMode: raw
+  # Host directory containing CDI specs. Mounted read-only into the plugin so it
+  # can confirm its spec is staged before emitting a reference. Must be one of
+  # the runtime's configured cdi_spec_dirs.
+  cdiSpecDir: /var/run/cdi
   # Workloads that set this pod annotation to "true" additionally get the mock
   # IMEX channel nodes at /dev/nvidia-caps-imex-channels/channelN — the fabric
   # surface a ComputeDomain workload expects. Same trust boundary as
