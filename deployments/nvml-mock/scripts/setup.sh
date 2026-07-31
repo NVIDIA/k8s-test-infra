@@ -221,6 +221,94 @@ done
 
 echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices)"
 
+# 3c. Generate the CDI spec the NRI plugin injects (issue #436).
+#
+#     This is deliberately a SECOND spec, not a reuse of nvidia.yaml above:
+#
+#     - Vendor. nvidia.com/gpu belongs to the device plugin and the container
+#       toolkit. MEP-0002 requires that exactly one component emit CDI device
+#       references for a given container; a distinct vendor makes that
+#       observable instead of merely asserted.
+#     - No hooks. nvidia.yaml runs /usr/bin/nvidia-cdi-hook, which only exists
+#       on a toolkit-bearing node. The NRI path has to work on stock
+#       kindest/node, where containerd enables CDI by default but no toolkit is
+#       installed.
+#     - Device nodes only. The NRI plugin already delivers the libraries and the
+#       environment through its overlay bind mount and LD_PRELOAD, so repeating
+#       nvidia.yaml's library mounts here would inject them twice by two
+#       different mechanisms.
+#
+#     Per-GPU entries plus "all" keep MEP-0002's detectVisibleDevices oracle
+#     intact: the correct SUBSET stays expressible, so a future per-device
+#     caller does not have to widen the container to use CDI.
+NRI_CDI_SPEC=$CDI_DIR/nvml-mock-nri.yaml
+
+# hostPath in a CDI spec is resolved by the RUNTIME, on the real host — not by
+# this container, which sees the host root under /host. $DEV_ROOT is this
+# container's view, so strip the prefix. Getting this wrong does not fail here:
+# the spec is written happily and containerd then refuses to create any
+# container that references it, which surfaces as a pod stuck out of Running
+# with no obvious link back to this file.
+HOST_DEV_ROOT=${DEV_ROOT#/host}
+
+# NVML_MOCK_DEVICE_SOURCE records which mechanism delivered the device nodes.
+# The raw NRI path injects device nodes only and has no way to set an
+# environment variable on the device opt-in, so this is present if and only if
+# the runtime resolved this spec. That makes "did CDI actually take effect"
+# observable from inside the container: the two modes are otherwise identical by
+# design, and a silent fallback to raw would look exactly like a working CDI
+# deployment.
+cat > "$NRI_CDI_SPEC" << 'NRI_CDI_HEADER'
+cdiVersion: "0.6.0"
+kind: "nvml-mock.nvidia.com/gpu"
+containerEdits:
+  env:
+    - NVML_MOCK_DEVICE_SOURCE=cdi
+devices:
+NRI_CDI_HEADER
+
+# nri_cdi_device_nodes emits the deviceNodes block for one GPU index, or for
+# every mock node when passed "all". The set MUST match what discoverDevices
+# stages on the raw path (every non-directory nvidia* node under $DEV_ROOT):
+# cdi mode replaces the mechanism, not the contract, and a narrower set here
+# would be a silent regression for a workload that opens /dev/nvidia-uvm.
+nri_cdi_device_nodes() {
+  _which=$1
+  if [ "$_which" = "all" ]; then
+    for _i in $(seq 0 $((GPU_COUNT - 1))); do
+      echo "        - path: /dev/nvidia$_i"
+      echo "          hostPath: $HOST_DEV_ROOT/nvidia$_i"
+    done
+    for _extra in nvidiactl nvidia-uvm nvidia-uvm-tools; do
+      if [ -e "$DEV_ROOT/$_extra" ]; then
+        echo "        - path: /dev/$_extra"
+        echo "          hostPath: $HOST_DEV_ROOT/$_extra"
+      fi
+    done
+  else
+    echo "        - path: /dev/nvidia$_which"
+    echo "          hostPath: $HOST_DEV_ROOT/nvidia$_which"
+  fi
+}
+
+for i in $(seq 0 $((GPU_COUNT - 1))); do
+  {
+    echo "  - name: \"$i\""
+    echo '    containerEdits:'
+    echo '      deviceNodes:'
+    nri_cdi_device_nodes "$i"
+  } >> "$NRI_CDI_SPEC"
+done
+
+{
+  echo '  - name: "all"'
+  echo '    containerEdits:'
+  echo '      deviceNodes:'
+  nri_cdi_device_nodes all
+} >> "$NRI_CDI_SPEC"
+
+echo "NRI CDI spec generated at $NRI_CDI_SPEC ($GPU_COUNT devices + all)"
+
 # 4. Install nvidia-smi
 #    The ELF binary has RPATH=$ORIGIN/../lib64 (set by patchelf in Dockerfile),
 #    so it finds libnvidia-ml.so.1 relative to its own location. This works for:
@@ -259,11 +347,43 @@ chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi.sh"
 #     The NRI plugin mounts /var/lib/nvml-mock at /opt/nvml-mock in each
 #     workload, then prepends driver/usr/bin and driver/usr/lib64 and appends
 #     driver/usr/local/lib shims to LD_PRELOAD.
+#
+#     The ELF tools arrive pre-staged and pre-patched from the image build
+#     (stage-ib-tools.sh): each carries RPATH=$ORIGIN/../lib64 and its shared
+#     libraries sit alongside, so they resolve libibmad/libibumad/libibverbs/
+#     libnl from the overlay itself.
+#
+#     Before this, the overlay carried the binaries and none of their
+#     libraries, so an injected pod got "error while loading shared
+#     libraries" on the first tool it ran — measured on debian:bookworm-slim
+#     as well as on distroless, since neither that image nor ubuntu:22.04
+#     ships the IB stack. See NVIDIA/k8s-test-infra#438.
+if [ -d /usr/local/nvml-mock-ib/bin ]; then
+  cp -a /usr/local/nvml-mock-ib/bin/. "$DRIVER_ROOT/usr/bin/"
+  cp -a /usr/local/nvml-mock-ib/lib64/. "$DRIVER_ROOT/usr/lib64/"
+  echo "Staged IB CLI tools + shared libraries (RPATH-enabled)"
+else
+  echo "WARNING: no pre-staged IB tools in the image; falling back to unpatched copies" >&2
+fi
+# Anything the build did not pre-stage. In practice this is ibstatus, which is
+# a /bin/sh script rather than an ELF binary: there is no RPATH to give it, and
+# it only runs in images that ship a shell. Never overwrite a pre-staged tool —
+# the copy under /usr/sbin has no RPATH.
 for tool in ibnetdiscover ibstat iblinkinfo ibstatus sminfo ibping ibv_devinfo; do
-  if command -v "$tool" >/dev/null 2>&1; then
+  if [ ! -e "$DRIVER_ROOT/usr/bin/$tool" ] && command -v "$tool" >/dev/null 2>&1; then
     cp "$(command -v "$tool")" "$DRIVER_ROOT/usr/bin/$tool"
   fi
 done
+# Stage the ibverbs provider config. libibverbs reads this directory from a
+# compile-time absolute path (/etc/libibverbs.d) and offers no environment
+# override, so this copy does not redirect an injected container's lookup — the
+# mock answers the verbs API through the LD_PRELOAD shim libibmockverbs.so.1
+# and never consults it. It is here for consumers that mount the overlay as a
+# root, and so the provider set travels with the tools it belongs to.
+if [ -d /etc/libibverbs.d ]; then
+  mkdir -p "$DRIVER_ROOT/etc/libibverbs.d"
+  cp -a /etc/libibverbs.d/. "$DRIVER_ROOT/etc/libibverbs.d/" 2>/dev/null || true
+fi
 # Stage the fabric consumer so node-wide NRI-injected pods can verify their
 # per-node ComputeDomain identity (nvmlDeviceGetGpuFabricInfo) the same way the
 # compute-domain demo does inside the daemon pod. It resolves the mock NVML

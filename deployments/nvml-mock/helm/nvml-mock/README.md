@@ -541,6 +541,30 @@ same port-level information (state, phys state, GID, LID, rate, link layer)
 is available through `ibstatus`, which reads it from the rendered sysfs
 tree.
 
+### In NRI-injected pods
+
+With `nri.enabled=true` the same tools are staged into the node overlay and
+reachable from any injected workload at
+`/opt/nvml-mock/driver/usr/bin/<tool>`. They carry their shared libraries
+(`libibmad`, `libibumad`, `libibverbs`, `libnl`) alongside them in
+`driver/usr/lib64` and an RPATH of `$ORIGIN/../lib64`, so they run from an
+image that ships no InfiniBand stack of its own — a distroless or scratch
+workload, not just a full distro image.
+
+Two limits apply there, both independent of the staging:
+
+- `ibstatus` is a `/bin/sh` script rather than an ELF binary, so it needs an
+  image with a shell.
+- `ibv_devinfo -l` reports `0 HCAs found` in an injected pod. Enumeration
+  needs libibverbs to match the device to a provider driver (`libmlx5`), and
+  the provider ships in the nvml-mock image rather than in the workload. Use
+  `ibstat -l`, which reads the rendered sysfs through `libibmocksys.so` and
+  lists every mock HCA.
+
+The tools are glibc binaries. On a musl image (Alpine) they fail to exec at
+all, because `PT_INTERP` names `/lib/ld-linux-*.so.*` by absolute path and no
+RPATH can redirect that.
+
 ### Defaults per profile
 
 | Profile | Enabled | HCA | Speed | HCAs per GPU |
@@ -711,6 +735,36 @@ See [`pkg/network/mockib/README.md`](../../../../pkg/network/mockib/README.md#mo
 for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
 `MOCK_IB_DEBUG_SMP`, …) and architecture details.
 
+## Device injection mode
+
+Applies only when `nri.enabled=true`, and only to the `nri.deviceAnnotation`
+opt-in path.
+
+`nri.deviceInjectionMode` selects how the plugin delivers mock GPU device nodes
+to a container that carries `nvml-mock.nvidia.com/devices: "true"`:
+
+| Mode | Mechanism | Needs |
+| --- | --- | --- |
+| `raw` (default) | The plugin stages the `/dev/nvidia*` nodes itself, in the NRI adjustment. | Nothing. |
+| `cdi` | The plugin emits the CDI device `nvml-mock.nvidia.com/gpu=all` and the runtime resolves it from the spec `setup.sh` stages at `<cdiSpecDir>/nvml-mock-nri.yaml`. | A runtime with CDI on. |
+
+Both modes deliver the same device set, so switching is not meant to change what
+a workload sees. `cdi` additionally sets `NVML_MOCK_DEVICE_SOURCE=cdi` inside
+the container, which is the only way to tell from inside which mechanism ran.
+
+CDI needs no container toolkit on the node. containerd 2.x enables CDI by
+default (`enable_cdi = true`, spec dirs `/etc/cdi` and `/var/run/cdi`), which
+includes the stock `kindest/node` image. containerd 1.x gates it behind
+`enable_cdi`, so `raw` stays the default.
+
+If `cdi` is selected and no spec is staged, the plugin logs a warning and falls
+back to `raw`. It does not fail the pod: an unresolvable CDI device makes
+containerd reject container creation outright.
+
+Neither mode changes *whether* a container is served. A container the NVIDIA
+device plugin already served keeps exactly its allocation in both modes, per
+[MEP-0002](../../../../enhancements/meps/0002-device-plugin-nri-composition/README.md).
+
 ## NRI plugin failure modes
 
 Applies only when `nri.enabled=true`.
@@ -877,6 +931,9 @@ namespace, on the pod IP where the kubelet reaches it.
 | `nri.overlay.hostPath` / `nri.overlay.mountPath` | `/var/lib/nvml-mock` / `/opt/nvml-mock` | Host overlay staged by the main DaemonSet, and the path it is injected at inside workloads |
 | `nri.optOutAnnotation` | `nvml-mock.nvidia.com/inject` | Pod annotation; value `false` disables injection for that pod |
 | `nri.deviceAnnotation` | `nvml-mock.nvidia.com/devices` | Pod annotation; value `true` adds mock `/dev/nvidia*` device nodes. Pod-authored, so treat it as part of the demo trust boundary |
+| `nri.deviceInjectionMode` | `raw` | How `nri.deviceAnnotation` delivers GPUs: `raw` stages the device nodes directly, `cdi` emits a CDI device reference the runtime resolves. See [Device injection mode](#device-injection-mode) |
+| `nri.cdiSpecDir` | `/var/run/cdi` | Host directory holding CDI specs, mounted read-only into the plugin. Must be one of the runtime's configured `cdi_spec_dirs` |
+| `nri.imexChannelAnnotation` | `nvml-mock.nvidia.com/imex-channels` | Pod annotation; value `true` adds the mock `/dev/nvidia-caps-imex-channels/channelN` nodes staged by `imex.mockChannels`. A no-op when that is disabled. Same trust boundary as `nri.deviceAnnotation` |
 | `nri.excludedNamespaces` | `[]` | Extra namespaces to skip. The release namespace and `kube-system` are always excluded |
 | `nri.healthPort` | `8080` | Port serving `/healthz` and `/readyz`. Bound only in the pod's network namespace — this DaemonSet does not use `hostNetwork`, so nothing is exposed on the node |
 | `nri.readinessProbe` | `/readyz`, `periodSeconds: 10`, `failureThreshold: 2` | Detects that the node has stopped injecting. Set to `null` to drop. See [NRI plugin failure modes](#nri-plugin-failure-modes) |

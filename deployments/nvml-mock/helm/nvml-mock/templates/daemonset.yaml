@@ -216,11 +216,55 @@ spec:
             - name: host-fabric-state
               mountPath: {{ .Values.fabricmanager.stateDir }}
             {{- end }}
+        {{- if .Values.allocationWatcher.enabled }}
+        # #506: mirrors each pod's nvidia.com/gpu claim into the same runtime
+        # override file nvml-mock-ctl writes, which the engine re-reads within
+        # one TTL. A sidecar rather than its own DaemonSet so it shares the
+        # driver-root hostPath the override file lives in.
+        - name: allocation-watcher
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /usr/local/bin/nvml-mock-ctl
+            - watch-allocations
+            - --interval={{ .Values.allocationWatcher.interval }}
+            - --used-fraction={{ .Values.allocationWatcher.usedFractionPerClaim }}
+            - --socket={{ .Values.allocationWatcher.podResourcesSocket }}
+          env:
+            - name: MOCK_NVML_CONFIG
+              value: /var/lib/nvml-mock/driver/config/config.yaml
+            - name: MOCK_NVML_OVERRIDES
+              value: /var/lib/nvml-mock/driver/config/overrides.yaml
+          securityContext:
+            # The pod-resources socket is root-owned on the host and this
+            # container only reads it; it writes nothing outside the driver root.
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.allocationWatcher.resources | nindent 12 }}
+          volumeMounts:
+            - name: host-nvml-mock
+              mountPath: /var/lib/nvml-mock
+            - name: host-pod-resources
+              mountPath: {{ dir .Values.allocationWatcher.podResourcesSocket }}
+              readOnly: true
+        {{- end }}
       volumes:
         - name: host-nvml-mock
           hostPath:
             path: /var/lib/nvml-mock
             type: DirectoryOrCreate
+        {{- if .Values.allocationWatcher.enabled }}
+        # Read-only, node-local kubelet API. It is a socket, not the API
+        # server, so this needs no RBAC. Directory (not the socket itself) so
+        # a kubelet restart that recreates the socket is picked up.
+        - name: host-pod-resources
+          hostPath:
+            path: {{ dir .Values.allocationWatcher.podResourcesSocket }}
+            type: Directory
+        {{- end }}
         - name: gpu-config
           configMap:
             name: {{ include "nvml-mock.fullname" . }}-config

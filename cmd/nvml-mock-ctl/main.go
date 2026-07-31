@@ -16,17 +16,19 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
 	"math"
 	"os"
-	"path/filepath"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
-	"golang.org/x/sys/unix"
-
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/allocwatch"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mockctl"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
@@ -71,6 +73,9 @@ commands:
   set    --gpu <idx|all|uuid> key.path=value [key.path=value ...]
   status [--gpu <idx>]
   reset  [--gpu <idx|all|uuid>]
+  watch-allocations [--socket PATH] [--interval D] [--used-fraction F]
+         run in the foreground, mirroring each pod's nvidia.com/gpu claim into
+         memory.used_bytes/free_bytes until signalled (#506)
 
 global flags:
   --file    config override path (default $MOCK_NVML_OVERRIDES or `+defaultConfigOverride+`)
@@ -79,9 +84,11 @@ global flags:
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	var configOverridePath, configPath, gpu, mode, links string
+	var configOverridePath, configPath, gpu, mode, links, socket string
 	var afterCalls int
 	var xid uint64
+	var interval time.Duration
+	var usedFraction float64
 	fs := flag.NewFlagSet("nvml-mock-ctl", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {} // usage printed explicitly below so it isn't duplicated
@@ -92,6 +99,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&afterCalls, "after-calls", 0, "trip after N guarded calls (fail)")
 	fs.Uint64Var(&xid, "xid", 0, "Xid code to surface (fail)")
 	fs.StringVar(&links, "links", "", "comma-separated NVLink ids for nvlink-error (default: all active links)")
+	fs.StringVar(&socket, "socket", envOr("MOCK_NVML_PODRESOURCES_SOCKET", allocwatch.DefaultSocketPath),
+		"kubelet pod-resources socket (watch-allocations)")
+	fs.DurationVar(&interval, "interval", allocwatch.DefaultInterval,
+		"allocation poll interval (watch-allocations)")
+	fs.Float64Var(&usedFraction, "used-fraction", allocwatch.DefaultPolicy().UsedFractionPerClaim,
+		"share of the usable aperture attributed per GPU claim (watch-allocations)")
 
 	// Global flags may appear before or after the subcommand, interspersed
 	// with the command's positional key.path=value args. The stdlib flag
@@ -138,6 +151,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "fail", "temp", "temperature", "power", "fan", "util", "utilization",
 		"clocks", "throttle", "pstate", "nvlink-error", "set", "reset":
 		return mutate(cmd, configOverridePath, gpu, mode, links, afterCalls, xid, positional, cfg, base, stdout, stderr)
+	case "watch-allocations":
+		return doWatchAllocations(configOverridePath, socket, interval, usedFraction, cfg, stdout, stderr)
 	default:
 		fprintf(stderr, "unknown command %q\n", cmd)
 		usage(stderr)
@@ -153,7 +168,7 @@ func mutate(cmd, configOverridePath, gpu, mode, links string, afterCalls int, xi
 		return 2
 	}
 
-	unlock, err := lockConfigOverride(configOverridePath)
+	unlock, err := mockctl.LockOverride(configOverridePath)
 	if err != nil {
 		fprintf(stderr, "lock: %v\n", err)
 		return 1
@@ -298,7 +313,7 @@ func mutate(cmd, configOverridePath, gpu, mode, links string, afterCalls int, xi
 		return 2
 	}
 
-	if err := writeAtomic(configOverridePath, doc); err != nil {
+	if err := mockctl.WriteAtomic(configOverridePath, doc); err != nil {
 		fprintf(stderr, "write: %v\n", err)
 		return 1
 	}
@@ -498,56 +513,51 @@ func validateDoc(doc *mockctl.Doc, base *engine.DeviceConfig) error {
 	return nil
 }
 
-// writeAtomic writes the doc via a temp file + rename in the same directory so
-// readers (and the bind-mounted view in consumer containers) never observe a
-// partial file.
-func writeAtomic(path string, doc *mockctl.Doc) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	b, err := doc.Bytes()
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".overrides-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }()
-	if _, err := tmp.Write(b); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	// os.CreateTemp makes the file 0600, but the published config override is
-	// bind-mounted into consumer containers and read by the mock library,
-	// which may run as a non-root UID. Make it world-readable (matching how
-	// config.yaml is consumed) so those reads don't silently fail.
-	if err := os.Chmod(tmpName, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
-}
+// doWatchAllocations runs the allocation watcher until the process is signalled.
+//
+// This is #506 item 1: it is the producer that makes memory.used_bytes respond
+// to a pod holding an nvidia.com/gpu claim. The consumer side already existed —
+// the engine re-reads the override file this writes within one TTL — so the
+// watcher only has to keep that file honest.
+//
+// It runs as a sidecar in the nvml-mock DaemonSet rather than as its own
+// workload so it shares the driver-root mount the override file lives in.
+func doWatchAllocations(configOverridePath, socket string, interval time.Duration,
+	usedFraction float64, cfg *engine.Config, stdout, stderr io.Writer) int {
 
-// lockConfigOverride takes an exclusive flock on a sibling .lock file so concurrent
-// kubectl exec invocations serialize their read-modify-write.
-func lockConfigOverride(path string) (func(), error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
+	if cfg == nil || cfg.NumDevices == 0 {
+		fprintf(stderr, "watch-allocations: no GPU config resolved; nothing to reconcile\n")
+		return 1
 	}
-	lf, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	if usedFraction <= 0 || usedFraction > 1 {
+		fprintf(stderr, "watch-allocations: --used-fraction must be in (0, 1], got %v\n", usedFraction)
+		return 2
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	lister, err := allocwatch.NewPodResourcesLister(ctx, socket)
 	if err != nil {
-		return nil, err
+		fprintf(stderr, "watch-allocations: %v\n", err)
+		return 1
 	}
-	if err := unix.Flock(int(lf.Fd()), unix.LOCK_EX); err != nil {
-		_ = lf.Close()
-		return nil, err
+	defer func() { _ = lister.Close() }()
+
+	devices := allocwatch.DevicesFromConfig(cfg)
+	fprintf(stdout, "watch-allocations: %d GPUs, polling %s every %s -> %s\n",
+		len(devices), socket, interval, configOverridePath)
+
+	w := &allocwatch.Watcher{
+		Lister:       lister,
+		Devices:      devices,
+		Policy:       allocwatch.Policy{UsedFractionPerClaim: usedFraction},
+		OverridePath: configOverridePath,
+		Interval:     interval,
 	}
-	return func() {
-		_ = unix.Flock(int(lf.Fd()), unix.LOCK_UN)
-		_ = lf.Close()
-	}, nil
+	if err := w.Run(ctx); err != nil {
+		fprintf(stderr, "watch-allocations: %v\n", err)
+		return 1
+	}
+	return 0
 }

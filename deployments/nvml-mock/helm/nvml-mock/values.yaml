@@ -114,6 +114,37 @@ nodeLabels:
 # container at runtime without mutating pod specs. Opt-in (default false): it
 # injects into workloads cluster-wide, so enable it only for the
 # node-wide-injection demo/use case. See docs/demo/node-wide-injection.
+# Allocation-aware GPU memory (#506). When enabled, a sidecar in the nvml-mock
+# DaemonSet polls the kubelet pod-resources API and mirrors each pod's
+# nvidia.com/gpu claim into memory.used_bytes / memory.free_bytes, so a
+# scheduled workload moves the number and deleting it returns the number.
+#
+# Off by default: it mounts the kubelet pod-resources socket, and a cluster
+# that only wants a static mock should not take that mount. The reported bytes
+# are SYNTHETIC — the mock runs no kernel and allocates no device memory, so
+# the value says a claim exists, not what a workload touched.
+#
+# While enabled, the watcher owns memory.used_bytes/free_bytes: an
+# `nvml-mock-ctl set --gpu N memory.used_bytes=...` is overwritten on the next
+# poll. Every other field nvml-mock-ctl writes is preserved.
+allocationWatcher:
+  enabled: false
+  # Poll period. The engine re-reads the override file at most once per its own
+  # TTL (1s), so polling much faster is not observable.
+  interval: 2s
+  # Share of the usable aperture (total - reserved) attributed to each claim.
+  # Claims on one device add up and clamp at the aperture, so a time-sliced GPU
+  # held by two containers reads as full at the 0.5 default.
+  usedFractionPerClaim: 0.5
+  podResourcesSocket: /var/lib/kubelet/pod-resources/kubelet.sock
+  resources:
+    limits:
+      cpu: 100m
+      memory: 64Mi
+    requests:
+      cpu: 10m
+      memory: 32Mi
+
 nri:
   enabled: false
   socketPath: /var/run/nri/nri.sock
@@ -128,6 +159,38 @@ nri:
   # device-node mounts from the staged mock overlay. Treat that pod-authored
   # control as part of the demo trust boundary and exclude namespaces as needed.
   deviceAnnotation: nvml-mock.nvidia.com/devices
+  # How the deviceAnnotation opt-in delivers mock GPUs to a container:
+  #   raw - stage the /dev/nvidiaN nodes directly in the NRI adjustment.
+  #   cdi - emit a CDI device reference and let the runtime resolve it from the
+  #         spec setup.sh stages at cdiSpecDir/nvml-mock-nri.yaml.
+  #
+  # raw is the default. It is the only mode that works where the runtime has no
+  # CDI support, and MEP-0002 requires it to stay reachable. containerd 2.x
+  # enables CDI by default, so cdi mode needs no container toolkit on the node;
+  # containerd 1.x gates it behind enable_cdi.
+  #
+  # Neither mode changes WHETHER a container is served. A container the device
+  # plugin already served is left alone in both.
+  #
+  # If cdi is selected and no spec is staged, the plugin logs a warning and
+  # falls back to raw rather than failing container creation.
+  deviceInjectionMode: raw
+  # Host directory containing CDI specs. Mounted read-only into the plugin so it
+  # can confirm its spec is staged before emitting a reference. Must be one of
+  # the runtime's configured cdi_spec_dirs.
+  cdiSpecDir: /var/run/cdi
+  # Workloads that set this pod annotation to "true" additionally get the mock
+  # IMEX channel nodes at /dev/nvidia-caps-imex-channels/channelN — the fabric
+  # surface a ComputeDomain workload expects. Same trust boundary as
+  # deviceAnnotation above.
+  #
+  # The channels themselves come from imex.mockChannels; this plugin only
+  # delivers what that already staged, so enable imex.mockChannels too or the
+  # annotation is a no-op (the plugin logs a warning and the pod still starts).
+  # Every channel staged on the node is injected, so a large
+  # imex.mockChannels.channelCount adds real container-start cost: creating the
+  # default 2048 nodes measures around one second.
+  imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
   excludedNamespaces: []
   resources: {}
   # Port serving the plugin's /healthz and /readyz endpoints. The NRI DaemonSet

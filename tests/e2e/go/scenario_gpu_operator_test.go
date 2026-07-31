@@ -59,11 +59,23 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 				Expect(err).NotTo(HaveOccurred())
 				podName = cp.Name
 				verifyGPUOperatorNodeSetup(ctx, podName)
-			})
 
-			It("installs GPU Operator and publishes GPUs", Label("device-plugin"), func(ctx SpecContext) {
+				// Setup, not a spec. Every spec below reads state that only the
+				// operator publishes, so installing from inside one spec made the
+				// others depend on that spec being selected: any label filter
+				// narrower than `gpu-operator` false-reds with `namespaces
+				// "gpu-operator" not found` (#561).
+				//
+				// The validator wait belongs here for the same reason. `helm
+				// --wait` covers only the operator's own release; the specs assert
+				// on the ClusterPolicy operands (device plugin, GFD,
+				// dcgm-exporter), which the operator creates afterwards. Without
+				// this barrier a narrow run races the operand rollout.
 				installGPUOperator(ctx, h)
 				waitOperatorValidatorRunning(ctx, h)
+			})
+
+			It("publishes GFD labels and allocatable GPUs", Label("device-plugin"), func(ctx SpecContext) {
 				// Hard assertion, derived from the profile rather than read back
 				// off the node. The previous warning-only check could never fail,
 				// so GPU Feature Discovery could have been removed entirely and

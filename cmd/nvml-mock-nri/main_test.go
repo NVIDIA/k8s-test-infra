@@ -188,6 +188,42 @@ func TestFromNRI(t *testing.T) {
 		}}, result.Mounts)
 	})
 
+	// MEP-0002: the suppression rule in nvmlmock.Adjust is inert unless fromNRI
+	// actually carries the incoming device state across. Verified against a real
+	// containerd 2.2.0 CreateContainer payload, which populates Linux.Devices with
+	// the device plugin's allocation and CDIDevices for the cdi-* strategies.
+	t.Run("copies the devices the runtime already applied", func(t *testing.T) {
+		t.Parallel()
+		container := &api.Container{
+			Linux: &api.LinuxContainer{
+				Devices: []*api.LinuxDevice{
+					{Path: "/dev/nvidia0", Type: "c", Major: 195, Minor: 0},
+					{Path: "/dev/fuse", Type: "c", Major: 10, Minor: 229},
+				},
+			},
+			CDIDevices: []*api.CDIDevice{{Name: "nvidia.com/gpu=0"}},
+		}
+
+		result := fromNRI(nil, container)
+
+		require.Equal(t, []nvmlmock.Device{
+			{Path: "/dev/nvidia0"},
+			{Path: "/dev/fuse"},
+		}, result.Devices)
+		require.Equal(t, []string{"nvidia.com/gpu=0"}, result.CDIDevices)
+	})
+
+	t.Run("tolerates a nil Linux block", func(t *testing.T) {
+		t.Parallel()
+		// NRI leaves Linux nil for non-Linux or minimal containers; a nil deref
+		// here takes the plugin down and stops injection node-wide.
+		require.NotPanics(t, func() {
+			result := fromNRI(nil, &api.Container{Env: []string{"PATH=/usr/bin"}})
+			require.Empty(t, result.Devices)
+			require.Empty(t, result.CDIDevices)
+		})
+	})
+
 	t.Run("does not alias the runtime's slices", func(t *testing.T) {
 		t.Parallel()
 		container := &api.Container{

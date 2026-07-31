@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Allocation-aware GPU memory, opt-in via `allocationWatcher.enabled`. A sidecar
+  in the nvml-mock DaemonSet polls the kubelet pod-resources API and mirrors each
+  pod's `nvidia.com/gpu` claim into `memory.used_bytes` / `memory.free_bytes`, so
+  scheduling a workload moves the number and deleting it returns the number.
+  Reads per device — a claim on GPU 3 moves GPU 3 only — and time-sliced GPUs
+  accumulate one claim per holding container, clamped at the aperture. The bytes
+  are **synthetic**: the mock runs no kernel, so the value says a claim exists,
+  not what a workload touched. Level-triggered, so a missed event self-heals on
+  the next poll and a failed poll keeps the previous reading rather than
+  reporting the node idle. While enabled the watcher owns those two fields and
+  overwrites an `nvml-mock-ctl set` of them; every other overridden field is
+  preserved, since both writers take the same lock. Off by default because it
+  mounts the kubelet pod-resources socket (read-only, node-local, no RBAC).
+  New subcommand: `nvml-mock-ctl watch-allocations`. (#506)
+
+### Changed
+- Every shipped GPU profile now reports a moving, non-zero `utilization.gpu`.
+  Each profile carries its own live `device_defaults.dynamic_metrics.utilization`
+  block (`pattern: steady`, GPU 10-45%, memory 5-25%), so a default install no
+  longer reads a constant 0 through `DCGM_FI_DEV_GPU_UTIL` — nor through the
+  `DCGM_FI_PROF_*` metrics, which the mock derives as fixed fractions of it.
+  The floor sits above 0 deliberately, so "utilization is reported" is a
+  deterministic assertion rather than a flaky one. The value still tracks
+  **elapsed time, not workload**: it moves on a fully idle node. Temperature and
+  power simulation stays opt-in behind `gpu.dynamicMetrics.enabled`; note that
+  enabling that overlay replaces the profile block with the chart baseline,
+  whose `burst` 0-100 band does dip to near 0. (#506)
+
+### Added
+- Mock IMEX channel injection through the NRI plugin. A pod annotated
+  `nvml-mock.nvidia.com/imex-channels: "true"` receives the mock
+  `/dev/nvidia-caps-imex-channels/channelN` nodes, so a ComputeDomain-style
+  workload can see an IMEX fabric surface on a node with no NVIDIA kernel
+  module. The channels come from the existing `imex.mockChannels` surface —
+  enable it too, or the annotation is a no-op that logs a warning and starts
+  the pod anyway. Injection is independent of the MEP-0002 device-plugin
+  suppression, because the device plugin never allocates an IMEX channel.
+  Configured by `nri.imexChannelAnnotation`. (#437)
+
+### Fixed
+- The NRI device opt-in no longer offers the `nvidia-caps-imex-channels`
+  DIRECTORY to the runtime as a device node. It sits inside the device root the
+  plugin scans and matched the `nvidia` prefix filter, so any annotated pod on a
+  node with `imex.mockChannels` enabled was affected. (#437)
+
 ## [0.3.0-rc1] - 2026-07-31
 
 ### Added

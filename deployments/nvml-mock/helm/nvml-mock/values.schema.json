@@ -145,6 +145,17 @@
         }
       }
     },
+    "allocationWatcher": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Mirror each pod's nvidia.com/gpu claim into memory.used_bytes (#506).",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "interval": { "type": "string", "minLength": 1 },
+        "usedFractionPerClaim": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "podResourcesSocket": { "type": "string", "minLength": 1 }
+      }
+    },
     "nri": {
       "type": "object",
       "additionalProperties": true,

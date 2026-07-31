@@ -227,11 +227,30 @@ tests:
           value: custom-cm-config
 
   # ── Dynamic metrics ─────────────────────────────────────────────────
-  - it: should not emit dynamic_metrics block when feature is disabled (default)
+  # #506 item 3. The default install must still report a moving, non-zero
+  # utilization: every profile now ships its own `dynamic_metrics.utilization`
+  # block, so DCGM_FI_DEV_GPU_UTIL — and the DCGM_FI_PROF_* fractions derived
+  # from it — are never a constant 0 without opting into the chart overlay.
+  # The overlay's temperature/power simulation stays opt-in and must NOT appear.
+  - it: should keep the profile's own utilization block when the overlay is disabled (default)
     asserts:
-      - notMatchRegex:
+      - matchRegex:
           path: data["config.yaml"]
           pattern: "dynamic_metrics:"
+      # The overlay is off, so the chart returns the profile YAML verbatim and
+      # the value keeps its quotes; the enabled case below re-renders it bare.
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'pattern: "steady"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "gpu_min: 10"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "base_c:"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "base_mw:"
 
   - it: should inject dynamic_metrics under device_defaults when enabled
     set:

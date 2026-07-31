@@ -9,6 +9,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 SHELL := /usr/bin/env bash
+# NOTE: GNU Make only honours .SHELLFLAGS from 3.82 onward. macOS ships 3.81,
+# which treats the line below as an ordinary variable and runs recipes with a
+# bare `-c`. Any recipe whose exit status depends on these flags must set them
+# itself — see the `e2e` and `.mod-verify` targets.
 .SHELLFLAGS := -o pipefail -ec
 
 .PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
@@ -71,7 +75,7 @@ modules:  | .mod-tidy .mod-vendor .mod-verify
 .mod-verify:
 	@for mod in $$(find . -name go.mod -not -path "./testdata/*" -not -path "./third_party/*"); do \
 	    echo "Verifying $$mod..."; ( \
-	        cd $$(dirname $$mod) && go mod verify | sed 's/^/  /g' \
+	        set -o pipefail; cd $$(dirname $$mod) && go mod verify | sed 's/^/  /g' \
 	    ) || exit 1; \
 	done
 
@@ -168,8 +172,12 @@ E2E_TIMEOUT ?= 90m
 E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
+# `set -o pipefail` is inline on purpose; do not drop it as redundant with
+# .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
+# so on a developer machine this recipe otherwise returns tee's status and a
+# failed suite exits 0 — see issue #560 and tests/makefile/makefile_test.go.
 e2e:
-	$(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
+	set -o pipefail; $(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
 
 e2e-dra:
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'
