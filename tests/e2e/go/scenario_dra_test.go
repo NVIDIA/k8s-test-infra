@@ -70,7 +70,7 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 
 			It("publishes DRA ResourceSlices for the profile GPUs", func(ctx SpecContext) {
 				installDRADriver(ctx, h)
-				assertions.WaitResourceSliceTotal(ctx, h.Kube, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
+				assertions.WaitResourceSlicePerNode(ctx, h.Kube, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
 			})
 
 			It("schedules a pod with a DRA ResourceClaim", func(ctx SpecContext) {
@@ -96,6 +96,15 @@ func collectDRAOnFailure(ctx context.Context, h *harness.Harness) {
 
 func installDRADriver(ctx SpecContext, h *harness.Harness) {
 	GinkgoHelper()
+	// Attach mode: Tilt owns the DRA driver rollout (see local/dra/dra.tiltfile,
+	// invoked by `tilt ci -- --dra` in the e2e-dra CI job). Skip helm install
+	// and only wait for the pods, so a degraded Tilt rollout still surfaces here
+	// instead of failing further downstream at the ResourceSlice assertion.
+	if config.AttachExisting() {
+		By("skip helm upgrade --install nvidia-dra-driver (attach mode, external rollout)")
+		waitDRAPodsReady(ctx, h)
+		return
+	}
 	Expect(h.Helm.RepoAdd(ctx, "nvidia", "https://helm.ngc.nvidia.com/nvidia")).To(Succeed(), "add NVIDIA Helm repo")
 	Expect(h.Helm.RepoUpdate(ctx)).To(Succeed(), "update Helm repos")
 	Expect(h.Helm.UpgradeInstall(ctx, draDriverHelmRelease())).To(Succeed(), "install NVIDIA DRA driver")
