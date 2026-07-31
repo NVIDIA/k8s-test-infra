@@ -90,6 +90,15 @@ HELM_CHART_DIR := deployments/nvml-mock/helm/nvml-mock
 helm-unittest:
 	helm unittest $(HELM_CHART_DIR)
 
+# Unit tests for the e2e harness itself (framework/*). They are behind the `e2e`
+# build tag, so the untagged CI unit-test run skips them, and `make e2e` targets
+# only the Ginkgo suite package ./tests/e2e/go -- neither reaches these. They
+# need no cluster and no kubectl: the one that shells out substitutes a stub on
+# PATH.
+.PHONY: test-e2e-framework
+test-e2e-framework:
+	$(GO_CMD) test -tags e2e -race ./tests/e2e/go/framework/...
+
 .PHONY: generate
 generate:
 	go generate ./pkg/gpu/mocknvml/bridge/...
