@@ -125,6 +125,9 @@ func (p podObj) restarted() bool {
 }
 
 type configMapObj struct {
+	Metadata struct {
+		Labels map[string]string `json:"labels"`
+	} `json:"metadata"`
 	Data map[string]string `json:"data"`
 }
 
@@ -285,16 +288,24 @@ func (c *Client) PodNode(ctx context.Context, ns, name string) (string, error) {
 	return p.Spec.NodeName, nil
 }
 
-// CountConfigMaps returns the number of ConfigMaps in ns matching the selector
-// (parity with the demo's `kubectl get cm -l run.ai/gpu-profile=true | wc -l`).
-func (c *Client) CountConfigMaps(ctx context.Context, ns, selector string) (int, error) {
-	var list struct {
-		Items []json.RawMessage `json:"items"`
+// ConfigMap is the subset of a ConfigMap the assertions need: the labels it
+// carries and its data keys. Fetched by exact name, the same way a consumer
+// doing a `Get` would see it — a List by label selector would not notice a
+// wrong name, which is one of the fields under test.
+type ConfigMap struct {
+	Labels map[string]string
+	Data   map[string]string
+}
+
+// GetConfigMap returns a single ConfigMap by exact name. The error surfaces
+// kubectl's own NotFound, so a caller can tell "wrong name" from "wrong
+// contents".
+func (c *Client) GetConfigMap(ctx context.Context, ns, name string) (*ConfigMap, error) {
+	var cm configMapObj
+	if err := c.getJSON(ctx, &cm, "configmap", "-n", ns, name); err != nil {
+		return nil, err
 	}
-	if err := c.getJSON(ctx, &list, "configmaps", "-n", ns, "-l", selector); err != nil {
-		return 0, err
-	}
-	return len(list.Items), nil
+	return &ConfigMap{Labels: cm.Metadata.Labels, Data: cm.Data}, nil
 }
 
 // ConfigMapData returns a single key from a ConfigMap's data field.

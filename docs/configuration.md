@@ -400,8 +400,9 @@ When deploying via Helm, additional values control integration with external pro
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps for fake-gpu-operator discovery |
-| `integrations.fakeGpuOperator.profileLabels` | `run.ai/gpu-profile: "true"` | Discovery labels on profile ConfigMaps |
+| `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps named `gpu-profile-<profile>`, keyed `profile.yaml`, in the shape fake-gpu-operator's loader reads |
+| `integrations.fakeGpuOperator.targetNamespace` | `""` (release namespace) | Namespace for the profile ConfigMaps. Set to FGO's release namespace for FGO to find them; requires FGO's `builtinProfiles.enabled=false` |
+| `integrations.fakeGpuOperator.profileLabels` | `run.ai/gpu-profile: "true"` | Extra labels on profile ConfigMaps. The contract labels are always emitted |
 
 See [fake-gpu-operator integration](integrations/fake-gpu-operator.md) for setup details.
 
