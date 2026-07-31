@@ -477,22 +477,24 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --set integrations.fakeGpuOperator.enabled=true
 ```
 
-This creates per-profile ConfigMaps discoverable by fake-gpu-operator:
+This creates per-profile ConfigMaps in the shape fake-gpu-operator's loader reads:
 
 ```bash
-kubectl get cm -l run.ai/gpu-profile=true
+kubectl get cm -l fake-gpu-operator/gpu-profile=true
 ```
 
 ```
 NAME                              DATA   AGE
-nvml-mock-profile-a100            1      10s
-nvml-mock-profile-h100            1      10s
-nvml-mock-profile-b200            1      10s
-nvml-mock-profile-gb200           1      10s
-nvml-mock-profile-gb300           1      10s
-nvml-mock-profile-l40s            1      10s
-nvml-mock-profile-t4              1      10s
+gpu-profile-a100                  1      10s
+gpu-profile-h100                  1      10s
+gpu-profile-b200                  1      10s
+gpu-profile-gb200                 1      10s
+gpu-profile-gb300                 1      10s
+gpu-profile-l40s                  1      10s
+gpu-profile-t4                    1      10s
 ```
+
+FGO loads these by name from its own namespace, so set `integrations.fakeGpuOperator.targetNamespace` to FGO's release namespace for them to be found. That requires FGO's `builtinProfiles.enabled=false`, because their builtin set uses the same seven names. See the [integration guide](../../../../docs/integrations/fake-gpu-operator.md).
 
 ### Custom Labels
 
@@ -920,8 +922,9 @@ namespace, on the pod IP where the kubelet reaches it.
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
 | `nodeLabels.pciVendorPresent` | `true` | Write the NFD feature file that makes `feature.node.kubernetes.io/pci-10de.present=true` appear. The label is created by NFD, not by nvml-mock. Set to `false` when something else already supplies that key. See [Node Labels](#node-labels) |
 | `nodeLabels.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Host directory NFD's local source reads feature files from. Override only if NFD runs with a non-default `featureFilesDir` |
-| `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps for fake-gpu-operator discovery |
-| `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Labels on profile ConfigMaps for discovery |
+| `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps named `gpu-profile-<profile>`, keyed `profile.yaml`, in the shape fake-gpu-operator's loader reads |
+| `integrations.fakeGpuOperator.targetNamespace` | `""` (release namespace) | Namespace for the profile ConfigMaps. Set to FGO's release namespace for FGO to find them; requires FGO's `builtinProfiles.enabled=false` to avoid a Helm ownership collision on the same seven names |
+| `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Extra labels on profile ConfigMaps. The contract labels `fake-gpu-operator/gpu-profile` and `nvml-mock/profile-name` are always emitted and cannot be removed here |
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |

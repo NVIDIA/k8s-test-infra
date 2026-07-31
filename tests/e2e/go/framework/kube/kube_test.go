@@ -148,6 +148,50 @@ func TestRestartedPodsGatesOnRestartCount(t *testing.T) {
 	}
 }
 
+// profileConfigMapJSON answers only for the exact name FGO's loader Gets, and
+// exits non-zero for anything else — the same way kubectl reports NotFound.
+// Without that branch a test asserting the name would pass against any name.
+const profileConfigMapJSON = `
+name=""
+for arg in "$@"; do name="$arg"; done
+if [ "$name" != "gpu-profile-a100" ]; then
+  echo "Error from server (NotFound): configmaps \"$name\" not found" >&2
+  exit 1
+fi
+cat <<EOF
+{"metadata": {"name": "gpu-profile-a100",
+  "labels": {"fake-gpu-operator/gpu-profile": "true", "run.ai/gpu-profile": "true"}},
+ "data": {"profile.yaml": "version: \"1.0\"\n"}}
+EOF
+`
+
+func TestGetConfigMapReturnsLabelsAndData(t *testing.T) {
+	installFakeKubectl(t, profileConfigMapJSON)
+
+	cm, err := newTestClient(t).GetConfigMap(context.Background(), "nvml-mock-system", "gpu-profile-a100")
+	if err != nil {
+		t.Fatalf("GetConfigMap: %v", err)
+	}
+
+	if got := cm.Labels["fake-gpu-operator/gpu-profile"]; got != "true" {
+		t.Fatalf("expected the FGO discovery label to be readable, got %q", got)
+	}
+	if got := cm.Data["profile.yaml"]; got != "version: \"1.0\"\n" {
+		t.Fatalf("expected the profile.yaml body to be readable, got %q", got)
+	}
+}
+
+// A wrong name must surface as an error rather than an empty ConfigMap, or the
+// name half of the contract check would silently pass.
+func TestGetConfigMapErrorsOnAMissingName(t *testing.T) {
+	installFakeKubectl(t, profileConfigMapJSON)
+
+	_, err := newTestClient(t).GetConfigMap(context.Background(), "nvml-mock-system", "nvml-mock-profile-a100")
+	if err == nil {
+		t.Fatal("expected an error for a ConfigMap name that does not exist, got nil")
+	}
+}
+
 func TestBaseUsesDefaultKubeconfigWhenUnset(t *testing.T) {
 	c, err := New("kind-nvml-mock-e2e")
 	if err != nil {
