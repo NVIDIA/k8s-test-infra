@@ -4,25 +4,49 @@ Tested component versions for the mock GPU E2E test suite.
 
 ## Tested Versions
 
+"Status" means exactly what CI does, not what the suite is capable of. Three of
+these components are installed as GPU Operator operands from a Helm chart that
+carries no `--version`, so their versions **float**: the value recorded here is
+what a run resolved on the stated date, not a constraint. Only Node Feature
+Discovery is pinned (`scenario_nfd_test.go:126`).
+
 | Component | Version | Chart / Image | Status |
 |---|---|---|---|
-| NVIDIA Device Plugin | v0.18.2 | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | Tested in CI |
-| DRA Driver (GPU) | v0.10.x | `nvidia/nvidia-dra-driver-gpu` (Helm) | Tested in CI |
-| GPU Feature Discovery | v0.17.0 | `nvcr.io/nvidia/gpu-feature-discovery:v0.17.0` | Tested in CI |
-| Node Feature Discovery | v0.19.0 | `nfd/node-feature-discovery` (Helm) | Pinned + tested in CI |
-| CUDA vectorAdd sample | cuda12.5.0 | `nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0` | Tested in CI |
-| GPU Operator | v24.9.2 | `nvidia/gpu-operator` (Helm) | Pinned + tested in CI |
-| DCGM | 3.3.9 | `nvcr.io/nvidia/cloud-native/dcgm:3.3.9-1-ubuntu22.04` | Spike script (`spike-dcgm.sh`) |
-| DCGM Exporter | 3.3.9-3.6.1 | `nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04` | Tested in CI (via GPU Operator) |
+| NVIDIA Device Plugin (standalone) | v0.18.2 | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | Pinned, **not run in CI** — see below |
+| NVIDIA Device Plugin (GPU Operator operand) | floats — v0.19.3 observed 2026-07-29 | from the `gpu-operator` chart | Not pinned; runs in CI |
+| DRA Driver (GPU) | floats — chart carries no `--version` | `nvidia/nvidia-dra-driver-gpu` (Helm) | Not pinned; runs in CI |
+| GPU Feature Discovery (standalone) | v0.8.2 | `nvcr.io/nvidia/gpu-feature-discovery:v0.8.2` | Pinned, **not run in CI** — see below |
+| Node Feature Discovery | v0.19.0 | `nfd/node-feature-discovery` (Helm) | **Pinned** + runs in CI |
+| CUDA vectorAdd sample | cuda12.5.0 | `nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0` | Pinned, **not run in CI** — see below |
+| GPU Operator | floats — v26.3.3 observed 2026-07-29 | `nvidia/gpu-operator` (Helm) | Not pinned; runs in CI |
+| DCGM | 3.3.9 | `nvcr.io/nvidia/cloud-native/dcgm:3.3.9-1-ubuntu22.04` | Spike script only (`spike-dcgm.sh`) |
+| DCGM Exporter (spike) | 3.3.9-3.6.1 | `nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04` | Spike script only (`spike-dcgm.sh`) |
+| DCGM Exporter (GPU Operator operand) | floats — 4.5.3-4.8.2-distroless observed 2026-07-29 | from the `gpu-operator` chart | Not pinned; runs in CI |
+
+The standalone GFD image path stops at **v0.8.2**. Later GFD releases ship
+inside `nvcr.io/nvidia/k8s-device-plugin`, so
+`nvcr.io/nvidia/gpu-feature-discovery:v0.17.0` — which this table previously
+named — does not resolve.
 
 ## Component Coverage
 
-### Fully Tested (CI)
-- **Device Plugin** (standalone DaemonSet): discovers mock GPUs via NVML, registers `nvidia.com/gpu` resource
-- **DRA Driver** (Helm chart): discovers mock GPUs via NVML, publishes ResourceSlices
-- **GPU Feature Discovery** (standalone DaemonSet): reads GPU attributes via NVML, labels nodes
-- **Node Feature Discovery** (Helm chart): derives the PCI vendor label from the feature file nvml-mock writes, not nvml-mock itself
-- **CUDA Validator** (Job): runs vectorAdd against mock libcuda.so
+### Tested in CI
+- **DRA Driver** (Helm chart): discovers mock GPUs via NVML, publishes ResourceSlices (`e2e-dra`, 6 profiles)
+- **Node Feature Discovery** (Helm chart): derives the PCI vendor label from the feature file nvml-mock writes, not nvml-mock itself (`e2e-nfd`)
+- **GPU Operator** (Helm chart + values overlay): device plugin, GFD, dcgm-exporter and validator operands (`e2e-gpu-operator`, 6 profiles) — see the overlay section below
+
+### Written but NOT run in CI
+
+Three scenarios live in `scenario_validator_test.go` and are excluded **twice
+over**: `BeforeAll` skips unless `E2E_RUN_NGC=true`, which is set in no
+workflow, and the default label filter (`Makefile`, `E2E_DEFAULT_LABEL_FILTER`)
+leads with `!validator`. A green pipeline says nothing about any of them.
+
+- **Device Plugin** (standalone DaemonSet, `device-plugin-mock.yaml`): would discover mock GPUs via NVML and register the `nvidia.com/gpu` resource. The device plugin CI *does* exercise is the GPU Operator's operand, at a different and unpinned version.
+- **GPU Feature Discovery** (standalone DaemonSet, `gfd-mock.yaml`): would read GPU attributes via NVML and label nodes. The GFD CI *does* exercise is the GPU Operator's operand.
+- **CUDA Validator** (Job, `validator-mock.yaml`): runs vectorAdd against the mock `libcuda.so`. This one would **fail** if the gate were opened — the mock exports one of the 450 driver entry points that image resolves. See [`docs/cuda-mock.md`](../../docs/cuda-mock.md).
+
+Enabling these is tracked in [#446](https://github.com/NVIDIA/k8s-test-infra/issues/446).
 
 ### Values Overlay Only (GPU Operator)
 The GPU Operator is tested via a values overlay (`gpu-operator-values.yaml`) that:

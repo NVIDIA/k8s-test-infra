@@ -19,9 +19,12 @@ Deploys a DaemonSet that creates on every node:
   paired with `libibmocksys.so` (`LD_PRELOAD`) so real `ibstat`, `ibstatus`,
   `iblinkinfo`, ... read mock HCAs
 - A fake PCI sysfs tree at `/var/lib/nvml-mock/sys/bus/pci/devices/...` (symlinks
-  into `/var/lib/nvml-mock/sys/devices/pciDDDD:BB/...`) so topology-aware
-  consumers (NVIDIA DRA driver `dra.k8s.io/pcieRoot`, NUMA-aware schedulers)
-  resolve PCIe root complex via a standard `readlink()`
+  into `/var/lib/nvml-mock/sys/devices/pciDDDD:BB/...`) so C consumers of the
+  PCI sysfs — `lspci` and anything else reaching it through libc — resolve the
+  PCIe root complex via a standard `readlink()`. The NVIDIA DRA driver is a Go
+  binary and does not see this tree, so `dra.k8s.io/pcieRoot` is still absent
+  from its ResourceSlices; see [Known Limitations](#known-limitations) and
+  issue [#265](https://github.com/NVIDIA/k8s-test-infra/issues/265)
 
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
@@ -33,6 +36,22 @@ environment at runtime, so plain pods can run `nvidia-smi` without GPU resource
 requests or pod-spec mutation. Because it injects cluster-wide, it is off by
 default. Kind clusters must have containerd NRI enabled; see
 [`docs/demo/node-wide-injection`](../../../../docs/demo/node-wide-injection).
+
+**Install it into its own namespace, and pass `-n`:**
+
+```bash
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  -n nvml-mock --create-namespace \
+  --set nri.enabled=true
+```
+
+The plugin always excludes its own release namespace, so that the main
+nvml-mock DaemonSet is never self-injected. Install without `-n` and the
+release namespace is `default` — the plugin then renders
+`--excluded-namespaces=default,kube-system` and skips every pod a first-time
+user runs. Nothing reports this: the DaemonSet is Ready, `/readyz` returns 200
+because the plugin *is* registered, and skipped containers produce no log line
+at any level. The pods simply start with no mock GPU.
 
 ## Prerequisites
 
@@ -1323,7 +1342,7 @@ discovery and monitoring. Some host-level subsystems are not mocked:
 
 | What's Missing | Affected Consumer | Impact |
 |----------------|-------------------|--------|
-| `/sys/bus/pci/devices/{busID}` sysfs entries | DRA driver | `dra.k8s.io/pcieRoot` attribute absent from ResourceSlices — **blocks topology-aware scheduling demos** (e.g., GPU + SR-IOV VF alignment) |
+| `/sys/bus/pci/devices/{busID}` sysfs entries **as a Go program reads them** | DRA driver | The tree is rendered and `lspci` reads it, but the driver is a Go binary: Go's `os` package issues raw syscalls that the `LD_PRELOAD` shim cannot intercept, so it reads the host's real sysfs instead. `dra.k8s.io/pcieRoot` stays absent from ResourceSlices — **blocks topology-aware scheduling demos** (e.g., GPU + SR-IOV VF alignment). Tracked in [#265](https://github.com/NVIDIA/k8s-test-infra/issues/265) |
 | `/sys/bus/pci/devices/{busID}/numa_node` | Device plugin | NUMA-aware topology hints unavailable; scheduling works but NUMA affinity not enforced |
 | `/sys/bus/pci/devices/*/vendor,device,class` **as NFD reads them** (`/host-sys/…`, fixed at link time) | NFD (Node Feature Discovery) | PCI feature labels not auto-detected. `nvidia.com/gpu.present` is written directly by nvml-mock; `pci-10de.present` is created by NFD from a feature file nvml-mock drops in `nodeLabels.featuresDir` — see [Node Labels](#node-labels) |
 

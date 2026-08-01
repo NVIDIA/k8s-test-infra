@@ -73,7 +73,9 @@ It is "decide what happens on a node where both paths act on one container".
 Every claim below comes from a run, not from reading the source. The
 environment was kind v0.32.0, `kindest/node:v1.35.0`, containerd 2.2.0, NRI API
 v0.10.0, chart `0.3.0-rc1`, image `ghcr.io/nvidia/nvml-mock:0.3.0-rc1`, profile
-`a100` with `gpu.count=2`, three nodes. The OCI specs come from
+`a100` with `gpu.count=2`, three nodes. The chart and image refs are left at
+`0.3.0-rc1` deliberately: that is what the measurement ran against. The same
+code ships in `v0.3.0`. The OCI specs come from
 `ctr --namespace k8s.io containers info` on the node that ran each container.
 
 | Case | Pod spec | Device-plugin flags | `linux.devices` in the OCI spec | `nvidia-smi -L` |

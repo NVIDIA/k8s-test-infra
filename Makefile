@@ -200,5 +200,10 @@ e2e-multi-node:
 e2e-nri:
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=nri'
 
+# E2E_PROFILES is pinned rather than inherited from DefaultProfiles. The nfd
+# spec hardcodes a100 (scenario_nfd_test.go), because the PCI vendor label is
+# vendor-only and byte-identical across profiles. Without this the harness
+# inherits gb200 and announces a profile the run never instantiates — a green
+# log then reads exactly like one that did exercise gb200.
 e2e-nfd:
-	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=nfd'
+	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=nfd'

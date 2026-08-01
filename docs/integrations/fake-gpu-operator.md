@@ -164,7 +164,7 @@ The following profiles are created by default:
 | `gpu-profile-a100` | NVIDIA A100-SXM4-40GB | 40 GiB |
 | `gpu-profile-h100` | NVIDIA H100 80GB HBM3 | 80 GiB |
 | `gpu-profile-b200` | NVIDIA B200 | 192 GiB |
-| `gpu-profile-gb200` | NVIDIA GB200 NVL | 192 GiB |
+| `gpu-profile-gb200` | NVIDIA GB200 | 192 GiB |
 | `gpu-profile-gb300` | NVIDIA GB300 NVL | 288 GiB |
 | `gpu-profile-l40s` | NVIDIA L40S | 48 GiB |
 | `gpu-profile-t4` | NVIDIA T4 | 16 GiB |
@@ -263,10 +263,14 @@ Confirm the nvml-mock DaemonSet is running on the expected nodes:
 kubectl get ds -l app.kubernetes.io/name=nvml-mock
 ```
 
-Check that the mock libraries are mounted correctly by exec-ing into a pod and verifying the library path:
+Check that the mock libraries are staged correctly. The chart writes them under
+`/var/lib/nvml-mock` on the host and mounts that path into consumer pods — it
+never populates the distribution library directory, so looking in
+`/usr/lib/x86_64-linux-gnu` reports "No such file or directory" on a healthy
+install:
 
 ```bash
-kubectl exec -it <pod-on-mock-node> -- ls -la /usr/lib/x86_64-linux-gnu/libnvidia-ml.so*
+kubectl exec -it <pod-on-mock-node> -- ls -la /var/lib/nvml-mock/driver/usr/lib64/libnvidia-ml.so*
 ```
 
 If the libraries are missing, check the DaemonSet pod logs for errors:
