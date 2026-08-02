@@ -102,7 +102,7 @@ guarded call trips). For interactive exploration, use a long-running
 process — e.g.
 
 ```bash
-kubectl exec -it "$POD" -- nvidia-smi \
+kubectl --context kind-nvml-mock-failure-demo exec -it "$POD" -- nvidia-smi \
   --query-gpu=index,ecc.errors.uncorrected.aggregate.total \
   --format=csv -l 1
 ```
