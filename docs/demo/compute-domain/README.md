@@ -144,6 +144,7 @@ kind load docker-image nvml-mock:compute-domain-imex --name nvml-mock-compute-do
 #    chart pulls the default upstream image which does not have the
 #    real IMEX layer baked in).
 helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
+    --kube-context kind-nvml-mock-compute-domain \
     -f docs/demo/compute-domain/topology.yaml \
     --set image.repository=nvml-mock \
     --set image.tag=compute-domain-imex \
@@ -151,13 +152,13 @@ helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
     --wait --timeout 180s
 
 # 5. Verify the per-node fabric overlay (Scenario 1).
-kubectl rollout status daemonset/nvml-mock --timeout=120s
+kubectl --context kind-nvml-mock-compute-domain rollout status daemonset/nvml-mock --timeout=120s
 for node in nvml-mock-compute-domain-{worker,worker2,worker3,worker4}; do
-  pod=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+  pod=$(kubectl --context kind-nvml-mock-compute-domain get pods -l app.kubernetes.io/name=nvml-mock \
     --field-selector="spec.nodeName=${node},status.phase=Running" \
     -o jsonpath='{.items[0].metadata.name}')
   echo "=== ${node} (pod=${pod}) ==="
-  kubectl exec "${pod}" -- check-fabric | head -6
+  kubectl --context kind-nvml-mock-compute-domain exec "${pod}" -- check-fabric | head -6
 done
 ```
 
@@ -253,7 +254,7 @@ list).
 * **Rerunning after a failed Scenario 2.** A run that dies mid-scenario
   leaves real `nvidia-imex` daemons holding port 50000 inside the pods,
   and a rerun's daemons will fail to bind. Recycle the pods first:
-  `kubectl delete pods -l app.kubernetes.io/name=nvml-mock` (the
+  `kubectl --context kind-nvml-mock-compute-domain delete pods -l app.kubernetes.io/name=nvml-mock` (the
   DaemonSet recreates them clean), or delete the cluster for a truly
   fresh start. Successful runs clean up after themselves.
 * **`nvidia-imex-ctl -N -j` shows the peer `UNAVAILABLE` with an empty

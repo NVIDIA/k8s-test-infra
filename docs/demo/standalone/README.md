@@ -40,7 +40,7 @@ the node labels that downstream consumers expect.
 
 ```bash
 # Remove just the release (keeps the cluster):
-helm uninstall nvml-mock -n mokka
+helm uninstall nvml-mock -n mokka --kube-context kind-nvml-mock-demo
 
 # Or tear down the whole cluster:
 kind delete cluster --name nvml-mock-demo
