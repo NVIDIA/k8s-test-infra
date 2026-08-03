@@ -33,7 +33,12 @@ When `nri.enabled=true` (opt-in; default `false`), the chart also deploys
 `nvml-mock-nri`, a node-local containerd NRI plugin. It mounts the host overlay
 into newly created containers at `/opt/nvml-mock` and injects the mock
 environment at runtime, so plain pods can run `nvidia-smi` without GPU resource
-requests or pod-spec mutation. Because it injects cluster-wide, it is off by
+requests or pod-spec mutation. The overlay and environment are injected ambiently into
+containers in non-excluded namespaces, while host device nodes (`/dev/nvidia*`) remain opt-in
+(via `nvidia.com/gpu` requests or the `nvml-mock.nvidia.com/devices: "true"` annotation).
+Unannotated pods without GPU requests will still report GPUs if `nvidia-smi` is run inside them.
+Test suites that rely on non-GPU pods seeing zero GPUs should either keep NRI disabled (`nri.enabled=false`)
+or run within an excluded namespace (`nri.excludedNamespaces`). Because it injects cluster-wide, it is off by
 default. Kind clusters must have containerd NRI enabled; see
 [`docs/demo/node-wide-injection`](../../../../docs/demo/node-wide-injection).
 
@@ -947,7 +952,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
-| `nri.enabled` | `false` | Deploy the `nvml-mock-nri` containerd NRI plugin DaemonSet. Injects cluster-wide at container-creation time, so it is opt-in. Requires containerd NRI enabled on every node |
+| `nri.enabled` | `false` | Deploy the `nvml-mock-nri` containerd NRI plugin DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n nvml-mock`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
 | `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
 | `nri.pluginName` / `nri.pluginIndex` | `nvml-mock` / `"10"` | NRI registration identity. The index orders this plugin against others |
 | `nri.overlay.hostPath` / `nri.overlay.mountPath` | `/var/lib/nvml-mock` / `/opt/nvml-mock` | Host overlay staged by the main DaemonSet, and the path it is injected at inside workloads |
