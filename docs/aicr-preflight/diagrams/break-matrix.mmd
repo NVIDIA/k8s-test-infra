@@ -1,0 +1,14 @@
+%% Where it actually broke. Base cell, 2026-08-03. 9 of 21 checks dispatched.
+%% Attribution matters more than the pass/fail split: none of the 5 failures is a Mokka gap.
+flowchart TB
+    R["base-gb200-kind-inference-stack<br/>AICR dispatched 9 of 21 checks"]
+    R --> P["PASS: 3"]
+    R --> F["FAIL: 5"]
+    R --> I["INCONCLUSIVE: 1"]
+    R --> N["NOT DISPATCHED: 12"]
+    P --> P1["operator-health (A)<br/>check-nvidia-smi (A)<br/>accelerator-metrics (A)"]
+    F --> F1["gpu-operator-version<br/>cause: operator version violates<br/>the recipe's own >= v25.10.0 floor.<br/>The check WORKED."]
+    F --> F2["dra-support<br/>cause U: upstream altProcDevices unreleased"]
+    F --> F3["ai-service-metrics, platform-health<br/>cause: 2 of 14 recipe components deployed"]
+    F --> F4["gpu-operator-health<br/>cause K (provisional): GFD, no-toolkit config"]
+    I --> I1["expected-resources<br/>Job pod vanished; recorded not-run, never a pass"]
