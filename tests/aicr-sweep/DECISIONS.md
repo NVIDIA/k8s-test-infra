@@ -319,3 +319,54 @@ claiming either answer.
 
 This is the exact failure mode the brief warned about, so I am writing down the reasoning rather than
 just the verdict.
+
+---
+
+## D-015: Hybrid KWOK + Mokka cell runs, over a panel dissent that I agreed with
+
+**The question:** would combining KWOK (horizontal, node-count breadth) with Mokka (vertical, per-node
+GPU-stack depth) give this study a scale story?
+
+**The blocking fact, established before deciding:** `aicr validate` launches every one of the 21 checks
+as a containerized Kubernetes Job. A Job scheduled onto a KWOK node executes nothing, because a KWOK
+node has no kubelet; `stage-fast` walks the pod through phases without running a container. **Adding N
+KWOK nodes therefore adds exactly zero AICR check coverage**, and cannot move either the measured 14%
+or the 76% ceiling.
+
+**The recommendation panel overturned my proposal** to run a hybrid experiment. Its argument, which I
+agreed with on reading it: "KWOK nodes break `check-nvidia-smi`" is not a discovery, it is definitional,
+and spending an evening measuring it documents the obvious. Two further points I checked and conceded:
+
+- The DRA ResourceSlice-at-scale angle collapses for the same reason. The DRA kubelet plugin is a
+  DaemonSet and will not run on KWOK nodes either.
+- The one genuinely unknown question in the area (do the GPU Operator ClusterPolicy loop and NFD master
+  degrade as node count grows?) belongs to the Perf-and-Scale V-Team workstream. The POC SSOT says
+  explicitly not to conflate that 5K-node effort with this correctness-of-checks POC.
+
+**Chosen anyway: run it.** Carlos reaffirmed the hybrid experiment after reading the panel's dissent and
+my flip. That is his call to make, and it is recorded here rather than quietly followed.
+
+**What the cell is designed to measure**, given the above rules out a coverage number. The output is a
+*discipline*, not a percentage: what a fleet operator must do to combine the two without corrupting an
+AICR run.
+
+| Cell | KWOK nodes | Question |
+|---|---|---|
+| `hybrid-kwok-tainted` | present, `NoSchedule` | do Mokka and KWOK nodes coexist without changing any AICR verdict against the pure-Mokka baseline? |
+| `hybrid-kwok-schedulable` | present, schedulable, advertising `nvidia.com/gpu` | which checks change verdict, and by how much, when fleet-surveying checks can target hollow nodes? |
+
+The delta between those two cells and the `base-gb200-kind-inference-stack` baseline is the finding. If
+the delta is zero in the tainted case and non-zero in the schedulable case, the result is a concrete
+node-selector and taint requirement for anyone building a combined fleet, which is directly useful to
+Eliran's per-nodepool `backend` design.
+
+**What this cell will NOT be allowed to claim,** written down before it runs so the result cannot drift:
+it is not AICR coverage at scale, it is not a bring-up-time number, and it is not evidence of GPU-stack
+fidelity at KWOK node counts. The panel's dissent is reported alongside the result.
+
+**Outcome, recorded after the run:** the experiment did not document the obvious. It produced a
+**false pass**, not the predicted false fail: with 250 KWOK nodes present, all 9 AICR checks reported
+green in under 10 seconds with no container ever executing, and the documented `--node-selector`
+mitigation does not work because AICR never applies it to the validator Job pod spec. Both the panel
+and I were wrong about the direction of the result. Carlos's override was correct. Full writeup in
+`HYBRID-KWOK-FINDING.md`; the false passes are deliberately excluded from `cells.yaml` and the rollup.

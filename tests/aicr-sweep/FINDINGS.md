@@ -166,6 +166,37 @@ quoting something I did not measure.
 
 **Scale is untested and this run cannot speak to it.** kind on one host. That is the whole caveat.
 
+## 6b. KWOK + Mokka: combining them makes the suite report green without running
+
+Run after the sections above, on Carlos's call and over a panel dissent I agreed with. Full writeup:
+[HYBRID-KWOK-FINDING.md](HYBRID-KWOK-FINDING.md). Evidence:
+[results/kwok-false-pass-evidence.log](results/kwok-false-pass-evidence.log).
+
+Added 250 hollow KWOK GPU nodes to the Mokka cluster, giving a 253-node fleet advertising 2016
+`nvidia.com/gpu`, and re-ran the identical recipe. **Every check passed, in 4.2s and 5.2s, against
+9m 0s on the pure-Mokka baseline. Nothing executed.**
+
+Four verified facts compose into it: AICR validator Jobs tolerate every taint (empty key,
+`operator: Exists`, asserted at `deployer_test.go:516`); KWOK nodes carry the full GPU label set and
+real `nvidia.com/gpu` capacity; so the scheduler places validators on them, 250 hollow against 2 real;
+and KWOK's `pod-complete` stage transitions any Job-owned pod to `Succeeded`. The container status
+shows an empty `imageID` and `started: false` with `startedAt == finishedAt`, so the image was never
+pulled, and `kubectl logs` returns `MethodNotAllowed` because there is no kubelet.
+
+**`--node-selector` does not mitigate it.** Measured: the flag reaches the snapshot agent's pod spec
+and stops. `deployer.go:66` states it is passed to inner workloads via `AICR_NODE_SELECTOR`, never
+applied to the validator Job's own pod spec. With the flag set as documented, all four deployment
+checks still passed in 4.2s on hollow nodes.
+
+Not a Mokka gap, and not a KWOK bug. It is a composition hazard whose actionable half is in AICR, and
+it is exactly the architecture Eliran's per-nodepool `backend` design produces.
+
+**Excluded from the coverage matrix on purpose.** These 9 passes are all false; feeding them into the
+denominator would raise the headline using fabricated results.
+
+Incidentally, the horizontal axis behaved: 250 hollow nodes cost about 1 GiB and took
+`kubectl get nodes` from 0.06s to 0.30s. No controller churn.
+
 ## 7. One structural finding worth your time, Mark
 
 AICR already ships a KWOK lane (`kwok/`, `.ctlptl-kwok.yaml`, `make kwok-test-all`) that covers 90
