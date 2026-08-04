@@ -22,17 +22,21 @@ Many K8s control-plane consumers read a broader evidence surface than allocation
 
 ## Independent failure and attribution
 
-Layers form a dependency stack, but each layer must be able to fail on its own while others stay healthy. That independence makes a failure attributable: which layer broke decides the owner, the remediation path, and the urgency.
+Layers form a dependency stack, but each layer must be able to fail on its own while others stay healthy.
+Which layer broke decides the owner, the remediation path, and the urgency.
 
-For the mock this means each simulated surface must be settable on its own. A GPU present in the PCI tree with no driver footprint is a valid and common state, and the mock has to be able to produce it. Surfaces that can only be enabled together collapse the layers back into one, and attribution becomes untestable even when every layer is drawn separately.
+For the mock, that means each simulated surface has to be controllable independently.
+A GPU can show up in the PCI tree with no driver footprint; that is a normal failure mode, and the mock needs to reproduce it.
+If surfaces can only be turned on together, the layers collapse into one failure and attribution cannot be tested.
 
 ## Delivery
 
-Settability is only half of usable. The surfaces also have to reach the consumer, and this is the one that fails silently.
+Simulated file surfaces also have to be visible at the paths consumers already use.
+Pointing a consumer at a substitute path with a flag only works when that flag exists, and it no longer tests that the consumer reads the real path.
 
-Simulated file surfaces should appear at the paths consumers already read. Redirecting a consumer to a substitute location with a flag only works where such a flag exists, and it stops testing that the consumer reads the correct path.
-
-Interposition has a limit worth designing around: `LD_PRELOAD` hooks libc, so it reaches `C` consumers such as `lspci` and `ibv_devinfo`, but not `Go` binaries, which issue syscalls directly and never consult the preloaded library. Much of the K8s control plane is `Go`, so file surfaces need to be mounted into the container rather than intercepted.
+`LD_PRELOAD` can rewrite libc calls for C tools such as `lspci` and `ibv_devinfo`.
+It does not work for Go binaries: they make syscalls directly and never go through the preloaded library.
+Most of the Kubernetes control plane is Go, so file surfaces need to be mounted into the container instead of intercepted.
 
 ## System Overview
 
