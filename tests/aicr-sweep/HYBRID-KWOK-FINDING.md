@@ -16,12 +16,18 @@ checks would obviously go red. The actual result is the opposite, and it is wors
 
 ## What happened
 
+**AICR dispatched the same 9 checks in both runs.** Adding KWOK nodes did not change which checks were
+selected. It changed their verdicts.
+
 | | pure Mokka (baseline) | + 250 KWOK nodes |
 |---|---|---|
+| checks dispatched | 9 of 21 | 9 of 21 (identical set) |
 | deployment phase | 9m 0s, 2 pass / 1 fail / 1 inconclusive | **4.2s, 4 pass / 0 fail** |
 | conformance phase | 5 selected, 1 pass / 4 fail | **5.2s, 5 pass / 0 fail** |
+| overall | 3 pass / 5 fail / 1 inconclusive | **9 pass / 0 fail** |
 
-**Every check reported PASS. Nothing ran.**
+**Every one of the 9 dispatched checks reported PASS. Nothing ran.** The other 12 stayed undispatched
+in both runs, so this is not a coverage increase; it is the same 9 verdicts, fabricated.
 
 The fleet was 253 nodes: 1 control plane, 2 real Mokka workers, 250 hollow KWOK nodes, advertising
 2016 `nvidia.com/gpu` between them.
