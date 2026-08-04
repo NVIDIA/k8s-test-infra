@@ -15,6 +15,15 @@ Higher level applications are our consumers:
 We don't try to mock a specific higher layer component or use case, but rather focus on the simulation of contracts between lower and higher layers.
 This should help to support a wide range of higher layer applications that we don't know or have access to (for example, neocloud's proprietary AI infrastructure services).
 
+## Contract surfaces
+
+Mocking a single interface (for example NVML alone) can prove a GPU can be *allocated*.
+Many K8s control-plane consumers read a broader evidence surface than allocation alone: NVML / nvidia-smi, PCI and sysfs trees, and kernel or driver footprints under `/proc` and `/sys` (including module state such as `lsmod`).
+
+## Independent failure and attribution
+
+Layers form a dependency stack, but each layer must be able to fail on its own while others stay healthy. That independence makes a failure attributable: which layer broke decides the owner, the remediation path, and the urgency.
+
 ## System Overview
 
 ```
