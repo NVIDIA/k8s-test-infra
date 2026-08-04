@@ -33,6 +33,7 @@ kind load docker-image nvml-mock:demo --name nvml-mock-fgo-demo
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  --kube-context kind-nvml-mock-fgo-demo \
   --set integrations.fakeGpuOperator.enabled=true \
   --set gpu.profile=h100 \
   --set gpu.count=8 \
@@ -49,6 +50,7 @@ Follow the official FGO installation instructions. A minimal example:
 ```bash
 
 helm upgrade --install gpu-operator  oci://ghcr.io/run-ai/fake-gpu-operator/fake-gpu-operator \
+  --kube-context kind-nvml-mock-fgo-demo \
   -n gpu-operator --create-namespace \
   --wait --timeout 120s  -f - <<EOF
 topology:
@@ -74,26 +76,26 @@ pool uses `backend: fake` (FGO provides the shim).
 
 ```bash
 # DaemonSet pods should be running on the integration worker.
-kubectl get pods -l app.kubernetes.io/name=nvml-mock -o wide
+kubectl --context kind-nvml-mock-fgo-demo get pods -l app.kubernetes.io/name=nvml-mock -o wide
 
 # Profile ConfigMaps should exist.
-kubectl get configmaps -l run.ai/gpu-profile=true
+kubectl --context kind-nvml-mock-fgo-demo get configmaps -l run.ai/gpu-profile=true
 
 # nvidia-smi should work inside the pod.
-POD=$(kubectl get pods -l app.kubernetes.io/name=nvml-mock \
+POD=$(kubectl --context kind-nvml-mock-fgo-demo get pods -l app.kubernetes.io/name=nvml-mock \
   -o jsonpath='{.items[0].metadata.name}')
-kubectl exec "${POD}" -- nvidia-smi
+kubectl --context kind-nvml-mock-fgo-demo exec "${POD}" -- nvidia-smi
 
 # InfiniBand diagnostic tools see one mock ConnectX-7 NDR HCA per GPU.
-kubectl exec "${POD}" -- ibstat
-kubectl exec "${POD}" -- ibstatus
+kubectl --context kind-nvml-mock-fgo-demo exec "${POD}" -- ibstat
+kubectl --context kind-nvml-mock-fgo-demo exec "${POD}" -- ibstatus
 ```
 
 ### Scale pool (fake-gpu-operator)
 
 ```bash
 # FGO pods should be running on the scale workers.
-kubectl get pods -l app=fake-gpu-operator -o wide
+kubectl --context kind-nvml-mock-fgo-demo get pods -l app=fake-gpu-operator -o wide
 ```
 
 ## Expected outcome
