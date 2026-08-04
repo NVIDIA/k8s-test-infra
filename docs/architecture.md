@@ -1,6 +1,6 @@
 # Architecture
 
-The main idea of Mokka is to simulate very low-level system contacts, 
+The main idea of Mokka is to simulate very low-level system contracts, 
 so that higher layer components work meaningfully without any modifications.
 
 This is achieved via simulation of device status, PCI trees, driver footprints for GPU and networking.
