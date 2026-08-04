@@ -15,6 +15,11 @@ Higher level applications are our consumers:
 We don't try to mock a specific higher layer component or use case, but rather focus on the simulation of contracts between lower and higher layers.
 This should help to support a wide range of higher layer applications that we don't know or have access to (for example, neocloud's proprietary AI infrastructure services).
 
+Mokka provides a mock driver that looks like the real one to management tooling.
+Same libraries and file footprints, no real kernel module, no GPU data path.
+That is why nvidia-smi can run unmodified, and why module surfaces such as what `lsmod` reads belong in the same story.
+GPU identity and behavior come from config profiles (different chips, counts, topology), with tools to change health and fault state at runtime.
+
 ## Contract surfaces
 
 Mocking a single interface (for example NVML alone) can prove a GPU can be *allocated*.
