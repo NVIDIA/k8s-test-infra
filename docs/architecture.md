@@ -1,6 +1,16 @@
-# Architecture Guide
+# Architecture
 
-Deep dive into Mock NVML's design and implementation.
+The main idea of Mokka is to simulate very low-level system contacts, 
+so that higher layer components work meaningfully without any modifications.
+
+This is achieved via simulation of device status, PCI trees, driver footprints for GPU and networking.
+The lower level we operate, the better here as we expand the number of real workflows that are executed (vs. being completely disabled or mocked away).
+
+![Mokka General Architecture](./img/mokka-general-architecture.png)
+
+Higher level applications are our consumers:
+- platform components such as [nvidia-smi](https://docs.nvidia.com/deploy/nvidia-smi/index.html), [K8s DRA driver](https://github.com/kubernetes-sigs/dra-driver-nvidia-gpu), [NFD](https://github.com/kubernetes-sigs/node-feature-discovery), [GPU Operator](https://github.com/nvidia/gpu-operator), [Network Operator](https://github.com/Mellanox/network-operator), [Topograph](https://github.com/NVIDIA/topograph), etc.
+- applications like [Slurm](https://github.com/SlinkyProject/slurm-operator), [NVSentinel](https://github.com/nvidia/nvsentinel), etc.
 
 ## System Overview
 
