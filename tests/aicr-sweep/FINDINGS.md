@@ -173,8 +173,9 @@ Run after the sections above, on Carlos's call and over a panel dissent I agreed
 [results/kwok-false-pass-evidence.log](results/kwok-false-pass-evidence.log).
 
 Added 250 hollow KWOK GPU nodes to the Mokka cluster, giving a 253-node fleet advertising 2016
-`nvidia.com/gpu`, and re-ran the identical recipe. **Every check passed, in 4.2s and 5.2s, against
-9m 0s on the pure-Mokka baseline. Nothing executed.**
+`nvidia.com/gpu`, and re-ran the identical recipe. AICR dispatched **the same 9 of 21 checks** as the
+baseline, so this is not a coverage increase. What changed is the verdicts: **3 pass / 5 fail /
+1 inconclusive became 9 pass / 0 fail, in 4.2s and 5.2s against 9m 0s. Nothing executed.**
 
 Four verified facts compose into it: AICR validator Jobs tolerate every taint (empty key,
 `operator: Exists`, asserted at `deployer_test.go:516`); KWOK nodes carry the full GPU label set and
