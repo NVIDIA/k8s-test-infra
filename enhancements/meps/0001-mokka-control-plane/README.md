@@ -39,12 +39,14 @@ However, we are approaching use cases that push it to its limits:
 - there is no way to simulate capacity distribution of GPU platforms like GB300. For example, if you want to simulate two GB300 instances in the cluster, you should be able to schedule no more than 2 * 18 = 36 nodes with 4x GPU each. Today it's the responsibility of Mokka users to properly configure that which may lead to unrealistic cluster topologies.
 - we would like to have a simple way to change simulated GPU runtime state like temperature, failure modes, etc. So there is a quick way for a cluster operator to propagate a failure across thousands of nodes.
 - we ask cluster administrators to set `nvidia.com/clique` labels while it should be based on the GPU rack the node belongs to.
+- We ask cluster administrators to provide cross-rack network topology.
 
 ### Goals
 
 We aim for:
 - decoupling of the simulated GPU profiles and runtime state from NVML mocks in order to control it in a centralized way
 - being able to schedule only a realistic number of GPU nodes based on provided configuration.
+- automatically infer networking as much as we can.
 
 ### Non-Goals
 
@@ -96,6 +98,29 @@ so it could be thought of as a virtual device set (virtual GPU and network card)
 
 At the same time, Control Plane is responsible for distributing and assigning sGPU capacity to the node agents, 
 receiving changes that external clients want to apply to the sGPUs' runtime state.
+
+#### Runtime State
+
+While high level architecture is the same, there are two different ways to manage runtime state.
+
+Control plane runtime state includes:
+- sGPU node to K8s Node allocation
+- Last time the node agent asked for their identity (acts as a health check, so we can automatically find allocations that are assigned to dead nodes/or agents)
+- sGPU runtime information (failures, temperature, fan state, etc.)
+
+There are two ways to store it.
+
+1. Custom resources in K8s etcd (sGPU Node Allocation):
+- [Good] No need to bring any dependency. Using the vanilla K8s capabilities
+- [Bad/Neutral] Implementation-wise it's harder to achieve correctness when working with etcd via K8s API than
+- [Bad/Neutral] Each NodeAllocation corresponds to a K8s Node so we basically will have 5k records when we simulate 5k big GPU cluster, for example.
+- [Bad] It's likely that will update those objects pretty often which is a load on K8s Control Plane.
+
+2. Keep it Redis:
+- [Good] Much easier to operate on the state, change it concurrently and atomically and even search compared to etcd.
+- [Good] It scales well. It might be helpful for more advanced functionality
+- [Good] No additional pressure on the Kubernetes Control plane
+- [Bad] We add an external dependency in a form of Redis. Even though it's the least demanding DB in terms of operations, we need to deploy it and potentially make sure it's snapshotting its content for persistance (so PVC would be needed).
 
 ### User Stories
 
@@ -192,6 +217,10 @@ After this proposal is implemented, the following steps would be needed to setup
 - Label the nodes that are supposed to have sGPU with `mokka.nvidia.com/sgpu: auto` (or specific sGPU type like `h100`).
 
 That's all. Mokka Control Plane should be able to distribute the capacity without any other help.
+
+### CRD Design
+
+TBU
 
 ## Drawbacks
 
