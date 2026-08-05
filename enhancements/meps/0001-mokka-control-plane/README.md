@@ -611,6 +611,11 @@ x-kubernetes-list-map-keys:
   - id
 ```
 
+We should probably limit the number of rack groups, our users can specify to a reasonable number like 64 (Gateway API limits [the number of listeners to 64 as well](https://www.romaglushko.com/blog/k8s-gateway-api/#listenerset)).
+
+A specific rack runtime state that consists clique compute domain information is a part of [the runtime state](#runtime-state) 
+and should be kept outside the Kubernetes etcd.
+
 #### SGPURuntimePolicy
 
 ```yaml
@@ -1334,7 +1339,7 @@ When it comes to network topology, we should:
 The core-spine-leaf switch topology is used by major clouds like AWS, GCP, OCI, etc. 
 By using it by default, we can simplify the cluster administrator's life.
 
-TBU
+![Mokka Topology Generation](./img/mokka-topograph-integration.png)
 
 ## Drawbacks
 
