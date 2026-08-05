@@ -276,7 +276,7 @@ typedef struct nvmlEccSramErrorStatus_st                    nvmlEccSramErrorStat
 typedef struct nvmlEccSramUniqueUncorrectedErrorCounts_st   nvmlEccSramUniqueUncorrectedErrorCounts_t;
 typedef struct nvmlEncoderSessionInfo_st                    nvmlEncoderSessionInfo_t;
 /* Event data - full definition needed by bridge so the failure-injection
- * Xid event surfaced via nvmlEventSetWait_v2 can populate the eventType
+ * Xid event surfaced via nvmlEventSetWait_v1/_v2 can populate the eventType
  * and eventData fields (see bridge/events.go). Layout matches the
  * upstream NVML header. */
 typedef struct nvmlEventData_st {
