@@ -40,6 +40,7 @@ set -euo pipefail
 # Configuration
 ###############################################################################
 CLUSTER_NAME="nvml-mock-compute-domain"
+KUBE_CONTEXT="kind-${CLUSTER_NAME}"
 IMAGE_NAME="nvml-mock:compute-domain"
 DEMO_IMAGE_NAME="nvml-mock:compute-domain-imex"
 RELEASE_NAME="nvml-mock"
@@ -63,6 +64,11 @@ sub()  { printf '    %s\n' "$*" >&2; }
 ok()   { printf '    \xE2\x9C\x93 %s\n' "$*" >&2; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
+# Keep every Kubernetes operation scoped to this demo's Kind cluster.
+# In particular, an existing cluster is reused without Kind changing the
+# caller's current kubeconfig context.
+kubectl_ctx() { command kubectl --context "${KUBE_CONTEXT}" "$@"; }
+
 command -v jq >/dev/null 2>&1 || fail "jq is required (Scenario 2 parses nvidia-imex-ctl JSON)"
 
 # pod_on_node: echo the name of the running nvml-mock pod scheduled on
@@ -75,7 +81,7 @@ pod_on_node() {
   # reliable than a single shot.
   for _ in $(seq 1 30); do
     local name
-    name=$(kubectl get pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
+    name=$(kubectl_ctx get pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
       --field-selector="spec.nodeName=${node},status.phase=Running" \
       -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
     if [[ -n "${name}" ]]; then
@@ -92,7 +98,7 @@ pod_on_node() {
 # pulled on Init() per pod, so we can't verify clique assignment
 # before the pods are up).
 wait_for_rollout() {
-  kubectl rollout status "daemonset/${RELEASE_NAME}" --timeout=180s >/dev/null
+  kubectl_ctx rollout status "daemonset/${RELEASE_NAME}" --timeout=180s >/dev/null
 }
 
 # assert_clique: assert the check-fabric output from `node` reports
@@ -108,7 +114,7 @@ assert_clique() {
   fi
   sub "${node} (pod=${pod}) — running check-fabric"
   local out
-  out=$(kubectl exec "${pod}" -- check-fabric 2>&1 || true)
+  out=$(kubectl_ctx exec "${pod}" -- check-fabric 2>&1 || true)
   printf '%s\n' "${out}" | sed 's/^/      /' >&2
   if ! printf '%s\n' "${out}" | grep -q "cliqueId    : ${expected_clique}"; then
     fail "${node}: expected cliqueId ${expected_clique} in check-fabric output"
@@ -171,6 +177,7 @@ info "Installing chart (gb200 + topology; real IMEX via demo image)"
 # topology overlay assigned to that node, which is stronger evidence
 # the deeper the per-node device list goes.
 helm upgrade --install "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
+  --kube-context "${KUBE_CONTEXT}" \
   -f "${TOPOLOGY_FILE}" \
   --set image.repository=nvml-mock \
   --set image.tag=compute-domain-imex \
@@ -185,7 +192,7 @@ wait_for_rollout
 # Step 4 — Verify the rendered topology ConfigMap
 ###############################################################################
 info "Rendered topology ConfigMap"
-kubectl get "configmap/${RELEASE_NAME}-topology" \
+kubectl_ctx get "configmap/${RELEASE_NAME}-topology" \
   -o jsonpath='{.data.topology\.yaml}' | sed 's/^/    /'
 echo
 
@@ -213,8 +220,8 @@ POD_A=$(pod_on_node "${WORKER1}")
 POD_B=$(pod_on_node "${WORKER2}")
 sub "clique 0 pods: ${POD_A}, ${POD_B}"
 
-IP_A=$(kubectl get pod "${POD_A}" -o jsonpath='{.status.podIP}')
-IP_B=$(kubectl get pod "${POD_B}" -o jsonpath='{.status.podIP}')
+IP_A=$(kubectl_ctx get pod "${POD_A}" -o jsonpath='{.status.podIP}')
+IP_B=$(kubectl_ctx get pod "${POD_B}" -o jsonpath='{.status.podIP}')
 sub "pod IPs: ${POD_A}=${IP_A}  ${POD_B}=${IP_B}"
 
 # Render a per-pod IMEX config: foreground daemon, our nodes file, a
@@ -222,7 +229,7 @@ sub "pod IPs: ${POD_A}=${IP_A}  ${POD_B}=${IP_B}"
 IMEX_CFG=/tmp/imex.cfg
 NODES_CFG=/tmp/nodes.cfg
 for pod in "${POD_A}" "${POD_B}"; do
-  kubectl exec "${pod}" -- sh -c "
+  kubectl_ctx exec "${pod}" -- sh -c "
     printf '%s\n%s\n' '${IP_A}' '${IP_B}' > '${NODES_CFG}'
     sed -e 's/^DAEMONIZE=1/DAEMONIZE=0/' \
         -e 's|^IMEX_NODE_CONFIG_FILE=.*|IMEX_NODE_CONFIG_FILE=${NODES_CFG}|' \
@@ -232,7 +239,7 @@ done
 
 start_imex() {
   local pod=$1
-  kubectl exec "${pod}" -- sh -c \
+  kubectl_ctx exec "${pod}" -- sh -c \
     "nvidia-imex -c ${IMEX_CFG} >/tmp/imex.stdout 2>&1 & echo \$! > /tmp/imex.pid"
 }
 
@@ -241,7 +248,7 @@ start_imex() {
 # still coming up.
 imex_domain_status() {
   local pod=$1
-  kubectl exec "${pod}" -- nvidia-imex-ctl -c "${IMEX_CFG}" -N -j 2>/dev/null \
+  kubectl_ctx exec "${pod}" -- nvidia-imex-ctl -c "${IMEX_CFG}" -N -j 2>/dev/null \
     | jq -r '.status' 2>/dev/null || printf 'UNREACHABLE\n'
 }
 
@@ -257,7 +264,7 @@ wait_domain_status() {
     fi
     sleep 1
   done
-  kubectl exec "${pod}" -- sh -c 'tail -20 /tmp/nvidia-imex.log 2>/dev/null' >&2 || true
+  kubectl_ctx exec "${pod}" -- sh -c 'tail -20 /tmp/nvidia-imex.log 2>/dev/null' >&2 || true
   fail "domain status never became ${want} ${reason}"
 }
 
@@ -268,7 +275,7 @@ sub "starting real nvidia-imex (--nogpu via shim) in ${POD_A}"
 start_imex "${POD_A}"
 Q_OUT=""
 for _ in $(seq 1 30); do
-  Q_OUT=$(kubectl exec "${POD_A}" -- nvidia-imex-ctl -c "${IMEX_CFG}" -q 2>/dev/null || true)
+  Q_OUT=$(kubectl_ctx exec "${POD_A}" -- nvidia-imex-ctl -c "${IMEX_CFG}" -q 2>/dev/null || true)
   [[ "${Q_OUT}" == "READY" ]] && break
   sleep 1
 done
@@ -286,7 +293,7 @@ start_imex "${POD_B}"
 wait_domain_status "${POD_A}" "UP" "after both daemons started (real cross-node gRPC)"
 
 # Every member must be READY and report the NO_GPU version handshake.
-NODES_JSON=$(kubectl exec "${POD_A}" -- nvidia-imex-ctl -c "${IMEX_CFG}" -N -j 2>/dev/null)
+NODES_JSON=$(kubectl_ctx exec "${POD_A}" -- nvidia-imex-ctl -c "${IMEX_CFG}" -N -j 2>/dev/null)
 READY_NODES=$(printf '%s' "${NODES_JSON}" | jq -r '[.nodes[] | select(.status=="READY")] | length')
 NOGPU_NODES=$(printf '%s' "${NODES_JSON}" | jq -r '[.nodes[] | select(.version=="NO_GPU")] | length')
 [[ "${READY_NODES}" == "2" ]] || fail "want 2 READY nodes, got ${READY_NODES}: ${NODES_JSON}"
@@ -297,7 +304,7 @@ ok "2/2 nodes READY, version NO_GPU — real IMEX domain over the pod network"
 # liveness detection — the property the deprecated marker files could
 # not provide (a SIGKILLed fake left its marker behind).
 sub "killing nvidia-imex in ${POD_B}"
-kubectl exec "${POD_B}" -- sh -c 'kill -TERM "$(cat /tmp/imex.pid)" 2>/dev/null || true'
+kubectl_ctx exec "${POD_B}" -- sh -c 'kill -TERM "$(cat /tmp/imex.pid)" 2>/dev/null || true'
 STATUS_AFTER="UP"
 for _ in $(seq 1 60); do
   STATUS_AFTER=$(imex_domain_status "${POD_A}")
@@ -308,7 +315,7 @@ done
 ok "peer death detected: domain status=${STATUS_AFTER} (real liveness)"
 
 # Tidy up daemon A so Scenario 3's rollout starts clean.
-kubectl exec "${POD_A}" -- sh -c 'kill -TERM "$(cat /tmp/imex.pid)" 2>/dev/null || true' || true
+kubectl_ctx exec "${POD_A}" -- sh -c 'kill -TERM "$(cat /tmp/imex.pid)" 2>/dev/null || true' || true
 
 ###############################################################################
 # Scenario 3 — Topology rebinding (helm upgrade, no image rebuild)
@@ -334,6 +341,7 @@ topology:
             - ${WORKER4}
 EOF
 helm upgrade "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
+  --kube-context "${KUBE_CONTEXT}" \
   --reuse-values \
   -f "${NEW_TOPO}" \
   --wait --timeout 180s >/dev/null
@@ -341,7 +349,7 @@ helm upgrade "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
 # The engine reads MOCK_TOPOLOGY_CONFIG once at process start, so we
 # need to recycle every pod for the new clique to take effect.
 sub "evicting pods to re-read topology"
-kubectl delete pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
+kubectl_ctx delete pods -l "app.kubernetes.io/name=${RELEASE_NAME}" \
   --ignore-not-found >/dev/null
 wait_for_rollout
 
