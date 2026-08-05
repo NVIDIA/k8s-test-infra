@@ -7,6 +7,7 @@ package kube
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -189,6 +190,85 @@ func TestGetConfigMapErrorsOnAMissingName(t *testing.T) {
 	_, err := newTestClient(t).GetConfigMap(context.Background(), "nvml-mock-system", "nvml-mock-profile-a100")
 	if err == nil {
 		t.Fatal("expected an error for a ConfigMap name that does not exist, got nil")
+	}
+}
+
+// Readiness has to mean "this spec rolled out and is ready", not "some pod is
+// ready": a caller polling straight after a restart would otherwise be answered
+// by the very pod it asked to have replaced, then talk to it as it is deleted.
+// Every case here keeps numberReady == desiredNumberScheduled, which is exactly
+// the shape that fools a ready count. The settled case is the counterweight —
+// too strict and every wait built on this would simply hang.
+func TestDaemonSetRolledOutAndReady(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		generation int64
+		observed   int64
+		desired    int
+		updated    int
+		ready      int
+		want       bool
+	}{
+		{
+			name:       "fully rolled out",
+			generation: 3, observed: 3, desired: 1, updated: 1, ready: 1,
+			want: true,
+		},
+		{
+			name:       "new spec not rolled out yet",
+			generation: 3, observed: 3, desired: 1, updated: 0, ready: 1,
+			want: false,
+		},
+		{
+			name:       "status still describes the previous spec",
+			generation: 3, observed: 2, desired: 1, updated: 1, ready: 1,
+			want: false,
+		},
+		{
+			// Nothing scheduled at all: a DaemonSet whose node selector matches
+			// no node is vacuously "all ready" on counts alone.
+			name:       "nothing scheduled",
+			generation: 1, observed: 1, desired: 0, updated: 0, ready: 0,
+			want: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var ds daemonSetObj
+			ds.Metadata.Generation = tc.generation
+			ds.Status.ObservedGeneration = tc.observed
+			ds.Status.DesiredNumberScheduled = tc.desired
+			ds.Status.UpdatedNumberScheduled = tc.updated
+			ds.Status.NumberReady = tc.ready
+
+			if got := ds.rolledOutAndReady(); got != tc.want {
+				t.Fatalf("rolledOutAndReady() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+// The predicate above reads five fields straight off `kubectl get -o json`, so a
+// mistyped tag would silently leave one at zero and skew every readiness wait
+// without failing to compile. Distinct values catch a swap between them too.
+func TestDaemonSetObjDecodesRolloutFields(t *testing.T) {
+	const payload = `{
+	  "metadata": {"name": "nvidia-dcgm-exporter", "generation": 5},
+	  "status": {"observedGeneration": 4, "desiredNumberScheduled": 3,
+	             "updatedNumberScheduled": 2, "numberReady": 1}
+	}`
+
+	var ds daemonSetObj
+	if err := json.Unmarshal([]byte(payload), &ds); err != nil {
+		t.Fatalf("unmarshal daemonset: %v", err)
+	}
+
+	got := []int{
+		int(ds.Metadata.Generation), int(ds.Status.ObservedGeneration),
+		ds.Status.DesiredNumberScheduled, ds.Status.UpdatedNumberScheduled,
+		ds.Status.NumberReady,
+	}
+	if want := []int{5, 4, 3, 2, 1}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("decoded [generation observedGeneration desired updated ready] = %v, want %v", got, want)
 	}
 }
 
