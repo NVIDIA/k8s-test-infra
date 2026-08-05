@@ -39,6 +39,32 @@ const (
 	// check) and the container overlay path (for the injected
 	// MOCK_TOPOLOGY_CONFIG env).
 	defaultTopologyRelPath = "topology/topology.yaml"
+
+	// DeviceInjectionModeRaw stages the mock /dev/nvidiaN nodes directly in the
+	// adjustment. It is the default: MEP-0002 requires the raw path to stay
+	// reachable, and it is the only mode that works on a runtime whose CDI
+	// support is off or absent.
+	DeviceInjectionModeRaw = "raw"
+	// DeviceInjectionModeCDI hands the runtime a CDI device reference and lets
+	// it resolve the device nodes from the spec setup.sh stages. containerd
+	// 2.x enables CDI by default (enable_cdi = true, spec dirs /etc/cdi and
+	// /var/run/cdi), so this needs no container toolkit on the node.
+	DeviceInjectionModeCDI = "cdi"
+	// defaultCDIDeviceName is the fully-qualified CDI device the cdi mode
+	// injects on the annotation path. The "all" device aggregates every mock
+	// GPU, which is what the annotation has always meant (MEP-0002 goal 2).
+	//
+	// The vendor is deliberately NOT nvidia.com: that namespace belongs to the
+	// device plugin and the container toolkit. Keeping ours distinct is what
+	// makes MEP-0002's "exactly one component emits CDI device references for a
+	// container" invariant observable rather than merely asserted, and it keeps
+	// alreadyHasGPUDevices' nvidia.com/ test meaningful.
+	defaultCDIDeviceName = "nvml-mock.nvidia.com/gpu=all"
+	// defaultCDISpecHostPath is where setup.sh stages the spec that backs
+	// defaultCDIDeviceName. containerd resolves an unknown CDI device by
+	// failing container creation outright, so the plugin checks this exists
+	// before it commits to a reference it cannot honour.
+	defaultCDISpecHostPath = "/var/run/cdi/nvml-mock-nri.yaml"
 )
 
 var defaultShims = []string{
@@ -67,6 +93,20 @@ type Config struct {
 	ImexChannelHostPath string
 	ExcludedNamespaces  []string
 	Shims               []string
+
+	// DeviceInjectionMode selects how the annotation-gated device opt-in
+	// delivers mock GPUs: DeviceInjectionModeRaw (default) or
+	// DeviceInjectionModeCDI. It changes the mechanism only. Whether a
+	// container is served at all is decided before this is consulted, so
+	// neither mode can inject into a container the device plugin already
+	// served (MEP-0002).
+	DeviceInjectionMode string
+	// CDIDeviceName is the CDI device injected in DeviceInjectionModeCDI.
+	CDIDeviceName string
+	// CDISpecHostPath is the staged CDI spec checked before a CDI reference is
+	// emitted. A missing spec degrades to raw injection rather than failing
+	// container creation.
+	CDISpecHostPath string
 
 	// NodeName is the Kubernetes node this plugin runs on. When set (and a
 	// topology document is staged in the overlay) it is injected as the
@@ -105,6 +145,11 @@ type Adjustment struct {
 	Mounts  []Mount
 	Env     []string
 	Devices []Device
+	// CDIDevices are fully-qualified CDI device references the runtime resolves
+	// itself. Devices and CDIDevices are alternatives for the GPU tree, never
+	// both: emitting the same GPUs twice would widen the container and defeat
+	// the mock engine's detectVisibleDevices filter.
+	CDIDevices []string
 }
 
 // Mount describes a bind mount in a runtime-neutral form.
@@ -133,6 +178,9 @@ func DefaultConfig() Config {
 		ImexChannelHostPath:   filepath.Join(defaultHostOverlayPath, defaultImexChannelRelPath),
 		ExcludedNamespaces:    []string{"kube-system"},
 		Shims:                 append([]string(nil), defaultShims...),
+		DeviceInjectionMode:   DeviceInjectionModeRaw,
+		CDIDeviceName:         defaultCDIDeviceName,
+		CDISpecHostPath:       defaultCDISpecHostPath,
 	}
 }
 
@@ -165,15 +213,39 @@ func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 			// engine's visibility filter, which derives the visible GPU set from
 			// which /dev/nvidiaN nodes are present.
 			warnf("device injection requested but the device plugin already served this container; leaving its allocation intact")
+		case cfg.DeviceInjectionMode == DeviceInjectionModeCDI && cdiSpecStaged(cfg):
+			// The runtime resolves the device nodes from the staged spec. Nothing
+			// is added to adjustment.Devices: the CDI reference and the raw nodes
+			// describe the same GPUs, and delivering both would widen the
+			// container and defeat the engine's detectVisibleDevices filter.
+			adjustment.CDIDevices = []string{cfg.CDIDeviceName}
 		default:
 			// Fail open: the device tree is staged by the main nvml-mock DaemonSet,
 			// and nothing orders this plugin's DaemonSet after it. If the tree is
 			// missing (fresh node) or unreadable, degrade to overlay-only injection
 			// rather than failing container creation for the whole pod.
+			//
+			// This is also where CDI mode lands when its spec is not staged.
+			// containerd fails container creation on an unresolvable CDI device,
+			// so falling back to raw nodes keeps the pod starting.
+			if cfg.DeviceInjectionMode == DeviceInjectionModeCDI {
+				warnf("cdi device injection requested but no spec is staged at %s; falling back to raw device nodes", cfg.CDISpecHostPath)
+			}
 			devices, err := discoverDevices(cfg.DeviceHostPath)
-			if err != nil {
+			switch {
+			case err != nil:
 				warnf("device injection requested but device tree at %s is unavailable (%v); injecting overlay only", cfg.DeviceHostPath, err)
-			} else {
+			case len(devices) == 0:
+				// The directory is readable and holds nothing we recognise, so
+				// os.ReadDir reports success and the case above never fires.
+				// Injecting silently would hand the container an overlay with
+				// no device nodes, and the engine derives its visible-GPU set
+				// from which /dev/nvidiaN are present — so the pod reports zero
+				// GPUs as though that were the configured state. Still fail
+				// open, but say so.
+				warnf("device injection requested but the device tree at %s holds no device nodes; "+
+					"injecting overlay only (has the nvml-mock DaemonSet staged this node?)", cfg.DeviceHostPath)
+			default:
 				adjustment.Devices = devices
 			}
 		}
@@ -228,6 +300,15 @@ func withDefaults(cfg Config) Config {
 	}
 	if len(cfg.Shims) == 0 {
 		cfg.Shims = defaults.Shims
+	}
+	if cfg.DeviceInjectionMode == "" {
+		cfg.DeviceInjectionMode = defaults.DeviceInjectionMode
+	}
+	if cfg.CDIDeviceName == "" {
+		cfg.CDIDeviceName = defaults.CDIDeviceName
+	}
+	if cfg.CDISpecHostPath == "" {
+		cfg.CDISpecHostPath = defaults.CDISpecHostPath
 	}
 	if cfg.TopologyHostPath == "" {
 		cfg.TopologyHostPath = filepath.Join(cfg.HostOverlayPath, defaultTopologyRelPath)
@@ -374,6 +455,17 @@ func alreadyHasGPUDevices(container Container) bool {
 		}
 	}
 	return false
+}
+
+// cdiSpecStaged reports whether the CDI spec backing cfg.CDIDeviceName is
+// present on the node. The stat runs per container, like topologyInjectable,
+// so the plugin tolerates setup.sh staging the spec after the plugin starts.
+func cdiSpecStaged(cfg Config) bool {
+	if cfg.CDISpecHostPath == "" {
+		return false
+	}
+	_, err := os.Stat(cfg.CDISpecHostPath)
+	return err == nil
 }
 
 // discoverDevices lists the mock /dev/nvidia* nodes staged in the overlay.

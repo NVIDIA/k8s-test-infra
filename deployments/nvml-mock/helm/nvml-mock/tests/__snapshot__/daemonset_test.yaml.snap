@@ -9,7 +9,7 @@ should match snapshot with all overrides:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0-rc1
+        helm.sh/chart: nvml-mock-0.3.0
       name: nvml-mock-custom
     spec:
       selector:
@@ -19,7 +19,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: 55bb2f5a4208bf44b344cc0227800acef90b155558045d62d3f2bbf1c55b2184
+            checksum/config: 1893be873c970041a080b07af3cc840fb218a12192a6f0e5c305ba70a12ce620
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: custom
@@ -156,7 +156,7 @@ should match snapshot with b200 profile:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0-rc1
+        helm.sh/chart: nvml-mock-0.3.0
       name: RELEASE-NAME-nvml-mock
     spec:
       selector:
@@ -166,7 +166,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: 91abd6528f3069e2f6b12ae59bbaac06c73a8f4dc5fa573d15b51778c1f73258
+            checksum/config: 25749368d74f6ae7ce538ddfa371e30c93ec11a4968b155c683b914e05f76b81
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME
@@ -282,7 +282,7 @@ should match snapshot with default values:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: nvml-mock
         app.kubernetes.io/version: 550.163.01
-        helm.sh/chart: nvml-mock-0.3.0-rc1
+        helm.sh/chart: nvml-mock-0.3.0
       name: RELEASE-NAME-nvml-mock
     spec:
       selector:
@@ -292,7 +292,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: 9b3eb20285d8ff1481993ed8af7a3f69d2999cbf8e9097c308c13cc191a79c44
+            checksum/config: 4a1427c36fb9a24923ec692eb82cd2ba449715be5e194942ae26549a1d1f81b3
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME

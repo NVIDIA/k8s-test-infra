@@ -1,7 +1,15 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
+#
+# Profile ConfigMaps shaped for the fake-gpu-operator (FGO) loader. FGO reads
+# them with a direct `ConfigMaps(ns).Get("gpu-profile-" + name)` followed by a
+# read of the `profile.yaml` data key, so the name, the data key and the
+# namespace must each match exactly; a label selector is never used on that
+# path. See docs/integrations/fake-gpu-operator.md for the tested version pair
+# and for the builtinProfiles prerequisite that targetNamespace implies.
 {{- if .Values.integrations.fakeGpuOperator.enabled }}
 {{- $profiles := list "a100" "h100" "b200" "gb200" "gb300" "l40s" "t4" }}
+{{- $targetNS := default $.Release.Namespace $.Values.integrations.fakeGpuOperator.targetNamespace }}
 {{- range $profile := $profiles }}
 {{- $content := $.Files.Get (printf "profiles/%s.yaml" $profile) }}
 {{- if $content }}
@@ -9,15 +17,19 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "nvml-mock.fullname" $ }}-profile-{{ $profile }}
+  name: gpu-profile-{{ $profile }}
+  namespace: {{ $targetNS }}
   labels:
     {{- include "nvml-mock.labels" $ | nindent 4 }}
     nvml-mock/profile-name: {{ $profile | quote }}
+    # FGO's own LabelGpuProfile constant. Emitted unconditionally rather than
+    # through profileLabels so a profileLabels override cannot drop it.
+    fake-gpu-operator/gpu-profile: "true"
     {{- range $key, $value := $.Values.integrations.fakeGpuOperator.profileLabels }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 data:
-  config.yaml: |
+  profile.yaml: |
     {{- $content | nindent 4 }}
 {{- end }}
 {{- end }}

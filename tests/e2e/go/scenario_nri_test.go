@@ -36,6 +36,21 @@ const (
 	nriPluginSelector = "app.kubernetes.io/name=nvml-mock-nri"
 	// Device-plugin composition (#440, MEP-0002).
 	nriWorkloadImage = "debian:bookworm-slim"
+	// nriMinimalImage is the negative control for overlay self-containment
+	// (#438): glibc, so the tools' ELF interpreter resolves, but shipping no
+	// InfiniBand stack and no shell. Running the tools here proves they load
+	// their libraries from the overlay rather than from the image.
+	//
+	// Distroless and not Alpine, deliberately. These tools are glibc binaries
+	// with PT_INTERP=/lib/ld-linux-*.so.*, an absolute path that RPATH cannot
+	// redirect; on musl they fail to exec at all ("no such file or directory")
+	// no matter what the overlay stages. Alpine would need glibc itself
+	// staged, which is a different problem from this one.
+	nriMinimalImage = "gcr.io/distroless/base-debian12:latest"
+	// nriOverlayBinDir is where the NRI plugin mounts the staged tools. The
+	// pod names them by absolute path because a shell-less image has no PATH
+	// lookup to fall back on.
+	nriOverlayBinDir = "/opt/nvml-mock/driver/usr/bin"
 
 	// nriDomainName / nriDomainUUID identify the single ComputeDomain the
 	// generated topology overlay declares. The UUID is arbitrary but must match
@@ -112,6 +127,69 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				assertAgentSeesGPUs(ctx, h, p.ExpectedGPUs())
 			})
 
+			// #438. The IB CLI tools are dynamically linked and setup.sh
+			// relocates them into the overlay, which until this change carried
+			// none of their libraries. Nothing in CI ran them from an injected
+			// pod, so the breakage was invisible.
+			//
+			// It was also wider than "minimal images only". Reverting the
+			// library staging and running ibstat from an injected
+			// debian:bookworm-slim pod reproduces the identical
+			// "libibmad.so.5: cannot open shared object file" — neither
+			// debian:bookworm-slim nor ubuntu:22.04 ships libibmad/libibumad/
+			// libibverbs. A minimal image is simply the honest place to assert
+			// it: nothing there can mask a missing library.
+			It("runs the IB CLI tools from an image that ships no IB libraries", Label("nri-ib-minimal"), func(ctx SpecContext) {
+				if !p.IBEnabled() {
+					Skip("profile " + name + " ships infiniband.enabled=false; it exposes no HCAs to enumerate")
+				}
+				for _, tc := range []struct {
+					name, tool     string
+					wantEnumerated bool
+				}{
+					// ibstat links libibmad/libibumad directly and reads the
+					// mock sysfs through the LD_PRELOAD shim, so it enumerates.
+					{"nri-ib-ibstat", "ibstat", true},
+					// ibv_devinfo covers the transitive dependency: it names
+					// libnl nowhere and reaches it through libibverbs, so it is
+					// the tool that catches a staging tree which resolves only
+					// direct dependencies.
+					//
+					// It is NOT asserted to enumerate. In an NRI-injected pod
+					// it reports "0 HCAs found" — and it does so identically on
+					// debian:bookworm-slim, which was measured on the same
+					// cluster. That gap predates this change and belongs to the
+					// verbs path (libibverbs discards a device it cannot match
+					// to a provider driver), not to library staging. Asserting
+					// enumeration here would be asserting a bug fix that this
+					// change does not make.
+					{"nri-ib-ibv-devinfo", "ibv_devinfo", false},
+				} {
+					phase, logs := runIBToolInMinimalImage(ctx, h, tc.name, tc.tool, "-l")
+
+					// The failure mode this issue is about, asserted by name so
+					// a regression reports the linkage error itself rather than
+					// a bare "substring not found".
+					Expect(logs).NotTo(ContainSubstring("error while loading shared libraries"),
+						"%s could not resolve its shared libraries from the overlay in %s:\n%s",
+						tc.tool, nriMinimalImage, logs)
+					Expect(phase).To(Equal("Succeeded"),
+						"%s exited non-zero in %s:\n%s", tc.tool, nriMinimalImage, logs)
+
+					if tc.wantEnumerated {
+						// Assert the mock HCA by name, not a zero exit. ibstat
+						// exits 0 while printing nothing when it finds no
+						// devices, so an exit-code assertion would hold even
+						// with the mock absent. The device name is what proves
+						// the binary both loaded its libraries and got an
+						// answer back.
+						Expect(logs).To(ContainSubstring("mlx5_0"),
+							"%s did not enumerate the mock HCA from %s\nphase=%s\noutput:\n%s",
+							tc.tool, nriMinimalImage, phase, logs)
+					}
+				}
+			})
+
 			It("carries per-node ComputeDomain fabric identity through NRI", Label("compute-domain"), func(ctx SpecContext) {
 				if !computeDomain {
 					Skip("profile " + name + " declares no device_defaults.fabric block; ComputeDomain identity is unsupported")
@@ -138,7 +216,14 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		BeforeAll(func(ctx SpecContext) {
 			Expect(selectedProfiles).NotTo(BeEmpty())
 			p = loadProfile(selectedProfiles[0])
-			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			// The allocation watcher (#506) rides in this context because it is
+			// the only one where the device plugin actually allocates GPUs.
+			installNRIChart(ctx, h, p, topoValues, p.HasFabric(), map[string]string{
+				"allocationWatcher.enabled": "true",
+				// Poll faster than the 2s default so the e2e is not dominated
+				// by waiting; the engine's own override TTL still applies.
+				"allocationWatcher.interval": "500ms",
+			})
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
 			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
 			deployDevicePluginOnWorkers(ctx, h, workers, p.ExpectedGPUs())
@@ -210,6 +295,71 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				"pod was allocated %s but sees %s", allocated, visible[0])
 		})
 
+		// #506 item 1. The acceptance criterion is explicitly BOTH directions:
+		// the number must move when a workload is scheduled AND come back when
+		// it is removed. An increase-only assertion passes trivially against a
+		// monotonic counter that never returns, so the release half is the
+		// half that carries the weight.
+		//
+		// The observer is a SEPARATE pod that holds no GPU claim of its own and
+		// sees every GPU on the node. That matters: reading memory from inside
+		// the claiming pod would prove only that the pod sees itself, whereas
+		// the surface #506 is about is a node-level one (dcgm-exporter's
+		// FB_USED). The observer also survives the workload's deletion, which
+		// is what makes the return observable at all.
+		It("moves memory.used_bytes when a pod claims a GPU and returns it on delete",
+			Label("nri-alloc-memory"), func(ctx SpecContext) {
+				// Pinned to the SAME node as the claimant. The override file is a
+				// per-node hostPath, so an observer on another node reads a node
+				// that never saw the claim — which is exactly how this spec passed
+				// locally and failed in CI before the pin.
+				observer := applyNRIWorkload(ctx, h,
+					nriAnnotatedPodManifest("nri-alloc-observer", gpuNode), "nri-alloc-observer")
+
+				allGPUs := visibleGPUUUIDs(ctx, h, observer)
+				Expect(allGPUs).To(HaveLen(p.ExpectedGPUs()), "the observer must see the whole node")
+
+				claimantManifest := nriRequestPodManifest("nri-alloc-claimant", gpuNode, 1)
+				workload := applyNRIWorkload(ctx, h, claimantManifest, "nri-alloc-claimant")
+				claimed := allocatedGPUUUID(ctx, h, workload)
+
+				idx := indexOfGPUUUID(allGPUs, claimed)
+				Expect(idx).To(BeNumerically(">=", 0),
+					"allocated GPU %s is not among the observer's %d GPUs", claimed, len(allGPUs))
+
+				// Poll: the watcher writes at its interval and the engine
+				// re-reads the override file at its own TTL, so the change is
+				// eventually-consistent by design, not instant.
+				Eventually(func(ctx SpecContext) int {
+					return smiGPUInt(ctx, h, observer, idx, "memory.used")
+				}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+					Should(BeNumerically(">", 0),
+						"a pod holding %s on GPU %d did not move memory.used; the allocation watcher "+
+							"is not reaching the engine", kube.GPUResourceName, idx)
+
+				// Every OTHER GPU must stay idle. Without this, a watcher that
+				// reported node-wide totals on every device would pass the
+				// assertion above.
+				for other := range allGPUs {
+					if other == idx {
+						continue
+					}
+					Expect(smiGPUInt(ctx, h, observer, other, "memory.used")).To(Equal(0),
+						"GPU %d holds no claim but reports memory in use; the watcher is not "+
+							"attributing per device", other)
+				}
+
+				By("deleting the claimant and asserting the number returns")
+				Expect(h.Kube.Delete(ctx, claimantManifest)).To(Succeed(), "delete %s", workload.Pod)
+
+				Eventually(func(ctx SpecContext) int {
+					return smiGPUInt(ctx, h, observer, idx, "memory.used")
+				}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+					Should(Equal(0),
+						"GPU %d still reports memory in use after its pod was deleted; the reading "+
+							"is monotonic, not allocation-driven", idx)
+			})
+
 		It("still gives an annotated pod with no request every GPU", Label("nri-dp-optin"), func(ctx SpecContext) {
 			pod := applyNRIWorkload(ctx, h, nriAnnotatedPodManifest("nri-dp-annotated"), "nri-dp-annotated")
 			// The opt-in path is unchanged: no resource request means the device
@@ -218,6 +368,27 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			Expect(visibleGPUUUIDs(ctx, h, pod)).To(HaveLen(p.ExpectedGPUs()),
 				"annotated pod with no %s request should keep seeing all %d GPUs",
 				kube.GPUResourceName, p.ExpectedGPUs())
+
+			// Mirror of the nri-cdi specs (#436). This release runs the shipped
+			// default, so the devices must have come from the raw path. Without
+			// this the CDI marker assertion would pass trivially if something set
+			// NVML_MOCK_DEVICE_SOURCE unconditionally.
+			Expect(nriDeviceSource(ctx, h, pod)).To(BeEmpty(),
+				"default deviceInjectionMode is raw, so the CDI spec must not have been applied")
+		})
+
+		It("handles a plain unannotated pod with no GPU request", Label("nri-dp-plain"), func(ctx SpecContext) {
+			pod := applyNRIWorkload(ctx, h, nriPlainPodManifest("nri-dp-plain"), "nri-dp-plain")
+
+			// Verify ambient overlay injection is present.
+			res, err := h.Kube.ExecSh(ctx, pod, "test -d /opt/nvml-mock/driver")
+			Expect(err).NotTo(HaveOccurred(), "check overlay mount in nri-dp-plain: %s", res.Combined())
+
+			// Verify GPU visibility reported via nvidia-smi -L.
+			visible := visibleGPUUUIDs(ctx, h, pod)
+			Expect(visible).To(HaveLen(p.ExpectedGPUs()),
+				"plain unannotated pod on DP node receives ambient overlay and reports all %d profile GPUs",
+				p.ExpectedGPUs())
 		})
 
 		It("leaves the scheduler gate intact once the node is saturated", Label("nri-dp-scheduling"), func(ctx SpecContext) {
@@ -249,6 +420,67 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			Expect(out).To(ContainSubstring("Insufficient "+kube.GPUResourceName),
 				"%s should be unschedulable on %s specifically, got events:\n%s",
 				name, kube.GPUResourceName, strings.TrimSpace(out))
+		})
+	})
+
+	// CDI device injection (#436). The plugin can deliver the annotation-gated
+	// device tree either by staging raw device nodes itself or by handing the
+	// runtime a CDI device reference. containerd 2.x enables CDI by default
+	// (enable_cdi = true, spec dirs /etc/cdi and /var/run/cdi), so this works on
+	// the stock kindest/node this scenario already runs on — no container
+	// toolkit is involved.
+	//
+	// The two modes are identical in outcome by design, which is exactly what
+	// makes this hard to test honestly: a cdi deployment that silently fell back
+	// to raw would still show every GPU. NVML_MOCK_DEVICE_SOURCE is the
+	// discriminator. It comes from the CDI spec's containerEdits, and the raw
+	// path injects device nodes only — it has no mechanism to set an environment
+	// variable — so the variable is present if and only if the runtime resolved
+	// the spec.
+	Context("when device injection is switched to CDI", Label("nri-cdi"), Ordered, func() {
+		var p profile.Profile
+
+		BeforeAll(func(ctx SpecContext) {
+			Expect(selectedProfiles).NotTo(BeEmpty())
+			p = loadProfile(selectedProfiles[0])
+			installNRICDIChart(ctx, h, p)
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+		})
+
+		AfterAll(func(ctx SpecContext) {
+			// Put the release back on the default mechanism so any spec ordered
+			// after this Context sees the shipped configuration.
+			installNRIChart(ctx, h, p, topoValues, p.HasFabric())
+			assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, nriNRIDaemonSet, config.ReadyTimeout(), config.PollInterval())
+		})
+
+		It("delivers every GPU through the CDI spec", Label("nri-cdi-inject"), func(ctx SpecContext) {
+			pod := applyNRIWorkload(ctx, h, nriAnnotatedPodManifest("nri-cdi-annotated"), "nri-cdi-annotated")
+
+			Expect(nriDeviceSource(ctx, h, pod)).To(Equal("cdi"),
+				"NVML_MOCK_DEVICE_SOURCE comes from the CDI spec's containerEdits; "+
+					"an empty value means the runtime never resolved the spec and the plugin "+
+					"quietly fell back to raw device nodes")
+
+			// MEP-0002 goal 2 is a contract, not an implementation detail: the
+			// annotation with no resource request keeps meaning "every GPU".
+			Expect(visibleGPUUUIDs(ctx, h, pod)).To(HaveLen(p.ExpectedGPUs()),
+				"annotated pod with no %s request must still see all %d GPUs through CDI",
+				kube.GPUResourceName, p.ExpectedGPUs())
+		})
+
+		It("still suppresses injection for a pod the device plugin served", Label("nri-cdi-suppression"), func(ctx SpecContext) {
+			// MEP-0002 forbids #436 from bypassing the suppression rule. The rule is
+			// about who already served the container, not which mechanism serves it,
+			// so switching to CDI must not reopen it. Without the device plugin on
+			// this cluster the closest available proxy is a pod that carries the
+			// annotation and no request, so assert the negative directly: a pod that
+			// opted OUT gets neither the CDI marker nor the devices.
+			pod := applyNRIWorkload(ctx, h, nriPlainPodManifest("nri-cdi-plain"), "nri-cdi-plain")
+
+			Expect(nriDeviceSource(ctx, h, pod)).To(BeEmpty(),
+				"a pod that did not opt in must not have the CDI spec applied")
 		})
 	})
 
@@ -496,7 +728,8 @@ func nriPluginHostPID(ctx context.Context, node string) string {
 // enabled. Fabric-attached profiles additionally get the generated
 // ComputeDomain overlay via `-f` (a structured merge of topology.domains, never
 // --set-file which would stuff the raw bytes in as a string literal).
-func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile, topoValues string, withComputeDomain bool) {
+func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile, topoValues string,
+	withComputeDomain bool, extraSet ...map[string]string) {
 	GinkgoHelper()
 	repo, tag := splitImage(config.Image())
 	rel := helm.Release{
@@ -519,6 +752,11 @@ func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile,
 		},
 		Wait:    true,
 		Timeout: config.HelmTimeout(),
+	}
+	for _, set := range extraSet {
+		for k, v := range set {
+			rel.Set[k] = v
+		}
 	}
 	if withComputeDomain {
 		rel.ValuesFiles = []string{topoValues}
@@ -642,7 +880,17 @@ metadata:
 
 // nriAnnotatedPodManifest renders a pod that opts into device nodes via the
 // annotation and requests no GPU resources.
-func nriAnnotatedPodManifest(name string) []byte {
+// nriAnnotatedPodManifest renders an opt-in pod. Pass a node to pin it there.
+//
+// Pinning matters whenever the pod observes node-local state: the runtime
+// override file lives on a per-node hostPath, so an unpinned observer can be
+// scheduled onto a different node from the workload it is meant to watch and
+// will then read a node that never saw the allocation.
+func nriAnnotatedPodManifest(name string, node ...string) []byte {
+	placement := "  nodeSelector:\n    nvidia.com/gpu.present: \"true\"\n"
+	if len(node) > 0 && node[0] != "" {
+		placement = "  nodeName: " + node[0] + "\n"
+	}
 	return []byte(`apiVersion: v1
 kind: Pod
 metadata:
@@ -652,6 +900,24 @@ metadata:
     nvml-mock.nvidia.com/devices: "true"
 spec:
   restartPolicy: Never
+` + placement + `  containers:
+    - name: app
+      image: ` + nriWorkloadImage + `
+      command: ["/bin/sh", "-c", "sleep 3600"]
+`)
+}
+
+// nriPlainPodManifest renders a pod that opts into nothing: no GPU request and
+// no device annotation. It still receives the overlay and the environment,
+// which is the node-wide NRI contract.
+func nriPlainPodManifest(name string) []byte {
+	return []byte(`apiVersion: v1
+kind: Pod
+metadata:
+  name: ` + name + `
+  namespace: ` + nriWorkloadNS + `
+spec:
+  restartPolicy: Never
   nodeSelector:
     nvidia.com/gpu.present: "true"
   containers:
@@ -659,6 +925,97 @@ spec:
       image: ` + nriWorkloadImage + `
       command: ["/bin/sh", "-c", "sleep 3600"]
 `)
+}
+
+// nriMinimalIBPodManifest renders a run-to-completion pod on a minimal image
+// that invokes one IB tool from the overlay by absolute path. There is no
+// `sleep` wrapper and no `sh -c`: the image has no shell, which is the whole
+// point of using it.
+func nriMinimalIBPodManifest(name, tool string, args ...string) []byte {
+	argv := `"` + nriOverlayBinDir + "/" + tool + `"`
+	for _, a := range args {
+		argv += `, "` + a + `"`
+	}
+	return []byte(`apiVersion: v1
+kind: Pod
+metadata:
+  name: ` + name + `
+  namespace: ` + nriWorkloadNS + `
+  labels:
+    app: ` + name + `
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    nvidia.com/gpu.present: "true"
+  containers:
+    - name: app
+      image: ` + nriMinimalImage + `
+      command: [` + argv + `]
+`)
+}
+
+// runIBToolInMinimalImage applies the pod, waits for it to terminate, and
+// returns its final phase together with its logs. It waits for a terminal
+// phase rather than Running because the pod is expected to run once and exit;
+// both outcomes are returned so the caller asserts on the output instead of on
+// the wait succeeding.
+func runIBToolInMinimalImage(ctx context.Context, h *harness.Harness, name, tool string, args ...string) (string, string) {
+	GinkgoHelper()
+	manifest := nriMinimalIBPodManifest(name, tool, args...)
+	Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply %s", name)
+	DeferCleanup(func(ctx SpecContext) { _ = h.Kube.Delete(ctx, manifest) })
+
+	var phase string
+	Eventually(func() (string, error) {
+		var err error
+		phase, err = h.Kube.PodPhase(ctx, nriWorkloadNS, name)
+		return phase, err
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		Should(BeElementOf("Succeeded", "Failed"),
+			"%s never reached a terminal phase", name)
+
+	logs, err := h.Kube.Logs(ctx, nriWorkloadNS, "app="+name, 100)
+	Expect(err).NotTo(HaveOccurred(), "read logs from %s", name)
+	return phase, logs
+}
+
+// nriDeviceSource reads NVML_MOCK_DEVICE_SOURCE from inside the pod. The
+// variable is set by the CDI spec's containerEdits, so an empty string means
+// the container was not served through CDI. `printenv` returns non-zero when
+// the variable is unset, hence ExecSh with an echo that always succeeds.
+func nriDeviceSource(ctx context.Context, h *harness.Harness, pod kube.PodRef) string {
+	GinkgoHelper()
+	res, err := h.Kube.ExecSh(ctx, pod, `echo -n "$NVML_MOCK_DEVICE_SOURCE"`)
+	Expect(err).NotTo(HaveOccurred(), "read NVML_MOCK_DEVICE_SOURCE from %s", pod.Pod)
+	return strings.TrimSpace(res.Stdout)
+}
+
+// installNRICDIChart reinstalls the release with the device opt-in switched to
+// CDI. Everything else matches installNRIChart, so a difference observed
+// between the two is attributable to the mechanism and nothing else.
+func installNRICDIChart(ctx context.Context, h *harness.Harness, p profile.Profile) {
+	GinkgoHelper()
+	repo, tag := splitImage(config.Image())
+	rel := helm.Release{
+		Name:            "nvml-mock",
+		Chart:           chartDir(),
+		Namespace:       nvmlMockNamespace,
+		CreateNamespace: true,
+		HideOutput:      true,
+		Set: map[string]string{
+			"gpu.count":                 strconv.Itoa(p.ExpectedGPUs()),
+			"gpu.profile":               p.Name,
+			"image.repository":          repo,
+			"image.tag":                 tag,
+			"nri.enabled":               "true",
+			"nri.deviceInjectionMode":   "cdi",
+			"imex.mockChannels.enabled": "false",
+		},
+		Wait:    true,
+		Timeout: config.HelmTimeout(),
+	}
+	By("helm upgrade --install nvml-mock with NRI device injection mode=cdi (profile=" + p.Name + ")")
+	Expect(h.Helm.UpgradeInstall(ctx, rel)).To(Succeed(), "helm upgrade --install nvml-mock with CDI injection (profile=%s)", p.Name)
 }
 
 // nriImexPodManifest renders a pod pinned to one node that optionally opts into
@@ -856,4 +1213,15 @@ func countGPULines(out string) int {
 		}
 	}
 	return count
+}
+
+// indexOfGPUUUID returns the position of uuid in the observer's GPU list, or -1.
+// nvidia-smi indexes by position in that list, which is what smiGPUInt takes.
+func indexOfGPUUUID(uuids []string, uuid string) int {
+	for i, u := range uuids {
+		if u == uuid {
+			return i
+		}
+	}
+	return -1
 }

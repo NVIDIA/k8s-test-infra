@@ -66,6 +66,9 @@ COPY --from=builder /out/nv-fabricmanager-ctl /usr/bin/nv-fabricmanager-ctl
 # to confirm the topology overlay assigned the expected clique to each
 # node. See NVIDIA/k8s-test-infra#304.
 COPY --from=builder /out/check-fabric    /usr/local/bin/check-fabric
+# Copied ahead of the RUN below because that layer invokes it while patchelf is
+# still installed; /scripts/ arrives later, after patchelf has been purged.
+COPY deployments/nvml-mock/scripts/stage-ib-tools.sh /usr/local/bin/stage-ib-tools.sh
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
@@ -106,6 +109,13 @@ RUN set -eux; \
     # /var/lib/nvml-mock/driver/usr/bin/, and CDI-injected /usr/bin/.
     apt-get install -y --no-install-recommends patchelf; \
     patchelf --set-rpath '$ORIGIN/../lib64' /usr/local/bin/nvidia-smi; \
+    # Same treatment for the InfiniBand CLI tools, for the same reason: setup.sh
+    # relocates them into the node overlay, where their libibmad/libibumad/
+    # libibverbs/libnl dependencies are not on any default search path. The
+    # script stages that closure next to them and bakes in the RPATH. Injected
+    # containers therefore run them straight from a minimal image that ships no
+    # IB libraries at all. See NVIDIA/k8s-test-infra#438.
+    sh /usr/local/bin/stage-ib-tools.sh; \
     rm -rf /var/lib/apt/lists/*; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \

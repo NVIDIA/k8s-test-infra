@@ -310,6 +310,34 @@ docker run ... which nvidia-smi
 GOARCH=amd64 make -C pkg/gpu/mocknvml
 ```
 
+### `kind load docker-image` Fails with "content digest not found"
+
+**Problem**: Loading the published image into a kind cluster fails:
+
+```
+ERROR: command "docker exec --privileged -i <node> ctr --namespace=k8s.io images import -"
+failed with error: exit status 1
+ctr: content digest sha256:...: not found
+```
+
+**Cause**: `ghcr.io/nvidia/nvml-mock` is a multi-arch image. Docker Desktop's
+containerd image store keeps the whole manifest list, and `kind load
+docker-image` hands the node an archive whose per-platform layers it does not
+have. The error names the digest, not the cause. This is the default Docker
+Desktop configuration on macOS.
+
+**Solution**: save a single platform and load the archive:
+
+```bash
+ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+docker save --platform "linux/${ARCH}" ghcr.io/nvidia/nvml-mock:latest -o nvml-mock.tar
+kind load image-archive nvml-mock.tar --name <cluster>
+```
+
+The platform must match the kind node's architecture. A locally built image
+(`docker build -t nvml-mock:local ...`) is single-arch already and loads with
+`kind load docker-image` unchanged.
+
 ## GPU Operator Issues
 
 ### Validator Pod in CrashLoopBackOff

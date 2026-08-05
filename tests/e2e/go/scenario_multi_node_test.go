@@ -56,6 +56,20 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 		installProfileOnNode(ctx, h, t4ReleaseName, "t4", "t4")
 		a100Pod = firstReleasePod(ctx, h, a100ReleaseName)
 		t4Pod = firstReleasePod(ctx, h, t4ReleaseName)
+
+		// Setup, not a spec. The scheduling spec below requests
+		// nvidia.com/gpu, and the only device plugin in this scenario comes
+		// from here — the nvml-mock chart ships none. Deploying it from inside
+		// a spec made the scheduling spec depend on that spec being selected,
+		// so --focus on it alone failed with "Insufficient nvidia.com/gpu",
+		// which reads as a capacity problem rather than skipped setup (#565).
+		//
+		// deployDevicePlugin carries its own readiness barrier: it waits for
+		// the DaemonSet and for the A100 worker to advertise its GPUs, so the
+		// scheduling spec has a node to land on. The T4 worker is deliberately
+		// left to the spec below, which is the assertion this container makes
+		// about heterogeneity.
+		deployDevicePlugin(ctx, h, workers[0].Name, a100.ExpectedGPUs())
 	})
 
 	It("validates mock files and InfiniBand behavior on both workers", func(ctx SpecContext) {
@@ -65,8 +79,10 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 		assertions.IBStat(ctx, h.Kube, t4Pod, t4)
 	})
 
-	It("registers heterogeneous allocatable GPUs via the device plugin", func(ctx SpecContext) {
-		deployDevicePlugin(ctx, h, workers[0].Name, a100.ExpectedGPUs())
+	// The A100 worker's count is already established in BeforeAll, so the
+	// assertion that carries weight here is the T4 worker reporting its own,
+	// different count off the same DaemonSet.
+	It("registers the T4 worker's own allocatable GPU count", func(ctx SpecContext) {
 		assertions.WaitAllocatableGPU(ctx, h.Kube, workers[1].Name, t4.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
 	})
 

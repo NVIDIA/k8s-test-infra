@@ -2,8 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # GPU Operator Validator pod for E2E testing with nvml-mock chart.
-# Runs cuda-vectorAdd against the mock libcuda.so to verify the CUDA mock
-# supports basic kernel launch.
+# Runs cuda-vectorAdd against the mock libcuda.so.
+#
+# This does NOT pass today and the scenario is gated off in CI (E2E_RUN_NGC,
+# see #446). The mock exports the CUDA Runtime surface under the name of the
+# Driver library and omits cuGetProcAddress, which is how this statically
+# linked sample reaches the driver, so vectorAdd fails identically with and
+# without the mock mounted. See docs/cuda-mock.md.
 #
 # This is a standalone Job (not the full operator validator) that exercises
 # the same validation the GPU Operator performs.

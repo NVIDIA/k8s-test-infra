@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # nvml-mock overlay for FGO integration.
-# Pins nvml-mock to the integration node pool and enables per-profile
-# ConfigMaps that FGO uses to discover GPU profiles (label: run.ai/gpu-profile=true).
+# Pins nvml-mock to the integration node pool and enables the per-profile
+# ConfigMaps shaped for FGO's loader (name gpu-profile-<profile>, data key
+# profile.yaml). They stay in this release's namespace; set targetNamespace to
+# FGO's release namespace for FGO to load them, which needs FGO's
+# builtinProfiles.enabled=false. See docs/integrations/fake-gpu-operator.md.
 
 integrations:
   fakeGpuOperator:
