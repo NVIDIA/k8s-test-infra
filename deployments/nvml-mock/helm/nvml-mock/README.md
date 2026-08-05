@@ -1268,6 +1268,21 @@ Per-mode behaviour:
 | `fallen_off_bus`    | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | `ERROR_GPU_IS_LOST` | error                | empty                           |
 | `ecc_uncorrectable` | normal values            | normal handle         | normal values       | strictly-increasing  | one `XID_CRITICAL_ERROR` if xid |
 
+A configured Xid is delivered once per trip, through either
+`nvmlEventSetWait_v1` or `nvmlEventSetWait_v2`. With no event pending
+the wait blocks for the caller's timeout and then returns
+`NVML_ERROR_TIMEOUT`, like real NVML — clients such as the device-plugin
+health monitor and dcgm-exporter loop on the wait with no sleep of their
+own, so an immediate return would spin a CPU core.
+
+The wait re-checks every 100 ms, but only ever claims an Xid that is
+*already* pending: a device trips its injector on a guarded **device**
+call (`GetTemperature`, `GetEccErrors`, …), never on the wait itself. A
+client that only loops on `nvmlEventSetWait` never advances the injector,
+so something must drive a device getter (`nvidia-smi -q`, a
+dcgm-exporter scrape) for the trip to happen. `nvml-mock-ctl` only writes
+the override file — it configures the failure, it does not trip it.
+
 Values rendered into the ConfigMap are validated against
 [`values.schema.json`](./values.schema.json) at install / upgrade time:
 typos like `mode: healhty` or out-of-range values like `probability: 1.5`
@@ -1299,7 +1314,7 @@ kubectl exec ds/nvml-mock -- nvidia-smi --query-gpu=name,uuid --format=csv
 kubectl exec ds/nvml-mock -- nvidia-smi -q                # "GPU is lost"
 
 # mode: ecc_uncorrectable  ─  device stays addressable; counters grow and
-# nvmlEventSetWait_v2 delivers the configured Xid once per trip.
+# nvmlEventSetWait_v1/_v2 delivers the configured Xid once per trip.
 kubectl exec ds/nvml-mock -- nvidia-smi -q -d ECC
 kubectl exec ds/nvml-mock -- nvidia-smi \
   --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv

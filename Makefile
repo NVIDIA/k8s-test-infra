@@ -103,6 +103,12 @@ test-e2e-framework:
 generate:
 	go generate ./pkg/gpu/mocknvml/bridge/...
 
+# Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
+# Docker-based, hence separate from the `go test` run.
+.PHONY: test-mocknvml-bridge
+test-mocknvml-bridge:
+	$(MAKE) -C tests/mocknvml test
+
 KIND_NODE_IMAGE   ?= kind-node-nv:latest
 # Cluster profile (select via PROFILE=<name>):
 #   - PROFILE=default (default)  local/kind/default.kind.yaml        (1 CP + 2 workers labelled a100 / t4)

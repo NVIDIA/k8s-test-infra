@@ -131,6 +131,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   preserve the upstream `CombinedOutput == "READY\n"` probe contract). (#304)
 
 ### Fixed
+- `nvmlEventSetWait_v1`/`_v2` now block for the caller's timeout (re-checking
+  every 100 ms) instead of returning `NVML_ERROR_TIMEOUT` immediately. Clients
+  loop on the wait with no sleep of their own, so the immediate return turned
+  `nvidia-device-plugin`'s health monitor into a busy spin that burned a full
+  CPU core per pod. A pending Xid is still delivered on the first poll;
+  `timeoutms=0` remains a non-blocking poll.
+- `pkg/gpu/mocknvml` no longer drops `BUILD_TAGS` in the default (two-pass,
+  padded) build path — `make BUILD_TAGS=foo` compiled without `foo` unless the
+  tag set also disabled padding.
 - `cleanup.sh` now removes `nvml-mock-nri.yaml`, the NRI CDI spec `setup.sh`
   stages, alongside the `nvidia.yaml` it already removed. It had been left
   behind while the same hook deleted the device nodes the spec names, so the

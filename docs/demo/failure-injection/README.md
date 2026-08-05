@@ -69,7 +69,7 @@ first-time install and follow-up upgrades.
 
 ### The Xid event is delivered through the NVML event set, not nvidia-smi
 
-`nvidia-smi` doesn't subscribe to `nvmlEventSetWait_v2`, so it never
+`nvidia-smi` doesn't subscribe to `nvmlEventSetWait`, so it never
 prints `Xid 79`. The mock delivers the configured Xid through the
 standard NVML event set
 (`NVML_EVENT_TYPE_XID_CRITICAL_ERROR`), exactly once per engine
@@ -90,6 +90,17 @@ lifetime — matching real NVML semantics. Real consumers see it via:
   ev, _ := nvml.EventSetWait(set, 1000)
   // ev.EventType == 0x8 (XID_CRITICAL_ERROR), ev.EventData == 79
   ```
+
+  Both `nvmlEventSetWait_v1` and `nvmlEventSetWait_v2` are exported and
+  behave identically. As with real NVML, a wait with no event pending
+  blocks for the full timeout (1000 ms above) and then returns
+  `NVML_ERROR_TIMEOUT`.
+
+  The `GetTemperature` loop above is load-bearing: the wait re-checks
+  every 100 ms but only claims an Xid that is *already* pending, and a
+  device trips its injector on guarded **device** calls, never on the
+  wait. Drop those calls and the wait blocks out its timeout forever, no
+  matter what `failure.xid` is configured.
 
 ### The injector counter is per-process
 
