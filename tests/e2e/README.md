@@ -301,7 +301,8 @@ make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
 | `E2E_RUN_NGC` | `false` | Run scenarios that need `nvcr.io` images, such as `validator`. |
 | `E2E_CLUSTER_TIMEOUT` | `5m` | Kind cluster setup timeout. |
 | `E2E_HELM_TIMEOUT` | `5m` | Helm install/upgrade timeout. |
-| `E2E_READY_TIMEOUT` | `2m` | Kubernetes readiness wait timeout. |
+| `E2E_READY_TIMEOUT` | `2m` | Kubernetes readiness wait timeout, sized for a single rollout. |
+| `E2E_OPERAND_SETTLE_TIMEOUT` | `5m` | Timeout for waits that must outlast a GPU Operator reconcile replacing its operands, not just one rollout. |
 | `E2E_POLL_INTERVAL` | `2s` | Polling interval for readiness checks. |
 
 ## CI Behavior

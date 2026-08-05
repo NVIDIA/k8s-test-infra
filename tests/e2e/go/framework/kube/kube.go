@@ -145,6 +145,9 @@ type envVar struct {
 }
 
 type daemonSetObj struct {
+	Metadata struct {
+		Generation int64 `json:"generation"`
+	} `json:"metadata"`
 	Spec struct {
 		Template struct {
 			Spec struct {
@@ -155,8 +158,10 @@ type daemonSetObj struct {
 		} `json:"template"`
 	} `json:"spec"`
 	Status struct {
-		DesiredNumberScheduled int `json:"desiredNumberScheduled"`
-		NumberReady            int `json:"numberReady"`
+		ObservedGeneration     int64 `json:"observedGeneration"`
+		DesiredNumberScheduled int   `json:"desiredNumberScheduled"`
+		UpdatedNumberScheduled int   `json:"updatedNumberScheduled"`
+		NumberReady            int   `json:"numberReady"`
 	} `json:"status"`
 }
 
@@ -321,14 +326,30 @@ func (c *Client) ConfigMapData(ctx context.Context, ns, name, key string) (strin
 	return v, nil
 }
 
-// DaemonSetReady reports whether all desired DaemonSet pods are ready.
+// rolledOutAndReady reports whether the DaemonSet's current spec is fully rolled
+// out and every desired pod is ready. A ready count alone would also accept a
+// DaemonSet that has not started rolling yet, whose ready pods still belong to
+// the previous generation.
+func (ds daemonSetObj) rolledOutAndReady() bool {
+	// A status the controller has not caught up to describes the previous spec,
+	// so it cannot answer whether this one rolled out.
+	if ds.Status.ObservedGeneration < ds.Metadata.Generation {
+		return false
+	}
+	d := ds.Status.DesiredNumberScheduled
+	return d > 0 &&
+		ds.Status.UpdatedNumberScheduled == d &&
+		ds.Status.NumberReady == d
+}
+
+// DaemonSetReady reports whether every desired DaemonSet pod is ready and
+// running the current spec.
 func (c *Client) DaemonSetReady(ctx context.Context, ns, name string) (bool, error) {
 	var ds daemonSetObj
 	if err := c.getJSON(ctx, &ds, "daemonset", "-n", ns, name); err != nil {
 		return false, err
 	}
-	d := ds.Status.DesiredNumberScheduled
-	return d > 0 && ds.Status.NumberReady == d, nil
+	return ds.rolledOutAndReady(), nil
 }
 
 // DaemonSetContainerEnv returns the value of an env var on the DaemonSet's

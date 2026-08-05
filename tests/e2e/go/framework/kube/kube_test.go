@@ -7,11 +7,12 @@ package kube
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // installFakeKubectl puts a stub `kubectl` at the front of PATH for the rest of
@@ -22,9 +23,7 @@ func installFakeKubectl(t *testing.T, script string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "kubectl")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
-		t.Fatalf("write fake kubectl: %v", err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o755), "write fake kubectl")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
@@ -54,9 +53,7 @@ fi
 func newTestClient(t *testing.T) *Client {
 	t.Helper()
 	c, err := New("kind-nvml-mock-e2e")
-	if err != nil {
-		t.Fatalf("New default kubeconfig client: %v", err)
-	}
+	require.NoError(t, err, "New default kubeconfig client")
 	return c
 }
 
@@ -67,19 +64,13 @@ func TestLogsCapturesEveryContainerNotJustTheDefault(t *testing.T) {
 	installFakeKubectl(t, multiContainerLogs)
 
 	out, err := newTestClient(t).Logs(context.Background(), "gpu-operator", "app.kubernetes.io/name=nvml-mock", 100)
-	if err != nil {
-		t.Fatalf("Logs: %v", err)
-	}
-
-	if !strings.Contains(out, "[sidecar] watch-allocations: 8 GPUs, polling") {
-		t.Fatalf("sidecar container output missing from collected logs, got:\n%s", out)
-	}
-	if !strings.Contains(out, "[nvml-mock] mock ready") {
-		t.Fatalf("primary container output missing from collected logs, got:\n%s", out)
-	}
-	if strings.Contains(out, "Defaulted container") {
-		t.Fatalf("kubectl defaulted to one container instead of collecting all, got:\n%s", out)
-	}
+	require.NoError(t, err, "Logs")
+	require.Contains(t, out, "[sidecar] watch-allocations: 8 GPUs, polling",
+		"sidecar container output missing from collected logs")
+	require.Contains(t, out, "[nvml-mock] mock ready",
+		"primary container output missing from collected logs")
+	require.NotContains(t, out, "Defaulted container",
+		"kubectl defaulted to one container instead of collecting all")
 }
 
 func TestLogsArgsRequestAllContainersAndNotPreviousInstance(t *testing.T) {
@@ -90,9 +81,7 @@ func TestLogsArgsRequestAllContainersAndNotPreviousInstance(t *testing.T) {
 		"-l", "app.kubernetes.io/name=nvml-mock",
 		"--all-containers=true", "--tail=100",
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("expected kubectl logs args %#v, got %#v", want, got)
-	}
+	require.Equal(t, want, got, "kubectl logs args")
 }
 
 // `kubectl logs --previous` errors when a container has no previous instance,
@@ -106,9 +95,7 @@ func TestPreviousLogsArgsAskForPreviousInstance(t *testing.T) {
 		"-l", "app.kubernetes.io/name=nvml-mock",
 		"--all-containers=true", "--tail=100", "--previous",
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("expected kubectl logs args %#v, got %#v", want, got)
-	}
+	require.Equal(t, want, got, "kubectl logs args")
 }
 
 // podsJSON serves a two-container pod whose restart counts depend on the
@@ -132,20 +119,12 @@ func TestRestartedPodsGatesOnRestartCount(t *testing.T) {
 	c := newTestClient(t)
 
 	restarted, err := c.RestartedPods(context.Background(), "restarted", "app.kubernetes.io/name=nvml-mock")
-	if err != nil {
-		t.Fatalf("RestartedPods on a restarted pod: %v", err)
-	}
-	if !reflect.DeepEqual(restarted, []string{"nvml-mock-abcde"}) {
-		t.Fatalf("expected the restarted pod to be reported, got %#v", restarted)
-	}
+	require.NoError(t, err, "RestartedPods on a restarted pod")
+	require.Equal(t, []string{"nvml-mock-abcde"}, restarted, "restarted pod")
 
 	healthy, err := c.RestartedPods(context.Background(), "healthy", "app.kubernetes.io/name=nvml-mock")
-	if err != nil {
-		t.Fatalf("RestartedPods on a healthy pod: %v", err)
-	}
-	if len(healthy) != 0 {
-		t.Fatalf("expected no pods reported when nothing restarted, got %#v", healthy)
-	}
+	require.NoError(t, err, "RestartedPods on a healthy pod")
+	require.Empty(t, healthy, "pods reported when nothing restarted")
 }
 
 // profileConfigMapJSON answers only for the exact name FGO's loader Gets, and
@@ -169,16 +148,10 @@ func TestGetConfigMapReturnsLabelsAndData(t *testing.T) {
 	installFakeKubectl(t, profileConfigMapJSON)
 
 	cm, err := newTestClient(t).GetConfigMap(context.Background(), "nvml-mock-system", "gpu-profile-a100")
-	if err != nil {
-		t.Fatalf("GetConfigMap: %v", err)
-	}
-
-	if got := cm.Labels["fake-gpu-operator/gpu-profile"]; got != "true" {
-		t.Fatalf("expected the FGO discovery label to be readable, got %q", got)
-	}
-	if got := cm.Data["profile.yaml"]; got != "version: \"1.0\"\n" {
-		t.Fatalf("expected the profile.yaml body to be readable, got %q", got)
-	}
+	require.NoError(t, err, "GetConfigMap")
+	require.Equal(t, "true", cm.Labels["fake-gpu-operator/gpu-profile"],
+		"FGO discovery label")
+	require.Equal(t, "version: \"1.0\"\n", cm.Data["profile.yaml"], "profile.yaml body")
 }
 
 // A wrong name must surface as an error rather than an empty ConfigMap, or the
@@ -187,33 +160,94 @@ func TestGetConfigMapErrorsOnAMissingName(t *testing.T) {
 	installFakeKubectl(t, profileConfigMapJSON)
 
 	_, err := newTestClient(t).GetConfigMap(context.Background(), "nvml-mock-system", "nvml-mock-profile-a100")
-	if err == nil {
-		t.Fatal("expected an error for a ConfigMap name that does not exist, got nil")
+	require.Error(t, err, "missing ConfigMap name")
+}
+
+// Readiness has to mean "this spec rolled out and is ready", not "some pod is
+// ready": a caller polling straight after a restart would otherwise be answered
+// by the very pod it asked to have replaced, then talk to it as it is deleted.
+// Every case here keeps numberReady == desiredNumberScheduled, which is exactly
+// the shape that fools a ready count. The settled case is the counterweight —
+// too strict and every wait built on this would simply hang.
+func TestDaemonSetRolledOutAndReady(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		generation int64
+		observed   int64
+		desired    int
+		updated    int
+		ready      int
+		want       bool
+	}{
+		{
+			name:       "fully rolled out",
+			generation: 3, observed: 3, desired: 1, updated: 1, ready: 1,
+			want: true,
+		},
+		{
+			name:       "new spec not rolled out yet",
+			generation: 3, observed: 3, desired: 1, updated: 0, ready: 1,
+			want: false,
+		},
+		{
+			name:       "status still describes the previous spec",
+			generation: 3, observed: 2, desired: 1, updated: 1, ready: 1,
+			want: false,
+		},
+		{
+			// Nothing scheduled at all: a DaemonSet whose node selector matches
+			// no node is vacuously "all ready" on counts alone.
+			name:       "nothing scheduled",
+			generation: 1, observed: 1, desired: 0, updated: 0, ready: 0,
+			want: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var ds daemonSetObj
+			ds.Metadata.Generation = tc.generation
+			ds.Status.ObservedGeneration = tc.observed
+			ds.Status.DesiredNumberScheduled = tc.desired
+			ds.Status.UpdatedNumberScheduled = tc.updated
+			ds.Status.NumberReady = tc.ready
+
+			require.Equal(t, tc.want, ds.rolledOutAndReady(), "rolledOutAndReady()")
+		})
 	}
+}
+
+// The predicate above reads five fields straight off `kubectl get -o json`, so a
+// mistyped tag would silently leave one at zero and skew every readiness wait
+// without failing to compile. Distinct values catch a swap between them too.
+func TestDaemonSetObjDecodesRolloutFields(t *testing.T) {
+	const payload = `{
+	  "metadata": {"name": "nvidia-dcgm-exporter", "generation": 5},
+	  "status": {"observedGeneration": 4, "desiredNumberScheduled": 3,
+	             "updatedNumberScheduled": 2, "numberReady": 1}
+	}`
+
+	var ds daemonSetObj
+	require.NoError(t, json.Unmarshal([]byte(payload), &ds), "unmarshal daemonset")
+
+	got := []int{
+		int(ds.Metadata.Generation), int(ds.Status.ObservedGeneration),
+		ds.Status.DesiredNumberScheduled, ds.Status.UpdatedNumberScheduled,
+		ds.Status.NumberReady,
+	}
+	require.Equal(t, []int{5, 4, 3, 2, 1}, got,
+		"decoded [generation observedGeneration desired updated ready]")
 }
 
 func TestBaseUsesDefaultKubeconfigWhenUnset(t *testing.T) {
 	c, err := New("kind-nvml-mock-e2e")
-	if err != nil {
-		t.Fatalf("New default kubeconfig client: %v", err)
-	}
+	require.NoError(t, err, "New default kubeconfig client")
 	args := c.base()
-
-	for _, arg := range args {
-		if arg == "--kubeconfig" {
-			t.Fatal("did not expect --kubeconfig when kubectl should use the default kubeconfig")
-		}
-	}
+	require.NotContains(t, args, "--kubeconfig",
+		"kubectl should use the default kubeconfig")
 }
 
 func TestBaseTargetsContext(t *testing.T) {
 	c, err := New("kind-nvml-mock-e2e")
-	if err != nil {
-		t.Fatalf("New default kubeconfig client: %v", err)
-	}
+	require.NoError(t, err, "New default kubeconfig client")
 	args := c.base()
-
-	if len(args) != 2 || args[0] != "--context" || args[1] != "kind-nvml-mock-e2e" {
-		t.Fatalf("expected kubectl context args, got %#v", args)
-	}
+	require.Equal(t, []string{"--context", "kind-nvml-mock-e2e"}, args, "kubectl context args")
 }
