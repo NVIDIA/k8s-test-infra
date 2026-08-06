@@ -449,9 +449,13 @@ func (c *Client) DeletePodsByLabel(ctx context.Context, ns, selector string) err
 	return err
 }
 
-// ResourceSliceGPUTotal sums devices across all ResourceSlices, pinned to the
-// served resource.k8s.io/v1beta1 (matches kind-dra-config.yaml).
-func (c *Client) ResourceSliceGPUTotal(ctx context.Context) (int, error) {
+// ResourceSliceDeviceCounts returns len(Devices) for every ResourceSlice
+// currently published, pinned to the served resource.k8s.io/v1beta1. The DRA
+// driver publishes one ResourceSlice per node with the mock's advertised GPU
+// count, so per-slice counts are the load-bearing invariant — summing them
+// blends node cardinality with per-node accuracy and hides regressions
+// (e.g. one worker's mock silently short by a device).
+func (c *Client) ResourceSliceDeviceCounts(ctx context.Context) ([]int, error) {
 	var list struct {
 		Items []struct {
 			Spec struct {
@@ -460,13 +464,13 @@ func (c *Client) ResourceSliceGPUTotal(ctx context.Context) (int, error) {
 		} `json:"items"`
 	}
 	if err := c.getJSON(ctx, &list, "resourceslices.v1beta1.resource.k8s.io"); err != nil {
-		return 0, err
+		return nil, err
 	}
-	total := 0
-	for _, it := range list.Items {
-		total += len(it.Spec.Devices)
+	counts := make([]int, len(list.Items))
+	for i, it := range list.Items {
+		counts[i] = len(it.Spec.Devices)
 	}
-	return total, nil
+	return counts, nil
 }
 
 // DescribePod returns `kubectl describe pod` output (failure classification,

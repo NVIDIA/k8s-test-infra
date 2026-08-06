@@ -28,7 +28,7 @@
 # without any post-cluster setup. This matches what CI does via docker exec after
 # cluster creation (see .github/workflows/nvml-mock-e2e.yaml).
 #
-# Three cluster-level features are enabled here. Each is inert for consumers
+# Four cluster-level features are enabled here. Each is inert for consumers
 # that don't need it, so combining them does not break isolation:
 #
 #   1. featureGates.DynamicResourceAllocation + apiServer runtime-config
@@ -46,6 +46,11 @@
 #      in CDI mode intercepts NVIDIA_VISIBLE_DEVICES=all and performs CDI injection
 #      so toolkit-validation passes. Inert for DRA workloads (they don't set
 #      runtimeClassName).
+#
+#   4. NRI plugin socket enabled — required for the nvml-mock NRI plugin
+#      (nri.enabled=true) to attach to containerd and inject the mock GPU
+#      overlay at container-creation time. Inert until a workload registers
+#      as an NRI plugin, so the node-wide-NRI scenario is the only consumer.
 #
 # Worker labels drive two orthogonal consumer paths without conflict:
 #   - nvml-mock/profile=<a100|t4>            — targeted by install_fleet() in
@@ -68,6 +73,9 @@ containerdConfigPatches:
       runtime_type = "io.containerd.runc.v2"
     [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
       BinaryName = "/usr/bin/nvidia-container-runtime"
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      socket_path = "/var/run/nri/nri.sock"
 nodes:
   - role: control-plane
     kubeadmConfigPatches:

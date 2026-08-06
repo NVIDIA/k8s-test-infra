@@ -6,7 +6,6 @@
 package e2e
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,56 +51,6 @@ func chartDir() string {
 
 func profilesDir() string {
 	return filepath.Join(chartDir(), "profiles")
-}
-
-func dockerfilePath() string {
-	return filepath.Join(repoRoot(), "deployments", "nvml-mock", "Dockerfile")
-}
-
-// demoKindConfig is the shared multi-node cluster config. It defaults to
-// docs/demo/kind.yaml and allows profile-specific overrides at
-// docs/demo/kind-<profile>.yaml for profiles that need special cluster wiring.
-func demoKindConfig(profiles []string) []byte {
-	path, err := selectedKindConfigPath(profiles)
-	Expect(err).NotTo(HaveOccurred())
-	data, err := os.ReadFile(path)
-	Expect(err).NotTo(HaveOccurred(), "read demo kind config %s", path)
-	return data
-}
-
-func selectedKindConfigPath(profiles []string) (string, error) {
-	var selected string
-	for _, profileName := range profiles {
-		path, err := kindConfigPathForProfile(profileName)
-		if err != nil {
-			return "", err
-		}
-		if selected == "" {
-			selected = path
-			continue
-		}
-		if path != selected {
-			return "", fmt.Errorf("profiles %q and %q require different Kind configs (%s vs %s); run them in separate E2E_PROFILES invocations", profiles[0], profileName, selected, path)
-		}
-	}
-	if selected == "" {
-		return kindConfigPathForProfile("")
-	}
-	return selected, nil
-}
-
-func kindConfigPathForProfile(profileName string) (string, error) {
-	defaultPath := filepath.Join(repoRoot(), "docs", "demo", "kind.yaml")
-	if profileName == "" {
-		return defaultPath, nil
-	}
-	profilePath := filepath.Join(repoRoot(), "docs", "demo", "kind-"+profileName+".yaml")
-	if _, err := os.Stat(profilePath); err == nil {
-		return profilePath, nil
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("stat profile Kind config %s: %w", profilePath, err)
-	}
-	return defaultPath, nil
 }
 
 func loadProfile(name string) profile.Profile {

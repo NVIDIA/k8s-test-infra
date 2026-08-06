@@ -26,7 +26,6 @@ const (
 	defaultProfilesDir = "deployments/nvml-mock/helm/nvml-mock/profiles"
 	defaultImage       = "nvml-mock:e2e"
 	defaultArtifacts   = "artifacts/e2e/go"
-	defaultDockerfile  = "deployments/nvml-mock/Dockerfile"
 )
 
 func env(key, def string) string {
@@ -77,38 +76,17 @@ func SelectedProfileNames() []string {
 	return out
 }
 
-// Image is the local image ref the harness builds and kind-loads.
+// Image is the mock image ref already loaded in the externally-owned cluster.
+// The scenarios that reshape the mock via helm upgrade pin
+// image.repository / image.tag to this ref.
 func Image() string { return env("E2E_IMAGE", defaultImage) }
 
-// Dockerfile is the path to the nvml-mock Dockerfile.
-func Dockerfile() string { return env("E2E_DOCKERFILE", defaultDockerfile) }
-
-// GolangVersion is the --build-arg GOLANG_VERSION passed to the image build
-// (empty => Dockerfile default).
-func GolangVersion() string { return os.Getenv("E2E_GOLANG_VERSION") }
-
-// SkipBuild reports whether the SynchronizedBeforeSuite image build is skipped
-// (local fast loops with a pre-built E2E_IMAGE).
-func SkipBuild() bool { return envBool("E2E_SKIP_BUILD") }
-
-// BuildxGHACache reports whether to add --cache-to/--cache-from type=gha to the
-// buildx build (set in CI only).
-func BuildxGHACache() bool { return envBool("E2E_BUILDX_GHA_CACHE") }
-
-// KeepCluster reports whether clusters should survive teardown for debugging.
-func KeepCluster() bool { return envBoolDefault("E2E_KEEP_CLUSTER", true) }
-
-// AttachExisting reports whether the harness should attach to an already-created
-// cluster (skipping kind create + image load + helm install) instead of owning
-// the full lifecycle. Set by CI when the environment is rolled out separately
-// (e.g. via `tilt ci`). Requires E2E_KUBE_CONTEXT and E2E_CLUSTER_NAME.
-func AttachExisting() bool { return envBool("E2E_ATTACH_EXISTING") }
-
-// KubeContext is the kubeconfig context to attach to when AttachExisting is set.
+// KubeContext is the kubeconfig context of the externally-owned cluster the
+// suite attaches to.
 func KubeContext() string { return os.Getenv("E2E_KUBE_CONTEXT") }
 
-// ClusterName is the Kind cluster name to attach to when AttachExisting is set.
-// Used by `kind get nodes --name` for node-role assertions.
+// ClusterName is the Kind cluster name of the externally-owned cluster. Used
+// by `kind get nodes --name` for node-role assertions.
 func ClusterName() string { return os.Getenv("E2E_CLUSTER_NAME") }
 
 // ArtifactsDir is where diagnostics are written.

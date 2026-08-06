@@ -69,15 +69,23 @@ func WaitNodeLabelsPresent(ctx context.Context, k *kube.Client, node string, lab
 		Should(gomega.BeEmpty(), "node %s missing labels", node)
 }
 
-// WaitResourceSliceTotal polls until the summed ResourceSlice device count
-// equals want (DRA driver published the GPUs). Pinned to v1beta1 in kube.
-func WaitResourceSliceTotal(ctx context.Context, k *kube.Client, want int, timeout, poll time.Duration) {
+// WaitResourceSlicePerNode polls until at least one ResourceSlice exists and
+// every published ResourceSlice reports exactly want devices. The DRA driver
+// publishes one ResourceSlice per node with the mock's advertised GPU count,
+// so per-slice equality is the invariant that survives any cluster shape:
+// summing across slices would blend node cardinality with per-node accuracy
+// and pass silently when one node's mock is broken but the grand total still
+// happens to match.
+func WaitResourceSlicePerNode(ctx context.Context, k *kube.Client, want int, timeout, poll time.Duration) {
 	ginkgo.GinkgoHelper()
-	ginkgo.By(fmt.Sprintf("waiting for ResourceSlice device total = %d", want))
-	gomega.Eventually(func() (int, error) {
-		return k.ResourceSliceGPUTotal(ctx)
+	ginkgo.By(fmt.Sprintf("waiting for every ResourceSlice to publish %d devices", want))
+	gomega.Eventually(func() ([]int, error) {
+		return k.ResourceSliceDeviceCounts(ctx)
 	}).WithContext(ctx).WithTimeout(timeout).WithPolling(poll).
-		Should(gomega.Equal(want), "ResourceSlice GPU total")
+		Should(gomega.SatisfyAll(
+			gomega.Not(gomega.BeEmpty()),
+			gomega.HaveEach(gomega.Equal(want)),
+		), "per-node ResourceSlice device count")
 }
 
 // WaitPodPhase polls until a pod reaches the given phase.

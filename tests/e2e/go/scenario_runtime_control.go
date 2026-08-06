@@ -52,6 +52,20 @@ func nvmlMockCtl(ctx SpecContext, h *harness.Harness, args ...string) string {
 	return res.Stdout
 }
 
+// nvmlMockCtlOnNode is nvmlMockCtl scoped to the mock pod on `node`. Runtime
+// overrides are per-node (the mock stages per-node hostPath override files),
+// so callers that need to correlate a modification with a per-node consumer —
+// dcgm-exporter on the same node, an nvidia-smi read from the same pod — must
+// pin the mock pod they issue the command against.
+func nvmlMockCtlOnNode(ctx SpecContext, h *harness.Harness, node string, args ...string) string {
+	GinkgoHelper()
+	pod := nvmlPodOnNode(ctx, h, node)
+	full := append([]string{"nvml-mock-ctl"}, args...)
+	res, err := h.Kube.Exec(ctx, pod, full...)
+	Expect(err).NotTo(HaveOccurred(), "nvml-mock-ctl %v on %s: %s", args, node, res.Combined())
+	return res.Stdout
+}
+
 // nvmlMockCtlTry is the non-asserting variant, used where a command may
 // legitimately fail (e.g. UUID targeting against auto-generated UUIDs that the
 // v1 CLI cannot resolve). It returns combined output and the exec error.

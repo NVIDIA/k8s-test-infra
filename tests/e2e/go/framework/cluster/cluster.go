@@ -3,11 +3,9 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package cluster owns the Kind cluster lifecycle via the `kind` CLI. It uses
-// Kind/kubectl's default kubeconfig. Creation is idempotent
-// ("delete-if-exists then create").
-// Node-name resolution is centralized here (parse `kind get nodes` once into
-// typed roles) instead of scattering `grep worker | sort` across scenarios.
+// Package cluster reads Kind cluster node topology via the `kind` CLI, using
+// Kind/kubectl's default kubeconfig. Cluster provisioning itself lives outside
+// this package (Tilt / `make cluster-create`); the suite only observes.
 package cluster
 
 import (
@@ -34,7 +32,7 @@ type Node struct {
 	Role Role
 }
 
-// Cluster is a created Kind cluster.
+// Cluster is an existing Kind cluster the suite attaches to.
 type Cluster struct {
 	Name    string
 	Context string
@@ -42,8 +40,6 @@ type Cluster struct {
 }
 
 var nameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
-
-const kindConfigStdinPath = "/dev/stdin"
 
 // ValidateName enforces a short, DNS-ish, deterministic cluster name. Kind
 // prefixes node container names with this, so keep it well under docker limits.
@@ -53,53 +49,6 @@ func ValidateName(name string) error {
 	}
 	if !nameRE.MatchString(name) {
 		return fmt.Errorf("cluster name %q must match %s", name, nameRE.String())
-	}
-	return nil
-}
-
-// Create makes a Kind cluster named name. If configYAML is non-empty it is
-// streamed to `kind create cluster --config /dev/stdin`. The cluster is always
-// returned (even on create error) so the caller can DeferCleanup it.
-func Create(ctx context.Context, name string, configYAML []byte) (*Cluster, error) {
-	if err := ValidateName(name); err != nil {
-		return nil, err
-	}
-
-	c := &Cluster{Name: name, Context: KindContext(name)}
-
-	// delete-if-exists (idempotent on a dirty machine / re-run).
-	_, _ = runner.Run(ctx, "kind", "delete", "cluster", "--name", name)
-
-	args := createArgs(name, len(configYAML) > 0)
-	var resErr error
-	if len(configYAML) > 0 {
-		_, resErr = runner.RunInput(ctx, string(configYAML), "kind", args...)
-	} else {
-		_, resErr = runner.Run(ctx, "kind", args...)
-	}
-	if resErr != nil {
-		return c, fmt.Errorf("kind create cluster %q: %w", name, resErr)
-	}
-	return c, nil
-}
-
-func createArgs(name string, hasConfig bool) []string {
-	args := []string{"create", "cluster", "--name", name, "--wait", "180s"}
-	if hasConfig {
-		args = append(args, "--config", kindConfigStdinPath)
-	}
-	return args
-}
-
-// KindContext returns the kubeconfig context name Kind creates for a cluster.
-func KindContext(name string) string {
-	return "kind-" + name
-}
-
-// LoadImage loads a local docker image into the cluster.
-func (c *Cluster) LoadImage(ctx context.Context, ref string) error {
-	if _, err := runner.Run(ctx, "kind", "load", "docker-image", ref, "--name", c.Name); err != nil {
-		return fmt.Errorf("kind load docker-image %q: %w", ref, err)
 	}
 	return nil
 }
@@ -158,10 +107,4 @@ func (c *Cluster) Workers(ctx context.Context) ([]Node, error) {
 		}
 	}
 	return ws, nil
-}
-
-// Delete tears down the cluster.
-func (c *Cluster) Delete(ctx context.Context) error {
-	_, err := runner.Run(ctx, "kind", "delete", "cluster", "--name", c.Name)
-	return err
 }
