@@ -31,26 +31,6 @@ func TestSelectedProfileNamesHonorsExplicitProfiles(t *testing.T) {
 	}
 }
 
-func TestKeepClusterDefaultsToTrue(t *testing.T) {
-	t.Setenv("E2E_KEEP_CLUSTER", "")
-
-	if !KeepCluster() {
-		t.Fatal("expected Kind cluster preservation to be enabled by default")
-	}
-}
-
-func TestKeepClusterCanBeDisabled(t *testing.T) {
-	for _, value := range []string{"0", "false", "no"} {
-		t.Run(value, func(t *testing.T) {
-			t.Setenv("E2E_KEEP_CLUSTER", value)
-
-			if KeepCluster() {
-				t.Fatalf("expected E2E_KEEP_CLUSTER=%q to disable Kind cluster preservation", value)
-			}
-		})
-	}
-}
-
 func TestArtifactsDirDefaultsToGoHarnessPath(t *testing.T) {
 	t.Setenv("E2E_ARTIFACTS", "")
 

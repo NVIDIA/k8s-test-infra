@@ -39,7 +39,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 	selectedProfiles := config.SelectedProfileNames()
 
 	BeforeAll(func(ctx SpecContext) {
-		h = setupCluster(ctx, ClusterName, demoKindConfig(selectedProfiles), "standalone")
+		h = setupCluster(ctx, "standalone")
 	})
 
 	// demo.sh step 11: node labels. Cluster topology is static (set by

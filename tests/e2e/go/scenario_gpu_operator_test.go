@@ -8,7 +8,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 
@@ -16,8 +15,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assets"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
@@ -25,30 +22,14 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
 
-const (
-	gpuOperatorClusterName = "nvml-mock-op"
-	gpuOperatorNamespace   = "gpu-operator"
-	gpuOperatorRelease     = "gpu-operator"
-	gpuOperatorChart       = "nvidia/gpu-operator"
-)
+const gpuOperatorNamespace = "gpu-operator"
 
 var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func() {
 	var h *harness.Harness
 	selectedProfiles := config.SelectedProfileNames()
 
 	BeforeAll(func(ctx SpecContext) {
-		h = setupCluster(ctx, gpuOperatorClusterName, assets.KindGPUOperatorConfig, "gpu-operator")
-		// Skip when the cluster is externally owned: `make cluster-create` uses
-		// the kind-node-nv image (see local/kind/Dockerfile), which already
-		// bakes nvidia-container-toolkit in and configures the nvidia containerd
-		// runtime handler. Running the install anyway would be an apt no-op
-		// followed by a costly containerd restart.
-		if !config.AttachExisting() {
-			node, err := h.Cluster.ControlPlane(ctx)
-			Expect(err).NotTo(HaveOccurred())
-			installNVIDIAContainerToolkit(ctx, h, node)
-			configureNVIDIARuntimeCDI(ctx, h, node)
-		}
+		h = setupCluster(ctx, "gpu-operator")
 	})
 
 	for _, name := range selectedProfiles {
@@ -67,18 +48,12 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 				podName = cp.Name
 				verifyGPUOperatorNodeSetup(ctx, podName)
 
-				// Setup, not a spec. Every spec below reads state that only the
-				// operator publishes, so installing from inside one spec made the
-				// others depend on that spec being selected: any label filter
-				// narrower than `gpu-operator` false-reds with `namespaces
-				// "gpu-operator" not found` (#561).
-				//
-				// The validator wait belongs here for the same reason. `helm
-				// --wait` covers only the operator's own release; the specs assert
-				// on the ClusterPolicy operands (device plugin, GFD,
-				// dcgm-exporter), which the operator creates afterwards. Without
-				// this barrier a narrow run races the operand rollout.
-				installGPUOperator(ctx, h)
+				// Wait belongs here, not in a spec: every spec below reads state
+				// that only the operator publishes, and `helm --wait` covers only
+				// the operator's own release. The specs assert on the ClusterPolicy
+				// operands (device plugin, GFD, dcgm-exporter), which the operator
+				// creates afterwards — a narrow label filter would race the operand
+				// rollout without this barrier (#561).
 				waitOperatorValidatorRunning(ctx, h)
 			})
 
@@ -256,68 +231,10 @@ func rolloutRestart(ctx context.Context, h *harness.Harness, ns, ds string) {
 	Expect(err).NotTo(HaveOccurred(), "rollout status %s/%s", ns, ds)
 }
 
-func installNVIDIAContainerToolkit(ctx context.Context, h *harness.Harness, node cluster.Node) {
-	GinkgoHelper()
-	Expect(dockerExec(ctx, node.Name, "bash", "-c", `
-apt-get update -qq
-apt-get install -y -qq curl gpg
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-  | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-  | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" \
-  | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-apt-get update -qq
-apt-get install -y -qq nvidia-container-toolkit
-`)).To(Succeed(), "install nvidia-container-toolkit in %s", node.Name)
-}
-
-func configureNVIDIARuntimeCDI(ctx context.Context, h *harness.Harness, node cluster.Node) {
-	GinkgoHelper()
-	Expect(dockerExec(ctx, node.Name, "nvidia-ctk", "runtime", "configure", "--runtime=containerd", "--cdi.enabled", "--set-as-default")).
-		To(Succeed(), "configure nvidia-container-runtime in %s", node.Name)
-	Expect(dockerExec(ctx, node.Name, "bash", "-c", `
-cat > /etc/nvidia-container-runtime/config.toml <<'EOF'
-[nvidia-container-runtime]
-mode = "cdi"
-
-[nvidia-container-runtime.modes.cdi]
-default-kind = "nvidia.com/gpu"
-spec-dirs = ["/var/run/cdi", "/etc/cdi"]
-EOF
-systemctl restart containerd
-`)).To(Succeed(), "restart containerd in %s", node.Name)
-	assertions.WaitNodeReady(ctx, h.Kube, node.Name, config.ReadyTimeout(), config.PollInterval())
-}
-
 func verifyGPUOperatorNodeSetup(ctx context.Context, node string) {
 	GinkgoHelper()
 	Expect(dockerExec(ctx, node, "test", "-f", "/var/run/cdi/nvidia.yaml")).To(Succeed(), "CDI spec exists")
 	Expect(dockerExec(ctx, node, "bash", "-c", "LD_LIBRARY_PATH=/run/nvidia/driver/usr/lib64 /run/nvidia/driver/usr/bin/nvidia-smi")).To(Succeed(), "nvidia-smi works via /run/nvidia/driver")
-}
-
-func installGPUOperator(ctx SpecContext, h *harness.Harness) {
-	GinkgoHelper()
-	// External owner installed the release (see local/gpu-operator/gpu_operator.tiltfile).
-	// The caller's waitOperatorValidatorRunning still fires afterwards, so operand
-	// rollout is validated regardless of who installed the chart.
-	if config.AttachExisting() {
-		By("skip helm upgrade --install gpu-operator (attach mode, external rollout)")
-		return
-	}
-	Expect(h.Helm.RepoAdd(ctx, "nvidia", "https://helm.ngc.nvidia.com/nvidia")).To(Succeed(), "add NVIDIA Helm repo")
-	Expect(h.Helm.RepoUpdate(ctx)).To(Succeed(), "update Helm repos")
-	valuesFile, err := assets.WriteTemp("gpu-operator-values-*.yaml", assets.GPUOperatorValues)
-	Expect(err).NotTo(HaveOccurred())
-	DeferCleanup(func() { _ = os.Remove(valuesFile) })
-	Expect(h.Helm.UpgradeInstall(ctx, helm.Release{
-		Name:            gpuOperatorRelease,
-		Chart:           gpuOperatorChart,
-		Namespace:       gpuOperatorNamespace,
-		CreateNamespace: true,
-		ValuesFiles:     []string{valuesFile},
-		Wait:            true,
-		Timeout:         5 * time.Minute,
-	})).To(Succeed(), "install GPU Operator")
 }
 
 func waitOperatorValidatorRunning(ctx SpecContext, h *harness.Harness) {

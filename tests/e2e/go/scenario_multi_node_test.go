@@ -13,17 +13,14 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assets"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
 
 const (
-	multiNodeClusterName = "gpu-fleet"
 	// multiNodeWorkloadNS is where the scheduling-test pod (`gpu-scheduling-test`)
 	// lives. Mock releases live in nvmlMockNamespace ("mokka") like every other
 	// scenario — reserving the "default" namespace here for the ordinary workload
@@ -44,26 +41,13 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 	)
 
 	BeforeAll(func(ctx SpecContext) {
-		h = setupCluster(ctx, multiNodeClusterName, assets.KindMultiNodeConfig, "multi-node")
+		h = setupCluster(ctx, "multi-node")
 		var err error
 		workers, err = h.Cluster.Workers(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(workers).To(HaveLen(2), "multi-node scenario requires exactly two Kind workers")
-		// Skip when the cluster is externally owned: `make cluster-create` uses
-		// the kind-node-nv image (see local/kind/Dockerfile) which already bakes
-		// nvidia-container-toolkit in on every node, so the per-worker install
-		// and containerd restart below would be redundant.
-		if !config.AttachExisting() {
-			for _, node := range workers {
-				installNVIDIAContainerToolkit(ctx, h, node)
-				Expect(dockerExec(ctx, node.Name, "systemctl", "restart", "containerd")).To(Succeed(), "restart containerd in %s", node.Name)
-				assertions.WaitNodeReady(ctx, h.Kube, node.Name, config.ReadyTimeout(), config.PollInterval())
-			}
-		}
 		a100 = loadProfile("a100")
 		t4 = loadProfile("t4")
-		installProfileOnNode(ctx, h, a100ReleaseName, "a100", "a100")
-		installProfileOnNode(ctx, h, t4ReleaseName, "t4", "t4")
 		a100Pod = firstReleasePod(ctx, h, a100ReleaseName)
 		t4Pod = firstReleasePod(ctx, h, t4ReleaseName)
 	})
@@ -87,31 +71,6 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 		assertions.WaitPodPhase(ctx, h.Kube, multiNodeWorkloadNS, "gpu-scheduling-test", "Running", config.ReadyTimeout(), config.PollInterval())
 	})
 })
-
-func installProfileOnNode(ctx context.Context, h *harness.Harness, releaseName, profileName, nodeProfile string) {
-	GinkgoHelper()
-	// External owner installed one release per profile with the same
-	// nodeSelector.nvml-mock/profile label this helper would apply; skip the
-	// duplicate helm upgrade and let firstReleasePod find the existing release.
-	if config.AttachExisting() {
-		By("skip helm upgrade --install " + releaseName + " (attach mode, external rollout)")
-		return
-	}
-	repo, tag := splitImage(config.Image())
-	Expect(h.Helm.UpgradeInstall(ctx, helm.Release{
-		Name:      releaseName,
-		Chart:     chartDir(),
-		Namespace: nvmlMockNamespace,
-		Set: map[string]string{
-			"gpu.profile":                    profileName,
-			"image.repository":               repo,
-			"image.tag":                      tag,
-			"nodeSelector.nvml-mock/profile": nodeProfile,
-		},
-		Wait:    true,
-		Timeout: config.HelmTimeout(),
-	})).To(Succeed(), "install %s on %s worker", releaseName, nodeProfile)
-}
 
 func firstReleasePod(ctx context.Context, h *harness.Harness, releaseName string) kube.PodRef {
 	GinkgoHelper()

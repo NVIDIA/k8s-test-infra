@@ -12,24 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Go/Ginkgo nvml-mock E2E. The harness under tests/e2e owns lifecycle (Kind
-# create/teardown, image build/load, Helm, validation, diagnostics) behind one
-# entrypoint (`make e2e`) that runs identically locally and here. Jobs mirror the
-# legacy nvml-mock E2E workflow and select the related Go scenario by label.
+# Go/Ginkgo nvml-mock E2E. Every scenario job uses `make cluster-create` +
+# `tilt ci` for cluster provisioning and rollout (mirroring the local-dev flow
+# in local/README.md); Ginkgo attaches to the resulting cluster and only
+# observes/asserts, selecting the scenario by Ginkgo label filter.
 #
-# Image distribution: a single `build-nvmlmock-imagebuild-nvmlmock-image` job builds the nvml-mock image once
-# and pushes it to the ephemeral, auth-free ttl.sh registry (works on fork PRs)
-# as E2E_IMAGE (24h TTL). Every leg then pulls that image by digest (immune to
-# tag overwrite on the anonymous registry), tags it to E2E_IMAGE, and the harness
-# kind-loads it (E2E_SKIP_BUILD=true) instead of rebuilding per leg.
+# Image distribution: a single `build-nvmlmock-image` job builds the nvml-mock
+# image once and pushes it to the ephemeral, auth-free ttl.sh registry (works
+# on fork PRs) as E2E_IMAGE (24h TTL). Every leg then pulls that image by
+# digest (immune to tag overwrite on the anonymous registry), retags to
+# E2E_IMAGE, and kind-loads it — the same ref Tilt is given via
+# --nvmlmock-image, so scenarios that reshape the release via helm upgrade
+# re-pin image.repository / image.tag consistently.
 #
-# Kind node image: the standalone `e2e` pilot uses `make cluster-create` (same
-# as local dev), which needs a custom kind-node image with nvidia-container-
-# toolkit pre-baked. A parallel `build-kind-node` job builds and pushes that
-# image to ttl.sh once per commit; the standalone leg pulls by digest, retags
-# to kind-node-nv:latest, and sets KIND_NODE_IMAGE_PREBUILT so `make image-
-# kind-node` is a no-op. Same "build once, share via ttl.sh" pattern as
-# nvml-mock. Other jobs still use kindest/node directly and don't need this.
+# Kind node image: `make cluster-create` uses a custom kind-node image with
+# nvidia-container-toolkit pre-baked. A parallel `build-kind-node-image` job
+# builds and pushes that image to ttl.sh once per commit; each leg pulls by
+# digest, retags to kind-node-nv:latest, and sets KIND_NODE_IMAGE_PREBUILT so
+# `make image-kind-node` is a no-op. Same "build once, share via ttl.sh"
+# pattern as nvml-mock.
 name: nvml-mock E2E (Go)
 
 permissions:
@@ -69,7 +70,6 @@ env:
   # Auth-free, so it also works on fork PRs. 24h (ttl.sh max) keeps the image
   # alive long enough to re-run individual failed legs without a full rebuild.
   E2E_IMAGE: ttl.sh/nvml-mock-${{ github.sha }}:24h
-  E2E_SKIP_BUILD: "true"
   E2E_ARTIFACTS: ${{ github.workspace }}/artifacts/e2e/go
 
 jobs:
@@ -130,9 +130,6 @@ jobs:
           cache-from: type=gha,scope=kind-node
           cache-to: type=gha,mode=max,scope=kind-node
 
-  # Every scenario job uses `make cluster-create` + `tilt ci` for the cluster
-  # and rollout (mirrors the local-dev flow in local/README.md) and Ginkgo runs
-  # in attach mode (E2E_ATTACH_EXISTING=true), asserting on Tilt's rollout.
   e2e:
     needs: [build-nvmlmock-image, build-kind-node-image]
     runs-on: ubuntu-latest
@@ -211,7 +208,6 @@ jobs:
         # context and runs the standalone specs against Tilt's rollout.
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
-          E2E_ATTACH_EXISTING: "true"
           E2E_KUBE_CONTEXT: kind-gpu-test
           E2E_CLUSTER_NAME: gpu-test
         run: make e2e
@@ -288,7 +284,6 @@ jobs:
       - name: Run DRA E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
-          E2E_ATTACH_EXISTING: "true"
           E2E_KUBE_CONTEXT: kind-gpu-test
           E2E_CLUSTER_NAME: gpu-test
         run: make e2e-dra
@@ -365,7 +360,6 @@ jobs:
       - name: Run GPU Operator E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
-          E2E_ATTACH_EXISTING: "true"
           E2E_KUBE_CONTEXT: kind-gpu-test
           E2E_CLUSTER_NAME: gpu-test
         run: make e2e-gpu-operator
@@ -437,7 +431,6 @@ jobs:
 
       - name: Run multi-node E2E
         env:
-          E2E_ATTACH_EXISTING: "true"
           E2E_KUBE_CONTEXT: kind-gpu-test
           E2E_CLUSTER_NAME: gpu-test
         run: make e2e-multi-node
@@ -518,7 +511,6 @@ jobs:
       - name: Run node-wide NRI injection E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
-          E2E_ATTACH_EXISTING: "true"
           E2E_KUBE_CONTEXT: kind-gpu-test
           E2E_CLUSTER_NAME: gpu-test
         run: make e2e-nri
@@ -604,7 +596,6 @@ jobs:
       - name: Run NFD label-provenance E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
-          E2E_ATTACH_EXISTING: "true"
           E2E_KUBE_CONTEXT: kind-gpu-test
           E2E_CLUSTER_NAME: gpu-test
         run: make e2e-nfd

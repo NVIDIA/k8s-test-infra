@@ -14,20 +14,15 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assets"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/diagnostics"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
 
 const (
-	draClusterName   = "nvml-mock-dra"
 	draNamespace     = "nvidia"
-	draDriverRelease = "nvidia-dra-driver"
-	draDriverChart   = "nvidia/nvidia-dra-driver-gpu"
 	draTestNamespace = "default"
 	draTestPodName   = "gpu-test-pod"
 )
@@ -37,7 +32,7 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 	selectedProfiles := config.SelectedProfileNames()
 
 	BeforeAll(func(ctx SpecContext) {
-		h = setupCluster(ctx, draClusterName, assets.KindDRAConfig, "dra")
+		h = setupCluster(ctx, "dra")
 		DeferCleanup(func(ctx SpecContext) {
 			collectDRAOnFailure(ctx, h)
 		})
@@ -69,7 +64,7 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 			})
 
 			It("publishes DRA ResourceSlices for the profile GPUs", func(ctx SpecContext) {
-				installDRADriver(ctx, h)
+				waitDRAPodsReady(ctx, h)
 				assertions.WaitResourceSlicePerNode(ctx, h.Kube, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
 			})
 
@@ -92,38 +87,6 @@ func collectDRAOnFailure(ctx context.Context, h *harness.Harness) {
 	c.Kubectl(ctx, "resourceslices.yaml", "get", "resourceslices", "-o", "yaml")
 	c.Kubectl(ctx, "gpu-test-pod-describe.txt", "describe", "pod", "-n", draTestNamespace, draTestPodName)
 	c.Kubectl(ctx, "resourceclaims.yaml", "get", "resourceclaims", "-A", "-o", "yaml")
-}
-
-func installDRADriver(ctx SpecContext, h *harness.Harness) {
-	GinkgoHelper()
-	// External owner installed the DRA driver (see local/dra/dra.tiltfile). Wait
-	// on the pods anyway so a degraded rollout surfaces here with an informative
-	// message, not downstream at the ResourceSlice assertion.
-	if config.AttachExisting() {
-		By("skip helm upgrade --install nvidia-dra-driver (attach mode, external rollout)")
-		waitDRAPodsReady(ctx, h)
-		return
-	}
-	Expect(h.Helm.RepoAdd(ctx, "nvidia", "https://helm.ngc.nvidia.com/nvidia")).To(Succeed(), "add NVIDIA Helm repo")
-	Expect(h.Helm.RepoUpdate(ctx)).To(Succeed(), "update Helm repos")
-	Expect(h.Helm.UpgradeInstall(ctx, draDriverHelmRelease())).To(Succeed(), "install NVIDIA DRA driver")
-	waitDRAPodsReady(ctx, h)
-}
-
-func draDriverHelmRelease() helm.Release {
-	return helm.Release{
-		Name:            draDriverRelease,
-		Chart:           draDriverChart,
-		Namespace:       draNamespace,
-		CreateNamespace: true,
-		Set: map[string]string{
-			"gpuResourcesEnabledOverride":      "true",
-			"nvidiaDriverRoot":                 "/var/lib/nvml-mock/driver",
-			"resources.computeDomains.enabled": "false",
-		},
-		Wait:    true,
-		Timeout: 3 * time.Minute,
-	}
 }
 
 func waitDRAPodsReady(ctx SpecContext, h *harness.Harness) {
