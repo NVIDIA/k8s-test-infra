@@ -37,9 +37,9 @@ This architecture has given us a chance to focus on developing the core simulati
 However, we are approaching use cases that push it to its limits:
 
 - there is no way to simulate capacity distribution of GPU platforms like GB300. For example, if you want to simulate two GB300 instances in the cluster, you can get at most 2 × 18 = 36 GPU nodes, each with 4 GPUs. Today it's the responsibility of Mokka users to enforce that cap, which may lead to unrealistic cluster topologies.
-- we would like to have a simple way to change simulated GPU runtime state like temperature, failure modes, etc. So there is a quick way for a cluster operator to propagate a failure across thousands of nodes.
+- we would like to have a simple way to change simulated GPU runtime state like temperature, failure modes, etc., so that a cluster operator can quickly propagate a failure across thousands of nodes.
 - we ask cluster administrators to set `nvidia.com/clique` labels while it should be based on the GPU rack the node belongs to.
-- We ask cluster administrators to provide cross-rack network topology.
+- we ask cluster administrators to provide cross-rack network topology.
 
 ### Goals
 
@@ -76,8 +76,8 @@ Let's think about the GPU infrastructure we want to simulate in terms of simulat
 and networking between them. That's our simulated GPU inventory.
 
 The GPU inventory holds the capacity that we can distribute in the cluster. 
-For example, if we have 2x GB300 racks in our simulated GPU inventory this gives 2 × 18 = 36 GPU nodes, each with 4 sGPUs attached.
-If we wanted to schedule 40 GPU nodes with that inventory, 40-36 = 4 would be without GPU.
+For example, if we have 2× GB300 racks in our simulated GPU inventory this gives 2 × 18 = 36 GPU nodes, each with 4 sGPUs attached.
+If we wanted to schedule 40 GPU nodes with that inventory, 40 − 36 = 4 would be without GPUs.
 
 The sGPU racks are characterized by:
 
@@ -103,7 +103,7 @@ receiving changes that external clients want to apply to the sGPUs' runtime stat
 
 While the high-level architecture is the same, there are two different ways to manage runtime state.
 
-Control plane runtime state includes:
+Control Plane runtime state includes:
 - sGPU node to K8s Node allocation
 - Last time the node agent asked for their identity (acts as a health check, so we can automatically find allocations that are assigned to dead nodes or agents)
 - sGPU runtime information (failures, temperature, fan state, etc.)
@@ -122,8 +122,7 @@ There are two ways to store it:
 - [Good] No additional pressure on the Kubernetes Control plane
 - [Bad] We add an external dependency in a form of Redis. Even though it's the least demanding DB in terms of maintenance, we need to deploy it and potentially make sure it's snapshotting its content for persistence (so PVC would be needed).
 
-Decision: The proposal suggests to move on with Redis as a medium to store runtime state because it makes implementation easier,
-removes additional load and a high cardinality data from K8s Control Plane.
+Decision: The proposal suggests moving forward with Redis as a medium to store runtime state because it makes implementation easier and removes high-cardinality data load from the K8s Control Plane.
 
 ### User Stories
 
@@ -169,14 +168,14 @@ Based on that data, Control Plane does the following:
 - resolves the current Kubernetes node information
 - finds the sGPU type in the `mokka.nvidia.com/sgpu` label
 - looks into the current sGPU inventory to see whether this is a newly created node that requires sGPU capacity assignment or a node with existing assignment
-- for a newly created node, Control Plane tries to find capacity and assign it, generating some runtime information like GPU, PCI IDs to make them unique. Control Plane also labels the K8s node with `nvidia.com/clique` when sGPU is assigned to the node.
+- for a newly created node, Control Plane tries to find capacity and assign it, generating runtime identifiers such as GPU UUIDs and PCI IDs to make them unique. Control Plane also labels the K8s node with `nvidia.com/clique` when sGPU is assigned to the node.
 
 For both existing and new assignments, Control Plane returns sGPU profile information and runtime status.
-Control Plane may return an error that indicates that we are out of capacity (because there is not enough sGPU in the inventory or because the capacity was reduced in runtime).
+Control Plane may return an error indicating we are out of capacity (because there is not enough sGPU in the inventory or because the capacity was reduced at runtime).
 
 ### Node Agent
 
-The node agent focuses purely on what NVML mock does today which is how to mock the given expected state of NVML and networking.
+The node agent focuses purely on what NVML mock does today: applying the expected state of NVML and networking.
 
 However, the agent doesn't control the expected state, it merely receives and applies it (similarly to kubelet).
 
@@ -184,7 +183,7 @@ In order to get the most recent sGPU state, the agent should periodically poll C
 It should cache the previous state in memory, so we can survive any temporary Control Plane crashes.
 
 If the node agent fails to send a heartbeat, it will be assumed inactive and the capacity it was holding will be returned to the sGPU inventory for reuse.
-This is also a self-healing mechanism in case the node dies and node agent had no chance to inform us about shutdown.
+This is also a self-healing mechanism in case the node dies and the node agent had no chance to inform us about shutdown.
 
 ### Control Plane State
 
@@ -199,8 +198,7 @@ This will make sure Mokka configuration is declarative.
 
 In terms of the node assignment and runtime information, we have [two options as mentioned above](#runtime-state).
 
-Control Plane would operate as a K8s Operator and we need to make sure we can make multiple
-replicas active at the same time to fulfill node agent requests and do sGPU distribution.
+Control Plane would operate as a K8s Operator. We need to ensure multiple replicas can be active simultaneously to fulfill node agent requests and handle sGPU distribution.
 
 ### CRD Design
 
@@ -209,7 +207,7 @@ Here is the list of CRDs to map our system concepts:
 ![Mokka Control Plane CRDs](./img/mokka-sgpu-crds.png)
 
 - [Admin/GitOps] sGPU Profile: Specifies custom sGPU profiles
-- [Admin/GitOps] sGPU Inventory: Specifies a set of sGPUs available for node assignment (e.g. Rack Name: sGPU profile x count)
+- [Admin/GitOps] sGPU Inventory: Specifies a set of sGPUs available for node assignment (e.g. Rack Name: sGPU profile × count)
 - [Admin/GitOps] sGPU Runtime Policy: Helps to modify runtime information of the whole sGPU inventory, sGPU rack, Node inside sGPU rack or specific sGPU inside the sGPU node.
 - [Control Plane] sGPU Node Allocation (in case of storing [the runtime state in etcd](#runtime-state)): Defines the expected state of sGPU node including sGPU<->K8s Node assignment, last agent fetch time, etc.
 
@@ -611,9 +609,9 @@ x-kubernetes-list-map-keys:
   - id
 ```
 
-We should probably limit the number of rack groups, our users can specify to a reasonable number like 64 (Gateway API limits [the number of listeners to 64 as well](https://www.romaglushko.com/blog/k8s-gateway-api/#listenerset)).
+We should probably limit the number of rack groups that users can specify to a reasonable number like 64 (as [Gateway API does for listeners](https://www.romaglushko.com/blog/k8s-gateway-api/#listenerset)).
 
-A specific rack runtime state that consists clique compute domain information is a part of [the runtime state](#runtime-state) 
+A specific rack runtime state that contains clique compute domain information is a part of [the runtime state](#runtime-state) 
 and should be kept outside the Kubernetes etcd.
 
 #### SGPURuntimePolicy
@@ -1097,9 +1095,9 @@ spec:
 ```
 
 The full, materialized state with information for 4 GPUs weighs 9 kB. It'll be
-- 45Mb for 5k nodes,
-- 250Mb for 20k nodes,
-- 9Gb for 1M nodes. 
+- 45 MB for 5k nodes,
+- 250 MB for 20k nodes,
+- 9 GB for 1M nodes.
 
 Alternatively, we can keep the state in semi-computed runtime information and blend it with static SGPUProfile data:
 
@@ -1302,7 +1300,7 @@ The main high-level goal of this proposal is to simplify and reduce the number o
 the cluster admins who deploy Mokka and set up sGPU clusters should be responsible for.
 
 After this proposal is implemented, the following steps would be needed to set up a new sGPU cluster:
-- Deploy one single instance of Mokka helm chart.
+- Deploy a single instance of the Mokka helm chart.
 - Configure sGPU inventory via K8s CRs
 - Label the nodes that are supposed to have sGPU with `mokka.nvidia.com/sgpu: auto` (or specific sGPU type like `h100`).
 
@@ -1334,22 +1332,24 @@ For local development, we can create a very simple chart with one Redis Deployme
 
 When it comes to network topology, we should:
 - generate clique IDs per rack and make sure sGPU nodes have them consistently assigned
-- cross-rack topology could be generated by default using three level core-spine-leaf switch topology.
+- cross-rack topology could be generated by default using a three-level core-spine-leaf switch topology.
 
 The core-spine-leaf switch topology is used by major clouds like AWS, GCP, OCI, etc. 
 By using it by default, we can simplify the cluster administrator's life.
 
 ![Mokka Topology Generation](./img/mokka-topograph-integration.png)
 
+The implementation details are outside the scope of this MEP and likely need a dedicated MEP.
+
 ## Drawbacks
 
 The main drawback is that we push the system to be more complicated. 
-We add one more component, introduce network communication between control-data plane, have to think about control plane state.
+We add one more component, introduce network communication between the control and data planes, and have to manage Control Plane state.
 
-Since we plan to keep all Mokka Control Plane state in the Kubernetes etcd, 
-we will add some load to the Kubernetes Control plane during node allocation.
-The hot path which is feeding Mokka node agents with sGPU information should pull data from in-memory cache 
-and update periodically, so little impact here.
+Since we plan to keep sGPU inventory state in Kubernetes etcd and node assignment state in Redis,
+the etcd load is limited to infrequent inventory updates.
+The hot path that feeds Mokka node agents with sGPU information pulls data from an in-memory cache
+and updates periodically, so the impact there is minimal.
 
 ## Alternatives
 
