@@ -108,20 +108,12 @@ def install(active_consumers):
     Returns ['nvml-mock'] so downstream consumers (dra, gpu-operator)
     can pass it as resource_deps.
     """
-    # Order matters: topology.yaml supplies the domains structure,
-    # nvml-mock.values.yaml layers profile/rollout overrides on top,
-    # per-consumer overlays get last say. Image ref is injected by Tilt
-    # via image_keys below — not passed as a --values flag.
-    # terminationGracePeriodSeconds is set here (not in the values file)
-    # so the "local-dev rollout speedup" reason lives next to the same
-    # setting in local/nvml_mock.tiltfile — one place, one rationale.
     flags = [
         '--values', 'local/compute-domain/topology.yaml',
         '--values', 'local/compute-domain/nvml-mock.values.yaml',
-        '--set', 'terminationGracePeriodSeconds=1',
     ]
+
     # Optional per-consumer overlays. Consumers with no mock-side needs
-    # don't create the file, and this loop skips them.
     for consumer in active_consumers:
         overlay = 'local/' + consumer + '/nvml-mock.values.yaml'
         if os.path.exists(overlay):
@@ -133,6 +125,7 @@ def install(active_consumers):
         image_deps=[_DEMO_IMAGE],
         image_keys=[('image.repository', 'image.tag')],
         flags=flags,
+        labels=['mokka'],
     )
 
     # Scenario 1: per-node fabric identity via check-fabric. Manually
