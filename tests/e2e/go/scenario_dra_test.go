@@ -57,10 +57,10 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 				// Pending until the wait timed out (#565).
 				//
 				// Unlike the GPU Operator case (#561), no second readiness
-				// barrier moves with the install: installDRADriver already ends
-				// in waitDRAPodsReady, and the scheduling spec's own wait for
+				// barrier moves with this wait: waitDRAPodsReady covers the
+				// driver's own pods, and the scheduling spec's own wait for
 				// Running absorbs the gap until the kubelet plugin publishes.
-				installDRADriver(ctx, h)
+				waitDRAPodsReady(ctx, h)
 			})
 
 			It("lays out the mock driver files for DRA", func(ctx SpecContext) {
@@ -77,7 +77,7 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 			})
 
 			It("publishes DRA ResourceSlices for the profile GPUs", func(ctx SpecContext) {
-				assertions.WaitResourceSliceTotal(ctx, h.Kube, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
+				assertions.WaitResourceSlicePerNode(ctx, h.Kube, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
 			})
 
 			It("schedules a pod with a DRA ResourceClaim", func(ctx SpecContext) {
