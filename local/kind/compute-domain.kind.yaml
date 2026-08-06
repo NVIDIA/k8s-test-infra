@@ -3,7 +3,7 @@
 #
 # Kind cluster config for the compute-domain Tilt scenario.
 #
-# Copied from tests/e2e/kind-compute-domain-config.yaml with three
+# Copied from tests/e2e/kind-compute-domain-config.yaml with two
 # deltas for local dev:
 #
 #   1. Explicit `name: nvml-mock-compute-domain` at cluster level.
@@ -18,10 +18,8 @@
 #      on separate clusters. The Tilt scenario supports the
 #      --compute-domain --dra combo, so DRA support is baked in here.
 #
-#   3. containerd runtimes.nvidia block.
-#      Matches local/kind/default.kind.yaml — the nvidia-container-runtime
-#      handler is needed by any consumer that sets runtimeClassName=nvidia
-#      (GPU Operator does; DRA does not). Inert when unused.
+# CDI + the runtimes.nvidia handler are baked into the node image
+# (deployments/kind-nvidia-cdi/), so no containerdConfigPatches are needed.
 #
 # Usage:
 #   make cluster-create PROFILE=compute-domain
@@ -31,14 +29,6 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: mokka-compute-domain
 featureGates:
   DynamicResourceAllocation: true
-containerdConfigPatches:
-  - |-
-    [plugins."io.containerd.grpc.v1.cri"]
-      enable_cdi = true
-    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
-      runtime_type = "io.containerd.runc.v2"
-    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
-      BinaryName = "/usr/bin/nvidia-container-runtime"
 nodes:
   - role: control-plane
     kubeadmConfigPatches:

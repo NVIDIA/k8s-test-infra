@@ -23,29 +23,17 @@
 # enough to fit in memory, disparate enough to exercise different GPU counts
 # (8 vs 4) and InfiniBand toggles (a100 on, t4 off).
 #
-# The custom node image (local/kind/Dockerfile) pre-bakes nvidia-container-toolkit
-# so the 'nvidia' runtime handler resolves to /usr/bin/nvidia-container-runtime
-# without any post-cluster setup. This matches what CI does via docker exec after
-# cluster creation (see .github/workflows/nvml-mock-e2e.yaml).
+# The custom node image (deployments/kind-nvidia-cdi/Dockerfile) pre-bakes
+# nvidia-container-toolkit AND ships a full containerd config with CDI enabled
+# (enable_cdi = true) and the runtimes.nvidia handler wired to
+# /usr/bin/nvidia-container-runtime. That means this file does not need any
+# containerdConfigPatches — every containerd-side setting is baked in.
 #
-# Three cluster-level features are enabled here. Each is inert for consumers
-# that don't need it, so combining them does not break isolation:
-#
-#   1. featureGates.DynamicResourceAllocation + apiServer runtime-config
-#      resource.k8s.io/v1beta1=true — required for the DRA driver to publish
-#      ResourceSlices. If no ResourceClaim exists, the scheduler paths never
-#      fire, so leaving this on for non-DRA scenarios costs nothing at runtime.
-#
-#   2. enable_cdi = true in containerd — activates native CDI so the spec at
-#      /var/run/cdi/nvidia.yaml (written by the nvml-mock setup.sh) is honoured
-#      for device injection. Consumed by both nvidia-container-runtime (Operator
-#      path) and the DRA kubelet plugin.
-#
-#   3. runtimes.nvidia → nvidia-container-runtime — the GPU Operator creates
-#      RuntimeClass "nvidia" and its operand pods use it. nvidia-container-runtime
-#      in CDI mode intercepts NVIDIA_VISIBLE_DEVICES=all and performs CDI injection
-#      so toolkit-validation passes. Inert for DRA workloads (they don't set
-#      runtimeClassName).
+# The one cluster-level feature enabled here is DRA:
+# featureGates.DynamicResourceAllocation + apiServer runtime-config
+# resource.k8s.io/v1beta1=true. Required for the DRA driver to publish
+# ResourceSlices. If no ResourceClaim exists, the scheduler paths never fire,
+# so leaving this on for non-DRA scenarios costs nothing at runtime.
 #
 # Worker labels drive two orthogonal consumer paths without conflict:
 #   - nvml-mock/profile=<a100|t4>            — targeted by install_fleet() in
@@ -60,14 +48,6 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: mokka
 featureGates:
   DynamicResourceAllocation: true
-containerdConfigPatches:
-  - |-
-    [plugins."io.containerd.grpc.v1.cri"]
-      enable_cdi = true
-    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
-      runtime_type = "io.containerd.runc.v2"
-    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
-      BinaryName = "/usr/bin/nvidia-container-runtime"
 nodes:
   - role: control-plane
     kubeadmConfigPatches:
