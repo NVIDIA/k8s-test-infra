@@ -19,9 +19,12 @@ Deploys a DaemonSet that creates on every node:
   paired with `libibmocksys.so` (`LD_PRELOAD`) so real `ibstat`, `ibstatus`,
   `iblinkinfo`, ... read mock HCAs
 - A fake PCI sysfs tree at `/var/lib/nvml-mock/sys/bus/pci/devices/...` (symlinks
-  into `/var/lib/nvml-mock/sys/devices/pciDDDD:BB/...`) so topology-aware
-  consumers (NVIDIA DRA driver `dra.k8s.io/pcieRoot`, NUMA-aware schedulers)
-  resolve PCIe root complex via a standard `readlink()`
+  into `/var/lib/nvml-mock/sys/devices/pciDDDD:BB/...`) so C consumers of the
+  PCI sysfs — `lspci` and anything else reaching it through libc — resolve the
+  PCIe root complex via a standard `readlink()`. The NVIDIA DRA driver is a Go
+  binary and does not see this tree, so `dra.k8s.io/pcieRoot` is still absent
+  from its ResourceSlices; see [Known Limitations](#known-limitations) and
+  issue [#265](https://github.com/NVIDIA/k8s-test-infra/issues/265)
 
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
@@ -30,9 +33,30 @@ When `nri.enabled=true` (opt-in; default `false`), the chart also deploys
 `nvml-mock-nri`, a node-local containerd NRI plugin. It mounts the host overlay
 into newly created containers at `/opt/nvml-mock` and injects the mock
 environment at runtime, so plain pods can run `nvidia-smi` without GPU resource
-requests or pod-spec mutation. Because it injects cluster-wide, it is off by
+requests or pod-spec mutation. The overlay and environment are injected ambiently into
+containers in non-excluded namespaces, while host device nodes (`/dev/nvidia*`) remain opt-in
+(via `nvidia.com/gpu` requests or the `nvml-mock.nvidia.com/devices: "true"` annotation).
+Unannotated pods without GPU requests will still report GPUs if `nvidia-smi` is run inside them.
+Test suites that rely on non-GPU pods seeing zero GPUs should either keep NRI disabled (`nri.enabled=false`)
+or run within an excluded namespace (`nri.excludedNamespaces`). Because it injects cluster-wide, it is off by
 default. Kind clusters must have containerd NRI enabled; see
 [`docs/demo/node-wide-injection`](../../../../docs/demo/node-wide-injection).
+
+**Install it into its own namespace, and pass `-n`:**
+
+```bash
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+  -n nvml-mock --create-namespace \
+  --set nri.enabled=true
+```
+
+The plugin always excludes its own release namespace, so that the main
+nvml-mock DaemonSet is never self-injected. Install without `-n` and the
+release namespace is `default` — the plugin then renders
+`--excluded-namespaces=default,kube-system` and skips every pod a first-time
+user runs. Nothing reports this: the DaemonSet is Ready, `/readyz` returns 200
+because the plugin *is* registered, and skipped containers produce no log line
+at any level. The pods simply start with no mock GPU.
 
 ## Prerequisites
 
@@ -477,22 +501,24 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --set integrations.fakeGpuOperator.enabled=true
 ```
 
-This creates per-profile ConfigMaps discoverable by fake-gpu-operator:
+This creates per-profile ConfigMaps in the shape fake-gpu-operator's loader reads:
 
 ```bash
-kubectl get cm -l run.ai/gpu-profile=true
+kubectl get cm -l fake-gpu-operator/gpu-profile=true
 ```
 
 ```
 NAME                              DATA   AGE
-nvml-mock-profile-a100            1      10s
-nvml-mock-profile-h100            1      10s
-nvml-mock-profile-b200            1      10s
-nvml-mock-profile-gb200           1      10s
-nvml-mock-profile-gb300           1      10s
-nvml-mock-profile-l40s            1      10s
-nvml-mock-profile-t4              1      10s
+gpu-profile-a100                  1      10s
+gpu-profile-h100                  1      10s
+gpu-profile-b200                  1      10s
+gpu-profile-gb200                 1      10s
+gpu-profile-gb300                 1      10s
+gpu-profile-l40s                  1      10s
+gpu-profile-t4                    1      10s
 ```
+
+FGO loads these by name from its own namespace, so set `integrations.fakeGpuOperator.targetNamespace` to FGO's release namespace for them to be found. That requires FGO's `builtinProfiles.enabled=false`, because their builtin set uses the same seven names. See the [integration guide](../../../../docs/integrations/fake-gpu-operator.md).
 
 ### Custom Labels
 
@@ -920,12 +946,13 @@ namespace, on the pod IP where the kubelet reaches it.
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
 | `nodeLabels.pciVendorPresent` | `true` | Write the NFD feature file that makes `feature.node.kubernetes.io/pci-10de.present=true` appear. The label is created by NFD, not by nvml-mock. Set to `false` when something else already supplies that key. See [Node Labels](#node-labels) |
 | `nodeLabels.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Host directory NFD's local source reads feature files from. Override only if NFD runs with a non-default `featureFilesDir` |
-| `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps for fake-gpu-operator discovery |
-| `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Labels on profile ConfigMaps for discovery |
+| `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps named `gpu-profile-<profile>`, keyed `profile.yaml`, in the shape fake-gpu-operator's loader reads |
+| `integrations.fakeGpuOperator.targetNamespace` | `""` (release namespace) | Namespace for the profile ConfigMaps. Set to FGO's release namespace for FGO to find them; requires FGO's `builtinProfiles.enabled=false` to avoid a Helm ownership collision on the same seven names |
+| `integrations.fakeGpuOperator.profileLabels` | `{"run.ai/gpu-profile": "true"}` | Extra labels on profile ConfigMaps. The contract labels `fake-gpu-operator/gpu-profile` and `nvml-mock/profile-name` are always emitted and cannot be removed here |
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
-| `nri.enabled` | `false` | Deploy the `nvml-mock-nri` containerd NRI plugin DaemonSet. Injects cluster-wide at container-creation time, so it is opt-in. Requires containerd NRI enabled on every node |
+| `nri.enabled` | `false` | Deploy the `nvml-mock-nri` containerd NRI plugin DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n nvml-mock`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
 | `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
 | `nri.pluginName` / `nri.pluginIndex` | `nvml-mock` / `"10"` | NRI registration identity. The index orders this plugin against others |
 | `nri.overlay.hostPath` / `nri.overlay.mountPath` | `/var/lib/nvml-mock` / `/opt/nvml-mock` | Host overlay staged by the main DaemonSet, and the path it is injected at inside workloads |
@@ -1241,6 +1268,21 @@ Per-mode behaviour:
 | `fallen_off_bus`    | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | `ERROR_GPU_IS_LOST` | error                | empty                           |
 | `ecc_uncorrectable` | normal values            | normal handle         | normal values       | strictly-increasing  | one `XID_CRITICAL_ERROR` if xid |
 
+A configured Xid is delivered once per trip, through either
+`nvmlEventSetWait_v1` or `nvmlEventSetWait_v2`. With no event pending
+the wait blocks for the caller's timeout and then returns
+`NVML_ERROR_TIMEOUT`, like real NVML — clients such as the device-plugin
+health monitor and dcgm-exporter loop on the wait with no sleep of their
+own, so an immediate return would spin a CPU core.
+
+The wait re-checks every 100 ms, but only ever claims an Xid that is
+*already* pending: a device trips its injector on a guarded **device**
+call (`GetTemperature`, `GetEccErrors`, …), never on the wait itself. A
+client that only loops on `nvmlEventSetWait` never advances the injector,
+so something must drive a device getter (`nvidia-smi -q`, a
+dcgm-exporter scrape) for the trip to happen. `nvml-mock-ctl` only writes
+the override file — it configures the failure, it does not trip it.
+
 Values rendered into the ConfigMap are validated against
 [`values.schema.json`](./values.schema.json) at install / upgrade time:
 typos like `mode: healhty` or out-of-range values like `probability: 1.5`
@@ -1272,7 +1314,7 @@ kubectl exec ds/nvml-mock -- nvidia-smi --query-gpu=name,uuid --format=csv
 kubectl exec ds/nvml-mock -- nvidia-smi -q                # "GPU is lost"
 
 # mode: ecc_uncorrectable  ─  device stays addressable; counters grow and
-# nvmlEventSetWait_v2 delivers the configured Xid once per trip.
+# nvmlEventSetWait_v1/_v2 delivers the configured Xid once per trip.
 kubectl exec ds/nvml-mock -- nvidia-smi -q -d ECC
 kubectl exec ds/nvml-mock -- nvidia-smi \
   --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv
@@ -1320,7 +1362,7 @@ discovery and monitoring. Some host-level subsystems are not mocked:
 
 | What's Missing | Affected Consumer | Impact |
 |----------------|-------------------|--------|
-| `/sys/bus/pci/devices/{busID}` sysfs entries | DRA driver | `dra.k8s.io/pcieRoot` attribute absent from ResourceSlices — **blocks topology-aware scheduling demos** (e.g., GPU + SR-IOV VF alignment) |
+| `/sys/bus/pci/devices/{busID}` sysfs entries **as a Go program reads them** | DRA driver | The tree is rendered and `lspci` reads it, but the driver is a Go binary: Go's `os` package issues raw syscalls that the `LD_PRELOAD` shim cannot intercept, so it reads the host's real sysfs instead. `dra.k8s.io/pcieRoot` stays absent from ResourceSlices — **blocks topology-aware scheduling demos** (e.g., GPU + SR-IOV VF alignment). Tracked in [#265](https://github.com/NVIDIA/k8s-test-infra/issues/265) |
 | `/sys/bus/pci/devices/{busID}/numa_node` | Device plugin | NUMA-aware topology hints unavailable; scheduling works but NUMA affinity not enforced |
 | `/sys/bus/pci/devices/*/vendor,device,class` **as NFD reads them** (`/host-sys/…`, fixed at link time) | NFD (Node Feature Discovery) | PCI feature labels not auto-detected. `nvidia.com/gpu.present` is written directly by nvml-mock; `pci-10de.present` is created by NFD from a feature file nvml-mock drops in `nodeLabels.featuresDir` — see [Node Labels](#node-labels) |
 

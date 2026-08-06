@@ -55,6 +55,32 @@ func (c *Collector) Kubectl(ctx context.Context, name string, args ...string) {
 	c.write(name, out)
 }
 
+// PodLogs dumps <name>-logs.txt holding the current logs of every container of
+// every pod matching selector.
+//
+// When a container has restarted it also dumps <name>-logs-previous.txt, which
+// is where the cause of a crash loop actually lives — the current instance of a
+// restarting container has usually logged nothing yet. That second dump is
+// gated on an observed restart because `kubectl logs --previous` errors when no
+// previous instance exists, and it is still best-effort on top of the gate: a
+// pod where only one of several containers restarted can fail the request even
+// though the gate passed.
+func (c *Collector) PodLogs(ctx context.Context, name, ns, selector string, tail int) {
+	if c.Kube == nil {
+		return
+	}
+	if out, err := c.Kube.Logs(ctx, ns, selector, tail); err == nil {
+		c.write(name+"-logs.txt", out)
+	}
+	restarted, err := c.Kube.RestartedPods(ctx, ns, selector)
+	if err != nil || len(restarted) == 0 {
+		return
+	}
+	if out, err := c.Kube.PreviousLogs(ctx, ns, selector, tail); err == nil {
+		c.write(name+"-logs-previous.txt", out)
+	}
+}
+
 // Common dumps the dump set shared by every job's failure block.
 func (c *Collector) Common(ctx context.Context) {
 	if c.Kube == nil {
@@ -66,7 +92,5 @@ func (c *Collector) Common(ctx context.Context) {
 	if c.NvmlMockNamespace == "" {
 		return
 	}
-	if out, err := c.Kube.Logs(ctx, c.NvmlMockNamespace, "app.kubernetes.io/name=nvml-mock", 100); err == nil {
-		c.write("nvml-mock-logs.txt", out)
-	}
+	c.PodLogs(ctx, "nvml-mock", c.NvmlMockNamespace, "app.kubernetes.io/name=nvml-mock", 100)
 }

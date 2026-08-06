@@ -24,7 +24,8 @@ LIB_NAME := libnvidia-ml.so
 LIB_SONAME := $(LIB_NAME).1
 LIB_REALNAME := $(LIB_NAME).$(LIB_VERSION)
 
-REPO_ROOT := $(shell git rev-parse --show-toplevel)
+# Lazy: only docker-build needs it, and the Docker build context is no git checkout.
+REPO_ROOT = $(shell git rev-parse --show-toplevel)
 
 # Library-size padding (issue #247). The real libnvidia-ml.so for driver
 # 550.x is ~14 MiB. Some detection / security tools sanity-check the file
@@ -41,9 +42,14 @@ PADDING_BYTES   ?=
 NO_PADDING      ?=
 BUILD_TAGS      ?=
 
-# Detect `nopadding` in BUILD_TAGS or honor NO_PADDING=1.
-PADDING_DISABLED := $(if $(filter nopadding,$(BUILD_TAGS))$(filter 1,$(NO_PADDING)),1,)
-GO_TAGS_FLAG     := $(if $(strip $(BUILD_TAGS)),-tags '$(strip $(BUILD_TAGS))',)
+# NO_PADDING=1 must add the build tag: that is what excludes padding.go.
+# Skipping only the two-pass sizing still compiles in the 14 MiB default.
+GO_BUILD_TAGS    := $(strip $(BUILD_TAGS) $(if $(filter 1,$(NO_PADDING)),nopadding))
+PADDING_DISABLED := $(if $(filter nopadding,$(GO_BUILD_TAGS)),1,)
+GO_TAGS_FLAG     := $(if $(GO_BUILD_TAGS),-tags '$(GO_BUILD_TAGS)',)
+# The probe must be unpadded, but keeps the caller's other tags so it measures
+# the same library the padded pass builds.
+PROBE_TAGS_FLAG  := -tags '$(strip $(GO_BUILD_TAGS) nopadding)'
 
 .PHONY: all clean docker-build size
 
@@ -96,7 +102,7 @@ else
 	@echo "  Probing unpadded size for two-pass build (target: $(TARGET_LIB_SIZE) bytes)..."
 	@CGO_LDFLAGS_ALLOW='--defsym|-soname' \
 		CGO_LDFLAGS='$(VERSION_ALIASES) $(SONAME_FLAG)' \
-		go build -tags nopadding -buildmode=c-shared -o $(LIB_REALNAME).probe ./bridge
+		go build $(PROBE_TAGS_FLAG) -buildmode=c-shared -o $(LIB_REALNAME).probe ./bridge
 	@base=$(call filesize,$(LIB_REALNAME).probe); \
 		pad=$$(( $(TARGET_LIB_SIZE) - base )); \
 		if [ $$pad -lt 0 ]; then \
@@ -108,7 +114,7 @@ else
 		CGO_LDFLAGS_ALLOW='--defsym|-soname' \
 		CGO_LDFLAGS='$(VERSION_ALIASES) $(SONAME_FLAG)' \
 		CGO_CFLAGS="-DNVML_MOCK_PADDING_BYTES=$$pad" \
-			go build -buildmode=c-shared -o $(LIB_REALNAME) ./bridge
+			go build $(GO_TAGS_FLAG) -buildmode=c-shared -o $(LIB_REALNAME) ./bridge
 endif
 	@actual=$(call filesize,$(LIB_REALNAME)); \
 		echo "  Built $(LIB_REALNAME): $$actual bytes"

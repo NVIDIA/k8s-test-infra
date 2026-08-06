@@ -232,9 +232,20 @@ func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 				warnf("cdi device injection requested but no spec is staged at %s; falling back to raw device nodes", cfg.CDISpecHostPath)
 			}
 			devices, err := discoverDevices(cfg.DeviceHostPath)
-			if err != nil {
+			switch {
+			case err != nil:
 				warnf("device injection requested but device tree at %s is unavailable (%v); injecting overlay only", cfg.DeviceHostPath, err)
-			} else {
+			case len(devices) == 0:
+				// The directory is readable and holds nothing we recognise, so
+				// os.ReadDir reports success and the case above never fires.
+				// Injecting silently would hand the container an overlay with
+				// no device nodes, and the engine derives its visible-GPU set
+				// from which /dev/nvidiaN are present — so the pod reports zero
+				// GPUs as though that were the configured state. Still fail
+				// open, but say so.
+				warnf("device injection requested but the device tree at %s holds no device nodes; "+
+					"injecting overlay only (has the nvml-mock DaemonSet staged this node?)", cfg.DeviceHostPath)
+			default:
 				adjustment.Devices = devices
 			}
 		}

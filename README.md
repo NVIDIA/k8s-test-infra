@@ -28,8 +28,13 @@ No physical NVIDIA hardware required.
 kind create cluster --name gpu-test
 
 # 2. Load the published image (or build locally with: docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .)
+# The published image is multi-arch. `kind load docker-image` cannot load a
+# multi-arch image from Docker Desktop's containerd store and fails with
+# "ctr: content digest ...: not found", so save one platform first.
+ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 docker pull ghcr.io/nvidia/nvml-mock:latest
-kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name gpu-test
+docker save --platform "linux/${ARCH}" ghcr.io/nvidia/nvml-mock:latest -o nvml-mock.tar
+kind load image-archive nvml-mock.tar --name gpu-test
 
 # 3. Install
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock

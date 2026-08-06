@@ -336,8 +336,11 @@ devices:
 # =============================================================================
 # PCIe topology - T4 inference card, single NUMA node, 4 GPUs.
 # Consumed by `render-pci-sysfs` to materialize a fake /sys/bus/pci tree
-# under MOCK_PCI_ROOT; the NVIDIA DRA driver resolves `dra.k8s.io/pcieRoot`
-# from these symlinks.
+# under MOCK_PCI_ROOT. C consumers such as `lspci` resolve the PCIe root
+# complex through these symlinks. The NVIDIA DRA driver does NOT: it is a
+# Go binary, and Go's os package issues raw syscalls that the LD_PRELOAD
+# shim cannot intercept, so `dra.k8s.io/pcieRoot` stays absent from the
+# ResourceSlices it publishes. See issue #265.
 # =============================================================================
 pcie_topology:
   root_complexes:

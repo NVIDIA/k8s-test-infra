@@ -1,0 +1,146 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# The fake-gpu-operator (FGO) reads profile ConfigMaps with a direct
+# `ConfigMaps(ns).Get("gpu-profile-" + name)` and then reads the
+# `profile.yaml` data key — see internal/common/profile/profile.go:25,32 and
+# internal/common/profile/constants.go in run-ai/fake-gpu-operator. Name,
+# data key and namespace are each independently fatal to that lookup, so each
+# is asserted separately below rather than through a document count.
+suite: fake-gpu-operator integration profile ConfigMaps
+templates:
+  - templates/integrations-fgo.yaml
+tests:
+  - it: should not render when the integration is disabled (the default)
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render one ConfigMap per shipped profile when enabled
+    set:
+      integrations:
+        fakeGpuOperator:
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 7
+
+  # FGO's CmNamePrefix. A Get by exact name means any other prefix is a
+  # NotFound, so the name is asserted literally rather than by pattern.
+  - it: should name ConfigMaps with FGO's gpu-profile- prefix
+    set:
+      integrations:
+        fakeGpuOperator:
+          enabled: true
+    asserts:
+      - equal:
+          path: metadata.name
+          value: gpu-profile-a100
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: gpu-profile-h100
+        documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: gpu-profile-t4
+        documentIndex: 6
+
+  # FGO's CmProfileKey. Load() errors with "missing key" on anything else.
+  - it: should key profile data under profile.yaml, not config.yaml
+    set:
+      integrations:
+        fakeGpuOperator:
+          enabled: true
+    asserts:
+      - exists:
+          path: data["profile.yaml"]
+        documentIndex: 0
+      - notExists:
+          path: data["config.yaml"]
+        documentIndex: 0
+      - matchRegex:
+          path: data["profile.yaml"]
+          pattern: "version:"
+        documentIndex: 0
+
+  - it: should carry FGO's declared discovery label
+    set:
+      integrations:
+        fakeGpuOperator:
+          enabled: true
+    asserts:
+      - equal:
+          path: metadata.labels["fake-gpu-operator/gpu-profile"]
+          value: "true"
+        documentIndex: 0
+
+  # run.ai/gpu-profile predates the retarget and is what the demo, docs and
+  # e2e select on. Keep emitting it so those consumers survive the change.
+  - it: should keep emitting the pre-existing run.ai discovery label
+    set:
+      integrations:
+        fakeGpuOperator:
+          enabled: true
+    asserts:
+      - equal:
+          path: metadata.labels["run.ai/gpu-profile"]
+          value: "true"
+        documentIndex: 0
+      - equal:
+          path: metadata.labels["nvml-mock/profile-name"]
+          value: a100
+        documentIndex: 0
+
+  # profileLabels is user-overridable; the contract label must not be
+  # reachable through it, or an override silently breaks discovery.
+  - it: should keep the contract label when profileLabels is overridden
+    set:
+      integrations:
+        fakeGpuOperator:
+          enabled: true
+          profileLabels:
+            my-org/custom-label: gpu-sim
+    asserts:
+      - equal:
+          path: metadata.labels["fake-gpu-operator/gpu-profile"]
+          value: "true"
+        documentIndex: 0
+      - equal:
+          path: metadata.labels["my-org/custom-label"]
+          value: gpu-sim
+        documentIndex: 0
+
+  # Namespace is the fourth, unlisted mismatch in issue #507: FGO reads its
+  # own release namespace via FAKE_GPU_OPERATOR_NAMESPACE, so the ConfigMaps
+  # must be placeable there.
+  - it: should default the ConfigMap namespace to the release namespace
+    release:
+      namespace: nvml-mock-system
+    set:
+      integrations:
+        fakeGpuOperator:
+          enabled: true
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: nvml-mock-system
+        documentIndex: 0
+
+  - it: should place ConfigMaps in targetNamespace when set
+    release:
+      namespace: nvml-mock-system
+    set:
+      integrations:
+        fakeGpuOperator:
+          enabled: true
+          targetNamespace: gpu-operator
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: gpu-operator
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: gpu-operator
+        documentIndex: 6
