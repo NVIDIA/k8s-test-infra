@@ -15,6 +15,7 @@ package engine
 
 import (
 	"math/rand/v2"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,9 +26,11 @@ import (
 // failureInjector implements GPU failure injection for a single device.
 //
 // The injector is sticky: once a device trips into the failed state it stays
-// failed for the lifetime of the engine, mirroring real "lost" or "fallen
-// off the bus" GPUs that don't recover without a reboot. ECC uncorrectable
-// errors are also accumulative on real hardware, so the same model applies.
+// failed until the injector is replaced (runtime control drops it to nil for
+// healthy, or swaps in a fresh one when the failure config changes), mirroring
+// real "lost" or "fallen off the bus" GPUs that don't recover without a reboot.
+// ECC uncorrectable errors are also accumulative on real hardware, so the same
+// model applies.
 //
 // All exported methods are safe for concurrent use. A nil receiver is
 // permitted everywhere, in which case the injector reports a healthy
@@ -225,6 +228,18 @@ func (f *failureInjector) ClaimXid() (uint64, bool) {
 		return 0, false
 	}
 	return xid, true
+}
+
+// sameConfig reports whether the injector was built from a config equal to
+// cfg. reconcileFailure uses it to decide whether a same-mode config override
+// edit (e.g. a new after_calls/xid/probability) requires a fresh injector or
+// can keep the current one and preserve its accumulated state. A nil receiver
+// never matches a non-healthy cfg. Safe on a nil receiver.
+func (f *failureInjector) sameConfig(cfg *FailureInjectionConfig) bool {
+	if f == nil {
+		return false
+	}
+	return reflect.DeepEqual(f.cfg, cfg)
 }
 
 // CallCount returns the number of Tick()s observed so far. Exposed for

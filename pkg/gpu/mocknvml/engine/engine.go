@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/NVIDIA/go-nvml/pkg/nvml/mock/dgxa100"
@@ -281,17 +282,19 @@ func (e *Engine) DeviceGetCount() (int, nvml.Return) {
 }
 
 // DeviceGetHandleByIndex returns a handle for the device at the given index.
-func (e *Engine) DeviceGetHandleByIndex(index int) (uintptr, nvml.Return) {
+// The handle is a pointer to a C-allocated block owned by the HandleTable; see
+// HandleTable's documentation for why this is unsafe.Pointer and not uintptr.
+func (e *Engine) DeviceGetHandleByIndex(index int) (unsafe.Pointer, nvml.Return) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if e.initCount == 0 {
-		return 0, nvml.ERROR_UNINITIALIZED
+		return nil, nvml.ERROR_UNINITIALIZED
 	}
 
 	device, ret := e.server.DeviceGetHandleByIndex(index)
 	if ret != nvml.SUCCESS {
-		return 0, ret
+		return nil, ret
 	}
 
 	// Register in handle table
@@ -300,17 +303,17 @@ func (e *Engine) DeviceGetHandleByIndex(index int) (uintptr, nvml.Return) {
 }
 
 // DeviceGetHandleByUUID returns a handle for the device with the given UUID.
-func (e *Engine) DeviceGetHandleByUUID(uuid string) (uintptr, nvml.Return) {
+func (e *Engine) DeviceGetHandleByUUID(uuid string) (unsafe.Pointer, nvml.Return) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if e.initCount == 0 {
-		return 0, nvml.ERROR_UNINITIALIZED
+		return nil, nvml.ERROR_UNINITIALIZED
 	}
 
 	device, ret := e.server.DeviceGetHandleByUUID(uuid)
 	if ret != nvml.SUCCESS {
-		return 0, ret
+		return nil, ret
 	}
 
 	handle := e.handles.Register(device)
@@ -318,17 +321,17 @@ func (e *Engine) DeviceGetHandleByUUID(uuid string) (uintptr, nvml.Return) {
 }
 
 // DeviceGetHandleByPciBusId returns a handle for the device with the given PCI Bus ID.
-func (e *Engine) DeviceGetHandleByPciBusId(pciBusId string) (uintptr, nvml.Return) {
+func (e *Engine) DeviceGetHandleByPciBusId(pciBusId string) (unsafe.Pointer, nvml.Return) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if e.initCount == 0 {
-		return 0, nvml.ERROR_UNINITIALIZED
+		return nil, nvml.ERROR_UNINITIALIZED
 	}
 
 	device, ret := e.server.DeviceGetHandleByPciBusId(pciBusId)
 	if ret != nvml.SUCCESS {
-		return 0, ret
+		return nil, ret
 	}
 
 	handle := e.handles.Register(device)
@@ -337,7 +340,7 @@ func (e *Engine) DeviceGetHandleByPciBusId(pciBusId string) (uintptr, nvml.Retur
 
 // LookupDevice returns the device object for a given handle.
 // Returns InvalidDeviceInstance if the engine is not initialized or the handle is invalid.
-func (e *Engine) LookupDevice(handle uintptr) nvml.Device {
+func (e *Engine) LookupDevice(handle unsafe.Pointer) nvml.Device {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -349,7 +352,7 @@ func (e *Engine) LookupDevice(handle uintptr) nvml.Device {
 
 // LookupConfigurableDevice returns the ConfigurableDevice for a given handle.
 // This is useful when we need access to ConfigurableDevice-specific methods.
-func (e *Engine) LookupConfigurableDevice(handle uintptr) *ConfigurableDevice {
+func (e *Engine) LookupConfigurableDevice(handle unsafe.Pointer) *ConfigurableDevice {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -374,7 +377,7 @@ func (e *Engine) LookupConfigurableDevice(handle uintptr) *ConfigurableDevice {
 // requested level. The bridge marshals these into the caller's device
 // array. Handles are registered on demand so the C caller gets valid
 // references.
-func (e *Engine) TopologyNearestGpus(handle uintptr, level nvml.GpuTopologyLevel) ([]uintptr, nvml.Return) {
+func (e *Engine) TopologyNearestGpus(handle unsafe.Pointer, level nvml.GpuTopologyLevel) ([]unsafe.Pointer, nvml.Return) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -390,7 +393,7 @@ func (e *Engine) TopologyNearestGpus(handle uintptr, level nvml.GpuTopologyLevel
 		return nil, nvml.SUCCESS
 	}
 
-	var out []uintptr
+	var out []unsafe.Pointer
 	for j := 0; j < cd.fabric.NumDevices(); j++ {
 		if j == cd.index {
 			continue
@@ -403,7 +406,7 @@ func (e *Engine) TopologyNearestGpus(handle uintptr, level nvml.GpuTopologyLevel
 			continue
 		}
 		h := e.handles.HandleFor(peer)
-		if h == 0 {
+		if h == nil {
 			h = e.handles.Register(peer)
 		}
 		out = append(out, h)
@@ -417,7 +420,7 @@ func (e *Engine) TopologyNearestGpus(handle uintptr, level nvml.GpuTopologyLevel
 // group GPUs by their affined CPU. When no pcie_topology is configured the
 // affinity sets are empty and the result is an empty set (SUCCESS), matching
 // a node whose CPU affinity is unknown rather than an error.
-func (e *Engine) TopologyGpuSet(cpuNumber int) ([]uintptr, nvml.Return) {
+func (e *Engine) TopologyGpuSet(cpuNumber int) ([]unsafe.Pointer, nvml.Return) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -425,7 +428,7 @@ func (e *Engine) TopologyGpuSet(cpuNumber int) ([]uintptr, nvml.Return) {
 		return nil, nvml.ERROR_UNINITIALIZED
 	}
 
-	var out []uintptr
+	var out []unsafe.Pointer
 	for j := 0; j < len(e.server.configurableDevices); j++ {
 		dev := e.server.configurableDevices[j]
 		if dev == nil || dev.fabric == nil {
@@ -442,7 +445,7 @@ func (e *Engine) TopologyGpuSet(cpuNumber int) ([]uintptr, nvml.Return) {
 			continue
 		}
 		h := e.handles.HandleFor(dev)
-		if h == 0 {
+		if h == nil {
 			h = e.handles.Register(dev)
 		}
 		out = append(out, h)
@@ -510,26 +513,30 @@ func (e *Engine) GetConfig() *Config {
 // from any device that has tripped failure injection with a `xid:` block
 // configured. It returns the device handle (auto-registering one if the
 // caller hasn't resolved a handle for that device yet), the Xid code,
-// and true on success. When no event is pending it returns (0, 0,
+// and true on success. When no event is pending it returns (nil, 0,
 // false) and the bridge layer reports NVML_ERROR_TIMEOUT to the
 // nvmlEventSetWait caller.
 //
 // Each tripped Xid is delivered at most once for the lifetime of the
 // engine, matching real NVML semantics where a single Xid critical
 // error fires exactly once per occurrence.
-func (e *Engine) PendingXidEvent() (uintptr, uint64, bool) {
+func (e *Engine) PendingXidEvent() (unsafe.Pointer, uint64, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if e.initCount == 0 || e.server == nil {
-		return 0, 0, false
+		return nil, 0, false
 	}
 
 	for _, dev := range e.server.configurableDevices {
-		if dev == nil || dev.failure == nil {
+		if dev == nil {
 			continue
 		}
-		xid, ok := dev.failure.ClaimXid()
+		fi := dev.failureInjector()
+		if fi == nil {
+			continue
+		}
+		xid, ok := fi.ClaimXid()
 		if !ok {
 			continue
 		}
@@ -538,12 +545,12 @@ func (e *Engine) PendingXidEvent() (uintptr, uint64, bool) {
 		// the workload has discovered the GPU); if not, register on the
 		// fly so the C-side struct still references valid memory.
 		handle := e.handles.HandleFor(dev)
-		if handle == 0 {
+		if handle == nil {
 			handle = e.handles.Register(dev)
 		}
 		return handle, xid, true
 	}
-	return 0, 0, false
+	return nil, 0, false
 }
 
 // SetVisibleDevicesForTesting sets the visible device mapping on an initialized
@@ -562,6 +569,7 @@ func ResetForTesting() {
 	ClearConfigCache()
 
 	resetFabricReadinessForTesting()
+	resetConfigOverrideStoreForTesting()
 
 	// Reset engine singleton
 	engineOnce = sync.Once{}

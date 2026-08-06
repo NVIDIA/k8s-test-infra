@@ -4,8 +4,20 @@ The mock CUDA library provides a minimal implementation of CUDA Driver and Runti
 APIs for container validation workloads. It is built alongside the mock NVML library
 and deployed via the same DaemonSet.
 
-**Status:** Early stage -- 15 functions implemented. Sufficient for basic validation
-workloads (e.g., `cuda-sample:vectoradd`) but not for complex CUDA applications.
+**Status:** Early stage -- 15 functions implemented. **Not yet sufficient for
+`cuda-sample:vectoradd` or any other real CUDA workload.**
+
+The library is installed as `libcuda.so.1`, the CUDA *Driver* library, but 14 of
+its 15 exports are CUDA *Runtime* (`cuda*`) entry points; only `cuInit` belongs
+to the driver API. A statically-linked sample such as
+`nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0` bundles its own cudart and
+reaches the driver through `dlopen("libcuda.so.1")` plus `cuGetProcAddress`,
+which this library does not export at all. Measured: that image resolves 450
+driver entry points, of which the mock supplies one, and vectorAdd exits 1 with
+"CUDA driver version is insufficient" identically with the mock mounted and with
+no mock present — `MOCK_CUDA_DEBUG=1` prints nothing, because the mock is never
+entered. Closing this needs the driver surface plus `cuGetProcAddress`; it is
+tracked separately and is not a v0.3.0 capability.
 
 ## Implemented Functions
 

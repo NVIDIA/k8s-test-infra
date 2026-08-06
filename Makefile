@@ -9,9 +9,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 SHELL := /usr/bin/env bash
+# NOTE: GNU Make only honours .SHELLFLAGS from 3.82 onward. macOS ships 3.81,
+# which treats the line below as an ordinary variable and runs recipes with a
+# bare `-c`. Any recipe whose exit status depends on these flags must set them
+# itself — see the `e2e` and `.mod-verify` targets.
 .SHELLFLAGS := -o pipefail -ec
 
-.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri
+.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
@@ -71,7 +75,7 @@ modules:  | .mod-tidy .mod-vendor .mod-verify
 .mod-verify:
 	@for mod in $$(find . -name go.mod -not -path "./testdata/*" -not -path "./third_party/*"); do \
 	    echo "Verifying $$mod..."; ( \
-	        cd $$(dirname $$mod) && go mod verify | sed 's/^/  /g' \
+	        set -o pipefail; cd $$(dirname $$mod) && go mod verify | sed 's/^/  /g' \
 	    ) || exit 1; \
 	done
 
@@ -86,9 +90,24 @@ HELM_CHART_DIR := deployments/nvml-mock/helm/nvml-mock
 helm-unittest:
 	helm unittest $(HELM_CHART_DIR)
 
+# Unit tests for the e2e harness itself (framework/*). They are behind the `e2e`
+# build tag, so the untagged CI unit-test run skips them, and `make e2e` targets
+# only the Ginkgo suite package ./tests/e2e/go -- neither reaches these. They
+# need no cluster and no kubectl: the one that shells out substitutes a stub on
+# PATH.
+.PHONY: test-e2e-framework
+test-e2e-framework:
+	$(GO_CMD) test -tags e2e -race ./tests/e2e/go/framework/...
+
 .PHONY: generate
 generate:
 	go generate ./pkg/gpu/mocknvml/bridge/...
+
+# Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
+# Docker-based, hence separate from the `go test` run.
+.PHONY: test-mocknvml-bridge
+test-mocknvml-bridge:
+	$(MAKE) -C tests/mocknvml test
 
 KIND_NODE_IMAGE   ?= kind-node-nv:latest
 # Cluster profile (select via PROFILE=<name>):
@@ -111,8 +130,26 @@ KIND_CLUSTER_NAME   ?= $(if $(filter compute-domain,$(PROFILE)),mokka-compute-do
 KIND_CLUSTER_CONFIG ?= local/kind/$(PROFILE).kind.yaml
 
 .PHONY: image-kind-node cluster-create cluster-delete
+# KIND_NODE_IMAGE_PREBUILT (env, any non-empty value): skip the local docker
+# build and use the pre-built $(KIND_NODE_IMAGE) already loaded in the local
+# daemon. Verify with `docker image inspect` before skipping, so a botched
+# staging step fails here (with a clear message) instead of surfacing later
+# as an opaque `kind create cluster` pull error. CI sets this after
+# `docker pull` + `docker tag` of the pre-built image from ttl.sh (see
+# .github/workflows/nvml-mock-e2e-go.yaml build-kind-node job); local devs
+# leave it unset and get the rebuild-when-Dockerfile-changes behavior.
 image-kind-node:
-	@docker build -t $(KIND_NODE_IMAGE) ./local/kind
+	@if [ -n "$$KIND_NODE_IMAGE_PREBUILT" ]; then \
+		docker image inspect $(KIND_NODE_IMAGE) >/dev/null 2>&1 || { \
+			echo "ERROR: KIND_NODE_IMAGE_PREBUILT is set but $(KIND_NODE_IMAGE) is not in the local docker daemon."; \
+			echo "       Ensure a preceding step ran: docker pull <ref> && docker tag <ref> $(KIND_NODE_IMAGE)"; \
+			echo "       (Or unset KIND_NODE_IMAGE_PREBUILT to build it locally.)"; \
+			exit 1; \
+		}; \
+		echo "Using pre-built $(KIND_NODE_IMAGE) already present locally"; \
+	else \
+		docker build -t $(KIND_NODE_IMAGE) ./local/kind; \
+	fi
 
 cluster-create: image-kind-node
 	@kind create cluster --name $(KIND_CLUSTER_NAME) --image $(KIND_NODE_IMAGE) --config $(KIND_CLUSTER_CONFIG)
@@ -135,6 +172,7 @@ cluster-delete:
 #   make e2e-gpu-operator          # GPU Operator scenario
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # node-wide NRI ambient-injection scenario
+#   make e2e-nfd                   # NFD label-provenance scenario
 # CI builds the image once per job and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
 #
 # NOTE: this targets ./tests/e2e/go (the Ginkgo suite package) only, NOT
@@ -146,11 +184,15 @@ cluster-delete:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri
+E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
+# `set -o pipefail` is inline on purpose; do not drop it as redundant with
+# .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
+# so on a developer machine this recipe otherwise returns tee's status and a
+# failed suite exits 0 — see issue #560 and tests/makefile/makefile_test.go.
 e2e:
-	$(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
+	set -o pipefail; $(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
 
 e2e-dra:
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'
@@ -163,3 +205,11 @@ e2e-multi-node:
 
 e2e-nri:
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=nri'
+
+# E2E_PROFILES is pinned rather than inherited from DefaultProfiles. The nfd
+# spec hardcodes a100 (scenario_nfd_test.go), because the PCI vendor label is
+# vendor-only and byte-identical across profiles. Without this the harness
+# inherits gb200 and announces a profile the run never instantiates — a green
+# log then reads exactly like one that did exercise gb200.
+e2e-nfd:
+	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=nfd'

@@ -18,17 +18,53 @@ var warnf = func(format string, args ...any) {
 }
 
 const (
-	defaultHostOverlayPath      = "/var/lib/nvml-mock"
-	defaultContainerOverlayPath = "/opt/nvml-mock"
-	defaultDeviceHostPath       = "/var/lib/nvml-mock/driver/dev"
-	defaultOptOutAnnotation     = "nvml-mock.nvidia.com/inject"
-	defaultDeviceAnnotation     = "nvml-mock.nvidia.com/devices"
+	defaultHostOverlayPath       = "/var/lib/nvml-mock"
+	defaultContainerOverlayPath  = "/opt/nvml-mock"
+	defaultDeviceHostPath        = "/var/lib/nvml-mock/driver/dev"
+	defaultOptOutAnnotation      = "nvml-mock.nvidia.com/inject"
+	defaultDeviceAnnotation      = "nvml-mock.nvidia.com/devices"
+	defaultImexChannelAnnotation = "nvml-mock.nvidia.com/imex-channels"
+	// defaultImexChannelRelPath is where the main DaemonSet's setup.sh mknods
+	// the mock IMEX channel nodes, resolved relative to the host overlay path.
+	// It must track the imex.mockChannels surface in the chart: setup.sh writes
+	// them to $DRIVER_ROOT/dev/nvidia-caps-imex-channels.
+	defaultImexChannelRelPath = "driver/dev/nvidia-caps-imex-channels"
+	// imexChannelContainerDir is the fixed kernel location the channels must
+	// appear at inside the container. Consumers (nvidia-imex, the DRA driver's
+	// compute-domain plugin) hard-code this path.
+	imexChannelContainerDir = "/dev/nvidia-caps-imex-channels"
 	// defaultTopologyRelPath is where setup.sh stages the cluster-level
 	// ComputeDomain topology document inside the overlay tree. It is
 	// resolved relative to the host overlay path (for the existence
 	// check) and the container overlay path (for the injected
 	// MOCK_TOPOLOGY_CONFIG env).
 	defaultTopologyRelPath = "topology/topology.yaml"
+
+	// DeviceInjectionModeRaw stages the mock /dev/nvidiaN nodes directly in the
+	// adjustment. It is the default: MEP-0002 requires the raw path to stay
+	// reachable, and it is the only mode that works on a runtime whose CDI
+	// support is off or absent.
+	DeviceInjectionModeRaw = "raw"
+	// DeviceInjectionModeCDI hands the runtime a CDI device reference and lets
+	// it resolve the device nodes from the spec setup.sh stages. containerd
+	// 2.x enables CDI by default (enable_cdi = true, spec dirs /etc/cdi and
+	// /var/run/cdi), so this needs no container toolkit on the node.
+	DeviceInjectionModeCDI = "cdi"
+	// defaultCDIDeviceName is the fully-qualified CDI device the cdi mode
+	// injects on the annotation path. The "all" device aggregates every mock
+	// GPU, which is what the annotation has always meant (MEP-0002 goal 2).
+	//
+	// The vendor is deliberately NOT nvidia.com: that namespace belongs to the
+	// device plugin and the container toolkit. Keeping ours distinct is what
+	// makes MEP-0002's "exactly one component emits CDI device references for a
+	// container" invariant observable rather than merely asserted, and it keeps
+	// alreadyHasGPUDevices' nvidia.com/ test meaningful.
+	defaultCDIDeviceName = "nvml-mock.nvidia.com/gpu=all"
+	// defaultCDISpecHostPath is where setup.sh stages the spec that backs
+	// defaultCDIDeviceName. containerd resolves an unknown CDI device by
+	// failing container creation outright, so the plugin checks this exists
+	// before it commits to a reference it cannot honour.
+	defaultCDISpecHostPath = "/var/run/cdi/nvml-mock-nri.yaml"
 )
 
 var defaultShims = []string{
@@ -45,8 +81,32 @@ type Config struct {
 	DeviceHostPath       string
 	OptOutAnnotation     string
 	DeviceAnnotation     string
-	ExcludedNamespaces   []string
-	Shims                []string
+	// ImexChannelAnnotation is the pod annotation key whose value "true" opts a
+	// container into mock /dev/nvidia-caps-imex-channels/* injection. It is a
+	// separate opt-in from DeviceAnnotation because an IMEX channel is a fabric
+	// capability, not a GPU: a ComputeDomain workload may want channels without
+	// the whole mock GPU device tree, and vice versa.
+	ImexChannelAnnotation string
+	// ImexChannelHostPath is the host directory holding the mock channel nodes
+	// (channel0..N-1). The main nvml-mock DaemonSet stages them when
+	// imex.mockChannels.enabled is set; this plugin only consumes them.
+	ImexChannelHostPath string
+	ExcludedNamespaces  []string
+	Shims               []string
+
+	// DeviceInjectionMode selects how the annotation-gated device opt-in
+	// delivers mock GPUs: DeviceInjectionModeRaw (default) or
+	// DeviceInjectionModeCDI. It changes the mechanism only. Whether a
+	// container is served at all is decided before this is consulted, so
+	// neither mode can inject into a container the device plugin already
+	// served (MEP-0002).
+	DeviceInjectionMode string
+	// CDIDeviceName is the CDI device injected in DeviceInjectionModeCDI.
+	CDIDeviceName string
+	// CDISpecHostPath is the staged CDI spec checked before a CDI reference is
+	// emitted. A missing spec degrades to raw injection rather than failing
+	// container creation.
+	CDISpecHostPath string
 
 	// NodeName is the Kubernetes node this plugin runs on. When set (and a
 	// topology document is staged in the overlay) it is injected as the
@@ -71,6 +131,13 @@ type Container struct {
 	PodAnnotations map[string]string
 	Env            []string
 	Mounts         []Mount
+
+	// Devices and CDIDevices are what the container already carries when the
+	// runtime asks the plugin to adjust it. The kubelet applies the device
+	// plugin's Allocate response before this point, so a non-empty NVIDIA entry
+	// here means the device plugin already served this container. See MEP-0002.
+	Devices    []Device
+	CDIDevices []string
 }
 
 // Adjustment is the mount/env/device delta that a runtime plugin applies.
@@ -78,6 +145,11 @@ type Adjustment struct {
 	Mounts  []Mount
 	Env     []string
 	Devices []Device
+	// CDIDevices are fully-qualified CDI device references the runtime resolves
+	// itself. Devices and CDIDevices are alternatives for the GPU tree, never
+	// both: emitting the same GPUs twice would widen the container and defeat
+	// the mock engine's detectVisibleDevices filter.
+	CDIDevices []string
 }
 
 // Mount describes a bind mount in a runtime-neutral form.
@@ -97,13 +169,18 @@ type Device struct {
 // DefaultConfig returns the overlay contract described by the NRI design.
 func DefaultConfig() Config {
 	return Config{
-		HostOverlayPath:      defaultHostOverlayPath,
-		ContainerOverlayPath: defaultContainerOverlayPath,
-		DeviceHostPath:       defaultDeviceHostPath,
-		OptOutAnnotation:     defaultOptOutAnnotation,
-		DeviceAnnotation:     defaultDeviceAnnotation,
-		ExcludedNamespaces:   []string{"kube-system"},
-		Shims:                append([]string(nil), defaultShims...),
+		HostOverlayPath:       defaultHostOverlayPath,
+		ContainerOverlayPath:  defaultContainerOverlayPath,
+		DeviceHostPath:        defaultDeviceHostPath,
+		OptOutAnnotation:      defaultOptOutAnnotation,
+		DeviceAnnotation:      defaultDeviceAnnotation,
+		ImexChannelAnnotation: defaultImexChannelAnnotation,
+		ImexChannelHostPath:   filepath.Join(defaultHostOverlayPath, defaultImexChannelRelPath),
+		ExcludedNamespaces:    []string{"kube-system"},
+		Shims:                 append([]string(nil), defaultShims...),
+		DeviceInjectionMode:   DeviceInjectionModeRaw,
+		CDIDeviceName:         defaultCDIDeviceName,
+		CDISpecHostPath:       defaultCDISpecHostPath,
 	}
 }
 
@@ -128,15 +205,70 @@ func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 	}
 
 	if strings.EqualFold(container.PodAnnotations[cfg.DeviceAnnotation], "true") {
-		// Fail open: the device tree is staged by the main nvml-mock DaemonSet,
-		// and nothing orders this plugin's DaemonSet after it. If the tree is
-		// missing (fresh node) or unreadable, degrade to overlay-only injection
-		// rather than failing container creation for the whole pod.
-		devices, err := discoverDevices(cfg.DeviceHostPath)
+		switch {
+		case alreadyHasGPUDevices(container):
+			// MEP-0002: the device plugin allocated a specific GPU and the kubelet
+			// already applied it. Adding the whole device tree on top would widen
+			// the container past its allocation, and would defeat the mock
+			// engine's visibility filter, which derives the visible GPU set from
+			// which /dev/nvidiaN nodes are present.
+			warnf("device injection requested but the device plugin already served this container; leaving its allocation intact")
+		case cfg.DeviceInjectionMode == DeviceInjectionModeCDI && cdiSpecStaged(cfg):
+			// The runtime resolves the device nodes from the staged spec. Nothing
+			// is added to adjustment.Devices: the CDI reference and the raw nodes
+			// describe the same GPUs, and delivering both would widen the
+			// container and defeat the engine's detectVisibleDevices filter.
+			adjustment.CDIDevices = []string{cfg.CDIDeviceName}
+		default:
+			// Fail open: the device tree is staged by the main nvml-mock DaemonSet,
+			// and nothing orders this plugin's DaemonSet after it. If the tree is
+			// missing (fresh node) or unreadable, degrade to overlay-only injection
+			// rather than failing container creation for the whole pod.
+			//
+			// This is also where CDI mode lands when its spec is not staged.
+			// containerd fails container creation on an unresolvable CDI device,
+			// so falling back to raw nodes keeps the pod starting.
+			if cfg.DeviceInjectionMode == DeviceInjectionModeCDI {
+				warnf("cdi device injection requested but no spec is staged at %s; falling back to raw device nodes", cfg.CDISpecHostPath)
+			}
+			devices, err := discoverDevices(cfg.DeviceHostPath)
+			switch {
+			case err != nil:
+				warnf("device injection requested but device tree at %s is unavailable (%v); injecting overlay only", cfg.DeviceHostPath, err)
+			case len(devices) == 0:
+				// The directory is readable and holds nothing we recognise, so
+				// os.ReadDir reports success and the case above never fires.
+				// Injecting silently would hand the container an overlay with
+				// no device nodes, and the engine derives its visible-GPU set
+				// from which /dev/nvidiaN are present — so the pod reports zero
+				// GPUs as though that were the configured state. Still fail
+				// open, but say so.
+				warnf("device injection requested but the device tree at %s holds no device nodes; "+
+					"injecting overlay only (has the nvml-mock DaemonSet staged this node?)", cfg.DeviceHostPath)
+			default:
+				adjustment.Devices = devices
+			}
+		}
+	}
+
+	// IMEX channels are a separate opt-in and deliberately outside the MEP-0002
+	// suppression above. That rule exists because the device plugin already
+	// delivered the GPUs the scheduler allocated, so re-injecting the GPU tree
+	// would widen the container past its allocation. The device plugin has no
+	// concept of an IMEX channel and never delivers one, so there is no
+	// allocation to widen — suppressing channels here would instead deny a
+	// ComputeDomain workload the fabric it explicitly asked for.
+	if strings.EqualFold(container.PodAnnotations[cfg.ImexChannelAnnotation], "true") {
+		// Fail open like the device path: channels are staged by the main
+		// DaemonSet's setup.sh (imex.mockChannels.enabled), and nothing orders
+		// this plugin's DaemonSet after it. They are also off by default, so an
+		// annotation on a node without them must not block the pod.
+		channels, err := discoverImexChannels(cfg.ImexChannelHostPath)
 		if err != nil {
-			warnf("device injection requested but device tree at %s is unavailable (%v); injecting overlay only", cfg.DeviceHostPath, err)
+			warnf("imex channel injection requested but the channel tree at %s is unavailable (%v); "+
+				"injecting without channels (is imex.mockChannels.enabled set?)", cfg.ImexChannelHostPath, err)
 		} else {
-			adjustment.Devices = devices
+			adjustment.Devices = append(adjustment.Devices, channels...)
 		}
 	}
 
@@ -160,8 +292,23 @@ func withDefaults(cfg Config) Config {
 	if cfg.DeviceAnnotation == "" {
 		cfg.DeviceAnnotation = defaults.DeviceAnnotation
 	}
+	if cfg.ImexChannelAnnotation == "" {
+		cfg.ImexChannelAnnotation = defaults.ImexChannelAnnotation
+	}
+	if cfg.ImexChannelHostPath == "" {
+		cfg.ImexChannelHostPath = filepath.Join(cfg.HostOverlayPath, defaultImexChannelRelPath)
+	}
 	if len(cfg.Shims) == 0 {
 		cfg.Shims = defaults.Shims
+	}
+	if cfg.DeviceInjectionMode == "" {
+		cfg.DeviceInjectionMode = defaults.DeviceInjectionMode
+	}
+	if cfg.CDIDeviceName == "" {
+		cfg.CDIDeviceName = defaults.CDIDeviceName
+	}
+	if cfg.CDISpecHostPath == "" {
+		cfg.CDISpecHostPath = defaults.CDISpecHostPath
 	}
 	if cfg.TopologyHostPath == "" {
 		cfg.TopologyHostPath = filepath.Join(cfg.HostOverlayPath, defaultTopologyRelPath)
@@ -290,21 +437,73 @@ func shimPaths(cfg Config) []string {
 	return paths
 }
 
+// alreadyHasGPUDevices reports whether the container arrived carrying GPU
+// devices that something else put there — in practice the NVIDIA device plugin,
+// whose Allocate response the kubelet applies before the runtime asks this
+// plugin to adjust anything. It recognises both delivery mechanisms the plugin
+// supports: raw device nodes (--pass-device-specs) and CDI device references
+// (--device-list-strategy=cdi-*).
+func alreadyHasGPUDevices(container Container) bool {
+	for _, device := range container.Devices {
+		if strings.HasPrefix(device.Path, "/dev/nvidia") {
+			return true
+		}
+	}
+	for _, device := range container.CDIDevices {
+		if strings.HasPrefix(device, "nvidia.com/") {
+			return true
+		}
+	}
+	return false
+}
+
+// cdiSpecStaged reports whether the CDI spec backing cfg.CDIDeviceName is
+// present on the node. The stat runs per container, like topologyInjectable,
+// so the plugin tolerates setup.sh staging the spec after the plugin starts.
+func cdiSpecStaged(cfg Config) bool {
+	if cfg.CDISpecHostPath == "" {
+		return false
+	}
+	_, err := os.Stat(cfg.CDISpecHostPath)
+	return err == nil
+}
+
+// discoverDevices lists the mock /dev/nvidia* nodes staged in the overlay.
 func discoverDevices(deviceHostPath string) ([]Device, error) {
-	entries, err := os.ReadDir(deviceHostPath)
+	return scanDeviceDir(deviceHostPath, "nvidia", "/dev")
+}
+
+// discoverImexChannels lists the mock IMEX channel nodes staged by
+// imex.mockChannels, mapping them onto the fixed kernel path consumers expect.
+func discoverImexChannels(channelHostPath string) ([]Device, error) {
+	return scanDeviceDir(channelHostPath, "channel", imexChannelContainerDir)
+}
+
+// scanDeviceDir collects the device nodes directly under hostDir whose names
+// carry prefix, mapping each onto containerDir inside the container.
+//
+// Directories are skipped: hostDir is a device root, not a tree to recurse, and
+// the mock device root holds a nvidia-caps-imex-channels DIRECTORY that matches
+// the "nvidia" prefix. Handing a directory to the runtime as a device node
+// cannot work, so it must never enter the adjustment.
+func scanDeviceDir(hostDir, prefix, containerDir string) ([]Device, error) {
+	entries, err := os.ReadDir(hostDir)
 	if err != nil {
 		return nil, err
 	}
 
 	devices := make([]Device, 0, len(entries))
 	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
 		name := entry.Name()
-		if !strings.HasPrefix(name, "nvidia") {
+		if !strings.HasPrefix(name, prefix) {
 			continue
 		}
 		devices = append(devices, Device{
-			HostPath: filepath.Join(deviceHostPath, name),
-			Path:     filepath.Join("/dev", name),
+			HostPath: filepath.Join(hostDir, name),
+			Path:     filepath.Join(containerDir, name),
 		})
 	}
 	sort.Slice(devices, func(i, j int) bool {

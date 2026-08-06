@@ -624,10 +624,23 @@ func TestFailureInjection_HealthyConfigIsNoOp(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, withFailure(&FailureInjectionConfig{
 		Mode: FailureModeHealthy,
 	}))
-	require.Nil(t, dev.failure, "healthy mode must not allocate a failureInjector")
+	require.Nil(t, dev.failureInjector(), "healthy mode must not allocate a failureInjector")
 	for i := 0; i < 50; i++ {
 		temp, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
 		require.Equal(t, nvml.SUCCESS, ret, "call %d", i)
 		require.Equal(t, uint32(33), temp, "call %d", i)
 	}
+}
+
+func TestFailureInjector_SameConfig(t *testing.T) {
+	f := newFailureInjector(&FailureInjectionConfig{Mode: FailureModeLost, AfterCalls: 100})
+	require.NotNil(t, f, "expected injector")
+
+	// Identical config matches; a changed parameter does not.
+	require.True(t, f.sameConfig(&FailureInjectionConfig{Mode: FailureModeLost, AfterCalls: 100}))
+	require.False(t, f.sameConfig(&FailureInjectionConfig{Mode: FailureModeLost, AfterCalls: 5}))
+
+	// A nil injector never matches a non-nil config.
+	var nilInjector *failureInjector
+	require.False(t, nilInjector.sameConfig(&FailureInjectionConfig{Mode: FailureModeLost}))
 }

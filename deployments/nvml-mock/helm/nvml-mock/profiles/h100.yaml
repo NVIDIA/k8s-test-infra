@@ -177,6 +177,23 @@ device_defaults:
     ofa: 0
 
   # ---------------------------------------------------------------------------
+  # Dynamic utilization (#506)
+  #
+  # Live without any Helm overlay, so `utilization.gpu` -- and every
+  # DCGM_FI_PROF_* fraction derived from it -- is never a constant 0.
+  # The driver is elapsed time, NOT workload: these numbers move on a fully
+  # idle node and do not rise under load. gpu_min is deliberately > 0 so
+  # "utilization is reported" is a deterministic assertion, not a flaky one.
+  # ---------------------------------------------------------------------------
+  dynamic_metrics:
+    utilization:
+      pattern: "steady"
+      gpu_min: 10
+      gpu_max: 45
+      memory_min: 5
+      memory_max: 25
+
+  # ---------------------------------------------------------------------------
   # Encoder/Decoder statistics
   # ---------------------------------------------------------------------------
   encoder_stats:
@@ -426,8 +443,11 @@ infiniband:
 # =============================================================================
 # PCIe topology - HGX H100, 2 NUMA nodes, 4 GPUs each.
 # Consumed by `render-pci-sysfs` to materialize a fake /sys/bus/pci tree
-# under MOCK_PCI_ROOT; the NVIDIA DRA driver resolves `dra.k8s.io/pcieRoot`
-# from these symlinks.
+# under MOCK_PCI_ROOT. C consumers such as `lspci` resolve the PCIe root
+# complex through these symlinks. The NVIDIA DRA driver does NOT: it is a
+# Go binary, and Go's os package issues raw syscalls that the LD_PRELOAD
+# shim cannot intercept, so `dra.k8s.io/pcieRoot` stays absent from the
+# ResourceSlices it publishes. See issue #265.
 # =============================================================================
 pcie_topology:
   root_complexes:

@@ -129,6 +129,33 @@
     "nodeSelector": { "type": "object" },
     "tolerations": { "type": "array" },
     "resources": { "type": "object" },
+    "nodeLabels": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Node labels nvml-mock causes to exist, reversed by the preStop cleanup.sh.",
+      "properties": {
+        "pciVendorPresent": {
+          "type": "boolean",
+          "description": "Cause feature.node.kubernetes.io/pci-10de.present=true to exist on the node by writing an NFD feature file; NFD creates the label. Set false when something else already supplies that key. NFD's PCI source cannot derive it as deployed — nfd-worker reads a link-time-fixed /host-sys path, so the rendered PCI tree is not on a path it reads — but the tree itself is complete: given visibility, NFD derives this exact label. Typed as a boolean here because the DaemonSet renders it with `ternary`, which rejects a string with a template error rather than silently treating \"false\" as true."
+        },
+        "featuresDir": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Host directory NFD's local source reads feature files from. Must be the featureFilesDir the deployed NFD actually reads. Typed as a non-empty string so that an empty string, or a boolean/number/array, is rejected at `helm template` time. An explicit `null` deletes the key and is not caught (there is no `required`), rendering a blank hostPath the API server rejects only at apply time."
+        }
+      }
+    },
+    "allocationWatcher": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Mirror each pod's nvidia.com/gpu claim into memory.used_bytes (#506).",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "interval": { "type": "string", "minLength": 1 },
+        "usedFractionPerClaim": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "podResourcesSocket": { "type": "string", "minLength": 1 }
+      }
+    },
     "nri": {
       "type": "object",
       "additionalProperties": true,
@@ -189,6 +216,43 @@
       }
     },
     "integrations": { "type": "object" },
+    "imex": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "IMEX simulation. enabled/stateDir cover the deprecated hostPath-backed fake IMEX daemons; mockChannels covers the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "stateDir": {
+          "type": "string",
+          "description": "HostPath directory for the fake IMEX daemons' marker files."
+        },
+        "mockChannels": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Renders a substitute /proc/devices, the fabric-imex-mgmt capability file, and the channel device nodes. Consumed via the DRA driver's altProcDevices value. See NVIDIA/k8s-test-infra#498.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "channelCount": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of channel device nodes to create. 2048 matches getImexChannelCount() in the DRA driver's compute-domain kubelet plugin."
+            },
+            "channelMajor": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4095,
+              "description": "Character-device major advertised for nvidia-caps-imex-channels. Must differ from capsMajor and must not collide with a major already present on the node; the renderer rejects both cases."
+            },
+            "capsMajor": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4095,
+              "description": "Character-device major advertised for nvidia-caps. Must differ from channelMajor."
+            }
+          }
+        }
+      }
+    },
     "fabricmanager": {
       "type": "object",
       "additionalProperties": true,

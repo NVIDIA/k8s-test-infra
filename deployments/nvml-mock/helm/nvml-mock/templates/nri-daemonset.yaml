@@ -1,6 +1,9 @@
 {{- if .Values.nri.enabled }}
 {{- $image := mergeOverwrite (deepCopy .Values.image) (.Values.nri.image | default dict) }}
 {{- $socketDir := dir .Values.nri.socketPath }}
+{{- if not (has .Values.nri.deviceInjectionMode (list "raw" "cdi")) }}
+{{- fail (printf "nri.deviceInjectionMode must be \"raw\" or \"cdi\", got %q" .Values.nri.deviceInjectionMode) }}
+{{- end }}
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 apiVersion: apps/v1
@@ -48,6 +51,15 @@ spec:
             - --device-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev
             - --opt-out-annotation={{ .Values.nri.optOutAnnotation }}
             - --device-annotation={{ .Values.nri.deviceAnnotation }}
+            - --device-injection-mode={{ .Values.nri.deviceInjectionMode }}
+            - --cdi-spec-host-path={{ .Values.nri.cdiSpecDir }}/nvml-mock-nri.yaml
+            # Mock IMEX channel delivery (#437). The nodes are staged by the
+            # main DaemonSet under imex.mockChannels; the plugin only injects
+            # them into pods carrying this annotation. Harmless when
+            # imex.mockChannels is disabled: the tree is absent, the plugin
+            # warns and injects everything else.
+            - --imex-channel-annotation={{ .Values.nri.imexChannelAnnotation }}
+            - --imex-channel-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev/nvidia-caps-imex-channels
             - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
             # NODE_NAME (below) gates ComputeDomain topology injection: when
             # topology.enabled stages a topology document into the overlay,
@@ -55,11 +67,24 @@ spec:
             # workload so its mock GPUs report this node's clique / cluster
             # UUID. Harmless when topology is disabled (no document to stage).
             - --node-name=$(NODE_NAME)
+            - --health-addr=:{{ .Values.nri.healthPort }}
           env:
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+          ports:
+            - name: health
+              containerPort: {{ .Values.nri.healthPort }}
+              protocol: TCP
+          {{- with .Values.nri.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.nri.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             runAsUser: 0
@@ -73,6 +98,14 @@ spec:
             - name: nvml-mock-overlay
               mountPath: {{ .Values.nri.overlay.hostPath }}
               readOnly: true
+            # Read-only so the plugin can confirm its CDI spec is staged before
+            # it emits a reference. The runtime, not the plugin, resolves the
+            # spec; an unresolvable CDI device fails container creation, so the
+            # check is what keeps cdi mode degrading to raw instead of blocking
+            # the pod.
+            - name: cdi-spec-dir
+              mountPath: {{ .Values.nri.cdiSpecDir }}
+              readOnly: true
       volumes:
         - name: nri-socket-dir
           hostPath:
@@ -81,5 +114,9 @@ spec:
         - name: nvml-mock-overlay
           hostPath:
             path: {{ .Values.nri.overlay.hostPath }}
+            type: DirectoryOrCreate
+        - name: cdi-spec-dir
+          hostPath:
+            path: {{ .Values.nri.cdiSpecDir }}
             type: DirectoryOrCreate
 {{- end }}

@@ -7,6 +7,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -58,14 +59,30 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 				Expect(err).NotTo(HaveOccurred())
 				podName = cp.Name
 				verifyGPUOperatorNodeSetup(ctx, podName)
-			})
 
-			It("installs GPU Operator and publishes GPUs", Label("device-plugin"), func(ctx SpecContext) {
+				// Setup, not a spec. Every spec below reads state that only the
+				// operator publishes, so installing from inside one spec made the
+				// others depend on that spec being selected: any label filter
+				// narrower than `gpu-operator` false-reds with `namespaces
+				// "gpu-operator" not found` (#561).
+				//
+				// The validator wait belongs here for the same reason. `helm
+				// --wait` covers only the operator's own release; the specs assert
+				// on the ClusterPolicy operands (device plugin, GFD,
+				// dcgm-exporter), which the operator creates afterwards. Without
+				// this barrier a narrow run races the operand rollout.
 				installGPUOperator(ctx, h)
 				waitOperatorValidatorRunning(ctx, h)
-				for _, label := range []string{"nvidia.com/gpu.product", "nvidia.com/gpu.memory", "nvidia.com/gpu.count"} {
-					assertions.NodeLabelSoft(ctx, h.Kube, node, label)
-				}
+			})
+
+			It("publishes GFD labels and allocatable GPUs", Label("device-plugin"), func(ctx SpecContext) {
+				// Hard assertion, derived from the profile rather than read back
+				// off the node. The previous warning-only check could never fail,
+				// so GPU Feature Discovery could have been removed entirely and
+				// this scenario would still have gone green.
+				assertions.WaitGFDLabels(ctx, h.Kube, node,
+					assertions.ExpectedGFDLabels(p.GFDProductName(), p.MemoryMiB(), p.ExpectedGPUs()),
+					config.ReadyTimeout(), config.PollInterval())
 				assertions.WaitAllocatableGPU(ctx, h.Kube, node, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
 			})
 
@@ -73,6 +90,18 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 				assertions.DCGMDeviceMetrics(ctx, h.Kube, gpuOperatorNamespace,
 					p.DisplayName, p.ExpectedGPUs(), gpmProfiles[name],
 					config.ReadyTimeout(), config.PollInterval())
+			})
+
+			It("pins a single-GPU temperature surfaced through dcgm-exporter without restart", Label("dcgm", "runtime-control"), func(ctx SpecContext) {
+				assertRuntimeTempViaDCGM(ctx, h, tempPinC)
+			})
+
+			It("pins a single-GPU power draw surfaced through dcgm-exporter without restart", Label("dcgm", "runtime-control"), func(ctx SpecContext) {
+				assertRuntimePowerViaDCGM(ctx, h)
+			})
+
+			It("surfaces a runtime single-GPU failure through dcgm-exporter without restart", Label("dcgm", "runtime-control"), func(ctx SpecContext) {
+				assertRuntimeXidViaDCGM(ctx, h, xidTestCode)
 			})
 
 			It("surfaces an injected Xid through dcgm-exporter", Label("dcgm", "xid"), func(ctx SpecContext) {
@@ -89,9 +118,81 @@ var gpmProfiles = map[string]bool{"h100": true, "b200": true, "gb200": true, "gb
 // xidTestCode is the Xid injected and asserted on (79 = GPU fallen off the bus).
 const xidTestCode = 79
 
-// injectXidAndValidate enables failure injection, rolls nvml-mock and
-// dcgm-exporter to reload the mock config, then asserts DCGM_FI_DEV_XID_ERRORS.
-// ecc_uncorrectable keeps the device scrapable while the Xid event fires.
+// tempPinC is the temperature pinned at runtime and asserted through
+// dcgm-exporter. Distinct from the dynamic-metrics baseline and below every
+// profile's shutdown threshold, so DCGM never clamps the reading and the change
+// is unambiguous.
+const tempPinC = 85
+
+// assertRuntimeTempViaDCGM pins a single GPU's temperature at runtime via
+// nvml-mock-ctl — no Helm upgrade, no pod restart — and asserts the already-
+// running dcgm-exporter reports the pinned DCGM_FI_DEV_GPU_TEMP for that GPU
+// only, picking it up through the bind-mounted runtime config override within the TTL.
+func assertRuntimeTempViaDCGM(ctx SpecContext, h *harness.Harness, wantC int) {
+	GinkgoHelper()
+	const targetGPU = 0
+
+	By(fmt.Sprintf("pin temperature to %dC on GPU %d at runtime via nvml-mock-ctl (no restart)", wantC, targetGPU))
+	nvmlMockCtl(ctx, h, "temp", "--gpu", strconv.Itoa(targetGPU), strconv.Itoa(wantC))
+	DeferCleanup(func(ctx SpecContext) { resetRuntimeOverrides(ctx, h) })
+
+	assertions.DCGMTempReportedForGPU(ctx, h.Kube, gpuOperatorNamespace, targetGPU, wantC,
+		config.ReadyTimeout(), config.PollInterval())
+}
+
+// assertRuntimePowerViaDCGM pins a single GPU's power draw at runtime via
+// nvml-mock-ctl — no Helm upgrade, no pod restart — and asserts the already-
+// running dcgm-exporter reports the pinned DCGM_FI_DEV_POWER_USAGE (watts) for
+// that GPU only. The target watts is chosen inside the profile's advertised
+// [min_limit, max_limit] envelope (queried via nvidia-smi so the test is
+// profile-agnostic) and far from the dynamic baseline, so the engine never
+// clamps it and the change is unambiguous.
+func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
+	GinkgoHelper()
+	const targetGPU = 0
+
+	pod := firstNvmlPod(ctx, h)
+	minW := int(smiGPUFloat(ctx, h, pod, targetGPU, "power.min_limit"))
+	maxW := int(smiGPUFloat(ctx, h, pod, targetGPU, "power.max_limit"))
+	Expect(maxW).To(BeNumerically(">", minW), "profile must advertise a usable power envelope")
+	baseline := int(smiGPUFloat(ctx, h, pod, targetGPU, "power.draw"))
+
+	lo := minW + (maxW-minW)/4
+	hi := minW + (maxW-minW)*3/4
+	wantW := lo
+	if absInt(hi-baseline) > absInt(lo-baseline) {
+		wantW = hi
+	}
+
+	By(fmt.Sprintf("pin power draw to %dW on GPU %d at runtime via nvml-mock-ctl (no restart)", wantW, targetGPU))
+	nvmlMockCtl(ctx, h, "power", "--gpu", strconv.Itoa(targetGPU), strconv.Itoa(wantW))
+	DeferCleanup(func(ctx SpecContext) { resetRuntimeOverrides(ctx, h) })
+
+	assertions.DCGMPowerReportedForGPU(ctx, h.Kube, gpuOperatorNamespace, targetGPU, wantW,
+		config.ReadyTimeout(), config.PollInterval())
+}
+
+// assertRuntimeXidViaDCGM injects an ecc_uncorrectable failure with a Xid on a
+// single GPU at runtime via nvml-mock-ctl — no Helm upgrade, no pod restart —
+// and asserts the already-running dcgm-exporter reports the Xid for that GPU
+// only, picking it up through the bind-mounted runtime config override within the TTL.
+func assertRuntimeXidViaDCGM(ctx SpecContext, h *harness.Harness, xid int) {
+	GinkgoHelper()
+	const targetGPU = 0
+
+	By("inject ecc_uncorrectable + Xid on GPU 0 at runtime via nvml-mock-ctl (no restart)")
+	nvmlMockCtl(ctx, h, "fail", "--gpu", strconv.Itoa(targetGPU),
+		"--mode", "ecc_uncorrectable", "--after-calls", "1", "--xid", strconv.Itoa(xid))
+	DeferCleanup(func(ctx SpecContext) { resetRuntimeOverrides(ctx, h) })
+
+	assertions.DCGMXidReportedForGPU(ctx, h.Kube, gpuOperatorNamespace, targetGPU, xid,
+		config.ReadyTimeout(), config.PollInterval())
+}
+
+// injectXidAndValidate enables failure injection, restarts dcgm-exporter so
+// DCGM re-initialises against the new mock config, then asserts
+// DCGM_FI_DEV_XID_ERRORS. ecc_uncorrectable keeps the device scrapable while
+// the Xid event fires.
 func injectXidAndValidate(ctx context.Context, h *harness.Harness, xid int) {
 	GinkgoHelper()
 	By("enabling failure injection (ecc_uncorrectable, xid) on nvml-mock")
@@ -111,11 +212,12 @@ func injectXidAndValidate(ctx context.Context, h *harness.Harness, xid int) {
 		Timeout: config.HelmTimeout(),
 	})).To(Succeed(), "enable failure injection on nvml-mock")
 
-	rolloutRestart(ctx, h, nvmlMockNamespace, "nvml-mock")
+	// nvml-mock needs no explicit restart: the chart checksums the rendered GPU
+	// config into its pod template, so the --wait upgrade above already rolled it.
 	rolloutRestart(ctx, h, gpuOperatorNamespace, "nvidia-dcgm-exporter")
 
 	assertions.DCGMXidReported(ctx, h.Kube, gpuOperatorNamespace, xid,
-		config.ReadyTimeout(), config.PollInterval())
+		config.OperandSettleTimeout(), config.PollInterval())
 }
 
 // rolloutRestart restarts a DaemonSet and blocks until the rollout completes.

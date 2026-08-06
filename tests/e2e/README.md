@@ -16,7 +16,7 @@ and also covers the failure-injection flow from
 1. Build the `nvml-mock:e2e` image, unless `E2E_SKIP_BUILD=true`.
 2. Create one multi-node Kind cluster from [`docs/demo/kind.yaml`](../../docs/demo/kind.yaml).
 3. Load the image into Kind.
-4. Install `nvml-mock` into the dedicated `nvml-mock-system` namespace.
+4. Install `nvml-mock` into the dedicated `mokka` namespace.
 5. Run the standalone demo checks for each selected GPU profile.
 6. Collect diagnostics on failure.
 7. Keep the Kind cluster by default for debugging.
@@ -268,6 +268,7 @@ Use-case labels:
 - `multi-node`
 - `nri`
 - `nri-inject`
+- `nfd`
 - `compute-domain`
 - `failure-injection`
 - `validator`
@@ -282,6 +283,7 @@ make e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter="dra"'
 make e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter="gpu-operator"'
 make e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter="multi-node"'
 make e2e E2E_GINKGO_FLAGS='--label-filter="nri"'
+make e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter="nfd"'
 make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
 ```
 
@@ -299,7 +301,8 @@ make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
 | `E2E_RUN_NGC` | `false` | Run scenarios that need `nvcr.io` images, such as `validator`. |
 | `E2E_CLUSTER_TIMEOUT` | `5m` | Kind cluster setup timeout. |
 | `E2E_HELM_TIMEOUT` | `5m` | Helm install/upgrade timeout. |
-| `E2E_READY_TIMEOUT` | `2m` | Kubernetes readiness wait timeout. |
+| `E2E_READY_TIMEOUT` | `2m` | Kubernetes readiness wait timeout, sized for a single rollout. |
+| `E2E_OPERAND_SETTLE_TIMEOUT` | `5m` | Timeout for waits that must outlast a GPU Operator reconcile replacing its operands, not just one rollout. |
 | `E2E_POLL_INTERVAL` | `2s` | Polling interval for readiness checks. |
 
 ## CI Behavior
@@ -338,7 +341,7 @@ available for inspection:
 
 ```bash
 kubectl --context kind-nvml-mock-e2e get pods -A
-helm --kube-context kind-nvml-mock-e2e -n nvml-mock-system status nvml-mock
+helm --kube-context kind-nvml-mock-e2e -n mokka status nvml-mock
 ```
 
 Delete it manually when done:

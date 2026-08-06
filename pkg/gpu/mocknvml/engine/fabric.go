@@ -59,10 +59,11 @@ func (d *ConfigurableDevice) GetMockFabricInfo() (FabricInfo, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return FabricInfo{}, ret
 	}
-	if d.config == nil || d.config.Fabric == nil {
+	cfg := d.cfg()
+	if cfg.Fabric == nil {
 		return FabricInfo{}, nvml.ERROR_NOT_SUPPORTED
 	}
-	info := buildFabricInfo(d.config.Fabric)
+	info := buildFabricInfo(cfg.Fabric)
 	debugLog("[NVML] nvmlDeviceGetGpuFabricInfo -> clique=%d state=%d\n", info.CliqueID, info.State)
 	return info, nvml.SUCCESS
 }
@@ -78,10 +79,11 @@ func (d *ConfigurableDevice) GetMockFabricInfoV() (FabricInfo, nvml.Return) {
 	if ret := d.handleLookupReturn(); ret != nvml.SUCCESS {
 		return FabricInfo{}, ret
 	}
-	if d.config == nil || d.config.Fabric == nil {
+	cfg := d.cfg()
+	if cfg.Fabric == nil {
 		return FabricInfo{}, nvml.ERROR_NOT_SUPPORTED
 	}
-	info := buildFabricInfo(d.config.Fabric)
+	info := buildFabricInfo(cfg.Fabric)
 	debugLog("[NVML] nvmlDeviceGetGpuFabricInfoV -> clique=%d state=%d healthMask=0x%x\n",
 		info.CliqueID, info.State, info.HealthMask)
 	return info, nvml.SUCCESS

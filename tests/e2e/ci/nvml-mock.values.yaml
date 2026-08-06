@@ -1,0 +1,44 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# CI-side Helm values for the standalone e2e job. Copied to
+# `local/nvml-mock.values.local.yaml` in the workflow before `tilt ci` runs, so
+# Tilt picks it up as the highest-precedence overlay in the standard values
+# stack (chart defaults < local baseline < per-consumer < THIS < --set).
+#
+# This is the YAML encoding of the --set block that the Ginkgo harness used to
+# apply directly in tests/e2e/go/suite_helm.go:demoRelease. Keep the two in
+# sync until the harness's demoRelease is removed (planned once all e2e jobs
+# migrate to `tilt ci`).
+#
+# Not included on purpose:
+#   * gpu.profile      — set by Tilt from --gpu-profile
+#   * gpu.count        — chart auto-derives from gpu.profile; matches what the
+#                        harness's p.ExpectedGPUs() computes
+#   * image.repository — set by Tilt from --nvmlmock-image
+#   * image.tag        — set by Tilt from --nvmlmock-image
+gpu:
+  dynamicMetrics:
+    enabled: true
+    # Steady, positive utilization so DCGM GPM PCIe throughput stays nonzero on
+    # Hopper+; seed=1 for reproducibility.
+    seed: 1
+    utilization:
+      pattern: steady
+      gpu_min: 50
+      gpu_max: 50
+      memory_min: 25
+      memory_max: 25
+
+integrations:
+  fakeGpuOperator:
+    enabled: true
+
+# Rolls all pods on any DaemonSet change (default 25%) and cuts termination
+# grace from 2s to 1s. The demo's preStop cleanup is only a few rm -rf calls
+# plus label kubectl requests, so a shorter grace period keeps the "helm
+# upgrade for the next profile" cycle fast.
+terminationGracePeriodSeconds: 1
+updateStrategy:
+  rollingUpdate:
+    maxUnavailable: "100%"

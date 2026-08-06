@@ -29,8 +29,16 @@ func splitImage(ref string) (repo, tag string) {
 // installDemoChart (re)installs the nvml-mock release for a profile via
 // `helm upgrade --install` onto the shared cluster, with the same integration
 // flags the demo uses (fake GPU operator ConfigMaps + dynamic metrics).
+//
+// When E2E_ATTACH_EXISTING is set, the rollout is externally owned (e.g. by
+// `tilt ci`) and this function is a no-op — the caller's subsequent
+// DaemonSet-ready wait still fires and will surface any rollout regression.
 func installDemoChart(ctx context.Context, h *harness.Harness, prof string, count int) {
 	GinkgoHelper()
+	if config.AttachExisting() {
+		By("skip helm upgrade --install nvml-mock (attach mode, external rollout)")
+		return
+	}
 	rel := demoRelease(prof, count)
 	By("helm upgrade --install nvml-mock (profile=" + prof + ")")
 	err := h.Helm.UpgradeInstall(ctx, rel)

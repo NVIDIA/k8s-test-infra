@@ -105,7 +105,7 @@ func nvmlGpmSampleGet(device C.nvmlDevice_t, gpmSample C.nvmlGpmSample_t) C.nvml
 	if C.gpmSampleIsNull(gpmSample) != 0 {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	dev := engine.GetEngine().LookupConfigurableDevice(uintptr(unsafe.Pointer(device.handle)))
+	dev := engine.GetEngine().LookupConfigurableDevice(unsafe.Pointer(device.handle))
 	if dev == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}

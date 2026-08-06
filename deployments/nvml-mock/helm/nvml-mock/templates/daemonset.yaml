@@ -72,6 +72,27 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            # Gates the NFD feature file that yields
+            # feature.node.kubernetes.io/pci-10de.present=true. setup.sh writes
+            # the file and cleanup.sh removes it only when this is "on", so the
+            # mock never deletes an input it did not supply. NFD, not the mock,
+            # creates the label. NFD's PCI source cannot derive it as deployed —
+            # nfd-worker reads a link-time-fixed /host-sys path, so the rendered
+            # tree is not on a path it reads; see setup.sh step 7.
+            - name: MOCK_NFD_PCI_LABEL
+              value: {{ ternary "on" "off" .Values.nodeLabels.pciVendorPresent | quote }}
+            {{- if .Values.imex.mockChannels.enabled }}
+            # Mock IMEX capability surface for the DRA compute-domain plugin.
+            # See values.yaml imex.mockChannels and NVIDIA/k8s-test-infra#498.
+            - name: IMEX_MOCK_CHANNELS
+              value: "true"
+            - name: IMEX_CHANNEL_COUNT
+              value: "{{ .Values.imex.mockChannels.channelCount }}"
+            - name: IMEX_CHANNEL_MAJOR
+              value: "{{ .Values.imex.mockChannels.channelMajor }}"
+            - name: IMEX_CAPS_MAJOR
+              value: "{{ .Values.imex.mockChannels.capsMajor }}"
+            {{- end }}
             # Point the mock NVML library at the in-pod ConfigMap mount so any
             # nvidia-smi / NVML caller running INSIDE the daemonset pod
             # (e.g. `kubectl exec ds/nvml-mock -- nvidia-smi`) loads the same
@@ -83,6 +104,19 @@ spec:
             # workloads) all see the config at the same in-container location.
             - name: MOCK_NVML_CONFIG
               value: /etc/nvml-mock/config.yaml
+            # Align both the runtime config-override writer and the in-pod reader
+            # on one host-backed path. nvml-mock-ctl (run via
+            # `kubectl exec ds/nvml-mock -- ...`) writes overrides here, and the
+            # mock NVML engine loaded by nvidia-smi INSIDE this pod resolves the
+            # config override via ConfigOverridePathFor(), which honors MOCK_NVML_OVERRIDES.
+            # Without this the engine would look next to MOCK_NVML_CONFIG
+            # (/etc/nvml-mock, a read-only ConfigMap mount) and never see the
+            # overrides the CLI writes. host-nvml-mock is mounted here at
+            # /host/var/lib/nvml-mock, so this maps to the host file
+            # /var/lib/nvml-mock/driver/config/overrides.yaml that setup.sh's
+            # CDI spec also bind-mounts into external consumers.
+            - name: MOCK_NVML_OVERRIDES
+              value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
             {{- if .Values.topology.enabled }}
             # Point the engine's topology overlay at the in-pod mount of
             # the cluster-level topology ConfigMap. See
@@ -130,11 +164,15 @@ spec:
                   fieldPath: status.podIP
             - name: MOCK_IB_PING_SERVICE_HOST
               value: "{{ include "nvml-mock.fullname" . }}-ibping.{{ .Release.Namespace }}.svc.cluster.local"
-            # LD_PRELOAD installs the InfiniBand sysfs redirector in every
-            # process spawned in this container (e.g. `kubectl exec ibstat`).
-            # The shim only rewrites paths under /sys/class/infiniband*,
-            # /sys/class/infiniband_mad/, /sys/class/infiniband_verbs/ and
-            # /dev/infiniband — every other path passes through unchanged.
+            # LD_PRELOAD installs four shims in every process spawned in this
+            # container (e.g. `kubectl exec ibstat`). libibmockumad and
+            # libibmockverbs forward UMAD and verbs traffic to the mock-ib
+            # daemon when MOCK_IB=full. libibmocksys rewrites paths under
+            # /sys/class/infiniband, /sys/class/infiniband_mad,
+            # /sys/class/infiniband_verbs, /sys/class/infiniband_cm and
+            # /dev/infiniband into $MOCK_IB_ROOT. libpcimocksys rewrites
+            # /sys/bus/pci and /sys/devices/pci into $MOCK_PCI_ROOT. A path
+            # outside those prefixes passes through unchanged.
             # libibmockumad must precede libibmocksys so UMAD ioctls are
             # intercepted before sysfs path rewriting.
             - name: LD_PRELOAD
@@ -164,6 +202,8 @@ spec:
               mountPath: /host/var/run/cdi
             - name: host-run-nvidia
               mountPath: /host/run/nvidia
+            - name: host-nfd-features
+              mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
             {{- if .Values.topology.enabled }}
             - name: gpu-topology
               mountPath: /etc/nvml-mock/topology
@@ -176,11 +216,55 @@ spec:
             - name: host-fabric-state
               mountPath: {{ .Values.fabricmanager.stateDir }}
             {{- end }}
+        {{- if .Values.allocationWatcher.enabled }}
+        # #506: mirrors each pod's nvidia.com/gpu claim into the same runtime
+        # override file nvml-mock-ctl writes, which the engine re-reads within
+        # one TTL. A sidecar rather than its own DaemonSet so it shares the
+        # driver-root hostPath the override file lives in.
+        - name: allocation-watcher
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /usr/local/bin/nvml-mock-ctl
+            - watch-allocations
+            - --interval={{ .Values.allocationWatcher.interval }}
+            - --used-fraction={{ .Values.allocationWatcher.usedFractionPerClaim }}
+            - --socket={{ .Values.allocationWatcher.podResourcesSocket }}
+          env:
+            - name: MOCK_NVML_CONFIG
+              value: /var/lib/nvml-mock/driver/config/config.yaml
+            - name: MOCK_NVML_OVERRIDES
+              value: /var/lib/nvml-mock/driver/config/overrides.yaml
+          securityContext:
+            # The pod-resources socket is root-owned on the host and this
+            # container only reads it; it writes nothing outside the driver root.
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.allocationWatcher.resources | nindent 12 }}
+          volumeMounts:
+            - name: host-nvml-mock
+              mountPath: /var/lib/nvml-mock
+            - name: host-pod-resources
+              mountPath: {{ dir .Values.allocationWatcher.podResourcesSocket }}
+              readOnly: true
+        {{- end }}
       volumes:
         - name: host-nvml-mock
           hostPath:
             path: /var/lib/nvml-mock
             type: DirectoryOrCreate
+        {{- if .Values.allocationWatcher.enabled }}
+        # Read-only, node-local kubelet API. It is a socket, not the API
+        # server, so this needs no RBAC. Directory (not the socket itself) so
+        # a kubelet restart that recreates the socket is picked up.
+        - name: host-pod-resources
+          hostPath:
+            path: {{ dir .Values.allocationWatcher.podResourcesSocket }}
+            type: Directory
+        {{- end }}
         - name: gpu-config
           configMap:
             name: {{ include "nvml-mock.fullname" . }}-config
@@ -191,6 +275,10 @@ spec:
         - name: host-run-nvidia
           hostPath:
             path: /run/nvidia
+            type: DirectoryOrCreate
+        - name: host-nfd-features
+          hostPath:
+            path: {{ .Values.nodeLabels.featuresDir | quote }}
             type: DirectoryOrCreate
         {{- if .Values.topology.enabled }}
         - name: gpu-topology

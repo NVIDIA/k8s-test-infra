@@ -17,19 +17,8 @@ FROM golang:${GOLANG_VERSION}-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY vendor/ vendor/
-COPY pkg/gpu/mocknvml/ pkg/gpu/mocknvml/
-COPY pkg/gpu/mockcuda/ pkg/gpu/mockcuda/
-COPY pkg/network/mockib/ pkg/network/mockib/
-COPY pkg/nri/ pkg/nri/
-COPY pkg/system/mockpcisysfs/ pkg/system/mockpcisysfs/
-COPY pkg/imexcoord/ pkg/imexcoord/
-COPY pkg/fmcoord/ pkg/fmcoord/
-COPY cmd/mock-ib/ cmd/mock-ib/
-COPY cmd/nvml-mock-nri/ cmd/nvml-mock-nri/
-COPY cmd/render-pci-sysfs/ cmd/render-pci-sysfs/
-COPY cmd/fake-imex/ cmd/fake-imex/
-COPY cmd/fake-fabricmanager/ cmd/fake-fabricmanager/
-COPY cmd/check-fabric/ cmd/check-fabric/
+COPY pkg/ pkg/
+COPY cmd/ cmd/
 RUN cd pkg/gpu/mocknvml && make clean && make
 RUN cd pkg/gpu/mockcuda && make clean && make
 RUN cd pkg/network/mockib && make clean && make
@@ -37,7 +26,9 @@ RUN cd pkg/system/mockpcisysfs && make clean && make
 RUN mkdir -p /out \
     && go build -mod=vendor -o /out/mock-ib ./cmd/mock-ib \
     && go build -mod=vendor -o /out/nvml-mock-nri ./cmd/nvml-mock-nri \
+    && go build -mod=vendor -o /out/nvml-mock-ctl ./cmd/nvml-mock-ctl \
     && go build -mod=vendor -o /out/render-pci-sysfs ./cmd/render-pci-sysfs \
+    && go build -mod=vendor -o /out/render-imex-procdevices ./cmd/render-imex-procdevices \
     && go build -mod=vendor -o /out/nvidia-imex     ./cmd/fake-imex/daemon \
     && go build -mod=vendor -o /out/nvidia-imex-ctl ./cmd/fake-imex/ctl \
     && go build -mod=vendor -o /out/nv-fabricmanager     ./cmd/fake-fabricmanager/daemon \
@@ -55,7 +46,9 @@ COPY --from=builder /src/pkg/network/mockib/libibmockverbs.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/system/mockpcisysfs/libpcimocksys.so.* /usr/local/lib/
 COPY --from=builder /out/mock-ib /usr/local/bin/mock-ib
 COPY --from=builder /out/nvml-mock-nri /usr/local/bin/nvml-mock-nri
+COPY --from=builder /out/nvml-mock-ctl /usr/local/bin/nvml-mock-ctl
 COPY --from=builder /out/render-pci-sysfs /usr/local/bin/render-pci-sysfs
+COPY --from=builder /out/render-imex-procdevices /usr/local/bin/render-imex-procdevices
 # Fake IMEX binaries used for ComputeDomain simulation on KIND. Installed
 # at the same paths the upstream compute-domain-daemon expects in $PATH,
 # so the thin daemon image layer (Dockerfile.compute-domain-daemon) can
@@ -73,6 +66,9 @@ COPY --from=builder /out/nv-fabricmanager-ctl /usr/bin/nv-fabricmanager-ctl
 # to confirm the topology overlay assigned the expected clique to each
 # node. See NVIDIA/k8s-test-infra#304.
 COPY --from=builder /out/check-fabric    /usr/local/bin/check-fabric
+# Copied ahead of the RUN below because that layer invokes it while patchelf is
+# still installed; /scripts/ arrives later, after patchelf has been purged.
+COPY deployments/nvml-mock/scripts/stage-ib-tools.sh /usr/local/bin/stage-ib-tools.sh
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
@@ -113,6 +109,13 @@ RUN set -eux; \
     # /var/lib/nvml-mock/driver/usr/bin/, and CDI-injected /usr/bin/.
     apt-get install -y --no-install-recommends patchelf; \
     patchelf --set-rpath '$ORIGIN/../lib64' /usr/local/bin/nvidia-smi; \
+    # Same treatment for the InfiniBand CLI tools, for the same reason: setup.sh
+    # relocates them into the node overlay, where their libibmad/libibumad/
+    # libibverbs/libnl dependencies are not on any default search path. The
+    # script stages that closure next to them and bakes in the RPATH. Injected
+    # containers therefore run them straight from a minimal image that ships no
+    # IB libraries at all. See NVIDIA/k8s-test-infra#438.
+    sh /usr/local/bin/stage-ib-tools.sh; \
     rm -rf /var/lib/apt/lists/*; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \

@@ -44,6 +44,7 @@ full walkthrough.
 | [Quick Start](quickstart.md) | Get up and running in 5 minutes |
 | [Architecture](architecture.md) | System design and component overview |
 | [Configuration Reference](configuration.md) | Complete YAML configuration guide |
+| [Runtime Control (`nvml-mock-ctl`)](nvml-mock-ctl.md) | Change simulated GPU state on a running node |
 | [CUDA Mock](cuda-mock.md) | Mock CUDA driver library details |
 | [Development Guide](development.md) | Contributing and extending the project |
 | [Examples](examples.md) | Common usage patterns and scenarios |

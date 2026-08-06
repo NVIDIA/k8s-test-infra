@@ -357,6 +357,27 @@ nvlink:
       remote_pci_bus_id: "0000:0F:00.0"
 ```
 
+### NVLink error injection (per device)
+
+A device can be given a rising NVLink DL error rate on its switch links, so its
+uplinks report climbing replay/recovery/CRC errors — the GPU-side signal DCGM's
+`DCGM_HEALTH_WATCH_NVLINK` reads (→ `DCGM_FR_NVLINK_*`). Set it in a device
+override, or at runtime with [`nvml-mock-ctl nvlink-error`](nvml-mock-ctl.md#nvlink-error--inject-nvlink-dl-errors-on-switch-links):
+
+```yaml
+devices:
+  - index: 0
+    nvlink_error:
+      rate: 250        # errors/second added on top of the healthy baseline
+      links: [0, 1, 2] # optional; omit to inject on all active links
+```
+
+The count accrues monotonically off the shared counter epoch (same model as
+`nvlink.defaults.error_rate`); `rate: 0` (or omitting the block) is healthy. This
+is deliberately *not* an "NVSwitch entity health" knob — DCGM's NVSwitch/SXID
+health is NSCQ/kernel-log sourced and cannot be driven from a `libnvidia-ml.so`
+mock.
+
 ## Available GPU Profiles
 
 Standalone configuration files are provided for each supported GPU model:
@@ -379,10 +400,136 @@ When deploying via Helm, additional values control integration with external pro
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps for fake-gpu-operator discovery |
-| `integrations.fakeGpuOperator.profileLabels` | `run.ai/gpu-profile: "true"` | Discovery labels on profile ConfigMaps |
+| `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps named `gpu-profile-<profile>`, keyed `profile.yaml`, in the shape fake-gpu-operator's loader reads |
+| `integrations.fakeGpuOperator.targetNamespace` | `""` (release namespace) | Namespace for the profile ConfigMaps. Set to FGO's release namespace for FGO to find them; requires FGO's `builtinProfiles.enabled=false` |
+| `integrations.fakeGpuOperator.profileLabels` | `run.ai/gpu-profile: "true"` | Extra labels on profile ConfigMaps. The contract labels are always emitted |
 
 See [fake-gpu-operator integration](integrations/fake-gpu-operator.md) for setup details.
+
+## Metric Fidelity
+
+Every value the mock reports comes from configuration, from a clock-driven
+simulator, or from a fixed derivation — never from real GPU work, because the
+mock never executes a kernel. This section states which is which, so a dashboard
+built against nvml-mock is read with the right expectations.
+
+### Simulated — changes between calls
+
+The driver is **elapsed time, not workload**: these numbers move on a completely
+idle node, and they do not move any faster under load.
+
+**Utilization is live in every shipped profile.** Each profile carries its own
+`device_defaults.dynamic_metrics.utilization` block — `pattern: steady`, GPU
+10–45%, memory 5–25% — so `nvmlDeviceGetUtilizationRates`, and therefore
+`DCGM_FI_DEV_GPU_UTIL`, never reports a constant 0 on a default install. The
+floor is deliberately above 0 so "utilization is reported" is a deterministic
+assertion rather than a flaky one. Because every `DCGM_FI_PROF_*` activity
+metric is a fixed fraction of `utilization.gpu` (see *Deliberately fixed*
+below), the whole profiling surface is non-zero as a consequence.
+
+Temperature and power stay **opt-in**: set `gpu.dynamicMetrics.enabled=true`
+(Helm) or add `dynamic_metrics.temperature` / `dynamic_metrics.power` to the
+config. Note that enabling the Helm overlay *replaces* the profile's
+`dynamic_metrics` block wholesale with the chart baseline, whose utilization
+default is `pattern: burst` across 0–100 — that band's idle phase does report
+near 0. Pin `gpu.dynamicMetrics.utilization.*` if you need a floor.
+
+| Metric | Config | Behaviour |
+|--------|--------|-----------|
+| `temperature.gpu` | `dynamic_metrics.temperature` | `base_c`, plus a sine ramp over `ramp_period_sec` bounded by `ramp_c`, plus uniform noise in ±`variance_c`; clamped to the thermal shutdown threshold when known |
+| `power.draw` | `dynamic_metrics.power` | `base_mw` ± `variance_mw`, clamped to `min_limit_mw` / `max_limit_mw` when those are set |
+| `utilization.gpu`, `utilization.memory` | `dynamic_metrics.utilization` | random within the configured band, shaped by `pattern` (`idle` / `busy` / `burst` / `steady`) |
+| NVLink throughput counters | — | accrue deterministically from a process-independent epoch (`MOCK_NVML_EPOCH`, else `/proc/stat` btime), so they grow monotonically across separate `nvidia-smi` runs |
+
+### Static — held until the config changes
+
+Everything else resolved through the effective config: device memory
+(`memory.total_bytes` / `free_bytes` / `used_bytes` / `reserved_bytes`), ECC mode
+and counters, clocks, fan speed, performance state, power limits, `processes`,
+and failure injection. Each holds its configured value until the profile changes
+or `nvml-mock-ctl` writes a runtime override, which takes effect within one
+override TTL — see [nvml-mock-ctl](nvml-mock-ctl.md).
+
+### Deliberately fixed
+
+**Profiling metrics (`DCGM_FI_PROF_*`).** DCGM reads these on Hopper+ through the
+NVML GPM API. The mock derives every activity metric as a fixed fraction of
+`utilization.gpu`:
+
+| GPM metric | Fraction of `utilization.gpu` |
+|------------|-------------------------------|
+| SM utilization, graphics utilization | 1.00 |
+| SM occupancy | 0.75 |
+| Any-tensor activity | 0.50 |
+| HMMA (FP16 tensor) | 0.40 |
+| FP16 | 0.35 |
+| FP32 | 0.25 |
+| Integer | 0.10 |
+| FP64, DMMA, IMMA | 0.05 |
+| DFMA | 0.02 |
+
+DRAM bandwidth activity mirrors `utilization.memory`, and PCIe / NVLink
+throughput come from the counter snapshots. The fractions approximate the shape
+of a tensor-dominated Hopper training step; they are **intentionally not** tied to
+execution. SM occupancy and tensor-core activity are properties of kernels the
+mock does not run, so deriving them from anything other than the configured
+utilization would be fabrication rather than simulation. They stay fixed by
+design and are not a gap to be closed.
+
+**Identity and topology.** Device `name`, `architecture`, `brand`,
+`compute_capability`, `uuid`, PCI `bus_id`, and the BAR1 aperture
+(`bar1_memory`) are baked onto the device at construction and need a pod restart
+to change.
+
+### Allocation-aware — opt in
+
+`memory.used_bytes` and `memory.free_bytes` follow Kubernetes GPU allocation
+when `allocationWatcher.enabled=true`. A sidecar in the nvml-mock DaemonSet
+polls the kubelet pod-resources API and writes the same runtime override file
+`nvml-mock-ctl` writes, which the engine re-reads within one override TTL.
+Scheduling a pod that claims a GPU moves that GPU's number; deleting the pod
+returns it.
+
+| Value | Behaviour |
+|-------|-----------|
+| `allocationWatcher.usedFractionPerClaim` | Share of the usable aperture (`total - reserved`) attributed per claim. Default `0.5` |
+| Time-sliced GPUs | Each holding container is a separate claim; claims on one device add up and clamp at the aperture |
+| Unclaimed GPUs | Report `used_bytes: 0` and the profile's idle `free_bytes` |
+
+The reported bytes are **synthetic**. The mock runs no kernel and allocates no
+device memory, so the number says a claim *exists* — not what a workload
+touched. It reads per device: a claim on GPU 3 moves GPU 3 only.
+
+The design is level-triggered. Each poll recomputes every device from the full
+current allocation, so a missed event self-heals on the next tick rather than
+leaving a GPU pinned at a stale value. A failed poll publishes nothing and keeps
+the previous reading, because publishing zeros on a transient kubelet error
+would report the whole node idle.
+
+While the watcher runs it **owns** those two fields: an `nvml-mock-ctl set --gpu
+N memory.used_bytes=…` is overwritten on the next poll. Every other field
+`nvml-mock-ctl` writes is preserved — both writers take the same lock.
+
+Off by default, because enabling it mounts the kubelet pod-resources socket
+(read-only, node-local; no RBAC, since it is not the API server).
+
+### Still not workload-aware — known gap
+
+`processes` stays empty regardless of allocation, so `nvidia-smi` reports no
+running processes even on a claimed GPU. Tracked in
+[#506](https://github.com/NVIDIA/k8s-test-infra/issues/506) item 2.
+
+Read the *Simulated* section carefully here too: `utilization.gpu` is no longer
+a constant 0, but it is **not** evidence of work either. It moves on elapsed
+time. A busy-looking utilization on an idle node is exactly what that block
+produces, by design.
+
+What each container *can see* has always been allocation-aware, and is a
+separate thing from what the values say: the engine filters its visible GPU set
+by which `/dev/nvidia*` nodes are present, so a pod allocated one GPU on an
+eight-GPU node sees exactly one in `nvidia-smi -L`.
+
+To move any of these explicitly, use `nvml-mock-ctl set`.
 
 ## Validation
 

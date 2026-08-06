@@ -1,0 +1,169 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# NVSentinel values for the mock-GPU thermal-margin demo on Kind.
+#
+# Enables the DCGM-based GPU Health Monitor (GpuThermalMarginWatch) plus the
+# remediation pipeline (MongoDB store -> Fault Quarantine -> Node Drainer) so a
+# GPU thermal-margin violation is detected AND remediated (worker cordoned +
+# drained), then auto-recovered on cooldown. Syslog/CSP monitors are off
+# (detection is via DCGM field 153, not kernel logs).
+#
+# Prometheus Operator and cluster NetworkPolicies are not installed in this
+# demo, so podMonitor and the metrics-access NetworkPolicy are disabled.
+
+global:
+  dryRun: false
+
+  # Core (system) modules are pinned to the control-plane so the Node Drainer
+  # does not evict the pipeline that is doing the draining when it cordons and
+  # drains the GPU worker. The GPU Health Monitor DaemonSet still runs on the
+  # GPU worker via its own tolerations.
+  systemNodeSelector:
+    node-role.kubernetes.io/control-plane: ""
+  systemNodeTolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+
+  dcgm:
+    mode: operator-service
+    enabled: true
+    service:
+      endpoint: "nvidia-dcgm.gpu-operator.svc"
+      port: 5555
+
+  # Use an EXTERNAL MongoDB (the standalone official-image replica set deployed
+  # by mongodb.yaml) instead of the chart's Bitnami MongoDB, which is amd64-only
+  # and cannot start on arm64. The full URI (no auth in this demo) is supplied
+  # via the Secret referenced by credentialsFromSecret.name.
+  #
+  # The platform-connector talks TLS to the datastore and reads a CA cert, so
+  # the standalone MongoDB serves TLS with a cert-manager-issued certificate and
+  # we hand NVSentinel the CA via tls.caSecretName (the cert-manager CA secret,
+  # data key ca.crt). tls.enabled must be true here (the chart also renders it
+  # true regardless due to a `| default true`, so keeping MongoDB on TLS keeps
+  # both sides consistent).
+  datastore:
+    provider: "mongodb"
+    credentialsFromSecret:
+      name: nvsentinel-datastore-mongodb-uri
+    connection:
+      host: "mongodb-ext.nvsentinel.svc.cluster.local"
+      port: 27017
+      database: "HealthEventsDatabase"
+    tls:
+      enabled: true
+      caSecretName: "mongodb-ca"
+
+  # Health monitors
+  gpuHealthMonitor:
+    enabled: true
+  syslogHealthMonitor:
+    enabled: false
+  cspHealthMonitor:
+    enabled: false
+  kubernetesObjectMonitor:
+    enabled: false
+  nicHealthMonitor:
+    enabled: false
+
+  # Remediation pipeline. The internal MongoDB is disabled (see datastore above).
+  mongodbStore:
+    enabled: false
+  faultQuarantine:
+    enabled: true
+  nodeDrainer:
+    enabled: true
+  faultRemediation:
+    enabled: false
+  janitor:
+    enabled: false
+  healthEventsAnalyzer:
+    enabled: false
+
+  # Housekeeping modules kept minimal
+  labeler:
+    enabled: true
+  # The metadata-collector DaemonSet reads each GPU's signed slowdown T.Limit
+  # offset (NVML field 194, NVML_FI_DEV_TEMPERATURE_SLOWDOWN_TLIMIT) once and
+  # writes it to global.metadataPath (gpu_metadata.json). The GPU Health
+  # Monitor needs that offset to arm GpuThermalMarginWatch; without it the
+  # thermal-margin check stays inactive ("missing slowdown TLIMIT threshold
+  # metadata"). The nvml-mock exposes field 194 so this works on the mock GPUs.
+  metadataCollector:
+    enabled: true
+  eventExporter:
+    enabled: false
+  preflight:
+    enabled: false
+
+# The external datastore (global.datastore) supplies MONGODB_URI; the internal
+# MongoDB store hooks are off.
+platformConnector:
+  mongodbStore:
+    enabled: false
+
+# No Prometheus Operator in this demo.
+podMonitor:
+  enabled: false
+
+# The metrics-access NetworkPolicy can block cross-namespace traffic on Kind's
+# NetworkPolicy-enforcing CNI; disable it for the demo.
+networkPolicy:
+  enabled: false
+
+# --- Subchart overrides -------------------------------------------------------
+
+# labeler: this demo runs the GPU Operator with the real driver disabled (the
+# nvml-mock supplies libnvidia-ml.so instead), so there is no
+# nvidia-driver-daemonset pod for the labeler to detect and it never sets
+# nvsentinel.dgxc.nvidia.com/driver.installed=true. assumeDriverInstalled makes
+# the labeler set that label on every nvidia.com/gpu.present node, which the
+# metadata-collector DaemonSet requires in its node selector. (This is the same
+# knob NVIDIA documents for hosts with pre-baked drivers.)
+labeler:
+  assumeDriverInstalled: true
+
+# gpu-health-monitor: suppress the mock's baseline NVLink effective-BER
+# "failure". The mock reports DCGM_FR_NVLINK_EFFECTIVE_BER_THRESHOLD on every GPU
+# at boot; that is a mock-data artifact (recommendedAction CONTACT_SUPPORT, not
+# the fault under test). If left active it stays a "failing check" forever and
+# keeps the node quarantined even after the GPU cools back down, so the
+# recovery/uncordon path never completes. Suppressing it lets all checks clear
+# once the thermal margin recovers.
+gpu-health-monitor:
+  dcgmHealthCheck:
+    suppressedErrorCodes:
+      - DCGM_FR_NVLINK_EFFECTIVE_BER_THRESHOLD
+  # GpuThermalMarginWatch (DCGM field 153 vs the per-GPU slowdown T.Limit offset
+  # from gpu_metadata.json) is the fault this demo exercises. By default the
+  # watch is enabled but runs dry (gpuTempLimitStoreOnly=true), so its events
+  # are emitted STORE_ONLY and never cordon. Turn store-only OFF so a closing
+  # thermal margin drives the full detect -> cordon -> drain pipeline; when the
+  # GPU cools and the margin re-opens the watch clears and the node uncordons.
+  dcgmFieldsMonitoring:
+    gpuTempLimitMonitoringEnabled: true
+    gpuTempLimitStoreOnly: false
+
+# node-drainer: evict user-namespace pods immediately on drain. The default mode
+# is "AllowCompletion", which waits for each pod to finish gracefully (respecting
+# terminationGracePeriodSeconds). The demo's sample GPU workload is a long-running
+# pod that never completes on its own, so under the default it would never be
+# evicted and you would not see it reschedule onto the healthy worker. "Immediate"
+# makes the drain -> reschedule step observable. Real clusters typically keep
+# "AllowCompletion" for graceful eviction.
+node-drainer:
+  userNamespaces:
+    - name: "*"
+      mode: "Immediate"
+
+# fault-quarantine: disable the circuit breaker for this tiny demo cluster. The
+# breaker trips when >= 50% of GPU nodes are cordoned within a 5m window; with
+# only two GPU workers a single legitimate cordon already meets that threshold
+# and halts ALL further processing (including the uncordon on recovery), leaving
+# the node stuck. Disabling it keeps the detect -> cordon -> cooldown -> uncordon
+# loop observable. Leave it enabled (the default) on real, larger clusters.
+fault-quarantine:
+  circuitBreaker:
+    enabled: false

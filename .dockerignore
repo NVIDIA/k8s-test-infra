@@ -1,6 +1,6 @@
-# Keep the Docker build context small/fast. The nvml-mock Dockerfile only
-# COPYs go.mod/go.sum, vendor/, and specific pkg/ and cmd/ paths, so none of
-# the entries below are needed inside the build.
+# Keep the Docker build context small/fast. The nvml-mock Dockerfile COPYs
+# go.mod/go.sum, vendor/, and all of pkg/ and cmd/, so none of the entries
+# below are needed inside the build.
 .git
 .worktrees
 .github

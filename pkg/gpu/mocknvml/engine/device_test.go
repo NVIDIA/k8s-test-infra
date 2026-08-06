@@ -93,6 +93,33 @@ func TestConfigurableDevice_GetPciInfo(t *testing.T) {
 	require.Equal(t, uint32(0x20B010DE), pciInfo.PciDeviceId, "Expected A100 PCI device ID")
 }
 
+// TestConfigurableDevice_GetPciInfo_BusIdLegacy verifies that GetPciInfo
+// populates BOTH the modern busId and the legacy busIdLegacy strings. Real NVML
+// fills both; NVSentinel's metadata-collector derives each GPU's pci_address
+// from busIdLegacy, so leaving it empty produces blank PCI addresses.
+func TestConfigurableDevice_GetPciInfo_BusIdLegacy(t *testing.T) {
+	const busID = "0000:3b:00.0"
+	yaml := &YAMLConfig{
+		System: SystemConfig{DriverVersion: "550.0", NumDevices: 1},
+		Devices: []DeviceOverride{
+			{Index: 0, DeviceConfig: DeviceConfig{PCI: &PCIConfig{BusID: busID}}},
+		},
+	}
+	cfg := &Config{NumDevices: 1, DriverVersion: "550.0", YAMLConfig: yaml}
+	e := NewEngine(cfg)
+	_ = e.Init()
+	defer func() { _ = e.Shutdown() }()
+
+	handle, _ := e.DeviceGetHandleByIndex(0)
+	cd, ok := e.LookupDevice(handle).(*ConfigurableDevice)
+	require.True(t, ok, "Expected ConfigurableDevice type")
+
+	pci, ret := cd.GetPciInfo()
+	require.Equal(t, nvml.SUCCESS, ret, "GetPciInfo failed")
+	require.Equal(t, busID, busIDString(pci.BusId[:]), "BusId not populated")
+	require.Equal(t, busID, busIDString(pci.BusIdLegacy[:]), "BusIdLegacy not populated")
+}
+
 // =============================================================================
 // Topology Tests (from T4/Batch 1)
 // =============================================================================
@@ -246,6 +273,10 @@ func TestConfigurableDevice_GetNvLinkRemotePciInfo(t *testing.T) {
 	pci, ret := cd.GetNvLinkRemotePciInfo(0)
 	require.Equal(t, nvml.SUCCESS, ret, "GetNvLinkRemotePciInfo failed")
 	require.Equal(t, uint32(0x3B), pci.Bus, "Expected bus 0x3B")
+	// busIdLegacy must carry the remote BDF too — the metadata-collector reads
+	// it to build each NVLink's remote_pci_address.
+	require.Equal(t, "0000:3B:00.0", busIDString(pci.BusId[:]), "remote BusId not populated")
+	require.Equal(t, "0000:3B:00.0", busIDString(pci.BusIdLegacy[:]), "remote BusIdLegacy not populated")
 }
 
 // =============================================================================
