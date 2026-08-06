@@ -112,8 +112,8 @@ def install(active_consumers):
         '--values', 'local/compute-domain/topology.yaml',
         '--values', 'local/compute-domain/nvml-mock.values.yaml',
     ]
+
     # Optional per-consumer overlays. Consumers with no mock-side needs
-    # don't create the file, and this loop skips them.
     for consumer in active_consumers:
         overlay = 'local/' + consumer + '/nvml-mock.values.yaml'
         if os.path.exists(overlay):

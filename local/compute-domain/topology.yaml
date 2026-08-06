@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Keep this aligned with the nvidia.com/gpu.clique labels in kind-cluster.yaml.
+# Keep this aligned with the nvidia.com/gpu.clique labels in
+# local/kind/compute-domain.kind.yaml.
 # nvml-mock models compute domains and cliques, so this fixture represents a
 # small leaf/spine layout as two spine domains, each with two leaf cliques.
 #
