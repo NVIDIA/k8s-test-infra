@@ -1294,18 +1294,6 @@ Option 1. Shard states to recompute by allocation ID. Use all Control Plane repl
 
 Option 2. Recompute the states in a lazy manner when the node agent requests that.
 
-### Cluster Admin Experience
-
-The main high-level goal of this proposal is to simplify and reduce the number of things
-the cluster admins who deploy Mokka and set up sGPU clusters should be responsible for.
-
-After this proposal is implemented, the following steps would be needed to set up a new sGPU cluster:
-- Deploy a single instance of the Mokka helm chart.
-- Configure sGPU inventory via K8s CRs
-- Label the nodes that are supposed to have sGPU with `mokka.nvidia.com/sgpu: auto` (or specific sGPU type like `h100`).
-
-That's all. Mokka Control Plane should be able to distribute the capacity without any other help.
-
 ## How to Package CRDs?
 
 Since we have a new set of CRDs proposed here, we will need to somehow package them.
@@ -1328,6 +1316,16 @@ At the same time, Mokka should support connecting to:
 
 For local development, we can create a very simple chart with one Redis Deployment and Service resources.
 
+## sGPU to Node Placement
+
+In terms of sGPU placement on Kubernetes CPU nodes, we have two aspects:
+- we need to place the Mokka node agent on all nodes that need to have sGPUs
+- we need to allow cluster admins to specify what type of sGPU they want to see on the CPU node
+
+In order to do that, we should allow:
+- specifying a nodeSelector for sGPU nodes e.g. `mokka.nvidia.com/sgpu-node: "true"` (the Mokka node agent Daemonset will use it)
+- specifying `SGPUInventory.rackGroups[].placement` and an additional node label like `mokka.nvidia.com/sgpu: "training"` to match a specific rackGroup
+
 ### Topology
 
 When it comes to network topology, we should:
@@ -1340,6 +1338,116 @@ By using it by default, we can simplify the cluster administrator's life.
 ![Mokka Topology Generation](./img/mokka-topograph-integration.png)
 
 The implementation details are outside the scope of this MEP and likely need a dedicated MEP.
+
+### Cluster Admin Experience
+
+The main high-level goal of this proposal is to simplify and reduce the number of things
+the cluster admins who deploy Mokka and set up sGPU clusters should be responsible for.
+
+After this proposal is implemented, the following steps would be needed to set up a new sGPU cluster.
+
+#### Scenario 1. Simple sGPU Setup 
+
+- Deploy a Mokka CRD helm chart.
+- Deploy a single instance of the Mokka main helm charts.
+- Configure sGPU inventory via K8s CRs. For example:
+```yaml
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPUInventory
+metadata:
+  name: sgpu-inventory
+spec:
+  rackGroups:
+    - id: training
+      count: 2
+      profileRef:
+        name: gb300-nvl72
+```
+- Label the CPU nodes that are supposed to have sGPU with `mokka.nvidia.com/sgpu-node: "true"`.
+
+#### Scenario 2. Selective sGPU Placement
+
+- Deploy a Mokka CRD helm chart.
+- Deploy a single instance of the Mokka main helm charts.
+- Configure sGPU inventory via K8s CRs. For example:
+
+```yaml
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPUInventory
+metadata:
+  name: sgpu-inventory
+spec:
+  rackGroups:
+    - id: training
+      count: 4
+      profileRef:
+        name: gb300-nvl72
+      placement:
+        nodeSelector:
+          matchLabels:
+            mokka.nvidia.com/sgpu-group: training
+
+    - id: inference
+      count: 2
+      profileRef:
+        name: gb300-nvl72
+      placement:
+        nodeSelector:
+          matchLabels:
+            mokka.nvidia.com/sgpu-group: inference
+```
+- Cluster administrator creates two node groups with the following labels:
+  - Training group: 
+    - `mokka.nvidia.com/sgpu-node: "true"`
+    - `mokka.nvidia.com/sgpu-group: "training"`
+  - Inference group:
+    - `mokka.nvidia.com/sgpu-node: "true"`
+    - `mokka.nvidia.com/sgpu-group: "inference"`
+
+#### Scenario 3. Half of sGPU is failed
+
+- Deploy a Mokka CRD helm chart.
+- Deploy a single instance of the Mokka main helm charts.
+- Configure sGPU inventory via K8s CRs. For example:
+
+```yaml
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPUInventory
+metadata:
+  name: sgpu-inventory
+spec:
+  rackGroups:
+    - id: training
+      count: 4
+      profileRef:
+        name: gb300-nvl72
+    - id: inference
+      count: 2
+      profileRef:
+        name: gb300-nvl72
+```
+- Label the CPU nodes that are supposed to have sGPU with `mokka.nvidia.com/sgpu-node: "true"`.
+- Create a runtime policy to fail training rack group:
+
+```yaml
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPURuntimePolicy
+metadata:
+  name: sgpu-inventory-training-failed
+spec:
+  targetRef:
+    group: mokka.nvidia.com
+    kind: SGPUInventory 
+    name: sgpu-inventory
+    rackGroups: [training]
+
+  runtime: 
+    telemetry:
+      errors:
+        xid:
+          - code: 79
+            message: GPU has fallen off the bus :(
+```
 
 ## Drawbacks
 
