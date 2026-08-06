@@ -76,7 +76,7 @@ Let's think about the GPU infrastructure we want to simulate in terms of simulat
 and networking between them. That's our simulated GPU inventory.
 
 The GPU inventory holds the capacity that we can distribute in the cluster. 
-For example, if we have 2× GB300 racks in our simulated GPU inventory this gives 2 × 18 = 36 GPU nodes, each with 4 sGPUs attached.
+For example, if we have 2× GB300 racks in our simulated GPU inventory, this gives 2 × 18 = 36 GPU nodes, each with 4 sGPUs attached.
 If we wanted to schedule 40 GPU nodes with that inventory, 40 − 36 = 4 would be without GPUs.
 
 The sGPU racks are characterized by:
@@ -88,7 +88,7 @@ The sGPU racks are characterized by:
 
 We propose to transform the current system state into a classic control-data plane architecture where:
 - (new) Control Plane is a single, centralized source of truth for sGPU inventory information and network topology
-- Data Plane is a node-level agent that applies the sGPU node information, runtime state and network topology.
+- Data Plane is a node-level agent that applies the sGPU node information, runtime state, and network topology.
 
 ![proposed-architecture.png](./img/proposed-architecture.png)
 
@@ -105,13 +105,13 @@ While the high-level architecture is the same, there are two different ways to m
 
 Control Plane runtime state includes:
 - sGPU node to K8s Node allocation
-- Last time the node agent asked for their identity (acts as a health check, so we can automatically find allocations that are assigned to dead nodes or agents)
+- The last time the node agent asked for its identity (acts as a health check, so we can automatically find allocations that are assigned to dead nodes or agents)
 - sGPU runtime information (failures, temperature, fan state, etc.)
 
 There are two ways to store it:
 
 1. Custom resources in K8s etcd (sGPU Node Allocation):
-- [Good] No need to bring any dependency. Using the vanilla K8s capabilities
+- [Good] No additional dependency — uses vanilla K8s capabilities.
 - [Bad/Neutral] Implementation-wise it's harder to achieve correctness when working with etcd via the K8s API than with Redis directly.
 - [Bad] Each NodeAllocation corresponds to a K8s Node so we will have roughly 5k records when simulating a 5k-node GPU cluster, for example. So NodeAllocations have a high cardinality.
 - [Bad] It's likely that we will update those objects quite often, which adds load to the K8s Control Plane.
@@ -119,7 +119,7 @@ There are two ways to store it:
 2. Use Redis:
 - [Good] Much easier to operate on the state, change it concurrently and atomically and even search compared to etcd.
 - [Good] It scales well. It might be helpful for more advanced functionality
-- [Good] No additional pressure on the Kubernetes Control plane
+- [Good] No additional pressure on the Kubernetes Control Plane
 - [Bad] We add an external dependency in a form of Redis. Even though it's the least demanding DB in terms of maintenance, we need to deploy it and potentially make sure it's snapshotting its content for persistence (so PVC would be needed).
 
 Decision: The proposal suggests moving forward with Redis as a medium to store runtime state because it makes implementation easier and removes high-cardinality data load from the K8s Control Plane.
@@ -202,13 +202,13 @@ Control Plane would operate as a K8s Operator. We need to ensure multiple replic
 
 ### CRD Design
 
-Here is the list of CRDs to map our system concepts:
+Here is the list of CRDs that map to our system concepts:
 
 ![Mokka Control Plane CRDs](./img/mokka-sgpu-crds.png)
 
 - [Admin/GitOps] sGPU Profile: Specifies custom sGPU profiles
 - [Admin/GitOps] sGPU Inventory: Specifies a set of sGPUs available for node assignment (e.g. Rack Name: sGPU profile × count)
-- [Admin/GitOps] sGPU Runtime Policy: Helps to modify runtime information of the whole sGPU inventory, sGPU rack, Node inside sGPU rack or specific sGPU inside the sGPU node.
+- [Admin/GitOps] sGPU Runtime Policy: Modifies runtime information for the whole sGPU inventory, a sGPU rack, a node inside a sGPU rack, or a specific sGPU inside the sGPU node.
 - [Control Plane] sGPU Node Allocation (in case of storing [the runtime state in etcd](#runtime-state)): Defines the expected state of sGPU node including sGPU<->K8s Node assignment, last agent fetch time, etc.
 
 All CRDs are meant to be cluster-wide.
@@ -1275,8 +1275,8 @@ Specificity can be represented as target depth:
 |     3 | Node       |
 |     4 | GPU        |
 
-Conflicting policies are the policies that are
-- applied on the same level (neither is more specific than another)
+Conflicting policies are policies that:
+- are applied at the same level (neither is more specific than the other)
 - modify the same fields
 
 In this case, we keep the oldest policy in place based on `creationTime` and reject all challenger policies as conflicting.
@@ -1287,7 +1287,7 @@ Their effective values fall back to the next less-specific policy or profile def
 ### SGPURuntimePolicy Fanout
 
 `SGPURuntimePolicy` may be applied to a set of inventory resources or the whole inventory. 
-When it comes to a simulation of big clusters we can easily have tens of thousands of specific sGPU allocation states to update.
+When it comes to a simulation of big clusters, we can easily have tens of thousands of specific sGPU allocation states to update.
 So the question is how to do that efficiently on that scale and above?
 
 Option 1. Shard states to recompute by allocation ID. Use all Control Plane replicas to process the existing sGPU node allocation states.
@@ -1296,12 +1296,12 @@ Option 2. Recompute the states in a lazy manner when the node agent requests tha
 
 ## How to Package CRDs?
 
-Since we have a new set of CRDs proposed here, we will need to somehow package them.
+Since we have a new set of CRDs proposed here, we will need to package them.
 
 We suggest packing them as a separate mokka-crds helm chart that is intended to be installed 
 by a privileged admin user before the main chart installation. This is a popular approach chosen by [Envoy Gateway](https://github.com/envoyproxy/gateway/tree/main/charts), for example.
 
-This should prevent a cyclic dependency between presence of CRDs in the cluster and the content of the main Mokka helm chart. 
+This should prevent a cyclic dependency between the presence of CRDs in the cluster and the content of the main Mokka helm chart.
 
 ## Redis as a Dependency
 
@@ -1314,7 +1314,7 @@ At the same time, Mokka should support connecting to:
 - Redis Cluster
 - Redis instance with a custom CA
 
-For local development, we can create a very simple chart with one Redis Deployment and Service resources.
+For local development, we can create a very simple chart with a Redis Deployment and Service.
 
 ## sGPU to Node Placement
 
@@ -1404,7 +1404,7 @@ spec:
     - `mokka.nvidia.com/sgpu-node: "true"`
     - `mokka.nvidia.com/sgpu-group: "inference"`
 
-#### Scenario 3. Half of sGPU is failed
+#### Scenario 3. Half of sGPUs Failed
 
 - Deploy a Mokka CRD helm chart.
 - Deploy a single instance of the Mokka main helm charts.
@@ -1427,7 +1427,7 @@ spec:
         name: gb300-nvl72
 ```
 - Label the CPU nodes that are supposed to have sGPU with `mokka.nvidia.com/sgpu-node: "true"`.
-- Create a runtime policy to fail training rack group:
+- Create a runtime policy to fail the training rack group:
 
 ```yaml
 apiVersion: mokka.nvidia.com/v1alpha1
