@@ -72,10 +72,10 @@ func WaitNodeLabelsPresent(ctx context.Context, k *kube.Client, node string, lab
 // WaitResourceSlicePerNode polls until at least one ResourceSlice exists and
 // every published ResourceSlice reports exactly want devices. The DRA driver
 // publishes one ResourceSlice per node with the mock's advertised GPU count,
-// so this is the load-bearing invariant on any cluster shape (1-node harness
-// or 1-CP + N-worker Tilt-managed clusters): asserting per-slice equality
-// catches a single node with a broken mock, whereas a summed check would only
-// notice if the grand total moved.
+// so per-slice equality is the invariant that survives any cluster shape:
+// summing across slices would blend node cardinality with per-node accuracy
+// and pass silently when one node's mock is broken but the grand total still
+// happens to match.
 func WaitResourceSlicePerNode(ctx context.Context, k *kube.Client, want int, timeout, poll time.Duration) {
 	ginkgo.GinkgoHelper()
 	ginkgo.By(fmt.Sprintf("waiting for every ResourceSlice to publish %d devices", want))

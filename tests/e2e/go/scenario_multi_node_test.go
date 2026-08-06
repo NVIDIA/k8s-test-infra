@@ -49,10 +49,10 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 		workers, err = h.Cluster.Workers(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(workers).To(HaveLen(2), "multi-node scenario requires exactly two Kind workers")
-		// Attach mode: cluster came from `make cluster-create` (local/kind/Dockerfile),
-		// which pre-bakes nvidia-container-toolkit and configures the nvidia containerd
-		// runtime handler. The per-worker install+restart below would be a redundant
-		// apt no-op followed by a costly containerd bounce, so skip the whole loop.
+		// Skip when the cluster is externally owned: `make cluster-create` uses
+		// the kind-node-nv image (see local/kind/Dockerfile) which already bakes
+		// nvidia-container-toolkit in on every node, so the per-worker install
+		// and containerd restart below would be redundant.
 		if !config.AttachExisting() {
 			for _, node := range workers {
 				installNVIDIAContainerToolkit(ctx, h, node)
@@ -90,9 +90,9 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 
 func installProfileOnNode(ctx context.Context, h *harness.Harness, releaseName, profileName, nodeProfile string) {
 	GinkgoHelper()
-	// Attach mode: Tilt's `--multi-gpu-profile` already installed one nvml-mock
-	// release per profile, node-pinned via the same nodeSelector.nvml-mock/profile
-	// label. Skip the helm upgrade and let firstReleasePod find Tilt's install.
+	// External owner installed one release per profile with the same
+	// nodeSelector.nvml-mock/profile label this helper would apply; skip the
+	// duplicate helm upgrade and let firstReleasePod find the existing release.
 	if config.AttachExisting() {
 		By("skip helm upgrade --install " + releaseName + " (attach mode, external rollout)")
 		return

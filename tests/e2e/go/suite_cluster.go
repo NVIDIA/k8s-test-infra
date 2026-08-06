@@ -31,11 +31,10 @@ func firstNvmlPod(ctx context.Context, h *harness.Harness) kube.PodRef {
 }
 
 // nvmlPodOnNode returns the running nvml-mock DaemonSet pod scheduled on the
-// given node. Used by scenarios that need to pin a runtime override to a
-// specific node's mock (and query the same node's consumer) rather than
-// whichever pod happens to sort first — the load-bearing invariant for the
-// GPU Operator runtime-control specs on the shared multi-node cluster, where
-// dcgm-exporter also runs per-node.
+// given node. Runtime overrides on the mock are per-node (hostPath-staged), so
+// a caller that reads back the effect through a per-node consumer (dcgm-exporter,
+// nvidia-smi in the same pod) must pin both to the same node; firstNvmlPod's
+// name-sort tiebreak is not enough when more than one mock pod is running.
 func nvmlPodOnNode(ctx context.Context, h *harness.Harness, node string) kube.PodRef {
 	GinkgoHelper()
 	var name string

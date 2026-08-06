@@ -38,10 +38,11 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 
 	BeforeAll(func(ctx SpecContext) {
 		h = setupCluster(ctx, gpuOperatorClusterName, assets.KindGPUOperatorConfig, "gpu-operator")
-		// Attach mode: cluster came from `make cluster-create` (kind-node-nv
-		// already pre-bakes nvidia-container-toolkit and configures the nvidia
-		// containerd runtime handler), so the CP-level bootstrap below would
-		// be a no-op followed by a costly containerd restart.
+		// Skip when the cluster is externally owned: `make cluster-create` uses
+		// the kind-node-nv image (see local/kind/Dockerfile), which already
+		// bakes nvidia-container-toolkit in and configures the nvidia containerd
+		// runtime handler. Running the install anyway would be an apt no-op
+		// followed by a costly containerd restart.
 		if !config.AttachExisting() {
 			node, err := h.Cluster.ControlPlane(ctx)
 			Expect(err).NotTo(HaveOccurred())
@@ -200,13 +201,11 @@ func assertRuntimeXidViaDCGM(ctx SpecContext, h *harness.Harness, xid int) {
 		config.ReadyTimeout(), config.PollInterval())
 }
 
-// gpuOperatorTargetNode picks a node that has both the nvml-mock DaemonSet
-// (so nvml-mock-ctl works) and gpu-operator's dcgm-exporter (so the metric
-// change is scrapable). On the shared multi-node cluster (attach mode) the
-// exporter runs on workers only — the CP has NoSchedule that the exporter
-// doesn't tolerate — so the first worker is the target. On the harness's
-// single-CP cluster (local `make e2e-gpu-operator`), the CP is the only node
-// running anything, so fall back to it.
+// gpuOperatorTargetNode picks a node that has both an nvml-mock DaemonSet pod
+// (so nvml-mock-ctl works) and a dcgm-exporter pod (so the metric change is
+// scrapable). dcgm-exporter doesn't tolerate the CP NoSchedule taint, so any
+// worker qualifies whenever workers exist; on control-plane-only clusters the
+// CP is the only place both DaemonSets can land, so fall back to it.
 func gpuOperatorTargetNode(ctx SpecContext, h *harness.Harness) string {
 	GinkgoHelper()
 	workers, err := h.Cluster.Workers(ctx)
@@ -298,11 +297,9 @@ func verifyGPUOperatorNodeSetup(ctx context.Context, node string) {
 
 func installGPUOperator(ctx SpecContext, h *harness.Harness) {
 	GinkgoHelper()
-	// Attach mode: Tilt's `--gpu-operator` already installed the release via
-	// local/gpu-operator/gpu_operator.tiltfile (whose values file was aligned
-	// with the harness's — dcgm-exporter enabled + NVIDIA_DRIVER_ROOT env).
-	// Skip helm; waitOperatorValidatorRunning still fires from the caller so
-	// operand rollout is validated the same way as in the harness path.
+	// External owner installed the release (see local/gpu-operator/gpu_operator.tiltfile).
+	// The caller's waitOperatorValidatorRunning still fires afterwards, so operand
+	// rollout is validated regardless of who installed the chart.
 	if config.AttachExisting() {
 		By("skip helm upgrade --install gpu-operator (attach mode, external rollout)")
 		return

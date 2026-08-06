@@ -96,10 +96,9 @@ func collectDRAOnFailure(ctx context.Context, h *harness.Harness) {
 
 func installDRADriver(ctx SpecContext, h *harness.Harness) {
 	GinkgoHelper()
-	// Attach mode: Tilt owns the DRA driver rollout (see local/dra/dra.tiltfile,
-	// invoked by `tilt ci -- --dra` in the e2e-dra CI job). Skip helm install
-	// and only wait for the pods, so a degraded Tilt rollout still surfaces here
-	// instead of failing further downstream at the ResourceSlice assertion.
+	// External owner installed the DRA driver (see local/dra/dra.tiltfile). Wait
+	// on the pods anyway so a degraded rollout surfaces here with an informative
+	// message, not downstream at the ResourceSlice assertion.
 	if config.AttachExisting() {
 		By("skip helm upgrade --install nvidia-dra-driver (attach mode, external rollout)")
 		waitDRAPodsReady(ctx, h)
