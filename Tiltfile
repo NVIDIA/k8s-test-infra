@@ -55,7 +55,7 @@ config.define_bool('dra', args=False,
 config.define_bool('fgo', args=False,
     usage='Also deploy Run:ai Fake GPU Operator (combine with --multi-gpu-profile to exercise both integration and scale pools)')
 config.define_bool('topograph', args=False,
-    usage='Also deploy NVIDIA topograph. Implies --compute-domain --dra (needed to produce the nvidia.com/gpu.clique labels topograph reads). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
+    usage='Also deploy NVIDIA topograph. Implies --compute-domain (topograph reads the static nvidia.com/gpu.clique labels). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
 # CI hook: hand Tilt a pre-built image (e.g. from ttl.sh) instead of running
 # docker_build. When set, docker_build is skipped and the nvml-mock chart's
 # image.repository / image.tag are pinned via --set to the parsed <repo>/<tag>.

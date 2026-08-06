@@ -5,19 +5,15 @@
 # compute-domain local dev scenario.
 #
 # Usage (via Tilt):
-#   tilt up -- --topograph            # implies --compute-domain --dra
+#   tilt up -- --topograph            # implies --compute-domain
 #
-# Prerequisites (--topograph implies --compute-domain in the root
-# Tiltfile; still requires `make cluster-create PROFILE=compute-domain`
+# Prerequisites (still requires `make cluster-create PROFILE=compute-domain`
 # for the cluster shape):
 #   - --compute-domain: 4-worker Kind cluster where each worker carries a
-#     static nvidia.com/gpu.clique label (local/kind/compute-domain.kind.yaml)
-#     that topograph reads directly. No DRA driver or runtime label writer
-#     required.
+#     static nvidia.com/gpu.clique label that topograph reads directly.
 
 # 'infiniband-k8s' with useGpuCliqueLabel=true reads nvidia.com/gpu.clique
-# node labels (set by the DRA compute-domain-kubelet-plugin from mock NVML
-# clique_id) and emits richer tier topology: network.topology.nvidia.com/
+# node labels and emits richer tier topology: network.topology.nvidia.com/
 # {accelerator, tier-0, tier-1, …}. The tier labels are what topology-aware
 # schedulers (KAI, Kueue TAS) expect for gang scheduling.
 #

@@ -122,7 +122,7 @@ The Tilt UI exposes two manual triggers under the `compute-domain-tests` label:
 
 Deploys [topograph](https://github.com/NVIDIA/topograph), a network-topology discovery service, on top of the compute-domain cluster. Topograph reads `nvidia.com/gpu.clique` node labels and translates them into `network.topology.nvidia.com/*` labels (`accelerator`, `tier-0`, `tier-1`, ...) that topology-aware schedulers (KAI, Kueue TAS) consume.
 
-`--topograph` implies `--compute-domain` — cliques only exist in the compute-domain cluster. `--dra` is **not** required: `nvidia.com/gpu.clique` is a static label baked into each worker node in `local/kind/compute-domain.kind.yaml` (alongside `nvml-mock/clique`). Topograph reads it directly from the Kubernetes API; no runtime label writer is needed. Incompatible combos (`--topograph --fgo`, `--topograph --multi-gpu-profile`, `--topograph --gpu-profile <p>`) surface via the existing compute-domain guardrails.
+`--topograph` implies `--compute-domain` — cliques only exist in the compute-domain cluster. `--dra` is **not** required: `nvidia.com/gpu.clique` is a static label baked into each worker node in `local/kind/compute-domain.kind.yaml`. Topograph reads it directly from the Kubernetes API; no runtime label writer is needed. Incompatible combos (`--topograph --fgo`, `--topograph --multi-gpu-profile`, `--topograph --gpu-profile <p>`) surface via the existing compute-domain guardrails.
 
 Data path: `nvidia.com/gpu.clique` static node label → topograph `infiniband-k8s` provider (with `useGpuCliqueLabel: true`) → writes `network.topology.nvidia.com/{accelerator,tier-0,tier-1,...}` on all nodes.
 
