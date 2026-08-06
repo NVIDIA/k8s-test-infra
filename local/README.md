@@ -28,8 +28,8 @@ The default profile spans 1 control-plane + 2 workers (a100 + t4), so no cluster
 
 | `PROFILE=`          | Kind config                           | Cluster name                    | Use with                                                             |
 |---------------------|---------------------------------------|---------------------------------|----------------------------------------------------------------------|
-| `default` (default) | `local/kind/default.kind.yaml`        | `kind-gpu-test`                 | basic, gpu-operator, dra, `--multi-gpu-profile`, `--fgo`             |
-| `compute-domain`    | `local/kind/compute-domain.kind.yaml` | `kind-nvml-mock-compute-domain` | `--compute-domain`                                                   |
+| `default` (default) | `local/kind/default.kind.yaml`        | `kind-mokka`                    | basic, gpu-operator, dra, `--multi-gpu-profile`, `--fgo`             |
+| `compute-domain`    | `local/kind/compute-domain.kind.yaml` | `kind-mokka-compute-domain`     | `--compute-domain`                                                   |
 
 ```bash
 make cluster-create                         # 1 CP + 2 workers (a100 / t4) — the default

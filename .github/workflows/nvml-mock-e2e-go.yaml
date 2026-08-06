@@ -181,8 +181,8 @@ jobs:
 
       - name: Create Kind cluster (make cluster-create)
         # Uses local/kind/default.kind.yaml (1 CP + 2 workers, a100 / t4). Same
-        # command a laptop dev runs — cluster name is `gpu-test`, context is
-        # kind-gpu-test. KIND_NODE_IMAGE_PREBUILT tells the Makefile to skip
+        # command a laptop dev runs — cluster name is `mokka`, context is
+        # kind-mokka. KIND_NODE_IMAGE_PREBUILT tells the Makefile to skip
         # the local `docker build` and trust the tag we just staged from ttl.sh.
         env:
           KIND_NODE_IMAGE_PREBUILT: "1"
@@ -194,7 +194,7 @@ jobs:
           pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
           docker pull "$pinned"
           docker tag "$pinned" "${{ env.E2E_IMAGE }}"
-          kind load docker-image "${{ env.E2E_IMAGE }}" --name gpu-test
+          kind load docker-image "${{ env.E2E_IMAGE }}" --name mokka
 
       - name: Stage CI Helm values for Tilt
         # local/nvml-mock.values.local.yaml is the Tiltfile's "wins over
@@ -215,8 +215,8 @@ jobs:
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
           E2E_ATTACH_EXISTING: "true"
-          E2E_KUBE_CONTEXT: kind-gpu-test
-          E2E_CLUSTER_NAME: gpu-test
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
         run: make e2e
 
       - name: Print diagnostics on failure
