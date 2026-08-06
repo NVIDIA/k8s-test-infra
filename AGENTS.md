@@ -1,0 +1,32 @@
+# Mokka
+
+Mokka helps simulate expensive GPU infrastructure on CPU nodes by
+simulating the presence of GPU and network devices at the driver level.
+
+The idea is to simulate the driver footprint at a low level,
+so all consumers and applications up the stack work without modifications.
+
+## Principles
+
+- Simple and minimal code
+- Strive for high cohesion and low coupling
+- Write idiomatic Golang code and project structure
+- Red-green test-driven development
+- Code should communicate your intent
+- Code should be composable and testable
+
+## Scale
+
+- The system should work well for clusters with tens of thousands or a few million nodes.
+
+## Tech Stack
+
+- Modern Golang 1.26
+- Use testify/require for test assertions
+- Kubernetes as a main deployment target
+- Tilt for local development and CI E2E test environment setup
+
+## Docs
+
+- When leaving a comment in code, it should explain intent where it's not obvious — why we are doing something, not what we are doing, in most cases. Don't write comments based on the current conversation context; they should generally be valuable long-term for readers.
+- Any documentation you produce must be concise and straight to the point.
