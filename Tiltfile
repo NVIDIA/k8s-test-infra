@@ -34,6 +34,7 @@ load('./local/compute-domain/compute_domain.tiltfile',
 load('./local/gpu-operator/gpu_operator.tiltfile', gpu_operator_install='install')
 load('./local/dra/dra.tiltfile', dra_install='install')
 load('./local/fgo/fgo.tiltfile', fgo_install='install')
+load('./local/topograph/topograph.tiltfile', topograph_install='install')
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
@@ -53,6 +54,8 @@ config.define_bool('dra', args=False,
     usage='Also deploy NVIDIA DRA driver on top of nvml-mock')
 config.define_bool('fgo', args=False,
     usage='Also deploy Run:ai Fake GPU Operator (combine with --multi-gpu-profile to exercise both integration and scale pools)')
+config.define_bool('topograph', args=False,
+    usage='Also deploy NVIDIA topograph. Implies --compute-domain (topograph reads the static nvidia.com/gpu.clique labels). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
 # CI hook: hand Tilt a pre-built image (e.g. from ttl.sh) instead of running
 # docker_build. When set, docker_build is skipped and the nvml-mock chart's
 # image.repository / image.tag are pinned via --set to the parsed <repo>/<tag>.
@@ -62,12 +65,23 @@ config.define_string('nvmlmock-image', args=False,
 
 cfg = config.parse()
 
+nvmlmock_image      = cfg.get('nvmlmock-image', '')
+
 multi_gpu_profile   = cfg.get('multi-gpu-profile', False)
 with_compute_domain = cfg.get('compute-domain', False)
 with_gpu_operator   = cfg.get('gpu-operator', False)
 with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
-nvmlmock_image      = cfg.get('nvmlmock-image', '')
+with_topograph      = cfg.get('topograph', False)
+
+# --- Implicit flags ------------------------------------------------------
+# --topograph implies --compute-domain: cliques only exist in the
+# compute-domain cluster (local/kind/compute-domain.kind.yaml carries
+# nvidia.com/gpu.clique labels as static node labels; topograph reads
+# them without requiring the DRA driver). The compute-domain Kind
+# cluster is still required (make cluster-create PROFILE=compute-domain).
+if with_topograph:
+    with_compute_domain = True
 
 # --- Guardrails ----------------------------------------------------------
 # compute-domain forces its own cluster shape (4 workers with clique
@@ -98,9 +112,7 @@ if with_compute_domain and gpu_profile_raw != None:
 
 gpu_profile = gpu_profile_raw or 'a100'
 
-# Default kubectl context matches the cluster name the Makefile creates.
-# PROFILE=compute-domain → nvml-mock-compute-domain, otherwise gpu-test.
-k8s_context_default = 'kind-nvml-mock-compute-domain' if with_compute_domain else 'kind-gpu-test'
+k8s_context_default = 'kind-mokka-compute-domain' if with_compute_domain else 'kind-mokka'
 k8s_context         = cfg.get('k8s-context', k8s_context_default)
 
 # --- Derived state -------------------------------------------------------
@@ -119,6 +131,9 @@ if with_dra:
 
 if with_fgo:
     active_consumers.append('fgo')
+
+if with_topograph:
+    active_consumers.append('topograph')
 
 # --- Safety guard --------------------------------------------------------
 allow_k8s_contexts(k8s_context)
@@ -144,25 +159,29 @@ else:
 if active_consumers:
     helm_repo('nvidia', 'https://helm.ngc.nvidia.com/nvidia', labels=active_consumers)
 
+if with_topograph:
+    helm_repo('topograph-repo', 'https://NVIDIA.github.io/topograph', labels=['topograph'])
+
 # --- Consumers -----------------------------------------------------------
 if with_gpu_operator:
     gpu_operator_install(nvml_mock_releases)
 
 if with_dra:
-    # --compute-domain --dra composition: (1) layer the compute-domain
-    # overlay values on top of dra-driver.values.yaml to flip
-    # resources.computeDomains.enabled, and (2) route the daemon image
-    # through image_deps + image_keys so Tilt actually builds it (a
-    # docker_build with no manifest reference is pruned) and injects it
-    # as the chart's image.repository/tag.
+    # DRA overlay chain (order matters — later --values files win):
+    # - --compute-domain: (1) layer the compute-domain overlay values on
+    #   top of dra-driver.values.yaml to flip resources.computeDomains.
+    #   enabled, and (2) route the daemon image through image_deps +
+    #   image_keys so Tilt actually builds it (a docker_build with no
+    #   manifest reference is pruned) and injects it as the chart's
+    #   image.repository/tag.
     dra_extra_values = []
     dra_image_deps   = []
     dra_image_keys   = []
 
     if with_compute_domain:
-        dra_extra_values = ['local/compute-domain/dra-driver.values.yaml']
-        dra_image_deps   = [compute_domain_daemon_image]
-        dra_image_keys   = [('image.repository', 'image.tag')]
+        dra_extra_values.append('local/compute-domain/dra-driver.values.yaml')
+        dra_image_deps.append(compute_domain_daemon_image)
+        dra_image_keys.append(('image.repository', 'image.tag'))
 
     dra_install(
       nvml_mock_releases,
@@ -173,6 +192,9 @@ if with_dra:
 
 if with_fgo:
     fgo_install(nvml_mock_releases)
+
+if with_topograph:
+    topograph_install(nvml_mock_releases)
 
 # --- Test workload -------------------------------------------------------
 # GPU validator pod, disabled by default (enable from the Tilt UI). Requests

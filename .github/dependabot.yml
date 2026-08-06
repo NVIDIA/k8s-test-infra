@@ -22,7 +22,12 @@ updates:
     target-branch: main
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+
+    groups:
+      codeql-action: # all CodeQL actions should be upgraded at the same time otherwise they fail partially
+        patterns:
+          - "github/codeql-action"
 
   - package-ecosystem: "docker"
     target-branch: main

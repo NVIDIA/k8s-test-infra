@@ -359,6 +359,16 @@ fabricmanager:
 integrations:
   fakeGpuOperator:
     enabled: false
-    # Labels applied to per-profile ConfigMaps for discovery
+    # Namespace for the profile ConfigMaps. Empty means the release namespace.
+    # fake-gpu-operator loads profiles from its OWN release namespace, so set
+    # this to that namespace (their README installs into `gpu-operator`) for
+    # the ConfigMaps to be readable. Doing so requires FGO's
+    # `builtinProfiles.enabled=false`, because their builtin set uses the same
+    # seven names and is owned by their Helm release. See
+    # docs/integrations/fake-gpu-operator.md.
+    targetNamespace: ""
+    # Extra labels applied to per-profile ConfigMaps. The contract labels
+    # `fake-gpu-operator/gpu-profile` and `nvml-mock/profile-name` are always
+    # emitted by the template and cannot be removed through this map.
     profileLabels:
       run.ai/gpu-profile: "true"

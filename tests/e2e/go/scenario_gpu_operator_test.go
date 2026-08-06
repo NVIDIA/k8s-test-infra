@@ -193,9 +193,10 @@ func gpuOperatorTargetNode(ctx SpecContext, h *harness.Harness) string {
 	return cp.Name
 }
 
-// injectXidAndValidate enables failure injection, rolls nvml-mock and
-// dcgm-exporter to reload the mock config, then asserts DCGM_FI_DEV_XID_ERRORS.
-// ecc_uncorrectable keeps the device scrapable while the Xid event fires.
+// injectXidAndValidate enables failure injection, restarts dcgm-exporter so
+// DCGM re-initialises against the new mock config, then asserts
+// DCGM_FI_DEV_XID_ERRORS. ecc_uncorrectable keeps the device scrapable while
+// the Xid event fires.
 func injectXidAndValidate(ctx context.Context, h *harness.Harness, xid int) {
 	GinkgoHelper()
 	By("enabling failure injection (ecc_uncorrectable, xid) on nvml-mock")
@@ -215,11 +216,12 @@ func injectXidAndValidate(ctx context.Context, h *harness.Harness, xid int) {
 		Timeout: config.HelmTimeout(),
 	})).To(Succeed(), "enable failure injection on nvml-mock")
 
-	rolloutRestart(ctx, h, nvmlMockNamespace, "nvml-mock")
+	// nvml-mock needs no explicit restart: the chart checksums the rendered GPU
+	// config into its pod template, so the --wait upgrade above already rolled it.
 	rolloutRestart(ctx, h, gpuOperatorNamespace, "nvidia-dcgm-exporter")
 
 	assertions.DCGMXidReported(ctx, h.Kube, gpuOperatorNamespace, xid,
-		config.ReadyTimeout(), config.PollInterval())
+		config.OperandSettleTimeout(), config.PollInterval())
 }
 
 // rolloutRestart restarts a DaemonSet and blocks until the rollout completes.

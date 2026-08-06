@@ -52,6 +52,8 @@ Install these tools locally before running the demo:
    are present, then runs `check-fabric`; the script asserts every node reports
    its assigned clique / cluster UUID (skip with `WITH_COMPUTE_DOMAIN=false`).
 
+The demo installs no device plugin, so no component allocates GPUs. The NRI overlay and environment are injected ambiently into containers in non-excluded namespaces. Host device node injection remains opt-in (via `nvidia.com/gpu` requests or the `nvml-mock.nvidia.com/devices: "true"` annotation). Unannotated pods without GPU requests will still report GPUs if `nvidia-smi` is run inside them. Where the NVIDIA device plugin is installed and allocates GPUs, the NRI plugin leaves that allocation intact (MEP-0002). Tests expecting non-GPU pods to see zero GPUs should keep NRI disabled or run in an excluded namespace. See [Device injection mode](../../../deployments/nvml-mock/helm/nvml-mock/README.md#device-injection-mode).
+
 ## Quick Start
 
 ```bash
@@ -92,15 +94,71 @@ instead of having the plugin stage them, but the annotation that triggers it is
 still pod-authored. See
 [Device injection mode](../../../deployments/nvml-mock/helm/nvml-mock/README.md#device-injection-mode).
 
+## When Injection Stops
+
+The plugin writes the mock GPU stack into each container's OCI spec **at
+creation time**. A pod that is already running keeps everything it was given,
+whatever happens to the plugin afterwards. Only containers created after a
+failure are affected, and they are affected silently.
+
+So a demo whose pods still print GPUs is not evidence that the node is still
+injecting. There are two ways it stops:
+
+| | Fail-closed | Fail-open |
+|---|---|---|
+| What the runtime does | Refuses to create the container | Unregisters the timed-out plugin, then creates containers without it |
+| What you see | Pods stuck in `ContainerCreating` / `CreateContainerError` | Pods start normally, with **no mock GPU stack** |
+
+Fail-closed announces itself. Fail-open is the one to plan for: containerd
+decides it, the plugin cannot prevent it, and nothing in the workload reports it.
+
+The `nvml-mock-nri` DaemonSet carries two probes that make that window visible
+rather than preventing it:
+
+- **`/readyz`** reports serving only while the plugin is registered with the
+  runtime *and* answering. A node that has stopped injecting shows up as a
+  NotReady pod and a short DaemonSet count. It restarts nothing; it is purely
+  the detection surface.
+- **`/healthz`** fails only when a container-creation request has been in flight
+  past the wedge threshold, and restarts the container into a fresh
+  registration.
+
+This demo happens to catch the loss, because `gpu-agent` asserts on
+`/opt/nvml-mock` before anything else and crashes when it is missing. That is a
+property of this workload, not of NRI: a pod without such a self-test starts
+normally, exits 0, and simply never sees a GPU.
+
+For the posture behind both probes, the wedge threshold's relationship to
+containerd's `plugin_request_timeout`, and per-node triage, see
+[NRI plugin failure modes](../../../deployments/nvml-mock/helm/nvml-mock/README.md#nri-plugin-failure-modes)
+in the chart README.
+
 ## Manual Checks
 
-After the script completes, the important checks are:
+`run.sh` pins every call to the demo's own kubeconfig context so it can never
+act on another cluster. Do the same by hand: `kind create cluster` makes that
+context current only when it first creates the cluster, so on the documented
+re-run path these commands otherwise resolve against whatever context happens to
+be current — which may have a `mokka` namespace of its own and answer from the
+wrong cluster.
 
 ```bash
-kubectl -n mokka get daemonset nvml-mock nvml-mock-nri
-kubectl get daemonset gpu-agent
-kubectl logs daemonset/gpu-agent --tail=80
+# Is the node still injecting? READY must equal DESIRED on nvml-mock-nri.
+kubectl --context kind-nvml-mock-node-wide-demo -n mokka get daemonset nvml-mock nvml-mock-nri
+
+# Which nodes are injecting right now, and why one is not
+kubectl --context kind-nvml-mock-node-wide-demo -n mokka get pods -l app.kubernetes.io/name=nvml-mock-nri -o wide
+kubectl --context kind-nvml-mock-node-wide-demo -n mokka describe pod -l app.kubernetes.io/name=nvml-mock-nri
+
+# The workload itself
+kubectl --context kind-nvml-mock-node-wide-demo -n default get daemonset gpu-agent
+kubectl --context kind-nvml-mock-node-wide-demo -n default logs daemonset/gpu-agent --tail=80
 ```
+
+Substitute the namespaces if you set `NVML_MOCK_NAMESPACE` or
+`WORKLOAD_NAMESPACE`. Both mock DaemonSets run on the control-plane node as well,
+so they report one more pod than `gpu-agent`, which is pinned to the four
+workers.
 
 The `gpu-agent` pod spec stays plain; the mock GPU stack is injected by
 containerd NRI when each container is created.
@@ -115,7 +173,7 @@ If you used a shared cluster instead of deleting the Kind cluster, remove just
 the demo resources:
 
 ```bash
-kubectl delete daemonset gpu-agent --ignore-not-found
-helm uninstall nvml-mock --namespace mokka --ignore-not-found
-kubectl delete namespace mokka --ignore-not-found
+kubectl --context kind-nvml-mock-node-wide-demo -n default delete daemonset gpu-agent --ignore-not-found
+helm uninstall nvml-mock --kube-context kind-nvml-mock-node-wide-demo --namespace mokka --ignore-not-found
+kubectl --context kind-nvml-mock-node-wide-demo delete namespace mokka --ignore-not-found
 ```

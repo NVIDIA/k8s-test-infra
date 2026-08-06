@@ -4,6 +4,7 @@
 package nvmlmock
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -318,6 +319,85 @@ func TestAdjustDeviceOptInAddsNvidiaDeviceEntries(t *testing.T) {
 		{HostPath: filepath.Join(deviceRoot, "nvidiactl"), Path: "/dev/nvidiactl"},
 		{HostPath: filepath.Join(deviceRoot, "nvidia-uvm"), Path: "/dev/nvidia-uvm"},
 	}, adjustment.Devices)
+}
+
+// captureWarnings redirects the package's warnf hook for one test and returns
+// the accumulating slice. The hook is restored when the test ends.
+func captureWarnings(t *testing.T) *[]string {
+	t.Helper()
+	original := warnf
+	captured := []string{}
+	warnf = func(format string, args ...any) {
+		captured = append(captured, fmt.Sprintf(format, args...))
+	}
+	t.Cleanup(func() { warnf = original })
+	return &captured
+}
+
+// TestAdjustDeviceOptInWarnsWhenTreeIsEmpty covers the one device-injection
+// outcome that used to be silent. A device root that does NOT exist makes
+// os.ReadDir fail, and the "device tree is unavailable" warning already fires
+// for that. A device root that exists and holds no nvidia* entries returns
+// ([], nil) instead, so the container started with the overlay mounted, no
+// device nodes, and nothing said so at any log level — the mock engine then
+// derives an empty visible-GPU set and the pod reports zero GPUs as if that
+// were the configured state.
+//
+// The empty and prefix-mismatch arms assert the warning; the populated arm is
+// the control that keeps the assertion honest, since a warning emitted
+// unconditionally would satisfy the first two on its own.
+func TestAdjustDeviceOptInWarnsWhenTreeIsEmpty(t *testing.T) {
+	tests := map[string]struct {
+		entries     []string
+		wantDevices int
+		wantWarning bool
+	}{
+		"empty device root":        {entries: nil, wantDevices: 0, wantWarning: true},
+		"no entry matches nvidia*": {entries: []string{"kfd", "dri"}, wantDevices: 0, wantWarning: true},
+		"populated device root":    {entries: []string{"nvidia0", "nvidiactl"}, wantDevices: 2, wantWarning: false},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			deviceRoot := t.TempDir()
+			for _, entry := range tc.entries {
+				require.NoError(t, os.WriteFile(filepath.Join(deviceRoot, entry), []byte{}, 0o644))
+			}
+
+			warnings := captureWarnings(t)
+
+			cfg := DefaultConfig()
+			cfg.DeviceHostPath = deviceRoot
+
+			adjustment, ok, err := Adjust(cfg, Container{
+				Namespace:      "default",
+				PodAnnotations: map[string]string{"nvml-mock.nvidia.com/devices": "true"},
+			})
+
+			// Fail open either way: the overlay mount still lands and the pod
+			// is never blocked from starting. Only the diagnostic changes.
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Len(t, adjustment.Devices, tc.wantDevices)
+			require.Contains(t, adjustment.Mounts, Mount{
+				Source:      "/var/lib/nvml-mock",
+				Destination: "/opt/nvml-mock",
+				Type:        "bind",
+				Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+			})
+
+			if !tc.wantWarning {
+				require.Empty(t, *warnings)
+				return
+			}
+			require.Len(t, *warnings, 1)
+			require.Equal(t,
+				"device injection requested but the device tree at "+deviceRoot+
+					" holds no device nodes; injecting overlay only "+
+					"(has the nvml-mock DaemonSet staged this node?)",
+				(*warnings)[0])
+		})
+	}
 }
 
 // TestDiscoverDevicesSkipsChannelDirectory pins a defect that predates IMEX

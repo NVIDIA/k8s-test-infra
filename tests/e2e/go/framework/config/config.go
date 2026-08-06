@@ -103,6 +103,13 @@ func HelmTimeout() time.Duration    { return durEnv("E2E_HELM_TIMEOUT", 5*time.M
 func ReadyTimeout() time.Duration   { return durEnv("E2E_READY_TIMEOUT", 2*time.Minute) }
 func PollInterval() time.Duration   { return durEnv("E2E_POLL_INTERVAL", 2*time.Second) }
 
+// OperandSettleTimeout bounds a wait that has to outlast a GPU Operator
+// reconcile replacing its operands, rather than the single rollout ReadyTimeout
+// is sized for.
+func OperandSettleTimeout() time.Duration {
+	return durEnv("E2E_OPERAND_SETTLE_TIMEOUT", 5*time.Minute)
+}
+
 func durEnv(key string, def time.Duration) time.Duration {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {

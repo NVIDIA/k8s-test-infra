@@ -21,11 +21,6 @@ import (
 const (
 	ibPingRetries    = 5
 	ibPingRetrySleep = 10 * time.Second
-
-	// fgoProfileSelector matches the per-profile ConfigMaps the fake GPU
-	// operator integration renders; the chart ships 7, demo asserts >= 6.
-	fgoProfileSelector  = "run.ai/gpu-profile=true"
-	fgoProfileConfigMin = 6
 )
 
 // Go port of docs/demo/standalone/demo.sh. ONE shared multi-node cluster is
@@ -68,8 +63,8 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertions.NodeLabelEquals(ctx, h.Kube, node, "nvidia.com/gpu.present", "true")
 			})
 
-			It("renders the fake-GPU-operator profile ConfigMaps", Label("fgo"), func(ctx SpecContext) {
-				assertions.ProfileConfigMaps(ctx, h.Kube, nvmlMockNamespace, fgoProfileSelector, fgoProfileConfigMin)
+			It("publishes profile ConfigMaps in the fake-GPU-operator's discovery shape", Label("fgo"), func(ctx SpecContext) {
+				assertions.FGOProfileConfigMaps(ctx, h.Kube, nvmlMockNamespace, profile.KnownProfiles)
 			})
 
 			It("lays out the mock driver files on the profile node", Label("mockfiles"), func(ctx SpecContext) {

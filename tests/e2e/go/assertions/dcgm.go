@@ -106,14 +106,28 @@ func DCGMDeviceMetrics(ctx context.Context, k *kube.Client, ns, gpuName string, 
 
 // DCGMXidReported polls until at least one GPU reports xid as
 // DCGM_FI_DEV_XID_ERRORS (healthy default is 0).
+//
+// The exporter is a moving target here: the GPU Operator replaces its operands a
+// reconcile period after nvml-mock rolls, well after the caller's own rollouts
+// report success (#602). Readiness, pod identity and the scrape therefore share
+// one retry, which Eventually keeps driving through the errors a replaced pod
+// produces.
 func DCGMXidReported(ctx context.Context, k *kube.Client, ns string, xid int, timeout, poll time.Duration) {
 	ginkgo.GinkgoHelper()
 
-	WaitDaemonSetReady(ctx, k, ns, dcgmExporterDaemonSet, timeout, poll)
-	pod := dcgmExporterPod(ctx, k, ns, "")
-
 	ginkgo.By(fmt.Sprintf("waiting for %s == %d", fiDevXidErrors, xid))
 	gomega.Eventually(func() (bool, error) {
+		ready, err := k.DaemonSetReady(ctx, ns, dcgmExporterDaemonSet)
+		if err != nil {
+			return false, err
+		}
+		if !ready {
+			return false, nil
+		}
+		pod, err := k.FirstPodName(ctx, ns, dcgmExporterSelector)
+		if err != nil {
+			return false, err
+		}
 		metrics, err := scrapeDCGM(ctx, k, ns, pod)
 		if err != nil {
 			return false, err

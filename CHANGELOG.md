@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-01
+
 ### Added
 - Allocation-aware GPU memory, opt-in via `allocationWatcher.enabled`. A sidecar
   in the nvml-mock DaemonSet polls the kubelet pod-resources API and mirrors each
@@ -23,20 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mounts the kubelet pod-resources socket (read-only, node-local, no RBAC).
   New subcommand: `nvml-mock-ctl watch-allocations`. (#506)
 
-### Changed
-- Every shipped GPU profile now reports a moving, non-zero `utilization.gpu`.
-  Each profile carries its own live `device_defaults.dynamic_metrics.utilization`
-  block (`pattern: steady`, GPU 10-45%, memory 5-25%), so a default install no
-  longer reads a constant 0 through `DCGM_FI_DEV_GPU_UTIL` — nor through the
-  `DCGM_FI_PROF_*` metrics, which the mock derives as fixed fractions of it.
-  The floor sits above 0 deliberately, so "utilization is reported" is a
-  deterministic assertion rather than a flaky one. The value still tracks
-  **elapsed time, not workload**: it moves on a fully idle node. Temperature and
-  power simulation stays opt-in behind `gpu.dynamicMetrics.enabled`; note that
-  enabling that overlay replaces the profile block with the chart baseline,
-  whose `burst` 0-100 band does dip to near 0. (#506)
-
-### Added
 - Mock IMEX channel injection through the NRI plugin. A pod annotated
   `nvml-mock.nvidia.com/imex-channels: "true"` receives the mock
   `/dev/nvidia-caps-imex-channels/channelN` nodes, so a ComputeDomain-style
@@ -47,15 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   suppression, because the device plugin never allocates an IMEX channel.
   Configured by `nri.imexChannelAnnotation`. (#437)
 
-### Fixed
-- The NRI device opt-in no longer offers the `nvidia-caps-imex-channels`
-  DIRECTORY to the runtime as a device node. It sits inside the device root the
-  plugin scans and matched the `nvidia` prefix filter, so any annotated pod on a
-  node with `imex.mockChannels` enabled was affected. (#437)
-
-## [0.3.0-rc1] - 2026-07-31
-
-### Added
 - DCGM / dcgm-exporter support for the mock GPU stack. `nvmlDeviceGetFieldValues`
   now backs the `DCGM_FI_DEV_*` field surface (ECC, remapped rows, memory
   temperature, and the NVLink field set), and a mock GPM implementation serves
@@ -105,6 +84,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recover against mock GPUs. (#493)
 
 ### Changed
+- Every shipped GPU profile now reports a moving, non-zero `utilization.gpu`.
+  Each profile carries its own live `device_defaults.dynamic_metrics.utilization`
+  block (`pattern: steady`, GPU 10-45%, memory 5-25%), so a default install no
+  longer reads a constant 0 through `DCGM_FI_DEV_GPU_UTIL` — nor through the
+  `DCGM_FI_PROF_*` metrics, which the mock derives as fixed fractions of it.
+  The floor sits above 0 deliberately, so "utilization is reported" is a
+  deterministic assertion rather than a flaky one. The value still tracks
+  **elapsed time, not workload**: it moves on a fully idle node. Temperature and
+  power simulation stays opt-in behind `gpu.dynamicMetrics.enabled`; note that
+  enabling that overlay replaces the profile block with the chart baseline,
+  whose `burst` 0-100 band does dip to near 0. (#506)
+
 - ComputeDomain simulation now runs the REAL `nvidia-imex` daemon in NO
   GPU mode (`--nogpu`) instead of the fake marker-file binaries: the new
   `imex-nogpu-shim` injects the flag around upstream's hard-coded argv,
@@ -132,18 +123,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI closes the tier-1 gaps found by the AICR pre-silicon preflight review.
   (#512)
 
-### Security
-- Go pins bumped 1.26.4 -> 1.26.5 across the build (deployment and test
-  Dockerfiles, mocknvml/mockcuda Makefiles, e2e dispatch default, helper
-  scripts) to resolve `GO-2026-5856` (Encrypted Client Hello privacy leak
-  in `crypto/tls`), which was failing the `govulncheck` CI check.
-- Dependency refreshes across the release, most consequentially `go-nvml`
-  0.13.0-1 -> 0.13.3-1 and NFD 0.19.0. The `go-nvml` bump added three NVML
-  entry points, so the CGo bridge stubs were regenerated; without that the
-  built `libnvidia-ml.so` fails an `RTLD_NOW` `dlopen` on the first
-  unresolved symbol. (#455, #520, #444, #410, #481)
+### Deprecated
+- The fake `nvidia-imex` / `nvidia-imex-ctl` binaries, `pkg/imexcoord`,
+  and the chart's `imex.enabled` hostPath coordination — superseded by
+  the real daemon's NO GPU mode; removal in a follow-up release. Both
+  fakes print a deprecation notice (the ctl only on non-READY paths, to
+  preserve the upstream `CombinedOutput == "READY\n"` probe contract). (#304)
 
 ### Fixed
+- `nvmlEventSetWait_v1`/`_v2` now block for the caller's timeout (re-checking
+  every 100 ms) instead of returning `NVML_ERROR_TIMEOUT` immediately. Clients
+  loop on the wait with no sleep of their own, so the immediate return turned
+  `nvidia-device-plugin`'s health monitor into a busy spin that burned a full
+  CPU core per pod. A pending Xid is still delivered on the first poll;
+  `timeoutms=0` remains a non-blocking poll.
+- `pkg/gpu/mocknvml` no longer drops `BUILD_TAGS` in the default (two-pass,
+  padded) build path — `make BUILD_TAGS=foo` compiled without `foo` unless the
+  tag set also disabled padding.
+- `cleanup.sh` now removes `nvml-mock-nri.yaml`, the NRI CDI spec `setup.sh`
+  stages, alongside the `nvidia.yaml` it already removed. It had been left
+  behind while the same hook deleted the device nodes the spec names, so the
+  runtime kept resolving a CDI reference to hostPaths that no longer existed:
+  every annotated pod on the node landed in `CreateContainerError` ("failed to
+  stat CDI host device"), retried by the kubelet indefinitely, while the NRI
+  DaemonSet stayed Ready because `/readyz` reports registration. Nothing
+  surfaced it. Introduced in this release by (#550).
+- The NRI plugin now logs when device injection is requested and the device
+  tree is present but holds no device nodes. A missing tree already warned; an
+  empty one returned success with an empty set, so the container started with
+  the overlay, no `/dev/nvidia*`, and no diagnostic — and the engine then
+  derived a zero-GPU visible set as though that were configured.
+- Documentation corrected against measured behaviour: the quick start's
+  `kind load docker-image` step (which cannot load the multi-arch published
+  image from Docker Desktop's containerd store), the seven profile files
+  claiming the NVIDIA DRA driver resolves `dra.k8s.io/pcieRoot` (it does not —
+  it is a Go binary and cannot see the `LD_PRELOAD`-shimmed sysfs tree, #265),
+  the fake-gpu-operator guide's `gb200` product label and its
+  library-path troubleshooting command, `docs/cuda-mock.md`'s claim that the
+  mock is sufficient for `cuda-sample:vectoradd`, and `VERSION-MATRIX.md`,
+  which listed floating chart versions as pinned and three never-run scenarios
+  as tested in CI.
+- The NRI device opt-in no longer offers the `nvidia-caps-imex-channels`
+  DIRECTORY to the runtime as a device node. It sits inside the device root the
+  plugin scans and matched the `nvidia` prefix filter, so any annotated pod on a
+  node with `imex.mockChannels` enabled was affected. (#437)
+- `make e2e-nfd` pins `E2E_PROFILES=a100` to match the profile the scenario
+  actually instantiates. It had inherited `gb200` from the default set, so the
+  run announced a profile it never exercised — indistinguishable in a log from
+  one that did.
 - `nvml-mock-ctl set --gpu <n> memory.total_bytes|free_bytes|used_bytes=...` now
   takes effect within one override TTL instead of silently doing nothing until
   the pod restarts. `nvmlDeviceGetMemoryInfo` and `nvmlDeviceGetMemoryInfo_v2`
@@ -171,12 +198,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - IB validation scripts no longer report a false negative from `SIGPIPE` when
   a downstream reader closes early. (#409)
 
-### Deprecated
-- The fake `nvidia-imex` / `nvidia-imex-ctl` binaries, `pkg/imexcoord`,
-  and the chart's `imex.enabled` hostPath coordination — superseded by
-  the real daemon's NO GPU mode; removal in a follow-up release. Both
-  fakes print a deprecation notice (the ctl only on non-READY paths, to
-  preserve the upstream `CombinedOutput == "READY\n"` probe contract). (#304)
+### Security
+- Go pins bumped 1.26.4 -> 1.26.5 across the build (deployment and test
+  Dockerfiles, mocknvml/mockcuda Makefiles, e2e dispatch default, helper
+  scripts) to resolve `GO-2026-5856` (Encrypted Client Hello privacy leak
+  in `crypto/tls`), which was failing the `govulncheck` CI check.
+- Dependency refreshes across the release, most consequentially `go-nvml`
+  0.13.0-1 -> 0.13.3-1 and NFD 0.19.0. The `go-nvml` bump added three NVML
+  entry points, so the CGo bridge stubs were regenerated; without that the
+  built `libnvidia-ml.so` fails an `RTLD_NOW` `dlopen` on the first
+  unresolved symbol. (#455, #520, #444, #410, #481)
 
 ## [0.2.1] - 2026-06-12
 
@@ -300,7 +331,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Rebranded from gpu-mock to nvml-mock (PRs #273, #274, #275, #281, #282)
 
-[Unreleased]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/NVIDIA/k8s-test-infra/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/NVIDIA/k8s-test-infra/releases/tag/v0.1.0

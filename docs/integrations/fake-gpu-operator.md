@@ -56,6 +56,26 @@ Together, they enable **mixed clusters** where a small set of real nodes run nvm
 +-----------------------------------------------------------------------+
 ```
 
+## Tested Versions
+
+The discovery contract in this guide was derived on 2026-07-31 from these two trees. FGO is neither vendored nor pinned by this repository, so re-check their loader before you rely on any of it.
+
+| Side | Ref | Date |
+|---|---|---|
+| `run-ai/fake-gpu-operator` | `main` @ `cf586f41` | 2026-07-28 |
+| `NVIDIA/k8s-test-infra` | `main` @ `e9106453` | 2026-07-31 |
+
+What was verified against which:
+
+- **The contract fields** (`gpu-profile-<name>`, `profile.yaml`, the namespace env var) were read from FGO's loader source at `cf586f41`. FGO itself was not run.
+- **The emitted shape** was verified against `e9106453` by Helm render, by the `integrations_fgo_test.yaml` unit suite, and by the `fgo`-labelled end-to-end case on a live kind cluster.
+- **A live FGO-plus-nvml-mock interop run was not performed.** The two sides have not been exercised together in CI.
+
+Two known gaps on FGO's side, both current as of `cf586f41`:
+
+- FGO pins this project's image to `ghcr.io/nvidia/nvml-mock:sha-1706195`, with a comment that the v0.2.0 build broke their `e2e-mock` on `libnvidia-ml.so` loading. That report is not filed on this side.
+- FGO vendors this repository's GPU profiles into its chart from commit `497fa04` (2026-05-25), which is 78 commits behind `e9106453`. All seven profile files have changed since that pin.
+
 ## Setup
 
 ### Prerequisites
@@ -67,12 +87,14 @@ Together, they enable **mixed clusters** where a small set of real nodes run nvm
 
 ### Step 1: Install nvml-mock with FGO Integration
 
-Enable the FGO integration flag when installing the Helm chart. This creates GPU profile ConfigMaps that FGO can discover and use for its topology.
+Enable the FGO integration flag when installing the Helm chart. This creates GPU profile ConfigMaps in the shape FGO's loader reads.
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --set integrations.fakeGpuOperator.enabled=true
 ```
+
+The ConfigMaps land in the nvml-mock release namespace by default. FGO loads profiles from its own namespace, so see [Targeting FGO's namespace](#targeting-fgos-namespace) before you rely on FGO reading them.
 
 ### Step 2: Configure FGO Topology
 
@@ -117,29 +139,54 @@ MODEL:.metadata.labels.nvidia\.com/gpu\.product
 
 ## GPU Profile Discovery
 
-When `integrations.fakeGpuOperator.enabled=true` is set, the Helm chart creates ConfigMaps labeled with `run.ai/gpu-profile=true`. FGO watches for these ConfigMaps and uses them to populate its topology with accurate GPU specifications.
+When `integrations.fakeGpuOperator.enabled=true` is set, the Helm chart creates one profile ConfigMap per shipped GPU profile.
 
-List discovered profiles:
+FGO does not watch for these ConfigMaps and does not select them by label. Its loader (`internal/common/profile/profile.go`) does a direct `Get` by name and then reads one data key. Three fields must therefore match exactly, and each one is fatal on its own:
+
+| Field | Value | Why it matters |
+|---|---|---|
+| Name | `gpu-profile-<profile>` | The loader builds this literal from `CmNamePrefix`. Any other name is a `NotFound`. |
+| Data key | `profile.yaml` | Read from `CmProfileKey`. A different key is a "missing key" error. |
+| Namespace | FGO's own release namespace | Read from `FAKE_GPU_OPERATOR_NAMESPACE`. The loader has no cross-namespace fallback. |
+
+The chart also emits `fake-gpu-operator/gpu-profile: "true"`, which is FGO's published discovery label, and keeps `run.ai/gpu-profile: "true"` for the demo scripts and examples in this repository. Neither label is on FGO's load path today.
+
+List the profile ConfigMaps:
 
 ```bash
-kubectl get cm -l run.ai/gpu-profile=true
+kubectl get cm -l fake-gpu-operator/gpu-profile=true
 ```
 
 The following profiles are created by default:
 
 | ConfigMap Name | GPU Model | Memory |
 |---|---|---|
-| `nvml-mock-profile-a100` | NVIDIA A100-SXM4-40GB | 40 GiB |
-| `nvml-mock-profile-h100` | NVIDIA H100 80GB HBM3 | 80 GiB |
-| `nvml-mock-profile-b200` | NVIDIA B200 | 192 GiB |
-| `nvml-mock-profile-gb200` | NVIDIA GB200 NVL | 192 GiB |
-| `nvml-mock-profile-gb300` | NVIDIA GB300 NVL | 288 GiB |
-| `nvml-mock-profile-l40s` | NVIDIA L40S | 48 GiB |
-| `nvml-mock-profile-t4` | NVIDIA T4 | 16 GiB |
+| `gpu-profile-a100` | NVIDIA A100-SXM4-40GB | 40 GiB |
+| `gpu-profile-h100` | NVIDIA H100 80GB HBM3 | 80 GiB |
+| `gpu-profile-b200` | NVIDIA B200 | 192 GiB |
+| `gpu-profile-gb200` | NVIDIA GB200 | 192 GiB |
+| `gpu-profile-gb300` | NVIDIA GB300 NVL | 288 GiB |
+| `gpu-profile-l40s` | NVIDIA L40S | 48 GiB |
+| `gpu-profile-t4` | NVIDIA T4 | 16 GiB |
+
+These names carry no release prefix, because FGO's `Get` is for that literal name. Two nvml-mock releases in one namespace therefore collide on these seven ConfigMaps. Enable the integration on one release per namespace, or give each release its own `targetNamespace`.
+
+### Targeting FGO's namespace
+
+By default the ConfigMaps land in the nvml-mock release namespace, where FGO's loader does not look. To make them loadable, point them at FGO's release namespace:
+
+```yaml
+integrations:
+  fakeGpuOperator:
+    enabled: true
+    targetNamespace: gpu-operator
+```
+
+**Warning: set FGO's `builtinProfiles.enabled=false` before you do this.** FGO ships its own builtin profiles under the same seven names, owned by its own Helm release. Helm 3 refuses to adopt resources owned by another release, so whichever chart installs second fails with an `invalid ownership metadata` error. The two profile sets are alternatives, not complements.
 
 ## Custom Labels
 
-You can override the labels applied to profile ConfigMaps to match your FGO topology requirements:
+`profileLabels` adds labels to the profile ConfigMaps. It cannot remove the contract labels `fake-gpu-operator/gpu-profile` and `nvml-mock/profile-name`, which the template always emits, so an override here cannot break discovery:
 
 ```yaml
 # values.yaml
@@ -184,13 +231,25 @@ helm upgrade nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 
 ### FGO Does Not Pick Up Profiles
 
-Ensure the ConfigMaps have the correct label that FGO watches for:
+FGO looks up profiles by name in its own namespace, so check the name and the namespace, not the label. Substitute FGO's release namespace and the profile you referenced in the topology:
 
 ```bash
-kubectl get cm -l run.ai/gpu-profile=true -o name
+kubectl get cm gpu-profile-a100 -n gpu-operator -o name
 ```
 
-If ConfigMaps exist but FGO is not using them, check that FGO is configured to read profiles from the same namespace where nvml-mock is installed. Restart the FGO controller pod after correcting the namespace configuration:
+A `NotFound` here means one of three things:
+
+- The ConfigMaps are still in the nvml-mock release namespace. Set `integrations.fakeGpuOperator.targetNamespace` to FGO's release namespace.
+- The name is wrong. FGO reads `gpu-profile-<profile>` exactly.
+- The install failed with an ownership error. FGO's own builtin profiles use the same names; set FGO's `builtinProfiles.enabled=false`.
+
+If the ConfigMap exists under the right name and namespace, confirm the body is under the `profile.yaml` key:
+
+```bash
+kubectl get cm gpu-profile-a100 -n gpu-operator -o jsonpath='{.data.profile\.yaml}' | head -5
+```
+
+Restart the FGO controller pod after correcting any of the above:
 
 ```bash
 kubectl rollout restart deployment fake-gpu-operator -n gpu-operator
@@ -204,10 +263,14 @@ Confirm the nvml-mock DaemonSet is running on the expected nodes:
 kubectl get ds -l app.kubernetes.io/name=nvml-mock
 ```
 
-Check that the mock libraries are mounted correctly by exec-ing into a pod and verifying the library path:
+Check that the mock libraries are staged correctly. The chart writes them under
+`/var/lib/nvml-mock` on the host and mounts that path into consumer pods — it
+never populates the distribution library directory, so looking in
+`/usr/lib/x86_64-linux-gnu` reports "No such file or directory" on a healthy
+install:
 
 ```bash
-kubectl exec -it <pod-on-mock-node> -- ls -la /usr/lib/x86_64-linux-gnu/libnvidia-ml.so*
+kubectl exec -it <pod-on-mock-node> -- ls -la /var/lib/nvml-mock/driver/usr/lib64/libnvidia-ml.so*
 ```
 
 If the libraries are missing, check the DaemonSet pod logs for errors:

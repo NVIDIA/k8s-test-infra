@@ -80,6 +80,20 @@ jobs:
     - name: Run mockpcisysfs integration tests
       run: go test -tags integration -v ./pkg/system/mockpcisysfs/...
 
+    # The unit run above never links the shared object, so a missing export or
+    # a broken --defsym alias passes it. This drives the real .so via go-nvml.
+    - name: Run mock NVML bridge integration tests
+      run: make test-mocknvml-bridge
+    # The tests/e2e harness packages sit behind the `e2e` build tag, so the
+    # untagged unit-test run above skips them -- `go list ./...` does not even
+    # match them. `make e2e` does not reach them either: it targets the Ginkgo
+    # suite package ./tests/e2e/go, not ./tests/e2e/go/... . Without this step
+    # the harness's own unit tests compile for nobody and rot silently, which is
+    # how the diagnostics collection path lost its sidecar logs unnoticed
+    # (#562). These are plain `go test` units -- no cluster, no kubectl.
+    - name: Run e2e framework unit tests
+      run: make test-e2e-framework
+
     - name: Run govulncheck
       run: |
         go install golang.org/x/vuln/cmd/govulncheck@latest

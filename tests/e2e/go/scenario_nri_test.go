@@ -376,6 +376,20 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				"default deviceInjectionMode is raw, so the CDI spec must not have been applied")
 		})
 
+		It("handles a plain unannotated pod with no GPU request", Label("nri-dp-plain"), func(ctx SpecContext) {
+			pod := applyNRIWorkload(ctx, h, nriPlainPodManifest("nri-dp-plain"), "nri-dp-plain")
+
+			// Verify ambient overlay injection is present.
+			res, err := h.Kube.ExecSh(ctx, pod, "test -d /opt/nvml-mock/driver")
+			Expect(err).NotTo(HaveOccurred(), "check overlay mount in nri-dp-plain: %s", res.Combined())
+
+			// Verify GPU visibility reported via nvidia-smi -L.
+			visible := visibleGPUUUIDs(ctx, h, pod)
+			Expect(visible).To(HaveLen(p.ExpectedGPUs()),
+				"plain unannotated pod on DP node receives ambient overlay and reports all %d profile GPUs",
+				p.ExpectedGPUs())
+		})
+
 		It("leaves the scheduler gate intact once the node is saturated", Label("nri-dp-scheduling"), func(ctx SpecContext) {
 			// Ask for one more GPU than any node advertises. The pod must stay
 			// Pending on the SCHEDULER's verdict: a mock that over-advertises, or

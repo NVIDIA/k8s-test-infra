@@ -48,6 +48,19 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 
 			BeforeAll(func(ctx SpecContext) {
 				p, pod, _ = setupStandaloneProfile(ctx, h, name)
+
+				// Setup, not a spec. Both DRA specs below read state that only
+				// the driver publishes: one reads its ResourceSlices, the other
+				// schedules against its DeviceClass. Installing from inside the
+				// first of them made the second depend on that spec being
+				// selected, so --focus on the scheduling spec alone left the pod
+				// Pending until the wait timed out (#565).
+				//
+				// Unlike the GPU Operator case (#561), no second readiness
+				// barrier moves with the install: installDRADriver already ends
+				// in waitDRAPodsReady, and the scheduling spec's own wait for
+				// Running absorbs the gap until the kubelet plugin publishes.
+				installDRADriver(ctx, h)
 			})
 
 			It("lays out the mock driver files for DRA", func(ctx SpecContext) {
@@ -64,8 +77,7 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 			})
 
 			It("publishes DRA ResourceSlices for the profile GPUs", func(ctx SpecContext) {
-				waitDRAPodsReady(ctx, h)
-				assertions.WaitResourceSlicePerNode(ctx, h.Kube, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
+				assertions.WaitResourceSliceTotal(ctx, h.Kube, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
 			})
 
 			It("schedules a pod with a DRA ResourceClaim", func(ctx SpecContext) {

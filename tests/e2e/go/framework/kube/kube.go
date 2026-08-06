@@ -93,18 +93,41 @@ type nodeObj struct {
 	} `json:"status"`
 }
 
+type containerStatus struct {
+	Name         string `json:"name"`
+	RestartCount int    `json:"restartCount"`
+}
+
 type podObj struct {
 	Metadata objectMeta `json:"metadata"`
 	Spec     struct {
 		NodeName string `json:"nodeName"`
 	} `json:"spec"`
 	Status struct {
-		Phase string `json:"phase"`
-		PodIP string `json:"podIP"`
+		Phase                 string            `json:"phase"`
+		PodIP                 string            `json:"podIP"`
+		ContainerStatuses     []containerStatus `json:"containerStatuses"`
+		InitContainerStatuses []containerStatus `json:"initContainerStatuses"`
 	} `json:"status"`
 }
 
+// restarted reports whether any container of the pod has been restarted, which
+// is the precondition for `kubectl logs --previous` having anything to return.
+func (p podObj) restarted() bool {
+	for _, group := range [][]containerStatus{p.Status.InitContainerStatuses, p.Status.ContainerStatuses} {
+		for _, cs := range group {
+			if cs.RestartCount > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type configMapObj struct {
+	Metadata struct {
+		Labels map[string]string `json:"labels"`
+	} `json:"metadata"`
 	Data map[string]string `json:"data"`
 }
 
@@ -122,6 +145,9 @@ type envVar struct {
 }
 
 type daemonSetObj struct {
+	Metadata struct {
+		Generation int64 `json:"generation"`
+	} `json:"metadata"`
 	Spec struct {
 		Template struct {
 			Spec struct {
@@ -132,8 +158,10 @@ type daemonSetObj struct {
 		} `json:"template"`
 	} `json:"spec"`
 	Status struct {
-		DesiredNumberScheduled int `json:"desiredNumberScheduled"`
-		NumberReady            int `json:"numberReady"`
+		ObservedGeneration     int64 `json:"observedGeneration"`
+		DesiredNumberScheduled int   `json:"desiredNumberScheduled"`
+		UpdatedNumberScheduled int   `json:"updatedNumberScheduled"`
+		NumberReady            int   `json:"numberReady"`
 	} `json:"status"`
 }
 
@@ -265,16 +293,24 @@ func (c *Client) PodNode(ctx context.Context, ns, name string) (string, error) {
 	return p.Spec.NodeName, nil
 }
 
-// CountConfigMaps returns the number of ConfigMaps in ns matching the selector
-// (parity with the demo's `kubectl get cm -l run.ai/gpu-profile=true | wc -l`).
-func (c *Client) CountConfigMaps(ctx context.Context, ns, selector string) (int, error) {
-	var list struct {
-		Items []json.RawMessage `json:"items"`
+// ConfigMap is the subset of a ConfigMap the assertions need: the labels it
+// carries and its data keys. Fetched by exact name, the same way a consumer
+// doing a `Get` would see it — a List by label selector would not notice a
+// wrong name, which is one of the fields under test.
+type ConfigMap struct {
+	Labels map[string]string
+	Data   map[string]string
+}
+
+// GetConfigMap returns a single ConfigMap by exact name. The error surfaces
+// kubectl's own NotFound, so a caller can tell "wrong name" from "wrong
+// contents".
+func (c *Client) GetConfigMap(ctx context.Context, ns, name string) (*ConfigMap, error) {
+	var cm configMapObj
+	if err := c.getJSON(ctx, &cm, "configmap", "-n", ns, name); err != nil {
+		return nil, err
 	}
-	if err := c.getJSON(ctx, &list, "configmaps", "-n", ns, "-l", selector); err != nil {
-		return 0, err
-	}
-	return len(list.Items), nil
+	return &ConfigMap{Labels: cm.Metadata.Labels, Data: cm.Data}, nil
 }
 
 // ConfigMapData returns a single key from a ConfigMap's data field.
@@ -290,14 +326,30 @@ func (c *Client) ConfigMapData(ctx context.Context, ns, name, key string) (strin
 	return v, nil
 }
 
-// DaemonSetReady reports whether all desired DaemonSet pods are ready.
+// rolledOutAndReady reports whether the DaemonSet's current spec is fully rolled
+// out and every desired pod is ready. A ready count alone would also accept a
+// DaemonSet that has not started rolling yet, whose ready pods still belong to
+// the previous generation.
+func (ds daemonSetObj) rolledOutAndReady() bool {
+	// A status the controller has not caught up to describes the previous spec,
+	// so it cannot answer whether this one rolled out.
+	if ds.Status.ObservedGeneration < ds.Metadata.Generation {
+		return false
+	}
+	d := ds.Status.DesiredNumberScheduled
+	return d > 0 &&
+		ds.Status.UpdatedNumberScheduled == d &&
+		ds.Status.NumberReady == d
+}
+
+// DaemonSetReady reports whether every desired DaemonSet pod is ready and
+// running the current spec.
 func (c *Client) DaemonSetReady(ctx context.Context, ns, name string) (bool, error) {
 	var ds daemonSetObj
 	if err := c.getJSON(ctx, &ds, "daemonset", "-n", ns, name); err != nil {
 		return false, err
 	}
-	d := ds.Status.DesiredNumberScheduled
-	return d > 0 && ds.Status.NumberReady == d, nil
+	return ds.rolledOutAndReady(), nil
 }
 
 // DaemonSetContainerEnv returns the value of an env var on the DaemonSet's
@@ -428,10 +480,62 @@ func (c *Client) DescribePod(ctx context.Context, ns, name string) (string, erro
 	return res.Combined(), err
 }
 
-// Logs returns pod logs for a label selector (best-effort diagnostics).
+// logsArgs builds the `kubectl logs` argv for a label selector.
+//
+// --all-containers is unconditional. Without it kubectl silently picks a
+// multi-container pod's default container and prints `Defaulted container "x"
+// out of: x, y`, so every sidecar's output is lost from the diagnostics dump.
+// The nvml-mock pod is multi-container whenever an optional feature is enabled,
+// and any sidecar added later inherits the same blind spot.
+//
+// --previous is opt-in: it errors when a container has no previous instance,
+// which is the normal case. See PreviousLogs.
+func logsArgs(ns, selector string, tail int, previous bool) []string {
+	args := []string{
+		"logs", "-n", ns,
+		"-l", selector,
+		"--all-containers=true", fmt.Sprintf("--tail=%d", tail),
+	}
+	if previous {
+		args = append(args, "--previous")
+	}
+	return args
+}
+
+// Logs returns current pod logs for a label selector, across every container of
+// every matching pod (best-effort diagnostics).
 func (c *Client) Logs(ctx context.Context, ns, selector string, tail int) (string, error) {
-	res, err := c.kubectl(ctx, "logs", "-n", ns, "-l", selector, fmt.Sprintf("--tail=%d", tail))
+	res, err := c.kubectl(ctx, logsArgs(ns, selector, tail, false)...)
 	return res.Combined(), err
+}
+
+// PreviousLogs returns the logs of the PREVIOUS instance of every container of
+// every matching pod — the only way to see why a container that is now
+// restarting died.
+//
+// Callers must gate this on RestartedPods: kubectl fails the request outright
+// when a container has no previous instance, so calling it unconditionally
+// turns a working diagnostic into a failing one on every healthy pod. Treat a
+// returned error as "no previous logs available", never as a spec failure.
+func (c *Client) PreviousLogs(ctx context.Context, ns, selector string, tail int) (string, error) {
+	res, err := c.kubectl(ctx, logsArgs(ns, selector, tail, true)...)
+	return res.Combined(), err
+}
+
+// RestartedPods returns the names of pods matching selector that have at least
+// one container with a non-zero restart count.
+func (c *Client) RestartedPods(ctx context.Context, ns, selector string) ([]string, error) {
+	var pl podList
+	if err := c.getJSON(ctx, &pl, "pods", "-n", ns, "-l", selector); err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, p := range pl.Items {
+		if p.restarted() {
+			out = append(out, p.Metadata.Name)
+		}
+	}
+	return out, nil
 }
 
 // KubectlCombined runs an arbitrary kubectl subcommand and returns combined
