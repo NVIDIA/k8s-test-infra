@@ -12,7 +12,6 @@
 
 set -euo pipefail
 
-CLUSTER_NAME="mokka-compute-domain"
 RELEASE_NAME="nvml-mock"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 REBIND_TOPO="local/compute-domain/rebind.topology.yaml"
@@ -67,10 +66,10 @@ assert_clique() {
   printf 'OK: %s clique=%s uuid=%s\n' "${node}" "${expected_clique}" "${expected_uuid}"
 }
 
-assert_clique "${CLUSTER_NAME}-worker"  99 "${NEW_UUID}"
-assert_clique "${CLUSTER_NAME}-worker2" 99 "${NEW_UUID}"
-assert_clique "${CLUSTER_NAME}-worker3" 99 "${NEW_UUID}"
-assert_clique "${CLUSTER_NAME}-worker4" 99 "${NEW_UUID}"
+assert_clique worker-0 99 "${NEW_UUID}"
+assert_clique worker-1 99 "${NEW_UUID}"
+assert_clique worker-2 99 "${NEW_UUID}"
+assert_clique worker-3 99 "${NEW_UUID}"
 
 printf '\n==> Scenario 3 passed: all workers rebound to clique 99 with new UUID.\n'
 printf '    Re-run local/compute-domain/scenarios/check-fabric.sh (Scenario 1)\n'

@@ -15,7 +15,7 @@ topology:
       cliques:
         - id: 99
           nodes:
-            - mokka-compute-domain-worker
-            - mokka-compute-domain-worker2
-            - mokka-compute-domain-worker3
-            - mokka-compute-domain-worker4
+            - worker-0
+            - worker-1
+            - worker-2
+            - worker-3
