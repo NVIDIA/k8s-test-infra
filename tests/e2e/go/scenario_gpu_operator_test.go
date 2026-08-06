@@ -38,10 +38,16 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 
 	BeforeAll(func(ctx SpecContext) {
 		h = setupCluster(ctx, gpuOperatorClusterName, assets.KindGPUOperatorConfig, "gpu-operator")
-		node, err := h.Cluster.ControlPlane(ctx)
-		Expect(err).NotTo(HaveOccurred())
-		installNVIDIAContainerToolkit(ctx, h, node)
-		configureNVIDIARuntimeCDI(ctx, h, node)
+		// Attach mode: cluster came from `make cluster-create` (kind-node-nv
+		// already pre-bakes nvidia-container-toolkit and configures the nvidia
+		// containerd runtime handler), so the CP-level bootstrap below would
+		// be a no-op followed by a costly containerd restart.
+		if !config.AttachExisting() {
+			node, err := h.Cluster.ControlPlane(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			installNVIDIAContainerToolkit(ctx, h, node)
+			configureNVIDIARuntimeCDI(ctx, h, node)
+		}
 	})
 
 	for _, name := range selectedProfiles {
@@ -128,15 +134,18 @@ const tempPinC = 85
 // nvml-mock-ctl — no Helm upgrade, no pod restart — and asserts the already-
 // running dcgm-exporter reports the pinned DCGM_FI_DEV_GPU_TEMP for that GPU
 // only, picking it up through the bind-mounted runtime config override within the TTL.
+// The mock's override file is per-node and dcgm-exporter runs per-node, so we
+// pin both the nvml-mock-ctl target and the scraped exporter to the same node.
 func assertRuntimeTempViaDCGM(ctx SpecContext, h *harness.Harness, wantC int) {
 	GinkgoHelper()
 	const targetGPU = 0
+	node := gpuOperatorTargetNode(ctx, h)
 
-	By(fmt.Sprintf("pin temperature to %dC on GPU %d at runtime via nvml-mock-ctl (no restart)", wantC, targetGPU))
-	nvmlMockCtl(ctx, h, "temp", "--gpu", strconv.Itoa(targetGPU), strconv.Itoa(wantC))
-	DeferCleanup(func(ctx SpecContext) { resetRuntimeOverrides(ctx, h) })
+	By(fmt.Sprintf("pin temperature to %dC on GPU %d at runtime via nvml-mock-ctl on %s (no restart)", wantC, targetGPU, node))
+	nvmlMockCtlOnNode(ctx, h, node, "temp", "--gpu", strconv.Itoa(targetGPU), strconv.Itoa(wantC))
+	DeferCleanup(func(ctx SpecContext) { nvmlMockCtlOnNode(ctx, h, node, "reset", "--gpu", "all") })
 
-	assertions.DCGMTempReportedForGPU(ctx, h.Kube, gpuOperatorNamespace, targetGPU, wantC,
+	assertions.DCGMTempReportedForGPU(ctx, h.Kube, gpuOperatorNamespace, node, targetGPU, wantC,
 		config.ReadyTimeout(), config.PollInterval())
 }
 
@@ -150,8 +159,9 @@ func assertRuntimeTempViaDCGM(ctx SpecContext, h *harness.Harness, wantC int) {
 func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
 	GinkgoHelper()
 	const targetGPU = 0
+	node := gpuOperatorTargetNode(ctx, h)
 
-	pod := firstNvmlPod(ctx, h)
+	pod := nvmlPodOnNode(ctx, h, node)
 	minW := int(smiGPUFloat(ctx, h, pod, targetGPU, "power.min_limit"))
 	maxW := int(smiGPUFloat(ctx, h, pod, targetGPU, "power.max_limit"))
 	Expect(maxW).To(BeNumerically(">", minW), "profile must advertise a usable power envelope")
@@ -164,11 +174,11 @@ func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
 		wantW = hi
 	}
 
-	By(fmt.Sprintf("pin power draw to %dW on GPU %d at runtime via nvml-mock-ctl (no restart)", wantW, targetGPU))
-	nvmlMockCtl(ctx, h, "power", "--gpu", strconv.Itoa(targetGPU), strconv.Itoa(wantW))
-	DeferCleanup(func(ctx SpecContext) { resetRuntimeOverrides(ctx, h) })
+	By(fmt.Sprintf("pin power draw to %dW on GPU %d at runtime via nvml-mock-ctl on %s (no restart)", wantW, targetGPU, node))
+	nvmlMockCtlOnNode(ctx, h, node, "power", "--gpu", strconv.Itoa(targetGPU), strconv.Itoa(wantW))
+	DeferCleanup(func(ctx SpecContext) { nvmlMockCtlOnNode(ctx, h, node, "reset", "--gpu", "all") })
 
-	assertions.DCGMPowerReportedForGPU(ctx, h.Kube, gpuOperatorNamespace, targetGPU, wantW,
+	assertions.DCGMPowerReportedForGPU(ctx, h.Kube, gpuOperatorNamespace, node, targetGPU, wantW,
 		config.ReadyTimeout(), config.PollInterval())
 }
 
@@ -179,14 +189,34 @@ func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
 func assertRuntimeXidViaDCGM(ctx SpecContext, h *harness.Harness, xid int) {
 	GinkgoHelper()
 	const targetGPU = 0
+	node := gpuOperatorTargetNode(ctx, h)
 
-	By("inject ecc_uncorrectable + Xid on GPU 0 at runtime via nvml-mock-ctl (no restart)")
-	nvmlMockCtl(ctx, h, "fail", "--gpu", strconv.Itoa(targetGPU),
+	By(fmt.Sprintf("inject ecc_uncorrectable + Xid on GPU 0 at runtime via nvml-mock-ctl on %s (no restart)", node))
+	nvmlMockCtlOnNode(ctx, h, node, "fail", "--gpu", strconv.Itoa(targetGPU),
 		"--mode", "ecc_uncorrectable", "--after-calls", "1", "--xid", strconv.Itoa(xid))
-	DeferCleanup(func(ctx SpecContext) { resetRuntimeOverrides(ctx, h) })
+	DeferCleanup(func(ctx SpecContext) { nvmlMockCtlOnNode(ctx, h, node, "reset", "--gpu", "all") })
 
-	assertions.DCGMXidReportedForGPU(ctx, h.Kube, gpuOperatorNamespace, targetGPU, xid,
+	assertions.DCGMXidReportedForGPU(ctx, h.Kube, gpuOperatorNamespace, node, targetGPU, xid,
 		config.ReadyTimeout(), config.PollInterval())
+}
+
+// gpuOperatorTargetNode picks a node that has both the nvml-mock DaemonSet
+// (so nvml-mock-ctl works) and gpu-operator's dcgm-exporter (so the metric
+// change is scrapable). On the shared multi-node cluster (attach mode) the
+// exporter runs on workers only — the CP has NoSchedule that the exporter
+// doesn't tolerate — so the first worker is the target. On the harness's
+// single-CP cluster (local `make e2e-gpu-operator`), the CP is the only node
+// running anything, so fall back to it.
+func gpuOperatorTargetNode(ctx SpecContext, h *harness.Harness) string {
+	GinkgoHelper()
+	workers, err := h.Cluster.Workers(ctx)
+	Expect(err).NotTo(HaveOccurred())
+	if len(workers) > 0 {
+		return workers[0].Name
+	}
+	cp, err := h.Cluster.ControlPlane(ctx)
+	Expect(err).NotTo(HaveOccurred())
+	return cp.Name
 }
 
 // injectXidAndValidate enables failure injection, rolls nvml-mock and
@@ -268,6 +298,15 @@ func verifyGPUOperatorNodeSetup(ctx context.Context, node string) {
 
 func installGPUOperator(ctx SpecContext, h *harness.Harness) {
 	GinkgoHelper()
+	// Attach mode: Tilt's `--gpu-operator` already installed the release via
+	// local/gpu-operator/gpu_operator.tiltfile (whose values file was aligned
+	// with the harness's — dcgm-exporter enabled + NVIDIA_DRIVER_ROOT env).
+	// Skip helm; waitOperatorValidatorRunning still fires from the caller so
+	// operand rollout is validated the same way as in the harness path.
+	if config.AttachExisting() {
+		By("skip helm upgrade --install gpu-operator (attach mode, external rollout)")
+		return
+	}
 	Expect(h.Helm.RepoAdd(ctx, "nvidia", "https://helm.ngc.nvidia.com/nvidia")).To(Succeed(), "add NVIDIA Helm repo")
 	Expect(h.Helm.RepoUpdate(ctx)).To(Succeed(), "update Helm repos")
 	valuesFile, err := assets.WriteTemp("gpu-operator-values-*.yaml", assets.GPUOperatorValues)

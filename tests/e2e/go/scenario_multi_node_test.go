@@ -24,9 +24,13 @@ import (
 
 const (
 	multiNodeClusterName = "gpu-fleet"
-	multiNodeNamespace   = "default"
-	a100ReleaseName      = "nvml-mock-a100"
-	t4ReleaseName        = "nvml-mock-t4"
+	// multiNodeWorkloadNS is where the scheduling-test pod (`gpu-scheduling-test`)
+	// lives. Mock releases live in nvmlMockNamespace ("mokka") like every other
+	// scenario — reserving the "default" namespace here for the ordinary workload
+	// under test, not the mock DaemonSet.
+	multiNodeWorkloadNS = "default"
+	a100ReleaseName     = "nvml-mock-a100"
+	t4ReleaseName       = "nvml-mock-t4"
 )
 
 var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
@@ -45,10 +49,16 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 		workers, err = h.Cluster.Workers(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(workers).To(HaveLen(2), "multi-node scenario requires exactly two Kind workers")
-		for _, node := range workers {
-			installNVIDIAContainerToolkit(ctx, h, node)
-			Expect(dockerExec(ctx, node.Name, "systemctl", "restart", "containerd")).To(Succeed(), "restart containerd in %s", node.Name)
-			assertions.WaitNodeReady(ctx, h.Kube, node.Name, config.ReadyTimeout(), config.PollInterval())
+		// Attach mode: cluster came from `make cluster-create` (local/kind/Dockerfile),
+		// which pre-bakes nvidia-container-toolkit and configures the nvidia containerd
+		// runtime handler. The per-worker install+restart below would be a redundant
+		// apt no-op followed by a costly containerd bounce, so skip the whole loop.
+		if !config.AttachExisting() {
+			for _, node := range workers {
+				installNVIDIAContainerToolkit(ctx, h, node)
+				Expect(dockerExec(ctx, node.Name, "systemctl", "restart", "containerd")).To(Succeed(), "restart containerd in %s", node.Name)
+				assertions.WaitNodeReady(ctx, h.Kube, node.Name, config.ReadyTimeout(), config.PollInterval())
+			}
 		}
 		a100 = loadProfile("a100")
 		t4 = loadProfile("t4")
@@ -74,17 +84,24 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 		manifest := multiNodeSchedulingManifest()
 		Expect(h.Kube.Delete(ctx, manifest)).To(Succeed(), "delete previous multi-node scheduling pod")
 		Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply multi-node scheduling pod")
-		assertions.WaitPodPhase(ctx, h.Kube, multiNodeNamespace, "gpu-scheduling-test", "Running", config.ReadyTimeout(), config.PollInterval())
+		assertions.WaitPodPhase(ctx, h.Kube, multiNodeWorkloadNS, "gpu-scheduling-test", "Running", config.ReadyTimeout(), config.PollInterval())
 	})
 })
 
 func installProfileOnNode(ctx context.Context, h *harness.Harness, releaseName, profileName, nodeProfile string) {
 	GinkgoHelper()
+	// Attach mode: Tilt's `--multi-gpu-profile` already installed one nvml-mock
+	// release per profile, node-pinned via the same nodeSelector.nvml-mock/profile
+	// label. Skip the helm upgrade and let firstReleasePod find Tilt's install.
+	if config.AttachExisting() {
+		By("skip helm upgrade --install " + releaseName + " (attach mode, external rollout)")
+		return
+	}
 	repo, tag := splitImage(config.Image())
 	Expect(h.Helm.UpgradeInstall(ctx, helm.Release{
 		Name:      releaseName,
 		Chart:     chartDir(),
-		Namespace: multiNodeNamespace,
+		Namespace: nvmlMockNamespace,
 		Set: map[string]string{
 			"gpu.profile":                    profileName,
 			"image.repository":               repo,
@@ -101,12 +118,12 @@ func firstReleasePod(ctx context.Context, h *harness.Harness, releaseName string
 	selector := fmt.Sprintf("app.kubernetes.io/instance=%s", releaseName)
 	var name string
 	Eventually(func() (string, error) {
-		n, err := h.Kube.FirstPodName(ctx, multiNodeNamespace, selector)
+		n, err := h.Kube.FirstPodName(ctx, nvmlMockNamespace, selector)
 		name = n
 		return n, err
 	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
 		ShouldNot(BeEmpty(), "no pod for release %s", releaseName)
-	return kube.PodRef{Namespace: multiNodeNamespace, Pod: name}
+	return kube.PodRef{Namespace: nvmlMockNamespace, Pod: name}
 }
 
 func multiNodeSchedulingManifest() []byte {

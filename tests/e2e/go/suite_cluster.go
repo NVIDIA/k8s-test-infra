@@ -30,6 +30,36 @@ func firstNvmlPod(ctx context.Context, h *harness.Harness) kube.PodRef {
 	return kube.PodRef{Namespace: nvmlMockNamespace, Pod: name}
 }
 
+// nvmlPodOnNode returns the running nvml-mock DaemonSet pod scheduled on the
+// given node. Used by scenarios that need to pin a runtime override to a
+// specific node's mock (and query the same node's consumer) rather than
+// whichever pod happens to sort first — the load-bearing invariant for the
+// GPU Operator runtime-control specs on the shared multi-node cluster, where
+// dcgm-exporter also runs per-node.
+func nvmlPodOnNode(ctx context.Context, h *harness.Harness, node string) kube.PodRef {
+	GinkgoHelper()
+	var name string
+	Eventually(func() (string, error) {
+		names, err := h.Kube.RunningPodNames(ctx, nvmlMockNamespace, nvmlMockSelector)
+		if err != nil {
+			return "", err
+		}
+		for _, n := range names {
+			on, nodeErr := h.Kube.PodNode(ctx, nvmlMockNamespace, n)
+			if nodeErr != nil {
+				return "", nodeErr
+			}
+			if on == node {
+				name = n
+				return name, nil
+			}
+		}
+		return "", nil
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		ShouldNot(BeEmpty(), "no running nvml-mock pod on node %s", node)
+	return kube.PodRef{Namespace: nvmlMockNamespace, Pod: name}
+}
+
 // podNode resolves the Kubernetes node a pod is scheduled on.
 func podNode(ctx context.Context, h *harness.Harness, pod kube.PodRef) string {
 	GinkgoHelper()
