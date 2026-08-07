@@ -1,0 +1,33 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Helm values for topograph when running against nvml-mock in the
+# compute-domain local dev scenario.
+#
+# Usage (via Tilt):
+#   tilt up -- --topograph            # implies --compute-domain
+#
+# Prerequisites (still requires `make cluster-create PROFILE=compute-domain`
+# for the cluster shape):
+#   - --compute-domain: 4-worker Kind cluster where each worker carries a
+#     static nvidia.com/gpu.clique label that topograph reads directly.
+
+# 'infiniband-k8s' with useGpuCliqueLabel=true reads nvidia.com/gpu.clique
+# node labels and emits richer tier topology: network.topology.nvidia.com/
+# {accelerator, tier-0, tier-1, …}. The tier labels are what topology-aware
+# schedulers (KAI, Kueue TAS) expect for gang scheduling.
+#
+# With useGpuCliqueLabel=true the node-data-broker's GetNodeAnnotations
+# returns {instance: hostname, region: "local"} — no ibnetdiscover, no
+# nvidia-smi exec, no InfiniBand hardware required.
+global:
+  provider:
+    name: infiniband-k8s
+    params:
+      useGpuCliqueLabel: true
+
+  # 'k8s' writes plain node labels under network.topology.nvidia.com/
+  # (accelerator + tier-0/tier-1/…). Alternative 'nfd' engine emits
+  # NodeFeature CRs; not needed for local dev.
+  engine:
+    name: k8s
