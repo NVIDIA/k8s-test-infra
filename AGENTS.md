@@ -17,7 +17,7 @@ so all consumers and applications up the stack work without modifications.
 
 ## Scale
 
-- The system should work well for clusters with tens of thousands or a few million nodes.
+- The system should work well for clusters up to 100k nodes.
 
 ## Tech Stack
 
