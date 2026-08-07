@@ -22,7 +22,7 @@ tilt up -- --gpu-operator
 
 ## Step 1 — Create a cluster
 
-All profiles use the same custom Kind node image (`kind-node-nv:latest`) built from `local/kind/Dockerfile`, which pre-installs the NVIDIA container runtime.
+All profiles use the same custom Kind node image (`kind-node-nv:latest`) built from `deployments/kind-nvidia-cdi/Dockerfile`, which pre-installs the NVIDIA container runtime and bakes CDI into containerd.
 
 The default profile spans 1 control-plane + 2 workers (a100 + t4), so no cluster rebuild is needed when switching between homogeneous (single Helm release) and heterogeneous (per-GPU-profile) nvml-mock installation, or when enabling `--fgo`.
 

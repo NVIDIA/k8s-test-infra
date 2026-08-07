@@ -148,7 +148,7 @@ image-kind-node:
 		}; \
 		echo "Using pre-built $(KIND_NODE_IMAGE) already present locally"; \
 	else \
-		docker build -t $(KIND_NODE_IMAGE) ./local/kind; \
+		docker build -t $(KIND_NODE_IMAGE) ./deployments/kind-nvidia-cdi; \
 	fi
 
 cluster-create: image-kind-node
