@@ -1,18 +1,18 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Kind cluster config for ComputeDomain (NVLink fabric) simulation.
+# Kind cluster config for the NRI-based ComputeDomain (NVLink fabric) demo.
 #
-# The real nvidia-imex daemons (NO GPU mode via imex-nogpu-shim)
-# coordinate over the pod network, so no shared hostPath is required.
-# The mock NVML library reads the topology overlay (Helm value
-# topology.enabled=true) to learn its clique / cluster UUID.
+# containerd NRI injects the staged mock stack, node topology identity, and
+# annotated IMEX channel devices into ordinary workload pods. The real
+# nvidia-imex daemons (NO GPU mode via imex-nogpu-shim) coordinate over the
+# pod network.
 #
-# Pair with the gb200 profile and topology enabled:
-#   helm install nvml-mock deployments/nvml-mock/helm/nvml-mock \
-#     --set gpu.profile=gb200 \
-#     --set topology.enabled=true \
-#     -f docs/demo/compute-domain/topology.yaml
+# Install nvml-mock in the dedicated `mokka` namespace with the `gb200`
+# profile, `topology.enabled=true`, `nri.enabled=true`, and
+# `imex.mockChannels.enabled=true`. Mock channel/caps majors must be unused on
+# every Kind node; use docs/demo/compute-domain/run.sh, which selects them
+# dynamically and supplies the topology overlay.
 #
 # Cluster-name convention: Kind names each worker
 # `<cluster-name>-worker[N]`. The demo's topology.yaml lists nodes as
@@ -26,6 +26,9 @@ containerdConfigPatches:
   - |-
     [plugins."io.containerd.grpc.v1.cri"]
       enable_cdi = true
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      socket_path = "/var/run/nri/nri.sock"
 nodes:
   - role: control-plane
   - role: worker

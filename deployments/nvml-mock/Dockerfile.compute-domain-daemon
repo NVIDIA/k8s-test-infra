@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Overlay images pairing the REAL nvidia-imex (NO GPU mode) with the
-# mock stack. Two targets:
+# mock stack. Three targets:
 #
 #   daemon (default) — the upstream compute-domain-daemon image with
 #       the real nvidia-imex / nvidia-imex-ctl and the imex-nogpu-shim
@@ -23,7 +23,11 @@
 #       --nogpu appended: the real daemon then runs the real gRPC peer
 #       protocol without GPUs.
 #
-#   demo — the same real-IMEX trio layered onto the nvml-mock image;
+#   demo — compatibility target with the same real-IMEX trio layered
+#       onto the nvml-mock image; used by the local Tilt workflow.
+#
+#   workload — Ubuntu plus the real IMEX package and shim, but no mock
+#       libraries or mock files. This is the ordinary NRI-injected workload
 #       used by docs/demo/compute-domain/run.sh Scenario 2.
 #
 # LOCAL BUILD ONLY — never publish these images: they repackage the
@@ -78,10 +82,18 @@ COPY --from=imex /usr/bin/nvidia-imex-ctl     /usr/bin/nvidia-imex-ctl
 COPY --from=imex /etc/nvidia-imex/config.cfg  /etc/nvidia-imex/config.cfg
 COPY --from=shim /out/imex-nogpu-shim         /usr/bin/nvidia-imex
 
+# workload: retain the package's runtime dependencies and /bin/sh from the
+# Ubuntu stage, while deliberately omitting the nvml-mock image. The NRI demo
+# must prove that mock NVML, topology, and channel devices come from NRI rather
+# than from the workload image itself.
+FROM imex AS workload
+RUN mv /usr/bin/nvidia-imex /usr/bin/nvidia-imex.real
+COPY --from=shim /out/imex-nogpu-shim         /usr/bin/nvidia-imex
+
 # daemon (default target): real IMEX on top of the upstream
 # compute-domain-daemon image. Upstream renders its own imexd.cfg from
 # its template, so no config.cfg is copied here.
-FROM ${COMPUTE_DOMAIN_DAEMON_IMAGE}
+FROM ${COMPUTE_DOMAIN_DAEMON_IMAGE} AS daemon
 COPY --from=imex /usr/bin/nvidia-imex         /usr/bin/nvidia-imex.real
 COPY --from=imex /usr/bin/nvidia-imex-ctl     /usr/bin/nvidia-imex-ctl
 COPY --from=shim /out/imex-nogpu-shim         /usr/bin/nvidia-imex

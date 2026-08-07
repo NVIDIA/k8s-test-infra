@@ -1,0 +1,63 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# A normal workload: it has no mock volume, mock environment variables, GPU
+# request, or RuntimeClass. containerd's NRI plugin supplies the mock overlay,
+# topology identity, and the annotated IMEX channel device nodes.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: compute-domain-imex
+  labels:
+    app: compute-domain-imex
+spec:
+  selector:
+    matchLabels:
+      app: compute-domain-imex
+  template:
+    metadata:
+      labels:
+        app: compute-domain-imex
+      annotations:
+        nvml-mock.nvidia.com/imex-channels: "true"
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      containers:
+        - name: imex
+          image: nvml-mock:compute-domain-imex
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c", "trap : TERM INT; sleep infinity & wait"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+# The real IMEX daemons listen on both the peer and command/status ports. A
+# podSelector-only peer is namespace-local, so only other pods from this
+# workload in compute-domain-workload can connect. Selecting Ingress alone
+# intentionally leaves all egress unrestricted.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: compute-domain-imex
+spec:
+  podSelector:
+    matchLabels:
+      app: compute-domain-imex
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: compute-domain-imex
+      ports:
+        - port: 50000
+          protocol: TCP
+        - port: 50005
+          protocol: TCP
