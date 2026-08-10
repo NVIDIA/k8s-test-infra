@@ -8,18 +8,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 SHELL := /usr/bin/env bash
-# NOTE: GNU Make only honours .SHELLFLAGS from 3.82 onward. macOS ships 3.81,
-# which treats the line below as an ordinary variable and runs recipes with a
-# bare `-c`. Any recipe whose exit status depends on these flags must set them
-# itself — see the `e2e` and `.mod-verify` targets.
 .SHELLFLAGS := -o pipefail -ec
 
-.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
-
 GO_CMD ?= go
-GO_FMT ?= gofmt
 GO_SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
+
+BIN_DIR=$(PWD)/tmp/bin
 
 VERSION := 0.0.1
 
@@ -31,12 +27,42 @@ IMAGE_TAG := $(IMAGE_REPO):$(IMAGE_TAG_NAME)
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 
+.PHONY: help
+help:
+	@echo "🛠️ Dev Commands\n"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+
+.PHONY: tools
+tools: ## Install static checkers & other binaries
+	@echo "🚚 Downloading tools.."
+	@GOBIN=$(BIN_DIR) go install mvdan.cc/gofumpt@latest
+	@GOBIN=$(BIN_DIR) go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@GOBIN=$(BIN_DIR) go install github.com/denis-tingaikin/go-header/cmd/go-header@latest
+	@GOBIN=$(BIN_DIR) go install github.com/goreleaser/goreleaser/v2@latest
+
+.PHONY: lint
+lint: tools ## Lint the source code
+	@echo "🧹 Cleaning go.mod.."
+	@go mod tidy
+	@echo "🧹 Formatting files.."
+	@go fmt ./...
+	@$(BIN_DIR)/gofumpt -l -w .
+	@echo "🧹 Vetting go.mod.."
+	@go vet ./...
+	@echo "🧹 GoCI Lint.."
+	@$(BIN_DIR)/golangci-lint run ./...
+	@echo "🧹Check GoReleaser.."
+	@$(BIN_DIR)/goreleaser check
+
+.PHONY: gen
+gen: ## Generate NVML Bridge
+	@echo "Generate NVML Bridge.."
+	@go generate ./pkg/gpu/mocknvml/bridge/...
+
+.PHONY: build
 build:
 	@rm -rf bin
 	$(GO_CMD) build -o bin/$(BINARY_NAME) cmd/nv-ci-bot/main.go
-
-fmt:
-	@$(GO_FMT) -w -l $$(find . -name '*.go')
 
 verify:
 	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go')`; \
@@ -45,18 +71,15 @@ verify:
 	    exit 1; \
 	fi
 
-lint:
-	golangci-lint run ./...
-
 vendor:
 	go mod tidy
 	go mod vendor
 	go mod verify
 
-check-vendor: vendor
+vendor-check: vendor
 	git diff --quiet HEAD -- go.mod go.sum vendor
 
-.PHONY: modules check-modules
+.PHONY: modules vendor-check
 modules:  | .mod-tidy .mod-vendor .mod-verify
 .mod-tidy:
 	@for mod in $$(find . -name go.mod -not -path "./testdata/*" -not -path "./third_party/*"); do \
@@ -79,7 +102,7 @@ modules:  | .mod-tidy .mod-vendor .mod-verify
 	    ) || exit 1; \
 	done
 
-check-modules: modules
+modules-check: modules
 	@echo "- Checking if go.mod and go.sum are in sync..."
 	@git diff --exit-code -- $$(find . -name go.mod -name go.sum)
 	@echo "- Checking if the go mod vendor dir is in sync..."
@@ -98,10 +121,6 @@ helm-unittest:
 .PHONY: test-e2e-framework
 test-e2e-framework:
 	$(GO_CMD) test -tags e2e -race ./tests/e2e/go/framework/...
-
-.PHONY: generate
-generate:
-	go generate ./pkg/gpu/mocknvml/bridge/...
 
 # Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
 # Docker-based, hence separate from the `go test` run.

@@ -9,3 +9,5 @@ terminals
 **/*.md
 LICENSES
 **/__snapshot__
+bin
+tmp

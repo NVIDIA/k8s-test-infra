@@ -102,11 +102,15 @@ def build_images(with_dra):
         )
 
 
-def install(active_consumers):
+def install(active_consumers, control_plane=False):
     """Install the nvml-mock helm release with the compute-domain topology.
 
     Returns ['nvml-mock'] so downstream consumers (dra, gpu-operator)
     can pass it as resource_deps.
+
+    control_plane=True flips controlPlane.enabled on the release and
+    threads the CP image through image_deps so Tilt rebuilds → pins →
+    rolls the Deployment alongside the compute-domain scenario.
     """
     flags = [
         '--values', 'local/compute-domain/topology.yaml',
@@ -119,11 +123,18 @@ def install(active_consumers):
         if os.path.exists(overlay):
             flags += ['--values', overlay]
 
+    image_deps = [_DEMO_IMAGE]
+    image_keys = [('image.repository', 'image.tag')]
+    if control_plane:
+        flags += ['--set', 'controlPlane.enabled=true']
+        image_deps.append('ghcr.io/nvidia/mokka-control-plane')
+        image_keys.append(('controlPlane.image.repository', 'controlPlane.image.tag'))
+
     helm_resource(
         'nvml-mock',
         _CHART,
-        image_deps=[_DEMO_IMAGE],
-        image_keys=[('image.repository', 'image.tag')],
+        image_deps=image_deps,
+        image_keys=image_keys,
         flags=flags,
         labels=['mokka'],
     )

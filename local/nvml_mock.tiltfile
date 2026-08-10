@@ -24,6 +24,7 @@ load('ext://helm_resource', 'helm_resource')
 FLEET_PROFILES = ['a100', 't4']
 
 _IMAGE = 'ghcr.io/nvidia/nvml-mock'
+_CONTROL_PLANE_IMAGE = 'ghcr.io/nvidia/mokka-control-plane'
 _CHART = 'deployments/nvml-mock/helm/nvml-mock'
 # Must match nvmlMockNamespace in tests/e2e/go/e2e_suite_test.go — the Ginkgo
 # suite queries kube by that namespace name. "mokka" is the project name.
@@ -70,7 +71,29 @@ def build_nvml_mock_image(nvmlmock_image=''):
         ],
     )
 
-def _install(release, profile, active_consumers, extra_set, nvmlmock_image=''):
+def build_control_plane_image():
+    """Build the Mokka Control Plane image.
+
+    Kept separate from build_nvml_mock_image so a run without --control-plane
+    doesn't pay the (tiny) cost of an unnecessary docker_build. The context is
+    the repo root for the same reason as nvml-mock: the Dockerfile pulls
+    go.mod/vendor/pkg/cmd from the root.
+    """
+    docker_build(
+      _CONTROL_PLANE_IMAGE,
+        context='.',
+        dockerfile='deployments/mokka-control-plane/Dockerfile',
+        only=[
+            'go.mod',
+            'go.sum',
+            'vendor/',
+            'cmd/',
+            'pkg/',
+            'deployments/mokka-control-plane/',
+        ],
+    )
+
+def _install(release, profile, active_consumers, extra_set, nvmlmock_image='', control_plane=False):
     flags = [
         '--set', 'gpu.profile=' + profile,
     ]
@@ -83,6 +106,11 @@ def _install(release, profile, active_consumers, extra_set, nvmlmock_image=''):
     if nvmlmock_image:
         repo, tag = _split_image(nvmlmock_image)
         flags += ['--set', 'image.repository=' + repo, '--set', 'image.tag=' + tag]
+
+    # Flip the chart's controlPlane.enabled gate. build_control_plane_image()
+    # must have already run so the manifest reference in image_deps resolves.
+    if control_plane:
+        flags += ['--set', 'controlPlane.enabled=true']
 
     # Shared committed baseline for local-dev (e.g. MOCK_IB, gpu.count tweaks).
     if os.path.exists('local/nvml-mock.values.yaml'):
@@ -110,12 +138,25 @@ def _install(release, profile, active_consumers, extra_set, nvmlmock_image=''):
 
     # image_deps/image_keys only make sense when docker_build actually ran,
     # otherwise Tilt would look for an image manifest reference that isn't
-    # in the resource graph.
-    if nvmlmock_image:
+    # in the resource graph. When --control-plane is on, the CP image is
+    # always built (there is no CI skip for it yet), so add it unconditionally
+    # to the deps list.
+    image_deps = []
+    image_keys = []
+    if not nvmlmock_image:
+        image_deps.append(_IMAGE)
+        image_keys.append(('image.repository', 'image.tag'))
+    if control_plane:
+        image_deps.append(_CONTROL_PLANE_IMAGE)
+        image_keys.append(('controlPlane.image.repository', 'controlPlane.image.tag'))
+
+    if image_deps:
         helm_resource(
             release,
             _CHART,
             namespace=_NAMESPACE,
+            image_deps=image_deps,
+            image_keys=image_keys,
             flags=flags,
         )
     else:
@@ -123,23 +164,31 @@ def _install(release, profile, active_consumers, extra_set, nvmlmock_image=''):
             release,
             _CHART,
             namespace=_NAMESPACE,
-            image_deps=[_IMAGE],
-            image_keys=[('image.repository', 'image.tag')],
             flags=flags,
         )
 
-def install_single(profile, active_consumers, nvmlmock_image=''):
+def install_single(profile, active_consumers, nvmlmock_image='', control_plane=False):
     """Install one nvml-mock release named 'nvml-mock'."""
-    _install('nvml-mock', profile, active_consumers, extra_set=[], nvmlmock_image=nvmlmock_image)
+    _install(
+        'nvml-mock', profile, active_consumers,
+        extra_set=[],
+        nvmlmock_image=nvmlmock_image,
+        control_plane=control_plane,
+    )
 
     return ['nvml-mock']
 
-def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image=''):
+def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image='', control_plane=False):
     """Install one nvml-mock release per profile, node-pinned to workers.
 
     The chart's fullname template collapses to the release name when it already
     contains the chart name ('nvml-mock'), so 'nvml-mock-a100' / 'nvml-mock-t4'
     produce collision-free DaemonSets, ConfigMaps, RBAC across releases.
+
+    control_plane=True flips controlPlane.enabled on every release. In fleet
+    mode this yields one CP per profile; that's fine for the init slice
+    (health probes only), and future MEPs that give the CP real state will
+    revisit the placement story.
     """
     for p in profiles:
         _install(
@@ -148,6 +197,7 @@ def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image=''
             active_consumers,
             extra_set=['nodeSelector.nvml-mock/profile=' + p],
             nvmlmock_image=nvmlmock_image,
+            control_plane=control_plane,
         )
 
     return ['nvml-mock-' + p for p in profiles]

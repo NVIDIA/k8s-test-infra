@@ -372,3 +372,28 @@ integrations:
     # emitted by the template and cannot be removed through this map.
     profileLabels:
       run.ai/gpu-profile: "true"
+
+# Mokka Control Plane (MEP-0001). Defaults to disabled: the init slice serves
+# only /healthz and /readyz, so enabling it today only buys the probe surface.
+# Singleton-per-cluster placement is deferred to the MEP that gives the CP
+# real state; until then N releases produce N stateless CPs, which is fine.
+controlPlane:
+  enabled: false
+  replicas: 1
+  image:
+    repository: ghcr.io/nvidia/mokka-control-plane
+    tag: latest
+    pullPolicy: IfNotPresent
+  logLevel: info                       # debug | info | warn | error
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
