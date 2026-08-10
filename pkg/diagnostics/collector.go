@@ -78,7 +78,7 @@ func (c *Config) outputTo(filename string, objects any) error {
 	if err != nil {
 		return fmt.Errorf("error creating %v: %w", filename, err)
 	}
-	defer outputfile.Close() //nolint:errcheck
+	defer func() { _ = outputfile.Close() }() // close best-effort; error is unactionable on the cleanup path
 	if err = c.writeToFile(outputfile, objects); err != nil {
 		return fmt.Errorf("error writing to %v: %w", filename, err)
 	}
@@ -97,7 +97,7 @@ func (d *Diagnostic) Collect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("error creating collector log file: %w", err)
 	}
-	defer logFile.Close() //nolint:errcheck
+	defer func() { _ = logFile.Close() }() // close best-effort; error is unactionable on the cleanup path
 	d.log = logFile
 
 	// configure klog to write to the log file

@@ -144,7 +144,7 @@ func (c podLogCollector) Collect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("error creating podLogFile: %w", err)
 	}
-	defer podLogFile.Close() //nolint:errcheck
+	defer func() { _ = podLogFile.Close() }() // close best-effort; error is unactionable on the cleanup path
 
 	req := c.Clientset.CoreV1().Pods(c.namespace).GetLogs(c.name, &v1.PodLogOptions{})
 	podLogs, err := req.Stream(ctx)

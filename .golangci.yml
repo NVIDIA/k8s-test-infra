@@ -55,6 +55,14 @@ linters:
       # carry 30+ values; enumerating them all defeats the point of a mock
       # that only implements the well-known cases and falls through the rest.
       default-signifies-exhaustive: true
+    nolintlint:
+      # allow-unused stays at its default (false): unused //nolint directives
+      # elsewhere in the tree should still be flagged so stale silences get
+      # cleaned up. The one legitimate cross-platform case (Rdev cast in
+      # cmd/nvml-mock-nri/main.go) is handled via a path-scoped exclusion in
+      # the `exclusions.rules` block below.
+      require-specific: true
+      require-explanation: true
     staticcheck:
       checks:
         - "all"
@@ -104,6 +112,17 @@ linters:
         linters:
           - revive
         text: 'var-naming'
+      # cmd/nvml-mock-nri/main.go casts syscall.Stat_t.Rdev to uint64 — a no-op
+      # on Linux (where Rdev is uint64) but required on Darwin (where Rdev is
+      # int32). We //nolint:unconvert the two lines; on Darwin those directives
+      # look "unused" to nolintlint, and its autofix would strip them and green
+      # local `make lint-fix` at the cost of a red Linux CI. Scoping the "unused
+      # directive" exclusion to just this file keeps stale nolints in the rest
+      # of the tree flagged normally.
+      - path: ^cmd/nvml-mock-nri/main\.go$
+        linters:
+          - nolintlint
+        text: 'directive .* is unused'
 
 issues:
   # Report every occurrence, not the first three. The default of 3 groups by

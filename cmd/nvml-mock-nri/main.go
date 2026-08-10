@@ -243,8 +243,8 @@ func nriDevice(device nvmlmock.Device) (*api.LinuxDevice, error) {
 	return &api.LinuxDevice{
 		Path:     device.Path,
 		Type:     "c",
-		Major:    int64(major(uint64(stat.Rdev))),
-		Minor:    int64(minor(uint64(stat.Rdev))),
+		Major:    int64(major(uint64(stat.Rdev))), //nolint:unconvert // stat.Rdev is uint64 on Linux (no-op) but int32 on Darwin — the cast is required for local macOS builds
+		Minor:    int64(minor(uint64(stat.Rdev))), //nolint:unconvert // stat.Rdev is uint64 on Linux (no-op) but int32 on Darwin — the cast is required for local macOS builds
 		FileMode: api.FileMode(os.FileMode(stat.Mode) & os.ModePerm),
 		Uid:      api.UInt32(stat.Uid),
 		Gid:      api.UInt32(stat.Gid),
