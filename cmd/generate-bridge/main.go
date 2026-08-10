@@ -181,33 +181,38 @@ func scanBridgeExports(bridgeDir string) (map[string]bool, error) {
 
 		lines := strings.Split(string(content), "\n")
 		for i, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "//export ") {
-				// Extract function name from the //export comment
-				funcName := strings.TrimPrefix(trimmed, "//export ")
-				funcName = strings.TrimSpace(funcName)
-				if funcName != "" {
-					exports[funcName] = true
-				}
-			} else if strings.HasPrefix(trimmed, "//export") && i+1 < len(lines) {
-				// Handle case where function name is on the next line
-				nextLine := strings.TrimSpace(lines[i+1])
-				if strings.HasPrefix(nextLine, "func ") {
-					// Extract function name: "func nvmlInit_v2(..."
-					parts := strings.Fields(nextLine)
-					if len(parts) > 1 {
-						funcName := strings.Split(parts[1], "(")[0]
-						if funcName != "" {
-							exports[funcName] = true
-						}
-					}
-				}
+			var nextLine string
+			if i+1 < len(lines) {
+				nextLine = strings.TrimSpace(lines[i+1])
+			}
+			if name := exportedFuncName(strings.TrimSpace(line), nextLine); name != "" {
+				exports[name] = true
 			}
 		}
 		return nil
 	})
 
 	return exports, err
+}
+
+// exportedFuncName parses a single trimmed source line for a cgo //export
+// directive and returns the exported function name. Handles both the inline
+// form ("//export foo") and the split form ("//export\nfunc foo(...)").
+// Returns "" when the line is not an //export directive or the name cannot
+// be resolved.
+func exportedFuncName(trimmed, nextLine string) string {
+	if name, ok := strings.CutPrefix(trimmed, "//export "); ok {
+		return strings.TrimSpace(name)
+	}
+	if !strings.HasPrefix(trimmed, "//export") || !strings.HasPrefix(nextLine, "func ") {
+		return ""
+	}
+	// Split form: "func nvmlInit_v2(..."
+	parts := strings.Fields(nextLine)
+	if len(parts) < 2 {
+		return ""
+	}
+	return strings.Split(parts[1], "(")[0]
 }
 
 // findMissing returns functions that exist in allFunctions but not in existingFunctions.

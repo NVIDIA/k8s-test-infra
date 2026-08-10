@@ -86,41 +86,12 @@ func LoadConfig() *Config {
 	// Check for YAML config file first
 	if configPath != "" {
 		yamlConfig, err := LoadYAMLConfig(configPath)
-		if err != nil {
-			// Log visible warning since user explicitly requested this config file
-			warnLog("Failed to load YAML config from %s: %v, falling back to defaults\n", configPath, err)
-		} else {
-			config.YAMLConfig = yamlConfig
-			// Apply system-level config from YAML
-			config.DriverVersion = yamlConfig.System.DriverVersion
-			config.NumDevices = len(yamlConfig.Devices)
-			if config.NumDevices == 0 {
-				config.NumDevices = 8 // Default if no devices specified
-			}
-
-			// system.num_devices overrides the device list count.
-			// setup.sh injects this so the .so knows the desired GPU count
-			// without consumers needing to set env vars.
-			if yamlConfig.System.NumDevices > 0 {
-				config.NumDevices = yamlConfig.System.NumDevices
-			}
-
-			// Topology overlay: when a cluster-level topology ConfigMap is
-			// mounted into the pod we look up the current Kubernetes node
-			// (NODE_NAME) and override the fabric cluster UUID / clique ID
-			// on the YAML defaults so every device on this node reports
-			// the correct ComputeDomain identity. Nodes not present in the
-			// topology fall through to the YAML-default fabric config (or
-			// to NOT_SUPPORTED when none is set, matching non-GB200 GPUs).
-			applyTopologyOverlay(yamlConfig)
-
-			debugLog("[CONFIG] Loaded YAML config: %d devices, driver %s\n", config.NumDevices, config.DriverVersion)
-
-			// Cache the config
-			configCache = config
-			configCachePath = configPath
+		if err == nil {
+			applyYAMLConfig(config, yamlConfig, configPath)
 			return config
 		}
+		// Log visible warning since user explicitly requested this config file
+		warnLog("Failed to load YAML config from %s: %v, falling back to defaults\n", configPath, err)
 	}
 
 	// Fall back to environment variable overrides
@@ -140,6 +111,41 @@ func LoadConfig() *Config {
 	configCache = config
 	configCachePath = configPath
 	return config
+}
+
+// applyYAMLConfig populates config from a successfully-loaded YAMLConfig and
+// primes the LoadConfig cache. Callers only reach this once LoadYAMLConfig
+// returned nil error, so the YAML values are trusted here — the fall-back /
+// env-var branches stay in LoadConfig itself.
+func applyYAMLConfig(config *Config, yamlConfig *YAMLConfig, configPath string) {
+	config.YAMLConfig = yamlConfig
+	// Apply system-level config from YAML
+	config.DriverVersion = yamlConfig.System.DriverVersion
+	config.NumDevices = len(yamlConfig.Devices)
+	if config.NumDevices == 0 {
+		config.NumDevices = 8 // Default if no devices specified
+	}
+
+	// system.num_devices overrides the device list count.
+	// setup.sh injects this so the .so knows the desired GPU count
+	// without consumers needing to set env vars.
+	if yamlConfig.System.NumDevices > 0 {
+		config.NumDevices = yamlConfig.System.NumDevices
+	}
+
+	// Topology overlay: when a cluster-level topology ConfigMap is
+	// mounted into the pod we look up the current Kubernetes node
+	// (NODE_NAME) and override the fabric cluster UUID / clique ID
+	// on the YAML defaults so every device on this node reports
+	// the correct ComputeDomain identity. Nodes not present in the
+	// topology fall through to the YAML-default fabric config (or
+	// to NOT_SUPPORTED when none is set, matching non-GB200 GPUs).
+	applyTopologyOverlay(yamlConfig)
+
+	debugLog("[CONFIG] Loaded YAML config: %d devices, driver %s\n", config.NumDevices, config.DriverVersion)
+
+	configCache = config
+	configCachePath = configPath
 }
 
 // ConfigOverridePathFor resolves the runtime overrides file path from the resolved

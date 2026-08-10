@@ -93,28 +93,7 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 	}
 
 	// Override base device properties from config
-	if config != nil {
-		if config.Name != "" {
-			dev.Config.Name = config.Name
-		}
-		if config.Architecture != "" {
-			dev.Config.Architecture = parseArchitecture(config.Architecture)
-		}
-		if config.Brand != "" {
-			dev.Config.Brand = parseBrand(config.Brand)
-		}
-		if config.ComputeCapability != nil {
-			dev.Config.CudaMajor = config.ComputeCapability.Major
-			dev.Config.CudaMinor = config.ComputeCapability.Minor
-		}
-		if config.Memory != nil {
-			dev.MemoryInfo = nvml.Memory{
-				Total: config.Memory.TotalBytes,
-				Free:  config.Memory.FreeBytes,
-				Used:  config.Memory.UsedBytes,
-			}
-		}
-	}
+	applyDeviceBaseOverrides(dev, config)
 
 	// Override UUID if provided
 	if uuid != "" {
@@ -159,6 +138,37 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Config.Name, dev.UUID, dev.PciBusID)
 
 	return dev
+}
+
+// applyDeviceBaseOverrides copies whichever base fields the YAML profile
+// explicitly set (Name / Architecture / Brand / ComputeCapability / Memory)
+// onto the pre-built ConfigurableDevice. Everything else is left at the
+// dgxa100 base or the go-nvml mock defaults so an empty profile still yields
+// a working device.
+func applyDeviceBaseOverrides(dev *ConfigurableDevice, config *DeviceConfig) {
+	if config == nil {
+		return
+	}
+	if config.Name != "" {
+		dev.Config.Name = config.Name
+	}
+	if config.Architecture != "" {
+		dev.Config.Architecture = parseArchitecture(config.Architecture)
+	}
+	if config.Brand != "" {
+		dev.Config.Brand = parseBrand(config.Brand)
+	}
+	if config.ComputeCapability != nil {
+		dev.Config.CudaMajor = config.ComputeCapability.Major
+		dev.Config.CudaMinor = config.ComputeCapability.Minor
+	}
+	if config.Memory != nil {
+		dev.MemoryInfo = nvml.Memory{
+			Total: config.Memory.TotalBytes,
+			Free:  config.Memory.FreeBytes,
+			Used:  config.Memory.UsedBytes,
+		}
+	}
 }
 
 // cfg returns the current effective device config, applying any pending
@@ -1040,40 +1050,47 @@ func (d *ConfigurableDevice) GetInforomImageVersion() (string, nvml.Return) {
 
 // GetCurrentClocksThrottleReasons returns clock throttle reasons bitmask
 func (d *ConfigurableDevice) GetCurrentClocksThrottleReasons() (uint64, nvml.Return) {
-	reasons := uint64(0)
+	var reasons uint64
 	if c := d.cfg(); c.ClocksThrottleReasons != nil {
-		ctr := c.ClocksThrottleReasons
-		if ctr.GPUIdle {
-			reasons |= nvml.ClocksThrottleReasonGpuIdle
-		}
-		if ctr.ApplicationsClocksSetting {
-			reasons |= nvml.ClocksThrottleReasonApplicationsClocksSetting
-		}
-		if ctr.SWPowerCap {
-			reasons |= nvml.ClocksThrottleReasonSwPowerCap
-		}
-		if ctr.HWSlowdown {
-			reasons |= nvml.ClocksThrottleReasonHwSlowdown
-		}
-		if ctr.SyncBoost {
-			reasons |= nvml.ClocksThrottleReasonSyncBoost
-		}
-		if ctr.SWThermalSlowdown {
-			reasons |= nvml.ClocksThrottleReasonSwThermalSlowdown
-		}
-		if ctr.HWThermalSlowdown {
-			reasons |= nvml.ClocksThrottleReasonHwThermalSlowdown
-		}
-		if ctr.HWPowerBrakeSlowdown {
-			reasons |= nvml.ClocksThrottleReasonHwPowerBrakeSlowdown
-		}
-		if ctr.DisplayClocksSetting {
-			// Display clock setting throttle reason (value 256)
-			reasons |= 256
-		}
+		reasons = throttleReasonsBitmask(c.ClocksThrottleReasons)
 	}
 	debugLog("[NVML] nvmlDeviceGetCurrentClocksThrottleReasons -> 0x%x\n", reasons)
 	return reasons, nvml.SUCCESS
+}
+
+// throttleReasonsBitmask packs the boolean-per-reason config into NVML's
+// nvmlClocksThrottleReasons_t bitmask.
+func throttleReasonsBitmask(ctr *ClocksThrottleReasonsConfig) uint64 {
+	var reasons uint64
+	if ctr.GPUIdle {
+		reasons |= nvml.ClocksThrottleReasonGpuIdle
+	}
+	if ctr.ApplicationsClocksSetting {
+		reasons |= nvml.ClocksThrottleReasonApplicationsClocksSetting
+	}
+	if ctr.SWPowerCap {
+		reasons |= nvml.ClocksThrottleReasonSwPowerCap
+	}
+	if ctr.HWSlowdown {
+		reasons |= nvml.ClocksThrottleReasonHwSlowdown
+	}
+	if ctr.SyncBoost {
+		reasons |= nvml.ClocksThrottleReasonSyncBoost
+	}
+	if ctr.SWThermalSlowdown {
+		reasons |= nvml.ClocksThrottleReasonSwThermalSlowdown
+	}
+	if ctr.HWThermalSlowdown {
+		reasons |= nvml.ClocksThrottleReasonHwThermalSlowdown
+	}
+	if ctr.HWPowerBrakeSlowdown {
+		reasons |= nvml.ClocksThrottleReasonHwPowerBrakeSlowdown
+	}
+	if ctr.DisplayClocksSetting {
+		// Display clock setting throttle reason (value 256)
+		reasons |= 256
+	}
+	return reasons
 }
 
 // GetDisplayActive returns display active status
@@ -1479,32 +1496,35 @@ func (d *ConfigurableDevice) GetNvLinkRemotePciInfo(link int) (nvml.PciInfo, nvm
 	if !nvlinkLinkInRange(link) {
 		return pci, nvml.ERROR_INVALID_ARGUMENT
 	}
-	if d.fabric != nil {
-		if l, ok := d.fabric.Link(d.index, link); ok && l.RemoteBDF != "" {
-			// NVSwitch-attached links: a real GB200/HGX reports the "invalid"
-			// PCI sentinel (FFFFFFFF:FF:FF.0) for switch endpoints — switches
-			// are not PCI-enumerable from the GPU, so NVML fills 0xFF fields.
-			// Matching this makes `nvlink -p` and `-R` render exactly as on
-			// hardware ("Remote Device FFFFFFFF:FF:FF.0: Link 0"); a real-looking
-			// BDF instead makes `-R` attempt a device lookup that yields
-			// "Not Supported". Direct GPU<->GPU links still return the peer BDF.
-			if l.RemoteKind == RemoteSwitch {
-				setInvalidRemotePci(&pci)
-				debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> switch sentinel\n", link)
-				return pci, nvml.SUCCESS
-			}
-			if domain, bus, device, _, err := ParsePCIBusID(l.RemoteBDF); err == nil {
-				pci.Domain = domain
-				pci.Bus = bus
-				pci.Device = device
-				writeBusID(pci.BusId[:], l.RemoteBDF)
-				writeBusID(pci.BusIdLegacy[:], l.RemoteBDF)
-			}
-			debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> %s\n", link, l.RemoteBDF)
-			return pci, nvml.SUCCESS
-		}
+	if d.fabric == nil {
+		debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> empty\n", link)
+		return pci, nvml.SUCCESS
 	}
-	debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> empty\n", link)
+	l, ok := d.fabric.Link(d.index, link)
+	if !ok || l.RemoteBDF == "" {
+		debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> empty\n", link)
+		return pci, nvml.SUCCESS
+	}
+	// NVSwitch-attached links: a real GB200/HGX reports the "invalid"
+	// PCI sentinel (FFFFFFFF:FF:FF.0) for switch endpoints — switches
+	// are not PCI-enumerable from the GPU, so NVML fills 0xFF fields.
+	// Matching this makes `nvlink -p` and `-R` render exactly as on
+	// hardware ("Remote Device FFFFFFFF:FF:FF.0: Link 0"); a real-looking
+	// BDF instead makes `-R` attempt a device lookup that yields
+	// "Not Supported". Direct GPU<->GPU links still return the peer BDF.
+	if l.RemoteKind == RemoteSwitch {
+		setInvalidRemotePci(&pci)
+		debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> switch sentinel\n", link)
+		return pci, nvml.SUCCESS
+	}
+	if domain, bus, device, _, err := ParsePCIBusID(l.RemoteBDF); err == nil {
+		pci.Domain = domain
+		pci.Bus = bus
+		pci.Device = device
+		writeBusID(pci.BusId[:], l.RemoteBDF)
+		writeBusID(pci.BusIdLegacy[:], l.RemoteBDF)
+	}
+	debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> %s\n", link, l.RemoteBDF)
 	return pci, nvml.SUCCESS
 }
 
