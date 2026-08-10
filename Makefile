@@ -32,28 +32,6 @@ help:
 	@echo "🛠️ Dev Commands\n"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
-.PHONY: tools
-tools: ## Install static checkers & other binaries
-	@echo "🚚 Downloading tools.."
-	@GOBIN=$(BIN_DIR) go install mvdan.cc/gofumpt@latest
-	@GOBIN=$(BIN_DIR) go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	@GOBIN=$(BIN_DIR) go install github.com/denis-tingaikin/go-header/cmd/go-header@latest
-	@GOBIN=$(BIN_DIR) go install github.com/goreleaser/goreleaser/v2@latest
-
-.PHONY: lint
-lint: tools ## Lint the source code
-	@echo "🧹 Cleaning go.mod.."
-	@go mod tidy
-	@echo "🧹 Formatting files.."
-	@go fmt ./...
-	@$(BIN_DIR)/gofumpt -l -w .
-	@echo "🧹 Vetting go.mod.."
-	@go vet ./...
-	@echo "🧹 GoCI Lint.."
-	@$(BIN_DIR)/golangci-lint run ./...
-	@echo "🧹Check GoReleaser.."
-	@$(BIN_DIR)/goreleaser check
-
 .PHONY: gen
 gen: ## Generate NVML Bridge
 	@echo "Generate NVML Bridge.."
