@@ -55,6 +55,7 @@ static void gpmSetMetric(nvmlGpmMetricsGet_t *mg, unsigned int i, nvmlReturn_t r
 }
 */
 import "C"
+
 import (
 	"unsafe"
 

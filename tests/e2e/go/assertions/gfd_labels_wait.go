@@ -28,7 +28,7 @@ import (
 // untagged so they stay unit-testable without a cluster.
 func WaitGFDLabels(ctx context.Context, k *kube.Client, node string, want map[string]string, timeout, poll time.Duration) {
 	ginkgo.GinkgoHelper()
-	ginkgo.By(fmt.Sprintf("waiting for GFD labels on %s", node))
+	ginkgo.By("waiting for GFD labels on " + node)
 
 	var last []string
 	gomega.Eventually(func() ([]string, error) {

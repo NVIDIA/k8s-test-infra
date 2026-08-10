@@ -232,11 +232,11 @@ func LoadYAMLConfig(path string) (*YAMLConfig, error) {
 // validateYAMLConfig performs basic validation on the loaded config
 func validateYAMLConfig(config *YAMLConfig) error {
 	if config.Version == "" {
-		return fmt.Errorf("config version is required")
+		return errors.New("config version is required")
 	}
 
 	if config.System.DriverVersion == "" {
-		return fmt.Errorf("system.driver_version is required")
+		return errors.New("system.driver_version is required")
 	}
 
 	// Validate device indices are unique

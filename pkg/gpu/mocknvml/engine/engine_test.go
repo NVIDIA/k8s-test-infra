@@ -382,12 +382,14 @@ func TestEngine_DeviceGetHandleByPciBusId(t *testing.T) {
 
 	// Convert BusId to string (trim null bytes)
 	var busId string
+	var busIdSb385 strings.Builder
 	for _, b := range pciInfo.BusId {
 		if b == 0 {
 			break
 		}
-		busId += string(rune(b))
+		busIdSb385.WriteString(string(rune(b)))
 	}
+	busId += busIdSb385.String()
 
 	// Lookup by PCI bus ID
 	handleByPCI, ret := e.DeviceGetHandleByPciBusId(busId)
@@ -550,11 +552,13 @@ func TestVisibility_DeviceGetHandleByPciBusId(t *testing.T) {
 // pciInfoBusIdString extracts a Go string from the null-terminated BusId array.
 func pciInfoBusIdString(pci nvml.PciInfo) string {
 	var s string
+	var sSb553 strings.Builder
 	for _, b := range pci.BusId {
 		if b == 0 {
 			break
 		}
-		s += string(rune(b))
+		sSb553.WriteString(string(rune(b)))
 	}
+	s += sSb553.String()
 	return s
 }

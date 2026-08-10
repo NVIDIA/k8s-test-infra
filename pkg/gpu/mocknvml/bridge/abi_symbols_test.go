@@ -83,7 +83,7 @@ func TestNVML13SymbolsAreExportedAndVersioned(t *testing.T) {
 			require.Contains(t, string(stubs), "//export "+symbol.name)
 
 			if symbol.requiredOpaqueTyp != "" {
-				require.True(t, strings.Contains(string(types), symbol.requiredOpaqueTyp),
+				require.Contains(t, string(types), symbol.requiredOpaqueTyp,
 					"missing opaque C type %s", symbol.requiredOpaqueTyp)
 			}
 

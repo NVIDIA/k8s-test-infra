@@ -42,7 +42,7 @@ func GetNonControlPlaneNodes(ctx context.Context, cli clientset.Interface) ([]co
 		return nil, err
 	}
 	if len(nodeList.Items) == 0 {
-		return nil, fmt.Errorf("no nodes found in the cluster")
+		return nil, errors.New("no nodes found in the cluster")
 	}
 
 	controlPlaneTaint := corev1.Taint{
@@ -57,7 +57,7 @@ func GetNonControlPlaneNodes(ctx context.Context, cli clientset.Interface) ([]co
 	}
 
 	if len(out) == 0 {
-		return nil, fmt.Errorf("no non-control-plane nodes found in the cluster")
+		return nil, errors.New("no non-control-plane nodes found in the cluster")
 	}
 	return out, nil
 }

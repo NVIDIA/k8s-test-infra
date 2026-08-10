@@ -70,7 +70,7 @@ func Render(o Options) error {
 		return nil
 	}
 	if o.Output == "" {
-		return fmt.Errorf("pcisysfs render: Output is required")
+		return errors.New("pcisysfs render: Output is required")
 	}
 
 	root := o.Output

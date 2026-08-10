@@ -276,7 +276,7 @@ func (d *ConfigurableDevice) initBAR1Memory(config *DeviceConfig) {
 // Returns error if format is invalid.
 func ParsePCIBusID(busID string) (domain, bus, device, function uint32, err error) {
 	if busID == "" {
-		return 0, 0, 0, 0, fmt.Errorf("empty PCI bus ID")
+		return 0, 0, 0, 0, errors.New("empty PCI bus ID")
 	}
 
 	// Try standard format: DDDD:BB:DD.F (domain:bus:device.function)

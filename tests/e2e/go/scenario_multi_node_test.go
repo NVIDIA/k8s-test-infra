@@ -114,7 +114,7 @@ func installProfileOnNode(ctx context.Context, h *harness.Harness, releaseName, 
 
 func firstReleasePod(ctx context.Context, h *harness.Harness, releaseName string) kube.PodRef {
 	GinkgoHelper()
-	selector := fmt.Sprintf("app.kubernetes.io/instance=%s", releaseName)
+	selector := "app.kubernetes.io/instance=" + releaseName
 	var name string
 	Eventually(func() (string, error) {
 		n, err := h.Kube.FirstPodName(ctx, multiNodeNamespace, selector)

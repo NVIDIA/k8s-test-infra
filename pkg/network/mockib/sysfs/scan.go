@@ -67,7 +67,7 @@ func Scan(root string) ([]protocol.PortAdvert, error) {
 func parseLID(s string) (uint16, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return 0, fmt.Errorf("empty lid")
+		return 0, errors.New("empty lid")
 	}
 	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
 		v, err := strconv.ParseUint(s, 0, 16)

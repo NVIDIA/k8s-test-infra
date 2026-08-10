@@ -55,7 +55,7 @@ func NewGPUJob(name string, image string, gpuCount int) *batchv1.Job {
 							Image: image,
 							Resources: v1.ResourceRequirements{
 								Limits: v1.ResourceList{
-									"nvidia.com/gpu": resource.MustParse(fmt.Sprintf("%d", gpuCount)),
+									"nvidia.com/gpu": resource.MustParse(strconv.Itoa(gpuCount)),
 								},
 							},
 						},

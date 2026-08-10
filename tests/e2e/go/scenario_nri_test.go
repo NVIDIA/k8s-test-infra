@@ -729,7 +729,8 @@ func nriPluginHostPID(ctx context.Context, node string) string {
 // ComputeDomain overlay via `-f` (a structured merge of topology.domains, never
 // --set-file which would stuff the raw bytes in as a string literal).
 func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile, topoValues string,
-	withComputeDomain bool, extraSet ...map[string]string) {
+	withComputeDomain bool, extraSet ...map[string]string,
+) {
 	GinkgoHelper()
 	repo, tag := splitImage(config.Image())
 	rel := helm.Release{
@@ -933,9 +934,11 @@ spec:
 // point of using it.
 func nriMinimalIBPodManifest(name, tool string, args ...string) []byte {
 	argv := `"` + nriOverlayBinDir + "/" + tool + `"`
+	var argvSb937 strings.Builder
 	for _, a := range args {
-		argv += `, "` + a + `"`
+		argvSb937.WriteString(`, "` + a + `"`)
 	}
+	argv += argvSb937.String()
 	return []byte(`apiVersion: v1
 kind: Pod
 metadata:

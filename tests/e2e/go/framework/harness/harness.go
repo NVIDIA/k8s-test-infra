@@ -65,7 +65,7 @@ func AttachExisting(ctx context.Context, clusterName, kubeContext, image string)
 		return nil, err
 	}
 	if kubeContext == "" {
-		return nil, fmt.Errorf("attach existing: kubeContext must not be empty")
+		return nil, errors.New("attach existing: kubeContext must not be empty")
 	}
 	h := &Harness{Image: image}
 	c := &cluster.Cluster{Name: clusterName, Context: kubeContext}

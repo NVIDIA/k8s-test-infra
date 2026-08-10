@@ -27,6 +27,27 @@ run:
     - integration
 
 linters:
+  enable:
+    - nolintlint
+    - revive
+    - staticcheck
+    - asasalint
+    - bodyclose
+    - contextcheck
+    - cyclop
+    - dupword
+    - errname
+    - exhaustive
+    - loggercheck
+    - misspell
+    - nestif
+    - perfsprint
+    - prealloc
+    - predeclared
+    - testifylint
+    - unconvert
+    - usestdlibvars
+
   settings:
     staticcheck:
       checks:

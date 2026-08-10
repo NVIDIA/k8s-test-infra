@@ -118,8 +118,8 @@ func TestCTypeToGo(t *testing.T) {
 		{"nvmlDevice_t *", "*C.nvmlDevice_t"},
 		{"unsigned int", "C.uint"},
 		{"unsigned int *", "*C.uint"},
-		{"unsigned long long", "C.ulonglong"},
-		{"unsigned long long *", "*C.ulonglong"},
+		{"unsigned long", "C.ulonglong"},
+		{"unsigned long ", "*C.ulonglong"},
 		{"unsigned long *", "*C.ulong"},
 		{"int", "C.int"},
 		{"int *", "*C.int"},
@@ -197,14 +197,14 @@ func nvmlDeviceGetCount_v2() {}
 //export nvmlDeviceGetName
 func nvmlDeviceGetName() {}
 `
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "device.go"), []byte(deviceGo), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "device.go"), []byte(deviceGo), 0o644))
 
 	initGo := `package main
 
 //export nvmlInit_v2
 func nvmlInit_v2() {}
 `
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "init.go"), []byte(initGo), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "init.go"), []byte(initGo), 0o644))
 
 	// stubs_generated.go should be SKIPPED
 	stubsGo := `package main
@@ -212,7 +212,7 @@ func nvmlInit_v2() {}
 //export nvmlStubFunction
 func nvmlStubFunction() {}
 `
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "stubs_generated.go"), []byte(stubsGo), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stubs_generated.go"), []byte(stubsGo), 0o644))
 
 	exports, err := scanBridgeExports(dir)
 	require.NoError(t, err, "scanBridgeExports")
@@ -306,14 +306,14 @@ func nvmlDeviceGetCount_v2() {}
 //export nvmlDeviceGetName
 func nvmlDeviceGetName() {}
 `
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "device.go"), []byte(deviceGo), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "device.go"), []byte(deviceGo), 0o644))
 
 	initGo := `package main
 
 //export nvmlInit_v2
 func nvmlInit_v2() {}
 `
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "init.go"), []byte(initGo), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "init.go"), []byte(initGo), 0o644))
 
 	allFunctions := []string{"nvmlDeviceGetCount_v2", "nvmlDeviceGetName", "nvmlInit_v2", "nvmlShutdown", "nvmlFoo"}
 
@@ -337,7 +337,7 @@ func nvmlDeviceGetCount_v2(deviceCount *C.uint) C.nvmlReturn_t {
 	return 0
 }
 `
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "correct.go"), []byte(correctGo), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "correct.go"), []byte(correctGo), 0o644))
 
 	// Wrong: 0 params but prototype says 3
 	wrongGo := `package main
@@ -347,7 +347,7 @@ func nvmlDeviceGetName() C.nvmlReturn_t {
 	return 0
 }
 `
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "wrong.go"), []byte(wrongGo), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "wrong.go"), []byte(wrongGo), 0o644))
 
 	protos := map[string]FuncProto{
 		"nvmlDeviceGetCount_v2": {

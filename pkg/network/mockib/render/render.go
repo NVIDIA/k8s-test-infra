@@ -93,7 +93,7 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCou
 	portGUID := perHCAPortGUID(guidPrefix, nid, idx)
 	nodeDesc := strings.NewReplacer(
 		"{node_name}", nodeName,
-		"{idx}", fmt.Sprintf("%d", idx),
+		"{idx}", strconv.Itoa(idx),
 	).Replace(ib.NodeDescTemplate)
 
 	// Slice (not map) so file creation order is deterministic — useful when

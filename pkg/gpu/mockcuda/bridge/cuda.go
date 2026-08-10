@@ -22,6 +22,7 @@ package main
 #include "cuda_types.h"
 */
 import "C"
+
 import (
 	"unsafe"
 

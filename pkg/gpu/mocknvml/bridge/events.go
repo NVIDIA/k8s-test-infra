@@ -33,6 +33,7 @@ package main
 #include "nvml_types.h"
 */
 import "C"
+
 import (
 	"time"
 	"unsafe"
@@ -53,7 +54,7 @@ func nvmlEventSetCreate(set *C.nvmlEventSet_t) C.nvmlReturn_t {
 	if p == nil {
 		return C.NVML_ERROR_MEMORY
 	}
-	*set = (C.nvmlEventSet_t)(p)
+	*set = C.nvmlEventSet_t(p)
 	return C.NVML_SUCCESS
 }
 

@@ -20,6 +20,10 @@ SHELL := /usr/bin/env bash
 GO_CMD ?= go
 GO_FMT ?= gofmt
 GO_SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
+# First-party Go source directories. gofumpt / golangci-lint walk these
+# rather than "." so they don't dive into vendor/ or tmp/ (which may hold an
+# untracked clone of a sibling repo — e.g. tmp/topograph/).
+GO_PKG_DIRS := cmd pkg tests
 
 VERSION := 0.0.1
 
@@ -31,33 +35,79 @@ IMAGE_TAG := $(IMAGE_REPO):$(IMAGE_TAG_NAME)
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 
-build:
-	@rm -rf bin
-	$(GO_CMD) build -o bin/$(BINARY_NAME) cmd/nv-ci-bot/main.go
+.PHONY: help
+help:
+	@echo "🛠️ Dev Commands\n"
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
-fmt:
-	@$(GO_FMT) -w -l $$(find . -name '*.go')
+.PHONY: tools
+tools: ## Install static checkers & other binaries
+	@echo "🚚 Downloading tools.."
+	@GOBIN=$(BIN_DIR) go install mvdan.cc/gofumpt@latest
+	@GOBIN=$(BIN_DIR) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	@GOBIN=$(BIN_DIR) go install github.com/denis-tingaikin/go-header/cmd/go-header@latest
+	@GOBIN=$(BIN_DIR) go install github.com/goreleaser/goreleaser/v2@latest
 
-verify:
-	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go')`; \
+.PHONY: lint
+lint: tools ## Lint the source code (read-only checks)
+	@echo "🎨 Checking format.."
+	@out="$$($(BIN_DIR)/gofumpt -l $(GO_PKG_DIRS))"; \
 	if [ -n "$$out" ]; then \
+	    echo "gofumpt found unformatted files (run 'make lint-fix' to fix):"; \
 	    echo "$$out"; \
 	    exit 1; \
 	fi
+	@echo "🧹 Vetting.."
+	@go vet ./...
+	@echo "🧹 GoCI Lint.."
+	@$(BIN_DIR)/golangci-lint run ./...
+	@echo "🧹 GoReleaser check.."
+	@$(BIN_DIR)/goreleaser check
 
-lint:
-	golangci-lint run ./...
+.PHONY: lint-fix
+lint-fix: tools ## Same checks as `lint`, but auto-fix what can be fixed; report the rest
+	@echo "🧹 Tidying go.mod.."
+	@go mod tidy
+	@echo "🎨 Formatting with gofumpt.."
+	@$(BIN_DIR)/gofumpt -l -w $(GO_PKG_DIRS)
+	@echo "🔧 golangci-lint --fix.."
+	@$(BIN_DIR)/golangci-lint run --fix ./...
+	@echo "🧹 Vetting (report-only).."
+	@go vet ./...
+	@echo "🧹 GoReleaser check (report-only).."
+	@$(BIN_DIR)/goreleaser check
 
-vendor:
+.PHONY: gen
+gen: ## Generate NVML Bridge
+	@echo "Generate NVML Bridge.."
+	@go generate ./pkg/gpu/mocknvml/bridge/...
+
+BIN_OUT ?= bin
+
+.PHONY: build
+build: ## Build every CLI under cmd/ into $(BIN_OUT)/
+	@rm -rf $(BIN_OUT)
+	@mkdir -p $(BIN_OUT)
+	@for pkg in $$(find ./cmd -type f -name main.go -exec dirname {} \; | sort -u); do \
+	    name=$$(basename $$pkg); \
+	    parent=$$(basename $$(dirname $$pkg)); \
+	    if [ "$$parent" != "cmd" ]; then name=$$parent-$$name; fi; \
+	    echo "🔨 $$name"; \
+	    $(GO_CMD) build -mod=vendor -o $(BIN_OUT)/$$name $$pkg; \
+	done
+
+.PHONY: vendor
+vendor: ## Refresh top-level go.mod / vendor / verify
 	go mod tidy
 	go mod vendor
 	go mod verify
 
-check-vendor: vendor
+.PHONY: vendor-check
+vendor-check: vendor ## Fail if go.mod / go.sum / vendor are out of sync with HEAD
 	git diff --quiet HEAD -- go.mod go.sum vendor
 
-.PHONY: modules check-modules
-modules:  | .mod-tidy .mod-vendor .mod-verify
+.PHONY: modules
+modules: | .mod-tidy .mod-vendor .mod-verify ## Tidy / vendor / verify every sub-module
 .mod-tidy:
 	@for mod in $$(find . -name go.mod -not -path "./testdata/*" -not -path "./third_party/*"); do \
 	    echo "Tidying $$mod..."; ( \
@@ -79,15 +129,17 @@ modules:  | .mod-tidy .mod-vendor .mod-verify
 	    ) || exit 1; \
 	done
 
-check-modules: modules
+.PHONY: modules-check
+modules-check: modules ## Fail if any sub-module go.mod / go.sum / vendor is out of sync
 	@echo "- Checking if go.mod and go.sum are in sync..."
-	@git diff --exit-code -- $$(find . -name go.mod -name go.sum)
+	@git diff --exit-code -- $$(find . \( -name go.mod -o -name go.sum \))
 	@echo "- Checking if the go mod vendor dir is in sync..."
 	@git diff --exit-code -- $$(find . -name vendor)
 
 HELM_CHART_DIR := deployments/nvml-mock/helm/nvml-mock
 
-helm-unittest:
+.PHONY: helm-unittest
+helm-unittest: ## Run the nvml-mock chart unit test suite
 	helm unittest $(HELM_CHART_DIR)
 
 # Unit tests for the e2e harness itself (framework/*). They are behind the `e2e`
@@ -187,23 +239,25 @@ E2E_TIMEOUT ?= 90m
 E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
+.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
+
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
 # so on a developer machine this recipe otherwise returns tee's status and a
 # failed suite exits 0 — see issue #560 and tests/makefile/makefile_test.go.
-e2e:
+e2e: ## Run the Ginkgo e2e suite (scope with E2E_PROFILES / E2E_GINKGO_FLAGS)
 	set -o pipefail; $(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
 
-e2e-dra:
+e2e-dra: ## e2e — DRA scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'
 
-e2e-gpu-operator:
+e2e-gpu-operator: ## e2e — GPU Operator scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=gpu-operator'
 
-e2e-multi-node:
+e2e-multi-node: ## e2e — heterogeneous a100/t4 cluster
 	$(MAKE) e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter=multi-node'
 
-e2e-nri:
+e2e-nri: ## e2e — NRI ambient-injection scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=nri'
 
 # E2E_PROFILES is pinned rather than inherited from DefaultProfiles. The nfd
@@ -211,5 +265,5 @@ e2e-nri:
 # vendor-only and byte-identical across profiles. Without this the harness
 # inherits gb200 and announces a profile the run never instantiates — a green
 # log then reads exactly like one that did exercise gb200.
-e2e-nfd:
+e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=nfd'

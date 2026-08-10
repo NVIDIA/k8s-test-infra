@@ -29,6 +29,7 @@ package main
 #include "nvml_types.h"
 */
 import "C"
+
 import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )

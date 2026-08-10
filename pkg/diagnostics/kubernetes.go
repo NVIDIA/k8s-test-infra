@@ -140,7 +140,7 @@ type podLogCollector struct {
 }
 
 func (c podLogCollector) Collect(ctx context.Context) error {
-	podLogFile, err := c.createFile(fmt.Sprintf("%s.log", c.name))
+	podLogFile, err := c.createFile(c.name + ".log")
 	if err != nil {
 		return fmt.Errorf("error creating podLogFile: %w", err)
 	}

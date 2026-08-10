@@ -62,6 +62,7 @@ static void fvSetDoubleBits(nvmlFieldValue_t *fv, unsigned long long bits) {
 }
 */
 import "C"
+
 import (
 	"time"
 	"unsafe"

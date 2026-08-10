@@ -128,7 +128,7 @@ func main() {
 		formatted = []byte(code)
 	}
 
-	if err := os.WriteFile(*output, formatted, 0644); err != nil {
+	if err := os.WriteFile(*output, formatted, 0o644); err != nil {
 		log.Fatalf("Failed to write: %v", err)
 	}
 

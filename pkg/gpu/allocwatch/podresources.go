@@ -64,7 +64,6 @@ func NewPodResourcesLister(ctx context.Context, socketPath string) (Lister, erro
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	//nolint:staticcheck // DialContext+WithBlock is the only way to fail fast here; NewClient is lazy.
 	conn, err := grpc.DialContext(dialCtx, "unix://"+socketPath,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
