@@ -1,0 +1,74 @@
+{{- if .Values.controlPlane.enabled }}
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nvml-mock.controlPlaneName" . }}
+  labels:
+    {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  replicas: {{ .Values.controlPlane.replicas }}
+  selector:
+    matchLabels:
+      {{- include "nvml-mock.controlPlaneSelectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: control-plane
+  template:
+    metadata:
+      labels:
+        {{- include "nvml-mock.controlPlaneSelectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: control-plane
+    spec:
+      # The init slice needs no cluster access. Follow-up MEPs adding kube
+      # client-go usage introduce a dedicated ServiceAccount + Role.
+      automountServiceAccountToken: false
+      {{- with .Values.controlPlane.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controlPlane.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: mokka-control-plane
+          image: "{{ .Values.controlPlane.image.repository }}:{{ .Values.controlPlane.image.tag }}"
+          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
+          args:
+            - --listen-addr=:{{ .Values.controlPlane.service.port }}
+            - --log-level={{ .Values.controlPlane.logLevel }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.controlPlane.service.port }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.controlPlane.resources | nindent 12 }}
+          # Distroless-static ships /nonroot with UID 65532; matching it here
+          # is what lets readOnlyRootFilesystem + runAsNonRoot enforce without
+          # tripping when the binary needs to write nothing.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+{{- end }}
