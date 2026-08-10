@@ -24,6 +24,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 COPY vendor/ vendor/
 COPY pkg/ pkg/
+COPY internal/ internal/
 COPY cmd/ cmd/
 RUN CGO_ENABLED=0 go build -mod=vendor \
     -ldflags="-s -w" \

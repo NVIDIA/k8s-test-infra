@@ -14,7 +14,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/controlplane"
+	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
 	"github.com/urfave/cli/v3"
 )
 

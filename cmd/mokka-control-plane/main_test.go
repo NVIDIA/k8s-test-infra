@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/controlplane"
+	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
 )
