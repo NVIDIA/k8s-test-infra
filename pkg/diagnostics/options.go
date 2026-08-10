@@ -80,6 +80,8 @@ func WithNFDClient(nfdClient *nfdclient.Clientset) func(*Diagnostic) {
 }
 
 // WithObjects selects which resource kinds (see the Pods/Nodes/... consts) to dump.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func WithObjects(objects ...string) func(*Diagnostic) {
 	return func(d *Diagnostic) {
 		seen := make(map[string]bool)

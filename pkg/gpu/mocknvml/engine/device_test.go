@@ -1083,6 +1083,7 @@ func fabricDevice(t *testing.T, e *Engine, index int) *ConfigurableDevice {
 	return cd
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func TestConfigurableDevice_NvLinkGetters_PerDevice(t *testing.T) {
 	e := newFabricEngine(t)
 	d0 := fabricDevice(t, e, 0)

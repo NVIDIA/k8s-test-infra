@@ -206,6 +206,7 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn) {
 	}
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func (s *Server) dispatch(ctx context.Context, c net.Conn, env protocol.Envelope) error {
 	switch env.Type {
 	case protocol.TypeOpen:
@@ -276,6 +277,7 @@ func (s *Server) handleOpen(c net.Conn, req protocol.OpenReq) error {
 	return protocol.WriteMessage(c, protocol.TypeOpen, protocol.OpenResp{Handle: id})
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func (s *Server) handleSend(c net.Conn, req protocol.SendReq) error {
 	h, ok := s.lookupHandle(req.Handle)
 	if !ok {

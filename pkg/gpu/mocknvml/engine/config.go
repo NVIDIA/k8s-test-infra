@@ -170,6 +170,8 @@ func ConfigOverridePathFor(configPath string) string {
 //	config at:  <driver_root>/config/config.yaml
 //
 // Returns empty string if auto-discovery is not possible (non-Linux, file not found).
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func discoverConfigPath() string {
 	if runtime.GOOS != "linux" {
 		return ""
@@ -323,6 +325,8 @@ func (c *Config) GetDevicePCIBusID(index int) string {
 }
 
 // mergeDeviceOverride merges non-zero override values into the base config
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.Name != "" {
 		base.Name = override.Name
@@ -405,6 +409,8 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 // Resolution order for the topology path:
 //  1. MOCK_TOPOLOGY_CONFIG env var (explicit path)
 //  2. /config/topology.yaml (canonical helm mount)
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func applyTopologyOverlay(yamlConfig *YAMLConfig) {
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {

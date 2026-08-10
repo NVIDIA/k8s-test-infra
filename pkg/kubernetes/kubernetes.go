@@ -75,6 +75,8 @@ func GetNode(nodes []corev1.Node, nodeName string) corev1.Node {
 
 // CleanupNode deletes all NFD/GFD related metadata from the Node object, i.e.
 // labels and annotations
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func CleanupNode(ctx context.Context, cs clientset.Interface) {
 	// Per-node cleanup function
 	cleanup := func(nodeName string) error {

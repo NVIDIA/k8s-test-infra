@@ -43,6 +43,7 @@ import (
 	"strings"
 )
 
+//nolint:cyclop // existing complexity; refactor deferred
 func main() {
 	input := flag.String("input", "vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go", "NVML Go wrapper file")
 	header := flag.String("header", "vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h", "NVML C header file for prototype extraction")
@@ -294,6 +295,8 @@ import "C"
 }
 
 // printStats writes NVML function coverage statistics to w.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
 	exports, err := scanBridgeExports(bridgeDir)
 	if err != nil {
@@ -370,6 +373,8 @@ func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
 // validateSignatures checks that hand-written //export functions have the
 // correct number of parameters compared to their C prototypes in nvml.h.
 // Returns a list of mismatch descriptions and any walk error.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func validateSignatures(bridgeDir string, prototypes map[string]FuncProto) ([]string, error) {
 	var mismatches []string
 

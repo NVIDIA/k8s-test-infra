@@ -155,6 +155,8 @@ func parseOneParam(decl string) CParam {
 }
 
 // cTypeToGo converts a C type string to its CGo equivalent.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func cTypeToGo(cType string) string {
 	cType = strings.TrimSpace(cType)
 

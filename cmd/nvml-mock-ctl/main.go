@@ -83,6 +83,7 @@ global flags:
 `)
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func run(args []string, stdout, stderr io.Writer) int {
 	var configOverridePath, configPath, gpu, mode, links, socket string
 	var afterCalls int
@@ -160,6 +161,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func mutate(cmd, configOverridePath, gpu, mode, links string, afterCalls int, xid uint64,
 	positional []string, cfg *engine.Config, base *engine.DeviceConfig, stdout, stderr io.Writer,
 ) int {
@@ -451,6 +453,7 @@ func gpuLabel(g string) string {
 	return g
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func doStatus(configOverridePath, gpu string, stdout, stderr io.Writer) int {
 	doc, err := mockctl.Load(configOverridePath)
 	if err != nil {

@@ -1819,6 +1819,7 @@ func (d *ConfigurableDevice) GetFanSpeed_v2(fan int) (uint32, nvml.Return) {
 
 // Helper functions
 
+//nolint:cyclop // existing complexity; refactor deferred
 func parseArchitecture(arch string) nvml.DeviceArchitecture {
 	switch arch {
 	case "kepler":
@@ -1863,6 +1864,7 @@ func parseBrand(brand string) nvml.BrandType {
 	}
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func parsePstate(state string) nvml.Pstates {
 	switch state {
 	case "P0":

@@ -117,6 +117,8 @@ func boolField(b bool) uint64 {
 // getDeviceFieldValue resolves the device-scope (non-NVLink) field set. The
 // fourth return reports whether the field id belongs to this set at all;
 // unknown ids fall through to the NVLink dispatch in GetFieldValue.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func (d *ConfigurableDevice) getDeviceFieldValue(fieldID, scopeID uint32) (FieldValueType, uint64, nvml.Return, bool) {
 	switch fieldID {
 	case fiEccCurrent, fiEccPending:

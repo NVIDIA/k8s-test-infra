@@ -72,6 +72,7 @@ import (
 )
 
 //export nvmlDeviceGetFieldValues
+//nolint:cyclop // existing complexity; refactor deferred
 func nvmlDeviceGetFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *C.nvmlFieldValue_t) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetFieldValues"); !ok {
 		return ret

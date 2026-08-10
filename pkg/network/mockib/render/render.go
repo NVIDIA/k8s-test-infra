@@ -29,6 +29,8 @@ type Options struct {
 
 // Render writes the entire tree. It is idempotent: existing files are
 // truncated and rewritten, existing directories are reused.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func Render(o Options) error {
 	if !o.IB.Enabled {
 		return nil
@@ -82,6 +84,7 @@ func Render(o Options) error {
 	return nil
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCount int, nodeName string) error {
 	caName := fmt.Sprintf("mlx5_%d", idx)
 	caDir := filepath.Join("sys/class/infiniband", caName)
