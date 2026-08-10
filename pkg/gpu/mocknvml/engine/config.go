@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package engine is the pure-Go mock NVML runtime driving the mocknvml bridge.
 package engine
 
 import (

@@ -775,6 +775,8 @@ func (d *ConfigurableDevice) GetClockInfo(clockType nvml.ClockType) (uint32, nvm
 		clock = c.Clocks.MemoryCurrent
 	case nvml.CLOCK_VIDEO:
 		clock = c.Clocks.VideoCurrent
+	default:
+		// CLOCK_COUNT is an enum sentinel; leave clock at 0.
 	}
 	debugLog("[NVML] nvmlDeviceGetClockInfo(type=%d) -> %d MHz\n", clockType, clock)
 	return clock, nvml.SUCCESS
@@ -796,6 +798,8 @@ func (d *ConfigurableDevice) GetMaxClockInfo(clockType nvml.ClockType) (uint32, 
 		clock = c.Clocks.MemoryMax
 	case nvml.CLOCK_VIDEO:
 		clock = c.Clocks.VideoMax
+	default:
+		// CLOCK_COUNT is an enum sentinel; leave clock at 0.
 	}
 	debugLog("[NVML] nvmlDeviceGetMaxClockInfo(type=%d) -> %d MHz\n", clockType, clock)
 	return clock, nvml.SUCCESS
@@ -810,6 +814,8 @@ func (d *ConfigurableDevice) GetApplicationsClock(clockType nvml.ClockType) (uin
 			clock = c.Clocks.GraphicsApp
 		case nvml.CLOCK_MEM:
 			clock = c.Clocks.MemoryApp
+		default:
+			// SM/VIDEO/COUNT: no applications-clock field; leave clock at 0.
 		}
 	}
 	debugLog("[NVML] nvmlDeviceGetApplicationsClock(type=%d) -> %d MHz\n", clockType, clock)
@@ -828,6 +834,8 @@ func (d *ConfigurableDevice) GetDefaultApplicationsClock(clockType nvml.ClockTyp
 			clock = c.Clocks.GraphicsAppDefault
 		case nvml.CLOCK_MEM:
 			clock = c.Clocks.MemoryAppDefault
+		default:
+			// SM/VIDEO/COUNT: no default-applications-clock field; leave clock at 0.
 		}
 	}
 	debugLog("[NVML] nvmlDeviceGetDefaultApplicationsClock(type=%d) -> %d MHz\n", clockType, clock)
@@ -1308,6 +1316,8 @@ func (d *ConfigurableDevice) GetNvLinkRemoteDeviceType(link int) (nvml.IntNvLink
 				t = nvml.NVLINK_DEVICE_TYPE_GPU
 			case RemoteSwitch:
 				t = nvml.NVLINK_DEVICE_TYPE_SWITCH
+			default:
+				// RemoteNone / RemoteCPU have no NVML device-type; leave t as UNKNOWN.
 			}
 		}
 	}
@@ -1436,7 +1446,7 @@ func (d *ConfigurableDevice) GetNvLinkUtilizationCounter(link, counter int) (uin
 
 // FreezeNvLinkUtilizationCounter is a no-op success: the counters are a
 // pure function of time, so there is no mutable state to freeze.
-func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, counter int, freeze nvml.EnableState) nvml.Return {
+func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, _ int, _ nvml.EnableState) nvml.Return {
 	if !nvlinkLinkInRange(link) {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
@@ -1445,7 +1455,7 @@ func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, counter int, f
 }
 
 // ResetNvLinkUtilizationCounter is a no-op success (see Freeze).
-func (d *ConfigurableDevice) ResetNvLinkUtilizationCounter(link, counter int) nvml.Return {
+func (d *ConfigurableDevice) ResetNvLinkUtilizationCounter(link, _ int) nvml.Return {
 	if !nvlinkLinkInRange(link) {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
@@ -1550,13 +1560,13 @@ func (d *ConfigurableDevice) GetCpuAffinity(cpuSetSize int) ([]uint, nvml.Return
 // GetCpuAffinityWithinScope returns the CPU affinity bitmask for a scope.
 // The mock does not distinguish socket vs node scope, so both return the
 // device's NUMA CPU set.
-func (d *ConfigurableDevice) GetCpuAffinityWithinScope(cpuSetSize int, scope nvml.AffinityScope) ([]uint, nvml.Return) {
+func (d *ConfigurableDevice) GetCpuAffinityWithinScope(cpuSetSize int, _ nvml.AffinityScope) ([]uint, nvml.Return) {
 	return d.GetCpuAffinity(cpuSetSize)
 }
 
 // GetMemoryAffinity returns the device's memory (NUMA) affinity bitmask
 // packed into nodeSetSize machine words.
-func (d *ConfigurableDevice) GetMemoryAffinity(nodeSetSize int, scope nvml.AffinityScope) ([]uint, nvml.Return) {
+func (d *ConfigurableDevice) GetMemoryAffinity(nodeSetSize int, _ nvml.AffinityScope) ([]uint, nvml.Return) {
 	if nodeSetSize <= 0 {
 		return nil, nvml.ERROR_INVALID_ARGUMENT
 	}
@@ -1710,7 +1720,7 @@ func (d *ConfigurableDevice) GetPcieThroughput(counter nvml.PcieUtilCounter) (ui
 // the running call counter is surfaced as the uncorrectable count so
 // each subsequent NVML poll sees a strictly increasing value (matching
 // real hardware accumulating ECC events).
-func (d *ConfigurableDevice) GetTotalEccErrors(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType) (uint64, nvml.Return) {
+func (d *ConfigurableDevice) GetTotalEccErrors(errorType nvml.MemoryErrorType, _ nvml.EccCounterType) (uint64, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
@@ -1727,7 +1737,7 @@ func (d *ConfigurableDevice) GetTotalEccErrors(errorType nvml.MemoryErrorType, c
 // call count for the uncorrected counter on device memory, mirroring the
 // total error count so callers correlating the two queries see a
 // consistent view.
-func (d *ConfigurableDevice) GetMemoryErrorCounter(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType, locationType nvml.MemoryLocation) (uint64, nvml.Return) {
+func (d *ConfigurableDevice) GetMemoryErrorCounter(errorType nvml.MemoryErrorType, _ nvml.EccCounterType, locationType nvml.MemoryLocation) (uint64, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
@@ -1742,13 +1752,13 @@ func (d *ConfigurableDevice) GetMemoryErrorCounter(errorType nvml.MemoryErrorTyp
 }
 
 // GetRetiredPages returns retired pages
-func (d *ConfigurableDevice) GetRetiredPages(cause nvml.PageRetirementCause) ([]uint64, nvml.Return) {
+func (d *ConfigurableDevice) GetRetiredPages(_ nvml.PageRetirementCause) ([]uint64, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetRetiredPages -> []\n")
 	return []uint64{}, nvml.SUCCESS
 }
 
 // GetRetiredPages_v2 returns retired pages with timestamps
-func (d *ConfigurableDevice) GetRetiredPages_v2(cause nvml.PageRetirementCause) ([]uint64, []uint64, nvml.Return) {
+func (d *ConfigurableDevice) GetRetiredPages_v2(_ nvml.PageRetirementCause) ([]uint64, []uint64, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetRetiredPages_v2 -> [], []\n")
 	return []uint64{}, []uint64{}, nvml.SUCCESS
 }

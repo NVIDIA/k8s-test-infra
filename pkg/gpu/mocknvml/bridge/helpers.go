@@ -144,7 +144,7 @@ func stubReturn(funcName string) C.nvmlReturn_t {
 		return C.NVML_ERROR_FUNCTION_NOT_FOUND
 	}
 	if strictMode {
-		panic(fmt.Sprintf("MOCK_NVML_STRICT: unimplemented function called: %s", funcName))
+		panic("MOCK_NVML_STRICT: unimplemented function called: " + funcName)
 	}
 	debugLog("[NVML-STUB] %s called (NOT IMPLEMENTED)\n", funcName)
 	return C.NVML_ERROR_NOT_SUPPORTED

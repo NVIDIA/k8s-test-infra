@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+// Package kubernetes provides Kubernetes client helpers used by the e2e suite.
 package kubernetes
 
 import (

@@ -16,7 +16,6 @@
 // This file adds the remote-device-type, utilization-counter, and
 // freeze/reset exports. All are thin marshalling over the pure-Go engine,
 // whose values derive from the immutable NodeFabric.
-
 package main
 
 /*

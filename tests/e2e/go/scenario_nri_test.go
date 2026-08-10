@@ -837,7 +837,7 @@ func deployDevicePluginOnWorkers(ctx SpecContext, h *harness.Harness, workers []
 func applyNRIWorkload(ctx context.Context, h *harness.Harness, manifest []byte, name string) kube.PodRef {
 	GinkgoHelper()
 	Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply workload %s", name)
-	DeferCleanup(func(ctx SpecContext) { _ = h.Kube.Delete(ctx, manifest) })
+	DeferCleanup(func(ctx SpecContext) { _ = h.Kube.Delete(ctx, manifest) }) //nolint:contextcheck // Ginkgo cleanup ctx is intentionally distinct from the outer spec ctx
 	Eventually(func() (string, error) {
 		return h.Kube.PodPhase(ctx, nriWorkloadNS, name)
 	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
@@ -966,7 +966,7 @@ func runIBToolInMinimalImage(ctx context.Context, h *harness.Harness, name, tool
 	GinkgoHelper()
 	manifest := nriMinimalIBPodManifest(name, tool, args...)
 	Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply %s", name)
-	DeferCleanup(func(ctx SpecContext) { _ = h.Kube.Delete(ctx, manifest) })
+	DeferCleanup(func(ctx SpecContext) { _ = h.Kube.Delete(ctx, manifest) }) //nolint:contextcheck // Ginkgo cleanup ctx is intentionally distinct from the outer spec ctx
 
 	var phase string
 	Eventually(func() (string, error) {

@@ -56,30 +56,26 @@ tools: ## Install static checkers & other binaries
 	wait
 
 .PHONY: lint
-lint: tools ## Lint the source code
+lint: tools gen-check ## Lint the source code
 	@echo "🧹 Vetting.."
 	@go vet ./...
 	@echo "🧹 GoCI Lint.."
 	@$(BIN_DIR)/golangci-lint run ./...
-	@echo "🧹 GoReleaser check.."
-	@$(BIN_DIR)/goreleaser check
 	@echo "🛡️ govulncheck.."
 	@$(BIN_DIR)/govulncheck -tags=e2e,integration ./...
 
 .PHONY: lint-fix
-lint-fix: tools ## Same checks as `lint`, but auto-fix what can be fixed; report the rest
+lint-fix: tools gen ## Same checks as `lint`, but auto-fix what can be fixed; report the rest
 	@echo "🔧 golangci-lint --fix.."
 	@$(BIN_DIR)/golangci-lint run --fix ./...
-	@echo "🧹 Vetting (report-only).."
+	@echo "🧹 Vetting.."
 	@go vet ./...
-	@echo "🧹 GoReleaser check (report-only).."
-	@$(BIN_DIR)/goreleaser check
-	@echo "🛡️ govulncheck (report-only).."
+	@echo "🛡️ govulncheck.."
 	@$(BIN_DIR)/govulncheck -tags=e2e,integration ./...
 
 .PHONY: gen
 gen: ## Generate machine-controlled code
-	@echo "Generate NVML Bridge.."
+	@echo "Generating NVML Bridge.."
 	@go generate ./pkg/gpu/mocknvml/bridge/...
 
 .PHONY: gen-check

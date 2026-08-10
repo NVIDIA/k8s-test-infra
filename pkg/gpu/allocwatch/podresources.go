@@ -64,9 +64,9 @@ func NewPodResourcesLister(ctx context.Context, socketPath string) (Lister, erro
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	conn, err := grpc.DialContext(dialCtx, "unix://"+socketPath,
+	conn, err := grpc.DialContext(dialCtx, "unix://"+socketPath, //nolint:staticcheck // DialContext/WithBlock give blocking-with-timeout semantics NewClient cannot express; supported through grpc-go 1.x
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
+		grpc.WithBlock(), //nolint:staticcheck // blocking dial semantics; see the DialContext nolint above
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial kubelet pod-resources at %s: %w", socketPath, err)

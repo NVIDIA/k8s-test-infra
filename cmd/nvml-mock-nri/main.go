@@ -92,11 +92,12 @@ func main() {
 	// Serve the probes before Run, so the un-registered startup window is
 	// reported as a 503 rather than a refused connection, and so a plugin that
 	// never manages to register is visibly NotReady instead of silently idle.
-	if stopHealth, err := serveHealth(*healthAddr, p.health); err != nil {
+	stopHealth, err := serveHealth(*healthAddr, p.health)
+	if err != nil {
 		log.Fatalf("nvml-mock-nri: serve health endpoints: %v", err)
-	} else {
-		defer stopHealth()
 	}
+
+	defer stopHealth()
 
 	log.Printf("nvml-mock-nri: registering plugin %s/%s on %s", *pluginIndex, *pluginName, *socketPath)
 	if err := s.Run(ctx); err != nil && ctx.Err() == nil {

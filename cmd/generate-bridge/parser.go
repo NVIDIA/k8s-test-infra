@@ -244,7 +244,7 @@ func generateStubWithSignature(proto FuncProto) string {
 	buf.WriteString(fmt.Sprintf("//export %s\n", proto.Name))
 
 	// Build parameter list
-	var params []string
+	params := make([]string, 0, len(proto.Params))
 	for _, p := range proto.Params {
 		goType := cTypeToGo(p.CType)
 		name := safeParamName(p.Name)

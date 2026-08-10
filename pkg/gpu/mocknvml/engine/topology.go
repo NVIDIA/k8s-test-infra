@@ -62,6 +62,7 @@ type NodeFabric struct {
 // RemoteKind classifies the far end of an NVLink.
 type RemoteKind uint8
 
+// RemoteKind values classify the remote endpoint of an NVLink.
 const (
 	RemoteNone RemoteKind = iota
 	RemoteGPU
@@ -418,6 +419,8 @@ func (f *NodeFabric) computeNVCounts() {
 				}
 			case RemoteSwitch:
 				switchLinks[i]++
+			default:
+				// RemoteNone / RemoteCPU: not peer-attached; not counted.
 			}
 		}
 	}

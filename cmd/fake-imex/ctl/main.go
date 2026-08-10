@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/imexcoord"
+	"github.com/NVIDIA/k8s-test-infra/pkg/imexcoord" //nolint:staticcheck // fake-imex CLIs still consume the deprecated protocol until #304 removes them
 )
 
 // deprecationNotice is printed on non-success paths ONLY: the upstream

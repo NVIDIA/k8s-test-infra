@@ -14,7 +14,6 @@
 // Package main provides internal NVML functions for nvidia-smi compatibility.
 // This file contains the hand-written implementation for:
 // - nvmlInternalGetExportTable (internal API used by nvidia-smi)
-
 package main
 
 /*
@@ -104,7 +103,7 @@ func initExportTable() {
 	}
 
 	exportTableInitialized = true
-	debugLog("[MOCK-NVML] Export table initialized with stub at 0x%x\n", uintptr(stubPtr))
+	debugLog("[MOCK-NVML] Export table initialized with stub at 0x%x\n", stubPtr)
 }
 
 // Internal function used by nvidia-smi for version verification

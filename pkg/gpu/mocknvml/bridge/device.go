@@ -90,7 +90,6 @@
 // - nvmlDeviceGetGspFirmwareVersion
 // - nvmlDeviceGetTotalEnergyConsumption
 // - nvmlDeviceGetDetailedEccErrors
-
 package main
 
 /*
@@ -719,12 +718,12 @@ func nvmlDeviceGetCudaComputeCapability(nvmlDevice C.nvmlDevice_t, major *C.int,
 	}
 	handle := unsafe.Pointer(nvmlDevice.handle)
 	dev := engine.GetEngine().LookupDevice(handle)
-	maj, min, ret := dev.GetCudaComputeCapability()
+	maj, mn, ret := dev.GetCudaComputeCapability()
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
 	*major = C.int(maj)
-	*minor = C.int(min)
+	*minor = C.int(mn)
 	return C.NVML_SUCCESS
 }
 
@@ -2185,6 +2184,7 @@ func nvmlDeviceGetDetailedEccErrors(device C.nvmlDevice_t, errorType C.nvmlMemor
 // device. Mock devices are always full GPUs, never MIG instances.
 //
 //export nvmlDeviceIsMigDeviceHandle
+//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceIsMigDeviceHandle(device C.nvmlDevice_t, isMigDevice *C.uint) C.nvmlReturn_t {
 	if isMigDevice == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -2198,6 +2198,7 @@ func nvmlDeviceIsMigDeviceHandle(device C.nvmlDevice_t, isMigDevice *C.uint) C.n
 // returns ERROR_NOT_SUPPORTED.
 //
 //export nvmlDeviceGetDeviceHandleFromMigDeviceHandle
+//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetDeviceHandleFromMigDeviceHandle(migDevice C.nvmlDevice_t, device *C.nvmlDevice_t) C.nvmlReturn_t {
 	return C.NVML_ERROR_NOT_SUPPORTED
 }

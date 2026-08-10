@@ -63,6 +63,7 @@ func GetNonControlPlaneNodes(ctx context.Context, cli clientset.Interface) ([]co
 	return out, nil
 }
 
+// GetNode returns the node in the slice matching nodeName, or a zero-value node if absent.
 func GetNode(nodes []corev1.Node, nodeName string) corev1.Node {
 	for _, node := range nodes {
 		if node.Name == nodeName {
@@ -168,6 +169,7 @@ func CleanupNode(ctx context.Context, cs clientset.Interface) {
 	}
 }
 
+// CleanupNFDObjects deletes NodeFeature and NodeFeatureRule objects in the given namespace.
 func CleanupNFDObjects(ctx context.Context, cli *nfdclient.Clientset, namespace string) {
 	cleanupNodeFeatureRules(ctx, cli)
 	cleanupNodeFeatures(ctx, cli, namespace)

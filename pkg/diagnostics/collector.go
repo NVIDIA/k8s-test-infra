@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+// Package diagnostics collects failure diagnostics from an e2e cluster (pod logs,
+// kubectl describes, DaemonSet state) into an artifact directory when a spec fails.
 package diagnostics
 
 import (
@@ -31,10 +33,12 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// Collector is one dumper of a specific resource kind.
 type Collector interface {
 	Collect(context.Context) error
 }
 
+// Config is the shared state Collector implementations read from.
 type Config struct {
 	Clientset kubernetes.Interface
 	NfdClient *nfdclientset.Clientset
@@ -81,6 +85,7 @@ func (c *Config) outputTo(filename string, objects any) error {
 	return nil
 }
 
+// Collect runs every configured collector and writes their dumps to the artifact directory.
 func (d *Diagnostic) Collect(ctx context.Context) error {
 	// Create the artifact directory
 	if err := os.MkdirAll(filepath.Join(d.artifactDir, d.namespace), os.ModePerm); err != nil {

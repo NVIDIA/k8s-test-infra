@@ -1,6 +1,8 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
+// Package nvmlmock is the NRI plugin that injects the nvml-mock LD_PRELOAD shim
+// into GPU-requesting containers via container adjustments at creation time.
 package nvmlmock
 
 import (

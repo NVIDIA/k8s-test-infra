@@ -29,7 +29,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/imexcoord"
+	"github.com/NVIDIA/k8s-test-infra/pkg/imexcoord" //nolint:staticcheck // fake-imex CLIs still consume the deprecated protocol until #304 removes them
 )
 
 func main() {

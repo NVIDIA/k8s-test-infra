@@ -16,7 +16,6 @@
 // - nvmlSystemGetDriverVersion
 // - nvmlSystemGetNVMLVersion
 // - nvmlSystemGetCudaDriverVersion, nvmlSystemGetCudaDriverVersion_v2
-
 package main
 
 /*

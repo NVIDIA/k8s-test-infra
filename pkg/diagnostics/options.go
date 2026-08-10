@@ -23,55 +23,63 @@ import (
 	nfdclient "sigs.k8s.io/node-feature-discovery/api/generated/clientset/versioned"
 )
 
+// Resource-kind names the diagnostic collectors accept via WithObjects.
 const (
-	// the core group
+	// Pods is a core-group resource kind the diagnostic collectors handle.
 	Pods       = "pods"
 	Nodes      = "nodes"
 	Namespaces = "namespaces"
 
-	// the apps group
+	// Deployments is an apps-group resource kind the diagnostic collectors handle.
 	Deployments = "deployments"
 	DaemonSets  = "daemonsets"
 
-	// the batch group
+	// Jobs is a batch-group resource kind the diagnostic collectors handle.
 	Jobs = "jobs"
 
-	// Supported extensions
+	// NodeFeature is an NFD extension kind the diagnostic collectors handle.
 	NodeFeature     = "nodeFeature"
 	NodeFeatureRule = "nodeFeatureRule"
 )
 
+// Diagnostic is a configured collector set that dumps failure artifacts.
 type Diagnostic struct {
 	*Config
 	collectors []Collector
 }
 
+// Option mutates a Diagnostic during New.
 type Option func(*Diagnostic)
 
+// WithNamespace scopes collection to the given namespace.
 func WithNamespace(namespace string) func(*Diagnostic) {
 	return func(d *Diagnostic) {
 		d.namespace = namespace
 	}
 }
 
+// WithArtifactDir sets the on-disk directory dumps are written to.
 func WithArtifactDir(artifactDir string) func(*Diagnostic) {
 	return func(d *Diagnostic) {
 		d.artifactDir = artifactDir
 	}
 }
 
+// WithKubernetesClient wires in the core Kubernetes clientset the collectors use.
 func WithKubernetesClient(clientset kubernetes.Interface) func(*Diagnostic) {
 	return func(d *Diagnostic) {
 		d.Clientset = clientset
 	}
 }
 
+// WithNFDClient wires in the NFD clientset for NodeFeature / NodeFeatureRule dumps.
 func WithNFDClient(nfdClient *nfdclient.Clientset) func(*Diagnostic) {
 	return func(d *Diagnostic) {
 		d.NfdClient = nfdClient
 	}
 }
 
+// WithObjects selects which resource kinds (see the Pods/Nodes/... consts) to dump.
 func WithObjects(objects ...string) func(*Diagnostic) {
 	return func(d *Diagnostic) {
 		seen := make(map[string]bool)
@@ -105,6 +113,7 @@ func WithObjects(objects ...string) func(*Diagnostic) {
 	}
 }
 
+// New builds a Diagnostic from the given options.
 func New(opts ...Option) (*Diagnostic, error) {
 	c := &Config{}
 	dc := &Diagnostic{

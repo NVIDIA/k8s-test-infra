@@ -20,7 +20,6 @@
 // dra-driver-nvidia-gpu controller and daemon read these APIs to learn
 // the NVLink domain UUID and clique each GPU belongs to. See issue
 // NVIDIA/k8s-test-infra#304 for the full design.
-
 package main
 
 /*

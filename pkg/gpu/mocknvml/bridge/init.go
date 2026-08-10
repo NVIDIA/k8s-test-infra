@@ -16,7 +16,6 @@
 // - nvmlInit, nvmlInit_v1, nvmlInit_v2
 // - nvmlInitWithFlags
 // - nvmlShutdown
-
 package main
 
 /*

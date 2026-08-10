@@ -161,7 +161,7 @@ func parseNVMLFunctions(filename string) ([]string, error) {
 func scanBridgeExports(bridgeDir string) (map[string]bool, error) {
 	exports := make(map[string]bool)
 
-	err := filepath.Walk(bridgeDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(bridgeDir, func(path string, _ os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -325,7 +325,7 @@ func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
 
 	// Per-file breakdown
 	fileCounts := make(map[string]int)
-	err = filepath.Walk(bridgeDir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(bridgeDir, func(path string, _ os.FileInfo, err error) error {
 		if err != nil || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "stubs_generated.go") {
 			return err
 		}
@@ -368,7 +368,7 @@ func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
 func validateSignatures(bridgeDir string, prototypes map[string]FuncProto) ([]string, error) {
 	var mismatches []string
 
-	err := filepath.Walk(bridgeDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(bridgeDir, func(path string, _ os.FileInfo, err error) error {
 		if err != nil || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "stubs_generated.go") {
 			return err
 		}
