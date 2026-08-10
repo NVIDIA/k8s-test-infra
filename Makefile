@@ -35,6 +35,8 @@ IMAGE_TAG := $(IMAGE_REPO):$(IMAGE_TAG_NAME)
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 
+BIN_DIR=$(PWD)/tmp/bin
+
 .PHONY: help
 help:
 	@echo "🛠️ Dev Commands\n"

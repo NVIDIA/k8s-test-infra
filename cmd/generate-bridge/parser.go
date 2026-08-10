@@ -179,7 +179,7 @@ func cTypeToGo(cType string) string {
 		goBase = "C.uint"
 	case "unsigned long":
 		goBase = "C.ulong"
-	case "unsigned long":
+	case "unsigned long long":
 		goBase = "C.ulonglong"
 	case "int":
 		goBase = "C.int"

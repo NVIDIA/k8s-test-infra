@@ -5,6 +5,7 @@ package daemon
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"os"

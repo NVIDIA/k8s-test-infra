@@ -63,7 +63,7 @@ jobs:
 
     - name: Check golang modules
       run: |
-        make check-modules
+        make modules-check
 
     - name: Run unit tests
       run: |

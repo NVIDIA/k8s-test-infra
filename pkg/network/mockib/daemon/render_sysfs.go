@@ -4,6 +4,7 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"os"
 

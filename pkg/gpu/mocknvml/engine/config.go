@@ -15,6 +15,7 @@ package engine
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"

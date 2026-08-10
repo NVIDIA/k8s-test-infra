@@ -14,6 +14,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"

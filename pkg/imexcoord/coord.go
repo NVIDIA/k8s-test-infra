@@ -63,6 +63,7 @@ package imexcoord
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"os"

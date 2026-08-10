@@ -18,7 +18,7 @@
 package kubernetes
 
 import (
-	"fmt"
+	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"

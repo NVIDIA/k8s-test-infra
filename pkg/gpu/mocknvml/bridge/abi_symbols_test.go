@@ -15,7 +15,6 @@ package main
 
 import (
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"

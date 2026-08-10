@@ -7,7 +7,6 @@ package assertions
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	ginkgo "github.com/onsi/ginkgo/v2"

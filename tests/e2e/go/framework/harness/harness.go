@@ -9,6 +9,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
