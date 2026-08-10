@@ -26,6 +26,11 @@ so all consumers and applications up the stack work without modifications.
 - Kubernetes as a main deployment target
 - Tilt for local development and CI E2E test environment setup
 
+## CI/CD
+
+- Github Actions must be used for CI/CD
+- Use Makefile commands in Github Action pipelines to keep pipeline logic lean and be able to reproduce the same commands locally
+
 ## Docs
 
 - When leaving a comment in code, it should explain intent where it's not obvious — why we are doing something, not what we are doing, in most cases. Don't write comments based on the current conversation context; they should generally be valuable long-term for readers.

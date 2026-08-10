@@ -33,10 +33,6 @@ github.com/emicklei/go-restful/v3/log
 # github.com/fxamacker/cbor/v2 v2.9.0
 ## explicit; go 1.20
 github.com/fxamacker/cbor/v2
-# github.com/go-chi/chi/v5 v5.3.1
-## explicit; go 1.23
-github.com/go-chi/chi/v5
-github.com/go-chi/chi/v5/middleware
 # github.com/go-logr/logr v1.4.3
 ## explicit; go 1.18
 github.com/go-logr/logr
@@ -185,9 +181,6 @@ github.com/tetratelabs/wazero/internal/wasm/binary
 github.com/tetratelabs/wazero/internal/wasmdebug
 github.com/tetratelabs/wazero/internal/wasmruntime
 github.com/tetratelabs/wazero/sys
-# github.com/urfave/cli/v3 v3.10.1
-## explicit; go 1.22
-github.com/urfave/cli/v3
 # github.com/x448/float16 v0.8.4
 ## explicit; go 1.11
 github.com/x448/float16

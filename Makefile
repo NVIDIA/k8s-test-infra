@@ -36,6 +36,10 @@ IMAGE_TAG := $(IMAGE_REPO):$(IMAGE_TAG_NAME)
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 
 BIN_DIR=$(PWD)/tmp/bin
+GOBIN ?= $(BIN_DIR)
+
+export GOBIN
+export PATH := $(GOBIN):$(PATH)
 
 .PHONY: help
 help:
@@ -45,68 +49,76 @@ help:
 .PHONY: tools
 tools: ## Install static checkers & other binaries
 	@echo "🚚 Downloading tools.."
-	@GOBIN=$(BIN_DIR) go install mvdan.cc/gofumpt@latest
-	@GOBIN=$(BIN_DIR) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-	@GOBIN=$(BIN_DIR) go install github.com/denis-tingaikin/go-header/cmd/go-header@latest
-	@GOBIN=$(BIN_DIR) go install github.com/goreleaser/goreleaser/v2@latest
+	@mkdir -p $(GOBIN)
+	@ \
+	test -x $(BIN_DIR)/golangci-lint || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) v2.12.2 & \
+	test -x $(BIN_DIR)/govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest & \
+	wait
 
 .PHONY: lint
-lint: tools ## Lint the source code (read-only checks)
-	@echo "🎨 Checking format.."
-	@out="$$($(BIN_DIR)/gofumpt -l $(GO_PKG_DIRS))"; \
-	if [ -n "$$out" ]; then \
-	    echo "gofumpt found unformatted files (run 'make lint-fix' to fix):"; \
-	    echo "$$out"; \
-	    exit 1; \
-	fi
+lint: tools ## Lint the source code
 	@echo "🧹 Vetting.."
 	@go vet ./...
 	@echo "🧹 GoCI Lint.."
 	@$(BIN_DIR)/golangci-lint run ./...
 	@echo "🧹 GoReleaser check.."
 	@$(BIN_DIR)/goreleaser check
+	@echo "🛡️ govulncheck.."
+	@$(BIN_DIR)/govulncheck -tags=e2e,integration ./...
 
 .PHONY: lint-fix
 lint-fix: tools ## Same checks as `lint`, but auto-fix what can be fixed; report the rest
-	@echo "🧹 Tidying go.mod.."
-	@go mod tidy
-	@echo "🎨 Formatting with gofumpt.."
-	@$(BIN_DIR)/gofumpt -l -w $(GO_PKG_DIRS)
 	@echo "🔧 golangci-lint --fix.."
 	@$(BIN_DIR)/golangci-lint run --fix ./...
 	@echo "🧹 Vetting (report-only).."
 	@go vet ./...
 	@echo "🧹 GoReleaser check (report-only).."
 	@$(BIN_DIR)/goreleaser check
+	@echo "🛡️ govulncheck (report-only).."
+	@$(BIN_DIR)/govulncheck -tags=e2e,integration ./...
 
 .PHONY: gen
-gen: ## Generate NVML Bridge
+gen: ## Generate machine-controlled code
 	@echo "Generate NVML Bridge.."
 	@go generate ./pkg/gpu/mocknvml/bridge/...
 
-BIN_OUT ?= bin
+.PHONY: gen-check
+gen-check: gen ## Check whether all generated code is up to date
+	@git diff --quiet HEAD -- ./pkg/gpu/mocknvml/bridge/
+
+DIST_DIR ?= dist
 
 .PHONY: build
-build: ## Build every CLI under cmd/ into $(BIN_OUT)/
-	@rm -rf $(BIN_OUT)
-	@mkdir -p $(BIN_OUT)
+build: ## Build all CLIs
+	@rm -rf $(DIST_DIR)
+	@mkdir -p $(DIST_DIR)
+	@echo "Building CLI.."
 	@for pkg in $$(find ./cmd -type f -name main.go -exec dirname {} \; | sort -u); do \
 	    name=$$(basename $$pkg); \
 	    parent=$$(basename $$(dirname $$pkg)); \
 	    if [ "$$parent" != "cmd" ]; then name=$$parent-$$name; fi; \
 	    echo "🔨 $$name"; \
-	    $(GO_CMD) build -mod=vendor -o $(BIN_OUT)/$$name $$pkg; \
+	    $(GO_CMD) build -mod=vendor -o $(DIST_DIR)/$$name $$pkg; \
 	done
+
+build-mockpcisysfs: ## Build mockpcisysfs
+	@make -C pkg/system/mockpcisysfs
+
+.PHONY: test
+test: ## Run unit tests with race detection and coverage
+	@$(GO_CMD) test -v -race -coverprofile=coverage.out -covermode=atomic $$(go list ./... | grep -v vendor)
 
 .PHONY: vendor
 vendor: ## Refresh top-level go.mod / vendor / verify
-	go mod tidy
-	go mod vendor
-	go mod verify
+	@echo "Refreshing go.mod.."
+	@go mod tidy
+	@echo "Refreshing vendor directory.."
+	@go mod vendor
+	@go mod verify
 
 .PHONY: vendor-check
 vendor-check: vendor ## Fail if go.mod / go.sum / vendor are out of sync with HEAD
-	git diff --quiet HEAD -- go.mod go.sum vendor
+	@git diff --quiet HEAD -- go.mod go.sum vendor
 
 .PHONY: modules
 modules: | .mod-tidy .mod-vendor .mod-verify ## Tidy / vendor / verify every sub-module
@@ -140,8 +152,22 @@ modules-check: modules ## Fail if any sub-module go.mod / go.sum / vendor is out
 
 HELM_CHART_DIR := deployments/nvml-mock/helm/nvml-mock
 
-.PHONY: helm-unittest
-helm-unittest: ## Run the nvml-mock chart unit test suite
+# Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
+# Docker-based, hence separate from the `go test` run.
+.PHONY: test-mocknvml-bridge
+test-mocknvml-bridge:
+	$(MAKE) -C tests/mocknvml test
+
+.PHONY: mockpcisysfs-shim
+mockpcisysfs-shim: ## Build the mockpcisysfs LD_PRELOAD shim (libpcimocksys.so)
+	@$(MAKE) -C pkg/system/mockpcisysfs
+
+.PHONY: test-mockpcisysfs
+test-mockpcisysfs: mockpcisysfs-shim ## Run mockpcisysfs integration tests
+	@$(GO_CMD) test -tags integration -v ./pkg/system/mockpcisysfs/...
+
+.PHONY: helm-tests
+helm-tests: ## Run the nvml-mock chart unit test suite
 	helm unittest $(HELM_CHART_DIR)
 
 # Unit tests for the e2e harness itself (framework/*). They are behind the `e2e`
@@ -152,16 +178,6 @@ helm-unittest: ## Run the nvml-mock chart unit test suite
 .PHONY: test-e2e-framework
 test-e2e-framework:
 	$(GO_CMD) test -tags e2e -race ./tests/e2e/go/framework/...
-
-.PHONY: generate
-generate:
-	go generate ./pkg/gpu/mocknvml/bridge/...
-
-# Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
-# Docker-based, hence separate from the `go test` run.
-.PHONY: test-mocknvml-bridge
-test-mocknvml-bridge:
-	$(MAKE) -C tests/mocknvml test
 
 KIND_NODE_IMAGE   ?= kind-node-nv:latest
 # Cluster profile (select via PROFILE=<name>):
