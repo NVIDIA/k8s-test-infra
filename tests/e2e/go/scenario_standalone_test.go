@@ -163,6 +163,10 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertRuntimePStateCommand(ctx, h, pod)
 				})
 
+				It("drives the running-process list via nvml-mock-ctl set", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeProcesses(ctx, h, pod)
+				})
+
 				It("targets a GPU by UUID via nvml-mock-ctl", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimeUUIDTargeting(ctx, h, pod)
 				})

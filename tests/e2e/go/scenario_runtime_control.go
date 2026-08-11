@@ -689,6 +689,152 @@ func assertRuntimeHealthyRecovery(ctx SpecContext, h *harness.Harness, consumer 
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 }
 
+// smiProcess is one row of nvidia-smi --query-compute-apps.
+type smiProcess struct {
+	PID       int
+	Name      string
+	MemoryMiB int
+}
+
+// smiComputeApps returns the compute-apps rows nvidia-smi reports for a single
+// GPU. --format=csv,noheader,nounits yields one "pid, name, mib" line per
+// process and empty output when the GPU has none.
+func smiComputeApps(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) []smiProcess {
+	GinkgoHelper()
+	res, err := h.Kube.Exec(ctx, pod, "nvidia-smi",
+		"--id="+strconv.Itoa(idx),
+		"--query-compute-apps=pid,process_name,used_gpu_memory",
+		"--format=csv,noheader,nounits")
+	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -i %d --query-compute-apps: %s", idx, res.Combined())
+
+	var out []smiProcess
+	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, ",")
+		Expect(fields).To(HaveLen(3), "unexpected --query-compute-apps row %q", line)
+		pid, perr := strconv.Atoi(strings.TrimSpace(fields[0]))
+		Expect(perr).NotTo(HaveOccurred(), "parse pid from %q", line)
+		mib, merr := strconv.Atoi(strings.TrimSpace(fields[2]))
+		Expect(merr).NotTo(HaveOccurred(), "parse used memory from %q", line)
+		out = append(out, smiProcess{PID: pid, Name: strings.TrimSpace(fields[1]), MemoryMiB: mib})
+	}
+	return out
+}
+
+// smiDefaultTable returns the plain `nvidia-smi` output for a single GPU, which
+// includes the bottom "Processes:" box.
+func smiDefaultTable(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) string {
+	GinkgoHelper()
+	res, err := h.Kube.Exec(ctx, pod, "nvidia-smi", "--id="+strconv.Itoa(idx))
+	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -i %d: %s", idx, res.Combined())
+	return res.Stdout
+}
+
+// setRuntimeProcesses writes a `processes:` list onto one GPU via
+// `nvml-mock-ctl set`. There is no dedicated process subcommand: `set` accepts
+// any DeviceConfig path, and the value is parsed as YAML, so the whole list is
+// replaced in one call (an empty list clears it).
+func setRuntimeProcesses(ctx SpecContext, h *harness.Harness, idx int, procs []smiProcess) {
+	GinkgoHelper()
+	entries := make([]string, 0, len(procs))
+	for _, p := range procs {
+		entries = append(entries, fmt.Sprintf("{pid: %d, type: C, name: %s, used_memory_mib: %d}",
+			p.PID, p.Name, p.MemoryMiB))
+	}
+	nvmlMockCtl(ctx, h, "set", "--gpu", strconv.Itoa(idx),
+		"processes=["+strings.Join(entries, ", ")+"]")
+}
+
+// assertRuntimeProcesses covers driving a GPU's running-process list at runtime
+// with `nvml-mock-ctl set --gpu <idx> 'processes=[...]'` and observing it
+// through every nvidia-smi view that renders processes.
+//
+// This is a regression guard for two bugs that only appear with real
+// nvidia-smi. nvidia-smi enumerates processes through the internal export
+// table, whose entry is a 4128-byte struct carrying an inline name buffer,
+// not the public 24-byte nvmlProcessInfo_t:
+//
+//   - a wrong stride silently renders every process after the FIRST as
+//     PID 0 / [N/A] / 0 MiB, so this deliberately configures more than one
+//     process;
+//   - an empty inline name makes nvidia-smi drop the rows from the default
+//     table's Processes box even though it received them, so the default table
+//     is asserted alongside --query-compute-apps.
+func assertRuntimeProcesses(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	count := gpuCount(ctx, h, consumer)
+	target := count - 1 // exercise a non-zero index where possible
+
+	// Modest memory values so the numbers stay plausible on every profile.
+	want := []smiProcess{
+		{PID: 4201, Name: "train.py", MemoryMiB: 1024},
+		{PID: 4202, Name: "infer.py", MemoryMiB: 512},
+		{PID: 4203, Name: "jupyter", MemoryMiB: 64},
+	}
+
+	By("baseline: the GPU reports no running processes")
+	Expect(smiComputeApps(ctx, h, consumer, target)).To(BeEmpty(),
+		"GPU %d must start with no processes for a meaningful assertion", target)
+
+	By(fmt.Sprintf("configure %d processes on GPU %d via nvml-mock-ctl set", len(want), target))
+	setRuntimeProcesses(ctx, h, target, want)
+
+	Eventually(func() []smiProcess {
+		return smiComputeApps(ctx, h, consumer, target)
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(want), "GPU %d should report every configured process with its pid, name and memory", target)
+
+	By("the default table's Processes box lists the same processes")
+	table := smiDefaultTable(ctx, h, consumer, target)
+	Expect(table).NotTo(ContainSubstring("No running processes found"),
+		"default table should list the configured processes:\n%s", table)
+	for _, p := range want {
+		Expect(table).To(ContainSubstring(p.Name),
+			"default table should name process %d:\n%s", p.PID, table)
+		Expect(table).To(ContainSubstring(strconv.Itoa(p.PID)),
+			"default table should list pid %d:\n%s", p.PID, table)
+	}
+
+	By("nvidia-smi -q reports the same processes, with names resolved")
+	res, err := h.Kube.Exec(ctx, consumer, "nvidia-smi", "--id="+strconv.Itoa(target), "-q")
+	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -i %d -q: %s", target, res.Combined())
+	for _, p := range want {
+		Expect(res.Stdout).To(ContainSubstring(strconv.Itoa(p.PID)),
+			"nvidia-smi -q should list pid %d", p.PID)
+		// The name reaches -q only because it is written into the entry's
+		// inline name buffer; nvidia-smi does not call nvmlSystemGetProcessName
+		// on this path.
+		Expect(res.Stdout).To(ContainSubstring(p.Name),
+			"nvidia-smi -q should resolve the name of pid %d", p.PID)
+	}
+
+	if count > 1 {
+		By("verify the process list is scoped to the target GPU (GPU 0 unchanged)")
+		Expect(smiComputeApps(ctx, h, consumer, 0)).To(BeEmpty(),
+			"GPU 0 must report no processes when only GPU %d was targeted", target)
+	}
+
+	By("clearing the list with an empty processes value removes them")
+	setRuntimeProcesses(ctx, h, target, nil)
+	Eventually(func() []smiProcess {
+		return smiComputeApps(ctx, h, consumer, target)
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(BeEmpty(), "GPU %d should report no processes after processes=[]", target)
+
+	By("reset runtime overrides")
+	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+	Eventually(func() string {
+		return smiDefaultTable(ctx, h, consumer, target)
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(ContainSubstring("No running processes found"),
+			"GPU %d default table should be empty again after reset", target)
+}
+
 // nvlinkErrorSum sums the Replay/Recovery/CRC error counters nvidia-smi reports
 // for a single GPU via `nvlink -e`. The second return is false when the bundled
 // nvidia-smi does not surface per-link error counters at all, so callers can
