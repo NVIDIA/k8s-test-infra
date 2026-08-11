@@ -38,3 +38,22 @@ func NvidiaSMI(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.P
 	gomega.Expect(count).To(gomega.Equal(p.ExpectedGPUs()),
 		"nvidia-smi -L GPU count\n%s", strings.TrimSpace(out))
 }
+
+// NvidiaSMITemperatureThresholds asserts nvidia-smi -q -d TEMPERATURE uses the
+// architecture-correct threshold presentation for the profile: absolute rows
+// on pre-Ada, T.Limit rows on Ada and later. See issue #635.
+func NvidiaSMITemperatureThresholds(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -d TEMPERATURE on %s (arch=%s, tlimit=%v)",
+		p.Name, p.Architecture(), p.ReportsTLimitTemp()))
+	res, err := k.Exec(ctx, pod, "nvidia-smi", "-q", "-d", "TEMPERATURE")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		"nvidia-smi -q -d TEMPERATURE exited with error: %s", res.Combined())
+	out := res.Combined()
+	problems := DiffTemperatureQuery(out, p.ReportsTLimitTemp(),
+		p.ShutdownThresholdC(), p.SlowdownThresholdC(), p.MaxOperatingC())
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"temperature threshold presentation wrong for profile %s:\n%s\n%s",
+		p.Name, strings.Join(problems, "\n"), strings.TrimSpace(out))
+}

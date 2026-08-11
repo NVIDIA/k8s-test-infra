@@ -228,14 +228,23 @@ func (d *ConfigurableDevice) getDeviceFieldValue(fieldID, scopeID uint32) (Field
 // scalars, as the signed distance in degrees C from a common T.Limit reference
 // to each threshold; nvidia-smi renders them as the "GPU/Memory <X> T.Limit
 // Temp" rows and the live headroom (GetMarginTemperature / DCGM field 153) is
-// measured against the same reference. We use the slowdown threshold as that
-// reference (matching GetMarginTemperature), so the slowdown offset is 0, the
-// shutdown offset is negative (a hotter limit), and the GPU-max offset is the
-// gap to the max-operating limit. NVSentinel's GpuThermalMarginWatch treats
-// the slowdown entry as the metadata it needs to arm, then alarms as the live
-// margin closes on it. The memory-max entry stays unsupported because the mock
-// models no separate memory throttle threshold.
+// measured against the same reference. Pre-Ada architectures return
+// NOT_SUPPORTED so nvidia-smi falls back to the absolute threshold API. We use
+// the slowdown threshold as that reference (matching GetMarginTemperature), so
+// the slowdown offset is 0, the shutdown offset is negative (a hotter limit),
+// and the GPU-max offset is the gap to the max-operating limit. NVSentinel's
+// GpuThermalMarginWatch treats the slowdown entry as the metadata it needs to
+// arm, then alarms as the live margin closes on it. The memory-max entry stays
+// unsupported because the mock models no separate memory throttle threshold.
 func (d *ConfigurableDevice) tlimitThresholdFieldValue(fieldID uint32) (FieldValueType, uint64, nvml.Return, bool) {
+	// Real hardware only reports the T.Limit field IDs on Ada and later.
+	// Ampere/Turing keep the legacy absolute thresholds via
+	// nvmlDeviceGetTemperatureThreshold; answering these fields on pre-Ada
+	// makes nvidia-smi prefer the T.Limit row labels and render signed
+	// margins as absolute (often negative/inverted) temperatures.
+	if d.Config.Architecture < nvml.DEVICE_ARCH_ADA || d.Config.Architecture == nvml.DEVICE_ARCH_UNKNOWN {
+		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
+	}
 	c := d.cfg()
 	if c.Thermal == nil {
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true

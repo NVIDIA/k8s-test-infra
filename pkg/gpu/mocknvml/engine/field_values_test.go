@@ -124,7 +124,10 @@ func TestGetMarginTemperature(t *testing.T) {
 }
 
 func TestGetFieldValue_TlimitThresholds(t *testing.T) {
+	// T.Limit field IDs are Ada-and-later only. Declare an Ada+ architecture
+	// so the supported path is exercised explicitly.
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Architecture: "hopper",
 		Thermal: &ThermalConfig{
 			TemperatureGPU_C:    34,
 			SlowdownThreshold_C: 87,
@@ -161,6 +164,37 @@ func TestGetFieldValue_TlimitThresholds(t *testing.T) {
 	none := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "hopper"})
 	_, _, ret = none.GetFieldValue(fiTempSlowdownTlimit, 0)
 	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+}
+
+func TestGetFieldValue_TlimitThresholds_PreAdaNotSupported(t *testing.T) {
+	// Real Ampere/Turing hardware never reports the T.Limit field IDs;
+	// nvidia-smi falls back to nvmlDeviceGetTemperatureThreshold absolute
+	// scalars. The mock must return NOT_SUPPORTED so pre-Ada profiles do not
+	// render signed margins as absolute (and inverted) temperatures.
+	for _, arch := range []string{"turing", "ampere"} {
+		arch := arch
+		t.Run(arch, func(t *testing.T) {
+			dev := newTestDeviceWithConfig(t, &DeviceConfig{
+				Architecture: arch,
+				Thermal: &ThermalConfig{
+					TemperatureGPU_C:    33,
+					SlowdownThreshold_C: 87,
+					ShutdownThreshold_C: 92,
+					MaxOperating_C:      83,
+				},
+			})
+			for _, fieldID := range []uint32{
+				fiTempShutdownTlimit,
+				fiTempSlowdownTlimit,
+				fiTempMemMaxTlimit,
+				fiTempGpuMaxTlimit,
+			} {
+				_, _, ret := dev.GetFieldValue(fieldID, 0)
+				require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret,
+					"pre-Ada arch %q must not answer T.Limit field %d", arch, fieldID)
+			}
+		})
+	}
 }
 
 func TestGetFieldValue_UnknownFieldNotSupported(t *testing.T) {
