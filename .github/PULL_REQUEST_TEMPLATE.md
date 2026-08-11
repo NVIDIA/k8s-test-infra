@@ -10,7 +10,7 @@
 
 - [ ] Commits are signed off (`git commit -s`)
 - [ ] Tests pass (`go test -v -race ./...`)
-- [ ] Linter passes (`make lint`)
+- [ ] Linter passes (`make lint-fix`)
 - [ ] New code has SPDX license headers
 - [ ] Documentation updated (if applicable)
 - [ ] CHANGELOG.md updated (if user-facing change)
