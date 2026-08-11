@@ -152,7 +152,34 @@ func scheduleDRAResourceClaimPod(ctx SpecContext, h *harness.Harness) {
 }
 
 func draResourceClaimManifest() []byte {
-	return []byte("apiVersion: resource.k8s.io/v1beta1\nkind: ResourceClaimTemplate\nmetadata:\n  name: gpu-claim\nspec:\n  devices:\n      requests:\n        - name: gpu\n          deviceClassName: gpu.nvidia.com\n---\napiVersion: v1\nkind: Pod\nmetadata:\n  name: gpu-test-pod\nspec:\n  restartPolicy: Never\n  containers:\n    - name: app\n      image: busybox:1.36\n      command: [\"sleep\", \"300\"]\n      resources:\n        claims:\n          - name: gpu\n  resourceClaims:\n    - name: gpu\n      resourceClaimTemplateName:")
+	return []byte(`apiVersion: resource.k8s.io/v1beta1
+kind: ResourceClaimTemplate
+metadata:
+  name: gpu-claim
+spec:
+  spec:
+    devices:
+      requests:
+        - name: gpu
+          deviceClassName: gpu.nvidia.com
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-test-pod
+spec:
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sleep", "300"]
+      resources:
+        claims:
+          - name: gpu
+  resourceClaims:
+    - name: gpu
+      resourceClaimTemplateName: gpu-claim
+`)
 }
 
 func waitDRATestPodRunning(ctx context.Context, h *harness.Harness) {

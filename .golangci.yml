@@ -27,6 +27,7 @@ run:
     - integration
 
 linters:
+  # dupword is deliberately NOT enabled. Its autofix breaks cgo codebase and produces too much false positives
   enable:
     - nolintlint
     - revive
@@ -35,7 +36,6 @@ linters:
     - bodyclose
     - contextcheck
     - cyclop
-    - dupword
     - errname
     - exhaustive
     - loggercheck
@@ -94,14 +94,6 @@ linters:
           - revive
         text: 'should not use dot imports'
 
-      # "long long" is a legitimate C type identifier — used in cgo blocks in
-      # pkg/gpu/mocknvml/bridge/ and in the C-type switch in
-      # cmd/generate-bridge/parser.go. Without this rule, golangci-lint --fix
-      # collapses "long long" to "long" and breaks compile with duplicate switch
-      # cases or an invalid C type.
-      - linters:
-          - dupword
-        text: 'Duplicate words \(long\)'
       # The mocknvml/mockcuda packages deliberately mirror NVML/CUDA C API names
       # (GetBoardId, DeviceGetHandleByPciBusId, GetMemoryInfo_v2, TemperatureGPU_C,
       # ...) so ConfigurableDevice satisfies go-nvml's Device interface and the
