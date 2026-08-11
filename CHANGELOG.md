@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The ComputeDomain demo now runs real IMEX as a separate, ordinary workload;
+  NRI supplies its mock NVML overlay, per-node topology, and annotated channel
+  devices. Reruns deterministically reuse only compatible NRI-enabled Kind
+  clusters, while incompatible clusters require explicit recreation with
+  `FORCE_RECREATE=true`.
+
 ## [0.3.0] - 2026-08-01
 
 ### Added
