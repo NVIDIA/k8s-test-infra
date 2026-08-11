@@ -98,7 +98,7 @@ func TestReconcile_UnknownDeviceUUIDIsIgnored(t *testing.T) {
 func TestReconcile_ReleaseReturnsToIdle(t *testing.T) {
 	devices := a100Devices()
 	busy := Reconcile(devices, []Claim{{DeviceUUID: "GPU-aaa"}}, DefaultPolicy())
-	require.Greater(t, busy[0].UsedBytes, uint64(0), "precondition: the claim moved the number")
+	require.Positive(t, busy[0].UsedBytes, "precondition: the claim moved the number")
 
 	// The whole point of polling full state rather than tracking deltas: the
 	// released reading is computed from scratch, so it cannot drift.

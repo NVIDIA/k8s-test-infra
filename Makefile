@@ -15,11 +15,13 @@ SHELL := /usr/bin/env bash
 # itself — see the `e2e` and `.mod-verify` targets.
 .SHELLFLAGS := -o pipefail -ec
 
-.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
-
 GO_CMD ?= go
 GO_FMT ?= gofmt
 GO_SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
+# First-party Go source directories. gofumpt / golangci-lint walk these
+# rather than "." so they don't dive into vendor/ or tmp/ (which may hold an
+# untracked clone of a sibling repo — e.g. tmp/topograph/).
+GO_PKG_DIRS := cmd pkg tests
 
 VERSION := 0.0.1
 
@@ -31,33 +33,89 @@ IMAGE_TAG := $(IMAGE_REPO):$(IMAGE_TAG_NAME)
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 
-build:
-	@rm -rf bin
-	$(GO_CMD) build -o bin/$(BINARY_NAME) cmd/nv-ci-bot/main.go
+BIN_DIR := $(PROJECT_DIR)/tmp/bin
+GOBIN := $(BIN_DIR)
 
-fmt:
-	@$(GO_FMT) -w -l $$(find . -name '*.go')
+export GOBIN
+export PATH := $(GOBIN):$(PATH)
 
-verify:
-	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go')`; \
-	if [ -n "$$out" ]; then \
-	    echo "$$out"; \
-	    exit 1; \
-	fi
+.PHONY: help
+help:
+	@echo "🛠️ Dev Commands\n"
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
-lint:
-	golangci-lint run ./...
+.PHONY: tools
+tools: ## Install static checkers & other binaries
+	@echo "🚚 Downloading tools.."
+	@mkdir -p $(GOBIN)
+	@ \
+	test -x $(BIN_DIR)/golangci-lint || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) v2.12.2 & \
+	test -x $(BIN_DIR)/govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest & \
+	wait
 
-vendor:
-	go mod tidy
-	go mod vendor
-	go mod verify
+.PHONY: lint
+lint: tools gen-check ## Lint the source code
+	@echo "🧹 Vetting.."
+	@go vet ./...
+	@echo "🧹 GoCI Lint.."
+	@$(BIN_DIR)/golangci-lint run ./...
+	@echo "🛡️ govulncheck.."
+	@$(BIN_DIR)/govulncheck -tags=e2e,integration ./...
 
-check-vendor: vendor
-	git diff --quiet HEAD -- go.mod go.sum vendor
+.PHONY: lint-fix
+lint-fix: tools gen ## Same checks as `lint`, but auto-fix what can be fixed; report the rest
+	@echo "🔧 golangci-lint --fix.."
+	@$(BIN_DIR)/golangci-lint run --fix ./...
+	@echo "🧹 Vetting.."
+	@go vet ./...
+	@echo "🛡️ govulncheck.."
+	@$(BIN_DIR)/govulncheck -tags=e2e,integration ./...
 
-.PHONY: modules check-modules
-modules:  | .mod-tidy .mod-vendor .mod-verify
+.PHONY: gen
+gen: ## Generate machine-controlled code
+	@echo "Generating NVML Bridge.."
+	@go generate ./pkg/gpu/mocknvml/bridge/...
+
+.PHONY: gen-check
+gen-check: gen ## Check whether all generated code is up to date
+	@git diff --quiet HEAD -- ./pkg/gpu/mocknvml/bridge/
+
+DIST_DIR ?= dist
+
+.PHONY: build
+build: ## Build all CLIs
+	@rm -rf $(DIST_DIR)
+	@mkdir -p $(DIST_DIR)
+	@echo "Building CLI.."
+	@for pkg in $$(find ./cmd -type f -name main.go -exec dirname {} \; | sort -u); do \
+	    name=$$(basename $$pkg); \
+	    parent=$$(basename $$(dirname $$pkg)); \
+	    if [ "$$parent" != "cmd" ]; then name=$$parent-$$name; fi; \
+	    echo "🔨 $$name"; \
+	    $(GO_CMD) build -mod=vendor -o $(DIST_DIR)/$$name $$pkg || exit 1; \
+	done
+
+build-mockpcisysfs: ## Build mockpcisysfs
+	@make -C pkg/system/mockpcisysfs
+
+.PHONY: test
+test: ## Run unit tests with race detection and coverage
+	@$(GO_CMD) test -v -race -coverprofile=coverage.out -covermode=atomic $$(go list ./... | grep -v vendor)
+
+.PHONY: vendor
+vendor: ## Refresh top-level go.mod / vendor / verify
+	@echo "Refreshing go.mod.."
+	@go mod tidy
+	@echo "Refreshing vendor directory.."
+	@go mod vendor
+	@go mod verify
+
+.PHONY: vendor-check
+vendor-check: vendor ## Fail if go.mod / go.sum / vendor are out of sync with HEAD
+	@git diff --quiet HEAD -- go.mod go.sum vendor
+
+.PHONY: modules
+modules: | .mod-tidy .mod-vendor .mod-verify ## Tidy / vendor / verify every sub-module
 .mod-tidy:
 	@for mod in $$(find . -name go.mod -not -path "./testdata/*" -not -path "./third_party/*"); do \
 	    echo "Tidying $$mod..."; ( \
@@ -79,15 +137,31 @@ modules:  | .mod-tidy .mod-vendor .mod-verify
 	    ) || exit 1; \
 	done
 
-check-modules: modules
+.PHONY: modules-check
+modules-check: modules ## Fail if any sub-module go.mod / go.sum / vendor is out of sync
 	@echo "- Checking if go.mod and go.sum are in sync..."
-	@git diff --exit-code -- $$(find . -name go.mod -name go.sum)
+	@git diff --exit-code -- $$(find . \( -name go.mod -o -name go.sum \))
 	@echo "- Checking if the go mod vendor dir is in sync..."
 	@git diff --exit-code -- $$(find . -name vendor)
 
 HELM_CHART_DIR := deployments/nvml-mock/helm/nvml-mock
 
-helm-unittest:
+# Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
+# Docker-based, hence separate from the `go test` run.
+.PHONY: test-mocknvml-bridge
+test-mocknvml-bridge:
+	$(MAKE) -C tests/mocknvml test
+
+.PHONY: mockpcisysfs-shim
+mockpcisysfs-shim: ## Build the mockpcisysfs LD_PRELOAD shim (libpcimocksys.so)
+	@$(MAKE) -C pkg/system/mockpcisysfs
+
+.PHONY: test-mockpcisysfs
+test-mockpcisysfs: mockpcisysfs-shim ## Run mockpcisysfs integration tests
+	@$(GO_CMD) test -tags integration -v ./pkg/system/mockpcisysfs/...
+
+.PHONY: helm-tests
+helm-tests: ## Run the nvml-mock chart unit test suite
 	helm unittest $(HELM_CHART_DIR)
 
 # Unit tests for the e2e harness itself (framework/*). They are behind the `e2e`
@@ -98,16 +172,6 @@ helm-unittest:
 .PHONY: test-e2e-framework
 test-e2e-framework:
 	$(GO_CMD) test -tags e2e -race ./tests/e2e/go/framework/...
-
-.PHONY: generate
-generate:
-	go generate ./pkg/gpu/mocknvml/bridge/...
-
-# Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
-# Docker-based, hence separate from the `go test` run.
-.PHONY: test-mocknvml-bridge
-test-mocknvml-bridge:
-	$(MAKE) -C tests/mocknvml test
 
 KIND_NODE_IMAGE   ?= kind-node-nv:latest
 # Cluster profile (select via PROFILE=<name>):
@@ -187,23 +251,25 @@ E2E_TIMEOUT ?= 90m
 E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
+.PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
+
 # `set -o pipefail` is inline on purpose; do not drop it as redundant with
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
 # so on a developer machine this recipe otherwise returns tee's status and a
 # failed suite exits 0 — see issue #560 and tests/makefile/makefile_test.go.
-e2e:
+e2e: ## Run the Ginkgo e2e suite (scope with E2E_PROFILES / E2E_GINKGO_FLAGS)
 	set -o pipefail; $(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
 
-e2e-dra:
+e2e-dra: ## e2e — DRA scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=dra'
 
-e2e-gpu-operator:
+e2e-gpu-operator: ## e2e — GPU Operator scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=gpu-operator'
 
-e2e-multi-node:
+e2e-multi-node: ## e2e — heterogeneous a100/t4 cluster
 	$(MAKE) e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter=multi-node'
 
-e2e-nri:
+e2e-nri: ## e2e — NRI ambient-injection scenario
 	$(MAKE) e2e E2E_GINKGO_FLAGS='--label-filter=nri'
 
 # E2E_PROFILES is pinned rather than inherited from DefaultProfiles. The nfd
@@ -211,5 +277,5 @@ e2e-nri:
 # vendor-only and byte-identical across profiles. Without this the harness
 # inherits gb200 and announces a profile the run never instantiates — a green
 # log then reads exactly like one that did exercise gb200.
-e2e-nfd:
+e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=nfd'

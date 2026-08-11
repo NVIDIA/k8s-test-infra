@@ -63,6 +63,7 @@ package imexcoord
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -117,7 +118,7 @@ func NodesConfigPath() string {
 // we need to defend.
 func validatePeerIP(ip string) error {
 	if ip == "" {
-		return fmt.Errorf("imexcoord: empty pod IP")
+		return errors.New("imexcoord: empty pod IP")
 	}
 	if net.ParseIP(ip) == nil {
 		return fmt.Errorf("imexcoord: invalid peer IP %q (must be a bare IPv4 or IPv6 literal)", ip)

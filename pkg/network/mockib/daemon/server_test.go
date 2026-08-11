@@ -80,7 +80,7 @@ func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 	var recvResp protocol.RecvResp
 	require.NoError(t, protocol.DecodeBody(env, &recvResp))
 	require.False(t, recvResp.Timeout, "recv: %+v", recvResp)
-	require.NotZero(t, len(recvResp.MAD), "recv: %+v", recvResp)
+	require.NotEmpty(t, recvResp.MAD, "recv: %+v", recvResp)
 	require.NotZero(t, recvResp.MAD[umadMADOffset+ibMADMethodOff]&0x80, "expected response method bit set on echoed MAD")
 
 	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeClose, protocol.CloseReq{Handle: openResp.Handle}))

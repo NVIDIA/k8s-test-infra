@@ -21,6 +21,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -47,7 +48,7 @@ func run(args []string) error {
 		return err
 	}
 	if *output == "" {
-		return fmt.Errorf("--output is required")
+		return errors.New("--output is required")
 	}
 
 	data, err := os.ReadFile(*source) //nolint:gosec // operator-supplied source path

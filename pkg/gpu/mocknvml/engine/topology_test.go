@@ -376,7 +376,7 @@ func TestNodeFabric_BuiltinProfiles(t *testing.T) {
 
 // TestNodeFabric_ConcurrentReads hammers the read-only fabric accessors
 // from many goroutines; with -race this guards the immutability claim.
-func TestNodeFabric_ConcurrentReads(t *testing.T) {
+func TestNodeFabric_ConcurrentReads(_ *testing.T) {
 	yc := &YAMLConfig{
 		System: SystemConfig{DriverVersion: "560.0", NumDevices: 2},
 		Devices: []DeviceOverride{

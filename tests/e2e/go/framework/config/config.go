@@ -120,10 +120,17 @@ func RunNGCSpecs() bool { return envBool("E2E_RUN_NGC") }
 
 // Timeouts (overridable; conservative defaults matching the bash waits).
 
+// ClusterTimeout bounds the Kind cluster-create/attach wait.
 func ClusterTimeout() time.Duration { return durEnv("E2E_CLUSTER_TIMEOUT", 5*time.Minute) }
-func HelmTimeout() time.Duration    { return durEnv("E2E_HELM_TIMEOUT", 5*time.Minute) }
-func ReadyTimeout() time.Duration   { return durEnv("E2E_READY_TIMEOUT", 2*time.Minute) }
-func PollInterval() time.Duration   { return durEnv("E2E_POLL_INTERVAL", 2*time.Second) }
+
+// HelmTimeout bounds a `helm upgrade --install` wait.
+func HelmTimeout() time.Duration { return durEnv("E2E_HELM_TIMEOUT", 5*time.Minute) }
+
+// ReadyTimeout bounds the wait for a DaemonSet/pod to become Ready.
+func ReadyTimeout() time.Duration { return durEnv("E2E_READY_TIMEOUT", 2*time.Minute) }
+
+// PollInterval is how often Eventually retries during a Ready wait.
+func PollInterval() time.Duration { return durEnv("E2E_POLL_INTERVAL", 2*time.Second) }
 
 // OperandSettleTimeout bounds a wait that has to outlast a GPU Operator
 // reconcile replacing its operands, rather than the single rollout ReadyTimeout
