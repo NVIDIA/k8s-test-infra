@@ -362,6 +362,8 @@ func Validate(base *engine.DeviceConfig, patch map[string]any) error {
 // A numeric index is bounds-checked against cfg.NumDevices when available, so
 // a typo like `--gpu 8` on an 8-GPU node fails loudly instead of silently
 // writing overrides to a bucket no device ever reads.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func ResolveTarget(spec string, cfg *engine.Config) (Target, error) {
 	if spec == "all" {
 		return Target{All: true}, nil

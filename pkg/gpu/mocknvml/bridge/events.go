@@ -25,7 +25,6 @@
 //
 // With no event pending they block for the caller's timeout, as real NVML
 // does: clients loop on the wait with no sleep of their own.
-
 package main
 
 /*
@@ -33,6 +32,7 @@ package main
 #include "nvml_types.h"
 */
 import "C"
+
 import (
 	"time"
 	"unsafe"
@@ -53,7 +53,7 @@ func nvmlEventSetCreate(set *C.nvmlEventSet_t) C.nvmlReturn_t {
 	if p == nil {
 		return C.NVML_ERROR_MEMORY
 	}
-	*set = (C.nvmlEventSet_t)(p)
+	*set = C.nvmlEventSet_t(p)
 	return C.NVML_SUCCESS
 }
 
@@ -65,12 +65,16 @@ func nvmlEventSetFree(set C.nvmlEventSet_t) C.nvmlReturn_t {
 	return C.NVML_SUCCESS
 }
 
+//
 //export nvmlDeviceRegisterEvents
+//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceRegisterEvents(device C.nvmlDevice_t, eventTypes C.ulonglong, set C.nvmlEventSet_t) C.nvmlReturn_t {
 	return C.NVML_SUCCESS
 }
 
+//
 //export nvmlDeviceGetSupportedEventTypes
+//nolint:revive // cgo //export ABI: params keep their NVML names for the generated C header
 func nvmlDeviceGetSupportedEventTypes(device C.nvmlDevice_t, eventTypes *C.ulonglong) C.nvmlReturn_t {
 	if eventTypes == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
@@ -240,7 +244,7 @@ func eventSetWaitWithPendingXidForTest(xid uint64, timeoutms uint32, availableAf
 			return nil, 0, false
 		}
 		claimed = true
-		return unsafe.Pointer(handle), xid, true
+		return handle, xid, true
 	}
 	defer func() { pendingXidClaim = restore }()
 
@@ -255,6 +259,6 @@ func eventSetWaitWithPendingXidForTest(xid uint64, timeoutms uint32, availableAf
 	out.status = uint32(nvmlEventSetWait_v2(set, &data, C.uint(timeoutms)))
 	out.eventType = uint64(data.eventType)
 	out.eventData = uint64(data.eventData)
-	out.deviceSet = unsafe.Pointer(data.device.handle) == unsafe.Pointer(handle)
+	out.deviceSet = unsafe.Pointer(data.device.handle) == handle
 	return out
 }

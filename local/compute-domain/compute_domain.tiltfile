@@ -87,12 +87,13 @@ def build_images(with_dra):
         # local/compute-domain/dra-driver.values.yaml so the DRA
         # driver's compute-domain-daemon pods run the shim'd real IMEX
         # in NO-GPU mode instead of the GPU-required upstream binary.
-        # The Dockerfile's last stage is unnamed, so target= is omitted;
-        # docker builds the last stage by default.
+        # Select the named daemon stage explicitly so later stage additions
+        # cannot silently change this build's output.
         docker_build(
             DAEMON_IMAGE,
             context='.',
             dockerfile=_OVERLAY_DOCKERFILE,
+            target='daemon',
             only=[
                 'go.mod',
                 'go.sum',

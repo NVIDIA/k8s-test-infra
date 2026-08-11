@@ -15,7 +15,6 @@
 // the hand-written nearest-GPU lookup, derived from the NodeFabric's
 // pairwise PCIe topology levels. The pairwise common-ancestor export lives
 // in device.go; both are thin marshalling layers over the pure-Go engine.
-
 package main
 
 /*
@@ -26,6 +25,7 @@ package main
 #include "nvml_types.h"
 */
 import "C"
+
 import (
 	"unsafe"
 

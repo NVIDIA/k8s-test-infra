@@ -27,21 +27,6 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 )
 
-const (
-	// ClusterName is the single shared cluster the whole suite runs against.
-	ClusterName = "nvml-mock-e2e"
-
-	// nvmlMockNamespace isolates the chart under test from the default namespace.
-	nvmlMockNamespace = "mokka"
-
-	nvmlMockSelector = "app.kubernetes.io/name=nvml-mock"
-)
-
-// builtImage is the nvml-mock image ref shared across parallel processes
-// (built once on process #1 in SynchronizedBeforeSuite, then kind-loaded into
-// the shared cluster).
-var builtImage string
-
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "nvml-mock E2E Suite")

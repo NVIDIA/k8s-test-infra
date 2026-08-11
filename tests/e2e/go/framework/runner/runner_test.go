@@ -16,7 +16,6 @@ func TestLineLimitWriterWritesOnlyFirstLines(t *testing.T) {
 	w := &lineLimitWriter{dst: &out, remaining: 2}
 
 	n, err := w.Write(input)
-
 	if err != nil {
 		t.Fatalf("lineLimitWriter write: %v", err)
 	}

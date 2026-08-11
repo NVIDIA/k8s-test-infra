@@ -35,6 +35,7 @@ func TestConfigOverridePathFor_EnvWins(t *testing.T) {
 	}
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func TestConfigOverrideStore_GenBumpsOnChange(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "overrides.yaml")

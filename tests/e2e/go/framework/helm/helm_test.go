@@ -105,7 +105,6 @@ func TestRunHidesReleaseOutputWhenRequested(t *testing.T) {
 		Chart:      "chart",
 		HideOutput: true,
 	})
-
 	if err != nil {
 		t.Fatalf("expected quiet helm release to succeed, got %v", err)
 	}

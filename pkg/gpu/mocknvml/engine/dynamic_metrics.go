@@ -155,6 +155,8 @@ func (s *dynamicMetricsSimulator) Utilization(staticGPU, staticMem uint32) (uint
 // sampleUtilization returns a value in [min, max] according to the
 // configured pattern. If max is zero it's treated as 100 so an
 // unconfigured "just pattern=busy" config still produces meaningful values.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func (s *dynamicMetricsSimulator) sampleUtilization(uc *DynamicUtilizationConfig, lo, hi uint32) uint32 {
 	if hi == 0 && lo == 0 {
 		hi = 100

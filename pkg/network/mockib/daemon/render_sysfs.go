@@ -4,6 +4,7 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -26,10 +27,10 @@ type RenderSysfsOptions struct {
 // sysfs tree under OutputDir when infiniband.enabled is true.
 func RenderSysfsFromConfig(opts RenderSysfsOptions) error {
 	if opts.ConfigPath == "" {
-		return fmt.Errorf("config path required")
+		return errors.New("config path required")
 	}
 	if opts.OutputDir == "" {
-		return fmt.Errorf("output directory required")
+		return errors.New("output directory required")
 	}
 	data, err := os.ReadFile(opts.ConfigPath)
 	if err != nil {

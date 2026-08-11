@@ -32,7 +32,7 @@ total_memory_mib: 40960
 		// Write fuzzed data to a temp file
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
-		require.NoError(t, os.WriteFile(path, data, 0644))
+		require.NoError(t, os.WriteFile(path, data, 0o644))
 		// LoadYAMLConfig should never panic on any input
 		_, _ = LoadYAMLConfig(path)
 	})

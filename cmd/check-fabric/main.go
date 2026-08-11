@@ -64,7 +64,7 @@ func main() {
 			fmt.Printf("GPU %d (%s)\n", i, uuid)
 			fmt.Printf("  clusterUuid : %s\n", formatUUID(info.ClusterUuid[:]))
 			fmt.Printf("  cliqueId    : %d\n", info.CliqueId)
-			fmt.Printf("  state       : %s (%d)\n", stateName(uint8(info.State)), info.State)
+			fmt.Printf("  state       : %s (%d)\n", stateName(info.State), info.State)
 		case nvml.ERROR_NOT_SUPPORTED:
 			fmt.Printf("GPU %d (%s): fabric NOT SUPPORTED\n", i, uuid)
 			notSupported++

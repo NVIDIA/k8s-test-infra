@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+// Package diagnostics collects failure diagnostics from an e2e cluster (pod logs,
+// kubectl describes, DaemonSet state) into an artifact directory when a spec fails.
 package diagnostics
 
 import (
@@ -31,10 +33,12 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// Collector is one dumper of a specific resource kind.
 type Collector interface {
 	Collect(context.Context) error
 }
 
+// Config is the shared state Collector implementations read from.
 type Config struct {
 	Clientset kubernetes.Interface
 	NfdClient *nfdclientset.Clientset
@@ -74,13 +78,14 @@ func (c *Config) outputTo(filename string, objects any) error {
 	if err != nil {
 		return fmt.Errorf("error creating %v: %w", filename, err)
 	}
-	defer outputfile.Close() //nolint:errcheck
+	defer func() { _ = outputfile.Close() }() // close best-effort; error is unactionable on the cleanup path
 	if err = c.writeToFile(outputfile, objects); err != nil {
 		return fmt.Errorf("error writing to %v: %w", filename, err)
 	}
 	return nil
 }
 
+// Collect runs every configured collector and writes their dumps to the artifact directory.
 func (d *Diagnostic) Collect(ctx context.Context) error {
 	// Create the artifact directory
 	if err := os.MkdirAll(filepath.Join(d.artifactDir, d.namespace), os.ModePerm); err != nil {
@@ -92,7 +97,7 @@ func (d *Diagnostic) Collect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("error creating collector log file: %w", err)
 	}
-	defer logFile.Close() //nolint:errcheck
+	defer func() { _ = logFile.Close() }() // close best-effort; error is unactionable on the cleanup path
 	d.log = logFile
 
 	// configure klog to write to the log file

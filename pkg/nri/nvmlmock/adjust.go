@@ -1,6 +1,8 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
+// Package nvmlmock is the NRI plugin that injects the nvml-mock LD_PRELOAD shim
+// into GPU-requesting containers via container adjustments at creation time.
 package nvmlmock
 
 import (
@@ -186,6 +188,8 @@ func DefaultConfig() Config {
 
 // Adjust returns the container adjustment for a container, or ok=false when the
 // pod/container should be left exactly as authored.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 	cfg = withDefaults(cfg)
 	if shouldSkip(cfg, container) {
@@ -275,6 +279,7 @@ func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 	return adjustment, true, nil
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func withDefaults(cfg Config) Config {
 	defaults := DefaultConfig()
 	if cfg.HostOverlayPath == "" {

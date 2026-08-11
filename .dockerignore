@@ -11,3 +11,4 @@ LICENSES
 **/__snapshot__
 bin
 tmp
+*.out

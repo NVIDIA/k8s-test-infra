@@ -97,6 +97,8 @@ var rootRE = regexp.MustCompile(`^pci[0-9a-fA-F]{4}:[0-9a-fA-F]{2}$`)
 // The reverse implication is intentionally NOT enforced: profiles may
 // declare devices that aren't part of the rendered topology yet, and
 // the renderer treats those as "no sysfs entry" rather than an error.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func (p *Profile) Validate() error {
 	if p.PCIeTopology == nil {
 		return nil

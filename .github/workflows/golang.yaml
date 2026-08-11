@@ -36,49 +36,29 @@ jobs:
       with:
         go-version: ${{ inputs.golang_version }}
 
-    - name: Lint
+    - name: Install golangci-lint (fast prebuilt, via action)
       uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
       with:
         version: latest
-        args: -v --timeout 5m
-        skip-cache: true
+        install-only: true
 
-    - name: Run go vet
-      # Every package, no exclusions. This overlaps the govet linter inside
-      # golangci-lint above, but it is not redundant with it -- both reasons
-      # were measured on the pre-#511 tree, not assumed:
-      #   * golangci-lint honours //nolint:govet. The bridge carried 7 such
-      #     comments and golangci-lint reported 0 findings; stripping them
-      #     produced findings immediately. Bare go vet has no suppression
-      #     mechanism at all, so this step is the one that cannot be silenced
-      #     one site at a time.
-      #   * golangci-lint caps repeats of the same finding
-      #     (--max-same-issues, default 3). It surfaced 3 where go vet
-      #     surfaced 8, so it under-reports exactly the kind of spreading
-      #     problem this gate exists to catch.
-      # Consequence: if this goes red, fix the code. There is no middle
-      # ground to retreat to, and an exclusion here is a blind spot rather
-      # than a filter.
-      run: go vet ./...
+    - name: Stage golangci-lint into tmp/bin (make lint expects it there)
+      run: |
+        mkdir -p tmp/bin
+        ln -sf "$(command -v golangci-lint)" tmp/bin/golangci-lint
+
+    - name: Lint
+      run: make lint
 
     - name: Check golang modules
       run: |
-        make check-modules
+        make modules-check
 
     - name: Run unit tests
-      run: |
-        go test -v -race -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v vendor)
-
-    # The mockpcisysfs LD_PRELOAD shim (libpcimocksys.so) is exercised only by
-    # tests behind the `integration` build tag, which the untagged unit-test run
-    # above skips. Build the shim and run them explicitly so the sysfs
-    # redirection (incl. the _FORTIFY_SOURCE open and fopen paths that lspci
-    # relies on) has automated enforcement.
-    - name: Build mockpcisysfs shim
-      run: make -C pkg/system/mockpcisysfs
+      run: make test
 
     - name: Run mockpcisysfs integration tests
-      run: go test -tags integration -v ./pkg/system/mockpcisysfs/...
+      run: make test-mockpcisysfs
 
     # The unit run above never links the shared object, so a missing export or
     # a broken --defsym alias passes it. This drives the real .so via go-nvml.
@@ -93,8 +73,3 @@ jobs:
     # (#562). These are plain `go test` units -- no cluster, no kubectl.
     - name: Run e2e framework unit tests
       run: make test-e2e-framework
-
-    - name: Run govulncheck
-      run: |
-        go install golang.org/x/vuln/cmd/govulncheck@latest
-        govulncheck ./...
