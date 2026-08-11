@@ -60,6 +60,22 @@ func nvmlSystemGetNVMLVersion(version unsafe.Pointer, length C.uint) C.nvmlRetur
 	return goStringToC(nvmlVersion, (*C.char)(version), length)
 }
 
+//export nvmlSystemGetProcessName
+func nvmlSystemGetProcessName(pid C.uint, name *C.char, length C.uint) C.nvmlReturn_t {
+	if name == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	// nvidia-smi resolves the process name for each configured PID through this
+	// call (its internal process list carries only pid + memory). Return the
+	// configured name, or NOT_SUPPORTED when the pid is not a configured mock
+	// process so unrelated lookups behave like real NVML.
+	procName := engine.GetEngine().ProcessNameByPID(uint32(pid))
+	if procName == "" {
+		return C.NVML_ERROR_NOT_SUPPORTED
+	}
+	return goStringToC(procName, name, length)
+}
+
 //export nvmlSystemGetCudaDriverVersion
 func nvmlSystemGetCudaDriverVersion(cudaDriverVersion unsafe.Pointer) C.nvmlReturn_t {
 	return nvmlSystemGetCudaDriverVersion_v2(cudaDriverVersion)

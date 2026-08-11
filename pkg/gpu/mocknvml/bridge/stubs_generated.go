@@ -1154,11 +1154,6 @@ func nvmlSystemGetNvlinkBwMode(nvlinkBwMode *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlSystemGetNvlinkBwMode")
 }
 
-//export nvmlSystemGetProcessName
-func nvmlSystemGetProcessName(pid C.uint, name *C.char, length C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemGetProcessName")
-}
-
 //export nvmlSystemRegisterEvents
 func nvmlSystemRegisterEvents(request *C.nvmlSystemRegisterEventRequest_t) C.nvmlReturn_t {
 	return stubReturn("nvmlSystemRegisterEvents")

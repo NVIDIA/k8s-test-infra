@@ -42,6 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   suppression, because the device plugin never allocates an IMEX channel.
   Configured by `nri.imexChannelAnnotation`. (#437)
 
+- mocknvml: configured `processes:` now surface in nvidia-smi. The internal
+  export-table process-list call is wired to the device's process list, so
+  `nvidia-smi --query-compute-apps` and `nvidia-smi -q` report configured PIDs
+  and GPU memory instead of always reporting none. `nvmlSystemGetProcessName`
+  is implemented (was a stub), resolving `process_name` from the configured
+  process. Known gaps: the default table's Processes box and `pmon` use
+  additional internal entry points that are not yet mapped, so configured
+  processes do not appear there; DCGM continues to read per-process
+  utilization through the public NVML APIs.
 - DCGM / dcgm-exporter support for the mock GPU stack. `nvmlDeviceGetFieldValues`
   now backs the `DCGM_FI_DEV_*` field surface (ECC, remapped rows, memory
   temperature, and the NVLink field set), and a mock GPM implementation serves
@@ -136,9 +145,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no processes are configured. nvidia-smi enumerates processes through the
   internal export table, whose catch-all C stub returned `NVML_SUCCESS` without
   writing back the caller's count, so nvidia-smi rendered its uninitialized
-  buffer. The stub now returns `NVML_ERROR_NOT_SUPPORTED` for unrecognized
-  (non-device) internal calls, so nvidia-smi falls back to the public process
-  APIs (which correctly report none). E2E `NvidiaSMI` gained a regression guard.
+  buffer. The stub now writes back a real count for the per-device process-list
+  call and returns `NVML_ERROR_NOT_SUPPORTED` for unrecognized (non-device)
+  internal calls. nvidia-smi does not fall back to the public process APIs for
+  these views. E2E `NvidiaSMI` gained a regression guard.
 
 ### Deprecated
 - The fake `nvidia-imex` / `nvidia-imex-ctl` binaries, `pkg/imexcoord`,

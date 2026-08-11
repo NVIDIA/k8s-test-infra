@@ -33,6 +33,11 @@ extern nvmlReturn_t nvmlDeviceGetHandleByIndex_v2(unsigned int index, nvmlDevice
 // Returns 1 if the raw handle value belongs to a registered mock device.
 extern int mockInternalIsDeviceHandle(void* handle);
 
+// Forward declaration of the process-list filler (defined below in Go). Writes
+// up to `capacity` nvmlProcessInfo_t entries for the device into `buf` and
+// returns the number written.
+extern unsigned int mockInternalFillProcessList(void* handle, void* buf, unsigned int capacity);
+
 // Debug mode - check MOCK_NVML_DEBUG env var once at startup
 static int debugChecked = 0;
 static int debugEnabled = 0;
@@ -67,15 +72,31 @@ static nvmlReturn_t internalStubFunction(void* arg0, void* arg1, void* arg2, voi
     }
 
     // Per-device list query: fn(nvmlDevice_t device, unsigned int* count, ...).
-    // nvidia-smi enumerates running processes for `-q` and
-    // `--query-compute-apps` through this internal entry point rather than the
-    // public nvmlDeviceGet*RunningProcesses APIs. arg0 is a device handle we
-    // handed out and arg1 points to the caller's buffer capacity (pre-filled,
-    // e.g. 250). The caller expects the callee to overwrite that count with the
-    // real number of entries. If we leave it untouched, nvidia-smi renders its
-    // entire uninitialized buffer as phantom processes (PID 0, empty name,
-    // 0 MiB). Report zero entries: write 0 to the count and return SUCCESS.
+    // nvidia-smi enumerates running processes for the default table, `-q`,
+    // `--query-compute-apps` and `pmon` through this internal entry point rather
+    // than the public nvmlDeviceGet*RunningProcesses APIs. arg0 is a device
+    // handle we handed out and arg1 points to the caller's buffer capacity
+    // (pre-filled, e.g. 250/500). The caller expects the callee to overwrite
+    // that count with the real number of entries. If we leave it untouched,
+    // nvidia-smi renders its entire uninitialized buffer as phantom processes
+    // (PID 0, empty name, 0 MiB).
     if (arg1 != NULL && mockInternalIsDeviceHandle(arg0)) {
+        // The genuine process-list call passes a real array pointer in arg2 and
+        // a sane capacity in *arg1. Other per-device internal calls reuse this
+        // stub with a garbage arg2 (observed 0x1 / 0x14 / 0x50) — for those we
+        // simply report zero entries. Reverse-engineered entry layout is the
+        // public nvmlProcessInfo_t: pid@0 (u32), usedGpuMemory@8 (u64),
+        // gpuInstanceId@16 (u32), computeInstanceId@20 (u32); size 24.
+        uintptr_t rawArg2ptr = (uintptr_t)arg2;
+        unsigned int cap = *(unsigned int*)arg1;
+        if (rawArg2ptr > 0x100000 && cap >= 1 && cap <= 65536) {
+            unsigned int n = mockInternalFillProcessList(arg0, arg2, cap);
+            *(unsigned int*)arg1 = n;
+            if (isDebugEnabled()) {
+                fprintf(stderr, "[C-STUB] process list (handle=%p) -> %u entries\n", arg0, n);
+            }
+            return NVML_SUCCESS;
+        }
         *(unsigned int*)arg1 = 0;
         if (isDebugEnabled()) {
             fprintf(stderr, "[C-STUB] device list query (handle=%p) -> 0 entries\n", arg0);
@@ -115,6 +136,38 @@ func mockInternalIsDeviceHandle(handle unsafe.Pointer) C.int {
 		return 1
 	}
 	return 0
+}
+
+// mockInternalFillProcessList writes the device's configured running processes
+// into the caller's nvmlProcessInfo_t array (arg2 of the internal export-table
+// process-list call) and returns the number of entries written, capped at the
+// caller's buffer capacity. This is what surfaces configured processes in
+// nvidia-smi's default table, `-q`, `--query-compute-apps` and `pmon`, none of
+// which use the public nvmlDeviceGet*RunningProcesses APIs.
+//
+//export mockInternalFillProcessList
+func mockInternalFillProcessList(handle unsafe.Pointer, buf unsafe.Pointer, capacity C.uint) C.uint {
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil || buf == nil {
+		return 0
+	}
+	compute, _ := dev.GetComputeRunningProcesses()
+	graphics, _ := dev.GetGraphicsRunningProcesses()
+	all := append(compute, graphics...)
+
+	n := len(all)
+	if n > int(capacity) {
+		n = int(capacity)
+	}
+	const entrySize = 24 // sizeof(nvmlProcessInfo_t): pid,pad,usedGpuMemory,gi,ci
+	for i := 0; i < n; i++ {
+		e := unsafe.Add(buf, i*entrySize)
+		*(*uint32)(e) = all[i].Pid
+		*(*uint64)(unsafe.Add(e, 8)) = all[i].UsedGpuMemory
+		*(*uint32)(unsafe.Add(e, 16)) = 0xFFFFFFFF // gpuInstanceId = N/A (non-MIG)
+		*(*uint32)(unsafe.Add(e, 20)) = 0xFFFFFFFF // computeInstanceId = N/A
+	}
+	return C.uint(n)
 }
 
 // Internal export table for nvidia-smi compatibility

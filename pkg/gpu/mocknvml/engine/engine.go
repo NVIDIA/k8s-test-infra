@@ -372,6 +372,31 @@ func (e *Engine) LookupConfigurableDevice(handle unsafe.Pointer) *ConfigurableDe
 	return nil
 }
 
+// ProcessNameByPID returns the configured process name for a pid, searching
+// every device's process list, or "" when no configured process matches.
+// nvidia-smi resolves process names through nvmlSystemGetProcessName (the
+// internal export-table process list carries only pid + memory), so this is
+// how configured names reach `nvidia-smi --query-compute-apps=...,process_name`.
+func (e *Engine) ProcessNameByPID(pid uint32) string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.initCount == 0 || e.server == nil {
+		return ""
+	}
+	for _, dev := range e.server.configurableDevices {
+		if dev == nil {
+			continue
+		}
+		for _, p := range dev.cfg().Processes {
+			if p.PID == pid {
+				return p.Name
+			}
+		}
+	}
+	return ""
+}
+
 // TopologyNearestGpus returns handles for the GPUs whose topology path to
 // the given device is at or below (i.e. closer than or equal to) the
 // requested level. The bridge marshals these into the caller's device
