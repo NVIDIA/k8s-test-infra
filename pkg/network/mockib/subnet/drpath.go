@@ -45,6 +45,7 @@ func IsSMPSend(umad []byte) bool {
 	return cls == ibClassSMI || cls == ibClassSMIDirect
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func resolveTarget(g *fabric.Graph, mad []byte, lid uint16, localCA string) (fabric.Port, bool) {
 	if g == nil {
 		return fabric.Port{}, false

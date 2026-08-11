@@ -50,6 +50,8 @@ type Infiniband struct {
 // Defaults returns a copy of the InfiniBand block with reasonable fallback
 // values applied for any unset string/int fields. The returned value is safe
 // to render directly.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func (ib Infiniband) Defaults() Infiniband {
 	out := ib
 	if out.HCAType == "" {

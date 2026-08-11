@@ -158,6 +158,8 @@ func saMethodResponseSet(mad []byte) bool {
 // header (BaseVersion/MgmtClass/ClassVersion at bytes 0-2). A previous revision
 // special-cased mad[0]==0x01, which unconditionally matched BaseVersion and
 // corrupted it to 0x81 without ever flipping the real method byte.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func setSAMethodResponse(mad []byte) {
 	attrOff, ok := pathRecordAttrOffset(mad)
 	if !ok {

@@ -15,30 +15,48 @@ import (
 	"os"
 )
 
+// KindDRAConfig is the embedded Kind cluster config for the DRA scenario.
+//
 //go:embed kind-dra-config.yaml
 var KindDRAConfig []byte
 
+// KindGPUOperatorConfig is the embedded Kind cluster config for the GPU Operator scenario.
+//
 //go:embed kind-gpu-operator-config.yaml
 var KindGPUOperatorConfig []byte
 
+// KindMultiNodeConfig is the embedded Kind cluster config for the heterogeneous multi-node scenario.
+//
 //go:embed kind-multi-node-config.yaml
 var KindMultiNodeConfig []byte
 
+// KindNRIConfig is the embedded Kind cluster config for the NRI ambient-injection scenario.
+//
 //go:embed kind-nri-config.yaml
 var KindNRIConfig []byte
 
+// DevicePluginManifest is the embedded device-plugin manifest used by the standalone scenario.
+//
 //go:embed device-plugin-mock.yaml
 var DevicePluginManifest []byte
 
+// NRIGpuAgentManifest is the embedded NRI plugin manifest that injects nvml-mock.
+//
 //go:embed nri-gpu-agent.yaml
 var NRIGpuAgentManifest []byte
 
+// GPUOperatorValues is the embedded Helm values override for the GPU Operator scenario.
+//
 //go:embed gpu-operator-values.yaml
 var GPUOperatorValues []byte
 
+// GFDManifest is the embedded GPU Feature Discovery DaemonSet manifest used by the NFD scenario.
+//
 //go:embed gfd-mock.yaml
 var GFDManifest []byte
 
+// ValidatorManifest is the embedded GPU Operator validator manifest used by the standalone scenario.
+//
 //go:embed validator-mock.yaml
 var ValidatorManifest []byte
 

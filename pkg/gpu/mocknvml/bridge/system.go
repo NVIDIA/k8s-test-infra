@@ -16,7 +16,6 @@
 // - nvmlSystemGetDriverVersion
 // - nvmlSystemGetNVMLVersion
 // - nvmlSystemGetCudaDriverVersion, nvmlSystemGetCudaDriverVersion_v2
-
 package main
 
 /*
@@ -29,6 +28,7 @@ package main
 #include "nvml_types.h"
 */
 import "C"
+
 import (
 	"unsafe"
 

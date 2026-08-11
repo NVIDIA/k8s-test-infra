@@ -16,6 +16,7 @@ package engine
 // CudaError represents CUDA runtime API error codes.
 type CudaError int
 
+// CudaError values mirror the CUDA runtime cudaError_t enum.
 const (
 	CudaSuccess                     CudaError = 0
 	CudaErrorInvalidValue           CudaError = 1
@@ -30,6 +31,7 @@ const (
 // CudaMemcpyKind specifies the direction of a memory copy.
 type CudaMemcpyKind int
 
+// CudaMemcpyKind values mirror the CUDA cudaMemcpyKind enum.
 const (
 	CudaMemcpyHostToHost     CudaMemcpyKind = 0
 	CudaMemcpyHostToDevice   CudaMemcpyKind = 1

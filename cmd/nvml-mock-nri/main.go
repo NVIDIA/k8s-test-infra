@@ -92,11 +92,12 @@ func main() {
 	// Serve the probes before Run, so the un-registered startup window is
 	// reported as a 503 rather than a refused connection, and so a plugin that
 	// never manages to register is visibly NotReady instead of silently idle.
-	if stopHealth, err := serveHealth(*healthAddr, p.health); err != nil {
+	stopHealth, err := serveHealth(*healthAddr, p.health)
+	if err != nil {
 		log.Fatalf("nvml-mock-nri: serve health endpoints: %v", err)
-	} else {
-		defer stopHealth()
 	}
+
+	defer stopHealth()
 
 	log.Printf("nvml-mock-nri: registering plugin %s/%s on %s", *pluginIndex, *pluginName, *socketPath)
 	if err := s.Run(ctx); err != nil && ctx.Err() == nil {
@@ -242,8 +243,8 @@ func nriDevice(device nvmlmock.Device) (*api.LinuxDevice, error) {
 	return &api.LinuxDevice{
 		Path:     device.Path,
 		Type:     "c",
-		Major:    int64(major(uint64(stat.Rdev))),
-		Minor:    int64(minor(uint64(stat.Rdev))),
+		Major:    int64(major(uint64(stat.Rdev))), //nolint:unconvert // stat.Rdev is uint64 on Linux (no-op) but int32 on Darwin — the cast is required for local macOS builds
+		Minor:    int64(minor(uint64(stat.Rdev))), //nolint:unconvert // stat.Rdev is uint64 on Linux (no-op) but int32 on Darwin — the cast is required for local macOS builds
 		FileMode: api.FileMode(os.FileMode(stat.Mode) & os.ModePerm),
 		Uid:      api.UInt32(stat.Uid),
 		Gid:      api.UInt32(stat.Gid),

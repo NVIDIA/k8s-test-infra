@@ -229,7 +229,7 @@ func rolloutRestart(ctx context.Context, h *harness.Harness, ns, ds string) {
 	Expect(err).NotTo(HaveOccurred(), "rollout status %s/%s", ns, ds)
 }
 
-func installNVIDIAContainerToolkit(ctx context.Context, h *harness.Harness, node cluster.Node) {
+func installNVIDIAContainerToolkit(ctx context.Context, _ *harness.Harness, node cluster.Node) {
 	GinkgoHelper()
 	Expect(dockerExec(ctx, node.Name, "bash", "-c", `
 apt-get update -qq

@@ -124,7 +124,7 @@ devices:
   - index: 1
     uuid: "GPU-bbbb"
 `
-	require.NoError(t, os.WriteFile(configPath, []byte(yamlContent), 0644), "Failed to write config file")
+	require.NoError(t, os.WriteFile(configPath, []byte(yamlContent), 0o644), "Failed to write config file")
 
 	ClearConfigCache()
 	t.Setenv("MOCK_NVML_CONFIG", configPath)
@@ -151,7 +151,7 @@ devices:
   - index: 2
     uuid: "GPU-cccc"
 `
-	require.NoError(t, os.WriteFile(configPath, []byte(yamlContent), 0644), "Failed to write config file")
+	require.NoError(t, os.WriteFile(configPath, []byte(yamlContent), 0o644), "Failed to write config file")
 
 	ClearConfigCache()
 	t.Setenv("MOCK_NVML_CONFIG", configPath)
