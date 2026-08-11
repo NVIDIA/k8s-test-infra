@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
@@ -28,6 +29,8 @@ type Options struct {
 
 // Render writes the entire tree. It is idempotent: existing files are
 // truncated and rewritten, existing directories are reused.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func Render(o Options) error {
 	if !o.IB.Enabled {
 		return nil
@@ -81,6 +84,7 @@ func Render(o Options) error {
 	return nil
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCount int, nodeName string) error {
 	caName := fmt.Sprintf("mlx5_%d", idx)
 	caDir := filepath.Join("sys/class/infiniband", caName)
@@ -93,7 +97,7 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCou
 	portGUID := perHCAPortGUID(guidPrefix, nid, idx)
 	nodeDesc := strings.NewReplacer(
 		"{node_name}", nodeName,
-		"{idx}", fmt.Sprintf("%d", idx),
+		"{idx}", strconv.Itoa(idx),
 	).Replace(ib.NodeDescTemplate)
 
 	// Slice (not map) so file creation order is deterministic — useful when

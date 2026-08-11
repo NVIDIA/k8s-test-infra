@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+// Package util provides shared utilities across k8s-test-infra components.
 package util
 
 import (

@@ -9,6 +9,7 @@ import (
 	"strings"
 )
 
+// Env* are the environment variable names the mock-ib daemon reads at startup.
 const (
 	EnvMockIBConfig          = "MOCK_IB_CONFIG"
 	EnvGPUCount              = "GPU_COUNT"

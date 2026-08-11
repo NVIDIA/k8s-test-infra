@@ -1099,6 +1099,7 @@ func fabricDevice(t *testing.T, e *Engine, index int) *ConfigurableDevice {
 	return cd
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func TestConfigurableDevice_NvLinkGetters_PerDevice(t *testing.T) {
 	e := newFabricEngine(t)
 	d0 := fabricDevice(t, e, 0)
@@ -1127,8 +1128,8 @@ func TestConfigurableDevice_NvLinkGetters_PerDevice(t *testing.T) {
 		t.Errorf("d0.GetNvLinkVersion(0): got v=%d ret=%v, want 5/SUCCESS", v, ret)
 	}
 
-	if cap, ret := d0.GetNvLinkCapability(0, nvml.NVLINK_CAP_P2P_SUPPORTED); ret != nvml.SUCCESS || cap != 1 {
-		t.Errorf("d0.GetNvLinkCapability(0,P2P): got %d ret=%v, want 1/SUCCESS", cap, ret)
+	if capability, ret := d0.GetNvLinkCapability(0, nvml.NVLINK_CAP_P2P_SUPPORTED); ret != nvml.SUCCESS || capability != 1 {
+		t.Errorf("d0.GetNvLinkCapability(0,P2P): got %d ret=%v, want 1/SUCCESS", capability, ret)
 	}
 
 	// Remote device type: link 0 is a switch, link 2 is a GPU.

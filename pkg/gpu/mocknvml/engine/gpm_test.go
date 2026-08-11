@@ -122,7 +122,7 @@ func TestGpmMetricsGet_ActivityFromUtilization(t *testing.T) {
 	require.Equal(t, nvml.SUCCESS, ret)
 	for i, tt := range tests {
 		require.Equal(t, nvml.SUCCESS, rets[i], "%s (id %d)", tt.name, tt.id)
-		require.Equal(t, tt.expected, values[i], tt.name)
+		require.InDelta(t, tt.expected, values[i], 1e-9, tt.name)
 	}
 
 	// Sample order must not matter: DCGM passes (older, newer) but nothing
@@ -148,8 +148,8 @@ func TestGpmMetricsGet_PcieConfigOverride(t *testing.T) {
 	require.Equal(t, nvml.SUCCESS, ret)
 	require.Equal(t, nvml.SUCCESS, rets[0])
 	require.Equal(t, nvml.SUCCESS, rets[1])
-	require.Equal(t, 0.5*4096, values[0], "PCIE_TX must use configured rate")
-	require.Equal(t, 0.5*1024, values[1], "PCIE_RX must use configured rate")
+	require.InDelta(t, 0.5*4096, values[0], 1e-9, "PCIE_TX must use configured rate")
+	require.InDelta(t, 0.5*1024, values[1], 1e-9, "PCIE_RX must use configured rate")
 }
 
 // newGpmFabricDevice builds an 8-GPU switch-fabric device (18 links via

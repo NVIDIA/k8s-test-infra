@@ -11,6 +11,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/protocol"
 )
 
+// MAD payload offsets and constants used by the MAD test helpers.
 const (
 	MADOffset       = 56
 	LIDOffset       = 28

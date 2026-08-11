@@ -14,7 +14,6 @@
 // Package main provides internal NVML functions for nvidia-smi compatibility.
 // This file contains the hand-written implementation for:
 // - nvmlInternalGetExportTable (internal API used by nvidia-smi)
-
 package main
 
 /*
@@ -124,6 +123,7 @@ static void* getInternalStubAddress() {
 }
 */
 import "C"
+
 import (
 	"fmt"
 	"unsafe"
@@ -217,8 +217,10 @@ func writeProcessEntry(buf unsafe.Pointer, index int, pid uint32, usedGpuMemory 
 // Internal export table for nvidia-smi compatibility
 // Based on reverse engineering: table[0] = size (must be > 648), table[648/8] = function pointer
 // Table needs to be large enough for all offsets nvidia-smi might access
-var internalExportTable [256]uintptr
-var exportTableInitialized = false
+var (
+	internalExportTable    [256]uintptr
+	exportTableInitialized = false
+)
 
 func initExportTable() {
 	if exportTableInitialized {
@@ -238,7 +240,7 @@ func initExportTable() {
 	}
 
 	exportTableInitialized = true
-	debugLog("[MOCK-NVML] Export table initialized with stub at 0x%x\n", uintptr(stubPtr))
+	debugLog("[MOCK-NVML] Export table initialized with stub at 0x%x\n", stubPtr)
 }
 
 // Internal function used by nvidia-smi for version verification

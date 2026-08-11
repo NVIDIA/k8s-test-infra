@@ -223,6 +223,8 @@ func GpmMetricsGet(key1, key2 uint64, ids []uint32) ([]float64, []nvml.Return, n
 
 // gpmMetricValue resolves a single metric id. Activity metrics are 0..100
 // percentages (per the NVML header); throughput metrics are MiB/s.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func gpmMetricValue(id uint32, s1, s2 *gpmSnapshot, dt float64) (float64, nvml.Return) {
 	gpu := s2.utilGPU
 	switch id {

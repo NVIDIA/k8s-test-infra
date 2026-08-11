@@ -400,6 +400,8 @@ func (e *Engine) ProcessNameByPID(pid uint32) string {
 // requested level. The bridge marshals these into the caller's device
 // array. Handles are registered on demand so the C caller gets valid
 // references.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func (e *Engine) TopologyNearestGpus(handle unsafe.Pointer, level nvml.GpuTopologyLevel) ([]unsafe.Pointer, nvml.Return) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

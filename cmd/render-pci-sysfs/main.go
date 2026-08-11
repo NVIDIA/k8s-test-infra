@@ -33,6 +33,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockpcisysfs/render"
 )
 
+//nolint:cyclop // existing complexity; refactor deferred
 func main() {
 	var (
 		cfgPath = flag.String("config", "", "path to mock-nvml profile YAML")

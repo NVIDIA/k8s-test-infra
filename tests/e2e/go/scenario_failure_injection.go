@@ -122,14 +122,14 @@ func temperatureQuery(ctx SpecContext, h *harness.Harness, pod kube.PodRef) stri
 }
 
 func maxIntegerLine(out string) int {
-	max := 0
+	maxVal := 0
 	for _, line := range strings.Split(out, "\n") {
 		v, err := strconv.Atoi(strings.TrimSpace(line))
-		if err == nil && v > max {
-			max = v
+		if err == nil && v > maxVal {
+			maxVal = v
 		}
 	}
-	return max
+	return maxVal
 }
 
 func hasFailureMarker(out string) bool {

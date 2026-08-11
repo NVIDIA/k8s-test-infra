@@ -29,9 +29,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/imexcoord" //nolint:staticcheck // the fakes ARE the deprecated subsystem; removed together with imexcoord (#304)
+	"github.com/NVIDIA/k8s-test-infra/pkg/imexcoord" //nolint:staticcheck // fake-imex CLIs still consume the deprecated protocol until #304 removes them
 )
 
+//nolint:cyclop // existing complexity; refactor deferred
 func main() {
 	// Accept the real binary's flags so callers (compute-domain-daemon's
 	// subprocess invocation) don't have to special-case the mock.

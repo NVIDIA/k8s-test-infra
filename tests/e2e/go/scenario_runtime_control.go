@@ -607,7 +607,7 @@ func assertRuntimeUUIDTargeting(ctx SpecContext, h *harness.Harness, consumer ku
 		// config the CLI can read, so ResolveTarget can't map it) is a valid
 		// skip. Any other exec failure is a real regression and must fail.
 		if strings.Contains(out, "cannot resolve") {
-			Skip(fmt.Sprintf("profile uses UUIDs nvml-mock-ctl cannot resolve (v1 limitation): %s", strings.TrimSpace(out)))
+			Skip("profile uses UUIDs nvml-mock-ctl cannot resolve (v1 limitation): " + strings.TrimSpace(out))
 		}
 		Expect(err).NotTo(HaveOccurred(), "nvml-mock-ctl fail --gpu <uuid> failed unexpectedly: %s", strings.TrimSpace(out))
 	}
