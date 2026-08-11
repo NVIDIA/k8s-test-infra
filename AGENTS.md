@@ -29,7 +29,7 @@ so all consumers and applications up the stack work without modifications.
 ## Testing
 
 - When changing Golang codebase, make sure `make lint-fix` works without violations. Run `make test` to run changes against existing test suite.
-- When modify helm chart, make sure to run `make helm-test` in order to ensure that the Helm chart is not broken.
+- When modify helm chart, make sure to run `make helm-tests` in order to ensure that the Helm chart is not broken.
 
 ## CI/CD
 

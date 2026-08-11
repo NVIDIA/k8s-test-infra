@@ -15,8 +15,6 @@ SHELL := /usr/bin/env bash
 # itself — see the `e2e` and `.mod-verify` targets.
 .SHELLFLAGS := -o pipefail -ec
 
-.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
-
 GO_CMD ?= go
 GO_FMT ?= gofmt
 GO_SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
@@ -35,8 +33,8 @@ IMAGE_TAG := $(IMAGE_REPO):$(IMAGE_TAG_NAME)
 
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 
-BIN_DIR=$(PWD)/tmp/bin
-GOBIN ?= $(BIN_DIR)
+BIN_DIR := $(PROJECT_DIR)/tmp/bin
+GOBIN := $(BIN_DIR)
 
 export GOBIN
 export PATH := $(GOBIN):$(PATH)
@@ -94,7 +92,7 @@ build: ## Build all CLIs
 	    parent=$$(basename $$(dirname $$pkg)); \
 	    if [ "$$parent" != "cmd" ]; then name=$$parent-$$name; fi; \
 	    echo "🔨 $$name"; \
-	    $(GO_CMD) build -mod=vendor -o $(DIST_DIR)/$$name $$pkg; \
+	    $(GO_CMD) build -mod=vendor -o $(DIST_DIR)/$$name $$pkg || exit 1; \
 	done
 
 build-mockpcisysfs: ## Build mockpcisysfs
