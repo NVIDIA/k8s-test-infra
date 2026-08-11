@@ -42,15 +42,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   suppression, because the device plugin never allocates an IMEX channel.
   Configured by `nri.imexChannelAnnotation`. (#437)
 
-- mocknvml: configured `processes:` now surface in nvidia-smi. The internal
-  export-table process-list call is wired to the device's process list, so
-  `nvidia-smi --query-compute-apps` and `nvidia-smi -q` report configured PIDs
-  and GPU memory instead of always reporting none. `nvmlSystemGetProcessName`
-  is implemented (was a stub), resolving `process_name` from the configured
-  process. Known gaps: the default table's Processes box and `pmon` use
-  additional internal entry points that are not yet mapped, so configured
-  processes do not appear there; DCGM continues to read per-process
-  utilization through the public NVML APIs.
+- mocknvml: configured `processes:` now surface in nvidia-smi — the default
+  table's Processes box, `-q`, and `--query-compute-apps` all report the
+  configured PIDs, names and GPU memory instead of always reporting none.
+  Processes can also be driven at runtime, per device, with
+  `nvml-mock-ctl set --gpu <idx> 'processes=[{pid: 100, type: C, name: train.py,
+  used_memory_mib: 8192}]'`. nvidia-smi enumerates processes through the
+  internal export table rather than the public
+  `nvmlDeviceGet*RunningProcesses` APIs, and its entry layout carries an
+  inline 4096-byte name buffer (4128-byte stride), so the name must be written
+  into the entry itself — without it nvidia-smi drops the rows from the default
+  table. `nvmlSystemGetProcessName` is also implemented (was a stub).
+  Remaining gaps: `pmon` uses a separate internal entry point that is not
+  mapped, and the Type column always reads `M+C+G` because the entry carries no
+  process-type field. DCGM is unaffected; it reads per-process utilization
+  through the public NVML APIs.
 - DCGM / dcgm-exporter support for the mock GPU stack. `nvmlDeviceGetFieldValues`
   now backs the `DCGM_FI_DEV_*` field surface (ECC, remapped rows, memory
   temperature, and the NVLink field set), and a mock GPM implementation serves

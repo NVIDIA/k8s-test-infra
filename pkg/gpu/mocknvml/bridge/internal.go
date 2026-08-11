@@ -84,9 +84,8 @@ static nvmlReturn_t internalStubFunction(void* arg0, void* arg1, void* arg2, voi
         // The genuine process-list call passes a real array pointer in arg2 and
         // a sane capacity in *arg1. Other per-device internal calls reuse this
         // stub with a garbage arg2 (observed 0x1 / 0x14 / 0x50) — for those we
-        // simply report zero entries. Reverse-engineered entry layout is the
-        // public nvmlProcessInfo_t: pid@0 (u32), usedGpuMemory@8 (u64),
-        // gpuInstanceId@16 (u32), computeInstanceId@20 (u32); size 24.
+        // simply report zero entries. The entry layout mockInternalFillProcessList
+        // writes is documented on that function.
         uintptr_t rawArg2ptr = (uintptr_t)arg2;
         unsigned int cap = *(unsigned int*)arg1;
         if (rawArg2ptr > 0x100000 && cap >= 1 && cap <= 65536) {
@@ -138,12 +137,35 @@ func mockInternalIsDeviceHandle(handle unsafe.Pointer) C.int {
 	return 0
 }
 
+// Layout of one entry in the internal process-list array, recovered by probing
+// the real nvidia-smi 580.65.06 (stamp each word with its own offset, then read
+// back which offset each rendered row came from). The numeric header matches
+// nvmlProcessDetail_v1_t -- pid@0, usedGpuMemory@8, gpuInstanceId@16,
+// computeInstanceId@20, usedGpuCcProtectedMemory@24 -- but is followed by an
+// inline NUL-terminated name buffer rather than a pointer, so the stride is
+// 4128 and not the 24 of the public nvmlProcessInfo_t.
+//
+// The inline name is load-bearing, not cosmetic: without it nvidia-smi drops
+// the rows from the default table's Processes box entirely and leaves Name
+// blank under `-q`.
+const (
+	procEntryNameOffset = 32
+	procEntryNameMax    = 4096
+	procEntrySize       = procEntryNameOffset + procEntryNameMax
+)
+
 // mockInternalFillProcessList writes the device's configured running processes
-// into the caller's nvmlProcessInfo_t array (arg2 of the internal export-table
-// process-list call) and returns the number of entries written, capped at the
-// caller's buffer capacity. This is what surfaces configured processes in
-// nvidia-smi's default table, `-q`, `--query-compute-apps` and `pmon`, none of
-// which use the public nvmlDeviceGet*RunningProcesses APIs.
+// into the caller's array (arg2 of the internal export-table process-list call)
+// and returns the number of entries written, capped at the caller's buffer
+// capacity. This is what surfaces configured processes in nvidia-smi's default
+// table, `-q` and `--query-compute-apps`, none of which use the public
+// nvmlDeviceGet*RunningProcesses APIs.
+//
+// nvidia-smi labels every entry `M+C+G` in the Type column: the compute vs
+// graphics distinction comes from which list the caller asked for, and this
+// single entry point carries no type field (confirmed by poking every word of
+// the numeric header). Configured `type:` therefore does not reach the Type
+// column.
 //
 //export mockInternalFillProcessList
 func mockInternalFillProcessList(handle unsafe.Pointer, buf unsafe.Pointer, capacity C.uint) C.uint {
@@ -159,15 +181,30 @@ func mockInternalFillProcessList(handle unsafe.Pointer, buf unsafe.Pointer, capa
 	if n > int(capacity) {
 		n = int(capacity)
 	}
-	const entrySize = 24 // sizeof(nvmlProcessInfo_t): pid,pad,usedGpuMemory,gi,ci
 	for i := 0; i < n; i++ {
-		e := unsafe.Add(buf, i*entrySize)
-		*(*uint32)(e) = all[i].Pid
-		*(*uint64)(unsafe.Add(e, 8)) = all[i].UsedGpuMemory
-		*(*uint32)(unsafe.Add(e, 16)) = 0xFFFFFFFF // gpuInstanceId = N/A (non-MIG)
-		*(*uint32)(unsafe.Add(e, 20)) = 0xFFFFFFFF // computeInstanceId = N/A
+		writeProcessEntry(buf, i, all[i].Pid, all[i].UsedGpuMemory,
+			engine.GetEngine().ProcessNameByPID(all[i].Pid))
 	}
 	return C.uint(n)
+}
+
+// writeProcessEntry writes one process into the caller's array at index, using
+// the layout documented above. The name is truncated to fit and always
+// NUL-terminated.
+func writeProcessEntry(buf unsafe.Pointer, index int, pid uint32, usedGpuMemory uint64, name string) {
+	e := unsafe.Add(buf, index*procEntrySize)
+	*(*uint32)(e) = pid
+	*(*uint64)(unsafe.Add(e, 8)) = usedGpuMemory
+	*(*uint32)(unsafe.Add(e, 16)) = 0xFFFFFFFF // gpuInstanceId = N/A (non-MIG)
+	*(*uint32)(unsafe.Add(e, 20)) = 0xFFFFFFFF // computeInstanceId = N/A
+	*(*uint64)(unsafe.Add(e, 24)) = 0          // usedGpuCcProtectedMemory
+
+	if len(name) > procEntryNameMax-1 {
+		name = name[:procEntryNameMax-1]
+	}
+	nameBuf := unsafe.Slice((*byte)(unsafe.Add(e, procEntryNameOffset)), procEntryNameMax)
+	copy(nameBuf, name)
+	nameBuf[len(name)] = 0
 }
 
 // Internal export table for nvidia-smi compatibility
