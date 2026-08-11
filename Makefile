@@ -19,6 +19,12 @@ BIN_DIR=$(PWD)/tmp/bin
 
 VERSION := 0.0.1
 
+VERSION_PACKAGE := github.com/NVIDIA/k8s-test-infra/internal/version
+COMMIT ?= $(shell git describe --dirty --long --always --abbrev=15 2>/dev/null || echo unknown)
+BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+LDFLAGS_COMMON := "-X $(VERSION_PACKAGE).Version=$(VERSION) -X $(VERSION_PACKAGE).GitCommit=$(COMMIT) -X $(VERSION_PACKAGE).BuildDate=$(BUILD_DATE)"
+
 IMAGE_REGISTRY ?= ghcr.io/nvidia
 IMAGE_TAG_NAME ?= $(VERSION)
 IMAGE_NAME := k8s-test-infra
