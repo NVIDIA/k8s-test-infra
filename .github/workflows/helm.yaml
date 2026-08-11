@@ -16,7 +16,11 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded PR runs to save CI minutes, but let main-branch runs
+  # finish — publish pushes and cosign-signs a chart in two non-atomic
+  # steps, and cancellation between them would leave an unsigned chart in
+  # GHCR.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Default for all jobs. The publish job explicitly elevates only the
 # permissions it needs.
