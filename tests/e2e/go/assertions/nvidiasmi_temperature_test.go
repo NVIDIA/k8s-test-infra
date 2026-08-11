@@ -24,14 +24,21 @@ const buggyPreAdaTemperatureQuery = `
         Memory Current Temp               : 31 C
 `
 
+// Real `nvidia-smi -q -d TEMPERATURE` output captured from the mock image with
+// the architecture gate in place: a100 (ampere) and h100 (hopper). Pre-Ada
+// keeps a "GPU T.Limit Temp : N/A" row, because the same nvidia-smi build
+// prints that row whenever the margin API reports NOT_SUPPORTED — the defect is
+// a T.Limit row carrying a NUMBER, not the label existing as N/A.
 const fixedPreAdaTemperatureQuery = `
     Temperature
         GPU Current Temp                  : 33 C
+        GPU T.Limit Temp                  : N/A
         GPU Shutdown Temp                 : 92 C
         GPU Slowdown Temp                 : 87 C
         GPU Max Operating Temp            : 83 C
         GPU Target Temperature            : 83 C
         Memory Current Temp               : 31 C
+        Memory Max Operating Temp         : 83 C
 `
 
 const adaTemperatureQuery = `
@@ -43,6 +50,7 @@ const adaTemperatureQuery = `
         GPU Max Operating T.Limit Temp    : 4 C
         GPU Target Temperature            : 83 C
         Memory Current Temp               : 32 C
+        Memory Max Operating T.Limit Temp : N/A
 `
 
 func TestDiffTemperatureQuery_RejectsBuggyPreAdaOutput(t *testing.T) {

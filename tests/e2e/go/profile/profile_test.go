@@ -19,20 +19,20 @@ const profilesDir = "../../../../deployments/nvml-mock/helm/nvml-mock/profiles"
 // configs/ copies from drifting in a way the e2e would not catch.
 func TestDerivations(t *testing.T) {
 	cases := []struct {
-		name           string
-		displayName    string
-		gpus           int
-		hcas           int
-		nv             int
-		fabricMgr      bool
-		hasFabric      bool
-		ibEnabled      bool
-		pciRoots       int
-		architecture   string
-		reportsTLimit  bool
-		shutdownC      int
-		slowdownC      int
-		maxOperatingC  int
+		name          string
+		displayName   string
+		gpus          int
+		hcas          int
+		nv            int
+		fabricMgr     bool
+		hasFabric     bool
+		ibEnabled     bool
+		pciRoots      int
+		architecture  string
+		reportsTLimit bool
+		shutdownC     int
+		slowdownC     int
+		maxOperatingC int
 	}{
 		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, "ampere", false, 92, 87, 83}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
 		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, "hopper", true, 92, 87, 83},

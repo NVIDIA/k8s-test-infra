@@ -8,11 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- Gate GPU T.Limit temperature field IDs (193–196) on Ada and later. Pre-Ada
-  profiles (`t4`, `a100`) return `NVML_ERROR_NOT_SUPPORTED` so `nvidia-smi -q`
-  falls back to absolute `GPU Shutdown/Slowdown/Max Operating Temp` rows from
-  `nvmlDeviceGetTemperatureThreshold`, instead of rendering signed T.Limit
-  margins as impossible (negative / inverted) absolute temperatures. (#635)
+- Gate the T.Limit temperature surfaces on Ada and later: the field IDs
+  193–196 (`NVML_FI_DEV_TEMPERATURE_*_TLIMIT`) and
+  `nvmlDeviceGetMarginTemperature`. Pre-Ada profiles (`t4`, `a100`) report
+  `NVML_ERROR_NOT_SUPPORTED` for both, so `nvidia-smi -q` renders the absolute
+  `GPU Shutdown/Slowdown/Max Operating Temp` rows from
+  `nvmlDeviceGetTemperatureThreshold` instead of signed T.Limit margins shown
+  as impossible (negative / inverted) absolute temperatures. Ada and later,
+  including the NVSentinel thermal-margin demo on `h100`, are unchanged. (#635)
 
 ### Changed
 - The ComputeDomain demo now runs real IMEX as a separate, ordinary workload;

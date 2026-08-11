@@ -99,8 +99,11 @@ func TestGetFieldValue_PowerScope(t *testing.T) {
 }
 
 func TestGetMarginTemperature(t *testing.T) {
+	// The margin API is the T.Limit headroom, so it needs an Ada-or-later
+	// architecture just like the T.Limit field IDs.
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
-		Thermal: &ThermalConfig{TemperatureGPU_C: 34, SlowdownThreshold_C: 87},
+		Architecture: "hopper",
+		Thermal:      &ThermalConfig{TemperatureGPU_C: 34, SlowdownThreshold_C: 87},
 	})
 	margin, ret := dev.GetMarginTemperature()
 	require.Equal(t, nvml.SUCCESS, ret)
@@ -110,7 +113,8 @@ func TestGetMarginTemperature(t *testing.T) {
 	// Current above the limit yields a NEGATIVE (signed) margin, mirroring real
 	// T.Limit hardware: this is the sign crossing GpuThermalMarginWatch keys on.
 	hot := newTestDeviceWithConfig(t, &DeviceConfig{
-		Thermal: &ThermalConfig{TemperatureGPU_C: 120, SlowdownThreshold_C: 87},
+		Architecture: "hopper",
+		Thermal:      &ThermalConfig{TemperatureGPU_C: 120, SlowdownThreshold_C: 87},
 	})
 	margin, ret = hot.GetMarginTemperature()
 	require.Equal(t, nvml.SUCCESS, ret)
@@ -121,6 +125,37 @@ func TestGetMarginTemperature(t *testing.T) {
 	none := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "hopper"})
 	_, ret = none.GetMarginTemperature()
 	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+}
+
+func TestGetMarginTemperature_PreAdaNotSupported(t *testing.T) {
+	// nvmlDeviceGetMarginTemperature reports headroom to the T.Limit
+	// reference, which pre-Ada hardware does not have. While the mock answers
+	// it, nvidia-smi keeps the whole temperature section in its "T.Limit" form
+	// (the "GPU T.Limit Temp" row) and never prints the absolute
+	// shutdown/slowdown/max-operating rows real Ampere and Turing report.
+	for _, arch := range []string{"turing", "ampere"} {
+		arch := arch
+		t.Run(arch, func(t *testing.T) {
+			dev := newTestDeviceWithConfig(t, &DeviceConfig{
+				Architecture: arch,
+				Thermal: &ThermalConfig{
+					TemperatureGPU_C:    33,
+					SlowdownThreshold_C: 87,
+					ShutdownThreshold_C: 92,
+					MaxOperating_C:      83,
+				},
+			})
+			_, ret := dev.GetMarginTemperature()
+			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret,
+				"pre-Ada arch %q must not report a T.Limit margin", arch)
+
+			// The absolute thresholds stay available: that is what nvidia-smi
+			// falls back to on this hardware.
+			shutdown, ret := dev.GetTemperatureThreshold(nvml.TEMPERATURE_THRESHOLD_SHUTDOWN)
+			require.Equal(t, nvml.SUCCESS, ret)
+			require.Equal(t, uint32(92), shutdown)
+		})
+	}
 }
 
 func TestGetFieldValue_TlimitThresholds(t *testing.T) {

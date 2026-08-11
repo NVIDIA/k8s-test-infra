@@ -20,11 +20,15 @@ var tempQueryRowRE = regexp.MustCompile(`(?m)^\s*(GPU .+? Temp)\s*:\s*(-?\d+)\s*
 // architecture-correct threshold presentation:
 //
 //   - pre-Ada (reportsTLimit=false): absolute "GPU Shutdown/Slowdown/Max
-//     Operating Temp" rows equal to the profile thresholds; no T.Limit labels.
+//     Operating Temp" rows equal to the profile thresholds, and no T.Limit row
+//     carrying a value.
 //   - Ada+ (reportsTLimit=true): the "T.Limit" row labels are present.
 //
-// Absolute threshold rows must never be negative or ordered with shutdown
-// below slowdown — that is the impossible rendering the pre-Ada gate fixes.
+// Only rows with a numeric reading are considered: nvidia-smi still prints a
+// "GPU T.Limit Temp : N/A" line on pre-Ada, and an N/A row is exactly what a
+// real unsupported query looks like. A T.Limit row with a NUMBER on pre-Ada is
+// the defect. Absolute threshold rows must never be negative or ordered with
+// shutdown below slowdown — the impossible rendering the gate fixes.
 func DiffTemperatureQuery(out string, reportsTLimit bool, shutdownC, slowdownC, maxOperatingC int) []string {
 	rows := parseTemperatureQueryRows(out)
 	var problems []string
