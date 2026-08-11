@@ -273,7 +273,7 @@ jobs:
           pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
           docker pull "$pinned"
           docker tag "$pinned" "${{ env.E2E_IMAGE }}"
-          kind load docker-image "${{ env.E2E_IMAGE }}" --name gpu-test
+          kind load docker-image "${{ env.E2E_IMAGE }}" --name mokka
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
@@ -284,8 +284,8 @@ jobs:
       - name: Run DRA E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
-          E2E_KUBE_CONTEXT: kind-gpu-test
-          E2E_CLUSTER_NAME: gpu-test
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
         run: make e2e-dra
 
       - name: Print diagnostics on failure
@@ -349,7 +349,7 @@ jobs:
           pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
           docker pull "$pinned"
           docker tag "$pinned" "${{ env.E2E_IMAGE }}"
-          kind load docker-image "${{ env.E2E_IMAGE }}" --name gpu-test
+          kind load docker-image "${{ env.E2E_IMAGE }}" --name mokka
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
@@ -360,8 +360,8 @@ jobs:
       - name: Run GPU Operator E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
-          E2E_KUBE_CONTEXT: kind-gpu-test
-          E2E_CLUSTER_NAME: gpu-test
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
         run: make e2e-gpu-operator
 
       - name: Print diagnostics on failure
@@ -421,7 +421,7 @@ jobs:
           pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
           docker pull "$pinned"
           docker tag "$pinned" "${{ env.E2E_IMAGE }}"
-          kind load docker-image "${{ env.E2E_IMAGE }}" --name gpu-test
+          kind load docker-image "${{ env.E2E_IMAGE }}" --name mokka
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
@@ -431,8 +431,8 @@ jobs:
 
       - name: Run multi-node E2E
         env:
-          E2E_KUBE_CONTEXT: kind-gpu-test
-          E2E_CLUSTER_NAME: gpu-test
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
         run: make e2e-multi-node
 
       - name: Print diagnostics on failure
@@ -496,7 +496,7 @@ jobs:
           pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
           docker pull "$pinned"
           docker tag "$pinned" "${{ env.E2E_IMAGE }}"
-          kind load docker-image "${{ env.E2E_IMAGE }}" --name gpu-test
+          kind load docker-image "${{ env.E2E_IMAGE }}" --name mokka
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
@@ -511,8 +511,8 @@ jobs:
       - name: Run node-wide NRI injection E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
-          E2E_KUBE_CONTEXT: kind-gpu-test
-          E2E_CLUSTER_NAME: gpu-test
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
         run: make e2e-nri
 
       - name: Print diagnostics on failure
@@ -582,7 +582,7 @@ jobs:
           pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
           docker pull "$pinned"
           docker tag "$pinned" "${{ env.E2E_IMAGE }}"
-          kind load docker-image "${{ env.E2E_IMAGE }}" --name gpu-test
+          kind load docker-image "${{ env.E2E_IMAGE }}" --name mokka
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
@@ -596,8 +596,8 @@ jobs:
       - name: Run NFD label-provenance E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
-          E2E_KUBE_CONTEXT: kind-gpu-test
-          E2E_CLUSTER_NAME: gpu-test
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
         run: make e2e-nfd
 
       - name: Print diagnostics on failure
