@@ -491,6 +491,22 @@ func TestConfigurableDevice_GetComputeRunningProcesses_WithConfig(t *testing.T) 
 	require.Equal(t, uint32(5678), procs[1].Pid, "Expected PID 5678")
 }
 
+func TestConfigurableDevice_ProcessNameByPID(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		Processes: []ProcessConfig{
+			{PID: 1234, Type: "C", Name: "python", UsedMemoryMiB: 1024},
+			{PID: 9999, Type: "G", Name: "Xorg", UsedMemoryMiB: 128},
+		},
+	})
+
+	// Both process types resolve: the internal process list nvidia-smi reads is
+	// not filtered by type.
+	require.Equal(t, "python", dev.ProcessNameByPID(1234))
+	require.Equal(t, "Xorg", dev.ProcessNameByPID(9999))
+	require.Empty(t, dev.ProcessNameByPID(4321), "unconfigured pid must not resolve to a name")
+}
+
 func TestConfigurableDevice_GetProcessUtilization_Default(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
 		Name: "NVIDIA A100-SXM4-80GB",

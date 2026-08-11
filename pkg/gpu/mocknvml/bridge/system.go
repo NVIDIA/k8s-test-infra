@@ -65,11 +65,15 @@ func nvmlSystemGetProcessName(pid C.uint, name *C.char, length C.uint) C.nvmlRet
 	if name == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	// nvidia-smi resolves the process name for each configured PID through this
-	// call (its internal process list carries only pid + memory). Unknown pids
-	// keep the previous stub behaviour rather than answering NOT_SUPPORTED
-	// outright, so version gating (FUNCTION_NOT_FOUND on drivers without this
-	// symbol) and strict mode still apply to lookups we cannot satisfy.
+	// `nvidia-smi --query-compute-apps=...,process_name` resolves each pid it got
+	// from the internal process list through this call, one call per process.
+	// The other process views do not: the default table and `-q` read the name
+	// straight out of the entry's inline name buffer.
+	//
+	// Unknown pids keep the previous stub behaviour rather than answering
+	// NOT_SUPPORTED outright, so version gating (FUNCTION_NOT_FOUND on drivers
+	// without this symbol) and strict mode still apply to lookups we cannot
+	// satisfy.
 	procName := engine.GetEngine().ProcessNameByPID(uint32(pid))
 	if procName == "" {
 		return stubReturn("nvmlSystemGetProcessName")

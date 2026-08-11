@@ -34,8 +34,8 @@ extern nvmlReturn_t nvmlDeviceGetHandleByIndex_v2(unsigned int index, nvmlDevice
 extern int mockInternalIsDeviceHandle(void* handle);
 
 // Forward declaration of the process-list filler (defined below in Go). Writes
-// up to `capacity` nvmlProcessInfo_t entries for the device into `buf` and
-// returns the number written.
+// up to `capacity` entries for the device into `buf` and returns the number
+// written. The entry layout is documented on the Go side.
 extern unsigned int mockInternalFillProcessList(void* handle, void* buf, unsigned int capacity);
 
 // Debug mode - check MOCK_NVML_DEBUG env var once at startup
@@ -115,9 +115,6 @@ static nvmlReturn_t internalStubFunction(void* arg0, void* arg1, void* arg2, voi
     // matrix and aborts with "Failed to run topology matrix" on any error.
     // The phantom-process bug this file also fixes came from the per-device
     // branch above leaving the caller's count untouched, not from this return.
-    if (isDebugEnabled()) {
-        fprintf(stderr, "[C-STUB] non-device internal call -> SUCCESS\n");
-    }
     return NVML_SUCCESS;
 }
 
@@ -193,7 +190,7 @@ func mockInternalFillProcessList(handle unsafe.Pointer, buf unsafe.Pointer, capa
 	}
 	for i := 0; i < n; i++ {
 		writeProcessEntry(buf, i, all[i].Pid, all[i].UsedGpuMemory,
-			engine.GetEngine().ProcessNameByPID(all[i].Pid))
+			dev.ProcessNameByPID(all[i].Pid))
 	}
 	return C.uint(n)
 }

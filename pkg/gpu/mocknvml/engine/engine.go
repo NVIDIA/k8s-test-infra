@@ -374,9 +374,9 @@ func (e *Engine) LookupConfigurableDevice(handle unsafe.Pointer) *ConfigurableDe
 
 // ProcessNameByPID returns the configured process name for a pid, searching
 // every device's process list, or "" when no configured process matches.
-// nvidia-smi resolves process names through nvmlSystemGetProcessName (the
-// internal export-table process list carries only pid + memory), so this is
-// how configured names reach `nvidia-smi --query-compute-apps=...,process_name`.
+// This backs nvmlSystemGetProcessName, whose signature carries a bare pid with
+// no device, so the search cannot be narrowed. Callers that already know the
+// device should use ConfigurableDevice.ProcessNameByPID instead.
 func (e *Engine) ProcessNameByPID(pid uint32) string {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -388,10 +388,8 @@ func (e *Engine) ProcessNameByPID(pid uint32) string {
 		if dev == nil {
 			continue
 		}
-		for _, p := range dev.cfg().Processes {
-			if p.PID == pid {
-				return p.Name
-			}
+		if name := dev.ProcessNameByPID(pid); name != "" {
+			return name
 		}
 	}
 	return ""

@@ -483,6 +483,19 @@ func (d *ConfigurableDevice) GetComputeRunningProcesses() ([]nvml.ProcessInfo, n
 	return procs, nvml.SUCCESS
 }
 
+// ProcessNameByPID returns the configured name of a process on this device, or
+// "" when the device has no process with that pid. nvml.ProcessInfo carries no
+// name, so callers that need one alongside a running-process list look it up
+// here rather than searching every device (two GPUs may host the same pid).
+func (d *ConfigurableDevice) ProcessNameByPID(pid uint32) string {
+	for _, p := range d.cfg().Processes {
+		if p.PID == pid {
+			return p.Name
+		}
+	}
+	return ""
+}
+
 // GetGraphicsRunningProcesses returns running graphics processes
 func (d *ConfigurableDevice) GetGraphicsRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetGraphicsRunningProcesses\n")
