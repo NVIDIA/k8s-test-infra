@@ -43,6 +43,7 @@ import (
 	"strings"
 )
 
+//nolint:cyclop // existing complexity; refactor deferred
 func main() {
 	input := flag.String("input", "vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go", "NVML Go wrapper file")
 	header := flag.String("header", "vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h", "NVML C header file for prototype extraction")
@@ -128,7 +129,7 @@ func main() {
 		formatted = []byte(code)
 	}
 
-	if err := os.WriteFile(*output, formatted, 0644); err != nil {
+	if err := os.WriteFile(*output, formatted, 0o644); err != nil {
 		log.Fatalf("Failed to write: %v", err)
 	}
 
@@ -161,7 +162,7 @@ func parseNVMLFunctions(filename string) ([]string, error) {
 func scanBridgeExports(bridgeDir string) (map[string]bool, error) {
 	exports := make(map[string]bool)
 
-	err := filepath.Walk(bridgeDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(bridgeDir, func(path string, _ os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -181,33 +182,38 @@ func scanBridgeExports(bridgeDir string) (map[string]bool, error) {
 
 		lines := strings.Split(string(content), "\n")
 		for i, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "//export ") {
-				// Extract function name from the //export comment
-				funcName := strings.TrimPrefix(trimmed, "//export ")
-				funcName = strings.TrimSpace(funcName)
-				if funcName != "" {
-					exports[funcName] = true
-				}
-			} else if strings.HasPrefix(trimmed, "//export") && i+1 < len(lines) {
-				// Handle case where function name is on the next line
-				nextLine := strings.TrimSpace(lines[i+1])
-				if strings.HasPrefix(nextLine, "func ") {
-					// Extract function name: "func nvmlInit_v2(..."
-					parts := strings.Fields(nextLine)
-					if len(parts) > 1 {
-						funcName := strings.Split(parts[1], "(")[0]
-						if funcName != "" {
-							exports[funcName] = true
-						}
-					}
-				}
+			var nextLine string
+			if i+1 < len(lines) {
+				nextLine = strings.TrimSpace(lines[i+1])
+			}
+			if name := exportedFuncName(strings.TrimSpace(line), nextLine); name != "" {
+				exports[name] = true
 			}
 		}
 		return nil
 	})
 
 	return exports, err
+}
+
+// exportedFuncName parses a single trimmed source line for a cgo //export
+// directive and returns the exported function name. Handles both the inline
+// form ("//export foo") and the split form ("//export\nfunc foo(...)").
+// Returns "" when the line is not an //export directive or the name cannot
+// be resolved.
+func exportedFuncName(trimmed, nextLine string) string {
+	if name, ok := strings.CutPrefix(trimmed, "//export "); ok {
+		return strings.TrimSpace(name)
+	}
+	if !strings.HasPrefix(trimmed, "//export") || !strings.HasPrefix(nextLine, "func ") {
+		return ""
+	}
+	// Split form: "func nvmlInit_v2(..."
+	parts := strings.Fields(nextLine)
+	if len(parts) < 2 {
+		return ""
+	}
+	return strings.Split(parts[1], "(")[0]
 }
 
 // findMissing returns functions that exist in allFunctions but not in existingFunctions.
@@ -289,6 +295,8 @@ import "C"
 }
 
 // printStats writes NVML function coverage statistics to w.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
 	exports, err := scanBridgeExports(bridgeDir)
 	if err != nil {
@@ -325,7 +333,7 @@ func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
 
 	// Per-file breakdown
 	fileCounts := make(map[string]int)
-	err = filepath.Walk(bridgeDir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(bridgeDir, func(path string, _ os.FileInfo, err error) error {
 		if err != nil || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "stubs_generated.go") {
 			return err
 		}
@@ -365,10 +373,12 @@ func printStats(w io.Writer, allFunctions []string, bridgeDir string) {
 // validateSignatures checks that hand-written //export functions have the
 // correct number of parameters compared to their C prototypes in nvml.h.
 // Returns a list of mismatch descriptions and any walk error.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func validateSignatures(bridgeDir string, prototypes map[string]FuncProto) ([]string, error) {
 	var mismatches []string
 
-	err := filepath.Walk(bridgeDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(bridgeDir, func(path string, _ os.FileInfo, err error) error {
 		if err != nil || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "stubs_generated.go") {
 			return err
 		}

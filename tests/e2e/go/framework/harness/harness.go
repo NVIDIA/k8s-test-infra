@@ -9,6 +9,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
@@ -60,12 +61,12 @@ func Setup(ctx context.Context, name string, kindConfig []byte, image string) (*
 // kubectl/helm through. image is the ref already present in the cluster and is
 // carried on the Harness for scenarios that reference it (they must not attempt
 // to (re)load it).
-func AttachExisting(ctx context.Context, clusterName, kubeContext, image string) (*Harness, error) {
+func AttachExisting(_ context.Context, clusterName, kubeContext, image string) (*Harness, error) {
 	if err := cluster.ValidateName(clusterName); err != nil {
 		return nil, err
 	}
 	if kubeContext == "" {
-		return nil, fmt.Errorf("attach existing: kubeContext must not be empty")
+		return nil, errors.New("attach existing: kubeContext must not be empty")
 	}
 	h := &Harness{Image: image}
 	c := &cluster.Cluster{Name: clusterName, Context: kubeContext}

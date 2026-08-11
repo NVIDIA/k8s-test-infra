@@ -62,6 +62,7 @@ type NodeFabric struct {
 // RemoteKind classifies the far end of an NVLink.
 type RemoteKind uint8
 
+// RemoteKind values classify the remote endpoint of an NVLink.
 const (
 	RemoteNone RemoteKind = iota
 	RemoteGPU
@@ -194,6 +195,7 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 	return f
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func (f *NodeFabric) resolveAffinity(yc *YAMLConfig, bdfOfDev []string, bdfToIndex map[string]int) {
 	coresPerNUMA := 0
 	cpuByBDF := map[string][]int{}
@@ -260,6 +262,7 @@ func orderedSwitchBDFs(switches []NVSwitchConfig) []string {
 	return out
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func (f *NodeFabric) resolveLinks(yc *YAMLConfig, n int, bdfOfDev []string, bdfToIndex map[string]int, switchBDFs map[string]bool) {
 	if yc == nil || yc.NVLink == nil {
 		return
@@ -342,6 +345,7 @@ func (f *NodeFabric) resolveLinks(yc *YAMLConfig, n int, bdfOfDev []string, bdfT
 	}
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func resolveLink(lc NVLinkLinkConfig, defaults NVLinkDefaults, version uint32, bw uint64, rate float64, seed uint64, errRate float64, bdfOfDev []string, bdfToIndex map[string]int, switchBDFs map[string]bool) ResolvedLink {
 	state := lc.State
 	if state == "" {
@@ -404,6 +408,7 @@ func resolveLink(lc NVLinkLinkConfig, defaults NVLinkDefaults, version uint32, b
 	}
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func (f *NodeFabric) computeNVCounts() {
 	switchLinks := make([]int, f.numDevices)
 	for i := 0; i < f.numDevices; i++ {
@@ -418,6 +423,8 @@ func (f *NodeFabric) computeNVCounts() {
 				}
 			case RemoteSwitch:
 				switchLinks[i]++
+			default:
+				// RemoteNone / RemoteCPU: not peer-attached; not counted.
 			}
 		}
 	}

@@ -108,12 +108,12 @@ func IBPing(ctx context.Context, k *kube.Client, server, client kube.PodRef, mod
 
 	switch mode {
 	case "lid":
-		runIBPingCase(ctx, k, client, "LID", fmt.Sprintf("ibping -c 3 %s", lid), retries, retrySleep)
+		runIBPingCase(ctx, k, client, "LID", "ibping -c 3 "+lid, retries, retrySleep)
 	case "guid":
-		runIBPingCase(ctx, k, client, "GUID", fmt.Sprintf("ibping -G -c 3 %s", guid), retries, retrySleep)
+		runIBPingCase(ctx, k, client, "GUID", "ibping -G -c 3 "+guid, retries, retrySleep)
 	default: // both
-		runIBPingCase(ctx, k, client, "LID", fmt.Sprintf("ibping -c 3 %s", lid), retries, retrySleep)
-		runIBPingCase(ctx, k, client, "GUID", fmt.Sprintf("ibping -G -c 3 %s", guid), retries, retrySleep)
+		runIBPingCase(ctx, k, client, "LID", "ibping -c 3 "+lid, retries, retrySleep)
+		runIBPingCase(ctx, k, client, "GUID", "ibping -G -c 3 "+guid, retries, retrySleep)
 	}
 }
 

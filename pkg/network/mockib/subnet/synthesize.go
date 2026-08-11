@@ -61,6 +61,8 @@ const (
 
 // TrySynthesize returns a RECV umad buffer for subnet GETs, or (nil, false).
 // localCA is the umad-opened HCA (e.g. mlx5_0) used to resolve self-queries (dlid 0).
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, bool) {
 	if g == nil || len(sendMad) < umadMADOffset+16 {
 		return nil, false
@@ -253,6 +255,7 @@ func putGUID64(mad []byte, byteOff int, guidColon string) {
 	}
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func parseGUID(s string) ([4]uint16, bool) {
 	var out [4]uint16
 	var hex []byte

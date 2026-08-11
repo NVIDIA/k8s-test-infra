@@ -37,7 +37,7 @@ func TestRender_Disabled(t *testing.T) {
 	err := Render(Options{IB: ib, Output: dir, GPUCount: 8, NodeName: "host1"})
 	require.NoError(t, err, "Render")
 	entries, _ := os.ReadDir(dir)
-	require.Len(t, entries, 0, "expected no output when disabled")
+	require.Empty(t, entries, "expected no output when disabled")
 }
 
 func TestRender_DefaultsAndCount(t *testing.T) {

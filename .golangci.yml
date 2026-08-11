@@ -27,7 +27,42 @@ run:
     - integration
 
 linters:
+  # dupword is deliberately NOT enabled. Its autofix breaks cgo codebase and produces too much false positives
+  enable:
+    - nolintlint
+    - revive
+    - staticcheck
+    - asasalint
+    - bodyclose
+    - contextcheck
+    - cyclop
+    - errname
+    - exhaustive
+    - loggercheck
+    - misspell
+    - nestif
+    - perfsprint
+    - prealloc
+    - predeclared
+    - testifylint
+    - unconvert
+    - usestdlibvars
+
   settings:
+    exhaustive:
+      # Treat switches with a `default:` clause as exhaustive. NVML enums
+      # (nvml.Return, nvml.ClockType, nvml.TemperatureThresholds, ...) each
+      # carry 30+ values; enumerating them all defeats the point of a mock
+      # that only implements the well-known cases and falls through the rest.
+      default-signifies-exhaustive: true
+    nolintlint:
+      # allow-unused stays at its default (false): unused //nolint directives
+      # elsewhere in the tree should still be flagged so stale silences get
+      # cleaned up. The one legitimate cross-platform case (Rdev cast in
+      # cmd/nvml-mock-nri/main.go) is handled via a path-scoped exclusion in
+      # the `exclusions.rules` block below.
+      require-specific: true
+      require-explanation: true
     staticcheck:
       checks:
         - "all"
@@ -50,6 +85,36 @@ linters:
         linters:
           - staticcheck
         text: "ST1001:"
+      # Same carve-out as ST1001 but for revive's dot-imports rule: Ginkgo/Gomega
+      # dot imports are the suite's conventional style. Anchored to files directly
+      # under tests/e2e/go/ so subpackages (assertions/, framework/..., ibutil/,
+      # profile/) still get the standard "no dot imports" gate.
+      - path: ^tests/e2e/go/[^/]+\.go$
+        linters:
+          - revive
+        text: 'should not use dot imports'
+
+      # The mocknvml/mockcuda packages deliberately mirror NVML/CUDA C API names
+      # (GetBoardId, DeviceGetHandleByPciBusId, GetMemoryInfo_v2, TemperatureGPU_C,
+      # ...) so ConfigurableDevice satisfies go-nvml's Device interface and the
+      # YAML profiles read like their real NVML counterparts. Renaming these to
+      # Go idiom (BoardID, GetMemoryInfoV2, TemperatureGPUC) would break the
+      # interface and the profile schema.
+      - path: ^pkg/gpu/mock(nvml|cuda)/
+        linters:
+          - revive
+        text: 'var-naming'
+      # cmd/nvml-mock-nri/main.go casts syscall.Stat_t.Rdev to uint64 — a no-op
+      # on Linux (where Rdev is uint64) but required on Darwin (where Rdev is
+      # int32). We //nolint:unconvert the two lines; on Darwin those directives
+      # look "unused" to nolintlint, and its autofix would strip them and green
+      # local `make lint-fix` at the cost of a red Linux CI. Scoping the "unused
+      # directive" exclusion to just this file keeps stale nolints in the rest
+      # of the tree flagged normally.
+      - path: ^cmd/nvml-mock-nri/main\.go$
+        linters:
+          - nolintlint
+        text: 'directive .* is unused'
 
 issues:
   # Report every occurrence, not the first three. The default of 3 groups by
@@ -58,3 +123,8 @@ issues:
   # the discrepancy was invisible until the cap was lifted. Under-reporting a
   # gate is worse than a long log.
   max-same-issues: 0
+  # Same reasoning for the per-linter cap (default 50): when revive or cyclop
+  # report more than 50 findings, the tail is silently truncated and progress
+  # on a cleanup pass looks stuck at 50 until every finding in the visible batch
+  # is fixed AND the newly-uncapped ones come into view.
+  max-issues-per-linter: 0

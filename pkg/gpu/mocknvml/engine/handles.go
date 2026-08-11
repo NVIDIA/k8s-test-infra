@@ -48,6 +48,7 @@ static int isValidHandle(void* handle) {
 }
 */
 import "C"
+
 import (
 	"sync"
 	"unsafe"

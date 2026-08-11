@@ -88,6 +88,7 @@ func resolveConfigOverridePath() string {
 	return ConfigOverridePathFor(configPath)
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func (s *configOverrideStore) snapshot() (uint64, *ConfigOverrideDoc) {
 	now := s.now()
 

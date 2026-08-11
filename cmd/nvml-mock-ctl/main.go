@@ -83,6 +83,7 @@ global flags:
 `)
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func run(args []string, stdout, stderr io.Writer) int {
 	var configOverridePath, configPath, gpu, mode, links, socket string
 	var afterCalls int
@@ -160,9 +161,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func mutate(cmd, configOverridePath, gpu, mode, links string, afterCalls int, xid uint64,
-	positional []string, cfg *engine.Config, base *engine.DeviceConfig, stdout, stderr io.Writer) int {
-
+	positional []string, cfg *engine.Config, base *engine.DeviceConfig, stdout, stderr io.Writer,
+) int {
 	if gpu == "" && cmd != "reset" {
 		fprintln(stderr, "--gpu is required")
 		return 2
@@ -451,6 +453,7 @@ func gpuLabel(g string) string {
 	return g
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func doStatus(configOverridePath, gpu string, stdout, stderr io.Writer) int {
 	doc, err := mockctl.Load(configOverridePath)
 	if err != nil {
@@ -523,8 +526,8 @@ func validateDoc(doc *mockctl.Doc, base *engine.DeviceConfig) error {
 // It runs as a sidecar in the nvml-mock DaemonSet rather than as its own
 // workload so it shares the driver-root mount the override file lives in.
 func doWatchAllocations(configOverridePath, socket string, interval time.Duration,
-	usedFraction float64, cfg *engine.Config, stdout, stderr io.Writer) int {
-
+	usedFraction float64, cfg *engine.Config, stdout, stderr io.Writer,
+) int {
 	if cfg == nil || cfg.NumDevices == 0 {
 		fprintf(stderr, "watch-allocations: no GPU config resolved; nothing to reconcile\n")
 		return 1

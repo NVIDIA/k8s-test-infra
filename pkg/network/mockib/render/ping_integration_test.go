@@ -78,7 +78,7 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 	lidBytes, err := os.ReadFile(lidPath)
 	require.NoError(t, err, "read lid")
 	lid := strings.TrimSpace(string(lidBytes))
-	require.NotEqual(t, "", lid, "empty lid")
+	require.NotEmpty(t, lid, "empty lid")
 	guidBytes, err := os.ReadFile(guidPath)
 	require.NoError(t, err, "read port_guid")
 	guidHex := "0x" + strings.NewReplacer(":", "").Replace(strings.TrimSpace(string(guidBytes)))
