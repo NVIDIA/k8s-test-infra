@@ -244,13 +244,7 @@ func (d *ConfigurableDevice) tlimitThresholdFieldValue(fieldID uint32) (FieldVal
 	if c.Thermal == nil {
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
 	}
-	reference := c.Thermal.SlowdownThreshold_C
-	if reference == 0 {
-		reference = c.Thermal.ShutdownThreshold_C
-	}
-	if reference == 0 {
-		reference = c.Thermal.MaxOperating_C
-	}
+	reference := tlimitReference(c.Thermal)
 	if reference == 0 {
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
 	}
@@ -270,6 +264,16 @@ func (d *ConfigurableDevice) tlimitThresholdFieldValue(fieldID uint32) (FieldVal
 	}
 	offset := int32(reference - threshold)
 	return FieldValueInt, uint64(uint32(offset)), nvml.SUCCESS, true
+}
+
+func tlimitReference(thermal *ThermalConfig) int {
+	if thermal.SlowdownThreshold_C != 0 {
+		return thermal.SlowdownThreshold_C
+	}
+	if thermal.ShutdownThreshold_C != 0 {
+		return thermal.ShutdownThreshold_C
+	}
+	return thermal.MaxOperating_C
 }
 
 // powerFieldValue resolves the whole-GPU power field values (mW) from the same

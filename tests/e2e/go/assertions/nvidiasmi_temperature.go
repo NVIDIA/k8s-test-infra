@@ -31,35 +31,48 @@ var tempQueryRowRE = regexp.MustCompile(`(?m)^\s*(GPU .+? Temp)\s*:\s*(-?\d+)\s*
 // shutdown below slowdown — the impossible rendering the gate fixes.
 func DiffTemperatureQuery(out string, reportsTLimit bool, shutdownC, slowdownC, maxOperatingC int) []string {
 	rows := parseTemperatureQueryRows(out)
-	var problems []string
-
 	if reportsTLimit {
-		for _, label := range []string{
-			"GPU Shutdown T.Limit Temp",
-			"GPU Slowdown T.Limit Temp",
-			"GPU Max Operating T.Limit Temp",
-		} {
-			if _, ok := rows[label]; !ok {
-				problems = append(problems, fmt.Sprintf("missing %q row", label))
-			}
-		}
-		for _, label := range []string{
-			"GPU Shutdown Temp",
-			"GPU Slowdown Temp",
-			"GPU Max Operating Temp",
-		} {
-			if _, ok := rows[label]; ok {
-				problems = append(problems, fmt.Sprintf("unexpected absolute %q row on Ada+ profile", label))
-			}
-		}
-		return problems
+		return diffTLimitTemperatureRows(rows)
 	}
+	return diffAbsoluteTemperatureRows(rows, shutdownC, slowdownC, maxOperatingC)
+}
 
+func diffTLimitTemperatureRows(rows map[string]int) []string {
+	var problems []string
+	for _, label := range []string{
+		"GPU Shutdown T.Limit Temp",
+		"GPU Slowdown T.Limit Temp",
+		"GPU Max Operating T.Limit Temp",
+	} {
+		if _, ok := rows[label]; !ok {
+			problems = append(problems, fmt.Sprintf("missing %q row", label))
+		}
+	}
+	for _, label := range []string{
+		"GPU Shutdown Temp",
+		"GPU Slowdown Temp",
+		"GPU Max Operating Temp",
+	} {
+		if _, ok := rows[label]; ok {
+			problems = append(problems, fmt.Sprintf("unexpected absolute %q row on Ada+ profile", label))
+		}
+	}
+	return problems
+}
+
+func diffAbsoluteTemperatureRows(rows map[string]int, shutdownC, slowdownC, maxOperatingC int) []string {
 	want := map[string]int{
 		"GPU Shutdown Temp":      shutdownC,
 		"GPU Slowdown Temp":      slowdownC,
 		"GPU Max Operating Temp": maxOperatingC,
 	}
+	problems := diffExpectedAbsoluteRows(rows, want)
+	problems = append(problems, diffUnexpectedTLimitRows(rows)...)
+	return append(problems, diffAbsoluteTemperatureOrdering(rows)...)
+}
+
+func diffExpectedAbsoluteRows(rows, want map[string]int) []string {
+	var problems []string
 	for label, wantC := range want {
 		got, ok := rows[label]
 		if !ok {
@@ -70,6 +83,11 @@ func DiffTemperatureQuery(out string, reportsTLimit bool, shutdownC, slowdownC, 
 			problems = append(problems, fmt.Sprintf("%s = %d C, want %d C", label, got, wantC))
 		}
 	}
+	return problems
+}
+
+func diffUnexpectedTLimitRows(rows map[string]int) []string {
+	var problems []string
 	for _, label := range []string{
 		"GPU Shutdown T.Limit Temp",
 		"GPU Slowdown T.Limit Temp",
@@ -80,7 +98,11 @@ func DiffTemperatureQuery(out string, reportsTLimit bool, shutdownC, slowdownC, 
 			problems = append(problems, fmt.Sprintf("unexpected T.Limit %q row on pre-Ada profile", label))
 		}
 	}
+	return problems
+}
 
+func diffAbsoluteTemperatureOrdering(rows map[string]int) []string {
+	var problems []string
 	shutdown, hasShutdown := rows["GPU Shutdown Temp"]
 	slowdown, hasSlowdown := rows["GPU Slowdown Temp"]
 	if hasShutdown && shutdown < 0 {
