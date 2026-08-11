@@ -71,31 +71,35 @@ static nvmlReturn_t internalStubFunction(void* arg0, void* arg1, void* arg2, voi
         }
     }
 
-    // Per-device list query: fn(nvmlDevice_t device, unsigned int* count, ...).
-    // nvidia-smi enumerates running processes for the default table, `-q`,
-    // `--query-compute-apps` and `pmon` through this internal entry point rather
-    // than the public nvmlDeviceGet*RunningProcesses APIs. arg0 is a device
-    // handle we handed out and arg1 points to the caller's buffer capacity
-    // (pre-filled, e.g. 250/500). The caller expects the callee to overwrite
-    // that count with the real number of entries. If we leave it untouched,
-    // nvidia-smi renders its entire uninitialized buffer as phantom processes
-    // (PID 0, empty name, 0 MiB).
+    // Process list: fn(nvmlDevice_t device, unsigned int* count, entry* array).
+    // nvidia-smi enumerates running processes for the default table, `-q` and
+    // `--query-compute-apps` through this internal entry point rather than the
+    // public nvmlDeviceGet*RunningProcesses APIs. arg0 is a device handle we
+    // handed out, arg1 points to the caller's buffer capacity (pre-filled, e.g.
+    // 250/500) and arg2 to the array itself. The caller expects the count to be
+    // overwritten with the real number of entries; leaving it untouched is what
+    // made nvidia-smi render its whole uninitialized buffer as phantom
+    // processes (PID 0, empty name, 0 MiB).
+    //
+    // Other per-device internal calls reuse this same stub with a garbage arg2
+    // (observed 0x1 / 0x14 / 0x50) and only get the count zeroed. The entry
+    // layout is documented on mockInternalFillProcessList.
     if (arg1 != NULL && mockInternalIsDeviceHandle(arg0)) {
-        // The genuine process-list call passes a real array pointer in arg2 and
-        // a sane capacity in *arg1. Other per-device internal calls reuse this
-        // stub with a garbage arg2 (observed 0x1 / 0x14 / 0x50) — for those we
-        // simply report zero entries. The entry layout mockInternalFillProcessList
-        // writes is documented on that function.
-        uintptr_t rawArg2ptr = (uintptr_t)arg2;
-        unsigned int cap = *(unsigned int*)arg1;
-        if (rawArg2ptr > 0x100000 && cap >= 1 && cap <= 65536) {
-            unsigned int n = mockInternalFillProcessList(arg0, arg2, cap);
-            *(unsigned int*)arg1 = n;
-            if (isDebugEnabled()) {
-                fprintf(stderr, "[C-STUB] process list (handle=%p) -> %u entries\n", arg0, n);
+        if (rawArg2 > 0x100000) {
+            unsigned int cap = *(unsigned int*)arg1;
+            if (cap >= 1 && cap <= 65536) {
+                unsigned int n = mockInternalFillProcessList(arg0, arg2, cap);
+                *(unsigned int*)arg1 = n;
+                if (isDebugEnabled()) {
+                    fprintf(stderr, "[C-STUB] process list (handle=%p) -> %u entries\n", arg0, n);
+                }
+                return NVML_SUCCESS;
             }
-            return NVML_SUCCESS;
         }
+        // Every other per-device call still gets an explicit zero count. Leaving
+        // it at the caller's pre-filled capacity makes nvidia-smi walk an array
+        // we never wrote: that is the phantom-process bug for the list views,
+        // and a SIGSEGV in `pmon`.
         *(unsigned int*)arg1 = 0;
         if (isDebugEnabled()) {
             fprintf(stderr, "[C-STUB] device list query (handle=%p) -> 0 entries\n", arg0);
@@ -103,12 +107,18 @@ static nvmlReturn_t internalStubFunction(void* arg0, void* arg1, void* arg2, voi
         return NVML_SUCCESS;
     }
 
-    // Any other internal entry point is genuinely unimplemented; report it so
-    // callers degrade gracefully instead of trusting an unwritten output.
+    // Non-device call - return SUCCESS to acknowledge.
+    //
+    // Every slot of the export table points at this one stub, so this arm is
+    // reached by unrelated internal entry points too. It must stay SUCCESS:
+    // `nvidia-smi topo -m` probes internal calls here before building the
+    // matrix and aborts with "Failed to run topology matrix" on any error.
+    // The phantom-process bug this file also fixes came from the per-device
+    // branch above leaving the caller's count untouched, not from this return.
     if (isDebugEnabled()) {
-        fprintf(stderr, "[C-STUB] non-device internal call -> NOT_SUPPORTED\n");
+        fprintf(stderr, "[C-STUB] non-device internal call -> SUCCESS\n");
     }
-    return NVML_ERROR_NOT_SUPPORTED;
+    return NVML_SUCCESS;
 }
 
 // Get address of stub function

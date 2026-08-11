@@ -53,10 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inline 4096-byte name buffer (4128-byte stride), so the name must be written
   into the entry itself — without it nvidia-smi drops the rows from the default
   table. `nvmlSystemGetProcessName` is also implemented (was a stub).
-  Remaining gaps: `pmon` uses a separate internal entry point that is not
-  mapped, and the Type column always reads `M+C+G` because the entry carries no
-  process-type field. DCGM is unaffected; it reads per-process utilization
-  through the public NVML APIs.
+  Remaining gaps: the Type column always reads `M+C+G` because the entry
+  carries no process-type field, and `nvidia-smi pmon` still does not work — it
+  reads processes through a separate internal entry point that is not mapped.
+  `pmon` now reports "Not supported on the device(s)" and exits non-zero where
+  it previously printed nothing and exited 0; it has never listed processes on
+  the mock. DCGM is unaffected; it reads per-process utilization through the
+  public NVML APIs.
 - DCGM / dcgm-exporter support for the mock GPU stack. `nvmlDeviceGetFieldValues`
   now backs the `DCGM_FI_DEV_*` field surface (ECC, remapped rows, memory
   temperature, and the NVLink field set), and a mock GPM implementation serves
@@ -152,9 +155,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   internal export table, whose catch-all C stub returned `NVML_SUCCESS` without
   writing back the caller's count, so nvidia-smi rendered its uninitialized
   buffer. The stub now writes back a real count for the per-device process-list
-  call and returns `NVML_ERROR_NOT_SUPPORTED` for unrecognized (non-device)
-  internal calls. nvidia-smi does not fall back to the public process APIs for
-  these views. E2E `NvidiaSMI` gained a regression guard.
+  call. Unrecognized internal calls still return `NVML_SUCCESS`: every slot of
+  the export table points at the same stub, and `nvidia-smi topo -m` aborts with
+  "Failed to run topology matrix" on any error from it. nvidia-smi does not fall
+  back to the public process APIs for these views. E2E `NvidiaSMI` gained a
+  regression guard.
 
 ### Deprecated
 - The fake `nvidia-imex` / `nvidia-imex-ctl` binaries, `pkg/imexcoord`,
