@@ -328,7 +328,12 @@
         },
         "resources": { "type": "object" },
         "nodeSelector": { "type": "object" },
-        "tolerations": { "type": "array" }
+        "tolerations": { "type": "array" },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Pod-level grace period. Must be >= preStop sleep + server shutdown-timeout, otherwise kube SIGKILLs the drain window."
+        }
       }
     }
   }

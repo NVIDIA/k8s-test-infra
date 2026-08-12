@@ -23,6 +23,7 @@ spec:
       # The init slice needs no cluster access. Follow-up MEPs adding kube
       # client-go usage introduce a dedicated ServiceAccount + Role.
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.controlPlane.terminationGracePeriodSeconds }}
       {{- with .Values.controlPlane.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
