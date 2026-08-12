@@ -25,19 +25,6 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 )
 
-const (
-	// nvmlMockNamespace isolates the chart under test from the default namespace.
-	nvmlMockNamespace = "mokka"
-
-	nvmlMockSelector = "app.kubernetes.io/name=nvml-mock"
-)
-
-// builtImage is the nvml-mock image ref carried across parallel processes.
-// Set from E2E_IMAGE, which points at the same ref Tilt was given via
-// --nvmlmock-image; scenarios that reshape the mock via helm upgrade re-pin
-// image.repository / image.tag to this value.
-var builtImage string
-
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "nvml-mock E2E Suite")

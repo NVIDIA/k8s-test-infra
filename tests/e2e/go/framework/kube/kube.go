@@ -23,6 +23,7 @@ package kube
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -182,7 +183,7 @@ func (c *Client) FirstNodeName(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if len(nl.Items) == 0 {
-		return "", fmt.Errorf("no nodes in cluster")
+		return "", errors.New("no nodes in cluster")
 	}
 	return nl.Items[0].Metadata.Name, nil
 }

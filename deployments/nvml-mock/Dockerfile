@@ -72,6 +72,7 @@ COPY deployments/nvml-mock/scripts/stage-ib-tools.sh /usr/local/bin/stage-ib-too
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
+        pciutils \
         infiniband-diags rdma-core ibverbs-utils ibverbs-providers; \
     rm -rf /var/lib/apt/lists/*; \
     # libibverbs prints "couldn't open config directory '/etc/libibverbs.d'"
@@ -120,5 +121,4 @@ RUN set -eux; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
     apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
-COPY deployments/nvml-mock/scripts/ /scripts/
-RUN chmod +x /scripts/*.sh
+COPY --chmod=755 deployments/nvml-mock/scripts/ /scripts/

@@ -9,25 +9,21 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 )
 
 func TestBaseUsesDefaultKubeconfigWhenUnset(t *testing.T) {
 	args := New("kind-nvml-mock-e2e").base()
-
-	for _, arg := range args {
-		if arg == "--kubeconfig" {
-			t.Fatal("did not expect --kubeconfig when Helm should use the default kubeconfig")
-		}
-	}
+	require.NotContains(t, args, "--kubeconfig",
+		"did not expect --kubeconfig when Helm should use the default kubeconfig")
 }
 
 func TestBaseTargetsKubeContext(t *testing.T) {
 	args := New("kind-nvml-mock-e2e").base()
-
-	if len(args) != 2 || args[0] != "--kube-context" || args[1] != "kind-nvml-mock-e2e" {
-		t.Fatalf("expected Helm kube context args, got %#v", args)
-	}
+	require.Equal(t, []string{"--kube-context", "kind-nvml-mock-e2e"}, args,
+		"expected Helm kube context args")
 }
 
 func TestRunPinsChartVersionOnlyWhenSet(t *testing.T) {
@@ -54,9 +50,7 @@ func TestRunPinsChartVersionOnlyWhenSet(t *testing.T) {
 				Chart:   "nfd/node-feature-discovery",
 				Version: tc.version,
 			})
-			if err != nil {
-				t.Fatalf("expected helm install to succeed, got %v", err)
-			}
+			require.NoError(t, err, "expected helm install to succeed")
 
 			flag := -1
 			for i, arg := range args {
@@ -67,17 +61,14 @@ func TestRunPinsChartVersionOnlyWhenSet(t *testing.T) {
 			}
 
 			if !tc.wantVersion {
-				if flag != -1 {
-					t.Fatalf("expected no --version for a release without a pinned version, got %#v", args)
-				}
+				require.Equal(t, -1, flag,
+					"expected no --version for a release without a pinned version, got %#v", args)
 				return
 			}
-			if flag == -1 {
-				t.Fatalf("expected --version in the helm argv, got %#v", args)
-			}
-			if flag+1 >= len(args) || args[flag+1] != tc.version {
-				t.Fatalf("expected --version to be followed by %q, got %#v", tc.version, args)
-			}
+			require.NotEqual(t, -1, flag, "expected --version in the helm argv, got %#v", args)
+			require.Less(t, flag+1, len(args), "--version has no value, got %#v", args)
+			require.Equal(t, tc.version, args[flag+1],
+				"expected --version to be followed by %q, got %#v", tc.version, args)
 		})
 	}
 }
@@ -105,14 +96,7 @@ func TestRunHidesReleaseOutputWhenRequested(t *testing.T) {
 		Chart:      "chart",
 		HideOutput: true,
 	})
-
-	if err != nil {
-		t.Fatalf("expected quiet helm release to succeed, got %v", err)
-	}
-	if loudRuns != 0 {
-		t.Fatalf("expected quiet release not to use loud runner, got %d loud runs", loudRuns)
-	}
-	if quietRuns != 1 {
-		t.Fatalf("expected quiet release to use quiet runner once, got %d quiet runs", quietRuns)
-	}
+	require.NoError(t, err, "expected quiet helm release to succeed")
+	require.Zero(t, loudRuns, "expected quiet release not to use loud runner")
+	require.Equal(t, 1, quietRuns, "expected quiet release to use quiet runner once")
 }

@@ -75,6 +75,14 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertions.NvidiaSMI(ctx, h.Kube, pod, p)
 			})
 
+			It("reports architecture-correct temperature thresholds via nvidia-smi -q", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #635: pre-Ada profiles must show absolute threshold
+				// rows; Ada+ keep T.Limit. Focus profiles called out there are
+				// a100 (ampere) and h100 (hopper); every selected profile is
+				// checked so a regression cannot hide behind E2E_PROFILES.
+				assertions.NvidiaSMITemperatureThresholds(ctx, h.Kube, pod, p)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)
@@ -161,6 +169,10 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 
 				It("pins the performance state via the nvml-mock-ctl pstate command", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimePStateCommand(ctx, h, pod)
+				})
+
+				It("drives the running-process list via nvml-mock-ctl set", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeProcesses(ctx, h, pod)
 				})
 
 				It("targets a GPU by UUID via nvml-mock-ctl", Label("runtime-control"), func(ctx SpecContext) {

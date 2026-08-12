@@ -177,7 +177,7 @@ func TestNVLinkErrorPatch_MergesRateAndLinks(t *testing.T) {
 	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, patch)
 	require.NoError(t, err)
 	require.NotNil(t, merged.NVLinkError)
-	require.Equal(t, float64(250), merged.NVLinkError.Rate)
+	require.InDelta(t, float64(250), merged.NVLinkError.Rate, 1e-9)
 	require.Equal(t, []int{0, 3, 7}, merged.NVLinkError.Links)
 }
 
@@ -196,7 +196,7 @@ func TestNVLinkErrorPatch_ZeroRateHeals(t *testing.T) {
 	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, NVLinkErrorPatch(0, nil))
 	require.NoError(t, err)
 	require.NotNil(t, merged.NVLinkError)
-	require.Equal(t, float64(0), merged.NVLinkError.Rate, "rate 0 is the healthy/no-injection value")
+	require.InDelta(t, float64(0), merged.NVLinkError.Rate, 1e-9, "rate 0 is the healthy/no-injection value")
 }
 
 func TestThrottlePatch_AuthoritativeFlags(t *testing.T) {

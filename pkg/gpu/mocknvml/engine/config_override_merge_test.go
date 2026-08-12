@@ -13,19 +13,19 @@
 
 package engine
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestDeepMergeMaps_NestedOverrideAndPreserve(t *testing.T) {
 	dst := map[string]any{"ecc": map[string]any{"mode_current": "enabled", "default_mode": "enabled"}}
 	src := map[string]any{"ecc": map[string]any{"mode_current": "disabled"}}
 	deepMergeMaps(dst, src)
 	ecc := dst["ecc"].(map[string]any)
-	if ecc["mode_current"] != "disabled" {
-		t.Fatalf("mode_current not overridden: %v", ecc["mode_current"])
-	}
-	if ecc["default_mode"] != "enabled" {
-		t.Fatalf("default_mode should be preserved: %v", ecc["default_mode"])
-	}
+	require.Equal(t, "disabled", ecc["mode_current"], "mode_current not overridden")
+	require.Equal(t, "enabled", ecc["default_mode"], "default_mode should be preserved")
 }
 
 func TestDeviceConfigOverride_AllThenPerIndexPrecedence(t *testing.T) {
@@ -33,38 +33,31 @@ func TestDeviceConfigOverride_AllThenPerIndexPrecedence(t *testing.T) {
 		All:     map[string]any{"failure": map[string]any{"mode": "lost"}},
 		Devices: map[string]map[string]any{"0": {"failure": map[string]any{"mode": "ecc_uncorrectable"}}},
 	}
-	if got := o.DeviceConfigOverride(1)["failure"].(map[string]any)["mode"]; got != "lost" {
-		t.Fatalf("device 1 should inherit All: %v", got)
-	}
-	if got := o.DeviceConfigOverride(0)["failure"].(map[string]any)["mode"]; got != "ecc_uncorrectable" {
-		t.Fatalf("device 0 per-index should win: %v", got)
-	}
+	require.Equal(t, "lost",
+		o.DeviceConfigOverride(1)["failure"].(map[string]any)["mode"],
+		"device 1 should inherit All")
+	require.Equal(t, "ecc_uncorrectable",
+		o.DeviceConfigOverride(0)["failure"].(map[string]any)["mode"],
+		"device 0 per-index should win")
 }
 
 func TestMergeDeviceConfig_AppliesFailureMode(t *testing.T) {
 	base := &DeviceConfig{}
 	patch := map[string]any{"failure": map[string]any{"mode": "ecc_uncorrectable", "after_calls": 1}}
 	merged, err := MergeDeviceConfig(base, patch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if merged.Failure == nil || merged.Failure.Mode != "ecc_uncorrectable" {
-		t.Fatalf("failure mode not applied: %+v", merged.Failure)
-	}
-	if base.Failure != nil {
-		t.Fatal("base must not be mutated")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, merged.Failure, "failure mode not applied")
+	require.Equal(t, "ecc_uncorrectable", merged.Failure.Mode, "failure mode not applied")
+	require.Nil(t, base.Failure, "base must not be mutated")
 }
 
 func TestMergeDeviceConfig_RejectsUnknownField(t *testing.T) {
-	if _, err := MergeDeviceConfig(&DeviceConfig{}, map[string]any{"not_a_field": 1}); err == nil {
-		t.Fatal("expected error for unknown field")
-	}
+	_, err := MergeDeviceConfig(&DeviceConfig{}, map[string]any{"not_a_field": 1})
+	require.Error(t, err, "expected error for unknown field")
 }
 
 func TestParseConfigOverride_Empty(t *testing.T) {
 	o, err := ParseConfigOverride(nil)
-	if err != nil || o != nil {
-		t.Fatalf("empty config override should be (nil,nil): %v %v", o, err)
-	}
+	require.NoError(t, err, "empty config override should be (nil,nil)")
+	require.Nil(t, o, "empty config override should be (nil,nil)")
 }

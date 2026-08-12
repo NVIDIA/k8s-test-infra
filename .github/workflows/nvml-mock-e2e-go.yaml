@@ -33,6 +33,10 @@
 # pattern as nvml-mock.
 name: nvml-mock E2E (Go)
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -124,7 +128,7 @@ jobs:
         id: build
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
-          context: ./local/kind
+          context: ./deployments/kind-nvidia-cdi
           tags: ttl.sh/kind-node-nv-${{ github.sha }}:24h
           push: true
           cache-from: type=gha,scope=kind-node

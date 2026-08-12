@@ -728,7 +728,8 @@ func nriPluginHostPID(ctx context.Context, node string) string {
 // ComputeDomain overlay via `-f` (a structured merge of topology.domains, never
 // --set-file which would stuff the raw bytes in as a string literal).
 func installNRIChart(ctx context.Context, h *harness.Harness, p profile.Profile, topoValues string,
-	withComputeDomain bool, extraSet ...map[string]string) {
+	withComputeDomain bool, extraSet ...map[string]string,
+) {
 	GinkgoHelper()
 	repo, tag := splitImage(config.Image())
 	rel := helm.Release{
@@ -835,7 +836,7 @@ func deployDevicePluginOnWorkers(ctx SpecContext, h *harness.Harness, workers []
 func applyNRIWorkload(ctx context.Context, h *harness.Harness, manifest []byte, name string) kube.PodRef {
 	GinkgoHelper()
 	Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply workload %s", name)
-	DeferCleanup(func(ctx SpecContext) { _ = h.Kube.Delete(ctx, manifest) })
+	DeferCleanup(func(ctx SpecContext) { _ = h.Kube.Delete(ctx, manifest) }) //nolint:contextcheck // Ginkgo cleanup ctx is intentionally distinct from the outer spec ctx
 	Eventually(func() (string, error) {
 		return h.Kube.PodPhase(ctx, nriWorkloadNS, name)
 	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
@@ -932,9 +933,11 @@ spec:
 // point of using it.
 func nriMinimalIBPodManifest(name, tool string, args ...string) []byte {
 	argv := `"` + nriOverlayBinDir + "/" + tool + `"`
+	var argvSb937 strings.Builder
 	for _, a := range args {
-		argv += `, "` + a + `"`
+		argvSb937.WriteString(`, "` + a + `"`)
 	}
+	argv += argvSb937.String()
 	return []byte(`apiVersion: v1
 kind: Pod
 metadata:
@@ -962,7 +965,7 @@ func runIBToolInMinimalImage(ctx context.Context, h *harness.Harness, name, tool
 	GinkgoHelper()
 	manifest := nriMinimalIBPodManifest(name, tool, args...)
 	Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply %s", name)
-	DeferCleanup(func(ctx SpecContext) { _ = h.Kube.Delete(ctx, manifest) })
+	DeferCleanup(func(ctx SpecContext) { _ = h.Kube.Delete(ctx, manifest) }) //nolint:contextcheck // Ginkgo cleanup ctx is intentionally distinct from the outer spec ctx
 
 	var phase string
 	Eventually(func() (string, error) {

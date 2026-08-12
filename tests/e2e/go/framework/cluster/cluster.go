@@ -21,6 +21,7 @@ import (
 // Role is a Kind node role.
 type Role string
 
+// Role values match the "control-plane" / "worker" labels Kind applies to nodes.
 const (
 	RoleControlPlane Role = "control-plane"
 	RoleWorker       Role = "worker"

@@ -14,6 +14,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -92,28 +93,7 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 	}
 
 	// Override base device properties from config
-	if config != nil {
-		if config.Name != "" {
-			dev.Config.Name = config.Name
-		}
-		if config.Architecture != "" {
-			dev.Config.Architecture = parseArchitecture(config.Architecture)
-		}
-		if config.Brand != "" {
-			dev.Config.Brand = parseBrand(config.Brand)
-		}
-		if config.ComputeCapability != nil {
-			dev.Config.CudaMajor = config.ComputeCapability.Major
-			dev.Config.CudaMinor = config.ComputeCapability.Minor
-		}
-		if config.Memory != nil {
-			dev.MemoryInfo = nvml.Memory{
-				Total: config.Memory.TotalBytes,
-				Free:  config.Memory.FreeBytes,
-				Used:  config.Memory.UsedBytes,
-			}
-		}
-	}
+	applyDeviceBaseOverrides(dev, config)
 
 	// Override UUID if provided
 	if uuid != "" {
@@ -158,6 +138,37 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Config.Name, dev.UUID, dev.PciBusID)
 
 	return dev
+}
+
+// applyDeviceBaseOverrides copies whichever base fields the YAML profile
+// explicitly set (Name / Architecture / Brand / ComputeCapability / Memory)
+// onto the pre-built ConfigurableDevice. Everything else is left at the
+// dgxa100 base or the go-nvml mock defaults so an empty profile still yields
+// a working device.
+func applyDeviceBaseOverrides(dev *ConfigurableDevice, config *DeviceConfig) {
+	if config == nil {
+		return
+	}
+	if config.Name != "" {
+		dev.Config.Name = config.Name
+	}
+	if config.Architecture != "" {
+		dev.Config.Architecture = parseArchitecture(config.Architecture)
+	}
+	if config.Brand != "" {
+		dev.Config.Brand = parseBrand(config.Brand)
+	}
+	if config.ComputeCapability != nil {
+		dev.Config.CudaMajor = config.ComputeCapability.Major
+		dev.Config.CudaMinor = config.ComputeCapability.Minor
+	}
+	if config.Memory != nil {
+		dev.MemoryInfo = nvml.Memory{
+			Total: config.Memory.TotalBytes,
+			Free:  config.Memory.FreeBytes,
+			Used:  config.Memory.UsedBytes,
+		}
+	}
 }
 
 // cfg returns the current effective device config, applying any pending
@@ -276,7 +287,7 @@ func (d *ConfigurableDevice) initBAR1Memory(config *DeviceConfig) {
 // Returns error if format is invalid.
 func ParsePCIBusID(busID string) (domain, bus, device, function uint32, err error) {
 	if busID == "" {
-		return 0, 0, 0, 0, fmt.Errorf("empty PCI bus ID")
+		return 0, 0, 0, 0, errors.New("empty PCI bus ID")
 	}
 
 	// Try standard format: DDDD:BB:DD.F (domain:bus:device.function)
@@ -483,6 +494,22 @@ func (d *ConfigurableDevice) GetComputeRunningProcesses() ([]nvml.ProcessInfo, n
 	return procs, nvml.SUCCESS
 }
 
+// ProcessByPID returns the configured process with that pid on this device, and
+// whether one was found. nvml.ProcessInfo carries only pid and memory, so
+// callers that need any other configured field alongside a running-process list
+// look it up here rather than searching every device (two GPUs may host the same
+// pid). The whole entry is returned because the views differ in what they read:
+// the name for nvidia-smi's process lists, and the utilization fields for
+// per-process monitoring.
+func (d *ConfigurableDevice) ProcessByPID(pid uint32) (ProcessConfig, bool) {
+	for _, p := range d.cfg().Processes {
+		if p.PID == pid {
+			return p, true
+		}
+	}
+	return ProcessConfig{}, false
+}
+
 // GetGraphicsRunningProcesses returns running graphics processes
 func (d *ConfigurableDevice) GetGraphicsRunningProcesses() ([]nvml.ProcessInfo, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetGraphicsRunningProcesses\n")
@@ -646,6 +673,15 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 	return temp, nvml.SUCCESS
 }
 
+// reportsTLimit is the architecture gate shared by every T.Limit surface: the
+// margin API and the NVML_FI_DEV_TEMPERATURE_*_TLIMIT field IDs. Only Ada and
+// later hardware has a T.Limit reference; earlier GPUs report absolute
+// thresholds through nvmlDeviceGetTemperatureThreshold, and nvidia-smi picks
+// its whole temperature section layout from whether these answer.
+func (d *ConfigurableDevice) reportsTLimit() bool {
+	return d.Config.Architecture >= nvml.DEVICE_ARCH_ADA && d.Config.Architecture != nvml.DEVICE_ARCH_UNKNOWN
+}
+
 // GetMarginTemperature returns the GPU's headroom to its thermal limit in
 // degrees C — the value nvidia-smi renders as "GPU T.Limit Temp" (via
 // nvmlDeviceGetMarginTemperature). It is the slowdown threshold (falling back
@@ -654,11 +690,14 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 // mirroring real T.Limit hardware; consumers such as NVSentinel's
 // GpuThermalMarginWatch key on that sign crossing (it FAILs when the margin
 // drops below the per-GPU slowdown offset), so the value is deliberately not
-// clamped at 0. A thermal config is required; a lost/failing device propagates
-// its error through GetTemperature so the margin reports [N/A] too. The
-// signature matches the go-nvml Device interface so it overrides the embedded
-// default.
+// clamped at 0. Ada and later only, and a thermal config is required; a
+// lost/failing device propagates its error through GetTemperature so the margin
+// reports [N/A] too. The signature matches the go-nvml Device interface so it
+// overrides the embedded default.
 func (d *ConfigurableDevice) GetMarginTemperature() (nvml.MarginTemperature, nvml.Return) {
+	if !d.reportsTLimit() {
+		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED
+	}
 	c := d.cfg()
 	if c.Thermal == nil {
 		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED
@@ -774,6 +813,8 @@ func (d *ConfigurableDevice) GetClockInfo(clockType nvml.ClockType) (uint32, nvm
 		clock = c.Clocks.MemoryCurrent
 	case nvml.CLOCK_VIDEO:
 		clock = c.Clocks.VideoCurrent
+	default:
+		// CLOCK_COUNT is an enum sentinel; leave clock at 0.
 	}
 	debugLog("[NVML] nvmlDeviceGetClockInfo(type=%d) -> %d MHz\n", clockType, clock)
 	return clock, nvml.SUCCESS
@@ -795,6 +836,8 @@ func (d *ConfigurableDevice) GetMaxClockInfo(clockType nvml.ClockType) (uint32, 
 		clock = c.Clocks.MemoryMax
 	case nvml.CLOCK_VIDEO:
 		clock = c.Clocks.VideoMax
+	default:
+		// CLOCK_COUNT is an enum sentinel; leave clock at 0.
 	}
 	debugLog("[NVML] nvmlDeviceGetMaxClockInfo(type=%d) -> %d MHz\n", clockType, clock)
 	return clock, nvml.SUCCESS
@@ -809,6 +852,8 @@ func (d *ConfigurableDevice) GetApplicationsClock(clockType nvml.ClockType) (uin
 			clock = c.Clocks.GraphicsApp
 		case nvml.CLOCK_MEM:
 			clock = c.Clocks.MemoryApp
+		default:
+			// SM/VIDEO/COUNT: no applications-clock field; leave clock at 0.
 		}
 	}
 	debugLog("[NVML] nvmlDeviceGetApplicationsClock(type=%d) -> %d MHz\n", clockType, clock)
@@ -827,6 +872,8 @@ func (d *ConfigurableDevice) GetDefaultApplicationsClock(clockType nvml.ClockTyp
 			clock = c.Clocks.GraphicsAppDefault
 		case nvml.CLOCK_MEM:
 			clock = c.Clocks.MemoryAppDefault
+		default:
+			// SM/VIDEO/COUNT: no default-applications-clock field; leave clock at 0.
 		}
 	}
 	debugLog("[NVML] nvmlDeviceGetDefaultApplicationsClock(type=%d) -> %d MHz\n", clockType, clock)
@@ -1031,40 +1078,47 @@ func (d *ConfigurableDevice) GetInforomImageVersion() (string, nvml.Return) {
 
 // GetCurrentClocksThrottleReasons returns clock throttle reasons bitmask
 func (d *ConfigurableDevice) GetCurrentClocksThrottleReasons() (uint64, nvml.Return) {
-	reasons := uint64(0)
+	var reasons uint64
 	if c := d.cfg(); c.ClocksThrottleReasons != nil {
-		ctr := c.ClocksThrottleReasons
-		if ctr.GPUIdle {
-			reasons |= nvml.ClocksThrottleReasonGpuIdle
-		}
-		if ctr.ApplicationsClocksSetting {
-			reasons |= nvml.ClocksThrottleReasonApplicationsClocksSetting
-		}
-		if ctr.SWPowerCap {
-			reasons |= nvml.ClocksThrottleReasonSwPowerCap
-		}
-		if ctr.HWSlowdown {
-			reasons |= nvml.ClocksThrottleReasonHwSlowdown
-		}
-		if ctr.SyncBoost {
-			reasons |= nvml.ClocksThrottleReasonSyncBoost
-		}
-		if ctr.SWThermalSlowdown {
-			reasons |= nvml.ClocksThrottleReasonSwThermalSlowdown
-		}
-		if ctr.HWThermalSlowdown {
-			reasons |= nvml.ClocksThrottleReasonHwThermalSlowdown
-		}
-		if ctr.HWPowerBrakeSlowdown {
-			reasons |= nvml.ClocksThrottleReasonHwPowerBrakeSlowdown
-		}
-		if ctr.DisplayClocksSetting {
-			// Display clock setting throttle reason (value 256)
-			reasons |= 256
-		}
+		reasons = throttleReasonsBitmask(c.ClocksThrottleReasons)
 	}
 	debugLog("[NVML] nvmlDeviceGetCurrentClocksThrottleReasons -> 0x%x\n", reasons)
 	return reasons, nvml.SUCCESS
+}
+
+// throttleReasonsBitmask packs the boolean-per-reason config into NVML's
+// nvmlClocksThrottleReasons_t bitmask.
+func throttleReasonsBitmask(ctr *ClocksThrottleReasonsConfig) uint64 {
+	var reasons uint64
+	if ctr.GPUIdle {
+		reasons |= nvml.ClocksThrottleReasonGpuIdle
+	}
+	if ctr.ApplicationsClocksSetting {
+		reasons |= nvml.ClocksThrottleReasonApplicationsClocksSetting
+	}
+	if ctr.SWPowerCap {
+		reasons |= nvml.ClocksThrottleReasonSwPowerCap
+	}
+	if ctr.HWSlowdown {
+		reasons |= nvml.ClocksThrottleReasonHwSlowdown
+	}
+	if ctr.SyncBoost {
+		reasons |= nvml.ClocksThrottleReasonSyncBoost
+	}
+	if ctr.SWThermalSlowdown {
+		reasons |= nvml.ClocksThrottleReasonSwThermalSlowdown
+	}
+	if ctr.HWThermalSlowdown {
+		reasons |= nvml.ClocksThrottleReasonHwThermalSlowdown
+	}
+	if ctr.HWPowerBrakeSlowdown {
+		reasons |= nvml.ClocksThrottleReasonHwPowerBrakeSlowdown
+	}
+	if ctr.DisplayClocksSetting {
+		// Display clock setting throttle reason (value 256)
+		reasons |= 256
+	}
+	return reasons
 }
 
 // GetDisplayActive returns display active status
@@ -1307,6 +1361,8 @@ func (d *ConfigurableDevice) GetNvLinkRemoteDeviceType(link int) (nvml.IntNvLink
 				t = nvml.NVLINK_DEVICE_TYPE_GPU
 			case RemoteSwitch:
 				t = nvml.NVLINK_DEVICE_TYPE_SWITCH
+			default:
+				// RemoteNone / RemoteCPU have no NVML device-type; leave t as UNKNOWN.
 			}
 		}
 	}
@@ -1435,7 +1491,7 @@ func (d *ConfigurableDevice) GetNvLinkUtilizationCounter(link, counter int) (uin
 
 // FreezeNvLinkUtilizationCounter is a no-op success: the counters are a
 // pure function of time, so there is no mutable state to freeze.
-func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, counter int, freeze nvml.EnableState) nvml.Return {
+func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, _ int, _ nvml.EnableState) nvml.Return {
 	if !nvlinkLinkInRange(link) {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
@@ -1444,7 +1500,7 @@ func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, counter int, f
 }
 
 // ResetNvLinkUtilizationCounter is a no-op success (see Freeze).
-func (d *ConfigurableDevice) ResetNvLinkUtilizationCounter(link, counter int) nvml.Return {
+func (d *ConfigurableDevice) ResetNvLinkUtilizationCounter(link, _ int) nvml.Return {
 	if !nvlinkLinkInRange(link) {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
@@ -1468,32 +1524,35 @@ func (d *ConfigurableDevice) GetNvLinkRemotePciInfo(link int) (nvml.PciInfo, nvm
 	if !nvlinkLinkInRange(link) {
 		return pci, nvml.ERROR_INVALID_ARGUMENT
 	}
-	if d.fabric != nil {
-		if l, ok := d.fabric.Link(d.index, link); ok && l.RemoteBDF != "" {
-			// NVSwitch-attached links: a real GB200/HGX reports the "invalid"
-			// PCI sentinel (FFFFFFFF:FF:FF.0) for switch endpoints — switches
-			// are not PCI-enumerable from the GPU, so NVML fills 0xFF fields.
-			// Matching this makes `nvlink -p` and `-R` render exactly as on
-			// hardware ("Remote Device FFFFFFFF:FF:FF.0: Link 0"); a real-looking
-			// BDF instead makes `-R` attempt a device lookup that yields
-			// "Not Supported". Direct GPU<->GPU links still return the peer BDF.
-			if l.RemoteKind == RemoteSwitch {
-				setInvalidRemotePci(&pci)
-				debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> switch sentinel\n", link)
-				return pci, nvml.SUCCESS
-			}
-			if domain, bus, device, _, err := ParsePCIBusID(l.RemoteBDF); err == nil {
-				pci.Domain = domain
-				pci.Bus = bus
-				pci.Device = device
-				writeBusID(pci.BusId[:], l.RemoteBDF)
-				writeBusID(pci.BusIdLegacy[:], l.RemoteBDF)
-			}
-			debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> %s\n", link, l.RemoteBDF)
-			return pci, nvml.SUCCESS
-		}
+	if d.fabric == nil {
+		debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> empty\n", link)
+		return pci, nvml.SUCCESS
 	}
-	debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> empty\n", link)
+	l, ok := d.fabric.Link(d.index, link)
+	if !ok || l.RemoteBDF == "" {
+		debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> empty\n", link)
+		return pci, nvml.SUCCESS
+	}
+	// NVSwitch-attached links: a real GB200/HGX reports the "invalid"
+	// PCI sentinel (FFFFFFFF:FF:FF.0) for switch endpoints — switches
+	// are not PCI-enumerable from the GPU, so NVML fills 0xFF fields.
+	// Matching this makes `nvlink -p` and `-R` render exactly as on
+	// hardware ("Remote Device FFFFFFFF:FF:FF.0: Link 0"); a real-looking
+	// BDF instead makes `-R` attempt a device lookup that yields
+	// "Not Supported". Direct GPU<->GPU links still return the peer BDF.
+	if l.RemoteKind == RemoteSwitch {
+		setInvalidRemotePci(&pci)
+		debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> switch sentinel\n", link)
+		return pci, nvml.SUCCESS
+	}
+	if domain, bus, device, _, err := ParsePCIBusID(l.RemoteBDF); err == nil {
+		pci.Domain = domain
+		pci.Bus = bus
+		pci.Device = device
+		writeBusID(pci.BusId[:], l.RemoteBDF)
+		writeBusID(pci.BusIdLegacy[:], l.RemoteBDF)
+	}
+	debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> %s\n", link, l.RemoteBDF)
 	return pci, nvml.SUCCESS
 }
 
@@ -1549,13 +1608,13 @@ func (d *ConfigurableDevice) GetCpuAffinity(cpuSetSize int) ([]uint, nvml.Return
 // GetCpuAffinityWithinScope returns the CPU affinity bitmask for a scope.
 // The mock does not distinguish socket vs node scope, so both return the
 // device's NUMA CPU set.
-func (d *ConfigurableDevice) GetCpuAffinityWithinScope(cpuSetSize int, scope nvml.AffinityScope) ([]uint, nvml.Return) {
+func (d *ConfigurableDevice) GetCpuAffinityWithinScope(cpuSetSize int, _ nvml.AffinityScope) ([]uint, nvml.Return) {
 	return d.GetCpuAffinity(cpuSetSize)
 }
 
 // GetMemoryAffinity returns the device's memory (NUMA) affinity bitmask
 // packed into nodeSetSize machine words.
-func (d *ConfigurableDevice) GetMemoryAffinity(nodeSetSize int, scope nvml.AffinityScope) ([]uint, nvml.Return) {
+func (d *ConfigurableDevice) GetMemoryAffinity(nodeSetSize int, _ nvml.AffinityScope) ([]uint, nvml.Return) {
 	if nodeSetSize <= 0 {
 		return nil, nvml.ERROR_INVALID_ARGUMENT
 	}
@@ -1709,7 +1768,7 @@ func (d *ConfigurableDevice) GetPcieThroughput(counter nvml.PcieUtilCounter) (ui
 // the running call counter is surfaced as the uncorrectable count so
 // each subsequent NVML poll sees a strictly increasing value (matching
 // real hardware accumulating ECC events).
-func (d *ConfigurableDevice) GetTotalEccErrors(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType) (uint64, nvml.Return) {
+func (d *ConfigurableDevice) GetTotalEccErrors(errorType nvml.MemoryErrorType, _ nvml.EccCounterType) (uint64, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
@@ -1726,7 +1785,7 @@ func (d *ConfigurableDevice) GetTotalEccErrors(errorType nvml.MemoryErrorType, c
 // call count for the uncorrected counter on device memory, mirroring the
 // total error count so callers correlating the two queries see a
 // consistent view.
-func (d *ConfigurableDevice) GetMemoryErrorCounter(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType, locationType nvml.MemoryLocation) (uint64, nvml.Return) {
+func (d *ConfigurableDevice) GetMemoryErrorCounter(errorType nvml.MemoryErrorType, _ nvml.EccCounterType, locationType nvml.MemoryLocation) (uint64, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
@@ -1741,13 +1800,13 @@ func (d *ConfigurableDevice) GetMemoryErrorCounter(errorType nvml.MemoryErrorTyp
 }
 
 // GetRetiredPages returns retired pages
-func (d *ConfigurableDevice) GetRetiredPages(cause nvml.PageRetirementCause) ([]uint64, nvml.Return) {
+func (d *ConfigurableDevice) GetRetiredPages(_ nvml.PageRetirementCause) ([]uint64, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetRetiredPages -> []\n")
 	return []uint64{}, nvml.SUCCESS
 }
 
 // GetRetiredPages_v2 returns retired pages with timestamps
-func (d *ConfigurableDevice) GetRetiredPages_v2(cause nvml.PageRetirementCause) ([]uint64, []uint64, nvml.Return) {
+func (d *ConfigurableDevice) GetRetiredPages_v2(_ nvml.PageRetirementCause) ([]uint64, []uint64, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetRetiredPages_v2 -> [], []\n")
 	return []uint64{}, []uint64{}, nvml.SUCCESS
 }
@@ -1788,6 +1847,7 @@ func (d *ConfigurableDevice) GetFanSpeed_v2(fan int) (uint32, nvml.Return) {
 
 // Helper functions
 
+//nolint:cyclop // existing complexity; refactor deferred
 func parseArchitecture(arch string) nvml.DeviceArchitecture {
 	switch arch {
 	case "kepler":
@@ -1832,6 +1892,7 @@ func parseBrand(brand string) nvml.BrandType {
 	}
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func parsePstate(state string) nvml.Pstates {
 	switch state {
 	case "P0":

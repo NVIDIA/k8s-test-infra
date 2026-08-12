@@ -80,7 +80,7 @@ func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 	var recvResp protocol.RecvResp
 	require.NoError(t, protocol.DecodeBody(env, &recvResp))
 	require.False(t, recvResp.Timeout, "recv: %+v", recvResp)
-	require.NotZero(t, len(recvResp.MAD), "recv: %+v", recvResp)
+	require.NotEmpty(t, recvResp.MAD, "recv: %+v", recvResp)
 	require.NotZero(t, recvResp.MAD[umadMADOffset+ibMADMethodOff]&0x80, "expected response method bit set on echoed MAD")
 
 	require.NoError(t, protocol.WriteMessage(conn, protocol.TypeClose, protocol.CloseReq{Handle: openResp.Handle}))
@@ -235,7 +235,7 @@ func TestServer_handleRecv_CtxCancelReturnsTimeout(t *testing.T) {
 	case err := <-done:
 		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
-		t.Fatal("handleRecv did not return after ctx cancellation")
+		require.Fail(t, "handleRecv did not return after ctx cancellation")
 	}
 	require.Less(t, time.Since(start), 5*time.Second,
 		"handleRecv must return promptly on ctx cancel, not at the recv timeout cap")
@@ -264,7 +264,7 @@ func readRecvResp(t *testing.T, c net.Conn, timeout time.Duration) protocol.Recv
 		require.NoError(t, protocol.DecodeBody(r.env, &resp))
 		return resp
 	case <-time.After(timeout):
-		t.Fatalf("no recv response within %v", timeout)
+		require.Failf(t, "no recv response", "within %v", timeout)
 		return protocol.RecvResp{}
 	}
 }

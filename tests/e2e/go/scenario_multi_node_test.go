@@ -7,7 +7,6 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -90,7 +89,7 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 
 func firstReleasePod(ctx context.Context, h *harness.Harness, releaseName string) kube.PodRef {
 	GinkgoHelper()
-	selector := fmt.Sprintf("app.kubernetes.io/instance=%s", releaseName)
+	selector := "app.kubernetes.io/instance=" + releaseName
 	var name string
 	Eventually(func() (string, error) {
 		n, err := h.Kube.FirstPodName(ctx, nvmlMockNamespace, selector)

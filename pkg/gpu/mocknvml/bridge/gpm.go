@@ -55,6 +55,7 @@ static void gpmSetMetric(nvmlGpmMetricsGet_t *mg, unsigned int i, nvmlReturn_t r
 }
 */
 import "C"
+
 import (
 	"unsafe"
 
@@ -113,6 +114,7 @@ func nvmlGpmSampleGet(device C.nvmlDevice_t, gpmSample C.nvmlGpmSample_t) C.nvml
 }
 
 //export nvmlGpmMetricsGet
+//nolint:cyclop // existing complexity; refactor deferred
 func nvmlGpmMetricsGet(metricsGet *C.nvmlGpmMetricsGet_t) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlGpmMetricsGet"); !ok {
 		return ret

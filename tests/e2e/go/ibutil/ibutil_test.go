@@ -3,7 +3,11 @@
 
 package ibutil
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestNormalizeLID(t *testing.T) {
 	cases := []struct {
@@ -19,15 +23,18 @@ func TestNormalizeLID(t *testing.T) {
 		{"", "", true},
 		{"0xZZ", "", true},
 	}
+	// Each case is a named subtest so all rows still run when one fails, while
+	// require.* stays compatible with testifylint's require-error check.
 	for _, c := range cases {
-		got, err := NormalizeLID(c.in)
-		if (err != nil) != c.wantErr {
-			t.Errorf("NormalizeLID(%q) err=%v wantErr=%v", c.in, err, c.wantErr)
-			continue
-		}
-		if err == nil && got != c.want {
-			t.Errorf("NormalizeLID(%q) = %q, want %q", c.in, got, c.want)
-		}
+		t.Run(c.in, func(t *testing.T) {
+			got, err := NormalizeLID(c.in)
+			if c.wantErr {
+				require.Error(t, err, "NormalizeLID(%q) should fail", c.in)
+				return
+			}
+			require.NoError(t, err, "NormalizeLID(%q)", c.in)
+			require.Equal(t, c.want, got, "NormalizeLID(%q)", c.in)
+		})
 	}
 }
 
@@ -45,13 +52,14 @@ func TestNormalizeGUID(t *testing.T) {
 		{"", "", true},
 	}
 	for _, c := range cases {
-		got, err := NormalizeGUID(c.in)
-		if (err != nil) != c.wantErr {
-			t.Errorf("NormalizeGUID(%q) err=%v wantErr=%v", c.in, err, c.wantErr)
-			continue
-		}
-		if err == nil && got != c.want {
-			t.Errorf("NormalizeGUID(%q) = %q, want %q", c.in, got, c.want)
-		}
+		t.Run(c.in, func(t *testing.T) {
+			got, err := NormalizeGUID(c.in)
+			if c.wantErr {
+				require.Error(t, err, "NormalizeGUID(%q) should fail", c.in)
+				return
+			}
+			require.NoError(t, err, "NormalizeGUID(%q)", c.in)
+			require.Equal(t, c.want, got, "NormalizeGUID(%q)", c.in)
+		})
 	}
 }

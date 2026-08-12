@@ -132,7 +132,7 @@ func TestServer_SMPNodeInfoThenPortInfo(t *testing.T) {
 		var recvResp protocol.RecvResp
 		require.NoError(t, protocol.DecodeBody(env, &recvResp))
 		require.False(t, recvResp.Timeout, "recv: %+v", recvResp)
-		require.NotZero(t, len(recvResp.MAD), "recv: %+v", recvResp)
+		require.NotEmpty(t, recvResp.MAD, "recv: %+v", recvResp)
 		return recvResp.MAD
 	}
 

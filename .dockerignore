@@ -9,3 +9,4 @@ terminals
 **/*.md
 LICENSES
 **/__snapshot__
+*.out

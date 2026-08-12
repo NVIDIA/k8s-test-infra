@@ -150,6 +150,13 @@ device_defaults:
     target_temperature_c: 83
 ```
 
+How these thresholds are reported depends on `device_defaults.architecture`,
+as on real hardware. Ada and later expose them as signed T.Limit offsets
+(`nvmlDeviceGetMarginTemperature` and the `NVML_FI_DEV_TEMPERATURE_*_TLIMIT`
+field IDs), which `nvidia-smi -q` renders as the "T.Limit" rows. Pre-Ada
+architectures report `NVML_ERROR_NOT_SUPPORTED` for both, so `nvidia-smi -q`
+falls back to the absolute `GPU Shutdown / Slowdown / Max Operating Temp` rows.
+
 ### Fan
 
 ```yaml
@@ -300,6 +307,12 @@ device_defaults:
 `processes` drive the running-process queries and `nvmlDeviceGetProcessUtilization`.
 The utilization fields (`sm_util`/`mem_util`/`enc_util`/`dec_util`, all percent) are
 reported for every process — compute and graphics/video alike.
+
+They also show up in `nvidia-smi`: the default table's Processes box, `-q`, and
+`--query-compute-apps`. Two caveats there — `nvidia-smi` labels every row `M+C+G`
+regardless of `type`, because the call it enumerates processes through carries no
+type field, and `nvidia-smi pmon` uses a different entry point that the mock does
+not implement, so it lists nothing.
 
 ```yaml
 device_defaults:

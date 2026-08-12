@@ -11,6 +11,7 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
@@ -31,12 +32,12 @@ type Harness struct {
 // (Tilt via `make cluster-create` + `tilt ci`); the harness only observes and
 // asserts. image is the mock image ref already loaded in the cluster and is
 // carried on the Harness for scenarios that reference it — do not (re)load it.
-func New(ctx context.Context, clusterName, kubeContext, image string) (*Harness, error) {
+func New(_ context.Context, clusterName, kubeContext, image string) (*Harness, error) {
 	if err := cluster.ValidateName(clusterName); err != nil {
 		return nil, err
 	}
 	if kubeContext == "" {
-		return nil, fmt.Errorf("harness.New: kubeContext must not be empty")
+		return nil, errors.New("harness.New: kubeContext must not be empty")
 	}
 	h := &Harness{
 		Image:   image,
