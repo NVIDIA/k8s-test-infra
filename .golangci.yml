@@ -69,6 +69,14 @@ linters:
         - "-ST1000"
         - "-ST1003"
         - "-QF*"
+    testifylint:
+      # enable-all opts every testifylint check on -- expected-actual,
+      # require-error, error-nil, bool-compare, empty, len, formatter, the suite-*
+      # family, etc. Defaults cover most of these already; making the choice
+      # explicit prevents a quiet downgrade if a future edit drops the block, and
+      # keeps the migration from plain t.Fatal/Errorf gated by the strongest
+      # possible ruleset. The tree is clean under enable-all as of this commit.
+      enable-all: true
   exclusions:
     rules:
       # Ginkgo suites conventionally dot-import ginkgo and gomega, and

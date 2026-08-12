@@ -44,39 +44,29 @@ func newTestDevice(t *testing.T, base *DeviceConfig) (*ConfigurableDevice, strin
 
 func writeConfigOverride(t *testing.T, path, content string, clock *time.Time) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 	*clock = clock.Add(2 * time.Second) // move past TTL
 }
 
 func TestRefresh_InjectsLostThenResets(t *testing.T) {
 	dev, path, clock := newTestDevice(t, &DeviceConfig{})
-	if dev.failureInjector() != nil {
-		t.Fatal("device should start healthy")
-	}
+	require.Nil(t, dev.failureInjector(), "device should start healthy")
 	writeConfigOverride(t, path, "devices:\n  \"0\":\n    failure:\n      mode: lost\n", clock)
 	fi := dev.failureInjector()
-	if fi == nil || fi.Mode() != FailureModeLost {
-		t.Fatalf("expected lost injector, got %+v", fi)
-	}
+	require.NotNil(t, fi, "expected lost injector")
+	require.Equal(t, FailureModeLost, fi.Mode(), "expected lost injector")
 	// Clear config override -> back to healthy.
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Remove(path))
 	*clock = clock.Add(2 * time.Second)
-	if dev.failureInjector() != nil {
-		t.Fatal("device should recover to healthy after config override removed")
-	}
+	require.Nil(t, dev.failureInjector(), "device should recover to healthy after config override removed")
 }
 
 func TestRefresh_AllAppliesToDevice(t *testing.T) {
 	dev, path, clock := newTestDevice(t, &DeviceConfig{})
 	writeConfigOverride(t, path, "all:\n  failure:\n    mode: ecc_uncorrectable\n    after_calls: 1\n", clock)
 	fi := dev.failureInjector()
-	if fi == nil || fi.Mode() != FailureModeECCUncorrectable {
-		t.Fatalf("expected ecc_uncorrectable from all: %+v", fi)
-	}
+	require.NotNil(t, fi, "expected ecc_uncorrectable from all")
+	require.Equal(t, FailureModeECCUncorrectable, fi.Mode(), "expected ecc_uncorrectable from all")
 	_ = nvml.SUCCESS
 }
 
@@ -115,23 +105,21 @@ func TestRefresh_HotReloadsDynamicTemperature(t *testing.T) {
 	}
 	dev, path, clock := newTestDevice(t, base)
 
-	if got, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS || got != 50 {
-		t.Fatalf("baseline temperature = %d (ret=%v), want 50", got, ret)
-	}
+	got, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU)
+	require.Equal(t, nvml.SUCCESS, ret, "baseline GetTemperature ret")
+	require.Equal(t, uint32(50), got, "baseline temperature")
 
 	writeConfigOverride(t, path, "devices:\n  \"0\":\n    dynamic_metrics:\n      temperature:\n        base_c: 85\n", clock)
-	if got, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS || got != 85 {
-		t.Fatalf("after config override temperature = %d (ret=%v), want 85", got, ret)
-	}
+	got, ret = dev.GetTemperature(nvml.TEMPERATURE_GPU)
+	require.Equal(t, nvml.SUCCESS, ret, "after config override GetTemperature ret")
+	require.Equal(t, uint32(85), got, "after config override temperature")
 
 	// Clearing the config override reverts to the base config's simulator.
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Remove(path))
 	*clock = clock.Add(2 * time.Second)
-	if got, ret := dev.GetTemperature(nvml.TEMPERATURE_GPU); ret != nvml.SUCCESS || got != 50 {
-		t.Fatalf("after reset temperature = %d (ret=%v), want 50", got, ret)
-	}
+	got, ret = dev.GetTemperature(nvml.TEMPERATURE_GPU)
+	require.Equal(t, nvml.SUCCESS, ret, "after reset GetTemperature ret")
+	require.Equal(t, uint32(50), got, "after reset temperature")
 }
 
 // Memory literals taken from the shipped a100 profile

@@ -8,6 +8,8 @@ package runner
 import (
 	"bytes"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLineLimitWriterWritesOnlyFirstLines(t *testing.T) {
@@ -16,20 +18,11 @@ func TestLineLimitWriterWritesOnlyFirstLines(t *testing.T) {
 	w := &lineLimitWriter{dst: &out, remaining: 2}
 
 	n, err := w.Write(input)
-	if err != nil {
-		t.Fatalf("lineLimitWriter write: %v", err)
-	}
-	if n != len(input) {
-		t.Fatalf("expected writer to accept %d bytes, got %d", len(input), n)
-	}
-	if got, want := out.String(), "one\ntwo\n"; got != want {
-		t.Fatalf("expected truncated output %q, got %q", want, got)
-	}
+	require.NoError(t, err, "lineLimitWriter write")
+	require.Equal(t, len(input), n, "expected writer to accept %d bytes", len(input))
+	require.Equal(t, "one\ntwo\n", out.String(), "expected truncated output")
 
-	if _, err := w.Write([]byte("four\n")); err != nil {
-		t.Fatalf("lineLimitWriter second write: %v", err)
-	}
-	if got, want := out.String(), "one\ntwo\n"; got != want {
-		t.Fatalf("expected output to stay truncated at %q, got %q", want, got)
-	}
+	_, err = w.Write([]byte("four\n"))
+	require.NoError(t, err, "lineLimitWriter second write")
+	require.Equal(t, "one\ntwo\n", out.String(), "expected output to stay truncated")
 }

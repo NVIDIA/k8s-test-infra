@@ -3,7 +3,12 @@
 
 package profile
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
 // profilesDir is the chart profiles directory relative to this test package
 // (tests/e2e/go/profile -> repo root -> deployments/...). `go test` runs with the
@@ -41,9 +46,7 @@ func TestDerivations(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			p, err := Load(profilesDir, c.name)
-			if err != nil {
-				t.Fatalf("Load(%q): %v", c.name, err)
-			}
+			require.NoError(t, err, "Load(%q)", c.name)
 			// One named subtest per derivation so the test output lists every
 			// check explicitly (e.g. TestDerivations/a100/ExpectedNV), instead
 			// of hiding them inside a single per-profile pass/fail.
@@ -63,9 +66,7 @@ func TestDerivations(t *testing.T) {
 			}
 			for _, ck := range checks {
 				t.Run(ck.name, func(t *testing.T) {
-					if ck.got != ck.want {
-						t.Errorf("%s() = %v, want %v", ck.name, ck.got, ck.want)
-					}
+					require.Equal(t, ck.want, ck.got, "%s()", ck.name)
 				})
 			}
 		})
@@ -77,37 +78,21 @@ func TestDerivations(t *testing.T) {
 // while asserting NV0; l40s/t4 must report 0 HCAs AND NV0.
 func TestNegativeControlsAreIndependent(t *testing.T) {
 	b200, err := Load(profilesDir, "b200")
-	if err != nil {
-		t.Fatalf("Load(b200): %v", err)
-	}
-	if b200.ExpectedNV() != 0 {
-		t.Errorf("b200 ExpectedNV() = %d, want 0 (standalone, no NVSwitch)", b200.ExpectedNV())
-	}
-	if b200.ExpectedHCAs() == 0 {
-		t.Errorf("b200 ExpectedHCAs() = 0, want > 0 (IB is enabled on b200)")
-	}
+	require.NoError(t, err, "Load(b200)")
+	require.Zero(t, b200.ExpectedNV(), "b200 ExpectedNV() want 0 (standalone, no NVSwitch)")
+	require.NotZero(t, b200.ExpectedHCAs(), "b200 ExpectedHCAs() want > 0 (IB is enabled on b200)")
 
 	for _, name := range []string{"l40s", "t4"} {
 		p, err := Load(profilesDir, name)
-		if err != nil {
-			t.Fatalf("Load(%s): %v", name, err)
-		}
-		if p.ExpectedHCAs() != 0 {
-			t.Errorf("%s ExpectedHCAs() = %d, want 0 (IB disabled)", name, p.ExpectedHCAs())
-		}
-		if p.ExpectedNV() != 0 {
-			t.Errorf("%s ExpectedNV() = %d, want 0 (no NVSwitch)", name, p.ExpectedNV())
-		}
+		require.NoError(t, err, "Load(%s)", name)
+		assert.Zero(t, p.ExpectedHCAs(), "%s ExpectedHCAs() want 0 (IB disabled)", name)
+		assert.Zero(t, p.ExpectedNV(), "%s ExpectedNV() want 0 (no NVSwitch)", name)
 	}
 }
 
 // TestAll ensures every shipped profile loads cleanly.
 func TestAll(t *testing.T) {
 	ps, err := All(profilesDir)
-	if err != nil {
-		t.Fatalf("All(): %v", err)
-	}
-	if len(ps) != len(KnownProfiles) {
-		t.Fatalf("All() returned %d profiles, want %d", len(ps), len(KnownProfiles))
-	}
+	require.NoError(t, err, "All()")
+	require.Len(t, ps, len(KnownProfiles), "All() returned wrong count")
 }
