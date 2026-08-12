@@ -72,6 +72,7 @@ COPY deployments/nvml-mock/scripts/stage-ib-tools.sh /usr/local/bin/stage-ib-too
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
+        pciutils \
         infiniband-diags rdma-core ibverbs-utils ibverbs-providers; \
     rm -rf /var/lib/apt/lists/*; \
     # libibverbs prints "couldn't open config directory '/etc/libibverbs.d'"
