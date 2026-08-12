@@ -56,6 +56,15 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 2
             failureThreshold: 3
+          # KEP-3960 native sleep action — the distroless-static image has no
+          # /bin/sh, so an exec-based `sleep 10` would silently fail. The delay
+          # covers the window between EndpointSlice removal and kube-proxy /
+          # ingress catching up, so in-flight requests keep landing on a
+          # ready replica instead of a draining one.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 10
           resources:
             {{- toYaml .Values.controlPlane.resources | nindent 12 }}
           # Distroless-static ships /nonroot with UID 65532; matching it here
