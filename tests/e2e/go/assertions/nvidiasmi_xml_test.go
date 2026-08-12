@@ -11,12 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Fixtures are `nvidia-smi -q -x` output captured from the mock image against a
-// config setting jpeg: 35 / ofa: 12, reduced to the elements under test. The
-// buggy one comes from the image built before the NVML getters existed: both
-// values are parsed from the config and nvidia-smi still renders N/A, which is
-// issue #637.
-func utilizationXML(gpus ...string) string {
+// Fixtures are `nvidia-smi -q -x` output captured from the mock image, reduced
+// to the elements under test. The N/A readings come from the image built before
+// the NVML getters existed: both values are parsed from the config and
+// nvidia-smi still renders N/A, which is issue #637.
+func smiXML(gpus ...string) string {
 	return `<?xml version="1.0" ?>
 <!DOCTYPE nvidia_smi_log SYSTEM "nvsmi_device_v13.dtd">
 <nvidia_smi_log>
@@ -50,7 +49,7 @@ const (
 )
 
 func TestDiffJpgOfaUtilizationXML_AcceptsConfiguredPercentages(t *testing.T) {
-	out := utilizationXML(
+	out := smiXML(
 		utilizationGPU("0000:07:00.0", jpeg35, ofa12),
 		utilizationGPU("0000:0F:00.0", jpeg35, ofa12),
 	)
@@ -58,7 +57,7 @@ func TestDiffJpgOfaUtilizationXML_AcceptsConfiguredPercentages(t *testing.T) {
 }
 
 func TestDiffJpgOfaUtilizationXML_RejectsNotAvailableReadings(t *testing.T) {
-	out := utilizationXML(utilizationGPU("0000:07:00.0", jpegNA, ofaNA))
+	out := smiXML(utilizationGPU("0000:07:00.0", jpegNA, ofaNA))
 
 	problems := DiffJpgOfaUtilizationXML(out, 35, 12)
 	require.Len(t, problems, 2, "both readings are N/A")
@@ -70,7 +69,7 @@ func TestDiffJpgOfaUtilizationXML_RejectsNotAvailableReadings(t *testing.T) {
 // A zeroed default reading must not satisfy a non-zero expectation, and the two
 // values must not be interchangeable — the reason the fixture uses 35 and 12.
 func TestDiffJpgOfaUtilizationXML_RejectsWrongPercentages(t *testing.T) {
-	out := utilizationXML(utilizationGPU("0000:07:00.0", jpeg35, ofa12))
+	out := smiXML(utilizationGPU("0000:07:00.0", jpeg35, ofa12))
 
 	require.Len(t, DiffJpgOfaUtilizationXML(out, 0, 0), 2,
 		"35 %% / 12 %% must not satisfy a zeroed expectation")
@@ -81,7 +80,7 @@ func TestDiffJpgOfaUtilizationXML_RejectsWrongPercentages(t *testing.T) {
 // Absent elements decode as empty strings, which must be reported rather than
 // read as 0 %.
 func TestDiffJpgOfaUtilizationXML_ReportsMissingElements(t *testing.T) {
-	out := utilizationXML(utilizationGPU("0000:07:00.0", "", ""))
+	out := smiXML(utilizationGPU("0000:07:00.0", "", ""))
 
 	problems := DiffJpgOfaUtilizationXML(out, 35, 12)
 	require.Len(t, problems, 2)
@@ -93,7 +92,7 @@ func TestDiffJpgOfaUtilizationXML_ReportsMissingElements(t *testing.T) {
 // A getter that answers for only the first device must fail, and the report must
 // name the GPU so the failure points at a device.
 func TestDiffJpgOfaUtilizationXML_ChecksEveryGPU(t *testing.T) {
-	out := utilizationXML(
+	out := smiXML(
 		utilizationGPU("0000:07:00.0", jpeg35, ofa12),
 		utilizationGPU("0000:0F:00.0", jpegNA, ofa12),
 	)
@@ -107,7 +106,7 @@ func TestDiffJpgOfaUtilizationXML_ChecksEveryGPU(t *testing.T) {
 // truncated XML must be reported as a parse failure, not silently pass for want
 // of any <gpu> elements to check.
 func TestDiffJpgOfaUtilizationXML_RejectsTruncatedOutput(t *testing.T) {
-	full := utilizationXML(utilizationGPU("0000:07:00.0", jpeg35, ofa12))
+	full := smiXML(utilizationGPU("0000:07:00.0", jpeg35, ofa12))
 	truncated := full[:strings.Index(full, "<utilization>")]
 
 	problems := DiffJpgOfaUtilizationXML(truncated, 35, 12)
@@ -116,7 +115,65 @@ func TestDiffJpgOfaUtilizationXML_RejectsTruncatedOutput(t *testing.T) {
 }
 
 func TestDiffJpgOfaUtilizationXML_RejectsOutputWithoutGPUs(t *testing.T) {
-	problems := DiffJpgOfaUtilizationXML(utilizationXML(), 35, 12)
+	problems := DiffJpgOfaUtilizationXML(smiXML(), 35, 12)
 	require.Len(t, problems, 1)
 	require.Contains(t, problems[0], "no GPUs")
+}
+
+// gpuWithProcesses renders one <gpu> whose <processes> block carries the given
+// <process_info> bodies, as captured from the mock image.
+func gpuWithProcesses(id string, infos ...string) string {
+	return `
+	<gpu id="` + id + `">
+		<product_name>NVIDIA A100-SXM4-40GB</product_name>
+		<processes>` + strings.Join(infos, "") + `
+		</processes>
+	</gpu>`
+}
+
+func processInfo(pid int, name string, memoryMiB int) string {
+	return `
+			<process_info>
+				<gpu_instance_id>N/A</gpu_instance_id>
+				<compute_instance_id>N/A</compute_instance_id>
+				<pid>` + strconv.Itoa(pid) + `</pid>
+				<type>M+C+G</type>
+				<process_name>` + name + `</process_name>
+				<used_memory>` + strconv.Itoa(memoryMiB) + ` MiB</used_memory>
+			</process_info>`
+}
+
+func TestProcessesXML_DecodesTheRequestedGPU(t *testing.T) {
+	out := smiXML(
+		gpuWithProcesses("0000:07:00.0"),
+		gpuWithProcesses("0000:0F:00.0",
+			processInfo(4201, "train.py", 1024),
+			processInfo(4202, "infer.py", 512)),
+	)
+
+	first, err := ProcessesXML(out, 0)
+	require.NoError(t, err)
+	require.Empty(t, first, "GPU 0 has an empty <processes> block")
+
+	second, err := ProcessesXML(out, 1)
+	require.NoError(t, err)
+	require.Equal(t, []SMIProcess{
+		{PID: 4201, Name: "train.py", MemoryMiB: 1024},
+		{PID: 4202, Name: "infer.py", MemoryMiB: 512},
+	}, second)
+}
+
+func TestProcessesXML_RejectsAnIndexTheOutputDoesNotCover(t *testing.T) {
+	_, err := ProcessesXML(smiXML(gpuWithProcesses("0000:07:00.0")), 3)
+	require.ErrorContains(t, err, "reported 1 GPUs")
+}
+
+// An unreadable used_memory must be an error rather than 0 MiB, which would
+// compare equal to a genuinely empty reading.
+func TestProcessesXML_RejectsUnreadableUsedMemory(t *testing.T) {
+	out := smiXML(gpuWithProcesses("0000:07:00.0",
+		strings.Replace(processInfo(4201, "train.py", 1024), "1024 MiB", "N/A", 1)))
+
+	_, err := ProcessesXML(out, 0)
+	require.ErrorContains(t, err, "used_memory")
 }

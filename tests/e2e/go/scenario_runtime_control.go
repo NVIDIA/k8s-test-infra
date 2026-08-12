@@ -843,10 +843,27 @@ func assertRuntimeProcesses(ctx SpecContext, h *harness.Harness, consumer kube.P
 			"nvidia-smi -q should resolve the name of pid %d", p.PID)
 	}
 
+	// Unscoped, so nvidia-smi walks every GPU's process list in one run. That is
+	// the shape that faulted while a stray write in the internal export-table
+	// shim was reachable from calls that never carried a process buffer.
+	By("nvidia-smi -q -x reports the same processes for the target GPU")
+	res, err = h.Kube.Exec(ctx, consumer, "nvidia-smi", "-q", "-x")
+	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -q -x: %s", res.Combined())
+	wantXML := make([]assertions.SMIProcess, 0, len(want))
+	for _, p := range want {
+		wantXML = append(wantXML, assertions.SMIProcess{PID: p.PID, Name: p.Name, MemoryMiB: p.MemoryMiB})
+	}
+	gotXML, err := assertions.ProcessesXML(res.Stdout, target)
+	Expect(err).NotTo(HaveOccurred(), "decode nvidia-smi -q -x")
+	Expect(gotXML).To(Equal(wantXML), "GPU %d processes in the XML view", target)
+
 	if count > 1 {
 		By("verify the process list is scoped to the target GPU (GPU 0 unchanged)")
 		Expect(smiComputeApps(ctx, h, consumer, 0)).To(BeEmpty(),
 			"GPU 0 must report no processes when only GPU %d was targeted", target)
+
+		Expect(assertions.ProcessesXML(res.Stdout, 0)).To(BeEmpty(),
+			"GPU 0 must report no processes in the XML view either")
 	}
 
 	By("clearing the list with an empty processes value removes them")

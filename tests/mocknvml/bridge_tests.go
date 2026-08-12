@@ -41,6 +41,7 @@ func bridgeTests(deviceCount int) []testResult {
 	results = append(results, testInvalidIndices(deviceCount)...)
 	results = append(results, testEventSetWait(deviceCount)...)
 	results = append(results, testInitShutdownCycles()...)
+	results = append(results, testInternalExportTable()...)
 	return results
 }
 
