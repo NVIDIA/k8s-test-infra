@@ -57,21 +57,24 @@ func NvidiaSMI(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.P
 		"expected no per-process entries in nvidia-smi -q")
 }
 
-// NvidiaSMIJpgOfaUtilization asserts nvidia-smi -q -d UTILIZATION reports the
-// given JPEG and OFA percentages on every GPU. Both rows read N/A until the
-// NVML getters existed, so the configured values were silently dropped. See
-// issue #637.
+// NvidiaSMIJpgOfaUtilization asserts nvidia-smi -q -x reports the given JPEG
+// and OFA percentages on every GPU. Both elements read N/A until the NVML
+// getters existed, so the configured values were silently dropped. See issue
+// #637.
 func NvidiaSMIJpgOfaUtilization(ctx context.Context, k *kube.Client, pod kube.PodRef, wantJPEG, wantOFA int) {
 	ginkgo.GinkgoHelper()
 
-	ginkgo.By(fmt.Sprintf("nvidia-smi -q -d UTILIZATION reports JPEG %d %% / OFA %d %%", wantJPEG, wantOFA))
-	res, err := k.Exec(ctx, pod, "nvidia-smi", "-q", "-d", "UTILIZATION")
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x reports jpeg_util %d %% / ofa_util %d %%", wantJPEG, wantOFA))
+	// -x rather than `-q -d UTILIZATION`: the XML is nvidia-smi's
+	// machine-readable contract, so the assertion keys off DTD element names
+	// instead of the human table's column layout. -d cannot be combined with -x.
+	res, err := k.Exec(ctx, pod, "nvidia-smi", "-q", "-x")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-		"nvidia-smi -q -d UTILIZATION exited with error: %s", res.Combined())
-	out := res.Combined()
-	problems := DiffJpgOfaUtilizationQuery(out, wantJPEG, wantOFA)
+		"nvidia-smi -q -x exited with error: %s", res.Combined())
+	out := res.Stdout
+	problems := DiffJpgOfaUtilizationXML(out, wantJPEG, wantOFA)
 	gomega.Expect(problems).To(gomega.BeEmpty(),
-		"JPEG/OFA utilization wrong:\n%s\n%s", strings.Join(problems, "\n"), strings.TrimSpace(out))
+		"JPEG/OFA utilization wrong:\n%s", strings.Join(problems, "\n"))
 }
 
 // NvidiaSMITemperatureThresholds asserts nvidia-smi -q -d TEMPERATURE uses the

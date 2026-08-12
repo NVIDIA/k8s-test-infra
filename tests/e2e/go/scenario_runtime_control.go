@@ -472,8 +472,8 @@ func assertRuntimeUtilCommand(ctx SpecContext, h *harness.Harness, consumer kube
 }
 
 // assertJpgOfaUtilizationOverride pins distinct non-zero JPEG and OFA
-// utilization through `set` and reads both rows back from
-// nvidia-smi -q -d UTILIZATION. The shipped profiles configure 0 % for both, so
+// utilization through `set` and reads both back from the jpeg_util and ofa_util
+// elements of nvidia-smi -q -x. The shipped profiles configure 0 % for both, so
 // the deployed config on its own cannot tell a working getter apart from the
 // dropped-field bug (#637) — and the two values must differ, or a getter reading
 // the other field would pass.
@@ -488,11 +488,11 @@ func assertJpgOfaUtilizationOverride(ctx SpecContext, h *harness.Harness, consum
 		"utilization.jpeg="+strconv.Itoa(wantJPEG), "utilization.ofa="+strconv.Itoa(wantOFA))
 
 	Eventually(func() []string {
-		res, err := h.Kube.Exec(ctx, consumer, "nvidia-smi", "-q", "-d", "UTILIZATION")
+		res, err := h.Kube.Exec(ctx, consumer, "nvidia-smi", "-q", "-x")
 		if err != nil {
-			return []string{"nvidia-smi -q -d UTILIZATION failed: " + res.Combined()}
+			return []string{"nvidia-smi -q -x failed: " + res.Combined()}
 		}
-		return assertions.DiffJpgOfaUtilizationQuery(res.Combined(), wantJPEG, wantOFA)
+		return assertions.DiffJpgOfaUtilizationXML(res.Stdout, wantJPEG, wantOFA)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(BeEmpty(), "JPEG/OFA utilization should reflect the runtime override")
 

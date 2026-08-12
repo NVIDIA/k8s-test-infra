@@ -260,11 +260,11 @@ func (p Profile) SlowdownThresholdC() int { return p.slowdownThresholdC }
 func (p Profile) MaxOperatingC() int { return p.maxOperatingC }
 
 // JPEGUtilizationPct is utilization.jpeg from the profile, the percentage
-// nvidia-smi -q -d UTILIZATION must report on the JPEG row.
+// nvidia-smi -q -x must report in jpeg_util.
 func (p Profile) JPEGUtilizationPct() int { return p.jpegUtilizationPct }
 
 // OFAUtilizationPct is utilization.ofa from the profile, the percentage
-// nvidia-smi -q -d UTILIZATION must report on the OFA row.
+// nvidia-smi -q -x must report in ofa_util.
 func (p Profile) OFAUtilizationPct() int { return p.ofaUtilizationPct }
 
 // ReportsTLimitTemp is true when real hardware of this architecture reports the

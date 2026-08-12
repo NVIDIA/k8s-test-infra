@@ -4,57 +4,80 @@
 package assertions
 
 import (
+	"encoding/xml"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 )
 
 // This file carries no build tag on purpose — same rationale as
-// nvidiasmi_temperature.go. DiffJpgOfaUtilizationQuery is pure string checking
-// so it unit-tests without a cluster; the kubectl exec wrapper lives in
-// nvidiasmi.go under //go:build e2e.
+// nvidiasmi_temperature.go. DiffJpgOfaUtilizationXML is pure parsing so it
+// unit-tests without a cluster; the kubectl exec wrapper lives in nvidiasmi.go
+// under //go:build e2e.
 
-var utilizationRowRE = regexp.MustCompile(`(?m)^\s*(JPEG|OFA)\s*:\s*(.+?)\s*$`)
+// smiUtilizationLog decodes just the utilization block of each GPU in
+// `nvidia-smi -q -x` output. The XML is the machine-readable form of `-q`, so
+// it is matched against its DTD element names rather than the column layout of
+// the human-readable table. Readings are strings because nvidia-smi renders
+// both "35 %" and "N/A" in the same element.
+type smiUtilizationLog struct {
+	GPUs []struct {
+		ID          string `xml:"id,attr"`
+		Utilization struct {
+			JPEG string `xml:"jpeg_util"`
+			OFA  string `xml:"ofa_util"`
+		} `xml:"utilization"`
+	} `xml:"gpu"`
+}
 
-// DiffJpgOfaUtilizationQuery checks the JPEG and OFA rows of
-// `nvidia-smi -q -d UTILIZATION` against the configured utilization.jpeg and
-// utilization.ofa percentages. Every GPU in the output is checked, so a getter
-// that answers for only one device is caught.
+// DiffJpgOfaUtilizationXML checks the jpeg_util and ofa_util elements of
+// `nvidia-smi -q -x` against the configured utilization.jpeg and
+// utilization.ofa percentages, for every GPU in the output. A GPU-scoped
+// getter that answers for only one device is therefore caught.
 //
 // An "N/A" reading is the defect this exists to catch (#637): both values were
 // parsed from the config and then dropped, because the NVML entry points were
 // generated stubs returning NOT_SUPPORTED.
-func DiffJpgOfaUtilizationQuery(out string, wantJPEG, wantOFA int) []string {
-	want := map[string]int{"JPEG": wantJPEG, "OFA": wantOFA}
-	seen := map[string]int{}
-
-	var problems []string
-	for _, m := range utilizationRowRE.FindAllStringSubmatch(out, -1) {
-		label, raw := m[1], m[2]
-		seen[label]++
-		pct, ok := parseUtilizationPercent(raw)
-		if !ok {
-			problems = append(problems, fmt.Sprintf(
-				"%s = %q, want %d %%; a non-numeric reading means the NVML getter is missing or unimplemented",
-				label, raw, want[label]))
-			continue
-		}
-		if pct != want[label] {
-			problems = append(problems, fmt.Sprintf("%s = %d %%, want %d %%", label, pct, want[label]))
-		}
+func DiffJpgOfaUtilizationXML(out string, wantJPEG, wantOFA int) []string {
+	var log smiUtilizationLog
+	if err := xml.Unmarshal([]byte(out), &log); err != nil {
+		return []string{fmt.Sprintf("parse nvidia-smi -q -x output: %v", err)}
+	}
+	if len(log.GPUs) == 0 {
+		return []string{"nvidia-smi -q -x reported no GPUs"}
 	}
 
-	for _, label := range []string{"JPEG", "OFA"} {
-		if seen[label] == 0 {
-			problems = append(problems, fmt.Sprintf("missing %q row", label))
+	var problems []string
+	for _, gpu := range log.GPUs {
+		rows := []struct {
+			element string
+			reading string
+			want    int
+		}{
+			{"jpeg_util", gpu.Utilization.JPEG, wantJPEG},
+			{"ofa_util", gpu.Utilization.OFA, wantOFA},
+		}
+		for _, row := range rows {
+			pct, ok := parseUtilizationPercent(row.reading)
+			if !ok {
+				problems = append(problems, fmt.Sprintf(
+					"GPU %s %s = %q, want %d %%; a non-numeric reading means the NVML getter is missing or unimplemented",
+					gpu.ID, row.element, row.reading, row.want))
+				continue
+			}
+			if pct != row.want {
+				problems = append(problems, fmt.Sprintf("GPU %s %s = %d %%, want %d %%",
+					gpu.ID, row.element, pct, row.want))
+			}
 		}
 	}
 	return problems
 }
 
-func parseUtilizationPercent(raw string) (int, bool) {
-	trimmed := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(raw), "%"))
+// parseUtilizationPercent reads a "35 %" style element body. An empty body
+// (element absent) and "N/A" both fail, which is what the caller reports.
+func parseUtilizationPercent(reading string) (int, bool) {
+	trimmed := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(reading), "%"))
 	pct, err := strconv.Atoi(trimmed)
 	if err != nil {
 		return 0, false
