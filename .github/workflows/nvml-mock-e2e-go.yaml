@@ -32,6 +32,10 @@
 # nvml-mock. Other jobs still use kindest/node directly and don't need this.
 name: nvml-mock E2E (Go)
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
