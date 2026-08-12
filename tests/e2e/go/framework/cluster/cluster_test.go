@@ -5,48 +5,32 @@
 
 package cluster
 
-import "testing"
+import (
+	"slices"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestCreateArgsUseStdinForKindConfig(t *testing.T) {
 	args := createArgs("nvml-mock-e2e", true)
 
-	for i, arg := range args {
-		if arg != "--config" {
-			continue
-		}
-		if i+1 >= len(args) {
-			t.Fatal("--config is missing its value")
-		}
-		if got := args[i+1]; got != kindConfigStdinPath {
-			t.Fatalf("expected Kind config to use stdin path %q, got %q", kindConfigStdinPath, got)
-		}
-		return
-	}
-	t.Fatal("expected --config when Kind config YAML is provided")
+	idx := slices.Index(args, "--config")
+	require.NotEqual(t, -1, idx, "expected --config when Kind config YAML is provided")
+	require.Less(t, idx+1, len(args), "--config is missing its value")
+	require.Equal(t, kindConfigStdinPath, args[idx+1], "expected Kind config to use stdin path")
 }
 
 func TestCreateArgsOmitConfigWithoutKindConfig(t *testing.T) {
 	args := createArgs("nvml-mock-e2e", false)
-
-	for _, arg := range args {
-		if arg == "--config" {
-			t.Fatal("did not expect --config when Kind config YAML is empty")
-		}
-	}
+	require.NotContains(t, args, "--config", "did not expect --config when Kind config YAML is empty")
 }
 
 func TestCreateArgsUseDefaultKubeconfig(t *testing.T) {
 	args := createArgs("nvml-mock-e2e", true)
-
-	for _, arg := range args {
-		if arg == "--kubeconfig" {
-			t.Fatal("did not expect --kubeconfig; e2e should use the default kubeconfig")
-		}
-	}
+	require.NotContains(t, args, "--kubeconfig", "did not expect --kubeconfig; e2e should use the default kubeconfig")
 }
 
 func TestKindContext(t *testing.T) {
-	if got := KindContext("nvml-mock-e2e"); got != "kind-nvml-mock-e2e" {
-		t.Fatalf("expected Kind context %q, got %q", "kind-nvml-mock-e2e", got)
-	}
+	require.Equal(t, "kind-nvml-mock-e2e", KindContext("nvml-mock-e2e"), "expected Kind context")
 }

@@ -9,6 +9,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 )
@@ -24,13 +26,7 @@ func TestAttachClusterPropagatesKubeClientError(t *testing.T) {
 		return nil, wantErr
 	})
 
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("expected kube client error %v, got %v", wantErr, err)
-	}
-	if h.Cluster == nil {
-		t.Fatal("expected cluster to remain attached for cleanup")
-	}
-	if h.Kube != nil {
-		t.Fatalf("expected kube client to remain nil, got %#v", h.Kube)
-	}
+	require.ErrorIs(t, err, wantErr, "expected kube client error")
+	require.NotNil(t, h.Cluster, "expected cluster to remain attached for cleanup")
+	require.Nil(t, h.Kube, "expected kube client to remain nil")
 }

@@ -18,24 +18,20 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfigOverridePathFor_SiblingDefault(t *testing.T) {
 	t.Setenv("MOCK_NVML_OVERRIDES", "")
-	got := ConfigOverridePathFor("/x/config/config.yaml")
-	if got != "/x/config/overrides.yaml" {
-		t.Fatalf("got %q", got)
-	}
+	require.Equal(t, "/x/config/overrides.yaml", ConfigOverridePathFor("/x/config/config.yaml"))
 }
 
 func TestConfigOverridePathFor_EnvWins(t *testing.T) {
 	t.Setenv("MOCK_NVML_OVERRIDES", "/custom/o.yaml")
-	if got := ConfigOverridePathFor("/x/config/config.yaml"); got != "/custom/o.yaml" {
-		t.Fatalf("got %q", got)
-	}
+	require.Equal(t, "/custom/o.yaml", ConfigOverridePathFor("/x/config/config.yaml"))
 }
 
-//nolint:cyclop // existing complexity; refactor deferred
 func TestConfigOverrideStore_GenBumpsOnChange(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "overrides.yaml")
@@ -43,40 +39,31 @@ func TestConfigOverrideStore_GenBumpsOnChange(t *testing.T) {
 	s := newConfigOverrideStoreAt(func() string { return path }, func() time.Time { return now })
 
 	// Absent file: gen 0, nil doc.
-	if gen, doc := s.snapshot(); gen != 0 || doc != nil {
-		t.Fatalf("absent config override: gen=%d doc=%v", gen, doc)
-	}
+	gen, doc := s.snapshot()
+	require.Zero(t, gen, "absent config override gen")
+	require.Nil(t, doc, "absent config override doc")
 
 	// Write a file; TTL not elapsed yet -> still cached as absent.
-	if err := os.WriteFile(path, []byte("all:\n  failure:\n    mode: lost\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if gen, _ := s.snapshot(); gen != 0 {
-		t.Fatalf("within TTL gen should stay 0, got %d", gen)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("all:\n  failure:\n    mode: lost\n"), 0o644))
+	gen, _ = s.snapshot()
+	require.Zero(t, gen, "within TTL gen should stay 0")
 
 	// Advance beyond TTL -> re-read, gen bumps, doc parsed.
 	now = now.Add(2 * time.Second)
-	gen, doc := s.snapshot()
-	if gen != 1 || doc == nil {
-		t.Fatalf("after change: gen=%d doc=%v", gen, doc)
-	}
-	if doc.All["failure"].(map[string]any)["mode"] != "lost" {
-		t.Fatalf("parsed wrong: %+v", doc.All)
-	}
+	gen, doc = s.snapshot()
+	require.Equal(t, uint64(1), gen, "after change gen")
+	require.NotNil(t, doc, "after change doc")
+	require.Equal(t, "lost", doc.All["failure"].(map[string]any)["mode"], "parsed wrong")
 
 	// No change -> gen stable across TTL windows.
 	now = now.Add(2 * time.Second)
-	if gen2, _ := s.snapshot(); gen2 != 1 {
-		t.Fatalf("unchanged file should keep gen=1, got %d", gen2)
-	}
+	gen, _ = s.snapshot()
+	require.Equal(t, uint64(1), gen, "unchanged file should keep gen=1")
 
 	// Remove file -> gen bumps again, doc nil.
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Remove(path))
 	now = now.Add(2 * time.Second)
-	if gen3, doc3 := s.snapshot(); gen3 != 2 || doc3 != nil {
-		t.Fatalf("after removal: gen=%d doc=%v", gen3, doc3)
-	}
+	gen, doc = s.snapshot()
+	require.Equal(t, uint64(2), gen, "after removal gen")
+	require.Nil(t, doc, "after removal doc")
 }

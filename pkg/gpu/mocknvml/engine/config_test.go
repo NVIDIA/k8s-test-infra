@@ -202,17 +202,18 @@ devices:
     processes: []
 `
 	var yc YAMLConfig
-	if err := yaml.Unmarshal([]byte(y), &yc); err != nil {
-		t.Fatalf("yaml decode: %v", err)
-	}
+	require.NoError(t, yaml.Unmarshal([]byte(y), &yc), "yaml decode")
 	c := &Config{YAMLConfig: &yc}
-	if d := c.GetDeviceConfig(0); len(d.Processes) != 1 || d.Processes[0].PID != 4242 || d.Processes[0].SmUtil != 75 {
-		t.Fatalf("device 0 (override): %+v", d.Processes)
-	}
-	if d := c.GetDeviceConfig(1); len(d.Processes) != 0 { // processes: [] clears the default
-		t.Fatalf("device 1 (explicit clear): %+v", d.Processes)
-	}
-	if d := c.GetDeviceConfig(2); len(d.Processes) != 1 || d.Processes[0].PID != 1 { // no override -> inherit
-		t.Fatalf("device 2 (inherit): %+v", d.Processes)
-	}
+
+	d0 := c.GetDeviceConfig(0)
+	require.Len(t, d0.Processes, 1, "device 0 (override) len")
+	require.Equal(t, uint32(4242), d0.Processes[0].PID, "device 0 (override) PID")
+	require.Equal(t, uint32(75), d0.Processes[0].SmUtil, "device 0 (override) SmUtil")
+
+	d1 := c.GetDeviceConfig(1) // processes: [] clears the default
+	require.Empty(t, d1.Processes, "device 1 (explicit clear)")
+
+	d2 := c.GetDeviceConfig(2) // no override -> inherit
+	require.Len(t, d2.Processes, 1, "device 2 (inherit) len")
+	require.Equal(t, uint32(1), d2.Processes[0].PID, "device 2 (inherit) PID")
 }
