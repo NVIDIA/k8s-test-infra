@@ -14,6 +14,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 )
@@ -915,5 +916,47 @@ func assertRuntimeNVLinkErrorInjection(ctx SpecContext, h *harness.Harness, cons
 		Should(Equal(0), "GPU %d NVLink error counters should return to the healthy baseline after rate 0", target)
 
 	By("final reset")
+	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+}
+
+// assertEncoderFBCAccounting covers issue #636: pin non-zero encoder_stats and
+// fbc_stats via nvml-mock-ctl, then assert nvidia-smi -q -x surfaces those exact
+// numbers (and a numeric Accounting Mode Buffer Size) instead of N/A stubs.
+func assertEncoderFBCAccounting(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	const (
+		sessions = 2
+		fps      = 30
+		latency  = 1500
+		buffer   = 4000
+	)
+	stats := assertions.EncoderFBCStats{
+		SessionCount:     sessions,
+		AverageFPS:       fps,
+		AverageLatencyUS: latency,
+	}
+
+	By("pin non-zero encoder_stats and fbc_stats via nvml-mock-ctl set")
+	nvmlMockCtl(ctx, h, "set", "--gpu", "all",
+		"encoder_stats.session_count="+strconv.Itoa(sessions),
+		"encoder_stats.average_fps="+strconv.Itoa(fps),
+		"encoder_stats.average_latency_us="+strconv.Itoa(latency),
+		"fbc_stats.session_count="+strconv.Itoa(sessions),
+		"fbc_stats.average_fps="+strconv.Itoa(fps),
+		"fbc_stats.average_latency_us="+strconv.Itoa(latency),
+	)
+
+	Eventually(func() error {
+		res, err := h.Kube.Exec(ctx, consumer, "nvidia-smi", "-q", "-x")
+		if err != nil {
+			return fmt.Errorf("nvidia-smi -q -x: %w: %s", err, res.Combined())
+		}
+		return assertions.ValidateNvidiaSMIEncoderFBCXML(res.Stdout, stats, stats, buffer)
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Succeed(), "encoder/FBC/accounting must reflect the runtime override")
+
+	By("reset runtime overrides")
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 }

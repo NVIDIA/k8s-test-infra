@@ -75,3 +75,19 @@ func NvidiaSMITemperatureThresholds(ctx context.Context, k *kube.Client, pod kub
 		"temperature threshold presentation wrong for profile %s:\n%s\n%s",
 		p.Name, strings.Join(problems, "\n"), strings.TrimSpace(out))
 }
+
+// NvidiaSMIEncoderFBCAccounting asserts nvidia-smi -q -x reports the configured
+// Encoder Stats / FBC Stats numbers and a numeric Accounting Mode Buffer Size
+// (issue #636 — these used to be silently stubbed as N/A).
+func NvidiaSMIEncoderFBCAccounting(ctx context.Context, k *kube.Client, pod kube.PodRef, encoder, fbc EncoderFBCStats, accountingBufferSize int) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x encoder/fbc/accounting (sessions=%d fps=%d latency=%d buffer=%d)",
+		encoder.SessionCount, encoder.AverageFPS, encoder.AverageLatencyUS, accountingBufferSize))
+	res, err := k.Exec(ctx, pod, "nvidia-smi", "-q", "-x")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		"nvidia-smi -q -x exited with error: %s", res.Combined())
+
+	gomega.Expect(ValidateNvidiaSMIEncoderFBCXML(res.Stdout, encoder, fbc, accountingBufferSize)).
+		To(gomega.Succeed(), "encoder/FBC/accounting query wrong:\n%s", res.Combined())
+}

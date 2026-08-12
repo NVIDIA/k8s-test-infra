@@ -299,8 +299,17 @@ typedef struct nvmlEventData_st {
 #define NVML_EVENT_TYPE_POWER_SOURCE_CHANGE     0x0000000000000080ULL
 #define NVML_EVENT_TYPE_MIG_CONFIG_CHANGE       0x0000000000000100ULL
 typedef struct nvmlExcludedDeviceInfo_st                    nvmlExcludedDeviceInfo_t;
+/* FBC session info stays opaque: ConfigurableDevice.GetFBCSessions currently
+ * always returns an empty list, so the bridge only ever writes sessionCount. */
 typedef struct nvmlFBCSessionInfo_st                        nvmlFBCSessionInfo_t;
-typedef struct nvmlFBCStats_st                              nvmlFBCStats_t;
+/* FBC stats — full definition so nvmlDeviceGetFBCStats can populate the
+ * caller's buffer (issue #636). Layout matches the upstream NVML header. */
+typedef struct nvmlFBCStats_st
+{
+    unsigned int sessionsCount;
+    unsigned int averageFPS;
+    unsigned int averageLatency;
+} nvmlFBCStats_t;
 typedef struct nvmlFanSpeedInfo_st                          nvmlFanSpeedInfo_t;
 /* Field value query — full definition needed by the bridge so
  * nvmlDeviceGetFieldValues (see bridge/fieldvalues.go) can read the
@@ -502,7 +511,13 @@ typedef struct nvmlVgpuTypeIdInfo_st                        nvmlVgpuTypeIdInfo_t
 typedef struct nvmlVgpuTypeMaxInstance_st                    nvmlVgpuTypeMaxInstance_t;
 typedef struct nvmlVgpuVersion_st                           nvmlVgpuVersion_t;
 typedef struct nvmlVgpuVmIdType_st                          nvmlVgpuVmIdType_t;
-typedef struct nvmlViolationTime_st                         nvmlViolationTime_t;
+/* Violation time — full definition so nvmlDeviceGetViolationStatus can
+ * populate the caller's buffer (issue #636). Layout matches upstream. */
+typedef struct nvmlViolationTime_st
+{
+    unsigned long long referenceTime;
+    unsigned long long violationTime;
+} nvmlViolationTime_t;
 typedef struct nvmlWorkloadPowerProfileCurrentProfiles_st   nvmlWorkloadPowerProfileCurrentProfiles_t;
 typedef struct nvmlWorkloadPowerProfileProfilesInfo_st      nvmlWorkloadPowerProfileProfilesInfo_t;
 typedef struct nvmlWorkloadPowerProfileRequestedProfiles_st nvmlWorkloadPowerProfileRequestedProfiles_t;

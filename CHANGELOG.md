@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FORCE_RECREATE=true`.
 
 ### Fixed
+- Wire eight NVML device exports that already had engine implementations but
+  were still generated stubs (`GetEncoderStats`, `GetFBCStats`,
+  `GetAccountingBufferSize`, `GetEncoderCapacity`, `GetEncoderSessions`,
+  `GetFBCSessions`, `GetRetiredPages_v2`, `GetViolationStatus`). Profile
+  `encoder_stats` / `fbc_stats` and the accounting buffer size now reach
+  `nvidia-smi -q` instead of silently reporting `N/A`. A regression guard
+  fails when an engine method is left behind a `stubReturn` export. (#636)
+
 - Gate the T.Limit temperature surfaces on Ada and later: the field IDs
   193–196 (`NVML_FI_DEV_TEMPERATURE_*_TLIMIT`) and
   `nvmlDeviceGetMarginTemperature`. Pre-Ada profiles (`t4`, `a100`) report
