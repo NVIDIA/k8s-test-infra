@@ -372,6 +372,29 @@ func (e *Engine) LookupConfigurableDevice(handle unsafe.Pointer) *ConfigurableDe
 	return nil
 }
 
+// ProcessByPID returns the first configured process with that pid, searching
+// every device's process list, and whether one was found. This backs
+// nvmlSystemGetProcessName, whose signature carries a bare pid with no device,
+// so the search cannot be narrowed. Callers that already know the device should
+// use ConfigurableDevice.ProcessByPID instead.
+func (e *Engine) ProcessByPID(pid uint32) (ProcessConfig, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.initCount == 0 || e.server == nil {
+		return ProcessConfig{}, false
+	}
+	for _, dev := range e.server.configurableDevices {
+		if dev == nil {
+			continue
+		}
+		if p, ok := dev.ProcessByPID(pid); ok {
+			return p, true
+		}
+	}
+	return ProcessConfig{}, false
+}
+
 // TopologyNearestGpus returns handles for the GPUs whose topology path to
 // the given device is at or below (i.e. closer than or equal to) the
 // requested level. The bridge marshals these into the caller's device

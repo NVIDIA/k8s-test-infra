@@ -308,6 +308,12 @@ device_defaults:
 The utilization fields (`sm_util`/`mem_util`/`enc_util`/`dec_util`, all percent) are
 reported for every process — compute and graphics/video alike.
 
+They also show up in `nvidia-smi`: the default table's Processes box, `-q`, and
+`--query-compute-apps`. Two caveats there — `nvidia-smi` labels every row `M+C+G`
+regardless of `type`, because the call it enumerates processes through carries no
+type field, and `nvidia-smi pmon` uses a different entry point that the mock does
+not implement, so it lists nothing.
+
 ```yaml
 device_defaults:
   processes:

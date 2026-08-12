@@ -37,6 +37,24 @@ func NvidiaSMI(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.P
 	count := countLinesWithPrefix(out, "GPU")
 	gomega.Expect(count).To(gomega.Equal(p.ExpectedGPUs()),
 		"nvidia-smi -L GPU count\n%s", strings.TrimSpace(out))
+
+	// Regression guard: with no processes configured, the process-detail-list
+	// path (used by `-q` and `--query-compute-apps`) must report none. A prior
+	// bug had the internal export-table stub return SUCCESS without zeroing the
+	// caller's count, so nvidia-smi rendered its uninitialized buffer as
+	// hundreds of phantom processes (PID 0). --format=csv,noheader yields one
+	// line per process, so a clean GPU produces empty output.
+	ginkgo.By("nvidia-smi --query-compute-apps reports no phantom processes")
+	res, err = k.Exec(ctx, pod, "nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvidia-smi --query-compute-apps exited with error: %s", res.Combined())
+	gomega.Expect(strings.TrimSpace(res.Combined())).To(gomega.BeEmpty(),
+		"expected no compute-apps, got phantom processes:\n%s", res.Combined())
+
+	ginkgo.By("nvidia-smi -q reports no phantom processes")
+	res, err = k.Exec(ctx, pod, "nvidia-smi", "-q")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvidia-smi -q exited with error: %s", res.Combined())
+	gomega.Expect(countMatches(res.Combined(), `(?m)^\s*Process ID\b`)).To(gomega.Equal(0),
+		"expected no per-process entries in nvidia-smi -q")
 }
 
 // NvidiaSMITemperatureThresholds asserts nvidia-smi -q -d TEMPERATURE uses the

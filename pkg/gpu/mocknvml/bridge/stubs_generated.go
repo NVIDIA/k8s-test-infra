@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 282 stub functions for unimplemented NVML functions.
+// 281 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -1152,11 +1152,6 @@ func nvmlSystemGetHicVersion(hwbcCount *C.uint, hwbcEntries *C.nvmlHwbcEntry_t) 
 //export nvmlSystemGetNvlinkBwMode
 func nvmlSystemGetNvlinkBwMode(nvlinkBwMode *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlSystemGetNvlinkBwMode")
-}
-
-//export nvmlSystemGetProcessName
-func nvmlSystemGetProcessName(pid C.uint, name *C.char, length C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlSystemGetProcessName")
 }
 
 //export nvmlSystemRegisterEvents
