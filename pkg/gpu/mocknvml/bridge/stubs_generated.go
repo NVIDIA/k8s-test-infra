@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 282 stub functions for unimplemented NVML functions.
+// 281 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
