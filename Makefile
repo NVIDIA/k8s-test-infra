@@ -15,7 +15,7 @@ SHELL := /usr/bin/env bash
 # itself — see the `e2e` and `.mod-verify` targets.
 .SHELLFLAGS := -o pipefail -ec
 
-.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd generate-mokka verify-mokka-generated
+.PHONY: build build-mokka-controller test-mokka-controller fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd generate-mokka verify-mokka-generated
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
@@ -34,6 +34,12 @@ PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 build:
 	@rm -rf bin
 	$(GO_CMD) build -o bin/$(BINARY_NAME) cmd/nv-ci-bot/main.go
+
+build-mokka-controller:
+	$(GO_CMD) build -o bin/mokka-controller ./cmd/mokka-controller
+
+test-mokka-controller:
+	$(GO_CMD) test -race ./internal/mokkacontroller/... ./cmd/mokka-controller
 
 fmt:
 	@$(GO_FMT) -w -l $$(find . -name '*.go')
