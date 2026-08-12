@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mokka-controller.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mokka-controller.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "mokka-controller.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: health
+      port: {{ .Values.service.port }}
+      targetPort: health
+      protocol: TCP

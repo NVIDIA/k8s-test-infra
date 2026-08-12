@@ -35,6 +35,9 @@ load('./local/gpu-operator/gpu_operator.tiltfile', gpu_operator_install='install
 load('./local/dra/dra.tiltfile', dra_install='install')
 load('./local/fgo/fgo.tiltfile', fgo_install='install')
 load('./local/topograph/topograph.tiltfile', topograph_install='install')
+load('./local/mokka-controller/mokka-controller.tiltfile',
+     mokka_controller_build_image='build_image',
+     mokka_controller_install='install')
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
@@ -56,6 +59,8 @@ config.define_bool('fgo', args=False,
     usage='Also deploy Run:ai Fake GPU Operator (combine with --multi-gpu-profile to exercise both integration and scale pools)')
 config.define_bool('topograph', args=False,
     usage='Also deploy NVIDIA topograph. Implies --compute-domain (topograph reads the static nvidia.com/gpu.clique labels). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
+config.define_bool('mokka-controller', args=False,
+    usage='Also build and deploy the Stage 1 Mokka controller and its CRDs')
 # CI hook: hand Tilt a pre-built image (e.g. from ttl.sh) instead of running
 # docker_build. When set, docker_build is skipped and the nvml-mock chart's
 # image.repository / image.tag are pinned via --set to the parsed <repo>/<tag>.
@@ -73,6 +78,7 @@ with_gpu_operator   = cfg.get('gpu-operator', False)
 with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
 with_topograph      = cfg.get('topograph', False)
+with_mokka_controller = cfg.get('mokka-controller', False)
 
 # --- Implicit flags ------------------------------------------------------
 # --topograph implies --compute-domain: cliques only exist in the
@@ -195,6 +201,10 @@ if with_fgo:
 
 if with_topograph:
     topograph_install(nvml_mock_releases)
+
+if with_mokka_controller:
+    mokka_controller_build_image()
+    mokka_controller_install()
 
 # --- Test workload -------------------------------------------------------
 # GPU validator pod, disabled by default (enable from the Tilt UI). Requests

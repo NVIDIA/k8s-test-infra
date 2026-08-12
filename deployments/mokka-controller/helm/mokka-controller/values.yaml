@@ -1,0 +1,58 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/nvidia/mokka-controller
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+service:
+  type: ClusterIP
+  port: 8081
+
+controller:
+  leaderElection:
+    name: mokka-controller.mokka.nvidia.com
+    leaseDuration: 15s
+    renewDeadline: 10s
+    retryPeriod: 2s
+  workers: 2
+  statusDebounce: 100ms
+  kubeAPIQPS: 50
+  kubeAPIBurst: 100
+  extraArgs: []
+
+probes:
+  liveness:
+    initialDelaySeconds: 2
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 1
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

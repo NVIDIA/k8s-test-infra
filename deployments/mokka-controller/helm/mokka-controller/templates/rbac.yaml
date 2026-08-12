@@ -1,0 +1,68 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "mokka-controller.fullname" . }}
+  labels:
+    {{- include "mokka-controller.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["mokka.nvidia.com"]
+    resources: ["sgpuprofiles"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["mokka.nvidia.com"]
+    resources: ["sgpuinventories"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["mokka.nvidia.com"]
+    resources: ["sgpuinventories/status"]
+    verbs: ["update"]
+  - apiGroups: ["mokka.nvidia.com"]
+    resources: ["sgpuracks"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["mokka.nvidia.com"]
+    resources: ["sgpuracks/status"]
+    verbs: ["update"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "mokka-controller.fullname" . }}
+  labels:
+    {{- include "mokka-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "mokka-controller.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mokka-controller.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "mokka-controller.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mokka-controller.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "mokka-controller.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "mokka-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "mokka-controller.fullname" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mokka-controller.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

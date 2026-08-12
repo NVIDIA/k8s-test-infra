@@ -1,0 +1,36 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+
+load('ext://helm_resource', 'helm_resource')
+
+_IMAGE = 'ghcr.io/nvidia/mokka-controller'
+_CRD_CHART = 'deployments/mokka-crds/helm/mokka-crds'
+_CONTROLLER_CHART = 'deployments/mokka-controller/helm/mokka-controller'
+_NAMESPACE = 'mokka-system'
+
+def build_image():
+    docker_build(
+        _IMAGE,
+        context='.',
+        dockerfile='deployments/mokka-controller/Dockerfile',
+        only=['go.mod', 'go.sum', 'vendor/', 'cmd/mokka-controller/', 'internal/mokkacontroller/', 'pkg/'],
+    )
+
+def install():
+    helm_resource(
+        'mokka-crds',
+        _CRD_CHART,
+        namespace=_NAMESPACE,
+        flags=['--create-namespace'],
+        labels=['mokka-controller'],
+    )
+    helm_resource(
+        'mokka-controller',
+        _CONTROLLER_CHART,
+        namespace=_NAMESPACE,
+        image_deps=[_IMAGE],
+        image_keys=[('image.repository', 'image.tag')],
+        resource_deps=['mokka-crds'],
+        flags=['--create-namespace'],
+        labels=['mokka-controller'],
+    )

@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "replicaCount": {"type": "integer", "minimum": 1},
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag", "pullPolicy"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string"},
+        "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
+      }
+    },
+    "imagePullSecrets": {"type": "array", "items": {"type": "object"}},
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["create", "annotations", "name"],
+      "properties": {
+        "create": {"type": "boolean"},
+        "annotations": {"type": "object", "additionalProperties": {"type": "string"}},
+        "name": {"type": "string"}
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "port"],
+      "properties": {
+        "type": {"type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"]},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+      }
+    },
+    "controller": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leaderElection", "workers", "statusDebounce", "kubeAPIQPS", "kubeAPIBurst", "extraArgs"],
+      "properties": {
+        "leaderElection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "leaseDuration", "renewDeadline", "retryPeriod"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "leaseDuration": {"type": "string", "minLength": 1},
+            "renewDeadline": {"type": "string", "minLength": 1},
+            "retryPeriod": {"type": "string", "minLength": 1}
+          }
+        },
+        "workers": {"type": "integer", "minimum": 1},
+        "statusDebounce": {"type": "string", "minLength": 1},
+        "kubeAPIQPS": {"type": "number", "exclusiveMinimum": 0},
+        "kubeAPIBurst": {"type": "integer", "minimum": 1},
+        "extraArgs": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "probes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["liveness", "readiness"],
+      "properties": {
+        "liveness": {"$ref": "#/definitions/probe"},
+        "readiness": {"$ref": "#/definitions/probe"}
+      }
+    },
+    "resources": {"$ref": "#/definitions/resources"},
+    "nodeSelector": {"type": "object", "additionalProperties": {"type": "string"}},
+    "tolerations": {"type": "array", "items": {"type": "object"}},
+    "affinity": {"type": "object"}
+  },
+  "required": ["replicaCount", "image", "serviceAccount", "service", "controller", "probes", "resources"],
+  "definitions": {
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["initialDelaySeconds", "periodSeconds", "timeoutSeconds", "failureThreshold"],
+      "properties": {
+        "initialDelaySeconds": {"type": "integer", "minimum": 0},
+        "periodSeconds": {"type": "integer", "minimum": 1},
+        "timeoutSeconds": {"type": "integer", "minimum": 1},
+        "failureThreshold": {"type": "integer", "minimum": 1}
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {"type": "object", "additionalProperties": {"type": ["string", "number"]}},
+        "limits": {"type": "object", "additionalProperties": {"type": ["string", "number"]}}
+      }
+    }
+  }
+}
