@@ -230,25 +230,23 @@ func (d *ConfigurableDevice) getDeviceFieldValue(fieldID, scopeID uint32) (Field
 // scalars, as the signed distance in degrees C from a common T.Limit reference
 // to each threshold; nvidia-smi renders them as the "GPU/Memory <X> T.Limit
 // Temp" rows and the live headroom (GetMarginTemperature / DCGM field 153) is
-// measured against the same reference. We use the slowdown threshold as that
-// reference (matching GetMarginTemperature), so the slowdown offset is 0, the
-// shutdown offset is negative (a hotter limit), and the GPU-max offset is the
-// gap to the max-operating limit. NVSentinel's GpuThermalMarginWatch treats
-// the slowdown entry as the metadata it needs to arm, then alarms as the live
-// margin closes on it. The memory-max entry stays unsupported because the mock
-// models no separate memory throttle threshold.
+// measured against the same reference. Pre-Ada architectures return
+// NOT_SUPPORTED so nvidia-smi falls back to the absolute threshold API. We use
+// the slowdown threshold as that reference (matching GetMarginTemperature), so
+// the slowdown offset is 0, the shutdown offset is negative (a hotter limit),
+// and the GPU-max offset is the gap to the max-operating limit. NVSentinel's
+// GpuThermalMarginWatch treats the slowdown entry as the metadata it needs to
+// arm, then alarms as the live margin closes on it. The memory-max entry stays
+// unsupported because the mock models no separate memory throttle threshold.
 func (d *ConfigurableDevice) tlimitThresholdFieldValue(fieldID uint32) (FieldValueType, uint64, nvml.Return, bool) {
+	if !d.reportsTLimit() {
+		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
+	}
 	c := d.cfg()
 	if c.Thermal == nil {
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
 	}
-	reference := c.Thermal.SlowdownThreshold_C
-	if reference == 0 {
-		reference = c.Thermal.ShutdownThreshold_C
-	}
-	if reference == 0 {
-		reference = c.Thermal.MaxOperating_C
-	}
+	reference := tlimitReference(c.Thermal)
 	if reference == 0 {
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
 	}
@@ -268,6 +266,16 @@ func (d *ConfigurableDevice) tlimitThresholdFieldValue(fieldID uint32) (FieldVal
 	}
 	offset := int32(reference - threshold)
 	return FieldValueInt, uint64(uint32(offset)), nvml.SUCCESS, true
+}
+
+func tlimitReference(thermal *ThermalConfig) int {
+	if thermal.SlowdownThreshold_C != 0 {
+		return thermal.SlowdownThreshold_C
+	}
+	if thermal.ShutdownThreshold_C != 0 {
+		return thermal.ShutdownThreshold_C
+	}
+	return thermal.MaxOperating_C
 }
 
 // powerFieldValue resolves the whole-GPU power field values (mW) from the same
