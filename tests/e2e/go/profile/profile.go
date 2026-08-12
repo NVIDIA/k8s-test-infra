@@ -43,13 +43,19 @@ var KnownProfiles = []string{"a100", "h100", "b200", "gb200", "gb300", "l40s", "
 // keys used in the profile files.
 type rawProfile struct {
 	DeviceDefaults struct {
-		Name   string `json:"name"`
-		Fabric *struct {
+		Name         string `json:"name"`
+		Architecture string `json:"architecture"`
+		Fabric       *struct {
 			State string `json:"state"`
 		} `json:"fabric"`
 		Memory struct {
 			TotalBytes int64 `json:"total_bytes"`
 		} `json:"memory"`
+		Thermal *struct {
+			ShutdownThresholdC int `json:"shutdown_threshold_c"`
+			SlowdownThresholdC int `json:"slowdown_threshold_c"`
+			MaxOperatingC      int `json:"max_operating_c"`
+		} `json:"thermal"`
 	} `json:"device_defaults"`
 	Devices []struct {
 		Index int `json:"index"`
@@ -87,6 +93,11 @@ type Profile struct {
 	hasFabric   bool
 	pciRoots    int
 	memoryBytes int64
+
+	architecture       string
+	shutdownThresholdC int
+	slowdownThresholdC int
+	maxOperatingC      int
 }
 
 // bytesPerMiB is the divisor GPU Feature Discovery uses when it publishes
@@ -123,14 +134,20 @@ func Load(profilesDir, name string) (Profile, error) {
 	}
 
 	p := Profile{
-		Name:        name,
-		DisplayName: raw.DeviceDefaults.Name,
-		gpuCount:    len(raw.Devices),
-		ibEnabled:   raw.Infiniband.Enabled,
-		hcasPerGPU:  raw.Infiniband.HCAsPerGPU,
-		linksPerGPU: raw.NVLink.LinksPerGPU,
-		hasSwitches: len(raw.NVLink.Switches) > 0,
-		memoryBytes: raw.DeviceDefaults.Memory.TotalBytes,
+		Name:         name,
+		DisplayName:  raw.DeviceDefaults.Name,
+		gpuCount:     len(raw.Devices),
+		ibEnabled:    raw.Infiniband.Enabled,
+		hcasPerGPU:   raw.Infiniband.HCAsPerGPU,
+		linksPerGPU:  raw.NVLink.LinksPerGPU,
+		hasSwitches:  len(raw.NVLink.Switches) > 0,
+		memoryBytes:  raw.DeviceDefaults.Memory.TotalBytes,
+		architecture: strings.ToLower(strings.TrimSpace(raw.DeviceDefaults.Architecture)),
+	}
+	if raw.DeviceDefaults.Thermal != nil {
+		p.shutdownThresholdC = raw.DeviceDefaults.Thermal.ShutdownThresholdC
+		p.slowdownThresholdC = raw.DeviceDefaults.Thermal.SlowdownThresholdC
+		p.maxOperatingC = raw.DeviceDefaults.Thermal.MaxOperatingC
 	}
 	if raw.DeviceDefaults.Fabric != nil {
 		p.hasFabric = true
@@ -212,3 +229,27 @@ func (p Profile) FabricMgr() bool { return p.hasSwitches || p.fabricAuto }
 // the fabricmanager daemon (FabricMgr true) yet reports fabric NOT SUPPORTED
 // (HasFabric false).
 func (p Profile) HasFabric() bool { return p.hasFabric }
+
+// Architecture is device_defaults.architecture (lowercased), e.g. "ampere".
+func (p Profile) Architecture() string { return p.architecture }
+
+// ShutdownThresholdC is thermal.shutdown_threshold_c from the profile.
+func (p Profile) ShutdownThresholdC() int { return p.shutdownThresholdC }
+
+// SlowdownThresholdC is thermal.slowdown_threshold_c from the profile.
+func (p Profile) SlowdownThresholdC() int { return p.slowdownThresholdC }
+
+// MaxOperatingC is thermal.max_operating_c from the profile.
+func (p Profile) MaxOperatingC() int { return p.maxOperatingC }
+
+// ReportsTLimitTemp is true when real hardware of this architecture reports the
+// GPU T.Limit temperature field IDs (Ada and later). Pre-Ada profiles keep the
+// legacy absolute threshold rows via nvmlDeviceGetTemperatureThreshold.
+func (p Profile) ReportsTLimitTemp() bool {
+	switch p.architecture {
+	case "ada", "ada_lovelace", "hopper", "blackwell", "rubin":
+		return true
+	default:
+		return false
+	}
+}
