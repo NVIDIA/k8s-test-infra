@@ -670,6 +670,15 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 	return temp, nvml.SUCCESS
 }
 
+// reportsTLimit is the architecture gate shared by every T.Limit surface: the
+// margin API and the NVML_FI_DEV_TEMPERATURE_*_TLIMIT field IDs. Only Ada and
+// later hardware has a T.Limit reference; earlier GPUs report absolute
+// thresholds through nvmlDeviceGetTemperatureThreshold, and nvidia-smi picks
+// its whole temperature section layout from whether these answer.
+func (d *ConfigurableDevice) reportsTLimit() bool {
+	return d.Config.Architecture >= nvml.DEVICE_ARCH_ADA && d.Config.Architecture != nvml.DEVICE_ARCH_UNKNOWN
+}
+
 // GetMarginTemperature returns the GPU's headroom to its thermal limit in
 // degrees C — the value nvidia-smi renders as "GPU T.Limit Temp" (via
 // nvmlDeviceGetMarginTemperature). It is the slowdown threshold (falling back
@@ -678,11 +687,14 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 // mirroring real T.Limit hardware; consumers such as NVSentinel's
 // GpuThermalMarginWatch key on that sign crossing (it FAILs when the margin
 // drops below the per-GPU slowdown offset), so the value is deliberately not
-// clamped at 0. A thermal config is required; a lost/failing device propagates
-// its error through GetTemperature so the margin reports [N/A] too. The
-// signature matches the go-nvml Device interface so it overrides the embedded
-// default.
+// clamped at 0. Ada and later only, and a thermal config is required; a
+// lost/failing device propagates its error through GetTemperature so the margin
+// reports [N/A] too. The signature matches the go-nvml Device interface so it
+// overrides the embedded default.
 func (d *ConfigurableDevice) GetMarginTemperature() (nvml.MarginTemperature, nvml.Return) {
+	if !d.reportsTLimit() {
+		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED
+	}
 	c := d.cfg()
 	if c.Thermal == nil {
 		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED

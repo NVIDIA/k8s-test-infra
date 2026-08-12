@@ -99,8 +99,11 @@ func TestGetFieldValue_PowerScope(t *testing.T) {
 }
 
 func TestGetMarginTemperature(t *testing.T) {
+	// The margin API is the T.Limit headroom, so it needs an Ada-or-later
+	// architecture just like the T.Limit field IDs.
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
-		Thermal: &ThermalConfig{TemperatureGPU_C: 34, SlowdownThreshold_C: 87},
+		Architecture: "hopper",
+		Thermal:      &ThermalConfig{TemperatureGPU_C: 34, SlowdownThreshold_C: 87},
 	})
 	margin, ret := dev.GetMarginTemperature()
 	require.Equal(t, nvml.SUCCESS, ret)
@@ -110,7 +113,8 @@ func TestGetMarginTemperature(t *testing.T) {
 	// Current above the limit yields a NEGATIVE (signed) margin, mirroring real
 	// T.Limit hardware: this is the sign crossing GpuThermalMarginWatch keys on.
 	hot := newTestDeviceWithConfig(t, &DeviceConfig{
-		Thermal: &ThermalConfig{TemperatureGPU_C: 120, SlowdownThreshold_C: 87},
+		Architecture: "hopper",
+		Thermal:      &ThermalConfig{TemperatureGPU_C: 120, SlowdownThreshold_C: 87},
 	})
 	margin, ret = hot.GetMarginTemperature()
 	require.Equal(t, nvml.SUCCESS, ret)
@@ -123,8 +127,42 @@ func TestGetMarginTemperature(t *testing.T) {
 	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
 }
 
+func TestGetMarginTemperature_PreAdaNotSupported(t *testing.T) {
+	// nvmlDeviceGetMarginTemperature reports headroom to the T.Limit
+	// reference, which pre-Ada hardware does not have. While the mock answers
+	// it, nvidia-smi keeps the whole temperature section in its "T.Limit" form
+	// (the "GPU T.Limit Temp" row) and never prints the absolute
+	// shutdown/slowdown/max-operating rows real Ampere and Turing report.
+	for _, arch := range []string{"turing", "ampere"} {
+		arch := arch
+		t.Run(arch, func(t *testing.T) {
+			dev := newTestDeviceWithConfig(t, &DeviceConfig{
+				Architecture: arch,
+				Thermal: &ThermalConfig{
+					TemperatureGPU_C:    33,
+					SlowdownThreshold_C: 87,
+					ShutdownThreshold_C: 92,
+					MaxOperating_C:      83,
+				},
+			})
+			_, ret := dev.GetMarginTemperature()
+			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret,
+				"pre-Ada arch %q must not report a T.Limit margin", arch)
+
+			// The absolute thresholds stay available: that is what nvidia-smi
+			// falls back to on this hardware.
+			shutdown, ret := dev.GetTemperatureThreshold(nvml.TEMPERATURE_THRESHOLD_SHUTDOWN)
+			require.Equal(t, nvml.SUCCESS, ret)
+			require.Equal(t, uint32(92), shutdown)
+		})
+	}
+}
+
 func TestGetFieldValue_TlimitThresholds(t *testing.T) {
+	// T.Limit field IDs are Ada-and-later only. Declare an Ada+ architecture
+	// so the supported path is exercised explicitly.
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Architecture: "hopper",
 		Thermal: &ThermalConfig{
 			TemperatureGPU_C:    34,
 			SlowdownThreshold_C: 87,
@@ -161,6 +199,37 @@ func TestGetFieldValue_TlimitThresholds(t *testing.T) {
 	none := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "hopper"})
 	_, _, ret = none.GetFieldValue(fiTempSlowdownTlimit, 0)
 	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+}
+
+func TestGetFieldValue_TlimitThresholds_PreAdaNotSupported(t *testing.T) {
+	// Real Ampere/Turing hardware never reports the T.Limit field IDs;
+	// nvidia-smi falls back to nvmlDeviceGetTemperatureThreshold absolute
+	// scalars. The mock must return NOT_SUPPORTED so pre-Ada profiles do not
+	// render signed margins as absolute (and inverted) temperatures.
+	for _, arch := range []string{"turing", "ampere"} {
+		arch := arch
+		t.Run(arch, func(t *testing.T) {
+			dev := newTestDeviceWithConfig(t, &DeviceConfig{
+				Architecture: arch,
+				Thermal: &ThermalConfig{
+					TemperatureGPU_C:    33,
+					SlowdownThreshold_C: 87,
+					ShutdownThreshold_C: 92,
+					MaxOperating_C:      83,
+				},
+			})
+			for _, fieldID := range []uint32{
+				fiTempShutdownTlimit,
+				fiTempSlowdownTlimit,
+				fiTempMemMaxTlimit,
+				fiTempGpuMaxTlimit,
+			} {
+				_, _, ret := dev.GetFieldValue(fieldID, 0)
+				require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret,
+					"pre-Ada arch %q must not answer T.Limit field %d", arch, fieldID)
+			}
+		})
+	}
 }
 
 func TestGetFieldValue_UnknownFieldNotSupported(t *testing.T) {

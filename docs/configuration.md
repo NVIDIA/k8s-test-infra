@@ -150,6 +150,13 @@ device_defaults:
     target_temperature_c: 83
 ```
 
+How these thresholds are reported depends on `device_defaults.architecture`,
+as on real hardware. Ada and later expose them as signed T.Limit offsets
+(`nvmlDeviceGetMarginTemperature` and the `NVML_FI_DEV_TEMPERATURE_*_TLIMIT`
+field IDs), which `nvidia-smi -q` renders as the "T.Limit" rows. Pre-Ada
+architectures report `NVML_ERROR_NOT_SUPPORTED` for both, so `nvidia-smi -q`
+falls back to the absolute `GPU Shutdown / Slowdown / Max Operating Temp` rows.
+
 ### Fan
 
 ```yaml
