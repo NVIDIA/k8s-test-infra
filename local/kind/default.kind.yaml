@@ -26,19 +26,18 @@
 # The custom node image (deployments/kind-nvidia-cdi/Dockerfile) pre-bakes
 # nvidia-container-toolkit AND ships a full containerd config with CDI enabled
 # (enable_cdi = true) and the runtimes.nvidia handler wired to
-# /usr/bin/nvidia-container-runtime. That means this file does not need any
-# containerdConfigPatches — every containerd-side setting is baked in.
+# /usr/bin/nvidia-container-runtime, so the containerdConfigPatches below only
+# add the containerd-side setting that ISN'T baked in — the NRI plugin socket.
 #
-# Four cluster-level features are enabled here. Each is inert for consumers
+# Two cluster-level features are enabled here. Each is inert for consumers
 # that don't need it, so combining them does not break isolation:
 #
-# The one cluster-level feature enabled here is DRA:
-# featureGates.DynamicResourceAllocation + apiServer runtime-config
-# resource.k8s.io/v1beta1=true. Required for the DRA driver to publish
-# ResourceSlices. If no ResourceClaim exists, the scheduler paths never fire,
-# so leaving this on for non-DRA scenarios costs nothing at runtime.
+#   1. featureGates.DynamicResourceAllocation + apiServer runtime-config
+#      resource.k8s.io/v1beta1=true. Required for the DRA driver to publish
+#      ResourceSlices. If no ResourceClaim exists, the scheduler paths never
+#      fire, so leaving this on for non-DRA scenarios costs nothing at runtime.
 #
-#   4. NRI plugin socket enabled — required for the nvml-mock NRI plugin
+#   2. NRI plugin socket enabled — required for the nvml-mock NRI plugin
 #      (nri.enabled=true) to attach to containerd and inject the mock GPU
 #      overlay at container-creation time. Inert until a workload registers
 #      as an NRI plugin, so the node-wide-NRI scenario is the only consumer.
@@ -58,12 +57,6 @@ featureGates:
   DynamicResourceAllocation: true
 containerdConfigPatches:
   - |-
-    [plugins."io.containerd.grpc.v1.cri"]
-      enable_cdi = true
-    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
-      runtime_type = "io.containerd.runc.v2"
-    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
-      BinaryName = "/usr/bin/nvidia-container-runtime"
     [plugins."io.containerd.nri.v1.nri"]
       disable = false
       socket_path = "/var/run/nri/nri.sock"

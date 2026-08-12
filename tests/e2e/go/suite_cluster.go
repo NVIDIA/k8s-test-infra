@@ -86,7 +86,7 @@ func collectOnFailure(ctx context.Context, h *harness.Harness, sub ...string) {
 func setupCluster(ctx context.Context, diagSub ...string) *harness.Harness {
 	GinkgoHelper()
 	h, err := harness.New(ctx, config.ClusterName(), config.KubeContext(), builtImage)
-	DeferCleanup(func(ctx SpecContext) {
+	DeferCleanup(func(ctx SpecContext) { //nolint:contextcheck // Ginkgo cleanup ctx is intentionally distinct from the outer spec ctx
 		collectOnFailure(ctx, h, diagSub...)
 	})
 	Expect(err).NotTo(HaveOccurred(), "attach cluster name=%q context=%q", config.ClusterName(), config.KubeContext())
