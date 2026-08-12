@@ -2026,27 +2026,32 @@ func nvmlDeviceGetRetiredPages_v2(device C.nvmlDevice_t, cause C.nvmlPageRetirem
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
+	return fillRetiredPagesV2(pageCount, addresses, timestamps, pages, times)
+}
+
+func fillRetiredPagesV2(pageCount *C.uint, addresses, timestamps *C.ulonglong, pages, times []uint64) C.nvmlReturn_t {
 	if addresses == nil {
 		*pageCount = C.uint(len(pages))
 		return C.NVML_SUCCESS
 	}
-	bufSize := int(*pageCount)
-	if len(pages) > bufSize {
+	if len(pages) > int(*pageCount) {
 		*pageCount = C.uint(len(pages))
 		return C.NVML_ERROR_INSUFFICIENT_SIZE
 	}
 	*pageCount = C.uint(len(pages))
-	if len(pages) > 0 {
-		addrSlice := unsafe.Slice(addresses, len(pages))
-		for i, p := range pages {
-			addrSlice[i] = C.ulonglong(p)
-		}
-		if timestamps != nil {
-			timeSlice := unsafe.Slice(timestamps, len(pages))
-			for i, ts := range times {
-				timeSlice[i] = C.ulonglong(ts)
-			}
-		}
+	if len(pages) == 0 {
+		return C.NVML_SUCCESS
+	}
+	addrSlice := unsafe.Slice(addresses, len(pages))
+	for i, p := range pages {
+		addrSlice[i] = C.ulonglong(p)
+	}
+	if timestamps == nil {
+		return C.NVML_SUCCESS
+	}
+	timeSlice := unsafe.Slice(timestamps, len(pages))
+	for i, ts := range times {
+		timeSlice[i] = C.ulonglong(ts)
 	}
 	return C.NVML_SUCCESS
 }

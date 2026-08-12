@@ -5,6 +5,7 @@ package assertions
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -51,7 +52,7 @@ func ValidateNvidiaSMIEncoderFBCXML(out string, encoder, fbc EncoderFBCStats, ac
 		return fmt.Errorf("parse nvidia-smi XML: %w", err)
 	}
 	if len(log.GPUs) == 0 {
-		return fmt.Errorf("nvidia-smi XML contains no GPUs")
+		return errors.New("nvidia-smi XML contains no GPUs")
 	}
 	for i, gpu := range log.GPUs {
 		name := gpu.ID
