@@ -16,6 +16,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
 	"github.com/urfave/cli/v3"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
@@ -69,5 +70,13 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	signalCtx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	return controlplane.NewServer(cfg, logger).Run(signalCtx)
+	// Group ctx fires on SIGTERM upstream OR when any background process returns.
+	// Slot future workers (metrics server, leader election, reconcilers) as
+	// additional g.Go calls — the server is just the first one.
+	g, gctx := errgroup.WithContext(signalCtx)
+	server := controlplane.NewServer(cfg, logger)
+
+	g.Go(func() error { return server.Run(gctx) })
+
+	return g.Wait()
 }
