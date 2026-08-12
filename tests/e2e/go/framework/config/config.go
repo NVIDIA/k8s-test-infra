@@ -26,6 +26,14 @@ const (
 	defaultProfilesDir = "deployments/nvml-mock/helm/nvml-mock/profiles"
 	defaultImage       = "nvml-mock:e2e"
 	defaultArtifacts   = "artifacts/e2e/go"
+	// Match the KIND_CLUSTER_NAME in Makefile and the `name:` in
+	// local/kind/default.kind.yaml — that is what `make cluster-create`
+	// produces, and Kind derives the kubeconfig context as `kind-<name>`. Local
+	// runs of `make e2e-<scenario>` then work without extra env; CI still
+	// overrides via E2E_CLUSTER_NAME / E2E_KUBE_CONTEXT when the workflow
+	// provisions a differently-named cluster.
+	defaultClusterName = "mokka"
+	defaultKubeContext = "kind-mokka"
 )
 
 func env(key, def string) string {
@@ -82,12 +90,14 @@ func SelectedProfileNames() []string {
 func Image() string { return env("E2E_IMAGE", defaultImage) }
 
 // KubeContext is the kubeconfig context of the externally-owned cluster the
-// suite attaches to.
-func KubeContext() string { return os.Getenv("E2E_KUBE_CONTEXT") }
+// suite attaches to. Defaults to `kind-mokka` — the context `make cluster-create`
+// produces from local/kind/default.kind.yaml.
+func KubeContext() string { return env("E2E_KUBE_CONTEXT", defaultKubeContext) }
 
 // ClusterName is the Kind cluster name of the externally-owned cluster. Used
-// by `kind get nodes --name` for node-role assertions.
-func ClusterName() string { return os.Getenv("E2E_CLUSTER_NAME") }
+// by `kind get nodes --name` for node-role assertions. Defaults to `mokka` —
+// the cluster name `make cluster-create` produces.
+func ClusterName() string { return env("E2E_CLUSTER_NAME", defaultClusterName) }
 
 // ArtifactsDir is where diagnostics are written.
 func ArtifactsDir() string { return env("E2E_ARTIFACTS", defaultArtifacts) }

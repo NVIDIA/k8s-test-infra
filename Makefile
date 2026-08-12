@@ -257,7 +257,7 @@ E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 # .SHELLFLAGS. GNU Make ignores .SHELLFLAGS before 3.82 and macOS ships 3.81,
 # so on a developer machine this recipe otherwise returns tee's status and a
 # failed suite exits 0 — see issue #560 and tests/makefile/makefile_test.go.
-e2e: ## Run the Ginkgo e2e suite (scope with E2E_PROFILES / E2E_GINKGO_FLAGS)
+e2e: ## Run the Ginkgo e2e suite against E2E_CLUSTER_NAME/E2E_KUBE_CONTEXT (default mokka/kind-mokka); scope with E2E_PROFILES / E2E_GINKGO_FLAGS
 	set -o pipefail; $(GINKGO) --tags=e2e -v --timeout=$(E2E_TIMEOUT) $(E2E_GINKGO_FLAGS) ./tests/e2e/go | tee e2e.log
 
 e2e-dra: ## e2e — DRA scenario

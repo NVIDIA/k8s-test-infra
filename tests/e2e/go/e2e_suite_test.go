@@ -7,9 +7,13 @@
 // provisioning and the mock/consumer rollout are owned externally — Tilt in
 // both local dev (`make cluster-create` + `tilt up -- <flags>`) and CI (via
 // `tilt ci`) — and the suite attaches to the resulting Kind cluster via
-// E2E_KUBE_CONTEXT / E2E_CLUSTER_NAME to observe and assert. Scenarios that
-// reshape the mock mid-run (NRI's NRI/IMEX/topology variants, GPU Operator's
-// injectXid path) do so via `helm upgrade --install`; the rest just assert.
+// E2E_KUBE_CONTEXT / E2E_CLUSTER_NAME to observe and assert. Both env vars
+// default to what `make cluster-create` produces (mokka / kind-mokka), so the
+// local `make e2e-<scenario>` targets work without extra env once the cluster
+// is up; CI overrides them when the workflow provisions a different name.
+// Scenarios that reshape the mock mid-run (NRI's NRI/IMEX/topology variants,
+// GPU Operator's injectXid path) do so via `helm upgrade --install`; the rest
+// just assert.
 //
 // The suite is gated by the `e2e` build tag so it never affects the fast
 // `go test ./...` / `go build ./...` paths; run it with
