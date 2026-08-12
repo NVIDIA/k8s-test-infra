@@ -4,8 +4,6 @@
 package assertions
 
 import (
-	"encoding/xml"
-	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -15,87 +13,13 @@ import (
 // This file carries no build tag on purpose — same rationale as gfd_labels.go.
 // DiffTemperatureQuery is pure string checking so it unit-tests without a
 // cluster; the kubectl exec wrapper lives in nvidiasmi.go under //go:build e2e.
+//
+// The thresholds are read from the human-readable `-q -d TEMPERATURE` table
+// rather than the XML, because the defect being guarded is how nvidia-smi
+// presents them: which row labels appear at all. Assertions that only need
+// values decode the XML instead, via nvidiasmi_xml.go.
 
 var tempQueryRowRE = regexp.MustCompile(`(?m)^\s*(GPU .+? Temp)\s*:\s*(-?\d+)\s*C\s*$`)
-
-// EncoderFBCStats are the non-default values issue #636 expects nvidia-smi to
-// surface. They intentionally stay next to the other pure nvidia-smi parsers
-// so parser tests do not require the e2e build tag.
-type EncoderFBCStats struct {
-	SessionCount     int
-	AverageFPS       int
-	AverageLatencyUS int
-}
-
-type nvidiaSMILog struct {
-	GPUs []nvidiaSMIGPU `xml:"gpu"`
-}
-
-type nvidiaSMIGPU struct {
-	ID                       string              `xml:"id,attr"`
-	AccountingModeBufferSize string              `xml:"accounting_mode_buffer_size"`
-	EncoderStats             nvidiaSMIStatsBlock `xml:"encoder_stats"`
-	FBCStats                 nvidiaSMIStatsBlock `xml:"fbc_stats"`
-}
-
-type nvidiaSMIStatsBlock struct {
-	SessionCount   string `xml:"session_count"`
-	AverageFPS     string `xml:"average_fps"`
-	AverageLatency string `xml:"average_latency"`
-}
-
-// ValidateNvidiaSMIEncoderFBCXML decodes nvidia-smi -q -x output into the
-// subset of its XML schema relevant to issue #636 and validates every GPU.
-func ValidateNvidiaSMIEncoderFBCXML(out string, encoder, fbc EncoderFBCStats, accountingBufferSize int) error {
-	var log nvidiaSMILog
-	if err := xml.Unmarshal([]byte(out), &log); err != nil {
-		return fmt.Errorf("parse nvidia-smi XML: %w", err)
-	}
-	if len(log.GPUs) == 0 {
-		return errors.New("nvidia-smi XML contains no GPUs")
-	}
-	for i, gpu := range log.GPUs {
-		name := gpu.ID
-		if name == "" {
-			name = fmt.Sprintf("GPU %d", i)
-		}
-		if err := validateStatsBlock(name+" Encoder Stats", gpu.EncoderStats, encoder); err != nil {
-			return err
-		}
-		if err := validateStatsBlock(name+" FBC Stats", gpu.FBCStats, fbc); err != nil {
-			return err
-		}
-		if err := validateNvidiaSMIInteger(name+" Accounting Mode Buffer Size", gpu.AccountingModeBufferSize, accountingBufferSize); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateStatsBlock(name string, got nvidiaSMIStatsBlock, want EncoderFBCStats) error {
-	if err := validateNvidiaSMIInteger(name+" session_count", got.SessionCount, want.SessionCount); err != nil {
-		return err
-	}
-	if err := validateNvidiaSMIInteger(name+" average_fps", got.AverageFPS, want.AverageFPS); err != nil {
-		return err
-	}
-	return validateNvidiaSMIInteger(name+" average_latency", got.AverageLatency, want.AverageLatencyUS)
-}
-
-func validateNvidiaSMIInteger(name, raw string, want int) error {
-	fields := strings.Fields(raw)
-	if len(fields) == 0 {
-		return fmt.Errorf("%s is empty", name)
-	}
-	value, err := strconv.Atoi(fields[0])
-	if err != nil {
-		return fmt.Errorf("%s = %q: expected integer: %w", name, raw, err)
-	}
-	if value != want {
-		return fmt.Errorf("%s = %d, want %d", name, value, want)
-	}
-	return nil
-}
 
 // DiffTemperatureQuery checks nvidia-smi -q -d TEMPERATURE output for the
 // architecture-correct threshold presentation:

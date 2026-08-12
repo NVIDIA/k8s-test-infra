@@ -111,7 +111,7 @@ func TestDiffJpgOfaUtilizationXML_RejectsTruncatedOutput(t *testing.T) {
 
 	problems := DiffJpgOfaUtilizationXML(truncated, 35, 12)
 	require.Len(t, problems, 1)
-	require.Contains(t, problems[0], "parse nvidia-smi -q -x output")
+	require.Contains(t, problems[0], "parse nvidia-smi XML")
 }
 
 func TestDiffJpgOfaUtilizationXML_RejectsOutputWithoutGPUs(t *testing.T) {
@@ -176,4 +176,48 @@ func TestProcessesXML_RejectsUnreadableUsedMemory(t *testing.T) {
 
 	_, err := ProcessesXML(out, 0)
 	require.ErrorContains(t, err, "used_memory")
+}
+
+func TestValidateNvidiaSMIEncoderFBCXML(t *testing.T) {
+	const output = `
+<nvidia_smi_log>
+  <gpu id="00000000:01:00.0">
+    <accounting_mode_buffer_size>4000</accounting_mode_buffer_size>
+    <encoder_stats>
+      <session_count>2</session_count>
+      <average_fps>30</average_fps>
+      <average_latency>1500 us</average_latency>
+    </encoder_stats>
+    <fbc_stats>
+      <session_count>2</session_count>
+      <average_fps>30</average_fps>
+      <average_latency>1500 us</average_latency>
+    </fbc_stats>
+  </gpu>
+</nvidia_smi_log>`
+	want := EncoderFBCStats{SessionCount: 2, AverageFPS: 30, AverageLatencyUS: 1500}
+	require.NoError(t, ValidateNvidiaSMIEncoderFBCXML(output, want, want, 4000))
+}
+
+func TestValidateNvidiaSMIEncoderFBCXMLRejectsStubValues(t *testing.T) {
+	const output = `
+<nvidia_smi_log>
+  <gpu>
+    <accounting_mode_buffer_size>N/A</accounting_mode_buffer_size>
+    <encoder_stats>
+      <session_count>N/A</session_count>
+      <average_fps>N/A</average_fps>
+      <average_latency>N/A</average_latency>
+    </encoder_stats>
+    <fbc_stats>
+      <session_count>N/A</session_count>
+      <average_fps>N/A</average_fps>
+      <average_latency>N/A</average_latency>
+    </fbc_stats>
+  </gpu>
+</nvidia_smi_log>`
+	want := EncoderFBCStats{SessionCount: 2, AverageFPS: 30, AverageLatencyUS: 1500}
+	err := ValidateNvidiaSMIEncoderFBCXML(output, want, want, 4000)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "expected integer")
 }
