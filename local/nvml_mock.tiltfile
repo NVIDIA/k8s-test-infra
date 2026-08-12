@@ -89,6 +89,7 @@ def build_control_plane_image():
             'vendor/',
             'cmd/',
             'pkg/',
+            'internal/',
             'deployments/mokka-control-plane/',
         ],
     )
