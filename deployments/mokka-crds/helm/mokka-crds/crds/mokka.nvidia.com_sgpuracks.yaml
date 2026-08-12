@@ -1,0 +1,316 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: sgpuracks.mokka.nvidia.com
+spec:
+  group: mokka.nvidia.com
+  names:
+    kind: SGPURack
+    listKind: SGPURackList
+    plural: sgpuracks
+    shortNames:
+    - sgpur
+    singular: sgpurack
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              gpuFabric:
+                properties:
+                  bandwidthPerLinkMBps:
+                    format: int64
+                    minimum: 1
+                    type: integer
+                  c2cSupported:
+                    type: boolean
+                  domain:
+                    properties:
+                      gpuCount:
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      scope:
+                        enum:
+                        - Rack
+                        type: string
+                    required:
+                    - gpuCount
+                    - scope
+                    type: object
+                  generation:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  linksPerGPU:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  switches:
+                    properties:
+                      visiblePerNode:
+                        format: int32
+                        minimum: 1
+                        type: integer
+                    required:
+                    - visiblePerNode
+                    type: object
+                  type:
+                    minLength: 1
+                    type: string
+                required:
+                - bandwidthPerLinkMBps
+                - c2cSupported
+                - domain
+                - generation
+                - linksPerGPU
+                - type
+                type: object
+              identity:
+                properties:
+                  cliqueID:
+                    format: int32
+                    maximum: 0
+                    minimum: 0
+                    type: integer
+                  fabricUUID:
+                    format: uuid
+                    type: string
+                  rackGroup:
+                    format: dns1123Label
+                    maxLength: 63
+                    minLength: 1
+                    type: string
+                  rackIndex:
+                    format: int32
+                    minimum: 0
+                    type: integer
+                required:
+                - cliqueID
+                - fabricUUID
+                - rackGroup
+                - rackIndex
+                type: object
+              inventoryRef:
+                properties:
+                  name:
+                    minLength: 1
+                    type: string
+                  uid:
+                    type: string
+                required:
+                - name
+                - uid
+                type: object
+                x-kubernetes-validations:
+                - message: uid must not be empty
+                  rule: self.uid != ''
+              network:
+                properties:
+                  adapterModel:
+                    minLength: 1
+                    type: string
+                  adaptersPerGPU:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  firmwareVersion:
+                    minLength: 1
+                    type: string
+                  linkSpeedGbps:
+                    format: int64
+                    minimum: 1
+                    type: integer
+                  type:
+                    minLength: 1
+                    type: string
+                required:
+                - adapterModel
+                - adaptersPerGPU
+                - firmwareVersion
+                - linkSpeedGbps
+                - type
+                type: object
+              profileRef:
+                properties:
+                  generation:
+                    format: int64
+                    minimum: 1
+                    type: integer
+                  name:
+                    minLength: 1
+                    type: string
+                  revision:
+                    pattern: ^[0-9a-f]{64}$
+                    type: string
+                  uid:
+                    type: string
+                required:
+                - generation
+                - name
+                - revision
+                - uid
+                type: object
+                x-kubernetes-validations:
+                - message: uid must not be empty
+                  rule: self.uid != ''
+              slots:
+                items:
+                  properties:
+                    gpus:
+                      items:
+                        properties:
+                          hostProcessorIndex:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          index:
+                            format: int32
+                            maximum: 63
+                            minimum: 0
+                            type: integer
+                          minorNumber:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          numaNode:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          pciAddress:
+                            pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
+                            type: string
+                          rootComplex:
+                            pattern: ^pci[0-9a-f]{4}:[0-9a-f]{2}$
+                            type: string
+                          serial:
+                            minLength: 1
+                            type: string
+                          uuid:
+                            pattern: ^GPU-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+                            type: string
+                        required:
+                        - hostProcessorIndex
+                        - index
+                        - minorNumber
+                        - numaNode
+                        - pciAddress
+                        - rootComplex
+                        - serial
+                        - uuid
+                        type: object
+                      maxItems: 64
+                      minItems: 1
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - index
+                      x-kubernetes-list-type: map
+                    index:
+                      format: int32
+                      maximum: 1023
+                      minimum: 0
+                      type: integer
+                    nodeRef:
+                      properties:
+                        name:
+                          minLength: 1
+                          type: string
+                        uid:
+                          type: string
+                      required:
+                      - name
+                      - uid
+                      type: object
+                      x-kubernetes-validations:
+                      - message: uid must not be empty
+                        rule: self.uid != ''
+                  required:
+                  - gpus
+                  - index
+                  type: object
+                maxItems: 1024
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - index
+                x-kubernetes-list-type: map
+            required:
+            - identity
+            - inventoryRef
+            - profileRef
+            - slots
+            type: object
+          status:
+            properties:
+              assignedSlots:
+                format: int32
+                minimum: 0
+                type: integer
+              conditions:
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                format: int64
+                type: integer
+              projectedSlots:
+                format: int32
+                minimum: 0
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -1,0 +1,8 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: v2
+name: mokka-crds
+description: Cluster-scoped Mokka custom resource definitions
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -1,0 +1,553 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: sgpuprofiles.mokka.nvidia.com
+spec:
+  group: mokka.nvidia.com
+  names:
+    kind: SGPUProfile
+    listKind: SGPUProfileList
+    plural: sgpuprofiles
+    shortNames:
+    - sgpup
+    singular: sgpuprofile
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              node:
+                properties:
+                  gpus:
+                    properties:
+                      capabilities:
+                        properties:
+                          attributes:
+                            additionalProperties:
+                              minProperties: 1
+                              properties:
+                                bool:
+                                  type: boolean
+                                strings:
+                                  items:
+                                    maxLength: 256
+                                    type: string
+                                  maxItems: 64
+                                  minItems: 1
+                                  type: array
+                                  x-kubernetes-list-type: set
+                              type: object
+                              x-kubernetes-validations:
+                              - message: exactly one capability value must be set
+                                rule: has(self.bool) != has(self.strings)
+                            maxProperties: 64
+                            type: object
+                          mig:
+                            properties:
+                              maxGPUInstances:
+                                format: int32
+                                minimum: 1
+                                type: integer
+                              supported:
+                                type: boolean
+                            required:
+                            - maxGPUInstances
+                            - supported
+                            type: object
+                        required:
+                        - mig
+                        type: object
+                      clocks:
+                        properties:
+                          maximumMHz:
+                            properties:
+                              graphics:
+                                format: int32
+                                minimum: 1
+                                type: integer
+                              memory:
+                                format: int32
+                                minimum: 1
+                                type: integer
+                              sm:
+                                format: int32
+                                minimum: 1
+                                type: integer
+                              video:
+                                format: int32
+                                minimum: 1
+                                type: integer
+                            required:
+                            - graphics
+                            - memory
+                            - sm
+                            - video
+                            type: object
+                          supported:
+                            items:
+                              properties:
+                                graphicsMHz:
+                                  items:
+                                    format: int32
+                                    type: integer
+                                  maxItems: 128
+                                  minItems: 1
+                                  type: array
+                                  x-kubernetes-list-type: set
+                                memoryMHz:
+                                  format: int32
+                                  minimum: 1
+                                  type: integer
+                              required:
+                              - graphicsMHz
+                              - memoryMHz
+                              type: object
+                            type: array
+                        required:
+                        - maximumMHz
+                        - supported
+                        type: object
+                      count:
+                        format: int32
+                        maximum: 64
+                        minimum: 1
+                        type: integer
+                      memory:
+                        properties:
+                          bar1Capacity:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                            x-kubernetes-validations:
+                            - message: bar1Capacity must be positive
+                              rule: quantity(self).isGreaterThan(quantity('0'))
+                          busWidthBits:
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          capacity:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                            x-kubernetes-validations:
+                            - message: capacity must be positive
+                              rule: quantity(self).isGreaterThan(quantity('0'))
+                          reserved:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                            x-kubernetes-validations:
+                            - message: reserved must be positive
+                              rule: quantity(self).isGreaterThan(quantity('0'))
+                        required:
+                        - bar1Capacity
+                        - busWidthBits
+                        - capacity
+                        - reserved
+                        type: object
+                      model:
+                        properties:
+                          architecture:
+                            minLength: 1
+                            type: string
+                          board:
+                            properties:
+                              partNumber:
+                                minLength: 1
+                                type: string
+                            required:
+                            - partNumber
+                            type: object
+                          computeCapability:
+                            properties:
+                              major:
+                                format: int32
+                                minimum: 1
+                                type: integer
+                              minor:
+                                format: int32
+                                minimum: 0
+                                type: integer
+                            required:
+                            - major
+                            - minor
+                            type: object
+                          cores:
+                            properties:
+                              cuda:
+                                format: int32
+                                minimum: 1
+                                type: integer
+                            required:
+                            - cuda
+                            type: object
+                          firmware:
+                            properties:
+                              gspVersion:
+                                minLength: 1
+                                type: string
+                              infoROM:
+                                properties:
+                                  eccObjectVersion:
+                                    minLength: 1
+                                    type: string
+                                  imageVersion:
+                                    minLength: 1
+                                    type: string
+                                  oemObjectVersion:
+                                    minLength: 1
+                                    type: string
+                                  powerObjectVersion:
+                                    minLength: 1
+                                    type: string
+                                required:
+                                - eccObjectVersion
+                                - imageVersion
+                                - oemObjectVersion
+                                - powerObjectVersion
+                                type: object
+                              vbiosVersion:
+                                minLength: 1
+                                type: string
+                            required:
+                            - gspVersion
+                            - infoROM
+                            - vbiosVersion
+                            type: object
+                          product:
+                            minLength: 1
+                            type: string
+                          productName:
+                            minLength: 1
+                            type: string
+                          vendor:
+                            minLength: 1
+                            type: string
+                        required:
+                        - architecture
+                        - board
+                        - computeCapability
+                        - cores
+                        - firmware
+                        - product
+                        - productName
+                        - vendor
+                        type: object
+                      pci:
+                        properties:
+                          deviceID:
+                            pattern: ^[0-9a-f]{4}$
+                            type: string
+                          maxLink:
+                            properties:
+                              generation:
+                                format: int32
+                                minimum: 1
+                                type: integer
+                              width:
+                                format: int32
+                                minimum: 1
+                                type: integer
+                            required:
+                            - generation
+                            - width
+                            type: object
+                          subsystemDeviceID:
+                            pattern: ^[0-9a-f]{4}$
+                            type: string
+                          subsystemVendorID:
+                            pattern: ^[0-9a-f]{4}$
+                            type: string
+                          vendorID:
+                            pattern: ^[0-9a-f]{4}$
+                            type: string
+                        required:
+                        - deviceID
+                        - maxLink
+                        - subsystemDeviceID
+                        - subsystemVendorID
+                        - vendorID
+                        type: object
+                      power:
+                        properties:
+                          limitsMilliWatts:
+                            properties:
+                              default:
+                                format: int64
+                                minimum: 1
+                                type: integer
+                              maximum:
+                                format: int64
+                                minimum: 1
+                                type: integer
+                              minimum:
+                                format: int64
+                                minimum: 1
+                                type: integer
+                            required:
+                            - default
+                            - maximum
+                            - minimum
+                            type: object
+                          managementSupported:
+                            type: boolean
+                        required:
+                        - limitsMilliWatts
+                        - managementSupported
+                        type: object
+                      thermal:
+                        properties:
+                          maxOperatingCelsius:
+                            format: int32
+                            type: integer
+                          shutdownThresholdCelsius:
+                            format: int32
+                            type: integer
+                          slowdownThresholdCelsius:
+                            format: int32
+                            type: integer
+                          targetCelsius:
+                            format: int32
+                            type: integer
+                        required:
+                        - maxOperatingCelsius
+                        - shutdownThresholdCelsius
+                        - slowdownThresholdCelsius
+                        - targetCelsius
+                        type: object
+                    required:
+                    - capabilities
+                    - clocks
+                    - count
+                    - memory
+                    - model
+                    - pci
+                    - power
+                    - thermal
+                    type: object
+                  host:
+                    properties:
+                      cpu:
+                        properties:
+                          architecture:
+                            minLength: 1
+                            type: string
+                          cores:
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          product:
+                            minLength: 1
+                            type: string
+                          vendor:
+                            minLength: 1
+                            type: string
+                        required:
+                        - architecture
+                        - cores
+                        - product
+                        - vendor
+                        type: object
+                      memory:
+                        properties:
+                          capacity:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                            x-kubernetes-validations:
+                            - message: capacity must be positive
+                              rule: quantity(self).isGreaterThan(quantity('0'))
+                          coherentWithGPU:
+                            type: boolean
+                        required:
+                        - capacity
+                        - coherentWithGPU
+                        type: object
+                    type: object
+                  topology:
+                    properties:
+                      gpuFabric:
+                        properties:
+                          bandwidthPerLinkMBps:
+                            format: int64
+                            minimum: 1
+                            type: integer
+                          c2cSupported:
+                            type: boolean
+                          domain:
+                            properties:
+                              gpuCount:
+                                format: int32
+                                minimum: 1
+                                type: integer
+                              scope:
+                                enum:
+                                - Rack
+                                type: string
+                            required:
+                            - gpuCount
+                            - scope
+                            type: object
+                          generation:
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          linksPerGPU:
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          switches:
+                            properties:
+                              visiblePerNode:
+                                format: int32
+                                minimum: 1
+                                type: integer
+                            required:
+                            - visiblePerNode
+                            type: object
+                          type:
+                            minLength: 1
+                            type: string
+                        required:
+                        - bandwidthPerLinkMBps
+                        - c2cSupported
+                        - domain
+                        - generation
+                        - linksPerGPU
+                        - type
+                        type: object
+                      gpuSlots:
+                        items:
+                          properties:
+                            hostProcessorIndex:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                            index:
+                              format: int32
+                              maximum: 63
+                              minimum: 0
+                              type: integer
+                            numaNode:
+                              format: int32
+                              minimum: 0
+                              type: integer
+                            pciAddress:
+                              maxLength: 12
+                              pattern: ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$
+                              type: string
+                            rootComplex:
+                              pattern: ^pci[0-9a-f]{4}:[0-9a-f]{2}$
+                              type: string
+                          required:
+                          - hostProcessorIndex
+                          - index
+                          - numaNode
+                          - pciAddress
+                          - rootComplex
+                          type: object
+                        maxItems: 64
+                        minItems: 1
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - index
+                        x-kubernetes-list-type: map
+                      network:
+                        properties:
+                          adapterModel:
+                            minLength: 1
+                            type: string
+                          adaptersPerGPU:
+                            format: int32
+                            minimum: 1
+                            type: integer
+                          firmwareVersion:
+                            minLength: 1
+                            type: string
+                          linkSpeedGbps:
+                            format: int64
+                            minimum: 1
+                            type: integer
+                          type:
+                            minLength: 1
+                            type: string
+                        required:
+                        - adapterModel
+                        - adaptersPerGPU
+                        - firmwareVersion
+                        - linkSpeedGbps
+                        - type
+                        type: object
+                    required:
+                    - gpuSlots
+                    type: object
+                required:
+                - gpus
+                - topology
+                type: object
+                x-kubernetes-validations:
+                - message: gpuSlots length must equal gpus.count
+                  rule: self.gpus.count == size(self.topology.gpuSlots)
+                - message: gpu slot indexes must be contiguous from zero
+                  rule: self.topology.gpuSlots.all(slot, slot.index < self.gpus.count)
+                - message: gpu slot PCI addresses must be unique
+                  rule: self.topology.gpuSlots.all(slot, self.topology.gpuSlots.exists_one(other,
+                    other.pciAddress == slot.pciAddress))
+              rack:
+                properties:
+                  nodesPerRack:
+                    format: int32
+                    maximum: 1024
+                    minimum: 1
+                    type: integer
+                required:
+                - nodesPerRack
+                type: object
+              software:
+                properties:
+                  cudaVersion:
+                    minLength: 1
+                    type: string
+                  driverVersion:
+                    minLength: 1
+                    type: string
+                  nvmlVersion:
+                    minLength: 1
+                    type: string
+                required:
+                - cudaVersion
+                - driverVersion
+                - nvmlVersion
+                type: object
+            required:
+            - node
+            - rack
+            - software
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true

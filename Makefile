@@ -15,7 +15,7 @@ SHELL := /usr/bin/env bash
 # itself — see the `e2e` and `.mod-verify` targets.
 .SHELLFLAGS := -o pipefail -ec
 
-.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd
+.PHONY: build fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd generate-mokka verify-mokka-generated
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
@@ -38,7 +38,7 @@ build:
 fmt:
 	@$(GO_FMT) -w -l $$(find . -name '*.go')
 
-verify:
+verify: verify-mokka-generated
 	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go')`; \
 	if [ -n "$$out" ]; then \
 	    echo "$$out"; \
@@ -100,8 +100,16 @@ test-e2e-framework:
 	$(GO_CMD) test -tags e2e -race ./tests/e2e/go/framework/...
 
 .PHONY: generate
-generate:
+generate: generate-mokka
 	go generate ./pkg/gpu/mocknvml/bridge/...
+
+generate-mokka:
+	./hack/update-mokka-codegen.sh
+
+verify-mokka-generated:
+	./hack/update-mokka-codegen.sh
+	git diff --exit-code -- pkg/apis/mokka/v1alpha1/zz_generated.deepcopy.go pkg/generated deployments/mokka-crds/helm/mokka-crds/crds
+	@test -z "$$(git ls-files --others --exclude-standard -- pkg/apis/mokka/v1alpha1/zz_generated.deepcopy.go pkg/generated deployments/mokka-crds/helm/mokka-crds/crds)"
 
 # Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
 # Docker-based, hence separate from the `go test` run.

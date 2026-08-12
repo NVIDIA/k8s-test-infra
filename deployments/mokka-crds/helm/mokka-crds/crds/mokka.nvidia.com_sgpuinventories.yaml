@@ -1,0 +1,269 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.21.0
+  name: sgpuinventories.mokka.nvidia.com
+spec:
+  group: mokka.nvidia.com
+  names:
+    kind: SGPUInventory
+    listKind: SGPUInventoryList
+    plural: sgpuinventories
+    shortNames:
+    - sgpui
+    singular: sgpuinventory
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            type: string
+          kind:
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              rackGroups:
+                items:
+                  properties:
+                    count:
+                      format: int32
+                      maximum: 100000
+                      minimum: 0
+                      type: integer
+                    id:
+                      format: dns1123Label
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                    placement:
+                      properties:
+                        nodeSelector:
+                          properties:
+                            matchExpressions:
+                              items:
+                                properties:
+                                  key:
+                                    type: string
+                                  operator:
+                                    type: string
+                                  values:
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              type: object
+                          type: object
+                          x-kubernetes-map-type: atomic
+                      type: object
+                    profileRef:
+                      properties:
+                        name:
+                          default: ""
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                      x-kubernetes-validations:
+                      - message: profileRef.name must not be empty
+                        rule: self.name != ''
+                  required:
+                  - count
+                  - id
+                  - profileRef
+                  type: object
+                maxItems: 64
+                type: array
+                x-kubernetes-list-map-keys:
+                - id
+                x-kubernetes-list-type: map
+            required:
+            - rackGroups
+            type: object
+          status:
+            properties:
+              capacity:
+                properties:
+                  gpus:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  nodeSlots:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  racks:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                required:
+                - gpus
+                - nodeSlots
+                - racks
+                type: object
+              conditions:
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                format: int64
+                type: integer
+              rackGroups:
+                items:
+                  properties:
+                    capacity:
+                      properties:
+                        gpus:
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        nodeSlots:
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        racks:
+                          format: int64
+                          minimum: 0
+                          type: integer
+                      required:
+                      - gpus
+                      - nodeSlots
+                      - racks
+                      type: object
+                    id:
+                      type: string
+                    usage:
+                      properties:
+                        allocatedNodes:
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        availableNodes:
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        conflictingNodes:
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        pendingNodes:
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        projectedNodes:
+                          format: int64
+                          minimum: 0
+                          type: integer
+                        requestedNodes:
+                          format: int64
+                          minimum: 0
+                          type: integer
+                      required:
+                      - allocatedNodes
+                      - availableNodes
+                      - conflictingNodes
+                      - pendingNodes
+                      - projectedNodes
+                      - requestedNodes
+                      type: object
+                  required:
+                  - capacity
+                  - id
+                  - usage
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - id
+                x-kubernetes-list-type: map
+              usage:
+                properties:
+                  allocatedNodes:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  availableNodes:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  conflictingNodes:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  pendingNodes:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  projectedNodes:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  requestedNodes:
+                    format: int64
+                    minimum: 0
+                    type: integer
+                required:
+                - allocatedNodes
+                - availableNodes
+                - conflictingNodes
+                - pendingNodes
+                - projectedNodes
+                - requestedNodes
+                type: object
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
