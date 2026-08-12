@@ -73,12 +73,14 @@ func nvmlSystemGetProcessName(pid C.uint, name *C.char, length C.uint) C.nvmlRet
 	// Unknown pids keep the previous stub behaviour rather than answering
 	// NOT_SUPPORTED outright, so version gating (FUNCTION_NOT_FOUND on drivers
 	// without this symbol) and strict mode still apply to lookups we cannot
-	// satisfy.
-	procName := engine.GetEngine().ProcessNameByPID(uint32(pid))
-	if procName == "" {
+	// satisfy. A configured process is answered from its entry, so one left
+	// without a `name:` resolves to the empty string instead of masquerading as
+	// an unknown pid.
+	p, ok := engine.GetEngine().ProcessByPID(uint32(pid))
+	if !ok {
 		return stubReturn("nvmlSystemGetProcessName")
 	}
-	return goStringToC(procName, name, length)
+	return goStringToC(p.Name, name, length)
 }
 
 //export nvmlSystemGetCudaDriverVersion

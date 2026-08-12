@@ -372,27 +372,27 @@ func (e *Engine) LookupConfigurableDevice(handle unsafe.Pointer) *ConfigurableDe
 	return nil
 }
 
-// ProcessNameByPID returns the configured process name for a pid, searching
-// every device's process list, or "" when no configured process matches.
-// This backs nvmlSystemGetProcessName, whose signature carries a bare pid with
-// no device, so the search cannot be narrowed. Callers that already know the
-// device should use ConfigurableDevice.ProcessNameByPID instead.
-func (e *Engine) ProcessNameByPID(pid uint32) string {
+// ProcessByPID returns the first configured process with that pid, searching
+// every device's process list, and whether one was found. This backs
+// nvmlSystemGetProcessName, whose signature carries a bare pid with no device,
+// so the search cannot be narrowed. Callers that already know the device should
+// use ConfigurableDevice.ProcessByPID instead.
+func (e *Engine) ProcessByPID(pid uint32) (ProcessConfig, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
 	if e.initCount == 0 || e.server == nil {
-		return ""
+		return ProcessConfig{}, false
 	}
 	for _, dev := range e.server.configurableDevices {
 		if dev == nil {
 			continue
 		}
-		if name := dev.ProcessNameByPID(pid); name != "" {
-			return name
+		if p, ok := dev.ProcessByPID(pid); ok {
+			return p, true
 		}
 	}
-	return ""
+	return ProcessConfig{}, false
 }
 
 // TopologyNearestGpus returns handles for the GPUs whose topology path to

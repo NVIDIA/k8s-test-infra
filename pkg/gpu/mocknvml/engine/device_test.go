@@ -491,20 +491,36 @@ func TestConfigurableDevice_GetComputeRunningProcesses_WithConfig(t *testing.T) 
 	require.Equal(t, uint32(5678), procs[1].Pid, "Expected PID 5678")
 }
 
-func TestConfigurableDevice_ProcessNameByPID(t *testing.T) {
+func TestConfigurableDevice_ProcessByPID(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
 		Name: "NVIDIA A100-SXM4-80GB",
 		Processes: []ProcessConfig{
-			{PID: 1234, Type: "C", Name: "python", UsedMemoryMiB: 1024},
+			{PID: 1234, Type: "C", Name: "python", UsedMemoryMiB: 1024, SmUtil: 42},
 			{PID: 9999, Type: "G", Name: "Xorg", UsedMemoryMiB: 128},
+			{PID: 5555, Type: "C", UsedMemoryMiB: 64},
 		},
 	})
 
 	// Both process types resolve: the internal process list nvidia-smi reads is
 	// not filtered by type.
-	require.Equal(t, "python", dev.ProcessNameByPID(1234))
-	require.Equal(t, "Xorg", dev.ProcessNameByPID(9999))
-	require.Empty(t, dev.ProcessNameByPID(4321), "unconfigured pid must not resolve to a name")
+	p, ok := dev.ProcessByPID(1234)
+	require.True(t, ok)
+	require.Equal(t, "python", p.Name)
+	require.Equal(t, uint64(1024), p.UsedMemoryMiB)
+	require.Equal(t, uint32(42), p.SmUtil, "every configured field must reach the caller")
+
+	p, ok = dev.ProcessByPID(9999)
+	require.True(t, ok)
+	require.Equal(t, "Xorg", p.Name)
+
+	// A configured process without a name is still found, so callers can tell it
+	// apart from a pid this device does not run.
+	p, ok = dev.ProcessByPID(5555)
+	require.True(t, ok)
+	require.Empty(t, p.Name)
+
+	_, ok = dev.ProcessByPID(4321)
+	require.False(t, ok, "unconfigured pid must not resolve")
 }
 
 func TestConfigurableDevice_GetProcessUtilization_Default(t *testing.T) {
