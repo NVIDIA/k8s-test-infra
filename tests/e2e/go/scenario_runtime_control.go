@@ -920,7 +920,7 @@ func assertRuntimeNVLinkErrorInjection(ctx SpecContext, h *harness.Harness, cons
 }
 
 // assertEncoderFBCAccounting covers issue #636: pin non-zero encoder_stats and
-// fbc_stats via nvml-mock-ctl, then assert nvidia-smi -q surfaces those exact
+// fbc_stats via nvml-mock-ctl, then assert nvidia-smi -q -x surfaces those exact
 // numbers (and a numeric Accounting Mode Buffer Size) instead of N/A stubs.
 func assertEncoderFBCAccounting(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
 	GinkgoHelper()
@@ -948,14 +948,14 @@ func assertEncoderFBCAccounting(ctx SpecContext, h *harness.Harness, consumer ku
 		"fbc_stats.average_latency_us="+strconv.Itoa(latency),
 	)
 
-	Eventually(func() []string {
-		res, err := h.Kube.Exec(ctx, consumer, "nvidia-smi", "-q")
+	Eventually(func() error {
+		res, err := h.Kube.Exec(ctx, consumer, "nvidia-smi", "-q", "-x")
 		if err != nil {
-			return []string{fmt.Sprintf("nvidia-smi -q: %v: %s", err, res.Combined())}
+			return fmt.Errorf("nvidia-smi -q -x: %w: %s", err, res.Combined())
 		}
-		return assertions.DiffEncoderFBCAccountingQuery(res.Combined(), stats, stats, buffer)
+		return assertions.ValidateNvidiaSMIEncoderFBCXML(res.Stdout, stats, stats, buffer)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
-		Should(BeEmpty(), "encoder/FBC/accounting must reflect the runtime override")
+		Should(Succeed(), "encoder/FBC/accounting must reflect the runtime override")
 
 	By("reset runtime overrides")
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
