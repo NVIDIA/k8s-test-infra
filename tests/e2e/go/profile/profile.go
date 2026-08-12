@@ -56,6 +56,10 @@ type rawProfile struct {
 			SlowdownThresholdC int `json:"slowdown_threshold_c"`
 			MaxOperatingC      int `json:"max_operating_c"`
 		} `json:"thermal"`
+		Utilization *struct {
+			JPEG int `json:"jpeg"`
+			OFA  int `json:"ofa"`
+		} `json:"utilization"`
 	} `json:"device_defaults"`
 	Devices []struct {
 		Index int `json:"index"`
@@ -98,6 +102,8 @@ type Profile struct {
 	shutdownThresholdC int
 	slowdownThresholdC int
 	maxOperatingC      int
+	jpegUtilizationPct int
+	ofaUtilizationPct  int
 }
 
 // bytesPerMiB is the divisor GPU Feature Discovery uses when it publishes
@@ -144,15 +150,7 @@ func Load(profilesDir, name string) (Profile, error) {
 		memoryBytes:  raw.DeviceDefaults.Memory.TotalBytes,
 		architecture: strings.ToLower(strings.TrimSpace(raw.DeviceDefaults.Architecture)),
 	}
-	if raw.DeviceDefaults.Thermal != nil {
-		p.shutdownThresholdC = raw.DeviceDefaults.Thermal.ShutdownThresholdC
-		p.slowdownThresholdC = raw.DeviceDefaults.Thermal.SlowdownThresholdC
-		p.maxOperatingC = raw.DeviceDefaults.Thermal.MaxOperatingC
-	}
-	if raw.DeviceDefaults.Fabric != nil {
-		p.hasFabric = true
-		p.fabricAuto = strings.EqualFold(strings.TrimSpace(raw.DeviceDefaults.Fabric.State), "auto")
-	}
+	p.applyOptionalDeviceDefaults(raw)
 	// render-pci-sysfs falls back to a flat single-root layout when a profile
 	// declares no pcie_topology block, so an empty list still means 1 root.
 	p.pciRoots = len(raw.PCIeTopology.RootComplexes)
@@ -166,6 +164,25 @@ func Load(profilesDir, name string) (Profile, error) {
 		p.hcasPerGPU = 1
 	}
 	return p, nil
+}
+
+// applyOptionalDeviceDefaults copies the device_defaults sub-blocks a profile
+// may omit. Each absent block leaves its fields at the zero value, which is
+// what the accessors document.
+func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
+	if t := raw.DeviceDefaults.Thermal; t != nil {
+		p.shutdownThresholdC = t.ShutdownThresholdC
+		p.slowdownThresholdC = t.SlowdownThresholdC
+		p.maxOperatingC = t.MaxOperatingC
+	}
+	if u := raw.DeviceDefaults.Utilization; u != nil {
+		p.jpegUtilizationPct = u.JPEG
+		p.ofaUtilizationPct = u.OFA
+	}
+	if f := raw.DeviceDefaults.Fabric; f != nil {
+		p.hasFabric = true
+		p.fabricAuto = strings.EqualFold(strings.TrimSpace(f.State), "auto")
+	}
 }
 
 // All loads every KnownProfiles entry from profilesDir.
@@ -241,6 +258,14 @@ func (p Profile) SlowdownThresholdC() int { return p.slowdownThresholdC }
 
 // MaxOperatingC is thermal.max_operating_c from the profile.
 func (p Profile) MaxOperatingC() int { return p.maxOperatingC }
+
+// JPEGUtilizationPct is utilization.jpeg from the profile, the percentage
+// nvidia-smi -q -d UTILIZATION must report on the JPEG row.
+func (p Profile) JPEGUtilizationPct() int { return p.jpegUtilizationPct }
+
+// OFAUtilizationPct is utilization.ofa from the profile, the percentage
+// nvidia-smi -q -d UTILIZATION must report on the OFA row.
+func (p Profile) OFAUtilizationPct() int { return p.ofaUtilizationPct }
 
 // ReportsTLimitTemp is true when real hardware of this architecture reports the
 // GPU T.Limit temperature field IDs (Ada and later). Pre-Ada profiles keep the

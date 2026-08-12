@@ -57,6 +57,23 @@ func NvidiaSMI(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.P
 		"expected no per-process entries in nvidia-smi -q")
 }
 
+// NvidiaSMIJpgOfaUtilization asserts nvidia-smi -q -d UTILIZATION reports the
+// given JPEG and OFA percentages on every GPU. Both rows read N/A until the
+// NVML getters existed, so the configured values were silently dropped. See
+// issue #637.
+func NvidiaSMIJpgOfaUtilization(ctx context.Context, k *kube.Client, pod kube.PodRef, wantJPEG, wantOFA int) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -d UTILIZATION reports JPEG %d %% / OFA %d %%", wantJPEG, wantOFA))
+	res, err := k.Exec(ctx, pod, "nvidia-smi", "-q", "-d", "UTILIZATION")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		"nvidia-smi -q -d UTILIZATION exited with error: %s", res.Combined())
+	out := res.Combined()
+	problems := DiffJpgOfaUtilizationQuery(out, wantJPEG, wantOFA)
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"JPEG/OFA utilization wrong:\n%s\n%s", strings.Join(problems, "\n"), strings.TrimSpace(out))
+}
+
 // NvidiaSMITemperatureThresholds asserts nvidia-smi -q -d TEMPERATURE uses the
 // architecture-correct threshold presentation for the profile: absolute rows
 // on pre-Ada, T.Limit rows on Ada and later. See issue #635.

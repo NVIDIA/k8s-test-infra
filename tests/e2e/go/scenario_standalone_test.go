@@ -90,6 +90,15 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertEncoderFBCAccounting(ctx, h, pod)
 			})
 
+			It("reports JPEG and OFA utilization via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #637: both readings were N/A because the NVML entry
+				// points were generated stubs, so every configured value was
+				// dropped. First the deployed profile's own percentages, then
+				// distinct non-zero values pinned at runtime.
+				assertions.NvidiaSMIJpgOfaUtilization(ctx, h.Kube, pod, p.JPEGUtilizationPct(), p.OFAUtilizationPct())
+				assertJpgOfaUtilizationOverride(ctx, h, pod)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)

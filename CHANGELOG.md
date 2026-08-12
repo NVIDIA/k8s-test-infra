@@ -43,6 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `encoder_stats` / `fbc_stats` and the accounting buffer size now reach
   `nvidia-smi -q` instead of silently reporting `N/A`. A regression guard
   fails when an engine method is left behind a `stubReturn` export. (#636)
+- mocknvml: `nvidia-smi -q -d UTILIZATION` reports the configured
+  `utilization.jpeg` and `utilization.ofa` percentages instead of `N/A`. Both
+  keys were parsed into the device config and then dropped: there was no engine
+  getter for either, and `nvmlDeviceGetJpgUtilization` /
+  `nvmlDeviceGetOfaUtilization` were generated stubs returning
+  `NVML_ERROR_NOT_SUPPORTED`. Both are now hand-written in the bridge and read
+  their config field, matching the existing encoder and decoder getters. The
+  values are also settable at runtime with
+  `nvml-mock-ctl set --gpu <idx> utilization.jpeg=35 utilization.ofa=12`. (#637)
 
 - Gate the T.Limit temperature surfaces on Ada and later: the field IDs
   193–196 (`NVML_FI_DEV_TEMPERATURE_*_TLIMIT`) and

@@ -471,6 +471,35 @@ func assertRuntimeUtilCommand(ctx SpecContext, h *harness.Harness, consumer kube
 		Should(Not(Equal(overridePct)), "GPU %d utilization should resume varying after reset", target)
 }
 
+// assertJpgOfaUtilizationOverride pins distinct non-zero JPEG and OFA
+// utilization through `set` and reads both rows back from
+// nvidia-smi -q -d UTILIZATION. The shipped profiles configure 0 % for both, so
+// the deployed config on its own cannot tell a working getter apart from the
+// dropped-field bug (#637) — and the two values must differ, or a getter reading
+// the other field would pass.
+func assertJpgOfaUtilizationOverride(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	const wantJPEG, wantOFA = 35, 12
+
+	By(fmt.Sprintf("set utilization.jpeg=%d utilization.ofa=%d on every GPU via nvml-mock-ctl", wantJPEG, wantOFA))
+	nvmlMockCtl(ctx, h, "set", "--gpu", "all",
+		"utilization.jpeg="+strconv.Itoa(wantJPEG), "utilization.ofa="+strconv.Itoa(wantOFA))
+
+	Eventually(func() []string {
+		res, err := h.Kube.Exec(ctx, consumer, "nvidia-smi", "-q", "-d", "UTILIZATION")
+		if err != nil {
+			return []string{"nvidia-smi -q -d UTILIZATION failed: " + res.Combined()}
+		}
+		return assertions.DiffJpgOfaUtilizationQuery(res.Combined(), wantJPEG, wantOFA)
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(BeEmpty(), "JPEG/OFA utilization should reflect the runtime override")
+
+	By("reset runtime overrides")
+	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+}
+
 // assertRuntimeClocksCommand covers the `clocks` convenience command: pin a
 // GPU's SM/graphics clocks and read clocks.sm back. Clocks are static (no
 // dynamic simulator), so the reading is exact both after the pin and after

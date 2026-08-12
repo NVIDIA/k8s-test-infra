@@ -87,6 +87,8 @@
 // - nvmlDeviceGetBoardId
 // - nvmlDeviceGetEncoderUtilization
 // - nvmlDeviceGetDecoderUtilization
+// - nvmlDeviceGetJpgUtilization
+// - nvmlDeviceGetOfaUtilization
 // - nvmlDeviceGetGraphicsRunningProcesses_v3
 // - nvmlDeviceGetNvLinkVersion
 // - nvmlDeviceGetNvLinkCapability
@@ -2138,6 +2140,50 @@ func nvmlDeviceGetDecoderUtilization(device C.nvmlDevice_t, utilization *C.uint,
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
 	util, period, ret := dev.GetDecoderUtilization()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*utilization = C.uint(util)
+	*samplingPeriodUs = C.uint(period)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetJpgUtilization
+func nvmlDeviceGetJpgUtilization(device C.nvmlDevice_t, utilization *C.uint, samplingPeriodUs *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetJpgUtilization"); !ok {
+		return ret
+	}
+	if utilization == nil || samplingPeriodUs == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := unsafe.Pointer(device.handle)
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	util, period, ret := dev.GetJpgUtilization()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*utilization = C.uint(util)
+	*samplingPeriodUs = C.uint(period)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetOfaUtilization
+func nvmlDeviceGetOfaUtilization(device C.nvmlDevice_t, utilization *C.uint, samplingPeriodUs *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetOfaUtilization"); !ok {
+		return ret
+	}
+	if utilization == nil || samplingPeriodUs == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := unsafe.Pointer(device.handle)
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	util, period, ret := dev.GetOfaUtilization()
 	if ret != nvml.SUCCESS {
 		return toReturn(ret)
 	}
