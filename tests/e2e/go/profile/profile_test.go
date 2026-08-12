@@ -24,23 +24,28 @@ const profilesDir = "../../../../deployments/nvml-mock/helm/nvml-mock/profiles"
 // configs/ copies from drifting in a way the e2e would not catch.
 func TestDerivations(t *testing.T) {
 	cases := []struct {
-		name        string
-		displayName string
-		gpus        int
-		hcas        int
-		nv          int
-		fabricMgr   bool
-		hasFabric   bool
-		ibEnabled   bool
-		pciRoots    int
+		name          string
+		displayName   string
+		gpus          int
+		hcas          int
+		nv            int
+		fabricMgr     bool
+		hasFabric     bool
+		ibEnabled     bool
+		pciRoots      int
+		architecture  string
+		reportsTLimit bool
+		shutdownC     int
+		slowdownC     int
+		maxOperatingC int
 	}{
-		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
-		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2},
-		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2}, // NVLink negative control, IB enabled
-		{"gb200", "NVIDIA GB200", 8, 8, 18, true, true, true, 4},
-		{"gb300", "NVIDIA GB300 NVL", 8, 8, 18, true, true, true, 4},
-		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2}, // IB + NVLink negative control
-		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1},
+		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, "ampere", false, 92, 87, 83}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
+		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, "hopper", true, 92, 87, 83},
+		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, "blackwell", true, 95, 90, 85}, // NVLink negative control, IB enabled
+		{"gb200", "NVIDIA GB200", 8, 8, 18, true, true, true, 4, "blackwell", true, 95, 90, 85},
+		{"gb300", "NVIDIA GB300 NVL", 8, 8, 18, true, true, true, 4, "blackwell", true, 95, 90, 85},
+		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, "ada_lovelace", true, 96, 93, 89}, // IB + NVLink negative control
+		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, "turing", false, 96, 93, 89},
 	}
 
 	for _, c := range cases {
@@ -63,6 +68,11 @@ func TestDerivations(t *testing.T) {
 				{"HasFabric", p.HasFabric(), c.hasFabric},
 				{"IBEnabled", p.IBEnabled(), c.ibEnabled},
 				{"ExpectedPCIRoots", p.ExpectedPCIRoots(), c.pciRoots},
+				{"Architecture", p.Architecture(), c.architecture},
+				{"ReportsTLimitTemp", p.ReportsTLimitTemp(), c.reportsTLimit},
+				{"ShutdownThresholdC", p.ShutdownThresholdC(), c.shutdownC},
+				{"SlowdownThresholdC", p.SlowdownThresholdC(), c.slowdownC},
+				{"MaxOperatingC", p.MaxOperatingC(), c.maxOperatingC},
 			}
 			for _, ck := range checks {
 				t.Run(ck.name, func(t *testing.T) {
