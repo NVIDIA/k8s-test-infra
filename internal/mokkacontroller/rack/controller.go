@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -178,7 +177,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, key string) (Result, error) 
 	result.ProfileIssues = issues
 	result.ResolvedRefs = len(issues) == 0
 
-	allocation, nodesByUID, err := r.allocationPlan()
+	allocation, err := r.allocationPlan()
 	if err != nil {
 		return result, err
 	}
@@ -201,7 +200,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, key string) (Result, error) 
 			continue
 		}
 		blockedNames[existing.Name] = struct{}{}
-		changed, cleanup, err := r.retireRack(ctx, inventory, existing, nodesByUID, CleanupRackDeleting)
+		changed, cleanup, err := r.retireRack(ctx, inventory, existing, CleanupRackDeleting)
 		if err != nil {
 			return result, err
 		}
@@ -231,7 +230,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, key string) (Result, error) 
 			existing.Spec.Identity.RackIndex >= group.group.Count {
 			reason = CleanupCapacityShrink
 		}
-		changed, cleanup, err := r.retireRack(ctx, inventory, existing, nodesByUID, reason)
+		changed, cleanup, err := r.retireRack(ctx, inventory, existing, reason)
 		if err != nil {
 			return result, err
 		}
@@ -281,7 +280,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, key string) (Result, error) 
 					existing,
 					&targetSpec,
 					releases,
-					nodesByUID,
 				)
 				result.CleanupNeeded = append(result.CleanupNeeded, cleanup...)
 			}
@@ -342,10 +340,10 @@ func (r *Reconciler) resolveGroups(inventory *mokkav1alpha1.SGPUInventory) ([]re
 	return resolved, issues, nil
 }
 
-func (r *Reconciler) allocationPlan() (allocate.Plan, map[types.UID]*corev1.Node, error) {
+func (r *Reconciler) allocationPlan() (allocate.Plan, error) {
 	inventories, err := r.cache.Inventories()
 	if err != nil {
-		return allocate.Plan{}, nil, fmt.Errorf("list inventories from cache: %w", err)
+		return allocate.Plan{}, fmt.Errorf("list inventories from cache: %w", err)
 	}
 	groups := make([]allocate.Group, 0)
 	inventoriesByUID := make(map[types.UID]*mokkav1alpha1.SGPUInventory, len(inventories))
@@ -356,7 +354,7 @@ func (r *Reconciler) allocationPlan() (allocate.Plan, map[types.UID]*corev1.Node
 		}
 		resolved, _, err := r.resolveGroups(inventory)
 		if err != nil {
-			return allocate.Plan{}, nil, err
+			return allocate.Plan{}, err
 		}
 		for _, group := range resolved {
 			var selector *metav1.LabelSelector
@@ -372,7 +370,7 @@ func (r *Reconciler) allocationPlan() (allocate.Plan, map[types.UID]*corev1.Node
 
 	racks, err := r.cache.Racks()
 	if err != nil {
-		return allocate.Plan{}, nil, fmt.Errorf("list racks from cache: %w", err)
+		return allocate.Plan{}, fmt.Errorf("list racks from cache: %w", err)
 	}
 	bindings := make([]allocate.Binding, 0)
 	for _, rack := range racks {
@@ -399,12 +397,10 @@ func (r *Reconciler) allocationPlan() (allocate.Plan, map[types.UID]*corev1.Node
 
 	nodes, err := r.cache.Nodes()
 	if err != nil {
-		return allocate.Plan{}, nil, fmt.Errorf("list Nodes from cache: %w", err)
+		return allocate.Plan{}, fmt.Errorf("list Nodes from cache: %w", err)
 	}
 	allocationNodes := make([]allocate.Node, 0, len(nodes))
-	nodesByUID := make(map[types.UID]*corev1.Node, len(nodes))
 	for _, node := range nodes {
-		nodesByUID[node.UID] = node
 		allocationNodes = append(allocationNodes, allocate.Node{
 			Name: node.Name, UID: node.UID,
 			CreationTimestamp: node.CreationTimestamp.Time, Labels: node.Labels,
@@ -412,16 +408,15 @@ func (r *Reconciler) allocationPlan() (allocate.Plan, map[types.UID]*corev1.Node
 	}
 	plan, err := allocate.Allocate(allocate.Input{Groups: groups, Nodes: allocationNodes, Bindings: bindings})
 	if err != nil {
-		return allocate.Plan{}, nil, fmt.Errorf("allocate rack bindings: %w", err)
+		return allocate.Plan{}, fmt.Errorf("allocate rack bindings: %w", err)
 	}
-	return plan, nodesByUID, nil
+	return plan, nil
 }
 
 func (r *Reconciler) preservePendingReleases(
 	existing *mokkav1alpha1.SGPURack,
 	target *mokkav1alpha1.SGPURackSpec,
 	releases map[allocate.Coordinate]allocate.Release,
-	nodesByUID map[types.UID]*corev1.Node,
 ) []CleanupNeeded {
 	cleanup := make([]CleanupNeeded, 0)
 	targetSlots := make(map[int32]*mokkav1alpha1.SGPURackSlot, len(target.Slots))
@@ -444,9 +439,6 @@ func (r *Reconciler) preservePendingReleases(
 		if !found {
 			continue
 		}
-		if _, exists := nodesByUID[slot.NodeRef.UID]; !exists {
-			continue
-		}
 		needed := CleanupNeeded{RackName: existing.Name, Binding: release.Binding, Reason: cleanupReason(release.Reason)}
 		if r.cleanup != nil && r.cleanup.Ready(needed) {
 			continue
@@ -466,7 +458,6 @@ func (r *Reconciler) retireRack(
 	ctx context.Context,
 	inventory *mokkav1alpha1.SGPUInventory,
 	rack *mokkav1alpha1.SGPURack,
-	nodesByUID map[types.UID]*corev1.Node,
 	reason CleanupReason,
 ) (bool, []CleanupNeeded, error) {
 	clearSlots := make(map[int32]types.UID)
@@ -483,7 +474,7 @@ func (r *Reconciler) retireRack(
 			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
 		}
 		needed := CleanupNeeded{RackName: rack.Name, Binding: binding, Reason: reason}
-		if _, exists := nodesByUID[slot.NodeRef.UID]; !exists || (r.cleanup != nil && r.cleanup.Ready(needed)) {
+		if r.cleanup != nil && r.cleanup.Ready(needed) {
 			clearSlots[slot.Index] = slot.NodeRef.UID
 			continue
 		}
@@ -537,17 +528,9 @@ func (r *Reconciler) reconcileInventoryDeletion(
 	racks []*mokkav1alpha1.SGPURack,
 	result Result,
 ) (Result, error) {
-	nodes, err := r.cache.Nodes()
-	if err != nil {
-		return result, fmt.Errorf("list Nodes from cache: %w", err)
-	}
-	nodesByUID := make(map[types.UID]*corev1.Node, len(nodes))
-	for _, node := range nodes {
-		nodesByUID[node.UID] = node
-	}
 	allGone := true
 	for _, rack := range racks {
-		changed, cleanup, err := r.retireRack(ctx, inventory, rack, nodesByUID, CleanupInventoryDeleting)
+		changed, cleanup, err := r.retireRack(ctx, inventory, rack, CleanupInventoryDeleting)
 		if err != nil {
 			return result, err
 		}

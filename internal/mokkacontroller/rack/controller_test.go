@@ -312,7 +312,7 @@ func TestReconcileHandlesOwnerConflictAndRetriesOptimisticConflict(t *testing.T)
 	require.True(t, conflicted)
 }
 
-func TestReconcileClearsGoneUIDBeforeAllocatingReplacement(t *testing.T) {
+func TestReconcileWaitsForGoneUIDCleanupBeforeAllocatingReplacement(t *testing.T) {
 	ctx := context.Background()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
@@ -326,12 +326,23 @@ func TestReconcileClearsGoneUIDBeforeAllocatingReplacement(t *testing.T) {
 	h.sync(t)
 	result, err := h.reconcile(ctx, inventory.Name)
 	require.NoError(t, err)
-	require.Empty(t, result.CleanupNeeded)
+	require.Len(t, result.CleanupNeeded, 1)
+	got, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(
+		ctx,
+		materialize.RackName(inventory.Name, inventory.UID, "group", 0),
+		metav1.GetOptions{},
+	)
+	require.NoError(t, err)
+	require.Equal(t, old.UID, got.Spec.Slots[0].NodeRef.UID)
+
+	h.cleaned = true
+	_, err = h.reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
 	h.sync(t)
 	_, err = h.reconcile(ctx, inventory.Name)
 	require.NoError(t, err)
 
-	got, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(
+	got, err = h.mokka.MokkaV1alpha1().SGPURacks().Get(
 		ctx,
 		materialize.RackName(inventory.Name, inventory.UID, "group", 0),
 		metav1.GetOptions{},

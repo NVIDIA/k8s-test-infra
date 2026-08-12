@@ -22,11 +22,13 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	k8stesting "k8s.io/client-go/testing"
+	"k8s.io/client-go/tools/cache"
 
 	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/pkg/apis/mokka/v1alpha1"
 	mokkafake "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/fake"
+	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/mokka/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/materialize"
 )
@@ -151,6 +153,154 @@ func TestControllerLifecycleAcceptance(t *testing.T) {
 		racks, err := mokka.MokkaV1alpha1().SGPURacks().List(ctx, metav1.ListOptions{})
 		return err == nil && len(racks.Items) == 0
 	}, 10*time.Second, 20*time.Millisecond, "inventory deletion must clean Nodes and generated racks before releasing its finalizer")
+}
+
+func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
+	tests := []struct {
+		name        string
+		retireRack  bool
+		liveNode    func(*corev1.Node) *corev1.Node
+		cachedNodes func(*corev1.Node) []*corev1.Node
+		wantPatch   bool
+	}{
+		{
+			name: "live ineligible release",
+			liveNode: func(old *corev1.Node) *corev1.Node {
+				delete(old.Labels, allocate.EligibleNodeLabel)
+				return old
+			},
+			wantPatch: true,
+		},
+		{
+			name:       "live ineligible retirement",
+			retireRack: true,
+			liveNode: func(old *corev1.Node) *corev1.Node {
+				delete(old.Labels, allocate.EligibleNodeLabel)
+				return old
+			},
+			wantPatch: true,
+		},
+		{
+			name:     "deleted Node",
+			liveNode: func(*corev1.Node) *corev1.Node { return nil },
+		},
+		{
+			name: "same-name replacement",
+			liveNode: func(*corev1.Node) *corev1.Node {
+				return acceptanceNode("node", "replacement-uid", 2)
+			},
+			cachedNodes: func(live *corev1.Node) []*corev1.Node { return []*corev1.Node{live} },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			profile := acceptanceProfile(1)
+			inventory := acceptanceInventory()
+			inventory.Finalizers = []string{controllerack.InventoryFinalizer}
+			rendered, err := materialize.RenderRack(materialize.RackInput{
+				InventoryName: inventory.Name,
+				InventoryUID:  inventory.UID,
+				Group:         inventory.Spec.RackGroups[0],
+				Profile:       profile,
+			})
+			require.NoError(t, err)
+
+			oldNode := acceptanceNode("node", "old-uid", 1)
+			controller := true
+			rack := &mokkav1alpha1.SGPURack{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: rendered.Name, UID: "rack-uid", ResourceVersion: "1",
+					Finalizers: []string{controllerack.RackFinalizer},
+					OwnerReferences: []metav1.OwnerReference{{
+						APIVersion: mokkav1alpha1.SchemeGroupVersion.String(), Kind: "SGPUInventory",
+						Name: inventory.Name, UID: inventory.UID, Controller: &controller,
+					}},
+				},
+				Spec: rendered.Spec,
+			}
+			rack.Spec.Slots[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: oldNode.Name, UID: oldNode.UID}
+			assignment, err := controllerprojection.EncodeAssignment(rack, &rack.Spec.Slots[0])
+			require.NoError(t, err)
+			oldNode.Labels[controllerprojection.AssignedLabel] = "true"
+			oldNode.Labels[controllerprojection.CliqueLabel] = rack.Spec.Identity.FabricUUID + ".0"
+			oldNode.Annotations = map[string]string{controllerprojection.AssignmentAnnotation: assignment}
+
+			liveNode := tt.liveNode(oldNode.DeepCopy())
+			liveNodes := newAcceptanceNodeClient()
+			if liveNode != nil {
+				liveNodes.create(liveNode)
+			}
+			var cachedNodes []*corev1.Node
+			if tt.cachedNodes != nil {
+				cachedNodes = tt.cachedNodes(liveNode)
+			}
+			if tt.retireRack {
+				inventory.Spec.RackGroups[0].Count = 0
+			}
+
+			mokka := mokkafake.NewSimpleClientset(profile, inventory, rack)
+			inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+			profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.RackIndexers())
+			nodeIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			require.NoError(t, inventoryIndexer.Add(inventory.DeepCopy()))
+			require.NoError(t, profileIndexer.Add(profile.DeepCopy()))
+			require.NoError(t, rackIndexer.Add(rack.DeepCopy()))
+			for _, node := range cachedNodes {
+				require.NoError(t, nodeIndexer.Add(node.DeepCopy()))
+			}
+			snapshot := newInformerCache(
+				mokkalisters.NewSGPUInventoryLister(inventoryIndexer),
+				mokkalisters.NewSGPUProfileLister(profileIndexer),
+				rackIndexer,
+				nodeIndexer,
+				liveNodes,
+			)
+			projection := controllerprojection.NewController(snapshot, liveNodes)
+			reconciler := controllerack.NewReconciler(
+				snapshot,
+				mokka.MokkaV1alpha1().SGPUInventories(),
+				mokka.MokkaV1alpha1().SGPURacks(),
+				projection,
+			)
+
+			result, err := reconciler.Reconcile(ctx, inventory.Name)
+			require.NoError(t, err)
+			require.Len(t, result.CleanupNeeded, 1)
+			stored, err := mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rack.Name, metav1.GetOptions{})
+			require.NoError(t, err, "rack mutation must wait for exact projection cleanup")
+			require.Equal(t, oldNode.UID, stored.Spec.Slots[0].NodeRef.UID)
+
+			_, err = projection.Cleanup(ctx, result.CleanupNeeded[0])
+			require.NoError(t, err)
+			require.True(t, projection.Ready(result.CleanupNeeded[0]))
+			if tt.wantPatch {
+				require.False(t, nodeHasProjection(liveNodes.snapshot(oldNode.Name)))
+			}
+
+			_, err = reconciler.Reconcile(ctx, inventory.Name)
+			require.NoError(t, err)
+			stored, err = mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rack.Name, metav1.GetOptions{})
+			if tt.retireRack {
+				require.True(t, apierrors.IsNotFound(err))
+				return
+			}
+			require.NoError(t, err)
+			require.Nil(t, stored.Spec.Slots[0].NodeRef)
+
+			if len(cachedNodes) == 0 {
+				return
+			}
+			require.NoError(t, rackIndexer.Update(stored.DeepCopy()))
+			_, err = reconciler.Reconcile(ctx, inventory.Name)
+			require.NoError(t, err)
+			stored, err = mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rack.Name, metav1.GetOptions{})
+			require.NoError(t, err)
+			require.Equal(t, types.UID("replacement-uid"), stored.Spec.Slots[0].NodeRef.UID)
+		})
+	}
 }
 
 func installAcceptanceAPIReactors(t *testing.T, client *mokkafake.Clientset) {
