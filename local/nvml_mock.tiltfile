@@ -26,6 +26,8 @@ FLEET_PROFILES = ['a100', 't4']
 _IMAGE = 'ghcr.io/nvidia/nvml-mock'
 _CONTROL_PLANE_IMAGE = 'ghcr.io/nvidia/mokka-control-plane'
 _CHART = 'deployments/nvml-mock/helm/nvml-mock'
+_CRDS_CHART = 'deployments/mokka-crds/helm/mokka-crds'
+_CRDS_RESOURCE = 'mokka-crds'
 # Must match nvmlMockNamespace in tests/e2e/go/e2e_suite_test.go — the Ginkgo
 # suite queries kube by that namespace name. "mokka" is the project name.
 # --create-namespace makes helm provision it if missing.
@@ -92,6 +94,25 @@ def build_control_plane_image():
             'internal/',
             'deployments/mokka-control-plane/',
         ],
+    )
+
+def install_control_plane_crds():
+    """Install the mokka-crds Helm chart cluster-wide.
+
+    CRDs are cluster-scoped so this runs once per Tilt session regardless of
+    how many nvml-mock releases exist. Cannot live inside the nvml-mock chart
+    because in fleet mode there is one release per profile, and each attempt
+    would collide on CRD ownership. The Control Plane's future controllers
+    will watch these types; the current health-probe-only CP does not need
+    them, but installing here keeps the local dev graph aligned with what a
+    real install looks like.
+    """
+    helm_resource(
+        _CRDS_RESOURCE,
+        _CRDS_CHART,
+        namespace=_NAMESPACE,
+        flags=['--create-namespace'],
+        labels=['mokka-control-plane'],
     )
 
 def _install(release, profile, active_consumers, extra_set, nvmlmock_image='', control_plane=False):

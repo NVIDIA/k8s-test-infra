@@ -29,6 +29,7 @@ load('ext://helm_resource', 'helm_repo')
 load('./local/nvml_mock.tiltfile',
      'build_nvml_mock_image',
      'build_control_plane_image',
+     'install_control_plane_crds',
      'install_single',
      'install_fleet')
 load('./local/compute-domain/compute_domain.tiltfile',
@@ -151,6 +152,7 @@ allow_k8s_contexts(k8s_context)
 # path, nvml_mock.tiltfile owns them.
 if with_control_plane:
     build_control_plane_image()
+    install_control_plane_crds()
 
 if with_compute_domain:
     compute_domain_build_images(with_dra)
