@@ -97,16 +97,7 @@ def build_control_plane_image():
     )
 
 def install_control_plane_crds():
-    """Install the mokka-crds Helm chart cluster-wide.
-
-    CRDs are cluster-scoped so this runs once per Tilt session regardless of
-    how many nvml-mock releases exist. Cannot live inside the nvml-mock chart
-    because in fleet mode there is one release per profile, and each attempt
-    would collide on CRD ownership. The Control Plane's future controllers
-    will watch these types; the current health-probe-only CP does not need
-    them, but installing here keeps the local dev graph aligned with what a
-    real install looks like.
-    """
+    """Install the mokka-crds Helm chart. One release per Tilt session."""
     helm_resource(
         _CRDS_RESOURCE,
         _CRDS_CHART,
