@@ -96,6 +96,38 @@ func TestRunnerContract(t *testing.T) {
 	require.NoError(t, err, string(output))
 }
 
+func TestRunnerStartsTimingBeforeScenarioActions(t *testing.T) {
+	runner := readFile(t, "run.sh")
+	checkStateStart := strings.Index(runner, "check_state() {")
+	checkStateEnd := strings.Index(runner, "snapshot_assignments() {")
+	require.NotEqual(t, -1, checkStateStart)
+	require.Greater(t, checkStateEnd, checkStateStart)
+	checkState := runner[checkStateStart:checkStateEnd]
+	require.Contains(t, checkState, `local started_seconds="$2"`)
+	require.NotContains(t, checkState, `started_seconds="$(date -u +%s)"`)
+	require.Equal(t, 9, strings.Count(runner, `scenario_started_seconds="$(date -u +%s)"`))
+	require.Equal(t, 9, strings.Count(runner, `"${scenario_started_seconds}"`))
+
+	require.Contains(t, runner, `scenario_started_seconds="$(date -u +%s)"
+scale_nodes "${INITIAL_NODE_COUNT}"
+apply_inventory "${FULL_RACKS}"
+check_state scale-up-half "${scenario_started_seconds}"`)
+	require.Contains(t, runner, `scenario_started_seconds="$(date -u +%s)"
+scale_nodes "${NODE_COUNT}"
+check_state steady-state "${scenario_started_seconds}"`)
+	require.Contains(t, runner, `scenario_started_seconds="$(date -u +%s)"
+stop_controller
+start_controller
+check_state controller-restart "${scenario_started_seconds}"`)
+	require.Contains(t, runner, `scenario_started_seconds="$(date -u +%s)"
+kctl delete node "${REPLACED_NODE}"`)
+	require.Contains(t, runner, `scenario_started_seconds="$(date -u +%s)"
+apply_inventory 0
+check_state inventory-shrink "${scenario_started_seconds}"`)
+	require.Contains(t, runner, `scenario_started_seconds="$(date -u +%s)"
+kctl label node mokka-node-000000 mokka.nvidia.com/sgpu-node-`)
+}
+
 func readFile(t *testing.T, name string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(testDir(t), name))

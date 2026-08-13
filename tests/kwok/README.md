@@ -36,7 +36,8 @@ under `_artifacts/kwok`, including after failure.
 The scenarios cover steady state, scale-up, host-controller restart with
 assignment stability, capacity exhaustion, inventory shrink/grow, eligibility
 churn, and same-name/new-UID Node replacement. Each state has bounded waits and
-machine-readable assertions and timings.
+machine-readable assertions and timings. Durations include the triggering
+scale, restart, or API mutation as well as final controller convergence.
 
 KWOK proves Kubernetes API/informer/workqueue behavior, deterministic rack and
 assignment semantics, cleanup, and control-plane resource cost at fake-Node

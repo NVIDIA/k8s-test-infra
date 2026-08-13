@@ -250,13 +250,12 @@ inventory_summary_ready() {
 
 check_state() {
 	local state="$1"
-	local expected_racks="$2"
-	local expected_nodes="$3"
-	local expected_eligible="$4"
-	local expected_allocated="$5"
-	local requests_satisfied="$6"
-	local started_seconds
-	started_seconds="$(date -u +%s)"
+	local started_seconds="$2"
+	local expected_racks="$3"
+	local expected_nodes="$4"
+	local expected_eligible="$5"
+	local expected_allocated="$6"
+	local requests_satisfied="$7"
 	log "waiting for ${state}: racks=${expected_racks} nodes=${expected_nodes} eligible=${expected_eligible} allocated=${expected_allocated}"
 	wait_for "inventory summary for ${state}" inventory_summary_ready "${expected_racks}" \
 		"${expected_eligible}" "${expected_allocated}" "${requests_satisfied}"
@@ -379,41 +378,50 @@ readonly FULL_RACKS="$((NODE_COUNT / NODES_PER_RACK))"
 readonly EXTRA_COUNT="${NODES_PER_RACK}"
 readonly TOTAL_WITH_EXTRA="$((NODE_COUNT + EXTRA_COUNT))"
 
+scenario_started_seconds="$(date -u +%s)"
 scale_nodes "${INITIAL_NODE_COUNT}"
 apply_inventory "${FULL_RACKS}"
-check_state scale-up-half "${FULL_RACKS}" "${INITIAL_NODE_COUNT}" "${INITIAL_NODE_COUNT}" "${INITIAL_NODE_COUNT}" true
+check_state scale-up-half "${scenario_started_seconds}" "${FULL_RACKS}" "${INITIAL_NODE_COUNT}" "${INITIAL_NODE_COUNT}" "${INITIAL_NODE_COUNT}" true
 
+scenario_started_seconds="$(date -u +%s)"
 scale_nodes "${NODE_COUNT}"
-check_state steady-state "${FULL_RACKS}" "${NODE_COUNT}" "${NODE_COUNT}" "${NODE_COUNT}" true
+check_state steady-state "${scenario_started_seconds}" "${FULL_RACKS}" "${NODE_COUNT}" "${NODE_COUNT}" "${NODE_COUNT}" true
 snapshot_assignments "${ARTIFACT_DIR}/restart.before.json"
+scenario_started_seconds="$(date -u +%s)"
 stop_controller
 start_controller
-check_state controller-restart "${FULL_RACKS}" "${NODE_COUNT}" "${NODE_COUNT}" "${NODE_COUNT}" true
+check_state controller-restart "${scenario_started_seconds}" "${FULL_RACKS}" "${NODE_COUNT}" "${NODE_COUNT}" "${NODE_COUNT}" true
 snapshot_assignments "${ARTIFACT_DIR}/restart.after.json"
 cmp "${ARTIFACT_DIR}/restart.before.json" "${ARTIFACT_DIR}/restart.after.json" || die "assignments changed across controller restart"
 
 readonly REPLACED_NODE="mokka-node-000000"
 readonly OLD_UID="$(kctl get node "${REPLACED_NODE}" -o jsonpath='{.metadata.uid}')"
+scenario_started_seconds="$(date -u +%s)"
 kctl delete node "${REPLACED_NODE}" --wait=true >/dev/null
 scale_nodes "${NODE_COUNT}"
 readonly NEW_UID="$(kctl get node "${REPLACED_NODE}" -o jsonpath='{.metadata.uid}')"
 [[ "${OLD_UID}" != "${NEW_UID}" ]] || die "same-name replacement retained the old UID"
-check_state same-name-new-uid "${FULL_RACKS}" "${NODE_COUNT}" "${NODE_COUNT}" "${NODE_COUNT}" true
+check_state same-name-new-uid "${scenario_started_seconds}" "${FULL_RACKS}" "${NODE_COUNT}" "${NODE_COUNT}" "${NODE_COUNT}" true
 jq -cn --arg name "${REPLACED_NODE}" --arg oldUID "${OLD_UID}" --arg newUID "${NEW_UID}" \
 	'{schemaVersion:1,name:$name,oldUID:$oldUID,newUID:$newUID}' >"${ARTIFACT_DIR}/replacement.json"
 
+scenario_started_seconds="$(date -u +%s)"
 scale_nodes "${TOTAL_WITH_EXTRA}"
-check_state capacity-exhaustion "${FULL_RACKS}" "${TOTAL_WITH_EXTRA}" "${TOTAL_WITH_EXTRA}" "${NODE_COUNT}" false
+check_state capacity-exhaustion "${scenario_started_seconds}" "${FULL_RACKS}" "${TOTAL_WITH_EXTRA}" "${TOTAL_WITH_EXTRA}" "${NODE_COUNT}" false
 
+scenario_started_seconds="$(date -u +%s)"
 apply_inventory 0
-check_state inventory-shrink 0 "${TOTAL_WITH_EXTRA}" "${TOTAL_WITH_EXTRA}" 0 false
+check_state inventory-shrink "${scenario_started_seconds}" 0 "${TOTAL_WITH_EXTRA}" "${TOTAL_WITH_EXTRA}" 0 false
+scenario_started_seconds="$(date -u +%s)"
 apply_inventory "${FULL_RACKS}"
-check_state inventory-grow "${FULL_RACKS}" "${TOTAL_WITH_EXTRA}" "${TOTAL_WITH_EXTRA}" "${NODE_COUNT}" false
+check_state inventory-grow "${scenario_started_seconds}" "${FULL_RACKS}" "${TOTAL_WITH_EXTRA}" "${TOTAL_WITH_EXTRA}" "${NODE_COUNT}" false
 
+scenario_started_seconds="$(date -u +%s)"
 kctl label node mokka-node-000000 mokka.nvidia.com/sgpu-node- >/dev/null
-check_state eligibility-churn-remove "${FULL_RACKS}" "${TOTAL_WITH_EXTRA}" "$((TOTAL_WITH_EXTRA - 1))" "${NODE_COUNT}" false
+check_state eligibility-churn-remove "${scenario_started_seconds}" "${FULL_RACKS}" "${TOTAL_WITH_EXTRA}" "$((TOTAL_WITH_EXTRA - 1))" "${NODE_COUNT}" false
+scenario_started_seconds="$(date -u +%s)"
 kctl label node mokka-node-000000 mokka.nvidia.com/sgpu-node=true --overwrite >/dev/null
-check_state eligibility-churn-restore "${FULL_RACKS}" "${TOTAL_WITH_EXTRA}" "${TOTAL_WITH_EXTRA}" "${NODE_COUNT}" false
+check_state eligibility-churn-restore "${scenario_started_seconds}" "${FULL_RACKS}" "${TOTAL_WITH_EXTRA}" "${TOTAL_WITH_EXTRA}" "${NODE_COUNT}" false
 
 capture_metrics final
 jq -s '{schemaVersion:1,states:.}' "${ARTIFACT_DIR}"/*.result.json >"${ARTIFACT_DIR}/results.json"
