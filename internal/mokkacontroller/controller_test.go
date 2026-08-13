@@ -60,6 +60,30 @@ func TestEventRoutingUsesBoundedDependencyKeys(t *testing.T) {
 	}, drainQueue(queues.status))
 }
 
+func TestControllerOwnedFreeRackAddContinuesPendingAllocation(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.RackIndexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	registry := newPlacementRegistry()
+	inventory := testInventory()
+	require.NoError(t, inventories.Add(inventory))
+	registry.replace(inventory)
+	router := newEventRouter(inventories, racks, registry, queues)
+
+	replacement := testNode()
+	replacement.UID = "replacement-uid"
+	router.nodeAdd(replacement)
+	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups),
+		"the first reconcile can still observe the deleted rack's stale binding")
+
+	recreated := testRack(replacement)
+	recreated.Spec.Slots[0].NodeRef = nil
+	router.rackAdd(recreated)
+	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups),
+		"observing the recreated free slot must reconsider a replacement left pending against stale cache state")
+}
+
 func TestNoOpUpdatesAreSuppressed(t *testing.T) {
 	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.RackIndexers())

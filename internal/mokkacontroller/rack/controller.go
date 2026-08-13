@@ -767,6 +767,11 @@ func (r *Reconciler) mutateRack(
 			_, classified := r.classifyRackApplyError(ctx, inventory, candidate, err)
 			return classified
 		}
+		if updated.UID != base.UID {
+			return apierrors.NewConflict(
+				mokkav1alpha1.Resource("sgpuracks"), base.Name, errors.New("rack UID changed"),
+			)
+		}
 		latest = updated
 		changed = true
 		return nil

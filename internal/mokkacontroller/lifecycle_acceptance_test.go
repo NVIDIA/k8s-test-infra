@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -387,6 +388,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 
 func installAcceptanceAPIReactors(t *testing.T, client *mokkafake.Clientset) {
 	t.Helper()
+	var nextRackUID atomic.Int64
 	client.PrependReactor("patch", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		patch := action.(k8stesting.PatchActionImpl)
 		require.Equal(t, types.ApplyPatchType, patch.GetPatchType())
@@ -398,7 +400,7 @@ func installAcceptanceAPIReactors(t *testing.T, client *mokkafake.Clientset) {
 		resource := mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuracks")
 		stored, err := client.Tracker().Get(resource, "", desired.Name)
 		if apierrors.IsNotFound(err) {
-			desired.UID = types.UID("uid-" + desired.Name)
+			desired.UID = types.UID(fmt.Sprintf("uid-%s-%d", desired.Name, nextRackUID.Add(1)))
 			desired.ResourceVersion = "1"
 			err = client.Tracker().Create(resource, desired, "")
 			return true, desired, err

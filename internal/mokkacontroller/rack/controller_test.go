@@ -515,6 +515,46 @@ func TestReconcileWaitsForGoneUIDCleanupBeforeAllocatingReplacement(t *testing.T
 	require.Equal(t, replacement.UID, got.Spec.Slots[0].NodeRef.UID)
 }
 
+func TestReconcileRetriesAllocationWhenStaleRackApplyRecreatesObject(t *testing.T) {
+	ctx := context.Background()
+	profile := testProfile("p", "profile-uid", 1, 1, 1)
+	inventory := testInventory("inventory", "inventory-uid", "p", 1)
+	old := testNode("same", "old-uid", 1, map[string]string{"pool": "gpu"})
+	h := newHarness(t, []runtime.Object{profile, inventory}, []*corev1.Node{old})
+	_, err := h.reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
+	h.sync(t)
+
+	rackName := materialize.RackName(inventory.Name, inventory.UID, "group", 0)
+	stale, err := h.cache.Rack(rackName)
+	require.NoError(t, err)
+	require.NoError(t, h.mokka.MokkaV1alpha1().SGPURacks().Delete(ctx, rackName, metav1.DeleteOptions{}))
+	replacement := testNode("same", "new-uid", 2, map[string]string{"pool": "gpu"})
+	reconciler := NewReconciler(
+		&nodeOverrideCache{Cache: h.cache, nodes: []*corev1.Node{replacement}},
+		h.mokka.MokkaV1alpha1().SGPUInventories(),
+		h.mokka.MokkaV1alpha1().SGPURacks(),
+		CleanupGateFunc(func(CleanupNeeded) bool { return true }),
+	)
+
+	_, err = reconciler.Reconcile(ctx, inventory.Name)
+	require.Error(t, err)
+	require.True(t, apierrors.IsConflict(err))
+	recreated, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
+	require.NoError(t, err)
+	require.NotEqual(t, stale.UID, recreated.UID)
+	require.Nil(t, recreated.Spec.Slots[0].NodeRef,
+		"the replacement remains pending while the allocation snapshot contains the stale binding")
+
+	h.nodes = []*corev1.Node{replacement}
+	h.sync(t)
+	_, err = h.reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
+	recreated, err = h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Equal(t, replacement.UID, recreated.Spec.Slots[0].NodeRef.UID)
+}
+
 func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
 	ctx := context.Background()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
@@ -669,11 +709,12 @@ func TestInformerIndexesExposeOnlyDirectDependents(t *testing.T) {
 }
 
 type harness struct {
-	t       *testing.T
-	mokka   *mokkafake.Clientset
-	nodes   []*corev1.Node
-	cache   *ListerCache
-	cleaned bool
+	t           *testing.T
+	mokka       *mokkafake.Clientset
+	nodes       []*corev1.Node
+	cache       *ListerCache
+	cleaned     bool
+	nextRackUID int64
 }
 
 type testCleanupGate struct {
@@ -693,6 +734,13 @@ func (c *inventoryOverrideCache) Inventory(name string) (*mokkav1alpha1.SGPUInve
 	}
 	return c.Cache.Inventory(name)
 }
+
+type nodeOverrideCache struct {
+	Cache
+	nodes []*corev1.Node
+}
+
+func (c *nodeOverrideCache) Nodes() ([]*corev1.Node, error) { return c.nodes, nil }
 
 func newHarness(t *testing.T, mokkaObjects []runtime.Object, nodes []*corev1.Node) *harness {
 	t.Helper()
@@ -719,7 +767,8 @@ func (h *harness) installRackApplyReactor() {
 		resource := mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuracks")
 		stored, err := h.mokka.Tracker().Get(resource, "", patch.GetName())
 		if apierrors.IsNotFound(err) {
-			desired.UID = types.UID("uid-" + desired.Name)
+			h.nextRackUID++
+			desired.UID = types.UID(fmt.Sprintf("uid-%s-%d", desired.Name, h.nextRackUID))
 			desired.ResourceVersion = "1"
 			err = h.mokka.Tracker().Create(resource, desired, "")
 			return true, desired, err

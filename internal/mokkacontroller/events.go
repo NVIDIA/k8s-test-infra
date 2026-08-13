@@ -248,12 +248,15 @@ func (r *eventRouter) rackAdd(object any) {
 	rack, ok := eventObject[*mokkav1alpha1.SGPURack](object)
 	if ok {
 		fresh := make(map[int32]types.UID)
+		freeSlot := false
 		for _, slot := range rack.Spec.Slots {
-			if slot.NodeRef != nil {
-				fresh[slot.Index] = slot.NodeRef.UID
+			if slot.NodeRef == nil {
+				freeSlot = true
+				continue
 			}
+			fresh[slot.Index] = slot.NodeRef.UID
 		}
-		r.routeRackCurrent(rack, !rackOwnedByReference(rack), fresh)
+		r.routeRackCurrent(rack, freeSlot || !rackOwnedByReference(rack), fresh)
 	}
 }
 
