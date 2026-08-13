@@ -15,7 +15,7 @@ SHELL := /usr/bin/env bash
 # itself — see the `e2e` and `.mod-verify` targets.
 .SHELLFLAGS := -o pipefail -ec
 
-.PHONY: build build-mokka-controller test-mokka-controller fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd generate-mokka verify-mokka-generated
+.PHONY: build build-mokka-controller test-mokka-controller fmt verify release lint vendor check-vendor helm-unittest e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd generate-mokka verify-mokka-generated kwok-scale kwok-scale-matrix test-kwok-contract
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
@@ -39,7 +39,24 @@ build-mokka-controller:
 	$(GO_CMD) build -o bin/mokka-controller ./cmd/mokka-controller
 
 test-mokka-controller:
-	$(GO_CMD) test -race ./internal/mokkacontroller/... ./cmd/mokka-controller
+	$(GO_CMD) test -race ./internal/mokkacontroller/... ./cmd/mokka-controller ./tests/kwok/...
+
+test-kwok-contract:
+	$(GO_CMD) test -race ./tests/kwok/...
+
+# Explicit opt-in: this owns a Docker-backed KWOK cluster and can consume
+# substantial host resources at the larger tiers. It is not part of unit CI.
+KWOK_NODE_COUNT ?= 100
+KWOK_MATRIX ?= 1000 10000 25000 50000 100000
+kwok-scale:
+	@test "$(KWOK_SCALE)" = 1 || { echo "set KWOK_SCALE=1 to run the opt-in KWOK POC"; exit 2; }
+	KWOK_NODE_COUNT=$(KWOK_NODE_COUNT) ./tests/kwok/run.sh
+
+kwok-scale-matrix:
+	@test "$(KWOK_SCALE)" = 1 || { echo "set KWOK_SCALE=1 to run the opt-in KWOK POC"; exit 2; }
+	@for count in $(KWOK_MATRIX); do \
+		KWOK_NODE_COUNT=$$count KWOK_CLUSTER_NAME=mokka-controller-kwok-$$count ./tests/kwok/run.sh || exit; \
+	done
 
 fmt:
 	@$(GO_FMT) -w -l $$(find . -name '*.go')

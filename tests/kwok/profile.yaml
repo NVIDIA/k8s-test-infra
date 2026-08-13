@@ -1,0 +1,80 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: mokka.nvidia.com/v1alpha1
+kind: SGPUProfile
+metadata:
+  name: mokka-kwok
+spec:
+  rack:
+    nodesPerRack: __NODES_PER_RACK__
+  node:
+    gpus:
+      count: 1
+      model:
+        vendor: NVIDIA
+        product: A100-SXM4-40GB
+        productName: NVIDIA A100-SXM4-40GB
+        architecture: Ampere
+        computeCapability:
+          major: 8
+          minor: 0
+        cores:
+          cuda: 6912
+        board:
+          partNumber: 692-2G506-0200-000
+        firmware:
+          vbiosVersion: 94.02.71.00.01
+          gspVersion: 580.65.06
+          infoROM:
+            imageVersion: G506.0200.00.05
+            oemObjectVersion: "1.1"
+            eccObjectVersion: "6.16"
+            powerObjectVersion: "1.0"
+      memory:
+        capacity: 40Gi
+        reserved: 1Mi
+        bar1Capacity: 32Gi
+        busWidthBits: 5120
+      pci:
+        vendorID: 10de
+        deviceID: 20b0
+        subsystemVendorID: 10de
+        subsystemDeviceID: 134f
+        maxLink:
+          generation: 4
+          width: 16
+      power:
+        managementSupported: true
+        limitsMilliWatts:
+          minimum: 100000
+          default: 400000
+          maximum: 400000
+      thermal:
+        targetCelsius: 83
+        maxOperatingCelsius: 87
+        slowdownThresholdCelsius: 90
+        shutdownThresholdCelsius: 92
+      clocks:
+        maximumMHz:
+          graphics: 1410
+          sm: 1410
+          memory: 1215
+          video: 1290
+        supported:
+          - memoryMHz: 1215
+            graphicsMHz: [1095, 1215, 1410]
+      capabilities:
+        mig:
+          supported: true
+          maxGPUInstances: 7
+    topology:
+      gpuSlots:
+        - index: 0
+          pciAddress: "0000:01:00.0"
+          rootComplex: pci0000:00
+          numaNode: 0
+          hostProcessorIndex: 0
+  software:
+    driverVersion: 580.65.06
+    nvmlVersion: "13.0"
+    cudaVersion: "13.0"

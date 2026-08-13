@@ -11,6 +11,7 @@
 # from tests/e2e/go, so the relative artifacts/e2e/go default resolves there.
 e2e.log
 tests/e2e/go/artifacts/
+/_artifacts/kwok/
 
 pkg/network/*/libibmock*
 # Stray binaries from `go build ./cmd/...` at repo root
