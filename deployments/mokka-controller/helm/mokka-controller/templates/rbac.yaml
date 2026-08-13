@@ -16,7 +16,7 @@ rules:
     verbs: ["update"]
   - apiGroups: ["mokka.nvidia.com"]
     resources: ["sgpuracks"]
-    verbs: ["get", "list", "watch", "create", "update", "delete"]
+    verbs: ["get", "list", "watch", "create", "patch", "update", "delete"]
   - apiGroups: ["mokka.nvidia.com"]
     resources: ["sgpuracks/status"]
     verbs: ["update"]

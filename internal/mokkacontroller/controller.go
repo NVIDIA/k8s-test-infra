@@ -213,6 +213,12 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		return withInventoryLock(name, func() error {
 			result, err := rackReconciler.Reconcile(ctx, name)
 			if err != nil {
+				var ownershipErr *controllerack.RackOwnershipConflictError
+				if errors.As(err, &ownershipErr) {
+					if statusErr := finishRackReconcile(name, nil, result); statusErr != nil {
+						return errors.Join(err, statusErr)
+					}
+				}
 				return err
 			}
 			return finishRackReconcile(name, nil, result)
@@ -229,6 +235,12 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			}
 			result, err := rackReconciler.ReconcileGroup(ctx, key)
 			if err != nil {
+				var ownershipErr *controllerack.RackOwnershipConflictError
+				if errors.As(err, &ownershipErr) {
+					if statusErr := finishRackReconcile(key.InventoryName, &key, result); statusErr != nil {
+						return errors.Join(err, statusErr)
+					}
+				}
 				return err
 			}
 			return finishRackReconcile(key.InventoryName, &key, result)

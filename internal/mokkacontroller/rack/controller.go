@@ -9,6 +9,7 @@ package rack
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -21,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/utils/ptr"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/pkg/apis/mokka/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
@@ -30,6 +32,7 @@ import (
 const (
 	InventoryFinalizer = "mokka.nvidia.com/inventory-cleanup"
 	RackFinalizer      = "mokka.nvidia.com/rack-cleanup"
+	RackFieldManager   = "mokka-controller"
 
 	InventoryNameLabel     = "mokka.nvidia.com/inventory"
 	RackGroupLabel         = "mokka.nvidia.com/rack-group"
@@ -46,8 +49,7 @@ type InventoryMutations interface {
 // RackMutations is the narrow live-client surface used for rack writes.
 type RackMutations interface {
 	Get(context.Context, string, metav1.GetOptions) (*mokkav1alpha1.SGPURack, error)
-	Create(context.Context, *mokkav1alpha1.SGPURack, metav1.CreateOptions) (*mokkav1alpha1.SGPURack, error)
-	Update(context.Context, *mokkav1alpha1.SGPURack, metav1.UpdateOptions) (*mokkav1alpha1.SGPURack, error)
+	Patch(context.Context, string, types.PatchType, []byte, metav1.PatchOptions, ...string) (*mokkav1alpha1.SGPURack, error)
 	Delete(context.Context, string, metav1.DeleteOptions) error
 }
 
@@ -95,6 +97,19 @@ type OwnershipConflict struct {
 	RackGroup string
 	OwnerUID  types.UID
 }
+
+// RackOwnershipConflictError makes an SSA ownership conflict retryable while
+// retaining the structured conflict used to report inventory status.
+type RackOwnershipConflictError struct {
+	Conflict OwnershipConflict
+	Cause    error
+}
+
+func (e *RackOwnershipConflictError) Error() string {
+	return fmt.Sprintf("rack %q has controller-owned fields managed elsewhere: %v", e.Conflict.RackName, e.Cause)
+}
+
+func (e *RackOwnershipConflictError) Unwrap() error { return e.Cause }
 
 // Result contains status inputs and explicit cross-controller cleanup work.
 // Expected configuration problems are data, not retryable errors.
@@ -242,6 +257,8 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 		}
 		changed, cleanup, err := r.retireRack(ctx, inventory, existing, CleanupRackDeleting)
 		if err != nil {
+			appendOwnershipConflict(&result, err)
+			sortResult(&result)
 			return result, err
 		}
 		result.Changed = result.Changed || changed
@@ -273,6 +290,8 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 			}
 			changed, cleanup, err := r.retireRack(ctx, inventory, existing, reason)
 			if err != nil {
+				appendOwnershipConflict(&result, err)
+				sortResult(&result)
 				return result, err
 			}
 			result.Changed = result.Changed || changed
@@ -331,13 +350,14 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 			}
 
 			changed, conflict, err := r.createOrUpdateRack(ctx, inventory, existing, rendered.Name, targetSpec)
-			if err != nil {
-				return result, err
-			}
-			result.Changed = result.Changed || changed
 			if conflict != nil {
 				result.OwnershipConflicts = append(result.OwnershipConflicts, *conflict)
 			}
+			if err != nil {
+				sortResult(&result)
+				return result, err
+			}
+			result.Changed = result.Changed || changed
 		}
 	}
 
@@ -578,6 +598,8 @@ func (r *Reconciler) reconcileInventoryDeletion(
 	for _, rack := range racks {
 		changed, cleanup, err := r.retireRack(ctx, inventory, rack, CleanupInventoryDeleting)
 		if err != nil {
+			appendOwnershipConflict(&result, err)
+			sortResult(&result)
 			return result, err
 		}
 		result.Changed = result.Changed || changed
@@ -611,27 +633,34 @@ func (r *Reconciler) createOrUpdateRack(
 	spec mokkav1alpha1.SGPURackSpec,
 ) (bool, *OwnershipConflict, error) {
 	if existing == nil {
-		desired := newRack(inventory, name, spec)
-		_, err := r.racks.Create(ctx, desired, metav1.CreateOptions{})
-		if err == nil {
-			return true, nil, nil
+		latest, err := r.racks.Get(ctx, name, metav1.GetOptions{})
+		switch {
+		case err == nil:
+			if !controlledByInventory(latest, inventory) {
+				conflict := ownershipConflict(latest, spec.Identity.RackGroup)
+				return false, &conflict, nil
+			}
+			existing = latest
+		case !apierrors.IsNotFound(err):
+			return false, nil, fmt.Errorf("check rack %q before apply: %w", name, err)
 		}
-		if !apierrors.IsAlreadyExists(err) {
-			return false, nil, fmt.Errorf("create rack %q: %w", name, err)
-		}
-		latest, getErr := r.racks.Get(ctx, name, metav1.GetOptions{})
-		if getErr != nil {
-			return false, nil, fmt.Errorf("get concurrently created rack %q: %w", name, getErr)
-		}
-		if !controlledByInventory(latest, inventory) {
-			conflict := ownershipConflict(latest, spec.Identity.RackGroup)
-			return false, &conflict, nil
-		}
-		return false, nil, apierrors.NewConflict(mokkav1alpha1.Resource("sgpuracks"), name, errors.New("informer snapshot is stale after concurrent rack creation"))
 	}
-	if !controlledByInventory(existing, inventory) {
+	if existing != nil && !controlledByInventory(existing, inventory) {
 		conflict := ownershipConflict(existing, spec.Identity.RackGroup)
 		return false, &conflict, nil
+	}
+	if existing == nil {
+		desired := newRack(inventory, name, spec)
+		applied, err := r.applyRack(ctx, desired)
+		if err != nil {
+			conflict, conflictErr := r.classifyRackApplyError(ctx, inventory, desired, err)
+			return false, conflict, conflictErr
+		}
+		if !controlledByInventory(applied, inventory) {
+			conflict := ownershipConflict(applied, spec.Identity.RackGroup)
+			return false, &conflict, &RackOwnershipConflictError{Conflict: conflict, Cause: errors.New("applied rack has a different controller owner")}
+		}
+		return true, nil, nil
 	}
 	changed, _, _, err := r.mutateRack(ctx, inventory, existing, func(latest *mokkav1alpha1.SGPURack) bool {
 		before := latest.DeepCopy()
@@ -639,6 +668,12 @@ func (r *Reconciler) createOrUpdateRack(
 		ensureRackMetadata(latest, inventory)
 		return !rackSemanticEqual(before, latest)
 	})
+	if err != nil {
+		var ownershipErr *RackOwnershipConflictError
+		if errors.As(err, &ownershipErr) {
+			return changed, &ownershipErr.Conflict, err
+		}
+	}
 	return changed, nil, err
 }
 
@@ -705,15 +740,19 @@ func (r *Reconciler) mutateRack(
 		}
 		first = false
 		if !controlledByInventory(latest, inventory) {
-			return apierrors.NewConflict(mokkav1alpha1.Resource("sgpuracks"), base.Name, errors.New("rack ownership changed"))
+			conflict := ownershipConflict(latest, base.Spec.Identity.RackGroup)
+			return &RackOwnershipConflictError{Conflict: conflict, Cause: apierrors.NewConflict(
+				mokkav1alpha1.Resource("sgpuracks"), base.Name, errors.New("rack ownership changed"),
+			)}
 		}
 		candidate := latest.DeepCopy()
 		if !mutate(candidate) {
 			return nil
 		}
-		updated, err := r.racks.Update(ctx, candidate, metav1.UpdateOptions{})
+		updated, err := r.applyRack(ctx, candidate)
 		if err != nil {
-			return err
+			_, classified := r.classifyRackApplyError(ctx, inventory, candidate, err)
+			return classified
 		}
 		latest = updated
 		changed = true
@@ -723,6 +762,109 @@ func (r *Reconciler) mutateRack(
 		return changed, false, latest, fmt.Errorf("update rack %q: %w", base.Name, err)
 	}
 	return changed, rackEmpty(latest), latest, nil
+}
+
+type rackApplyDocument struct {
+	APIVersion string                     `json:"apiVersion"`
+	Kind       string                     `json:"kind"`
+	Metadata   rackApplyObjectMeta        `json:"metadata"`
+	Spec       mokkav1alpha1.SGPURackSpec `json:"spec"`
+}
+
+type rackApplyObjectMeta struct {
+	Name            string                  `json:"name"`
+	ResourceVersion string                  `json:"resourceVersion,omitempty"`
+	Labels          map[string]string       `json:"labels,omitempty"`
+	Annotations     map[string]string       `json:"annotations,omitempty"`
+	Finalizers      []string                `json:"finalizers"`
+	OwnerReferences []metav1.OwnerReference `json:"ownerReferences"`
+}
+
+func (r *Reconciler) applyRack(ctx context.Context, desired *mokkav1alpha1.SGPURack) (*mokkav1alpha1.SGPURack, error) {
+	payload, err := rackApplyPayload(desired)
+	if err != nil {
+		return nil, err
+	}
+	applied, err := r.racks.Patch(ctx, desired.Name, types.ApplyPatchType, payload, metav1.PatchOptions{
+		FieldManager: RackFieldManager,
+		Force:        ptr.To(false),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if applied == nil {
+		return nil, fmt.Errorf("apply rack %q returned no object", desired.Name)
+	}
+	return applied, nil
+}
+
+func rackApplyPayload(desired *mokkav1alpha1.SGPURack) ([]byte, error) {
+	labels := make(map[string]string, 3)
+	for _, key := range []string{InventoryNameLabel, RackGroupLabel, RackIndexLabel} {
+		if value, found := desired.Labels[key]; found {
+			labels[key] = value
+		}
+	}
+	annotations := make(map[string]string, 1)
+	if value, found := desired.Annotations[InventoryUIDAnnotation]; found {
+		annotations[InventoryUIDAnnotation] = value
+	}
+	finalizers := make([]string, 0, 1)
+	if slices.Contains(desired.Finalizers, RackFinalizer) {
+		finalizers = append(finalizers, RackFinalizer)
+	}
+	owners := make([]metav1.OwnerReference, 0, 1)
+	if owner := controllerInventoryOwner(desired); owner != nil {
+		owners = append(owners, *owner.DeepCopy())
+	}
+	document := rackApplyDocument{
+		APIVersion: mokkav1alpha1.SchemeGroupVersion.String(),
+		Kind:       "SGPURack",
+		Metadata: rackApplyObjectMeta{
+			Name: desired.Name, ResourceVersion: desired.ResourceVersion,
+			Labels: labels, Annotations: annotations, Finalizers: finalizers, OwnerReferences: owners,
+		},
+		Spec: *desired.Spec.DeepCopy(),
+	}
+	payload, err := json.Marshal(document)
+	if err != nil {
+		return nil, fmt.Errorf("marshal rack %q apply document: %w", desired.Name, err)
+	}
+	return payload, nil
+}
+
+func (r *Reconciler) classifyRackApplyError(
+	ctx context.Context,
+	inventory *mokkav1alpha1.SGPUInventory,
+	desired *mokkav1alpha1.SGPURack,
+	err error,
+) (*OwnershipConflict, error) {
+	latest, getErr := r.racks.Get(ctx, desired.Name, metav1.GetOptions{})
+	if getErr == nil && !controlledByInventory(latest, inventory) {
+		conflict := ownershipConflict(latest, desired.Spec.Identity.RackGroup)
+		return &conflict, &RackOwnershipConflictError{Conflict: conflict, Cause: err}
+	}
+	if getErr != nil && !apierrors.IsNotFound(getErr) {
+		return nil, fmt.Errorf("check ownership after rack %q apply failed: %w", desired.Name, getErr)
+	}
+	if isFieldManagerConflict(err) {
+		conflict := ownershipConflict(desired, desired.Spec.Identity.RackGroup)
+		return &conflict, &RackOwnershipConflictError{Conflict: conflict, Cause: err}
+	}
+	return nil, err
+}
+
+func isFieldManagerConflict(err error) bool {
+	var status apierrors.APIStatus
+	if !errors.As(err, &status) || status.Status().Details == nil {
+		return false
+	}
+	for _, cause := range status.Status().Details.Causes {
+		if cause.Type == metav1.CauseTypeFieldManagerConflict {
+			return true
+		}
+	}
+	return false
 }
 
 func validateInventory(inventory *mokkav1alpha1.SGPUInventory) error {
@@ -932,6 +1074,13 @@ func removeString(values []string, remove string) []string {
 	return slices.DeleteFunc(slices.Clone(values), func(value string) bool { return value == remove })
 }
 
+func appendOwnershipConflict(result *Result, err error) {
+	var ownershipErr *RackOwnershipConflictError
+	if errors.As(err, &ownershipErr) {
+		result.OwnershipConflicts = append(result.OwnershipConflicts, ownershipErr.Conflict)
+	}
+}
+
 func sortResult(result *Result) {
 	slices.SortFunc(result.ProfileIssues, func(a, b ProfileIssue) int {
 		if order := cmp.Compare(a.RackGroup, b.RackGroup); order != 0 {
@@ -956,6 +1105,10 @@ func retryOnConflict(operation func() error) error {
 		err := operation()
 		if err == nil {
 			return true, nil
+		}
+		var ownershipErr *RackOwnershipConflictError
+		if errors.As(err, &ownershipErr) {
+			return false, err
 		}
 		if !apierrors.IsConflict(err) {
 			return false, err

@@ -82,7 +82,7 @@ func TestHelmRenderIncludesOperationalResourcesAndExactRBAC(t *testing.T) {
 		{APIGroups: []string{"mokka.nvidia.com"}, Resources: []string{"sgpuprofiles"}, Verbs: []string{"get", "list", "watch"}},
 		{APIGroups: []string{"mokka.nvidia.com"}, Resources: []string{"sgpuinventories"}, Verbs: []string{"get", "list", "watch", "update"}},
 		{APIGroups: []string{"mokka.nvidia.com"}, Resources: []string{"sgpuinventories/status"}, Verbs: []string{"update"}},
-		{APIGroups: []string{"mokka.nvidia.com"}, Resources: []string{"sgpuracks"}, Verbs: []string{"get", "list", "watch", "create", "update", "delete"}},
+		{APIGroups: []string{"mokka.nvidia.com"}, Resources: []string{"sgpuracks"}, Verbs: []string{"get", "list", "watch", "create", "patch", "update", "delete"}},
 		{APIGroups: []string{"mokka.nvidia.com"}, Resources: []string{"sgpuracks/status"}, Verbs: []string{"update"}},
 		{APIGroups: []string{""}, Resources: []string{"nodes"}, Verbs: []string{"get", "list", "watch", "patch"}},
 	}, clusterRole.Rules)

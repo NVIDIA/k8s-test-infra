@@ -305,12 +305,34 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 
 func installAcceptanceAPIReactors(t *testing.T, client *mokkafake.Clientset) {
 	t.Helper()
-	client.PrependReactor("create", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		created := action.(k8stesting.CreateAction).GetObject().(*mokkav1alpha1.SGPURack).DeepCopy()
-		created.UID = types.UID("uid-" + created.Name)
-		created.ResourceVersion = "1"
-		err := client.Tracker().Create(mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuracks"), created, "")
-		return true, created, err
+	client.PrependReactor("patch", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		patch := action.(k8stesting.PatchActionImpl)
+		require.Equal(t, types.ApplyPatchType, patch.GetPatchType())
+		require.Equal(t, controllerack.RackFieldManager, patch.GetPatchOptions().FieldManager)
+		require.NotNil(t, patch.GetPatchOptions().Force)
+		require.False(t, *patch.GetPatchOptions().Force)
+		desired := &mokkav1alpha1.SGPURack{}
+		require.NoError(t, json.Unmarshal(patch.GetPatch(), desired))
+		resource := mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuracks")
+		stored, err := client.Tracker().Get(resource, "", desired.Name)
+		if apierrors.IsNotFound(err) {
+			desired.UID = types.UID("uid-" + desired.Name)
+			desired.ResourceVersion = "1"
+			err = client.Tracker().Create(resource, desired, "")
+			return true, desired, err
+		}
+		if err != nil {
+			return true, nil, err
+		}
+		updated := stored.(*mokkav1alpha1.SGPURack).DeepCopy()
+		updated.Spec = desired.Spec
+		updated.Labels = desired.Labels
+		updated.Annotations = desired.Annotations
+		updated.Finalizers = desired.Finalizers
+		updated.OwnerReferences = desired.OwnerReferences
+		updated.ResourceVersion += "a"
+		err = client.Tracker().Update(resource, updated, "")
+		return true, updated, err
 	})
 	client.PrependReactor("update", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		if action.GetSubresource() != "status" {
