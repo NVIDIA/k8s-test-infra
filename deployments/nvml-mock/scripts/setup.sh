@@ -199,27 +199,36 @@ cat >> "$CDI_DIR/nvidia.yaml" << 'CDI_DEVICES'
 devices:
 CDI_DEVICES
 
-# Extract per-index UUIDs from the profile config (the line immediately after
-# each `- index:` marker). Devices are exposed under BOTH the index shorthand
-# ("0".."N-1") — how the nvidia-container-runtime CLI addresses them — and the
-# fully-qualified UUID — how the k8s device plugin allocates and how containerd
-# resolves CDI device references by name. Without the UUID entries, any pod
-# requesting `nvidia.com/gpu` on a containerd with `enable_cdi = true` (the
-# kind-nvidia-cdi image default) fails with `unresolvable CDI devices
-# nvidia.com/gpu=<uuid>`.
-UUID_LIST=$(awk '
-    /^[[:space:]]*- index:/ { pending=1; next }
+# Build an "index uuid" map from the profile config so each device node's CDI
+# entry uses the UUID for its declared `index:`, not for its list position.
+# Profiles are conventionally in ascending order, but the mock's NVML shim
+# resolves overrides by explicit index — an out-of-order profile would make
+# CDI and NVML disagree about which GPU a UUID names, and pods would land on
+# the wrong /dev/nvidia<n>. Devices are exposed under BOTH the index
+# shorthand ("0".."N-1") — how the nvidia-container-runtime CLI addresses
+# them — and the fully-qualified UUID — how the k8s device plugin allocates
+# and how containerd resolves CDI device references by name. Without the UUID
+# entries, any pod requesting `nvidia.com/gpu` on a containerd with
+# `enable_cdi = true` (the kind-nvidia-cdi image default) fails with
+# `unresolvable CDI devices nvidia.com/gpu=<uuid>`.
+INDEX_UUID_MAP=$(awk '
+    /^[[:space:]]*- index:/ {
+        cur_index = $3
+        gsub(/"/, "", cur_index)
+        pending = 1
+        next
+    }
     pending && /^[[:space:]]*uuid:/ {
         sub(/^[[:space:]]*uuid:[[:space:]]*/, "")
         gsub(/"/, "")
-        print
-        pending=0
+        print cur_index " " $0
+        pending = 0
     }
 ' /etc/nvml-mock/config.yaml)
 
 # Per-GPU device entries (index and UUID names point at the same device node).
 for i in $(seq 0 $((GPU_COUNT - 1))); do
-  UUID=$(echo "$UUID_LIST" | sed -n "$((i+1))p")
+  UUID=$(echo "$INDEX_UUID_MAP" | awk -v idx="$i" '$1 == idx { print $2; exit }')
   for NAME in "$i" "$UUID"; do
     [ -z "$NAME" ] && continue
     cat >> "$CDI_DIR/nvidia.yaml" << DEVICE_EOF
