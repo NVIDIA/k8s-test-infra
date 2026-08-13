@@ -98,7 +98,7 @@ wait_for() {
 controller_ready() {
 	local port
 	port="$(cat "${WORK_DIR}/controller.port")"
-	curl --fail --silent --show-error --max-time 2 "http://127.0.0.1:${port}/readyz" >/dev/null
+	curl --fail --silent --max-time 2 "http://127.0.0.1:${port}/readyz" >/dev/null
 }
 
 start_controller() {

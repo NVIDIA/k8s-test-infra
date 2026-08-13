@@ -52,6 +52,14 @@ func TestTemplatesRenderValidScaleResources(t *testing.T) {
 	require.Contains(t, resource.Template, "name: {{ Name }}")
 }
 
+func TestNodeResourceDefinesParameters(t *testing.T) {
+	var resource struct {
+		Parameters map[string]any `yaml:"parameters"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(readFile(t, "node-resource.yaml")), &resource))
+	require.NotNil(t, resource.Parameters)
+}
+
 func TestRunnerContract(t *testing.T) {
 	runnerPath := filepath.Join(testDir(t), "run.sh")
 	runnerData, err := os.ReadFile(runnerPath)
@@ -64,6 +72,7 @@ func TestRunnerContract(t *testing.T) {
 	require.Contains(t, runner, `"${CONTROLLER_BIN}"`)
 	require.Contains(t, runner, `--leader-election-name=mokka-controller-kwok`)
 	require.Contains(t, runner, `kwok scale mokka-node --replicas`)
+	require.NotContains(t, runner, `--show-error`)
 	require.NotContains(t, runner, "curl | sh")
 	require.NotContains(t, runner, "helm install")
 	require.NotContains(t, runner, "deployment/mokka-controller")
