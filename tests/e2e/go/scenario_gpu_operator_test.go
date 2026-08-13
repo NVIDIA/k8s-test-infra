@@ -42,7 +42,13 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 
 			BeforeAll(func(ctx SpecContext) {
 				var podName string
-				p, _, node = setupStandaloneProfile(ctx, h, name)
+				p, _, _ = setupStandaloneProfile(ctx, h, name)
+				// Not the node setupStandaloneProfile returns: that comes from
+				// FirstPodName over the nvml-mock DaemonSet, which can land on
+				// the CP (mock tolerates `operator: Exists`), and the Operator's
+				// operands don't tolerate the CP NoSchedule taint — WaitGFDLabels
+				// and WaitAllocatableGPU would time out on a CP-derived node.
+				node = gpuOperatorTargetNode(ctx, h)
 				cp, err := h.Cluster.ControlPlane(ctx)
 				Expect(err).NotTo(HaveOccurred())
 				podName = cp.Name
@@ -177,10 +183,11 @@ func assertRuntimeXidViaDCGM(ctx SpecContext, h *harness.Harness, xid int) {
 }
 
 // gpuOperatorTargetNode picks a node that has both an nvml-mock DaemonSet pod
-// (so nvml-mock-ctl works) and a dcgm-exporter pod (so the metric change is
-// scrapable). dcgm-exporter doesn't tolerate the CP NoSchedule taint, so any
-// worker qualifies whenever workers exist; on control-plane-only clusters the
-// CP is the only place both DaemonSets can land, so fall back to it.
+// (so nvml-mock-ctl and mock-backed operand data are available) and the GPU
+// Operator's operands (GFD, device plugin, dcgm-exporter). The operands don't
+// tolerate the CP NoSchedule taint, so any worker qualifies whenever workers
+// exist; on control-plane-only clusters the CP is the only place both
+// DaemonSets can land, so fall back to it.
 func gpuOperatorTargetNode(ctx SpecContext, h *harness.Harness) string {
 	GinkgoHelper()
 	workers, err := h.Cluster.Workers(ctx)
