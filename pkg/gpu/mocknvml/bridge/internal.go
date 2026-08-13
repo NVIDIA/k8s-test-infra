@@ -49,77 +49,110 @@ static int isDebugEnabled() {
     return debugEnabled;
 }
 
+// Known slots of the export table nvidia-smi fetches for GUID
+// 6c3efec4-8fc9-4e6c-a327-ee696e12f7c4, as table index (byte offset / 8). The
+// slot is part of that table's ABI, so it -- not the shape of the arguments --
+// is what identifies the internal entry point being called. Recovered by giving
+// every slot its own trampoline and logging which slots each nvidia-smi view
+// hits (580.65.06).
+#define MOCK_SLOT_DEVICE_HANDLE_BY_INDEX 81
+#define MOCK_SLOT_PROCESS_LIST_FIRST 213
+#define MOCK_SLOT_PROCESS_LIST_LAST 215
+
 // C stub function for internal export table
 // This gets called by nvidia-smi via the export table function pointers
-// Pattern observed: arg0=device_index (0-7), arg1=output_ptr, arg2=0x22 (flags), arg3=our_stub_ptr
-static nvmlReturn_t internalStubFunction(void* arg0, void* arg1, void* arg2, void* arg3) {
-    // Interpret as device index lookup
+static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* arg1, void* arg2, void* arg3) {
+    (void)arg3;
     uintptr_t rawArg0 = (uintptr_t)arg0;
     uintptr_t rawArg2 = (uintptr_t)arg2;
 
-    // Device index lookup: small index, valid stack pointer, flags 0x22
-    if (rawArg0 < 32 && rawArg2 == 0x22) {
+    // Device index lookup: fn(unsigned int index, nvmlDevice_t* out, 0x22, ...).
+    if (slot == MOCK_SLOT_DEVICE_HANDLE_BY_INDEX && rawArg0 < 32 && rawArg2 == 0x22 && arg1 != NULL) {
         nvmlDevice_t* outputPtr = (nvmlDevice_t*)arg1;
-        if (outputPtr != NULL) {
-            nvmlReturn_t ret = nvmlDeviceGetHandleByIndex_v2((unsigned int)rawArg0, outputPtr);
-            if (isDebugEnabled()) {
-                fprintf(stderr, "[C-STUB] DeviceGetHandle(%u) -> ret=%d, handle=%p\n",
-                        (unsigned int)rawArg0, ret, (void*)outputPtr->handle);
-            }
-            return ret;
+        nvmlReturn_t ret = nvmlDeviceGetHandleByIndex_v2((unsigned int)rawArg0, outputPtr);
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u DeviceGetHandle(%u) -> ret=%d, handle=%p\n",
+                    slot, (unsigned int)rawArg0, ret, (void*)outputPtr->handle);
         }
+        return ret;
     }
 
-    // Process list: fn(nvmlDevice_t device, unsigned int* count, entry* array).
-    // nvidia-smi enumerates running processes for the default table, `-q` and
-    // `--query-compute-apps` through this internal entry point rather than the
-    // public nvmlDeviceGet*RunningProcesses APIs. arg0 is a device handle we
-    // handed out, arg1 points to the caller's buffer capacity (pre-filled, e.g.
-    // 250/500) and arg2 to the array itself. The caller expects the count to be
-    // overwritten with the real number of entries; leaving it untouched is what
-    // made nvidia-smi render its whole uninitialized buffer as phantom
-    // processes (PID 0, empty name, 0 MiB).
-    //
-    // Other per-device internal calls reuse this same stub with a garbage arg2
-    // (observed 0x1 / 0x14 / 0x50) and only get the count zeroed. The entry
-    // layout is documented on mockInternalFillProcessList.
-    if (arg1 != NULL && mockInternalIsDeviceHandle(arg0)) {
-        if (rawArg2 > 0x100000) {
-            unsigned int cap = *(unsigned int*)arg1;
-            if (cap >= 1 && cap <= 65536) {
-                unsigned int n = mockInternalFillProcessList(arg0, arg2, cap);
-                *(unsigned int*)arg1 = n;
-                if (isDebugEnabled()) {
-                    fprintf(stderr, "[C-STUB] process list (handle=%p) -> %u entries\n", arg0, n);
-                }
-                return NVML_SUCCESS;
-            }
-        }
-        // Every other per-device call still gets an explicit zero count. Leaving
-        // it at the caller's pre-filled capacity makes nvidia-smi walk an array
-        // we never wrote: that is the phantom-process bug for the list views,
-        // and a SIGSEGV in `pmon`.
-        *(unsigned int*)arg1 = 0;
-        if (isDebugEnabled()) {
-            fprintf(stderr, "[C-STUB] device list query (handle=%p) -> 0 entries\n", arg0);
-        }
+    if (arg1 == NULL || !mockInternalIsDeviceHandle(arg0)) {
+        // Non-device call - return SUCCESS to acknowledge.
+        //
+        // Slots with no implementation land here, so it must stay SUCCESS:
+        // `nvidia-smi topo -m` probes internal calls before building the matrix
+        // and aborts with "Failed to run topology matrix" on any error.
         return NVML_SUCCESS;
     }
 
-    // Non-device call - return SUCCESS to acknowledge.
+    // Process list: fn(nvmlDevice_t device, unsigned int* count, entry* array).
+    // nvidia-smi enumerates running processes for the default table's Processes
+    // box through these three internal slots rather than the public
+    // nvmlDeviceGet*RunningProcesses APIs. arg1 points to the caller's buffer
+    // capacity (pre-filled, observed 250/500) and arg2 to the array itself. The
+    // caller expects the count to be overwritten with the real number of
+    // entries; leaving it untouched is what made nvidia-smi render its whole
+    // uninitialized buffer as phantom processes (PID 0, empty name, 0 MiB). The
+    // entry layout is documented on mockInternalFillProcessList.
     //
-    // Every slot of the export table points at this one stub, so this arm is
-    // reached by unrelated internal entry points too. It must stay SUCCESS:
-    // `nvidia-smi topo -m` probes internal calls here before building the
-    // matrix and aborts with "Failed to run topology matrix" on any error.
-    // The phantom-process bug this file also fixes came from the per-device
-    // branch above leaving the caller's count untouched, not from this return.
+    // Restricting the write to these slots is load-bearing. Other per-device
+    // slots take fewer arguments -- slot 230 takes two, leaving arg2 holding a
+    // stale register value that points into this library -- so deciding from the
+    // argument shape alone mistook them for a process list and wrote entries
+    // over whatever arg2 happened to point at, faulting in `nvidia-smi -q` as
+    // soon as a process was configured.
+    if (slot >= MOCK_SLOT_PROCESS_LIST_FIRST && slot <= MOCK_SLOT_PROCESS_LIST_LAST &&
+        rawArg2 > 0x100000) {
+        unsigned int cap = *(unsigned int*)arg1;
+        if (cap >= 1 && cap <= 65536) {
+            unsigned int n = mockInternalFillProcessList(arg0, arg2, cap);
+            *(unsigned int*)arg1 = n;
+            if (isDebugEnabled()) {
+                fprintf(stderr, "[C-STUB] slot %u process list (handle=%p) -> %u entries\n",
+                        slot, arg0, n);
+            }
+            return NVML_SUCCESS;
+        }
+    }
+
+    // Every other per-device call still gets an explicit zero count. Leaving it
+    // at the caller's pre-filled capacity makes nvidia-smi walk an array we
+    // never wrote: that is the phantom-process bug for the list views, and a
+    // SIGSEGV in `pmon`.
+    *(unsigned int*)arg1 = 0;
+    if (isDebugEnabled()) {
+        fprintf(stderr, "[C-STUB] slot %u device list query (handle=%p) -> 0 entries\n", slot, arg0);
+    }
     return NVML_SUCCESS;
 }
 
-// Get address of stub function
-static void* getInternalStubAddress() {
-    return (void*)internalStubFunction;
+// One trampoline per export-table slot, so the dispatcher above is told which
+// internal entry point nvidia-smi called instead of having to guess from the
+// argument shape. The 16x16 expansion is only a way to write 256 distinct
+// function bodies; slot number is hi*16 + lo, matching the table index.
+#define MOCK_SLOT_STUB(hi, lo) \
+    static nvmlReturn_t mockSlotStub_##hi##_##lo(void* a0, void* a1, void* a2, void* a3) { \
+        return internalStubFunction(hi * 16 + lo, a0, a1, a2, a3); \
+    }
+#define MOCK_SLOT_ADDR(hi, lo) (void*)mockSlotStub_##hi##_##lo,
+
+#define MOCK_SLOT_ROW(M, hi) \
+    M(hi, 0) M(hi, 1) M(hi, 2) M(hi, 3) M(hi, 4) M(hi, 5) M(hi, 6) M(hi, 7) \
+    M(hi, 8) M(hi, 9) M(hi, 10) M(hi, 11) M(hi, 12) M(hi, 13) M(hi, 14) M(hi, 15)
+#define MOCK_SLOT_ALL(M) \
+    MOCK_SLOT_ROW(M, 0) MOCK_SLOT_ROW(M, 1) MOCK_SLOT_ROW(M, 2) MOCK_SLOT_ROW(M, 3) \
+    MOCK_SLOT_ROW(M, 4) MOCK_SLOT_ROW(M, 5) MOCK_SLOT_ROW(M, 6) MOCK_SLOT_ROW(M, 7) \
+    MOCK_SLOT_ROW(M, 8) MOCK_SLOT_ROW(M, 9) MOCK_SLOT_ROW(M, 10) MOCK_SLOT_ROW(M, 11) \
+    MOCK_SLOT_ROW(M, 12) MOCK_SLOT_ROW(M, 13) MOCK_SLOT_ROW(M, 14) MOCK_SLOT_ROW(M, 15)
+
+MOCK_SLOT_ALL(MOCK_SLOT_STUB)
+
+static void* mockSlotStubs[256] = { MOCK_SLOT_ALL(MOCK_SLOT_ADDR) };
+
+// getSlotStubAddress returns the trampoline that identifies table slot.
+static void* getSlotStubAddress(unsigned int slot) {
+    return mockSlotStubs[slot];
 }
 */
 import "C"
@@ -230,17 +263,14 @@ func initExportTable() {
 	// Offset 0: size field (must be > 648 = 0x288)
 	internalExportTable[0] = 0x1000
 
-	// Get function pointer for our C stub
-	stubPtr := uintptr(C.getInternalStubAddress())
-	debugLog("[MOCK-NVML] C stub function address: %p\n", C.getInternalStubAddress())
-
-	// Fill all potential function pointer slots with the stub
+	// Every slot gets its own trampoline so a call can be attributed to the
+	// internal entry point nvidia-smi asked for.
 	for i := 1; i < 256; i++ {
-		internalExportTable[i] = stubPtr
+		internalExportTable[i] = uintptr(C.getSlotStubAddress(C.uint(i)))
 	}
 
 	exportTableInitialized = true
-	debugLog("[MOCK-NVML] Export table initialized with stub at 0x%x\n", stubPtr)
+	debugLog("[MOCK-NVML] Export table initialized with %d per-slot trampolines\n", 255)
 }
 
 // Internal function used by nvidia-smi for version verification

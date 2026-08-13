@@ -43,6 +43,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `encoder_stats` / `fbc_stats` and the accounting buffer size now reach
   `nvidia-smi -q` instead of silently reporting `N/A`. A regression guard
   fails when an engine method is left behind a `stubReturn` export. (#636)
+- mocknvml: the internal export-table shim no longer writes a process list into
+  memory the caller never handed it. Every table slot pointed at one stub, so
+  the process-list call was recognised from the shape of its arguments; slots
+  that take fewer arguments left a stale register in the position the stub read
+  as the array pointer, and any configured `processes:` entry was then written
+  through it. On arm64 that faulted, so `nvidia-smi -q` (and `-q -x`) died with
+  a SIGSEGV mid-output as soon as a process was configured; elsewhere it wrote
+  into whatever the stale value addressed. Each slot now has its own trampoline
+  and only the three slots that carry a process array are filled.
+- mocknvml: `nvidia-smi -q -d UTILIZATION` reports the configured
+  `utilization.jpeg` and `utilization.ofa` percentages instead of `N/A`. Both
+  keys were parsed into the device config and then dropped: there was no engine
+  getter for either, and `nvmlDeviceGetJpgUtilization` /
+  `nvmlDeviceGetOfaUtilization` were generated stubs returning
+  `NVML_ERROR_NOT_SUPPORTED`. Both are now hand-written in the bridge and read
+  their config field, matching the existing encoder and decoder getters. The
+  values are also settable at runtime with
+  `nvml-mock-ctl set --gpu <idx> utilization.jpeg=35 utilization.ofa=12`. (#637)
 
 - Gate the T.Limit temperature surfaces on Ada and later: the field IDs
   193–196 (`NVML_FI_DEV_TEMPERATURE_*_TLIMIT`) and

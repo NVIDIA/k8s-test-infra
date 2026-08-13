@@ -1751,6 +1751,30 @@ func (d *ConfigurableDevice) GetDecoderUtilization() (uint32, uint32, nvml.Retur
 	return 0, 0, nvml.SUCCESS // Utilization, sampling period
 }
 
+// GetJpgUtilization returns NVJPG (JPEG engine) utilization from
+// utilization.jpeg. Architectures without an NVJPG engine would answer
+// NOT_SUPPORTED on real hardware; every profile the mock ships has one, so a
+// configured percentage is always reportable.
+func (d *ConfigurableDevice) GetJpgUtilization() (uint32, uint32, nvml.Return) {
+	util := uint32(0)
+	if c := d.cfg(); c.Utilization != nil {
+		util = c.Utilization.JPEG
+	}
+	debugLog("[NVML] nvmlDeviceGetJpgUtilization -> %d%%, 0\n", util)
+	return util, 0, nvml.SUCCESS // Utilization, sampling period
+}
+
+// GetOfaUtilization returns optical-flow-accelerator utilization from
+// utilization.ofa. See GetJpgUtilization for the NOT_SUPPORTED caveat.
+func (d *ConfigurableDevice) GetOfaUtilization() (uint32, uint32, nvml.Return) {
+	util := uint32(0)
+	if c := d.cfg(); c.Utilization != nil {
+		util = c.Utilization.OFA
+	}
+	debugLog("[NVML] nvmlDeviceGetOfaUtilization -> %d%%, 0\n", util)
+	return util, 0, nvml.SUCCESS // Utilization, sampling period
+}
+
 // GetPcieReplayCounter returns PCIe replay counter
 func (d *ConfigurableDevice) GetPcieReplayCounter() (int, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetPcieReplayCounter -> 0\n")

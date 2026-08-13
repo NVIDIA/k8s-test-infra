@@ -4,6 +4,8 @@
 package profile
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -98,6 +100,48 @@ func TestNegativeControlsAreIndependent(t *testing.T) {
 		assert.Zero(t, p.ExpectedHCAs(), "%s ExpectedHCAs() want 0 (IB disabled)", name)
 		assert.Zero(t, p.ExpectedNV(), "%s ExpectedNV() want 0 (no NVSwitch)", name)
 	}
+}
+
+// TestUtilizationPercentagesComeFromTheProfile pins which config keys the JPEG
+// and OFA accessors read. The shipped profiles all configure 0 % for both, so a
+// table over them would agree with an accessor reading the wrong key, or none
+// at all — hence a fixture with distinct non-zero values (#637).
+func TestUtilizationPercentagesComeFromTheProfile(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `
+device_defaults:
+  name: "NVIDIA TEST-GPU"
+  utilization:
+    gpu: 21
+    memory: 22
+    jpeg: 35
+    ofa: 12
+devices:
+  - index: 0
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "fixture.yaml"), []byte(yaml), 0o600))
+
+	p, err := Load(dir, "fixture")
+	require.NoError(t, err, "Load(fixture)")
+	require.Equal(t, 35, p.JPEGUtilizationPct(), "JPEGUtilizationPct() must read utilization.jpeg")
+	require.Equal(t, 12, p.OFAUtilizationPct(), "OFAUtilizationPct() must read utilization.ofa")
+}
+
+// A profile with no utilization block must report 0 rather than failing to load.
+func TestUtilizationPercentagesDefaultToZero(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `
+device_defaults:
+  name: "NVIDIA TEST-GPU"
+devices:
+  - index: 0
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "fixture.yaml"), []byte(yaml), 0o600))
+
+	p, err := Load(dir, "fixture")
+	require.NoError(t, err, "Load(fixture)")
+	assert.Zero(t, p.JPEGUtilizationPct(), "JPEGUtilizationPct()")
+	assert.Zero(t, p.OFAUtilizationPct(), "OFAUtilizationPct()")
 }
 
 // TestAll ensures every shipped profile loads cleanly.

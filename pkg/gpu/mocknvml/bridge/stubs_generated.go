@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 273 stub functions for unimplemented NVML functions.
+// 271 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -359,11 +359,6 @@ func nvmlDeviceGetIrqNum(device C.nvmlDevice_t, irqNum *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetIrqNum")
 }
 
-//export nvmlDeviceGetJpgUtilization
-func nvmlDeviceGetJpgUtilization(device C.nvmlDevice_t, utilization *C.uint, samplingPeriodUs *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetJpgUtilization")
-}
-
 //export nvmlDeviceGetLastBBXFlushTime
 func nvmlDeviceGetLastBBXFlushTime(device C.nvmlDevice_t, timestamp *C.ulonglong, durationUs *C.ulong) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetLastBBXFlushTime")
@@ -437,11 +432,6 @@ func nvmlDeviceGetNvlinkBwMode(device C.nvmlDevice_t, getBwMode *C.nvmlNvlinkGet
 //export nvmlDeviceGetNvlinkSupportedBwModes
 func nvmlDeviceGetNvlinkSupportedBwModes(device C.nvmlDevice_t, supportedBwMode *C.nvmlNvlinkSupportedBwModes_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetNvlinkSupportedBwModes")
-}
-
-//export nvmlDeviceGetOfaUtilization
-func nvmlDeviceGetOfaUtilization(device C.nvmlDevice_t, utilization *C.uint, samplingPeriodUs *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetOfaUtilization")
 }
 
 //export nvmlDeviceGetPcieLinkMaxSpeed
