@@ -9,9 +9,19 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // should distribute across CPU nodes. Rack groups are the associative unit:
 // each group specifies a profile, a count, and an optional node selector.
 //
+// All print columns resolve to .status.* fields the (future) controller
+// writes: Groups, Nodes, and GPUs stay blank until the reconciler runs.
+// Groups uses a controller-maintained pre-joined string ("training,ci")
+// modeled after how the kube-apiserver's hard-coded EndpointSlice printer
+// renders its ENDPOINTS column — CRD printer-column JSONPath can't
+// aggregate arrays, and rendering .spec.rackGroups directly is unreadable
+// (raw struct JSON) or misleading (first element only for a [*].id
+// projection).
+//
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,categories=mokka,shortName=sinv
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Groups",type=string,JSONPath=`.status.rackGroupsSummary`
 // +kubebuilder:printcolumn:name="Nodes",type=integer,JSONPath=`.status.capacity.nodes`
 // +kubebuilder:printcolumn:name="GPUs",type=integer,JSONPath=`.status.capacity.gpus`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
@@ -77,6 +87,14 @@ type RackPlacement struct {
 // SGPUInventoryStatus holds the Control Plane's view of realized capacity,
 // current usage, and per-rack-group breakdowns.
 type SGPUInventoryStatus struct {
+	// RackGroupsSummary is a comma-joined list of the current rack-group
+	// IDs (for example, "training,ci"). Denormalized so the default kubectl
+	// print column can render EndpointSlice-style — CRD printer-column
+	// JSONPath can't aggregate arrays, so a pre-joined string is the only
+	// readable option.
+	// +optional
+	RackGroupsSummary string `json:"rackGroupsSummary,omitempty"`
+
 	// +optional
 	Capacity InventoryCapacity `json:"capacity,omitempty"`
 

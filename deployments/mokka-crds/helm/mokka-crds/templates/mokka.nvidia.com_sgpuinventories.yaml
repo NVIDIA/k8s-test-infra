@@ -19,6 +19,9 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .status.rackGroupsSummary
+      name: Groups
+      type: string
     - jsonPath: .status.capacity.nodes
       name: Nodes
       type: integer
@@ -35,6 +38,15 @@ spec:
           SGPUInventory declares a set of simulated GPU racks the Control Plane
           should distribute across CPU nodes. Rack groups are the associative unit:
           each group specifies a profile, a count, and an optional node selector.
+
+          All print columns resolve to .status.* fields the (future) controller
+          writes: Groups, Nodes, and GPUs stay blank until the reconciler runs.
+          Groups uses a controller-maintained pre-joined string ("training,ci")
+          modeled after how the kube-apiserver's hard-coded EndpointSlice printer
+          renders its ENDPOINTS column — CRD printer-column JSONPath can't
+          aggregate arrays, and rendering .spec.rackGroups directly is unreadable
+          (raw struct JSON) or misleading (first element only for a [*].id
+          projection).
         properties:
           apiVersion:
             description: |-
@@ -300,6 +312,14 @@ spec:
                 x-kubernetes-list-map-keys:
                 - id
                 x-kubernetes-list-type: map
+              rackGroupsSummary:
+                description: |-
+                  RackGroupsSummary is a comma-joined list of the current rack-group
+                  IDs (for example, "training,ci"). Denormalized so the default kubectl
+                  print column can render EndpointSlice-style — CRD printer-column
+                  JSONPath can't aggregate arrays, so a pre-joined string is the only
+                  readable option.
+                type: string
               usage:
                 description: |-
                   InventoryUsage aggregates request/allocation lifecycle counts at node

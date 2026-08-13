@@ -10,16 +10,64 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 // rack indices, specific node indices, or specific GPU indices. Omitted
 // spec.runtime fields inherit from the profile's defaults.
 //
+// Print columns render the full targeting coordinate — inventory, then each
+// optional narrowing level (rack groups, rack indexes, node indexes, GPU
+// indexes). Kind is pinned to SGPUInventory by the enum validation on
+// TargetRef.Kind, so we skip a redundant Kind column. Empty cells naturally
+// read as "all" at that level, matching MEP0001's sparse-override semantics.
+//
+// Inventory binds to spec (scalar; visible immediately). The four narrowing
+// columns bind to controller-populated .status.*Summary strings so they
+// render EndpointSlice-style ("training,ci" / "0,1,2") without JSON
+// brackets — CRD printer-column JSONPath cannot join arrays, so the
+// reconciler pre-joins each axis. Columns stay blank until the controller
+// reconciles.
+//
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,categories=mokka,shortName=srpol
-// +kubebuilder:printcolumn:name="TargetKind",type=string,JSONPath=`.spec.targetRef.kind`
-// +kubebuilder:printcolumn:name="TargetName",type=string,JSONPath=`.spec.targetRef.name`
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Inventory",type=string,JSONPath=`.spec.targetRef.name`
+// +kubebuilder:printcolumn:name="RackGroups",type=string,JSONPath=`.status.rackGroupsSummary`
+// +kubebuilder:printcolumn:name="Racks",type=string,JSONPath=`.status.rackIndexesSummary`
+// +kubebuilder:printcolumn:name="Nodes",type=string,JSONPath=`.status.nodeIndexesSummary`
+// +kubebuilder:printcolumn:name="GPUs",type=string,JSONPath=`.status.gpuIndexesSummary`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type SGPURuntimePolicy struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec SGPURuntimePolicySpec `json:"spec"`
+
+	// +optional
+	Status SGPURuntimePolicyStatus `json:"status,omitempty"`
+}
+
+// SGPURuntimePolicyStatus carries controller-derived denormalizations of
+// spec.targetRef. Its only purpose (today) is to power the default kubectl
+// print columns with EndpointSlice-style comma-joined strings — CRD
+// printer-column JSONPath cannot aggregate arrays, so the reconciler joins
+// each targeting axis into a scalar string per column.
+type SGPURuntimePolicyStatus struct {
+	// RackGroupsSummary is a comma-joined rendering of spec.targetRef.rackGroups
+	// (e.g. "training,ci"). Empty when spec.targetRef.rackGroups is unset,
+	// which reads as "policy applies to every rack group of the inventory".
+	// +optional
+	RackGroupsSummary string `json:"rackGroupsSummary,omitempty"`
+
+	// RackIndexesSummary is a comma-joined rendering of
+	// spec.targetRef.rackIndexes (e.g. "0,1,2"). Empty when unset.
+	// +optional
+	RackIndexesSummary string `json:"rackIndexesSummary,omitempty"`
+
+	// NodeIndexesSummary is a comma-joined rendering of
+	// spec.targetRef.nodeIndexes (e.g. "5,10"). Empty when unset.
+	// +optional
+	NodeIndexesSummary string `json:"nodeIndexesSummary,omitempty"`
+
+	// GPUIndexesSummary is a comma-joined rendering of
+	// spec.targetRef.gpuIndexes (e.g. "1,3"). Empty when unset.
+	// +optional
+	GPUIndexesSummary string `json:"gpuIndexesSummary,omitempty"`
 }
 
 // SGPURuntimePolicyList is the list wrapper for SGPURuntimePolicy.
