@@ -217,6 +217,11 @@ func (c *Controller) Project(ctx context.Context, rackName string, slotIndex int
 		c.record(outcome)
 		return outcome, conflict
 	}
+	if projectionIsCurrent(node, labels, assignment) && projectionFieldsOwned(node, labels) {
+		outcome.State, outcome.Reason = StateProjected, ReasonProjected
+		c.record(outcome)
+		return outcome, nil
+	}
 
 	payload, err := nodeApplyPayload(node.Name, labels, map[string]any{AssignmentAnnotation: assignment})
 	if err != nil {
@@ -413,6 +418,76 @@ func projectionLabels(node *corev1.Node, rack *mokkav1alpha1.SGPURack) (map[stri
 		}
 	}
 	return labels, incompatible
+}
+
+func projectionIsCurrent(node *corev1.Node, labels map[string]any, assignment string) bool {
+	if node.Annotations[AssignmentAnnotation] != assignment {
+		return false
+	}
+	for key, desired := range labels {
+		current, exists := node.Labels[key]
+		if desired == nil {
+			if exists {
+				return false
+			}
+			continue
+		}
+		desiredValue, ok := desired.(string)
+		if !ok || !exists || current != desiredValue {
+			return false
+		}
+	}
+	return true
+}
+
+func projectionFieldsOwned(node *corev1.Node, labels map[string]any) bool {
+	required := [][]string{
+		{"f:metadata", "f:annotations", "f:" + AssignmentAnnotation},
+	}
+	for key, value := range labels {
+		if value != nil {
+			required = append(required, []string{"f:metadata", "f:labels", "f:" + key})
+		}
+	}
+	for _, entry := range node.ManagedFields {
+		if entry.Manager != FieldManager || entry.Operation != metav1.ManagedFieldsOperationApply ||
+			entry.APIVersion != "v1" || entry.Subresource != "" || entry.FieldsType != "FieldsV1" || entry.FieldsV1 == nil {
+			continue
+		}
+		owned := true
+		for _, path := range required {
+			if !fieldsV1Owns(entry.FieldsV1.GetRawBytes(), path) {
+				owned = false
+				break
+			}
+		}
+		if owned {
+			return true
+		}
+	}
+	return false
+}
+
+func fieldsV1Owns(raw []byte, path []string) bool {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return false
+	}
+	for index, key := range path {
+		child, exists := fields[key]
+		if !exists {
+			return false
+		}
+		if index == len(path)-1 {
+			return true
+		}
+		var nested map[string]json.RawMessage
+		if err := json.Unmarshal(child, &nested); err != nil {
+			return false
+		}
+		fields = nested
+	}
+	return false
 }
 
 func nodeApplyPayload(name string, labels, annotations map[string]any) ([]byte, error) {

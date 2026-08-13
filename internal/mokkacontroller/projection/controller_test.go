@@ -66,6 +66,145 @@ func TestProjectAppliesOnlyOwnedMetadataWithExactAssignment(t *testing.T) {
 	require.Equal(t, []Outcome{outcome}, controller.Outcomes())
 }
 
+func TestProjectSkipsApplyForExactOwnedProjection(t *testing.T) {
+	rack := testRack(true)
+	node := testNode("node", "node-uid")
+	setExactProjection(t, node, rack)
+	setManagedFields(node, FieldManager, []string{AssignedLabel, CliqueLabel}, []string{AssignmentAnnotation})
+	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
+	patcher := &recordingPatcher{node: node}
+	controller := NewController(cache, patcher)
+
+	for range 100 {
+		outcome, err := controller.Project(context.Background(), rack.Name, 0)
+		require.NoError(t, err)
+		require.Equal(t, StateProjected, outcome.State)
+		require.Equal(t, ReasonProjected, outcome.Reason)
+	}
+
+	require.Empty(t, patcher.calls)
+	require.Len(t, controller.Outcomes(), 1, "the fast path must retain only the live exact binding")
+}
+
+func TestProjectAppliesWhenExactValuesAreNotOwned(t *testing.T) {
+	tests := []struct {
+		name        string
+		manager     string
+		labels      []string
+		annotations []string
+	}{
+		{name: "no managed fields"},
+		{name: "foreign manager", manager: "other-controller", labels: []string{AssignedLabel, CliqueLabel}, annotations: []string{AssignmentAnnotation}},
+		{name: "partial ownership", manager: FieldManager, labels: []string{AssignedLabel}, annotations: []string{AssignmentAnnotation}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rack := testRack(true)
+			node := testNode("node", "node-uid")
+			setExactProjection(t, node, rack)
+			if test.manager != "" {
+				setManagedFields(node, test.manager, test.labels, test.annotations)
+			}
+			cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
+			patcher := &recordingPatcher{node: node}
+			controller := NewController(cache, patcher)
+
+			outcome, err := controller.Project(context.Background(), rack.Name, 0)
+			require.NoError(t, err)
+			require.Equal(t, StateProjected, outcome.State)
+			require.Len(t, patcher.calls, 1, "SSA must establish ownership for later cleanup")
+		})
+	}
+}
+
+func TestProjectRequiresCliqueOwnershipOnlyWhenProjected(t *testing.T) {
+	t.Run("fabric projection owns clique", func(t *testing.T) {
+		rack := testRack(true)
+		node := testNode("node", "node-uid")
+		setExactProjection(t, node, rack)
+		setManagedFields(node, FieldManager, []string{AssignedLabel}, []string{AssignmentAnnotation})
+		cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
+		patcher := &recordingPatcher{node: node}
+
+		outcome, err := NewController(cache, patcher).Project(context.Background(), rack.Name, 0)
+		require.NoError(t, err)
+		require.Equal(t, StateProjected, outcome.State)
+		require.Len(t, patcher.calls, 1)
+	})
+
+	t.Run("non-fabric projection does not own clique", func(t *testing.T) {
+		rack := testRack(false)
+		node := testNode("node", "node-uid")
+		setExactProjection(t, node, rack)
+		setManagedFields(node, FieldManager, []string{AssignedLabel}, []string{AssignmentAnnotation})
+		cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
+		patcher := &recordingPatcher{node: node}
+
+		outcome, err := NewController(cache, patcher).Project(context.Background(), rack.Name, 0)
+		require.NoError(t, err)
+		require.Equal(t, StateProjected, outcome.State)
+		require.Empty(t, patcher.calls)
+	})
+}
+
+func TestProjectRetainsPartialAndConflictingMetadataBehavior(t *testing.T) {
+	tests := []struct {
+		name          string
+		mutate        func(*corev1.Node)
+		wantConflict  bool
+		conflictField string
+	}{
+		{
+			name:   "partial metadata is completed",
+			mutate: func(node *corev1.Node) { delete(node.Labels, CliqueLabel) },
+		},
+		{
+			name:          "wrong assigned label conflicts",
+			mutate:        func(node *corev1.Node) { node.Labels[AssignedLabel] = "foreign" },
+			wantConflict:  true,
+			conflictField: AssignedLabel,
+		},
+		{
+			name:          "wrong clique label conflicts",
+			mutate:        func(node *corev1.Node) { node.Labels[CliqueLabel] = "foreign" },
+			wantConflict:  true,
+			conflictField: CliqueLabel,
+		},
+		{
+			name:          "wrong annotation conflicts",
+			mutate:        func(node *corev1.Node) { node.Annotations[AssignmentAnnotation] = "foreign" },
+			wantConflict:  true,
+			conflictField: AssignmentAnnotation,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rack := testRack(true)
+			node := testNode("node", "node-uid")
+			setExactProjection(t, node, rack)
+			setManagedFields(node, FieldManager, []string{AssignedLabel, CliqueLabel}, []string{AssignmentAnnotation})
+			test.mutate(node)
+			cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
+			patcher := &recordingPatcher{node: node}
+
+			outcome, err := NewController(cache, patcher).Project(context.Background(), rack.Name, 0)
+			if !test.wantConflict {
+				require.NoError(t, err)
+				require.Equal(t, StateProjected, outcome.State)
+				require.Len(t, patcher.calls, 1)
+				return
+			}
+			var conflict *MetadataConflictError
+			require.ErrorAs(t, err, &conflict)
+			require.Equal(t, []string{test.conflictField}, conflict.Fields)
+			require.Equal(t, StateConflict, outcome.State)
+			require.Empty(t, patcher.calls)
+		})
+	}
+}
+
 func TestProjectPreservesIncompatibleValuesAndSurfacesPatchConflicts(t *testing.T) {
 	rack := testRack(true)
 	node := testNode("node", "node-uid")
@@ -412,6 +551,43 @@ func testRack(withFabric bool) *mokkav1alpha1.SGPURack {
 
 func testNode(name string, uid types.UID) *corev1.Node {
 	return &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, UID: uid}}
+}
+
+func setExactProjection(t *testing.T, node *corev1.Node, rack *mokkav1alpha1.SGPURack) {
+	t.Helper()
+	assignment, err := EncodeAssignment(rack, &rack.Spec.Slots[0])
+	require.NoError(t, err)
+	node.Labels = map[string]string{AssignedLabel: "true"}
+	if clique, ok := cliqueValue(rack); ok {
+		node.Labels[CliqueLabel] = clique
+	}
+	node.Annotations = map[string]string{AssignmentAnnotation: assignment}
+}
+
+func setManagedFields(node *corev1.Node, manager string, labels, annotations []string) {
+	metadataFields := map[string]any{}
+	if len(labels) > 0 {
+		labelFields := map[string]any{}
+		for _, label := range labels {
+			labelFields["f:"+label] = map[string]any{}
+		}
+		metadataFields["f:labels"] = labelFields
+	}
+	if len(annotations) > 0 {
+		annotationFields := map[string]any{}
+		for _, annotation := range annotations {
+			annotationFields["f:"+annotation] = map[string]any{}
+		}
+		metadataFields["f:annotations"] = annotationFields
+	}
+	raw, err := json.Marshal(map[string]any{"f:metadata": metadataFields})
+	if err != nil {
+		panic(err)
+	}
+	node.ManagedFields = []metav1.ManagedFieldsEntry{{
+		Manager: manager, Operation: metav1.ManagedFieldsOperationApply, APIVersion: "v1",
+		FieldsType: "FieldsV1", FieldsV1: metav1.NewFieldsV1(string(raw)),
+	}}
 }
 
 func cleanupFor(rack *mokkav1alpha1.SGPURack) controllerack.CleanupNeeded {
