@@ -29,6 +29,7 @@ controller:
     retryPeriod: 2s
   workers: 2
   statusDebounce: 100ms
+  statusProgressInterval: 1s
   kubeAPIQPS: 50
   kubeAPIBurst: 100
   extraArgs: []

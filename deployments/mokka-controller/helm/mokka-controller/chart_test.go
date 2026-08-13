@@ -71,6 +71,8 @@ func TestHelmRenderIncludesOperationalResourcesAndExactRBAC(t *testing.T) {
 	require.Equal(t, "registry.example/mokka-controller:test", container["image"])
 	args := stringSlice(t, container["args"])
 	require.Contains(t, args, "--workers=7")
+	require.Contains(t, args, "--status-debounce=100ms")
+	require.Contains(t, args, "--status-progress-interval=1s")
 	require.Contains(t, args, "--leader-election-namespace=mokka-system")
 	require.Contains(t, container, "livenessProbe")
 	require.Contains(t, container, "readinessProbe")

@@ -43,6 +43,7 @@ spec:
             - --leader-election-retry-period={{ .Values.controller.leaderElection.retryPeriod }}
             - --workers={{ .Values.controller.workers }}
             - --status-debounce={{ .Values.controller.statusDebounce }}
+            - --status-progress-interval={{ .Values.controller.statusProgressInterval }}
             - --kube-api-qps={{ .Values.controller.kubeAPIQPS }}
             - --kube-api-burst={{ .Values.controller.kubeAPIBurst }}
             {{- range .Values.controller.extraArgs }}

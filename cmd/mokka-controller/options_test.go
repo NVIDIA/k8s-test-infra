@@ -24,15 +24,20 @@ func TestOptionsDefaultsAndFlags(t *testing.T) {
 	require.Equal(t, 10*time.Second, options.RenewDeadline)
 	require.Equal(t, 2*time.Second, options.RetryPeriod)
 	require.Equal(t, ":8081", options.HealthBindAddress)
+	require.Equal(t, 100*time.Millisecond, options.StatusDebounce)
+	require.Equal(t, time.Second, options.StatusProgressInterval)
 
 	flags := flag.NewFlagSet("test", flag.ContinueOnError)
 	options.addFlags(flags)
 	require.NoError(t, flags.Parse([]string{
 		"--kubeconfig=/tmp/config", "--leader-election-namespace=mokka", "--workers=7",
+		"--status-debounce=250ms", "--status-progress-interval=2s",
 	}))
 	require.Equal(t, "/tmp/config", options.Kubeconfig)
 	require.Equal(t, "mokka", options.LeaseNamespace)
 	require.Equal(t, 7, options.Workers)
+	require.Equal(t, 250*time.Millisecond, options.StatusDebounce)
+	require.Equal(t, 2*time.Second, options.StatusProgressInterval)
 	require.NoError(t, options.validate())
 }
 

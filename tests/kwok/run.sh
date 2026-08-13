@@ -117,6 +117,7 @@ start_controller() {
 		--leader-election-retry-period=2s \
 		--workers="${WORKERS}" \
 		--status-debounce=100ms \
+		--status-progress-interval=1s \
 		--kube-api-qps="${API_QPS}" \
 		--kube-api-burst="${API_BURST}" \
 		>>"${CONTROLLER_LOG}" 2>&1 &

@@ -39,7 +39,7 @@
     "controller": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["leaderElection", "workers", "statusDebounce", "kubeAPIQPS", "kubeAPIBurst", "extraArgs"],
+      "required": ["leaderElection", "workers", "statusDebounce", "statusProgressInterval", "kubeAPIQPS", "kubeAPIBurst", "extraArgs"],
       "properties": {
         "leaderElection": {
           "type": "object",
@@ -54,6 +54,7 @@
         },
         "workers": {"type": "integer", "minimum": 1},
         "statusDebounce": {"type": "string", "minLength": 1},
+        "statusProgressInterval": {"type": "string", "minLength": 1},
         "kubeAPIQPS": {"type": "number", "exclusiveMinimum": 0},
         "kubeAPIBurst": {"type": "integer", "minimum": 1},
         "extraArgs": {"type": "array", "items": {"type": "string", "minLength": 1}}

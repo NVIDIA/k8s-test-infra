@@ -161,6 +161,41 @@ func TestProcessNextRateLimitsErrorsAndForgetsSuccess(t *testing.T) {
 	require.Zero(t, queue.NumRequeues("key"))
 }
 
+func TestStatusIntervalOptionsPreserveLegacyConstructionAndRejectInvalidBounds(t *testing.T) {
+	legacy := Options{Workers: 1, StatusDebounce: 100 * time.Millisecond}
+	require.NoError(t, legacy.validate())
+	require.Equal(t, time.Second, legacy.statusProgressInterval())
+
+	invalid := legacy
+	invalid.StatusProgressInterval = 50 * time.Millisecond
+	require.ErrorContains(t, invalid.validate(), "shorter than status debounce")
+}
+
+func TestProcessNextStatusKeepsExistingRateLimitedRetry(t *testing.T) {
+	queue := workqueue.NewTypedRateLimitingQueue(
+		workqueue.NewTypedItemFastSlowRateLimiter[statusKey](0, 0, 1),
+	)
+	statuses := newStatusCoalescer(queue, 0, time.Second, realStatusScheduler{})
+	t.Cleanup(func() {
+		statuses.shutdown()
+		queue.ShutDown()
+	})
+	controller := &Controller{
+		queues:          &queues{status: queue, statuses: statuses},
+		reconcileStatus: func(context.Context, statusKey) error { return errors.New("retry") },
+	}
+	key := testInventoryStatusKey()
+	statuses.dirty(key)
+
+	require.True(t, controller.processNextStatus(context.Background()))
+	require.Equal(t, 1, queue.NumRequeues(key))
+	require.Equal(t, 1, queue.Len())
+
+	controller.reconcileStatus = func(context.Context, statusKey) error { return nil }
+	require.True(t, controller.processNextStatus(context.Background()))
+	require.Zero(t, queue.NumRequeues(key))
+}
+
 func TestRunFailsClosedWhenCacheSyncFails(t *testing.T) {
 	controller := newTestController()
 	controller.waitForSync = func(context.Context) bool { return false }

@@ -35,17 +35,26 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
 )
 
-const defaultStatusDebounce = 100 * time.Millisecond
+const (
+	defaultStatusDebounce         = 100 * time.Millisecond
+	defaultStatusProgressInterval = time.Second
+)
 
 // Options controls worker concurrency and aggregate-status coalescing.
 type Options struct {
-	Workers        int
+	Workers int
+	// StatusDebounce is the quiet period before a final status update.
 	StatusDebounce time.Duration
+	// StatusProgressInterval bounds status staleness while changes continue.
+	StatusProgressInterval time.Duration
 }
 
 // DefaultOptions returns the production controller defaults.
 func DefaultOptions() Options {
-	return Options{Workers: 2, StatusDebounce: defaultStatusDebounce}
+	return Options{
+		Workers: 2, StatusDebounce: defaultStatusDebounce,
+		StatusProgressInterval: defaultStatusProgressInterval,
+	}
 }
 
 func (o Options) validate() error {
@@ -55,7 +64,22 @@ func (o Options) validate() error {
 	if o.StatusDebounce < 0 {
 		return fmt.Errorf("status debounce must not be negative")
 	}
+	if o.StatusProgressInterval < 0 {
+		return fmt.Errorf("status progress interval must not be negative")
+	}
+	if o.StatusDebounce > 0 && o.statusProgressInterval() < o.StatusDebounce {
+		return fmt.Errorf("status progress interval must not be shorter than status debounce")
+	}
 	return nil
+}
+
+func (o Options) statusProgressInterval() time.Duration {
+	if o.StatusProgressInterval > 0 {
+		return o.StatusProgressInterval
+	}
+	// A zero value keeps direct API construction useful without weakening the
+	// production default or allowing an unbounded stream to starve status.
+	return max(defaultStatusProgressInterval, o.StatusDebounce)
 }
 
 type projectionMode uint8
@@ -91,28 +115,30 @@ type queues struct {
 	groups      workqueue.TypedRateLimitingInterface[allocate.GroupKey]
 	projections workqueue.TypedRateLimitingInterface[projectionKey]
 	status      workqueue.TypedRateLimitingInterface[statusKey]
-	debounce    time.Duration
+	statuses    *statusCoalescer
 }
 
 func newQueues(debounce time.Duration) *queues {
+	return newQueuesWithStatusIntervals(debounce, max(defaultStatusProgressInterval, debounce))
+}
+
+func newQueuesWithStatusIntervals(debounce, progressInterval time.Duration) *queues {
+	statusQueue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[statusKey]())
 	return &queues{
 		inventories: workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
 		groups:      workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[allocate.GroupKey]()),
 		projections: workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[projectionKey]()),
-		status:      workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[statusKey]()),
-		debounce:    debounce,
+		status:      statusQueue,
+		statuses:    newStatusCoalescer(statusQueue, debounce, progressInterval, realStatusScheduler{}),
 	}
 }
 
 func (q *queues) addStatus(key statusKey) {
-	if q.debounce == 0 {
-		q.status.Add(key)
-		return
-	}
-	q.status.AddAfter(key, q.debounce)
+	q.statuses.dirty(key)
 }
 
 func (q *queues) shutdown() {
+	q.statuses.shutdown()
 	q.inventories.ShutDown()
 	q.groups.ShutDown()
 	q.projections.ShutDown()
@@ -182,7 +208,10 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		nil,
 	)
 
-	controller := &Controller{options: options, queues: newQueues(options.StatusDebounce)}
+	controller := &Controller{
+		options: options,
+		queues:  newQueuesWithStatusIntervals(options.StatusDebounce, options.statusProgressInterval()),
+	}
 	results := newResultStore()
 	var inventoryLocks sync.Map
 	withInventoryLock := func(name string, reconcile func() error) error {
@@ -394,7 +423,7 @@ func (c *Controller) Run(ctx context.Context) error {
 		}
 	})
 	startWorkers(c.options.Workers, func() {
-		for processNext(runCtx, c.queues.status, c.reconcileStatus) {
+		for c.processNextStatus(runCtx) {
 		}
 	})
 	c.ready.Store(true)
@@ -405,6 +434,26 @@ func (c *Controller) Run(ctx context.Context) error {
 	cancel()
 	informerWG.Wait()
 	return nil
+}
+
+func (c *Controller) processNextStatus(ctx context.Context) bool {
+	key, shutdown := c.queues.status.Get()
+	if shutdown {
+		return false
+	}
+	c.queues.statuses.start(key)
+	defer c.queues.status.Done(key)
+	if err := c.reconcileStatus(ctx, key); err != nil {
+		if !c.queues.status.ShuttingDown() && !errors.Is(err, context.Canceled) {
+			c.queues.status.AddRateLimited(key)
+		}
+		c.queues.statuses.finish(key, false)
+		klog.FromContext(ctx).Error(err, "Controller reconciliation failed", "key", key)
+		return true
+	}
+	c.queues.status.Forget(key)
+	c.queues.statuses.finish(key, true)
+	return true
 }
 
 func processNext[T comparable](

@@ -28,17 +28,18 @@ import (
 const shutdownTimeout = 5 * time.Second
 
 type options struct {
-	Kubeconfig        string
-	HealthBindAddress string
-	LeaseNamespace    string
-	LeaseName         string
-	LeaseDuration     time.Duration
-	RenewDeadline     time.Duration
-	RetryPeriod       time.Duration
-	Workers           int
-	StatusDebounce    time.Duration
-	KubeAPIQPS        float64
-	KubeAPIBurst      int
+	Kubeconfig             string
+	HealthBindAddress      string
+	LeaseNamespace         string
+	LeaseName              string
+	LeaseDuration          time.Duration
+	RenewDeadline          time.Duration
+	RetryPeriod            time.Duration
+	Workers                int
+	StatusDebounce         time.Duration
+	StatusProgressInterval time.Duration
+	KubeAPIQPS             float64
+	KubeAPIBurst           int
 }
 
 func defaultOptions() options {
@@ -48,16 +49,17 @@ func defaultOptions() options {
 	}
 	controllerOptions := mokkacontroller.DefaultOptions()
 	return options{
-		HealthBindAddress: ":8081",
-		LeaseNamespace:    namespace,
-		LeaseName:         "mokka-controller.mokka.nvidia.com",
-		LeaseDuration:     15 * time.Second,
-		RenewDeadline:     10 * time.Second,
-		RetryPeriod:       2 * time.Second,
-		Workers:           controllerOptions.Workers,
-		StatusDebounce:    controllerOptions.StatusDebounce,
-		KubeAPIQPS:        50,
-		KubeAPIBurst:      100,
+		HealthBindAddress:      ":8081",
+		LeaseNamespace:         namespace,
+		LeaseName:              "mokka-controller.mokka.nvidia.com",
+		LeaseDuration:          15 * time.Second,
+		RenewDeadline:          10 * time.Second,
+		RetryPeriod:            2 * time.Second,
+		Workers:                controllerOptions.Workers,
+		StatusDebounce:         controllerOptions.StatusDebounce,
+		StatusProgressInterval: controllerOptions.StatusProgressInterval,
+		KubeAPIQPS:             50,
+		KubeAPIBurst:           100,
 	}
 }
 
@@ -70,7 +72,10 @@ func (o *options) addFlags(flags *flag.FlagSet) {
 	flags.DurationVar(&o.RenewDeadline, "leader-election-renew-deadline", o.RenewDeadline, "Leader-election renew deadline.")
 	flags.DurationVar(&o.RetryPeriod, "leader-election-retry-period", o.RetryPeriod, "Leader-election retry period.")
 	flags.IntVar(&o.Workers, "workers", o.Workers, "Workers per controller queue.")
-	flags.DurationVar(&o.StatusDebounce, "status-debounce", o.StatusDebounce, "Aggregate status debounce duration.")
+	flags.DurationVar(&o.StatusDebounce, "status-debounce", o.StatusDebounce,
+		"Quiet period before emitting the final aggregate status for one object.")
+	flags.DurationVar(&o.StatusProgressInterval, "status-progress-interval", o.StatusProgressInterval,
+		"Maximum interval between aggregate status updates while one object keeps changing.")
 	flags.Float64Var(&o.KubeAPIQPS, "kube-api-qps", o.KubeAPIQPS, "Kubernetes client QPS limit.")
 	flags.IntVar(&o.KubeAPIBurst, "kube-api-burst", o.KubeAPIBurst, "Kubernetes client burst limit.")
 }
@@ -79,8 +84,11 @@ func (o options) validate() error {
 	if o.HealthBindAddress == "" || o.LeaseNamespace == "" || o.LeaseName == "" {
 		return fmt.Errorf("health address and leader-election namespace/name must not be empty")
 	}
-	if o.Workers < 1 || o.StatusDebounce < 0 {
-		return fmt.Errorf("workers must be positive and status debounce non-negative")
+	if o.Workers < 1 || o.StatusDebounce < 0 || o.StatusProgressInterval < 0 {
+		return fmt.Errorf("workers must be positive and status intervals non-negative")
+	}
+	if o.StatusDebounce > 0 && o.StatusProgressInterval < o.StatusDebounce {
+		return fmt.Errorf("status progress interval must not be shorter than status debounce")
 	}
 	if o.LeaseDuration <= o.RenewDeadline || o.RenewDeadline <= time.Duration(leaderelection.JitterFactor*float64(o.RetryPeriod)) {
 		return fmt.Errorf("leader-election durations must satisfy lease > renew > retry*jitter")
@@ -109,6 +117,7 @@ func (o options) run(ctx context.Context) error {
 	}
 	controller, err := mokkacontroller.New(kubeClient, mokkaClient, mokkacontroller.Options{
 		Workers: o.Workers, StatusDebounce: o.StatusDebounce,
+		StatusProgressInterval: o.StatusProgressInterval,
 	})
 	if err != nil {
 		return fmt.Errorf("create controller: %w", err)
