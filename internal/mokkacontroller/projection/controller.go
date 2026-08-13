@@ -124,9 +124,13 @@ type Controller struct {
 	cache   Cache
 	patcher NodePatcher
 
-	mu       sync.RWMutex
-	outcomes map[bindingKey]Outcome
-	cleaned  map[bindingKey]struct{}
+	mu                  sync.RWMutex
+	outcomes            map[bindingKey]Outcome
+	outcomeByCoordinate map[coordinateKey]bindingKey
+	outcomesByInventory map[objectKey]map[bindingKey]struct{}
+	outcomesByRack      map[objectKey]map[bindingKey]struct{}
+	cleaned             map[bindingKey]struct{}
+	cleanedByCoordinate map[coordinateKey]bindingKey
 	// Fixed shards serialize one coordinate without growing lock state with cluster churn.
 	operations [operationShards]sync.Mutex
 }
@@ -145,10 +149,30 @@ type bindingKey struct {
 	nodeUID       types.UID
 }
 
+type coordinateKey struct {
+	rackName  string
+	slotIndex int32
+}
+
+type objectKey struct {
+	name string
+	uid  types.UID
+}
+
+type outcomeSnapshot struct {
+	outcomes []Outcome
+	visited  int
+}
+
 func NewController(cache Cache, patcher NodePatcher) *Controller {
 	return &Controller{
 		cache: cache, patcher: patcher,
-		outcomes: make(map[bindingKey]Outcome), cleaned: make(map[bindingKey]struct{}),
+		outcomes:            make(map[bindingKey]Outcome),
+		outcomeByCoordinate: make(map[coordinateKey]bindingKey),
+		outcomesByInventory: make(map[objectKey]map[bindingKey]struct{}),
+		outcomesByRack:      make(map[objectKey]map[bindingKey]struct{}),
+		cleaned:             make(map[bindingKey]struct{}),
+		cleanedByCoordinate: make(map[coordinateKey]bindingKey),
 	}
 }
 
@@ -334,6 +358,46 @@ func (c *Controller) Outcomes() []Outcome {
 	for _, outcome := range c.outcomes {
 		outcomes = append(outcomes, outcome)
 	}
+	sortOutcomes(outcomes)
+	return outcomes
+}
+
+// OutcomesForInventory returns status state for one exact inventory instance.
+func (c *Controller) OutcomesForInventory(name string, uid types.UID) []Outcome {
+	return c.snapshotForInventory(name, uid).outcomes
+}
+
+// OutcomesForRack returns status state for one exact rack instance.
+func (c *Controller) OutcomesForRack(name string, uid types.UID) []Outcome {
+	return c.snapshotForRack(name, uid).outcomes
+}
+
+func (c *Controller) snapshotForInventory(name string, uid types.UID) outcomeSnapshot {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.snapshotLocked(c.outcomesByInventory[objectKey{name: name, uid: uid}])
+}
+
+func (c *Controller) snapshotForRack(name string, uid types.UID) outcomeSnapshot {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.snapshotLocked(c.outcomesByRack[objectKey{name: name, uid: uid}])
+}
+
+func (c *Controller) snapshotLocked(keys map[bindingKey]struct{}) outcomeSnapshot {
+	outcomes := make([]Outcome, 0, len(keys))
+	visited := 0
+	for key := range keys {
+		visited++
+		if outcome, exists := c.outcomes[key]; exists {
+			outcomes = append(outcomes, outcome)
+		}
+	}
+	sortOutcomes(outcomes)
+	return outcomeSnapshot{outcomes: outcomes, visited: visited}
+}
+
+func sortOutcomes(outcomes []Outcome) {
 	slices.SortFunc(outcomes, func(a, b Outcome) int {
 		if order := cmp.Compare(a.RackName, b.RackName); order != 0 {
 			return order
@@ -343,7 +407,6 @@ func (c *Controller) Outcomes() []Outcome {
 		}
 		return cmp.Compare(string(a.NodeUID), string(b.NodeUID))
 	})
-	return outcomes
 }
 
 // EncodeAssignment serializes the compact annotation without whitespace.
@@ -609,7 +672,7 @@ func cleanupOutcome(needed controllerack.CleanupNeeded) Outcome {
 func (c *Controller) record(outcome Outcome) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.outcomes[bindingKeyForOutcome(outcome)] = outcome
+	c.putOutcomeLocked(outcome)
 }
 
 func (c *Controller) fail(outcome Outcome, err error) (Outcome, error) {
@@ -639,11 +702,19 @@ func (c *Controller) completeCleanup(
 	outcome.State, outcome.Reason = StateCleaned, reason
 	c.mu.Lock()
 	key := bindingKeyForCleanup(needed)
-	delete(c.outcomes, key)
+	c.deleteOutcomeLocked(key)
+	coordinate := coordinateKeyForBinding(key)
 	if exactRackPresent {
+		if previous, exists := c.cleanedByCoordinate[coordinate]; exists && previous != key {
+			delete(c.cleaned, previous)
+		}
 		c.cleaned[key] = struct{}{}
+		c.cleanedByCoordinate[coordinate] = key
 	} else {
 		delete(c.cleaned, key)
+		if c.cleanedByCoordinate[coordinate] == key {
+			delete(c.cleanedByCoordinate, coordinate)
+		}
 	}
 	c.mu.Unlock()
 	return outcome
@@ -652,16 +723,61 @@ func (c *Controller) completeCleanup(
 func (c *Controller) beginProjection(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackSlot) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for key := range c.outcomes {
-		if key.rackName == rack.Name && key.slotIndex == slot.Index {
-			delete(c.outcomes, key)
-		}
+	coordinate := coordinateKey{rackName: rack.Name, slotIndex: slot.Index}
+	if key, exists := c.outcomeByCoordinate[coordinate]; exists {
+		c.deleteOutcomeLocked(key)
 	}
-	for key := range c.cleaned {
-		if key.rackName == rack.Name && key.slotIndex == slot.Index {
-			delete(c.cleaned, key)
-		}
+	if key, exists := c.cleanedByCoordinate[coordinate]; exists {
+		delete(c.cleaned, key)
+		delete(c.cleanedByCoordinate, coordinate)
 	}
+}
+
+func (c *Controller) putOutcomeLocked(outcome Outcome) {
+	key := bindingKeyForOutcome(outcome)
+	coordinate := coordinateKeyForBinding(key)
+	if previous, exists := c.outcomeByCoordinate[coordinate]; exists && previous != key {
+		c.deleteOutcomeLocked(previous)
+	}
+	c.outcomes[key] = outcome
+	c.outcomeByCoordinate[coordinate] = key
+	addOutcomeIndex(c.outcomesByInventory, objectKey{name: outcome.InventoryName, uid: outcome.InventoryUID}, key)
+	addOutcomeIndex(c.outcomesByRack, objectKey{name: outcome.RackName, uid: outcome.RackUID}, key)
+}
+
+func (c *Controller) deleteOutcomeLocked(key bindingKey) {
+	outcome, exists := c.outcomes[key]
+	if !exists {
+		return
+	}
+	delete(c.outcomes, key)
+	coordinate := coordinateKeyForBinding(key)
+	if c.outcomeByCoordinate[coordinate] == key {
+		delete(c.outcomeByCoordinate, coordinate)
+	}
+	removeOutcomeIndex(c.outcomesByInventory, objectKey{name: outcome.InventoryName, uid: outcome.InventoryUID}, key)
+	removeOutcomeIndex(c.outcomesByRack, objectKey{name: outcome.RackName, uid: outcome.RackUID}, key)
+}
+
+func addOutcomeIndex(index map[objectKey]map[bindingKey]struct{}, object objectKey, key bindingKey) {
+	keys := index[object]
+	if keys == nil {
+		keys = make(map[bindingKey]struct{})
+		index[object] = keys
+	}
+	keys[key] = struct{}{}
+}
+
+func removeOutcomeIndex(index map[objectKey]map[bindingKey]struct{}, object objectKey, key bindingKey) {
+	keys := index[object]
+	delete(keys, key)
+	if len(keys) == 0 {
+		delete(index, object)
+	}
+}
+
+func coordinateKeyForBinding(key bindingKey) coordinateKey {
+	return coordinateKey{rackName: key.rackName, slotIndex: key.slotIndex}
 }
 
 func (c *Controller) cleanupReady(outcome Outcome) bool {

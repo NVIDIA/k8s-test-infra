@@ -540,7 +540,7 @@ func newFilteredNodeInformer(nodes corev1client.NodeInterface) cache.SharedIndex
 		newFilteredNodeListWatch(nodes),
 		&corev1.Node{},
 		0,
-		cache.Indexers{},
+		statusNodeIndexers(),
 	)
 }
 

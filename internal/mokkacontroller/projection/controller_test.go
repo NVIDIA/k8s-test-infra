@@ -373,6 +373,65 @@ func TestProjectionStateIsBoundedByLiveExactBindings(t *testing.T) {
 	require.Equal(t, types.UID("node-uid-3999"), snapshot[0].NodeUID)
 }
 
+func TestScopedOutcomeSnapshotsVisitOnlyTheRequestedIdentity(t *testing.T) {
+	const (
+		inventoryCount    = 100
+		racksPerInventory = 10
+		slotsPerRack      = 100
+	)
+
+	controller := NewController(&fakeCache{}, &recordingPatcher{})
+	for inventoryIndex := range inventoryCount {
+		for rackIndex := range racksPerInventory {
+			globalRackIndex := inventoryIndex*racksPerInventory + rackIndex
+			for slotIndex := range slotsPerRack {
+				controller.record(Outcome{
+					InventoryName: fmt.Sprintf("inventory-%d", inventoryIndex),
+					InventoryUID:  types.UID(fmt.Sprintf("inventory-uid-%d", inventoryIndex)),
+					RackGroup:     "group",
+					RackName:      fmt.Sprintf("rack-%d", globalRackIndex),
+					RackUID:       types.UID(fmt.Sprintf("rack-uid-%d", globalRackIndex)),
+					RackIndex:     int32(rackIndex),
+					SlotIndex:     int32(slotIndex),
+					NodeName:      fmt.Sprintf("node-%d", globalRackIndex*slotsPerRack+slotIndex),
+					NodeUID:       types.UID(fmt.Sprintf("node-uid-%d", globalRackIndex*slotsPerRack+slotIndex)),
+					State:         StateProjected,
+				})
+			}
+		}
+	}
+
+	rackSnapshot := controller.snapshotForRack("rack-0", "rack-uid-0")
+	require.Equal(t, slotsPerRack, rackSnapshot.visited)
+	require.Len(t, rackSnapshot.outcomes, slotsPerRack)
+	for slotIndex, outcome := range rackSnapshot.outcomes {
+		require.Equal(t, int32(slotIndex), outcome.SlotIndex, "scoped snapshots must remain deterministic")
+	}
+
+	inventorySnapshot := controller.snapshotForInventory("inventory-0", "inventory-uid-0")
+	require.Equal(t, racksPerInventory*slotsPerRack, inventorySnapshot.visited)
+	require.Len(t, inventorySnapshot.outcomes, racksPerInventory*slotsPerRack)
+	require.Equal(t, rackSnapshot.outcomes, controller.OutcomesForRack("rack-0", "rack-uid-0"))
+	require.Equal(t, inventorySnapshot.outcomes, controller.OutcomesForInventory("inventory-0", "inventory-uid-0"))
+
+	recreated := rackSnapshot.outcomes[0]
+	recreated.InventoryName = "inventory-recreated"
+	recreated.InventoryUID = "inventory-recreated-uid"
+	recreated.RackUID = "rack-recreated-uid"
+	recreated.NodeName = "node-recreated"
+	recreated.NodeUID = "node-recreated-uid"
+	controller.record(recreated)
+
+	require.Len(t, controller.OutcomesForRack("rack-0", "rack-uid-0"), slotsPerRack-1,
+		"replacing one coordinate must remove its stale exact identity")
+	require.Equal(t, []Outcome{recreated}, controller.OutcomesForRack("rack-0", "rack-recreated-uid"))
+	require.Equal(t, []Outcome{recreated}, controller.OutcomesForInventory("inventory-recreated", "inventory-recreated-uid"))
+	outcomes, _ := stateSize(controller)
+	require.Equal(t, inventoryCount*racksPerInventory*slotsPerRack, outcomes,
+		"secondary indexes must not allow coordinate churn to grow primary state")
+	assertStateIndexesExact(t, controller)
+}
+
 func TestCleanupAcknowledgementsAreExactAndBoundedByCachedBindings(t *testing.T) {
 	const pendingCount = 2_000
 
@@ -610,4 +669,31 @@ func stateSize(controller *Controller) (outcomes, cleanups int) {
 	controller.mu.RLock()
 	defer controller.mu.RUnlock()
 	return len(controller.outcomes), len(controller.cleaned)
+}
+
+func assertStateIndexesExact(t *testing.T, controller *Controller) {
+	t.Helper()
+	controller.mu.RLock()
+	defer controller.mu.RUnlock()
+
+	require.Len(t, controller.outcomeByCoordinate, len(controller.outcomes))
+	indexedByInventory := 0
+	for _, keys := range controller.outcomesByInventory {
+		indexedByInventory += len(keys)
+		for key := range keys {
+			_, exists := controller.outcomes[key]
+			require.True(t, exists)
+		}
+	}
+	require.Equal(t, len(controller.outcomes), indexedByInventory)
+	indexedByRack := 0
+	for _, keys := range controller.outcomesByRack {
+		indexedByRack += len(keys)
+		for key := range keys {
+			_, exists := controller.outcomes[key]
+			require.True(t, exists)
+		}
+	}
+	require.Equal(t, len(controller.outcomes), indexedByRack)
+	require.Len(t, controller.cleanedByCoordinate, len(controller.cleaned))
 }

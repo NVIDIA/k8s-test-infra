@@ -326,7 +326,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 			inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
 			profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.RackIndexers())
-			nodeIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+			nodeIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, statusNodeIndexers())
 			require.NoError(t, inventoryIndexer.Add(inventory.DeepCopy()))
 			require.NoError(t, profileIndexer.Add(profile.DeepCopy()))
 			require.NoError(t, rackIndexer.Add(rack.DeepCopy()))
