@@ -199,15 +199,37 @@ cat >> "$CDI_DIR/nvidia.yaml" << 'CDI_DEVICES'
 devices:
 CDI_DEVICES
 
-# Per-GPU device entries
+# Extract per-index UUIDs from the profile config (the line immediately after
+# each `- index:` marker). Devices are exposed under BOTH the index shorthand
+# ("0".."N-1") — how the nvidia-container-runtime CLI addresses them — and the
+# fully-qualified UUID — how the k8s device plugin allocates and how containerd
+# resolves CDI device references by name. Without the UUID entries, any pod
+# requesting `nvidia.com/gpu` on a containerd with `enable_cdi = true` (the
+# kind-nvidia-cdi image default) fails with `unresolvable CDI devices
+# nvidia.com/gpu=<uuid>`.
+UUID_LIST=$(awk '
+    /^[[:space:]]*- index:/ { pending=1; next }
+    pending && /^[[:space:]]*uuid:/ {
+        sub(/^[[:space:]]*uuid:[[:space:]]*/, "")
+        gsub(/"/, "")
+        print
+        pending=0
+    }
+' /etc/nvml-mock/config.yaml)
+
+# Per-GPU device entries (index and UUID names point at the same device node).
 for i in $(seq 0 $((GPU_COUNT - 1))); do
-  cat >> "$CDI_DIR/nvidia.yaml" << DEVICE_EOF
-  - name: "$i"
+  UUID=$(echo "$UUID_LIST" | sed -n "$((i+1))p")
+  for NAME in "$i" "$UUID"; do
+    [ -z "$NAME" ] && continue
+    cat >> "$CDI_DIR/nvidia.yaml" << DEVICE_EOF
+  - name: "$NAME"
     containerEdits:
       deviceNodes:
         - path: /dev/nvidia$i
           hostPath: /var/lib/nvml-mock/driver/dev/nvidia$i
 DEVICE_EOF
+  done
 done
 
 # "all" device — aggregates all GPUs
@@ -219,7 +241,7 @@ for i in $(seq 0 $((GPU_COUNT - 1))); do
   echo "          hostPath: /var/lib/nvml-mock/driver/dev/nvidia$i" >> "$CDI_DIR/nvidia.yaml"
 done
 
-echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices)"
+echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices, index + UUID keyed)"
 
 # 3c. Generate the CDI spec the NRI plugin injects (issue #436).
 #
