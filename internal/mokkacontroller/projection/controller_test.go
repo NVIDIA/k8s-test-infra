@@ -172,13 +172,39 @@ func TestCleanupTreatsAbsentExactUIDAsCleanAndPreservesStaleAnnotation(t *testin
 	require.Empty(t, patcher.calls)
 	require.Contains(t, node.Annotations, AssignmentAnnotation)
 
-	controller.Project(context.Background(), rack.Name, 0) // clears the prior cleanup acknowledgement for a live binding
+	controller.Project(context.Background(), rack.Name, 0) // a stale apply preserves the cleanup acknowledgement
 	cache.nodes["node"] = testNode("node", "replacement-uid")
 	outcome, err = controller.Cleanup(context.Background(), cleanup)
 	require.NoError(t, err)
 	require.Equal(t, StateCleaned, outcome.State)
 	require.True(t, controller.Ready(cleanup))
 	require.Empty(t, patcher.calls)
+}
+
+func TestStaleProjectionApplyDoesNotRecreateMetadataAfterCleanup(t *testing.T) {
+	rack := testRack(true)
+	node := testNode("node", "node-uid")
+	assignment, err := EncodeAssignment(rack, &rack.Spec.Slots[0])
+	require.NoError(t, err)
+	node.Labels = map[string]string{AssignedLabel: "true", CliqueLabel: rack.Spec.Identity.FabricUUID + ".0"}
+	node.Annotations = map[string]string{AssignmentAnnotation: assignment}
+	cache := &fakeCache{
+		nodes: map[string]*corev1.Node{node.Name: node},
+		racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
+	}
+	patcher := &recordingPatcher{node: node}
+	controller := NewController(cache, patcher)
+	cleanup := cleanupFor(rack)
+
+	_, err = controller.Cleanup(context.Background(), cleanup)
+	require.NoError(t, err)
+	require.True(t, controller.Ready(cleanup))
+	require.Len(t, patcher.calls, 1)
+
+	_, err = controller.Project(context.Background(), rack.Name, 0)
+	require.NoError(t, err)
+	require.True(t, controller.Ready(cleanup), "a stale apply must preserve the cleanup acknowledgement")
+	require.Len(t, patcher.calls, 1, "a stale apply must not recreate metadata after cleanup")
 }
 
 func TestProjectionStateIsBoundedByLiveExactBindings(t *testing.T) {
@@ -208,7 +234,7 @@ func TestProjectionStateIsBoundedByLiveExactBindings(t *testing.T) {
 	require.Equal(t, types.UID("node-uid-3999"), snapshot[0].NodeUID)
 }
 
-func TestCleanupAcknowledgementsAreExactConsumedAndBounded(t *testing.T) {
+func TestCleanupAcknowledgementsAreExactAndBoundedByCachedBindings(t *testing.T) {
 	const pendingCount = 2_000
 
 	cache := &fakeCache{nodes: make(map[string]*corev1.Node), racks: make(map[string]*mokkav1alpha1.SGPURack)}
@@ -235,8 +261,11 @@ func TestCleanupAcknowledgementsAreExactConsumedAndBounded(t *testing.T) {
 	require.Zero(t, outcomes, "successful cleanup must remove projection status state")
 	require.Equal(t, pendingCount, cleanups)
 	for _, needed := range pending {
-		require.True(t, controller.Consume(needed))
-		require.False(t, controller.Consume(needed), "an acknowledgement is single-use")
+		require.True(t, controller.Ready(needed))
+		delete(cache.racks, needed.RackName)
+		_, err := controller.Cleanup(context.Background(), needed)
+		require.NoError(t, err)
+		require.False(t, controller.Ready(needed), "an absent exact binding makes the acknowledgement obsolete")
 	}
 	outcomes, cleanups = stateSize(controller)
 	require.Zero(t, outcomes)
@@ -291,7 +320,6 @@ func TestProjectionStateConcurrentAccess(t *testing.T) {
 			_ = controller.Outcomes()
 			controller.completeCleanup(needed, outcome, ReasonCleaned, true)
 			_ = controller.Ready(needed)
-			_ = controller.Consume(needed)
 			controller.beginProjection(rack, &rack.Spec.Slots[0])
 		}()
 	}

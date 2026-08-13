@@ -261,14 +261,17 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			if slot == nil {
 				return nil
 			}
-			if !key.fresh && projection.Ready(cleanupFor(rack, *slot, controllerack.CleanupNodeIneligible)) {
+			if projection.Ready(cleanupFor(rack, *slot, controllerack.CleanupNodeIneligible)) {
 				return nil
 			}
 			_, err = projection.Project(ctx, key.rackName, key.slotIndex)
 			controller.queues.addStatus(statusKey{kind: statusRack, name: rack.Name, uid: rack.UID})
 			controller.queues.addStatus(statusKey{kind: statusInventory, name: rack.Spec.InventoryRef.Name, uid: rack.Spec.InventoryRef.UID})
 		case projectionCleanup:
-			_, err = projection.Cleanup(ctx, key.cleanup)
+			err = withInventoryLock(key.cleanup.Binding.Coordinate.Group.InventoryName, func() error {
+				_, cleanupErr := projection.Cleanup(ctx, key.cleanup)
+				return cleanupErr
+			})
 			if err == nil {
 				switch key.cleanup.Reason {
 				case controllerack.CleanupCapacityShrink,

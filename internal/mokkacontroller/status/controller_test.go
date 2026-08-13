@@ -134,6 +134,39 @@ func TestStatusWritersSuppressIdenticalUpdatesAndRetryConflicts(t *testing.T) {
 	require.Equal(t, 2, rackWriter.updates)
 }
 
+func TestRackStatusTreatsStaleExactObjectAsConverged(t *testing.T) {
+	input := aggregateInput()
+	rackInput := RackInput{Rack: input.Racks[0], Racks: input.Racks, Nodes: input.Nodes, Projection: input.Projection}
+
+	t.Run("deleted", func(t *testing.T) {
+		writer := &fakeRackWriter{getErr: apierrors.NewNotFound(mokkav1alpha1.Resource("sgpuracks"), rackInput.Rack.Name)}
+		changed, err := NewReconciler(nil, writer, nil).ReconcileRack(context.Background(), rackInput)
+		require.NoError(t, err)
+		require.False(t, changed)
+	})
+
+	t.Run("deleted during update", func(t *testing.T) {
+		writer := &fakeRackWriter{
+			object:    rackInput.Rack.DeepCopy(),
+			updateErr: apierrors.NewNotFound(mokkav1alpha1.Resource("sgpuracks"), rackInput.Rack.Name),
+		}
+		changed, err := NewReconciler(nil, writer, nil).ReconcileRack(context.Background(), rackInput)
+		require.NoError(t, err)
+		require.False(t, changed)
+		require.Equal(t, 1, writer.updates)
+	})
+
+	t.Run("recreated", func(t *testing.T) {
+		recreated := rackInput.Rack.DeepCopy()
+		recreated.UID = "replacement-rack-uid"
+		writer := &fakeRackWriter{object: recreated}
+		changed, err := NewReconciler(nil, writer, nil).ReconcileRack(context.Background(), rackInput)
+		require.NoError(t, err)
+		require.False(t, changed)
+		require.Zero(t, writer.updates)
+	})
+}
+
 func TestProjectionErrorsRemainRetryableStatusInputs(t *testing.T) {
 	input := aggregateInput()
 	input.Projection[0].State = controllerprojection.StateConflict
@@ -309,16 +342,24 @@ func (f *fakeInventoryWriter) UpdateStatus(_ context.Context, candidate *mokkav1
 
 type fakeRackWriter struct {
 	object       *mokkav1alpha1.SGPURack
+	getErr       error
+	updateErr    error
 	conflictOnce bool
 	updates      int
 }
 
 func (f *fakeRackWriter) Get(context.Context, string, metav1.GetOptions) (*mokkav1alpha1.SGPURack, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
 	return f.object.DeepCopy(), nil
 }
 
 func (f *fakeRackWriter) UpdateStatus(_ context.Context, candidate *mokkav1alpha1.SGPURack, _ metav1.UpdateOptions) (*mokkav1alpha1.SGPURack, error) {
 	f.updates++
+	if f.updateErr != nil {
+		return nil, f.updateErr
+	}
 	if f.conflictOnce {
 		f.conflictOnce = false
 		return nil, apierrors.NewConflict(schema.GroupResource{Resource: "sgpuracks"}, candidate.Name, errors.New("test conflict"))

@@ -75,16 +75,16 @@ type CleanupNeeded struct {
 }
 
 // CleanupGate is the acknowledgement seam implemented by Node projection.
-// Consumption transfers responsibility for the exact binding back to rack
-// reconciliation. A failed rack mutation may safely repeat cleanup.
+// An acknowledgement remains ready until the rack cache observes that the
+// exact binding is gone, so stale reconciles cannot restore a cleaned binding.
 type CleanupGate interface {
-	Consume(CleanupNeeded) bool
+	Ready(CleanupNeeded) bool
 }
 
 // CleanupGateFunc adapts a function to CleanupGate.
 type CleanupGateFunc func(CleanupNeeded) bool
 
-func (f CleanupGateFunc) Consume(cleanup CleanupNeeded) bool { return f(cleanup) }
+func (f CleanupGateFunc) Ready(cleanup CleanupNeeded) bool { return f(cleanup) }
 
 // ProfileIssue identifies an unresolved or invalid group profile.
 type ProfileIssue struct {
@@ -231,7 +231,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 		})
 	}
 
-	allocation, err := r.allocationPlan()
+	allocation, err := r.allocationPlan(inventory)
 	if err != nil {
 		return result, err
 	}
@@ -408,10 +408,21 @@ func (r *Reconciler) resolveGroups(inventory *mokkav1alpha1.SGPUInventory) ([]re
 	return resolved, issues, nil
 }
 
-func (r *Reconciler) allocationPlan() (allocate.Plan, error) {
+func (r *Reconciler) allocationPlan(currentInventory *mokkav1alpha1.SGPUInventory) (allocate.Plan, error) {
 	inventories, err := r.cache.Inventories()
 	if err != nil {
 		return allocate.Plan{}, fmt.Errorf("list inventories from cache: %w", err)
+	}
+	inventories = slices.Clone(inventories)
+	currentFound := false
+	for i, inventory := range inventories {
+		if inventory.Name == currentInventory.Name && inventory.UID == currentInventory.UID {
+			inventories[i] = currentInventory
+			currentFound = true
+		}
+	}
+	if !currentFound {
+		inventories = append(inventories, currentInventory)
 	}
 	groups := make([]allocate.Group, 0)
 	inventoriesByUID := make(map[types.UID]*mokkav1alpha1.SGPUInventory, len(inventories))
@@ -508,7 +519,7 @@ func (r *Reconciler) preservePendingReleases(
 			continue
 		}
 		needed := CleanupNeeded{RackName: existing.Name, RackUID: existing.UID, Binding: release.Binding, Reason: cleanupReason(release.Reason)}
-		if r.cleanup != nil && r.cleanup.Consume(needed) {
+		if r.cleanup != nil && r.cleanup.Ready(needed) {
 			continue
 		}
 		cleanup = append(cleanup, needed)
@@ -542,7 +553,7 @@ func (r *Reconciler) retireRack(
 			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
 		}
 		needed := CleanupNeeded{RackName: rack.Name, RackUID: rack.UID, Binding: binding, Reason: reason}
-		if r.cleanup != nil && r.cleanup.Consume(needed) {
+		if r.cleanup != nil && r.cleanup.Ready(needed) {
 			clearSlots[slot.Index] = slot.NodeRef.UID
 			continue
 		}

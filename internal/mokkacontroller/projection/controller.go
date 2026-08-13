@@ -25,7 +25,8 @@ import (
 )
 
 const (
-	FieldManager = "mokka-controller"
+	FieldManager    = "mokka-controller"
+	operationShards = 256
 
 	AssignedLabel        = metadata.AssignedLabel
 	CliqueLabel          = metadata.CliqueLabel
@@ -126,6 +127,8 @@ type Controller struct {
 	mu       sync.RWMutex
 	outcomes map[bindingKey]Outcome
 	cleaned  map[bindingKey]struct{}
+	// Fixed shards serialize one coordinate without growing lock state with cluster churn.
+	operations [operationShards]sync.Mutex
 }
 
 var _ controllerack.CleanupGate = (*Controller)(nil)
@@ -151,6 +154,10 @@ func NewController(cache Cache, patcher NodePatcher) *Controller {
 
 // Project reconciles metadata for one exact cached rack slot.
 func (c *Controller) Project(ctx context.Context, rackName string, slotIndex int32) (Outcome, error) {
+	operation := c.operationLock(rackName, slotIndex)
+	operation.Lock()
+	defer operation.Unlock()
+
 	rack, err := c.cache.Rack(rackName)
 	if err != nil {
 		return Outcome{}, fmt.Errorf("get rack %q: %w", rackName, err)
@@ -160,6 +167,10 @@ func (c *Controller) Project(ctx context.Context, rackName string, slotIndex int
 		return Outcome{}, fmt.Errorf("rack %q slot %d has no binding", rackName, slotIndex)
 	}
 	outcome := outcomeFor(rack, slot)
+	if c.cleanupReady(outcome) {
+		outcome.State, outcome.Reason = StateCleaned, ReasonCleaned
+		return outcome, nil
+	}
 	c.beginProjection(rack, slot)
 
 	duplicates, err := c.duplicateBindings(slot.NodeRef.UID)
@@ -230,6 +241,10 @@ func (c *Controller) Project(ctx context.Context, rackName string, slotIndex int
 // Cleanup removes only compatible controller keys while the assignment still
 // identifies the exact binding being retired.
 func (c *Controller) Cleanup(ctx context.Context, needed controllerack.CleanupNeeded) (Outcome, error) {
+	operation := c.operationLock(needed.RackName, needed.Binding.Coordinate.SlotIndex)
+	operation.Lock()
+	defer operation.Unlock()
+
 	rack, rackErr := c.cache.Rack(needed.RackName)
 	if rackErr != nil && !apierrors.IsNotFound(rackErr) {
 		return Outcome{}, fmt.Errorf("get rack %q: %w", needed.RackName, rackErr)
@@ -313,18 +328,6 @@ func (c *Controller) Ready(needed controllerack.CleanupNeeded) bool {
 	defer c.mu.RUnlock()
 	_, ready := c.cleaned[bindingKeyForCleanup(needed)]
 	return ready
-}
-
-// Consume returns and deletes the acknowledgement for one exact cleanup.
-func (c *Controller) Consume(needed controllerack.CleanupNeeded) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	key := bindingKeyForCleanup(needed)
-	if _, ready := c.cleaned[key]; !ready {
-		return false
-	}
-	delete(c.cleaned, key)
-	return true
 }
 
 // Outcomes returns a deterministic immutable status snapshot.
@@ -593,6 +596,24 @@ func (c *Controller) beginProjection(rack *mokkav1alpha1.SGPURack, slot *mokkav1
 			delete(c.cleaned, key)
 		}
 	}
+}
+
+func (c *Controller) cleanupReady(outcome Outcome) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	_, ready := c.cleaned[bindingKeyForOutcome(outcome)]
+	return ready
+}
+
+func (c *Controller) operationLock(rackName string, slotIndex int32) *sync.Mutex {
+	hash := uint32(2166136261)
+	for i := range len(rackName) {
+		hash ^= uint32(rackName[i])
+		hash *= 16777619
+	}
+	hash ^= uint32(slotIndex)
+	hash *= 16777619
+	return &c.operations[hash%operationShards]
 }
 
 func bindingKeyForOutcome(outcome Outcome) bindingKey {

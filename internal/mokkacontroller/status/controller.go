@@ -130,11 +130,14 @@ func (r *Reconciler) ReconcileRack(ctx context.Context, input RackInput) (bool, 
 	changed := false
 	err := retryOnConflict(func() error {
 		latest, err := r.racks.Get(ctx, input.Rack.Name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
 		if latest.UID != input.Rack.UID {
-			return apierrors.NewConflict(mokkav1alpha1.Resource("sgpuracks"), input.Rack.Name, errors.New("rack UID changed"))
+			return nil
 		}
 		current := input
 		current.Rack = input.Rack.DeepCopy()
@@ -145,7 +148,9 @@ func (r *Reconciler) ReconcileRack(ctx context.Context, input RackInput) (bool, 
 		}
 		candidate := latest.DeepCopy()
 		candidate.Status = desired
-		if _, err := r.racks.UpdateStatus(ctx, candidate, metav1.UpdateOptions{}); err != nil {
+		if _, err := r.racks.UpdateStatus(ctx, candidate, metav1.UpdateOptions{}); apierrors.IsNotFound(err) {
+			return nil
+		} else if err != nil {
 			return err
 		}
 		changed = true

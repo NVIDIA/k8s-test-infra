@@ -6,6 +6,7 @@ package rack
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -281,6 +282,36 @@ func TestReconcileProjectedLabelSelectorRetainsBindingWithoutWrites(t *testing.T
 	require.Equal(t, node.UID, retained.Spec.Slots[0].NodeRef.UID)
 }
 
+func TestReconcileUsesCurrentInventoryOverStaleListSnapshot(t *testing.T) {
+	ctx := context.Background()
+	profile := testProfile("p", "profile-uid", 1, 1, 1)
+	inventory := testInventory("inventory", "inventory-uid", "p", 1)
+	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
+	h := newHarness(t, []runtime.Object{profile, inventory}, []*corev1.Node{node})
+	_, err := h.reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
+	h.sync(t)
+
+	current := inventory.DeepCopy()
+	current.Finalizers = []string{InventoryFinalizer}
+	current.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+		Key: metadata.AssignedLabel, Operator: metav1.LabelSelectorOpExists,
+	}}}
+	h.mokka.Fake.ClearActions()
+	reconciler := NewReconciler(
+		&inventoryOverrideCache{Cache: h.cache, inventory: current},
+		h.mokka.MokkaV1alpha1().SGPUInventories(),
+		h.mokka.MokkaV1alpha1().SGPURacks(),
+		CleanupGateFunc(func(CleanupNeeded) bool { return false }),
+	)
+
+	result, err := reconciler.Reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
+	require.False(t, result.Accepted)
+	require.Empty(t, result.CleanupNeeded)
+	require.Empty(t, h.mokka.Actions(), "a stale inventory list must not release current last-good bindings")
+}
+
 func TestReconcileRendersRecreatedProfileWithoutMovingBindings(t *testing.T) {
 	ctx := context.Background()
 	profile := testProfile("p", "old-profile-uid", 1, 2, 1)
@@ -484,6 +515,67 @@ func TestReconcileWaitsForGoneUIDCleanupBeforeAllocatingReplacement(t *testing.T
 	require.Equal(t, replacement.UID, got.Spec.Slots[0].NodeRef.UID)
 }
 
+func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
+	ctx := context.Background()
+	profile := testProfile("p", "profile-uid", 1, 1, 1)
+	inventory := testInventory("inventory", "inventory-uid", "p", 1)
+	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
+	h := newHarness(t, []runtime.Object{profile, inventory}, []*corev1.Node{node})
+	_, err := h.reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
+
+	h.nodes = nil
+	h.sync(t)
+	gate := &testCleanupGate{ready: true}
+	reconciler := NewReconciler(
+		h.cache,
+		h.mokka.MokkaV1alpha1().SGPUInventories(),
+		h.mokka.MokkaV1alpha1().SGPURacks(),
+		gate,
+	)
+	conflicted := false
+	h.mokka.PrependReactor("patch", "sgpuracks", func(k8stesting.Action) (bool, runtime.Object, error) {
+		if conflicted {
+			return false, nil, nil
+		}
+		conflicted = true
+		return true, nil, apierrors.NewConflict(
+			schema.GroupResource{Group: mokkav1alpha1.GroupName, Resource: "sgpuracks"},
+			materialize.RackName(inventory.Name, inventory.UID, "group", 0),
+			errors.New("test conflict"),
+		)
+	})
+
+	_, err = reconciler.Reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
+	require.True(t, conflicted)
+	require.True(t, gate.Ready(CleanupNeeded{}), "cleanup must remain acknowledged until the cache observes the removed binding")
+	stored, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(
+		ctx,
+		materialize.RackName(inventory.Name, inventory.UID, "group", 0),
+		metav1.GetOptions{},
+	)
+	require.NoError(t, err)
+	require.Nil(t, stored.Spec.Slots[0].NodeRef)
+
+	_, err = reconciler.Reconcile(ctx, inventory.Name)
+	require.Error(t, err)
+	require.True(t, apierrors.IsConflict(err))
+	require.True(t, gate.Ready(CleanupNeeded{}), "a stale-cache conflict must not discard the acknowledgement")
+	h.sync(t)
+	reconciler = NewReconciler(
+		h.cache,
+		h.mokka.MokkaV1alpha1().SGPUInventories(),
+		h.mokka.MokkaV1alpha1().SGPURacks(),
+		gate,
+	)
+	_, err = reconciler.Reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
+	stored, err = h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, stored.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Nil(t, stored.Spec.Slots[0].NodeRef, "a stale cache reconcile must not restore a cleaned binding")
+}
+
 func TestReconcileDeletionFinalizersAndManualRackDeletion(t *testing.T) {
 	ctx := context.Background()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
@@ -582,6 +674,24 @@ type harness struct {
 	nodes   []*corev1.Node
 	cache   *ListerCache
 	cleaned bool
+}
+
+type testCleanupGate struct {
+	ready bool
+}
+
+func (g *testCleanupGate) Ready(CleanupNeeded) bool { return g.ready }
+
+type inventoryOverrideCache struct {
+	Cache
+	inventory *mokkav1alpha1.SGPUInventory
+}
+
+func (c *inventoryOverrideCache) Inventory(name string) (*mokkav1alpha1.SGPUInventory, error) {
+	if name == c.inventory.Name {
+		return c.inventory, nil
+	}
+	return c.Cache.Inventory(name)
 }
 
 func newHarness(t *testing.T, mokkaObjects []runtime.Object, nodes []*corev1.Node) *harness {
