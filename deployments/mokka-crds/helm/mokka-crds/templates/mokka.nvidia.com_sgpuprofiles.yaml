@@ -31,10 +31,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: |-
-          SGPUProfile is the static ground truth for a simulated GPU rack shape:
-          hardware capabilities, host topology, software versions, and the baseline
-          runtime state SGPURuntimePolicy overrides sparsely.
+        description: SGPUProfile is the static shape of a simulated GPU rack.
         properties:
           apiVersion:
             description: |-
@@ -54,36 +51,27 @@ spec:
           metadata:
             type: object
           spec:
-            description: |-
-              SGPUProfileSpec models rack shape, per-node topology, software footprint,
-              and runtime defaults for one logical rack profile.
+            description: SGPUProfileSpec is one logical rack profile.
             properties:
               defaults:
-                description: |-
-                  SGPUProfileDefaults holds the initial runtime state a fresh sGPU boots into.
-                  MEP0001 requires this to reuse RuntimeState verbatim so SGPURuntimePolicy
-                  can layer sparse overrides field-by-field.
+                description: SGPUProfileDefaults is initial runtime state for fresh
+                  sGPUs.
                 properties:
                   runtime:
                     description: |-
-                      RuntimeState is the effective device runtime settings applied to a
-                      simulated GPU. SGPUProfile.spec.defaults.runtime holds the baseline shape;
-                      SGPURuntimePolicy.spec.runtime holds a sparse override with identical
-                      semantics: an omitted field means "inherit"; an explicit zero or empty
-                      list is a real assignment.
+                      RuntimeState is the effective runtime settings of a simulated GPU.
+                      Sparse: omitted fields inherit; explicit zero is a set value.
                     properties:
                       deviceState:
-                        description: DeviceState enumerates simulated GPU health states
-                          surfaced through NVML.
+                        description: DeviceState is a simulated GPU health state.
                         enum:
                         - Healthy
                         - Degraded
                         - Failed
                         type: string
                       modes:
-                        description: |-
-                          RuntimeModes mirrors the persistent NVML/CUDA mode settings surfaced by
-                          nvidia-smi -q.
+                        description: RuntimeModes is the persistent NVML/CUDA mode
+                          settings.
                         properties:
                           accounting:
                             enum:
@@ -113,13 +101,10 @@ spec:
                             type: string
                         type: object
                       telemetry:
-                        description: |-
-                          RuntimeTelemetry defines the synthetic telemetry values the mock reports
-                          through NVML — utilization, power, temperature, and clock rates.
+                        description: RuntimeTelemetry is the synthetic NVML telemetry.
                         properties:
                           clocks:
-                            description: ClocksTelemetry reports current clock rates
-                              back through NVML queries.
+                            description: ClocksTelemetry reports current clock rates.
                             properties:
                               graphicsMHz:
                                 format: int32
@@ -139,8 +124,7 @@ spec:
                                 type: integer
                             type: object
                           performanceState:
-                            description: PerformanceState is an NVML P-state string
-                              such as "P0" or "P8".
+                            description: NVML P-state, e.g. "P0".
                             pattern: ^P[0-9]+$
                             type: string
                           power:
@@ -158,7 +142,7 @@ spec:
                             type: object
                           temperature:
                             description: TemperatureTelemetry drives synthetic GPU/memory
-                              temperatures.
+                              temperature.
                             properties:
                               gpuCelsius:
                                 format: int32
@@ -174,22 +158,20 @@ spec:
                             type: object
                           utilization:
                             description: UtilizationTelemetry drives synthetic GPU/memory
-                              utilization curves.
+                              utilization.
                             properties:
                               mode:
-                                description: Mode selects between a static value ("Fixed")
-                                  and a generator ("Pattern").
                                 enum:
                                 - Pattern
                                 - Fixed
                                 type: string
                               pattern:
-                                description: UtilizationPattern selects the shape
-                                  of the generated utilization curve.
+                                description: UtilizationPattern shapes the generated
+                                  utilization curve.
                                 properties:
                                   gpuPercent:
-                                    description: PercentRange bounds a synthetic percentage
-                                      curve.
+                                    description: PercentRange is a min/max percentage
+                                      bound.
                                     properties:
                                       maximum:
                                         format: int32
@@ -206,8 +188,8 @@ spec:
                                     - minimum
                                     type: object
                                   memoryPercent:
-                                    description: PercentRange bounds a synthetic percentage
-                                      curve.
+                                    description: PercentRange is a min/max percentage
+                                      bound.
                                     properties:
                                       maximum:
                                         format: int32
@@ -235,23 +217,20 @@ spec:
                     type: object
                 type: object
               node:
-                description: SGPUNode models one homogeneous logical node inside the
-                  rack.
+                description: SGPUNode is a homogeneous logical node in the rack.
                 properties:
                   gpus:
-                    description: SGPUGPUs is the shared GPU template every logical
-                      GPU on the node inherits.
+                    description: SGPUGPUs is the shared template for every GPU on
+                      the node.
                     properties:
                       capabilities:
-                        description: |-
-                          GPUCapabilities toggles on optional GPU features (MIG etc.) and holds an
-                          extensible attribute map keyed by qualified name.
+                        description: GPUCapabilities is GPU feature toggles and extensible
+                          attributes.
                         properties:
                           attributes:
                             additionalProperties:
-                              description: |-
-                                CapabilityAttribute holds one of several typed values so map[string]any
-                                isn't needed in the schema. Only one field should be set per attribute.
+                              description: CapabilityAttribute is a typed variant;
+                                set exactly one field.
                               properties:
                                 bool:
                                   type: boolean
@@ -266,14 +245,11 @@ spec:
                                   type: array
                                   x-kubernetes-list-type: set
                               type: object
-                            description: |-
-                              Attributes carries extensible capability flags keyed by qualified name
-                              (e.g. `nvidia.com/transformer-engine`). Values are typed via
-                              CapabilityAttribute to avoid an opaque `any`.
+                            description: Extensible capability flags keyed by qualified
+                              name.
                             type: object
                           mig:
-                            description: MIGCapability advertises whether the profile
-                              supports MIG partitioning.
+                            description: MIGCapability is MIG partitioning support.
                             properties:
                               maxGPUInstances:
                                 format: int32
@@ -283,8 +259,8 @@ spec:
                             type: object
                         type: object
                       clocks:
-                        description: GPUClocks lists the static clock ceilings and
-                          per-memory-clock schedules.
+                        description: GPUClocks is clock ceilings and per-memory-clock
+                          schedules.
                         properties:
                           maximumMHz:
                             description: ClockRates is a graphics/SM/memory/video
@@ -306,7 +282,7 @@ spec:
                           supported:
                             items:
                               description: SupportedClocks pairs a memory clock with
-                                the graphics clocks it supports.
+                                supported graphics clocks.
                               properties:
                                 graphicsMHz:
                                   items:
@@ -328,8 +304,7 @@ spec:
                         minimum: 1
                         type: integer
                       memory:
-                        description: GPUMemory describes the on-device memory footprint
-                          the mock advertises.
+                        description: GPUMemory is on-device memory.
                         properties:
                           bar1Capacity:
                             anyOf:
@@ -356,20 +331,18 @@ spec:
                         - capacity
                         type: object
                       model:
-                        description: GPUModel captures vendor/product identity plus
-                          static compute/board details.
+                        description: GPUModel is the vendor/product identity.
                         properties:
                           architecture:
                             type: string
                           board:
-                            description: GPUBoard captures board-level identity fields.
+                            description: GPUBoard is board-level identity.
                             properties:
                               partNumber:
                                 type: string
                             type: object
                           computeCapability:
-                            description: ComputeCapability is the CUDA compute capability
-                              (major.minor).
+                            description: ComputeCapability is the CUDA compute capability.
                             properties:
                               major:
                                 format: int32
@@ -382,22 +355,19 @@ spec:
                             - minor
                             type: object
                           cores:
-                            description: GPUCores enumerates programmable core counts
-                              NVML exposes.
+                            description: GPUCores is programmable core counts.
                             properties:
                               cuda:
                                 format: int32
                                 type: integer
                             type: object
                           firmware:
-                            description: GPUFirmware groups firmware versions surfaced
-                              by nvidia-smi -q.
+                            description: GPUFirmware is firmware versions.
                             properties:
                               gspVersion:
                                 type: string
                               infoROM:
-                                description: InfoROM mirrors NVML's inforom sub-object
-                                  versions.
+                                description: InfoROM is NVML inforom sub-object versions.
                                 properties:
                                   eccObjectVersion:
                                     type: string
@@ -419,14 +389,13 @@ spec:
                             type: string
                         type: object
                       pci:
-                        description: GPUPCI captures PCI vendor/device identity and
-                          link characteristics.
+                        description: GPUPCI is PCI identity and link characteristics.
                         properties:
                           deviceID:
                             type: string
                           maxLink:
-                            description: PCILink models the PCIe max link generation
-                              and width.
+                            description: PCILink is the PCIe max link generation and
+                              width.
                             properties:
                               generation:
                                 format: int32
@@ -443,12 +412,11 @@ spec:
                             type: string
                         type: object
                       power:
-                        description: GPUPower advertises the power envelope the mock
-                          exposes through NVML.
+                        description: GPUPower is the power envelope.
                         properties:
                           limitsMilliWatts:
-                            description: PowerLimits carries min/default/max power
-                              caps in milliwatts.
+                            description: PowerLimits is min/default/max power caps
+                              in milliwatts.
                             properties:
                               default:
                                 format: int64
@@ -464,8 +432,7 @@ spec:
                             type: boolean
                         type: object
                       thermal:
-                        description: GPUThermal captures target and slowdown/shutdown
-                          thermal thresholds.
+                        description: GPUThermal is thermal thresholds.
                         properties:
                           maxOperatingCelsius:
                             format: int32
@@ -487,12 +454,10 @@ spec:
                     - pci
                     type: object
                   host:
-                    description: SGPUHost describes optional host (CPU + host memory)
-                      characteristics.
+                    description: SGPUHost is host CPU + memory.
                     properties:
                       cpu:
-                        description: HostCPU captures host CPU vendor/product/arch/core
-                          count.
+                        description: HostCPU is host CPU identity.
                         properties:
                           architecture:
                             type: string
@@ -505,8 +470,7 @@ spec:
                             type: string
                         type: object
                       memory:
-                        description: HostMemory captures host memory capacity and
-                          GPU-coherency flag.
+                        description: HostMemory is host memory capacity.
                         properties:
                           capacity:
                             anyOf:
@@ -521,13 +485,11 @@ spec:
                         type: object
                     type: object
                   topology:
-                    description: |-
-                      SGPUTopology describes structural placement — PCIe slots, GPU fabric, and
-                      out-of-band network — visible to each logical node.
+                    description: SGPUTopology is PCIe slots, GPU fabric, and network
+                      visible to the node.
                     properties:
                       gpuFabric:
-                        description: GPUFabric characterises NVLink/NVSwitch fabric
-                          visible to this node.
+                        description: GPUFabric is NVLink/NVSwitch fabric.
                         properties:
                           bandwidthPerLinkMBps:
                             format: int32
@@ -535,8 +497,7 @@ spec:
                           c2cSupported:
                             type: boolean
                           domain:
-                            description: FabricDomain describes the fabric compute
-                              domain size and scope.
+                            description: FabricDomain is the fabric compute domain.
                             properties:
                               gpuCount:
                                 format: int32
@@ -555,8 +516,8 @@ spec:
                             format: int32
                             type: integer
                           switches:
-                            description: FabricSwitches records how many fabric switches
-                              each node sees.
+                            description: FabricSwitches is fabric switches visible
+                              per node.
                             properties:
                               visiblePerNode:
                                 format: int32
@@ -567,9 +528,8 @@ spec:
                         type: object
                       gpuSlots:
                         items:
-                          description: |-
-                            GPUSlot pins one logical GPU to a PCI address plus NUMA/root-complex/host
-                            processor lineage.
+                          description: GPUSlot pins one GPU to a PCI address + NUMA/root-complex/host
+                            CPU.
                           properties:
                             hostProcessorIndex:
                               format: int32
@@ -592,8 +552,7 @@ spec:
                         - index
                         x-kubernetes-list-type: map
                       network:
-                        description: NetworkTopology describes out-of-band adapters
-                          (typically InfiniBand).
+                        description: NetworkTopology is out-of-band adapters.
                         properties:
                           adapterModel:
                             type: string
@@ -615,8 +574,7 @@ spec:
                 - gpus
                 type: object
               rack:
-                description: SGPURack is the logical rack shape; SGPUInventory multiplies
-                  by its rack count.
+                description: SGPURack is the logical rack shape.
                 properties:
                   nodesPerRack:
                     format: int32
@@ -626,8 +584,7 @@ spec:
                 - nodesPerRack
                 type: object
               software:
-                description: SGPUSoftware fixes the driver/NVML/CUDA versions the
-                  mock advertises.
+                description: SGPUSoftware is driver/NVML/CUDA versions.
                 properties:
                   cudaVersion:
                     type: string

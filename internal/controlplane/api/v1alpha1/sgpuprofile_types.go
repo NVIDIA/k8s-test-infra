@@ -8,9 +8,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// SGPUProfile is the static ground truth for a simulated GPU rack shape:
-// hardware capabilities, host topology, software versions, and the baseline
-// runtime state SGPURuntimePolicy overrides sparsely.
+// SGPUProfile is the static shape of a simulated GPU rack.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,categories=mokka,shortName=sprof
@@ -32,8 +30,7 @@ type SGPUProfileList struct {
 	Items           []SGPUProfile `json:"items"`
 }
 
-// SGPUProfileSpec models rack shape, per-node topology, software footprint,
-// and runtime defaults for one logical rack profile.
+// SGPUProfileSpec is one logical rack profile.
 type SGPUProfileSpec struct {
 	Rack SGPURack `json:"rack"`
 
@@ -46,13 +43,13 @@ type SGPUProfileSpec struct {
 	Defaults *SGPUProfileDefaults `json:"defaults,omitempty"`
 }
 
-// SGPURack is the logical rack shape; SGPUInventory multiplies by its rack count.
+// SGPURack is the logical rack shape.
 type SGPURack struct {
 	// +kubebuilder:validation:Minimum=1
 	NodesPerRack int32 `json:"nodesPerRack"`
 }
 
-// SGPUNode models one homogeneous logical node inside the rack.
+// SGPUNode is a homogeneous logical node in the rack.
 type SGPUNode struct {
 	GPUs SGPUGPUs `json:"gpus"`
 
@@ -63,7 +60,7 @@ type SGPUNode struct {
 	Topology *SGPUTopology `json:"topology,omitempty"`
 }
 
-// SGPUGPUs is the shared GPU template every logical GPU on the node inherits.
+// SGPUGPUs is the shared template for every GPU on the node.
 type SGPUGPUs struct {
 	// +kubebuilder:validation:Minimum=1
 	Count int32 `json:"count"`
@@ -87,7 +84,7 @@ type SGPUGPUs struct {
 	Capabilities *GPUCapabilities `json:"capabilities,omitempty"`
 }
 
-// GPUModel captures vendor/product identity plus static compute/board details.
+// GPUModel is the vendor/product identity.
 type GPUModel struct {
 	// +optional
 	Vendor string `json:"vendor,omitempty"`
@@ -114,25 +111,25 @@ type GPUModel struct {
 	Firmware *GPUFirmware `json:"firmware,omitempty"`
 }
 
-// ComputeCapability is the CUDA compute capability (major.minor).
+// ComputeCapability is the CUDA compute capability.
 type ComputeCapability struct {
 	Major int32 `json:"major"`
 	Minor int32 `json:"minor"`
 }
 
-// GPUCores enumerates programmable core counts NVML exposes.
+// GPUCores is programmable core counts.
 type GPUCores struct {
 	// +optional
 	CUDA int32 `json:"cuda,omitempty"`
 }
 
-// GPUBoard captures board-level identity fields.
+// GPUBoard is board-level identity.
 type GPUBoard struct {
 	// +optional
 	PartNumber string `json:"partNumber,omitempty"`
 }
 
-// GPUFirmware groups firmware versions surfaced by nvidia-smi -q.
+// GPUFirmware is firmware versions.
 type GPUFirmware struct {
 	// +optional
 	VBIOSVersion string `json:"vbiosVersion,omitempty"`
@@ -144,7 +141,7 @@ type GPUFirmware struct {
 	InfoROM *InfoROM `json:"infoROM,omitempty"`
 }
 
-// InfoROM mirrors NVML's inforom sub-object versions.
+// InfoROM is NVML inforom sub-object versions.
 type InfoROM struct {
 	// +optional
 	ImageVersion string `json:"imageVersion,omitempty"`
@@ -159,7 +156,7 @@ type InfoROM struct {
 	PowerObjectVersion string `json:"powerObjectVersion,omitempty"`
 }
 
-// GPUMemory describes the on-device memory footprint the mock advertises.
+// GPUMemory is on-device memory.
 type GPUMemory struct {
 	Capacity resource.Quantity `json:"capacity"`
 
@@ -173,7 +170,7 @@ type GPUMemory struct {
 	BusWidthBits int32 `json:"busWidthBits,omitempty"`
 }
 
-// GPUPCI captures PCI vendor/device identity and link characteristics.
+// GPUPCI is PCI identity and link characteristics.
 type GPUPCI struct {
 	// +optional
 	VendorID string `json:"vendorID,omitempty"`
@@ -191,7 +188,7 @@ type GPUPCI struct {
 	MaxLink *PCILink `json:"maxLink,omitempty"`
 }
 
-// PCILink models the PCIe max link generation and width.
+// PCILink is the PCIe max link generation and width.
 type PCILink struct {
 	// +optional
 	Generation int32 `json:"generation,omitempty"`
@@ -200,7 +197,7 @@ type PCILink struct {
 	Width int32 `json:"width,omitempty"`
 }
 
-// GPUPower advertises the power envelope the mock exposes through NVML.
+// GPUPower is the power envelope.
 type GPUPower struct {
 	// +optional
 	ManagementSupported bool `json:"managementSupported,omitempty"`
@@ -209,7 +206,7 @@ type GPUPower struct {
 	LimitsMilliWatts *PowerLimits `json:"limitsMilliWatts,omitempty"`
 }
 
-// PowerLimits carries min/default/max power caps in milliwatts.
+// PowerLimits is min/default/max power caps in milliwatts.
 type PowerLimits struct {
 	// +optional
 	Minimum int64 `json:"minimum,omitempty"`
@@ -221,7 +218,7 @@ type PowerLimits struct {
 	Maximum int64 `json:"maximum,omitempty"`
 }
 
-// GPUThermal captures target and slowdown/shutdown thermal thresholds.
+// GPUThermal is thermal thresholds.
 type GPUThermal struct {
 	// +optional
 	TargetCelsius int32 `json:"targetCelsius,omitempty"`
@@ -236,7 +233,7 @@ type GPUThermal struct {
 	ShutdownThresholdCelsius int32 `json:"shutdownThresholdCelsius,omitempty"`
 }
 
-// GPUClocks lists the static clock ceilings and per-memory-clock schedules.
+// GPUClocks is clock ceilings and per-memory-clock schedules.
 type GPUClocks struct {
 	// +optional
 	MaximumMHz *ClockRates `json:"maximumMHz,omitempty"`
@@ -260,7 +257,7 @@ type ClockRates struct {
 	Video int32 `json:"video,omitempty"`
 }
 
-// SupportedClocks pairs a memory clock with the graphics clocks it supports.
+// SupportedClocks pairs a memory clock with supported graphics clocks.
 type SupportedClocks struct {
 	MemoryMHz int32 `json:"memoryMHz"`
 
@@ -268,20 +265,17 @@ type SupportedClocks struct {
 	GraphicsMHz []int32 `json:"graphicsMHz"`
 }
 
-// GPUCapabilities toggles on optional GPU features (MIG etc.) and holds an
-// extensible attribute map keyed by qualified name.
+// GPUCapabilities is GPU feature toggles and extensible attributes.
 type GPUCapabilities struct {
 	// +optional
 	MIG *MIGCapability `json:"mig,omitempty"`
 
-	// Attributes carries extensible capability flags keyed by qualified name
-	// (e.g. `nvidia.com/transformer-engine`). Values are typed via
-	// CapabilityAttribute to avoid an opaque `any`.
+	// Extensible capability flags keyed by qualified name.
 	// +optional
 	Attributes map[string]CapabilityAttribute `json:"attributes,omitempty"`
 }
 
-// MIGCapability advertises whether the profile supports MIG partitioning.
+// MIGCapability is MIG partitioning support.
 type MIGCapability struct {
 	// +optional
 	Supported bool `json:"supported,omitempty"`
@@ -290,8 +284,7 @@ type MIGCapability struct {
 	MaxGPUInstances int32 `json:"maxGPUInstances,omitempty"`
 }
 
-// CapabilityAttribute holds one of several typed values so map[string]any
-// isn't needed in the schema. Only one field should be set per attribute.
+// CapabilityAttribute is a typed variant; set exactly one field.
 type CapabilityAttribute struct {
 	// +optional
 	Bool *bool `json:"bool,omitempty"`
@@ -307,7 +300,7 @@ type CapabilityAttribute struct {
 	Strings []string `json:"strings,omitempty"`
 }
 
-// SGPUHost describes optional host (CPU + host memory) characteristics.
+// SGPUHost is host CPU + memory.
 type SGPUHost struct {
 	// +optional
 	CPU *HostCPU `json:"cpu,omitempty"`
@@ -316,7 +309,7 @@ type SGPUHost struct {
 	Memory *HostMemory `json:"memory,omitempty"`
 }
 
-// HostCPU captures host CPU vendor/product/arch/core count.
+// HostCPU is host CPU identity.
 type HostCPU struct {
 	// +optional
 	Vendor string `json:"vendor,omitempty"`
@@ -331,7 +324,7 @@ type HostCPU struct {
 	Cores int32 `json:"cores,omitempty"`
 }
 
-// HostMemory captures host memory capacity and GPU-coherency flag.
+// HostMemory is host memory capacity.
 type HostMemory struct {
 	Capacity resource.Quantity `json:"capacity"`
 
@@ -339,8 +332,7 @@ type HostMemory struct {
 	CoherentWithGPU bool `json:"coherentWithGPU,omitempty"`
 }
 
-// SGPUTopology describes structural placement — PCIe slots, GPU fabric, and
-// out-of-band network — visible to each logical node.
+// SGPUTopology is PCIe slots, GPU fabric, and network visible to the node.
 type SGPUTopology struct {
 	// +listType=map
 	// +listMapKey=index
@@ -353,8 +345,7 @@ type SGPUTopology struct {
 	Network *NetworkTopology `json:"network,omitempty"`
 }
 
-// GPUSlot pins one logical GPU to a PCI address plus NUMA/root-complex/host
-// processor lineage.
+// GPUSlot pins one GPU to a PCI address + NUMA/root-complex/host CPU.
 type GPUSlot struct {
 	Index int32 `json:"index"`
 
@@ -371,7 +362,7 @@ type GPUSlot struct {
 	HostProcessorIndex int32 `json:"hostProcessorIndex,omitempty"`
 }
 
-// GPUFabric characterises NVLink/NVSwitch fabric visible to this node.
+// GPUFabric is NVLink/NVSwitch fabric.
 type GPUFabric struct {
 	// +optional
 	Type string `json:"type,omitempty"`
@@ -395,7 +386,7 @@ type GPUFabric struct {
 	Switches *FabricSwitches `json:"switches,omitempty"`
 }
 
-// FabricDomain describes the fabric compute domain size and scope.
+// FabricDomain is the fabric compute domain.
 type FabricDomain struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Node;Rack;Cluster
@@ -405,13 +396,13 @@ type FabricDomain struct {
 	GPUCount int32 `json:"gpuCount,omitempty"`
 }
 
-// FabricSwitches records how many fabric switches each node sees.
+// FabricSwitches is fabric switches visible per node.
 type FabricSwitches struct {
 	// +optional
 	VisiblePerNode int32 `json:"visiblePerNode,omitempty"`
 }
 
-// NetworkTopology describes out-of-band adapters (typically InfiniBand).
+// NetworkTopology is out-of-band adapters.
 type NetworkTopology struct {
 	// +optional
 	Type string `json:"type,omitempty"`
@@ -429,7 +420,7 @@ type NetworkTopology struct {
 	AdaptersPerGPU int32 `json:"adaptersPerGPU,omitempty"`
 }
 
-// SGPUSoftware fixes the driver/NVML/CUDA versions the mock advertises.
+// SGPUSoftware is driver/NVML/CUDA versions.
 type SGPUSoftware struct {
 	// +optional
 	DriverVersion string `json:"driverVersion,omitempty"`
@@ -441,9 +432,7 @@ type SGPUSoftware struct {
 	CUDAVersion string `json:"cudaVersion,omitempty"`
 }
 
-// SGPUProfileDefaults holds the initial runtime state a fresh sGPU boots into.
-// MEP0001 requires this to reuse RuntimeState verbatim so SGPURuntimePolicy
-// can layer sparse overrides field-by-field.
+// SGPUProfileDefaults is initial runtime state for fresh sGPUs.
 type SGPUProfileDefaults struct {
 	// +optional
 	Runtime *RuntimeState `json:"runtime,omitempty"`

@@ -9,24 +9,24 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// GroupName is the API group all Mokka Control Plane CRDs live under.
+// GroupName is the Mokka Control Plane API group.
 const GroupName = "mokka.nvidia.com"
 
 var (
-	// GroupVersion is the group + version this package registers into a Scheme.
+	// GroupVersion is the registered GroupVersion.
 	GroupVersion = schema.GroupVersion{Group: GroupName, Version: "v1alpha1"}
 
 	// SchemeGroupVersion aliases GroupVersion for code-generator compatibility.
 	SchemeGroupVersion = GroupVersion
 
-	// SchemeBuilder collects registration funcs for the types in this package.
+	// SchemeBuilder registers Mokka API types.
 	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)
 
-	// AddToScheme installs Mokka CRD types into the given Scheme.
+	// AddToScheme installs Mokka API types into a scheme.
 	AddToScheme = SchemeBuilder.AddToScheme
 )
 
-// Resource returns a GroupResource for `resource` in this package's group.
+// Resource returns a group-qualified GroupResource.
 func Resource(resource string) schema.GroupResource {
 	return GroupVersion.WithResource(resource).GroupResource()
 }

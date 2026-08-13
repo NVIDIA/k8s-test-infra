@@ -34,19 +34,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: |-
-          SGPUInventory declares a set of simulated GPU racks the Control Plane
-          should distribute across CPU nodes. Rack groups are the associative unit:
-          each group specifies a profile, a count, and an optional node selector.
-
-          All print columns resolve to .status.* fields the (future) controller
-          writes: Groups, Nodes, and GPUs stay blank until the reconciler runs.
-          Groups uses a controller-maintained pre-joined string ("training,ci")
-          modeled after how the kube-apiserver's hard-coded EndpointSlice printer
-          renders its ENDPOINTS column — CRD printer-column JSONPath can't
-          aggregate arrays, and rendering .spec.rackGroups directly is unreadable
-          (raw struct JSON) or misleading (first element only for a [*].id
-          projection).
+        description: SGPUInventory is a set of simulated GPU racks to distribute across
+          CPU nodes.
         properties:
           apiVersion:
             description: |-
@@ -66,30 +55,24 @@ spec:
           metadata:
             type: object
           spec:
-            description: |-
-              SGPUInventorySpec declares the desired rack composition. The 64-group cap
-              mirrors Gateway API's per-listener limit and keeps status reconciliation
-              bounded.
+            description: SGPUInventorySpec is the desired rack composition.
             properties:
               rackGroups:
                 items:
-                  description: RackGroup is one homogeneous group of racks sharing
-                    a profile.
+                  description: RackGroup is a homogeneous group of racks sharing a
+                    profile.
                   properties:
                     count:
                       format: int32
                       minimum: 1
                       type: integer
                     id:
-                      description: |-
-                        ID uniquely identifies this group inside the inventory (also used to
-                        key server-side-apply patches).
                       maxLength: 63
                       minLength: 1
                       type: string
                     placement:
-                      description: RackPlacement constrains which CPU nodes a rack
-                        group may materialize on.
+                      description: RackPlacement constrains which nodes a rack group
+                        may materialize on.
                       properties:
                         nodeSelector:
                           description: |-
@@ -142,9 +125,7 @@ spec:
                           x-kubernetes-map-type: atomic
                       type: object
                     profileRef:
-                      description: |-
-                        ProfileReference points at an SGPUProfile by name (cluster-scoped, so no
-                        namespace needed).
+                      description: ProfileReference targets an SGPUProfile by name.
                       properties:
                         name:
                           minLength: 1
@@ -167,12 +148,11 @@ spec:
             - rackGroups
             type: object
           status:
-            description: |-
-              SGPUInventoryStatus holds the Control Plane's view of realized capacity,
-              current usage, and per-rack-group breakdowns.
+            description: SGPUInventoryStatus is the Control Plane view of realized
+              capacity and usage.
             properties:
               capacity:
-                description: InventoryCapacity aggregates realized rack/node/GPU counts.
+                description: InventoryCapacity is realized rack/node/GPU counts.
                 properties:
                   gpus:
                     format: int32
@@ -189,9 +169,6 @@ spec:
                 - racks
                 type: object
               conditions:
-                description: |-
-                  Conditions reports the reconciliation state. Standard condition types
-                  are declared as InventoryCondition* constants in this package.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -252,14 +229,10 @@ spec:
                 x-kubernetes-list-type: map
               rackGroups:
                 items:
-                  description: |-
-                    RackGroupStatus is the per-group projection of Capacity and Usage plus the
-                    resolved profile name (which may drift if profileRef changes without a spec
-                    bump).
+                  description: RackGroupStatus is the per-group Capacity + Usage projection.
                   properties:
                     capacity:
-                      description: InventoryCapacity aggregates realized rack/node/GPU
-                        counts.
+                      description: InventoryCapacity is realized rack/node/GPU counts.
                       properties:
                         gpus:
                           format: int32
@@ -280,9 +253,8 @@ spec:
                     profileName:
                       type: string
                     usage:
-                      description: |-
-                        InventoryUsage aggregates request/allocation lifecycle counts at node
-                        granularity — the Control Plane's coarse view of how much capacity is spoken for.
+                      description: InventoryUsage is node-level request/allocation
+                        counts.
                       properties:
                         allocatedNodes:
                           format: int32
@@ -313,17 +285,11 @@ spec:
                 - id
                 x-kubernetes-list-type: map
               rackGroupsSummary:
-                description: |-
-                  RackGroupsSummary is a comma-joined list of the current rack-group
-                  IDs (for example, "training,ci"). Denormalized so the default kubectl
-                  print column can render EndpointSlice-style — CRD printer-column
-                  JSONPath can't aggregate arrays, so a pre-joined string is the only
-                  readable option.
+                description: RackGroupsSummary is a comma-joined rendering of rack-group
+                  IDs.
                 type: string
               usage:
-                description: |-
-                  InventoryUsage aggregates request/allocation lifecycle counts at node
-                  granularity — the Control Plane's coarse view of how much capacity is spoken for.
+                description: InventoryUsage is node-level request/allocation counts.
                 properties:
                   allocatedNodes:
                     format: int32

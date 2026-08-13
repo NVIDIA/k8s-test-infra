@@ -41,23 +41,8 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          SGPURuntimePolicy applies a sparse RuntimeState override to a subset of the
-          referenced SGPUInventory: a whole inventory, specific rack groups, specific
-          rack indices, specific node indices, or specific GPU indices. Omitted
-          spec.runtime fields inherit from the profile's defaults.
-
-          Print columns render the full targeting coordinate — inventory, then each
-          optional narrowing level (rack groups, rack indexes, node indexes, GPU
-          indexes). Kind is pinned to SGPUInventory by the enum validation on
-          TargetRef.Kind, so we skip a redundant Kind column. Empty cells naturally
-          read as "all" at that level, matching MEP0001's sparse-override semantics.
-
-          Inventory binds to spec (scalar; visible immediately). The four narrowing
-          columns bind to controller-populated .status.*Summary strings so they
-          render EndpointSlice-style ("training,ci" / "0,1,2") without JSON
-          brackets — CRD printer-column JSONPath cannot join arrays, so the
-          reconciler pre-joins each axis. Columns stay blank until the controller
-          reconciles.
+          SGPURuntimePolicy applies a sparse RuntimeState override to a subset of
+          an SGPUInventory.
         properties:
           apiVersion:
             description: |-
@@ -82,24 +67,18 @@ spec:
             properties:
               runtime:
                 description: |-
-                  RuntimeState is the effective device runtime settings applied to a
-                  simulated GPU. SGPUProfile.spec.defaults.runtime holds the baseline shape;
-                  SGPURuntimePolicy.spec.runtime holds a sparse override with identical
-                  semantics: an omitted field means "inherit"; an explicit zero or empty
-                  list is a real assignment.
+                  RuntimeState is the effective runtime settings of a simulated GPU.
+                  Sparse: omitted fields inherit; explicit zero is a set value.
                 properties:
                   deviceState:
-                    description: DeviceState enumerates simulated GPU health states
-                      surfaced through NVML.
+                    description: DeviceState is a simulated GPU health state.
                     enum:
                     - Healthy
                     - Degraded
                     - Failed
                     type: string
                   modes:
-                    description: |-
-                      RuntimeModes mirrors the persistent NVML/CUDA mode settings surfaced by
-                      nvidia-smi -q.
+                    description: RuntimeModes is the persistent NVML/CUDA mode settings.
                     properties:
                       accounting:
                         enum:
@@ -129,13 +108,10 @@ spec:
                         type: string
                     type: object
                   telemetry:
-                    description: |-
-                      RuntimeTelemetry defines the synthetic telemetry values the mock reports
-                      through NVML — utilization, power, temperature, and clock rates.
+                    description: RuntimeTelemetry is the synthetic NVML telemetry.
                     properties:
                       clocks:
-                        description: ClocksTelemetry reports current clock rates back
-                          through NVML queries.
+                        description: ClocksTelemetry reports current clock rates.
                         properties:
                           graphicsMHz:
                             format: int32
@@ -155,8 +131,7 @@ spec:
                             type: integer
                         type: object
                       performanceState:
-                        description: PerformanceState is an NVML P-state string such
-                          as "P0" or "P8".
+                        description: NVML P-state, e.g. "P0".
                         pattern: ^P[0-9]+$
                         type: string
                       power:
@@ -174,7 +149,7 @@ spec:
                         type: object
                       temperature:
                         description: TemperatureTelemetry drives synthetic GPU/memory
-                          temperatures.
+                          temperature.
                         properties:
                           gpuCelsius:
                             format: int32
@@ -190,22 +165,20 @@ spec:
                         type: object
                       utilization:
                         description: UtilizationTelemetry drives synthetic GPU/memory
-                          utilization curves.
+                          utilization.
                         properties:
                           mode:
-                            description: Mode selects between a static value ("Fixed")
-                              and a generator ("Pattern").
                             enum:
                             - Pattern
                             - Fixed
                             type: string
                           pattern:
-                            description: UtilizationPattern selects the shape of the
-                              generated utilization curve.
+                            description: UtilizationPattern shapes the generated utilization
+                              curve.
                             properties:
                               gpuPercent:
-                                description: PercentRange bounds a synthetic percentage
-                                  curve.
+                                description: PercentRange is a min/max percentage
+                                  bound.
                                 properties:
                                   maximum:
                                     format: int32
@@ -222,8 +195,8 @@ spec:
                                 - minimum
                                 type: object
                               memoryPercent:
-                                description: PercentRange bounds a synthetic percentage
-                                  curve.
+                                description: PercentRange is a min/max percentage
+                                  bound.
                                 properties:
                                   maximum:
                                     format: int32
@@ -251,11 +224,8 @@ spec:
                 type: object
               targetRef:
                 description: |-
-                  PolicyTargetRef selects the fan-out scope. Increasing specificity: whole
-                  inventory → subset of rack groups → subset of rack indices → subset of
-                  node indices → subset of GPU indices. Each optional slice narrows the
-                  previous level. Cross-field validation (rackIndex < count etc.) is done by
-                  the controller, not the schema — see MEP0001 §SGPURuntimePolicy.
+                  PolicyTargetRef selects the fan-out scope. Each optional slice narrows
+                  the level above.
                 properties:
                   gpuIndexes:
                     items:
@@ -309,32 +279,16 @@ spec:
             type: object
           status:
             description: |-
-              SGPURuntimePolicyStatus carries controller-derived denormalizations of
-              spec.targetRef. Its only purpose (today) is to power the default kubectl
-              print columns with EndpointSlice-style comma-joined strings — CRD
-              printer-column JSONPath cannot aggregate arrays, so the reconciler joins
-              each targeting axis into a scalar string per column.
+              SGPURuntimePolicyStatus holds comma-joined denormalizations of
+              spec.targetRef axes for print columns.
             properties:
               gpuIndexesSummary:
-                description: |-
-                  GPUIndexesSummary is a comma-joined rendering of
-                  spec.targetRef.gpuIndexes (e.g. "1,3"). Empty when unset.
                 type: string
               nodeIndexesSummary:
-                description: |-
-                  NodeIndexesSummary is a comma-joined rendering of
-                  spec.targetRef.nodeIndexes (e.g. "5,10"). Empty when unset.
                 type: string
               rackGroupsSummary:
-                description: |-
-                  RackGroupsSummary is a comma-joined rendering of spec.targetRef.rackGroups
-                  (e.g. "training,ci"). Empty when spec.targetRef.rackGroups is unset,
-                  which reads as "policy applies to every rack group of the inventory".
                 type: string
               rackIndexesSummary:
-                description: |-
-                  RackIndexesSummary is a comma-joined rendering of
-                  spec.targetRef.rackIndexes (e.g. "0,1,2"). Empty when unset.
                 type: string
             type: object
         required:

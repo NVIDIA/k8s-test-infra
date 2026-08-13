@@ -3,11 +3,8 @@
 
 package v1alpha1
 
-// RuntimeState is the effective device runtime settings applied to a
-// simulated GPU. SGPUProfile.spec.defaults.runtime holds the baseline shape;
-// SGPURuntimePolicy.spec.runtime holds a sparse override with identical
-// semantics: an omitted field means "inherit"; an explicit zero or empty
-// list is a real assignment.
+// RuntimeState is the effective runtime settings of a simulated GPU.
+// Sparse: omitted fields inherit; explicit zero is a set value.
 type RuntimeState struct {
 	// +optional
 	DeviceState DeviceState `json:"deviceState,omitempty"`
@@ -19,19 +16,18 @@ type RuntimeState struct {
 	Telemetry *RuntimeTelemetry `json:"telemetry,omitempty"`
 }
 
-// DeviceState enumerates simulated GPU health states surfaced through NVML.
+// DeviceState is a simulated GPU health state.
 // +kubebuilder:validation:Enum=Healthy;Degraded;Failed
 type DeviceState string
 
-// DeviceState* are the allowed values for RuntimeState.DeviceState.
+// DeviceState values.
 const (
 	DeviceStateHealthy  DeviceState = "Healthy"
 	DeviceStateDegraded DeviceState = "Degraded"
 	DeviceStateFailed   DeviceState = "Failed"
 )
 
-// RuntimeModes mirrors the persistent NVML/CUDA mode settings surfaced by
-// nvidia-smi -q.
+// RuntimeModes is the persistent NVML/CUDA mode settings.
 type RuntimeModes struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Enabled;Disabled
@@ -54,10 +50,9 @@ type RuntimeModes struct {
 	Accounting string `json:"accounting,omitempty"`
 }
 
-// RuntimeTelemetry defines the synthetic telemetry values the mock reports
-// through NVML — utilization, power, temperature, and clock rates.
+// RuntimeTelemetry is the synthetic NVML telemetry.
 type RuntimeTelemetry struct {
-	// PerformanceState is an NVML P-state string such as "P0" or "P8".
+	// NVML P-state, e.g. "P0".
 	// +optional
 	// +kubebuilder:validation:Pattern=`^P[0-9]+$`
 	PerformanceState string `json:"performanceState,omitempty"`
@@ -75,9 +70,8 @@ type RuntimeTelemetry struct {
 	Clocks *ClocksTelemetry `json:"clocks,omitempty"`
 }
 
-// UtilizationTelemetry drives synthetic GPU/memory utilization curves.
+// UtilizationTelemetry drives synthetic GPU/memory utilization.
 type UtilizationTelemetry struct {
-	// Mode selects between a static value ("Fixed") and a generator ("Pattern").
 	// +optional
 	// +kubebuilder:validation:Enum=Pattern;Fixed
 	Mode string `json:"mode,omitempty"`
@@ -86,7 +80,7 @@ type UtilizationTelemetry struct {
 	Pattern *UtilizationPattern `json:"pattern,omitempty"`
 }
 
-// UtilizationPattern selects the shape of the generated utilization curve.
+// UtilizationPattern shapes the generated utilization curve.
 type UtilizationPattern struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Steady;Bursty;Wave
@@ -99,7 +93,7 @@ type UtilizationPattern struct {
 	MemoryPercent *PercentRange `json:"memoryPercent,omitempty"`
 }
 
-// PercentRange bounds a synthetic percentage curve.
+// PercentRange is a min/max percentage bound.
 type PercentRange struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=100
@@ -121,7 +115,7 @@ type PowerTelemetry struct {
 	DrawMilliWatts int64 `json:"drawMilliWatts,omitempty"`
 }
 
-// TemperatureTelemetry drives synthetic GPU/memory temperatures.
+// TemperatureTelemetry drives synthetic GPU/memory temperature.
 type TemperatureTelemetry struct {
 	// +optional
 	// +kubebuilder:validation:Enum=Fixed;Pattern
@@ -134,7 +128,7 @@ type TemperatureTelemetry struct {
 	MemoryCelsius int32 `json:"memoryCelsius,omitempty"`
 }
 
-// ClocksTelemetry reports current clock rates back through NVML queries.
+// ClocksTelemetry reports current clock rates.
 type ClocksTelemetry struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
