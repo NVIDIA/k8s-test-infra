@@ -8,22 +8,26 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 SHELL := /usr/bin/env bash
-# NOTE: GNU Make only honours .SHELLFLAGS from 3.82 onward. macOS ships 3.81,
-# which treats the line below as an ordinary variable and runs recipes with a
-# bare `-c`. Any recipe whose exit status depends on these flags must set them
-# itself — see the `e2e` and `.mod-verify` targets.
 .SHELLFLAGS := -o pipefail -ec
 
 GO_CMD ?= go
-GO_FMT ?= gofmt
 GO_SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 # First-party Go source directories. gofumpt / golangci-lint walk these
 # rather than "." so they don't dive into vendor/ or tmp/ (which may hold an
 # untracked clone of a sibling repo — e.g. tmp/topograph/).
 GO_PKG_DIRS := cmd pkg tests
 
+BIN_DIR=$(PWD)/tmp/bin
+
 VERSION := 0.0.1
+
+VERSION_PACKAGE := github.com/NVIDIA/k8s-test-infra/internal/version
+COMMIT ?= $(shell git describe --dirty --long --always --abbrev=15 2>/dev/null || echo unknown)
+BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+LDFLAGS_COMMON := "-X $(VERSION_PACKAGE).Version=$(VERSION) -X $(VERSION_PACKAGE).GitCommit=$(COMMIT) -X $(VERSION_PACKAGE).BuildDate=$(BUILD_DATE)"
 
 IMAGE_REGISTRY ?= ghcr.io/nvidia
 IMAGE_TAG_NAME ?= $(VERSION)

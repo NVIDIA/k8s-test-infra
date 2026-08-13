@@ -5,9 +5,12 @@ go 1.26.0
 require (
 	github.com/NVIDIA/go-nvml v0.13.3-1
 	github.com/containerd/nri v0.12.1
+	github.com/go-chi/chi/v5 v5.3.1
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.42.1
 	github.com/stretchr/testify v1.11.1
+	github.com/urfave/cli/v3 v3.10.1
+	golang.org/x/sync v0.21.0
 	golang.org/x/sys v0.47.0
 	google.golang.org/grpc v1.82.1
 	k8s.io/api v0.36.3
@@ -54,7 +57,6 @@ require (
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/term v0.44.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
 	golang.org/x/time v0.15.0 // indirect

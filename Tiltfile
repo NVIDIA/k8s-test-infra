@@ -26,7 +26,11 @@
 #   base install path instead of build_nvml_mock_image() + install_single().
 
 load('ext://helm_resource', 'helm_repo')
-load('./local/nvml_mock.tiltfile', 'build_nvml_mock_image', 'install_single', 'install_fleet')
+load('./local/nvml_mock.tiltfile',
+     'build_nvml_mock_image',
+     'build_control_plane_image',
+     'install_single',
+     'install_fleet')
 load('./local/compute-domain/compute_domain.tiltfile',
      compute_domain_build_images='build_images',
      compute_domain_install='install',
@@ -56,6 +60,8 @@ config.define_bool('fgo', args=False,
     usage='Also deploy Run:ai Fake GPU Operator (combine with --multi-gpu-profile to exercise both integration and scale pools)')
 config.define_bool('topograph', args=False,
     usage='Also deploy NVIDIA topograph. Implies --compute-domain (topograph reads the static nvidia.com/gpu.clique labels). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
+config.define_bool('control-plane', args=False,
+    usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Off by default. Composes with --multi-gpu-profile (one CP per release), --compute-domain, and --nvmlmock-image.')
 # CI hook: hand Tilt a pre-built image (e.g. from ttl.sh) instead of running
 # docker_build. When set, docker_build is skipped and the nvml-mock chart's
 # image.repository / image.tag are pinned via --set to the parsed <repo>/<tag>.
@@ -73,6 +79,7 @@ with_gpu_operator   = cfg.get('gpu-operator', False)
 with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
 with_topograph      = cfg.get('topograph', False)
+with_control_plane  = cfg.get('control-plane', False)
 
 # --- Implicit flags ------------------------------------------------------
 # --topograph implies --compute-domain: cliques only exist in the
@@ -142,15 +149,27 @@ allow_k8s_contexts(k8s_context)
 # Compute-domain owns image build and helm install itself (see
 # local/compute-domain/compute_domain.tiltfile). In the non-scenario
 # path, nvml_mock.tiltfile owns them.
+if with_control_plane:
+    build_control_plane_image()
+
 if with_compute_domain:
     compute_domain_build_images(with_dra)
-    nvml_mock_releases = compute_domain_install(active_consumers)
+    nvml_mock_releases = compute_domain_install(active_consumers, control_plane=with_control_plane)
 elif multi_gpu_profile:
     build_nvml_mock_image(nvmlmock_image=nvmlmock_image)
-    nvml_mock_releases = install_fleet(active_consumers, nvmlmock_image=nvmlmock_image)
+    nvml_mock_releases = install_fleet(
+        active_consumers,
+        nvmlmock_image=nvmlmock_image,
+        control_plane=with_control_plane,
+    )
 else:
     build_nvml_mock_image(nvmlmock_image=nvmlmock_image)
-    nvml_mock_releases = install_single(gpu_profile, active_consumers, nvmlmock_image=nvmlmock_image)
+    nvml_mock_releases = install_single(
+        gpu_profile,
+        active_consumers,
+        nvmlmock_image=nvmlmock_image,
+        control_plane=with_control_plane,
+    )
 
 # --- Shared NVIDIA Helm repo --------------------------------------------
 # Both consumer subfiles pull from nvidia/... — register the repo once here so

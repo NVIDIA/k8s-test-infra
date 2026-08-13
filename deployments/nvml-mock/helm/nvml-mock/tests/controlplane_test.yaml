@@ -1,0 +1,257 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+suite: Mokka Control Plane
+templates:
+  - templates/controlplane-deployment.yaml
+  - templates/controlplane-service.yaml
+tests:
+  - it: should not render by default (opt-in feature)
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render a Deployment with the expected name and defaults
+    set:
+      controlPlane:
+        enabled: true
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nvml-mock-control-plane
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: nvml-mock-control-plane
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: control-plane
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/name"]
+          value: nvml-mock-control-plane
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/component"]
+          value: control-plane
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].name
+          value: mokka-control-plane
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/nvidia/mokka-control-plane:latest
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: IfNotPresent
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --listen-addr=:8080
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-level=info
+
+  # The container port, the args --listen-addr, and the probes must all name
+  # the same port; a probe pointed at the wrong port makes the pod never go
+  # Ready and stalls the Deployment silently — exactly the class of failure
+  # this test exists to catch.
+  - it: should serve probes on the port the binary actually binds
+    set:
+      controlPlane:
+        enabled: true
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: http
+            containerPort: 8080
+            protocol: TCP
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /readyz
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: http
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: http
+
+  # Readiness must interrogate /readyz, not /healthz. Same pattern as the NRI
+  # suite: /healthz reports process liveness only, so a green /healthz on a
+  # server with unmet dependencies would silently ship traffic.
+  - it: should not point readiness at the liveness endpoint
+    set:
+      controlPlane:
+        enabled: true
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - notEqual:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /healthz
+
+  # preStop must use the native KEP-3960 sleep action, not an exec of
+  # /bin/sh: the distroless-static image has no shell, so an exec form
+  # would silently fail and defeat the endpoint-drain window entirely.
+  - it: should defer SIGTERM via the native sleep lifecycle action
+    set:
+      controlPlane:
+        enabled: true
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle.preStop.sleep.seconds
+          value: 10
+      - isNull:
+          path: spec.template.spec.containers[0].lifecycle.preStop.exec
+
+  # terminationGracePeriodSeconds bounds preStop + drain. Guard both the
+  # default (30s covers 10s preStop + 5s ShutdownTimeout with headroom)
+  # and the override path, so a template refactor cannot silently drop
+  # the field and revert to Kubernetes' default.
+  - it: should default terminationGracePeriodSeconds to the documented 30s
+    set:
+      controlPlane:
+        enabled: true
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 30
+
+  - it: should honour a terminationGracePeriodSeconds override
+    set:
+      controlPlane:
+        enabled: true
+        terminationGracePeriodSeconds: 60
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 60
+
+  - it: should carry a hardened securityContext consistent with distroless-nonroot
+    set:
+      controlPlane:
+        enabled: true
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 65532
+
+  - it: should render a matching ClusterIP Service by default
+    set:
+      controlPlane:
+        enabled: true
+    template: templates/controlplane-service.yaml
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nvml-mock-control-plane
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.selector["app.kubernetes.io/name"]
+          value: nvml-mock-control-plane
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: control-plane
+      - contains:
+          path: spec.ports
+          content:
+            name: http
+            port: 8080
+            targetPort: http
+            protocol: TCP
+
+  - it: should honour a custom image, replicas, and log level
+    set:
+      controlPlane:
+        enabled: true
+        replicas: 3
+        image:
+          repository: registry.example.com/mokka-cp
+          tag: v0.1.0
+          pullPolicy: Always
+        logLevel: debug
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: registry.example.com/mokka-cp:v0.1.0
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Always
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-level=debug
+
+  # Moving the port must move the bind flag, the container port, and the
+  # Service port together — a mismatch is exactly the silent-Ready failure
+  # class the probes-on-the-bind-port test above already guards for the
+  # defaults. Split across templates because helm-unittest scopes each
+  # test to a single template file.
+  - it: should move the bind flag and containerPort together on a custom port
+    set:
+      controlPlane:
+        enabled: true
+        service:
+          port: 9090
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --listen-addr=:9090
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: http
+            containerPort: 9090
+            protocol: TCP
+
+  - it: should move the Service port when the port is customized
+    set:
+      controlPlane:
+        enabled: true
+        service:
+          port: 9090
+    template: templates/controlplane-service.yaml
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            name: http
+            port: 9090
+            targetPort: http
+            protocol: TCP
+
+  - it: should reject an unknown logLevel via the values schema
+    set:
+      controlPlane:
+        enabled: true
+        logLevel: trace
+    asserts:
+      - failedTemplate: {}

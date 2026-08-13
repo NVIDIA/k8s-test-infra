@@ -1,6 +1,7 @@
 .idea
 
 # Build artifacts
+bin
 dist
 *.so
 *.dll
