@@ -139,7 +139,7 @@ func TestCleanupRequiresExactAnnotationAndSupportsPartialProgress(t *testing.T) 
 	var partial map[string]any
 	require.NoError(t, json.Unmarshal(patcher.calls[0].data, &partial))
 	metadata := partial["metadata"].(map[string]any)
-	require.Equal(t, map[string]any{AssignedLabel: nil}, metadata["labels"])
+	require.NotContains(t, metadata, "labels", "SSA deletes fields previously owned by the manager when they are omitted")
 	require.Equal(t, map[string]any{AssignmentAnnotation: assignment}, metadata["annotations"], "the binding identity remains until cleanup can finish")
 
 	node.Labels = map[string]string{CliqueLabel: rack.Spec.Identity.FabricUUID + ".0"}
@@ -152,8 +152,8 @@ func TestCleanupRequiresExactAnnotationAndSupportsPartialProgress(t *testing.T) 
 	var complete map[string]any
 	require.NoError(t, json.Unmarshal(patcher.calls[0].data, &complete))
 	metadata = complete["metadata"].(map[string]any)
-	require.Equal(t, map[string]any{CliqueLabel: nil}, metadata["labels"])
-	require.Equal(t, map[string]any{AssignmentAnnotation: nil}, metadata["annotations"])
+	require.NotContains(t, metadata, "labels")
+	require.NotContains(t, metadata, "annotations")
 }
 
 func TestCleanupTreatsAbsentExactUIDAsCleanAndPreservesStaleAnnotation(t *testing.T) {

@@ -244,11 +244,16 @@ func check(o options, inventory *mokkav1alpha1.SGPUInventory, racks *mokkav1alph
 		if node.Labels[eligibleLabel] == "true" {
 			checked.EligibleNodes++
 		}
-		encoded := node.Annotations[assignmentAnnotation]
-		assigned := node.Labels[assignedLabel] == "true"
-		if encoded == "" && !assigned {
+		encoded, hasAssignment := node.Annotations[assignmentAnnotation]
+		assignedValue, hasAssigned := node.Labels[assignedLabel]
+		if !hasAssignment && !hasAssigned {
 			continue
 		}
+		if encoded == "" && assignedValue == "" {
+			addError("Node %q retains released assignment metadata", node.Name)
+			continue
+		}
+		assigned := assignedValue == "true"
 		if encoded == "" || !assigned {
 			addError("Node %q has only part of the assignment projection", node.Name)
 			continue

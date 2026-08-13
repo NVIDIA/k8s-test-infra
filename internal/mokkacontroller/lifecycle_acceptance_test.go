@@ -523,15 +523,21 @@ func nodeIsProjected(node *corev1.Node, uid types.UID) bool {
 
 type acceptanceNodeClient struct {
 	corev1client.NodeInterface
-	mu      sync.Mutex
-	nodes   map[string]*corev1.Node
-	watcher *watch.RaceFreeFakeWatcher
-	nextRV  int64
-	patches int
+	mu               sync.Mutex
+	nodes            map[string]*corev1.Node
+	ownedLabels      map[string]map[string]struct{}
+	ownedAnnotations map[string]map[string]struct{}
+	watcher          *watch.RaceFreeFakeWatcher
+	nextRV           int64
+	patches          int
 }
 
 func newAcceptanceNodeClient() *acceptanceNodeClient {
-	return &acceptanceNodeClient{nodes: make(map[string]*corev1.Node), nextRV: 1}
+	return &acceptanceNodeClient{
+		nodes:       make(map[string]*corev1.Node),
+		ownedLabels: make(map[string]map[string]struct{}), ownedAnnotations: make(map[string]map[string]struct{}),
+		nextRV: 1,
+	}
 }
 
 func (c *acceptanceNodeClient) List(context.Context, metav1.ListOptions) (*corev1.NodeList, error) {
@@ -609,8 +615,10 @@ func (c *acceptanceNodeClient) Patch(
 		return nil, apierrors.NewNotFound(corev1.Resource("nodes"), name)
 	}
 	updated := node.DeepCopy()
-	updated.Labels = patchStringMap(updated.Labels, payload.Metadata.Labels)
-	updated.Annotations = patchStringMap(updated.Annotations, payload.Metadata.Annotations)
+	updated.Labels, c.ownedLabels[name] = applyStringMap(updated.Labels, payload.Metadata.Labels, c.ownedLabels[name])
+	updated.Annotations, c.ownedAnnotations[name] = applyStringMap(
+		updated.Annotations, payload.Metadata.Annotations, c.ownedAnnotations[name],
+	)
 	c.nextRV++
 	c.patches++
 	updated.ResourceVersion = strconv.FormatInt(c.nextRV, 10)
@@ -626,6 +634,17 @@ func (c *acceptanceNodeClient) Patch(
 func (c *acceptanceNodeClient) create(node *corev1.Node) {
 	c.mu.Lock()
 	c.nodes[node.Name] = node.DeepCopy()
+	delete(c.ownedLabels, node.Name)
+	delete(c.ownedAnnotations, node.Name)
+	if node.Labels[controllerprojection.AssignedLabel] == "true" {
+		c.ownedLabels[node.Name] = map[string]struct{}{controllerprojection.AssignedLabel: {}}
+		if node.Labels[controllerprojection.CliqueLabel] != "" {
+			c.ownedLabels[node.Name][controllerprojection.CliqueLabel] = struct{}{}
+		}
+	}
+	if node.Annotations[controllerprojection.AssignmentAnnotation] != "" {
+		c.ownedAnnotations[node.Name] = map[string]struct{}{controllerprojection.AssignmentAnnotation: {}}
+	}
 	watcher := c.watcher
 	c.mu.Unlock()
 	if watcher != nil && node.Labels[allocate.EligibleNodeLabel] == "true" {
@@ -649,6 +668,8 @@ func (c *acceptanceNodeClient) delete(name string) {
 	c.mu.Lock()
 	old := c.nodes[name]
 	delete(c.nodes, name)
+	delete(c.ownedLabels, name)
+	delete(c.ownedAnnotations, name)
 	watcher := c.watcher
 	c.mu.Unlock()
 	if watcher != nil && old != nil && old.Labels[allocate.EligibleNodeLabel] == "true" {
@@ -680,18 +701,29 @@ func findCondition(conditions []metav1.Condition, conditionType string) *metav1.
 	return nil
 }
 
-func patchStringMap(current map[string]string, patch map[string]*string) map[string]string {
+func applyStringMap(
+	current map[string]string,
+	desired map[string]*string,
+	owned map[string]struct{},
+) (map[string]string, map[string]struct{}) {
 	if current == nil {
 		current = make(map[string]string)
 	}
-	for key, value := range patch {
-		if value == nil {
+	for key := range owned {
+		if _, retained := desired[key]; !retained {
 			delete(current, key)
+		}
+	}
+	nextOwned := make(map[string]struct{}, len(desired))
+	for key, value := range desired {
+		nextOwned[key] = struct{}{}
+		if value == nil {
+			current[key] = ""
 			continue
 		}
 		current[key] = *value
 	}
-	return current
+	return current, nextOwned
 }
 
 var _ corev1client.NodeInterface = (*acceptanceNodeClient)(nil)

@@ -271,46 +271,37 @@ func (c *Controller) Cleanup(ctx context.Context, needed controllerack.CleanupNe
 		return c.completeCleanup(needed, outcome, ReasonCleaned, exactBindingPresent), nil
 	}
 
-	labels := make(map[string]any)
 	incompatible := make([]string, 0, 2)
 	if value, exists := node.Labels[AssignedLabel]; exists {
-		if value == "true" {
-			labels[AssignedLabel] = nil
-		} else {
+		if value != "true" {
 			incompatible = append(incompatible, AssignedLabel)
 		}
 	}
 	if value, exists := node.Labels[CliqueLabel]; exists {
 		expected, hasExpected := cliqueValue(rack)
-		if !hasExpected || value == expected {
-			labels[CliqueLabel] = nil
-		} else {
+		if hasExpected && value != expected {
 			incompatible = append(incompatible, CliqueLabel)
 		}
 	}
 
 	annotations := map[string]any(nil)
-	if len(incompatible) == 0 {
-		annotations = map[string]any{AssignmentAnnotation: nil}
-	} else if len(labels) > 0 {
+	if len(incompatible) > 0 {
 		annotations = map[string]any{AssignmentAnnotation: encoded}
 	}
-	if len(labels) > 0 || len(annotations) > 0 {
-		payload, err := nodeApplyPayload(node.Name, labels, annotations)
-		if err != nil {
-			return c.failCleanup(outcome, err, exactBindingPresent)
+	payload, err := nodeApplyPayload(node.Name, nil, annotations)
+	if err != nil {
+		return c.failCleanup(outcome, err, exactBindingPresent)
+	}
+	_, err = c.patcher.Patch(ctx, node.Name, types.ApplyPatchType, payload, applyOptions())
+	if err != nil {
+		outcome.Message = err.Error()
+		if apierrors.IsConflict(err) {
+			outcome.State, outcome.Reason = StateConflict, ReasonNodeMetadataConflict
+		} else {
+			outcome.State, outcome.Reason = StateError, ReasonProjectionError
 		}
-		_, err = c.patcher.Patch(ctx, node.Name, types.ApplyPatchType, payload, applyOptions())
-		if err != nil {
-			outcome.Message = err.Error()
-			if apierrors.IsConflict(err) {
-				outcome.State, outcome.Reason = StateConflict, ReasonNodeMetadataConflict
-			} else {
-				outcome.State, outcome.Reason = StateError, ReasonProjectionError
-			}
-			c.recordCleanupFailure(outcome, exactBindingPresent)
-			return outcome, err
-		}
+		c.recordCleanupFailure(outcome, exactBindingPresent)
+		return outcome, err
 	}
 	if len(incompatible) > 0 {
 		slices.Sort(incompatible)

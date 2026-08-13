@@ -36,6 +36,27 @@ func TestCheckAcceptsExactProjectionAndRejectsUIDDrift(t *testing.T) {
 	require.Contains(t, got.Errors, `Node "mokka-node-000000" projection does not match its exact rack binding`)
 }
 
+func TestCheckRejectsReleasedProjectionKeysWithEmptyValues(t *testing.T) {
+	o, inventory, racks, nodes := validFixture(t)
+	o.expectedRacks = 0
+	o.expectedAllocated = 0
+	o.requestsSatisfied = false
+	inventory.Status.Capacity = mokkav1alpha1.SGPUCapacity{}
+	inventory.Status.Usage = mokkav1alpha1.SGPUUsage{RequestedNodes: 1, PendingNodes: 1}
+	for i := range inventory.Status.Conditions {
+		if inventory.Status.Conditions[i].Type == "RequestsSatisfied" {
+			inventory.Status.Conditions[i].Status = metav1.ConditionFalse
+		}
+	}
+	racks.Items = nil
+	nodes.Items[0].Labels[assignedLabel] = ""
+	nodes.Items[0].Annotations[assignmentAnnotation] = ""
+
+	got := check(o, inventory, racks, nodes)
+	require.False(t, got.Success)
+	require.Contains(t, got.Errors, `Node "mokka-node-000000" retains released assignment metadata`)
+}
+
 func validFixture(t *testing.T) (options, *mokkav1alpha1.SGPUInventory, *mokkav1alpha1.SGPURackList, *corev1.NodeList) {
 	t.Helper()
 	const (
