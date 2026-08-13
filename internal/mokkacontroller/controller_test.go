@@ -34,12 +34,12 @@ func TestEventRoutingUsesBoundedDependencyKeys(t *testing.T) {
 	require.NoError(t, inventories.Add(inventory))
 	router.inventoryAdd(inventory)
 	require.Equal(t, []string{"inventory"}, drainQueue(queues.inventories))
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	require.Empty(t, drainQueue(queues.groups), "inventory work owns configuration materialization")
 	require.Equal(t, []statusKey{{kind: statusInventory, name: "inventory", uid: "inventory-uid"}}, drainQueue(queues.status))
 
 	router.profileAdd(&mokkav1alpha1.SGPUProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile"}})
 	require.Equal(t, []string{"inventory"}, drainQueue(queues.inventories))
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	require.Empty(t, drainQueue(queues.groups), "inventory work owns profile-driven materialization")
 
 	node := testNode()
 	router.nodeAdd(node)
@@ -49,9 +49,9 @@ func TestEventRoutingUsesBoundedDependencyKeys(t *testing.T) {
 	rack := testRack(node)
 	require.NoError(t, racks.Add(rack))
 	router.rackAdd(rack)
-	require.Equal(t, []string{"inventory"}, drainQueue(queues.inventories))
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
-	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: "rack", slotIndex: 0}}, drainQueue(queues.projections))
+	require.Empty(t, drainQueue(queues.inventories))
+	require.Empty(t, drainQueue(queues.groups), "controller-owned rack adds must not feed back into materialization")
+	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: "rack", slotIndex: 0, fresh: true}}, drainQueue(queues.projections))
 	require.ElementsMatch(t, []statusKey{
 		{kind: statusInventory, name: "inventory", uid: "inventory-uid"},
 		{kind: statusRack, name: "rack", uid: "rack-uid"},
@@ -108,12 +108,15 @@ func TestDeleteTombstonesRouteExactCleanupBeforeGroup(t *testing.T) {
 	router.rackDelete(cache.DeletedFinalStateUnknown{Key: rack.Name, Obj: rack})
 	require.Len(t, drainQueue(queues.projections), 1)
 	require.Equal(t, []string{"inventory"}, drainQueue(queues.inventories))
+	require.Empty(t, drainQueue(queues.groups))
 
 	router.inventoryDelete(cache.DeletedFinalStateUnknown{Key: inventory.Name, Obj: inventory})
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	require.Equal(t, []string{"inventory"}, drainQueue(queues.inventories))
+	require.Empty(t, drainQueue(queues.groups))
 
 	router.profileDelete(cache.DeletedFinalStateUnknown{Key: "profile", Obj: &mokkav1alpha1.SGPUProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile"}}})
 	require.Equal(t, []string{"inventory"}, drainQueue(queues.inventories))
+	require.Empty(t, drainQueue(queues.groups))
 }
 
 func TestProcessNextRateLimitsErrorsAndForgetsSuccess(t *testing.T) {

@@ -146,6 +146,7 @@ type Cache interface {
 	Rack(name string) (*mokkav1alpha1.SGPURack, error)
 	Racks() ([]*mokkav1alpha1.SGPURack, error)
 	RacksByInventoryUID(uid types.UID) ([]*mokkav1alpha1.SGPURack, error)
+	RacksByInventoryGroup(uid types.UID, group string) ([]*mokkav1alpha1.SGPURack, error)
 	Nodes() ([]*corev1.Node, error)
 }
 
@@ -213,6 +214,22 @@ func (c *ListerCache) Racks() ([]*mokkav1alpha1.SGPURack, error) {
 
 func (c *ListerCache) RacksByInventoryUID(uid types.UID) ([]*mokkav1alpha1.SGPURack, error) {
 	objects, err := c.racks.ByIndex(RackByInventoryUIDIndex, string(uid))
+	if err != nil {
+		return nil, err
+	}
+	racks := make([]*mokkav1alpha1.SGPURack, 0, len(objects))
+	for _, obj := range objects {
+		rack, ok := obj.(*mokkav1alpha1.SGPURack)
+		if !ok {
+			return nil, fmt.Errorf("rack cache contained %T", obj)
+		}
+		racks = append(racks, rack)
+	}
+	return racks, nil
+}
+
+func (c *ListerCache) RacksByInventoryGroup(uid types.UID, group string) ([]*mokkav1alpha1.SGPURack, error) {
+	objects, err := c.racks.ByIndex(RackByInventoryGroupIndex, InventoryGroupIndexKey(uid, group))
 	if err != nil {
 		return nil, err
 	}

@@ -91,8 +91,9 @@ type ProfileIssue struct {
 
 // OwnershipConflict identifies a deterministic rack name that cannot be adopted.
 type OwnershipConflict struct {
-	RackName string
-	OwnerUID types.UID
+	RackName  string
+	RackGroup string
+	OwnerUID  types.UID
 }
 
 // Result contains status inputs and explicit cross-controller cleanup work.
@@ -105,7 +106,16 @@ type Result struct {
 	OwnershipConflicts []OwnershipConflict
 	CleanupNeeded      []CleanupNeeded
 	Allocation         allocate.Plan
+	Work               WorkStats
 	Changed            bool
+}
+
+// WorkStats exposes deterministic operation counts for reconciliation scale
+// regressions without depending on wall-clock timing.
+type WorkStats struct {
+	AllocationsIndexed int64
+	BindingsApplied    int64
+	RacksReconciled    int64
 }
 
 // Reconciler materializes one cached inventory key at a time.
@@ -127,6 +137,16 @@ func NewReconciler(
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, key string) (Result, error) {
+	return r.reconcile(ctx, key, nil)
+}
+
+// ReconcileGroup applies one exact allocation group while retaining a global
+// allocation snapshot for cross-inventory overlap and duplicate detection.
+func (r *Reconciler) ReconcileGroup(ctx context.Context, key allocate.GroupKey) (Result, error) {
+	return r.reconcile(ctx, key.InventoryName, &key)
+}
+
+func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *allocate.GroupKey) (Result, error) {
 	result := Result{Accepted: true, ResolvedRefs: true}
 	inventory, err := r.cache.Inventory(key)
 	if apierrors.IsNotFound(err) {
@@ -140,8 +160,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, key string) (Result, error) 
 		result.ValidationError = "inventory UID must not be empty"
 		return result, nil
 	}
+	if requestedGroup != nil && inventory.UID != requestedGroup.InventoryUID {
+		return result, nil
+	}
 
-	ownedRacks, err := r.cache.RacksByInventoryUID(inventory.UID)
+	var ownedRacks []*mokkav1alpha1.SGPURack
+	if requestedGroup != nil && inventory.DeletionTimestamp == nil {
+		ownedRacks, err = r.cache.RacksByInventoryGroup(inventory.UID, requestedGroup.RackGroup)
+	} else {
+		ownedRacks, err = r.cache.RacksByInventoryUID(inventory.UID)
+	}
 	if err != nil {
 		return result, fmt.Errorf("get racks for inventory %q from cache: %w", key, err)
 	}
@@ -151,6 +179,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, key string) (Result, error) 
 		return r.reconcileInventoryDeletion(ctx, inventory, ownedRacks, result)
 	}
 	if !slices.Contains(inventory.Finalizers, InventoryFinalizer) {
+		if requestedGroup != nil {
+			return result, nil
+		}
 		changed, err := r.mutateInventory(ctx, inventory, func(latest *mokkav1alpha1.SGPUInventory) bool {
 			if slices.Contains(latest.Finalizers, InventoryFinalizer) {
 				return false
@@ -176,6 +207,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, key string) (Result, error) 
 	}
 	result.ProfileIssues = issues
 	result.ResolvedRefs = len(issues) == 0
+	workGroups := resolved
+	if requestedGroup != nil {
+		workGroups = slices.DeleteFunc(slices.Clone(resolved), func(group resolvedGroup) bool {
+			return group.key != *requestedGroup
+		})
+	}
 
 	allocation, err := r.allocationPlan()
 	if err != nil {
@@ -200,6 +237,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, key string) (Result, error) 
 			continue
 		}
 		blockedNames[existing.Name] = struct{}{}
+		if requestedGroup != nil {
+			continue
+		}
 		changed, cleanup, err := r.retireRack(ctx, inventory, existing, CleanupRackDeleting)
 		if err != nil {
 			return result, err
@@ -209,40 +249,42 @@ func (r *Reconciler) Reconcile(ctx context.Context, key string) (Result, error) 
 	}
 
 	desiredNames := make(map[string]struct{})
-	for _, group := range resolved {
+	for _, group := range workGroups {
 		for rackIndex := int32(0); rackIndex < group.group.Count; rackIndex++ {
 			desiredNames[materialize.RackName(inventory.Name, inventory.UID, group.group.ID, rackIndex)] = struct{}{}
 		}
 	}
 
-	for _, existing := range ownedRacks {
-		if existing.DeletionTimestamp != nil {
-			continue
+	if requestedGroup == nil {
+		for _, existing := range ownedRacks {
+			if existing.DeletionTimestamp != nil {
+				continue
+			}
+			if _, keepLastGood := unresolved[existing.Spec.Identity.RackGroup]; keepLastGood {
+				continue
+			}
+			if _, desired := desiredNames[existing.Name]; desired {
+				continue
+			}
+			reason := CleanupGroupRemoved
+			if group, exists := resolvedByID[existing.Spec.Identity.RackGroup]; exists &&
+				existing.Spec.Identity.RackIndex >= group.group.Count {
+				reason = CleanupCapacityShrink
+			}
+			changed, cleanup, err := r.retireRack(ctx, inventory, existing, reason)
+			if err != nil {
+				return result, err
+			}
+			result.Changed = result.Changed || changed
+			result.CleanupNeeded = append(result.CleanupNeeded, cleanup...)
 		}
-		if _, keepLastGood := unresolved[existing.Spec.Identity.RackGroup]; keepLastGood {
-			continue
-		}
-		if _, desired := desiredNames[existing.Name]; desired {
-			continue
-		}
-		reason := CleanupGroupRemoved
-		if group, exists := resolvedByID[existing.Spec.Identity.RackGroup]; exists &&
-			existing.Spec.Identity.RackIndex >= group.group.Count {
-			reason = CleanupCapacityShrink
-		}
-		changed, cleanup, err := r.retireRack(ctx, inventory, existing, reason)
-		if err != nil {
-			return result, err
-		}
-		result.Changed = result.Changed || changed
-		result.CleanupNeeded = append(result.CleanupNeeded, cleanup...)
 	}
 
-	releases := currentReleases(allocation.Released, inventory.UID, resolvedByID)
-	retained := currentBindings(allocation.Retained, inventory.UID)
-	assigned := currentBindings(allocation.Assigned, inventory.UID)
-	for _, group := range resolved {
+	allocations := indexAllocation(allocation, inventory.UID, resolvedByID)
+	result.Work.AllocationsIndexed = allocations.indexed
+	for _, group := range workGroups {
 		for rackIndex := int32(0); rackIndex < group.group.Count; rackIndex++ {
+			result.Work.RacksReconciled++
 			rendered, err := materialize.RenderRack(materialize.RackInput{
 				InventoryName: inventory.Name,
 				InventoryUID:  inventory.UID,
@@ -263,23 +305,27 @@ func (r *Reconciler) Reconcile(ctx context.Context, key string) (Result, error) 
 				case err == nil:
 					existing = cached
 				case apierrors.IsNotFound(err):
+					if requestedGroup != nil {
+						continue
+					}
 				default:
 					return result, fmt.Errorf("get rack %q from cache: %w", rendered.Name, err)
 				}
 			}
 			if existing != nil && !controlledByInventory(existing, inventory) {
-				result.OwnershipConflicts = append(result.OwnershipConflicts, ownershipConflict(existing))
+				result.OwnershipConflicts = append(result.OwnershipConflicts, ownershipConflict(existing, group.group.ID))
 				continue
 			}
 
 			targetSpec := rendered.Spec
-			applyBindings(&targetSpec, retained, group.key, rackIndex)
-			applyBindings(&targetSpec, assigned, group.key, rackIndex)
+			partition := allocations.racks[allocationRackKey{group: group.key, rackIndex: rackIndex}]
+			result.Work.BindingsApplied += applyBindings(&targetSpec, partition.retained)
+			result.Work.BindingsApplied += applyBindings(&targetSpec, partition.assigned)
 			if existing != nil {
 				cleanup := r.preservePendingReleases(
 					existing,
 					&targetSpec,
-					releases,
+					allocations.releases,
 				)
 				result.CleanupNeeded = append(result.CleanupNeeded, cleanup...)
 			}
@@ -578,13 +624,13 @@ func (r *Reconciler) createOrUpdateRack(
 			return false, nil, fmt.Errorf("get concurrently created rack %q: %w", name, getErr)
 		}
 		if !controlledByInventory(latest, inventory) {
-			conflict := ownershipConflict(latest)
+			conflict := ownershipConflict(latest, spec.Identity.RackGroup)
 			return false, &conflict, nil
 		}
 		return false, nil, apierrors.NewConflict(mokkav1alpha1.Resource("sgpuracks"), name, errors.New("informer snapshot is stale after concurrent rack creation"))
 	}
 	if !controlledByInventory(existing, inventory) {
-		conflict := ownershipConflict(existing)
+		conflict := ownershipConflict(existing, spec.Identity.RackGroup)
 		return false, &conflict, nil
 	}
 	changed, _, _, err := r.mutateRack(ctx, inventory, existing, func(latest *mokkav1alpha1.SGPURack) bool {
@@ -769,46 +815,77 @@ func filterOwnedRacks(racks []*mokkav1alpha1.SGPURack, inventory *mokkav1alpha1.
 	return filtered
 }
 
-func applyBindings(spec *mokkav1alpha1.SGPURackSpec, bindings []allocate.Binding, key allocate.GroupKey, rackIndex int32) {
-	for _, binding := range bindings {
-		if binding.Coordinate.Group != key || binding.Coordinate.RackIndex != rackIndex {
+type allocationRackKey struct {
+	group     allocate.GroupKey
+	rackIndex int32
+}
+
+type rackAllocation struct {
+	retained []allocate.Binding
+	assigned []allocate.Binding
+}
+
+type allocationIndex struct {
+	racks    map[allocationRackKey]rackAllocation
+	releases map[allocate.Coordinate]allocate.Release
+	indexed  int64
+}
+
+func indexAllocation(
+	plan allocate.Plan,
+	inventoryUID types.UID,
+	resolved map[string]resolvedGroup,
+) allocationIndex {
+	indexed := allocationIndex{
+		racks:    make(map[allocationRackKey]rackAllocation),
+		releases: make(map[allocate.Coordinate]allocate.Release),
+	}
+	for _, binding := range plan.Retained {
+		if binding.Coordinate.Group.InventoryUID != inventoryUID {
 			continue
 		}
+		key := allocationRackKey{group: binding.Coordinate.Group, rackIndex: binding.Coordinate.RackIndex}
+		partition := indexed.racks[key]
+		partition.retained = append(partition.retained, binding)
+		indexed.racks[key] = partition
+		indexed.indexed++
+	}
+	for _, binding := range plan.Assigned {
+		if binding.Coordinate.Group.InventoryUID != inventoryUID {
+			continue
+		}
+		key := allocationRackKey{group: binding.Coordinate.Group, rackIndex: binding.Coordinate.RackIndex}
+		partition := indexed.racks[key]
+		partition.assigned = append(partition.assigned, binding)
+		indexed.racks[key] = partition
+		indexed.indexed++
+	}
+	for _, release := range plan.Released {
+		coordinate := release.Binding.Coordinate
+		if coordinate.Group.InventoryUID != inventoryUID {
+			continue
+		}
+		if _, ok := resolved[coordinate.Group.RackGroup]; !ok {
+			continue
+		}
+		indexed.releases[coordinate] = release
+		indexed.indexed++
+	}
+	return indexed
+}
+
+func applyBindings(spec *mokkav1alpha1.SGPURackSpec, bindings []allocate.Binding) int64 {
+	var applied int64
+	for _, binding := range bindings {
 		if binding.Coordinate.SlotIndex < 0 || int(binding.Coordinate.SlotIndex) >= len(spec.Slots) {
 			continue
 		}
 		spec.Slots[binding.Coordinate.SlotIndex].NodeRef = &mokkav1alpha1.SGPUNodeReference{
 			Name: binding.Node.Name, UID: binding.Node.UID,
 		}
+		applied++
 	}
-}
-
-func currentBindings(bindings []allocate.Binding, inventoryUID types.UID) []allocate.Binding {
-	current := make([]allocate.Binding, 0)
-	for _, binding := range bindings {
-		if binding.Coordinate.Group.InventoryUID == inventoryUID {
-			current = append(current, binding)
-		}
-	}
-	return current
-}
-
-func currentReleases(
-	releases []allocate.Release,
-	inventoryUID types.UID,
-	resolved map[string]resolvedGroup,
-) map[allocate.Coordinate]allocate.Release {
-	current := make(map[allocate.Coordinate]allocate.Release)
-	for _, release := range releases {
-		if release.Binding.Coordinate.Group.InventoryUID != inventoryUID {
-			continue
-		}
-		if _, ok := resolved[release.Binding.Coordinate.Group.RackGroup]; !ok {
-			continue
-		}
-		current[release.Binding.Coordinate] = release
-	}
-	return current
+	return applied
 }
 
 func cleanupReason(reason allocate.ReleaseReason) CleanupReason {
@@ -826,8 +903,8 @@ func cleanupReason(reason allocate.ReleaseReason) CleanupReason {
 	}
 }
 
-func ownershipConflict(rack *mokkav1alpha1.SGPURack) OwnershipConflict {
-	conflict := OwnershipConflict{RackName: rack.Name}
+func ownershipConflict(rack *mokkav1alpha1.SGPURack, rackGroup string) OwnershipConflict {
+	conflict := OwnershipConflict{RackName: rack.Name, RackGroup: rackGroup}
 	if owner := metav1.GetControllerOf(rack); owner != nil {
 		conflict.OwnerUID = owner.UID
 	}

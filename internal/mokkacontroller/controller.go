@@ -69,6 +69,7 @@ type projectionKey struct {
 	mode      projectionMode
 	rackName  string
 	slotIndex int32
+	fresh     bool
 	cleanup   controllerack.CleanupNeeded
 }
 
@@ -183,14 +184,22 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 
 	controller := &Controller{options: options, queues: newQueues(options.StatusDebounce)}
 	results := newResultStore()
-	controller.reconcileInventory = func(ctx context.Context, name string) error {
-		result, err := rackReconciler.Reconcile(ctx, name)
-		if err != nil {
-			return err
-		}
+	var inventoryLocks sync.Map
+	withInventoryLock := func(name string, reconcile func() error) error {
+		value, _ := inventoryLocks.LoadOrStore(name, &sync.Mutex{})
+		lock := value.(*sync.Mutex)
+		lock.Lock()
+		defer lock.Unlock()
+		return reconcile()
+	}
+	finishRackReconcile := func(name string, group *allocate.GroupKey, result controllerack.Result) error {
 		inventory, getErr := snapshot.Inventory(name)
 		if getErr == nil {
-			results.put(inventory.Name, inventory.UID, result)
+			if group == nil {
+				results.put(inventory.Name, inventory.UID, result)
+			} else {
+				results.putGroup(inventory.Name, inventory.UID, group.RackGroup, result)
+			}
 			controller.queues.addStatus(statusKey{kind: statusInventory, name: inventory.Name, uid: inventory.UID})
 		} else if !apierrors.IsNotFound(getErr) {
 			return getErr
@@ -200,15 +209,30 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		}
 		return nil
 	}
+	controller.reconcileInventory = func(ctx context.Context, name string) error {
+		return withInventoryLock(name, func() error {
+			result, err := rackReconciler.Reconcile(ctx, name)
+			if err != nil {
+				return err
+			}
+			return finishRackReconcile(name, nil, result)
+		})
+	}
 	controller.reconcileGroup = func(ctx context.Context, key allocate.GroupKey) error {
-		inventory, err := snapshot.Inventory(key.InventoryName)
-		if apierrors.IsNotFound(err) || (err == nil && inventory.UID != key.InventoryUID) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		return controller.reconcileInventory(ctx, key.InventoryName)
+		return withInventoryLock(key.InventoryName, func() error {
+			inventory, err := snapshot.Inventory(key.InventoryName)
+			if apierrors.IsNotFound(err) || (err == nil && inventory.UID != key.InventoryUID) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			result, err := rackReconciler.ReconcileGroup(ctx, key)
+			if err != nil {
+				return err
+			}
+			return finishRackReconcile(key.InventoryName, &key, result)
+		})
 	}
 	controller.reconcileProjection = func(ctx context.Context, key projectionKey) error {
 		var err error
@@ -221,7 +245,11 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			if getErr != nil {
 				return getErr
 			}
-			if !rackHasBoundSlot(rack, key.slotIndex) {
+			slot := boundRackSlot(rack, key.slotIndex)
+			if slot == nil {
+				return nil
+			}
+			if !key.fresh && projection.Ready(cleanupFor(rack, *slot, controllerack.CleanupNodeIneligible)) {
 				return nil
 			}
 			_, err = projection.Project(ctx, key.rackName, key.slotIndex)
@@ -230,7 +258,15 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		case projectionCleanup:
 			_, err = projection.Cleanup(ctx, key.cleanup)
 			if err == nil {
-				controller.queues.groups.Add(key.cleanup.Binding.Coordinate.Group)
+				switch key.cleanup.Reason {
+				case controllerack.CleanupCapacityShrink,
+					controllerack.CleanupGroupRemoved,
+					controllerack.CleanupRackDeleting,
+					controllerack.CleanupInventoryDeleting:
+					controller.queues.inventories.Add(key.cleanup.Binding.Coordinate.Group.InventoryName)
+				default:
+					controller.queues.groups.Add(key.cleanup.Binding.Coordinate.Group)
+				}
 			}
 			controller.queues.addStatus(statusKey{
 				kind: statusInventory, name: key.cleanup.Binding.Coordinate.Group.InventoryName,
@@ -377,13 +413,13 @@ func processNext[T comparable](
 	return true
 }
 
-func rackHasBoundSlot(rack *mokkav1alpha1.SGPURack, index int32) bool {
-	for _, slot := range rack.Spec.Slots {
-		if slot.Index == index {
-			return slot.NodeRef != nil
+func boundRackSlot(rack *mokkav1alpha1.SGPURack, index int32) *mokkav1alpha1.SGPURackSlot {
+	for i := range rack.Spec.Slots {
+		if rack.Spec.Slots[i].Index == index && rack.Spec.Slots[i].NodeRef != nil {
+			return &rack.Spec.Slots[i]
 		}
 	}
-	return false
+	return nil
 }
 
 type resultKey struct {
@@ -409,6 +445,20 @@ func (s *resultStore) put(name string, uid types.UID, result controllerack.Resul
 		}
 	}
 	s.results[resultKey{name: name, uid: uid}] = result
+}
+
+func (s *resultStore) putGroup(name string, uid types.UID, group string, result controllerack.Result) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := resultKey{name: name, uid: uid}
+	if previous, found := s.results[key]; found {
+		for _, conflict := range previous.OwnershipConflicts {
+			if conflict.RackGroup != group {
+				result.OwnershipConflicts = append(result.OwnershipConflicts, conflict)
+			}
+		}
+	}
+	s.results[key] = result
 }
 
 func (s *resultStore) get(name string, uid types.UID) controllerack.Result {

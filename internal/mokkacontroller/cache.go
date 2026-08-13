@@ -84,6 +84,17 @@ func (c *informerCache) RacksByInventoryUID(uid types.UID) ([]*mokkav1alpha1.SGP
 	return castRacks(objects)
 }
 
+func (c *informerCache) RacksByInventoryGroup(uid types.UID, group string) ([]*mokkav1alpha1.SGPURack, error) {
+	objects, err := c.racks.ByIndex(
+		controllerack.RackByInventoryGroupIndex,
+		controllerack.InventoryGroupIndexKey(uid, group),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return castRacks(objects)
+}
+
 func (c *informerCache) RacksByNodeUID(uid types.UID) ([]*mokkav1alpha1.SGPURack, error) {
 	objects, err := c.racks.ByIndex(controllerack.RackByNodeUIDIndex, string(uid))
 	if err != nil {

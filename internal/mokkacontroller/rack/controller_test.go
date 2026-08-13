@@ -5,6 +5,7 @@ package rack
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -89,15 +90,73 @@ func TestReconcileCreatesDeterministicRacksAndIsIdempotent(t *testing.T) {
 	require.Equal(t, types.UID("later-uid"), unchurned.Spec.Slots[1].NodeRef.UID)
 }
 
+func TestReconcileGroupIndexesLargeBindingSetOnce(t *testing.T) {
+	const (
+		rackCount    = 1_000
+		nodesPerRack = 100
+		nodeCount    = rackCount * nodesPerRack
+	)
+	ctx := context.Background()
+	profile := testProfile("p", "profile-uid", 1, nodesPerRack, 1)
+	inventory := testInventory("inventory", "inventory-uid", profile.Name, rackCount)
+	inventory.Finalizers = []string{InventoryFinalizer}
+
+	nodes := make([]*corev1.Node, nodeCount)
+	objects := make([]runtime.Object, 0, rackCount+2)
+	objects = append(objects, profile, inventory)
+	for rackIndex := range rackCount {
+		rendered, err := materialize.RenderRack(materialize.RackInput{
+			InventoryName: inventory.Name,
+			InventoryUID:  inventory.UID,
+			Group:         inventory.Spec.RackGroups[0],
+			RackIndex:     int32(rackIndex),
+			Profile:       profile,
+		})
+		require.NoError(t, err)
+		rack := newRack(inventory, rendered.Name, rendered.Spec)
+		rack.UID = types.UID(fmt.Sprintf("rack-uid-%04d", rackIndex))
+		rack.ResourceVersion = "1"
+		for slotIndex := range nodesPerRack {
+			nodeIndex := rackIndex*nodesPerRack + slotIndex
+			node := testNode(
+				fmt.Sprintf("node-%06d", nodeIndex),
+				types.UID(fmt.Sprintf("node-uid-%06d", nodeIndex)),
+				int64(nodeIndex),
+				map[string]string{"pool": "gpu"},
+			)
+			nodes[nodeIndex] = node
+			rack.Spec.Slots[slotIndex].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID}
+		}
+		objects = append(objects, rack)
+	}
+
+	h := newHarness(t, objects, nodes)
+	h.mokka.Fake.ClearActions()
+	result, err := h.reconcileGroup(ctx, allocate.GroupKey{
+		InventoryName: inventory.Name,
+		InventoryUID:  inventory.UID,
+		RackGroup:     inventory.Spec.RackGroups[0].ID,
+	})
+	require.NoError(t, err)
+	require.False(t, result.Changed)
+	require.EqualValues(t, rackCount, result.Work.RacksReconciled)
+	require.EqualValues(t, nodeCount, result.Work.AllocationsIndexed)
+	require.EqualValues(t, nodeCount, result.Work.BindingsApplied)
+	require.Empty(t, h.mokka.Actions(), "one cached group event must not issue live API calls")
+}
+
 func TestReconcileReportsOverlapAndRetainsLastGoodRackForMissingProfile(t *testing.T) {
 	ctx := context.Background()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
+	inventory.Finalizers = []string{InventoryFinalizer}
 	other := testInventory("other", "other-uid", "p", 1)
 	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
 	h := newHarness(t, []runtime.Object{profile, inventory, other}, []*corev1.Node{node})
 
-	result, err := h.reconcile(ctx, inventory.Name)
+	result, err := h.reconcileGroup(ctx, allocate.GroupKey{
+		InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: "group",
+	})
 	require.NoError(t, err)
 	require.Len(t, result.Allocation.Conflicts, 1)
 	require.Equal(t, allocate.ConflictSelectorOverlap, result.Allocation.Conflicts[0].Kind)
@@ -505,6 +564,16 @@ func (h *harness) reconcile(ctx context.Context, key string) (Result, error) {
 		CleanupGateFunc(func(CleanupNeeded) bool { return h.cleaned }),
 	)
 	return reconciler.Reconcile(ctx, key)
+}
+
+func (h *harness) reconcileGroup(ctx context.Context, key allocate.GroupKey) (Result, error) {
+	reconciler := NewReconciler(
+		h.cache,
+		h.mokka.MokkaV1alpha1().SGPUInventories(),
+		h.mokka.MokkaV1alpha1().SGPURacks(),
+		CleanupGateFunc(func(CleanupNeeded) bool { return h.cleaned }),
+	)
+	return reconciler.ReconcileGroup(ctx, key)
 }
 
 func testInventory(name string, uid types.UID, profileName string, count int32) *mokkav1alpha1.SGPUInventory {
