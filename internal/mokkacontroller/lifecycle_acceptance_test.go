@@ -155,6 +155,87 @@ func TestControllerLifecycleAcceptance(t *testing.T) {
 	}, 10*time.Second, 20*time.Millisecond, "inventory deletion must clean Nodes and generated racks before releasing its finalizer")
 }
 
+func TestControllerRejectsProjectedLabelPlacementWithoutOscillation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	nodes := newAcceptanceNodeClient()
+	mokka := mokkafake.NewSimpleClientset()
+	installAcceptanceAPIReactors(t, mokka)
+	controller, err := newForNodes(nodes, mokka, Options{Workers: 2, StatusDebounce: 0})
+	require.NoError(t, err)
+
+	runDone := make(chan error, 1)
+	go func() { runDone <- controller.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-runDone:
+		case <-time.After(5 * time.Second):
+			t.Error("controller did not stop")
+		}
+	})
+	require.Eventually(t, controller.Ready, 5*time.Second, 10*time.Millisecond)
+
+	profile := acceptanceProfile(1)
+	inventory := acceptanceInventory()
+	node := acceptanceNode("node", "node-uid", 1)
+	nodes.create(node)
+	_, err = mokka.MokkaV1alpha1().SGPUProfiles().Create(ctx, profile, metav1.CreateOptions{})
+	require.NoError(t, err)
+	_, err = mokka.MokkaV1alpha1().SGPUInventories().Create(ctx, inventory, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	rackName := materialize.RackName(inventory.Name, inventory.UID, "compute", 0)
+	require.Eventually(t, func() bool {
+		rack := getAcceptanceRack(t, mokka, rackName)
+		return len(rack.Spec.Slots) == 1 && rack.Spec.Slots[0].NodeRef != nil &&
+			rack.Spec.Slots[0].NodeRef.UID == node.UID && nodeIsProjected(nodes.snapshot(node.Name), node.UID)
+	}, 10*time.Second, 20*time.Millisecond)
+	require.Eventually(t, func() bool {
+		before := nodes.patchCalls()
+		time.Sleep(50 * time.Millisecond)
+		return nodes.patchCalls() == before
+	}, 5*time.Second, 20*time.Millisecond, "projection event handling must settle")
+
+	patchesBeforeInvalidEdit := nodes.patchCalls()
+	mokka.Fake.ClearActions()
+	invalid, err := mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	invalid.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+		Key: controllerprojection.AssignedLabel, Operator: metav1.LabelSelectorOpDoesNotExist,
+	}}}
+	invalid.Generation++
+	_, err = mokka.MokkaV1alpha1().SGPUInventories().Update(ctx, invalid, metav1.UpdateOptions{})
+	require.NoError(t, err)
+	controller.queues.inventories.Add(inventory.Name)
+
+	wantValidationError := `rack group "compute" selector: selector must not reference controller-owned label "` +
+		controllerprojection.AssignedLabel + `"`
+	require.Eventually(t, func() bool {
+		current, err := mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
+		if err != nil {
+			return false
+		}
+		accepted := findCondition(current.Status.Conditions, mokkav1alpha1.SGPUInventoryConditionAccepted)
+		materialized := findCondition(current.Status.Conditions, mokkav1alpha1.SGPUInventoryConditionMaterialized)
+		return accepted != nil && accepted.Status == metav1.ConditionFalse && accepted.Message == wantValidationError &&
+			materialized != nil && materialized.Status == metav1.ConditionFalse
+	}, 10*time.Second, 20*time.Millisecond)
+
+	require.Never(t, func() bool {
+		return nodes.patchCalls() != patchesBeforeInvalidEdit
+	}, 500*time.Millisecond, 10*time.Millisecond, "an invalid inventory must not clean or reapply the last-good projection")
+	retained := getAcceptanceRack(t, mokka, rackName)
+	require.NotNil(t, retained.Spec.Slots[0].NodeRef)
+	require.Equal(t, node.UID, retained.Spec.Slots[0].NodeRef.UID)
+	require.True(t, nodeIsProjected(nodes.snapshot(node.Name), node.UID))
+	for _, action := range mokka.Actions() {
+		if action.GetResource().Resource == "sgpuracks" {
+			require.NotContains(t, []string{"patch", "update", "delete"}, action.GetVerb(),
+				"an invalid inventory must not mutate last-good racks")
+		}
+	}
+}
+
 func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -443,6 +524,7 @@ type acceptanceNodeClient struct {
 	nodes   map[string]*corev1.Node
 	watcher *watch.RaceFreeFakeWatcher
 	nextRV  int64
+	patches int
 }
 
 func newAcceptanceNodeClient() *acceptanceNodeClient {
@@ -527,6 +609,7 @@ func (c *acceptanceNodeClient) Patch(
 	updated.Labels = patchStringMap(updated.Labels, payload.Metadata.Labels)
 	updated.Annotations = patchStringMap(updated.Annotations, payload.Metadata.Annotations)
 	c.nextRV++
+	c.patches++
 	updated.ResourceVersion = strconv.FormatInt(c.nextRV, 10)
 	c.nodes[name] = updated
 	watcher := c.watcher
@@ -577,6 +660,21 @@ func (c *acceptanceNodeClient) snapshot(name string) *corev1.Node {
 		return nil
 	}
 	return c.nodes[name].DeepCopy()
+}
+
+func (c *acceptanceNodeClient) patchCalls() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.patches
+}
+
+func findCondition(conditions []metav1.Condition, conditionType string) *metav1.Condition {
+	for i := range conditions {
+		if conditions[i].Type == conditionType {
+			return &conditions[i]
+		}
+	}
+	return nil
 }
 
 func patchStringMap(current map[string]string, patch map[string]*string) map[string]string {

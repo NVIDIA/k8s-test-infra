@@ -22,14 +22,15 @@ import (
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/pkg/apis/mokka/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
+	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/metadata"
 )
 
 const (
 	FieldManager = "mokka-controller"
 
-	AssignedLabel        = "mokka.nvidia.com/sgpu-assigned"
-	CliqueLabel          = "nvidia.com/gpu.clique"
-	AssignmentAnnotation = "mokka.nvidia.com/sgpu-assignment"
+	AssignedLabel        = metadata.AssignedLabel
+	CliqueLabel          = metadata.CliqueLabel
+	AssignmentAnnotation = metadata.AssignmentAnnotation
 
 	AssignmentVersion = 1
 )
@@ -359,6 +360,25 @@ func DecodeAssignment(value string) (Assignment, error) {
 		return Assignment{}, fmt.Errorf("unsupported Node assignment version %d", assignment.Version)
 	}
 	return assignment, nil
+}
+
+// MatchesBinding reports whether a Node already carries the exact projection
+// derived from a durable rack binding.
+func MatchesBinding(node *corev1.Node, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackSlot) bool {
+	if node == nil || rack == nil || slot == nil || slot.NodeRef == nil ||
+		node.Name != slot.NodeRef.Name || node.UID != slot.NodeRef.UID ||
+		node.Labels[AssignedLabel] != "true" {
+		return false
+	}
+	clique, hasClique := cliqueValue(rack)
+	if hasClique && node.Labels[CliqueLabel] != clique {
+		return false
+	}
+	if !hasClique && node.Labels[CliqueLabel] != "" {
+		return false
+	}
+	assignment, err := DecodeAssignment(node.Annotations[AssignmentAnnotation])
+	return err == nil && assignmentMatches(assignment, rack, slot)
 }
 
 func projectionLabels(node *corev1.Node, rack *mokkav1alpha1.SGPURack) (map[string]any, []string) {

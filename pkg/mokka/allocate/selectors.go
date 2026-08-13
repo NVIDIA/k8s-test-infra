@@ -10,6 +10,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/metadata"
 )
 
 // EligibleNodeLabel gates all Mokka placement.
@@ -44,13 +46,9 @@ func CompileGroups(groups []Group) (CompiledGroups, error) {
 		}
 		seen[group.Key] = struct{}{}
 
-		selector := labels.Everything()
-		if group.Selector != nil {
-			var err error
-			selector, err = metav1.LabelSelectorAsSelector(group.Selector)
-			if err != nil {
-				return CompiledGroups{}, fmt.Errorf("compile selector for %s: %w", group.Key, err)
-			}
+		selector, err := CompilePlacementSelector(group.Selector)
+		if err != nil {
+			return CompiledGroups{}, fmt.Errorf("compile selector for %s: %w", group.Key, err)
 		}
 		compiled = append(compiled, compiledGroup{group: group, selector: selector})
 	}
@@ -58,6 +56,35 @@ func CompileGroups(groups []Group) (CompiledGroups, error) {
 		return compareGroupKey(a.group.Key, b.group.Key)
 	})
 	return CompiledGroups{groups: compiled}, nil
+}
+
+// ValidatePlacementSelector rejects selectors whose membership can be changed
+// by projecting the binding that placement creates.
+func ValidatePlacementSelector(selector *metav1.LabelSelector) error {
+	_, err := CompilePlacementSelector(selector)
+	return err
+}
+
+// CompilePlacementSelector validates and compiles a placement selector.
+func CompilePlacementSelector(selector *metav1.LabelSelector) (labels.Selector, error) {
+	if selector == nil {
+		return labels.Everything(), nil
+	}
+	for _, key := range metadata.ProjectionLabelKeys() {
+		if _, exists := selector.MatchLabels[key]; exists {
+			return nil, fmt.Errorf("selector must not reference controller-owned label %q", key)
+		}
+		for _, expression := range selector.MatchExpressions {
+			if expression.Key == key {
+				return nil, fmt.Errorf("selector must not reference controller-owned label %q", key)
+			}
+		}
+	}
+	compiled, err := metav1.LabelSelectorAsSelector(selector)
+	if err != nil {
+		return nil, err
+	}
+	return compiled, nil
 }
 
 // Classify evaluates every eligible Node against precompiled group selectors.

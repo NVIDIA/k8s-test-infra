@@ -17,9 +17,11 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
+	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/pkg/apis/mokka/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
+	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/metadata"
 	"github.com/stretchr/testify/require"
 )
 
@@ -206,6 +208,75 @@ func TestSingleNodeEventDoesNotListFromAPI(t *testing.T) {
 	router.nodeAdd(testNode())
 	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
 	require.Zero(t, nodes.listCalls(), "event routing must use cached selectors and indexes")
+}
+
+func TestProjectedLabelEventsDoNotRouteInvalidPlacement(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.RackIndexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	registry := newPlacementRegistry()
+	inventory := testInventory()
+	inventory.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchLabels: map[string]string{
+		metadata.AssignedLabel: "true",
+	}}
+	registry.replace(inventory)
+	router := newEventRouter(inventories, racks, registry, queues)
+
+	oldNode := testNode()
+	projected := oldNode.DeepCopy()
+	projected.ResourceVersion = "2"
+	projected.Labels[metadata.AssignedLabel] = "true"
+	projected.Labels[metadata.CliqueLabel] = "fabric.0"
+	projected.Annotations = map[string]string{metadata.AssignmentAnnotation: `{}`}
+	router.nodeUpdate(oldNode, projected)
+
+	require.Empty(t, drainQueue(queues.groups), "invalid placement must not react to projection-owned label membership")
+	require.Empty(t, drainQueue(queues.projections))
+	require.Empty(t, drainQueue(queues.status))
+
+	unchangedProjection := projected.DeepCopy()
+	unchangedProjection.ResourceVersion = "3"
+	router.nodeUpdate(projected, unchangedProjection)
+	require.Zero(t, queues.groups.Len())
+	require.Zero(t, queues.projections.Len())
+	require.Zero(t, queues.status.Len())
+}
+
+func TestProjectedMetadataEventDoesNotReapplyExactBinding(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.RackIndexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	registry := newPlacementRegistry()
+	inventory := testInventory()
+	registry.replace(inventory)
+	node := testNode()
+	rack := testRack(node)
+	rack.Spec.Identity.FabricUUID = "fabric"
+	rack.Spec.GPUFabric = &mokkav1alpha1.SGPUGPUFabric{}
+	require.NoError(t, racks.Add(rack))
+	router := newEventRouter(inventories, racks, registry, queues)
+
+	projected := node.DeepCopy()
+	projected.ResourceVersion = "2"
+	projected.Labels[metadata.AssignedLabel] = "true"
+	projected.Labels[metadata.CliqueLabel] = "fabric.0"
+	assignment, err := controllerprojection.EncodeAssignment(rack, &rack.Spec.Slots[0])
+	require.NoError(t, err)
+	projected.Annotations = map[string]string{metadata.AssignmentAnnotation: assignment}
+	router.nodeUpdate(node, projected)
+	require.Empty(t, drainQueue(queues.groups))
+	require.Empty(t, drainQueue(queues.projections), "the successful projection event must not enqueue itself")
+	require.Empty(t, drainQueue(queues.status))
+
+	damaged := projected.DeepCopy()
+	damaged.ResourceVersion = "3"
+	delete(damaged.Labels, metadata.AssignedLabel)
+	router.nodeUpdate(projected, damaged)
+	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: rack.Name, slotIndex: 0}}, drainQueue(queues.projections),
+		"external removal of "+metadata.AssignedLabel+" must enqueue repair")
 }
 
 func newTestController() *Controller {

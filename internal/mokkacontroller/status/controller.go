@@ -468,7 +468,7 @@ func groupSelector(group mokkav1alpha1.SGPURackGroup) (labels.Selector, error) {
 	if group.Placement == nil || group.Placement.NodeSelector == nil {
 		return labels.Everything(), nil
 	}
-	return metav1.LabelSelectorAsSelector(group.Placement.NodeSelector)
+	return allocate.CompilePlacementSelector(group.Placement.NodeSelector)
 }
 
 func matchingGroups(node allocate.Node, groups map[string]*groupAggregate) []string {

@@ -26,6 +26,7 @@ import (
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/mokka/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/materialize"
+	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/metadata"
 )
 
 func TestReconcileCreatesDeterministicRacksAndIsIdempotent(t *testing.T) {
@@ -237,6 +238,47 @@ func TestReconcileInvalidInventoryAndProfileRetainLastGoodRacks(t *testing.T) {
 	require.False(t, result.Accepted)
 	require.NotEmpty(t, result.ValidationError)
 	require.Empty(t, h.mokka.Actions())
+}
+
+func TestReconcileProjectedLabelSelectorRetainsBindingWithoutWrites(t *testing.T) {
+	ctx := context.Background()
+	profile := testProfile("p", "profile-uid", 1, 1, 1)
+	inventory := testInventory("inventory", "inventory-uid", "p", 1)
+	node := testNode("node", "node-uid", 1, map[string]string{"pool": "gpu"})
+	h := newHarness(t, []runtime.Object{profile, inventory}, []*corev1.Node{node})
+	_, err := h.reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
+	h.sync(t)
+
+	invalid, err := h.mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	invalid.Spec.RackGroups[0].Placement.NodeSelector = &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+		Key: metadata.CliqueLabel, Operator: metav1.LabelSelectorOpExists,
+	}}}
+	invalid.Generation++
+	_, err = h.mokka.MokkaV1alpha1().SGPUInventories().Update(ctx, invalid, metav1.UpdateOptions{})
+	require.NoError(t, err)
+	h.sync(t)
+	h.mokka.Fake.ClearActions()
+
+	result, err := h.reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
+	require.False(t, result.Accepted)
+	require.Equal(t,
+		`rack group "group" selector: selector must not reference controller-owned label "`+metadata.CliqueLabel+`"`,
+		result.ValidationError,
+	)
+	require.Empty(t, result.CleanupNeeded)
+	require.Empty(t, h.mokka.Actions(), "invalid selectors must not mutate or clean up last-good racks")
+
+	retained, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(
+		ctx,
+		materialize.RackName(inventory.Name, inventory.UID, "group", 0),
+		metav1.GetOptions{},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, retained.Spec.Slots[0].NodeRef)
+	require.Equal(t, node.UID, retained.Spec.Slots[0].NodeRef.UID)
 }
 
 func TestReconcileRendersRecreatedProfileWithoutMovingBindings(t *testing.T) {

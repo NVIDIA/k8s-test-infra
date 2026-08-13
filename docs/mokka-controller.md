@@ -44,7 +44,10 @@ kubectl label node NODE \
 
 Only Nodes with `mokka.nvidia.com/sgpu-node=true` enter the controller cache.
 An empty group selector matches every eligible Node; otherwise both eligibility
-and the selector must match.
+and the selector must match. Placement selectors cannot reference
+`mokka.nvidia.com/sgpu-assigned` or `nvidia.com/gpu.clique` because those labels
+are derived from placement. Such an inventory is rejected without changing its
+last materialized racks or bindings.
 
 The durable assignment is `SGPURack.spec.slots[].nodeRef`. Existing valid
 bindings do not move when Nodes, racks, or profiles are added or edited. New

@@ -42,7 +42,7 @@ func (r *placementRegistry) replace(inventory *mokkav1alpha1.SGPUInventory) {
 		selector := labels.Everything()
 		if group.Placement != nil && group.Placement.NodeSelector != nil {
 			var err error
-			selector, err = metav1.LabelSelectorAsSelector(group.Placement.NodeSelector)
+			selector, err = allocate.CompilePlacementSelector(group.Placement.NodeSelector)
 			if err != nil {
 				selector = labels.Nothing()
 			}
@@ -190,8 +190,12 @@ func (r *eventRouter) nodeUpdate(oldObject, newObject any) {
 	if !oldOK || !newOK || nodeUnchanged(oldNode, newNode) {
 		return
 	}
+	bound := r.boundRacks(newNode.Name, newNode.UID)
+	if projectionOnlyNodeUpdate(oldNode, newNode) && projectionsMatchBindings(newNode, bound) {
+		return
+	}
 	groups := append(r.registry.matching(oldNode), r.registry.matching(newNode)...)
-	r.routeNode(newNode, uniqueGroupKeys(groups))
+	r.routeNodeWithBindings(newNode, uniqueGroupKeys(groups), bound)
 }
 
 func (r *eventRouter) nodeDelete(object any) {
@@ -221,6 +225,10 @@ func (r *eventRouter) nodeDelete(object any) {
 }
 
 func (r *eventRouter) routeNode(node *corev1.Node, groups []allocate.GroupKey) {
+	r.routeNodeWithBindings(node, groups, nil)
+}
+
+func (r *eventRouter) routeNodeWithBindings(node *corev1.Node, groups []allocate.GroupKey, bound []*mokkav1alpha1.SGPURack) {
 	if groups == nil {
 		groups = r.registry.matching(node)
 	}
@@ -228,7 +236,10 @@ func (r *eventRouter) routeNode(node *corev1.Node, groups []allocate.GroupKey) {
 		r.queues.groups.Add(key)
 		r.queues.addStatus(statusKey{kind: statusInventory, name: key.InventoryName, uid: key.InventoryUID})
 	}
-	for _, rack := range r.boundRacks(node.Name, node.UID) {
+	if bound == nil {
+		bound = r.boundRacks(node.Name, node.UID)
+	}
+	for _, rack := range bound {
 		r.routeRackCurrent(rack, false, nil)
 	}
 }
@@ -440,6 +451,49 @@ func nodeUnchanged(old, current *corev1.Node) bool {
 		equality.Semantic.DeepEqual(old.Labels, current.Labels) &&
 		old.Annotations[controllerprojection.AssignmentAnnotation] == current.Annotations[controllerprojection.AssignmentAnnotation] &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
+}
+
+func projectionOnlyNodeUpdate(old, current *corev1.Node) bool {
+	return old.Name == current.Name && old.UID == current.UID &&
+		labelsEqualExceptProjection(old.Labels, current.Labels) &&
+		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
+}
+
+func labelsEqualExceptProjection(old, current map[string]string) bool {
+	for key, value := range old {
+		if key == controllerprojection.AssignedLabel || key == controllerprojection.CliqueLabel {
+			continue
+		}
+		if currentValue, exists := current[key]; !exists || currentValue != value {
+			return false
+		}
+	}
+	for key := range current {
+		if key == controllerprojection.AssignedLabel || key == controllerprojection.CliqueLabel {
+			continue
+		}
+		if _, exists := old[key]; !exists {
+			return false
+		}
+	}
+	return true
+}
+
+func projectionsMatchBindings(node *corev1.Node, racks []*mokkav1alpha1.SGPURack) bool {
+	found := false
+	for _, rack := range racks {
+		for i := range rack.Spec.Slots {
+			slot := &rack.Spec.Slots[i]
+			if slot.NodeRef == nil || slot.NodeRef.Name != node.Name || slot.NodeRef.UID != node.UID {
+				continue
+			}
+			found = true
+			if !controllerprojection.MatchesBinding(node, rack, slot) {
+				return false
+			}
+		}
+	}
+	return found
 }
 
 func groupKey(inventory *mokkav1alpha1.SGPUInventory, group string) allocate.GroupKey {

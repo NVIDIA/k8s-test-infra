@@ -145,6 +145,21 @@ func TestProjectionErrorsRemainRetryableStatusInputs(t *testing.T) {
 	require.Equal(t, ReasonNodeMetadataConflict, projected.Reason)
 }
 
+func TestInvalidInventoryStatusSurfacesStableValidationError(t *testing.T) {
+	input := aggregateInput()
+	input.RackResult.Accepted = false
+	input.RackResult.ValidationError = `rack group "a" selector: selector must not reference controller-owned label "mokka.nvidia.com/sgpu-assigned"`
+
+	got := ComputeInventory(input, metav1.Now())
+	accepted := condition(got.Conditions, mokkav1alpha1.SGPUInventoryConditionAccepted)
+	require.Equal(t, metav1.ConditionFalse, accepted.Status)
+	require.Equal(t, ReasonInvalidInventory, accepted.Reason)
+	require.Equal(t, input.RackResult.ValidationError, accepted.Message)
+	materialized := condition(got.Conditions, mokkav1alpha1.SGPUInventoryConditionMaterialized)
+	require.Equal(t, metav1.ConditionFalse, materialized.Status)
+	require.Equal(t, ReasonInvalidInventory, materialized.Reason)
+}
+
 func aggregateInput() InventoryInput {
 	inventory := &mokkav1alpha1.SGPUInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "inventory", UID: "inventory-uid", Generation: 7},

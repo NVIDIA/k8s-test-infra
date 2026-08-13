@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/metadata"
 )
 
 func TestClassifyEligibleNodes(t *testing.T) {
@@ -71,6 +73,40 @@ func TestCompileGroupsRejectsInvalidAndDuplicateSelectors(t *testing.T) {
 		{Key: groupKey("inventory-a", "same")},
 	})
 	require.ErrorContains(t, err, "duplicate group")
+}
+
+func TestValidatePlacementSelectorRejectsProjectedLabels(t *testing.T) {
+	expressions := []metav1.LabelSelectorRequirement{
+		{Operator: metav1.LabelSelectorOpIn, Values: []string{"value"}},
+		{Operator: metav1.LabelSelectorOpNotIn, Values: []string{"value"}},
+		{Operator: metav1.LabelSelectorOpExists},
+		{Operator: metav1.LabelSelectorOpDoesNotExist},
+	}
+	for _, key := range []string{metadata.AssignedLabel, metadata.CliqueLabel} {
+		t.Run(key+"/matchLabels", func(t *testing.T) {
+			err := ValidatePlacementSelector(&metav1.LabelSelector{MatchLabels: map[string]string{key: "value"}})
+			require.EqualError(t, err, `selector must not reference controller-owned label "`+key+`"`)
+		})
+		for _, expression := range expressions {
+			expression.Key = key
+			t.Run(key+"/"+string(expression.Operator), func(t *testing.T) {
+				err := ValidatePlacementSelector(&metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{expression}})
+				require.EqualError(t, err, `selector must not reference controller-owned label "`+key+`"`)
+			})
+		}
+	}
+}
+
+func TestValidatePlacementSelectorAcceptsOperatorOwnedLabels(t *testing.T) {
+	selector := &metav1.LabelSelector{
+		MatchLabels: map[string]string{"pool": "gpu"},
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{Key: "speed", Operator: metav1.LabelSelectorOpIn, Values: []string{"fast"}},
+			{Key: "zone", Operator: metav1.LabelSelectorOpExists},
+		},
+	}
+	require.NoError(t, ValidatePlacementSelector(selector))
+	require.NoError(t, ValidatePlacementSelector(nil))
 }
 
 func TestEmptySelectorMatchesEveryEligibleNode(t *testing.T) {

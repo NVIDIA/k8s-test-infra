@@ -890,7 +890,7 @@ func validateInventory(inventory *mokkav1alpha1.SGPUInventory) error {
 			return fmt.Errorf("rack group %q profileRef.name must not be empty", group.ID)
 		}
 		if group.Placement != nil && group.Placement.NodeSelector != nil {
-			if _, err := metav1.LabelSelectorAsSelector(group.Placement.NodeSelector); err != nil {
+			if err := allocate.ValidatePlacementSelector(group.Placement.NodeSelector); err != nil {
 				return fmt.Errorf("rack group %q selector: %w", group.ID, err)
 			}
 		}
