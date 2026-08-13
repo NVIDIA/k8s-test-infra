@@ -69,20 +69,22 @@ const (
 // before reconciliation may clear or retire its rack coordinate.
 type CleanupNeeded struct {
 	RackName string
+	RackUID  types.UID
 	Binding  allocate.Binding
 	Reason   CleanupReason
 }
 
 // CleanupGate is the acknowledgement seam implemented by Node projection.
-// It must return true only when metadata for this exact binding is absent.
+// Consumption transfers responsibility for the exact binding back to rack
+// reconciliation. A failed rack mutation may safely repeat cleanup.
 type CleanupGate interface {
-	Ready(CleanupNeeded) bool
+	Consume(CleanupNeeded) bool
 }
 
 // CleanupGateFunc adapts a function to CleanupGate.
 type CleanupGateFunc func(CleanupNeeded) bool
 
-func (f CleanupGateFunc) Ready(cleanup CleanupNeeded) bool { return f(cleanup) }
+func (f CleanupGateFunc) Consume(cleanup CleanupNeeded) bool { return f(cleanup) }
 
 // ProfileIssue identifies an unresolved or invalid group profile.
 type ProfileIssue struct {
@@ -505,8 +507,8 @@ func (r *Reconciler) preservePendingReleases(
 		if !found {
 			continue
 		}
-		needed := CleanupNeeded{RackName: existing.Name, Binding: release.Binding, Reason: cleanupReason(release.Reason)}
-		if r.cleanup != nil && r.cleanup.Ready(needed) {
+		needed := CleanupNeeded{RackName: existing.Name, RackUID: existing.UID, Binding: release.Binding, Reason: cleanupReason(release.Reason)}
+		if r.cleanup != nil && r.cleanup.Consume(needed) {
 			continue
 		}
 		cleanup = append(cleanup, needed)
@@ -539,8 +541,8 @@ func (r *Reconciler) retireRack(
 			},
 			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
 		}
-		needed := CleanupNeeded{RackName: rack.Name, Binding: binding, Reason: reason}
-		if r.cleanup != nil && r.cleanup.Ready(needed) {
+		needed := CleanupNeeded{RackName: rack.Name, RackUID: rack.UID, Binding: binding, Reason: reason}
+		if r.cleanup != nil && r.cleanup.Consume(needed) {
 			clearSlots[slot.Index] = slot.NodeRef.UID
 			continue
 		}

@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -179,6 +181,129 @@ func TestCleanupTreatsAbsentExactUIDAsCleanAndPreservesStaleAnnotation(t *testin
 	require.Empty(t, patcher.calls)
 }
 
+func TestProjectionStateIsBoundedByLiveExactBindings(t *testing.T) {
+	const churn = 4_000
+
+	rack := testRack(false)
+	cache := &fakeCache{nodes: make(map[string]*corev1.Node), racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
+	controller := NewController(cache, &recordingPatcher{})
+
+	for i := range churn {
+		nodeName := fmt.Sprintf("node-%d", i)
+		nodeUID := types.UID(fmt.Sprintf("node-uid-%d", i))
+		rack.UID = types.UID(fmt.Sprintf("rack-uid-%d", i))
+		rack.Spec.Slots[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: nodeName, UID: nodeUID}
+		cache.nodes = map[string]*corev1.Node{nodeName: testNode(nodeName, nodeUID)}
+
+		_, err := controller.Project(context.Background(), rack.Name, 0)
+		require.NoError(t, err)
+	}
+
+	outcomes, cleanups := stateSize(controller)
+	require.Equal(t, 1, outcomes)
+	require.Zero(t, cleanups)
+	snapshot := controller.Outcomes()
+	require.Len(t, snapshot, 1, "status must not scan historical rack or Node identities")
+	require.Equal(t, types.UID("rack-uid-3999"), snapshot[0].RackUID)
+	require.Equal(t, types.UID("node-uid-3999"), snapshot[0].NodeUID)
+}
+
+func TestCleanupAcknowledgementsAreExactConsumedAndBounded(t *testing.T) {
+	const pendingCount = 2_000
+
+	cache := &fakeCache{nodes: make(map[string]*corev1.Node), racks: make(map[string]*mokkav1alpha1.SGPURack)}
+	controller := NewController(cache, &recordingPatcher{})
+	pending := make([]controllerack.CleanupNeeded, 0, pendingCount)
+	for i := range pendingCount {
+		rack := testRack(false)
+		rack.Name = fmt.Sprintf("rack-%d", i)
+		rack.UID = types.UID(fmt.Sprintf("rack-uid-%d", i))
+		rack.Spec.InventoryRef.UID = types.UID(fmt.Sprintf("inventory-uid-%d", i))
+		rack.Spec.Identity.RackIndex = int32(i)
+		rack.Spec.Slots[0].NodeRef.Name = fmt.Sprintf("node-%d", i)
+		rack.Spec.Slots[0].NodeRef.UID = types.UID(fmt.Sprintf("node-uid-%d", i))
+		cache.racks[rack.Name] = rack
+		cache.nodes[rack.Spec.Slots[0].NodeRef.Name] = testNode(rack.Spec.Slots[0].NodeRef.Name, rack.Spec.Slots[0].NodeRef.UID)
+		needed := cleanupFor(rack)
+
+		_, err := controller.Cleanup(context.Background(), needed)
+		require.NoError(t, err)
+		pending = append(pending, needed)
+	}
+
+	outcomes, cleanups := stateSize(controller)
+	require.Zero(t, outcomes, "successful cleanup must remove projection status state")
+	require.Equal(t, pendingCount, cleanups)
+	for _, needed := range pending {
+		require.True(t, controller.Consume(needed))
+		require.False(t, controller.Consume(needed), "an acknowledgement is single-use")
+	}
+	outcomes, cleanups = stateSize(controller)
+	require.Zero(t, outcomes)
+	require.Zero(t, cleanups)
+}
+
+func TestCleanupDoesNotAliasRackRecreationOrRetainAbsentRackAcknowledgement(t *testing.T) {
+	oldRack := testRack(false)
+	oldNode := testNode("node", "node-uid")
+	cache := &fakeCache{
+		nodes: map[string]*corev1.Node{oldNode.Name: oldNode},
+		racks: map[string]*mokkav1alpha1.SGPURack{oldRack.Name: oldRack},
+	}
+	controller := NewController(cache, &recordingPatcher{})
+	oldCleanup := cleanupFor(oldRack)
+	_, err := controller.Cleanup(context.Background(), oldCleanup)
+	require.NoError(t, err)
+	require.True(t, controller.Ready(oldCleanup))
+
+	recreated := oldRack.DeepCopy()
+	recreated.UID = "recreated-rack-uid"
+	cache.racks[recreated.Name] = recreated
+	recreatedCleanup := cleanupFor(recreated)
+	require.False(t, controller.Ready(recreatedCleanup), "a recreated rack must not consume the old rack's acknowledgement")
+
+	_, err = controller.Project(context.Background(), recreated.Name, 0)
+	require.NoError(t, err)
+	_, cleanups := stateSize(controller)
+	require.Zero(t, cleanups, "a new exact binding makes acknowledgements for the prior slot identity obsolete")
+
+	delete(cache.racks, recreated.Name)
+	_, err = controller.Cleanup(context.Background(), recreatedCleanup)
+	require.NoError(t, err)
+	require.False(t, controller.Ready(recreatedCleanup))
+	outcomes, cleanups := stateSize(controller)
+	require.Zero(t, outcomes)
+	require.Zero(t, cleanups, "an absent rack has no reconciliation left to consume an acknowledgement")
+}
+
+func TestProjectionStateConcurrentAccess(t *testing.T) {
+	rack := testRack(false)
+	controller := NewController(&fakeCache{}, &recordingPatcher{})
+	needed := cleanupFor(rack)
+	outcome := outcomeFor(rack, &rack.Spec.Slots[0])
+
+	var workers sync.WaitGroup
+	for range 100 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			controller.record(outcome)
+			_ = controller.Outcomes()
+			controller.completeCleanup(needed, outcome, ReasonCleaned, true)
+			_ = controller.Ready(needed)
+			_ = controller.Consume(needed)
+			controller.beginProjection(rack, &rack.Spec.Slots[0])
+		}()
+	}
+	workers.Wait()
+
+	controller.beginProjection(rack, &rack.Spec.Slots[0])
+	controller.record(outcome)
+	outcomes, cleanups := stateSize(controller)
+	require.Equal(t, 1, outcomes)
+	require.Zero(t, cleanups)
+}
+
 type fakeCache struct {
 	nodes map[string]*corev1.Node
 	racks map[string]*mokkav1alpha1.SGPURack
@@ -265,6 +390,7 @@ func cleanupFor(rack *mokkav1alpha1.SGPURack) controllerack.CleanupNeeded {
 	slot := rack.Spec.Slots[0]
 	return controllerack.CleanupNeeded{
 		RackName: rack.Name,
+		RackUID:  rack.UID,
 		Binding: allocate.Binding{
 			Coordinate: allocate.Coordinate{
 				Group:     allocate.GroupKey{InventoryName: rack.Spec.InventoryRef.Name, InventoryUID: rack.Spec.InventoryRef.UID, RackGroup: rack.Spec.Identity.RackGroup},
@@ -274,4 +400,10 @@ func cleanupFor(rack *mokkav1alpha1.SGPURack) controllerack.CleanupNeeded {
 			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
 		},
 	}
+}
+
+func stateSize(controller *Controller) (outcomes, cleanups int) {
+	controller.mu.RLock()
+	defer controller.mu.RUnlock()
+	return len(controller.outcomes), len(controller.cleaned)
 }

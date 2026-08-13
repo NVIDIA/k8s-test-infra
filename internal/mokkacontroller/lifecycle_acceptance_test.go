@@ -363,6 +363,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 
 			_, err = reconciler.Reconcile(ctx, inventory.Name)
 			require.NoError(t, err)
+			require.False(t, projection.Ready(result.CleanupNeeded[0]), "rack reconciliation must consume the acknowledgement")
 			stored, err = mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rack.Name, metav1.GetOptions{})
 			if tt.retireRack {
 				require.True(t, apierrors.IsNotFound(err))

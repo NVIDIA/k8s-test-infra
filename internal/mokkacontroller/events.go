@@ -391,6 +391,7 @@ func (r *eventRouter) boundRacks(name string, uid types.UID) []*mokkav1alpha1.SG
 func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackSlot, reason controllerack.CleanupReason) controllerack.CleanupNeeded {
 	return controllerack.CleanupNeeded{
 		RackName: rack.Name,
+		RackUID:  rack.UID,
 		Reason:   reason,
 		Binding: allocate.Binding{
 			Coordinate: allocate.Coordinate{

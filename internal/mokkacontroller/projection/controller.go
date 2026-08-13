@@ -21,7 +21,6 @@ import (
 
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/pkg/apis/mokka/v1alpha1"
-	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/metadata"
 )
 
@@ -82,14 +81,18 @@ const (
 
 // Outcome is status input tied to a complete rack-slot-Node identity.
 type Outcome struct {
-	RackName  string
-	RackUID   types.UID
-	SlotIndex int32
-	NodeName  string
-	NodeUID   types.UID
-	State     State
-	Reason    string
-	Message   string
+	InventoryName string
+	InventoryUID  types.UID
+	RackGroup     string
+	RackName      string
+	RackUID       types.UID
+	RackIndex     int32
+	SlotIndex     int32
+	NodeName      string
+	NodeUID       types.UID
+	State         State
+	Reason        string
+	Message       string
 }
 
 // MetadataConflictError reports a pre-existing value that the controller will
@@ -121,30 +124,28 @@ type Controller struct {
 	patcher NodePatcher
 
 	mu       sync.RWMutex
-	outcomes map[outcomeKey]Outcome
-	cleaned  map[cleanupKey]struct{}
+	outcomes map[bindingKey]Outcome
+	cleaned  map[bindingKey]struct{}
 }
 
 var _ controllerack.CleanupGate = (*Controller)(nil)
 
-type outcomeKey struct {
-	rackName  string
-	rackUID   types.UID
-	slotIndex int32
-}
-
-type cleanupKey struct {
-	rackName string
-	group    string
-	rack     int32
-	slot     int32
-	nodeUID  types.UID
+type bindingKey struct {
+	inventoryName string
+	inventoryUID  types.UID
+	rackGroup     string
+	rackName      string
+	rackUID       types.UID
+	rackIndex     int32
+	slotIndex     int32
+	nodeName      string
+	nodeUID       types.UID
 }
 
 func NewController(cache Cache, patcher NodePatcher) *Controller {
 	return &Controller{
 		cache: cache, patcher: patcher,
-		outcomes: make(map[outcomeKey]Outcome), cleaned: make(map[cleanupKey]struct{}),
+		outcomes: make(map[bindingKey]Outcome), cleaned: make(map[bindingKey]struct{}),
 	}
 }
 
@@ -159,7 +160,7 @@ func (c *Controller) Project(ctx context.Context, rackName string, slotIndex int
 		return Outcome{}, fmt.Errorf("rack %q slot %d has no binding", rackName, slotIndex)
 	}
 	outcome := outcomeFor(rack, slot)
-	c.forgetCleanup(rack, slot)
+	c.beginProjection(rack, slot)
 
 	duplicates, err := c.duplicateBindings(slot.NodeRef.UID)
 	if err != nil {
@@ -233,22 +234,26 @@ func (c *Controller) Cleanup(ctx context.Context, needed controllerack.CleanupNe
 	if rackErr != nil && !apierrors.IsNotFound(rackErr) {
 		return Outcome{}, fmt.Errorf("get rack %q: %w", needed.RackName, rackErr)
 	}
-	outcome := cleanupOutcome(needed, rack)
+	exactBindingPresent := rackErr == nil && cleanupBindingMatchesRack(needed, rack)
+	if !exactBindingPresent {
+		rack = nil
+	}
+	outcome := cleanupOutcome(needed)
 	node, err := c.cache.Node(needed.Binding.Node.Name)
 	if apierrors.IsNotFound(err) {
-		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent), nil
+		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent, exactBindingPresent), nil
 	}
 	if err != nil {
-		return c.fail(outcome, fmt.Errorf("get Node %q: %w", needed.Binding.Node.Name, err))
+		return c.failCleanup(outcome, fmt.Errorf("get Node %q: %w", needed.Binding.Node.Name, err), exactBindingPresent)
 	}
 	if node.UID != needed.Binding.Node.UID {
-		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent), nil
+		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent, exactBindingPresent), nil
 	}
 
 	encoded := node.Annotations[AssignmentAnnotation]
 	assignment, decodeErr := DecodeAssignment(encoded)
-	if encoded == "" || decodeErr != nil || !cleanupAssignmentMatches(assignment, needed, rack) {
-		return c.completeCleanup(needed, outcome, ReasonCleaned), nil
+	if encoded == "" || decodeErr != nil || !cleanupAssignmentMatches(assignment, needed) {
+		return c.completeCleanup(needed, outcome, ReasonCleaned, exactBindingPresent), nil
 	}
 
 	labels := make(map[string]any)
@@ -278,7 +283,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed controllerack.CleanupNe
 	if len(labels) > 0 || len(annotations) > 0 {
 		payload, err := nodeApplyPayload(node.Name, labels, annotations)
 		if err != nil {
-			return c.fail(outcome, err)
+			return c.failCleanup(outcome, err, exactBindingPresent)
 		}
 		_, err = c.patcher.Patch(ctx, node.Name, types.ApplyPatchType, payload, applyOptions())
 		if err != nil {
@@ -288,7 +293,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed controllerack.CleanupNe
 			} else {
 				outcome.State, outcome.Reason = StateError, ReasonProjectionError
 			}
-			c.record(outcome)
+			c.recordCleanupFailure(outcome, exactBindingPresent)
 			return outcome, err
 		}
 	}
@@ -296,18 +301,30 @@ func (c *Controller) Cleanup(ctx context.Context, needed controllerack.CleanupNe
 		slices.Sort(incompatible)
 		conflict := &MetadataConflictError{NodeName: node.Name, Fields: incompatible}
 		outcome.State, outcome.Reason, outcome.Message = StateConflict, ReasonNodeMetadataConflict, conflict.Error()
-		c.record(outcome)
+		c.recordCleanupFailure(outcome, exactBindingPresent)
 		return outcome, conflict
 	}
-	return c.completeCleanup(needed, outcome, ReasonCleaned), nil
+	return c.completeCleanup(needed, outcome, ReasonCleaned, exactBindingPresent), nil
 }
 
-// Ready implements rack.CleanupGate for an exact cleanup request.
+// Ready reports whether an exact cleanup acknowledgement is pending.
 func (c *Controller) Ready(needed controllerack.CleanupNeeded) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	_, ready := c.cleaned[cleanupKeyFor(needed)]
+	_, ready := c.cleaned[bindingKeyForCleanup(needed)]
 	return ready
+}
+
+// Consume returns and deletes the acknowledgement for one exact cleanup.
+func (c *Controller) Consume(needed controllerack.CleanupNeeded) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	key := bindingKeyForCleanup(needed)
+	if _, ready := c.cleaned[key]; !ready {
+		return false
+	}
+	delete(c.cleaned, key)
+	return true
 }
 
 // Outcomes returns a deterministic immutable status snapshot.
@@ -442,15 +459,29 @@ func assignmentMatches(assignment Assignment, rack *mokkav1alpha1.SGPURack, slot
 		assignment.SlotIndex == slot.Index && assignment.NodeUID == slot.NodeRef.UID
 }
 
-func cleanupAssignmentMatches(assignment Assignment, needed controllerack.CleanupNeeded, rack *mokkav1alpha1.SGPURack) bool {
+func cleanupAssignmentMatches(assignment Assignment, needed controllerack.CleanupNeeded) bool {
 	binding := needed.Binding
 	if assignment.Version != AssignmentVersion || assignment.Inventory.Name != binding.Coordinate.Group.InventoryName ||
 		assignment.Inventory.UID != binding.Coordinate.Group.InventoryUID || assignment.Rack.Name != needed.RackName ||
+		assignment.Rack.UID != needed.RackUID ||
 		assignment.RackGroup != binding.Coordinate.Group.RackGroup || assignment.RackIndex != binding.Coordinate.RackIndex ||
 		assignment.SlotIndex != binding.Coordinate.SlotIndex || assignment.NodeUID != binding.Node.UID {
 		return false
 	}
-	return rack == nil || assignment.Rack.UID == rack.UID
+	return true
+}
+
+func cleanupBindingMatchesRack(needed controllerack.CleanupNeeded, rack *mokkav1alpha1.SGPURack) bool {
+	binding := needed.Binding
+	if rack == nil || rack.Name != needed.RackName || rack.UID != needed.RackUID ||
+		rack.Spec.InventoryRef.Name != binding.Coordinate.Group.InventoryName ||
+		rack.Spec.InventoryRef.UID != binding.Coordinate.Group.InventoryUID ||
+		rack.Spec.Identity.RackGroup != binding.Coordinate.Group.RackGroup ||
+		rack.Spec.Identity.RackIndex != binding.Coordinate.RackIndex {
+		return false
+	}
+	slot := findSlot(rack, binding.Coordinate.SlotIndex)
+	return slot != nil && slot.NodeRef != nil && slot.NodeRef.Name == binding.Node.Name && slot.NodeRef.UID == binding.Node.UID
 }
 
 func (c *Controller) duplicateBindings(uid types.UID) (int, error) {
@@ -488,24 +519,28 @@ func findSlotByUID(rack *mokkav1alpha1.SGPURack, uid types.UID) *mokkav1alpha1.S
 }
 
 func outcomeFor(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackSlot) Outcome {
-	return Outcome{RackName: rack.Name, RackUID: rack.UID, SlotIndex: slot.Index, NodeName: slot.NodeRef.Name, NodeUID: slot.NodeRef.UID}
+	return Outcome{
+		InventoryName: rack.Spec.InventoryRef.Name, InventoryUID: rack.Spec.InventoryRef.UID,
+		RackGroup: rack.Spec.Identity.RackGroup, RackName: rack.Name, RackUID: rack.UID,
+		RackIndex: rack.Spec.Identity.RackIndex, SlotIndex: slot.Index,
+		NodeName: slot.NodeRef.Name, NodeUID: slot.NodeRef.UID,
+	}
 }
 
-func cleanupOutcome(needed controllerack.CleanupNeeded, rack *mokkav1alpha1.SGPURack) Outcome {
-	outcome := Outcome{
-		RackName: needed.RackName, SlotIndex: needed.Binding.Coordinate.SlotIndex,
+func cleanupOutcome(needed controllerack.CleanupNeeded) Outcome {
+	binding := needed.Binding
+	return Outcome{
+		InventoryName: binding.Coordinate.Group.InventoryName, InventoryUID: binding.Coordinate.Group.InventoryUID,
+		RackGroup: binding.Coordinate.Group.RackGroup, RackName: needed.RackName, RackUID: needed.RackUID,
+		RackIndex: binding.Coordinate.RackIndex, SlotIndex: binding.Coordinate.SlotIndex,
 		NodeName: needed.Binding.Node.Name, NodeUID: needed.Binding.Node.UID,
 	}
-	if rack != nil {
-		outcome.RackUID = rack.UID
-	}
-	return outcome
 }
 
 func (c *Controller) record(outcome Outcome) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.outcomes[outcomeKey{rackName: outcome.RackName, rackUID: outcome.RackUID, slotIndex: outcome.SlotIndex}] = outcome
+	c.outcomes[bindingKeyForOutcome(outcome)] = outcome
 }
 
 func (c *Controller) fail(outcome Outcome, err error) (Outcome, error) {
@@ -514,42 +549,67 @@ func (c *Controller) fail(outcome Outcome, err error) (Outcome, error) {
 	return outcome, err
 }
 
-func (c *Controller) completeCleanup(needed controllerack.CleanupNeeded, outcome Outcome, reason string) Outcome {
+func (c *Controller) failCleanup(outcome Outcome, err error, exactRackPresent bool) (Outcome, error) {
+	outcome.State, outcome.Reason, outcome.Message = StateError, ReasonProjectionError, err.Error()
+	c.recordCleanupFailure(outcome, exactRackPresent)
+	return outcome, err
+}
+
+func (c *Controller) recordCleanupFailure(outcome Outcome, exactRackPresent bool) {
+	if exactRackPresent {
+		c.record(outcome)
+	}
+}
+
+func (c *Controller) completeCleanup(
+	needed controllerack.CleanupNeeded,
+	outcome Outcome,
+	reason string,
+	exactRackPresent bool,
+) Outcome {
 	outcome.State, outcome.Reason = StateCleaned, reason
 	c.mu.Lock()
-	c.cleaned[cleanupKeyFor(needed)] = struct{}{}
-	c.outcomes[outcomeKey{rackName: outcome.RackName, rackUID: outcome.RackUID, slotIndex: outcome.SlotIndex}] = outcome
+	key := bindingKeyForCleanup(needed)
+	delete(c.outcomes, key)
+	if exactRackPresent {
+		c.cleaned[key] = struct{}{}
+	} else {
+		delete(c.cleaned, key)
+	}
 	c.mu.Unlock()
 	return outcome
 }
 
-func (c *Controller) forgetCleanup(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackSlot) {
-	needed := controllerack.CleanupNeeded{
-		RackName: rack.Name,
-		Binding: allocate.Binding{
-			Coordinate: allocate.Coordinate{
-				Group: allocate.GroupKey{
-					InventoryName: rack.Spec.InventoryRef.Name,
-					InventoryUID:  rack.Spec.InventoryRef.UID,
-					RackGroup:     rack.Spec.Identity.RackGroup,
-				},
-				RackIndex: rack.Spec.Identity.RackIndex,
-				SlotIndex: slot.Index,
-			},
-			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
-		},
-	}
+func (c *Controller) beginProjection(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackSlot) {
 	c.mu.Lock()
-	delete(c.cleaned, cleanupKeyFor(needed))
-	c.mu.Unlock()
+	defer c.mu.Unlock()
+	for key := range c.outcomes {
+		if key.rackName == rack.Name && key.slotIndex == slot.Index {
+			delete(c.outcomes, key)
+		}
+	}
+	for key := range c.cleaned {
+		if key.rackName == rack.Name && key.slotIndex == slot.Index {
+			delete(c.cleaned, key)
+		}
+	}
 }
 
-func cleanupKeyFor(needed controllerack.CleanupNeeded) cleanupKey {
-	return cleanupKey{
-		rackName: needed.RackName,
-		group:    needed.Binding.Coordinate.Group.RackGroup,
-		rack:     needed.Binding.Coordinate.RackIndex,
-		slot:     needed.Binding.Coordinate.SlotIndex,
-		nodeUID:  needed.Binding.Node.UID,
+func bindingKeyForOutcome(outcome Outcome) bindingKey {
+	return bindingKey{
+		inventoryName: outcome.InventoryName, inventoryUID: outcome.InventoryUID,
+		rackGroup: outcome.RackGroup, rackName: outcome.RackName, rackUID: outcome.RackUID,
+		rackIndex: outcome.RackIndex, slotIndex: outcome.SlotIndex,
+		nodeName: outcome.NodeName, nodeUID: outcome.NodeUID,
+	}
+}
+
+func bindingKeyForCleanup(needed controllerack.CleanupNeeded) bindingKey {
+	binding := needed.Binding
+	return bindingKey{
+		inventoryName: binding.Coordinate.Group.InventoryName, inventoryUID: binding.Coordinate.Group.InventoryUID,
+		rackGroup: binding.Coordinate.Group.RackGroup, rackName: needed.RackName, rackUID: needed.RackUID,
+		rackIndex: binding.Coordinate.RackIndex, slotIndex: binding.Coordinate.SlotIndex,
+		nodeName: binding.Node.Name, nodeUID: binding.Node.UID,
 	}
 }
