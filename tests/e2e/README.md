@@ -313,17 +313,17 @@ CI runs the harness through
 The workflow:
 
 1. Detects the project Go version unless one is explicitly provided.
-2. Builds the `nvml-mock` image exactly once in a dedicated `build-image` job
-   (buildx + GHA cache) and pushes it to the ephemeral, auth-free `ttl.sh`
-   registry as `E2E_IMAGE` (`ttl.sh/nvml-mock-<sha>:24h`), exposing the pushed
-   image digest as a job output. Using `ttl.sh` keeps this working on fork PRs,
-   which cannot access authenticated registries; the 24h TTL (ttl.sh max) keeps
-   the image available long enough to re-run an individual failed leg.
-3. Makes every leg `needs: build-image`, pulls the image **by digest**
-   (`ttl.sh/nvml-mock-<sha>@sha256:<digest>`, so a third-party tag overwrite on
-   the anonymous registry cannot substitute it), tags it back to `E2E_IMAGE`,
-   and sets `E2E_SKIP_BUILD=true` so the harness Kind-loads it instead of
-   rebuilding the image per leg.
+2. Builds the `nvml-mock` image exactly once in a dedicated
+   `build-nvmlmock-image` job (buildx + GHA layer cache), exports it to a
+   tarball and uploads it as a run-scoped artifact (`nvml-mock-image`, 1-day
+   retention — long enough to re-run an individual failed leg). Artifacts need
+   no registry credentials, so this works on fork PRs without depending on a
+   third-party registry.
+3. Makes every leg `needs: build-nvmlmock-image` and load the artifact into its
+   Docker daemon via
+   [`load-image-artifact`](../../.github/actions/load-image-artifact/action.yml),
+   which asserts the expected ref is present afterwards. `E2E_SKIP_BUILD=true`
+   then has the harness Kind-load that image instead of rebuilding per leg.
 4. Runs one GPU profile per matrix job.
 5. Prints collected diagnostics if the job fails.
 

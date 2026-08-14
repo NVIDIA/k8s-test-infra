@@ -62,12 +62,12 @@ config.define_bool('topograph', args=False,
     usage='Also deploy NVIDIA topograph. Implies --compute-domain (topograph reads the static nvidia.com/gpu.clique labels). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
 config.define_bool('control-plane', args=False,
     usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Off by default. Composes with --multi-gpu-profile (one CP per release), --compute-domain, and --nvmlmock-image.')
-# CI hook: hand Tilt a pre-built image (e.g. from ttl.sh) instead of running
-# docker_build. When set, docker_build is skipped and the nvml-mock chart's
-# image.repository / image.tag are pinned via --set to the parsed <repo>/<tag>.
-# Ref must be in `repo:tag` or `repo@digest` form.
+# CI hook: hand Tilt a pre-built image (in CI, loaded from the workflow's image
+# artifact) instead of running docker_build. When set, docker_build is skipped
+# and the nvml-mock chart's image.repository / image.tag are pinned via --set
+# to the parsed <repo>/<tag>. Ref must be in `repo:tag` or `repo@digest` form.
 config.define_string('nvmlmock-image', args=False,
-    usage='Pre-built nvml-mock image ref (repo:tag). Skips docker_build and pins the chart image.repository/image.tag via --set. Used by CI to consume the ttl.sh image the build-image job publishes.')
+    usage='Pre-built nvml-mock image ref (repo:tag). Skips docker_build and pins the chart image.repository/image.tag via --set. Used by CI to consume the image the build-nvmlmock-image job uploads as an artifact.')
 
 cfg = config.parse()
 
