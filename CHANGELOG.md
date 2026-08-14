@@ -86,6 +86,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   their config field, matching the existing encoder and decoder getters. The
   values are also settable at runtime with
   `nvml-mock-ctl set --gpu <idx> utilization.jpeg=35 utilization.ofa=12`. (#637)
+- Report `GPU C2C Mode` in `nvidia-smi -q` from `nvlink.c2c_enabled`.
+  `nvmlDeviceGetC2cModeInfoV` was a generated stub, so the Grace-Blackwell
+  profiles (`gb200`, `gb300`) reported `N/A` for the NVLink-C2C link to the
+  Grace CPU that defines them, silently dropping a configured value. Boards
+  with no such link keep reporting `N/A`, which is correct for them: `a100`,
+  `h100` and `b200` set `c2c_enabled: false`, `l40s` and `t4` omit the key, and
+  both cases answer `NVML_ERROR_NOT_SUPPORTED`. (#639)
 
 - Gate the T.Limit temperature surfaces on Ada and later: the field IDs
   193–196 (`NVML_FI_DEV_TEMPERATURE_*_TLIMIT`) and

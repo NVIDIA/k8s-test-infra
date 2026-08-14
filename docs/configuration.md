@@ -370,6 +370,12 @@ nvlink:
       remote_pci_bus_id: "0000:0F:00.0"
 ```
 
+`c2c_enabled` is node-level and drives the `GPU C2C Mode` row of `nvidia-smi -q`
+on every attached GPU: `true` reports `Enabled`, while `false` or an absent key
+reports `N/A` — never `Disabled`, because NVML answers
+`NVML_ERROR_NOT_SUPPORTED`, the correct reading for a board with no NVLink-C2C
+link to a host CPU. Only the Grace-Blackwell profiles (`gb200`, `gb300`) set it.
+
 ### NVLink error injection (per device)
 
 A device can be given a rising NVLink DL error rate on its switch links, so its
