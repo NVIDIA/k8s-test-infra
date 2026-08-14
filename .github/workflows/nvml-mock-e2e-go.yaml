@@ -82,9 +82,8 @@ env:
 jobs:
   # Build nvml-mock once and hand it to every leg as a run-scoped artifact;
   # legs load it instead of rebuilding the image per job (see issue #460).
-  # Artifacts need no credentials, so fork PRs work, and unlike the ttl.sh
-  # registry this used to go through there is no third-party service that can
-  # fail the whole matrix (see issue #566).
+  # Artifacts need no credentials, so fork PRs work, and no third-party
+  # service sits in the path that can fail the whole matrix (see issue #566).
   build-nvmlmock-image:
     runs-on: ubuntu-latest
     steps:
@@ -114,8 +113,8 @@ jobs:
         with:
           name: nvml-mock-image
           path: ${{ runner.temp }}/nvml-mock.tar
-          # One day is the shortest retention GitHub allows and matches the old
-          # 24h ttl.sh TTL: long enough to re-run a single failed leg.
+          # One day is the shortest retention GitHub allows and is long enough
+          # to re-run a single failed leg.
           retention-days: 1
 
   # Build the custom kind-node image (kindest/node + nvidia-container-toolkit)
