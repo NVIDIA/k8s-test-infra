@@ -11,70 +11,100 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Buggy a100 output from issue #635: T.Limit rows on Ampere, with signed
-// margins rendered as absolute temperatures (negative / inverted shutdown).
-const buggyPreAdaTemperatureQuery = `
-    Temperature
-        GPU Current Temp                  : 33 C
-        GPU T.Limit Temp                  : 54 C
-        GPU Shutdown T.Limit Temp         : -5 C
-        GPU Slowdown T.Limit Temp         : 0 C
-        GPU Max Operating T.Limit Temp    : 4 C
-        GPU Target Temperature            : 83 C
-        Memory Current Temp               : 31 C
-`
+// temperatureXML renders a one-GPU document whose <temperature> block carries
+// the given element lines verbatim, so a test can inject a broken combination
+// no healthy capture can show.
+func temperatureXML(elements string) string {
+	return `<?xml version="1.0" ?>
+<nvidia_smi_log>
+	<attached_gpus>1</attached_gpus>
+	<gpu id="0000:07:00.0">
+		<product_name>NVIDIA A100-SXM4-40GB</product_name>
+		<temperature>` + elements + `
+		</temperature>
+	</gpu>
+</nvidia_smi_log>`
+}
 
-// Real `nvidia-smi -q -d TEMPERATURE` output captured from the mock image with
-// the architecture gate in place: a100 (ampere) and h100 (hopper). Pre-Ada
-// keeps a "GPU T.Limit Temp : N/A" row, because the same nvidia-smi build
-// prints that row whenever the margin API reports NOT_SUPPORTED — the defect is
-// a T.Limit row carrying a NUMBER, not the label existing as N/A.
-const fixedPreAdaTemperatureQuery = `
-    Temperature
-        GPU Current Temp                  : 33 C
-        GPU T.Limit Temp                  : N/A
-        GPU Shutdown Temp                 : 92 C
-        GPU Slowdown Temp                 : 87 C
-        GPU Max Operating Temp            : 83 C
-        GPU Target Temperature            : 83 C
-        Memory Current Temp               : 31 C
-        Memory Max Operating Temp         : 83 C
-`
+// The issue #635 defect: T.Limit elements carrying numbers on Ampere, where the
+// signed margins were rendered as absolute temperatures.
+const buggyPreAdaTemperatureElements = `
+			<gpu_temp>33 C</gpu_temp>
+			<gpu_temp_tlimit>54 C</gpu_temp_tlimit>
+			<gpu_temp_max_tlimit_threshold>-5 C</gpu_temp_max_tlimit_threshold>
+			<gpu_temp_slow_tlimit_threshold>0 C</gpu_temp_slow_tlimit_threshold>
+			<gpu_temp_max_gpu_tlimit_threshold>4 C</gpu_temp_max_gpu_tlimit_threshold>`
 
-const adaTemperatureQuery = `
-    Temperature
-        GPU Current Temp                  : 34 C
-        GPU T.Limit Temp                  : 53 C
-        GPU Shutdown T.Limit Temp         : -5 C
-        GPU Slowdown T.Limit Temp         : 0 C
-        GPU Max Operating T.Limit Temp    : 4 C
-        GPU Target Temperature            : 83 C
-        Memory Current Temp               : 32 C
-        Memory Max Operating T.Limit Temp : N/A
-`
+// An impossible absolute rendering: shutdown negative and below slowdown.
+const invertedAbsoluteTemperatureElements = `
+			<gpu_temp>33 C</gpu_temp>
+			<gpu_temp_tlimit>N/A</gpu_temp_tlimit>
+			<gpu_temp_max_threshold>-5 C</gpu_temp_max_threshold>
+			<gpu_temp_slow_threshold>87 C</gpu_temp_slow_threshold>
+			<gpu_temp_max_gpu_threshold>83 C</gpu_temp_max_gpu_threshold>`
 
-func TestDiffTemperatureQuery_RejectsBuggyPreAdaOutput(t *testing.T) {
-	problems := DiffTemperatureQuery(buggyPreAdaTemperatureQuery, false, 92, 87, 83)
-	require.NotEmpty(t, problems, "buggy main output must fail the pre-Ada check")
+func TestDiffTemperatureXML_AcceptsCapturedAmpereDocument(t *testing.T) {
+	problems := DiffTemperatureXML(loadFixture(t, "qx-a100-healthy.xml"), false, 92, 87, 83)
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+func TestDiffTemperatureXML_AcceptsCapturedBlackwellDocument(t *testing.T) {
+	problems := DiffTemperatureXML(loadFixture(t, "qx-gb200-healthy.xml"), true, 92, 87, 83)
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+func TestDiffTemperatureXML_RejectsTLimitElementsOnPreAda(t *testing.T) {
+	problems := DiffTemperatureXML(temperatureXML(buggyPreAdaTemperatureElements), false, 92, 87, 83)
+	require.NotEmpty(t, problems, "buggy pre-Ada output must fail the absolute check")
 	joined := strings.Join(problems, "; ")
-	assert.Contains(t, joined, "T.Limit")
+	assert.Contains(t, joined, "tlimit")
 	assert.Contains(t, joined, "missing absolute")
 }
 
-func TestDiffTemperatureQuery_AcceptsFixedPreAdaOutput(t *testing.T) {
-	problems := DiffTemperatureQuery(fixedPreAdaTemperatureQuery, false, 92, 87, 83)
-	assert.Empty(t, problems, strings.Join(problems, "; "))
-}
-
-func TestDiffTemperatureQuery_AcceptsAdaTLimitOutput(t *testing.T) {
-	problems := DiffTemperatureQuery(adaTemperatureQuery, true, 92, 87, 83)
-	assert.Empty(t, problems, strings.Join(problems, "; "))
-}
-
-func TestDiffTemperatureQuery_RejectsAbsoluteRowsOnAda(t *testing.T) {
-	problems := DiffTemperatureQuery(fixedPreAdaTemperatureQuery, true, 92, 87, 83)
+func TestDiffTemperatureXML_RejectsAbsoluteElementsOnAda(t *testing.T) {
+	problems := DiffTemperatureXML(loadFixture(t, "qx-a100-healthy.xml"), true, 92, 87, 83)
 	require.NotEmpty(t, problems)
 	joined := strings.Join(problems, "; ")
 	assert.Contains(t, joined, "missing")
 	assert.Contains(t, joined, "unexpected absolute")
+}
+
+func TestDiffTemperatureXML_RejectsWrongThresholdValues(t *testing.T) {
+	problems := DiffTemperatureXML(loadFixture(t, "qx-a100-healthy.xml"), false, 95, 87, 83)
+	require.NotEmpty(t, problems)
+	assert.Contains(t, strings.Join(problems, "; "), "want 95 C")
+}
+
+func TestDiffTemperatureXML_RejectsImpossibleAbsoluteOrdering(t *testing.T) {
+	problems := DiffTemperatureXML(temperatureXML(invertedAbsoluteTemperatureElements), false, -5, 87, 83)
+	require.NotEmpty(t, problems)
+	joined := strings.Join(problems, "; ")
+	assert.Contains(t, joined, "negative")
+	assert.Contains(t, joined, "below")
+}
+
+// A pre-Ada GPU legitimately reports gpu_temp_tlimit as N/A; only a T.Limit
+// element carrying a NUMBER is the defect.
+func TestDiffTemperatureXML_AcceptsNotAvailableTLimitOnPreAda(t *testing.T) {
+	problems := DiffTemperatureXML(temperatureXML(`
+			<gpu_temp>33 C</gpu_temp>
+			<gpu_temp_tlimit>N/A</gpu_temp_tlimit>
+			<gpu_temp_max_threshold>92 C</gpu_temp_max_threshold>
+			<gpu_temp_slow_threshold>87 C</gpu_temp_slow_threshold>
+			<gpu_temp_max_gpu_threshold>83 C</gpu_temp_max_gpu_threshold>`), false, 92, 87, 83)
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+func TestDiffTemperatureXML_ReportsUnparseableDocument(t *testing.T) {
+	problems := DiffTemperatureXML("not xml", false, 92, 87, 83)
+	require.Len(t, problems, 1)
+	assert.Contains(t, problems[0], "parse nvidia-smi XML")
+}
+
+// A per-GPU getter that answers for only one device must be caught, so every
+// GPU in the document is checked.
+func TestDiffTemperatureXML_ChecksEveryGPU(t *testing.T) {
+	problems := DiffTemperatureXML(loadFixture(t, "qx-gb200-healthy.xml"), false, 92, 87, 83)
+	require.NotEmpty(t, problems)
+	assert.Contains(t, strings.Join(problems, "; "), "0000:0B:00.0", "the second GPU must be reported too")
 }

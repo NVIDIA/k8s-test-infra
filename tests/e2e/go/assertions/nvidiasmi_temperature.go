@@ -3,135 +3,147 @@
 
 package assertions
 
-import (
-	"fmt"
-	"regexp"
-	"strconv"
-	"strings"
-)
+import "fmt"
 
 // This file carries no build tag on purpose — same rationale as gfd_labels.go.
-// DiffTemperatureQuery is pure string checking so it unit-tests without a
+// DiffTemperatureXML is pure decoding and comparison so it unit-tests without a
 // cluster; the kubectl exec wrapper lives in nvidiasmi.go under //go:build e2e.
 //
-// The thresholds are read from the human-readable `-q -d TEMPERATURE` table
-// rather than the XML, because the defect being guarded is how nvidia-smi
-// presents them: which row labels appear at all. Assertions that only need
-// values decode the XML instead, via nvidiasmi_xml.go.
-
-var tempQueryRowRE = regexp.MustCompile(`(?m)^\s*(GPU .+? Temp)\s*:\s*(-?\d+)\s*C\s*$`)
-
-// DiffTemperatureQuery checks nvidia-smi -q -d TEMPERATURE output for the
-// architecture-correct threshold presentation:
+// The thresholds are read from `nvidia-smi -q -x` rather than the human
+// `-q -d TEMPERATURE` table, because the XML encodes the same defect signal
+// structurally: nvidia-smi emits the absolute threshold elements on pre-Ada and
+// replaces them with *_tlimit_threshold on Ada and later. The unused set is
+// absent from the document, so "which rows appear" becomes "which elements are
+// present" — and -d cannot be combined with -x anyway.
 //
-//   - pre-Ada (reportsTLimit=false): absolute "GPU Shutdown/Slowdown/Max
-//     Operating Temp" rows equal to the profile thresholds, and no T.Limit row
-//     carrying a value.
-//   - Ada+ (reportsTLimit=true): the "T.Limit" row labels are present.
+// T.Limit readings are margins below the limit (-5 C, 0 C, 5 C), not
+// temperatures, so the Ada+ branch asserts presence only. The absolute branch
+// asserts the profile's configured values.
+
+// DiffTemperatureXML checks that a `nvidia-smi -q -x` document uses the
+// architecture-correct threshold presentation for every GPU:
 //
-// Only rows with a numeric reading are considered: nvidia-smi still prints a
-// "GPU T.Limit Temp : N/A" line on pre-Ada, and an N/A row is exactly what a
-// real unsupported query looks like. A T.Limit row with a NUMBER on pre-Ada is
-// the defect. Absolute threshold rows must never be negative or ordered with
+//   - pre-Ada (reportsTLimit=false): absolute gpu_temp_max_threshold,
+//     gpu_temp_slow_threshold and gpu_temp_max_gpu_threshold equal to the
+//     profile thresholds, and no *_tlimit_threshold element carrying a value.
+//   - Ada+ (reportsTLimit=true): the three *_tlimit_threshold elements carry
+//     values and no absolute element does.
+//
+// Only elements with a numeric reading count as present. nvidia-smi still emits
+// gpu_temp_tlimit as N/A on pre-Ada, and an N/A body is exactly what a real
+// unsupported query looks like; a T.Limit element with a NUMBER on pre-Ada is
+// the defect (#635). Absolute thresholds must also never be negative or order
 // shutdown below slowdown — the impossible rendering the gate fixes.
-func DiffTemperatureQuery(out string, reportsTLimit bool, shutdownC, slowdownC, maxOperatingC int) []string {
-	rows := parseTemperatureQueryRows(out)
-	if reportsTLimit {
-		return diffTLimitTemperatureRows(rows)
+func DiffTemperatureXML(out string, reportsTLimit bool, shutdownC, slowdownC, maxOperatingC int) []string {
+	log, err := parseNvidiaSMIXML(out)
+	if err != nil {
+		return []string{err.Error()}
 	}
-	return diffAbsoluteTemperatureRows(rows, shutdownC, slowdownC, maxOperatingC)
-}
 
-func diffTLimitTemperatureRows(rows map[string]int) []string {
 	var problems []string
-	for _, label := range []string{
-		"GPU Shutdown T.Limit Temp",
-		"GPU Slowdown T.Limit Temp",
-		"GPU Max Operating T.Limit Temp",
-	} {
-		if _, ok := rows[label]; !ok {
-			problems = append(problems, fmt.Sprintf("missing %q row", label))
-		}
-	}
-	for _, label := range []string{
-		"GPU Shutdown Temp",
-		"GPU Slowdown Temp",
-		"GPU Max Operating Temp",
-	} {
-		if _, ok := rows[label]; ok {
-			problems = append(problems, fmt.Sprintf("unexpected absolute %q row on Ada+ profile", label))
-		}
-	}
-	return problems
-}
-
-func diffAbsoluteTemperatureRows(rows map[string]int, shutdownC, slowdownC, maxOperatingC int) []string {
-	want := map[string]int{
-		"GPU Shutdown Temp":      shutdownC,
-		"GPU Slowdown Temp":      slowdownC,
-		"GPU Max Operating Temp": maxOperatingC,
-	}
-	problems := diffExpectedAbsoluteRows(rows, want)
-	problems = append(problems, diffUnexpectedTLimitRows(rows)...)
-	return append(problems, diffAbsoluteTemperatureOrdering(rows)...)
-}
-
-func diffExpectedAbsoluteRows(rows, want map[string]int) []string {
-	var problems []string
-	for label, wantC := range want {
-		got, ok := rows[label]
-		if !ok {
-			problems = append(problems, fmt.Sprintf("missing absolute %q row", label))
+	for i, gpu := range log.GPUs {
+		name := gpu.label(i)
+		if reportsTLimit {
+			problems = append(problems, diffTLimitTemperature(name, gpu.Temperature)...)
 			continue
 		}
-		if got != wantC {
-			problems = append(problems, fmt.Sprintf("%s = %d C, want %d C", label, got, wantC))
+		problems = append(problems, diffAbsoluteTemperature(name, gpu.Temperature,
+			shutdownC, slowdownC, maxOperatingC)...)
+	}
+	return problems
+}
+
+// namedReading pairs an element body with its DTD name, so a problem message
+// names the element rather than a human row label.
+type namedReading struct {
+	element string
+	raw     reading
+}
+
+func tlimitThresholds(t nvidiaSMITemperature) []namedReading {
+	return []namedReading{
+		{"gpu_temp_max_tlimit_threshold", t.MaxTLimitThreshold},
+		{"gpu_temp_slow_tlimit_threshold", t.SlowTLimitThreshold},
+		{"gpu_temp_max_gpu_tlimit_threshold", t.MaxGPUTLimitThreshold},
+	}
+}
+
+func absoluteThresholds(t nvidiaSMITemperature) []namedReading {
+	return []namedReading{
+		{"gpu_temp_max_threshold", t.MaxThreshold},
+		{"gpu_temp_slow_threshold", t.SlowThreshold},
+		{"gpu_temp_max_gpu_threshold", t.MaxGPUThreshold},
+	}
+}
+
+func diffTLimitTemperature(name string, t nvidiaSMITemperature) []string {
+	var problems []string
+	for _, r := range tlimitThresholds(t) {
+		if _, ok := r.raw.intValue(); !ok {
+			problems = append(problems, fmt.Sprintf("%s: missing %s (body %q)",
+				name, r.element, string(r.raw)))
+		}
+	}
+	for _, r := range absoluteThresholds(t) {
+		if _, ok := r.raw.intValue(); ok {
+			problems = append(problems, fmt.Sprintf(
+				"%s: unexpected absolute %s on an Ada+ profile", name, r.element))
 		}
 	}
 	return problems
 }
 
-func diffUnexpectedTLimitRows(rows map[string]int) []string {
+func diffAbsoluteTemperature(name string, t nvidiaSMITemperature, shutdownC, slowdownC, maxOperatingC int) []string {
+	want := []struct {
+		element string
+		raw     reading
+		wantC   int
+	}{
+		{"gpu_temp_max_threshold", t.MaxThreshold, shutdownC},
+		{"gpu_temp_slow_threshold", t.SlowThreshold, slowdownC},
+		{"gpu_temp_max_gpu_threshold", t.MaxGPUThreshold, maxOperatingC},
+	}
+
 	var problems []string
-	for _, label := range []string{
-		"GPU Shutdown T.Limit Temp",
-		"GPU Slowdown T.Limit Temp",
-		"GPU Max Operating T.Limit Temp",
-		"GPU T.Limit Temp",
-	} {
-		if _, ok := rows[label]; ok {
-			problems = append(problems, fmt.Sprintf("unexpected T.Limit %q row on pre-Ada profile", label))
+	for _, w := range want {
+		got, ok := w.raw.intValue()
+		switch {
+		case !ok:
+			problems = append(problems, fmt.Sprintf("%s: missing absolute %s (body %q)",
+				name, w.element, string(w.raw)))
+		case got != w.wantC:
+			problems = append(problems, fmt.Sprintf("%s: %s = %d C, want %d C",
+				name, w.element, got, w.wantC))
 		}
 	}
-	return problems
+	for _, r := range tlimitThresholds(t) {
+		if _, ok := r.raw.intValue(); ok {
+			problems = append(problems, fmt.Sprintf(
+				"%s: unexpected %s carrying a value on a pre-Ada profile", name, r.element))
+		}
+	}
+	if _, ok := t.TLimit.intValue(); ok {
+		problems = append(problems, name+": unexpected gpu_temp_tlimit carrying a value on a pre-Ada profile")
+	}
+	return append(problems, diffAbsoluteOrdering(name, t)...)
 }
 
-func diffAbsoluteTemperatureOrdering(rows map[string]int) []string {
+func diffAbsoluteOrdering(name string, t nvidiaSMITemperature) []string {
 	var problems []string
-	shutdown, hasShutdown := rows["GPU Shutdown Temp"]
-	slowdown, hasSlowdown := rows["GPU Slowdown Temp"]
+	shutdown, hasShutdown := t.MaxThreshold.intValue()
+	slowdown, hasSlowdown := t.SlowThreshold.intValue()
 	if hasShutdown && shutdown < 0 {
-		problems = append(problems, fmt.Sprintf("GPU Shutdown Temp is negative (%d C)", shutdown))
+		problems = append(problems, fmt.Sprintf(
+			"%s: gpu_temp_max_threshold is negative (%d C)", name, shutdown))
 	}
 	if hasSlowdown && slowdown < 0 {
-		problems = append(problems, fmt.Sprintf("GPU Slowdown Temp is negative (%d C)", slowdown))
+		problems = append(problems, fmt.Sprintf(
+			"%s: gpu_temp_slow_threshold is negative (%d C)", name, slowdown))
 	}
 	if hasShutdown && hasSlowdown && shutdown < slowdown {
 		problems = append(problems, fmt.Sprintf(
-			"GPU Shutdown Temp (%d C) is below GPU Slowdown Temp (%d C)", shutdown, slowdown))
+			"%s: gpu_temp_max_threshold (%d C) is below gpu_temp_slow_threshold (%d C)",
+			name, shutdown, slowdown))
 	}
 	return problems
-}
-
-func parseTemperatureQueryRows(out string) map[string]int {
-	rows := make(map[string]int)
-	for _, m := range tempQueryRowRE.FindAllStringSubmatch(out, -1) {
-		label := strings.TrimSpace(m[1])
-		val, err := strconv.Atoi(m[2])
-		if err != nil {
-			continue
-		}
-		rows[label] = val
-	}
-	return rows
 }

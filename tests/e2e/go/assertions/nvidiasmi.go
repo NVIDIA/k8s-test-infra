@@ -77,23 +77,26 @@ func NvidiaSMIJpgOfaUtilization(ctx context.Context, k *kube.Client, pod kube.Po
 		"JPEG/OFA utilization wrong:\n%s", strings.Join(problems, "\n"))
 }
 
-// NvidiaSMITemperatureThresholds asserts nvidia-smi -q -d TEMPERATURE uses the
-// architecture-correct threshold presentation for the profile: absolute rows
-// on pre-Ada, T.Limit rows on Ada and later. See issue #635.
+// NvidiaSMITemperatureThresholds asserts nvidia-smi -q -x uses the
+// architecture-correct threshold presentation for the profile: absolute
+// elements on pre-Ada, *_tlimit_threshold elements on Ada and later. See issue
+// #635. -x rather than `-q -d TEMPERATURE` keys the check off DTD element names
+// instead of the human table's row labels; -d cannot be combined with -x.
 func NvidiaSMITemperatureThresholds(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
 	ginkgo.GinkgoHelper()
 
-	ginkgo.By(fmt.Sprintf("nvidia-smi -q -d TEMPERATURE on %s (arch=%s, tlimit=%v)",
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x temperature thresholds on %s (arch=%s, tlimit=%v)",
 		p.Name, p.Architecture(), p.ReportsTLimitTemp()))
-	res, err := k.Exec(ctx, pod, "nvidia-smi", "-q", "-d", "TEMPERATURE")
+	res, err := k.Exec(ctx, pod, "nvidia-smi", "-q", "-x")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-		"nvidia-smi -q -d TEMPERATURE exited with error: %s", res.Combined())
-	out := res.Combined()
-	problems := DiffTemperatureQuery(out, p.ReportsTLimitTemp(),
+		"nvidia-smi -q -x exited with error: %s", res.Combined())
+
+	// The document is ~90 KB, so only the decoded problems are attached.
+	problems := DiffTemperatureXML(res.Stdout, p.ReportsTLimitTemp(),
 		p.ShutdownThresholdC(), p.SlowdownThresholdC(), p.MaxOperatingC())
 	gomega.Expect(problems).To(gomega.BeEmpty(),
-		"temperature threshold presentation wrong for profile %s:\n%s\n%s",
-		p.Name, strings.Join(problems, "\n"), strings.TrimSpace(out))
+		"temperature threshold presentation wrong for profile %s:\n%s",
+		p.Name, strings.Join(problems, "\n"))
 }
 
 // NvidiaSMIEncoderFBCAccounting asserts nvidia-smi -q -x reports the configured
