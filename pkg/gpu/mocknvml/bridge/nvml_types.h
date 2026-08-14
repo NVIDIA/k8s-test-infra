@@ -252,6 +252,10 @@ typedef struct nvmlC2cModeInfo_v1_st
 {
     unsigned int isC2cEnabled;
 } nvmlC2cModeInfo_v1_t;
+/* Callers allocate this buffer from go-nvml's C2cModeInfo_v1, so any field
+ * added here would make the bridge write past the caller's allocation. */
+_Static_assert(sizeof(nvmlC2cModeInfo_v1_t) == 4,
+               "nvmlC2cModeInfo_v1_t must stay a single unsigned int to match the go-nvml ABI; update expectedC2cModeInfoV1Size in c2c_layout_test.go too");
 typedef struct nvmlClkMonStatus_st                          nvmlClkMonStatus_t;
 typedef struct nvmlClockOffset_st                           nvmlClockOffset_t;
 typedef struct nvmlComputeInstanceInfo_st                   nvmlComputeInstanceInfo_t;
