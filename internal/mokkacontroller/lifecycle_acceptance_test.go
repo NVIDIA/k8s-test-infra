@@ -6,6 +6,7 @@ package mokkacontroller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -25,6 +26,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 
+	controllernodes "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/nodecatalog"
 	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/pkg/apis/mokka/v1alpha1"
@@ -122,9 +124,17 @@ func TestControllerLifecycleAcceptance(t *testing.T) {
 	controller.queues.inventories.Add(inventory.Name)
 	require.Eventually(t, func() bool {
 		rack := getAcceptanceRack(t, mokka, rackName)
-		return len(rack.Spec.Slots) == 2 && rack.Spec.Slots[0].NodeRef != nil &&
-			rack.Spec.Slots[0].NodeRef.UID == "node-a-v2" &&
-			nodeIsProjected(nodes.snapshot("node-a"), "node-a-v2")
+		node := nodes.snapshot("node-a")
+		bindings := 0
+		projected := false
+		for index := range rack.Spec.Slots {
+			slot := &rack.Spec.Slots[index]
+			if slot.NodeRef != nil && slot.NodeRef.UID == "node-a-v2" {
+				bindings++
+				projected = projected || controllerprojection.MatchesBinding(node, rack, slot)
+			}
+		}
+		return bindings == 1 && projected
 	}, 10*time.Second, 20*time.Millisecond, "same-name replacement must receive a new exact-UID binding")
 
 	currentInventory, err = mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
@@ -326,18 +336,18 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 			inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
 			profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 			rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.RackIndexers())
-			nodeIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, statusNodeIndexers())
+			nodeCatalog := controllernodes.New()
 			require.NoError(t, inventoryIndexer.Add(inventory.DeepCopy()))
 			require.NoError(t, profileIndexer.Add(profile.DeepCopy()))
 			require.NoError(t, rackIndexer.Add(rack.DeepCopy()))
 			for _, node := range cachedNodes {
-				require.NoError(t, nodeIndexer.Add(node.DeepCopy()))
+				nodeCatalog.Upsert(node.DeepCopy())
 			}
 			snapshot := newInformerCache(
 				mokkalisters.NewSGPUInventoryLister(inventoryIndexer),
 				mokkalisters.NewSGPUProfileLister(profileIndexer),
 				rackIndexer,
-				nodeIndexer,
+				nodeCatalog,
 				liveNodes,
 			)
 			projection := controllerprojection.NewController(snapshot, liveNodes)
@@ -409,6 +419,11 @@ func installAcceptanceAPIReactors(t *testing.T, client *mokkafake.Clientset) {
 			return true, nil, err
 		}
 		updated := stored.(*mokkav1alpha1.SGPURack).DeepCopy()
+		if desired.ResourceVersion != updated.ResourceVersion {
+			return true, nil, apierrors.NewConflict(
+				mokkav1alpha1.Resource("sgpuracks"), desired.Name, errors.New("rack resource version changed"),
+			)
+		}
 		updated.Spec = desired.Spec
 		updated.Labels = desired.Labels
 		updated.Annotations = desired.Annotations
@@ -601,6 +616,7 @@ func (c *acceptanceNodeClient) Patch(
 	}
 	var payload struct {
 		Metadata struct {
+			UID         types.UID          `json:"uid"`
 			Labels      map[string]*string `json:"labels"`
 			Annotations map[string]*string `json:"annotations"`
 		} `json:"metadata"`
@@ -613,6 +629,12 @@ func (c *acceptanceNodeClient) Patch(
 	if node == nil {
 		c.mu.Unlock()
 		return nil, apierrors.NewNotFound(corev1.Resource("nodes"), name)
+	}
+	if payload.Metadata.UID != node.UID {
+		c.mu.Unlock()
+		return nil, apierrors.NewConflict(corev1.Resource("nodes"), name, fmt.Errorf(
+			"Node UID changed from %q to %q", payload.Metadata.UID, node.UID,
+		))
 	}
 	updated := node.DeepCopy()
 	updated.Labels, c.ownedLabels[name] = applyStringMap(updated.Labels, payload.Metadata.Labels, c.ownedLabels[name])

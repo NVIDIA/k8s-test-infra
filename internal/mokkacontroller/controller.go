@@ -26,6 +26,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
+	controllernodes "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/nodecatalog"
 	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	controllerstatus "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/status"
@@ -190,10 +191,14 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	if err := rackInformer.AddIndexers(controllerack.RackIndexers()); err != nil {
 		return nil, fmt.Errorf("add rack indexes: %w", err)
 	}
-	nodeInformer := newFilteredNodeInformer(nodes)
+	nodeInformer, err := newFilteredNodeInformer(nodes)
+	if err != nil {
+		return nil, err
+	}
+	nodeCatalog := controllernodes.New()
 
 	snapshot := newInformerCache(
-		inventories.Lister(), profiles.Lister(), rackInformer.GetIndexer(), nodeInformer.GetIndexer(), nodes,
+		inventories.Lister(), profiles.Lister(), rackInformer.GetIndexer(), nodeCatalog, nodes,
 	)
 	projection := controllerprojection.NewController(snapshot, nodes)
 	rackReconciler := controllerack.NewReconciler(
@@ -351,9 +356,33 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	}); err != nil {
 		return nil, err
 	}
-	if err := addHandler(nodeInformer, cache.ResourceEventHandlerFuncs{
-		AddFunc: router.nodeAdd, UpdateFunc: router.nodeUpdate, DeleteFunc: router.nodeDelete,
-	}); err != nil {
+	nodeHandler, err := nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(object any) {
+			node, ok := eventObject[*corev1.Node](object)
+			if !ok {
+				return
+			}
+			nodeCatalog.Upsert(node)
+			router.nodeAdd(node)
+		},
+		UpdateFunc: func(oldObject, newObject any) {
+			node, ok := eventObject[*corev1.Node](newObject)
+			if !ok {
+				return
+			}
+			nodeCatalog.Upsert(node)
+			router.nodeUpdate(oldObject, node)
+		},
+		DeleteFunc: func(object any) {
+			node, ok := eventObject[*corev1.Node](object)
+			if !ok {
+				return
+			}
+			nodeCatalog.Delete(node.Name, node.UID)
+			router.nodeDelete(node)
+		},
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -364,6 +393,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		controller.starters = append(controller.starters, informer.RunWithContext)
 		synced = append(synced, informer.HasSynced)
 	}
+	synced = append(synced, nodeHandler.HasSynced)
 	controller.waitForSync = func(ctx context.Context) bool {
 		return cache.WaitForCacheSync(ctx.Done(), synced...)
 	}
@@ -535,13 +565,43 @@ func (s *resultStore) get(name string, uid types.UID) controllerack.Result {
 	return result
 }
 
-func newFilteredNodeInformer(nodes corev1client.NodeInterface) cache.SharedIndexInformer {
-	return cache.NewSharedIndexInformer(
+func newFilteredNodeInformer(nodes corev1client.NodeInterface) (cache.SharedIndexInformer, error) {
+	informer := cache.NewSharedIndexInformer(
 		newFilteredNodeListWatch(nodes),
 		&corev1.Node{},
 		0,
-		statusNodeIndexers(),
+		cache.Indexers{},
 	)
+	if err := informer.SetTransform(compactNodeObject); err != nil {
+		return nil, fmt.Errorf("set Node informer transform: %w", err)
+	}
+	return informer, nil
+}
+
+func compactNodeObject(object any) (any, error) {
+	node, ok := object.(*corev1.Node)
+	if !ok {
+		return nil, fmt.Errorf("compact Node received %T", object)
+	}
+	var annotations map[string]string
+	if assignment := node.Annotations[controllerprojection.AssignmentAnnotation]; assignment != "" {
+		annotations = make(map[string]string, 1)
+		annotations[controllerprojection.AssignmentAnnotation] = assignment
+	}
+	var managedFields []metav1.ManagedFieldsEntry
+	for _, entry := range node.ManagedFields {
+		if entry.Manager == controllerprojection.FieldManager {
+			managedFields = append(managedFields, entry)
+		}
+	}
+	return &corev1.Node{
+		TypeMeta: node.TypeMeta,
+		ObjectMeta: metav1.ObjectMeta{
+			Name: node.Name, UID: node.UID, ResourceVersion: node.ResourceVersion,
+			CreationTimestamp: node.CreationTimestamp, DeletionTimestamp: node.DeletionTimestamp,
+			Labels: node.Labels, Annotations: annotations, ManagedFields: managedFields,
+		},
+	}, nil
 }
 
 type nodeListerWatcher interface {

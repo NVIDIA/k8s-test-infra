@@ -247,7 +247,7 @@ func (c *Controller) Project(ctx context.Context, rackName string, slotIndex int
 		return outcome, nil
 	}
 
-	payload, err := nodeApplyPayload(node.Name, labels, map[string]any{AssignmentAnnotation: assignment})
+	payload, err := nodeApplyPayload(node.Name, node.UID, labels, map[string]any{AssignmentAnnotation: assignment})
 	if err != nil {
 		return c.fail(outcome, err)
 	}
@@ -317,7 +317,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed controllerack.CleanupNe
 	if len(incompatible) > 0 {
 		annotations = map[string]any{AssignmentAnnotation: encoded}
 	}
-	payload, err := nodeApplyPayload(node.Name, nil, annotations)
+	payload, err := nodeApplyPayload(node.Name, node.UID, nil, annotations)
 	if err != nil {
 		return c.failCleanup(outcome, err, exactBindingPresent)
 	}
@@ -553,8 +553,8 @@ func fieldsV1Owns(raw []byte, path []string) bool {
 	return false
 }
 
-func nodeApplyPayload(name string, labels, annotations map[string]any) ([]byte, error) {
-	metadata := map[string]any{"name": name}
+func nodeApplyPayload(name string, uid types.UID, labels, annotations map[string]any) ([]byte, error) {
+	metadata := map[string]any{"name": name, "uid": uid}
 	if len(labels) > 0 {
 		metadata["labels"] = labels
 	}

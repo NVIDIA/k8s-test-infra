@@ -740,7 +740,16 @@ type nodeOverrideCache struct {
 	nodes []*corev1.Node
 }
 
-func (c *nodeOverrideCache) Nodes() ([]*corev1.Node, error) { return c.nodes, nil }
+func (c *nodeOverrideCache) AllocationNodes() ([]allocate.Node, error) {
+	nodes := make([]allocate.Node, 0, len(c.nodes))
+	for _, node := range c.nodes {
+		nodes = append(nodes, allocate.Node{
+			Name: node.Name, UID: node.UID,
+			CreationTimestamp: node.CreationTimestamp.Time, Labels: node.Labels,
+		})
+	}
+	return nodes, nil
+}
 
 func newHarness(t *testing.T, mokkaObjects []runtime.Object, nodes []*corev1.Node) *harness {
 	t.Helper()

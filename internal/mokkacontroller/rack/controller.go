@@ -474,16 +474,9 @@ func (r *Reconciler) allocationPlan(currentInventory *mokkav1alpha1.SGPUInventor
 		}
 	}
 
-	nodes, err := r.cache.Nodes()
+	allocationNodes, err := r.cache.AllocationNodes()
 	if err != nil {
 		return allocate.Plan{}, fmt.Errorf("list Nodes from cache: %w", err)
-	}
-	allocationNodes := make([]allocate.Node, 0, len(nodes))
-	for _, node := range nodes {
-		allocationNodes = append(allocationNodes, allocate.Node{
-			Name: node.Name, UID: node.UID,
-			CreationTimestamp: node.CreationTimestamp.Time, Labels: node.Labels,
-		})
 	}
 	plan, err := allocate.Allocate(allocate.Input{Groups: groups, Nodes: allocationNodes, Bindings: bindings})
 	if err != nil {

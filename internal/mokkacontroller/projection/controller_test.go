@@ -46,6 +46,7 @@ func TestProjectAppliesOnlyOwnedMetadataWithExactAssignment(t *testing.T) {
 	require.Equal(t, "Node", payload["kind"])
 	metadata := payload["metadata"].(map[string]any)
 	require.Equal(t, node.Name, metadata["name"])
+	require.Equal(t, string(node.UID), metadata["uid"], "apply must not cross a same-name Node replacement")
 	require.Equal(t, map[string]any{
 		AssignedLabel: "true",
 		CliqueLabel:   rack.Spec.Identity.FabricUUID + ".0",

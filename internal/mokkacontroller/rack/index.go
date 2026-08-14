@@ -16,6 +16,7 @@ import (
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/pkg/apis/mokka/v1alpha1"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/mokka/v1alpha1"
+	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
 )
 
 const (
@@ -147,7 +148,7 @@ type Cache interface {
 	Racks() ([]*mokkav1alpha1.SGPURack, error)
 	RacksByInventoryUID(uid types.UID) ([]*mokkav1alpha1.SGPURack, error)
 	RacksByInventoryGroup(uid types.UID, group string) ([]*mokkav1alpha1.SGPURack, error)
-	Nodes() ([]*corev1.Node, error)
+	AllocationNodes() ([]allocate.Node, error)
 }
 
 // ListerCache adapts generated listers and informer indexes to Cache. Its List
@@ -244,8 +245,19 @@ func (c *ListerCache) RacksByInventoryGroup(uid types.UID, group string) ([]*mok
 	return racks, nil
 }
 
-func (c *ListerCache) Nodes() ([]*corev1.Node, error) {
-	return c.nodes.List(labels.Everything())
+func (c *ListerCache) AllocationNodes() ([]allocate.Node, error) {
+	nodes, err := c.nodes.List(labels.Everything())
+	if err != nil {
+		return nil, err
+	}
+	allocationNodes := make([]allocate.Node, 0, len(nodes))
+	for _, node := range nodes {
+		allocationNodes = append(allocationNodes, allocate.Node{
+			Name: node.Name, UID: node.UID,
+			CreationTimestamp: node.CreationTimestamp.Time, Labels: node.Labels,
+		})
+	}
+	return allocationNodes, nil
 }
 
 // NewNodeLister adapts a Node informer indexer without requiring a generated

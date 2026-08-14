@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 
+	controllernodes "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/nodecatalog"
 	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	controllerstatus "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/status"
@@ -34,7 +35,7 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
 	profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.RackIndexers())
-	nodeIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, statusNodeIndexers())
+	nodes := controllernodes.New()
 	profile := &mokkav1alpha1.SGPUProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile", UID: "profile-uid"}}
 	require.NoError(t, profileIndexer.Add(profile))
 
@@ -63,7 +64,7 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 						"inventory":                fmt.Sprintf("inventory-%d", inventoryIndex),
 					},
 				}}
-				require.NoError(t, nodeIndexer.Add(node))
+				nodes.Upsert(node)
 				allNodes = append(allNodes, node)
 			}
 		}
@@ -73,7 +74,7 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 		mokkalisters.NewSGPUInventoryLister(inventoryIndexer),
 		mokkalisters.NewSGPUProfileLister(profileIndexer),
 		rackIndexer,
-		nodeIndexer,
+		nodes,
 		nil,
 	)
 	projection := &recordingScopedProjection{
@@ -134,18 +135,18 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 }
 
 func TestStatusNodeCandidatesPreserveSelectorAndBindingSemantics(t *testing.T) {
-	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, statusNodeIndexers())
+	catalog := controllernodes.New()
 	nodes := []*corev1.Node{
-		{ObjectMeta: metav1.ObjectMeta{Name: "a", Labels: map[string]string{"pool": "a", "zone": "east"}}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "b", Labels: map[string]string{"pool": "b", "zone": "west"}}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "c", Labels: map[string]string{"pool": "c"}}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "unlabelled"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "bound", Labels: map[string]string{"pool": "foreign"}}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "a", UID: "a-uid", Labels: map[string]string{"pool": "a", "zone": "east"}}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "b", UID: "b-uid", Labels: map[string]string{"pool": "b", "zone": "west"}}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "c", UID: "c-uid", Labels: map[string]string{"pool": "c"}}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "unlabelled", UID: "unlabelled-uid"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "bound", UID: "bound-uid", Labels: map[string]string{"pool": "foreign"}}},
 	}
 	for _, node := range nodes {
-		require.NoError(t, indexer.Add(node))
+		catalog.Upsert(node)
 	}
-	snapshot := &informerCache{nodes: indexer}
+	snapshot := &informerCache{nodes: catalog}
 
 	tests := []struct {
 		name         string

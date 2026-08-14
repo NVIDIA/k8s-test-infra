@@ -12,11 +12,11 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
 
+	controllernodes "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/nodecatalog"
 	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	controllerstatus "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/status"
@@ -25,16 +25,11 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
 )
 
-const (
-	statusNodeByLabelKeyIndex   = "mokkaStatusNodeByLabelKey"
-	statusNodeByLabelValueIndex = "mokkaStatusNodeByLabelValue"
-)
-
 type informerCache struct {
 	inventories mokkalisters.SGPUInventoryLister
 	profiles    mokkalisters.SGPUProfileLister
 	racks       cache.Indexer
-	nodes       cache.Indexer
+	nodes       *controllernodes.Catalog
 	liveNodes   corev1client.NodeInterface
 }
 
@@ -45,7 +40,7 @@ func newInformerCache(
 	inventories mokkalisters.SGPUInventoryLister,
 	profiles mokkalisters.SGPUProfileLister,
 	racks cache.Indexer,
-	nodes cache.Indexer,
+	nodes *controllernodes.Catalog,
 	liveNodes corev1client.NodeInterface,
 ) *informerCache {
 	return &informerCache{
@@ -111,59 +106,13 @@ func (c *informerCache) RacksByNodeUID(uid types.UID) ([]*mokkav1alpha1.SGPURack
 	return castRacks(objects)
 }
 
-func (c *informerCache) Nodes() ([]*corev1.Node, error) {
-	objects := c.nodes.List()
-	nodes := make([]*corev1.Node, 0, len(objects))
-	for _, object := range objects {
-		node, ok := object.(*corev1.Node)
-		if !ok {
-			return nil, fmt.Errorf("Node cache contained %T", object)
-		}
-		nodes = append(nodes, node)
-	}
-	return nodes, nil
+func (c *informerCache) AllocationNodes() ([]allocate.Node, error) {
+	return c.nodes.Snapshot().AllocationNodes(), nil
 }
 
 type statusNodeSnapshot struct {
 	nodes    []*corev1.Node
 	examined int
-}
-
-func statusNodeIndexers() cache.Indexers {
-	return cache.Indexers{
-		statusNodeByLabelKeyIndex:   statusNodeLabelKeys,
-		statusNodeByLabelValueIndex: statusNodeLabelValues,
-	}
-}
-
-func statusNodeLabelKeys(object any) ([]string, error) {
-	node, ok := object.(*corev1.Node)
-	if !ok {
-		return nil, fmt.Errorf("Node label-key index received %T", object)
-	}
-	keys := make([]string, 0, len(node.Labels))
-	for key := range node.Labels {
-		keys = append(keys, key)
-	}
-	slices.Sort(keys)
-	return keys, nil
-}
-
-func statusNodeLabelValues(object any) ([]string, error) {
-	node, ok := object.(*corev1.Node)
-	if !ok {
-		return nil, fmt.Errorf("Node label-value index received %T", object)
-	}
-	values := make([]string, 0, len(node.Labels))
-	for key, value := range node.Labels {
-		values = append(values, statusNodeLabelValueKey(key, value))
-	}
-	slices.Sort(values)
-	return values, nil
-}
-
-func statusNodeLabelValueKey(key, value string) string {
-	return key + "\x00" + value
 }
 
 func (c *informerCache) statusNodesForInventory(
@@ -209,15 +158,8 @@ func (c *informerCache) statusNodesForRack(rack *mokkav1alpha1.SGPURack) (status
 func (c *informerCache) statusNodes(selectors []labels.Selector, boundNames map[string]struct{}) (statusNodeSnapshot, error) {
 	candidates := make(map[string]*corev1.Node)
 	for _, selector := range selectors {
-		objects, err := c.statusNodeCandidates(selector)
-		if err != nil {
-			return statusNodeSnapshot{}, err
-		}
-		for _, object := range objects {
-			node, ok := object.(*corev1.Node)
-			if !ok {
-				return statusNodeSnapshot{}, fmt.Errorf("Node cache contained %T", object)
-			}
+		for _, record := range c.nodes.Candidates(selector) {
+			node := record.Node()
 			candidates[node.Name] = node
 		}
 	}
@@ -234,17 +176,11 @@ func (c *informerCache) statusNodes(selectors []labels.Selector, boundNames map[
 		}
 	}
 	for name := range boundNames {
-		object, exists, err := c.nodes.GetByKey(name)
-		if err != nil {
-			return statusNodeSnapshot{}, err
-		}
+		record, exists := c.nodes.GetByName(name)
 		if !exists {
 			continue
 		}
-		node, ok := object.(*corev1.Node)
-		if !ok {
-			return statusNodeSnapshot{}, fmt.Errorf("Node cache contained %T", object)
-		}
+		node := record.Node()
 		examined[name] = struct{}{}
 		nodes[name] = node
 	}
@@ -257,50 +193,6 @@ func (c *informerCache) statusNodes(selectors []labels.Selector, boundNames map[
 		return compareNodeIdentity(a, b)
 	})
 	return statusNodeSnapshot{nodes: ordered, examined: len(examined)}, nil
-}
-
-func (c *informerCache) statusNodeCandidates(selector labels.Selector) ([]any, error) {
-	if labels.MatchesNothing(selector) {
-		return nil, nil
-	}
-	requirements, selectable := selector.Requirements()
-	if !selectable {
-		return nil, nil
-	}
-	for _, requirement := range requirements {
-		switch requirement.Operator() {
-		case selection.Equals, selection.DoubleEquals, selection.In:
-			return c.nodesByLabelValues(requirement.Key(), requirement.Values().List())
-		}
-	}
-	for _, requirement := range requirements {
-		if requirement.Operator() == selection.Exists {
-			return c.nodes.ByIndex(statusNodeByLabelKeyIndex, requirement.Key())
-		}
-	}
-	return c.nodes.List(), nil
-}
-
-func (c *informerCache) nodesByLabelValues(key string, values []string) ([]any, error) {
-	objectsByName := make(map[string]any)
-	for _, value := range values {
-		objects, err := c.nodes.ByIndex(statusNodeByLabelValueIndex, statusNodeLabelValueKey(key, value))
-		if err != nil {
-			return nil, err
-		}
-		for _, object := range objects {
-			node, ok := object.(*corev1.Node)
-			if !ok {
-				return nil, fmt.Errorf("Node cache contained %T", object)
-			}
-			objectsByName[node.Name] = object
-		}
-	}
-	objects := make([]any, 0, len(objectsByName))
-	for _, object := range objectsByName {
-		objects = append(objects, object)
-	}
-	return objects, nil
 }
 
 func compareNodeIdentity(a, b *corev1.Node) int {
@@ -323,16 +215,9 @@ func compareNodeIdentity(a, b *corev1.Node) int {
 // cache. That distinguishes an eligibility-loss delete from object deletion
 // while keeping steady-state placement entirely informer-backed.
 func (c *informerCache) Node(name string) (*corev1.Node, error) {
-	object, exists, err := c.nodes.GetByKey(name)
-	if err != nil {
-		return nil, err
-	}
+	record, exists := c.nodes.GetByName(name)
 	if exists {
-		node, ok := object.(*corev1.Node)
-		if !ok {
-			return nil, fmt.Errorf("Node cache contained %T", object)
-		}
-		return node, nil
+		return record.Node(), nil
 	}
 	return c.liveNodes.Get(context.Background(), name, metav1.GetOptions{})
 }

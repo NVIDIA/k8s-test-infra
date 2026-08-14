@@ -254,6 +254,38 @@ func TestFilteredNodeListWatchUsesServerSideSelector(t *testing.T) {
 	}, nodes.selectors())
 }
 
+func TestCompactNodeObjectRetainsOnlyControllerReadSurface(t *testing.T) {
+	deleting := metav1.NewTime(time.Unix(100, 0))
+	node := testNode()
+	node.CreationTimestamp = metav1.NewTime(time.Unix(50, 0))
+	node.DeletionTimestamp = &deleting
+	node.Annotations = map[string]string{
+		controllerprojection.AssignmentAnnotation: "assignment",
+		"foreign": "large-unrelated-value",
+	}
+	node.ManagedFields = []metav1.ManagedFieldsEntry{
+		{Manager: controllerprojection.FieldManager, Operation: metav1.ManagedFieldsOperationApply},
+		{Manager: "foreign-controller", Operation: metav1.ManagedFieldsOperationUpdate},
+	}
+	node.Spec.PodCIDR = "10.0.0.0/24"
+	node.Status.Addresses = []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.0.0.1"}}
+
+	object, err := compactNodeObject(node)
+	require.NoError(t, err)
+	compact, ok := object.(*corev1.Node)
+	require.True(t, ok)
+	require.Equal(t, node.Name, compact.Name)
+	require.Equal(t, node.UID, compact.UID)
+	require.Equal(t, node.ResourceVersion, compact.ResourceVersion)
+	require.Equal(t, node.CreationTimestamp, compact.CreationTimestamp)
+	require.Equal(t, node.DeletionTimestamp, compact.DeletionTimestamp)
+	require.Equal(t, node.Labels, compact.Labels)
+	require.Equal(t, map[string]string{controllerprojection.AssignmentAnnotation: "assignment"}, compact.Annotations)
+	require.Equal(t, []metav1.ManagedFieldsEntry{node.ManagedFields[0]}, compact.ManagedFields)
+	require.Empty(t, compact.Spec)
+	require.Empty(t, compact.Status)
+}
+
 func TestSingleNodeEventDoesNotListFromAPI(t *testing.T) {
 	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
 	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.RackIndexers())
