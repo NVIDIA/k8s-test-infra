@@ -83,6 +83,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   back to the public process APIs for these views. E2E `NvidiaSMI` gained a
   regression guard.
 
+### Security
+- Go pins bumped 1.26.5 -> 1.26.6 across the build (deployment and test
+  Dockerfiles, `devel` image, mocknvml/mockcuda Makefiles, helper scripts).
+  1.26.5 is affected by seven standard-library advisories that `govulncheck`
+  reports as reachable from this code — GO-2026-6218 (`net/url`), GO-2026-6091
+  (`html/template`), GO-2026-6090 (`crypto/tls`), GO-2026-6089 and GO-2026-5026
+  (`net/http`), GO-2026-6088 (`encoding/xml`) and GO-2026-5972
+  (`encoding/asn1`) — all fixed in 1.26.6. CI derives its toolchain from
+  `deployments/devel/Dockerfile`, so the stale pin failed `make lint` on every
+  branch once the advisories were published.
+
 ## [0.3.0] - 2026-08-01
 
 ### Added
