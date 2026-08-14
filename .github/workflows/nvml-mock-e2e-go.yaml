@@ -68,24 +68,24 @@ env:
   # Standalone `e2e` job only (pilot): pinned so Tilt version drift doesn't
   # silently change rollout semantics between runs. Bump alongside local dev.
   TILT_VERSION: "0.37.5"
-  # Per-commit, ephemeral (24h TTL) ttl.sh ref the build-nvmlmock-image job publishes and
-  # every leg pulls (by digest, then tags locally to this ref for the harness).
-  # Auth-free, so it also works on fork PRs. 24h (ttl.sh max) keeps the image
-  # alive long enough to re-run individual failed legs without a full rebuild.
-  E2E_IMAGE: ttl.sh/nvml-mock-${{ github.sha }}:24h
+  # Local ref of the pre-built nvml-mock image every leg loads from the
+  # run-scoped artifact build-nvmlmock-image uploads. Deliberately identical to
+  # the harness default in tests/e2e/go/framework/config/config.go, so CI and a
+  # laptop `make e2e` exercise the same image name. No registry host: the image
+  # only ever reaches a node via `kind load`, and the chart's IfNotPresent pull
+  # policy means kubelet never tries to fetch it.
+  E2E_IMAGE: nvml-mock:e2e
   E2E_SKIP_BUILD: "true"
   E2E_ARTIFACTS: ${{ github.workspace }}/artifacts/e2e/go
 
 jobs:
-  # Build nvml-mock once and publish to ttl.sh; all legs consume this artifact
-  # instead of rebuilding the image per job (see issue #460).
+  # Build nvml-mock once and hand it to every leg as a run-scoped artifact;
+  # legs load it instead of rebuilding the image per job (see issue #460).
+  # Artifacts need no credentials, so fork PRs work, and unlike the ttl.sh
+  # registry this used to go through there is no third-party service that can
+  # fail the whole matrix (see issue #566).
   build-nvmlmock-image:
     runs-on: ubuntu-latest
-    outputs:
-      # Digest of the pushed image (sha256:...). Legs pull by digest so an
-      # anonymous ttl.sh tag overwrite cannot substitute the image between
-      # this push and their pulls.
-      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -93,18 +93,29 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
-      - name: Build and push nvml-mock image to ttl.sh
-        id: build
+      - name: Build nvml-mock image to a tarball
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
           file: deployments/nvml-mock/Dockerfile
           tags: ${{ env.E2E_IMAGE }}
-          push: true
+          push: false
+          # type=docker bakes the tag into the tarball, so a plain `docker load`
+          # in each leg yields E2E_IMAGE with no re-tagging.
+          outputs: type=docker,dest=${{ runner.temp }}/nvml-mock.tar
           build-args: |
             GOLANG_VERSION=${{ env.GO_VERSION }}
           cache-from: type=gha,scope=nvml-mock
           cache-to: type=gha,mode=max,scope=nvml-mock
+
+      - name: Upload nvml-mock image artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}/nvml-mock.tar
+          # One day is the shortest retention GitHub allows and matches the old
+          # 24h ttl.sh TTL: long enough to re-run a single failed leg.
+          retention-days: 1
 
   # Build the custom kind-node image (kindest/node + nvidia-container-toolkit)
   # once per commit for the standalone `e2e` pilot. Same ttl.sh distribution
@@ -192,13 +203,14 @@ jobs:
           KIND_NODE_IMAGE_PREBUILT: "1"
         run: make cluster-create
 
-      - name: Pull pre-built nvml-mock image from ttl.sh
-        # Pre-pulling the image by digest in order to avoid image tag poisoning
-        run: |
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
-          kind load docker-image "${{ env.E2E_IMAGE }}" --name mokka
+      - name: Load pre-built nvml-mock image
+        uses: ./.github/actions/load-image-artifact
+        with:
+          artifact: nvml-mock-image
+          image: ${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
 
       - name: Stage CI Helm values for Tilt
         # local/nvml-mock.values.local.yaml is the Tiltfile's "wins over
@@ -254,15 +266,11 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Pull pre-built nvml-mock image from ttl.sh (pinned by digest)
-        run: |
-          # Content-addressed pull: even if the sha-derived tag is overwritten on
-          # the anonymous ttl.sh registry, the digest fetches exactly what
-          # build-nvmlmock-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
-          # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
+      - name: Load pre-built nvml-mock image
+        uses: ./.github/actions/load-image-artifact
+        with:
+          artifact: nvml-mock-image
+          image: ${{ env.E2E_IMAGE }}
 
       - name: Install Kind
         run: |
@@ -308,15 +316,11 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Pull pre-built nvml-mock image from ttl.sh (pinned by digest)
-        run: |
-          # Content-addressed pull: even if the sha-derived tag is overwritten on
-          # the anonymous ttl.sh registry, the digest fetches exactly what
-          # build-nvmlmock-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
-          # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
+      - name: Load pre-built nvml-mock image
+        uses: ./.github/actions/load-image-artifact
+        with:
+          artifact: nvml-mock-image
+          image: ${{ env.E2E_IMAGE }}
 
       - name: Install Kind
         run: |
@@ -358,15 +362,11 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Pull pre-built nvml-mock image from ttl.sh (pinned by digest)
-        run: |
-          # Content-addressed pull: even if the sha-derived tag is overwritten on
-          # the anonymous ttl.sh registry, the digest fetches exactly what
-          # build-nvmlmock-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
-          # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
+      - name: Load pre-built nvml-mock image
+        uses: ./.github/actions/load-image-artifact
+        with:
+          artifact: nvml-mock-image
+          image: ${{ env.E2E_IMAGE }}
 
       - name: Install Kind
         run: |
@@ -410,15 +410,11 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Pull pre-built nvml-mock image from ttl.sh (pinned by digest)
-        run: |
-          # Content-addressed pull: even if the sha-derived tag is overwritten on
-          # the anonymous ttl.sh registry, the digest fetches exactly what
-          # build-nvmlmock-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
-          # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
+      - name: Load pre-built nvml-mock image
+        uses: ./.github/actions/load-image-artifact
+        with:
+          artifact: nvml-mock-image
+          image: ${{ env.E2E_IMAGE }}
 
       - name: Install Kind
         run: |
@@ -470,15 +466,11 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Pull pre-built nvml-mock image from ttl.sh (pinned by digest)
-        run: |
-          # Content-addressed pull: even if the sha-derived tag is overwritten on
-          # the anonymous ttl.sh registry, the digest fetches exactly what
-          # build-nvmlmock-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
-          # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
+      - name: Load pre-built nvml-mock image
+        uses: ./.github/actions/load-image-artifact
+        with:
+          artifact: nvml-mock-image
+          image: ${{ env.E2E_IMAGE }}
 
       - name: Install Kind
         run: |
