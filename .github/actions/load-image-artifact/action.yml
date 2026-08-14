@@ -1,0 +1,59 @@
+# Copyright 2026 NVIDIA CORPORATION
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Load image artifact
+description: >-
+  Download an image tarball published earlier in this workflow run and load it
+  into the runner's Docker daemon.
+
+inputs:
+  artifact:
+    description: Artifact name holding the image tarball (e.g. nvml-mock-image).
+    required: true
+  image:
+    description: Image ref that must be present in the daemon after loading.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Download image artifact
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      with:
+        name: ${{ inputs.artifact }}
+        path: ${{ runner.temp }}/${{ inputs.artifact }}
+
+    - name: Load image into the Docker daemon
+      shell: bash
+      # Values arrive via env, never interpolated into the script body, so an
+      # input can't inject shell (see issue #587).
+      env:
+        ARTIFACT: ${{ inputs.artifact }}
+        IMAGE: ${{ inputs.image }}
+      run: |
+        set -euo pipefail
+        dir="${RUNNER_TEMP}/${ARTIFACT}"
+        tarball="$(find "$dir" -maxdepth 1 -name '*.tar' -print -quit)"
+        if [ -z "$tarball" ]; then
+          echo "::error::no image tarball found in ${dir}"
+          exit 1
+        fi
+        docker load -i "$tarball"
+        # The tarball carries its own tag, so a successful load is normally
+        # enough. Assert the ref anyway: without this, a mismatch between the
+        # build job's tag and the consumer's expectation stays invisible until a
+        # pod fails to start, far from the cause. The ref is registry-less, so
+        # a miss would otherwise send kubelet to Docker Hub.
+        docker image inspect "$IMAGE" >/dev/null
+        echo "loaded ${IMAGE} from artifact ${ARTIFACT}"
