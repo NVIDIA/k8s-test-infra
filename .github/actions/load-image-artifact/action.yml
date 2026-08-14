@@ -59,7 +59,8 @@ runs:
           echo "::error::artifact ${ARTIFACT} did not yield ${IMAGE}"
           exit 1
         }
-        # Avoid retaining an image-sized tarball while this runner builds and
-        # loads Kind nodes.
+        # The tarball is dead weight once the image is in the daemon, and the
+        # runner still has to create a Kind cluster and load images into its
+        # nodes — disk pressure that has failed legs in this repo before.
         rm -f "$tarball"
         echo "loaded ${IMAGE} from artifact ${ARTIFACT}"
