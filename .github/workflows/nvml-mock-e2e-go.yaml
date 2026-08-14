@@ -116,6 +116,12 @@ jobs:
           # One day is the shortest retention GitHub allows and is long enough
           # to re-run a single failed leg.
           retention-days: 1
+          # Artifacts are keyed per run, so a re-run would otherwise collide
+          # with the previous attempt's upload.
+          overwrite: true
+          if-no-files-found: error
+          # Buildx's docker exporter already writes gzipped layers.
+          compression-level: 0
 
   # Build the custom kind-node image (kindest/node + nvidia-container-toolkit)
   # once per commit for the standalone `e2e` pilot, and share it the same way
@@ -151,6 +157,12 @@ jobs:
           name: kind-node-image
           path: ${{ runner.temp }}/kind-node-nv.tar
           retention-days: 1
+          # Artifacts are keyed per run, so a re-run would otherwise collide
+          # with the previous attempt's upload.
+          overwrite: true
+          if-no-files-found: error
+          # Buildx's docker exporter already writes gzipped layers.
+          compression-level: 0
 
   # TODO: The standalone `e2e` job uses `make cluster-create` +
   # `tilt ci` for the cluster provisioning and nvml-mock rollout, mirroring the

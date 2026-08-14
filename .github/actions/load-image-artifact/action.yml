@@ -55,5 +55,11 @@ runs:
         # build job's tag and the consumer's expectation stays invisible until a
         # pod fails to start, far from the cause. The ref is registry-less, so
         # a miss would otherwise send kubelet to Docker Hub.
-        docker image inspect "$IMAGE" >/dev/null
+        docker image inspect "$IMAGE" >/dev/null || {
+          echo "::error::artifact ${ARTIFACT} did not yield ${IMAGE}"
+          exit 1
+        }
+        # Avoid retaining an image-sized tarball while this runner builds and
+        # loads Kind nodes.
+        rm -f "$tarball"
         echo "loaded ${IMAGE} from artifact ${ARTIFACT}"
