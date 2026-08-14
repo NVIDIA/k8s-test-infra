@@ -102,6 +102,7 @@ type nvidiaSMIGPU struct {
 	UUID                     reading                `xml:"uuid"`
 	FanSpeed                 reading                `xml:"fan_speed"`
 	PerformanceState         reading                `xml:"performance_state"`
+	FBMemoryUsage            nvidiaSMIMemoryUsage   `xml:"fb_memory_usage"`
 	AccountingModeBufferSize string                 `xml:"accounting_mode_buffer_size"`
 	EncoderStats             nvidiaSMIStatsBlock    `xml:"encoder_stats"`
 	FBCStats                 nvidiaSMIStatsBlock    `xml:"fbc_stats"`
@@ -114,6 +115,16 @@ type nvidiaSMIGPU struct {
 	Processes                struct {
 		Infos []nvidiaSMIProcessInfo `xml:"process_info"`
 	} `xml:"processes"`
+}
+
+// nvidiaSMIMemoryUsage is <fb_memory_usage>: the framebuffer. The sibling
+// <bar1_memory_usage> and <cc_protected_memory_usage> blocks repeat the same
+// child names and are deliberately not decoded.
+type nvidiaSMIMemoryUsage struct {
+	Total    reading `xml:"total"`
+	Reserved reading `xml:"reserved"`
+	Used     reading `xml:"used"`
+	Free     reading `xml:"free"`
 }
 
 type nvidiaSMIStatsBlock struct {

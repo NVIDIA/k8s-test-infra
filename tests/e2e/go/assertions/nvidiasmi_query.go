@@ -78,6 +78,178 @@ func (g GPUReadings) Label() string { return g.gpu.label(g.index) }
 // UUID is the <uuid> body.
 func (g GPUReadings) UUID() string { return strings.TrimSpace(string(g.gpu.UUID)) }
 
+// failureProbes are the elements checked for an NVML error body. A failed
+// device renders the string in place of nearly every reading, so any one of
+// these is enough; several are read because which ones appear varies with the
+// failure mode (a lost device loses all of them, a fallen-off-bus device is
+// queried through a different NVML path).
+func (g GPUReadings) failureProbes() []reading {
+	return []reading{
+		g.gpu.Temperature.GPUTemp,
+		g.gpu.Utilization.GPU,
+		g.gpu.PowerReadings.InstantPowerDraw,
+		g.gpu.Clocks.SMClock,
+		g.gpu.ECCErrors.Aggregate.DRAMUncorrectable,
+	}
+}
+
+// Failed reports whether nvidia-smi substituted an NVML error string for this
+// GPU's readings. It is deliberately not satisfied by "N/A": the readings a
+// healthy GPU legitimately does not support (fan_speed on a passively-cooled
+// board) would otherwise mark every such device failed.
+func (g GPUReadings) Failed() bool {
+	for _, r := range g.failureProbes() {
+		if r.failed() {
+			return true
+		}
+	}
+	return false
+}
+
+// FailureReason is the NVML error body behind Failed, for assertion messages.
+func (g GPUReadings) FailureReason() string {
+	for _, r := range g.failureProbes() {
+		if r.failed() {
+			return strings.TrimSpace(string(r))
+		}
+	}
+	return ""
+}
+
+// HasFailedGPU reports whether any GPU in the document failed. Failure
+// injection is scoped to one device, so the healthy siblings must not mask it.
+func (s GPUSnapshot) HasFailedGPU() bool {
+	for i := range s.log.GPUs {
+		if (GPUReadings{gpu: s.log.GPUs[i], index: i}).Failed() {
+			return true
+		}
+	}
+	return false
+}
+
+// FailedGPUs lists the failed GPUs as "label: reason", for assertion messages.
+func (s GPUSnapshot) FailedGPUs() []string {
+	var failed []string
+	for i := range s.log.GPUs {
+		g := GPUReadings{gpu: s.log.GPUs[i], index: i}
+		if g.Failed() {
+			failed = append(failed, fmt.Sprintf("%s: %s", g.Label(), g.FailureReason()))
+		}
+	}
+	return failed
+}
+
+// UncorrectedECCAggregate is the total of this GPU's aggregate uncorrectable
+// counters — the XML equivalent of --query-gpu=ecc.errors.uncorrected.aggregate.total.
+// Counters reading N/A are skipped, because SRAM counters are unsupported on
+// these profiles and dropping the whole total for them would hide the DRAM
+// errors the assertion is looking for. false means no counter was numeric,
+// which is what a failed device reports.
+func (g GPUReadings) UncorrectedECCAggregate() (int, bool) {
+	total, counted := 0, false
+	for _, r := range []reading{
+		g.gpu.ECCErrors.Aggregate.SRAMUncorrectableParity,
+		g.gpu.ECCErrors.Aggregate.SRAMUncorrectableSECDED,
+		g.gpu.ECCErrors.Aggregate.DRAMUncorrectable,
+	} {
+		if v, ok := r.intValue(); ok {
+			total += v
+			counted = true
+		}
+	}
+	return total, counted
+}
+
+// MaxUncorrectedECCAggregate is the largest per-GPU aggregate uncorrectable
+// total in the document. ECC injection targets a single GPU, so the maximum is
+// what tells a tripped counter from a clean cluster.
+func (s GPUSnapshot) MaxUncorrectedECCAggregate() (int, bool) {
+	maxVal, counted := 0, false
+	for i := range s.log.GPUs {
+		v, ok := (GPUReadings{gpu: s.log.GPUs[i], index: i}).UncorrectedECCAggregate()
+		if !ok {
+			continue
+		}
+		counted = true
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	return maxVal, counted
+}
+
+// The scalar readings, one per --query-gpu field they replace. Each returns
+// false when the element is absent, N/A or an NVML error body, so a caller
+// polling a lost GPU cannot mistake a failure for a zero — which is what
+// parsing "[GPU is lost]" out of the CSV used to do.
+
+// TemperatureC is <gpu_temp>, i.e. temperature.gpu.
+func (g GPUReadings) TemperatureC() (int, bool) { return g.gpu.Temperature.GPUTemp.intValue() }
+
+// UtilizationGPUPercent is <gpu_util>, i.e. utilization.gpu.
+func (g GPUReadings) UtilizationGPUPercent() (int, bool) { return g.gpu.Utilization.GPU.intValue() }
+
+// UtilizationMemoryPercent is <memory_util>, i.e. utilization.memory.
+func (g GPUReadings) UtilizationMemoryPercent() (int, bool) {
+	return g.gpu.Utilization.Memory.intValue()
+}
+
+// SMClockMHz is <sm_clock> inside <clocks>, i.e. clocks.sm. The <max_clocks>
+// sibling repeats the element name and is deliberately not read.
+func (g GPUReadings) SMClockMHz() (int, bool) { return g.gpu.Clocks.SMClock.intValue() }
+
+// MemoryUsedMiB is <used> inside <fb_memory_usage>, i.e. memory.used. The
+// bar1_memory_usage sibling repeats the element name and is not read.
+func (g GPUReadings) MemoryUsedMiB() (int, bool) { return g.gpu.FBMemoryUsage.Used.intValue() }
+
+// MemoryTotalMiB is <total> inside <fb_memory_usage>, i.e. memory.total.
+func (g GPUReadings) MemoryTotalMiB() (int, bool) { return g.gpu.FBMemoryUsage.Total.intValue() }
+
+// PowerLimitW is <current_power_limit>, i.e. power.limit.
+func (g GPUReadings) PowerLimitW() (float64, bool) {
+	return g.gpu.PowerReadings.CurrentPowerLimit.floatValue()
+}
+
+// PowerMinLimitW is <min_power_limit>, i.e. power.min_limit.
+func (g GPUReadings) PowerMinLimitW() (float64, bool) {
+	return g.gpu.PowerReadings.MinPowerLimit.floatValue()
+}
+
+// PowerMaxLimitW is <max_power_limit>, i.e. power.max_limit.
+func (g GPUReadings) PowerMaxLimitW() (float64, bool) {
+	return g.gpu.PowerReadings.MaxPowerLimit.floatValue()
+}
+
+// PowerDrawW is power.draw. nvidia-smi splits the draw into an instant and an
+// averaged element and which one plain `power.draw` aliases varies by driver
+// release; the mock resolves both from nvmlDeviceGetPowerUsage, so either
+// answers. Instant is preferred because it is the later sample.
+func (g GPUReadings) PowerDrawW() (float64, bool) {
+	if w, ok := g.gpu.PowerReadings.InstantPowerDraw.floatValue(); ok {
+		return w, true
+	}
+	return g.gpu.PowerReadings.AveragePowerDraw.floatValue()
+}
+
+// FanSpeed is the <fan_speed> body as rendered — "N/A" on a passively-cooled
+// board, "57 %" when a speed is reported. Callers compare the body rather than
+// a number because N/A is a legitimate baseline they must round-trip.
+func (g GPUReadings) FanSpeed() string { return strings.TrimSpace(string(g.gpu.FanSpeed)) }
+
+// FanSpeedPercent is FanSpeed as a number, false when the board reports N/A.
+func (g GPUReadings) FanSpeedPercent() (int, bool) { return g.gpu.FanSpeed.intValue() }
+
+// PerformanceState is <performance_state>, i.e. pstate ("P0".."P15").
+func (g GPUReadings) PerformanceState() string {
+	return strings.TrimSpace(string(g.gpu.PerformanceState))
+}
+
+// ThermalSlowdownState is <clocks_event_reason_hw_thermal_slowdown>, i.e.
+// clocks_throttle_reasons.hw_thermal_slowdown ("Active" / "Not Active").
+func (g GPUReadings) ThermalSlowdownState() string {
+	return strings.TrimSpace(string(g.gpu.ClocksEventReasons.HWThermalSlowdown))
+}
+
 // Processes decodes this GPU's <processes> block.
 func (g GPUReadings) Processes() ([]SMIProcess, error) {
 	infos := g.gpu.Processes.Infos

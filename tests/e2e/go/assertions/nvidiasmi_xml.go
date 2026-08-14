@@ -114,27 +114,15 @@ type SMIProcess struct {
 }
 
 // ProcessesXML decodes the <processes> block of the GPU at index gpuIndex, in
-// the order nvidia-smi emits GPUs. Callers use it to check the whole-system XML
-// view, which walks every GPU's process list in one run.
+// the order nvidia-smi emits GPUs.
 func ProcessesXML(out string, gpuIndex int) ([]SMIProcess, error) {
-	log, err := parseNvidiaSMIXML(out)
+	snap, err := ParseGPUSnapshot(out)
 	if err != nil {
 		return nil, err
 	}
-	if gpuIndex < 0 || gpuIndex >= len(log.GPUs) {
-		return nil, fmt.Errorf("nvidia-smi XML reported %d GPUs, want an entry at index %d",
-			len(log.GPUs), gpuIndex)
+	gpu, err := snap.GPU(gpuIndex)
+	if err != nil {
+		return nil, err
 	}
-
-	infos := log.GPUs[gpuIndex].Processes.Infos
-	processes := make([]SMIProcess, 0, len(infos))
-	for _, info := range infos {
-		mib, ok := nvidiaSMIInteger(info.UsedMemory)
-		if !ok {
-			return nil, fmt.Errorf("%s: pid %d used_memory = %q, want a MiB reading",
-				log.GPUs[gpuIndex].label(gpuIndex), info.PID, info.UsedMemory)
-		}
-		processes = append(processes, SMIProcess{PID: info.PID, Name: info.Name, MemoryMiB: mib})
-	}
-	return processes, nil
+	return gpu.Processes()
 }
