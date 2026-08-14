@@ -144,7 +144,7 @@ func assertRuntimeTempViaDCGM(ctx SpecContext, h *harness.Harness, wantC int) {
 // nvml-mock-ctl — no Helm upgrade, no pod restart — and asserts the already-
 // running dcgm-exporter reports the pinned DCGM_FI_DEV_POWER_USAGE (watts) for
 // that GPU only. The target watts is chosen inside the profile's advertised
-// [min_limit, max_limit] envelope (queried via nvidia-smi so the test is
+// [min_limit, max_limit] envelope (read from nvidia-smi -q -x so the test is
 // profile-agnostic) and far from the dynamic baseline, so the engine never
 // clamps it and the change is unambiguous.
 func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
@@ -152,10 +152,13 @@ func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
 	const targetGPU = 0
 
 	pod := firstNvmlPod(ctx, h)
-	minW := int(smiGPUFloat(ctx, h, pod, targetGPU, "power.min_limit"))
-	maxW := int(smiGPUFloat(ctx, h, pod, targetGPU, "power.max_limit"))
+	envelope := smiGPU(ctx, h, pod, targetGPU)
+	minF, minOK := envelope.PowerMinLimitW()
+	maxF, maxOK := envelope.PowerMaxLimitW()
+	Expect(minOK && maxOK).To(BeTrue(), "profile must report a numeric power envelope")
+	minW, maxW := int(minF), int(maxF)
 	Expect(maxW).To(BeNumerically(">", minW), "profile must advertise a usable power envelope")
-	baseline := int(smiGPUFloat(ctx, h, pod, targetGPU, "power.draw"))
+	baseline := smiGPUPowerDrawW(ctx, h, pod, targetGPU)
 
 	lo := minW + (maxW-minW)/4
 	hi := minW + (maxW-minW)*3/4

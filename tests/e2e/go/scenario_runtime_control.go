@@ -25,17 +25,21 @@ import (
 // through nvidia-smi in that same pod. The consumer is never restarted between
 // mutate and assert — that is the whole point of the runtime override path.
 //
+// Every reading comes from `nvidia-smi -q -x`, the machine-readable form of
+// -q: one exec per observation carries all of them, and the element bodies are
+// tri-state, so an unsupported N/A reading is never confused with a failed
+// device.
+//
 // Fields are only asserted through nvidia-smi when they are actually
 // hot-reloadable AND observable under the e2e chart's dynamic-metrics config
 // (see demoRelease): failure injection, ECC counters/mode, the enforced power
 // limit and temperature all flow through. GPU temperature is driven by the
 // dynamic-metrics simulator under this chart, so the temperature scenario pins
 // it deterministically by overriding dynamic_metrics.temperature (base_c with
-// ramp_c=0/variance_c=0) and reads it back via temperature.gpu. GPU utilization
-// is likewise simulator-driven but is left unasserted (its value oscillates by
-// pattern). Lost / fallen_off_bus GPUs are detected via the ECC counter query,
-// which returns "[GPU is lost]" for a tripped device — nvidia-smi -L keeps
-// listing lost GPUs, so it is not a reliable failure signal.
+// ramp_c=0/variance_c=0) and reads it back from <gpu_temp>. Lost /
+// fallen_off_bus GPUs are detected by the NVML error body nvidia-smi renders in
+// place of their readings — the document keeps describing lost GPUs, so their
+// presence is not a failure signal.
 
 const (
 	runtimeTTLTimeout = 30 * time.Second
@@ -71,45 +75,79 @@ func resetRuntimeOverrides(ctx SpecContext, h *harness.Harness) {
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 }
 
-// smiGPUValue returns the trimmed nvidia-smi --query-gpu value for a single GPU,
-// asserting the query succeeds (use smiGPUValueRaw for GPUs that may be lost).
-func smiGPUValue(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int, field string) string {
+// smiGPU returns one GPU's readings from a fresh `nvidia-smi -q -x` document.
+// A single exec carries every field these scenarios read, and the readings are
+// tri-state, so a lost GPU is reported as such instead of being scraped out of
+// a CSV cell as the literal text "[GPU is lost]".
+//
+// It asserts the exec and the decode, which is safe inside an Eventually: both
+// only fail when nvidia-smi itself is broken, and that is not something the
+// scenarios wait for.
+func smiGPU(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) assertions.GPUReadings {
 	GinkgoHelper()
-	res, err := h.Kube.Exec(ctx, pod, "nvidia-smi",
-		"--id="+strconv.Itoa(idx),
-		"--query-gpu="+field,
-		"--format=csv,noheader,nounits")
-	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -i %d --query-gpu=%s: %s", idx, field, res.Combined())
-	return strings.TrimSpace(res.Stdout)
+	snap, err := assertions.GPUSnapshotFromPod(ctx, h.Kube, pod)
+	Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x")
+	gpu, err := snap.GPU(idx)
+	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -q -x should describe GPU %d", idx)
+	return gpu
 }
 
-// smiGPUInt is smiGPUValue parsed as an integer.
-func smiGPUInt(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int, field string) int {
+// smiGPUTempC is temperature.gpu.
+func smiGPUTempC(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) int {
 	GinkgoHelper()
-	v := smiGPUValue(ctx, h, pod, idx, field)
-	n, err := strconv.Atoi(strings.TrimSpace(v))
-	Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi %s for gpu %d: %q", field, idx, v)
-	return n
+	c, ok := smiGPU(ctx, h, pod, idx).TemperatureC()
+	Expect(ok).To(BeTrue(), "nvidia-smi -q -x should report a numeric temperature for GPU %d", idx)
+	return c
 }
 
-// smiGPUPowerLimitW returns the integer-watt nvidia-smi power.limit for a single
-// GPU. enforced_limit_mw is configured in milliwatts; nvidia-smi reports the
-// limit in watts (e.g. "500.00"), which this truncates to whole watts.
+// smiGPUUtilPercent is utilization.gpu.
+func smiGPUUtilPercent(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) int {
+	GinkgoHelper()
+	pct, ok := smiGPU(ctx, h, pod, idx).UtilizationGPUPercent()
+	Expect(ok).To(BeTrue(), "nvidia-smi -q -x should report a numeric GPU utilization for GPU %d", idx)
+	return pct
+}
+
+// smiGPUSMClockMHz is clocks.sm.
+func smiGPUSMClockMHz(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) int {
+	GinkgoHelper()
+	mhz, ok := smiGPU(ctx, h, pod, idx).SMClockMHz()
+	Expect(ok).To(BeTrue(), "nvidia-smi -q -x should report a numeric SM clock for GPU %d", idx)
+	return mhz
+}
+
+// smiGPUMemoryUsedMiB is memory.used, the used framebuffer.
+func smiGPUMemoryUsedMiB(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) int {
+	GinkgoHelper()
+	mib, ok := smiGPU(ctx, h, pod, idx).MemoryUsedMiB()
+	Expect(ok).To(BeTrue(), "nvidia-smi -q -x should report numeric used memory for GPU %d", idx)
+	return mib
+}
+
+// smiGPUECCTotal is ecc.errors.uncorrected.aggregate.total.
+func smiGPUECCTotal(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) int {
+	GinkgoHelper()
+	total, ok := smiGPU(ctx, h, pod, idx).UncorrectedECCAggregate()
+	Expect(ok).To(BeTrue(), "nvidia-smi -q -x should report countable ECC totals for GPU %d", idx)
+	return total
+}
+
+// smiGPUPowerLimitW is power.limit truncated to whole watts.
+// power.enforced_limit_mw is configured in milliwatts and nvidia-smi renders
+// watts with decimals ("500.00 W").
 func smiGPUPowerLimitW(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) int {
 	GinkgoHelper()
-	v := smiGPUValue(ctx, h, pod, idx, "power.limit")
-	f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-	Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi power.limit for gpu %d: %q", idx, v)
-	return int(f)
+	w, ok := smiGPU(ctx, h, pod, idx).PowerLimitW()
+	Expect(ok).To(BeTrue(), "nvidia-smi -q -x should report a numeric power limit for GPU %d", idx)
+	return int(w)
 }
 
-// smiGPUFloat is smiGPUValue parsed as a float (e.g. power.draw "600.00").
-func smiGPUFloat(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int, field string) float64 {
+// smiGPUPowerDrawW is power.draw truncated to whole watts.
+func smiGPUPowerDrawW(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) int {
 	GinkgoHelper()
-	v := smiGPUValue(ctx, h, pod, idx, field)
-	f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-	Expect(err).NotTo(HaveOccurred(), "parse nvidia-smi %s for gpu %d: %q", field, idx, v)
-	return f
+	w, ok := smiGPU(ctx, h, pod, idx).PowerDrawW()
+	Expect(ok).To(BeTrue(), "nvidia-smi -q -x should report a numeric power draw for GPU %d", idx)
+	return int(w)
 }
 
 // absInt returns the absolute value of an int.
@@ -120,21 +158,30 @@ func absInt(n int) int {
 	return n
 }
 
-// smiGPUValueRaw queries a single GPU without asserting success — a lost GPU
-// makes nvidia-smi exit non-zero, and the caller inspects the combined output
-// for failure markers.
-func smiGPUValueRaw(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int, field string) string {
+// gpuFailed reports whether one GPU renders an NVML error body in place of its
+// readings. Unlike the substring scan it replaces, it does not treat N/A as a
+// failure, so a passively-cooled GPU reporting fan_speed N/A stays healthy.
+func gpuFailed(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) bool {
 	GinkgoHelper()
-	res, _ := h.Kube.Exec(ctx, pod, "nvidia-smi",
-		"--id="+strconv.Itoa(idx),
-		"--query-gpu="+field,
-		"--format=csv,noheader,nounits")
-	return res.Combined()
+	return smiGPU(ctx, h, pod, idx).Failed()
 }
 
-// gpuCount reports how many GPUs the running pod exposes via nvidia-smi -L.
+// gpuFailedList names the GPUs reporting an NVML error body, as
+// "label: reason". The list rather than a boolean so a scoped injection can be
+// told from an all-GPU one, and so a failure message says which device.
+func gpuFailedList(ctx SpecContext, h *harness.Harness, pod kube.PodRef) []string {
+	GinkgoHelper()
+	snap, err := assertions.GPUSnapshotFromPod(ctx, h.Kube, pod)
+	Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x")
+	return snap.FailedGPUs()
+}
+
+// gpuCount reports how many GPUs the running pod describes in `-q -x`.
 func gpuCount(ctx SpecContext, h *harness.Harness, pod kube.PodRef) int {
-	return nvidiaSMILCount(ctx, h, pod)
+	GinkgoHelper()
+	snap, err := assertions.GPUSnapshotFromPod(ctx, h.Kube, pod)
+	Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x")
+	return snap.Count()
 }
 
 // assertRuntimeECCInjection covers docs example #1: force uncorrectable ECC on a
@@ -148,14 +195,14 @@ func assertRuntimeECCInjection(ctx SpecContext, h *harness.Harness, consumer kub
 	nvmlMockCtl(ctx, h, "fail", "--gpu", "0", "--mode", "ecc_uncorrectable", "--after-calls", "1", "--xid", "79")
 
 	Eventually(func() int {
-		return smiGPUInt(ctx, h, consumer, 0, "ecc.errors.uncorrected.aggregate.total")
+		return smiGPUECCTotal(ctx, h, consumer, 0)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(BeNumerically(">", 0), "running consumer should observe injected ECC errors on GPU 0 within the TTL")
 
 	if gpuCount(ctx, h, consumer) > 1 {
 		By("verify the failure is scoped to GPU 0 (GPU 1 stays healthy)")
 		Consistently(func() int {
-			return smiGPUInt(ctx, h, consumer, 1, "ecc.errors.uncorrected.aggregate.total")
+			return smiGPUECCTotal(ctx, h, consumer, 1)
 		}).WithContext(ctx).WithTimeout(6*time.Second).WithPolling(runtimeTTLPoll).
 			Should(Equal(0), "GPU 1 must not report ECC errors when only GPU 0 was targeted")
 	}
@@ -164,7 +211,7 @@ func assertRuntimeECCInjection(ctx SpecContext, h *harness.Harness, consumer kub
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 
 	Eventually(func() int {
-		return smiGPUInt(ctx, h, consumer, 0, "ecc.errors.uncorrected.aggregate.total")
+		return smiGPUECCTotal(ctx, h, consumer, 0)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(0), "GPU 0 should return to healthy after reset")
 }
@@ -179,22 +226,23 @@ func assertRuntimeFailAllLost(ctx SpecContext, h *harness.Harness, consumer kube
 	By("mark all GPUs lost at runtime via nvml-mock-ctl")
 	nvmlMockCtl(ctx, h, "fail", "--gpu", "all", "--mode", "lost")
 
-	// A lost GPU returns GPU_IS_LOST from every guarded getter; the ECC
-	// counter query surfaces that as a "[GPU is lost]" marker for every GPU.
-	Eventually(func() bool {
-		return hasFailureMarker(eccQuery(ctx, h, consumer))
+	// A lost GPU returns GPU_IS_LOST from every guarded getter, which nvidia-smi
+	// renders as the error body in place of each reading. Every GPU was
+	// targeted, so every GPU must show it.
+	Eventually(func() int {
+		return len(gpuFailedList(ctx, h, consumer))
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
-		Should(BeTrue(), "nvidia-smi should surface lost-GPU markers after fail --gpu all --mode lost")
+		Should(Equal(expectedGPUs), "every GPU should report lost after fail --gpu all --mode lost")
 
 	By("reset runtime overrides and confirm every GPU recovers")
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 
-	Eventually(func() bool {
-		return hasFailureMarker(eccQuery(ctx, h, consumer))
+	Eventually(func() []string {
+		return gpuFailedList(ctx, h, consumer)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
-		Should(BeFalse(), "lost-GPU markers should clear within the TTL after reset")
-	Expect(nvidiaSMILCount(ctx, h, consumer)).To(Equal(expectedGPUs),
-		"all GPUs should still be enumerable after reset")
+		Should(BeEmpty(), "lost-GPU readings should clear within the TTL after reset")
+	Expect(gpuCount(ctx, h, consumer)).To(Equal(expectedGPUs),
+		"all GPUs should still be described after reset")
 }
 
 // assertRuntimeSetField covers docs example #3: set an arbitrary scalar field
@@ -257,7 +305,7 @@ func assertRuntimeSetTemperature(ctx SpecContext, h *harness.Harness, consumer k
 	// shutdown threshold (min 92), so nvidia-smi never clamps the reading.
 	const overrideC = 85
 
-	baseline := smiGPUInt(ctx, h, consumer, target, "temperature.gpu")
+	baseline := smiGPUTempC(ctx, h, consumer, target)
 	Expect(baseline).NotTo(Equal(overrideC), "baseline temperature must differ from the override for a meaningful assertion")
 
 	By(fmt.Sprintf("pin temperature to %dC on GPU %d via nvml-mock-ctl set", overrideC, target))
@@ -267,13 +315,13 @@ func assertRuntimeSetTemperature(ctx SpecContext, h *harness.Harness, consumer k
 		"dynamic_metrics.temperature.variance_c=0")
 
 	Eventually(func() int {
-		return smiGPUInt(ctx, h, consumer, target, "temperature.gpu")
+		return smiGPUTempC(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(overrideC), "GPU %d temperature should reflect the runtime override", target)
 
 	if count > 1 {
 		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
-		Expect(smiGPUInt(ctx, h, consumer, 0, "temperature.gpu")).
+		Expect(smiGPUTempC(ctx, h, consumer, 0)).
 			NotTo(Equal(overrideC), "GPU 0 must keep its baseline (simulator-driven) temperature")
 	}
 
@@ -281,7 +329,7 @@ func assertRuntimeSetTemperature(ctx SpecContext, h *harness.Harness, consumer k
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 
 	Eventually(func() int {
-		return smiGPUInt(ctx, h, consumer, target, "temperature.gpu")
+		return smiGPUTempC(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(And(BeNumerically(">", 0), BeNumerically("<", overrideC)),
 			"GPU %d temperature should return to the simulator baseline after reset", target)
@@ -304,20 +352,20 @@ func assertRuntimeTempCommand(ctx SpecContext, h *harness.Harness, consumer kube
 	// threshold (min 92), so nvidia-smi never clamps the reading.
 	const overrideC = 84
 
-	baseline := smiGPUInt(ctx, h, consumer, target, "temperature.gpu")
+	baseline := smiGPUTempC(ctx, h, consumer, target)
 	Expect(baseline).NotTo(Equal(overrideC), "baseline temperature must differ from the override for a meaningful assertion")
 
 	By(fmt.Sprintf("pin temperature to %dC on GPU %d via nvml-mock-ctl temp", overrideC, target))
 	nvmlMockCtl(ctx, h, "temp", "--gpu", strconv.Itoa(target), strconv.Itoa(overrideC))
 
 	Eventually(func() int {
-		return smiGPUInt(ctx, h, consumer, target, "temperature.gpu")
+		return smiGPUTempC(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(overrideC), "GPU %d temperature should reflect the temp command", target)
 
 	if count > 1 {
 		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
-		Expect(smiGPUInt(ctx, h, consumer, 0, "temperature.gpu")).
+		Expect(smiGPUTempC(ctx, h, consumer, 0)).
 			NotTo(Equal(overrideC), "GPU 0 must keep its baseline (simulator-driven) temperature")
 	}
 
@@ -325,7 +373,7 @@ func assertRuntimeTempCommand(ctx SpecContext, h *harness.Harness, consumer kube
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 
 	Eventually(func() int {
-		return smiGPUInt(ctx, h, consumer, target, "temperature.gpu")
+		return smiGPUTempC(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(And(BeNumerically(">", 0), BeNumerically("<", overrideC)),
 			"GPU %d temperature should return to the simulator baseline after reset", target)
@@ -344,10 +392,13 @@ func assertRuntimePowerCommand(ctx SpecContext, h *harness.Harness, consumer kub
 	count := gpuCount(ctx, h, consumer)
 	target := count - 1 // exercise a non-zero index where possible
 
-	minW := int(smiGPUFloat(ctx, h, consumer, target, "power.min_limit"))
-	maxW := int(smiGPUFloat(ctx, h, consumer, target, "power.max_limit"))
+	envelope := smiGPU(ctx, h, consumer, target)
+	minF, minOK := envelope.PowerMinLimitW()
+	maxF, maxOK := envelope.PowerMaxLimitW()
+	Expect(minOK && maxOK).To(BeTrue(), "profile must report a numeric power envelope")
+	minW, maxW := int(minF), int(maxF)
 	Expect(maxW).To(BeNumerically(">", minW), "profile must advertise a usable power envelope")
-	baseline := int(smiGPUFloat(ctx, h, consumer, target, "power.draw"))
+	baseline := smiGPUPowerDrawW(ctx, h, consumer, target)
 
 	// Pick whichever of the 25%/75% marks sits farther from the (varying)
 	// baseline, so the override is unambiguously observable and stays inside
@@ -363,13 +414,13 @@ func assertRuntimePowerCommand(ctx SpecContext, h *harness.Harness, consumer kub
 	nvmlMockCtl(ctx, h, "power", "--gpu", strconv.Itoa(target), strconv.Itoa(overrideW))
 
 	Eventually(func() int {
-		return int(smiGPUFloat(ctx, h, consumer, target, "power.draw"))
+		return smiGPUPowerDrawW(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(overrideW), "GPU %d power draw should reflect the power command", target)
 
 	if count > 1 {
 		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
-		Expect(int(smiGPUFloat(ctx, h, consumer, 0, "power.draw"))).
+		Expect(smiGPUPowerDrawW(ctx, h, consumer, 0)).
 			NotTo(Equal(overrideW), "GPU 0 must keep its baseline (simulator-driven) power draw")
 	}
 
@@ -377,17 +428,18 @@ func assertRuntimePowerCommand(ctx SpecContext, h *harness.Harness, consumer kub
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 
 	Eventually(func() int {
-		return int(smiGPUFloat(ctx, h, consumer, target, "power.draw"))
+		return smiGPUPowerDrawW(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(And(BeNumerically(">=", minW), BeNumerically("<=", maxW), Not(Equal(overrideW))),
 			"GPU %d power draw should return to the simulator baseline after reset", target)
 }
 
 // assertRuntimeFanCommand covers the `fan` convenience command: pin a GPU's fan
-// speed and read it back through fan.speed. Liquid/passively-cooled profiles
-// ship fan.count: 0 (fan.speed reports "[N/A]"); the command forces the count
-// to at least 1 so the pinned speed becomes observable, and reset returns it to
-// the profile baseline.
+// speed and read it back through <fan_speed>. Liquid/passively-cooled profiles
+// ship fan.count: 0, so the baseline reads N/A; the command forces the count to
+// at least 1 so the pinned speed becomes observable, and reset returns it to the
+// profile baseline. The element body is compared rather than a number, because
+// N/A is a legitimate baseline that has to round-trip as itself.
 func assertRuntimeFanCommand(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
 	GinkgoHelper()
 	resetRuntimeOverrides(ctx, h)
@@ -395,32 +447,33 @@ func assertRuntimeFanCommand(ctx SpecContext, h *harness.Harness, consumer kube.
 	count := gpuCount(ctx, h, consumer)
 	target := count - 1 // exercise a non-zero index where possible
 
-	baseline := smiGPUValue(ctx, h, consumer, target, "fan.speed")
+	gpu := smiGPU(ctx, h, consumer, target)
+	baseline := gpu.FanSpeed()
 	overridePct := 57 // uncommon value unlikely to match a profile default
-	if baseline == strconv.Itoa(overridePct) {
+	if pct, ok := gpu.FanSpeedPercent(); ok && pct == overridePct {
 		overridePct = 43
 	}
-	overrideStr := strconv.Itoa(overridePct)
+	overrideBody := fmt.Sprintf("%d %%", overridePct)
 
 	By(fmt.Sprintf("pin fan speed to %d%% on GPU %d via nvml-mock-ctl fan", overridePct, target))
-	nvmlMockCtl(ctx, h, "fan", "--gpu", strconv.Itoa(target), overrideStr)
+	nvmlMockCtl(ctx, h, "fan", "--gpu", strconv.Itoa(target), strconv.Itoa(overridePct))
 
 	Eventually(func() string {
-		return smiGPUValue(ctx, h, consumer, target, "fan.speed")
+		return smiGPU(ctx, h, consumer, target).FanSpeed()
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
-		Should(Equal(overrideStr), "GPU %d fan speed should reflect the fan command", target)
+		Should(Equal(overrideBody), "GPU %d fan speed should reflect the fan command", target)
 
 	if count > 1 {
 		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
-		Expect(smiGPUValue(ctx, h, consumer, 0, "fan.speed")).
-			NotTo(Equal(overrideStr), "GPU 0 must keep its baseline fan reading")
+		Expect(smiGPU(ctx, h, consumer, 0).FanSpeed()).
+			NotTo(Equal(overrideBody), "GPU 0 must keep its baseline fan reading")
 	}
 
 	By("reset runtime overrides")
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 
 	Eventually(func() string {
-		return smiGPUValue(ctx, h, consumer, target, "fan.speed")
+		return smiGPU(ctx, h, consumer, target).FanSpeed()
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(baseline), "GPU %d fan speed should return to the profile baseline after reset", target)
 }
@@ -440,7 +493,7 @@ func assertRuntimeUtilCommand(ctx SpecContext, h *harness.Harness, consumer kube
 
 	// Pick an override far from the (oscillating) dynamic baseline so it is
 	// unambiguously observable and the simulator never emits it on its own.
-	baseline := smiGPUInt(ctx, h, consumer, target, "utilization.gpu")
+	baseline := smiGPUUtilPercent(ctx, h, consumer, target)
 	overridePct := 90
 	if baseline >= 50 {
 		overridePct = 10
@@ -450,15 +503,16 @@ func assertRuntimeUtilCommand(ctx SpecContext, h *harness.Harness, consumer kube
 	nvmlMockCtl(ctx, h, "util", "--gpu", strconv.Itoa(target), strconv.Itoa(overridePct))
 
 	Eventually(func() int {
-		return smiGPUInt(ctx, h, consumer, target, "utilization.gpu")
+		return smiGPUUtilPercent(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(overridePct), "GPU %d GPU utilization should reflect the util command", target)
-	Expect(smiGPUInt(ctx, h, consumer, target, "utilization.memory")).
-		To(Equal(overridePct), "GPU %d memory utilization should also be pinned", target)
+	memUtil, ok := smiGPU(ctx, h, consumer, target).UtilizationMemoryPercent()
+	Expect(ok).To(BeTrue(), "GPU %d should report a numeric memory utilization", target)
+	Expect(memUtil).To(Equal(overridePct), "GPU %d memory utilization should also be pinned", target)
 
 	if count > 1 {
 		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
-		Expect(smiGPUInt(ctx, h, consumer, 0, "utilization.gpu")).
+		Expect(smiGPUUtilPercent(ctx, h, consumer, 0)).
 			NotTo(Equal(overridePct), "GPU 0 must keep its baseline (simulator-driven) utilization")
 	}
 
@@ -466,7 +520,7 @@ func assertRuntimeUtilCommand(ctx SpecContext, h *harness.Harness, consumer kube
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 
 	Eventually(func() int {
-		return smiGPUInt(ctx, h, consumer, target, "utilization.gpu")
+		return smiGPUUtilPercent(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Not(Equal(overridePct)), "GPU %d utilization should resume varying after reset", target)
 }
@@ -511,7 +565,7 @@ func assertRuntimeClocksCommand(ctx SpecContext, h *harness.Harness, consumer ku
 	count := gpuCount(ctx, h, consumer)
 	target := count - 1 // exercise a non-zero index where possible
 
-	baseline := smiGPUInt(ctx, h, consumer, target, "clocks.sm")
+	baseline := smiGPUSMClockMHz(ctx, h, consumer, target)
 	overrideMHz := 1410
 	if baseline == overrideMHz {
 		overrideMHz = 1215
@@ -521,13 +575,13 @@ func assertRuntimeClocksCommand(ctx SpecContext, h *harness.Harness, consumer ku
 	nvmlMockCtl(ctx, h, "clocks", "--gpu", strconv.Itoa(target), strconv.Itoa(overrideMHz))
 
 	Eventually(func() int {
-		return smiGPUInt(ctx, h, consumer, target, "clocks.sm")
+		return smiGPUSMClockMHz(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(overrideMHz), "GPU %d SM clock should reflect the clocks command", target)
 
 	if count > 1 {
 		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
-		Expect(smiGPUInt(ctx, h, consumer, 0, "clocks.sm")).
+		Expect(smiGPUSMClockMHz(ctx, h, consumer, 0)).
 			NotTo(Equal(overrideMHz), "GPU 0 must keep its baseline SM clock")
 	}
 
@@ -535,14 +589,14 @@ func assertRuntimeClocksCommand(ctx SpecContext, h *harness.Harness, consumer ku
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 
 	Eventually(func() int {
-		return smiGPUInt(ctx, h, consumer, target, "clocks.sm")
+		return smiGPUSMClockMHz(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(baseline), "GPU %d SM clock should return to the profile baseline after reset", target)
 }
 
 // assertRuntimeThrottleCommand covers the `throttle` convenience command: set
 // the hw_thermal_slowdown reason on a GPU and read it back via
-// clocks_throttle_reasons.hw_thermal_slowdown ("Active"/"Not Active"), then let
+// <clocks_event_reason_hw_thermal_slowdown> ("Active"/"Not Active"), then let
 // reset restore the profile baseline. Profiles ship this reason off, so the
 // transition is observable.
 func assertRuntimeThrottleCommand(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
@@ -552,21 +606,20 @@ func assertRuntimeThrottleCommand(ctx SpecContext, h *harness.Harness, consumer 
 	count := gpuCount(ctx, h, consumer)
 	target := count - 1 // exercise a non-zero index where possible
 
-	const field = "clocks_throttle_reasons.hw_thermal_slowdown"
-	baseline := smiGPUValue(ctx, h, consumer, target, field)
+	baseline := smiGPU(ctx, h, consumer, target).ThermalSlowdownState()
 	Expect(baseline).To(Equal("Not Active"), "profile must ship hw_thermal_slowdown off for a meaningful assertion")
 
 	By(fmt.Sprintf("set the thermal throttle reason on GPU %d via nvml-mock-ctl throttle", target))
 	nvmlMockCtl(ctx, h, "throttle", "--gpu", strconv.Itoa(target), "thermal")
 
 	Eventually(func() string {
-		return smiGPUValue(ctx, h, consumer, target, field)
+		return smiGPU(ctx, h, consumer, target).ThermalSlowdownState()
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal("Active"), "GPU %d hw_thermal_slowdown should be active after the throttle command", target)
 
 	if count > 1 {
 		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
-		Expect(smiGPUValue(ctx, h, consumer, 0, field)).
+		Expect(smiGPU(ctx, h, consumer, 0).ThermalSlowdownState()).
 			To(Equal("Not Active"), "GPU 0 must keep its baseline throttle state")
 	}
 
@@ -574,7 +627,7 @@ func assertRuntimeThrottleCommand(ctx SpecContext, h *harness.Harness, consumer 
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 
 	Eventually(func() string {
-		return smiGPUValue(ctx, h, consumer, target, field)
+		return smiGPU(ctx, h, consumer, target).ThermalSlowdownState()
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(baseline), "GPU %d throttle reason should return to the profile baseline after reset", target)
 }
@@ -589,7 +642,7 @@ func assertRuntimePStateCommand(ctx SpecContext, h *harness.Harness, consumer ku
 	count := gpuCount(ctx, h, consumer)
 	target := count - 1 // exercise a non-zero index where possible
 
-	baseline := smiGPUValue(ctx, h, consumer, target, "pstate")
+	baseline := smiGPU(ctx, h, consumer, target).PerformanceState()
 	overrideN := 8
 	if baseline == "P8" {
 		overrideN = 5
@@ -600,13 +653,13 @@ func assertRuntimePStateCommand(ctx SpecContext, h *harness.Harness, consumer ku
 	nvmlMockCtl(ctx, h, "pstate", "--gpu", strconv.Itoa(target), strconv.Itoa(overrideN))
 
 	Eventually(func() string {
-		return smiGPUValue(ctx, h, consumer, target, "pstate")
+		return smiGPU(ctx, h, consumer, target).PerformanceState()
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(overrideStr), "GPU %d pstate should reflect the pstate command", target)
 
 	if count > 1 {
 		By("verify the override is scoped to the target GPU (GPU 0 unchanged)")
-		Expect(smiGPUValue(ctx, h, consumer, 0, "pstate")).
+		Expect(smiGPU(ctx, h, consumer, 0).PerformanceState()).
 			NotTo(Equal(overrideStr), "GPU 0 must keep its baseline pstate")
 	}
 
@@ -614,7 +667,7 @@ func assertRuntimePStateCommand(ctx SpecContext, h *harness.Harness, consumer ku
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 
 	Eventually(func() string {
-		return smiGPUValue(ctx, h, consumer, target, "pstate")
+		return smiGPU(ctx, h, consumer, target).PerformanceState()
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(baseline), "GPU %d pstate should return to the profile baseline after reset", target)
 }
@@ -627,7 +680,7 @@ func assertRuntimeUUIDTargeting(ctx SpecContext, h *harness.Harness, consumer ku
 	GinkgoHelper()
 	resetRuntimeOverrides(ctx, h)
 
-	uuid := smiGPUValue(ctx, h, consumer, 0, "uuid")
+	uuid := smiGPU(ctx, h, consumer, 0).UUID()
 	Expect(uuid).NotTo(BeEmpty(), "nvidia-smi should report a UUID for GPU 0")
 
 	By("target GPU 0 by UUID with fallen_off_bus via nvml-mock-ctl")
@@ -642,15 +695,14 @@ func assertRuntimeUUIDTargeting(ctx SpecContext, h *harness.Harness, consumer ku
 		Expect(err).NotTo(HaveOccurred(), "nvml-mock-ctl fail --gpu <uuid> failed unexpectedly: %s", strings.TrimSpace(out))
 	}
 
-	const lostSignal = "ecc.errors.uncorrected.aggregate.total"
 	Eventually(func() bool {
-		return hasFailureMarker(smiGPUValueRaw(ctx, h, consumer, 0, lostSignal))
+		return gpuFailed(ctx, h, consumer, 0)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
-		Should(BeTrue(), "GPU targeted by UUID should surface failure markers")
+		Should(BeTrue(), "GPU targeted by UUID should render NVML error bodies")
 
 	if gpuCount(ctx, h, consumer) > 1 {
 		By("verify a non-targeted GPU stays healthy")
-		Expect(hasFailureMarker(smiGPUValueRaw(ctx, h, consumer, 1, lostSignal))).
+		Expect(gpuFailed(ctx, h, consumer, 1)).
 			To(BeFalse(), "GPU 1 must stay healthy when only GPU 0's UUID was targeted")
 	}
 
@@ -658,7 +710,7 @@ func assertRuntimeUUIDTargeting(ctx SpecContext, h *harness.Harness, consumer ku
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 
 	Eventually(func() bool {
-		return hasFailureMarker(smiGPUValueRaw(ctx, h, consumer, 0, lostSignal))
+		return gpuFailed(ctx, h, consumer, 0)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(BeFalse(), "GPU 0 should recover after reset")
 }
@@ -675,7 +727,7 @@ func assertRuntimeStatus(ctx SpecContext, h *harness.Harness, consumer kube.PodR
 	By("inject ecc_uncorrectable on GPU 0 and confirm it via nvidia-smi")
 	nvmlMockCtl(ctx, h, "fail", "--gpu", "0", "--mode", "ecc_uncorrectable", "--after-calls", "1")
 	Eventually(func() int {
-		return smiGPUInt(ctx, h, consumer, 0, "ecc.errors.uncorrected.aggregate.total")
+		return smiGPUECCTotal(ctx, h, consumer, 0)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(BeNumerically(">", 0))
 
@@ -704,14 +756,14 @@ func assertRuntimeHealthyRecovery(ctx SpecContext, h *harness.Harness, consumer 
 	By("inject ecc_uncorrectable on GPU 0")
 	nvmlMockCtl(ctx, h, "fail", "--gpu", "0", "--mode", "ecc_uncorrectable", "--after-calls", "1")
 	Eventually(func() int {
-		return smiGPUInt(ctx, h, consumer, 0, "ecc.errors.uncorrected.aggregate.total")
+		return smiGPUECCTotal(ctx, h, consumer, 0)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(BeNumerically(">", 0), "GPU 0 should trip before recovery")
 
 	By("recover GPU 0 with fail --mode healthy (no reset)")
 	nvmlMockCtl(ctx, h, "fail", "--gpu", "0", "--mode", "healthy")
 	Eventually(func() int {
-		return smiGPUInt(ctx, h, consumer, 0, "ecc.errors.uncorrected.aggregate.total")
+		return smiGPUECCTotal(ctx, h, consumer, 0)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(0), "GPU 0 should recover after fail --mode healthy")
 
@@ -719,55 +771,19 @@ func assertRuntimeHealthyRecovery(ctx SpecContext, h *harness.Harness, consumer 
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 }
 
-// smiProcess is one row of nvidia-smi --query-compute-apps.
-type smiProcess struct {
-	PID       int
-	Name      string
-	MemoryMiB int
-}
-
-// smiComputeApps returns the compute-apps rows nvidia-smi reports for a single
-// GPU. --format=csv,noheader,nounits yields one "pid, name, mib" line per
-// process and empty output when the GPU has none.
-func smiComputeApps(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) []smiProcess {
+// smiProcesses returns the processes `nvidia-smi -q -x` reports for one GPU.
+func smiProcesses(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) []assertions.SMIProcess {
 	GinkgoHelper()
-	res, err := h.Kube.Exec(ctx, pod, "nvidia-smi",
-		"--id="+strconv.Itoa(idx),
-		"--query-compute-apps=pid,process_name,used_gpu_memory",
-		"--format=csv,noheader,nounits")
-	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -i %d --query-compute-apps: %s", idx, res.Combined())
-
-	var out []smiProcess
-	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Split(line, ",")
-		Expect(fields).To(HaveLen(3), "unexpected --query-compute-apps row %q", line)
-		pid, perr := strconv.Atoi(strings.TrimSpace(fields[0]))
-		Expect(perr).NotTo(HaveOccurred(), "parse pid from %q", line)
-		mib, merr := strconv.Atoi(strings.TrimSpace(fields[2]))
-		Expect(merr).NotTo(HaveOccurred(), "parse used memory from %q", line)
-		out = append(out, smiProcess{PID: pid, Name: strings.TrimSpace(fields[1]), MemoryMiB: mib})
-	}
-	return out
-}
-
-// smiDefaultTable returns the plain `nvidia-smi` output for a single GPU, which
-// includes the bottom "Processes:" box.
-func smiDefaultTable(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) string {
-	GinkgoHelper()
-	res, err := h.Kube.Exec(ctx, pod, "nvidia-smi", "--id="+strconv.Itoa(idx))
-	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -i %d: %s", idx, res.Combined())
-	return res.Stdout
+	procs, err := smiGPU(ctx, h, pod, idx).Processes()
+	Expect(err).NotTo(HaveOccurred(), "decode GPU %d processes", idx)
+	return procs
 }
 
 // setRuntimeProcesses writes a `processes:` list onto one GPU via
 // `nvml-mock-ctl set`. There is no dedicated process subcommand: `set` accepts
 // any DeviceConfig path, and the value is parsed as YAML, so the whole list is
 // replaced in one call (an empty list clears it).
-func setRuntimeProcesses(ctx SpecContext, h *harness.Harness, idx int, procs []smiProcess) {
+func setRuntimeProcesses(ctx SpecContext, h *harness.Harness, idx int, procs []assertions.SMIProcess) {
 	GinkgoHelper()
 	entries := make([]string, 0, len(procs))
 	for _, p := range procs {
@@ -779,20 +795,20 @@ func setRuntimeProcesses(ctx SpecContext, h *harness.Harness, idx int, procs []s
 }
 
 // assertRuntimeProcesses covers driving a GPU's running-process list at runtime
-// with `nvml-mock-ctl set --gpu <idx> 'processes=[...]'` and observing it
-// through every nvidia-smi view that renders processes.
+// with `nvml-mock-ctl set --gpu <idx> 'processes=[...]'` and reading it back
+// from the <processes> block.
 //
 // This is a regression guard for two bugs that only appear with real
 // nvidia-smi. nvidia-smi enumerates processes through the internal export
-// table, whose entry is a 4128-byte struct carrying an inline name buffer,
-// not the public 24-byte nvmlProcessInfo_t:
+// table, whose entry is a 4128-byte struct carrying an inline name buffer, not
+// the public 24-byte nvmlProcessInfo_t:
 //
 //   - a wrong stride silently renders every process after the FIRST as
 //     PID 0 / [N/A] / 0 MiB, so this deliberately configures more than one
-//     process;
-//   - an empty inline name makes nvidia-smi drop the rows from the default
-//     table's Processes box even though it received them, so the default table
-//     is asserted alongside --query-compute-apps.
+//     process and compares the whole list;
+//   - an empty inline name is dropped rather than rendered, so <process_name>
+//     is compared too — the name reaches nvidia-smi only through that buffer,
+//     it does not call nvmlSystemGetProcessName on this path.
 func assertRuntimeProcesses(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
 	GinkgoHelper()
 	resetRuntimeOverrides(ctx, h)
@@ -801,85 +817,47 @@ func assertRuntimeProcesses(ctx SpecContext, h *harness.Harness, consumer kube.P
 	target := count - 1 // exercise a non-zero index where possible
 
 	// Modest memory values so the numbers stay plausible on every profile.
-	want := []smiProcess{
+	want := []assertions.SMIProcess{
 		{PID: 4201, Name: "train.py", MemoryMiB: 1024},
 		{PID: 4202, Name: "infer.py", MemoryMiB: 512},
 		{PID: 4203, Name: "jupyter", MemoryMiB: 64},
 	}
 
 	By("baseline: the GPU reports no running processes")
-	Expect(smiComputeApps(ctx, h, consumer, target)).To(BeEmpty(),
+	Expect(smiProcesses(ctx, h, consumer, target)).To(BeEmpty(),
 		"GPU %d must start with no processes for a meaningful assertion", target)
 
 	By(fmt.Sprintf("configure %d processes on GPU %d via nvml-mock-ctl set", len(want), target))
 	setRuntimeProcesses(ctx, h, target, want)
 
-	Eventually(func() []smiProcess {
-		return smiComputeApps(ctx, h, consumer, target)
+	// -q -x is unscoped, so nvidia-smi walks every GPU's process list in one
+	// run. That is the shape that faulted while a stray write in the internal
+	// export-table shim was reachable from calls that never carried a process
+	// buffer.
+	Eventually(func() []assertions.SMIProcess {
+		return smiProcesses(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(want), "GPU %d should report every configured process with its pid, name and memory", target)
 
-	By("the default table's Processes box lists the same processes")
-	table := smiDefaultTable(ctx, h, consumer, target)
-	Expect(table).NotTo(ContainSubstring("No running processes found"),
-		"default table should list the configured processes:\n%s", table)
-	for _, p := range want {
-		Expect(table).To(ContainSubstring(p.Name),
-			"default table should name process %d:\n%s", p.PID, table)
-		Expect(table).To(ContainSubstring(strconv.Itoa(p.PID)),
-			"default table should list pid %d:\n%s", p.PID, table)
-	}
-
-	By("nvidia-smi -q reports the same processes, with names resolved")
-	res, err := h.Kube.Exec(ctx, consumer, "nvidia-smi", "--id="+strconv.Itoa(target), "-q")
-	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -i %d -q: %s", target, res.Combined())
-	for _, p := range want {
-		Expect(res.Stdout).To(ContainSubstring(strconv.Itoa(p.PID)),
-			"nvidia-smi -q should list pid %d", p.PID)
-		// The name reaches -q only because it is written into the entry's
-		// inline name buffer; nvidia-smi does not call nvmlSystemGetProcessName
-		// on this path.
-		Expect(res.Stdout).To(ContainSubstring(p.Name),
-			"nvidia-smi -q should resolve the name of pid %d", p.PID)
-	}
-
-	// Unscoped, so nvidia-smi walks every GPU's process list in one run. That is
-	// the shape that faulted while a stray write in the internal export-table
-	// shim was reachable from calls that never carried a process buffer.
-	By("nvidia-smi -q -x reports the same processes for the target GPU")
-	res, err = h.Kube.Exec(ctx, consumer, "nvidia-smi", "-q", "-x")
-	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -q -x: %s", res.Combined())
-	wantXML := make([]assertions.SMIProcess, 0, len(want))
-	for _, p := range want {
-		wantXML = append(wantXML, assertions.SMIProcess{PID: p.PID, Name: p.Name, MemoryMiB: p.MemoryMiB})
-	}
-	gotXML, err := assertions.ProcessesXML(res.Stdout, target)
-	Expect(err).NotTo(HaveOccurred(), "decode nvidia-smi -q -x")
-	Expect(gotXML).To(Equal(wantXML), "GPU %d processes in the XML view", target)
-
 	if count > 1 {
 		By("verify the process list is scoped to the target GPU (GPU 0 unchanged)")
-		Expect(smiComputeApps(ctx, h, consumer, 0)).To(BeEmpty(),
+		Expect(smiProcesses(ctx, h, consumer, 0)).To(BeEmpty(),
 			"GPU 0 must report no processes when only GPU %d was targeted", target)
-
-		Expect(assertions.ProcessesXML(res.Stdout, 0)).To(BeEmpty(),
-			"GPU 0 must report no processes in the XML view either")
 	}
 
 	By("clearing the list with an empty processes value removes them")
 	setRuntimeProcesses(ctx, h, target, nil)
-	Eventually(func() []smiProcess {
-		return smiComputeApps(ctx, h, consumer, target)
+	Eventually(func() []assertions.SMIProcess {
+		return smiProcesses(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(BeEmpty(), "GPU %d should report no processes after processes=[]", target)
 
 	By("reset runtime overrides")
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
-	Eventually(func() string {
-		return smiDefaultTable(ctx, h, consumer, target)
+	Eventually(func() []assertions.SMIProcess {
+		return smiProcesses(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
-		Should(ContainSubstring("No running processes found"),
-			"GPU %d default table should be empty again after reset", target)
+		Should(BeEmpty(), "GPU %d should still report no processes after reset", target)
 }
 
 // nvlinkErrorSum sums the Replay/Recovery/CRC error counters nvidia-smi reports

@@ -331,11 +331,11 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				// re-reads the override file at its own TTL, so the change is
 				// eventually-consistent by design, not instant.
 				Eventually(func(ctx SpecContext) int {
-					return smiGPUInt(ctx, h, observer, idx, "memory.used")
+					return smiGPUMemoryUsedMiB(ctx, h, observer, idx)
 				}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
 					Should(BeNumerically(">", 0),
-						"a pod holding %s on GPU %d did not move memory.used; the allocation watcher "+
-							"is not reaching the engine", kube.GPUResourceName, idx)
+						"a pod holding %s on GPU %d did not move the used framebuffer; the allocation "+
+							"watcher is not reaching the engine", kube.GPUResourceName, idx)
 
 				// Every OTHER GPU must stay idle. Without this, a watcher that
 				// reported node-wide totals on every device would pass the
@@ -344,7 +344,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 					if other == idx {
 						continue
 					}
-					Expect(smiGPUInt(ctx, h, observer, other, "memory.used")).To(Equal(0),
+					Expect(smiGPUMemoryUsedMiB(ctx, h, observer, other)).To(Equal(0),
 						"GPU %d holds no claim but reports memory in use; the watcher is not "+
 							"attributing per device", other)
 				}
@@ -353,7 +353,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				Expect(h.Kube.Delete(ctx, claimantManifest)).To(Succeed(), "delete %s", workload.Pod)
 
 				Eventually(func(ctx SpecContext) int {
-					return smiGPUInt(ctx, h, observer, idx, "memory.used")
+					return smiGPUMemoryUsedMiB(ctx, h, observer, idx)
 				}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
 					Should(Equal(0),
 						"GPU %d still reports memory in use after its pod was deleted; the reading "+
@@ -635,11 +635,8 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 
 			p := loadProfile(selectedProfiles[0])
 			pod := nriAgentPodOnNode(ctx, h, victim.Name)
-			res, err := h.Kube.Exec(ctx, pod, "nvidia-smi", "-L")
-			Expect(err).NotTo(HaveOccurred(), "nvidia-smi -L in the post-wedge gpu-agent pod: %s", res.Combined())
-			Expect(countGPULines(res.Combined())).To(Equal(p.ExpectedGPUs()),
-				"a pod created after the wedge must still see %d injected GPUs\n%s",
-				p.ExpectedGPUs(), strings.TrimSpace(res.Combined()))
+			Expect(visibleGPUCount(ctx, h, pod)).To(Equal(p.ExpectedGPUs()),
+				"a pod created after the wedge must still see %d injected GPUs", p.ExpectedGPUs())
 		})
 	})
 })
@@ -789,15 +786,13 @@ func assertAgentHasNoGPURequest(ctx context.Context, h *harness.Harness) {
 		"gpu-agent must not request %s; node-wide injection is ambient (resources=%s)", kube.GPUResourceName, out)
 }
 
-// assertAgentSeesGPUs execs `nvidia-smi -L` in a gpu-agent pod and asserts the
-// NRI-injected overlay exposes exactly the profile's GPU count.
+// assertAgentSeesGPUs reads `nvidia-smi -q -x` in a gpu-agent pod and asserts
+// the NRI-injected overlay exposes exactly the profile's GPU count.
 func assertAgentSeesGPUs(ctx context.Context, h *harness.Harness, expectedGPUs int) {
 	GinkgoHelper()
 	pod := firstNRIAgentPod(ctx, h)
-	res, err := h.Kube.Exec(ctx, pod, "nvidia-smi", "-L")
-	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -L in gpu-agent pod: %s", res.Combined())
-	Expect(countGPULines(res.Combined())).To(Equal(expectedGPUs),
-		"gpu-agent should see %d NRI-injected GPUs via nvidia-smi -L\n%s", expectedGPUs, strings.TrimSpace(res.Combined()))
+	Expect(visibleGPUCount(ctx, h, pod)).To(Equal(expectedGPUs),
+		"gpu-agent should see %d NRI-injected GPUs", expectedGPUs)
 }
 
 // assertNodeCliqueIdentities runs the staged `check-fabric` consumer inside the
@@ -1105,26 +1100,21 @@ func allocatedGPUUUID(ctx context.Context, h *harness.Harness, pod kube.PodRef) 
 	return uuid
 }
 
-// visibleGPUUUIDs returns the UUIDs nvidia-smi reports inside the pod.
+// visibleGPUUUIDs returns the UUIDs nvidia-smi reports inside the pod, in
+// nvidia-smi's own GPU order — the order its --id indices refer to.
 func visibleGPUUUIDs(ctx context.Context, h *harness.Harness, pod kube.PodRef) []string {
 	GinkgoHelper()
-	res, err := h.Kube.Exec(ctx, pod, "nvidia-smi", "-L")
-	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -L in %s: %s", pod.Pod, res.Combined())
-	var uuids []string
-	for _, line := range strings.Split(res.Combined(), "\n") {
-		if !strings.HasPrefix(strings.TrimSpace(line), "GPU ") {
-			continue
-		}
-		_, rest, ok := strings.Cut(line, "(UUID: ")
-		if !ok {
-			continue
-		}
-		uuid, _, ok := strings.Cut(rest, ")")
-		if ok {
-			uuids = append(uuids, strings.TrimSpace(uuid))
-		}
-	}
-	return uuids
+	snap, err := assertions.GPUSnapshotFromPod(ctx, h.Kube, pod)
+	Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x in %s", pod.Pod)
+	return snap.UUIDs()
+}
+
+// visibleGPUCount reports how many GPUs nvidia-smi describes inside the pod.
+func visibleGPUCount(ctx context.Context, h *harness.Harness, pod kube.PodRef) int {
+	GinkgoHelper()
+	snap, err := assertions.GPUSnapshotFromPod(ctx, h.Kube, pod)
+	Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x in %s", pod.Pod)
+	return snap.Count()
 }
 
 func firstNRIAgentPod(ctx context.Context, h *harness.Harness) kube.PodRef {
@@ -1208,18 +1198,9 @@ func nriCliqueByNode(workers []cluster.Node) map[string]int {
 	return m
 }
 
-func countGPULines(out string) int {
-	count := 0
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "GPU ") {
-			count++
-		}
-	}
-	return count
-}
-
 // indexOfGPUUUID returns the position of uuid in the observer's GPU list, or -1.
-// nvidia-smi indexes by position in that list, which is what smiGPUInt takes.
+// nvidia-smi indexes by position in that list, which is what the per-GPU
+// readings take.
 func indexOfGPUUUID(uuids []string, uuid string) int {
 	for i, u := range uuids {
 		if u == uuid {
