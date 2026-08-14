@@ -50,6 +50,11 @@ type NodeFabric struct {
 	hasPCIe bool
 	version uint32
 
+	// c2cEnabled mirrors nvlink.c2c_enabled: an NVLink-C2C link to the host
+	// CPU. Node-level rather than per-device because the link is a property
+	// of the board — every profile that has it has it on every GPU.
+	c2cEnabled bool
+
 	// epoch anchors the deterministic NVLink counter accrual. It is
 	// process-independent so counters grow across separate nvidia-smi
 	// invocations. now is injectable for tests.
@@ -170,6 +175,9 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 	var yc *YAMLConfig
 	if cfg != nil {
 		yc = cfg.YAMLConfig
+	}
+	if yc != nil && yc.NVLink != nil {
+		f.c2cEnabled = yc.NVLink.C2CEnabled
 	}
 
 	// Resolve per-device BDFs (the join key into the topology blocks).
@@ -471,6 +479,16 @@ func (f *NodeFabric) Validate() []string {
 
 // NumDevices returns the number of devices modeled by the fabric.
 func (f *NodeFabric) NumDevices() int { return f.numDevices }
+
+// C2CEnabled reports whether the node's nvlink block declares an NVLink-C2C
+// link to the host CPU. Nil-safe: legacy/default mode builds no fabric, and
+// a GPU with no declared NVLink topology has no C2C link either.
+func (f *NodeFabric) C2CEnabled() bool {
+	if f == nil {
+		return false
+	}
+	return f.c2cEnabled
+}
 
 // HasPCIeTopology reports whether root-complex / NUMA facts were supplied.
 func (f *NodeFabric) HasPCIeTopology() bool { return f.hasPCIe }
