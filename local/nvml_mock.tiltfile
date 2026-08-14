@@ -16,7 +16,7 @@
 # `nvmlmock_image` (optional, all install helpers): when set to a `repo:tag` or
 # `repo@digest` ref, docker_build is skipped and the image is pinned via
 # `--set image.repository=<repo> --set image.tag=<tag>`. This is how CI hands
-# Tilt a pre-built ttl.sh image without asking it to run the docker build.
+# Tilt an image it already built and loaded, without asking it to rebuild.
 
 load('ext://helm_resource', 'helm_resource')
 
@@ -41,14 +41,15 @@ def _split_image(ref):
         fail('--nvmlmock-image=%s is a digest ref; the nvml-mock chart only supports repo:tag' % ref)
     colon = ref.rfind(':')
     # No colon at all, or the last colon is inside the registry (before the
-    # last '/'), means there's no tag — e.g. 'ttl.sh/foo' or 'reg:5000/foo'.
+    # last '/'), means there's no tag — e.g. 'ghcr.io/foo' or 'reg:5000/foo'.
     if colon < 0 or colon < ref.rfind('/'):
         fail('--nvmlmock-image=%s must be repo:tag' % ref)
     return ref[:colon], ref[colon+1:]
 
 def build_nvml_mock_image(nvmlmock_image=''):
-    # In CI, the image is pre-built (e.g. to ttl.sh) and kind-loaded before
-    # `tilt ci` runs. Skip docker_build so Tilt doesn't try to rebuild it.
+    # In CI, the image is pre-built, loaded from the workflow's image artifact
+    # and kind-loaded before `tilt ci` runs. Skip docker_build so Tilt doesn't
+    # try to rebuild it.
     if nvmlmock_image:
         return
     # Build the nvml-mock image from the repo root. The Dockerfile COPYs

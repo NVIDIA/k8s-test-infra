@@ -197,20 +197,20 @@ endif
 KIND_CLUSTER_NAME   ?= $(if $(filter compute-domain,$(PROFILE)),mokka-compute-domain,mokka)
 KIND_CLUSTER_CONFIG ?= local/kind/$(PROFILE).kind.yaml
 
-.PHONY: image-kind-node cluster-create cluster-delete
+.PHONY: image-kind-node image-load cluster-create cluster-delete
 # KIND_NODE_IMAGE_PREBUILT (env, any non-empty value): skip the local docker
 # build and use the pre-built $(KIND_NODE_IMAGE) already loaded in the local
 # daemon. Verify with `docker image inspect` before skipping, so a botched
 # staging step fails here (with a clear message) instead of surfacing later
-# as an opaque `kind create cluster` pull error. CI sets this after
-# `docker pull` + `docker tag` of the pre-built image from ttl.sh (see
-# .github/workflows/nvml-mock-e2e-go.yaml build-kind-node job); local devs
-# leave it unset and get the rebuild-when-Dockerfile-changes behavior.
+# as an opaque `kind create cluster` pull error. CI sets this after loading
+# the image from the artifact its build-kind-node-image job uploads (see
+# .github/workflows/nvml-mock-e2e-go.yaml); local devs leave it unset and get
+# the rebuild-when-Dockerfile-changes behavior.
 image-kind-node:
 	@if [ -n "$$KIND_NODE_IMAGE_PREBUILT" ]; then \
 		docker image inspect $(KIND_NODE_IMAGE) >/dev/null 2>&1 || { \
 			echo "ERROR: KIND_NODE_IMAGE_PREBUILT is set but $(KIND_NODE_IMAGE) is not in the local docker daemon."; \
-			echo "       Ensure a preceding step ran: docker pull <ref> && docker tag <ref> $(KIND_NODE_IMAGE)"; \
+			echo "       Ensure a preceding step loaded it, e.g. make image-load TARBALL=<tarball> IMAGE=$(KIND_NODE_IMAGE)"; \
 			echo "       (Or unset KIND_NODE_IMAGE_PREBUILT to build it locally.)"; \
 			exit 1; \
 		}; \
@@ -224,6 +224,31 @@ cluster-create: image-kind-node
 
 cluster-delete:
 	@kind delete cluster --name $(KIND_CLUSTER_NAME)
+
+# Stage a pre-built image into the local docker daemon from a tarball:
+#
+#   make image-load TARBALL=/tmp/nvml-mock.tar IMAGE=nvml-mock:e2e
+#
+# CI hands each e2e leg its images this way (run-scoped workflow artifacts
+# instead of a registry), and this target is how a leg loads one.
+# Asserting IMAGE matters because these refs carry no registry host: a mismatch
+# between what the producer tagged and what the consumer expects would otherwise
+# stay invisible until kubelet fell through to Docker Hub and the pod failed to
+# start, far from the cause. TARBALL is deleted on success — it is dead weight
+# once the image is in the daemon, and creating a Kind cluster and loading
+# images into its nodes right afterwards needs the disk.
+image-load:
+	@if [ -z "$(TARBALL)" ] || [ -z "$(IMAGE)" ]; then \
+		echo "ERROR: usage: make image-load TARBALL=<path/to/image.tar> IMAGE=<repo:tag>"; \
+		exit 1; \
+	fi
+	@docker load -i "$(TARBALL)"
+	@docker image inspect "$(IMAGE)" >/dev/null 2>&1 || { \
+		echo "ERROR: $(TARBALL) did not yield $(IMAGE)"; \
+		exit 1; \
+	}
+	@rm -f "$(TARBALL)"
+	@echo "Loaded $(IMAGE) from $(TARBALL)"
 
 # ---------------------------------------------------------------------------
 # Go end-to-end suite (tests/e2e) — the Go port of docs/demo/standalone/demo.sh.
@@ -241,7 +266,7 @@ cluster-delete:
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # node-wide NRI ambient-injection scenario
 #   make e2e-nfd                   # NFD label-provenance scenario
-# CI builds the image once per job and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
+# CI builds the image once per run, every leg loads it, and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
 #
 # NOTE: this targets ./tests/e2e/go (the Ginkgo suite package) only, NOT
 # ./tests/e2e/go/... — the subpackages (profile, ibutil) hold plain `go test`
