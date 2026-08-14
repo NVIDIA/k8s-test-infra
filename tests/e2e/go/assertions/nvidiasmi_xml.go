@@ -4,99 +4,12 @@
 package assertions
 
 import (
-	"encoding/xml"
-	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 )
 
-// The `nvidia-smi -q -x` schema, shared by every assertion that reads it. The
-// XML is the machine-readable form of `-q`, so these checks match DTD element
-// names instead of the column layout of the human-readable table.
-//
-// This file carries no build tag on purpose — same rationale as gfd_labels.go:
-// decoding and comparing is pure, so it unit-tests without a cluster, while the
-// kubectl exec wrappers live in nvidiasmi.go under //go:build e2e.
-
-type nvidiaSMILog struct {
-	GPUs []nvidiaSMIGPU `xml:"gpu"`
-}
-
-// nvidiaSMIGPU holds the elements assertions read so far; add fields as more
-// are needed. Every reading is a string because nvidia-smi renders unsupported
-// queries as "N/A" in the same element that otherwise carries a number, and a
-// caller has to be able to tell those apart rather than see a zero.
-type nvidiaSMIGPU struct {
-	ID                       string               `xml:"id,attr"`
-	AccountingModeBufferSize string               `xml:"accounting_mode_buffer_size"`
-	EncoderStats             nvidiaSMIStatsBlock  `xml:"encoder_stats"`
-	FBCStats                 nvidiaSMIStatsBlock  `xml:"fbc_stats"`
-	Utilization              nvidiaSMIUtilization `xml:"utilization"`
-	Processes                struct {
-		Infos []nvidiaSMIProcessInfo `xml:"process_info"`
-	} `xml:"processes"`
-}
-
-type nvidiaSMIStatsBlock struct {
-	SessionCount   string `xml:"session_count"`
-	AverageFPS     string `xml:"average_fps"`
-	AverageLatency string `xml:"average_latency"`
-}
-
-type nvidiaSMIUtilization struct {
-	GPU     string `xml:"gpu_util"`
-	Memory  string `xml:"memory_util"`
-	Encoder string `xml:"encoder_util"`
-	Decoder string `xml:"decoder_util"`
-	JPEG    string `xml:"jpeg_util"`
-	OFA     string `xml:"ofa_util"`
-}
-
-type nvidiaSMIProcessInfo struct {
-	PID        int    `xml:"pid"`
-	Name       string `xml:"process_name"`
-	UsedMemory string `xml:"used_memory"`
-}
-
-// parseNvidiaSMIXML decodes `nvidia-smi -q -x` output. A document with no GPUs
-// is an error rather than an empty result: nvidia-smi can die mid-run and leave
-// a partial tree on stdout, and every caller would otherwise pass by having
-// nothing to check.
-func parseNvidiaSMIXML(out string) (nvidiaSMILog, error) {
-	var log nvidiaSMILog
-	if err := xml.Unmarshal([]byte(out), &log); err != nil {
-		return log, fmt.Errorf("parse nvidia-smi XML: %w", err)
-	}
-	if len(log.GPUs) == 0 {
-		return log, errors.New("nvidia-smi XML contains no GPUs")
-	}
-	return log, nil
-}
-
-// label names a GPU in assertion output, falling back to its position when
-// nvidia-smi emitted no id attribute.
-func (g nvidiaSMIGPU) label(index int) string {
-	if g.ID == "" {
-		return fmt.Sprintf("GPU %d", index)
-	}
-	return g.ID
-}
-
-// nvidiaSMIInteger reads the leading integer of an element body, which is how
-// nvidia-smi renders every quantity: "2", "35 %", "6000 MiB", "1500 us". "N/A"
-// and an empty body (absent element) both fail.
-func nvidiaSMIInteger(raw string) (int, bool) {
-	fields := strings.Fields(raw)
-	if len(fields) == 0 {
-		return 0, false
-	}
-	value, err := strconv.Atoi(fields[0])
-	if err != nil {
-		return 0, false
-	}
-	return value, true
-}
+// Assertions over the `nvidia-smi -q -x` document. The schema and the reading
+// accessors live in nvidiasmi_schema.go.
 
 // EncoderFBCStats are the non-default values issue #636 expects nvidia-smi to
 // surface.
@@ -171,22 +84,22 @@ func DiffJpgOfaUtilizationXML(out string, wantJPEG, wantOFA int) []string {
 	for i, gpu := range log.GPUs {
 		readings := []struct {
 			element string
-			raw     string
+			raw     reading
 			want    int
 		}{
 			{"jpeg_util", gpu.Utilization.JPEG, wantJPEG},
 			{"ofa_util", gpu.Utilization.OFA, wantOFA},
 		}
-		for _, reading := range readings {
-			pct, ok := nvidiaSMIInteger(reading.raw)
+		for _, r := range readings {
+			pct, ok := r.raw.intValue()
 			switch {
 			case !ok:
 				problems = append(problems, fmt.Sprintf(
 					"%s %s = %q, want %d %%; a non-numeric reading means the NVML getter is missing or unimplemented",
-					gpu.label(i), reading.element, reading.raw, reading.want))
-			case pct != reading.want:
+					gpu.label(i), r.element, string(r.raw), r.want))
+			case pct != r.want:
 				problems = append(problems, fmt.Sprintf("%s %s = %d %%, want %d %%",
-					gpu.label(i), reading.element, pct, reading.want))
+					gpu.label(i), r.element, pct, r.want))
 			}
 		}
 	}
