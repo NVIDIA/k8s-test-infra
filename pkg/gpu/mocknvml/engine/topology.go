@@ -139,6 +139,17 @@ func capBit(c nvml.NvLinkCapability) uint32 {
 	return uint32(1) << uint(c)
 }
 
+// resolveC2CEnabled reads the node-level nvlink.c2c_enabled flag. A missing
+// config, a missing nvlink block, and an explicit false are all "no C2C link";
+// GetMockC2cMode turns that into ERROR_NOT_SUPPORTED rather than a false
+// reading, so the distinction never reaches a consumer.
+func resolveC2CEnabled(cfg *Config) bool {
+	if cfg == nil || cfg.YAMLConfig == nil || cfg.YAMLConfig.NVLink == nil {
+		return false
+	}
+	return cfg.YAMLConfig.NVLink.C2CEnabled
+}
+
 // BuildNodeFabric constructs the immutable node fabric from the loaded
 // configuration. It never fails: misconfiguration is recorded as warnings
 // (see Validate) rather than blocking startup, matching the project's
@@ -165,6 +176,7 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 		cpusOf:     make([][]int, n),
 		now:        time.Now,
 		epoch:      resolveCounterEpoch(),
+		c2cEnabled: resolveC2CEnabled(cfg),
 	}
 	for i := 0; i < n; i++ {
 		f.nvCount[i] = make([]int, n)
@@ -175,9 +187,6 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 	var yc *YAMLConfig
 	if cfg != nil {
 		yc = cfg.YAMLConfig
-	}
-	if yc != nil && yc.NVLink != nil {
-		f.c2cEnabled = yc.NVLink.C2CEnabled
 	}
 
 	// Resolve per-device BDFs (the join key into the topology blocks).
