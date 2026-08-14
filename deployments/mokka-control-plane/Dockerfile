@@ -18,7 +18,7 @@
 # Kubernetes-idiomatic default for stateless services. Revisit if the CP later
 # needs CGO (for example for Redis TLS with a custom CA closure).
 
-ARG GOLANG_VERSION=1.26.5
+ARG GOLANG_VERSION=1.26.6
 FROM golang:${GOLANG_VERSION}-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
