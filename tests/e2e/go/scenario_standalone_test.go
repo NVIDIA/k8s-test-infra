@@ -12,6 +12,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions/nvidiasmi"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
@@ -72,7 +73,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 			})
 
 			It("reports the profile GPUs via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
-				assertions.NvidiaSMI(ctx, h.Kube, pod, p)
+				nvidiasmi.Inventory(ctx, h.Kube, pod, p)
 			})
 
 			It("reports architecture-correct temperature thresholds via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
@@ -80,7 +81,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				// rows; Ada+ keep T.Limit. Focus profiles called out there are
 				// a100 (ampere) and h100 (hopper); every selected profile is
 				// checked so a regression cannot hide behind E2E_PROFILES.
-				assertions.NvidiaSMITemperatureThresholds(ctx, h.Kube, pod, p)
+				nvidiasmi.TemperatureThresholds(ctx, h.Kube, pod, p)
 			})
 
 			It("reports configured encoder and FBC stats via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
@@ -95,7 +96,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				// points were generated stubs, so every configured value was
 				// dropped. First the deployed profile's own percentages, then
 				// distinct non-zero values pinned at runtime.
-				assertions.NvidiaSMIJpgOfaUtilization(ctx, h.Kube, pod, p.JPEGUtilizationPct(), p.OFAUtilizationPct())
+				nvidiasmi.JpgOfaUtilization(ctx, h.Kube, pod, p.JPEGUtilizationPct(), p.OFAUtilizationPct())
 				assertJpgOfaUtilizationOverride(ctx, h, pod)
 			})
 

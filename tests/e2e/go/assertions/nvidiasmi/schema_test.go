@@ -1,7 +1,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package assertions
+package nvidiasmi
 
 import (
 	"os"
@@ -66,16 +66,16 @@ func TestReading_FloatValueParsesPowerWatts(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestParseNvidiaSMIXML_DecodesCapturedAmpereDocument(t *testing.T) {
-	log, err := parseNvidiaSMIXML(loadFixture(t, "qx-a100-healthy.xml"))
+func TestParse_DecodesCapturedAmpereDocument(t *testing.T) {
+	doc, err := parse(loadFixture(t, "qx-a100-healthy.xml"))
 	require.NoError(t, err)
 
-	require.Len(t, log.GPUs, 2)
-	attached, ok := log.AttachedGPUs.intValue()
+	require.Len(t, doc.GPUs, 2)
+	attached, ok := doc.AttachedGPUs.intValue()
 	require.True(t, ok)
 	assert.Equal(t, 2, attached)
 
-	gpu := log.GPUs[0]
+	gpu := doc.GPUs[0]
 	assert.Equal(t, "NVIDIA A100-SXM4-40GB", string(gpu.ProductName))
 	assert.Equal(t, "Ampere", string(gpu.ProductArchitecture))
 	assert.Equal(t, "GPU-12345678-1234-1234-1234-123456780000", string(gpu.UUID))
@@ -89,11 +89,11 @@ func TestParseNvidiaSMIXML_DecodesCapturedAmpereDocument(t *testing.T) {
 	assert.False(t, gpu.Temperature.MaxTLimitThreshold.present())
 }
 
-func TestParseNvidiaSMIXML_DecodesCapturedBlackwellDocument(t *testing.T) {
-	log, err := parseNvidiaSMIXML(loadFixture(t, "qx-gb200-healthy.xml"))
+func TestParse_DecodesCapturedBlackwellDocument(t *testing.T) {
+	doc, err := parse(loadFixture(t, "qx-gb200-healthy.xml"))
 	require.NoError(t, err)
 
-	gpu := log.GPUs[0]
+	gpu := doc.GPUs[0]
 	assert.Equal(t, "NVIDIA GB200", string(gpu.ProductName))
 
 	// Blackwell replaces the absolute elements; they are absent, not N/A.
@@ -112,36 +112,36 @@ func TestParseNvidiaSMIXML_DecodesCapturedBlackwellDocument(t *testing.T) {
 // sm_clock appears under both <clocks> (the current clock) and <max_clocks>.
 // --query-gpu=clocks.sm reads the current one, so the schema must bind to
 // <clocks> and not pick up the maximum.
-func TestParseNvidiaSMIXML_BindsCurrentClocksNotMaximums(t *testing.T) {
-	log, err := parseNvidiaSMIXML(loadFixture(t, "qx-gb200-healthy.xml"))
+func TestParse_BindsCurrentClocksNotMaximums(t *testing.T) {
+	doc, err := parse(loadFixture(t, "qx-gb200-healthy.xml"))
 	require.NoError(t, err)
 
-	assert.Equal(t, "345 MHz", string(log.GPUs[0].Clocks.SMClock))
-	assert.Equal(t, "345 MHz", string(log.GPUs[0].Clocks.GraphicsClock))
+	assert.Equal(t, "345 MHz", string(doc.GPUs[0].Clocks.SMClock))
+	assert.Equal(t, "345 MHz", string(doc.GPUs[0].Clocks.GraphicsClock))
 }
 
 // average_power_draw also appears under gpu_memory_power_readings and
 // module_power_readings, where this profile reports N/A. Binding to the wrong
 // parent would make a healthy GPU look unreadable.
-func TestParseNvidiaSMIXML_BindsGPUPowerReadingsNotModulePower(t *testing.T) {
-	log, err := parseNvidiaSMIXML(loadFixture(t, "qx-gb200-healthy.xml"))
+func TestParse_BindsGPUPowerReadingsNotModulePower(t *testing.T) {
+	doc, err := parse(loadFixture(t, "qx-gb200-healthy.xml"))
 	require.NoError(t, err)
 
-	assert.Equal(t, "565.11 W", string(log.GPUs[0].PowerReadings.InstantPowerDraw))
-	assert.Equal(t, "618.35 W", string(log.GPUs[0].PowerReadings.AveragePowerDraw))
+	assert.Equal(t, "565.11 W", string(doc.GPUs[0].PowerReadings.InstantPowerDraw))
+	assert.Equal(t, "618.35 W", string(doc.GPUs[0].PowerReadings.AveragePowerDraw))
 }
 
-func TestParseNvidiaSMIXML_DecodesLostDeviceBodies(t *testing.T) {
-	log, err := parseNvidiaSMIXML(loadFixture(t, "qx-gb200-lost.xml"))
+func TestParse_DecodesLostDeviceBodies(t *testing.T) {
+	doc, err := parse(loadFixture(t, "qx-gb200-lost.xml"))
 	require.NoError(t, err)
 
-	require.Len(t, log.GPUs, 2)
-	assert.False(t, log.GPUs[0].Utilization.GPU.failed(), "GPU 0 is healthy in this fixture")
-	assert.True(t, log.GPUs[1].Utilization.GPU.failed(), "GPU 1 is lost in this fixture")
+	require.Len(t, doc.GPUs, 2)
+	assert.False(t, doc.GPUs[0].Utilization.GPU.failed(), "GPU 0 is healthy in this fixture")
+	assert.True(t, doc.GPUs[1].Utilization.GPU.failed(), "GPU 1 is lost in this fixture")
 }
 
-func TestParseNvidiaSMIXML_RejectsDocumentWithNoGPUs(t *testing.T) {
-	_, err := parseNvidiaSMIXML(`<?xml version="1.0" ?><nvidia_smi_log></nvidia_smi_log>`)
+func TestParse_RejectsDocumentWithNoGPUs(t *testing.T) {
+	_, err := parse(`<?xml version="1.0" ?><nvidia_smi_log></nvidia_smi_log>`)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no GPUs")
 }

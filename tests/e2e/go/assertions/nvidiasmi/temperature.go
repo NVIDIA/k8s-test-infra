@@ -1,16 +1,12 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package assertions
+package nvidiasmi
 
 import "fmt"
 
-// This file carries no build tag on purpose — same rationale as gfd_labels.go.
-// DiffTemperatureXML is pure decoding and comparison so it unit-tests without a
-// cluster; the kubectl exec wrapper lives in nvidiasmi.go under //go:build e2e.
-//
-// The thresholds are read from `nvidia-smi -q -x` rather than the human
-// `-q -d TEMPERATURE` table, because the XML encodes the same defect signal
+// The thresholds are read from the XML rather than the human
+// `-q -d TEMPERATURE` table because the XML encodes the same defect signal
 // structurally: nvidia-smi emits the absolute threshold elements on pre-Ada and
 // replaces them with *_tlimit_threshold on Ada and later. The unused set is
 // absent from the document, so "which rows appear" becomes "which elements are
@@ -20,7 +16,7 @@ import "fmt"
 // temperatures, so the Ada+ branch asserts presence only. The absolute branch
 // asserts the profile's configured values.
 
-// DiffTemperatureXML checks that a `nvidia-smi -q -x` document uses the
+// DiffTemperature checks that a `nvidia-smi -q -x` document uses the
 // architecture-correct threshold presentation for every GPU:
 //
 //   - pre-Ada (reportsTLimit=false): absolute gpu_temp_max_threshold,
@@ -34,14 +30,14 @@ import "fmt"
 // unsupported query looks like; a T.Limit element with a NUMBER on pre-Ada is
 // the defect (#635). Absolute thresholds must also never be negative or order
 // shutdown below slowdown — the impossible rendering the gate fixes.
-func DiffTemperatureXML(out string, reportsTLimit bool, shutdownC, slowdownC, maxOperatingC int) []string {
-	log, err := parseNvidiaSMIXML(out)
+func DiffTemperature(out string, reportsTLimit bool, shutdownC, slowdownC, maxOperatingC int) []string {
+	doc, err := parse(out)
 	if err != nil {
 		return []string{err.Error()}
 	}
 
 	var problems []string
-	for i, gpu := range log.GPUs {
+	for i, gpu := range doc.GPUs {
 		name := gpu.label(i)
 		if reportsTLimit {
 			problems = append(problems, diffTLimitTemperature(name, gpu.Temperature)...)
@@ -60,7 +56,7 @@ type namedReading struct {
 	raw     reading
 }
 
-func tlimitThresholds(t nvidiaSMITemperature) []namedReading {
+func tlimitThresholds(t temperature) []namedReading {
 	return []namedReading{
 		{"gpu_temp_max_tlimit_threshold", t.MaxTLimitThreshold},
 		{"gpu_temp_slow_tlimit_threshold", t.SlowTLimitThreshold},
@@ -68,7 +64,7 @@ func tlimitThresholds(t nvidiaSMITemperature) []namedReading {
 	}
 }
 
-func absoluteThresholds(t nvidiaSMITemperature) []namedReading {
+func absoluteThresholds(t temperature) []namedReading {
 	return []namedReading{
 		{"gpu_temp_max_threshold", t.MaxThreshold},
 		{"gpu_temp_slow_threshold", t.SlowThreshold},
@@ -76,7 +72,7 @@ func absoluteThresholds(t nvidiaSMITemperature) []namedReading {
 	}
 }
 
-func diffTLimitTemperature(name string, t nvidiaSMITemperature) []string {
+func diffTLimitTemperature(name string, t temperature) []string {
 	var problems []string
 	for _, r := range tlimitThresholds(t) {
 		if _, ok := r.raw.intValue(); !ok {
@@ -93,7 +89,7 @@ func diffTLimitTemperature(name string, t nvidiaSMITemperature) []string {
 	return problems
 }
 
-func diffAbsoluteTemperature(name string, t nvidiaSMITemperature, shutdownC, slowdownC, maxOperatingC int) []string {
+func diffAbsoluteTemperature(name string, t temperature, shutdownC, slowdownC, maxOperatingC int) []string {
 	want := []struct {
 		element string
 		raw     reading
@@ -128,7 +124,7 @@ func diffAbsoluteTemperature(name string, t nvidiaSMITemperature, shutdownC, slo
 	return append(problems, diffAbsoluteOrdering(name, t)...)
 }
 
-func diffAbsoluteOrdering(name string, t nvidiaSMITemperature) []string {
+func diffAbsoluteOrdering(name string, t temperature) []string {
 	var problems []string
 	shutdown, hasShutdown := t.MaxThreshold.intValue()
 	slowdown, hasSlowdown := t.SlowThreshold.intValue()

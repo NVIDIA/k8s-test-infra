@@ -15,7 +15,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions/nvidiasmi"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 )
@@ -84,9 +84,9 @@ func resetRuntimeOverrides(ctx SpecContext, h *harness.Harness) {
 // It asserts the exec and the decode, which is safe inside an Eventually: both
 // only fail when nvidia-smi itself is broken, and that is not something the
 // scenarios wait for.
-func smiGPU(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) assertions.GPUReadings {
+func smiGPU(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) nvidiasmi.GPU {
 	GinkgoHelper()
-	snap, err := assertions.GPUSnapshotFromPod(ctx, h.Kube, pod)
+	snap, err := nvidiasmi.SnapshotFromPod(ctx, h.Kube, pod)
 	Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x")
 	gpu, err := snap.GPU(idx)
 	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -q -x should describe GPU %d", idx)
@@ -172,7 +172,7 @@ func gpuFailed(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) bo
 // told from an all-GPU one, and so a failure message says which device.
 func gpuFailedList(ctx SpecContext, h *harness.Harness, pod kube.PodRef) []string {
 	GinkgoHelper()
-	snap, err := assertions.GPUSnapshotFromPod(ctx, h.Kube, pod)
+	snap, err := nvidiasmi.SnapshotFromPod(ctx, h.Kube, pod)
 	Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x")
 	return snap.FailedGPUs()
 }
@@ -180,7 +180,7 @@ func gpuFailedList(ctx SpecContext, h *harness.Harness, pod kube.PodRef) []strin
 // gpuCount reports how many GPUs the running pod describes in `-q -x`.
 func gpuCount(ctx SpecContext, h *harness.Harness, pod kube.PodRef) int {
 	GinkgoHelper()
-	snap, err := assertions.GPUSnapshotFromPod(ctx, h.Kube, pod)
+	snap, err := nvidiasmi.SnapshotFromPod(ctx, h.Kube, pod)
 	Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x")
 	return snap.Count()
 }
@@ -547,7 +547,7 @@ func assertJpgOfaUtilizationOverride(ctx SpecContext, h *harness.Harness, consum
 		if err != nil {
 			return []string{"nvidia-smi -q -x failed: " + res.Combined()}
 		}
-		return assertions.DiffJpgOfaUtilizationXML(res.Stdout, wantJPEG, wantOFA)
+		return nvidiasmi.DiffJpgOfaUtilization(res.Stdout, wantJPEG, wantOFA)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(BeEmpty(), "JPEG/OFA utilization should reflect the runtime override")
 
@@ -773,7 +773,7 @@ func assertRuntimeHealthyRecovery(ctx SpecContext, h *harness.Harness, consumer 
 }
 
 // smiProcesses returns the processes `nvidia-smi -q -x` reports for one GPU.
-func smiProcesses(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) []assertions.SMIProcess {
+func smiProcesses(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) []nvidiasmi.Process {
 	GinkgoHelper()
 	procs, err := smiGPU(ctx, h, pod, idx).Processes()
 	Expect(err).NotTo(HaveOccurred(), "decode GPU %d processes", idx)
@@ -784,7 +784,7 @@ func smiProcesses(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int)
 // `nvml-mock-ctl set`. There is no dedicated process subcommand: `set` accepts
 // any DeviceConfig path, and the value is parsed as YAML, so the whole list is
 // replaced in one call (an empty list clears it).
-func setRuntimeProcesses(ctx SpecContext, h *harness.Harness, idx int, procs []assertions.SMIProcess) {
+func setRuntimeProcesses(ctx SpecContext, h *harness.Harness, idx int, procs []nvidiasmi.Process) {
 	GinkgoHelper()
 	entries := make([]string, 0, len(procs))
 	for _, p := range procs {
@@ -818,7 +818,7 @@ func assertRuntimeProcesses(ctx SpecContext, h *harness.Harness, consumer kube.P
 	target := count - 1 // exercise a non-zero index where possible
 
 	// Modest memory values so the numbers stay plausible on every profile.
-	want := []assertions.SMIProcess{
+	want := []nvidiasmi.Process{
 		{PID: 4201, Name: "train.py", MemoryMiB: 1024},
 		{PID: 4202, Name: "infer.py", MemoryMiB: 512},
 		{PID: 4203, Name: "jupyter", MemoryMiB: 64},
@@ -835,7 +835,7 @@ func assertRuntimeProcesses(ctx SpecContext, h *harness.Harness, consumer kube.P
 	// run. That is the shape that faulted while a stray write in the internal
 	// export-table shim was reachable from calls that never carried a process
 	// buffer.
-	Eventually(func() []assertions.SMIProcess {
+	Eventually(func() []nvidiasmi.Process {
 		return smiProcesses(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Equal(want), "GPU %d should report every configured process with its pid, name and memory", target)
@@ -848,14 +848,14 @@ func assertRuntimeProcesses(ctx SpecContext, h *harness.Harness, consumer kube.P
 
 	By("clearing the list with an empty processes value removes them")
 	setRuntimeProcesses(ctx, h, target, nil)
-	Eventually(func() []assertions.SMIProcess {
+	Eventually(func() []nvidiasmi.Process {
 		return smiProcesses(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(BeEmpty(), "GPU %d should report no processes after processes=[]", target)
 
 	By("reset runtime overrides")
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
-	Eventually(func() []assertions.SMIProcess {
+	Eventually(func() []nvidiasmi.Process {
 		return smiProcesses(ctx, h, consumer, target)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(BeEmpty(), "GPU %d should still report no processes after reset", target)
@@ -957,7 +957,7 @@ func assertEncoderFBCAccounting(ctx SpecContext, h *harness.Harness, consumer ku
 		latency  = 1500
 		buffer   = 4000
 	)
-	stats := assertions.EncoderFBCStats{
+	stats := nvidiasmi.EncoderFBCStats{
 		SessionCount:     sessions,
 		AverageFPS:       fps,
 		AverageLatencyUS: latency,
@@ -979,7 +979,7 @@ func assertEncoderFBCAccounting(ctx SpecContext, h *harness.Harness, consumer ku
 		if err != nil {
 			return fmt.Errorf("nvidia-smi -q -x: %w: %s", err, res.Combined())
 		}
-		if problems := assertions.DiffEncoderFBCXML(res.Stdout, stats, stats, buffer); len(problems) > 0 {
+		if problems := nvidiasmi.DiffEncoderFBC(res.Stdout, stats, stats, buffer); len(problems) > 0 {
 			return errors.New(strings.Join(problems, "\n"))
 		}
 		return nil

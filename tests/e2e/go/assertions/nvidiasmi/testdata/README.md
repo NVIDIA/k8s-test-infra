@@ -30,5 +30,4 @@ For the lost and ECC variants, inject first and wait out the 30 s override TTL:
 Then trim to two GPUs, keeping the header and the first two `<gpu>` blocks and
 rewriting `attached_gpus` to 2.
 
-A driver bump can rename elements. `nvidiasmi_schema.go` is the only place that
-names them.
+A driver bump can rename elements. `schema.go` is the only place that names them.

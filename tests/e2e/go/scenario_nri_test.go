@@ -17,6 +17,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions/nvidiasmi"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assets"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
@@ -1104,7 +1105,7 @@ func allocatedGPUUUID(ctx context.Context, h *harness.Harness, pod kube.PodRef) 
 // nvidia-smi's own GPU order — the order its --id indices refer to.
 func visibleGPUUUIDs(ctx context.Context, h *harness.Harness, pod kube.PodRef) []string {
 	GinkgoHelper()
-	snap, err := assertions.GPUSnapshotFromPod(ctx, h.Kube, pod)
+	snap, err := nvidiasmi.SnapshotFromPod(ctx, h.Kube, pod)
 	Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x in %s", pod.Pod)
 	return snap.UUIDs()
 }
@@ -1112,7 +1113,7 @@ func visibleGPUUUIDs(ctx context.Context, h *harness.Harness, pod kube.PodRef) [
 // visibleGPUCount reports how many GPUs nvidia-smi describes inside the pod.
 func visibleGPUCount(ctx context.Context, h *harness.Harness, pod kube.PodRef) int {
 	GinkgoHelper()
-	snap, err := assertions.GPUSnapshotFromPod(ctx, h.Kube, pod)
+	snap, err := nvidiasmi.SnapshotFromPod(ctx, h.Kube, pod)
 	Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x in %s", pod.Pod)
 	return snap.Count()
 }

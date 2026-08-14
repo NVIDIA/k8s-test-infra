@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions/nvidiasmi"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
@@ -107,9 +108,9 @@ func assertConfigContains(ctx SpecContext, h *harness.Harness, needle string) {
 // verdict all come from the same exec, and unlike the CSV queries it replaces,
 // an nvidia-smi that fails outright is reported instead of being read as a
 // document with no errors in it.
-func gpuSnapshot(ctx SpecContext, h *harness.Harness, pod kube.PodRef) assertions.GPUSnapshot {
+func gpuSnapshot(ctx SpecContext, h *harness.Harness, pod kube.PodRef) nvidiasmi.Snapshot {
 	GinkgoHelper()
-	snap, err := assertions.GPUSnapshotFromPod(ctx, h.Kube, pod)
+	snap, err := nvidiasmi.SnapshotFromPod(ctx, h.Kube, pod)
 	Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x")
 	return snap
 }
