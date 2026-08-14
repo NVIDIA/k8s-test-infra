@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - CI no longer depends on the third-party `ttl.sh` registry to share e2e images
   between jobs. The nvml-mock and kind-node images are exported as tarballs and
-  handed to every leg as run-scoped GitHub Actions artifacts, which need no
+  handed to the legs that need them as run-scoped GitHub Actions artifacts, which need no
   credentials (fork PRs keep working) and remove a single-attempt external
   dependency that could fail the whole matrix. Digest pinning went with it:
   artifacts are immutable and scoped to the run, so there is no tag-overwrite

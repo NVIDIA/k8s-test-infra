@@ -319,7 +319,7 @@ The workflow:
    retention — long enough to re-run an individual failed leg). Artifacts need
    no registry credentials, so this works on fork PRs without depending on a
    third-party registry.
-3. Makes every leg `needs: build-nvmlmock-image` and load the artifact into its
+3. Makes every leg `needs: build-nvmlmock-image` and loads the artifact into its
    Docker daemon via
    [`load-image-artifact`](../../.github/actions/load-image-artifact/action.yml),
    which asserts the expected ref is present afterwards. `E2E_SKIP_BUILD=true`
