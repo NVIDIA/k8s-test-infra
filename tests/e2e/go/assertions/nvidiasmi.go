@@ -18,43 +18,31 @@ import (
 )
 
 // NvidiaSMI ports validate-nvidia-smi.sh through `kubectl exec`: nvidia-smi
-// must run in the nvml-mock pod, and `-L` must list the profile's full device
-// name and exactly ExpectedGPUs entries.
+// must run in the nvml-mock pod, and the `-q -x` document must describe the
+// profile's full device name and exactly ExpectedGPUs entries.
 func NvidiaSMI(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
 	ginkgo.GinkgoHelper()
 
+	// The bare invocation renders the human table, a code path -q -x never
+	// exercises. Only its exit status is checked; everything below reads the
+	// machine-readable document instead.
 	ginkgo.By("nvidia-smi default output")
 	res, err := k.Exec(ctx, pod, "nvidia-smi")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvidia-smi exited with error: %s", res.Combined())
 
-	ginkgo.By(fmt.Sprintf("nvidia-smi -L lists %d GPUs named %q", p.ExpectedGPUs(), p.DisplayName))
-	res, err = k.Exec(ctx, pod, "nvidia-smi", "-L")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvidia-smi -L exited with error: %s", res.Combined())
-	out := res.Combined()
-	gomega.Expect(out).To(gomega.ContainSubstring(p.DisplayName),
-		"GPU name %q not found in nvidia-smi -L", p.DisplayName)
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x describes %d GPUs named %q", p.ExpectedGPUs(), p.DisplayName))
+	res, err = k.ExecQuiet(ctx, pod, "nvidia-smi", "-q", "-x")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvidia-smi -q -x exited with error: %s", res.Combined())
+	out := res.Stdout
 
-	count := countLinesWithPrefix(out, "GPU")
-	gomega.Expect(count).To(gomega.Equal(p.ExpectedGPUs()),
-		"nvidia-smi -L GPU count\n%s", strings.TrimSpace(out))
+	problems := DiffInventoryXML(out, p.DisplayName, p.ExpectedGPUs())
+	gomega.Expect(problems).To(gomega.BeEmpty(), "nvidia-smi inventory wrong:\n%s",
+		strings.Join(problems, "\n"))
 
-	// Regression guard: with no processes configured, the process-detail-list
-	// path (used by `-q` and `--query-compute-apps`) must report none. A prior
-	// bug had the internal export-table stub return SUCCESS without zeroing the
-	// caller's count, so nvidia-smi rendered its uninitialized buffer as
-	// hundreds of phantom processes (PID 0). --format=csv,noheader yields one
-	// line per process, so a clean GPU produces empty output.
-	ginkgo.By("nvidia-smi --query-compute-apps reports no phantom processes")
-	res, err = k.Exec(ctx, pod, "nvidia-smi", "--query-compute-apps=pid,used_memory", "--format=csv,noheader")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvidia-smi --query-compute-apps exited with error: %s", res.Combined())
-	gomega.Expect(strings.TrimSpace(res.Combined())).To(gomega.BeEmpty(),
-		"expected no compute-apps, got phantom processes:\n%s", res.Combined())
-
-	ginkgo.By("nvidia-smi -q reports no phantom processes")
-	res, err = k.Exec(ctx, pod, "nvidia-smi", "-q")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "nvidia-smi -q exited with error: %s", res.Combined())
-	gomega.Expect(countMatches(res.Combined(), `(?m)^\s*Process ID\b`)).To(gomega.Equal(0),
-		"expected no per-process entries in nvidia-smi -q")
+	ginkgo.By("nvidia-smi -q -x reports no phantom processes")
+	problems = DiffNoProcessesXML(out)
+	gomega.Expect(problems).To(gomega.BeEmpty(), "phantom processes:\n%s",
+		strings.Join(problems, "\n"))
 }
 
 // NvidiaSMIJpgOfaUtilization asserts nvidia-smi -q -x reports the given JPEG
@@ -68,7 +56,7 @@ func NvidiaSMIJpgOfaUtilization(ctx context.Context, k *kube.Client, pod kube.Po
 	// -x rather than `-q -d UTILIZATION`: the XML is nvidia-smi's
 	// machine-readable contract, so the assertion keys off DTD element names
 	// instead of the human table's column layout. -d cannot be combined with -x.
-	res, err := k.Exec(ctx, pod, "nvidia-smi", "-q", "-x")
+	res, err := k.ExecQuiet(ctx, pod, "nvidia-smi", "-q", "-x")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 		"nvidia-smi -q -x exited with error: %s", res.Combined())
 	out := res.Stdout
@@ -87,7 +75,7 @@ func NvidiaSMITemperatureThresholds(ctx context.Context, k *kube.Client, pod kub
 
 	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x temperature thresholds on %s (arch=%s, tlimit=%v)",
 		p.Name, p.Architecture(), p.ReportsTLimitTemp()))
-	res, err := k.Exec(ctx, pod, "nvidia-smi", "-q", "-x")
+	res, err := k.ExecQuiet(ctx, pod, "nvidia-smi", "-q", "-x")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 		"nvidia-smi -q -x exited with error: %s", res.Combined())
 
@@ -107,10 +95,22 @@ func NvidiaSMIEncoderFBCAccounting(ctx context.Context, k *kube.Client, pod kube
 
 	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x encoder/fbc/accounting (sessions=%d fps=%d latency=%d buffer=%d)",
 		encoder.SessionCount, encoder.AverageFPS, encoder.AverageLatencyUS, accountingBufferSize))
-	res, err := k.Exec(ctx, pod, "nvidia-smi", "-q", "-x")
+	res, err := k.ExecQuiet(ctx, pod, "nvidia-smi", "-q", "-x")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 		"nvidia-smi -q -x exited with error: %s", res.Combined())
 
 	gomega.Expect(ValidateNvidiaSMIEncoderFBCXML(res.Stdout, encoder, fbc, accountingBufferSize)).
-		To(gomega.Succeed(), "encoder/FBC/accounting query wrong:\n%s", res.Combined())
+		To(gomega.Succeed(), "encoder/FBC/accounting query wrong")
+}
+
+// GPUSnapshotFromPod execs `nvidia-smi -q -x` in pod and decodes it. It returns
+// an error rather than asserting, so pollers can retry; the combined output is
+// folded into the error because a failed exec has no document to report.
+// ExecQuiet keeps the ~90 KB document out of the Ginkgo log on every poll.
+func GPUSnapshotFromPod(ctx context.Context, k *kube.Client, pod kube.PodRef) (GPUSnapshot, error) {
+	res, err := k.ExecQuiet(ctx, pod, "nvidia-smi", "-q", "-x")
+	if err != nil {
+		return GPUSnapshot{}, fmt.Errorf("nvidia-smi -q -x: %w: %s", err, res.Combined())
+	}
+	return ParseGPUSnapshot(res.Stdout)
 }
