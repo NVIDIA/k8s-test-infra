@@ -41,7 +41,7 @@ def _split_image(ref):
         fail('--nvmlmock-image=%s is a digest ref; the nvml-mock chart only supports repo:tag' % ref)
     colon = ref.rfind(':')
     # No colon at all, or the last colon is inside the registry (before the
-    # last '/'), means there's no tag — e.g. 'ttl.sh/foo' or 'reg:5000/foo'.
+    # last '/'), means there's no tag — e.g. 'ghcr.io/foo' or 'reg:5000/foo'.
     if colon < 0 or colon < ref.rfind('/'):
         fail('--nvmlmock-image=%s must be repo:tag' % ref)
     return ref[:colon], ref[colon+1:]

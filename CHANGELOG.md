@@ -35,7 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   credentials (fork PRs keep working) and remove a single-attempt external
   dependency that could fail the whole matrix. Digest pinning went with it:
   artifacts are immutable and scoped to the run, so there is no tag-overwrite
-  surface to defend against. (#566)
+  surface to defend against. `deployments/kind-nvidia-cdi/Makefile` drops its
+  `ttl.sh` default too: `make build` now tags `kind-nvidia-cdi:local` in the
+  local docker daemon, which is all `kind create cluster --image` reads, and
+  `make push` requires a registry-qualified `IMAGE`. (#566)
 - The ComputeDomain demo now runs real IMEX as a separate, ordinary workload;
   NRI supplies its mock NVML overlay, per-node topology, and annotated channel
   devices. Reruns deterministically reuse only compatible NRI-enabled Kind
