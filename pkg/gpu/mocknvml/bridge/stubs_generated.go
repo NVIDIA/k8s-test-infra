@@ -134,11 +134,6 @@ func nvmlDeviceGetBusType(device C.nvmlDevice_t, _type *C.nvmlBusType_t) C.nvmlR
 	return stubReturn("nvmlDeviceGetBusType")
 }
 
-//export nvmlDeviceGetC2cModeInfoV
-func nvmlDeviceGetC2cModeInfoV(device C.nvmlDevice_t, c2cModeInfo *C.nvmlC2cModeInfo_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetC2cModeInfoV")
-}
-
 //export nvmlDeviceGetCapabilities
 func nvmlDeviceGetCapabilities(device C.nvmlDevice_t, caps *C.nvmlDeviceCapabilities_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetCapabilities")

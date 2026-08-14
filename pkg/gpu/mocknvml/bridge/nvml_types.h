@@ -243,7 +243,15 @@ typedef struct nvmlBAR1Memory_st
 } nvmlBAR1Memory_t;
 typedef struct nvmlBridgeChipHierarchy_st                   nvmlBridgeChipHierarchy_t;
 typedef struct nvmlBusType_st                               nvmlBusType_t;
-typedef struct nvmlC2cModeInfo_v1_st                        nvmlC2cModeInfo_v1_t;
+/**
+ * C2C Mode information for a device. A single field with no version tag:
+ * unlike nvmlGpuFabricInfoV_t the caller passes no version, so
+ * nvmlDeviceGetC2cModeInfoV needs no version dispatch.
+ */
+typedef struct nvmlC2cModeInfo_v1_st
+{
+    unsigned int isC2cEnabled;
+} nvmlC2cModeInfo_v1_t;
 typedef struct nvmlClkMonStatus_st                          nvmlClkMonStatus_t;
 typedef struct nvmlClockOffset_st                           nvmlClockOffset_t;
 typedef struct nvmlComputeInstanceInfo_st                   nvmlComputeInstanceInfo_t;
