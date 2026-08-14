@@ -17,19 +17,20 @@
 # entrypoint (`make e2e`) that runs identically locally and here. Jobs mirror the
 # legacy nvml-mock E2E workflow and select the related Go scenario by label.
 #
-# Image distribution: a single `build-nvmlmock-imagebuild-nvmlmock-image` job builds the nvml-mock image once
-# and pushes it to the ephemeral, auth-free ttl.sh registry (works on fork PRs)
-# as E2E_IMAGE (24h TTL). Every leg then pulls that image by digest (immune to
-# tag overwrite on the anonymous registry), tags it to E2E_IMAGE, and the harness
-# kind-loads it (E2E_SKIP_BUILD=true) instead of rebuilding per leg.
+# Image distribution: a single `build-nvmlmock-image` job builds the nvml-mock
+# image once, exports it to a tarball and uploads it as a run-scoped artifact.
+# Every leg loads that artifact into its Docker daemon (see
+# .github/actions/load-image-artifact) and the harness kind-loads it
+# (E2E_SKIP_BUILD=true) rather than rebuilding per leg. Artifacts need no
+# credentials, so fork PRs work, and no third-party registry can fail the
+# matrix (see issue #566).
 #
 # Kind node image: the standalone `e2e` pilot uses `make cluster-create` (same
 # as local dev), which needs a custom kind-node image with nvidia-container-
-# toolkit pre-baked. A parallel `build-kind-node` job builds and pushes that
-# image to ttl.sh once per commit; the standalone leg pulls by digest, retags
-# to kind-node-nv:latest, and sets KIND_NODE_IMAGE_PREBUILT so `make image-
-# kind-node` is a no-op. Same "build once, share via ttl.sh" pattern as
-# nvml-mock. Other jobs still use kindest/node directly and don't need this.
+# toolkit pre-baked. A parallel `build-kind-node-image` job builds and shares
+# that image the same way; the standalone leg loads it as kind-node-nv:latest
+# and sets KIND_NODE_IMAGE_PREBUILT so `make image-kind-node` is a no-op. Other
+# jobs still use kindest/node directly and don't need this.
 name: nvml-mock E2E (Go)
 
 concurrency:
@@ -118,16 +119,14 @@ jobs:
           retention-days: 1
 
   # Build the custom kind-node image (kindest/node + nvidia-container-toolkit)
-  # once per commit for the standalone `e2e` pilot. Same ttl.sh distribution
-  # pattern as `build-nvmlmock-image` above — the pilot leg pulls by digest and retags
-  # locally to kind-node-nv:latest, then `make cluster-create` sees it and
-  # skips the rebuild (KIND_NODE_IMAGE_PREBUILT=1 in the env). Runs in
-  # parallel with `build-nvmlmock-image`; independent scope on the GHA cache so the
-  # two jobs don't contend for the same key.
+  # once per commit for the standalone `e2e` pilot, and share it the same way
+  # as build-nvmlmock-image: tarball + run-scoped artifact. The pilot leg loads
+  # it as kind-node-nv:latest, then `make cluster-create` sees the ref and skips
+  # the rebuild (KIND_NODE_IMAGE_PREBUILT=1 in the leg's env). Runs in parallel
+  # with build-nvmlmock-image; independent GHA cache scope so the two jobs don't
+  # contend for the same key. Other jobs use kindest/node directly.
   build-kind-node-image:
     runs-on: ubuntu-latest
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -135,15 +134,24 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
-      - name: Build and push kind-node image to ttl.sh
-        id: build
+      - name: Build kind-node image to a tarball
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: ./deployments/kind-nvidia-cdi
-          tags: ttl.sh/kind-node-nv-${{ github.sha }}:24h
-          push: true
+          # Tag the ref `make image-kind-node` expects, so loading the tarball
+          # is all a consumer has to do.
+          tags: kind-node-nv:latest
+          push: false
+          outputs: type=docker,dest=${{ runner.temp }}/kind-node-nv.tar
           cache-from: type=gha,scope=kind-node
           cache-to: type=gha,mode=max,scope=kind-node
+
+      - name: Upload kind-node image artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}/kind-node-nv.tar
+          retention-days: 1
 
   # TODO: The standalone `e2e` job uses `make cluster-create` +
   # `tilt ci` for the cluster provisioning and nvml-mock rollout, mirroring the
@@ -184,21 +192,18 @@ jobs:
             | sudo tar -xzC /usr/local/bin tilt
           tilt version
 
-      - name: Pull pre-built kind-node image from ttl.sh (pinned by digest)
-        run: |
-          # Same content-addressed pull pattern as nvml-mock: pin by digest so
-          # anonymous ttl.sh tag overwrites cannot substitute a different image
-          # between the build-kind-node push and this pull. Re-tag to the local
-          # ref `make cluster-create` expects (kind-node-nv:latest).
-          pinned="ttl.sh/kind-node-nv-${{ github.sha }}@${{ needs.build-kind-node-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" kind-node-nv:latest
+      - name: Load pre-built kind-node image
+        uses: ./.github/actions/load-image-artifact
+        with:
+          artifact: kind-node-image
+          image: kind-node-nv:latest
 
       - name: Create Kind cluster (make cluster-create)
         # Uses local/kind/default.kind.yaml (1 CP + 2 workers, a100 / t4). Same
         # command a laptop dev runs — cluster name is `mokka`, context is
         # kind-mokka. KIND_NODE_IMAGE_PREBUILT tells the Makefile to skip
-        # the local `docker build` and trust the tag we just staged from ttl.sh.
+        # the local `docker build` and trust the tag we just loaded from the
+        # kind-node-image artifact.
         env:
           KIND_NODE_IMAGE_PREBUILT: "1"
         run: make cluster-create
