@@ -33,7 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   between jobs. The nvml-mock and kind-node images are exported as tarballs and
   handed to the legs that need them as run-scoped GitHub Actions artifacts, which need no
   credentials (fork PRs keep working) and remove a single-attempt external
-  dependency that could fail the whole matrix. Digest pinning went with it:
+  dependency that could fail the whole matrix. Each leg stages its tarball with
+  a new `make image-load TARBALL=<tar> IMAGE=<repo:tag>` target, so the step is
+  reproducible outside CI. Digest pinning went with it:
   artifacts are immutable and scoped to the run, so there is no tag-overwrite
   surface to defend against. `deployments/kind-nvidia-cdi/Makefile` drops its
   `ttl.sh` default too: `make build` now tags `kind-nvidia-cdi:local` in the

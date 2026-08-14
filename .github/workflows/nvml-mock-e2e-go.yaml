@@ -19,11 +19,10 @@
 #
 # Image distribution: a single `build-nvmlmock-image` job builds the nvml-mock
 # image once, exports it to a tarball and uploads it as a run-scoped artifact.
-# Every leg loads that artifact into its Docker daemon (see
-# .github/actions/load-image-artifact) and the harness kind-loads it
-# (E2E_SKIP_BUILD=true) rather than rebuilding per leg. Artifacts need no
-# credentials, so fork PRs work, and no third-party registry can fail the
-# matrix (see issue #566).
+# Every leg downloads that artifact, stages it with `make image-load`, and the
+# harness kind-loads it (E2E_SKIP_BUILD=true) rather than rebuilding per leg.
+# Artifacts need no credentials, so fork PRs work, and no third-party registry
+# can fail the matrix (see issue #566).
 #
 # Kind node image: the standalone `e2e` pilot uses `make cluster-create` (same
 # as local dev), which needs a custom kind-node image with nvidia-container-
@@ -76,6 +75,11 @@ env:
   # only ever reaches a node via `kind load`, and the chart's IfNotPresent pull
   # policy means kubelet never tries to fetch it.
   E2E_IMAGE: nvml-mock:e2e
+  # Tarball basenames the build jobs write and every consumer reconstructs under
+  # RUNNER_TEMP after downloading. Kept here so producer and consumers cannot
+  # drift apart on the filename.
+  NVMLMOCK_TARBALL: nvml-mock.tar
+  KIND_NODE_TARBALL: kind-node-nv.tar
   E2E_SKIP_BUILD: "true"
   E2E_ARTIFACTS: ${{ github.workspace }}/artifacts/e2e/go
 
@@ -102,7 +106,7 @@ jobs:
           push: false
           # type=docker bakes the tag into the tarball, so a plain `docker load`
           # in each leg yields E2E_IMAGE with no re-tagging.
-          outputs: type=docker,dest=${{ runner.temp }}/nvml-mock.tar
+          outputs: type=docker,dest=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }}
           build-args: |
             GOLANG_VERSION=${{ env.GO_VERSION }}
           cache-from: type=gha,scope=nvml-mock
@@ -112,7 +116,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: nvml-mock-image
-          path: ${{ runner.temp }}/nvml-mock.tar
+          path: ${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }}
           # One day is the shortest retention GitHub allows and is long enough
           # to re-run a single failed leg.
           retention-days: 1
@@ -147,7 +151,7 @@ jobs:
           # is all a consumer has to do.
           tags: kind-node-nv:latest
           push: false
-          outputs: type=docker,dest=${{ runner.temp }}/kind-node-nv.tar
+          outputs: type=docker,dest=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }}
           cache-from: type=gha,scope=kind-node
           cache-to: type=gha,mode=max,scope=kind-node
 
@@ -155,7 +159,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: kind-node-image
-          path: ${{ runner.temp }}/kind-node-nv.tar
+          path: ${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }}
           retention-days: 1
           # Artifacts are keyed per run, so a re-run would otherwise collide
           # with the previous attempt's upload.
@@ -203,11 +207,14 @@ jobs:
             | sudo tar -xzC /usr/local/bin tilt
           tilt version
 
-      - name: Load pre-built kind-node image
-        uses: ./.github/actions/load-image-artifact
+      - name: Download pre-built kind-node image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          artifact: kind-node-image
-          image: kind-node-nv:latest
+          name: kind-node-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Create Kind cluster (make cluster-create)
         # Uses local/kind/default.kind.yaml (1 CP + 2 workers, a100 / t4). Same
@@ -219,11 +226,14 @@ jobs:
           KIND_NODE_IMAGE_PREBUILT: "1"
         run: make cluster-create
 
-      - name: Load pre-built nvml-mock image
-        uses: ./.github/actions/load-image-artifact
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          artifact: nvml-mock-image
-          image: ${{ env.E2E_IMAGE }}
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
 
       - name: Load nvml-mock image into Kind
         run: kind load docker-image "$E2E_IMAGE" --name mokka
@@ -282,11 +292,14 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Load pre-built nvml-mock image
-        uses: ./.github/actions/load-image-artifact
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          artifact: nvml-mock-image
-          image: ${{ env.E2E_IMAGE }}
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
 
       - name: Install Kind
         run: |
@@ -332,11 +345,14 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Load pre-built nvml-mock image
-        uses: ./.github/actions/load-image-artifact
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          artifact: nvml-mock-image
-          image: ${{ env.E2E_IMAGE }}
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
 
       - name: Install Kind
         run: |
@@ -378,11 +394,14 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Load pre-built nvml-mock image
-        uses: ./.github/actions/load-image-artifact
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          artifact: nvml-mock-image
-          image: ${{ env.E2E_IMAGE }}
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
 
       - name: Install Kind
         run: |
@@ -426,11 +445,14 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Load pre-built nvml-mock image
-        uses: ./.github/actions/load-image-artifact
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          artifact: nvml-mock-image
-          image: ${{ env.E2E_IMAGE }}
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
 
       - name: Install Kind
         run: |
@@ -482,11 +504,14 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Load pre-built nvml-mock image
-        uses: ./.github/actions/load-image-artifact
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          artifact: nvml-mock-image
-          image: ${{ env.E2E_IMAGE }}
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
 
       - name: Install Kind
         run: |

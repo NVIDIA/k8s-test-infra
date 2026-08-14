@@ -319,11 +319,10 @@ The workflow:
    retention — long enough to re-run an individual failed leg). Artifacts need
    no registry credentials, so this works on fork PRs without depending on a
    third-party registry.
-3. Makes every leg `needs: build-nvmlmock-image` and loads the artifact into its
-   Docker daemon via
-   [`load-image-artifact`](../../.github/actions/load-image-artifact/action.yml),
-   which asserts the expected ref is present afterwards. `E2E_SKIP_BUILD=true`
-   then has the harness Kind-load that image instead of rebuilding per leg.
+3. Makes every leg `needs: build-nvmlmock-image`, downloads the artifact and
+   loads it into the leg's Docker daemon with `make image-load`, which asserts
+   the expected ref is present afterwards. `E2E_SKIP_BUILD=true` then has the
+   harness Kind-load that image instead of rebuilding per leg.
 4. Runs one GPU profile per matrix job.
 5. Prints collected diagnostics if the job fails.
 
