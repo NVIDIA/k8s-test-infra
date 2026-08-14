@@ -374,7 +374,9 @@ nvlink:
 on every attached GPU: `true` reports `Enabled`, while `false` or an absent key
 reports `N/A` — never `Disabled`, because NVML answers
 `NVML_ERROR_NOT_SUPPORTED`, the correct reading for a board with no NVLink-C2C
-link to a host CPU. Only the Grace-Blackwell profiles (`gb200`, `gb300`) set it.
+link to a host CPU. Only `gb200` and `gb300` enable it. This is the only key that
+drives the row: `device_defaults.features.nvlink_c2c` is descriptive metadata and
+is not read.
 
 ### NVLink error injection (per device)
 

@@ -159,15 +159,15 @@ func TestAll(t *testing.T) {
 // link; every other shipped profile must report false, including b200, which is
 // Blackwell but has no Grace CPU. Without this, a profile-derived e2e
 // expectation could quietly become "always Enabled". See issue #639.
+//
+// Driven from KnownProfiles so a newly added profile has to declare which side
+// it belongs on rather than defaulting into the untested one.
 func TestC2CIsGraceOnly(t *testing.T) {
-	for _, name := range []string{"gb200", "gb300"} {
+	graceProfiles := map[string]bool{"gb200": true, "gb300": true}
+	for _, name := range KnownProfiles {
 		p, err := Load(profilesDir, name)
 		require.NoError(t, err, "Load(%q)", name)
-		require.True(t, p.C2CEnabled(), "%s declares nvlink.c2c_enabled", name)
-	}
-	for _, name := range []string{"a100", "h100", "b200", "l40s", "t4"} {
-		p, err := Load(profilesDir, name)
-		require.NoError(t, err, "Load(%q)", name)
-		require.False(t, p.C2CEnabled(), "%s must not declare C2C", name)
+		require.Equal(t, graceProfiles[name], p.C2CEnabled(),
+			"%s: nvlink.c2c_enabled should be %v", name, graceProfiles[name])
 	}
 }
