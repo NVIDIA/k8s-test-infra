@@ -6,6 +6,7 @@
 package e2e
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -972,12 +973,16 @@ func assertEncoderFBCAccounting(ctx SpecContext, h *harness.Harness, consumer ku
 		"fbc_stats.average_latency_us="+strconv.Itoa(latency),
 	)
 
+	// ExecQuiet keeps the ~90 KB document out of the Ginkgo log on every poll.
 	Eventually(func() error {
-		res, err := h.Kube.Exec(ctx, consumer, "nvidia-smi", "-q", "-x")
+		res, err := h.Kube.ExecQuiet(ctx, consumer, "nvidia-smi", "-q", "-x")
 		if err != nil {
 			return fmt.Errorf("nvidia-smi -q -x: %w: %s", err, res.Combined())
 		}
-		return assertions.ValidateNvidiaSMIEncoderFBCXML(res.Stdout, stats, stats, buffer)
+		if problems := assertions.DiffEncoderFBCXML(res.Stdout, stats, stats, buffer); len(problems) > 0 {
+			return errors.New(strings.Join(problems, "\n"))
+		}
+		return nil
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(Succeed(), "encoder/FBC/accounting must reflect the runtime override")
 

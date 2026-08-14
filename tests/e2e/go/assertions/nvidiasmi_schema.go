@@ -103,7 +103,7 @@ type nvidiaSMIGPU struct {
 	FanSpeed                 reading                `xml:"fan_speed"`
 	PerformanceState         reading                `xml:"performance_state"`
 	FBMemoryUsage            nvidiaSMIMemoryUsage   `xml:"fb_memory_usage"`
-	AccountingModeBufferSize string                 `xml:"accounting_mode_buffer_size"`
+	AccountingModeBufferSize reading                `xml:"accounting_mode_buffer_size"`
 	EncoderStats             nvidiaSMIStatsBlock    `xml:"encoder_stats"`
 	FBCStats                 nvidiaSMIStatsBlock    `xml:"fbc_stats"`
 	Utilization              nvidiaSMIUtilization   `xml:"utilization"`
@@ -128,9 +128,9 @@ type nvidiaSMIMemoryUsage struct {
 }
 
 type nvidiaSMIStatsBlock struct {
-	SessionCount   string `xml:"session_count"`
-	AverageFPS     string `xml:"average_fps"`
-	AverageLatency string `xml:"average_latency"`
+	SessionCount   reading `xml:"session_count"`
+	AverageFPS     reading `xml:"average_fps"`
+	AverageLatency reading `xml:"average_latency"`
 }
 
 type nvidiaSMIUtilization struct {
@@ -201,9 +201,9 @@ type nvidiaSMIEventReasons struct {
 }
 
 type nvidiaSMIProcessInfo struct {
-	PID        int    `xml:"pid"`
-	Name       string `xml:"process_name"`
-	UsedMemory string `xml:"used_memory"`
+	PID        int     `xml:"pid"`
+	Name       string  `xml:"process_name"`
+	UsedMemory reading `xml:"used_memory"`
 }
 
 // parseNvidiaSMIXML decodes `nvidia-smi -q -x` output. A document with no GPUs
@@ -229,7 +229,3 @@ func (g nvidiaSMIGPU) label(index int) string {
 	}
 	return g.ID
 }
-
-// nvidiaSMIInteger is the reading accessor for callers holding a plain string
-// element body.
-func nvidiaSMIInteger(raw string) (int, bool) { return reading(raw).intValue() }

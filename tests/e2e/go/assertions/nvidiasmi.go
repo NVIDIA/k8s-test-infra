@@ -99,8 +99,9 @@ func NvidiaSMIEncoderFBCAccounting(ctx context.Context, k *kube.Client, pod kube
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
 		"nvidia-smi -q -x exited with error: %s", res.Combined())
 
-	gomega.Expect(ValidateNvidiaSMIEncoderFBCXML(res.Stdout, encoder, fbc, accountingBufferSize)).
-		To(gomega.Succeed(), "encoder/FBC/accounting query wrong")
+	problems := DiffEncoderFBCXML(res.Stdout, encoder, fbc, accountingBufferSize)
+	gomega.Expect(problems).To(gomega.BeEmpty(), "encoder/FBC/accounting readings wrong:\n%s",
+		strings.Join(problems, "\n"))
 }
 
 // GPUSnapshotFromPod execs `nvidia-smi -q -x` in pod and decodes it. It returns

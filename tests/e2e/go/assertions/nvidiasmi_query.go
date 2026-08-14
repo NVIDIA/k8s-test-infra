@@ -8,10 +8,13 @@ import (
 	"strings"
 )
 
-// A decoded `nvidia-smi -q -x` document and the readings assertions take from
-// it. One document answers every question the suite used to ask through `-L`
-// and a series of --query-gpu calls, so a scenario that read four fields now
-// makes one exec.
+// A decoded `nvidia-smi -q -x` document, the readings assertions take from it,
+// and the checks over those readings. One document answers every question the
+// suite used to ask through `-L` and a series of --query-gpu calls, so a
+// scenario that read four fields now makes one exec.
+//
+// The schema itself lives in nvidiasmi_schema.go; the temperature-threshold
+// check is large enough to warrant nvidiasmi_temperature.go.
 //
 // No build tag: decoding and comparing is pure. The exec wrapper is
 // GPUSnapshotFromPod in nvidiasmi.go, under //go:build e2e.
@@ -250,15 +253,22 @@ func (g GPUReadings) ThermalSlowdownState() string {
 	return strings.TrimSpace(string(g.gpu.ClocksEventReasons.HWThermalSlowdown))
 }
 
+// SMIProcess is one decoded <process_info> entry.
+type SMIProcess struct {
+	PID       int
+	Name      string
+	MemoryMiB int
+}
+
 // Processes decodes this GPU's <processes> block.
 func (g GPUReadings) Processes() ([]SMIProcess, error) {
 	infos := g.gpu.Processes.Infos
 	processes := make([]SMIProcess, 0, len(infos))
 	for _, info := range infos {
-		mib, ok := nvidiaSMIInteger(info.UsedMemory)
+		mib, ok := info.UsedMemory.intValue()
 		if !ok {
 			return nil, fmt.Errorf("%s: pid %d used_memory = %q, want a MiB reading",
-				g.Label(), info.PID, info.UsedMemory)
+				g.Label(), info.PID, string(info.UsedMemory))
 		}
 		processes = append(processes, SMIProcess{PID: info.PID, Name: info.Name, MemoryMiB: mib})
 	}
@@ -317,4 +327,76 @@ func DiffNoProcessesXML(out string) []string {
 		}
 	}
 	return problems
+}
+
+// diffIntReading compares one element body against the number the mock was
+// configured with. A non-numeric body is reported as a missing getter rather
+// than as a wrong value, because that is the shape both #636 and #637 took: the
+// value was parsed from the config and nvidia-smi still rendered N/A.
+func diffIntReading(name string, got reading, want int, unit string) []string {
+	value, ok := got.intValue()
+	switch {
+	case !ok:
+		return []string{fmt.Sprintf(
+			"%s = %q, want %d%s; a non-numeric reading means the NVML getter is missing or unimplemented",
+			name, string(got), want, unit)}
+	case value != want:
+		return []string{fmt.Sprintf("%s = %d%s, want %d%s", name, value, unit, want, unit)}
+	}
+	return nil
+}
+
+// DiffJpgOfaUtilizationXML checks the jpeg_util and ofa_util elements against
+// the configured utilization.jpeg and utilization.ofa percentages, for every GPU
+// in the output. A GPU-scoped getter that answers for only one device is
+// therefore caught. An "N/A" reading is the defect this exists to catch (#637).
+func DiffJpgOfaUtilizationXML(out string, wantJPEG, wantOFA int) []string {
+	snap, err := ParseGPUSnapshot(out)
+	if err != nil {
+		return []string{err.Error()}
+	}
+
+	var problems []string
+	for i, gpu := range snap.log.GPUs {
+		name := gpu.label(i)
+		problems = append(problems, diffIntReading(name+" jpeg_util", gpu.Utilization.JPEG, wantJPEG, " %")...)
+		problems = append(problems, diffIntReading(name+" ofa_util", gpu.Utilization.OFA, wantOFA, " %")...)
+	}
+	return problems
+}
+
+// EncoderFBCStats are the non-default values issue #636 expects nvidia-smi to
+// surface.
+type EncoderFBCStats struct {
+	SessionCount     int
+	AverageFPS       int
+	AverageLatencyUS int
+}
+
+// DiffEncoderFBCXML checks the encoder_stats, fbc_stats and
+// accounting_mode_buffer_size elements of every GPU. All three read N/A while
+// the NVML exports were generated stubs (#636).
+func DiffEncoderFBCXML(out string, encoder, fbc EncoderFBCStats, accountingBufferSize int) []string {
+	snap, err := ParseGPUSnapshot(out)
+	if err != nil {
+		return []string{err.Error()}
+	}
+
+	var problems []string
+	for i, gpu := range snap.log.GPUs {
+		name := gpu.label(i)
+		problems = append(problems, diffStatsBlock(name+" encoder_stats", gpu.EncoderStats, encoder)...)
+		problems = append(problems, diffStatsBlock(name+" fbc_stats", gpu.FBCStats, fbc)...)
+		problems = append(problems, diffIntReading(name+" accounting_mode_buffer_size",
+			gpu.AccountingModeBufferSize, accountingBufferSize, "")...)
+	}
+	return problems
+}
+
+func diffStatsBlock(name string, got nvidiaSMIStatsBlock, want EncoderFBCStats) []string {
+	var problems []string
+	problems = append(problems, diffIntReading(name+" session_count", got.SessionCount, want.SessionCount, "")...)
+	problems = append(problems, diffIntReading(name+" average_fps", got.AverageFPS, want.AverageFPS, "")...)
+	return append(problems,
+		diffIntReading(name+" average_latency", got.AverageLatency, want.AverageLatencyUS, " us")...)
 }
