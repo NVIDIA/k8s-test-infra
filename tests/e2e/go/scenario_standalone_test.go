@@ -75,7 +75,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertions.NvidiaSMI(ctx, h.Kube, pod, p)
 			})
 
-			It("reports architecture-correct temperature thresholds via nvidia-smi -q", Label("nvidia-smi"), func(ctx SpecContext) {
+			It("reports architecture-correct temperature thresholds via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #635: pre-Ada profiles must show absolute threshold
 				// rows; Ada+ keep T.Limit. Focus profiles called out there are
 				// a100 (ampere) and h100 (hopper); every selected profile is
@@ -83,7 +83,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertions.NvidiaSMITemperatureThresholds(ctx, h.Kube, pod, p)
 			})
 
-			It("reports configured encoder and FBC stats via nvidia-smi -q", Label("nvidia-smi"), func(ctx SpecContext) {
+			It("reports configured encoder and FBC stats via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #636: encoder_stats / fbc_stats were accepted by the
 				// engine but silently stubbed at the C ABI. Non-zero overrides
 				// prove the path is live rather than a zeroed coincidence.
