@@ -59,11 +59,19 @@ GPU_OPERATOR_NAMESPACE="gpu-operator"
 : "${TARGET_GPU:=0}"
 : "${HOT_TEMP_C:=90}"
 : "${XID_CODE:=79}"
+# Budget for every "did the injected metric reach Prometheus?" poll. It has to
+# cover the mock's override TTL plus dcgm-exporter's collect interval plus
+# Prometheus' scrape interval; the propagation observed in practice is ~25s, so
+# 36 x 5s leaves generous headroom before the demo calls the pipeline broken.
+: "${FAULT_POLL_ATTEMPTS:=36}"
+: "${FAULT_POLL_INTERVAL_S:=5}"
 
 # Node label pinning the mock + GPU operands to the GPU workers.
 GPU_NODE_LABEL="nvml-mock-gpu=true"
 # Prometheus Service created by kube-prometheus-stack.
 PROM_SVC="${KPS_RELEASE}-kube-prometheus-prometheus"
+# Label selector for the GPU Operator's dcgm-exporter pods.
+DCGM_SELECTOR="app=nvidia-dcgm-exporter"
 
 info() { echo "==> $*"; }
 warn() { echo "WARN: $*" >&2; }
@@ -321,3 +329,168 @@ if [[ "${dash_ok}" != "true" ]]; then
   fail "Grafana never imported the dashboard. Read the exec output above first; if it returned the dashboard list cleanly, check the sidecar sees grafana_dashboard=1 and that the JSON parses"
 fi
 info "Grafana imported the Mokka GPU dashboard"
+
+# --- Fault injection ----------------------------------------------------------
+# Everything above exists so that this section can inject a GPU fault and prove
+# it lands in Prometheus. Faults go in through nvml-mock-ctl, which writes a
+# node-local overrides.yaml the already-running exporter re-reads on the mock
+# engine's TTL. No pod is restarted, so the time series stays continuous and the
+# dashboard renders a step change instead of a gap.
+TARGET_NODE="${WORKERS[0]}"
+MOCK_POD=$(kubectl_ctx -n "${MOKKA_NAMESPACE}" get pod -l app.kubernetes.io/name=nvml-mock \
+  --field-selector "spec.nodeName=${TARGET_NODE}" -o jsonpath='{.items[0].metadata.name}')
+[[ -n "${MOCK_POD}" ]] || fail "no nvml-mock pod found on ${TARGET_NODE}"
+
+mock_ctl() { kubectl_ctx -n "${MOKKA_NAMESPACE}" exec "${MOCK_POD}" -- nvml-mock-ctl "$@"; }
+
+# Witness churn by pod identity and restart count. DaemonSet AGE cannot do it:
+# it advances with the wall clock whether or not the DaemonSet ever rolled, so a
+# recycled pod is invisible to it.
+pods_fingerprint() {
+  kubectl_ctx -n "$1" get pods -l "$2" \
+    -o jsonpath='{range .items[*]}{.metadata.name} started={.status.startTime} restarts={.status.containerStatuses[0].restartCount}{"\n"}{end}' \
+    | sort
+}
+mock_pods_before=$(pods_fingerprint "${MOKKA_NAMESPACE}" "app.kubernetes.io/name=nvml-mock")
+dcgm_pods_before=$(pods_fingerprint "${GPU_OPERATOR_NAMESPACE}" "${DCGM_SELECTOR}")
+
+# Read one DCGM series for the target GPU on the target node. The PromQL stays
+# label-free so it needs no URL encoding; jq does the matching instead. An
+# absent series yields the literal "none" so callers can tell "Prometheus has no
+# such sample" apart from a real reading -- the distinction the Xid phase below
+# depends on.
+prom_gpu_value() {
+  promq "query?query=${1:?prom_gpu_value needs a series name}" \
+    | jq -r --arg gpu "${TARGET_GPU}" --arg node "${TARGET_NODE}" \
+        'first(.data.result[]
+           | select(.metric.gpu == $gpu and .metric.Hostname == $node)
+           | .value[1]) // "none"'
+}
+
+# Poll until the target GPU's series satisfies `op` ("==" or "!=") against
+# `want`, leaving the observed reading in FAULT_OBSERVED.
+#
+# Injection is instant but Prometheus scrapes on an interval, so a query fired
+# straight after an injection legitimately still serves the pre-injection
+# sample; hence a poll rather than a fixed sleep. An absent series satisfies
+# neither test, so a pipeline that stops delivering the metric runs out of
+# attempts instead of passing by default, and expiry is fatal: "the metric never
+# arrived" is precisely the outcome this demo exists to catch.
+FAULT_OBSERVED=""
+await_gpu_value() {
+  local series="$1" op="$2" want="$3" cur=""
+  for _ in $(seq 1 "${FAULT_POLL_ATTEMPTS}"); do
+    cur=$(prom_gpu_value "${series}")
+    if [[ "${cur}" != "none" ]] \
+       && awk -v v="${cur}" -v w="${want}" -v op="${op}" \
+            'BEGIN { exit !(op == "==" ? v == w : v != w) }'; then
+      FAULT_OBSERVED="${cur}"
+      return 0
+    fi
+    sleep "${FAULT_POLL_INTERVAL_S}"
+  done
+  fail "${series}{gpu=\"${TARGET_GPU}\",Hostname=\"${TARGET_NODE}\"} never became ${op} ${want} within ~$((FAULT_POLL_ATTEMPTS * FAULT_POLL_INTERVAL_S))s (last read: ${cur})"
+}
+
+# ==============================================================================
+# PHASE 1 — HEAT a GPU and assert the step change reaches Prometheus
+# ==============================================================================
+# Clear the previous run's overrides first. Without this a re-run starts already
+# pinned at HOT_TEMP_C, and "the target reads HOT_TEMP_C" would be true before
+# anything was injected -- an assertion that cannot fail proves nothing. The
+# reset also drops the Xid failure block, so both phases inject from a known
+# state and the run is deterministic.
+info "PHASE 1: clearing any override left on gpu ${TARGET_GPU} of ${TARGET_NODE} by an earlier run"
+mock_ctl reset --gpu "${TARGET_GPU}"
+
+info "Waiting for gpu ${TARGET_GPU} to report a simulator-driven temperature again"
+await_gpu_value DCGM_FI_DEV_GPU_TEMP != "${HOT_TEMP_C}"
+baseline_temp="${FAULT_OBSERVED}"
+info "PHASE 1: baseline DCGM_FI_DEV_GPU_TEMP for gpu ${TARGET_GPU} = ${baseline_temp}C"
+
+info "Heating gpu ${TARGET_GPU} to ${HOT_TEMP_C}C on ${TARGET_NODE} (pod ${MOCK_POD})"
+mock_ctl temp --gpu "${TARGET_GPU}" "${HOT_TEMP_C}"
+
+info "Waiting for the heat to reach Prometheus"
+# Equality, not >=: the temp command pins the reading with zero variance, so the
+# exact injected value is the only correct answer. A >= test would also accept a
+# GPU that merely happens to run hot.
+await_gpu_value DCGM_FI_DEV_GPU_TEMP == "${HOT_TEMP_C}"
+info "OBSERVED: DCGM_FI_DEV_GPU_TEMP for gpu ${TARGET_GPU} stepped ${baseline_temp}C -> ${FAULT_OBSERVED}C in Prometheus"
+
+# A pin that moved every GPU on the node is indistinguishable from an
+# `--gpu all` mistake, and would make the dashboard's per-GPU story a lie. Prove
+# the siblings kept their own readings -- and that there were siblings to check,
+# so an empty result cannot be mistaken for a clean scope.
+temp_snapshot=$(promq "query?query=DCGM_FI_DEV_GPU_TEMP")
+siblings=$(jq --arg node "${TARGET_NODE}" --arg gpu "${TARGET_GPU}" \
+  '[.data.result[] | select(.metric.Hostname == $node and .metric.gpu != $gpu)]' <<<"${temp_snapshot}")
+sibling_count=$(jq 'length' <<<"${siblings}")
+[[ "${sibling_count}" -gt 0 ]] \
+  || fail "no sibling GPU series on ${TARGET_NODE} to compare against; the scope check would be vacuous"
+hot_siblings=$(jq -r --argjson hot "${HOT_TEMP_C}" \
+  '[.[] | select((.value[1] | tonumber) == $hot) | .metric.gpu] | sort | join(",")' <<<"${siblings}")
+[[ -z "${hot_siblings}" ]] \
+  || fail "gpu(s) ${hot_siblings} on ${TARGET_NODE} also read ${HOT_TEMP_C}C; the override is not scoped to gpu ${TARGET_GPU}"
+info "OBSERVED: the other ${sibling_count} GPUs on ${TARGET_NODE} kept simulator-driven temperatures ($(jq -r '[.[] | "gpu" + .metric.gpu + "=" + .value[1] + "C"] | sort | join(" ")' <<<"${siblings}"))"
+
+# ==============================================================================
+# PHASE 2 — Inject an uncorrectable ECC fault and assert the Xid reaches Prometheus
+# ==============================================================================
+# DCGM_FI_DEV_XID_ERRORS has NO series at all on a healthy cluster: the mock
+# delivers Xids through the NVML event set, and dcgm-exporter omits field 230
+# entirely while it holds no value for it. The assertion therefore waits for the
+# series to APPEAR carrying XID_CODE. A `!= 0` test would be vacuous -- it
+# compares against a series that does not exist.
+#
+# DCGM also latches the last Xid it observed per device: clearing the mock's
+# failure (the reset in phase 1) does not retract the reported code. So the
+# pre-injection state is recorded and reported below, because only a run that
+# starts from an absent series witnesses fresh end-to-end delivery.
+xid_before=$(prom_gpu_value DCGM_FI_DEV_XID_ERRORS)
+info "PHASE 2: DCGM_FI_DEV_XID_ERRORS for gpu ${TARGET_GPU} before injection = ${xid_before}"
+
+info "PHASE 2: injecting ecc_uncorrectable with Xid ${XID_CODE} on gpu ${TARGET_GPU}"
+mock_ctl fail --gpu "${TARGET_GPU}" --mode ecc_uncorrectable \
+  --after-calls 1 --xid "${XID_CODE}"
+
+info "Waiting for DCGM_FI_DEV_XID_ERRORS to appear in Prometheus carrying Xid ${XID_CODE}"
+await_gpu_value DCGM_FI_DEV_XID_ERRORS == "${XID_CODE}"
+info "OBSERVED: DCGM_FI_DEV_XID_ERRORS for gpu ${TARGET_GPU} = ${FAULT_OBSERVED} in Prometheus"
+if [[ "${xid_before}" == "none" ]]; then
+  info "  the series did not exist before injection, so this run watched an Xid travel the whole path"
+else
+  warn "DCGM_FI_DEV_XID_ERRORS already read ${xid_before} before this run injected anything, because DCGM latches the last Xid per device. This run re-confirms the value but cannot witness a fresh delivery; recreate the cluster (FORCE_RECREATE=true) to see that."
+fi
+
+# Same scope argument as the temperature pin, phrased against the injected code
+# rather than presence: a future dcgm-exporter that reported 0 for healthy GPUs
+# would still be correctly scoped.
+xid_snapshot=$(promq "query?query=DCGM_FI_DEV_XID_ERRORS")
+xid_others=$(jq -r --arg node "${TARGET_NODE}" --arg gpu "${TARGET_GPU}" --argjson xid "${XID_CODE}" \
+  '[.data.result[]
+     | select(.metric.Hostname == $node and .metric.gpu != $gpu)
+     | select((.value[1] | tonumber) == $xid)
+     | .metric.gpu] | sort | join(",")' <<<"${xid_snapshot}")
+[[ -z "${xid_others}" ]] \
+  || fail "gpu(s) ${xid_others} on ${TARGET_NODE} also report Xid ${XID_CODE}; the failure is not scoped to gpu ${TARGET_GPU}"
+info "OBSERVED: the Xid is scoped to gpu ${TARGET_GPU} with labels $(jq -c --arg node "${TARGET_NODE}" --arg gpu "${TARGET_GPU}" \
+  'first(.data.result[] | select(.metric.Hostname == $node and .metric.gpu == $gpu) | {Hostname: .metric.Hostname, gpu: .metric.gpu, UUID: .metric.UUID, pci_bus_id: .metric.pci_bus_id})' <<<"${xid_snapshot}")"
+
+# --- Series continuity --------------------------------------------------------
+# The whole reason faults are injected through nvml-mock-ctl instead of a helm
+# upgrade is that a recycled pod tears a hole in the series the dashboard is
+# meant to show. Assert it did not happen, rather than asserting it in a comment.
+info "Confirming no pod was recycled by the injection"
+mock_pods_after=$(pods_fingerprint "${MOKKA_NAMESPACE}" "app.kubernetes.io/name=nvml-mock")
+dcgm_pods_after=$(pods_fingerprint "${GPU_OPERATOR_NAMESPACE}" "${DCGM_SELECTOR}")
+if [[ "${mock_pods_before}" != "${mock_pods_after}" || "${dcgm_pods_before}" != "${dcgm_pods_after}" ]]; then
+  echo "before:"; echo "${mock_pods_before}"; echo "${dcgm_pods_before}"
+  echo "after:";  echo "${mock_pods_after}";  echo "${dcgm_pods_after}"
+  # The likeliest innocent cause is the GPU Operator replacing its operands a
+  # reconcile period after nvml-mock rolled (#602), which lands after the
+  # rollout waits above already reported success. Re-running converges.
+  fail "nvml-mock or dcgm-exporter pods were recycled during fault injection, so the metric series has a gap. Re-run to get a continuous one"
+fi
+info "OBSERVED: same pods, same restart counts, before and after injection:"
+printf '%s\n%s\n' "${mock_pods_after}" "${dcgm_pods_after}"
