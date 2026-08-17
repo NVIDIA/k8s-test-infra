@@ -181,3 +181,34 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --set gpu.dynamicMetrics.enabled=true \
   --set-string "nodeSelector.${GPU_NODE_LABEL}" \
   --wait --timeout 180s
+
+# --- Install kube-prometheus-stack ---------------------------------------------
+# Installed BEFORE the GPU Operator so the ServiceMonitor CRD exists by the time
+# the operator tries to create one for dcgm-exporter.
+info "Adding prometheus-community Helm repo + installing kube-prometheus-stack ${KPS_VERSION}"
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
+helm repo update prometheus-community >/dev/null 2>&1 || helm repo update >/dev/null 2>&1
+helm upgrade --install "${KPS_RELEASE}" prometheus-community/kube-prometheus-stack \
+  --kube-context "${KUBE_CONTEXT}" \
+  --namespace "${MONITORING_NAMESPACE}" --create-namespace \
+  --version "${KPS_VERSION}" \
+  -f "${REPO_ROOT}/${DEMO_DIR}/kube-prometheus-stack-values.yaml" \
+  --set "grafana.adminPassword=${GRAFANA_PASSWORD}" \
+  --wait --timeout 10m
+
+# Query Prometheus through the API-server service proxy rather than the host
+# port: the same approach tests/e2e/go/assertions/dcgm.go uses, and it keeps the
+# assertions working even if the host port mapping is unavailable.
+promq() {
+  kubectl_ctx get --raw \
+    "/api/v1/namespaces/${MONITORING_NAMESPACE}/services/${PROM_SVC}:9090/proxy/api/v1/$1"
+}
+
+info "Waiting for the Prometheus API to answer"
+prom_ready=false
+for _ in $(seq 1 60); do
+  if promq "query?query=up" >/dev/null 2>&1; then prom_ready=true; break; fi
+  sleep 5
+done
+[[ "${prom_ready}" == "true" ]] || fail "Prometheus API never became reachable"
+info "Prometheus is serving queries"

@@ -1,0 +1,52 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# kube-prometheus-stack values for the observability demo, trimmed for Kind.
+#
+# Issue #597 requires this stack be sized against the per-node footprint budget,
+# so Alertmanager is off, retention is 2h, and Prometheus has explicit limits.
+# node-exporter stays ON: host CPU/memory pressure is exactly what a scale run
+# needs to correlate GPU symptoms against, and it is the one per-node DaemonSet
+# this stack adds.
+
+# Nothing in this demo alerts; Alertmanager would only add footprint.
+alertmanager:
+  enabled: false
+
+# The bundled Kubernetes control-plane alert rules fire constantly on Kind
+# (single-node etcd, no kube-proxy metrics) and would bury the demo in noise.
+defaultRules:
+  create: false
+
+grafana:
+  adminPassword: mokka
+  service:
+    type: NodePort
+    nodePort: 30300
+  # The sidecar provisions any ConfigMap labelled grafana_dashboard=1, which is
+  # how dashboards/mokka-gpu.json gets in without being clicked together in the
+  # UI. These are chart defaults, pinned here because the dashboard ConfigMap
+  # depends on them.
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+
+prometheus:
+  service:
+    type: NodePort
+    nodePort: 30090
+  prometheusSpec:
+    # dcgm-exporter collects every 5s; scraping slower would alias away the
+    # step change the fault-injection phases assert on.
+    scrapeInterval: 5s
+    evaluationInterval: 30s
+    retention: 2h
+    resources:
+      requests:
+        cpu: 100m
+        memory: 400Mi
+      limits:
+        memory: 1Gi
