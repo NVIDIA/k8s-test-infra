@@ -562,3 +562,51 @@ if [[ "${mock_pods_before}" != "${mock_pods_after}" || "${dcgm_pods_before}" != 
 fi
 info "OBSERVED: same pods, same restart counts, before and after injection:"
 printf '%s\n%s\n' "${mock_pods_after}" "${dcgm_pods_after}"
+
+# --- Summary ------------------------------------------------------------------
+# DCGM latches the last Xid per device, so re-injecting the code this run just
+# delivered would change nothing observable. Point the reader at the other half
+# of the rotation, which is the same trick phase 2 uses on itself.
+if [[ "${xid_want}" == "${XID_CODE}" ]]; then
+  xid_next="${XID_CODE_ALT}"
+else
+  xid_next="${XID_CODE}"
+fi
+
+# Reported from what this run actually observed, not from the configured
+# defaults: the Xid code alternates between runs, so naming XID_CODE here would
+# be wrong every other time.
+cat <<EOF
+
+==> Observability demo complete: injected GPU faults are recorded in Prometheus.
+
+  Cluster     : ${CLUSTER_NAME} (1 control-plane + ${#WORKERS[@]} workers)
+  Grafana     : http://localhost:3000/d/mokka-gpu  (admin / ${GRAFANA_PASSWORD})
+  Prometheus  : http://localhost:9090
+  Faulted GPU : gpu ${TARGET_GPU} on ${TARGET_NODE}
+
+  What this run showed:
+    1. SCRAPE : the real dcgm-exporter read the mock's libnvidia-ml.so, and
+                Prometheus found it through the GPU Operator's ServiceMonitor.
+    2. HEAT   : DCGM_FI_DEV_GPU_TEMP for gpu ${TARGET_GPU} stepped
+                ${baseline_temp}C -> ${HOT_TEMP_C}C, and no pod restarted, so the
+                series shows a step change rather than a gap.
+    3. FAULT  : an ecc_uncorrectable fault raised Xid ${xid_want}, and
+                DCGM_FI_DEV_XID_ERRORS in Prometheus now carries that code.
+
+  What to look at on the dashboard (last 15m):
+    - "GPU temperature": one line pinned flat at ${HOT_TEMP_C}C, the other
+      ${sibling_count} on ${TARGET_NODE} still wandering with the simulator.
+    - "Last Xid code reported": empty on a healthy fleet, now one line for
+      ${TARGET_NODE} gpu${TARGET_GPU} at ${xid_want}. It is a code, not a count.
+
+  Inject again by hand:
+    MOCK=\$(kubectl --context ${KUBE_CONTEXT} -n ${MOKKA_NAMESPACE} get pod -l app.kubernetes.io/name=nvml-mock \\
+      --field-selector spec.nodeName=${TARGET_NODE} -o jsonpath='{.items[0].metadata.name}')
+    kubectl --context ${KUBE_CONTEXT} -n ${MOKKA_NAMESPACE} exec \$MOCK -- nvml-mock-ctl temp --gpu ${TARGET_GPU} ${HOT_TEMP_C}
+    kubectl --context ${KUBE_CONTEXT} -n ${MOKKA_NAMESPACE} exec \$MOCK -- nvml-mock-ctl fail --gpu ${TARGET_GPU} --mode ecc_uncorrectable --after-calls 1 --xid ${xid_next}
+    kubectl --context ${KUBE_CONTEXT} -n ${MOKKA_NAMESPACE} exec \$MOCK -- nvml-mock-ctl reset --gpu ${TARGET_GPU}   # back to healthy
+
+  Cleanup:
+    kind delete cluster --name ${CLUSTER_NAME}
+EOF
