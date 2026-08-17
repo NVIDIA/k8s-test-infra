@@ -39,7 +39,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${FORCE_RECREATE:=false}"
 : "${KIND_NODE_IMAGE:=kindest/node:v1.35.0}"
 
-: "${NVML_MOCK_NAMESPACE:=nvml-mock-system}"
+: "${MOKKA_NAMESPACE:=mokka}"
 : "${GPU_OPERATOR_NAMESPACE:=gpu-operator}"
 : "${GPU_OPERATOR_VERSION:=v26.3.3}"
 : "${MONITORING_NAMESPACE:=monitoring}"
@@ -174,7 +174,7 @@ kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 info "Installing nvml-mock (profile=${GPU_PROFILE}, count=${GPU_COUNT}) on the GPU workers"
 helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --kube-context "${KUBE_CONTEXT}" \
-  --namespace "${NVML_MOCK_NAMESPACE}" --create-namespace \
+  --namespace "${MOKKA_NAMESPACE}" --create-namespace \
   --set "image.repository=${IMAGE_REPO}" \
   --set "image.tag=${IMAGE_TAG}" \
   --set "gpu.profile=${GPU_PROFILE}" \

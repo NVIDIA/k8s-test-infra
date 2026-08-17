@@ -152,7 +152,7 @@
         {
           "refId": "C",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (namespace) (kube_pod_container_status_restarts_total{namespace=~\"nvml-mock-system|gpu-operator\"})",
+          "expr": "sum by (namespace) (kube_pod_container_status_restarts_total{namespace=~\"mokka|gpu-operator\"})",
           "legendFormat": "{{namespace}} restarts"
         }
       ]
