@@ -59,6 +59,7 @@ type ConfigurableDevice struct {
 	// Cached computed values
 	bar1Memory nvml.BAR1Memory
 	pciInfo    nvml.PciInfo
+	boardID    uint32
 
 	// Mutable in-memory state (not persisted across restarts)
 	persistenceModeOverride *nvml.EnableState
@@ -316,7 +317,6 @@ func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 			debugLog("[DEVICE %d] Warning: %v, using defaults\n", d.index, err)
 			// Use default values (zeros) on parse failure
 		}
-		_ = function // unused in pciInfo struct
 	}
 
 	d.pciInfo = nvml.PciInfo{
@@ -324,6 +324,7 @@ func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 		Bus:    bus,
 		Device: device,
 	}
+	d.boardID = deriveBoardID(domain, bus, device, function)
 
 	// Set PCI device ID from config or default
 	if config != nil && config.PCI != nil {
@@ -345,6 +346,17 @@ func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 	// from nvmlPciInfo_t.busIdLegacy — get an empty string otherwise.
 	writeBusID(d.pciInfo.BusId[:], d.PciBusID)
 	writeBusID(d.pciInfo.BusIdLegacy[:], d.PciBusID)
+}
+
+// deriveBoardID encodes a PCI address the way NVML derives nvmlDeviceGetBoardId:
+// the domain in the upper half, and the Linux devfn encoding (device in the
+// upper 5 bits of the low byte, function in the lower 3) below it. A GPU at
+// 0000:07:00.0 therefore reports 0x700, which is what nvidia-smi prints as
+// "Board ID" on real hardware. Distinct GPUs sit on distinct buses, so the
+// derivation also keeps board IDs unique across a node — a fleet of mock GPUs
+// all reporting 0x0 is indistinguishable to consumers. See issue #638.
+func deriveBoardID(domain, bus, device, function uint32) uint32 {
+	return domain<<16 | bus<<8 | (device&0x1f)<<3 | function&0x7
 }
 
 // writeBusID copies an ASCII PCI bus-ID string into an NVML C char array
@@ -1014,6 +1026,45 @@ func (d *ConfigurableDevice) GetMaxPcieLinkGeneration() (int, nvml.Return) {
 	return gen, nvml.SUCCESS
 }
 
+// GetGpuMaxPcieLinkGeneration returns the maximum PCIe link generation the GPU
+// itself supports, independent of the host. nvidia-smi renders this as the
+// "Device Max" row, which degraded to N/A while this was a generated stub. The
+// mock has no separate host-side limit, so the device maximum is the configured
+// max_link_gen — the same value GetMaxPcieLinkGeneration reports for the
+// system-wide "Max" row.
+func (d *ConfigurableDevice) GetGpuMaxPcieLinkGeneration() (int, nvml.Return) {
+	gen := 0
+	if c := d.cfg(); c.PCIe != nil {
+		gen = c.PCIe.MaxLinkGen
+	}
+	debugLog("[NVML] nvmlDeviceGetGpuMaxPcieLinkGeneration -> %d\n", gen)
+	if gen == 0 {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	return gen, nvml.SUCCESS
+}
+
+// HostMaxPcieLinkGeneration reports the maximum PCIe link generation the host
+// side of the link supports, which nvidia-smi renders as the "Host Max" row.
+//
+// This is deliberately not a Get* NVML method: no public NVML API exposes a
+// host-side maximum, and nvidia-smi instead reads it through a slot of the
+// internal export table (see the bridge's internal.go). The mock models a host
+// that keeps up with the GPU, so the host maximum is the configured
+// max_link_gen — keeping nvidia-smi's Max, Device Max and Host Max rows
+// consistent, since the negotiable Max cannot exceed either endpoint.
+//
+// Returns 0 when the profile configures no PCIe block, which the bridge treats
+// as "unknown" and leaves the reading untouched.
+func (d *ConfigurableDevice) HostMaxPcieLinkGeneration() int {
+	gen := 0
+	if c := d.cfg(); c.PCIe != nil {
+		gen = c.PCIe.MaxLinkGen
+	}
+	debugLog("[NVML] hostMaxPcieLinkGeneration -> %d\n", gen)
+	return gen
+}
+
 // GetCurrPcieLinkWidth returns current PCIe link width
 func (d *ConfigurableDevice) GetCurrPcieLinkWidth() (int, nvml.Return) {
 	width := 0
@@ -1191,10 +1242,10 @@ func (d *ConfigurableDevice) GetMultiGpuBoard() (int, nvml.Return) {
 	return 0, nvml.SUCCESS
 }
 
-// GetBoardId returns the board ID
+// GetBoardId returns the board ID derived from the device's PCI address.
 func (d *ConfigurableDevice) GetBoardId() (uint32, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetBoardId -> 0\n")
-	return 0, nvml.SUCCESS
+	debugLog("[NVML] nvmlDeviceGetBoardId -> %#x\n", d.boardID)
+	return d.boardID, nvml.SUCCESS
 }
 
 // GetMemoryBusWidth returns the memory bus width in bits.
