@@ -1,0 +1,30 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kind topology for the observability demo: 1 control-plane + 2 GPU workers.
+# CDI is enabled so the GPU Operator's container toolkit can inject the mock
+# driver into the dcgm-exporter pods.
+#
+# The port mappings expose the Grafana and Prometheus NodePorts on the host so
+# the demo can be opened in a browser without a kubectl port-forward.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri"]
+      enable_cdi = true
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
+      runtime_type = "io.containerd.runc.v2"
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
+      BinaryName = "/usr/bin/nvidia-container-runtime"
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30300
+        hostPort: 3000
+        protocol: TCP
+      - containerPort: 30090
+        hostPort: 9090
+        protocol: TCP
+  - role: worker
+  - role: worker
