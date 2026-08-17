@@ -24,7 +24,12 @@ set -euo pipefail
 # --- Configuration (override via env) ----------------------------------------
 : "${CLUSTER_NAME:=nvml-mock-observability}"
 KUBE_CONTEXT="kind-${CLUSTER_NAME}"
-: "${IMAGE_NAME:=nvml-mock:observability-demo}"
+# Repository and tag are the overridable knobs, not the full reference: the chart
+# takes image.repository and image.tag separately, and splitting a combined
+# reference back apart mis-handles both a missing tag and a registry with a port.
+: "${IMAGE_REPO:=nvml-mock}"
+: "${IMAGE_TAG:=observability-demo}"
+IMAGE_NAME="${IMAGE_REPO}:${IMAGE_TAG}"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 DEMO_DIR="docs/demo/observability"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -159,14 +164,20 @@ kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 # dynamicMetrics is what makes the dashboard interesting: without it temperature,
 # power and utilization are static profile constants and every panel is a flat
 # line.
+#
+# The nodeSelector reuses GPU_NODE_LABEL verbatim so selection cannot drift from
+# the label actually applied to the workers above; it must stay --set-string
+# because nodeSelector is map[string]string and plain --set would render `true`
+# as a YAML boolean, which the API server rejects on unmarshal. This relies on
+# the label key containing no dots, which Helm would read as a path separator.
 info "Installing nvml-mock (profile=${GPU_PROFILE}, count=${GPU_COUNT}) on the GPU workers"
 helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --kube-context "${KUBE_CONTEXT}" \
   --namespace "${NVML_MOCK_NAMESPACE}" --create-namespace \
-  --set image.repository=nvml-mock \
-  --set image.tag=observability-demo \
+  --set "image.repository=${IMAGE_REPO}" \
+  --set "image.tag=${IMAGE_TAG}" \
   --set "gpu.profile=${GPU_PROFILE}" \
   --set "gpu.count=${GPU_COUNT}" \
   --set gpu.dynamicMetrics.enabled=true \
-  --set-string "nodeSelector.nvml-mock-gpu=true" \
+  --set-string "nodeSelector.${GPU_NODE_LABEL}" \
   --wait --timeout 180s
