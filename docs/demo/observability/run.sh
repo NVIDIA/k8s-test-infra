@@ -59,6 +59,14 @@ GPU_OPERATOR_NAMESPACE="gpu-operator"
 : "${TARGET_GPU:=0}"
 : "${HOT_TEMP_C:=90}"
 : "${XID_CODE:=79}"
+# DCGM latches the last Xid it observed per device and never retracts it, so a
+# re-run that injected XID_CODE again would find the series already carrying it
+# and would assert nothing. Phase 2 therefore alternates between two codes: the
+# one that is NOT currently reported is injected, so the value the assertion
+# waits for can only be there because this run delivered it. 48 is the
+# double-bit-ECC Xid, which stays plausible for the ecc_uncorrectable mode being
+# injected.
+: "${XID_CODE_ALT:=48}"
 # Budget for every "did the injected metric reach Prometheus?" poll. It has to
 # cover the mock's override TTL plus dcgm-exporter's collect interval plus
 # Prometheus' scrape interval; the propagation observed in practice is ~25s, so
@@ -83,6 +91,10 @@ observe() { echo "--- \$ $* ---"; "$@" 2>&1 || warn "(non-fatal) command failed:
 for bin in docker kind kubectl helm jq; do
   command -v "${bin}" >/dev/null 2>&1 || fail "${bin} is required"
 done
+# Phase 2 proves a fresh Xid delivery by injecting whichever of the two codes is
+# not already reported, so identical values would make it vacuous again.
+[[ "${XID_CODE}" != "${XID_CODE_ALT}" ]] \
+  || fail "XID_CODE and XID_CODE_ALT are both ${XID_CODE}; phase 2 alternates between them and needs two distinct codes"
 
 # --- Kind cluster -------------------------------------------------------------
 if kind get clusters 2>/dev/null | grep -qxF "${CLUSTER_NAME}"; then
@@ -346,10 +358,19 @@ mock_ctl() { kubectl_ctx -n "${MOKKA_NAMESPACE}" exec "${MOCK_POD}" -- nvml-mock
 # Witness churn by pod identity and restart count. DaemonSet AGE cannot do it:
 # it advances with the wall clock whether or not the DaemonSet ever rolled, so a
 # recycled pod is invisible to it.
+#
+# A selector that matches nothing yields the empty string, which would make the
+# before/after comparison below "" != "" -- an assertion that passes however
+# badly the pods churned. Refuse to produce that, naming the selector so the
+# reader fixes it instead of hunting for phantom churn.
 pods_fingerprint() {
-  kubectl_ctx -n "$1" get pods -l "$2" \
+  local out
+  out=$(kubectl_ctx -n "$1" get pods -l "$2" \
     -o jsonpath='{range .items[*]}{.metadata.name} started={.status.startTime} restarts={.status.containerStatuses[0].restartCount}{"\n"}{end}' \
-    | sort
+    | sort)
+  [[ -n "${out}" ]] \
+    || fail "no pods matched selector '$2' in namespace '$1', so the pod-churn check would compare two empty fingerprints and pass unconditionally; fix the selector"
+  printf '%s\n' "${out}"
 }
 mock_pods_before=$(pods_fingerprint "${MOKKA_NAMESPACE}" "app.kubernetes.io/name=nvml-mock")
 dcgm_pods_before=$(pods_fingerprint "${GPU_OPERATOR_NAMESPACE}" "${DCGM_SELECTOR}")
@@ -359,16 +380,48 @@ dcgm_pods_before=$(pods_fingerprint "${GPU_OPERATOR_NAMESPACE}" "${DCGM_SELECTOR
 # absent series yields the literal "none" so callers can tell "Prometheus has no
 # such sample" apart from a real reading -- the distinction the Xid phase below
 # depends on.
+#
+# The optional label/value pair narrows the match further. gpu+Hostname alone
+# does not always identify one series: DCGM_FI_DEV_XID_ERRORS carries err_code,
+# and Prometheus keeps serving a superseded code's last sample until it goes
+# stale, so two series can describe the same GPU at once during phase 2's code
+# rotation. Returning whichever one Prometheus happened to list first would make
+# that assertion depend on result order, and an instant query stamps every result
+# with the evaluation time rather than the sample time, so recency cannot break
+# the tie here either. Callers that can be ambiguous say which series they mean;
+# for anyone who does not, ambiguity is a hard error rather than a coin flip.
 prom_gpu_value() {
-  promq "query?query=${1:?prom_gpu_value needs a series name}" \
+  local series="${1:?prom_gpu_value needs a series name}" label="${2:-}" label_value="${3:-}" sample
+  sample=$(promq "query?query=${series}" \
     | jq -r --arg gpu "${TARGET_GPU}" --arg node "${TARGET_NODE}" \
-        'first(.data.result[]
+        --arg label "${label}" --arg want "${label_value}" \
+        '[.data.result[]
            | select(.metric.gpu == $gpu and .metric.Hostname == $node)
-           | .value[1]) // "none"'
+           | select($label == "" or .metric[$label] == $want)
+           | .value[1]]
+         | if length == 0 then "none"
+           elif length == 1 then .[0]
+           else "ambiguous:" + join(",") end')
+  [[ "${sample}" != ambiguous:* ]] \
+    || fail "${series}{gpu=\"${TARGET_GPU}\",Hostname=\"${TARGET_NODE}\"} matched several series at once (values: ${sample#ambiguous:}); the read would not be deterministic, so the caller must name the label that distinguishes them"
+  printf '%s\n' "${sample}"
+}
+
+# Compare two readings numerically. Dispatching on the operator explicitly (and
+# rejecting anything else) keeps a future ">=" typo from quietly degrading into
+# the near-vacuous "!=" a catch-all branch would give it.
+value_matches() {
+  local v="$1" want="$2" op="$3"
+  case "${op}" in
+  '==') awk -v v="${v}" -v w="${want}" 'BEGIN { exit !(v == w) }' ;;
+  '!=') awk -v v="${v}" -v w="${want}" 'BEGIN { exit !(v != w) }' ;;
+  *) fail "unsupported comparison operator '${op}'; only == and != are implemented" ;;
+  esac
 }
 
 # Poll until the target GPU's series satisfies `op` ("==" or "!=") against
-# `want`, leaving the observed reading in FAULT_OBSERVED.
+# `want`, leaving the observed reading in FAULT_OBSERVED. The optional 4th/5th
+# arguments are the label/value pair prom_gpu_value uses to disambiguate.
 #
 # Injection is instant but Prometheus scrapes on an interval, so a query fired
 # straight after an injection legitimately still serves the pre-injection
@@ -378,18 +431,18 @@ prom_gpu_value() {
 # arrived" is precisely the outcome this demo exists to catch.
 FAULT_OBSERVED=""
 await_gpu_value() {
-  local series="$1" op="$2" want="$3" cur=""
+  local series="$1" op="$2" want="$3" label="${4:-}" label_value="${5:-}" cur=""
+  local selector="gpu=\"${TARGET_GPU}\",Hostname=\"${TARGET_NODE}\""
+  [[ -z "${label}" ]] || selector+=",${label}=\"${label_value}\""
   for _ in $(seq 1 "${FAULT_POLL_ATTEMPTS}"); do
-    cur=$(prom_gpu_value "${series}")
-    if [[ "${cur}" != "none" ]] \
-       && awk -v v="${cur}" -v w="${want}" -v op="${op}" \
-            'BEGIN { exit !(op == "==" ? v == w : v != w) }'; then
+    cur=$(prom_gpu_value "${series}" "${label}" "${label_value}")
+    if [[ "${cur}" != "none" ]] && value_matches "${cur}" "${want}" "${op}"; then
       FAULT_OBSERVED="${cur}"
       return 0
     fi
     sleep "${FAULT_POLL_INTERVAL_S}"
   done
-  fail "${series}{gpu=\"${TARGET_GPU}\",Hostname=\"${TARGET_NODE}\"} never became ${op} ${want} within ~$((FAULT_POLL_ATTEMPTS * FAULT_POLL_INTERVAL_S))s (last read: ${cur})"
+  fail "${series}{${selector}} never became ${op} ${want} within ~$((FAULT_POLL_ATTEMPTS * FAULT_POLL_INTERVAL_S))s (last read: ${cur})"
 }
 
 # ==============================================================================
@@ -398,8 +451,10 @@ await_gpu_value() {
 # Clear the previous run's overrides first. Without this a re-run starts already
 # pinned at HOT_TEMP_C, and "the target reads HOT_TEMP_C" would be true before
 # anything was injected -- an assertion that cannot fail proves nothing. The
-# reset also drops the Xid failure block, so both phases inject from a known
-# state and the run is deterministic.
+# reset also drops the Xid failure block, but that alone does not give phase 2
+# the same guarantee: DCGM latches the last Xid it observed and does not retract
+# it when the mock's failure disappears, so phase 2 earns its non-vacuity by
+# rotating the injected code instead (see below).
 info "PHASE 1: clearing any override left on gpu ${TARGET_GPU} of ${TARGET_NODE} by an earlier run"
 mock_ctl reset --gpu "${TARGET_GPU}"
 
@@ -440,42 +495,55 @@ info "OBSERVED: the other ${sibling_count} GPUs on ${TARGET_NODE} kept simulator
 # DCGM_FI_DEV_XID_ERRORS has NO series at all on a healthy cluster: the mock
 # delivers Xids through the NVML event set, and dcgm-exporter omits field 230
 # entirely while it holds no value for it. The assertion therefore waits for the
-# series to APPEAR carrying XID_CODE. A `!= 0` test would be vacuous -- it
-# compares against a series that does not exist.
+# series to carry the code this run injected. A `!= 0` test would be vacuous --
+# it compares against a series that does not exist.
 #
 # DCGM also latches the last Xid it observed per device: clearing the mock's
-# failure (the reset in phase 1) does not retract the reported code. So the
-# pre-injection state is recorded and reported below, because only a run that
-# starts from an absent series witnesses fresh end-to-end delivery.
+# failure (the reset in phase 1) does not retract the reported code, so a re-run
+# that injected XID_CODE again would find the assertion already satisfied by the
+# previous run's residue -- and would equally pass with dcgm-exporter dead, since
+# Prometheus keeps serving the last sample for its lookback window. Injecting
+# whichever of the two codes is NOT currently reported removes that hole: the
+# value being waited for cannot be present until this run's injection arrives.
 xid_before=$(prom_gpu_value DCGM_FI_DEV_XID_ERRORS)
+xid_want="${XID_CODE}"
+if [[ "${xid_before}" != "none" ]] && value_matches "${xid_before}" "${XID_CODE}" '=='; then
+  xid_want="${XID_CODE_ALT}"
+fi
 info "PHASE 2: DCGM_FI_DEV_XID_ERRORS for gpu ${TARGET_GPU} before injection = ${xid_before}"
 
-info "PHASE 2: injecting ecc_uncorrectable with Xid ${XID_CODE} on gpu ${TARGET_GPU}"
+info "PHASE 2: injecting ecc_uncorrectable with Xid ${xid_want} on gpu ${TARGET_GPU} (rotating away from ${xid_before} so the wait below cannot pass on residue)"
 mock_ctl fail --gpu "${TARGET_GPU}" --mode ecc_uncorrectable \
-  --after-calls 1 --xid "${XID_CODE}"
+  --after-calls 1 --xid "${xid_want}"
 
-info "Waiting for DCGM_FI_DEV_XID_ERRORS to appear in Prometheus carrying Xid ${XID_CODE}"
-await_gpu_value DCGM_FI_DEV_XID_ERRORS == "${XID_CODE}"
-info "OBSERVED: DCGM_FI_DEV_XID_ERRORS for gpu ${TARGET_GPU} = ${FAULT_OBSERVED} in Prometheus"
+info "Waiting for DCGM_FI_DEV_XID_ERRORS to reach Prometheus carrying Xid ${xid_want}"
+await_gpu_value DCGM_FI_DEV_XID_ERRORS == "${xid_want}" err_code "${xid_want}"
+info "OBSERVED: DCGM_FI_DEV_XID_ERRORS for gpu ${TARGET_GPU} = ${FAULT_OBSERVED} in Prometheus (expected ${xid_want}, was ${xid_before})"
 if [[ "${xid_before}" == "none" ]]; then
   info "  the series did not exist before injection, so this run watched an Xid travel the whole path"
 else
-  warn "DCGM_FI_DEV_XID_ERRORS already read ${xid_before} before this run injected anything, because DCGM latches the last Xid per device. This run re-confirms the value but cannot witness a fresh delivery; recreate the cluster (FORCE_RECREATE=true) to see that."
+  info "  the series moved ${xid_before} -> ${FAULT_OBSERVED}, so this run watched an Xid travel the whole path rather than re-reading a latched value"
 fi
 
 # Same scope argument as the temperature pin, phrased against the injected code
 # rather than presence: a future dcgm-exporter that reported 0 for healthy GPUs
 # would still be correctly scoped.
 xid_snapshot=$(promq "query?query=DCGM_FI_DEV_XID_ERRORS")
-xid_others=$(jq -r --arg node "${TARGET_NODE}" --arg gpu "${TARGET_GPU}" --argjson xid "${XID_CODE}" \
+xid_others=$(jq -r --arg node "${TARGET_NODE}" --arg gpu "${TARGET_GPU}" --argjson xid "${xid_want}" \
   '[.data.result[]
      | select(.metric.Hostname == $node and .metric.gpu != $gpu)
      | select((.value[1] | tonumber) == $xid)
      | .metric.gpu] | sort | join(",")' <<<"${xid_snapshot}")
 [[ -z "${xid_others}" ]] \
-  || fail "gpu(s) ${xid_others} on ${TARGET_NODE} also report Xid ${XID_CODE}; the failure is not scoped to gpu ${TARGET_GPU}"
-info "OBSERVED: the Xid is scoped to gpu ${TARGET_GPU} with labels $(jq -c --arg node "${TARGET_NODE}" --arg gpu "${TARGET_GPU}" \
-  'first(.data.result[] | select(.metric.Hostname == $node and .metric.gpu == $gpu) | {Hostname: .metric.Hostname, gpu: .metric.gpu, UUID: .metric.UUID, pci_bus_id: .metric.pci_bus_id})' <<<"${xid_snapshot}")"
+  || fail "gpu(s) ${xid_others} on ${TARGET_NODE} also report Xid ${xid_want}; the failure is not scoped to gpu ${TARGET_GPU}"
+# err_code is printed alongside the identity labels because it is the label the
+# dashboard's Xid legend keys on, and the one that makes this line evidence for
+# the claim above rather than a restatement of it. The rotation can leave the
+# previous code's series briefly un-stale, so pick the one this run injected.
+info "OBSERVED: the Xid is scoped to gpu ${TARGET_GPU} with labels $(jq -c --arg node "${TARGET_NODE}" --arg gpu "${TARGET_GPU}" --arg xid "${xid_want}" \
+  'first(.data.result[]
+     | select(.metric.Hostname == $node and .metric.gpu == $gpu and .metric.err_code == $xid)
+     | {Hostname: .metric.Hostname, gpu: .metric.gpu, err_code: .metric.err_code, UUID: .metric.UUID, pci_bus_id: .metric.pci_bus_id})' <<<"${xid_snapshot}")"
 
 # --- Series continuity --------------------------------------------------------
 # The whole reason faults are injected through nvml-mock-ctl instead of a helm
