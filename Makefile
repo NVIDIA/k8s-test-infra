@@ -48,6 +48,8 @@ help:
 	@echo "🛠️ Dev Commands\n"
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
+CONTROLLER_GEN_VERSION ?= v0.20.1
+
 .PHONY: tools
 tools: ## Install static checkers & other binaries
 	@echo "🚚 Downloading tools.."
@@ -55,6 +57,7 @@ tools: ## Install static checkers & other binaries
 	@ \
 	test -x $(BIN_DIR)/golangci-lint || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) v2.12.2 & \
 	test -x $(BIN_DIR)/govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest & \
+	test -x $(BIN_DIR)/controller-gen || go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) & \
 	wait
 
 .PHONY: lint
@@ -75,14 +78,30 @@ lint-fix: tools gen ## Same checks as `lint`, but auto-fix what can be fixed; re
 	@echo "🛡️ govulncheck.."
 	@$(BIN_DIR)/govulncheck -tags=e2e,integration ./...
 
+CRDS_OUT     := deployments/mokka-crds/helm/mokka-crds/templates
+API_PKG_PATH := ./internal/controlplane/api/...
+
 .PHONY: gen
-gen: ## Generate machine-controlled code
+gen: tools ## Generate machine-controlled code
 	@echo "Generating NVML Bridge.."
 	@go generate ./pkg/gpu/mocknvml/bridge/...
+	@echo "Generating deepcopy for $(API_PKG_PATH).."
+	@$(BIN_DIR)/controller-gen object paths="$(API_PKG_PATH)"
+	@echo "Generating CRD manifests into $(CRDS_OUT).."
+	@mkdir -p $(CRDS_OUT)
+	@$(BIN_DIR)/controller-gen crd:allowDangerousTypes=true \
+		paths="$(API_PKG_PATH)" \
+		output:crd:artifacts:config=$(CRDS_OUT)
 
 .PHONY: gen-check
 gen-check: gen ## Check whether all generated code is up to date
-	@git diff --quiet HEAD -- ./pkg/gpu/mocknvml/bridge/
+	@git diff --quiet HEAD -- \
+		./pkg/gpu/mocknvml/bridge/ \
+		./internal/controlplane/api/ \
+		$(CRDS_OUT) || { \
+		echo "ERROR: generated code is out of date. Run 'make gen' and commit the result."; \
+		git diff -- ./internal/controlplane/api/ $(CRDS_OUT); \
+		exit 1; }
 
 DIST_DIR ?= dist
 
@@ -148,7 +167,8 @@ modules-check: modules ## Fail if any sub-module go.mod / go.sum / vendor is out
 	@echo "- Checking if the go mod vendor dir is in sync..."
 	@git diff --exit-code -- $$(find . -name vendor)
 
-HELM_CHART_DIR := deployments/nvml-mock/helm/nvml-mock
+HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
+CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds
 
 # Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
 # Docker-based, hence separate from the `go test` run.
@@ -167,6 +187,11 @@ test-mockpcisysfs: mockpcisysfs-shim ## Run mockpcisysfs integration tests
 .PHONY: helm-tests
 helm-tests: ## Run the nvml-mock chart unit test suite
 	helm unittest $(HELM_CHART_DIR)
+
+.PHONY: helm-crds-tests
+helm-crds-tests: ## Lint + template-render the mokka-crds chart
+	helm lint $(CRDS_HELM_CHART_DIR)
+	helm template mokka-crds $(CRDS_HELM_CHART_DIR) > /dev/null
 
 # Unit tests for the e2e harness itself (framework/*). They are behind the `e2e`
 # build tag, so the untagged CI unit-test run skips them, and `make e2e` targets
