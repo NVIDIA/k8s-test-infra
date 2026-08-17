@@ -265,3 +265,43 @@ for series in DCGM_FI_DEV_GPU_TEMP DCGM_FI_DEV_POWER_USAGE DCGM_FI_DEV_GPU_UTIL;
   [[ "${count}" -gt 0 ]] || fail "${series} returned no series"
   info "  ${series}: ${count} series"
 done
+
+# --- Provision the in-tree Grafana dashboard -----------------------------------
+# The Grafana sidecar imports any ConfigMap labelled grafana_dashboard=1 (the
+# selector pinned in kube-prometheus-stack-values.yaml), which keeps the
+# dashboard a reviewable file in git rather than click-together UI state.
+#
+# `create --dry-run=client | apply` rather than a plain `create`: the latter
+# fails with AlreadyExists on the second run, and this script must converge.
+info "Provisioning the Mokka GPU dashboard"
+kubectl_ctx -n "${MONITORING_NAMESPACE}" create configmap mokka-gpu-dashboard \
+  --from-file=mokka-gpu.json="${REPO_ROOT}/${DEMO_DIR}/dashboards/mokka-gpu.json" \
+  --dry-run=client -o yaml | kubectl_ctx apply -f -
+kubectl_ctx -n "${MONITORING_NAMESPACE}" label configmap mokka-gpu-dashboard \
+  grafana_dashboard=1 --overwrite
+
+# A ConfigMap the sidecar rejects (bad JSON, wrong label) is indistinguishable
+# from a healthy one at the API level, so assert against Grafana's own search
+# API -- the only source that proves the dashboard was actually imported.
+#
+# The query runs from inside the Grafana container rather than through the
+# API-server service proxy the way promq does, because /api/search needs Basic
+# auth and `kubectl get --raw` cannot carry credentials: Grafana's 401 comes
+# back disguised as kubectl's own "You must be logged in to the server", so the
+# check would never pass no matter how long it waited.
+info "Waiting for Grafana to import the dashboard"
+dash_ok=false
+for _ in $(seq 1 36); do
+  if kubectl_ctx -n "${MONITORING_NAMESPACE}" exec "deploy/${KPS_RELEASE}-grafana" -c grafana -- \
+      curl -sf -u "admin:${GRAFANA_PASSWORD}" "http://localhost:3000/api/search?query=Mokka" \
+      2>/dev/null | jq -e '.[] | select(.uid == "mokka-gpu")' >/dev/null 2>&1; then
+    dash_ok=true; break
+  fi
+  sleep 5
+done
+if [[ "${dash_ok}" != "true" ]]; then
+  observe kubectl_ctx -n "${MONITORING_NAMESPACE}" logs "deploy/${KPS_RELEASE}-grafana" \
+    -c grafana-sc-dashboard --tail=20
+  fail "Grafana never imported the dashboard. Check the sidecar sees grafana_dashboard=1 and that the JSON parses"
+fi
+info "Grafana imported the Mokka GPU dashboard"
