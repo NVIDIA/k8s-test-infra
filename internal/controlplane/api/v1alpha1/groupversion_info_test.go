@@ -17,20 +17,22 @@ func TestAddToScheme(t *testing.T) {
 	require.NoError(t, AddToScheme(scheme))
 
 	kinds := []string{
-		"SGPUProfile", "SGPUProfileList",
+		"SGPURackProfile", "SGPURackProfileList",
 		"SGPUInventory", "SGPUInventoryList",
 		"SGPURuntimePolicy", "SGPURuntimePolicyList",
+		"SGPURack", "SGPURackList",
 	}
 	for _, k := range kinds {
 		require.Truef(t, scheme.Recognizes(GroupVersion.WithKind(k)),
 			"expected scheme to recognize %s", k)
 	}
+	require.False(t, scheme.Recognizes(GroupVersion.WithKind("SGPUProfile")))
 }
 
 func TestResource(t *testing.T) {
 	t.Parallel()
 
-	gr := Resource("sgpuprofiles")
+	gr := Resource("sgpurackprofiles")
 	require.Equal(t, GroupName, gr.Group)
-	require.Equal(t, "sgpuprofiles", gr.Resource)
+	require.Equal(t, "sgpurackprofiles", gr.Resource)
 }

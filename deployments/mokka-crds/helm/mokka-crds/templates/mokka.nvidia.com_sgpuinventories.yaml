@@ -125,7 +125,8 @@ spec:
                           x-kubernetes-map-type: atomic
                       type: object
                     profileRef:
-                      description: ProfileReference targets an SGPUProfile by name.
+                      description: ProfileReference targets an SGPURackProfile by
+                        name.
                       properties:
                         name:
                           minLength: 1

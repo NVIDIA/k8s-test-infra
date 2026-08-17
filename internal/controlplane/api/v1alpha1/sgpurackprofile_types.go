@@ -8,31 +8,32 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// SGPUProfile is the static shape of a simulated GPU rack.
+// SGPURackProfile is the static shape of a simulated GPU rack.
 //
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Cluster,categories=mokka,shortName=sprof
+// +kubebuilder:resource:scope=Cluster,categories=mokka,shortName=srprof
 // +kubebuilder:printcolumn:name="Nodes/Rack",type=integer,JSONPath=`.spec.rack.nodesPerRack`
 // +kubebuilder:printcolumn:name="GPUs/Node",type=integer,JSONPath=`.spec.node.gpus.count`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
-type SGPUProfile struct {
+type SGPURackProfile struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec SGPUProfileSpec `json:"spec"`
+	Spec SGPURackProfileSpec `json:"spec"`
 }
 
-// SGPUProfileList is the list wrapper for SGPUProfile.
+// SGPURackProfileList is the list wrapper for SGPURackProfile.
 // +kubebuilder:object:root=true
-type SGPUProfileList struct {
+type SGPURackProfileList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []SGPUProfile `json:"items"`
+	Items           []SGPURackProfile `json:"items"`
 }
 
-// SGPUProfileSpec is one logical rack profile.
-type SGPUProfileSpec struct {
-	Rack SGPURack `json:"rack"`
+// SGPURackProfileSpec is one logical rack profile.
+type SGPURackProfileSpec struct {
+	// Rack is the logical rack shape described by this profile.
+	Rack SGPURackShape `json:"rack"`
 
 	Node SGPUNode `json:"node"`
 
@@ -40,11 +41,12 @@ type SGPUProfileSpec struct {
 	Software *SGPUSoftware `json:"software,omitempty"`
 
 	// +optional
-	Defaults *SGPUProfileDefaults `json:"defaults,omitempty"`
+	Defaults *SGPURackProfileDefaults `json:"defaults,omitempty"`
 }
 
-// SGPURack is the logical rack shape.
-type SGPURack struct {
+// SGPURackShape defines the dimensions of a logical rack template. It is
+// nested profile data rather than a materialized SGPURack resource.
+type SGPURackShape struct {
 	// +kubebuilder:validation:Minimum=1
 	NodesPerRack int32 `json:"nodesPerRack"`
 }
@@ -432,8 +434,8 @@ type SGPUSoftware struct {
 	CUDAVersion string `json:"cudaVersion,omitempty"`
 }
 
-// SGPUProfileDefaults is initial runtime state for fresh sGPUs.
-type SGPUProfileDefaults struct {
+// SGPURackProfileDefaults is initial runtime state for fresh sGPUs.
+type SGPURackProfileDefaults struct {
 	// +optional
 	Runtime *RuntimeState `json:"runtime,omitempty"`
 }
