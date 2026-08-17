@@ -148,3 +148,25 @@ systemctl restart containerd
 done
 info "Waiting for all nodes to be Ready"
 kubectl_ctx wait --for=condition=Ready nodes --all --timeout=180s
+
+# --- Build + load the nvml-mock image -----------------------------------------
+info "Building nvml-mock image: ${IMAGE_NAME}"
+docker build -t "${IMAGE_NAME}" -f "${REPO_ROOT}/deployments/nvml-mock/Dockerfile" "${REPO_ROOT}"
+info "Loading image into Kind"
+kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
+
+# --- Install nvml-mock (pinned to the GPU workers) ----------------------------
+# dynamicMetrics is what makes the dashboard interesting: without it temperature,
+# power and utilization are static profile constants and every panel is a flat
+# line.
+info "Installing nvml-mock (profile=${GPU_PROFILE}, count=${GPU_COUNT}) on the GPU workers"
+helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
+  --kube-context "${KUBE_CONTEXT}" \
+  --namespace "${NVML_MOCK_NAMESPACE}" --create-namespace \
+  --set image.repository=nvml-mock \
+  --set image.tag=observability-demo \
+  --set "gpu.profile=${GPU_PROFILE}" \
+  --set "gpu.count=${GPU_COUNT}" \
+  --set gpu.dynamicMetrics.enabled=true \
+  --set-string "nodeSelector.nvml-mock-gpu=true" \
+  --wait --timeout 180s
