@@ -105,6 +105,8 @@ type gpuElement struct {
 	ProductName              reading       `xml:"product_name"`
 	ProductArchitecture      reading       `xml:"product_architecture"`
 	UUID                     reading       `xml:"uuid"`
+	BoardID                  reading       `xml:"board_id"`
+	PCI                      pciInfo       `xml:"pci"`
 	FanSpeed                 reading       `xml:"fan_speed"`
 	PerformanceState         reading       `xml:"performance_state"`
 	FBMemoryUsage            memoryUsage   `xml:"fb_memory_usage"`
@@ -130,6 +132,29 @@ type memoryUsage struct {
 	Reserved reading `xml:"reserved"`
 	Used     reading `xml:"used"`
 	Free     reading `xml:"free"`
+}
+
+// pciInfo is <pci>. Only the link-generation subtree is decoded; the sibling
+// <pci_bridge_chip> and the flat address elements are not read.
+type pciInfo struct {
+	GPULinkInfo gpuLinkInfo `xml:"pci_gpu_link_info"`
+}
+
+// gpuLinkInfo is <pci_gpu_link_info>. Its other child, <link_widths>, names its
+// readings max_link_width and current_link_width, so the generation and width
+// elements cannot be confused for one another.
+type gpuLinkInfo struct {
+	PCIeGen pcieGen `xml:"pcie_gen"`
+}
+
+// pcieGen is <pcie_gen>. The three maxima reach nvidia-smi by different routes:
+// max_link_gen and max_device_link_gen come from public NVML getters, while
+// max_host_link_gen comes from a slot of the internal export table. The current
+// readings are deliberately not decoded — no assertion reads them yet.
+type pcieGen struct {
+	Max       reading `xml:"max_link_gen"`
+	DeviceMax reading `xml:"max_device_link_gen"`
+	HostMax   reading `xml:"max_host_link_gen"`
 }
 
 type statsBlock struct {
