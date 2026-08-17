@@ -12,55 +12,55 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDiffInventory_AcceptsMatchingProfile(t *testing.T) {
-	problems := DiffInventory(loadFixture(t, "qx-a100-healthy.xml"), "NVIDIA A100-SXM4-40GB", 2)
+func TestInventoryProblems_AcceptsMatchingProfile(t *testing.T) {
+	problems := InventoryProblems(loadFixture(t, "qx-a100-healthy.xml"), "NVIDIA A100-SXM4-40GB", 2)
 	assert.Empty(t, problems, strings.Join(problems, "; "))
 }
 
-func TestDiffInventory_RejectsWrongCount(t *testing.T) {
-	problems := DiffInventory(loadFixture(t, "qx-a100-healthy.xml"), "NVIDIA A100-SXM4-40GB", 8)
+func TestInventoryProblems_RejectsWrongCount(t *testing.T) {
+	problems := InventoryProblems(loadFixture(t, "qx-a100-healthy.xml"), "NVIDIA A100-SXM4-40GB", 8)
 	require.NotEmpty(t, problems)
 	assert.Contains(t, strings.Join(problems, "; "), "want 8")
 }
 
 // The check is equality, not substring: product_name carries the profile's
 // DisplayName verbatim, so a truncated or decorated name must fail.
-func TestDiffInventory_RejectsWrongProductName(t *testing.T) {
-	problems := DiffInventory(loadFixture(t, "qx-a100-healthy.xml"), "NVIDIA A100", 2)
+func TestInventoryProblems_RejectsWrongProductName(t *testing.T) {
+	problems := InventoryProblems(loadFixture(t, "qx-a100-healthy.xml"), "NVIDIA A100", 2)
 	require.Len(t, problems, 2, "both GPUs carry the wrong name")
 	assert.Contains(t, problems[0], "product_name")
 }
 
 // attached_gpus and the number of <gpu> elements must agree; a mismatch means
 // nvidia-smi truncated the document and every later index is suspect.
-func TestDiffInventory_RejectsTruncatedDocument(t *testing.T) {
+func TestInventoryProblems_RejectsTruncatedDocument(t *testing.T) {
 	out := strings.Replace(loadFixture(t, "qx-a100-healthy.xml"),
 		"<attached_gpus>2</attached_gpus>", "<attached_gpus>4</attached_gpus>", 1)
-	problems := DiffInventory(out, "NVIDIA A100-SXM4-40GB", 4)
+	problems := InventoryProblems(out, "NVIDIA A100-SXM4-40GB", 4)
 	require.NotEmpty(t, problems)
 	assert.Contains(t, strings.Join(problems, "; "), "2 <gpu> elements")
 }
 
-func TestDiffInventory_ReportsUnparseableDocument(t *testing.T) {
-	problems := DiffInventory("not xml", "NVIDIA A100-SXM4-40GB", 2)
+func TestInventoryProblems_ReportsUnparseableDocument(t *testing.T) {
+	problems := InventoryProblems("not xml", "NVIDIA A100-SXM4-40GB", 2)
 	require.Len(t, problems, 1)
 	assert.Contains(t, problems[0], "parse nvidia-smi XML")
 }
 
-func TestDiffNoProcesses_AcceptsIdleGPUs(t *testing.T) {
-	problems := DiffNoProcesses(loadFixture(t, "qx-gb200-healthy.xml"))
+func TestPhantomProcessProblems_AcceptsIdleGPUs(t *testing.T) {
+	problems := PhantomProcessProblems(loadFixture(t, "qx-gb200-healthy.xml"))
 	assert.Empty(t, problems, strings.Join(problems, "; "))
 }
 
 // The phantom-process regression: a stub that returned SUCCESS without zeroing
 // the caller's count made nvidia-smi render its uninitialised buffer as
 // hundreds of PID 0 entries.
-func TestDiffNoProcesses_RejectsPhantomProcesses(t *testing.T) {
+func TestPhantomProcessProblems_RejectsPhantomProcesses(t *testing.T) {
 	out := strings.Replace(loadFixture(t, "qx-gb200-healthy.xml"),
 		"<processes>\n\t\t</processes>",
 		"<processes>\n\t\t\t<process_info><pid>0</pid><process_name>N/A</process_name>"+
 			"<used_memory>0 MiB</used_memory></process_info>\n\t\t</processes>", 1)
-	problems := DiffNoProcesses(out)
+	problems := PhantomProcessProblems(out)
 	require.NotEmpty(t, problems)
 	assert.Contains(t, strings.Join(problems, "; "), "pid 0")
 }
@@ -104,18 +104,18 @@ const (
 	ofaNA  = "\n\t\t\t<ofa_util>N/A</ofa_util>"
 )
 
-func TestDiffJpgOfaUtilization_AcceptsConfiguredPercentages(t *testing.T) {
+func TestJpgOfaUtilizationProblems_AcceptsConfiguredPercentages(t *testing.T) {
 	out := xmlDocument(
 		utilizationGPU("0000:07:00.0", jpeg35, ofa12),
 		utilizationGPU("0000:0F:00.0", jpeg35, ofa12),
 	)
-	require.Empty(t, DiffJpgOfaUtilization(out, 35, 12))
+	require.Empty(t, JpgOfaUtilizationProblems(out, 35, 12))
 }
 
-func TestDiffJpgOfaUtilization_RejectsNotAvailableReadings(t *testing.T) {
+func TestJpgOfaUtilizationProblems_RejectsNotAvailableReadings(t *testing.T) {
 	out := xmlDocument(utilizationGPU("0000:07:00.0", jpegNA, ofaNA))
 
-	problems := DiffJpgOfaUtilization(out, 35, 12)
+	problems := JpgOfaUtilizationProblems(out, 35, 12)
 	require.Len(t, problems, 2, "both readings are N/A")
 	joined := strings.Join(problems, "\n")
 	assert.Contains(t, joined, `jpeg_util = "N/A"`)
@@ -124,21 +124,21 @@ func TestDiffJpgOfaUtilization_RejectsNotAvailableReadings(t *testing.T) {
 
 // A zeroed default reading must not satisfy a non-zero expectation, and the two
 // values must not be interchangeable — the reason the fixture uses 35 and 12.
-func TestDiffJpgOfaUtilization_RejectsWrongPercentages(t *testing.T) {
+func TestJpgOfaUtilizationProblems_RejectsWrongPercentages(t *testing.T) {
 	out := xmlDocument(utilizationGPU("0000:07:00.0", jpeg35, ofa12))
 
-	assert.Len(t, DiffJpgOfaUtilization(out, 0, 0), 2,
+	assert.Len(t, JpgOfaUtilizationProblems(out, 0, 0), 2,
 		"35 %% / 12 %% must not satisfy a zeroed expectation")
-	assert.Len(t, DiffJpgOfaUtilization(out, 12, 35), 2,
+	assert.Len(t, JpgOfaUtilizationProblems(out, 12, 35), 2,
 		"transposed expectations must not pass")
 }
 
 // Absent elements decode as empty strings, which must be reported rather than
 // read as 0 %.
-func TestDiffJpgOfaUtilization_ReportsMissingElements(t *testing.T) {
+func TestJpgOfaUtilizationProblems_ReportsMissingElements(t *testing.T) {
 	out := xmlDocument(utilizationGPU("0000:07:00.0", "", ""))
 
-	problems := DiffJpgOfaUtilization(out, 35, 12)
+	problems := JpgOfaUtilizationProblems(out, 35, 12)
 	require.Len(t, problems, 2)
 	joined := strings.Join(problems, "\n")
 	assert.Contains(t, joined, `jpeg_util = ""`)
@@ -147,13 +147,13 @@ func TestDiffJpgOfaUtilization_ReportsMissingElements(t *testing.T) {
 
 // A getter that answers for only the first device must fail, and the report must
 // name the GPU so the failure points at a device.
-func TestDiffJpgOfaUtilization_ChecksEveryGPU(t *testing.T) {
+func TestJpgOfaUtilizationProblems_ChecksEveryGPU(t *testing.T) {
 	out := xmlDocument(
 		utilizationGPU("0000:07:00.0", jpeg35, ofa12),
 		utilizationGPU("0000:0F:00.0", jpegNA, ofa12),
 	)
 
-	problems := DiffJpgOfaUtilization(out, 35, 12)
+	problems := JpgOfaUtilizationProblems(out, 35, 12)
 	require.Len(t, problems, 1, "only the second GPU's jpeg_util is N/A")
 	assert.Contains(t, problems[0], "0000:0F:00.0")
 }
@@ -161,17 +161,17 @@ func TestDiffJpgOfaUtilization_ChecksEveryGPU(t *testing.T) {
 // nvidia-smi can die mid-document and still exit with a partial tree on stdout;
 // truncated XML must be reported as a parse failure, not silently pass for want
 // of any <gpu> elements to check.
-func TestDiffJpgOfaUtilization_RejectsTruncatedOutput(t *testing.T) {
+func TestJpgOfaUtilizationProblems_RejectsTruncatedOutput(t *testing.T) {
 	full := xmlDocument(utilizationGPU("0000:07:00.0", jpeg35, ofa12))
 	truncated := full[:strings.Index(full, "<utilization>")]
 
-	problems := DiffJpgOfaUtilization(truncated, 35, 12)
+	problems := JpgOfaUtilizationProblems(truncated, 35, 12)
 	require.Len(t, problems, 1)
 	assert.Contains(t, problems[0], "parse nvidia-smi XML")
 }
 
-func TestDiffJpgOfaUtilization_RejectsOutputWithoutGPUs(t *testing.T) {
-	problems := DiffJpgOfaUtilization(xmlDocument(), 35, 12)
+func TestJpgOfaUtilizationProblems_RejectsOutputWithoutGPUs(t *testing.T) {
+	problems := JpgOfaUtilizationProblems(xmlDocument(), 35, 12)
 	require.Len(t, problems, 1)
 	assert.Contains(t, problems[0], "no GPUs")
 }
@@ -196,19 +196,19 @@ func statsGPU(sessionCount, fps, latency, buffer string) string {
 	</gpu>`
 }
 
-func TestDiffEncoderFBC_AcceptsConfiguredStats(t *testing.T) {
+func TestEncoderFBCProblems_AcceptsConfiguredStats(t *testing.T) {
 	want := EncoderFBCStats{SessionCount: 2, AverageFPS: 30, AverageLatencyUS: 1500}
 
-	problems := DiffEncoderFBC(xmlDocument(statsGPU("2", "30", "1500 us", "4000")), want, want, 4000)
+	problems := EncoderFBCProblems(xmlDocument(statsGPU("2", "30", "1500 us", "4000")), want, want, 4000)
 	assert.Empty(t, problems, strings.Join(problems, "; "))
 }
 
 // The stubbed exports rendered every one of these as N/A, which must be
 // reported as a missing getter rather than compared as a number.
-func TestDiffEncoderFBC_RejectsStubValues(t *testing.T) {
+func TestEncoderFBCProblems_RejectsStubValues(t *testing.T) {
 	want := EncoderFBCStats{SessionCount: 2, AverageFPS: 30, AverageLatencyUS: 1500}
 
-	problems := DiffEncoderFBC(xmlDocument(statsGPU("N/A", "N/A", "N/A", "N/A")), want, want, 4000)
+	problems := EncoderFBCProblems(xmlDocument(statsGPU("N/A", "N/A", "N/A", "N/A")), want, want, 4000)
 	require.Len(t, problems, 7, "three readings per stats block plus the accounting buffer")
 	joined := strings.Join(problems, "; ")
 	assert.Contains(t, joined, "encoder_stats session_count")
@@ -219,11 +219,11 @@ func TestDiffEncoderFBC_RejectsStubValues(t *testing.T) {
 
 // Encoder and FBC carry separate expectations, so a getter that serves one
 // block's numbers for both must be caught.
-func TestDiffEncoderFBC_ChecksBothBlocksAgainstTheirOwnExpectation(t *testing.T) {
+func TestEncoderFBCProblems_ChecksBothBlocksAgainstTheirOwnExpectation(t *testing.T) {
 	encoder := EncoderFBCStats{SessionCount: 2, AverageFPS: 30, AverageLatencyUS: 1500}
 	fbc := EncoderFBCStats{SessionCount: 4, AverageFPS: 60, AverageLatencyUS: 900}
 
-	problems := DiffEncoderFBC(xmlDocument(statsGPU("2", "30", "1500 us", "4000")), encoder, fbc, 4000)
+	problems := EncoderFBCProblems(xmlDocument(statsGPU("2", "30", "1500 us", "4000")), encoder, fbc, 4000)
 	require.Len(t, problems, 3, "the fbc_stats block matches the encoder expectation")
 	assert.Contains(t, strings.Join(problems, "; "), "fbc_stats session_count = 2, want 4")
 }

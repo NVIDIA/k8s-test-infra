@@ -546,7 +546,7 @@ func assertJpgOfaUtilizationOverride(ctx SpecContext, h *harness.Harness, consum
 		if err != nil {
 			return []string{"nvidia-smi -q -x failed: " + res.Combined()}
 		}
-		return nvidiasmi.DiffJpgOfaUtilization(res.Stdout, wantJPEG, wantOFA)
+		return nvidiasmi.JpgOfaUtilizationProblems(res.Stdout, wantJPEG, wantOFA)
 	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
 		Should(BeEmpty(), "JPEG/OFA utilization should reflect the runtime override")
 
@@ -978,7 +978,7 @@ func assertEncoderFBCAccounting(ctx SpecContext, h *harness.Harness, consumer ku
 		if err != nil {
 			return fmt.Errorf("nvidia-smi -q -x: %w: %s", err, res.Combined())
 		}
-		if problems := nvidiasmi.DiffEncoderFBC(res.Stdout, stats, stats, buffer); len(problems) > 0 {
+		if problems := nvidiasmi.EncoderFBCProblems(res.Stdout, stats, stats, buffer); len(problems) > 0 {
 			return errors.New(strings.Join(problems, "\n"))
 		}
 		return nil

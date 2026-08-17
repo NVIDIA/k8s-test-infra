@@ -16,7 +16,7 @@ import "fmt"
 // temperatures, so the Ada+ branch asserts presence only. The absolute branch
 // asserts the profile's configured values.
 
-// DiffTemperature checks that a `nvidia-smi -q -x` document uses the
+// TemperatureProblems checks that a `nvidia-smi -q -x` document uses the
 // architecture-correct threshold presentation for every GPU:
 //
 //   - pre-Ada (reportsTLimit=false): absolute gpu_temp_max_threshold,
@@ -30,7 +30,7 @@ import "fmt"
 // unsupported query looks like; a T.Limit element with a NUMBER on pre-Ada is
 // the defect (#635). Absolute thresholds must also never be negative or order
 // shutdown below slowdown — the impossible rendering the gate fixes.
-func DiffTemperature(out string, reportsTLimit bool, shutdownC, slowdownC, maxOperatingC int) []string {
+func TemperatureProblems(out string, reportsTLimit bool, shutdownC, slowdownC, maxOperatingC int) []string {
 	doc, err := parse(out)
 	if err != nil {
 		return []string{err.Error()}
@@ -40,10 +40,10 @@ func DiffTemperature(out string, reportsTLimit bool, shutdownC, slowdownC, maxOp
 	for i, gpu := range doc.GPUs {
 		name := gpu.label(i)
 		if reportsTLimit {
-			problems = append(problems, diffTLimitTemperature(name, gpu.Temperature)...)
+			problems = append(problems, tlimitPresentationProblems(name, gpu.Temperature)...)
 			continue
 		}
-		problems = append(problems, diffAbsoluteTemperature(name, gpu.Temperature,
+		problems = append(problems, absolutePresentationProblems(name, gpu.Temperature,
 			shutdownC, slowdownC, maxOperatingC)...)
 	}
 	return problems
@@ -72,7 +72,7 @@ func absoluteThresholds(t temperature) []namedReading {
 	}
 }
 
-func diffTLimitTemperature(name string, t temperature) []string {
+func tlimitPresentationProblems(name string, t temperature) []string {
 	var problems []string
 	for _, r := range tlimitThresholds(t) {
 		if _, ok := r.raw.intValue(); !ok {
@@ -89,7 +89,7 @@ func diffTLimitTemperature(name string, t temperature) []string {
 	return problems
 }
 
-func diffAbsoluteTemperature(name string, t temperature, shutdownC, slowdownC, maxOperatingC int) []string {
+func absolutePresentationProblems(name string, t temperature, shutdownC, slowdownC, maxOperatingC int) []string {
 	want := []struct {
 		element string
 		raw     reading
@@ -121,10 +121,10 @@ func diffAbsoluteTemperature(name string, t temperature, shutdownC, slowdownC, m
 	if _, ok := t.TLimit.intValue(); ok {
 		problems = append(problems, name+": unexpected gpu_temp_tlimit carrying a value on a pre-Ada profile")
 	}
-	return append(problems, diffAbsoluteOrdering(name, t)...)
+	return append(problems, absoluteOrderingProblems(name, t)...)
 }
 
-func diffAbsoluteOrdering(name string, t temperature) []string {
+func absoluteOrderingProblems(name string, t temperature) []string {
 	var problems []string
 	shutdown, hasShutdown := t.MaxThreshold.intValue()
 	slowdown, hasSlowdown := t.SlowThreshold.intValue()

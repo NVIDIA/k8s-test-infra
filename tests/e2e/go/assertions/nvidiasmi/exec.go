@@ -38,12 +38,12 @@ func Inventory(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.P
 	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x describes %d GPUs named %q", p.ExpectedGPUs(), p.DisplayName))
 	out := query(ctx, k, pod)
 
-	problems := DiffInventory(out, p.DisplayName, p.ExpectedGPUs())
+	problems := InventoryProblems(out, p.DisplayName, p.ExpectedGPUs())
 	gomega.Expect(problems).To(gomega.BeEmpty(), "nvidia-smi inventory wrong:\n%s",
 		strings.Join(problems, "\n"))
 
 	ginkgo.By("nvidia-smi -q -x reports no phantom processes")
-	problems = DiffNoProcesses(out)
+	problems = PhantomProcessProblems(out)
 	gomega.Expect(problems).To(gomega.BeEmpty(), "phantom processes:\n%s",
 		strings.Join(problems, "\n"))
 }
@@ -55,7 +55,7 @@ func JpgOfaUtilization(ctx context.Context, k *kube.Client, pod kube.PodRef, wan
 	ginkgo.GinkgoHelper()
 
 	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x reports jpeg_util %d %% / ofa_util %d %%", wantJPEG, wantOFA))
-	problems := DiffJpgOfaUtilization(query(ctx, k, pod), wantJPEG, wantOFA)
+	problems := JpgOfaUtilizationProblems(query(ctx, k, pod), wantJPEG, wantOFA)
 	gomega.Expect(problems).To(gomega.BeEmpty(),
 		"JPEG/OFA utilization wrong:\n%s", strings.Join(problems, "\n"))
 }
@@ -69,7 +69,7 @@ func TemperatureThresholds(ctx context.Context, k *kube.Client, pod kube.PodRef,
 
 	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x temperature thresholds on %s (arch=%s, tlimit=%v)",
 		p.Name, p.Architecture(), p.ReportsTLimitTemp()))
-	problems := DiffTemperature(query(ctx, k, pod), p.ReportsTLimitTemp(),
+	problems := TemperatureProblems(query(ctx, k, pod), p.ReportsTLimitTemp(),
 		p.ShutdownThresholdC(), p.SlowdownThresholdC(), p.MaxOperatingC())
 	gomega.Expect(problems).To(gomega.BeEmpty(),
 		"temperature threshold presentation wrong for profile %s:\n%s",

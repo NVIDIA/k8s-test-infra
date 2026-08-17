@@ -43,40 +43,40 @@ const invertedAbsoluteTemperatureElements = `
 			<gpu_temp_slow_threshold>87 C</gpu_temp_slow_threshold>
 			<gpu_temp_max_gpu_threshold>83 C</gpu_temp_max_gpu_threshold>`
 
-func TestDiffTemperature_AcceptsCapturedAmpereDocument(t *testing.T) {
-	problems := DiffTemperature(loadFixture(t, "qx-a100-healthy.xml"), false, 92, 87, 83)
+func TestTemperatureProblems_AcceptsCapturedAmpereDocument(t *testing.T) {
+	problems := TemperatureProblems(loadFixture(t, "qx-a100-healthy.xml"), false, 92, 87, 83)
 	assert.Empty(t, problems, strings.Join(problems, "; "))
 }
 
-func TestDiffTemperature_AcceptsCapturedBlackwellDocument(t *testing.T) {
-	problems := DiffTemperature(loadFixture(t, "qx-gb200-healthy.xml"), true, 92, 87, 83)
+func TestTemperatureProblems_AcceptsCapturedBlackwellDocument(t *testing.T) {
+	problems := TemperatureProblems(loadFixture(t, "qx-gb200-healthy.xml"), true, 92, 87, 83)
 	assert.Empty(t, problems, strings.Join(problems, "; "))
 }
 
-func TestDiffTemperature_RejectsTLimitElementsOnPreAda(t *testing.T) {
-	problems := DiffTemperature(temperatureXML(buggyPreAdaTemperatureElements), false, 92, 87, 83)
+func TestTemperatureProblems_RejectsTLimitElementsOnPreAda(t *testing.T) {
+	problems := TemperatureProblems(temperatureXML(buggyPreAdaTemperatureElements), false, 92, 87, 83)
 	require.NotEmpty(t, problems, "buggy pre-Ada output must fail the absolute check")
 	joined := strings.Join(problems, "; ")
 	assert.Contains(t, joined, "tlimit")
 	assert.Contains(t, joined, "missing absolute")
 }
 
-func TestDiffTemperature_RejectsAbsoluteElementsOnAda(t *testing.T) {
-	problems := DiffTemperature(loadFixture(t, "qx-a100-healthy.xml"), true, 92, 87, 83)
+func TestTemperatureProblems_RejectsAbsoluteElementsOnAda(t *testing.T) {
+	problems := TemperatureProblems(loadFixture(t, "qx-a100-healthy.xml"), true, 92, 87, 83)
 	require.NotEmpty(t, problems)
 	joined := strings.Join(problems, "; ")
 	assert.Contains(t, joined, "missing")
 	assert.Contains(t, joined, "unexpected absolute")
 }
 
-func TestDiffTemperature_RejectsWrongThresholdValues(t *testing.T) {
-	problems := DiffTemperature(loadFixture(t, "qx-a100-healthy.xml"), false, 95, 87, 83)
+func TestTemperatureProblems_RejectsWrongThresholdValues(t *testing.T) {
+	problems := TemperatureProblems(loadFixture(t, "qx-a100-healthy.xml"), false, 95, 87, 83)
 	require.NotEmpty(t, problems)
 	assert.Contains(t, strings.Join(problems, "; "), "want 95 C")
 }
 
-func TestDiffTemperature_RejectsImpossibleAbsoluteOrdering(t *testing.T) {
-	problems := DiffTemperature(temperatureXML(invertedAbsoluteTemperatureElements), false, -5, 87, 83)
+func TestTemperatureProblems_RejectsImpossibleAbsoluteOrdering(t *testing.T) {
+	problems := TemperatureProblems(temperatureXML(invertedAbsoluteTemperatureElements), false, -5, 87, 83)
 	require.NotEmpty(t, problems)
 	joined := strings.Join(problems, "; ")
 	assert.Contains(t, joined, "negative")
@@ -85,8 +85,8 @@ func TestDiffTemperature_RejectsImpossibleAbsoluteOrdering(t *testing.T) {
 
 // A pre-Ada GPU legitimately reports gpu_temp_tlimit as N/A; only a T.Limit
 // element carrying a NUMBER is the defect.
-func TestDiffTemperature_AcceptsNotAvailableTLimitOnPreAda(t *testing.T) {
-	problems := DiffTemperature(temperatureXML(`
+func TestTemperatureProblems_AcceptsNotAvailableTLimitOnPreAda(t *testing.T) {
+	problems := TemperatureProblems(temperatureXML(`
 			<gpu_temp>33 C</gpu_temp>
 			<gpu_temp_tlimit>N/A</gpu_temp_tlimit>
 			<gpu_temp_max_threshold>92 C</gpu_temp_max_threshold>
@@ -95,16 +95,16 @@ func TestDiffTemperature_AcceptsNotAvailableTLimitOnPreAda(t *testing.T) {
 	assert.Empty(t, problems, strings.Join(problems, "; "))
 }
 
-func TestDiffTemperature_ReportsUnparseableDocument(t *testing.T) {
-	problems := DiffTemperature("not xml", false, 92, 87, 83)
+func TestTemperatureProblems_ReportsUnparseableDocument(t *testing.T) {
+	problems := TemperatureProblems("not xml", false, 92, 87, 83)
 	require.Len(t, problems, 1)
 	assert.Contains(t, problems[0], "parse nvidia-smi XML")
 }
 
 // A per-GPU getter that answers for only one device must be caught, so every
 // GPU in the document is checked.
-func TestDiffTemperature_ChecksEveryGPU(t *testing.T) {
-	problems := DiffTemperature(loadFixture(t, "qx-gb200-healthy.xml"), false, 92, 87, 83)
+func TestTemperatureProblems_ChecksEveryGPU(t *testing.T) {
+	problems := TemperatureProblems(loadFixture(t, "qx-gb200-healthy.xml"), false, 92, 87, 83)
 	require.NotEmpty(t, problems)
 	assert.Contains(t, strings.Join(problems, "; "), "0000:0B:00.0", "the second GPU must be reported too")
 }
