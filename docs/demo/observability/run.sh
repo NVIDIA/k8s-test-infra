@@ -39,8 +39,12 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${FORCE_RECREATE:=false}"
 : "${KIND_NODE_IMAGE:=kindest/node:v1.35.0}"
 
-: "${MOKKA_NAMESPACE:=mokka}"
-: "${GPU_OPERATOR_NAMESPACE:=gpu-operator}"
+# Not overridable: dashboards/mokka-gpu.json pins these namespace names in its
+# restart panel, and a dashboard is static JSON, so an override here would still
+# install cleanly and import cleanly while silently dropping that namespace's
+# series. The two must move together.
+MOKKA_NAMESPACE="mokka"
+GPU_OPERATOR_NAMESPACE="gpu-operator"
 : "${GPU_OPERATOR_VERSION:=v26.3.3}"
 : "${MONITORING_NAMESPACE:=monitoring}"
 # kube-prometheus-stack only selects ServiceMonitors labelled release=<this> and
@@ -186,6 +190,11 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
 # --- Install kube-prometheus-stack ---------------------------------------------
 # Installed BEFORE the GPU Operator so the ServiceMonitor CRD exists by the time
 # the operator tries to create one for dcgm-exporter.
+#
+# adminPassword must be --set-string: plain --set type-coerces, so an all-digit
+# password reaches the chart's b64enc as an int64 and one containing a comma is
+# read as a second key path. Either way Grafana ends up with a password the
+# dashboard import check below cannot authenticate with.
 info "Adding prometheus-community Helm repo + installing kube-prometheus-stack ${KPS_VERSION}"
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
 helm repo update prometheus-community >/dev/null 2>&1 || helm repo update >/dev/null 2>&1
@@ -194,7 +203,7 @@ helm upgrade --install "${KPS_RELEASE}" prometheus-community/kube-prometheus-sta
   --namespace "${MONITORING_NAMESPACE}" --create-namespace \
   --version "${KPS_VERSION}" \
   -f "${REPO_ROOT}/${DEMO_DIR}/kube-prometheus-stack-values.yaml" \
-  --set "grafana.adminPassword=${GRAFANA_PASSWORD}" \
+  --set-string "grafana.adminPassword=${GRAFANA_PASSWORD}" \
   --wait --timeout 10m
 
 # Query Prometheus through the API-server service proxy rather than the host
@@ -302,6 +311,13 @@ done
 if [[ "${dash_ok}" != "true" ]]; then
   observe kubectl_ctx -n "${MONITORING_NAMESPACE}" logs "deploy/${KPS_RELEASE}-grafana" \
     -c grafana-sc-dashboard --tail=20
-  fail "Grafana never imported the dashboard. Check the sidecar sees grafana_dashboard=1 and that the JSON parses"
+  # The poll discards stderr on every attempt, which hides the failure modes
+  # that have nothing to do with the sidecar or the JSON: no curl in the Grafana
+  # image, or a GRAFANA_PASSWORD Grafana disagrees with. Replay the query once
+  # without -f and with -S, so the 401 body and any curl error reach the screen
+  # instead of only the guesses below.
+  observe kubectl_ctx -n "${MONITORING_NAMESPACE}" exec "deploy/${KPS_RELEASE}-grafana" -c grafana -- \
+    curl -sS -i -u "admin:${GRAFANA_PASSWORD}" "http://localhost:3000/api/search?query=Mokka"
+  fail "Grafana never imported the dashboard. Read the exec output above first; if it returned the dashboard list cleanly, check the sidecar sees grafana_dashboard=1 and that the JSON parses"
 fi
 info "Grafana imported the Mokka GPU dashboard"

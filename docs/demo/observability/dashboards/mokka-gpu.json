@@ -33,13 +33,13 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Xid errors",
-      "description": "Goes non-zero when a fault is injected with `nvml-mock-ctl fail`. Empty on a healthy fleet: the mock delivers Xids through the NVML event set, so DCGM has no value to report until one fires.",
+      "title": "Last Xid code reported",
+      "description": "DCGM_FI_DEV_XID_ERRORS carries the code of the most recent Xid, not a count of them: injecting Xid 79 with `nvml-mock-ctl fail` latches this line at 79, which is one error, not 79. Empty on a healthy fleet: the mock delivers Xids through the NVML event set, so DCGM has no value to report until one fires.",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "none",
           "noValue": "no Xid reported yet",
           "custom": { "lineWidth": 1, "fillOpacity": 5 }
         },
