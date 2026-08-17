@@ -63,10 +63,7 @@ so they apply as fast as available CPU/IOPS allow.
 
 ### Non-Goals
 
-<!--
-What is out of scope for this MEP? Listing non-goals helps to focus discussion
-and make progress.
--->
+- This proposal wants to keep the current simulation logic identical. Any missing coverage or improvements should be done outside the MEP. 
 
 ## Proposal
 
@@ -78,7 +75,15 @@ implementation. What is the desired outcome and how do we measure success?
 The "Design Details" section below is for the real nitty-gritty.
 -->
 
-Introduce **`internal/agent`** (a level-triggered reconciler + supervisor) and **`cmd/mokka-node-agent`** (a single binary).
+Instead of having many tiny CLIs and a big setup.sh script that starts them and do a portion of simuation,
+we will have one mokka-node-agent CLI that acts as reconciler and superviser of multiple `Components` structs, 
+each knows how to simulate/unsimulate a specific subsystem like devicedriver, imex, etc.
+
+The mokka-node-agent CLI will load configuration from available sources (filesystem & Control Plane REST API) 
+and pass it to each `Component` for reconciliation. 
+
+The mokka-node-agent CLI will also keep any simulation servers that need to be active all the time. 
+The servers shutdown will be aligned with the signals that mokka-node-agent receives.
 
 ### User Stories (Optional)
 
@@ -111,6 +116,8 @@ this will impact our users.
 -->
 
 ## Design Details
+
+Introduce **`internal/agent`** (a level-triggered reconciler + supervisor) and **`cmd/mokka-node-agent`** (a single binary).
 
 ### Interfaces
 
@@ -202,7 +209,7 @@ These are the simulated components. Each is a package under `internal/agent/`:
 #### Example: `devicedriver.Reconcile`
 
 ```go
-func (c *DriverFootprint) Reconcile(ctx context.Context, host host.Host, state *node.State) error {
+func (c *DeviceDriver) Reconcile(ctx context.Context, host host.Host, state *node.State) error {
     g, gctx := errgroup.WithContext(ctx)
     g.Go(func() error { return c.materializeCharDevs(gctx, host, state.Devices) })
     g.Go(func() error { return c.stageNVMLShim(gctx, host, state.Software) })
