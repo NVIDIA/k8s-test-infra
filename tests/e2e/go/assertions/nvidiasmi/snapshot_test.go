@@ -59,8 +59,8 @@ func TestSnapshot_DetectsFailedDevice(t *testing.T) {
 }
 
 // "N/A" is an unsupported query, not a failure. A healthy passively-cooled
-// profile reports fan_speed N/A, and treating that as failure would make every
-// such profile look broken — the trap the old substring heuristic fell into.
+// profile reports fan_speed N/A, so treating N/A as failure would make every
+// such profile look broken.
 func TestSnapshot_TreatsNotAvailableAsHealthy(t *testing.T) {
 	snap, err := ParseSnapshot(loadFixture(t, "qx-a100-healthy.xml"))
 	require.NoError(t, err)
@@ -143,9 +143,9 @@ func TestSnapshot_MaxUncorrectedECCAggregate(t *testing.T) {
 	assert.Equal(t, 8, total)
 }
 
-// The scalar readings the runtime-control scenarios pin and read back. Every
-// one replaces a --query-gpu CSV field, so the values are checked against the
-// captured document rather than against a hand-written string.
+// The scalar readings the runtime-control scenarios pin and read back, checked
+// against a captured document rather than a hand-written string so the element
+// nesting is verified against nvidia-smi's own output.
 func TestGPU_ScalarReadings(t *testing.T) {
 	snap, err := ParseSnapshot(loadFixture(t, "qx-gb200-healthy.xml"))
 	require.NoError(t, err)
@@ -227,9 +227,8 @@ func TestGPU_PowerReadingsOnFailedDevice(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// fan_speed is the reading that made the old "does the output contain N/A"
-// heuristic wrong: these profiles are passively cooled, so N/A is the healthy
-// baseline and has to round-trip as itself.
+// These profiles are passively cooled, so N/A is fan_speed's healthy baseline
+// and has to round-trip as itself rather than collapsing to a number.
 func TestGPU_FanSpeed(t *testing.T) {
 	snap, err := ParseSnapshot(loadFixture(t, "qx-gb200-healthy.xml"))
 	require.NoError(t, err)

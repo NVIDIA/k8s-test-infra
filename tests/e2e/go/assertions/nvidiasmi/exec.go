@@ -22,9 +22,9 @@ import (
 // ~90 KB document out of the Ginkgo log; only the decoded problems are
 // attached to a failure.
 
-// Inventory ports validate-nvidia-smi.sh through `kubectl exec`: nvidia-smi
-// must run in the nvml-mock pod, and the `-q -x` document must describe the
-// profile's full device name and exactly ExpectedGPUs entries.
+// Inventory asserts nvidia-smi runs in the pod at all, and that the `-q -x`
+// document describes the profile's full device name and exactly ExpectedGPUs
+// devices with no processes on them.
 func Inventory(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
 	ginkgo.GinkgoHelper()
 

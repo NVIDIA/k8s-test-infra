@@ -78,8 +78,7 @@ func resetRuntimeOverrides(ctx SpecContext, h *harness.Harness) {
 
 // smiGPU returns one GPU's readings from a fresh `nvidia-smi -q -x` document.
 // A single exec carries every field these scenarios read, and the readings are
-// tri-state, so a lost GPU is reported as such instead of being scraped out of
-// a CSV cell as the literal text "[GPU is lost]".
+// tri-state, so a lost GPU reads as lost rather than as a plausible zero.
 //
 // It asserts the exec and the decode, which is safe inside an Eventually: both
 // only fail when nvidia-smi itself is broken, and that is not something the
@@ -160,8 +159,8 @@ func absInt(n int) int {
 }
 
 // gpuFailed reports whether one GPU renders an NVML error body in place of its
-// readings. Unlike the substring scan it replaces, it does not treat N/A as a
-// failure, so a passively-cooled GPU reporting fan_speed N/A stays healthy.
+// readings. N/A is not a failure, so a passively-cooled GPU reporting fan_speed
+// N/A stays healthy.
 func gpuFailed(ctx SpecContext, h *harness.Harness, pod kube.PodRef, idx int) bool {
 	GinkgoHelper()
 	return smiGPU(ctx, h, pod, idx).Failed()

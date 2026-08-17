@@ -105,9 +105,8 @@ func assertConfigContains(ctx SpecContext, h *harness.Harness, needle string) {
 
 // gpuSnapshot reads the whole `-q -x` document once. Every failure-injection
 // check keys off it: the inventory, the ECC counters and the failed-device
-// verdict all come from the same exec, and unlike the CSV queries it replaces,
-// an nvidia-smi that fails outright is reported instead of being read as a
-// document with no errors in it.
+// verdict all come from the same exec. An nvidia-smi that fails outright is
+// reported as such, not read as a document with no errors in it.
 func gpuSnapshot(ctx SpecContext, h *harness.Harness, pod kube.PodRef) nvidiasmi.Snapshot {
 	GinkgoHelper()
 	snap, err := nvidiasmi.SnapshotFromPod(ctx, h.Kube, pod)

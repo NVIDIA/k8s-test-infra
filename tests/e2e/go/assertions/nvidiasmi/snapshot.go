@@ -9,8 +9,8 @@ import (
 )
 
 // A decoded document and the readings assertions take from it. One document
-// answers every question the suite used to ask through `-L` and a series of
-// --query-gpu calls, so a scenario that read four fields now makes one exec.
+// answers every question about a GPU's state, so a scenario reading several
+// fields costs one exec rather than one per field.
 
 // Snapshot is one decoded document.
 type Snapshot struct {
@@ -177,10 +177,9 @@ func (s Snapshot) MaxUncorrectedECCAggregate() (int, bool) {
 	return maxVal, counted
 }
 
-// The scalar readings, one per --query-gpu field they replace. Each returns
-// false when the element is absent, N/A or an NVML error body, so a caller
-// polling a lost GPU cannot mistake a failure for a zero — which is what
-// parsing "[GPU is lost]" out of the CSV used to do.
+// The scalar readings, each named after the --query-gpu field it corresponds
+// to. All return false when the element is absent, N/A or an NVML error body,
+// so a caller polling a lost GPU cannot mistake a failure for a zero.
 
 // TemperatureC is <gpu_temp>, i.e. temperature.gpu.
 func (g GPU) TemperatureC() (int, bool) { return g.element.Temperature.GPUTemp.intValue() }

@@ -178,7 +178,7 @@ func TestDiffJpgOfaUtilization_RejectsOutputWithoutGPUs(t *testing.T) {
 
 // statsGPU renders one <gpu> whose encoder_stats, fbc_stats and
 // accounting_mode_buffer_size bodies are the given string, so a test can pass
-// the configured numbers or the N/A the stubs used to return.
+// either configured numbers or the N/A a missing NVML getter renders.
 func statsGPU(sessionCount, fps, latency, buffer string) string {
 	return `
 	<gpu id="0000:07:00.0">
