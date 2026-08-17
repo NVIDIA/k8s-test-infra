@@ -20,15 +20,16 @@ containerdConfigPatches:
 nodes:
   - role: control-plane
     extraPortMappings:
-      # Loopback only: Grafana is reachable with the demo's default password, so
-      # kind's 0.0.0.0 default would publish it to the local network.
+      # Published on all interfaces so the dashboard can be demoed from another
+      # machine. Grafana is reachable with the demo's default password, so treat
+      # this cluster as throwaway and do not run it on an untrusted network.
       - containerPort: 30300
         hostPort: 3000
-        listenAddress: "127.0.0.1"
+        listenAddress: "0.0.0.0"
         protocol: TCP
       - containerPort: 30090
         hostPort: 9090
-        listenAddress: "127.0.0.1"
+        listenAddress: "0.0.0.0"
         protocol: TCP
   - role: worker
   - role: worker
