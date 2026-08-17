@@ -22,9 +22,9 @@
 set -euo pipefail
 
 # --- Configuration (override via env) ----------------------------------------
-CLUSTER_NAME="${CLUSTER_NAME:-nvml-mock-observability}"
+: "${CLUSTER_NAME:=nvml-mock-observability}"
 KUBE_CONTEXT="kind-${CLUSTER_NAME}"
-IMAGE_NAME="${IMAGE_NAME:-nvml-mock:observability-demo}"
+: "${IMAGE_NAME:=nvml-mock:observability-demo}"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 DEMO_DIR="docs/demo/observability"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -75,8 +75,12 @@ if kind get clusters 2>/dev/null | grep -qxF "${CLUSTER_NAME}"; then
     info "Reusing existing Kind cluster '${CLUSTER_NAME}' (set FORCE_RECREATE=true to recreate)"
     # The kubeconfig entry may have been pruned since the cluster was created
     # (common when juggling several kind clusters), which would break every
-    # later kubectl call; re-exporting it makes the reuse path self-healing.
-    kind export kubeconfig --name "${CLUSTER_NAME}"
+    # later kubectl call. Only re-export when it is actually missing: exporting
+    # also repoints the caller's current-context, which is a side effect a
+    # healthy reuse has no business causing.
+    if ! kubectl config get-contexts "${KUBE_CONTEXT}" >/dev/null 2>&1; then
+      kind export kubeconfig --name "${CLUSTER_NAME}"
+    fi
   fi
 fi
 if ! kind get clusters 2>/dev/null | grep -qxF "${CLUSTER_NAME}"; then
@@ -97,9 +101,16 @@ for node in "${WORKERS[@]}"; do
 
   # Re-provisioning ends in `systemctl restart containerd`, which cycles the
   # node through NotReady and tears a hole in the GPU metrics series this demo
-  # exists to render -- so a node that already has the toolkit is left alone.
-  # It also keeps re-runs working without network access.
-  if docker exec "${node}" test -f /etc/nvidia-container-runtime/config.toml; then
+  # exists to render -- so an already provisioned node is left alone. It also
+  # keeps re-runs working without network access.
+  #
+  # The CDI rewrite below is the last provisioning step, so its content is the
+  # only trustworthy completion marker: the toolkit package ships a default,
+  # non-CDI config.toml of its own, and probing for mere file existence would
+  # silently skip a node whose first run died between install and rewrite --
+  # a misconfiguration that only surfaces much later as "no GPUs in
+  # dcgm-exporter".
+  if docker exec "${node}" grep -q 'mode = "cdi"' /etc/nvidia-container-runtime/config.toml 2>/dev/null; then
     info "Skipping nvidia-container-toolkit install on ${node} (already provisioned)"
     continue
   fi
