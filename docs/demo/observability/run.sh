@@ -43,9 +43,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${GPU_OPERATOR_NAMESPACE:=gpu-operator}"
 : "${GPU_OPERATOR_VERSION:=v26.3.3}"
 : "${MONITORING_NAMESPACE:=monitoring}"
-# Release name MUST match dcgmExporter.serviceMonitor.additionalLabels.release
-# in gpu-operator-values.yaml: kube-prometheus-stack only selects
-# ServiceMonitors labelled release=<this>, and ignores others silently.
+# kube-prometheus-stack only selects ServiceMonitors labelled release=<this> and
+# ignores others silently, so the dcgm-exporter ServiceMonitor's release label is
+# --set from this variable at install time rather than hardcoded in
+# gpu-operator-values.yaml, where it could drift unnoticed.
 : "${KPS_RELEASE:=monitoring}"
 : "${KPS_VERSION:=88.3.0}"
 : "${GRAFANA_PASSWORD:=mokka}"
@@ -212,3 +213,55 @@ for _ in $(seq 1 60); do
 done
 [[ "${prom_ready}" == "true" ]] || fail "Prometheus API never became reachable"
 info "Prometheus is serving queries"
+
+# --- Install the NVIDIA GPU Operator (dcgm-exporter + ServiceMonitor) ---------
+# The ServiceMonitor's release label is passed here instead of being written into
+# gpu-operator-values.yaml so it is derived from KPS_RELEASE and cannot drift
+# from the kube-prometheus-stack release name -- a mismatch makes Prometheus
+# ignore the monitor with no error anywhere.
+info "Adding NVIDIA Helm repo + installing GPU Operator ${GPU_OPERATOR_VERSION}"
+helm repo add nvidia https://helm.ngc.nvidia.com/nvidia >/dev/null 2>&1 || true
+helm repo update nvidia >/dev/null 2>&1 || helm repo update >/dev/null 2>&1
+helm upgrade --install gpu-operator nvidia/gpu-operator \
+  --kube-context "${KUBE_CONTEXT}" \
+  --namespace "${GPU_OPERATOR_NAMESPACE}" --create-namespace \
+  --version "${GPU_OPERATOR_VERSION}" \
+  -f "${REPO_ROOT}/${DEMO_DIR}/gpu-operator-values.yaml" \
+  --set "dcgmExporter.serviceMonitor.additionalLabels.release=${KPS_RELEASE}" \
+  --wait --timeout 10m
+
+info "Waiting for a GPU worker to advertise nvidia.com/gpu"
+for _ in $(seq 1 60); do
+  alloc=$(kubectl_ctx get node "${WORKERS[0]}" -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}' 2>/dev/null || true)
+  [[ -n "${alloc}" && "${alloc}" != "0" ]] && { info "${WORKERS[0]} advertises nvidia.com/gpu=${alloc}"; break; }
+  sleep 5
+done
+
+info "Waiting for dcgm-exporter to be rolled out"
+kubectl_ctx -n "${GPU_OPERATOR_NAMESPACE}" rollout status ds/nvidia-dcgm-exporter --timeout=300s
+
+# The single most fragile link in the demo: if the ServiceMonitor's release label
+# does not match the kube-prometheus-stack release, Prometheus ignores it with no
+# error at all. Assert the target is actually being scraped.
+info "Waiting for Prometheus to scrape the dcgm-exporter target"
+target_up=false
+for _ in $(seq 1 60); do
+  if promq "targets?state=active" \
+      | jq -e '.data.activeTargets[] | select(.labels.job | test("dcgm")) | select(.health == "up")' \
+      >/dev/null 2>&1; then
+    target_up=true; break
+  fi
+  sleep 5
+done
+if [[ "${target_up}" != "true" ]]; then
+  observe kubectl_ctx -n "${GPU_OPERATOR_NAMESPACE}" get servicemonitor -o yaml
+  fail "Prometheus never scraped dcgm-exporter. Check that the ServiceMonitor carries release=${KPS_RELEASE}"
+fi
+info "dcgm-exporter target is UP in Prometheus"
+
+info "Confirming the DCGM series are present"
+for series in DCGM_FI_DEV_GPU_TEMP DCGM_FI_DEV_POWER_USAGE DCGM_FI_DEV_GPU_UTIL; do
+  count=$(promq "query?query=${series}" | jq '.data.result | length')
+  [[ "${count}" -gt 0 ]] || fail "${series} returned no series"
+  info "  ${series}: ${count} series"
+done
