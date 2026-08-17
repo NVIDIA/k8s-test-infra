@@ -20,11 +20,15 @@ containerdConfigPatches:
 nodes:
   - role: control-plane
     extraPortMappings:
+      # Loopback only: Grafana is reachable with the demo's default password, so
+      # kind's 0.0.0.0 default would publish it to the local network.
       - containerPort: 30300
         hostPort: 3000
+        listenAddress: "127.0.0.1"
         protocol: TCP
       - containerPort: 30090
         hostPort: 9090
+        listenAddress: "127.0.0.1"
         protocol: TCP
   - role: worker
   - role: worker

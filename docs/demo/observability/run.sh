@@ -67,15 +67,19 @@ for bin in docker kind kubectl helm jq; do
 done
 
 # --- Kind cluster -------------------------------------------------------------
-if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
+if kind get clusters 2>/dev/null | grep -qxF "${CLUSTER_NAME}"; then
   if [[ "${FORCE_RECREATE}" == "true" ]]; then
     info "Deleting existing Kind cluster '${CLUSTER_NAME}'"
     kind delete cluster --name "${CLUSTER_NAME}"
   else
     info "Reusing existing Kind cluster '${CLUSTER_NAME}' (set FORCE_RECREATE=true to recreate)"
+    # The kubeconfig entry may have been pruned since the cluster was created
+    # (common when juggling several kind clusters), which would break every
+    # later kubectl call; re-exporting it makes the reuse path self-healing.
+    kind export kubeconfig --name "${CLUSTER_NAME}"
   fi
 fi
-if ! kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
+if ! kind get clusters 2>/dev/null | grep -qxF "${CLUSTER_NAME}"; then
   info "Creating Kind cluster '${CLUSTER_NAME}' (1 control-plane + 2 workers, CDI enabled)"
   kind create cluster --name "${CLUSTER_NAME}" \
     --image "${KIND_NODE_IMAGE}" \
@@ -90,6 +94,15 @@ info "GPU workers: ${WORKERS[*]}"
 for node in "${WORKERS[@]}"; do
   info "Labeling ${node} with ${GPU_NODE_LABEL}"
   kubectl_ctx label node "${node}" "${GPU_NODE_LABEL}" --overwrite
+
+  # Re-provisioning ends in `systemctl restart containerd`, which cycles the
+  # node through NotReady and tears a hole in the GPU metrics series this demo
+  # exists to render -- so a node that already has the toolkit is left alone.
+  # It also keeps re-runs working without network access.
+  if docker exec "${node}" test -f /etc/nvidia-container-runtime/config.toml; then
+    info "Skipping nvidia-container-toolkit install on ${node} (already provisioned)"
+    continue
+  fi
 
   info "Installing nvidia-container-toolkit into ${node}"
   docker exec "${node}" bash -c '
@@ -110,6 +123,7 @@ apt-get install -y -qq nvidia-container-toolkit
   info "Configuring nvidia-container-runtime (CDI mode) on ${node}"
   docker exec "${node}" nvidia-ctk runtime configure --runtime=containerd --cdi.enabled --set-as-default
   docker exec "${node}" bash -c '
+set -e
 cat > /etc/nvidia-container-runtime/config.toml <<EOF
 [nvidia-container-runtime]
 mode = "cdi"
@@ -121,5 +135,5 @@ EOF
 systemctl restart containerd
 '
 done
-info "Waiting for nodes to be Ready after containerd restart"
+info "Waiting for all nodes to be Ready"
 kubectl_ctx wait --for=condition=Ready nodes --all --timeout=180s
