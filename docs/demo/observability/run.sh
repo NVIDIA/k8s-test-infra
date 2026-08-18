@@ -39,12 +39,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${FORCE_RECREATE:=false}"
 : "${KIND_NODE_IMAGE:=kindest/node:v1.35.0}"
 
-# Not overridable: dashboards/mokka-gpu.json pins these namespace names in its
-# restart panel, and a dashboard is static JSON, so an override here would still
-# install cleanly and import cleanly while silently dropping that namespace's
-# series. The two must move together.
-MOKKA_NAMESPACE="mokka"
-GPU_OPERATOR_NAMESPACE="gpu-operator"
 : "${GPU_OPERATOR_VERSION:=v26.3.3}"
 : "${MONITORING_NAMESPACE:=monitoring}"
 # kube-prometheus-stack only selects ServiceMonitors labelled release=<this> and
@@ -69,11 +63,18 @@ GPU_OPERATOR_NAMESPACE="gpu-operator"
 : "${XID_CODE_ALT:=48}"
 # Budget for every "did the injected metric reach Prometheus?" poll. It has to
 # cover the mock's override TTL plus dcgm-exporter's collect interval plus
-# Prometheus' scrape interval; the propagation observed in practice is ~25s, so
-# 36 x 5s leaves generous headroom before the demo calls the pipeline broken.
+# Prometheus' scrape interval; the propagation measured in practice is 25-45s,
+# so 36 x 5s leaves generous headroom before the demo calls the pipeline broken.
 : "${FAULT_POLL_ATTEMPTS:=36}"
 : "${FAULT_POLL_INTERVAL_S:=5}"
 
+# --- Fixed constants (not overridable) ----------------------------------------
+# dashboards/mokka-gpu.json pins these two namespace names in every query of its
+# component-health panel, and a dashboard is static JSON, so an override here
+# would install and import cleanly while silently emptying that panel. The two
+# must move together.
+MOKKA_NAMESPACE="mokka"
+GPU_OPERATOR_NAMESPACE="gpu-operator"
 # Node label pinning the mock + GPU operands to the GPU workers.
 GPU_NODE_LABEL="nvml-mock-gpu=true"
 # Prometheus Service created by kube-prometheus-stack.
@@ -108,7 +109,7 @@ if kind get clusters 2>/dev/null | grep -qxF "${CLUSTER_NAME}"; then
     # later kubectl call. Only re-export when it is actually missing: exporting
     # also repoints the caller's current-context, which is a side effect a
     # healthy reuse has no business causing.
-    if ! kubectl config get-contexts "${KUBE_CONTEXT}" >/dev/null 2>&1; then
+    if ! command kubectl config get-contexts "${KUBE_CONTEXT}" >/dev/null 2>&1; then
       kind export kubeconfig --name "${CLUSTER_NAME}"
     fi
   fi
@@ -140,7 +141,10 @@ for node in "${WORKERS[@]}"; do
   # silently skip a node whose first run died between install and rewrite --
   # a misconfiguration that only surfaces much later as "no GPUs in
   # dcgm-exporter".
-  if docker exec "${node}" grep -q 'mode = "cdi"' /etc/nvidia-container-runtime/config.toml 2>/dev/null; then
+  #
+  # Anchored: a content-aware guard that a commented-out example in some future
+  # toolkit package could satisfy is no guard at all.
+  if docker exec "${node}" grep -q '^mode = "cdi"' /etc/nvidia-container-runtime/config.toml 2>/dev/null; then
     info "Skipping nvidia-container-toolkit install on ${node} (already provisioned)"
     continue
   fi
@@ -157,7 +161,7 @@ curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
   | gpg --no-tty --batch --yes --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
 curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
   | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" \
-  | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
 apt-get update -qq
 apt-get install -y -qq nvidia-container-toolkit
 '
@@ -190,6 +194,10 @@ kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 # power and utilization are static profile constants and every panel is a flat
 # line.
 #
+# image.tag is --set-string for the same reason the values below are: plain --set
+# type-coerces, so a tag like `1.30` or `true` would render as a float or a
+# boolean and the pod spec would be rejected or pull the wrong reference.
+#
 # The nodeSelector reuses GPU_NODE_LABEL verbatim so selection cannot drift from
 # the label actually applied to the workers above; it must stay --set-string
 # because nodeSelector is map[string]string and plain --set would render `true`
@@ -200,7 +208,7 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --kube-context "${KUBE_CONTEXT}" \
   --namespace "${MOKKA_NAMESPACE}" --create-namespace \
   --set "image.repository=${IMAGE_REPO}" \
-  --set "image.tag=${IMAGE_TAG}" \
+  --set-string "image.tag=${IMAGE_TAG}" \
   --set "gpu.profile=${GPU_PROFILE}" \
   --set "gpu.count=${GPU_COUNT}" \
   --set gpu.dynamicMetrics.enabled=true \
@@ -215,8 +223,12 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
 # password reaches the chart's b64enc as an int64 and one containing a comma is
 # read as a second key path. Either way Grafana ends up with a password the
 # dashboard import check below cannot authenticate with.
+#
+# --force-update rather than `|| true`: a pre-existing repo of the same name
+# pointing somewhere else is exactly the case `|| true` swallows, and it surfaces
+# later as a chart that cannot be found or, worse, a different chart.
 info "Adding prometheus-community Helm repo + installing kube-prometheus-stack ${KPS_VERSION}"
-helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null 2>&1 || true
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update >/dev/null
 helm repo update prometheus-community >/dev/null 2>&1 || helm repo update >/dev/null 2>&1
 helm upgrade --install "${KPS_RELEASE}" prometheus-community/kube-prometheus-stack \
   --kube-context "${KUBE_CONTEXT}" \
@@ -234,29 +246,46 @@ promq() {
     "/api/v1/namespaces/${MONITORING_NAMESPACE}/services/${PROM_SVC}:9090/proxy/api/v1/$1"
 }
 
+# One line per active target: job, health, last scrape error. For failure paths
+# only -- the readiness polls below discard stderr on every attempt, and a target
+# Prometheus never discovered looks identical to one that is merely slow.
+prom_target_health() {
+  promq "targets?state=active" \
+    | jq -r '.data.activeTargets[] | "\(.labels.job)\t\(.health)\t\(.lastError // "")"'
+}
+
 info "Waiting for the Prometheus API to answer"
 prom_ready=false
 for _ in $(seq 1 60); do
   if promq "query?query=up" >/dev/null 2>&1; then prom_ready=true; break; fi
   sleep 5
 done
-[[ "${prom_ready}" == "true" ]] || fail "Prometheus API never became reachable"
+if [[ "${prom_ready}" != "true" ]]; then
+  # The poll discards stderr on all 60 attempts, so a permanent error -- a
+  # service name that does not resolve, RBAC that forbids the proxy subresource
+  # -- is indistinguishable from "still starting" for five minutes. Replay it
+  # once with the error visible.
+  observe promq "query?query=up"
+  fail "Prometheus API never became reachable"
+fi
 info "Prometheus is serving queries"
 
 # --- Install the NVIDIA GPU Operator (dcgm-exporter + ServiceMonitor) ---------
 # The ServiceMonitor's release label is passed here instead of being written into
 # gpu-operator-values.yaml so it is derived from KPS_RELEASE and cannot drift
 # from the kube-prometheus-stack release name -- a mismatch makes Prometheus
-# ignore the monitor with no error anywhere.
+# ignore the monitor with no error anywhere. It is --set-string because a
+# numeric-only release name would render as an int and the API server rejects a
+# non-string label value.
 info "Adding NVIDIA Helm repo + installing GPU Operator ${GPU_OPERATOR_VERSION}"
-helm repo add nvidia https://helm.ngc.nvidia.com/nvidia >/dev/null 2>&1 || true
+helm repo add nvidia https://helm.ngc.nvidia.com/nvidia --force-update >/dev/null
 helm repo update nvidia >/dev/null 2>&1 || helm repo update >/dev/null 2>&1
 helm upgrade --install gpu-operator nvidia/gpu-operator \
   --kube-context "${KUBE_CONTEXT}" \
   --namespace "${GPU_OPERATOR_NAMESPACE}" --create-namespace \
   --version "${GPU_OPERATOR_VERSION}" \
   -f "${REPO_ROOT}/${DEMO_DIR}/gpu-operator-values.yaml" \
-  --set "dcgmExporter.serviceMonitor.additionalLabels.release=${KPS_RELEASE}" \
+  --set-string "dcgmExporter.serviceMonitor.additionalLabels.release=${KPS_RELEASE}" \
   --wait --timeout 10m
 
 # Keep this wait even though it gates nothing on its own: it is the demo's first
@@ -310,23 +339,43 @@ kubectl_ctx -n "${GPU_OPERATOR_NAMESPACE}" rollout status ds/nvidia-dcgm-exporte
 info "Waiting for Prometheus to scrape the dcgm-exporter target"
 target_up=false
 for _ in $(seq 1 60); do
+  # Anchored on the exact job name: a "dcgm" substring match would also accept a
+  # standalone nvidia-dcgm hostengine target -- disabled here, but one values
+  # edit away -- whose health says nothing about the exporter being scraped.
   if promq "targets?state=active" \
-      | jq -e '.data.activeTargets[] | select(.labels.job | test("dcgm")) | select(.health == "up")' \
+      | jq -e '.data.activeTargets[] | select(.labels.job | test("^nvidia-dcgm-exporter$")) | select(.health == "up")' \
       >/dev/null 2>&1; then
     target_up=true; break
   fi
   sleep 5
 done
 if [[ "${target_up}" != "true" ]]; then
+  observe prom_target_health
   observe kubectl_ctx -n "${GPU_OPERATOR_NAMESPACE}" get servicemonitor -o yaml
   fail "Prometheus never scraped dcgm-exporter. Check that the ServiceMonitor carries release=${KPS_RELEASE}"
 fi
 info "dcgm-exporter target is UP in Prometheus"
 
-info "Confirming the DCGM series are present"
+# The exact count, not "> 0": the claim this demo makes is that every mock GPU on
+# every worker is being scraped, and a `-gt 0` gate passes with one of the two
+# exporters dead or with a worker whose mock never staged its driver root.
+#
+# Polled rather than read once because the target wait above returns as soon as
+# the FIRST exporter reports up, so the second worker's series can legitimately
+# still be a scrape behind.
+expected_series=$((GPU_COUNT * ${#WORKERS[@]}))
+info "Confirming all ${expected_series} DCGM series are present (${GPU_COUNT} GPUs x ${#WORKERS[@]} workers)"
 for series in DCGM_FI_DEV_GPU_TEMP DCGM_FI_DEV_POWER_USAGE DCGM_FI_DEV_GPU_UTIL; do
-  count=$(promq "query?query=${series}" | jq '.data.result | length')
-  [[ "${count}" -gt 0 ]] || fail "${series} returned no series"
+  count=0
+  for _ in $(seq 1 24); do
+    count=$(promq "query?query=${series}" | jq '.data.result | length')
+    if [[ "${count}" -eq "${expected_series}" ]]; then break; fi
+    sleep 5
+  done
+  if [[ "${count}" -ne "${expected_series}" ]]; then
+    observe prom_target_health
+    fail "${series} returned ${count} series, expected ${expected_series}; a dcgm-exporter that is not being scraped, or a worker whose mock did not stage its driver root, looks exactly like this"
+  fi
   info "  ${series}: ${count} series"
 done
 
@@ -398,10 +447,13 @@ mock_ctl() { kubectl_ctx -n "${MOKKA_NAMESPACE}" exec "${MOCK_POD}" -- nvml-mock
 # before/after comparison below "" != "" -- an assertion that passes however
 # badly the pods churned. Refuse to produce that, naming the selector so the
 # reader fixes it instead of hunting for phantom churn.
+#
+# Every container, not containerStatuses[0]: a restart of any container that is
+# not the first one would otherwise be invisible to the comparison.
 pods_fingerprint() {
   local out
   out=$(kubectl_ctx -n "$1" get pods -l "$2" \
-    -o jsonpath='{range .items[*]}{.metadata.name} started={.status.startTime} restarts={.status.containerStatuses[0].restartCount}{"\n"}{end}' \
+    -o jsonpath='{range .items[*]}{.metadata.name} started={.status.startTime} restarts=[{range .status.containerStatuses[*]}{.name}={.restartCount} {end}]{"\n"}{end}' \
     | sort)
   [[ -n "${out}" ]] \
     || fail "no pods matched selector '$2' in namespace '$1', so the pod-churn check would compare two empty fingerprints and pass unconditionally; fix the selector"
@@ -416,15 +468,17 @@ dcgm_pods_before=$(pods_fingerprint "${GPU_OPERATOR_NAMESPACE}" "${DCGM_SELECTOR
 # such sample" apart from a real reading -- the distinction the Xid phase below
 # depends on.
 #
-# The optional label/value pair narrows the match further. gpu+Hostname alone
-# does not always identify one series: DCGM_FI_DEV_XID_ERRORS carries err_code,
-# and Prometheus keeps serving a superseded code's last sample until it goes
-# stale, so two series can describe the same GPU at once during phase 2's code
-# rotation. Returning whichever one Prometheus happened to list first would make
-# that assertion depend on result order, and an instant query stamps every result
-# with the evaluation time rather than the sample time, so recency cannot break
-# the tie here either. Callers that can be ambiguous say which series they mean;
-# for anyone who does not, ambiguity is a hard error rather than a coin flip.
+# The optional label/value pair narrows the match further. gpu+Hostname alone is
+# not guaranteed to identify one series: DCGM_FI_DEV_XID_ERRORS carries err_code,
+# so during phase 2's code rotation two series can describe the same GPU at once
+# if Prometheus is still serving the superseded code's last sample. (In practice
+# it usually staleness-marks the old series in the same scrape, but that is a
+# timing detail this read must not depend on either way.) Returning whichever one
+# Prometheus happened to list first would make that assertion depend on result
+# order, and an instant query stamps every result with the evaluation time rather
+# than the sample time, so recency cannot break the tie here either. Callers that
+# can be ambiguous say which series they mean; for anyone who does not, ambiguity
+# is a hard error rather than a coin flip.
 prom_gpu_value() {
   local series="${1:?prom_gpu_value needs a series name}" label="${2:-}" label_value="${3:-}" sample
   sample=$(promq "query?query=${series}" \
@@ -577,8 +631,9 @@ xid_others=$(jq -r --arg node "${TARGET_NODE}" --arg gpu "${TARGET_GPU}" --argjs
   || fail "gpu(s) ${xid_others} on ${TARGET_NODE} also report Xid ${xid_want}; the failure is not scoped to gpu ${TARGET_GPU}"
 # err_code is printed alongside the identity labels because it is the label the
 # dashboard's Xid legend keys on, and the one that makes this line evidence for
-# the claim above rather than a restatement of it. The rotation can leave the
-# previous code's series briefly un-stale, so pick the one this run injected.
+# the claim above rather than a restatement of it. Selecting on the code this run
+# injected keeps the read deterministic in case the rotation left the previous
+# code's series briefly un-stale.
 info "OBSERVED: the Xid is scoped to gpu ${TARGET_GPU} with labels $(jq -c --arg node "${TARGET_NODE}" --arg gpu "${TARGET_GPU}" --arg xid "${xid_want}" \
   'first(.data.result[]
      | select(.metric.Hostname == $node and .metric.gpu == $gpu and .metric.err_code == $xid)
@@ -646,9 +701,9 @@ cat <<EOF
       keep wandering with the simulator. The other workers were never touched.
     - "Last Xid code reported": empty on a healthy fleet, now carrying
       ${xid_want} for ${TARGET_NODE} gpu${TARGET_GPU}. It is a code, not a count.
-      Two lines for that GPU right now are the code rotation, not a second
-      fault: Prometheus serves the superseded code's last sample until it goes
-      stale, which takes a scrape interval or so.
+      If you see two lines for that GPU, it is this run's code rotation and not
+      a second fault: Prometheus can still be serving the superseded code's last
+      sample until that series goes stale, usually within a scrape or two.
 
   Inject again by hand — start with the reset, because this run left gpu
   ${TARGET_GPU} pinned at ${HOT_TEMP_C}C and re-pinning the same value would
