@@ -490,8 +490,12 @@ await_gpu_value() {
 # the same guarantee: DCGM latches the last Xid it observed and does not retract
 # it when the mock's failure disappears, so phase 2 earns its non-vacuity by
 # rotating the injected code instead (see below).
-info "PHASE 1: clearing any override left on gpu ${TARGET_GPU} of ${TARGET_NODE} by an earlier run"
-mock_ctl reset --gpu "${TARGET_GPU}"
+#
+# Every GPU on the node, not just the target: a pin left on a sibling by a
+# by-hand session would otherwise survive every re-run, and the scope check
+# below would read it as this run's override leaking across the node.
+info "PHASE 1: clearing any override left on the GPUs of ${TARGET_NODE} by an earlier run or a by-hand session"
+mock_ctl reset --gpu all
 
 info "Waiting for gpu ${TARGET_GPU} to report a simulator-driven temperature again"
 await_gpu_value DCGM_FI_DEV_GPU_TEMP != "${HOT_TEMP_C}"
@@ -638,20 +642,22 @@ cat <<EOF
   What to look at on the dashboard (last 15m):
     - "GPU temperature": ${temp_series_total} lines, one per GPU across all
       ${#WORKERS[@]} workers. One is pinned flat at ${HOT_TEMP_C}C; the other
-      ${sibling_count} on ${TARGET_NODE} -- and every GPU on the other workers --
-      keep wandering with the simulator.
+      ${sibling_count} on ${TARGET_NODE} were reset at the start of this run and
+      keep wandering with the simulator. The other workers were never touched.
     - "Last Xid code reported": empty on a healthy fleet, now carrying
       ${xid_want} for ${TARGET_NODE} gpu${TARGET_GPU}. It is a code, not a count.
       Two lines for that GPU right now are the code rotation, not a second
       fault: Prometheus serves the superseded code's last sample until it goes
       stale, which takes a scrape interval or so.
 
-  Inject again by hand:
+  Inject again by hand — start with the reset, because this run left gpu
+  ${TARGET_GPU} pinned at ${HOT_TEMP_C}C and re-pinning the same value would
+  leave the flat line exactly as flat:
     MOCK=\$(kubectl --context ${KUBE_CONTEXT} -n ${MOKKA_NAMESPACE} get pod -l app.kubernetes.io/name=nvml-mock \\
       --field-selector spec.nodeName=${TARGET_NODE} -o jsonpath='{.items[0].metadata.name}')
-    kubectl --context ${KUBE_CONTEXT} -n ${MOKKA_NAMESPACE} exec \$MOCK -- nvml-mock-ctl temp --gpu ${TARGET_GPU} ${HOT_TEMP_C}
-    kubectl --context ${KUBE_CONTEXT} -n ${MOKKA_NAMESPACE} exec \$MOCK -- nvml-mock-ctl fail --gpu ${TARGET_GPU} --mode ecc_uncorrectable --after-calls 1 --xid ${xid_next}
-    kubectl --context ${KUBE_CONTEXT} -n ${MOKKA_NAMESPACE} exec \$MOCK -- nvml-mock-ctl reset --gpu ${TARGET_GPU}   # undoes both; DCGM keeps reporting the latched Xid
+    kubectl --context ${KUBE_CONTEXT} -n ${MOKKA_NAMESPACE} exec \$MOCK -- nvml-mock-ctl reset --gpu ${TARGET_GPU}   # temperature starts wandering again; DCGM keeps reporting the latched Xid
+    kubectl --context ${KUBE_CONTEXT} -n ${MOKKA_NAMESPACE} exec \$MOCK -- nvml-mock-ctl temp --gpu ${TARGET_GPU} ${HOT_TEMP_C}   # steps back up and goes flat
+    kubectl --context ${KUBE_CONTEXT} -n ${MOKKA_NAMESPACE} exec \$MOCK -- nvml-mock-ctl fail --gpu ${TARGET_GPU} --mode ecc_uncorrectable --after-calls 1 --xid ${xid_next}   # rotated away from ${xid_want}, so the panel moves
 
   Run those one at a time, allowing up to a minute for each to reach the
   dashboard (25-45s in practice). See ${DEMO_DIR}/README.md for the

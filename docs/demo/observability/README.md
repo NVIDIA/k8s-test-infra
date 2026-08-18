@@ -197,8 +197,18 @@ MOCK=$(kubectl --context $CTX -n mokka get pod -l app.kubernetes.io/name=nvml-mo
   --field-selector spec.nodeName=$NODE -o jsonpath='{.items[0].metadata.name}')
 ```
 
-Heat gpu 0, then wait and watch "GPU temperature" step up and go flat (90 is
-under the clamp described in [Configuration](#configuration)):
+**Start with `reset`.** A completed run leaves gpu 0 pinned at `HOT_TEMP_C`, so
+heating it to the same value again changes nothing on the dashboard. `reset`
+drops the whole override for that GPU: the temperature starts wandering with the
+simulator again, while the Xid panel keeps showing the latched code until a
+different one is injected.
+
+```bash
+kubectl --context $CTX -n mokka exec "$MOCK" -- nvml-mock-ctl reset --gpu 0
+```
+
+Now heat gpu 0, and watch "GPU temperature" step up and go flat (90 is under the
+clamp described in [Configuration](#configuration)):
 
 ```bash
 kubectl --context $CTX -n mokka exec "$MOCK" -- nvml-mock-ctl temp --gpu 0 90
@@ -215,15 +225,10 @@ kubectl --context $CTX -n mokka exec "$MOCK" -- nvml-mock-ctl fail --gpu 0 \
   --mode ecc_uncorrectable --after-calls 1 --xid $XID
 ```
 
-`reset` **undoes both of the above** — it drops the whole override for that GPU —
-so run it only once you have seen the two steps land:
-
-```bash
-kubectl --context $CTX -n mokka exec "$MOCK" -- nvml-mock-ctl reset --gpu 0
-```
-
-The temperature returns to a simulator-driven reading, but the Xid panel keeps
-showing the latched code until a different one is injected.
+Running `reset` again undoes both of those, so leave it until you have seen the
+two steps land. Note the script's own phase 1 resets **every** GPU on the
+faulted node, so a pin you leave on a sibling GPU is cleared by the next run
+rather than surviving into it.
 
 See [`nvml-mock-ctl`](../../nvml-mock-ctl.md) for the full command set.
 
