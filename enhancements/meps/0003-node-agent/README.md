@@ -85,19 +85,6 @@ and pass it to each `Component` for reconciliation.
 The mokka-node-agent CLI will also keep any simulation servers that need to be active all the time. 
 The servers shutdown will be aligned with the signals that mokka-node-agent receives.
 
-### User Stories (Optional)
-
-<!--
-Detail the things that people will be able to do if this MEP is implemented.
-Include as much detail as possible so that people can understand the "how" of
-the system. The goal here is to make this feel real for users without getting
-bogged down.
--->
-
-#### Story 1 (Optional)
-
-#### Story 2 (Optional)
-
 ### Notes/Constraints/Caveats (Optional)
 
 <!--
