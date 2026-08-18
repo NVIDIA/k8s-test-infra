@@ -128,6 +128,17 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.ProcessMonitorAndTopology(ctx, h.Kube, pod)
 			})
 
+			It("reports the profile's platform identity via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #642: nvmlDeviceGetPlatformInfo was a generated stub, so
+				// the whole Platform Info block read N/A even on gb200/gb300,
+				// leaving a Grace-Blackwell rack indistinguishable from a PCIe
+				// workstation card by physical location. The expectation comes
+				// from the profile, so this same spec pins the configured
+				// chassis/slot/tray/host and a per-GPU module id on the NVL72
+				// profiles and N/A on every other selected profile.
+				nvidiasmi.PlatformIdentity(ctx, h.Kube, pod, p)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)

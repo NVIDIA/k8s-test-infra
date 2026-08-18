@@ -139,6 +139,33 @@ func C2CMode(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Pro
 		p.Name, strings.Join(problems, "\n"))
 }
 
+// PlatformIdentity asserts nvidia-smi -q -x reports the platform identity the
+// profile declares: on a rack-scale profile the configured chassis, slot, tray,
+// host and peer type with a module id that is distinct per GPU, and N/A across
+// the whole block on every other profile. Both directions come from the profile,
+// so one spec covers them as the CI matrix moves across profiles. See issue #642.
+func PlatformIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	identity, declared := p.PlatformIdentity()
+	var want *PlatformExpectation
+	if declared {
+		want = &PlatformExpectation{
+			ChassisSerialNumber: identity.ChassisSerialNumber,
+			SlotNumber:          identity.SlotNumber,
+			TrayIndex:           identity.TrayIndex,
+			HostID:              identity.HostID,
+			PeerType:            identity.PeerType,
+			ModuleIDs:           identity.ModuleIDs,
+		}
+	}
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x platformInfo on %s (declares a location=%v)", p.Name, declared))
+	problems := PlatformIdentityProblems(query(ctx, k, pod), want)
+	gomega.Expect(problems).To(gomega.BeEmpty(), "platform identity wrong for profile %s:\n%s",
+		p.Name, strings.Join(problems, "\n"))
+}
+
 // query execs `nvidia-smi -q -x` and asserts it succeeded, returning stdout.
 func query(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
 	ginkgo.GinkgoHelper()

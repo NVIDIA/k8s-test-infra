@@ -159,6 +159,44 @@ type DeviceConfig struct {
 	// links to its NVSwitch. When nil (default) the links report the healthy
 	// baseline. See NVLinkErrorInjectionConfig.
 	NVLinkError *NVLinkErrorInjectionConfig `json:"nvlink_error,omitempty"`
+
+	// Platform describes where the board physically sits in a rack. When nil
+	// (default) nvmlDeviceGetPlatformInfo and nvmlDeviceGetModuleId report
+	// ERROR_NOT_SUPPORTED — matching every board outside a Grace-Blackwell
+	// rack, whose platform cannot report a location.
+	Platform *PlatformConfig `json:"platform,omitempty"`
+}
+
+// PlatformConfig models the platform identity nvmlDeviceGetPlatformInfo
+// exposes, which `nvidia-smi -q` renders as its "Platform Info" block. It is
+// what turns a GPU fault into an actionable physical location on NVL72: module
+// 2 of the tray in slot 9 of a given chassis.
+//
+// The fields live on DeviceConfig so a profile can set any of them per device,
+// but only ModuleID varies between the GPUs of a shipped profile. NVML defines
+// the rest as properties of the node — see PlatformInfo — and a node occupies
+// exactly one tray in one slot of one chassis.
+type PlatformConfig struct {
+	// ChassisSerialNumber identifies the chassis (the rack). Rendered as a
+	// string, so real values are the 13-digit serial read from the backplane
+	// EEPROM. Truncated to 15 characters plus a terminator.
+	ChassisSerialNumber string `json:"chassis_serial_number,omitempty"`
+	// SlotNumber is the absolute physical slot in the chassis, counting
+	// switch trays as well as compute trays (1-27 on NVL72).
+	SlotNumber uint8 `json:"slot_number,omitempty"`
+	// TrayIndex is the position of this tray among compute trays only, so it
+	// runs below SlotNumber on a rack whose switch trays sit in between
+	// (1-18 on NVL72).
+	TrayIndex uint8 `json:"tray_index,omitempty"`
+	// HostID identifies the OS domain within the tray — this node.
+	HostID uint8 `json:"host_id,omitempty"`
+	// PeerType is how this GPU reaches its NVLink peers:
+	// "switch_connected" through an NVSwitch tray, or "direct_connected".
+	// Empty defaults to direct. See PeerType* constants.
+	PeerType string `json:"peer_type,omitempty"`
+	// ModuleID is the id of this GPU within the node, and the one field a
+	// profile is expected to vary per device.
+	ModuleID uint8 `json:"module_id,omitempty"`
 }
 
 // NVLinkErrorInjectionConfig injects NVLink data-link error accrual on a
