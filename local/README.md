@@ -149,10 +149,7 @@ The Tilt UI exposes two manual triggers under the `observability-tests` label. E
 - **inject-thermal** — pins one GPU's temperature and asserts Prometheus serves exactly that value while its siblings keep varying
 - **inject-xid** — trips an uncorrectable ECC fault and asserts the Xid reaches `DCGM_FI_DEV_XID_ERRORS`
 
-Two dashboard behaviours routinely look like bugs and are not:
-
-- **The Xid panel is empty until a fault fires.** `DCGM_FI_DEV_XID_ERRORS` has no series at all on a healthy cluster, because the mock delivers Xids through the NVML event set and dcgm-exporter omits the field while it has no value.
-- **The injected Xid code alternates between runs** (79, then 48, then 79...). DCGM latches the last Xid per device, so a fixed code would be satisfied by the previous run's residue; rotating guarantees each run witnesses a fresh delivery.
+See [observability/README.md](observability/README.md) for the dashboard panels, the scenario tunables, the two couplings that fail silently, and the behaviours that look like bugs and are not — chiefly that the Xid panel is empty until a fault fires, and that the injected Xid code alternates between runs by design.
 
 ## Helm value overrides for nvml-mock
 
