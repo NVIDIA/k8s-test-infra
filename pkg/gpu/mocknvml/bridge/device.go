@@ -54,6 +54,7 @@
 // - nvmlDeviceGetCurrentClocksThrottleReasons
 // - nvmlDeviceGetUtilizationRates
 // - nvmlDeviceGetComputeMode
+// - nvmlDeviceGetVirtualizationMode
 // - nvmlDeviceGetEccMode
 // - nvmlDeviceGetDisplayMode
 // - nvmlDeviceGetAccountingMode
@@ -1384,6 +1385,27 @@ func nvmlDeviceGetComputeMode(device C.nvmlDevice_t, mode *C.nvmlComputeMode_t) 
 		return toReturn(ret)
 	}
 	*mode = C.nvmlComputeMode_t(val)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetVirtualizationMode
+func nvmlDeviceGetVirtualizationMode(device C.nvmlDevice_t, pVirtualMode *C.nvmlGpuVirtualizationMode_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetVirtualizationMode"); !ok {
+		return ret
+	}
+	if pVirtualMode == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := unsafe.Pointer(device.handle)
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	val, ret := dev.GetVirtualizationMode()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*pVirtualMode = C.nvmlGpuVirtualizationMode_t(val)
 	return C.NVML_SUCCESS
 }
 

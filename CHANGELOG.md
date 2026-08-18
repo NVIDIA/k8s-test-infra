@@ -61,6 +61,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reading — the same class of bug as the phantom processes above. All three
   maxima now agree in `nvidia-smi -q`, `-q -x` (`<max_host_link_gen>`) and
   `--query-gpu=pcie.link.gen.hostmax`. (#638)
+- mocknvml: `nvidia-smi -q` reports `Virtualization Mode : None` instead of
+  `N/A`. `nvmlDeviceGetVirtualizationMode` was a generated stub — the most
+  frequently called one in a single `-q` run — so the mock claimed it could not
+  tell whether it was virtualized, where bare-metal hardware always answers
+  `None`. The export is now hand-written and resolves the `virtualization.mode`
+  the profiles already carried (`none`, `passthrough`, `vgpu`; anything
+  unrecognised reads as bare metal). vGPU stays out of scope: `Host VGPU Mode`
+  and `vGPU Heterogeneous Mode` still read `N/A`, matching bare metal. An
+  earlier attempt at this fix was reverted during PR #630 because it moved
+  `nvidia-smi pmon` onto a different code path and segfaulted it, so an e2e spec
+  now pins `pmon -c 1` to a graceful refusal or success and requires `topo -m`
+  to succeed, guarding the neighbouring internal-export-table path. (#640)
 - Wire eight NVML device exports that already had engine implementations but
   were still generated stubs (`GetEncoderStats`, `GetFBCStats`,
   `GetAccountingBufferSize`, `GetEncoderCapacity`, `GetEncoderSessions`,

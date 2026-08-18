@@ -604,11 +604,6 @@ func nvmlDeviceGetVgpuUtilization(device C.nvmlDevice_t, lastSeenTimeStamp C.ulo
 	return stubReturn("nvmlDeviceGetVgpuUtilization")
 }
 
-//export nvmlDeviceGetVirtualizationMode
-func nvmlDeviceGetVirtualizationMode(device C.nvmlDevice_t, pVirtualMode *C.nvmlGpuVirtualizationMode_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetVirtualizationMode")
-}
-
 //export nvmlDeviceModifyDrainState
 func nvmlDeviceModifyDrainState(pciInfo *C.nvmlPciInfo_t, newState C.nvmlEnableState_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceModifyDrainState")
