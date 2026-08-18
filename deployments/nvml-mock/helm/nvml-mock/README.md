@@ -26,9 +26,6 @@ Deploys a DaemonSet that creates on every node:
   directories are additionally bind-mounted onto `/sys/bus/pci/devices` and
   `/sys/devices` in served containers (see
   [PCI sysfs in containers](#pci-sysfs-in-containers))
-- A fake DMI identity at `/var/lib/nvml-mock/sys/devices/virtual/dmi/id/product_name`
-  when the profile declares a `dmi:` block, which GPU Feature Discovery turns
-  into `nvidia.com/gpu.machine` (see [PCI sysfs in containers](#pci-sysfs-in-containers))
 
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
@@ -743,36 +740,16 @@ read-only `/sys`. A node running nvml-mock is simulating GPU hardware, so this
 is not configurable; keep workloads that need the host's real device tree off
 it, or in a namespace listed in `nri.excludedNamespaces`.
 
-### Machine type (`dmi:`)
-
-A profile may declare the SMBIOS product name a node of that platform
-reports:
-
-```yaml
-dmi:
-  product_name: "NVIDIA GB200 NVL72"
-```
-
-The renderer writes it to
-`/var/lib/nvml-mock/sys/devices/virtual/dmi/id/product_name` — inside the
-subtree mounted above, which is where `/sys/class/dmi/id` points on a real
-node and the only place a container can be given it.
-
-GPU Feature Discovery needs no configuration to find it: it reads the machine
-type from `/sys/class/dmi/id/product_name`, and that symlink resolves into the
-mounted subtree, so `nvidia.com/gpu.machine` reports the profile's platform
-(`NVIDIA-GB200-NVL72`, `DGXA100`, …).
-
-Two cases read `unknown` instead:
-
-- The profile ships no `dmi:` block. `l40s` and `t4` deliberately do not,
-  since a commodity server's machine type is a property of the chassis rather
-  than the GPU, so nothing is rendered.
-- The host kernel exposes no DMI at all, so `/sys/class/dmi` does not exist and
-  there is no symlink to follow. It cannot be mounted into place either, for
-  the same reason the PCI tree cannot be assembled per root complex: a
-  mountpoint cannot be created on a read-only sysfs. Docker Desktop's linuxkit
-  VM is the common case.
+`/sys/devices/virtual/dmi/id` — the directory `/sys/class/dmi/id` resolves
+into — is shadowed along with the rest, so the renderer mirrors the node's
+`product_name` and `product_uuid` into the tree. This is not cosmetic: kind's
+`mount-product-files.sh` createContainer hook bind-mounts the node's copies of
+both onto every container it starts, and `mount(8)` cannot create a target on a
+read-only sysfs, so a missing attribute fails container creation for every pod
+the mock serves. The values are mirrored, not mocked — a node keeps reporting
+its own machine type, which under kind is the literal `kind`, so
+`nvidia.com/gpu.machine` does not follow the profile. Tracked in
+[#681](https://github.com/NVIDIA/k8s-test-infra/issues/681).
 
 ### Cross-node `ibping`
 

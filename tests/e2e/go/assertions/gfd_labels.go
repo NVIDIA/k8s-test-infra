@@ -22,21 +22,7 @@ const (
 	GFDLabelProduct = "nvidia.com/gpu.product"
 	GFDLabelMemory  = "nvidia.com/gpu.memory"
 	GFDLabelCount   = "nvidia.com/gpu.count"
-	GFDLabelMachine = "nvidia.com/gpu.machine"
 )
-
-// ExpectedMachineTypeLabel is the gpu.machine label GFD publishes from the
-// mock DMI identity. It is separate from ExpectedGFDLabels because those come
-// from NVML and were already correct while this one read "unknown": it
-// requires the rendered sysfs tree to reach the GFD container (#673).
-//
-// gpu.mode is deliberately NOT asserted here. It also needs the tree, but GFD
-// derives the BDF it looks up from NVML's busId, which the mock reports in the
-// wrong domain width (#671) — so mode stays "unknown" until that lands, and
-// asserting it would couple this expectation to an unrelated fix.
-func ExpectedMachineTypeLabel(machineType string) map[string]string {
-	return map[string]string{GFDLabelMachine: machineType}
-}
 
 // ExpectedGFDLabels derives the GFD labels a node must carry from the profile,
 // rather than from the node itself. Deriving them independently is what makes

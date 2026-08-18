@@ -457,15 +457,6 @@ should match snapshot with b200 profile:
                 - "0000:8B:00.0"
                 - "0000:CA:00.0"
                 - "0000:CB:00.0"
-
-        # =============================================================================
-        # DMI (SMBIOS) identity. Rendered to /sys/devices/virtual/dmi/id/product_name
-        # (what /sys/class/dmi/id/product_name points at) so GPU Feature Discovery
-        # derives nvidia.com/gpu.machine instead of labelling the node "unknown".
-        # The string is representative of the platform, not read off real hardware.
-        # =============================================================================
-        dmi:
-          product_name: "NVIDIA DGX B200"
     kind: ConfigMap
     metadata:
       labels:
@@ -937,15 +928,6 @@ should match snapshot with default a100 profile:
                 - "0000:90:00.0"
                 - "0000:B7:00.0"
                 - "0000:BD:00.0"
-
-        # =============================================================================
-        # DMI (SMBIOS) identity. Rendered to /sys/devices/virtual/dmi/id/product_name
-        # (what /sys/class/dmi/id/product_name points at) so GPU Feature Discovery
-        # derives nvidia.com/gpu.machine instead of labelling the node "unknown".
-        # The string is representative of the platform, not read off real hardware.
-        # =============================================================================
-        dmi:
-          product_name: "DGXA100"
     kind: ConfigMap
     metadata:
       labels:
@@ -1502,15 +1484,6 @@ should match snapshot with gb200 profile:
               devices:
                 - "0000:CA:00.0"
                 - "0000:CB:00.0"
-
-        # =============================================================================
-        # DMI (SMBIOS) identity. Rendered to /sys/devices/virtual/dmi/id/product_name
-        # (what /sys/class/dmi/id/product_name points at) so GPU Feature Discovery
-        # derives nvidia.com/gpu.machine instead of labelling the node "unknown".
-        # The string is representative of the platform, not read off real hardware.
-        # =============================================================================
-        dmi:
-          product_name: "NVIDIA GB200 NVL72"
     kind: ConfigMap
     metadata:
       labels:
@@ -2067,15 +2040,6 @@ should match snapshot with gb300 profile:
               devices:
                 - "0000:CA:00.0"
                 - "0000:CB:00.0"
-
-        # =============================================================================
-        # DMI (SMBIOS) identity. Rendered to /sys/devices/virtual/dmi/id/product_name
-        # (what /sys/class/dmi/id/product_name points at) so GPU Feature Discovery
-        # derives nvidia.com/gpu.machine instead of labelling the node "unknown".
-        # The string is representative of the platform, not read off real hardware.
-        # =============================================================================
-        dmi:
-          product_name: "NVIDIA GB300 NVL72"
     kind: ConfigMap
     metadata:
       labels:
@@ -2557,15 +2521,6 @@ should match snapshot with h100 profile:
                 - "0000:8B:00.0"
                 - "0000:CA:00.0"
                 - "0000:CB:00.0"
-
-        # =============================================================================
-        # DMI (SMBIOS) identity. Rendered to /sys/devices/virtual/dmi/id/product_name
-        # (what /sys/class/dmi/id/product_name points at) so GPU Feature Discovery
-        # derives nvidia.com/gpu.machine instead of labelling the node "unknown".
-        # The string is representative of the platform, not read off real hardware.
-        # =============================================================================
-        dmi:
-          product_name: "DGXH100"
     kind: ConfigMap
     metadata:
       labels:
@@ -2994,17 +2949,6 @@ should match snapshot with l40s profile:
                 - "0000:B2:00.0"
                 - "0000:CA:00.0"
                 - "0000:CB:00.0"
-
-        # =============================================================================
-        # DMI (SMBIOS) identity, deliberately unset: an L40S ships in commodity OEM
-        # servers whose product_name is vendor-specific, so any value here would be
-        # invented. GPU Feature Discovery therefore labels nvidia.com/gpu.machine
-        # "unknown" — the same answer a real node gives when DMI is unreadable. Set
-        # one to pin a machine type:
-        #
-        #   dmi:
-        #     product_name: "PowerEdge R760xa"
-        # =============================================================================
     kind: ConfigMap
     metadata:
       labels:
@@ -3404,17 +3348,6 @@ should match snapshot with t4 profile:
                 - "0000:86:00.0"
                 - "0000:AF:00.0"
                 - "0000:D8:00.0"
-
-        # =============================================================================
-        # DMI (SMBIOS) identity, deliberately unset: T4s ship in commodity OEM
-        # servers and cloud VMs whose product_name is vendor-specific, so any value
-        # here would be invented. GPU Feature Discovery therefore labels
-        # nvidia.com/gpu.machine "unknown" — the same answer a real node gives when
-        # DMI is unreadable. Set one to pin a machine type:
-        #
-        #   dmi:
-        #     product_name: "PowerEdge R740"
-        # =============================================================================
     kind: ConfigMap
     metadata:
       labels:

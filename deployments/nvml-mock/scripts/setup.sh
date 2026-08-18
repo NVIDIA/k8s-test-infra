@@ -120,11 +120,11 @@ fi
 #     each device's `vendor` / `class` to derive nvidia.com/gpu.mode). The
 #     renderer parses the profile's `pcie_topology:` block; profiles without
 #     one get a flat default covering every device under a single root
-#     complex (`pci0000:00`, NUMA 0). It also writes the profile's `dmi:`
-#     product name, which GFD turns into nvidia.com/gpu.machine. Failures
-#     are fatal under `set -e` for the same reason as the IB render below —
-#     a topology typo otherwise yields silently malformed sysfs that
-#     downstream `dra.k8s.io/pcieRoot` attributes would inherit.
+#     complex (`pci0000:00`, NUMA 0). It also mirrors the node's DMI identity
+#     into the tree, which the mount below depends on. Failures are fatal
+#     under `set -e` for the same reason as the IB render below — a topology
+#     typo otherwise yields silently malformed sysfs that downstream
+#     `dra.k8s.io/pcieRoot` attributes would inherit.
 #
 #     This runs before the CDI spec below because that spec bind-mounts the
 #     rendered directories into consumers: a bind mount whose source is
@@ -199,6 +199,7 @@ CDI_HEADER
 # /sys/bus/pci/devices/<bdf>/vendor, and labels the node
 # nvidia.com/gpu.mode=unknown.
 #
+#
 # Both mounts are needed: the entries under sys/bus/pci/devices are
 # relative symlinks into ../../../devices/pciDDDD:BB, which only resolve
 # when the rendered sys/devices is mounted too. That second mount hides the
@@ -207,6 +208,12 @@ CDI_HEADER
 # is not available: sysfs is read-only inside the container, so the runtime
 # cannot create a mountpoint like /sys/devices/pci0000:80 that the host
 # does not already have, and container creation fails outright.
+#
+# Shadowing sys/devices also replaces virtual/dmi/id, which
+# /sys/class/dmi/id resolves into. kind's mount-product-files.sh
+# createContainer hook bind-mounts the node's product_name / product_uuid
+# there for every container, and mount(8) cannot create a target on a
+# read-only sysfs — hence the renderer mirroring those attributes above.
 if [ "$PCI_SYSFS_RENDERED" = "on" ]; then
   cat >> "$CDI_DIR/nvidia.yaml" << PCI_SYSFS_MOUNT_EOF
     - hostPath: /var/lib/nvml-mock/sys/devices

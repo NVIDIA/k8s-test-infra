@@ -216,13 +216,16 @@ func TestRender_NormalizesUppercaseBDF(t *testing.T) {
 	require.NoError(t, err, "expected lowercase symlink")
 }
 
-// TestRender_DMIProductName pins the DMI identity at the path the kernel
-// exposes it, /sys/devices/virtual/dmi/id/product_name. It lives under
-// sys/devices (not sys/class) on purpose: /sys/class/dmi/id is itself a
-// symlink into that directory, and sys/devices is the subtree consumers
-// can be handed as a bind mount, so a container that sees the mock tree
-// resolves the mock product name through either path.
-func TestRender_DMIProductName(t *testing.T) {
+// TestRender_MirrorsKernelDMI covers the reason the tree carries a DMI
+// directory at all: bind-mounting it over /sys/devices hides the real
+// virtual/dmi/id, which kind's mount-product-files.sh hook bind-mounts the
+// node's product files onto for every container. Mirroring the attributes
+// keeps those mount targets in place and leaves the node's identity intact.
+func TestRender_MirrorsKernelDMI(t *testing.T) {
+	src := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(src, "product_name"), []byte("kind\n"), 0o644), "stage product_name")
+	require.NoError(t, os.WriteFile(filepath.Join(src, "product_uuid"), []byte("dead-beef\n"), 0o644), "stage product_uuid")
+
 	dir := t.TempDir()
 	topo := &config.PCIeTopology{
 		RootComplexes: []config.RootComplex{{
@@ -230,19 +233,25 @@ func TestRender_DMIProductName(t *testing.T) {
 			Devices: []string{"0000:07:00.0"},
 		}},
 	}
-	require.NoError(t, Render(Options{
-		Topology:       topo,
-		Output:         dir,
-		DMIProductName: "NVIDIA GB200 NVL72",
-	}), "Render")
+	require.NoError(t, Render(Options{Topology: topo, Output: dir, DMISource: src}), "Render")
 
-	got, err := os.ReadFile(filepath.Join(dir, "sys/devices/virtual/dmi/id/product_name"))
-	require.NoError(t, err, "read product_name")
-	// Trailing newline mirrors the kernel; GFD trims it before labelling.
-	require.Equal(t, "NVIDIA GB200 NVL72\n", string(got), "product_name")
+	for name, want := range map[string]string{"product_name": "kind\n", "product_uuid": "dead-beef\n"} {
+		got, err := os.ReadFile(filepath.Join(dir, "sys/devices/virtual/dmi/id", name))
+		require.NoError(t, err, "read %s", name)
+		require.Equal(t, want, string(got), name)
+	}
 }
 
-func TestRender_NoDMIWhenProductNameEmpty(t *testing.T) {
+// TestRender_StandsInForUnreadableDMI covers product_uuid, which the kernel
+// exposes mode 0400: the value cannot be mirrored, but the file must still
+// exist, because mount(8) cannot create a target on a read-only sysfs.
+func TestRender_StandsInForUnreadableDMI(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any mode; the permission branch is unreachable")
+	}
+	src := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(src, "product_uuid"), []byte("secret\n"), 0o000), "stage product_uuid")
+
 	dir := t.TempDir()
 	topo := &config.PCIeTopology{
 		RootComplexes: []config.RootComplex{{
@@ -250,23 +259,28 @@ func TestRender_NoDMIWhenProductNameEmpty(t *testing.T) {
 			Devices: []string{"0000:07:00.0"},
 		}},
 	}
-	require.NoError(t, Render(Options{Topology: topo, Output: dir}), "Render")
+	require.NoError(t, Render(Options{Topology: topo, Output: dir, DMISource: src}), "Render")
+
+	got, err := os.ReadFile(filepath.Join(dir, "sys/devices/virtual/dmi/id/product_uuid"))
+	require.NoError(t, err, "read product_uuid")
+	require.Empty(t, got, "an unreadable attribute renders as an empty stand-in")
+}
+
+// TestRender_NoDMIWithoutKernelDMI pins the behavior on kernels that expose
+// no DMI at all (Docker Desktop's linuxkit VM, for one): nothing bind-mounts
+// product files there, so inventing them would only mislead consumers.
+func TestRender_NoDMIWithoutKernelDMI(t *testing.T) {
+	dir := t.TempDir()
+	topo := &config.PCIeTopology{
+		RootComplexes: []config.RootComplex{{
+			ID: "pci0000:00", NUMANode: 0,
+			Devices: []string{"0000:07:00.0"},
+		}},
+	}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir, DMISource: filepath.Join(t.TempDir(), "absent")}), "Render")
 
 	_, err := os.Stat(filepath.Join(dir, "sys/devices/virtual"))
-	require.True(t, os.IsNotExist(err),
-		"profiles without a dmi: block must render no DMI identity, got err=%v", err)
-}
-
-// TestRender_DMIWithoutTopology covers a profile that declares a machine
-// type but no devices: the DMI identity is independent of the PCI tree, so
-// it must still land.
-func TestRender_DMIWithoutTopology(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, Render(Options{Output: dir, DMIProductName: "DGXA100"}), "Render")
-
-	got, err := os.ReadFile(filepath.Join(dir, "sys/devices/virtual/dmi/id/product_name"))
-	require.NoError(t, err, "read product_name")
-	require.Equal(t, "DGXA100\n", string(got), "product_name")
+	require.True(t, os.IsNotExist(err), "expected no DMI directory, got err=%v", err)
 }
 
 // --- Config / Validate tests --------------------------------------------------
@@ -413,24 +427,6 @@ func TestDeviceIdentities_NoDefaults(t *testing.T) {
 	ids := p.DeviceIdentities()
 	require.Len(t, ids, 1)
 	require.Equal(t, uint32(0), ids["0000:07:00.0"].DeviceID)
-}
-
-func TestDMIProductName_ParsesProfileBlock(t *testing.T) {
-	var p config.Profile
-	require.NoError(t, yaml.Unmarshal([]byte(`
-devices:
-  - index: 0
-    pci:
-      bus_id: "0000:07:00.0"
-dmi:
-  product_name: "  DGXA100  "
-`), &p), "unmarshal")
-	require.Equal(t, "DGXA100", p.DMIProductName(), "product_name should be trimmed")
-}
-
-func TestDMIProductName_EmptyWithoutBlock(t *testing.T) {
-	p := config.Profile{}
-	require.Empty(t, p.DMIProductName(), "profiles without dmi: declare no machine type")
 }
 
 func TestEffectiveTopology_PrefersExplicit(t *testing.T) {

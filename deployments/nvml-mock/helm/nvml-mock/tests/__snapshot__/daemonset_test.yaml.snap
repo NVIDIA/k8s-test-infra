@@ -19,7 +19,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: 13fe7d8201b73a6ab5a79ba31e4808f7061fd6c0e394cdcb6483c98c14413fa9
+            checksum/config: 0a18dc0ae54a3a137218785bddf06ebc287c39fb6547e51ea7a2b650e956511b
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: custom
@@ -166,7 +166,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: 76e0a95c4f16f54fd41bcd170108cb3f5793fd9e48247f17899663db076dd946
+            checksum/config: c9174f0176a7b6f1deeb10de59ce2f8811e9d25a391a628f247102ee978832f6
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME
@@ -292,7 +292,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: 2e3e92a6183a58b6d99935e91924bf340cdbf32b5118700cbbf74a305bd50e92
+            checksum/config: 1bdbe9385e4c347ca3f4d2678fbbfc885d7539e4340a6a8c2b93fe78c1ed44c5
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME

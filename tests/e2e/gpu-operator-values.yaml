@@ -77,11 +77,6 @@ gfd:
   env:
     - name: NVIDIA_DRIVER_ROOT
       value: "/var/lib/nvml-mock/driver"
-  # nvidia.com/gpu.machine is deliberately left unconfigured: GFD's default
-  # /sys/class/dmi/id/product_name is a symlink into the mock's mounted
-  # /sys/devices/virtual/dmi/id, so it resolves on any host whose kernel
-  # exposes DMI. Hosts without it (Docker Desktop) read "unknown", which the
-  # scenario detects rather than asserts.
 
 # Validator checks that the GPU stack is functional.
 # driver-validation: mounts hostPath /run/nvidia/driver → our mock (via symlink).

@@ -40,25 +40,6 @@ func TestExpectedGFDLabelsCountTracksProfileNotAConstant(t *testing.T) {
 	assert.NotEqual(t, four[GFDLabelProduct], eight[GFDLabelProduct])
 }
 
-func TestExpectedMachineTypeLabelCarriesTheProfileMachine(t *testing.T) {
-	t.Parallel()
-
-	want := ExpectedMachineTypeLabel("NVIDIA-GB200-NVL72")
-
-	assert.Equal(t, "NVIDIA-GB200-NVL72", want[GFDLabelMachine])
-}
-
-// Profiles without a dmi: block expect the literal "unknown" rather than no
-// assertion at all, so the spec still fails if gpu.machine goes missing.
-func TestExpectedMachineTypeLabelKeepsUnknownAsAnExpectation(t *testing.T) {
-	t.Parallel()
-
-	want := ExpectedMachineTypeLabel("unknown")
-
-	problems := DiffGFDLabels(want, map[string]string{})
-	assert.Len(t, problems, 1, "a missing gpu.machine must still be reported")
-}
-
 func TestDiffGFDLabelsReportsMissingLabel(t *testing.T) {
 	t.Parallel()
 

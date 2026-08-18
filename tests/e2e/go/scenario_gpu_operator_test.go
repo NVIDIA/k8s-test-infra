@@ -85,28 +85,7 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 				Expect(err).NotTo(HaveOccurred())
 				assertions.PCISysfsAtKernelPath(ctx, h.Kube,
 					kube.PodRef{Namespace: gpuOperatorNamespace, Pod: pod, Container: "gpu-feature-discovery"},
-					p.ExpectedGPUs(), p.DMIProductName())
-			})
-
-			It("labels the machine type from the mock DMI identity", Label("device-plugin"), func(ctx SpecContext) {
-				// Nothing configures GFD to find it: its default machine-type
-				// file, /sys/class/dmi/id/product_name, is a symlink into the
-				// mounted /sys/devices subtree (#673).
-				//
-				// That holds only where the kernel exposes DMI. Where it does
-				// not — Docker Desktop's linuxkit VM — /sys/class/dmi is absent
-				// and no mount can create it, so the label reads "unknown" for
-				// reasons the mock cannot influence and there is nothing to
-				// assert.
-				pod, err := h.Kube.FirstPodName(ctx, gpuOperatorNamespace, "app=gpu-feature-discovery")
-				Expect(err).NotTo(HaveOccurred())
-				if !assertions.DMIExposedByKernel(ctx, h.Kube,
-					kube.PodRef{Namespace: gpuOperatorNamespace, Pod: pod, Container: "gpu-feature-discovery"}) {
-					Skip("kernel exposes no DMI, so GFD's default machine-type file cannot resolve")
-				}
-				assertions.WaitGFDLabels(ctx, h.Kube, node,
-					assertions.ExpectedMachineTypeLabel(p.GFDMachineType()),
-					config.ReadyTimeout(), config.PollInterval())
+					p.ExpectedGPUs())
 			})
 
 			It("exports DCGM device metrics that vary over time", Label("dcgm"), func(ctx SpecContext) {

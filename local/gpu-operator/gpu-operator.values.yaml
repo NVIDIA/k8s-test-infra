@@ -58,12 +58,6 @@ devicePlugin:
       value: "/var/lib/nvml-mock/driver"
 
 # GFD reads GPU attributes via mock NVML and labels the node.
-#
-# nvidia.com/gpu.machine needs nothing here: GFD reads the machine type from
-# /sys/class/dmi/id/product_name, a symlink into /sys/devices/virtual/dmi/id —
-# inside the subtree the mock mounts. A kernel that exposes no DMI at all
-# (Docker Desktop's linuxkit VM) has no such symlink, and the label reads
-# "unknown" there.
 gfd:
   enabled: true
   env:

@@ -33,13 +33,21 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockpcisysfs/render"
 )
 
+// defaultDMISource is where the kernel exposes the node's SMBIOS identity.
+// The rendered tree mirrors it because serving the tree means bind-mounting
+// it over /sys/devices, which would otherwise hide the DMI directory that
+// /sys/class/dmi/id resolves into.
+const defaultDMISource = "/sys/class/dmi/id"
+
 //nolint:cyclop // existing complexity; refactor deferred
 func main() {
 	var (
-		cfgPath = flag.String("config", "", "path to mock-nvml profile YAML")
-		outDir  = flag.String("output", "", "fake-root directory; tree is written under <output>/sys/...")
-		strict  = flag.Bool("strict", false, "fail if the profile does not declare `pcie_topology:`")
-		dryRun  = flag.Bool("dry-run", false, "validate the config and exit without writing files")
+		cfgPath   = flag.String("config", "", "path to mock-nvml profile YAML")
+		outDir    = flag.String("output", "", "fake-root directory; tree is written under <output>/sys/...")
+		dmiSource = flag.String("dmi-source", defaultDMISource,
+			"kernel DMI directory to mirror into the tree; empty mirrors nothing")
+		strict = flag.Bool("strict", false, "fail if the profile does not declare `pcie_topology:`")
+		dryRun = flag.Bool("dry-run", false, "validate the config and exit without writing files")
 	)
 	flag.Parse()
 
@@ -76,10 +84,10 @@ func main() {
 	}
 
 	if err := render.Render(render.Options{
-		Topology:       topo,
-		Identities:     prof.DeviceIdentities(),
-		Output:         *outDir,
-		DMIProductName: prof.DMIProductName(),
+		Topology:   topo,
+		Identities: prof.DeviceIdentities(),
+		Output:     *outDir,
+		DMISource:  *dmiSource,
 	}); err != nil {
 		fatalf("render: %v", err)
 	}

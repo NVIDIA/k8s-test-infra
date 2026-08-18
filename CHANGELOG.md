@@ -38,19 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mountpoint the runtime cannot create on a read-only `/sys` — which hides the
   host's other device classes from served containers. Under NRI, which injects
   node-wide, keep workloads that need the host's real device tree in a namespace
-  listed in `nri.excludedNamespaces`. (#673)
-- Profiles may declare the machine type a node of that platform reports, as a
-  `dmi:` block with `product_name`, which the renderer writes to
-  `sys/devices/virtual/dmi/id/product_name` in the mock overlay — the path
-  `/sys/class/dmi/id` points at, and the only one a container can be handed.
-  GPU Feature Discovery needs no configuration to pick it up, since that
-  symlink resolves into the mounted subtree: `nvidia.com/gpu.machine` reports
-  the profile's platform (`NVIDIA-GB200-NVL72`, `DGXA100`, …) instead of the
-  host's. The NVIDIA platform profiles set it; `l40s` and `t4` deliberately do
-  not, since a commodity server's machine type is a property of the chassis,
-  not the GPU. On a kernel that exposes no DMI at all (Docker Desktop's
-  linuxkit VM) `/sys/class/dmi` is absent, there is no symlink to follow and it
-  cannot be mounted into place, so the label stays `unknown` there. (#673)
+  listed in `nri.excludedNamespaces`. The rendered tree also mirrors the node's
+  DMI attributes (`product_name`, `product_uuid`) into
+  `sys/devices/virtual/dmi/id`, because shadowing `/sys/devices` shadows the
+  directory `/sys/class/dmi/id` resolves into: kind's `mount-product-files.sh`
+  createContainer hook bind-mounts the node's product files there for every
+  container, and `mount(8)` cannot create a target on a read-only sysfs. The
+  attributes are mirrored, not mocked: `nvidia.com/gpu.machine` still reports
+  what the node itself reports, tracked in #681. (#673)
 - mocknvml: configured `processes:` now surface in nvidia-smi — the default
   table's Processes box, `-q`, and `--query-compute-apps` all report the
   configured PIDs, names and GPU memory instead of always reporting none.

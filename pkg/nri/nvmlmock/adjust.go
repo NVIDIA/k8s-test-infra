@@ -364,7 +364,10 @@ func topologyInjectable(cfg Config) bool {
 // consumers that resolve GPUs through sysfs: the tree cannot be assembled
 // per root complex instead, because a bind mount at a path sysfs does not
 // already have (say /sys/devices/pci0000:80) needs a mountpoint the runtime
-// cannot create on a read-only sysfs.
+// cannot create on a read-only sysfs. It also shadows virtual/dmi/id, which
+// is why the renderer mirrors the node's DMI attributes into the tree: kind's
+// createContainer hook bind-mounts the node's product files there, and a
+// missing target fails container creation.
 //
 // Missing sources are skipped rather than reported: the tree is staged by
 // the main nvml-mock DaemonSet and nothing orders this plugin after it, and

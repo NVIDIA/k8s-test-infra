@@ -540,12 +540,3 @@ pcie_topology:
       devices:
         - "0000:CA:00.0"
         - "0000:CB:00.0"
-
-# =============================================================================
-# DMI (SMBIOS) identity. Rendered to /sys/devices/virtual/dmi/id/product_name
-# (what /sys/class/dmi/id/product_name points at) so GPU Feature Discovery
-# derives nvidia.com/gpu.machine instead of labelling the node "unknown".
-# The string is representative of the platform, not read off real hardware.
-# =============================================================================
-dmi:
-  product_name: "NVIDIA GB200 NVL72"

@@ -58,11 +58,12 @@ type Options struct {
 	// required; otherwise Render returns an error.
 	Output string
 
-	// DMIProductName is the SMBIOS product name to expose as the node's
-	// machine type, from the profile's `dmi:` block. Empty renders no DMI
-	// identity at all, leaving consumers to report their own "unknown"
-	// rather than a placeholder machine.
-	DMIProductName string
+	// DMISource is the directory holding the node's kernel DMI identity,
+	// normally /sys/class/dmi/id. The attributes found there are mirrored
+	// into the tree so that bind-mounting sys/devices over the kernel's
+	// does not take the DMI directory with it — see renderDMI. Empty
+	// mirrors nothing.
+	DMISource string
 }
 
 // Render writes the entire tree. It is idempotent: existing directories
@@ -70,7 +71,7 @@ type Options struct {
 // symlinks are removed and recreated so a stale relative target does not
 // linger across re-renders.
 func Render(o Options) error {
-	if !o.hasTopology() && o.DMIProductName == "" {
+	if !o.hasTopology() {
 		// Nothing to do — caller decided to render a profile with no
 		// declared topology and no devices. Treat as a no-op so the
 		// renderer can be invoked unconditionally from setup.sh.
@@ -80,17 +81,10 @@ func Render(o Options) error {
 		return errors.New("pcisysfs render: Output is required")
 	}
 
-	// The DMI identity is independent of the PCI tree: a profile may name its
-	// machine type without declaring a topology.
-	if o.DMIProductName != "" {
-		if err := renderDMI(o.Output, o.DMIProductName); err != nil {
-			return err
-		}
+	if err := renderTopology(o); err != nil {
+		return err
 	}
-	if !o.hasTopology() {
-		return nil
-	}
-	return renderTopology(o)
+	return renderDMI(o.Output, o.DMISource)
 }
 
 func (o Options) hasTopology() bool {
@@ -114,17 +108,47 @@ func renderTopology(o Options) error {
 	return nil
 }
 
-// dmiIDDir is where the kernel materializes the SMBIOS identity. The
-// familiar /sys/class/dmi/id path is only a symlink into this directory,
-// so rendering here is what makes the mock machine type resolvable through
-// both paths once the tree is bind-mounted over /sys/devices.
+// dmiIDDir is where the kernel materializes the SMBIOS identity; the
+// familiar /sys/class/dmi/id path is only a symlink into it.
 const dmiIDDir = "sys/devices/virtual/dmi/id"
 
-// renderDMI writes the node's mock machine type. GPU Feature Discovery reads
-// it through /sys/class/dmi/id/product_name to derive nvidia.com/gpu.machine;
-// without it a mock node labels itself "unknown".
-func renderDMI(root, productName string) error {
-	return writeFile(root, filepath.Join(dmiIDDir, "product_name"), productName+"\n")
+// dmiMirroredAttrs are the DMI attributes kind's mount-product-files.sh
+// createContainer hook bind-mounts the node's copies onto, for every
+// container on the node.
+var dmiMirroredAttrs = []string{"product_name", "product_uuid"}
+
+// renderDMI mirrors the node's DMI identity into the tree. Serving the tree
+// means bind-mounting it over /sys/devices, which also replaces
+// virtual/dmi/id — the directory /sys/class/dmi/id resolves into. Any
+// attribute missing from the replacement is a bind-mount target that no
+// longer exists, and mount(8) cannot create one on a read-only sysfs, so
+// kind's hook fails and every injected container fails to start.
+//
+// Mirroring rather than mocking keeps the node's identity intact: kind
+// already reports its own ("kind" as the product name, a random UUID), and
+// overriding that is a separate concern with its own consumers.
+func renderDMI(root, source string) error {
+	if source == "" {
+		return nil
+	}
+	for _, attr := range dmiMirroredAttrs {
+		src := filepath.Join(source, attr)
+		if _, err := os.Stat(src); err != nil {
+			// The kernel exposes no such attribute, so nothing bind-mounts
+			// it either and a stand-in would only invent an identity.
+			continue
+		}
+		// product_uuid is mode 0400 on most kernels: unreadable to a
+		// non-root renderer, yet still needed as a mount target.
+		contents, err := os.ReadFile(src)
+		if err != nil {
+			contents = nil
+		}
+		if err := writeFile(root, filepath.Join(dmiIDDir, attr), string(contents)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func renderRootComplex(root string, rc config.RootComplex, ids map[string]config.PCI) error {

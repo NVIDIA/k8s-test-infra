@@ -30,26 +30,6 @@ func TestGB200ProfileDerivesObservedGFDLabelValues(t *testing.T) {
 	assert.Equal(t, 8, p.ExpectedGPUs())
 }
 
-// gpu.machine comes from the profile's dmi: block, dashed the same way as
-// gpu.product. Profiles that ship no block (commodity-server platforms) must
-// resolve to the literal "unknown" GFD publishes when it cannot read DMI, so
-// the e2e expectation stays an assertion rather than a skip.
-func TestGFDMachineTypeComesFromTheDMIBlock(t *testing.T) {
-	t.Parallel()
-
-	gb200, err := Load(profilesDir, "gb200")
-	require.NoError(t, err)
-	a100, err := Load(profilesDir, "a100")
-	require.NoError(t, err)
-	t4, err := Load(profilesDir, "t4")
-	require.NoError(t, err)
-
-	assert.Equal(t, "NVIDIA-GB200-NVL72", gb200.GFDMachineType())
-	assert.Equal(t, "DGXA100", a100.GFDMachineType())
-	assert.Equal(t, GFDMachineTypeUnknown, t4.GFDMachineType())
-	assert.NotContains(t, gb200.GFDMachineType(), " ")
-}
-
 func TestGFDProductNameReplacesSpacesWithDashes(t *testing.T) {
 	t.Parallel()
 

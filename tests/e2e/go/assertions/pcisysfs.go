@@ -71,43 +71,14 @@ func PCISysfs(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount, ex
 // their opens and MOCK_PCI_ROOT has no effect on them.
 const KernelPCIDevicesDir = "/sys/bus/pci/devices"
 
-// KernelDMIProductNameFile is where the mock renders the machine type: the
-// location /sys/class/dmi/id points to, and the only part of sysfs that can be
-// bind-mounted into a container.
-const KernelDMIProductNameFile = "/sys/devices/virtual/dmi/id/product_name"
-
-// DefaultMachineTypeFile is where GPU Feature Discovery reads the machine type.
-// On a kernel that exposes DMI it is a symlink into KernelDMIProductNameFile's
-// directory, so GFD picks up the mock identity with no configuration.
-const DefaultMachineTypeFile = "/sys/class/dmi/id/product_name"
-
-// DMIExposedByKernel reports whether the container can reach DMI through the
-// path GFD reads by default. It is false on hosts whose kernel exposes no DMI
-// at all — Docker Desktop's linuxkit VM, for one — where /sys/class/dmi does
-// not exist and no mount can create it, because a mountpoint cannot be made on
-// a read-only sysfs. The gpu.machine label is then "unknown" for reasons that
-// have nothing to do with the mock, so callers detect this instead of
-// asserting.
-func DMIExposedByKernel(ctx context.Context, k *kube.Client, pod kube.PodRef) bool {
-	ginkgo.GinkgoHelper()
-
-	res, err := k.ExecSh(ctx, pod, "test -e "+DefaultMachineTypeFile+" && echo yes || echo no")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "probing %s: %s", DefaultMachineTypeFile, res.Combined())
-	return strings.TrimSpace(res.Stdout) == "yes"
-}
-
 // PCISysfsAtKernelPath asserts, from inside a container the mock serves (a GPU
 // Operator operand, for instance), that the rendered tree arrived at the real
 // kernel paths rather than only in the overlay:
 //   - /sys/bus/pci/devices holds exactly the mock GPUs, so the host's own PCI
 //     devices are masked and consumers enumerate the profile,
 //   - reading a device's `vendor` yields NVIDIA, which only works when
-//     /sys/devices is mounted too (the entries are relative symlinks into it),
-//   - the DMI product name is the profile's, not the host's.
-//
-// machineType is the raw `dmi.product_name` from the profile; pass "" for a
-// profile that declares none, which skips the DMI check.
-func PCISysfsAtKernelPath(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount int, machineType string) {
+//     /sys/devices is mounted too (the entries are relative symlinks into it).
+func PCISysfsAtKernelPath(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount int) {
 	ginkgo.GinkgoHelper()
 
 	ginkgo.By(fmt.Sprintf("%d mock PCI devices visible at %s", gpuCount, KernelPCIDevicesDir))
@@ -127,15 +98,6 @@ func PCISysfsAtKernelPath(ctx context.Context, k *kube.Client, pod kube.PodRef, 
 		"reading vendor for %s — a dangling symlink means /sys/devices is missing", dev)
 	gomega.Expect(strings.TrimSpace(vendor.Stdout)).To(gomega.Equal("0x10de"),
 		"vendor for %s\n%s", dev, vendor.Combined())
-
-	if machineType == "" {
-		return
-	}
-	ginkgo.By("DMI product name is the profile's machine type")
-	product, err := k.ExecSh(ctx, pod, "cat "+KernelDMIProductNameFile)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "reading %s", KernelDMIProductNameFile)
-	gomega.Expect(strings.TrimSpace(product.Stdout)).To(gomega.Equal(machineType),
-		"mock DMI product name\n%s", product.Combined())
 }
 
 func atoiTrim(s string) int {
