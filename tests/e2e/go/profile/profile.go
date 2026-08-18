@@ -68,7 +68,8 @@ type rawProfile struct {
 		Index int `json:"index"`
 	} `json:"devices"`
 	NVLink struct {
-		LinksPerGPU int `json:"links_per_gpu"`
+		LinksPerGPU int  `json:"links_per_gpu"`
+		C2CEnabled  bool `json:"c2c_enabled"`
 		Switches    []struct {
 			BDF string `json:"bdf"`
 		} `json:"switches"`
@@ -96,6 +97,7 @@ type Profile struct {
 	hcasPerGPU  int
 	linksPerGPU int
 	hasSwitches bool
+	c2cEnabled  bool
 	fabricAuto  bool
 	hasFabric   bool
 	pciRoots    int
@@ -151,6 +153,7 @@ func Load(profilesDir, name string) (Profile, error) {
 		hcasPerGPU:   raw.Infiniband.HCAsPerGPU,
 		linksPerGPU:  raw.NVLink.LinksPerGPU,
 		hasSwitches:  len(raw.NVLink.Switches) > 0,
+		c2cEnabled:   raw.NVLink.C2CEnabled,
 		memoryBytes:  raw.DeviceDefaults.Memory.TotalBytes,
 		architecture: strings.ToLower(strings.TrimSpace(raw.DeviceDefaults.Architecture)),
 	}
@@ -253,6 +256,12 @@ func (p Profile) FabricMgr() bool { return p.hasSwitches || p.fabricAuto }
 // the fabricmanager daemon (FabricMgr true) yet reports fabric NOT SUPPORTED
 // (HasFabric false).
 func (p Profile) HasFabric() bool { return p.hasFabric }
+
+// C2CEnabled reports whether the profile declares an NVLink-C2C link to the
+// host CPU (nvlink.c2c_enabled). True only on the Grace-Blackwell profiles;
+// nvidia-smi -q renders it as "GPU C2C Mode : Enabled" there and N/A
+// elsewhere. Absent key means false, i.e. N/A.
+func (p Profile) C2CEnabled() bool { return p.c2cEnabled }
 
 // Architecture is device_defaults.architecture (lowercased), e.g. "ampere".
 func (p Profile) Architecture() string { return p.architecture }

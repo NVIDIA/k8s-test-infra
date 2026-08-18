@@ -243,7 +243,21 @@ typedef struct nvmlBAR1Memory_st
 } nvmlBAR1Memory_t;
 typedef struct nvmlBridgeChipHierarchy_st                   nvmlBridgeChipHierarchy_t;
 typedef struct nvmlBusType_st                               nvmlBusType_t;
-typedef struct nvmlC2cModeInfo_v1_st                        nvmlC2cModeInfo_v1_t;
+/**
+ * C2C Mode information for a device. A single field with no version tag:
+ * unlike nvmlGpuFabricInfoV_t the caller passes no version, so
+ * nvmlDeviceGetC2cModeInfoV needs no version dispatch.
+ */
+typedef struct nvmlC2cModeInfo_v1_st
+{
+    unsigned int isC2cEnabled;
+} nvmlC2cModeInfo_v1_t;
+/* Callers allocate this buffer from go-nvml's C2cModeInfo_v1, so any field
+ * added here would make the bridge write past the caller's allocation. A struct
+ * that grows to carry the version field the V suffix implies also means the
+ * bridge's lack of version dispatch needs revisiting. */
+_Static_assert(sizeof(nvmlC2cModeInfo_v1_t) == 4,
+               "nvmlC2cModeInfo_v1_t must stay a single unsigned int to match the go-nvml ABI");
 typedef struct nvmlClkMonStatus_st                          nvmlClkMonStatus_t;
 typedef struct nvmlClockOffset_st                           nvmlClockOffset_t;
 typedef struct nvmlComputeInstanceInfo_st                   nvmlComputeInstanceInfo_t;

@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 270 stub functions for unimplemented NVML functions.
+// 269 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -132,11 +132,6 @@ func nvmlDeviceGetBridgeChipInfo(device C.nvmlDevice_t, bridgeHierarchy *C.nvmlB
 //export nvmlDeviceGetBusType
 func nvmlDeviceGetBusType(device C.nvmlDevice_t, _type *C.nvmlBusType_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetBusType")
-}
-
-//export nvmlDeviceGetC2cModeInfoV
-func nvmlDeviceGetC2cModeInfoV(device C.nvmlDevice_t, c2cModeInfo *C.nvmlC2cModeInfo_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetC2cModeInfoV")
 }
 
 //export nvmlDeviceGetCapabilities

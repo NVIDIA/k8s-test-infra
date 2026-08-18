@@ -108,6 +108,15 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.PCIeIdentity(ctx, h.Kube, pod, p)
 			})
 
+			It("reports the profile's C2C mode via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #639: nvmlDeviceGetC2cModeInfoV was a generated stub, so
+				// GPU C2C Mode read N/A even on gb200/gb300, whose defining
+				// feature is the NVLink-C2C link to Grace. The expectation comes
+				// from the profile, so this same spec pins Enabled on Grace
+				// boards and N/A on every other selected profile.
+				nvidiasmi.C2CMode(ctx, h.Kube, pod, p)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)

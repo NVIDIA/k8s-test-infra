@@ -90,6 +90,19 @@ func TemperatureThresholds(ctx context.Context, k *kube.Client, pod kube.PodRef,
 		p.Name, strings.Join(problems, "\n"))
 }
 
+// C2CMode asserts nvidia-smi -q -x reports the C2C state the profile declares:
+// Enabled on a Grace board, N/A on every other one. The expectation is derived
+// from the profile rather than passed in, so the same spec covers both
+// directions as the CI matrix moves across profiles. See issue #639.
+func C2CMode(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x c2c_mode on %s (c2c_enabled=%v)", p.Name, p.C2CEnabled()))
+	problems := C2CModeProblems(query(ctx, k, pod), p.C2CEnabled())
+	gomega.Expect(problems).To(gomega.BeEmpty(), "GPU C2C Mode wrong for profile %s:\n%s",
+		p.Name, strings.Join(problems, "\n"))
+}
+
 // query execs `nvidia-smi -q -x` and asserts it succeeded, returning stdout.
 func query(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
 	ginkgo.GinkgoHelper()

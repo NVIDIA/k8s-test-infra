@@ -109,6 +109,54 @@ func JpgOfaUtilizationProblems(out string, wantJPEG, wantOFA int) []string {
 	return problems
 }
 
+// C2CModeProblems checks the c2c_mode element of every GPU against the
+// profile's declared nvlink.c2c_enabled. wantEnabled selects the expected body:
+// "Enabled" on a Grace board, "N/A" on every other one. "Disabled" satisfies
+// neither, and that is deliberate — the engine answers
+// NVML_ERROR_NOT_SUPPORTED rather than a false reading, which nvidia-smi
+// renders as N/A. Every profile read N/A while the NVML entry point was a
+// generated stub (#639).
+//
+// A failed GPU is skipped instead of compared. c2c_mode is answered from a
+// handle-lookup path that deliberately does not tick the failure injector, so a
+// lost device reports either its board's real C2C state or an NVML error body
+// depending on which element nvidia-smi asked for first; neither says anything
+// about this fix. Skipping every GPU is itself reported, so a document in which
+// they all failed cannot pass by having nothing left to check.
+func C2CModeProblems(out string, wantEnabled bool) []string {
+	snap, err := ParseSnapshot(out)
+	if err != nil {
+		return []string{err.Error()}
+	}
+
+	want := "N/A"
+	if wantEnabled {
+		want = "Enabled"
+	}
+
+	var problems []string
+	compared := 0
+	for i := range snap.doc.GPUs {
+		gpu := snap.gpu(i)
+		if gpu.Failed() {
+			continue
+		}
+		compared++
+		got := gpu.C2CMode()
+		switch {
+		case !gpu.element.C2CMode.present():
+			problems = append(problems, fmt.Sprintf(
+				"%s emits no c2c_mode element, want %q; the driver may have renamed it", gpu.Label(), want))
+		case got != want:
+			problems = append(problems, fmt.Sprintf("%s c2c_mode = %q, want %q", gpu.Label(), got, want))
+		}
+	}
+	if compared == 0 {
+		return []string{"no GPU had a comparable c2c_mode reading: every device in the document failed"}
+	}
+	return problems
+}
+
 // EncoderFBCStats are the non-default values issue #636 expects nvidia-smi to
 // surface.
 type EncoderFBCStats struct {

@@ -106,6 +106,7 @@ type gpuElement struct {
 	ProductArchitecture      reading       `xml:"product_architecture"`
 	UUID                     reading       `xml:"uuid"`
 	BoardID                  reading       `xml:"board_id"`
+	C2CMode                  reading       `xml:"c2c_mode"`
 	PCI                      pciInfo       `xml:"pci"`
 	FanSpeed                 reading       `xml:"fan_speed"`
 	PerformanceState         reading       `xml:"performance_state"`

@@ -176,6 +176,113 @@ func TestJpgOfaUtilizationProblems_RejectsOutputWithoutGPUs(t *testing.T) {
 	assert.Contains(t, problems[0], "no GPUs")
 }
 
+// c2cGPU renders one <gpu> carrying the given c2c_mode body — or no such
+// element at all when it is empty — alongside a gpu_temp body, which is what
+// GPU.Failed reads to tell a lost device from a healthy one.
+func c2cGPU(id, c2cMode, gpuTemp string) string {
+	element := ""
+	if c2cMode != "" {
+		element = "\n\t\t<c2c_mode>" + c2cMode + "</c2c_mode>"
+	}
+	return `
+	<gpu id="` + id + `">
+		<product_name>NVIDIA GB200</product_name>` + element + `
+		<temperature>
+			<gpu_temp>` + gpuTemp + `</gpu_temp>
+		</temperature>
+	</gpu>`
+}
+
+func TestC2CModeProblems_AcceptsEnabledOnGraceProfile(t *testing.T) {
+	problems := C2CModeProblems(loadFixture(t, "qx-gb200-healthy.xml"), true)
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+func TestC2CModeProblems_AcceptsNotAvailableOnNonGraceProfile(t *testing.T) {
+	problems := C2CModeProblems(loadFixture(t, "qx-a100-healthy.xml"), false)
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+// The #639 regression itself: the stubbed entry point made every board read N/A,
+// including the Grace ones whose defining feature is the C2C link.
+func TestC2CModeProblems_RejectsNotAvailableWhenEnabledExpected(t *testing.T) {
+	problems := C2CModeProblems(loadFixture(t, "qx-a100-healthy.xml"), true)
+	require.Len(t, problems, 2, "both GPUs read N/A")
+	assert.Contains(t, strings.Join(problems, "; "), `c2c_mode = "N/A", want "Enabled"`)
+}
+
+// The other direction, which keeps the fix from being "always report Enabled":
+// a non-Grace board must not satisfy the check.
+func TestC2CModeProblems_RejectsEnabledWhenNotAvailableExpected(t *testing.T) {
+	problems := C2CModeProblems(loadFixture(t, "qx-gb200-healthy.xml"), false)
+	require.Len(t, problems, 2, "both GPUs read Enabled")
+	assert.Contains(t, strings.Join(problems, "; "), `c2c_mode = "Enabled", want "N/A"`)
+}
+
+// "Disabled" is a third state the engine deliberately never reports: a board
+// without the link answers NOT_SUPPORTED, which renders as N/A. It must
+// therefore satisfy neither expectation.
+func TestC2CModeProblems_RejectsDisabledBody(t *testing.T) {
+	out := xmlDocument(c2cGPU("0000:07:00.0", "Disabled", "36 C"))
+
+	assert.Len(t, C2CModeProblems(out, false), 1, `"Disabled" must not pass for N/A`)
+	assert.Len(t, C2CModeProblems(out, true), 1, `"Disabled" must not pass for Enabled`)
+}
+
+// An absent element is reported as such rather than compared as an empty body,
+// because that is what a driver renaming the element looks like.
+func TestC2CModeProblems_ReportsMissingElement(t *testing.T) {
+	problems := C2CModeProblems(xmlDocument(c2cGPU("0000:07:00.0", "", "36 C")), true)
+	require.Len(t, problems, 1)
+	assert.Contains(t, problems[0], "emits no c2c_mode element")
+}
+
+// A lost GPU's reading is not evidence either way: c2c_mode is answered from a
+// handle-lookup path that does not tick the failure injector, so whether the
+// board's real state or an NVML error body appears depends on which element
+// nvidia-smi asked for first. The healthy siblings are still checked.
+func TestC2CModeProblems_SkipsFailedGPU(t *testing.T) {
+	out := xmlDocument(
+		c2cGPU("0000:07:00.0", "Enabled", "36 C"),
+		c2cGPU("0000:0F:00.0", "GPU is lost", "GPU is lost"),
+	)
+	assert.Empty(t, C2CModeProblems(out, true))
+
+	wrongHealthy := xmlDocument(
+		c2cGPU("0000:07:00.0", "N/A", "36 C"),
+		c2cGPU("0000:0F:00.0", "GPU is lost", "GPU is lost"),
+	)
+	problems := C2CModeProblems(wrongHealthy, true)
+	require.Len(t, problems, 1, "the healthy GPU is still compared")
+	assert.Contains(t, problems[0], "0000:07:00.0")
+}
+
+// The captured lost document must pass as-is: GPU 0 is healthy Grace silicon and
+// GPU 1 is skipped, so the failure-injection scenario does not need a different
+// expectation from the healthy one.
+func TestC2CModeProblems_AcceptsCapturedLostDocument(t *testing.T) {
+	problems := C2CModeProblems(loadFixture(t, "qx-gb200-lost.xml"), true)
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+// Skipping failed GPUs must not let a document where every device failed pass
+// for want of anything to compare.
+func TestC2CModeProblems_RejectsDocumentWhereEveryGPUFailed(t *testing.T) {
+	out := xmlDocument(
+		c2cGPU("0000:07:00.0", "GPU is lost", "GPU is lost"),
+		c2cGPU("0000:0F:00.0", "GPU is lost", "GPU is lost"),
+	)
+	problems := C2CModeProblems(out, true)
+	require.Len(t, problems, 1)
+	assert.Contains(t, problems[0], "every device in the document failed")
+}
+
+func TestC2CModeProblems_ReportsUnparseableDocument(t *testing.T) {
+	problems := C2CModeProblems("not xml", true)
+	require.Len(t, problems, 1)
+	assert.Contains(t, problems[0], "parse nvidia-smi XML")
+}
+
 // statsGPU renders one <gpu> whose encoder_stats, fbc_stats and
 // accounting_mode_buffer_size bodies are the given string, so a test can pass
 // either configured numbers or the N/A a missing NVML getter renders.

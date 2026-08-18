@@ -60,7 +60,7 @@
 			<current_gom>All On</current_gom>
 			<pending_gom>All On</pending_gom>
 		</gpu_operation_mode>
-		<c2c_mode>N/A</c2c_mode>
+		<c2c_mode>Enabled</c2c_mode>
 		<gpu_virtualization_mode>
 			<virtualization_mode>N/A</virtualization_mode>
 			<host_vgpu_mode>N/A</host_vgpu_mode>
@@ -365,7 +365,7 @@
 			<current_gom>All On</current_gom>
 			<pending_gom>All On</pending_gom>
 		</gpu_operation_mode>
-		<c2c_mode>N/A</c2c_mode>
+		<c2c_mode>Enabled</c2c_mode>
 		<gpu_virtualization_mode>
 			<virtualization_mode>N/A</virtualization_mode>
 			<host_vgpu_mode>N/A</host_vgpu_mode>

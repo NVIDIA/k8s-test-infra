@@ -37,18 +37,19 @@ func TestDerivations(t *testing.T) {
 		pciRoots      int
 		architecture  string
 		reportsTLimit bool
+		c2c           bool
 		shutdownC     int
 		slowdownC     int
 		maxOperatingC int
 		maxLinkGen    int
 	}{
-		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, "ampere", false, 92, 87, 83, 4}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
-		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, "hopper", true, 92, 87, 83, 5},
-		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, "blackwell", true, 95, 90, 85, 6}, // NVLink negative control, IB enabled
-		{"gb200", "NVIDIA GB200", 8, 8, 18, true, true, true, 4, "blackwell", true, 95, 90, 85, 6},
-		{"gb300", "NVIDIA GB300 NVL", 8, 8, 18, true, true, true, 4, "blackwell", true, 95, 90, 85, 6},
-		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, "ada_lovelace", true, 96, 93, 89, 4}, // IB + NVLink negative control
-		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, "turing", false, 96, 93, 89, 3},
+		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, "ampere", false, false, 92, 87, 83, 4}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
+		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, "hopper", true, false, 92, 87, 83, 5},
+		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, "blackwell", true, false, 95, 90, 85, 6}, // NVLink negative control, IB enabled
+		{"gb200", "NVIDIA GB200", 8, 8, 18, true, true, true, 4, "blackwell", true, true, 95, 90, 85, 6},
+		{"gb300", "NVIDIA GB300 NVL", 8, 8, 18, true, true, true, 4, "blackwell", true, true, 95, 90, 85, 6},
+		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, "ada_lovelace", true, false, 96, 93, 89, 4}, // IB + NVLink negative control
+		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, "turing", false, false, 96, 93, 89, 3},
 	}
 
 	for _, c := range cases {
@@ -73,6 +74,7 @@ func TestDerivations(t *testing.T) {
 				{"ExpectedPCIRoots", p.ExpectedPCIRoots(), c.pciRoots},
 				{"Architecture", p.Architecture(), c.architecture},
 				{"ReportsTLimitTemp", p.ReportsTLimitTemp(), c.reportsTLimit},
+				{"C2CEnabled", p.C2CEnabled(), c.c2c},
 				{"ShutdownThresholdC", p.ShutdownThresholdC(), c.shutdownC},
 				{"SlowdownThresholdC", p.SlowdownThresholdC(), c.slowdownC},
 				{"MaxOperatingC", p.MaxOperatingC(), c.maxOperatingC},
@@ -151,4 +153,21 @@ func TestAll(t *testing.T) {
 	ps, err := All(profilesDir)
 	require.NoError(t, err, "All()")
 	require.Len(t, ps, len(KnownProfiles), "All() returned wrong count")
+}
+
+// TestC2CIsGraceOnly pins C2C as a Grace-only axis. gb200/gb300 declare the
+// link; every other shipped profile must report false, including b200, which is
+// Blackwell but has no Grace CPU. Without this, a profile-derived e2e
+// expectation could quietly become "always Enabled". See issue #639.
+//
+// Driven from KnownProfiles so a newly added profile has to declare which side
+// it belongs on rather than defaulting into the untested one.
+func TestC2CIsGraceOnly(t *testing.T) {
+	graceProfiles := map[string]bool{"gb200": true, "gb300": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, graceProfiles[name], p.C2CEnabled(),
+			"%s: nvlink.c2c_enabled should be %v", name, graceProfiles[name])
+	}
 }

@@ -248,6 +248,13 @@ func (g GPU) ThermalSlowdownState() string {
 	return strings.TrimSpace(string(g.element.ClocksEventReasons.HWThermalSlowdown))
 }
 
+// C2CMode is the <c2c_mode> body as rendered — "Enabled" on a board with an
+// NVLink-C2C link to a host CPU, "N/A" on one without. Compared as a body
+// rather than a bool because N/A is the correct reading for most profiles and a
+// bool would flatten it into the same false as "Disabled", a third state the
+// mock never reports.
+func (g GPU) C2CMode() string { return strings.TrimSpace(string(g.element.C2CMode)) }
+
 // Process is one decoded <process_info> entry.
 type Process struct {
 	PID       int
