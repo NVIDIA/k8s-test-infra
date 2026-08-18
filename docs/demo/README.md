@@ -101,6 +101,22 @@ See [nv-sentinel/README.md](nv-sentinel/README.md) for the walkthrough.
 
 ## Observability (Prometheus + Grafana)
 
-Not a standalone demo: it composes with the GPU Operator rather than replacing
-it, so it lives in the Tilt environment as `tilt up -- --observability`. See
-[local/README.md](../../local/README.md).
+Not a standalone demo. It composes with the GPU Operator rather than replacing
+it, so it lives in the Tilt environment instead of shipping its own cluster and
+`run.sh`.
+
+Prometheus scrapes the real, unmodified NVIDIA `dcgm-exporter` while it reads the
+mock `libnvidia-ml.so`, and Grafana renders the result — on a cluster with no
+GPUs. Two manual triggers then inject a temperature or Xid fault and fail if it
+never reaches Prometheus, so the scrape path is asserted rather than eyeballed.
+
+**Requirements:** Docker, Kind, Helm, kubectl, jq, Tilt
+
+```bash
+make cluster-create
+tilt up -- --observability
+```
+
+See [local/observability/README.md](../../local/observability/README.md) for the
+walkthrough, and [local/README.md](../../local/README.md) for the other Tilt
+flags.
