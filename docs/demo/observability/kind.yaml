@@ -23,6 +23,11 @@ nodes:
       # Published on all interfaces so the dashboard can be demoed from another
       # machine. Grafana is reachable with the demo's default password, so treat
       # this cluster as throwaway and do not run it on an untrusted network.
+      #
+      # Both containerPorts must match the nodePort values in
+      # kube-prometheus-stack-values.yaml (grafana 30300, prometheus 30090).
+      # Drift here breaks the browser, silently: run.sh's own assertions go
+      # through the API-server service proxy and would keep passing.
       - containerPort: 30300
         hostPort: 3000
         listenAddress: "0.0.0.0"

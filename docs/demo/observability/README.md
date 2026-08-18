@@ -146,7 +146,7 @@ Overridable via the environment:
 | `GPU_PROFILE` | `h100` | Mock GPU profile; Hopper+ so the `DCGM_FI_PROF_*` fields populate |
 | `GPU_COUNT` | `8` | Mock GPUs per worker; **minimum 2** — phase 1's scope check needs a sibling GPU to compare against and fails outright with none |
 | `TARGET_GPU` | `0` | GPU the faults are injected into |
-| `HOT_TEMP_C` | `90` | Temperature pinned in phase 1; **capped at 92 on `h100`**, see below |
+| `HOT_TEMP_C` | `90` | Temperature pinned in phase 1; on `h100` it must be **above 73 and no higher than 92**, see below |
 | `XID_CODE` / `XID_CODE_ALT` | `79` / `48` | The two codes phase 2 rotates between; must differ |
 | `MONITORING_NAMESPACE` | `monitoring` | Namespace for kube-prometheus-stack |
 | `KPS_RELEASE` | `monitoring` | kube-prometheus-stack release name |
@@ -166,6 +166,12 @@ verbatim; anything above reads back as 92. Phase 1 waits for the *exact* value i
 pinned, so `HOT_TEMP_C=95` spends the full 180 s poll budget
 (`FAULT_POLL_ATTEMPTS` × `FAULT_POLL_INTERVAL_S`) and then fails with
 `never became == 95` — a message that never mentions clamping.
+
+**It has a lower bound too: stay above the simulator's own band, which is 52–73 °C
+on `h100`** (base 55 °C, plus a 0–15 °C ramp, ±3 °C variance). Phase 1 also
+asserts that no *sibling* GPU reads `HOT_TEMP_C`, so a value inside that band —
+`HOT_TEMP_C=70`, where siblings land regularly — fails with `the override is not
+scoped to gpu 0`, accusing the run of leaking an override it scoped correctly.
 
 **`MOKKA_NAMESPACE` (`mokka`) and `GPU_OPERATOR_NAMESPACE` (`gpu-operator`) are
 deliberately not overridable.** `dashboards/mokka-gpu.json` pins both names in

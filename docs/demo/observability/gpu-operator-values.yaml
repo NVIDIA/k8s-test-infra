@@ -53,6 +53,10 @@ cdi:
 
 devicePlugin:
   enabled: true
+  # Chart default, restated for symmetry with the repo's other gpu-operator
+  # values files: no device-plugin ConfigMap, so the plugin runs on its built-in
+  # defaults. The mock supports neither MIG nor time-slicing, which is what such
+  # a ConfigMap would otherwise configure.
   config:
     name: ""
   env:
