@@ -22,6 +22,8 @@ Addresses [#597](https://github.com/NVIDIA/k8s-test-infra/issues/597).
 
 - Docker, [Kind](https://kind.sigs.k8s.io/), Helm, `kubectl`, `jq` (all required —
   the script preflights them)
+- **bash 4 or newer**, not preflighted: `run.sh` uses `mapfile`, so a host whose
+  `bash` is the stock macOS 3.2 aborts at the worker-discovery step.
 - **Host ports 3000 and 9090 must be free.** There is no preflight for them; a
   local dev server on 3000 makes `kind create cluster` fail with an opaque Docker
   port-allocation error.
@@ -36,10 +38,11 @@ cd docs/demo/observability
 ./run.sh
 ```
 
-A first run from scratch takes roughly **11 minutes**, mostly GPU Operator
-bring-up and the per-node toolkit install. The script is idempotent and reuses the
-cluster, so a warm re-run — which still clears the old overrides and re-proves both
-faults — finishes in **under two minutes**. Set `FORCE_RECREATE=true` to rebuild the
+A first run from scratch takes roughly **10–15 minutes**, dominated by the
+`nvml-mock` image build and waiting for the GPU Operator to settle (one measured
+rebuild: 10m46s). The script is idempotent and reuses the cluster, so a warm
+re-run — which still clears the old overrides and re-proves both faults —
+finishes in **under two minutes**. Set `FORCE_RECREATE=true` to rebuild the
 cluster.
 
 ## What the script does
@@ -70,8 +73,7 @@ cluster.
 7. **Phase 2 — fault** — injects an `ecc_uncorrectable` failure with an Xid and
    waits for `DCGM_FI_DEV_XID_ERRORS` to carry that code.
 8. **Continuity** — compares pod names and restart counts before and after
-   injection, because a recycled pod would tear a hole in the very series this
-   demo exists to render.
+   injection, and fails if anything was recycled.
 
 ## The pipeline
 
@@ -110,8 +112,8 @@ the repo's Go E2E suite scrapes `dcgm-exporter` through the API-server *pod* pro
 | Last Xid code reported | `DCGM_FI_DEV_XID_ERRORS` | The **code** of the most recent Xid, not a count |
 | Power draw | `DCGM_FI_DEV_POWER_USAGE` | Clock-driven simulation, not real work |
 | GPU utilization | `DCGM_FI_DEV_GPU_UTIL` | Clock-driven simulation, not real work |
-| GPU inventory | `kube_node_status_capacity` vs `kube_pod_container_resource_requests` | Advertised capacity against what workloads request |
-| Component health | `kube_daemonset_status_*`, `kube_pod_container_status_restarts_total` | Ready below desired, or climbing restarts, is the signal |
+| GPU inventory — advertised vs requested | `kube_node_status_capacity` vs `kube_pod_container_resource_requests` | Advertised capacity against what workloads request |
+| Component health — ready vs desired, and restarts | `kube_daemonset_status_*`, `kube_pod_container_status_restarts_total` | Ready below desired, or climbing restarts, is the signal |
 
 **Read these with the right expectations.** The mock never executes a kernel, so
 every value is configuration, a clock-driven simulation, or a fixed derivation —
@@ -142,9 +144,9 @@ Overridable via the environment:
 | `IMAGE_REPO` | `nvml-mock` | Mock image repository |
 | `IMAGE_TAG` | `observability-demo` | Mock image tag |
 | `GPU_PROFILE` | `h100` | Mock GPU profile; Hopper+ so the `DCGM_FI_PROF_*` fields populate |
-| `GPU_COUNT` | `8` | Mock GPUs per worker |
+| `GPU_COUNT` | `8` | Mock GPUs per worker; **minimum 2** — phase 1's scope check needs a sibling GPU to compare against and fails outright with none |
 | `TARGET_GPU` | `0` | GPU the faults are injected into |
-| `HOT_TEMP_C` | `90` | Temperature pinned in phase 1 |
+| `HOT_TEMP_C` | `90` | Temperature pinned in phase 1; **capped at 92 on `h100`**, see below |
 | `XID_CODE` / `XID_CODE_ALT` | `79` / `48` | The two codes phase 2 rotates between; must differ |
 | `MONITORING_NAMESPACE` | `monitoring` | Namespace for kube-prometheus-stack |
 | `KPS_RELEASE` | `monitoring` | kube-prometheus-stack release name |
@@ -156,10 +158,21 @@ Overridable via the environment:
 `IMAGE_REPO` and `IMAGE_TAG` are the image knobs; the full reference is derived
 from them, so exporting `IMAGE_NAME` has no effect.
 
+**`HOT_TEMP_C` is clamped to the profile's thermal shutdown threshold — 92 °C on
+`h100`.** `nvml-mock-ctl temp` always writes a `dynamic_metrics.temperature` block
+and the device rebuilds its simulator from it, so the clamp applies whether or not
+the profile enables dynamic metrics. Values up to and including 92 read back
+verbatim; anything above reads back as 92. Phase 1 waits for the *exact* value it
+pinned, so `HOT_TEMP_C=95` spends the full 180 s poll budget
+(`FAULT_POLL_ATTEMPTS` × `FAULT_POLL_INTERVAL_S`) and then fails with
+`never became == 95` — a message that never mentions clamping.
+
 **`MOKKA_NAMESPACE` (`mokka`) and `GPU_OPERATOR_NAMESPACE` (`gpu-operator`) are
-deliberately not overridable.** `dashboards/mokka-gpu.json` pins both names in its
-restart panel, and a dashboard is static JSON, so an override would install and
-import cleanly while silently emptying that panel. The two must move together.
+deliberately not overridable.** `dashboards/mokka-gpu.json` pins both names in the
+restart query of the component-health panel, and a dashboard is static JSON, so an
+override would install and import cleanly while silently dropping that namespace's
+restart series — the ready and desired lines key on DaemonSet names and would keep
+rendering, which is what makes the loss easy to miss. The two must move together.
 
 `KPS_RELEASE` is also the release label put on the `dcgm-exporter`
 `ServiceMonitor` (via `--set`, not hardcoded in `gpu-operator-values.yaml`).
@@ -170,27 +183,48 @@ target is up instead of assuming it.
 
 ## Injecting faults by hand
 
+Each change takes **25–45 seconds** to appear (mock override TTL + exporter
+collect interval + scrape interval), so **run the injections one at a time and
+give each one up to a minute** before moving on. Pasted as one block they all
+land inside a single scrape interval and no panel ever renders the intermediate
+state.
+
+First, find the mock pod on the node you want to fault:
+
 ```bash
 CTX=kind-nvml-mock-observability
 NODE=nvml-mock-observability-worker
 MOCK=$(kubectl --context $CTX -n mokka get pod -l app.kubernetes.io/name=nvml-mock \
   --field-selector spec.nodeName=$NODE -o jsonpath='{.items[0].metadata.name}')
+```
 
-# Heat gpu 0, then raise an Xid on it, then return it to healthy.
+Heat gpu 0, then wait and watch "GPU temperature" step up and go flat (90 is
+under the clamp described in [Configuration](#configuration)):
+
+```bash
 kubectl --context $CTX -n mokka exec "$MOCK" -- nvml-mock-ctl temp --gpu 0 90
+```
+
+Then raise an Xid on the same GPU and wait again for "Last Xid code reported".
+DCGM latches the last code per device and never retracts it, so pick one the
+panel is not already showing — the run's own closing summary prints the code to
+use next:
+
+```bash
+XID=48   # or whichever code the summary offered
 kubectl --context $CTX -n mokka exec "$MOCK" -- nvml-mock-ctl fail --gpu 0 \
-  --mode ecc_uncorrectable --after-calls 1 --xid 48
+  --mode ecc_uncorrectable --after-calls 1 --xid $XID
+```
+
+`reset` **undoes both of the above** — it drops the whole override for that GPU —
+so run it only once you have seen the two steps land:
+
+```bash
 kubectl --context $CTX -n mokka exec "$MOCK" -- nvml-mock-ctl reset --gpu 0
 ```
 
-Changes appear on the dashboard within roughly 25 seconds (mock override TTL +
-exporter collect interval + scrape interval). Two gotchas:
-
-- With `dynamicMetrics` on — which this demo enables — the reported temperature is
-  clamped to the profile's shutdown threshold, **92 °C on `h100`**. Pinning 95
-  reads back as 92, so keep `HOT_TEMP_C` below it.
-- `reset` clears the temperature pin, but the reported Xid stays latched in DCGM.
-  Pick a code the panel is not already showing if you want to see it move.
+The temperature returns to a simulator-driven reading, but the Xid panel keeps
+showing the latched code until a different one is injected.
 
 See [`nvml-mock-ctl`](../../nvml-mock-ctl.md) for the full command set.
 
