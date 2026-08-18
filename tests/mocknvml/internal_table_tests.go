@@ -78,6 +78,7 @@ const (
 	slotDeviceHandleByIndex = 81
 	slotProcessListFirst    = 213
 	slotProcessListLast     = 215
+	slotHostMaxPcieLinkGen  = 230
 	exportTableSlots        = 256
 )
 
@@ -95,6 +96,7 @@ const (
 	wantProcessPID       = 4242
 	wantProcessName      = "python"
 	wantProcessMemoryMiB = 6000
+	wantMaxPcieLinkGen   = 4
 )
 
 // guardFill is written across a buffer no call is allowed to touch, so a stray
@@ -121,8 +123,50 @@ func testInternalExportTable() []testResult {
 	results = append(results, testResult{"internal/device_handle", true, ""})
 
 	results = append(results, testInternalProcessList(table, handle)...)
+	results = append(results, testInternalHostMaxPcieLinkGen(table, handle)...)
 	results = append(results, testInternalOtherSlotsDoNotWrite(table, handle)...)
 	return results
+}
+
+// testInternalHostMaxPcieLinkGen checks the slot behind nvidia-smi's "Host Max"
+// PCIe generation row. It is a scalar getter rather than a list count, so unlike
+// every other slot outside the process-list range it has to write a real value:
+// leaving the caller's reading at zero is what made every profile report an
+// impossible Gen0 next to a Gen4 device maximum (issue #638). The guard buffer
+// still has to come back untouched, because the fault this surface is prone to is
+// writing through a third argument the caller never passed.
+func testInternalHostMaxPcieLinkGen(table, handle unsafe.Pointer) []testResult {
+	const name = "internal/host_max_pcie_link_gen"
+	var results []testResult
+	if os.Getenv("MOCK_NVML_CONFIG") == "" {
+		return results
+	}
+
+	const guardSize = 2 * procEntrySize
+	guard := C.malloc(guardSize)
+	if guard == nil {
+		return append(results, testResult{name, false, "malloc failed"})
+	}
+	defer C.free(guard)
+	C.memset(guard, guardFill, guardSize)
+	want := bytes.Repeat([]byte{guardFill}, guardSize)
+
+	gen := C.uint(65535)
+	ret := C.mockCallSlot(table, C.uint(slotHostMaxPcieLinkGen), handle, unsafe.Pointer(&gen), guard, nil)
+
+	switch {
+	case ret != 0:
+		return append(results, testResult{name, false,
+			fmt.Sprintf("slot %d returned %d, want NVML_SUCCESS", slotHostMaxPcieLinkGen, ret)})
+	case !bytes.Equal(C.GoBytes(guard, C.int(guardSize)), want):
+		return append(results, testResult{name, false,
+			fmt.Sprintf("slot %d wrote into a buffer it was never given", slotHostMaxPcieLinkGen)})
+	case gen != wantMaxPcieLinkGen:
+		return append(results, testResult{name, false,
+			fmt.Sprintf("slot %d reported Gen%d, want the configured Gen%d: nvidia-smi renders "+
+				"this as the Host Max PCIe generation", slotHostMaxPcieLinkGen, gen, wantMaxPcieLinkGen)})
+	}
+	return append(results, testResult{name, true, ""})
 }
 
 // testInternalProcessList checks that the process-list slots report the
@@ -173,6 +217,11 @@ func testInternalProcessList(table, handle unsafe.Pointer) []testResult {
 // argument shape alone turned those calls into writes through a pointer the
 // caller never passed. Every such slot must leave the buffer alone and report
 // zero entries.
+//
+// The slots with a known meaning are excluded: the process list writes entries,
+// and the host-max PCIe generation writes a scalar reading. Both are covered by
+// their own test above, so anything still in this loop is a slot we have not
+// identified and must therefore keep treating as a list count.
 func testInternalOtherSlotsDoNotWrite(table, handle unsafe.Pointer) []testResult {
 	const name = "internal/other_slots_no_write"
 	var results []testResult
@@ -187,6 +236,9 @@ func testInternalOtherSlotsDoNotWrite(table, handle unsafe.Pointer) []testResult
 
 	for slot := 1; slot < exportTableSlots; slot++ {
 		if slot >= slotProcessListFirst && slot <= slotProcessListLast {
+			continue
+		}
+		if slot == slotHostMaxPcieLinkGen {
 			continue
 		}
 		C.memset(guard, guardFill, guardSize)

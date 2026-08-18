@@ -196,6 +196,160 @@ func statsGPU(sessionCount, fps, latency, buffer string) string {
 	</gpu>`
 }
 
+// pcieIdentityGPU renders one <gpu> whose three PCIe maxima agree, the healthy
+// shape: a host and a device of the same generation, and a link negotiated to it.
+func pcieIdentityGPU(id, boardID, gen string) string {
+	return pcieIdentityGPUGens(id, boardID, gen, gen, gen)
+}
+
+// pcieIdentityGPUGens renders one <gpu> with each maximum set independently.
+// Every body is injected verbatim so a test can supply "4", "N/A" or nothing.
+// The captured fixtures cannot drive the passing case here: they predate the
+// host-max fix and carry max_host_link_gen 0.
+func pcieIdentityGPUGens(id, boardID, maxGen, deviceMaxGen, hostMaxGen string) string {
+	return `
+	<gpu id="` + id + `">
+		<product_name>NVIDIA A100-SXM4-40GB</product_name>
+		<board_id>` + boardID + `</board_id>
+		<pci>
+			<pci_bus_id>` + id + `</pci_bus_id>
+			<pci_gpu_link_info>
+				<pcie_gen>
+					<max_link_gen>` + maxGen + `</max_link_gen>
+					<current_link_gen>` + maxGen + `</current_link_gen>
+					<device_current_link_gen>` + maxGen + `</device_current_link_gen>
+					<max_device_link_gen>` + deviceMaxGen + `</max_device_link_gen>
+					<max_host_link_gen>` + hostMaxGen + `</max_host_link_gen>
+				</pcie_gen>
+				<link_widths>
+					<max_link_width>16x</max_link_width>
+					<current_link_width>16x</current_link_width>
+				</link_widths>
+			</pci_gpu_link_info>
+		</pci>
+	</gpu>`
+}
+
+func TestPCIeIdentityProblems_AcceptsFixedOutput(t *testing.T) {
+	out := xmlDocument(
+		pcieIdentityGPU("0000:07:00.0", "0x700", "4"),
+		pcieIdentityGPU("0000:0F:00.0", "0xf00", "4"),
+	)
+	problems := PCIeIdentityProblems(out, 2, 4)
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+// Gen6 pins the expectation to the profile's configured generation rather than a
+// constant: one check must accept 6 on Blackwell and 4 on a100.
+func TestPCIeIdentityProblems_AcceptsGen6Output(t *testing.T) {
+	out := xmlDocument(
+		pcieIdentityGPU("0000:0A:00.0", "0xa00", "6"),
+		pcieIdentityGPU("0000:0B:00.0", "0xb00", "6"),
+	)
+	problems := PCIeIdentityProblems(out, 2, 6)
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+// The defect as captured before the fix: board_id 0x0 on every GPU,
+// max_device_link_gen N/A from the generated stub, and a Gen0 host maximum.
+func TestPCIeIdentityProblems_RejectsBuggyOutput(t *testing.T) {
+	out := xmlDocument(
+		pcieIdentityGPUGens("0000:07:00.0", "0x0", "4", "N/A", "0"),
+		pcieIdentityGPUGens("0000:0F:00.0", "0x0", "4", "N/A", "0"),
+	)
+
+	problems := PCIeIdentityProblems(out, 2, 4)
+	require.NotEmpty(t, problems)
+	joined := strings.Join(problems, "; ")
+	assert.Contains(t, joined, "max_device_link_gen")
+	assert.Contains(t, joined, "max_host_link_gen")
+	assert.Contains(t, joined, "board_id")
+}
+
+// The Host Max half of #638 in isolation: nvidia-smi rendered Gen0 for the host
+// side of a link both the GPU and the negotiated maximum put at Gen4.
+func TestPCIeIdentityProblems_RejectsZeroHostMax(t *testing.T) {
+	out := xmlDocument(pcieIdentityGPUGens("0000:07:00.0", "0x700", "4", "4", "0"))
+
+	problems := PCIeIdentityProblems(out, 1, 4)
+	require.Len(t, problems, 1, "only the host maximum is wrong: %s", strings.Join(problems, "; "))
+	assert.Contains(t, problems[0], "max_host_link_gen = 0, want 4")
+}
+
+// A host maximum below the device maximum is equally impossible: the link could
+// not have negotiated Gen4 through a Gen3 host.
+func TestPCIeIdentityProblems_RejectsHostMaxBelowDeviceMax(t *testing.T) {
+	out := xmlDocument(pcieIdentityGPUGens("0000:07:00.0", "0x700", "4", "4", "3"))
+
+	problems := PCIeIdentityProblems(out, 1, 4)
+	require.Len(t, problems, 1, strings.Join(problems, "; "))
+	assert.Contains(t, problems[0], "max_host_link_gen = 3, want 4")
+}
+
+func TestPCIeIdentityProblems_RejectsDuplicateBoardIDs(t *testing.T) {
+	out := xmlDocument(
+		pcieIdentityGPU("0000:07:00.0", "0x700", "4"),
+		pcieIdentityGPU("0000:0F:00.0", "0x700", "4"),
+	)
+
+	problems := PCIeIdentityProblems(out, 2, 4)
+	require.NotEmpty(t, problems, "distinct GPUs sharing a board ID must be reported")
+	assert.Contains(t, strings.Join(problems, "; "), "duplicates")
+}
+
+// Duplicate detection keys on the parsed value, so a leading zero cannot hide a
+// collision.
+func TestPCIeIdentityProblems_RejectsEquivalentBoardIDRenderings(t *testing.T) {
+	out := xmlDocument(
+		pcieIdentityGPU("0000:07:00.0", "0x700", "4"),
+		pcieIdentityGPU("0000:0F:00.0", "0x0700", "4"),
+	)
+
+	problems := PCIeIdentityProblems(out, 2, 4)
+	require.NotEmpty(t, problems, "0x0700 is the same board as 0x700")
+	assert.Contains(t, strings.Join(problems, "; "), "duplicates")
+}
+
+// Absent elements decode as empty strings, which must be reported rather than
+// read as board 0 or Gen0.
+func TestPCIeIdentityProblems_ReportsMissingReadings(t *testing.T) {
+	out := xmlDocument(pcieIdentityGPUGens("0000:07:00.0", "", "4", "", ""))
+
+	problems := PCIeIdentityProblems(out, 1, 4)
+	require.Len(t, problems, 3, "the board ID and both endpoint maxima are absent")
+	joined := strings.Join(problems, "; ")
+	assert.Contains(t, joined, "board_id")
+	assert.Contains(t, joined, "max_device_link_gen")
+	assert.Contains(t, joined, "max_host_link_gen")
+}
+
+func TestPCIeIdentityProblems_RejectsWrongGPUCount(t *testing.T) {
+	out := xmlDocument(pcieIdentityGPU("0000:07:00.0", "0x700", "4"))
+
+	problems := PCIeIdentityProblems(out, 8, 4)
+	require.NotEmpty(t, problems, "a truncated GPU list must be reported")
+	assert.Contains(t, strings.Join(problems, "; "), "reported 1 GPUs, want 8")
+}
+
+func TestPCIeIdentityProblems_RejectsUnparseableOutput(t *testing.T) {
+	require.NotEmpty(t, PCIeIdentityProblems("not xml at all", 2, 4))
+	require.NotEmpty(t, PCIeIdentityProblems(xmlDocument(), 0, 4), "a GPU-less document is an error")
+}
+
+// A real nvidia-smi document, so the element nesting is verified against the
+// driver rather than against the hand-built XML above: the a100 capture carries
+// the derived board IDs (0x700 and 0xf00) and a Gen4 link. It was taken before
+// the host-max fix, so its max_host_link_gen is the one reading still expected
+// to be reported — and nothing else, which is what pins the other paths.
+func TestPCIeIdentityProblems_ReadsCapturedDocument(t *testing.T) {
+	problems := PCIeIdentityProblems(loadFixture(t, "qx-a100-healthy.xml"), 2, 4)
+
+	for _, p := range problems {
+		assert.Contains(t, p, "max_host_link_gen",
+			"the capture predates the host-max fix; every other PCIe reading must already be right")
+	}
+}
+
 func TestEncoderFBCProblems_AcceptsConfiguredStats(t *testing.T) {
 	want := EncoderFBCStats{SessionCount: 2, AverageFPS: 30, AverageLatencyUS: 1500}
 

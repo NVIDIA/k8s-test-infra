@@ -3,7 +3,11 @@
 
 package nvidiasmi
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // The checks over a decoded document. Each is named *Problems because it
 // returns what it found instead of failing: that reports every wrong reading in
@@ -131,6 +135,71 @@ func EncoderFBCProblems(out string, encoder, fbc EncoderFBCStats, accountingBuff
 			gpu.AccountingModeBufferSize, accountingBufferSize, "")...)
 	}
 	return problems
+}
+
+// PCIeIdentityProblems checks the per-GPU PCIe identity elements for values no
+// real GPU can report (#638):
+//
+//   - max_link_gen, max_device_link_gen and max_host_link_gen all equal the
+//     profile's configured pcie.max_link_gen. max_device_link_gen read N/A while
+//     nvmlDeviceGetGpuMaxPcieLinkGeneration was a generated stub, and
+//     max_host_link_gen read 0 while the internal export-table slot behind it
+//     went unserved. Requiring the three to agree encodes the invariant a Gen0
+//     host maximum violated: a link never negotiates higher than either
+//     endpoint supports.
+//   - board_id is non-zero and unique across the node. Every GPU reported 0x0,
+//     leaving the GPUs of a multi-GPU node indistinguishable by board ID.
+//
+// wantGPUs guards against a truncated document silently passing every per-GPU
+// check.
+func PCIeIdentityProblems(out string, wantGPUs, wantMaxLinkGen int) []string {
+	snap, err := ParseSnapshot(out)
+	if err != nil {
+		return []string{err.Error()}
+	}
+
+	var problems []string
+	if snap.Count() != wantGPUs {
+		problems = append(problems, fmt.Sprintf("nvidia-smi XML reported %d GPUs, want %d",
+			snap.Count(), wantGPUs))
+	}
+	boardIDs := make(map[uint64]string, snap.Count())
+	for i, gpu := range snap.doc.GPUs {
+		name := gpu.label(i)
+		gen := gpu.PCI.GPULinkInfo.PCIeGen
+		problems = append(problems,
+			intReadingProblems(name+" max_link_gen", gen.Max, wantMaxLinkGen, "")...)
+		problems = append(problems,
+			intReadingProblems(name+" max_device_link_gen", gen.DeviceMax, wantMaxLinkGen, "")...)
+		problems = append(problems,
+			intReadingProblems(name+" max_host_link_gen", gen.HostMax, wantMaxLinkGen, "")...)
+		problems = append(problems, boardIDProblems(name, gpu.BoardID, boardIDs)...)
+	}
+	return problems
+}
+
+// boardIDProblems validates one GPU's board_id and records it in seen so later
+// GPUs are checked for duplicates. It keys on the parsed value rather than the
+// rendered text, so two renderings of one board (0x700 and 0x0700) still
+// collide.
+func boardIDProblems(name string, got reading, seen map[uint64]string) []string {
+	if !got.present() {
+		return []string{name + " board_id is empty or absent"}
+	}
+	text := strings.TrimSpace(string(got))
+	value, err := strconv.ParseUint(strings.TrimPrefix(strings.ToLower(text), "0x"), 16, 64)
+	if err != nil {
+		return []string{fmt.Sprintf("%s board_id = %q, want a hex value", name, text)}
+	}
+	if value == 0 {
+		return []string{fmt.Sprintf(
+			"%s board_id = %s, want non-zero so the GPUs of a node are distinguishable", name, text)}
+	}
+	if prev, dup := seen[value]; dup {
+		return []string{fmt.Sprintf("%s board_id = %s duplicates %s", name, text, prev)}
+	}
+	seen[value] = name
+	return nil
 }
 
 func statsBlockProblems(name string, got statsBlock, want EncoderFBCStats) []string {

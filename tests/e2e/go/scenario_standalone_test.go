@@ -100,6 +100,14 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertJpgOfaUtilizationOverride(ctx, h, pod)
 			})
 
+			It("reports valid per-GPU PCIe identity via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #638: Board ID was 0x0 on every device, Device Max read
+				// N/A from a generated stub, and Host Max read Gen0 because the
+				// internal export-table slot behind it went unserved. Checked on
+				// every selected profile so the generation tracks config.
+				nvidiasmi.PCIeIdentity(ctx, h.Kube, pod, p)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)

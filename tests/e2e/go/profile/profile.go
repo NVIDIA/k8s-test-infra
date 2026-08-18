@@ -60,6 +60,9 @@ type rawProfile struct {
 			JPEG int `json:"jpeg"`
 			OFA  int `json:"ofa"`
 		} `json:"utilization"`
+		PCIe *struct {
+			MaxLinkGen int `json:"max_link_gen"`
+		} `json:"pcie"`
 	} `json:"device_defaults"`
 	Devices []struct {
 		Index int `json:"index"`
@@ -104,6 +107,7 @@ type Profile struct {
 	maxOperatingC      int
 	jpegUtilizationPct int
 	ofaUtilizationPct  int
+	maxPCIeLinkGen     int
 }
 
 // bytesPerMiB is the divisor GPU Feature Discovery uses when it publishes
@@ -178,6 +182,9 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	if u := raw.DeviceDefaults.Utilization; u != nil {
 		p.jpegUtilizationPct = u.JPEG
 		p.ofaUtilizationPct = u.OFA
+	}
+	if pcie := raw.DeviceDefaults.PCIe; pcie != nil {
+		p.maxPCIeLinkGen = pcie.MaxLinkGen
 	}
 	if f := raw.DeviceDefaults.Fabric; f != nil {
 		p.hasFabric = true
@@ -266,6 +273,12 @@ func (p Profile) JPEGUtilizationPct() int { return p.jpegUtilizationPct }
 // OFAUtilizationPct is utilization.ofa from the profile, the percentage
 // nvidia-smi -q -x must report in ofa_util.
 func (p Profile) OFAUtilizationPct() int { return p.ofaUtilizationPct }
+
+// MaxPCIeLinkGen is device_defaults.pcie.max_link_gen from the profile — the
+// PCIe generation nvidia-smi must report for the "Max" and "Device Max" rows.
+// Ranges from 3 (t4) to 6 (Blackwell), so asserting against it pins the value
+// to config rather than a hardcoded constant.
+func (p Profile) MaxPCIeLinkGen() int { return p.maxPCIeLinkGen }
 
 // ReportsTLimitTemp is true when real hardware of this architecture reports the
 // GPU T.Limit temperature field IDs (Ada and later). Pre-Ada profiles keep the

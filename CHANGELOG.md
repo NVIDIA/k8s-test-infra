@@ -48,6 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FORCE_RECREATE=true`.
 
 ### Fixed
+- mocknvml: `nvidia-smi` no longer reports impossible per-GPU PCIe identity
+  values. `Board ID` is derived from the device's PCI address the way NVML does
+  — `(domain << 16) | (bus << 8) | (device << 3)`, so a GPU at `0000:07:00.0`
+  reports `0x700` — instead of `0x0` for every GPU, which left an eight-GPU node
+  indistinguishable by board ID. `nvmlDeviceGetGpuMaxPcieLinkGeneration` is now
+  hand-written in the bridge, so the `Device Max` PCIe generation reads Gen3 on
+  `t4` through Gen6 on Blackwell instead of `N/A`. `Host Max` now matches the
+  device maximum instead of an impossible Gen0: no public NVML API exposes a
+  host-side maximum, and nvidia-smi reads it through a slot of the internal
+  export table whose catch-all stub wrote a zero count over the caller's
+  reading — the same class of bug as the phantom processes above. All three
+  maxima now agree in `nvidia-smi -q`, `-q -x` (`<max_host_link_gen>`) and
+  `--query-gpu=pcie.link.gen.hostmax`. (#638)
 - Wire eight NVML device exports that already had engine implementations but
   were still generated stubs (`GetEncoderStats`, `GetFBCStats`,
   `GetAccountingBufferSize`, `GetEncoderCapacity`, `GetEncoderSessions`,
