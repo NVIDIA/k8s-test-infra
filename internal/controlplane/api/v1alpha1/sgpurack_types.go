@@ -12,6 +12,8 @@ import (
 // Its controller owner reference identifies the inventory pinned by
 // spec.inventoryRef.
 //
+// +genclient
+// +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,categories=mokka,shortName=sgpur
 // +kubebuilder:subresource:status

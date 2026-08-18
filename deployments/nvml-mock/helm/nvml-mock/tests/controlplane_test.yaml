@@ -38,7 +38,10 @@ tests:
           value: control-plane
       - equal:
           path: spec.template.spec.automountServiceAccountToken
-          value: false
+          value: true
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-nvml-mock-control-plane
       - equal:
           path: spec.template.spec.containers[0].name
           value: mokka-control-plane
@@ -54,6 +57,15 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --log-level=info
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --leader-election-name=mokka-control-plane.mokka.nvidia.com
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --workers=2
+      - equal:
+          path: spec.template.spec.containers[0].env[0].valueFrom.fieldRef.fieldPath
+          value: metadata.namespace
 
   # The container port, the args --listen-addr, and the probes must all name
   # the same port; a probe pointed at the wrong port makes the pod never go

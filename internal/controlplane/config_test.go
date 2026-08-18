@@ -16,6 +16,10 @@ func TestDefaultConfig(t *testing.T) {
 	require.Equal(t, ":8080", cfg.ListenAddr)
 	require.Equal(t, "info", cfg.LogLevel)
 	require.Equal(t, 5*time.Second, cfg.ShutdownTimeout)
+	require.Equal(t, "mokka-control-plane.mokka.nvidia.com", cfg.LeaderElectionName)
+	require.Equal(t, 2, cfg.Workers)
+	require.Equal(t, 100*time.Millisecond, cfg.StatusDebounce)
+	require.Equal(t, time.Second, cfg.StatusProgressInterval)
 }
 
 func TestNewLogger(t *testing.T) {

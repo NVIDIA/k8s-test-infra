@@ -7,6 +7,8 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 // SGPUInventory is a set of simulated GPU racks to distribute across CPU nodes.
 //
+// +genclient
+// +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,categories=mokka,shortName=sinv
 // +kubebuilder:subresource:status

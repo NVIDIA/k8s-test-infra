@@ -1,0 +1,71 @@
+{{- if .Values.controlPlane.enabled }}
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "nvml-mock.controlPlaneName" . }}
+  labels:
+    {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["mokka.nvidia.com"]
+    resources: ["sgpuprofiles"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["mokka.nvidia.com"]
+    resources: ["sgpuinventories"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["mokka.nvidia.com"]
+    resources: ["sgpuracks"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  - apiGroups: ["mokka.nvidia.com"]
+    resources: ["sgpuinventories/status", "sgpuracks/status"]
+    verbs: ["update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "nvml-mock.controlPlaneName" . }}
+  labels:
+    {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "nvml-mock.controlPlaneName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "nvml-mock.controlPlaneName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "nvml-mock.controlPlaneName" . }}
+  labels:
+    {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "nvml-mock.controlPlaneName" . }}
+  labels:
+    {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "nvml-mock.controlPlaneName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "nvml-mock.controlPlaneName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

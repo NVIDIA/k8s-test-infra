@@ -18,11 +18,19 @@ func Healthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = fmt.Fprintln(w, "ok")
 }
 
-// Readyz is the readiness probe. The init slice has no downstream dependencies,
-// so this is 200 whenever the handler is reachable. Follow-up work adds a
-// probe registry here for Redis / kube-apiserver / etc.
+// Readyz is the readiness probe used when no dependency gate is configured.
 func Readyz(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprintln(w, "ok")
+	readyzWhen(func() bool { return true })(w, nil)
+}
+
+func readyzWhen(ready func() bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		if !ready() {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintln(w, "ok")
+	}
 }

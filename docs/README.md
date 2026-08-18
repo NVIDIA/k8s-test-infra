@@ -12,6 +12,7 @@ Linux system -- no hardware required.
 | nvidia-smi | Real binary with RPATH patch, backed by mock NVML | Production |
 | Helm Chart | DaemonSet deployment with 6 GPU profiles | Production |
 | CDI Injection | Container Device Interface specs for GPU Operator | Production |
+| [Mokka controller](mokka-controller.md) | Static simulated GPU rack placement and Node metadata | Early |
 
 ## GPU Profiles
 
@@ -49,6 +50,7 @@ full walkthrough.
 | [Development Guide](development.md) | Contributing and extending the project |
 | [Examples](examples.md) | Common usage patterns and scenarios |
 | [Troubleshooting](troubleshooting.md) | Common issues and solutions |
+| [Mokka Controller](mokka-controller.md) | Stage 1 static capacity controller |
 
 ## Integrations
 

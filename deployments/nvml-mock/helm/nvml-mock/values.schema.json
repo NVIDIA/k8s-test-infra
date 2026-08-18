@@ -300,7 +300,7 @@
     "controlPlane": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Mokka Control Plane. Off by default; renders a Deployment + Service only when controlPlane.enabled is true.",
+      "description": "Mokka Control Plane. Off by default; renders its Deployment, Service, service account, and least-privilege RBAC only when controlPlane.enabled is true.",
       "properties": {
         "enabled": { "type": "boolean" },
         "replicas": { "type": "integer", "minimum": 1 },
@@ -317,6 +317,19 @@
           "type": "string",
           "enum": ["debug", "info", "warn", "warning", "error"],
           "description": "Structured-logging level passed as --log-level. The binary rejects unknown values, so the enum here fails fast at helm template time instead of after the pod crashes."
+        },
+        "workers": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Worker count for each controller queue."
+        },
+        "leaderElection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 }
+          }
         },
         "service": {
           "type": "object",

@@ -30,20 +30,15 @@ func TestFlagsProduceExpectedConfig(t *testing.T) {
 		{
 			name: "listen-addr override",
 			args: []string{"mokka-control-plane", "--listen-addr", ":9090"},
-			want: controlplane.Config{
-				ListenAddr:      ":9090",
-				LogLevel:        "info",
-				ShutdownTimeout: 5 * time.Second,
-			},
+			want: configWith(func(config *controlplane.Config) { config.ListenAddr = ":9090" }),
 		},
 		{
 			name: "log-level and shutdown-timeout override",
 			args: []string{"mokka-control-plane", "--log-level", "debug", "--shutdown-timeout", "12s"},
-			want: controlplane.Config{
-				ListenAddr:      ":8080",
-				LogLevel:        "debug",
-				ShutdownTimeout: 12 * time.Second,
-			},
+			want: configWith(func(config *controlplane.Config) {
+				config.LogLevel = "debug"
+				config.ShutdownTimeout = 12 * time.Second
+			}),
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -51,9 +46,16 @@ func TestFlagsProduceExpectedConfig(t *testing.T) {
 			cmd := newCLI()
 			cmd.Action = func(_ context.Context, c *cli.Command) error {
 				got = controlplane.Config{
-					ListenAddr:      c.String("listen-addr"),
-					LogLevel:        c.String("log-level"),
-					ShutdownTimeout: c.Duration("shutdown-timeout"),
+					ListenAddr: c.String("listen-addr"), LogLevel: c.String("log-level"),
+					ShutdownTimeout: c.Duration("shutdown-timeout"), Kubeconfig: c.String("kubeconfig"),
+					LeaderElectionNamespace: c.String("leader-election-namespace"),
+					LeaderElectionName:      c.String("leader-election-name"),
+					LeaseDuration:           c.Duration("leader-election-lease-duration"),
+					RenewDeadline:           c.Duration("leader-election-renew-deadline"),
+					RetryPeriod:             c.Duration("leader-election-retry-period"), Workers: c.Int("workers"),
+					StatusDebounce:         c.Duration("status-debounce"),
+					StatusProgressInterval: c.Duration("status-progress-interval"),
+					KubeAPIQPS:             c.Float("kube-api-qps"), KubeAPIBurst: c.Int("kube-api-burst"),
 				}
 				return nil
 			}
@@ -61,4 +63,10 @@ func TestFlagsProduceExpectedConfig(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func configWith(mutate func(*controlplane.Config)) controlplane.Config {
+	config := controlplane.DefaultConfig()
+	mutate(&config)
+	return config
 }
