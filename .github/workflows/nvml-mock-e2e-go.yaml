@@ -311,13 +311,19 @@ jobs:
             | sudo tar -xzC /usr/local/bin tilt
           tilt version
 
+      - name: Download pre-built kind-node image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
+
       - name: Create Kind cluster (make cluster-create)
         env:
           KIND_NODE_IMAGE_PREBUILT: "1"
         run: make cluster-create
-
-      - name: Load pre-built kind-node image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
@@ -382,6 +388,15 @@ jobs:
           curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
             | sudo tar -xzC /usr/local/bin tilt
           tilt version
+
+      - name: Download pre-built kind-node image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Create Kind cluster (make cluster-create)
         env:
@@ -450,6 +465,15 @@ jobs:
           curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
             | sudo tar -xzC /usr/local/bin tilt
           tilt version
+
+      - name: Download pre-built kind-node image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Create Kind cluster (make cluster-create)
         env:
@@ -521,6 +545,15 @@ jobs:
           curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
             | sudo tar -xzC /usr/local/bin tilt
           tilt version
+
+      - name: Download pre-built kind-node image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Create Kind cluster (make cluster-create)
         env:
@@ -603,6 +636,15 @@ jobs:
           curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
             | sudo tar -xzC /usr/local/bin tilt
           tilt version
+
+      - name: Download pre-built kind-node image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Create Kind cluster (make cluster-create)
         env:
