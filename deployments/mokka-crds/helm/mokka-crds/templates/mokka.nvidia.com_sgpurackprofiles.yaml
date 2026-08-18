@@ -4,18 +4,18 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
-  name: sgpuprofiles.mokka.nvidia.com
+  name: sgpurackprofiles.mokka.nvidia.com
 spec:
   group: mokka.nvidia.com
   names:
     categories:
     - mokka
-    kind: SGPUProfile
-    listKind: SGPUProfileList
-    plural: sgpuprofiles
+    kind: SGPURackProfile
+    listKind: SGPURackProfileList
+    plural: sgpurackprofiles
     shortNames:
-    - sprof
-    singular: sgpuprofile
+    - srprof
+    singular: sgpurackprofile
   scope: Cluster
   versions:
   - additionalPrinterColumns:
@@ -31,7 +31,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: SGPUProfile is the static shape of a simulated GPU rack.
+        description: SGPURackProfile is the static shape of a simulated GPU rack.
         properties:
           apiVersion:
             description: |-
@@ -51,11 +51,11 @@ spec:
           metadata:
             type: object
           spec:
-            description: SGPUProfileSpec is one logical rack profile.
+            description: SGPURackProfileSpec is one logical rack profile.
             properties:
               defaults:
-                description: SGPUProfileDefaults is initial runtime state for fresh
-                  sGPUs.
+                description: SGPURackProfileDefaults is initial runtime state for
+                  fresh sGPUs.
                 properties:
                   runtime:
                     description: |-
@@ -574,7 +574,7 @@ spec:
                 - gpus
                 type: object
               rack:
-                description: SGPURack is the logical rack shape.
+                description: Rack is the logical rack shape described by this profile.
                 properties:
                   nodesPerRack:
                     format: int32

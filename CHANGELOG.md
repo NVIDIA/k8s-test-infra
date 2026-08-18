@@ -48,6 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FORCE_RECREATE=true`.
 
 ### Fixed
+- mocknvml: `nvidia-smi` no longer reports impossible per-GPU PCIe identity
+  values. `Board ID` is derived from the device's PCI address the way NVML does
+  — `(domain << 16) | (bus << 8) | (device << 3)`, so a GPU at `0000:07:00.0`
+  reports `0x700` — instead of `0x0` for every GPU, which left an eight-GPU node
+  indistinguishable by board ID. `nvmlDeviceGetGpuMaxPcieLinkGeneration` is now
+  hand-written in the bridge, so the `Device Max` PCIe generation reads Gen3 on
+  `t4` through Gen6 on Blackwell instead of `N/A`. `Host Max` now matches the
+  device maximum instead of an impossible Gen0: no public NVML API exposes a
+  host-side maximum, and nvidia-smi reads it through a slot of the internal
+  export table whose catch-all stub wrote a zero count over the caller's
+  reading — the same class of bug as the phantom processes above. All three
+  maxima now agree in `nvidia-smi -q`, `-q -x` (`<max_host_link_gen>`) and
+  `--query-gpu=pcie.link.gen.hostmax`. (#638)
 - Wire eight NVML device exports that already had engine implementations but
   were still generated stubs (`GetEncoderStats`, `GetFBCStats`,
   `GetAccountingBufferSize`, `GetEncoderCapacity`, `GetEncoderSessions`,
@@ -73,6 +86,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   their config field, matching the existing encoder and decoder getters. The
   values are also settable at runtime with
   `nvml-mock-ctl set --gpu <idx> utilization.jpeg=35 utilization.ofa=12`. (#637)
+- Report `GPU C2C Mode` in `nvidia-smi -q` from `nvlink.c2c_enabled`.
+  `nvmlDeviceGetC2cModeInfoV` was a generated stub, so the Grace-Blackwell
+  profiles (`gb200`, `gb300`) reported `N/A` for the NVLink-C2C link to the
+  Grace CPU that defines them, silently dropping a configured value. Boards
+  with no such link keep reporting `N/A`, which is correct for them: `a100`,
+  `h100` and `b200` set `c2c_enabled: false`, `l40s` and `t4` omit the key, and
+  both cases answer `NVML_ERROR_NOT_SUPPORTED`. (#639)
 
 - Gate the T.Limit temperature surfaces on Ada and later: the field IDs
   193–196 (`NVML_FI_DEV_TEMPERATURE_*_TLIMIT`) and

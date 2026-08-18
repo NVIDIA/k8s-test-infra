@@ -14,6 +14,8 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions/nvidiasmi"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assets"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/diagnostics"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
@@ -68,7 +70,7 @@ var _ = Describe("nvml-mock DRA", Label("dra"), Ordered, func() {
 			})
 
 			It("reports the profile GPUs via nvidia-smi", func(ctx SpecContext) {
-				assertions.NvidiaSMI(ctx, h.Kube, pod, p)
+				nvidiasmi.Inventory(ctx, h.Kube, pod, p)
 			})
 
 			It("exposes the NVLink topology (gated on fabricmanager)", func(ctx SpecContext) {

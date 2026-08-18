@@ -6,13 +6,11 @@
 package e2e
 
 import (
-	"strconv"
-	"strings"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions/nvidiasmi"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
@@ -24,7 +22,10 @@ func assertFailureInjectionBaseline(ctx SpecContext, h *harness.Harness, pod kub
 	By("failure-injection healthy baseline")
 	cfg := failureInjectionConfig(ctx, h)
 	Expect(cfg).NotTo(ContainSubstring("failure:"), "healthy baseline should not render a failure block")
-	Expect(nvidiaSMILCount(ctx, h, pod)).To(Equal(expectedGPUs), "healthy baseline should list all profile GPUs")
+
+	snap := gpuSnapshot(ctx, h, pod)
+	Expect(snap.Count()).To(Equal(expectedGPUs), "healthy baseline should describe all profile GPUs")
+	Expect(snap.FailedGPUs()).To(BeEmpty(), "healthy baseline should report no failed devices")
 }
 
 func assertECCUncorrectableFailure(ctx SpecContext, h *harness.Harness, expectedGPUs int) {
@@ -36,8 +37,12 @@ func assertECCUncorrectableFailure(ctx SpecContext, h *harness.Harness, expected
 		"gpu.failureInjection.xid.code":    "79",
 	})
 	assertConfigContains(ctx, h, "mode: ecc_uncorrectable")
-	Expect(nvidiaSMILCount(ctx, h, pod)).To(Equal(expectedGPUs), "ecc_uncorrectable keeps devices addressable")
-	Expect(maxIntegerLine(eccQuery(ctx, h, pod))).To(BeNumerically(">", 0), "ecc_uncorrectable should trip ECC counters")
+
+	snap := gpuSnapshot(ctx, h, pod)
+	Expect(snap.Count()).To(Equal(expectedGPUs), "ecc_uncorrectable keeps devices addressable")
+	total, ok := snap.MaxUncorrectedECCAggregate()
+	Expect(ok).To(BeTrue(), "ecc_uncorrectable should leave the counters readable, not fail the device")
+	Expect(total).To(BeNumerically(">", 0), "ecc_uncorrectable should trip ECC counters")
 }
 
 func assertLostGPUFailure(ctx SpecContext, h *harness.Harness) {
@@ -49,7 +54,8 @@ func assertLostGPUFailure(ctx SpecContext, h *harness.Harness) {
 		"gpu.failureInjection.xid.code":    "0",
 	})
 	assertConfigContains(ctx, h, "mode: lost")
-	Expect(hasFailureMarker(temperatureQuery(ctx, h, pod))).To(BeTrue(), "lost mode should surface nvidia-smi error markers")
+	Expect(gpuSnapshot(ctx, h, pod).FailedGPUs()).
+		NotTo(BeEmpty(), "lost mode should render an NVML error body in place of the readings")
 }
 
 func assertFallenOffBusFailure(ctx SpecContext, h *harness.Harness) {
@@ -62,7 +68,8 @@ func assertFallenOffBusFailure(ctx SpecContext, h *harness.Harness) {
 	})
 	assertConfigContains(ctx, h, "mode: fallen_off_bus")
 	assertConfigContains(ctx, h, "code: 79")
-	Expect(hasFailureMarker(temperatureQuery(ctx, h, pod))).To(BeTrue(), "fallen_off_bus should surface nvidia-smi error markers")
+	Expect(gpuSnapshot(ctx, h, pod).FailedGPUs()).
+		NotTo(BeEmpty(), "fallen_off_bus should render an NVML error body in place of the readings")
 }
 
 func upgradeFailureMode(ctx SpecContext, h *harness.Harness, mode string, set map[string]string) kube.PodRef {
@@ -96,46 +103,13 @@ func assertConfigContains(ctx SpecContext, h *harness.Harness, needle string) {
 	Expect(failureInjectionConfig(ctx, h)).To(ContainSubstring(needle), "ConfigMap should contain %q", needle)
 }
 
-func nvidiaSMILCount(ctx SpecContext, h *harness.Harness, pod kube.PodRef) int {
+// gpuSnapshot reads the whole `-q -x` document once. Every failure-injection
+// check keys off it: the inventory, the ECC counters and the failed-device
+// verdict all come from the same exec. An nvidia-smi that fails outright is
+// reported as such, not read as a document with no errors in it.
+func gpuSnapshot(ctx SpecContext, h *harness.Harness, pod kube.PodRef) nvidiasmi.Snapshot {
 	GinkgoHelper()
-	res, err := h.Kube.Exec(ctx, pod, "nvidia-smi", "-L")
-	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -L: %s", res.Combined())
-	count := 0
-	for _, line := range strings.Split(res.Stdout, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "GPU ") {
-			count++
-		}
-	}
-	return count
-}
-
-func eccQuery(ctx SpecContext, h *harness.Harness, pod kube.PodRef) string {
-	GinkgoHelper()
-	res, _ := h.Kube.Exec(ctx, pod, "nvidia-smi", "--query-gpu=ecc.errors.uncorrected.aggregate.total", "--format=csv,noheader,nounits")
-	return res.Combined()
-}
-
-func temperatureQuery(ctx SpecContext, h *harness.Harness, pod kube.PodRef) string {
-	GinkgoHelper()
-	res, _ := h.Kube.Exec(ctx, pod, "nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits")
-	return res.Combined()
-}
-
-func maxIntegerLine(out string) int {
-	maxVal := 0
-	for _, line := range strings.Split(out, "\n") {
-		v, err := strconv.Atoi(strings.TrimSpace(line))
-		if err == nil && v > maxVal {
-			maxVal = v
-		}
-	}
-	return maxVal
-}
-
-func hasFailureMarker(out string) bool {
-	lower := strings.ToLower(out)
-	return strings.Contains(lower, "[n/a]") ||
-		strings.Contains(lower, "[unknown error]") ||
-		strings.Contains(lower, "gpu is lost") ||
-		strings.Contains(lower, "err")
+	snap, err := nvidiasmi.SnapshotFromPod(ctx, h.Kube, pod)
+	Expect(err).NotTo(HaveOccurred(), "read nvidia-smi -q -x")
+	return snap
 }

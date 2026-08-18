@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 271 stub functions for unimplemented NVML functions.
+// 269 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -132,11 +132,6 @@ func nvmlDeviceGetBridgeChipInfo(device C.nvmlDevice_t, bridgeHierarchy *C.nvmlB
 //export nvmlDeviceGetBusType
 func nvmlDeviceGetBusType(device C.nvmlDevice_t, _type *C.nvmlBusType_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetBusType")
-}
-
-//export nvmlDeviceGetC2cModeInfoV
-func nvmlDeviceGetC2cModeInfoV(device C.nvmlDevice_t, c2cModeInfo *C.nvmlC2cModeInfo_v1_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetC2cModeInfoV")
 }
 
 //export nvmlDeviceGetCapabilities
@@ -292,11 +287,6 @@ func nvmlDeviceGetGpuInstanceRemainingCapacity(device C.nvmlDevice_t, profileId 
 //export nvmlDeviceGetGpuInstances
 func nvmlDeviceGetGpuInstances(device C.nvmlDevice_t, profileId C.uint, gpuInstances *C.nvmlGpuInstance_t, count *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetGpuInstances")
-}
-
-//export nvmlDeviceGetGpuMaxPcieLinkGeneration
-func nvmlDeviceGetGpuMaxPcieLinkGeneration(device C.nvmlDevice_t, maxLinkGenDevice *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetGpuMaxPcieLinkGeneration")
 }
 
 //export nvmlDeviceGetGraphicsRunningProcesses_v1

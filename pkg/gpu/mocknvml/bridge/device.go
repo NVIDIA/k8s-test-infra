@@ -78,6 +78,7 @@
 // - nvmlDeviceGetCurrPcieLinkGeneration
 // - nvmlDeviceGetCurrPcieLinkWidth
 // - nvmlDeviceGetMaxPcieLinkGeneration
+// - nvmlDeviceGetGpuMaxPcieLinkGeneration
 // - nvmlDeviceGetMaxPcieLinkWidth
 // - nvmlDeviceGetPcieReplayCounter
 // - nvmlDeviceGetPcieThroughput
@@ -1887,6 +1888,27 @@ func nvmlDeviceGetMaxPcieLinkGeneration(device C.nvmlDevice_t, maxLinkGen *C.uin
 		return toReturn(ret)
 	}
 	*maxLinkGen = C.uint(val)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetGpuMaxPcieLinkGeneration
+func nvmlDeviceGetGpuMaxPcieLinkGeneration(device C.nvmlDevice_t, maxLinkGenDevice *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetGpuMaxPcieLinkGeneration"); !ok {
+		return ret
+	}
+	if maxLinkGenDevice == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := unsafe.Pointer(device.handle)
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	val, ret := dev.GetGpuMaxPcieLinkGeneration()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*maxLinkGenDevice = C.uint(val)
 	return C.NVML_SUCCESS
 }
 

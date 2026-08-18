@@ -12,6 +12,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions/nvidiasmi"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
@@ -72,18 +73,18 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 			})
 
 			It("reports the profile GPUs via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
-				assertions.NvidiaSMI(ctx, h.Kube, pod, p)
+				nvidiasmi.Inventory(ctx, h.Kube, pod, p)
 			})
 
-			It("reports architecture-correct temperature thresholds via nvidia-smi -q", Label("nvidia-smi"), func(ctx SpecContext) {
+			It("reports architecture-correct temperature thresholds via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #635: pre-Ada profiles must show absolute threshold
 				// rows; Ada+ keep T.Limit. Focus profiles called out there are
 				// a100 (ampere) and h100 (hopper); every selected profile is
 				// checked so a regression cannot hide behind E2E_PROFILES.
-				assertions.NvidiaSMITemperatureThresholds(ctx, h.Kube, pod, p)
+				nvidiasmi.TemperatureThresholds(ctx, h.Kube, pod, p)
 			})
 
-			It("reports configured encoder and FBC stats via nvidia-smi -q", Label("nvidia-smi"), func(ctx SpecContext) {
+			It("reports configured encoder and FBC stats via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #636: encoder_stats / fbc_stats were accepted by the
 				// engine but silently stubbed at the C ABI. Non-zero overrides
 				// prove the path is live rather than a zeroed coincidence.
@@ -95,8 +96,25 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				// points were generated stubs, so every configured value was
 				// dropped. First the deployed profile's own percentages, then
 				// distinct non-zero values pinned at runtime.
-				assertions.NvidiaSMIJpgOfaUtilization(ctx, h.Kube, pod, p.JPEGUtilizationPct(), p.OFAUtilizationPct())
+				nvidiasmi.JpgOfaUtilization(ctx, h.Kube, pod, p.JPEGUtilizationPct(), p.OFAUtilizationPct())
 				assertJpgOfaUtilizationOverride(ctx, h, pod)
+			})
+
+			It("reports valid per-GPU PCIe identity via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #638: Board ID was 0x0 on every device, Device Max read
+				// N/A from a generated stub, and Host Max read Gen0 because the
+				// internal export-table slot behind it went unserved. Checked on
+				// every selected profile so the generation tracks config.
+				nvidiasmi.PCIeIdentity(ctx, h.Kube, pod, p)
+			})
+
+			It("reports the profile's C2C mode via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #639: nvmlDeviceGetC2cModeInfoV was a generated stub, so
+				// GPU C2C Mode read N/A even on gb200/gb300, whose defining
+				// feature is the NVLink-C2C link to Grace. The expectation comes
+				// from the profile, so this same spec pins Enabled on Grace
+				// boards and N/A on every other selected profile.
+				nvidiasmi.C2CMode(ctx, h.Kube, pod, p)
 			})
 
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
