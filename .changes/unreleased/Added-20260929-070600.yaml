@@ -1,0 +1,9 @@
+kind: Added
+body: |-
+  nvml-mock: a profile or override can declare MIG partitions explicitly, with a
+    fixed ID per GPU instance and named compute instances. MIG UUIDs stay stable
+    across processes, and a changed layout creates and destroys only the
+    instances that differ.
+time: 2026-09-29T07:06:00Z
+custom:
+  Issue: "241"

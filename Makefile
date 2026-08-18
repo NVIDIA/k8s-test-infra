@@ -505,6 +505,65 @@ repository-automation-ci: ## Validate and package the repository automation acti
 helm-tests: ## Run the nvml-mock chart unit test suite
 	helm unittest $(HELM_CHART_DIR)
 
+# ---------------------------------------------------------------------------
+# Changelog (changie)
+# Entries are recorded as fragments under .changes/unreleased/ instead of edits
+# to CHANGELOG.md, so concurrent PRs and backports never conflict. A maintainer
+# folds the pending fragments into CHANGELOG.md when cutting a release.
+# ---------------------------------------------------------------------------
+CHANGIE_VERSION ?= v1.26.0
+CHANGIE := $(BIN_DIR)/changie
+
+.PHONY: changie
+changie: $(CHANGIE) ## Install changie into tmp/bin if missing
+$(CHANGIE):
+	@mkdir -p $(BIN_DIR)
+	@echo "🚚 Downloading changie $(CHANGIE_VERSION).."
+	@GOBIN=$(BIN_DIR) $(GO_CMD) install github.com/miniscruff/changie@$(CHANGIE_VERSION)
+
+# `changie new --interactive=false` demands a value for every declared custom
+# key, including optional ones, so the scriptable path writes the fragment
+# directly — same layout and file name format as changie's own output.
+# KIND / BODY / ISSUE are read from the environment rather than interpolated:
+# make exports command-line variables, and entry bodies are full of backticks
+# and quotes that would otherwise be re-parsed by the shell.
+# File names have one-second resolution, so the name is claimed with noclobber
+# (an exclusive create) and a taken second waits for the next one; two calls
+# within the same second would otherwise leave a single fragment.
+.PHONY: changelog
+changelog: changie ## Add a changelog fragment: make changelog KIND=Fixed BODY="..." [ISSUE=636]
+	@if [ -n "$$KIND" ] && [ -n "$$BODY" ]; then \
+		grep -q "^  - label: $$KIND\$$" .changie.yaml || { echo "unknown KIND '$$KIND' — pick one of: $$(awk '/^  - label: /{print $$NF}' .changie.yaml | paste -sd'|' -)"; exit 1; }; \
+		n=0; until out=".changes/unreleased/$$KIND-$$(date '+%Y%m%d-%H%M%S').yaml"; (set -C; : > "$$out") 2>/dev/null; do \
+			n=$$((n + 1)); [ $$n -lt 5 ] || { echo "cannot create a fragment under .changes/unreleased/"; exit 1; }; sleep 1; \
+		done; \
+		{ \
+			printf 'kind: %s\nbody: |-\n' "$$KIND"; \
+			printf '%s\n' "$$BODY" | sed 's/^/  /'; \
+			printf 'time: %s\n' "$$(date -u '+%Y-%m-%dT%H:%M:%SZ')"; \
+			test -z "$$ISSUE" || printf 'custom:\n  Issue: "%s"\n' "$$ISSUE"; \
+		} > "$$out"; \
+		echo "Created $$out"; \
+	elif [ -n "$$KIND" ] || [ -n "$$BODY" ]; then \
+		echo "Both KIND and BODY must be set for non-interactive mode"; exit 1; \
+	else \
+		$(CHANGIE) new; \
+	fi
+
+# RELEASE_VERSION rather than VERSION: the latter is the image tag version and
+# already carries a default, which would silently fold a release as 0.0.1.
+.PHONY: changelog-preview
+changelog-preview: changie ## Preview the next release section without writing: make changelog-preview RELEASE_VERSION=0.5.0
+	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make changelog-preview RELEASE_VERSION=0.5.0"; exit 1; }
+	@CHANGIE=$(CHANGIE) bash hack/changelog-fold.sh --dry-run $(RELEASE_VERSION)
+
+# A prerelease (0.5.0-rc1) parks its fragments in .changes/0.5.0/; the final
+# 0.5.0 folds them back in and replaces every 0.5.0-* section with one.
+.PHONY: changelog-release
+changelog-release: changie ## Maintainers: fold unreleased fragments into CHANGELOG.md as RELEASE_VERSION
+	@test -n "$(RELEASE_VERSION)" || { echo "RELEASE_VERSION is required, e.g. make changelog-release RELEASE_VERSION=0.5.0"; exit 1; }
+	@CHANGIE=$(CHANGIE) bash hack/changelog-fold.sh $(RELEASE_VERSION)
+
 .PHONY: helm-crds-tests
 helm-crds-tests: ## Lint + template-render the mokka-crds chart
 	helm lint $(CRDS_HELM_CHART_DIR)

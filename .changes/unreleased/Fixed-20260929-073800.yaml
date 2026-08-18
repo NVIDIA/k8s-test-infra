@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  `--observability`: GPU dashboard panels no longer stay empty with GPU Operator
+    v26.7.0 or later. dcgm-exporter is now scraped every 10s instead of 5s, so
+    injected faults take up to 10s longer to appear.
+time: 2026-09-29T07:38:00Z

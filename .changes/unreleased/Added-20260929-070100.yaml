@@ -1,0 +1,7 @@
+kind: Added
+body: |-
+  node-agent: an HGX baseboard's NVSwitches now appear on the node's PCI bus, so
+    `lspci` in a served container lists them beside the GPUs with their real PCI
+    IDs: six on `a100`, four on `h100`. A switch is rendered when it declares
+    `device_id` under `nvlink.switches`; see `docs/configuration.md`.
+time: 2026-09-29T07:01:00Z

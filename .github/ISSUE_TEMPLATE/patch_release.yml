@@ -57,7 +57,8 @@ body:
       label: Release prep
       options:
         - label: "Bump the nvml-mock chart `version` to the patch version."
-        - label: "Add a `## [VERSION] - YYYY-MM-DD` changelog section describing only what this patch changes."
+        - label: "`make changelog-release RELEASE_VERSION=<version-without-v>` on the release branch. The cherry-picked fixes carry their fragments, so the section describes only what this patch changes. Add the compare link and apply the `skip-changelog` label to the PR. `release-0.4` and older predate changie and still carry `## [Unreleased]`, which the fold refuses: on those, add the `## [VERSION] - YYYY-MM-DD` section by hand."
+        - label: "PR against `main` porting the patch's changelog section and removing the fragments it shipped, with the command in the Release template's \"porting the release's changelog\" step. For a hand-written section, remove the fragments of the cherry-picked commits by name."
         - label: "Tag, annotated and signed: `git tag -s -m \"<version>\" <version>`, then `git push upstream <version>`."
   - type: checkboxes
     id: artefacts

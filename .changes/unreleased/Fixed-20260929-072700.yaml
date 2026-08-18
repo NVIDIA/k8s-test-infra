@@ -1,0 +1,6 @@
+kind: Fixed
+body: |-
+  nvml-mock: applying a MIG layout while another goroutine enumerates the board
+    no longer exposes a partition under a transient ID. Instances are complete
+    before they become visible.
+time: 2026-09-29T07:27:00Z
