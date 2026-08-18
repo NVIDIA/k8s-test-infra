@@ -1,0 +1,6 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# mokka-crds ships plain CRD manifests only; there are no runtime toggles yet.
+# Values are reserved here so consumers can `--set`/`--values` overrides once
+# experimental-vs-stable splits or install-mode toggles are introduced.

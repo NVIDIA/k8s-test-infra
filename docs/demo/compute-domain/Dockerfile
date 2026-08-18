@@ -15,7 +15,7 @@
 # LOCAL BUILD ONLY — never publish this image: it repackages the proprietary
 # nvidia-imex binary installed from Ubuntu jammy multiverse.
 
-ARG GOLANG_VERSION=1.26.5
+ARG GOLANG_VERSION=1.26.6
 
 # Jammy carries the 595 driver branch under this package name. Fail loudly if
 # the repository ever resolves it to a different branch.

@@ -11,7 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG GOLANG_VERSION=1.26.5
+ARG GOLANG_VERSION=1.26.6
 # Named by both the build and the runtime stage.
 ARG LIB_VERSION=550.54.15
 FROM golang:${GOLANG_VERSION} AS lib-builder

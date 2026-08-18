@@ -83,6 +83,22 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertions.NvidiaSMITemperatureThresholds(ctx, h.Kube, pod, p)
 			})
 
+			It("reports configured encoder and FBC stats via nvidia-smi -q", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #636: encoder_stats / fbc_stats were accepted by the
+				// engine but silently stubbed at the C ABI. Non-zero overrides
+				// prove the path is live rather than a zeroed coincidence.
+				assertEncoderFBCAccounting(ctx, h, pod)
+			})
+
+			It("reports JPEG and OFA utilization via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #637: both readings were N/A because the NVML entry
+				// points were generated stubs, so every configured value was
+				// dropped. First the deployed profile's own percentages, then
+				// distinct non-zero values pinned at runtime.
+				assertions.NvidiaSMIJpgOfaUtilization(ctx, h.Kube, pod, p.JPEGUtilizationPct(), p.OFAUtilizationPct())
+				assertJpgOfaUtilizationOverride(ctx, h, pod)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)

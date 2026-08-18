@@ -14,6 +14,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 )
@@ -484,6 +485,35 @@ func assertRuntimeUtilCommand(ctx SpecContext, h *harness.Harness, consumer kube
 		Should(Not(Equal(overridePct)), "GPU %d utilization should resume varying after reset", target)
 }
 
+// assertJpgOfaUtilizationOverride pins distinct non-zero JPEG and OFA
+// utilization through `set` and reads both back from the jpeg_util and ofa_util
+// elements of nvidia-smi -q -x. The shipped profiles configure 0 % for both, so
+// the deployed config on its own cannot tell a working getter apart from the
+// dropped-field bug (#637) — and the two values must differ, or a getter reading
+// the other field would pass.
+func assertJpgOfaUtilizationOverride(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	const wantJPEG, wantOFA = 35, 12
+
+	By(fmt.Sprintf("set utilization.jpeg=%d utilization.ofa=%d on every GPU via nvml-mock-ctl", wantJPEG, wantOFA))
+	nvmlMockCtl(ctx, h, "set", "--gpu", "all",
+		"utilization.jpeg="+strconv.Itoa(wantJPEG), "utilization.ofa="+strconv.Itoa(wantOFA))
+
+	Eventually(func() []string {
+		res, err := h.Kube.Exec(ctx, consumer, "nvidia-smi", "-q", "-x")
+		if err != nil {
+			return []string{"nvidia-smi -q -x failed: " + res.Combined()}
+		}
+		return assertions.DiffJpgOfaUtilizationXML(res.Stdout, wantJPEG, wantOFA)
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(BeEmpty(), "JPEG/OFA utilization should reflect the runtime override")
+
+	By("reset runtime overrides")
+	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+}
+
 // assertRuntimeClocksCommand covers the `clocks` convenience command: pin a
 // GPU's SM/graphics clocks and read clocks.sm back. Clocks are static (no
 // dynamic simulator), so the reading is exact both after the pin and after
@@ -827,10 +857,27 @@ func assertRuntimeProcesses(ctx SpecContext, h *harness.Harness, consumer kube.P
 			"nvidia-smi -q should resolve the name of pid %d", p.PID)
 	}
 
+	// Unscoped, so nvidia-smi walks every GPU's process list in one run. That is
+	// the shape that faulted while a stray write in the internal export-table
+	// shim was reachable from calls that never carried a process buffer.
+	By("nvidia-smi -q -x reports the same processes for the target GPU")
+	res, err = h.Kube.Exec(ctx, consumer, "nvidia-smi", "-q", "-x")
+	Expect(err).NotTo(HaveOccurred(), "nvidia-smi -q -x: %s", res.Combined())
+	wantXML := make([]assertions.SMIProcess, 0, len(want))
+	for _, p := range want {
+		wantXML = append(wantXML, assertions.SMIProcess{PID: p.PID, Name: p.Name, MemoryMiB: p.MemoryMiB})
+	}
+	gotXML, err := assertions.ProcessesXML(res.Stdout, target)
+	Expect(err).NotTo(HaveOccurred(), "decode nvidia-smi -q -x")
+	Expect(gotXML).To(Equal(wantXML), "GPU %d processes in the XML view", target)
+
 	if count > 1 {
 		By("verify the process list is scoped to the target GPU (GPU 0 unchanged)")
 		Expect(smiComputeApps(ctx, h, consumer, 0)).To(BeEmpty(),
 			"GPU 0 must report no processes when only GPU %d was targeted", target)
+
+		Expect(assertions.ProcessesXML(res.Stdout, 0)).To(BeEmpty(),
+			"GPU 0 must report no processes in the XML view either")
 	}
 
 	By("clearing the list with an empty processes value removes them")
@@ -929,5 +976,47 @@ func assertRuntimeNVLinkErrorInjection(ctx SpecContext, h *harness.Harness, cons
 		Should(Equal(0), "GPU %d NVLink error counters should return to the healthy baseline after rate 0", target)
 
 	By("final reset")
+	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+}
+
+// assertEncoderFBCAccounting covers issue #636: pin non-zero encoder_stats and
+// fbc_stats via nvml-mock-ctl, then assert nvidia-smi -q -x surfaces those exact
+// numbers (and a numeric Accounting Mode Buffer Size) instead of N/A stubs.
+func assertEncoderFBCAccounting(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	const (
+		sessions = 2
+		fps      = 30
+		latency  = 1500
+		buffer   = 4000
+	)
+	stats := assertions.EncoderFBCStats{
+		SessionCount:     sessions,
+		AverageFPS:       fps,
+		AverageLatencyUS: latency,
+	}
+
+	By("pin non-zero encoder_stats and fbc_stats via nvml-mock-ctl set")
+	nvmlMockCtl(ctx, h, "set", "--gpu", "all",
+		"encoder_stats.session_count="+strconv.Itoa(sessions),
+		"encoder_stats.average_fps="+strconv.Itoa(fps),
+		"encoder_stats.average_latency_us="+strconv.Itoa(latency),
+		"fbc_stats.session_count="+strconv.Itoa(sessions),
+		"fbc_stats.average_fps="+strconv.Itoa(fps),
+		"fbc_stats.average_latency_us="+strconv.Itoa(latency),
+	)
+
+	Eventually(func() error {
+		res, err := h.Kube.Exec(ctx, consumer, "nvidia-smi", "-q", "-x")
+		if err != nil {
+			return fmt.Errorf("nvidia-smi -q -x: %w: %s", err, res.Combined())
+		}
+		return assertions.ValidateNvidiaSMIEncoderFBCXML(res.Stdout, stats, stats, buffer)
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Succeed(), "encoder/FBC/accounting must reflect the runtime override")
+
+	By("reset runtime overrides")
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
 }

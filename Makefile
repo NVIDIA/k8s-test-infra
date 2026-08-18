@@ -8,22 +8,26 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 SHELL := /usr/bin/env bash
-# NOTE: GNU Make only honours .SHELLFLAGS from 3.82 onward. macOS ships 3.81,
-# which treats the line below as an ordinary variable and runs recipes with a
-# bare `-c`. Any recipe whose exit status depends on these flags must set them
-# itself — see the `e2e` and `.mod-verify` targets.
 .SHELLFLAGS := -o pipefail -ec
 
 GO_CMD ?= go
-GO_FMT ?= gofmt
 GO_SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
 # First-party Go source directories. gofumpt / golangci-lint walk these
 # rather than "." so they don't dive into vendor/ or tmp/ (which may hold an
 # untracked clone of a sibling repo — e.g. tmp/topograph/).
 GO_PKG_DIRS := cmd pkg tests
 
+BIN_DIR=$(PWD)/tmp/bin
+
 VERSION := 0.0.1
+
+VERSION_PACKAGE := github.com/NVIDIA/k8s-test-infra/internal/version
+COMMIT ?= $(shell git describe --dirty --long --always --abbrev=15 2>/dev/null || echo unknown)
+BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+LDFLAGS_COMMON := "-X $(VERSION_PACKAGE).Version=$(VERSION) -X $(VERSION_PACKAGE).GitCommit=$(COMMIT) -X $(VERSION_PACKAGE).BuildDate=$(BUILD_DATE)"
 
 IMAGE_REGISTRY ?= ghcr.io/nvidia
 IMAGE_TAG_NAME ?= $(VERSION)
@@ -44,6 +48,8 @@ help:
 	@echo "🛠️ Dev Commands\n"
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
+CONTROLLER_GEN_VERSION ?= v0.20.1
+
 .PHONY: tools
 tools: ## Install static checkers & other binaries
 	@echo "🚚 Downloading tools.."
@@ -51,6 +57,7 @@ tools: ## Install static checkers & other binaries
 	@ \
 	test -x $(BIN_DIR)/golangci-lint || curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(BIN_DIR) v2.12.2 & \
 	test -x $(BIN_DIR)/govulncheck || go install golang.org/x/vuln/cmd/govulncheck@latest & \
+	test -x $(BIN_DIR)/controller-gen || go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) & \
 	wait
 
 .PHONY: lint
@@ -71,14 +78,30 @@ lint-fix: tools gen ## Same checks as `lint`, but auto-fix what can be fixed; re
 	@echo "🛡️ govulncheck.."
 	@$(BIN_DIR)/govulncheck -tags=e2e,integration ./...
 
+CRDS_OUT     := deployments/mokka-crds/helm/mokka-crds/templates
+API_PKG_PATH := ./internal/controlplane/api/...
+
 .PHONY: gen
-gen: ## Generate machine-controlled code
+gen: tools ## Generate machine-controlled code
 	@echo "Generating NVML Bridge.."
 	@go generate ./pkg/gpu/mocknvml/bridge/...
+	@echo "Generating deepcopy for $(API_PKG_PATH).."
+	@$(BIN_DIR)/controller-gen object paths="$(API_PKG_PATH)"
+	@echo "Generating CRD manifests into $(CRDS_OUT).."
+	@mkdir -p $(CRDS_OUT)
+	@$(BIN_DIR)/controller-gen crd:allowDangerousTypes=true \
+		paths="$(API_PKG_PATH)" \
+		output:crd:artifacts:config=$(CRDS_OUT)
 
 .PHONY: gen-check
 gen-check: gen ## Check whether all generated code is up to date
-	@git diff --quiet HEAD -- ./pkg/gpu/mocknvml/bridge/
+	@git diff --quiet HEAD -- \
+		./pkg/gpu/mocknvml/bridge/ \
+		./internal/controlplane/api/ \
+		$(CRDS_OUT) || { \
+		echo "ERROR: generated code is out of date. Run 'make gen' and commit the result."; \
+		git diff -- ./internal/controlplane/api/ $(CRDS_OUT); \
+		exit 1; }
 
 DIST_DIR ?= dist
 
@@ -144,7 +167,8 @@ modules-check: modules ## Fail if any sub-module go.mod / go.sum / vendor is out
 	@echo "- Checking if the go mod vendor dir is in sync..."
 	@git diff --exit-code -- $$(find . -name vendor)
 
-HELM_CHART_DIR := deployments/nvml-mock/helm/nvml-mock
+HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
+CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds
 
 # Drives the built libnvidia-ml.so through go-nvml over the real C ABI.
 # Docker-based, hence separate from the `go test` run.
@@ -163,6 +187,11 @@ test-mockpcisysfs: mockpcisysfs-shim ## Run mockpcisysfs integration tests
 .PHONY: helm-tests
 helm-tests: ## Run the nvml-mock chart unit test suite
 	helm unittest $(HELM_CHART_DIR)
+
+.PHONY: helm-crds-tests
+helm-crds-tests: ## Lint + template-render the mokka-crds chart
+	helm lint $(CRDS_HELM_CHART_DIR)
+	helm template mokka-crds $(CRDS_HELM_CHART_DIR) > /dev/null
 
 # Unit tests for the e2e harness itself (framework/*). They are behind the `e2e`
 # build tag, so the untagged CI unit-test run skips them, and `make e2e` targets
@@ -193,20 +222,20 @@ endif
 KIND_CLUSTER_NAME   ?= $(if $(filter compute-domain,$(PROFILE)),mokka-compute-domain,mokka)
 KIND_CLUSTER_CONFIG ?= local/kind/$(PROFILE).kind.yaml
 
-.PHONY: image-kind-node cluster-create cluster-delete
+.PHONY: image-kind-node image-load cluster-create cluster-delete
 # KIND_NODE_IMAGE_PREBUILT (env, any non-empty value): skip the local docker
 # build and use the pre-built $(KIND_NODE_IMAGE) already loaded in the local
 # daemon. Verify with `docker image inspect` before skipping, so a botched
 # staging step fails here (with a clear message) instead of surfacing later
-# as an opaque `kind create cluster` pull error. CI sets this after
-# `docker pull` + `docker tag` of the pre-built image from ttl.sh (see
-# .github/workflows/nvml-mock-e2e-go.yaml build-kind-node job); local devs
-# leave it unset and get the rebuild-when-Dockerfile-changes behavior.
+# as an opaque `kind create cluster` pull error. CI sets this after loading
+# the image from the artifact its build-kind-node-image job uploads (see
+# .github/workflows/nvml-mock-e2e-go.yaml); local devs leave it unset and get
+# the rebuild-when-Dockerfile-changes behavior.
 image-kind-node:
 	@if [ -n "$$KIND_NODE_IMAGE_PREBUILT" ]; then \
 		docker image inspect $(KIND_NODE_IMAGE) >/dev/null 2>&1 || { \
 			echo "ERROR: KIND_NODE_IMAGE_PREBUILT is set but $(KIND_NODE_IMAGE) is not in the local docker daemon."; \
-			echo "       Ensure a preceding step ran: docker pull <ref> && docker tag <ref> $(KIND_NODE_IMAGE)"; \
+			echo "       Ensure a preceding step loaded it, e.g. make image-load TARBALL=<tarball> IMAGE=$(KIND_NODE_IMAGE)"; \
 			echo "       (Or unset KIND_NODE_IMAGE_PREBUILT to build it locally.)"; \
 			exit 1; \
 		}; \
@@ -220,6 +249,31 @@ cluster-create: image-kind-node
 
 cluster-delete:
 	@kind delete cluster --name $(KIND_CLUSTER_NAME)
+
+# Stage a pre-built image into the local docker daemon from a tarball:
+#
+#   make image-load TARBALL=/tmp/nvml-mock.tar IMAGE=nvml-mock:e2e
+#
+# CI hands each e2e leg its images this way (run-scoped workflow artifacts
+# instead of a registry), and this target is how a leg loads one.
+# Asserting IMAGE matters because these refs carry no registry host: a mismatch
+# between what the producer tagged and what the consumer expects would otherwise
+# stay invisible until kubelet fell through to Docker Hub and the pod failed to
+# start, far from the cause. TARBALL is deleted on success — it is dead weight
+# once the image is in the daemon, and creating a Kind cluster and loading
+# images into its nodes right afterwards needs the disk.
+image-load:
+	@if [ -z "$(TARBALL)" ] || [ -z "$(IMAGE)" ]; then \
+		echo "ERROR: usage: make image-load TARBALL=<path/to/image.tar> IMAGE=<repo:tag>"; \
+		exit 1; \
+	fi
+	@docker load -i "$(TARBALL)"
+	@docker image inspect "$(IMAGE)" >/dev/null 2>&1 || { \
+		echo "ERROR: $(TARBALL) did not yield $(IMAGE)"; \
+		exit 1; \
+	}
+	@rm -f "$(TARBALL)"
+	@echo "Loaded $(IMAGE) from $(TARBALL)"
 
 # ---------------------------------------------------------------------------
 # Go end-to-end suite (tests/e2e) — the Go port of docs/demo/standalone/demo.sh.
@@ -237,7 +291,7 @@ cluster-delete:
 #   make e2e-multi-node            # heterogeneous A100/T4 multi-node scenario
 #   make e2e-nri                   # node-wide NRI ambient-injection scenario
 #   make e2e-nfd                   # NFD label-provenance scenario
-# CI builds the image once per job and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
+# CI builds the image once per run, every leg loads it, and sets E2E_SKIP_BUILD=true + E2E_IMAGE.
 #
 # NOTE: this targets ./tests/e2e/go (the Ginkgo suite package) only, NOT
 # ./tests/e2e/go/... — the subpackages (profile, ibutil) hold plain `go test`

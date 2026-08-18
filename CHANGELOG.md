@@ -29,6 +29,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- CI no longer depends on the third-party `ttl.sh` registry to share e2e images
+  between jobs. The nvml-mock and kind-node images are exported as tarballs and
+  handed to the legs that need them as run-scoped GitHub Actions artifacts, which need no
+  credentials (fork PRs keep working) and remove a single-attempt external
+  dependency that could fail the whole matrix. Each leg stages its tarball with
+  a new `make image-load TARBALL=<tar> IMAGE=<repo:tag>` target, so the step is
+  reproducible outside CI. Digest pinning went with it:
+  artifacts are immutable and scoped to the run, so there is no tag-overwrite
+  surface to defend against. `deployments/kind-nvidia-cdi/Makefile` drops its
+  `ttl.sh` default too: `make build` now tags `kind-nvidia-cdi:local` in the
+  local docker daemon, which is all `kind create cluster --image` reads, and
+  `make push` requires a registry-qualified `IMAGE`. (#566)
 - The ComputeDomain demo now runs real IMEX as a separate, ordinary workload;
   NRI supplies its mock NVML overlay, per-node topology, and annotated channel
   devices. Reruns deterministically reuse only compatible NRI-enabled Kind
@@ -36,6 +48,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FORCE_RECREATE=true`.
 
 ### Fixed
+- Wire eight NVML device exports that already had engine implementations but
+  were still generated stubs (`GetEncoderStats`, `GetFBCStats`,
+  `GetAccountingBufferSize`, `GetEncoderCapacity`, `GetEncoderSessions`,
+  `GetFBCSessions`, `GetRetiredPages_v2`, `GetViolationStatus`). Profile
+  `encoder_stats` / `fbc_stats` and the accounting buffer size now reach
+  `nvidia-smi -q` instead of silently reporting `N/A`. A regression guard
+  fails when an engine method is left behind a `stubReturn` export. (#636)
+- mocknvml: the internal export-table shim no longer writes a process list into
+  memory the caller never handed it. Every table slot pointed at one stub, so
+  the process-list call was recognised from the shape of its arguments; slots
+  that take fewer arguments left a stale register in the position the stub read
+  as the array pointer, and any configured `processes:` entry was then written
+  through it. On arm64 that faulted, so `nvidia-smi -q` (and `-q -x`) died with
+  a SIGSEGV mid-output as soon as a process was configured; elsewhere it wrote
+  into whatever the stale value addressed. Each slot now has its own trampoline
+  and only the three slots that carry a process array are filled.
+- mocknvml: `nvidia-smi -q -d UTILIZATION` reports the configured
+  `utilization.jpeg` and `utilization.ofa` percentages instead of `N/A`. Both
+  keys were parsed into the device config and then dropped: there was no engine
+  getter for either, and `nvmlDeviceGetJpgUtilization` /
+  `nvmlDeviceGetOfaUtilization` were generated stubs returning
+  `NVML_ERROR_NOT_SUPPORTED`. Both are now hand-written in the bridge and read
+  their config field, matching the existing encoder and decoder getters. The
+  values are also settable at runtime with
+  `nvml-mock-ctl set --gpu <idx> utilization.jpeg=35 utilization.ofa=12`. (#637)
+
 - Gate the T.Limit temperature surfaces on Ada and later: the field IDs
   193–196 (`NVML_FI_DEV_TEMPERATURE_*_TLIMIT`) and
   `nvmlDeviceGetMarginTemperature`. Pre-Ada profiles (`t4`, `a100`) report
@@ -56,6 +94,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "Failed to run topology matrix" on any error from it. nvidia-smi does not fall
   back to the public process APIs for these views. E2E `NvidiaSMI` gained a
   regression guard.
+
+### Security
+- Go pins bumped 1.26.5 -> 1.26.6 across the build (deployment and test
+  Dockerfiles, `devel` image, mocknvml/mockcuda Makefiles, helper scripts).
+  1.26.5 is affected by seven standard-library advisories that `govulncheck`
+  reports as reachable from this code — GO-2026-6218 (`net/url`), GO-2026-6091
+  (`html/template`), GO-2026-6090 (`crypto/tls`), GO-2026-6089 and GO-2026-5026
+  (`net/http`), GO-2026-6088 (`encoding/xml`) and GO-2026-5972
+  (`encoding/asn1`) — all fixed in 1.26.6. CI derives its toolchain from
+  `deployments/devel/Dockerfile`, so the stale pin failed `make lint` on every
+  branch once the advisories were published.
 
 ## [0.3.0] - 2026-08-01
 

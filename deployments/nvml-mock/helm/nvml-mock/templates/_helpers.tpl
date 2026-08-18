@@ -82,6 +82,44 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Mokka Control Plane resource name (MEP-0001). Distinct from the main
+fullname so its Deployment/Service cannot be adopted by the DaemonSet's
+selector.
+*/}}
+{{- define "nvml-mock.controlPlaneName" -}}
+{{- printf "%s-control-plane" (include "nvml-mock.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Mokka Control Plane app name — the app.kubernetes.io/name value the
+Deployment/Service and their selectors share.
+*/}}
+{{- define "nvml-mock.controlPlaneAppName" -}}
+{{- printf "%s-control-plane" (include "nvml-mock.name" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Mokka Control Plane common labels.
+*/}}
+{{- define "nvml-mock.controlPlaneLabels" -}}
+helm.sh/chart: {{ include "nvml-mock.chart" . }}
+{{ include "nvml-mock.controlPlaneSelectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+Mokka Control Plane selector labels. Kept distinct from the main
+selectorLabels for the same reason as the NRI variant.
+*/}}
+{{- define "nvml-mock.controlPlaneSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "nvml-mock.controlPlaneAppName" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
 GPU configuration helper.
 Returns the GPU profile configuration YAML content.
 Priority: customConfig > profile file lookup > fail with error.

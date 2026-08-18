@@ -13,6 +13,11 @@ import (
 // This file carries no build tag on purpose — same rationale as gfd_labels.go.
 // DiffTemperatureQuery is pure string checking so it unit-tests without a
 // cluster; the kubectl exec wrapper lives in nvidiasmi.go under //go:build e2e.
+//
+// The thresholds are read from the human-readable `-q -d TEMPERATURE` table
+// rather than the XML, because the defect being guarded is how nvidia-smi
+// presents them: which row labels appear at all. Assertions that only need
+// values decode the XML instead, via nvidiasmi_xml.go.
 
 var tempQueryRowRE = regexp.MustCompile(`(?m)^\s*(GPU .+? Temp)\s*:\s*(-?\d+)\s*C\s*$`)
 
