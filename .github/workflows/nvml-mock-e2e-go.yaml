@@ -297,9 +297,6 @@ jobs:
           name: nvml-mock-image
           path: ${{ runner.temp }}
 
-      - name: Load pre-built nvml-mock image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
-
       - name: Install Kind
         run: |
           curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
@@ -314,23 +311,13 @@ jobs:
             | sudo tar -xzC /usr/local/bin tilt
           tilt version
 
-      - name: Pull pre-built kind-node image from ttl.sh (pinned by digest)
-        run: |
-          pinned="ttl.sh/kind-node-nv-${{ github.sha }}@${{ needs.build-kind-node-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" kind-node-nv:latest
-
       - name: Create Kind cluster (make cluster-create)
         env:
           KIND_NODE_IMAGE_PREBUILT: "1"
         run: make cluster-create
 
-      - name: Pull pre-built nvml-mock image from ttl.sh
-        run: |
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
-          kind load docker-image "${{ env.E2E_IMAGE }}" --name mokka
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
@@ -382,9 +369,6 @@ jobs:
           name: nvml-mock-image
           path: ${{ runner.temp }}
 
-      - name: Load pre-built nvml-mock image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
-
       - name: Install Kind
         run: |
           curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
@@ -399,23 +383,13 @@ jobs:
             | sudo tar -xzC /usr/local/bin tilt
           tilt version
 
-      - name: Pull pre-built kind-node image from ttl.sh (pinned by digest)
-        run: |
-          pinned="ttl.sh/kind-node-nv-${{ github.sha }}@${{ needs.build-kind-node-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" kind-node-nv:latest
-
       - name: Create Kind cluster (make cluster-create)
         env:
           KIND_NODE_IMAGE_PREBUILT: "1"
         run: make cluster-create
 
-      - name: Pull pre-built nvml-mock image from ttl.sh
-        run: |
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
-          kind load docker-image "${{ env.E2E_IMAGE }}" --name mokka
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
@@ -463,9 +437,6 @@ jobs:
           name: nvml-mock-image
           path: ${{ runner.temp }}
 
-      - name: Load pre-built nvml-mock image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
-
       - name: Install Kind
         run: |
           curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
@@ -480,23 +451,13 @@ jobs:
             | sudo tar -xzC /usr/local/bin tilt
           tilt version
 
-      - name: Pull pre-built kind-node image from ttl.sh (pinned by digest)
-        run: |
-          pinned="ttl.sh/kind-node-nv-${{ github.sha }}@${{ needs.build-kind-node-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" kind-node-nv:latest
-
       - name: Create Kind cluster (make cluster-create)
         env:
           KIND_NODE_IMAGE_PREBUILT: "1"
         run: make cluster-create
 
-      - name: Pull pre-built nvml-mock image from ttl.sh
-        run: |
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
-          kind load docker-image "${{ env.E2E_IMAGE }}" --name mokka
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
@@ -547,9 +508,6 @@ jobs:
           name: nvml-mock-image
           path: ${{ runner.temp }}
 
-      - name: Load pre-built nvml-mock image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
-
       - name: Install Kind
         run: |
           curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
@@ -564,23 +522,13 @@ jobs:
             | sudo tar -xzC /usr/local/bin tilt
           tilt version
 
-      - name: Pull pre-built kind-node image from ttl.sh (pinned by digest)
-        run: |
-          pinned="ttl.sh/kind-node-nv-${{ github.sha }}@${{ needs.build-kind-node-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" kind-node-nv:latest
-
       - name: Create Kind cluster (make cluster-create)
         env:
           KIND_NODE_IMAGE_PREBUILT: "1"
         run: make cluster-create
 
-      - name: Pull pre-built nvml-mock image from ttl.sh
-        run: |
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
-          kind load docker-image "${{ env.E2E_IMAGE }}" --name mokka
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
@@ -642,9 +590,6 @@ jobs:
           name: nvml-mock-image
           path: ${{ runner.temp }}
 
-      - name: Load pre-built nvml-mock image
-        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
-
       - name: Install Kind
         run: |
           curl -fsSLo ./kind "https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION }}/kind-linux-amd64"
@@ -659,23 +604,13 @@ jobs:
             | sudo tar -xzC /usr/local/bin tilt
           tilt version
 
-      - name: Pull pre-built kind-node image from ttl.sh (pinned by digest)
-        run: |
-          pinned="ttl.sh/kind-node-nv-${{ github.sha }}@${{ needs.build-kind-node-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" kind-node-nv:latest
-
       - name: Create Kind cluster (make cluster-create)
         env:
           KIND_NODE_IMAGE_PREBUILT: "1"
         run: make cluster-create
 
-      - name: Pull pre-built nvml-mock image from ttl.sh
-        run: |
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
-          kind load docker-image "${{ env.E2E_IMAGE }}" --name mokka
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
