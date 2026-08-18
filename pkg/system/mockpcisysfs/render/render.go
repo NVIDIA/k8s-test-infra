@@ -120,9 +120,9 @@ func renderTopology(o Options) error {
 // both paths once the tree is bind-mounted over /sys/devices.
 const dmiIDDir = "sys/devices/virtual/dmi/id"
 
-// renderDMI writes the node's mock machine type. GPU Feature Discovery
-// reads this file (default --machine-type-file) to derive
-// nvidia.com/gpu.machine; without it a mock node labels itself "unknown".
+// renderDMI writes the node's mock machine type. GPU Feature Discovery reads
+// it through /sys/class/dmi/id/product_name to derive nvidia.com/gpu.machine;
+// without it a mock node labels itself "unknown".
 func renderDMI(root, productName string) error {
 	return writeFile(root, filepath.Join(dmiIDDir, "product_name"), productName+"\n")
 }

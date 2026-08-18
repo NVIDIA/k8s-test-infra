@@ -49,9 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   host's. The NVIDIA platform profiles set it; `l40s` and `t4` deliberately do
   not, since a commodity server's machine type is a property of the chassis,
   not the GPU. On a kernel that exposes no DMI at all (Docker Desktop's
-  linuxkit VM) `/sys/class/dmi` is absent and cannot be mounted into place, so
-  the label stays `unknown` unless GFD is pointed straight at the rendered file
-  with `GFD_MACHINE_TYPE_FILE`. (#673)
+  linuxkit VM) `/sys/class/dmi` is absent, there is no symlink to follow and it
+  cannot be mounted into place, so the label stays `unknown` there. (#673)
 - mocknvml: configured `processes:` now surface in nvidia-smi — the default
   table's Processes box, `-q`, and `--query-compute-apps` all report the
   configured PIDs, names and GPU memory instead of always reporting none.

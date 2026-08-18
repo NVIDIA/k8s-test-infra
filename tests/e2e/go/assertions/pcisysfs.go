@@ -76,10 +76,9 @@ const KernelPCIDevicesDir = "/sys/bus/pci/devices"
 // bind-mounted into a container.
 const KernelDMIProductNameFile = "/sys/devices/virtual/dmi/id/product_name"
 
-// DefaultMachineTypeFile is where GPU Feature Discovery reads the machine type
-// unless GFD_MACHINE_TYPE_FILE says otherwise. On a kernel that exposes DMI it
-// is a symlink into KernelDMIProductNameFile's directory, so GFD picks up the
-// mock identity with no configuration.
+// DefaultMachineTypeFile is where GPU Feature Discovery reads the machine type.
+// On a kernel that exposes DMI it is a symlink into KernelDMIProductNameFile's
+// directory, so GFD picks up the mock identity with no configuration.
 const DefaultMachineTypeFile = "/sys/class/dmi/id/product_name"
 
 // DMIExposedByKernel reports whether the container can reach DMI through the
