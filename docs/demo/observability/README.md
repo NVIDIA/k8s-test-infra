@@ -62,14 +62,15 @@ cluster.
    [`gpu-operator-values.yaml`](gpu-operator-values.yaml): real driver and toolkit
    disabled (the mock provides them), `dcgm-exporter` and its `ServiceMonitor`
    enabled. The script then asserts the exporter target is actually **up** in
-   Prometheus and that the DCGM series are present.
+   Prometheus and that the DCGM series count is exactly `GPU_COUNT` × workers —
+   16 by default — so one dead exporter cannot pass the gate.
 5. **Dashboard** — provisions [`dashboards/mokka-gpu.json`](dashboards/mokka-gpu.json)
    through a ConfigMap labelled `grafana_dashboard=1`, then asserts Grafana's own
    search API reports it imported.
-6. **Phase 1 — heat** — clears any leftover override, records the baseline, pins
-   gpu 0 on the first worker to `HOT_TEMP_C`, and waits for that exact value in
-   Prometheus. It also asserts the sibling GPUs kept their own readings, so a pin
-   that leaked across the node cannot pass.
+6. **Phase 1 — heat** — clears every leftover override on the first worker,
+   records the baseline, pins gpu 0 to `HOT_TEMP_C`, and waits for that exact
+   value in Prometheus. It also asserts the sibling GPUs kept their own readings,
+   so a pin that leaked across the node cannot pass.
 7. **Phase 2 — fault** — injects an `ecc_uncorrectable` failure with an Xid and
    waits for `DCGM_FI_DEV_XID_ERRORS` to carry that code.
 8. **Continuity** — compares pod names and restart counts before and after

@@ -566,10 +566,10 @@ info "Waiting for the heat to reach Prometheus"
 await_gpu_value DCGM_FI_DEV_GPU_TEMP == "${HOT_TEMP_C}"
 info "OBSERVED: DCGM_FI_DEV_GPU_TEMP for gpu ${TARGET_GPU} stepped ${baseline_temp}C -> ${FAULT_OBSERVED}C in Prometheus"
 
-# A pin that moved every GPU on the node is indistinguishable from an
-# `--gpu all` mistake, and would make the dashboard's per-GPU story a lie. Prove
-# the siblings kept their own readings -- and that there were siblings to check,
-# so an empty result cannot be mistaken for a clean scope.
+# A pin that moved every GPU on the node is indistinguishable from a
+# `temp --gpu all` mistake, and would make the dashboard's per-GPU story a lie.
+# Prove the siblings kept their own readings -- and that there were siblings to
+# check, so an empty result cannot be mistaken for a clean scope.
 temp_snapshot=$(promq "query?query=DCGM_FI_DEV_GPU_TEMP")
 siblings=$(jq --arg node "${TARGET_NODE}" --arg gpu "${TARGET_GPU}" \
   '[.data.result[] | select(.metric.Hostname == $node and .metric.gpu != $gpu)]' <<<"${temp_snapshot}")
