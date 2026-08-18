@@ -739,9 +739,9 @@ directory yields entries that list but whose every attribute read fails with
 device classes (CPU topology among them) from those containers. It cannot be
 narrowed to the profile's root complexes — a bind mount at a path sysfs does
 not already have needs a mountpoint, and the runtime cannot create one on a
-read-only `/sys`. Set `nri.pciSysfsMounts=false` to drop the mounts from the
-NRI path on a cluster that cannot accept this; sysfs-reading consumers then
-see no GPUs there.
+read-only `/sys`. A node running nvml-mock is simulating GPU hardware, so this
+is not configurable; keep workloads that need the host's real device tree off
+it, or in a namespace listed in `nri.excludedNamespaces`.
 
 ### Machine type (`dmi:`)
 

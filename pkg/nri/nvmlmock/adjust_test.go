@@ -82,37 +82,6 @@ func TestAdjustMountsPCISysfsWhenStaged(t *testing.T) {
 	})
 }
 
-// The mounts shadow the host's whole /sys/devices in every container the
-// plugin serves, which some clusters cannot accept. Operators there turn them
-// off and keep the rest of the injection, at the price of Go consumers seeing
-// no mock GPUs.
-func TestAdjustOmitsPCISysfsMountsWhenDisabled(t *testing.T) {
-	overlay := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(overlay, "sys/bus/pci/devices"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(overlay, "sys/devices"), 0o755))
-
-	cfg := DefaultConfig()
-	cfg.HostOverlayPath = overlay
-	cfg.DisablePCISysfsMounts = true
-
-	adjustment, ok, err := Adjust(cfg, Container{Namespace: "gpu-operator"})
-	require.NoError(t, err)
-	require.True(t, ok)
-
-	for _, mount := range adjustment.Mounts {
-		require.NotContains(t, mount.Destination, "/sys/",
-			"no sysfs mount may be emitted when disabled")
-	}
-	// The overlay itself must still be injected, or the opt-out would silently
-	// disable the whole plugin.
-	require.Contains(t, adjustment.Mounts, Mount{
-		Source:      overlay,
-		Destination: cfg.ContainerOverlayPath,
-		Type:        "bind",
-		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
-	})
-}
-
 // TestAdjustSkipsPCISysfsMountsWhenNotStaged is the fail-open case: the
 // tree is staged by the main DaemonSet and nothing orders this plugin after
 // it. A bind mount with a missing source fails container creation outright,

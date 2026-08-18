@@ -411,21 +411,3 @@ func TestEnvOr(t *testing.T) {
 		require.Equal(t, "/fallback", envOr("NVML_MOCK_TEST_KEY", "/fallback"))
 	})
 }
-
-func TestBoolEnvOr(t *testing.T) {
-	t.Run("parses the environment value", func(t *testing.T) {
-		t.Setenv("NVML_MOCK_TEST_BOOL", "true")
-		require.True(t, boolEnvOr("NVML_MOCK_TEST_BOOL", false))
-	})
-
-	t.Run("returns the fallback when unset", func(t *testing.T) {
-		require.True(t, boolEnvOr("NVML_MOCK_TEST_BOOL_UNSET", true))
-	})
-
-	// A garbled value must not flip the default: the fallback is what keeps the
-	// node's mock GPUs visible to sysfs consumers.
-	t.Run("falls back on an unparseable value", func(t *testing.T) {
-		t.Setenv("NVML_MOCK_TEST_BOOL", "yes-please")
-		require.False(t, boolEnvOr("NVML_MOCK_TEST_BOOL", false))
-	})
-}

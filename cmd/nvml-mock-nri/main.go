@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -50,7 +49,6 @@ func main() {
 	flag.StringVar(&cfg.DeviceAnnotation, "device-annotation", envOr("NVML_MOCK_DEVICE_ANNOTATION", cfg.DeviceAnnotation), "pod annotation key; value true adds /dev/nvidia* device nodes")
 	flag.StringVar(&cfg.ImexChannelAnnotation, "imex-channel-annotation", envOr("NVML_MOCK_IMEX_CHANNEL_ANNOTATION", cfg.ImexChannelAnnotation), "pod annotation key; value true adds /dev/nvidia-caps-imex-channels/* nodes")
 	flag.StringVar(&cfg.ImexChannelHostPath, "imex-channel-host-path", envOr("NVML_MOCK_IMEX_CHANNEL_HOST_PATH", cfg.ImexChannelHostPath), "host path containing the mock IMEX channel nodes staged by imex.mockChannels (defaults to <overlay-host-path>/driver/dev/nvidia-caps-imex-channels)")
-	flag.BoolVar(&cfg.DisablePCISysfsMounts, "disable-pci-sysfs-mounts", boolEnvOr("NVML_MOCK_DISABLE_PCI_SYSFS_MOUNTS", cfg.DisablePCISysfsMounts), "do not mount the rendered PCI sysfs tree at /sys/bus/pci/devices and /sys/devices; consumers that read sysfs directly (GPU Feature Discovery, the DRA driver) then see no GPUs")
 	excludedNamespaces := flag.String("excluded-namespaces", envOr("NVML_MOCK_EXCLUDED_NAMESPACES", strings.Join(cfg.ExcludedNamespaces, ",")), "comma-separated namespaces to skip")
 	shims := flag.String("ld-preload-shims", envOr("NVML_MOCK_LD_PRELOAD_SHIMS", strings.Join(cfg.Shims, ",")), "comma-separated LD_PRELOAD shim paths relative to the overlay mount or absolute paths")
 	flag.Parse()
@@ -269,23 +267,6 @@ func envOr(key, fallback string) string {
 		return value
 	}
 	return fallback
-}
-
-// boolEnvOr reads a boolean env override. An unparseable value falls back
-// rather than aborting: this only ever gates an optimisation of the injection,
-// and a DaemonSet that refused to start over a typo'd "yes" would take the
-// whole node's mock GPUs with it.
-func boolEnvOr(key string, fallback bool) bool {
-	value := os.Getenv(key)
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		log.Printf("nvml-mock-nri: %s=%q is not a boolean; using %t", key, value, fallback)
-		return fallback
-	}
-	return parsed
 }
 
 // major and minor decode a Linux dev_t the way glibc encodes it

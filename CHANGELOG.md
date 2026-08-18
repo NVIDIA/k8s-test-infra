@@ -36,8 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/sys/devices` is necessarily mounted whole — it cannot be narrowed to the
   profile's root complexes, because a bind mount at a path sysfs lacks needs a
   mountpoint the runtime cannot create on a read-only `/sys` — which hides the
-  host's other device classes from served containers. `nri.pciSysfsMounts=false`
-  opts out. (#673)
+  host's other device classes from served containers. Under NRI, which injects
+  node-wide, keep workloads that need the host's real device tree in a namespace
+  listed in `nri.excludedNamespaces`. (#673)
 - Profiles may declare the machine type a node of that platform reports, as a
   `dmi:` block with `product_name`, which the renderer writes to
   `sys/devices/virtual/dmi/id/product_name` in the mock overlay — the path

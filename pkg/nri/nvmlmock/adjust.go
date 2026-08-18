@@ -124,14 +124,6 @@ type Config struct {
 	// container creation.
 	CDISpecHostPath string
 
-	// DisablePCISysfsMounts drops the fake PCI sysfs mounts from the
-	// adjustment. The zero value keeps them, because a consumer that reads
-	// sysfs directly sees no GPUs without them. It exists for clusters that
-	// cannot accept the host's /sys/devices being shadowed in every served
-	// container — the unavoidable cost of those mounts, explained in
-	// pciSysfsMounts.
-	DisablePCISysfsMounts bool
-
 	// NodeName is the Kubernetes node this plugin runs on. When set (and a
 	// topology document is staged in the overlay) it is injected as the
 	// default NODE_NAME so the mock NVML engine's ComputeDomain topology
@@ -380,7 +372,7 @@ func topologyInjectable(cfg Config) bool {
 // whole pod. Silence rather than a warning because this runs for every
 // container on the node, staged or not.
 func pciSysfsMounts(cfg Config) []Mount {
-	if cfg.DisablePCISysfsMounts || cfg.HostOverlayPath == "" {
+	if cfg.HostOverlayPath == "" {
 		return nil
 	}
 	sysDevices := filepath.Join(cfg.HostOverlayPath, sysDevicesRelPath)
