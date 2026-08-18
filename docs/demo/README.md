@@ -98,3 +98,20 @@ cd nv-sentinel && ./run.sh
 ```
 
 See [nv-sentinel/README.md](nv-sentinel/README.md) for the walkthrough.
+
+### Observability (Prometheus + Grafana)
+
+Dedicated cluster (`nvml-mock-observability`) running a real Prometheus +
+Grafana stack over the mock GPUs. Installs kube-prometheus-stack, wires the GPU
+Operator's `dcgm-exporter` in through its `ServiceMonitor`, and ships a Grafana
+dashboard in-tree. Then heats a GPU and trips an uncorrectable ECC fault via
+`nvml-mock-ctl`, asserting each change is recorded in Prometheus — so the demo
+also works as a regression check on the whole scrape path.
+
+**Requirements:** Docker, Kind, Helm, kubectl, jq
+
+```bash
+cd observability && ./run.sh
+```
+
+See [observability/README.md](observability/README.md) for the walkthrough.

@@ -99,6 +99,9 @@ Use standalone for local development and CI pipelines.
 |------|-------------|
 | [Standalone](docs/demo/standalone/) | nvml-mock with FGO-style labels on Kind |
 | [With fake-gpu-operator](docs/demo/with-fgo/) | Full FGO + nvml-mock integration |
+| [Observability](docs/demo/observability/) | Prometheus + Grafana over mock GPUs, with fault injection |
+
+See [docs/demo/](docs/demo/) for the full list.
 
 ## Credits
 
