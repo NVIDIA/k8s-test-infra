@@ -129,7 +129,7 @@
       "id": 6,
       "type": "timeseries",
       "title": "Component health — ready vs desired, and restarts",
-      "description": "Which Mokka component broke and when. A ready count below desired, or a climbing restart count, is the signal.",
+      "description": "Which component of the mock GPU path broke and when: nvml-mock (the fake driver) and dcgm-exporter (the reader). A ready count below desired, or a climbing restart count, is the signal. Restarts are per pod, not per namespace, because the GPU Operator's own operands churn in the dozens and would bury a Mokka pod restarting three times.",
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "fieldConfig": {
@@ -140,20 +140,20 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "kube_daemonset_status_number_ready{daemonset=~\"nvml-mock|nvidia-dcgm-exporter\"}",
+          "expr": "kube_daemonset_status_number_ready{namespace=~\"mokka|gpu-operator\", daemonset=~\"nvml-mock|nvidia-dcgm-exporter\"}",
           "legendFormat": "{{daemonset}} ready"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "kube_daemonset_status_desired_number_scheduled{daemonset=~\"nvml-mock|nvidia-dcgm-exporter\"}",
+          "expr": "kube_daemonset_status_desired_number_scheduled{namespace=~\"mokka|gpu-operator\", daemonset=~\"nvml-mock|nvidia-dcgm-exporter\"}",
           "legendFormat": "{{daemonset}} desired"
         },
         {
           "refId": "C",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (namespace) (kube_pod_container_status_restarts_total{namespace=~\"mokka|gpu-operator\"})",
-          "legendFormat": "{{namespace}} restarts"
+          "expr": "sum by (pod) (kube_pod_container_status_restarts_total{namespace=~\"mokka|gpu-operator\", pod=~\"nvml-mock-.*|nvidia-dcgm-exporter-.*\"})",
+          "legendFormat": "{{pod}} restarts"
         }
       ]
     }

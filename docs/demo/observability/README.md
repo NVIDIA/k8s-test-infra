@@ -113,7 +113,7 @@ the repo's Go E2E suite scrapes `dcgm-exporter` through the API-server *pod* pro
 | Power draw | `DCGM_FI_DEV_POWER_USAGE` | Clock-driven simulation, not real work |
 | GPU utilization | `DCGM_FI_DEV_GPU_UTIL` | Clock-driven simulation, not real work |
 | GPU inventory — advertised vs requested | `kube_node_status_capacity` vs `kube_pod_container_resource_requests` | Advertised capacity against what workloads request |
-| Component health — ready vs desired, and restarts | `kube_daemonset_status_*`, `kube_pod_container_status_restarts_total` | Ready below desired, or climbing restarts, is the signal |
+| Component health — ready vs desired, and restarts | `kube_daemonset_status_*`, `kube_pod_container_status_restarts_total` | Ready below desired, or a climbing restart count, is the signal. Restarts are **per pod** and scoped to `nvml-mock` and `dcgm-exporter`: a per-namespace sum buries a Mokka pod inside the GPU Operator's own operand churn, which runs into the dozens on a healthy cluster |
 
 **Read these with the right expectations.** The mock never executes a kernel, so
 every value is configuration, a clock-driven simulation, or a fixed derivation —
@@ -168,11 +168,10 @@ pinned, so `HOT_TEMP_C=95` spends the full 180 s poll budget
 `never became == 95` — a message that never mentions clamping.
 
 **`MOKKA_NAMESPACE` (`mokka`) and `GPU_OPERATOR_NAMESPACE` (`gpu-operator`) are
-deliberately not overridable.** `dashboards/mokka-gpu.json` pins both names in the
-restart query of the component-health panel, and a dashboard is static JSON, so an
-override would install and import cleanly while silently dropping that namespace's
-restart series — the ready and desired lines key on DaemonSet names and would keep
-rendering, which is what makes the loss easy to miss. The two must move together.
+deliberately not overridable.** `dashboards/mokka-gpu.json` pins both names in
+every query of the component-health panel, and a dashboard is static JSON, so an
+override would install and import cleanly while silently emptying that panel. The
+two must move together.
 
 `KPS_RELEASE` is also the release label put on the `dcgm-exporter`
 `ServiceMonitor` (via `--set`, not hardcoded in `gpu-operator-values.yaml`).
