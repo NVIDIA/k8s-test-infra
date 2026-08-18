@@ -157,6 +157,66 @@ func C2CModeProblems(out string, wantEnabled bool) []string {
 	return problems
 }
 
+// bareMetalVirtualizationMode is what nvidia-smi renders for
+// NVML_GPU_VIRTUALIZATION_MODE_NONE.
+const bareMetalVirtualizationMode = "None"
+
+// VirtualizationModeProblems checks every GPU reports the bare-metal
+// virtualization mode the profiles configure, with no vGPU state alongside it.
+// "N/A" is the defect this exists to catch (#640): it says the driver cannot
+// tell whether the GPU is virtualized, where real hardware always answers.
+func VirtualizationModeProblems(out string) []string {
+	snap, err := ParseSnapshot(out)
+	if err != nil {
+		return []string{err.Error()}
+	}
+
+	var problems []string
+	for i, gpu := range snap.doc.GPUs {
+		name := gpu.label(i)
+		if mode := strings.TrimSpace(string(gpu.Virtualization.Mode)); mode != bareMetalVirtualizationMode {
+			problems = append(problems, fmt.Sprintf("%s virtualization_mode = %q, want %q",
+				name, mode, bareMetalVirtualizationMode))
+		}
+		problems = append(problems, unsupportedReadingProblems(
+			name+" host_vgpu_mode", gpu.Virtualization.HostVGPUMode)...)
+		problems = append(problems, unsupportedReadingProblems(
+			name+" vgpu_heterogeneous_mode", gpu.Virtualization.HeterogeneousMode)...)
+	}
+	return problems
+}
+
+// unsupportedReadingProblems checks an element the mock must leave unsupported.
+// An absent element passes: nvidia-smi omits elements the driver never reports,
+// which is a stronger form of the same claim.
+func unsupportedReadingProblems(name string, got reading) []string {
+	if got.present() && !got.unsupported() {
+		return []string{fmt.Sprintf("%s = %q, want \"N/A\"", name, strings.TrimSpace(string(got)))}
+	}
+	return nil
+}
+
+// pmonAcceptableExitCodes are the outcomes of `nvidia-smi pmon` that are not a
+// regression: 0 if the process-monitor path ever becomes supported, and the 255
+// it exits with today after printing "Not supported on the device(s)". Anything
+// else is abnormal — above all the 139 kubectl reports for a SIGSEGV, which is
+// how the reverted attempt behind PR #630 failed.
+var pmonAcceptableExitCodes = []int{0, 255}
+
+// ProcessMonitorProblems judges an `nvidia-smi pmon` exit code. pmon refuses to
+// run against the mock, so a non-zero exit is the baseline rather than the
+// defect; the check exists to catch it dying instead of refusing.
+func ProcessMonitorProblems(exitCode int, output string) []string {
+	for _, ok := range pmonAcceptableExitCodes {
+		if exitCode == ok {
+			return nil
+		}
+	}
+	return []string{fmt.Sprintf(
+		"nvidia-smi pmon -c 1 exited %d, want one of %v (139 is a SIGSEGV through kubectl): %s",
+		exitCode, pmonAcceptableExitCodes, output)}
+}
+
 // EncoderFBCStats are the non-default values issue #636 expects nvidia-smi to
 // surface.
 type EncoderFBCStats struct {
