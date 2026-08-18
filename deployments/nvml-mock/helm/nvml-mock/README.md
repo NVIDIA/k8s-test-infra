@@ -755,9 +755,23 @@ dmi:
 
 The renderer writes it to
 `/var/lib/nvml-mock/sys/devices/virtual/dmi/id/product_name` — inside the
-subtree above, which is where `/sys/class/dmi/id` points on a real node and
-the only place a container can be given it. Point GPU Feature Discovery at it
-to have `nvidia.com/gpu.machine` reflect the profile instead of the host:
+subtree mounted above, which is where `/sys/class/dmi/id` points on a real
+node and the only place a container can be given it.
+
+GPU Feature Discovery needs no configuration to find it: its default
+machine-type file is `/sys/class/dmi/id/product_name`, and that symlink
+resolves into the mounted subtree, so `nvidia.com/gpu.machine` reports the
+profile's platform (`NVIDIA-GB200-NVL72`, `DGXA100`, …).
+
+Two cases read `unknown` instead:
+
+- The profile ships no `dmi:` block. `l40s` and `t4` deliberately do not,
+  since a commodity server's machine type is a property of the chassis rather
+  than the GPU, so nothing is rendered.
+- The host kernel exposes no DMI at all, so `/sys/class/dmi` does not exist
+  and cannot be mounted into place either (a mountpoint cannot be created on a
+  read-only sysfs). Docker Desktop's linuxkit VM is the common case. Point GFD
+  straight at the rendered file there:
 
 ```yaml
 gfd:
@@ -765,10 +779,6 @@ gfd:
     - name: GFD_MACHINE_TYPE_FILE
       value: "/sys/devices/virtual/dmi/id/product_name"
 ```
-
-Profiles for commodity servers (`l40s`, `t4`) ship no `dmi:` block, since
-their machine type is a property of the chassis rather than the GPU. Nothing
-is rendered then, and the label stays `unknown`.
 
 ### Cross-node `ibping`
 

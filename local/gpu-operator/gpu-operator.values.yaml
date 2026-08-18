@@ -59,20 +59,17 @@ devicePlugin:
 
 # GFD reads GPU attributes via mock NVML and labels the node.
 #
-# GFD_MACHINE_TYPE_FILE moves the machine-type read off the default
-# /sys/class/dmi/id/product_name. The mock renders its DMI identity at the
-# path that symlink points to, and only /sys/devices can be handed to a
-# container (a bind mount at /sys/class/dmi would need a mountpoint the
-# runtime cannot create on a read-only sysfs, and Kind nodes on Docker
-# Desktop have no /sys/class/dmi at all). Without this the label falls back
-# to the host's machine type, or to "unknown" when the host exposes no DMI.
+# nvidia.com/gpu.machine needs no configuration: GFD's default machine-type
+# file is /sys/class/dmi/id/product_name, and /sys/class/dmi/id is a symlink
+# into /sys/devices/virtual/dmi/id — inside the subtree the mock mounts. On a
+# kernel that exposes no DMI at all (Docker Desktop's linuxkit VM) the
+# directory is absent and the label reads "unknown"; point
+# GFD_MACHINE_TYPE_FILE at /sys/devices/virtual/dmi/id/product_name there.
 gfd:
   enabled: true
   env:
     - name: NVIDIA_DRIVER_ROOT
       value: "/var/lib/nvml-mock/driver"
-    - name: GFD_MACHINE_TYPE_FILE
-      value: "/sys/devices/virtual/dmi/id/product_name"
 
 # Validator checks that the GPU stack is functional.
 #
