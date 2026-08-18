@@ -157,10 +157,12 @@ devices:
 ```
 
 > **Note:** `bus_id` uses the canonical Linux sysfs form `DDDD:BB:DD.F`
-> (4-digit PCI domain). The 8-digit NVML `busIdLegacy` form
-> (`00000000:07:00.0`) is **not accepted** — the PCI sysfs renderer
-> rejects it at validation time so half-migrated profiles don't silently
-> produce trees the DRA driver can't resolve.
+> (4-digit PCI domain). The 8-digit form (`00000000:07:00.0`) is **not
+> accepted** — the PCI sysfs renderer rejects it at validation time so
+> half-migrated profiles don't silently produce trees the DRA driver
+> can't resolve. NVML reports both widths from the one declaration:
+> `nvmlPciInfo_t.busId` carries the 8-digit domain, `busIdLegacy` the
+> 4-digit one, matching real hardware.
 
 #### PCIe Topology (optional)
 
