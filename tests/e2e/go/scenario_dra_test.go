@@ -15,7 +15,6 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions/nvidiasmi"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assets"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/diagnostics"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
