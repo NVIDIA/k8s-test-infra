@@ -1,0 +1,190 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loadable Tiltfile: Prometheus + Grafana observability consumer.
+#
+# Exports:
+#   GPU_OPERATOR_VALUES — path to the values overlay the root layers on top of
+#                         local/gpu-operator/gpu-operator.values.yaml to
+#                         re-enable dcgm-exporter and its ServiceMonitor.
+#   install(nvml_mock_releases) — install kube-prometheus-stack, provision the
+#                         Mokka dashboard, expose Grafana, and register the two
+#                         fault-injection triggers. Returns the release names so
+#                         the root can order the GPU Operator behind them (see
+#                         "Ordering" below).
+#
+# What this consumer demonstrates: the real, unmodified NVIDIA dcgm-exporter
+# reads the mock libnvidia-ml.so, Prometheus finds it through the ServiceMonitor
+# the GPU Operator generates, and Grafana renders it — on a cluster with no
+# GPUs. The two triggers then inject a GPU fault through nvml-mock-ctl and fail
+# if it never reaches Prometheus, so the scrape path is asserted rather than
+# eyeballed.
+#
+# Assumes --gpu-operator: dcgm-exporter and its ServiceMonitor are the
+# Operator's operands, so without it Prometheus has nothing GPU-shaped to
+# scrape. The root Tiltfile implies the flag rather than failing on it.
+#
+# Ordering: kube-prometheus-stack must be installed BEFORE the GPU Operator.
+# The Operator's chart creates a ServiceMonitor, and that CRD ships with
+# kube-prometheus-stack; installed the other way round the Operator's release
+# fails on an unknown kind. The root expresses this with resource_deps rather
+# than relying on call order, so reordering the root Tiltfile cannot silently
+# break it.
+#
+# All side effects inside functions so load()ing this file is a pure import.
+
+load('ext://helm_resource', 'helm_resource')
+
+RELEASE = 'kube-prometheus-stack'
+GPU_OPERATOR_VALUES = 'local/observability/gpu-operator.values.yaml'
+
+_NAMESPACE = 'monitoring'
+# Pinned deliberately. dashboards/mokka-gpu.json hardcodes
+# "uid": "prometheus" in every panel, which is this chart version's default
+# datasource uid (grafana.sidecar.datasources.uid) and is not settable from a
+# dashboard. A floating chart version that renamed it would install and import
+# cleanly, then render "datasource not found" on every panel.
+_CHART_VERSION = '88.3.0'
+_REPO_RESOURCE = 'prometheus-community'
+# Generous: the release pulls the operator, Prometheus, Grafana with two
+# sidecars, kube-state-metrics and a per-node node-exporter before --wait is
+# satisfied, all on a laptop Kind cluster.
+_HELM_TIMEOUT_S = 600
+_DASHBOARD_JSON = 'local/observability/dashboards/mokka-gpu.json'
+_DASHBOARD_CM = 'mokka-gpu-dashboard'
+# Grafana's own default HTTP port inside the container, and the Service port the
+# chart puts in front of it. Split out because the two differ and the
+# port-forward below needs the Service's.
+_GRAFANA_URL = 'http://localhost:3000/d/mokka-gpu'
+
+
+def install(nvml_mock_releases):
+    """Install the monitoring stack and register the fault scenarios."""
+    # Tilt caps a k8s apply at 30s by default, which the --wait below blows
+    # through — the build fails with a bare "apply command timed out" that says
+    # nothing about helm. Raised only when this consumer is active, so the tight
+    # default still applies to every other session.
+    update_settings(k8s_upsert_timeout_secs=_HELM_TIMEOUT_S + 60)
+
+    helm_resource(
+        RELEASE,
+        'prometheus-community/kube-prometheus-stack',
+        namespace=_NAMESPACE,
+        flags=[
+            '--create-namespace',
+            '--version', _CHART_VERSION,
+            '--values', 'local/observability/kube-prometheus-stack.values.yaml',
+            # --wait, unlike the other consumers: helm_resource cannot map this
+            # release's pods to the Tilt resource (no Tilt-built image to match
+            # on), so without it the resource goes green the moment `helm
+            # upgrade` returns and the Grafana port-forward below races a
+            # Pending pod. It also makes the --timeout mean something.
+            #
+            # It does NOT wait for Prometheus: the operator creates that
+            # StatefulSet from the Prometheus CR after the release is applied,
+            # so it is not part of the release. The scenarios poll the
+            # Prometheus API themselves for that reason.
+            '--wait', '--timeout', '%ds' % _HELM_TIMEOUT_S,
+        ],
+        # The helm repo resource must have run before the chart can be
+        # resolved; nvml-mock is UI ordering, matching the other consumers.
+        resource_deps=[_REPO_RESOURCE] + nvml_mock_releases,
+        labels=['observability'],
+    )
+
+    _install_dashboard()
+    _serve_grafana()
+    _register_scenarios(nvml_mock_releases)
+
+    return [RELEASE]
+
+
+def _install_dashboard():
+    """Provision dashboards/mokka-gpu.json for the Grafana sidecar.
+
+    Built from read_file + encode_yaml rather than shelled out to `kubectl
+    create configmap` so Tilt watches the JSON: editing a panel and saving
+    re-applies the ConfigMap and the sidecar re-imports it, with no re-install.
+    """
+    k8s_yaml(encode_yaml({
+        'apiVersion': 'v1',
+        'kind': 'ConfigMap',
+        'metadata': {
+            'name': _DASHBOARD_CM,
+            'namespace': _NAMESPACE,
+            # The label the Grafana sidecar selects on. Must match
+            # grafana.sidecar.dashboards.label / labelValue in
+            # kube-prometheus-stack.values.yaml. A mismatch is silent: the
+            # ConfigMap applies cleanly and no dashboard ever appears.
+            'labels': {'grafana_dashboard': '1'},
+        },
+        'data': {'mokka-gpu.json': str(read_file(_DASHBOARD_JSON))},
+    }))
+
+    k8s_resource(
+        new_name=_DASHBOARD_CM,
+        objects=['%s:configmap:%s' % (_DASHBOARD_CM, _NAMESPACE)],
+        # The monitoring namespace comes from the release's --create-namespace,
+        # so the ConfigMap cannot be applied before the release exists.
+        resource_deps=[RELEASE],
+        labels=['observability'],
+    )
+
+
+def _serve_grafana():
+    """Port-forward Grafana to localhost:3000.
+
+    Not helm_resource(port_forwards=...): that collapses to
+    k8s_resource(port_forwards=...) on a resource which — because
+    helm_resource deploys the whole release as ONE Tilt resource — owns every
+    pod in the stack, so Tilt forwards to whichever of Prometheus,
+    node-exporter, kube-state-metrics or Grafana it picked. Forwarding the
+    Grafana Service by name is deterministic.
+
+    The shared Kind config carries no extraPortMappings, and adding them for
+    one optional consumer would change the cluster shape for every other one.
+    """
+    local_resource(
+        'grafana',
+        serve_cmd='kubectl -n %s port-forward svc/%s-grafana 3000:80' % (_NAMESPACE, RELEASE),
+        resource_deps=[_DASHBOARD_CM],
+        # Without a probe the resource is "ready" as soon as the process starts,
+        # which is true of a kubectl that is about to exit non-zero. Probing
+        # Grafana's own health endpoint through the forward makes the resource
+        # mean "the dashboard is reachable on localhost:3000".
+        readiness_probe=probe(
+            period_secs=5,
+            http_get=http_get_action(port=3000, path='/api/health'),
+        ),
+        links=[link(_GRAFANA_URL, 'Mokka — Mock GPU Fleet')],
+        labels=['observability'],
+    )
+
+
+def _register_scenarios(nvml_mock_releases):
+    """Register the two fault injections as manual triggers.
+
+    Manual (auto_init=False), mirroring the compute-domain scenarios: each one
+    pins a fault into a running mock and asserts it arrives in Prometheus, so
+    it is a thing you do to a live stack while watching the dashboard, not part
+    of bring-up.
+
+    Faults go in through nvml-mock-ctl rather than `helm upgrade` because an
+    upgrade recycles dcgm-exporter and tears a hole in the very time series the
+    dashboard exists to render. The CLI writes a node-local overlay the running
+    exporter re-reads on the mock engine's TTL, so the series stays continuous
+    and shows a step change.
+    """
+    # 'gpu-operator' is a hard dependency, not UI ordering: dcgm-exporter is
+    # the thing being asserted on. Safe to name here because --observability
+    # implies --gpu-operator in the root Tiltfile.
+    deps = [RELEASE, 'gpu-operator'] + nvml_mock_releases
+
+    for scenario in ['inject-thermal', 'inject-xid']:
+        local_resource(
+            scenario,
+            cmd='bash local/observability/scenarios/%s.sh' % scenario,
+            resource_deps=deps,
+            auto_init=False,
+            labels=['observability-tests'],
+        )

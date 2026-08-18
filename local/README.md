@@ -131,6 +131,29 @@ make cluster-create PROFILE=compute-domain   # required for the 4-worker cluster
 tilt up -- --topograph                        # implies --compute-domain; --dra optional
 ```
 
+### With Prometheus + Grafana (observability)
+
+Deploys [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) and ships a Grafana dashboard for the mock fleet. The point is that the real, unmodified NVIDIA `dcgm-exporter` reads the mock `libnvidia-ml.so`, Prometheus discovers it through the ServiceMonitor the GPU Operator generates, and Grafana renders it — on a cluster with no GPUs.
+
+`--observability` implies `--gpu-operator`, since `dcgm-exporter` is one of the Operator's operands; the observability overlay re-enables it (the default GPU Operator values switch it off, as nothing was scraping it). The stack installs before the Operator because it ships the ServiceMonitor CRD. `local/observability/nvml-mock.values.yaml` also turns on `gpu.dynamicMetrics`, without which every panel is a flat line of profile constants.
+
+```bash
+make cluster-create
+tilt up -- --observability
+```
+
+Grafana is port-forwarded to <http://localhost:3000/d/mokka-gpu> (`admin` / `mokka`) once the `grafana` resource is ready.
+
+The Tilt UI exposes two manual triggers under the `observability-tests` label. Each injects a fault into a running mock with `nvml-mock-ctl` — never a `helm upgrade`, which would recycle the exporter and tear a hole in the series — and then **fails if the fault does not reach Prometheus**, so the whole scrape path is asserted rather than eyeballed:
+
+- **inject-thermal** — pins one GPU's temperature and asserts Prometheus serves exactly that value while its siblings keep varying
+- **inject-xid** — trips an uncorrectable ECC fault and asserts the Xid reaches `DCGM_FI_DEV_XID_ERRORS`
+
+Two dashboard behaviours routinely look like bugs and are not:
+
+- **The Xid panel is empty until a fault fires.** `DCGM_FI_DEV_XID_ERRORS` has no series at all on a healthy cluster, because the mock delivers Xids through the NVML event set and dcgm-exporter omits the field while it has no value.
+- **The injected Xid code alternates between runs** (79, then 48, then 79...). DCGM latches the last Xid per device, so a fixed code would be satisfied by the previous run's residue; rotating guarantees each run witnesses a fresh delivery.
+
 ## Helm value overrides for nvml-mock
 
 Values are layered in this order (last wins):
