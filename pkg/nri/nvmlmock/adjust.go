@@ -42,6 +42,20 @@ const (
 	// MOCK_TOPOLOGY_CONFIG env).
 	defaultTopologyRelPath = "topology/topology.yaml"
 
+	// pciDevicesRelPath and sysDevicesRelPath are the two halves of the fake
+	// PCI sysfs tree setup.sh renders into the overlay, resolved relative to
+	// the host overlay path.
+	pciDevicesRelPath = "sys/bus/pci/devices"
+	sysDevicesRelPath = "sys/devices"
+	// pciDevicesContainerPath and sysDevicesContainerPath are the kernel
+	// paths the tree must appear at inside the container. Unlike the
+	// LD_PRELOAD-based redirection (MOCK_PCI_ROOT), these cannot be
+	// relocated: Go consumers such as GPU Feature Discovery and the DRA
+	// driver hard-code them and read them with direct syscalls, which no
+	// libc shim can intercept.
+	pciDevicesContainerPath = "/sys/bus/pci/devices"
+	sysDevicesContainerPath = "/sys/devices"
+
 	// DeviceInjectionModeRaw stages the mock /dev/nvidiaN nodes directly in the
 	// adjustment. It is the default: MEP-0002 requires the raw path to stay
 	// reachable, and it is the only mode that works on a runtime whose CDI
@@ -109,6 +123,14 @@ type Config struct {
 	// emitted. A missing spec degrades to raw injection rather than failing
 	// container creation.
 	CDISpecHostPath string
+
+	// DisablePCISysfsMounts drops the fake PCI sysfs mounts from the
+	// adjustment. The zero value keeps them, because a consumer that reads
+	// sysfs directly sees no GPUs without them. It exists for clusters that
+	// cannot accept the host's /sys/devices being shadowed in every served
+	// container — the unavoidable cost of those mounts, explained in
+	// pciSysfsMounts.
+	DisablePCISysfsMounts bool
 
 	// NodeName is the Kubernetes node this plugin runs on. When set (and a
 	// topology document is staged in the overlay) it is injected as the
@@ -207,6 +229,7 @@ func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 		},
 		Env: buildEnv(cfg, container.Env, topologyInjectable(cfg)),
 	}
+	adjustment.Mounts = append(adjustment.Mounts, pciSysfsMounts(cfg)...)
 
 	if strings.EqualFold(container.PodAnnotations[cfg.DeviceAnnotation], "true") {
 		switch {
@@ -336,6 +359,56 @@ func topologyInjectable(cfg Config) bool {
 	}
 	_, err := os.Stat(cfg.TopologyHostPath)
 	return err == nil
+}
+
+// pciSysfsMounts maps the rendered PCI tree onto the kernel paths inside the
+// container. It returns both mounts or neither: /sys/bus/pci/devices holds
+// relative symlinks into ../../../devices/pciDDDD:BB, so without
+// /sys/devices every entry dangles and reads fail with ENOENT — the same
+// symptom as no mount at all, only harder to diagnose.
+//
+// Mounting /sys/devices necessarily hides the host's other device classes
+// (CPU topology among them) from the container. That is the price of serving
+// consumers that resolve GPUs through sysfs: the tree cannot be assembled
+// per root complex instead, because a bind mount at a path sysfs does not
+// already have (say /sys/devices/pci0000:80) needs a mountpoint the runtime
+// cannot create on a read-only sysfs.
+//
+// Missing sources are skipped rather than reported: the tree is staged by
+// the main nvml-mock DaemonSet and nothing orders this plugin after it, and
+// a bind mount whose source does not exist fails container creation for the
+// whole pod. Silence rather than a warning because this runs for every
+// container on the node, staged or not.
+func pciSysfsMounts(cfg Config) []Mount {
+	if cfg.DisablePCISysfsMounts || cfg.HostOverlayPath == "" {
+		return nil
+	}
+	sysDevices := filepath.Join(cfg.HostOverlayPath, sysDevicesRelPath)
+	pciDevices := filepath.Join(cfg.HostOverlayPath, pciDevicesRelPath)
+	for _, dir := range []string{sysDevices, pciDevices} {
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			return nil
+		}
+	}
+
+	// /sys/devices first: containerd orders mounts parent-before-child, but
+	// emitting them in dependency order keeps the adjustment readable and
+	// correct under any runtime that applies them verbatim.
+	return []Mount{
+		{
+			Source:      sysDevices,
+			Destination: sysDevicesContainerPath,
+			Type:        "bind",
+			Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+		},
+		{
+			Source:      pciDevices,
+			Destination: pciDevicesContainerPath,
+			Type:        "bind",
+			Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+		},
+	}
 }
 
 func shouldSkip(cfg Config, container Container) bool {

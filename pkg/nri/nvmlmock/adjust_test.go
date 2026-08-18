@@ -48,6 +48,110 @@ func TestAdjustPlainContainerAddsOverlayAndEnvironment(t *testing.T) {
 	requireNoEnvKey(t, adjustment.Env, "MOCK_IB")
 }
 
+// TestAdjustMountsPCISysfsWhenStaged pins the pair of mounts that let Go
+// consumers (GPU Feature Discovery, the DRA driver) see the mock PCI tree.
+// They read sysfs with direct syscalls, so the LD_PRELOAD redirector never
+// sees their opens and only a real mount at the canonical path works.
+//
+// Both mounts are required together: /sys/bus/pci/devices holds symlinks
+// pointing at ../../../devices/pciDDDD:BB/<bdf>, which only resolve when
+// the rendered sys/devices is mounted too.
+func TestAdjustMountsPCISysfsWhenStaged(t *testing.T) {
+	overlay := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(overlay, "sys/bus/pci/devices"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(overlay, "sys/devices"), 0o755))
+
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = overlay
+
+	adjustment, ok, err := Adjust(cfg, Container{Namespace: "gpu-operator"})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.Contains(t, adjustment.Mounts, Mount{
+		Source:      filepath.Join(overlay, "sys/devices"),
+		Destination: "/sys/devices",
+		Type:        "bind",
+		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+	})
+	require.Contains(t, adjustment.Mounts, Mount{
+		Source:      filepath.Join(overlay, "sys/bus/pci/devices"),
+		Destination: "/sys/bus/pci/devices",
+		Type:        "bind",
+		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+	})
+}
+
+// The mounts shadow the host's whole /sys/devices in every container the
+// plugin serves, which some clusters cannot accept. Operators there turn them
+// off and keep the rest of the injection, at the price of Go consumers seeing
+// no mock GPUs.
+func TestAdjustOmitsPCISysfsMountsWhenDisabled(t *testing.T) {
+	overlay := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(overlay, "sys/bus/pci/devices"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(overlay, "sys/devices"), 0o755))
+
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = overlay
+	cfg.DisablePCISysfsMounts = true
+
+	adjustment, ok, err := Adjust(cfg, Container{Namespace: "gpu-operator"})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	for _, mount := range adjustment.Mounts {
+		require.NotContains(t, mount.Destination, "/sys/",
+			"no sysfs mount may be emitted when disabled")
+	}
+	// The overlay itself must still be injected, or the opt-out would silently
+	// disable the whole plugin.
+	require.Contains(t, adjustment.Mounts, Mount{
+		Source:      overlay,
+		Destination: cfg.ContainerOverlayPath,
+		Type:        "bind",
+		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+	})
+}
+
+// TestAdjustSkipsPCISysfsMountsWhenNotStaged is the fail-open case: the
+// tree is staged by the main DaemonSet and nothing orders this plugin after
+// it. A bind mount with a missing source fails container creation outright,
+// so an unstaged node must simply get no sysfs mounts.
+func TestAdjustSkipsPCISysfsMountsWhenNotStaged(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = t.TempDir()
+
+	adjustment, ok, err := Adjust(cfg, Container{Namespace: "default"})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	for _, mount := range adjustment.Mounts {
+		require.NotContains(t, mount.Destination, "/sys/",
+			"unstaged node must not get sysfs mounts, got %+v", mount)
+	}
+}
+
+// TestAdjustSkipsPCIDevicesMountWithoutSysDevices guards the half-rendered
+// case. Mounting the symlink directory alone yields dangling symlinks,
+// which reads report as ENOENT — the exact failure the mounts exist to
+// fix, but harder to diagnose because the entries appear to be there.
+func TestAdjustSkipsPCIDevicesMountWithoutSysDevices(t *testing.T) {
+	overlay := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(overlay, "sys/bus/pci/devices"), 0o755))
+
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = overlay
+
+	adjustment, ok, err := Adjust(cfg, Container{Namespace: "default"})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	for _, mount := range adjustment.Mounts {
+		require.NotContains(t, mount.Destination, "/sys/",
+			"a tree without sys/devices must yield no sysfs mounts, got %+v", mount)
+	}
+}
+
 func TestAdjustEmitsOnlyAddedOrChangedEnv(t *testing.T) {
 	container := Container{
 		Namespace: "default",

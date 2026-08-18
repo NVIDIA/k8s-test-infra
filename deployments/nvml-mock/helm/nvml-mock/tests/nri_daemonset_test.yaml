@@ -285,6 +285,28 @@ tests:
               path: /var/run/cdi
               type: DirectoryOrCreate
 
+  - it: should mount the PCI sysfs tree by default and allow opting out
+    set:
+      nri:
+        enabled: true
+    asserts:
+      # The flag is an opt-OUT: absent means the tree is mounted, which is what
+      # sysfs-reading consumers need. Its presence by default would silently
+      # leave GFD labelling gpu.mode=unknown.
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --disable-pci-sysfs-mounts
+
+  - it: should drop the PCI sysfs mounts when pciSysfsMounts is false
+    set:
+      nri:
+        enabled: true
+        pciSysfsMounts: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --disable-pci-sysfs-mounts
+
   - it: should switch to CDI injection and follow a relocated CDI spec dir
     set:
       nri:

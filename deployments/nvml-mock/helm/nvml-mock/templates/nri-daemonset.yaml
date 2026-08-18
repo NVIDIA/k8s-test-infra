@@ -60,6 +60,12 @@ spec:
             # warns and injects everything else.
             - --imex-channel-annotation={{ .Values.nri.imexChannelAnnotation }}
             - --imex-channel-host-path={{ .Values.nri.overlay.hostPath }}/driver/dev/nvidia-caps-imex-channels
+            {{- if not .Values.nri.pciSysfsMounts }}
+            # nri.pciSysfsMounts=false: keep the host's /sys/devices visible in
+            # served containers, at the cost of sysfs-reading consumers (GFD,
+            # the DRA driver) finding no mock GPUs.
+            - --disable-pci-sysfs-mounts
+            {{- end }}
             - --excluded-namespaces={{ .Release.Namespace }},kube-system{{- range .Values.nri.excludedNamespaces }},{{ . }}{{- end }}
             # NODE_NAME (below) gates ComputeDomain topology injection: when
             # topology.enabled stages a topology document into the overlay,

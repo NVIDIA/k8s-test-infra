@@ -76,9 +76,10 @@ func main() {
 	}
 
 	if err := render.Render(render.Options{
-		Topology:   topo,
-		Identities: prof.DeviceIdentities(),
-		Output:     *outDir,
+		Topology:       topo,
+		Identities:     prof.DeviceIdentities(),
+		Output:         *outDir,
+		DMIProductName: prof.DMIProductName(),
 	}); err != nil {
 		fatalf("render: %v", err)
 	}

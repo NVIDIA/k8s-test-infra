@@ -57,6 +57,12 @@ type Options struct {
 	// unconditionally). A non-nil Topology with a non-empty Output is
 	// required; otherwise Render returns an error.
 	Output string
+
+	// DMIProductName is the SMBIOS product name to expose as the node's
+	// machine type, from the profile's `dmi:` block. Empty renders no DMI
+	// identity at all, leaving consumers to report their own "unknown"
+	// rather than a placeholder machine.
+	DMIProductName string
 }
 
 // Render writes the entire tree. It is idempotent: existing directories
@@ -64,7 +70,7 @@ type Options struct {
 // symlinks are removed and recreated so a stale relative target does not
 // linger across re-renders.
 func Render(o Options) error {
-	if o.Topology == nil || len(o.Topology.RootComplexes) == 0 {
+	if !o.hasTopology() && o.DMIProductName == "" {
 		// Nothing to do — caller decided to render a profile with no
 		// declared topology and no devices. Treat as a no-op so the
 		// renderer can be invoked unconditionally from setup.sh.
@@ -74,6 +80,24 @@ func Render(o Options) error {
 		return errors.New("pcisysfs render: Output is required")
 	}
 
+	// The DMI identity is independent of the PCI tree: a profile may name its
+	// machine type without declaring a topology.
+	if o.DMIProductName != "" {
+		if err := renderDMI(o.Output, o.DMIProductName); err != nil {
+			return err
+		}
+	}
+	if !o.hasTopology() {
+		return nil
+	}
+	return renderTopology(o)
+}
+
+func (o Options) hasTopology() bool {
+	return o.Topology != nil && len(o.Topology.RootComplexes) > 0
+}
+
+func renderTopology(o Options) error {
 	root := o.Output
 	if err := mkdirAll(root, "sys/bus/pci/devices"); err != nil {
 		return err
@@ -88,6 +112,19 @@ func Render(o Options) error {
 		}
 	}
 	return nil
+}
+
+// dmiIDDir is where the kernel materializes the SMBIOS identity. The
+// familiar /sys/class/dmi/id path is only a symlink into this directory,
+// so rendering here is what makes the mock machine type resolvable through
+// both paths once the tree is bind-mounted over /sys/devices.
+const dmiIDDir = "sys/devices/virtual/dmi/id"
+
+// renderDMI writes the node's mock machine type. GPU Feature Discovery
+// reads this file (default --machine-type-file) to derive
+// nvidia.com/gpu.machine; without it a mock node labels itself "unknown".
+func renderDMI(root, productName string) error {
+	return writeFile(root, filepath.Join(dmiIDDir, "product_name"), productName+"\n")
 }
 
 func renderRootComplex(root string, rc config.RootComplex, ids map[string]config.PCI) error {

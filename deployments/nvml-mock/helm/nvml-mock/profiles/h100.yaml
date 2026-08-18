@@ -444,10 +444,10 @@ infiniband:
 # PCIe topology - HGX H100, 2 NUMA nodes, 4 GPUs each.
 # Consumed by `render-pci-sysfs` to materialize a fake /sys/bus/pci tree
 # under MOCK_PCI_ROOT. C consumers such as `lspci` resolve the PCIe root
-# complex through these symlinks. The NVIDIA DRA driver does NOT: it is a
-# Go binary, and Go's os package issues raw syscalls that the LD_PRELOAD
-# shim cannot intercept, so `dra.k8s.io/pcieRoot` stays absent from the
-# ResourceSlices it publishes. See issue #265.
+# complex through these symlinks. Go consumers (the NVIDIA DRA driver, GPU
+# Feature Discovery) issue raw syscalls the LD_PRELOAD shim cannot
+# intercept, so this tree is bind-mounted at /sys/bus/pci/devices and
+# /sys/devices for them instead. See issues #265 and #673.
 # =============================================================================
 pcie_topology:
   root_complexes:
@@ -465,3 +465,12 @@ pcie_topology:
         - "0000:8B:00.0"
         - "0000:CA:00.0"
         - "0000:CB:00.0"
+
+# =============================================================================
+# DMI (SMBIOS) identity. Rendered to /sys/devices/virtual/dmi/id/product_name
+# (what /sys/class/dmi/id/product_name points at) so GPU Feature Discovery
+# derives nvidia.com/gpu.machine instead of labelling the node "unknown".
+# The string is representative of the platform, not read off real hardware.
+# =============================================================================
+dmi:
+  product_name: "DGXH100"

@@ -77,6 +77,13 @@ gfd:
   env:
     - name: NVIDIA_DRIVER_ROOT
       value: "/var/lib/nvml-mock/driver"
+    # nvidia.com/gpu.machine source. The mock renders its DMI identity where
+    # /sys/class/dmi/id points (/sys/devices/virtual/dmi/id), because only
+    # /sys/devices can be mounted into a container: a mountpoint under
+    # /sys/class cannot be created on a read-only sysfs, and Kind nodes may
+    # expose no /sys/class/dmi at all.
+    - name: GFD_MACHINE_TYPE_FILE
+      value: "/sys/devices/virtual/dmi/id/product_name"
 
 # Validator checks that the GPU stack is functional.
 # driver-validation: mounts hostPath /run/nvidia/driver → our mock (via symlink).

@@ -1,10 +1,11 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package config defines the YAML schema for the `pcie_topology:` block
-// embedded in mock-nvml profile configs. The renderer consumes this to
-// populate a fake `/sys/bus/pci/devices` + `/sys/devices/pciDDDD:BB` tree
-// under MOCK_PCI_ROOT.
+// Package config defines the YAML schema for the `pcie_topology:` and
+// `dmi:` blocks embedded in mock-nvml profile configs. The renderer
+// consumes these to populate a fake `/sys/bus/pci/devices` +
+// `/sys/devices/pciDDDD:BB` tree and a fake DMI identity under
+// MOCK_PCI_ROOT.
 //
 // Keeping the schema in a standalone package (no cgo dependency on the
 // mocknvml engine) mirrors `pkg/network/mockibsysfs/config` and lets the
@@ -25,6 +26,27 @@ type Profile struct {
 	DeviceDefaults *DeviceDefaults `json:"device_defaults,omitempty" yaml:"device_defaults,omitempty"`
 	Devices        []Device        `json:"devices"      yaml:"devices"`
 	PCIeTopology   *PCIeTopology   `json:"pcie_topology,omitempty" yaml:"pcie_topology,omitempty"`
+	DMI            *DMI            `json:"dmi,omitempty" yaml:"dmi,omitempty"`
+}
+
+// DMI mirrors the profile's optional `dmi:` block, the SMBIOS identity a
+// real node exposes through /sys/class/dmi/id. Only product_name is
+// modelled: it is what GPU Feature Discovery reads to derive the
+// nvidia.com/gpu.machine label, and it is the only DMI field any mock
+// consumer has needed so far.
+type DMI struct {
+	ProductName string `json:"product_name,omitempty" yaml:"product_name,omitempty"`
+}
+
+// DMIProductName returns the profile's SMBIOS product name, or "" when the
+// profile declares no `dmi:` block. Callers treat "" as "render no DMI
+// identity" rather than substituting a placeholder, so a node keeps
+// reporting an honest "unknown" machine type until a profile opts in.
+func (p *Profile) DMIProductName() string {
+	if p.DMI == nil {
+		return ""
+	}
+	return strings.TrimSpace(p.DMI.ProductName)
 }
 
 // DeviceDefaults mirrors the profile's `device_defaults:` block. Only the

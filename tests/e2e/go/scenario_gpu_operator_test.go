@@ -18,6 +18,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
@@ -71,7 +72,26 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 				assertions.WaitGFDLabels(ctx, h.Kube, node,
 					assertions.ExpectedGFDLabels(p.GFDProductName(), p.MemoryMiB(), p.ExpectedGPUs()),
 					config.ReadyTimeout(), config.PollInterval())
+				// gpu.machine comes from the mock DMI identity in sysfs rather
+				// than NVML, so it read "unknown" while the labels above
+				// already matched (#673).
+				assertions.WaitGFDLabels(ctx, h.Kube, node,
+					assertions.ExpectedMachineTypeLabel(p.GFDMachineType()),
+					config.ReadyTimeout(), config.PollInterval())
 				assertions.WaitAllocatableGPU(ctx, h.Kube, node, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
+			})
+
+			It("serves the rendered PCI tree to the GFD container at the kernel paths", Label("device-plugin"), func(ctx SpecContext) {
+				// The label assertions above cannot distinguish "GFD read the
+				// mock tree" from "GFD read the host's sysfs and happened to
+				// agree", and gpu.mode — the label that would fail loudest —
+				// is blocked on an unrelated busId fix (#671). Reading the
+				// tree from inside the container pins the delivery itself.
+				pod, err := h.Kube.FirstPodName(ctx, gpuOperatorNamespace, "app=gpu-feature-discovery")
+				Expect(err).NotTo(HaveOccurred())
+				assertions.PCISysfsAtKernelPath(ctx, h.Kube,
+					kube.PodRef{Namespace: gpuOperatorNamespace, Pod: pod, Container: "gpu-feature-discovery"},
+					p.ExpectedGPUs(), p.DMIProductName())
 			})
 
 			It("exports DCGM device metrics that vary over time", Label("dcgm"), func(ctx SpecContext) {

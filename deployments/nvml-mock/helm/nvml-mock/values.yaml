@@ -191,6 +191,17 @@ nri:
   # imex.mockChannels.channelCount adds real container-start cost: creating the
   # default 2048 nodes measures around one second.
   imexChannelAnnotation: nvml-mock.nvidia.com/imex-channels
+  # Mount the rendered PCI sysfs tree at /sys/bus/pci/devices and /sys/devices
+  # in every container the plugin serves. Consumers written in Go read sysfs
+  # with direct syscalls, which the LD_PRELOAD redirector cannot intercept, so
+  # without these mounts they see no GPUs (gpu.mode / pcieRoot go unknown).
+  #
+  # The cost: /sys/devices is mounted whole, hiding the host's other device
+  # classes (CPU topology among them) from those containers. It cannot be
+  # narrowed to the profile's root complexes, because a bind mount at a path
+  # sysfs lacks needs a mountpoint the runtime cannot create on a read-only
+  # /sys. Set to false on a cluster that cannot accept that.
+  pciSysfsMounts: true
   excludedNamespaces: []
   resources: {}
   # Port serving the plugin's /healthz and /readyz endpoints. The NRI DaemonSet

@@ -22,6 +22,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than 560, keep reporting `N/A`. The `GPU Fabric GUID` row of the same block is
   not modelled and now renders `0x0000000000000000` where it used to read `N/A`.
   (#642)
+- The rendered PCI sysfs tree now reaches consumers written in Go. `lspci` and
+  other libc consumers found it through the `libpcimocksys.so` `LD_PRELOAD`
+  shim, but Go reads sysfs with direct `openat` syscalls no shim can intercept,
+  so GPU Feature Discovery and the NVIDIA DRA driver read the node's real
+  `/sys` and saw no mock GPUs — GFD logged `unable to read PCI device vendor id`
+  and labelled the node `nvidia.com/gpu.mode=unknown`. The staged
+  `sys/devices` and `sys/bus/pci/devices` directories are now bind-mounted
+  read-only onto the kernel paths, through both the CDI spec the DaemonSet
+  generates and the NRI plugin's container adjustment. Both mounts go together:
+  the PCI entries are relative symlinks into `../../../devices/pciDDDD:BB`, so
+  mounting one alone leaves every attribute read failing with `ENOENT`.
+  `/sys/devices` is necessarily mounted whole — it cannot be narrowed to the
+  profile's root complexes, because a bind mount at a path sysfs lacks needs a
+  mountpoint the runtime cannot create on a read-only `/sys` — which hides the
+  host's other device classes from served containers. `nri.pciSysfsMounts=false`
+  opts out. (#673)
+- Profiles may declare the machine type a node of that platform reports, as a
+  `dmi:` block with `product_name`, which the renderer writes to
+  `sys/devices/virtual/dmi/id/product_name` in the mock overlay — the path
+  `/sys/class/dmi/id` points at, and the only one a container can be handed.
+  Pointing GPU Feature Discovery at it with
+  `GFD_MACHINE_TYPE_FILE=/sys/devices/virtual/dmi/id/product_name` makes
+  `nvidia.com/gpu.machine` report the profile's platform (`NVIDIA-GB200-NVL72`,
+  `DGXA100`, …) instead of the host's or `unknown`. The NVIDIA platform
+  profiles set it; `l40s` and `t4` deliberately do not, since a commodity
+  server's machine type is a property of the chassis, not the GPU. (#673)
 - mocknvml: configured `processes:` now surface in nvidia-smi — the default
   table's Processes box, `-q`, and `--query-compute-apps` all report the
   configured PIDs, names and GPU memory instead of always reporting none.

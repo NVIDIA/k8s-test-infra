@@ -85,6 +85,9 @@ type rawProfile struct {
 			ID string `json:"id"`
 		} `json:"root_complexes"`
 	} `json:"pcie_topology"`
+	DMI *struct {
+		ProductName string `json:"product_name"`
+	} `json:"dmi"`
 }
 
 // rawPlatform decodes a platform block, which appears both under
@@ -129,6 +132,7 @@ type Profile struct {
 	pciRoots    int
 	memoryBytes int64
 
+	dmiProductName     string
 	architecture       string
 	shutdownThresholdC int
 	slowdownThresholdC int
@@ -155,6 +159,28 @@ func (p Profile) GFDProductName() string {
 // MemoryMiB is per-device memory in MiB, matching what GFD publishes as
 // nvidia.com/gpu.memory.
 func (p Profile) MemoryMiB() int { return int(p.memoryBytes / bytesPerMiB) }
+
+// GFDMachineTypeUnknown is what GPU Feature Discovery publishes when it cannot
+// read a machine type. Profiles that declare no `dmi:` block (l40s, t4) expect
+// exactly this, so the assertion stays meaningful for them rather than being
+// skipped.
+const GFDMachineTypeUnknown = "unknown"
+
+// DMIProductName is the profile's `dmi.product_name` verbatim — the string the
+// renderer writes into the mock sysfs tree — or "" when the profile declares no
+// `dmi:` block. Use GFDMachineType for the label form.
+func (p Profile) DMIProductName() string { return p.dmiProductName }
+
+// GFDMachineType is the profile's `dmi.product_name` in the form GFD publishes
+// as nvidia.com/gpu.machine: spaces become dashes, as for gpu.product. The
+// renderer writes the same string into the mock sysfs tree, so this is what
+// GFD reads back through its machine-type file.
+func (p Profile) GFDMachineType() string {
+	if p.dmiProductName == "" {
+		return GFDMachineTypeUnknown
+	}
+	return strings.ReplaceAll(p.dmiProductName, " ", "-")
+}
 
 // Load reads profilesDir/<name>.yaml and returns the typed Profile.
 func Load(profilesDir, name string) (Profile, error) {
@@ -187,6 +213,9 @@ func Load(profilesDir, name string) (Profile, error) {
 		architecture: strings.ToLower(strings.TrimSpace(raw.DeviceDefaults.Architecture)),
 	}
 	p.applyOptionalDeviceDefaults(raw)
+	if raw.DMI != nil {
+		p.dmiProductName = strings.TrimSpace(raw.DMI.ProductName)
+	}
 	// render-pci-sysfs falls back to a flat single-root layout when a profile
 	// declares no pcie_topology block, so an empty list still means 1 root.
 	p.pciRoots = len(raw.PCIeTopology.RootComplexes)
