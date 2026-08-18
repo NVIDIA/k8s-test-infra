@@ -259,12 +259,47 @@ helm upgrade --install gpu-operator nvidia/gpu-operator \
   --set "dcgmExporter.serviceMonitor.additionalLabels.release=${KPS_RELEASE}" \
   --wait --timeout 10m
 
+# Keep this wait even though it gates nothing on its own: it is the demo's first
+# evidence that the mock's GPUs reached the scheduler as a real schedulable
+# resource, and it absorbs most of the operator's bring-up, so the two waits
+# below stay attributable to dcgm-exporter itself rather than to device-plugin
+# validation still running.
 info "Waiting for a GPU worker to advertise nvidia.com/gpu"
+gpu_advertised=false
 for _ in $(seq 1 60); do
   alloc=$(kubectl_ctx get node "${WORKERS[0]}" -o 'jsonpath={.status.allocatable.nvidia\.com/gpu}' 2>/dev/null || true)
-  [[ -n "${alloc}" && "${alloc}" != "0" ]] && { info "${WORKERS[0]} advertises nvidia.com/gpu=${alloc}"; break; }
+  if [[ -n "${alloc}" && "${alloc}" != "0" ]]; then
+    info "${WORKERS[0]} advertises nvidia.com/gpu=${alloc}"
+    gpu_advertised=true
+    break
+  fi
   sleep 5
 done
+# Not fatal -- the waits below are the real gates -- but falling through in
+# silence is what turns a slow bring-up into an unexplained failure further
+# down, so a slow path has to be visible when it happens.
+[[ "${gpu_advertised}" == "true" ]] \
+  || warn "${WORKERS[0]} never advertised nvidia.com/gpu within ~300s; the GPU Operator is still settling, so the waits below start from further back than usual"
+
+# `rollout status` does not wait for an object to APPEAR: its --timeout covers
+# the rollout, so against a missing DaemonSet it returns immediately with a bare
+# NotFound. The operator creates this DaemonSet a ClusterPolicy state later than
+# the device-plugin readiness observed above -- a validation pod's lifetime, not
+# milliseconds -- so wait for existence separately first.
+info "Waiting for the GPU Operator to create the dcgm-exporter DaemonSet"
+ds_exists=false
+for _ in $(seq 1 60); do
+  if kubectl_ctx -n "${GPU_OPERATOR_NAMESPACE}" get ds nvidia-dcgm-exporter >/dev/null 2>&1; then
+    ds_exists=true
+    break
+  fi
+  sleep 5
+done
+if [[ "${ds_exists}" != "true" ]]; then
+  observe kubectl_ctx -n "${GPU_OPERATOR_NAMESPACE}" get ds
+  observe kubectl_ctx get clusterpolicy -o 'jsonpath={range .items[*]}{.metadata.name}: {.status.state}{"\n"}{end}'
+  fail "the GPU Operator never created the nvidia-dcgm-exporter DaemonSet within ~300s; the ClusterPolicy state above names the component it is stuck on"
+fi
 
 info "Waiting for dcgm-exporter to be rolled out"
 kubectl_ctx -n "${GPU_OPERATOR_NAMESPACE}" rollout status ds/nvidia-dcgm-exporter --timeout=300s
