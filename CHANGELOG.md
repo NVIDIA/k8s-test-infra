@@ -8,9 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- An observability demo that runs kube-prometheus-stack and the GPU Operator's
-  `dcgm-exporter` over mock GPUs, ships a Grafana dashboard in-tree, and asserts
-  runtime-injected temperature and Xid faults reach Prometheus. (#597)
+- A `--observability` Tilt consumer that runs kube-prometheus-stack and the GPU
+  Operator's `dcgm-exporter` over mock GPUs and ships a Grafana dashboard
+  in-tree, so the real exporter is scraped and rendered on a cluster with no
+  GPUs. Adds two manual triggers that inject a temperature or Xid fault through
+  `nvml-mock-ctl` and fail if it never reaches Prometheus, making the scrape
+  path asserted rather than eyeballed. (#597)
 - mocknvml: `nvidia-smi -q` now reports the `Platform Info` block on the
   `gb200`/`gb300` profiles — chassis serial number, slot number, tray index,
   host ID, peer type and module ID, where every row previously read `N/A`. These
