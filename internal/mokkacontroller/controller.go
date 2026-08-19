@@ -283,6 +283,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	}
 	controller.reconcileProjection = func(ctx context.Context, key projectionKey) error {
 		var err error
+		terminalConflict := false
 		switch key.mode {
 		case projectionApply:
 			rack, getErr := snapshot.Rack(key.rackName)
@@ -304,14 +305,18 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			} else {
 				_, err = projection.Project(ctx, key.rackName, key.slotIndex)
 			}
+			terminalConflict = metadataConflict(err)
 			controller.queues.addStatus(statusKey{kind: statusRack, name: rack.Name, uid: rack.UID})
 			controller.queues.addStatus(statusKey{kind: statusInventory, name: rack.Spec.InventoryRef.Name, uid: rack.Spec.InventoryRef.UID})
 		case projectionCleanup:
+			var outcome controllerprojection.Outcome
 			err = withInventoryLock(key.cleanup.Binding.Coordinate.Group.InventoryName, func() error {
-				_, cleanupErr := projection.Cleanup(ctx, key.cleanup)
+				var cleanupErr error
+				outcome, cleanupErr = projection.Cleanup(ctx, key.cleanup)
 				return cleanupErr
 			})
-			if err == nil {
+			terminalConflict = metadataConflict(err)
+			if err == nil && outcome.State == controllerprojection.StateCleaned {
 				switch key.cleanup.Reason {
 				case controllerack.CleanupCapacityShrink,
 					controllerack.CleanupGroupRemoved,
@@ -331,6 +336,9 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			}
 		default:
 			return fmt.Errorf("unknown projection work mode %d", key.mode)
+		}
+		if terminalConflict {
+			return nil
 		}
 		return err
 	}
@@ -403,6 +411,11 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		return cache.WaitForCacheSync(ctx.Done(), synced...)
 	}
 	return controller, nil
+}
+
+func metadataConflict(err error) bool {
+	var conflict *controllerprojection.MetadataConflictError
+	return errors.As(err, &conflict)
 }
 
 func addHandler(informer cache.SharedIndexInformer, handler cache.ResourceEventHandler) error {
@@ -593,12 +606,7 @@ func compactNodeObject(object any) (any, error) {
 		annotations = make(map[string]string, 1)
 		annotations[controllerprojection.AssignmentAnnotation] = assignment
 	}
-	var managedFields []metav1.ManagedFieldsEntry
-	for _, entry := range node.ManagedFields {
-		if entry.Manager == controllerprojection.FieldManager {
-			managedFields = append(managedFields, entry)
-		}
-	}
+	managedFields := controllerprojection.CompactManagedFields(node.ManagedFields)
 	return &corev1.Node{
 		TypeMeta: node.TypeMeta,
 		ObjectMeta: metav1.ObjectMeta{

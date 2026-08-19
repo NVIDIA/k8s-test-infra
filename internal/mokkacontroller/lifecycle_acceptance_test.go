@@ -236,6 +236,76 @@ func TestControllerRejectsProjectedLabelPlacementWithoutOscillation(t *testing.T
 	}
 }
 
+func TestControllerBoundsCleanupWhenForeignCoOwnerPreservesField(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	nodes := newAcceptanceNodeClient()
+	mokka := mokkafake.NewSimpleClientset()
+	installAcceptanceAPIReactors(t, mokka)
+	controller, err := newForNodes(nodes, mokka, Options{Workers: 2, StatusDebounce: 0})
+	require.NoError(t, err)
+
+	runDone := make(chan error, 1)
+	go func() { runDone <- controller.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-runDone:
+		case <-time.After(5 * time.Second):
+			t.Error("controller did not stop")
+		}
+	})
+	require.Eventually(t, controller.Ready, 5*time.Second, 10*time.Millisecond)
+
+	profile := acceptanceProfile(1)
+	inventory := acceptanceInventory()
+	node := acceptanceNode("node", "node-uid", 1)
+	nodes.create(node)
+	_, err = mokka.MokkaV1alpha1().SGPUProfiles().Create(ctx, profile, metav1.CreateOptions{})
+	require.NoError(t, err)
+	_, err = mokka.MokkaV1alpha1().SGPUInventories().Create(ctx, inventory, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	rackName := materialize.RackName(inventory.Name, inventory.UID, "compute", 0)
+	require.Eventually(t, func() bool {
+		rack := getAcceptanceRack(ctx, t, mokka, rackName)
+		return len(rack.Spec.Slots) == 1 && rack.Spec.Slots[0].NodeRef != nil &&
+			rack.Spec.Slots[0].NodeRef.UID == node.UID && nodeIsProjected(nodes.snapshot(node.Name), node.UID)
+	}, 10*time.Second, 20*time.Millisecond)
+	require.Eventually(t, func() bool {
+		before := nodes.patchCalls()
+		time.Sleep(50 * time.Millisecond)
+		return nodes.patchCalls() == before
+	}, 5*time.Second, 20*time.Millisecond)
+
+	projected := nodes.snapshot(node.Name)
+	nodes.coOwn(node.Name, nil, []string{controllerprojection.AssignmentAnnotation})
+	patchesBeforeCleanup := nodes.patchCalls()
+	deleting, err := mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+	_, err = mokka.MokkaV1alpha1().SGPUInventories().Update(ctx, deleting, metav1.UpdateOptions{})
+	require.NoError(t, err)
+	controller.queues.inventories.Add(inventory.Name)
+
+	require.Eventually(t, func() bool {
+		current := nodes.snapshot(node.Name)
+		return nodes.patchCalls() == patchesBeforeCleanup+1 &&
+			current.Labels[controllerprojection.AssignedLabel] == "" &&
+			current.Labels[controllerprojection.CliqueLabel] == "" &&
+			current.Annotations[controllerprojection.AssignmentAnnotation] ==
+				projected.Annotations[controllerprojection.AssignmentAnnotation]
+	}, 10*time.Second, 20*time.Millisecond, "cleanup must relinquish sole-owned fields once")
+
+	require.Never(t, func() bool {
+		return nodes.patchCalls() != patchesBeforeCleanup+1
+	}, 500*time.Millisecond, 10*time.Millisecond, "foreign-only retained metadata must not cause repeated cleanup applies")
+	retained := getAcceptanceRack(ctx, t, mokka, rackName)
+	require.NotNil(t, retained.Spec.Slots[0].NodeRef)
+	require.Equal(t, node.UID, retained.Spec.Slots[0].NodeRef.UID)
+	require.Contains(t, retained.Finalizers, controllerack.RackFinalizer)
+}
+
 func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -529,20 +599,25 @@ func nodeIsProjected(node *corev1.Node, uid types.UID) bool {
 
 type acceptanceNodeClient struct {
 	corev1client.NodeInterface
-	mu               sync.Mutex
-	nodes            map[string]*corev1.Node
-	ownedLabels      map[string]map[string]struct{}
-	ownedAnnotations map[string]map[string]struct{}
-	watcher          *watch.RaceFreeFakeWatcher
-	nextRV           int64
-	patches          int
+	mu                 sync.Mutex
+	nodes              map[string]*corev1.Node
+	ownedLabels        map[string]map[string]struct{}
+	ownedAnnotations   map[string]map[string]struct{}
+	foreignLabels      map[string]map[string]struct{}
+	foreignAnnotations map[string]map[string]struct{}
+	watcher            *watch.RaceFreeFakeWatcher
+	nextRV             int64
+	patches            int
 }
 
 func newAcceptanceNodeClient() *acceptanceNodeClient {
 	return &acceptanceNodeClient{
-		nodes:       make(map[string]*corev1.Node),
-		ownedLabels: make(map[string]map[string]struct{}), ownedAnnotations: make(map[string]map[string]struct{}),
-		nextRV: 1,
+		nodes:              make(map[string]*corev1.Node),
+		ownedLabels:        make(map[string]map[string]struct{}),
+		ownedAnnotations:   make(map[string]map[string]struct{}),
+		foreignLabels:      make(map[string]map[string]struct{}),
+		foreignAnnotations: make(map[string]map[string]struct{}),
+		nextRV:             1,
 	}
 }
 
@@ -628,10 +703,13 @@ func (c *acceptanceNodeClient) Patch(
 		))
 	}
 	updated := node.DeepCopy()
-	updated.Labels, c.ownedLabels[name] = applyStringMap(updated.Labels, payload.Metadata.Labels, c.ownedLabels[name])
-	updated.Annotations, c.ownedAnnotations[name] = applyStringMap(
-		updated.Annotations, payload.Metadata.Annotations, c.ownedAnnotations[name],
+	updated.Labels, c.ownedLabels[name] = applyStringMap(
+		updated.Labels, payload.Metadata.Labels, c.ownedLabels[name], c.foreignLabels[name],
 	)
+	updated.Annotations, c.ownedAnnotations[name] = applyStringMap(
+		updated.Annotations, payload.Metadata.Annotations, c.ownedAnnotations[name], c.foreignAnnotations[name],
+	)
+	setAcceptanceManagedFields(updated, c.ownedLabels[name], c.ownedAnnotations[name])
 	c.nextRV++
 	c.patches++
 	updated.ResourceVersion = strconv.FormatInt(c.nextRV, 10)
@@ -649,6 +727,8 @@ func (c *acceptanceNodeClient) create(node *corev1.Node) {
 	c.nodes[node.Name] = node.DeepCopy()
 	delete(c.ownedLabels, node.Name)
 	delete(c.ownedAnnotations, node.Name)
+	delete(c.foreignLabels, node.Name)
+	delete(c.foreignAnnotations, node.Name)
 	if node.Labels[controllerprojection.AssignedLabel] == "true" {
 		c.ownedLabels[node.Name] = map[string]struct{}{controllerprojection.AssignedLabel: {}}
 		if node.Labels[controllerprojection.CliqueLabel] != "" {
@@ -658,6 +738,7 @@ func (c *acceptanceNodeClient) create(node *corev1.Node) {
 	if node.Annotations[controllerprojection.AssignmentAnnotation] != "" {
 		c.ownedAnnotations[node.Name] = map[string]struct{}{controllerprojection.AssignmentAnnotation: {}}
 	}
+	setAcceptanceManagedFields(c.nodes[node.Name], c.ownedLabels[node.Name], c.ownedAnnotations[node.Name])
 	watcher := c.watcher
 	c.mu.Unlock()
 	if watcher != nil && node.Labels[allocate.EligibleNodeLabel] == "true" {
@@ -683,6 +764,8 @@ func (c *acceptanceNodeClient) delete(name string) {
 	delete(c.nodes, name)
 	delete(c.ownedLabels, name)
 	delete(c.ownedAnnotations, name)
+	delete(c.foreignLabels, name)
+	delete(c.foreignAnnotations, name)
 	watcher := c.watcher
 	c.mu.Unlock()
 	if watcher != nil && old != nil && old.Labels[allocate.EligibleNodeLabel] == "true" {
@@ -705,6 +788,27 @@ func (c *acceptanceNodeClient) patchCalls() int {
 	return c.patches
 }
 
+func (c *acceptanceNodeClient) coOwn(name string, labelKeys, annotationKeys []string) {
+	c.mu.Lock()
+	node := c.nodes[name]
+	if node == nil {
+		c.mu.Unlock()
+		return
+	}
+	updated := node.DeepCopy()
+	c.foreignLabels[name] = keySet(labelKeys)
+	c.foreignAnnotations[name] = keySet(annotationKeys)
+	setNodeManagedFields(updated, "foreign-controller", labelKeys, annotationKeys)
+	c.nextRV++
+	updated.ResourceVersion = strconv.FormatInt(c.nextRV, 10)
+	c.nodes[name] = updated
+	watcher := c.watcher
+	c.mu.Unlock()
+	if watcher != nil {
+		watcher.Modify(updated.DeepCopy())
+	}
+}
+
 func findCondition(conditions []metav1.Condition, conditionType string) *metav1.Condition {
 	for i := range conditions {
 		if conditions[i].Type == conditionType {
@@ -718,13 +822,16 @@ func applyStringMap(
 	current map[string]string,
 	desired map[string]*string,
 	owned map[string]struct{},
+	foreign map[string]struct{},
 ) (map[string]string, map[string]struct{}) {
 	if current == nil {
 		current = make(map[string]string)
 	}
 	for key := range owned {
 		if _, retained := desired[key]; !retained {
-			delete(current, key)
+			if _, shared := foreign[key]; !shared {
+				delete(current, key)
+			}
 		}
 	}
 	nextOwned := make(map[string]struct{}, len(desired))
@@ -737,6 +844,35 @@ func applyStringMap(
 		current[key] = *value
 	}
 	return current, nextOwned
+}
+
+func keySet(keys []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		set[key] = struct{}{}
+	}
+	return set
+}
+
+func setAcceptanceManagedFields(node *corev1.Node, ownedLabels, ownedAnnotations map[string]struct{}) {
+	managedFields := node.ManagedFields[:0]
+	for _, entry := range node.ManagedFields {
+		if entry.Manager != controllerprojection.FieldManager {
+			managedFields = append(managedFields, entry)
+		}
+	}
+	node.ManagedFields = managedFields
+	labels := make([]string, 0, len(ownedLabels))
+	for key := range ownedLabels {
+		labels = append(labels, key)
+	}
+	annotations := make([]string, 0, len(ownedAnnotations))
+	for key := range ownedAnnotations {
+		annotations = append(annotations, key)
+	}
+	if len(labels)+len(annotations) > 0 {
+		setNodeManagedFields(node, controllerprojection.FieldManager, labels, annotations)
+	}
 }
 
 var _ corev1client.NodeInterface = (*acceptanceNodeClient)(nil)

@@ -5,6 +5,7 @@ package mokkacontroller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -263,10 +264,17 @@ func TestCompactNodeObjectRetainsOnlyControllerReadSurface(t *testing.T) {
 		controllerprojection.AssignmentAnnotation: "assignment",
 		"foreign": "large-unrelated-value",
 	}
-	node.ManagedFields = []metav1.ManagedFieldsEntry{
-		{Manager: controllerprojection.FieldManager, Operation: metav1.ManagedFieldsOperationApply},
-		{Manager: "foreign-controller", Operation: metav1.ManagedFieldsOperationUpdate},
-	}
+	setNodeManagedFields(node, controllerprojection.FieldManager,
+		[]string{controllerprojection.CliqueLabel}, []string{controllerprojection.AssignmentAnnotation})
+	setNodeManagedFields(node, "foreign-controller", []string{controllerprojection.AssignedLabel}, nil)
+	node.ManagedFields[1].FieldsV1 = metav1.NewFieldsV1(
+		`{"f:metadata":{"f:labels":{"f:` + controllerprojection.AssignedLabel + `":{}}},"f:spec":{"f:podCIDR":{}}}`,
+	)
+	node.ManagedFields = append(node.ManagedFields, metav1.ManagedFieldsEntry{
+		Manager: "unrelated-controller", Operation: metav1.ManagedFieldsOperationUpdate,
+		APIVersion: "v1", FieldsType: "FieldsV1",
+		FieldsV1: metav1.NewFieldsV1(`{"f:spec":{"f:podCIDRs":{}}}`),
+	})
 	node.Spec.PodCIDR = "10.0.0.0/24"
 	node.Status.Addresses = []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.0.0.1"}}
 
@@ -281,7 +289,10 @@ func TestCompactNodeObjectRetainsOnlyControllerReadSurface(t *testing.T) {
 	require.Equal(t, node.DeletionTimestamp, compact.DeletionTimestamp)
 	require.Equal(t, node.Labels, compact.Labels)
 	require.Equal(t, map[string]string{controllerprojection.AssignmentAnnotation: "assignment"}, compact.Annotations)
-	require.Equal(t, []metav1.ManagedFieldsEntry{node.ManagedFields[0]}, compact.ManagedFields)
+	require.Len(t, compact.ManagedFields, 2)
+	require.Equal(t, controllerprojection.FieldManager, compact.ManagedFields[0].Manager)
+	require.Equal(t, "foreign-controller", compact.ManagedFields[1].Manager)
+	require.NotContains(t, compact.ManagedFields[1].FieldsV1.GetRawString(), "podCIDR")
 	require.Empty(t, compact.Spec)
 	require.Empty(t, compact.Status)
 }
@@ -356,6 +367,8 @@ func TestProjectedMetadataEventDoesNotReapplyExactBinding(t *testing.T) {
 	assignment, err := controllerprojection.EncodeAssignment(rack, &rack.Spec.Slots[0])
 	require.NoError(t, err)
 	projected.Annotations = map[string]string{metadata.AssignmentAnnotation: assignment}
+	setNodeManagedFields(projected, controllerprojection.FieldManager,
+		[]string{metadata.AssignedLabel, metadata.CliqueLabel}, []string{metadata.AssignmentAnnotation})
 	router.nodeUpdate(node, projected)
 	require.Empty(t, drainQueue(queues.groups))
 	require.Empty(t, drainQueue(queues.projections), "the successful projection event must not enqueue itself")
@@ -368,6 +381,40 @@ func TestProjectedMetadataEventDoesNotReapplyExactBinding(t *testing.T) {
 	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
 	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: rack.Name, slotIndex: 0}}, drainQueue(queues.projections),
 		"external removal of "+metadata.AssignedLabel+" must enqueue repair")
+}
+
+func TestForeignProjectionCoOwnerEventRoutesExactBinding(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	registry := newPlacementRegistry()
+	registry.replace(testInventory())
+	node := testNode()
+	rack := testRack(node)
+	require.NoError(t, racks.Add(rack))
+	router := newEventRouter(inventories, racks, registry, queues)
+
+	projected := node.DeepCopy()
+	projected.ResourceVersion = "2"
+	projected.Labels[metadata.AssignedLabel] = "true"
+	assignment, err := controllerprojection.EncodeAssignment(rack, &rack.Spec.Slots[0])
+	require.NoError(t, err)
+	projected.Annotations = map[string]string{metadata.AssignmentAnnotation: assignment}
+	setNodeManagedFields(projected, controllerprojection.FieldManager,
+		[]string{metadata.AssignedLabel}, []string{metadata.AssignmentAnnotation})
+	coOwned := projected.DeepCopy()
+	coOwned.ResourceVersion = "3"
+	setNodeManagedFields(coOwned, "foreign-controller", nil, []string{metadata.AssignmentAnnotation})
+
+	router.nodeUpdate(projected, coOwned)
+
+	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: rack.Name, slotIndex: 0}}, drainQueue(queues.projections))
+	require.ElementsMatch(t, []statusKey{
+		{kind: statusInventory, name: "inventory", uid: "inventory-uid"},
+		{kind: statusRack, name: "rack", uid: "rack-uid"},
+	}, drainQueue(queues.status))
 }
 
 func newTestController() *Controller {
@@ -422,6 +469,32 @@ func testRack(node *corev1.Node) *mokkav1alpha1.SGPURack {
 
 func testGroupKey() allocate.GroupKey {
 	return allocate.GroupKey{InventoryName: "inventory", InventoryUID: "inventory-uid", RackGroup: "group"}
+}
+
+func setNodeManagedFields(node *corev1.Node, manager string, labelKeys, annotationKeys []string) {
+	metadataFields := make(map[string]any)
+	if len(labelKeys) > 0 {
+		fields := make(map[string]any, len(labelKeys))
+		for _, key := range labelKeys {
+			fields["f:"+key] = map[string]any{}
+		}
+		metadataFields["f:labels"] = fields
+	}
+	if len(annotationKeys) > 0 {
+		fields := make(map[string]any, len(annotationKeys))
+		for _, key := range annotationKeys {
+			fields["f:"+key] = map[string]any{}
+		}
+		metadataFields["f:annotations"] = fields
+	}
+	raw, err := json.Marshal(map[string]any{"f:metadata": metadataFields})
+	if err != nil {
+		panic(err)
+	}
+	node.ManagedFields = append(node.ManagedFields, metav1.ManagedFieldsEntry{
+		Manager: manager, Operation: metav1.ManagedFieldsOperationApply, APIVersion: "v1",
+		FieldsType: "FieldsV1", FieldsV1: metav1.NewFieldsV1(string(raw)),
+	})
 }
 
 func drainQueue[T comparable](queue workqueue.TypedRateLimitingInterface[T]) []T {

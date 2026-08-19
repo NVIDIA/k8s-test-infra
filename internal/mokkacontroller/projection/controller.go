@@ -103,15 +103,15 @@ type Outcome struct {
 	Message       string
 }
 
-// MetadataConflictError reports a pre-existing value that the controller will
-// not replace.
+// MetadataConflictError reports a value or owner that the controller will not
+// replace or share.
 type MetadataConflictError struct {
 	NodeName string
 	Fields   []string
 }
 
 func (e *MetadataConflictError) Error() string {
-	return fmt.Sprintf("Node %q has incompatible controller metadata fields %v", e.NodeName, e.Fields)
+	return fmt.Sprintf("Node %q has conflicting controller metadata fields %v", e.NodeName, e.Fields)
 }
 
 // Cache is the informer-backed read surface needed for one projection.
@@ -138,6 +138,8 @@ type Controller struct {
 	outcomesByRack      map[objectKey]map[bindingKey]struct{}
 	cleaned             map[bindingKey]struct{}
 	cleanedByCoordinate map[coordinateKey]bindingKey
+	cleanupBlocks       map[bindingKey]cleanupBlock
+	blocksByCoordinate  map[coordinateKey]bindingKey
 	// Fixed shards serialize one coordinate without growing lock state with cluster churn.
 	operations [operationShards]sync.Mutex
 }
@@ -171,6 +173,12 @@ type outcomeSnapshot struct {
 	visited  int
 }
 
+type cleanupBlock struct {
+	assignment string
+	before     string
+	after      string
+}
+
 // NewController builds a Node metadata projector over informer-backed reads.
 func NewController(cache Cache, patcher NodePatcher) *Controller {
 	return &Controller{
@@ -181,6 +189,8 @@ func NewController(cache Cache, patcher NodePatcher) *Controller {
 		outcomesByRack:      make(map[objectKey]map[bindingKey]struct{}),
 		cleaned:             make(map[bindingKey]struct{}),
 		cleanedByCoordinate: make(map[coordinateKey]bindingKey),
+		cleanupBlocks:       make(map[bindingKey]cleanupBlock),
+		blocksByCoordinate:  make(map[coordinateKey]bindingKey),
 	}
 }
 
@@ -253,12 +263,9 @@ func (c *Controller) project(ctx context.Context, rackName string, slotIndex int
 			incompatible = append(incompatible, AssignmentAnnotation)
 		}
 	}
+	incompatible = append(incompatible, foreignOwnedFields(node, projectionManagedFields(labels))...)
 	if len(incompatible) > 0 {
-		slices.Sort(incompatible)
-		conflict := &MetadataConflictError{NodeName: node.Name, Fields: incompatible}
-		outcome.State, outcome.Reason, outcome.Message = StateConflict, ReasonNodeMetadataConflict, conflict.Error()
-		c.record(outcome)
-		return outcome, conflict
+		return c.conflict(outcome, node.Name, incompatible)
 	}
 	if projectionIsCurrent(node, labels, assignment) && projectionFieldsOwned(node, labels) {
 		outcome.State, outcome.Reason = StateProjected, ReasonProjected
@@ -270,7 +277,7 @@ func (c *Controller) project(ctx context.Context, rackName string, slotIndex int
 	if err != nil {
 		return c.fail(outcome, err)
 	}
-	_, err = c.patcher.Patch(ctx, node.Name, types.ApplyPatchType, payload, applyOptions())
+	response, err := c.patcher.Patch(ctx, node.Name, types.ApplyPatchType, payload, applyOptions())
 	if err != nil {
 		outcome.Message = err.Error()
 		if apierrors.IsConflict(err) {
@@ -280,6 +287,18 @@ func (c *Controller) project(ctx context.Context, rackName string, slotIndex int
 		}
 		c.record(outcome)
 		return outcome, err
+	}
+	if response == nil {
+		return c.fail(outcome, fmt.Errorf("apply Node %q returned an empty response", node.Name))
+	}
+	if response.Name != node.Name || response.UID != node.UID {
+		return c.fail(outcome, fmt.Errorf(
+			"apply Node %q returned identity %q/%q, expected %q/%q",
+			node.Name, response.Name, response.UID, node.Name, node.UID,
+		))
+	}
+	if conflicts := projectionResponseConflicts(response, labels, assignment); len(conflicts) > 0 {
+		return c.conflict(outcome, node.Name, conflicts)
 	}
 	outcome.State, outcome.Reason = StateProjected, ReasonProjected
 	c.record(outcome)
@@ -314,6 +333,11 @@ func (c *Controller) Cleanup(ctx context.Context, needed controllerack.CleanupNe
 	if node.UID != needed.Binding.Node.UID {
 		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent, exactBindingPresent), nil
 	}
+	if fields, blocked := c.blockedCleanup(needed, node); blocked {
+		outcome, conflict := conflictOutcome(outcome, node.Name, fields)
+		c.recordCleanupFailure(outcome, exactBindingPresent)
+		return outcome, conflict
+	}
 
 	encoded := node.Annotations[AssignmentAnnotation]
 	assignment, decodeErr := DecodeAssignment(encoded)
@@ -338,11 +362,28 @@ func (c *Controller) Cleanup(ctx context.Context, needed controllerack.CleanupNe
 	if len(incompatible) > 0 {
 		annotations = map[string]any{AssignmentAnnotation: encoded}
 	}
+	released := []managedMetadataField{
+		{section: "labels", key: AssignedLabel},
+		{section: "labels", key: CliqueLabel},
+	}
+	if len(annotations) == 0 {
+		released = append(released, managedMetadataField{section: "annotations", key: AssignmentAnnotation})
+	}
+	if len(mokkaOwnedFields(node, released)) == 0 {
+		fields := incompatible
+		if len(fields) == 0 {
+			fields = retainedCleanupFields(node, encoded)
+		}
+		c.blockCleanup(needed, node, node, encoded)
+		outcome, conflict := conflictOutcome(outcome, node.Name, fields)
+		c.recordCleanupFailure(outcome, exactBindingPresent)
+		return outcome, conflict
+	}
 	payload, err := nodeApplyPayload(node.Name, node.UID, nil, annotations)
 	if err != nil {
 		return c.failCleanup(outcome, err, exactBindingPresent)
 	}
-	_, err = c.patcher.Patch(ctx, node.Name, types.ApplyPatchType, payload, applyOptions())
+	response, err := c.patcher.Patch(ctx, node.Name, types.ApplyPatchType, payload, applyOptions())
 	if err != nil {
 		outcome.Message = err.Error()
 		if apierrors.IsConflict(err) {
@@ -353,10 +394,24 @@ func (c *Controller) Cleanup(ctx context.Context, needed controllerack.CleanupNe
 		c.recordCleanupFailure(outcome, exactBindingPresent)
 		return outcome, err
 	}
-	if len(incompatible) > 0 {
-		slices.Sort(incompatible)
-		conflict := &MetadataConflictError{NodeName: node.Name, Fields: incompatible}
-		outcome.State, outcome.Reason, outcome.Message = StateConflict, ReasonNodeMetadataConflict, conflict.Error()
+	if response == nil {
+		return c.failCleanup(outcome, fmt.Errorf("apply Node %q cleanup returned an empty response", node.Name), exactBindingPresent)
+	}
+	if response.Name != node.Name {
+		return c.failCleanup(outcome, fmt.Errorf(
+			"apply Node %q cleanup returned Node %q", node.Name, response.Name,
+		), exactBindingPresent)
+	}
+	if response.UID != node.UID {
+		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent, exactBindingPresent), nil
+	}
+	if retained := retainedCleanupFields(response, encoded); len(retained) > 0 {
+		blockedAfter := response
+		if len(incompatible) > 0 && len(retained) == 1 && retained[0] == AssignmentAnnotation {
+			blockedAfter = nil
+		}
+		c.blockCleanup(needed, node, blockedAfter, encoded)
+		outcome, conflict := conflictOutcome(outcome, response.Name, retained)
 		c.recordCleanupFailure(outcome, exactBindingPresent)
 		return outcome, conflict
 	}
@@ -481,7 +536,15 @@ func MatchesBinding(node *corev1.Node, rack *mokkav1alpha1.SGPURack, slot *mokka
 		return false
 	}
 	assignment, err := DecodeAssignment(node.Annotations[AssignmentAnnotation])
-	return err == nil && assignmentMatches(assignment, rack, slot)
+	if err != nil || !assignmentMatches(assignment, rack, slot) {
+		return false
+	}
+	projectionLabels := map[string]any{AssignedLabel: "true"}
+	if hasClique {
+		projectionLabels[CliqueLabel] = clique
+	}
+	return len(foreignOwnedFields(node, projectionManagedFields(projectionLabels))) == 0 &&
+		projectionFieldsOwned(node, projectionLabels)
 }
 
 func projectionLabels(node *corev1.Node, rack *mokkav1alpha1.SGPURack) (map[string]any, []string) {
@@ -527,33 +590,154 @@ func projectionIsCurrent(node *corev1.Node, labels map[string]any, assignment st
 	return true
 }
 
-//nolint:cyclop // Managed-fields traversal must reject every partial ownership shape.
 func projectionFieldsOwned(node *corev1.Node, labels map[string]any) bool {
-	required := [][]string{
-		{"f:metadata", "f:annotations", "f:" + AssignmentAnnotation},
+	return len(missingMokkaOwnership(node, projectionPresentFields(labels))) == 0
+}
+
+type managedMetadataField struct {
+	section string
+	key     string
+}
+
+func (f managedMetadataField) path() []string {
+	return []string{"f:metadata", "f:" + f.section, "f:" + f.key}
+}
+
+func projectionManagedFields(labels map[string]any) []managedMetadataField {
+	fields := make([]managedMetadataField, 0, 1+len(labels))
+	fields = append(fields, managedMetadataField{section: "annotations", key: AssignmentAnnotation})
+	for key := range labels {
+		fields = append(fields, managedMetadataField{section: "labels", key: key})
 	}
+	return fields
+}
+
+func projectionPresentFields(labels map[string]any) []managedMetadataField {
+	fields := make([]managedMetadataField, 0, 1+len(labels))
+	fields = append(fields, managedMetadataField{section: "annotations", key: AssignmentAnnotation})
 	for key, value := range labels {
 		if value != nil {
-			required = append(required, []string{"f:metadata", "f:labels", "f:" + key})
+			fields = append(fields, managedMetadataField{section: "labels", key: key})
 		}
 	}
-	for _, entry := range node.ManagedFields {
+	return fields
+}
+
+func projectionResponseConflicts(node *corev1.Node, labels map[string]any, assignment string) []string {
+	conflicts := projectionValueConflicts(node, labels, assignment)
+	wanted := projectionManagedFields(labels)
+	conflicts = append(conflicts, foreignOwnedFields(node, wanted)...)
+	conflicts = append(conflicts, missingMokkaOwnership(node, projectionPresentFields(labels))...)
+	return sortedUnique(conflicts)
+}
+
+func projectionValueConflicts(node *corev1.Node, labels map[string]any, assignment string) []string {
+	conflicts := make([]string, 0, len(labels)+1)
+	if node.Annotations[AssignmentAnnotation] != assignment {
+		conflicts = append(conflicts, AssignmentAnnotation)
+	}
+	for key, desired := range labels {
+		current, exists := node.Labels[key]
+		if desired == nil {
+			if exists {
+				conflicts = append(conflicts, key)
+			}
+			continue
+		}
+		value, ok := desired.(string)
+		if !ok || !exists || current != value {
+			conflicts = append(conflicts, key)
+		}
+	}
+	return conflicts
+}
+
+func foreignOwnedFields(node *corev1.Node, fields []managedMetadataField) []string {
+	conflicts := make([]string, 0)
+	for _, field := range fields {
+		for _, entry := range node.ManagedFields {
+			if entry.Manager == FieldManager || entry.Subresource != "" || entry.FieldsType != "FieldsV1" || entry.FieldsV1 == nil {
+				continue
+			}
+			if fieldsV1Owns(entry.FieldsV1.GetRawBytes(), field.path()) {
+				conflicts = append(conflicts, field.key)
+				break
+			}
+		}
+	}
+	return sortedUnique(conflicts)
+}
+
+func missingMokkaOwnership(node *corev1.Node, fields []managedMetadataField) []string {
+	missing := make([]string, 0)
+	for _, field := range fields {
+		if !mokkaOwnsField(node.ManagedFields, field) {
+			missing = append(missing, field.key)
+		}
+	}
+	return sortedUnique(missing)
+}
+
+func mokkaOwnsField(entries []metav1.ManagedFieldsEntry, field managedMetadataField) bool {
+	for _, entry := range entries {
 		if entry.Manager != FieldManager || entry.Operation != metav1.ManagedFieldsOperationApply ||
 			entry.APIVersion != "v1" || entry.Subresource != "" || entry.FieldsType != "FieldsV1" || entry.FieldsV1 == nil {
 			continue
 		}
-		owned := true
-		for _, path := range required {
-			if !fieldsV1Owns(entry.FieldsV1.GetRawBytes(), path) {
-				owned = false
-				break
-			}
-		}
-		if owned {
+		if fieldsV1Owns(entry.FieldsV1.GetRawBytes(), field.path()) {
 			return true
 		}
 	}
 	return false
+}
+
+func mokkaOwnedFields(node *corev1.Node, fields []managedMetadataField) []string {
+	owned := make([]string, 0)
+	for _, field := range fields {
+		if len(missingMokkaOwnership(node, []managedMetadataField{field})) == 0 {
+			owned = append(owned, field.key)
+		}
+	}
+	return sortedUnique(owned)
+}
+
+// CompactManagedFields retains only ownership of projection metadata keys.
+// The informer does not need the rest of a Node's potentially large field set.
+func CompactManagedFields(entries []metav1.ManagedFieldsEntry) []metav1.ManagedFieldsEntry {
+	relevant := []managedMetadataField{
+		{section: "annotations", key: AssignmentAnnotation},
+		{section: "labels", key: AssignedLabel},
+		{section: "labels", key: CliqueLabel},
+	}
+	compacted := make([]metav1.ManagedFieldsEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.FieldsType != "FieldsV1" || entry.FieldsV1 == nil {
+			continue
+		}
+		fields := make(map[string]map[string]any)
+		for _, field := range relevant {
+			if !fieldsV1Owns(entry.FieldsV1.GetRawBytes(), field.path()) {
+				continue
+			}
+			section := "f:" + field.section
+			if fields[section] == nil {
+				fields[section] = make(map[string]any)
+			}
+			fields[section]["f:"+field.key] = map[string]any{}
+		}
+		if len(fields) == 0 {
+			continue
+		}
+		raw, err := json.Marshal(map[string]any{"f:metadata": fields})
+		if err != nil {
+			continue
+		}
+		compactedEntry := entry
+		compactedEntry.Time = nil
+		compactedEntry.FieldsV1 = metav1.NewFieldsV1(string(raw))
+		compacted = append(compacted, compactedEntry)
+	}
+	return compacted
 }
 
 func fieldsV1Owns(raw []byte, path []string) bool {
@@ -576,6 +760,25 @@ func fieldsV1Owns(raw []byte, path []string) bool {
 		fields = nested
 	}
 	return false
+}
+
+func retainedCleanupFields(node *corev1.Node, assignment string) []string {
+	retained := make([]string, 0, 3)
+	if node.Annotations[AssignmentAnnotation] == assignment {
+		retained = append(retained, AssignmentAnnotation)
+	}
+	if _, exists := node.Labels[AssignedLabel]; exists {
+		retained = append(retained, AssignedLabel)
+	}
+	if _, exists := node.Labels[CliqueLabel]; exists {
+		retained = append(retained, CliqueLabel)
+	}
+	return sortedUnique(retained)
+}
+
+func sortedUnique(fields []string) []string {
+	slices.Sort(fields)
+	return slices.Compact(fields)
 }
 
 func nodeApplyPayload(name string, uid types.UID, labels, annotations map[string]any) ([]byte, error) {
@@ -707,6 +910,18 @@ func (c *Controller) fail(outcome Outcome, err error) (Outcome, error) {
 	return outcome, err
 }
 
+func (c *Controller) conflict(outcome Outcome, nodeName string, fields []string) (Outcome, error) {
+	outcome, conflict := conflictOutcome(outcome, nodeName, fields)
+	c.record(outcome)
+	return outcome, conflict
+}
+
+func conflictOutcome(outcome Outcome, nodeName string, fields []string) (Outcome, *MetadataConflictError) {
+	conflict := &MetadataConflictError{NodeName: nodeName, Fields: sortedUnique(fields)}
+	outcome.State, outcome.Reason, outcome.Message = StateConflict, ReasonNodeMetadataConflict, conflict.Error()
+	return outcome, conflict
+}
+
 func (c *Controller) failCleanup(outcome Outcome, err error, exactRackPresent bool) (Outcome, error) {
 	outcome.State, outcome.Reason, outcome.Message = StateError, ReasonProjectionError, err.Error()
 	c.recordCleanupFailure(outcome, exactRackPresent)
@@ -728,6 +943,7 @@ func (c *Controller) completeCleanup(
 	outcome.State, outcome.Reason = StateCleaned, reason
 	c.mu.Lock()
 	key := bindingKeyForCleanup(needed)
+	c.deleteCleanupBlockLocked(key)
 	c.deleteOutcomeLocked(key)
 	coordinate := coordinateKeyForBinding(key)
 	if exactRackPresent {
@@ -750,6 +966,10 @@ func (c *Controller) beginProjection(rack *mokkav1alpha1.SGPURack, slot *mokkav1
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	coordinate := coordinateKey{rackName: rack.Name, slotIndex: slot.Index}
+	current := bindingKeyForOutcome(outcomeFor(rack, slot))
+	if blocked, exists := c.blocksByCoordinate[coordinate]; exists && blocked != current {
+		c.deleteCleanupBlockLocked(blocked)
+	}
 	if key, exists := c.outcomeByCoordinate[coordinate]; exists {
 		c.deleteOutcomeLocked(key)
 	}
@@ -757,6 +977,82 @@ func (c *Controller) beginProjection(rack *mokkav1alpha1.SGPURack, slot *mokkav1
 		delete(c.cleaned, key)
 		delete(c.cleanedByCoordinate, coordinate)
 	}
+}
+
+func (c *Controller) blockedCleanup(needed controllerack.CleanupNeeded, node *corev1.Node) ([]string, bool) {
+	c.mu.RLock()
+	block, exists := c.cleanupBlocks[bindingKeyForCleanup(needed)]
+	c.mu.RUnlock()
+	if !exists {
+		return nil, false
+	}
+	fields := retainedCleanupFields(node, block.assignment)
+	if len(fields) == 0 {
+		return nil, false
+	}
+	observation := cleanupObservation(node)
+	if observation != block.before && observation != block.after &&
+		node.Annotations[AssignmentAnnotation] == block.assignment {
+		return nil, false
+	}
+	return fields, true
+}
+
+func (c *Controller) blockCleanup(
+	needed controllerack.CleanupNeeded,
+	before, after *corev1.Node,
+	assignment string,
+) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	key := bindingKeyForCleanup(needed)
+	coordinate := coordinateKeyForBinding(key)
+	if previous, exists := c.blocksByCoordinate[coordinate]; exists && previous != key {
+		c.deleteCleanupBlockLocked(previous)
+	}
+	c.cleanupBlocks[key] = cleanupBlock{
+		assignment: assignment,
+		before:     cleanupObservation(before),
+		after:      cleanupObservation(after),
+	}
+	c.blocksByCoordinate[coordinate] = key
+}
+
+func (c *Controller) deleteCleanupBlockLocked(key bindingKey) {
+	delete(c.cleanupBlocks, key)
+	coordinate := coordinateKeyForBinding(key)
+	if c.blocksByCoordinate[coordinate] == key {
+		delete(c.blocksByCoordinate, coordinate)
+	}
+}
+
+func cleanupObservation(node *corev1.Node) string {
+	if node == nil {
+		return ""
+	}
+	labels := make(map[string]string, 2)
+	for _, key := range []string{AssignedLabel, CliqueLabel} {
+		if value, exists := node.Labels[key]; exists {
+			labels[key] = value
+		}
+	}
+	annotations := make(map[string]string, 1)
+	if value, exists := node.Annotations[AssignmentAnnotation]; exists {
+		annotations[AssignmentAnnotation] = value
+	}
+	encoded, err := json.Marshal(struct {
+		UID           types.UID                   `json:"uid"`
+		Labels        map[string]string           `json:"labels,omitempty"`
+		Annotations   map[string]string           `json:"annotations,omitempty"`
+		ManagedFields []metav1.ManagedFieldsEntry `json:"managedFields,omitempty"`
+	}{
+		UID: node.UID, Labels: labels, Annotations: annotations,
+		ManagedFields: CompactManagedFields(node.ManagedFields),
+	})
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
 }
 
 func (c *Controller) putOutcomeLocked(outcome Outcome) {

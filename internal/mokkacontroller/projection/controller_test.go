@@ -95,7 +95,6 @@ func TestProjectAppliesWhenExactValuesAreNotOwned(t *testing.T) {
 		annotations []string
 	}{
 		{name: "no managed fields"},
-		{name: "foreign manager", manager: "other-controller", labels: []string{AssignedLabel, CliqueLabel}, annotations: []string{AssignmentAnnotation}},
 		{name: "partial ownership", manager: FieldManager, labels: []string{AssignedLabel}, annotations: []string{AssignmentAnnotation}},
 	}
 
@@ -117,6 +116,92 @@ func TestProjectAppliesWhenExactValuesAreNotOwned(t *testing.T) {
 			require.Len(t, patcher.calls, 1, "SSA must establish ownership for later cleanup")
 		})
 	}
+}
+
+func TestProjectRejectsExactValuesWithForeignOwnership(t *testing.T) {
+	tests := []struct {
+		name        string
+		mokkaLabels []string
+		foreign     []string
+		wantFields  []string
+	}{
+		{
+			name:       "foreign owner has every exact value",
+			foreign:    []string{AssignedLabel, CliqueLabel, AssignmentAnnotation},
+			wantFields: []string{AssignedLabel, AssignmentAnnotation, CliqueLabel},
+		},
+		{
+			name:        "foreign owner intersects partial Mokka ownership",
+			mokkaLabels: []string{AssignedLabel},
+			foreign:     []string{CliqueLabel},
+			wantFields:  []string{CliqueLabel},
+		},
+		{
+			name:        "foreign owner shares one Mokka field",
+			mokkaLabels: []string{AssignedLabel, CliqueLabel},
+			foreign:     []string{AssignedLabel},
+			wantFields:  []string{AssignedLabel},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rack := testRack(true)
+			node := testNode("node", "node-uid")
+			setExactProjection(t, node, rack)
+			if len(test.mokkaLabels) > 0 {
+				setManagedFields(node, FieldManager, test.mokkaLabels, []string{AssignmentAnnotation})
+			}
+			foreignLabels := make([]string, 0, len(test.foreign))
+			foreignAnnotations := make([]string, 0, 1)
+			for _, field := range test.foreign {
+				if field == AssignmentAnnotation {
+					foreignAnnotations = append(foreignAnnotations, field)
+				} else {
+					foreignLabels = append(foreignLabels, field)
+				}
+			}
+			setManagedFields(node, "other-controller", foreignLabels, foreignAnnotations)
+			cache := &fakeCache{
+				nodes: map[string]*corev1.Node{node.Name: node},
+				racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
+			}
+			patcher := &recordingPatcher{node: node}
+
+			outcome, err := NewController(cache, patcher).Project(context.Background(), rack.Name, 0)
+
+			var conflict *MetadataConflictError
+			require.ErrorAs(t, err, &conflict)
+			require.Equal(t, test.wantFields, conflict.Fields)
+			require.Equal(t, StateConflict, outcome.State)
+			require.Equal(t, ReasonNodeMetadataConflict, outcome.Reason)
+			require.Empty(t, patcher.calls, "foreign ownership must be rejected before SSA")
+		})
+	}
+}
+
+func TestProjectRejectsForeignCoOwnerInApplyResponse(t *testing.T) {
+	rack := testRack(true)
+	node := testNode("node", "node-uid")
+	response := node.DeepCopy()
+	setExactProjection(t, response, rack)
+	setManagedFields(response, FieldManager, []string{AssignedLabel, CliqueLabel}, []string{AssignmentAnnotation})
+	setManagedFields(response, "racing-controller", []string{AssignedLabel}, nil)
+	cache := &fakeCache{
+		nodes: map[string]*corev1.Node{node.Name: node},
+		racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
+	}
+	patcher := &recordingPatcher{response: response}
+
+	outcome, err := NewController(cache, patcher).Project(context.Background(), rack.Name, 0)
+
+	var conflict *MetadataConflictError
+	require.ErrorAs(t, err, &conflict)
+	require.Equal(t, []string{AssignedLabel}, conflict.Fields)
+	require.Equal(t, StateConflict, outcome.State)
+	require.Equal(t, ReasonNodeMetadataConflict, outcome.Reason)
+	require.Len(t, patcher.calls, 1, "the race is detected from the one apply response")
+	require.False(t, *patcher.calls[0].options.Force)
 }
 
 func TestProjectRequiresCliqueOwnershipOnlyWhenProjected(t *testing.T) {
@@ -266,6 +351,7 @@ func TestCleanupRequiresExactAnnotationAndSupportsPartialProgress(t *testing.T) 
 	require.NoError(t, err)
 	node.Annotations = map[string]string{AssignmentAnnotation: assignment}
 	node.Labels = map[string]string{AssignedLabel: "true", CliqueLabel: "foreign-clique"}
+	setManagedFields(node, FieldManager, []string{AssignedLabel, CliqueLabel}, []string{AssignmentAnnotation})
 	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
 	patcher := &recordingPatcher{node: node}
 	controller := NewController(cache, patcher)
@@ -282,7 +368,9 @@ func TestCleanupRequiresExactAnnotationAndSupportsPartialProgress(t *testing.T) 
 	require.NotContains(t, metadata, "labels", "SSA deletes fields previously owned by the manager when they are omitted")
 	require.Equal(t, map[string]any{AssignmentAnnotation: assignment}, metadata["annotations"], "the binding identity remains until cleanup can finish")
 
-	node.Labels = map[string]string{CliqueLabel: rack.Spec.Identity.FabricUUID + ".0"}
+	partialResponse := applyNodePayload(node, node.Name, patcher.calls[0].data)
+	cache.nodes[node.Name] = partialResponse
+	patcher.node = partialResponse
 	patcher.calls = nil
 	outcome, err = controller.Cleanup(context.Background(), cleanup)
 	require.NoError(t, err)
@@ -294,6 +382,123 @@ func TestCleanupRequiresExactAnnotationAndSupportsPartialProgress(t *testing.T) 
 	metadata = complete["metadata"].(map[string]any)
 	require.NotContains(t, metadata, "labels")
 	require.NotContains(t, metadata, "annotations")
+}
+
+func TestCleanupRejectsResponseThatRetainsProjectionFields(t *testing.T) {
+	tests := []struct {
+		name                 string
+		retainedLabels       []string
+		retainedAnnotation   bool
+		removeBeforeRetry    string
+		wantFieldsAfterRetry []string
+	}{
+		{
+			name:                 "assignment annotation",
+			retainedAnnotation:   true,
+			wantFieldsAfterRetry: []string{AssignmentAnnotation},
+		},
+		{
+			name:                 "assigned label",
+			retainedLabels:       []string{AssignedLabel},
+			wantFieldsAfterRetry: []string{AssignedLabel},
+		},
+		{
+			name:                 "clique label",
+			retainedLabels:       []string{CliqueLabel},
+			wantFieldsAfterRetry: []string{CliqueLabel},
+		},
+		{
+			name:                 "one of two retained labels is removed",
+			retainedLabels:       []string{AssignedLabel, CliqueLabel},
+			removeBeforeRetry:    AssignedLabel,
+			wantFieldsAfterRetry: []string{CliqueLabel},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rack := testRack(true)
+			node := testNode("node", "node-uid")
+			setExactProjection(t, node, rack)
+			setManagedFields(node, FieldManager, []string{AssignedLabel, CliqueLabel}, []string{AssignmentAnnotation})
+			response := testNode(node.Name, node.UID)
+			for _, key := range test.retainedLabels {
+				if response.Labels == nil {
+					response.Labels = make(map[string]string)
+				}
+				response.Labels[key] = node.Labels[key]
+			}
+			var foreignAnnotations []string
+			if test.retainedAnnotation {
+				response.Annotations = map[string]string{AssignmentAnnotation: node.Annotations[AssignmentAnnotation]}
+				foreignAnnotations = []string{AssignmentAnnotation}
+			}
+			setManagedFields(response, "racing-controller", test.retainedLabels, foreignAnnotations)
+			cache := &fakeCache{
+				nodes: map[string]*corev1.Node{node.Name: node},
+				racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
+			}
+			patcher := &recordingPatcher{response: response}
+			controller := NewController(cache, patcher)
+			cleanup := cleanupFor(rack)
+
+			outcome, err := controller.Cleanup(context.Background(), cleanup)
+
+			var conflict *MetadataConflictError
+			require.ErrorAs(t, err, &conflict)
+			require.Equal(t, StateConflict, outcome.State)
+			require.Equal(t, ReasonNodeMetadataConflict, outcome.Reason)
+			require.False(t, controller.Ready(cleanup), "retained metadata must keep the exact binding gated")
+			require.Len(t, patcher.calls, 1)
+
+			cache.nodes[node.Name] = response
+			if test.removeBeforeRetry != "" {
+				response = response.DeepCopy()
+				delete(response.Labels, test.removeBeforeRetry)
+				cache.nodes[node.Name] = response
+			}
+			outcome, err = controller.Cleanup(context.Background(), cleanup)
+			require.ErrorAs(t, err, &conflict)
+			require.Equal(t, test.wantFieldsAfterRetry, conflict.Fields)
+			require.Equal(t, StateConflict, outcome.State)
+			require.False(t, controller.Ready(cleanup))
+			require.Len(t, patcher.calls, 1, "observed foreign-only ownership must not trigger another destructive apply")
+			assertStateIndexesExact(t, controller)
+			controller.mu.RLock()
+			require.Len(t, controller.cleanupBlocks, 1, "one live exact binding must retain one bounded cleanup block")
+			controller.mu.RUnlock()
+
+			cache.nodes[node.Name] = testNode(node.Name, node.UID)
+			outcome, err = controller.Cleanup(context.Background(), cleanup)
+			require.NoError(t, err)
+			require.Equal(t, StateCleaned, outcome.State)
+			require.True(t, controller.Ready(cleanup))
+			require.Len(t, patcher.calls, 1, "external removal of every retained field must release the gate without another apply")
+			assertStateIndexesExact(t, controller)
+		})
+	}
+}
+
+func TestCleanupAcknowledgesSoleOwnerOnlyAfterCleanResponse(t *testing.T) {
+	rack := testRack(true)
+	node := testNode("node", "node-uid")
+	setExactProjection(t, node, rack)
+	setManagedFields(node, FieldManager, []string{AssignedLabel, CliqueLabel}, []string{AssignmentAnnotation})
+	response := testNode(node.Name, node.UID)
+	cache := &fakeCache{
+		nodes: map[string]*corev1.Node{node.Name: node},
+		racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
+	}
+	patcher := &recordingPatcher{response: response}
+	controller := NewController(cache, patcher)
+	cleanup := cleanupFor(rack)
+
+	outcome, err := controller.Cleanup(context.Background(), cleanup)
+
+	require.NoError(t, err)
+	require.Equal(t, StateCleaned, outcome.State)
+	require.True(t, controller.Ready(cleanup))
+	require.Len(t, patcher.calls, 1)
 }
 
 func TestCleanupTreatsAbsentExactUIDAsCleanAndPreservesStaleAnnotation(t *testing.T) {
@@ -329,6 +534,7 @@ func TestStaleProjectionApplyDoesNotRecreateMetadataAfterCleanup(t *testing.T) {
 	require.NoError(t, err)
 	node.Labels = map[string]string{AssignedLabel: "true", CliqueLabel: rack.Spec.Identity.FabricUUID + ".0"}
 	node.Annotations = map[string]string{AssignmentAnnotation: assignment}
+	setManagedFields(node, FieldManager, []string{AssignedLabel, CliqueLabel}, []string{AssignmentAnnotation})
 	cache := &fakeCache{
 		nodes: map[string]*corev1.Node{node.Name: node},
 		racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
@@ -352,6 +558,7 @@ func TestFreshProjectionSupersedesCleanupAcknowledgement(t *testing.T) {
 	rack := testRack(true)
 	node := testNode("node", "node-uid")
 	setExactProjection(t, node, rack)
+	setManagedFields(node, FieldManager, []string{AssignedLabel, CliqueLabel}, []string{AssignmentAnnotation})
 	cache := &fakeCache{
 		nodes: map[string]*corev1.Node{node.Name: node},
 		racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
@@ -599,9 +806,10 @@ type patchCall struct {
 }
 
 type recordingPatcher struct {
-	node  *corev1.Node
-	err   error
-	calls []patchCall
+	node     *corev1.Node
+	response *corev1.Node
+	err      error
+	calls    []patchCall
 }
 
 func (p *recordingPatcher) Patch(
@@ -616,7 +824,100 @@ func (p *recordingPatcher) Patch(
 	if p.err != nil {
 		return nil, p.err
 	}
-	return p.node, nil
+	if p.response != nil {
+		return p.response.DeepCopy(), nil
+	}
+	return applyNodePayload(p.node, name, data), nil
+}
+
+func applyNodePayload(current *corev1.Node, name string, data []byte) *corev1.Node {
+	var payload struct {
+		Metadata struct {
+			UID         types.UID          `json:"uid"`
+			Labels      map[string]*string `json:"labels"`
+			Annotations map[string]*string `json:"annotations"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		panic(err)
+	}
+	var updated *corev1.Node
+	if current == nil {
+		updated = testNode(name, payload.Metadata.UID)
+	} else {
+		updated = current.DeepCopy()
+	}
+	updated.Name = name
+	updated.UID = payload.Metadata.UID
+	updated.Labels = applyProjectionMap(updated.Labels, payload.Metadata.Labels,
+		[]string{AssignedLabel, CliqueLabel}, managedFieldKeys(updated, FieldManager, "labels"))
+	updated.Annotations = applyProjectionMap(updated.Annotations, payload.Metadata.Annotations,
+		[]string{AssignmentAnnotation}, managedFieldKeys(updated, FieldManager, "annotations"))
+	foreign := make([]metav1.ManagedFieldsEntry, 0, len(updated.ManagedFields))
+	for _, entry := range updated.ManagedFields {
+		if entry.Manager != FieldManager {
+			foreign = append(foreign, entry)
+		}
+	}
+	updated.ManagedFields = foreign
+	labels := nonNilKeys(payload.Metadata.Labels)
+	annotations := nonNilKeys(payload.Metadata.Annotations)
+	if len(labels)+len(annotations) > 0 {
+		setManagedFields(updated, FieldManager, labels, annotations)
+	}
+	return updated
+}
+
+func applyProjectionMap(
+	current map[string]string,
+	desired map[string]*string,
+	relevant []string,
+	owned map[string]struct{},
+) map[string]string {
+	if current == nil {
+		current = make(map[string]string)
+	}
+	for _, key := range relevant {
+		if _, wasOwned := owned[key]; wasOwned {
+			if _, retained := desired[key]; !retained {
+				delete(current, key)
+			}
+		}
+	}
+	for key, value := range desired {
+		if value == nil {
+			delete(current, key)
+			continue
+		}
+		current[key] = *value
+	}
+	if len(current) == 0 {
+		return nil
+	}
+	return current
+}
+
+func managedFieldKeys(node *corev1.Node, manager, section string) map[string]struct{} {
+	keys := make(map[string]struct{})
+	for _, key := range []string{AssignedLabel, CliqueLabel, AssignmentAnnotation} {
+		for _, entry := range node.ManagedFields {
+			if entry.Manager == manager && entry.FieldsV1 != nil &&
+				fieldsV1Owns(entry.FieldsV1.GetRawBytes(), []string{"f:metadata", "f:" + section, "f:" + key}) {
+				keys[key] = struct{}{}
+			}
+		}
+	}
+	return keys
+}
+
+func nonNilKeys(values map[string]*string) []string {
+	keys := make([]string, 0, len(values))
+	for key, value := range values {
+		if value != nil {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 func testRack(withFabric bool) *mokkav1alpha1.SGPURack {
@@ -670,10 +971,10 @@ func setManagedFields(node *corev1.Node, manager string, labels, annotations []s
 	if err != nil {
 		panic(err)
 	}
-	node.ManagedFields = []metav1.ManagedFieldsEntry{{
+	node.ManagedFields = append(node.ManagedFields, metav1.ManagedFieldsEntry{
 		Manager: manager, Operation: metav1.ManagedFieldsOperationApply, APIVersion: "v1",
 		FieldsType: "FieldsV1", FieldsV1: metav1.NewFieldsV1(string(raw)),
-	}}
+	})
 }
 
 func cleanupFor(rack *mokkav1alpha1.SGPURack) controllerack.CleanupNeeded {
@@ -723,4 +1024,10 @@ func assertStateIndexesExact(t *testing.T, controller *Controller) {
 	}
 	require.Equal(t, len(controller.outcomes), indexedByRack)
 	require.Len(t, controller.cleanedByCoordinate, len(controller.cleaned))
+	require.Len(t, controller.blocksByCoordinate, len(controller.cleanupBlocks))
+	for coordinate, key := range controller.blocksByCoordinate {
+		_, exists := controller.cleanupBlocks[key]
+		require.True(t, exists)
+		require.Equal(t, coordinate, coordinateKeyForBinding(key))
+	}
 }

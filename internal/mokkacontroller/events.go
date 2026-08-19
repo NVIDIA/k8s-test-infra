@@ -455,6 +455,7 @@ func nodeUnchanged(old, current *corev1.Node) bool {
 	return old.UID == current.UID &&
 		equality.Semantic.DeepEqual(old.Labels, current.Labels) &&
 		old.Annotations[controllerprojection.AssignmentAnnotation] == current.Annotations[controllerprojection.AssignmentAnnotation] &&
+		equality.Semantic.DeepEqual(old.ManagedFields, current.ManagedFields) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
 
