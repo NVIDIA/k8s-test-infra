@@ -100,4 +100,10 @@ func TestValidateName(t *testing.T) {
 	require.NoError(t, ValidateName("mokka"))
 	require.Error(t, ValidateName(""))
 	require.Error(t, ValidateName("Mokka"))
+
+	// The length bound is a docker name-length guard the regex does not
+	// enforce, so it needs cases either side of it: every other input here
+	// fails on the pattern alone.
+	require.NoError(t, ValidateName(strings.Repeat("a", 40)))
+	require.Error(t, ValidateName(strings.Repeat("a", 41)))
 }
