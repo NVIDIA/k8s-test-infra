@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -307,8 +308,43 @@ func ParsePCIBusID(busID string) (domain, bus, device, function uint32, err erro
 	return 0, 0, 0, 0, fmt.Errorf("invalid PCI bus ID format: %q (expected DDDD:BB:DD.F or BB:DD.F)", busID)
 }
 
+// formatPCIBusID renders a parsed PCI address in NVML's busId format
+// (NVML_DEVICE_PCI_BUS_ID_FMT, "%08X:%02X:%02X.0"). The 8-digit domain is not
+// cosmetic: consumers recover a Linux sysfs BDF from busId by stripping its
+// leading "0000" (go-nvlib's device.GetPCIBusID), so a narrower domain here
+// yields a malformed address such as ":07:00.0" and every /sys/bus/pci lookup
+// the consumer builds from it misses. Unlike NVML we carry the function digit
+// through rather than hard-coding .0, so a multi-function BDF survives.
+func formatPCIBusID(domain, bus, device, function uint32) string {
+	return fmt.Sprintf("%08X:%02X:%02X.%X", domain, bus, device, function)
+}
+
+// formatPCIBusIDLegacy renders the same address in the narrower form NVML puts
+// in busIdLegacy (NVML_DEVICE_PCI_BUS_ID_LEGACY_FMT, "%04X:%02X:%02X.0"), which
+// is also the canonical Linux sysfs BDF that profiles declare.
+func formatPCIBusIDLegacy(domain, bus, device, function uint32) string {
+	return fmt.Sprintf("%04X:%02X:%02X.%X", domain, bus, device, function)
+}
+
+// canonicalPCIBusID reduces every accepted spelling of one PCI address to a
+// single comparable string, so a lookup is insensitive to domain width and case
+// the way real NVML is. An unparseable address is upper-cased and handed back
+// unchanged: it still matches a device configured with the same unparseable
+// value, and can never collide with a well-formed one.
+func canonicalPCIBusID(busID string) string {
+	domain, bus, device, function, err := ParsePCIBusID(busID)
+	if err != nil {
+		return strings.ToUpper(busID)
+	}
+	return formatPCIBusID(domain, bus, device, function)
+}
+
 func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 	var domain, bus, device, function uint32
+	// An unparseable bus ID is reported back verbatim: rendering the zeroed
+	// tuple instead would present a plausible 00000000:00:00.0 and hide the
+	// misconfiguration from whoever wrote the profile.
+	busID, legacyBusID := d.PciBusID, d.PciBusID
 
 	if d.PciBusID != "" {
 		var err error
@@ -316,6 +352,9 @@ func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 		if err != nil {
 			debugLog("[DEVICE %d] Warning: %v, using defaults\n", d.index, err)
 			// Use default values (zeros) on parse failure
+		} else {
+			busID = formatPCIBusID(domain, bus, device, function)
+			legacyBusID = formatPCIBusIDLegacy(domain, bus, device, function)
 		}
 	}
 
@@ -341,11 +380,12 @@ func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 	}
 
 	// Populate both the modern busId ([32]) and the legacy busIdLegacy ([16])
-	// strings. Real NVML fills both; consumers that read busIdLegacy — e.g.
-	// NVSentinel's metadata-collector, which derives each GPU's pci_address
-	// from nvmlPciInfo_t.busIdLegacy — get an empty string otherwise.
-	writeBusID(d.pciInfo.BusId[:], d.PciBusID)
-	writeBusID(d.pciInfo.BusIdLegacy[:], d.PciBusID)
+	// strings, each in its own NVML format. Real NVML fills both; consumers that
+	// read busIdLegacy — e.g. NVSentinel's metadata-collector, which derives each
+	// GPU's pci_address from nvmlPciInfo_t.busIdLegacy — get an empty string
+	// otherwise.
+	writeBusID(d.pciInfo.BusId[:], busID)
+	writeBusID(d.pciInfo.BusIdLegacy[:], legacyBusID)
 }
 
 // deriveBoardID encodes a PCI address the way NVML derives nvmlDeviceGetBoardId:
@@ -1608,12 +1648,12 @@ func (d *ConfigurableDevice) GetNvLinkRemotePciInfo(link int) (nvml.PciInfo, nvm
 		debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> switch sentinel\n", link)
 		return pci, nvml.SUCCESS
 	}
-	if domain, bus, device, _, err := ParsePCIBusID(l.RemoteBDF); err == nil {
+	if domain, bus, device, function, err := ParsePCIBusID(l.RemoteBDF); err == nil {
 		pci.Domain = domain
 		pci.Bus = bus
 		pci.Device = device
-		writeBusID(pci.BusId[:], l.RemoteBDF)
-		writeBusID(pci.BusIdLegacy[:], l.RemoteBDF)
+		writeBusID(pci.BusId[:], formatPCIBusID(domain, bus, device, function))
+		writeBusID(pci.BusIdLegacy[:], formatPCIBusIDLegacy(domain, bus, device, function))
 	}
 	debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> %s\n", link, l.RemoteBDF)
 	return pci, nvml.SUCCESS
@@ -2192,10 +2232,16 @@ func (s *MockServer) DeviceGetHandleByUUID(uuid string) (nvml.Device, nvml.Retur
 // DeviceGetHandleByPciBusId returns a configurable device by PCI bus ID.
 // When device visibility filtering is active, only visible devices are returned.
 // Lost devices behave the same as in DeviceGetHandleByIndex.
+//
+// Both sides of the comparison are normalized so any spelling of an address
+// resolves, as it does on real NVML: callers arrive with the 8-digit busId they
+// read back from nvmlDeviceGetPciInfo (DCGM), with the 4-digit sysfs BDF, or
+// with either in lower case.
 func (s *MockServer) DeviceGetHandleByPciBusId(pciBusId string) (nvml.Device, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetHandleByPciBusId(%s)\n", pciBusId)
+	want := canonicalPCIBusID(pciBusId)
 	for i, dev := range s.configurableDevices {
-		if dev != nil && dev.PciBusID == pciBusId {
+		if dev != nil && canonicalPCIBusID(dev.PciBusID) == want {
 			if !s.isDeviceVisible(i) {
 				return nil, nvml.ERROR_NOT_FOUND
 			}

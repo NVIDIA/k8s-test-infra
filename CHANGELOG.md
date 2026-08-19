@@ -48,6 +48,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FORCE_RECREATE=true`.
 
 ### Fixed
+- mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
+  uses (`00000000:07:00.0`, `NVML_DEVICE_PCI_BUS_ID_FMT`) while `busIdLegacy`
+  keeps the 4-digit one (`0000:07:00.0`). Both were filled with the profile's
+  4-digit `bus_id` verbatim, and consumers recover a sysfs BDF by stripping a
+  leading `0000` from `busId` — so go-nvlib derived the malformed `:07:00.0` and
+  every `/sys/bus/pci` lookup built from it failed. GPU Operator's
+  gpu-feature-discovery logged `unable to read PCI device vendor id for
+  :07:00.0` and labelled `nvidia.com/gpu.mode=unknown`. NVLink remote PCI info
+  follows the same split, `nvidia-smi` reports the address hardware shows, and
+  bus-ID handle lookups now accept either domain width and either case, so a
+  consumer that hands back the `busId` it just read (DCGM) still resolves the
+  device. (#671)
 - mocknvml: `nvidia-smi` no longer reports impossible per-GPU PCIe identity
   values. `Board ID` is derived from the device's PCI address the way NVML does
   — `(domain << 16) | (bus << 8) | (device << 3)`, so a GPU at `0000:07:00.0`

@@ -397,6 +397,33 @@ func TestEngine_DeviceGetHandleByPciBusId(t *testing.T) {
 	require.Equal(t, handle, handleByPCI, "Expected same handle for same device")
 }
 
+// TestEngine_DeviceGetHandleByPciBusIdDomainWidths pins that a lookup resolves
+// the same device whichever domain width the caller passes. Real NVML accepts
+// both, and it has to: a consumer that reads busId (8-digit) and hands the
+// string straight back — DCGM does exactly this — would otherwise fail to
+// resolve a device the mock had just described to it.
+func TestEngine_DeviceGetHandleByPciBusIdDomainWidths(t *testing.T) {
+	const busID = "0000:3b:00.0"
+	yaml := &YAMLConfig{
+		System: SystemConfig{DriverVersion: "550.0", NumDevices: 1},
+		Devices: []DeviceOverride{
+			{Index: 0, DeviceConfig: DeviceConfig{PCI: &PCIConfig{BusID: busID}}},
+		},
+	}
+	e := NewEngine(&Config{NumDevices: 1, DriverVersion: "550.0", YAMLConfig: yaml})
+	_ = e.Init()
+	defer func() { _ = e.Shutdown() }()
+
+	want, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret, "DeviceGetHandleByIndex failed")
+
+	for _, form := range []string{"0000:3b:00.0", "00000000:3B:00.0", "0000:3B:00.0"} {
+		got, ret := e.DeviceGetHandleByPciBusId(form)
+		require.Equal(t, nvml.SUCCESS, ret, "DeviceGetHandleByPciBusId(%q) failed", form)
+		require.Equal(t, want, got, "DeviceGetHandleByPciBusId(%q) resolved a different device", form)
+	}
+}
+
 func TestEngine_DeviceGetHandleByPciBusIdInvalid(t *testing.T) {
 	e := NewEngine(nil)
 	_ = e.Init()
