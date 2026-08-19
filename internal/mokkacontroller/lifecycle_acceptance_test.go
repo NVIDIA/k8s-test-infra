@@ -481,6 +481,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 				rackIndexer,
 				nodeCatalog,
 				liveNodes,
+				DefaultOptions(),
 			)
 			projection := controllerprojection.NewController(snapshot, liveNodes)
 			reconciler := controllerack.NewReconciler(

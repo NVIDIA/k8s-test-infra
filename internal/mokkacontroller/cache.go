@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -31,6 +32,8 @@ type informerCache struct {
 	racks       cache.Indexer
 	nodes       *controllernodes.Catalog
 	liveNodes   corev1client.NodeInterface
+	liveTimeout time.Duration
+	liveSlots   chan struct{}
 }
 
 var _ controllerack.Cache = (*informerCache)(nil)
@@ -42,9 +45,11 @@ func newInformerCache(
 	racks cache.Indexer,
 	nodes *controllernodes.Catalog,
 	liveNodes corev1client.NodeInterface,
+	options Options,
 ) *informerCache {
 	return &informerCache{
 		inventories: inventories, profiles: profiles, racks: racks, nodes: nodes, liveNodes: liveNodes,
+		liveTimeout: options.liveNodeGetTimeout(), liveSlots: make(chan struct{}, max(options.Workers, 1)),
 	}
 }
 
@@ -218,12 +223,37 @@ func compareNodeIdentity(a, b *corev1.Node) int {
 // Node falls back to an exact GET only for objects absent from the filtered
 // cache. That distinguishes an eligibility-loss delete from object deletion
 // while keeping steady-state placement entirely informer-backed.
-func (c *informerCache) Node(name string) (*corev1.Node, error) {
+func (c *informerCache) Node(ctx context.Context, name string) (*corev1.Node, error) {
 	record, exists := c.nodes.GetByName(name)
 	if exists {
 		return record.Node(), nil
 	}
-	return c.liveNodes.Get(context.Background(), name, metav1.GetOptions{})
+	requestCtx, cancel := context.WithTimeout(ctx, c.liveTimeout)
+	defer cancel()
+	select {
+	case c.liveSlots <- struct{}{}:
+	case <-requestCtx.Done():
+		return nil, context.Cause(requestCtx)
+	}
+	type result struct {
+		node *corev1.Node
+		err  error
+	}
+	response := make(chan result, 1)
+	go func() {
+		defer func() { <-c.liveSlots }()
+		node, err := c.liveNodes.Get(requestCtx, name, metav1.GetOptions{})
+		response <- result{node: node, err: err}
+	}()
+	select {
+	case result := <-response:
+		if err := context.Cause(requestCtx); err != nil {
+			return nil, err
+		}
+		return result.node, result.err
+	case <-requestCtx.Done():
+		return nil, context.Cause(requestCtx)
+	}
 }
 
 func castRacks(objects []any) ([]*mokkav1alpha1.SGPURack, error) {

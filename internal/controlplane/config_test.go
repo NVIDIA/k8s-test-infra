@@ -20,6 +20,7 @@ func TestDefaultConfig(t *testing.T) {
 	require.Equal(t, 2, cfg.Workers)
 	require.Equal(t, 100*time.Millisecond, cfg.StatusDebounce)
 	require.Equal(t, time.Second, cfg.StatusProgressInterval)
+	require.Equal(t, 2*time.Second, cfg.LiveNodeGetTimeout)
 }
 
 func TestNewLogger(t *testing.T) {

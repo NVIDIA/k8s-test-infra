@@ -26,6 +26,7 @@ type Config struct {
 	Workers                 int
 	StatusDebounce          time.Duration
 	StatusProgressInterval  time.Duration
+	LiveNodeGetTimeout      time.Duration
 	KubeAPIQPS              float64
 	KubeAPIBurst            int
 }
@@ -49,6 +50,7 @@ func DefaultConfig() Config {
 		Workers:                 controller.Workers,
 		StatusDebounce:          controller.StatusDebounce,
 		StatusProgressInterval:  controller.StatusProgressInterval,
+		LiveNodeGetTimeout:      controller.LiveNodeGetTimeout,
 		KubeAPIQPS:              50,
 		KubeAPIBurst:            100,
 	}

@@ -76,6 +76,7 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 		rackIndexer,
 		nodes,
 		nil,
+		DefaultOptions(),
 	)
 	projection := &recordingScopedProjection{
 		inventoryOutcomes: []controllerprojection.Outcome{{

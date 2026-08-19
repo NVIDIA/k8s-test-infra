@@ -50,6 +50,7 @@ func NewController(config Config) (*Controller, error) {
 	reconciler, err := mokkacontroller.New(kubeClient, mokkaClient, mokkacontroller.Options{
 		Workers: config.Workers, StatusDebounce: config.StatusDebounce,
 		StatusProgressInterval: config.StatusProgressInterval,
+		LiveNodeGetTimeout:     config.LiveNodeGetTimeout,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create Mokka controller: %w", err)
@@ -64,8 +65,9 @@ func ValidateControllerConfig(config Config) error {
 	if config.LeaderElectionNamespace == "" || config.LeaderElectionName == "" {
 		return errors.New("leader-election namespace and name must not be empty")
 	}
-	if config.Workers < 1 || config.StatusDebounce < 0 || config.StatusProgressInterval < 0 {
-		return errors.New("workers must be positive and status intervals non-negative")
+	if config.Workers < 1 || config.StatusDebounce < 0 || config.StatusProgressInterval < 0 ||
+		config.LiveNodeGetTimeout <= 0 {
+		return errors.New("workers and live Node GET timeout must be positive and status intervals non-negative")
 	}
 	if config.StatusProgressInterval > 0 && config.StatusProgressInterval < config.StatusDebounce {
 		return errors.New("status progress interval must not be shorter than status debounce")
@@ -151,21 +153,10 @@ func runLeaderElection(
 	defer cancel()
 	workCtx, stopWork := context.WithCancel(electionCtx)
 	defer stopWork()
-	workStarted := make(chan struct{})
-	workDone := make(chan struct{})
-	draining := &drainingLock{Interface: lock, workDone: workDone, stopWork: stopWork}
-	var (
-		workErr error
-		workMu  sync.Mutex
-	)
+	work := newLeaderWork()
+	draining := &drainingLock{Interface: lock, workDone: work.done, stopWork: stopWork}
 	electionConfig := newLeaderElectionConfig(config, draining, func(context.Context) {
-		close(workStarted)
-		err := run(workCtx)
-		workMu.Lock()
-		workErr = err
-		workMu.Unlock()
-		close(workDone)
-		cancel()
+		work.start(workCtx, run, cancel)
 	})
 	elector, err := leaderelection.NewLeaderElector(electionConfig)
 	if err != nil {
@@ -173,15 +164,53 @@ func runLeaderElection(
 	}
 	elector.Run(electionCtx)
 	stopWork()
-	select {
-	case <-workStarted:
-		<-workDone
-	default:
+	if !work.finishElection() {
 		return nil
 	}
-	workMu.Lock()
-	defer workMu.Unlock()
-	return workErr
+	<-work.done
+	return work.result()
+}
+
+type leaderWork struct {
+	mu               sync.Mutex
+	done             chan struct{}
+	electionFinished bool
+	started          bool
+	err              error
+}
+
+func newLeaderWork() *leaderWork {
+	return &leaderWork{done: make(chan struct{})}
+}
+
+func (w *leaderWork) start(ctx context.Context, run func(context.Context) error, stopElection context.CancelFunc) {
+	w.mu.Lock()
+	if w.electionFinished {
+		w.mu.Unlock()
+		return
+	}
+	w.started = true
+	w.mu.Unlock()
+
+	err := run(ctx)
+	w.mu.Lock()
+	w.err = err
+	w.mu.Unlock()
+	close(w.done)
+	stopElection()
+}
+
+func (w *leaderWork) finishElection() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.electionFinished = true
+	return w.started
+}
+
+func (w *leaderWork) result() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.err
 }
 
 type drainingLock struct {

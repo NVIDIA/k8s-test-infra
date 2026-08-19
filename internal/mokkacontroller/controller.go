@@ -41,6 +41,7 @@ import (
 const (
 	defaultStatusDebounce         = 100 * time.Millisecond
 	defaultStatusProgressInterval = time.Second
+	defaultLiveNodeGetTimeout     = 2 * time.Second
 )
 
 // Options controls worker concurrency and aggregate-status coalescing.
@@ -50,6 +51,8 @@ type Options struct {
 	StatusDebounce time.Duration
 	// StatusProgressInterval bounds status staleness while changes continue.
 	StatusProgressInterval time.Duration
+	// LiveNodeGetTimeout bounds the exact GET used when a Node leaves the filtered cache.
+	LiveNodeGetTimeout time.Duration
 }
 
 // DefaultOptions returns the production controller defaults.
@@ -57,6 +60,7 @@ func DefaultOptions() Options {
 	return Options{
 		Workers: 2, StatusDebounce: defaultStatusDebounce,
 		StatusProgressInterval: defaultStatusProgressInterval,
+		LiveNodeGetTimeout:     defaultLiveNodeGetTimeout,
 	}
 }
 
@@ -70,10 +74,20 @@ func (o Options) validate() error {
 	if o.StatusProgressInterval < 0 {
 		return errors.New("status progress interval must not be negative")
 	}
+	if o.LiveNodeGetTimeout < 0 {
+		return errors.New("live Node GET timeout must not be negative")
+	}
 	if o.StatusDebounce > 0 && o.statusProgressInterval() < o.StatusDebounce {
 		return errors.New("status progress interval must not be shorter than status debounce")
 	}
 	return nil
+}
+
+func (o Options) liveNodeGetTimeout() time.Duration {
+	if o.LiveNodeGetTimeout > 0 {
+		return o.LiveNodeGetTimeout
+	}
+	return defaultLiveNodeGetTimeout
 }
 
 func (o Options) statusProgressInterval() time.Duration {
@@ -202,6 +216,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 
 	snapshot := newInformerCache(
 		inventories.Lister(), profiles.Lister(), rackInformer.GetIndexer(), nodeCatalog, nodes,
+		options,
 	)
 	projection := controllerprojection.NewController(snapshot, nodes)
 	allocation := controllerack.NewAllocationCache(snapshot)
@@ -499,8 +514,10 @@ func (c *Controller) processNextStatus(ctx context.Context) bool {
 	c.queues.statuses.start(key)
 	defer c.queues.status.Done(key)
 	if err := c.reconcileStatus(ctx, key); err != nil {
-		if !c.queues.status.ShuttingDown() && !errors.Is(err, context.Canceled) {
+		if shouldRetry(ctx, err) && !c.queues.status.ShuttingDown() {
 			c.queues.status.AddRateLimited(key)
+		} else {
+			c.queues.status.Forget(key)
 		}
 		c.queues.statuses.finish(key, false)
 		klog.FromContext(ctx).Error(err, "Controller reconciliation failed", "key", key)
@@ -522,14 +539,20 @@ func processNext[T comparable](
 	}
 	defer queue.Done(key)
 	if err := reconcile(ctx, key); err != nil {
-		if !queue.ShuttingDown() && !errors.Is(err, context.Canceled) {
+		if shouldRetry(ctx, err) && !queue.ShuttingDown() {
 			queue.AddRateLimited(key)
+		} else {
+			queue.Forget(key)
 		}
 		klog.FromContext(ctx).Error(err, "Controller reconciliation failed", "key", key)
 		return true
 	}
 	queue.Forget(key)
 	return true
+}
+
+func shouldRetry(ctx context.Context, err error) bool {
+	return ctx.Err() == nil && !errors.Is(err, context.Canceled)
 }
 
 func boundRackSlot(rack *mokkav1alpha1.SGPURack, index int32) *mokkav1alpha1.SGPURackSlot {

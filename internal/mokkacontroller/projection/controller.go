@@ -116,7 +116,7 @@ func (e *MetadataConflictError) Error() string {
 
 // Cache is the informer-backed read surface needed for one projection.
 type Cache interface {
-	Node(string) (*corev1.Node, error)
+	Node(context.Context, string) (*corev1.Node, error)
 	Rack(string) (*mokkav1alpha1.SGPURack, error)
 	RacksByNodeUID(types.UID) ([]*mokkav1alpha1.SGPURack, error)
 }
@@ -237,7 +237,7 @@ func (c *Controller) project(ctx context.Context, rackName string, slotIndex int
 		return outcome, err
 	}
 
-	node, err := c.cache.Node(slot.NodeRef.Name)
+	node, err := c.cache.Node(ctx, slot.NodeRef.Name)
 	if apierrors.IsNotFound(err) {
 		outcome.State, outcome.Reason = StateAbsent, ReasonExactNodeAbsent
 		c.record(outcome)
@@ -323,7 +323,7 @@ func (c *Controller) Cleanup(ctx context.Context, needed controllerack.CleanupNe
 		rack = nil
 	}
 	outcome := cleanupOutcome(needed)
-	node, err := c.cache.Node(needed.Binding.Node.Name)
+	node, err := c.cache.Node(ctx, needed.Binding.Node.Name)
 	if apierrors.IsNotFound(err) {
 		return c.completeCleanup(needed, outcome, ReasonExactNodeAbsent, exactBindingPresent), nil
 	}

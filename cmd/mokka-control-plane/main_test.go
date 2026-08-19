@@ -40,6 +40,13 @@ func TestFlagsProduceExpectedConfig(t *testing.T) {
 				config.ShutdownTimeout = 12 * time.Second
 			}),
 		},
+		{
+			name: "live Node GET timeout override",
+			args: []string{"mokka-control-plane", "--live-node-get-timeout", "750ms"},
+			want: configWith(func(config *controlplane.Config) {
+				config.LiveNodeGetTimeout = 750 * time.Millisecond
+			}),
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var got controlplane.Config
@@ -55,6 +62,7 @@ func TestFlagsProduceExpectedConfig(t *testing.T) {
 					RetryPeriod:             c.Duration("leader-election-retry-period"), Workers: c.Int("workers"),
 					StatusDebounce:         c.Duration("status-debounce"),
 					StatusProgressInterval: c.Duration("status-progress-interval"),
+					LiveNodeGetTimeout:     c.Duration("live-node-get-timeout"),
 					KubeAPIQPS:             c.Float("kube-api-qps"), KubeAPIBurst: c.Int("kube-api-burst"),
 				}
 				return nil

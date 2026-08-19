@@ -344,6 +344,31 @@ func TestProjectRejectsDuplicateBindingsAndExactUIDReplacement(t *testing.T) {
 	require.Empty(t, patcher.calls)
 }
 
+func TestCleanupPassesCancellationToNodeLookup(t *testing.T) {
+	rack := testRack(false)
+	lookupStarted := make(chan context.Context, 1)
+	cache := &fakeCache{
+		racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
+		nodeLookup: func(ctx context.Context, _ string) (*corev1.Node, error) {
+			lookupStarted <- ctx
+			<-ctx.Done()
+			return nil, context.Cause(ctx)
+		},
+	}
+	controller := NewController(cache, &recordingPatcher{})
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, err := controller.Cleanup(ctx, cleanupFor(rack))
+		result <- err
+	}()
+
+	lookupCtx := <-lookupStarted
+	cancel()
+	require.ErrorIs(t, <-result, context.Canceled)
+	require.ErrorIs(t, context.Cause(lookupCtx), context.Canceled)
+}
+
 func TestCleanupRequiresExactAnnotationAndSupportsPartialProgress(t *testing.T) {
 	rack := testRack(true)
 	node := testNode("node", "node-uid")
@@ -765,11 +790,15 @@ func TestProjectionStateConcurrentAccess(t *testing.T) {
 }
 
 type fakeCache struct {
-	nodes map[string]*corev1.Node
-	racks map[string]*mokkav1alpha1.SGPURack
+	nodes      map[string]*corev1.Node
+	racks      map[string]*mokkav1alpha1.SGPURack
+	nodeLookup func(context.Context, string) (*corev1.Node, error)
 }
 
-func (f *fakeCache) Node(name string) (*corev1.Node, error) {
+func (f *fakeCache) Node(ctx context.Context, name string) (*corev1.Node, error) {
+	if f.nodeLookup != nil {
+		return f.nodeLookup(ctx, name)
+	}
 	node := f.nodes[name]
 	if node == nil {
 		return nil, apierrors.NewNotFound(corev1.Resource("nodes"), name)

@@ -74,6 +74,11 @@ func newCLI() *cli.Command {
 				Name: "status-progress-interval", Value: defaults.StatusProgressInterval,
 				Usage: "maximum aggregate status staleness during continuous changes",
 			},
+			&cli.DurationFlag{
+				Name: "live-node-get-timeout", Value: defaults.LiveNodeGetTimeout,
+				Sources: cli.EnvVars("MOKKA_CP_LIVE_NODE_GET_TIMEOUT"),
+				Usage:   "timeout for an exact Node GET after it leaves the filtered cache",
+			},
 			&cli.FloatFlag{Name: "kube-api-qps", Value: defaults.KubeAPIQPS},
 			&cli.IntFlag{Name: "kube-api-burst", Value: defaults.KubeAPIBurst},
 		},
@@ -95,6 +100,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		Workers:                 cmd.Int("workers"),
 		StatusDebounce:          cmd.Duration("status-debounce"),
 		StatusProgressInterval:  cmd.Duration("status-progress-interval"),
+		LiveNodeGetTimeout:      cmd.Duration("live-node-get-timeout"),
 		KubeAPIQPS:              cmd.Float("kube-api-qps"),
 		KubeAPIBurst:            cmd.Int("kube-api-burst"),
 	}

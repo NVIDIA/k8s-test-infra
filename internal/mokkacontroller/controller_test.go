@@ -429,6 +429,37 @@ func TestProcessNextRateLimitsErrorsAndForgetsSuccess(t *testing.T) {
 	require.Zero(t, queue.NumRequeues("key"))
 }
 
+func TestProcessNextDistinguishesRequestTimeoutFromCallerShutdown(t *testing.T) {
+	t.Run("request timeout retries while caller remains active", func(t *testing.T) {
+		queue := workqueue.NewTypedRateLimitingQueue(
+			workqueue.NewTypedItemFastSlowRateLimiter[string](0, 0, 1),
+		)
+		t.Cleanup(queue.ShutDown)
+		queue.Add("key")
+
+		require.True(t, processNext(context.Background(), queue, func(context.Context, string) error {
+			return context.DeadlineExceeded
+		}))
+		require.Equal(t, 1, queue.NumRequeues("key"))
+	})
+
+	t.Run("caller cancellation never requeues a deadline", func(t *testing.T) {
+		queue := workqueue.NewTypedRateLimitingQueue(
+			workqueue.NewTypedItemFastSlowRateLimiter[string](0, 0, 1),
+		)
+		t.Cleanup(queue.ShutDown)
+		queue.Add("key")
+		ctx, cancel := context.WithCancel(context.Background())
+
+		require.True(t, processNext(ctx, queue, func(context.Context, string) error {
+			cancel()
+			return context.DeadlineExceeded
+		}))
+		require.Zero(t, queue.NumRequeues("key"))
+		require.Zero(t, queue.Len())
+	})
+}
+
 func TestStatusIntervalOptionsPreserveLegacyConstructionAndRejectInvalidBounds(t *testing.T) {
 	legacy := Options{Workers: 1, StatusDebounce: 100 * time.Millisecond}
 	require.NoError(t, legacy.validate())
@@ -482,7 +513,7 @@ func TestRunCancelsAndWaitsForWorkers(t *testing.T) {
 		close(started)
 		<-ctx.Done()
 		close(finished)
-		return nil
+		return context.Cause(ctx)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -506,6 +537,7 @@ func TestRunCancelsAndWaitsForWorkers(t *testing.T) {
 		t.Fatal("Run returned before its worker stopped")
 	}
 	require.False(t, controller.Ready())
+	require.Zero(t, controller.queues.inventories.NumRequeues("inventory"))
 }
 
 func TestFilteredNodeListWatchUsesServerSideSelector(t *testing.T) {
