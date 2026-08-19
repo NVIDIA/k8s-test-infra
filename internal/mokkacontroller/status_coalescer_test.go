@@ -19,11 +19,11 @@ const (
 	testStatusProgress = 4 * testStatusDebounce
 )
 
-func TestStatusCoalescerCoalescesBurstPerKey(t *testing.T) {
+func TestStatusCoalescerBoundsHundredThousandProjectionNotifications(t *testing.T) {
 	coalescer, queue, fakeClock := newTestStatusCoalescer(t, testStatusDebounce)
 	key := testInventoryStatusKey()
 
-	for range 100 {
+	for range 100_000 {
 		coalescer.dirty(key)
 	}
 	require.Equal(t, 1, fakeClock.Waiters())

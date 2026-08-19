@@ -641,7 +641,10 @@ func TestProjectedMetadataEventDoesNotReapplyExactBinding(t *testing.T) {
 	router.nodeUpdate(node, projected)
 	require.Empty(t, drainQueue(queues.groups))
 	require.Empty(t, drainQueue(queues.projections), "the successful projection event must not enqueue itself")
-	require.Empty(t, drainQueue(queues.status))
+	require.ElementsMatch(t, []statusKey{
+		{kind: statusInventory, name: "inventory", uid: "inventory-uid"},
+		{kind: statusRack, name: "rack", uid: "rack-uid"},
+	}, drainQueue(queues.status), "cached projection metadata must publish its durable status input")
 
 	damaged := projected.DeepCopy()
 	damaged.ResourceVersion = "3"

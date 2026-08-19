@@ -218,7 +218,6 @@ func ComputeInventory(input InventoryInput, now metav1.Time) mokkav1alpha1.SGPUI
 
 	requested := make(map[types.UID]struct{})
 	liveNodes := make(map[types.UID]*corev1.Node, len(input.Nodes))
-	projectionByBinding := indexProjection(input.Projection)
 	for _, node := range input.Nodes {
 		if node == nil || node.UID == "" {
 			continue
@@ -253,7 +252,7 @@ func ComputeInventory(input InventoryInput, now metav1.Time) mokkav1alpha1.SGPUI
 				continue
 			}
 			aggregate.status.Usage.AllocatedNodes++
-			if projected(projectionByBinding, rack, slot) {
+			if controllerprojection.MatchesBinding(node, rack, slot) {
 				aggregate.projected++
 			}
 		}
@@ -341,7 +340,7 @@ func ComputeRack(input RackInput, now metav1.Time) mokkav1alpha1.SGPURackStatus 
 			invalid = true
 			continue
 		}
-		if projected(projectionByBinding, rack, slot) {
+		if controllerprojection.MatchesBinding(node, rack, slot) {
 			projectedSlots++
 		}
 	}
@@ -519,11 +518,6 @@ func indexProjection(outcomes []controllerprojection.Outcome) map[projectionKey]
 		indexed[projectionKeyForOutcome(outcome)] = outcome
 	}
 	return indexed
-}
-
-func projected(outcomes map[projectionKey]controllerprojection.Outcome, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackSlot) bool {
-	outcome, exists := outcomes[projectionKeyForBinding(rack, slot)]
-	return exists && outcome.State == controllerprojection.StateProjected
 }
 
 func duplicateUIDs(racks []*mokkav1alpha1.SGPURack) map[types.UID]struct{} {

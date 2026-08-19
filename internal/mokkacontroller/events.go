@@ -369,6 +369,12 @@ func (r *eventRouter) nodeUpdate(oldObject, newObject any) {
 	}
 	bound := r.boundRacks(newNode.Name, newNode.UID)
 	if projectionOnlyNodeUpdate(oldNode, newNode) && projectionsMatchBindings(newNode, bound) {
+		for _, rack := range bound {
+			r.queues.addStatus(statusKey{kind: statusRack, name: rack.Name, uid: rack.UID})
+			r.queues.addStatus(statusKey{
+				kind: statusInventory, name: rack.Spec.InventoryRef.Name, uid: rack.Spec.InventoryRef.UID,
+			})
+		}
 		return
 	}
 	groups := append(r.registry.matching(oldNode), r.registry.matching(newNode)...)

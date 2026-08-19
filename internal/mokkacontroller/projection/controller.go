@@ -532,11 +532,13 @@ func MatchesBinding(node *corev1.Node, rack *mokkav1alpha1.SGPURack, slot *mokka
 	if hasClique && node.Labels[CliqueLabel] != clique {
 		return false
 	}
-	if !hasClique && node.Labels[CliqueLabel] != "" {
-		return false
+	if !hasClique {
+		if _, exists := node.Labels[CliqueLabel]; exists {
+			return false
+		}
 	}
-	assignment, err := DecodeAssignment(node.Annotations[AssignmentAnnotation])
-	if err != nil || !assignmentMatches(assignment, rack, slot) {
+	assignment, err := EncodeAssignment(rack, slot)
+	if err != nil || node.Annotations[AssignmentAnnotation] != assignment {
 		return false
 	}
 	projectionLabels := map[string]any{AssignedLabel: "true"}

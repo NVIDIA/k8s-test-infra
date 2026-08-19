@@ -5,7 +5,9 @@ package status
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -24,7 +26,7 @@ import (
 
 func TestComputeInventoryStatusExactAggregateMathAndConditions(t *testing.T) {
 	now := metav1.NewTime(time.Unix(200, 0))
-	input := aggregateInput()
+	input := aggregateInput(t)
 	input.Inventory.Status.Conditions = []metav1.Condition{{
 		Type: mokkav1alpha1.InventoryConditionAccepted, Status: metav1.ConditionTrue,
 		Reason: ReasonAccepted, LastTransitionTime: metav1.NewTime(time.Unix(100, 0)),
@@ -61,7 +63,7 @@ func TestComputeInventoryStatusExactAggregateMathAndConditions(t *testing.T) {
 }
 
 func TestComputeInventoryRequestedNodesAreDistinctWhileGroupsOverlap(t *testing.T) {
-	input := aggregateInput()
+	input := aggregateInput(t)
 	input.RackResult.ProfileIssues = nil
 	input.RackResult.ResolvedRefs = true
 	delete(input.Profiles, "missing")
@@ -82,7 +84,7 @@ func TestComputeInventoryRequestedNodesAreDistinctWhileGroupsOverlap(t *testing.
 }
 
 func TestComputeRackStatusCountsExactProjectionAndDuplicateBindings(t *testing.T) {
-	input := aggregateInput()
+	input := aggregateInput(t)
 	rack := input.Racks[0]
 	oldTime := metav1.NewTime(time.Unix(50, 0))
 	rack.Status.Conditions = []metav1.Condition{{
@@ -104,9 +106,223 @@ func TestComputeRackStatusCountsExactProjectionAndDuplicateBindings(t *testing.T
 	require.Equal(t, metav1.ConditionTrue, condition(got.Conditions, mokkav1alpha1.RackConditionReady).Status)
 }
 
+func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
+	tests := []struct {
+		name       string
+		mutate     func(*RackInput)
+		wantStatus metav1.ConditionStatus
+		wantReason string
+	}{
+		{
+			name: "exact projection without process outcome",
+			mutate: func(input *RackInput) {
+				input.Projection = nil
+			},
+			wantStatus: metav1.ConditionTrue,
+			wantReason: ReasonReady,
+		},
+		{
+			name: "exact projection supersedes stale process error",
+			mutate: func(input *RackInput) {
+				input.Projection[0].State = controllerprojection.StateConflict
+				input.Projection[0].Reason = controllerprojection.ReasonNodeMetadataConflict
+			},
+			wantStatus: metav1.ConditionTrue,
+			wantReason: ReasonReady,
+		},
+		{
+			name: "successful process outcome cannot hide missing label",
+			mutate: func(input *RackInput) {
+				delete(input.Nodes[0].Labels, controllerprojection.AssignedLabel)
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: ReasonProjectionIncomplete,
+		},
+		{
+			name: "missing assignment",
+			mutate: func(input *RackInput) {
+				delete(input.Nodes[0].Annotations, controllerprojection.AssignmentAnnotation)
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: ReasonProjectionIncomplete,
+		},
+		{
+			name: "wrong assignment Node UID",
+			mutate: func(input *RackInput) {
+				assignment := decodeStatusAssignment(input.Nodes[0])
+				assignment.NodeUID = "replacement-uid"
+				input.Nodes[0].Annotations[controllerprojection.AssignmentAnnotation] = encodeStatusAssignment(assignment)
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: ReasonProjectionIncomplete,
+		},
+		{
+			name: "wrong assignment rack UID",
+			mutate: func(input *RackInput) {
+				assignment := decodeStatusAssignment(input.Nodes[0])
+				assignment.Rack.UID = "replacement-rack-uid"
+				input.Nodes[0].Annotations[controllerprojection.AssignmentAnnotation] = encodeStatusAssignment(assignment)
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: ReasonProjectionIncomplete,
+		},
+		{
+			name: "wrong assignment profile revision",
+			mutate: func(input *RackInput) {
+				assignment := decodeStatusAssignment(input.Nodes[0])
+				assignment.Profile.Revision = "stale-revision"
+				input.Nodes[0].Annotations[controllerprojection.AssignmentAnnotation] = encodeStatusAssignment(assignment)
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: ReasonProjectionIncomplete,
+		},
+		{
+			name: "same-name Node recreation",
+			mutate: func(input *RackInput) {
+				input.Nodes[0].UID = "replacement-node-uid"
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: ReasonInvalidBindings,
+		},
+		{
+			name: "missing Mokka ownership",
+			mutate: func(input *RackInput) {
+				input.Nodes[0].ManagedFields = nil
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: ReasonProjectionIncomplete,
+		},
+		{
+			name: "foreign co-owner",
+			mutate: func(input *RackInput) {
+				setStatusManagedFields(input.Nodes[0], "foreign-controller",
+					[]string{controllerprojection.AssignedLabel},
+					[]string{controllerprojection.AssignmentAnnotation})
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: ReasonProjectionIncomplete,
+		},
+		{
+			name: "optional clique exact",
+			mutate: func(input *RackInput) {
+				input.Rack.Spec.GPUFabric = &mokkav1alpha1.SGPUGPUFabric{}
+				input.Rack.Spec.Identity.FabricUUID = "fabric"
+				input.Rack.Spec.Identity.CliqueID = 7
+				setStatusProjection(input.Nodes[0], input.Rack, &input.Rack.Spec.Slots[0])
+			},
+			wantStatus: metav1.ConditionTrue,
+			wantReason: ReasonReady,
+		},
+		{
+			name: "optional clique missing",
+			mutate: func(input *RackInput) {
+				input.Rack.Spec.GPUFabric = &mokkav1alpha1.SGPUGPUFabric{}
+				input.Rack.Spec.Identity.FabricUUID = "fabric"
+				input.Rack.Spec.Identity.CliqueID = 7
+				setStatusProjection(input.Nodes[0], input.Rack, &input.Rack.Spec.Slots[0])
+				delete(input.Nodes[0].Labels, controllerprojection.CliqueLabel)
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: ReasonProjectionIncomplete,
+		},
+		{
+			name: "unrequested clique retained",
+			mutate: func(input *RackInput) {
+				input.Nodes[0].Labels[controllerprojection.CliqueLabel] = "foreign-clique"
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: ReasonProjectionIncomplete,
+		},
+		{
+			name: "unrequested empty clique retained",
+			mutate: func(input *RackInput) {
+				input.Nodes[0].Labels[controllerprojection.CliqueLabel] = ""
+			},
+			wantStatus: metav1.ConditionFalse,
+			wantReason: ReasonProjectionIncomplete,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := singleProjectedRackInput(t)
+			test.mutate(&input)
+
+			got := ComputeRack(input, metav1.Now())
+			ready := condition(got.Conditions, mokkav1alpha1.RackConditionReady)
+			require.Equal(t, test.wantStatus, ready.Status)
+			require.Equal(t, test.wantReason, ready.Reason)
+		})
+	}
+}
+
+func TestRestartStatusBeforeProjectionDoesNotFlapAndLaterRepairConverges(t *testing.T) {
+	now := metav1.NewTime(time.Unix(200, 0))
+	input := singleProjectedInventoryInput(t)
+	rackInput := RackInput{
+		Rack: input.Racks[0], Racks: input.Racks, Nodes: input.Nodes, Projection: input.Projection,
+	}
+
+	input.Inventory.Status = ComputeInventory(input, now)
+	rackInput.Rack.Status = ComputeRack(rackInput, now)
+	input.Projection = nil
+	rackInput.Projection = nil
+	inventoryWriter := &fakeInventoryWriter{object: input.Inventory.DeepCopy()}
+	rackWriter := &fakeRackWriter{object: rackInput.Rack.DeepCopy()}
+	reconciler := NewReconciler(inventoryWriter, rackWriter, func() metav1.Time { return now })
+
+	changed, err := reconciler.ReconcileInventory(context.Background(), input)
+	require.NoError(t, err)
+	require.False(t, changed, "restart status must derive already-correct projection without a local outcome")
+	changed, err = reconciler.ReconcileRack(context.Background(), rackInput)
+	require.NoError(t, err)
+	require.False(t, changed, "status running before projection must preserve Ready")
+	require.Zero(t, inventoryWriter.updates)
+	require.Zero(t, rackWriter.updates)
+
+	input.Projection = projectedOutcomeFor(input.Racks[0], &input.Racks[0].Spec.Slots[0])
+	rackInput.Projection = input.Projection
+	changed, err = reconciler.ReconcileInventory(context.Background(), input)
+	require.NoError(t, err)
+	require.False(t, changed, "the later projection fast path must not rewrite unchanged status")
+	changed, err = reconciler.ReconcileRack(context.Background(), rackInput)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Zero(t, inventoryWriter.updates)
+	require.Zero(t, rackWriter.updates)
+
+	delete(input.Nodes[0].Labels, controllerprojection.AssignedLabel)
+	changed, err = reconciler.ReconcileInventory(context.Background(), input)
+	require.NoError(t, err)
+	require.True(t, changed)
+	changed, err = reconciler.ReconcileRack(context.Background(), rackInput)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, ReasonProjectionIncomplete,
+		condition(inventoryWriter.object.Status.Conditions, mokkav1alpha1.InventoryConditionProgrammed).Reason)
+	require.Equal(t, ReasonProjectionIncomplete,
+		condition(rackWriter.object.Status.Conditions, mokkav1alpha1.RackConditionReady).Reason)
+
+	setStatusProjection(input.Nodes[0], input.Racks[0], &input.Racks[0].Spec.Slots[0])
+	input.Projection[0].State = controllerprojection.StateConflict
+	input.Projection[0].Reason = controllerprojection.ReasonNodeMetadataConflict
+	changed, err = reconciler.ReconcileInventory(context.Background(), input)
+	require.NoError(t, err)
+	require.True(t, changed)
+	changed, err = reconciler.ReconcileRack(context.Background(), rackInput)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, metav1.ConditionTrue,
+		condition(inventoryWriter.object.Status.Conditions, mokkav1alpha1.InventoryConditionProgrammed).Status)
+	require.Equal(t, metav1.ConditionTrue,
+		condition(rackWriter.object.Status.Conditions, mokkav1alpha1.RackConditionReady).Status)
+	require.Equal(t, 2, inventoryWriter.updates, "only genuine damage and repair may write inventory status")
+	require.Equal(t, 2, rackWriter.updates, "only genuine damage and repair may write rack status")
+}
+
 func TestStatusWritersSuppressIdenticalUpdatesAndRetryConflicts(t *testing.T) {
 	now := metav1.NewTime(time.Unix(200, 0))
-	input := aggregateInput()
+	input := aggregateInput(t)
 	inventoryWriter := &fakeInventoryWriter{object: input.Inventory.DeepCopy(), conflictOnce: true}
 	rackInput := RackInput{Rack: input.Racks[1], Racks: input.Racks, Nodes: input.Nodes, Projection: input.Projection}
 	rackWriter := &fakeRackWriter{object: rackInput.Rack.DeepCopy(), conflictOnce: true}
@@ -132,7 +348,7 @@ func TestStatusWritersSuppressIdenticalUpdatesAndRetryConflicts(t *testing.T) {
 }
 
 func TestRackStatusTreatsStaleExactObjectAsConverged(t *testing.T) {
-	input := aggregateInput()
+	input := aggregateInput(t)
 	rackInput := RackInput{Rack: input.Racks[0], Racks: input.Racks, Nodes: input.Nodes, Projection: input.Projection}
 
 	t.Run("deleted", func(t *testing.T) {
@@ -165,7 +381,7 @@ func TestRackStatusTreatsStaleExactObjectAsConverged(t *testing.T) {
 }
 
 func TestProjectionErrorsRemainRetryableStatusInputs(t *testing.T) {
-	input := aggregateInput()
+	input := aggregateInput(t)
 	input.RackResult.ProfileIssues = nil
 	input.RackResult.ResolvedRefs = true
 	input.Inventory.Spec.RackGroups = input.Inventory.Spec.RackGroups[:2]
@@ -173,6 +389,7 @@ func TestProjectionErrorsRemainRetryableStatusInputs(t *testing.T) {
 	input.Projection[0].State = controllerprojection.StateConflict
 	input.Projection[0].Reason = controllerprojection.ReasonNodeMetadataConflict
 	input.Projection[0].Message = "owned elsewhere"
+	delete(input.Nodes[1].Labels, controllerprojection.AssignedLabel)
 	got := ComputeInventory(input, metav1.Now())
 	programmed := condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
 	require.Equal(t, metav1.ConditionFalse, programmed.Status)
@@ -180,7 +397,7 @@ func TestProjectionErrorsRemainRetryableStatusInputs(t *testing.T) {
 }
 
 func TestInvalidInventoryStatusSurfacesStableValidationError(t *testing.T) {
-	input := aggregateInput()
+	input := aggregateInput(t)
 	input.RackResult.Accepted = false
 	input.RackResult.ValidationError = `rack group "a" selector: selector must not reference controller-owned label "mokka.nvidia.com/sgpu-assigned"`
 
@@ -195,7 +412,7 @@ func TestInvalidInventoryStatusSurfacesStableValidationError(t *testing.T) {
 }
 
 func TestRackAPIInvalidProfileIssueSurfacesInvalidProfileStatus(t *testing.T) {
-	input := aggregateInput()
+	input := aggregateInput(t)
 	input.RackResult.ResolvedRefs = false
 	input.RackResult.ProfileIssues = []controllerack.ProfileIssue{{
 		RackGroup: "a", ProfileName: "pa",
@@ -211,7 +428,8 @@ func TestRackAPIInvalidProfileIssueSurfacesInvalidProfileStatus(t *testing.T) {
 	require.Equal(t, ReasonReferencesUnresolved, programmed.Reason)
 }
 
-func aggregateInput() InventoryInput {
+func aggregateInput(t testing.TB) InventoryInput {
+	t.Helper()
 	inventory := &mokkav1alpha1.SGPUInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "inventory", UID: "inventory-uid", Generation: 7},
 		Spec: mokkav1alpha1.SGPUInventorySpec{RackGroups: []mokkav1alpha1.RackGroup{
@@ -255,6 +473,8 @@ func aggregateInput() InventoryInput {
 		{RackName: rackB.Name, RackUID: rackB.UID, SlotIndex: 0, NodeName: nodes[4].Name, NodeUID: nodes[4].UID, State: controllerprojection.StateProjected},
 		{RackName: rackA.Name, RackUID: rackA.UID, SlotIndex: 1, NodeName: nodes[2].Name, NodeUID: nodes[2].UID, State: controllerprojection.StateConflict, Reason: controllerprojection.ReasonDuplicateBinding},
 	}
+	setStatusProjection(nodes[1], rackA, &rackA.Spec.Slots[0])
+	setStatusProjection(nodes[4], rackB, &rackB.Spec.Slots[0])
 	return InventoryInput{
 		Inventory: inventory, Profiles: profiles, Racks: []*mokkav1alpha1.SGPURack{rackA, rackB}, Nodes: nodes,
 		RackResult: controllerack.Result{
@@ -264,6 +484,123 @@ func aggregateInput() InventoryInput {
 		},
 		Projection: projection,
 	}
+}
+
+func singleProjectedInventoryInput(t testing.TB) InventoryInput {
+	t.Helper()
+	input := aggregateInput(t)
+	input.Inventory.Spec.RackGroups = input.Inventory.Spec.RackGroups[:1]
+	input.Inventory.Spec.RackGroups[0].Count = 1
+	input.Racks[0].Spec.Slots = input.Racks[0].Spec.Slots[:1]
+	input.Racks = input.Racks[:1]
+	input.Nodes = input.Nodes[1:2]
+	input.RackResult = controllerack.Result{Accepted: true, ResolvedRefs: true}
+	input.Projection = projectedOutcomeFor(input.Racks[0], &input.Racks[0].Spec.Slots[0])
+	return input
+}
+
+func singleProjectedRackInput(t testing.TB) RackInput {
+	t.Helper()
+	input := singleProjectedInventoryInput(t)
+	rack := input.Racks[0].DeepCopy()
+	node := input.Nodes[0].DeepCopy()
+	setStatusProjection(node, rack, &rack.Spec.Slots[0])
+	return RackInput{
+		Rack: rack, Racks: []*mokkav1alpha1.SGPURack{rack}, Nodes: []*corev1.Node{node},
+		Projection: projectedOutcomeFor(rack, &rack.Spec.Slots[0]),
+	}
+}
+
+func projectedOutcomeFor(
+	rack *mokkav1alpha1.SGPURack,
+	slot *mokkav1alpha1.SGPURackSlot,
+) []controllerprojection.Outcome {
+	return []controllerprojection.Outcome{{
+		InventoryName: rack.Spec.InventoryRef.Name,
+		InventoryUID:  rack.Spec.InventoryRef.UID,
+		RackGroup:     rack.Spec.Identity.RackGroup,
+		RackName:      rack.Name,
+		RackUID:       rack.UID,
+		RackIndex:     rack.Spec.Identity.RackIndex,
+		SlotIndex:     slot.Index,
+		NodeName:      slot.NodeRef.Name,
+		NodeUID:       slot.NodeRef.UID,
+		State:         controllerprojection.StateProjected,
+	}}
+}
+
+func setStatusProjection(
+	node *corev1.Node,
+	rack *mokkav1alpha1.SGPURack,
+	slot *mokkav1alpha1.SGPURackSlot,
+) {
+	assignment, err := controllerprojection.EncodeAssignment(rack, slot)
+	if err != nil {
+		panic(err)
+	}
+	if node.Labels == nil {
+		node.Labels = make(map[string]string)
+	}
+	node.Labels[controllerprojection.AssignedLabel] = "true"
+	labels := []string{controllerprojection.AssignedLabel}
+	if rack.Spec.GPUFabric != nil {
+		node.Labels[controllerprojection.CliqueLabel] =
+			fmt.Sprintf("%s.%d", rack.Spec.Identity.FabricUUID, rack.Spec.Identity.CliqueID)
+		labels = append(labels, controllerprojection.CliqueLabel)
+	} else {
+		delete(node.Labels, controllerprojection.CliqueLabel)
+	}
+	if node.Annotations == nil {
+		node.Annotations = make(map[string]string)
+	}
+	node.Annotations[controllerprojection.AssignmentAnnotation] = assignment
+	node.ManagedFields = nil
+	setStatusManagedFields(node, controllerprojection.FieldManager, labels,
+		[]string{controllerprojection.AssignmentAnnotation})
+}
+
+func setStatusManagedFields(node *corev1.Node, manager string, labelKeys, annotationKeys []string) {
+	metadataFields := make(map[string]any)
+	if len(labelKeys) > 0 {
+		fields := make(map[string]any, len(labelKeys))
+		for _, key := range labelKeys {
+			fields["f:"+key] = map[string]any{}
+		}
+		metadataFields["f:labels"] = fields
+	}
+	if len(annotationKeys) > 0 {
+		fields := make(map[string]any, len(annotationKeys))
+		for _, key := range annotationKeys {
+			fields["f:"+key] = map[string]any{}
+		}
+		metadataFields["f:annotations"] = fields
+	}
+	raw, err := json.Marshal(map[string]any{"f:metadata": metadataFields})
+	if err != nil {
+		panic(err)
+	}
+	node.ManagedFields = append(node.ManagedFields, metav1.ManagedFieldsEntry{
+		Manager: manager, Operation: metav1.ManagedFieldsOperationApply, APIVersion: "v1",
+		FieldsType: "FieldsV1", FieldsV1: metav1.NewFieldsV1(string(raw)),
+	})
+}
+
+func decodeStatusAssignment(node *corev1.Node) controllerprojection.Assignment {
+	assignment, err := controllerprojection.DecodeAssignment(
+		node.Annotations[controllerprojection.AssignmentAnnotation],
+	)
+	if err != nil {
+		panic(err)
+	}
+	return assignment
+}
+
+func encodeStatusAssignment(assignment controllerprojection.Assignment) string {
+	raw, err := json.Marshal(assignment)
+	if err != nil {
+		panic(err)
+	}
+	return string(raw)
 }
 
 func placement(values ...string) *mokkav1alpha1.RackPlacement {
