@@ -121,8 +121,10 @@ type Component interface {
 ```
 
 - `Reconcile` is called on every state change with the current desired state. Must be idempotent — if nothing changed, it's a no-op.
+- `Reconcile` converges rather than only materializes: it removes surfaces it previously created that the current `State` no longer calls for, so shrinking a node from 8 GPUs to 4 removes `/dev/nvidia4..7` and their PCI entries.
 - Internally, `Reconcile` parallelizes independent surfaces via a local `errgroup`. The GPU-driver-footprint component runs 7 things (chardevs + NVML shim + CUDA shim + nvidia-smi + procfs version + procfs params + engine config) concurrently.
 - `Run` supervises background daemons (mock-ib server, fabric-manager marker loop, allocwatch loop). Returning nil means "one-shot done".
+- There is no agent-wide resync period. A component that owns a file something else can delete re-asserts it from `Run` instead, like the fabric-manager marker every 2 s.
 - `Cleanup` reverses effects on graceful shutdown, per-component. Each component removes only files it created; the top-level `/host/var/lib/nvml-mock` root is left to the pod's hostPath lifecycle.
 - `Ready()` powers `/readyz` and attributes failures per surface.
 
@@ -134,15 +136,28 @@ This is where the desired state comes from:
 
 ```go
 type StateSource interface {
-    Watch(ctx context.Context) (<-chan State, error) // sends current on first call; pushes on change
+    Watch(ctx context.Context) <-chan Update // sends current on subscribe; pushes on change
     Close() error
 }
+
+// Update is one observation. Exactly one of State or Err is set.
+// Err means the source could not refresh — the last good State stays in force.
+type Update struct {
+    State *State
+    Err   error
+    At    time.Time // last successful contact with the backing store
+}
 ```
+
+How a source detects change — inotify, polling, long-poll — is its own business.
+What it cannot hide is failure: without `Err`, silence means both "nothing changed" and "the Control Plane is down".
+A closed channel means the source is terminally done and the agent stops; a source never sends a zero `State` to signal anything.
 
 The compiled state the reconciler acts on maps 1:1 to what [MEP-0001]'s Control Plane will emit:
 
 ```go
 type State struct {
+    Generation int64              // MEP-0001 allocation generation; reported back as observed
     Node       NodeMeta           // hostRoot, nodeName, hostname
     Software   SoftwareVersions   // driver / NVML / CUDA (MEP-0001 §SGPUProfile.spec.software)
     NodeShape  NodeShape          // GPU count, host CPU, PCIe/NUMA topology, GPU fabric, network
@@ -153,11 +168,14 @@ type State struct {
 
 Two implementations from day one:
 
-- `FileSource` — watches the mounted ConfigMap profile YAML plus `overrides.yaml`; merges into `State`.
+- `FileSource` — watches the mounted ConfigMap profile YAML plus `overrides.yaml`; merges into `State`. ConfigMap updates arrive as an atomic `..data` symlink swap, so the watch is on the directory — watching the file pins the replaced inode.
 - `ControlPlaneSource` — [MEP-0001]'s polling client.
 
 `FileSource` reads today's `configs/mock-nvml-config-*.yaml` and compiles it into `State`.
 `ControlPlaneSource` will emit an already-compiled `State`. Components only see `State`.
+
+`overrides.yaml` is a source input, never an agent-materialized surface, so `nvml-mock-ctl` and `allocwatch` keep writing it under their shared lock (`pkg/gpu/mockctl`).
+`ControlPlaneSource` merges Control Plane state underneath it: node-local overrides win, which is what keeps runtime failure injection working without a pod restart.
 
 #### Agent
 
@@ -165,10 +183,10 @@ This is the reconciler & supervisor.
 
 `Agent.Run(ctx)`:
 
-1. Subscribe to `StateSource.Watch(ctx)`; cache the last `State` in memory ([MEP-0001]'s crash-tolerance requirement).
+1. Subscribe to `StateSource.Watch(ctx)`; cache the last `State` in memory ([MEP-0001]'s crash-tolerance requirement). An `Update` carrying `Err` leaves that cache in force — the agent keeps serving it and does not reconcile.
 2. **Wave 1 (parallel)** — on every `State` (initial + updates), call `Reconcile(ctx, host, state)` on every component concurrently via `errgroup`. Component failures are isolated: an optional component's failure marks it unready and continues; a required component's failure returns.
 3. **Wave 2 (parallel, launched once)** — each component's `Run(ctx)` is launched under a supervisor `errgroup` at startup. Runs continue across state changes; only a canceled `ctx` stops them.
-4. Expose `/healthz` + `/readyz` HTTP endpoints, aggregated + per-component (shape from `cmd/nvml-mock-nri/main.go:107` `serveHealth`).
+4. Expose `/healthz` + `/readyz` HTTP endpoints, aggregated + per-component (shape from `cmd/nvml-mock-nri/main.go:107` `serveHealth`). `/healthz` is liveness only and never depends on `StateSource` reachability: otherwise one Control Plane outage restarts — and per step 5, tears down — the whole fleet at once. `/readyz` means the components reconciled the last accepted `State`, and is red only until the first one arrives; later staleness is a metric over `Update.At` and `State.Generation`, not a probe.
 5. On `ctx.Done()`: cancel `Run` goroutines, then call `Cleanup(ctx, host)` on every component in parallel.
 
 Graceful shutdown via `signal.NotifyContext(ctx, SIGINT, SIGTERM)`.
@@ -242,7 +260,7 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 | `/proc/driver/nvidia/params`                                                                                  | GPU Operator driver-status probes                                            | ✓ `gpudriver`                                                                                                                                                  |
 | Kernel module presence: `/proc/modules`, `/sys/module/nvidia/version`, `/sys/module/nvidia_uvm/`              | `lsmod`, GPU Operator `driver-container` gate, DCGM startup checks           | ✗ **gap** — not simulated; unmodified consumers checking module state see nothing                                                                                    |
 | `nvidia-smi` ELF binary + shell fallback                                                                      | shell scripts, operator tooling that invokes `nvidia-smi`                    | ✓ `gpudriver` stages real RPATH-patched ELF; shell fallback covers minimal cases                                                                               |
-| Mock-NVML engine on-disk config (compiled `state` → engine config file the shim reads at dlopen)              | mock-NVML shim itself at container-run time                                  | ✓ `gpudriver` — atomic write with `unix.Flock`; co-writer `nvml-mock-ctl` shares the lock                                                                      |
+| Mock-NVML engine on-disk config (compiled `state` → engine config file the shim reads at dlopen)              | mock-NVML shim itself at container-run time                                  | ✓ `gpudriver` — atomic write. The runtime override file beside it is owned by `nvml-mock-ctl` and `allocwatch` under their shared `pkg/gpu/mockctl` lock, not by the agent |
 | `/run/nvidia/driver` symlink → `/var/lib/nvml-mock/driver`                                                     | GPU Operator validator (probes for driver root on the host)                  | ✓ `gpudriver` — atomic `ln -sfn`, materialized after driver root is populated                                                                                        |
 
 **Delivery**: files materialized under `/host/var/lib/nvml-mock/driver/`, mounted into workload containers via CDI (`nvidia.yaml`) or NRI overlay. LD_PRELOAD is not used here (Go consumers bypass it).
