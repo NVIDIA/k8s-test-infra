@@ -864,7 +864,7 @@ func nriWorkload(name string) pod.Spec {
 // it is meant to watch and will then read a node that never saw the allocation.
 func nriAnyGPUNode(spec pod.Spec, node string) pod.Spec {
 	if node != "" {
-		spec.NodeName = node
+		spec.Node = node
 		return spec
 	}
 	spec.NodeSelector = map[string]string{gpuPresentLabel: "true"}
@@ -873,10 +873,11 @@ func nriAnyGPUNode(spec pod.Spec, node string) pod.Spec {
 
 // nriRequestPodManifest renders a plain GPU-requesting pod: a resource request
 // and nothing else. No hostPath, no MOCK_* env, no runtimeClassName, no
-// annotation. This is the shape MEP-0002 exists to make work.
+// annotation. This is the shape MEP-0002 exists to make work. An empty node
+// leaves placement to the scheduler, which the oversubscription spec relies on.
 func nriRequestPodManifest(name, node string, gpus int, annotations ...map[string]string) []byte {
 	spec := nriWorkload(name)
-	spec.NodeName = node
+	spec.Node = node
 	spec.GPUs = gpus
 	spec.Annotations = map[string]string{}
 	for _, set := range annotations {
@@ -909,7 +910,8 @@ func nriPlainPodManifest(name string) []byte {
 // nriMinimalIBPodManifest renders a run-to-completion pod on a minimal image
 // that invokes one IB tool from the overlay by absolute path. There is no
 // `sleep` wrapper and no `sh -c`: the image has no shell, which is the whole
-// point of using it.
+// point of using it. The label is what the spec selects on to read the pod's
+// logs, since it has already exited by the time they are collected.
 func nriMinimalIBPodManifest(name, tool string, args ...string) []byte {
 	spec := nriAnyGPUNode(nriWorkload(name), "")
 	spec.Image = nriMinimalImage
@@ -986,7 +988,7 @@ func installNRICDIChart(ctx context.Context, h *harness.Harness, p profile.Profi
 // mock IMEX channel injection. It requests no GPU resources.
 func nriImexPodManifest(name, node string, wantChannels bool) []byte {
 	spec := nriWorkload(name)
-	spec.NodeName = node
+	spec.Node = node
 	spec.Annotations = map[string]string{}
 	if wantChannels {
 		spec.Annotations[nriImexAnnotation] = "true"

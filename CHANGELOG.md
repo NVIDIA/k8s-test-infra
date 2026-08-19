@@ -87,15 +87,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   workload manifests now cap `terminationGracePeriodSeconds` at 1, which takes
   each teardown from ~33s to ~3s. `e2e-nri` was the pipeline's critical path;
   `e2e-gpu-operator` now is.
-- Test pod manifests are rendered from the typed `corev1` API objects by a new
-  `tests/e2e/go/framework/pod` package instead of being concatenated as YAML
-  text in each scenario. The hand-assembled form put indentation and quoting on
-  every call site and both failed quietly — a field indented one level too far is
-  still valid YAML that the API server accepts with the setting silently
-  dropped, and an unquoted `true` arrives as a bool where an annotation value
-  must be a string. The package caps the termination grace period by default, so
-  a new scenario cannot reintroduce the 30s teardown stall. It adds no
-  dependency: every import it needs is already vendored.
+- Test pod manifests moved out of the scenario code into a generic
+  `pod.tpl.yaml` under `tests/e2e/go/framework/pod`, rendered from a `Spec` that
+  carries only what a caller varies. The manifest now reads as the manifest the
+  API server actually receives instead of being assembled field by field at each
+  call site, and it is the one place the capped grace period lives, so no
+  scenario can reintroduce the 30s teardown stall. Values are emitted as quoted
+  scalars, which annotation and selector values need: unquoted, `true` reaches
+  the API server as a bool where a string is required and the pod is rejected.
 
 ### Fixed
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
