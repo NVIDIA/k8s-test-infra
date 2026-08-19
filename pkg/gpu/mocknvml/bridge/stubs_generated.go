@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 269 stub functions for unimplemented NVML functions.
+// 268 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -602,11 +602,6 @@ func nvmlDeviceGetVgpuTypeSupportedPlacements(device C.nvmlDevice_t, vgpuTypeId 
 //export nvmlDeviceGetVgpuUtilization
 func nvmlDeviceGetVgpuUtilization(device C.nvmlDevice_t, lastSeenTimeStamp C.ulonglong, sampleValType *C.nvmlValueType_t, vgpuInstanceSamplesCount *C.uint, utilizationSamples *C.nvmlVgpuInstanceUtilizationSample_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetVgpuUtilization")
-}
-
-//export nvmlDeviceGetVirtualizationMode
-func nvmlDeviceGetVirtualizationMode(device C.nvmlDevice_t, pVirtualMode *C.nvmlGpuVirtualizationMode_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetVirtualizationMode")
 }
 
 //export nvmlDeviceModifyDrainState

@@ -957,6 +957,18 @@ func (d *ConfigurableDevice) GetComputeMode() (nvml.ComputeMode, nvml.Return) {
 	return mode, nvml.SUCCESS
 }
 
+// GetVirtualizationMode reports whether the device is virtualized. Answering
+// NOT_SUPPORTED here makes nvidia-smi print "N/A", which claims the driver
+// cannot tell — real hardware always knows, and bare metal answers NONE.
+func (d *ConfigurableDevice) GetVirtualizationMode() (nvml.GpuVirtualizationMode, nvml.Return) {
+	mode := nvml.GPU_VIRTUALIZATION_MODE_NONE
+	if c := d.cfg(); c.Virtualization != nil {
+		mode = parseVirtualizationMode(c.Virtualization.Mode)
+	}
+	debugLog("[NVML] nvmlDeviceGetVirtualizationMode -> %d\n", mode)
+	return mode, nvml.SUCCESS
+}
+
 // GetEccMode returns ECC mode status
 func (d *ConfigurableDevice) GetEccMode() (nvml.EnableState, nvml.EnableState, nvml.Return) {
 	current := nvml.FEATURE_DISABLED
@@ -2023,6 +2035,19 @@ func parseTopologyLevel(level string) nvml.GpuTopologyLevel {
 		return nvml.TOPOLOGY_SYSTEM
 	default:
 		return nvml.TOPOLOGY_SINGLE
+	}
+}
+
+func parseVirtualizationMode(mode string) nvml.GpuVirtualizationMode {
+	switch mode {
+	case "none":
+		return nvml.GPU_VIRTUALIZATION_MODE_NONE
+	case "passthrough":
+		return nvml.GPU_VIRTUALIZATION_MODE_PASSTHROUGH
+	case "vgpu":
+		return nvml.GPU_VIRTUALIZATION_MODE_VGPU
+	default:
+		return nvml.GPU_VIRTUALIZATION_MODE_NONE
 	}
 }
 

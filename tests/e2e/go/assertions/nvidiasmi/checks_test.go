@@ -488,3 +488,97 @@ func TestEncoderFBCProblems_ChecksBothBlocksAgainstTheirOwnExpectation(t *testin
 	require.Len(t, problems, 3, "the fbc_stats block matches the encoder expectation")
 	assert.Contains(t, strings.Join(problems, "; "), "fbc_stats session_count = 2, want 4")
 }
+
+// virtualizationGPU renders one <gpu> whose gpu_virtualization_mode block
+// carries the given bodies verbatim, so a test can inject the "None" of bare
+// metal, the "N/A" of a missing getter, or a vGPU mode.
+func virtualizationGPU(id, mode, hostVGPU, heterogeneous string) string {
+	return `
+	<gpu id="` + id + `">
+		<product_name>NVIDIA A100-SXM4-40GB</product_name>
+		<gpu_virtualization_mode>
+			<virtualization_mode>` + mode + `</virtualization_mode>
+			<host_vgpu_mode>` + hostVGPU + `</host_vgpu_mode>
+			<vgpu_heterogeneous_mode>` + heterogeneous + `</vgpu_heterogeneous_mode>
+		</gpu_virtualization_mode>
+	</gpu>`
+}
+
+func TestVirtualizationModeProblems_AcceptsBareMetalDocument(t *testing.T) {
+	out := xmlDocument(
+		virtualizationGPU("0000:07:00.0", "None", "N/A", "N/A"),
+		virtualizationGPU("0000:0F:00.0", "None", "N/A", "N/A"),
+	)
+
+	problems := VirtualizationModeProblems(out)
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+// The #640 defect, asserted against real pre-fix captures: while
+// nvmlDeviceGetVirtualizationMode was a generated stub nvidia-smi rendered
+// "N/A", claiming the driver could not tell whether the GPU was virtualized.
+func TestVirtualizationModeProblems_RejectsCapturedStubbedDocuments(t *testing.T) {
+	for _, fixture := range []string{"qx-a100-healthy.xml", "qx-gb200-healthy.xml"} {
+		t.Run(fixture, func(t *testing.T) {
+			problems := VirtualizationModeProblems(loadFixture(t, fixture))
+			require.Len(t, problems, 2, "both GPUs report a stubbed virtualization_mode")
+			assert.Contains(t, strings.Join(problems, "; "), `virtualization_mode = "N/A", want "None"`)
+		})
+	}
+}
+
+// vGPU is out of scope for the mock, so host_vgpu_mode and
+// vgpu_heterogeneous_mode must keep reading N/A the way bare-metal hardware
+// reports them. A value in either means vGPU state leaked into the answer.
+func TestVirtualizationModeProblems_RejectsReportedVGPUState(t *testing.T) {
+	out := xmlDocument(
+		virtualizationGPU("0000:07:00.0", "None", "Non SR-IOV", "N/A"),
+		virtualizationGPU("0000:0F:00.0", "None", "N/A", "Enabled"),
+	)
+
+	problems := VirtualizationModeProblems(out)
+	require.Len(t, problems, 2)
+	joined := strings.Join(problems, "; ")
+	assert.Contains(t, joined, "host_vgpu_mode")
+	assert.Contains(t, joined, "vgpu_heterogeneous_mode")
+}
+
+// A GPU-scoped getter that answers for only the first device must be caught.
+func TestVirtualizationModeProblems_ChecksEveryGPU(t *testing.T) {
+	out := xmlDocument(
+		virtualizationGPU("0000:07:00.0", "None", "N/A", "N/A"),
+		virtualizationGPU("0000:0F:00.0", "N/A", "N/A", "N/A"),
+	)
+
+	problems := VirtualizationModeProblems(out)
+	require.Len(t, problems, 1)
+	assert.Contains(t, problems[0], "0000:0F:00.0")
+}
+
+func TestVirtualizationModeProblems_ReportsUnparseableDocument(t *testing.T) {
+	problems := VirtualizationModeProblems("not xml")
+	require.Len(t, problems, 1)
+	assert.Contains(t, problems[0], "parse nvidia-smi XML")
+}
+
+// pmon reaches the mock through the reverse-engineered internal export table
+// and refuses to run there, so its non-zero exit is the baseline rather than a
+// failure. Only a crash is (#640, PR #630).
+func TestProcessMonitorProblems_AcceptsGracefulRefusalAndSuccess(t *testing.T) {
+	assert.Empty(t, ProcessMonitorProblems(255, "Not supported on the device(s)"))
+	assert.Empty(t, ProcessMonitorProblems(0, "# gpu        pid  type"))
+}
+
+func TestProcessMonitorProblems_RejectsSegfault(t *testing.T) {
+	problems := ProcessMonitorProblems(139, "command terminated with exit code 139")
+	require.Len(t, problems, 1)
+	assert.Contains(t, problems[0], "139")
+}
+
+// A signal death surfaces as 128+N through kubectl, or as a negative code when
+// the local kubectl process is itself signalled.
+func TestProcessMonitorProblems_RejectsOtherAbnormalExits(t *testing.T) {
+	for _, code := range []int{-1, 134, 2} {
+		assert.NotEmpty(t, ProcessMonitorProblems(code, "output"), "exit %d", code)
+	}
+}
