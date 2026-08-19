@@ -100,21 +100,21 @@ func TestCatalogGenerationTracksExactAllocationInputWithoutProjectionFeedback(t 
 	specChanged := projected.DeepCopy()
 	specChanged.Spec.Unschedulable = true
 	catalog.Upsert(specChanged)
-	require.EqualValues(t, 2, catalog.Generation())
+	require.EqualValues(t, 1, catalog.Generation(), "Node spec is not allocation input")
 
 	selectorChanged := specChanged.DeepCopy()
 	selectorChanged.Labels["pool"] = "green"
 	catalog.Upsert(selectorChanged)
-	require.EqualValues(t, 3, catalog.Generation())
+	require.EqualValues(t, 2, catalog.Generation())
 
 	replacement := selectorChanged.DeepCopy()
 	replacement.UID = "uid-2"
 	catalog.Upsert(replacement)
-	require.EqualValues(t, 4, catalog.Generation())
+	require.EqualValues(t, 3, catalog.Generation())
 	catalog.Delete(replacement.Name, "uid-1")
-	require.EqualValues(t, 4, catalog.Generation(), "stale deletion must not evict a replacement")
+	require.EqualValues(t, 3, catalog.Generation(), "stale deletion must not evict a replacement")
 	catalog.Delete(replacement.Name, replacement.UID)
-	require.EqualValues(t, 5, catalog.Generation())
+	require.EqualValues(t, 4, catalog.Generation())
 }
 
 func BenchmarkCatalogSteadySnapshot100K(b *testing.B) {

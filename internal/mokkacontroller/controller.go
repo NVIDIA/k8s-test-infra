@@ -7,8 +7,6 @@ package mokkacontroller
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -635,12 +633,7 @@ func compactNodeObject(object any) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("compact Node received %T", object)
 	}
-	spec, err := json.Marshal(node.Spec)
-	if err != nil {
-		return nil, fmt.Errorf("fingerprint Node spec: %w", err)
-	}
-	annotations := make(map[string]string, 2)
-	annotations[controllernodes.SpecFingerprintAnnotation] = fmt.Sprintf("%x", sha256.Sum256(spec))
+	annotations := make(map[string]string, 1)
 	if assignment := node.Annotations[controllerprojection.AssignmentAnnotation]; assignment != "" {
 		annotations[controllerprojection.AssignmentAnnotation] = assignment
 	}

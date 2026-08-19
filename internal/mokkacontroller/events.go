@@ -18,7 +18,6 @@ import (
 	"k8s.io/klog/v2"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	controllernodes "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/nodecatalog"
 	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
@@ -726,7 +725,6 @@ func rackAllocationUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
 func nodeUnchanged(old, current *corev1.Node) bool {
 	return old.UID == current.UID &&
 		equality.Semantic.DeepEqual(old.Labels, current.Labels) &&
-		old.Annotations[controllernodes.SpecFingerprintAnnotation] == current.Annotations[controllernodes.SpecFingerprintAnnotation] &&
 		old.Annotations[controllerprojection.AssignmentAnnotation] == current.Annotations[controllerprojection.AssignmentAnnotation] &&
 		equality.Semantic.DeepEqual(old.ManagedFields, current.ManagedFields) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
@@ -734,7 +732,6 @@ func nodeUnchanged(old, current *corev1.Node) bool {
 
 func projectionOnlyNodeUpdate(old, current *corev1.Node) bool {
 	return old.Name == current.Name && old.UID == current.UID &&
-		old.Annotations[controllernodes.SpecFingerprintAnnotation] == current.Annotations[controllernodes.SpecFingerprintAnnotation] &&
 		labelsEqualExceptProjection(old.Labels, current.Labels) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }

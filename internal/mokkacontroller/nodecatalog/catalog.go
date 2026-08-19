@@ -20,10 +20,6 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/metadata"
 )
 
-// SpecFingerprintAnnotation exists only in the compact informer cache so Node
-// spec changes can advance allocation state without retaining every Node spec.
-const SpecFingerprintAnnotation = "mokka.nvidia.com/internal-node-spec-fingerprint"
-
 // Record is one immutable Node observation shared by catalog indexes and
 // reconciliation snapshots.
 type Record struct {
@@ -245,7 +241,6 @@ func allocationNodeEqual(previous *Record, node *corev1.Node, allocation allocat
 		previous.allocation.UID == allocation.UID &&
 		previous.allocation.CreationTimestamp.Equal(allocation.CreationTimestamp) &&
 		allocationLabelsEqual(previous.allocation.Labels, allocation.Labels) &&
-		nodeSpecEqual(previous.node, node) &&
 		equality.Semantic.DeepEqual(previous.node.DeletionTimestamp, node.DeletionTimestamp)
 }
 
@@ -267,15 +262,6 @@ func allocationLabelsEqual(previous, current map[string]string) bool {
 		}
 	}
 	return true
-}
-
-func nodeSpecEqual(previous, current *corev1.Node) bool {
-	previousFingerprint := previous.Annotations[SpecFingerprintAnnotation]
-	currentFingerprint := current.Annotations[SpecFingerprintAnnotation]
-	if previousFingerprint != "" || currentFingerprint != "" {
-		return previousFingerprint == currentFingerprint
-	}
-	return equality.Semantic.DeepEqual(previous.Spec, current.Spec)
 }
 
 func addToSet[K comparable](index map[K]recordSet, key K, record *Record) {

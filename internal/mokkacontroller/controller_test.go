@@ -23,7 +23,6 @@ import (
 	"k8s.io/client-go/util/workqueue"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
-	controllernodes "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/nodecatalog"
 	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
@@ -588,14 +587,34 @@ func TestCompactNodeObjectRetainsOnlyControllerReadSurface(t *testing.T) {
 	require.Equal(t, node.DeletionTimestamp, compact.DeletionTimestamp)
 	require.Equal(t, node.Labels, compact.Labels)
 	require.Equal(t, "assignment", compact.Annotations[controllerprojection.AssignmentAnnotation])
-	require.NotEmpty(t, compact.Annotations[controllernodes.SpecFingerprintAnnotation])
-	require.Len(t, compact.Annotations, 2)
+	require.Len(t, compact.Annotations, 1)
 	require.Len(t, compact.ManagedFields, 2)
 	require.Equal(t, controllerprojection.FieldManager, compact.ManagedFields[0].Manager)
 	require.Equal(t, "foreign-controller", compact.ManagedFields[1].Manager)
 	require.NotContains(t, compact.ManagedFields[1].FieldsV1.GetRawString(), "podCIDR")
 	require.Empty(t, compact.Spec)
 	require.Empty(t, compact.Status)
+}
+
+func TestNodeSpecUpdateDoesNotRouteAllocationWork(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	registry := newPlacementRegistry()
+	registry.replace(testInventory())
+	router := newEventRouter(inventories, racks, registry, queues)
+
+	oldNode := testNode()
+	current := oldNode.DeepCopy()
+	current.ResourceVersion = "2"
+	current.Spec.Unschedulable = true
+	current.Spec.Taints = []corev1.Taint{{Key: "maintenance", Effect: corev1.TaintEffectNoSchedule}}
+	router.nodeUpdate(oldNode, current)
+
+	require.Empty(t, drainQueue(queues.groups))
+	require.Empty(t, drainQueue(queues.projections))
+	require.Empty(t, drainQueue(queues.status))
 }
 
 func TestSingleNodeEventDoesNotListFromAPI(t *testing.T) {
