@@ -20,12 +20,9 @@
 
 load('ext://helm_resource', 'helm_resource')
 
+# Order matters: the Nth profile is pinned to worker-N, whose name comes from
+# the JoinConfiguration patches in local/kind/default.kind.yaml.
 FLEET_PROFILES = ['a100', 't4']
-
-# Worker hostnames pinned by the JoinConfiguration patches in
-# local/kind/default.kind.yaml. Positional: the Nth fleet profile lands on the
-# Nth worker, so reordering either list re-assigns profiles to nodes.
-_FLEET_NODES = ['worker-0', 'worker-1']
 
 _IMAGE = 'ghcr.io/nvidia/nvml-mock'
 _CONTROL_PLANE_IMAGE = 'ghcr.io/nvidia/mokka-control-plane'
@@ -197,7 +194,7 @@ def install_single(profile, active_consumers, nvmlmock_image='', control_plane=F
     return ['nvml-mock']
 
 def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image='', control_plane=False):
-    """Install one nvml-mock release per profile, node-pinned to workers.
+    """Install one nvml-mock release per profile, the Nth pinned to worker-N.
 
     The chart's fullname template collapses to the release name when it already
     contains the chart name ('nvml-mock'), so 'nvml-mock-a100' / 'nvml-mock-t4'
@@ -208,10 +205,6 @@ def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image=''
     (health probes only), and future MEPs that give the CP real state will
     revisit the placement story.
     """
-    if len(profiles) > len(_FLEET_NODES):
-        fail('install_fleet: %d profiles (%s) but only %d worker nodes (%s)' % (
-            len(profiles), ', '.join(profiles), len(_FLEET_NODES), ', '.join(_FLEET_NODES)))
-
     for i in range(len(profiles)):
         _install(
             'nvml-mock-' + profiles[i],
@@ -219,7 +212,7 @@ def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image=''
             active_consumers,
             # helm --set reads '.' as a path separator, so the dot in
             # kubernetes.io is escaped to keep the label key in one piece.
-            extra_set=['nodeSelector.kubernetes\\.io/hostname=' + _FLEET_NODES[i]],
+            extra_set=['nodeSelector.kubernetes\\.io/hostname=worker-%d' % i],
             nvmlmock_image=nvmlmock_image,
             control_plane=control_plane,
         )
