@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/metadata"
 	"github.com/stretchr/testify/require"
 )
 
@@ -82,6 +83,38 @@ func TestCatalogReusesAllocationViewUntilNodeStateChanges(t *testing.T) {
 	third := catalog.Snapshot().AllocationNodes()
 	require.Len(t, third, 2)
 	require.NotSame(t, &first[0], &third[0])
+}
+
+func TestCatalogGenerationTracksExactAllocationInputWithoutProjectionFeedback(t *testing.T) {
+	catalog := New()
+	node := catalogNode("node", "uid-1", 1, map[string]string{"pool": "blue"})
+	catalog.Upsert(node)
+	require.EqualValues(t, 1, catalog.Generation())
+
+	projected := node.DeepCopy()
+	projected.Labels[metadata.AssignedLabel] = "true"
+	projected.Labels[metadata.CliqueLabel] = "rack"
+	catalog.Upsert(projected)
+	require.EqualValues(t, 1, catalog.Generation(), "controller projection must not invalidate allocation")
+
+	specChanged := projected.DeepCopy()
+	specChanged.Spec.Unschedulable = true
+	catalog.Upsert(specChanged)
+	require.EqualValues(t, 2, catalog.Generation())
+
+	selectorChanged := specChanged.DeepCopy()
+	selectorChanged.Labels["pool"] = "green"
+	catalog.Upsert(selectorChanged)
+	require.EqualValues(t, 3, catalog.Generation())
+
+	replacement := selectorChanged.DeepCopy()
+	replacement.UID = "uid-2"
+	catalog.Upsert(replacement)
+	require.EqualValues(t, 4, catalog.Generation())
+	catalog.Delete(replacement.Name, "uid-1")
+	require.EqualValues(t, 4, catalog.Generation(), "stale deletion must not evict a replacement")
+	catalog.Delete(replacement.Name, replacement.UID)
+	require.EqualValues(t, 5, catalog.Generation())
 }
 
 func BenchmarkCatalogSteadySnapshot100K(b *testing.B) {

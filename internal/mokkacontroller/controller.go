@@ -7,6 +7,8 @@ package mokkacontroller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -202,11 +204,13 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		inventories.Lister(), profiles.Lister(), rackInformer.GetIndexer(), nodeCatalog, nodes,
 	)
 	projection := controllerprojection.NewController(snapshot, nodes)
-	rackReconciler := controllerack.NewReconciler(
+	allocation := controllerack.NewAllocationCache(snapshot)
+	rackReconciler := controllerack.NewReconcilerWithAllocationCache(
 		snapshot,
 		mokkaClient.MokkaV1alpha1().SGPUInventories(),
 		mokkaClient.MokkaV1alpha1().SGPURacks(),
 		projection,
+		allocation,
 	)
 	statusReconciler := controllerstatus.NewReconciler(
 		mokkaClient.MokkaV1alpha1().SGPUInventories(),
@@ -353,7 +357,10 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		}
 	}
 
-	router := newEventRouter(inventoryInformer.GetIndexer(), rackInformer.GetIndexer(), newPlacementRegistry(), controller.queues)
+	router := newEventRouter(
+		inventoryInformer.GetIndexer(), rackInformer.GetIndexer(), newPlacementRegistry(), controller.queues,
+		allocation.Invalidate,
+	)
 	if err := addHandler(profileInformer, cache.ResourceEventHandlerFuncs{
 		AddFunc: router.profileAdd, UpdateFunc: router.profileUpdate, DeleteFunc: router.profileDelete,
 	}); err != nil {
@@ -563,6 +570,10 @@ func (s *resultStore) putGroup(name string, uid types.UID, group string, result 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := resultKey{name: name, uid: uid}
+	if result.InventoryAllocation != nil {
+		result.Allocation = *result.InventoryAllocation
+		result.InventoryAllocation = nil
+	}
 	if previous, found := s.results[key]; found {
 		for _, conflict := range previous.OwnershipConflicts {
 			if conflict.RackGroup != group {
@@ -601,9 +612,13 @@ func compactNodeObject(object any) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("compact Node received %T", object)
 	}
-	var annotations map[string]string
+	spec, err := json.Marshal(node.Spec)
+	if err != nil {
+		return nil, fmt.Errorf("fingerprint Node spec: %w", err)
+	}
+	annotations := make(map[string]string, 2)
+	annotations[controllernodes.SpecFingerprintAnnotation] = fmt.Sprintf("%x", sha256.Sum256(spec))
 	if assignment := node.Annotations[controllerprojection.AssignmentAnnotation]; assignment != "" {
-		annotations = make(map[string]string, 1)
 		annotations[controllerprojection.AssignmentAnnotation] = assignment
 	}
 	managedFields := controllerprojection.CompactManagedFields(node.ManagedFields)

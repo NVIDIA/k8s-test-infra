@@ -11,12 +11,18 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
+	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/metadata"
 )
+
+// SpecFingerprintAnnotation exists only in the compact informer cache so Node
+// spec changes can advance allocation state without retaining every Node spec.
+const SpecFingerprintAnnotation = "mokka.nvidia.com/internal-node-spec-fingerprint"
 
 // Record is one immutable Node observation shared by catalog indexes and
 // reconciliation snapshots.
@@ -36,6 +42,7 @@ func (r *Record) Allocation() allocate.Node { return r.allocation }
 type Snapshot struct {
 	records    []*Record
 	allocation []allocate.Node
+	generation uint64
 }
 
 // Records returns all records in deterministic Node identity order.
@@ -43,6 +50,9 @@ func (s *Snapshot) Records() []*Record { return s.records }
 
 // AllocationNodes returns the cached allocator input for this generation.
 func (s *Snapshot) AllocationNodes() []allocate.Node { return s.allocation }
+
+// Generation identifies the exact allocation-relevant Node input revision.
+func (s *Snapshot) Generation() uint64 { return s.generation }
 
 type recordSet map[*Record]struct{}
 
@@ -61,6 +71,7 @@ type Catalog struct {
 	byLabelKey   map[string]recordSet
 	byLabelValue map[labelValue]recordSet
 	snapshot     *Snapshot
+	generation   uint64
 }
 
 // New returns an empty catalog.
@@ -78,16 +89,21 @@ func (c *Catalog) Upsert(node *corev1.Node) {
 	if node == nil || node.Name == "" || node.UID == "" {
 		return
 	}
+	allocation := allocate.Node{
+		Name: node.Name, UID: node.UID,
+		CreationTimestamp: node.CreationTimestamp.Time, Labels: node.Labels,
+	}
 	record := &Record{
-		node: node,
-		allocation: allocate.Node{
-			Name: node.Name, UID: node.UID,
-			CreationTimestamp: node.CreationTimestamp.Time, Labels: node.Labels,
-		},
+		node:       node,
+		allocation: allocation,
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	allocationChanged := true
+	if previous := c.byName[node.Name]; previous != nil && previous.node.UID == node.UID {
+		allocationChanged = !allocationNodeEqual(previous, node, allocation)
+	}
 	if previous := c.byName[node.Name]; previous != nil {
 		c.removeLocked(previous)
 	}
@@ -97,6 +113,9 @@ func (c *Catalog) Upsert(node *corev1.Node) {
 	c.byName[node.Name] = record
 	c.byUID[node.UID] = record
 	c.indexLocked(record)
+	if allocationChanged {
+		c.generation++
+	}
 	c.snapshot = nil
 }
 
@@ -110,7 +129,15 @@ func (c *Catalog) Delete(name string, uid types.UID) {
 		return
 	}
 	c.removeLocked(record)
+	c.generation++
 	c.snapshot = nil
+}
+
+// Generation returns the current allocation-relevant Node revision.
+func (c *Catalog) Generation() uint64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.generation
 }
 
 // GetByName returns the current immutable record for a Node name.
@@ -151,7 +178,7 @@ func (c *Catalog) Snapshot() *Snapshot {
 	for index, record := range records {
 		allocation[index] = record.allocation
 	}
-	c.snapshot = &Snapshot{records: records, allocation: allocation}
+	c.snapshot = &Snapshot{records: records, allocation: allocation, generation: c.generation}
 	return c.snapshot
 }
 
@@ -211,6 +238,44 @@ func (c *Catalog) removeLocked(record *Record) {
 		removeFromSet(c.byLabelKey, key, record)
 		removeFromSet(c.byLabelValue, labelValue{key: key, value: value}, record)
 	}
+}
+
+func allocationNodeEqual(previous *Record, node *corev1.Node, allocation allocate.Node) bool {
+	return previous.allocation.Name == allocation.Name &&
+		previous.allocation.UID == allocation.UID &&
+		previous.allocation.CreationTimestamp.Equal(allocation.CreationTimestamp) &&
+		allocationLabelsEqual(previous.allocation.Labels, allocation.Labels) &&
+		nodeSpecEqual(previous.node, node) &&
+		equality.Semantic.DeepEqual(previous.node.DeletionTimestamp, node.DeletionTimestamp)
+}
+
+func allocationLabelsEqual(previous, current map[string]string) bool {
+	for key, value := range previous {
+		if key == metadata.AssignedLabel || key == metadata.CliqueLabel {
+			continue
+		}
+		if current[key] != value {
+			return false
+		}
+	}
+	for key := range current {
+		if key == metadata.AssignedLabel || key == metadata.CliqueLabel {
+			continue
+		}
+		if _, exists := previous[key]; !exists {
+			return false
+		}
+	}
+	return true
+}
+
+func nodeSpecEqual(previous, current *corev1.Node) bool {
+	previousFingerprint := previous.Annotations[SpecFingerprintAnnotation]
+	currentFingerprint := current.Annotations[SpecFingerprintAnnotation]
+	if previousFingerprint != "" || currentFingerprint != "" {
+		return previousFingerprint == currentFingerprint
+	}
+	return equality.Semantic.DeepEqual(previous.Spec, current.Spec)
 }
 
 func addToSet[K comparable](index map[K]recordSet, key K, record *Record) {

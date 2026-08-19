@@ -106,6 +106,10 @@ func (c *informerCache) RacksByNodeUID(uid types.UID) ([]*mokkav1alpha1.SGPURack
 	return castRacks(objects)
 }
 
+func (c *informerCache) AllocationNodeGeneration() uint64 {
+	return c.nodes.Generation()
+}
+
 func (c *informerCache) AllocationNodes() ([]allocate.Node, error) {
 	return c.nodes.Snapshot().AllocationNodes(), nil
 }

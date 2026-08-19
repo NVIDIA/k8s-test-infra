@@ -18,6 +18,7 @@ import (
 	"k8s.io/klog/v2"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	controllernodes "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/nodecatalog"
 	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
@@ -95,10 +96,28 @@ type eventRouter struct {
 	racks       cache.Indexer
 	registry    *placementRegistry
 	queues      *queues
+	invalidate  func()
 }
 
-func newEventRouter(inventories, racks cache.Indexer, registry *placementRegistry, queues *queues) *eventRouter {
-	return &eventRouter{inventories: inventories, racks: racks, registry: registry, queues: queues}
+func newEventRouter(
+	inventories, racks cache.Indexer,
+	registry *placementRegistry,
+	queues *queues,
+	invalidators ...func(),
+) *eventRouter {
+	var invalidate func()
+	if len(invalidators) > 0 {
+		invalidate = invalidators[0]
+	}
+	return &eventRouter{
+		inventories: inventories, racks: racks, registry: registry, queues: queues, invalidate: invalidate,
+	}
+}
+
+func (r *eventRouter) invalidateAllocation() {
+	if r.invalidate != nil {
+		r.invalidate()
+	}
 }
 
 func (r *eventRouter) inventoryAdd(object any) {
@@ -106,6 +125,7 @@ func (r *eventRouter) inventoryAdd(object any) {
 	if !ok {
 		return
 	}
+	r.invalidateAllocation()
 	r.registry.replace(inventory)
 	r.routeInventory(inventory)
 }
@@ -113,7 +133,13 @@ func (r *eventRouter) inventoryAdd(object any) {
 func (r *eventRouter) inventoryUpdate(oldObject, newObject any) {
 	oldInventory, oldOK := eventObject[*mokkav1alpha1.SGPUInventory](oldObject)
 	newInventory, newOK := eventObject[*mokkav1alpha1.SGPUInventory](newObject)
-	if !oldOK || !newOK || inventoryUnchanged(oldInventory, newInventory) {
+	if !oldOK || !newOK {
+		return
+	}
+	if !inventoryAllocationUnchanged(oldInventory, newInventory) {
+		r.invalidateAllocation()
+	}
+	if inventoryUnchanged(oldInventory, newInventory) {
 		return
 	}
 	r.registry.replace(newInventory)
@@ -125,6 +151,7 @@ func (r *eventRouter) inventoryDelete(object any) {
 	if !ok {
 		return
 	}
+	r.invalidateAllocation()
 	r.registry.remove(inventory)
 	r.routeInventory(inventory)
 }
@@ -137,6 +164,7 @@ func (r *eventRouter) routeInventory(inventory *mokkav1alpha1.SGPUInventory) {
 func (r *eventRouter) profileAdd(object any) {
 	profile, ok := eventObject[*mokkav1alpha1.SGPUProfile](object)
 	if ok {
+		r.invalidateAllocation()
 		r.routeProfile(profile.Name)
 	}
 }
@@ -144,7 +172,13 @@ func (r *eventRouter) profileAdd(object any) {
 func (r *eventRouter) profileUpdate(oldObject, newObject any) {
 	oldProfile, oldOK := eventObject[*mokkav1alpha1.SGPUProfile](oldObject)
 	newProfile, newOK := eventObject[*mokkav1alpha1.SGPUProfile](newObject)
-	if !oldOK || !newOK || profileUnchanged(oldProfile, newProfile) {
+	if !oldOK || !newOK {
+		return
+	}
+	if !profileAllocationUnchanged(oldProfile, newProfile) {
+		r.invalidateAllocation()
+	}
+	if profileUnchanged(oldProfile, newProfile) {
 		return
 	}
 	r.routeProfile(oldProfile.Name)
@@ -156,6 +190,7 @@ func (r *eventRouter) profileUpdate(oldObject, newObject any) {
 func (r *eventRouter) profileDelete(object any) {
 	profile, ok := eventObject[*mokkav1alpha1.SGPUProfile](object)
 	if ok {
+		r.invalidateAllocation()
 		r.routeProfile(profile.Name)
 	}
 }
@@ -247,6 +282,7 @@ func (r *eventRouter) routeNodeWithBindings(node *corev1.Node, groups []allocate
 func (r *eventRouter) rackAdd(object any) {
 	rack, ok := eventObject[*mokkav1alpha1.SGPURack](object)
 	if ok {
+		r.invalidateAllocation()
 		fresh := make(map[int32]types.UID)
 		freeSlot := false
 		for _, slot := range rack.Spec.Slots {
@@ -264,7 +300,13 @@ func (r *eventRouter) rackAdd(object any) {
 func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 	oldRack, oldOK := eventObject[*mokkav1alpha1.SGPURack](oldObject)
 	newRack, newOK := eventObject[*mokkav1alpha1.SGPURack](newObject)
-	if !oldOK || !newOK || rackUnchanged(oldRack, newRack) {
+	if !oldOK || !newOK {
+		return
+	}
+	if !rackAllocationUnchanged(oldRack, newRack) {
+		r.invalidateAllocation()
+	}
+	if rackUnchanged(oldRack, newRack) {
 		return
 	}
 	newBindings := make(map[int32]types.UID, len(newRack.Spec.Slots))
@@ -303,6 +345,7 @@ func (r *eventRouter) rackDelete(object any) {
 	if !ok {
 		return
 	}
+	r.invalidateAllocation()
 	for _, slot := range rack.Spec.Slots {
 		if slot.NodeRef == nil {
 			continue
@@ -437,8 +480,20 @@ func inventoryUnchanged(old, current *mokkav1alpha1.SGPUInventory) bool {
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
 
+func inventoryAllocationUnchanged(old, current *mokkav1alpha1.SGPUInventory) bool {
+	return old.Name == current.Name && old.UID == current.UID &&
+		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
+		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
+}
+
 func profileUnchanged(old, current *mokkav1alpha1.SGPUProfile) bool {
 	return old.UID == current.UID &&
+		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
+		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
+}
+
+func profileAllocationUnchanged(old, current *mokkav1alpha1.SGPUProfile) bool {
+	return old.Name == current.Name && old.UID == current.UID &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
@@ -451,9 +506,17 @@ func rackUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
 
+func rackAllocationUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
+	return old.Name == current.Name && old.UID == current.UID &&
+		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
+		equality.Semantic.DeepEqual(old.OwnerReferences, current.OwnerReferences) &&
+		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
+}
+
 func nodeUnchanged(old, current *corev1.Node) bool {
 	return old.UID == current.UID &&
 		equality.Semantic.DeepEqual(old.Labels, current.Labels) &&
+		old.Annotations[controllernodes.SpecFingerprintAnnotation] == current.Annotations[controllernodes.SpecFingerprintAnnotation] &&
 		old.Annotations[controllerprojection.AssignmentAnnotation] == current.Annotations[controllerprojection.AssignmentAnnotation] &&
 		equality.Semantic.DeepEqual(old.ManagedFields, current.ManagedFields) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
@@ -461,6 +524,7 @@ func nodeUnchanged(old, current *corev1.Node) bool {
 
 func projectionOnlyNodeUpdate(old, current *corev1.Node) bool {
 	return old.Name == current.Name && old.UID == current.UID &&
+		old.Annotations[controllernodes.SpecFingerprintAnnotation] == current.Annotations[controllernodes.SpecFingerprintAnnotation] &&
 		labelsEqualExceptProjection(old.Labels, current.Labels) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }

@@ -116,13 +116,17 @@ type Input struct {
 
 // Plan separates durable retention, cleanup, new writes, and unresolved Nodes.
 type Plan struct {
-	Retained  []Binding
-	Released  []Release
-	Assigned  []Binding
-	Bindings  []Binding
-	Pending   []Node
-	Conflicts []Conflict
-	Stats     Stats
+	Retained []Binding
+	Released []Release
+	Assigned []Binding
+	Bindings []Binding
+	Pending  []Node
+	// PendingGroups is parallel to Pending and identifies the only group that
+	// selected each Node. Keeping the identity makes cached plans partitionable
+	// without repeating selector evaluation.
+	PendingGroups []GroupKey
+	Conflicts     []Conflict
+	Stats         Stats
 }
 
 type groupState struct {
@@ -239,6 +243,7 @@ func Allocate(input Input) (Plan, error) {
 			case 0:
 			case 1:
 				plan.Pending = append(plan.Pending, classification.Node)
+				plan.PendingGroups = append(plan.PendingGroups, classification.Candidates[0])
 			default:
 				plan.Conflicts = append(plan.Conflicts, Conflict{
 					Kind:       ConflictSelectorOverlap,
@@ -257,6 +262,7 @@ func Allocate(input Input) (Plan, error) {
 			coordinate, ok := nextFreeCoordinate(state, &plan.Stats)
 			if !ok {
 				plan.Pending = append(plan.Pending, classification.Node)
+				plan.PendingGroups = append(plan.PendingGroups, classification.Candidates[0])
 				continue
 			}
 			assigned := Binding{

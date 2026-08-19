@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
+	controllernodes "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/nodecatalog"
 	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
@@ -109,6 +111,49 @@ func TestNoOpUpdatesAreSuppressed(t *testing.T) {
 	require.Zero(t, queues.groups.Len())
 	require.Zero(t, queues.projections.Len())
 	require.Zero(t, queues.status.Len())
+}
+
+func TestAllocationRevisionIgnoresOwnedMetadataAndTracksTopologyInputs(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	var invalidations atomic.Int64
+	router := newEventRouter(
+		inventories, racks, newPlacementRegistry(), queues,
+		func() { invalidations.Add(1) },
+	)
+
+	inventory := testInventory()
+	finalized := inventory.DeepCopy()
+	finalized.Finalizers = []string{controllerack.InventoryFinalizer}
+	router.inventoryUpdate(inventory, finalized)
+	require.Zero(t, invalidations.Load())
+
+	resized := finalized.DeepCopy()
+	resized.Spec.RackGroups[0].Count++
+	router.inventoryUpdate(finalized, resized)
+	require.EqualValues(t, 1, invalidations.Load())
+
+	profile := &mokkav1alpha1.SGPUProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile", UID: "profile-uid"}}
+	profileRV := profile.DeepCopy()
+	profileRV.ResourceVersion = "2"
+	router.profileUpdate(profile, profileRV)
+	require.EqualValues(t, 1, invalidations.Load())
+	profileSpec := profileRV.DeepCopy()
+	profileSpec.Spec.Rack.NodesPerRack = 2
+	router.profileUpdate(profileRV, profileSpec)
+	require.EqualValues(t, 2, invalidations.Load())
+
+	rack := testRack(testNode())
+	finalizedRack := rack.DeepCopy()
+	finalizedRack.Finalizers = []string{controllerack.RackFinalizer}
+	router.rackUpdate(rack, finalizedRack)
+	require.EqualValues(t, 2, invalidations.Load())
+	rebound := finalizedRack.DeepCopy()
+	rebound.Spec.Slots[0].NodeRef.UID = "replacement-uid"
+	router.rackUpdate(finalizedRack, rebound)
+	require.EqualValues(t, 3, invalidations.Load())
 }
 
 func TestDeleteTombstonesRouteExactCleanupBeforeGroup(t *testing.T) {
@@ -288,7 +333,9 @@ func TestCompactNodeObjectRetainsOnlyControllerReadSurface(t *testing.T) {
 	require.Equal(t, node.CreationTimestamp, compact.CreationTimestamp)
 	require.Equal(t, node.DeletionTimestamp, compact.DeletionTimestamp)
 	require.Equal(t, node.Labels, compact.Labels)
-	require.Equal(t, map[string]string{controllerprojection.AssignmentAnnotation: "assignment"}, compact.Annotations)
+	require.Equal(t, "assignment", compact.Annotations[controllerprojection.AssignmentAnnotation])
+	require.NotEmpty(t, compact.Annotations[controllernodes.SpecFingerprintAnnotation])
+	require.Len(t, compact.Annotations, 2)
 	require.Len(t, compact.ManagedFields, 2)
 	require.Equal(t, controllerprojection.FieldManager, compact.ManagedFields[0].Manager)
 	require.Equal(t, "foreign-controller", compact.ManagedFields[1].Manager)

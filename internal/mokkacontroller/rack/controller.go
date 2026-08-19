@@ -139,8 +139,11 @@ type Result struct {
 	OwnershipConflicts []OwnershipConflict
 	CleanupNeeded      []CleanupNeeded
 	Allocation         allocate.Plan
-	Work               WorkStats
-	Changed            bool
+	// InventoryAllocation carries the inventory status view when Allocation is
+	// deliberately restricted to one reconciled group.
+	InventoryAllocation *allocate.Plan
+	Work                WorkStats
+	Changed             bool
 }
 
 // WorkStats exposes deterministic operation counts for reconciliation scale
@@ -157,6 +160,10 @@ type Reconciler struct {
 	inventories InventoryMutations
 	racks       Mutations
 	cleanup     CleanupGate
+	allocation  *AllocationCache
+	// refreshAllocation preserves the standalone reconciler contract for
+	// callers that do not wire informer invalidations.
+	refreshAllocation bool
 }
 
 // NewReconciler constructs a keyed rack reconciler.
@@ -166,7 +173,25 @@ func NewReconciler(
 	racks Mutations,
 	cleanup CleanupGate,
 ) *Reconciler {
-	return &Reconciler{cache: cache, inventories: inventories, racks: racks, cleanup: cleanup}
+	reconciler := NewReconcilerWithAllocationCache(
+		cache, inventories, racks, cleanup, NewAllocationCache(cache),
+	)
+	reconciler.refreshAllocation = true
+	return reconciler
+}
+
+// NewReconcilerWithAllocationCache constructs a reconciler sharing one global
+// allocation computation across all inventory and group workers.
+func NewReconcilerWithAllocationCache(
+	cache Cache,
+	inventories InventoryMutations,
+	racks Mutations,
+	cleanup CleanupGate,
+	allocation *AllocationCache,
+) *Reconciler {
+	return &Reconciler{
+		cache: cache, inventories: inventories, racks: racks, cleanup: cleanup, allocation: allocation,
+	}
 }
 
 // Reconcile converges one inventory and all of its rack groups.
@@ -183,6 +208,10 @@ func (r *Reconciler) ReconcileGroup(ctx context.Context, key allocate.GroupKey) 
 //nolint:cyclop // The branches are the explicit inventory and rack lifecycle state machine.
 func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *allocate.GroupKey) (Result, error) {
 	result := Result{Accepted: true, ResolvedRefs: true}
+	if r.refreshAllocation {
+		r.allocation.Invalidate()
+	}
+	allocationRevision := r.allocation.revision()
 	inventory, err := r.cache.Inventory(key)
 	if apierrors.IsNotFound(err) {
 		return result, nil
@@ -249,11 +278,26 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 		})
 	}
 
-	allocation, err := r.allocationPlan(inventory)
+	allocation, err := r.allocation.planRevision(
+		allocationRevision,
+		requestedGroup,
+		inventoryInstance{name: inventory.Name, uid: inventory.UID},
+	)
 	if err != nil {
 		return result, err
 	}
 	result.Allocation = allocation
+	if requestedGroup != nil {
+		inventoryAllocation, viewErr := r.allocation.planRevision(
+			allocationRevision,
+			nil,
+			inventoryInstance{name: inventory.Name, uid: inventory.UID},
+		)
+		if viewErr != nil {
+			return result, viewErr
+		}
+		result.InventoryAllocation = &inventoryAllocation
+	}
 
 	resolvedByID := make(map[string]resolvedGroup, len(resolved))
 	for _, group := range resolved {
@@ -439,84 +483,6 @@ func (r *Reconciler) resolveGroups(inventory *mokkav1alpha1.SGPUInventory) ([]re
 		})
 	}
 	return resolved, issues, nil
-}
-
-//nolint:cyclop // Snapshot assembly validates each cached object identity before allocation.
-func (r *Reconciler) allocationPlan(currentInventory *mokkav1alpha1.SGPUInventory) (allocate.Plan, error) {
-	inventories, err := r.cache.Inventories()
-	if err != nil {
-		return allocate.Plan{}, fmt.Errorf("list inventories from cache: %w", err)
-	}
-	inventories = slices.Clone(inventories)
-	currentFound := false
-	for i, inventory := range inventories {
-		if inventory.Name == currentInventory.Name && inventory.UID == currentInventory.UID {
-			inventories[i] = currentInventory
-			currentFound = true
-		}
-	}
-	if !currentFound {
-		inventories = append(inventories, currentInventory)
-	}
-	groups := make([]allocate.Group, 0)
-	inventoriesByUID := make(map[types.UID]*mokkav1alpha1.SGPUInventory, len(inventories))
-	for _, inventory := range inventories {
-		inventoriesByUID[inventory.UID] = inventory
-		if inventory.DeletionTimestamp != nil || validateInventory(inventory) != nil {
-			continue
-		}
-		resolved, _, err := r.resolveGroups(inventory)
-		if err != nil {
-			return allocate.Plan{}, err
-		}
-		for _, group := range resolved {
-			var selector *metav1.LabelSelector
-			if group.group.Placement != nil {
-				selector = group.group.Placement.NodeSelector
-			}
-			groups = append(groups, allocate.Group{
-				Key: group.key, Selector: selector,
-				Racks: group.group.Count, SlotsPerRack: group.profile.Spec.Rack.NodesPerRack,
-			})
-		}
-	}
-
-	racks, err := r.cache.Racks()
-	if err != nil {
-		return allocate.Plan{}, fmt.Errorf("list racks from cache: %w", err)
-	}
-	bindings := make([]allocate.Binding, 0)
-	for _, rack := range racks {
-		inventory := inventoriesByUID[rack.Spec.InventoryRef.UID]
-		if inventory == nil || !controlledByInventory(rack, inventory) {
-			continue
-		}
-		for _, slot := range rack.Spec.Slots {
-			if slot.NodeRef == nil {
-				continue
-			}
-			bindings = append(bindings, allocate.Binding{
-				Coordinate: allocate.Coordinate{
-					Group: allocate.GroupKey{
-						InventoryName: inventory.Name, InventoryUID: inventory.UID,
-						RackGroup: rack.Spec.Identity.RackGroup,
-					},
-					RackIndex: rack.Spec.Identity.RackIndex, SlotIndex: slot.Index,
-				},
-				Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
-			})
-		}
-	}
-
-	allocationNodes, err := r.cache.AllocationNodes()
-	if err != nil {
-		return allocate.Plan{}, fmt.Errorf("list Nodes from cache: %w", err)
-	}
-	plan, err := allocate.Allocate(allocate.Input{Groups: groups, Nodes: allocationNodes, Bindings: bindings})
-	if err != nil {
-		return allocate.Plan{}, fmt.Errorf("allocate rack bindings: %w", err)
-	}
-	return plan, nil
 }
 
 func (r *Reconciler) preservePendingReleases(

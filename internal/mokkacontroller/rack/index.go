@@ -150,6 +150,7 @@ type Cache interface {
 	Racks() ([]*mokkav1alpha1.SGPURack, error)
 	RacksByInventoryUID(uid types.UID) ([]*mokkav1alpha1.SGPURack, error)
 	RacksByInventoryGroup(uid types.UID, group string) ([]*mokkav1alpha1.SGPURack, error)
+	AllocationNodeGeneration() uint64
 	AllocationNodes() ([]allocate.Node, error)
 }
 
@@ -161,6 +162,10 @@ type ListerCache struct {
 	racks       cache.Indexer
 	nodes       NodeLister
 }
+
+// AllocationNodeGeneration returns the immutable lister generation. Test and
+// compatibility listers are replaced as a unit when their contents change.
+func (c *ListerCache) AllocationNodeGeneration() uint64 { return 0 }
 
 // NodeLister is the read-only Node informer surface used by ListerCache.
 type NodeLister interface {
