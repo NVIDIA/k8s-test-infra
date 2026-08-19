@@ -48,6 +48,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FORCE_RECREATE=true`.
 
 ### Fixed
+- mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
+  uses (`00000000:07:00.0`, `NVML_DEVICE_PCI_BUS_ID_FMT`) while `busIdLegacy`
+  keeps the 4-digit one (`0000:07:00.0`). Both were filled with the profile's
+  4-digit `bus_id` verbatim, and consumers recover a sysfs BDF by stripping a
+  leading `0000` from `busId` — so go-nvlib derived the malformed `:07:00.0` and
+  every `/sys/bus/pci` lookup built from it failed. GPU Operator's
+  gpu-feature-discovery logged `unable to read PCI device vendor id for
+  :07:00.0` and labelled `nvidia.com/gpu.mode=unknown`. NVLink remote PCI info
+  follows the same split, `nvidia-smi` reports the address hardware shows, and
+  bus-ID handle lookups now accept either domain width and either case, so a
+  consumer that hands back the `busId` it just read (DCGM) still resolves the
+  device. (#671)
+- mocknvml: `nvidia-smi` no longer reports impossible per-GPU PCIe identity
+  values. `Board ID` is derived from the device's PCI address the way NVML does
+  — `(domain << 16) | (bus << 8) | (device << 3)`, so a GPU at `0000:07:00.0`
+  reports `0x700` — instead of `0x0` for every GPU, which left an eight-GPU node
+  indistinguishable by board ID. `nvmlDeviceGetGpuMaxPcieLinkGeneration` is now
+  hand-written in the bridge, so the `Device Max` PCIe generation reads Gen3 on
+  `t4` through Gen6 on Blackwell instead of `N/A`. `Host Max` now matches the
+  device maximum instead of an impossible Gen0: no public NVML API exposes a
+  host-side maximum, and nvidia-smi reads it through a slot of the internal
+  export table whose catch-all stub wrote a zero count over the caller's
+  reading — the same class of bug as the phantom processes above. All three
+  maxima now agree in `nvidia-smi -q`, `-q -x` (`<max_host_link_gen>`) and
+  `--query-gpu=pcie.link.gen.hostmax`. (#638)
+- mocknvml: `nvidia-smi -q` reports `Virtualization Mode : None` instead of
+  `N/A`. `nvmlDeviceGetVirtualizationMode` was a generated stub — the most
+  frequently called one in a single `-q` run — so the mock claimed it could not
+  tell whether it was virtualized, where bare-metal hardware always answers
+  `None`. The export is now hand-written and resolves the `virtualization.mode`
+  the profiles already carried (`none`, `passthrough`, `vgpu`; anything
+  unrecognised reads as bare metal). vGPU stays out of scope: `Host VGPU Mode`
+  and `vGPU Heterogeneous Mode` still read `N/A`, matching bare metal. An
+  earlier attempt at this fix was reverted during PR #630 because it moved
+  `nvidia-smi pmon` onto a different code path and segfaulted it, so an e2e spec
+  now pins `pmon -c 1` to a graceful refusal or success and requires `topo -m`
+  to succeed, guarding the neighbouring internal-export-table path. (#640)
 - Wire eight NVML device exports that already had engine implementations but
   were still generated stubs (`GetEncoderStats`, `GetFBCStats`,
   `GetAccountingBufferSize`, `GetEncoderCapacity`, `GetEncoderSessions`,
@@ -73,6 +110,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   their config field, matching the existing encoder and decoder getters. The
   values are also settable at runtime with
   `nvml-mock-ctl set --gpu <idx> utilization.jpeg=35 utilization.ofa=12`. (#637)
+- Report `GPU C2C Mode` in `nvidia-smi -q` from `nvlink.c2c_enabled`.
+  `nvmlDeviceGetC2cModeInfoV` was a generated stub, so the Grace-Blackwell
+  profiles (`gb200`, `gb300`) reported `N/A` for the NVLink-C2C link to the
+  Grace CPU that defines them, silently dropping a configured value. Boards
+  with no such link keep reporting `N/A`, which is correct for them: `a100`,
+  `h100` and `b200` set `c2c_enabled: false`, `l40s` and `t4` omit the key, and
+  both cases answer `NVML_ERROR_NOT_SUPPORTED`. (#639)
 
 - Gate the T.Limit temperature surfaces on Ada and later: the field IDs
   193–196 (`NVML_FI_DEV_TEMPERATURE_*_TLIMIT`) and

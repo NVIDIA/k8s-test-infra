@@ -50,6 +50,11 @@ type NodeFabric struct {
 	hasPCIe bool
 	version uint32
 
+	// c2cEnabled mirrors nvlink.c2c_enabled: an NVLink-C2C link to the host
+	// CPU. Node-level rather than per-device because the link is a property
+	// of the board — every profile that has it has it on every GPU.
+	c2cEnabled bool
+
 	// epoch anchors the deterministic NVLink counter accrual. It is
 	// process-independent so counters grow across separate nvidia-smi
 	// invocations. now is injectable for tests.
@@ -134,6 +139,17 @@ func capBit(c nvml.NvLinkCapability) uint32 {
 	return uint32(1) << uint(c)
 }
 
+// resolveC2CEnabled reads the node-level nvlink.c2c_enabled flag. A missing
+// config, a missing nvlink block, and an explicit false are all "no C2C link";
+// GetMockC2cMode turns that into ERROR_NOT_SUPPORTED rather than a false
+// reading, so the distinction never reaches a consumer.
+func resolveC2CEnabled(cfg *Config) bool {
+	if cfg == nil || cfg.YAMLConfig == nil || cfg.YAMLConfig.NVLink == nil {
+		return false
+	}
+	return cfg.YAMLConfig.NVLink.C2CEnabled
+}
+
 // BuildNodeFabric constructs the immutable node fabric from the loaded
 // configuration. It never fails: misconfiguration is recorded as warnings
 // (see Validate) rather than blocking startup, matching the project's
@@ -160,6 +176,7 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 		cpusOf:     make([][]int, n),
 		now:        time.Now,
 		epoch:      resolveCounterEpoch(),
+		c2cEnabled: resolveC2CEnabled(cfg),
 	}
 	for i := 0; i < n; i++ {
 		f.nvCount[i] = make([]int, n)
@@ -471,6 +488,16 @@ func (f *NodeFabric) Validate() []string {
 
 // NumDevices returns the number of devices modeled by the fabric.
 func (f *NodeFabric) NumDevices() int { return f.numDevices }
+
+// C2CEnabled reports whether the node's nvlink block declares an NVLink-C2C
+// link to the host CPU. Nil-safe: legacy/default mode builds no fabric, and
+// a GPU with no declared NVLink topology has no C2C link either.
+func (f *NodeFabric) C2CEnabled() bool {
+	if f == nil {
+		return false
+	}
+	return f.c2cEnabled
+}
 
 // HasPCIeTopology reports whether root-complex / NUMA facts were supplied.
 func (f *NodeFabric) HasPCIeTopology() bool { return f.hasPCIe }

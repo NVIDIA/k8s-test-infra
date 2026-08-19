@@ -213,7 +213,7 @@ Here is the list of CRDs that map to our system concepts:
 
 All CRDs are meant to be cluster-wide.
 
-#### SGPUProfile
+#### SGPURackProfile
 
 The current profile YAML format is a mix of multiple things:
 - hardware capabilities
@@ -224,7 +224,7 @@ The current profile YAML format is a mix of multiple things:
 - live counters and telemetry
 - implementation details needed to reproduce nvidia-smi -q.
 
-Mapping between the existing YAML configuration and proposed SGPUProfile:
+Mapping between the existing YAML configuration and proposed SGPURackProfile:
 
 | Existing section                      | New location                           |
 | ------------------------------------- | -------------------------------------- |
@@ -240,10 +240,10 @@ Mapping between the existing YAML configuration and proposed SGPUProfile:
 | `fabric.cluster_uuid` and `clique_id` | Generated from the fabric domain       |
 | `processes`                           | Runtime state only; never profile spec |
 
-Not all of that belongs to SGPUProfile. We propose the following information hierarchy:
+Not all of that belongs to SGPURackProfile. We propose the following information hierarchy:
 
 ```
-SGPUProfile
+SGPURackProfile
 ├── rack                         Rack shape
 ├── node
 │   ├── gpus                     Homogeneous GPU template
@@ -255,7 +255,7 @@ SGPUProfile
 
 ```yaml
 apiVersion: mokka.nvidia.com/v1alpha1
-kind: SGPUProfile
+kind: SGPURackProfile
 metadata:
   name: gb300-nvl72
   labels:
@@ -495,8 +495,8 @@ capabilities.attributes.*.strings:
   x-kubernetes-list-type: set
 ```
 
-- We should represent the out-of-the-box profiles just as custom resources of `SGPUProfile` type, 
-so there is a distinction between vanilla and custom profiles. 
+- We should represent the out-of-the-box profiles just as custom resources of `SGPURackProfile` type,
+so there is a distinction between vanilla and custom profiles.
 
 #### SGPUInventory
 
@@ -580,7 +580,7 @@ status:
     - type: ResolvedRefs
       status: "True"
       reason: ProfilesResolved
-      message: All referenced SGPUProfiles were resolved.
+      message: All referenced SGPURackProfile resources were resolved.
       observedGeneration: 3
       lastTransitionTime: "2026-08-05T10:40:20Z"
 
@@ -636,7 +636,7 @@ spec:
     gpuIndexes: # optional
       - 2
 
-  runtime: # the same configuration as in SGPUProfile.defaults.runtime
+  runtime: # the same configuration as in SGPURackProfile.defaults.runtime
     telemetry:
       temperature:
         mode: Fixed
@@ -1099,7 +1099,7 @@ The full, materialized state with information for 4 GPUs weighs 9 kB. It'll be
 - 250 MB for 20k nodes,
 - 9 GB for 1M nodes.
 
-Alternatively, we can keep the state in semi-computed runtime information and blend it with static SGPUProfile data:
+Alternatively, we can keep the state in semi-computed runtime information and blend it with static SGPURackProfile data:
 
 ```yaml
 apiVersion: mokka.nvidia.com/v1alpha1
@@ -1230,7 +1230,7 @@ This way, the effective runtime for each sGPU is:
 
 ```
 effective runtime for GPU N
-    = SGPUProfile hardware information +
+    = SGPURackProfile hardware information +
       runtime.defaults +
       overridden with runtime.devices[index=N]
 ```
@@ -1250,7 +1250,7 @@ Inventory
 The effective configuration is assembled in this order:
 
 ```
-SGPUProfile defaults
+SGPURackProfile defaults
       ↓
 inventory policy
       ↓

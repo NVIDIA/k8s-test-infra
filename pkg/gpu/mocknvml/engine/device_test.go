@@ -93,11 +93,20 @@ func TestConfigurableDevice_GetPciInfo(t *testing.T) {
 	require.Equal(t, uint32(0x20B010DE), pciInfo.PciDeviceId, "Expected A100 PCI device ID")
 }
 
-// TestConfigurableDevice_GetPciInfo_BusIdLegacy verifies that GetPciInfo
-// populates BOTH the modern busId and the legacy busIdLegacy strings. Real NVML
-// fills both; NVSentinel's metadata-collector derives each GPU's pci_address
-// from busIdLegacy, so leaving it empty produces blank PCI addresses.
-func TestConfigurableDevice_GetPciInfo_BusIdLegacy(t *testing.T) {
+// TestConfigurableDevice_GetPciInfo_BusIDDomainWidths verifies that GetPciInfo
+// populates BOTH bus-ID strings, each in the format nvml.h defines for it:
+// busId uses an 8-digit domain (NVML_DEVICE_PCI_BUS_ID_FMT, "%08X:%02X:%02X.0")
+// and busIdLegacy a 4-digit one (NVML_DEVICE_PCI_BUS_ID_LEGACY_FMT).
+//
+// Both fields matter to real consumers. NVSentinel's metadata-collector derives
+// each GPU's pci_address from busIdLegacy, so leaving it empty produces blank
+// PCI addresses. And the domain width of busId is load-bearing rather than
+// cosmetic: go-nvlib recovers a sysfs BDF by stripping a leading "0000" from
+// busId, so a 4-digit domain there leaves the malformed ":3b:00.0" and every
+// /sys/bus/pci lookup built from it fails — which is how GPU Operator's GFD
+// ends up labelling nvidia.com/gpu.mode=unknown.
+func TestConfigurableDevice_GetPciInfo_BusIDDomainWidths(t *testing.T) {
+	// Profiles declare the canonical Linux sysfs BDF; only busId widens.
 	const busID = "0000:3b:00.0"
 	yaml := &YAMLConfig{
 		System: SystemConfig{DriverVersion: "550.0", NumDevices: 1},
@@ -116,8 +125,10 @@ func TestConfigurableDevice_GetPciInfo_BusIdLegacy(t *testing.T) {
 
 	pci, ret := cd.GetPciInfo()
 	require.Equal(t, nvml.SUCCESS, ret, "GetPciInfo failed")
-	require.Equal(t, busID, busIDString(pci.BusId[:]), "BusId not populated")
-	require.Equal(t, busID, busIDString(pci.BusIdLegacy[:]), "BusIdLegacy not populated")
+	require.Equal(t, "00000000:3B:00.0", busIDString(pci.BusId[:]),
+		"busId must use the 8-digit NVML domain form")
+	require.Equal(t, "0000:3B:00.0", busIDString(pci.BusIdLegacy[:]),
+		"busIdLegacy must use the 4-digit domain form")
 }
 
 // =============================================================================
@@ -273,9 +284,10 @@ func TestConfigurableDevice_GetNvLinkRemotePciInfo(t *testing.T) {
 	pci, ret := cd.GetNvLinkRemotePciInfo(0)
 	require.Equal(t, nvml.SUCCESS, ret, "GetNvLinkRemotePciInfo failed")
 	require.Equal(t, uint32(0x3B), pci.Bus, "Expected bus 0x3B")
-	// busIdLegacy must carry the remote BDF too — the metadata-collector reads
-	// it to build each NVLink's remote_pci_address.
-	require.Equal(t, "0000:3B:00.0", busIDString(pci.BusId[:]), "remote BusId not populated")
+	// Each field carries the remote BDF in its own NVML format, as the local
+	// address does. busIdLegacy must be populated too — the metadata-collector
+	// reads it to build each NVLink's remote_pci_address.
+	require.Equal(t, "00000000:3B:00.0", busIDString(pci.BusId[:]), "remote BusId not populated")
 	require.Equal(t, "0000:3B:00.0", busIDString(pci.BusIdLegacy[:]), "remote BusIdLegacy not populated")
 }
 
@@ -1135,8 +1147,8 @@ func TestConfigurableDevice_NvLinkGetters_PerDevice(t *testing.T) {
 	pci, ret := d0.GetNvLinkRemotePciInfo(2)
 	require.Equal(t, nvml.SUCCESS, ret, "d0.GetNvLinkRemotePciInfo(2)")
 	busID := busIDString(pci.BusId[:])
-	require.True(t, containsPrefix(busID, "0000:0B") || containsPrefix(busID, "0000:0b"),
-		"d0 link2 remote BusId: got %q, want 0000:0B prefix", busID)
+	require.True(t, containsPrefix(busID, "00000000:0B") || containsPrefix(busID, "00000000:0b"),
+		"d0 link2 remote BusId: got %q, want 00000000:0B prefix", busID)
 }
 
 func TestConfigurableDevice_TopologyCommonAncestor_Pairwise(t *testing.T) {
