@@ -346,9 +346,11 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 
 **Reconcile trigger**: `state.Devices` or `state.Software` changes.
 
-### Compatibility carry-over: K8s-visible node identity (not a subsystem)
+### Tech Debt
 
-Node identity is **not a subsystem** of the Mokka Node Agent — it fails the definition of a simulated component (*"a real-world thing we pretend exists on the host"*, per [§Simulated Surface](#simulated-surface)). Node identity is K8s API state we mutate, not host state we render. It shares no ownership model with `gpudriver`, `pcibus`, `ibhca`, `imex`, `nvlink`, `fabricmanager`, or `cdi`.
+####  K8s-visible node identity
+
+Node identity is **not a subsystem** of the Mokka Node Agent. Node identity is K8s API state we mutate, not host state we render. 
 
 This appendix documents the surfaces the current `setup.sh` publishes to node-adjacent K8s state, only so implementers refactoring `setup.sh` into the node agent know where each surface goes.
 
@@ -359,17 +361,15 @@ This appendix documents the surfaces the current `setup.sh` publishes to node-ad
 
 **Remaining surfaces (delegated, gap, or N/A)**:
 
-| Surface                                                                     | Destination                                                                                                                                                                                                                            |
-|-----------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Node label `nvidia.com/gpu.present=true`                                    | **Delegated out of the agent.** NFD applies from `pcibus`'s feature-file bridge; GFD applies from mock NVML; Mokka Control Plane can apply directly. Optional `--legacy-node-label` flag retains `setup.sh` parity with a deprecation warning.          |
-| Richer NFD features: GPU count, driver version, MIG support                 | ✗ **gap** — not covered by the immediate refactor. Extend `pcibus` (PCI-derived features) or defer to GFD (NVML-derived features).                                                                                                     |
-| Container-runtime CDI configuration via `nvidia-ctk config`                 | N/A — bypassed; we rely on containerd's built-in CDI discovery.                                                                                                                                                                        |
+| Surface                                                     | Destination                                                                                                                                          |
+|-------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Node label `nvidia.com/gpu.present=true`                    | **Delegated out of the agent.** NFD applies from `pcibus`'s feature-file bridge; GFD applies from mock NVML; Mokka Control Plane can apply directly. |
+| Richer NFD features: GPU count, driver version, MIG support | ✗ **gap** — not covered by the immediate refactor. Extend `pcibus` (PCI-derived features) or defer to GFD (NVML-derived features).                   |
+| Container-runtime CDI configuration via `nvidia-ctk config` | N/A — bypassed; we rely on containerd's built-in CDI discovery.                                                                                      |
 
 **Refactor path**:
 
-- **Immediate (this MEP)**: NFD feature-file rendering folds into `pcibus.Reconcile`; `/run/nvidia/driver` symlink folds into `gpudriver.Reconcile`. **No `nodeidentity` package is created under `internal/agent/`.**
-- **Compat mode**: if `setup.sh` parity is required in a test env, an opt-in `--legacy-node-label` flag applies the K8s node label at agent startup and prints a deprecation warning. Expected to be removed once Mokka Control Plane / GFD / NFD label the node from real substrate in the target environment.
-- **Long-term**: `/run/nvidia/driver` symlink is a GPU Operator quirk — track upstream removal, then drop from `gpudriver.Reconcile`.
+NFD feature-file rendering folds into `pcibus.Reconcile`; `/run/nvidia/driver` symlink folds into `gpudriver.Reconcile`.
 
 ## Drawbacks
 
