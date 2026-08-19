@@ -215,3 +215,41 @@ func TestPlatformIdentityModuleIDsAreDistinct(t *testing.T) {
 		})
 	}
 }
+
+// TestRowRemapHistogramIsAmpereAndLater pins the histogram as an
+// architecture axis: row remapping arrived with Ampere, so t4 must leave
+// remapped_rows.availability_histogram unset and report unsupported, while every
+// later profile configures it. Driven from KnownProfiles so a newly added
+// profile has to declare which side it belongs on (#641).
+func TestRowRemapHistogramIsAmpereAndLater(t *testing.T) {
+	preAmpere := map[string]bool{"kepler": true, "maxwell": true, "pascal": true, "volta": true, "turing": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		want := !preAmpere[p.Architecture()]
+		require.Equal(t, want, p.ReportsRowRemapHistogram(),
+			"%s (%s): remapped_rows.availability_histogram configured should be %v",
+			name, p.Architecture(), want)
+		if want {
+			require.Positive(t, p.RowRemapHistogramBanks(),
+				"%s: availability_histogram.max must be a real bank count", name)
+		}
+	}
+}
+
+// A profile with no remapped_rows block must load and report the histogram
+// unsupported rather than failing.
+func TestRowRemapHistogramDefaultsToUnsupported(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `
+device_defaults:
+  name: "NVIDIA TEST-GPU"
+devices:
+  - index: 0
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "fixture.yaml"), []byte(yaml), 0o600))
+
+	p, err := Load(dir, "fixture")
+	require.NoError(t, err, "Load(fixture)")
+	assert.False(t, p.ReportsRowRemapHistogram(), "ReportsRowRemapHistogram()")
+}

@@ -286,7 +286,28 @@ typedef struct nvmlEccErrorCounts_st {
     unsigned long long deviceMemory;
     unsigned long long registerFile;
 } nvmlEccErrorCounts_t;
-typedef struct nvmlEccSramErrorStatus_st                    nvmlEccSramErrorStatus_t;
+/* SRAM ECC error status — full definition needed by the bridge so
+ * nvmlDeviceGetSramEccErrorStatus can populate the caller's buffer (issue
+ * #641). version is an input the caller stamps with the NVML_STRUCT_VERSION
+ * macro; the rest are outputs. Layout matches
+ * vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h (v1), pinned by
+ * ecc_layout_test.go. */
+typedef struct nvmlEccSramErrorStatus_st
+{
+    unsigned int       version;                 //!< IN: NVML_STRUCT_VERSION(EccSramErrorStatus, 1)
+    unsigned long long aggregateUncParity;
+    unsigned long long aggregateUncSecDed;
+    unsigned long long aggregateCor;
+    unsigned long long volatileUncParity;
+    unsigned long long volatileUncSecDed;
+    unsigned long long volatileCor;
+    unsigned long long aggregateUncBucketL2;
+    unsigned long long aggregateUncBucketSm;
+    unsigned long long aggregateUncBucketPcie;
+    unsigned long long aggregateUncBucketMcu;
+    unsigned long long aggregateUncBucketOther;
+    unsigned int       bThresholdExceeded;
+} nvmlEccSramErrorStatus_t;
 typedef struct nvmlEccSramUniqueUncorrectedErrorCounts_st   nvmlEccSramUniqueUncorrectedErrorCounts_t;
 typedef struct nvmlEncoderSessionInfo_st                    nvmlEncoderSessionInfo_t;
 /* Event data - full definition needed by bridge so the failure-injection
@@ -535,7 +556,18 @@ typedef struct nvmlProcessUtilizationSample_st
 } nvmlProcessUtilizationSample_t;
 typedef struct nvmlProcessesUtilizationInfo_st              nvmlProcessesUtilizationInfo_t;
 typedef struct nvmlRepairStatus_st                          nvmlRepairStatus_t;
-typedef struct nvmlRowRemapperHistogramValues_st            nvmlRowRemapperHistogramValues_t;
+/* Row-remap availability histogram — full definition needed by the bridge so
+ * nvmlDeviceGetRowRemapperHistogram can populate the caller's buffer (issue
+ * #641). Each field counts the memory banks with that much remap capacity
+ * left. Layout matches the upstream NVML header. */
+typedef struct nvmlRowRemapperHistogramValues_st
+{
+    unsigned int max;
+    unsigned int high;
+    unsigned int partial;
+    unsigned int low;
+    unsigned int none;
+} nvmlRowRemapperHistogramValues_t;
 typedef struct nvmlSample_st                                nvmlSample_t;
 typedef struct nvmlSystemConfComputeSettings_st             nvmlSystemConfComputeSettings_t;
 typedef struct nvmlSystemDriverBranchInfo_st                nvmlSystemDriverBranchInfo_t;

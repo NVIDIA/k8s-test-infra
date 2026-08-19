@@ -105,6 +105,9 @@ commands:
   throttle --gpu <idx|all|uuid> <reason>[ reason ...]  set active throttle reasons ('none' clears)
   pstate --gpu <idx|all|uuid> <0-15>       pin reported performance state (P-state)
   nvlink-error --gpu <idx|all|uuid> <errors_per_sec> [--links a,b,c]  inject NVLink DL errors (0 heals)
+  sram-ecc --gpu <idx|all|uuid> <count> [--type correctable|parity|secded]
+           [--source l2|sm|microcontroller|pcie|other] [--threshold-exceeded]
+                                           inject SRAM ECC errors (0 heals)
   set    --gpu <idx|all|uuid> key.path=value [key.path=value ...]
   status [--gpu <idx>]
   reset  [--gpu <idx|all|uuid>]
@@ -237,12 +240,47 @@ target all active links (the "GPU lost its switch uplinks" fault).
 > the switch-link fault NVSentinel's gpu-health-monitor can actually detect and
 > remediate.
 
+### `sram-ecc` — inject on-die SRAM ECC errors
+
+Sets the target's `ecc.sram` counters, so the GPU reports SRAM errors the way one
+that has just taken an SRAM fault does. The positional argument is the error
+**count** (0–1e9); `0` heals.
+
+```bash
+# 4 uncorrectable SEC-DED errors on GPU 0's SM, past the service threshold
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl sram-ecc --gpu 0 \
+  --type secded --source sm --threshold-exceeded 4
+# correctable errors (no source attribution on real hardware)
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl sram-ecc --gpu 0 --type correctable 12
+# heal
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl sram-ecc --gpu 0 0
+```
+
+| flag                   | meaning                                                                                   |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| `--type`               | `correctable`, `parity` or `secded` (uncorrectable SEC-DED, the default)                   |
+| `--source`             | the unit the *uncorrectable* errors are attributed to; defaults to `other`                 |
+| `--threshold-exceeded` | raises `SRAM Threshold Exceeded`, the driver's "this GPU needs servicing" signal          |
+
+The count lands in **both** the volatile and aggregate scopes: hardware that has
+just taken an SRAM fault reports it in both, and pinning only one would leave a
+GPU whose history disagrees with its present. Within `ecc.sram` the command is
+*authoritative* — every counter and source is written — so repeated calls replace
+rather than accumulate, and `--source` moves the whole count to the named unit.
+The ECC mode is left alone, since a GPU with ECC off reports no SRAM counters at
+all and the injection would erase itself.
+
+Values surface in `nvidia-smi -q` under `ECC Errors` (both scopes, `SRAM
+Threshold Exceeded` and `Aggregate Uncorrectable SRAM Sources`) and through the
+per-location field values DCGM reads.
+
 ### `set` — set arbitrary fields
 
 `set` takes one or more `key.path=value` pairs. The path is the YAML/JSON path
 into the device config; the value is parsed as a YAML scalar (so numbers, bools,
 and strings get their natural type). Example paths: `thermal.temperature_gpu_c`,
-`utilization.gpu`, `ecc.mode_current`, `power.current_draw_mw`.
+`utilization.gpu`, `ecc.mode_current`, `power.current_draw_mw`,
+`remapped_rows.availability_histogram.low`.
 
 #### Dynamic metrics mask their static counterparts
 

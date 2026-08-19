@@ -140,10 +140,9 @@ func (s Snapshot) FailedGPUs() []string {
 
 // UncorrectedECCAggregate is the total of this GPU's aggregate uncorrectable
 // counters — the XML equivalent of --query-gpu=ecc.errors.uncorrected.aggregate.total.
-// Counters reading N/A are skipped, because SRAM counters are unsupported on
-// these profiles and dropping the whole total for them would hide the DRAM
-// errors the assertion is looking for. false means no counter was numeric,
-// which is what a failed device reports.
+// Counters reading N/A are skipped so a GPU with ECC off, whose counters are all
+// N/A, does not drop the whole total. false means no counter was numeric, which
+// is what a failed device reports.
 func (g GPU) UncorrectedECCAggregate() (int, bool) {
 	total, counted := 0, false
 	for _, r := range []reading{
@@ -157,6 +156,31 @@ func (g GPU) UncorrectedECCAggregate() (int, bool) {
 		}
 	}
 	return total, counted
+}
+
+// ECCEnabled reports whether <current_ecc> reads Enabled. The SRAM and DRAM
+// counters only carry values in that mode, so checks over them gate on it
+// instead of treating a profile with ECC off as a defect.
+func (g GPU) ECCEnabled() bool {
+	return strings.EqualFold(strings.TrimSpace(string(g.element.ECCMode.Current)), "Enabled")
+}
+
+// ECCEnabled reports whether every GPU in the document has ECC on.
+func (s Snapshot) ECCEnabled() bool {
+	for i := range s.doc.GPUs {
+		if !s.gpu(i).ECCEnabled() {
+			return false
+		}
+	}
+	return len(s.doc.GPUs) > 0
+}
+
+// RowRemapHistogramPopulated reports whether <row_remapper_histogram> carries
+// bank counts rather than N/A, i.e. whether the GPU answered the histogram
+// getter at all.
+func (g GPU) RowRemapHistogramPopulated() bool {
+	body := strings.TrimSpace(g.element.RemappedRows.Histogram.Body)
+	return body != "" && !reading(body).unsupported()
 }
 
 // MaxUncorrectedECCAggregate is the largest per-GPU aggregate uncorrectable

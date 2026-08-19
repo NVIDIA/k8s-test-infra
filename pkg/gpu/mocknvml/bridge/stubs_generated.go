@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 266 stub functions for unimplemented NVML functions.
+// 264 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -464,11 +464,6 @@ func nvmlDeviceGetRepairStatus(device C.nvmlDevice_t, repairStatus *C.nvmlRepair
 	return stubReturn("nvmlDeviceGetRepairStatus")
 }
 
-//export nvmlDeviceGetRowRemapperHistogram
-func nvmlDeviceGetRowRemapperHistogram(device C.nvmlDevice_t, values *C.nvmlRowRemapperHistogramValues_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetRowRemapperHistogram")
-}
-
 //export nvmlDeviceGetRunningProcessDetailList
 func nvmlDeviceGetRunningProcessDetailList(device C.nvmlDevice_t, plist *C.nvmlProcessDetailList_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetRunningProcessDetailList")
@@ -477,11 +472,6 @@ func nvmlDeviceGetRunningProcessDetailList(device C.nvmlDevice_t, plist *C.nvmlP
 //export nvmlDeviceGetSamples
 func nvmlDeviceGetSamples(device C.nvmlDevice_t, _type C.nvmlSamplingType_t, lastSeenTimeStamp C.ulonglong, sampleValType *C.nvmlValueType_t, sampleCount *C.uint, samples *C.nvmlSample_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetSamples")
-}
-
-//export nvmlDeviceGetSramEccErrorStatus
-func nvmlDeviceGetSramEccErrorStatus(device C.nvmlDevice_t, status *C.nvmlEccSramErrorStatus_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetSramEccErrorStatus")
 }
 
 //export nvmlDeviceGetSramUniqueUncorrectedEccErrorCounts
