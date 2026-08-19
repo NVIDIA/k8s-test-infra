@@ -78,6 +78,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   devices. Reruns deterministically reuse only compatible NRI-enabled Kind
   clusters, while incompatible clusters require explicit recreation with
   `FORCE_RECREATE=true`.
+- The `e2e-nri` CI leg no longer spends most of its runtime waiting for pod
+  teardown, dropping from ~12min to an expected ~5min per GPU profile. Its
+  workload pods run `sleep` as PID 1, which installs no SIGTERM handler, and
+  PID 1 never receives a signal it does not handle — so kubelet's SIGTERM was
+  discarded and every `kubectl delete` blocked for the full 30s default grace
+  period until the SIGKILL landed. That was 13 stalls totalling 6.7min of a
+  12min leg. The workload manifests now cap `terminationGracePeriodSeconds` at
+  1, which takes each teardown from ~33s to ~3s.
 
 ### Fixed
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML

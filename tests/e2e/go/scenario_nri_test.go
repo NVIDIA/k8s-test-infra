@@ -68,6 +68,15 @@ const (
 	// nriImexChannelMajor must equal imex.mockChannels.channelMajor, which is
 	// also the major the rendered proc-devices advertises to the DRA driver.
 	nriImexChannelMajor = 235
+
+	// nriWorkloadLifecycle is the pod-spec fragment shared by every long-lived
+	// workload below. The 1s grace period is load-bearing for suite runtime,
+	// not cosmetic: these containers run `sleep` as PID 1, and PID 1 never
+	// receives a signal it installs no handler for, so kubelet's SIGTERM is
+	// discarded and the pod only dies on the post-grace SIGKILL. At the 30s
+	// default every `kubectl delete` blocked for the full 30s, and this Ordered
+	// suite deletes a pod per spec.
+	nriWorkloadLifecycle = "  restartPolicy: Never\n  terminationGracePeriodSeconds: 1\n"
 )
 
 // Go port of docs/demo/node-wide-injection/run.sh. A dedicated Kind cluster
@@ -863,8 +872,7 @@ metadata:
   name: ` + name + `
   namespace: ` + nriWorkloadNS + `
 ` + annotationBlock + `spec:
-  restartPolicy: Never
-` + nodeLine + `  containers:
+` + nriWorkloadLifecycle + nodeLine + `  containers:
     - name: app
       image: ` + nriWorkloadImage + `
       command: ["/bin/sh", "-c", "sleep 3600"]
@@ -895,8 +903,7 @@ metadata:
   annotations:
     nvml-mock.nvidia.com/devices: "true"
 spec:
-  restartPolicy: Never
-` + placement + `  containers:
+` + nriWorkloadLifecycle + placement + `  containers:
     - name: app
       image: ` + nriWorkloadImage + `
       command: ["/bin/sh", "-c", "sleep 3600"]
@@ -913,8 +920,7 @@ metadata:
   name: ` + name + `
   namespace: ` + nriWorkloadNS + `
 spec:
-  restartPolicy: Never
-  nodeSelector:
+` + nriWorkloadLifecycle + `  nodeSelector:
     nvidia.com/gpu.present: "true"
   containers:
     - name: app
@@ -1029,8 +1035,7 @@ metadata:
   name: ` + name + `
   namespace: ` + nriWorkloadNS + `
 ` + annotations + `spec:
-  restartPolicy: Never
-  nodeName: ` + node + `
+` + nriWorkloadLifecycle + `  nodeName: ` + node + `
   containers:
     - name: app
       image: ` + nriWorkloadImage + `
