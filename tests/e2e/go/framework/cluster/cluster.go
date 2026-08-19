@@ -84,7 +84,7 @@ func (c *Cluster) Nodes(ctx context.Context) ([]Node, error) {
 	if c.nodes != nil {
 		return c.nodes, nil
 	}
-	res, err := runner.Run(ctx, "kubectl", "--context", c.Context, "get", "nodes", "-o", "json")
+	res, err := runner.RunQuiet(ctx, "kubectl", "--context", c.Context, "get", "nodes", "-o", "json")
 	if err != nil {
 		return nil, fmt.Errorf("kubectl get nodes (context %q): %w", c.Context, err)
 	}
