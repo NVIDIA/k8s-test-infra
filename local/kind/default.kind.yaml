@@ -42,11 +42,13 @@
 #      overlay at container-creation time. Inert until a workload registers
 #      as an NRI plugin, so the node-wide-NRI scenario is the only consumer.
 #
-# Node names are pinned via JoinConfiguration instead of being derived from the
-# cluster name, so they stay stable across recreations and can be selected
+# Worker names are pinned via JoinConfiguration instead of being derived from
+# the cluster name, so they stay stable across recreations and can be selected
 # directly: install_fleet() in local/nvml_mock.tiltfile pins each per-profile
 # nvml-mock release with kubernetes.io/hostname=<worker> under
-# --multi-gpu-profile (a100 on worker-0, t4 on worker-1).
+# --multi-gpu-profile (a100 on worker-0, t4 on worker-1). The control-plane
+# node keeps its kind-derived name: kubeadm names the bootstrap node from
+# InitConfiguration, which JoinConfiguration cannot override.
 #
 # Worker labels drive the remaining consumer path:
 #   - run.ai/simulated-gpu-node-pool=<integration|scale> — FGO node-pool split.
@@ -71,10 +73,6 @@ nodes:
         apiServer:
           extraArgs:
             runtime-config: "resource.k8s.io/v1beta1=true"
-      - |
-        kind: JoinConfiguration
-        nodeRegistration:
-          name: control-0
   - role: worker
     labels:
       run.ai/simulated-gpu-node-pool: integration
