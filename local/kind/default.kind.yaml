@@ -68,6 +68,10 @@ nodes:
         apiServer:
           extraArgs:
             runtime-config: "resource.k8s.io/v1beta1=true"
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: control-0
   - role: worker
     labels:
       nvml-mock/profile: a100
