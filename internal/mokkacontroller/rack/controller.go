@@ -98,6 +98,17 @@ type ProfileIssue struct {
 	Reason      string
 }
 
+type profileMaterializationError struct {
+	RackName string
+	Cause    error
+}
+
+func (e *profileMaterializationError) Error() string {
+	return fmt.Sprintf("rack %q was rejected by API validation", e.RackName)
+}
+
+func (e *profileMaterializationError) Unwrap() error { return e.Cause }
+
 // OwnershipConflict identifies a deterministic rack name that cannot be adopted.
 type OwnershipConflict struct {
 	RackName  string
@@ -357,12 +368,27 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 				)
 				result.CleanupNeeded = append(result.CleanupNeeded, cleanup...)
 			}
+			if err := materialize.ValidateRackSpec(targetSpec); err != nil {
+				result.ProfileIssues = append(result.ProfileIssues, ProfileIssue{
+					RackGroup: group.group.ID, ProfileName: group.profile.Name, Reason: err.Error(),
+				})
+				result.ResolvedRefs = false
+				break
+			}
 
 			changed, conflict, err := r.createOrUpdateRack(ctx, inventory, existing, rendered.Name, targetSpec)
 			if conflict != nil {
 				result.OwnershipConflicts = append(result.OwnershipConflicts, *conflict)
 			}
 			if err != nil {
+				var materializationErr *profileMaterializationError
+				if errors.As(err, &materializationErr) {
+					result.ProfileIssues = append(result.ProfileIssues, ProfileIssue{
+						RackGroup: group.group.ID, ProfileName: group.profile.Name, Reason: materializationErr.Error(),
+					})
+					result.ResolvedRefs = false
+					break
+				}
 				sortResult(&result)
 				return result, err
 			}
@@ -860,6 +886,9 @@ func (r *Reconciler) classifyRackApplyError(
 	desired *mokkav1alpha1.SGPURack,
 	err error,
 ) (*OwnershipConflict, error) {
+	if apierrors.IsInvalid(err) {
+		return nil, &profileMaterializationError{RackName: desired.Name, Cause: err}
+	}
 	latest, getErr := r.racks.Get(ctx, desired.Name, metav1.GetOptions{})
 	if getErr == nil && !controlledByInventory(latest, inventory) {
 		conflict := ownershipConflict(latest, desired.Spec.Identity.RackGroup)

@@ -476,6 +476,50 @@ func TestReconcileSurfacesRackFieldOwnershipConflict(t *testing.T) {
 	require.Equal(t, materialize.RackName(inventory.Name, inventory.UID, "group", 0), ownershipErr.Conflict.RackName)
 }
 
+func TestReconcileClassifiesInvalidRackApplyAsProfileIssue(t *testing.T) {
+	ctx := context.Background()
+	profile := testProfile("p", "profile-uid", 1, 1, 1)
+	inventory := testInventory("inventory", "inventory-uid", profile.Name, 2)
+	h := newHarness(t, []runtime.Object{profile, inventory}, nil)
+	patches := 0
+	h.mokka.PrependReactor("patch", "sgpuracks", func(k8stesting.Action) (bool, runtime.Object, error) {
+		patches++
+		return true, nil, apierrors.NewInvalid(
+			schema.GroupKind{Group: mokkav1alpha1.GroupName, Kind: "SGPURack"},
+			"rack",
+			nil,
+		)
+	})
+
+	result, err := h.reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
+	require.False(t, result.ResolvedRefs)
+	require.Equal(t, []ProfileIssue{{
+		RackGroup: "group", ProfileName: profile.Name,
+		Reason: fmt.Sprintf(
+			"rack %q was rejected by API validation",
+			materialize.RackName(inventory.Name, inventory.UID, "group", 0),
+		),
+	}}, result.ProfileIssues)
+	require.Equal(t, 1, patches, "one invalid rack must stop further applies for the affected profile group")
+}
+
+func TestReconcileLeavesTransientRackApplyErrorsRetryable(t *testing.T) {
+	ctx := context.Background()
+	profile := testProfile("p", "profile-uid", 1, 1, 1)
+	inventory := testInventory("inventory", "inventory-uid", profile.Name, 1)
+	h := newHarness(t, []runtime.Object{profile, inventory}, nil)
+	h.mokka.PrependReactor("patch", "sgpuracks", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewServiceUnavailable("apiserver unavailable")
+	})
+
+	result, err := h.reconcile(ctx, inventory.Name)
+	require.Error(t, err)
+	require.True(t, apierrors.IsServiceUnavailable(err))
+	require.True(t, result.ResolvedRefs)
+	require.Empty(t, result.ProfileIssues)
+}
+
 func TestReconcileWaitsForGoneUIDCleanupBeforeAllocatingReplacement(t *testing.T) {
 	ctx := context.Background()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)

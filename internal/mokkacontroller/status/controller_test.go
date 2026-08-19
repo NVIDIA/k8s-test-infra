@@ -194,6 +194,23 @@ func TestInvalidInventoryStatusSurfacesStableValidationError(t *testing.T) {
 	require.Equal(t, ReasonInvalidInventory, materialized.Reason)
 }
 
+func TestRackAPIInvalidProfileIssueSurfacesInvalidProfileStatus(t *testing.T) {
+	input := aggregateInput()
+	input.RackResult.ResolvedRefs = false
+	input.RackResult.ProfileIssues = []controllerack.ProfileIssue{{
+		RackGroup: "a", ProfileName: "pa",
+		Reason: `rack "inventory-a-0" was rejected by API validation`,
+	}}
+
+	got := ComputeInventory(input, metav1.Now())
+	resolved := condition(got.Conditions, mokkav1alpha1.InventoryConditionResolvedRefs)
+	require.Equal(t, metav1.ConditionFalse, resolved.Status)
+	require.Equal(t, ReasonInvalidProfile, resolved.Reason)
+	programmed := condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
+	require.Equal(t, metav1.ConditionFalse, programmed.Status)
+	require.Equal(t, ReasonReferencesUnresolved, programmed.Reason)
+}
+
 func aggregateInput() InventoryInput {
 	inventory := &mokkav1alpha1.SGPUInventory{
 		ObjectMeta: metav1.ObjectMeta{Name: "inventory", UID: "inventory-uid", Generation: 7},

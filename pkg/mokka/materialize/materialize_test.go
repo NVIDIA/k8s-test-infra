@@ -5,6 +5,7 @@ package materialize
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -73,6 +74,48 @@ func TestValidateProfile(t *testing.T) {
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
+}
+
+func TestValidateProfileDimensionBoundaries(t *testing.T) {
+	tests := []struct {
+		name         string
+		nodesPerRack int32
+		gpuCount     int32
+		wantErr      string
+	}{
+		{name: "maximum nodes per rack", nodesPerRack: 1024, gpuCount: 1},
+		{name: "too many nodes per rack", nodesPerRack: 1025, gpuCount: 1, wantErr: "rack.nodesPerRack must be at most 1024"},
+		{name: "maximum GPUs per node", nodesPerRack: 1, gpuCount: 64},
+		{name: "too many GPUs per node", nodesPerRack: 1, gpuCount: 65, wantErr: "node.gpus.count must be at most 64"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := profileSpecWithDimensions(tt.nodesPerRack, tt.gpuCount)
+			err := ValidateProfile(spec)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestValidateProfileRejectsExtremeDimensionsBeforeTopologyWork(t *testing.T) {
+	spec := validProfile().Spec
+	spec.Rack.NodesPerRack = math.MaxInt32
+	require.EqualError(t, ValidateProfile(spec), "rack.nodesPerRack must be at most 1024")
+
+	spec = validProfile().Spec
+	spec.Node.GPUs.Count = math.MaxInt32
+	require.EqualError(t, ValidateProfile(spec), "node.gpus.count must be at most 64")
+}
+
+func TestValidateProfileRejectsGPUListBeyondRenderedLimit(t *testing.T) {
+	spec := profileSpecWithDimensions(1, 64)
+	spec.Node.Topology.GPUSlots = append(spec.Node.Topology.GPUSlots, mokkav1alpha1.GPUSlot{})
+	require.EqualError(t, ValidateProfile(spec), "gpuSlots must contain at most 64 entries")
 }
 
 func TestProfileRevisionCanonicalVector(t *testing.T) {
@@ -233,6 +276,99 @@ func TestRenderRackRejectsSpecOverOneMiB(t *testing.T) {
 		Profile:       profile,
 	})
 	require.ErrorContains(t, err, "exceeding the 1048576-byte limit")
+}
+
+func TestRenderRackAcceptsRenderedDimensionBoundaries(t *testing.T) {
+	tests := []struct {
+		name         string
+		nodesPerRack int32
+		gpuCount     int32
+	}{
+		{name: "maximum slots", nodesPerRack: 1024, gpuCount: 1},
+		{name: "maximum GPUs per slot", nodesPerRack: 1, gpuCount: 64},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile := validProfile()
+			profile.Spec = profileSpecWithDimensions(tt.nodesPerRack, tt.gpuCount)
+			rendered, err := RenderRack(RackInput{
+				InventoryName: "inventory-a",
+				InventoryUID:  types.UID("inventory-uid-a"),
+				Group:         mokkav1alpha1.RackGroup{ID: "compute", Count: 1},
+				Profile:       profile,
+			})
+			require.NoError(t, err)
+			require.Len(t, rendered.Spec.Slots, int(tt.nodesPerRack))
+			require.Len(t, rendered.Spec.Slots[0].GPUs, int(tt.gpuCount))
+		})
+	}
+}
+
+func TestValidateRackSpecRejectsImpossibleRenderedDimensions(t *testing.T) {
+	validSlot := mokkav1alpha1.SGPURackSlot{
+		Index: 0,
+		GPUs:  []mokkav1alpha1.SGPURackGPU{{Index: 0}},
+	}
+	tests := []struct {
+		name    string
+		spec    mokkav1alpha1.SGPURackSpec
+		wantErr string
+	}{
+		{name: "no slots", wantErr: "slots must contain between 1 and 1024 entries"},
+		{
+			name:    "too many slots",
+			spec:    mokkav1alpha1.SGPURackSpec{Slots: make([]mokkav1alpha1.SGPURackSlot, 1025)},
+			wantErr: "slots must contain between 1 and 1024 entries",
+		},
+		{
+			name: "too many GPUs",
+			spec: mokkav1alpha1.SGPURackSpec{Slots: []mokkav1alpha1.SGPURackSlot{{
+				Index: 0, GPUs: make([]mokkav1alpha1.SGPURackGPU, 65),
+			}}},
+			wantErr: "slot 0 GPUs must contain between 1 and 64 entries",
+		},
+		{
+			name: "slot index outside schema",
+			spec: mokkav1alpha1.SGPURackSpec{Slots: []mokkav1alpha1.SGPURackSlot{{
+				Index: 1024, GPUs: validSlot.GPUs,
+			}}},
+			wantErr: "slot index 1024 is outside [0,1023]",
+		},
+		{
+			name: "GPU index outside schema",
+			spec: mokkav1alpha1.SGPURackSpec{Slots: []mokkav1alpha1.SGPURackSlot{{
+				Index: 0, GPUs: []mokkav1alpha1.SGPURackGPU{{Index: 64}},
+			}}},
+			wantErr: "slot 0 GPU index 64 is outside [0,63]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateRackSpec(tt.spec)
+			require.EqualError(t, err, tt.wantErr)
+		})
+	}
+	require.NoError(t, ValidateRackSpec(mokkav1alpha1.SGPURackSpec{Slots: []mokkav1alpha1.SGPURackSlot{validSlot}}))
+}
+
+func profileSpecWithDimensions(nodesPerRack, gpuCount int32) mokkav1alpha1.SGPUProfileSpec {
+	spec := validProfile().Spec
+	spec.Rack.NodesPerRack = nodesPerRack
+	spec.Node.GPUs.Count = gpuCount
+	spec.Node.Topology.GPUSlots = make([]mokkav1alpha1.GPUSlot, gpuCount)
+	for index := range spec.Node.Topology.GPUSlots {
+		spec.Node.Topology.GPUSlots[index] = mokkav1alpha1.GPUSlot{
+			Index:              int32(index),
+			PCIAddress:         fmt.Sprintf("0000:%02x:00.0", index+1),
+			RootComplex:        "pci0000:00",
+			NumaNode:           int32(index),
+			HostProcessorIndex: int32(index),
+		}
+	}
+	spec.Node.Topology.GPUFabric.Domain.GPUCount = nodesPerRack * gpuCount
+	return spec
 }
 
 func validProfile() *mokkav1alpha1.SGPUProfile {

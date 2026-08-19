@@ -50,6 +50,7 @@ type SGPURackProfileSpec struct {
 // nested profile data rather than a materialized SGPURack resource.
 type SGPURackShape struct {
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=1024
 	NodesPerRack int32 `json:"nodesPerRack"`
 }
 
@@ -67,6 +68,7 @@ type SGPUNode struct {
 // SGPUGPUs is the shared template for every GPU on the node.
 type SGPUGPUs struct {
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=64
 	Count int32 `json:"count"`
 
 	Model GPUModel `json:"model"`
@@ -338,6 +340,8 @@ type HostMemory struct {
 
 // SGPUTopology is PCIe slots, GPU fabric, and network visible to the node.
 type SGPUTopology struct {
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=64
 	// +listType=map
 	// +listMapKey=index
 	GPUSlots []GPUSlot `json:"gpuSlots"`
