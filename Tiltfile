@@ -50,7 +50,7 @@ config.define_string('k8s-context', args=False,
 # --dra` parses as three separate flags without positional-value
 # ambiguity that Tilt's string-flag parser can exhibit for `=X` forms.
 config.define_bool('multi-gpu-profile', args=False,
-    usage='Install one nvml-mock release per GPU profile, node-pinned via nodeSelector.nvml-mock/profile=<profile>. Simulates a heterogeneous fleet on the default cluster (a100 + t4 workers). Without this flag, a single nvml-mock release covers all nodes with the profile from --gpu-profile.')
+    usage='Install one nvml-mock release per GPU profile, node-pinned via nodeSelector.kubernetes.io/hostname=<worker>. Simulates a heterogeneous fleet on the default cluster (a100 on worker-0 + t4 on worker-1). Without this flag, a single nvml-mock release covers all nodes with the profile from --gpu-profile.')
 config.define_bool('compute-domain', args=False,
     usage='ComputeDomain scenario: 4-worker cluster with GB200 profile + NVLink topology overlay (requires PROFILE=compute-domain cluster)')
 config.define_bool('gpu-operator', args=False,

@@ -94,8 +94,9 @@ func Image() string { return env("E2E_IMAGE", defaultImage) }
 // produces from local/kind/default.kind.yaml.
 func KubeContext() string { return env("E2E_KUBE_CONTEXT", defaultKubeContext) }
 
-// ClusterName is the Kind cluster name of the externally-owned cluster. Used
-// by `kind get nodes --name` for node-role assertions. Defaults to `mokka` —
+// ClusterName is the Kind cluster name of the externally-owned cluster. It
+// identifies the cluster in harness attach errors and diagnostics; node
+// discovery goes through the kubeconfig context instead. Defaults to `mokka` —
 // the cluster name `make cluster-create` produces.
 func ClusterName() string { return env("E2E_CLUSTER_NAME", defaultClusterName) }
 
