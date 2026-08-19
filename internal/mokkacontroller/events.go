@@ -22,7 +22,140 @@ import (
 	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
+	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/materialize"
 )
+
+type desiredRackClaim struct {
+	group     allocate.GroupKey
+	rackIndex int32
+}
+
+type inventoryRackClaims struct {
+	uid   types.UID
+	names map[string]desiredRackClaim
+}
+
+type desiredRackClaims struct {
+	mu          sync.RWMutex
+	byName      map[string]map[desiredRackClaim]struct{}
+	byInventory map[string]inventoryRackClaims
+}
+
+func newDesiredRackClaims() *desiredRackClaims {
+	return &desiredRackClaims{
+		byName:      make(map[string]map[desiredRackClaim]struct{}),
+		byInventory: make(map[string]inventoryRackClaims),
+	}
+}
+
+func (r *desiredRackClaims) replace(inventory *mokkav1alpha1.SGPUInventory) {
+	if inventory == nil {
+		return
+	}
+	names := desiredRackClaimNames(inventory)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.removeLocked(inventory.Name)
+	if len(names) == 0 {
+		return
+	}
+	r.byInventory[inventory.Name] = inventoryRackClaims{uid: inventory.UID, names: names}
+	for name, claim := range names {
+		claimants := r.byName[name]
+		if claimants == nil {
+			claimants = make(map[desiredRackClaim]struct{})
+			r.byName[name] = claimants
+		}
+		claimants[claim] = struct{}{}
+	}
+}
+
+func (r *desiredRackClaims) remove(inventory *mokkav1alpha1.SGPUInventory) {
+	if inventory == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current, exists := r.byInventory[inventory.Name]
+	if !exists || current.uid != inventory.UID {
+		return
+	}
+	r.removeLocked(inventory.Name)
+}
+
+func (r *desiredRackClaims) removeLocked(inventoryName string) {
+	current, exists := r.byInventory[inventoryName]
+	if !exists {
+		return
+	}
+	for name, claim := range current.names {
+		claimants := r.byName[name]
+		delete(claimants, claim)
+		if len(claimants) == 0 {
+			delete(r.byName, name)
+		}
+	}
+	delete(r.byInventory, inventoryName)
+}
+
+func (r *desiredRackClaims) claimants(name string) []desiredRackClaim {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	claimants := make([]desiredRackClaim, 0, len(r.byName[name]))
+	for claim := range r.byName[name] {
+		claimants = append(claimants, claim)
+	}
+	slices.SortFunc(claimants, func(a, b desiredRackClaim) int {
+		if order := cmp.Compare(a.group.InventoryName, b.group.InventoryName); order != 0 {
+			return order
+		}
+		if order := cmp.Compare(string(a.group.InventoryUID), string(b.group.InventoryUID)); order != 0 {
+			return order
+		}
+		if order := cmp.Compare(a.group.RackGroup, b.group.RackGroup); order != 0 {
+			return order
+		}
+		return cmp.Compare(a.rackIndex, b.rackIndex)
+	})
+	return claimants
+}
+
+func (r *desiredRackClaims) size() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	claims := 0
+	for _, claimants := range r.byName {
+		claims += len(claimants)
+	}
+	return claims
+}
+
+func desiredRackClaimNames(inventory *mokkav1alpha1.SGPUInventory) map[string]desiredRackClaim {
+	if !inventoryHasCurrentRackClaims(inventory) {
+		return nil
+	}
+	names := make(map[string]desiredRackClaim)
+	for _, group := range inventory.Spec.RackGroups {
+		if !rackGroupHasCurrentClaims(group) {
+			continue
+		}
+		key := groupKey(inventory, group.ID)
+		for rackIndex := int32(0); rackIndex < group.Count; rackIndex++ {
+			name := materialize.RackName(inventory.Name, inventory.UID, group.ID, rackIndex)
+			names[name] = desiredRackClaim{group: key, rackIndex: rackIndex}
+		}
+	}
+	return names
+}
+
+func inventoryHasCurrentRackClaims(inventory *mokkav1alpha1.SGPUInventory) bool {
+	return inventory.Name != "" && inventory.UID != "" && inventory.DeletionTimestamp == nil &&
+		len(inventory.Spec.RackGroups) <= 64
+}
+
+func rackGroupHasCurrentClaims(group mokkav1alpha1.RackGroup) bool {
+	return group.ID != "" && group.Count >= 1 && group.Count <= 100_000 && group.ProfileRef.Name != ""
+}
 
 type placementRegistry struct {
 	mu          sync.RWMutex
@@ -95,6 +228,7 @@ type eventRouter struct {
 	inventories cache.Indexer
 	racks       cache.Indexer
 	registry    *placementRegistry
+	claims      *desiredRackClaims
 	queues      *queues
 	invalidate  func()
 }
@@ -110,7 +244,8 @@ func newEventRouter(
 		invalidate = invalidators[0]
 	}
 	return &eventRouter{
-		inventories: inventories, racks: racks, registry: registry, queues: queues, invalidate: invalidate,
+		inventories: inventories, racks: racks, registry: registry, claims: newDesiredRackClaims(),
+		queues: queues, invalidate: invalidate,
 	}
 }
 
@@ -127,6 +262,7 @@ func (r *eventRouter) inventoryAdd(object any) {
 	}
 	r.invalidateAllocation()
 	r.registry.replace(inventory)
+	r.claims.replace(inventory)
 	r.routeInventory(inventory)
 }
 
@@ -142,7 +278,11 @@ func (r *eventRouter) inventoryUpdate(oldObject, newObject any) {
 	if inventoryUnchanged(oldInventory, newInventory) {
 		return
 	}
+	if oldInventory.Name != newInventory.Name {
+		r.claims.remove(oldInventory)
+	}
 	r.registry.replace(newInventory)
+	r.claims.replace(newInventory)
 	r.routeInventory(newInventory)
 }
 
@@ -153,6 +293,7 @@ func (r *eventRouter) inventoryDelete(object any) {
 	}
 	r.invalidateAllocation()
 	r.registry.remove(inventory)
+	r.claims.remove(inventory)
 	r.routeInventory(inventory)
 }
 
@@ -206,6 +347,7 @@ func (r *eventRouter) routeProfile(name string) {
 		if !ok {
 			continue
 		}
+		r.claims.replace(inventory)
 		r.queues.inventories.Add(inventory.Name)
 		r.queues.addStatus(statusKey{kind: statusInventory, name: inventory.Name, uid: inventory.UID})
 	}
@@ -283,6 +425,9 @@ func (r *eventRouter) rackAdd(object any) {
 	rack, ok := eventObject[*mokkav1alpha1.SGPURack](object)
 	if ok {
 		r.invalidateAllocation()
+		if !r.rackOwnedByClaimant(rack) {
+			r.routeRackClaimants(rack.Name)
+		}
 		fresh := make(map[int32]types.UID)
 		freeSlot := false
 		for _, slot := range rack.Spec.Slots {
@@ -308,6 +453,12 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 	}
 	if rackUnchanged(oldRack, newRack) {
 		return
+	}
+	if rackOwnershipChanged(oldRack, newRack) {
+		r.routeRackClaimants(oldRack.Name)
+		if oldRack.Name != newRack.Name {
+			r.routeRackClaimants(newRack.Name)
+		}
 	}
 	newBindings := make(map[int32]types.UID, len(newRack.Spec.Slots))
 	for _, slot := range newRack.Spec.Slots {
@@ -353,9 +504,62 @@ func (r *eventRouter) rackDelete(object any) {
 		cleanup := cleanupFor(rack, slot, controllerack.CleanupRackDeleting)
 		r.queues.projections.Add(projectionKey{mode: projectionCleanup, cleanup: cleanup})
 	}
-	if r.rackDesired(rack) {
+	if !r.currentRackDelete(rack) {
+		return
+	}
+	if r.routeRackClaimants(rack.Name) == 0 && r.rackDesired(rack) {
 		r.queues.inventories.Add(rack.Spec.InventoryRef.Name)
 	}
+}
+
+func (r *eventRouter) routeRackClaimants(name string) int {
+	claimants := r.claims.claimants(name)
+	for _, claim := range claimants {
+		r.queues.inventories.Add(claim.group.InventoryName)
+		r.queues.addStatus(statusKey{
+			kind: statusInventory, name: claim.group.InventoryName, uid: claim.group.InventoryUID,
+		})
+	}
+	return len(claimants)
+}
+
+func (r *eventRouter) rackOwnedByClaimant(rack *mokkav1alpha1.SGPURack) bool {
+	owner := metav1.GetControllerOf(rack)
+	if owner == nil || owner.APIVersion != mokkav1alpha1.SchemeGroupVersion.String() || owner.Kind != "SGPUInventory" {
+		return false
+	}
+	for _, claim := range r.claims.claimants(rack.Name) {
+		if rackMatchesClaim(rack, owner, claim) {
+			return true
+		}
+	}
+	return false
+}
+
+func rackMatchesClaim(rack *mokkav1alpha1.SGPURack, owner *metav1.OwnerReference, claim desiredRackClaim) bool {
+	return owner.Name == claim.group.InventoryName && owner.UID == claim.group.InventoryUID &&
+		rack.Spec.InventoryRef.Name == claim.group.InventoryName &&
+		rack.Spec.InventoryRef.UID == claim.group.InventoryUID &&
+		rack.Spec.Identity.RackGroup == claim.group.RackGroup &&
+		rack.Spec.Identity.RackIndex == claim.rackIndex
+}
+
+func (r *eventRouter) currentRackDelete(deleted *mokkav1alpha1.SGPURack) bool {
+	object, exists, err := r.racks.GetByKey(deleted.Name)
+	if err != nil {
+		klog.Background().Error(err, "Check Rack delete against informer cache", "rack", deleted.Name)
+		return true
+	}
+	if !exists {
+		return true
+	}
+	current, ok := object.(*mokkav1alpha1.SGPURack)
+	return !ok || current.UID == deleted.UID
+}
+
+func rackOwnershipChanged(old, current *mokkav1alpha1.SGPURack) bool {
+	return !equality.Semantic.DeepEqual(old.OwnerReferences, current.OwnerReferences) ||
+		old.Spec.InventoryRef != current.Spec.InventoryRef
 }
 
 func (r *eventRouter) routeRackCurrent(rack *mokkav1alpha1.SGPURack, reconcile bool, fresh map[int32]types.UID) {

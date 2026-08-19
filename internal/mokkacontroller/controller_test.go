@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,6 +16,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
@@ -24,6 +27,7 @@ import (
 	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
+	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/materialize"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/metadata"
 	"github.com/stretchr/testify/require"
 )
@@ -189,6 +193,224 @@ func TestDeleteTombstonesRouteExactCleanupBeforeGroup(t *testing.T) {
 	router.profileDelete(cache.DeletedFinalStateUnknown{Key: "profile", Obj: &mokkav1alpha1.SGPUProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile"}}})
 	require.Equal(t, []string{"inventory"}, drainQueue(queues.inventories))
 	require.Empty(t, drainQueue(queues.groups))
+}
+
+func TestForeignRackDeleteRoutesDesiredNameClaimant(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	inventory := testInventory()
+	require.NoError(t, inventories.Add(inventory))
+	router.inventoryAdd(inventory)
+	drainQueue(queues.inventories)
+	drainQueue(queues.status)
+
+	blocker := &mokkav1alpha1.SGPURack{ObjectMeta: metav1.ObjectMeta{
+		Name: materialize.RackName(inventory.Name, inventory.UID, "group", 0),
+		UID:  "foreign-rack-uid",
+	}}
+	require.NoError(t, racks.Add(blocker))
+	router.rackAdd(blocker)
+	drainQueue(queues.inventories)
+	drainQueue(queues.status)
+	require.NoError(t, racks.Delete(blocker))
+
+	router.rackDelete(cache.DeletedFinalStateUnknown{Key: blocker.Name, Obj: blocker})
+
+	require.Equal(t, []string{inventory.Name}, drainQueue(queues.inventories))
+	require.Equal(t, []statusKey{{kind: statusInventory, name: inventory.Name, uid: inventory.UID}}, drainQueue(queues.status))
+}
+
+func TestRackOwnershipTransitionRoutesDesiredNameClaimant(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	inventory := testInventory()
+	require.NoError(t, inventories.Add(inventory))
+	router.inventoryAdd(inventory)
+	drainQueue(queues.inventories)
+	drainQueue(queues.status)
+
+	blocker := &mokkav1alpha1.SGPURack{ObjectMeta: metav1.ObjectMeta{
+		Name: materialize.RackName(inventory.Name, inventory.UID, "group", 0),
+		UID:  "foreign-rack-uid",
+	}}
+	transitioned := blocker.DeepCopy()
+	transitioned.ResourceVersion = "2"
+	transitioned.Spec.InventoryRef = mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID}
+	transitioned.Spec.Identity = mokkav1alpha1.SGPURackIdentity{RackGroup: "group"}
+	controller := true
+	transitioned.OwnerReferences = []metav1.OwnerReference{{
+		APIVersion: mokkav1alpha1.SchemeGroupVersion.String(), Kind: "SGPUInventory",
+		Name: inventory.Name, UID: inventory.UID, Controller: &controller,
+	}}
+
+	router.rackUpdate(blocker, transitioned)
+
+	require.Equal(t, []string{inventory.Name}, drainQueue(queues.inventories))
+	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	drainQueue(queues.status)
+
+	released := blocker.DeepCopy()
+	released.ResourceVersion = "3"
+	router.rackUpdate(transitioned, released)
+	require.Equal(t, []string{inventory.Name}, drainQueue(queues.inventories))
+	require.Empty(t, drainQueue(queues.groups))
+}
+
+func TestStaleRackDeleteDoesNotRouteClaimantPastSameNameReplacement(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	inventory := testInventory()
+	require.NoError(t, inventories.Add(inventory))
+	router.inventoryAdd(inventory)
+	drainQueue(queues.inventories)
+	drainQueue(queues.status)
+
+	name := materialize.RackName(inventory.Name, inventory.UID, "group", 0)
+	stale := &mokkav1alpha1.SGPURack{ObjectMeta: metav1.ObjectMeta{Name: name, UID: "stale-rack-uid"}}
+	replacement := &mokkav1alpha1.SGPURack{ObjectMeta: metav1.ObjectMeta{Name: name, UID: "replacement-rack-uid"}}
+	require.NoError(t, racks.Add(replacement))
+
+	router.rackDelete(cache.DeletedFinalStateUnknown{Key: name, Obj: stale})
+
+	require.Empty(t, drainQueue(queues.inventories))
+	require.Empty(t, drainQueue(queues.groups))
+}
+
+func TestDesiredRackClaimantTracksInventoryReplacementAndShrink(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	oldInventory := testInventory()
+	oldInventory.Spec.RackGroups[0].Count = 2
+	require.NoError(t, inventories.Add(oldInventory))
+	router.inventoryAdd(oldInventory)
+	drainQueue(queues.inventories)
+	drainQueue(queues.status)
+
+	recreated := oldInventory.DeepCopy()
+	recreated.UID = "recreated-inventory-uid"
+	recreated.ResourceVersion = "2"
+	recreated.Spec.RackGroups[0].Count = 1
+	recreated.Spec.RackGroups[0].ProfileRef.Name = "replacement-profile"
+	router.inventoryDelete(oldInventory)
+	drainQueue(queues.inventories)
+	drainQueue(queues.status)
+	require.Zero(t, router.claims.size())
+	require.NoError(t, inventories.Delete(oldInventory))
+	require.NoError(t, inventories.Add(recreated))
+	router.inventoryAdd(recreated)
+	drainQueue(queues.inventories)
+	drainQueue(queues.status)
+	router.inventoryDelete(cache.DeletedFinalStateUnknown{Key: oldInventory.Name, Obj: oldInventory})
+	drainQueue(queues.inventories)
+	drainQueue(queues.status)
+
+	oldName := materialize.RackName(oldInventory.Name, oldInventory.UID, "group", 0)
+	removedName := materialize.RackName(oldInventory.Name, oldInventory.UID, "group", 1)
+	currentName := materialize.RackName(recreated.Name, recreated.UID, "group", 0)
+	for _, staleName := range []string{oldName, removedName} {
+		router.rackDelete(&mokkav1alpha1.SGPURack{ObjectMeta: metav1.ObjectMeta{Name: staleName, UID: "stale-rack-uid"}})
+		require.Empty(t, drainQueue(queues.inventories))
+	}
+
+	router.rackDelete(&mokkav1alpha1.SGPURack{ObjectMeta: metav1.ObjectMeta{Name: currentName, UID: "foreign-rack-uid"}})
+	require.Equal(t, []string{recreated.Name}, drainQueue(queues.inventories))
+	require.Equal(t, []statusKey{{kind: statusInventory, name: recreated.Name, uid: recreated.UID}}, drainQueue(queues.status))
+}
+
+func TestDesiredRackClaimIndexRetainsOnlyCurrentInformerTopology(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	current := testInventory()
+	require.NoError(t, inventories.Add(current))
+	router.inventoryAdd(current)
+	drainQueue(queues.inventories)
+	drainQueue(queues.status)
+	require.Equal(t, 1, router.claims.size())
+
+	for revision := 2; revision <= 2_000; revision++ {
+		previous := current
+		current = previous.DeepCopy()
+		current.UID = types.UID(fmt.Sprintf("inventory-uid-%d", revision))
+		current.ResourceVersion = strconv.Itoa(revision)
+		current.Spec.RackGroups[0].Count = int32(revision%3 + 1)
+		current.Spec.RackGroups[0].ProfileRef.Name = fmt.Sprintf("profile-%d", revision)
+		require.NoError(t, inventories.Update(current))
+		router.inventoryUpdate(previous, current)
+		router.inventoryDelete(cache.DeletedFinalStateUnknown{Key: previous.Name, Obj: previous})
+		drainQueue(queues.inventories)
+		drainQueue(queues.status)
+		require.Equal(t, int(current.Spec.RackGroups[0].Count), router.claims.size())
+	}
+
+	router.inventoryDelete(current)
+	require.Zero(t, router.claims.size())
+}
+
+func TestDesiredRackClaimsTrackShrinkGroupRenameAndProfileRevision(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	current := testInventory()
+	current.Spec.RackGroups[0].Count = 2
+	require.NoError(t, inventories.Add(current))
+	router.inventoryAdd(current)
+	drainQueue(queues.inventories)
+	drainQueue(queues.status)
+	require.Equal(t, 2, router.claims.size())
+
+	shrunk := current.DeepCopy()
+	shrunk.ResourceVersion = "2"
+	shrunk.Spec.RackGroups[0].Count = 1
+	shrunk.Spec.RackGroups[0].ProfileRef.Name = "profile-v2"
+	require.NoError(t, inventories.Update(shrunk))
+	router.inventoryUpdate(current, shrunk)
+	drainQueue(queues.inventories)
+	drainQueue(queues.status)
+	require.Equal(t, 1, router.claims.size())
+	removed := materialize.RackName(current.Name, current.UID, "group", 1)
+	router.rackDelete(&mokkav1alpha1.SGPURack{ObjectMeta: metav1.ObjectMeta{Name: removed, UID: "removed-rack-uid"}})
+	require.Empty(t, drainQueue(queues.inventories))
+
+	renamed := shrunk.DeepCopy()
+	renamed.ResourceVersion = "3"
+	renamed.Spec.RackGroups[0].ID = "renamed"
+	require.NoError(t, inventories.Update(renamed))
+	router.inventoryUpdate(shrunk, renamed)
+	drainQueue(queues.inventories)
+	drainQueue(queues.status)
+	oldName := materialize.RackName(shrunk.Name, shrunk.UID, "group", 0)
+	newName := materialize.RackName(renamed.Name, renamed.UID, "renamed", 0)
+	router.rackDelete(&mokkav1alpha1.SGPURack{ObjectMeta: metav1.ObjectMeta{Name: oldName, UID: "old-rack-uid"}})
+	require.Empty(t, drainQueue(queues.inventories))
+
+	profile := &mokkav1alpha1.SGPUProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile-v2", UID: "profile-uid", Generation: 1}}
+	revised := profile.DeepCopy()
+	revised.Generation = 2
+	revised.Spec.Rack.NodesPerRack = 2
+	router.profileUpdate(profile, revised)
+	require.Equal(t, []string{renamed.Name}, drainQueue(queues.inventories))
+	drainQueue(queues.status)
+	require.Equal(t, 1, router.claims.size())
+
+	router.rackDelete(&mokkav1alpha1.SGPURack{ObjectMeta: metav1.ObjectMeta{Name: newName, UID: "foreign-rack-uid"}})
+	require.Equal(t, []string{renamed.Name}, drainQueue(queues.inventories))
 }
 
 func TestProcessNextRateLimitsErrorsAndForgetsSuccess(t *testing.T) {

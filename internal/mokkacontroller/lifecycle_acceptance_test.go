@@ -30,6 +30,7 @@ import (
 	controllernodes "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/nodecatalog"
 	controllerprojection "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/projection"
 	controllerack "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/rack"
+	controllerstatus "github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller/status"
 	mokkafake "github.com/NVIDIA/k8s-test-infra/pkg/generated/clientset/versioned/fake"
 	mokkalisters "github.com/NVIDIA/k8s-test-infra/pkg/generated/listers/api/v1alpha1"
 	"github.com/NVIDIA/k8s-test-infra/pkg/mokka/allocate"
@@ -152,6 +153,77 @@ func TestControllerLifecycleAcceptance(t *testing.T) {
 		racks, err := mokka.MokkaV1alpha1().SGPURacks().List(ctx, metav1.ListOptions{})
 		return err == nil && len(racks.Items) == 0
 	}, 10*time.Second, 20*time.Millisecond, "inventory deletion must clean Nodes and generated racks before releasing its finalizer")
+}
+
+//nolint:cyclop // One acceptance flow asserts recovery and every ownership-safety guard around it.
+func TestControllerRecoversDesiredRackAfterForeignBlockerDelete(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	nodes := newAcceptanceNodeClient()
+	mokka := mokkafake.NewSimpleClientset()
+	installAcceptanceAPIReactors(t, mokka)
+	controller, err := newForNodes(nodes, mokka, Options{Workers: 2, StatusDebounce: 0})
+	require.NoError(t, err)
+
+	runDone := make(chan error, 1)
+	go func() { runDone <- controller.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-runDone:
+		case <-time.After(5 * time.Second):
+			t.Error("controller did not stop")
+		}
+	})
+	require.Eventually(t, controller.Ready, 5*time.Second, 10*time.Millisecond)
+
+	profile := acceptanceProfile(1)
+	inventory := acceptanceInventory()
+	rackName := materialize.RackName(inventory.Name, inventory.UID, "compute", 0)
+	blocker := &mokkav1alpha1.SGPURack{
+		TypeMeta: metav1.TypeMeta{APIVersion: mokkav1alpha1.SchemeGroupVersion.String(), Kind: "SGPURack"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: rackName, UID: "foreign-blocker-uid", ResourceVersion: "1",
+		},
+	}
+	_, err = mokka.MokkaV1alpha1().SGPUProfiles().Create(ctx, profile, metav1.CreateOptions{})
+	require.NoError(t, err)
+	_, err = mokka.MokkaV1alpha1().SGPURacks().Create(ctx, blocker, metav1.CreateOptions{})
+	require.NoError(t, err)
+	_, err = mokka.MokkaV1alpha1().SGPUInventories().Create(ctx, inventory, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		current, getErr := mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
+		if getErr != nil {
+			return false
+		}
+		programmed := findCondition(current.Status.Conditions, mokkav1alpha1.InventoryConditionProgrammed)
+		return programmed != nil && programmed.Status == metav1.ConditionFalse &&
+			programmed.Reason == controllerstatus.ReasonRackOwnershipConflict
+	}, 10*time.Second, 20*time.Millisecond)
+	retained, err := mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
+	require.NoError(t, err)
+	require.Equal(t, blocker.UID, retained.UID)
+	require.Empty(t, retained.OwnerReferences)
+	require.Empty(t, retained.Spec)
+
+	mokka.Fake.ClearActions()
+	require.Never(t, func() bool {
+		for _, action := range mokka.Actions() {
+			if action.GetResource().Resource == "sgpuracks" &&
+				slices.Contains([]string{"patch", "update", "delete"}, action.GetVerb()) {
+				return true
+			}
+		}
+		return false
+	}, 300*time.Millisecond, 10*time.Millisecond, "a retained blocker must not cause a hot retry or adoption")
+
+	require.NoError(t, mokka.MokkaV1alpha1().SGPURacks().Delete(ctx, rackName, metav1.DeleteOptions{}))
+	require.Eventually(t, func() bool {
+		recovered, getErr := mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
+		return getErr == nil && recovered.UID != blocker.UID && rackOwnedByReference(recovered) &&
+			recovered.Spec.InventoryRef.Name == inventory.Name && recovered.Spec.InventoryRef.UID == inventory.UID
+	}, 10*time.Second, 20*time.Millisecond, "the blocker delete event must route the name's current claimant")
 }
 
 //nolint:cyclop // The acceptance flow asserts both convergence and every last-good-state guard.
