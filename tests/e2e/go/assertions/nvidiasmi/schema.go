@@ -101,25 +101,26 @@ type document struct {
 // gpuElement holds the elements assertions read; add fields as more are needed.
 // Every body is a reading rather than a number for the reasons on that type.
 type gpuElement struct {
-	ID                       string        `xml:"id,attr"`
-	ProductName              reading       `xml:"product_name"`
-	ProductArchitecture      reading       `xml:"product_architecture"`
-	UUID                     reading       `xml:"uuid"`
-	BoardID                  reading       `xml:"board_id"`
-	C2CMode                  reading       `xml:"c2c_mode"`
-	PCI                      pciInfo       `xml:"pci"`
-	FanSpeed                 reading       `xml:"fan_speed"`
-	PerformanceState         reading       `xml:"performance_state"`
-	FBMemoryUsage            memoryUsage   `xml:"fb_memory_usage"`
-	AccountingModeBufferSize reading       `xml:"accounting_mode_buffer_size"`
-	EncoderStats             statsBlock    `xml:"encoder_stats"`
-	FBCStats                 statsBlock    `xml:"fbc_stats"`
-	Utilization              utilization   `xml:"utilization"`
-	Temperature              temperature   `xml:"temperature"`
-	PowerReadings            powerReadings `xml:"gpu_power_readings"`
-	Clocks                   clocks        `xml:"clocks"`
-	ECCErrors                eccErrors     `xml:"ecc_errors"`
-	ClocksEventReasons       eventReasons  `xml:"clocks_event_reasons"`
+	ID                       string            `xml:"id,attr"`
+	ProductName              reading           `xml:"product_name"`
+	ProductArchitecture      reading           `xml:"product_architecture"`
+	UUID                     reading           `xml:"uuid"`
+	BoardID                  reading           `xml:"board_id"`
+	C2CMode                  reading           `xml:"c2c_mode"`
+	PCI                      pciInfo           `xml:"pci"`
+	FanSpeed                 reading           `xml:"fan_speed"`
+	PerformanceState         reading           `xml:"performance_state"`
+	FBMemoryUsage            memoryUsage       `xml:"fb_memory_usage"`
+	AccountingModeBufferSize reading           `xml:"accounting_mode_buffer_size"`
+	EncoderStats             statsBlock        `xml:"encoder_stats"`
+	FBCStats                 statsBlock        `xml:"fbc_stats"`
+	Utilization              utilization       `xml:"utilization"`
+	Virtualization           gpuVirtualization `xml:"gpu_virtualization_mode"`
+	Temperature              temperature       `xml:"temperature"`
+	PowerReadings            powerReadings     `xml:"gpu_power_readings"`
+	Clocks                   clocks            `xml:"clocks"`
+	ECCErrors                eccErrors         `xml:"ecc_errors"`
+	ClocksEventReasons       eventReasons      `xml:"clocks_event_reasons"`
 	Processes                struct {
 		Infos []processInfo `xml:"process_info"`
 	} `xml:"processes"`
@@ -171,6 +172,15 @@ type utilization struct {
 	Decoder reading `xml:"decoder_util"`
 	JPEG    reading `xml:"jpeg_util"`
 	OFA     reading `xml:"ofa_util"`
+}
+
+// gpuVirtualization is <gpu_virtualization_mode>. Only the first element is a
+// bare-metal answer the mock can give; the vGPU pair is unsupported hardware
+// state, so N/A is correct for them and asserted as such.
+type gpuVirtualization struct {
+	Mode              reading `xml:"virtualization_mode"`
+	HostVGPUMode      reading `xml:"host_vgpu_mode"`
+	HeterogeneousMode reading `xml:"vgpu_heterogeneous_mode"`
 }
 
 // temperature carries both threshold presentations. nvidia-smi emits the

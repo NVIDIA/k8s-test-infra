@@ -74,6 +74,42 @@ func PCIeIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p profil
 		"PCIe identity wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
 }
 
+// VirtualizationMode asserts nvidia-smi -q -x reports the bare-metal
+// virtualization mode on every GPU. The element read N/A while
+// nvmlDeviceGetVirtualizationMode was a generated stub, which claims the driver
+// cannot tell whether the GPU is virtualized. See issue #640.
+func VirtualizationMode(ctx context.Context, k *kube.Client, pod kube.PodRef) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By("nvidia-smi -q -x reports virtualization_mode None")
+	problems := VirtualizationModeProblems(query(ctx, k, pod))
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"virtualization mode wrong:\n%s", strings.Join(problems, "\n"))
+}
+
+// ProcessMonitorAndTopology asserts the two nvidia-smi subcommands that reach
+// the mock through the reverse-engineered internal export table still behave.
+// They are checked together because they share that path and are unusually
+// sensitive to what neighbouring NVML calls return: implementing
+// nvmlDeviceGetVirtualizationMode during the investigation behind PR #630 moved
+// pmon onto a different branch and segfaulted it. See issue #640.
+func ProcessMonitorAndTopology(ctx context.Context, k *kube.Client, pod kube.PodRef) {
+	ginkgo.GinkgoHelper()
+
+	// pmon's own failure is expected, so the error is deliberately not
+	// asserted on — only the exit code, which is what tells a graceful refusal
+	// from a crash.
+	ginkgo.By("nvidia-smi pmon -c 1 does not crash")
+	res, _ := k.Exec(ctx, pod, "nvidia-smi", "pmon", "-c", "1")
+	problems := ProcessMonitorProblems(res.ExitCode, res.Combined())
+	gomega.Expect(problems).To(gomega.BeEmpty(), strings.Join(problems, "\n"))
+
+	ginkgo.By("nvidia-smi topo -m succeeds")
+	res, err := k.ExecQuiet(ctx, pod, "nvidia-smi", "topo", "-m")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
+		"nvidia-smi topo -m exited %d: %s", res.ExitCode, res.Combined())
+}
+
 // TemperatureThresholds asserts nvidia-smi -q -x uses the
 // architecture-correct threshold presentation for the profile: absolute
 // elements on pre-Ada, *_tlimit_threshold elements on Ada and later. See issue

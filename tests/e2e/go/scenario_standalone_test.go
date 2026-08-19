@@ -117,6 +117,17 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.C2CMode(ctx, h.Kube, pod, p)
 			})
 
+			It("reports the bare-metal virtualization mode via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #640: the reading was N/A because
+				// nvmlDeviceGetVirtualizationMode was a generated stub, so the
+				// mock claimed it could not tell whether it was virtualized
+				// where bare metal answers None. pmon and topo -m are checked
+				// alongside it because an earlier attempt at this fix moved pmon
+				// onto a different code path and segfaulted it (PR #630).
+				nvidiasmi.VirtualizationMode(ctx, h.Kube, pod)
+				nvidiasmi.ProcessMonitorAndTopology(ctx, h.Kube, pod)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)
