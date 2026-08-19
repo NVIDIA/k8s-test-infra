@@ -96,11 +96,7 @@ This might be a good place to talk about core concepts and how they relate.
 
 ### Risks and Mitigations
 
-<!--
-What are the risks of this proposal, and how do we mitigate? Think broadly.
-For example, consider operational overhead, resource consumption, and how
-this will impact our users.
--->
+- There are risks to break some unclearly articulated assumptions in the existing codebase during refactoring.
 
 ## Design Details
 
