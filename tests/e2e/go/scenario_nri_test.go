@@ -29,7 +29,6 @@ import (
 )
 
 const (
-	nriClusterName    = "nvml-mock-nri"
 	nriWorkloadNS     = "default"
 	nriAgentDaemonSet = "gpu-agent"
 	nriAgentSelector  = "app=gpu-agent"
@@ -88,7 +87,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 	selectedProfiles := config.SelectedProfileNames()
 
 	BeforeAll(func(ctx SpecContext) {
-		h = setupCluster(ctx, nriClusterName, assets.KindNRIConfig, "nri")
+		h = setupCluster(ctx, "nri")
 		var err error
 		workers, err = h.Cluster.Workers(ctx)
 		Expect(err).NotTo(HaveOccurred())

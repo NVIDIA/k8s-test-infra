@@ -20,7 +20,6 @@ import (
 func setupStandaloneProfile(ctx context.Context, h *harness.Harness, name string) (profile.Profile, kube.PodRef, string) {
 	GinkgoHelper()
 	p := loadProfile(name)
-	installDemoChart(ctx, h, name, p.ExpectedGPUs())
 	assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
 	pod := firstNvmlPod(ctx, h)
 	return p, pod, podNode(ctx, h, pod)
