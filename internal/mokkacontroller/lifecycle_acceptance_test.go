@@ -532,6 +532,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 func installAcceptanceAPIReactors(t *testing.T, client *mokkafake.Clientset) {
 	t.Helper()
 	var nextRackUID atomic.Int64
+	installAcceptanceRackCreateReactor(t, client, &nextRackUID)
 	client.PrependReactor("patch", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		patch := action.(k8stesting.PatchActionImpl)
 		require.Equal(t, types.ApplyPatchType, patch.GetPatchType())
@@ -595,6 +596,34 @@ func installAcceptanceAPIReactors(t *testing.T, client *mokkafake.Clientset) {
 		updated.Status = candidate.Status
 		err = client.Tracker().Update(resource, updated, "")
 		return true, updated, err
+	})
+}
+
+func installAcceptanceRackCreateReactor(
+	t *testing.T,
+	client *mokkafake.Clientset,
+	nextRackUID *atomic.Int64,
+) {
+	t.Helper()
+	client.PrependReactor("create", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		create := action.(k8stesting.CreateActionImpl)
+		if create.GetCreateOptions().FieldManager != controllerack.RackFieldManager {
+			return false, nil, nil
+		}
+		desired := create.GetObject().(*mokkav1alpha1.SGPURack).DeepCopy()
+		resource := mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuracks")
+		if _, err := client.Tracker().Get(resource, "", desired.Name); err == nil {
+			return true, nil, apierrors.NewAlreadyExists(mokkav1alpha1.Resource("sgpuracks"), desired.Name)
+		} else if !apierrors.IsNotFound(err) {
+			return true, nil, err
+		}
+		desired.UID = types.UID(fmt.Sprintf("uid-%s-%d", desired.Name, nextRackUID.Add(1)))
+		desired.ResourceVersion = "1"
+		desired.ManagedFields = []metav1.ManagedFieldsEntry{{
+			Manager: controllerack.RackFieldManager, Operation: metav1.ManagedFieldsOperationUpdate,
+		}}
+		err := client.Tracker().Create(resource, desired, "")
+		return true, desired, err
 	})
 }
 

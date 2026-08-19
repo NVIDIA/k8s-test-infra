@@ -50,6 +50,7 @@ type InventoryMutations interface {
 
 // Mutations is the narrow live-client surface used for rack writes.
 type Mutations interface {
+	Create(context.Context, *mokkav1alpha1.SGPURack, metav1.CreateOptions) (*mokkav1alpha1.SGPURack, error)
 	Get(context.Context, string, metav1.GetOptions) (*mokkav1alpha1.SGPURack, error)
 	Patch(context.Context, string, types.PatchType, []byte, metav1.PatchOptions, ...string) (*mokkav1alpha1.SGPURack, error)
 	Delete(context.Context, string, metav1.DeleteOptions) error
@@ -632,7 +633,6 @@ func (r *Reconciler) reconcileInventoryDeletion(
 	return result, nil
 }
 
-//nolint:cyclop // Creation and update use distinct UID and ownership safety checks.
 func (r *Reconciler) createOrUpdateRack(
 	ctx context.Context,
 	inventory *mokkav1alpha1.SGPUInventory,
@@ -641,34 +641,11 @@ func (r *Reconciler) createOrUpdateRack(
 	spec mokkav1alpha1.SGPURackSpec,
 ) (bool, *OwnershipConflict, error) {
 	if existing == nil {
-		latest, err := r.racks.Get(ctx, name, metav1.GetOptions{})
-		switch {
-		case err == nil:
-			if !controlledByInventory(latest, inventory) {
-				conflict := ownershipConflict(latest, spec.Identity.RackGroup)
-				return false, &conflict, nil
-			}
-			existing = latest
-		case !apierrors.IsNotFound(err):
-			return false, nil, fmt.Errorf("check rack %q before apply: %w", name, err)
-		}
+		return r.createCacheMissingRack(ctx, inventory, name, spec)
 	}
-	if existing != nil && !controlledByInventory(existing, inventory) {
+	if !controlledByInventory(existing, inventory) {
 		conflict := ownershipConflict(existing, spec.Identity.RackGroup)
 		return false, &conflict, nil
-	}
-	if existing == nil {
-		desired := newRack(inventory, name, spec)
-		applied, err := r.applyRack(ctx, desired)
-		if err != nil {
-			conflict, conflictErr := r.classifyRackApplyError(ctx, inventory, desired, err)
-			return false, conflict, conflictErr
-		}
-		if !controlledByInventory(applied, inventory) {
-			conflict := ownershipConflict(applied, spec.Identity.RackGroup)
-			return false, &conflict, &OwnershipConflictError{Conflict: conflict, Cause: errors.New("applied rack has a different controller owner")}
-		}
-		return true, nil, nil
 	}
 	changed, _, _, err := r.mutateRack(ctx, inventory, existing, func(latest *mokkav1alpha1.SGPURack) bool {
 		before := latest.DeepCopy()
@@ -683,6 +660,41 @@ func (r *Reconciler) createOrUpdateRack(
 		}
 	}
 	return changed, nil, err
+}
+
+func (r *Reconciler) createCacheMissingRack(
+	ctx context.Context,
+	inventory *mokkav1alpha1.SGPUInventory,
+	name string,
+	spec mokkav1alpha1.SGPURackSpec,
+) (bool, *OwnershipConflict, error) {
+	desired := newRack(inventory, name, spec)
+	created, err := r.racks.Create(ctx, desired, metav1.CreateOptions{FieldManager: RackFieldManager})
+	if err == nil {
+		if created == nil {
+			return false, nil, fmt.Errorf("create rack %q returned no object", name)
+		}
+		if !controlledByInventory(created, inventory) {
+			conflict := ownershipConflict(created, spec.Identity.RackGroup)
+			return false, &conflict, &OwnershipConflictError{
+				Conflict: conflict, Cause: errors.New("created rack has a different controller owner"),
+			}
+		}
+		return true, nil, nil
+	}
+	if apierrors.IsInvalid(err) {
+		return false, nil, &profileMaterializationError{RackName: desired.Name, Cause: err}
+	}
+	if !apierrors.IsAlreadyExists(err) {
+		return false, nil, fmt.Errorf("create rack %q: %w", name, err)
+	}
+	if created == nil {
+		created, err = r.racks.Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return false, nil, fmt.Errorf("get rack %q after create reported already exists: %w", name, err)
+		}
+	}
+	return r.createOrUpdateRack(ctx, inventory, created, name, spec)
 }
 
 func (r *Reconciler) mutateInventory(

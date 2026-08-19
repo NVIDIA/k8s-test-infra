@@ -17,14 +17,19 @@ import (
 	mokkav1alpha1 "github.com/NVIDIA/k8s-test-infra/internal/controlplane/api/v1alpha1"
 )
 
-func TestCreateRackUsesNonForcedServerSideApply(t *testing.T) {
+func TestCreateRackUsesFieldManagedCreateWithoutReadOrApply(t *testing.T) {
 	inventory := testInventory("inventory", "inventory-uid", "profile", 1)
 	desired := newRack(inventory, "rack", mokkav1alpha1.SGPURackSpec{
 		InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID},
 		Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "group", RackIndex: 3},
 	})
-	writer := &recordingRackWriter{getErr: apierrors.NewNotFound(mokkav1alpha1.Resource("sgpuracks"), desired.Name)}
-	writer.patchResult = desired.DeepCopy()
+	created := desired.DeepCopy()
+	created.UID = "rack-uid"
+	created.ResourceVersion = "1"
+	created.ManagedFields = []metav1.ManagedFieldsEntry{{
+		Manager: RackFieldManager, Operation: metav1.ManagedFieldsOperationUpdate,
+	}}
+	writer := &recordingRackWriter{createResult: created}
 	reconciler := &Reconciler{racks: writer}
 
 	changed, conflict, err := reconciler.createOrUpdateRack(
@@ -33,44 +38,12 @@ func TestCreateRackUsesNonForcedServerSideApply(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, changed)
 	require.Nil(t, conflict)
-	require.Len(t, writer.patchCalls, 1)
-	call := writer.patchCalls[0]
-	require.Equal(t, types.ApplyPatchType, call.patchType)
-	require.Equal(t, RackFieldManager, call.options.FieldManager)
-	require.NotNil(t, call.options.Force)
-	require.False(t, *call.options.Force)
-	require.Empty(t, call.subresources)
-
-	var payload map[string]any
-	require.NoError(t, json.Unmarshal(call.data, &payload))
-	require.Equal(t, mokkav1alpha1.SchemeGroupVersion.String(), payload["apiVersion"])
-	require.Equal(t, "SGPURack", payload["kind"])
-	require.Equal(t, map[string]any{
-		"name": desired.Name,
-		"labels": map[string]any{
-			InventoryNameLabel: inventory.Name,
-			RackGroupLabel:     "group",
-			RackIndexLabel:     "3",
-		},
-		"annotations": map[string]any{InventoryUIDAnnotation: string(inventory.UID)},
-		"finalizers":  []any{RackFinalizer},
-		"ownerReferences": []any{map[string]any{
-			"apiVersion":         mokkav1alpha1.SchemeGroupVersion.String(),
-			"kind":               "SGPUInventory",
-			"name":               inventory.Name,
-			"uid":                string(inventory.UID),
-			"controller":         true,
-			"blockOwnerDeletion": true,
-		}},
-	}, payload["metadata"])
-	require.Equal(t, map[string]any{
-		"inventoryRef": map[string]any{"name": inventory.Name, "uid": string(inventory.UID)},
-		"profileRef":   map[string]any{"name": "", "uid": "", "generation": float64(0), "revision": ""},
-		"identity": map[string]any{
-			"rackGroup": "group", "rackIndex": float64(3), "fabricUUID": "", "cliqueID": float64(0),
-		},
-		"slots": nil,
-	}, payload["spec"])
+	require.Zero(t, writer.getCalls)
+	require.Empty(t, writer.patchCalls)
+	require.Len(t, writer.createCalls, 1)
+	require.Equal(t, RackFieldManager, writer.createCalls[0].options.FieldManager)
+	require.Equal(t, desired, writer.createCalls[0].rack)
+	require.Empty(t, writer.createCalls[0].rack.Status.Conditions)
 }
 
 func TestUpdateRackAppliesOnlyControllerFieldsWithResourceVersion(t *testing.T) {
@@ -135,6 +108,7 @@ func TestRackApplyIsIdempotentAndNeverAdoptsForeignOwner(t *testing.T) {
 	foreignInventory := testInventory("foreign", "foreign-inventory-uid", "profile", 1)
 	foreign := newRack(foreignInventory, existing.Name, existing.Spec)
 	writer.getResult = foreign
+	writer.createErr = apierrors.NewAlreadyExists(mokkav1alpha1.Resource("sgpuracks"), existing.Name)
 	changed, conflict, err = reconciler.createOrUpdateRack(
 		context.Background(), inventory, nil, existing.Name, existing.Spec,
 	)
@@ -143,7 +117,161 @@ func TestRackApplyIsIdempotentAndNeverAdoptsForeignOwner(t *testing.T) {
 	require.Equal(t, &OwnershipConflict{
 		RackName: existing.Name, RackGroup: existing.Spec.Identity.RackGroup, OwnerUID: foreignInventory.UID,
 	}, conflict)
+	require.Len(t, writer.createCalls, 1)
+	require.Equal(t, 1, writer.getCalls)
 	require.Empty(t, writer.patchCalls)
+}
+
+func TestCreateRackAlreadyExistsUsesLiveRecreatedUID(t *testing.T) {
+	inventory := testInventory("inventory", "inventory-uid", "profile", 1)
+	desired := newRack(inventory, "rack", mokkav1alpha1.SGPURackSpec{
+		InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID},
+		Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "group", RackIndex: 3},
+	})
+	created := desired.DeepCopy()
+	created.UID = "original-rack-uid"
+	created.ResourceVersion = "1"
+	live := desired.DeepCopy()
+	live.UID = "recreated-rack-uid"
+	live.ResourceVersion = "23"
+	live.Spec.Identity.RackIndex = 2
+	updated := live.DeepCopy()
+	updated.Spec = *desired.Spec.DeepCopy()
+	writer := &recordingRackWriter{createResult: created}
+	reconciler := &Reconciler{racks: writer}
+
+	changed, conflict, err := reconciler.createOrUpdateRack(
+		context.Background(), inventory, nil, desired.Name, desired.Spec,
+	)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Nil(t, conflict)
+
+	writer.createResult = nil
+	writer.createErr = apierrors.NewAlreadyExists(mokkav1alpha1.Resource("sgpuracks"), desired.Name)
+	writer.getResult = live
+	writer.patchResult = updated
+	changed, conflict, err = reconciler.createOrUpdateRack(
+		context.Background(), inventory, nil, desired.Name, desired.Spec,
+	)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Nil(t, conflict)
+	require.Len(t, writer.createCalls, 2)
+	require.Equal(t, 1, writer.getCalls)
+	require.Len(t, writer.patchCalls, 1)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(writer.patchCalls[0].data, &payload))
+	require.Equal(t, live.ResourceVersion, payload["metadata"].(map[string]any)["resourceVersion"])
+}
+
+func TestCreateRackAlreadyExistsSameUIDCacheLagIsIdempotent(t *testing.T) {
+	inventory := testInventory("inventory", "inventory-uid", "profile", 1)
+	desired := newRack(inventory, "rack", mokkav1alpha1.SGPURackSpec{
+		InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID},
+		Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "group"},
+	})
+	live := desired.DeepCopy()
+	live.UID = "rack-uid"
+	live.ResourceVersion = "17"
+	writer := &recordingRackWriter{createResult: live}
+	reconciler := &Reconciler{racks: writer}
+
+	changed, conflict, err := reconciler.createOrUpdateRack(
+		context.Background(), inventory, nil, desired.Name, desired.Spec,
+	)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Nil(t, conflict)
+
+	writer.createResult = nil
+	writer.createErr = apierrors.NewAlreadyExists(mokkav1alpha1.Resource("sgpuracks"), desired.Name)
+	writer.getResult = live
+	changed, conflict, err = reconciler.createOrUpdateRack(
+		context.Background(), inventory, nil, desired.Name, desired.Spec,
+	)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Nil(t, conflict)
+	require.Len(t, writer.createCalls, 2)
+	require.Equal(t, 1, writer.getCalls)
+	require.Empty(t, writer.patchCalls)
+}
+
+func TestCreateRackClassifiesPermanentAndTransientErrors(t *testing.T) {
+	inventory := testInventory("inventory", "inventory-uid", "profile", 1)
+	desired := newRack(inventory, "rack", mokkav1alpha1.SGPURackSpec{
+		InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID},
+		Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "group"},
+	})
+
+	t.Run("invalid is permanent materialization issue", func(t *testing.T) {
+		writer := &recordingRackWriter{createErr: apierrors.NewInvalid(
+			mokkav1alpha1.SchemeGroupVersion.WithKind("SGPURack").GroupKind(), desired.Name, nil,
+		)}
+		reconciler := &Reconciler{racks: writer}
+		_, _, err := reconciler.createOrUpdateRack(
+			context.Background(), inventory, nil, desired.Name, desired.Spec,
+		)
+		var materializationErr *profileMaterializationError
+		require.ErrorAs(t, err, &materializationErr)
+		require.True(t, apierrors.IsInvalid(err))
+		require.Zero(t, writer.getCalls)
+		require.Empty(t, writer.patchCalls)
+	})
+
+	t.Run("service unavailable remains retryable", func(t *testing.T) {
+		writer := &recordingRackWriter{createErr: apierrors.NewServiceUnavailable("apiserver unavailable")}
+		reconciler := &Reconciler{racks: writer}
+		_, _, err := reconciler.createOrUpdateRack(
+			context.Background(), inventory, nil, desired.Name, desired.Spec,
+		)
+		require.Error(t, err)
+		require.True(t, apierrors.IsServiceUnavailable(err))
+		require.Zero(t, writer.getCalls)
+		require.Empty(t, writer.patchCalls)
+	})
+}
+
+func TestCreatedRackUsesSameManagerForLaterNonForcedApply(t *testing.T) {
+	inventory := testInventory("inventory", "inventory-uid", "profile", 1)
+	desired := newRack(inventory, "rack", mokkav1alpha1.SGPURackSpec{
+		InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID},
+		Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "group"},
+	})
+	created := desired.DeepCopy()
+	created.UID = "rack-uid"
+	created.ResourceVersion = "1"
+	created.ManagedFields = []metav1.ManagedFieldsEntry{{
+		Manager: RackFieldManager, Operation: metav1.ManagedFieldsOperationUpdate,
+	}}
+	writer := &recordingRackWriter{createResult: created}
+	reconciler := &Reconciler{racks: writer}
+
+	changed, conflict, err := reconciler.createOrUpdateRack(
+		context.Background(), inventory, nil, desired.Name, desired.Spec,
+	)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Nil(t, conflict)
+
+	updatedSpec := *desired.Spec.DeepCopy()
+	updatedSpec.Identity.RackIndex = 1
+	writer.patchResult = created.DeepCopy()
+	writer.patchResult.Spec = updatedSpec
+	changed, conflict, err = reconciler.createOrUpdateRack(
+		context.Background(), inventory, created, desired.Name, updatedSpec,
+	)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Nil(t, conflict)
+	require.Len(t, writer.createCalls, 1)
+	require.Len(t, writer.patchCalls, 1)
+	call := writer.patchCalls[0]
+	require.Equal(t, types.ApplyPatchType, call.patchType)
+	require.Equal(t, RackFieldManager, call.options.FieldManager)
+	require.NotNil(t, call.options.Force)
+	require.False(t, *call.options.Force)
 }
 
 func TestRackFieldManagerConflictIsVisibleAndRetryable(t *testing.T) {
@@ -186,15 +314,34 @@ type rackPatchCall struct {
 	subresources []string
 }
 
+type rackCreateCall struct {
+	rack    *mokkav1alpha1.SGPURack
+	options metav1.CreateOptions
+}
+
 type recordingRackWriter struct {
-	getResult   *mokkav1alpha1.SGPURack
-	getErr      error
-	patchResult *mokkav1alpha1.SGPURack
-	patchErr    error
-	patchCalls  []rackPatchCall
+	createResult *mokkav1alpha1.SGPURack
+	createErr    error
+	createCalls  []rackCreateCall
+	getResult    *mokkav1alpha1.SGPURack
+	getErr       error
+	getCalls     int
+	patchResult  *mokkav1alpha1.SGPURack
+	patchErr     error
+	patchCalls   []rackPatchCall
+}
+
+func (w *recordingRackWriter) Create(
+	_ context.Context,
+	rack *mokkav1alpha1.SGPURack,
+	options metav1.CreateOptions,
+) (*mokkav1alpha1.SGPURack, error) {
+	w.createCalls = append(w.createCalls, rackCreateCall{rack: rack.DeepCopy(), options: options})
+	return w.createResult, w.createErr
 }
 
 func (w *recordingRackWriter) Get(context.Context, string, metav1.GetOptions) (*mokkav1alpha1.SGPURack, error) {
+	w.getCalls++
 	return w.getResult, w.getErr
 }
 

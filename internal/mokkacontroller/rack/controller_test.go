@@ -94,6 +94,37 @@ func TestReconcileCreatesDeterministicRacksAndIsIdempotent(t *testing.T) {
 	require.Equal(t, types.UID("later-uid"), unchurned.Spec.Slots[1].NodeRef.UID)
 }
 
+func TestReconcileCreatesCacheMissingRacksWithOneWriteEach(t *testing.T) {
+	const rackCount = 8
+	ctx := context.Background()
+	profile := testProfile("p", "profile-uid", 1, 1, 1)
+	inventory := testInventory("inventory", "inventory-uid", profile.Name, rackCount)
+	inventory.Finalizers = []string{InventoryFinalizer}
+	h := newHarness(t, []runtime.Object{profile, inventory}, nil)
+	h.mokka.Fake.ClearActions()
+
+	result, err := h.reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
+	require.True(t, result.Changed)
+
+	actionCounts := map[string]int{}
+	for _, action := range h.mokka.Actions() {
+		if action.GetResource().Resource != "sgpuracks" {
+			continue
+		}
+		actionCounts[action.GetVerb()]++
+		if action.GetVerb() == "create" {
+			create := action.(k8stesting.CreateActionImpl)
+			require.Equal(t, RackFieldManager, create.GetCreateOptions().FieldManager)
+			rack := create.GetObject().(*mokkav1alpha1.SGPURack)
+			require.True(t, metav1.IsControlledBy(rack, inventory))
+			require.Contains(t, rack.Finalizers, RackFinalizer)
+			require.Empty(t, rack.Status.Conditions)
+		}
+	}
+	require.Equal(t, map[string]int{"create": rackCount}, actionCounts)
+}
+
 func TestReconcileGroupIndexesLargeBindingSetOnce(t *testing.T) {
 	const (
 		rackCount    = 1_000
@@ -476,14 +507,14 @@ func TestReconcileSurfacesRackFieldOwnershipConflict(t *testing.T) {
 	require.Equal(t, materialize.RackName(inventory.Name, inventory.UID, "group", 0), ownershipErr.Conflict.RackName)
 }
 
-func TestReconcileClassifiesInvalidRackApplyAsProfileIssue(t *testing.T) {
+func TestReconcileClassifiesInvalidRackCreateAsProfileIssue(t *testing.T) {
 	ctx := context.Background()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 2)
 	h := newHarness(t, []runtime.Object{profile, inventory}, nil)
-	patches := 0
-	h.mokka.PrependReactor("patch", "sgpuracks", func(k8stesting.Action) (bool, runtime.Object, error) {
-		patches++
+	creates := 0
+	h.mokka.PrependReactor("create", "sgpuracks", func(k8stesting.Action) (bool, runtime.Object, error) {
+		creates++
 		return true, nil, apierrors.NewInvalid(
 			schema.GroupKind{Group: mokkav1alpha1.GroupName, Kind: "SGPURack"},
 			"rack",
@@ -501,15 +532,15 @@ func TestReconcileClassifiesInvalidRackApplyAsProfileIssue(t *testing.T) {
 			materialize.RackName(inventory.Name, inventory.UID, "group", 0),
 		),
 	}}, result.ProfileIssues)
-	require.Equal(t, 1, patches, "one invalid rack must stop further applies for the affected profile group")
+	require.Equal(t, 1, creates, "one invalid rack must stop further creates for the affected profile group")
 }
 
-func TestReconcileLeavesTransientRackApplyErrorsRetryable(t *testing.T) {
+func TestReconcileLeavesTransientRackCreateErrorsRetryable(t *testing.T) {
 	ctx := context.Background()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 1)
 	h := newHarness(t, []runtime.Object{profile, inventory}, nil)
-	h.mokka.PrependReactor("patch", "sgpuracks", func(k8stesting.Action) (bool, runtime.Object, error) {
+	h.mokka.PrependReactor("create", "sgpuracks", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, apierrors.NewServiceUnavailable("apiserver unavailable")
 	})
 
@@ -802,9 +833,32 @@ func newHarness(t *testing.T, mokkaObjects []runtime.Object, nodes []*corev1.Nod
 		mokka: mokkafake.NewSimpleClientset(mokkaObjects...),
 		nodes: nodes,
 	}
+	h.installRackCreateReactor()
 	h.installRackApplyReactor()
 	h.sync(t)
 	return h
+}
+
+func (h *harness) installRackCreateReactor() {
+	h.mokka.PrependReactor("create", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		create := action.(k8stesting.CreateActionImpl)
+		require.Equal(h.t, RackFieldManager, create.GetCreateOptions().FieldManager)
+		desired := create.GetObject().(*mokkav1alpha1.SGPURack).DeepCopy()
+		resource := mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuracks")
+		if _, err := h.mokka.Tracker().Get(resource, "", desired.Name); err == nil {
+			return true, nil, apierrors.NewAlreadyExists(mokkav1alpha1.Resource("sgpuracks"), desired.Name)
+		} else if !apierrors.IsNotFound(err) {
+			return true, nil, err
+		}
+		h.nextRackUID++
+		desired.UID = types.UID(fmt.Sprintf("uid-%s-%d", desired.Name, h.nextRackUID))
+		desired.ResourceVersion = "1"
+		desired.ManagedFields = []metav1.ManagedFieldsEntry{{
+			Manager: RackFieldManager, Operation: metav1.ManagedFieldsOperationUpdate,
+		}}
+		err := h.mokka.Tracker().Create(resource, desired, "")
+		return true, desired, err
+	})
 }
 
 //nolint:cyclop // The fake reactor models the API server's create/update/SSA conflict cases.

@@ -52,6 +52,12 @@ tests:
             apiGroups: ["mokka.nvidia.com"]
             resources: ["sgpuinventories/status", "sgpuracks/status"]
             verbs: ["update"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["mokka.nvidia.com"]
+            resources: ["sgpuracks"]
+            verbs: ["get", "list", "watch", "create", "patch", "delete"]
 
   - it: should allow namespaced Lease election
     set:
