@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -81,6 +82,53 @@ func TestComputeInventoryRequestedNodesAreDistinctWhileGroupsOverlap(t *testing.
 	require.Equal(t, int32(1), got.RackGroups[0].Usage.RequestedNodes)
 	require.Equal(t, int32(1), got.RackGroups[1].Usage.RequestedNodes)
 	require.Equal(t, ReasonPlacementConflicts, condition(got.Conditions, mokkav1alpha1.InventoryConditionRequestsSatisfied).Reason)
+}
+
+func TestComputeInventoryCapacityBoundaryAndRejectedOverflow(t *testing.T) {
+	t.Run("maximum GPUs at supported node boundary", func(t *testing.T) {
+		inventory := &mokkav1alpha1.SGPUInventory{
+			ObjectMeta: metav1.ObjectMeta{Name: "inventory", UID: "inventory-uid", Generation: 1},
+			Spec: mokkav1alpha1.SGPUInventorySpec{RackGroups: []mokkav1alpha1.RackGroup{{
+				ID: "group", Count: 100_000, ProfileRef: mokkav1alpha1.ProfileReference{Name: "p"},
+			}}},
+		}
+		got := ComputeInventory(InventoryInput{
+			Inventory: inventory,
+			Profiles:  map[string]*mokkav1alpha1.SGPUProfile{"p": profile("p", 1, 64)},
+			RackResult: controllerack.Result{
+				Accepted: true, ResolvedRefs: true,
+			},
+		}, metav1.Now())
+
+		require.Equal(t, mokkav1alpha1.InventoryCapacity{Racks: 100_000, Nodes: 100_000, GPUs: 6_400_000}, got.Capacity)
+		require.Equal(t, got.Capacity, got.RackGroups[0].Capacity)
+	})
+
+	t.Run("overflowing declaration is rejected without publishing wrapped capacity", func(t *testing.T) {
+		inventory := &mokkav1alpha1.SGPUInventory{
+			ObjectMeta: metav1.ObjectMeta{Name: "inventory", UID: "inventory-uid", Generation: 1},
+			Spec: mokkav1alpha1.SGPUInventorySpec{RackGroups: []mokkav1alpha1.RackGroup{{
+				ID: "group", Count: math.MaxInt32, ProfileRef: mokkav1alpha1.ProfileReference{Name: "p"},
+			}}},
+		}
+		got := ComputeInventory(InventoryInput{
+			Inventory: inventory,
+			Profiles:  map[string]*mokkav1alpha1.SGPUProfile{"p": profile("p", math.MaxInt32, math.MaxInt32)},
+			RackResult: controllerack.Result{
+				Accepted: false, ResolvedRefs: true,
+				ValidationReason: controllerack.ReasonCapacityExceeded,
+				ValidationError:  "declared capacity cannot be represented",
+			},
+		}, metav1.Now())
+
+		require.Zero(t, got.Capacity)
+		require.Zero(t, got.RackGroups[0].Capacity)
+		accepted := condition(got.Conditions, mokkav1alpha1.InventoryConditionAccepted)
+		require.Equal(t, metav1.ConditionFalse, accepted.Status)
+		require.Equal(t, ReasonCapacityExceeded, accepted.Reason)
+		require.Equal(t, ReasonCapacityExceeded,
+			condition(got.Conditions, mokkav1alpha1.InventoryConditionProgrammed).Reason)
+	})
 }
 
 func TestComputeRackStatusCountsExactProjectionAndDuplicateBindings(t *testing.T) {

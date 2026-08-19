@@ -33,6 +33,7 @@ const (
 	// ReasonAccepted records a valid inventory declaration.
 	ReasonAccepted              = "Accepted"
 	ReasonInvalidInventory      = "InvalidInventory"
+	ReasonCapacityExceeded      = controllerack.ReasonCapacityExceeded
 	ReasonProfilesResolved      = "ProfilesResolved"
 	ReasonProfileNotFound       = "ProfileNotFound"
 	ReasonInvalidProfile        = "InvalidProfile"
@@ -174,6 +175,7 @@ func (r *Reconciler) ReconcileRack(ctx context.Context, input RackInput) (bool, 
 
 type groupAggregate struct {
 	status    mokkav1alpha1.RackGroupStatus
+	capacity  controllerack.DeclaredCapacity
 	selector  labels.Selector
 	resolved  bool
 	requested map[types.UID]struct{}
@@ -195,6 +197,8 @@ func ComputeInventory(input InventoryInput, now metav1.Time) mokkav1alpha1.SGPUI
 
 	groups := make(map[string]*groupAggregate, len(inventory.Spec.RackGroups))
 	ordered := make([]string, 0, len(inventory.Spec.RackGroups))
+	totalCapacity := controllerack.DeclaredCapacity{}
+	capacityValid := true
 	for _, declaration := range inventory.Spec.RackGroups {
 		aggregate := &groupAggregate{
 			status: mokkav1alpha1.RackGroupStatus{
@@ -209,12 +213,34 @@ func ComputeInventory(input InventoryInput, now metav1.Time) mokkav1alpha1.SGPUI
 		_, hasIssue := issues[declaration.ID]
 		if profile != nil && !hasIssue {
 			aggregate.resolved = true
-			aggregate.status.Capacity = groupCapacity(declaration, profile)
+			capacity, err := controllerack.CapacityForGroup(declaration, profile)
+			if err != nil {
+				capacityValid = false
+			} else {
+				aggregate.capacity = capacity
+				totalCapacity, err = controllerack.AddCapacity(totalCapacity, capacity)
+				if err != nil {
+					capacityValid = false
+				}
+			}
 		}
 		groups[declaration.ID] = aggregate
 		ordered = append(ordered, declaration.ID)
 	}
 	slices.Sort(ordered)
+	if capacityValid {
+		if err := controllerack.ValidateSupportedCapacity(totalCapacity); err != nil {
+			capacityValid = false
+		}
+	}
+	if capacityValid {
+		for _, aggregate := range groups {
+			if !aggregate.resolved {
+				continue
+			}
+			aggregate.status.Capacity, _ = controllerack.StatusCapacity(aggregate.capacity)
+		}
+	}
 
 	requested := make(map[types.UID]struct{})
 	liveNodes := make(map[types.UID]*corev1.Node, len(input.Nodes))
@@ -274,12 +300,14 @@ func ComputeInventory(input InventoryInput, now metav1.Time) mokkav1alpha1.SGPUI
 	}
 
 	result := mokkav1alpha1.SGPUInventoryStatus{RackGroupsSummary: strings.Join(ordered, ",")}
+	if capacityValid {
+		result.Capacity, _ = controllerack.StatusCapacity(totalCapacity)
+	}
 	var projectedNodes int32
 	for _, id := range ordered {
 		aggregate := groups[id]
 		aggregate.status.Usage.RequestedNodes = int32(len(aggregate.requested))
 		aggregate.status.Usage.AvailableNodes = max(0, aggregate.status.Capacity.Nodes-aggregate.status.Usage.AllocatedNodes)
-		result.Capacity = addCapacity(result.Capacity, aggregate.status.Capacity)
 		result.Usage.AllocatedNodes += aggregate.status.Usage.AllocatedNodes
 		result.Usage.AvailableNodes += aggregate.status.Usage.AvailableNodes
 		result.Usage.PendingNodes += aggregate.status.Usage.PendingNodes
@@ -383,7 +411,11 @@ func inventoryConditions(
 		Reason: ReasonAccepted, Message: "The inventory configuration is valid.",
 	}
 	if !input.RackResult.Accepted {
-		accepted.Status, accepted.Reason, accepted.Message = metav1.ConditionFalse, ReasonInvalidInventory, input.RackResult.ValidationError
+		reason := input.RackResult.ValidationReason
+		if reason == "" {
+			reason = ReasonInvalidInventory
+		}
+		accepted.Status, accepted.Reason, accepted.Message = metav1.ConditionFalse, reason, input.RackResult.ValidationError
 	}
 
 	resolved := metav1.Condition{
@@ -406,7 +438,7 @@ func inventoryConditions(
 	}
 	switch {
 	case accepted.Status == metav1.ConditionFalse:
-		programmed.Status, programmed.Reason, programmed.Message = metav1.ConditionFalse, ReasonInvalidInventory, "Programming is blocked by an invalid inventory."
+		programmed.Status, programmed.Reason, programmed.Message = metav1.ConditionFalse, accepted.Reason, "Programming is blocked by an invalid inventory."
 	case resolved.Status == metav1.ConditionFalse:
 		programmed.Status, programmed.Reason, programmed.Message = metav1.ConditionFalse, ReasonReferencesUnresolved, "Programming is blocked by unresolved profiles."
 	case len(input.RackResult.OwnershipConflicts) > 0:
@@ -457,15 +489,6 @@ func mergeConditions(old, desired []metav1.Condition, generation int64, now meta
 		return cmp.Compare(a.Type, b.Type)
 	})
 	return merged
-}
-
-func groupCapacity(group mokkav1alpha1.RackGroup, profile *mokkav1alpha1.SGPUProfile) mokkav1alpha1.InventoryCapacity {
-	racks := group.Count
-	slots := racks * profile.Spec.Rack.NodesPerRack
-	return mokkav1alpha1.InventoryCapacity{
-		Racks: racks, Nodes: slots,
-		GPUs: slots * profile.Spec.Node.GPUs.Count,
-	}
 }
 
 func groupSelector(group mokkav1alpha1.RackGroup) (labels.Selector, error) {
@@ -634,14 +657,6 @@ func projectionKeyForBinding(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.S
 	return projectionKey{
 		rackName: rack.Name, rackUID: rack.UID, slotIndex: slot.Index,
 		nodeName: slot.NodeRef.Name, nodeUID: slot.NodeRef.UID,
-	}
-}
-
-func addCapacity(a, b mokkav1alpha1.InventoryCapacity) mokkav1alpha1.InventoryCapacity {
-	return mokkav1alpha1.InventoryCapacity{
-		Racks: a.Racks + b.Racks,
-		Nodes: a.Nodes + b.Nodes,
-		GPUs:  a.GPUs + b.GPUs,
 	}
 }
 

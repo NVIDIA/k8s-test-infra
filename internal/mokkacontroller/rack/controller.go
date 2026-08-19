@@ -135,6 +135,7 @@ func (e *OwnershipConflictError) Unwrap() error { return e.Cause }
 type Result struct {
 	Accepted           bool
 	ResolvedRefs       bool
+	ValidationReason   string
 	ValidationError    string
 	ProfileIssues      []ProfileIssue
 	OwnershipConflicts []OwnershipConflict
@@ -243,6 +244,26 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 	if inventory.DeletionTimestamp != nil {
 		return r.reconcileInventoryDeletion(ctx, inventory, ownedRacks, result)
 	}
+	if err := validateInventory(inventory); err != nil {
+		result.Accepted = false
+		result.ValidationError = err.Error()
+		return result, nil
+	}
+
+	resolved, issues, err := r.resolveGroups(inventory)
+	if err != nil {
+		return result, err
+	}
+	if err := validateResolvedCapacity(resolved); err != nil {
+		result.Accepted = false
+		result.ValidationReason = ReasonCapacityExceeded
+		result.ValidationError = err.Error()
+		return result, nil
+	}
+	resolved, materializationIssues := validateGroupMaterialization(inventory, resolved)
+	issues = append(issues, materializationIssues...)
+	result.ProfileIssues = issues
+	result.ResolvedRefs = len(issues) == 0
 	if !slices.Contains(inventory.Finalizers, InventoryFinalizer) {
 		if requestedGroup != nil {
 			return result, nil
@@ -259,19 +280,6 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 		}
 		result.Changed = result.Changed || changed
 	}
-
-	if err := validateInventory(inventory); err != nil {
-		result.Accepted = false
-		result.ValidationError = err.Error()
-		return result, nil
-	}
-
-	resolved, issues, err := r.resolveGroups(inventory)
-	if err != nil {
-		return result, err
-	}
-	result.ProfileIssues = issues
-	result.ResolvedRefs = len(issues) == 0
 	workGroups := resolved
 	if requestedGroup != nil {
 		workGroups = slices.DeleteFunc(slices.Clone(resolved), func(group resolvedGroup) bool {
@@ -467,16 +475,6 @@ func (r *Reconciler) resolveGroups(inventory *mokkav1alpha1.SGPUInventory) ([]re
 			issues = append(issues, ProfileIssue{RackGroup: group.ID, ProfileName: group.ProfileRef.Name, Reason: err.Error()})
 			continue
 		}
-		if group.Count > 0 {
-			_, err := materialize.RenderRack(materialize.RackInput{
-				InventoryName: inventory.Name, InventoryUID: inventory.UID,
-				Group: group, RackIndex: 0, Profile: profile,
-			})
-			if err != nil {
-				issues = append(issues, ProfileIssue{RackGroup: group.ID, ProfileName: group.ProfileRef.Name, Reason: err.Error()})
-				continue
-			}
-		}
 		resolved = append(resolved, resolvedGroup{
 			group:   group,
 			profile: profile,
@@ -484,6 +482,49 @@ func (r *Reconciler) resolveGroups(inventory *mokkav1alpha1.SGPUInventory) ([]re
 		})
 	}
 	return resolved, issues, nil
+}
+
+func validateResolvedCapacity(groups []resolvedGroup) error {
+	total := DeclaredCapacity{}
+	for _, group := range groups {
+		capacity, err := CapacityForGroup(group.group, group.profile)
+		if err != nil {
+			return err
+		}
+		if err := ValidateSupportedCapacity(capacity); err != nil {
+			return err
+		}
+		total, err = AddCapacity(total, capacity)
+		if err != nil {
+			return err
+		}
+	}
+	return ValidateSupportedCapacity(total)
+}
+
+func validateGroupMaterialization(
+	inventory *mokkav1alpha1.SGPUInventory,
+	groups []resolvedGroup,
+) ([]resolvedGroup, []ProfileIssue) {
+	valid := make([]resolvedGroup, 0, len(groups))
+	issues := make([]ProfileIssue, 0)
+	for _, group := range groups {
+		_, err := materialize.RenderRack(materialize.RackInput{
+			InventoryName: inventory.Name,
+			InventoryUID:  inventory.UID,
+			Group:         group.group,
+			RackIndex:     0,
+			Profile:       group.profile,
+		})
+		if err != nil {
+			issues = append(issues, ProfileIssue{
+				RackGroup: group.group.ID, ProfileName: group.profile.Name, Reason: err.Error(),
+			})
+			continue
+		}
+		valid = append(valid, group)
+	}
+	return valid, issues
 }
 
 func (r *Reconciler) preservePendingReleases(
@@ -912,8 +953,8 @@ func validateInventory(inventory *mokkav1alpha1.SGPUInventory) error {
 			return fmt.Errorf("rack group ID %q is duplicated", group.ID)
 		}
 		seen[group.ID] = struct{}{}
-		if group.Count < 1 || group.Count > 100_000 {
-			return fmt.Errorf("rack group %q count is outside [1,100000]", group.ID)
+		if group.Count < 1 || int64(group.Count) > MaxInventoryNodeSlots {
+			return fmt.Errorf("rack group %q count is outside [1,%d]", group.ID, MaxInventoryNodeSlots)
 		}
 		if group.ProfileRef.Name == "" {
 			return fmt.Errorf("rack group %q profileRef.name must not be empty", group.ID)

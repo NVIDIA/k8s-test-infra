@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"testing"
 	"time"
@@ -123,6 +124,84 @@ func TestReconcileCreatesCacheMissingRacksWithOneWriteEach(t *testing.T) {
 		}
 	}
 	require.Equal(t, map[string]int{"create": rackCount}, actionCounts)
+}
+
+func TestSupportedInventoryCapacityBoundariesAndOverflow(t *testing.T) {
+	profile := testProfile("p", "profile-uid", 1, 1, 64)
+	group := mokkav1alpha1.RackGroup{ID: "group", Count: 100_000}
+
+	boundary, err := CapacityForGroup(group, profile)
+	require.NoError(t, err)
+	require.NoError(t, ValidateSupportedCapacity(boundary))
+	require.Equal(t, DeclaredCapacity{Racks: 100_000, NodeSlots: 100_000, GPUs: 6_400_000}, boundary)
+	require.EqualError(t,
+		ValidateSupportedCapacity(DeclaredCapacity{Racks: 100_001, NodeSlots: 100_000}),
+		"desired racks 100001 exceed supported maximum 100000",
+	)
+	require.EqualError(t,
+		ValidateSupportedCapacity(DeclaredCapacity{Racks: 100_000, NodeSlots: 100_000, GPUs: math.MaxInt32 + 1}),
+		"declared capacity exceeds int32 status bounds",
+	)
+
+	over, err := CapacityForGroup(mokkav1alpha1.RackGroup{ID: "group", Count: 100_001}, profile)
+	require.NoError(t, err)
+	require.EqualError(t, ValidateSupportedCapacity(over), "desired node slots 100001 exceed supported maximum 100000")
+
+	extreme := profile.DeepCopy()
+	extreme.Spec.Rack.NodesPerRack = math.MaxInt32
+	extreme.Spec.Node.GPUs.Count = math.MaxInt32
+	_, err = CapacityForGroup(mokkav1alpha1.RackGroup{ID: "group", Count: math.MaxInt32}, extreme)
+	require.EqualError(t, err, `rack group "group" GPU capacity overflows int64`)
+
+	_, err = AddCapacity(
+		DeclaredCapacity{Racks: math.MaxInt64, NodeSlots: math.MaxInt64, GPUs: math.MaxInt64},
+		DeclaredCapacity{Racks: 1, NodeSlots: 1, GPUs: 1},
+	)
+	require.EqualError(t, err, "aggregate rack capacity overflows int64")
+	_, err = AddCapacity(
+		DeclaredCapacity{NodeSlots: math.MaxInt64},
+		DeclaredCapacity{NodeSlots: 1},
+	)
+	require.EqualError(t, err, "aggregate node-slot capacity overflows int64")
+	_, err = AddCapacity(
+		DeclaredCapacity{GPUs: math.MaxInt64},
+		DeclaredCapacity{GPUs: 1},
+	)
+	require.EqualError(t, err, "aggregate GPU capacity overflows int64")
+}
+
+func TestReconcileRejectsAggregateCapacityBeforeAllocationOrWrites(t *testing.T) {
+	ctx := context.Background()
+	profile := testProfile("p", "profile-uid", 1, 1, 1)
+	inventory := testInventory("inventory", "inventory-uid", profile.Name, 50_000)
+	second := inventory.Spec.RackGroups[0]
+	second.ID = "second"
+	second.Count = 50_001
+	inventory.Spec.RackGroups = append(inventory.Spec.RackGroups, second)
+	h := newHarness(t, []runtime.Object{profile, inventory}, nil)
+	allocation := NewAllocationCache(h.cache)
+	allocationCalls := 0
+	allocation.allocate = func(allocate.Input) (allocate.Plan, error) {
+		allocationCalls++
+		return allocate.Plan{}, nil
+	}
+	reconciler := NewReconcilerWithAllocationCache(
+		h.cache,
+		h.mokka.MokkaV1alpha1().SGPUInventories(),
+		h.mokka.MokkaV1alpha1().SGPURacks(),
+		CleanupGateFunc(func(CleanupNeeded) bool { return false }),
+		allocation,
+	)
+	h.mokka.Fake.ClearActions()
+
+	result, err := reconciler.Reconcile(ctx, inventory.Name)
+	require.NoError(t, err)
+	require.False(t, result.Accepted)
+	require.Equal(t, ReasonCapacityExceeded, result.ValidationReason)
+	require.Equal(t, "desired node slots 100001 exceed supported maximum 100000", result.ValidationError)
+	require.Zero(t, allocationCalls, "rejected capacity must not invoke allocation")
+	require.Zero(t, result.Work)
+	require.Empty(t, h.mokka.Actions(), "rejected capacity must not issue API writes")
 }
 
 func TestReconcileGroupIndexesLargeBindingSetOnce(t *testing.T) {

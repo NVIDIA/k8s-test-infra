@@ -50,6 +50,7 @@ type RackGroup struct {
 	ID string `json:"id"`
 
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100000
 	Count int32 `json:"count"`
 
 	ProfileRef ProfileReference `json:"profileRef"`

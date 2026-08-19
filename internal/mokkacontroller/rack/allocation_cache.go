@@ -160,6 +160,10 @@ func allocationGroups(
 		if resolveErr != nil {
 			return nil, nil, resolveErr
 		}
+		if validateResolvedCapacity(resolved) != nil {
+			continue
+		}
+		resolved, _ = validateGroupMaterialization(inventory, resolved)
 		for _, group := range resolved {
 			var selector *metav1.LabelSelector
 			if group.group.Placement != nil {
