@@ -37,15 +37,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   profile's root complexes, because a bind mount at a path sysfs lacks needs a
   mountpoint the runtime cannot create on a read-only `/sys` — which hides the
   host's other device classes from served containers. Under NRI, which injects
-  node-wide, keep workloads that need the host's real device tree in a namespace
-  listed in `nri.excludedNamespaces`. The rendered tree also mirrors the node's
-  DMI attributes (`product_name`, `product_uuid`) into
-  `sys/devices/virtual/dmi/id`, because shadowing `/sys/devices` shadows the
-  directory `/sys/class/dmi/id` resolves into: kind's `mount-product-files.sh`
-  createContainer hook bind-mounts the node's product files there for every
-  container, and `mount(8)` cannot create a target on a read-only sysfs. The
-  attributes are mirrored, not mocked: `nvidia.com/gpu.machine` still reports
-  what the node itself reports, tracked in #681. (#673)
+  node-wide, exempt a workload that needs the host's real device tree with the
+  `nvml-mock.nvidia.com/inject: "false"` pod annotation, or a whole namespace
+  with `nri.excludedNamespaces`. The rendered tree also carries the node's DMI
+  attributes in `sys/devices/virtual/dmi/id`, because shadowing `/sys/devices`
+  shadows the directory `/sys/class/dmi/id` resolves into: kind's
+  `mount-product-files.sh` createContainer hook bind-mounts the node's product
+  files there for every container, and `mount(8)` cannot create a target on a
+  read-only sysfs. `product_name` is mirrored by value; `product_uuid` is an
+  empty stand-in, since kind mounts the node's own copy over it and the value is
+  a node identifier the kernel exposes to root alone. The attributes are
+  mirrored, not mocked: `nvidia.com/gpu.machine` still reports what the node
+  itself reports, tracked in #681. Each render now replaces the previous tree
+  instead of adding to it, so re-profiling a node no longer serves both
+  profiles' devices, and both mount channels gate on a completion marker the
+  renderer writes last — the mounted directories exist from the start of a
+  render, so their presence alone would serve a tree still missing the bind
+  targets kind's hook needs. (#673)
 - mocknvml: configured `processes:` now surface in nvidia-smi — the default
   table's Processes box, `-q`, and `--query-compute-apps` all report the
   configured PIDs, names and GPU memory instead of always reporting none.

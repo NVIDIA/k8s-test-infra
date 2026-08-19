@@ -121,7 +121,9 @@ fi
 #     renderer parses the profile's `pcie_topology:` block; profiles without
 #     one get a flat default covering every device under a single root
 #     complex (`pci0000:00`, NUMA 0). It also mirrors the node's DMI identity
-#     into the tree, which the mount below depends on. Failures are fatal
+#     into the tree, which the mount below depends on. Each run replaces the
+#     previous tree rather than adding to it, so re-profiling a node does not
+#     leave it serving both profiles' devices. Failures are fatal
 #     under `set -e` for the same reason as the IB render below — a topology
 #     typo otherwise yields silently malformed sysfs that downstream
 #     `dra.k8s.io/pcieRoot` attributes would inherit.
@@ -131,12 +133,17 @@ fi
 #     missing fails container creation for the whole pod.
 PCI_ROOT="$HOST"
 mkdir -p "$PCI_ROOT"
+# Keep in sync with render.MarkerRelPath (pkg/system/mockpcisysfs/render): the
+# renderer writes it last, once the whole tree is on disk. Gating on the
+# directories instead would accept a tree from a previous profile that this
+# run had nothing to render over, and would say "rendered" partway through.
+PCI_SYSFS_MARKER=sys/.rendered
 PCI_SYSFS_RENDERED=off
 if [ -x /usr/local/bin/render-pci-sysfs ]; then
   /usr/local/bin/render-pci-sysfs \
     --config /etc/nvml-mock/config.yaml \
     --output "$PCI_ROOT"
-  if [ -d "$PCI_ROOT/sys/bus/pci/devices" ] && [ -d "$PCI_ROOT/sys/devices" ]; then
+  if [ -f "$PCI_ROOT/$PCI_SYSFS_MARKER" ]; then
     PCI_SYSFS_RENDERED=on
   fi
 fi

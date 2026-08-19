@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockpcisysfs/render"
 )
 
 // warnf logs a non-fatal condition. It is a package var so tests can capture
@@ -369,13 +371,21 @@ func topologyInjectable(cfg Config) bool {
 // createContainer hook bind-mounts the node's product files there, and a
 // missing target fails container creation.
 //
-// Missing sources are skipped rather than reported: the tree is staged by
-// the main nvml-mock DaemonSet and nothing orders this plugin after it, and
-// a bind mount whose source does not exist fails container creation for the
-// whole pod. Silence rather than a warning because this runs for every
-// container on the node, staged or not.
+// An unfinished tree is skipped rather than reported: it is staged by the
+// main nvml-mock DaemonSet and nothing orders this plugin after it, and a
+// mount the tree cannot honour fails container creation for the whole pod.
+// Silence rather than a warning because this runs for every container on the
+// node, staged or not.
+//
+// "Finished" is the renderer's marker, not the presence of the directories
+// mounted here: those exist from the start of a render while the DMI
+// attributes kind's hook needs are written at its end, so a tree caught
+// mid-render would otherwise pass and then fail every container on the node.
 func pciSysfsMounts(cfg Config) []Mount {
 	if cfg.HostOverlayPath == "" {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(cfg.HostOverlayPath, render.MarkerRelPath)); err != nil {
 		return nil
 	}
 	sysDevices := filepath.Join(cfg.HostOverlayPath, sysDevicesRelPath)

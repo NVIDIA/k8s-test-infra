@@ -736,19 +736,24 @@ directory yields entries that list but whose every attribute read fails with
 device classes (CPU topology among them) from those containers. It cannot be
 narrowed to the profile's root complexes — a bind mount at a path sysfs does
 not already have needs a mountpoint, and the runtime cannot create one on a
-read-only `/sys`. A node running nvml-mock is simulating GPU hardware, so this
-is not configurable; keep workloads that need the host's real device tree off
-it, or in a namespace listed in `nri.excludedNamespaces`.
+read-only `/sys`. A node running nvml-mock is simulating GPU hardware, so
+serving the tree is not itself configurable. Through CDI a container is served
+only if it requests a mock GPU. Through NRI, which injects ambiently, the two
+existing escape hatches cover it: the pod annotation
+`nvml-mock.nvidia.com/inject: "false"` (`nri.optOutAnnotation`) exempts a
+single workload, and `nri.excludedNamespaces` exempts a whole namespace.
 
 `/sys/devices/virtual/dmi/id` — the directory `/sys/class/dmi/id` resolves
 into — is shadowed along with the rest, so the renderer mirrors the node's
-`product_name` and `product_uuid` into the tree. This is not cosmetic: kind's
-`mount-product-files.sh` createContainer hook bind-mounts the node's copies of
-both onto every container it starts, and `mount(8)` cannot create a target on a
-read-only sysfs, so a missing attribute fails container creation for every pod
-the mock serves. The values are mirrored, not mocked — a node keeps reporting
-its own machine type, which under kind is the literal `kind`, so
-`nvidia.com/gpu.machine` does not follow the profile. Tracked in
+`product_name` there and leaves an empty `product_uuid` beside it. This is not
+cosmetic: kind's `mount-product-files.sh` createContainer hook bind-mounts the
+node's copies of both onto every container it starts, and `mount(8)` cannot
+create a target on a read-only sysfs, so a missing attribute fails container
+creation for every pod the mock serves. `product_uuid` is a node identifier the
+kernel exposes to root alone and kind mounts its own copy over it, so only the
+target is reproduced, never the value. `product_name` is mirrored, not mocked —
+a node keeps reporting its own machine type, which under kind is the literal
+`kind`, so `nvidia.com/gpu.machine` does not follow the profile. Tracked in
 [#681](https://github.com/NVIDIA/k8s-test-infra/issues/681).
 
 ### Cross-node `ibping`
@@ -1406,7 +1411,7 @@ discovery and monitoring. Some host-level subsystems are not mocked:
 | What's Missing | Affected Consumer | Impact |
 |----------------|-------------------|--------|
 | `/sys/bus/pci/devices/{busID}` sysfs entries in containers the mock does **not** serve | DRA driver | The tree is now bind-mounted onto the kernel paths for CDI- and NRI-served containers, which is what Go consumers need (see [PCI sysfs in containers](#pci-sysfs-in-containers)). A consumer deployed outside those channels still reads the host's real sysfs; whether `dra.k8s.io/pcieRoot` reaches ResourceSlices is tracked in [#265](https://github.com/NVIDIA/k8s-test-infra/issues/265) |
-| `/sys/bus/pci/devices/{busID}/numa_node` | Device plugin | NUMA-aware topology hints unavailable; scheduling works but NUMA affinity not enforced |
+| `/sys/bus/pci/devices/{busID}/numa_node` in containers the mock does **not** serve | Device plugin | The renderer writes `numa_node` for every device and it arrives through the same mount, so a served device plugin does get NUMA hints. Outside those channels the hints are unavailable: scheduling works but NUMA affinity is not enforced |
 | `/sys/bus/pci/devices/*/vendor,device,class` **as NFD reads them** (`/host-sys/…`, fixed at link time) | NFD (Node Feature Discovery) | PCI feature labels not auto-detected. `nvidia.com/gpu.present` is written directly by nvml-mock; `pci-10de.present` is created by NFD from a feature file nvml-mock drops in `nodeLabels.featuresDir` — see [Node Labels](#node-labels) |
 
 ### PCIe Root Complex (DRA driver)

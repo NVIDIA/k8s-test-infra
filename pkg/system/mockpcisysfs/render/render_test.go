@@ -200,6 +200,111 @@ func TestRender_IdempotentRerender(t *testing.T) {
 	require.Equal(t, "3\n", string(got), "numa_node not updated")
 }
 
+// TestRender_PrunesStaleDevices covers re-profiling a node: an a100 and an
+// h100 profile share no BDFs, and the renderer used to only add entries, so
+// both sets stayed under the tree and consumers saw their union mounted at
+// /sys/bus/pci/devices — more GPUs than the node simulates, some of them
+// pointing at a root complex no profile declares.
+func TestRender_PrunesStaleDevices(t *testing.T) {
+	dir := t.TempDir()
+	previous := &config.PCIeTopology{
+		RootComplexes: []config.RootComplex{{
+			ID: "pci0000:00", NUMANode: 0,
+			Devices: []string{"0000:07:00.0"},
+		}},
+	}
+	require.NoError(t, Render(Options{Topology: previous, Output: dir}), "Render previous profile")
+
+	current := &config.PCIeTopology{
+		RootComplexes: []config.RootComplex{{
+			ID: "pci0000:c0", NUMANode: 3,
+			Devices: []string{"0000:1a:00.0"},
+		}},
+	}
+	require.NoError(t, Render(Options{Topology: current, Output: dir}), "Render current profile")
+
+	entries, err := os.ReadDir(filepath.Join(dir, "sys/bus/pci/devices"))
+	require.NoError(t, err, "read devices dir")
+	require.Len(t, entries, 1, "stale device symlinks survived the re-render")
+	require.Equal(t, "0000:1a:00.0", entries[0].Name(), "device")
+
+	_, err = os.Stat(filepath.Join(dir, "sys/devices/pci0000:00"))
+	require.True(t, os.IsNotExist(err), "stale root complex survived, got err=%v", err)
+}
+
+// TestRender_MarkerFollowsTheTree pins the signal consumers gate their bind
+// mounts on. The mounted directories are created at the start of a render and
+// the DMI attributes are written at its end, so their presence cannot mean
+// "complete" — and mounting an incomplete tree fails container creation on a
+// bind target that is not there yet.
+func TestRender_MarkerFollowsTheTree(t *testing.T) {
+	dir := t.TempDir()
+	topo := &config.PCIeTopology{
+		RootComplexes: []config.RootComplex{{
+			ID: "pci0000:00", NUMANode: 0,
+			Devices: []string{"0000:07:00.0"},
+		}},
+	}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}), "Render")
+	_, err := os.Stat(filepath.Join(dir, MarkerRelPath))
+	require.NoError(t, err, "marker missing after a complete render")
+
+	// A profile with nothing to render must leave no marker: a stale one would
+	// keep consumers mounting the previous profile's devices.
+	require.NoError(t, Render(Options{Output: dir}), "Render without topology")
+	_, err = os.Stat(filepath.Join(dir, MarkerRelPath))
+	require.True(t, os.IsNotExist(err), "marker survived an empty render, got err=%v", err)
+	entries, err := os.ReadDir(filepath.Join(dir, "sys/bus/pci/devices"))
+	require.NoError(t, err, "read devices dir")
+	require.Empty(t, entries, "devices survived an empty render")
+}
+
+// TestRender_KeepsMountedPathsWhilePruning pins what a re-render must not take
+// away. Both mounted directories, and the DMI attributes kind's
+// createContainer hook bind-mounts the node's product files onto, are targets
+// of mounts already in effect for containers the CDI spec serves — and the CDI
+// path cannot wait for the marker, since the runtime applies the spec's mounts
+// unconditionally. Removing them mid-render would fail container creation for
+// pods that have nothing to do with the re-profiling.
+func TestRender_KeepsMountedPathsWhilePruning(t *testing.T) {
+	src := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(src, "product_name"), []byte("kind\n"), 0o644), "stage product_name")
+	require.NoError(t, os.WriteFile(filepath.Join(src, "product_uuid"), []byte("dead-beef\n"), 0o644), "stage product_uuid")
+
+	dir := t.TempDir()
+	topo := &config.PCIeTopology{
+		RootComplexes: []config.RootComplex{{
+			ID: "pci0000:00", NUMANode: 0,
+			Devices: []string{"0000:07:00.0"},
+		}},
+	}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir, DMISource: src}), "Render")
+
+	// Watch the directories across a prune: they must be the same inodes
+	// afterwards, since a bind mount whose source was replaced still resolves
+	// to the vanished original.
+	sysDevices := statOrFail(t, filepath.Join(dir, "sys/devices"))
+	pciDevices := statOrFail(t, filepath.Join(dir, "sys/bus/pci/devices"))
+
+	require.NoError(t, pruneTree(dir), "pruneTree")
+
+	require.True(t, os.SameFile(sysDevices, statOrFail(t, filepath.Join(dir, "sys/devices"))),
+		"sys/devices replaced by the prune")
+	require.True(t, os.SameFile(pciDevices, statOrFail(t, filepath.Join(dir, "sys/bus/pci/devices"))),
+		"sys/bus/pci/devices replaced by the prune")
+	for _, attr := range []string{"product_name", "product_uuid"} {
+		_, err := os.Stat(filepath.Join(dir, "sys/devices/virtual/dmi/id", attr))
+		require.NoError(t, err, "%s removed by the prune", attr)
+	}
+}
+
+func statOrFail(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	info, err := os.Stat(path)
+	require.NoError(t, err, "stat %s", path)
+	return info
+}
+
 func TestRender_NormalizesUppercaseBDF(t *testing.T) {
 	dir := t.TempDir()
 	topo := &config.PCIeTopology{
@@ -219,8 +324,11 @@ func TestRender_NormalizesUppercaseBDF(t *testing.T) {
 // TestRender_MirrorsKernelDMI covers the reason the tree carries a DMI
 // directory at all: bind-mounting it over /sys/devices hides the real
 // virtual/dmi/id, which kind's mount-product-files.sh hook bind-mounts the
-// node's product files onto for every container. Mirroring the attributes
-// keeps those mount targets in place and leaves the node's identity intact.
+// node's product files onto for every container. Both attributes must exist
+// as mount targets; only product_name travels by value. product_uuid is a
+// node identifier the kernel exposes 0400 to root alone, and kind mounts the
+// node's own copy over it anyway, so the tree must not republish it into
+// every served container.
 func TestRender_MirrorsKernelDMI(t *testing.T) {
 	src := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(src, "product_name"), []byte("kind\n"), 0o644), "stage product_name")
@@ -235,22 +343,26 @@ func TestRender_MirrorsKernelDMI(t *testing.T) {
 	}
 	require.NoError(t, Render(Options{Topology: topo, Output: dir, DMISource: src}), "Render")
 
-	for name, want := range map[string]string{"product_name": "kind\n", "product_uuid": "dead-beef\n"} {
-		got, err := os.ReadFile(filepath.Join(dir, "sys/devices/virtual/dmi/id", name))
-		require.NoError(t, err, "read %s", name)
-		require.Equal(t, want, string(got), name)
-	}
+	dmi := filepath.Join(dir, "sys/devices/virtual/dmi/id")
+	name, err := os.ReadFile(filepath.Join(dmi, "product_name"))
+	require.NoError(t, err, "read product_name")
+	require.Equal(t, "kind\n", string(name), "product_name")
+
+	uuid, err := os.ReadFile(filepath.Join(dmi, "product_uuid"))
+	require.NoError(t, err, "read product_uuid")
+	require.Empty(t, uuid, "product_uuid exists as a mount target, without the node's value")
 }
 
-// TestRender_StandsInForUnreadableDMI covers product_uuid, which the kernel
-// exposes mode 0400: the value cannot be mirrored, but the file must still
-// exist, because mount(8) cannot create a target on a read-only sysfs.
+// TestRender_StandsInForUnreadableDMI covers an attribute the renderer cannot
+// read — product_name is mode 0444 on every kernel we know of, but a mirror
+// that failed on a permission error would leave the mount target missing, and
+// mount(8) cannot create one on a read-only sysfs.
 func TestRender_StandsInForUnreadableDMI(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads any mode; the permission branch is unreachable")
 	}
 	src := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(src, "product_uuid"), []byte("secret\n"), 0o000), "stage product_uuid")
+	require.NoError(t, os.WriteFile(filepath.Join(src, "product_name"), []byte("secret\n"), 0o000), "stage product_name")
 
 	dir := t.TempDir()
 	topo := &config.PCIeTopology{
@@ -261,8 +373,8 @@ func TestRender_StandsInForUnreadableDMI(t *testing.T) {
 	}
 	require.NoError(t, Render(Options{Topology: topo, Output: dir, DMISource: src}), "Render")
 
-	got, err := os.ReadFile(filepath.Join(dir, "sys/devices/virtual/dmi/id/product_uuid"))
-	require.NoError(t, err, "read product_uuid")
+	got, err := os.ReadFile(filepath.Join(dir, "sys/devices/virtual/dmi/id/product_name"))
+	require.NoError(t, err, "read product_name")
 	require.Empty(t, got, "an unreadable attribute renders as an empty stand-in")
 }
 
