@@ -64,6 +64,7 @@ so they apply as fast as available CPU/IOPS allow.
 ### Non-Goals
 
 - This proposal wants to keep the current simulation logic identical. Any missing coverage or improvements should be done outside the MEP. 
+- The allocation watcher stays the separate sidecar it is today (`nvml-mock-ctl watch-allocations`). It simulates no surface, and it runs with `drop: ["ALL"]` and two mounts — folding it into the agent would hand the pod-resources socket to a process that needs `mknod` and write access across `/host`.
 
 ## Proposal
 
@@ -76,11 +77,11 @@ The "Design Details" section below is for the real nitty-gritty.
 -->
 
 Instead of having many tiny CLIs and a big setup.sh script that starts them and do a portion of simuation,
-we will have one mokka-node-agent CLI that acts as reconciler and superviser of multiple `Components` structs, 
+we will have one mokka-node-agent CLI that acts as reconciler and superviser of multiple `Simulator` structs, 
 each knows how to simulate/unsimulate a specific subsystem like devicedriver, imex, etc.
 
 The mokka-node-agent CLI will load configuration from available sources (filesystem & Control Plane REST API) 
-and pass it to each `Component` for reconciliation. 
+and pass it to each `Simulator` for reconciliation. 
 
 The mokka-node-agent CLI will also keep any simulation servers that need to be active all the time. 
 The servers shutdown will be aligned with the signals that mokka-node-agent receives.
@@ -111,7 +112,7 @@ There are three main interfaces.
 One owner per simulated component:
 
 ```go
-type Component interface {
+type Simulator interface {
     Name() string
     Stage(ctx context.Context, host Host, state *State) error // materialize artifacts; nothing outside can see them yet
     Discard(ctx context.Context, host Host) error             // inverse of Stage
@@ -119,7 +120,7 @@ type Component interface {
     Ready() bool
 }
 
-// Applier is implemented by components whose staged artifacts something outside
+// Applier is implemented by simulators whose staged artifacts something outside
 // the node acts on — containerd, NFD, the GPU Operator validator.
 type Applier interface {
     Apply(ctx context.Context, host Host, state *State) error
@@ -128,13 +129,13 @@ type Applier interface {
 ```
 
 - `Stage` and `Apply` together are the level-triggered reconcile: both re-run on every state change and must be idempotent. `Revoke` and `Discard` run only on shutdown.
-- They converge rather than only materialize: a component removes surfaces it previously created that the current `State` no longer calls for, so shrinking a node from 8 GPUs to 4 removes `/dev/nvidia4..7` and their PCI entries.
-- Internally, `Stage` parallelizes independent surfaces via a local `errgroup`. The GPU-driver-footprint component runs 7 things (chardevs + NVML shim + CUDA shim + nvidia-smi + procfs version + procfs params + engine config) concurrently.
-- Only three components implement `Applier`: `cdi` (both CDI YAMLs), `gpudriver` (`/run/nvidia/driver` symlink), `pcibus` (NFD feature file). The other five have no surface a third party acts on.
+- They converge rather than only materialize: a simulator removes surfaces it previously created that the current `State` no longer calls for, so shrinking a node from 8 GPUs to 4 removes `/dev/nvidia4..7` and their PCI entries.
+- Internally, `Stage` parallelizes independent surfaces via a local `errgroup`. The GPU-driver-footprint simulator runs 7 things (chardevs + NVML shim + CUDA shim + nvidia-smi + procfs version + procfs params + engine config) concurrently.
+- Only three simulators implement `Applier`: `cdi` (both CDI YAMLs), `gpudriver` (`/run/nvidia/driver` symlink), `pcibus` (NFD feature file). The other four have no surface a third party acts on.
 - `Stage`↔`Discard` and `Apply`↔`Revoke` are exact inverses, so the shutdown order is written once in the agent and cannot delete an artifact before the spec that references it.
-- `Run` supervises background daemons (mock-ib server, fabric-manager marker loop, allocwatch loop). Returning nil means "one-shot done".
-- There is no agent-wide resync period. A component that owns a file something else can delete re-asserts it from `Run` instead, like the fabric-manager marker every 2 s.
-- `Discard` removes only files the component created; the top-level `/host/var/lib/nvml-mock` root is left to the pod's hostPath lifecycle.
+- `Run` supervises background daemons (mock-ib server, fabric-manager marker loop). Returning nil means "one-shot done".
+- There is no agent-wide resync period. A simulator that owns a file something else can delete re-asserts it from `Run` instead, like the fabric-manager marker every 2 s.
+- `Discard` removes only files the simulator created; the top-level `/host/var/lib/nvml-mock` root is left to the pod's hostPath lifecycle.
 - `Ready()` powers `/readyz` and attributes failures per surface.
 
 `Host` abstracts the on-host root (`/host/var/lib/nvml-mock`, `/host/dev`, `/host/proc`, `/host/sys`, `/host/etc`). Tests retarget to `t.TempDir()`.
@@ -193,17 +194,17 @@ This is the reconciler & supervisor.
 `Agent.Run(ctx)`:
 
 1. Subscribe to `StateSource.Watch(ctx)`; cache the last `State` in memory ([MEP-0001]'s crash-tolerance requirement). An `Update` carrying `Err` leaves that cache in force — the agent keeps serving it and does not reconcile.
-2. **Stage wave (parallel)** — on every `State` (initial + updates), call `Stage(ctx, host, state)` on every component concurrently via `errgroup`. Component failures are isolated: an optional component's failure marks it unready and continues; a required component's failure returns.
+2. **Stage wave (parallel)** — on every `State` (initial + updates), call `Stage(ctx, host, state)` on every simulator concurrently via `errgroup`. Failures are isolated: an optional simulator's failure marks it unready and continues; a required one's failure returns.
 3. **Barrier, then apply wave (parallel)** — once every `Stage` has returned, call `Apply(ctx, host, state)` on every `Applier`. The barrier is what stops containerd admitting a container against a CDI spec whose chardevs do not exist yet; reconciling again cannot undo that admission.
-4. **Supervisor wave (parallel, launched once)** — each component's `Run(ctx)` is launched under a supervisor `errgroup` at startup. Runs continue across state changes; only a canceled `ctx` stops them.
-5. Expose `/healthz` + `/readyz` HTTP endpoints, aggregated + per-component (shape from `cmd/nvml-mock-nri/main.go:107` `serveHealth`). `/healthz` is liveness only and never depends on `StateSource` reachability: otherwise one Control Plane outage restarts — and per step 6, tears down — the whole fleet at once. `/readyz` means the components reconciled the last accepted `State`, and is red only until the first one arrives; later staleness is a metric over `Update.At` and `State.Generation`, not a probe.
-6. On `ctx.Done()`: cancel `Run` goroutines, `Revoke` on every `Applier` in parallel, then — after that wave completes — `Discard` on every component in parallel. Both teardown waves use `errgroup.Group` rather than `errgroup.WithContext`: staging wants fail-fast, teardown wants best-effort so one stuck component does not strand the rest of the host.
+4. **Supervisor wave (parallel, launched once)** — each simulator's `Run(ctx)` is launched under a supervisor `errgroup` at startup. Runs continue across state changes; only a canceled `ctx` stops them.
+5. Expose `/healthz` + `/readyz` HTTP endpoints, aggregated + per-simulator (shape from `cmd/nvml-mock-nri/main.go:107` `serveHealth`). `/healthz` is liveness only and never depends on `StateSource` reachability: otherwise one Control Plane outage restarts — and per step 6, tears down — the whole fleet at once. `/readyz` means the simulators reconciled the last accepted `State`, and is red only until the first one arrives; later staleness is a metric over `Update.At` and `State.Generation`, not a probe.
+6. On `ctx.Done()`: cancel `Run` goroutines, `Revoke` on every `Applier` in parallel, then — after that wave completes — `Discard` on every simulator in parallel. Both teardown waves use `errgroup.Group` rather than `errgroup.WithContext`: staging wants fail-fast, teardown wants best-effort so one stuck simulator does not strand the rest of the host.
 
 Graceful shutdown via `signal.NotifyContext(ctx, SIGINT, SIGTERM)`.
 
-### Components
+### Simulators
 
-These are the simulated components. Each is a package under `internal/agent/`:
+One per simulated component. Each is a package under `internal/agent/`:
 
 | Package                 | Simulates                                                       | Stage does (in parallel)                                                                   | Apply does                            | Run does                                                             |
 |-------------------------|-----------------------------------------------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------|----------------------------------------------------------------------|
@@ -214,7 +215,6 @@ These are the simulated components. Each is a package under `internal/agent/`:
 | `ibhca`                 | Component 5 — InfiniBand HCA                                    | IB sysfs tree + libibmock*.so staging + IB CLI tool staging                                | —                                       | `pkg/network/mockib/daemon.Server`; optional fabric relay            |
 | `nvlink`                | Component 6 — NVLink fabric / compute domain                    | topology YAML overlay                                                                      | —                                       | —                                                                    |
 | `cdi`                   | Component 7 — CDI surface                                       | —                                                                                          | `nvidia.yaml` + `nvml-mock-nri.yaml`    | —                                                                    |
-| `allocwatch` (optional) | (not a simulated surface — mirrors pod GPU claims into `state`) | —                                                                                          | —                                       | kubelet PodResources → override memory.used via `pkg/gpu/allocwatch` |
 
 #### Example: `devicedriver.Stage`
 
@@ -244,8 +244,7 @@ The reconciler is a fan-out with one barrier:
                      ├── fabricmanager  (marker; Run→ re-assertion loop)     ┌── cdi        (2 YAMLs)
    State snapshot ───┼── imex           (chardevs + /proc/devices overlay) ──┼── gpudriver  (/run/nvidia/driver symlink)
                      ├── ibhca          (sysfs tree; Run→ mock-ib daemon)    └── pcibus     (NFD feature file)
-                     ├── nvlink         (topology overlay)
-                     └── allocwatch     (optional; Run→ PodResources loop)
+                     └── nvlink         (topology overlay)
                           Stage wave                    barrier                  Apply wave
 ```
 
