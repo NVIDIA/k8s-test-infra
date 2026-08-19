@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 268 stub functions for unimplemented NVML functions.
+// 266 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -394,11 +394,6 @@ func nvmlDeviceGetMinMaxFanSpeed(device C.nvmlDevice_t, minSpeed *C.uint, maxSpe
 	return stubReturn("nvmlDeviceGetMinMaxFanSpeed")
 }
 
-//export nvmlDeviceGetModuleId
-func nvmlDeviceGetModuleId(device C.nvmlDevice_t, moduleId *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetModuleId")
-}
-
 //export nvmlDeviceGetNumGpuCores
 func nvmlDeviceGetNumGpuCores(device C.nvmlDevice_t, numCores *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetNumGpuCores")
@@ -447,11 +442,6 @@ func nvmlDeviceGetPerformanceModes(device C.nvmlDevice_t, perfModes *C.nvmlDevic
 //export nvmlDeviceGetPgpuMetadataString
 func nvmlDeviceGetPgpuMetadataString(device C.nvmlDevice_t, pgpuMetadata *C.char, bufferSize *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetPgpuMetadataString")
-}
-
-//export nvmlDeviceGetPlatformInfo
-func nvmlDeviceGetPlatformInfo(device C.nvmlDevice_t, platformInfo *C.nvmlPlatformInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetPlatformInfo")
 }
 
 //export nvmlDeviceGetPowerMizerMode_v1

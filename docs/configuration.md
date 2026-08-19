@@ -122,6 +122,54 @@ device_defaults:
     rx_throughput_kbps: 0
 ```
 
+### Platform identity (rack location)
+
+Where the node's boards sit in a rack, which `nvidia-smi -q` renders as its
+`Platform Info` block. Rack-scale fault correlation reads it to turn a GPU fault
+into a physical location. Only `gb200` and `gb300` ship it; on every other
+profile the whole block reads `N/A`, which is the correct reading for a board
+whose platform reports no location.
+
+```yaml
+device_defaults:
+  platform:
+    chassis_serial_number: "1822725100200"  # serial of the chassis (the rack)
+    slot_number: 21                 # absolute physical slot, switch trays included
+    tray_index: 11                  # position among compute trays only
+    host_id: 1                      # the OS domain within the tray — this node
+    peer_type: "switch_connected"    # or "direct_connected"
+
+devices:
+  - index: 0
+    platform:
+      module_id: 1                  # ID of this GPU within the node
+  - index: 1
+    platform:
+      module_id: 2
+```
+
+Only `module_id` varies between the GPUs of a node: NVML defines it as the ID of
+the GPU within the node, while the other fields describe the node, which occupies
+exactly one tray in one slot of one chassis. All six are settable per device
+anyway, and a device override merges field by field, so a device declares just
+its `module_id`.
+
+`slot_number` counts switch trays and compute trays alike while `tray_index`
+counts compute trays only, so on an NVL72 rack — 18 compute trays, 9 switch
+trays — slot runs ahead of tray for a tray above the switch group.
+
+`peer_type` says how the GPU reaches its NVLink peers: `switch_connected`
+(through an NVSwitch tray) renders as `Switch Connected`, and anything else,
+including an absent key, renders as `Direct Connected`.
+
+As everywhere else in a device override, a zero is indistinguishable from an
+unset key, so `module_id` numbers from 1.
+
+Declaring the block also requires a driver new enough to have the API:
+`nvmlDeviceGetPlatformInfo` arrived in 560, so a profile on an older
+`system.driver_version` reports `N/A` regardless. The `GPU Fabric GUID` row of
+the same block is not modelled and reads `0x0000000000000000`.
+
 ### Power
 
 ```yaml

@@ -396,7 +396,46 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.Processes != nil {
 		base.Processes = override.Processes // nil = not overridden; [] = explicit clear
 	}
+	if override.Platform != nil {
+		mergePlatformOverride(base, override.Platform)
+	}
 	// Add more fields as needed
+}
+
+// mergePlatformOverride merges per-field rather than replacing the block, so a
+// device can set its own module_id — the one field that varies between the GPUs
+// of a node — without restating the chassis, slot, tray, and host id it shares
+// with them.
+//
+// The block is copied before it is written to: GetDeviceConfig copies
+// DeviceDefaults shallowly, so every device's merge starts out pointing at the
+// same PlatformConfig. Editing that in place would give all of them whichever
+// module id was merged last.
+func mergePlatformOverride(base *DeviceConfig, override *PlatformConfig) {
+	if base.Platform == nil {
+		base.Platform = &PlatformConfig{}
+	} else {
+		clone := *base.Platform
+		base.Platform = &clone
+	}
+	if override.ChassisSerialNumber != "" {
+		base.Platform.ChassisSerialNumber = override.ChassisSerialNumber
+	}
+	if override.SlotNumber != 0 {
+		base.Platform.SlotNumber = override.SlotNumber
+	}
+	if override.TrayIndex != 0 {
+		base.Platform.TrayIndex = override.TrayIndex
+	}
+	if override.HostID != 0 {
+		base.Platform.HostID = override.HostID
+	}
+	if override.PeerType != "" {
+		base.Platform.PeerType = override.PeerType
+	}
+	if override.ModuleID != 0 {
+		base.Platform.ModuleID = override.ModuleID
+	}
 }
 
 // applyTopologyOverlay rewrites yamlConfig.DeviceDefaults.Fabric (and any

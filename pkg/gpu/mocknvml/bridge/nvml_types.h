@@ -468,7 +468,53 @@ typedef struct nvmlPRMTLV_v1_st                             nvmlPRMTLV_v1_t;
 typedef struct nvmlPSUInfo_st                               nvmlPSUInfo_t;
 typedef struct nvmlPciInfoExt_st                            nvmlPciInfoExt_t;
 typedef struct nvmlPdi_st                                   nvmlPdi_t;
-typedef struct nvmlPlatformInfo_st                          nvmlPlatformInfo_t;
+/**
+ * Platform identity — where the board physically sits in a rack. Full
+ * definition needed so nvmlDeviceGetPlatformInfo can populate the caller's
+ * struct. Layout matches the upstream NVML public header; see
+ * vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h.
+ *
+ * v1 is deprecated upstream in favour of v2, which renames the same bytes:
+ * rackGuid became chassisSerialNumber (on Blackwell the rack is identified by
+ * the chassis serial), and the three location bytes gained clearer names. The
+ * two layouts are therefore identical in size and offsets, which is what lets
+ * the bridge serve either version from one payload.
+ */
+#define NVML_PLATFORM_CHASSIS_SERIAL_LEN 16
+#define NVML_PLATFORM_IB_GUID_LEN        16
+
+typedef struct nvmlPlatformInfo_v1_st {
+    unsigned int  version;
+    unsigned char ibGuid[NVML_PLATFORM_IB_GUID_LEN];
+    unsigned char rackGuid[NVML_PLATFORM_CHASSIS_SERIAL_LEN];
+    unsigned char chassisPhysicalSlotNumber;
+    unsigned char computeSlotIndex;
+    unsigned char nodeIndex;
+    unsigned char peerType;
+    unsigned char moduleId;
+} nvmlPlatformInfo_v1_t;
+
+typedef struct nvmlPlatformInfo_v2_st {
+    unsigned int  version;
+    unsigned char ibGuid[NVML_PLATFORM_IB_GUID_LEN];
+    unsigned char chassisSerialNumber[NVML_PLATFORM_CHASSIS_SERIAL_LEN];
+    unsigned char slotNumber;
+    unsigned char trayIndex;
+    unsigned char hostId;
+    unsigned char peerType;
+    unsigned char moduleId;
+} nvmlPlatformInfo_v2_t;
+
+typedef nvmlPlatformInfo_v2_t nvmlPlatformInfo_t;
+/* Callers allocate this buffer from go-nvml's PlatformInfo, so a field added
+ * here would make the bridge write past the caller's allocation. The equal
+ * sizes are also what the version dispatch relies on: NVML_STRUCT_VERSION
+ * encodes sizeof in its low bits, so v1 and v2 tags differ only in the version
+ * byte, and a payload written for one fits the other exactly. */
+_Static_assert(sizeof(nvmlPlatformInfo_v1_t) == sizeof(nvmlPlatformInfo_v2_t),
+               "nvmlPlatformInfo v1 and v2 must stay the same size: the bridge serves both from one payload");
+_Static_assert(sizeof(nvmlPlatformInfo_v2_t) == 44,
+               "nvmlPlatformInfo_v2_t must stay 44 bytes to match the go-nvml ABI");
 typedef struct nvmlPowerSmoothingProfile_st                 nvmlPowerSmoothingProfile_t;
 typedef struct nvmlPowerSmoothingState_st                   nvmlPowerSmoothingState_t;
 typedef struct nvmlPowerSource_st                           nvmlPowerSource_t;

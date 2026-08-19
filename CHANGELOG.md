@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- mocknvml: `nvidia-smi -q` now reports the `Platform Info` block on the
+  `gb200`/`gb300` profiles — chassis serial number, slot number, tray index,
+  host ID, peer type and module ID, where every row previously read `N/A`. These
+  are the fields rack-scale fault correlation reads to turn a GPU fault into a
+  physical location, so a Grace-Blackwell rack was indistinguishable from a PCIe
+  workstation card by location. `nvmlDeviceGetPlatformInfo` (both struct
+  versions) and `nvmlDeviceGetModuleId` are implemented and no longer generated
+  stubs, and a new `device_defaults.platform` block configures the identity —
+  per device, though only `module_id` varies between the GPUs of a node, since
+  NVML scopes the rest to the node, which sits in exactly one tray of one
+  chassis. Profiles that declare no block, and any profile on a driver older
+  than 560, keep reporting `N/A`. The `GPU Fabric GUID` row of the same block is
+  not modelled and now renders `0x0000000000000000` where it used to read `N/A`.
+  (#642)
 - mocknvml: configured `processes:` now surface in nvidia-smi — the default
   table's Processes box, `-q`, and `--query-compute-apps` all report the
   configured PIDs, names and GPU memory instead of always reporting none.

@@ -171,3 +171,47 @@ func TestC2CIsGraceOnly(t *testing.T) {
 			"%s: nvlink.c2c_enabled should be %v", name, graceProfiles[name])
 	}
 }
+
+// TestPlatformIdentityIsRackScaleOnly pins platform identity as a rack-scale
+// axis, for the same reason as the C2C one: an e2e expectation derived from the
+// profiles must keep a negative control, or "reports a location" could quietly
+// become "always reports one". b200 is the interesting case — Blackwell, but a
+// board in no rack. See issue #642.
+func TestPlatformIdentityIsRackScaleOnly(t *testing.T) {
+	rackProfiles := map[string]bool{"gb200": true, "gb300": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		identity, declared := p.PlatformIdentity()
+		require.Equal(t, rackProfiles[name], declared,
+			"%s: device_defaults.platform should be declared=%v", name, rackProfiles[name])
+		if !declared {
+			require.Empty(t, identity.ModuleIDs, "%s: module ids without a platform block", name)
+			continue
+		}
+		require.Len(t, identity.ModuleIDs, p.ExpectedGPUs(), "%s: a module id per GPU", name)
+		require.NotEmpty(t, identity.ChassisSerialNumber, "%s: chassis_serial_number", name)
+	}
+}
+
+// The per-device module ids must survive the profile decode distinctly: they are
+// the only field that tells one of a node's GPUs from another, and a decode that
+// read them from device_defaults alone would hand every GPU the same one.
+func TestPlatformIdentityModuleIDsAreDistinct(t *testing.T) {
+	for _, name := range []string{"gb200", "gb300"} {
+		t.Run(name, func(t *testing.T) {
+			p, err := Load(profilesDir, name)
+			require.NoError(t, err, "Load(%q)", name)
+			identity, declared := p.PlatformIdentity()
+			require.True(t, declared, "declares a platform block")
+
+			seen := map[int]int{}
+			for i, id := range identity.ModuleIDs {
+				require.NotZero(t, id, "device %d module id", i)
+				prev, dup := seen[id]
+				require.False(t, dup, "device %d shares module id %d with device %d", i, id, prev)
+				seen[id] = i
+			}
+		})
+	}
+}

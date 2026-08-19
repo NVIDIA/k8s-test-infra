@@ -255,6 +255,36 @@ func (g GPU) ThermalSlowdownState() string {
 // mock never reports.
 func (g GPU) C2CMode() string { return strings.TrimSpace(string(g.element.C2CMode)) }
 
+// PlatformInfo is the <platformInfo> block as rendered, each field kept as its
+// body rather than a number: "N/A" is the correct reading on every board whose
+// platform cannot report a location, and the assertions must round-trip it.
+type PlatformInfo struct {
+	ChassisSerialNumber string
+	SlotNumber          string
+	TrayIndex           string
+	HostID              string
+	PeerType            string
+	ModuleID            string
+}
+
+// PlatformInfo decodes this GPU's <platformInfo> block.
+func (g GPU) PlatformInfo() PlatformInfo {
+	p := g.element.PlatformInfo
+	return PlatformInfo{
+		ChassisSerialNumber: strings.TrimSpace(string(p.ChassisSerialNumber)),
+		SlotNumber:          strings.TrimSpace(string(p.SlotNumber)),
+		TrayIndex:           strings.TrimSpace(string(p.TrayIndex)),
+		HostID:              strings.TrimSpace(string(p.HostID)),
+		PeerType:            strings.TrimSpace(string(p.PeerType)),
+		ModuleID:            strings.TrimSpace(string(p.ModuleID)),
+	}
+}
+
+// ModuleID is <module_id> inside <platformInfo>: which GPU this is within its
+// node. false when the platform reports no location, so a caller deriving a
+// physical position cannot mistake an unsupported board for module 0.
+func (g GPU) ModuleID() (int, bool) { return g.element.PlatformInfo.ModuleID.intValue() }
+
 // Process is one decoded <process_info> entry.
 type Process struct {
 	PID       int
