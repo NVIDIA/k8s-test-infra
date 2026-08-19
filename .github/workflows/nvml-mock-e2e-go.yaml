@@ -325,6 +325,12 @@ jobs:
           KIND_NODE_IMAGE_PREBUILT: "1"
         run: make cluster-create
 
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
+
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
 
@@ -406,6 +412,9 @@ jobs:
       - name: Load pre-built nvml-mock image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
 
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
+
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
 
@@ -482,6 +491,9 @@ jobs:
 
       - name: Load pre-built nvml-mock image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
@@ -562,6 +574,9 @@ jobs:
 
       - name: Load pre-built nvml-mock image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
@@ -653,6 +668,9 @@ jobs:
 
       - name: Load pre-built nvml-mock image
         run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
 
       - name: Stage CI Helm values for Tilt
         run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
