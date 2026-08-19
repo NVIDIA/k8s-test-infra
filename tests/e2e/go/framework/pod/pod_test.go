@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
@@ -45,18 +44,21 @@ func TestRenderMinimalSpec(t *testing.T) {
 func TestRenderCapsGracePeriodByDefault(t *testing.T) {
 	rendered := decode(t, Spec{Name: "probe", Image: "busybox:1.36"}.Render())
 
-	require.Equal(t, ptr.To(DefaultGracePeriodSeconds), rendered.Spec.TerminationGracePeriodSeconds)
+	require.NotNil(t, rendered.Spec.TerminationGracePeriodSeconds)
+	require.Equal(t, DefaultGracePeriodSeconds, *rendered.Spec.TerminationGracePeriodSeconds)
 	require.LessOrEqual(t, DefaultGracePeriodSeconds, int64(1))
 }
 
 func TestRenderHonoursGracePeriodOverride(t *testing.T) {
+	override := int64(45)
 	rendered := decode(t, Spec{
 		Name:               "probe",
 		Image:              "busybox:1.36",
-		GracePeriodSeconds: ptr.To[int64](45),
+		GracePeriodSeconds: &override,
 	}.Render())
 
-	require.Equal(t, ptr.To[int64](45), rendered.Spec.TerminationGracePeriodSeconds)
+	require.NotNil(t, rendered.Spec.TerminationGracePeriodSeconds)
+	require.Equal(t, override, *rendered.Spec.TerminationGracePeriodSeconds)
 }
 
 func TestRenderFullSpec(t *testing.T) {

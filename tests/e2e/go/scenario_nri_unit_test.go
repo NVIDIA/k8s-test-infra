@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
@@ -103,8 +102,9 @@ func TestNRIPodManifests(t *testing.T) {
 			require.Equal(t, tc.labels, rendered.Labels)
 
 			require.Equal(t, corev1.RestartPolicyNever, rendered.Spec.RestartPolicy)
-			require.Equal(t, ptr.To(pod.DefaultGracePeriodSeconds), rendered.Spec.TerminationGracePeriodSeconds,
+			require.NotNil(t, rendered.Spec.TerminationGracePeriodSeconds,
 				"an uncapped grace period stalls every teardown for 30s")
+			require.Equal(t, pod.DefaultGracePeriodSeconds, *rendered.Spec.TerminationGracePeriodSeconds)
 			require.Equal(t, tc.nodeName, rendered.Spec.NodeName)
 			require.Equal(t, tc.nodeSelector, rendered.Spec.NodeSelector)
 

@@ -22,7 +22,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
@@ -79,9 +78,9 @@ func (s Spec) Render() []byte {
 		}
 	}
 
-	grace := s.GracePeriodSeconds
-	if grace == nil {
-		grace = ptr.To(DefaultGracePeriodSeconds)
+	grace := DefaultGracePeriodSeconds
+	if s.GracePeriodSeconds != nil {
+		grace = *s.GracePeriodSeconds
 	}
 
 	manifest, err := yaml.Marshal(&corev1.Pod{
@@ -94,7 +93,7 @@ func (s Spec) Render() []byte {
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy:                 corev1.RestartPolicyNever,
-			TerminationGracePeriodSeconds: grace,
+			TerminationGracePeriodSeconds: &grace,
 			NodeName:                      s.NodeName,
 			NodeSelector:                  s.NodeSelector,
 			Containers:                    []corev1.Container{container},
