@@ -42,10 +42,13 @@
 #      overlay at container-creation time. Inert until a workload registers
 #      as an NRI plugin, so the node-wide-NRI scenario is the only consumer.
 #
-# Worker labels drive two orthogonal consumer paths without conflict:
-#   - nvml-mock/profile=<a100|t4>            — targeted by install_fleet() in
-#     local/nvml_mock.tiltfile under --multi-gpu-profile, so each worker runs
-#     its own nvml-mock release simulating the labelled GPU.
+# Node names are pinned via JoinConfiguration instead of being derived from the
+# cluster name, so they stay stable across recreations and can be selected
+# directly: install_fleet() in local/nvml_mock.tiltfile pins each per-profile
+# nvml-mock release with kubernetes.io/hostname=<worker> under
+# --multi-gpu-profile (a100 on worker-0, t4 on worker-1).
+#
+# Worker labels drive the remaining consumer path:
 #   - run.ai/simulated-gpu-node-pool=<integration|scale> — FGO node-pool split.
 #     integration (a100) runs nvml-mock as the NVML shim; scale (t4) is managed
 #     entirely by FGO's fake backend. Consumers that ignore these labels see

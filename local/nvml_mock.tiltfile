@@ -8,7 +8,7 @@
 #   build_nvml_mock_image()       — build the ghcr.io/nvidia/nvml-mock image.
 #   install_single()              — install one nvml-mock Helm release. Returns list[str] of Tilt resource names.
 #   install_fleet()               — install one nvml-mock release per profile, node-pinned via
-#                                   nodeSelector.nvml-mock/profile=<p>. Returns list[str].
+#                                   nodeSelector.kubernetes.io/hostname=<worker>. Returns list[str].
 #
 # All side effects (docker_build / helm_resource) are inside functions so
 # `load()`ing this file is a pure import; the orchestrator controls order.
@@ -20,8 +20,12 @@
 
 load('ext://helm_resource', 'helm_resource')
 
-# Must match the worker labels in local/kind/default.kind.yaml. Keep in sync.
 FLEET_PROFILES = ['a100', 't4']
+
+# Worker hostnames pinned by the JoinConfiguration patches in
+# local/kind/default.kind.yaml. Positional: the Nth fleet profile lands on the
+# Nth worker, so reordering either list re-assigns profiles to nodes.
+_FLEET_NODES = ['worker-0', 'worker-1']
 
 _IMAGE = 'ghcr.io/nvidia/nvml-mock'
 _CONTROL_PLANE_IMAGE = 'ghcr.io/nvidia/mokka-control-plane'
@@ -204,12 +208,18 @@ def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image=''
     (health probes only), and future MEPs that give the CP real state will
     revisit the placement story.
     """
-    for p in profiles:
+    if len(profiles) > len(_FLEET_NODES):
+        fail('install_fleet: %d profiles (%s) but only %d worker nodes (%s)' % (
+            len(profiles), ', '.join(profiles), len(_FLEET_NODES), ', '.join(_FLEET_NODES)))
+
+    for i in range(len(profiles)):
         _install(
-            'nvml-mock-' + p,
-            p,
+            'nvml-mock-' + profiles[i],
+            profiles[i],
             active_consumers,
-            extra_set=['nodeSelector.nvml-mock/profile=' + p],
+            # helm --set reads '.' as a path separator, so the dot in
+            # kubernetes.io is escaped to keep the label key in one piece.
+            extra_set=['nodeSelector.kubernetes\\.io/hostname=' + _FLEET_NODES[i]],
             nvmlmock_image=nvmlmock_image,
             control_plane=control_plane,
         )
