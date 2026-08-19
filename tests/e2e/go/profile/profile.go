@@ -63,9 +63,11 @@ type rawProfile struct {
 		PCIe *struct {
 			MaxLinkGen int `json:"max_link_gen"`
 		} `json:"pcie"`
+		Platform *rawPlatform `json:"platform"`
 	} `json:"device_defaults"`
 	Devices []struct {
-		Index int `json:"index"`
+		Index    int          `json:"index"`
+		Platform *rawPlatform `json:"platform"`
 	} `json:"devices"`
 	NVLink struct {
 		LinksPerGPU int  `json:"links_per_gpu"`
@@ -83,6 +85,30 @@ type rawProfile struct {
 			ID string `json:"id"`
 		} `json:"root_complexes"`
 	} `json:"pcie_topology"`
+}
+
+// rawPlatform decodes a platform block, which appears both under
+// device_defaults (the node's location) and per device (its module id).
+type rawPlatform struct {
+	ChassisSerialNumber string `json:"chassis_serial_number"`
+	SlotNumber          int    `json:"slot_number"`
+	TrayIndex           int    `json:"tray_index"`
+	HostID              int    `json:"host_id"`
+	PeerType            string `json:"peer_type"`
+	ModuleID            int    `json:"module_id"`
+}
+
+// PlatformIdentity is the platform identity a profile configures — where its
+// node sits in a rack. ModuleIDs is indexed by device; the rest describe the
+// node and are shared by all its GPUs. PeerType keeps the profile spelling
+// ("switch_connected"), leaving the rendering nvidia-smi uses to the assertion.
+type PlatformIdentity struct {
+	ChassisSerialNumber string
+	SlotNumber          int
+	TrayIndex           int
+	HostID              int
+	PeerType            string
+	ModuleIDs           []int
 }
 
 // Profile is the typed, validated view of a chart GPU profile.
@@ -110,6 +136,9 @@ type Profile struct {
 	jpegUtilizationPct int
 	ofaUtilizationPct  int
 	maxPCIeLinkGen     int
+
+	platform    PlatformIdentity
+	hasPlatform bool
 }
 
 // bytesPerMiB is the divisor GPU Feature Discovery uses when it publishes
@@ -193,6 +222,38 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 		p.hasFabric = true
 		p.fabricAuto = strings.EqualFold(strings.TrimSpace(f.State), "auto")
 	}
+	if pl := raw.DeviceDefaults.Platform; pl != nil {
+		p.hasPlatform = true
+		p.platform = PlatformIdentity{
+			ChassisSerialNumber: pl.ChassisSerialNumber,
+			SlotNumber:          pl.SlotNumber,
+			TrayIndex:           pl.TrayIndex,
+			HostID:              pl.HostID,
+			PeerType:            pl.PeerType,
+			ModuleIDs:           deviceModuleIDs(raw, pl.ModuleID),
+		}
+	}
+}
+
+// deviceModuleIDs collects each device's module id, keyed by the declared
+// device index so the result lines up with NVML's device order however the YAML
+// lists them. A device that declares no module id falls back to the default,
+// mirroring the mock's per-device merge, which treats zero as unset.
+func deviceModuleIDs(raw rawProfile, defaultModuleID int) []int {
+	ids := make([]int, len(raw.Devices))
+	for i := range ids {
+		ids[i] = defaultModuleID
+	}
+	for i, dev := range raw.Devices {
+		at := dev.Index
+		if at < 0 || at >= len(ids) {
+			at = i
+		}
+		if dev.Platform != nil && dev.Platform.ModuleID != 0 {
+			ids[at] = dev.Platform.ModuleID
+		}
+	}
+	return ids
 }
 
 // All loads every KnownProfiles entry from profilesDir.
@@ -262,6 +323,14 @@ func (p Profile) HasFabric() bool { return p.hasFabric }
 // nvidia-smi -q renders it as "GPU C2C Mode : Enabled" there and N/A
 // elsewhere. Absent key means false, i.e. N/A.
 func (p Profile) C2CEnabled() bool { return p.c2cEnabled }
+
+// PlatformIdentity returns the platform identity the profile configures and
+// whether it declares one at all. Only the rack-scale profiles (gb200, gb300)
+// do: NVML answers nvmlDeviceGetPlatformInfo for a board whose platform can
+// report a physical location, and nvidia-smi renders N/A for every other one, so
+// the absent case is the negative control that keeps the populated case from
+// being satisfiable by constants.
+func (p Profile) PlatformIdentity() (PlatformIdentity, bool) { return p.platform, p.hasPlatform }
 
 // Architecture is device_defaults.architecture (lowercased), e.g. "ampere".
 func (p Profile) Architecture() string { return p.architecture }

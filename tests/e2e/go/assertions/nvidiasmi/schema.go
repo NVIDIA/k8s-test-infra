@@ -107,6 +107,7 @@ type gpuElement struct {
 	UUID                     reading           `xml:"uuid"`
 	BoardID                  reading           `xml:"board_id"`
 	C2CMode                  reading           `xml:"c2c_mode"`
+	PlatformInfo             platformInfo      `xml:"platformInfo"`
 	PCI                      pciInfo           `xml:"pci"`
 	FanSpeed                 reading           `xml:"fan_speed"`
 	PerformanceState         reading           `xml:"performance_state"`
@@ -134,6 +135,20 @@ type memoryUsage struct {
 	Reserved reading `xml:"reserved"`
 	Used     reading `xml:"used"`
 	Free     reading `xml:"free"`
+}
+
+// platformInfo is <platformInfo> — the one camelCase container in the document.
+// It answers where the board sits in a rack: the chassis, the slot and tray
+// within it, the node inside that tray, and the GPU's module within the node.
+// gpu_fabric_guid shares the block but comes from a field of the same NVML
+// struct that the mock does not model, so it is deliberately not decoded.
+type platformInfo struct {
+	ChassisSerialNumber reading `xml:"chassis_serial_number"`
+	SlotNumber          reading `xml:"slot_number"`
+	TrayIndex           reading `xml:"tray_index"`
+	HostID              reading `xml:"host_id"`
+	PeerType            reading `xml:"peer_type"`
+	ModuleID            reading `xml:"module_id"`
 }
 
 // pciInfo is <pci>. Only the link-generation subtree is decoded; the sibling
