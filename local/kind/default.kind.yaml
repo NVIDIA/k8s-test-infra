@@ -74,9 +74,17 @@ nodes:
           name: control-0
   - role: worker
     labels:
-      nvml-mock/profile: a100
       run.ai/simulated-gpu-node-pool: integration
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-0
   - role: worker
     labels:
-      nvml-mock/profile: t4
       run.ai/simulated-gpu-node-pool: scale
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-1
