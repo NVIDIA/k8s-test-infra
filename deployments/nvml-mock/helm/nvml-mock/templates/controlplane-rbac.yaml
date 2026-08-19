@@ -1,4 +1,19 @@
 {{- if .Values.controlPlane.enabled }}
+{{- $singletonName := include "nvml-mock.controlPlaneSingletonName" . -}}
+{{- $existing := lookup "rbac.authorization.k8s.io/v1" "ClusterRoleBinding" "" $singletonName -}}
+{{- if $existing -}}
+{{- $metadata := get $existing "metadata" | default dict -}}
+{{- $annotations := get $metadata "annotations" | default dict -}}
+{{- $ownerRelease := get $annotations "meta.helm.sh/release-name" | default "" -}}
+{{- $ownerNamespace := get $annotations "meta.helm.sh/release-namespace" | default "" -}}
+{{- if not (and (eq $ownerRelease .Release.Name) (eq $ownerNamespace .Release.Namespace)) -}}
+{{- if or $ownerRelease $ownerNamespace -}}
+{{- fail (printf "Mokka control plane is already installed by Helm release %q in namespace %q; uninstall it before enabling controlPlane for release %q in namespace %q" $ownerRelease $ownerNamespace .Release.Name .Release.Namespace) -}}
+{{- else -}}
+{{- fail (printf "ClusterRoleBinding %q already exists without Helm ownership; remove it before enabling the Mokka control plane" $singletonName) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 apiVersion: rbac.authorization.k8s.io/v1
@@ -28,7 +43,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "nvml-mock.controlPlaneName" . }}
+  name: {{ $singletonName }}
   labels:
     {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
     app.kubernetes.io/component: control-plane

@@ -91,6 +91,14 @@ selector.
 {{- end }}
 
 {{/*
+The control plane mutates cluster-scoped state, so its required
+ClusterRoleBinding also serves as the fixed, Helm-owned singleton guard.
+*/}}
+{{- define "nvml-mock.controlPlaneSingletonName" -}}
+mokka-control-plane.mokka.nvidia.com
+{{- end }}
+
+{{/*
 Mokka Control Plane app name — the app.kubernetes.io/name value the
 Deployment/Service and their selectors share.
 */}}

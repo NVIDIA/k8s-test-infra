@@ -18,6 +18,12 @@ helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
   --set controlPlane.image.tag=TAG
 ```
 
+Only one Helm release may enable the cluster-wide control plane in a cluster.
+Its fixed `mokka-control-plane.mokka.nvidia.com` ClusterRoleBinding is owned by
+that release and acts as the singleton guard: another release must wait until
+the owner is uninstalled. Upgrades and rollbacks of the owning release keep
+using the same guard.
+
 Build the image locally with:
 
 ```bash
@@ -85,8 +91,10 @@ replacing a Node UID remove the exact old projection before clearing a live
 binding. Cleanup removes only controller keys whose assignment annotation still
 names that binding; incompatible values are preserved and retried. If the exact
 Node UID no longer exists, cleanup may proceed without touching a same-name
-replacement. Lease election prevents overlapping releases or rolling-update
-replicas from reconciling concurrently.
+replacement. The singleton ClusterRoleBinding ensures only the owning release
+has cluster permissions. Within that release, its namespace-local Lease
+prevents rolling-update replicas from reconciling concurrently; cluster-wide
+Lease permissions are unnecessary under the single-installation invariant.
 
 ## Stage 1 exclusions
 
