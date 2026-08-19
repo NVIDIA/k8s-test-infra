@@ -190,7 +190,6 @@ These are the simulated components. Each is a package under `internal/agent/`:
 | `ibhca`                 | Component 5 — InfiniBand HCA                                                                                           | IB sysfs tree + libibmock*.so staging + IB CLI tool staging                                | `pkg/network/mockib/daemon.Server`; optional fabric relay            |
 | `nvlink`                | Component 6 — NVLink fabric / compute domain                                                                           | topology YAML overlay                                                                      | —                                                                    |
 | `cdi`                   | Component 7 — CDI surface                                                                                              | `nvidia.yaml` + `nvml-mock-nri.yaml`                                                       | —                                                                    |
-| `nodeidentity`          | Compat carry-over — not a proper component (see [Kubernetes-visible node identity](#kubernetes-visible-node-identity)) | node label + NFD feature file + `/run/nvidia/driver` symlink                               | —                                                                    |
 | `allocwatch` (optional) | (not a simulated surface — mirrors pod GPU claims into `state`)                                                        | —                                                                                          | kubelet PodResources → override memory.used via `pkg/gpu/allocwatch` |
 
 #### Example: `devicedriver.Reconcile`
@@ -216,14 +215,13 @@ Each op is a short function (~30 lines) that (a) computes the desired state for 
 The reconciler is a fan-out:
 
 ```
-                     ┌── gpudriver (chardevs + libs + smi + procfs + engine config, all parallel)
-                     ├── pcibus         (sysfs tree)
+                     ┌── gpudriver      (chardevs + libs + smi + procfs + engine config + /run/nvidia/driver symlink, all parallel)
+                     ├── pcibus         (sysfs tree + NFD feature file)
                      ├── fabricmanager  (marker; Run→ re-assertion loop)
    State snapshot ───┼── imex           (chardevs + /proc/devices overlay, parallel)
                      ├── ibhca          (sysfs tree; Run→ mock-ib daemon + fabric relay)
                      ├── nvlink         (topology overlay)
                      ├── cdi            (2 YAMLs, parallel)
-                     ├── nodeidentity   (label + NFD file + symlink, parallel)
                      └── allocwatch     (optional; Run→ PodResources loop)
 ```
 
@@ -249,6 +247,7 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 | Kernel module presence: `/proc/modules`, `/sys/module/nvidia/version`, `/sys/module/nvidia_uvm/`              | `lsmod`, GPU Operator `driver-container` gate, DCGM startup checks           | ✗ **gap** — not simulated; unmodified consumers checking module state see nothing                                                                                    |
 | `nvidia-smi` ELF binary + shell fallback                                                                      | shell scripts, operator tooling that invokes `nvidia-smi`                    | ✓ `gpudriver` stages real RPATH-patched ELF; shell fallback covers minimal cases                                                                               |
 | Mock-NVML engine on-disk config (compiled `state` → engine config file the shim reads at dlopen)              | mock-NVML shim itself at container-run time                                  | ✓ `gpudriver` — atomic write with `unix.Flock`; co-writer `nvml-mock-ctl` shares the lock                                                                      |
+| `/run/nvidia/driver` symlink → `/var/lib/nvml-mock/driver`                                                     | GPU Operator validator (probes for driver root on the host)                  | ✓ `gpudriver` — atomic `ln -sfn`, materialized after driver root is populated                                                                                        |
 
 **Delivery**: files materialized under `/host/var/lib/nvml-mock/driver/`, mounted into workload containers via CDI (`nvidia.yaml`) or NRI overlay. LD_PRELOAD is not used here (Go consumers bypass it).
 
@@ -266,6 +265,7 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 | `/sys/bus/pci/devices/<BDF>/config` (PCIe config space, 4 KB)                                  | `lspci -vv`, low-level probes                                                                                  | ✗ **gap** — not materialized                                               |
 | `/proc/bus/pci/devices`                                                                        | legacy `lspci` fallback                                                                                        | ✗ **gap** — not materialized                                               |
 | `libpci`-based tools via `libpcimocksys.so` LD_PRELOAD                                         | `lspci`, C-based sysfs walkers                                                                                 | ✓ `pcibus` stages the shim + owns the LD_PRELOAD entry                     |
+| NFD feature file `/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features` → `feature.node.kubernetes.io/pci-10de.present=true` | NFD-based operators, DRA driver | ✓ `pcibus` — bridge because NFD reads real host `/sys/bus/pci/`, which cannot see the mock's isolated PCI tree |
 
 **Delivery**: files under `/host/var/lib/nvml-mock/sys/` mounted at `/sys` in containers via CDI. LD_PRELOAD of `libpcimocksys.so` covers C `libpci` consumers.
 
@@ -350,23 +350,30 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 
 **Reconcile trigger**: `state.Devices` or `state.Software` changes.
 
-#### Kubernetes-visible node identity
+### Compatibility carry-over: K8s-visible node identity (not a subsystem)
 
-**Not a proper component of the Mokka Node Agent.** Node labeling belongs in NFD (via the feature-file bridge below), GFD (via mock NVML), or Mokka Control Plane — agents should not touch the K8s API. `nodeidentity` is retained here solely to preserve parity with the current `setup.sh` behavior and should be retired once the delegated path covers its surfaces.
+Node identity is **not a subsystem** of the Mokka Node Agent — it fails the definition of a simulated component (*"a real-world thing we pretend exists on the host"*, per [§Simulated Surface](#simulated-surface)). Node identity is K8s API state we mutate, not host state we render. It shares no ownership model with `gpudriver`, `pcibus`, `ibhca`, `imex`, `nvlink`, `fabricmanager`, or `cdi`.
 
-**What we pretend exists**: a Kubernetes node that a scheduler, NFD, and GPU Operator recognize as GPU-bearing.
+This appendix documents the surfaces the current `setup.sh` publishes to node-adjacent K8s state, only so implementers refactoring `setup.sh` into the node agent know where each surface goes.
 
-| Surface                                                                                                                                      | Consumers                                                      | Coverage                                                       |
-|----------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------|----------------------------------------------------------------|
-| Node label `nvidia.com/gpu.present=true`                                                                                                     | K8s scheduler, GPU Operator node-controller, K8s device-plugin | ✓ `nodeidentity` via K8s API                                   |
-| NFD feature file `/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features` → `feature.node.kubernetes.io/pci-10de.present=true` | NFD-based operators, DRA driver                                | ✓ `nodeidentity`                                               |
-| `/run/nvidia/driver` symlink → `/var/lib/nvml-mock/driver`                                                                                   | GPU Operator validator (probes for driver root)                | ✓ `nodeidentity`                                               |
-| Richer NFD features: GPU count, driver version, MIG support                                                                                  | operators doing fine-grained node selection                    | ✗ **gap** — no NFD entries beyond PCI presence                 |
-| Container-runtime CDI configuration via `nvidia-ctk config`                                                                                  | GPU Operator's toolkit-daemonset step                          | N/A — bypassed; we rely on containerd's built-in CDI discovery |
+**Folded into subsystems**:
 
-**Delivery**: K8s label via API (RBAC required), NFD file materialization, symlink under `/host/run/nvidia`.
+- NFD feature file `/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features` → belongs to [`pcibus`](#gpu-device-on-the-pci-bus). PCI presence is what NFD labels from; the file exists because NFD reads real host `/sys/bus/pci/` and cannot see the mock's isolated PCI tree.
+- `/run/nvidia/driver` symlink → belongs to [`gpudriver`](#nvidia-gpu-driver). The symlink points at the driver root `gpudriver` materializes.
 
-**Reconcile trigger**: `state.Node` changes; `state.Devices` count changes (for the richer-NFD gap).
+**Remaining surfaces (delegated, gap, or N/A)**:
+
+| Surface                                                                     | Destination                                                                                                                                                                                                                            |
+|-----------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Node label `nvidia.com/gpu.present=true`                                    | **Delegated out of the agent.** NFD applies from `pcibus`'s feature-file bridge; GFD applies from mock NVML; MCP can apply directly. Optional `--legacy-node-label` flag retains `setup.sh` parity with a deprecation warning.          |
+| Richer NFD features: GPU count, driver version, MIG support                 | ✗ **gap** — not covered by the immediate refactor. Extend `pcibus` (PCI-derived features) or defer to GFD (NVML-derived features).                                                                                                     |
+| Container-runtime CDI configuration via `nvidia-ctk config`                 | N/A — bypassed; we rely on containerd's built-in CDI discovery.                                                                                                                                                                        |
+
+**Refactor path**:
+
+- **Immediate (this MEP)**: NFD feature-file rendering folds into `pcibus.Reconcile`; `/run/nvidia/driver` symlink folds into `gpudriver.Reconcile`. **No `nodeidentity` package is created under `internal/agent/`.**
+- **Compat mode**: if `setup.sh` parity is required in a test env, an opt-in `--legacy-node-label` flag applies the K8s node label at agent startup and prints a deprecation warning. Expected to be removed once MCP / GFD / NFD label the node from real substrate in the target environment.
+- **Long-term**: `/run/nvidia/driver` symlink is a GPU Operator quirk — track upstream removal, then drop from `gpudriver.Reconcile`.
 
 ## Drawbacks
 
