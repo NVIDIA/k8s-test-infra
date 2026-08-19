@@ -5,6 +5,7 @@ package nvidiasmi
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -709,4 +710,65 @@ func healSramReadings(t *testing.T) string {
 			"<row_remapper_histogram_low>0 bank(s)</row_remapper_histogram_low>"+
 			"<row_remapper_histogram_none>0 bank(s)</row_remapper_histogram_none>"+
 			"</row_remapper_histogram>")
+}
+
+// The pre-Ampere rendering is a different set of elements, not different values:
+// one combined SRAM Uncorrectable row, no source breakdown, no threshold flag.
+// Checking it with the detailed expectation is how the t4 e2e leg failed, so both
+// directions are pinned here.
+func TestSramECCProblems_AcceptsCombinedLayout(t *testing.T) {
+	problems := SramECCProblems(combinedSramReadings(t), SramECCState{Layout: SramECCCombined})
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+// The combined row carries both uncorrectable flavours, so the expectation is
+// their sum.
+func TestSramECCProblems_CombinedLayoutSumsUncorrectableFlavours(t *testing.T) {
+	out := strings.ReplaceAll(combinedSramReadings(t),
+		"<sram_uncorrectable>0</sram_uncorrectable>", "<sram_uncorrectable>6</sram_uncorrectable>")
+	counts := SramECCCounters{UncorrectableParity: 2, UncorrectableSECDED: 4}
+
+	want := SramECCState{Volatile: counts, Aggregate: counts, Layout: SramECCCombined}
+	assert.Empty(t, SramECCProblems(out, want))
+
+	want.Volatile.UncorrectableSECDED = 3
+	problems := SramECCProblems(out, want)
+	require.NotEmpty(t, problems)
+	assert.Contains(t, problems[0], "sram_uncorrectable = 6, want 5")
+}
+
+// Asking for the detailed layout where the driver emits the combined one must
+// fail rather than silently pass on absent elements.
+func TestSramECCProblems_RejectsCombinedLayoutUnderDetailedExpectation(t *testing.T) {
+	problems := SramECCProblems(combinedSramReadings(t), SramECCState{})
+	require.NotEmpty(t, problems)
+	joined := strings.Join(problems, "; ")
+	assert.Contains(t, joined, "sram_uncorrectable_parity")
+	assert.Contains(t, joined, "sram_threshold_exceeded")
+}
+
+// And the reverse: a GPU that reports the detailed breakdown is not a pre-Ampere
+// one, so the combined expectation must not accept it.
+func TestSramECCProblems_RejectsDetailedLayoutUnderCombinedExpectation(t *testing.T) {
+	problems := SramECCProblems(healSramReadings(t), SramECCState{Layout: SramECCCombined})
+	require.NotEmpty(t, problems)
+	assert.Contains(t, strings.Join(problems, "; "), "sram_uncorrectable = \"\"")
+}
+
+// combinedSramReadings rewrites the captured document into the pre-Ampere
+// rendering nvidia-smi 580.65.06 emits for a Turing GPU: sram_correctable and a
+// single sram_uncorrectable per scope, with the source breakdown and the
+// threshold flag absent entirely.
+func combinedSramReadings(t *testing.T) string {
+	t.Helper()
+	out := healSramReadings(t)
+	out = strings.ReplaceAll(out,
+		"<sram_uncorrectable_parity>0</sram_uncorrectable_parity>\n\t\t\t\t"+
+			"<sram_uncorrectable_secded>0</sram_uncorrectable_secded>",
+		"<sram_uncorrectable>0</sram_uncorrectable>")
+	out = strings.ReplaceAll(out,
+		"<sram_threshold_exceeded>No</sram_threshold_exceeded>\n\t\t\t", "")
+	return regexp.MustCompile(
+		`(?s)\s*<aggregate_uncorrectable_sram_sources>.*?</aggregate_uncorrectable_sram_sources>`).
+		ReplaceAllString(out, "")
 }

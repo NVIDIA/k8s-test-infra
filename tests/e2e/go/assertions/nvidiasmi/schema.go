@@ -246,18 +246,24 @@ type eccErrors struct {
 }
 
 type eccCounters struct {
-	SRAMCorrectable         reading `xml:"sram_correctable"`
+	SRAMCorrectable reading `xml:"sram_correctable"`
+	// The uncorrectable SRAM count comes in one of two shapes, and which one
+	// nvidia-smi emits depends on the GPU's architecture: Ampere and later split
+	// it into the parity and SEC-DED pair, pre-Ampere reports the single
+	// combined element. Both are decoded so a check can tell an absent element
+	// from a wrong value in either rendering.
 	SRAMUncorrectableParity reading `xml:"sram_uncorrectable_parity"`
 	SRAMUncorrectableSECDED reading `xml:"sram_uncorrectable_secded"`
+	SRAMUncorrectable       reading `xml:"sram_uncorrectable"`
 	DRAMCorrectable         reading `xml:"dram_correctable"`
 	DRAMUncorrectable       reading `xml:"dram_uncorrectable"`
-	// SRAMThresholdExceeded is emitted under <aggregate> only; it is absent
-	// from <volatile>, which is a threshold-free scope.
+	// SRAMThresholdExceeded is emitted under <aggregate> only; it is absent from
+	// <volatile>, which is a threshold-free scope, and from pre-Ampere output.
 	SRAMThresholdExceeded reading `xml:"sram_threshold_exceeded"`
 }
 
 // eccSRAMSources is <aggregate_uncorrectable_sram_sources>: which unit reported
-// the aggregate uncorrectable SRAM errors.
+// the aggregate uncorrectable SRAM errors. Ampere and later only.
 type eccSRAMSources struct {
 	L2              reading `xml:"sram_l2"`
 	SM              reading `xml:"sram_sm"`

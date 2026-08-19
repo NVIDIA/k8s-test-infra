@@ -216,17 +216,19 @@ func TestPlatformIdentityModuleIDsAreDistinct(t *testing.T) {
 	}
 }
 
-// TestRowRemapHistogramIsAmpereAndLater pins the histogram as an
-// architecture axis: row remapping arrived with Ampere, so t4 must leave
-// remapped_rows.availability_histogram unset and report unsupported, while every
-// later profile configures it. Driven from KnownProfiles so a newly added
-// profile has to declare which side it belongs on (#641).
+// TestRowRemapHistogramIsAmpereAndLater pins the histogram to the same
+// architecture axis nvidia-smi uses for the SRAM layout: row remapping arrived
+// with Ampere, so t4 must leave remapped_rows.availability_histogram unset and
+// report unsupported, while every later profile configures it. Requiring the two
+// accessors to agree is what stops a profile from configuring capacity for a
+// generation whose driver output has no place to report it. Driven from
+// KnownProfiles so a newly added profile has to declare which side it belongs on
+// (#641).
 func TestRowRemapHistogramIsAmpereAndLater(t *testing.T) {
-	preAmpere := map[string]bool{"kepler": true, "maxwell": true, "pascal": true, "volta": true, "turing": true}
 	for _, name := range KnownProfiles {
 		p, err := Load(profilesDir, name)
 		require.NoError(t, err, "Load(%q)", name)
-		want := !preAmpere[p.Architecture()]
+		want := p.ReportsDetailedSramECC()
 		require.Equal(t, want, p.ReportsRowRemapHistogram(),
 			"%s (%s): remapped_rows.availability_histogram configured should be %v",
 			name, p.Architecture(), want)
@@ -234,6 +236,19 @@ func TestRowRemapHistogramIsAmpereAndLater(t *testing.T) {
 			require.Positive(t, p.RowRemapHistogramBanks(),
 				"%s: availability_histogram.max must be a real bank count", name)
 		}
+	}
+}
+
+// The SRAM layout is keyed on the architecture nvidia-smi reads, so t4 is the
+// only shipped profile on the combined side. Pinning it by name as well as by
+// architecture catches a profile that changes its architecture without the
+// expectation following.
+func TestDetailedSramECCIsAmpereAndLater(t *testing.T) {
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, name != "t4", p.ReportsDetailedSramECC(),
+			"%s (%s): detailed SRAM ECC rendering", name, p.Architecture())
 	}
 }
 

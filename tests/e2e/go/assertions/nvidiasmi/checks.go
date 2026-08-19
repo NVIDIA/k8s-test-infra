@@ -328,21 +328,44 @@ type SramECCSources struct {
 	Other           int
 }
 
+// SramECCLayout selects which of the two SRAM renderings nvidia-smi uses. Which
+// one it picks depends on the GPU's architecture, so a spec asserting on the
+// SRAM rows has to say which hardware it is looking at.
+type SramECCLayout int
+
+const (
+	// SramECCDetailed is the Ampere-and-later rendering: the uncorrectable count
+	// is split into parity and SEC-DED, and the aggregate scope carries the
+	// per-unit source breakdown and the threshold flag. It is the zero value
+	// because every profile the mock ships bar t4 is Ampere or later.
+	SramECCDetailed SramECCLayout = iota
+	// SramECCCombined is the pre-Ampere rendering: one SRAM Uncorrectable row
+	// holding both uncorrectable flavours, with no source breakdown and no
+	// threshold flag at all.
+	SramECCCombined
+)
+
 // SramECCState is the whole SRAM ECC reporting a spec expects on every GPU.
 type SramECCState struct {
-	Volatile          SramECCCounters
-	Aggregate         SramECCCounters
+	Volatile  SramECCCounters
+	Aggregate SramECCCounters
+	// Sources and ThresholdExceeded are only read in the detailed layout, since
+	// pre-Ampere output has nowhere to report them.
 	Sources           SramECCSources
 	ThresholdExceeded bool
+	Layout            SramECCLayout
 }
 
 // SramECCProblems checks the SRAM half of every GPU's <ecc_errors> block: the
-// per-scope counters, the aggregate uncorrectable source breakdown and
-// sram_threshold_exceeded. Every one of them read N/A while
+// per-scope counters and, in the detailed layout, the aggregate uncorrectable
+// source breakdown and sram_threshold_exceeded. Every one of them read N/A while
 // nvmlDeviceGetSramEccErrorStatus was a stub and the DRAM counters answered for
 // SRAM locations, so a health checker could not tell a GPU with no SRAM errors
 // from one whose SRAM state is unknown (#641). Zero is a valid expectation and
 // the point of the check: a healthy GPU must report 0, not N/A.
+//
+// want.Layout must match the architecture under test, because nvidia-smi renders
+// the two differently and the elements of one are simply absent from the other.
 func SramECCProblems(out string, want SramECCState) []string {
 	snap, err := ParseSnapshot(out)
 	if err != nil {
@@ -353,9 +376,12 @@ func SramECCProblems(out string, want SramECCState) []string {
 	for i, gpu := range snap.doc.GPUs {
 		name := gpu.label(i)
 		problems = append(problems,
-			sramCountersProblems(name+" volatile", gpu.ECCErrors.Volatile, want.Volatile)...)
+			sramCountersProblems(name+" volatile", gpu.ECCErrors.Volatile, want.Volatile, want.Layout)...)
 		problems = append(problems,
-			sramCountersProblems(name+" aggregate", gpu.ECCErrors.Aggregate, want.Aggregate)...)
+			sramCountersProblems(name+" aggregate", gpu.ECCErrors.Aggregate, want.Aggregate, want.Layout)...)
+		if want.Layout == SramECCCombined {
+			continue
+		}
 		problems = append(problems, sramSourcesProblems(name, gpu.ECCErrors.SRAMSources, want.Sources)...)
 		problems = append(problems, yesNoReadingProblems(name+" aggregate sram_threshold_exceeded",
 			gpu.ECCErrors.Aggregate.SRAMThresholdExceeded, want.ThresholdExceeded)...)
@@ -363,10 +389,14 @@ func SramECCProblems(out string, want SramECCState) []string {
 	return problems
 }
 
-func sramCountersProblems(name string, got eccCounters, want SramECCCounters) []string {
-	var problems []string
-	problems = append(problems,
-		intReadingProblems(name+" sram_correctable", got.SRAMCorrectable, want.Correctable, "")...)
+func sramCountersProblems(name string, got eccCounters, want SramECCCounters, layout SramECCLayout) []string {
+	problems := intReadingProblems(name+" sram_correctable", got.SRAMCorrectable, want.Correctable, "")
+	if layout == SramECCCombined {
+		// Pre-Ampere reports one row for both uncorrectable flavours, so the
+		// expectation is their sum.
+		return append(problems, intReadingProblems(name+" sram_uncorrectable", got.SRAMUncorrectable,
+			want.UncorrectableParity+want.UncorrectableSECDED, "")...)
+	}
 	problems = append(problems, intReadingProblems(name+" sram_uncorrectable_parity",
 		got.SRAMUncorrectableParity, want.UncorrectableParity, "")...)
 	return append(problems, intReadingProblems(name+" sram_uncorrectable_secded",

@@ -323,6 +323,13 @@ device_defaults:
 Inject these at runtime with `nvml-mock-ctl sram-ecc` (see
 [nvml-mock-ctl.md](nvml-mock-ctl.md)).
 
+How `nvidia-smi` renders these counters depends on the profile's
+`architecture`, mirroring real hardware: Ampere and later split the uncorrectable
+count into `SRAM Uncorrectable Parity` and `SRAM Uncorrectable SEC-DED` and print
+the source breakdown and threshold flag, while pre-Ampere (`t4`) prints one
+combined `SRAM Uncorrectable` row and omits the rest. The configuration is the
+same either way — only the presentation differs.
+
 ### Remapped rows
 
 `availability_histogram` is how many memory banks still have spare rows to remap

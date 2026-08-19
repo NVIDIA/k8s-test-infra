@@ -369,6 +369,21 @@ func (p Profile) OFAUtilizationPct() int { return p.ofaUtilizationPct }
 // to config rather than a hardcoded constant.
 func (p Profile) MaxPCIeLinkGen() int { return p.maxPCIeLinkGen }
 
+// preAmpereArchitectures are the device_defaults.architecture values whose
+// hardware predates both row remapping and the split SRAM ECC counters.
+var preAmpereArchitectures = map[string]bool{
+	"kepler": true, "maxwell": true, "pascal": true, "volta": true, "turing": true,
+}
+
+// ReportsDetailedSramECC is true when nvidia-smi renders the Ampere-and-later
+// SRAM breakdown for this architecture: the uncorrectable count split into
+// parity and SEC-DED, plus the per-unit source list and the threshold flag.
+// Pre-Ampere output carries a single combined SRAM Uncorrectable row and none of
+// the rest, so the expectation is an architecture axis rather than a config one
+// — nvidia-smi picks the layout from the reported architecture, not from what
+// the profile configures (#641).
+func (p Profile) ReportsDetailedSramECC() bool { return !preAmpereArchitectures[p.architecture] }
+
 // ReportsRowRemapHistogram reports whether the profile configures
 // remapped_rows.availability_histogram, i.e. whether nvidia-smi must render bank
 // counts rather than N/A for the Bank Remap Availability Histogram. Row

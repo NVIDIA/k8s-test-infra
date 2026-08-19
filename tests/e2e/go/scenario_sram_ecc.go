@@ -44,10 +44,9 @@ func assertSramECCBaseline(ctx SpecContext, h *harness.Harness, consumer kube.Po
 	resetRuntimeOverrides(ctx, h)
 
 	By("verify every SRAM ECC counter reads 0 rather than N/A")
+	healthy := nvidiasmi.SramECCState{Layout: sramECCLayout(p)}
 	expectSmiEventually(ctx, h, consumer, "SRAM ECC counters must read 0, not N/A",
-		func(out string) []string {
-			return nvidiasmi.SramECCProblems(out, nvidiasmi.SramECCState{})
-		})
+		func(out string) []string { return nvidiasmi.SramECCProblems(out, healthy) })
 
 	// A profile without an availability_histogram block must keep reporting
 	// N/A, so this expectation flips rather than being skipped: it is the
@@ -66,11 +65,12 @@ func assertSramECCBaseline(ctx SpecContext, h *harness.Harness, consumer kube.Po
 // counts, the threshold flag and the source attribution, then clear them and
 // confirm the GPU returns to the zero baseline. The consumer is never restarted,
 // which is the capability being tested — a fault has to be injectable mid-test.
-func assertRuntimeSramECCInjection(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+func assertRuntimeSramECCInjection(ctx SpecContext, h *harness.Harness, consumer kube.PodRef, p profile.Profile) {
 	GinkgoHelper()
 	resetRuntimeOverrides(ctx, h)
 
 	counts := nvidiasmi.SramECCCounters{UncorrectableSECDED: sramInjectedCount}
+	layout := sramECCLayout(p)
 	injected := nvidiasmi.SramECCState{
 		Volatile:  counts,
 		Aggregate: counts,
@@ -78,6 +78,7 @@ func assertRuntimeSramECCInjection(ctx SpecContext, h *harness.Harness, consumer
 		// report the total in the catch-all "other" bucket, which this catches.
 		Sources:           nvidiasmi.SramECCSources{SM: sramInjectedCount},
 		ThresholdExceeded: true,
+		Layout:            layout,
 	}
 
 	By(fmt.Sprintf("inject %d uncorrectable SEC-DED SRAM errors on the SM of every GPU",
@@ -91,13 +92,24 @@ func assertRuntimeSramECCInjection(ctx SpecContext, h *harness.Harness, consumer
 	By("heal the GPUs with sram-ecc count 0 and confirm the counters return to baseline")
 	nvmlMockCtl(ctx, h, "sram-ecc", "--gpu", "all", "--type", "secded", "--source", "sm", "0")
 
+	healed := nvidiasmi.SramECCState{Layout: layout}
 	expectSmiEventually(ctx, h, consumer, "SRAM ECC counters must return to 0 after healing",
-		func(out string) []string {
-			return nvidiasmi.SramECCProblems(out, nvidiasmi.SramECCState{})
-		})
+		func(out string) []string { return nvidiasmi.SramECCProblems(out, healed) })
 
 	By("final reset")
 	nvmlMockCtl(ctx, h, "reset", "--gpu", "all")
+}
+
+// sramECCLayout picks the rendering nvidia-smi uses for the profile's
+// architecture. Ampere and later split the uncorrectable count and report the
+// source breakdown; pre-Ampere reports one combined row and omits the rest, so
+// asserting on elements it never emits would fail on the mock's t4 profile even
+// though the counters behind them are correct.
+func sramECCLayout(p profile.Profile) nvidiasmi.SramECCLayout {
+	if p.ReportsDetailedSramECC() {
+		return nvidiasmi.SramECCDetailed
+	}
+	return nvidiasmi.SramECCCombined
 }
 
 // expectSmiEventually polls `nvidia-smi -q -x` in the consumer until check

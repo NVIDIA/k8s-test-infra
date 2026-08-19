@@ -201,7 +201,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					// simulating an SRAM fault mid-test is the capability being
 					// added, and the counters must come back to 0 rather than
 					// staying stuck or reverting to N/A.
-					assertRuntimeSramECCInjection(ctx, h, pod)
+					assertRuntimeSramECCInjection(ctx, h, pod, p)
 				})
 
 				It("marks all GPUs lost and recovers via nvml-mock-ctl", Label("runtime-control"), func(ctx SpecContext) {
