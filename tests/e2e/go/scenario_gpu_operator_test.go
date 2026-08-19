@@ -78,9 +78,8 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 			It("serves the rendered PCI tree to the GFD container at the kernel paths", Label("device-plugin"), func(ctx SpecContext) {
 				// The NVML-derived labels above cannot distinguish "GFD read
 				// the mock tree" from "GFD read the host's sysfs and happened
-				// to agree", and gpu.mode — the label that would fail loudest
-				// — is blocked on an unrelated busId fix (#671). Reading the
-				// tree from inside the container pins the delivery itself.
+				// to agree". Reading the tree from inside the container pins
+				// the delivery itself, independent of what GFD makes of it.
 				pod, err := h.Kube.FirstPodName(ctx, gpuOperatorNamespace, "app=gpu-feature-discovery")
 				Expect(err).NotTo(HaveOccurred())
 				assertions.PCISysfsAtKernelPath(ctx, h.Kube,
