@@ -42,6 +42,126 @@ func bridgeTests(deviceCount int) []testResult {
 	results = append(results, testEventSetWait(deviceCount)...)
 	results = append(results, testInitShutdownCycles()...)
 	results = append(results, testInternalExportTable()...)
+	results = append(results, testFabricHealth(deviceCount)...)
+	return results
+}
+
+// --- Fabric health tests ---
+
+// fabricHealthField reads one condition out of a health mask the way a
+// consumer does, via NVML_GPU_FABRIC_HEALTH_STATUS_GET.
+func fabricHealthField(mask uint32, shift, width int) uint32 {
+	return (mask >> uint32(shift)) & uint32(width)
+}
+
+// testFabricHealth drives nvmlDeviceGetGpuFabricInfo (v1) and
+// nvmlDeviceGetGpuFabricInfoV (v2 and v3) through the built library, which is
+// the only place the version dispatch runs against real caller-allocated
+// buffers: go-nvml's V2() hands the bridge a 36-byte GpuFabricInfo_v2 cast to
+// the 40-byte *GpuFabricInfoV, so a v2 caller must come back with its own
+// version tag and no health summary, while a v3 caller gets both.
+//
+// The fixture's device_defaults declare a fabric with no health block (so it
+// must report Healthy, not the N/A that #677 fixed) and device 1 overrides one
+// condition (so a mask that ignored config, or applied a fault wholesale,
+// fails here).
+func testFabricHealth(deviceCount int) []testResult {
+	var results []testResult
+
+	if deviceCount == 0 {
+		return results
+	}
+
+	healthyMask := uint32(nvml.GPU_FABRIC_HEALTH_MASK_DEGRADED_BW_FALSE<<nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_DEGRADED_BW |
+		nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_RECOVERY_FALSE<<nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_ROUTE_RECOVERY |
+		nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_UNHEALTHY_FALSE<<nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_ROUTE_UNHEALTHY |
+		nvml.GPU_FABRIC_HEALTH_MASK_ACCESS_TIMEOUT_RECOVERY_FALSE<<nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_ACCESS_TIMEOUT_RECOVERY |
+		nvml.GPU_FABRIC_HEALTH_MASK_INCORRECT_CONFIGURATION_NONE<<nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_INCORRECT_CONFIGURATION)
+
+	cases := []struct {
+		index       int
+		label       string
+		wantMask    uint32
+		wantSummary uint8
+	}{
+		{0, "healthy", healthyMask, nvml.GPU_FABRIC_HEALTH_SUMMARY_HEALTHY},
+		{
+			1, "route_unhealthy",
+			// Only the route-unhealthy slot differs from the healthy mask.
+			healthyMask ^ uint32((nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_UNHEALTHY_FALSE^nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_UNHEALTHY_TRUE)<<
+				nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_ROUTE_UNHEALTHY),
+			nvml.GPU_FABRIC_HEALTH_SUMMARY_UNHEALTHY,
+		},
+	}
+
+	for _, tc := range cases {
+		if tc.index >= deviceCount {
+			continue
+		}
+		name := "fabric/" + tc.label
+		device, ret := nvml.DeviceGetHandleByIndex(tc.index)
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name, false, fmt.Sprintf("GetHandleByIndex(%d) failed: %v", tc.index, nvml.ErrorString(ret))})
+			continue
+		}
+
+		// v1 carries no health fields at all; it must keep working now that
+		// the engine reports a non-zero summary.
+		v1, ret := device.GetGpuFabricInfo()
+		switch {
+		case ret != nvml.SUCCESS:
+			results = append(results, testResult{name + "/v1", false, fmt.Sprintf("GetGpuFabricInfo failed: %v", nvml.ErrorString(ret))})
+		case v1.CliqueId != 3:
+			results = append(results, testResult{name + "/v1", false, fmt.Sprintf("cliqueId = %d, want 3", v1.CliqueId)})
+		default:
+			results = append(results, testResult{name + "/v1", true, ""})
+		}
+
+		v2, ret := device.GetGpuFabricInfoV().V2()
+		wantV2Version := nvml.STRUCT_VERSION(nvml.GpuFabricInfo_v2{}, 2)
+		switch {
+		case ret != nvml.SUCCESS:
+			results = append(results, testResult{name + "/v2", false, fmt.Sprintf("V2 failed: %v", nvml.ErrorString(ret))})
+		case v2.Version != wantV2Version:
+			results = append(results, testResult{name + "/v2", false, fmt.Sprintf("version = 0x%x, want the v2 tag 0x%x", v2.Version, wantV2Version)})
+		case v2.HealthMask != tc.wantMask:
+			results = append(results, testResult{name + "/v2", false, fmt.Sprintf("healthMask = 0x%x, want 0x%x", v2.HealthMask, tc.wantMask)})
+		default:
+			results = append(results, testResult{name + "/v2", true, fmt.Sprintf("healthMask=0x%x", v2.HealthMask)})
+		}
+
+		v3, ret := device.GetGpuFabricInfoV().V3()
+		switch {
+		case ret != nvml.SUCCESS:
+			results = append(results, testResult{name + "/v3", false, fmt.Sprintf("V3 failed: %v", nvml.ErrorString(ret))})
+		case v3.HealthMask != tc.wantMask:
+			results = append(results, testResult{name + "/v3", false, fmt.Sprintf("healthMask = 0x%x, want 0x%x", v3.HealthMask, tc.wantMask)})
+		case v3.HealthSummary != tc.wantSummary:
+			results = append(results, testResult{name + "/v3", false, fmt.Sprintf("healthSummary = %d, want %d", v3.HealthSummary, tc.wantSummary)})
+		default:
+			results = append(results, testResult{name + "/v3", true, fmt.Sprintf("summary=%d", v3.HealthSummary)})
+		}
+
+		// The per-condition rows nvidia-smi renders: the injected fault must
+		// be the only one that moved.
+		routeUnhealthy := fabricHealthField(v3.HealthMask,
+			nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_ROUTE_UNHEALTHY, nvml.GPU_FABRIC_HEALTH_MASK_WIDTH_ROUTE_UNHEALTHY)
+		routeRecovery := fabricHealthField(v3.HealthMask,
+			nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_ROUTE_RECOVERY, nvml.GPU_FABRIC_HEALTH_MASK_WIDTH_ROUTE_RECOVERY)
+		wantRouteUnhealthy := uint32(nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_UNHEALTHY_FALSE)
+		if tc.label == "route_unhealthy" {
+			wantRouteUnhealthy = nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_UNHEALTHY_TRUE
+		}
+		switch {
+		case routeUnhealthy != wantRouteUnhealthy:
+			results = append(results, testResult{name + "/conditions", false, fmt.Sprintf("route unhealthy = %d, want %d", routeUnhealthy, wantRouteUnhealthy)})
+		case routeRecovery != nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_RECOVERY_FALSE:
+			results = append(results, testResult{name + "/conditions", false, fmt.Sprintf("route recovery = %d, want False (%d)", routeRecovery, nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_RECOVERY_FALSE)})
+		default:
+			results = append(results, testResult{name + "/conditions", true, ""})
+		}
+	}
+
 	return results
 }
 

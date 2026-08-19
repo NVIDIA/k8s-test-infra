@@ -12,6 +12,7 @@ per-GPU indexing and override scoping.
 | `qx-gb200-healthy.xml` | Blackwell. `*_tlimit_threshold` elements; the absolute ones are absent. |
 | `qx-gb200-lost.xml` | GPU 0 healthy, GPU 1 lost (`GPU is lost` bodies). |
 | `qx-gb200-ecc-injected.xml` | GPU 0 has a non-zero `ecc_errors/aggregate/dram_uncorrectable`. |
+| `qx-gb200-fabric-degraded.xml` | GPU 0 fabric healthy, GPU 1 `route_unhealthy` (#677). Taken against the fixed library, so it is also the healthy-fabric reference. |
 
 Watch for two element names that repeat under different parents: `sm_clock`
 appears under both `clocks` (current) and `max_clocks`, and `average_power_draw`
@@ -26,6 +27,7 @@ For the lost and ECC variants, inject first and wait out the 30 s override TTL:
 
     kubectl exec -n mokka <pod> -- nvml-mock-ctl fail --gpu 1 --mode lost
     kubectl exec -n mokka <pod> -- nvml-mock-ctl fail --gpu 0 --mode ecc_uncorrectable --after-calls 1
+    kubectl exec -n mokka <pod> -- nvml-mock-ctl fabric-health --gpu 1 route_unhealthy
 
 Then trim to two GPUs, keeping the header and the first two `<gpu>` blocks and
 rewriting `attached_gpus` to 2.

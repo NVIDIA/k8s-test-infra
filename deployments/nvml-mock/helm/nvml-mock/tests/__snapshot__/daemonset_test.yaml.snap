@@ -19,7 +19,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: 3c7c93d7e37bb5597589d285c34278a619be2dfedc35d204ba0bb2dd04c09a35
+            checksum/config: fb921dcb2b78ce2a7f41a6b6bf55586804e92655fcf1a29449d8515db3c44e97
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: custom
