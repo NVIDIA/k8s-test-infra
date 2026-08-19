@@ -33,12 +33,14 @@ func Resource(resource string) schema.GroupResource {
 
 func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(GroupVersion,
-		&SGPUProfile{},
-		&SGPUProfileList{},
+		&SGPURackProfile{},
+		&SGPURackProfileList{},
 		&SGPUInventory{},
 		&SGPUInventoryList{},
 		&SGPURuntimePolicy{},
 		&SGPURuntimePolicyList{},
+		&SGPURack{},
+		&SGPURackList{},
 	)
 	metav1.AddToGroupVersion(scheme, GroupVersion)
 	return nil

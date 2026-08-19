@@ -54,6 +54,7 @@
 // - nvmlDeviceGetCurrentClocksThrottleReasons
 // - nvmlDeviceGetUtilizationRates
 // - nvmlDeviceGetComputeMode
+// - nvmlDeviceGetVirtualizationMode
 // - nvmlDeviceGetEccMode
 // - nvmlDeviceGetDisplayMode
 // - nvmlDeviceGetAccountingMode
@@ -78,6 +79,7 @@
 // - nvmlDeviceGetCurrPcieLinkGeneration
 // - nvmlDeviceGetCurrPcieLinkWidth
 // - nvmlDeviceGetMaxPcieLinkGeneration
+// - nvmlDeviceGetGpuMaxPcieLinkGeneration
 // - nvmlDeviceGetMaxPcieLinkWidth
 // - nvmlDeviceGetPcieReplayCounter
 // - nvmlDeviceGetPcieThroughput
@@ -1386,6 +1388,27 @@ func nvmlDeviceGetComputeMode(device C.nvmlDevice_t, mode *C.nvmlComputeMode_t) 
 	return C.NVML_SUCCESS
 }
 
+//export nvmlDeviceGetVirtualizationMode
+func nvmlDeviceGetVirtualizationMode(device C.nvmlDevice_t, pVirtualMode *C.nvmlGpuVirtualizationMode_t) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetVirtualizationMode"); !ok {
+		return ret
+	}
+	if pVirtualMode == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := unsafe.Pointer(device.handle)
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	val, ret := dev.GetVirtualizationMode()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*pVirtualMode = C.nvmlGpuVirtualizationMode_t(val)
+	return C.NVML_SUCCESS
+}
+
 //export nvmlDeviceGetEccMode
 func nvmlDeviceGetEccMode(device C.nvmlDevice_t, current *C.nvmlEnableState_t, pending *C.nvmlEnableState_t) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetEccMode"); !ok {
@@ -1887,6 +1910,27 @@ func nvmlDeviceGetMaxPcieLinkGeneration(device C.nvmlDevice_t, maxLinkGen *C.uin
 		return toReturn(ret)
 	}
 	*maxLinkGen = C.uint(val)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetGpuMaxPcieLinkGeneration
+func nvmlDeviceGetGpuMaxPcieLinkGeneration(device C.nvmlDevice_t, maxLinkGenDevice *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetGpuMaxPcieLinkGeneration"); !ok {
+		return ret
+	}
+	if maxLinkGenDevice == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := unsafe.Pointer(device.handle)
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	val, ret := dev.GetGpuMaxPcieLinkGeneration()
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*maxLinkGenDevice = C.uint(val)
 	return C.NVML_SUCCESS
 }
 

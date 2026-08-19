@@ -240,8 +240,8 @@ pcie_topology:
 }
 
 func TestValidate_RejectsLegacy8DigitBDF(t *testing.T) {
-	// The whole point of the BDF migration is to stop using busIdLegacy
-	// form in profile YAMLs. Validation must catch it explicitly so a
+	// The whole point of the BDF migration is to stop using the 8-digit
+	// busId form in profile YAMLs. Validation must catch it explicitly so a
 	// half-migrated profile doesn't silently render a tree the DRA
 	// driver can't resolve.
 	p := config.Profile{

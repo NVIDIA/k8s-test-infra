@@ -41,7 +41,7 @@ var _ = Describe("nvml-mock CUDA validator", Label("validator"), Ordered, func()
 		if !config.RunNGCSpecs() {
 			Skip("set E2E_RUN_NGC=true to run nvcr.io-backed validator scenario; see #446")
 		}
-		h = setupCluster(ctx, ClusterName, demoKindConfig(selectedProfiles), "validator")
+		h = setupCluster(ctx, "validator")
 	})
 
 	for _, name := range selectedProfiles {

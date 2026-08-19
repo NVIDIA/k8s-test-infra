@@ -56,7 +56,7 @@ type RackGroup struct {
 	Placement *RackPlacement `json:"placement,omitempty"`
 }
 
-// ProfileReference targets an SGPUProfile by name.
+// ProfileReference targets an SGPURackProfile by name.
 type ProfileReference struct {
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`

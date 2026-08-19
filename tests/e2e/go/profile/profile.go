@@ -60,12 +60,16 @@ type rawProfile struct {
 			JPEG int `json:"jpeg"`
 			OFA  int `json:"ofa"`
 		} `json:"utilization"`
+		PCIe *struct {
+			MaxLinkGen int `json:"max_link_gen"`
+		} `json:"pcie"`
 	} `json:"device_defaults"`
 	Devices []struct {
 		Index int `json:"index"`
 	} `json:"devices"`
 	NVLink struct {
-		LinksPerGPU int `json:"links_per_gpu"`
+		LinksPerGPU int  `json:"links_per_gpu"`
+		C2CEnabled  bool `json:"c2c_enabled"`
 		Switches    []struct {
 			BDF string `json:"bdf"`
 		} `json:"switches"`
@@ -93,6 +97,7 @@ type Profile struct {
 	hcasPerGPU  int
 	linksPerGPU int
 	hasSwitches bool
+	c2cEnabled  bool
 	fabricAuto  bool
 	hasFabric   bool
 	pciRoots    int
@@ -104,6 +109,7 @@ type Profile struct {
 	maxOperatingC      int
 	jpegUtilizationPct int
 	ofaUtilizationPct  int
+	maxPCIeLinkGen     int
 }
 
 // bytesPerMiB is the divisor GPU Feature Discovery uses when it publishes
@@ -147,6 +153,7 @@ func Load(profilesDir, name string) (Profile, error) {
 		hcasPerGPU:   raw.Infiniband.HCAsPerGPU,
 		linksPerGPU:  raw.NVLink.LinksPerGPU,
 		hasSwitches:  len(raw.NVLink.Switches) > 0,
+		c2cEnabled:   raw.NVLink.C2CEnabled,
 		memoryBytes:  raw.DeviceDefaults.Memory.TotalBytes,
 		architecture: strings.ToLower(strings.TrimSpace(raw.DeviceDefaults.Architecture)),
 	}
@@ -178,6 +185,9 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	if u := raw.DeviceDefaults.Utilization; u != nil {
 		p.jpegUtilizationPct = u.JPEG
 		p.ofaUtilizationPct = u.OFA
+	}
+	if pcie := raw.DeviceDefaults.PCIe; pcie != nil {
+		p.maxPCIeLinkGen = pcie.MaxLinkGen
 	}
 	if f := raw.DeviceDefaults.Fabric; f != nil {
 		p.hasFabric = true
@@ -247,6 +257,12 @@ func (p Profile) FabricMgr() bool { return p.hasSwitches || p.fabricAuto }
 // (HasFabric false).
 func (p Profile) HasFabric() bool { return p.hasFabric }
 
+// C2CEnabled reports whether the profile declares an NVLink-C2C link to the
+// host CPU (nvlink.c2c_enabled). True only on the Grace-Blackwell profiles;
+// nvidia-smi -q renders it as "GPU C2C Mode : Enabled" there and N/A
+// elsewhere. Absent key means false, i.e. N/A.
+func (p Profile) C2CEnabled() bool { return p.c2cEnabled }
+
 // Architecture is device_defaults.architecture (lowercased), e.g. "ampere".
 func (p Profile) Architecture() string { return p.architecture }
 
@@ -266,6 +282,12 @@ func (p Profile) JPEGUtilizationPct() int { return p.jpegUtilizationPct }
 // OFAUtilizationPct is utilization.ofa from the profile, the percentage
 // nvidia-smi -q -x must report in ofa_util.
 func (p Profile) OFAUtilizationPct() int { return p.ofaUtilizationPct }
+
+// MaxPCIeLinkGen is device_defaults.pcie.max_link_gen from the profile — the
+// PCIe generation nvidia-smi must report for the "Max" and "Device Max" rows.
+// Ranges from 3 (t4) to 6 (Blackwell), so asserting against it pins the value
+// to config rather than a hardcoded constant.
+func (p Profile) MaxPCIeLinkGen() int { return p.maxPCIeLinkGen }
 
 // ReportsTLimitTemp is true when real hardware of this architecture reports the
 // GPU T.Limit temperature field IDs (Ada and later). Pre-Ada profiles keep the
