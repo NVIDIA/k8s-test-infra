@@ -592,7 +592,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			Expect(err).NotTo(HaveOccurred(), "read baseline restart count")
 
 			By("SIGSTOP the nvml-mock-nri process on " + victim.Name)
-			wedgeNRIPlugin(ctx, victim.Name)
+			wedgeNRIPlugin(ctx, victim.Container)
 		})
 
 		// The readiness probe is the detectable half of the fail-open posture:
@@ -684,16 +684,16 @@ func nriRestartCount(ctx context.Context, h *harness.Harness, pod kube.PodRef) (
 // sent to a namespace init from within that same namespace. `kubectl exec ...
 // kill -STOP 1` is silently a no-op. From the node -- an ancestor namespace --
 // the signal is delivered.
-func wedgeNRIPlugin(ctx context.Context, node string) {
+func wedgeNRIPlugin(ctx context.Context, container string) {
 	GinkgoHelper()
-	pid := nriPluginHostPID(ctx, node)
-	_, err := runner.Run(ctx, "docker", "exec", node, "kill", "-STOP", pid)
-	Expect(err).NotTo(HaveOccurred(), "SIGSTOP nvml-mock-nri (pid %s) on %s", pid, node)
+	pid := nriPluginHostPID(ctx, container)
+	_, err := runner.Run(ctx, "docker", "exec", container, "kill", "-STOP", pid)
+	Expect(err).NotTo(HaveOccurred(), "SIGSTOP nvml-mock-nri (pid %s) on %s", pid, container)
 
 	// Confirm the process really is stopped rather than trusting kill's exit
 	// code: a wedge that did not take would make every assertion below vacuous.
 	Eventually(func() (string, error) {
-		res, err := runner.RunQuiet(ctx, "docker", "exec", node, "cat", "/proc/"+pid+"/stat")
+		res, err := runner.RunQuiet(ctx, "docker", "exec", container, "cat", "/proc/"+pid+"/stat")
 		if err != nil {
 			return "", err
 		}
@@ -703,21 +703,21 @@ func wedgeNRIPlugin(ctx context.Context, node string) {
 		}
 		return fields[2], nil // state: T = stopped
 	}).WithContext(ctx).WithTimeout(30*time.Second).WithPolling(time.Second).
-		Should(Equal("T"), "nvml-mock-nri (pid %s) on %s did not enter the stopped state", pid, node)
+		Should(Equal("T"), "nvml-mock-nri (pid %s) on %s did not enter the stopped state", pid, container)
 }
 
 // nriPluginHostPID finds the plugin process in the Kind node's PID namespace.
 // It reads /proc/<pid>/exe rather than shelling out to pgrep: procps is not
 // guaranteed in the node image, and matching on a command line would also match
 // the matching process itself.
-func nriPluginHostPID(ctx context.Context, node string) string {
+func nriPluginHostPID(ctx context.Context, container string) string {
 	GinkgoHelper()
 	const script = `for p in /proc/[0-9]*; do case "$(readlink "$p/exe" 2>/dev/null)" in */nvml-mock-nri) echo "${p##*/}";; esac; done`
-	res, err := runner.Run(ctx, "docker", "exec", node, "sh", "-c", script)
-	Expect(err).NotTo(HaveOccurred(), "locate nvml-mock-nri on %s: %s", node, res.Combined())
+	res, err := runner.Run(ctx, "docker", "exec", container, "sh", "-c", script)
+	Expect(err).NotTo(HaveOccurred(), "locate nvml-mock-nri on %s: %s", container, res.Combined())
 
 	pids := strings.Fields(res.Stdout)
-	Expect(pids).NotTo(BeEmpty(), "no nvml-mock-nri process found on %s", node)
+	Expect(pids).NotTo(BeEmpty(), "no nvml-mock-nri process found on %s", container)
 	return pids[0]
 }
 

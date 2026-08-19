@@ -8,7 +8,7 @@
 #   build_nvml_mock_image()       — build the ghcr.io/nvidia/nvml-mock image.
 #   install_single()              — install one nvml-mock Helm release. Returns list[str] of Tilt resource names.
 #   install_fleet()               — install one nvml-mock release per profile, node-pinned via
-#                                   nodeSelector.nvml-mock/profile=<p>. Returns list[str].
+#                                   nodeSelector.kubernetes.io/hostname=<worker>. Returns list[str].
 #
 # All side effects (docker_build / helm_resource) are inside functions so
 # `load()`ing this file is a pure import; the orchestrator controls order.
@@ -20,7 +20,8 @@
 
 load('ext://helm_resource', 'helm_resource')
 
-# Must match the worker labels in local/kind/default.kind.yaml. Keep in sync.
+# Order matters: the Nth profile is pinned to worker-N, whose name comes from
+# the JoinConfiguration patches in local/kind/default.kind.yaml.
 FLEET_PROFILES = ['a100', 't4']
 
 _IMAGE = 'ghcr.io/nvidia/nvml-mock'
@@ -193,7 +194,7 @@ def install_single(profile, active_consumers, nvmlmock_image='', control_plane=F
     return ['nvml-mock']
 
 def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image='', control_plane=False):
-    """Install one nvml-mock release per profile, node-pinned to workers.
+    """Install one nvml-mock release per profile, the Nth pinned to worker-N.
 
     The chart's fullname template collapses to the release name when it already
     contains the chart name ('nvml-mock'), so 'nvml-mock-a100' / 'nvml-mock-t4'
@@ -204,12 +205,14 @@ def install_fleet(active_consumers, profiles = FLEET_PROFILES, nvmlmock_image=''
     (health probes only), and future MEPs that give the CP real state will
     revisit the placement story.
     """
-    for p in profiles:
+    for i in range(len(profiles)):
         _install(
-            'nvml-mock-' + p,
-            p,
+            'nvml-mock-' + profiles[i],
+            profiles[i],
             active_consumers,
-            extra_set=['nodeSelector.nvml-mock/profile=' + p],
+            # helm --set reads '.' as a path separator, so the dot in
+            # kubernetes.io is escaped to keep the label key in one piece.
+            extra_set=['nodeSelector.kubernetes\\.io/hostname=worker-%d' % i],
             nvmlmock_image=nvmlmock_image,
             control_plane=control_plane,
         )
