@@ -79,13 +79,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clusters, while incompatible clusters require explicit recreation with
   `FORCE_RECREATE=true`.
 - The `e2e-nri` CI leg no longer spends most of its runtime waiting for pod
-  teardown, dropping from ~12min to an expected ~5min per GPU profile. Its
-  workload pods run `sleep` as PID 1, which installs no SIGTERM handler, and
-  PID 1 never receives a signal it does not handle — so kubelet's SIGTERM was
-  discarded and every `kubectl delete` blocked for the full 30s default grace
-  period until the SIGKILL landed. That was 13 stalls totalling 6.7min of a
-  12min leg. The workload manifests now cap `terminationGracePeriodSeconds` at
-  1, which takes each teardown from ~33s to ~3s.
+  teardown, dropping from ~12min to ~6min per GPU profile. Its workload pods run
+  `sleep` as PID 1, which installs no SIGTERM handler, and PID 1 never receives
+  a signal it does not handle — so kubelet's SIGTERM was discarded and every
+  `kubectl delete` blocked for the full 30s default grace period until the
+  SIGKILL landed. That was 13 stalls totalling 6.7min of a 12min leg. The
+  workload manifests now cap `terminationGracePeriodSeconds` at 1, which takes
+  each teardown from ~33s to ~3s. `e2e-nri` was the pipeline's critical path;
+  `e2e-gpu-operator` now is.
+- Test pod manifests are rendered from the typed `corev1` API objects by a new
+  `tests/e2e/go/framework/pod` package instead of being concatenated as YAML
+  text in each scenario. The hand-assembled form put indentation and quoting on
+  every call site and both failed quietly — a field indented one level too far is
+  still valid YAML that the API server accepts with the setting silently
+  dropped, and an unquoted `true` arrives as a bool where an annotation value
+  must be a string. The package caps the termination grace period by default, so
+  a new scenario cannot reintroduce the 30s teardown stall. It adds no
+  dependency: every import it needs is already vendored.
 
 ### Fixed
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML

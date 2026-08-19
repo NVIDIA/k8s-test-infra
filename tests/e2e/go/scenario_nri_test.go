@@ -24,6 +24,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/pod"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
@@ -69,14 +70,8 @@ const (
 	// also the major the rendered proc-devices advertises to the DRA driver.
 	nriImexChannelMajor = 235
 
-	// nriWorkloadLifecycle is the pod-spec fragment shared by every long-lived
-	// workload below. The 1s grace period is load-bearing for suite runtime,
-	// not cosmetic: these containers run `sleep` as PID 1, and PID 1 never
-	// receives a signal it installs no handler for, so kubelet's SIGTERM is
-	// discarded and the pod only dies on the post-grace SIGKILL. At the 30s
-	// default every `kubectl delete` blocked for the full 30s, and this Ordered
-	// suite deletes a pod per spec.
-	nriWorkloadLifecycle = "  restartPolicy: Never\n  terminationGracePeriodSeconds: 1\n"
+	// nriDeviceAnnotation is the per-pod opt-in for device-node injection.
+	nriDeviceAnnotation = "nvml-mock.nvidia.com/devices"
 )
 
 // Go port of docs/demo/node-wide-injection/run.sh. A dedicated Kind cluster
@@ -291,7 +286,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		It("keeps an annotated pod's allocation intact", Label("nri-dp-suppression"), func(ctx SpecContext) {
 			pod := applyNRIWorkload(ctx, h,
 				nriRequestPodManifest("nri-dp-annotated-request", gpuNode, 1,
-					map[string]string{"nvml-mock.nvidia.com/devices": "true"}),
+					map[string]string{nriDeviceAnnotation: "true"}),
 				"nri-dp-annotated-request")
 
 			allocated := allocatedGPUUUID(ctx, h, pod)
@@ -849,84 +844,66 @@ func applyNRIWorkload(ctx context.Context, h *harness.Harness, manifest []byte, 
 	return kube.PodRef{Namespace: nriWorkloadNS, Pod: name}
 }
 
+// nriWorkload is the shared shape of this scenario's workloads: a long-lived
+// container on the standard image, in the workload namespace. Callers vary
+// placement, annotations and the GPU request from there.
+func nriWorkload(name string) pod.Spec {
+	return pod.Spec{
+		Name:      name,
+		Namespace: nriWorkloadNS,
+		Image:     nriWorkloadImage,
+		// Kept alive so specs can exec into it.
+		Command: []string{"/bin/sh", "-c", "sleep 3600"},
+	}
+}
+
+// nriAnyGPUNode places a pod on whichever node carries the mock's GPU label,
+// unless the caller pinned one. Pinning matters whenever the pod observes
+// node-local state: the runtime override file lives on a per-node hostPath, so
+// an unpinned observer can be scheduled onto a different node from the workload
+// it is meant to watch and will then read a node that never saw the allocation.
+func nriAnyGPUNode(spec pod.Spec, node string) pod.Spec {
+	if node != "" {
+		spec.NodeName = node
+		return spec
+	}
+	spec.NodeSelector = map[string]string{gpuPresentLabel: "true"}
+	return spec
+}
+
 // nriRequestPodManifest renders a plain GPU-requesting pod: a resource request
 // and nothing else. No hostPath, no MOCK_* env, no runtimeClassName, no
 // annotation. This is the shape MEP-0002 exists to make work.
 func nriRequestPodManifest(name, node string, gpus int, annotations ...map[string]string) []byte {
-	nodeLine := ""
-	if node != "" {
-		nodeLine = "  nodeName: " + node + "\n"
-	}
-	annotationBlock := ""
+	spec := nriWorkload(name)
+	spec.NodeName = node
+	spec.GPUs = gpus
+	spec.Annotations = map[string]string{}
 	for _, set := range annotations {
 		for key, value := range set {
-			if annotationBlock == "" {
-				annotationBlock = "  annotations:\n"
-			}
-			annotationBlock += "    " + key + ": \"" + value + "\"\n"
+			spec.Annotations[key] = value
 		}
 	}
-	return []byte(`apiVersion: v1
-kind: Pod
-metadata:
-  name: ` + name + `
-  namespace: ` + nriWorkloadNS + `
-` + annotationBlock + `spec:
-` + nriWorkloadLifecycle + nodeLine + `  containers:
-    - name: app
-      image: ` + nriWorkloadImage + `
-      command: ["/bin/sh", "-c", "sleep 3600"]
-      resources:
-        limits:
-          nvidia.com/gpu: "` + strconv.Itoa(gpus) + `"
-`)
+	return spec.Render()
 }
 
 // nriAnnotatedPodManifest renders a pod that opts into device nodes via the
-// annotation and requests no GPU resources.
-// nriAnnotatedPodManifest renders an opt-in pod. Pass a node to pin it there.
-//
-// Pinning matters whenever the pod observes node-local state: the runtime
-// override file lives on a per-node hostPath, so an unpinned observer can be
-// scheduled onto a different node from the workload it is meant to watch and
-// will then read a node that never saw the allocation.
+// annotation and requests no GPU resources. Pass a node to pin it there.
 func nriAnnotatedPodManifest(name string, node ...string) []byte {
-	placement := "  nodeSelector:\n    nvidia.com/gpu.present: \"true\"\n"
-	if len(node) > 0 && node[0] != "" {
-		placement = "  nodeName: " + node[0] + "\n"
+	pinned := ""
+	if len(node) > 0 {
+		pinned = node[0]
 	}
-	return []byte(`apiVersion: v1
-kind: Pod
-metadata:
-  name: ` + name + `
-  namespace: ` + nriWorkloadNS + `
-  annotations:
-    nvml-mock.nvidia.com/devices: "true"
-spec:
-` + nriWorkloadLifecycle + placement + `  containers:
-    - name: app
-      image: ` + nriWorkloadImage + `
-      command: ["/bin/sh", "-c", "sleep 3600"]
-`)
+	spec := nriAnyGPUNode(nriWorkload(name), pinned)
+	spec.Annotations = map[string]string{nriDeviceAnnotation: "true"}
+	return spec.Render()
 }
 
 // nriPlainPodManifest renders a pod that opts into nothing: no GPU request and
 // no device annotation. It still receives the overlay and the environment,
 // which is the node-wide NRI contract.
 func nriPlainPodManifest(name string) []byte {
-	return []byte(`apiVersion: v1
-kind: Pod
-metadata:
-  name: ` + name + `
-  namespace: ` + nriWorkloadNS + `
-spec:
-` + nriWorkloadLifecycle + `  nodeSelector:
-    nvidia.com/gpu.present: "true"
-  containers:
-    - name: app
-      image: ` + nriWorkloadImage + `
-      command: ["/bin/sh", "-c", "sleep 3600"]
-`)
+	return nriAnyGPUNode(nriWorkload(name), "").Render()
 }
 
 // nriMinimalIBPodManifest renders a run-to-completion pod on a minimal image
@@ -934,28 +911,11 @@ spec:
 // `sleep` wrapper and no `sh -c`: the image has no shell, which is the whole
 // point of using it.
 func nriMinimalIBPodManifest(name, tool string, args ...string) []byte {
-	argv := `"` + nriOverlayBinDir + "/" + tool + `"`
-	var argvSb937 strings.Builder
-	for _, a := range args {
-		argvSb937.WriteString(`, "` + a + `"`)
-	}
-	argv += argvSb937.String()
-	return []byte(`apiVersion: v1
-kind: Pod
-metadata:
-  name: ` + name + `
-  namespace: ` + nriWorkloadNS + `
-  labels:
-    app: ` + name + `
-spec:
-  restartPolicy: Never
-  nodeSelector:
-    nvidia.com/gpu.present: "true"
-  containers:
-    - name: app
-      image: ` + nriMinimalImage + `
-      command: [` + argv + `]
-`)
+	spec := nriAnyGPUNode(nriWorkload(name), "")
+	spec.Image = nriMinimalImage
+	spec.Command = append([]string{nriOverlayBinDir + "/" + tool}, args...)
+	spec.Labels = map[string]string{"app": name}
+	return spec.Render()
 }
 
 // runIBToolInMinimalImage applies the pod, waits for it to terminate, and
@@ -1025,22 +985,13 @@ func installNRICDIChart(ctx context.Context, h *harness.Harness, p profile.Profi
 // nriImexPodManifest renders a pod pinned to one node that optionally opts into
 // mock IMEX channel injection. It requests no GPU resources.
 func nriImexPodManifest(name, node string, wantChannels bool) []byte {
-	annotations := ""
+	spec := nriWorkload(name)
+	spec.NodeName = node
+	spec.Annotations = map[string]string{}
 	if wantChannels {
-		annotations = "  annotations:\n    " + nriImexAnnotation + ": \"true\"\n"
+		spec.Annotations[nriImexAnnotation] = "true"
 	}
-	return []byte(`apiVersion: v1
-kind: Pod
-metadata:
-  name: ` + name + `
-  namespace: ` + nriWorkloadNS + `
-` + annotations + `spec:
-` + nriWorkloadLifecycle + `  nodeName: ` + node + `
-  containers:
-    - name: app
-      image: ` + nriWorkloadImage + `
-      command: ["/bin/sh", "-c", "sleep 3600"]
-`)
+	return spec.Render()
 }
 
 // imexChannelNames lists the channel nodes visible inside a pod.
