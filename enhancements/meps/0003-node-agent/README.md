@@ -56,7 +56,7 @@ This MEP sets a few goals:
 
 - Merge all simulation logic into one CLI aka Mokka Node Agent CLI with a shared lifecycle and configuration reading logic. This agent will load configuration (first, from the YAML file like today, then from Mokka Control Plane).
 - Structure the simulation logic around the components/subsystems it belongs to, so it's easy to see what it takes to simulate a specific aspect of the infrastructure footprint as well as to identify what we are missing.
-- Mokka Node Agent should act as a supervisor that gives a shared lifecycle to all e.g. `Setup()`, `Run()` (for long-lived operations like IB sim servers), `Cleanup()`. It will act as a reconciler.
+- Mokka Node Agent should act as a supervisor that gives a shared lifecycle to all e.g. `Stage()`, `Apply()`, `Run()` (for long-lived operations like IB sim servers), `Revoke()`, `Discard()`. It will act as a reconciler.
 
 Additionally, we want to run as much of the simulation logic in parallel as possible, leveraging their independence,
 so they apply as fast as available CPU/IOPS allow.
@@ -106,26 +106,35 @@ Introduce **`internal/agent`** (a level-triggered reconciler + supervisor) and *
 
 There are three main interfaces.
 
-#### Component
+#### Simulator
 
 One owner per simulated component:
 
 ```go
 type Component interface {
     Name() string
-    Reconcile(ctx context.Context, host Host, state *State) error // level-triggered; idempotent
-    Run(ctx context.Context) error                                // long-running; nil-op for pure renderers
-    Cleanup(ctx context.Context, host Host) error                 // reverses effects (per-component)
+    Stage(ctx context.Context, host Host, state *State) error // materialize artifacts; nothing outside can see them yet
+    Discard(ctx context.Context, host Host) error             // inverse of Stage
+    Run(ctx context.Context) error                            // long-running; nil-op for pure renderers
     Ready() bool
+}
+
+// Applier is implemented by components whose staged artifacts something outside
+// the node acts on — containerd, NFD, the GPU Operator validator.
+type Applier interface {
+    Apply(ctx context.Context, host Host, state *State) error
+    Revoke(ctx context.Context, host Host) error
 }
 ```
 
-- `Reconcile` is called on every state change with the current desired state. Must be idempotent — if nothing changed, it's a no-op.
-- `Reconcile` converges rather than only materializes: it removes surfaces it previously created that the current `State` no longer calls for, so shrinking a node from 8 GPUs to 4 removes `/dev/nvidia4..7` and their PCI entries.
-- Internally, `Reconcile` parallelizes independent surfaces via a local `errgroup`. The GPU-driver-footprint component runs 7 things (chardevs + NVML shim + CUDA shim + nvidia-smi + procfs version + procfs params + engine config) concurrently.
+- `Stage` and `Apply` together are the level-triggered reconcile: both re-run on every state change and must be idempotent. `Revoke` and `Discard` run only on shutdown.
+- They converge rather than only materialize: a component removes surfaces it previously created that the current `State` no longer calls for, so shrinking a node from 8 GPUs to 4 removes `/dev/nvidia4..7` and their PCI entries.
+- Internally, `Stage` parallelizes independent surfaces via a local `errgroup`. The GPU-driver-footprint component runs 7 things (chardevs + NVML shim + CUDA shim + nvidia-smi + procfs version + procfs params + engine config) concurrently.
+- Only three components implement `Applier`: `cdi` (both CDI YAMLs), `gpudriver` (`/run/nvidia/driver` symlink), `pcibus` (NFD feature file). The other five have no surface a third party acts on.
+- `Stage`↔`Discard` and `Apply`↔`Revoke` are exact inverses, so the shutdown order is written once in the agent and cannot delete an artifact before the spec that references it.
 - `Run` supervises background daemons (mock-ib server, fabric-manager marker loop, allocwatch loop). Returning nil means "one-shot done".
 - There is no agent-wide resync period. A component that owns a file something else can delete re-asserts it from `Run` instead, like the fabric-manager marker every 2 s.
-- `Cleanup` reverses effects on graceful shutdown, per-component. Each component removes only files it created; the top-level `/host/var/lib/nvml-mock` root is left to the pod's hostPath lifecycle.
+- `Discard` removes only files the component created; the top-level `/host/var/lib/nvml-mock` root is left to the pod's hostPath lifecycle.
 - `Ready()` powers `/readyz` and attributes failures per surface.
 
 `Host` abstracts the on-host root (`/host/var/lib/nvml-mock`, `/host/dev`, `/host/proc`, `/host/sys`, `/host/etc`). Tests retarget to `t.TempDir()`.
@@ -184,10 +193,11 @@ This is the reconciler & supervisor.
 `Agent.Run(ctx)`:
 
 1. Subscribe to `StateSource.Watch(ctx)`; cache the last `State` in memory ([MEP-0001]'s crash-tolerance requirement). An `Update` carrying `Err` leaves that cache in force — the agent keeps serving it and does not reconcile.
-2. **Wave 1 (parallel)** — on every `State` (initial + updates), call `Reconcile(ctx, host, state)` on every component concurrently via `errgroup`. Component failures are isolated: an optional component's failure marks it unready and continues; a required component's failure returns.
-3. **Wave 2 (parallel, launched once)** — each component's `Run(ctx)` is launched under a supervisor `errgroup` at startup. Runs continue across state changes; only a canceled `ctx` stops them.
-4. Expose `/healthz` + `/readyz` HTTP endpoints, aggregated + per-component (shape from `cmd/nvml-mock-nri/main.go:107` `serveHealth`). `/healthz` is liveness only and never depends on `StateSource` reachability: otherwise one Control Plane outage restarts — and per step 5, tears down — the whole fleet at once. `/readyz` means the components reconciled the last accepted `State`, and is red only until the first one arrives; later staleness is a metric over `Update.At` and `State.Generation`, not a probe.
-5. On `ctx.Done()`: cancel `Run` goroutines, then call `Cleanup(ctx, host)` on every component in parallel.
+2. **Stage wave (parallel)** — on every `State` (initial + updates), call `Stage(ctx, host, state)` on every component concurrently via `errgroup`. Component failures are isolated: an optional component's failure marks it unready and continues; a required component's failure returns.
+3. **Barrier, then apply wave (parallel)** — once every `Stage` has returned, call `Apply(ctx, host, state)` on every `Applier`. The barrier is what stops containerd admitting a container against a CDI spec whose chardevs do not exist yet; reconciling again cannot undo that admission.
+4. **Supervisor wave (parallel, launched once)** — each component's `Run(ctx)` is launched under a supervisor `errgroup` at startup. Runs continue across state changes; only a canceled `ctx` stops them.
+5. Expose `/healthz` + `/readyz` HTTP endpoints, aggregated + per-component (shape from `cmd/nvml-mock-nri/main.go:107` `serveHealth`). `/healthz` is liveness only and never depends on `StateSource` reachability: otherwise one Control Plane outage restarts — and per step 6, tears down — the whole fleet at once. `/readyz` means the components reconciled the last accepted `State`, and is red only until the first one arrives; later staleness is a metric over `Update.At` and `State.Generation`, not a probe.
+6. On `ctx.Done()`: cancel `Run` goroutines, `Revoke` on every `Applier` in parallel, then — after that wave completes — `Discard` on every component in parallel. Both teardown waves use `errgroup.Group` rather than `errgroup.WithContext`: staging wants fail-fast, teardown wants best-effort so one stuck component does not strand the rest of the host.
 
 Graceful shutdown via `signal.NotifyContext(ctx, SIGINT, SIGTERM)`.
 
@@ -195,21 +205,21 @@ Graceful shutdown via `signal.NotifyContext(ctx, SIGINT, SIGTERM)`.
 
 These are the simulated components. Each is a package under `internal/agent/`:
 
-| Package                 | Simulates                                                                                                              | Reconcile does (in parallel)                                                               | Run does                                                             |
-|-------------------------|------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|----------------------------------------------------------------------|
-| `gpudriver`       | Component 1 — GPU driver footprint                                                                                     | chardevs, NVML shim, CUDA shim, nvidia-smi, procfs version+params, mock-NVML engine config | —                                                                    |
-| `pcibus`                | Component 2 — GPU on PCI bus                                                                                           | PCI sysfs tree + libpcimocksys.so staging                                                  | —                                                                    |
-| `fabricmanager`         | Component 3 — NVSwitch fabric manager                                                                                  | initial marker write                                                                       | re-assert marker every 2 s                                           |
-| `imex`                  | Component 4 — NVIDIA IMEX                                                                                              | IMEX channel chardevs + `/proc/devices` overlay                                            | —                                                                    |
-| `ibhca`                 | Component 5 — InfiniBand HCA                                                                                           | IB sysfs tree + libibmock*.so staging + IB CLI tool staging                                | `pkg/network/mockib/daemon.Server`; optional fabric relay            |
-| `nvlink`                | Component 6 — NVLink fabric / compute domain                                                                           | topology YAML overlay                                                                      | —                                                                    |
-| `cdi`                   | Component 7 — CDI surface                                                                                              | `nvidia.yaml` + `nvml-mock-nri.yaml`                                                       | —                                                                    |
-| `allocwatch` (optional) | (not a simulated surface — mirrors pod GPU claims into `state`)                                                        | —                                                                                          | kubelet PodResources → override memory.used via `pkg/gpu/allocwatch` |
+| Package                 | Simulates                                                       | Stage does (in parallel)                                                                   | Apply does                            | Run does                                                             |
+|-------------------------|-----------------------------------------------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------|----------------------------------------------------------------------|
+| `gpudriver`             | Component 1 — GPU driver footprint                              | chardevs, NVML shim, CUDA shim, nvidia-smi, procfs version+params, mock-NVML engine config | `/run/nvidia/driver` symlink            | —                                                                    |
+| `pcibus`                | Component 2 — GPU on PCI bus                                    | PCI sysfs tree + libpcimocksys.so staging                                                  | NFD feature file                        | —                                                                    |
+| `fabricmanager`         | Component 3 — NVSwitch fabric manager                           | initial marker write                                                                       | —                                       | re-assert marker every 2 s                                           |
+| `imex`                  | Component 4 — NVIDIA IMEX                                       | IMEX channel chardevs + `/proc/devices` overlay                                            | —                                       | —                                                                    |
+| `ibhca`                 | Component 5 — InfiniBand HCA                                    | IB sysfs tree + libibmock*.so staging + IB CLI tool staging                                | —                                       | `pkg/network/mockib/daemon.Server`; optional fabric relay            |
+| `nvlink`                | Component 6 — NVLink fabric / compute domain                    | topology YAML overlay                                                                      | —                                       | —                                                                    |
+| `cdi`                   | Component 7 — CDI surface                                       | —                                                                                          | `nvidia.yaml` + `nvml-mock-nri.yaml`    | —                                                                    |
+| `allocwatch` (optional) | (not a simulated surface — mirrors pod GPU claims into `state`) | —                                                                                          | —                                       | kubelet PodResources → override memory.used via `pkg/gpu/allocwatch` |
 
-#### Example: `devicedriver.Reconcile`
+#### Example: `devicedriver.Stage`
 
 ```go
-func (c *DeviceDriver) Reconcile(ctx context.Context, host host.Host, state *node.State) error {
+func (c *DeviceDriver) Stage(ctx context.Context, host host.Host, state *node.State) error {
     g, gctx := errgroup.WithContext(ctx)
     g.Go(func() error { return c.materializeCharDevs(gctx, host, state.Devices) })
     g.Go(func() error { return c.stageNVMLShim(gctx, host, state.Software) })
@@ -226,20 +236,20 @@ Each op is a short function (~30 lines) that (a) computes the desired state for 
 
 ### The parallel-reconcile shape
 
-The reconciler is a fan-out:
+The reconciler is a fan-out with one barrier:
 
 ```
-                     ┌── gpudriver      (chardevs + libs + smi + procfs + engine config + /run/nvidia/driver symlink, all parallel)
-                     ├── pcibus         (sysfs tree + NFD feature file)
-                     ├── fabricmanager  (marker; Run→ re-assertion loop)
-   State snapshot ───┼── imex           (chardevs + /proc/devices overlay, parallel)
-                     ├── ibhca          (sysfs tree; Run→ mock-ib daemon + fabric relay)
+                     ┌── gpudriver      (chardevs + libs + smi + procfs + engine config, all parallel)
+                     ├── pcibus         (sysfs tree)
+                     ├── fabricmanager  (marker; Run→ re-assertion loop)     ┌── cdi        (2 YAMLs)
+   State snapshot ───┼── imex           (chardevs + /proc/devices overlay) ──┼── gpudriver  (/run/nvidia/driver symlink)
+                     ├── ibhca          (sysfs tree; Run→ mock-ib daemon)    └── pcibus     (NFD feature file)
                      ├── nvlink         (topology overlay)
-                     ├── cdi            (2 YAMLs, parallel)
                      └── allocwatch     (optional; Run→ PodResources loop)
+                          Stage wave                    barrier                  Apply wave
 ```
 
-Startup time ≈ `max(t_component)` instead of `sum(t_phase)`. Dominant cost is IB sysfs render + `mock-ib` daemon warm-up.
+Startup time ≈ `max(t_stage) + max(t_apply)` instead of `sum(t_phase)`. Dominant cost is IB sysfs render + `mock-ib` daemon warm-up; the apply wave is four small file writes, so the barrier costs almost nothing.
 
 ### Simulated Surface
 
@@ -261,11 +271,11 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 | Kernel module presence: `/proc/modules`, `/sys/module/nvidia/version`, `/sys/module/nvidia_uvm/`              | `lsmod`, GPU Operator `driver-container` gate, DCGM startup checks           | ✗ **gap** — not simulated; unmodified consumers checking module state see nothing                                                                                    |
 | `nvidia-smi` ELF binary + shell fallback                                                                      | shell scripts, operator tooling that invokes `nvidia-smi`                    | ✓ `gpudriver` stages real RPATH-patched ELF; shell fallback covers minimal cases                                                                               |
 | Mock-NVML engine on-disk config (compiled `state` → engine config file the shim reads at dlopen)              | mock-NVML shim itself at container-run time                                  | ✓ `gpudriver` — atomic write. The runtime override file beside it is owned by `nvml-mock-ctl` and `allocwatch` under their shared `pkg/gpu/mockctl` lock, not by the agent |
-| `/run/nvidia/driver` symlink → `/var/lib/nvml-mock/driver`                                                     | GPU Operator validator (probes for driver root on the host)                  | ✓ `gpudriver` — atomic `ln -sfn`, materialized after driver root is populated                                                                                        |
+| `/run/nvidia/driver` symlink → `/var/lib/nvml-mock/driver`                                                     | GPU Operator validator (probes for driver root on the host)                  | ✓ `gpudriver.Apply` — atomic `ln -sfn`, after the barrier so the driver root exists                                                                                        |
 
 **Delivery**: files materialized under `/host/var/lib/nvml-mock/driver/`, mounted into workload containers via CDI (`nvidia.yaml`) or NRI overlay. LD_PRELOAD is not used here (Go consumers bypass it).
 
-**Reconcile trigger**: `state.Software` or `state.Devices` fields change.
+**Restage trigger**: `state.Software` or `state.Devices` fields change.
 
 #### GPU Device on the PCI bus
 
@@ -279,11 +289,11 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 | `/sys/bus/pci/devices/<BDF>/config` (PCIe config space, 4 KB)                                  | `lspci -vv`, low-level probes                                                                                  | ✗ **gap** — not materialized                                               |
 | `/proc/bus/pci/devices`                                                                        | legacy `lspci` fallback                                                                                        | ✗ **gap** — not materialized                                               |
 | `libpci`-based tools via `libpcimocksys.so` LD_PRELOAD                                         | `lspci`, C-based sysfs walkers                                                                                 | ✓ `pcibus` stages the shim + owns the LD_PRELOAD entry                     |
-| NFD feature file `/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features` → `feature.node.kubernetes.io/pci-10de.present=true` | NFD-based operators, DRA driver | ✓ `pcibus` — bridge because NFD reads real host `/sys/bus/pci/`, which cannot see the mock's isolated PCI tree |
+| NFD feature file `/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features` → `feature.node.kubernetes.io/pci-10de.present=true` | NFD-based operators, DRA driver | ✓ `pcibus.Apply` — bridge because NFD reads real host `/sys/bus/pci/`, which cannot see the mock's isolated PCI tree |
 
 **Delivery**: files under `/host/var/lib/nvml-mock/sys/` mounted at `/sys` in containers via CDI. LD_PRELOAD of `libpcimocksys.so` covers C `libpci` consumers.
 
-**Reconcile trigger**: `state.NodeShape.Topology` changes.
+**Restage trigger**: `state.NodeShape.Topology` changes.
 
 #### NVSwitch fabric manager
 
@@ -298,7 +308,7 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 
 **Delivery**: file materialization only; no IPC endpoint simulated.
 
-**Reconcile trigger**: `state.Fabric` changes (enable/disable, init delay).
+**Restage trigger**: `state.Fabric` changes (enable/disable, init delay).
 
 #### NVIDIA IMEX subsystem
 
@@ -313,7 +323,7 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 
 **Delivery**: chardevs + `/proc/devices` overlay materialized on host; real IMEX daemon delivered via image layer + `imex-nogpu-shim` execve wrapper (not managed by node-agent).
 
-**Reconcile trigger**: `state.Subsystems.imexChannels` toggle or device count change.
+**Restage trigger**: `state.Subsystems.imexChannels` toggle or device count change.
 
 #### InfiniBand HCA
 
@@ -331,7 +341,7 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 
 **Delivery**: sysfs tree mounted at `/sys/class/infiniband` in containers; C-shim libs via LD_PRELOAD; Unix socket for UMAD wire protocol; optional TCP fabric relay for cross-node.
 
-**Reconcile trigger**: `state.NodeShape.Topology.Network` changes; `state.Subsystems.ib.mode` toggle. `Reconcile` finishes rendering sysfs before `Run` starts the daemon — the natural within-component ordering.
+**Restage trigger**: `state.NodeShape.Topology.Network` changes; `state.Subsystems.ib.mode` toggle. `Stage` finishes rendering sysfs before `Run` starts the daemon — the natural within-component ordering.
 
 #### NVLink fabric / compute domain
 
@@ -347,7 +357,7 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 
 **Delivery**: `topology.yaml` overlay materialized on host; consumed by mock NVML at workload dlopen time.
 
-**Reconcile trigger**: `state.Fabric` or `state.NodeShape.Topology.GpuFabric` changes.
+**Restage trigger**: `state.Fabric` or `state.NodeShape.Topology.GpuFabric` changes.
 
 #### CDI (Container Device Interface) surface
 
@@ -355,14 +365,14 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 
 | Surface                                                                     | Consumers                                                                              | Coverage                                              |
 |-----------------------------------------------------------------------------|----------------------------------------------------------------------------------------|-------------------------------------------------------|
-| `/var/run/cdi/nvidia.yaml` — vendor `nvidia.com`, class `gpu`, device `all` | K8s device-plugin CDI strategies, GPU Operator cdi-mode, workload pods via CDI request | ✓ `cdi` — regenerated from `state.Devices`            |
-| `/var/run/cdi/nvml-mock-nri.yaml` — devices referenced by NRI plugin        | `nvml-mock-nri` when injecting via CDI (MEP-0002 direction)                            | ✓ `cdi`                                               |
+| `/var/run/cdi/nvidia.yaml` — vendor `nvidia.com`, class `gpu`, device `all` | K8s device-plugin CDI strategies, GPU Operator cdi-mode, workload pods via CDI request | ✓ `cdi.Apply` — regenerated from `state.Devices`            |
+| `/var/run/cdi/nvml-mock-nri.yaml` — devices referenced by NRI plugin        | `nvml-mock-nri` when injecting via CDI (MEP-0002 direction)                            | ✓ `cdi.Apply`                                               |
 | MIG partition CDI specs (`nvidia.com/mig-1g.5gb=...`)                       | MIG-aware workloads                                                                    | ✗ **gap** — MIG partitioning not simulated end-to-end |
 | CDI hooks (`createContainer`, `startContainer`) referencing helper scripts  | GPU Operator's toolkit hooks                                                           | ✗ **gap** — hook scripts not shipped                  |
 
 **Delivery**: YAML files materialized at `/host/var/run/cdi/`, discovered by containerd 2.x (`enable_cdi = true` default).
 
-**Reconcile trigger**: `state.Devices` or `state.Software` changes.
+**Restage trigger**: `state.Devices` or `state.Software` changes.
 
 ### Tech Debt
 
@@ -387,7 +397,7 @@ This appendix documents the surfaces the current `setup.sh` publishes to node-ad
 
 **Refactor path**:
 
-NFD feature-file rendering folds into `pcibus.Reconcile`; `/run/nvidia/driver` symlink folds into `gpudriver.Reconcile`.
+NFD feature-file rendering folds into `pcibus.Apply`; `/run/nvidia/driver` symlink folds into `gpudriver.Apply`. Both are `Applier` surfaces, so the barrier keeps them after the artifacts they advertise.
 
 ## Drawbacks
 
