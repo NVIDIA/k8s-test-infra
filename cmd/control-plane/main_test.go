@@ -24,25 +24,37 @@ func TestFlagsProduceExpectedConfig(t *testing.T) {
 	}{
 		{
 			name: "defaults when no flags",
-			args: []string{"mokka-control-plane"},
+			args: []string{"control-plane"},
 			want: controlplane.DefaultConfig(),
 		},
 		{
 			name: "listen-addr override",
-			args: []string{"mokka-control-plane", "--listen-addr", ":9090"},
+			args: []string{"control-plane", "--listen-addr", ":9090"},
 			want: controlplane.Config{
 				ListenAddr:      ":9090",
 				LogLevel:        "info",
+				LogFormat:       "json",
 				ShutdownTimeout: 5 * time.Second,
 			},
 		},
 		{
 			name: "log-level and shutdown-timeout override",
-			args: []string{"mokka-control-plane", "--log-level", "debug", "--shutdown-timeout", "12s"},
+			args: []string{"control-plane", "--log-level", "debug", "--shutdown-timeout", "12s"},
 			want: controlplane.Config{
 				ListenAddr:      ":8080",
 				LogLevel:        "debug",
+				LogFormat:       "json",
 				ShutdownTimeout: 12 * time.Second,
+			},
+		},
+		{
+			name: "log-format plain override",
+			args: []string{"control-plane", "--log-format", "plain"},
+			want: controlplane.Config{
+				ListenAddr:      ":8080",
+				LogLevel:        "info",
+				LogFormat:       "plain",
+				ShutdownTimeout: 5 * time.Second,
 			},
 		},
 	} {
@@ -53,6 +65,7 @@ func TestFlagsProduceExpectedConfig(t *testing.T) {
 				got = controlplane.Config{
 					ListenAddr:      c.String("listen-addr"),
 					LogLevel:        c.String("log-level"),
+					LogFormat:       c.String("log-format"),
 					ShutdownTimeout: c.Duration("shutdown-timeout"),
 				}
 				return nil
