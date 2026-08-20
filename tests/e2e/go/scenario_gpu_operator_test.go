@@ -80,12 +80,19 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 				// the mock tree" from "GFD read the host's sysfs and happened
 				// to agree". Reading the tree from inside the container pins
 				// the delivery itself, independent of what GFD makes of it.
-				// The GFD pod on `node`, and only while it is Running: the
-				// specs above assert about that node's labels, and a
-				// Terminating or Pending pod matches the selector too, which
-				// the exec below would fail on.
-				pod, err := h.Kube.RunningPodOnNode(ctx, gpuOperatorNamespace, "app=gpu-feature-discovery", node)
-				Expect(err).NotTo(HaveOccurred())
+				// The GFD pod on `node`, and only while it is Running and not
+				// terminating: the specs above assert about that node's
+				// labels, and a pod the exec cannot reach fails the spec for a
+				// reason it is not about. Polled because the operator replaces
+				// its operands a reconcile after nvml-mock rolls (#602), the
+				// same reason waitOperatorValidatorRunning polls.
+				var pod string
+				Eventually(func() (string, error) {
+					p, err := h.Kube.RunningPodOnNode(ctx, gpuOperatorNamespace, "app=gpu-feature-discovery", node)
+					pod = p
+					return p, err
+				}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+					ShouldNot(BeEmpty(), "no Running gpu-feature-discovery pod on %s", node)
 				assertions.PCISysfsAtKernelPath(ctx, h.Kube,
 					kube.PodRef{Namespace: gpuOperatorNamespace, Pod: pod, Container: "gpu-feature-discovery"},
 					p.ExpectedGPUs())

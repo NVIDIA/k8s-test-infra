@@ -79,6 +79,10 @@ type objectMeta struct {
 	Name        string            `json:"name"`
 	Labels      map[string]string `json:"labels"`
 	Annotations map[string]string `json:"annotations"`
+	// DeletionTimestamp is set once the object is being deleted. For a pod
+	// that is the only marker of "Terminating": the phase stays Running
+	// until its containers exit.
+	DeletionTimestamp string `json:"deletionTimestamp"`
 }
 
 type nodeCondition struct {
@@ -285,11 +289,14 @@ func (c *Client) RunningPodNames(ctx context.Context, ns, selector string) ([]st
 	return out, nil
 }
 
-// RunningPodOnNode returns the Running pod matching the selector on a given
-// node. Callers that exec into a DaemonSet's pod need both filters: a
-// Terminating or Pending pod matches the selector just as well and the exec
-// fails, and a pod on another node answers about hardware the assertion is not
-// about.
+// RunningPodOnNode returns a Running pod matching the selector on a given
+// node, skipping pods that are on their way out. Callers that exec into a
+// DaemonSet's pod need all three filters: a Pending pod matches the selector
+// as readily as a Running one, a terminating pod keeps reporting phase
+// Running until its containers exit (deletionTimestamp is what marks it), and
+// a pod on another node answers about hardware the assertion is not about.
+//
+// A rollout can still leave no candidate at all, so callers poll.
 func (c *Client) RunningPodOnNode(ctx context.Context, ns, selector, node string) (string, error) {
 	var pl podList
 	if err := c.getJSON(ctx, &pl, "pods", "-n", ns, "-l", selector,
@@ -297,7 +304,7 @@ func (c *Client) RunningPodOnNode(ctx context.Context, ns, selector, node string
 		return "", err
 	}
 	for _, p := range pl.Items {
-		if p.Status.Phase == "Running" {
+		if p.Status.Phase == "Running" && p.Metadata.DeletionTimestamp == "" {
 			return p.Metadata.Name, nil
 		}
 	}
