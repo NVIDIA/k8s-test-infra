@@ -16,27 +16,22 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/agent/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 )
 
 // Agent is the reconciler and supervisor for all simulators.
 type Agent struct {
 	simulators []Simulator
-	appliers   []Applier
 	source     StateSource
 	host       *host.Host
-	health     *health.Server
 	log        *slog.Logger
 }
 
 // Config carries Agent constructor arguments.
 type Config struct {
 	Simulators []Simulator
-	Appliers   []Applier
 	Source     StateSource
 	Host       *host.Host
-	Health     *health.Server
 	Log        *slog.Logger
 }
 
@@ -44,10 +39,8 @@ type Config struct {
 func New(cfg Config) *Agent {
 	return &Agent{
 		simulators: cfg.Simulators,
-		appliers:   cfg.Appliers,
 		source:     cfg.Source,
 		host:       cfg.Host,
-		health:     cfg.Health,
 		log:        cfg.Log,
 	}
 }
@@ -73,7 +66,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		})
 	}
 
-	g.Go(func() error { return a.health.Run(gctx) })
 	g.Go(func() error { return a.reconcileLoop(gctx) })
 
 	err := g.Wait()
@@ -141,9 +133,13 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 
 	// Apply wave: fail-fast — appliers share cross-component dependencies
 	// (CDI spec references chardevs that gpudriver must have staged first).
+	// Only simulators that also implement Applier participate.
 	applyG, applyCtx := errgroup.WithContext(ctx)
-	for _, app := range a.appliers {
-		app := app
+	for _, sim := range a.simulators {
+		app, ok := sim.(Applier)
+		if !ok {
+			continue
+		}
 		applyG.Go(func() error {
 			if err := app.Apply(applyCtx, a.host, state); err != nil {
 				return fmt.Errorf("apply %s: %w", applierName(app), err)
@@ -154,11 +150,15 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 	return applyG.Wait()
 }
 
-// revoke calls Revoke on all appliers concurrently, best-effort.
+// revoke calls Revoke on all Applier simulators concurrently, best-effort.
 func (a *Agent) revoke(ctx context.Context) {
 	var g errgroup.Group
-	for _, app := range a.appliers {
-		app := app
+	for _, sim := range a.simulators {
+		app, ok := sim.(Applier)
+		if !ok {
+			continue
+		}
+
 		g.Go(func() error {
 			if err := app.Revoke(ctx, a.host); err != nil {
 				a.log.Error("revoke failed", "applier", applierName(app), "err", err)

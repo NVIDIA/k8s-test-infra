@@ -17,6 +17,9 @@ type State struct {
 	NodeShape  NodeShape
 	Devices    []DeviceSpec
 	Fabric     FabricState
+	// ConfigRaw holds the raw YAML profile bytes so simulators (e.g. gpudriver)
+	// can write an engine-readable config file without re-deriving the profile.
+	ConfigRaw []byte
 }
 
 // NodeMeta carries node identity fields.

@@ -11,8 +11,10 @@ import (
 	"syscall"
 
 	"github.com/urfave/cli/v3"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/gpudriver"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
@@ -80,16 +82,31 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	signalCtx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	h := host.New(cmd.String("host-root"))
-	src := source.NewFileSource(configPath, log)
-	healthSrv := health.NewServer(cmd.String("health-addr"), log)
+	simulators := []agent.Simulator{gpudriver.New()}
 
-	a := agent.New(agent.Config{
-		Source: src,
-		Host:   h,
-		Health: healthSrv,
-		Log:    log,
+	healthSrv := health.NewServer(cmd.String("health-addr"), log)
+	healthSrv.SetReadiness(func() health.ReadyzResponse {
+		sims := make(map[string]health.SimulatorStatus, len(simulators))
+		allOK := true
+		for _, sim := range simulators {
+			ok := sim.Ready()
+			if !ok {
+				allOK = false
+			}
+			sims[sim.Name()] = health.SimulatorStatus{OK: ok}
+		}
+		return health.ReadyzResponse{OK: allOK, Simulators: sims}
 	})
 
-	return a.Run(signalCtx)
+	a := agent.New(agent.Config{
+		Simulators: simulators,
+		Source:     source.NewFileSource(configPath, log),
+		Host:       host.New(cmd.String("host-root")),
+		Log:        log,
+	})
+
+	g, gctx := errgroup.WithContext(signalCtx)
+	g.Go(func() error { return healthSrv.Run(gctx) })
+	g.Go(func() error { return a.Run(gctx) })
+	return g.Wait()
 }

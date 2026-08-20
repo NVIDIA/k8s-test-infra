@@ -85,6 +85,7 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 		f.send(ctx, ch, agent.Update{Err: fmt.Errorf("%s: %w", f.configPath, err), At: time.Now()})
 		return
 	}
+	state.ConfigRaw = data
 	f.log.Info("state updated from config", "config", f.configPath)
 	f.send(ctx, ch, agent.Update{State: state, At: time.Now()})
 }
