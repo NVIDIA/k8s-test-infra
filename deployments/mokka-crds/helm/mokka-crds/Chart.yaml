@@ -1,0 +1,21 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: v2
+name: mokka-crds
+description: CustomResourceDefinitions for the Mokka Control Plane (mokka.nvidia.com/v1alpha1)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+# Match the kubeVersion floor set by the sibling nvml-mock chart. CRDs
+# themselves work on older clusters, but pinning to the same floor keeps the
+# Mokka install story coherent across charts.
+kubeVersion: ">= 1.28.0-0"
+icon: https://assets.nvidiagrid.net/ngc/logos/Infrastructure.png
+keywords:
+  - gpu
+  - nvidia
+  - mokka
+  - crds
+  - simulated-gpu
+maintainers:
+  - name: NVIDIA

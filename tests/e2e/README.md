@@ -125,6 +125,7 @@ tests/e2e/go/
   scenario_validator_test.go     # CUDA vectorAdd validator scenario
   scenario_nri_test.go           # node-wide NRI ambient-injection scenario
   framework/                     # thin wrappers for kind, helm, and kubectl
+  framework/pod/                 # generic pod.tpl.yaml plus the Spec that renders it
   assertions/                    # domain assertions for nvidia-smi, NVLink, IB, PCI
   profile/                       # profile parser and topology expectations
   ibutil/                        # InfiniBand output normalization helpers
@@ -301,7 +302,8 @@ make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
 | `E2E_RUN_NGC` | `false` | Run scenarios that need `nvcr.io` images, such as `validator`. |
 | `E2E_CLUSTER_TIMEOUT` | `5m` | Kind cluster setup timeout. |
 | `E2E_HELM_TIMEOUT` | `5m` | Helm install/upgrade timeout. |
-| `E2E_READY_TIMEOUT` | `2m` | Kubernetes readiness wait timeout. |
+| `E2E_READY_TIMEOUT` | `2m` | Kubernetes readiness wait timeout, sized for a single rollout. |
+| `E2E_OPERAND_SETTLE_TIMEOUT` | `5m` | Timeout for waits that must outlast a GPU Operator reconcile replacing its operands, not just one rollout. |
 | `E2E_POLL_INTERVAL` | `2s` | Polling interval for readiness checks. |
 
 ## CI Behavior
@@ -312,17 +314,16 @@ CI runs the harness through
 The workflow:
 
 1. Detects the project Go version unless one is explicitly provided.
-2. Builds the `nvml-mock` image exactly once in a dedicated `build-image` job
-   (buildx + GHA cache) and pushes it to the ephemeral, auth-free `ttl.sh`
-   registry as `E2E_IMAGE` (`ttl.sh/nvml-mock-<sha>:24h`), exposing the pushed
-   image digest as a job output. Using `ttl.sh` keeps this working on fork PRs,
-   which cannot access authenticated registries; the 24h TTL (ttl.sh max) keeps
-   the image available long enough to re-run an individual failed leg.
-3. Makes every leg `needs: build-image`, pulls the image **by digest**
-   (`ttl.sh/nvml-mock-<sha>@sha256:<digest>`, so a third-party tag overwrite on
-   the anonymous registry cannot substitute it), tags it back to `E2E_IMAGE`,
-   and sets `E2E_SKIP_BUILD=true` so the harness Kind-loads it instead of
-   rebuilding the image per leg.
+2. Builds the `nvml-mock` image exactly once in a dedicated
+   `build-nvmlmock-image` job (buildx + GHA layer cache), exports it to a
+   tarball and uploads it as a run-scoped artifact (`nvml-mock-image`, 1-day
+   retention — long enough to re-run an individual failed leg). Artifacts need
+   no registry credentials, so this works on fork PRs without depending on a
+   third-party registry.
+3. Makes every leg `needs: build-nvmlmock-image`, downloads the artifact and
+   loads it into the leg's Docker daemon with `make image-load`, which asserts
+   the expected ref is present afterwards. `E2E_SKIP_BUILD=true` then has the
+   harness Kind-load that image instead of rebuilding per leg.
 4. Runs one GPU profile per matrix job.
 5. Prints collected diagnostics if the job fails.
 

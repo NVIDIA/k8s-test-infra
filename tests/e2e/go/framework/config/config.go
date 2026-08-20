@@ -26,7 +26,14 @@ const (
 	defaultProfilesDir = "deployments/nvml-mock/helm/nvml-mock/profiles"
 	defaultImage       = "nvml-mock:e2e"
 	defaultArtifacts   = "artifacts/e2e/go"
-	defaultDockerfile  = "deployments/nvml-mock/Dockerfile"
+	// Match the KIND_CLUSTER_NAME in Makefile and the `name:` in
+	// local/kind/default.kind.yaml — that is what `make cluster-create`
+	// produces, and Kind derives the kubeconfig context as `kind-<name>`. Local
+	// runs of `make e2e-<scenario>` then work without extra env; CI still
+	// overrides via E2E_CLUSTER_NAME / E2E_KUBE_CONTEXT when the workflow
+	// provisions a differently-named cluster.
+	defaultClusterName = "mokka"
+	defaultKubeContext = "kind-mokka"
 )
 
 func env(key, def string) string {
@@ -77,39 +84,21 @@ func SelectedProfileNames() []string {
 	return out
 }
 
-// Image is the local image ref the harness builds and kind-loads.
+// Image is the mock image ref already loaded in the externally-owned cluster.
+// The scenarios that reshape the mock via helm upgrade pin
+// image.repository / image.tag to this ref.
 func Image() string { return env("E2E_IMAGE", defaultImage) }
 
-// Dockerfile is the path to the nvml-mock Dockerfile.
-func Dockerfile() string { return env("E2E_DOCKERFILE", defaultDockerfile) }
+// KubeContext is the kubeconfig context of the externally-owned cluster the
+// suite attaches to. Defaults to `kind-mokka` — the context `make cluster-create`
+// produces from local/kind/default.kind.yaml.
+func KubeContext() string { return env("E2E_KUBE_CONTEXT", defaultKubeContext) }
 
-// GolangVersion is the --build-arg GOLANG_VERSION passed to the image build
-// (empty => Dockerfile default).
-func GolangVersion() string { return os.Getenv("E2E_GOLANG_VERSION") }
-
-// SkipBuild reports whether the SynchronizedBeforeSuite image build is skipped
-// (local fast loops with a pre-built E2E_IMAGE).
-func SkipBuild() bool { return envBool("E2E_SKIP_BUILD") }
-
-// BuildxGHACache reports whether to add --cache-to/--cache-from type=gha to the
-// buildx build (set in CI only).
-func BuildxGHACache() bool { return envBool("E2E_BUILDX_GHA_CACHE") }
-
-// KeepCluster reports whether clusters should survive teardown for debugging.
-func KeepCluster() bool { return envBoolDefault("E2E_KEEP_CLUSTER", true) }
-
-// AttachExisting reports whether the harness should attach to an already-created
-// cluster (skipping kind create + image load + helm install) instead of owning
-// the full lifecycle. Set by CI when the environment is rolled out separately
-// (e.g. via `tilt ci`). Requires E2E_KUBE_CONTEXT and E2E_CLUSTER_NAME.
-func AttachExisting() bool { return envBool("E2E_ATTACH_EXISTING") }
-
-// KubeContext is the kubeconfig context to attach to when AttachExisting is set.
-func KubeContext() string { return os.Getenv("E2E_KUBE_CONTEXT") }
-
-// ClusterName is the Kind cluster name to attach to when AttachExisting is set.
-// Used by `kind get nodes --name` for node-role assertions.
-func ClusterName() string { return os.Getenv("E2E_CLUSTER_NAME") }
+// ClusterName is the Kind cluster name of the externally-owned cluster. It
+// identifies the cluster in harness attach errors and diagnostics; node
+// discovery goes through the kubeconfig context instead. Defaults to `mokka` —
+// the cluster name `make cluster-create` produces.
+func ClusterName() string { return env("E2E_CLUSTER_NAME", defaultClusterName) }
 
 // ArtifactsDir is where diagnostics are written.
 func ArtifactsDir() string { return env("E2E_ARTIFACTS", defaultArtifacts) }
@@ -120,10 +109,24 @@ func RunNGCSpecs() bool { return envBool("E2E_RUN_NGC") }
 
 // Timeouts (overridable; conservative defaults matching the bash waits).
 
+// ClusterTimeout bounds the Kind cluster-create/attach wait.
 func ClusterTimeout() time.Duration { return durEnv("E2E_CLUSTER_TIMEOUT", 5*time.Minute) }
-func HelmTimeout() time.Duration    { return durEnv("E2E_HELM_TIMEOUT", 5*time.Minute) }
-func ReadyTimeout() time.Duration   { return durEnv("E2E_READY_TIMEOUT", 2*time.Minute) }
-func PollInterval() time.Duration   { return durEnv("E2E_POLL_INTERVAL", 2*time.Second) }
+
+// HelmTimeout bounds a `helm upgrade --install` wait.
+func HelmTimeout() time.Duration { return durEnv("E2E_HELM_TIMEOUT", 5*time.Minute) }
+
+// ReadyTimeout bounds the wait for a DaemonSet/pod to become Ready.
+func ReadyTimeout() time.Duration { return durEnv("E2E_READY_TIMEOUT", 2*time.Minute) }
+
+// PollInterval is how often Eventually retries during a Ready wait.
+func PollInterval() time.Duration { return durEnv("E2E_POLL_INTERVAL", 2*time.Second) }
+
+// OperandSettleTimeout bounds a wait that has to outlast a GPU Operator
+// reconcile replacing its operands, rather than the single rollout ReadyTimeout
+// is sized for.
+func OperandSettleTimeout() time.Duration {
+	return durEnv("E2E_OPERAND_SETTLE_TIMEOUT", 5*time.Minute)
+}
 
 func durEnv(key string, def time.Duration) time.Duration {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {

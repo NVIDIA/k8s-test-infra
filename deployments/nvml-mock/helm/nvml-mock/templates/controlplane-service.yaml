@@ -1,0 +1,21 @@
+{{- if .Values.controlPlane.enabled }}
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nvml-mock.controlPlaneName" . }}
+  labels:
+    {{- include "nvml-mock.controlPlaneLabels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  type: {{ .Values.controlPlane.service.type }}
+  selector:
+    {{- include "nvml-mock.controlPlaneSelectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+  ports:
+    - name: http
+      port: {{ .Values.controlPlane.service.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

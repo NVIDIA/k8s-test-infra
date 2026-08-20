@@ -7,26 +7,26 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assets"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
-	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
 
 const (
-	multiNodeClusterName = "gpu-fleet"
-	multiNodeNamespace   = "default"
-	a100ReleaseName      = "nvml-mock-a100"
-	t4ReleaseName        = "nvml-mock-t4"
+	// multiNodeWorkloadNS is where the scheduling-test pod (`gpu-scheduling-test`)
+	// lives. Mock releases live in nvmlMockNamespace ("mokka") like every other
+	// scenario — reserving the "default" namespace here for the ordinary workload
+	// under test, not the mock DaemonSet.
+	multiNodeWorkloadNS = "default"
+	a100ReleaseName     = "nvml-mock-a100"
+	t4ReleaseName       = "nvml-mock-t4"
 )
 
 var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
@@ -40,20 +40,13 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 	)
 
 	BeforeAll(func(ctx SpecContext) {
-		h = setupCluster(ctx, multiNodeClusterName, assets.KindMultiNodeConfig, "multi-node")
+		h = setupCluster(ctx, "multi-node")
 		var err error
 		workers, err = h.Cluster.Workers(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(workers).To(HaveLen(2), "multi-node scenario requires exactly two Kind workers")
-		for _, node := range workers {
-			installNVIDIAContainerToolkit(ctx, h, node)
-			Expect(dockerExec(ctx, node.Name, "systemctl", "restart", "containerd")).To(Succeed(), "restart containerd in %s", node.Name)
-			assertions.WaitNodeReady(ctx, h.Kube, node.Name, config.ReadyTimeout(), config.PollInterval())
-		}
 		a100 = loadProfile("a100")
 		t4 = loadProfile("t4")
-		installProfileOnNode(ctx, h, a100ReleaseName, "a100", "a100")
-		installProfileOnNode(ctx, h, t4ReleaseName, "t4", "t4")
 		a100Pod = firstReleasePod(ctx, h, a100ReleaseName)
 		t4Pod = firstReleasePod(ctx, h, t4ReleaseName)
 
@@ -90,39 +83,21 @@ var _ = Describe("nvml-mock multi-node", Label("multi-node"), Ordered, func() {
 		manifest := multiNodeSchedulingManifest()
 		Expect(h.Kube.Delete(ctx, manifest)).To(Succeed(), "delete previous multi-node scheduling pod")
 		Expect(h.Kube.Apply(ctx, manifest)).To(Succeed(), "apply multi-node scheduling pod")
-		assertions.WaitPodPhase(ctx, h.Kube, multiNodeNamespace, "gpu-scheduling-test", "Running", config.ReadyTimeout(), config.PollInterval())
+		assertions.WaitPodPhase(ctx, h.Kube, multiNodeWorkloadNS, "gpu-scheduling-test", "Running", config.ReadyTimeout(), config.PollInterval())
 	})
 })
 
-func installProfileOnNode(ctx context.Context, h *harness.Harness, releaseName, profileName, nodeProfile string) {
-	GinkgoHelper()
-	repo, tag := splitImage(config.Image())
-	Expect(h.Helm.UpgradeInstall(ctx, helm.Release{
-		Name:      releaseName,
-		Chart:     chartDir(),
-		Namespace: multiNodeNamespace,
-		Set: map[string]string{
-			"gpu.profile":                    profileName,
-			"image.repository":               repo,
-			"image.tag":                      tag,
-			"nodeSelector.nvml-mock/profile": nodeProfile,
-		},
-		Wait:    true,
-		Timeout: config.HelmTimeout(),
-	})).To(Succeed(), "install %s on %s worker", releaseName, nodeProfile)
-}
-
 func firstReleasePod(ctx context.Context, h *harness.Harness, releaseName string) kube.PodRef {
 	GinkgoHelper()
-	selector := fmt.Sprintf("app.kubernetes.io/instance=%s", releaseName)
+	selector := "app.kubernetes.io/instance=" + releaseName
 	var name string
 	Eventually(func() (string, error) {
-		n, err := h.Kube.FirstPodName(ctx, multiNodeNamespace, selector)
+		n, err := h.Kube.FirstPodName(ctx, nvmlMockNamespace, selector)
 		name = n
 		return n, err
 	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
 		ShouldNot(BeEmpty(), "no pod for release %s", releaseName)
-	return kube.PodRef{Namespace: multiNodeNamespace, Pod: name}
+	return kube.PodRef{Namespace: nvmlMockNamespace, Pod: name}
 }
 
 func multiNodeSchedulingManifest() []byte {

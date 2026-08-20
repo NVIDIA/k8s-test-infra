@@ -23,51 +23,48 @@
 # enough to fit in memory, disparate enough to exercise different GPU counts
 # (8 vs 4) and InfiniBand toggles (a100 on, t4 off).
 #
-# The custom node image (local/kind/Dockerfile) pre-bakes nvidia-container-toolkit
-# so the 'nvidia' runtime handler resolves to /usr/bin/nvidia-container-runtime
-# without any post-cluster setup. This matches what CI does via docker exec after
-# cluster creation (see .github/workflows/nvml-mock-e2e.yaml).
+# The custom node image (deployments/kind-nvidia-cdi/Dockerfile) pre-bakes
+# nvidia-container-toolkit AND ships a full containerd config with CDI enabled
+# (enable_cdi = true) and the runtimes.nvidia handler wired to
+# /usr/bin/nvidia-container-runtime, so the containerdConfigPatches below only
+# add the containerd-side setting that ISN'T baked in — the NRI plugin socket.
 #
-# Three cluster-level features are enabled here. Each is inert for consumers
+# Two cluster-level features are enabled here. Each is inert for consumers
 # that don't need it, so combining them does not break isolation:
 #
 #   1. featureGates.DynamicResourceAllocation + apiServer runtime-config
-#      resource.k8s.io/v1beta1=true — required for the DRA driver to publish
+#      resource.k8s.io/v1beta1=true. Required for the DRA driver to publish
 #      ResourceSlices. If no ResourceClaim exists, the scheduler paths never
 #      fire, so leaving this on for non-DRA scenarios costs nothing at runtime.
 #
-#   2. enable_cdi = true in containerd — activates native CDI so the spec at
-#      /var/run/cdi/nvidia.yaml (written by the nvml-mock setup.sh) is honoured
-#      for device injection. Consumed by both nvidia-container-runtime (Operator
-#      path) and the DRA kubelet plugin.
+#   2. NRI plugin socket enabled — required for the nvml-mock NRI plugin
+#      (nri.enabled=true) to attach to containerd and inject the mock GPU
+#      overlay at container-creation time. Inert until a workload registers
+#      as an NRI plugin, so the node-wide-NRI scenario is the only consumer.
 #
-#   3. runtimes.nvidia → nvidia-container-runtime — the GPU Operator creates
-#      RuntimeClass "nvidia" and its operand pods use it. nvidia-container-runtime
-#      in CDI mode intercepts NVIDIA_VISIBLE_DEVICES=all and performs CDI injection
-#      so toolkit-validation passes. Inert for DRA workloads (they don't set
-#      runtimeClassName).
+# Worker names are pinned via JoinConfiguration instead of being derived from
+# the cluster name, so they stay stable across recreations and can be selected
+# directly: install_fleet() in local/nvml_mock.tiltfile pins each per-profile
+# nvml-mock release with kubernetes.io/hostname=<worker> under
+# --multi-gpu-profile (a100 on worker-0, t4 on worker-1). The control-plane
+# node keeps its kind-derived name: kubeadm names the bootstrap node from
+# InitConfiguration, which JoinConfiguration cannot override.
 #
-# Worker labels drive two orthogonal consumer paths without conflict:
-#   - nvml-mock/profile=<a100|t4>            — targeted by install_fleet() in
-#     local/nvml_mock.tiltfile under --multi-gpu-profile, so each worker runs
-#     its own nvml-mock release simulating the labelled GPU.
+# Worker labels drive the remaining consumer path:
 #   - run.ai/simulated-gpu-node-pool=<integration|scale> — FGO node-pool split.
 #     integration (a100) runs nvml-mock as the NVML shim; scale (t4) is managed
 #     entirely by FGO's fake backend. Consumers that ignore these labels see
 #     both workers as generic schedulable nodes.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-name: gpu-test
+name: mokka
 featureGates:
   DynamicResourceAllocation: true
 containerdConfigPatches:
   - |-
-    [plugins."io.containerd.grpc.v1.cri"]
-      enable_cdi = true
-    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia]
-      runtime_type = "io.containerd.runc.v2"
-    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.nvidia.options]
-      BinaryName = "/usr/bin/nvidia-container-runtime"
+    [plugins."io.containerd.nri.v1.nri"]
+      disable = false
+      socket_path = "/var/run/nri/nri.sock"
 nodes:
   - role: control-plane
     kubeadmConfigPatches:
@@ -78,9 +75,17 @@ nodes:
             runtime-config: "resource.k8s.io/v1beta1=true"
   - role: worker
     labels:
-      nvml-mock/profile: a100
       run.ai/simulated-gpu-node-pool: integration
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-0
   - role: worker
     labels:
-      nvml-mock/profile: t4
       run.ai/simulated-gpu-node-pool: scale
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-1

@@ -6,6 +6,7 @@ package protocol
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -166,7 +167,7 @@ func ReadFrame(r io.Reader) ([]byte, error) {
 	}
 	n := binary.BigEndian.Uint32(hdr[:])
 	if n == 0 {
-		return nil, fmt.Errorf("empty frame")
+		return nil, errors.New("empty frame")
 	}
 	if n > MaxFrameSize {
 		return nil, fmt.Errorf("frame too large: %d bytes (max %d)", n, MaxFrameSize)

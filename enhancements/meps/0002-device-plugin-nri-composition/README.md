@@ -418,9 +418,6 @@ document. The contract:
   > majority onto a path they have not exercised. Retiring it is a separate
   > decision needing its own evidence, not a consequence of this correction.
   >
-  > `deployments/kind-nvidia-cdi/` remains built by no *runtime* CI job. #436
-  > added a paths-filtered build guard so an edit cannot break it silently; that
-  > guard proves the image builds, not that it works.
 - **Break the `detectVisibleDevices` oracle.** Whatever CDI spec #436 generates
   must land the correct *subset* of `/dev/nvidiaN` inside the container. A CDI
   spec that stages all `N` devices reintroduces case F and silently un-isolates

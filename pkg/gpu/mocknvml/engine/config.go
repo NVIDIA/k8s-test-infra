@@ -11,10 +11,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package engine is the pure-Go mock NVML runtime driving the mocknvml bridge.
 package engine
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -84,41 +86,12 @@ func LoadConfig() *Config {
 	// Check for YAML config file first
 	if configPath != "" {
 		yamlConfig, err := LoadYAMLConfig(configPath)
-		if err != nil {
-			// Log visible warning since user explicitly requested this config file
-			warnLog("Failed to load YAML config from %s: %v, falling back to defaults\n", configPath, err)
-		} else {
-			config.YAMLConfig = yamlConfig
-			// Apply system-level config from YAML
-			config.DriverVersion = yamlConfig.System.DriverVersion
-			config.NumDevices = len(yamlConfig.Devices)
-			if config.NumDevices == 0 {
-				config.NumDevices = 8 // Default if no devices specified
-			}
-
-			// system.num_devices overrides the device list count.
-			// setup.sh injects this so the .so knows the desired GPU count
-			// without consumers needing to set env vars.
-			if yamlConfig.System.NumDevices > 0 {
-				config.NumDevices = yamlConfig.System.NumDevices
-			}
-
-			// Topology overlay: when a cluster-level topology ConfigMap is
-			// mounted into the pod we look up the current Kubernetes node
-			// (NODE_NAME) and override the fabric cluster UUID / clique ID
-			// on the YAML defaults so every device on this node reports
-			// the correct ComputeDomain identity. Nodes not present in the
-			// topology fall through to the YAML-default fabric config (or
-			// to NOT_SUPPORTED when none is set, matching non-GB200 GPUs).
-			applyTopologyOverlay(yamlConfig)
-
-			debugLog("[CONFIG] Loaded YAML config: %d devices, driver %s\n", config.NumDevices, config.DriverVersion)
-
-			// Cache the config
-			configCache = config
-			configCachePath = configPath
+		if err == nil {
+			applyYAMLConfig(config, yamlConfig, configPath)
 			return config
 		}
+		// Log visible warning since user explicitly requested this config file
+		warnLog("Failed to load YAML config from %s: %v, falling back to defaults\n", configPath, err)
 	}
 
 	// Fall back to environment variable overrides
@@ -138,6 +111,41 @@ func LoadConfig() *Config {
 	configCache = config
 	configCachePath = configPath
 	return config
+}
+
+// applyYAMLConfig populates config from a successfully-loaded YAMLConfig and
+// primes the LoadConfig cache. Callers only reach this once LoadYAMLConfig
+// returned nil error, so the YAML values are trusted here — the fall-back /
+// env-var branches stay in LoadConfig itself.
+func applyYAMLConfig(config *Config, yamlConfig *YAMLConfig, configPath string) {
+	config.YAMLConfig = yamlConfig
+	// Apply system-level config from YAML
+	config.DriverVersion = yamlConfig.System.DriverVersion
+	config.NumDevices = len(yamlConfig.Devices)
+	if config.NumDevices == 0 {
+		config.NumDevices = 8 // Default if no devices specified
+	}
+
+	// system.num_devices overrides the device list count.
+	// setup.sh injects this so the .so knows the desired GPU count
+	// without consumers needing to set env vars.
+	if yamlConfig.System.NumDevices > 0 {
+		config.NumDevices = yamlConfig.System.NumDevices
+	}
+
+	// Topology overlay: when a cluster-level topology ConfigMap is
+	// mounted into the pod we look up the current Kubernetes node
+	// (NODE_NAME) and override the fabric cluster UUID / clique ID
+	// on the YAML defaults so every device on this node reports
+	// the correct ComputeDomain identity. Nodes not present in the
+	// topology fall through to the YAML-default fabric config (or
+	// to NOT_SUPPORTED when none is set, matching non-GB200 GPUs).
+	applyTopologyOverlay(yamlConfig)
+
+	debugLog("[CONFIG] Loaded YAML config: %d devices, driver %s\n", config.NumDevices, config.DriverVersion)
+
+	configCache = config
+	configCachePath = configPath
 }
 
 // ConfigOverridePathFor resolves the runtime overrides file path from the resolved
@@ -162,6 +170,8 @@ func ConfigOverridePathFor(configPath string) string {
 //	config at:  <driver_root>/config/config.yaml
 //
 // Returns empty string if auto-discovery is not possible (non-Linux, file not found).
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func discoverConfigPath() string {
 	if runtime.GOOS != "linux" {
 		return ""
@@ -232,11 +242,11 @@ func LoadYAMLConfig(path string) (*YAMLConfig, error) {
 // validateYAMLConfig performs basic validation on the loaded config
 func validateYAMLConfig(config *YAMLConfig) error {
 	if config.Version == "" {
-		return fmt.Errorf("config version is required")
+		return errors.New("config version is required")
 	}
 
 	if config.System.DriverVersion == "" {
-		return fmt.Errorf("system.driver_version is required")
+		return errors.New("system.driver_version is required")
 	}
 
 	// Validate device indices are unique
@@ -315,6 +325,8 @@ func (c *Config) GetDevicePCIBusID(index int) string {
 }
 
 // mergeDeviceOverride merges non-zero override values into the base config
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.Name != "" {
 		base.Name = override.Name
@@ -384,7 +396,46 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.Processes != nil {
 		base.Processes = override.Processes // nil = not overridden; [] = explicit clear
 	}
+	if override.Platform != nil {
+		mergePlatformOverride(base, override.Platform)
+	}
 	// Add more fields as needed
+}
+
+// mergePlatformOverride merges per-field rather than replacing the block, so a
+// device can set its own module_id — the one field that varies between the GPUs
+// of a node — without restating the chassis, slot, tray, and host id it shares
+// with them.
+//
+// The block is copied before it is written to: GetDeviceConfig copies
+// DeviceDefaults shallowly, so every device's merge starts out pointing at the
+// same PlatformConfig. Editing that in place would give all of them whichever
+// module id was merged last.
+func mergePlatformOverride(base *DeviceConfig, override *PlatformConfig) {
+	if base.Platform == nil {
+		base.Platform = &PlatformConfig{}
+	} else {
+		clone := *base.Platform
+		base.Platform = &clone
+	}
+	if override.ChassisSerialNumber != "" {
+		base.Platform.ChassisSerialNumber = override.ChassisSerialNumber
+	}
+	if override.SlotNumber != 0 {
+		base.Platform.SlotNumber = override.SlotNumber
+	}
+	if override.TrayIndex != 0 {
+		base.Platform.TrayIndex = override.TrayIndex
+	}
+	if override.HostID != 0 {
+		base.Platform.HostID = override.HostID
+	}
+	if override.PeerType != "" {
+		base.Platform.PeerType = override.PeerType
+	}
+	if override.ModuleID != 0 {
+		base.Platform.ModuleID = override.ModuleID
+	}
 }
 
 // applyTopologyOverlay rewrites yamlConfig.DeviceDefaults.Fabric (and any
@@ -397,6 +448,8 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 // Resolution order for the topology path:
 //  1. MOCK_TOPOLOGY_CONFIG env var (explicit path)
 //  2. /config/topology.yaml (canonical helm mount)
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func applyTopologyOverlay(yamlConfig *YAMLConfig) {
 	nodeName := os.Getenv("NODE_NAME")
 	if nodeName == "" {

@@ -31,7 +31,7 @@ whether a MEP is needed.
 
 ## Workflow
 
-1. **Copy the template** into `meps/` as `NNNN-short-title.md`, where
+1. **Copy the template** into `meps/` as `NNNN-short-title/README.md`, where
    `NNNN` is the next unused four-digit number (starts from `0001`).
 2. **Fill in Summary, Motivation, and Goals** first — enough for
    reviewers to weigh in on direction before you invest in Design Details.

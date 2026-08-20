@@ -243,7 +243,21 @@ typedef struct nvmlBAR1Memory_st
 } nvmlBAR1Memory_t;
 typedef struct nvmlBridgeChipHierarchy_st                   nvmlBridgeChipHierarchy_t;
 typedef struct nvmlBusType_st                               nvmlBusType_t;
-typedef struct nvmlC2cModeInfo_v1_st                        nvmlC2cModeInfo_v1_t;
+/**
+ * C2C Mode information for a device. A single field with no version tag:
+ * unlike nvmlGpuFabricInfoV_t the caller passes no version, so
+ * nvmlDeviceGetC2cModeInfoV needs no version dispatch.
+ */
+typedef struct nvmlC2cModeInfo_v1_st
+{
+    unsigned int isC2cEnabled;
+} nvmlC2cModeInfo_v1_t;
+/* Callers allocate this buffer from go-nvml's C2cModeInfo_v1, so any field
+ * added here would make the bridge write past the caller's allocation. A struct
+ * that grows to carry the version field the V suffix implies also means the
+ * bridge's lack of version dispatch needs revisiting. */
+_Static_assert(sizeof(nvmlC2cModeInfo_v1_t) == 4,
+               "nvmlC2cModeInfo_v1_t must stay a single unsigned int to match the go-nvml ABI");
 typedef struct nvmlClkMonStatus_st                          nvmlClkMonStatus_t;
 typedef struct nvmlClockOffset_st                           nvmlClockOffset_t;
 typedef struct nvmlComputeInstanceInfo_st                   nvmlComputeInstanceInfo_t;
@@ -272,11 +286,32 @@ typedef struct nvmlEccErrorCounts_st {
     unsigned long long deviceMemory;
     unsigned long long registerFile;
 } nvmlEccErrorCounts_t;
-typedef struct nvmlEccSramErrorStatus_st                    nvmlEccSramErrorStatus_t;
+/* SRAM ECC error status — full definition needed by the bridge so
+ * nvmlDeviceGetSramEccErrorStatus can populate the caller's buffer (issue
+ * #641). version is an input the caller stamps with the NVML_STRUCT_VERSION
+ * macro; the rest are outputs. Layout matches
+ * vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h (v1), pinned by
+ * ecc_layout_test.go. */
+typedef struct nvmlEccSramErrorStatus_st
+{
+    unsigned int       version;                 //!< IN: NVML_STRUCT_VERSION(EccSramErrorStatus, 1)
+    unsigned long long aggregateUncParity;
+    unsigned long long aggregateUncSecDed;
+    unsigned long long aggregateCor;
+    unsigned long long volatileUncParity;
+    unsigned long long volatileUncSecDed;
+    unsigned long long volatileCor;
+    unsigned long long aggregateUncBucketL2;
+    unsigned long long aggregateUncBucketSm;
+    unsigned long long aggregateUncBucketPcie;
+    unsigned long long aggregateUncBucketMcu;
+    unsigned long long aggregateUncBucketOther;
+    unsigned int       bThresholdExceeded;
+} nvmlEccSramErrorStatus_t;
 typedef struct nvmlEccSramUniqueUncorrectedErrorCounts_st   nvmlEccSramUniqueUncorrectedErrorCounts_t;
 typedef struct nvmlEncoderSessionInfo_st                    nvmlEncoderSessionInfo_t;
 /* Event data - full definition needed by bridge so the failure-injection
- * Xid event surfaced via nvmlEventSetWait_v2 can populate the eventType
+ * Xid event surfaced via nvmlEventSetWait_v1/_v2 can populate the eventType
  * and eventData fields (see bridge/events.go). Layout matches the
  * upstream NVML header. */
 typedef struct nvmlEventData_st {
@@ -299,8 +334,17 @@ typedef struct nvmlEventData_st {
 #define NVML_EVENT_TYPE_POWER_SOURCE_CHANGE     0x0000000000000080ULL
 #define NVML_EVENT_TYPE_MIG_CONFIG_CHANGE       0x0000000000000100ULL
 typedef struct nvmlExcludedDeviceInfo_st                    nvmlExcludedDeviceInfo_t;
+/* FBC session info stays opaque: ConfigurableDevice.GetFBCSessions currently
+ * always returns an empty list, so the bridge only ever writes sessionCount. */
 typedef struct nvmlFBCSessionInfo_st                        nvmlFBCSessionInfo_t;
-typedef struct nvmlFBCStats_st                              nvmlFBCStats_t;
+/* FBC stats — full definition so nvmlDeviceGetFBCStats can populate the
+ * caller's buffer (issue #636). Layout matches the upstream NVML header. */
+typedef struct nvmlFBCStats_st
+{
+    unsigned int sessionsCount;
+    unsigned int averageFPS;
+    unsigned int averageLatency;
+} nvmlFBCStats_t;
 typedef struct nvmlFanSpeedInfo_st                          nvmlFanSpeedInfo_t;
 /* Field value query — full definition needed by the bridge so
  * nvmlDeviceGetFieldValues (see bridge/fieldvalues.go) can read the
@@ -445,7 +489,53 @@ typedef struct nvmlPRMTLV_v1_st                             nvmlPRMTLV_v1_t;
 typedef struct nvmlPSUInfo_st                               nvmlPSUInfo_t;
 typedef struct nvmlPciInfoExt_st                            nvmlPciInfoExt_t;
 typedef struct nvmlPdi_st                                   nvmlPdi_t;
-typedef struct nvmlPlatformInfo_st                          nvmlPlatformInfo_t;
+/**
+ * Platform identity — where the board physically sits in a rack. Full
+ * definition needed so nvmlDeviceGetPlatformInfo can populate the caller's
+ * struct. Layout matches the upstream NVML public header; see
+ * vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h.
+ *
+ * v1 is deprecated upstream in favour of v2, which renames the same bytes:
+ * rackGuid became chassisSerialNumber (on Blackwell the rack is identified by
+ * the chassis serial), and the three location bytes gained clearer names. The
+ * two layouts are therefore identical in size and offsets, which is what lets
+ * the bridge serve either version from one payload.
+ */
+#define NVML_PLATFORM_CHASSIS_SERIAL_LEN 16
+#define NVML_PLATFORM_IB_GUID_LEN        16
+
+typedef struct nvmlPlatformInfo_v1_st {
+    unsigned int  version;
+    unsigned char ibGuid[NVML_PLATFORM_IB_GUID_LEN];
+    unsigned char rackGuid[NVML_PLATFORM_CHASSIS_SERIAL_LEN];
+    unsigned char chassisPhysicalSlotNumber;
+    unsigned char computeSlotIndex;
+    unsigned char nodeIndex;
+    unsigned char peerType;
+    unsigned char moduleId;
+} nvmlPlatformInfo_v1_t;
+
+typedef struct nvmlPlatformInfo_v2_st {
+    unsigned int  version;
+    unsigned char ibGuid[NVML_PLATFORM_IB_GUID_LEN];
+    unsigned char chassisSerialNumber[NVML_PLATFORM_CHASSIS_SERIAL_LEN];
+    unsigned char slotNumber;
+    unsigned char trayIndex;
+    unsigned char hostId;
+    unsigned char peerType;
+    unsigned char moduleId;
+} nvmlPlatformInfo_v2_t;
+
+typedef nvmlPlatformInfo_v2_t nvmlPlatformInfo_t;
+/* Callers allocate this buffer from go-nvml's PlatformInfo, so a field added
+ * here would make the bridge write past the caller's allocation. The equal
+ * sizes are also what the version dispatch relies on: NVML_STRUCT_VERSION
+ * encodes sizeof in its low bits, so v1 and v2 tags differ only in the version
+ * byte, and a payload written for one fits the other exactly. */
+_Static_assert(sizeof(nvmlPlatformInfo_v1_t) == sizeof(nvmlPlatformInfo_v2_t),
+               "nvmlPlatformInfo v1 and v2 must stay the same size: the bridge serves both from one payload");
+_Static_assert(sizeof(nvmlPlatformInfo_v2_t) == 44,
+               "nvmlPlatformInfo_v2_t must stay 44 bytes to match the go-nvml ABI");
 typedef struct nvmlPowerSmoothingProfile_st                 nvmlPowerSmoothingProfile_t;
 typedef struct nvmlPowerSmoothingState_st                   nvmlPowerSmoothingState_t;
 typedef struct nvmlPowerSource_st                           nvmlPowerSource_t;
@@ -466,7 +556,18 @@ typedef struct nvmlProcessUtilizationSample_st
 } nvmlProcessUtilizationSample_t;
 typedef struct nvmlProcessesUtilizationInfo_st              nvmlProcessesUtilizationInfo_t;
 typedef struct nvmlRepairStatus_st                          nvmlRepairStatus_t;
-typedef struct nvmlRowRemapperHistogramValues_st            nvmlRowRemapperHistogramValues_t;
+/* Row-remap availability histogram — full definition needed by the bridge so
+ * nvmlDeviceGetRowRemapperHistogram can populate the caller's buffer (issue
+ * #641). Each field counts the memory banks with that much remap capacity
+ * left. Layout matches the upstream NVML header. */
+typedef struct nvmlRowRemapperHistogramValues_st
+{
+    unsigned int max;
+    unsigned int high;
+    unsigned int partial;
+    unsigned int low;
+    unsigned int none;
+} nvmlRowRemapperHistogramValues_t;
 typedef struct nvmlSample_st                                nvmlSample_t;
 typedef struct nvmlSystemConfComputeSettings_st             nvmlSystemConfComputeSettings_t;
 typedef struct nvmlSystemDriverBranchInfo_st                nvmlSystemDriverBranchInfo_t;
@@ -502,7 +603,13 @@ typedef struct nvmlVgpuTypeIdInfo_st                        nvmlVgpuTypeIdInfo_t
 typedef struct nvmlVgpuTypeMaxInstance_st                    nvmlVgpuTypeMaxInstance_t;
 typedef struct nvmlVgpuVersion_st                           nvmlVgpuVersion_t;
 typedef struct nvmlVgpuVmIdType_st                          nvmlVgpuVmIdType_t;
-typedef struct nvmlViolationTime_st                         nvmlViolationTime_t;
+/* Violation time — full definition so nvmlDeviceGetViolationStatus can
+ * populate the caller's buffer (issue #636). Layout matches upstream. */
+typedef struct nvmlViolationTime_st
+{
+    unsigned long long referenceTime;
+    unsigned long long violationTime;
+} nvmlViolationTime_t;
 typedef struct nvmlWorkloadPowerProfileCurrentProfiles_st   nvmlWorkloadPowerProfileCurrentProfiles_t;
 typedef struct nvmlWorkloadPowerProfileProfilesInfo_st      nvmlWorkloadPowerProfileProfilesInfo_t;
 typedef struct nvmlWorkloadPowerProfileRequestedProfiles_st nvmlWorkloadPowerProfileRequestedProfiles_t;

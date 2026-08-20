@@ -7,6 +7,188 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- mocknvml: `nvidia-smi -q` now reports the `Platform Info` block on the
+  `gb200`/`gb300` profiles — chassis serial number, slot number, tray index,
+  host ID, peer type and module ID, where every row previously read `N/A`. These
+  are the fields rack-scale fault correlation reads to turn a GPU fault into a
+  physical location, so a Grace-Blackwell rack was indistinguishable from a PCIe
+  workstation card by location. `nvmlDeviceGetPlatformInfo` (both struct
+  versions) and `nvmlDeviceGetModuleId` are implemented and no longer generated
+  stubs, and a new `device_defaults.platform` block configures the identity —
+  per device, though only `module_id` varies between the GPUs of a node, since
+  NVML scopes the rest to the node, which sits in exactly one tray of one
+  chassis. Profiles that declare no block, and any profile on a driver older
+  than 560, keep reporting `N/A`. The `GPU Fabric GUID` row of the same block is
+  not modelled and now renders `0x0000000000000000` where it used to read `N/A`.
+  (#642)
+- mocknvml: SRAM ECC errors and row-remap availability are now modelled, so SRAM
+  fault handling can be tested. Every SRAM row of `nvidia-smi -q` read `N/A`
+  while `nvmlDeviceGetSramEccErrorStatus` and
+  `nvmlDeviceGetRowRemapperHistogram` were generated stubs, which told a consumer
+  the feature was unsupported rather than that the GPU was healthy. A new
+  `ecc.sram` config block carries the correctable, uncorrectable-parity and
+  uncorrectable-SEC-DED counters for both scopes, the aggregate per-unit source
+  breakdown (L2, SM, microcontroller, PCIe, other) and the
+  `SRAM Threshold Exceeded` flag; `remapped_rows.availability_histogram` carries
+  the bank remap availability the Ampere-and-later profiles now ship (`t4` leaves
+  it out and keeps reporting the histogram unsupported, as Turing does). Errors
+  can be injected into a running workload with
+  `nvml-mock-ctl sram-ecc --gpu <idx> --type secded --source sm
+  --threshold-exceeded <count>`, and a count of `0` heals. The same values are
+  visible through the per-location ECC field values DCGM reads, and
+  `nvmlDeviceGetMemoryErrorCounter` now honours its `locationType` and
+  `counterType` arguments instead of returning the DRAM counter for every
+  location. (#641)
+- mocknvml: configured `processes:` now surface in nvidia-smi — the default
+  table's Processes box, `-q`, and `--query-compute-apps` all report the
+  configured PIDs, names and GPU memory instead of always reporting none.
+  Processes can also be driven at runtime, per device, with
+  `nvml-mock-ctl set --gpu <idx> 'processes=[{pid: 100, type: C, name: train.py,
+  used_memory_mib: 8192}]'`. nvidia-smi enumerates processes through the
+  internal export table rather than the public
+  `nvmlDeviceGet*RunningProcesses` APIs, and its entry layout carries an
+  inline 4096-byte name buffer (4128-byte stride), so the name must be written
+  into the entry itself — without it nvidia-smi drops the rows from the default
+  table. `nvmlSystemGetProcessName` is also implemented (was a stub); it is
+  what `--query-compute-apps=...,process_name` resolves each pid through.
+  Remaining gaps: the Type column always reads `M+C+G` because the entry
+  carries no process-type field, and `nvidia-smi pmon` still does not work — it
+  reads processes through a separate internal entry point that is not mapped.
+  `pmon` now reports "Not supported on the device(s)" and exits non-zero where
+  it previously printed nothing and exited 0; it has never listed processes on
+  the mock. DCGM is unaffected; it reads per-process utilization through the
+  public NVML APIs.
+
+### Changed
+- CI no longer depends on the third-party `ttl.sh` registry to share e2e images
+  between jobs. The nvml-mock and kind-node images are exported as tarballs and
+  handed to the legs that need them as run-scoped GitHub Actions artifacts, which need no
+  credentials (fork PRs keep working) and remove a single-attempt external
+  dependency that could fail the whole matrix. Each leg stages its tarball with
+  a new `make image-load TARBALL=<tar> IMAGE=<repo:tag>` target, so the step is
+  reproducible outside CI. Digest pinning went with it:
+  artifacts are immutable and scoped to the run, so there is no tag-overwrite
+  surface to defend against. `deployments/kind-nvidia-cdi/Makefile` drops its
+  `ttl.sh` default too: `make build` now tags `kind-nvidia-cdi:local` in the
+  local docker daemon, which is all `kind create cluster --image` reads, and
+  `make push` requires a registry-qualified `IMAGE`. (#566)
+- The ComputeDomain demo now runs real IMEX as a separate, ordinary workload;
+  NRI supplies its mock NVML overlay, per-node topology, and annotated channel
+  devices. Reruns deterministically reuse only compatible NRI-enabled Kind
+  clusters, while incompatible clusters require explicit recreation with
+  `FORCE_RECREATE=true`.
+- The `e2e-nri` CI leg drops from ~12min to ~6min per GPU profile. `sleep` as
+  PID 1 ignores SIGTERM, so all 13 pod deletions waited out the 30s grace period
+  (6.7min of the leg). The keepalive now traps SIGTERM and exits in ~0.1s, with
+  `terminationGracePeriodSeconds` capped at 1 as a backstop. `e2e-gpu-operator`
+  is now the pipeline's critical path.
+- Test pod manifests moved into a generic `pod.tpl.yaml` under
+  `tests/e2e/go/framework/pod`, rendered from a `Spec` carrying only what varies.
+
+### Fixed
+- mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
+  uses (`00000000:07:00.0`, `NVML_DEVICE_PCI_BUS_ID_FMT`) while `busIdLegacy`
+  keeps the 4-digit one (`0000:07:00.0`). Both were filled with the profile's
+  4-digit `bus_id` verbatim, and consumers recover a sysfs BDF by stripping a
+  leading `0000` from `busId` — so go-nvlib derived the malformed `:07:00.0` and
+  every `/sys/bus/pci` lookup built from it failed. GPU Operator's
+  gpu-feature-discovery logged `unable to read PCI device vendor id for
+  :07:00.0` and labelled `nvidia.com/gpu.mode=unknown`. NVLink remote PCI info
+  follows the same split, `nvidia-smi` reports the address hardware shows, and
+  bus-ID handle lookups now accept either domain width and either case, so a
+  consumer that hands back the `busId` it just read (DCGM) still resolves the
+  device. (#671)
+- mocknvml: `nvidia-smi` no longer reports impossible per-GPU PCIe identity
+  values. `Board ID` is derived from the device's PCI address the way NVML does
+  — `(domain << 16) | (bus << 8) | (device << 3)`, so a GPU at `0000:07:00.0`
+  reports `0x700` — instead of `0x0` for every GPU, which left an eight-GPU node
+  indistinguishable by board ID. `nvmlDeviceGetGpuMaxPcieLinkGeneration` is now
+  hand-written in the bridge, so the `Device Max` PCIe generation reads Gen3 on
+  `t4` through Gen6 on Blackwell instead of `N/A`. `Host Max` now matches the
+  device maximum instead of an impossible Gen0: no public NVML API exposes a
+  host-side maximum, and nvidia-smi reads it through a slot of the internal
+  export table whose catch-all stub wrote a zero count over the caller's
+  reading — the same class of bug as the phantom processes above. All three
+  maxima now agree in `nvidia-smi -q`, `-q -x` (`<max_host_link_gen>`) and
+  `--query-gpu=pcie.link.gen.hostmax`. (#638)
+- mocknvml: `nvidia-smi -q` reports `Virtualization Mode : None` instead of
+  `N/A`. `nvmlDeviceGetVirtualizationMode` was a generated stub — the most
+  frequently called one in a single `-q` run — so the mock claimed it could not
+  tell whether it was virtualized, where bare-metal hardware always answers
+  `None`. The export is now hand-written and resolves the `virtualization.mode`
+  the profiles already carried (`none`, `passthrough`, `vgpu`; anything
+  unrecognised reads as bare metal). vGPU stays out of scope: `Host VGPU Mode`
+  and `vGPU Heterogeneous Mode` still read `N/A`, matching bare metal. An
+  earlier attempt at this fix was reverted during PR #630 because it moved
+  `nvidia-smi pmon` onto a different code path and segfaulted it, so an e2e spec
+  now pins `pmon -c 1` to a graceful refusal or success and requires `topo -m`
+  to succeed, guarding the neighbouring internal-export-table path. (#640)
+- Wire eight NVML device exports that already had engine implementations but
+  were still generated stubs (`GetEncoderStats`, `GetFBCStats`,
+  `GetAccountingBufferSize`, `GetEncoderCapacity`, `GetEncoderSessions`,
+  `GetFBCSessions`, `GetRetiredPages_v2`, `GetViolationStatus`). Profile
+  `encoder_stats` / `fbc_stats` and the accounting buffer size now reach
+  `nvidia-smi -q` instead of silently reporting `N/A`. A regression guard
+  fails when an engine method is left behind a `stubReturn` export. (#636)
+- mocknvml: the internal export-table shim no longer writes a process list into
+  memory the caller never handed it. Every table slot pointed at one stub, so
+  the process-list call was recognised from the shape of its arguments; slots
+  that take fewer arguments left a stale register in the position the stub read
+  as the array pointer, and any configured `processes:` entry was then written
+  through it. On arm64 that faulted, so `nvidia-smi -q` (and `-q -x`) died with
+  a SIGSEGV mid-output as soon as a process was configured; elsewhere it wrote
+  into whatever the stale value addressed. Each slot now has its own trampoline
+  and only the three slots that carry a process array are filled.
+- mocknvml: `nvidia-smi -q -d UTILIZATION` reports the configured
+  `utilization.jpeg` and `utilization.ofa` percentages instead of `N/A`. Both
+  keys were parsed into the device config and then dropped: there was no engine
+  getter for either, and `nvmlDeviceGetJpgUtilization` /
+  `nvmlDeviceGetOfaUtilization` were generated stubs returning
+  `NVML_ERROR_NOT_SUPPORTED`. Both are now hand-written in the bridge and read
+  their config field, matching the existing encoder and decoder getters. The
+  values are also settable at runtime with
+  `nvml-mock-ctl set --gpu <idx> utilization.jpeg=35 utilization.ofa=12`. (#637)
+- Report `GPU C2C Mode` in `nvidia-smi -q` from `nvlink.c2c_enabled`.
+  `nvmlDeviceGetC2cModeInfoV` was a generated stub, so the Grace-Blackwell
+  profiles (`gb200`, `gb300`) reported `N/A` for the NVLink-C2C link to the
+  Grace CPU that defines them, silently dropping a configured value. Boards
+  with no such link keep reporting `N/A`, which is correct for them: `a100`,
+  `h100` and `b200` set `c2c_enabled: false`, `l40s` and `t4` omit the key, and
+  both cases answer `NVML_ERROR_NOT_SUPPORTED`. (#639)
+
+- Gate the T.Limit temperature surfaces on Ada and later: the field IDs
+  193–196 (`NVML_FI_DEV_TEMPERATURE_*_TLIMIT`) and
+  `nvmlDeviceGetMarginTemperature`. Pre-Ada profiles (`t4`, `a100`) report
+  `NVML_ERROR_NOT_SUPPORTED` for both, so `nvidia-smi -q` renders the absolute
+  `GPU Shutdown/Slowdown/Max Operating Temp` rows from
+  `nvmlDeviceGetTemperatureThreshold` instead of signed T.Limit margins shown
+  as impossible (negative / inverted) absolute temperatures. Ada and later,
+  including the NVSentinel thermal-margin demo on `h100`, are unchanged. (#635)
+
+- mocknvml: `nvidia-smi -q` and `nvidia-smi --query-compute-apps` no longer
+  report hundreds of phantom processes (PID 0, empty name, 0 MiB) per GPU when
+  no processes are configured. nvidia-smi enumerates processes through the
+  internal export table, whose catch-all C stub returned `NVML_SUCCESS` without
+  writing back the caller's count, so nvidia-smi rendered its uninitialized
+  buffer. The stub now writes back a real count for the per-device process-list
+  call. Unrecognized internal calls still return `NVML_SUCCESS`: every slot of
+  the export table points at the same stub, and `nvidia-smi topo -m` aborts with
+  "Failed to run topology matrix" on any error from it. nvidia-smi does not fall
+  back to the public process APIs for these views. E2E `NvidiaSMI` gained a
+  regression guard.
+
+### Security
+- Go pins bumped 1.26.5 -> 1.26.6 across the build (deployment and test
+  Dockerfiles, `devel` image, mocknvml/mockcuda Makefiles, helper scripts).
+  1.26.5 is affected by seven standard-library advisories that `govulncheck`
+  reports as reachable from this code — GO-2026-6218 (`net/url`), GO-2026-6091
+  (`html/template`), GO-2026-6090 (`crypto/tls`), GO-2026-6089 and GO-2026-5026
+  (`net/http`), GO-2026-6088 (`encoding/xml`) and GO-2026-5972
+  (`encoding/asn1`) — all fixed in 1.26.6. CI derives its toolchain from
+  `deployments/devel/Dockerfile`, so the stale pin failed `make lint` on every
+  branch once the advisories were published.
+
 ## [0.3.0] - 2026-08-01
 
 ### Added
@@ -131,6 +313,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   preserve the upstream `CombinedOutput == "READY\n"` probe contract). (#304)
 
 ### Fixed
+- `nvmlEventSetWait_v1`/`_v2` now block for the caller's timeout (re-checking
+  every 100 ms) instead of returning `NVML_ERROR_TIMEOUT` immediately. Clients
+  loop on the wait with no sleep of their own, so the immediate return turned
+  `nvidia-device-plugin`'s health monitor into a busy spin that burned a full
+  CPU core per pod. A pending Xid is still delivered on the first poll;
+  `timeoutms=0` remains a non-blocking poll.
+- `pkg/gpu/mocknvml` no longer drops `BUILD_TAGS` in the default (two-pass,
+  padded) build path — `make BUILD_TAGS=foo` compiled without `foo` unless the
+  tag set also disabled padding.
 - `cleanup.sh` now removes `nvml-mock-nri.yaml`, the NRI CDI spec `setup.sh`
   stages, alongside the `nvidia.yaml` it already removed. It had been left
   behind while the same hook deleted the device nodes the spec names, so the

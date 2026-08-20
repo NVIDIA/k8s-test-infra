@@ -3,15 +3,14 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package cluster owns the Kind cluster lifecycle via the `kind` CLI. It uses
-// Kind/kubectl's default kubeconfig. Creation is idempotent
-// ("delete-if-exists then create").
-// Node-name resolution is centralized here (parse `kind get nodes` once into
-// typed roles) instead of scattering `grep worker | sort` across scenarios.
+// Package cluster reads Kind cluster node topology from the Kubernetes API,
+// using Kind/kubectl's default kubeconfig. Cluster provisioning itself lives
+// outside this package (Tilt / `make cluster-create`); the suite only observes.
 package cluster
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -23,18 +22,23 @@ import (
 // Role is a Kind node role.
 type Role string
 
+// Role values match the "control-plane" / "worker" labels Kind applies to nodes.
 const (
 	RoleControlPlane Role = "control-plane"
 	RoleWorker       Role = "worker"
 )
 
-// Node is a Kind node; Name is also the docker container name.
+// Node is a Kind node. Name is the Kubernetes node name; Container is the
+// docker container hosting it. They diverge whenever the cluster config pins
+// nodeRegistration.name (see local/kind/default.kind.yaml), so callers must
+// choose deliberately: kubectl takes Name, `docker exec` takes Container.
 type Node struct {
-	Name string
-	Role Role
+	Name      string
+	Container string
+	Role      Role
 }
 
-// Cluster is a created Kind cluster.
+// Cluster is an existing Kind cluster the suite attaches to.
 type Cluster struct {
 	Name    string
 	Context string
@@ -42,8 +46,6 @@ type Cluster struct {
 }
 
 var nameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
-
-const kindConfigStdinPath = "/dev/stdin"
 
 // ValidateName enforces a short, DNS-ish, deterministic cluster name. Kind
 // prefixes node container names with this, so keep it well under docker limits.
@@ -57,78 +59,76 @@ func ValidateName(name string) error {
 	return nil
 }
 
-// Create makes a Kind cluster named name. If configYAML is non-empty it is
-// streamed to `kind create cluster --config /dev/stdin`. The cluster is always
-// returned (even on create error) so the caller can DeferCleanup it.
-func Create(ctx context.Context, name string, configYAML []byte) (*Cluster, error) {
-	if err := ValidateName(name); err != nil {
-		return nil, err
-	}
+// controlPlaneLabel is kubeadm's control-plane marker. Roles are read from it
+// rather than from the node name: a config that pins nodeRegistration.name is
+// free to choose names that say nothing about the role.
+const controlPlaneLabel = "node-role.kubernetes.io/control-plane"
 
-	c := &Cluster{Name: name, Context: KindContext(name)}
-
-	// delete-if-exists (idempotent on a dirty machine / re-run).
-	_, _ = runner.Run(ctx, "kind", "delete", "cluster", "--name", name)
-
-	args := createArgs(name, len(configYAML) > 0)
-	var resErr error
-	if len(configYAML) > 0 {
-		_, resErr = runner.RunInput(ctx, string(configYAML), "kind", args...)
-	} else {
-		_, resErr = runner.Run(ctx, "kind", args...)
-	}
-	if resErr != nil {
-		return c, fmt.Errorf("kind create cluster %q: %w", name, resErr)
-	}
-	return c, nil
+// nodeList is the subset of `kubectl get nodes -o json` the suite reads.
+type nodeList struct {
+	Items []struct {
+		Metadata struct {
+			Name   string            `json:"name"`
+			Labels map[string]string `json:"labels"`
+		} `json:"metadata"`
+		Spec struct {
+			ProviderID string `json:"providerID"`
+		} `json:"spec"`
+	} `json:"items"`
 }
 
-func createArgs(name string, hasConfig bool) []string {
-	args := []string{"create", "cluster", "--name", name, "--wait", "180s"}
-	if hasConfig {
-		args = append(args, "--config", kindConfigStdinPath)
-	}
-	return args
-}
-
-// KindContext returns the kubeconfig context name Kind creates for a cluster.
-func KindContext(name string) string {
-	return "kind-" + name
-}
-
-// LoadImage loads a local docker image into the cluster.
-func (c *Cluster) LoadImage(ctx context.Context, ref string) error {
-	if _, err := runner.Run(ctx, "kind", "load", "docker-image", ref, "--name", c.Name); err != nil {
-		return fmt.Errorf("kind load docker-image %q: %w", ref, err)
-	}
-	return nil
-}
-
-// Nodes returns all nodes (cached), parsed once from `kind get nodes`.
+// Nodes returns all nodes (cached), discovered from the Kubernetes API rather
+// than from `kind get nodes`: the latter reports container names, which are not
+// the node names once the cluster config pins nodeRegistration.name.
 func (c *Cluster) Nodes(ctx context.Context) ([]Node, error) {
 	if c.nodes != nil {
 		return c.nodes, nil
 	}
-	res, err := runner.Run(ctx, "kind", "get", "nodes", "--name", c.Name)
+	res, err := runner.RunQuiet(ctx, "kubectl", "--context", c.Context, "get", "nodes", "-o", "json")
 	if err != nil {
-		return nil, fmt.Errorf("kind get nodes %q: %w", c.Name, err)
+		return nil, fmt.Errorf("kubectl get nodes (context %q): %w", c.Context, err)
 	}
-	var ns []Node
-	for _, line := range strings.Split(res.Stdout, "\n") {
-		name := strings.TrimSpace(line)
-		if name == "" {
-			continue
-		}
-		role := RoleControlPlane
-		if strings.Contains(name, "worker") {
-			role = RoleWorker
-		}
-		ns = append(ns, Node{Name: name, Role: role})
+	ns, err := parseNodes([]byte(res.Stdout))
+	if err != nil {
+		return nil, err
 	}
-	// Deterministic ordering: workers sorted by name so worker1<worker2.
-	sort.Slice(ns, func(i, j int) bool { return ns[i].Name < ns[j].Name })
 	c.nodes = ns
 	return ns, nil
+}
+
+func parseNodes(stdout []byte) ([]Node, error) {
+	var nl nodeList
+	if err := json.Unmarshal(stdout, &nl); err != nil {
+		return nil, fmt.Errorf("parse kubectl get nodes output: %w", err)
+	}
+	ns := make([]Node, 0, len(nl.Items))
+	for _, item := range nl.Items {
+		role := RoleWorker
+		if _, ok := item.Metadata.Labels[controlPlaneLabel]; ok {
+			role = RoleControlPlane
+		}
+		ns = append(ns, Node{
+			Name:      item.Metadata.Name,
+			Container: containerName(item.Spec.ProviderID, item.Metadata.Name),
+			Role:      role,
+		})
+	}
+	// Deterministic ordering: scenarios pair workers[i] with a GPU profile.
+	sort.Slice(ns, func(i, j int) bool { return ns[i].Name < ns[j].Name })
+	return ns, nil
+}
+
+// containerName reads the container out of Kind's provider ID, which has the
+// form kind://docker/<cluster>/<container>. Anything else means the node was
+// not provisioned by Kind, and the node name is the best guess available.
+func containerName(providerID, nodeName string) string {
+	if !strings.HasPrefix(providerID, "kind://") {
+		return nodeName
+	}
+	if i := strings.LastIndex(providerID, "/"); i >= 0 && i+1 < len(providerID) {
+		return providerID[i+1:]
+	}
+	return nodeName
 }
 
 // ControlPlane returns the (first) control-plane node.
@@ -158,10 +158,4 @@ func (c *Cluster) Workers(ctx context.Context) ([]Node, error) {
 		}
 	}
 	return ws, nil
-}
-
-// Delete tears down the cluster.
-func (c *Cluster) Delete(ctx context.Context) error {
-	_, err := runner.Run(ctx, "kind", "delete", "cluster", "--name", c.Name)
-	return err
 }

@@ -77,6 +77,7 @@ func (c *Client) UpgradeInstall(ctx context.Context, rel Release) error {
 	return c.run(ctx, "upgrade", rel, "--install")
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func (c *Client) run(ctx context.Context, verb string, rel Release, extra ...string) error {
 	args := append(c.base(), verb, rel.Name, rel.Chart)
 	args = append(args, extra...)

@@ -151,6 +151,25 @@ func TestCLI_NVLinkErrorZeroHeals(t *testing.T) {
 	require.Contains(t, readConfigOverride(t, configOverride), "rate: 0")
 }
 
+func TestCLI_SramECCWritesCounters(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	_, e, c := runCLI(t, configOverride, "sram-ecc", "--gpu", "0", "--source", "sm", "--threshold-exceeded", "4")
+	require.Equalf(t, 0, c, "sram-ecc exited %d: %s", c, e)
+	s := readConfigOverride(t, configOverride)
+	for _, want := range []string{"sram:", "uncorrectable_secded: 4", "sm: 4", "threshold_exceeded: true"} {
+		require.Containsf(t, s, want, "configOverride missing %q", want)
+	}
+}
+
+func TestCLI_SramECCZeroHeals(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	_, e, c := runCLI(t, configOverride, "sram-ecc", "--gpu", "0", "0")
+	require.Equalf(t, 0, c, "sram-ecc exited %d: %s", c, e)
+	require.Contains(t, readConfigOverride(t, configOverride), "uncorrectable_secded: 0")
+}
+
 func TestCLI_ConvenienceArgValidation(t *testing.T) {
 	dir := t.TempDir()
 	configOverride := filepath.Join(dir, "overrides.yaml")
@@ -172,6 +191,11 @@ func TestCLI_ConvenienceArgValidation(t *testing.T) {
 		{"nvlink-error", "--gpu", "0", "-5"},                // negative rate (flag.Parse stops at -5 -> missing value)
 		{"nvlink-error", "--gpu", "0", "2000000000"},        // rate over cap
 		{"nvlink-error", "--gpu", "0", "--links", "x", "1"}, // non-integer link id
+		{"sram-ecc", "--gpu", "0"},                          // missing count
+		{"sram-ecc", "--gpu", "0", "--type", "nope", "1"},   // unknown error type
+		{"sram-ecc", "--gpu", "0", "--source", "nope", "1"}, // unknown source
+		// The per-source breakdown only covers uncorrectable errors.
+		{"sram-ecc", "--gpu", "0", "--type", "correctable", "--source", "sm", "1"},
 	}
 	for _, args := range cases {
 		_, _, code := runCLI(t, configOverride, args...)

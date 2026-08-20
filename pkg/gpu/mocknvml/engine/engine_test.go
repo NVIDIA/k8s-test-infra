@@ -382,17 +382,46 @@ func TestEngine_DeviceGetHandleByPciBusId(t *testing.T) {
 
 	// Convert BusId to string (trim null bytes)
 	var busId string
+	var busIdSb385 strings.Builder
 	for _, b := range pciInfo.BusId {
 		if b == 0 {
 			break
 		}
-		busId += string(rune(b))
+		busIdSb385.WriteString(string(rune(b)))
 	}
+	busId += busIdSb385.String()
 
 	// Lookup by PCI bus ID
 	handleByPCI, ret := e.DeviceGetHandleByPciBusId(busId)
 	require.Equal(t, nvml.SUCCESS, ret, "DeviceGetHandleByPciBusId failed")
 	require.Equal(t, handle, handleByPCI, "Expected same handle for same device")
+}
+
+// TestEngine_DeviceGetHandleByPciBusIdDomainWidths pins that a lookup resolves
+// the same device whichever domain width the caller passes. Real NVML accepts
+// both, and it has to: a consumer that reads busId (8-digit) and hands the
+// string straight back — DCGM does exactly this — would otherwise fail to
+// resolve a device the mock had just described to it.
+func TestEngine_DeviceGetHandleByPciBusIdDomainWidths(t *testing.T) {
+	const busID = "0000:3b:00.0"
+	yaml := &YAMLConfig{
+		System: SystemConfig{DriverVersion: "550.0", NumDevices: 1},
+		Devices: []DeviceOverride{
+			{Index: 0, DeviceConfig: DeviceConfig{PCI: &PCIConfig{BusID: busID}}},
+		},
+	}
+	e := NewEngine(&Config{NumDevices: 1, DriverVersion: "550.0", YAMLConfig: yaml})
+	_ = e.Init()
+	defer func() { _ = e.Shutdown() }()
+
+	want, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret, "DeviceGetHandleByIndex failed")
+
+	for _, form := range []string{"0000:3b:00.0", "00000000:3B:00.0", "0000:3B:00.0"} {
+		got, ret := e.DeviceGetHandleByPciBusId(form)
+		require.Equal(t, nvml.SUCCESS, ret, "DeviceGetHandleByPciBusId(%q) failed", form)
+		require.Equal(t, want, got, "DeviceGetHandleByPciBusId(%q) resolved a different device", form)
+	}
 }
 
 func TestEngine_DeviceGetHandleByPciBusIdInvalid(t *testing.T) {
@@ -550,11 +579,13 @@ func TestVisibility_DeviceGetHandleByPciBusId(t *testing.T) {
 // pciInfoBusIdString extracts a Go string from the null-terminated BusId array.
 func pciInfoBusIdString(pci nvml.PciInfo) string {
 	var s string
+	var sSb553 strings.Builder
 	for _, b := range pci.BusId {
 		if b == 0 {
 			break
 		}
-		s += string(rune(b))
+		sSb553.WriteString(string(rune(b)))
 	}
+	s += sSb553.String()
 	return s
 }

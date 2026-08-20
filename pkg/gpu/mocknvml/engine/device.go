@@ -14,9 +14,11 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -58,6 +60,7 @@ type ConfigurableDevice struct {
 	// Cached computed values
 	bar1Memory nvml.BAR1Memory
 	pciInfo    nvml.PciInfo
+	boardID    uint32
 
 	// Mutable in-memory state (not persisted across restarts)
 	persistenceModeOverride *nvml.EnableState
@@ -92,28 +95,7 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 	}
 
 	// Override base device properties from config
-	if config != nil {
-		if config.Name != "" {
-			dev.Config.Name = config.Name
-		}
-		if config.Architecture != "" {
-			dev.Config.Architecture = parseArchitecture(config.Architecture)
-		}
-		if config.Brand != "" {
-			dev.Config.Brand = parseBrand(config.Brand)
-		}
-		if config.ComputeCapability != nil {
-			dev.Config.CudaMajor = config.ComputeCapability.Major
-			dev.Config.CudaMinor = config.ComputeCapability.Minor
-		}
-		if config.Memory != nil {
-			dev.MemoryInfo = nvml.Memory{
-				Total: config.Memory.TotalBytes,
-				Free:  config.Memory.FreeBytes,
-				Used:  config.Memory.UsedBytes,
-			}
-		}
-	}
+	applyDeviceBaseOverrides(dev, config)
 
 	// Override UUID if provided
 	if uuid != "" {
@@ -158,6 +140,37 @@ func NewConfigurableDevice(index int, baseDevice *mockserver.Device, config *Dev
 	debugLog("[DEVICE %d] Created: name=%s uuid=%s pci=%s\n", index, dev.Config.Name, dev.UUID, dev.PciBusID)
 
 	return dev
+}
+
+// applyDeviceBaseOverrides copies whichever base fields the YAML profile
+// explicitly set (Name / Architecture / Brand / ComputeCapability / Memory)
+// onto the pre-built ConfigurableDevice. Everything else is left at the
+// dgxa100 base or the go-nvml mock defaults so an empty profile still yields
+// a working device.
+func applyDeviceBaseOverrides(dev *ConfigurableDevice, config *DeviceConfig) {
+	if config == nil {
+		return
+	}
+	if config.Name != "" {
+		dev.Config.Name = config.Name
+	}
+	if config.Architecture != "" {
+		dev.Config.Architecture = parseArchitecture(config.Architecture)
+	}
+	if config.Brand != "" {
+		dev.Config.Brand = parseBrand(config.Brand)
+	}
+	if config.ComputeCapability != nil {
+		dev.Config.CudaMajor = config.ComputeCapability.Major
+		dev.Config.CudaMinor = config.ComputeCapability.Minor
+	}
+	if config.Memory != nil {
+		dev.MemoryInfo = nvml.Memory{
+			Total: config.Memory.TotalBytes,
+			Free:  config.Memory.FreeBytes,
+			Used:  config.Memory.UsedBytes,
+		}
+	}
 }
 
 // cfg returns the current effective device config, applying any pending
@@ -276,7 +289,7 @@ func (d *ConfigurableDevice) initBAR1Memory(config *DeviceConfig) {
 // Returns error if format is invalid.
 func ParsePCIBusID(busID string) (domain, bus, device, function uint32, err error) {
 	if busID == "" {
-		return 0, 0, 0, 0, fmt.Errorf("empty PCI bus ID")
+		return 0, 0, 0, 0, errors.New("empty PCI bus ID")
 	}
 
 	// Try standard format: DDDD:BB:DD.F (domain:bus:device.function)
@@ -295,8 +308,43 @@ func ParsePCIBusID(busID string) (domain, bus, device, function uint32, err erro
 	return 0, 0, 0, 0, fmt.Errorf("invalid PCI bus ID format: %q (expected DDDD:BB:DD.F or BB:DD.F)", busID)
 }
 
+// formatPCIBusID renders a parsed PCI address in NVML's busId format
+// (NVML_DEVICE_PCI_BUS_ID_FMT, "%08X:%02X:%02X.0"). The 8-digit domain is not
+// cosmetic: consumers recover a Linux sysfs BDF from busId by stripping its
+// leading "0000" (go-nvlib's device.GetPCIBusID), so a narrower domain here
+// yields a malformed address such as ":07:00.0" and every /sys/bus/pci lookup
+// the consumer builds from it misses. Unlike NVML we carry the function digit
+// through rather than hard-coding .0, so a multi-function BDF survives.
+func formatPCIBusID(domain, bus, device, function uint32) string {
+	return fmt.Sprintf("%08X:%02X:%02X.%X", domain, bus, device, function)
+}
+
+// formatPCIBusIDLegacy renders the same address in the narrower form NVML puts
+// in busIdLegacy (NVML_DEVICE_PCI_BUS_ID_LEGACY_FMT, "%04X:%02X:%02X.0"), which
+// is also the canonical Linux sysfs BDF that profiles declare.
+func formatPCIBusIDLegacy(domain, bus, device, function uint32) string {
+	return fmt.Sprintf("%04X:%02X:%02X.%X", domain, bus, device, function)
+}
+
+// canonicalPCIBusID reduces every accepted spelling of one PCI address to a
+// single comparable string, so a lookup is insensitive to domain width and case
+// the way real NVML is. An unparseable address is upper-cased and handed back
+// unchanged: it still matches a device configured with the same unparseable
+// value, and can never collide with a well-formed one.
+func canonicalPCIBusID(busID string) string {
+	domain, bus, device, function, err := ParsePCIBusID(busID)
+	if err != nil {
+		return strings.ToUpper(busID)
+	}
+	return formatPCIBusID(domain, bus, device, function)
+}
+
 func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 	var domain, bus, device, function uint32
+	// An unparseable bus ID is reported back verbatim: rendering the zeroed
+	// tuple instead would present a plausible 00000000:00:00.0 and hide the
+	// misconfiguration from whoever wrote the profile.
+	busID, legacyBusID := d.PciBusID, d.PciBusID
 
 	if d.PciBusID != "" {
 		var err error
@@ -304,8 +352,10 @@ func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 		if err != nil {
 			debugLog("[DEVICE %d] Warning: %v, using defaults\n", d.index, err)
 			// Use default values (zeros) on parse failure
+		} else {
+			busID = formatPCIBusID(domain, bus, device, function)
+			legacyBusID = formatPCIBusIDLegacy(domain, bus, device, function)
 		}
-		_ = function // unused in pciInfo struct
 	}
 
 	d.pciInfo = nvml.PciInfo{
@@ -313,6 +363,7 @@ func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 		Bus:    bus,
 		Device: device,
 	}
+	d.boardID = deriveBoardID(domain, bus, device, function)
 
 	// Set PCI device ID from config or default
 	if config != nil && config.PCI != nil {
@@ -329,11 +380,23 @@ func (d *ConfigurableDevice) initPciInfo(config *DeviceConfig) {
 	}
 
 	// Populate both the modern busId ([32]) and the legacy busIdLegacy ([16])
-	// strings. Real NVML fills both; consumers that read busIdLegacy — e.g.
-	// NVSentinel's metadata-collector, which derives each GPU's pci_address
-	// from nvmlPciInfo_t.busIdLegacy — get an empty string otherwise.
-	writeBusID(d.pciInfo.BusId[:], d.PciBusID)
-	writeBusID(d.pciInfo.BusIdLegacy[:], d.PciBusID)
+	// strings, each in its own NVML format. Real NVML fills both; consumers that
+	// read busIdLegacy — e.g. NVSentinel's metadata-collector, which derives each
+	// GPU's pci_address from nvmlPciInfo_t.busIdLegacy — get an empty string
+	// otherwise.
+	writeBusID(d.pciInfo.BusId[:], busID)
+	writeBusID(d.pciInfo.BusIdLegacy[:], legacyBusID)
+}
+
+// deriveBoardID encodes a PCI address the way NVML derives nvmlDeviceGetBoardId:
+// the domain in the upper half, and the Linux devfn encoding (device in the
+// upper 5 bits of the low byte, function in the lower 3) below it. A GPU at
+// 0000:07:00.0 therefore reports 0x700, which is what nvidia-smi prints as
+// "Board ID" on real hardware. Distinct GPUs sit on distinct buses, so the
+// derivation also keeps board IDs unique across a node — a fleet of mock GPUs
+// all reporting 0x0 is indistinguishable to consumers. See issue #638.
+func deriveBoardID(domain, bus, device, function uint32) uint32 {
+	return domain<<16 | bus<<8 | (device&0x1f)<<3 | function&0x7
 }
 
 // writeBusID copies an ASCII PCI bus-ID string into an NVML C char array
@@ -481,6 +544,22 @@ func (d *ConfigurableDevice) GetComputeRunningProcesses() ([]nvml.ProcessInfo, n
 		}
 	}
 	return procs, nvml.SUCCESS
+}
+
+// ProcessByPID returns the configured process with that pid on this device, and
+// whether one was found. nvml.ProcessInfo carries only pid and memory, so
+// callers that need any other configured field alongside a running-process list
+// look it up here rather than searching every device (two GPUs may host the same
+// pid). The whole entry is returned because the views differ in what they read:
+// the name for nvidia-smi's process lists, and the utilization fields for
+// per-process monitoring.
+func (d *ConfigurableDevice) ProcessByPID(pid uint32) (ProcessConfig, bool) {
+	for _, p := range d.cfg().Processes {
+		if p.PID == pid {
+			return p, true
+		}
+	}
+	return ProcessConfig{}, false
 }
 
 // GetGraphicsRunningProcesses returns running graphics processes
@@ -646,6 +725,15 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 	return temp, nvml.SUCCESS
 }
 
+// reportsTLimit is the architecture gate shared by every T.Limit surface: the
+// margin API and the NVML_FI_DEV_TEMPERATURE_*_TLIMIT field IDs. Only Ada and
+// later hardware has a T.Limit reference; earlier GPUs report absolute
+// thresholds through nvmlDeviceGetTemperatureThreshold, and nvidia-smi picks
+// its whole temperature section layout from whether these answer.
+func (d *ConfigurableDevice) reportsTLimit() bool {
+	return d.Config.Architecture >= nvml.DEVICE_ARCH_ADA && d.Config.Architecture != nvml.DEVICE_ARCH_UNKNOWN
+}
+
 // GetMarginTemperature returns the GPU's headroom to its thermal limit in
 // degrees C — the value nvidia-smi renders as "GPU T.Limit Temp" (via
 // nvmlDeviceGetMarginTemperature). It is the slowdown threshold (falling back
@@ -654,11 +742,14 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 // mirroring real T.Limit hardware; consumers such as NVSentinel's
 // GpuThermalMarginWatch key on that sign crossing (it FAILs when the margin
 // drops below the per-GPU slowdown offset), so the value is deliberately not
-// clamped at 0. A thermal config is required; a lost/failing device propagates
-// its error through GetTemperature so the margin reports [N/A] too. The
-// signature matches the go-nvml Device interface so it overrides the embedded
-// default.
+// clamped at 0. Ada and later only, and a thermal config is required; a
+// lost/failing device propagates its error through GetTemperature so the margin
+// reports [N/A] too. The signature matches the go-nvml Device interface so it
+// overrides the embedded default.
 func (d *ConfigurableDevice) GetMarginTemperature() (nvml.MarginTemperature, nvml.Return) {
+	if !d.reportsTLimit() {
+		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED
+	}
 	c := d.cfg()
 	if c.Thermal == nil {
 		return nvml.MarginTemperature{}, nvml.ERROR_NOT_SUPPORTED
@@ -774,6 +865,8 @@ func (d *ConfigurableDevice) GetClockInfo(clockType nvml.ClockType) (uint32, nvm
 		clock = c.Clocks.MemoryCurrent
 	case nvml.CLOCK_VIDEO:
 		clock = c.Clocks.VideoCurrent
+	default:
+		// CLOCK_COUNT is an enum sentinel; leave clock at 0.
 	}
 	debugLog("[NVML] nvmlDeviceGetClockInfo(type=%d) -> %d MHz\n", clockType, clock)
 	return clock, nvml.SUCCESS
@@ -795,6 +888,8 @@ func (d *ConfigurableDevice) GetMaxClockInfo(clockType nvml.ClockType) (uint32, 
 		clock = c.Clocks.MemoryMax
 	case nvml.CLOCK_VIDEO:
 		clock = c.Clocks.VideoMax
+	default:
+		// CLOCK_COUNT is an enum sentinel; leave clock at 0.
 	}
 	debugLog("[NVML] nvmlDeviceGetMaxClockInfo(type=%d) -> %d MHz\n", clockType, clock)
 	return clock, nvml.SUCCESS
@@ -809,6 +904,8 @@ func (d *ConfigurableDevice) GetApplicationsClock(clockType nvml.ClockType) (uin
 			clock = c.Clocks.GraphicsApp
 		case nvml.CLOCK_MEM:
 			clock = c.Clocks.MemoryApp
+		default:
+			// SM/VIDEO/COUNT: no applications-clock field; leave clock at 0.
 		}
 	}
 	debugLog("[NVML] nvmlDeviceGetApplicationsClock(type=%d) -> %d MHz\n", clockType, clock)
@@ -827,6 +924,8 @@ func (d *ConfigurableDevice) GetDefaultApplicationsClock(clockType nvml.ClockTyp
 			clock = c.Clocks.GraphicsAppDefault
 		case nvml.CLOCK_MEM:
 			clock = c.Clocks.MemoryAppDefault
+		default:
+			// SM/VIDEO/COUNT: no default-applications-clock field; leave clock at 0.
 		}
 	}
 	debugLog("[NVML] nvmlDeviceGetDefaultApplicationsClock(type=%d) -> %d MHz\n", clockType, clock)
@@ -895,6 +994,18 @@ func (d *ConfigurableDevice) GetComputeMode() (nvml.ComputeMode, nvml.Return) {
 		mode = parseComputeMode(c.ComputeMode)
 	}
 	debugLog("[NVML] nvmlDeviceGetComputeMode -> %d\n", mode)
+	return mode, nvml.SUCCESS
+}
+
+// GetVirtualizationMode reports whether the device is virtualized. Answering
+// NOT_SUPPORTED here makes nvidia-smi print "N/A", which claims the driver
+// cannot tell — real hardware always knows, and bare metal answers NONE.
+func (d *ConfigurableDevice) GetVirtualizationMode() (nvml.GpuVirtualizationMode, nvml.Return) {
+	mode := nvml.GPU_VIRTUALIZATION_MODE_NONE
+	if c := d.cfg(); c.Virtualization != nil {
+		mode = parseVirtualizationMode(c.Virtualization.Mode)
+	}
+	debugLog("[NVML] nvmlDeviceGetVirtualizationMode -> %d\n", mode)
 	return mode, nvml.SUCCESS
 }
 
@@ -967,6 +1078,45 @@ func (d *ConfigurableDevice) GetMaxPcieLinkGeneration() (int, nvml.Return) {
 	return gen, nvml.SUCCESS
 }
 
+// GetGpuMaxPcieLinkGeneration returns the maximum PCIe link generation the GPU
+// itself supports, independent of the host. nvidia-smi renders this as the
+// "Device Max" row, which degraded to N/A while this was a generated stub. The
+// mock has no separate host-side limit, so the device maximum is the configured
+// max_link_gen — the same value GetMaxPcieLinkGeneration reports for the
+// system-wide "Max" row.
+func (d *ConfigurableDevice) GetGpuMaxPcieLinkGeneration() (int, nvml.Return) {
+	gen := 0
+	if c := d.cfg(); c.PCIe != nil {
+		gen = c.PCIe.MaxLinkGen
+	}
+	debugLog("[NVML] nvmlDeviceGetGpuMaxPcieLinkGeneration -> %d\n", gen)
+	if gen == 0 {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	return gen, nvml.SUCCESS
+}
+
+// HostMaxPcieLinkGeneration reports the maximum PCIe link generation the host
+// side of the link supports, which nvidia-smi renders as the "Host Max" row.
+//
+// This is deliberately not a Get* NVML method: no public NVML API exposes a
+// host-side maximum, and nvidia-smi instead reads it through a slot of the
+// internal export table (see the bridge's internal.go). The mock models a host
+// that keeps up with the GPU, so the host maximum is the configured
+// max_link_gen — keeping nvidia-smi's Max, Device Max and Host Max rows
+// consistent, since the negotiable Max cannot exceed either endpoint.
+//
+// Returns 0 when the profile configures no PCIe block, which the bridge treats
+// as "unknown" and leaves the reading untouched.
+func (d *ConfigurableDevice) HostMaxPcieLinkGeneration() int {
+	gen := 0
+	if c := d.cfg(); c.PCIe != nil {
+		gen = c.PCIe.MaxLinkGen
+	}
+	debugLog("[NVML] hostMaxPcieLinkGeneration -> %d\n", gen)
+	return gen
+}
+
 // GetCurrPcieLinkWidth returns current PCIe link width
 func (d *ConfigurableDevice) GetCurrPcieLinkWidth() (int, nvml.Return) {
 	width := 0
@@ -1031,40 +1181,47 @@ func (d *ConfigurableDevice) GetInforomImageVersion() (string, nvml.Return) {
 
 // GetCurrentClocksThrottleReasons returns clock throttle reasons bitmask
 func (d *ConfigurableDevice) GetCurrentClocksThrottleReasons() (uint64, nvml.Return) {
-	reasons := uint64(0)
+	var reasons uint64
 	if c := d.cfg(); c.ClocksThrottleReasons != nil {
-		ctr := c.ClocksThrottleReasons
-		if ctr.GPUIdle {
-			reasons |= nvml.ClocksThrottleReasonGpuIdle
-		}
-		if ctr.ApplicationsClocksSetting {
-			reasons |= nvml.ClocksThrottleReasonApplicationsClocksSetting
-		}
-		if ctr.SWPowerCap {
-			reasons |= nvml.ClocksThrottleReasonSwPowerCap
-		}
-		if ctr.HWSlowdown {
-			reasons |= nvml.ClocksThrottleReasonHwSlowdown
-		}
-		if ctr.SyncBoost {
-			reasons |= nvml.ClocksThrottleReasonSyncBoost
-		}
-		if ctr.SWThermalSlowdown {
-			reasons |= nvml.ClocksThrottleReasonSwThermalSlowdown
-		}
-		if ctr.HWThermalSlowdown {
-			reasons |= nvml.ClocksThrottleReasonHwThermalSlowdown
-		}
-		if ctr.HWPowerBrakeSlowdown {
-			reasons |= nvml.ClocksThrottleReasonHwPowerBrakeSlowdown
-		}
-		if ctr.DisplayClocksSetting {
-			// Display clock setting throttle reason (value 256)
-			reasons |= 256
-		}
+		reasons = throttleReasonsBitmask(c.ClocksThrottleReasons)
 	}
 	debugLog("[NVML] nvmlDeviceGetCurrentClocksThrottleReasons -> 0x%x\n", reasons)
 	return reasons, nvml.SUCCESS
+}
+
+// throttleReasonsBitmask packs the boolean-per-reason config into NVML's
+// nvmlClocksThrottleReasons_t bitmask.
+func throttleReasonsBitmask(ctr *ClocksThrottleReasonsConfig) uint64 {
+	var reasons uint64
+	if ctr.GPUIdle {
+		reasons |= nvml.ClocksThrottleReasonGpuIdle
+	}
+	if ctr.ApplicationsClocksSetting {
+		reasons |= nvml.ClocksThrottleReasonApplicationsClocksSetting
+	}
+	if ctr.SWPowerCap {
+		reasons |= nvml.ClocksThrottleReasonSwPowerCap
+	}
+	if ctr.HWSlowdown {
+		reasons |= nvml.ClocksThrottleReasonHwSlowdown
+	}
+	if ctr.SyncBoost {
+		reasons |= nvml.ClocksThrottleReasonSyncBoost
+	}
+	if ctr.SWThermalSlowdown {
+		reasons |= nvml.ClocksThrottleReasonSwThermalSlowdown
+	}
+	if ctr.HWThermalSlowdown {
+		reasons |= nvml.ClocksThrottleReasonHwThermalSlowdown
+	}
+	if ctr.HWPowerBrakeSlowdown {
+		reasons |= nvml.ClocksThrottleReasonHwPowerBrakeSlowdown
+	}
+	if ctr.DisplayClocksSetting {
+		// Display clock setting throttle reason (value 256)
+		reasons |= 256
+	}
+	return reasons
 }
 
 // GetDisplayActive returns display active status
@@ -1137,10 +1294,10 @@ func (d *ConfigurableDevice) GetMultiGpuBoard() (int, nvml.Return) {
 	return 0, nvml.SUCCESS
 }
 
-// GetBoardId returns the board ID
+// GetBoardId returns the board ID derived from the device's PCI address.
 func (d *ConfigurableDevice) GetBoardId() (uint32, nvml.Return) {
-	debugLog("[NVML] nvmlDeviceGetBoardId -> 0\n")
-	return 0, nvml.SUCCESS
+	debugLog("[NVML] nvmlDeviceGetBoardId -> %#x\n", d.boardID)
+	return d.boardID, nvml.SUCCESS
 }
 
 // GetMemoryBusWidth returns the memory bus width in bits.
@@ -1307,6 +1464,8 @@ func (d *ConfigurableDevice) GetNvLinkRemoteDeviceType(link int) (nvml.IntNvLink
 				t = nvml.NVLINK_DEVICE_TYPE_GPU
 			case RemoteSwitch:
 				t = nvml.NVLINK_DEVICE_TYPE_SWITCH
+			default:
+				// RemoteNone / RemoteCPU have no NVML device-type; leave t as UNKNOWN.
 			}
 		}
 	}
@@ -1435,7 +1594,7 @@ func (d *ConfigurableDevice) GetNvLinkUtilizationCounter(link, counter int) (uin
 
 // FreezeNvLinkUtilizationCounter is a no-op success: the counters are a
 // pure function of time, so there is no mutable state to freeze.
-func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, counter int, freeze nvml.EnableState) nvml.Return {
+func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, _ int, _ nvml.EnableState) nvml.Return {
 	if !nvlinkLinkInRange(link) {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
@@ -1444,7 +1603,7 @@ func (d *ConfigurableDevice) FreezeNvLinkUtilizationCounter(link, counter int, f
 }
 
 // ResetNvLinkUtilizationCounter is a no-op success (see Freeze).
-func (d *ConfigurableDevice) ResetNvLinkUtilizationCounter(link, counter int) nvml.Return {
+func (d *ConfigurableDevice) ResetNvLinkUtilizationCounter(link, _ int) nvml.Return {
 	if !nvlinkLinkInRange(link) {
 		return nvml.ERROR_INVALID_ARGUMENT
 	}
@@ -1468,32 +1627,35 @@ func (d *ConfigurableDevice) GetNvLinkRemotePciInfo(link int) (nvml.PciInfo, nvm
 	if !nvlinkLinkInRange(link) {
 		return pci, nvml.ERROR_INVALID_ARGUMENT
 	}
-	if d.fabric != nil {
-		if l, ok := d.fabric.Link(d.index, link); ok && l.RemoteBDF != "" {
-			// NVSwitch-attached links: a real GB200/HGX reports the "invalid"
-			// PCI sentinel (FFFFFFFF:FF:FF.0) for switch endpoints — switches
-			// are not PCI-enumerable from the GPU, so NVML fills 0xFF fields.
-			// Matching this makes `nvlink -p` and `-R` render exactly as on
-			// hardware ("Remote Device FFFFFFFF:FF:FF.0: Link 0"); a real-looking
-			// BDF instead makes `-R` attempt a device lookup that yields
-			// "Not Supported". Direct GPU<->GPU links still return the peer BDF.
-			if l.RemoteKind == RemoteSwitch {
-				setInvalidRemotePci(&pci)
-				debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> switch sentinel\n", link)
-				return pci, nvml.SUCCESS
-			}
-			if domain, bus, device, _, err := ParsePCIBusID(l.RemoteBDF); err == nil {
-				pci.Domain = domain
-				pci.Bus = bus
-				pci.Device = device
-				writeBusID(pci.BusId[:], l.RemoteBDF)
-				writeBusID(pci.BusIdLegacy[:], l.RemoteBDF)
-			}
-			debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> %s\n", link, l.RemoteBDF)
-			return pci, nvml.SUCCESS
-		}
+	if d.fabric == nil {
+		debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> empty\n", link)
+		return pci, nvml.SUCCESS
 	}
-	debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> empty\n", link)
+	l, ok := d.fabric.Link(d.index, link)
+	if !ok || l.RemoteBDF == "" {
+		debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> empty\n", link)
+		return pci, nvml.SUCCESS
+	}
+	// NVSwitch-attached links: a real GB200/HGX reports the "invalid"
+	// PCI sentinel (FFFFFFFF:FF:FF.0) for switch endpoints — switches
+	// are not PCI-enumerable from the GPU, so NVML fills 0xFF fields.
+	// Matching this makes `nvlink -p` and `-R` render exactly as on
+	// hardware ("Remote Device FFFFFFFF:FF:FF.0: Link 0"); a real-looking
+	// BDF instead makes `-R` attempt a device lookup that yields
+	// "Not Supported". Direct GPU<->GPU links still return the peer BDF.
+	if l.RemoteKind == RemoteSwitch {
+		setInvalidRemotePci(&pci)
+		debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> switch sentinel\n", link)
+		return pci, nvml.SUCCESS
+	}
+	if domain, bus, device, function, err := ParsePCIBusID(l.RemoteBDF); err == nil {
+		pci.Domain = domain
+		pci.Bus = bus
+		pci.Device = device
+		writeBusID(pci.BusId[:], formatPCIBusID(domain, bus, device, function))
+		writeBusID(pci.BusIdLegacy[:], formatPCIBusIDLegacy(domain, bus, device, function))
+	}
+	debugLog("[NVML] nvmlDeviceGetNvLinkRemotePciInfo(link=%d) -> %s\n", link, l.RemoteBDF)
 	return pci, nvml.SUCCESS
 }
 
@@ -1549,13 +1711,13 @@ func (d *ConfigurableDevice) GetCpuAffinity(cpuSetSize int) ([]uint, nvml.Return
 // GetCpuAffinityWithinScope returns the CPU affinity bitmask for a scope.
 // The mock does not distinguish socket vs node scope, so both return the
 // device's NUMA CPU set.
-func (d *ConfigurableDevice) GetCpuAffinityWithinScope(cpuSetSize int, scope nvml.AffinityScope) ([]uint, nvml.Return) {
+func (d *ConfigurableDevice) GetCpuAffinityWithinScope(cpuSetSize int, _ nvml.AffinityScope) ([]uint, nvml.Return) {
 	return d.GetCpuAffinity(cpuSetSize)
 }
 
 // GetMemoryAffinity returns the device's memory (NUMA) affinity bitmask
 // packed into nodeSetSize machine words.
-func (d *ConfigurableDevice) GetMemoryAffinity(nodeSetSize int, scope nvml.AffinityScope) ([]uint, nvml.Return) {
+func (d *ConfigurableDevice) GetMemoryAffinity(nodeSetSize int, _ nvml.AffinityScope) ([]uint, nvml.Return) {
 	if nodeSetSize <= 0 {
 		return nil, nvml.ERROR_INVALID_ARGUMENT
 	}
@@ -1692,6 +1854,30 @@ func (d *ConfigurableDevice) GetDecoderUtilization() (uint32, uint32, nvml.Retur
 	return 0, 0, nvml.SUCCESS // Utilization, sampling period
 }
 
+// GetJpgUtilization returns NVJPG (JPEG engine) utilization from
+// utilization.jpeg. Architectures without an NVJPG engine would answer
+// NOT_SUPPORTED on real hardware; every profile the mock ships has one, so a
+// configured percentage is always reportable.
+func (d *ConfigurableDevice) GetJpgUtilization() (uint32, uint32, nvml.Return) {
+	util := uint32(0)
+	if c := d.cfg(); c.Utilization != nil {
+		util = c.Utilization.JPEG
+	}
+	debugLog("[NVML] nvmlDeviceGetJpgUtilization -> %d%%, 0\n", util)
+	return util, 0, nvml.SUCCESS // Utilization, sampling period
+}
+
+// GetOfaUtilization returns optical-flow-accelerator utilization from
+// utilization.ofa. See GetJpgUtilization for the NOT_SUPPORTED caveat.
+func (d *ConfigurableDevice) GetOfaUtilization() (uint32, uint32, nvml.Return) {
+	util := uint32(0)
+	if c := d.cfg(); c.Utilization != nil {
+		util = c.Utilization.OFA
+	}
+	debugLog("[NVML] nvmlDeviceGetOfaUtilization -> %d%%, 0\n", util)
+	return util, 0, nvml.SUCCESS // Utilization, sampling period
+}
+
 // GetPcieReplayCounter returns PCIe replay counter
 func (d *ConfigurableDevice) GetPcieReplayCounter() (int, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetPcieReplayCounter -> 0\n")
@@ -1704,50 +1890,208 @@ func (d *ConfigurableDevice) GetPcieThroughput(counter nvml.PcieUtilCounter) (ui
 	return 0, nvml.SUCCESS
 }
 
-// GetTotalEccErrors returns total ECC errors. Healthy devices report
-// zero. When failure injection has tripped into ecc_uncorrectable mode
-// the running call counter is surfaced as the uncorrectable count so
-// each subsequent NVML poll sees a strictly increasing value (matching
-// real hardware accumulating ECC events).
+// GetTotalEccErrors returns the aggregate or volatile ECC error total from
+// ecc.errors, so a profile can present a GPU that has already accumulated
+// errors. When failure injection has tripped into ecc_uncorrectable mode the
+// running call counter is added to the uncorrectable count so each subsequent
+// NVML poll sees a strictly increasing value (matching real hardware
+// accumulating ECC events).
 func (d *ConfigurableDevice) GetTotalEccErrors(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType) (uint64, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
 	count := uint64(0)
-	if fi := d.failureInjector(); fi != nil && fi.IsECCUncorrectable() && errorType == nvml.MEMORY_ERROR_TYPE_UNCORRECTED {
-		count = uint64(fi.CallCount())
+	if errs := eccMemoryErrors(d.eccErrorCounts(counterType), errorType); errs != nil {
+		count = errs.Total
 	}
-	debugLog("[NVML] nvmlDeviceGetTotalEccErrors(errType=%d) -> %d\n", errorType, count)
+	if fi := d.failureInjector(); fi != nil && fi.IsECCUncorrectable() && errorType == nvml.MEMORY_ERROR_TYPE_UNCORRECTED {
+		count += uint64(fi.CallCount())
+	}
+	debugLog("[NVML] nvmlDeviceGetTotalEccErrors(errType=%d counterType=%d) -> %d\n", errorType, counterType, count)
 	return count, nvml.SUCCESS
 }
 
-// GetMemoryErrorCounter returns the per-location memory-error counter.
-// Healthy devices report zero. ecc_uncorrectable mode reports the running
-// call count for the uncorrected counter on device memory, mirroring the
-// total error count so callers correlating the two queries see a
-// consistent view.
+// GetMemoryErrorCounter returns the ECC error counter for one
+// (error type, counter type, memory location) triple. Every argument is
+// honoured: DRAM and SRAM are backed by separate configuration, so a consumer
+// reading them apart — as fault-handling software does when deciding whether a
+// fault is repairable — sees distinct counts rather than one shared number.
+// ecc_uncorrectable injection accrues on device memory, mirroring the total
+// error count so callers correlating the two queries see a consistent view.
 func (d *ConfigurableDevice) GetMemoryErrorCounter(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType, locationType nvml.MemoryLocation) (uint64, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
-	count := uint64(0)
+	count := d.eccLocationErrors(errorType, counterType, locationType)
 	if fi := d.failureInjector(); fi != nil && fi.IsECCUncorrectable() &&
 		errorType == nvml.MEMORY_ERROR_TYPE_UNCORRECTED &&
 		locationType == nvml.MEMORY_LOCATION_DEVICE_MEMORY {
-		count = uint64(fi.CallCount())
+		count += uint64(fi.CallCount())
 	}
-	debugLog("[NVML] nvmlDeviceGetMemoryErrorCounter(errType=%d loc=%d) -> %d\n", errorType, locationType, count)
+	debugLog("[NVML] nvmlDeviceGetMemoryErrorCounter(errType=%d counterType=%d loc=%d) -> %d\n",
+		errorType, counterType, locationType, count)
 	return count, nvml.SUCCESS
 }
 
+// GetSramEccErrorStatus returns the on-die SRAM ECC error state from ecc.sram.
+// SRAM errors are the fault class that row remapping cannot repair, so
+// fault-handling software treats them differently from DRAM errors and reads
+// them through this dedicated API.
+//
+// The returned struct carries no Version: the caller's ABI is the bridge's
+// concern, not the engine's.
+func (d *ConfigurableDevice) GetSramEccErrorStatus() (nvml.EccSramErrorStatus, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return nvml.EccSramErrorStatus{}, ret
+	}
+	// SRAM counters only exist while ECC is on. Reporting zeros for a GPU with
+	// ECC disabled would claim healthy SRAM the driver is not actually
+	// watching, so answer as real hardware does: unsupported (N/A).
+	if current, _, _ := d.GetEccMode(); current != nvml.FEATURE_ENABLED {
+		debugLog("[NVML] nvmlDeviceGetSramEccErrorStatus -> NOT_SUPPORTED (ECC disabled)\n")
+		return nvml.EccSramErrorStatus{}, nvml.ERROR_NOT_SUPPORTED
+	}
+
+	var status nvml.EccSramErrorStatus
+	cfg := d.cfg()
+	if cfg.ECC != nil && cfg.ECC.SRAM != nil {
+		sram := cfg.ECC.SRAM
+		if v := sram.Volatile; v != nil {
+			status.VolatileCor = v.Correctable
+			status.VolatileUncParity = v.UncorrectableParity
+			status.VolatileUncSecDed = v.UncorrectableSECDED
+		}
+		if a := sram.Aggregate; a != nil {
+			status.AggregateCor = a.Correctable
+			status.AggregateUncParity = a.UncorrectableParity
+			status.AggregateUncSecDed = a.UncorrectableSECDED
+		}
+		if s := sram.UncorrectableSources; s != nil {
+			status.AggregateUncBucketL2 = s.L2
+			status.AggregateUncBucketSm = s.SM
+			status.AggregateUncBucketMcu = s.Microcontroller
+			status.AggregateUncBucketPcie = s.PCIe
+			status.AggregateUncBucketOther = s.Other
+		}
+		if sram.ThresholdExceeded {
+			status.BThresholdExceeded = 1
+		}
+	}
+	debugLog("[NVML] nvmlDeviceGetSramEccErrorStatus -> aggCor=%d aggUncParity=%d aggUncSecDed=%d threshold=%d\n",
+		status.AggregateCor, status.AggregateUncParity, status.AggregateUncSecDed, status.BThresholdExceeded)
+	return status, nvml.SUCCESS
+}
+
+// GetRowRemapperHistogram returns how many memory banks fall into each
+// row-remap availability bucket, i.e. how much spare capacity is left before
+// the GPU can no longer repair a failing row. Row remapping is Ampere and
+// later and the bank count is hardware-specific, so an unconfigured device
+// reports the feature as unsupported rather than inventing a bank population.
+func (d *ConfigurableDevice) GetRowRemapperHistogram() (nvml.RowRemapperHistogramValues, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return nvml.RowRemapperHistogramValues{}, ret
+	}
+	cfg := d.cfg()
+	if cfg.RemappedRows == nil || cfg.RemappedRows.AvailabilityHistogram == nil {
+		debugLog("[NVML] nvmlDeviceGetRowRemapperHistogram -> NOT_SUPPORTED (no availability_histogram configured)\n")
+		return nvml.RowRemapperHistogramValues{}, nvml.ERROR_NOT_SUPPORTED
+	}
+	h := cfg.RemappedRows.AvailabilityHistogram
+	values := nvml.RowRemapperHistogramValues{
+		Max:     h.Max,
+		High:    h.High,
+		Partial: h.Partial,
+		Low:     h.Low,
+		None:    h.None,
+	}
+	debugLog("[NVML] nvmlDeviceGetRowRemapperHistogram -> max=%d high=%d partial=%d low=%d none=%d\n",
+		values.Max, values.High, values.Partial, values.Low, values.None)
+	return values, nvml.SUCCESS
+}
+
+// eccErrorCounts returns the configured DRAM-side error counts for one counter
+// type (volatile resets on driver reload, aggregate persists in the InfoROM).
+func (d *ConfigurableDevice) eccErrorCounts(counterType nvml.EccCounterType) *ECCErrorCountsConfig {
+	c := d.cfg()
+	if c.ECC == nil || c.ECC.Errors == nil {
+		return nil
+	}
+	if counterType == nvml.AGGREGATE_ECC {
+		return c.ECC.Errors.Aggregate
+	}
+	return c.ECC.Errors.Volatile
+}
+
+// eccMemoryErrors selects the single- or double-bit bucket matching an NVML
+// error type.
+func eccMemoryErrors(counts *ECCErrorCountsConfig, errorType nvml.MemoryErrorType) *ECCMemoryErrorsConfig {
+	if counts == nil {
+		return nil
+	}
+	if errorType == nvml.MEMORY_ERROR_TYPE_UNCORRECTED {
+		return counts.DoubleBit
+	}
+	return counts.SingleBit
+}
+
+// eccLocationErrors resolves the configured error count for one memory
+// location. Locations the mock does not model (texture shared memory, CBU)
+// report zero rather than borrowing another location's count.
+func (d *ConfigurableDevice) eccLocationErrors(errorType nvml.MemoryErrorType,
+	counterType nvml.EccCounterType, locationType nvml.MemoryLocation,
+) uint64 {
+	if locationType == nvml.MEMORY_LOCATION_SRAM {
+		return d.sramLocationErrors(errorType, counterType)
+	}
+	errs := eccMemoryErrors(d.eccErrorCounts(counterType), errorType)
+	if errs == nil {
+		return 0
+	}
+	switch locationType {
+	case nvml.MEMORY_LOCATION_L1_CACHE:
+		return errs.L1Cache
+	case nvml.MEMORY_LOCATION_L2_CACHE:
+		return errs.L2Cache
+	case nvml.MEMORY_LOCATION_DEVICE_MEMORY: // == MEMORY_LOCATION_DRAM
+		return errs.DeviceMemory
+	case nvml.MEMORY_LOCATION_REGISTER_FILE:
+		return errs.RegisterFile
+	case nvml.MEMORY_LOCATION_TEXTURE_MEMORY:
+		return errs.TextureMemory
+	default:
+		return 0
+	}
+}
+
+// sramLocationErrors answers the SRAM memory location from ecc.sram. NVML
+// reports a single uncorrected counter per location, so the parity and SEC-DED
+// counts the SRAM status splits out are summed here.
+func (d *ConfigurableDevice) sramLocationErrors(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType) uint64 {
+	c := d.cfg()
+	if c.ECC == nil || c.ECC.SRAM == nil {
+		return 0
+	}
+	counts := c.ECC.SRAM.Volatile
+	if counterType == nvml.AGGREGATE_ECC {
+		counts = c.ECC.SRAM.Aggregate
+	}
+	if counts == nil {
+		return 0
+	}
+	if errorType == nvml.MEMORY_ERROR_TYPE_UNCORRECTED {
+		return counts.UncorrectableParity + counts.UncorrectableSECDED
+	}
+	return counts.Correctable
+}
+
 // GetRetiredPages returns retired pages
-func (d *ConfigurableDevice) GetRetiredPages(cause nvml.PageRetirementCause) ([]uint64, nvml.Return) {
+func (d *ConfigurableDevice) GetRetiredPages(_ nvml.PageRetirementCause) ([]uint64, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetRetiredPages -> []\n")
 	return []uint64{}, nvml.SUCCESS
 }
 
 // GetRetiredPages_v2 returns retired pages with timestamps
-func (d *ConfigurableDevice) GetRetiredPages_v2(cause nvml.PageRetirementCause) ([]uint64, []uint64, nvml.Return) {
+func (d *ConfigurableDevice) GetRetiredPages_v2(_ nvml.PageRetirementCause) ([]uint64, []uint64, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetRetiredPages_v2 -> [], []\n")
 	return []uint64{}, []uint64{}, nvml.SUCCESS
 }
@@ -1788,6 +2132,7 @@ func (d *ConfigurableDevice) GetFanSpeed_v2(fan int) (uint32, nvml.Return) {
 
 // Helper functions
 
+//nolint:cyclop // existing complexity; refactor deferred
 func parseArchitecture(arch string) nvml.DeviceArchitecture {
 	switch arch {
 	case "kepler":
@@ -1832,6 +2177,7 @@ func parseBrand(brand string) nvml.BrandType {
 	}
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func parsePstate(state string) nvml.Pstates {
 	switch state {
 	case "P0":
@@ -1887,6 +2233,19 @@ func parseTopologyLevel(level string) nvml.GpuTopologyLevel {
 		return nvml.TOPOLOGY_SYSTEM
 	default:
 		return nvml.TOPOLOGY_SINGLE
+	}
+}
+
+func parseVirtualizationMode(mode string) nvml.GpuVirtualizationMode {
+	switch mode {
+	case "none":
+		return nvml.GPU_VIRTUALIZATION_MODE_NONE
+	case "passthrough":
+		return nvml.GPU_VIRTUALIZATION_MODE_PASSTHROUGH
+	case "vgpu":
+		return nvml.GPU_VIRTUALIZATION_MODE_VGPU
+	default:
+		return nvml.GPU_VIRTUALIZATION_MODE_NONE
 	}
 }
 
@@ -2031,10 +2390,16 @@ func (s *MockServer) DeviceGetHandleByUUID(uuid string) (nvml.Device, nvml.Retur
 // DeviceGetHandleByPciBusId returns a configurable device by PCI bus ID.
 // When device visibility filtering is active, only visible devices are returned.
 // Lost devices behave the same as in DeviceGetHandleByIndex.
+//
+// Both sides of the comparison are normalized so any spelling of an address
+// resolves, as it does on real NVML: callers arrive with the 8-digit busId they
+// read back from nvmlDeviceGetPciInfo (DCGM), with the 4-digit sysfs BDF, or
+// with either in lower case.
 func (s *MockServer) DeviceGetHandleByPciBusId(pciBusId string) (nvml.Device, nvml.Return) {
 	debugLog("[NVML] nvmlDeviceGetHandleByPciBusId(%s)\n", pciBusId)
+	want := canonicalPCIBusID(pciBusId)
 	for i, dev := range s.configurableDevices {
-		if dev != nil && dev.PciBusID == pciBusId {
+		if dev != nil && canonicalPCIBusID(dev.PciBusID) == want {
 			if !s.isDeviceVisible(i) {
 				return nil, nvml.ERROR_NOT_FOUND
 			}

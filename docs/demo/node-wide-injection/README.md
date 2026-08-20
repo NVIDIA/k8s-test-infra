@@ -52,10 +52,7 @@ Install these tools locally before running the demo:
    are present, then runs `check-fabric`; the script asserts every node reports
    its assigned clique / cluster UUID (skip with `WITH_COMPUTE_DOMAIN=false`).
 
-The demo installs no device plugin, so nothing allocates GPUs and each pod sees
-all `GPU_COUNT` of them. Where the NVIDIA device plugin has already served a
-container, the NRI plugin leaves that allocation intact instead of widening it —
-see [Device injection mode](../../../deployments/nvml-mock/helm/nvml-mock/README.md#device-injection-mode).
+The demo installs no device plugin, so no component allocates GPUs. The NRI overlay and environment are injected ambiently into containers in non-excluded namespaces. Host device node injection remains opt-in (via `nvidia.com/gpu` requests or the `nvml-mock.nvidia.com/devices: "true"` annotation). Unannotated pods without GPU requests will still report GPUs if `nvidia-smi` is run inside them. Where the NVIDIA device plugin is installed and allocates GPUs, the NRI plugin leaves that allocation intact (MEP-0002). Tests expecting non-GPU pods to see zero GPUs should keep NRI disabled or run in an excluded namespace. See [Device injection mode](../../../deployments/nvml-mock/helm/nvml-mock/README.md#device-injection-mode).
 
 ## Quick Start
 

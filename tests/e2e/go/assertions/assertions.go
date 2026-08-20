@@ -9,6 +9,9 @@
 // reads. Each helper is a Ginkgo helper (GinkgoHelper) so failures point at the
 // calling spec line, and every exec result is attached to the Gomega failure
 // message.
+//
+// The `nvidia-smi -q -x` checks live in the nvidiasmi subpackage, which decodes
+// the document once and asserts over the decoded readings.
 package assertions
 
 import (

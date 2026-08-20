@@ -193,6 +193,9 @@ func main() {
 	// Per-process utilization (requires a config with a compute process + sm_util).
 	checkProcessUtilization()
 
+	// JPEG/OFA utilization (requires a config setting utilization.jpeg/ofa).
+	checkMultimediaUtilization()
+
 	log.Println("\n=================================")
 	if bridgeFailures > 0 {
 		log.Fatalf("FAILED: %d bridge test(s) failed", bridgeFailures)
@@ -236,4 +239,36 @@ func checkProcessUtilization() {
 	}
 	log.Printf("✓ checkProcessUtilization: device 0 pid=%d smUtil=%d memUtil=%d; device 1 empty",
 		samples[0].Pid, samples[0].SmUtil, samples[0].MemUtil)
+}
+
+// Fixture values from util-test-config.yaml, kept distinct so a getter reading
+// the wrong config field fails here.
+const (
+	wantJpgUtil = 35
+	wantOfaUtil = 12
+)
+
+// checkMultimediaUtilization exercises nvmlDeviceGetJpgUtilization and
+// nvmlDeviceGetOfaUtilization over the C ABI. Both were generated stubs
+// returning NOT_SUPPORTED, so every configured value was silently dropped and
+// nvidia-smi printed N/A for the two rows (#637).
+func checkMultimediaUtilization() {
+	if os.Getenv("MOCK_NVML_CONFIG") == "" {
+		return // fixture-driven: nothing to assert against the default config
+	}
+	dev, ret := nvml.DeviceGetHandleByIndex(0)
+	if ret != nvml.SUCCESS {
+		log.Fatalf("checkMultimediaUtilization: DeviceGetHandleByIndex: %v", nvml.ErrorString(ret))
+	}
+	jpg, _, ret := dev.GetJpgUtilization()
+	if ret != nvml.SUCCESS || jpg != wantJpgUtil {
+		log.Fatalf("checkMultimediaUtilization: GetJpgUtilization -> %d%%, %v; want %d%%, SUCCESS",
+			jpg, nvml.ErrorString(ret), wantJpgUtil)
+	}
+	ofa, _, ret := dev.GetOfaUtilization()
+	if ret != nvml.SUCCESS || ofa != wantOfaUtil {
+		log.Fatalf("checkMultimediaUtilization: GetOfaUtilization -> %d%%, %v; want %d%%, SUCCESS",
+			ofa, nvml.ErrorString(ret), wantOfaUtil)
+	}
+	log.Printf("✓ checkMultimediaUtilization: jpeg=%d%% ofa=%d%%", jpg, ofa)
 }

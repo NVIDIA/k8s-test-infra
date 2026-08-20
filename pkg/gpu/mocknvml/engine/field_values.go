@@ -34,6 +34,32 @@ const (
 	fiEccSbeAgg  = 5
 	fiEccDbeAgg  = 6
 
+	// Per-location ECC counters. NVML has no SRAM field id — SRAM counters are
+	// only reachable through nvmlDeviceGetSramEccErrorStatus and
+	// nvmlDeviceGetMemoryErrorCounter(NVML_MEMORY_LOCATION_SRAM).
+	fiEccSbeVolL1  = 7
+	fiEccDbeVolL1  = 8
+	fiEccSbeVolL2  = 9
+	fiEccDbeVolL2  = 10
+	fiEccSbeVolDev = 11
+	fiEccDbeVolDev = 12
+	fiEccSbeVolReg = 13
+	fiEccDbeVolReg = 14
+	fiEccSbeVolTex = 15
+	fiEccDbeVolTex = 16
+	fiEccDbeVolCbu = 17
+	fiEccSbeAggL1  = 18
+	fiEccDbeAggL1  = 19
+	fiEccSbeAggL2  = 20
+	fiEccDbeAggL2  = 21
+	fiEccSbeAggDev = 22
+	fiEccDbeAggDev = 23
+	fiEccSbeAggReg = 24
+	fiEccDbeAggReg = 25
+	fiEccSbeAggTex = 26
+	fiEccDbeAggTex = 27
+	fiEccDbeAggCbu = 28
+
 	fiRetiredSbe     = 29
 	fiRetiredDbe     = 30
 	fiRetiredPending = 31
@@ -94,6 +120,42 @@ const (
 	FieldValueInt
 )
 
+// eccLocationField describes which nvmlDeviceGetMemoryErrorCounter query one
+// per-location ECC field id stands for.
+type eccLocationField struct {
+	errorType   nvml.MemoryErrorType
+	counterType nvml.EccCounterType
+	location    nvml.MemoryLocation
+}
+
+// eccLocationFields maps the per-location ECC field ids onto the counter each
+// one names, so the field-value path DCGM reads and the dedicated getter
+// nvidia-smi reads resolve from the same engine state.
+var eccLocationFields = map[uint32]eccLocationField{
+	fiEccSbeVolL1:  {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_L1_CACHE},
+	fiEccDbeVolL1:  {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_L1_CACHE},
+	fiEccSbeVolL2:  {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_L2_CACHE},
+	fiEccDbeVolL2:  {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_L2_CACHE},
+	fiEccSbeVolDev: {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_DEVICE_MEMORY},
+	fiEccDbeVolDev: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_DEVICE_MEMORY},
+	fiEccSbeVolReg: {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_REGISTER_FILE},
+	fiEccDbeVolReg: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_REGISTER_FILE},
+	fiEccSbeVolTex: {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_TEXTURE_MEMORY},
+	fiEccDbeVolTex: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_TEXTURE_MEMORY},
+	fiEccDbeVolCbu: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_CBU},
+	fiEccSbeAggL1:  {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_L1_CACHE},
+	fiEccDbeAggL1:  {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_L1_CACHE},
+	fiEccSbeAggL2:  {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_L2_CACHE},
+	fiEccDbeAggL2:  {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_L2_CACHE},
+	fiEccSbeAggDev: {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_DEVICE_MEMORY},
+	fiEccDbeAggDev: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_DEVICE_MEMORY},
+	fiEccSbeAggReg: {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_REGISTER_FILE},
+	fiEccDbeAggReg: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_REGISTER_FILE},
+	fiEccSbeAggTex: {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_TEXTURE_MEMORY},
+	fiEccDbeAggTex: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_TEXTURE_MEMORY},
+	fiEccDbeAggCbu: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_CBU},
+}
+
 // GetFieldValue resolves a single nvmlDeviceGetFieldValues entry: device-scope
 // fields first, then the NVLink field set. Unmodeled field ids yield
 // (FieldValueUnsupported, 0, ERROR_NOT_SUPPORTED) so the bridge can mark just
@@ -117,6 +179,8 @@ func boolField(b bool) uint64 {
 // getDeviceFieldValue resolves the device-scope (non-NVLink) field set. The
 // fourth return reports whether the field id belongs to this set at all;
 // unknown ids fall through to the NVLink dispatch in GetFieldValue.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func (d *ConfigurableDevice) getDeviceFieldValue(fieldID, scopeID uint32) (FieldValueType, uint64, nvml.Return, bool) {
 	switch fieldID {
 	case fiEccCurrent, fiEccPending:
@@ -140,6 +204,19 @@ func (d *ConfigurableDevice) getDeviceFieldValue(fieldID, scopeID uint32) (Field
 			counterType = nvml.AGGREGATE_ECC
 		}
 		count, ret := d.GetTotalEccErrors(errorType, counterType)
+		if ret != nvml.SUCCESS {
+			return FieldValueUnsupported, 0, ret, true
+		}
+		return FieldValueUint64, count, nvml.SUCCESS, true
+
+	case fiEccSbeVolL1, fiEccDbeVolL1, fiEccSbeVolL2, fiEccDbeVolL2,
+		fiEccSbeVolDev, fiEccDbeVolDev, fiEccSbeVolReg, fiEccDbeVolReg,
+		fiEccSbeVolTex, fiEccDbeVolTex, fiEccDbeVolCbu,
+		fiEccSbeAggL1, fiEccDbeAggL1, fiEccSbeAggL2, fiEccDbeAggL2,
+		fiEccSbeAggDev, fiEccDbeAggDev, fiEccSbeAggReg, fiEccDbeAggReg,
+		fiEccSbeAggTex, fiEccDbeAggTex, fiEccDbeAggCbu:
+		loc := eccLocationFields[fieldID]
+		count, ret := d.GetMemoryErrorCounter(loc.errorType, loc.counterType, loc.location)
 		if ret != nvml.SUCCESS {
 			return FieldValueUnsupported, 0, ret, true
 		}
@@ -228,25 +305,23 @@ func (d *ConfigurableDevice) getDeviceFieldValue(fieldID, scopeID uint32) (Field
 // scalars, as the signed distance in degrees C from a common T.Limit reference
 // to each threshold; nvidia-smi renders them as the "GPU/Memory <X> T.Limit
 // Temp" rows and the live headroom (GetMarginTemperature / DCGM field 153) is
-// measured against the same reference. We use the slowdown threshold as that
-// reference (matching GetMarginTemperature), so the slowdown offset is 0, the
-// shutdown offset is negative (a hotter limit), and the GPU-max offset is the
-// gap to the max-operating limit. NVSentinel's GpuThermalMarginWatch treats
-// the slowdown entry as the metadata it needs to arm, then alarms as the live
-// margin closes on it. The memory-max entry stays unsupported because the mock
-// models no separate memory throttle threshold.
+// measured against the same reference. Pre-Ada architectures return
+// NOT_SUPPORTED so nvidia-smi falls back to the absolute threshold API. We use
+// the slowdown threshold as that reference (matching GetMarginTemperature), so
+// the slowdown offset is 0, the shutdown offset is negative (a hotter limit),
+// and the GPU-max offset is the gap to the max-operating limit. NVSentinel's
+// GpuThermalMarginWatch treats the slowdown entry as the metadata it needs to
+// arm, then alarms as the live margin closes on it. The memory-max entry stays
+// unsupported because the mock models no separate memory throttle threshold.
 func (d *ConfigurableDevice) tlimitThresholdFieldValue(fieldID uint32) (FieldValueType, uint64, nvml.Return, bool) {
+	if !d.reportsTLimit() {
+		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
+	}
 	c := d.cfg()
 	if c.Thermal == nil {
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
 	}
-	reference := c.Thermal.SlowdownThreshold_C
-	if reference == 0 {
-		reference = c.Thermal.ShutdownThreshold_C
-	}
-	if reference == 0 {
-		reference = c.Thermal.MaxOperating_C
-	}
+	reference := tlimitReference(c.Thermal)
 	if reference == 0 {
 		return FieldValueUnsupported, 0, nvml.ERROR_NOT_SUPPORTED, true
 	}
@@ -266,6 +341,16 @@ func (d *ConfigurableDevice) tlimitThresholdFieldValue(fieldID uint32) (FieldVal
 	}
 	offset := int32(reference - threshold)
 	return FieldValueInt, uint64(uint32(offset)), nvml.SUCCESS, true
+}
+
+func tlimitReference(thermal *ThermalConfig) int {
+	if thermal.SlowdownThreshold_C != 0 {
+		return thermal.SlowdownThreshold_C
+	}
+	if thermal.ShutdownThreshold_C != 0 {
+		return thermal.ShutdownThreshold_C
+	}
+	return thermal.MaxOperating_C
 }
 
 // powerFieldValue resolves the whole-GPU power field values (mW) from the same

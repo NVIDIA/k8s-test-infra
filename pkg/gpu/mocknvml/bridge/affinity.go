@@ -15,7 +15,6 @@
 // affinity bitmasks are computed in the pure-Go engine from each device's
 // NUMA node in the NodeFabric; this file only marshals the []uint words
 // into the caller's C.ulong array.
-
 package main
 
 /*
@@ -26,6 +25,7 @@ package main
 #include "nvml_types.h"
 */
 import "C"
+
 import (
 	"unsafe"
 

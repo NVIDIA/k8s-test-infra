@@ -256,6 +256,18 @@ device_defaults:
     uncorrectable: 0
     pending: false
     failure_occurred: false
+    # Bank remap availability: every bank still holds its full complement of
+    # spare rows, which is what a GPU that has never remapped reports. Row
+    # remapping is Ampere and later, so a pre-Ampere profile (t4) omits this
+    # block and the mock reports the histogram unsupported, as that hardware
+    # does. The bank count follows the 16-banks-per-GiB ratio a real 40 GiB
+    # A100 reports.
+    availability_histogram:
+      max: 640
+      high: 0
+      partial: 0
+      low: 0
+      none: 0
 
   # ---------------------------------------------------------------------------
   # Display configuration

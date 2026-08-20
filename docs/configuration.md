@@ -122,6 +122,54 @@ device_defaults:
     rx_throughput_kbps: 0
 ```
 
+### Platform identity (rack location)
+
+Where the node's boards sit in a rack, which `nvidia-smi -q` renders as its
+`Platform Info` block. Rack-scale fault correlation reads it to turn a GPU fault
+into a physical location. Only `gb200` and `gb300` ship it; on every other
+profile the whole block reads `N/A`, which is the correct reading for a board
+whose platform reports no location.
+
+```yaml
+device_defaults:
+  platform:
+    chassis_serial_number: "1822725100200"  # serial of the chassis (the rack)
+    slot_number: 21                 # absolute physical slot, switch trays included
+    tray_index: 11                  # position among compute trays only
+    host_id: 1                      # the OS domain within the tray — this node
+    peer_type: "switch_connected"    # or "direct_connected"
+
+devices:
+  - index: 0
+    platform:
+      module_id: 1                  # ID of this GPU within the node
+  - index: 1
+    platform:
+      module_id: 2
+```
+
+Only `module_id` varies between the GPUs of a node: NVML defines it as the ID of
+the GPU within the node, while the other fields describe the node, which occupies
+exactly one tray in one slot of one chassis. All six are settable per device
+anyway, and a device override merges field by field, so a device declares just
+its `module_id`.
+
+`slot_number` counts switch trays and compute trays alike while `tray_index`
+counts compute trays only, so on an NVL72 rack — 18 compute trays, 9 switch
+trays — slot runs ahead of tray for a tray above the switch group.
+
+`peer_type` says how the GPU reaches its NVLink peers: `switch_connected`
+(through an NVSwitch tray) renders as `Switch Connected`, and anything else,
+including an absent key, renders as `Direct Connected`.
+
+As everywhere else in a device override, a zero is indistinguishable from an
+unset key, so `module_id` numbers from 1.
+
+Declaring the block also requires a driver new enough to have the API:
+`nvmlDeviceGetPlatformInfo` arrived in 560, so a profile on an older
+`system.driver_version` reports `N/A` regardless. The `GPU Fabric GUID` row of
+the same block is not modelled and reads `0x0000000000000000`.
+
 ### Power
 
 ```yaml
@@ -149,6 +197,13 @@ device_defaults:
     max_operating_c: 83
     target_temperature_c: 83
 ```
+
+How these thresholds are reported depends on `device_defaults.architecture`,
+as on real hardware. Ada and later expose them as signed T.Limit offsets
+(`nvmlDeviceGetMarginTemperature` and the `NVML_FI_DEV_TEMPERATURE_*_TLIMIT`
+field IDs), which `nvidia-smi -q` renders as the "T.Limit" rows. Pre-Ada
+architectures report `NVML_ERROR_NOT_SUPPORTED` for both, so `nvidia-smi -q`
+falls back to the absolute `GPU Shutdown / Slowdown / Max Operating Temp` rows.
 
 ### Fan
 
@@ -232,6 +287,70 @@ device_defaults:
           total: 0
 ```
 
+#### SRAM ECC
+
+Hardware counts on-die SRAM errors separately from the DRAM counters above and
+reports them through their own API, so they are a sibling block rather than
+another memory location under `errors`. Omitting the block reports zeros, which
+is what a healthy ECC-enabled GPU does; with ECC off the counters are reported
+unsupported (`N/A`), as on real hardware.
+
+```yaml
+device_defaults:
+  ecc:
+    sram:
+      volatile:                         # reset when the driver reloads
+        correctable: 0
+        uncorrectable_parity: 0
+        uncorrectable_secded: 0
+      aggregate:                        # persisted in the InfoROM
+        correctable: 0
+        uncorrectable_parity: 0
+        uncorrectable_secded: 0
+      # Which unit reported the aggregate uncorrectable errors; nvidia-smi
+      # renders it as "Aggregate Uncorrectable SRAM Sources".
+      uncorrectable_sources:
+        l2: 0
+        sm: 0
+        microcontroller: 0
+        pcie: 0
+        other: 0
+      # Whether the accumulated errors passed the driver's threshold — the
+      # signal that the GPU needs servicing rather than just a count going up.
+      threshold_exceeded: false
+```
+
+Inject these at runtime with `nvml-mock-ctl sram-ecc` (see
+[nvml-mock-ctl.md](nvml-mock-ctl.md)).
+
+How `nvidia-smi` renders these counters depends on the profile's
+`architecture`, mirroring real hardware: Ampere and later split the uncorrectable
+count into `SRAM Uncorrectable Parity` and `SRAM Uncorrectable SEC-DED` and print
+the source breakdown and threshold flag, while pre-Ampere (`t4`) prints one
+combined `SRAM Uncorrectable` row and omits the rest. The configuration is the
+same either way — only the presentation differs.
+
+### Remapped rows
+
+`availability_histogram` is how many memory banks still have spare rows to remap
+future failures. Row remapping is Ampere and later, so leaving the block out —
+as `t4` does — reports the histogram as unsupported.
+
+```yaml
+device_defaults:
+  remapped_rows:
+    correctable: 0
+    uncorrectable: 0
+    pending: false
+    failure_occurred: false
+    availability_histogram:
+      max: 640                          # banks with full spare capacity
+      high: 0
+      partial: 0
+      low: 0
+      none: 0                           # banks with no capacity left
+```
+
 ### Display
 
 ```yaml
@@ -301,6 +420,12 @@ device_defaults:
 The utilization fields (`sm_util`/`mem_util`/`enc_util`/`dec_util`, all percent) are
 reported for every process — compute and graphics/video alike.
 
+They also show up in `nvidia-smi`: the default table's Processes box, `-q`, and
+`--query-compute-apps`. Two caveats there — `nvidia-smi` labels every row `M+C+G`
+regardless of `type`, because the call it enumerates processes through carries no
+type field, and `nvidia-smi pmon` uses a different entry point that the mock does
+not implement, so it lists nothing.
+
 ```yaml
 device_defaults:
   processes:
@@ -356,6 +481,14 @@ nvlink:
       remote_device_type: "GPU"
       remote_pci_bus_id: "0000:0F:00.0"
 ```
+
+`c2c_enabled` is node-level and drives the `GPU C2C Mode` row of `nvidia-smi -q`
+on every attached GPU: `true` reports `Enabled`, while `false` or an absent key
+reports `N/A` — never `Disabled`, because NVML answers
+`NVML_ERROR_NOT_SUPPORTED`, the correct reading for a board with no NVLink-C2C
+link to a host CPU. Only `gb200` and `gb300` enable it. This is the only key that
+drives the row: `device_defaults.features.nvlink_c2c` is descriptive metadata and
+is not read.
 
 ### NVLink error injection (per device)
 

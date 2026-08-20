@@ -93,11 +93,20 @@ func TestConfigurableDevice_GetPciInfo(t *testing.T) {
 	require.Equal(t, uint32(0x20B010DE), pciInfo.PciDeviceId, "Expected A100 PCI device ID")
 }
 
-// TestConfigurableDevice_GetPciInfo_BusIdLegacy verifies that GetPciInfo
-// populates BOTH the modern busId and the legacy busIdLegacy strings. Real NVML
-// fills both; NVSentinel's metadata-collector derives each GPU's pci_address
-// from busIdLegacy, so leaving it empty produces blank PCI addresses.
-func TestConfigurableDevice_GetPciInfo_BusIdLegacy(t *testing.T) {
+// TestConfigurableDevice_GetPciInfo_BusIDDomainWidths verifies that GetPciInfo
+// populates BOTH bus-ID strings, each in the format nvml.h defines for it:
+// busId uses an 8-digit domain (NVML_DEVICE_PCI_BUS_ID_FMT, "%08X:%02X:%02X.0")
+// and busIdLegacy a 4-digit one (NVML_DEVICE_PCI_BUS_ID_LEGACY_FMT).
+//
+// Both fields matter to real consumers. NVSentinel's metadata-collector derives
+// each GPU's pci_address from busIdLegacy, so leaving it empty produces blank
+// PCI addresses. And the domain width of busId is load-bearing rather than
+// cosmetic: go-nvlib recovers a sysfs BDF by stripping a leading "0000" from
+// busId, so a 4-digit domain there leaves the malformed ":3b:00.0" and every
+// /sys/bus/pci lookup built from it fails — which is how GPU Operator's GFD
+// ends up labelling nvidia.com/gpu.mode=unknown.
+func TestConfigurableDevice_GetPciInfo_BusIDDomainWidths(t *testing.T) {
+	// Profiles declare the canonical Linux sysfs BDF; only busId widens.
 	const busID = "0000:3b:00.0"
 	yaml := &YAMLConfig{
 		System: SystemConfig{DriverVersion: "550.0", NumDevices: 1},
@@ -116,8 +125,10 @@ func TestConfigurableDevice_GetPciInfo_BusIdLegacy(t *testing.T) {
 
 	pci, ret := cd.GetPciInfo()
 	require.Equal(t, nvml.SUCCESS, ret, "GetPciInfo failed")
-	require.Equal(t, busID, busIDString(pci.BusId[:]), "BusId not populated")
-	require.Equal(t, busID, busIDString(pci.BusIdLegacy[:]), "BusIdLegacy not populated")
+	require.Equal(t, "00000000:3B:00.0", busIDString(pci.BusId[:]),
+		"busId must use the 8-digit NVML domain form")
+	require.Equal(t, "0000:3B:00.0", busIDString(pci.BusIdLegacy[:]),
+		"busIdLegacy must use the 4-digit domain form")
 }
 
 // =============================================================================
@@ -273,9 +284,10 @@ func TestConfigurableDevice_GetNvLinkRemotePciInfo(t *testing.T) {
 	pci, ret := cd.GetNvLinkRemotePciInfo(0)
 	require.Equal(t, nvml.SUCCESS, ret, "GetNvLinkRemotePciInfo failed")
 	require.Equal(t, uint32(0x3B), pci.Bus, "Expected bus 0x3B")
-	// busIdLegacy must carry the remote BDF too — the metadata-collector reads
-	// it to build each NVLink's remote_pci_address.
-	require.Equal(t, "0000:3B:00.0", busIDString(pci.BusId[:]), "remote BusId not populated")
+	// Each field carries the remote BDF in its own NVML format, as the local
+	// address does. busIdLegacy must be populated too — the metadata-collector
+	// reads it to build each NVLink's remote_pci_address.
+	require.Equal(t, "00000000:3B:00.0", busIDString(pci.BusId[:]), "remote BusId not populated")
 	require.Equal(t, "0000:3B:00.0", busIDString(pci.BusIdLegacy[:]), "remote BusIdLegacy not populated")
 }
 
@@ -491,6 +503,38 @@ func TestConfigurableDevice_GetComputeRunningProcesses_WithConfig(t *testing.T) 
 	require.Equal(t, uint32(5678), procs[1].Pid, "Expected PID 5678")
 }
 
+func TestConfigurableDevice_ProcessByPID(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name: "NVIDIA A100-SXM4-80GB",
+		Processes: []ProcessConfig{
+			{PID: 1234, Type: "C", Name: "python", UsedMemoryMiB: 1024, SmUtil: 42},
+			{PID: 9999, Type: "G", Name: "Xorg", UsedMemoryMiB: 128},
+			{PID: 5555, Type: "C", UsedMemoryMiB: 64},
+		},
+	})
+
+	// Both process types resolve: the internal process list nvidia-smi reads is
+	// not filtered by type.
+	p, ok := dev.ProcessByPID(1234)
+	require.True(t, ok)
+	require.Equal(t, "python", p.Name)
+	require.Equal(t, uint64(1024), p.UsedMemoryMiB)
+	require.Equal(t, uint32(42), p.SmUtil, "every configured field must reach the caller")
+
+	p, ok = dev.ProcessByPID(9999)
+	require.True(t, ok)
+	require.Equal(t, "Xorg", p.Name)
+
+	// A configured process without a name is still found, so callers can tell it
+	// apart from a pid this device does not run.
+	p, ok = dev.ProcessByPID(5555)
+	require.True(t, ok)
+	require.Empty(t, p.Name)
+
+	_, ok = dev.ProcessByPID(4321)
+	require.False(t, ok, "unconfigured pid must not resolve")
+}
+
 func TestConfigurableDevice_GetProcessUtilization_Default(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{
 		Name: "NVIDIA A100-SXM4-80GB",
@@ -511,36 +555,18 @@ func TestConfigurableDevice_GetProcessUtilization_WithConfig(t *testing.T) {
 	})
 
 	utils, ret := dev.GetProcessUtilization(0)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetProcessUtilization failed: %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetProcessUtilization failed")
 	// Both compute and graphics/video processes report utilization, like real NVML
 	// (unlike GetComputeRunningProcesses, which is compute-only).
-	if len(utils) != 2 {
-		t.Fatalf("Expected 2 utilization samples, got %d", len(utils))
-	}
-	if utils[0].Pid != 1234 {
-		t.Errorf("Expected PID 1234, got %d", utils[0].Pid)
-	}
-	if utils[0].SmUtil != 75 {
-		t.Errorf("Expected SmUtil 75, got %d", utils[0].SmUtil)
-	}
-	if utils[0].MemUtil != 40 {
-		t.Errorf("Expected MemUtil 40, got %d", utils[0].MemUtil)
-	}
-	if utils[0].TimeStamp == 0 {
-		t.Errorf("Expected a non-zero timestamp")
-	}
+	require.Len(t, utils, 2, "Expected 2 utilization samples")
+	require.Equal(t, uint32(1234), utils[0].Pid, "Expected PID 1234")
+	require.Equal(t, uint32(75), utils[0].SmUtil, "Expected SmUtil 75")
+	require.Equal(t, uint32(40), utils[0].MemUtil, "Expected MemUtil 40")
+	require.NotZero(t, utils[0].TimeStamp, "Expected a non-zero timestamp")
 	// The graphics/video process is reported too, carrying encoder/decoder util.
-	if utils[1].Pid != 9999 {
-		t.Errorf("Expected PID 9999, got %d", utils[1].Pid)
-	}
-	if utils[1].EncUtil != 60 {
-		t.Errorf("Expected EncUtil 60, got %d", utils[1].EncUtil)
-	}
-	if utils[1].DecUtil != 30 {
-		t.Errorf("Expected DecUtil 30, got %d", utils[1].DecUtil)
-	}
+	require.Equal(t, uint32(9999), utils[1].Pid, "Expected PID 9999")
+	require.Equal(t, uint32(60), utils[1].EncUtil, "Expected EncUtil 60")
+	require.Equal(t, uint32(30), utils[1].DecUtil, "Expected DecUtil 30")
 }
 
 // =============================================================================
@@ -1066,9 +1092,7 @@ func newFabricEngine(t *testing.T) *Engine {
 		},
 	}
 	e := NewEngine(cfg)
-	if ret := e.Init(); ret != nvml.SUCCESS {
-		t.Fatalf("engine init: %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, e.Init(), "engine init")
 	t.Cleanup(func() { _ = e.Shutdown() })
 	return e
 }
@@ -1077,9 +1101,7 @@ func fabricDevice(t *testing.T, e *Engine, index int) *ConfigurableDevice {
 	t.Helper()
 	handle, _ := e.DeviceGetHandleByIndex(index)
 	cd, ok := e.LookupDevice(handle).(*ConfigurableDevice)
-	if !ok {
-		t.Fatalf("device %d is not a ConfigurableDevice", index)
-	}
+	require.True(t, ok, "device %d is not a ConfigurableDevice", index)
 	return cd
 }
 
@@ -1088,50 +1110,45 @@ func TestConfigurableDevice_NvLinkGetters_PerDevice(t *testing.T) {
 	d0 := fabricDevice(t, e, 0)
 	d1 := fabricDevice(t, e, 1)
 
-	if st, ret := d0.GetNvLinkState(0); ret != nvml.SUCCESS || st != nvml.FEATURE_ENABLED {
-		t.Errorf("d0.GetNvLinkState(0): got st=%d ret=%v, want ENABLED/SUCCESS", st, ret)
-	}
+	st, ret := d0.GetNvLinkState(0)
+	require.Equal(t, nvml.SUCCESS, ret, "d0.GetNvLinkState(0) ret")
+	require.Equal(t, nvml.FEATURE_ENABLED, st, "d0.GetNvLinkState(0) state")
 	// Link in range but not configured on device 0.
-	if st, ret := d0.GetNvLinkState(7); ret != nvml.SUCCESS || st != nvml.FEATURE_DISABLED {
-		t.Errorf("d0.GetNvLinkState(7): got st=%d ret=%v, want DISABLED/SUCCESS", st, ret)
-	}
+	st, ret = d0.GetNvLinkState(7)
+	require.Equal(t, nvml.SUCCESS, ret, "d0.GetNvLinkState(7) ret")
+	require.Equal(t, nvml.FEATURE_DISABLED, st, "d0.GetNvLinkState(7) state")
 	// Device 1 has no links of its own.
-	if st, ret := d1.GetNvLinkState(0); ret != nvml.SUCCESS || st != nvml.FEATURE_DISABLED {
-		t.Errorf("d1.GetNvLinkState(0): got st=%d ret=%v, want DISABLED/SUCCESS", st, ret)
-	}
+	st, ret = d1.GetNvLinkState(0)
+	require.Equal(t, nvml.SUCCESS, ret, "d1.GetNvLinkState(0) ret")
+	require.Equal(t, nvml.FEATURE_DISABLED, st, "d1.GetNvLinkState(0) state")
 	// Out-of-range link index.
-	if _, ret := d0.GetNvLinkState(-1); ret != nvml.ERROR_INVALID_ARGUMENT {
-		t.Errorf("d0.GetNvLinkState(-1): got %v, want INVALID_ARGUMENT", ret)
-	}
-	if _, ret := d0.GetNvLinkState(99); ret != nvml.ERROR_INVALID_ARGUMENT {
-		t.Errorf("d0.GetNvLinkState(99): got %v, want INVALID_ARGUMENT", ret)
-	}
+	_, ret = d0.GetNvLinkState(-1)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "d0.GetNvLinkState(-1)")
+	_, ret = d0.GetNvLinkState(99)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "d0.GetNvLinkState(99)")
 
-	if v, ret := d0.GetNvLinkVersion(0); ret != nvml.SUCCESS || v != 5 {
-		t.Errorf("d0.GetNvLinkVersion(0): got v=%d ret=%v, want 5/SUCCESS", v, ret)
-	}
+	v, ret := d0.GetNvLinkVersion(0)
+	require.Equal(t, nvml.SUCCESS, ret, "d0.GetNvLinkVersion(0) ret")
+	require.Equal(t, uint32(5), v, "d0.GetNvLinkVersion(0) version")
 
-	if cap, ret := d0.GetNvLinkCapability(0, nvml.NVLINK_CAP_P2P_SUPPORTED); ret != nvml.SUCCESS || cap != 1 {
-		t.Errorf("d0.GetNvLinkCapability(0,P2P): got %d ret=%v, want 1/SUCCESS", cap, ret)
-	}
+	capability, ret := d0.GetNvLinkCapability(0, nvml.NVLINK_CAP_P2P_SUPPORTED)
+	require.Equal(t, nvml.SUCCESS, ret, "d0.GetNvLinkCapability(0,P2P) ret")
+	require.Equal(t, uint32(1), capability, "d0.GetNvLinkCapability(0,P2P) capability")
 
 	// Remote device type: link 0 is a switch, link 2 is a GPU.
-	if dt, ret := d0.GetNvLinkRemoteDeviceType(0); ret != nvml.SUCCESS || dt != nvml.NVLINK_DEVICE_TYPE_SWITCH {
-		t.Errorf("d0.GetNvLinkRemoteDeviceType(0): got %d ret=%v, want SWITCH/SUCCESS", dt, ret)
-	}
-	if dt, ret := d0.GetNvLinkRemoteDeviceType(2); ret != nvml.SUCCESS || dt != nvml.NVLINK_DEVICE_TYPE_GPU {
-		t.Errorf("d0.GetNvLinkRemoteDeviceType(2): got %d ret=%v, want GPU/SUCCESS", dt, ret)
-	}
+	dt, ret := d0.GetNvLinkRemoteDeviceType(0)
+	require.Equal(t, nvml.SUCCESS, ret, "d0.GetNvLinkRemoteDeviceType(0) ret")
+	require.Equal(t, nvml.NVLINK_DEVICE_TYPE_SWITCH, dt, "d0.GetNvLinkRemoteDeviceType(0) type")
+	dt, ret = d0.GetNvLinkRemoteDeviceType(2)
+	require.Equal(t, nvml.SUCCESS, ret, "d0.GetNvLinkRemoteDeviceType(2) ret")
+	require.Equal(t, nvml.NVLINK_DEVICE_TYPE_GPU, dt, "d0.GetNvLinkRemoteDeviceType(2) type")
 
 	// Remote PCI info: link 2 points at device 1's BDF.
 	pci, ret := d0.GetNvLinkRemotePciInfo(2)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("d0.GetNvLinkRemotePciInfo(2): %v", ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "d0.GetNvLinkRemotePciInfo(2)")
 	busID := busIDString(pci.BusId[:])
-	if !containsPrefix(busID, "0000:0B") && !containsPrefix(busID, "0000:0b") {
-		t.Errorf("d0 link2 remote BusId: got %q, want 0000:0B prefix", busID)
-	}
+	require.True(t, containsPrefix(busID, "00000000:0B") || containsPrefix(busID, "00000000:0b"),
+		"d0 link2 remote BusId: got %q, want 00000000:0B prefix", busID)
 }
 
 func TestConfigurableDevice_TopologyCommonAncestor_Pairwise(t *testing.T) {
@@ -1141,31 +1158,26 @@ func TestConfigurableDevice_TopologyCommonAncestor_Pairwise(t *testing.T) {
 
 	// Same root complex => TOPOLOGY_SINGLE.
 	lvl, ret := d0.GetTopologyCommonAncestor(d1)
-	if ret != nvml.SUCCESS || lvl != nvml.TOPOLOGY_SINGLE {
-		t.Errorf("d0->d1 topo: got lvl=%d ret=%v, want SINGLE/SUCCESS", lvl, ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "d0->d1 topo ret")
+	require.Equal(t, nvml.TOPOLOGY_SINGLE, lvl, "d0->d1 topo level")
 }
 
 func TestConfigurableDevice_Affinity_FromFabric(t *testing.T) {
 	e := newFabricEngine(t)
 	d0 := fabricDevice(t, e, 0)
 
-	if node, ret := d0.GetNumaNodeId(); ret != nvml.SUCCESS || node != 0 {
-		t.Errorf("d0.GetNumaNodeId: got %d ret=%v, want 0/SUCCESS", node, ret)
-	}
+	node, ret := d0.GetNumaNodeId()
+	require.Equal(t, nvml.SUCCESS, ret, "d0.GetNumaNodeId ret")
+	require.Zero(t, node, "d0.GetNumaNodeId node")
 
 	mask, ret := d0.GetCpuAffinity(2)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("d0.GetCpuAffinity: %v", ret)
-	}
-	if len(mask) != 2 || mask[0] != 0xFF {
-		t.Errorf("d0 cpu affinity: got %v, want word0=0xFF", mask)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "d0.GetCpuAffinity")
+	require.Len(t, mask, 2, "d0 cpu affinity length")
+	require.Equal(t, uint(0xFF), mask[0], "d0 cpu affinity word0")
 
 	mem, ret := d0.GetMemoryAffinity(1, nvml.AFFINITY_SCOPE_NODE)
-	if ret != nvml.SUCCESS || len(mem) != 1 || mem[0] != 1 {
-		t.Errorf("d0 memory affinity: got %v ret=%v, want [1]/SUCCESS", mem, ret)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "d0 memory affinity ret")
+	require.Equal(t, []uint{1}, mem, "d0 memory affinity mask")
 }
 
 func TestConfigurableDevice_NvLinkUtilizationCounter_Grows(t *testing.T) {
@@ -1173,19 +1185,11 @@ func TestConfigurableDevice_NvLinkUtilizationCounter_Grows(t *testing.T) {
 	d0 := fabricDevice(t, e, 0)
 
 	rx, tx, ret := d0.GetNvLinkUtilizationCounter(0, 0)
-	if ret != nvml.SUCCESS {
-		t.Fatalf("GetNvLinkUtilizationCounter: %v", ret)
-	}
-	if rx != tx {
-		t.Errorf("rx (%d) != tx (%d)", rx, tx)
-	}
+	require.Equal(t, nvml.SUCCESS, ret, "GetNvLinkUtilizationCounter")
+	require.Equal(t, tx, rx, "rx must equal tx")
 	// Freeze/Reset are no-op successes.
-	if r := d0.FreezeNvLinkUtilizationCounter(0, 0, nvml.FEATURE_ENABLED); r != nvml.SUCCESS {
-		t.Errorf("Freeze: got %v, want SUCCESS", r)
-	}
-	if r := d0.ResetNvLinkUtilizationCounter(0, 0); r != nvml.SUCCESS {
-		t.Errorf("Reset: got %v, want SUCCESS", r)
-	}
+	require.Equal(t, nvml.SUCCESS, d0.FreezeNvLinkUtilizationCounter(0, 0, nvml.FEATURE_ENABLED), "Freeze")
+	require.Equal(t, nvml.SUCCESS, d0.ResetNvLinkUtilizationCounter(0, 0), "Reset")
 }
 
 // busIDString decodes the NVML PciInfo.BusId char array (go-nvml v0.13.1-0

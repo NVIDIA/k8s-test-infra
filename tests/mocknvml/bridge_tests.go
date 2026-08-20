@@ -7,6 +7,7 @@
 //   - Handle conversions: index→handle→UUID round-trip, invalid index behavior
 //   - Error string caching: nvmlErrorString returns consistent, valid strings
 //   - Boundary conditions: out-of-range indices, repeated init/shutdown cycles
+//   - Event set wait: blocks for the caller's timeout; wait symbols exported
 //
 // These tests require the mock NVML .so to be built and available via
 // LD_LIBRARY_PATH. They are run as part of the Docker-based integration test.
@@ -17,7 +18,9 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
+	"github.com/NVIDIA/go-nvml/pkg/dl"
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
@@ -36,7 +39,112 @@ func bridgeTests(deviceCount int) []testResult {
 	results = append(results, testHandleConversions(deviceCount)...)
 	results = append(results, testErrorStrings()...)
 	results = append(results, testInvalidIndices(deviceCount)...)
+	results = append(results, testEventSetWait(deviceCount)...)
 	results = append(results, testInitShutdownCycles()...)
+	results = append(results, testInternalExportTable()...)
+	return results
+}
+
+// --- Event set wait tests ---
+
+// eventWaitSlack absorbs scheduler jitter in the container.
+const eventWaitSlack = 2 * time.Second
+
+// testEventSetWait drives nvmlEventSetWait through the built library. Clients
+// loop on this call with no sleep of their own, so an immediate return spins
+// their health loop — hence the timing assertions.
+func testEventSetWait(deviceCount int) []testResult {
+	var results []testResult
+
+	if deviceCount == 0 {
+		return results
+	}
+
+	set, ret := nvml.EventSetCreate()
+	if ret != nvml.SUCCESS {
+		return append(results, testResult{"event/set_create", false, fmt.Sprintf("EventSetCreate failed: %v", nvml.ErrorString(ret))})
+	}
+	results = append(results, testResult{"event/set_create", true, ""})
+	defer func() {
+		if ret := set.Free(); ret != nvml.SUCCESS {
+			log.Printf("  WARN  event/set_free: %v", nvml.ErrorString(ret))
+		}
+	}()
+
+	device, ret := nvml.DeviceGetHandleByIndex(0)
+	if ret != nvml.SUCCESS {
+		return append(results, testResult{"event/get_device", false, fmt.Sprintf("GetHandleByIndex(0) failed: %v", nvml.ErrorString(ret))})
+	}
+	if ret := device.RegisterEvents(nvml.EventTypeXidCriticalError, set); ret != nvml.SUCCESS {
+		results = append(results, testResult{"event/register", false, fmt.Sprintf("RegisterEvents failed: %v", nvml.ErrorString(ret))})
+	} else {
+		results = append(results, testResult{"event/register", true, "XidCriticalError"})
+	}
+
+	// Drain anything the config queued so the checks below measure an idle wait.
+	drained := 0
+	for ; drained < deviceCount; drained++ {
+		if _, ret := set.Wait(0); ret != nvml.SUCCESS {
+			break
+		}
+	}
+
+	start := time.Now()
+	_, ret = set.Wait(0)
+	elapsed := time.Since(start)
+	switch {
+	case ret != nvml.ERROR_TIMEOUT:
+		results = append(results, testResult{"event/wait_zero_timeout", false, fmt.Sprintf("expected TIMEOUT, got %v (after draining %d)", nvml.ErrorString(ret), drained)})
+	case elapsed > eventWaitSlack:
+		results = append(results, testResult{"event/wait_zero_timeout", false, fmt.Sprintf("zero timeout blocked for %s", elapsed)})
+	default:
+		results = append(results, testResult{"event/wait_zero_timeout", true, elapsed.String()})
+	}
+
+	// Regression guard: an idle wait must consume the requested timeout.
+	const waitFor = 500 * time.Millisecond
+	start = time.Now()
+	_, ret = set.Wait(uint32(waitFor.Milliseconds()))
+	elapsed = time.Since(start)
+	switch {
+	case ret != nvml.ERROR_TIMEOUT:
+		results = append(results, testResult{"event/wait_blocks", false, fmt.Sprintf("expected TIMEOUT, got %v", nvml.ErrorString(ret))})
+	case elapsed < waitFor:
+		results = append(results, testResult{"event/wait_blocks", false, fmt.Sprintf("returned after %s, want at least %s (clients busy-spin on early returns)", elapsed, waitFor)})
+	case elapsed > waitFor+eventWaitSlack:
+		results = append(results, testResult{"event/wait_blocks", false, fmt.Sprintf("blocked for %s, want about %s", elapsed, waitFor)})
+	default:
+		results = append(results, testResult{"event/wait_blocks", true, elapsed.String()})
+	}
+
+	results = append(results, testEventSetWaitSymbols()...)
+
+	return results
+}
+
+// testEventSetWaitSymbols checks the wait symbols the library claims. go-nvml
+// only calls v2 (via the unversioned alias), so v1 needs an explicit dlsym.
+func testEventSetWaitSymbols() []testResult {
+	var results []testResult
+
+	lib := dl.New("libnvidia-ml.so.1", dl.RTLD_LAZY|dl.RTLD_GLOBAL)
+	if err := lib.Open(); err != nil {
+		return append(results, testResult{"event/dlopen", false, fmt.Sprintf("dlopen libnvidia-ml.so.1: %v", err)})
+	}
+	defer func() {
+		if err := lib.Close(); err != nil {
+			log.Printf("  WARN  event/dlclose: %v", err)
+		}
+	}()
+
+	for _, symbol := range []string{"nvmlEventSetWait", "nvmlEventSetWait_v1", "nvmlEventSetWait_v2"} {
+		if err := lib.Lookup(symbol); err != nil {
+			results = append(results, testResult{fmt.Sprintf("event/symbol_%s", symbol), false, err.Error()})
+		} else {
+			results = append(results, testResult{fmt.Sprintf("event/symbol_%s", symbol), true, ""})
+		}
+	}
+
 	return results
 }
 

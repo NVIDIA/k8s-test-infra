@@ -77,8 +77,8 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 	)
 
 	BeforeAll(func(ctx SpecContext) {
-		h = setupCluster(ctx, "nvml-mock-nfd", demoKindConfig([]string{"a100"}), "nfd")
-		installDemoChart(ctx, h, "a100", 8)
+		h = setupCluster(ctx, "nfd")
+		assertions.WaitDaemonSetReady(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", config.ReadyTimeout(), config.PollInterval())
 
 		// Derive the node from where an nvml-mock pod actually runs — never
 		// h.Kube.FirstNodeName, which returns Items[0]: on the demo kind

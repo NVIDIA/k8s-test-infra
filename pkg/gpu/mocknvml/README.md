@@ -157,10 +157,12 @@ devices:
 ```
 
 > **Note:** `bus_id` uses the canonical Linux sysfs form `DDDD:BB:DD.F`
-> (4-digit PCI domain). The 8-digit NVML `busIdLegacy` form
-> (`00000000:07:00.0`) is **not accepted** — the PCI sysfs renderer
-> rejects it at validation time so half-migrated profiles don't silently
-> produce trees the DRA driver can't resolve.
+> (4-digit PCI domain). The 8-digit form (`00000000:07:00.0`) is **not
+> accepted** — the PCI sysfs renderer rejects it at validation time so
+> half-migrated profiles don't silently produce trees the DRA driver
+> can't resolve. NVML reports both widths from the one declaration:
+> `nvmlPciInfo_t.busId` carries the 8-digit domain, `busIdLegacy` the
+> 4-digit one, matching real hardware.
 
 #### PCIe Topology (optional)
 
@@ -332,13 +334,29 @@ not recover without a reboot. Per-mode behaviour:
 
 The `xid.code` field is surfaced through the standard NVML event set
 (`NVML_EVENT_TYPE_XID_CRITICAL_ERROR`) the first time
-`nvmlEventSetWait_v2` is called after the device trips. Combine it with
+`nvmlEventSetWait_v1`/`nvmlEventSetWait_v2` is called after the device
+trips. Combine it with
 `mode: ecc_uncorrectable` to inject a specific Xid (for example `64` for
 ECC double-bit, `79` for "GPU has fallen off the bus") without taking
 the GPU off the API surface. Real NVML reports each critical Xid exactly
 once per occurrence, so the mock delivers the configured code on the
 first wait and reports `NVML_ERROR_TIMEOUT` (no event) on subsequent
 waits — exactly like real hardware.
+
+With no event pending the wait blocks for the caller's timeout,
+re-checking every 100 ms, as real NVML does. Clients (device-plugin
+health monitor, dcgm-exporter) loop on the wait with no sleep of their
+own, so an immediate return busy-spins their health loop and burns a CPU
+core.
+
+The 100 ms re-check only claims an Xid that is *already* pending. A
+device trips its failure injector on a guarded **device** call
+(`GetTemperature`, `GetEccErrors`, …), never on the wait itself — so a
+client that only calls `nvmlEventSetWait` in a loop never advances the
+injector and its wait is a plain sleep. Drive a device getter
+(`nvidia-smi -q`, a dcgm-exporter scrape) to trip it. `nvml-mock-ctl`
+only writes the override file, so it configures the failure but cannot
+trip it on its own.
 
 `Device.GetViolationStatus` deliberately does **not** carry the Xid
 code; that field is reserved for cumulative throttle time in nanoseconds
@@ -363,7 +381,7 @@ nvidia-smi -q                                        # "GPU is lost" sections
 echo "exit=$?"                                       # non-zero after trip
 
 # mode: ecc_uncorrectable  ─  device stays addressable; counters grow and
-# nvmlEventSetWait_v2 delivers the configured Xid once per trip.
+# nvmlEventSetWait_v1/_v2 delivers the configured Xid once per trip.
 nvidia-smi -q -d ECC                                 # uncorrectable counts
 nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv
 nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.dram  --format=csv
@@ -582,7 +600,7 @@ The mock library implements 89 NVML functions required by nvidia-smi:
 - **ECC**: `nvmlDeviceGetEccMode`, `nvmlDeviceGetTotalEccErrors`
 - **PCIe**: `nvmlDeviceGetPciInfo`, `nvmlDeviceGetCurrPcieLinkGeneration`
 - **MIG**: `nvmlDeviceGetMigMode`
-- **Events**: `nvmlEventSetCreate`, `nvmlEventSetWait` (EventSetCreate returns `SUCCESS`; EventSetWait returns `TIMEOUT`)
+- **Events**: `nvmlEventSetCreate`, `nvmlEventSetWait_v1`/`nvmlEventSetWait_v2` (EventSetCreate returns `SUCCESS`; the waits deliver an injected Xid, otherwise block for the caller's timeout and return `TIMEOUT`)
 
 All other NVML functions return `NVML_ERROR_NOT_SUPPORTED`, providing full API
 coverage for linking.

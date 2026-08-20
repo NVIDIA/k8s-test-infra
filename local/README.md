@@ -22,14 +22,14 @@ tilt up -- --gpu-operator
 
 ## Step 1 — Create a cluster
 
-All profiles use the same custom Kind node image (`kind-node-nv:latest`) built from `local/kind/Dockerfile`, which pre-installs the NVIDIA container runtime.
+All profiles use the same custom Kind node image (`kind-node-nv:latest`) built from `deployments/kind-nvidia-cdi/Dockerfile`, which pre-installs the NVIDIA container runtime and bakes CDI into containerd.
 
 The default profile spans 1 control-plane + 2 workers (a100 + t4), so no cluster rebuild is needed when switching between homogeneous (single Helm release) and heterogeneous (per-GPU-profile) nvml-mock installation, or when enabling `--fgo`.
 
 | `PROFILE=`          | Kind config                           | Cluster name                    | Use with                                                             |
 |---------------------|---------------------------------------|---------------------------------|----------------------------------------------------------------------|
-| `default` (default) | `local/kind/default.kind.yaml`        | `kind-gpu-test`                 | basic, gpu-operator, dra, `--multi-gpu-profile`, `--fgo`             |
-| `compute-domain`    | `local/kind/compute-domain.kind.yaml` | `kind-nvml-mock-compute-domain` | `--compute-domain`                                                   |
+| `default` (default) | `local/kind/default.kind.yaml`        | `kind-mokka`                    | basic, gpu-operator, dra, `--multi-gpu-profile`, `--fgo`             |
+| `compute-domain`    | `local/kind/compute-domain.kind.yaml` | `kind-mokka-compute-domain`     | `--compute-domain`                                                   |
 
 ```bash
 make cluster-create                         # 1 CP + 2 workers (a100 / t4) — the default
@@ -54,7 +54,7 @@ Supported `--gpu-profile` values: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40
 
 ### Heterogeneous fleet (per-GPU-profile releases)
 
-Installs one nvml-mock release per worker, pinned by node selector `nvml-mock/profile=<profile>`. Profiles are fixed to `a100` and `t4` (matching the worker labels in `local/kind/default.kind.yaml`). `--gpu-profile` is ignored in this mode.
+Installs one nvml-mock release per worker, pinned by node selector `kubernetes.io/hostname=<worker>`. Profiles are fixed to `a100` on `worker-0` and `t4` on `worker-1` (the worker names come from `local/kind/default.kind.yaml`). `--gpu-profile` is ignored in this mode.
 
 ```bash
 tilt up -- --multi-gpu-profile
@@ -117,6 +117,19 @@ tilt up -- --compute-domain --dra        # with DRA driver
 The Tilt UI exposes two manual triggers under the `compute-domain-tests` label:
 - **check-fabric** — asserts the topology overlay assigned the expected `cliqueId`/`clusterUUID` to each node
 - **topology-rebind** — live-rebinds the NVLink topology and re-asserts the new clique assignment
+
+### With NVIDIA topograph
+
+Deploys [topograph](https://github.com/NVIDIA/topograph), a network-topology discovery service, on top of the compute-domain cluster. Topograph reads `nvidia.com/gpu.clique` node labels and translates them into `network.topology.nvidia.com/*` labels (`accelerator`, `tier-0`, `tier-1`, ...) that topology-aware schedulers (KAI, Kueue TAS) consume.
+
+`--topograph` implies `--compute-domain` — cliques only exist in the compute-domain cluster. `--dra` is **not** required: `nvidia.com/gpu.clique` is a static label baked into each worker node in `local/kind/compute-domain.kind.yaml`. Topograph reads it directly from the Kubernetes API; no runtime label writer is needed. Incompatible combos (`--topograph --fgo`, `--topograph --multi-gpu-profile`, `--topograph --gpu-profile <p>`) surface via the existing compute-domain guardrails.
+
+Data path: `nvidia.com/gpu.clique` static node label → topograph `infiniband-k8s` provider (with `useGpuCliqueLabel: true`) → writes `network.topology.nvidia.com/{accelerator,tier-0,tier-1,...}` on all nodes.
+
+```bash
+make cluster-create PROFILE=compute-domain   # required for the 4-worker cluster shape
+tilt up -- --topograph                        # implies --compute-domain; --dra optional
+```
 
 ## Helm value overrides for nvml-mock
 

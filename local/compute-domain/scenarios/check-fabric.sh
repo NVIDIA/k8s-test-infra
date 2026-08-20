@@ -12,9 +12,10 @@
 
 set -euo pipefail
 
-CLUSTER_NAME="nvml-mock-compute-domain"
 RELEASE_NAME="nvml-mock"
-EXPECTED_UUID="00000000-0000-0000-0000-0000000000ab"
+# Two spine domains — see local/compute-domain/topology.yaml.
+SPINE1_UUID="00000000-0000-0000-0000-0000000000ab"
+SPINE2_UUID="00000000-0000-0000-0000-0000000000cd"
 
 pod_on_node() {
   local node=$1
@@ -58,9 +59,9 @@ assert_clique() {
   printf 'OK: %s clique=%s uuid=%s state=completed\n' "${node}" "${expected_clique}" "${expected_uuid}"
 }
 
-assert_clique "${CLUSTER_NAME}-worker"  0 "${EXPECTED_UUID}"
-assert_clique "${CLUSTER_NAME}-worker2" 0 "${EXPECTED_UUID}"
-assert_clique "${CLUSTER_NAME}-worker3" 1 "${EXPECTED_UUID}"
-assert_clique "${CLUSTER_NAME}-worker4" 1 "${EXPECTED_UUID}"
+assert_clique worker-0 0 "${SPINE1_UUID}"
+assert_clique worker-1 1 "${SPINE1_UUID}"
+assert_clique worker-2 0 "${SPINE2_UUID}"
+assert_clique worker-3 1 "${SPINE2_UUID}"
 
 printf '\n==> Scenario 1 passed: 4/4 workers report expected fabric identity.\n'

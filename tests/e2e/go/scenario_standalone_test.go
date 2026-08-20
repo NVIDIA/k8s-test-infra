@@ -12,6 +12,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions/nvidiasmi"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
@@ -34,7 +35,7 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 	selectedProfiles := config.SelectedProfileNames()
 
 	BeforeAll(func(ctx SpecContext) {
-		h = setupCluster(ctx, ClusterName, demoKindConfig(selectedProfiles), "standalone")
+		h = setupCluster(ctx, "standalone")
 	})
 
 	// demo.sh step 11: node labels. Cluster topology is static (set by
@@ -72,7 +73,79 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 			})
 
 			It("reports the profile GPUs via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
-				assertions.NvidiaSMI(ctx, h.Kube, pod, p)
+				nvidiasmi.Inventory(ctx, h.Kube, pod, p)
+			})
+
+			It("reports architecture-correct temperature thresholds via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #635: pre-Ada profiles must show absolute threshold
+				// rows; Ada+ keep T.Limit. Focus profiles called out there are
+				// a100 (ampere) and h100 (hopper); every selected profile is
+				// checked so a regression cannot hide behind E2E_PROFILES.
+				nvidiasmi.TemperatureThresholds(ctx, h.Kube, pod, p)
+			})
+
+			It("reports configured encoder and FBC stats via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #636: encoder_stats / fbc_stats were accepted by the
+				// engine but silently stubbed at the C ABI. Non-zero overrides
+				// prove the path is live rather than a zeroed coincidence.
+				assertEncoderFBCAccounting(ctx, h, pod)
+			})
+
+			It("reports SRAM ECC counters and row-remap availability via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #641: every SRAM row and the bank availability
+				// histogram read N/A, so a consumer saw an unsupported feature
+				// where a healthy GPU reports 0. The histogram expectation
+				// comes from the profile, which pins it populated on Ampere and
+				// later and N/A on t4.
+				assertSramECCBaseline(ctx, h, pod, p)
+			})
+
+			It("reports JPEG and OFA utilization via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #637: both readings were N/A because the NVML entry
+				// points were generated stubs, so every configured value was
+				// dropped. First the deployed profile's own percentages, then
+				// distinct non-zero values pinned at runtime.
+				nvidiasmi.JpgOfaUtilization(ctx, h.Kube, pod, p.JPEGUtilizationPct(), p.OFAUtilizationPct())
+				assertJpgOfaUtilizationOverride(ctx, h, pod)
+			})
+
+			It("reports valid per-GPU PCIe identity via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #638: Board ID was 0x0 on every device, Device Max read
+				// N/A from a generated stub, and Host Max read Gen0 because the
+				// internal export-table slot behind it went unserved. Checked on
+				// every selected profile so the generation tracks config.
+				nvidiasmi.PCIeIdentity(ctx, h.Kube, pod, p)
+			})
+
+			It("reports the profile's C2C mode via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #639: nvmlDeviceGetC2cModeInfoV was a generated stub, so
+				// GPU C2C Mode read N/A even on gb200/gb300, whose defining
+				// feature is the NVLink-C2C link to Grace. The expectation comes
+				// from the profile, so this same spec pins Enabled on Grace
+				// boards and N/A on every other selected profile.
+				nvidiasmi.C2CMode(ctx, h.Kube, pod, p)
+			})
+
+			It("reports the bare-metal virtualization mode via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #640: the reading was N/A because
+				// nvmlDeviceGetVirtualizationMode was a generated stub, so the
+				// mock claimed it could not tell whether it was virtualized
+				// where bare metal answers None. pmon and topo -m are checked
+				// alongside it because an earlier attempt at this fix moved pmon
+				// onto a different code path and segfaulted it (PR #630).
+				nvidiasmi.VirtualizationMode(ctx, h.Kube, pod)
+				nvidiasmi.ProcessMonitorAndTopology(ctx, h.Kube, pod)
+			})
+
+			It("reports the profile's platform identity via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #642: nvmlDeviceGetPlatformInfo was a generated stub, so
+				// the whole Platform Info block read N/A even on gb200/gb300,
+				// leaving a Grace-Blackwell rack indistinguishable from a PCIe
+				// workstation card by physical location. The expectation comes
+				// from the profile, so this same spec pins the configured
+				// chassis/slot/tray/host and a per-GPU module id on the NVL72
+				// profiles and N/A on every other selected profile.
+				nvidiasmi.PlatformIdentity(ctx, h.Kube, pod, p)
 			})
 
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
@@ -123,6 +196,14 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertRuntimeECCInjection(ctx, h, pod)
 				})
 
+				It("injects and clears SRAM ECC errors at runtime via nvml-mock-ctl", Label("runtime-control"), func(ctx SpecContext) {
+					// Issue #641: the inject-and-clear cycle is the point —
+					// simulating an SRAM fault mid-test is the capability being
+					// added, and the counters must come back to 0 rather than
+					// staying stuck or reverting to N/A.
+					assertRuntimeSramECCInjection(ctx, h, pod, p)
+				})
+
 				It("marks all GPUs lost and recovers via nvml-mock-ctl", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimeFailAllLost(ctx, h, pod, p.ExpectedGPUs())
 				})
@@ -161,6 +242,10 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 
 				It("pins the performance state via the nvml-mock-ctl pstate command", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimePStateCommand(ctx, h, pod)
+				})
+
+				It("drives the running-process list via nvml-mock-ctl set", Label("runtime-control"), func(ctx SpecContext) {
+					assertRuntimeProcesses(ctx, h, pod)
 				})
 
 				It("targets a GPU by UUID via nvml-mock-ctl", Label("runtime-control"), func(ctx SpecContext) {
