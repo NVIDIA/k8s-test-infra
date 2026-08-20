@@ -2,7 +2,7 @@
 
 ## Scope
 
-Reconcile `SGPUProfile` and `SGPUInventory` into controller-owned `SGPURack`
+Reconcile `SGPURackProfile` and `SGPUInventory` into controller-owned `SGPURack`
 objects, durable exact-UID Node bindings, compact Node assignment metadata, and
 the aggregate status fields defined by the current `v1alpha1` API. Kubernetes
 objects are authoritative; runtime-policy evaluation, agent state, Redis, and
@@ -33,7 +33,7 @@ driver changes are out of scope.
 
 - Cache only eligible Nodes and rebuild all local state after restart.
 - Keep unchanged bindings stable and allocate pending Nodes in deterministic
-  creation-time/name/UID and rack/slot order.
+  creation-time/name/UID and rack/Node order.
 - Use indexes for event fan-out and selector candidates; avoid Node or rack
   API lists during reconciliation.
 - Treat UIDs as object identity for release and cleanup, and never force field

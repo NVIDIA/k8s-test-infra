@@ -22,24 +22,24 @@ import (
 	cache "k8s.io/client-go/tools/cache"
 )
 
-// SGPUProfileLister helps list SGPUProfiles.
+// SGPURackProfileLister helps list SGPURackProfiles.
 // All objects returned here must be treated as read-only.
-type SGPUProfileLister interface {
-	// List lists all SGPUProfiles in the indexer.
+type SGPURackProfileLister interface {
+	// List lists all SGPURackProfiles in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*apiv1alpha1.SGPUProfile, err error)
-	// Get retrieves the SGPUProfile from the index for a given name.
+	List(selector labels.Selector) (ret []*apiv1alpha1.SGPURackProfile, err error)
+	// Get retrieves the SGPURackProfile from the index for a given name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*apiv1alpha1.SGPUProfile, error)
-	SGPUProfileListerExpansion
+	Get(name string) (*apiv1alpha1.SGPURackProfile, error)
+	SGPURackProfileListerExpansion
 }
 
-// sGPUProfileLister implements the SGPUProfileLister interface.
-type sGPUProfileLister struct {
-	listers.ResourceIndexer[*apiv1alpha1.SGPUProfile]
+// sGPURackProfileLister implements the SGPURackProfileLister interface.
+type sGPURackProfileLister struct {
+	listers.ResourceIndexer[*apiv1alpha1.SGPURackProfile]
 }
 
-// NewSGPUProfileLister returns a new SGPUProfileLister.
-func NewSGPUProfileLister(indexer cache.Indexer) SGPUProfileLister {
-	return &sGPUProfileLister{listers.New[*apiv1alpha1.SGPUProfile](indexer, apiv1alpha1.Resource("sgpuprofile"))}
+// NewSGPURackProfileLister returns a new SGPURackProfileLister.
+func NewSGPURackProfileLister(indexer cache.Indexer) SGPURackProfileLister {
+	return &sGPURackProfileLister{listers.New[*apiv1alpha1.SGPURackProfile](indexer, apiv1alpha1.Resource("sgpurackprofile"))}
 }

@@ -282,7 +282,7 @@ snapshot_assignments() {
 capture_failure() {
 	set +e
 	log "capturing failure diagnostics in ${ARTIFACT_DIR}"
-	kctl get sgpuprofiles,sgpuinventories,sgpuracks,nodes,leases -A -o json >"${ARTIFACT_DIR}/failure.resources.json" 2>&1
+	kctl get sgpurackprofiles,sgpuinventories,sgpuracks,nodes,leases -A -o json >"${ARTIFACT_DIR}/failure.resources.json" 2>&1
 	kctl get events -A --sort-by=.lastTimestamp >"${ARTIFACT_DIR}/failure.events.txt" 2>&1
 	kctl api-resources >"${ARTIFACT_DIR}/failure.api-resources.txt" 2>&1
 	capture_metrics failure
@@ -372,7 +372,7 @@ kwok create cluster \
 log "rendering and installing generated Mokka CRDs"
 helm template mokka-crds "${CRD_CHART_DIR}" --include-crds >"${CRD_MANIFEST}" 2>"${ARTIFACT_DIR}/crd-render.log"
 kctl apply --server-side --field-manager=mokka-kwok-poc -f "${CRD_MANIFEST}" >"${ARTIFACT_DIR}/crd-apply.log" 2>&1
-kctl wait --for=condition=Established --timeout=2m crd/sgpuprofiles.mokka.nvidia.com crd/sgpuinventories.mokka.nvidia.com crd/sgpuracks.mokka.nvidia.com
+kctl wait --for=condition=Established --timeout=2m crd/sgpurackprofiles.mokka.nvidia.com crd/sgpuinventories.mokka.nvidia.com crd/sgpuracks.mokka.nvidia.com
 kctl apply --server-side --field-manager=mokka-kwok-poc -f "${WORK_DIR}/profile.yaml" >/dev/null
 
 start_controller

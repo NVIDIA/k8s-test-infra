@@ -26,7 +26,7 @@ make kwok-scale-matrix KWOK_SCALE=1
 ```
 
 `KWOK_NODE_COUNT` must be divisible by `KWOK_NODES_PER_RACK` (default 100),
-must span at least two racks, and is capped by the Mokka CRD at 1024 slots per
+must span at least two racks, and is capped by the Mokka CRD at 1024 logical Nodes per
 rack.
 Useful overrides include `KWOK_TIMEOUT_SECONDS`, `KWOK_WORKERS`,
 `KWOK_API_QPS`, `KWOK_API_BURST`, `KWOK_CLUSTER_NAME`, and

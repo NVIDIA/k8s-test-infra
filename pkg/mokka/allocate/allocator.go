@@ -1,7 +1,7 @@
 // Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 // Licensed under the Apache License, Version 2.0 (the "License");
 
-// Package allocate plans stable Node-to-slot bindings from immutable snapshots.
+// Package allocate plans stable Kubernetes-Node-to-logical-Node bindings from immutable snapshots.
 // It performs no Kubernetes API operations and does not mutate its inputs.
 package allocate
 
@@ -33,7 +33,7 @@ type Group struct {
 	Key          GroupKey
 	Selector     *metav1.LabelSelector
 	Racks        int32
-	SlotsPerRack int32
+	NodesPerRack int32
 }
 
 // Node is the allocation-relevant portion of a Kubernetes Node.
@@ -50,11 +50,11 @@ type NodeReference struct {
 	UID  types.UID
 }
 
-// Coordinate identifies one durable rack slot.
+// Coordinate identifies one durable logical Node in a rack.
 type Coordinate struct {
 	Group     GroupKey
 	RackIndex int32
-	SlotIndex int32
+	NodeIndex int32
 }
 
 // Binding assigns an exact Node instance to one coordinate.
@@ -76,7 +76,7 @@ const (
 	ReleaseSelectorMismatch ReleaseReason = "SelectorMismatch"
 )
 
-// Release is cleanup work that must finish before its slot can be reused.
+// Release is cleanup work that must finish before its logical Node can be reused.
 type Release struct {
 	Binding Binding
 	Reason  ReleaseReason
@@ -104,7 +104,7 @@ type Conflict struct {
 type Stats struct {
 	SelectorEvaluations int64
 	BindingLookups      int64
-	SlotVisits          int64
+	NodeVisits          int64
 }
 
 // Input is a complete immutable allocation snapshot.
@@ -310,11 +310,11 @@ func validateBindingCoordinates(bindings []Binding) error {
 		if binding.Node.Name == "" || binding.Node.UID == "" {
 			return errors.New("binding node identity must include name and UID")
 		}
-		if binding.Coordinate.RackIndex < 0 || binding.Coordinate.SlotIndex < 0 {
+		if binding.Coordinate.RackIndex < 0 || binding.Coordinate.NodeIndex < 0 {
 			return errors.New("binding coordinate must not be negative")
 		}
 		if _, exists := coordinates[binding.Coordinate]; exists {
-			return fmt.Errorf("duplicate slot binding at %+v", binding.Coordinate)
+			return fmt.Errorf("duplicate logical Node binding at %+v", binding.Coordinate)
 		}
 		coordinates[binding.Coordinate] = struct{}{}
 	}
@@ -322,15 +322,15 @@ func validateBindingCoordinates(bindings []Binding) error {
 }
 
 func nextFreeCoordinate(state *groupState, stats *Stats) (Coordinate, bool) {
-	total := int64(state.group.Racks) * int64(state.group.SlotsPerRack)
+	total := int64(state.group.Racks) * int64(state.group.NodesPerRack)
 	for state.cursor < total {
 		offset := state.cursor
 		state.cursor++
-		stats.SlotVisits++
+		stats.NodeVisits++
 		coordinate := Coordinate{
 			Group:     state.group.Key,
-			RackIndex: int32(offset / int64(state.group.SlotsPerRack)),
-			SlotIndex: int32(offset % int64(state.group.SlotsPerRack)),
+			RackIndex: int32(offset / int64(state.group.NodesPerRack)),
+			NodeIndex: int32(offset % int64(state.group.NodesPerRack)),
 		}
 		key := slotKey(coordinate)
 		if _, occupied := state.occupied[key]; occupied {
@@ -345,12 +345,12 @@ func nextFreeCoordinate(state *groupState, stats *Stats) (Coordinate, bool) {
 func coordinateInCapacity(coordinate Coordinate, group Group) bool {
 	return coordinate.RackIndex >= 0 &&
 		coordinate.RackIndex < group.Racks &&
-		coordinate.SlotIndex >= 0 &&
-		coordinate.SlotIndex < group.SlotsPerRack
+		coordinate.NodeIndex >= 0 &&
+		coordinate.NodeIndex < group.NodesPerRack
 }
 
 func slotKey(coordinate Coordinate) uint64 {
-	return uint64(uint32(coordinate.RackIndex))<<32 | uint64(uint32(coordinate.SlotIndex))
+	return uint64(uint32(coordinate.RackIndex))<<32 | uint64(uint32(coordinate.NodeIndex))
 }
 
 func compareNodes(a, b Node) int {
@@ -370,7 +370,7 @@ func compareBindings(a, b Binding) int {
 	if order := cmp.Compare(a.Coordinate.RackIndex, b.Coordinate.RackIndex); order != 0 {
 		return order
 	}
-	if order := cmp.Compare(a.Coordinate.SlotIndex, b.Coordinate.SlotIndex); order != 0 {
+	if order := cmp.Compare(a.Coordinate.NodeIndex, b.Coordinate.NodeIndex); order != 0 {
 		return order
 	}
 	return cmp.Compare(string(a.Node.UID), string(b.Node.UID))

@@ -117,7 +117,7 @@ func TestAllocationCacheInvalidatesNodeIdentitySpecsAndRackBindings(t *testing.T
 	source.mu.Lock()
 	cleared := source.racks[0].DeepCopy()
 	cleared.UID = "rack-uid-2"
-	cleared.Spec.Slots[0].NodeRef = nil
+	cleared.Spec.Nodes[0].NodeRef = nil
 	source.racks = []*mokkav1alpha1.SGPURack{cleared}
 	source.mu.Unlock()
 	planner.Invalidate()
@@ -189,10 +189,10 @@ func BenchmarkAllocationCache100KNodes64Groups(b *testing.B) {
 	expectedBindings := nodeCount - nodeCount%groupCount
 	declaredSlots := int64(0)
 	for _, group := range input.Groups {
-		declaredSlots += int64(group.Racks) * int64(group.SlotsPerRack)
+		declaredSlots += int64(group.Racks) * int64(group.NodesPerRack)
 	}
 	require.EqualValues(b, expectedBindings, declaredSlots)
-	require.LessOrEqual(b, declaredSlots, MaxInventoryNodeSlots)
+	require.LessOrEqual(b, declaredSlots, MaxInventoryNodes)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -231,7 +231,7 @@ func BenchmarkAllocationCache100KNodes64Groups(b *testing.B) {
 type mutableAllocationSource struct {
 	mu             sync.RWMutex
 	inventories    []*mokkav1alpha1.SGPUInventory
-	profiles       map[string]*mokkav1alpha1.SGPUProfile
+	profiles       map[string]*mokkav1alpha1.SGPURackProfile
 	racks          []*mokkav1alpha1.SGPURack
 	nodes          []allocate.Node
 	nodeGeneration uint64
@@ -254,12 +254,12 @@ func (s *mutableAllocationSource) Inventories() ([]*mokkav1alpha1.SGPUInventory,
 	return append([]*mokkav1alpha1.SGPUInventory(nil), s.inventories...), nil
 }
 
-func (s *mutableAllocationSource) Profile(name string) (*mokkav1alpha1.SGPUProfile, error) {
+func (s *mutableAllocationSource) Profile(name string) (*mokkav1alpha1.SGPURackProfile, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	profile := s.profiles[name]
 	if profile == nil {
-		return nil, apierrors.NewNotFound(mokkav1alpha1.Resource("sgpuprofiles"), name)
+		return nil, apierrors.NewNotFound(mokkav1alpha1.Resource("sgpurackprofiles"), name)
 	}
 	return profile, nil
 }
@@ -351,7 +351,7 @@ func allocationScaleSource(
 	}
 	return &mutableAllocationSource{
 		inventories: []*mokkav1alpha1.SGPUInventory{inventory},
-		profiles:    map[string]*mokkav1alpha1.SGPUProfile{profile.Name: profile},
+		profiles:    map[string]*mokkav1alpha1.SGPURackProfile{profile.Name: profile},
 		nodes:       nodes,
 	}, inventory, keys
 }
@@ -372,7 +372,7 @@ func allocationRack(
 		Spec: mokkav1alpha1.SGPURackSpec{
 			InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID},
 			Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: key.RackGroup, RackIndex: 0},
-			Slots:        []mokkav1alpha1.SGPURackSlot{{Index: 0, NodeRef: ref}},
+			Nodes:        []mokkav1alpha1.SGPURackNode{{Index: 0, NodeRef: ref}},
 		},
 	}
 }

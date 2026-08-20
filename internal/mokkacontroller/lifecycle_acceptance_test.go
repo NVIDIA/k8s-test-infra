@@ -63,7 +63,7 @@ func TestControllerLifecycleAcceptance(t *testing.T) {
 	inventory.Spec.RackGroups[0].Count = 2
 	nodes.create(acceptanceNode("node-a", "node-a-v1", 1))
 	nodes.create(acceptanceNode("node-b", "node-b-v1", 2))
-	_, err = mokka.MokkaV1alpha1().SGPUProfiles().Create(ctx, profile, metav1.CreateOptions{})
+	_, err = mokka.MokkaV1alpha1().SGPURackProfiles().Create(ctx, profile, metav1.CreateOptions{})
 	require.NoError(t, err)
 	_, err = mokka.MokkaV1alpha1().SGPUInventories().Create(ctx, inventory, metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -73,9 +73,9 @@ func TestControllerLifecycleAcceptance(t *testing.T) {
 	require.Eventually(t, func() bool {
 		rack := getAcceptanceRack(ctx, t, mokka, rackName)
 		secondRack := getAcceptanceRack(ctx, t, mokka, secondRackName)
-		return len(rack.Spec.Slots) == 1 && len(secondRack.Spec.Slots) == 1 &&
-			rack.Spec.Slots[0].NodeRef != nil && rack.Spec.Slots[0].NodeRef.UID == "node-a-v1" &&
-			secondRack.Spec.Slots[0].NodeRef != nil && secondRack.Spec.Slots[0].NodeRef.UID == "node-b-v1" &&
+		return len(rack.Spec.Nodes) == 1 && len(secondRack.Spec.Nodes) == 1 &&
+			rack.Spec.Nodes[0].NodeRef != nil && rack.Spec.Nodes[0].NodeRef.UID == "node-a-v1" &&
+			secondRack.Spec.Nodes[0].NodeRef != nil && secondRack.Spec.Nodes[0].NodeRef.UID == "node-b-v1" &&
 			nodeIsProjected(nodes.snapshot("node-a"), "node-a-v1") &&
 			nodeIsProjected(nodes.snapshot("node-b"), "node-b-v1")
 	}, 10*time.Second, 20*time.Millisecond)
@@ -96,8 +96,8 @@ func TestControllerLifecycleAcceptance(t *testing.T) {
 			current.Status.Capacity.Nodes == 2 &&
 			current.Status.Usage.AllocatedNodes == 2 &&
 			slices.Contains(rack.Finalizers, controllerack.RackFinalizer) &&
-			rack.Status.AssignedSlots == 1 && ready != nil && ready.Status == metav1.ConditionTrue &&
-			secondRack.Status.AssignedSlots == 1 && secondReady != nil && secondReady.Status == metav1.ConditionTrue
+			rack.Status.AssignedNodes == 1 && ready != nil && ready.Status == metav1.ConditionTrue &&
+			secondRack.Status.AssignedNodes == 1 && secondReady != nil && secondReady.Status == metav1.ConditionTrue
 	}, 10*time.Second, 20*time.Millisecond)
 
 	currentInventory, err := mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
@@ -128,8 +128,8 @@ func TestControllerLifecycleAcceptance(t *testing.T) {
 		node := nodes.snapshot("node-a")
 		bindings := 0
 		projected := false
-		for index := range rack.Spec.Slots {
-			slot := &rack.Spec.Slots[index]
+		for index := range rack.Spec.Nodes {
+			slot := &rack.Spec.Nodes[index]
 			if slot.NodeRef != nil && slot.NodeRef.UID == "node-a-v2" {
 				bindings++
 				projected = projected || controllerprojection.MatchesBinding(node, rack, slot)
@@ -185,7 +185,7 @@ func TestControllerRecoversDesiredRackAfterForeignBlockerDelete(t *testing.T) {
 			Name: rackName, UID: "foreign-blocker-uid", ResourceVersion: "1",
 		},
 	}
-	_, err = mokka.MokkaV1alpha1().SGPUProfiles().Create(ctx, profile, metav1.CreateOptions{})
+	_, err = mokka.MokkaV1alpha1().SGPURackProfiles().Create(ctx, profile, metav1.CreateOptions{})
 	require.NoError(t, err)
 	_, err = mokka.MokkaV1alpha1().SGPURacks().Create(ctx, blocker, metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -251,7 +251,7 @@ func TestControllerRejectsProjectedLabelPlacementWithoutOscillation(t *testing.T
 	inventory := acceptanceInventory()
 	node := acceptanceNode("node", "node-uid", 1)
 	nodes.create(node)
-	_, err = mokka.MokkaV1alpha1().SGPUProfiles().Create(ctx, profile, metav1.CreateOptions{})
+	_, err = mokka.MokkaV1alpha1().SGPURackProfiles().Create(ctx, profile, metav1.CreateOptions{})
 	require.NoError(t, err)
 	_, err = mokka.MokkaV1alpha1().SGPUInventories().Create(ctx, inventory, metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -259,8 +259,8 @@ func TestControllerRejectsProjectedLabelPlacementWithoutOscillation(t *testing.T
 	rackName := materialize.RackName(inventory.Name, inventory.UID, "compute", 0)
 	require.Eventually(t, func() bool {
 		rack := getAcceptanceRack(ctx, t, mokka, rackName)
-		return len(rack.Spec.Slots) == 1 && rack.Spec.Slots[0].NodeRef != nil &&
-			rack.Spec.Slots[0].NodeRef.UID == node.UID && nodeIsProjected(nodes.snapshot(node.Name), node.UID)
+		return len(rack.Spec.Nodes) == 1 && rack.Spec.Nodes[0].NodeRef != nil &&
+			rack.Spec.Nodes[0].NodeRef.UID == node.UID && nodeIsProjected(nodes.snapshot(node.Name), node.UID)
 	}, 10*time.Second, 20*time.Millisecond)
 	require.Eventually(t, func() bool {
 		before := nodes.patchCalls()
@@ -297,8 +297,8 @@ func TestControllerRejectsProjectedLabelPlacementWithoutOscillation(t *testing.T
 		return nodes.patchCalls() != patchesBeforeInvalidEdit
 	}, 500*time.Millisecond, 10*time.Millisecond, "an invalid inventory must not clean or reapply the last-good projection")
 	retained := getAcceptanceRack(ctx, t, mokka, rackName)
-	require.NotNil(t, retained.Spec.Slots[0].NodeRef)
-	require.Equal(t, node.UID, retained.Spec.Slots[0].NodeRef.UID)
+	require.NotNil(t, retained.Spec.Nodes[0].NodeRef)
+	require.Equal(t, node.UID, retained.Spec.Nodes[0].NodeRef.UID)
 	require.True(t, nodeIsProjected(nodes.snapshot(node.Name), node.UID))
 	for _, action := range mokka.Actions() {
 		if action.GetResource().Resource == "sgpuracks" {
@@ -332,7 +332,7 @@ func TestControllerBoundsCleanupWhenForeignCoOwnerPreservesField(t *testing.T) {
 	inventory := acceptanceInventory()
 	node := acceptanceNode("node", "node-uid", 1)
 	nodes.create(node)
-	_, err = mokka.MokkaV1alpha1().SGPUProfiles().Create(ctx, profile, metav1.CreateOptions{})
+	_, err = mokka.MokkaV1alpha1().SGPURackProfiles().Create(ctx, profile, metav1.CreateOptions{})
 	require.NoError(t, err)
 	_, err = mokka.MokkaV1alpha1().SGPUInventories().Create(ctx, inventory, metav1.CreateOptions{})
 	require.NoError(t, err)
@@ -340,8 +340,8 @@ func TestControllerBoundsCleanupWhenForeignCoOwnerPreservesField(t *testing.T) {
 	rackName := materialize.RackName(inventory.Name, inventory.UID, "compute", 0)
 	require.Eventually(t, func() bool {
 		rack := getAcceptanceRack(ctx, t, mokka, rackName)
-		return len(rack.Spec.Slots) == 1 && rack.Spec.Slots[0].NodeRef != nil &&
-			rack.Spec.Slots[0].NodeRef.UID == node.UID && nodeIsProjected(nodes.snapshot(node.Name), node.UID)
+		return len(rack.Spec.Nodes) == 1 && rack.Spec.Nodes[0].NodeRef != nil &&
+			rack.Spec.Nodes[0].NodeRef.UID == node.UID && nodeIsProjected(nodes.snapshot(node.Name), node.UID)
 	}, 10*time.Second, 20*time.Millisecond)
 	require.Eventually(t, func() bool {
 		before := nodes.patchCalls()
@@ -373,8 +373,8 @@ func TestControllerBoundsCleanupWhenForeignCoOwnerPreservesField(t *testing.T) {
 		return nodes.patchCalls() != patchesBeforeCleanup+1
 	}, 500*time.Millisecond, 10*time.Millisecond, "foreign-only retained metadata must not cause repeated cleanup applies")
 	retained := getAcceptanceRack(ctx, t, mokka, rackName)
-	require.NotNil(t, retained.Spec.Slots[0].NodeRef)
-	require.Equal(t, node.UID, retained.Spec.Slots[0].NodeRef.UID)
+	require.NotNil(t, retained.Spec.Nodes[0].NodeRef)
+	require.Equal(t, node.UID, retained.Spec.Nodes[0].NodeRef.UID)
 	require.Contains(t, retained.Finalizers, controllerack.RackFinalizer)
 }
 
@@ -443,8 +443,8 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 				},
 				Spec: rendered.Spec,
 			}
-			rack.Spec.Slots[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: oldNode.Name, UID: oldNode.UID}
-			assignment, err := controllerprojection.EncodeAssignment(rack, &rack.Spec.Slots[0])
+			rack.Spec.Nodes[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: oldNode.Name, UID: oldNode.UID}
+			assignment, err := controllerprojection.EncodeAssignment(rack, &rack.Spec.Nodes[0])
 			require.NoError(t, err)
 			oldNode.Labels[controllerprojection.AssignedLabel] = "true"
 			oldNode.Labels[controllerprojection.CliqueLabel] = rack.Spec.Identity.FabricUUID + ".0"
@@ -477,7 +477,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 			}
 			snapshot := newInformerCache(
 				mokkalisters.NewSGPUInventoryLister(inventoryIndexer),
-				mokkalisters.NewSGPUProfileLister(profileIndexer),
+				mokkalisters.NewSGPURackProfileLister(profileIndexer),
 				rackIndexer,
 				nodeCatalog,
 				liveNodes,
@@ -496,7 +496,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 			require.Len(t, result.CleanupNeeded, 1)
 			stored, err := mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rack.Name, metav1.GetOptions{})
 			require.NoError(t, err, "rack mutation must wait for exact projection cleanup")
-			require.Equal(t, oldNode.UID, stored.Spec.Slots[0].NodeRef.UID)
+			require.Equal(t, oldNode.UID, stored.Spec.Nodes[0].NodeRef.UID)
 
 			_, err = projection.Cleanup(ctx, result.CleanupNeeded[0])
 			require.NoError(t, err)
@@ -514,7 +514,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Nil(t, stored.Spec.Slots[0].NodeRef)
+			require.Nil(t, stored.Spec.Nodes[0].NodeRef)
 
 			if len(cachedNodes) == 0 {
 				return
@@ -524,7 +524,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 			require.NoError(t, err)
 			stored, err = mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rack.Name, metav1.GetOptions{})
 			require.NoError(t, err)
-			require.Equal(t, types.UID("replacement-uid"), stored.Spec.Slots[0].NodeRef.UID)
+			require.Equal(t, types.UID("replacement-uid"), stored.Spec.Nodes[0].NodeRef.UID)
 		})
 	}
 }
@@ -627,14 +627,14 @@ func installAcceptanceRackCreateReactor(
 	})
 }
 
-func acceptanceProfile(nodesPerRack int32) *mokkav1alpha1.SGPUProfile {
-	return &mokkav1alpha1.SGPUProfile{
-		TypeMeta: metav1.TypeMeta{APIVersion: mokkav1alpha1.SchemeGroupVersion.String(), Kind: "SGPUProfile"},
+func acceptanceProfile(nodesPerRack int32) *mokkav1alpha1.SGPURackProfile {
+	return &mokkav1alpha1.SGPURackProfile{
+		TypeMeta: metav1.TypeMeta{APIVersion: mokkav1alpha1.SchemeGroupVersion.String(), Kind: "SGPURackProfile"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "acceptance-profile", UID: "acceptance-profile-uid", Generation: 1, ResourceVersion: "1",
 		},
-		Spec: mokkav1alpha1.SGPUProfileSpec{
-			Rack: mokkav1alpha1.SGPUProfileRack{NodesPerRack: nodesPerRack},
+		Spec: mokkav1alpha1.SGPURackProfileSpec{
+			Rack: mokkav1alpha1.SGPURackShape{NodesPerRack: nodesPerRack},
 			Node: mokkav1alpha1.SGPUNode{
 				GPUs: mokkav1alpha1.SGPUGPUs{Count: 1},
 				Topology: &mokkav1alpha1.SGPUTopology{

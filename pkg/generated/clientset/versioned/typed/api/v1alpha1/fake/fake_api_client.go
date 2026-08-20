@@ -29,12 +29,12 @@ func (c *FakeMokkaV1alpha1) SGPUInventories() v1alpha1.SGPUInventoryInterface {
 	return newFakeSGPUInventories(c)
 }
 
-func (c *FakeMokkaV1alpha1) SGPUProfiles() v1alpha1.SGPUProfileInterface {
-	return newFakeSGPUProfiles(c)
-}
-
 func (c *FakeMokkaV1alpha1) SGPURacks() v1alpha1.SGPURackInterface {
 	return newFakeSGPURacks(c)
+}
+
+func (c *FakeMokkaV1alpha1) SGPURackProfiles() v1alpha1.SGPURackProfileInterface {
+	return newFakeSGPURackProfiles(c)
 }
 
 func (c *FakeMokkaV1alpha1) SGPURuntimePolicies() v1alpha1.SGPURuntimePolicyInterface {

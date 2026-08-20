@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Mokka: add an opt-in informer-driven control plane that materializes
+  `SGPURackProfile` and `SGPUInventory` declarations into stable `SGPURack`
+  Node bindings and projects the required assignment metadata onto Kubernetes
+  Nodes. The controller rebuilds its derived state from Kubernetes after restart.
 - mocknvml: `nvidia-smi -q` now reports the `Platform Info` block on the
   `gb200`/`gb300` profiles — chassis serial number, slot number, tray index,
   host ID, peer type and module ID, where every row previously read `N/A`. These

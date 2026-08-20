@@ -14,7 +14,7 @@ import (
 )
 
 func TestAllocatorRetainsBindingsAndFillsOnlyFreeSlots(t *testing.T) {
-	group := Group{Key: groupKey("inventory-a", "compute"), Racks: 2, SlotsPerRack: 2}
+	group := Group{Key: groupKey("inventory-a", "compute"), Racks: 2, NodesPerRack: 2}
 	existing := binding(group.Key, 1, 0, "node-b", "uid-b")
 	input := Input{
 		Groups: []Group{group},
@@ -40,7 +40,7 @@ func TestAllocatorRetainsBindingsAndFillsOnlyFreeSlots(t *testing.T) {
 	require.Empty(t, plan.Released)
 	require.Empty(t, plan.Conflicts)
 	require.Equal(t, append([]Binding{existing}, plan.Assigned...), plan.Bindings)
-	require.LessOrEqual(t, plan.Stats.SlotVisits, int64(4))
+	require.LessOrEqual(t, plan.Stats.NodeVisits, int64(4))
 
 	// A newly observed older Node cannot move an existing durable binding.
 	restart := input
@@ -57,7 +57,7 @@ func TestAllocatorRetainsBindingsAndFillsOnlyFreeSlots(t *testing.T) {
 }
 
 func TestAllocatorSortsPendingNodesByCreationNameAndUID(t *testing.T) {
-	group := Group{Key: groupKey("inventory-a", "compute"), Racks: 1, SlotsPerRack: 3}
+	group := Group{Key: groupKey("inventory-a", "compute"), Racks: 1, NodesPerRack: 3}
 	created := time.Unix(10, 0).UTC()
 	input := Input{
 		Groups: []Group{group},
@@ -79,8 +79,8 @@ func TestAllocatorSortsPendingNodesByCreationNameAndUID(t *testing.T) {
 
 func TestAllocatorReportsSelectorOverlapUnlessAValidBindingExists(t *testing.T) {
 	selector := &metav1.LabelSelector{MatchLabels: map[string]string{"pool": "shared"}}
-	groupA := Group{Key: groupKey("inventory-a", "compute"), Selector: selector, Racks: 1, SlotsPerRack: 2}
-	groupB := Group{Key: groupKey("inventory-b", "compute"), Selector: selector, Racks: 1, SlotsPerRack: 2}
+	groupA := Group{Key: groupKey("inventory-a", "compute"), Selector: selector, Racks: 1, NodesPerRack: 2}
+	groupB := Group{Key: groupKey("inventory-b", "compute"), Selector: selector, Racks: 1, NodesPerRack: 2}
 	bound := binding(groupA.Key, 0, 1, "bound", "bound-uid")
 	input := Input{
 		Groups: []Group{groupB, groupA},
@@ -104,8 +104,8 @@ func TestAllocatorReportsSelectorOverlapUnlessAValidBindingExists(t *testing.T) 
 }
 
 func TestAllocatorPreservesDuplicateBindingsAsADataConflict(t *testing.T) {
-	groupA := Group{Key: groupKey("inventory-a", "compute"), Racks: 1, SlotsPerRack: 2}
-	groupB := Group{Key: groupKey("inventory-b", "compute"), Racks: 1, SlotsPerRack: 2}
+	groupA := Group{Key: groupKey("inventory-a", "compute"), Racks: 1, NodesPerRack: 2}
+	groupB := Group{Key: groupKey("inventory-b", "compute"), Racks: 1, NodesPerRack: 2}
 	n := node("node-a", "node-uid", 1, eligibleLabels())
 	first := binding(groupA.Key, 0, 0, n.Name, n.UID)
 	second := binding(groupB.Key, 0, 1, n.Name, n.UID)
@@ -129,7 +129,7 @@ func TestAllocatorPreservesDuplicateBindingsAsADataConflict(t *testing.T) {
 
 func TestAllocatorPlansBindingReleases(t *testing.T) {
 	matching := &metav1.LabelSelector{MatchLabels: map[string]string{"pool": "matching"}}
-	group := Group{Key: groupKey("inventory-a", "compute"), Selector: matching, Racks: 1, SlotsPerRack: 3}
+	group := Group{Key: groupKey("inventory-a", "compute"), Selector: matching, Racks: 1, NodesPerRack: 3}
 	removedGroup := groupKey("inventory-a", "removed")
 	inputs := []Binding{
 		binding(group.Key, 0, 0, "gone", "gone-uid"),
@@ -165,7 +165,7 @@ func TestAllocatorPlansBindingReleases(t *testing.T) {
 }
 
 func TestAllocatorHandlesSameNameNewUIDAsAReplacement(t *testing.T) {
-	group := Group{Key: groupKey("inventory-a", "compute"), Racks: 1, SlotsPerRack: 1}
+	group := Group{Key: groupKey("inventory-a", "compute"), Racks: 1, NodesPerRack: 1}
 	oldBinding := binding(group.Key, 0, 0, "same-name", "old-uid")
 	replacement := node("same-name", "new-uid", 2, eligibleLabels())
 
@@ -194,7 +194,7 @@ func TestAllocatorDoesNotCompactAcrossShrinkAndGrowth(t *testing.T) {
 	}
 
 	shrunk, err := Allocate(Input{
-		Groups:   []Group{{Key: key, Racks: 2, SlotsPerRack: 2}},
+		Groups:   []Group{{Key: key, Racks: 2, NodesPerRack: 2}},
 		Nodes:    nodes,
 		Bindings: []Binding{high, low},
 	})
@@ -204,7 +204,7 @@ func TestAllocatorDoesNotCompactAcrossShrinkAndGrowth(t *testing.T) {
 	require.Empty(t, shrunk.Assigned)
 
 	grown, err := Allocate(Input{
-		Groups:   []Group{{Key: key, Racks: 4, SlotsPerRack: 2}},
+		Groups:   []Group{{Key: key, Racks: 4, NodesPerRack: 2}},
 		Nodes:    nodes,
 		Bindings: []Binding{low},
 	})
@@ -222,12 +222,12 @@ func TestAllocatorRejectsMalformedInput(t *testing.T) {
 	}{
 		{
 			name:  "negative capacity",
-			input: Input{Groups: []Group{{Key: key, Racks: -1, SlotsPerRack: 1}}},
+			input: Input{Groups: []Group{{Key: key, Racks: -1, NodesPerRack: 1}}},
 			err:   "capacity",
 		},
 		{
 			name: "duplicate live UID",
-			input: Input{Groups: []Group{{Key: key, Racks: 1, SlotsPerRack: 1}}, Nodes: []Node{
+			input: Input{Groups: []Group{{Key: key, Racks: 1, NodesPerRack: 1}}, Nodes: []Node{
 				node("one", "same-uid", 1, eligibleLabels()),
 				node("two", "same-uid", 2, eligibleLabels()),
 			}},
@@ -236,7 +236,7 @@ func TestAllocatorRejectsMalformedInput(t *testing.T) {
 		{
 			name: "two Nodes in one coordinate",
 			input: Input{
-				Groups: []Group{{Key: key, Racks: 1, SlotsPerRack: 1}},
+				Groups: []Group{{Key: key, Racks: 1, NodesPerRack: 1}},
 				Nodes: []Node{
 					node("one", "one-uid", 1, eligibleLabels()),
 					node("two", "two-uid", 2, eligibleLabels()),
@@ -246,7 +246,7 @@ func TestAllocatorRejectsMalformedInput(t *testing.T) {
 					binding(key, 0, 0, "two", "two-uid"),
 				},
 			},
-			err: "duplicate slot binding",
+			err: "duplicate logical Node binding",
 		},
 	}
 
@@ -271,7 +271,7 @@ func BenchmarkAllocator100kNodes(b *testing.B) {
 		)
 	}
 	input := Input{
-		Groups: []Group{{Key: key, Racks: 1000, SlotsPerRack: 100}},
+		Groups: []Group{{Key: key, Racks: 1000, NodesPerRack: 100}},
 		Nodes:  nodes,
 	}
 
@@ -282,7 +282,7 @@ func BenchmarkAllocator100kNodes(b *testing.B) {
 		require.NoError(b, err)
 		require.Len(b, plan.Assigned, nodeCount)
 		require.LessOrEqual(b, plan.Stats.SelectorEvaluations, int64(nodeCount))
-		require.LessOrEqual(b, plan.Stats.SlotVisits, int64(nodeCount))
+		require.LessOrEqual(b, plan.Stats.NodeVisits, int64(nodeCount))
 		require.LessOrEqual(b, plan.Stats.BindingLookups, int64(nodeCount))
 	}
 }
@@ -302,7 +302,7 @@ func eligibleLabels() map[string]string {
 
 func binding(key GroupKey, rack, slot int32, name string, uid types.UID) Binding {
 	return Binding{
-		Coordinate: Coordinate{Group: key, RackIndex: rack, SlotIndex: slot},
+		Coordinate: Coordinate{Group: key, RackIndex: rack, NodeIndex: slot},
 		Node:       NodeReference{Name: name, UID: uid},
 	}
 }

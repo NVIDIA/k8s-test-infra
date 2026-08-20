@@ -19,13 +19,13 @@ package v1alpha1
 // SGPUInventoryLister.
 type SGPUInventoryListerExpansion interface{}
 
-// SGPUProfileListerExpansion allows custom methods to be added to
-// SGPUProfileLister.
-type SGPUProfileListerExpansion interface{}
-
 // SGPURackListerExpansion allows custom methods to be added to
 // SGPURackLister.
 type SGPURackListerExpansion interface{}
+
+// SGPURackProfileListerExpansion allows custom methods to be added to
+// SGPURackProfileLister.
+type SGPURackProfileListerExpansion interface{}
 
 // SGPURuntimePolicyListerExpansion allows custom methods to be added to
 // SGPURuntimePolicyLister.

@@ -17,8 +17,8 @@ package v1alpha1
 
 type SGPUInventoryExpansion interface{}
 
-type SGPUProfileExpansion interface{}
-
 type SGPURackExpansion interface{}
+
+type SGPURackProfileExpansion interface{}
 
 type SGPURuntimePolicyExpansion interface{}

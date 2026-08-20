@@ -21,26 +21,26 @@ import (
 	gentype "k8s.io/client-go/gentype"
 )
 
-// fakeSGPUProfiles implements SGPUProfileInterface
-type fakeSGPUProfiles struct {
-	*gentype.FakeClientWithList[*v1alpha1.SGPUProfile, *v1alpha1.SGPUProfileList]
+// fakeSGPURackProfiles implements SGPURackProfileInterface
+type fakeSGPURackProfiles struct {
+	*gentype.FakeClientWithList[*v1alpha1.SGPURackProfile, *v1alpha1.SGPURackProfileList]
 	Fake *FakeMokkaV1alpha1
 }
 
-func newFakeSGPUProfiles(fake *FakeMokkaV1alpha1) apiv1alpha1.SGPUProfileInterface {
-	return &fakeSGPUProfiles{
-		gentype.NewFakeClientWithList[*v1alpha1.SGPUProfile, *v1alpha1.SGPUProfileList](
+func newFakeSGPURackProfiles(fake *FakeMokkaV1alpha1) apiv1alpha1.SGPURackProfileInterface {
+	return &fakeSGPURackProfiles{
+		gentype.NewFakeClientWithList[*v1alpha1.SGPURackProfile, *v1alpha1.SGPURackProfileList](
 			fake.Fake,
 			"",
-			v1alpha1.SchemeGroupVersion.WithResource("sgpuprofiles"),
-			v1alpha1.SchemeGroupVersion.WithKind("SGPUProfile"),
-			func() *v1alpha1.SGPUProfile { return &v1alpha1.SGPUProfile{} },
-			func() *v1alpha1.SGPUProfileList { return &v1alpha1.SGPUProfileList{} },
-			func(dst, src *v1alpha1.SGPUProfileList) { dst.ListMeta = src.ListMeta },
-			func(list *v1alpha1.SGPUProfileList) []*v1alpha1.SGPUProfile {
+			v1alpha1.SchemeGroupVersion.WithResource("sgpurackprofiles"),
+			v1alpha1.SchemeGroupVersion.WithKind("SGPURackProfile"),
+			func() *v1alpha1.SGPURackProfile { return &v1alpha1.SGPURackProfile{} },
+			func() *v1alpha1.SGPURackProfileList { return &v1alpha1.SGPURackProfileList{} },
+			func(dst, src *v1alpha1.SGPURackProfileList) { dst.ListMeta = src.ListMeta },
+			func(list *v1alpha1.SGPURackProfileList) []*v1alpha1.SGPURackProfile {
 				return gentype.ToPointerSlice(list.Items)
 			},
-			func(list *v1alpha1.SGPUProfileList, items []*v1alpha1.SGPUProfile) {
+			func(list *v1alpha1.SGPURackProfileList, items []*v1alpha1.SGPURackProfile) {
 				list.Items = gentype.FromPointerSlice(items)
 			},
 		),

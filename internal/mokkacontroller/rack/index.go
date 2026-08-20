@@ -106,7 +106,7 @@ func rackByNodeUID(obj any) ([]string, error) {
 	}
 	values := make([]string, 0)
 	seen := make(map[types.UID]struct{})
-	for _, slot := range rack.Spec.Slots {
+	for _, slot := range rack.Spec.Nodes {
 		if slot.NodeRef == nil || slot.NodeRef.UID == "" {
 			continue
 		}
@@ -127,7 +127,7 @@ func rackByNodeName(obj any) ([]string, error) {
 	}
 	values := make([]string, 0)
 	seen := make(map[string]struct{})
-	for _, slot := range rack.Spec.Slots {
+	for _, slot := range rack.Spec.Nodes {
 		if slot.NodeRef == nil || slot.NodeRef.Name == "" {
 			continue
 		}
@@ -145,7 +145,7 @@ func rackByNodeName(obj any) ([]string, error) {
 type Cache interface {
 	Inventory(name string) (*mokkav1alpha1.SGPUInventory, error)
 	Inventories() ([]*mokkav1alpha1.SGPUInventory, error)
-	Profile(name string) (*mokkav1alpha1.SGPUProfile, error)
+	Profile(name string) (*mokkav1alpha1.SGPURackProfile, error)
 	Rack(name string) (*mokkav1alpha1.SGPURack, error)
 	Racks() ([]*mokkav1alpha1.SGPURack, error)
 	RacksByInventoryUID(uid types.UID) ([]*mokkav1alpha1.SGPURack, error)
@@ -158,7 +158,7 @@ type Cache interface {
 // methods read only local informer storage and never call the API server.
 type ListerCache struct {
 	inventories mokkalisters.SGPUInventoryLister
-	profiles    mokkalisters.SGPUProfileLister
+	profiles    mokkalisters.SGPURackProfileLister
 	racks       cache.Indexer
 	nodes       NodeLister
 }
@@ -175,7 +175,7 @@ type NodeLister interface {
 // NewListerCache adapts generated listers into the reconciliation Cache.
 func NewListerCache(
 	inventories mokkalisters.SGPUInventoryLister,
-	profiles mokkalisters.SGPUProfileLister,
+	profiles mokkalisters.SGPURackProfileLister,
 	racks cache.Indexer,
 	nodes NodeLister,
 ) *ListerCache {
@@ -193,7 +193,7 @@ func (c *ListerCache) Inventories() ([]*mokkav1alpha1.SGPUInventory, error) {
 }
 
 // Profile returns one cached profile.
-func (c *ListerCache) Profile(name string) (*mokkav1alpha1.SGPUProfile, error) {
+func (c *ListerCache) Profile(name string) (*mokkav1alpha1.SGPURackProfile, error) {
 	return c.profiles.Get(name)
 }
 

@@ -51,7 +51,7 @@ type ProfileReference struct {
 	Revision string    `json:"revision"`
 }
 
-// Assignment is the versioned Node annotation derived from one exact slot.
+// Assignment is the versioned Node annotation derived from one exact logical rack Node.
 type Assignment struct {
 	Version   int              `json:"v"`
 	Inventory ObjectReference  `json:"inventory"`
@@ -59,7 +59,7 @@ type Assignment struct {
 	Profile   ProfileReference `json:"profile"`
 	RackGroup string           `json:"rackGroup"`
 	RackIndex int32            `json:"rackIndex"`
-	SlotIndex int32            `json:"slotIndex"`
+	NodeIndex int32            `json:"nodeIndex"`
 	NodeUID   types.UID        `json:"nodeUID"`
 }
 
@@ -87,7 +87,7 @@ const (
 	ReasonProjectionError      = "ProjectionError"
 )
 
-// Outcome is status input tied to a complete rack-slot-Node identity.
+// Outcome is status input tied to a complete rack/logical-Node/Kubernetes-Node identity.
 type Outcome struct {
 	InventoryName string
 	InventoryUID  types.UID
@@ -95,7 +95,7 @@ type Outcome struct {
 	RackName      string
 	RackUID       types.UID
 	RackIndex     int32
-	SlotIndex     int32
+	NodeIndex     int32
 	NodeName      string
 	NodeUID       types.UID
 	State         State
@@ -153,14 +153,14 @@ type bindingKey struct {
 	rackName      string
 	rackUID       types.UID
 	rackIndex     int32
-	slotIndex     int32
+	nodeIndex     int32
 	nodeName      string
 	nodeUID       types.UID
 }
 
 type coordinateKey struct {
 	rackName  string
-	slotIndex int32
+	nodeIndex int32
 }
 
 type objectKey struct {
@@ -194,20 +194,20 @@ func NewController(cache Cache, patcher NodePatcher) *Controller {
 	}
 }
 
-// Project reconciles metadata for one exact cached rack slot.
-func (c *Controller) Project(ctx context.Context, rackName string, slotIndex int32) (Outcome, error) {
-	return c.project(ctx, rackName, slotIndex, false)
+// Project reconciles metadata for one exact cached logical rack Node.
+func (c *Controller) Project(ctx context.Context, rackName string, nodeIndex int32) (Outcome, error) {
+	return c.project(ctx, rackName, nodeIndex, false)
 }
 
 // ProjectFresh reconciles a newly observed binding, superseding a cleanup
 // acknowledgement for an older observation of the same exact coordinate.
-func (c *Controller) ProjectFresh(ctx context.Context, rackName string, slotIndex int32) (Outcome, error) {
-	return c.project(ctx, rackName, slotIndex, true)
+func (c *Controller) ProjectFresh(ctx context.Context, rackName string, nodeIndex int32) (Outcome, error) {
+	return c.project(ctx, rackName, nodeIndex, true)
 }
 
 //nolint:cyclop // Exact-identity projection has distinct stale, conflict, duplicate, and success outcomes.
-func (c *Controller) project(ctx context.Context, rackName string, slotIndex int32, fresh bool) (Outcome, error) {
-	operation := c.operationLock(rackName, slotIndex)
+func (c *Controller) project(ctx context.Context, rackName string, nodeIndex int32, fresh bool) (Outcome, error) {
+	operation := c.operationLock(rackName, nodeIndex)
 	operation.Lock()
 	defer operation.Unlock()
 
@@ -215,9 +215,9 @@ func (c *Controller) project(ctx context.Context, rackName string, slotIndex int
 	if err != nil {
 		return Outcome{}, fmt.Errorf("get rack %q: %w", rackName, err)
 	}
-	slot := findSlot(rack, slotIndex)
+	slot := findSlot(rack, nodeIndex)
 	if slot == nil || slot.NodeRef == nil {
-		return Outcome{}, fmt.Errorf("rack %q slot %d has no binding", rackName, slotIndex)
+		return Outcome{}, fmt.Errorf("rack %q logical Node %d has no binding", rackName, nodeIndex)
 	}
 	outcome := outcomeFor(rack, slot)
 	if !fresh && c.cleanupReady(outcome) {
@@ -231,7 +231,7 @@ func (c *Controller) project(ctx context.Context, rackName string, slotIndex int
 		return c.fail(outcome, err)
 	}
 	if duplicates > 1 {
-		err := fmt.Errorf("Node UID %q is bound to %d rack slots", slot.NodeRef.UID, duplicates)
+		err := fmt.Errorf("Node UID %q is bound to %d logical rack Nodes", slot.NodeRef.UID, duplicates)
 		outcome.State, outcome.Reason, outcome.Message = StateConflict, ReasonDuplicateBinding, err.Error()
 		c.record(outcome)
 		return outcome, err
@@ -310,7 +310,7 @@ func (c *Controller) project(ctx context.Context, rackName string, slotIndex int
 //
 //nolint:cyclop // Cleanup deliberately distinguishes deletion, replacement, ownership, and partial progress.
 func (c *Controller) Cleanup(ctx context.Context, needed controllerack.CleanupNeeded) (Outcome, error) {
-	operation := c.operationLock(needed.RackName, needed.Binding.Coordinate.SlotIndex)
+	operation := c.operationLock(needed.RackName, needed.Binding.Coordinate.NodeIndex)
 	operation.Lock()
 	defer operation.Unlock()
 
@@ -478,7 +478,7 @@ func sortOutcomes(outcomes []Outcome) {
 		if order := cmp.Compare(a.RackName, b.RackName); order != 0 {
 			return order
 		}
-		if order := cmp.Compare(a.SlotIndex, b.SlotIndex); order != 0 {
+		if order := cmp.Compare(a.NodeIndex, b.NodeIndex); order != 0 {
 			return order
 		}
 		return cmp.Compare(string(a.NodeUID), string(b.NodeUID))
@@ -486,9 +486,9 @@ func sortOutcomes(outcomes []Outcome) {
 }
 
 // EncodeAssignment serializes the compact annotation without whitespace.
-func EncodeAssignment(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackSlot) (string, error) {
+func EncodeAssignment(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) (string, error) {
 	if rack == nil || rack.Name == "" || rack.UID == "" || slot == nil || slot.NodeRef == nil || slot.NodeRef.UID == "" {
-		return "", errors.New("assignment requires exact rack, slot, and node identities")
+		return "", errors.New("assignment requires exact rack, logical Node, and Kubernetes Node identities")
 	}
 	encoded, err := json.Marshal(Assignment{
 		Version:   AssignmentVersion,
@@ -497,7 +497,7 @@ func EncodeAssignment(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURack
 		Profile:   ProfileReference{Name: rack.Spec.ProfileRef.Name, UID: rack.Spec.ProfileRef.UID, Revision: rack.Spec.ProfileRef.Revision},
 		RackGroup: rack.Spec.Identity.RackGroup,
 		RackIndex: rack.Spec.Identity.RackIndex,
-		SlotIndex: slot.Index,
+		NodeIndex: slot.Index,
 		NodeUID:   slot.NodeRef.UID,
 	})
 	if err != nil {
@@ -522,7 +522,7 @@ func DecodeAssignment(value string) (Assignment, error) {
 // derived from a durable rack binding.
 //
 //nolint:cyclop // The predicate intentionally checks every exact identity component.
-func MatchesBinding(node *corev1.Node, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackSlot) bool {
+func MatchesBinding(node *corev1.Node, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
 	if node == nil || rack == nil || slot == nil || slot.NodeRef == nil ||
 		node.Name != slot.NodeRef.Name || node.UID != slot.NodeRef.UID ||
 		node.Labels[AssignedLabel] != "true" {
@@ -807,18 +807,18 @@ func applyOptions() metav1.PatchOptions {
 }
 
 func cliqueValue(rack *mokkav1alpha1.SGPURack) (string, bool) {
-	if rack == nil || rack.Spec.GPUFabric == nil {
+	if rack == nil {
 		return "", false
 	}
 	return fmt.Sprintf("%s.%d", rack.Spec.Identity.FabricUUID, rack.Spec.Identity.CliqueID), true
 }
 
-func assignmentMatches(assignment Assignment, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackSlot) bool {
+func assignmentMatches(assignment Assignment, rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) bool {
 	return assignment.Version == AssignmentVersion && rack != nil && slot != nil && slot.NodeRef != nil &&
 		assignment.Inventory == (ObjectReference{Name: rack.Spec.InventoryRef.Name, UID: rack.Spec.InventoryRef.UID}) &&
 		assignment.Rack == (ObjectReference{Name: rack.Name, UID: rack.UID}) &&
 		assignment.RackGroup == rack.Spec.Identity.RackGroup && assignment.RackIndex == rack.Spec.Identity.RackIndex &&
-		assignment.SlotIndex == slot.Index && assignment.NodeUID == slot.NodeRef.UID
+		assignment.NodeIndex == slot.Index && assignment.NodeUID == slot.NodeRef.UID
 }
 
 func cleanupAssignmentMatches(assignment Assignment, needed controllerack.CleanupNeeded) bool {
@@ -827,7 +827,7 @@ func cleanupAssignmentMatches(assignment Assignment, needed controllerack.Cleanu
 		assignment.Inventory.UID != binding.Coordinate.Group.InventoryUID || assignment.Rack.Name != needed.RackName ||
 		assignment.Rack.UID != needed.RackUID ||
 		assignment.RackGroup != binding.Coordinate.Group.RackGroup || assignment.RackIndex != binding.Coordinate.RackIndex ||
-		assignment.SlotIndex != binding.Coordinate.SlotIndex || assignment.NodeUID != binding.Node.UID {
+		assignment.NodeIndex != binding.Coordinate.NodeIndex || assignment.NodeUID != binding.Node.UID {
 		return false
 	}
 	return true
@@ -843,7 +843,7 @@ func cleanupBindingMatchesRack(needed controllerack.CleanupNeeded, rack *mokkav1
 		rack.Spec.Identity.RackIndex != binding.Coordinate.RackIndex {
 		return false
 	}
-	slot := findSlot(rack, binding.Coordinate.SlotIndex)
+	slot := findSlot(rack, binding.Coordinate.NodeIndex)
 	return slot != nil && slot.NodeRef != nil && slot.NodeRef.Name == binding.Node.Name && slot.NodeRef.UID == binding.Node.UID
 }
 
@@ -854,7 +854,7 @@ func (c *Controller) duplicateBindings(uid types.UID) (int, error) {
 	}
 	count := 0
 	for _, rack := range racks {
-		for _, slot := range rack.Spec.Slots {
+		for _, slot := range rack.Spec.Nodes {
 			if slot.NodeRef != nil && slot.NodeRef.UID == uid {
 				count++
 			}
@@ -863,29 +863,29 @@ func (c *Controller) duplicateBindings(uid types.UID) (int, error) {
 	return count, nil
 }
 
-func findSlot(rack *mokkav1alpha1.SGPURack, index int32) *mokkav1alpha1.SGPURackSlot {
-	for i := range rack.Spec.Slots {
-		if rack.Spec.Slots[i].Index == index {
-			return &rack.Spec.Slots[i]
+func findSlot(rack *mokkav1alpha1.SGPURack, index int32) *mokkav1alpha1.SGPURackNode {
+	for i := range rack.Spec.Nodes {
+		if rack.Spec.Nodes[i].Index == index {
+			return &rack.Spec.Nodes[i]
 		}
 	}
 	return nil
 }
 
-func findSlotByUID(rack *mokkav1alpha1.SGPURack, uid types.UID) *mokkav1alpha1.SGPURackSlot {
-	for i := range rack.Spec.Slots {
-		if rack.Spec.Slots[i].NodeRef != nil && rack.Spec.Slots[i].NodeRef.UID == uid {
-			return &rack.Spec.Slots[i]
+func findSlotByUID(rack *mokkav1alpha1.SGPURack, uid types.UID) *mokkav1alpha1.SGPURackNode {
+	for i := range rack.Spec.Nodes {
+		if rack.Spec.Nodes[i].NodeRef != nil && rack.Spec.Nodes[i].NodeRef.UID == uid {
+			return &rack.Spec.Nodes[i]
 		}
 	}
 	return nil
 }
 
-func outcomeFor(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackSlot) Outcome {
+func outcomeFor(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) Outcome {
 	return Outcome{
 		InventoryName: rack.Spec.InventoryRef.Name, InventoryUID: rack.Spec.InventoryRef.UID,
 		RackGroup: rack.Spec.Identity.RackGroup, RackName: rack.Name, RackUID: rack.UID,
-		RackIndex: rack.Spec.Identity.RackIndex, SlotIndex: slot.Index,
+		RackIndex: rack.Spec.Identity.RackIndex, NodeIndex: slot.Index,
 		NodeName: slot.NodeRef.Name, NodeUID: slot.NodeRef.UID,
 	}
 }
@@ -895,7 +895,7 @@ func cleanupOutcome(needed controllerack.CleanupNeeded) Outcome {
 	return Outcome{
 		InventoryName: binding.Coordinate.Group.InventoryName, InventoryUID: binding.Coordinate.Group.InventoryUID,
 		RackGroup: binding.Coordinate.Group.RackGroup, RackName: needed.RackName, RackUID: needed.RackUID,
-		RackIndex: binding.Coordinate.RackIndex, SlotIndex: binding.Coordinate.SlotIndex,
+		RackIndex: binding.Coordinate.RackIndex, NodeIndex: binding.Coordinate.NodeIndex,
 		NodeName: needed.Binding.Node.Name, NodeUID: needed.Binding.Node.UID,
 	}
 }
@@ -964,10 +964,10 @@ func (c *Controller) completeCleanup(
 	return outcome
 }
 
-func (c *Controller) beginProjection(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackSlot) {
+func (c *Controller) beginProjection(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	coordinate := coordinateKey{rackName: rack.Name, slotIndex: slot.Index}
+	coordinate := coordinateKey{rackName: rack.Name, nodeIndex: slot.Index}
 	current := bindingKeyForOutcome(outcomeFor(rack, slot))
 	if blocked, exists := c.blocksByCoordinate[coordinate]; exists && blocked != current {
 		c.deleteCleanupBlockLocked(blocked)
@@ -1101,7 +1101,7 @@ func removeOutcomeIndex(index map[objectKey]map[bindingKey]struct{}, object obje
 }
 
 func coordinateKeyForBinding(key bindingKey) coordinateKey {
-	return coordinateKey{rackName: key.rackName, slotIndex: key.slotIndex}
+	return coordinateKey{rackName: key.rackName, nodeIndex: key.nodeIndex}
 }
 
 func (c *Controller) cleanupReady(outcome Outcome) bool {
@@ -1111,13 +1111,13 @@ func (c *Controller) cleanupReady(outcome Outcome) bool {
 	return ready
 }
 
-func (c *Controller) operationLock(rackName string, slotIndex int32) *sync.Mutex {
+func (c *Controller) operationLock(rackName string, nodeIndex int32) *sync.Mutex {
 	hash := uint32(2166136261)
 	for i := range len(rackName) {
 		hash ^= uint32(rackName[i])
 		hash *= 16777619
 	}
-	hash ^= uint32(slotIndex)
+	hash ^= uint32(nodeIndex)
 	hash *= 16777619
 	return &c.operations[hash%operationShards]
 }
@@ -1126,7 +1126,7 @@ func bindingKeyForOutcome(outcome Outcome) bindingKey {
 	return bindingKey{
 		inventoryName: outcome.InventoryName, inventoryUID: outcome.InventoryUID,
 		rackGroup: outcome.RackGroup, rackName: outcome.RackName, rackUID: outcome.RackUID,
-		rackIndex: outcome.RackIndex, slotIndex: outcome.SlotIndex,
+		rackIndex: outcome.RackIndex, nodeIndex: outcome.NodeIndex,
 		nodeName: outcome.NodeName, nodeUID: outcome.NodeUID,
 	}
 }
@@ -1136,7 +1136,7 @@ func bindingKeyForCleanup(needed controllerack.CleanupNeeded) bindingKey {
 	return bindingKey{
 		inventoryName: binding.Coordinate.Group.InventoryName, inventoryUID: binding.Coordinate.Group.InventoryUID,
 		rackGroup: binding.Coordinate.Group.RackGroup, rackName: needed.RackName, rackUID: needed.RackUID,
-		rackIndex: binding.Coordinate.RackIndex, slotIndex: binding.Coordinate.SlotIndex,
+		rackIndex: binding.Coordinate.RackIndex, nodeIndex: binding.Coordinate.NodeIndex,
 		nodeName: binding.Node.Name, nodeUID: binding.Node.UID,
 	}
 }

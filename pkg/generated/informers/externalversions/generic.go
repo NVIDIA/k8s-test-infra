@@ -52,10 +52,10 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 	// Group=mokka.nvidia.com, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithResource("sgpuinventories"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Mokka().V1alpha1().SGPUInventories().Informer()}, nil
-	case v1alpha1.SchemeGroupVersion.WithResource("sgpuprofiles"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Mokka().V1alpha1().SGPUProfiles().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("sgpuracks"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Mokka().V1alpha1().SGPURacks().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("sgpurackprofiles"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Mokka().V1alpha1().SGPURackProfiles().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("sgpuruntimepolicies"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Mokka().V1alpha1().SGPURuntimePolicies().Informer()}, nil
 

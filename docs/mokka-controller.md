@@ -1,7 +1,8 @@
 # Mokka controller
 
-The Stage 1 controller turns `SGPUProfile` and `SGPUInventory` resources into
-controller-owned `SGPURack` resources, assigns eligible Nodes to rack slots,
+The Stage 1 controller turns `SGPURackProfile` and `SGPUInventory` resources into
+controller-owned `SGPURack` resources, assigns eligible Kubernetes Nodes to
+logical rack Nodes,
 and projects the assignment onto those Nodes. It models static capacity and
 topology; it does not provide GPUs to workloads by itself.
 
@@ -40,12 +41,12 @@ CRDs are otherwise disabled and existing Tilt defaults are unchanged.
 
 ## Declare capacity
 
-Apply the [example profile](../examples/mokka-controller/sgpu-profile.yaml)
+Apply the [example profile](../examples/mokka-controller/sgpu-rack-profile.yaml)
 and [inventory](../examples/mokka-controller/sgpu-inventory.yaml), then make a
 Node eligible and match the example group selector:
 
 ```bash
-kubectl apply -f examples/mokka-controller/sgpu-profile.yaml
+kubectl apply -f examples/mokka-controller/sgpu-rack-profile.yaml
 kubectl apply -f examples/mokka-controller/sgpu-inventory.yaml
 kubectl label node NODE \
   mokka.nvidia.com/sgpu-node=true \
@@ -59,17 +60,17 @@ and the selector must match. Placement selectors cannot reference
 are derived from placement. Such an inventory is rejected without changing its
 last materialized racks or bindings.
 
-The durable assignment is `SGPURack.spec.slots[].nodeRef`. Existing valid
+The durable assignment is `SGPURack.spec.nodes[].nodeRef`. Existing valid
 bindings do not move when Nodes, racks, or profiles are added or edited. New
-Nodes are ordered by creation time, name, then UID and fill rack/slot
-coordinates in order. GPU, serial, fabric, and rack identities derive from the
+Nodes are ordered by creation time, name, then UID and fill logical Node
+coordinates in rack/index order. GPU, serial, fabric, and rack identities derive from the
 inventory UID and coordinate, so retries, restarts, and leader changes do not
 change an unchanged coordinate.
 
 For each successfully projected binding the controller owns only:
 
 - `mokka.nvidia.com/sgpu-assigned=true`;
-- `nvidia.com/gpu.clique=<fabric UUID>.<clique ID>` when the profile has a GPU fabric;
+- `nvidia.com/gpu.clique=<fabric UUID>.<clique ID>`;
 - `mokka.nvidia.com/sgpu-assignment`, compact JSON containing exact inventory,
   rack, profile revision, coordinate, and Node UID data.
 

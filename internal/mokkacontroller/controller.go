@@ -107,7 +107,7 @@ const (
 type projectionKey struct {
 	mode      projectionMode
 	rackName  string
-	slotIndex int32
+	nodeIndex int32
 	fresh     bool
 	cleanup   controllerack.CleanupNeeded
 }
@@ -194,7 +194,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 
 	factory := mokkainformers.NewSharedInformerFactory(mokkaClient, 0)
 	mokka := factory.Mokka().V1alpha1()
-	profiles := mokka.SGPUProfiles()
+	profiles := mokka.SGPURackProfiles()
 	inventories := mokka.SGPUInventories()
 	racks := mokka.SGPURacks()
 	profileInformer := profiles.Informer()
@@ -310,7 +310,7 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 			if getErr != nil {
 				return getErr
 			}
-			slot := boundRackSlot(rack, key.slotIndex)
+			slot := boundRackSlot(rack, key.nodeIndex)
 			if slot == nil {
 				return nil
 			}
@@ -318,9 +318,9 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 				return nil
 			}
 			if key.fresh {
-				_, err = projection.ProjectFresh(ctx, key.rackName, key.slotIndex)
+				_, err = projection.ProjectFresh(ctx, key.rackName, key.nodeIndex)
 			} else {
-				_, err = projection.Project(ctx, key.rackName, key.slotIndex)
+				_, err = projection.Project(ctx, key.rackName, key.nodeIndex)
 			}
 			terminalConflict = metadataConflict(err)
 			controller.queues.addStatus(statusKey{kind: statusRack, name: rack.Name, uid: rack.UID})
@@ -555,10 +555,10 @@ func shouldRetry(ctx context.Context, err error) bool {
 	return ctx.Err() == nil && !errors.Is(err, context.Canceled)
 }
 
-func boundRackSlot(rack *mokkav1alpha1.SGPURack, index int32) *mokkav1alpha1.SGPURackSlot {
-	for i := range rack.Spec.Slots {
-		if rack.Spec.Slots[i].Index == index && rack.Spec.Slots[i].NodeRef != nil {
-			return &rack.Spec.Slots[i]
+func boundRackSlot(rack *mokkav1alpha1.SGPURack, index int32) *mokkav1alpha1.SGPURackNode {
+	for i := range rack.Spec.Nodes {
+		if rack.Spec.Nodes[i].Index == index && rack.Spec.Nodes[i].NodeRef != nil {
+			return &rack.Spec.Nodes[i]
 		}
 	}
 	return nil

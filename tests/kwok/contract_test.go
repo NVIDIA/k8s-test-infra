@@ -21,7 +21,7 @@ import (
 func TestTemplatesRenderValidScaleResources(t *testing.T) {
 	profileData := readFile(t, "profile.yaml")
 	profileData = strings.ReplaceAll(profileData, "__NODES_PER_RACK__", "100")
-	var profile mokkav1alpha1.SGPUProfile
+	var profile mokkav1alpha1.SGPURackProfile
 	require.NoError(t, yaml.Unmarshal([]byte(profileData), &profile))
 	require.Equal(t, int32(100), profile.Spec.Rack.NodesPerRack)
 	require.NoError(t, materialize.ValidateProfile(profile.Spec))

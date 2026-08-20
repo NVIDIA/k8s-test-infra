@@ -171,7 +171,7 @@ func allocationGroups(
 			}
 			groups = append(groups, allocate.Group{
 				Key: group.key, Selector: selector,
-				Racks: group.group.Count, SlotsPerRack: group.profile.Spec.Rack.NodesPerRack,
+				Racks: group.group.Count, NodesPerRack: group.profile.Spec.Rack.NodesPerRack,
 			})
 		}
 	}
@@ -192,7 +192,7 @@ func allocationBindings(
 		if inventory == nil || !controlledByInventory(rack, inventory) {
 			continue
 		}
-		for _, slot := range rack.Spec.Slots {
+		for _, slot := range rack.Spec.Nodes {
 			if slot.NodeRef == nil {
 				continue
 			}
@@ -202,7 +202,7 @@ func allocationBindings(
 						InventoryName: inventory.Name, InventoryUID: inventory.UID,
 						RackGroup: rack.Spec.Identity.RackGroup,
 					},
-					RackIndex: rack.Spec.Identity.RackIndex, SlotIndex: slot.Index,
+					RackIndex: rack.Spec.Identity.RackIndex, NodeIndex: slot.Index,
 				},
 				Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
 			})

@@ -55,7 +55,7 @@ const (
 // InventoryInput is one immutable informer and reconciliation snapshot.
 type InventoryInput struct {
 	Inventory  *mokkav1alpha1.SGPUInventory
-	Profiles   map[string]*mokkav1alpha1.SGPUProfile
+	Profiles   map[string]*mokkav1alpha1.SGPURackProfile
 	Racks      []*mokkav1alpha1.SGPURack
 	Nodes      []*corev1.Node
 	RackResult controllerack.Result
@@ -350,8 +350,8 @@ func ComputeInventory(input InventoryInput, now metav1.Time) mokkav1alpha1.SGPUI
 		if aggregate == nil {
 			continue
 		}
-		for i := range rack.Spec.Slots {
-			slot := &rack.Spec.Slots[i]
+		for i := range rack.Spec.Nodes {
+			slot := &rack.Spec.Nodes[i]
 			if slot.NodeRef == nil {
 				continue
 			}
@@ -427,9 +427,9 @@ func ComputeRack(input RackInput, now metav1.Time) mokkav1alpha1.SGPURackStatus 
 	projectionByBinding := indexProjection(input.Projection)
 	var projectedSlots int32
 	hasDuplicate := false
-	seenSlots := make(map[int32]struct{}, len(rack.Spec.Slots))
-	for i := range rack.Spec.Slots {
-		slot := &rack.Spec.Slots[i]
+	seenSlots := make(map[int32]struct{}, len(rack.Spec.Nodes))
+	for i := range rack.Spec.Nodes {
+		slot := &rack.Spec.Nodes[i]
 		if _, exists := seenSlots[slot.Index]; exists {
 			invalid = true
 		}
@@ -437,7 +437,7 @@ func ComputeRack(input RackInput, now metav1.Time) mokkav1alpha1.SGPURackStatus 
 		if slot.NodeRef == nil {
 			continue
 		}
-		result.AssignedSlots++
+		result.AssignedNodes++
 		if slot.NodeRef.Name == "" || slot.NodeRef.UID == "" {
 			invalid = true
 			continue
@@ -461,12 +461,12 @@ func ComputeRack(input RackInput, now metav1.Time) mokkav1alpha1.SGPURackStatus 
 	}
 	switch {
 	case hasDuplicate:
-		ready.Status, ready.Reason, ready.Message = metav1.ConditionFalse, ReasonDuplicateBindings, "A Node UID is bound to more than one rack slot."
+		ready.Status, ready.Reason, ready.Message = metav1.ConditionFalse, ReasonDuplicateBindings, "A Node UID is bound to more than one logical rack Node."
 	case invalid:
 		ready.Status, ready.Reason, ready.Message = metav1.ConditionFalse, ReasonInvalidBindings, "The rack contains an invalid or non-live binding."
-	case projectedSlots != result.AssignedSlots:
+	case projectedSlots != result.AssignedNodes:
 		ready.Status, ready.Reason = metav1.ConditionFalse, ReasonProjectionIncomplete
-		ready.Message = fmt.Sprintf("%d of %d assigned Nodes are projected.", projectedSlots, result.AssignedSlots)
+		ready.Message = fmt.Sprintf("%d of %d assigned Nodes are projected.", projectedSlots, result.AssignedNodes)
 		if rackHasMetadataConflict(projectionByBinding, rack) {
 			ready.Reason = ReasonNodeMetadataConflict
 		}
@@ -612,7 +612,7 @@ func conflictGroups(conflict allocate.Conflict, inventoryUID types.UID) map[stri
 type projectionKey struct {
 	rackName  string
 	rackUID   types.UID
-	slotIndex int32
+	nodeIndex int32
 	nodeName  string
 	nodeUID   types.UID
 }
@@ -631,7 +631,7 @@ func duplicateUIDs(racks []*mokkav1alpha1.SGPURack) map[types.UID]struct{} {
 		if rack == nil {
 			continue
 		}
-		for _, slot := range rack.Spec.Slots {
+		for _, slot := range rack.Spec.Nodes {
 			if slot.NodeRef != nil && slot.NodeRef.UID != "" {
 				counts[slot.NodeRef.UID]++
 			}
@@ -715,8 +715,8 @@ func inventoryHasMetadataConflict(input InventoryInput) bool {
 }
 
 func rackHasMetadataConflict(outcomes map[projectionKey]controllerprojection.Outcome, rack *mokkav1alpha1.SGPURack) bool {
-	for i := range rack.Spec.Slots {
-		slot := &rack.Spec.Slots[i]
+	for i := range rack.Spec.Nodes {
+		slot := &rack.Spec.Nodes[i]
 		if slot.NodeRef == nil {
 			continue
 		}
@@ -730,14 +730,14 @@ func rackHasMetadataConflict(outcomes map[projectionKey]controllerprojection.Out
 
 func projectionKeyForOutcome(outcome controllerprojection.Outcome) projectionKey {
 	return projectionKey{
-		rackName: outcome.RackName, rackUID: outcome.RackUID, slotIndex: outcome.SlotIndex,
+		rackName: outcome.RackName, rackUID: outcome.RackUID, nodeIndex: outcome.NodeIndex,
 		nodeName: outcome.NodeName, nodeUID: outcome.NodeUID,
 	}
 }
 
-func projectionKeyForBinding(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackSlot) projectionKey {
+func projectionKeyForBinding(rack *mokkav1alpha1.SGPURack, slot *mokkav1alpha1.SGPURackNode) projectionKey {
 	return projectionKey{
-		rackName: rack.Name, rackUID: rack.UID, slotIndex: slot.Index,
+		rackName: rack.Name, rackUID: rack.UID, nodeIndex: slot.Index,
 		nodeName: slot.NodeRef.Name, nodeUID: slot.NodeRef.UID,
 	}
 }

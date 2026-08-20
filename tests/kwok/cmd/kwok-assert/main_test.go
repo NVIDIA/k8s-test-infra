@@ -91,19 +91,19 @@ func validFixture(t *testing.T) (options, *mokkav1alpha1.SGPUInventory, *mokkav1
 		Spec: mokkav1alpha1.SGPURackSpec{
 			InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventoryUID},
 			Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "compute", RackIndex: 0},
-			Slots: []mokkav1alpha1.SGPURackSlot{{
+			Nodes: []mokkav1alpha1.SGPURackNode{{
 				Index: 0, NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: "mokka-node-000000", UID: nodeUID},
 			}},
 		},
 		Status: mokkav1alpha1.SGPURackStatus{
-			ObservedGeneration: 1, AssignedSlots: 1,
+			ObservedGeneration: 1, AssignedNodes: 1,
 			Conditions: conditions("Ready"),
 		},
 	}
 	encoded, err := json.Marshal(assignment{
 		Version: 1, Inventory: objectReference{Name: inventory.Name, UID: inventoryUID},
 		Rack: objectReference{Name: rackName, UID: rackUID}, RackGroup: "compute",
-		RackIndex: 0, SlotIndex: 0, NodeUID: nodeUID,
+		RackIndex: 0, NodeIndex: 0, NodeUID: nodeUID,
 	})
 	require.NoError(t, err)
 	node := corev1.Node{ObjectMeta: metav1.ObjectMeta{

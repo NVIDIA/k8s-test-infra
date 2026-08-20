@@ -62,7 +62,7 @@ type assignment struct {
 	Rack      objectReference `json:"rack"`
 	RackGroup string          `json:"rackGroup"`
 	RackIndex int32           `json:"rackIndex"`
-	SlotIndex int32           `json:"slotIndex"`
+	NodeIndex int32           `json:"nodeIndex"`
 	NodeUID   types.UID       `json:"nodeUID"`
 }
 
@@ -77,7 +77,7 @@ type binding struct {
 	rackName  string
 	rackUID   types.UID
 	rackIndex int32
-	slotIndex int32
+	nodeIndex int32
 }
 
 func main() {
@@ -88,7 +88,7 @@ func main() {
 	flag.StringVar(&o.nodesPath, "nodes", "", "NodeList JSON file")
 	flag.StringVar(&o.clusterLabel, "cluster-label", "", "expected Node ownership-label value")
 	flag.IntVar(&o.expectedRacks, "expected-racks", -1, "expected rack count")
-	flag.IntVar(&o.nodesPerRack, "nodes-per-rack", -1, "expected slots per rack")
+	flag.IntVar(&o.nodesPerRack, "nodes-per-rack", -1, "expected logical Nodes per rack")
 	flag.IntVar(&o.expectedNodes, "expected-nodes", -1, "expected owned Node count")
 	flag.IntVar(&o.expectedEligible, "expected-eligible", -1, "expected eligible Node count")
 	flag.IntVar(&o.expectedAllocated, "expected-allocated", -1, "expected allocated/projected count")
@@ -202,14 +202,14 @@ func check(o options, inventory *mokkav1alpha1.SGPUInventory, racks *mokkav1alph
 		if rack.Spec.InventoryRef.Name != inventory.Name || rack.Spec.InventoryRef.UID != inventory.UID {
 			addError("rack %q has wrong inventory reference", rack.Name)
 		}
-		if len(rack.Spec.Slots) != o.nodesPerRack {
-			addError("rack %q has %d slots, want %d", rack.Name, len(rack.Spec.Slots), o.nodesPerRack)
+		if len(rack.Spec.Nodes) != o.nodesPerRack {
+			addError("rack %q has %d logical Nodes, want %d", rack.Name, len(rack.Spec.Nodes), o.nodesPerRack)
 		}
 		assignedInRack := 0
-		for slotIndex := range rack.Spec.Slots {
-			slot := &rack.Spec.Slots[slotIndex]
-			if slot.Index != int32(slotIndex) {
-				addError("rack %q slot position %d has index %d", rack.Name, slotIndex, slot.Index)
+		for nodeIndex := range rack.Spec.Nodes {
+			slot := &rack.Spec.Nodes[nodeIndex]
+			if slot.Index != int32(nodeIndex) {
+				addError("rack %q logical Node position %d has index %d", rack.Name, nodeIndex, slot.Index)
 			}
 			if slot.NodeRef == nil {
 				continue
@@ -221,10 +221,10 @@ func check(o options, inventory *mokkav1alpha1.SGPUInventory, racks *mokkav1alph
 			}
 			bindings[slot.NodeRef.UID] = binding{
 				nodeName: slot.NodeRef.Name, nodeUID: slot.NodeRef.UID,
-				rackName: rack.Name, rackUID: rack.UID, rackIndex: index, slotIndex: slot.Index,
+				rackName: rack.Name, rackUID: rack.UID, rackIndex: index, nodeIndex: slot.Index,
 			}
 		}
-		if rack.Status.ObservedGeneration != rack.Generation || int(rack.Status.AssignedSlots) != assignedInRack {
+		if rack.Status.ObservedGeneration != rack.Generation || int(rack.Status.AssignedNodes) != assignedInRack {
 			addError("rack %q status is stale or incomplete: %+v", rack.Name, rack.Status)
 		}
 		checkCondition(addError, rack.Status.Conditions, "Ready", metav1.ConditionTrue)
@@ -273,7 +273,7 @@ func check(o options, inventory *mokkav1alpha1.SGPUInventory, racks *mokkav1alph
 		if projected.Version != 1 || projected.Inventory.Name != inventory.Name ||
 			projected.Inventory.UID != inventory.UID || projected.Rack.Name != want.rackName ||
 			projected.Rack.UID != want.rackUID || projected.RackGroup != "compute" ||
-			projected.RackIndex != want.rackIndex || projected.SlotIndex != want.slotIndex ||
+			projected.RackIndex != want.rackIndex || projected.NodeIndex != want.nodeIndex ||
 			projected.NodeUID != node.UID {
 			addError("Node %q projection does not match its exact rack binding", node.Name)
 		}

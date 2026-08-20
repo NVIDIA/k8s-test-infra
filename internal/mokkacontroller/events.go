@@ -304,7 +304,7 @@ func (r *eventRouter) routeInventory(inventory *mokkav1alpha1.SGPUInventory) {
 }
 
 func (r *eventRouter) profileAdd(object any) {
-	profile, ok := eventObject[*mokkav1alpha1.SGPUProfile](object)
+	profile, ok := eventObject[*mokkav1alpha1.SGPURackProfile](object)
 	if ok {
 		r.invalidateAllocation()
 		r.routeProfile(profile.Name)
@@ -312,8 +312,8 @@ func (r *eventRouter) profileAdd(object any) {
 }
 
 func (r *eventRouter) profileUpdate(oldObject, newObject any) {
-	oldProfile, oldOK := eventObject[*mokkav1alpha1.SGPUProfile](oldObject)
-	newProfile, newOK := eventObject[*mokkav1alpha1.SGPUProfile](newObject)
+	oldProfile, oldOK := eventObject[*mokkav1alpha1.SGPURackProfile](oldObject)
+	newProfile, newOK := eventObject[*mokkav1alpha1.SGPURackProfile](newObject)
 	if !oldOK || !newOK {
 		return
 	}
@@ -330,7 +330,7 @@ func (r *eventRouter) profileUpdate(oldObject, newObject any) {
 }
 
 func (r *eventRouter) profileDelete(object any) {
-	profile, ok := eventObject[*mokkav1alpha1.SGPUProfile](object)
+	profile, ok := eventObject[*mokkav1alpha1.SGPURackProfile](object)
 	if ok {
 		r.invalidateAllocation()
 		r.routeProfile(profile.Name)
@@ -391,7 +391,7 @@ func (r *eventRouter) nodeDelete(object any) {
 	bound := r.boundRacks(node.Name, node.UID)
 	deferred := make(map[allocate.GroupKey]struct{})
 	for _, rack := range bound {
-		for _, slot := range rack.Spec.Slots {
+		for _, slot := range rack.Spec.Nodes {
 			if slot.NodeRef == nil || slot.NodeRef.Name != node.Name || slot.NodeRef.UID != node.UID {
 				continue
 			}
@@ -440,7 +440,7 @@ func (r *eventRouter) rackAdd(object any) {
 		}
 		fresh := make(map[int32]types.UID)
 		freeSlot := false
-		for _, slot := range rack.Spec.Slots {
+		for _, slot := range rack.Spec.Nodes {
 			if slot.NodeRef == nil {
 				freeSlot = true
 				continue
@@ -473,14 +473,14 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 			r.routeRackClaimants(newRack.Name)
 		}
 	}
-	newBindings := make(map[int32]types.UID, len(newRack.Spec.Slots))
-	for _, slot := range newRack.Spec.Slots {
+	newBindings := make(map[int32]types.UID, len(newRack.Spec.Nodes))
+	for _, slot := range newRack.Spec.Nodes {
 		if slot.NodeRef != nil {
 			newBindings[slot.Index] = slot.NodeRef.UID
 		}
 	}
-	oldBindings := make(map[int32]types.UID, len(oldRack.Spec.Slots))
-	for _, slot := range oldRack.Spec.Slots {
+	oldBindings := make(map[int32]types.UID, len(oldRack.Spec.Nodes))
+	for _, slot := range oldRack.Spec.Nodes {
 		if slot.NodeRef != nil {
 			oldBindings[slot.Index] = slot.NodeRef.UID
 		}
@@ -518,7 +518,7 @@ func (r *eventRouter) rackDelete(object any) {
 		r.forgetRackStatus(rack.Name, rack.UID)
 	}
 	r.invalidateAllocation()
-	for _, slot := range rack.Spec.Slots {
+	for _, slot := range rack.Spec.Nodes {
 		if slot.NodeRef == nil {
 			continue
 		}
@@ -587,10 +587,10 @@ func (r *eventRouter) routeRackCurrent(rack *mokkav1alpha1.SGPURack, reconcile b
 	if reconcile {
 		r.routeRackDependencies(rack)
 	}
-	for _, slot := range rack.Spec.Slots {
+	for _, slot := range rack.Spec.Nodes {
 		if slot.NodeRef != nil {
 			r.queues.projections.Add(projectionKey{
-				mode: projectionApply, rackName: rack.Name, slotIndex: slot.Index,
+				mode: projectionApply, rackName: rack.Name, nodeIndex: slot.Index,
 				fresh: fresh[slot.Index] == slot.NodeRef.UID,
 			})
 		}
@@ -670,7 +670,7 @@ func (r *eventRouter) boundRacks(name string, uid types.UID) []*mokkav1alpha1.SG
 	return racks
 }
 
-func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackSlot, reason controllerack.CleanupReason) controllerack.CleanupNeeded {
+func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackNode, reason controllerack.CleanupReason) controllerack.CleanupNeeded {
 	return controllerack.CleanupNeeded{
 		RackName: rack.Name,
 		RackUID:  rack.UID,
@@ -683,7 +683,7 @@ func cleanupFor(rack *mokkav1alpha1.SGPURack, slot mokkav1alpha1.SGPURackSlot, r
 					RackGroup:     rack.Spec.Identity.RackGroup,
 				},
 				RackIndex: rack.Spec.Identity.RackIndex,
-				SlotIndex: slot.Index,
+				NodeIndex: slot.Index,
 			},
 			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
 		},
@@ -721,13 +721,13 @@ func inventoryAllocationUnchanged(old, current *mokkav1alpha1.SGPUInventory) boo
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
 
-func profileUnchanged(old, current *mokkav1alpha1.SGPUProfile) bool {
+func profileUnchanged(old, current *mokkav1alpha1.SGPURackProfile) bool {
 	return old.UID == current.UID &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
 
-func profileAllocationUnchanged(old, current *mokkav1alpha1.SGPUProfile) bool {
+func profileAllocationUnchanged(old, current *mokkav1alpha1.SGPURackProfile) bool {
 	return old.Name == current.Name && old.UID == current.UID &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
@@ -750,23 +750,23 @@ func rackAllocationUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
 func rackTemplateUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
 	oldSpec := old.Spec.DeepCopy()
 	currentSpec := current.Spec.DeepCopy()
-	for index := range oldSpec.Slots {
-		oldSpec.Slots[index].NodeRef = nil
+	for index := range oldSpec.Nodes {
+		oldSpec.Nodes[index].NodeRef = nil
 	}
-	for index := range currentSpec.Slots {
-		currentSpec.Slots[index].NodeRef = nil
+	for index := range currentSpec.Nodes {
+		currentSpec.Nodes[index].NodeRef = nil
 	}
 	return equality.Semantic.DeepEqual(oldSpec, currentSpec) &&
 		equality.Semantic.DeepEqual(old.OwnerReferences, current.OwnerReferences)
 }
 
 func rackBindingsUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
-	oldBindings := make(map[int32]*mokkav1alpha1.SGPUNodeReference, len(old.Spec.Slots))
-	for _, slot := range old.Spec.Slots {
+	oldBindings := make(map[int32]*mokkav1alpha1.SGPUNodeReference, len(old.Spec.Nodes))
+	for _, slot := range old.Spec.Nodes {
 		oldBindings[slot.Index] = slot.NodeRef
 	}
-	currentBindings := make(map[int32]*mokkav1alpha1.SGPUNodeReference, len(current.Spec.Slots))
-	for _, slot := range current.Spec.Slots {
+	currentBindings := make(map[int32]*mokkav1alpha1.SGPUNodeReference, len(current.Spec.Nodes))
+	for _, slot := range current.Spec.Nodes {
 		currentBindings[slot.Index] = slot.NodeRef
 	}
 	return equality.Semantic.DeepEqual(oldBindings, currentBindings)
@@ -809,8 +809,8 @@ func labelsEqualExceptProjection(old, current map[string]string) bool {
 func projectionsMatchBindings(node *corev1.Node, racks []*mokkav1alpha1.SGPURack) bool {
 	found := false
 	for _, rack := range racks {
-		for i := range rack.Spec.Slots {
-			slot := &rack.Spec.Slots[i]
+		for i := range rack.Spec.Nodes {
+			slot := &rack.Spec.Nodes[i]
 			if slot.NodeRef == nil || slot.NodeRef.Name != node.Name || slot.NodeRef.UID != node.UID {
 				continue
 			}

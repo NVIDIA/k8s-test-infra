@@ -487,7 +487,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 
 type resolvedGroup struct {
 	group   mokkav1alpha1.RackGroup
-	profile *mokkav1alpha1.SGPUProfile
+	profile *mokkav1alpha1.SGPURackProfile
 	key     allocate.GroupKey
 }
 
@@ -565,11 +565,11 @@ func (r *Reconciler) preservePendingReleases(
 	releases map[allocate.Coordinate]allocate.Release,
 ) []CleanupNeeded {
 	cleanup := make([]CleanupNeeded, 0)
-	targetSlots := make(map[int32]*mokkav1alpha1.SGPURackSlot, len(target.Slots))
-	for i := range target.Slots {
-		targetSlots[target.Slots[i].Index] = &target.Slots[i]
+	targetSlots := make(map[int32]*mokkav1alpha1.SGPURackNode, len(target.Nodes))
+	for i := range target.Nodes {
+		targetSlots[target.Nodes[i].Index] = &target.Nodes[i]
 	}
-	for _, slot := range existing.Spec.Slots {
+	for _, slot := range existing.Spec.Nodes {
 		if slot.NodeRef == nil {
 			continue
 		}
@@ -579,7 +579,7 @@ func (r *Reconciler) preservePendingReleases(
 				InventoryUID:  existing.Spec.InventoryRef.UID,
 				RackGroup:     existing.Spec.Identity.RackGroup,
 			},
-			RackIndex: existing.Spec.Identity.RackIndex, SlotIndex: slot.Index,
+			RackIndex: existing.Spec.Identity.RackIndex, NodeIndex: slot.Index,
 		}
 		release, found := releases[coordinate]
 		if !found {
@@ -594,9 +594,9 @@ func (r *Reconciler) preservePendingReleases(
 			targetSlot.NodeRef = slot.NodeRef.DeepCopy()
 			continue
 		}
-		target.Slots = append(target.Slots, *slot.DeepCopy())
+		target.Nodes = append(target.Nodes, *slot.DeepCopy())
 	}
-	slices.SortFunc(target.Slots, func(a, b mokkav1alpha1.SGPURackSlot) int { return cmp.Compare(a.Index, b.Index) })
+	slices.SortFunc(target.Nodes, func(a, b mokkav1alpha1.SGPURackNode) int { return cmp.Compare(a.Index, b.Index) })
 	return cleanup
 }
 
@@ -609,14 +609,14 @@ func (r *Reconciler) retireRack(
 ) (bool, []CleanupNeeded, error) {
 	clearSlots := make(map[int32]types.UID)
 	cleanup := make([]CleanupNeeded, 0)
-	for _, slot := range rack.Spec.Slots {
+	for _, slot := range rack.Spec.Nodes {
 		if slot.NodeRef == nil {
 			continue
 		}
 		binding := allocate.Binding{
 			Coordinate: allocate.Coordinate{
 				Group:     allocate.GroupKey{InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: rack.Spec.Identity.RackGroup},
-				RackIndex: rack.Spec.Identity.RackIndex, SlotIndex: slot.Index,
+				RackIndex: rack.Spec.Identity.RackIndex, NodeIndex: slot.Index,
 			},
 			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
 		}
@@ -630,13 +630,13 @@ func (r *Reconciler) retireRack(
 
 	changed, empty, latest, err := r.mutateRack(ctx, inventory, rack, func(latest *mokkav1alpha1.SGPURack) bool {
 		mutated := false
-		for i := range latest.Spec.Slots {
-			ref := latest.Spec.Slots[i].NodeRef
+		for i := range latest.Spec.Nodes {
+			ref := latest.Spec.Nodes[i].NodeRef
 			if ref == nil {
 				continue
 			}
-			if uid, shouldClear := clearSlots[latest.Spec.Slots[i].Index]; shouldClear && uid == ref.UID {
-				latest.Spec.Slots[i].NodeRef = nil
+			if uid, shouldClear := clearSlots[latest.Spec.Nodes[i].Index]; shouldClear && uid == ref.UID {
+				latest.Spec.Nodes[i].NodeRef = nil
 				mutated = true
 			}
 		}
@@ -983,8 +983,8 @@ func validateInventory(inventory *mokkav1alpha1.SGPUInventory) error {
 			return fmt.Errorf("rack group ID %q is duplicated", group.ID)
 		}
 		seen[group.ID] = struct{}{}
-		if group.Count < 1 || int64(group.Count) > MaxInventoryNodeSlots {
-			return fmt.Errorf("rack group %q count is outside [1,%d]", group.ID, MaxInventoryNodeSlots)
+		if group.Count < 1 || int64(group.Count) > MaxInventoryNodes {
+			return fmt.Errorf("rack group %q count is outside [1,%d]", group.ID, MaxInventoryNodes)
 		}
 		if group.ProfileRef.Name == "" {
 			return fmt.Errorf("rack group %q profileRef.name must not be empty", group.ID)
@@ -1214,10 +1214,10 @@ func compareAllocationRackKey(a, b allocationRackKey) int {
 func applyBindings(spec *mokkav1alpha1.SGPURackSpec, bindings []allocate.Binding) int64 {
 	var applied int64
 	for _, binding := range bindings {
-		if binding.Coordinate.SlotIndex < 0 || int(binding.Coordinate.SlotIndex) >= len(spec.Slots) {
+		if binding.Coordinate.NodeIndex < 0 || int(binding.Coordinate.NodeIndex) >= len(spec.Nodes) {
 			continue
 		}
-		spec.Slots[binding.Coordinate.SlotIndex].NodeRef = &mokkav1alpha1.SGPUNodeReference{
+		spec.Nodes[binding.Coordinate.NodeIndex].NodeRef = &mokkav1alpha1.SGPUNodeReference{
 			Name: binding.Node.Name, UID: binding.Node.UID,
 		}
 		applied++
@@ -1257,7 +1257,7 @@ func rackSemanticEqual(a, b *mokkav1alpha1.SGPURack) bool {
 }
 
 func rackEmpty(rack *mokkav1alpha1.SGPURack) bool {
-	for _, slot := range rack.Spec.Slots {
+	for _, slot := range rack.Spec.Nodes {
 		if slot.NodeRef != nil {
 			return false
 		}
@@ -1288,7 +1288,7 @@ func sortResult(result *Result) {
 		if order := cmp.Compare(a.RackName, b.RackName); order != 0 {
 			return order
 		}
-		return cmp.Compare(a.Binding.Coordinate.SlotIndex, b.Binding.Coordinate.SlotIndex)
+		return cmp.Compare(a.Binding.Coordinate.NodeIndex, b.Binding.Coordinate.NodeIndex)
 	})
 }
 

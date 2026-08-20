@@ -94,7 +94,7 @@ func TestComputeInventoryCapacityBoundaryAndRejectedOverflow(t *testing.T) {
 		}
 		got := ComputeInventory(InventoryInput{
 			Inventory: inventory,
-			Profiles:  map[string]*mokkav1alpha1.SGPUProfile{"p": profile("p", 1, 64)},
+			Profiles:  map[string]*mokkav1alpha1.SGPURackProfile{"p": profile("p", 1, 64)},
 			RackResult: controllerack.Result{
 				Accepted: true, ResolvedRefs: true,
 			},
@@ -113,7 +113,7 @@ func TestComputeInventoryCapacityBoundaryAndRejectedOverflow(t *testing.T) {
 		}
 		got := ComputeInventory(InventoryInput{
 			Inventory: inventory,
-			Profiles:  map[string]*mokkav1alpha1.SGPUProfile{"p": profile("p", math.MaxInt32, math.MaxInt32)},
+			Profiles:  map[string]*mokkav1alpha1.SGPURackProfile{"p": profile("p", math.MaxInt32, math.MaxInt32)},
 			RackResult: controllerack.Result{
 				Accepted: false, ResolvedRefs: true,
 				ValidationReason: controllerack.ReasonCapacityExceeded,
@@ -141,14 +141,14 @@ func TestComputeRackStatusCountsExactProjectionAndDuplicateBindings(t *testing.T
 	}}
 
 	got := ComputeRack(RackInput{Rack: rack, Racks: input.Racks, Nodes: input.Nodes, Projection: input.Projection}, metav1.NewTime(time.Unix(100, 0)))
-	require.Equal(t, int32(3), got.AssignedSlots)
+	require.Equal(t, int32(3), got.AssignedNodes)
 	require.Equal(t, metav1.ConditionFalse, condition(got.Conditions, mokkav1alpha1.RackConditionReady).Status)
 	require.Equal(t, ReasonDuplicateBindings, condition(got.Conditions, mokkav1alpha1.RackConditionReady).Reason)
 	require.Equal(t, oldTime, condition(got.Conditions, mokkav1alpha1.RackConditionReady).LastTransitionTime)
 	require.Len(t, got.Conditions, 1)
 
 	clean := rack.DeepCopy()
-	clean.Spec.Slots = clean.Spec.Slots[:1]
+	clean.Spec.Nodes = clean.Spec.Nodes[:1]
 	clean.Status = mokkav1alpha1.SGPURackStatus{}
 	got = ComputeRack(RackInput{Rack: clean, Racks: []*mokkav1alpha1.SGPURack{clean}, Nodes: input.Nodes, Projection: input.Projection}, metav1.Now())
 	require.Equal(t, metav1.ConditionTrue, condition(got.Conditions, mokkav1alpha1.RackConditionReady).Status)
@@ -251,30 +251,28 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 			wantReason: ReasonProjectionIncomplete,
 		},
 		{
-			name: "optional clique exact",
+			name: "clique exact",
 			mutate: func(input *RackInput) {
-				input.Rack.Spec.GPUFabric = &mokkav1alpha1.SGPUGPUFabric{}
 				input.Rack.Spec.Identity.FabricUUID = "fabric"
 				input.Rack.Spec.Identity.CliqueID = 7
-				setStatusProjection(input.Nodes[0], input.Rack, &input.Rack.Spec.Slots[0])
+				setStatusProjection(input.Nodes[0], input.Rack, &input.Rack.Spec.Nodes[0])
 			},
 			wantStatus: metav1.ConditionTrue,
 			wantReason: ReasonReady,
 		},
 		{
-			name: "optional clique missing",
+			name: "clique missing",
 			mutate: func(input *RackInput) {
-				input.Rack.Spec.GPUFabric = &mokkav1alpha1.SGPUGPUFabric{}
 				input.Rack.Spec.Identity.FabricUUID = "fabric"
 				input.Rack.Spec.Identity.CliqueID = 7
-				setStatusProjection(input.Nodes[0], input.Rack, &input.Rack.Spec.Slots[0])
+				setStatusProjection(input.Nodes[0], input.Rack, &input.Rack.Spec.Nodes[0])
 				delete(input.Nodes[0].Labels, controllerprojection.CliqueLabel)
 			},
 			wantStatus: metav1.ConditionFalse,
 			wantReason: ReasonProjectionIncomplete,
 		},
 		{
-			name: "unrequested clique retained",
+			name: "wrong clique retained",
 			mutate: func(input *RackInput) {
 				input.Nodes[0].Labels[controllerprojection.CliqueLabel] = "foreign-clique"
 			},
@@ -282,7 +280,7 @@ func TestComputeRackDerivesProjectionFromExactCachedNodeMetadata(t *testing.T) {
 			wantReason: ReasonProjectionIncomplete,
 		},
 		{
-			name: "unrequested empty clique retained",
+			name: "empty clique retained",
 			mutate: func(input *RackInput) {
 				input.Nodes[0].Labels[controllerprojection.CliqueLabel] = ""
 			},
@@ -328,7 +326,7 @@ func TestRestartStatusBeforeProjectionDoesNotFlapAndLaterRepairConverges(t *test
 	require.Zero(t, inventoryWriter.updates)
 	require.Zero(t, rackWriter.updates)
 
-	input.Projection = projectedOutcomeFor(input.Racks[0], &input.Racks[0].Spec.Slots[0])
+	input.Projection = projectedOutcomeFor(input.Racks[0], &input.Racks[0].Spec.Nodes[0])
 	rackInput.Projection = input.Projection
 	changed, err = reconciler.ReconcileInventory(context.Background(), input)
 	require.NoError(t, err)
@@ -351,7 +349,7 @@ func TestRestartStatusBeforeProjectionDoesNotFlapAndLaterRepairConverges(t *test
 	require.Equal(t, ReasonProjectionIncomplete,
 		condition(rackWriter.object.Status.Conditions, mokkav1alpha1.RackConditionReady).Reason)
 
-	setStatusProjection(input.Nodes[0], input.Racks[0], &input.Racks[0].Spec.Slots[0])
+	setStatusProjection(input.Nodes[0], input.Racks[0], &input.Racks[0].Spec.Nodes[0])
 	input.Projection[0].State = controllerprojection.StateConflict
 	input.Projection[0].Reason = controllerprojection.ReasonNodeMetadataConflict
 	changed, err = reconciler.ReconcileInventory(context.Background(), input)
@@ -553,7 +551,7 @@ func aggregateInput(t testing.TB) InventoryInput {
 			{ID: "missing", Count: 4, ProfileRef: mokkav1alpha1.ProfileReference{Name: "missing"}, Placement: placement("missing")},
 		}},
 	}
-	profiles := map[string]*mokkav1alpha1.SGPUProfile{
+	profiles := map[string]*mokkav1alpha1.SGPURackProfile{
 		"pa": profile("pa", 2, 4),
 		"pb": profile("pb", 3, 2),
 	}
@@ -584,12 +582,12 @@ func aggregateInput(t testing.TB) InventoryInput {
 		},
 	}
 	projection := []controllerprojection.Outcome{
-		{RackName: rackA.Name, RackUID: rackA.UID, SlotIndex: 0, NodeName: nodes[1].Name, NodeUID: nodes[1].UID, State: controllerprojection.StateProjected},
-		{RackName: rackB.Name, RackUID: rackB.UID, SlotIndex: 0, NodeName: nodes[4].Name, NodeUID: nodes[4].UID, State: controllerprojection.StateProjected},
-		{RackName: rackA.Name, RackUID: rackA.UID, SlotIndex: 1, NodeName: nodes[2].Name, NodeUID: nodes[2].UID, State: controllerprojection.StateConflict, Reason: controllerprojection.ReasonDuplicateBinding},
+		{RackName: rackA.Name, RackUID: rackA.UID, NodeIndex: 0, NodeName: nodes[1].Name, NodeUID: nodes[1].UID, State: controllerprojection.StateProjected},
+		{RackName: rackB.Name, RackUID: rackB.UID, NodeIndex: 0, NodeName: nodes[4].Name, NodeUID: nodes[4].UID, State: controllerprojection.StateProjected},
+		{RackName: rackA.Name, RackUID: rackA.UID, NodeIndex: 1, NodeName: nodes[2].Name, NodeUID: nodes[2].UID, State: controllerprojection.StateConflict, Reason: controllerprojection.ReasonDuplicateBinding},
 	}
-	setStatusProjection(nodes[1], rackA, &rackA.Spec.Slots[0])
-	setStatusProjection(nodes[4], rackB, &rackB.Spec.Slots[0])
+	setStatusProjection(nodes[1], rackA, &rackA.Spec.Nodes[0])
+	setStatusProjection(nodes[4], rackB, &rackB.Spec.Nodes[0])
 	return InventoryInput{
 		Inventory: inventory, Profiles: profiles, Racks: []*mokkav1alpha1.SGPURack{rackA, rackB}, Nodes: nodes,
 		RackResult: controllerack.Result{
@@ -606,11 +604,11 @@ func singleProjectedInventoryInput(t testing.TB) InventoryInput {
 	input := aggregateInput(t)
 	input.Inventory.Spec.RackGroups = input.Inventory.Spec.RackGroups[:1]
 	input.Inventory.Spec.RackGroups[0].Count = 1
-	input.Racks[0].Spec.Slots = input.Racks[0].Spec.Slots[:1]
+	input.Racks[0].Spec.Nodes = input.Racks[0].Spec.Nodes[:1]
 	input.Racks = input.Racks[:1]
 	input.Nodes = input.Nodes[1:2]
 	input.RackResult = controllerack.Result{Accepted: true, ResolvedRefs: true}
-	input.Projection = projectedOutcomeFor(input.Racks[0], &input.Racks[0].Spec.Slots[0])
+	input.Projection = projectedOutcomeFor(input.Racks[0], &input.Racks[0].Spec.Nodes[0])
 	return input
 }
 
@@ -619,16 +617,16 @@ func singleProjectedRackInput(t testing.TB) RackInput {
 	input := singleProjectedInventoryInput(t)
 	rack := input.Racks[0].DeepCopy()
 	node := input.Nodes[0].DeepCopy()
-	setStatusProjection(node, rack, &rack.Spec.Slots[0])
+	setStatusProjection(node, rack, &rack.Spec.Nodes[0])
 	return RackInput{
 		Rack: rack, Racks: []*mokkav1alpha1.SGPURack{rack}, Nodes: []*corev1.Node{node},
-		Projection: projectedOutcomeFor(rack, &rack.Spec.Slots[0]),
+		Projection: projectedOutcomeFor(rack, &rack.Spec.Nodes[0]),
 	}
 }
 
 func projectedOutcomeFor(
 	rack *mokkav1alpha1.SGPURack,
-	slot *mokkav1alpha1.SGPURackSlot,
+	slot *mokkav1alpha1.SGPURackNode,
 ) []controllerprojection.Outcome {
 	return []controllerprojection.Outcome{{
 		InventoryName: rack.Spec.InventoryRef.Name,
@@ -637,7 +635,7 @@ func projectedOutcomeFor(
 		RackName:      rack.Name,
 		RackUID:       rack.UID,
 		RackIndex:     rack.Spec.Identity.RackIndex,
-		SlotIndex:     slot.Index,
+		NodeIndex:     slot.Index,
 		NodeName:      slot.NodeRef.Name,
 		NodeUID:       slot.NodeRef.UID,
 		State:         controllerprojection.StateProjected,
@@ -647,7 +645,7 @@ func projectedOutcomeFor(
 func setStatusProjection(
 	node *corev1.Node,
 	rack *mokkav1alpha1.SGPURack,
-	slot *mokkav1alpha1.SGPURackSlot,
+	slot *mokkav1alpha1.SGPURackNode,
 ) {
 	assignment, err := controllerprojection.EncodeAssignment(rack, slot)
 	if err != nil {
@@ -657,14 +655,9 @@ func setStatusProjection(
 		node.Labels = make(map[string]string)
 	}
 	node.Labels[controllerprojection.AssignedLabel] = "true"
-	labels := []string{controllerprojection.AssignedLabel}
-	if rack.Spec.GPUFabric != nil {
-		node.Labels[controllerprojection.CliqueLabel] =
-			fmt.Sprintf("%s.%d", rack.Spec.Identity.FabricUUID, rack.Spec.Identity.CliqueID)
-		labels = append(labels, controllerprojection.CliqueLabel)
-	} else {
-		delete(node.Labels, controllerprojection.CliqueLabel)
-	}
+	node.Labels[controllerprojection.CliqueLabel] =
+		fmt.Sprintf("%s.%d", rack.Spec.Identity.FabricUUID, rack.Spec.Identity.CliqueID)
+	labels := []string{controllerprojection.AssignedLabel, controllerprojection.CliqueLabel}
 	if node.Annotations == nil {
 		node.Annotations = make(map[string]string)
 	}
@@ -724,11 +717,11 @@ func placement(values ...string) *mokkav1alpha1.RackPlacement {
 	}}}}
 }
 
-func profile(name string, nodesPerRack, gpus int32) *mokkav1alpha1.SGPUProfile {
-	return &mokkav1alpha1.SGPUProfile{
+func profile(name string, nodesPerRack, gpus int32) *mokkav1alpha1.SGPURackProfile {
+	return &mokkav1alpha1.SGPURackProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: name, UID: types.UID(name + "-uid"), Generation: 1},
-		Spec: mokkav1alpha1.SGPUProfileSpec{
-			Rack: mokkav1alpha1.SGPUProfileRack{NodesPerRack: nodesPerRack},
+		Spec: mokkav1alpha1.SGPURackProfileSpec{
+			Rack: mokkav1alpha1.SGPURackShape{NodesPerRack: nodesPerRack},
 			Node: mokkav1alpha1.SGPUNode{GPUs: mokkav1alpha1.SGPUGPUs{Count: gpus}},
 		},
 	}
@@ -748,9 +741,9 @@ type nodeBinding struct {
 }
 
 func statusRack(inventory *mokkav1alpha1.SGPUInventory, name string, uid types.UID, group string, index int32, bindings []nodeBinding) *mokkav1alpha1.SGPURack {
-	slots := make([]mokkav1alpha1.SGPURackSlot, len(bindings))
+	slots := make([]mokkav1alpha1.SGPURackNode, len(bindings))
 	for i, binding := range bindings {
-		slots[i] = mokkav1alpha1.SGPURackSlot{Index: int32(i), NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: binding.name, UID: binding.uid}}
+		slots[i] = mokkav1alpha1.SGPURackNode{Index: int32(i), NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: binding.name, UID: binding.uid}}
 	}
 	return &mokkav1alpha1.SGPURack{
 		ObjectMeta: metav1.ObjectMeta{
@@ -761,7 +754,7 @@ func statusRack(inventory *mokkav1alpha1.SGPUInventory, name string, uid types.U
 			InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID},
 			ProfileRef:   mokkav1alpha1.SGPURackProfileReference{Name: "p", UID: "p-uid", Revision: "revision"},
 			Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: group, RackIndex: index},
-			Slots:        slots,
+			Nodes:        slots,
 		},
 	}
 }
@@ -770,9 +763,9 @@ func groupKey(inventory *mokkav1alpha1.SGPUInventory, group string) allocate.Gro
 	return allocate.GroupKey{InventoryName: inventory.Name, InventoryUID: inventory.UID, RackGroup: group}
 }
 
-func binding(inventory *mokkav1alpha1.SGPUInventory, group string, rackIndex, slotIndex int32, node *corev1.Node) allocate.Binding {
+func binding(inventory *mokkav1alpha1.SGPUInventory, group string, rackIndex, nodeIndex int32, node *corev1.Node) allocate.Binding {
 	return allocate.Binding{
-		Coordinate: allocate.Coordinate{Group: groupKey(inventory, group), RackIndex: rackIndex, SlotIndex: slotIndex},
+		Coordinate: allocate.Coordinate{Group: groupKey(inventory, group), RackIndex: rackIndex, NodeIndex: nodeIndex},
 		Node:       allocate.NodeReference{Name: node.Name, UID: node.UID},
 	}
 }

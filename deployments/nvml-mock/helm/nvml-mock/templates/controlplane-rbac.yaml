@@ -28,7 +28,7 @@ rules:
     resources: ["nodes"]
     verbs: ["get", "list", "watch", "patch"]
   - apiGroups: ["mokka.nvidia.com"]
-    resources: ["sgpuprofiles"]
+    resources: ["sgpurackprofiles"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["mokka.nvidia.com"]
     resources: ["sgpuinventories"]

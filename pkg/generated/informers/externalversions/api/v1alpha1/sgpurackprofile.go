@@ -30,37 +30,37 @@ import (
 	cache "k8s.io/client-go/tools/cache"
 )
 
-// SGPUProfileInformer provides access to a shared informer and lister for
-// SGPUProfiles.
-type SGPUProfileInformer interface {
+// SGPURackProfileInformer provides access to a shared informer and lister for
+// SGPURackProfiles.
+type SGPURackProfileInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() apiv1alpha1.SGPUProfileLister
+	Lister() apiv1alpha1.SGPURackProfileLister
 }
 
-type sGPUProfileInformer struct {
+type sGPURackProfileInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
 }
 
-// NewSGPUProfileInformer constructs a new informer for SGPUProfile type.
+// NewSGPURackProfileInformer constructs a new informer for SGPURackProfile type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewSGPUProfileInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewSGPUProfileInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+func NewSGPURackProfileInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewSGPURackProfileInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
 }
 
-// NewFilteredSGPUProfileInformer constructs a new informer for SGPUProfile type.
+// NewFilteredSGPURackProfileInformer constructs a new informer for SGPURackProfile type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredSGPUProfileInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return NewSGPUProfileInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+func NewFilteredSGPURackProfileInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+	return NewSGPURackProfileInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
 }
 
-// NewSGPUProfileInformerWithOptions constructs a new informer for SGPUProfile type with additional options.
+// NewSGPURackProfileInformerWithOptions constructs a new informer for SGPURackProfile type with additional options.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewSGPUProfileInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
-	gvr := schema.GroupVersionResource{Group: "mokka.nvidia.com", Version: "v1alpha1", Resource: "sgpuprofiles"}
+func NewSGPURackProfileInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	gvr := schema.GroupVersionResource{Group: "mokka.nvidia.com", Version: "v1alpha1", Resource: "sgpurackprofiles"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
 	return cache.NewSharedIndexInformerWithOptions(
@@ -69,28 +69,28 @@ func NewSGPUProfileInformerWithOptions(client versioned.Interface, options inter
 				if tweakListOptions != nil {
 					tweakListOptions(&opts)
 				}
-				return client.MokkaV1alpha1().SGPUProfiles().List(context.Background(), opts)
+				return client.MokkaV1alpha1().SGPURackProfiles().List(context.Background(), opts)
 			},
 			WatchFunc: func(opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&opts)
 				}
-				return client.MokkaV1alpha1().SGPUProfiles().Watch(context.Background(), opts)
+				return client.MokkaV1alpha1().SGPURackProfiles().Watch(context.Background(), opts)
 			},
 			ListWithContextFunc: func(ctx context.Context, opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&opts)
 				}
-				return client.MokkaV1alpha1().SGPUProfiles().List(ctx, opts)
+				return client.MokkaV1alpha1().SGPURackProfiles().List(ctx, opts)
 			},
 			WatchFuncWithContext: func(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&opts)
 				}
-				return client.MokkaV1alpha1().SGPUProfiles().Watch(ctx, opts)
+				return client.MokkaV1alpha1().SGPURackProfiles().Watch(ctx, opts)
 			},
 		}, client),
-		&controlplaneapiv1alpha1.SGPUProfile{},
+		&controlplaneapiv1alpha1.SGPURackProfile{},
 		cache.SharedIndexInformerOptions{
 			ResyncPeriod: options.ResyncPeriod,
 			Indexers:     options.Indexers,
@@ -99,14 +99,14 @@ func NewSGPUProfileInformerWithOptions(client versioned.Interface, options inter
 	)
 }
 
-func (f *sGPUProfileInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewSGPUProfileInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
+func (f *sGPURackProfileInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	return NewSGPURackProfileInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
-func (f *sGPUProfileInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&controlplaneapiv1alpha1.SGPUProfile{}, f.defaultInformer)
+func (f *sGPURackProfileInformer) Informer() cache.SharedIndexInformer {
+	return f.factory.InformerFor(&controlplaneapiv1alpha1.SGPURackProfile{}, f.defaultInformer)
 }
 
-func (f *sGPUProfileInformer) Lister() apiv1alpha1.SGPUProfileLister {
-	return apiv1alpha1.NewSGPUProfileLister(f.Informer().GetIndexer())
+func (f *sGPURackProfileInformer) Lister() apiv1alpha1.SGPURackProfileLister {
+	return apiv1alpha1.NewSGPURackProfileLister(f.Informer().GetIndexer())
 }

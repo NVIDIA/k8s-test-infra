@@ -28,7 +28,7 @@ import (
 
 type informerCache struct {
 	inventories mokkalisters.SGPUInventoryLister
-	profiles    mokkalisters.SGPUProfileLister
+	profiles    mokkalisters.SGPURackProfileLister
 	racks       cache.Indexer
 	nodes       *controllernodes.Catalog
 	liveNodes   corev1client.NodeInterface
@@ -41,7 +41,7 @@ var _ controllerprojection.Cache = (*informerCache)(nil)
 
 func newInformerCache(
 	inventories mokkalisters.SGPUInventoryLister,
-	profiles mokkalisters.SGPUProfileLister,
+	profiles mokkalisters.SGPURackProfileLister,
 	racks cache.Indexer,
 	nodes *controllernodes.Catalog,
 	liveNodes corev1client.NodeInterface,
@@ -61,7 +61,7 @@ func (c *informerCache) Inventories() ([]*mokkav1alpha1.SGPUInventory, error) {
 	return c.inventories.List(labels.Everything())
 }
 
-func (c *informerCache) Profile(name string) (*mokkav1alpha1.SGPUProfile, error) {
+func (c *informerCache) Profile(name string) (*mokkav1alpha1.SGPURackProfile, error) {
 	return c.profiles.Get(name)
 }
 
@@ -145,7 +145,7 @@ func (c *informerCache) statusNodesForInventory(
 		if rack == nil {
 			continue
 		}
-		for _, slot := range rack.Spec.Slots {
+		for _, slot := range rack.Spec.Nodes {
 			if slot.NodeRef != nil && slot.NodeRef.Name != "" {
 				boundNames[slot.NodeRef.Name] = struct{}{}
 			}
@@ -155,8 +155,8 @@ func (c *informerCache) statusNodesForInventory(
 }
 
 func (c *informerCache) statusNodesForRack(rack *mokkav1alpha1.SGPURack) (statusNodeSnapshot, error) {
-	boundNames := make(map[string]struct{}, len(rack.Spec.Slots))
-	for _, slot := range rack.Spec.Slots {
+	boundNames := make(map[string]struct{}, len(rack.Spec.Nodes))
+	for _, slot := range rack.Spec.Nodes {
 		if slot.NodeRef != nil && slot.NodeRef.Name != "" {
 			boundNames[slot.NodeRef.Name] = struct{}{}
 		}
@@ -295,7 +295,7 @@ func inventoryStatusInput(
 	if err != nil {
 		return controllerstatus.InventoryInput{}, statusSnapshotWork{}, err
 	}
-	profiles := make(map[string]*mokkav1alpha1.SGPUProfile, len(inventory.Spec.RackGroups))
+	profiles := make(map[string]*mokkav1alpha1.SGPURackProfile, len(inventory.Spec.RackGroups))
 	for _, group := range inventory.Spec.RackGroups {
 		profile, getErr := snapshot.Profile(group.ProfileRef.Name)
 		if getErr == nil {
@@ -324,7 +324,7 @@ func rackStatusInput(
 ) (controllerstatus.RackInput, statusSnapshotWork, error) {
 	related := map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}
 	stats := statusSnapshotWork{}
-	for _, slot := range rack.Spec.Slots {
+	for _, slot := range rack.Spec.Nodes {
 		if slot.NodeRef == nil {
 			continue
 		}

@@ -18,41 +18,41 @@ import (
 func TestValidateProfile(t *testing.T) {
 	tests := []struct {
 		name    string
-		mutate  func(*mokkav1alpha1.SGPUProfileSpec)
+		mutate  func(*mokkav1alpha1.SGPURackProfileSpec)
 		wantErr string
 	}{
 		{name: "valid"},
 		{
 			name: "slot count differs from GPU count",
-			mutate: func(spec *mokkav1alpha1.SGPUProfileSpec) {
+			mutate: func(spec *mokkav1alpha1.SGPURackProfileSpec) {
 				spec.Node.Topology.GPUSlots = spec.Node.Topology.GPUSlots[:1]
 			},
 			wantErr: "gpuSlots length",
 		},
 		{
 			name: "slot indexes are not contiguous",
-			mutate: func(spec *mokkav1alpha1.SGPUProfileSpec) {
+			mutate: func(spec *mokkav1alpha1.SGPURackProfileSpec) {
 				spec.Node.Topology.GPUSlots[1].Index = 3
 			},
 			wantErr: "gpuSlots indexes",
 		},
 		{
 			name: "slot indexes are duplicated",
-			mutate: func(spec *mokkav1alpha1.SGPUProfileSpec) {
+			mutate: func(spec *mokkav1alpha1.SGPURackProfileSpec) {
 				spec.Node.Topology.GPUSlots[1].Index = 0
 			},
 			wantErr: "gpuSlots indexes",
 		},
 		{
 			name: "PCI addresses are duplicated",
-			mutate: func(spec *mokkav1alpha1.SGPUProfileSpec) {
+			mutate: func(spec *mokkav1alpha1.SGPURackProfileSpec) {
 				spec.Node.Topology.GPUSlots[1].PCIAddress = spec.Node.Topology.GPUSlots[0].PCIAddress
 			},
 			wantErr: "PCI addresses",
 		},
 		{
 			name: "fabric domain has the wrong GPU count",
-			mutate: func(spec *mokkav1alpha1.SGPUProfileSpec) {
+			mutate: func(spec *mokkav1alpha1.SGPURackProfileSpec) {
 				spec.Node.Topology.GPUFabric.Domain.GPUCount++
 			},
 			wantErr: "gpuFabric.domain.gpuCount",
@@ -176,13 +176,11 @@ func TestRenderRack(t *testing.T) {
 		FabricUUID: "2c79cf0a-9456-5f4d-aef6-c9dba304466a",
 		CliqueID:   0,
 	}, rendered.Spec.Identity)
-	require.Equal(t, renderGPUFabric(profile.Spec.Node.Topology.GPUFabric), rendered.Spec.GPUFabric)
-	require.Equal(t, renderNetwork(profile.Spec.Node.Topology.Network), rendered.Spec.Network)
-	require.Len(t, rendered.Spec.Slots, 2)
+	require.Len(t, rendered.Spec.Nodes, 2)
 
-	require.Equal(t, int32(0), rendered.Spec.Slots[0].Index)
-	require.Nil(t, rendered.Spec.Slots[0].NodeRef)
-	require.Len(t, rendered.Spec.Slots[0].GPUs, 2)
+	require.Equal(t, int32(0), rendered.Spec.Nodes[0].Index)
+	require.Nil(t, rendered.Spec.Nodes[0].NodeRef)
+	require.Len(t, rendered.Spec.Nodes[0].GPUs, 2)
 	require.Equal(t, mokkav1alpha1.SGPURackGPU{
 		Index:              0,
 		UUID:               "GPU-e1fc2f7b-7e71-5cdd-addf-11103758e19f",
@@ -192,15 +190,14 @@ func TestRenderRack(t *testing.T) {
 		RootComplex:        "pci0000:00",
 		NUMANode:           0,
 		HostProcessorIndex: 0,
-	}, rendered.Spec.Slots[0].GPUs[0])
-	require.Equal(t, int32(1), rendered.Spec.Slots[0].GPUs[1].Index)
-	require.Equal(t, int32(1), rendered.Spec.Slots[1].Index)
+	}, rendered.Spec.Nodes[0].GPUs[0])
+	require.Equal(t, int32(1), rendered.Spec.Nodes[0].GPUs[1].Index)
+	require.Equal(t, int32(1), rendered.Spec.Nodes[1].Index)
 
 	// Rendered topology must not alias informer-cache objects passed by callers.
-	rendered.Spec.GPUFabric.Type = "changed"
-	rendered.Spec.Network.Type = "changed"
-	require.Equal(t, "NVLink", profile.Spec.Node.Topology.GPUFabric.Type)
-	require.Equal(t, "InfiniBand", profile.Spec.Node.Topology.Network.Type)
+	profileAddress := profile.Spec.Node.Topology.GPUSlots[0].PCIAddress
+	rendered.Spec.Nodes[0].GPUs[0].PCIAddress = "changed"
+	require.Equal(t, profileAddress, profile.Spec.Node.Topology.GPUSlots[0].PCIAddress)
 }
 
 func TestRenderRackRejectsInvalidCoordinates(t *testing.T) {
@@ -248,8 +245,7 @@ func TestRenderRackWithoutOptionalTopology(t *testing.T) {
 		Profile:       profile,
 	})
 	require.NoError(t, err)
-	require.Nil(t, rendered.Spec.GPUFabric)
-	require.Nil(t, rendered.Spec.Network)
+	require.Len(t, rendered.Spec.Nodes, 2)
 	require.NotEmpty(t, rendered.Spec.Identity.FabricUUID)
 }
 
@@ -299,14 +295,14 @@ func TestRenderRackAcceptsRenderedDimensionBoundaries(t *testing.T) {
 				Profile:       profile,
 			})
 			require.NoError(t, err)
-			require.Len(t, rendered.Spec.Slots, int(tt.nodesPerRack))
-			require.Len(t, rendered.Spec.Slots[0].GPUs, int(tt.gpuCount))
+			require.Len(t, rendered.Spec.Nodes, int(tt.nodesPerRack))
+			require.Len(t, rendered.Spec.Nodes[0].GPUs, int(tt.gpuCount))
 		})
 	}
 }
 
 func TestValidateRackSpecRejectsImpossibleRenderedDimensions(t *testing.T) {
-	validSlot := mokkav1alpha1.SGPURackSlot{
+	validNode := mokkav1alpha1.SGPURackNode{
 		Index: 0,
 		GPUs:  []mokkav1alpha1.SGPURackGPU{{Index: 0}},
 	}
@@ -315,32 +311,32 @@ func TestValidateRackSpecRejectsImpossibleRenderedDimensions(t *testing.T) {
 		spec    mokkav1alpha1.SGPURackSpec
 		wantErr string
 	}{
-		{name: "no slots", wantErr: "slots must contain between 1 and 1024 entries"},
+		{name: "no nodes", wantErr: "nodes must contain between 1 and 1024 entries"},
 		{
-			name:    "too many slots",
-			spec:    mokkav1alpha1.SGPURackSpec{Slots: make([]mokkav1alpha1.SGPURackSlot, 1025)},
-			wantErr: "slots must contain between 1 and 1024 entries",
+			name:    "too many nodes",
+			spec:    mokkav1alpha1.SGPURackSpec{Nodes: make([]mokkav1alpha1.SGPURackNode, 1025)},
+			wantErr: "nodes must contain between 1 and 1024 entries",
 		},
 		{
 			name: "too many GPUs",
-			spec: mokkav1alpha1.SGPURackSpec{Slots: []mokkav1alpha1.SGPURackSlot{{
+			spec: mokkav1alpha1.SGPURackSpec{Nodes: []mokkav1alpha1.SGPURackNode{{
 				Index: 0, GPUs: make([]mokkav1alpha1.SGPURackGPU, 65),
 			}}},
-			wantErr: "slot 0 GPUs must contain between 1 and 64 entries",
+			wantErr: "node 0 GPUs must contain between 1 and 64 entries",
 		},
 		{
-			name: "slot index outside schema",
-			spec: mokkav1alpha1.SGPURackSpec{Slots: []mokkav1alpha1.SGPURackSlot{{
-				Index: 1024, GPUs: validSlot.GPUs,
+			name: "node index outside schema",
+			spec: mokkav1alpha1.SGPURackSpec{Nodes: []mokkav1alpha1.SGPURackNode{{
+				Index: 1024, GPUs: validNode.GPUs,
 			}}},
-			wantErr: "slot index 1024 is outside [0,1023]",
+			wantErr: "node index 1024 is outside [0,1023]",
 		},
 		{
 			name: "GPU index outside schema",
-			spec: mokkav1alpha1.SGPURackSpec{Slots: []mokkav1alpha1.SGPURackSlot{{
+			spec: mokkav1alpha1.SGPURackSpec{Nodes: []mokkav1alpha1.SGPURackNode{{
 				Index: 0, GPUs: []mokkav1alpha1.SGPURackGPU{{Index: 64}},
 			}}},
-			wantErr: "slot 0 GPU index 64 is outside [0,63]",
+			wantErr: "node 0 GPU index 64 is outside [0,63]",
 		},
 	}
 
@@ -350,10 +346,10 @@ func TestValidateRackSpecRejectsImpossibleRenderedDimensions(t *testing.T) {
 			require.EqualError(t, err, tt.wantErr)
 		})
 	}
-	require.NoError(t, ValidateRackSpec(mokkav1alpha1.SGPURackSpec{Slots: []mokkav1alpha1.SGPURackSlot{validSlot}}))
+	require.NoError(t, ValidateRackSpec(mokkav1alpha1.SGPURackSpec{Nodes: []mokkav1alpha1.SGPURackNode{validNode}}))
 }
 
-func profileSpecWithDimensions(nodesPerRack, gpuCount int32) mokkav1alpha1.SGPUProfileSpec {
+func profileSpecWithDimensions(nodesPerRack, gpuCount int32) mokkav1alpha1.SGPURackProfileSpec {
 	spec := validProfile().Spec
 	spec.Rack.NodesPerRack = nodesPerRack
 	spec.Node.GPUs.Count = gpuCount
@@ -371,15 +367,15 @@ func profileSpecWithDimensions(nodesPerRack, gpuCount int32) mokkav1alpha1.SGPUP
 	return spec
 }
 
-func validProfile() *mokkav1alpha1.SGPUProfile {
-	return &mokkav1alpha1.SGPUProfile{
+func validProfile() *mokkav1alpha1.SGPURackProfile {
+	return &mokkav1alpha1.SGPURackProfile{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       "profile-a",
 			UID:        types.UID("profile-uid-a"),
 			Generation: 7,
 		},
-		Spec: mokkav1alpha1.SGPUProfileSpec{
-			Rack: mokkav1alpha1.SGPUProfileRack{NodesPerRack: 2},
+		Spec: mokkav1alpha1.SGPURackProfileSpec{
+			Rack: mokkav1alpha1.SGPURackShape{NodesPerRack: 2},
 			Node: mokkav1alpha1.SGPUNode{
 				GPUs: mokkav1alpha1.SGPUGPUs{
 					Count:        2,

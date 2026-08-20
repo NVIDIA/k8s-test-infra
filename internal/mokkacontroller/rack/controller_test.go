@@ -74,8 +74,8 @@ func TestReconcileCreatesDeterministicRacksAndIsIdempotent(t *testing.T) {
 		metav1.GetOptions{},
 	)
 	require.NoError(t, err)
-	require.Equal(t, types.UID("first-uid"), firstRack.Spec.Slots[0].NodeRef.UID)
-	require.Equal(t, types.UID("later-uid"), firstRack.Spec.Slots[1].NodeRef.UID)
+	require.Equal(t, types.UID("first-uid"), firstRack.Spec.Nodes[0].NodeRef.UID)
+	require.Equal(t, types.UID("later-uid"), firstRack.Spec.Nodes[1].NodeRef.UID)
 
 	h.sync(t)
 	h.mokka.Fake.ClearActions()
@@ -91,8 +91,8 @@ func TestReconcileCreatesDeterministicRacksAndIsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	unchurned, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, firstRack.Name, metav1.GetOptions{})
 	require.NoError(t, err)
-	require.Equal(t, types.UID("first-uid"), unchurned.Spec.Slots[0].NodeRef.UID)
-	require.Equal(t, types.UID("later-uid"), unchurned.Spec.Slots[1].NodeRef.UID)
+	require.Equal(t, types.UID("first-uid"), unchurned.Spec.Nodes[0].NodeRef.UID)
+	require.Equal(t, types.UID("later-uid"), unchurned.Spec.Nodes[1].NodeRef.UID)
 }
 
 func TestReconcileCreatesCacheMissingRacksWithOneWriteEach(t *testing.T) {
@@ -133,19 +133,19 @@ func TestSupportedInventoryCapacityBoundariesAndOverflow(t *testing.T) {
 	boundary, err := CapacityForGroup(group, profile)
 	require.NoError(t, err)
 	require.NoError(t, ValidateSupportedCapacity(boundary))
-	require.Equal(t, DeclaredCapacity{Racks: 100_000, NodeSlots: 100_000, GPUs: 6_400_000}, boundary)
+	require.Equal(t, DeclaredCapacity{Racks: 100_000, Nodes: 100_000, GPUs: 6_400_000}, boundary)
 	require.EqualError(t,
-		ValidateSupportedCapacity(DeclaredCapacity{Racks: 100_001, NodeSlots: 100_000}),
+		ValidateSupportedCapacity(DeclaredCapacity{Racks: 100_001, Nodes: 100_000}),
 		"desired racks 100001 exceed supported maximum 100000",
 	)
 	require.EqualError(t,
-		ValidateSupportedCapacity(DeclaredCapacity{Racks: 100_000, NodeSlots: 100_000, GPUs: math.MaxInt32 + 1}),
+		ValidateSupportedCapacity(DeclaredCapacity{Racks: 100_000, Nodes: 100_000, GPUs: math.MaxInt32 + 1}),
 		"declared capacity exceeds int32 status bounds",
 	)
 
 	over, err := CapacityForGroup(mokkav1alpha1.RackGroup{ID: "group", Count: 100_001}, profile)
 	require.NoError(t, err)
-	require.EqualError(t, ValidateSupportedCapacity(over), "desired node slots 100001 exceed supported maximum 100000")
+	require.EqualError(t, ValidateSupportedCapacity(over), "desired Nodes 100001 exceed supported maximum 100000")
 
 	extreme := profile.DeepCopy()
 	extreme.Spec.Rack.NodesPerRack = math.MaxInt32
@@ -154,15 +154,15 @@ func TestSupportedInventoryCapacityBoundariesAndOverflow(t *testing.T) {
 	require.EqualError(t, err, `rack group "group" GPU capacity overflows int64`)
 
 	_, err = AddCapacity(
-		DeclaredCapacity{Racks: math.MaxInt64, NodeSlots: math.MaxInt64, GPUs: math.MaxInt64},
-		DeclaredCapacity{Racks: 1, NodeSlots: 1, GPUs: 1},
+		DeclaredCapacity{Racks: math.MaxInt64, Nodes: math.MaxInt64, GPUs: math.MaxInt64},
+		DeclaredCapacity{Racks: 1, Nodes: 1, GPUs: 1},
 	)
 	require.EqualError(t, err, "aggregate rack capacity overflows int64")
 	_, err = AddCapacity(
-		DeclaredCapacity{NodeSlots: math.MaxInt64},
-		DeclaredCapacity{NodeSlots: 1},
+		DeclaredCapacity{Nodes: math.MaxInt64},
+		DeclaredCapacity{Nodes: 1},
 	)
-	require.EqualError(t, err, "aggregate node-slot capacity overflows int64")
+	require.EqualError(t, err, "aggregate Node capacity overflows int64")
 	_, err = AddCapacity(
 		DeclaredCapacity{GPUs: math.MaxInt64},
 		DeclaredCapacity{GPUs: 1},
@@ -198,7 +198,7 @@ func TestReconcileRejectsAggregateCapacityBeforeAllocationOrWrites(t *testing.T)
 	require.NoError(t, err)
 	require.False(t, result.Accepted)
 	require.Equal(t, ReasonCapacityExceeded, result.ValidationReason)
-	require.Equal(t, "desired node slots 100001 exceed supported maximum 100000", result.ValidationError)
+	require.Equal(t, "desired Nodes 100001 exceed supported maximum 100000", result.ValidationError)
 	require.Zero(t, allocationCalls, "rejected capacity must not invoke allocation")
 	require.Zero(t, result.Work)
 	require.Empty(t, h.mokka.Actions(), "rejected capacity must not issue API writes")
@@ -230,8 +230,8 @@ func TestReconcileGroupIndexesLargeBindingSetOnce(t *testing.T) {
 		rack := newRack(inventory, rendered.Name, rendered.Spec)
 		rack.UID = types.UID(fmt.Sprintf("rack-uid-%04d", rackIndex))
 		rack.ResourceVersion = "1"
-		for slotIndex := range nodesPerRack {
-			nodeIndex := rackIndex*nodesPerRack + slotIndex
+		for rackNodeIndex := range nodesPerRack {
+			nodeIndex := rackIndex*nodesPerRack + rackNodeIndex
 			node := testNode(
 				fmt.Sprintf("node-%06d", nodeIndex),
 				types.UID(fmt.Sprintf("node-uid-%06d", nodeIndex)),
@@ -239,7 +239,7 @@ func TestReconcileGroupIndexesLargeBindingSetOnce(t *testing.T) {
 				map[string]string{"pool": "gpu"},
 			)
 			nodes[nodeIndex] = node
-			rack.Spec.Slots[slotIndex].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID}
+			rack.Spec.Nodes[rackNodeIndex].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID}
 		}
 		objects = append(objects, rack)
 	}
@@ -320,7 +320,7 @@ func TestReconcileReportsOverlapAndRetainsLastGoodRackForMissingProfile(t *testi
 	require.Equal(t, allocate.ConflictSelectorOverlap, result.Allocation.Conflicts[0].Kind)
 	require.Empty(t, result.Allocation.Assigned)
 
-	require.NoError(t, h.mokka.Tracker().Delete(mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuprofiles"), "", profile.Name))
+	require.NoError(t, h.mokka.Tracker().Delete(mokkav1alpha1.SchemeGroupVersion.WithResource("sgpurackprofiles"), "", profile.Name))
 	h.sync(t)
 	h.mokka.Fake.ClearActions()
 	result, err = h.reconcile(ctx, inventory.Name)
@@ -352,7 +352,7 @@ func TestReconcileExistingBindingWinsNewSelectorOverlap(t *testing.T) {
 		metav1.GetOptions{},
 	)
 	require.NoError(t, err)
-	require.Equal(t, node.UID, got.Spec.Slots[0].NodeRef.UID)
+	require.Equal(t, node.UID, got.Spec.Nodes[0].NodeRef.UID)
 }
 
 func TestReconcileInvalidInventoryAndProfileRetainLastGoodRacks(t *testing.T) {
@@ -364,10 +364,10 @@ func TestReconcileInvalidInventoryAndProfileRetainLastGoodRacks(t *testing.T) {
 	_, err := h.reconcile(ctx, inventory.Name)
 	require.NoError(t, err)
 
-	invalidProfile, err := h.mokka.MokkaV1alpha1().SGPUProfiles().Get(ctx, profile.Name, metav1.GetOptions{})
+	invalidProfile, err := h.mokka.MokkaV1alpha1().SGPURackProfiles().Get(ctx, profile.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	invalidProfile.Spec.Node.Topology.GPUSlots[0].PCIAddress = "not-a-pci-address"
-	_, err = h.mokka.MokkaV1alpha1().SGPUProfiles().Update(ctx, invalidProfile, metav1.UpdateOptions{})
+	_, err = h.mokka.MokkaV1alpha1().SGPURackProfiles().Update(ctx, invalidProfile, metav1.UpdateOptions{})
 	require.NoError(t, err)
 	h.sync(t)
 	h.mokka.Fake.ClearActions()
@@ -379,7 +379,7 @@ func TestReconcileInvalidInventoryAndProfileRetainLastGoodRacks(t *testing.T) {
 	require.Empty(t, h.mokka.Actions())
 
 	validProfile := testProfile("p", "profile-recreated", 1, 1, 1)
-	require.NoError(t, h.mokka.Tracker().Delete(mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuprofiles"), "", profile.Name))
+	require.NoError(t, h.mokka.Tracker().Delete(mokkav1alpha1.SchemeGroupVersion.WithResource("sgpurackprofiles"), "", profile.Name))
 	require.NoError(t, h.mokka.Tracker().Add(validProfile))
 	invalidInventory, err := h.mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
 	require.NoError(t, err)
@@ -432,8 +432,8 @@ func TestReconcileProjectedLabelSelectorRetainsBindingWithoutWrites(t *testing.T
 		metav1.GetOptions{},
 	)
 	require.NoError(t, err)
-	require.NotNil(t, retained.Spec.Slots[0].NodeRef)
-	require.Equal(t, node.UID, retained.Spec.Slots[0].NodeRef.UID)
+	require.NotNil(t, retained.Spec.Nodes[0].NodeRef)
+	require.Equal(t, node.UID, retained.Spec.Nodes[0].NodeRef.UID)
 }
 
 func TestReconcileUsesCurrentInventoryOverStaleListSnapshot(t *testing.T) {
@@ -477,7 +477,7 @@ func TestReconcileRendersRecreatedProfileWithoutMovingBindings(t *testing.T) {
 
 	recreated := testProfile("p", "new-profile-uid", 1, 2, 2)
 	recreated.Spec.Node.Topology.GPUSlots[1].PCIAddress = "0000:03:00.0"
-	require.NoError(t, h.mokka.Tracker().Delete(mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuprofiles"), "", profile.Name))
+	require.NoError(t, h.mokka.Tracker().Delete(mokkav1alpha1.SchemeGroupVersion.WithResource("sgpurackprofiles"), "", profile.Name))
 	require.NoError(t, h.mokka.Tracker().Add(recreated))
 	h.sync(t)
 	_, err = h.reconcile(ctx, inventory.Name)
@@ -490,8 +490,8 @@ func TestReconcileRendersRecreatedProfileWithoutMovingBindings(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, recreated.UID, got.Spec.ProfileRef.UID)
-	require.Equal(t, "0000:03:00.0", got.Spec.Slots[0].GPUs[1].PCIAddress)
-	require.Equal(t, node.UID, got.Spec.Slots[0].NodeRef.UID)
+	require.Equal(t, "0000:03:00.0", got.Spec.Nodes[0].GPUs[1].PCIAddress)
+	require.Equal(t, node.UID, got.Spec.Nodes[0].NodeRef.UID)
 }
 
 func TestReconcileShrinkWaitsForCleanupThenRetires(t *testing.T) {
@@ -507,12 +507,12 @@ func TestReconcileShrinkWaitsForCleanupThenRetires(t *testing.T) {
 	_, err := h.reconcile(ctx, inventory.Name)
 	require.NoError(t, err)
 
-	updatedProfile, err := h.mokka.MokkaV1alpha1().SGPUProfiles().Get(ctx, profile.Name, metav1.GetOptions{})
+	updatedProfile, err := h.mokka.MokkaV1alpha1().SGPURackProfiles().Get(ctx, profile.Name, metav1.GetOptions{})
 	require.NoError(t, err)
 	updatedProfile.Spec.Rack.NodesPerRack = 1
 	updatedProfile.Spec.Node.Topology.GPUFabric.Domain.GPUCount = 1
 	updatedProfile.Generation++
-	_, err = h.mokka.MokkaV1alpha1().SGPUProfiles().Update(ctx, updatedProfile, metav1.UpdateOptions{})
+	_, err = h.mokka.MokkaV1alpha1().SGPURackProfiles().Update(ctx, updatedProfile, metav1.UpdateOptions{})
 	require.NoError(t, err)
 	updatedInventory, err := h.mokka.MokkaV1alpha1().SGPUInventories().Get(ctx, inventory.Name, metav1.GetOptions{})
 	require.NoError(t, err)
@@ -531,7 +531,7 @@ func TestReconcileShrinkWaitsForCleanupThenRetires(t *testing.T) {
 		metav1.GetOptions{},
 	)
 	require.NoError(t, err)
-	require.Len(t, surviving.Spec.Slots, 2, "a bound high slot remains until projection cleanup")
+	require.Len(t, surviving.Spec.Nodes, 2, "a bound high slot remains until projection cleanup")
 	retiringName := materialize.RackName(inventory.Name, inventory.UID, "group", 1)
 	_, err = h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, retiringName, metav1.GetOptions{})
 	require.NoError(t, err)
@@ -546,7 +546,7 @@ func TestReconcileShrinkWaitsForCleanupThenRetires(t *testing.T) {
 
 	shrunk, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, surviving.Name, metav1.GetOptions{})
 	require.NoError(t, err)
-	require.Len(t, shrunk.Spec.Slots, 1)
+	require.Len(t, shrunk.Spec.Nodes, 1)
 	_, err = h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, retiringName, metav1.GetOptions{})
 	require.True(t, apierrors.IsNotFound(err))
 }
@@ -584,7 +584,7 @@ func TestReconcileHandlesOwnerConflictAndRetriesOptimisticConflict(t *testing.T)
 	h.sync(t)
 	profile.Generation++
 	profile.Spec.Software.DriverVersion = "new"
-	require.NoError(t, h.mokka.Tracker().Update(mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuprofiles"), profile, ""))
+	require.NoError(t, h.mokka.Tracker().Update(mokkav1alpha1.SchemeGroupVersion.WithResource("sgpurackprofiles"), profile, ""))
 	h.sync(t)
 
 	conflicted := false
@@ -612,7 +612,7 @@ func TestReconcileSurfacesRackFieldOwnershipConflict(t *testing.T) {
 	profile.Generation++
 	profile.Spec.Software.DriverVersion = "new"
 	require.NoError(t, h.mokka.Tracker().Update(
-		mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuprofiles"), profile, "",
+		mokkav1alpha1.SchemeGroupVersion.WithResource("sgpurackprofiles"), profile, "",
 	))
 	h.sync(t)
 	h.mokka.PrependReactor("patch", "sgpuracks", func(k8stesting.Action) (bool, runtime.Object, error) {
@@ -695,7 +695,7 @@ func TestReconcileWaitsForGoneUIDCleanupBeforeAllocatingReplacement(t *testing.T
 		metav1.GetOptions{},
 	)
 	require.NoError(t, err)
-	require.Equal(t, old.UID, got.Spec.Slots[0].NodeRef.UID)
+	require.Equal(t, old.UID, got.Spec.Nodes[0].NodeRef.UID)
 
 	h.cleaned = true
 	_, err = h.reconcile(ctx, inventory.Name)
@@ -710,7 +710,7 @@ func TestReconcileWaitsForGoneUIDCleanupBeforeAllocatingReplacement(t *testing.T
 		metav1.GetOptions{},
 	)
 	require.NoError(t, err)
-	require.Equal(t, replacement.UID, got.Spec.Slots[0].NodeRef.UID)
+	require.Equal(t, replacement.UID, got.Spec.Nodes[0].NodeRef.UID)
 }
 
 func TestReconcileRetriesAllocationWhenStaleRackApplyRecreatesObject(t *testing.T) {
@@ -741,7 +741,7 @@ func TestReconcileRetriesAllocationWhenStaleRackApplyRecreatesObject(t *testing.
 	recreated, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
 	require.NoError(t, err)
 	require.NotEqual(t, stale.UID, recreated.UID)
-	require.Nil(t, recreated.Spec.Slots[0].NodeRef,
+	require.Nil(t, recreated.Spec.Nodes[0].NodeRef,
 		"the replacement remains pending while the allocation snapshot contains the stale binding")
 
 	h.nodes = []*corev1.Node{replacement}
@@ -750,7 +750,7 @@ func TestReconcileRetriesAllocationWhenStaleRackApplyRecreatesObject(t *testing.
 	require.NoError(t, err)
 	recreated, err = h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
 	require.NoError(t, err)
-	require.Equal(t, replacement.UID, recreated.Spec.Slots[0].NodeRef.UID)
+	require.Equal(t, replacement.UID, recreated.Spec.Nodes[0].NodeRef.UID)
 }
 
 func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
@@ -794,7 +794,7 @@ func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
 		metav1.GetOptions{},
 	)
 	require.NoError(t, err)
-	require.Nil(t, stored.Spec.Slots[0].NodeRef)
+	require.Nil(t, stored.Spec.Nodes[0].NodeRef)
 
 	_, err = reconciler.Reconcile(ctx, inventory.Name)
 	require.Error(t, err)
@@ -811,7 +811,7 @@ func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
 	require.NoError(t, err)
 	stored, err = h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, stored.Name, metav1.GetOptions{})
 	require.NoError(t, err)
-	require.Nil(t, stored.Spec.Slots[0].NodeRef, "a stale cache reconcile must not restore a cleaned binding")
+	require.Nil(t, stored.Spec.Nodes[0].NodeRef, "a stale cache reconcile must not restore a cleaned binding")
 }
 
 func TestReconcileDeletionFinalizersAndManualRackDeletion(t *testing.T) {
@@ -887,7 +887,7 @@ func TestInformerIndexesExposeOnlyDirectDependents(t *testing.T) {
 		Spec: mokkav1alpha1.SGPURackSpec{
 			InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID},
 			Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "group"},
-			Slots: []mokkav1alpha1.SGPURackSlot{
+			Nodes: []mokkav1alpha1.SGPURackNode{
 				{Index: 0, NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: "node", UID: "node-uid"}},
 				{Index: 1, NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: "node", UID: "node-uid"}},
 			},
@@ -1059,7 +1059,7 @@ func (h *harness) sync(t *testing.T) {
 	for i := range inventories.Items {
 		require.NoError(t, inventoryIndexer.Add(inventories.Items[i].DeepCopy()))
 	}
-	profiles, err := h.mokka.MokkaV1alpha1().SGPUProfiles().List(ctx, metav1.ListOptions{})
+	profiles, err := h.mokka.MokkaV1alpha1().SGPURackProfiles().List(ctx, metav1.ListOptions{})
 	require.NoError(t, err)
 	for i := range profiles.Items {
 		require.NoError(t, profileIndexer.Add(profiles.Items[i].DeepCopy()))
@@ -1075,7 +1075,7 @@ func (h *harness) sync(t *testing.T) {
 
 	h.cache = NewListerCache(
 		mokkalisters.NewSGPUInventoryLister(inventoryIndexer),
-		mokkalisters.NewSGPUProfileLister(profileIndexer),
+		mokkalisters.NewSGPURackProfileLister(profileIndexer),
 		rackIndexer,
 		NewNodeLister(nodeIndexer),
 	)
@@ -1115,7 +1115,7 @@ func testInventory(name string, uid types.UID, profileName string, count int32) 
 	}
 }
 
-func testProfile(name string, uid types.UID, generation int64, nodesPerRack, gpuCount int32) *mokkav1alpha1.SGPUProfile {
+func testProfile(name string, uid types.UID, generation int64, nodesPerRack, gpuCount int32) *mokkav1alpha1.SGPURackProfile {
 	gpuSlots := make([]mokkav1alpha1.GPUSlot, gpuCount)
 	for i := range gpuSlots {
 		gpuSlots[i] = mokkav1alpha1.GPUSlot{
@@ -1123,11 +1123,11 @@ func testProfile(name string, uid types.UID, generation int64, nodesPerRack, gpu
 			RootComplex: "pci0000:00", NumaNode: int32(i), HostProcessorIndex: int32(i),
 		}
 	}
-	return &mokkav1alpha1.SGPUProfile{
-		TypeMeta:   metav1.TypeMeta{APIVersion: mokkav1alpha1.SchemeGroupVersion.String(), Kind: "SGPUProfile"},
+	return &mokkav1alpha1.SGPURackProfile{
+		TypeMeta:   metav1.TypeMeta{APIVersion: mokkav1alpha1.SchemeGroupVersion.String(), Kind: "SGPURackProfile"},
 		ObjectMeta: metav1.ObjectMeta{Name: name, UID: uid, Generation: generation},
-		Spec: mokkav1alpha1.SGPUProfileSpec{
-			Rack: mokkav1alpha1.SGPUProfileRack{NodesPerRack: nodesPerRack},
+		Spec: mokkav1alpha1.SGPURackProfileSpec{
+			Rack: mokkav1alpha1.SGPURackShape{NodesPerRack: nodesPerRack},
 			Node: mokkav1alpha1.SGPUNode{
 				GPUs: mokkav1alpha1.SGPUGPUs{Count: gpuCount},
 				Topology: &mokkav1alpha1.SGPUTopology{

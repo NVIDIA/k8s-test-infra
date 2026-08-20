@@ -24,7 +24,7 @@ import (
 )
 
 func TestProjectAppliesOnlyOwnedMetadataWithExactAssignment(t *testing.T) {
-	rack := testRack(true)
+	rack := testRack()
 	node := testNode("node", "node-uid")
 	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
 	patcher := &recordingPatcher{node: node}
@@ -62,13 +62,13 @@ func TestProjectAppliesOnlyOwnedMetadataWithExactAssignment(t *testing.T) {
 	require.Equal(t, ProfileReference{Name: "profile", UID: "profile-uid", Revision: "revision"}, assignment.Profile)
 	require.Equal(t, "group", assignment.RackGroup)
 	require.Equal(t, int32(0), assignment.RackIndex)
-	require.Equal(t, int32(0), assignment.SlotIndex)
+	require.Equal(t, int32(0), assignment.NodeIndex)
 	require.Equal(t, types.UID("node-uid"), assignment.NodeUID)
 	require.Equal(t, []Outcome{outcome}, controller.Outcomes())
 }
 
 func TestProjectSkipsApplyForExactOwnedProjection(t *testing.T) {
-	rack := testRack(true)
+	rack := testRack()
 	node := testNode("node", "node-uid")
 	setExactProjection(t, node, rack)
 	setManagedFields(node, FieldManager, []string{AssignedLabel, CliqueLabel}, []string{AssignmentAnnotation})
@@ -100,7 +100,7 @@ func TestProjectAppliesWhenExactValuesAreNotOwned(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rack := testRack(true)
+			rack := testRack()
 			node := testNode("node", "node-uid")
 			setExactProjection(t, node, rack)
 			if test.manager != "" {
@@ -146,7 +146,7 @@ func TestProjectRejectsExactValuesWithForeignOwnership(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rack := testRack(true)
+			rack := testRack()
 			node := testNode("node", "node-uid")
 			setExactProjection(t, node, rack)
 			if len(test.mokkaLabels) > 0 {
@@ -181,7 +181,7 @@ func TestProjectRejectsExactValuesWithForeignOwnership(t *testing.T) {
 }
 
 func TestProjectRejectsForeignCoOwnerInApplyResponse(t *testing.T) {
-	rack := testRack(true)
+	rack := testRack()
 	node := testNode("node", "node-uid")
 	response := node.DeepCopy()
 	setExactProjection(t, response, rack)
@@ -204,34 +204,18 @@ func TestProjectRejectsForeignCoOwnerInApplyResponse(t *testing.T) {
 	require.False(t, *patcher.calls[0].options.Force)
 }
 
-func TestProjectRequiresCliqueOwnershipOnlyWhenProjected(t *testing.T) {
-	t.Run("fabric projection owns clique", func(t *testing.T) {
-		rack := testRack(true)
-		node := testNode("node", "node-uid")
-		setExactProjection(t, node, rack)
-		setManagedFields(node, FieldManager, []string{AssignedLabel}, []string{AssignmentAnnotation})
-		cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
-		patcher := &recordingPatcher{node: node}
+func TestProjectRequiresCliqueOwnership(t *testing.T) {
+	rack := testRack()
+	node := testNode("node", "node-uid")
+	setExactProjection(t, node, rack)
+	setManagedFields(node, FieldManager, []string{AssignedLabel}, []string{AssignmentAnnotation})
+	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
+	patcher := &recordingPatcher{node: node}
 
-		outcome, err := NewController(cache, patcher).Project(context.Background(), rack.Name, 0)
-		require.NoError(t, err)
-		require.Equal(t, StateProjected, outcome.State)
-		require.Len(t, patcher.calls, 1)
-	})
-
-	t.Run("non-fabric projection does not own clique", func(t *testing.T) {
-		rack := testRack(false)
-		node := testNode("node", "node-uid")
-		setExactProjection(t, node, rack)
-		setManagedFields(node, FieldManager, []string{AssignedLabel}, []string{AssignmentAnnotation})
-		cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
-		patcher := &recordingPatcher{node: node}
-
-		outcome, err := NewController(cache, patcher).Project(context.Background(), rack.Name, 0)
-		require.NoError(t, err)
-		require.Equal(t, StateProjected, outcome.State)
-		require.Empty(t, patcher.calls)
-	})
+	outcome, err := NewController(cache, patcher).Project(context.Background(), rack.Name, 0)
+	require.NoError(t, err)
+	require.Equal(t, StateProjected, outcome.State)
+	require.Len(t, patcher.calls, 1)
 }
 
 func TestProjectRetainsPartialAndConflictingMetadataBehavior(t *testing.T) {
@@ -267,7 +251,7 @@ func TestProjectRetainsPartialAndConflictingMetadataBehavior(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rack := testRack(true)
+			rack := testRack()
 			node := testNode("node", "node-uid")
 			setExactProjection(t, node, rack)
 			setManagedFields(node, FieldManager, []string{AssignedLabel, CliqueLabel}, []string{AssignmentAnnotation})
@@ -292,7 +276,7 @@ func TestProjectRetainsPartialAndConflictingMetadataBehavior(t *testing.T) {
 }
 
 func TestProjectPreservesIncompatibleValuesAndSurfacesPatchConflicts(t *testing.T) {
-	rack := testRack(true)
+	rack := testRack()
 	node := testNode("node", "node-uid")
 	node.Labels = map[string]string{AssignedLabel: "foreign"}
 	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
@@ -318,7 +302,7 @@ func TestProjectPreservesIncompatibleValuesAndSurfacesPatchConflicts(t *testing.
 }
 
 func TestProjectRejectsDuplicateBindingsAndExactUIDReplacement(t *testing.T) {
-	rack := testRack(false)
+	rack := testRack()
 	duplicate := rack.DeepCopy()
 	duplicate.Name = "other-rack"
 	duplicate.UID = "other-rack-uid"
@@ -345,7 +329,7 @@ func TestProjectRejectsDuplicateBindingsAndExactUIDReplacement(t *testing.T) {
 }
 
 func TestCleanupPassesCancellationToNodeLookup(t *testing.T) {
-	rack := testRack(false)
+	rack := testRack()
 	lookupStarted := make(chan context.Context, 1)
 	cache := &fakeCache{
 		racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack},
@@ -370,9 +354,9 @@ func TestCleanupPassesCancellationToNodeLookup(t *testing.T) {
 }
 
 func TestCleanupRequiresExactAnnotationAndSupportsPartialProgress(t *testing.T) {
-	rack := testRack(true)
+	rack := testRack()
 	node := testNode("node", "node-uid")
-	assignment, err := EncodeAssignment(rack, &rack.Spec.Slots[0])
+	assignment, err := EncodeAssignment(rack, &rack.Spec.Nodes[0])
 	require.NoError(t, err)
 	node.Annotations = map[string]string{AssignmentAnnotation: assignment}
 	node.Labels = map[string]string{AssignedLabel: "true", CliqueLabel: "foreign-clique"}
@@ -442,7 +426,7 @@ func TestCleanupRejectsResponseThatRetainsProjectionFields(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rack := testRack(true)
+			rack := testRack()
 			node := testNode("node", "node-uid")
 			setExactProjection(t, node, rack)
 			setManagedFields(node, FieldManager, []string{AssignedLabel, CliqueLabel}, []string{AssignmentAnnotation})
@@ -505,7 +489,7 @@ func TestCleanupRejectsResponseThatRetainsProjectionFields(t *testing.T) {
 }
 
 func TestCleanupAcknowledgesSoleOwnerOnlyAfterCleanResponse(t *testing.T) {
-	rack := testRack(true)
+	rack := testRack()
 	node := testNode("node", "node-uid")
 	setExactProjection(t, node, rack)
 	setManagedFields(node, FieldManager, []string{AssignedLabel, CliqueLabel}, []string{AssignmentAnnotation})
@@ -527,7 +511,7 @@ func TestCleanupAcknowledgesSoleOwnerOnlyAfterCleanResponse(t *testing.T) {
 }
 
 func TestCleanupTreatsAbsentExactUIDAsCleanAndPreservesStaleAnnotation(t *testing.T) {
-	rack := testRack(false)
+	rack := testRack()
 	node := testNode("node", "node-uid")
 	node.Annotations = map[string]string{AssignmentAnnotation: `{"v":1,"nodeUID":"somebody-else"}`}
 	cache := &fakeCache{nodes: map[string]*corev1.Node{node.Name: node}, racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
@@ -553,9 +537,9 @@ func TestCleanupTreatsAbsentExactUIDAsCleanAndPreservesStaleAnnotation(t *testin
 }
 
 func TestStaleProjectionApplyDoesNotRecreateMetadataAfterCleanup(t *testing.T) {
-	rack := testRack(true)
+	rack := testRack()
 	node := testNode("node", "node-uid")
-	assignment, err := EncodeAssignment(rack, &rack.Spec.Slots[0])
+	assignment, err := EncodeAssignment(rack, &rack.Spec.Nodes[0])
 	require.NoError(t, err)
 	node.Labels = map[string]string{AssignedLabel: "true", CliqueLabel: rack.Spec.Identity.FabricUUID + ".0"}
 	node.Annotations = map[string]string{AssignmentAnnotation: assignment}
@@ -580,7 +564,7 @@ func TestStaleProjectionApplyDoesNotRecreateMetadataAfterCleanup(t *testing.T) {
 }
 
 func TestFreshProjectionSupersedesCleanupAcknowledgement(t *testing.T) {
-	rack := testRack(true)
+	rack := testRack()
 	node := testNode("node", "node-uid")
 	setExactProjection(t, node, rack)
 	setManagedFields(node, FieldManager, []string{AssignedLabel, CliqueLabel}, []string{AssignmentAnnotation})
@@ -608,7 +592,7 @@ func TestFreshProjectionSupersedesCleanupAcknowledgement(t *testing.T) {
 func TestProjectionStateIsBoundedByLiveExactBindings(t *testing.T) {
 	const churn = 4_000
 
-	rack := testRack(false)
+	rack := testRack()
 	cache := &fakeCache{nodes: make(map[string]*corev1.Node), racks: map[string]*mokkav1alpha1.SGPURack{rack.Name: rack}}
 	controller := NewController(cache, &recordingPatcher{})
 
@@ -616,7 +600,7 @@ func TestProjectionStateIsBoundedByLiveExactBindings(t *testing.T) {
 		nodeName := fmt.Sprintf("node-%d", i)
 		nodeUID := types.UID(fmt.Sprintf("node-uid-%d", i))
 		rack.UID = types.UID(fmt.Sprintf("rack-uid-%d", i))
-		rack.Spec.Slots[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: nodeName, UID: nodeUID}
+		rack.Spec.Nodes[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: nodeName, UID: nodeUID}
 		cache.nodes = map[string]*corev1.Node{nodeName: testNode(nodeName, nodeUID)}
 
 		_, err := controller.Project(context.Background(), rack.Name, 0)
@@ -636,14 +620,14 @@ func TestScopedOutcomeSnapshotsVisitOnlyTheRequestedIdentity(t *testing.T) {
 	const (
 		inventoryCount    = 100
 		racksPerInventory = 10
-		slotsPerRack      = 100
+		nodesPerRack      = 100
 	)
 
 	controller := NewController(&fakeCache{}, &recordingPatcher{})
 	for inventoryIndex := range inventoryCount {
 		for rackIndex := range racksPerInventory {
 			globalRackIndex := inventoryIndex*racksPerInventory + rackIndex
-			for slotIndex := range slotsPerRack {
+			for nodeIndex := range nodesPerRack {
 				controller.record(Outcome{
 					InventoryName: fmt.Sprintf("inventory-%d", inventoryIndex),
 					InventoryUID:  types.UID(fmt.Sprintf("inventory-uid-%d", inventoryIndex)),
@@ -651,9 +635,9 @@ func TestScopedOutcomeSnapshotsVisitOnlyTheRequestedIdentity(t *testing.T) {
 					RackName:      fmt.Sprintf("rack-%d", globalRackIndex),
 					RackUID:       types.UID(fmt.Sprintf("rack-uid-%d", globalRackIndex)),
 					RackIndex:     int32(rackIndex),
-					SlotIndex:     int32(slotIndex),
-					NodeName:      fmt.Sprintf("node-%d", globalRackIndex*slotsPerRack+slotIndex),
-					NodeUID:       types.UID(fmt.Sprintf("node-uid-%d", globalRackIndex*slotsPerRack+slotIndex)),
+					NodeIndex:     int32(nodeIndex),
+					NodeName:      fmt.Sprintf("node-%d", globalRackIndex*nodesPerRack+nodeIndex),
+					NodeUID:       types.UID(fmt.Sprintf("node-uid-%d", globalRackIndex*nodesPerRack+nodeIndex)),
 					State:         StateProjected,
 				})
 			}
@@ -661,15 +645,15 @@ func TestScopedOutcomeSnapshotsVisitOnlyTheRequestedIdentity(t *testing.T) {
 	}
 
 	rackSnapshot := controller.snapshotForRack("rack-0", "rack-uid-0")
-	require.Equal(t, slotsPerRack, rackSnapshot.visited)
-	require.Len(t, rackSnapshot.outcomes, slotsPerRack)
-	for slotIndex, outcome := range rackSnapshot.outcomes {
-		require.Equal(t, int32(slotIndex), outcome.SlotIndex, "scoped snapshots must remain deterministic")
+	require.Equal(t, nodesPerRack, rackSnapshot.visited)
+	require.Len(t, rackSnapshot.outcomes, nodesPerRack)
+	for nodeIndex, outcome := range rackSnapshot.outcomes {
+		require.Equal(t, int32(nodeIndex), outcome.NodeIndex, "scoped snapshots must remain deterministic")
 	}
 
 	inventorySnapshot := controller.snapshotForInventory("inventory-0", "inventory-uid-0")
-	require.Equal(t, racksPerInventory*slotsPerRack, inventorySnapshot.visited)
-	require.Len(t, inventorySnapshot.outcomes, racksPerInventory*slotsPerRack)
+	require.Equal(t, racksPerInventory*nodesPerRack, inventorySnapshot.visited)
+	require.Len(t, inventorySnapshot.outcomes, racksPerInventory*nodesPerRack)
 	require.Equal(t, rackSnapshot.outcomes, controller.OutcomesForRack("rack-0", "rack-uid-0"))
 	require.Equal(t, inventorySnapshot.outcomes, controller.OutcomesForInventory("inventory-0", "inventory-uid-0"))
 
@@ -681,12 +665,12 @@ func TestScopedOutcomeSnapshotsVisitOnlyTheRequestedIdentity(t *testing.T) {
 	recreated.NodeUID = "node-recreated-uid"
 	controller.record(recreated)
 
-	require.Len(t, controller.OutcomesForRack("rack-0", "rack-uid-0"), slotsPerRack-1,
+	require.Len(t, controller.OutcomesForRack("rack-0", "rack-uid-0"), nodesPerRack-1,
 		"replacing one coordinate must remove its stale exact identity")
 	require.Equal(t, []Outcome{recreated}, controller.OutcomesForRack("rack-0", "rack-recreated-uid"))
 	require.Equal(t, []Outcome{recreated}, controller.OutcomesForInventory("inventory-recreated", "inventory-recreated-uid"))
 	outcomes, _ := stateSize(controller)
-	require.Equal(t, inventoryCount*racksPerInventory*slotsPerRack, outcomes,
+	require.Equal(t, inventoryCount*racksPerInventory*nodesPerRack, outcomes,
 		"secondary indexes must not allow coordinate churn to grow primary state")
 	assertStateIndexesExact(t, controller)
 }
@@ -698,15 +682,15 @@ func TestCleanupAcknowledgementsAreExactAndBoundedByCachedBindings(t *testing.T)
 	controller := NewController(cache, &recordingPatcher{})
 	pending := make([]controllerack.CleanupNeeded, 0, pendingCount)
 	for i := range pendingCount {
-		rack := testRack(false)
+		rack := testRack()
 		rack.Name = fmt.Sprintf("rack-%d", i)
 		rack.UID = types.UID(fmt.Sprintf("rack-uid-%d", i))
 		rack.Spec.InventoryRef.UID = types.UID(fmt.Sprintf("inventory-uid-%d", i))
 		rack.Spec.Identity.RackIndex = int32(i)
-		rack.Spec.Slots[0].NodeRef.Name = fmt.Sprintf("node-%d", i)
-		rack.Spec.Slots[0].NodeRef.UID = types.UID(fmt.Sprintf("node-uid-%d", i))
+		rack.Spec.Nodes[0].NodeRef.Name = fmt.Sprintf("node-%d", i)
+		rack.Spec.Nodes[0].NodeRef.UID = types.UID(fmt.Sprintf("node-uid-%d", i))
 		cache.racks[rack.Name] = rack
-		cache.nodes[rack.Spec.Slots[0].NodeRef.Name] = testNode(rack.Spec.Slots[0].NodeRef.Name, rack.Spec.Slots[0].NodeRef.UID)
+		cache.nodes[rack.Spec.Nodes[0].NodeRef.Name] = testNode(rack.Spec.Nodes[0].NodeRef.Name, rack.Spec.Nodes[0].NodeRef.UID)
 		needed := cleanupFor(rack)
 
 		_, err := controller.Cleanup(context.Background(), needed)
@@ -730,7 +714,7 @@ func TestCleanupAcknowledgementsAreExactAndBoundedByCachedBindings(t *testing.T)
 }
 
 func TestCleanupDoesNotAliasRackRecreationOrRetainAbsentRackAcknowledgement(t *testing.T) {
-	oldRack := testRack(false)
+	oldRack := testRack()
 	oldNode := testNode("node", "node-uid")
 	cache := &fakeCache{
 		nodes: map[string]*corev1.Node{oldNode.Name: oldNode},
@@ -763,10 +747,10 @@ func TestCleanupDoesNotAliasRackRecreationOrRetainAbsentRackAcknowledgement(t *t
 }
 
 func TestProjectionStateConcurrentAccess(t *testing.T) {
-	rack := testRack(false)
+	rack := testRack()
 	controller := NewController(&fakeCache{}, &recordingPatcher{})
 	needed := cleanupFor(rack)
-	outcome := outcomeFor(rack, &rack.Spec.Slots[0])
+	outcome := outcomeFor(rack, &rack.Spec.Nodes[0])
 
 	var workers sync.WaitGroup
 	for range 100 {
@@ -777,12 +761,12 @@ func TestProjectionStateConcurrentAccess(t *testing.T) {
 			_ = controller.Outcomes()
 			controller.completeCleanup(needed, outcome, ReasonCleaned, true)
 			_ = controller.Ready(needed)
-			controller.beginProjection(rack, &rack.Spec.Slots[0])
+			controller.beginProjection(rack, &rack.Spec.Nodes[0])
 		}()
 	}
 	workers.Wait()
 
-	controller.beginProjection(rack, &rack.Spec.Slots[0])
+	controller.beginProjection(rack, &rack.Spec.Nodes[0])
 	controller.record(outcome)
 	outcomes, cleanups := stateSize(controller)
 	require.Equal(t, 1, outcomes)
@@ -817,7 +801,7 @@ func (f *fakeCache) Rack(name string) (*mokkav1alpha1.SGPURack, error) {
 func (f *fakeCache) RacksByNodeUID(uid types.UID) ([]*mokkav1alpha1.SGPURack, error) {
 	var racks []*mokkav1alpha1.SGPURack
 	for _, rack := range f.racks {
-		for _, slot := range rack.Spec.Slots {
+		for _, slot := range rack.Spec.Nodes {
 			if slot.NodeRef != nil && slot.NodeRef.UID == uid {
 				racks = append(racks, rack)
 				break
@@ -949,18 +933,15 @@ func nonNilKeys(values map[string]*string) []string {
 	return keys
 }
 
-func testRack(withFabric bool) *mokkav1alpha1.SGPURack {
+func testRack() *mokkav1alpha1.SGPURack {
 	rack := &mokkav1alpha1.SGPURack{
 		ObjectMeta: metav1.ObjectMeta{Name: "rack", UID: "rack-uid", Generation: 2},
 		Spec: mokkav1alpha1.SGPURackSpec{
 			InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: "inventory", UID: "inventory-uid"},
 			ProfileRef:   mokkav1alpha1.SGPURackProfileReference{Name: "profile", UID: "profile-uid", Generation: 3, Revision: "revision"},
 			Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "group", RackIndex: 0, FabricUUID: "fab", CliqueID: 0},
-			Slots:        []mokkav1alpha1.SGPURackSlot{{Index: 0, NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: "node", UID: "node-uid"}}},
+			Nodes:        []mokkav1alpha1.SGPURackNode{{Index: 0, NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: "node", UID: "node-uid"}}},
 		},
-	}
-	if withFabric {
-		rack.Spec.GPUFabric = &mokkav1alpha1.SGPUGPUFabric{}
 	}
 	return rack
 }
@@ -971,7 +952,7 @@ func testNode(name string, uid types.UID) *corev1.Node {
 
 func setExactProjection(t *testing.T, node *corev1.Node, rack *mokkav1alpha1.SGPURack) {
 	t.Helper()
-	assignment, err := EncodeAssignment(rack, &rack.Spec.Slots[0])
+	assignment, err := EncodeAssignment(rack, &rack.Spec.Nodes[0])
 	require.NoError(t, err)
 	node.Labels = map[string]string{AssignedLabel: "true"}
 	if clique, ok := cliqueValue(rack); ok {
@@ -1007,7 +988,7 @@ func setManagedFields(node *corev1.Node, manager string, labels, annotations []s
 }
 
 func cleanupFor(rack *mokkav1alpha1.SGPURack) controllerack.CleanupNeeded {
-	slot := rack.Spec.Slots[0]
+	slot := rack.Spec.Nodes[0]
 	return controllerack.CleanupNeeded{
 		RackName: rack.Name,
 		RackUID:  rack.UID,
@@ -1015,7 +996,7 @@ func cleanupFor(rack *mokkav1alpha1.SGPURack) controllerack.CleanupNeeded {
 			Coordinate: allocate.Coordinate{
 				Group:     allocate.GroupKey{InventoryName: rack.Spec.InventoryRef.Name, InventoryUID: rack.Spec.InventoryRef.UID, RackGroup: rack.Spec.Identity.RackGroup},
 				RackIndex: rack.Spec.Identity.RackIndex,
-				SlotIndex: slot.Index,
+				NodeIndex: slot.Index,
 			},
 			Node: allocate.NodeReference{Name: slot.NodeRef.Name, UID: slot.NodeRef.UID},
 		},

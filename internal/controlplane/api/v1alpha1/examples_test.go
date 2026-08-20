@@ -18,12 +18,12 @@ import (
 
 func TestControllerExamplesAreTypedAndMaterializable(t *testing.T) {
 	examples := filepath.Join("..", "..", "..", "..", "examples", "mokka-controller")
-	profileData, err := os.ReadFile(filepath.Join(examples, "sgpu-profile.yaml"))
+	profileData, err := os.ReadFile(filepath.Join(examples, "sgpu-rack-profile.yaml"))
 	require.NoError(t, err)
-	profile := &mokkav1alpha1.SGPUProfile{}
+	profile := &mokkav1alpha1.SGPURackProfile{}
 	require.NoError(t, yaml.UnmarshalStrict(profileData, profile))
 	require.Equal(t, mokkav1alpha1.SchemeGroupVersion.String(), profile.APIVersion)
-	require.Equal(t, "SGPUProfile", profile.Kind)
+	require.Equal(t, "SGPURackProfile", profile.Kind)
 	require.NoError(t, materialize.ValidateProfile(profile.Spec))
 	require.Positive(t, profile.Spec.Node.GPUs.Memory.Capacity.Value())
 	require.Positive(t, profile.Spec.Node.GPUs.Clocks.Supported[0].MemoryMHz)

@@ -1,7 +1,7 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 apiVersion: mokka.nvidia.com/v1alpha1
-kind: SGPUProfile
+kind: SGPURackProfile
 metadata:
   name: example-a100
 spec:

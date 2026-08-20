@@ -23,9 +23,9 @@ import (
 const (
 	// MaxRackSpecSize is Kubernetes' accepted materialized rack-spec limit.
 	MaxRackSpecSize = 1 << 20
-	// MaxNodesPerRack matches the SGPURack slot-list schema limit.
+	// MaxNodesPerRack matches the SGPURack node-list schema limit.
 	MaxNodesPerRack int32 = 1024
-	// MaxGPUsPerNode matches the SGPURack per-slot GPU-list schema limit.
+	// MaxGPUsPerNode matches the SGPURack per-node GPU-list schema limit.
 	MaxGPUsPerNode int32 = 64
 )
 
@@ -38,7 +38,7 @@ type RackInput struct {
 	InventoryUID  types.UID
 	Group         mokkav1alpha1.RackGroup
 	RackIndex     int32
-	Profile       *mokkav1alpha1.SGPUProfile
+	Profile       *mokkav1alpha1.SGPURackProfile
 }
 
 // Rack is the pure materialization result consumed by rack reconciliation.
@@ -51,7 +51,7 @@ type Rack struct {
 // rendering. Admission remains responsible for schema-local validation.
 //
 //nolint:cyclop // Validation returns field-specific errors for each independent profile contract.
-func ValidateProfile(spec mokkav1alpha1.SGPUProfileSpec) error {
+func ValidateProfile(spec mokkav1alpha1.SGPURackProfileSpec) error {
 	if spec.Rack.NodesPerRack <= 0 {
 		return errors.New("rack.nodesPerRack must be positive")
 	}
@@ -121,7 +121,7 @@ func ValidateProfile(spec mokkav1alpha1.SGPUProfileSpec) error {
 }
 
 // CanonicalProfileJSON returns the stable JSON content used for revisions.
-func CanonicalProfileJSON(spec mokkav1alpha1.SGPUProfileSpec) ([]byte, error) {
+func CanonicalProfileJSON(spec mokkav1alpha1.SGPURackProfileSpec) ([]byte, error) {
 	canonical := spec.DeepCopy()
 	slices.SortFunc(canonical.Node.Topology.GPUSlots, func(a, b mokkav1alpha1.GPUSlot) int {
 		return cmp.Compare(a.Index, b.Index)
@@ -141,7 +141,7 @@ func CanonicalProfileJSON(spec mokkav1alpha1.SGPUProfileSpec) ([]byte, error) {
 }
 
 // ProfileRevision returns the SHA-256 of a profile's canonical spec JSON.
-func ProfileRevision(spec mokkav1alpha1.SGPUProfileSpec) (string, error) {
+func ProfileRevision(spec mokkav1alpha1.SGPURackProfileSpec) (string, error) {
 	content, err := CanonicalProfileJSON(spec)
 	if err != nil {
 		return "", fmt.Errorf("marshal canonical profile: %w", err)
@@ -150,9 +150,9 @@ func ProfileRevision(spec mokkav1alpha1.SGPUProfileSpec) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// RenderRack materializes every rack slot and GPU identity.
+// RenderRack materializes every logical Node and GPU identity.
 //
-//nolint:cyclop // Rendering validates and derives each optional topology component independently.
+//nolint:cyclop // Rendering validates each identity and topology input before materialization.
 func RenderRack(input RackInput) (Rack, error) {
 	if input.InventoryName == "" {
 		return Rack{}, errors.New("inventory name must not be empty")
@@ -205,34 +205,32 @@ func RenderRack(input RackInput) (Rack, error) {
 			),
 			CliqueID: 0,
 		},
-		GPUFabric: renderGPUFabric(input.Profile.Spec.Node.Topology.GPUFabric),
-		Network:   renderNetwork(input.Profile.Spec.Node.Topology.Network),
-		Slots:     make([]mokkav1alpha1.SGPURackSlot, input.Profile.Spec.Rack.NodesPerRack),
+		Nodes: make([]mokkav1alpha1.SGPURackNode, input.Profile.Spec.Rack.NodesPerRack),
 	}
 
 	gpuSlots := slices.Clone(input.Profile.Spec.Node.Topology.GPUSlots)
 	slices.SortFunc(gpuSlots, func(a, b mokkav1alpha1.GPUSlot) int {
 		return cmp.Compare(a.Index, b.Index)
 	})
-	for slotIndex := range spec.Slots {
-		slot := &spec.Slots[slotIndex]
-		slot.Index = int32(slotIndex)
-		slot.GPUs = make([]mokkav1alpha1.SGPURackGPU, len(gpuSlots))
+	for nodeIndex := range spec.Nodes {
+		node := &spec.Nodes[nodeIndex]
+		node.Index = int32(nodeIndex)
+		node.GPUs = make([]mokkav1alpha1.SGPURackGPU, len(gpuSlots))
 		for gpuIndex, profileSlot := range gpuSlots {
-			slot.GPUs[gpuIndex] = mokkav1alpha1.SGPURackGPU{
+			node.GPUs[gpuIndex] = mokkav1alpha1.SGPURackGPU{
 				Index: profileSlot.Index,
 				UUID: GPUUUID(
 					input.InventoryUID,
 					input.Group.ID,
 					input.RackIndex,
-					int32(slotIndex),
+					int32(nodeIndex),
 					profileSlot.Index,
 				),
 				Serial: GPUSerial(
 					input.InventoryUID,
 					input.Group.ID,
 					input.RackIndex,
-					int32(slotIndex),
+					int32(nodeIndex),
 					profileSlot.Index,
 				),
 				MinorNumber:        profileSlot.Index,
@@ -268,55 +266,28 @@ func RenderRack(input RackInput) (Rack, error) {
 // ValidateRackSpec checks the list dimensions materialization owns against the
 // admission limits of the SGPURack it will submit.
 func ValidateRackSpec(spec mokkav1alpha1.SGPURackSpec) error {
-	if len(spec.Slots) < 1 || len(spec.Slots) > int(MaxNodesPerRack) {
-		return fmt.Errorf("slots must contain between 1 and %d entries", MaxNodesPerRack)
+	if len(spec.Nodes) < 1 || len(spec.Nodes) > int(MaxNodesPerRack) {
+		return fmt.Errorf("nodes must contain between 1 and %d entries", MaxNodesPerRack)
 	}
-	for _, slot := range spec.Slots {
-		if err := validateRackSlot(slot); err != nil {
+	for _, node := range spec.Nodes {
+		if err := validateRackNode(node); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateRackSlot(slot mokkav1alpha1.SGPURackSlot) error {
-	if slot.Index < 0 || slot.Index >= MaxNodesPerRack {
-		return fmt.Errorf("slot index %d is outside [0,%d]", slot.Index, MaxNodesPerRack-1)
+func validateRackNode(node mokkav1alpha1.SGPURackNode) error {
+	if node.Index < 0 || node.Index >= MaxNodesPerRack {
+		return fmt.Errorf("node index %d is outside [0,%d]", node.Index, MaxNodesPerRack-1)
 	}
-	if len(slot.GPUs) < 1 || len(slot.GPUs) > int(MaxGPUsPerNode) {
-		return fmt.Errorf("slot %d GPUs must contain between 1 and %d entries", slot.Index, MaxGPUsPerNode)
+	if len(node.GPUs) < 1 || len(node.GPUs) > int(MaxGPUsPerNode) {
+		return fmt.Errorf("node %d GPUs must contain between 1 and %d entries", node.Index, MaxGPUsPerNode)
 	}
-	for _, gpu := range slot.GPUs {
+	for _, gpu := range node.GPUs {
 		if gpu.Index < 0 || gpu.Index >= MaxGPUsPerNode {
-			return fmt.Errorf("slot %d GPU index %d is outside [0,%d]", slot.Index, gpu.Index, MaxGPUsPerNode-1)
+			return fmt.Errorf("node %d GPU index %d is outside [0,%d]", node.Index, gpu.Index, MaxGPUsPerNode-1)
 		}
 	}
 	return nil
-}
-
-func renderGPUFabric(profile *mokkav1alpha1.GPUFabric) *mokkav1alpha1.SGPUGPUFabric {
-	if profile == nil {
-		return nil
-	}
-	fabric := &mokkav1alpha1.SGPUGPUFabric{
-		Type: profile.Type, Generation: profile.Generation, LinksPerGPU: profile.LinksPerGPU,
-		BandwidthPerLinkMBps: int64(profile.BandwidthPerLinkMBps), C2CSupported: profile.C2CSupported,
-		Domain: mokkav1alpha1.SGPUGPUFabricDomain{
-			Scope: profile.Domain.Scope, GPUCount: profile.Domain.GPUCount,
-		},
-	}
-	if profile.Switches != nil {
-		fabric.Switches = &mokkav1alpha1.SGPUGPUFabricSwitches{VisiblePerNode: profile.Switches.VisiblePerNode}
-	}
-	return fabric
-}
-
-func renderNetwork(profile *mokkav1alpha1.NetworkTopology) *mokkav1alpha1.SGPUNetwork {
-	if profile == nil {
-		return nil
-	}
-	return &mokkav1alpha1.SGPUNetwork{
-		Type: profile.Type, AdapterModel: profile.AdapterModel, FirmwareVersion: profile.FirmwareVersion,
-		LinkSpeedGbps: int64(profile.LinkSpeedGbps), AdaptersPerGPU: profile.AdaptersPerGPU,
-	}
 }

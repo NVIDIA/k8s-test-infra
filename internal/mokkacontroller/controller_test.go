@@ -45,7 +45,7 @@ func TestEventRoutingUsesBoundedDependencyKeys(t *testing.T) {
 	require.Empty(t, drainQueue(queues.groups), "inventory work owns configuration materialization")
 	require.Equal(t, []statusKey{{kind: statusInventory, name: "inventory", uid: "inventory-uid"}}, drainQueue(queues.status))
 
-	router.profileAdd(&mokkav1alpha1.SGPUProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile"}})
+	router.profileAdd(&mokkav1alpha1.SGPURackProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile"}})
 	require.Equal(t, []string{"inventory"}, drainQueue(queues.inventories))
 	require.Empty(t, drainQueue(queues.groups), "inventory work owns profile-driven materialization")
 
@@ -59,7 +59,7 @@ func TestEventRoutingUsesBoundedDependencyKeys(t *testing.T) {
 	router.rackAdd(rack)
 	require.Empty(t, drainQueue(queues.inventories))
 	require.Empty(t, drainQueue(queues.groups), "controller-owned rack adds must not feed back into materialization")
-	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: "rack", slotIndex: 0, fresh: true}}, drainQueue(queues.projections))
+	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: "rack", nodeIndex: 0, fresh: true}}, drainQueue(queues.projections))
 	require.ElementsMatch(t, []statusKey{
 		{kind: statusInventory, name: "inventory", uid: "inventory-uid"},
 		{kind: statusRack, name: "rack", uid: "rack-uid"},
@@ -84,7 +84,7 @@ func TestControllerOwnedFreeRackAddContinuesPendingAllocation(t *testing.T) {
 		"the first reconcile can still observe the deleted rack's stale binding")
 
 	recreated := testRack(replacement)
-	recreated.Spec.Slots[0].NodeRef = nil
+	recreated.Spec.Nodes[0].NodeRef = nil
 	router.rackAdd(recreated)
 	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups),
 		"observing the recreated free slot must reconsider a replacement left pending against stale cache state")
@@ -103,7 +103,7 @@ func TestNoOpUpdatesAreSuppressed(t *testing.T) {
 		fn  func(any, any)
 	}{
 		{testInventory(), testInventory().DeepCopy(), router.inventoryUpdate},
-		{&mokkav1alpha1.SGPUProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile"}}, &mokkav1alpha1.SGPUProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile", ResourceVersion: "2"}}, router.profileUpdate},
+		{&mokkav1alpha1.SGPURackProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile"}}, &mokkav1alpha1.SGPURackProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile", ResourceVersion: "2"}}, router.profileUpdate},
 		{testRack(testNode()), testRack(testNode()).DeepCopy(), router.rackUpdate},
 		{testNode(), testNode().DeepCopy(), router.nodeUpdate},
 	}
@@ -138,7 +138,7 @@ func TestAllocationRevisionIgnoresOwnedMetadataAndTracksTopologyInputs(t *testin
 	router.inventoryUpdate(finalized, resized)
 	require.EqualValues(t, 1, invalidations.Load())
 
-	profile := &mokkav1alpha1.SGPUProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile", UID: "profile-uid"}}
+	profile := &mokkav1alpha1.SGPURackProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile", UID: "profile-uid"}}
 	profileRV := profile.DeepCopy()
 	profileRV.ResourceVersion = "2"
 	router.profileUpdate(profile, profileRV)
@@ -154,7 +154,7 @@ func TestAllocationRevisionIgnoresOwnedMetadataAndTracksTopologyInputs(t *testin
 	router.rackUpdate(rack, finalizedRack)
 	require.EqualValues(t, 2, invalidations.Load())
 	rebound := finalizedRack.DeepCopy()
-	rebound.Spec.Slots[0].NodeRef.UID = "replacement-uid"
+	rebound.Spec.Nodes[0].NodeRef.UID = "replacement-uid"
 	router.rackUpdate(finalizedRack, rebound)
 	require.EqualValues(t, 3, invalidations.Load())
 }
@@ -189,7 +189,7 @@ func TestDeleteTombstonesRouteExactCleanupBeforeGroup(t *testing.T) {
 	require.Equal(t, []string{"inventory"}, drainQueue(queues.inventories))
 	require.Empty(t, drainQueue(queues.groups))
 
-	router.profileDelete(cache.DeletedFinalStateUnknown{Key: "profile", Obj: &mokkav1alpha1.SGPUProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile"}}})
+	router.profileDelete(cache.DeletedFinalStateUnknown{Key: "profile", Obj: &mokkav1alpha1.SGPURackProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile"}}})
 	require.Equal(t, []string{"inventory"}, drainQueue(queues.inventories))
 	require.Empty(t, drainQueue(queues.groups))
 }
@@ -271,7 +271,7 @@ func TestRackUpdateRoutesBindingsLocallyAndTemplateDriftGlobally(t *testing.T) {
 	rack := testRack(testNode())
 	rebound := rack.DeepCopy()
 	rebound.ResourceVersion = "2"
-	rebound.Spec.Slots[0].NodeRef.UID = "replacement-uid"
+	rebound.Spec.Nodes[0].NodeRef.UID = "replacement-uid"
 	router.rackUpdate(rack, rebound)
 	require.Empty(t, drainQueue(queues.inventories))
 	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
@@ -299,7 +299,7 @@ func TestRackUpdateIgnoresStatusAndFinalizerOnlyChanges(t *testing.T) {
 	updated := rack.DeepCopy()
 	updated.ResourceVersion = "2"
 	updated.Finalizers = []string{controllerack.RackFinalizer}
-	updated.Status.AssignedSlots = 1
+	updated.Status.AssignedNodes = 1
 	router.rackUpdate(rack, updated)
 
 	require.Same(t, updated, observed)
@@ -447,7 +447,7 @@ func TestDesiredRackClaimsTrackShrinkGroupRenameAndProfileRevision(t *testing.T)
 	router.rackDelete(&mokkav1alpha1.SGPURack{ObjectMeta: metav1.ObjectMeta{Name: oldName, UID: "old-rack-uid"}})
 	require.Empty(t, drainQueue(queues.inventories))
 
-	profile := &mokkav1alpha1.SGPUProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile-v2", UID: "profile-uid", Generation: 1}}
+	profile := &mokkav1alpha1.SGPURackProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile-v2", UID: "profile-uid", Generation: 1}}
 	revised := profile.DeepCopy()
 	revised.Generation = 2
 	revised.Spec.Rack.NodesPerRack = 2
@@ -724,7 +724,6 @@ func TestProjectedMetadataEventDoesNotReapplyExactBinding(t *testing.T) {
 	node := testNode()
 	rack := testRack(node)
 	rack.Spec.Identity.FabricUUID = "fabric"
-	rack.Spec.GPUFabric = &mokkav1alpha1.SGPUGPUFabric{}
 	require.NoError(t, racks.Add(rack))
 	router := newEventRouter(inventories, racks, registry, queues)
 
@@ -732,7 +731,7 @@ func TestProjectedMetadataEventDoesNotReapplyExactBinding(t *testing.T) {
 	projected.ResourceVersion = "2"
 	projected.Labels[metadata.AssignedLabel] = "true"
 	projected.Labels[metadata.CliqueLabel] = "fabric.0"
-	assignment, err := controllerprojection.EncodeAssignment(rack, &rack.Spec.Slots[0])
+	assignment, err := controllerprojection.EncodeAssignment(rack, &rack.Spec.Nodes[0])
 	require.NoError(t, err)
 	projected.Annotations = map[string]string{metadata.AssignmentAnnotation: assignment}
 	setNodeManagedFields(projected, controllerprojection.FieldManager,
@@ -750,7 +749,7 @@ func TestProjectedMetadataEventDoesNotReapplyExactBinding(t *testing.T) {
 	delete(damaged.Labels, metadata.AssignedLabel)
 	router.nodeUpdate(projected, damaged)
 	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
-	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: rack.Name, slotIndex: 0}}, drainQueue(queues.projections),
+	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: rack.Name, nodeIndex: 0}}, drainQueue(queues.projections),
 		"external removal of "+metadata.AssignedLabel+" must enqueue repair")
 }
 
@@ -769,7 +768,7 @@ func TestForeignProjectionCoOwnerEventRoutesExactBinding(t *testing.T) {
 	projected := node.DeepCopy()
 	projected.ResourceVersion = "2"
 	projected.Labels[metadata.AssignedLabel] = "true"
-	assignment, err := controllerprojection.EncodeAssignment(rack, &rack.Spec.Slots[0])
+	assignment, err := controllerprojection.EncodeAssignment(rack, &rack.Spec.Nodes[0])
 	require.NoError(t, err)
 	projected.Annotations = map[string]string{metadata.AssignmentAnnotation: assignment}
 	setNodeManagedFields(projected, controllerprojection.FieldManager,
@@ -781,7 +780,7 @@ func TestForeignProjectionCoOwnerEventRoutesExactBinding(t *testing.T) {
 	router.nodeUpdate(projected, coOwned)
 
 	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
-	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: rack.Name, slotIndex: 0}}, drainQueue(queues.projections))
+	require.Equal(t, []projectionKey{{mode: projectionApply, rackName: rack.Name, nodeIndex: 0}}, drainQueue(queues.projections))
 	require.ElementsMatch(t, []statusKey{
 		{kind: statusInventory, name: "inventory", uid: "inventory-uid"},
 		{kind: statusRack, name: "rack", uid: "rack-uid"},
@@ -831,7 +830,7 @@ func testRack(node *corev1.Node) *mokkav1alpha1.SGPURack {
 		Spec: mokkav1alpha1.SGPURackSpec{
 			InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: "inventory", UID: "inventory-uid"},
 			Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "group"},
-			Slots: []mokkav1alpha1.SGPURackSlot{{
+			Nodes: []mokkav1alpha1.SGPURackNode{{
 				Index: 0, NodeRef: &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID},
 			}},
 		},

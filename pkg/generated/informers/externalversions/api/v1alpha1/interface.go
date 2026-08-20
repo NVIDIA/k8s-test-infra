@@ -23,10 +23,10 @@ import (
 type Interface interface {
 	// SGPUInventories returns a SGPUInventoryInformer.
 	SGPUInventories() SGPUInventoryInformer
-	// SGPUProfiles returns a SGPUProfileInformer.
-	SGPUProfiles() SGPUProfileInformer
 	// SGPURacks returns a SGPURackInformer.
 	SGPURacks() SGPURackInformer
+	// SGPURackProfiles returns a SGPURackProfileInformer.
+	SGPURackProfiles() SGPURackProfileInformer
 	// SGPURuntimePolicies returns a SGPURuntimePolicyInformer.
 	SGPURuntimePolicies() SGPURuntimePolicyInformer
 }
@@ -47,14 +47,14 @@ func (v *version) SGPUInventories() SGPUInventoryInformer {
 	return &sGPUInventoryInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// SGPUProfiles returns a SGPUProfileInformer.
-func (v *version) SGPUProfiles() SGPUProfileInformer {
-	return &sGPUProfileInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
-}
-
 // SGPURacks returns a SGPURackInformer.
 func (v *version) SGPURacks() SGPURackInformer {
 	return &sGPURackInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// SGPURackProfiles returns a SGPURackProfileInformer.
+func (v *version) SGPURackProfiles() SGPURackProfileInformer {
+	return &sGPURackProfileInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // SGPURuntimePolicies returns a SGPURuntimePolicyInformer.

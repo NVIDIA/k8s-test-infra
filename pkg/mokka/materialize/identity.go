@@ -21,16 +21,16 @@ func FabricUUID(inventoryUID types.UID, rackGroup string, rackIndex int32) strin
 }
 
 // GPUUUID returns the NVML-compatible UUID for one logical GPU coordinate.
-func GPUUUID(inventoryUID types.UID, rackGroup string, rackIndex, slotIndex, gpuIndex int32) string {
+func GPUUUID(inventoryUID types.UID, rackGroup string, rackIndex, nodeIndex, gpuIndex int32) string {
 	return "GPU-" + uuidV5(identityName(
-		"gpu", inventoryUID, rackGroup, rackIndex, slotIndex, gpuIndex,
+		"gpu", inventoryUID, rackGroup, rackIndex, nodeIndex, gpuIndex,
 	))
 }
 
 // GPUSerial returns the numeric serial for one logical GPU coordinate.
-func GPUSerial(inventoryUID types.UID, rackGroup string, rackIndex, slotIndex, gpuIndex int32) string {
+func GPUSerial(inventoryUID types.UID, rackGroup string, rackIndex, nodeIndex, gpuIndex int32) string {
 	id := uuidV5Bytes(identityName(
-		"serial", inventoryUID, rackGroup, rackIndex, slotIndex, gpuIndex,
+		"serial", inventoryUID, rackGroup, rackIndex, nodeIndex, gpuIndex,
 	))
 	return fmt.Sprintf("%020d", binary.BigEndian.Uint64(id[:8]))
 }

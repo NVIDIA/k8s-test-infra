@@ -12,34 +12,34 @@ import (
 )
 
 const (
-	// MaxInventoryNodeSlots is the largest topology supported by one Inventory.
-	MaxInventoryNodeSlots int64 = 100_000
+	// MaxInventoryNodes is the largest topology supported by one Inventory.
+	MaxInventoryNodes int64 = 100_000
 	// ReasonCapacityExceeded identifies declarations outside the supported topology envelope.
 	ReasonCapacityExceeded = "CapacityExceeded"
 )
 
 // DeclaredCapacity holds checked capacity values before conversion to API status types.
 type DeclaredCapacity struct {
-	Racks     int64
-	NodeSlots int64
-	GPUs      int64
+	Racks int64
+	Nodes int64
+	GPUs  int64
 }
 
 // CapacityForGroup computes one group's declared capacity with checked intermediates.
-func CapacityForGroup(group mokkav1alpha1.RackGroup, profile *mokkav1alpha1.SGPUProfile) (DeclaredCapacity, error) {
+func CapacityForGroup(group mokkav1alpha1.RackGroup, profile *mokkav1alpha1.SGPURackProfile) (DeclaredCapacity, error) {
 	if profile == nil {
 		return DeclaredCapacity{}, fmt.Errorf("rack group %q profile must not be nil", group.ID)
 	}
 	racks := int64(group.Count)
-	nodeSlots, ok := checkedMultiply(racks, int64(profile.Spec.Rack.NodesPerRack))
+	nodes, ok := checkedMultiply(racks, int64(profile.Spec.Rack.NodesPerRack))
 	if !ok {
-		return DeclaredCapacity{}, fmt.Errorf("rack group %q node-slot capacity overflows int64", group.ID)
+		return DeclaredCapacity{}, fmt.Errorf("rack group %q Node capacity overflows int64", group.ID)
 	}
-	gpus, ok := checkedMultiply(nodeSlots, int64(profile.Spec.Node.GPUs.Count))
+	gpus, ok := checkedMultiply(nodes, int64(profile.Spec.Node.GPUs.Count))
 	if !ok {
 		return DeclaredCapacity{}, fmt.Errorf("rack group %q GPU capacity overflows int64", group.ID)
 	}
-	return DeclaredCapacity{Racks: racks, NodeSlots: nodeSlots, GPUs: gpus}, nil
+	return DeclaredCapacity{Racks: racks, Nodes: nodes, GPUs: gpus}, nil
 }
 
 // AddCapacity combines checked group or inventory capacity values.
@@ -48,33 +48,33 @@ func AddCapacity(a, b DeclaredCapacity) (DeclaredCapacity, error) {
 	if !ok {
 		return DeclaredCapacity{}, errors.New("aggregate rack capacity overflows int64")
 	}
-	nodeSlots, ok := checkedAdd(a.NodeSlots, b.NodeSlots)
+	nodes, ok := checkedAdd(a.Nodes, b.Nodes)
 	if !ok {
-		return DeclaredCapacity{}, errors.New("aggregate node-slot capacity overflows int64")
+		return DeclaredCapacity{}, errors.New("aggregate Node capacity overflows int64")
 	}
 	gpus, ok := checkedAdd(a.GPUs, b.GPUs)
 	if !ok {
 		return DeclaredCapacity{}, errors.New("aggregate GPU capacity overflows int64")
 	}
-	return DeclaredCapacity{Racks: racks, NodeSlots: nodeSlots, GPUs: gpus}, nil
+	return DeclaredCapacity{Racks: racks, Nodes: nodes, GPUs: gpus}, nil
 }
 
 // ValidateSupportedCapacity enforces the controller scale contract and status bounds.
 func ValidateSupportedCapacity(capacity DeclaredCapacity) error {
-	if capacity.Racks < 0 || capacity.NodeSlots < 0 || capacity.GPUs < 0 {
+	if capacity.Racks < 0 || capacity.Nodes < 0 || capacity.GPUs < 0 {
 		return errors.New("declared capacity must not be negative")
 	}
-	if capacity.NodeSlots > MaxInventoryNodeSlots {
+	if capacity.Nodes > MaxInventoryNodes {
 		return fmt.Errorf(
-			"desired node slots %d exceed supported maximum %d",
-			capacity.NodeSlots,
-			MaxInventoryNodeSlots,
+			"desired Nodes %d exceed supported maximum %d",
+			capacity.Nodes,
+			MaxInventoryNodes,
 		)
 	}
-	if capacity.Racks > MaxInventoryNodeSlots {
-		return fmt.Errorf("desired racks %d exceed supported maximum %d", capacity.Racks, MaxInventoryNodeSlots)
+	if capacity.Racks > MaxInventoryNodes {
+		return fmt.Errorf("desired racks %d exceed supported maximum %d", capacity.Racks, MaxInventoryNodes)
 	}
-	if capacity.Racks > math.MaxInt32 || capacity.NodeSlots > math.MaxInt32 || capacity.GPUs > math.MaxInt32 {
+	if capacity.Racks > math.MaxInt32 || capacity.Nodes > math.MaxInt32 || capacity.GPUs > math.MaxInt32 {
 		return errors.New("declared capacity exceeds int32 status bounds")
 	}
 	return nil
@@ -87,7 +87,7 @@ func StatusCapacity(capacity DeclaredCapacity) (mokkav1alpha1.InventoryCapacity,
 	}
 	return mokkav1alpha1.InventoryCapacity{
 		Racks: int32(capacity.Racks),
-		Nodes: int32(capacity.NodeSlots),
+		Nodes: int32(capacity.Nodes),
 		GPUs:  int32(capacity.GPUs),
 	}, nil
 }

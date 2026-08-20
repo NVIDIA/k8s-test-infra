@@ -29,17 +29,17 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 	const (
 		inventoryCount    = 100
 		racksPerInventory = 10
-		slotsPerRack      = 100
+		nodesPerRack      = 100
 	)
 
 	inventoryIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
 	profileIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
 	rackIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
 	nodes := controllernodes.New()
-	profile := &mokkav1alpha1.SGPUProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile", UID: "profile-uid"}}
+	profile := &mokkav1alpha1.SGPURackProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile", UID: "profile-uid"}}
 	require.NoError(t, profileIndexer.Add(profile))
 
-	allNodes := make([]*corev1.Node, 0, inventoryCount*racksPerInventory*slotsPerRack)
+	allNodes := make([]*corev1.Node, 0, inventoryCount*racksPerInventory*nodesPerRack)
 	var targetInventory *mokkav1alpha1.SGPUInventory
 	var targetRack *mokkav1alpha1.SGPURack
 	for inventoryIndex := range inventoryCount {
@@ -50,13 +50,13 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 		}
 		for rackIndex := range racksPerInventory {
 			globalRackIndex := inventoryIndex*racksPerInventory + rackIndex
-			rack := scaleStatusRack(inventory, globalRackIndex, rackIndex, slotsPerRack)
+			rack := scaleStatusRack(inventory, globalRackIndex, rackIndex, nodesPerRack)
 			require.NoError(t, rackIndexer.Add(rack))
 			if globalRackIndex == 0 {
 				targetRack = rack
 			}
-			for slotIndex := range slotsPerRack {
-				nodeIndex := globalRackIndex*slotsPerRack + slotIndex
+			for nodeIndex := range nodesPerRack {
+				nodeIndex := globalRackIndex*nodesPerRack + nodeIndex
 				node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
 					Name: fmt.Sprintf("node-%d", nodeIndex), UID: types.UID(fmt.Sprintf("node-uid-%d", nodeIndex)),
 					Labels: map[string]string{
@@ -72,7 +72,7 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 
 	snapshot := newInformerCache(
 		mokkalisters.NewSGPUInventoryLister(inventoryIndexer),
-		mokkalisters.NewSGPUProfileLister(profileIndexer),
+		mokkalisters.NewSGPURackProfileLister(profileIndexer),
 		rackIndexer,
 		nodes,
 		nil,
@@ -92,8 +92,8 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 	inventoryInput, inventoryStats, err := inventoryStatusInput(snapshot, projection, newResultStore(), targetInventory)
 	require.NoError(t, err)
 	require.Len(t, inventoryInput.Racks, racksPerInventory)
-	require.Len(t, inventoryInput.Nodes, racksPerInventory*slotsPerRack)
-	require.Equal(t, racksPerInventory*slotsPerRack, inventoryStats.nodesExamined)
+	require.Len(t, inventoryInput.Nodes, racksPerInventory*nodesPerRack)
+	require.Equal(t, racksPerInventory*nodesPerRack, inventoryStats.nodesExamined)
 	require.Equal(t, racksPerInventory, inventoryStats.racksExamined)
 	require.Equal(t, len(projection.inventoryOutcomes), inventoryStats.outcomesExamined)
 	require.Equal(t, []exactObjectReference{{name: targetInventory.Name, uid: targetInventory.UID}}, projection.inventoryCalls)
@@ -102,17 +102,17 @@ func TestStatusSnapshotsBoundWorkToOneInventoryAndRack(t *testing.T) {
 	rackInput, rackStats, err := rackStatusInput(snapshot, projection, targetRack)
 	require.NoError(t, err)
 	require.Len(t, rackInput.Racks, 1)
-	require.Len(t, rackInput.Nodes, slotsPerRack)
-	require.Equal(t, slotsPerRack, rackStats.nodesExamined)
-	require.Equal(t, slotsPerRack, rackStats.relatedRackLookups)
-	require.Equal(t, slotsPerRack, rackStats.relatedRacksExamined)
+	require.Len(t, rackInput.Nodes, nodesPerRack)
+	require.Equal(t, nodesPerRack, rackStats.nodesExamined)
+	require.Equal(t, nodesPerRack, rackStats.relatedRackLookups)
+	require.Equal(t, nodesPerRack, rackStats.relatedRacksExamined)
 	require.Equal(t, len(projection.rackOutcomes), rackStats.outcomesExamined)
 	require.Equal(t, []exactObjectReference{{name: targetRack.Name, uid: targetRack.UID}}, projection.rackCalls)
 	require.Equal(t, projection.rackOutcomes, rackInput.Projection)
 
 	foreignOutcome := controllerprojection.Outcome{
 		InventoryName: "inventory-99", InventoryUID: "inventory-uid-99",
-		RackName: "rack-999", RackUID: "rack-uid-999", SlotIndex: 99,
+		RackName: "rack-999", RackUID: "rack-uid-999", NodeIndex: 99,
 		NodeName: "node-99999", NodeUID: "node-uid-99999", State: controllerprojection.StateConflict,
 		Reason: controllerprojection.ReasonNodeMetadataConflict,
 	}
@@ -192,7 +192,7 @@ func scaleStatusInventory(index, rackCount int) *mokkav1alpha1.SGPUInventory {
 	}
 }
 
-func scaleStatusRack(inventory *mokkav1alpha1.SGPUInventory, globalIndex, rackIndex, slots int) *mokkav1alpha1.SGPURack {
+func scaleStatusRack(inventory *mokkav1alpha1.SGPUInventory, globalIndex, rackIndex, nodesPerRack int) *mokkav1alpha1.SGPURack {
 	rack := &mokkav1alpha1.SGPURack{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("rack-%d", globalIndex), UID: types.UID(fmt.Sprintf("rack-uid-%d", globalIndex)),
@@ -204,13 +204,13 @@ func scaleStatusRack(inventory *mokkav1alpha1.SGPUInventory, globalIndex, rackIn
 			InventoryRef: mokkav1alpha1.SGPURackInventoryReference{Name: inventory.Name, UID: inventory.UID},
 			ProfileRef:   mokkav1alpha1.SGPURackProfileReference{Name: "profile", UID: "profile-uid"},
 			Identity:     mokkav1alpha1.SGPURackIdentity{RackGroup: "group", RackIndex: int32(rackIndex)},
-			Slots:        make([]mokkav1alpha1.SGPURackSlot, slots),
+			Nodes:        make([]mokkav1alpha1.SGPURackNode, nodesPerRack),
 		},
 	}
-	for slotIndex := range slots {
-		nodeIndex := globalIndex*slots + slotIndex
-		rack.Spec.Slots[slotIndex] = mokkav1alpha1.SGPURackSlot{
-			Index: int32(slotIndex),
+	for rackNodeIndex := range nodesPerRack {
+		nodeIndex := globalIndex*nodesPerRack + rackNodeIndex
+		rack.Spec.Nodes[rackNodeIndex] = mokkav1alpha1.SGPURackNode{
+			Index: int32(rackNodeIndex),
 			NodeRef: &mokkav1alpha1.SGPUNodeReference{
 				Name: fmt.Sprintf("node-%d", nodeIndex), UID: types.UID(fmt.Sprintf("node-uid-%d", nodeIndex)),
 			},

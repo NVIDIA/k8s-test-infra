@@ -113,7 +113,7 @@ func validateGroup(group Group) error {
 	if group.Key.InventoryName == "" || group.Key.InventoryUID == "" || group.Key.RackGroup == "" {
 		return errors.New("group identity must include inventory name, UID, and rack group")
 	}
-	if group.Racks < 0 || group.SlotsPerRack < 0 {
+	if group.Racks < 0 || group.NodesPerRack < 0 {
 		return fmt.Errorf("group %s capacity must not be negative", group.Key)
 	}
 	return nil

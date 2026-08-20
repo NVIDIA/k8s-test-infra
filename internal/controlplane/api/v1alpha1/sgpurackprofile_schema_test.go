@@ -13,12 +13,12 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const profileCRDFile = "mokka.nvidia.com_sgpuprofiles.yaml"
+const profileCRDFile = "mokka.nvidia.com_sgpurackprofiles.yaml"
 
-func TestSGPUProfileCRDDimensionBoundsMatchRenderedRack(t *testing.T) {
+func TestSGPURackProfileCRDDimensionBoundsMatchRenderedRack(t *testing.T) {
 	t.Parallel()
 
-	schema := loadSGPUProfileCRD(t).Spec.Versions[0].Schema.OpenAPIV3Schema
+	schema := loadSGPURackProfileCRD(t).Spec.Versions[0].Schema.OpenAPIV3Schema
 	spec := schemaProperty(t, schema, "spec")
 	nodesPerRack := schemaProperty(t, schemaProperty(t, spec, "rack"), "nodesPerRack")
 	require.NotNil(t, nodesPerRack.Minimum)
@@ -40,7 +40,7 @@ func TestSGPUProfileCRDDimensionBoundsMatchRenderedRack(t *testing.T) {
 	require.Equal(t, int64(64), *gpuSlots.MaxItems)
 }
 
-func loadSGPUProfileCRD(t *testing.T) *apixv1.CustomResourceDefinition {
+func loadSGPURackProfileCRD(t *testing.T) *apixv1.CustomResourceDefinition {
 	t.Helper()
 
 	path := filepath.Join("..", "..", "..", "..", "deployments", "mokka-crds", "helm", "mokka-crds", "templates", profileCRDFile)
