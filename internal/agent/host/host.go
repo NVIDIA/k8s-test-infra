@@ -41,9 +41,12 @@ func (h *Host) WriteFile(path string, data []byte, perm os.FileMode) error {
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, perm); err != nil {
-		return err
+		return fmt.Errorf("write %s: %w", tmp, err)
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("rename %s: %w", path, err)
+	}
+	return nil
 }
 
 // Symlink creates or replaces a symlink at linkPath pointing to target.
@@ -52,18 +55,24 @@ func (h *Host) Symlink(target, linkPath string) error {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(linkPath), err)
 	}
 	_ = os.Remove(linkPath) // idempotent; not-exist is fine
-	return os.Symlink(target, linkPath)
+	if err := os.Symlink(target, linkPath); err != nil {
+		return fmt.Errorf("symlink %s -> %s: %w", linkPath, target, err)
+	}
+	return nil
 }
 
 // Remove removes path; not-exist is not an error.
 func (h *Host) Remove(path string) error {
 	if err := os.Remove(path); !os.IsNotExist(err) {
-		return err
+		return fmt.Errorf("remove %s: %w", path, err)
 	}
 	return nil
 }
 
 // MkdirAll creates dir and all parent directories.
 func (h *Host) MkdirAll(dir string, perm os.FileMode) error {
-	return os.MkdirAll(dir, perm)
+	if err := os.MkdirAll(dir, perm); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dir, err)
+	}
+	return nil
 }

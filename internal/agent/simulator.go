@@ -9,8 +9,8 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 )
 
-// Simulator owns one simulated component's lifecycle.
-// Stage and Discard are exact inverses; Apply and Revoke are exact inverses.
+// Simulator owns one simulated component's reconciliation lifecycle.
+// Stage and Discard are exact inverses.
 type Simulator interface {
 	Name() string
 	// Stage materializes artifacts that are not yet externally visible.
@@ -18,8 +18,6 @@ type Simulator interface {
 	Stage(ctx context.Context, h *host.Host, state *State) error
 	// Discard is the inverse of Stage and runs only on shutdown.
 	Discard(ctx context.Context, h *host.Host) error
-	// Run supervises long-lived background work; return nil for pure renderers.
-	Run(ctx context.Context) error
 	// Ready reports whether the last Stage call succeeded.
 	Ready() bool
 }
@@ -32,4 +30,11 @@ type Applier interface {
 	Apply(ctx context.Context, h *host.Host, state *State) error
 	// Revoke is the inverse of Apply and runs on shutdown before Discard.
 	Revoke(ctx context.Context, h *host.Host) error
+}
+
+// Daemon is implemented by simulators that supervise a long-running background
+// process (fabricmanager marker loop, mock-ib server). The agent launches Run
+// once at startup; it must block until ctx is cancelled.
+type Daemon interface {
+	Run(ctx context.Context) error
 }

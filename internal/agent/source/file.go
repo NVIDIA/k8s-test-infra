@@ -82,7 +82,7 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 
 	state, err := compileState(data)
 	if err != nil {
-		f.send(ctx, ch, agent.Update{Err: fmt.Errorf("compile state: %w", err), At: time.Now()})
+		f.send(ctx, ch, agent.Update{Err: fmt.Errorf("%s: %w", f.configPath, err), At: time.Now()})
 		return
 	}
 	f.log.Info("state updated from config", "config", f.configPath)

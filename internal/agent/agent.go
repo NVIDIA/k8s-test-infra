@@ -55,15 +55,19 @@ func New(cfg Config) *Agent {
 func (a *Agent) Run(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 
-	// Supervisor wave: each simulator's Run launches once at startup and
-	// survives state changes. Only ctx.Done stops them.
+	// Supervisor wave: launch background daemons once at startup.
+	// Only simulators that implement Daemon get a goroutine here.
 	for _, sim := range a.simulators {
 		sim := sim
+		d, ok := sim.(Daemon)
+		if !ok {
+			continue
+		}
 		g.Go(func() error {
-			if err := sim.Run(gctx); err != nil {
-				a.log.Error("simulator run exited", "simulator", sim.Name(), "err", err)
+			if err := d.Run(gctx); err != nil {
+				a.log.Error("simulator daemon exited", "simulator", sim.Name(), "err", err)
 			}
-			return nil // supervisor errors are non-fatal to the agent
+			return nil // daemon errors are non-fatal to the agent
 		})
 	}
 
@@ -97,7 +101,7 @@ func (a *Agent) reconcileLoop(ctx context.Context) error {
 				continue
 			}
 			if err := a.reconcile(ctx, u.State); err != nil {
-				a.log.Error("reconcile failed", "err", err)
+				a.log.Error("reconcile failed", "generation", u.State.Generation, "err", err)
 			}
 		}
 	}
@@ -125,7 +129,7 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 		app := app
 		applyG.Go(func() error {
 			if err := app.Apply(applyCtx, a.host, state); err != nil {
-				return fmt.Errorf("apply %T: %w", app, err)
+				return fmt.Errorf("apply %s: %w", applierName(app), err)
 			}
 			return nil
 		})
@@ -140,12 +144,22 @@ func (a *Agent) revoke(ctx context.Context) {
 		app := app
 		g.Go(func() error {
 			if err := app.Revoke(ctx, a.host); err != nil {
-				a.log.Error("revoke failed", "applier", fmt.Sprintf("%T", app), "err", err)
+				a.log.Error("revoke failed", "applier", applierName(app), "err", err)
 			}
 			return nil
 		})
 	}
 	_ = g.Wait()
+}
+
+// applierName returns a human-readable name for an Applier.
+// Appliers that also implement Simulator expose their Name(); others fall back
+// to the Go type name which is always unique and deterministic.
+func applierName(a Applier) string {
+	if n, ok := a.(interface{ Name() string }); ok {
+		return n.Name()
+	}
+	return fmt.Sprintf("%T", a)
 }
 
 // discard calls Discard on all simulators concurrently, best-effort.
