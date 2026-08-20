@@ -169,9 +169,9 @@ The compiled state the reconciler acts on maps 1:1 to what [MEP-0001]'s Control 
 type State struct {
     Generation int64              // MEP-0001 allocation generation; reported back as observed
     Node       NodeMeta           // hostRoot, nodeName, hostname
-    Software   SoftwareVersions   // driver / NVML / CUDA (MEP-0001 §SGPUProfile.spec.software)
+    Software   SoftwareVersions   // driver / NVML / CUDA (MEP-0001 §SGPURackProfile.spec.software)
     NodeShape  NodeShape          // GPU count, host CPU, PCIe/NUMA topology, GPU fabric, network
-    Devices    []DeviceState      // per-GPU: identity + hardware + runtime
+    Devices    []DeviceSpec       // per-GPU: identity + hardware + runtime
     Fabric     FabricState        // clique ID + fabric domain
 }
 ```
