@@ -39,58 +39,86 @@ import (
 // /sys/class/dmi/id resolves into.
 const defaultDMISource = "/sys/class/dmi/id"
 
-//nolint:cyclop // existing complexity; refactor deferred
 func main() {
 	var (
-		cfgPath   = flag.String("config", "", "path to mock-nvml profile YAML")
-		outDir    = flag.String("output", "", "fake-root directory; tree is written under <output>/sys/...")
+		opts      options
 		dmiSource = flag.String("dmi-source", defaultDMISource,
 			"kernel DMI directory to mirror into the tree; empty mirrors nothing")
-		strict = flag.Bool("strict", false, "fail if the profile does not declare `pcie_topology:`")
-		dryRun = flag.Bool("dry-run", false, "validate the config and exit without writing files")
 	)
+	flag.StringVar(&opts.configPath, "config", "", "path to mock-nvml profile YAML")
+	flag.StringVar(&opts.outputDir, "output", "", "fake-root directory; tree is written under <output>/sys/...")
+	flag.BoolVar(&opts.strict, "strict", false, "fail if the profile does not declare `pcie_topology:`")
+	flag.BoolVar(&opts.dryRun, "dry-run", false, "validate the config and exit without writing files")
 	flag.Parse()
+	opts.dmiSource = *dmiSource
 
-	if *cfgPath == "" || *outDir == "" {
+	if opts.configPath == "" || opts.outputDir == "" {
 		fmt.Fprintln(os.Stderr, "usage: render-pci-sysfs --config <yaml> --output <dir> [--strict] [--dry-run]")
 		os.Exit(2)
 	}
 
-	data, err := os.ReadFile(*cfgPath)
+	if err := run(opts); err != nil {
+		fatalf("%v", err)
+	}
+}
+
+// options is the resolved command line.
+type options struct {
+	configPath string
+	outputDir  string
+	dmiSource  string
+	strict     bool
+	dryRun     bool
+}
+
+func run(o options) error {
+	data, err := os.ReadFile(o.configPath)
 	if err != nil {
-		fatalf("read config: %v", err)
+		return fmt.Errorf("read config: %w", err)
 	}
 	var prof config.Profile
 	if err := yaml.Unmarshal(data, &prof); err != nil {
-		fatalf("parse config: %v", err)
+		return fmt.Errorf("parse config: %w", err)
 	}
 	if err := prof.Validate(); err != nil {
-		fatalf("%v", err)
+		return err
 	}
 
 	topo := prof.EffectiveTopology()
+	if topo != nil && o.strict && prof.PCIeTopology == nil {
+		return fmt.Errorf("--strict: profile %s does not declare `pcie_topology:`", o.configPath)
+	}
+	if o.dryRun {
+		reportDryRun(o.configPath, topo)
+		return nil
+	}
+
+	// A profile with no devices still goes through Render, rather than
+	// returning here: a tree rendered from a previous profile is on disk and
+	// still served, and Render is what clears it along with its completion
+	// marker, so setup.sh's gate cannot flip on for devices this profile does
+	// not declare.
 	if topo == nil {
-		fmt.Fprintf(os.Stderr, "render-pci-sysfs: no devices in %s, nothing to render\n", *cfgPath)
-		return
+		fmt.Fprintf(os.Stderr, "render-pci-sysfs: no devices in %s, clearing any previously rendered tree\n", o.configPath)
 	}
-	if *strict && prof.PCIeTopology == nil {
-		fatalf("--strict: profile %s does not declare `pcie_topology:`", *cfgPath)
-	}
-
-	if *dryRun {
-		fmt.Fprintf(os.Stderr, "render-pci-sysfs: %d root complex(es), %d device(s) — config OK\n",
-			len(topo.RootComplexes), countDevices(topo))
-		return
-	}
-
 	if err := render.Render(render.Options{
 		Topology:   topo,
 		Identities: prof.DeviceIdentities(),
-		Output:     *outDir,
-		DMISource:  *dmiSource,
+		Output:     o.outputDir,
+		DMISource:  o.dmiSource,
 	}); err != nil {
-		fatalf("render: %v", err)
+		return fmt.Errorf("render: %w", err)
 	}
+	return nil
+}
+
+func reportDryRun(configPath string, topo *config.PCIeTopology) {
+	if topo == nil {
+		fmt.Fprintf(os.Stderr, "render-pci-sysfs: no devices in %s, nothing to render — config OK\n", configPath)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "render-pci-sysfs: %d root complex(es), %d device(s) — config OK\n",
+		len(topo.RootComplexes), countDevices(topo))
 }
 
 func countDevices(t *config.PCIeTopology) int {

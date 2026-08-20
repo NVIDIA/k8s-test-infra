@@ -50,7 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mirrored, not mocked: `nvidia.com/gpu.machine` still reports what the node
   itself reports, tracked in #681. Each render now replaces the previous tree
   instead of adding to it, so re-profiling a node no longer serves both
-  profiles' devices, and both mount channels gate on a completion marker the
+  profiles' devices — including a re-profile onto a config that declares no PCI
+  devices at all, which clears the tree rather than leaving the previous one to
+  describe the node — and both mount channels gate on a completion marker the
   renderer writes last — the mounted directories exist from the start of a
   render, so their presence alone would serve a tree still missing the bind
   targets kind's hook needs. (#673)

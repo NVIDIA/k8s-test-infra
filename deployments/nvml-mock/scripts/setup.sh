@@ -134,9 +134,10 @@ fi
 PCI_ROOT="$HOST"
 mkdir -p "$PCI_ROOT"
 # Keep in sync with render.MarkerRelPath (pkg/system/mockpcisysfs/render): the
-# renderer writes it last, once the whole tree is on disk. Gating on the
-# directories instead would accept a tree from a previous profile that this
-# run had nothing to render over, and would say "rendered" partway through.
+# renderer writes it last, once the whole tree is on disk, and removes it when
+# the profile declares no PCI devices at all. Gating on the directories instead
+# would say "rendered" partway through a render, and would keep serving the
+# previous profile's devices to a profile that renders none of its own.
 PCI_SYSFS_MARKER=sys/.rendered
 PCI_SYSFS_RENDERED=off
 if [ -x /usr/local/bin/render-pci-sysfs ]; then
