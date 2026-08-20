@@ -292,6 +292,8 @@ func TestRackUpdateIgnoresStatusAndFinalizerOnlyChanges(t *testing.T) {
 	queues := newQueues(0)
 	t.Cleanup(queues.shutdown)
 	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+	var observed *mokkav1alpha1.SGPURack
+	router.observeRackStatus = func(rack *mokkav1alpha1.SGPURack) { observed = rack }
 
 	rack := testRack(testNode())
 	updated := rack.DeepCopy()
@@ -300,6 +302,7 @@ func TestRackUpdateIgnoresStatusAndFinalizerOnlyChanges(t *testing.T) {
 	updated.Status.AssignedSlots = 1
 	router.rackUpdate(rack, updated)
 
+	require.Same(t, updated, observed)
 	require.Empty(t, drainQueue(queues.inventories))
 	require.Empty(t, drainQueue(queues.groups))
 	require.Empty(t, drainQueue(queues.projections))

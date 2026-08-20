@@ -374,6 +374,8 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 		inventoryInformer.GetIndexer(), rackInformer.GetIndexer(), newPlacementRegistry(), controller.queues,
 		allocation.Invalidate,
 	)
+	router.observeRackStatus = statusReconciler.ObserveRackStatus
+	router.forgetRackStatus = statusReconciler.ForgetRackStatus
 	if err := addHandler(profileInformer, cache.ResourceEventHandlerFuncs{
 		AddFunc: router.profileAdd, UpdateFunc: router.profileUpdate, DeleteFunc: router.profileDelete,
 	}); err != nil {

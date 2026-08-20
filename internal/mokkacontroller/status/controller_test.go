@@ -368,6 +368,73 @@ func TestRestartStatusBeforeProjectionDoesNotFlapAndLaterRepairConverges(t *test
 	require.Equal(t, 2, rackWriter.updates, "only genuine damage and repair may write rack status")
 }
 
+func TestConvergedRackStatusEventsAvoidLiveRequestsAtScale(t *testing.T) {
+	now := metav1.NewTime(time.Unix(200, 0))
+	input := singleProjectedRackInput(t)
+	input.Rack.Status = ComputeRack(input, now)
+	writer := &fakeRackWriter{getErr: errors.New("converged cached status must not issue a live GET")}
+	reconciler := NewReconciler(nil, writer, func() metav1.Time { return now })
+
+	for range 100_000 {
+		changed, err := reconciler.ReconcileRack(context.Background(), input)
+		require.NoError(t, err)
+		require.False(t, changed)
+	}
+	require.Zero(t, writer.gets)
+	require.Zero(t, writer.updates)
+}
+
+func TestRackStatusRechecksLiveObjectWhenInformerCacheIsStale(t *testing.T) {
+	now := metav1.NewTime(time.Unix(200, 0))
+	input := singleProjectedRackInput(t)
+	live := input.Rack.DeepCopy()
+	live.Status = ComputeRack(input, now)
+	writer := &fakeRackWriter{object: live}
+
+	changed, err := NewReconciler(nil, writer, func() metav1.Time { return now }).
+		ReconcileRack(context.Background(), input)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Equal(t, 1, writer.gets)
+	require.Zero(t, writer.updates, "stale informer status must not cause a redundant write")
+}
+
+func TestRackStatusConflictRechecksLiveStatusBeforeRetryingWrite(t *testing.T) {
+	now := metav1.NewTime(time.Unix(200, 0))
+	input := singleProjectedRackInput(t)
+	writer := &fakeRackWriter{object: input.Rack.DeepCopy(), conflictOnce: true, conflictConverges: true}
+
+	changed, err := NewReconciler(nil, writer, func() metav1.Time { return now }).
+		ReconcileRack(context.Background(), input)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Equal(t, 2, writer.gets)
+	require.Equal(t, 1, writer.updates, "a conflict resolved by another writer must not be written again")
+}
+
+func TestRackStatusTrustsCacheAfterInformerObservesPendingWrite(t *testing.T) {
+	now := metav1.NewTime(time.Unix(200, 0))
+	input := singleProjectedRackInput(t)
+	writer := &fakeRackWriter{object: input.Rack.DeepCopy()}
+	reconciler := NewReconciler(nil, writer, func() metav1.Time { return now })
+
+	changed, err := reconciler.ReconcileRack(context.Background(), input)
+	require.NoError(t, err)
+	require.True(t, changed)
+	cached := input.Rack.DeepCopy()
+	cached.Status = writer.object.Status
+	input.Rack = cached
+	input.Racks[0] = cached
+	reconciler.ObserveRackStatus(cached)
+	gets := writer.gets
+	writer.getErr = errors.New("observed cached status must not issue a live GET")
+
+	changed, err = reconciler.ReconcileRack(context.Background(), input)
+	require.NoError(t, err)
+	require.False(t, changed)
+	require.Equal(t, gets, writer.gets)
+}
+
 func TestStatusWritersSuppressIdenticalUpdatesAndRetryConflicts(t *testing.T) {
 	now := metav1.NewTime(time.Unix(200, 0))
 	input := aggregateInput(t)
@@ -744,14 +811,17 @@ func (f *fakeInventoryWriter) UpdateStatus(_ context.Context, candidate *mokkav1
 }
 
 type fakeRackWriter struct {
-	object       *mokkav1alpha1.SGPURack
-	getErr       error
-	updateErr    error
-	conflictOnce bool
-	updates      int
+	object            *mokkav1alpha1.SGPURack
+	getErr            error
+	updateErr         error
+	conflictOnce      bool
+	conflictConverges bool
+	gets              int
+	updates           int
 }
 
 func (f *fakeRackWriter) Get(context.Context, string, metav1.GetOptions) (*mokkav1alpha1.SGPURack, error) {
+	f.gets++
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -765,6 +835,9 @@ func (f *fakeRackWriter) UpdateStatus(_ context.Context, candidate *mokkav1alpha
 	}
 	if f.conflictOnce {
 		f.conflictOnce = false
+		if f.conflictConverges {
+			f.object.Status = candidate.Status
+		}
 		return nil, apierrors.NewConflict(schema.GroupResource{Resource: "sgpuracks"}, candidate.Name, errors.New("test conflict"))
 	}
 	f.object = candidate.DeepCopy()

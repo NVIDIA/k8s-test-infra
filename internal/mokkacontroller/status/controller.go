@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -86,6 +87,14 @@ type Reconciler struct {
 	inventories InventoryStatusWriter
 	racks       RackStatusWriter
 	now         func() metav1.Time
+
+	pendingRackMu       sync.Mutex
+	pendingRackStatuses map[string]pendingRackStatus
+}
+
+type pendingRackStatus struct {
+	uid    types.UID
+	status mokkav1alpha1.SGPURackStatus
 }
 
 // NewReconciler constructs an idempotent status writer.
@@ -138,28 +147,38 @@ func (r *Reconciler) ReconcileRack(ctx context.Context, input RackInput) (bool, 
 	if input.Rack == nil || input.Rack.Name == "" || input.Rack.UID == "" {
 		return false, errors.New("rack status requires exact name and UID")
 	}
+	now := r.now()
+	desired := ComputeRack(input, now)
+	if r.cachedRackStatusConverged(input.Rack, desired) {
+		return false, nil
+	}
 	changed := false
 	err := retryOnConflict(func() error {
 		latest, err := r.racks.Get(ctx, input.Rack.Name, metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
+			r.clearPendingRackStatus(input.Rack.Name, input.Rack.UID)
 			return nil
 		}
 		if err != nil {
 			return err
 		}
 		if latest.UID != input.Rack.UID {
+			r.clearPendingRackStatus(input.Rack.Name, input.Rack.UID)
 			return nil
 		}
 		current := input
 		current.Rack = input.Rack.DeepCopy()
 		current.Rack.Status = latest.Status
-		desired := ComputeRack(current, r.now())
+		desired := ComputeRack(current, now)
 		if equality.Semantic.DeepEqual(latest.Status, desired) {
+			r.clearPendingRackStatus(input.Rack.Name, input.Rack.UID)
 			return nil
 		}
 		candidate := latest.DeepCopy()
 		candidate.Status = desired
+		r.rememberPendingRackStatus(input.Rack.Name, input.Rack.UID, desired)
 		if _, err := r.racks.UpdateStatus(ctx, candidate, metav1.UpdateOptions{}); apierrors.IsNotFound(err) {
+			r.clearPendingRackStatus(input.Rack.Name, input.Rack.UID)
 			return nil
 		} else if err != nil {
 			return err
@@ -171,6 +190,69 @@ func (r *Reconciler) ReconcileRack(ctx context.Context, input RackInput) (bool, 
 		return changed, fmt.Errorf("update rack %q status: %w", input.Rack.Name, err)
 	}
 	return changed, nil
+}
+
+func (r *Reconciler) cachedRackStatusConverged(
+	rack *mokkav1alpha1.SGPURack,
+	desired mokkav1alpha1.SGPURackStatus,
+) bool {
+	r.pendingRackMu.Lock()
+	defer r.pendingRackMu.Unlock()
+	pending, exists := r.pendingRackStatuses[rack.Name]
+	if exists && pending.uid != rack.UID {
+		delete(r.pendingRackStatuses, rack.Name)
+		exists = false
+	}
+	if exists && equality.Semantic.DeepEqual(rack.Status, pending.status) {
+		delete(r.pendingRackStatuses, rack.Name)
+		exists = false
+	}
+	return !exists && equality.Semantic.DeepEqual(rack.Status, desired)
+}
+
+func (r *Reconciler) rememberPendingRackStatus(
+	name string,
+	uid types.UID,
+	status mokkav1alpha1.SGPURackStatus,
+) {
+	r.pendingRackMu.Lock()
+	defer r.pendingRackMu.Unlock()
+	if r.pendingRackStatuses == nil {
+		r.pendingRackStatuses = make(map[string]pendingRackStatus)
+	}
+	// Until the informer observes this write, its older status may happen to
+	// equal a newly desired value and is not safe for the no-op fast path.
+	r.pendingRackStatuses[name] = pendingRackStatus{uid: uid, status: *status.DeepCopy()}
+}
+
+// ObserveRackStatus records that the informer has advanced past a pending
+// status write, making its cached status safe for future no-op decisions.
+func (r *Reconciler) ObserveRackStatus(rack *mokkav1alpha1.SGPURack) {
+	if rack == nil {
+		return
+	}
+	r.pendingRackMu.Lock()
+	defer r.pendingRackMu.Unlock()
+	pending, exists := r.pendingRackStatuses[rack.Name]
+	if !exists {
+		return
+	}
+	if pending.uid != rack.UID || equality.Semantic.DeepEqual(pending.status, rack.Status) {
+		delete(r.pendingRackStatuses, rack.Name)
+	}
+}
+
+// ForgetRackStatus releases pending status state for an informer-observed deletion.
+func (r *Reconciler) ForgetRackStatus(name string, uid types.UID) {
+	r.clearPendingRackStatus(name, uid)
+}
+
+func (r *Reconciler) clearPendingRackStatus(name string, uid types.UID) {
+	r.pendingRackMu.Lock()
+	defer r.pendingRackMu.Unlock()
+	if pending, exists := r.pendingRackStatuses[name]; exists && pending.uid == uid {
+		delete(r.pendingRackStatuses, name)
+	}
 }
 
 type groupAggregate struct {

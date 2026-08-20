@@ -224,12 +224,14 @@ func (r *placementRegistry) matching(node *corev1.Node) []allocate.GroupKey {
 }
 
 type eventRouter struct {
-	inventories cache.Indexer
-	racks       cache.Indexer
-	registry    *placementRegistry
-	claims      *desiredRackClaims
-	queues      *queues
-	invalidate  func()
+	inventories       cache.Indexer
+	racks             cache.Indexer
+	registry          *placementRegistry
+	claims            *desiredRackClaims
+	queues            *queues
+	invalidate        func()
+	observeRackStatus func(*mokkav1alpha1.SGPURack)
+	forgetRackStatus  func(string, types.UID)
 }
 
 func newEventRouter(
@@ -429,6 +431,9 @@ func (r *eventRouter) routeNodeWithBindings(node *corev1.Node, groups []allocate
 func (r *eventRouter) rackAdd(object any) {
 	rack, ok := eventObject[*mokkav1alpha1.SGPURack](object)
 	if ok {
+		if r.observeRackStatus != nil {
+			r.observeRackStatus(rack)
+		}
 		r.invalidateAllocation()
 		if !r.rackOwnedByClaimant(rack) {
 			r.routeRackClaimants(rack.Name)
@@ -452,6 +457,9 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 	newRack, newOK := eventObject[*mokkav1alpha1.SGPURack](newObject)
 	if !oldOK || !newOK {
 		return
+	}
+	if r.observeRackStatus != nil {
+		r.observeRackStatus(newRack)
 	}
 	if !rackAllocationUnchanged(oldRack, newRack) {
 		r.invalidateAllocation()
@@ -505,6 +513,9 @@ func (r *eventRouter) rackDelete(object any) {
 	rack, ok := eventObject[*mokkav1alpha1.SGPURack](object)
 	if !ok {
 		return
+	}
+	if r.forgetRackStatus != nil {
+		r.forgetRackStatus(rack.Name, rack.UID)
 	}
 	r.invalidateAllocation()
 	for _, slot := range rack.Spec.Slots {
