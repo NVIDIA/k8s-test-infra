@@ -67,6 +67,16 @@ tests:
           path: spec.template.spec.containers[0].env[0].valueFrom.fieldRef.fieldPath
           value: metadata.namespace
 
+  - it: should reserve enough memory for the supported 100k-node scale
+    set:
+      controlPlane:
+        enabled: true
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 1Gi
+
   # The container port, the args --listen-addr, and the probes must all name
   # the same port; a probe pointed at the wrong port makes the pod never go
   # Ready and stalls the Deployment silently — exactly the class of failure
