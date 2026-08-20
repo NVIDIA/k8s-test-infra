@@ -108,7 +108,7 @@ func TestAdjustSkipsPCISysfsMountsWhenNotStaged(t *testing.T) {
 func TestAdjustSkipsPCIDevicesMountWithoutSysDevices(t *testing.T) {
 	overlay := t.TempDir()
 	stagePCISysfs(t, overlay)
-	require.NoError(t, os.RemoveAll(filepath.Join(overlay, "sys/devices")))
+	require.NoError(t, os.RemoveAll(filepath.Join(overlay, render.SysDevicesRelPath)))
 
 	cfg := DefaultConfig()
 	cfg.HostOverlayPath = overlay
@@ -153,8 +153,8 @@ func TestAdjustSkipsPCISysfsMountsWhileRenderIncomplete(t *testing.T) {
 // as the main DaemonSet's render-pci-sysfs run leaves it.
 func stagePCISysfs(t *testing.T, overlay string) {
 	t.Helper()
-	require.NoError(t, os.MkdirAll(filepath.Join(overlay, "sys/bus/pci/devices"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(overlay, "sys/devices"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(overlay, render.PCIDevicesRelPath), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(overlay, render.SysDevicesRelPath), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(overlay, render.MarkerRelPath), nil, 0o644))
 }
 

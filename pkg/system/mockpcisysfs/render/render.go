@@ -52,10 +52,12 @@ type Options struct {
 	// Output is the fake-root directory. The renderer writes under
 	// <Output>/sys/... — Output itself is created if missing.
 	//
-	// When Topology is nil or has no root complexes, Render is a no-op
-	// even if Output is empty (so setup.sh can invoke the renderer
-	// unconditionally). A non-nil Topology with a non-empty Output is
-	// required; otherwise Render returns an error.
+	// A non-nil Topology requires a non-empty Output; otherwise Render
+	// returns an error. When Topology is nil or has no root complexes there
+	// is nothing to write, and Render instead empties whatever a previous
+	// profile left under Output and drops the completion marker — so a caller
+	// can invoke the renderer unconditionally without leaving a tree that
+	// describes the wrong profile. With Output empty too, Render does nothing.
 	Output string
 
 	// DMISource is the directory holding the node's kernel DMI identity,
@@ -77,9 +79,13 @@ type Options struct {
 // the tree is served to.
 const MarkerRelPath = "sys/.rendered"
 
+// PCIDevicesRelPath and SysDevicesRelPath are the two halves of the tree,
+// relative to Options.Output. They are exported for the consumers that
+// bind-mount them onto the kernel paths, so the layout has one definition
+// rather than a copy per consumer.
 const (
-	pciDevicesRelPath = "sys/bus/pci/devices"
-	sysDevicesRelPath = "sys/devices"
+	PCIDevicesRelPath = "sys/bus/pci/devices"
+	SysDevicesRelPath = "sys/devices"
 )
 
 // Render writes the entire tree, replacing whatever a previous render left
@@ -133,10 +139,10 @@ func pruneTree(root string) error {
 	if err := os.RemoveAll(filepath.Join(root, MarkerRelPath)); err != nil {
 		return fmt.Errorf("clear %s: %w", MarkerRelPath, err)
 	}
-	if err := removeEntries(filepath.Join(root, pciDevicesRelPath), ""); err != nil {
+	if err := removeEntries(filepath.Join(root, PCIDevicesRelPath), ""); err != nil {
 		return err
 	}
-	return removeEntries(filepath.Join(root, sysDevicesRelPath), dmiVirtualDirName)
+	return removeEntries(filepath.Join(root, SysDevicesRelPath), dmiVirtualDirName)
 }
 
 // removeEntries empties dir, keeping the entry named keep (if any). A missing
@@ -162,10 +168,10 @@ func removeEntries(dir, keep string) error {
 
 func renderTopology(o Options) error {
 	root := o.Output
-	if err := mkdirAll(root, pciDevicesRelPath); err != nil {
+	if err := mkdirAll(root, PCIDevicesRelPath); err != nil {
 		return err
 	}
-	if err := mkdirAll(root, sysDevicesRelPath); err != nil {
+	if err := mkdirAll(root, SysDevicesRelPath); err != nil {
 		return err
 	}
 
@@ -183,7 +189,7 @@ func renderTopology(o Options) error {
 // pruneTree keeps so the mount targets inside it never go missing.
 const (
 	dmiVirtualDirName = "virtual"
-	dmiIDDir          = sysDevicesRelPath + "/" + dmiVirtualDirName + "/dmi/id"
+	dmiIDDir          = SysDevicesRelPath + "/" + dmiVirtualDirName + "/dmi/id"
 )
 
 // dmiMirroredAttrs are the DMI attributes kind's mount-product-files.sh
@@ -241,7 +247,7 @@ func renderDMI(root, source string) error {
 }
 
 func renderRootComplex(root string, rc config.RootComplex, ids map[string]config.PCI) error {
-	rcDir := filepath.Join(sysDevicesRelPath, rc.ID)
+	rcDir := filepath.Join(SysDevicesRelPath, rc.ID)
 	if err := mkdirAll(root, rcDir); err != nil {
 		return err
 	}
@@ -272,11 +278,11 @@ func renderRootComplex(root string, rc config.RootComplex, ids map[string]config
 		// Relative target matches what the kernel emits, so any
 		// readlink() consumer (`realpath`, deviceattribute, etc.)
 		// resolves to the same canonical path it would on real Linux.
-		linkPath := filepath.Join(root, pciDevicesRelPath, bdfLC)
+		linkPath := filepath.Join(root, PCIDevicesRelPath, bdfLC)
 		linkTarget := filepath.Join("..", "..", "..", "devices", rc.ID, bdfLC)
 		if err := replaceSymlink(linkPath, linkTarget); err != nil {
 			return fmt.Errorf("symlink %s -> %s: %w",
-				filepath.Join(pciDevicesRelPath, bdfLC), linkTarget, err)
+				filepath.Join(PCIDevicesRelPath, bdfLC), linkTarget, err)
 		}
 	}
 	return nil

@@ -44,11 +44,6 @@ const (
 	// MOCK_TOPOLOGY_CONFIG env).
 	defaultTopologyRelPath = "topology/topology.yaml"
 
-	// pciDevicesRelPath and sysDevicesRelPath are the two halves of the fake
-	// PCI sysfs tree setup.sh renders into the overlay, resolved relative to
-	// the host overlay path.
-	pciDevicesRelPath = "sys/bus/pci/devices"
-	sysDevicesRelPath = "sys/devices"
 	// pciDevicesContainerPath and sysDevicesContainerPath are the kernel
 	// paths the tree must appear at inside the container. Unlike the
 	// LD_PRELOAD-based redirection (MOCK_PCI_ROOT), these cannot be
@@ -388,8 +383,10 @@ func pciSysfsMounts(cfg Config) []Mount {
 	if _, err := os.Stat(filepath.Join(cfg.HostOverlayPath, render.MarkerRelPath)); err != nil {
 		return nil
 	}
-	sysDevices := filepath.Join(cfg.HostOverlayPath, sysDevicesRelPath)
-	pciDevices := filepath.Join(cfg.HostOverlayPath, pciDevicesRelPath)
+	// Paths come from the renderer that writes them: a guard statting a path
+	// nothing renders would fail open, dropping the mounts silently.
+	sysDevices := filepath.Join(cfg.HostOverlayPath, render.SysDevicesRelPath)
+	pciDevices := filepath.Join(cfg.HostOverlayPath, render.PCIDevicesRelPath)
 	for _, dir := range []string{sysDevices, pciDevices} {
 		info, err := os.Stat(dir)
 		if err != nil || !info.IsDir() {
