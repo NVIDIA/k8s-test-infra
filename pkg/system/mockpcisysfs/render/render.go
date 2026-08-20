@@ -57,28 +57,115 @@ type Options struct {
 	// unconditionally). A non-nil Topology with a non-empty Output is
 	// required; otherwise Render returns an error.
 	Output string
+
+	// DMISource is the directory holding the node's kernel DMI identity,
+	// normally /sys/class/dmi/id. The attributes found there are mirrored
+	// into the tree so that bind-mounting sys/devices over the kernel's
+	// does not take the DMI directory with it — see renderDMI. Empty
+	// mirrors nothing.
+	DMISource string
 }
 
-// Render writes the entire tree. It is idempotent: existing directories
-// are reused, existing files are truncated and rewritten, and existing
-// symlinks are removed and recreated so a stale relative target does not
-// linger across re-renders.
+// MarkerRelPath is written last, once the whole tree — topology and mirrored
+// DMI attributes alike — is on disk. Consumers that bind-mount the tree onto
+// the kernel paths gate on it rather than on the directories they mount:
+// those are created at the start of a render, so their presence says nothing
+// about whether the render finished, and serving a half-rendered tree fails
+// container creation on a bind target that is not there yet.
+//
+// It sits outside both mounted subtrees, so it is not visible to a container
+// the tree is served to.
+const MarkerRelPath = "sys/.rendered"
+
+const (
+	pciDevicesRelPath = "sys/bus/pci/devices"
+	sysDevicesRelPath = "sys/devices"
+)
+
+// Render writes the entire tree, replacing whatever a previous render left
+// behind, and marks it complete with MarkerRelPath. Within a render existing
+// files are truncated and rewritten, and existing symlinks are removed and
+// recreated so a stale relative target cannot linger.
 func Render(o Options) error {
-	if o.Topology == nil || len(o.Topology.RootComplexes) == 0 {
-		// Nothing to do — caller decided to render a profile with no
-		// declared topology and no devices. Treat as a no-op so the
-		// renderer can be invoked unconditionally from setup.sh.
-		return nil
+	if !o.hasTopology() {
+		// Nothing to render — the caller passed a profile with no declared
+		// topology and no devices, which setup.sh does unconditionally. A tree
+		// left here by a previous profile would still describe the node, so it
+		// is emptied rather than kept.
+		if o.Output == "" {
+			return nil
+		}
+		return pruneTree(o.Output)
 	}
 	if o.Output == "" {
 		return errors.New("pcisysfs render: Output is required")
 	}
 
-	root := o.Output
-	if err := mkdirAll(root, "sys/bus/pci/devices"); err != nil {
+	if err := pruneTree(o.Output); err != nil {
 		return err
 	}
-	if err := mkdirAll(root, "sys/devices"); err != nil {
+	if err := renderTopology(o); err != nil {
+		return err
+	}
+	if err := renderDMI(o.Output, o.DMISource); err != nil {
+		return err
+	}
+	return writeFile(o.Output, MarkerRelPath, "")
+}
+
+func (o Options) hasTopology() bool {
+	return o.Topology != nil && len(o.Topology.RootComplexes) > 0
+}
+
+// pruneTree drops the devices a previous render left behind. Rendering only
+// ever added entries, so without this a re-profiled node keeps both profiles'
+// devices (an a100 and an h100 share no BDFs) and consumers see their union
+// mounted at /sys/bus/pci/devices — more GPUs than the node simulates, some
+// under a root complex no profile declares.
+//
+// What survives is deliberate: the two directories consumers bind-mount, and
+// the DMI directory holding the targets kind's createContainer hook needs. A
+// container created while a render is in flight then still finds every mount's
+// source and every target in place — it may see fewer devices than the profile
+// declares, but it starts. Consumers served through CDI have no way to wait
+// for MarkerRelPath, since the runtime applies the spec's mounts unconditionally.
+func pruneTree(root string) error {
+	if err := os.RemoveAll(filepath.Join(root, MarkerRelPath)); err != nil {
+		return fmt.Errorf("clear %s: %w", MarkerRelPath, err)
+	}
+	if err := removeEntries(filepath.Join(root, pciDevicesRelPath), ""); err != nil {
+		return err
+	}
+	return removeEntries(filepath.Join(root, sysDevicesRelPath), dmiVirtualDirName)
+}
+
+// removeEntries empties dir, keeping the entry named keep (if any). A missing
+// dir is not an error: there is nothing to prune on a first render.
+func removeEntries(dir, keep string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read %s: %w", dir, err)
+	}
+	for _, entry := range entries {
+		if entry.Name() == keep {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, entry.Name())); err != nil {
+			return fmt.Errorf("clear %s: %w", filepath.Join(dir, entry.Name()), err)
+		}
+	}
+	return nil
+}
+
+func renderTopology(o Options) error {
+	root := o.Output
+	if err := mkdirAll(root, pciDevicesRelPath); err != nil {
+		return err
+	}
+	if err := mkdirAll(root, sysDevicesRelPath); err != nil {
 		return err
 	}
 
@@ -90,8 +177,71 @@ func Render(o Options) error {
 	return nil
 }
 
+// dmiIDDir is where the kernel materializes the SMBIOS identity; the
+// familiar /sys/class/dmi/id path is only a symlink into it.
+// dmiVirtualDirName names its top-level directory under sys/devices, which
+// pruneTree keeps so the mount targets inside it never go missing.
+const (
+	dmiVirtualDirName = "virtual"
+	dmiIDDir          = sysDevicesRelPath + "/" + dmiVirtualDirName + "/dmi/id"
+)
+
+// dmiMirroredAttrs are the DMI attributes kind's mount-product-files.sh
+// createContainer hook bind-mounts the node's copies onto, for every
+// container on the node. Each has to exist in the tree as a mount target;
+// byValue says whether the node's value travels with it.
+var dmiMirroredAttrs = []struct {
+	name    string
+	byValue bool
+}{
+	// The node's machine type, which consumers do read: GFD's default
+	// machine-type file resolves here.
+	{name: "product_name", byValue: true},
+	// A node identifier the kernel deliberately exposes 0400 to root alone.
+	// Only its existence matters, since kind mounts the node's own copy over
+	// it, so the tree carries an empty stand-in rather than republishing the
+	// value world-readable into every served container.
+	{name: "product_uuid"},
+}
+
+// renderDMI mirrors the node's DMI identity into the tree. Serving the tree
+// means bind-mounting it over /sys/devices, which also replaces
+// virtual/dmi/id — the directory /sys/class/dmi/id resolves into. Any
+// attribute missing from the replacement is a bind-mount target that no
+// longer exists, and mount(8) cannot create one on a read-only sysfs, so
+// kind's hook fails and every injected container fails to start.
+//
+// Mirroring rather than mocking keeps the node's identity intact: kind
+// already reports its own ("kind" as the product name, a random UUID), and
+// overriding that is a separate concern with its own consumers.
+func renderDMI(root, source string) error {
+	if source == "" {
+		return nil
+	}
+	for _, attr := range dmiMirroredAttrs {
+		src := filepath.Join(source, attr.name)
+		if _, err := os.Stat(src); err != nil {
+			// The kernel exposes no such attribute, so nothing bind-mounts
+			// it either and a stand-in would only invent an identity.
+			continue
+		}
+		var contents []byte
+		if attr.byValue {
+			// A read failure still has to leave the file behind: the target
+			// matters more than the value, and mount(8) cannot create one.
+			if value, err := os.ReadFile(src); err == nil {
+				contents = value
+			}
+		}
+		if err := writeFile(root, filepath.Join(dmiIDDir, attr.name), string(contents)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func renderRootComplex(root string, rc config.RootComplex, ids map[string]config.PCI) error {
-	rcDir := filepath.Join("sys/devices", rc.ID)
+	rcDir := filepath.Join(sysDevicesRelPath, rc.ID)
 	if err := mkdirAll(root, rcDir); err != nil {
 		return err
 	}
@@ -122,11 +272,11 @@ func renderRootComplex(root string, rc config.RootComplex, ids map[string]config
 		// Relative target matches what the kernel emits, so any
 		// readlink() consumer (`realpath`, deviceattribute, etc.)
 		// resolves to the same canonical path it would on real Linux.
-		linkPath := filepath.Join(root, "sys/bus/pci/devices", bdfLC)
+		linkPath := filepath.Join(root, pciDevicesRelPath, bdfLC)
 		linkTarget := filepath.Join("..", "..", "..", "devices", rc.ID, bdfLC)
 		if err := replaceSymlink(linkPath, linkTarget); err != nil {
 			return fmt.Errorf("symlink %s -> %s: %w",
-				filepath.Join("sys/bus/pci/devices", bdfLC), linkTarget, err)
+				filepath.Join(pciDevicesRelPath, bdfLC), linkTarget, err)
 		}
 	}
 	return nil

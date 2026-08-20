@@ -285,6 +285,25 @@ func (c *Client) RunningPodNames(ctx context.Context, ns, selector string) ([]st
 	return out, nil
 }
 
+// RunningPodOnNode returns the Running pod matching the selector on a given
+// node. Callers that exec into a DaemonSet's pod need both filters: a
+// Terminating or Pending pod matches the selector just as well and the exec
+// fails, and a pod on another node answers about hardware the assertion is not
+// about.
+func (c *Client) RunningPodOnNode(ctx context.Context, ns, selector, node string) (string, error) {
+	var pl podList
+	if err := c.getJSON(ctx, &pl, "pods", "-n", ns, "-l", selector,
+		"--field-selector", "spec.nodeName="+node); err != nil {
+		return "", err
+	}
+	for _, p := range pl.Items {
+		if p.Status.Phase == "Running" {
+			return p.Metadata.Name, nil
+		}
+	}
+	return "", fmt.Errorf("no Running pod in ns %q matching %q on node %q", ns, selector, node)
+}
+
 // PodNode returns the Kubernetes node a pod is scheduled on.
 func (c *Client) PodNode(ctx context.Context, ns, name string) (string, error) {
 	var p podObj

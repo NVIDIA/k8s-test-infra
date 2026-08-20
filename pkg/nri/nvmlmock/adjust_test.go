@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockpcisysfs/render"
 )
 
 func TestAdjustPlainContainerAddsOverlayAndEnvironment(t *testing.T) {
@@ -46,6 +48,114 @@ func TestAdjustPlainContainerAddsOverlayAndEnvironment(t *testing.T) {
 	// is a no-op), so the plugin must NOT re-emit it — emitting untouched vars
 	// would claim NRI ownership and conflict with other plugins.
 	requireNoEnvKey(t, adjustment.Env, "MOCK_IB")
+}
+
+// TestAdjustMountsPCISysfsWhenStaged pins the pair of mounts that let Go
+// consumers (GPU Feature Discovery, the DRA driver) see the mock PCI tree.
+// They read sysfs with direct syscalls, so the LD_PRELOAD redirector never
+// sees their opens and only a real mount at the canonical path works.
+//
+// Both mounts are required together: /sys/bus/pci/devices holds symlinks
+// pointing at ../../../devices/pciDDDD:BB/<bdf>, which only resolve when
+// the rendered sys/devices is mounted too.
+func TestAdjustMountsPCISysfsWhenStaged(t *testing.T) {
+	overlay := t.TempDir()
+	stagePCISysfs(t, overlay)
+
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = overlay
+
+	adjustment, ok, err := Adjust(cfg, Container{Namespace: "gpu-operator"})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	require.Contains(t, adjustment.Mounts, Mount{
+		Source:      filepath.Join(overlay, "sys/devices"),
+		Destination: "/sys/devices",
+		Type:        "bind",
+		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+	})
+	require.Contains(t, adjustment.Mounts, Mount{
+		Source:      filepath.Join(overlay, "sys/bus/pci/devices"),
+		Destination: "/sys/bus/pci/devices",
+		Type:        "bind",
+		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+	})
+}
+
+// TestAdjustSkipsPCISysfsMountsWhenNotStaged is the fail-open case: the
+// tree is staged by the main DaemonSet and nothing orders this plugin after
+// it. A bind mount with a missing source fails container creation outright,
+// so an unstaged node must simply get no sysfs mounts.
+func TestAdjustSkipsPCISysfsMountsWhenNotStaged(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = t.TempDir()
+
+	adjustment, ok, err := Adjust(cfg, Container{Namespace: "default"})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	for _, mount := range adjustment.Mounts {
+		require.NotContains(t, mount.Destination, "/sys/",
+			"unstaged node must not get sysfs mounts, got %+v", mount)
+	}
+}
+
+// TestAdjustSkipsPCIDevicesMountWithoutSysDevices guards the half-rendered
+// case. Mounting the symlink directory alone yields dangling symlinks,
+// which reads report as ENOENT — the exact failure the mounts exist to
+// fix, but harder to diagnose because the entries appear to be there.
+func TestAdjustSkipsPCIDevicesMountWithoutSysDevices(t *testing.T) {
+	overlay := t.TempDir()
+	stagePCISysfs(t, overlay)
+	require.NoError(t, os.RemoveAll(filepath.Join(overlay, "sys/devices")))
+
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = overlay
+
+	adjustment, ok, err := Adjust(cfg, Container{Namespace: "default"})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	for _, mount := range adjustment.Mounts {
+		require.NotContains(t, mount.Destination, "/sys/",
+			"a tree without sys/devices must yield no sysfs mounts, got %+v", mount)
+	}
+}
+
+// TestAdjustSkipsPCISysfsMountsWhileRenderIncomplete covers the window inside
+// a render: the directories these mounts name are created at its start, while
+// the DMI attributes kind's createContainer hook bind-mounts the node's
+// product files onto are written at its end. Mounting in between hands the
+// container a tree missing those targets, and mount(8) cannot create one on a
+// read-only sysfs — container creation fails, which is the failure the guard
+// exists to prevent. The renderer's completion marker is what distinguishes
+// the two states.
+func TestAdjustSkipsPCISysfsMountsWhileRenderIncomplete(t *testing.T) {
+	overlay := t.TempDir()
+	stagePCISysfs(t, overlay)
+	require.NoError(t, os.Remove(filepath.Join(overlay, render.MarkerRelPath)))
+
+	cfg := DefaultConfig()
+	cfg.HostOverlayPath = overlay
+
+	adjustment, ok, err := Adjust(cfg, Container{Namespace: "default"})
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	for _, mount := range adjustment.Mounts {
+		require.NotContains(t, mount.Destination, "/sys/",
+			"an incomplete tree must yield no sysfs mounts, got %+v", mount)
+	}
+}
+
+// stagePCISysfs stages a completely rendered PCI sysfs tree in the overlay,
+// as the main DaemonSet's render-pci-sysfs run leaves it.
+func stagePCISysfs(t *testing.T, overlay string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Join(overlay, "sys/bus/pci/devices"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(overlay, "sys/devices"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(overlay, render.MarkerRelPath), nil, 0o644))
 }
 
 func TestAdjustEmitsOnlyAddedOrChangedEnv(t *testing.T) {

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package config defines the YAML schema for the `pcie_topology:` block
-// embedded in mock-nvml profile configs. The renderer consumes this to
+// embedded in mock-nvml profile configs. The renderer consumes it to
 // populate a fake `/sys/bus/pci/devices` + `/sys/devices/pciDDDD:BB` tree
 // under MOCK_PCI_ROOT.
 //

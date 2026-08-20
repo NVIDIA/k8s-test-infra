@@ -114,14 +114,48 @@ CAPS_EOF
   echo "Mock IMEX surface ready: $IMEX_CHANNELS channels, major $IMEX_MAJOR, proc-devices at $IMEX_DIR/proc-devices"
 fi
 
-# 3b. Generate CDI spec for nvidia-container-runtime CDI mode.
+# 3b. Render fake PCI sysfs tree (consumed by topology-aware DRA / device
+#     plugins that resolve PCIe root complex via a readlink on
+#     /sys/bus/pci/devices/<bdf>, and by GPU Feature Discovery, which reads
+#     each device's `vendor` / `class` to derive nvidia.com/gpu.mode). The
+#     renderer parses the profile's `pcie_topology:` block; profiles without
+#     one get a flat default covering every device under a single root
+#     complex (`pci0000:00`, NUMA 0). It also mirrors the node's DMI identity
+#     into the tree, which the mount below depends on. Each run replaces the
+#     previous tree rather than adding to it, so re-profiling a node does not
+#     leave it serving both profiles' devices. Failures are fatal
+#     under `set -e` for the same reason as the IB render below — a topology
+#     typo otherwise yields silently malformed sysfs that downstream
+#     `dra.k8s.io/pcieRoot` attributes would inherit.
+#
+#     This runs before the CDI spec below because that spec bind-mounts the
+#     rendered directories into consumers: a bind mount whose source is
+#     missing fails container creation for the whole pod.
+PCI_ROOT="$HOST"
+mkdir -p "$PCI_ROOT"
+# Keep in sync with render.MarkerRelPath (pkg/system/mockpcisysfs/render): the
+# renderer writes it last, once the whole tree is on disk. Gating on the
+# directories instead would accept a tree from a previous profile that this
+# run had nothing to render over, and would say "rendered" partway through.
+PCI_SYSFS_MARKER=sys/.rendered
+PCI_SYSFS_RENDERED=off
+if [ -x /usr/local/bin/render-pci-sysfs ]; then
+  /usr/local/bin/render-pci-sysfs \
+    --config /etc/nvml-mock/config.yaml \
+    --output "$PCI_ROOT"
+  if [ -f "$PCI_ROOT/$PCI_SYSFS_MARKER" ]; then
+    PCI_SYSFS_RENDERED=on
+  fi
+fi
+
+# 3c. Generate CDI spec for nvidia-container-runtime CDI mode.
 #     This allows the toolkit to inject our mock libs into containers without
 #     needing libnvidia-container or kernel modules.
 CDI_DIR=/host/var/run/cdi
 mkdir -p "$CDI_DIR"
 
 # Resolve fabricmanager enablement once, here, because it influences both the
-# CDI spec (below) and the daemon launch (step 11). Validate early so a typo
+# CDI spec (below) and the daemon launch (step 10). Validate early so a typo
 # fails the pod with a clear message rather than silently disabling the gate.
 MOCK_FM_MODE=$(printf '%s' "${MOCK_FABRICMANAGER:-off}" | tr '[:upper:]' '[:lower:]')
 case "$MOCK_FM_MODE" in
@@ -163,6 +197,40 @@ containerEdits:
       containerPath: /etc/nvml-mock
       options: [ro, nosuid, nodev, bind]
 CDI_HEADER
+
+# Fake PCI sysfs, mounted at the kernel paths. Consumers written in Go
+# (GPU Feature Discovery, the DRA driver) read sysfs with direct syscalls,
+# so the LD_PRELOAD redirector never sees their opens and MOCK_PCI_ROOT
+# does nothing for them — only a real mount at /sys/bus/pci/devices works.
+# Without this, GFD resolves a mock GPU's BDF from NVML, fails to read
+# /sys/bus/pci/devices/<bdf>/vendor, and labels the node
+# nvidia.com/gpu.mode=unknown.
+#
+#
+# Both mounts are needed: the entries under sys/bus/pci/devices are
+# relative symlinks into ../../../devices/pciDDDD:BB, which only resolve
+# when the rendered sys/devices is mounted too. That second mount hides the
+# host's other device classes (CPU topology among them) from the container.
+# The alternative — mounting only the root complexes the profile declares —
+# is not available: sysfs is read-only inside the container, so the runtime
+# cannot create a mountpoint like /sys/devices/pci0000:80 that the host
+# does not already have, and container creation fails outright.
+#
+# Shadowing sys/devices also replaces virtual/dmi/id, which
+# /sys/class/dmi/id resolves into. kind's mount-product-files.sh
+# createContainer hook bind-mounts the node's product_name / product_uuid
+# there for every container, and mount(8) cannot create a target on a
+# read-only sysfs — hence the renderer mirroring those attributes above.
+if [ "$PCI_SYSFS_RENDERED" = "on" ]; then
+  cat >> "$CDI_DIR/nvidia.yaml" << PCI_SYSFS_MOUNT_EOF
+    - hostPath: /var/lib/nvml-mock/sys/devices
+      containerPath: /sys/devices
+      options: [ro, nosuid, nodev, bind]
+    - hostPath: /var/lib/nvml-mock/sys/bus/pci/devices
+      containerPath: /sys/bus/pci/devices
+      options: [ro, nosuid, nodev, bind]
+PCI_SYSFS_MOUNT_EOF
+fi
 
 # When fabricmanager is enabled, bind-mount the node-local readiness marker
 # directory into CDI-injected workloads and point the mock NVML library at it.
@@ -252,7 +320,7 @@ done
 
 echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices, index + UUID keyed)"
 
-# 3c. Generate the CDI spec the NRI plugin injects (issue #436).
+# 3d. Generate the CDI spec the NRI plugin injects (issue #436).
 #
 #     This is deliberately a SECOND spec, not a reuse of nvidia.yaml above:
 #
@@ -547,7 +615,7 @@ if [ "$PCI_LABEL_MODE" = "on" ]; then
   # step 8's /host/run/nvidia/driver symlink, crash-looping the whole mock for
   # an optional, gated feature. When the write fails no label appears, which is
   # the honest state (#505), and nothing downstream is corrupted — unlike the
-  # IB and PCI renders in steps 9 and 10, which are deliberately fatal because
+  # IB render (step 9) and PCI render (step 3b), which are deliberately fatal because
   # a partial tree silently misleads its consumers. A failing `if` CONDITION
   # does not trip `set -e`, so this form warns and continues rather than
   # swallowing the error the way `|| true` would.
@@ -662,24 +730,7 @@ if [ "$MOCK_IB_MODE" != "off" ] && [ -x /usr/local/bin/mock-ib ]; then
   fi
 fi
 
-# 10. Render fake PCI sysfs tree (consumed by topology-aware DRA / device
-#     plugins that resolve PCIe root complex via a readlink on
-#     /sys/bus/pci/devices/<bdf>). The renderer parses the profile's
-#     `pcie_topology:` block; profiles without one get a flat default
-#     covering every device under a single root complex (`pci0000:00`,
-#     NUMA 0). Failures are fatal under `set -e` for the same reason as
-#     the IB block above — a topology typo otherwise yields silently
-#     malformed sysfs that downstream `dra.k8s.io/pcieRoot` attributes
-#     would inherit.
-PCI_ROOT="$HOST"
-mkdir -p "$PCI_ROOT"
-if [ -x /usr/local/bin/render-pci-sysfs ]; then
-  /usr/local/bin/render-pci-sysfs \
-    --config /etc/nvml-mock/config.yaml \
-    --output "$PCI_ROOT"
-fi
-
-# 11. Fabric Manager: on NVSwitch platforms (HGX H100 / GB200 / GB300) the
+# 10. Fabric Manager: on NVSwitch platforms (HGX H100 / GB200 / GB300) the
 #     real nvidia-fabricmanager registers the GPUs with the NVSwitch fabric
 #     before they are usable. When MOCK_FABRICMANAGER is enabled we start the
 #     fake daemon, which writes a node-local readiness marker under

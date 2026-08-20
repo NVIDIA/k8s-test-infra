@@ -434,10 +434,10 @@ infiniband:
 # PCIe topology - 2 NUMA nodes (dual EPYC), 4 GPUs each.
 # Consumed by `render-pci-sysfs` to materialize a fake /sys/bus/pci tree
 # under MOCK_PCI_ROOT. C consumers such as `lspci` resolve the PCIe root
-# complex through these symlinks. The NVIDIA DRA driver does NOT: it is a
-# Go binary, and Go's os package issues raw syscalls that the LD_PRELOAD
-# shim cannot intercept, so `dra.k8s.io/pcieRoot` stays absent from the
-# ResourceSlices it publishes. See issue #265.
+# complex through these symlinks. Go consumers (the NVIDIA DRA driver, GPU
+# Feature Discovery) issue raw syscalls the LD_PRELOAD shim cannot
+# intercept, so this tree is bind-mounted at /sys/bus/pci/devices and
+# /sys/devices for them instead. See issues #265 and #673.
 # =============================================================================
 pcie_topology:
   root_complexes:

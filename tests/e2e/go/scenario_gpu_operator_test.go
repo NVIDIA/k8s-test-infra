@@ -18,6 +18,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
@@ -70,6 +71,22 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 					assertions.ExpectedGFDLabels(p.GFDProductName(), p.MemoryMiB(), p.ExpectedGPUs()),
 					config.ReadyTimeout(), config.PollInterval())
 				assertions.WaitAllocatableGPU(ctx, h.Kube, node, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
+			})
+
+			It("serves the rendered PCI tree to the GFD container at the kernel paths", Label("device-plugin"), func(ctx SpecContext) {
+				// The NVML-derived labels above cannot distinguish "GFD read
+				// the mock tree" from "GFD read the host's sysfs and happened
+				// to agree". Reading the tree from inside the container pins
+				// the delivery itself, independent of what GFD makes of it.
+				// The GFD pod on `node`, and only while it is Running: the
+				// specs above assert about that node's labels, and a
+				// Terminating or Pending pod matches the selector too, which
+				// the exec below would fail on.
+				pod, err := h.Kube.RunningPodOnNode(ctx, gpuOperatorNamespace, "app=gpu-feature-discovery", node)
+				Expect(err).NotTo(HaveOccurred())
+				assertions.PCISysfsAtKernelPath(ctx, h.Kube,
+					kube.PodRef{Namespace: gpuOperatorNamespace, Pod: pod, Container: "gpu-feature-discovery"},
+					p.ExpectedGPUs())
 			})
 
 			It("exports DCGM device metrics that vary over time", Label("dcgm"), func(ctx SpecContext) {
