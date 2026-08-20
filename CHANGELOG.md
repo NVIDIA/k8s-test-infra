@@ -78,23 +78,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   devices. Reruns deterministically reuse only compatible NRI-enabled Kind
   clusters, while incompatible clusters require explicit recreation with
   `FORCE_RECREATE=true`.
-- The `e2e-nri` CI leg no longer spends most of its runtime waiting for pod
-  teardown, dropping from ~12min to ~6min per GPU profile. Its workload pods run
-  `sleep` as PID 1, which installs no SIGTERM handler, and PID 1 never receives
-  a signal it does not handle — so kubelet's SIGTERM was discarded and every
-  `kubectl delete` blocked for the full 30s default grace period until the
-  SIGKILL landed. That was 13 stalls totalling 6.7min of a 12min leg. The
-  workload manifests now cap `terminationGracePeriodSeconds` at 1, which takes
-  each teardown from ~33s to ~3s. `e2e-nri` was the pipeline's critical path;
-  `e2e-gpu-operator` now is.
-- Test pod manifests moved out of the scenario code into a generic
-  `pod.tpl.yaml` under `tests/e2e/go/framework/pod`, rendered from a `Spec` that
-  carries only what a caller varies. The manifest now reads as the manifest the
-  API server actually receives instead of being assembled field by field at each
-  call site, and it is the one place the capped grace period lives, so no
-  scenario can reintroduce the 30s teardown stall. Values are emitted as quoted
-  scalars, which annotation and selector values need: unquoted, `true` reaches
-  the API server as a bool where a string is required and the pod is rejected.
+- The `e2e-nri` CI leg drops from ~12min to ~6min per GPU profile. `sleep` as
+  PID 1 ignores SIGTERM, so all 13 pod deletions waited out the 30s grace period
+  (6.7min of the leg). The keepalive now traps SIGTERM and exits in ~0.1s, with
+  `terminationGracePeriodSeconds` capped at 1 as a backstop. `e2e-gpu-operator`
+  is now the pipeline's critical path.
+- Test pod manifests moved into a generic `pod.tpl.yaml` under
+  `tests/e2e/go/framework/pod`, rendered from a `Spec` carrying only what varies.
 
 ### Fixed
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML

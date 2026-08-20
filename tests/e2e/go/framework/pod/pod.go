@@ -13,14 +13,11 @@
 // left out of the manifest entirely rather than emitted empty.
 //
 // The template caps terminationGracePeriodSeconds, which is load-bearing for
-// suite runtime rather than cosmetic. A test pod runs `sleep` as PID 1, `sleep`
-// installs no SIGTERM handler, and the kernel drops signals with a default
-// disposition when the target is PID 1 — so kubelet's SIGTERM is discarded and
-// the pod dies only on the post-grace SIGKILL. At Kubernetes' 30s default that
-// makes every `kubectl delete` block for the full period, which in a suite that
-// deletes a pod per spec is minutes of dead time. Picking a different base image
-// does not help: busybox's `sleep` ignores SIGTERM as PID 1 exactly as coreutils'
-// does, because the behaviour comes from PID 1 signal semantics, not the image.
+// suite runtime. A pod whose PID 1 ignores SIGTERM dies only on the post-grace
+// SIGKILL, so at Kubernetes' 30s default every `kubectl delete` blocks for the
+// full period — minutes across a suite that deletes a pod per spec. The cap is
+// the backstop, not the fix: a long-lived pod should trap the signal and exit,
+// which the cap then bounds if the trap fails to install.
 package pod
 
 import (
@@ -28,6 +25,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"text/template"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
@@ -61,6 +59,10 @@ type Spec struct {
 	// Command runs as PID 1 in the container. Left empty, the image's own
 	// entrypoint runs.
 	Command []string
+	// Args are passed to Command. Keeping the shell in Command and its script in
+	// Args is what lets a script contain the quoting a signal trap needs without
+	// escaping it through the manifest.
+	Args []string
 	// Env is set on the container.
 	Env map[string]string
 	// Node pins the pod, bypassing the scheduler. Specs that read node-local
@@ -91,13 +93,20 @@ type view struct {
 }
 
 var funcs = template.FuncMap{
-	// quote emits a value as a double-quoted YAML scalar. Annotation and label
-	// values must reach the API server as strings, and a bare true would decode
-	// as a bool and be rejected. YAML 1.2 is a JSON superset, so a JSON string
-	// literal is a valid quoted scalar.
+	// quote emits a value as a double-quoted YAML scalar, which keys and values
+	// both need: YAML 1.1 resolves bare true, y, on and ~ as bools and nulls,
+	// which the API server rejects where a string belongs. A JSON string literal
+	// is a valid quoted scalar, YAML 1.2 being a JSON superset. HTML escaping is
+	// off so a script's & reads as itself rather than \u0026.
 	"quote": func(value string) (string, error) {
-		encoded, err := json.Marshal(value)
-		return string(encoded), err
+		var encoded bytes.Buffer
+		encoder := json.NewEncoder(&encoded)
+		encoder.SetEscapeHTML(false)
+		if err := encoder.Encode(value); err != nil {
+			return "", err
+		}
+		// Encode terminates every value with a newline.
+		return strings.TrimSuffix(encoded.String(), "\n"), nil
 	},
 }
 

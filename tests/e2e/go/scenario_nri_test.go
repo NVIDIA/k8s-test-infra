@@ -35,7 +35,10 @@ const (
 	nriAgentSelector  = "app=gpu-agent"
 	nriNRIDaemonSet   = "nvml-mock-nri"
 	nriPluginSelector = "app.kubernetes.io/name=nvml-mock-nri"
-	// Device-plugin composition (#440, MEP-0002).
+	// Device-plugin composition (#440, MEP-0002). Not a smaller image: the
+	// overlay stages nvidia-smi without its glibc dependencies, so the image has
+	// to supply them. busybox:1.36-glibc resolves ld-linux but ships no
+	// libdl.so.2 or librt.so.1, and nvidia-smi exits 127 there.
 	nriWorkloadImage = "debian:bookworm-slim"
 	// nriMinimalImage is the negative control for overlay self-containment
 	// (#438): glibc, so the tools' ELF interpreter resolves, but shipping no
@@ -852,8 +855,13 @@ func nriWorkload(name string) pod.Spec {
 		Name:      name,
 		Namespace: nriWorkloadNS,
 		Image:     nriWorkloadImage,
-		// Kept alive so specs can exec into it.
-		Command: []string{"/bin/sh", "-c", "sleep 3600"},
+		// Kept alive so specs can exec into it. Traps SIGTERM so teardown does
+		// not wait out the grace period: `sleep` as PID 1 installs no handler
+		// and the kernel discards the signal. Backgrounding it leaves the shell
+		// free to run the trap. `TERM`, not `SIGTERM`: dash is /bin/sh here and
+		// rejects the prefixed name as a bad trap, installing nothing.
+		Command: []string{"/bin/sh", "-c"},
+		Args:    []string{"trap 'exit 0' TERM; sleep 3600 & wait"},
 	}
 }
 
@@ -915,7 +923,10 @@ func nriPlainPodManifest(name string) []byte {
 func nriMinimalIBPodManifest(name, tool string, args ...string) []byte {
 	spec := nriAnyGPUNode(nriWorkload(name), "")
 	spec.Image = nriMinimalImage
+	// Replaces the keepalive shell wholesale; this image has none, so the trap
+	// script would reach the tool as arguments.
 	spec.Command = append([]string{nriOverlayBinDir + "/" + tool}, args...)
+	spec.Args = nil
 	spec.Labels = map[string]string{"app": name}
 	return spec.Render()
 }

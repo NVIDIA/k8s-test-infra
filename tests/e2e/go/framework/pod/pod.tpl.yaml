@@ -46,6 +46,12 @@ spec:
         - {{ . | quote }}
         {{- end }}
       {{- end }}
+      {{- with .Args }}
+      args:
+        {{- range . }}
+        - {{ . | quote }}
+        {{- end }}
+      {{- end }}
       {{- with .Env }}
       env:
         {{- range $name, $value := . }}
