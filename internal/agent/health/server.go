@@ -6,6 +6,7 @@ package health
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -15,28 +16,49 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+// HealthzResponse is the /healthz response body.
+type HealthzResponse struct {
+	OK bool `json:"ok"`
+}
+
+// ReadyzResponse is the /readyz response body.
+// Simulators is populated once simulators are registered (M1.2+).
+type ReadyzResponse struct {
+	OK         bool                       `json:"ok"`
+	Reason     string                     `json:"reason,omitempty"`
+	Simulators map[string]SimulatorStatus `json:"simulators"`
+}
+
+// SimulatorStatus is one entry in ReadyzResponse.Simulators.
+type SimulatorStatus struct {
+	OK     bool   `json:"ok"`
+	Reason string `json:"reason,omitempty"`
+}
+
 // Server serves /healthz (liveness) and /readyz (readiness) probes.
 // /healthz never depends on StateSource reachability — a Control Plane outage
 // must not restart the entire fleet. /readyz reflects simulator readiness.
 type Server struct {
-	addr  string
-	log   *slog.Logger
-	ready func() (bool, string)
+	addr       string
+	log        *slog.Logger
+	readyzFunc func() ReadyzResponse
 }
 
 // NewServer returns a Server that will listen on addr.
 func NewServer(addr string, log *slog.Logger) *Server {
 	return &Server{
-		addr:  addr,
-		log:   log,
-		ready: func() (bool, string) { return true, "ok" },
+		addr: addr,
+		log:  log,
+		readyzFunc: func() ReadyzResponse {
+			return ReadyzResponse{OK: true, Simulators: map[string]SimulatorStatus{}}
+		},
 	}
 }
 
 // SetReadiness replaces the readiness probe function. The agent calls this
 // after wiring simulators so /readyz reflects per-simulator Ready() state.
-func (s *Server) SetReadiness(fn func() (bool, string)) {
-	s.ready = fn
+func (s *Server) SetReadiness(fn func() ReadyzResponse) {
+	s.readyzFunc = fn
 }
 
 // Run starts the HTTP server and blocks until ctx is cancelled.
@@ -44,11 +66,18 @@ func (s *Server) Run(ctx context.Context) error {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
-	r.Get("/healthz", writeProbe(func() probe { return probe{true, "ok"} }))
-	r.Get("/readyz", writeProbe(func() probe {
-		ok, reason := s.ready()
-		return probe{ok, reason}
-	}))
+
+	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, HealthzResponse{OK: true})
+	})
+	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		resp := s.readyzFunc()
+		status := http.StatusOK
+		if !resp.OK {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, resp)
+	})
 
 	srv := &http.Server{
 		Addr:              s.addr,
@@ -70,20 +99,8 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
-type probe struct {
-	ok     bool
-	reason string
-}
-
-func writeProbe(check func() probe) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		result := check()
-		status := http.StatusOK
-		if !result.ok {
-			status = http.StatusServiceUnavailable
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(status)
-		_, _ = fmt.Fprintln(w, result.reason)
-	}
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
 }
