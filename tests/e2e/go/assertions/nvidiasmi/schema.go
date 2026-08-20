@@ -120,7 +120,9 @@ type gpuElement struct {
 	Temperature              temperature       `xml:"temperature"`
 	PowerReadings            powerReadings     `xml:"gpu_power_readings"`
 	Clocks                   clocks            `xml:"clocks"`
+	ECCMode                  eccMode           `xml:"ecc_mode"`
 	ECCErrors                eccErrors         `xml:"ecc_errors"`
+	RemappedRows             remappedRows      `xml:"remapped_rows"`
 	ClocksEventReasons       eventReasons      `xml:"clocks_event_reasons"`
 	Processes                struct {
 		Infos []processInfo `xml:"process_info"`
@@ -238,14 +240,59 @@ type clocks struct {
 type eccErrors struct {
 	Volatile  eccCounters `xml:"volatile"`
 	Aggregate eccCounters `xml:"aggregate"`
+	// SRAMSources is emitted as a sibling of the two scope blocks, not inside
+	// <aggregate>, even though it breaks down the aggregate uncorrectable count.
+	SRAMSources eccSRAMSources `xml:"aggregate_uncorrectable_sram_sources"`
 }
 
 type eccCounters struct {
-	SRAMCorrectable         reading `xml:"sram_correctable"`
+	SRAMCorrectable reading `xml:"sram_correctable"`
+	// The uncorrectable SRAM count comes in one of two shapes, and which one
+	// nvidia-smi emits depends on the GPU's architecture: Ampere and later split
+	// it into the parity and SEC-DED pair, pre-Ampere reports the single
+	// combined element. Both are decoded so a check can tell an absent element
+	// from a wrong value in either rendering.
 	SRAMUncorrectableParity reading `xml:"sram_uncorrectable_parity"`
 	SRAMUncorrectableSECDED reading `xml:"sram_uncorrectable_secded"`
+	SRAMUncorrectable       reading `xml:"sram_uncorrectable"`
 	DRAMCorrectable         reading `xml:"dram_correctable"`
 	DRAMUncorrectable       reading `xml:"dram_uncorrectable"`
+	// SRAMThresholdExceeded is emitted under <aggregate> only; it is absent from
+	// <volatile>, which is a threshold-free scope, and from pre-Ampere output.
+	SRAMThresholdExceeded reading `xml:"sram_threshold_exceeded"`
+}
+
+// eccSRAMSources is <aggregate_uncorrectable_sram_sources>: which unit reported
+// the aggregate uncorrectable SRAM errors. Ampere and later only.
+type eccSRAMSources struct {
+	L2              reading `xml:"sram_l2"`
+	SM              reading `xml:"sram_sm"`
+	Microcontroller reading `xml:"sram_microcontroller"`
+	PCIe            reading `xml:"sram_pcie"`
+	Other           reading `xml:"sram_other"`
+}
+
+// eccMode is <ecc_mode>. SRAM and DRAM counters only exist while ECC is on, so
+// specs asserting on them gate against this first.
+type eccMode struct {
+	Current reading `xml:"current_ecc"`
+	Pending reading `xml:"pending_ecc"`
+}
+
+// remappedRows is <remapped_rows>: rows the GPU has retired plus how much spare
+// remap capacity is left.
+type remappedRows struct {
+	Correctable   reading `xml:"remapped_row_corr"`
+	Uncorrectable reading `xml:"remapped_row_unc"`
+	Pending       reading `xml:"remapped_row_pending"`
+	Failure       reading `xml:"remapped_row_failure"`
+	// Histogram is "N/A" when the GPU reports no bank availability and a nested
+	// block of per-bucket bank counts when it does. The raw body is kept rather
+	// than decoded: the child element names belong to the driver's DTD, and an
+	// assertion only needs to tell a populated histogram from an absent one.
+	Histogram struct {
+		Body string `xml:",innerxml"`
+	} `xml:"row_remapper_histogram"`
 }
 
 type eventReasons struct {

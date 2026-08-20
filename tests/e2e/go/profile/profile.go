@@ -63,7 +63,12 @@ type rawProfile struct {
 		PCIe *struct {
 			MaxLinkGen int `json:"max_link_gen"`
 		} `json:"pcie"`
-		Platform *rawPlatform `json:"platform"`
+		Platform     *rawPlatform `json:"platform"`
+		RemappedRows *struct {
+			AvailabilityHistogram *struct {
+				Max int `json:"max"`
+			} `json:"availability_histogram"`
+		} `json:"remapped_rows"`
 	} `json:"device_defaults"`
 	Devices []struct {
 		Index    int          `json:"index"`
@@ -136,6 +141,8 @@ type Profile struct {
 	jpegUtilizationPct int
 	ofaUtilizationPct  int
 	maxPCIeLinkGen     int
+	rowRemapHistogram  bool
+	rowRemapBanks      int
 
 	platform    PlatformIdentity
 	hasPlatform bool
@@ -217,6 +224,10 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	}
 	if pcie := raw.DeviceDefaults.PCIe; pcie != nil {
 		p.maxPCIeLinkGen = pcie.MaxLinkGen
+	}
+	if r := raw.DeviceDefaults.RemappedRows; r != nil && r.AvailabilityHistogram != nil {
+		p.rowRemapHistogram = true
+		p.rowRemapBanks = r.AvailabilityHistogram.Max
 	}
 	if f := raw.DeviceDefaults.Fabric; f != nil {
 		p.hasFabric = true
@@ -357,6 +368,33 @@ func (p Profile) OFAUtilizationPct() int { return p.ofaUtilizationPct }
 // Ranges from 3 (t4) to 6 (Blackwell), so asserting against it pins the value
 // to config rather than a hardcoded constant.
 func (p Profile) MaxPCIeLinkGen() int { return p.maxPCIeLinkGen }
+
+// preAmpereArchitectures are the device_defaults.architecture values whose
+// hardware predates both row remapping and the split SRAM ECC counters.
+var preAmpereArchitectures = map[string]bool{
+	"kepler": true, "maxwell": true, "pascal": true, "volta": true, "turing": true,
+}
+
+// ReportsDetailedSramECC is true when nvidia-smi renders the Ampere-and-later
+// SRAM breakdown for this architecture: the uncorrectable count split into
+// parity and SEC-DED, plus the per-unit source list and the threshold flag.
+// Pre-Ampere output carries a single combined SRAM Uncorrectable row and none of
+// the rest, so the expectation is an architecture axis rather than a config one
+// — nvidia-smi picks the layout from the reported architecture, not from what
+// the profile configures (#641).
+func (p Profile) ReportsDetailedSramECC() bool { return !preAmpereArchitectures[p.architecture] }
+
+// ReportsRowRemapHistogram reports whether the profile configures
+// remapped_rows.availability_histogram, i.e. whether nvidia-smi must render bank
+// counts rather than N/A for the Bank Remap Availability Histogram. Row
+// remapping is Ampere and later, so pre-Ampere profiles leave the block out and
+// the mock answers unsupported the way that hardware does (#641).
+func (p Profile) ReportsRowRemapHistogram() bool { return p.rowRemapHistogram }
+
+// RowRemapHistogramBanks is remapped_rows.availability_histogram.max: how many
+// banks a never-remapped GPU reports with their full complement of spare rows.
+// Zero when the profile configures no histogram.
+func (p Profile) RowRemapHistogramBanks() int { return p.rowRemapBanks }
 
 // ReportsTLimitTemp is true when real hardware of this architecture reports the
 // GPU T.Limit temperature field IDs (Ada and later). Pre-Ada profiles keep the

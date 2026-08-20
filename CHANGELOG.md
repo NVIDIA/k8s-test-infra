@@ -22,6 +22,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   than 560, keep reporting `N/A`. The `GPU Fabric GUID` row of the same block is
   not modelled and now renders `0x0000000000000000` where it used to read `N/A`.
   (#642)
+- mocknvml: SRAM ECC errors and row-remap availability are now modelled, so SRAM
+  fault handling can be tested. Every SRAM row of `nvidia-smi -q` read `N/A`
+  while `nvmlDeviceGetSramEccErrorStatus` and
+  `nvmlDeviceGetRowRemapperHistogram` were generated stubs, which told a consumer
+  the feature was unsupported rather than that the GPU was healthy. A new
+  `ecc.sram` config block carries the correctable, uncorrectable-parity and
+  uncorrectable-SEC-DED counters for both scopes, the aggregate per-unit source
+  breakdown (L2, SM, microcontroller, PCIe, other) and the
+  `SRAM Threshold Exceeded` flag; `remapped_rows.availability_histogram` carries
+  the bank remap availability the Ampere-and-later profiles now ship (`t4` leaves
+  it out and keeps reporting the histogram unsupported, as Turing does). Errors
+  can be injected into a running workload with
+  `nvml-mock-ctl sram-ecc --gpu <idx> --type secded --source sm
+  --threshold-exceeded <count>`, and a count of `0` heals. The same values are
+  visible through the per-location ECC field values DCGM reads, and
+  `nvmlDeviceGetMemoryErrorCounter` now honours its `locationType` and
+  `counterType` arguments instead of returning the DRAM counter for every
+  location. (#641)
 - mocknvml: configured `processes:` now surface in nvidia-smi — the default
   table's Processes box, `-q`, and `--query-compute-apps` all report the
   configured PIDs, names and GPU memory instead of always reporting none.

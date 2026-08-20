@@ -199,6 +199,70 @@ func TestNVLinkErrorPatch_ZeroRateHeals(t *testing.T) {
 	require.InDelta(t, float64(0), merged.NVLinkError.Rate, 1e-9, "rate 0 is the healthy/no-injection value")
 }
 
+func TestSramECCPatch_InjectsCountsAndSource(t *testing.T) {
+	patch, err := SramECCPatch(5, "secded", "sm", true)
+	require.NoError(t, err)
+	require.NoError(t, Validate(&engine.DeviceConfig{}, patch))
+
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, patch)
+	require.NoError(t, err)
+	sram := merged.ECC.SRAM
+	require.NotNil(t, sram)
+	require.Equal(t, uint64(5), sram.Volatile.UncorrectableSECDED)
+	require.Equal(t, uint64(5), sram.Aggregate.UncorrectableSECDED)
+	require.Zero(t, sram.Aggregate.UncorrectableParity, "only the requested error type is injected")
+	require.Equal(t, uint64(5), sram.UncorrectableSources.SM, "the breakdown must attribute the errors to --source")
+	require.Zero(t, sram.UncorrectableSources.L2)
+	require.True(t, sram.ThresholdExceeded)
+}
+
+// TestSramECCPatch_PreservesEccMode guards the trap in patching a nested block:
+// clobbering ecc wholesale would turn ECC off, and an ECC-off GPU reports no
+// SRAM counters at all — the injection would silently undo itself.
+func TestSramECCPatch_PreservesEccMode(t *testing.T) {
+	base := &engine.DeviceConfig{
+		ECC: &engine.ECCConfig{ModeCurrent: "enabled", ModePending: "enabled"},
+	}
+	patch, err := SramECCPatch(3, "parity", "l2", false)
+	require.NoError(t, err)
+
+	merged, err := engine.MergeDeviceConfig(base, patch)
+	require.NoError(t, err)
+	require.Equal(t, "enabled", merged.ECC.ModeCurrent)
+	require.Equal(t, uint64(3), merged.ECC.SRAM.Aggregate.UncorrectableParity)
+	require.Equal(t, uint64(3), merged.ECC.SRAM.UncorrectableSources.L2)
+}
+
+func TestSramECCPatch_ZeroCountHeals(t *testing.T) {
+	base := &engine.DeviceConfig{
+		ECC: &engine.ECCConfig{
+			ModeCurrent: "enabled",
+			SRAM: &engine.ECCSramConfig{
+				Aggregate:            &engine.ECCSramCountsConfig{UncorrectableSECDED: 9},
+				UncorrectableSources: &engine.ECCSramSourcesConfig{SM: 9},
+				ThresholdExceeded:    true,
+			},
+		},
+	}
+	patch, err := SramECCPatch(0, "secded", "", false)
+	require.NoError(t, err)
+
+	merged, err := engine.MergeDeviceConfig(base, patch)
+	require.NoError(t, err)
+	require.Zero(t, merged.ECC.SRAM.Aggregate.UncorrectableSECDED, "count 0 is the healthy value")
+	require.Zero(t, merged.ECC.SRAM.UncorrectableSources.SM, "healing must clear the source breakdown too")
+	require.False(t, merged.ECC.SRAM.ThresholdExceeded, "healing must clear the threshold flag")
+}
+
+func TestSramECCPatch_Errors(t *testing.T) {
+	_, err := SramECCPatch(1, "banana", "", false)
+	require.Error(t, err, "expected error for unknown error type")
+	_, err = SramECCPatch(1, "secded", "banana", false)
+	require.Error(t, err, "expected error for unknown source")
+	_, err = SramECCPatch(1, "correctable", "sm", false)
+	require.Error(t, err, "the source breakdown only covers uncorrectable errors")
+}
+
 func TestThrottlePatch_AuthoritativeFlags(t *testing.T) {
 	patch, err := ThrottlePatch([]string{"thermal"})
 	require.NoError(t, err)

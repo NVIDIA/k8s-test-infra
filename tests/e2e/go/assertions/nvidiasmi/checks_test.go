@@ -4,6 +4,8 @@
 package nvidiasmi
 
 import (
+	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -581,4 +583,192 @@ func TestProcessMonitorProblems_RejectsOtherAbnormalExits(t *testing.T) {
 	for _, code := range []int{-1, 134, 2} {
 		assert.NotEmpty(t, ProcessMonitorProblems(code, "output"), "exit %d", code)
 	}
+}
+
+// The captured document is the defect: every SRAM reading, the source breakdown
+// and the threshold flag are N/A, so a health checker cannot tell a GPU with no
+// SRAM errors from one whose SRAM state is unknown (#641).
+func TestSramECCProblems_RejectsCapturedNotAvailableReadings(t *testing.T) {
+	problems := SramECCProblems(loadFixture(t, "qx-a100-healthy.xml"), SramECCState{})
+	require.NotEmpty(t, problems)
+	joined := strings.Join(problems, "; ")
+	assert.Contains(t, joined, "sram_correctable")
+	assert.Contains(t, joined, "sram_threshold_exceeded")
+	assert.Contains(t, joined, "sram_l2")
+}
+
+func TestSramECCProblems_AcceptsZeroedSramReadings(t *testing.T) {
+	problems := SramECCProblems(healSramReadings(t), SramECCState{})
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+func TestSramECCProblems_RejectsWrongCounts(t *testing.T) {
+	want := SramECCState{Volatile: SramECCCounters{UncorrectableSECDED: 4}}
+	problems := SramECCProblems(healSramReadings(t), want)
+	require.Len(t, problems, 2, "both GPUs report 0 where 4 is expected")
+	assert.Contains(t, problems[0], "volatile sram_uncorrectable_secded = 0, want 4")
+}
+
+// The source breakdown must be checked per unit: attributing errors to the SM
+// and reading them back on the L2 is a wrong answer, not a rounding difference.
+func TestSramECCProblems_RejectsMisattributedSource(t *testing.T) {
+	out := strings.ReplaceAll(healSramReadings(t), "<sram_sm>0</sram_sm>", "<sram_sm>4</sram_sm>")
+
+	problems := SramECCProblems(out, SramECCState{Sources: SramECCSources{L2: 4}})
+	require.NotEmpty(t, problems)
+	joined := strings.Join(problems, "; ")
+	assert.Contains(t, joined, "sram_l2 = 0, want 4")
+	assert.Contains(t, joined, "sram_sm = 4, want 0")
+}
+
+func TestSramECCProblems_RejectsThresholdMismatch(t *testing.T) {
+	problems := SramECCProblems(healSramReadings(t), SramECCState{ThresholdExceeded: true})
+	require.Len(t, problems, 2)
+	assert.Contains(t, problems[0], `sram_threshold_exceeded = "No", want "Yes"`)
+}
+
+func TestSramECCProblems_ReportsUnparseableDocument(t *testing.T) {
+	problems := SramECCProblems("not xml", SramECCState{})
+	require.Len(t, problems, 1)
+	assert.Contains(t, problems[0], "parse nvidia-smi XML")
+}
+
+// row_remapper_histogram read N/A on every profile while the getter was a stub,
+// which on Ampere and later means the GPU cannot report remap capacity at all.
+func TestRowRemapProblems_RejectsNotAvailableHistogram(t *testing.T) {
+	problems := RowRemapProblems(loadFixture(t, "qx-a100-healthy.xml"), RowRemapState{HistogramBanks: 640})
+	require.Len(t, problems, 2, "one per GPU")
+	assert.Contains(t, problems[0], "row_remapper_histogram")
+}
+
+func TestRowRemapProblems_AcceptsPopulatedHistogram(t *testing.T) {
+	problems := RowRemapProblems(healSramReadings(t), RowRemapState{HistogramBanks: 640})
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+// The configured bank count must reach the caller, not just some histogram.
+func TestRowRemapProblems_RejectsWrongBankCount(t *testing.T) {
+	problems := RowRemapProblems(healSramReadings(t), RowRemapState{HistogramBanks: 1280})
+	require.Len(t, problems, 2)
+	assert.Contains(t, problems[0], "want it to report 1280 banks")
+}
+
+// A profile that configures no remap availability must keep reporting N/A: a
+// populated histogram there would mean the mock claims a capability the modelled
+// hardware lacks.
+func TestRowRemapProblems_RejectsHistogramWhereUnsupportedExpected(t *testing.T) {
+	problems := RowRemapProblems(healSramReadings(t), RowRemapState{})
+	require.Len(t, problems, 2)
+	assert.Contains(t, problems[0], "want N/A")
+}
+
+func TestRowRemapProblems_AcceptsUnsupportedHistogram(t *testing.T) {
+	problems := RowRemapProblems(loadFixture(t, "qx-a100-healthy.xml"), RowRemapState{})
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+func TestRowRemapProblems_RejectsWrongCountersAndFlags(t *testing.T) {
+	want := RowRemapState{Correctable: 1, Pending: true, HistogramBanks: 640}
+	problems := RowRemapProblems(healSramReadings(t), want)
+	require.Len(t, problems, 4, "count and flag, on each of the two GPUs")
+	assert.Contains(t, strings.Join(problems, "; "), "remapped_row_corr = 0, want 1")
+	assert.Contains(t, strings.Join(problems, "; "), `remapped_row_pending = "No", want "Yes"`)
+}
+
+func TestRowRemapProblems_ReportsUnparseableDocument(t *testing.T) {
+	problems := RowRemapProblems("not xml", RowRemapState{})
+	require.Len(t, problems, 1)
+	assert.Contains(t, problems[0], "parse nvidia-smi XML")
+}
+
+// healSramReadings rewrites the captured document into what a GPU that answers
+// the SRAM and row-remap getters reports: counters at 0 rather than N/A, the
+// threshold flag rendered No, and a populated histogram. It is derived from the
+// capture rather than written by hand so the element names stay those of the
+// driver's DTD.
+func healSramReadings(t *testing.T) string {
+	t.Helper()
+	out := loadFixture(t, "qx-a100-healthy.xml")
+	for _, element := range []string{
+		"sram_correctable", "sram_uncorrectable_parity", "sram_uncorrectable_secded",
+		"sram_l2", "sram_sm", "sram_microcontroller", "sram_pcie", "sram_other",
+	} {
+		out = strings.ReplaceAll(out,
+			fmt.Sprintf("<%s>N/A</%s>", element, element),
+			fmt.Sprintf("<%s>0</%s>", element, element))
+	}
+	out = strings.ReplaceAll(out,
+		"<sram_threshold_exceeded>N/A</sram_threshold_exceeded>",
+		"<sram_threshold_exceeded>No</sram_threshold_exceeded>")
+	// The bucket elements and their "N bank(s)" bodies are the shapes nvidia-smi
+	// 580.65.06 emits once the histogram getter answers.
+	return strings.ReplaceAll(out, "<row_remapper_histogram>N/A</row_remapper_histogram>",
+		"<row_remapper_histogram>"+
+			"<row_remapper_histogram_max>640 bank(s)</row_remapper_histogram_max>"+
+			"<row_remapper_histogram_high>0 bank(s)</row_remapper_histogram_high>"+
+			"<row_remapper_histogram_partial>0 bank(s)</row_remapper_histogram_partial>"+
+			"<row_remapper_histogram_low>0 bank(s)</row_remapper_histogram_low>"+
+			"<row_remapper_histogram_none>0 bank(s)</row_remapper_histogram_none>"+
+			"</row_remapper_histogram>")
+}
+
+// The pre-Ampere rendering is a different set of elements, not different values:
+// one combined SRAM Uncorrectable row, no source breakdown, no threshold flag.
+// Checking it with the detailed expectation is how the t4 e2e leg failed, so both
+// directions are pinned here.
+func TestSramECCProblems_AcceptsCombinedLayout(t *testing.T) {
+	problems := SramECCProblems(combinedSramReadings(t), SramECCState{Layout: SramECCCombined})
+	assert.Empty(t, problems, strings.Join(problems, "; "))
+}
+
+// The combined row carries both uncorrectable flavours, so the expectation is
+// their sum.
+func TestSramECCProblems_CombinedLayoutSumsUncorrectableFlavours(t *testing.T) {
+	out := strings.ReplaceAll(combinedSramReadings(t),
+		"<sram_uncorrectable>0</sram_uncorrectable>", "<sram_uncorrectable>6</sram_uncorrectable>")
+	counts := SramECCCounters{UncorrectableParity: 2, UncorrectableSECDED: 4}
+
+	want := SramECCState{Volatile: counts, Aggregate: counts, Layout: SramECCCombined}
+	assert.Empty(t, SramECCProblems(out, want))
+
+	want.Volatile.UncorrectableSECDED = 3
+	problems := SramECCProblems(out, want)
+	require.NotEmpty(t, problems)
+	assert.Contains(t, problems[0], "sram_uncorrectable = 6, want 5")
+}
+
+// Asking for the detailed layout where the driver emits the combined one must
+// fail rather than silently pass on absent elements.
+func TestSramECCProblems_RejectsCombinedLayoutUnderDetailedExpectation(t *testing.T) {
+	problems := SramECCProblems(combinedSramReadings(t), SramECCState{})
+	require.NotEmpty(t, problems)
+	joined := strings.Join(problems, "; ")
+	assert.Contains(t, joined, "sram_uncorrectable_parity")
+	assert.Contains(t, joined, "sram_threshold_exceeded")
+}
+
+// And the reverse: a GPU that reports the detailed breakdown is not a pre-Ampere
+// one, so the combined expectation must not accept it.
+func TestSramECCProblems_RejectsDetailedLayoutUnderCombinedExpectation(t *testing.T) {
+	problems := SramECCProblems(healSramReadings(t), SramECCState{Layout: SramECCCombined})
+	require.NotEmpty(t, problems)
+	assert.Contains(t, strings.Join(problems, "; "), "sram_uncorrectable = \"\"")
+}
+
+// combinedSramReadings rewrites the captured document into the pre-Ampere
+// rendering nvidia-smi 580.65.06 emits for a Turing GPU: sram_correctable and a
+// single sram_uncorrectable per scope, with the source breakdown and the
+// threshold flag absent entirely.
+func combinedSramReadings(t *testing.T) string {
+	t.Helper()
+	out := healSramReadings(t)
+	out = strings.ReplaceAll(out,
+		"<sram_uncorrectable_parity>0</sram_uncorrectable_parity>\n\t\t\t\t"+
+			"<sram_uncorrectable_secded>0</sram_uncorrectable_secded>",
+		"<sram_uncorrectable>0</sram_uncorrectable>")
+	out = strings.ReplaceAll(out,
+		"<sram_threshold_exceeded>No</sram_threshold_exceeded>\n\t\t\t", "")
+	return regexp.MustCompile(
+		`(?s)\s*<aggregate_uncorrectable_sram_sources>.*?</aggregate_uncorrectable_sram_sources>`).
+		ReplaceAllString(out, "")
 }

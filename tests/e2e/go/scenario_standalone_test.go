@@ -91,6 +91,15 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertEncoderFBCAccounting(ctx, h, pod)
 			})
 
+			It("reports SRAM ECC counters and row-remap availability via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #641: every SRAM row and the bank availability
+				// histogram read N/A, so a consumer saw an unsupported feature
+				// where a healthy GPU reports 0. The histogram expectation
+				// comes from the profile, which pins it populated on Ampere and
+				// later and N/A on t4.
+				assertSramECCBaseline(ctx, h, pod, p)
+			})
+
 			It("reports JPEG and OFA utilization via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #637: both readings were N/A because the NVML entry
 				// points were generated stubs, so every configured value was
@@ -185,6 +194,14 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				// (docs/nvml-mock-ctl.md) and validates the effect via nvidia-smi.
 				It("injects ECC at runtime via nvml-mock-ctl without restart", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimeECCInjection(ctx, h, pod)
+				})
+
+				It("injects and clears SRAM ECC errors at runtime via nvml-mock-ctl", Label("runtime-control"), func(ctx SpecContext) {
+					// Issue #641: the inject-and-clear cycle is the point —
+					// simulating an SRAM fault mid-test is the capability being
+					// added, and the counters must come back to 0 rather than
+					// staying stuck or reverting to N/A.
+					assertRuntimeSramECCInjection(ctx, h, pod, p)
 				})
 
 				It("marks all GPUs lost and recovers via nvml-mock-ctl", Label("runtime-control"), func(ctx SpecContext) {
