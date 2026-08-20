@@ -182,6 +182,17 @@ func BenchmarkAllocationCache100KNodes64Groups(b *testing.B) {
 	)
 	source, inventory, keys := allocationScaleSource(nodeCount, groupCount)
 	planner := NewAllocationCache(source)
+	input, err := allocationInput(source)
+	require.NoError(b, err)
+	require.Len(b, input.Nodes, nodeCount)
+	require.Len(b, input.Groups, groupCount, "the scale inventory must pass capacity validation")
+	expectedBindings := nodeCount - nodeCount%groupCount
+	declaredSlots := int64(0)
+	for _, group := range input.Groups {
+		declaredSlots += int64(group.Racks) * int64(group.SlotsPerRack)
+	}
+	require.EqualValues(b, expectedBindings, declaredSlots)
+	require.LessOrEqual(b, declaredSlots, MaxInventoryNodeSlots)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -192,18 +203,28 @@ func BenchmarkAllocationCache100KNodes64Groups(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			if len(view.Bindings) == 0 {
-				b.Fatalf("group %d has no allocation view", index)
+			if len(view.Bindings) != expectedBindings/groupCount {
+				b.Fatalf(
+					"group %d has %d bindings, want %d",
+					index,
+					len(view.Bindings),
+					expectedBindings/groupCount,
+				)
 			}
 		}
 		view, err := planner.plan(nil, inventoryInstance{name: inventory.Name, uid: inventory.UID})
 		if err != nil {
 			b.Fatal(err)
 		}
-		if len(view.Bindings) != nodeCount {
-			b.Fatalf("got %d bindings, want %d", len(view.Bindings), nodeCount)
+		if len(view.Bindings) != expectedBindings {
+			b.Fatalf("got %d bindings, want %d", len(view.Bindings), expectedBindings)
+		}
+		if len(view.Pending) != nodeCount-expectedBindings {
+			b.Fatalf("got %d pending Nodes, want %d", len(view.Pending), nodeCount-expectedBindings)
 		}
 	}
+	b.StopTimer()
+	require.EqualValues(b, b.N, planner.Stats().Computations)
 	b.ReportMetric(float64(planner.Stats().Computations)/float64(b.N), "global-plans/op")
 }
 
@@ -299,9 +320,9 @@ func allocationScaleSource(
 	nodeCount int,
 	groupCount int,
 ) (*mutableAllocationSource, *mokkav1alpha1.SGPUInventory, []allocate.GroupKey) {
-	perGroup := (nodeCount + groupCount - 1) / groupCount
-	nodesPerRack := min(perGroup, 1024)
-	rackCount := (perGroup + nodesPerRack - 1) / nodesPerRack
+	perGroup := nodeCount / groupCount
+	rackCount := (perGroup + 1023) / 1024
+	nodesPerRack := perGroup / rackCount
 	profile := testProfile("profile", "profile-uid", 1, int32(nodesPerRack), 1)
 	inventory := testInventory("inventory", "inventory-uid", profile.Name, 1)
 	inventory.Finalizers = []string{InventoryFinalizer}
