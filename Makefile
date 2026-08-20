@@ -48,6 +48,24 @@ help:
 	@echo "🛠️ Dev Commands\n"
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
+.PHONY: test-kwok-contract kwok-scale kwok-scale-matrix
+test-kwok-contract:
+	$(GO_CMD) test -race ./tests/kwok/...
+
+# Explicit opt-in: this owns a Docker-backed KWOK cluster and can consume
+# substantial host resources at the larger tiers. It is not part of unit CI.
+KWOK_NODE_COUNT ?= 200
+KWOK_MATRIX ?= 1000 10000 25000 50000 100000
+kwok-scale:
+	@test "$(KWOK_SCALE)" = 1 || { echo "set KWOK_SCALE=1 to run the opt-in KWOK POC"; exit 2; }
+	KWOK_NODE_COUNT=$(KWOK_NODE_COUNT) ./tests/kwok/run.sh
+
+kwok-scale-matrix:
+	@test "$(KWOK_SCALE)" = 1 || { echo "set KWOK_SCALE=1 to run the opt-in KWOK POC"; exit 2; }
+	@for count in $(KWOK_MATRIX); do \
+		KWOK_NODE_COUNT=$$count KWOK_CLUSTER_NAME=mokka-controller-kwok-$$count ./tests/kwok/run.sh || exit; \
+	done
+
 CONTROLLER_GEN_VERSION ?= v0.20.1
 
 .PHONY: tools
@@ -80,6 +98,7 @@ lint-fix: tools gen ## Same checks as `lint`, but auto-fix what can be fixed; re
 
 CRDS_OUT     := deployments/mokka-crds/helm/mokka-crds/templates
 API_PKG_PATH := ./internal/controlplane/api/...
+MOKKA_CODEGEN := ./hack/update-mokka-codegen.sh
 
 .PHONY: gen
 gen: tools ## Generate machine-controlled code
@@ -92,12 +111,15 @@ gen: tools ## Generate machine-controlled code
 	@$(BIN_DIR)/controller-gen crd:allowDangerousTypes=true \
 		paths="$(API_PKG_PATH)" \
 		output:crd:artifacts:config=$(CRDS_OUT)
+	@echo "Generating Mokka clients, listers, and informers.."
+	@$(MOKKA_CODEGEN)
 
 .PHONY: gen-check
 gen-check: gen ## Check whether all generated code is up to date
 	@git diff --quiet HEAD -- \
 		./pkg/gpu/mocknvml/bridge/ \
 		./internal/controlplane/api/ \
+		./pkg/generated/ \
 		$(CRDS_OUT) || { \
 		echo "ERROR: generated code is out of date. Run 'make gen' and commit the result."; \
 		git diff -- ./internal/controlplane/api/ $(CRDS_OUT); \

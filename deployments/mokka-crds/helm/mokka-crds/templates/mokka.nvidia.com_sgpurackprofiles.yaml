@@ -4,6 +4,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
+    helm.sh/resource-policy: keep
   name: sgpurackprofiles.mokka.nvidia.com
 spec:
   group: mokka.nvidia.com
@@ -301,6 +302,7 @@ spec:
                         type: object
                       count:
                         format: int32
+                        maximum: 64
                         minimum: 1
                         type: integer
                       memory:
@@ -547,6 +549,8 @@ spec:
                           required:
                           - index
                           type: object
+                        maxItems: 64
+                        minItems: 1
                         type: array
                         x-kubernetes-list-map-keys:
                         - index
@@ -578,6 +582,7 @@ spec:
                 properties:
                   nodesPerRack:
                     format: int32
+                    maximum: 1024
                     minimum: 1
                     type: integer
                 required:

@@ -20,9 +20,8 @@ spec:
         {{- include "nvml-mock.controlPlaneSelectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: control-plane
     spec:
-      # The init slice needs no cluster access. Follow-up MEPs adding kube
-      # client-go usage introduce a dedicated ServiceAccount + Role.
-      automountServiceAccountToken: false
+      serviceAccountName: {{ include "nvml-mock.controlPlaneName" . }}
+      automountServiceAccountToken: true
       terminationGracePeriodSeconds: {{ .Values.controlPlane.terminationGracePeriodSeconds }}
       {{- with .Values.controlPlane.nodeSelector }}
       nodeSelector:
@@ -39,6 +38,16 @@ spec:
           args:
             - --listen-addr=:{{ .Values.controlPlane.service.port }}
             - --log-level={{ .Values.controlPlane.logLevel }}
+            - --leader-election-name={{ .Values.controlPlane.leaderElection.name }}
+            - --leader-election-namespace=$(POD_NAMESPACE)
+            - --workers={{ .Values.controlPlane.workers }}
+            - --kube-api-qps={{ .Values.controlPlane.kubeAPIQPS }}
+            - --kube-api-burst={{ .Values.controlPlane.kubeAPIBurst }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           ports:
             - name: http
               containerPort: {{ .Values.controlPlane.service.port }}

@@ -39,6 +39,23 @@ func TestHealthEndpoints(t *testing.T) {
 	}
 }
 
+func TestReadinessWaitsForController(t *testing.T) {
+	cfg := controlplane.DefaultConfig()
+	logger, err := controlplane.NewLogger(cfg)
+	require.NoError(t, err)
+	ready := false
+	server := controlplane.NewServerWithReadiness(cfg, logger, func() bool { return ready })
+
+	response := httptest.NewRecorder()
+	server.Router().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusServiceUnavailable, response.Code)
+
+	ready = true
+	response = httptest.NewRecorder()
+	server.Router().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusOK, response.Code)
+}
+
 // TestServerShutdownOnContextCancel exercises the full Run/Serve/Shutdown
 // lifecycle: bind a real listener, cancel the context, and confirm the server
 // drains within its ShutdownTimeout without returning an error.

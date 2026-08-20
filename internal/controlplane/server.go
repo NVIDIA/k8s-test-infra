@@ -26,12 +26,20 @@ type Server struct {
 
 // NewServer does not bind a listener; call Run or RunListener for that.
 func NewServer(cfg Config, logger *slog.Logger) *Server {
+	return NewServerWithReadiness(cfg, logger, func() bool { return true })
+}
+
+// NewServerWithReadiness gates /readyz on controller cache readiness.
+func NewServerWithReadiness(cfg Config, logger *slog.Logger, ready func() bool) *Server {
+	if ready == nil {
+		ready = func() bool { return false }
+	}
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
 
 	router.Get("/healthz", Healthz)
-	router.Get("/readyz", Readyz)
+	router.Get("/readyz", readyzWhen(ready))
 
 	return &Server{
 		cfg:    cfg,

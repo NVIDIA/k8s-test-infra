@@ -38,7 +38,10 @@ tests:
           value: control-plane
       - equal:
           path: spec.template.spec.automountServiceAccountToken
-          value: false
+          value: true
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-nvml-mock-control-plane
       - equal:
           path: spec.template.spec.containers[0].name
           value: mokka-control-plane
@@ -54,6 +57,31 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --log-level=info
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --leader-election-name=mokka-control-plane.mokka.nvidia.com
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --workers=2
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-qps=50
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-burst=100
+      - equal:
+          path: spec.template.spec.containers[0].env[0].valueFrom.fieldRef.fieldPath
+          value: metadata.namespace
+
+  - it: should reserve enough memory for the supported 100k-node scale
+    set:
+      controlPlane:
+        enabled: true
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 1Gi
 
   # The container port, the args --listen-addr, and the probes must all name
   # the same port; a probe pointed at the wrong port makes the pod never go
@@ -208,6 +236,21 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --log-level=debug
+
+  - it: should honour custom Kubernetes API client limits
+    set:
+      controlPlane:
+        enabled: true
+        kubeAPIQPS: 250
+        kubeAPIBurst: 500
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-qps=250
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-burst=500
 
   # Moving the port must move the bind flag, the container port, and the
   # Service port together — a mismatch is exactly the silent-Ready failure

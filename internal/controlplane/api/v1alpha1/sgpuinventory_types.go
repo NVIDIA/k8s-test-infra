@@ -7,6 +7,9 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 // SGPUInventory is a set of simulated GPU racks to distribute across CPU nodes.
 //
+// +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,categories=mokka,shortName=sinv
 // +kubebuilder:subresource:status
@@ -48,6 +51,7 @@ type RackGroup struct {
 	ID string `json:"id"`
 
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100000
 	Count int32 `json:"count"`
 
 	ProfileRef ProfileReference `json:"profileRef"`
