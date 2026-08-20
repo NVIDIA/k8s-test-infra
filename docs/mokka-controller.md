@@ -18,6 +18,10 @@ helm upgrade --install nvml-mock deployments/nvml-mock/helm/nvml-mock \
   --set controlPlane.image.tag=TAG
 ```
 
+Uninstalling the `mokka-crds` release retains the CRDs and existing Mokka
+resources. Removing the Mokka API and its resources requires deleting the CRDs
+explicitly.
+
 Only one Helm release may enable the cluster-wide control plane in a cluster.
 Its fixed `mokka-control-plane.mokka.nvidia.com` ClusterRoleBinding is owned by
 that release and acts as the singleton guard: another release must wait until

@@ -14,6 +14,7 @@ import (
 //
 // +genclient
 // +genclient:nonNamespaced
+// +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,categories=mokka,shortName=sgpur
 // +kubebuilder:subresource:status

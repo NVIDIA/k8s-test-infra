@@ -4,6 +4,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
+    helm.sh/resource-policy: keep
   name: sgpuinventories.mokka.nvidia.com
 spec:
   group: mokka.nvidia.com

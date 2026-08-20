@@ -12,6 +12,7 @@ import (
 //
 // +genclient
 // +genclient:nonNamespaced
+// +kubebuilder:metadata:annotations=helm.sh/resource-policy=keep
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,categories=mokka,shortName=srprof
 // +kubebuilder:printcolumn:name="Nodes/Rack",type=integer,JSONPath=`.spec.rack.nodesPerRack`
