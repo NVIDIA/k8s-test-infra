@@ -63,6 +63,12 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --workers=2
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-qps=50
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-burst=100
       - equal:
           path: spec.template.spec.containers[0].env[0].valueFrom.fieldRef.fieldPath
           value: metadata.namespace
@@ -230,6 +236,21 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --log-level=debug
+
+  - it: should honour custom Kubernetes API client limits
+    set:
+      controlPlane:
+        enabled: true
+        kubeAPIQPS: 250
+        kubeAPIBurst: 500
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-qps=250
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kube-api-burst=500
 
   # Moving the port must move the bind flag, the container port, and the
   # Service port together — a mismatch is exactly the silent-Ready failure

@@ -383,6 +383,10 @@ controlPlane:
     pullPolicy: IfNotPresent
   logLevel: info                       # debug | info | warn | error
   workers: 2
+  # Client-side Kubernetes API throttling. Raise these together with workers
+  # when faster initial convergence is worth the additional control-plane load.
+  kubeAPIQPS: 50
+  kubeAPIBurst: 100
   leaderElection:
     name: mokka-control-plane.mokka.nvidia.com
   service:

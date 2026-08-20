@@ -41,6 +41,8 @@ spec:
             - --leader-election-name={{ .Values.controlPlane.leaderElection.name }}
             - --leader-election-namespace=$(POD_NAMESPACE)
             - --workers={{ .Values.controlPlane.workers }}
+            - --kube-api-qps={{ .Values.controlPlane.kubeAPIQPS }}
+            - --kube-api-burst={{ .Values.controlPlane.kubeAPIBurst }}
           env:
             - name: POD_NAMESPACE
               valueFrom:

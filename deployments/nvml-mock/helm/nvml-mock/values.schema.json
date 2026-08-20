@@ -323,6 +323,16 @@
           "minimum": 1,
           "description": "Worker count for each controller queue."
         },
+        "kubeAPIQPS": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Sustained client-side Kubernetes API request limit."
+        },
+        "kubeAPIBurst": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Client-side Kubernetes API burst limit."
+        },
         "leaderElection": {
           "type": "object",
           "additionalProperties": false,
