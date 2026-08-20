@@ -38,19 +38,16 @@ func (s *Simulator) Name() string { return name }
 func (s *Simulator) Ready() bool  { return s.ready.Load() }
 
 // Stage materializes the GPU driver footprint under h.Root/driver/.
-// All surfaces run in parallel; a failure in any one aborts the rest.
+// All surfaces run in parallel; a failure in any one cancels the rest via gctx.
 func (s *Simulator) Stage(ctx context.Context, h *host.Host, state *agent.State) error {
 	s.ready.Store(false)
 
-	driverRoot := filepath.Join(h.Root, "driver")
-
 	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error { return stageCharDevs(gctx, driverRoot, state) })
-	g.Go(func() error { return stageNVMLShim(gctx, driverRoot, state.Software) })
-	g.Go(func() error { return stageCUDAShim(gctx, driverRoot, state.Software) })
-	g.Go(func() error { return stageNvidiaSMI(gctx, driverRoot, state.Software) })
-	g.Go(func() error { return writeProcVersion(gctx, driverRoot, state.Software) })
-	g.Go(func() error { return writeProcParams(gctx, driverRoot) })
+	g.Go(func() error { return stageCharDevs(gctx, h, state) })
+	g.Go(func() error { return stageNVMLShim(gctx, h, state) })
+	g.Go(func() error { return stageCUDAShim(gctx, h, state) })
+	g.Go(func() error { return stageNvidiaSMI(gctx, h, state) })
+	g.Go(func() error { return writeProcFS(gctx, h, state) })
 	g.Go(func() error { return writeEngineConfig(gctx, h, state) })
 
 	if err := g.Wait(); err != nil {

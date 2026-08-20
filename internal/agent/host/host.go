@@ -7,6 +7,7 @@ package host
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -65,6 +66,37 @@ func (h *Host) Symlink(target, linkPath string) error {
 func (h *Host) Remove(path string) error {
 	if err := os.Remove(path); !os.IsNotExist(err) {
 		return fmt.Errorf("remove %s: %w", path, err)
+	}
+	return nil
+}
+
+// CopyFile copies src to dst with mode perm. dst is written atomically via a
+// .tmp sibling; parent directories are created as needed.
+// src may be any path (e.g. a container-local binary); dst is typically under h.Root.
+func (h *Host) CopyFile(src, dst string, perm os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(dst), err)
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", src, err)
+	}
+	defer in.Close()
+
+	tmp := dst + ".tmp"
+	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", tmp, err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return fmt.Errorf("copy %s -> %s: %w", src, dst, err)
+	}
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("close %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		return fmt.Errorf("rename %s -> %s: %w", tmp, dst, err)
 	}
 	return nil
 }
