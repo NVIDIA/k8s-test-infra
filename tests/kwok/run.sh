@@ -30,6 +30,8 @@ readonly WORK_DIR="${ARTIFACT_DIR}/work"
 readonly KUBECONFIG_PATH="${WORK_DIR}/kubeconfig"
 readonly CONTROLLER_BIN="${WORK_DIR}/mokka-control-plane"
 readonly ASSERT_BIN="${WORK_DIR}/kwok-assert"
+readonly CRD_CHART_DIR="${REPO_DIR}/deployments/mokka-crds/helm/mokka-crds"
+readonly CRD_MANIFEST="${WORK_DIR}/mokka-crds.yaml"
 readonly CONTROLLER_LOG="${ARTIFACT_DIR}/controller.log"
 readonly CONTROLLER_PID_FILE="${WORK_DIR}/controller.pid"
 readonly TIMINGS_FILE="${ARTIFACT_DIR}/timings.jsonl"
@@ -308,7 +310,7 @@ cleanup() {
 	exit "${exit_code}"
 }
 
-for command in kwokctl kubectl docker go jq curl sed ps awk cmp git; do
+for command in kwokctl kubectl helm docker go jq curl sed ps awk cmp git; do
 	require_command "${command}"
 done
 validate_uint KWOK_NODE_COUNT "${NODE_COUNT}"
@@ -367,8 +369,9 @@ kwok create cluster \
 	--wait=5m \
 	>"${ARTIFACT_DIR}/cluster-create.log" 2>&1
 
-log "installing generated Mokka CRDs"
-kctl apply --server-side --field-manager=mokka-kwok-poc -f "${REPO_DIR}/deployments/mokka-crds/helm/mokka-crds/crds" >/dev/null
+log "rendering and installing generated Mokka CRDs"
+helm template mokka-crds "${CRD_CHART_DIR}" --include-crds >"${CRD_MANIFEST}" 2>"${ARTIFACT_DIR}/crd-render.log"
+kctl apply --server-side --field-manager=mokka-kwok-poc -f "${CRD_MANIFEST}" >"${ARTIFACT_DIR}/crd-apply.log" 2>&1
 kctl wait --for=condition=Established --timeout=2m crd/sgpuprofiles.mokka.nvidia.com crd/sgpuinventories.mokka.nvidia.com crd/sgpuracks.mokka.nvidia.com
 kctl apply --server-side --field-manager=mokka-kwok-poc -f "${WORK_DIR}/profile.yaml" >/dev/null
 

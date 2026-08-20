@@ -96,6 +96,21 @@ func TestRunnerContract(t *testing.T) {
 	require.NoError(t, err, string(output))
 }
 
+func TestRunnerRendersCRDChartBeforeApply(t *testing.T) {
+	runner := readFile(t, "run.sh")
+	require.Contains(t, runner, "for command in kwokctl kubectl helm ")
+	require.NotContains(t, runner, "/mokka-crds/crds")
+	require.Contains(t, runner, `readonly CRD_CHART_DIR="${REPO_DIR}/deployments/mokka-crds/helm/mokka-crds"`)
+	require.Contains(t, runner, `readonly CRD_MANIFEST="${WORK_DIR}/mokka-crds.yaml"`)
+
+	render := `helm template mokka-crds "${CRD_CHART_DIR}" --include-crds >"${CRD_MANIFEST}"`
+	apply := `kctl apply --server-side --field-manager=mokka-kwok-poc -f "${CRD_MANIFEST}"`
+	renderIndex := strings.Index(runner, render)
+	applyIndex := strings.Index(runner, apply)
+	require.NotEqual(t, -1, renderIndex)
+	require.Greater(t, applyIndex, renderIndex)
+}
+
 func TestRunnerStartsTimingBeforeScenarioActions(t *testing.T) {
 	runner := readFile(t, "run.sh")
 	checkStateStart := strings.Index(runner, "check_state() {")
