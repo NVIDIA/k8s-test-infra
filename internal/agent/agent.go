@@ -8,8 +8,10 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -110,20 +112,35 @@ func (a *Agent) reconcileLoop(ctx context.Context) error {
 // reconcile runs Stage on all simulators in parallel, waits for the barrier,
 // then runs Apply on all appliers in parallel.
 func (a *Agent) reconcile(ctx context.Context, state *State) error {
-	stageG, stageCtx := errgroup.WithContext(ctx)
+	// Stage wave: all simulators run concurrently and are fully isolated from
+	// each other — a failure never cancels sibling goroutines. All errors are
+	// collected; if any Stage failed the Apply wave is skipped entirely, because
+	// appliers depend on Stage artifacts being present (e.g. CDI spec → chardevs).
+	var (
+		wg        sync.WaitGroup
+		stageMu   sync.Mutex
+		stageErrs []error
+	)
 	for _, sim := range a.simulators {
 		sim := sim
-		stageG.Go(func() error {
-			if err := sim.Stage(stageCtx, a.host, state); err != nil {
-				return fmt.Errorf("stage %s: %w", sim.Name(), err)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := sim.Stage(ctx, a.host, state); err != nil {
+				a.log.Error("stage failed", "simulator", sim.Name(), "err", err)
+				stageMu.Lock()
+				stageErrs = append(stageErrs, fmt.Errorf("stage %s: %w", sim.Name(), err))
+				stageMu.Unlock()
 			}
-			return nil
-		})
+		}()
 	}
-	if err := stageG.Wait(); err != nil {
-		return err
+	wg.Wait()
+	if len(stageErrs) > 0 {
+		return errors.Join(stageErrs...)
 	}
 
+	// Apply wave: fail-fast — appliers share cross-component dependencies
+	// (CDI spec references chardevs that gpudriver must have staged first).
 	applyG, applyCtx := errgroup.WithContext(ctx)
 	for _, app := range a.appliers {
 		app := app
