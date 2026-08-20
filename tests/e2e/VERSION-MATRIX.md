@@ -12,7 +12,7 @@ Discovery is pinned (`scenario_nfd_test.go:126`).
 
 | Component | Version | Chart / Image | Status |
 |---|---|---|---|
-| NVIDIA Device Plugin (standalone) | v0.18.2 | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | Pinned, **not run in CI** — see below |
+| NVIDIA Device Plugin (standalone) | v0.18.2 | `nvcr.io/nvidia/k8s-device-plugin:v0.18.2` | **Pinned** + runs in CI (`e2e-nri` ×6 profiles, `e2e-multi-node`) |
 | NVIDIA Device Plugin (GPU Operator operand) | floats — v0.19.3 observed 2026-07-29 | from the `gpu-operator` chart | Not pinned; runs in CI |
 | DRA Driver (GPU) | floats — chart carries no `--version` | `nvidia/nvidia-dra-driver-gpu` (Helm) | Not pinned; runs in CI |
 | GPU Feature Discovery (standalone) | v0.8.2 | `nvcr.io/nvidia/gpu-feature-discovery:v0.8.2` | Pinned, **not run in CI** — see below |
@@ -31,18 +31,18 @@ named — does not resolve.
 ## Component Coverage
 
 ### Tested in CI
-- **DRA Driver** (Helm chart): discovers mock GPUs via NVML, publishes ResourceSlices (`e2e-dra`, 6 profiles)
+- **Device Plugin** (standalone DaemonSet, `device-plugin-mock.yaml`): the pinned upstream `k8s-device-plugin:v0.18.2` discovers mock GPUs via NVML and registers the `nvidia.com/gpu` resource. Applied by `deployDevicePlugin`, which has three callers — `scenario_nri_test.go` (`e2e-nri`, 6 profiles), `scenario_multi_node_test.go` (`e2e-multi-node`, in `BeforeAll`), and the gated validator scenario. The first two run on every pipeline. The `e2e-nri` legs additionally assert MEP-0002 composition: a requesting pod sees exactly its allocated GPU, two pods on one node stay isolated, and the suppression rule is mutation-checked.
+- **DRA Driver** (Helm chart): discovers mock GPUs via NVML, publishes ResourceSlices, and schedules a pod with a ResourceClaim (`e2e-dra`, 6 profiles)
 - **Node Feature Discovery** (Helm chart): derives the PCI vendor label from the feature file nvml-mock writes, not nvml-mock itself (`e2e-nfd`)
-- **GPU Operator** (Helm chart + values overlay): device plugin, GFD, dcgm-exporter and validator operands (`e2e-gpu-operator`, 6 profiles) — see the overlay section below
+- **GPU Operator** (Helm chart + values overlay): its own device plugin, GFD, dcgm-exporter and validator operands, at unpinned versions (`e2e-gpu-operator`, 6 profiles) — see the overlay section below
 
 ### Written but NOT run in CI
 
-Three scenarios live in `scenario_validator_test.go` and are excluded **twice
+Two scenarios live in `scenario_validator_test.go` and are excluded **twice
 over**: `BeforeAll` skips unless `E2E_RUN_NGC=true`, which is set in no
 workflow, and the default label filter (`Makefile`, `E2E_DEFAULT_LABEL_FILTER`)
-leads with `!validator`. A green pipeline says nothing about any of them.
+leads with `!validator`. A green pipeline says nothing about either of them.
 
-- **Device Plugin** (standalone DaemonSet, `device-plugin-mock.yaml`): would discover mock GPUs via NVML and register the `nvidia.com/gpu` resource. The device plugin CI *does* exercise is the GPU Operator's operand, at a different and unpinned version.
 - **GPU Feature Discovery** (standalone DaemonSet, `gfd-mock.yaml`): would read GPU attributes via NVML and label nodes. The GFD CI *does* exercise is the GPU Operator's operand.
 - **CUDA Validator** (Job, `validator-mock.yaml`): runs vectorAdd against the mock `libcuda.so`. This one would **fail** if the gate were opened — the mock exports one of the 450 driver entry points that image resolves. See [`docs/cuda-mock.md`](../../docs/cuda-mock.md).
 

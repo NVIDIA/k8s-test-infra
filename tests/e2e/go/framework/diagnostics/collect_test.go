@@ -9,8 +9,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 )
@@ -69,26 +70,20 @@ func newCollector(t *testing.T) (*Collector, string) {
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "kubectl")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+fakeKubectl), 0o755); err != nil {
-		t.Fatalf("write fake kubectl: %v", err)
-	}
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\n"+fakeKubectl), 0o755), "write fake kubectl")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	calls := filepath.Join(dir, "calls.log")
 	t.Setenv("FAKE_KUBECTL_LOG", calls)
 
 	k, err := kube.New("kind-nvml-mock-e2e")
-	if err != nil {
-		t.Fatalf("kube.New: %v", err)
-	}
+	require.NoError(t, err, "kube.New")
 	return &Collector{Dir: filepath.Join(t.TempDir(), "artifacts"), Kube: k}, calls
 }
 
 func read(t *testing.T, c *Collector, name string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(c.Dir, name))
-	if err != nil {
-		t.Fatalf("read collected %s: %v", name, err)
-	}
+	require.NoError(t, err, "read collected %s", name)
 	return string(b)
 }
 
@@ -104,13 +99,10 @@ func TestPodLogsCollectsEverySidecarContainer(t *testing.T) {
 		"[nvml-mock] mock ready",
 		"[sidecar] watch-allocations: 8 GPUs, polling",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("collected logs missing %q, got:\n%s", want, got)
-		}
+		require.Contains(t, got, want, "collected logs missing %q, got:\n%s", want, got)
 	}
-	if strings.Contains(got, "Defaulted container") {
-		t.Fatalf("kubectl defaulted to one container instead of collecting all, got:\n%s", got)
-	}
+	require.NotContains(t, got, "Defaulted container",
+		"kubectl defaulted to one container instead of collecting all, got:\n%s", got)
 }
 
 // A restarted container is the only case where --previous can succeed, and it
@@ -121,9 +113,8 @@ func TestPodLogsCollectsPreviousInstanceAfterARestart(t *testing.T) {
 	c.PodLogs(context.Background(), "nvml-mock", "gpu-operator", "app.kubernetes.io/name=nvml-mock", 100)
 
 	got := read(t, c, "nvml-mock-logs-previous.txt")
-	if want := "[sidecar] dial /var/lib/kubelet/pod-resources: connection refused"; !strings.Contains(got, want) {
-		t.Fatalf("previous-instance logs missing %q, got:\n%s", want, got)
-	}
+	want := "[sidecar] dial /var/lib/kubelet/pod-resources: connection refused"
+	require.Contains(t, got, want, "previous-instance logs missing %q, got:\n%s", want, got)
 }
 
 // The trap: `kubectl logs --previous` errors when no previous instance exists,
@@ -134,19 +125,16 @@ func TestPodLogsSkipsPreviousInstanceOnHealthyPods(t *testing.T) {
 
 	c.PodLogs(context.Background(), "nvml-mock", "healthy", "app.kubernetes.io/name=nvml-mock", 100)
 
-	if got := read(t, c, "nvml-mock-logs.txt"); !strings.Contains(got, "[sidecar] watch-allocations") {
-		t.Fatalf("healthy-pod dump lost the sidecar, got:\n%s", got)
-	}
-	if _, err := os.Stat(filepath.Join(c.Dir, "nvml-mock-logs-previous.txt")); !os.IsNotExist(err) {
-		t.Fatalf("expected no previous-instance dump for a pod that never restarted (stat err: %v)", err)
-	}
+	got := read(t, c, "nvml-mock-logs.txt")
+	require.Contains(t, got, "[sidecar] watch-allocations",
+		"healthy-pod dump lost the sidecar, got:\n%s", got)
+	_, statErr := os.Stat(filepath.Join(c.Dir, "nvml-mock-logs-previous.txt"))
+	require.True(t, os.IsNotExist(statErr),
+		"expected no previous-instance dump for a pod that never restarted (stat err: %v)", statErr)
 	// The gate itself: asking at all would have failed the request. Tolerating
 	// that error yields the same files, so assert on the call that was skipped.
 	made, err := os.ReadFile(calls)
-	if err != nil {
-		t.Fatalf("read kubectl call log: %v", err)
-	}
-	if strings.Contains(string(made), "--previous") {
-		t.Fatalf("expected no --previous request for a pod that never restarted, kubectl calls were:\n%s", made)
-	}
+	require.NoError(t, err, "read kubectl call log")
+	require.NotContains(t, string(made), "--previous",
+		"expected no --previous request for a pod that never restarted, kubectl calls were:\n%s", made)
 }

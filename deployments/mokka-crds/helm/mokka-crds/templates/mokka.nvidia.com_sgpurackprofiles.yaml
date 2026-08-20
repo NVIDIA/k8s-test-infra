@@ -1,0 +1,605 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: sgpurackprofiles.mokka.nvidia.com
+spec:
+  group: mokka.nvidia.com
+  names:
+    categories:
+    - mokka
+    kind: SGPURackProfile
+    listKind: SGPURackProfileList
+    plural: sgpurackprofiles
+    shortNames:
+    - srprof
+    singular: sgpurackprofile
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.rack.nodesPerRack
+      name: Nodes/Rack
+      type: integer
+    - jsonPath: .spec.node.gpus.count
+      name: GPUs/Node
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: SGPURackProfile is the static shape of a simulated GPU rack.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SGPURackProfileSpec is one logical rack profile.
+            properties:
+              defaults:
+                description: SGPURackProfileDefaults is initial runtime state for
+                  fresh sGPUs.
+                properties:
+                  runtime:
+                    description: |-
+                      RuntimeState is the effective runtime settings of a simulated GPU.
+                      Sparse: omitted fields inherit; explicit zero is a set value.
+                    properties:
+                      deviceState:
+                        description: DeviceState is a simulated GPU health state.
+                        enum:
+                        - Healthy
+                        - Degraded
+                        - Failed
+                        type: string
+                      modes:
+                        description: RuntimeModes is the persistent NVML/CUDA mode
+                          settings.
+                        properties:
+                          accounting:
+                            enum:
+                            - Enabled
+                            - Disabled
+                            type: string
+                          compute:
+                            enum:
+                            - Default
+                            - Exclusive
+                            - Prohibited
+                            type: string
+                          ecc:
+                            enum:
+                            - Enabled
+                            - Disabled
+                            type: string
+                          mig:
+                            enum:
+                            - Enabled
+                            - Disabled
+                            type: string
+                          persistence:
+                            enum:
+                            - Enabled
+                            - Disabled
+                            type: string
+                        type: object
+                      telemetry:
+                        description: RuntimeTelemetry is the synthetic NVML telemetry.
+                        properties:
+                          clocks:
+                            description: ClocksTelemetry reports current clock rates.
+                            properties:
+                              graphicsMHz:
+                                format: int32
+                                minimum: 0
+                                type: integer
+                              memoryMHz:
+                                format: int32
+                                minimum: 0
+                                type: integer
+                              smMHz:
+                                format: int32
+                                minimum: 0
+                                type: integer
+                              videoMHz:
+                                format: int32
+                                minimum: 0
+                                type: integer
+                            type: object
+                          performanceState:
+                            description: NVML P-state, e.g. "P0".
+                            pattern: ^P[0-9]+$
+                            type: string
+                          power:
+                            description: PowerTelemetry drives synthetic power draw.
+                            properties:
+                              drawMilliWatts:
+                                format: int64
+                                minimum: 0
+                                type: integer
+                              mode:
+                                enum:
+                                - Fixed
+                                - Pattern
+                                type: string
+                            type: object
+                          temperature:
+                            description: TemperatureTelemetry drives synthetic GPU/memory
+                              temperature.
+                            properties:
+                              gpuCelsius:
+                                format: int32
+                                type: integer
+                              memoryCelsius:
+                                format: int32
+                                type: integer
+                              mode:
+                                enum:
+                                - Fixed
+                                - Pattern
+                                type: string
+                            type: object
+                          utilization:
+                            description: UtilizationTelemetry drives synthetic GPU/memory
+                              utilization.
+                            properties:
+                              mode:
+                                enum:
+                                - Pattern
+                                - Fixed
+                                type: string
+                              pattern:
+                                description: UtilizationPattern shapes the generated
+                                  utilization curve.
+                                properties:
+                                  gpuPercent:
+                                    description: PercentRange is a min/max percentage
+                                      bound.
+                                    properties:
+                                      maximum:
+                                        format: int32
+                                        maximum: 100
+                                        minimum: 0
+                                        type: integer
+                                      minimum:
+                                        format: int32
+                                        maximum: 100
+                                        minimum: 0
+                                        type: integer
+                                    required:
+                                    - maximum
+                                    - minimum
+                                    type: object
+                                  memoryPercent:
+                                    description: PercentRange is a min/max percentage
+                                      bound.
+                                    properties:
+                                      maximum:
+                                        format: int32
+                                        maximum: 100
+                                        minimum: 0
+                                        type: integer
+                                      minimum:
+                                        format: int32
+                                        maximum: 100
+                                        minimum: 0
+                                        type: integer
+                                    required:
+                                    - maximum
+                                    - minimum
+                                    type: object
+                                  type:
+                                    enum:
+                                    - Steady
+                                    - Bursty
+                                    - Wave
+                                    type: string
+                                type: object
+                            type: object
+                        type: object
+                    type: object
+                type: object
+              node:
+                description: SGPUNode is a homogeneous logical node in the rack.
+                properties:
+                  gpus:
+                    description: SGPUGPUs is the shared template for every GPU on
+                      the node.
+                    properties:
+                      capabilities:
+                        description: GPUCapabilities is GPU feature toggles and extensible
+                          attributes.
+                        properties:
+                          attributes:
+                            additionalProperties:
+                              description: CapabilityAttribute is a typed variant;
+                                set exactly one field.
+                              properties:
+                                bool:
+                                  type: boolean
+                                int:
+                                  format: int64
+                                  type: integer
+                                string:
+                                  type: string
+                                strings:
+                                  items:
+                                    type: string
+                                  type: array
+                                  x-kubernetes-list-type: set
+                              type: object
+                            description: Extensible capability flags keyed by qualified
+                              name.
+                            type: object
+                          mig:
+                            description: MIGCapability is MIG partitioning support.
+                            properties:
+                              maxGPUInstances:
+                                format: int32
+                                type: integer
+                              supported:
+                                type: boolean
+                            type: object
+                        type: object
+                      clocks:
+                        description: GPUClocks is clock ceilings and per-memory-clock
+                          schedules.
+                        properties:
+                          maximumMHz:
+                            description: ClockRates is a graphics/SM/memory/video
+                              clock tuple in MHz.
+                            properties:
+                              graphics:
+                                format: int32
+                                type: integer
+                              memory:
+                                format: int32
+                                type: integer
+                              sm:
+                                format: int32
+                                type: integer
+                              video:
+                                format: int32
+                                type: integer
+                            type: object
+                          supported:
+                            items:
+                              description: SupportedClocks pairs a memory clock with
+                                supported graphics clocks.
+                              properties:
+                                graphicsMHz:
+                                  items:
+                                    format: int32
+                                    type: integer
+                                  type: array
+                                  x-kubernetes-list-type: set
+                                memoryMHz:
+                                  format: int32
+                                  type: integer
+                              required:
+                              - graphicsMHz
+                              - memoryMHz
+                              type: object
+                            type: array
+                        type: object
+                      count:
+                        format: int32
+                        minimum: 1
+                        type: integer
+                      memory:
+                        description: GPUMemory is on-device memory.
+                        properties:
+                          bar1Capacity:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          busWidthBits:
+                            format: int32
+                            type: integer
+                          capacity:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          reserved:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                        required:
+                        - capacity
+                        type: object
+                      model:
+                        description: GPUModel is the vendor/product identity.
+                        properties:
+                          architecture:
+                            type: string
+                          board:
+                            description: GPUBoard is board-level identity.
+                            properties:
+                              partNumber:
+                                type: string
+                            type: object
+                          computeCapability:
+                            description: ComputeCapability is the CUDA compute capability.
+                            properties:
+                              major:
+                                format: int32
+                                type: integer
+                              minor:
+                                format: int32
+                                type: integer
+                            required:
+                            - major
+                            - minor
+                            type: object
+                          cores:
+                            description: GPUCores is programmable core counts.
+                            properties:
+                              cuda:
+                                format: int32
+                                type: integer
+                            type: object
+                          firmware:
+                            description: GPUFirmware is firmware versions.
+                            properties:
+                              gspVersion:
+                                type: string
+                              infoROM:
+                                description: InfoROM is NVML inforom sub-object versions.
+                                properties:
+                                  eccObjectVersion:
+                                    type: string
+                                  imageVersion:
+                                    type: string
+                                  oemObjectVersion:
+                                    type: string
+                                  powerObjectVersion:
+                                    type: string
+                                type: object
+                              vbiosVersion:
+                                type: string
+                            type: object
+                          product:
+                            type: string
+                          productName:
+                            type: string
+                          vendor:
+                            type: string
+                        type: object
+                      pci:
+                        description: GPUPCI is PCI identity and link characteristics.
+                        properties:
+                          deviceID:
+                            type: string
+                          maxLink:
+                            description: PCILink is the PCIe max link generation and
+                              width.
+                            properties:
+                              generation:
+                                format: int32
+                                type: integer
+                              width:
+                                format: int32
+                                type: integer
+                            type: object
+                          subsystemDeviceID:
+                            type: string
+                          subsystemVendorID:
+                            type: string
+                          vendorID:
+                            type: string
+                        type: object
+                      power:
+                        description: GPUPower is the power envelope.
+                        properties:
+                          limitsMilliWatts:
+                            description: PowerLimits is min/default/max power caps
+                              in milliwatts.
+                            properties:
+                              default:
+                                format: int64
+                                type: integer
+                              maximum:
+                                format: int64
+                                type: integer
+                              minimum:
+                                format: int64
+                                type: integer
+                            type: object
+                          managementSupported:
+                            type: boolean
+                        type: object
+                      thermal:
+                        description: GPUThermal is thermal thresholds.
+                        properties:
+                          maxOperatingCelsius:
+                            format: int32
+                            type: integer
+                          shutdownThresholdCelsius:
+                            format: int32
+                            type: integer
+                          slowdownThresholdCelsius:
+                            format: int32
+                            type: integer
+                          targetCelsius:
+                            format: int32
+                            type: integer
+                        type: object
+                    required:
+                    - count
+                    - memory
+                    - model
+                    - pci
+                    type: object
+                  host:
+                    description: SGPUHost is host CPU + memory.
+                    properties:
+                      cpu:
+                        description: HostCPU is host CPU identity.
+                        properties:
+                          architecture:
+                            type: string
+                          cores:
+                            format: int32
+                            type: integer
+                          product:
+                            type: string
+                          vendor:
+                            type: string
+                        type: object
+                      memory:
+                        description: HostMemory is host memory capacity.
+                        properties:
+                          capacity:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          coherentWithGPU:
+                            type: boolean
+                        required:
+                        - capacity
+                        type: object
+                    type: object
+                  topology:
+                    description: SGPUTopology is PCIe slots, GPU fabric, and network
+                      visible to the node.
+                    properties:
+                      gpuFabric:
+                        description: GPUFabric is NVLink/NVSwitch fabric.
+                        properties:
+                          bandwidthPerLinkMBps:
+                            format: int32
+                            type: integer
+                          c2cSupported:
+                            type: boolean
+                          domain:
+                            description: FabricDomain is the fabric compute domain.
+                            properties:
+                              gpuCount:
+                                format: int32
+                                type: integer
+                              scope:
+                                enum:
+                                - Node
+                                - Rack
+                                - Cluster
+                                type: string
+                            type: object
+                          generation:
+                            format: int32
+                            type: integer
+                          linksPerGPU:
+                            format: int32
+                            type: integer
+                          switches:
+                            description: FabricSwitches is fabric switches visible
+                              per node.
+                            properties:
+                              visiblePerNode:
+                                format: int32
+                                type: integer
+                            type: object
+                          type:
+                            type: string
+                        type: object
+                      gpuSlots:
+                        items:
+                          description: GPUSlot pins one GPU to a PCI address + NUMA/root-complex/host
+                            CPU.
+                          properties:
+                            hostProcessorIndex:
+                              format: int32
+                              type: integer
+                            index:
+                              format: int32
+                              type: integer
+                            numaNode:
+                              format: int32
+                              type: integer
+                            pciAddress:
+                              type: string
+                            rootComplex:
+                              type: string
+                          required:
+                          - index
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - index
+                        x-kubernetes-list-type: map
+                      network:
+                        description: NetworkTopology is out-of-band adapters.
+                        properties:
+                          adapterModel:
+                            type: string
+                          adaptersPerGPU:
+                            format: int32
+                            type: integer
+                          firmwareVersion:
+                            type: string
+                          linkSpeedGbps:
+                            format: int32
+                            type: integer
+                          type:
+                            type: string
+                        type: object
+                    required:
+                    - gpuSlots
+                    type: object
+                required:
+                - gpus
+                type: object
+              rack:
+                description: Rack is the logical rack shape described by this profile.
+                properties:
+                  nodesPerRack:
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - nodesPerRack
+                type: object
+              software:
+                description: SGPUSoftware is driver/NVML/CUDA versions.
+                properties:
+                  cudaVersion:
+                    type: string
+                  driverVersion:
+                    type: string
+                  nvmlVersion:
+                    type: string
+                type: object
+            required:
+            - node
+            - rack
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

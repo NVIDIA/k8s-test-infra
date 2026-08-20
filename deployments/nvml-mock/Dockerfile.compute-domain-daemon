@@ -23,8 +23,8 @@
 #       --nogpu appended: the real daemon then runs the real gRPC peer
 #       protocol without GPUs.
 #
-#   demo — the same real-IMEX trio layered onto the nvml-mock image;
-#       used by docs/demo/compute-domain/run.sh Scenario 2.
+#   demo — compatibility target with the same real-IMEX trio layered
+#       onto the nvml-mock image; used by the local Tilt workflow.
 #
 # LOCAL BUILD ONLY — never publish these images: they repackage the
 # proprietary nvidia-imex binary (installed from Ubuntu jammy
@@ -42,7 +42,7 @@ ARG COMPUTE_DOMAIN_DAEMON_IMAGE=registry.k8s.io/dra-driver-nvidia/dra-driver-nvi
 # Default kept in lockstep with hack/golang-version.sh (repo-wide pin,
 # see the #394 CVE refresh); the demo script overrides it with the
 # script's output anyway.
-ARG GOLANG_VERSION=1.26.5
+ARG GOLANG_VERSION=1.26.6
 
 # Real IMEX daemon + ctl. Ubuntu redistributes the NVIDIA driver stack
 # in multiverse; nvidia-imex-595 is the 595-branch package (same
@@ -81,7 +81,7 @@ COPY --from=shim /out/imex-nogpu-shim         /usr/bin/nvidia-imex
 # daemon (default target): real IMEX on top of the upstream
 # compute-domain-daemon image. Upstream renders its own imexd.cfg from
 # its template, so no config.cfg is copied here.
-FROM ${COMPUTE_DOMAIN_DAEMON_IMAGE}
+FROM ${COMPUTE_DOMAIN_DAEMON_IMAGE} AS daemon
 COPY --from=imex /usr/bin/nvidia-imex         /usr/bin/nvidia-imex.real
 COPY --from=imex /usr/bin/nvidia-imex-ctl     /usr/bin/nvidia-imex-ctl
 COPY --from=shim /out/imex-nogpu-shim         /usr/bin/nvidia-imex

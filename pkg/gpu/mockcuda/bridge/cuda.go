@@ -13,7 +13,6 @@
 
 // Package main provides CUDA Runtime/Driver API bridge functions.
 // Built as a c-shared library to produce libcuda.so.1.
-
 package main
 
 /*
@@ -22,6 +21,7 @@ package main
 #include "cuda_types.h"
 */
 import "C"
+
 import (
 	"unsafe"
 
@@ -34,7 +34,7 @@ import (
 
 //export cuInit
 func cuInit(flags C.uint) C.CUresult {
-	return C.CUresult(toCudaError(engine.GetEngine().Init(uint(flags))))
+	return toCudaError(engine.GetEngine().Init(uint(flags)))
 }
 
 //export cudaDriverGetVersion
@@ -83,7 +83,7 @@ func cudaMalloc(devPtr *unsafe.Pointer, size C.size_t) C.cudaError_t {
 	}
 	// Allocate real C memory so the pointer is valid and go vet clean.
 	// The engine tracks it by uintptr key for bookkeeping.
-	cPtr := C.malloc(C.size_t(size))
+	cPtr := C.malloc(size)
 	if cPtr == nil {
 		return C.cudaErrorMemoryAllocation
 	}
@@ -124,7 +124,9 @@ func cudaMemcpy(dst unsafe.Pointer, src unsafe.Pointer, count C.size_t, kind C.c
 // Execution
 // =============================================================================
 
+//
 //export cudaLaunchKernel
+//nolint:revive // cgo //export requires distinct param names for the generated C header; the mock ignores the launch args and just marks a synchronous no-op success
 func cudaLaunchKernel(
 	funcPtr unsafe.Pointer,
 	gridDim C.dim3,

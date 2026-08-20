@@ -42,7 +42,7 @@ func DCGMDeviceMetrics(ctx context.Context, k *kube.Client, ns, gpuName string, 
 	ginkgo.GinkgoHelper()
 
 	WaitDaemonSetReady(ctx, k, ns, dcgmExporterDaemonSet, timeout, poll)
-	pod := dcgmExporterPod(ctx, k, ns)
+	pod := dcgmExporterPod(ctx, k, ns, "")
 
 	// Poll until the first DEV temperature samples appear.
 	var metrics string
@@ -106,14 +106,28 @@ func DCGMDeviceMetrics(ctx context.Context, k *kube.Client, ns, gpuName string, 
 
 // DCGMXidReported polls until at least one GPU reports xid as
 // DCGM_FI_DEV_XID_ERRORS (healthy default is 0).
+//
+// The exporter is a moving target here: the GPU Operator replaces its operands a
+// reconcile period after nvml-mock rolls, well after the caller's own rollouts
+// report success (#602). Readiness, pod identity and the scrape therefore share
+// one retry, which Eventually keeps driving through the errors a replaced pod
+// produces.
 func DCGMXidReported(ctx context.Context, k *kube.Client, ns string, xid int, timeout, poll time.Duration) {
 	ginkgo.GinkgoHelper()
 
-	WaitDaemonSetReady(ctx, k, ns, dcgmExporterDaemonSet, timeout, poll)
-	pod := dcgmExporterPod(ctx, k, ns)
-
 	ginkgo.By(fmt.Sprintf("waiting for %s == %d", fiDevXidErrors, xid))
 	gomega.Eventually(func() (bool, error) {
+		ready, err := k.DaemonSetReady(ctx, ns, dcgmExporterDaemonSet)
+		if err != nil {
+			return false, err
+		}
+		if !ready {
+			return false, nil
+		}
+		pod, err := k.FirstPodName(ctx, ns, dcgmExporterSelector)
+		if err != nil {
+			return false, err
+		}
 		metrics, err := scrapeDCGM(ctx, k, ns, pod)
 		if err != nil {
 			return false, err
@@ -132,12 +146,15 @@ func DCGMXidReported(ctx context.Context, k *kube.Client, ns string, xid int, ti
 // the target GPU index via DCGM_FI_DEV_XID_ERRORS, then asserts every other GPU
 // stays at xid 0. It never restarts dcgm-exporter, so it validates that a
 // runtime, single-GPU failure injection (via nvml-mock-ctl) propagates to an
-// already-running consumer through the bind-mounted overlay.
-func DCGMXidReportedForGPU(ctx context.Context, k *kube.Client, ns string, targetGPU, xid int, timeout, poll time.Duration) {
+// already-running consumer through the bind-mounted overlay. `node` pins the
+// scraped exporter to that specific node's DaemonSet pod, so the byGPU view
+// reflects only that node's mock — required on multi-node clusters where
+// exporter and mock both run per-node.
+func DCGMXidReportedForGPU(ctx context.Context, k *kube.Client, ns, node string, targetGPU, xid int, timeout, poll time.Duration) {
 	ginkgo.GinkgoHelper()
 
 	WaitDaemonSetReady(ctx, k, ns, dcgmExporterDaemonSet, timeout, poll)
-	pod := dcgmExporterPod(ctx, k, ns)
+	pod := dcgmExporterPod(ctx, k, ns, node)
 
 	ginkgo.By(fmt.Sprintf("waiting for %s == %d on GPU %d (runtime injection, no restart)", fiDevXidErrors, xid, targetGPU))
 	var byGPU map[int]float64
@@ -167,11 +184,12 @@ func DCGMXidReportedForGPU(ctx context.Context, k *kube.Client, ns string, targe
 // different (simulator-driven) reading. It never restarts dcgm-exporter, so it
 // validates that a runtime, single-GPU temperature pin (via nvml-mock-ctl)
 // propagates to an already-running consumer through the bind-mounted overlay.
-func DCGMTempReportedForGPU(ctx context.Context, k *kube.Client, ns string, targetGPU, wantC int, timeout, poll time.Duration) {
+// `node` pins the scraped exporter to a specific node (see DCGMXidReportedForGPU).
+func DCGMTempReportedForGPU(ctx context.Context, k *kube.Client, ns, node string, targetGPU, wantC int, timeout, poll time.Duration) {
 	ginkgo.GinkgoHelper()
 	// GPU temperature is a whole-degree integer in the mock; a 0.5 tolerance
 	// asserts an exact match while staying float-formatting agnostic.
-	dcgmGaugeReportedForGPU(ctx, k, ns, fiDevGPUTemp, targetGPU, float64(wantC), 0.5, timeout, poll)
+	dcgmGaugeReportedForGPU(ctx, k, ns, node, fiDevGPUTemp, targetGPU, float64(wantC), 0.5, timeout, poll)
 }
 
 // DCGMPowerReportedForGPU polls until dcgm-exporter reports ~wantW as
@@ -179,11 +197,12 @@ func DCGMTempReportedForGPU(ctx context.Context, k *kube.Client, ns string, targ
 // GPU keeps a different (simulator-driven) reading. Like the temperature
 // variant it never restarts dcgm-exporter, validating that a runtime power pin
 // (via nvml-mock-ctl) reaches an already-running consumer through the overlay.
-func DCGMPowerReportedForGPU(ctx context.Context, k *kube.Client, ns string, targetGPU, wantW int, timeout, poll time.Duration) {
+// `node` pins the scraped exporter to a specific node (see DCGMXidReportedForGPU).
+func DCGMPowerReportedForGPU(ctx context.Context, k *kube.Client, ns, node string, targetGPU, wantW int, timeout, poll time.Duration) {
 	ginkgo.GinkgoHelper()
 	// dcgm-exporter reports power in watts; the mock has zero variance under a
 	// pin, so a 1W tolerance only absorbs float formatting.
-	dcgmGaugeReportedForGPU(ctx, k, ns, fiDevPowerUsage, targetGPU, float64(wantW), 1, timeout, poll)
+	dcgmGaugeReportedForGPU(ctx, k, ns, node, fiDevPowerUsage, targetGPU, float64(wantW), 1, timeout, poll)
 }
 
 // dcgmGaugeReportedForGPU polls until dcgm-exporter reports a value within tol
@@ -191,11 +210,11 @@ func DCGMPowerReportedForGPU(ctx context.Context, k *kube.Client, ns string, tar
 // from want by more than tol (i.e. the change is scoped to the target). It
 // never restarts dcgm-exporter, validating runtime-overlay propagation to an
 // already-running consumer.
-func dcgmGaugeReportedForGPU(ctx context.Context, k *kube.Client, ns, metric string, targetGPU int, want, tol float64, timeout, poll time.Duration) {
+func dcgmGaugeReportedForGPU(ctx context.Context, k *kube.Client, ns, node, metric string, targetGPU int, want, tol float64, timeout, poll time.Duration) {
 	ginkgo.GinkgoHelper()
 
 	WaitDaemonSetReady(ctx, k, ns, dcgmExporterDaemonSet, timeout, poll)
-	pod := dcgmExporterPod(ctx, k, ns)
+	pod := dcgmExporterPod(ctx, k, ns, node)
 
 	ginkgo.By(fmt.Sprintf("waiting for %s ~= %g on GPU %d (runtime change, no restart)", metric, want, targetGPU))
 	var byGPU map[int]float64
@@ -220,12 +239,32 @@ func dcgmGaugeReportedForGPU(ctx context.Context, k *kube.Client, ns, metric str
 	}
 }
 
-func dcgmExporterPod(ctx context.Context, k *kube.Client, ns string) string {
+// dcgmExporterPod returns a dcgm-exporter pod name. When node is empty, the
+// first pod matching the selector wins (the multi-pod-agnostic path used by
+// aggregate assertions like DCGMDeviceMetrics and DCGMXidReported). When node
+// is non-empty, only a running pod scheduled on that node qualifies — required
+// for per-GPU assertions that must correlate with a specific mock instance:
+// dcgm-exporter runs as a DaemonSet and reports only its own node's GPUs, so
+// on a multi-node cluster the "which exporter" question is load-bearing.
+func dcgmExporterPod(ctx context.Context, k *kube.Client, ns, node string) string {
 	ginkgo.GinkgoHelper()
-	pod, err := k.FirstPodName(ctx, ns, dcgmExporterSelector)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "find dcgm-exporter pod")
-	gomega.Expect(pod).NotTo(gomega.BeEmpty(), "dcgm-exporter pod not found in %s", ns)
-	return pod
+	if node == "" {
+		pod, err := k.FirstPodName(ctx, ns, dcgmExporterSelector)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "find dcgm-exporter pod")
+		gomega.Expect(pod).NotTo(gomega.BeEmpty(), "dcgm-exporter pod not found in %s", ns)
+		return pod
+	}
+	names, err := k.RunningPodNames(ctx, ns, dcgmExporterSelector)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "list dcgm-exporter pods in %s", ns)
+	for _, name := range names {
+		on, nodeErr := k.PodNode(ctx, ns, name)
+		gomega.Expect(nodeErr).NotTo(gomega.HaveOccurred(), "read node of %s", name)
+		if on == node {
+			return name
+		}
+	}
+	ginkgo.Fail(fmt.Sprintf("no running dcgm-exporter pod on node %s in %s", node, ns))
+	return ""
 }
 
 // scrapeDCGM fetches the exporter's Prometheus text via the API-server pod proxy.

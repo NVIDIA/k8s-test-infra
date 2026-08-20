@@ -19,6 +19,7 @@ package kubernetes
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -28,7 +29,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	nfdclient "sigs.k8s.io/node-feature-discovery/api/generated/clientset/versioned"
@@ -42,7 +43,7 @@ func GetNonControlPlaneNodes(ctx context.Context, cli clientset.Interface) ([]co
 		return nil, err
 	}
 	if len(nodeList.Items) == 0 {
-		return nil, fmt.Errorf("no nodes found in the cluster")
+		return nil, errors.New("no nodes found in the cluster")
 	}
 
 	controlPlaneTaint := corev1.Taint{
@@ -57,11 +58,12 @@ func GetNonControlPlaneNodes(ctx context.Context, cli clientset.Interface) ([]co
 	}
 
 	if len(out) == 0 {
-		return nil, fmt.Errorf("no non-control-plane nodes found in the cluster")
+		return nil, errors.New("no non-control-plane nodes found in the cluster")
 	}
 	return out, nil
 }
 
+// GetNode returns the node in the slice matching nodeName, or a zero-value node if absent.
 func GetNode(nodes []corev1.Node, nodeName string) corev1.Node {
 	for _, node := range nodes {
 		if node.Name == nodeName {
@@ -73,6 +75,8 @@ func GetNode(nodes []corev1.Node, nodeName string) corev1.Node {
 
 // CleanupNode deletes all NFD/GFD related metadata from the Node object, i.e.
 // labels and annotations
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func CleanupNode(ctx context.Context, cs clientset.Interface) {
 	// Per-node cleanup function
 	cleanup := func(nodeName string) error {
@@ -167,6 +171,7 @@ func CleanupNode(ctx context.Context, cs clientset.Interface) {
 	}
 }
 
+// CleanupNFDObjects deletes NodeFeature and NodeFeatureRule objects in the given namespace.
 func CleanupNFDObjects(ctx context.Context, cli *nfdclient.Clientset, namespace string) {
 	cleanupNodeFeatureRules(ctx, cli)
 	cleanupNodeFeatures(ctx, cli, namespace)
@@ -175,7 +180,7 @@ func CleanupNFDObjects(ctx context.Context, cli *nfdclient.Clientset, namespace 
 // cleanupNodeFeatures deletes all NodeFeature objects in the given namespace
 func cleanupNodeFeatures(ctx context.Context, cli *nfdclient.Clientset, namespace string) {
 	nfs, err := cli.NfdV1alpha1().NodeFeatures(namespace).List(ctx, metav1.ListOptions{})
-	if errors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
 		// Omitted error, nothing to do.
 		return
 	}
@@ -185,7 +190,7 @@ func cleanupNodeFeatures(ctx context.Context, cli *nfdclient.Clientset, namespac
 		ginkgo.By("[Cleanup]\tDeleting NodeFeature objects from namespace " + namespace)
 		for _, nf := range nfs.Items {
 			err = cli.NfdV1alpha1().NodeFeatures(namespace).Delete(ctx, nf.Name, metav1.DeleteOptions{})
-			if errors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) {
 				// Omitted error
 				continue
 			}
@@ -197,7 +202,7 @@ func cleanupNodeFeatures(ctx context.Context, cli *nfdclient.Clientset, namespac
 // cleanupNodeFeatureRules deletes all NodeFeatureRule objects
 func cleanupNodeFeatureRules(ctx context.Context, cli *nfdclient.Clientset) {
 	nfrs, err := cli.NfdV1alpha1().NodeFeatureRules().List(ctx, metav1.ListOptions{})
-	if errors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
 		// Omitted error, nothing to do.
 		return
 	}
@@ -207,7 +212,7 @@ func cleanupNodeFeatureRules(ctx context.Context, cli *nfdclient.Clientset) {
 		ginkgo.By("[Cleanup]\tDeleting NodeFeatureRule objects from the cluster")
 		for _, nfr := range nfrs.Items {
 			err = cli.NfdV1alpha1().NodeFeatureRules().Delete(ctx, nfr.Name, metav1.DeleteOptions{})
-			if errors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) {
 				// Omitted error
 				continue
 			}
@@ -224,7 +229,7 @@ func WaitForDeletion(resourceName string, checkFunc func() error) error {
 	start := time.Now()
 	for {
 		err := checkFunc()
-		if err != nil && errors.IsNotFound(err) {
+		if err != nil && apierrors.IsNotFound(err) {
 			return nil
 		}
 		if time.Since(start) > timeout {
@@ -239,7 +244,7 @@ func CleanupCRDs(ctx context.Context, crds []string, extClient extclient.Interfa
 	for _, crd := range crds {
 		err := extClient.ApiextensionsV1().CustomResourceDefinitions().Delete(ctx, crd, metav1.DeleteOptions{})
 		if err != nil {
-			if errors.IsNotFound(err) {
+			if apierrors.IsNotFound(err) {
 				// Omitted error, nothing to do.
 				continue
 			}
@@ -249,7 +254,7 @@ func CleanupCRDs(ctx context.Context, crds []string, extClient extclient.Interfa
 		_ = WaitForDeletion(crd, func() error {
 			_, err := extClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, crd, metav1.GetOptions{})
 			if err != nil {
-				if errors.IsNotFound(err) {
+				if apierrors.IsNotFound(err) {
 					return nil
 				}
 				return err

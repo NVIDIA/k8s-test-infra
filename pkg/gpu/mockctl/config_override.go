@@ -244,6 +244,89 @@ func NVLinkErrorPatch(rate float64, links []int) map[string]any {
 	return map[string]any{"nvlink_error": block}
 }
 
+// sramErrorTypeKeys maps CLI-friendly SRAM error-type names to the
+// ecc.sram counter they fill. Parity and SEC-DED are the two uncorrectable
+// flavours hardware distinguishes; correctable errors have no source
+// breakdown.
+var sramErrorTypeKeys = map[string]string{
+	"correctable": "correctable",
+	"parity":      "uncorrectable_parity",
+	"secded":      "uncorrectable_secded",
+}
+
+// sramSourceKeys maps CLI-friendly unit names to the
+// ecc.sram.uncorrectable_sources field that attributes errors to them.
+var sramSourceKeys = map[string]string{
+	"l2":              "l2",
+	"sm":              "sm",
+	"microcontroller": "microcontroller",
+	"mcu":             "microcontroller",
+	"pcie":            "pcie",
+	"other":           "other",
+}
+
+// allSramSourceKeys is the full set of source fields, written as an all-zero
+// baseline so a patch represents exactly the requested attribution.
+var allSramSourceKeys = []string{"l2", "sm", "microcontroller", "pcie", "other"}
+
+// SramECCPatch builds a config override patch that injects count SRAM ECC
+// errors of one type (correctable, uncorrectable parity or uncorrectable
+// SEC-DED), attributed to one reporting unit, optionally raising the
+// SRAM error threshold flag. A count of 0 heals the device.
+//
+// The count lands in both the volatile and aggregate scopes: hardware that has
+// just taken an SRAM fault reports it in both, and pinning only one would leave
+// the other reading as a GPU whose history disagrees with its present.
+//
+// Only the ecc.sram sub-block is written, never the whole ecc block: replacing
+// ecc would drop mode_current, and a GPU with ECC off reports no SRAM counters
+// at all, so the injection would erase itself. Within ecc.sram the patch is
+// authoritative — every counter and source is written — so repeated
+// invocations replace rather than accumulate.
+func SramECCPatch(count uint64, errorType, source string, thresholdExceeded bool) (map[string]any, error) {
+	counterKey, ok := sramErrorTypeKeys[strings.ToLower(strings.TrimSpace(errorType))]
+	if !ok {
+		return nil, fmt.Errorf("unknown SRAM error type %q (want correctable|parity|secded)", errorType)
+	}
+	correctable := counterKey == "correctable"
+	source = strings.ToLower(strings.TrimSpace(source))
+	if correctable && source != "" {
+		return nil, errors.New("--source only applies to uncorrectable SRAM errors")
+	}
+	sourceKey := ""
+	if !correctable {
+		if source == "" {
+			source = "other" // unattributed errors land in the catch-all bucket
+		}
+		if sourceKey, ok = sramSourceKeys[source]; !ok {
+			return nil, fmt.Errorf("unknown SRAM error source %q (want l2|sm|microcontroller|pcie|other)", source)
+		}
+	}
+
+	counts := func() map[string]any {
+		c := map[string]any{"correctable": 0, "uncorrectable_parity": 0, "uncorrectable_secded": 0}
+		c[counterKey] = count
+		return c
+	}
+	sources := map[string]any{}
+	for _, k := range allSramSourceKeys {
+		sources[k] = 0
+	}
+	if sourceKey != "" {
+		sources[sourceKey] = count
+	}
+	return map[string]any{
+		"ecc": map[string]any{
+			"sram": map[string]any{
+				"volatile":              counts(),
+				"aggregate":             counts(),
+				"uncorrectable_sources": sources,
+				"threshold_exceeded":    thresholdExceeded,
+			},
+		},
+	}, nil
+}
+
 // throttleReasonKeys maps CLI-friendly throttle reason names to the
 // clocks_throttle_reasons config field they enable. The canonical JSON keys are
 // accepted directly; short aliases cover the common thermal/power cases.
@@ -362,6 +445,8 @@ func Validate(base *engine.DeviceConfig, patch map[string]any) error {
 // A numeric index is bounds-checked against cfg.NumDevices when available, so
 // a typo like `--gpu 8` on an 8-GPU node fails loudly instead of silently
 // writing overrides to a bucket no device ever reads.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func ResolveTarget(spec string, cfg *engine.Config) (Target, error) {
 	if spec == "all" {
 		return Target{All: true}, nil

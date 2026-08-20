@@ -21,6 +21,8 @@ func GetFieldSpec(buf []byte, specOff, width int) uint32 {
 }
 
 // SetField writes a libibmad-style bit field (fields.c _set_field / 3^idx).
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func SetField(buf []byte, bitOff, bitLen int, val uint32) {
 	if len(buf) == 0 {
 		return
@@ -69,6 +71,8 @@ func SetField(buf []byte, bitOff, bitLen int, val uint32) {
 }
 
 // GetField reads a libibmad-style bit field (fields.c _get_field).
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func GetField(buf []byte, bitOff, bitLen int) uint32 {
 	if len(buf) == 0 {
 		return 0

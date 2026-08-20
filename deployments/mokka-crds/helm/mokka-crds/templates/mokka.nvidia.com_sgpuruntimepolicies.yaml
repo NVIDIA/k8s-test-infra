@@ -1,0 +1,300 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: sgpuruntimepolicies.mokka.nvidia.com
+spec:
+  group: mokka.nvidia.com
+  names:
+    categories:
+    - mokka
+    kind: SGPURuntimePolicy
+    listKind: SGPURuntimePolicyList
+    plural: sgpuruntimepolicies
+    shortNames:
+    - srpol
+    singular: sgpuruntimepolicy
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.targetRef.name
+      name: Inventory
+      type: string
+    - jsonPath: .status.rackGroupsSummary
+      name: RackGroups
+      type: string
+    - jsonPath: .status.rackIndexesSummary
+      name: Racks
+      type: string
+    - jsonPath: .status.nodeIndexesSummary
+      name: Nodes
+      type: string
+    - jsonPath: .status.gpuIndexesSummary
+      name: GPUs
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SGPURuntimePolicy applies a sparse RuntimeState override to a subset of
+          an SGPUInventory.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SGPURuntimePolicySpec pairs a target selector with the RuntimeState
+              to apply.
+            properties:
+              runtime:
+                description: |-
+                  RuntimeState is the effective runtime settings of a simulated GPU.
+                  Sparse: omitted fields inherit; explicit zero is a set value.
+                properties:
+                  deviceState:
+                    description: DeviceState is a simulated GPU health state.
+                    enum:
+                    - Healthy
+                    - Degraded
+                    - Failed
+                    type: string
+                  modes:
+                    description: RuntimeModes is the persistent NVML/CUDA mode settings.
+                    properties:
+                      accounting:
+                        enum:
+                        - Enabled
+                        - Disabled
+                        type: string
+                      compute:
+                        enum:
+                        - Default
+                        - Exclusive
+                        - Prohibited
+                        type: string
+                      ecc:
+                        enum:
+                        - Enabled
+                        - Disabled
+                        type: string
+                      mig:
+                        enum:
+                        - Enabled
+                        - Disabled
+                        type: string
+                      persistence:
+                        enum:
+                        - Enabled
+                        - Disabled
+                        type: string
+                    type: object
+                  telemetry:
+                    description: RuntimeTelemetry is the synthetic NVML telemetry.
+                    properties:
+                      clocks:
+                        description: ClocksTelemetry reports current clock rates.
+                        properties:
+                          graphicsMHz:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          memoryMHz:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          smMHz:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          videoMHz:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                        type: object
+                      performanceState:
+                        description: NVML P-state, e.g. "P0".
+                        pattern: ^P[0-9]+$
+                        type: string
+                      power:
+                        description: PowerTelemetry drives synthetic power draw.
+                        properties:
+                          drawMilliWatts:
+                            format: int64
+                            minimum: 0
+                            type: integer
+                          mode:
+                            enum:
+                            - Fixed
+                            - Pattern
+                            type: string
+                        type: object
+                      temperature:
+                        description: TemperatureTelemetry drives synthetic GPU/memory
+                          temperature.
+                        properties:
+                          gpuCelsius:
+                            format: int32
+                            type: integer
+                          memoryCelsius:
+                            format: int32
+                            type: integer
+                          mode:
+                            enum:
+                            - Fixed
+                            - Pattern
+                            type: string
+                        type: object
+                      utilization:
+                        description: UtilizationTelemetry drives synthetic GPU/memory
+                          utilization.
+                        properties:
+                          mode:
+                            enum:
+                            - Pattern
+                            - Fixed
+                            type: string
+                          pattern:
+                            description: UtilizationPattern shapes the generated utilization
+                              curve.
+                            properties:
+                              gpuPercent:
+                                description: PercentRange is a min/max percentage
+                                  bound.
+                                properties:
+                                  maximum:
+                                    format: int32
+                                    maximum: 100
+                                    minimum: 0
+                                    type: integer
+                                  minimum:
+                                    format: int32
+                                    maximum: 100
+                                    minimum: 0
+                                    type: integer
+                                required:
+                                - maximum
+                                - minimum
+                                type: object
+                              memoryPercent:
+                                description: PercentRange is a min/max percentage
+                                  bound.
+                                properties:
+                                  maximum:
+                                    format: int32
+                                    maximum: 100
+                                    minimum: 0
+                                    type: integer
+                                  minimum:
+                                    format: int32
+                                    maximum: 100
+                                    minimum: 0
+                                    type: integer
+                                required:
+                                - maximum
+                                - minimum
+                                type: object
+                              type:
+                                enum:
+                                - Steady
+                                - Bursty
+                                - Wave
+                                type: string
+                            type: object
+                        type: object
+                    type: object
+                type: object
+              targetRef:
+                description: |-
+                  PolicyTargetRef selects the fan-out scope. Each optional slice narrows
+                  the level above.
+                properties:
+                  gpuIndexes:
+                    items:
+                      format: int32
+                      type: integer
+                    maxItems: 64
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: set
+                  group:
+                    enum:
+                    - mokka.nvidia.com
+                    type: string
+                  kind:
+                    enum:
+                    - SGPUInventory
+                    type: string
+                  name:
+                    minLength: 1
+                    type: string
+                  nodeIndexes:
+                    items:
+                      format: int32
+                      type: integer
+                    maxItems: 64
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: set
+                  rackGroups:
+                    items:
+                      type: string
+                    maxItems: 64
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: set
+                  rackIndexes:
+                    items:
+                      format: int32
+                      type: integer
+                    maxItems: 64
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: set
+                required:
+                - group
+                - kind
+                - name
+                type: object
+            required:
+            - targetRef
+            type: object
+          status:
+            description: |-
+              SGPURuntimePolicyStatus holds comma-joined denormalizations of
+              spec.targetRef axes for print columns.
+            properties:
+              gpuIndexesSummary:
+                type: string
+              nodeIndexesSummary:
+                type: string
+              rackGroupsSummary:
+                type: string
+              rackIndexesSummary:
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

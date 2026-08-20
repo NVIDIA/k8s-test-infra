@@ -5,6 +5,7 @@ package daemon
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -48,7 +49,7 @@ func (s *Server) handleVerbsOpen(c net.Conn, req protocol.VerbsOpenReq) error {
 	}
 	if !found {
 		return protocol.WriteMessage(c, protocol.TypeVerbsOpen, protocol.VerbsOpenResp{
-			Error: fmt.Sprintf("unknown device %s", req.DevName),
+			Error: "unknown device " + req.DevName,
 		})
 	}
 	s.verbsMu.Lock()
@@ -135,7 +136,7 @@ func parseUverbsIndex(dev string) (int, error) {
 
 func (s *Server) synthesizeVerbsWrite(h *verbsHandle, data []byte) ([]byte, error) {
 	if len(data) < 8 {
-		return nil, fmt.Errorf("verbs cmd too short")
+		return nil, errors.New("verbs cmd too short")
 	}
 	cmd := binary.LittleEndian.Uint32(data[0:4])
 	// out_words is u16 at offset 4; response u64 at 8 — we return payload via read(2).

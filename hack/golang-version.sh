@@ -17,6 +17,14 @@ SCRIPTS_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )"/../hack && pwd )"
 
 DOCKERFILE_ROOT=${SCRIPTS_DIR}/../deployments/devel
 
-GOLANG_VERSION=$(grep -E "^FROM golang:.*$" ${DOCKERFILE_ROOT}/Dockerfile | grep -oE "[0-9\.]+")
+# Take the tag verbatim from the first `FROM golang:` line, stopping at the
+# variant suffix (`-bookworm`, `-alpine`) so only the toolchain version remains.
+#
+# Matching digit runs instead (`grep -oE "[0-9\.]+"`) breaks on prerelease tags:
+# `1.27rc1` matches twice, and the result reaches the caller as "1.27 1".
+# Consumers require one whitespace-free token — variables.yaml writes it into
+# $GITHUB_OUTPUT and run.sh passes it as a --build-arg.
+GOLANG_VERSION=$(grep -E "^FROM golang:" "${DOCKERFILE_ROOT}/Dockerfile" | head -1 \
+    | sed -E 's/^FROM golang:([^[:space:]-]+).*/\1/')
 
-echo $GOLANG_VERSION
+echo "$GOLANG_VERSION"

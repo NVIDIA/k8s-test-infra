@@ -37,7 +37,8 @@ type fakeKubelet struct {
 }
 
 func (f *fakeKubelet) List(context.Context, *podresourcesv1.ListPodResourcesRequest) (
-	*podresourcesv1.ListPodResourcesResponse, error) {
+	*podresourcesv1.ListPodResourcesResponse, error,
+) {
 	if f.err != nil {
 		return nil, f.err
 	}

@@ -79,8 +79,8 @@ type RootComplex struct {
 	Devices []string `json:"devices" yaml:"devices"`
 }
 
-// bdfRE matches a canonical Linux sysfs BDF ("0000:07:00.0"). NVML's
-// `busIdLegacy` 8-digit form is intentionally rejected here so the
+// bdfRE matches a canonical Linux sysfs BDF ("0000:07:00.0"). The 8-digit
+// domain form NVML reports in `busId` is intentionally rejected here so the
 // renderer fails loudly if a profile still carries it.
 var bdfRE = regexp.MustCompile(`^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]$`)
 
@@ -97,6 +97,8 @@ var rootRE = regexp.MustCompile(`^pci[0-9a-fA-F]{4}:[0-9a-fA-F]{2}$`)
 // The reverse implication is intentionally NOT enforced: profiles may
 // declare devices that aren't part of the rendered topology yet, and
 // the renderer treats those as "no sysfs entry" rather than an error.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func (p *Profile) Validate() error {
 	if p.PCIeTopology == nil {
 		return nil
@@ -124,7 +126,7 @@ func (p *Profile) Validate() error {
 
 		for _, bdf := range rc.Devices {
 			if !bdfRE.MatchString(bdf) {
-				return fmt.Errorf("pcie_topology: invalid device BDF %q under %q (want DDDD:BB:DD.F; the 8-digit busIdLegacy form is not accepted)", bdf, rc.ID)
+				return fmt.Errorf("pcie_topology: invalid device BDF %q under %q (want DDDD:BB:DD.F; the 8-digit busId form is not accepted)", bdf, rc.ID)
 			}
 			lb := strings.ToLower(bdf)
 			if _, dup := seenBDF[lb]; dup {

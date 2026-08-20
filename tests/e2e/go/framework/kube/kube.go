@@ -23,6 +23,7 @@ package kube
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -145,6 +146,9 @@ type envVar struct {
 }
 
 type daemonSetObj struct {
+	Metadata struct {
+		Generation int64 `json:"generation"`
+	} `json:"metadata"`
 	Spec struct {
 		Template struct {
 			Spec struct {
@@ -155,8 +159,10 @@ type daemonSetObj struct {
 		} `json:"template"`
 	} `json:"spec"`
 	Status struct {
-		DesiredNumberScheduled int `json:"desiredNumberScheduled"`
-		NumberReady            int `json:"numberReady"`
+		ObservedGeneration     int64 `json:"observedGeneration"`
+		DesiredNumberScheduled int   `json:"desiredNumberScheduled"`
+		UpdatedNumberScheduled int   `json:"updatedNumberScheduled"`
+		NumberReady            int   `json:"numberReady"`
 	} `json:"status"`
 }
 
@@ -177,7 +183,7 @@ func (c *Client) FirstNodeName(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if len(nl.Items) == 0 {
-		return "", fmt.Errorf("no nodes in cluster")
+		return "", errors.New("no nodes in cluster")
 	}
 	return nl.Items[0].Metadata.Name, nil
 }
@@ -321,14 +327,30 @@ func (c *Client) ConfigMapData(ctx context.Context, ns, name, key string) (strin
 	return v, nil
 }
 
-// DaemonSetReady reports whether all desired DaemonSet pods are ready.
+// rolledOutAndReady reports whether the DaemonSet's current spec is fully rolled
+// out and every desired pod is ready. A ready count alone would also accept a
+// DaemonSet that has not started rolling yet, whose ready pods still belong to
+// the previous generation.
+func (ds daemonSetObj) rolledOutAndReady() bool {
+	// A status the controller has not caught up to describes the previous spec,
+	// so it cannot answer whether this one rolled out.
+	if ds.Status.ObservedGeneration < ds.Metadata.Generation {
+		return false
+	}
+	d := ds.Status.DesiredNumberScheduled
+	return d > 0 &&
+		ds.Status.UpdatedNumberScheduled == d &&
+		ds.Status.NumberReady == d
+}
+
+// DaemonSetReady reports whether every desired DaemonSet pod is ready and
+// running the current spec.
 func (c *Client) DaemonSetReady(ctx context.Context, ns, name string) (bool, error) {
 	var ds daemonSetObj
 	if err := c.getJSON(ctx, &ds, "daemonset", "-n", ns, name); err != nil {
 		return false, err
 	}
-	d := ds.Status.DesiredNumberScheduled
-	return d > 0 && ds.Status.NumberReady == d, nil
+	return ds.rolledOutAndReady(), nil
 }
 
 // DaemonSetContainerEnv returns the value of an env var on the DaemonSet's
@@ -428,9 +450,13 @@ func (c *Client) DeletePodsByLabel(ctx context.Context, ns, selector string) err
 	return err
 }
 
-// ResourceSliceGPUTotal sums devices across all ResourceSlices, pinned to the
-// served resource.k8s.io/v1beta1 (matches kind-dra-config.yaml).
-func (c *Client) ResourceSliceGPUTotal(ctx context.Context) (int, error) {
+// ResourceSliceDeviceCounts returns len(Devices) for every ResourceSlice
+// currently published, pinned to the served resource.k8s.io/v1beta1. The DRA
+// driver publishes one ResourceSlice per node with the mock's advertised GPU
+// count, so per-slice counts are the load-bearing invariant — summing them
+// blends node cardinality with per-node accuracy and hides regressions
+// (e.g. one worker's mock silently short by a device).
+func (c *Client) ResourceSliceDeviceCounts(ctx context.Context) ([]int, error) {
 	var list struct {
 		Items []struct {
 			Spec struct {
@@ -439,13 +465,13 @@ func (c *Client) ResourceSliceGPUTotal(ctx context.Context) (int, error) {
 		} `json:"items"`
 	}
 	if err := c.getJSON(ctx, &list, "resourceslices.v1beta1.resource.k8s.io"); err != nil {
-		return 0, err
+		return nil, err
 	}
-	total := 0
-	for _, it := range list.Items {
-		total += len(it.Spec.Devices)
+	counts := make([]int, len(list.Items))
+	for i, it := range list.Items {
+		counts[i] = len(it.Spec.Devices)
 	}
-	return total, nil
+	return counts, nil
 }
 
 // DescribePod returns `kubectl describe pod` output (failure classification,

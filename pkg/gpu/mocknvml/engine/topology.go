@@ -50,6 +50,11 @@ type NodeFabric struct {
 	hasPCIe bool
 	version uint32
 
+	// c2cEnabled mirrors nvlink.c2c_enabled: an NVLink-C2C link to the host
+	// CPU. Node-level rather than per-device because the link is a property
+	// of the board — every profile that has it has it on every GPU.
+	c2cEnabled bool
+
 	// epoch anchors the deterministic NVLink counter accrual. It is
 	// process-independent so counters grow across separate nvidia-smi
 	// invocations. now is injectable for tests.
@@ -62,6 +67,7 @@ type NodeFabric struct {
 // RemoteKind classifies the far end of an NVLink.
 type RemoteKind uint8
 
+// RemoteKind values classify the remote endpoint of an NVLink.
 const (
 	RemoteNone RemoteKind = iota
 	RemoteGPU
@@ -133,6 +139,17 @@ func capBit(c nvml.NvLinkCapability) uint32 {
 	return uint32(1) << uint(c)
 }
 
+// resolveC2CEnabled reads the node-level nvlink.c2c_enabled flag. A missing
+// config, a missing nvlink block, and an explicit false are all "no C2C link";
+// GetMockC2cMode turns that into ERROR_NOT_SUPPORTED rather than a false
+// reading, so the distinction never reaches a consumer.
+func resolveC2CEnabled(cfg *Config) bool {
+	if cfg == nil || cfg.YAMLConfig == nil || cfg.YAMLConfig.NVLink == nil {
+		return false
+	}
+	return cfg.YAMLConfig.NVLink.C2CEnabled
+}
+
 // BuildNodeFabric constructs the immutable node fabric from the loaded
 // configuration. It never fails: misconfiguration is recorded as warnings
 // (see Validate) rather than blocking startup, matching the project's
@@ -159,6 +176,7 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 		cpusOf:     make([][]int, n),
 		now:        time.Now,
 		epoch:      resolveCounterEpoch(),
+		c2cEnabled: resolveC2CEnabled(cfg),
 	}
 	for i := 0; i < n; i++ {
 		f.nvCount[i] = make([]int, n)
@@ -194,6 +212,7 @@ func BuildNodeFabric(cfg *Config) *NodeFabric {
 	return f
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func (f *NodeFabric) resolveAffinity(yc *YAMLConfig, bdfOfDev []string, bdfToIndex map[string]int) {
 	coresPerNUMA := 0
 	cpuByBDF := map[string][]int{}
@@ -260,6 +279,7 @@ func orderedSwitchBDFs(switches []NVSwitchConfig) []string {
 	return out
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func (f *NodeFabric) resolveLinks(yc *YAMLConfig, n int, bdfOfDev []string, bdfToIndex map[string]int, switchBDFs map[string]bool) {
 	if yc == nil || yc.NVLink == nil {
 		return
@@ -342,6 +362,7 @@ func (f *NodeFabric) resolveLinks(yc *YAMLConfig, n int, bdfOfDev []string, bdfT
 	}
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func resolveLink(lc NVLinkLinkConfig, defaults NVLinkDefaults, version uint32, bw uint64, rate float64, seed uint64, errRate float64, bdfOfDev []string, bdfToIndex map[string]int, switchBDFs map[string]bool) ResolvedLink {
 	state := lc.State
 	if state == "" {
@@ -404,6 +425,7 @@ func resolveLink(lc NVLinkLinkConfig, defaults NVLinkDefaults, version uint32, b
 	}
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func (f *NodeFabric) computeNVCounts() {
 	switchLinks := make([]int, f.numDevices)
 	for i := 0; i < f.numDevices; i++ {
@@ -418,6 +440,8 @@ func (f *NodeFabric) computeNVCounts() {
 				}
 			case RemoteSwitch:
 				switchLinks[i]++
+			default:
+				// RemoteNone / RemoteCPU: not peer-attached; not counted.
 			}
 		}
 	}
@@ -464,6 +488,16 @@ func (f *NodeFabric) Validate() []string {
 
 // NumDevices returns the number of devices modeled by the fabric.
 func (f *NodeFabric) NumDevices() int { return f.numDevices }
+
+// C2CEnabled reports whether the node's nvlink block declares an NVLink-C2C
+// link to the host CPU. Nil-safe: legacy/default mode builds no fabric, and
+// a GPU with no declared NVLink topology has no C2C link either.
+func (f *NodeFabric) C2CEnabled() bool {
+	if f == nil {
+		return false
+	}
+	return f.c2cEnabled
+}
 
 // HasPCIeTopology reports whether root-complex / NUMA facts were supplied.
 func (f *NodeFabric) HasPCIeTopology() bool { return f.hasPCIe }

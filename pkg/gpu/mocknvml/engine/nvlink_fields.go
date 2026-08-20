@@ -126,6 +126,8 @@ func speedFieldLink(fieldID uint32) (int, bool) {
 // NVML return. Unmodeled field ids yield (FieldValueUnsupported, 0,
 // ERROR_NOT_SUPPORTED) so the bridge can mark just that entry unsupported
 // while still succeeding the overall call (matching real NVML semantics).
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func (d *ConfigurableDevice) GetNvLinkFieldValue(fieldID, scopeID uint32) (FieldValueType, uint64, nvml.Return) {
 	f := d.fabric
 	if f == nil {

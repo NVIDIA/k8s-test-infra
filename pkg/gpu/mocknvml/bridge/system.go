@@ -16,7 +16,6 @@
 // - nvmlSystemGetDriverVersion
 // - nvmlSystemGetNVMLVersion
 // - nvmlSystemGetCudaDriverVersion, nvmlSystemGetCudaDriverVersion_v2
-
 package main
 
 /*
@@ -29,6 +28,7 @@ package main
 #include "nvml_types.h"
 */
 import "C"
+
 import (
 	"unsafe"
 
@@ -58,6 +58,29 @@ func nvmlSystemGetNVMLVersion(version unsafe.Pointer, length C.uint) C.nvmlRetur
 		return toReturn(ret)
 	}
 	return goStringToC(nvmlVersion, (*C.char)(version), length)
+}
+
+//export nvmlSystemGetProcessName
+func nvmlSystemGetProcessName(pid C.uint, name *C.char, length C.uint) C.nvmlReturn_t {
+	if name == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	// `nvidia-smi --query-compute-apps=...,process_name` resolves each pid it got
+	// from the internal process list through this call, one call per process.
+	// The other process views do not: the default table and `-q` read the name
+	// straight out of the entry's inline name buffer.
+	//
+	// Unknown pids keep the previous stub behaviour rather than answering
+	// NOT_SUPPORTED outright, so version gating (FUNCTION_NOT_FOUND on drivers
+	// without this symbol) and strict mode still apply to lookups we cannot
+	// satisfy. A configured process is answered from its entry, so one left
+	// without a `name:` resolves to the empty string instead of masquerading as
+	// an unknown pid.
+	p, ok := engine.GetEngine().ProcessByPID(uint32(pid))
+	if !ok {
+		return stubReturn("nvmlSystemGetProcessName")
+	}
+	return goStringToC(p.Name, name, length)
 }
 
 //export nvmlSystemGetCudaDriverVersion

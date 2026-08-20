@@ -1,6 +1,8 @@
 .idea
 
 # Build artifacts
+bin
+dist
 *.so
 *.dll
 *.dylib
@@ -25,3 +27,5 @@ docs/superpowers/
 docs/magi/
 .worktrees/
 .spike-dcgm/
+
+tmp

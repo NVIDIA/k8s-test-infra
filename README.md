@@ -25,7 +25,7 @@ No physical NVIDIA hardware required.
 
 ```bash
 # 1. Create cluster
-kind create cluster --name gpu-test
+kind create cluster --name mokka
 
 # 2. Load the published image (or build locally with: docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .)
 # The published image is multi-arch. `kind load docker-image` cannot load a
@@ -34,7 +34,7 @@ kind create cluster --name gpu-test
 ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 docker pull ghcr.io/nvidia/nvml-mock:latest
 docker save --platform "linux/${ARCH}" ghcr.io/nvidia/nvml-mock:latest -o nvml-mock.tar
-kind load image-archive nvml-mock.tar --name gpu-test
+kind load image-archive nvml-mock.tar --name mokka
 
 # 3. Install
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock

@@ -12,25 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Go/Ginkgo nvml-mock E2E. The harness under tests/e2e owns lifecycle (Kind
-# create/teardown, image build/load, Helm, validation, diagnostics) behind one
-# entrypoint (`make e2e`) that runs identically locally and here. Jobs mirror the
-# legacy nvml-mock E2E workflow and select the related Go scenario by label.
+# Go/Ginkgo nvml-mock E2E. Every scenario job uses `make cluster-create` +
+# `tilt ci` for cluster provisioning and rollout (mirroring the local-dev flow
+# in local/README.md); Ginkgo attaches to the resulting cluster and only
+# observes/asserts, selecting the scenario by Ginkgo label filter.
 #
-# Image distribution: a single `build-nvmlmock-imagebuild-nvmlmock-image` job builds the nvml-mock image once
-# and pushes it to the ephemeral, auth-free ttl.sh registry (works on fork PRs)
-# as E2E_IMAGE (24h TTL). Every leg then pulls that image by digest (immune to
-# tag overwrite on the anonymous registry), tags it to E2E_IMAGE, and the harness
-# kind-loads it (E2E_SKIP_BUILD=true) instead of rebuilding per leg.
+# Image distribution: a single `build-nvmlmock-image` job builds the nvml-mock
+# image once, exports it to a tarball and uploads it as a run-scoped artifact.
+# Every leg downloads that artifact, stages it with `make image-load`, and the
+# harness kind-loads it (E2E_SKIP_BUILD=true) rather than rebuilding per leg.
+# Artifacts need no credentials, so fork PRs work, and no third-party registry
+# can fail the matrix (see issue #566).
 #
 # Kind node image: the standalone `e2e` pilot uses `make cluster-create` (same
 # as local dev), which needs a custom kind-node image with nvidia-container-
-# toolkit pre-baked. A parallel `build-kind-node` job builds and pushes that
-# image to ttl.sh once per commit; the standalone leg pulls by digest, retags
-# to kind-node-nv:latest, and sets KIND_NODE_IMAGE_PREBUILT so `make image-
-# kind-node` is a no-op. Same "build once, share via ttl.sh" pattern as
-# nvml-mock. Other jobs still use kindest/node directly and don't need this.
+# toolkit pre-baked. A parallel `build-kind-node-image` job builds and shares
+# that image the same way; the standalone leg loads it as kind-node-nv:latest
+# and sets KIND_NODE_IMAGE_PREBUILT so `make image-kind-node` is a no-op. Other
+# jobs still use kindest/node directly and don't need this.
 name: nvml-mock E2E (Go)
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -64,24 +68,28 @@ env:
   # Standalone `e2e` job only (pilot): pinned so Tilt version drift doesn't
   # silently change rollout semantics between runs. Bump alongside local dev.
   TILT_VERSION: "0.37.5"
-  # Per-commit, ephemeral (24h TTL) ttl.sh ref the build-nvmlmock-image job publishes and
-  # every leg pulls (by digest, then tags locally to this ref for the harness).
-  # Auth-free, so it also works on fork PRs. 24h (ttl.sh max) keeps the image
-  # alive long enough to re-run individual failed legs without a full rebuild.
-  E2E_IMAGE: ttl.sh/nvml-mock-${{ github.sha }}:24h
+  # Local ref of the pre-built nvml-mock image every leg loads from the
+  # run-scoped artifact build-nvmlmock-image uploads. Deliberately identical to
+  # the harness default in tests/e2e/go/framework/config/config.go, so CI and a
+  # laptop `make e2e` exercise the same image name. No registry host: the image
+  # only ever reaches a node via `kind load`, and the chart's IfNotPresent pull
+  # policy means kubelet never tries to fetch it.
+  E2E_IMAGE: nvml-mock:e2e
+  # Tarball basenames the build jobs write and every consumer reconstructs under
+  # RUNNER_TEMP after downloading. Kept here so producer and consumers cannot
+  # drift apart on the filename.
+  NVMLMOCK_TARBALL: nvml-mock.tar
+  KIND_NODE_TARBALL: kind-node-nv.tar
   E2E_SKIP_BUILD: "true"
   E2E_ARTIFACTS: ${{ github.workspace }}/artifacts/e2e/go
 
 jobs:
-  # Build nvml-mock once and publish to ttl.sh; all legs consume this artifact
-  # instead of rebuilding the image per job (see issue #460).
+  # Build nvml-mock once and hand it to every leg as a run-scoped artifact;
+  # legs load it instead of rebuilding the image per job (see issue #460).
+  # Artifacts need no credentials, so fork PRs work, and no third-party
+  # service sits in the path that can fail the whole matrix (see issue #566).
   build-nvmlmock-image:
     runs-on: ubuntu-latest
-    outputs:
-      # Digest of the pushed image (sha256:...). Legs pull by digest so an
-      # anonymous ttl.sh tag overwrite cannot substitute the image between
-      # this push and their pulls.
-      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -89,30 +97,45 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
-      - name: Build and push nvml-mock image to ttl.sh
-        id: build
+      - name: Build nvml-mock image to a tarball
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
           file: deployments/nvml-mock/Dockerfile
           tags: ${{ env.E2E_IMAGE }}
-          push: true
+          push: false
+          # type=docker bakes the tag into the tarball, so a plain `docker load`
+          # in each leg yields E2E_IMAGE with no re-tagging.
+          outputs: type=docker,dest=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }}
           build-args: |
             GOLANG_VERSION=${{ env.GO_VERSION }}
           cache-from: type=gha,scope=nvml-mock
           cache-to: type=gha,mode=max,scope=nvml-mock
 
+      - name: Upload nvml-mock image artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }}
+          # One day is the shortest retention GitHub allows and is long enough
+          # to re-run a single failed leg.
+          retention-days: 1
+          # Artifacts are keyed per run, so a re-run would otherwise collide
+          # with the previous attempt's upload.
+          overwrite: true
+          if-no-files-found: error
+          # Buildx's docker exporter already writes gzipped layers.
+          compression-level: 0
+
   # Build the custom kind-node image (kindest/node + nvidia-container-toolkit)
-  # once per commit for the standalone `e2e` pilot. Same ttl.sh distribution
-  # pattern as `build-nvmlmock-image` above — the pilot leg pulls by digest and retags
-  # locally to kind-node-nv:latest, then `make cluster-create` sees it and
-  # skips the rebuild (KIND_NODE_IMAGE_PREBUILT=1 in the env). Runs in
-  # parallel with `build-nvmlmock-image`; independent scope on the GHA cache so the
-  # two jobs don't contend for the same key.
+  # once per commit for the standalone `e2e` pilot, and share it the same way
+  # as build-nvmlmock-image: tarball + run-scoped artifact. The pilot leg loads
+  # it as kind-node-nv:latest, then `make cluster-create` sees the ref and skips
+  # the rebuild (KIND_NODE_IMAGE_PREBUILT=1 in the leg's env). Runs in parallel
+  # with build-nvmlmock-image; independent GHA cache scope so the two jobs don't
+  # contend for the same key. Other jobs use kindest/node directly.
   build-kind-node-image:
     runs-on: ubuntu-latest
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -120,15 +143,30 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
-      - name: Build and push kind-node image to ttl.sh
-        id: build
+      - name: Build kind-node image to a tarball
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
-          context: ./local/kind
-          tags: ttl.sh/kind-node-nv-${{ github.sha }}:24h
-          push: true
+          context: ./deployments/kind-nvidia-cdi
+          # Tag the ref `make image-kind-node` expects, so loading the tarball
+          # is all a consumer has to do.
+          tags: kind-node-nv:latest
+          push: false
+          outputs: type=docker,dest=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }}
           cache-from: type=gha,scope=kind-node
           cache-to: type=gha,mode=max,scope=kind-node
+
+      - name: Upload kind-node image artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }}
+          retention-days: 1
+          # Artifacts are keyed per run, so a re-run would otherwise collide
+          # with the previous attempt's upload.
+          overwrite: true
+          if-no-files-found: error
+          # Buildx's docker exporter already writes gzipped layers.
+          compression-level: 0
 
   # TODO: The standalone `e2e` job uses `make cluster-create` +
   # `tilt ci` for the cluster provisioning and nvml-mock rollout, mirroring the
@@ -169,32 +207,36 @@ jobs:
             | sudo tar -xzC /usr/local/bin tilt
           tilt version
 
-      - name: Pull pre-built kind-node image from ttl.sh (pinned by digest)
-        run: |
-          # Same content-addressed pull pattern as nvml-mock: pin by digest so
-          # anonymous ttl.sh tag overwrites cannot substitute a different image
-          # between the build-kind-node push and this pull. Re-tag to the local
-          # ref `make cluster-create` expects (kind-node-nv:latest).
-          pinned="ttl.sh/kind-node-nv-${{ github.sha }}@${{ needs.build-kind-node-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" kind-node-nv:latest
+      - name: Download pre-built kind-node image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
 
       - name: Create Kind cluster (make cluster-create)
         # Uses local/kind/default.kind.yaml (1 CP + 2 workers, a100 / t4). Same
-        # command a laptop dev runs — cluster name is `gpu-test`, context is
-        # kind-gpu-test. KIND_NODE_IMAGE_PREBUILT tells the Makefile to skip
-        # the local `docker build` and trust the tag we just staged from ttl.sh.
+        # command a laptop dev runs — cluster name is `mokka`, context is
+        # kind-mokka. KIND_NODE_IMAGE_PREBUILT tells the Makefile to skip
+        # the local `docker build` and trust the tag we just loaded from the
+        # kind-node-image artifact.
         env:
           KIND_NODE_IMAGE_PREBUILT: "1"
         run: make cluster-create
 
-      - name: Pull pre-built nvml-mock image from ttl.sh
-        # Pre-pulling the image by digest in order to avoid image tag poisoning
-        run: |
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
-          kind load docker-image "${{ env.E2E_IMAGE }}" --name gpu-test
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
 
       - name: Stage CI Helm values for Tilt
         # local/nvml-mock.values.local.yaml is the Tiltfile's "wins over
@@ -214,9 +256,8 @@ jobs:
         # context and runs the standalone specs against Tilt's rollout.
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
-          E2E_ATTACH_EXISTING: "true"
-          E2E_KUBE_CONTEXT: kind-gpu-test
-          E2E_CLUSTER_NAME: gpu-test
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
         run: make e2e
 
       - name: Print diagnostics on failure
@@ -232,7 +273,7 @@ jobs:
           fi
 
   e2e-dra:
-    needs: build-nvmlmock-image
+    needs: [build-nvmlmock-image, build-kind-node-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -250,15 +291,11 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Pull pre-built nvml-mock image from ttl.sh (pinned by digest)
-        run: |
-          # Content-addressed pull: even if the sha-derived tag is overwritten on
-          # the anonymous ttl.sh registry, the digest fetches exactly what
-          # build-nvmlmock-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
-          # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
 
       - name: Install Kind
         run: |
@@ -268,9 +305,43 @@ jobs:
           sudo mv ./kind /usr/local/bin/kind
           kind version
 
+      - name: Install Tilt
+        run: |
+          curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
+            | sudo tar -xzC /usr/local/bin tilt
+          tilt version
+
+      - name: Download pre-built kind-node image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
+
+      - name: Create Kind cluster (make cluster-create)
+        env:
+          KIND_NODE_IMAGE_PREBUILT: "1"
+        run: make cluster-create
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
+
+      - name: Stage CI Helm values for Tilt
+        run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
+
+      - name: Roll out nvml-mock + DRA driver via Tilt (${{ matrix.gpu-profile }})
+        run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --dra --nvmlmock-image="$E2E_IMAGE"
+
       - name: Run DRA E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
         run: make e2e-dra
 
       - name: Print diagnostics on failure
@@ -286,7 +357,7 @@ jobs:
           fi
 
   e2e-gpu-operator:
-    needs: build-nvmlmock-image
+    needs: [build-nvmlmock-image, build-kind-node-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -304,15 +375,11 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Pull pre-built nvml-mock image from ttl.sh (pinned by digest)
-        run: |
-          # Content-addressed pull: even if the sha-derived tag is overwritten on
-          # the anonymous ttl.sh registry, the digest fetches exactly what
-          # build-nvmlmock-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
-          # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
 
       - name: Install Kind
         run: |
@@ -322,9 +389,43 @@ jobs:
           sudo mv ./kind /usr/local/bin/kind
           kind version
 
+      - name: Install Tilt
+        run: |
+          curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
+            | sudo tar -xzC /usr/local/bin tilt
+          tilt version
+
+      - name: Download pre-built kind-node image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
+
+      - name: Create Kind cluster (make cluster-create)
+        env:
+          KIND_NODE_IMAGE_PREBUILT: "1"
+        run: make cluster-create
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
+
+      - name: Stage CI Helm values for Tilt
+        run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
+
+      - name: Roll out nvml-mock + GPU Operator via Tilt (${{ matrix.gpu-profile }})
+        run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --gpu-operator --nvmlmock-image="$E2E_IMAGE"
+
       - name: Run GPU Operator E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
         run: make e2e-gpu-operator
 
       - name: Print diagnostics on failure
@@ -340,7 +441,7 @@ jobs:
           fi
 
   e2e-multi-node:
-    needs: build-nvmlmock-image
+    needs: [build-nvmlmock-image, build-kind-node-image]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -354,15 +455,11 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Pull pre-built nvml-mock image from ttl.sh (pinned by digest)
-        run: |
-          # Content-addressed pull: even if the sha-derived tag is overwritten on
-          # the anonymous ttl.sh registry, the digest fetches exactly what
-          # build-nvmlmock-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
-          # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
 
       - name: Install Kind
         run: |
@@ -372,7 +469,42 @@ jobs:
           sudo mv ./kind /usr/local/bin/kind
           kind version
 
+      - name: Install Tilt
+        run: |
+          curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
+            | sudo tar -xzC /usr/local/bin tilt
+          tilt version
+
+      - name: Download pre-built kind-node image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
+
+      - name: Create Kind cluster (make cluster-create)
+        env:
+          KIND_NODE_IMAGE_PREBUILT: "1"
+        run: make cluster-create
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
+
+      - name: Stage CI Helm values for Tilt
+        run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
+
+      - name: Roll out heterogeneous nvml-mock fleet via Tilt
+        run: tilt ci -- --multi-gpu-profile --nvmlmock-image="$E2E_IMAGE"
+
       - name: Run multi-node E2E
+        env:
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
         run: make e2e-multi-node
 
       - name: Print diagnostics on failure
@@ -388,7 +520,7 @@ jobs:
           fi
 
   e2e-nri:
-    needs: build-nvmlmock-image
+    needs: [build-nvmlmock-image, build-kind-node-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -406,15 +538,11 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Pull pre-built nvml-mock image from ttl.sh (pinned by digest)
-        run: |
-          # Content-addressed pull: even if the sha-derived tag is overwritten on
-          # the anonymous ttl.sh registry, the digest fetches exactly what
-          # build-nvmlmock-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
-          # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
 
       - name: Install Kind
         run: |
@@ -424,9 +552,47 @@ jobs:
           sudo mv ./kind /usr/local/bin/kind
           kind version
 
+      - name: Install Tilt
+        run: |
+          curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
+            | sudo tar -xzC /usr/local/bin tilt
+          tilt version
+
+      - name: Download pre-built kind-node image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
+
+      - name: Create Kind cluster (make cluster-create)
+        env:
+          KIND_NODE_IMAGE_PREBUILT: "1"
+        run: make cluster-create
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
+
+      - name: Stage CI Helm values for Tilt
+        run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
+
+      - name: Roll out nvml-mock via Tilt (${{ matrix.gpu-profile }})
+        # No consumer flag: the scenario's specs each install nvml-mock with
+        # their own NRI/IMEX/topology values, and pre-installing would fight
+        # those upgrades. Containerd's NRI socket is enabled at the cluster
+        # level (see local/kind/default.kind.yaml).
+        run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --nvmlmock-image="$E2E_IMAGE"
+
       - name: Run node-wide NRI injection E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
         run: make e2e-nri
 
       - name: Print diagnostics on failure
@@ -442,7 +608,7 @@ jobs:
           fi
 
   e2e-nfd:
-    needs: build-nvmlmock-image
+    needs: [build-nvmlmock-image, build-kind-node-image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -466,15 +632,11 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
 
-      - name: Pull pre-built nvml-mock image from ttl.sh (pinned by digest)
-        run: |
-          # Content-addressed pull: even if the sha-derived tag is overwritten on
-          # the anonymous ttl.sh registry, the digest fetches exactly what
-          # build-nvmlmock-image pushed. Re-tag to E2E_IMAGE for the harness kind-load and
-          # Helm repo:tag split.
-          pinned="ttl.sh/nvml-mock-${{ github.sha }}@${{ needs.build-nvmlmock-image.outputs.digest }}"
-          docker pull "$pinned"
-          docker tag "$pinned" "${{ env.E2E_IMAGE }}"
+      - name: Download pre-built nvml-mock image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: nvml-mock-image
+          path: ${{ runner.temp }}
 
       - name: Install Kind
         run: |
@@ -484,9 +646,46 @@ jobs:
           sudo mv ./kind /usr/local/bin/kind
           kind version
 
+      - name: Install Tilt
+        run: |
+          curl -fsSL "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" \
+            | sudo tar -xzC /usr/local/bin tilt
+          tilt version
+
+      - name: Download pre-built kind-node image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: kind-node-image
+          path: ${{ runner.temp }}
+
+      - name: Load pre-built kind-node image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.KIND_NODE_TARBALL }} IMAGE=kind-node-nv:latest
+
+      - name: Create Kind cluster (make cluster-create)
+        env:
+          KIND_NODE_IMAGE_PREBUILT: "1"
+        run: make cluster-create
+
+      - name: Load pre-built nvml-mock image
+        run: make image-load TARBALL=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }} IMAGE=${{ env.E2E_IMAGE }}
+
+      - name: Load nvml-mock image into Kind
+        run: kind load docker-image "$E2E_IMAGE" --name mokka
+
+      - name: Stage CI Helm values for Tilt
+        run: cp tests/e2e/ci/nvml-mock.values.yaml local/nvml-mock.values.local.yaml
+
+      - name: Roll out nvml-mock via Tilt (${{ matrix.gpu-profile }})
+        # No consumer flag: the scenario asserts the pci-10de label is absent
+        # before installing NFD itself, so pre-installing NFD would collapse
+        # the provenance check.
+        run: tilt ci -- --gpu-profile="${{ matrix.gpu-profile }}" --nvmlmock-image="$E2E_IMAGE"
+
       - name: Run NFD label-provenance E2E (${{ matrix.gpu-profile }})
         env:
           E2E_PROFILES: ${{ matrix.gpu-profile }}
+          E2E_KUBE_CONTEXT: kind-mokka
+          E2E_CLUSTER_NAME: mokka
         run: make e2e-nfd
 
       - name: Print diagnostics on failure

@@ -3,11 +3,10 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package assets embeds the Kind cluster configs and Kubernetes manifests the
-// scenarios need, so the harness binary is cwd-independent (removes a
-// local/CI drift source). These are COPIES of the files under tests/e2e/; the
-// originals are retained until the bash jobs are deleted in a follow-up
-// (staged migration).
+// Package assets embeds the Kubernetes manifests the scenarios need, so the
+// harness binary is cwd-independent (removes a local/CI drift source). Kind
+// cluster configs used to be embedded here too but are no longer used — the
+// external owner (Tilt / `make cluster-create`) provisions the cluster.
 package assets
 
 import (
@@ -15,30 +14,23 @@ import (
 	"os"
 )
 
-//go:embed kind-dra-config.yaml
-var KindDRAConfig []byte
-
-//go:embed kind-gpu-operator-config.yaml
-var KindGPUOperatorConfig []byte
-
-//go:embed kind-multi-node-config.yaml
-var KindMultiNodeConfig []byte
-
-//go:embed kind-nri-config.yaml
-var KindNRIConfig []byte
-
+// DevicePluginManifest is the embedded device-plugin manifest used by the standalone scenario.
+//
 //go:embed device-plugin-mock.yaml
 var DevicePluginManifest []byte
 
+// NRIGpuAgentManifest is the embedded NRI plugin manifest that injects nvml-mock.
+//
 //go:embed nri-gpu-agent.yaml
 var NRIGpuAgentManifest []byte
 
-//go:embed gpu-operator-values.yaml
-var GPUOperatorValues []byte
-
+// GFDManifest is the embedded GPU Feature Discovery DaemonSet manifest used by the NFD scenario.
+//
 //go:embed gfd-mock.yaml
 var GFDManifest []byte
 
+// ValidatorManifest is the embedded GPU Operator validator manifest used by the standalone scenario.
+//
 //go:embed validator-mock.yaml
 var ValidatorManifest []byte
 

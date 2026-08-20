@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
+// Package kubernetes provides Kubernetes client helpers used by the e2e suite.
 package kubernetes
 
 import (
-	"fmt"
+	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
@@ -55,7 +56,7 @@ func NewGPUJob(name string, image string, gpuCount int) *batchv1.Job {
 							Image: image,
 							Resources: v1.ResourceRequirements{
 								Limits: v1.ResourceList{
-									"nvidia.com/gpu": resource.MustParse(fmt.Sprintf("%d", gpuCount)),
+									"nvidia.com/gpu": resource.MustParse(strconv.Itoa(gpuCount)),
 								},
 							},
 						},

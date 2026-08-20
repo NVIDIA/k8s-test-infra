@@ -159,6 +159,44 @@ type DeviceConfig struct {
 	// links to its NVSwitch. When nil (default) the links report the healthy
 	// baseline. See NVLinkErrorInjectionConfig.
 	NVLinkError *NVLinkErrorInjectionConfig `json:"nvlink_error,omitempty"`
+
+	// Platform describes where the board physically sits in a rack. When nil
+	// (default) nvmlDeviceGetPlatformInfo and nvmlDeviceGetModuleId report
+	// ERROR_NOT_SUPPORTED — matching every board outside a Grace-Blackwell
+	// rack, whose platform cannot report a location.
+	Platform *PlatformConfig `json:"platform,omitempty"`
+}
+
+// PlatformConfig models the platform identity nvmlDeviceGetPlatformInfo
+// exposes, which `nvidia-smi -q` renders as its "Platform Info" block. It is
+// what turns a GPU fault into an actionable physical location on NVL72: module
+// 2 of the tray in slot 9 of a given chassis.
+//
+// The fields live on DeviceConfig so a profile can set any of them per device,
+// but only ModuleID varies between the GPUs of a shipped profile. NVML defines
+// the rest as properties of the node — see PlatformInfo — and a node occupies
+// exactly one tray in one slot of one chassis.
+type PlatformConfig struct {
+	// ChassisSerialNumber identifies the chassis (the rack). Rendered as a
+	// string, so real values are the 13-digit serial read from the backplane
+	// EEPROM. Truncated to 15 characters plus a terminator.
+	ChassisSerialNumber string `json:"chassis_serial_number,omitempty"`
+	// SlotNumber is the absolute physical slot in the chassis, counting
+	// switch trays as well as compute trays (1-27 on NVL72).
+	SlotNumber uint8 `json:"slot_number,omitempty"`
+	// TrayIndex is the position of this tray among compute trays only, so it
+	// runs below SlotNumber on a rack whose switch trays sit in between
+	// (1-18 on NVL72).
+	TrayIndex uint8 `json:"tray_index,omitempty"`
+	// HostID identifies the OS domain within the tray — this node.
+	HostID uint8 `json:"host_id,omitempty"`
+	// PeerType is how this GPU reaches its NVLink peers:
+	// "switch_connected" through an NVSwitch tray, or "direct_connected".
+	// Empty defaults to direct. See PeerType* constants.
+	PeerType string `json:"peer_type,omitempty"`
+	// ModuleID is the id of this GPU within the node, and the one field a
+	// profile is expected to vary per device.
+	ModuleID uint8 `json:"module_id,omitempty"`
 }
 
 // NVLinkErrorInjectionConfig injects NVLink data-link error accrual on a
@@ -345,6 +383,42 @@ type ECCConfig struct {
 	ModePending string           `json:"mode_pending,omitempty"`
 	DefaultMode string           `json:"default_mode,omitempty"`
 	Errors      *ECCErrorsConfig `json:"errors,omitempty"`
+	SRAM        *ECCSramConfig   `json:"sram,omitempty"`
+}
+
+// ECCSramConfig defines the on-die SRAM ECC error state. Hardware counts SRAM
+// errors separately from the DRAM counters in Errors and reports them through
+// their own API (nvmlDeviceGetSramEccErrorStatus), which is why they are a
+// sibling block rather than another memory location under errors.
+type ECCSramConfig struct {
+	Volatile  *ECCSramCountsConfig `json:"volatile,omitempty"`
+	Aggregate *ECCSramCountsConfig `json:"aggregate,omitempty"`
+	// UncorrectableSources attributes the aggregate uncorrectable errors to the
+	// unit that reported them; nvidia-smi renders it as "Aggregate
+	// Uncorrectable SRAM Sources".
+	UncorrectableSources *ECCSramSourcesConfig `json:"uncorrectable_sources,omitempty"`
+	// ThresholdExceeded reports whether the accumulated SRAM errors have passed
+	// the driver's threshold — the signal that the GPU needs servicing rather
+	// than just a count that went up.
+	ThresholdExceeded bool `json:"threshold_exceeded,omitempty"`
+}
+
+// ECCSramCountsConfig defines the SRAM error counts for one scope (volatile,
+// reset at driver reload, or aggregate, persisted in the InfoROM).
+type ECCSramCountsConfig struct {
+	Correctable         uint64 `json:"correctable,omitempty"`
+	UncorrectableParity uint64 `json:"uncorrectable_parity,omitempty"`
+	UncorrectableSECDED uint64 `json:"uncorrectable_secded,omitempty"`
+}
+
+// ECCSramSourcesConfig defines the per-unit breakdown of aggregate
+// uncorrectable SRAM errors.
+type ECCSramSourcesConfig struct {
+	L2              uint64 `json:"l2,omitempty"`
+	SM              uint64 `json:"sm,omitempty"`
+	Microcontroller uint64 `json:"microcontroller,omitempty"`
+	PCIe            uint64 `json:"pcie,omitempty"`
+	Other           uint64 `json:"other,omitempty"`
 }
 
 // ECCErrorsConfig defines ECC error counts
@@ -385,10 +459,23 @@ type RetirementInfoConfig struct {
 
 // RemappedRowsConfig defines remapped rows information
 type RemappedRowsConfig struct {
-	Correctable     int  `json:"correctable,omitempty"`
-	Uncorrectable   int  `json:"uncorrectable,omitempty"`
-	Pending         bool `json:"pending,omitempty"`
-	FailureOccurred bool `json:"failure_occurred,omitempty"`
+	Correctable           int                      `json:"correctable,omitempty"`
+	Uncorrectable         int                      `json:"uncorrectable,omitempty"`
+	Pending               bool                     `json:"pending,omitempty"`
+	FailureOccurred       bool                     `json:"failure_occurred,omitempty"`
+	AvailabilityHistogram *RowRemapHistogramConfig `json:"availability_histogram,omitempty"`
+}
+
+// RowRemapHistogramConfig defines how many memory banks fall into each
+// row-remap availability bucket, i.e. how much spare capacity is left to
+// remap future failures. Row remapping is Ampere and later, so leaving this
+// unset makes the mock report the feature as unsupported.
+type RowRemapHistogramConfig struct {
+	Max     uint32 `json:"max,omitempty"`
+	High    uint32 `json:"high,omitempty"`
+	Partial uint32 `json:"partial,omitempty"`
+	Low     uint32 `json:"low,omitempty"`
+	None    uint32 `json:"none,omitempty"`
 }
 
 // DisplayConfig defines display output settings

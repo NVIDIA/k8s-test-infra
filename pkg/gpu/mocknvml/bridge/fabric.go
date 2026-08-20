@@ -20,7 +20,6 @@
 // dra-driver-nvidia-gpu controller and daemon read these APIs to learn
 // the NVLink domain UUID and clique each GPU belongs to. See issue
 // NVIDIA/k8s-test-infra#304 for the full design.
-
 package main
 
 /*
@@ -31,6 +30,7 @@ package main
 #include "nvml_types.h"
 */
 import "C"
+
 import (
 	"unsafe"
 
@@ -41,9 +41,10 @@ import (
 // FabricStructVersion encodes (size, version) the same way the upstream
 // NVML_STRUCT_VERSION(struct, N) macro does — size in the low 24 bits,
 // version in the high 8 — so callers built against the real NVML header
-// produce matching tags. Used by nvmlDeviceGetGpuFabricInfoV's dispatch
-// switch; pure-Go tests in fabric_dispatch_test.go pin this against
-// go-nvml's STRUCT_VERSION helper.
+// produce matching tags. Named for its first caller,
+// nvmlDeviceGetGpuFabricInfoV's dispatch switch, but it is the encoding every
+// versioned struct uses (see ecc.go); pure-Go tests in fabric_dispatch_test.go
+// pin this against go-nvml's STRUCT_VERSION helper.
 func FabricStructVersion(size uintptr, version uint32) uint32 {
 	return uint32(size) | (version << 24)
 }

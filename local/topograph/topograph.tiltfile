@@ -1,0 +1,40 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loadable Tiltfile: NVIDIA topograph consumer.
+#
+# Exports:
+#   install(nvml_mock_releases) — install topograph on top of the
+#     nvml-mock stack. Returns nothing.
+#
+# Coupling (implicit in the root Tiltfile):
+#   --topograph implies --compute-domain (cliques only exist in that
+#   scenario). --dra is NOT implied: nvidia.com/gpu.clique is a static
+#   Kind node label in local/kind/compute-domain.kind.yaml, so topograph
+#   reads it directly from the Kubernetes API — no runtime label writer
+#   required.
+#
+# Data path:
+#   nvidia.com/gpu.clique static Kind label (per worker, set by
+#   local/kind/compute-domain.kind.yaml) → topograph infiniband-k8s
+#   provider reads the label → writes network.topology.nvidia.com/*
+#   tier topology labels on all nodes.
+
+load('ext://helm_resource', 'helm_resource')
+
+def install(nvml_mock_releases):
+    helm_resource(
+        'topograph',
+        'topograph-repo/topograph',
+        namespace='topograph',
+        flags=[
+            '--create-namespace',
+            '--values', 'local/topograph/topograph.values.yaml',
+            '--timeout', '300s',
+        ],
+        # nvml-mock dep is for Tilt UI ordering; topograph reads from
+        # the Kubernetes API (static node labels) so there is no
+        # technical runtime dependency on nvml-mock.
+        resource_deps=nvml_mock_releases,
+        labels=['topograph'],
+    )

@@ -33,7 +33,7 @@ type Graph struct {
 
 // Build merges local sysfs ports and registered peer ports.
 func Build(local []protocol.PortAdvert, peers map[string]registry.Peer) *Graph {
-	var ports []Port
+	ports := make([]Port, 0, len(local)+len(peers))
 	for _, p := range local {
 		ports = append(ports, Port{
 			PortGUID: p.PortGUID,

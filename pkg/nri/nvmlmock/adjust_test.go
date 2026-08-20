@@ -144,7 +144,7 @@ func requireNoEnvKey(t *testing.T, env []string, key string) {
 	t.Helper()
 	for _, item := range env {
 		if name, _, ok := strings.Cut(item, "="); ok && name == key {
-			t.Fatalf("expected env not to contain key %q, got %q", key, item)
+			require.Failf(t, "unexpected env key", "expected env not to contain key %q, got %q", key, item)
 		}
 	}
 }
