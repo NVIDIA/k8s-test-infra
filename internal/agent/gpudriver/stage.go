@@ -21,27 +21,27 @@ func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error 
 	if err := h.MkdirAll(devRoot, 0o755); err != nil {
 		return err
 	}
-	for _, dev := range state.Devices {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := mknodChar(filepath.Join(devRoot, fmt.Sprintf("nvidia%d", dev.Index)), 195, uint32(dev.Index)); err != nil {
-			return fmt.Errorf("chardev nvidia%d: %w", dev.Index, err)
-		}
-	}
-	for _, spec := range []struct {
+
+	type charDev struct {
 		name         string
 		major, minor uint32
-	}{
-		{"nvidiactl", 195, 255},
-		{"nvidia-uvm", 510, 0},
-		{"nvidia-uvm-tools", 510, 1},
-	} {
+	}
+	devs := make([]charDev, 0, len(state.Devices)+3)
+	for _, d := range state.Devices {
+		devs = append(devs, charDev{fmt.Sprintf("nvidia%d", d.Index), 195, uint32(d.Index)})
+	}
+	devs = append(devs,
+		charDev{"nvidiactl", 195, 255},
+		charDev{"nvidia-uvm", 510, 0},
+		charDev{"nvidia-uvm-tools", 510, 1},
+	)
+
+	for _, d := range devs {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := mknodChar(filepath.Join(devRoot, spec.name), spec.major, spec.minor); err != nil {
-			return fmt.Errorf("chardev %s: %w", spec.name, err)
+		if err := mknodChar(filepath.Join(devRoot, d.name), d.major, d.minor); err != nil {
+			return fmt.Errorf("chardev %s: %w", d.name, err)
 		}
 	}
 	return nil
@@ -50,9 +50,6 @@ func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error 
 // stageNVMLShim installs the mock libnvidia-ml so that nvidia-smi, the device
 // plugin, and NVML-using workloads can dlopen it without a real kernel driver.
 func stageNVMLShim(ctx context.Context, h *host.Host, state *agent.State) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	matches, _ := filepath.Glob("/usr/local/lib/libnvidia-ml.so.*.*.*")
 	if len(matches) == 0 {
 		return fmt.Errorf("libnvidia-ml.so.*.*.* not found in /usr/local/lib")
@@ -68,9 +65,6 @@ func stageNVMLShim(ctx context.Context, h *host.Host, state *agent.State) error 
 	if err := h.CopyFile(matches[0], filepath.Join(lib64, soVersioned), 0o755); err != nil {
 		return err
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	if err := h.Symlink(soVersioned, filepath.Join(lib64, "libnvidia-ml.so.1")); err != nil {
 		return err
 	}
@@ -80,45 +74,42 @@ func stageNVMLShim(ctx context.Context, h *host.Host, state *agent.State) error 
 // stageCUDAShim installs the mock libcuda so that CUDA workloads can link and
 // run without a real driver. Absence is non-fatal — not all profiles need it.
 func stageCUDAShim(ctx context.Context, h *host.Host, state *agent.State) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	matches, _ := filepath.Glob("/usr/local/lib/libcuda.so.*.*.*")
+
 	if len(matches) == 0 {
 		return nil
 	}
+
 	lib64 := filepath.Join(h.Root, "driver/usr/lib64")
 	if err := h.MkdirAll(lib64, 0o755); err != nil {
 		return err
 	}
+
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+
 	soVersioned := "libcuda.so." + state.Software.DriverVersion
 	if err := h.CopyFile(matches[0], filepath.Join(lib64, soVersioned), 0o755); err != nil {
 		return err
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := h.Symlink(soVersioned, filepath.Join(lib64, "libcuda.so.1")); err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := h.Symlink("libcuda.so.1", filepath.Join(lib64, "libcuda.so")); err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+
 	// The mock exports CUDA Runtime API symbols under libcuda.so; vectorAdd and
 	// similar samples link against libcudart.so, so create compatibility links.
-	if err := h.Symlink("libcuda.so.1", filepath.Join(lib64, "libcudart.so.12")); err != nil {
-		return err
+	type symlink struct{ name, target string }
+
+	for _, lnk := range []symlink{
+		{"libcuda.so.1", soVersioned},
+		{"libcuda.so", "libcuda.so.1"},
+		{"libcudart.so.12", "libcuda.so.1"},
+		{"libcudart.so", "libcudart.so.12"},
+	} {
+		if err := h.Symlink(lnk.target, filepath.Join(lib64, lnk.name)); err != nil {
+			return err
+		}
 	}
-	return h.Symlink("libcudart.so.12", filepath.Join(lib64, "libcudart.so"))
+
+	return nil
 }
 
 // stageNvidiaSMI satisfies tooling (GPU Operator validator, health checks) that
@@ -135,9 +126,6 @@ func stageNvidiaSMI(ctx context.Context, h *host.Host, state *agent.State) error
 	dv := state.Software.DriverVersion
 	fallback := fmt.Sprintf("#!/bin/sh\necho \"NVIDIA-SMI %s\"\necho \"Driver Version: %s\"\necho \"CUDA Version: 12.4\"\n", dv, dv)
 	if err := h.WriteFile(filepath.Join(binDir, "nvidia-smi.sh"), []byte(fallback), 0o755); err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
 		return err
 	}
 	elfPath := filepath.Join(binDir, "nvidia-smi")
@@ -165,10 +153,6 @@ func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
 	if err := h.WriteFile(filepath.Join(procDir, "version"), []byte(version), 0o644); err != nil {
 		return err
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
 	const params = "EnableMSI: 1\n" +
 		"NVreg_RegistryDwords:\n" +
 		"NVreg_DeviceFileGID: 0\n" +
@@ -177,7 +161,6 @@ func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
 		"NVreg_ModifyDeviceFiles: 1\n" +
 		"NVreg_PreserveVideoMemoryAllocations: 0\n" +
 		"NVreg_EnableResizableBar: 0\n"
-
 	return h.WriteFile(filepath.Join(procDir, "params"), []byte(params), 0o644)
 }
 
