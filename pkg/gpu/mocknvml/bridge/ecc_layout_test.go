@@ -68,8 +68,19 @@ func TestECCStructLayouts(t *testing.T) {
 // produces. nvidia-smi stamps this field before calling; if the two ever
 // disagree, every SRAM query answers ARGUMENT_VERSION_MISMATCH and the SRAM
 // rows silently go back to reporting N/A.
+//
+// Calling the production function is what makes this a real pin: it reads
+// sizeof(C.nvmlEccSramErrorStatus_t), so the C struct sits on one side of the
+// comparison and go-nvml's on the other. Recomputing the tag from
+// expectedEccSramErrorStatusSize instead would compare two Go-derived values and
+// stay green through exactly the C-side drift described above. The size constant
+// still earns its keep in TestECCStructLayouts, where it documents the
+// hand-written layout that nvml_types.h is supposed to have.
 func TestEccSramErrorStatusVersion_MatchesGoNvml(t *testing.T) {
 	theirs := nvml.STRUCT_VERSION(nvml.EccSramErrorStatus_v1{}, 1)
-	ours := FabricStructVersion(expectedEccSramErrorStatusSize, 1)
-	require.Equal(t, theirs, ours)
+	ours := sramEccErrorStatusVersion()
+	require.Equal(t, theirs, ours,
+		"bridge demands 0x%x, a go-nvml caller stamps 0x%x — every SRAM query would answer "+
+			"ARGUMENT_VERSION_MISMATCH; reconcile nvml_types.h with the vendored go-nvml struct",
+		ours, theirs)
 }
