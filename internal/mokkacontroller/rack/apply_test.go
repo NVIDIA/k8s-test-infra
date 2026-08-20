@@ -147,7 +147,7 @@ func TestCreateRackAlreadyExistsUsesLiveRecreatedUID(t *testing.T) {
 	require.True(t, changed)
 	require.Nil(t, conflict)
 
-	writer.createResult = nil
+	writer.createResult = &mokkav1alpha1.SGPURack{}
 	writer.createErr = apierrors.NewAlreadyExists(mokkav1alpha1.Resource("sgpuracks"), desired.Name)
 	writer.getResult = live
 	writer.patchResult = updated

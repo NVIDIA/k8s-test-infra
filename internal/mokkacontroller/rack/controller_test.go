@@ -253,10 +253,54 @@ func TestReconcileGroupIndexesLargeBindingSetOnce(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, result.Changed)
-	require.EqualValues(t, rackCount, result.Work.RacksReconciled)
-	require.EqualValues(t, nodeCount, result.Work.AllocationsIndexed)
-	require.EqualValues(t, nodeCount, result.Work.BindingsApplied)
+	require.Zero(t, result.Work.RacksReconciled, "retained bindings require no Rack reconciliation")
+	require.Zero(t, result.Work.AllocationsIndexed)
+	require.Zero(t, result.Work.BindingsApplied)
 	require.Empty(t, h.mokka.Actions(), "one cached group event must not issue live API calls")
+
+	const changedNode = 54_321
+	h.nodes[changedNode].Labels["pool"] = "cpu"
+	h.sync(t)
+	h.mokka.Fake.ClearActions()
+	result, err = h.reconcileGroup(ctx, allocate.GroupKey{
+		InventoryName: inventory.Name,
+		InventoryUID:  inventory.UID,
+		RackGroup:     inventory.Spec.RackGroups[0].ID,
+	})
+	require.NoError(t, err)
+	require.False(t, result.Changed, "cleanup must finish before the binding is removed")
+	require.EqualValues(t, 1, result.Work.RacksReconciled)
+	require.EqualValues(t, nodesPerRack, result.Work.AllocationsIndexed)
+	require.EqualValues(t, nodesPerRack-1, result.Work.BindingsApplied)
+	require.Len(t, result.CleanupNeeded, 1)
+	require.EqualValues(t, changedNode/nodesPerRack, result.CleanupNeeded[0].Binding.Coordinate.RackIndex)
+	require.Empty(t, h.mokka.Actions(), "pending cleanup must leave the exact Rack unchanged")
+}
+
+func TestGroupAllocationIndexesOnlyChangedRackAmong100K(t *testing.T) {
+	group := allocate.GroupKey{InventoryName: "inventory", InventoryUID: "inventory-uid", RackGroup: "group"}
+	const changed = int32(54_321)
+	plan := allocate.Plan{Retained: make([]allocate.Binding, 0, 99_999)}
+	for rackIndex := int32(0); rackIndex < 100_000; rackIndex++ {
+		binding := allocate.Binding{
+			Coordinate: allocate.Coordinate{Group: group, RackIndex: rackIndex},
+			Node:       allocate.NodeReference{Name: fmt.Sprintf("node-%06d", rackIndex), UID: types.UID(fmt.Sprintf("uid-%06d", rackIndex))},
+		}
+		if rackIndex == changed {
+			plan.Released = append(plan.Released, allocate.Release{
+				Binding: binding, Reason: allocate.ReleaseSelectorMismatch,
+			})
+			continue
+		}
+		plan.Retained = append(plan.Retained, binding)
+	}
+
+	indices := allocationChangedRacks(plan, group, 100_000)
+	require.Equal(t, []int32{changed}, indices)
+	indexed := indexGroupAllocation(plan, group, indices)
+	require.EqualValues(t, 1, indexed.indexed)
+	require.Len(t, indexed.racks, 1)
+	require.Len(t, indexed.releases, 1)
 }
 
 func TestReconcileReportsOverlapAndRetainsLastGoodRackForMissingProfile(t *testing.T) {

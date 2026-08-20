@@ -251,7 +251,7 @@ func TestRackOwnershipTransitionRoutesDesiredNameClaimant(t *testing.T) {
 	router.rackUpdate(blocker, transitioned)
 
 	require.Equal(t, []string{inventory.Name}, drainQueue(queues.inventories))
-	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	require.Empty(t, drainQueue(queues.groups), "template and ownership drift is owned by full Inventory reconciliation")
 	drainQueue(queues.status)
 
 	released := blocker.DeepCopy()
@@ -259,6 +259,51 @@ func TestRackOwnershipTransitionRoutesDesiredNameClaimant(t *testing.T) {
 	router.rackUpdate(transitioned, released)
 	require.Equal(t, []string{inventory.Name}, drainQueue(queues.inventories))
 	require.Empty(t, drainQueue(queues.groups))
+}
+
+func TestRackUpdateRoutesBindingsLocallyAndTemplateDriftGlobally(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+
+	rack := testRack(testNode())
+	rebound := rack.DeepCopy()
+	rebound.ResourceVersion = "2"
+	rebound.Spec.Slots[0].NodeRef.UID = "replacement-uid"
+	router.rackUpdate(rack, rebound)
+	require.Empty(t, drainQueue(queues.inventories))
+	require.Equal(t, []allocate.GroupKey{testGroupKey()}, drainQueue(queues.groups))
+	drainQueue(queues.projections)
+	drainQueue(queues.status)
+
+	revised := rebound.DeepCopy()
+	revised.ResourceVersion = "3"
+	revised.Spec.ProfileRef.Generation++
+	router.rackUpdate(rebound, revised)
+	require.Equal(t, []string{rack.Spec.InventoryRef.Name}, drainQueue(queues.inventories))
+	require.Empty(t, drainQueue(queues.groups))
+}
+
+func TestRackUpdateIgnoresStatusAndFinalizerOnlyChanges(t *testing.T) {
+	inventories := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.InventoryIndexers())
+	racks := cache.NewIndexer(cache.MetaNamespaceKeyFunc, controllerack.Indexers())
+	queues := newQueues(0)
+	t.Cleanup(queues.shutdown)
+	router := newEventRouter(inventories, racks, newPlacementRegistry(), queues)
+
+	rack := testRack(testNode())
+	updated := rack.DeepCopy()
+	updated.ResourceVersion = "2"
+	updated.Finalizers = []string{controllerack.RackFinalizer}
+	updated.Status.AssignedSlots = 1
+	router.rackUpdate(rack, updated)
+
+	require.Empty(t, drainQueue(queues.inventories))
+	require.Empty(t, drainQueue(queues.groups))
+	require.Empty(t, drainQueue(queues.projections))
+	require.Empty(t, drainQueue(queues.status))
 }
 
 func TestStaleRackDeleteDoesNotRouteClaimantPastSameNameReplacement(t *testing.T) {

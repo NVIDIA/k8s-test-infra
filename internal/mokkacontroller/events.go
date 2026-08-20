@@ -487,13 +487,18 @@ func (r *eventRouter) rackUpdate(oldObject, newObject any) {
 		r.routeRackCurrent(newRack, false, nil)
 		return
 	}
+	templateChanged := !rackTemplateUnchanged(oldRack, newRack)
+	if templateChanged {
+		r.routeRackInventory(oldRack)
+		r.routeRackInventory(newRack)
+	}
 	fresh := make(map[int32]types.UID)
 	for index, uid := range newBindings {
 		if oldBindings[index] != uid {
 			fresh[index] = uid
 		}
 	}
-	r.routeRackCurrent(newRack, true, fresh)
+	r.routeRackCurrent(newRack, !templateChanged && !rackBindingsUnchanged(oldRack, newRack), fresh)
 }
 
 func (r *eventRouter) rackDelete(object any) {
@@ -619,6 +624,16 @@ func (r *eventRouter) routeRackDependencies(rack *mokkav1alpha1.SGPURack) {
 	})
 }
 
+func (r *eventRouter) routeRackInventory(rack *mokkav1alpha1.SGPURack) {
+	if rack.Spec.InventoryRef.Name == "" || rack.Spec.InventoryRef.UID == "" {
+		return
+	}
+	r.queues.inventories.Add(rack.Spec.InventoryRef.Name)
+	r.queues.addStatus(statusKey{
+		kind: statusInventory, name: rack.Spec.InventoryRef.Name, uid: rack.Spec.InventoryRef.UID,
+	})
+}
+
 func (r *eventRouter) boundRacks(name string, uid types.UID) []*mokkav1alpha1.SGPURack {
 	indexed := make(map[string]*mokkav1alpha1.SGPURack)
 	for index, value := range map[string]string{
@@ -710,7 +725,6 @@ func profileAllocationUnchanged(old, current *mokkav1alpha1.SGPUProfile) bool {
 func rackUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
 	return old.UID == current.UID &&
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
-		equality.Semantic.DeepEqual(old.Finalizers, current.Finalizers) &&
 		equality.Semantic.DeepEqual(old.OwnerReferences, current.OwnerReferences) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
 }
@@ -720,6 +734,31 @@ func rackAllocationUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
 		equality.Semantic.DeepEqual(old.Spec, current.Spec) &&
 		equality.Semantic.DeepEqual(old.OwnerReferences, current.OwnerReferences) &&
 		equality.Semantic.DeepEqual(old.DeletionTimestamp, current.DeletionTimestamp)
+}
+
+func rackTemplateUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
+	oldSpec := old.Spec.DeepCopy()
+	currentSpec := current.Spec.DeepCopy()
+	for index := range oldSpec.Slots {
+		oldSpec.Slots[index].NodeRef = nil
+	}
+	for index := range currentSpec.Slots {
+		currentSpec.Slots[index].NodeRef = nil
+	}
+	return equality.Semantic.DeepEqual(oldSpec, currentSpec) &&
+		equality.Semantic.DeepEqual(old.OwnerReferences, current.OwnerReferences)
+}
+
+func rackBindingsUnchanged(old, current *mokkav1alpha1.SGPURack) bool {
+	oldBindings := make(map[int32]*mokkav1alpha1.SGPUNodeReference, len(old.Spec.Slots))
+	for _, slot := range old.Spec.Slots {
+		oldBindings[slot.Index] = slot.NodeRef
+	}
+	currentBindings := make(map[int32]*mokkav1alpha1.SGPUNodeReference, len(current.Spec.Slots))
+	for _, slot := range current.Spec.Slots {
+		currentBindings[slot.Index] = slot.NodeRef
+	}
+	return equality.Semantic.DeepEqual(oldBindings, currentBindings)
 }
 
 func nodeUnchanged(old, current *corev1.Node) bool {

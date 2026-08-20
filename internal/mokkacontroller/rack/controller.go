@@ -231,15 +231,13 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 	}
 
 	var ownedRacks []*mokkav1alpha1.SGPURack
-	if requestedGroup != nil && inventory.DeletionTimestamp == nil {
-		ownedRacks, err = r.cache.RacksByInventoryGroup(inventory.UID, requestedGroup.RackGroup)
-	} else {
+	if requestedGroup == nil || inventory.DeletionTimestamp != nil {
 		ownedRacks, err = r.cache.RacksByInventoryUID(inventory.UID)
+		if err != nil {
+			return result, fmt.Errorf("get racks for inventory %q from cache: %w", key, err)
+		}
+		ownedRacks = filterOwnedRacks(ownedRacks, inventory)
 	}
-	if err != nil {
-		return result, fmt.Errorf("get racks for inventory %q from cache: %w", key, err)
-	}
-	ownedRacks = filterOwnedRacks(ownedRacks, inventory)
 
 	if inventory.DeletionTimestamp != nil {
 		return r.reconcileInventoryDeletion(ctx, inventory, ownedRacks, result)
@@ -339,9 +337,11 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 	}
 
 	desiredNames := make(map[string]struct{})
-	for _, group := range workGroups {
-		for rackIndex := int32(0); rackIndex < group.group.Count; rackIndex++ {
-			desiredNames[materialize.RackName(inventory.Name, inventory.UID, group.group.ID, rackIndex)] = struct{}{}
+	if requestedGroup == nil {
+		for _, group := range workGroups {
+			for rackIndex := int32(0); rackIndex < group.group.Count; rackIndex++ {
+				desiredNames[materialize.RackName(inventory.Name, inventory.UID, group.group.ID, rackIndex)] = struct{}{}
+			}
 		}
 	}
 
@@ -372,10 +372,17 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 		}
 	}
 
-	allocations := indexAllocation(allocation, inventory.UID, resolvedByID)
+	var allocations allocationIndex
+	var changedRackIndices []int32
+	if requestedGroup != nil && len(workGroups) == 1 {
+		changedRackIndices = allocationChangedRacks(allocation, *requestedGroup, workGroups[0].group.Count)
+		allocations = indexGroupAllocation(allocation, *requestedGroup, changedRackIndices)
+	} else {
+		allocations = indexAllocation(allocation, inventory.UID, resolvedByID)
+	}
 	result.Work.AllocationsIndexed = allocations.indexed
 	for _, group := range workGroups {
-		for rackIndex := int32(0); rackIndex < group.group.Count; rackIndex++ {
+		reconcileRack := func(rackIndex int32) error {
 			result.Work.RacksReconciled++
 			rendered, err := materialize.RenderRack(materialize.RackInput{
 				InventoryName: inventory.Name,
@@ -385,10 +392,10 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 				Profile:       group.profile,
 			})
 			if err != nil {
-				return result, fmt.Errorf("render rack group %q index %d: %w", group.group.ID, rackIndex, err)
+				return fmt.Errorf("render rack group %q index %d: %w", group.group.ID, rackIndex, err)
 			}
 			if _, blocked := blockedNames[rendered.Name]; blocked {
-				continue
+				return nil
 			}
 			existing := existingByName[rendered.Name]
 			if existing == nil {
@@ -398,15 +405,18 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 					existing = cached
 				case apierrors.IsNotFound(err):
 					if requestedGroup != nil {
-						continue
+						return nil
 					}
 				default:
-					return result, fmt.Errorf("get rack %q from cache: %w", rendered.Name, err)
+					return fmt.Errorf("get rack %q from cache: %w", rendered.Name, err)
 				}
+			}
+			if requestedGroup != nil && existing != nil && existing.DeletionTimestamp != nil {
+				return nil
 			}
 			if existing != nil && !controlledByInventory(existing, inventory) {
 				result.OwnershipConflicts = append(result.OwnershipConflicts, ownershipConflict(existing, group.group.ID))
-				continue
+				return nil
 			}
 
 			targetSpec := rendered.Spec
@@ -426,7 +436,7 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 					RackGroup: group.group.ID, ProfileName: group.profile.Name, Reason: err.Error(),
 				})
 				result.ResolvedRefs = false
-				break
+				return nil
 			}
 
 			changed, conflict, err := r.createOrUpdateRack(ctx, inventory, existing, rendered.Name, targetSpec)
@@ -440,12 +450,34 @@ func (r *Reconciler) reconcile(ctx context.Context, key string, requestedGroup *
 						RackGroup: group.group.ID, ProfileName: group.profile.Name, Reason: materializationErr.Error(),
 					})
 					result.ResolvedRefs = false
+					return nil
+				}
+				return err
+			}
+			result.Changed = result.Changed || changed
+			return nil
+		}
+
+		if requestedGroup != nil {
+			for _, rackIndex := range changedRackIndices {
+				if err := reconcileRack(rackIndex); err != nil {
+					sortResult(&result)
+					return result, err
+				}
+				if !result.ResolvedRefs {
 					break
 				}
+			}
+			continue
+		}
+		for rackIndex := int32(0); rackIndex < group.group.Count; rackIndex++ {
+			if err := reconcileRack(rackIndex); err != nil {
 				sortResult(&result)
 				return result, err
 			}
-			result.Changed = result.Changed || changed
+			if !result.ResolvedRefs {
+				break
+			}
 		}
 	}
 
@@ -729,11 +761,9 @@ func (r *Reconciler) createCacheMissingRack(
 	if !apierrors.IsAlreadyExists(err) {
 		return false, nil, fmt.Errorf("create rack %q: %w", name, err)
 	}
-	if created == nil {
-		created, err = r.racks.Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return false, nil, fmt.Errorf("get rack %q after create reported already exists: %w", name, err)
-		}
+	created, err = r.racks.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return false, nil, fmt.Errorf("get rack %q after create reported already exists: %w", name, err)
 	}
 	return r.createOrUpdateRack(ctx, inventory, created, name, spec)
 }
@@ -1084,6 +1114,101 @@ func indexAllocation(
 		indexed.indexed++
 	}
 	return indexed
+}
+
+func allocationChangedRacks(plan allocate.Plan, group allocate.GroupKey, rackCount int32) []int32 {
+	changed := make(map[int32]struct{}, len(plan.Assigned)+len(plan.Released))
+	for _, binding := range plan.Assigned {
+		if binding.Coordinate.Group == group && binding.Coordinate.RackIndex >= 0 &&
+			binding.Coordinate.RackIndex < rackCount {
+			changed[binding.Coordinate.RackIndex] = struct{}{}
+		}
+	}
+	for _, release := range plan.Released {
+		coordinate := release.Binding.Coordinate
+		if coordinate.Group == group && coordinate.RackIndex >= 0 && coordinate.RackIndex < rackCount {
+			changed[coordinate.RackIndex] = struct{}{}
+		}
+	}
+	indices := make([]int32, 0, len(changed))
+	for index := range changed {
+		indices = append(indices, index)
+	}
+	slices.Sort(indices)
+	return indices
+}
+
+func indexGroupAllocation(
+	plan allocate.Plan,
+	group allocate.GroupKey,
+	rackIndices []int32,
+) allocationIndex {
+	indexed := allocationIndex{
+		racks:    make(map[allocationRackKey]rackAllocation, len(rackIndices)),
+		releases: make(map[allocate.Coordinate]allocate.Release),
+	}
+	for _, rackIndex := range rackIndices {
+		key := allocationRackKey{group: group, rackIndex: rackIndex}
+		partition := rackAllocation{
+			retained: allocationBindingsForRack(plan.Retained, key),
+			assigned: allocationBindingsForRack(plan.Assigned, key),
+		}
+		indexed.racks[key] = partition
+		indexed.indexed += int64(len(partition.retained) + len(partition.assigned))
+		for _, release := range allocationReleasesForRack(plan.Released, key) {
+			indexed.releases[release.Binding.Coordinate] = release
+			indexed.indexed++
+		}
+	}
+	return indexed
+}
+
+func allocationBindingsForRack(bindings []allocate.Binding, key allocationRackKey) []allocate.Binding {
+	start, _ := slices.BinarySearchFunc(bindings, key, func(binding allocate.Binding, target allocationRackKey) int {
+		return compareAllocationRackKey(
+			allocationRackKey{group: binding.Coordinate.Group, rackIndex: binding.Coordinate.RackIndex},
+			target,
+		)
+	})
+	end := start
+	for end < len(bindings) {
+		current := allocationRackKey{
+			group:     bindings[end].Coordinate.Group,
+			rackIndex: bindings[end].Coordinate.RackIndex,
+		}
+		if compareAllocationRackKey(current, key) != 0 {
+			break
+		}
+		end++
+	}
+	return bindings[start:end]
+}
+
+func allocationReleasesForRack(releases []allocate.Release, key allocationRackKey) []allocate.Release {
+	start, _ := slices.BinarySearchFunc(releases, key, func(release allocate.Release, target allocationRackKey) int {
+		coordinate := release.Binding.Coordinate
+		return compareAllocationRackKey(
+			allocationRackKey{group: coordinate.Group, rackIndex: coordinate.RackIndex},
+			target,
+		)
+	})
+	end := start
+	for end < len(releases) {
+		coordinate := releases[end].Binding.Coordinate
+		current := allocationRackKey{group: coordinate.Group, rackIndex: coordinate.RackIndex}
+		if compareAllocationRackKey(current, key) != 0 {
+			break
+		}
+		end++
+	}
+	return releases[start:end]
+}
+
+func compareAllocationRackKey(a, b allocationRackKey) int {
+	if order := compareGroupKeys(a.group, b.group); order != 0 {
+		return order
+	}
+	return cmp.Compare(a.rackIndex, b.rackIndex)
 }
 
 func applyBindings(spec *mokkav1alpha1.SGPURackSpec, bindings []allocate.Binding) int64 {
