@@ -2,6 +2,10 @@
 # that vary; everything omitted is left out of the manifest rather than emitted
 # empty, so the API server applies its own defaults.
 #
+# Interpolated keys and values are both quoted. YAML 1.1 resolves bare y, n, on,
+# off and ~ as bools and nulls, and the API server needs strings on both sides of
+# these maps, so a bare key of `y` would arrive as `true`.
+#
 # terminationGracePeriodSeconds is capped here on purpose and is load-bearing for
 # suite runtime; see the package doc for why the 30s default costs minutes.
 apiVersion: v1
@@ -12,13 +16,13 @@ metadata:
   {{- with .Labels }}
   labels:
     {{- range $key, $value := . }}
-    {{ $key }}: {{ $value | quote }}
+    {{ $key | quote }}: {{ $value | quote }}
     {{- end }}
   {{- end }}
   {{- with .Annotations }}
   annotations:
     {{- range $key, $value := . }}
-    {{ $key }}: {{ $value | quote }}
+    {{ $key | quote }}: {{ $value | quote }}
     {{- end }}
   {{- end }}
 spec:
@@ -30,7 +34,7 @@ spec:
   {{- with .NodeSelector }}
   nodeSelector:
     {{- range $key, $value := . }}
-    {{ $key }}: {{ $value | quote }}
+    {{ $key | quote }}: {{ $value | quote }}
     {{- end }}
   {{- end }}
   containers:
@@ -45,12 +49,12 @@ spec:
       {{- with .Env }}
       env:
         {{- range $name, $value := . }}
-        - name: {{ $name }}
+        - name: {{ $name | quote }}
           value: {{ $value | quote }}
         {{- end }}
       {{- end }}
       {{- if .GPUs }}
       resources:
         limits:
-          {{ .GPUResourceName }}: {{ .GPUs }}
+          {{ .GPUResourceName | quote }}: {{ .GPUs }}
       {{- end }}
