@@ -1,0 +1,12 @@
+# Build dependencies for the Mokka documentation site.
+#
+#   pip install -r requirements-docs.txt
+#   mkdocs serve          # local preview at http://127.0.0.1:8000
+#   mkdocs build --strict # what CI runs
+#
+# Pinned so a docs build is reproducible and so a transitive bump cannot break
+# the site without an explicit commit. Dependabot tracks this file.
+mkdocs==1.6.1
+mkdocs-material==9.7.7
+mkdocs-material-extensions==1.3.1
+pymdown-extensions==11.0.1

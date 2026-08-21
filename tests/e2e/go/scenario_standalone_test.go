@@ -91,6 +91,15 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				assertEncoderFBCAccounting(ctx, h, pod)
 			})
 
+			It("reports SRAM ECC counters and row-remap availability via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #641: every SRAM row and the bank availability
+				// histogram read N/A, so a consumer saw an unsupported feature
+				// where a healthy GPU reports 0. The histogram expectation
+				// comes from the profile, which pins it populated on Ampere and
+				// later and N/A on t4.
+				assertSramECCBaseline(ctx, h, pod, p)
+			})
+
 			It("reports JPEG and OFA utilization via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #637: both readings were N/A because the NVML entry
 				// points were generated stubs, so every configured value was
@@ -137,6 +146,26 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				// chassis/slot/tray/host and a per-GPU module id on the NVL72
 				// profiles and N/A on every other selected profile.
 				nvidiasmi.PlatformIdentity(ctx, h.Kube, pod, p)
+			})
+
+			It("reports a healthy fabric via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #677: every element of the fabric health block read
+				// N/A, which says the driver answered nothing rather than that
+				// the fabric is well, so a consumer could not tell a healthy
+				// fabric from an unknown one.
+				if !p.HasFabric() {
+					Skip("profile " + name + " reports no fabric (GpuFabricInfo NOT_SUPPORTED)")
+				}
+				nvidiasmi.FabricHealth(ctx, h.Kube, pod)
+			})
+
+			It("reports zeroed clocks-event counters via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #678: all five counters read N/A because the perf-policy
+				// field ids behind them were unhandled, so the same output block
+				// reported no throttle reason active and could not say whether
+				// one ever had been. A profile that has never throttled reports
+				// 0 us, which is an answer where N/A is not.
+				nvidiasmi.ThrottleCounters(ctx, h.Kube, pod)
 			})
 
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
@@ -187,6 +216,14 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertRuntimeECCInjection(ctx, h, pod)
 				})
 
+				It("injects and clears SRAM ECC errors at runtime via nvml-mock-ctl", Label("runtime-control"), func(ctx SpecContext) {
+					// Issue #641: the inject-and-clear cycle is the point —
+					// simulating an SRAM fault mid-test is the capability being
+					// added, and the counters must come back to 0 rather than
+					// staying stuck or reverting to N/A.
+					assertRuntimeSramECCInjection(ctx, h, pod, p)
+				})
+
 				It("marks all GPUs lost and recovers via nvml-mock-ctl", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimeFailAllLost(ctx, h, pod, p.ExpectedGPUs())
 				})
@@ -223,6 +260,14 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					assertRuntimeThrottleCommand(ctx, h, pod)
 				})
 
+				It("seeds a clocks-event counter via nvml-mock-ctl set", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					// Issue #678: a GPU carrying accrued throttle time is the
+					// case worth simulating — one cause must report its own
+					// total while its four siblings and the node's other GPUs
+					// stay at zero.
+					assertRuntimeThrottleCounterSeeding(ctx, h, pod)
+				})
+
 				It("pins the performance state via the nvml-mock-ctl pstate command", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimePStateCommand(ctx, h, pod)
 				})
@@ -251,6 +296,17 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					// ready before injecting, matching the topology assertion.
 					assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 					assertRuntimeNVLinkErrorInjection(ctx, h, pod)
+				})
+
+				It("degrades and restores fabric health via the nvml-mock-ctl fabric-health command", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					// Issue #677: one named condition must flip its own row and
+					// only its own row, then clear — a fabric that degrades
+					// under a running workload is the case worth simulating.
+					if !p.HasFabric() {
+						Skip("profile " + name + " reports no fabric; fabric-health has no health to degrade")
+					}
+					assertRuntimeFabricHealthInjection(ctx, h, pod)
+					assertRuntimeFabricMisconfiguration(ctx, h, pod)
 				})
 
 				It("injects ECC uncorrectable errors", func(ctx SpecContext) {

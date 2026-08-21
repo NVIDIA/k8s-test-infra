@@ -125,6 +125,7 @@ tests/e2e/go/
   scenario_validator_test.go     # CUDA vectorAdd validator scenario
   scenario_nri_test.go           # node-wide NRI ambient-injection scenario
   framework/                     # thin wrappers for kind, helm, and kubectl
+  framework/pod/                 # generic pod.tpl.yaml plus the Spec that renders it
   assertions/                    # domain assertions for nvidia-smi, NVLink, IB, PCI
   profile/                       # profile parser and topology expectations
   ibutil/                        # InfiniBand output normalization helpers

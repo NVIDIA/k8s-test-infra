@@ -41,7 +41,7 @@ tests:
           value: false
       - equal:
           path: spec.template.spec.containers[0].name
-          value: mokka-control-plane
+          value: control-plane
       - equal:
           path: spec.template.spec.containers[0].image
           value: ghcr.io/nvidia/mokka-control-plane:latest
@@ -184,7 +184,7 @@ tests:
             targetPort: http
             protocol: TCP
 
-  - it: should honour a custom image, replicas, and log level
+  - it: should honour a custom image, replicas, and logging knobs
     set:
       controlPlane:
         enabled: true
@@ -193,7 +193,9 @@ tests:
           repository: registry.example.com/mokka-cp
           tag: v0.1.0
           pullPolicy: Always
-        logLevel: debug
+        logging:
+          level: debug
+          format: plain
     template: templates/controlplane-deployment.yaml
     asserts:
       - equal:
@@ -208,6 +210,9 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --log-level=debug
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-format=plain
 
   # Moving the port must move the bind flag, the container port, and the
   # Service port together — a mismatch is exactly the silent-Ready failure
@@ -248,10 +253,20 @@ tests:
             targetPort: http
             protocol: TCP
 
-  - it: should reject an unknown logLevel via the values schema
+  - it: should reject an unknown logging.level via the values schema
     set:
       controlPlane:
         enabled: true
-        logLevel: trace
+        logging:
+          level: trace
+    asserts:
+      - failedTemplate: {}
+
+  - it: should reject an unknown logging.format via the values schema
+    set:
+      controlPlane:
+        enabled: true
+        logging:
+          format: text
     asserts:
       - failedTemplate: {}

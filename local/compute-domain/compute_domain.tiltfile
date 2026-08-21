@@ -24,6 +24,7 @@
 # All side effects inside functions so load()ing this file is a pure import.
 
 load('ext://helm_resource', 'helm_resource')
+load('ext://k8s_attach', 'k8s_attach')
 
 _BASE_IMAGE         = 'nvml-mock:compute-domain'
 _DEMO_IMAGE         = 'nvml-mock:compute-domain-imex'
@@ -139,6 +140,15 @@ def install(active_consumers, control_plane=False):
         flags=flags,
         labels=['mokka'],
     )
+
+    if control_plane:
+        k8s_attach(
+            name='nvml-mock-control-plane',
+            obj='deployment/nvml-mock-control-plane',
+            namespace='mokka',
+            resource_deps=['nvml-mock'],
+            labels=['mokka-core'],
+        )
 
     # Scenario 1: per-node fabric identity via check-fabric. Manually
     # triggered — hitting the button asserts the topology overlay

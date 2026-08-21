@@ -34,6 +34,32 @@ const (
 	fiEccSbeAgg  = 5
 	fiEccDbeAgg  = 6
 
+	// Per-location ECC counters. NVML has no SRAM field id — SRAM counters are
+	// only reachable through nvmlDeviceGetSramEccErrorStatus and
+	// nvmlDeviceGetMemoryErrorCounter(NVML_MEMORY_LOCATION_SRAM).
+	fiEccSbeVolL1  = 7
+	fiEccDbeVolL1  = 8
+	fiEccSbeVolL2  = 9
+	fiEccDbeVolL2  = 10
+	fiEccSbeVolDev = 11
+	fiEccDbeVolDev = 12
+	fiEccSbeVolReg = 13
+	fiEccDbeVolReg = 14
+	fiEccSbeVolTex = 15
+	fiEccDbeVolTex = 16
+	fiEccDbeVolCbu = 17
+	fiEccSbeAggL1  = 18
+	fiEccDbeAggL1  = 19
+	fiEccSbeAggL2  = 20
+	fiEccDbeAggL2  = 21
+	fiEccSbeAggDev = 22
+	fiEccDbeAggDev = 23
+	fiEccSbeAggReg = 24
+	fiEccDbeAggReg = 25
+	fiEccSbeAggTex = 26
+	fiEccDbeAggTex = 27
+	fiEccDbeAggCbu = 28
+
 	fiRetiredSbe     = 29
 	fiRetiredDbe     = 30
 	fiRetiredPending = 31
@@ -94,6 +120,42 @@ const (
 	FieldValueInt
 )
 
+// eccLocationField describes which nvmlDeviceGetMemoryErrorCounter query one
+// per-location ECC field id stands for.
+type eccLocationField struct {
+	errorType   nvml.MemoryErrorType
+	counterType nvml.EccCounterType
+	location    nvml.MemoryLocation
+}
+
+// eccLocationFields maps the per-location ECC field ids onto the counter each
+// one names, so the field-value path DCGM reads and the dedicated getter
+// nvidia-smi reads resolve from the same engine state.
+var eccLocationFields = map[uint32]eccLocationField{
+	fiEccSbeVolL1:  {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_L1_CACHE},
+	fiEccDbeVolL1:  {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_L1_CACHE},
+	fiEccSbeVolL2:  {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_L2_CACHE},
+	fiEccDbeVolL2:  {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_L2_CACHE},
+	fiEccSbeVolDev: {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_DEVICE_MEMORY},
+	fiEccDbeVolDev: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_DEVICE_MEMORY},
+	fiEccSbeVolReg: {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_REGISTER_FILE},
+	fiEccDbeVolReg: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_REGISTER_FILE},
+	fiEccSbeVolTex: {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_TEXTURE_MEMORY},
+	fiEccDbeVolTex: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_TEXTURE_MEMORY},
+	fiEccDbeVolCbu: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.VOLATILE_ECC, nvml.MEMORY_LOCATION_CBU},
+	fiEccSbeAggL1:  {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_L1_CACHE},
+	fiEccDbeAggL1:  {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_L1_CACHE},
+	fiEccSbeAggL2:  {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_L2_CACHE},
+	fiEccDbeAggL2:  {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_L2_CACHE},
+	fiEccSbeAggDev: {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_DEVICE_MEMORY},
+	fiEccDbeAggDev: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_DEVICE_MEMORY},
+	fiEccSbeAggReg: {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_REGISTER_FILE},
+	fiEccDbeAggReg: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_REGISTER_FILE},
+	fiEccSbeAggTex: {nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_TEXTURE_MEMORY},
+	fiEccDbeAggTex: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_TEXTURE_MEMORY},
+	fiEccDbeAggCbu: {nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.AGGREGATE_ECC, nvml.MEMORY_LOCATION_CBU},
+}
+
 // GetFieldValue resolves a single nvmlDeviceGetFieldValues entry: device-scope
 // fields first, then the NVLink field set. Unmodeled field ids yield
 // (FieldValueUnsupported, 0, ERROR_NOT_SUPPORTED) so the bridge can mark just
@@ -147,6 +209,19 @@ func (d *ConfigurableDevice) getDeviceFieldValue(fieldID, scopeID uint32) (Field
 		}
 		return FieldValueUint64, count, nvml.SUCCESS, true
 
+	case fiEccSbeVolL1, fiEccDbeVolL1, fiEccSbeVolL2, fiEccDbeVolL2,
+		fiEccSbeVolDev, fiEccDbeVolDev, fiEccSbeVolReg, fiEccDbeVolReg,
+		fiEccSbeVolTex, fiEccDbeVolTex, fiEccDbeVolCbu,
+		fiEccSbeAggL1, fiEccDbeAggL1, fiEccSbeAggL2, fiEccDbeAggL2,
+		fiEccSbeAggDev, fiEccDbeAggDev, fiEccSbeAggReg, fiEccDbeAggReg,
+		fiEccSbeAggTex, fiEccDbeAggTex, fiEccDbeAggCbu:
+		loc := eccLocationFields[fieldID]
+		count, ret := d.GetMemoryErrorCounter(loc.errorType, loc.counterType, loc.location)
+		if ret != nvml.SUCCESS {
+			return FieldValueUnsupported, 0, ret, true
+		}
+		return FieldValueUint64, count, nvml.SUCCESS, true
+
 	case fiRetiredSbe, fiRetiredDbe:
 		cause := nvml.PAGE_RETIREMENT_CAUSE_MULTIPLE_SINGLE_BIT_ECC_ERRORS
 		if fieldID == fiRetiredDbe {
@@ -167,6 +242,10 @@ func (d *ConfigurableDevice) getDeviceFieldValue(fieldID, scopeID uint32) (Field
 
 	case fiTempShutdownTlimit, fiTempSlowdownTlimit, fiTempMemMaxTlimit, fiTempGpuMaxTlimit:
 		return d.tlimitThresholdFieldValue(fieldID)
+
+	case fiPerfPolicyPower, fiPerfPolicyThermal, fiPerfPolicySyncBoost,
+		fiClocksEventSwThermSlowdown, fiClocksEventHwThermSlowdown, fiClocksEventHwPowerBrake:
+		return d.throttleCounterFieldValue(fieldID)
 
 	case fiMemoryTemp:
 		cfg := d.cfg()

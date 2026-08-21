@@ -47,7 +47,7 @@ device_defaults:
     cluster_uuid: "00000000-0000-0000-0000-000000000001"
     clique_id: 0
     state: "auto"
-    health_mask: 0
+    # Health defaults to a healthy fabric; see docs/configuration.md#fabric-health.
 
   # ---------------------------------------------------------------------------
   # InfoROM versions

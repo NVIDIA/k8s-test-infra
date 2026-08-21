@@ -261,6 +261,8 @@ device_defaults:
     uncorrectable: 0
     pending: false
     failure_occurred: false
+    # No availability_histogram: row remapping arrived with Ampere, so Turing
+    # reports the bank histogram as unsupported.
 
   # ---------------------------------------------------------------------------
   # Display configuration

@@ -340,6 +340,27 @@ type ClocksThrottleReasonsConfig struct {
 	SyncBoost                 bool `json:"sync_boost,omitempty"`
 	SWThermalSlowdown         bool `json:"sw_thermal_slowdown,omitempty"`
 	DisplayClocksSetting      bool `json:"display_clocks_setting,omitempty"`
+
+	// Counters seeds the cumulative time each cause has already cost the GPU.
+	// The flags above answer "is it throttled now"; the counters answer "how
+	// long has it been", which is what a slow workload is diagnosed from.
+	Counters *ThrottleCountersConfig `json:"counters,omitempty"`
+}
+
+// ThrottleCountersConfig is the starting value of each clocks-event counter, in
+// microseconds — the unit nvidia-smi prints them in and the unit a reading off
+// a real tray is copied from. A device accrues further time on top of these
+// while the matching flag above is set, but only within one process, so a
+// throttle state entered at runtime carries no history of its own: the baseline
+// here is what makes an Active flag read as a duration rather than as the age of
+// the calling process. Omitting the block means a GPU that has never been
+// throttled, which reports 0 rather than N/A.
+type ThrottleCountersConfig struct {
+	SWPowerCapUS           uint64 `json:"sw_power_cap_us,omitempty"`
+	SyncBoostUS            uint64 `json:"sync_boost_us,omitempty"`
+	SWThermalSlowdownUS    uint64 `json:"sw_thermal_slowdown_us,omitempty"`
+	HWThermalSlowdownUS    uint64 `json:"hw_thermal_slowdown_us,omitempty"`
+	HWPowerBrakeSlowdownUS uint64 `json:"hw_power_brake_slowdown_us,omitempty"`
 }
 
 // SupportedClocksConfig defines supported clock frequencies
@@ -383,6 +404,42 @@ type ECCConfig struct {
 	ModePending string           `json:"mode_pending,omitempty"`
 	DefaultMode string           `json:"default_mode,omitempty"`
 	Errors      *ECCErrorsConfig `json:"errors,omitempty"`
+	SRAM        *ECCSramConfig   `json:"sram,omitempty"`
+}
+
+// ECCSramConfig defines the on-die SRAM ECC error state. Hardware counts SRAM
+// errors separately from the DRAM counters in Errors and reports them through
+// their own API (nvmlDeviceGetSramEccErrorStatus), which is why they are a
+// sibling block rather than another memory location under errors.
+type ECCSramConfig struct {
+	Volatile  *ECCSramCountsConfig `json:"volatile,omitempty"`
+	Aggregate *ECCSramCountsConfig `json:"aggregate,omitempty"`
+	// UncorrectableSources attributes the aggregate uncorrectable errors to the
+	// unit that reported them; nvidia-smi renders it as "Aggregate
+	// Uncorrectable SRAM Sources".
+	UncorrectableSources *ECCSramSourcesConfig `json:"uncorrectable_sources,omitempty"`
+	// ThresholdExceeded reports whether the accumulated SRAM errors have passed
+	// the driver's threshold — the signal that the GPU needs servicing rather
+	// than just a count that went up.
+	ThresholdExceeded bool `json:"threshold_exceeded,omitempty"`
+}
+
+// ECCSramCountsConfig defines the SRAM error counts for one scope (volatile,
+// reset at driver reload, or aggregate, persisted in the InfoROM).
+type ECCSramCountsConfig struct {
+	Correctable         uint64 `json:"correctable,omitempty"`
+	UncorrectableParity uint64 `json:"uncorrectable_parity,omitempty"`
+	UncorrectableSECDED uint64 `json:"uncorrectable_secded,omitempty"`
+}
+
+// ECCSramSourcesConfig defines the per-unit breakdown of aggregate
+// uncorrectable SRAM errors.
+type ECCSramSourcesConfig struct {
+	L2              uint64 `json:"l2,omitempty"`
+	SM              uint64 `json:"sm,omitempty"`
+	Microcontroller uint64 `json:"microcontroller,omitempty"`
+	PCIe            uint64 `json:"pcie,omitempty"`
+	Other           uint64 `json:"other,omitempty"`
 }
 
 // ECCErrorsConfig defines ECC error counts
@@ -423,10 +480,23 @@ type RetirementInfoConfig struct {
 
 // RemappedRowsConfig defines remapped rows information
 type RemappedRowsConfig struct {
-	Correctable     int  `json:"correctable,omitempty"`
-	Uncorrectable   int  `json:"uncorrectable,omitempty"`
-	Pending         bool `json:"pending,omitempty"`
-	FailureOccurred bool `json:"failure_occurred,omitempty"`
+	Correctable           int                      `json:"correctable,omitempty"`
+	Uncorrectable         int                      `json:"uncorrectable,omitempty"`
+	Pending               bool                     `json:"pending,omitempty"`
+	FailureOccurred       bool                     `json:"failure_occurred,omitempty"`
+	AvailabilityHistogram *RowRemapHistogramConfig `json:"availability_histogram,omitempty"`
+}
+
+// RowRemapHistogramConfig defines how many memory banks fall into each
+// row-remap availability bucket, i.e. how much spare capacity is left to
+// remap future failures. Row remapping is Ampere and later, so leaving this
+// unset makes the mock report the feature as unsupported.
+type RowRemapHistogramConfig struct {
+	Max     uint32 `json:"max,omitempty"`
+	High    uint32 `json:"high,omitempty"`
+	Partial uint32 `json:"partial,omitempty"`
+	Low     uint32 `json:"low,omitempty"`
+	None    uint32 `json:"none,omitempty"`
 }
 
 // DisplayConfig defines display output settings
@@ -666,8 +736,46 @@ type FabricConfig struct {
 	// readiness marker when fabricmanager is enabled, and resolves to
 	// "completed" when it is disabled (see engine/fabric_readiness.go).
 	State string `json:"state,omitempty"`
-	// HealthMask is the v2 health bitmask. Defaults to 0 (healthy).
-	HealthMask uint32 `json:"health_mask,omitempty"`
+	// HealthSummary pins the overall fabric health nvidia-smi reports as
+	// Fabric.Health.Summary: "healthy", "unhealthy", "limited_capacity"
+	// or "not_supported". Empty (or "auto") derives it from the conditions
+	// in Health, which is what makes an injected fault move the summary.
+	HealthSummary string `json:"health_summary,omitempty"`
+	// Health carries the individual fabric health conditions. Absent means
+	// an all-clear fabric.
+	Health *FabricHealthConfig `json:"health,omitempty"`
+	// HealthMask is an escape hatch for the raw v2/v3 health bitmask,
+	// for encodings Health cannot express. When set it replaces the mask
+	// derived from Health wholesale, and the summary is derived from it.
+	// A raw 0 means "the driver reported no health at all", which
+	// nvidia-smi renders as N/A for the whole Health block.
+	HealthMask *uint32 `json:"health_mask,omitempty"`
+}
+
+// FabricHealthConfig models the individual NVLink fabric health conditions
+// nvidia-smi renders under Fabric.Health, each mapping to one slot of the NVML
+// health bitmask (see engine/fabric_health.go). Every condition defaults to
+// its healthy value, so an absent block describes a healthy fabric rather than
+// an unknown one.
+//
+// PartitionAssigned is deliberately absent: real hardware leaves that field
+// unanswered (nvidia-smi renders it as N/A even on a healthy rack), so the
+// mock reports the same. Use HealthMask to encode it.
+type FabricHealthConfig struct {
+	// DegradedBandwidth reports the fabric attachment as running below
+	// full bandwidth (nvidia-smi Bandwidth: Degraded rather than Full).
+	// On its own it summarises as limited capacity, not unhealthy.
+	DegradedBandwidth bool `json:"degraded_bandwidth,omitempty"`
+	// RouteRecovery reports a route recovery in progress.
+	RouteRecovery bool `json:"route_recovery,omitempty"`
+	// RouteUnhealthy reports the GPU's fabric route as unhealthy.
+	RouteUnhealthy bool `json:"route_unhealthy,omitempty"`
+	// AccessTimeoutRecovery reports an access-timeout recovery in progress.
+	AccessTimeoutRecovery bool `json:"access_timeout_recovery,omitempty"`
+	// IncorrectConfiguration names a detected fabric misconfiguration
+	// ("no_partition", "insufficient_nvlinks", ...; see
+	// FabricIncorrectConfigNames). Empty means none detected.
+	IncorrectConfiguration string `json:"incorrect_configuration,omitempty"`
 }
 
 // TopologyDocument is the cluster-level ConfigMap that maps individual

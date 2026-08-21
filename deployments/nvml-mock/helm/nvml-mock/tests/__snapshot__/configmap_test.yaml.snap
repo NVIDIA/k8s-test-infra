@@ -266,6 +266,18 @@ should match snapshot with b200 profile:
             uncorrectable: 0
             pending: false
             failure_occurred: false
+            # Bank remap availability: every bank still holds its full complement of
+            # spare rows, which is what a GPU that has never remapped reports. Row
+            # remapping is Ampere and later, so a pre-Ampere profile (t4) omits this
+            # block and the mock reports the histogram unsupported, as that hardware
+            # does. The bank count follows the 16-banks-per-GiB ratio a real 40 GiB
+            # A100 reports.
+            availability_histogram:
+              max: 3072
+              high: 0
+              partial: 0
+              low: 0
+              none: 0
 
           # ---------------------------------------------------------------------------
           # Display configuration
@@ -729,6 +741,18 @@ should match snapshot with default a100 profile:
             uncorrectable: 0
             pending: false
             failure_occurred: false
+            # Bank remap availability: every bank still holds its full complement of
+            # spare rows, which is what a GPU that has never remapped reports. Row
+            # remapping is Ampere and later, so a pre-Ampere profile (t4) omits this
+            # block and the mock reports the histogram unsupported, as that hardware
+            # does. The bank count follows the 16-banks-per-GiB ratio a real 40 GiB
+            # A100 reports.
+            availability_histogram:
+              max: 640
+              high: 0
+              partial: 0
+              low: 0
+              none: 0
 
           # ---------------------------------------------------------------------------
           # Display configuration
@@ -999,7 +1023,10 @@ should match snapshot with gb200 profile:
             cluster_uuid: "00000000-0000-0000-0000-000000000001"
             clique_id: 0
             state: "auto"                   # couple GPU fabric registration to fake fabricmanager readiness
-            health_mask: 0
+            # Health defaults to a healthy fabric (nvidia-smi -q reports Summary:
+            # Healthy, Bandwidth: Full). Add a `health:` block to fault a specific
+            # condition, or use `nvml-mock-ctl fabric-health` at runtime.
+            # See docs/configuration.md#fabric-health.
 
           # ---------------------------------------------------------------------------
           # Platform identity — where this node sits in the NVL72 rack, which
@@ -1239,6 +1266,18 @@ should match snapshot with gb200 profile:
             uncorrectable: 0
             pending: false
             failure_occurred: false
+            # Bank remap availability: every bank still holds its full complement of
+            # spare rows, which is what a GPU that has never remapped reports. Row
+            # remapping is Ampere and later, so a pre-Ampere profile (t4) omits this
+            # block and the mock reports the histogram unsupported, as that hardware
+            # does. The bank count follows the 16-banks-per-GiB ratio a real 40 GiB
+            # A100 reports.
+            availability_histogram:
+              max: 3072
+              high: 0
+              partial: 0
+              low: 0
+              none: 0
 
           # ---------------------------------------------------------------------------
           # Display configuration
@@ -1556,7 +1595,10 @@ should match snapshot with gb300 profile:
             cluster_uuid: "00000000-0000-0000-0000-000000000001"
             clique_id: 0
             state: "auto"                   # couple GPU fabric registration to fake fabricmanager readiness
-            health_mask: 0
+            # Health defaults to a healthy fabric (nvidia-smi -q reports Summary:
+            # Healthy, Bandwidth: Full). Add a `health:` block to fault a specific
+            # condition, or use `nvml-mock-ctl fabric-health` at runtime.
+            # See docs/configuration.md#fabric-health.
 
           # ---------------------------------------------------------------------------
           # Platform identity — where this node sits in the NVL72 rack, which
@@ -1797,6 +1839,18 @@ should match snapshot with gb300 profile:
             uncorrectable: 0
             pending: false
             failure_occurred: false
+            # Bank remap availability: every bank still holds its full complement of
+            # spare rows, which is what a GPU that has never remapped reports. Row
+            # remapping is Ampere and later, so a pre-Ampere profile (t4) omits this
+            # block and the mock reports the histogram unsupported, as that hardware
+            # does. The bank count follows the 16-banks-per-GiB ratio a real 40 GiB
+            # A100 reports.
+            availability_histogram:
+              max: 4608
+              high: 0
+              partial: 0
+              low: 0
+              none: 0
 
           # ---------------------------------------------------------------------------
           # Display configuration
@@ -2102,7 +2156,10 @@ should match snapshot with h100 profile:
             cluster_uuid: "00000000-0000-0000-0000-000000000001"
             clique_id: 0
             state: "auto"
-            health_mask: 0
+            # Health defaults to a healthy fabric (nvidia-smi -q reports Summary:
+            # Healthy, Bandwidth: Full). Add a `health:` block to fault a specific
+            # condition, or use `nvml-mock-ctl fabric-health` at runtime.
+            # See docs/configuration.md#fabric-health.
 
           # ---------------------------------------------------------------------------
           # InfoROM versions
@@ -2322,6 +2379,18 @@ should match snapshot with h100 profile:
             uncorrectable: 0
             pending: false
             failure_occurred: false
+            # Bank remap availability: every bank still holds its full complement of
+            # spare rows, which is what a GPU that has never remapped reports. Row
+            # remapping is Ampere and later, so a pre-Ampere profile (t4) omits this
+            # block and the mock reports the histogram unsupported, as that hardware
+            # does. The bank count follows the 16-banks-per-GiB ratio a real 40 GiB
+            # A100 reports.
+            availability_histogram:
+              max: 1280
+              high: 0
+              partial: 0
+              low: 0
+              none: 0
 
           # ---------------------------------------------------------------------------
           # Display configuration
@@ -2791,6 +2860,18 @@ should match snapshot with l40s profile:
             uncorrectable: 0
             pending: false
             failure_occurred: false
+            # Bank remap availability: every bank still holds its full complement of
+            # spare rows, which is what a GPU that has never remapped reports. Row
+            # remapping is Ampere and later, so a pre-Ampere profile (t4) omits this
+            # block and the mock reports the histogram unsupported, as that hardware
+            # does. The bank count follows the 16-banks-per-GiB ratio a real 40 GiB
+            # A100 reports.
+            availability_histogram:
+              max: 768
+              high: 0
+              partial: 0
+              low: 0
+              none: 0
 
           # ---------------------------------------------------------------------------
           # Display configuration
@@ -3226,6 +3307,8 @@ should match snapshot with t4 profile:
             uncorrectable: 0
             pending: false
             failure_occurred: false
+            # No availability_histogram: row remapping arrived with Ampere, so Turing
+            # reports the bank histogram as unsupported.
 
           # ---------------------------------------------------------------------------
           # Display configuration

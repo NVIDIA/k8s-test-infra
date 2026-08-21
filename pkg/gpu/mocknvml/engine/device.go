@@ -75,6 +75,12 @@ type ConfigurableDevice struct {
 	// on refresh. Read via failureInjector().
 	failure atomic.Pointer[failureInjector]
 
+	// throttle accrues per-cause clocks-event time. Created on first read
+	// (see throttleAccrual) and deliberately NOT swapped on config refresh:
+	// the time a GPU has already spent throttled is not something a runtime
+	// override can take back.
+	throttle atomic.Pointer[throttleAccrual]
+
 	// refresh bookkeeping
 	refreshMu  sync.Mutex
 	appliedGen uint64
@@ -1890,40 +1896,198 @@ func (d *ConfigurableDevice) GetPcieThroughput(counter nvml.PcieUtilCounter) (ui
 	return 0, nvml.SUCCESS
 }
 
-// GetTotalEccErrors returns total ECC errors. Healthy devices report
-// zero. When failure injection has tripped into ecc_uncorrectable mode
-// the running call counter is surfaced as the uncorrectable count so
-// each subsequent NVML poll sees a strictly increasing value (matching
-// real hardware accumulating ECC events).
-func (d *ConfigurableDevice) GetTotalEccErrors(errorType nvml.MemoryErrorType, _ nvml.EccCounterType) (uint64, nvml.Return) {
+// GetTotalEccErrors returns the aggregate or volatile ECC error total from
+// ecc.errors, so a profile can present a GPU that has already accumulated
+// errors. When failure injection has tripped into ecc_uncorrectable mode the
+// running call counter is added to the uncorrectable count so each subsequent
+// NVML poll sees a strictly increasing value (matching real hardware
+// accumulating ECC events).
+func (d *ConfigurableDevice) GetTotalEccErrors(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType) (uint64, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
 	count := uint64(0)
-	if fi := d.failureInjector(); fi != nil && fi.IsECCUncorrectable() && errorType == nvml.MEMORY_ERROR_TYPE_UNCORRECTED {
-		count = uint64(fi.CallCount())
+	if errs := eccMemoryErrors(d.eccErrorCounts(counterType), errorType); errs != nil {
+		count = errs.Total
 	}
-	debugLog("[NVML] nvmlDeviceGetTotalEccErrors(errType=%d) -> %d\n", errorType, count)
+	if fi := d.failureInjector(); fi != nil && fi.IsECCUncorrectable() && errorType == nvml.MEMORY_ERROR_TYPE_UNCORRECTED {
+		count += uint64(fi.CallCount())
+	}
+	debugLog("[NVML] nvmlDeviceGetTotalEccErrors(errType=%d counterType=%d) -> %d\n", errorType, counterType, count)
 	return count, nvml.SUCCESS
 }
 
-// GetMemoryErrorCounter returns the per-location memory-error counter.
-// Healthy devices report zero. ecc_uncorrectable mode reports the running
-// call count for the uncorrected counter on device memory, mirroring the
-// total error count so callers correlating the two queries see a
-// consistent view.
-func (d *ConfigurableDevice) GetMemoryErrorCounter(errorType nvml.MemoryErrorType, _ nvml.EccCounterType, locationType nvml.MemoryLocation) (uint64, nvml.Return) {
+// GetMemoryErrorCounter returns the ECC error counter for one
+// (error type, counter type, memory location) triple. Every argument is
+// honoured: DRAM and SRAM are backed by separate configuration, so a consumer
+// reading them apart — as fault-handling software does when deciding whether a
+// fault is repairable — sees distinct counts rather than one shared number.
+// ecc_uncorrectable injection accrues on device memory, mirroring the total
+// error count so callers correlating the two queries see a consistent view.
+func (d *ConfigurableDevice) GetMemoryErrorCounter(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType, locationType nvml.MemoryLocation) (uint64, nvml.Return) {
 	if ret := d.tickFailure(); ret != nvml.SUCCESS {
 		return 0, ret
 	}
-	count := uint64(0)
+	count := d.eccLocationErrors(errorType, counterType, locationType)
 	if fi := d.failureInjector(); fi != nil && fi.IsECCUncorrectable() &&
 		errorType == nvml.MEMORY_ERROR_TYPE_UNCORRECTED &&
 		locationType == nvml.MEMORY_LOCATION_DEVICE_MEMORY {
-		count = uint64(fi.CallCount())
+		count += uint64(fi.CallCount())
 	}
-	debugLog("[NVML] nvmlDeviceGetMemoryErrorCounter(errType=%d loc=%d) -> %d\n", errorType, locationType, count)
+	debugLog("[NVML] nvmlDeviceGetMemoryErrorCounter(errType=%d counterType=%d loc=%d) -> %d\n",
+		errorType, counterType, locationType, count)
 	return count, nvml.SUCCESS
+}
+
+// GetSramEccErrorStatus returns the on-die SRAM ECC error state from ecc.sram.
+// SRAM errors are the fault class that row remapping cannot repair, so
+// fault-handling software treats them differently from DRAM errors and reads
+// them through this dedicated API.
+//
+// The returned struct carries no Version: the caller's ABI is the bridge's
+// concern, not the engine's.
+func (d *ConfigurableDevice) GetSramEccErrorStatus() (nvml.EccSramErrorStatus, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return nvml.EccSramErrorStatus{}, ret
+	}
+	// SRAM counters only exist while ECC is on. Reporting zeros for a GPU with
+	// ECC disabled would claim healthy SRAM the driver is not actually
+	// watching, so answer as real hardware does: unsupported (N/A).
+	if current, _, _ := d.GetEccMode(); current != nvml.FEATURE_ENABLED {
+		debugLog("[NVML] nvmlDeviceGetSramEccErrorStatus -> NOT_SUPPORTED (ECC disabled)\n")
+		return nvml.EccSramErrorStatus{}, nvml.ERROR_NOT_SUPPORTED
+	}
+
+	var status nvml.EccSramErrorStatus
+	cfg := d.cfg()
+	if cfg.ECC != nil && cfg.ECC.SRAM != nil {
+		sram := cfg.ECC.SRAM
+		if v := sram.Volatile; v != nil {
+			status.VolatileCor = v.Correctable
+			status.VolatileUncParity = v.UncorrectableParity
+			status.VolatileUncSecDed = v.UncorrectableSECDED
+		}
+		if a := sram.Aggregate; a != nil {
+			status.AggregateCor = a.Correctable
+			status.AggregateUncParity = a.UncorrectableParity
+			status.AggregateUncSecDed = a.UncorrectableSECDED
+		}
+		if s := sram.UncorrectableSources; s != nil {
+			status.AggregateUncBucketL2 = s.L2
+			status.AggregateUncBucketSm = s.SM
+			status.AggregateUncBucketMcu = s.Microcontroller
+			status.AggregateUncBucketPcie = s.PCIe
+			status.AggregateUncBucketOther = s.Other
+		}
+		if sram.ThresholdExceeded {
+			status.BThresholdExceeded = 1
+		}
+	}
+	debugLog("[NVML] nvmlDeviceGetSramEccErrorStatus -> aggCor=%d aggUncParity=%d aggUncSecDed=%d threshold=%d\n",
+		status.AggregateCor, status.AggregateUncParity, status.AggregateUncSecDed, status.BThresholdExceeded)
+	return status, nvml.SUCCESS
+}
+
+// GetRowRemapperHistogram returns how many memory banks fall into each
+// row-remap availability bucket, i.e. how much spare capacity is left before
+// the GPU can no longer repair a failing row. Row remapping is Ampere and
+// later and the bank count is hardware-specific, so an unconfigured device
+// reports the feature as unsupported rather than inventing a bank population.
+func (d *ConfigurableDevice) GetRowRemapperHistogram() (nvml.RowRemapperHistogramValues, nvml.Return) {
+	if ret := d.tickFailure(); ret != nvml.SUCCESS {
+		return nvml.RowRemapperHistogramValues{}, ret
+	}
+	cfg := d.cfg()
+	if cfg.RemappedRows == nil || cfg.RemappedRows.AvailabilityHistogram == nil {
+		debugLog("[NVML] nvmlDeviceGetRowRemapperHistogram -> NOT_SUPPORTED (no availability_histogram configured)\n")
+		return nvml.RowRemapperHistogramValues{}, nvml.ERROR_NOT_SUPPORTED
+	}
+	h := cfg.RemappedRows.AvailabilityHistogram
+	values := nvml.RowRemapperHistogramValues{
+		Max:     h.Max,
+		High:    h.High,
+		Partial: h.Partial,
+		Low:     h.Low,
+		None:    h.None,
+	}
+	debugLog("[NVML] nvmlDeviceGetRowRemapperHistogram -> max=%d high=%d partial=%d low=%d none=%d\n",
+		values.Max, values.High, values.Partial, values.Low, values.None)
+	return values, nvml.SUCCESS
+}
+
+// eccErrorCounts returns the configured DRAM-side error counts for one counter
+// type (volatile resets on driver reload, aggregate persists in the InfoROM).
+func (d *ConfigurableDevice) eccErrorCounts(counterType nvml.EccCounterType) *ECCErrorCountsConfig {
+	c := d.cfg()
+	if c.ECC == nil || c.ECC.Errors == nil {
+		return nil
+	}
+	if counterType == nvml.AGGREGATE_ECC {
+		return c.ECC.Errors.Aggregate
+	}
+	return c.ECC.Errors.Volatile
+}
+
+// eccMemoryErrors selects the single- or double-bit bucket matching an NVML
+// error type.
+func eccMemoryErrors(counts *ECCErrorCountsConfig, errorType nvml.MemoryErrorType) *ECCMemoryErrorsConfig {
+	if counts == nil {
+		return nil
+	}
+	if errorType == nvml.MEMORY_ERROR_TYPE_UNCORRECTED {
+		return counts.DoubleBit
+	}
+	return counts.SingleBit
+}
+
+// eccLocationErrors resolves the configured error count for one memory
+// location. Locations the mock does not model (texture shared memory, CBU)
+// report zero rather than borrowing another location's count.
+func (d *ConfigurableDevice) eccLocationErrors(errorType nvml.MemoryErrorType,
+	counterType nvml.EccCounterType, locationType nvml.MemoryLocation,
+) uint64 {
+	if locationType == nvml.MEMORY_LOCATION_SRAM {
+		return d.sramLocationErrors(errorType, counterType)
+	}
+	errs := eccMemoryErrors(d.eccErrorCounts(counterType), errorType)
+	if errs == nil {
+		return 0
+	}
+	switch locationType {
+	case nvml.MEMORY_LOCATION_L1_CACHE:
+		return errs.L1Cache
+	case nvml.MEMORY_LOCATION_L2_CACHE:
+		return errs.L2Cache
+	case nvml.MEMORY_LOCATION_DEVICE_MEMORY: // == MEMORY_LOCATION_DRAM
+		return errs.DeviceMemory
+	case nvml.MEMORY_LOCATION_REGISTER_FILE:
+		return errs.RegisterFile
+	case nvml.MEMORY_LOCATION_TEXTURE_MEMORY:
+		return errs.TextureMemory
+	default:
+		return 0
+	}
+}
+
+// sramLocationErrors answers the SRAM memory location from ecc.sram. NVML
+// reports a single uncorrected counter per location, so the parity and SEC-DED
+// counts the SRAM status splits out are summed here.
+func (d *ConfigurableDevice) sramLocationErrors(errorType nvml.MemoryErrorType, counterType nvml.EccCounterType) uint64 {
+	c := d.cfg()
+	if c.ECC == nil || c.ECC.SRAM == nil {
+		return 0
+	}
+	counts := c.ECC.SRAM.Volatile
+	if counterType == nvml.AGGREGATE_ECC {
+		counts = c.ECC.SRAM.Aggregate
+	}
+	if counts == nil {
+		return 0
+	}
+	if errorType == nvml.MEMORY_ERROR_TYPE_UNCORRECTED {
+		return counts.UncorrectableParity + counts.UncorrectableSECDED
+	}
+	return counts.Correctable
 }
 
 // GetRetiredPages returns retired pages
@@ -2137,24 +2301,6 @@ func (d *ConfigurableDevice) failureLost() bool {
 	}
 	fi := d.failureInjector()
 	return fi != nil && fi.IsLost()
-}
-
-// GetViolationStatus returns the active violation time information for
-// a performance policy. The returned struct stays semantically faithful
-// to the NVML spec — both ReferenceTime and ViolationTime are reported
-// in nanoseconds for power/thermal violations. Failure injection does
-// NOT overload these fields with the configured Xid code; instead the
-// Xid is surfaced via the NVML event set
-// (NVML_EVENT_TYPE_XID_CRITICAL_ERROR) so consumers like dcgm-exporter
-// or the device plugin's health monitor see it through the API designed
-// for it. We still return ERROR_GPU_IS_LOST for tripped lost /
-// fallen_off_bus devices, matching every other guarded getter.
-func (d *ConfigurableDevice) GetViolationStatus(perfPolicyType nvml.PerfPolicyType) (nvml.ViolationTime, nvml.Return) {
-	if ret := d.tickFailure(); ret != nvml.SUCCESS {
-		return nvml.ViolationTime{}, ret
-	}
-	debugLog("[NVML] nvmlDeviceGetViolationStatus(policy=%d) -> no violation\n", perfPolicyType)
-	return nvml.ViolationTime{}, nvml.SUCCESS
 }
 
 // MockServer wraps dgxa100.Server and uses configurable devices

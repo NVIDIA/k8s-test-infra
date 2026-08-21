@@ -199,6 +199,70 @@ func TestNVLinkErrorPatch_ZeroRateHeals(t *testing.T) {
 	require.InDelta(t, float64(0), merged.NVLinkError.Rate, 1e-9, "rate 0 is the healthy/no-injection value")
 }
 
+func TestSramECCPatch_InjectsCountsAndSource(t *testing.T) {
+	patch, err := SramECCPatch(5, "secded", "sm", true)
+	require.NoError(t, err)
+	require.NoError(t, Validate(&engine.DeviceConfig{}, patch))
+
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, patch)
+	require.NoError(t, err)
+	sram := merged.ECC.SRAM
+	require.NotNil(t, sram)
+	require.Equal(t, uint64(5), sram.Volatile.UncorrectableSECDED)
+	require.Equal(t, uint64(5), sram.Aggregate.UncorrectableSECDED)
+	require.Zero(t, sram.Aggregate.UncorrectableParity, "only the requested error type is injected")
+	require.Equal(t, uint64(5), sram.UncorrectableSources.SM, "the breakdown must attribute the errors to --source")
+	require.Zero(t, sram.UncorrectableSources.L2)
+	require.True(t, sram.ThresholdExceeded)
+}
+
+// TestSramECCPatch_PreservesEccMode guards the trap in patching a nested block:
+// clobbering ecc wholesale would turn ECC off, and an ECC-off GPU reports no
+// SRAM counters at all — the injection would silently undo itself.
+func TestSramECCPatch_PreservesEccMode(t *testing.T) {
+	base := &engine.DeviceConfig{
+		ECC: &engine.ECCConfig{ModeCurrent: "enabled", ModePending: "enabled"},
+	}
+	patch, err := SramECCPatch(3, "parity", "l2", false)
+	require.NoError(t, err)
+
+	merged, err := engine.MergeDeviceConfig(base, patch)
+	require.NoError(t, err)
+	require.Equal(t, "enabled", merged.ECC.ModeCurrent)
+	require.Equal(t, uint64(3), merged.ECC.SRAM.Aggregate.UncorrectableParity)
+	require.Equal(t, uint64(3), merged.ECC.SRAM.UncorrectableSources.L2)
+}
+
+func TestSramECCPatch_ZeroCountHeals(t *testing.T) {
+	base := &engine.DeviceConfig{
+		ECC: &engine.ECCConfig{
+			ModeCurrent: "enabled",
+			SRAM: &engine.ECCSramConfig{
+				Aggregate:            &engine.ECCSramCountsConfig{UncorrectableSECDED: 9},
+				UncorrectableSources: &engine.ECCSramSourcesConfig{SM: 9},
+				ThresholdExceeded:    true,
+			},
+		},
+	}
+	patch, err := SramECCPatch(0, "secded", "", false)
+	require.NoError(t, err)
+
+	merged, err := engine.MergeDeviceConfig(base, patch)
+	require.NoError(t, err)
+	require.Zero(t, merged.ECC.SRAM.Aggregate.UncorrectableSECDED, "count 0 is the healthy value")
+	require.Zero(t, merged.ECC.SRAM.UncorrectableSources.SM, "healing must clear the source breakdown too")
+	require.False(t, merged.ECC.SRAM.ThresholdExceeded, "healing must clear the threshold flag")
+}
+
+func TestSramECCPatch_Errors(t *testing.T) {
+	_, err := SramECCPatch(1, "banana", "", false)
+	require.Error(t, err, "expected error for unknown error type")
+	_, err = SramECCPatch(1, "secded", "banana", false)
+	require.Error(t, err, "expected error for unknown source")
+	_, err = SramECCPatch(1, "correctable", "sm", false)
+	require.Error(t, err, "the source breakdown only covers uncorrectable errors")
+}
+
 func TestThrottlePatch_AuthoritativeFlags(t *testing.T) {
 	patch, err := ThrottlePatch([]string{"thermal"})
 	require.NoError(t, err)
@@ -232,6 +296,80 @@ func TestThrottlePatch_Errors(t *testing.T) {
 	require.Error(t, err, "expected error for unknown reason")
 	_, err = ThrottlePatch([]string{"none", "thermal"})
 	require.Error(t, err, "expected error combining none with other reasons")
+}
+
+func TestFabricHealthPatch_InjectsOneCondition(t *testing.T) {
+	patch, err := FabricHealthPatch([]string{"route_unhealthy"})
+	require.NoError(t, err)
+	base := &engine.DeviceConfig{Fabric: &engine.FabricConfig{CliqueID: 4, State: "auto"}}
+	require.NoError(t, Validate(base, patch))
+	merged, err := engine.MergeDeviceConfig(base, patch)
+	require.NoError(t, err)
+
+	require.NotNil(t, merged.Fabric.Health)
+	require.True(t, merged.Fabric.Health.RouteUnhealthy, "route_unhealthy")
+	require.False(t, merged.Fabric.Health.RouteRecovery, "neighbouring conditions must stay healthy")
+	require.False(t, merged.Fabric.Health.DegradedBandwidth, "neighbouring conditions must stay healthy")
+	// Fabric identity is a separate concern and must survive the patch.
+	require.Equal(t, uint32(4), merged.Fabric.CliqueID, "clique")
+	require.Equal(t, "auto", merged.Fabric.State, "state")
+}
+
+// TestFabricHealthPatch_Authoritative pins the same replace-not-accumulate
+// contract the throttle command has: a second invocation must describe the
+// whole health state, not add to it.
+func TestFabricHealthPatch_Authoritative(t *testing.T) {
+	patch, err := FabricHealthPatch([]string{"degraded_bandwidth"})
+	require.NoError(t, err)
+	base := &engine.DeviceConfig{Fabric: &engine.FabricConfig{
+		Health: &engine.FabricHealthConfig{RouteUnhealthy: true, IncorrectConfiguration: "no_partition"},
+	}}
+	merged, err := engine.MergeDeviceConfig(base, patch)
+	require.NoError(t, err)
+	require.True(t, merged.Fabric.Health.DegradedBandwidth, "degraded_bandwidth")
+	require.False(t, merged.Fabric.Health.RouteUnhealthy, "a stale condition must be cleared")
+	require.Equal(t, "none", merged.Fabric.Health.IncorrectConfiguration, "a stale misconfiguration must be cleared")
+}
+
+func TestFabricHealthPatch_HealthyClears(t *testing.T) {
+	patch, err := FabricHealthPatch([]string{"healthy"})
+	require.NoError(t, err)
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{Fabric: &engine.FabricConfig{
+		Health: &engine.FabricHealthConfig{RouteUnhealthy: true},
+	}}, patch)
+	require.NoError(t, err)
+	require.False(t, merged.Fabric.Health.RouteUnhealthy, "healthy must clear every condition")
+}
+
+// TestFabricHealthPatch_ReleasesPinnedSummary covers the interaction with a
+// profile that pins fabric.health_summary: the injected conditions would
+// otherwise have no effect on the summary nvidia-smi reports, so the patch
+// hands the summary back to derivation.
+func TestFabricHealthPatch_ReleasesPinnedSummary(t *testing.T) {
+	patch, err := FabricHealthPatch([]string{"route_unhealthy"})
+	require.NoError(t, err)
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{Fabric: &engine.FabricConfig{
+		HealthSummary: "healthy",
+	}}, patch)
+	require.NoError(t, err)
+	require.Equal(t, "auto", merged.Fabric.HealthSummary, "summary must follow the injected conditions")
+}
+
+func TestFabricHealthPatch_NamedMisconfiguration(t *testing.T) {
+	patch, err := FabricHealthPatch([]string{"no_partition"})
+	require.NoError(t, err)
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, patch)
+	require.NoError(t, err)
+	require.Equal(t, "no_partition", merged.Fabric.Health.IncorrectConfiguration)
+}
+
+func TestFabricHealthPatch_Errors(t *testing.T) {
+	_, err := FabricHealthPatch(nil)
+	require.Error(t, err, "expected error for no conditions")
+	_, err = FabricHealthPatch([]string{"banana"})
+	require.Error(t, err, "expected error for unknown condition")
+	_, err = FabricHealthPatch([]string{"healthy", "route_unhealthy"})
+	require.Error(t, err, "expected error combining healthy with a fault")
 }
 
 func TestResolveTarget_UUID(t *testing.T) {

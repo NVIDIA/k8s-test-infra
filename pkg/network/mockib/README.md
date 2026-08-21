@@ -501,6 +501,6 @@ logic is the only state. This is the textbook LD_PRELOAD-shim shape.
 
 ## See also
 
-- [Helm chart README](../../../deployments/nvml-mock/helm/nvml-mock/README.md) — install instructions, profile reference, troubleshooting.
+- [Helm chart README](https://nvidia.github.io/k8s-test-infra/helm-chart/) — install instructions, profile reference, troubleshooting.
 - [Standalone demo](../../../docs/demo/standalone/README.md) — full Kind walkthrough that exercises both `nvidia-smi` and `ibstat`.
 - [`pkg/gpu/mocknvml`](../../gpu/mocknvml/) — sister package that mocks the NVML library.

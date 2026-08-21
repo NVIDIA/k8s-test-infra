@@ -120,8 +120,12 @@ type gpuElement struct {
 	Temperature              temperature       `xml:"temperature"`
 	PowerReadings            powerReadings     `xml:"gpu_power_readings"`
 	Clocks                   clocks            `xml:"clocks"`
+	ECCMode                  eccMode           `xml:"ecc_mode"`
 	ECCErrors                eccErrors         `xml:"ecc_errors"`
+	RemappedRows             remappedRows      `xml:"remapped_rows"`
 	ClocksEventReasons       eventReasons      `xml:"clocks_event_reasons"`
+	ClocksEventCounters      eventCounters     `xml:"clocks_event_reasons_counters"`
+	Fabric                   fabricBlock       `xml:"fabric"`
 	Processes                struct {
 		Infos []processInfo `xml:"process_info"`
 	} `xml:"processes"`
@@ -238,14 +242,59 @@ type clocks struct {
 type eccErrors struct {
 	Volatile  eccCounters `xml:"volatile"`
 	Aggregate eccCounters `xml:"aggregate"`
+	// SRAMSources is emitted as a sibling of the two scope blocks, not inside
+	// <aggregate>, even though it breaks down the aggregate uncorrectable count.
+	SRAMSources eccSRAMSources `xml:"aggregate_uncorrectable_sram_sources"`
 }
 
 type eccCounters struct {
-	SRAMCorrectable         reading `xml:"sram_correctable"`
+	SRAMCorrectable reading `xml:"sram_correctable"`
+	// The uncorrectable SRAM count comes in one of two shapes, and which one
+	// nvidia-smi emits depends on the GPU's architecture: Ampere and later split
+	// it into the parity and SEC-DED pair, pre-Ampere reports the single
+	// combined element. Both are decoded so a check can tell an absent element
+	// from a wrong value in either rendering.
 	SRAMUncorrectableParity reading `xml:"sram_uncorrectable_parity"`
 	SRAMUncorrectableSECDED reading `xml:"sram_uncorrectable_secded"`
+	SRAMUncorrectable       reading `xml:"sram_uncorrectable"`
 	DRAMCorrectable         reading `xml:"dram_correctable"`
 	DRAMUncorrectable       reading `xml:"dram_uncorrectable"`
+	// SRAMThresholdExceeded is emitted under <aggregate> only; it is absent from
+	// <volatile>, which is a threshold-free scope, and from pre-Ampere output.
+	SRAMThresholdExceeded reading `xml:"sram_threshold_exceeded"`
+}
+
+// eccSRAMSources is <aggregate_uncorrectable_sram_sources>: which unit reported
+// the aggregate uncorrectable SRAM errors. Ampere and later only.
+type eccSRAMSources struct {
+	L2              reading `xml:"sram_l2"`
+	SM              reading `xml:"sram_sm"`
+	Microcontroller reading `xml:"sram_microcontroller"`
+	PCIe            reading `xml:"sram_pcie"`
+	Other           reading `xml:"sram_other"`
+}
+
+// eccMode is <ecc_mode>. SRAM and DRAM counters only exist while ECC is on, so
+// specs asserting on them gate against this first.
+type eccMode struct {
+	Current reading `xml:"current_ecc"`
+	Pending reading `xml:"pending_ecc"`
+}
+
+// remappedRows is <remapped_rows>: rows the GPU has retired plus how much spare
+// remap capacity is left.
+type remappedRows struct {
+	Correctable   reading `xml:"remapped_row_corr"`
+	Uncorrectable reading `xml:"remapped_row_unc"`
+	Pending       reading `xml:"remapped_row_pending"`
+	Failure       reading `xml:"remapped_row_failure"`
+	// Histogram is "N/A" when the GPU reports no bank availability and a nested
+	// block of per-bucket bank counts when it does. The raw body is kept rather
+	// than decoded: the child element names belong to the driver's DTD, and an
+	// assertion only needs to tell a populated histogram from an absent one.
+	Histogram struct {
+		Body string `xml:",innerxml"`
+	} `xml:"row_remapper_histogram"`
 }
 
 type eventReasons struct {
@@ -254,6 +303,50 @@ type eventReasons struct {
 	HWSlowdown        reading `xml:"clocks_event_reason_hw_slowdown"`
 	HWThermalSlowdown reading `xml:"clocks_event_reason_hw_thermal_slowdown"`
 	SWThermalSlowdown reading `xml:"clocks_event_reason_sw_thermal_slowdown"`
+}
+
+// eventCounters is <clocks_event_reasons_counters>: how long each cause has
+// held the GPU below its requested clocks, as microsecond totals. It is the
+// after-the-fact companion to the instantaneous flags in eventReasons above —
+// a workload that ran slow is diagnosed from these, not from catching a flag
+// mid-sample. Every element read N/A until the mock answered the field ids
+// behind them (#678). The element names are the NVML field names, which is why
+// they abbreviate "thermal" where the flags above spell it out.
+type eventCounters struct {
+	SWPowerCap        reading `xml:"clocks_event_reasons_counters_sw_power_cap"`
+	SyncBoost         reading `xml:"clocks_event_reasons_counters_sync_boost"`
+	SWThermalSlowdown reading `xml:"clocks_event_reasons_counters_sw_therm_slowdown"`
+	HWThermalSlowdown reading `xml:"clocks_event_reasons_counters_hw_therm_slowdown"`
+	HWPowerBrake      reading `xml:"clocks_event_reasons_counters_hw_power_brake"`
+}
+
+// fabricBlock is <fabric>: the GPU's NVLink fabric attachment. Its <status>
+// child is the NVML return code embedded in GpuFabricInfo, not a health
+// verdict — the health verdict is the <health> sub-block, whose every element
+// read N/A until the mock reported a health summary (#677).
+//
+// The reference GB300 tray also renders a Partition Assigned row, but no
+// element for it exists in the documents this package is pinned against, so
+// none is decoded: nvidia-smi 580.65.06 does not know that row at all.
+type fabricBlock struct {
+	State       reading           `xml:"state"`
+	Status      reading           `xml:"status"`
+	CliqueID    reading           `xml:"cliqueId"`
+	ClusterUUID reading           `xml:"clusterUuid"`
+	Health      fabricHealthBlock `xml:"health"`
+}
+
+// fabricHealthBlock is <fabric><health>. Each element carries one field of the
+// NVML fabric health mask, except <summary>, which carries the overall
+// healthSummary the mock has to report before nvidia-smi decodes any of the
+// others.
+type fabricHealthBlock struct {
+	Summary                reading `xml:"summary"`
+	Bandwidth              reading `xml:"bandwidth"`
+	RouteRecovery          reading `xml:"route_recovery_in_progress"`
+	RouteUnhealthy         reading `xml:"route_unhealthy"`
+	AccessTimeoutRecovery  reading `xml:"access_timeout_recovery"`
+	IncorrectConfiguration reading `xml:"incorrect_configuration"`
 }
 
 type processInfo struct {

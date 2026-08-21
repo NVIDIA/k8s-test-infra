@@ -151,27 +151,75 @@ func TestCLI_NVLinkErrorZeroHeals(t *testing.T) {
 	require.Contains(t, readConfigOverride(t, configOverride), "rate: 0")
 }
 
+func TestCLI_SramECCWritesCounters(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	_, e, c := runCLI(t, configOverride, "sram-ecc", "--gpu", "0", "--source", "sm", "--threshold-exceeded", "4")
+	require.Equalf(t, 0, c, "sram-ecc exited %d: %s", c, e)
+	s := readConfigOverride(t, configOverride)
+	for _, want := range []string{"sram:", "uncorrectable_secded: 4", "sm: 4", "threshold_exceeded: true"} {
+		require.Containsf(t, s, want, "configOverride missing %q", want)
+	}
+}
+
+func TestCLI_SramECCZeroHeals(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	_, e, c := runCLI(t, configOverride, "sram-ecc", "--gpu", "0", "0")
+	require.Equalf(t, 0, c, "sram-ecc exited %d: %s", c, e)
+	require.Contains(t, readConfigOverride(t, configOverride), "uncorrectable_secded: 0")
+}
+
+func TestCLI_FabricHealthDegradesOneCondition(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	_, e, c := runCLI(t, configOverride, "fabric-health", "--gpu", "0", "route_unhealthy")
+	require.Equalf(t, 0, c, "fabric-health exited %d: %s", c, e)
+	s := readConfigOverride(t, configOverride)
+	require.Contains(t, s, "route_unhealthy: true")
+	require.Contains(t, s, "route_recovery: false", "fabric-health should write authoritative false conditions")
+	require.Contains(t, s, "health_summary: auto", "the summary must follow the injected conditions")
+}
+
+func TestCLI_FabricHealthHealthyClears(t *testing.T) {
+	dir := t.TempDir()
+	configOverride := filepath.Join(dir, "overrides.yaml")
+	_, e, c := runCLI(t, configOverride, "fabric-health", "--gpu", "0", "route_unhealthy")
+	require.Equalf(t, 0, c, "fabric-health exited %d: %s", c, e)
+	_, e, c = runCLI(t, configOverride, "fabric-health", "--gpu", "0", "healthy")
+	require.Equalf(t, 0, c, "fabric-health healthy exited %d: %s", c, e)
+	require.Contains(t, readConfigOverride(t, configOverride), "route_unhealthy: false")
+}
+
 func TestCLI_ConvenienceArgValidation(t *testing.T) {
 	dir := t.TempDir()
 	configOverride := filepath.Join(dir, "overrides.yaml")
 	cases := [][]string{
-		{"temp", "--gpu", "0"},                              // missing value
-		{"temp", "--gpu", "0", "hot"},                       // non-integer
-		{"fan", "--gpu", "0", "150"},                        // out of range
-		{"power", "--gpu", "0", "--", "-5"},                 // negative watts (-- so it reaches the guard, not flag.Parse)
-		{"power", "--gpu", "0", "NaN"},                      // non-finite watts
-		{"power", "--gpu", "0", "Inf"},                      // non-finite watts
-		{"power", "--gpu", "0", "10000000"},                 // watts overflow guard
-		{"power", "--gpu", "0", "1", "2"},                   // too many values
-		{"util", "--gpu", "0", "150"},                       // out of range
-		{"pstate", "--gpu", "0", "16"},                      // out of range
-		{"throttle", "--gpu", "0"},                          // missing reason
-		{"throttle", "--gpu", "0", "nope"},                  // unknown reason
-		{"throttle", "--gpu", "0", "none", "thermal"},       // none + reason
-		{"nvlink-error", "--gpu", "0"},                      // missing rate
-		{"nvlink-error", "--gpu", "0", "-5"},                // negative rate (flag.Parse stops at -5 -> missing value)
-		{"nvlink-error", "--gpu", "0", "2000000000"},        // rate over cap
-		{"nvlink-error", "--gpu", "0", "--links", "x", "1"}, // non-integer link id
+		{"temp", "--gpu", "0"},                                       // missing value
+		{"temp", "--gpu", "0", "hot"},                                // non-integer
+		{"fan", "--gpu", "0", "150"},                                 // out of range
+		{"power", "--gpu", "0", "--", "-5"},                          // negative watts (-- so it reaches the guard, not flag.Parse)
+		{"power", "--gpu", "0", "NaN"},                               // non-finite watts
+		{"power", "--gpu", "0", "Inf"},                               // non-finite watts
+		{"power", "--gpu", "0", "10000000"},                          // watts overflow guard
+		{"power", "--gpu", "0", "1", "2"},                            // too many values
+		{"util", "--gpu", "0", "150"},                                // out of range
+		{"pstate", "--gpu", "0", "16"},                               // out of range
+		{"throttle", "--gpu", "0"},                                   // missing reason
+		{"throttle", "--gpu", "0", "nope"},                           // unknown reason
+		{"throttle", "--gpu", "0", "none", "thermal"},                // none + reason
+		{"nvlink-error", "--gpu", "0"},                               // missing rate
+		{"nvlink-error", "--gpu", "0", "-5"},                         // negative rate (flag.Parse stops at -5 -> missing value)
+		{"nvlink-error", "--gpu", "0", "2000000000"},                 // rate over cap
+		{"nvlink-error", "--gpu", "0", "--links", "x", "1"},          // non-integer link id
+		{"sram-ecc", "--gpu", "0"},                                   // missing count
+		{"sram-ecc", "--gpu", "0", "--type", "nope", "1"},            // unknown error type
+		{"sram-ecc", "--gpu", "0", "--source", "nope", "1"},          // unknown source
+		{"fabric-health", "--gpu", "0"},                              // missing condition
+		{"fabric-health", "--gpu", "0", "nope"},                      // unknown condition
+		{"fabric-health", "--gpu", "0", "healthy", "route_recovery"}, // healthy + fault
+		// The per-source breakdown only covers uncorrectable errors.
+		{"sram-ecc", "--gpu", "0", "--type", "correctable", "--source", "sm", "1"},
 	}
 	for _, args := range cases {
 		_, _, code := runCLI(t, configOverride, args...)

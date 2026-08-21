@@ -13,6 +13,7 @@ import "time"
 type Config struct {
 	ListenAddr      string
 	LogLevel        string
+	LogFormat       string // "json" | "plain"
 	ShutdownTimeout time.Duration
 }
 
@@ -21,6 +22,7 @@ func DefaultConfig() Config {
 	return Config{
 		ListenAddr:      ":8080",
 		LogLevel:        "info",
+		LogFormat:       "json",
 		ShutdownTimeout: 5 * time.Second,
 	}
 }

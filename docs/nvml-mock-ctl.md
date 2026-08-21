@@ -6,7 +6,7 @@ failures, flip ECC state, or tweak metrics (temperature, power, utilization,
 clocks, fan, …) on the fly while a test is in flight.
 
 - **Boot-time state** comes from the Helm profile / `config.yaml` (see the
-  [Helm chart README](../deployments/nvml-mock/helm/nvml-mock/README.md) and
+  [Helm chart README](helm-chart.md) and
   [Configuration Reference](configuration.md)).
 - **Runtime state** is layered on top by `nvml-mock-ctl`, described here.
 
@@ -105,6 +105,14 @@ commands:
   throttle --gpu <idx|all|uuid> <reason>[ reason ...]  set active throttle reasons ('none' clears)
   pstate --gpu <idx|all|uuid> <0-15>       pin reported performance state (P-state)
   nvlink-error --gpu <idx|all|uuid> <errors_per_sec> [--links a,b,c]  inject NVLink DL errors (0 heals)
+  sram-ecc --gpu <idx|all|uuid> <count> [--type correctable|parity|secded]
+           [--source l2|sm|microcontroller|pcie|other] [--threshold-exceeded]
+                                           inject SRAM ECC errors (0 heals)
+  fabric-health --gpu <idx|all|uuid> <condition>[ condition ...]  degrade NVLink fabric health ('healthy' clears)
+         conditions: degraded_bandwidth, route_recovery, route_unhealthy,
+         access_timeout_recovery, or a misconfiguration (no_partition,
+         insufficient_nvlinks, incompatible_gpu_fw, invalid_location,
+         incorrect_sysguid, incorrect_chassis_sn, gpu_state_invalid)
   set    --gpu <idx|all|uuid> key.path=value [key.path=value ...]
   status [--gpu <idx>]
   reset  [--gpu <idx|all|uuid>]
@@ -144,7 +152,7 @@ Sets the `failure` block for the target. Modes:
 
 `fail --mode healthy` is how you *recover* a single device (it deletes the
 `failure` block from that bucket). See the failure-injection section of the
-[mock NVML README](../pkg/gpu/mocknvml/README.md#failure-injection-optional) for
+[mock NVML README](https://github.com/NVIDIA/k8s-test-infra/blob/main/pkg/gpu/mocknvml/README.md#failure-injection-optional) for
 the full per-mode semantics.
 
 ### `temp` / `power` / `fan` / `util` / `clocks` / `throttle` / `pstate` — pin a common metric
@@ -237,12 +245,88 @@ target all active links (the "GPU lost its switch uplinks" fault).
 > the switch-link fault NVSentinel's gpu-health-monitor can actually detect and
 > remediate.
 
+### `sram-ecc` — inject on-die SRAM ECC errors
+
+Sets the target's `ecc.sram` counters, so the GPU reports SRAM errors the way one
+that has just taken an SRAM fault does. The positional argument is the error
+**count** (0–1e9); `0` heals.
+
+```bash
+# 4 uncorrectable SEC-DED errors on GPU 0's SM, past the service threshold
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl sram-ecc --gpu 0 \
+  --type secded --source sm --threshold-exceeded 4
+# correctable errors (no source attribution on real hardware)
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl sram-ecc --gpu 0 --type correctable 12
+# heal
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl sram-ecc --gpu 0 0
+```
+
+| flag                   | meaning                                                                                   |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| `--type`               | `correctable`, `parity` or `secded` (uncorrectable SEC-DED, the default)                   |
+| `--source`             | the unit the *uncorrectable* errors are attributed to; defaults to `other`                 |
+| `--threshold-exceeded` | raises `SRAM Threshold Exceeded`, the driver's "this GPU needs servicing" signal          |
+
+The count lands in **both** the volatile and aggregate scopes: hardware that has
+just taken an SRAM fault reports it in both, and pinning only one would leave a
+GPU whose history disagrees with its present. Within `ecc.sram` the command is
+*authoritative* — every counter and source is written — so repeated calls replace
+rather than accumulate, and `--source` moves the whole count to the named unit.
+The ECC mode is left alone, since a GPU with ECC off reports no SRAM counters at
+all and the injection would erase itself.
+
+Values surface in `nvidia-smi -q` under `ECC Errors` (both scopes, `SRAM
+Threshold Exceeded` and `Aggregate Uncorrectable SRAM Sources`) and through the
+per-location field values DCGM reads.
+
+### `fabric-health` — degrade NVLink fabric health
+
+Degrades the target's NVLink *fabric* health — the block `nvidia-smi -q` renders
+under `Fabric` → `Health`, and the first thing a fault-handling controller reads
+to decide whether a GPU's fabric attachment is usable. Positional arguments name
+the conditions to report:
+
+```bash
+# a route on GPU 0 is unhealthy
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 route_unhealthy
+# degraded fabric bandwidth while a route recovers
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 degraded_bandwidth route_recovery
+# the fabric manager gave this GPU no partition
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 no_partition
+# recover
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 healthy
+```
+
+| condition | reported as |
+| --------- | ----------- |
+| `degraded_bandwidth` | `Bandwidth: Degraded`, `Summary: Limited Capacity` |
+| `route_recovery` | `Route Recovery in progress: True` |
+| `route_unhealthy` | `Route Unhealthy: True` |
+| `access_timeout_recovery` | `Access Timeout Recovery: True` |
+| `no_partition`, `insufficient_nvlinks`, `incompatible_gpu_fw`, `invalid_location`, `incorrect_sysguid`, `incorrect_chassis_sn`, `gpu_state_invalid` | `Incorrect Configuration: <that misconfiguration>` |
+| `healthy` | clears every condition |
+
+Like `throttle`, it is *authoritative*: the named conditions are turned on and
+every other condition is turned off, so repeated calls replace rather than
+accumulate. `healthy` (on its own) clears them all — recovery does not need
+`reset`, so the device's other overrides survive it.
+
+The `Summary` row follows the conditions (`Unhealthy` for a fault, `Limited
+Capacity` for degraded bandwidth alone, `Healthy` when clear), including for a
+profile that pinned `fabric.health_summary`: injecting a fault releases the pin,
+because a summary that stays `Healthy` while a condition reports a fault is not a
+state hardware can be in. See
+[fabric health configuration](configuration.md#fabric-health) for the static
+equivalent.
+
 ### `set` — set arbitrary fields
 
 `set` takes one or more `key.path=value` pairs. The path is the YAML/JSON path
 into the device config; the value is parsed as a YAML scalar (so numbers, bools,
 and strings get their natural type). Example paths: `thermal.temperature_gpu_c`,
-`utilization.gpu`, `ecc.mode_current`, `power.current_draw_mw`.
+`utilization.gpu`, `ecc.mode_current`, `power.current_draw_mw`,
+`remapped_rows.availability_histogram.low`,
+`clocks_throttle_reasons.counters.sw_power_cap_us`.
 
 #### Dynamic metrics mask their static counterparts
 
@@ -297,6 +381,7 @@ the pristine profile within one TTL.
 | ------ | --------------------------- | ------ |
 | `nvml-mock-ctl reset [--gpu <t>]` | clears the targeted bucket(s) from `overrides.yaml` | device(s) revert to pristine profile within one TTL |
 | `nvml-mock-ctl fail --gpu <t> --mode healthy` | removes just the `failure` block for the target | that device recovers within one TTL; other overrides stay |
+| `nvml-mock-ctl fabric-health --gpu <t> healthy` | clears just the fabric health conditions for the target | that device's fabric reports healthy within one TTL; other overrides stay |
 | DaemonSet pod restart | `setup.sh` deletes `overrides.yaml` on startup | **all** overrides wiped; back to pristine profile |
 | Consumer pod restart | none — the config override lives on the node, not in the consumer | consumer re-reads and picks up the *current* config override (does **not** reset it) |
 | `helm upgrade` (profile/values change) | rolls the DaemonSet pod (config checksum + `RollingUpdate`), so `setup.sh` wipes `overrides.yaml` on the new pod | **all** overrides reset to the new pristine config; only an upgrade that does not recreate the nvml-mock pod leaves an config override in place |
@@ -345,6 +430,15 @@ kubectl exec <consumer> -- nvidia-smi --id=0 \
   --format=csv,noheader
 # clear the throttle reason again:
 kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl throttle --gpu 0 none
+```
+
+```bash
+# 3d) Degrade GPU 0's NVLink fabric route while the workload keeps running.
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 route_unhealthy
+# verify from any consumer pod (Fabric -> Health block):
+kubectl exec <consumer> -- nvidia-smi --id=0 -q | grep -A 7 Health
+# recover, keeping the device's other overrides:
+kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 healthy
 ```
 
 ```bash
