@@ -4,6 +4,7 @@
 package controlplane_test
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
@@ -51,16 +52,17 @@ func TestNewLogger(t *testing.T) {
 
 func TestNewLoggerFormat(t *testing.T) {
 	for _, tc := range []struct {
-		format  string
-		wantErr bool
+		format   string
+		wantErr  bool
+		wantJSON bool
 	}{
-		{"json", false},
-		{"plain", false},
-		{"JSON", false},  // Case-insensitive.
-		{"Plain", false}, // Case-insensitive.
-		{"", false},      // Empty falls back to json.
-		{"text", true},   // Not an accepted alias.
-		{"logfmt", true},
+		{"json", false, true},
+		{"plain", false, false},
+		{"JSON", false, true},   // Case-insensitive.
+		{"Plain", false, false}, // Case-insensitive.
+		{"", false, true},       // Empty falls back to json.
+		{"text", true, false},   // Not an accepted alias.
+		{"logfmt", true, false},
 	} {
 		t.Run(tc.format, func(t *testing.T) {
 			cfg := controlplane.DefaultConfig()
@@ -73,6 +75,11 @@ func TestNewLoggerFormat(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.NotNil(t, logger)
+			if tc.wantJSON {
+				require.IsType(t, (*slog.JSONHandler)(nil), logger.Handler())
+			} else {
+				require.IsType(t, (*slog.TextHandler)(nil), logger.Handler())
+			}
 		})
 	}
 }
