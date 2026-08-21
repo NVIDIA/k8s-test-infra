@@ -15,7 +15,7 @@ a few are meant for operators, demos and developers.
 | [`fake-fabricmanager`](fake-fabricmanager.md) | Stand-ins for `nv-fabricmanager` and its readiness query on NVSwitch profiles. |
 | [`fake-imex`](fake-imex.md) | Deprecated stand-ins for `nvidia-imex` and `nvidia-imex-ctl`. |
 | [`imex-nogpu-shim`](imex-nogpu-shim.md) | argv wrapper that runs the real `nvidia-imex` with `--nogpu` appended. |
-| [`mokka-control-plane`](mokka-control-plane.md) | HTTP service for the Mokka Control Plane (MEP-0001); the init slice serves only `/healthz` and `/readyz`. |
+| [`control-plane`](control-plane.md) | HTTP service for the Mokka Control Plane (MEP-0001); the init slice serves only `/healthz` and `/readyz`. |
 | [`generate-bridge`](generate-bridge.md) | Code generator for the mock NVML bridge stubs. |
 
 ## Building
