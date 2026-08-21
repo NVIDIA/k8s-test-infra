@@ -381,7 +381,7 @@ controlPlane:
   enabled: false
   replicas: 1
   image:
-    repository: ghcr.io/nvidia/control-plane
+    repository: ghcr.io/nvidia/mokka-control-plane
     tag: latest
     pullPolicy: IfNotPresent
   logLevel: info                       # debug | info | warn | error

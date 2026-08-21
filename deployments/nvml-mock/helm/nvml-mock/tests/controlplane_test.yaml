@@ -44,7 +44,7 @@ tests:
           value: control-plane
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/nvidia/control-plane:latest
+          value: ghcr.io/nvidia/mokka-control-plane:latest
       - equal:
           path: spec.template.spec.containers[0].imagePullPolicy
           value: IfNotPresent
