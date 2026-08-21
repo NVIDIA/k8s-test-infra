@@ -178,6 +178,13 @@ spec:
             - name: tls-pem
               mountPath: /tls
               readOnly: true
+          # Deliberately only liveness, not "the replica set is usable". The
+          # stronger probe (quit(db.hello().isWritablePrimary ? 0 : 1)) cannot
+          # go here: rs.initiate() runs in the mongodb-ext-rs-init Job, Tilt
+          # withholds that Job until this pod is Ready, and the pod cannot be
+          # Ready until the Job has run — a circular wait that leaves mongod
+          # running forever with no rs0. Consumers must therefore order
+          # themselves behind mongodb-ext-rs-init, not behind mongodb-ext.
           readinessProbe:
             exec:
               command:
@@ -208,6 +215,11 @@ metadata:
   name: mongodb-ext-rs-init
   namespace: nvsentinel
 spec:
+  # Both wait loops below are unbounded, so a mongod that answers but never
+  # reaches PRIMARY would hang this Job forever and `tilt ci` would wait on it
+  # rather than failing. 10 minutes is well past a cold Kind cluster pulling the
+  # mongo image and scheduling both pods, which is the slowest legitimate path.
+  activeDeadlineSeconds: 600
   backoffLimit: 20
   template:
     spec:
