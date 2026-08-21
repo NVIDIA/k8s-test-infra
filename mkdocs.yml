@@ -111,6 +111,18 @@ nav:
       - Examples: examples.md
       - Runtime Control: nvml-mock-ctl.md
       - Troubleshooting: troubleshooting.md
+  - Tools:
+      - Overview: tools/README.md
+      - nvml-mock-nri: tools/nvml-mock-nri.md
+      - mock-ib: tools/mock-ib.md
+      - render-pci-sysfs: tools/render-pci-sysfs.md
+      - render-imex-procdevices: tools/render-imex-procdevices.md
+      - check-fabric: tools/check-fabric.md
+      - fake-fabricmanager: tools/fake-fabricmanager.md
+      - fake-imex: tools/fake-imex.md
+      - imex-nogpu-shim: tools/imex-nogpu-shim.md
+      - mokka-control-plane: tools/mokka-control-plane.md
+      - generate-bridge: tools/generate-bridge.md
   - Demos:
       - Overview: demo/README.md
       - Standalone: demo/standalone/README.md
