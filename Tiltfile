@@ -139,6 +139,10 @@ if with_nv_sentinel and with_fgo:
     fail('--nv-sentinel is mutually exclusive with --fgo (NVSentinel polls the GPU Operator\'s standalone DCGM, which FGO replaces)')
 if with_nv_sentinel and with_compute_domain:
     fail('--nv-sentinel is mutually exclusive with --compute-domain')
+# The fleet is built from FLEET_PROFILES (a100 + t4), and both predate the
+# T.Limit thermal margin NVSentinel keys on — see the --gpu-profile guard below.
+if with_nv_sentinel and multi_gpu_profile:
+    fail('--nv-sentinel is mutually exclusive with --multi-gpu-profile (its a100 + t4 fleet predates the T.Limit thermal margin NVSentinel detects on)')
 
 if with_fgo and with_gpu_operator:
     fail('--fgo is mutually exclusive with --gpu-operator (FGO replaces the GPU Operator)')
@@ -155,6 +159,19 @@ gpu_profile_raw = cfg.get('gpu-profile', None)
 
 if with_compute_domain and gpu_profile_raw != None:
     fail('--compute-domain forces gpu.profile=gb200; do not pass --gpu-profile explicitly')
+
+# NVSentinel's GpuThermalMarginWatch only arms once it has the GPU's slowdown
+# T.Limit offset (NVML field 194), which real hardware reports on Ada and later
+# only — and the mock gates it on architecture the same way. On an older profile
+# every Tilt resource still goes green while the watch stays inert, logging
+# "missing slowdown TLIMIT threshold metadata", so default to the profile the
+# demo pins rather than simulate a fault nothing can detect.
+if with_nv_sentinel:
+    if gpu_profile_raw == None:
+        gpu_profile_raw = 'h100'
+    elif gpu_profile_raw in ['a100', 't4']:
+        fail('--nv-sentinel needs an Ada-or-later --gpu-profile (h100, l40s, b200, gb200, gb300); ' +
+             gpu_profile_raw + ' reports no T.Limit thermal margin, so NVSentinel would detect nothing')
 
 gpu_profile = gpu_profile_raw or 'a100'
 
