@@ -41,13 +41,13 @@ func newCLI() *cli.Command {
 			&cli.StringFlag{
 				Name:    "log-level",
 				Value:   defaults.LogLevel,
-				Sources: cli.EnvVars("MOKKA_CP_LOG_LEVEL"),
+				Sources: cli.EnvVars("MOKKA_LOG_LEVEL"),
 				Usage:   "log level: debug | info | warn | error",
 			},
 			&cli.StringFlag{
 				Name:    "log-format",
 				Value:   defaults.LogFormat,
-				Sources: cli.EnvVars("MOKKA_CP_LOG_FORMAT"),
+				Sources: cli.EnvVars("MOKKA_LOG_FORMAT"),
 				Usage:   "log format: json | plain",
 			},
 			&cli.DurationFlag{
