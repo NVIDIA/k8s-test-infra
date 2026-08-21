@@ -73,7 +73,6 @@ multi-node heterogeneous fleet.
 | Component | Description | Status |
 |-----------|-------------|--------|
 | Mock NVML (`libnvidia-ml.so`) | 400 NVML C API exports (111 with configurable behavior, 289 stubs), YAML-configurable GPU profiles | Production |
-| Mock CUDA (`libcuda.so`) | 15 CUDA functions: init, device, memory management | Early |
 | nvidia-smi | Real binary with RPATH patch, backed by mock NVML | Production |
 | Helm Chart | DaemonSet deployment with 7 GPU profiles | Production |
 | CDI Injection | Container Device Interface specs for GPU Operator | Production |
