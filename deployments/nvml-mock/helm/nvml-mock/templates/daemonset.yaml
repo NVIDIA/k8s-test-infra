@@ -227,6 +227,9 @@ spec:
             - --config=/etc/nvml-mock/config.yaml
             - --host-root=/host
             - --health-addr=:9091
+            - --log-level={{ .Values.nodeAgent.logging.level }}
+            - --log-format={{ .Values.nodeAgent.logging.format }}
+            - --shutdown-timeout={{ .Values.nodeAgent.shutdownTimeout }}
           securityContext:
             privileged: true
           volumeMounts:

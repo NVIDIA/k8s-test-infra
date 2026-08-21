@@ -128,6 +128,11 @@ nodeLabels:
 # `nvml-mock-ctl set --gpu N memory.used_bytes=...` is overwritten on the next
 # poll. Every other field nvml-mock-ctl writes is preserved.
 nodeAgent:
+  logging:
+    level: info    # debug | info | warn | error
+    format: json   # json | plain
+  # Go duration string: 5s, 1m30s, etc.
+  shutdownTimeout: 30s
   resources:
     requests:
       cpu: 10m
