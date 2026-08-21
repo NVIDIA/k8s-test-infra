@@ -148,6 +148,17 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.PlatformIdentity(ctx, h.Kube, pod, p)
 			})
 
+			It("reports a healthy fabric via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #677: every element of the fabric health block read
+				// N/A, which says the driver answered nothing rather than that
+				// the fabric is well, so a consumer could not tell a healthy
+				// fabric from an unknown one.
+				if !p.HasFabric() {
+					Skip("profile " + name + " reports no fabric (GpuFabricInfo NOT_SUPPORTED)")
+				}
+				nvidiasmi.FabricHealth(ctx, h.Kube, pod)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)
@@ -268,6 +279,17 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 					// ready before injecting, matching the topology assertion.
 					assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 					assertRuntimeNVLinkErrorInjection(ctx, h, pod)
+				})
+
+				It("degrades and restores fabric health via the nvml-mock-ctl fabric-health command", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					// Issue #677: one named condition must flip its own row and
+					// only its own row, then clear — a fabric that degrades
+					// under a running workload is the case worth simulating.
+					if !p.HasFabric() {
+						Skip("profile " + name + " reports no fabric; fabric-health has no health to degrade")
+					}
+					assertRuntimeFabricHealthInjection(ctx, h, pod)
+					assertRuntimeFabricMisconfiguration(ctx, h, pod)
 				})
 
 				It("injects ECC uncorrectable errors", func(ctx SpecContext) {

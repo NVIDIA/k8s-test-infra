@@ -84,16 +84,18 @@ func (d *ConfigurableDevice) GetMockFabricInfoV() (FabricInfo, nvml.Return) {
 		return FabricInfo{}, nvml.ERROR_NOT_SUPPORTED
 	}
 	info := buildFabricInfo(cfg.Fabric)
-	debugLog("[NVML] nvmlDeviceGetGpuFabricInfoV -> clique=%d state=%d healthMask=0x%x\n",
-		info.CliqueID, info.State, info.HealthMask)
+	debugLog("[NVML] nvmlDeviceGetGpuFabricInfoV -> clique=%d state=%d healthMask=0x%x healthSummary=%d\n",
+		info.CliqueID, info.State, info.HealthMask, info.HealthSummary)
 	return info, nvml.SUCCESS
 }
 
 func buildFabricInfo(cfg *FabricConfig) FabricInfo {
+	mask := resolveFabricHealthMask(cfg)
 	info := FabricInfo{
-		CliqueID:   cfg.CliqueID,
-		HealthMask: cfg.HealthMask,
-		State:      resolveFabricState(cfg.State),
+		CliqueID:      cfg.CliqueID,
+		HealthMask:    mask,
+		HealthSummary: resolveFabricHealthSummary(cfg, mask),
+		State:         resolveFabricState(cfg.State),
 	}
 	info.ClusterUUID = parseClusterUUID(cfg.ClusterUUID)
 	return info

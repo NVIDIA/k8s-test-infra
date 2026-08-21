@@ -78,6 +78,11 @@ commands:
   sram-ecc --gpu <idx|all|uuid> <count> [--type correctable|parity|secded]
            [--source l2|sm|microcontroller|pcie|other] [--threshold-exceeded]
                                            inject SRAM ECC errors (0 heals)
+  fabric-health --gpu <idx|all|uuid> <condition>[ condition ...]  degrade NVLink fabric health ('healthy' clears)
+         conditions: degraded_bandwidth, route_recovery, route_unhealthy,
+         access_timeout_recovery, or a misconfiguration (no_partition,
+         insufficient_nvlinks, incompatible_gpu_fw, invalid_location,
+         incorrect_sysguid, incorrect_chassis_sn, gpu_state_invalid)
   set    --gpu <idx|all|uuid> key.path=value [key.path=value ...]
   status [--gpu <idx>]
   reset  [--gpu <idx|all|uuid>]
@@ -163,7 +168,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "status":
 		return doStatus(configOverridePath, gpu, stdout, stderr)
 	case "fail", "temp", "temperature", "power", "fan", "util", "utilization",
-		"clocks", "throttle", "pstate", "nvlink-error", "sram-ecc", "set", "reset":
+		"clocks", "throttle", "pstate", "nvlink-error", "sram-ecc", "fabric-health", "set", "reset":
 		sram := sramECCOptions{errorType: sramErrorType, source: sramSource, thresholdExceeded: sramThresholdExceeded}
 		return mutate(cmd, configOverridePath, gpu, mode, links, afterCalls, xid, positional, sram, cfg, base, stdout, stderr)
 	case "watch-allocations":
@@ -320,6 +325,19 @@ func mutate(cmd, configOverridePath, gpu, mode, links string, afterCalls int, xi
 			return 2
 		}
 		patch, perr := mockctl.SramECCPatch(uint64(count), sram.errorType, sram.source, sram.thresholdExceeded)
+		if perr != nil {
+			fprintf(stderr, "%v\n", perr)
+			return 2
+		}
+		if code := applyPatch(doc, target, base, patch, stderr); code != 0 {
+			return code
+		}
+	case "fabric-health":
+		if len(positional) == 0 {
+			fprintln(stderr, "fabric-health requires at least one condition (or 'healthy')")
+			return 2
+		}
+		patch, perr := mockctl.FabricHealthPatch(positional)
 		if perr != nil {
 			fprintf(stderr, "%v\n", perr)
 			return 2

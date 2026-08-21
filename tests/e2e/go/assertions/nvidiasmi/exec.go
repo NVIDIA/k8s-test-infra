@@ -166,6 +166,19 @@ func PlatformIdentity(ctx context.Context, k *kube.Client, pod kube.PodRef, p pr
 		p.Name, strings.Join(problems, "\n"))
 }
 
+// FabricHealth asserts nvidia-smi -q -x reports a healthy fabric on every GPU.
+// Every element of the block read N/A while the mock reported no health
+// summary, which says the driver answered nothing rather than that the fabric
+// is well. See issue #677.
+func FabricHealth(ctx context.Context, k *kube.Client, pod kube.PodRef) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By("nvidia-smi -q -x reports a healthy fabric health block")
+	problems := FabricHealthProblems(query(ctx, k, pod), HealthyFabricBlock())
+	gomega.Expect(problems).To(gomega.BeEmpty(), "fabric health wrong:\n%s",
+		strings.Join(problems, "\n"))
+}
+
 // query execs `nvidia-smi -q -x` and asserts it succeeded, returning stdout.
 func query(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
 	ginkgo.GinkgoHelper()

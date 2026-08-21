@@ -40,6 +40,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `nvmlDeviceGetMemoryErrorCounter` now honours its `locationType` and
   `counterType` arguments instead of returning the DRAM counter for every
   location. (#641)
+- mocknvml: GPU fabric health is now decoded and configurable, so
+  `nvidia-smi -q` reports `Summary : Healthy` / `Bandwidth : Full` on the
+  shipped Grace-Blackwell profiles instead of `N/A` for every row of the
+  `Fabric` → `Health` block. A `fabric:` block with no health keys means a
+  healthy fabric; individual conditions (`degraded_bandwidth`,
+  `route_recovery`, `route_unhealthy`, `access_timeout_recovery`,
+  `incorrect_configuration`) can be faulted under `fabric.health`, and the
+  `Summary` row is derived from them (degraded bandwidth alone reports
+  `Limited Capacity`) unless pinned with `fabric.health_summary`. The raw
+  `fabric.health_mask` stays available as an escape hatch and is no longer
+  silently dropped — it previously had no effect on the rendered output
+  because the health summary was always zero. Fabric health can also be
+  degraded and restored while a workload runs, with
+  `nvml-mock-ctl fabric-health --gpu <idx> route_unhealthy` and
+  `... fabric-health --gpu <idx> healthy`. `Partition Assigned` is reported as
+  NOT_SUPPORTED, matching hardware, which newer `nvidia-smi` builds render as
+  `N/A`. v1/v2 `nvmlDeviceGetGpuFabricInfo` callers are unaffected by the
+  now non-zero summary: the field lives past the end of the v2 struct, pinned
+  by a unit test on the struct-tail boundary. (#677)
 - mocknvml: configured `processes:` now surface in nvidia-smi — the default
   table's Processes box, `-q`, and `--query-compute-apps` all report the
   configured PIDs, names and GPU memory instead of always reporting none.

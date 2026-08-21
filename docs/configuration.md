@@ -511,6 +511,86 @@ is deliberately *not* an "NVSwitch entity health" knob — DCGM's NVSwitch/SXID
 health is NSCQ/kernel-log sourced and cannot be driven from a `libnvidia-ml.so`
 mock.
 
+## Fabric Health
+
+`fabric:` describes the GPU's NVLink fabric attachment — the identity fields
+(`cluster_uuid`, `clique_id`, `state`) plus the health `nvidia-smi -q` renders
+under `Fabric` → `Health`. A `fabric:` block with no health keys means a healthy
+fabric, so the shipped Grace-Blackwell profiles report `Summary: Healthy` and
+`Bandwidth: Full` without configuring anything:
+
+```yaml
+device_defaults:
+  fabric:
+    cluster_uuid: "00000000-0000-0000-0000-000000000001"
+    clique_id: 0
+    state: "auto"      # couple registration to fake fabricmanager readiness
+```
+
+Fault a single condition by naming it. Every other condition stays healthy, so a
+consumer sees exactly the fault you configured:
+
+```yaml
+devices:
+  - index: 3
+    fabric:
+      health:
+        route_unhealthy: true
+```
+
+| `health:` key | `nvidia-smi -q` row | values |
+| ------------- | ------------------- | ------ |
+| `degraded_bandwidth` | `Bandwidth` | `false` → `Full`, `true` → `Degraded` |
+| `route_recovery` | `Route Recovery in progress` | `false` / `true` |
+| `route_unhealthy` | `Route Unhealthy` | `false` / `true` |
+| `access_timeout_recovery` | `Access Timeout Recovery` | `false` / `true` |
+| `incorrect_configuration` | `Incorrect Configuration` | `none` (default), `no_partition`, `insufficient_nvlinks`, `incompatible_gpu_fw`, `invalid_location`, `incorrect_sysguid`, `incorrect_chassis_sn`, `gpu_state_invalid` |
+
+### Health summary
+
+The `Summary` row is derived from the conditions above, so an injected fault
+moves it: all clear → `Healthy`, degraded bandwidth alone → `Limited Capacity`,
+any other fault → `Unhealthy`. Pin it with `health_summary` when you need a
+summary that disagrees with the conditions (a driver that reports a fault
+without classifying it, say):
+
+```yaml
+fabric:
+  health_summary: "limited_capacity"   # healthy | unhealthy | limited_capacity
+                                       # | not_supported | auto (default)
+```
+
+`not_supported` reproduces the pre-#677 rendering: `nvidia-smi` treats an
+unreported summary as "no health data" and prints `N/A` for the whole `Health`
+block.
+
+### Raw `health_mask`
+
+`health_mask` sets the NVML v2/v3 health bitmask directly, for encodings the
+`health:` keys cannot express. It replaces the derived mask wholesale, and the
+summary is derived from it:
+
+```yaml
+fabric:
+  health_mask: 0x1aa    # what `health:` with everything clear produces
+```
+
+An explicit `health_mask: 0` means "the driver reported no health at all" and
+renders the whole block as `N/A` — that is why the shipped profiles no longer
+set it.
+
+### `Partition Assigned`
+
+The mock reports this field as `NOT_SUPPORTED`, which is what a real GB300 tray
+in a healthy rack reports (the driver does not answer it). Whether the row
+appears at all is up to the `nvidia-smi` build: 580.173.02 prints
+`Partition Assigned : N/A`, while the 580.65.06 binary the mock image bundles has
+no such label and omits the row for every mask value.
+
+Fabric health can also be degraded and restored at runtime with
+[`nvml-mock-ctl fabric-health`](nvml-mock-ctl.md#fabric-health--degrade-nvlink-fabric-health),
+without restarting the consumer.
+
 ## Available GPU Profiles
 
 Standalone configuration files are provided for each supported GPU model:
