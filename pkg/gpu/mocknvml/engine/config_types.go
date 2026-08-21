@@ -350,8 +350,10 @@ type ClocksThrottleReasonsConfig struct {
 // ThrottleCountersConfig is the starting value of each clocks-event counter, in
 // microseconds — the unit nvidia-smi prints them in and the unit a reading off
 // a real tray is copied from. A device accrues further time on top of these
-// while the matching flag above is set, so the flags and the counters cannot
-// contradict each other. Omitting the block means a GPU that has never been
+// while the matching flag above is set, but only within one process, so a
+// throttle state entered at runtime carries no history of its own: the baseline
+// here is what makes an Active flag read as a duration rather than as the age of
+// the calling process. Omitting the block means a GPU that has never been
 // throttled, which reports 0 rather than N/A.
 type ThrottleCountersConfig struct {
 	SWPowerCapUS           uint64 `json:"sw_power_cap_us,omitempty"`

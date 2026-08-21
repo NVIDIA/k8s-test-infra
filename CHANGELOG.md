@@ -28,8 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `clocks_throttle_reasons.counters` block seeds the accrued time per cause per
   device, defaulting to `0 us` — a real answer, where `N/A` was not — and a
   device accrues further time on top of that baseline for as long as the
-  matching flag is set, so the flags and the counters cannot contradict each
-  other. `nvmlDeviceGetViolationStatus` now honours its `perfPolicyType` and
+  matching flag is set, within one process. A throttle state entered at runtime
+  therefore carries no history of its own, so seed the counter alongside the
+  flag when a GPU is meant to have been throttling for a while.
+  `nvmlDeviceGetViolationStatus` now honours its `perfPolicyType` and
   timestamps the reading, where it previously returned a zero
   `nvmlViolationTime_t` for every policy, leaving the five causes
   indistinguishable. The limiters the mock does not model (board limit, low
