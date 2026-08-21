@@ -138,5 +138,4 @@ Operator integration.
 - [Configuration Reference](configuration.md) - Customize GPU properties
 - [Examples](examples.md) - Common usage patterns
 - [Architecture](architecture.md) - Understand how it works
-- [CUDA Mock](cuda-mock.md) - Mock CUDA library overview
 - [fake-gpu-operator Integration](integrations/fake-gpu-operator.md) - K8s-level GPU simulation

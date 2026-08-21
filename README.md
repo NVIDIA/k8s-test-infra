@@ -82,7 +82,6 @@ Use standalone for local development and CI pipelines.
 | [Quick Start](docs/quickstart.md) | Build and run in 5 minutes |
 | [Configuration](docs/configuration.md) | YAML configuration reference |
 | [Architecture](docs/architecture.md) | System design and components |
-| [CUDA Mock](docs/cuda-mock.md) | Mock CUDA library overview |
 | [Development](docs/development.md) | Contributing and extending the library |
 | [Examples](docs/examples.md) | Usage patterns and scenarios |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
