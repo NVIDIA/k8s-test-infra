@@ -15,6 +15,10 @@ per-GPU indexing and override scoping.
 | `qx-gb200-fabric-degraded.xml` | GPU 0 fabric healthy, GPU 1 `route_unhealthy` (#677). Taken against the fixed library, so it is also the healthy-fabric reference. |
 | `qx-gb200-throttle-counters.xml` | GPU 0 has accrued 39595 us of `sw_power_cap`, GPU 1 none (#678). `qx-gb200-healthy.xml` predates the fix and holds the `N/A` these counters used to read. |
 
+`hardware/` holds untrimmed captures from real nodes, for checking these
+mock-produced fixtures against what the boards actually report.
+`hardware/README.md` lists which boards and on which drivers.
+
 Watch for two element names that repeat under different parents: `sm_clock`
 appears under both `clocks` (current) and `max_clocks`, and `average_power_draw`
 under `gpu_power_readings`, `gpu_memory_power_readings` and
