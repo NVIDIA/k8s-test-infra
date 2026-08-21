@@ -8,7 +8,7 @@ It also demonstrates that node-wide injection carries **ComputeDomain fabric
 identity**: on a multi-node cluster with a topology overlay, each NRI-injected
 pod reports the NVLink clique / cluster UUID assigned to *its* node — with no
 `nvidia.com/gpu` request and no `MOCK_*` env in the pod spec. This reuses the
-same topology mechanism as the [compute-domain demo](../compute-domain), but
+same topology mechanism as the [compute-domain demo](../compute-domain/README.md), but
 delivered ambiently through NRI instead of the nvml-mock DaemonSet pod.
 
 ## Prerequisites
@@ -52,7 +52,7 @@ Install these tools locally before running the demo:
    are present, then runs `check-fabric`; the script asserts every node reports
    its assigned clique / cluster UUID (skip with `WITH_COMPUTE_DOMAIN=false`).
 
-The demo installs no device plugin, so no component allocates GPUs. The NRI overlay and environment are injected ambiently into containers in non-excluded namespaces. Host device node injection remains opt-in (via `nvidia.com/gpu` requests or the `nvml-mock.nvidia.com/devices: "true"` annotation). Unannotated pods without GPU requests will still report GPUs if `nvidia-smi` is run inside them. Where the NVIDIA device plugin is installed and allocates GPUs, the NRI plugin leaves that allocation intact (MEP-0002). Tests expecting non-GPU pods to see zero GPUs should keep NRI disabled or run in an excluded namespace. See [Device injection mode](../../../deployments/nvml-mock/helm/nvml-mock/README.md#device-injection-mode).
+The demo installs no device plugin, so no component allocates GPUs. The NRI overlay and environment are injected ambiently into containers in non-excluded namespaces. Host device node injection remains opt-in (via `nvidia.com/gpu` requests or the `nvml-mock.nvidia.com/devices: "true"` annotation). Unannotated pods without GPU requests will still report GPUs if `nvidia-smi` is run inside them. Where the NVIDIA device plugin is installed and allocates GPUs, the NRI plugin leaves that allocation intact (MEP-0002). Tests expecting non-GPU pods to see zero GPUs should keep NRI disabled or run in an excluded namespace. See [Device injection mode](../../helm-chart.md#device-injection-mode).
 
 ## Quick Start
 
@@ -92,7 +92,7 @@ The boundary is the same whichever mechanism delivers the devices. Setting
 `nri.deviceInjectionMode=cdi` makes the runtime resolve them from a CDI spec
 instead of having the plugin stage them, but the annotation that triggers it is
 still pod-authored. See
-[Device injection mode](../../../deployments/nvml-mock/helm/nvml-mock/README.md#device-injection-mode).
+[Device injection mode](../../helm-chart.md#device-injection-mode).
 
 ## When Injection Stops
 
@@ -130,7 +130,7 @@ normally, exits 0, and simply never sees a GPU.
 
 For the posture behind both probes, the wedge threshold's relationship to
 containerd's `plugin_request_timeout`, and per-node triage, see
-[NRI plugin failure modes](../../../deployments/nvml-mock/helm/nvml-mock/README.md#nri-plugin-failure-modes)
+[NRI plugin failure modes](../../helm-chart.md#nri-plugin-failure-modes)
 in the chart README.
 
 ## Manual Checks

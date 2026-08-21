@@ -129,7 +129,7 @@ kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-test
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock --wait --timeout 120s
 ```
 
-See the [Helm Chart README](../deployments/nvml-mock/helm/nvml-mock/README.md)
+See the [Helm Chart README](helm-chart.md)
 for full deployment walkthrough including device plugin, DRA driver, and GPU
 Operator integration.
 
