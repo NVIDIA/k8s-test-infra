@@ -8,6 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A `--observability` Tilt consumer that runs kube-prometheus-stack and the GPU
+  Operator's `dcgm-exporter` over mock GPUs and ships a Grafana dashboard
+  in-tree, so the real exporter is scraped and rendered on a cluster with no
+  GPUs. Adds two manual triggers that inject a temperature or Xid fault through
+  `nvml-mock-ctl` and fail if it never reaches Prometheus, making the scrape
+  path asserted rather than eyeballed. (#597)
+- mocknvml: the `Clocks Event Reasons Counters` block of `nvidia-smi -q` now
+  reports microsecond totals instead of `N/A` for all five causes. The counters
+  are how throttling is diagnosed after the fact — a workload that ran slow is
+  investigated by reading accumulated `SW Power Capping` or `HW Thermal
+  Slowdown` time, not by sampling the instantaneous flag and hoping to catch it
+  — and the block previously contradicted the flags directly above it, which
+  stated confidently that no reason was active while the counters could not say
+  whether one ever had been. A 580-era `nvidia-smi` reads them through
+  `nvmlDeviceGetFieldValues`, which had no case for the field ids behind them, so
+  each came back per-field `NOT_SUPPORTED` while the overall call succeeded and
+  no unimplemented-symbol stub was reached. A new
+  `clocks_throttle_reasons.counters` block seeds the accrued time per cause per
+  device, defaulting to `0 us` — a real answer, where `N/A` was not — and a
+  device accrues further time on top of that baseline for as long as the
+  matching flag is set, within one process. A throttle state entered at runtime
+  therefore carries no history of its own, so seed the counter alongside the
+  flag when a GPU is meant to have been throttling for a while.
+  `nvmlDeviceGetViolationStatus` now honours its `perfPolicyType` and
+  timestamps the reading, where it previously returned a zero
+  `nvmlViolationTime_t` for every policy, leaving the five causes
+  indistinguishable. The limiters the mock does not model (board limit, low
+  utilization, reliability, total base clocks) keep reporting `0 ns`, since they
+  are real policies that simply never fired; `NVML_PERF_POLICY_TOTAL_APP_CLOCKS`
+  now reports `NOT_SUPPORTED`, which is the one policy `nvml.h` marks
+  "DEPRECATED, Do not use", and a value outside the enum reports
+  `INVALID_ARGUMENT` rather than a zero violation time. A counter can also be
+  seeded while a workload runs, with
+  `nvml-mock-ctl set --gpu <idx>
+  clocks_throttle_reasons.counters.sw_power_cap_us=<us>`. (#678)
 - mocknvml: `nvidia-smi -q` now reports the `Platform Info` block on the
   `gb200`/`gb300` profiles — chassis serial number, slot number, tray index,
   host ID, peer type and module ID, where every row previously read `N/A`. These
@@ -40,6 +75,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `nvmlDeviceGetMemoryErrorCounter` now honours its `locationType` and
   `counterType` arguments instead of returning the DRAM counter for every
   location. (#641)
+- mocknvml: GPU fabric health is now decoded and configurable, so
+  `nvidia-smi -q` reports `Summary : Healthy` / `Bandwidth : Full` on the
+  shipped Grace-Blackwell profiles instead of `N/A` for every row of the
+  `Fabric` → `Health` block. A `fabric:` block with no health keys means a
+  healthy fabric; individual conditions (`degraded_bandwidth`,
+  `route_recovery`, `route_unhealthy`, `access_timeout_recovery`,
+  `incorrect_configuration`) can be faulted under `fabric.health`, and the
+  `Summary` row is derived from them (degraded bandwidth alone reports
+  `Limited Capacity`) unless pinned with `fabric.health_summary`. The raw
+  `fabric.health_mask` stays available as an escape hatch and is no longer
+  silently dropped — it previously had no effect on the rendered output
+  because the health summary was always zero. Fabric health can also be
+  degraded and restored while a workload runs, with
+  `nvml-mock-ctl fabric-health --gpu <idx> route_unhealthy` and
+  `... fabric-health --gpu <idx> healthy`. `Partition Assigned` is reported as
+  NOT_SUPPORTED, matching hardware, which newer `nvidia-smi` builds render as
+  `N/A`. v1/v2 `nvmlDeviceGetGpuFabricInfo` callers are unaffected by the
+  now non-zero summary: the field lives past the end of the v2 struct, pinned
+  by a unit test on the struct-tail boundary. (#677)
 - mocknvml: configured `processes:` now surface in nvidia-smi — the default
   table's Processes box, `-q`, and `--query-compute-apps` all report the
   configured PIDs, names and GPU memory instead of always reporting none.

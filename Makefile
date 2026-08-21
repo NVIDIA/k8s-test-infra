@@ -333,3 +333,39 @@ e2e-nri: ## e2e — NRI ambient-injection scenario
 # log then reads exactly like one that did exercise gb200.
 e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 	$(MAKE) e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter=nfd'
+
+##@ Documentation
+
+# The docs site is MkDocs Material. CI calls these same targets so a failure
+# reproduces locally with one command.
+PYTHON ?= python3
+MKDOCS ?= mkdocs
+
+.PHONY: docs-deps docs-build docs-serve docs-check-exclusion docs
+
+docs-deps: ## Install the pinned MkDocs toolchain
+	$(PYTHON) -m pip install -r requirements-docs.txt
+
+docs-build: ## Build the documentation site (strict: broken links fail)
+	$(MKDOCS) build --strict
+
+docs-serve: ## Serve the documentation site locally on :8000
+	$(MKDOCS) serve
+
+# docs/plans/ and docs/superpowers/ are gitignored scratch directories, so they
+# are absent in CI and grepping the built site for them would pass no matter
+# what. Plant a file and prove exclude_docs drops it, so this fails if that
+# config is removed.
+docs-check-exclusion: ## Verify gitignored internal plans cannot reach the site
+	@set -eu; \
+	mkdir -p docs/plans; \
+	printf '# Internal\n\nPAGES_EXCLUSION_CANARY\n' > docs/plans/_canary.md; \
+	trap 'rm -rf docs/plans/_canary.md "$(CURDIR)/tmp/canary-site"; rmdir docs/plans 2>/dev/null || true' EXIT; \
+	$(MKDOCS) build --strict --site-dir "$(CURDIR)/tmp/canary-site" >/dev/null; \
+	if grep -rq 'PAGES_EXCLUSION_CANARY' "$(CURDIR)/tmp/canary-site"/; then \
+		echo "ERROR: docs/plans/ leaked into the site; check exclude_docs in mkdocs.yml"; \
+		exit 1; \
+	fi; \
+	echo "exclude_docs verified: internal plans are not published"
+
+docs: docs-check-exclusion docs-build ## Verify exclusion then build the site

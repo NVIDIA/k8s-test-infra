@@ -3,7 +3,7 @@
 version = 1
 
 [[annotations]]
-path = ["**.go", "**.h", "**.yaml", "**.yml", "**.sh", "**.toml", "Makefile", "Dockerfile"]
+path = ["**.go", "**.h", "**.yaml", "**.yml", "**.sh", "**.toml", "**.css", "**.txt", "Makefile", "Dockerfile"]
 SPDX-FileCopyrightText = "Copyright 2024-2026 NVIDIA CORPORATION"
 SPDX-License-Identifier = "Apache-2.0"
 

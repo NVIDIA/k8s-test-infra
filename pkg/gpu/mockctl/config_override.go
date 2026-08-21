@@ -327,6 +327,83 @@ func SramECCPatch(count uint64, errorType, source string, thresholdExceeded bool
 	}, nil
 }
 
+// fabricHealthConditionKeys maps CLI-friendly fabric health condition names to
+// the fabric.health boolean they set. The canonical JSON keys are accepted
+// directly; the aliases cover how operators say them out loud.
+var fabricHealthConditionKeys = map[string]string{
+	"degraded_bandwidth":      "degraded_bandwidth",
+	"bandwidth":               "degraded_bandwidth",
+	"degraded_bw":             "degraded_bandwidth",
+	"route_recovery":          "route_recovery",
+	"route_unhealthy":         "route_unhealthy",
+	"access_timeout_recovery": "access_timeout_recovery",
+	"access_timeout":          "access_timeout_recovery",
+}
+
+// allFabricHealthConditionKeys is the full set of fabric.health booleans, used
+// to write an authoritative all-clear baseline so a FabricHealthPatch
+// represents exactly the requested conditions.
+var allFabricHealthConditionKeys = []string{
+	"degraded_bandwidth", "route_recovery", "route_unhealthy", "access_timeout_recovery",
+}
+
+// FabricHealthPatch builds a config override patch that sets a device's NVLink
+// fabric health conditions, so a fabric can degrade under a running workload
+// (#677). conditions are CLI-friendly names (see fabricHealthConditionKeys)
+// plus the incorrect-configuration values the engine accepts
+// (engine.FabricIncorrectConfigNames, e.g. "no_partition"); the special
+// condition "healthy" clears everything and cannot be combined with others.
+//
+// Like ThrottlePatch the block is authoritative: every condition is written
+// (requested ones faulted, the rest clear) so repeated invocations replace
+// rather than accumulate. It also releases fabric.health_summary to "auto",
+// because a profile that pins a summary would otherwise keep reporting it no
+// matter which condition is injected.
+func FabricHealthPatch(conditions []string) (map[string]any, error) {
+	if len(conditions) == 0 {
+		return nil, errors.New("fabric-health requires at least one condition (or 'healthy')")
+	}
+	health := map[string]any{"incorrect_configuration": "none"}
+	for _, k := range allFabricHealthConditionKeys {
+		health[k] = false
+	}
+	for _, c := range conditions {
+		key := strings.ToLower(strings.TrimSpace(c))
+		if key == "healthy" || key == "none" {
+			if len(conditions) != 1 {
+				return nil, errors.New("fabric-health 'healthy' cannot be combined with other conditions")
+			}
+			break
+		}
+		if canonical, ok := fabricHealthConditionKeys[key]; ok {
+			health[canonical] = true
+			continue
+		}
+		if misconfig, ok := fabricIncorrectConfigName(key); ok {
+			health["incorrect_configuration"] = misconfig
+			continue
+		}
+		return nil, fmt.Errorf("unknown fabric health condition %q", c)
+	}
+	return map[string]any{"fabric": map[string]any{
+		"health":         health,
+		"health_summary": "auto",
+	}}, nil
+}
+
+// fabricIncorrectConfigName reports whether name is one of the
+// incorrect-configuration values the engine decodes. "not_supported" is
+// excluded: it means "this driver does not answer the question", which is a
+// profile-level statement rather than something to inject at runtime.
+func fabricIncorrectConfigName(name string) (string, bool) {
+	for _, known := range engine.FabricIncorrectConfigNames() {
+		if known == name && known != "none" && known != "not_supported" {
+			return known, true
+		}
+	}
+	return "", false
+}
+
 // throttleReasonKeys maps CLI-friendly throttle reason names to the
 // clocks_throttle_reasons config field they enable. The canonical JSON keys are
 // accepted directly; short aliases cover the common thermal/power cases.

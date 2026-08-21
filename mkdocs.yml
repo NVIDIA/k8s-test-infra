@@ -1,0 +1,128 @@
+# Copyright 2026 NVIDIA CORPORATION
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+site_name: Mokka
+site_description: Simulate your GPU infrastructure on CPU nodes.
+site_url: https://nvidia.github.io/k8s-test-infra/
+site_author: NVIDIA CORPORATION
+copyright: Copyright &copy; 2026 NVIDIA CORPORATION
+
+repo_url: https://github.com/NVIDIA/k8s-test-infra
+repo_name: NVIDIA/k8s-test-infra
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+# Internal design notes and working plans live under docs/ but are not part of
+# the published site. Listing them here drops them from the build entirely, so
+# --strict does not then fail them for being absent from the nav.
+exclude_docs: |
+  plans/
+  superpowers/
+  # CUDA mocking is not usable yet: 14 of its 15 exports are runtime API and
+  # real workloads never enter the mock. The page stays in the repo for
+  # contributors. Delete this line to republish once the driver surface lands.
+  cuda-mock.md
+
+theme:
+  name: material
+  logo: img/logo.png
+  favicon: img/logo.png
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  # The docs were written to render on GitHub, so anchors inside them use
+  # GitHub's slug scheme. pymdownx's slugify reproduces it, which keeps every
+  # existing intra-document anchor link working.
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+      separator: "-"
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Quick Start: quickstart.md
+      - Helm Chart: helm-chart.md
+      - Configuration: configuration.md
+  - Architecture:
+      - Overview: architecture.md
+  - Guides:
+      - Examples: examples.md
+      - Runtime Control: nvml-mock-ctl.md
+      - Troubleshooting: troubleshooting.md
+  - Demos:
+      - Overview: demo/README.md
+      - Standalone: demo/standalone/README.md
+      - With fake-gpu-operator: demo/with-fgo/README.md
+      - Failure Injection: demo/failure-injection/README.md
+      - Node-Wide Injection: demo/node-wide-injection/README.md
+      - Compute Domain: demo/compute-domain/README.md
+      - NVSentinel: demo/nv-sentinel/README.md
+  - Integrations:
+      - fake-gpu-operator: integrations/fake-gpu-operator.md
+  - Contributing:
+      - Development Guide: development.md

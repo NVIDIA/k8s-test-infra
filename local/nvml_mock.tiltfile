@@ -19,6 +19,7 @@
 # Tilt an image it already built and loaded, without asking it to rebuild.
 
 load('ext://helm_resource', 'helm_resource')
+load('ext://k8s_attach', 'k8s_attach')
 
 # Order matters: the Nth profile is pinned to worker-N, whose name comes from
 # the JoinConfiguration patches in local/kind/default.kind.yaml.
@@ -86,7 +87,7 @@ def build_control_plane_image():
     docker_build(
       _CONTROL_PLANE_IMAGE,
         context='.',
-        dockerfile='deployments/mokka-control-plane/Dockerfile',
+        dockerfile='deployments/control-plane/Dockerfile',
         only=[
             'go.mod',
             'go.sum',
@@ -94,7 +95,7 @@ def build_control_plane_image():
             'cmd/',
             'pkg/',
             'internal/',
-            'deployments/mokka-control-plane/',
+            'deployments/control-plane/',
         ],
     )
 
@@ -105,7 +106,7 @@ def install_control_plane_crds():
         _CRDS_CHART,
         namespace=_NAMESPACE,
         flags=['--create-namespace'],
-        labels=['mokka-control-plane'],
+        labels=['mokka-core'],
     )
 
 def _install(release, profile, active_consumers, extra_set, nvmlmock_image='', control_plane=False):
@@ -173,6 +174,7 @@ def _install(release, profile, active_consumers, extra_set, nvmlmock_image='', c
             image_deps=image_deps,
             image_keys=image_keys,
             flags=flags,
+            labels=['mokka-core'],
         )
     else:
         helm_resource(
@@ -180,6 +182,16 @@ def _install(release, profile, active_consumers, extra_set, nvmlmock_image='', c
             _CHART,
             namespace=_NAMESPACE,
             flags=flags,
+            labels=['mokka-core'],
+        )
+
+    if control_plane:
+        k8s_attach(
+            name='control-plane',
+            obj='deployment/' + release + '-control-plane',
+            namespace=_NAMESPACE,
+            resource_deps=[release],
+            labels=['mokka-core'],
         )
 
 def install_single(profile, active_consumers, nvmlmock_image='', control_plane=False):

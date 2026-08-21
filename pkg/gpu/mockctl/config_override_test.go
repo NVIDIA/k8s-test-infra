@@ -298,6 +298,80 @@ func TestThrottlePatch_Errors(t *testing.T) {
 	require.Error(t, err, "expected error combining none with other reasons")
 }
 
+func TestFabricHealthPatch_InjectsOneCondition(t *testing.T) {
+	patch, err := FabricHealthPatch([]string{"route_unhealthy"})
+	require.NoError(t, err)
+	base := &engine.DeviceConfig{Fabric: &engine.FabricConfig{CliqueID: 4, State: "auto"}}
+	require.NoError(t, Validate(base, patch))
+	merged, err := engine.MergeDeviceConfig(base, patch)
+	require.NoError(t, err)
+
+	require.NotNil(t, merged.Fabric.Health)
+	require.True(t, merged.Fabric.Health.RouteUnhealthy, "route_unhealthy")
+	require.False(t, merged.Fabric.Health.RouteRecovery, "neighbouring conditions must stay healthy")
+	require.False(t, merged.Fabric.Health.DegradedBandwidth, "neighbouring conditions must stay healthy")
+	// Fabric identity is a separate concern and must survive the patch.
+	require.Equal(t, uint32(4), merged.Fabric.CliqueID, "clique")
+	require.Equal(t, "auto", merged.Fabric.State, "state")
+}
+
+// TestFabricHealthPatch_Authoritative pins the same replace-not-accumulate
+// contract the throttle command has: a second invocation must describe the
+// whole health state, not add to it.
+func TestFabricHealthPatch_Authoritative(t *testing.T) {
+	patch, err := FabricHealthPatch([]string{"degraded_bandwidth"})
+	require.NoError(t, err)
+	base := &engine.DeviceConfig{Fabric: &engine.FabricConfig{
+		Health: &engine.FabricHealthConfig{RouteUnhealthy: true, IncorrectConfiguration: "no_partition"},
+	}}
+	merged, err := engine.MergeDeviceConfig(base, patch)
+	require.NoError(t, err)
+	require.True(t, merged.Fabric.Health.DegradedBandwidth, "degraded_bandwidth")
+	require.False(t, merged.Fabric.Health.RouteUnhealthy, "a stale condition must be cleared")
+	require.Equal(t, "none", merged.Fabric.Health.IncorrectConfiguration, "a stale misconfiguration must be cleared")
+}
+
+func TestFabricHealthPatch_HealthyClears(t *testing.T) {
+	patch, err := FabricHealthPatch([]string{"healthy"})
+	require.NoError(t, err)
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{Fabric: &engine.FabricConfig{
+		Health: &engine.FabricHealthConfig{RouteUnhealthy: true},
+	}}, patch)
+	require.NoError(t, err)
+	require.False(t, merged.Fabric.Health.RouteUnhealthy, "healthy must clear every condition")
+}
+
+// TestFabricHealthPatch_ReleasesPinnedSummary covers the interaction with a
+// profile that pins fabric.health_summary: the injected conditions would
+// otherwise have no effect on the summary nvidia-smi reports, so the patch
+// hands the summary back to derivation.
+func TestFabricHealthPatch_ReleasesPinnedSummary(t *testing.T) {
+	patch, err := FabricHealthPatch([]string{"route_unhealthy"})
+	require.NoError(t, err)
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{Fabric: &engine.FabricConfig{
+		HealthSummary: "healthy",
+	}}, patch)
+	require.NoError(t, err)
+	require.Equal(t, "auto", merged.Fabric.HealthSummary, "summary must follow the injected conditions")
+}
+
+func TestFabricHealthPatch_NamedMisconfiguration(t *testing.T) {
+	patch, err := FabricHealthPatch([]string{"no_partition"})
+	require.NoError(t, err)
+	merged, err := engine.MergeDeviceConfig(&engine.DeviceConfig{}, patch)
+	require.NoError(t, err)
+	require.Equal(t, "no_partition", merged.Fabric.Health.IncorrectConfiguration)
+}
+
+func TestFabricHealthPatch_Errors(t *testing.T) {
+	_, err := FabricHealthPatch(nil)
+	require.Error(t, err, "expected error for no conditions")
+	_, err = FabricHealthPatch([]string{"banana"})
+	require.Error(t, err, "expected error for unknown condition")
+	_, err = FabricHealthPatch([]string{"healthy", "route_unhealthy"})
+	require.Error(t, err, "expected error combining healthy with a fault")
+}
+
 func TestResolveTarget_UUID(t *testing.T) {
 	cfg := &engine.Config{YAMLConfig: &engine.YAMLConfig{
 		Devices: []engine.DeviceOverride{{Index: 3, UUID: "GPU-abc"}},
