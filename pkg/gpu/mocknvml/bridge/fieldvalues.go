@@ -95,6 +95,13 @@ func nvmlDeviceGetFieldValues(device C.nvmlDevice_t, valuesCount C.int, values *
 
 		vt, val, ret := dev.GetFieldValue(fieldID, scopeID)
 		if ret != nvml.SUCCESS {
+			// Named explicitly because a declined field is otherwise invisible:
+			// the overall call still succeeds, the consumer renders the entry as
+			// a blank or N/A, and no unimplemented-symbol stub is reached. That
+			// is how the throttle counters read N/A for as long as they did
+			// (NVIDIA/k8s-test-infra#678).
+			debugLog("[NVML] nvmlDeviceGetFieldValues: field %d scope %d -> %d (declined)\n",
+				fieldID, scopeID, ret)
 			C.fvSetReturn(fv, toReturn(ret))
 			continue
 		}

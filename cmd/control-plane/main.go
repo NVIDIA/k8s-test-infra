@@ -1,10 +1,10 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// mokka-control-plane is the entry point for the Mokka Control Plane
-// microservice described in MEP-0001. The init slice only serves health
-// probes; sGPU inventory management, node-agent heartbeats, and runtime
-// policy fan-out land in follow-up work on the same binary.
+// control-plane is the entry point for the Mokka Control Plane microservice
+// described in MEP-0001. The init slice only serves health probes; sGPU
+// inventory management, node-agent heartbeats, and runtime policy fan-out
+// land in follow-up work on the same binary.
 package main
 
 import (
@@ -21,7 +21,7 @@ import (
 
 func main() {
 	if err := newCLI().Run(context.Background(), os.Args); err != nil {
-		fmt.Fprintf(os.Stderr, "mokka-control-plane: %v\n", err)
+		fmt.Fprintf(os.Stderr, "control-plane: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -29,7 +29,7 @@ func main() {
 func newCLI() *cli.Command {
 	defaults := controlplane.DefaultConfig()
 	return &cli.Command{
-		Name:  "mokka-control-plane",
+		Name:  "control-plane",
 		Usage: "Mokka Control Plane",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -41,8 +41,14 @@ func newCLI() *cli.Command {
 			&cli.StringFlag{
 				Name:    "log-level",
 				Value:   defaults.LogLevel,
-				Sources: cli.EnvVars("MOKKA_CP_LOG_LEVEL"),
+				Sources: cli.EnvVars("MOKKA_LOG_LEVEL"),
 				Usage:   "log level: debug | info | warn | error",
+			},
+			&cli.StringFlag{
+				Name:    "log-format",
+				Value:   defaults.LogFormat,
+				Sources: cli.EnvVars("MOKKA_LOG_FORMAT"),
+				Usage:   "log format: json | plain",
 			},
 			&cli.DurationFlag{
 				Name:    "shutdown-timeout",
@@ -59,6 +65,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	cfg := controlplane.Config{
 		ListenAddr:      cmd.String("listen-addr"),
 		LogLevel:        cmd.String("log-level"),
+		LogFormat:       cmd.String("log-format"),
 		ShutdownTimeout: cmd.Duration("shutdown-timeout"),
 	}
 

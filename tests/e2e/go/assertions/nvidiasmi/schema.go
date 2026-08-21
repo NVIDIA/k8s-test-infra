@@ -124,6 +124,8 @@ type gpuElement struct {
 	ECCErrors                eccErrors         `xml:"ecc_errors"`
 	RemappedRows             remappedRows      `xml:"remapped_rows"`
 	ClocksEventReasons       eventReasons      `xml:"clocks_event_reasons"`
+	ClocksEventCounters      eventCounters     `xml:"clocks_event_reasons_counters"`
+	Fabric                   fabricBlock       `xml:"fabric"`
 	Processes                struct {
 		Infos []processInfo `xml:"process_info"`
 	} `xml:"processes"`
@@ -301,6 +303,50 @@ type eventReasons struct {
 	HWSlowdown        reading `xml:"clocks_event_reason_hw_slowdown"`
 	HWThermalSlowdown reading `xml:"clocks_event_reason_hw_thermal_slowdown"`
 	SWThermalSlowdown reading `xml:"clocks_event_reason_sw_thermal_slowdown"`
+}
+
+// eventCounters is <clocks_event_reasons_counters>: how long each cause has
+// held the GPU below its requested clocks, as microsecond totals. It is the
+// after-the-fact companion to the instantaneous flags in eventReasons above —
+// a workload that ran slow is diagnosed from these, not from catching a flag
+// mid-sample. Every element read N/A until the mock answered the field ids
+// behind them (#678). The element names are the NVML field names, which is why
+// they abbreviate "thermal" where the flags above spell it out.
+type eventCounters struct {
+	SWPowerCap        reading `xml:"clocks_event_reasons_counters_sw_power_cap"`
+	SyncBoost         reading `xml:"clocks_event_reasons_counters_sync_boost"`
+	SWThermalSlowdown reading `xml:"clocks_event_reasons_counters_sw_therm_slowdown"`
+	HWThermalSlowdown reading `xml:"clocks_event_reasons_counters_hw_therm_slowdown"`
+	HWPowerBrake      reading `xml:"clocks_event_reasons_counters_hw_power_brake"`
+}
+
+// fabricBlock is <fabric>: the GPU's NVLink fabric attachment. Its <status>
+// child is the NVML return code embedded in GpuFabricInfo, not a health
+// verdict — the health verdict is the <health> sub-block, whose every element
+// read N/A until the mock reported a health summary (#677).
+//
+// The reference GB300 tray also renders a Partition Assigned row, but no
+// element for it exists in the documents this package is pinned against, so
+// none is decoded: nvidia-smi 580.65.06 does not know that row at all.
+type fabricBlock struct {
+	State       reading           `xml:"state"`
+	Status      reading           `xml:"status"`
+	CliqueID    reading           `xml:"cliqueId"`
+	ClusterUUID reading           `xml:"clusterUuid"`
+	Health      fabricHealthBlock `xml:"health"`
+}
+
+// fabricHealthBlock is <fabric><health>. Each element carries one field of the
+// NVML fabric health mask, except <summary>, which carries the overall
+// healthSummary the mock has to report before nvidia-smi decodes any of the
+// others.
+type fabricHealthBlock struct {
+	Summary                reading `xml:"summary"`
+	Bandwidth              reading `xml:"bandwidth"`
+	RouteRecovery          reading `xml:"route_recovery_in_progress"`
+	RouteUnhealthy         reading `xml:"route_unhealthy"`
+	AccessTimeoutRecovery  reading `xml:"access_timeout_recovery"`
+	IncorrectConfiguration reading `xml:"incorrect_configuration"`
 }
 
 type processInfo struct {

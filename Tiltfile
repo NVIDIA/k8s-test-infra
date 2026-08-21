@@ -40,6 +40,9 @@ load('./local/gpu-operator/gpu_operator.tiltfile', gpu_operator_install='install
 load('./local/dra/dra.tiltfile', dra_install='install')
 load('./local/fgo/fgo.tiltfile', fgo_install='install')
 load('./local/topograph/topograph.tiltfile', topograph_install='install')
+load('./local/observability/observability.tiltfile',
+     observability_install='install',
+     observability_gpu_operator_values='GPU_OPERATOR_VALUES')
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
@@ -61,6 +64,8 @@ config.define_bool('fgo', args=False,
     usage='Also deploy Run:ai Fake GPU Operator (combine with --multi-gpu-profile to exercise both integration and scale pools)')
 config.define_bool('topograph', args=False,
     usage='Also deploy NVIDIA topograph. Implies --compute-domain (topograph reads the static nvidia.com/gpu.clique labels). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
+config.define_bool('observability', args=False,
+    usage='Also deploy kube-prometheus-stack + a Grafana dashboard over the mock GPUs, and expose two manual fault-injection triggers (inject-thermal, inject-xid) that assert the fault lands in Prometheus. Implies --gpu-operator (dcgm-exporter is the Operator\'s operand). Grafana on http://localhost:3000/d/mokka-gpu (admin/mokka).')
 config.define_bool('control-plane', args=False,
     usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Off by default. Composes with --multi-gpu-profile (one CP per release), --compute-domain, and --nvmlmock-image.')
 # CI hook: hand Tilt a pre-built image (in CI, loaded from the workflow's image
@@ -80,6 +85,7 @@ with_gpu_operator   = cfg.get('gpu-operator', False)
 with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
 with_topograph      = cfg.get('topograph', False)
+with_observability  = cfg.get('observability', False)
 with_control_plane  = cfg.get('control-plane', False)
 
 # --- Implicit flags ------------------------------------------------------
@@ -90,6 +96,13 @@ with_control_plane  = cfg.get('control-plane', False)
 # cluster is still required (make cluster-create PROFILE=compute-domain).
 if with_topograph:
     with_compute_domain = True
+
+# --observability implies --gpu-operator: the thing Prometheus scrapes is
+# dcgm-exporter, which is a GPU Operator operand. Without the Operator the
+# stack installs cleanly and every GPU panel stays empty, so implying the
+# flag is friendlier than failing on it.
+if with_observability:
+    with_gpu_operator = True
 
 # --- Guardrails ----------------------------------------------------------
 # compute-domain forces its own cluster shape (4 workers with clique
@@ -143,6 +156,12 @@ if with_fgo:
 if with_topograph:
     active_consumers.append('topograph')
 
+# Appended so local/observability/nvml-mock.values.yaml is picked up by the
+# install helpers — it turns on gpu.dynamicMetrics, without which every
+# dashboard panel is a flat line of profile constants.
+if with_observability:
+    active_consumers.append('observability')
+
 # --- Safety guard --------------------------------------------------------
 allow_k8s_contexts(k8s_context)
 
@@ -183,9 +202,32 @@ if active_consumers:
 if with_topograph:
     helm_repo('topograph-repo', 'https://NVIDIA.github.io/topograph', labels=['topograph'])
 
+if with_observability:
+    helm_repo('prometheus-community', 'https://prometheus-community.github.io/helm-charts',
+              labels=['observability'])
+
 # --- Consumers -----------------------------------------------------------
+# Monitoring goes in BEFORE the GPU Operator: kube-prometheus-stack ships the
+# ServiceMonitor CRD, and the Operator's chart creates a ServiceMonitor for
+# dcgm-exporter once the observability overlay re-enables it. The ordering is
+# carried by resource_deps below rather than by these call sites, so moving
+# either block cannot silently break it.
+if with_observability:
+    observability_releases = observability_install(nvml_mock_releases)
+
 if with_gpu_operator:
-    gpu_operator_install(nvml_mock_releases)
+    gpu_operator_extra_values = []
+    gpu_operator_extra_deps   = []
+
+    if with_observability:
+        gpu_operator_extra_values.append(observability_gpu_operator_values)
+        gpu_operator_extra_deps += observability_releases
+
+    gpu_operator_install(
+        nvml_mock_releases,
+        extra_values=gpu_operator_extra_values,
+        extra_resource_deps=gpu_operator_extra_deps,
+    )
 
 if with_dra:
     # DRA overlay chain (order matters — later --values files win):
@@ -222,9 +264,10 @@ if with_topograph:
 # one mock GPU, so the device plugin must have registered nvidia.com/gpu
 # before the pod can start. Pod spec lives in local/gpu-validator.k8s.yaml so
 # it can be kubectl-applied standalone or edited without touching Starlark.
-k8s_yaml('local/gpu-validator.k8s.yaml')
-k8s_resource('gpu-validator',
-    auto_init=False,
-    resource_deps=nvml_mock_releases,
-    labels=['test'],
-)
+if with_gpu_operator:
+    k8s_yaml('local/gpu-validator.k8s.yaml')
+    k8s_resource('gpu-validator',
+        auto_init=False,
+        resource_deps=nvml_mock_releases,
+        labels=['test'],
+    )

@@ -1,0 +1,13 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# nvml-mock overlay for the observability consumer. Auto-detected by the install
+# helpers in local/nvml_mock.tiltfile whenever 'observability' is an active
+# consumer.
+
+gpu:
+  # Off in the chart defaults, and without it temperature, power and utilization
+  # are static profile constants: every dashboard panel is a flat line and the
+  # thermal scenario has no simulator-driven baseline to step away from.
+  dynamicMetrics:
+    enabled: true

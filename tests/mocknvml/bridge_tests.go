@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
 	"strings"
@@ -42,6 +43,296 @@ func bridgeTests(deviceCount int) []testResult {
 	results = append(results, testEventSetWait(deviceCount)...)
 	results = append(results, testInitShutdownCycles()...)
 	results = append(results, testInternalExportTable()...)
+	results = append(results, testFabricHealth(deviceCount)...)
+	results = append(results, testThrottleCounters(deviceCount)...)
+	return results
+}
+
+// --- Throttle counter tests ---
+
+// Field ids for the "Clocks Event Reasons Counters". This module pins go-nvml
+// v0.13.0-1, whose const.go still places the three slowdown causes at 251-253,
+// which is where the driver the mock simulates has them, so the names resolve
+// to the ids the engine answers. The root module has since moved to v0.13.3-1,
+// which renumbers them to 269-271 and reuses 251-253 for power smoothing —
+// which is why engine/throttle_counters.go states its ids literally instead of
+// naming them. checkThrottleFieldIDs guards the day this module is bumped too.
+const (
+	fiThrottleSWPowerCap      = nvml.FI_DEV_PERF_POLICY_POWER
+	fiThrottleSyncBoost       = nvml.FI_DEV_PERF_POLICY_SYNC_BOOST
+	fiThrottleSWThermSlowdown = nvml.FI_DEV_CLOCKS_EVENT_REASON_SW_THERM_SLOWDOWN
+	fiThrottleHWThermSlowdown = nvml.FI_DEV_CLOCKS_EVENT_REASON_HW_THERM_SLOWDOWN
+	fiThrottleHWPowerBrake    = nvml.FI_DEV_CLOCKS_EVENT_REASON_HW_POWER_BRAKE_SLOWDOWN
+	valueTypeUnsignedLongLong = 3
+)
+
+// testThrottleCounters drives nvmlDeviceGetFieldValues and the deprecated
+// nvmlDeviceGetViolationStatus through the built library. This is the only
+// place the field-value marshalling runs for real: the bridge writes the
+// nvmlValue_t union from C, so a counter that resolves correctly in the engine
+// can still reach a consumer as the wrong union member or the wrong width.
+//
+// The fixture leaves device 0 unthrottled (which must read 0, not
+// NOT_SUPPORTED — that is what nvidia-smi renders as N/A) and gives device 1
+// five distinct per-cause values, so an id that aliased onto another cause
+// fails here.
+func testThrottleCounters(deviceCount int) []testResult {
+	var results []testResult
+
+	if deviceCount == 0 {
+		return results
+	}
+
+	results = append(results, checkThrottleFieldIDs())
+
+	causes := []struct {
+		label   string
+		fieldID uint32
+		// wantUS is device 1's configured value in microseconds; device 0 is
+		// expected to report zero for every cause.
+		wantUS uint64
+	}{
+		{"sw_power_cap", fiThrottleSWPowerCap, 11111},
+		{"sync_boost", fiThrottleSyncBoost, 22222},
+		{"sw_therm_slowdown", fiThrottleSWThermSlowdown, 33333},
+		{"hw_therm_slowdown", fiThrottleHWThermSlowdown, 44444},
+		{"hw_power_brake", fiThrottleHWPowerBrake, 55555},
+	}
+
+	for index := 0; index < 2 && index < deviceCount; index++ {
+		device, ret := nvml.DeviceGetHandleByIndex(index)
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{
+				fmt.Sprintf("throttle/gpu%d", index), false,
+				fmt.Sprintf("GetHandleByIndex(%d) failed: %v", index, nvml.ErrorString(ret)),
+			})
+			continue
+		}
+
+		// One batch, the way nvidia-smi asks: a per-entry failure would
+		// otherwise be hidden by the call as a whole succeeding.
+		values := make([]nvml.FieldValue, len(causes))
+		for i, cause := range causes {
+			values[i].FieldId = cause.fieldID
+		}
+		if ret := device.GetFieldValues(values); ret != nvml.SUCCESS {
+			results = append(results, testResult{
+				fmt.Sprintf("throttle/gpu%d", index), false,
+				fmt.Sprintf("GetFieldValues failed: %v", nvml.ErrorString(ret)),
+			})
+			continue
+		}
+
+		for i, cause := range causes {
+			name := fmt.Sprintf("throttle/gpu%d/%s", index, cause.label)
+			wantNs := uint64(0)
+			if index == 1 {
+				wantNs = cause.wantUS * 1000
+			}
+			fv := values[i]
+			switch {
+			case nvml.Return(fv.NvmlReturn) != nvml.SUCCESS:
+				results = append(results, testResult{name, false, fmt.Sprintf(
+					"field %d declined with %v; a consumer renders that as N/A",
+					cause.fieldID, nvml.ErrorString(nvml.Return(fv.NvmlReturn)))})
+			case fv.ValueType != valueTypeUnsignedLongLong:
+				results = append(results, testResult{name, false, fmt.Sprintf(
+					"valueType = %d, want UNSIGNED_LONG_LONG (%d)", fv.ValueType, valueTypeUnsignedLongLong)})
+			case fieldValueULL(fv) != wantNs:
+				results = append(results, testResult{name, false, fmt.Sprintf(
+					"%d ns, want %d ns", fieldValueULL(fv), wantNs)})
+			default:
+				results = append(results, testResult{name, true, fmt.Sprintf("%d ns", wantNs)})
+			}
+		}
+
+		// The deprecated getter must agree with the field values for the three
+		// causes NVML maps onto a performance policy.
+		for _, tc := range []struct {
+			policy nvml.PerfPolicyType
+			label  string
+			wantUS uint64
+		}{
+			{nvml.PERF_POLICY_POWER, "power", 11111},
+			{nvml.PERF_POLICY_THERMAL, "thermal", 33333},
+			{nvml.PERF_POLICY_SYNC_BOOST, "sync_boost", 22222},
+		} {
+			name := fmt.Sprintf("throttle/gpu%d/violation_%s", index, tc.label)
+			wantNs := uint64(0)
+			if index == 1 {
+				wantNs = tc.wantUS * 1000
+			}
+			vt, ret := device.GetViolationStatus(tc.policy)
+			switch {
+			case ret != nvml.SUCCESS:
+				results = append(results, testResult{name, false,
+					fmt.Sprintf("GetViolationStatus failed: %v", nvml.ErrorString(ret))})
+			case vt.ViolationTime != wantNs:
+				results = append(results, testResult{name, false,
+					fmt.Sprintf("violationTime = %d ns, want %d ns", vt.ViolationTime, wantNs)})
+			case vt.ReferenceTime == 0:
+				results = append(results, testResult{name, false, "referenceTime is unset"})
+			default:
+				results = append(results, testResult{name, true, ""})
+			}
+		}
+	}
+
+	return results
+}
+
+// checkThrottleFieldIDs pins the go-nvml names above to the ids the driver the
+// mock simulates uses. Without it, a go-nvml bump that renumbers them would
+// retarget this whole test at ids the engine deliberately does not answer, and
+// every counter below would fail as if the counters had regressed. This says
+// what actually happened instead.
+func checkThrottleFieldIDs() testResult {
+	const (
+		wantSWTherm      = 251
+		wantHWTherm      = 252
+		wantHWPowerBrake = 253
+	)
+	for _, id := range []struct {
+		label     string
+		got, want uint32
+	}{
+		{"sw_therm_slowdown", fiThrottleSWThermSlowdown, wantSWTherm},
+		{"hw_therm_slowdown", fiThrottleHWThermSlowdown, wantHWTherm},
+		{"hw_power_brake", fiThrottleHWPowerBrake, wantHWPowerBrake},
+	} {
+		if id.got != id.want {
+			return testResult{"throttle/field_ids", false, fmt.Sprintf(
+				"go-nvml puts %s at field %d, but the simulated driver has it at %d: "+
+					"this module's go-nvml was bumped past v0.13.0-1 and the names moved",
+				id.label, id.got, id.want)}
+		}
+	}
+	return testResult{"throttle/field_ids", true, ""}
+}
+
+// fieldValueULL reads the ullVal member of the nvmlValue_t union the bridge
+// wrote. CGo hands the union over as opaque bytes, so the host byte order the
+// library was built with is the one to decode with.
+func fieldValueULL(fv nvml.FieldValue) uint64 {
+	return binary.NativeEndian.Uint64(fv.Value[:])
+}
+
+// --- Fabric health tests ---
+
+// fabricHealthField reads one condition out of a health mask the way a
+// consumer does, via NVML_GPU_FABRIC_HEALTH_STATUS_GET.
+func fabricHealthField(mask uint32, shift, width int) uint32 {
+	return (mask >> uint32(shift)) & uint32(width)
+}
+
+// testFabricHealth drives nvmlDeviceGetGpuFabricInfo (v1) and
+// nvmlDeviceGetGpuFabricInfoV (v2 and v3) through the built library, which is
+// the only place the version dispatch runs against real caller-allocated
+// buffers: go-nvml's V2() hands the bridge a 36-byte GpuFabricInfo_v2 cast to
+// the 40-byte *GpuFabricInfoV, so a v2 caller must come back with its own
+// version tag and no health summary, while a v3 caller gets both.
+//
+// The fixture's device_defaults declare a fabric with no health block (so it
+// must report Healthy, not the N/A that #677 fixed) and device 1 overrides one
+// condition (so a mask that ignored config, or applied a fault wholesale,
+// fails here).
+func testFabricHealth(deviceCount int) []testResult {
+	var results []testResult
+
+	if deviceCount == 0 {
+		return results
+	}
+
+	healthyMask := uint32(nvml.GPU_FABRIC_HEALTH_MASK_DEGRADED_BW_FALSE<<nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_DEGRADED_BW |
+		nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_RECOVERY_FALSE<<nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_ROUTE_RECOVERY |
+		nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_UNHEALTHY_FALSE<<nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_ROUTE_UNHEALTHY |
+		nvml.GPU_FABRIC_HEALTH_MASK_ACCESS_TIMEOUT_RECOVERY_FALSE<<nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_ACCESS_TIMEOUT_RECOVERY |
+		nvml.GPU_FABRIC_HEALTH_MASK_INCORRECT_CONFIGURATION_NONE<<nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_INCORRECT_CONFIGURATION)
+
+	cases := []struct {
+		index       int
+		label       string
+		wantMask    uint32
+		wantSummary uint8
+	}{
+		{0, "healthy", healthyMask, nvml.GPU_FABRIC_HEALTH_SUMMARY_HEALTHY},
+		{
+			1, "route_unhealthy",
+			// Only the route-unhealthy slot differs from the healthy mask.
+			healthyMask ^ uint32((nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_UNHEALTHY_FALSE^nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_UNHEALTHY_TRUE)<<
+				nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_ROUTE_UNHEALTHY),
+			nvml.GPU_FABRIC_HEALTH_SUMMARY_UNHEALTHY,
+		},
+	}
+
+	for _, tc := range cases {
+		if tc.index >= deviceCount {
+			continue
+		}
+		name := "fabric/" + tc.label
+		device, ret := nvml.DeviceGetHandleByIndex(tc.index)
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name, false, fmt.Sprintf("GetHandleByIndex(%d) failed: %v", tc.index, nvml.ErrorString(ret))})
+			continue
+		}
+
+		// v1 carries no health fields at all; it must keep working now that
+		// the engine reports a non-zero summary.
+		v1, ret := device.GetGpuFabricInfo()
+		switch {
+		case ret != nvml.SUCCESS:
+			results = append(results, testResult{name + "/v1", false, fmt.Sprintf("GetGpuFabricInfo failed: %v", nvml.ErrorString(ret))})
+		case v1.CliqueId != 3:
+			results = append(results, testResult{name + "/v1", false, fmt.Sprintf("cliqueId = %d, want 3", v1.CliqueId)})
+		default:
+			results = append(results, testResult{name + "/v1", true, ""})
+		}
+
+		v2, ret := device.GetGpuFabricInfoV().V2()
+		wantV2Version := nvml.STRUCT_VERSION(nvml.GpuFabricInfo_v2{}, 2)
+		switch {
+		case ret != nvml.SUCCESS:
+			results = append(results, testResult{name + "/v2", false, fmt.Sprintf("V2 failed: %v", nvml.ErrorString(ret))})
+		case v2.Version != wantV2Version:
+			results = append(results, testResult{name + "/v2", false, fmt.Sprintf("version = 0x%x, want the v2 tag 0x%x", v2.Version, wantV2Version)})
+		case v2.HealthMask != tc.wantMask:
+			results = append(results, testResult{name + "/v2", false, fmt.Sprintf("healthMask = 0x%x, want 0x%x", v2.HealthMask, tc.wantMask)})
+		default:
+			results = append(results, testResult{name + "/v2", true, fmt.Sprintf("healthMask=0x%x", v2.HealthMask)})
+		}
+
+		v3, ret := device.GetGpuFabricInfoV().V3()
+		switch {
+		case ret != nvml.SUCCESS:
+			results = append(results, testResult{name + "/v3", false, fmt.Sprintf("V3 failed: %v", nvml.ErrorString(ret))})
+		case v3.HealthMask != tc.wantMask:
+			results = append(results, testResult{name + "/v3", false, fmt.Sprintf("healthMask = 0x%x, want 0x%x", v3.HealthMask, tc.wantMask)})
+		case v3.HealthSummary != tc.wantSummary:
+			results = append(results, testResult{name + "/v3", false, fmt.Sprintf("healthSummary = %d, want %d", v3.HealthSummary, tc.wantSummary)})
+		default:
+			results = append(results, testResult{name + "/v3", true, fmt.Sprintf("summary=%d", v3.HealthSummary)})
+		}
+
+		// The per-condition rows nvidia-smi renders: the injected fault must
+		// be the only one that moved.
+		routeUnhealthy := fabricHealthField(v3.HealthMask,
+			nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_ROUTE_UNHEALTHY, nvml.GPU_FABRIC_HEALTH_MASK_WIDTH_ROUTE_UNHEALTHY)
+		routeRecovery := fabricHealthField(v3.HealthMask,
+			nvml.GPU_FABRIC_HEALTH_MASK_SHIFT_ROUTE_RECOVERY, nvml.GPU_FABRIC_HEALTH_MASK_WIDTH_ROUTE_RECOVERY)
+		wantRouteUnhealthy := uint32(nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_UNHEALTHY_FALSE)
+		if tc.label == "route_unhealthy" {
+			wantRouteUnhealthy = nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_UNHEALTHY_TRUE
+		}
+		switch {
+		case routeUnhealthy != wantRouteUnhealthy:
+			results = append(results, testResult{name + "/conditions", false, fmt.Sprintf("route unhealthy = %d, want %d", routeUnhealthy, wantRouteUnhealthy)})
+		case routeRecovery != nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_RECOVERY_FALSE:
+			results = append(results, testResult{name + "/conditions", false, fmt.Sprintf("route recovery = %d, want False (%d)", routeRecovery, nvml.GPU_FABRIC_HEALTH_MASK_ROUTE_RECOVERY_FALSE)})
+		default:
+			results = append(results, testResult{name + "/conditions", true, ""})
+		}
+	}
+
 	return results
 }
 

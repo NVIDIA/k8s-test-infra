@@ -129,7 +129,7 @@ kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-test
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock --wait --timeout 120s
 ```
 
-See the [Helm Chart README](../deployments/nvml-mock/helm/nvml-mock/README.md)
+See the [Helm Chart README](helm-chart.md)
 for full deployment walkthrough including device plugin, DRA driver, and GPU
 Operator integration.
 
@@ -138,5 +138,4 @@ Operator integration.
 - [Configuration Reference](configuration.md) - Customize GPU properties
 - [Examples](examples.md) - Common usage patterns
 - [Architecture](architecture.md) - Understand how it works
-- [CUDA Mock](cuda-mock.md) - Mock CUDA library overview
 - [fake-gpu-operator Integration](integrations/fake-gpu-operator.md) - K8s-level GPU simulation

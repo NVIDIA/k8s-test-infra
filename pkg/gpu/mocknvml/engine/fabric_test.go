@@ -41,11 +41,12 @@ func TestGetMockFabricInfo_NotSupportedWhenNil(t *testing.T) {
 }
 
 func TestGetMockFabricInfo_PopulatesFields(t *testing.T) {
+	rawMask := uint32(0x42)
 	dev := makeFabricDevice(t, &FabricConfig{
 		ClusterUUID: "00000000-0000-0000-0000-0000000000ab",
 		CliqueID:    7,
 		State:       "completed",
-		HealthMask:  0x42,
+		HealthMask:  &rawMask,
 	})
 	info, ret := dev.GetMockFabricInfo()
 	require.Equal(t, nvml.SUCCESS, ret, "v1")

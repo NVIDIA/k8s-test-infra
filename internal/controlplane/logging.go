@@ -10,9 +10,9 @@ import (
 	"strings"
 )
 
-// NewLogger returns a JSON-formatted slog.Logger writing to stdout. An
-// unrecognized level is a startup error rather than a silent fallback so a
-// typo in a Helm value fails loudly instead of running at the wrong verbosity.
+// NewLogger returns a slog.Logger writing to stdout. Unrecognized level or
+// format values are startup errors so a typo in a Helm value fails loudly
+// instead of running at the wrong verbosity or format.
 func NewLogger(cfg Config) (*slog.Logger, error) {
 	var level slog.Level
 	switch strings.ToLower(cfg.LogLevel) {
@@ -27,6 +27,16 @@ func NewLogger(cfg Config) (*slog.Logger, error) {
 	default:
 		return nil, fmt.Errorf("unknown log level %q; expected one of debug, info, warn, error", cfg.LogLevel)
 	}
-	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
+
+	opts := &slog.HandlerOptions{Level: level}
+	var handler slog.Handler
+	switch strings.ToLower(cfg.LogFormat) {
+	case "", "json":
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	case "plain":
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	default:
+		return nil, fmt.Errorf("unknown log format %q; expected json or plain", cfg.LogFormat)
+	}
 	return slog.New(handler), nil
 }

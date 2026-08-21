@@ -425,4 +425,4 @@ kubectl get cm -l run.ai/gpu-profile=true
 ```
 
 See [full integration guide](integrations/fake-gpu-operator.md) and
-[runnable demos](demo/).
+[runnable demos](demo/README.md).

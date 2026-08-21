@@ -44,11 +44,11 @@ After install, deploy a consumer to test:
 
 | Consumer                 | Guide                                                                                           |
 |--------------------------|-------------------------------------------------------------------------------------------------|
-| **NVIDIA Device Plugin** | [Quick Start](deployments/nvml-mock/helm/nvml-mock/README.md#quick-start-device-plugin-on-kind) |
-| **NVIDIA DRA Driver**    | [Quick Start](deployments/nvml-mock/helm/nvml-mock/README.md#quick-start-dra-driver-on-kind)    |
-| **NVIDIA GPU Operator**  | [Quick Start](deployments/nvml-mock/helm/nvml-mock/README.md#quick-start-gpu-operator-on-kind)  |
+| **NVIDIA Device Plugin** | [Quick Start](https://nvidia.github.io/k8s-test-infra/helm-chart/#quick-start-device-plugin-on-kind) |
+| **NVIDIA DRA Driver**    | [Quick Start](https://nvidia.github.io/k8s-test-infra/helm-chart/#quick-start-dra-driver-on-kind)    |
+| **NVIDIA GPU Operator**  | [Quick Start](https://nvidia.github.io/k8s-test-infra/helm-chart/#quick-start-gpu-operator-on-kind)  |
 
-**Full documentation:** [nvml-mock Helm chart README](deployments/nvml-mock/helm/nvml-mock/README.md)
+**Full documentation:** [Mokka documentation site](https://nvidia.github.io/k8s-test-infra/)
 
 ## E2E Testing
 
@@ -78,11 +78,10 @@ Use standalone for local development and CI pipelines.
 
 | Document | Description |
 |----------|-------------|
-| [Overview](docs/README.md) | Project overview, components, GPU profiles |
+| [Overview](docs/index.md) | Project overview, components, GPU profiles |
 | [Quick Start](docs/quickstart.md) | Build and run in 5 minutes |
 | [Configuration](docs/configuration.md) | YAML configuration reference |
 | [Architecture](docs/architecture.md) | System design and components |
-| [CUDA Mock](docs/cuda-mock.md) | Mock CUDA library overview |
 | [Development](docs/development.md) | Contributing and extending the library |
 | [Examples](docs/examples.md) | Usage patterns and scenarios |
 | [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
@@ -99,6 +98,8 @@ Use standalone for local development and CI pipelines.
 |------|-------------|
 | [Standalone](docs/demo/standalone/) | nvml-mock with FGO-style labels on Kind |
 | [With fake-gpu-operator](docs/demo/with-fgo/) | Full FGO + nvml-mock integration |
+
+See [docs/demo/](docs/demo/) for the full list.
 
 ## Credits
 

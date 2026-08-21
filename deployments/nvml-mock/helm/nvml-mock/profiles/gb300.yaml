@@ -56,7 +56,10 @@ device_defaults:
     cluster_uuid: "00000000-0000-0000-0000-000000000001"
     clique_id: 0
     state: "auto"                   # couple GPU fabric registration to fake fabricmanager readiness
-    health_mask: 0
+    # Health defaults to a healthy fabric (nvidia-smi -q reports Summary:
+    # Healthy, Bandwidth: Full). Add a `health:` block to fault a specific
+    # condition, or use `nvml-mock-ctl fabric-health` at runtime.
+    # See docs/configuration.md#fabric-health.
 
   # ---------------------------------------------------------------------------
   # Platform identity — where this node sits in the NVL72 rack, which
