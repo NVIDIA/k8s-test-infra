@@ -37,19 +37,20 @@ func TestDerivations(t *testing.T) {
 		pciRoots      int
 		architecture  string
 		reportsTLimit bool
+		preBlackwell  bool
 		c2c           bool
 		shutdownC     int
 		slowdownC     int
 		maxOperatingC int
 		maxLinkGen    int
 	}{
-		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, "ampere", false, false, 92, 87, 83, 4}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
-		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, "hopper", true, false, 92, 87, 83, 5},
-		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, "blackwell", true, false, 95, 90, 85, 6}, // NVLink negative control, IB enabled
-		{"gb200", "NVIDIA GB200", 8, 8, 18, true, true, true, 4, "blackwell", true, true, 95, 90, 85, 6},
-		{"gb300", "NVIDIA GB300 NVL", 8, 8, 18, true, true, true, 4, "blackwell", true, true, 95, 90, 85, 6},
-		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, "ada_lovelace", true, false, 96, 93, 89, 4}, // IB + NVLink negative control
-		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, "turing", false, false, 96, 93, 89, 3},
+		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, "ampere", false, true, false, 92, 87, 83, 4}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
+		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, "hopper", true, true, false, 92, 87, 83, 5},
+		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, "blackwell", true, false, false, 95, 90, 85, 6}, // NVLink negative control, IB enabled
+		{"gb200", "NVIDIA GB200", 8, 8, 18, true, true, true, 4, "blackwell", true, false, true, 95, 90, 85, 6},
+		{"gb300", "NVIDIA GB300 NVL", 8, 8, 18, true, true, true, 4, "blackwell", true, false, true, 95, 90, 85, 6},
+		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, "ada_lovelace", true, true, false, 96, 93, 89, 4}, // IB + NVLink negative control
+		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, "turing", false, true, false, 96, 93, 89, 3},
 	}
 
 	for _, c := range cases {
@@ -74,6 +75,7 @@ func TestDerivations(t *testing.T) {
 				{"ExpectedPCIRoots", p.ExpectedPCIRoots(), c.pciRoots},
 				{"Architecture", p.Architecture(), c.architecture},
 				{"ReportsTLimitTemp", p.ReportsTLimitTemp(), c.reportsTLimit},
+				{"PreBlackwell", p.PreBlackwell(), c.preBlackwell},
 				{"C2CEnabled", p.C2CEnabled(), c.c2c},
 				{"ShutdownThresholdC", p.ShutdownThresholdC(), c.shutdownC},
 				{"SlowdownThresholdC", p.SlowdownThresholdC(), c.slowdownC},

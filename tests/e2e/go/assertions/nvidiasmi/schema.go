@@ -101,30 +101,35 @@ type document struct {
 // gpuElement holds the elements assertions read; add fields as more are needed.
 // Every body is a reading rather than a number for the reasons on that type.
 type gpuElement struct {
-	ID                       string            `xml:"id,attr"`
-	ProductName              reading           `xml:"product_name"`
-	ProductArchitecture      reading           `xml:"product_architecture"`
-	UUID                     reading           `xml:"uuid"`
-	BoardID                  reading           `xml:"board_id"`
-	C2CMode                  reading           `xml:"c2c_mode"`
-	PlatformInfo             platformInfo      `xml:"platformInfo"`
-	PCI                      pciInfo           `xml:"pci"`
-	FanSpeed                 reading           `xml:"fan_speed"`
-	PerformanceState         reading           `xml:"performance_state"`
-	FBMemoryUsage            memoryUsage       `xml:"fb_memory_usage"`
-	AccountingModeBufferSize reading           `xml:"accounting_mode_buffer_size"`
-	EncoderStats             statsBlock        `xml:"encoder_stats"`
-	FBCStats                 statsBlock        `xml:"fbc_stats"`
-	Utilization              utilization       `xml:"utilization"`
-	Virtualization           gpuVirtualization `xml:"gpu_virtualization_mode"`
-	Temperature              temperature       `xml:"temperature"`
-	PowerReadings            powerReadings     `xml:"gpu_power_readings"`
-	Clocks                   clocks            `xml:"clocks"`
-	ECCMode                  eccMode           `xml:"ecc_mode"`
-	ECCErrors                eccErrors         `xml:"ecc_errors"`
-	RemappedRows             remappedRows      `xml:"remapped_rows"`
-	ClocksEventReasons       eventReasons      `xml:"clocks_event_reasons"`
-	Fabric                   fabricBlock       `xml:"fabric"`
+	ID                       string              `xml:"id,attr"`
+	ProductName              reading             `xml:"product_name"`
+	ProductArchitecture      reading             `xml:"product_architecture"`
+	UUID                     reading             `xml:"uuid"`
+	BoardID                  reading             `xml:"board_id"`
+	C2CMode                  reading             `xml:"c2c_mode"`
+	InforomVersion           inforomVersion      `xml:"inforom_version"`
+	OperationMode            gpuOperationMode    `xml:"gpu_operation_mode"`
+	SparseOperationMode      reading             `xml:"sparse_operation_mode"`
+	RetiredPages             retiredPages        `xml:"retired_pages"`
+	SupportedTargetTemp      supportedTargetTemp `xml:"supported_gpu_target_temp"`
+	PlatformInfo             platformInfo        `xml:"platformInfo"`
+	PCI                      pciInfo             `xml:"pci"`
+	FanSpeed                 reading             `xml:"fan_speed"`
+	PerformanceState         reading             `xml:"performance_state"`
+	FBMemoryUsage            memoryUsage         `xml:"fb_memory_usage"`
+	AccountingModeBufferSize reading             `xml:"accounting_mode_buffer_size"`
+	EncoderStats             statsBlock          `xml:"encoder_stats"`
+	FBCStats                 statsBlock          `xml:"fbc_stats"`
+	Utilization              utilization         `xml:"utilization"`
+	Virtualization           gpuVirtualization   `xml:"gpu_virtualization_mode"`
+	Temperature              temperature         `xml:"temperature"`
+	PowerReadings            powerReadings       `xml:"gpu_power_readings"`
+	Clocks                   clocks              `xml:"clocks"`
+	ECCMode                  eccMode             `xml:"ecc_mode"`
+	ECCErrors                eccErrors           `xml:"ecc_errors"`
+	RemappedRows             remappedRows        `xml:"remapped_rows"`
+	ClocksEventReasons       eventReasons        `xml:"clocks_event_reasons"`
+	Fabric                   fabricBlock         `xml:"fabric"`
 	Processes                struct {
 		Infos []processInfo `xml:"process_info"`
 	} `xml:"processes"`
@@ -138,6 +143,51 @@ type memoryUsage struct {
 	Reserved reading `xml:"reserved"`
 	Used     reading `xml:"used"`
 	Free     reading `xml:"free"`
+}
+
+// inforomVersion is <inforom_version>: the versions of the objects held in the
+// board's inforom. Only pwr_object is decoded — the Power Management Object is
+// absent from Blackwell boards, so it is the one that has to report N/A there.
+// The sibling <inforom_bbx_flush> block names its children differently.
+type inforomVersion struct {
+	PWRObject reading `xml:"pwr_object"`
+}
+
+// gpuOperationMode is <gpu_operation_mode>: the GK110-era feature that let a
+// board disable its double-precision or graphics units. Nothing since reports
+// it, so both children read N/A on modern hardware.
+type gpuOperationMode struct {
+	Current reading `xml:"current_gom"`
+	Pending reading `xml:"pending_gom"`
+}
+
+// retiredPages is <retired_pages>: the pages a GPU has taken out of service
+// after repeated ECC errors. Blackwell replaced the mechanism with row
+// remapping, decoded as remappedRows, and reports every element here as N/A.
+// Both retirement causes name their children identically, hence the shared
+// type.
+type retiredPages struct {
+	SingleBit         retirementCause `xml:"multiple_single_bit_retirement"`
+	DoubleBit         retirementCause `xml:"double_bit_retirement"`
+	PendingBlacklist  reading         `xml:"pending_blacklist"`
+	PendingRetirement reading         `xml:"pending_retirement"`
+}
+
+type retirementCause struct {
+	Count reading `xml:"retired_count"`
+	// PageList holds the addresses when there are any. Its body is kept raw:
+	// an assertion only needs to tell a populated list from an N/A one.
+	PageList reading `xml:"retired_pagelist"`
+}
+
+// supportedTargetTemp is <supported_gpu_target_temp>: the range the GPU accepts
+// for its target temperature. It comes from the same acoustic thresholds as
+// temperature.TargetTemperature, so the three answer or fail together — and
+// nvidia-smi drops the whole section from -q when they fail, while -q -x keeps
+// the elements with N/A bodies.
+type supportedTargetTemp struct {
+	Min reading `xml:"gpu_target_temp_min"`
+	Max reading `xml:"gpu_target_temp_max"`
 }
 
 // platformInfo is <platformInfo> — the one camelCase container in the document.

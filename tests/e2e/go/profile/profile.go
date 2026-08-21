@@ -396,6 +396,20 @@ func (p Profile) ReportsRowRemapHistogram() bool { return p.rowRemapHistogram }
 // Zero when the profile configures no histogram.
 func (p Profile) RowRemapHistogramBanks() int { return p.rowRemapBanks }
 
+// PreBlackwell reports whether this profile's hardware predates Blackwell, and
+// so still answers the surfaces Blackwell removed: GPU Operation Mode, page
+// retirement, the GPU target temperature and Sparse Operation Mode. Real
+// Blackwell reports all of them as N/A (#679). An architecture the mock does
+// not recognise counts as pre-Blackwell, matching the engine gate.
+func (p Profile) PreBlackwell() bool {
+	switch p.architecture {
+	case "blackwell", "rubin":
+		return false
+	default:
+		return true
+	}
+}
+
 // ReportsTLimitTemp is true when real hardware of this architecture reports the
 // GPU T.Limit temperature field IDs (Ada and later). Pre-Ada profiles keep the
 // legacy absolute threshold rows via nvmlDeviceGetTemperatureThreshold.

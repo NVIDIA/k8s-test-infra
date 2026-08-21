@@ -126,6 +126,23 @@ func TemperatureThresholds(ctx context.Context, k *kube.Client, pod kube.PodRef,
 		p.Name, strings.Join(problems, "\n"))
 }
 
+// BlackwellRemovedFields asserts nvidia-smi -q -x reports the fields Blackwell
+// removed the way the profile's hardware does: N/A on a Blackwell profile, and
+// still carrying readings on an older one. Both directions come from the
+// profile, so one spec covers them as the CI matrix moves across profiles --
+// and the pre-Blackwell direction is what stops the gate from being widened
+// into a fidelity regression on t4 and a100. See issue #679.
+func BlackwellRemovedFields(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x Blackwell-removed fields on %s (arch=%s, pre_blackwell=%v)",
+		p.Name, p.Architecture(), p.PreBlackwell()))
+	problems := BlackwellRemovedFieldProblems(query(ctx, k, pod), p.PreBlackwell())
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"Blackwell-removed fields wrong for profile %s:\n%s",
+		p.Name, strings.Join(problems, "\n"))
+}
+
 // C2CMode asserts nvidia-smi -q -x reports the C2C state the profile declares:
 // Enabled on a Grace board, N/A on every other one. The expectation is derived
 // from the profile rather than passed in, so the same spec covers both

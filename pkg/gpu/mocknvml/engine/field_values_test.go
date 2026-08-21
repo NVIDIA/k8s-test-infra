@@ -232,6 +232,29 @@ func TestGetFieldValue_TlimitThresholds_PreAdaNotSupported(t *testing.T) {
 	}
 }
 
+func TestGetFieldValue_RetiredPages_BlackwellNotSupported(t *testing.T) {
+	// The DCGM-facing retirement field IDs read the same NVML surface the
+	// nvidia-smi Retired Pages block does, so the architecture gate has to
+	// reach them too: a zero count here is the same fabricated answer.
+	blackwell := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "blackwell"})
+	for _, fieldID := range []uint32{
+		fiRetiredSbe,
+		fiRetiredDbe,
+		fiRetiredPending,
+		fiRetiredPendingSbe,
+		fiRetiredPendingDbe,
+	} {
+		_, _, ret := blackwell.GetFieldValue(fieldID, 0)
+		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret,
+			"blackwell must not answer retirement field %d", fieldID)
+	}
+
+	ampere := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "ampere"})
+	_, count, ret := ampere.GetFieldValue(fiRetiredDbe, 0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, uint64(0), count)
+}
+
 func TestGetFieldValue_UnknownFieldNotSupported(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "hopper"})
 	vt, _, ret := dev.GetFieldValue(9999, 0)

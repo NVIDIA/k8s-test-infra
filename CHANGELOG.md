@@ -106,6 +106,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests/e2e/go/framework/pod`, rendered from a `Spec` carrying only what varies.
 
 ### Fixed
+- mocknvml: the Blackwell profiles no longer report features Blackwell does not
+  have. `GPU Operation Mode` (GK110-era), the whole `Retired Pages` block
+  (replaced by row remapping), `GPU Target Temperature` with its
+  `Supported GPU Target Temp` range, `Sparse Operation Mode` and the inforom
+  `Power Management Object` all carried values on `b200`/`gb200`/`gb300`, where a
+  real GB300 tray reports `N/A` for every one. This is the inverse of the usual
+  defect and the worse failure: `N/A` sends a consumer looking for another
+  source, while a target temperature of `85 C` or a retired-page count of `0` is
+  believed — code that branches on Blackwell having no page retirement took the
+  other branch. `nvmlDeviceGetGpuOperationMode`, the three
+  `nvmlDeviceGetRetiredPages*` entry points and the acoustic temperature
+  thresholds are now gated on architecture, and `pwr_object` is gone from the
+  Blackwell profiles. `nvmlDeviceGetTemperatureThreshold` returns `NOT_SUPPORTED`
+  for threshold types no profile models instead of answering every unrecognised
+  one with the max-operating value, so a threshold type NVML adds next cannot
+  inherit a wrong answer. `Sparse Operation Mode` turned out to come from a slot
+  of the internal export table rather than any public NVML entry point, which is
+  why it has no implementation to find by name; that slot now fails on
+  Blackwell. `t4`, `a100`, `h100` and `l40s` keep reporting all of these — the
+  gate is architectural, and a new e2e spec asserts both directions so widening
+  it cannot pass as a fix. (#679)
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
   uses (`00000000:07:00.0`, `NVML_DEVICE_PCI_BUS_ID_FMT`) while `busIdLegacy`
   keeps the 4-digit one (`0000:07:00.0`). Both were filled with the profile's

@@ -84,6 +84,19 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.TemperatureThresholds(ctx, h.Kube, pod, p)
 			})
 
+			It("reports the fields Blackwell removed as N/A via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #679: GPU Operation Mode, the Retired Pages block, the
+				// GPU target temperature, Sparse Operation Mode and the inforom
+				// Power Management Object all carried values on gb200/gb300,
+				// where a real GB300 tray answers N/A -- a fabricated answer a
+				// consumer believes, rather than one it would look past. The
+				// expectation comes from the profile, so this same spec pins
+				// N/A on the Blackwell profiles and asserts t4/a100/h100/l40s
+				// still report them: gating the surfaces everywhere would fix
+				// Blackwell by regressing the rest.
+				nvidiasmi.BlackwellRemovedFields(ctx, h.Kube, pod, p)
+			})
+
 			It("reports configured encoder and FBC stats via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #636: encoder_stats / fbc_stats were accepted by the
 				// engine but silently stubbed at the C ABI. Non-zero overrides

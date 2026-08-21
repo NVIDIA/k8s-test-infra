@@ -451,6 +451,143 @@ func TestConfigurableDevice_GetPowerManagementMode_Default(t *testing.T) {
 }
 
 // =============================================================================
+// Surfaces Blackwell removed (#679)
+// =============================================================================
+
+func TestGetGpuOperationMode_PreBlackwellReportsAllOn(t *testing.T) {
+	for _, arch := range []string{"turing", "ampere", "ada_lovelace", "hopper"} {
+		t.Run(arch, func(t *testing.T) {
+			dev := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: arch})
+			current, pending, ret := dev.GetGpuOperationMode()
+			require.Equal(t, nvml.SUCCESS, ret)
+			require.Equal(t, nvml.GOM_ALL_ON, current)
+			require.Equal(t, nvml.GOM_ALL_ON, pending)
+		})
+	}
+}
+
+func TestGetGpuOperationMode_BlackwellNotSupported(t *testing.T) {
+	// GPU Operation Mode is a GK110-era feature. Real Blackwell answers
+	// NOT_SUPPORTED and nvidia-smi renders the current and pending rows as
+	// N/A; reporting "All On" claims a different generation of hardware.
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "blackwell"})
+	_, _, ret := dev.GetGpuOperationMode()
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+}
+
+func TestRetiredPages_PreBlackwellReportsEmptyLists(t *testing.T) {
+	for _, arch := range []string{"turing", "ampere"} {
+		t.Run(arch, func(t *testing.T) {
+			dev := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: arch})
+
+			pages, ret := dev.GetRetiredPages(nvml.PAGE_RETIREMENT_CAUSE_DOUBLE_BIT_ECC_ERROR)
+			require.Equal(t, nvml.SUCCESS, ret)
+			require.Empty(t, pages)
+
+			pages, timestamps, ret := dev.GetRetiredPages_v2(nvml.PAGE_RETIREMENT_CAUSE_DOUBLE_BIT_ECC_ERROR)
+			require.Equal(t, nvml.SUCCESS, ret)
+			require.Empty(t, pages)
+			require.Empty(t, timestamps)
+
+			state, ret := dev.GetRetiredPagesPendingStatus()
+			require.Equal(t, nvml.SUCCESS, ret)
+			require.Equal(t, nvml.FEATURE_DISABLED, state)
+		})
+	}
+}
+
+func TestRetiredPages_BlackwellNotSupported(t *testing.T) {
+	// Blackwell replaced page retirement with row remapping, which the mock
+	// models separately. Succeeding with an empty list is what makes
+	// nvidia-smi print a Retired Pages count of 0 and a "No" blacklist —
+	// a consumer branching on "Blackwell has no page retirement" is told the
+	// opposite. Real hardware returns NOT_SUPPORTED, printed as N/A.
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "blackwell"})
+
+	_, ret := dev.GetRetiredPages(nvml.PAGE_RETIREMENT_CAUSE_DOUBLE_BIT_ECC_ERROR)
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+
+	_, _, ret = dev.GetRetiredPages_v2(nvml.PAGE_RETIREMENT_CAUSE_MULTIPLE_SINGLE_BIT_ECC_ERRORS)
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+
+	_, ret = dev.GetRetiredPagesPendingStatus()
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+
+	// Row remapping, the surface that replaced it, still answers.
+	_, _, _, _, ret = dev.GetRemappedRows()
+	require.Equal(t, nvml.SUCCESS, ret)
+}
+
+func TestGetTemperatureThreshold_TargetTemperatureBlackwellNotSupported(t *testing.T) {
+	// nvidia-smi reads the acoustic thresholds for its "GPU Target
+	// Temperature" row and the Supported GPU Target Temp min/max pair. Real
+	// Blackwell reports N/A for all three.
+	thermal := &ThermalConfig{
+		ShutdownThreshold_C: 92,
+		SlowdownThreshold_C: 87,
+		MaxOperating_C:      85,
+	}
+	acoustic := []nvml.TemperatureThresholds{
+		nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_CURR,
+		nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_MIN,
+		nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_MAX,
+	}
+
+	blackwell := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "blackwell", Thermal: thermal})
+	for _, threshold := range acoustic {
+		_, ret := blackwell.GetTemperatureThreshold(threshold)
+		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret,
+			"blackwell must not report acoustic threshold %d", threshold)
+	}
+
+	// Pre-Blackwell keeps the max-operating stand-in it has always reported.
+	ampere := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "ampere", Thermal: thermal})
+	for _, threshold := range acoustic {
+		temp, ret := ampere.GetTemperatureThreshold(threshold)
+		require.Equal(t, nvml.SUCCESS, ret, "acoustic threshold %d", threshold)
+		require.Equal(t, uint32(85), temp)
+	}
+}
+
+func TestGetTemperatureThreshold_UnmodeledThresholdNotSupported(t *testing.T) {
+	// A catch-all that answers every unrecognised threshold type with the
+	// max-operating value is a defect generator: it silently gives any
+	// threshold NVML gains next a wrong answer. GPS_CURR is board-level and
+	// modeled by no profile, so it must report NOT_SUPPORTED on every
+	// architecture.
+	for _, arch := range []string{"ampere", "hopper", "blackwell"} {
+		t.Run(arch, func(t *testing.T) {
+			dev := newTestDeviceWithConfig(t, &DeviceConfig{
+				Architecture: arch,
+				Thermal:      &ThermalConfig{MaxOperating_C: 85},
+			})
+			_, ret := dev.GetTemperatureThreshold(nvml.TEMPERATURE_THRESHOLD_GPS_CURR)
+			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+		})
+	}
+}
+
+func TestReportsSparseOperationMode_BlackwellDoesNot(t *testing.T) {
+	// nvidia-smi asks for Sparse Operation Mode through a slot of the internal
+	// export table, not a public NVML entry point, so the bridge needs the
+	// architecture answer here to decide whether to fail that slot.
+	for _, tc := range []struct {
+		arch string
+		want bool
+	}{
+		{"turing", true},
+		{"ampere", true},
+		{"hopper", true},
+		{"blackwell", false},
+	} {
+		t.Run(tc.arch, func(t *testing.T) {
+			dev := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: tc.arch})
+			require.Equal(t, tc.want, dev.ReportsSparseOperationMode())
+		})
+	}
+}
+
+// =============================================================================
 // Batch 2 Test Helper
 // =============================================================================
 
