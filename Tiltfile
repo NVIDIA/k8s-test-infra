@@ -43,6 +43,9 @@ load('./local/topograph/topograph.tiltfile', topograph_install='install')
 load('./local/observability/observability.tiltfile',
      observability_install='install',
      observability_gpu_operator_values='GPU_OPERATOR_VALUES')
+load('./local/nv-sentinel/nv_sentinel.tiltfile',
+     nv_sentinel_install='install',
+     nv_sentinel_gpu_operator_values='GPU_OPERATOR_VALUES')
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
@@ -66,6 +69,8 @@ config.define_bool('topograph', args=False,
     usage='Also deploy NVIDIA topograph. Implies --compute-domain (topograph reads the static nvidia.com/gpu.clique labels). Still requires the compute-domain Kind cluster: make cluster-create PROFILE=compute-domain.')
 config.define_bool('observability', args=False,
     usage='Also deploy kube-prometheus-stack + a Grafana dashboard over the mock GPUs, and expose two manual fault-injection triggers (inject-thermal, inject-xid) that assert the fault lands in Prometheus. Implies --gpu-operator (dcgm-exporter is the Operator\'s operand). Grafana on http://localhost:3000/d/mokka-gpu (admin/mokka).')
+config.define_bool('nv-sentinel', args=False,
+    usage='Also deploy NVIDIA NVSentinel (GPU health monitoring + fault remediation) over the mock GPUs, with cert-manager, an external MongoDB, and two manual triggers (quarantine-node, recover-node) that heat a GPU until NVSentinel cordons and drains the node, then cool it and assert the uncordon. Implies --gpu-operator (the standalone DCGM NVSentinel polls is an Operator operand).')
 config.define_bool('control-plane', args=False,
     usage='Also deploy the Mokka Control Plane (MEP-0001) alongside nvml-mock. Off by default. Composes with --multi-gpu-profile (one CP per release), --compute-domain, and --nvmlmock-image.')
 # CI hook: hand Tilt a pre-built image (in CI, loaded from the workflow's image
@@ -86,6 +91,7 @@ with_dra            = cfg.get('dra', False)
 with_fgo            = cfg.get('fgo', False)
 with_topograph      = cfg.get('topograph', False)
 with_observability  = cfg.get('observability', False)
+with_nv_sentinel    = cfg.get('nv-sentinel', False)
 with_control_plane  = cfg.get('control-plane', False)
 
 # --- Implicit flags ------------------------------------------------------
@@ -104,6 +110,13 @@ if with_topograph:
 if with_observability:
     with_gpu_operator = True
 
+# --nv-sentinel implies --gpu-operator: the thing NVSentinel's health monitor
+# polls is the standalone DCGM DaemonSet, a GPU Operator operand. Without it
+# the stack installs cleanly and reports no GPU health at all, so implying the
+# flag is friendlier than failing on it.
+if with_nv_sentinel:
+    with_gpu_operator = True
+
 # --- Guardrails ----------------------------------------------------------
 # compute-domain forces its own cluster shape (4 workers with clique
 # labels, hardcoded worker names in topology.yaml) and its own profile
@@ -119,6 +132,14 @@ if with_fgo and with_gpu_operator:
     fail('--fgo is mutually exclusive with --gpu-operator (FGO replaces the GPU Operator)')
 if with_fgo and with_compute_domain:
     fail('--fgo is mutually exclusive with --compute-domain')
+
+# FGO replaces the GPU Operator, so it takes away the standalone DCGM this
+# consumer polls. compute-domain brings its own 4-worker cluster shape and
+# layered images; NVSentinel on top of it is untested.
+if with_nv_sentinel and with_fgo:
+    fail('--nv-sentinel is mutually exclusive with --fgo (NVSentinel polls the GPU Operator\'s standalone DCGM, which FGO replaces)')
+if with_nv_sentinel and with_compute_domain:
+    fail('--nv-sentinel is mutually exclusive with --compute-domain')
 
 # --nvmlmock-image only wires the standard nvml-mock build/install path. The
 # compute-domain scenario builds three layered images (base + imex + optional
@@ -161,6 +182,12 @@ if with_topograph:
 # dashboard panel is a flat line of profile constants.
 if with_observability:
     active_consumers.append('observability')
+
+# Appended so local/nv-sentinel/nvml-mock.values.yaml is picked up by the
+# install helpers — it turns on gpu.dynamicMetrics so a heated GPU reads
+# differently from its idle siblings.
+if with_nv_sentinel:
+    active_consumers.append('nv-sentinel')
 
 # --- Safety guard --------------------------------------------------------
 allow_k8s_contexts(k8s_context)
@@ -206,6 +233,9 @@ if with_observability:
     helm_repo('prometheus-community', 'https://prometheus-community.github.io/helm-charts',
               labels=['observability'])
 
+if with_nv_sentinel:
+    helm_repo('jetstack', 'https://charts.jetstack.io', labels=['nv-sentinel'])
+
 # --- Consumers -----------------------------------------------------------
 # Monitoring goes in BEFORE the GPU Operator: kube-prometheus-stack ships the
 # ServiceMonitor CRD, and the Operator's chart creates a ServiceMonitor for
@@ -223,11 +253,23 @@ if with_gpu_operator:
         gpu_operator_extra_values.append(observability_gpu_operator_values)
         gpu_operator_extra_deps += observability_releases
 
+    # Appended after observability's so the layering order is deterministic
+    # when both flags are on. The two overlays touch disjoint keys — this one
+    # only `dcgm`, observability's only `dcgmExporter` — so they compose.
+    if with_nv_sentinel:
+        gpu_operator_extra_values.append(nv_sentinel_gpu_operator_values)
+
     gpu_operator_install(
         nvml_mock_releases,
         extra_values=gpu_operator_extra_values,
         extra_resource_deps=gpu_operator_extra_deps,
     )
+
+# After the Operator: NVSentinel's health monitor polls the standalone DCGM
+# Service, which only exists once the Operator has reconciled it. Carried by
+# resource_deps inside install() as well, so call order is not the guarantee.
+if with_nv_sentinel:
+    nv_sentinel_install(nvml_mock_releases)
 
 if with_dra:
     # DRA overlay chain (order matters — later --values files win):

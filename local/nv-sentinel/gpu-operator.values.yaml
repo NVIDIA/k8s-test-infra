@@ -1,0 +1,24 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# GPU Operator values overlay for the nv-sentinel consumer.
+#
+# Layered by the root Tiltfile ON TOP OF local/gpu-operator/gpu-operator.values.yaml
+# (later --values wins), so this file carries only the delta: the standalone
+# DCGM DaemonSet, which that baseline disables because nothing in the plain
+# --gpu-operator scenario polls one.
+#
+# NVSentinel's GPU Health Monitor runs in operator-service mode
+# (global.dcgm.mode in nvsentinel.values.yaml) and polls nv-hostengine through
+# the "nvidia-dcgm" Service on :5555. Only this DaemonSet publishes that
+# Service — dcgm-exporter embeds its own hostengine and exposes nothing for
+# anyone else to poll — so with dcgm.enabled=false the health monitor starts,
+# finds no endpoint, and silently reports no GPU health at all.
+
+dcgm:
+  enabled: true
+  env:
+    # nv-hostengine loads the mock libnvidia-ml.so from the driver root the
+    # nvml-mock DaemonSet stages on each node.
+    - name: NVIDIA_DRIVER_ROOT
+      value: "/var/lib/nvml-mock/driver"

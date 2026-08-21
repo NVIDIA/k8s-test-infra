@@ -1,0 +1,16 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# nvml-mock overlay for the nv-sentinel consumer. Auto-detected by the install
+# helpers in local/nvml_mock.tiltfile whenever 'nv-sentinel' is an active
+# consumer.
+
+gpu:
+  # Off in the chart defaults, which report one constant temperature per GPU.
+  # The fault is injected as a pinned temperature and would trip either way,
+  # but with a constant baseline a heated GPU is indistinguishable from a stuck
+  # reading, and clearing the pin on recovery produces no visible change at
+  # all — so the recovery trigger's "the margin re-opened" claim has nothing
+  # observable behind it.
+  dynamicMetrics:
+    enabled: true

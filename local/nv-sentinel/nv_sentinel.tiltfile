@@ -1,0 +1,39 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# Loadable Tiltfile: NVIDIA NVSentinel consumer.
+#
+# Exports:
+#   GPU_OPERATOR_VALUES — path to the values overlay the root layers on top of
+#                         local/gpu-operator/gpu-operator.values.yaml to enable
+#                         the standalone DCGM DaemonSet NVSentinel polls.
+#   install(nvml_mock_releases) — install cert-manager, the external MongoDB,
+#                         NVSentinel and a GPU workload, and register the
+#                         quarantine/recover triggers. Returns the release
+#                         names.
+#
+# What this consumer demonstrates: NVSentinel — NVIDIA's open-source GPU health
+# monitoring and fault-remediation service — detects a GPU thermal-margin
+# violation on mock GPUs, cordons and drains the node so the GPU workload
+# reschedules, and uncordons it once the GPU cools. On a cluster with no GPUs.
+#
+# Assumes --gpu-operator: the standalone DCGM DaemonSet NVSentinel polls is one
+# of the Operator's operands, so without it there is nothing to poll. The root
+# Tiltfile implies the flag rather than failing on it.
+#
+# Ported from docs/demo/nv-sentinel/run.sh, which still exists as a standalone
+# demo for use without Tilt. Two things in that script disappear here: the
+# per-worker nvidia-container-toolkit install and CDI wiring (the shared Kind
+# node image bakes both in) and its dedicated cluster (the default profile is
+# already 1 control-plane + 2 workers).
+#
+# All side effects inside functions so load()ing this file is a pure import.
+
+load('ext://helm_resource', 'helm_resource')
+
+GPU_OPERATOR_VALUES = 'local/nv-sentinel/gpu-operator.values.yaml'
+
+
+def install(nvml_mock_releases):
+    """Install the NVSentinel stack and register its scenarios."""
+    return []
