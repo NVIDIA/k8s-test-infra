@@ -13,6 +13,10 @@ per-GPU indexing and override scoping.
 | `qx-gb200-lost.xml` | GPU 0 healthy, GPU 1 lost (`GPU is lost` bodies). |
 | `qx-gb200-ecc-injected.xml` | GPU 0 has a non-zero `ecc_errors/aggregate/dram_uncorrectable`. |
 
+`hardware/` holds untrimmed captures from real nodes, for checking these
+mock-produced fixtures against what the boards actually report.
+`hardware/README.md` lists which boards and on which drivers.
+
 Watch for two element names that repeat under different parents: `sm_clock`
 appears under both `clocks` (current) and `max_clocks`, and `average_power_draw`
 under `gpu_power_readings`, `gpu_memory_power_readings` and
