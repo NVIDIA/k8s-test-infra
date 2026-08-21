@@ -40,6 +40,7 @@ spec:
             - --listen-addr=:{{ .Values.controlPlane.service.port }}
             - --log-level={{ .Values.controlPlane.logging.level }}
             - --log-format={{ .Values.controlPlane.logging.format }}
+            - --shutdown-timeout={{ .Values.controlPlane.shutdownTimeout }}
           ports:
             - name: http
               containerPort: {{ .Values.controlPlane.service.port }}

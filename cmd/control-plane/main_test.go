@@ -9,9 +9,16 @@ import (
 	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
+	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
 )
+
+type capturedArgs struct {
+	cfg    controlplane.Config
+	level  logging.Level
+	format logging.Format
+}
 
 // TestFlagsProduceExpectedConfig pins the CLI-to-Config wiring so a rename or
 // missing flag can't silently regress. The Action is swapped so nothing binds
@@ -20,53 +27,60 @@ func TestFlagsProduceExpectedConfig(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		args []string
-		want controlplane.Config
+		want capturedArgs
 	}{
 		{
 			name: "defaults when no flags",
 			args: []string{"control-plane"},
-			want: controlplane.DefaultConfig(),
+			want: capturedArgs{
+				cfg:    controlplane.DefaultConfig(),
+				level:  logging.LevelInfo,
+				format: logging.FormatJSON,
+			},
 		},
 		{
 			name: "listen-addr override",
 			args: []string{"control-plane", "--listen-addr", ":9090"},
-			want: controlplane.Config{
-				ListenAddr:      ":9090",
-				LogLevel:        "info",
-				LogFormat:       "json",
-				ShutdownTimeout: 5 * time.Second,
+			want: capturedArgs{
+				cfg:    controlplane.Config{ListenAddr: ":9090", ShutdownTimeout: 5 * time.Second},
+				level:  logging.LevelInfo,
+				format: logging.FormatJSON,
 			},
 		},
 		{
 			name: "log-level and shutdown-timeout override",
 			args: []string{"control-plane", "--log-level", "debug", "--shutdown-timeout", "12s"},
-			want: controlplane.Config{
-				ListenAddr:      ":8080",
-				LogLevel:        "debug",
-				LogFormat:       "json",
-				ShutdownTimeout: 12 * time.Second,
+			want: capturedArgs{
+				cfg:    controlplane.Config{ListenAddr: ":8080", ShutdownTimeout: 12 * time.Second},
+				level:  logging.LevelDebug,
+				format: logging.FormatJSON,
 			},
 		},
 		{
 			name: "log-format plain override",
 			args: []string{"control-plane", "--log-format", "plain"},
-			want: controlplane.Config{
-				ListenAddr:      ":8080",
-				LogLevel:        "info",
-				LogFormat:       "plain",
-				ShutdownTimeout: 5 * time.Second,
+			want: capturedArgs{
+				cfg:    controlplane.Config{ListenAddr: ":8080", ShutdownTimeout: 5 * time.Second},
+				level:  logging.LevelInfo,
+				format: logging.FormatPlain,
 			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var got controlplane.Config
+			var got capturedArgs
 			cmd := newCLI()
 			cmd.Action = func(_ context.Context, c *cli.Command) error {
-				got = controlplane.Config{
-					ListenAddr:      c.String("listen-addr"),
-					LogLevel:        c.String("log-level"),
-					LogFormat:       c.String("log-format"),
-					ShutdownTimeout: c.Duration("shutdown-timeout"),
+				level, err := logging.ParseLevel(c.String("log-level"))
+				require.NoError(t, err)
+				format, err := logging.ParseFormat(c.String("log-format"))
+				require.NoError(t, err)
+				got = capturedArgs{
+					cfg: controlplane.Config{
+						ListenAddr:      c.String("listen-addr"),
+						ShutdownTimeout: c.Duration("shutdown-timeout"),
+					},
+					level:  level,
+					format: format,
 				}
 				return nil
 			}
