@@ -325,7 +325,8 @@ equivalent.
 into the device config; the value is parsed as a YAML scalar (so numbers, bools,
 and strings get their natural type). Example paths: `thermal.temperature_gpu_c`,
 `utilization.gpu`, `ecc.mode_current`, `power.current_draw_mw`,
-`remapped_rows.availability_histogram.low`.
+`remapped_rows.availability_histogram.low`,
+`clocks_throttle_reasons.counters.sw_power_cap_us`.
 
 #### Dynamic metrics mask their static counterparts
 

@@ -375,6 +375,9 @@ func mergeDeviceOverride(base *DeviceConfig, override *DeviceOverride) {
 	if override.Clocks != nil {
 		base.Clocks = override.Clocks
 	}
+	if override.ClocksThrottleReasons != nil {
+		base.ClocksThrottleReasons = override.ClocksThrottleReasons
+	}
 	if override.Utilization != nil {
 		base.Utilization = override.Utilization
 	}

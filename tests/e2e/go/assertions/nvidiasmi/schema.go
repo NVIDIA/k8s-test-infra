@@ -124,6 +124,7 @@ type gpuElement struct {
 	ECCErrors                eccErrors         `xml:"ecc_errors"`
 	RemappedRows             remappedRows      `xml:"remapped_rows"`
 	ClocksEventReasons       eventReasons      `xml:"clocks_event_reasons"`
+	ClocksEventCounters      eventCounters     `xml:"clocks_event_reasons_counters"`
 	Fabric                   fabricBlock       `xml:"fabric"`
 	Processes                struct {
 		Infos []processInfo `xml:"process_info"`
@@ -302,6 +303,21 @@ type eventReasons struct {
 	HWSlowdown        reading `xml:"clocks_event_reason_hw_slowdown"`
 	HWThermalSlowdown reading `xml:"clocks_event_reason_hw_thermal_slowdown"`
 	SWThermalSlowdown reading `xml:"clocks_event_reason_sw_thermal_slowdown"`
+}
+
+// eventCounters is <clocks_event_reasons_counters>: how long each cause has
+// held the GPU below its requested clocks, as microsecond totals. It is the
+// after-the-fact companion to the instantaneous flags in eventReasons above —
+// a workload that ran slow is diagnosed from these, not from catching a flag
+// mid-sample. Every element read N/A until the mock answered the field ids
+// behind them (#678). The element names are the NVML field names, which is why
+// they abbreviate "thermal" where the flags above spell it out.
+type eventCounters struct {
+	SWPowerCap        reading `xml:"clocks_event_reasons_counters_sw_power_cap"`
+	SyncBoost         reading `xml:"clocks_event_reasons_counters_sync_boost"`
+	SWThermalSlowdown reading `xml:"clocks_event_reasons_counters_sw_therm_slowdown"`
+	HWThermalSlowdown reading `xml:"clocks_event_reasons_counters_hw_therm_slowdown"`
+	HWPowerBrake      reading `xml:"clocks_event_reasons_counters_hw_power_brake"`
 }
 
 // fabricBlock is <fabric>: the GPU's NVLink fabric attachment. Its <status>

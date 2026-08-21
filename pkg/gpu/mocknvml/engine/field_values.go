@@ -243,6 +243,10 @@ func (d *ConfigurableDevice) getDeviceFieldValue(fieldID, scopeID uint32) (Field
 	case fiTempShutdownTlimit, fiTempSlowdownTlimit, fiTempMemMaxTlimit, fiTempGpuMaxTlimit:
 		return d.tlimitThresholdFieldValue(fieldID)
 
+	case fiPerfPolicyPower, fiPerfPolicyThermal, fiPerfPolicySyncBoost,
+		fiClocksEventSwThermSlowdown, fiClocksEventHwThermSlowdown, fiClocksEventHwPowerBrake:
+		return d.throttleCounterFieldValue(fieldID)
+
 	case fiMemoryTemp:
 		cfg := d.cfg()
 		if cfg.Thermal == nil || cfg.Thermal.TemperatureMemory_C == 0 {

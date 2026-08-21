@@ -243,6 +243,46 @@ device_defaults:
     sync_boost: false
     sw_thermal_slowdown: false
     display_clocks_setting: false
+
+    # Cumulative time each cause has already cost the GPU, in microseconds.
+    # The flags above answer "is it throttled now"; these answer "how long has
+    # it been", which is what a slow workload is diagnosed from. Omit the block
+    # for a GPU that has never been throttled: every counter then reports 0 us,
+    # which is an answer, where the pre-#678 N/A was not.
+    counters:
+      sw_power_cap_us: 39595
+      sync_boost_us: 0
+      sw_thermal_slowdown_us: 0
+      hw_thermal_slowdown_us: 0
+      hw_power_brake_slowdown_us: 0
+```
+
+A per-device `clocks_throttle_reasons` block replaces the `device_defaults` one
+wholesale rather than merging into it, as `memory`, `power`, `thermal` and
+`clocks` already do. A `devices:` entry carrying only `counters` therefore drops
+the inherited flags, so restate the ones that still apply — which is why the
+`gpu_idle: true` above is repeated in each per-device block of
+`tests/mocknvml/util-test-config.yaml`.
+
+The counters appear under `Clocks Event Reasons Counters` in `nvidia-smi -q`,
+and are readable through `nvmlDeviceGetFieldValues` (the path DCGM uses) and
+`nvmlDeviceGetViolationStatus`. A device accrues further time on top of its
+configured baseline for as long as the matching flag is set. Accrual is per
+process, like the dynamic-metrics simulator: a long-lived consumer such as
+dcgm-exporter watches the counter climb, while each `nvidia-smi` invocation
+accrues only over its own lifetime and so reports essentially the baseline.
+
+That per-process scope is why the flags and the counters have to be configured
+to agree rather than agreeing by construction. A GPU thrown into a throttle
+state at runtime carries no history: `nvidia-smi` renders the reason `Active`
+beside a counter of a microsecond or two, which is the age of that `nvidia-smi`
+process and not of the throttle. To describe a GPU that has been throttling for
+a while, seed the counter alongside the flag — both land in the same override
+document, so the second command keeps the first:
+
+```bash
+nvml-mock-ctl throttle --gpu 3 thermal
+nvml-mock-ctl set --gpu 3 clocks_throttle_reasons.counters.hw_thermal_slowdown_us=39595
 ```
 
 ### Performance
