@@ -1,0 +1,161 @@
+{
+  "uid": "mokka-gpu",
+  "title": "Mokka — Mock GPU Fleet",
+  "tags": ["mokka", "gpu"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "GPU temperature",
+      "description": "Injecting heat with `nvml-mock-ctl temp` shows up here as a step change.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "celsius", "custom": { "lineWidth": 1, "fillOpacity": 5 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "DCGM_FI_DEV_GPU_TEMP",
+          "legendFormat": "{{Hostname}} gpu{{gpu}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Last Xid code reported",
+      "description": "DCGM_FI_DEV_XID_ERRORS carries the code of the most recent Xid, not a count of them: injecting Xid 79 with `nvml-mock-ctl fail` latches this line at 79, which is one error, not 79. Empty on a healthy fleet: the mock delivers Xids through the NVML event set, so DCGM has no value to report until one fires.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "noValue": "no Xid reported yet",
+          "custom": { "lineWidth": 1, "fillOpacity": 5 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "DCGM_FI_DEV_XID_ERRORS",
+          "legendFormat": "{{Hostname}} gpu{{gpu}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Power draw",
+      "description": "Simulated by the mock's dynamic-metrics clock, not by real work.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "watt", "custom": { "lineWidth": 1, "fillOpacity": 5 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "DCGM_FI_DEV_POWER_USAGE",
+          "legendFormat": "{{Hostname}} gpu{{gpu}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "GPU utilization",
+      "description": "Simulated by the mock's dynamic-metrics clock, not by real work.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "max": 100,
+          "min": 0,
+          "custom": { "lineWidth": 1, "fillOpacity": 5 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "DCGM_FI_DEV_GPU_UTIL",
+          "legendFormat": "{{Hostname}} gpu{{gpu}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "GPU inventory — advertised vs requested",
+      "description": "Advertised capacity from kube-state-metrics against what workloads actually request. Requested sits at zero until a pod asks for nvidia.com/gpu, which is the point: the fleet is schedulable even though no GPU exists.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 0 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(kube_node_status_capacity{resource=\"nvidia_com_gpu\"})",
+          "legendFormat": "advertised"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(kube_pod_container_resource_requests{resource=\"nvidia_com_gpu\"}) or vector(0)",
+          "legendFormat": "requested"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Component health — ready vs desired, and restarts",
+      "description": "Which component of the mock GPU path broke and when: nvml-mock (the fake driver) and dcgm-exporter (the reader). A ready count below desired, or a climbing restart count, is the signal. Restarts are per pod, not per namespace, because the GPU Operator's own operands churn in the dozens and would bury a Mokka pod restarting three times.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "lineWidth": 2, "fillOpacity": 0 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "kube_daemonset_status_number_ready{namespace=~\"mokka|gpu-operator\", daemonset=~\"nvml-mock.*|nvidia-dcgm-exporter\"}",
+          "legendFormat": "{{daemonset}} ready"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "kube_daemonset_status_desired_number_scheduled{namespace=~\"mokka|gpu-operator\", daemonset=~\"nvml-mock.*|nvidia-dcgm-exporter\"}",
+          "legendFormat": "{{daemonset}} desired"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (pod) (kube_pod_container_status_restarts_total{namespace=~\"mokka|gpu-operator\", pod=~\"nvml-mock-.*|nvidia-dcgm-exporter-.*\"})",
+          "legendFormat": "{{pod}} restarts"
+        }
+      ]
+    }
+  ]
+}
