@@ -243,6 +243,33 @@ device_defaults:
     sync_boost: false
     sw_thermal_slowdown: false
     display_clocks_setting: false
+
+    # Cumulative time each cause has already cost the GPU, in microseconds.
+    # The flags above answer "is it throttled now"; these answer "how long has
+    # it been", which is what a slow workload is diagnosed from. Omit the block
+    # for a GPU that has never been throttled: every counter then reports 0 us,
+    # which is an answer, where the pre-#678 N/A was not.
+    counters:
+      sw_power_cap_us: 39595
+      sync_boost_us: 0
+      sw_thermal_slowdown_us: 0
+      hw_thermal_slowdown_us: 0
+      hw_power_brake_slowdown_us: 0
+```
+
+The counters appear under `Clocks Event Reasons Counters` in `nvidia-smi -q`,
+and are readable through `nvmlDeviceGetFieldValues` (the path DCGM uses) and
+`nvmlDeviceGetViolationStatus`. A device accrues further time on top of its
+configured baseline for as long as the matching flag is set, so the flags and
+the counters cannot contradict each other. Accrual is per process, like the
+dynamic-metrics simulator: a long-lived consumer such as dcgm-exporter watches
+the counter climb, while each `nvidia-smi` invocation reads from the configured
+baseline.
+
+Seed a counter at runtime with `nvml-mock-ctl`, without restarting the consumer:
+
+```bash
+nvml-mock-ctl set --gpu 3 clocks_throttle_reasons.counters.sw_power_cap_us=39595
 ```
 
 ### Performance

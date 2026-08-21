@@ -14,6 +14,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   GPUs. Adds two manual triggers that inject a temperature or Xid fault through
   `nvml-mock-ctl` and fail if it never reaches Prometheus, making the scrape
   path asserted rather than eyeballed. (#597)
+- mocknvml: the `Clocks Event Reasons Counters` block of `nvidia-smi -q` now
+  reports microsecond totals instead of `N/A` for all five causes. The counters
+  are how throttling is diagnosed after the fact — a workload that ran slow is
+  investigated by reading accumulated `SW Power Capping` or `HW Thermal
+  Slowdown` time, not by sampling the instantaneous flag and hoping to catch it
+  — and the block previously contradicted the flags directly above it, which
+  stated confidently that no reason was active while the counters could not say
+  whether one ever had been. A 580-era `nvidia-smi` reads them through
+  `nvmlDeviceGetFieldValues`, which had no case for the field ids behind them, so
+  each came back per-field `NOT_SUPPORTED` while the overall call succeeded and
+  no unimplemented-symbol stub was reached. A new
+  `clocks_throttle_reasons.counters` block seeds the accrued time per cause per
+  device, defaulting to `0 us` — a real answer, where `N/A` was not — and a
+  device accrues further time on top of that baseline for as long as the
+  matching flag is set, so the flags and the counters cannot contradict each
+  other. `nvmlDeviceGetViolationStatus` now honours its `perfPolicyType` and
+  timestamps the reading, where it previously returned a zero
+  `nvmlViolationTime_t` for every policy, leaving the five causes
+  indistinguishable. A counter can also be seeded while a workload runs, with
+  `nvml-mock-ctl set --gpu <idx>
+  clocks_throttle_reasons.counters.sw_power_cap_us=<us>`. (#678)
 - mocknvml: `nvidia-smi -q` now reports the `Platform Info` block on the
   `gb200`/`gb300` profiles — chassis serial number, slot number, tray index,
   host ID, peer type and module ID, where every row previously read `N/A`. These

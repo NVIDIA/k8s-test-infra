@@ -75,6 +75,12 @@ type ConfigurableDevice struct {
 	// on refresh. Read via failureInjector().
 	failure atomic.Pointer[failureInjector]
 
+	// throttle accrues per-cause clocks-event time. Created on first read
+	// (see throttleAccrual) and deliberately NOT swapped on config refresh:
+	// the time a GPU has already spent throttled is not something a runtime
+	// override can take back.
+	throttle atomic.Pointer[throttleAccrual]
+
 	// refresh bookkeeping
 	refreshMu  sync.Mutex
 	appliedGen uint64
@@ -2295,24 +2301,6 @@ func (d *ConfigurableDevice) failureLost() bool {
 	}
 	fi := d.failureInjector()
 	return fi != nil && fi.IsLost()
-}
-
-// GetViolationStatus returns the active violation time information for
-// a performance policy. The returned struct stays semantically faithful
-// to the NVML spec — both ReferenceTime and ViolationTime are reported
-// in nanoseconds for power/thermal violations. Failure injection does
-// NOT overload these fields with the configured Xid code; instead the
-// Xid is surfaced via the NVML event set
-// (NVML_EVENT_TYPE_XID_CRITICAL_ERROR) so consumers like dcgm-exporter
-// or the device plugin's health monitor see it through the API designed
-// for it. We still return ERROR_GPU_IS_LOST for tripped lost /
-// fallen_off_bus devices, matching every other guarded getter.
-func (d *ConfigurableDevice) GetViolationStatus(perfPolicyType nvml.PerfPolicyType) (nvml.ViolationTime, nvml.Return) {
-	if ret := d.tickFailure(); ret != nvml.SUCCESS {
-		return nvml.ViolationTime{}, ret
-	}
-	debugLog("[NVML] nvmlDeviceGetViolationStatus(policy=%d) -> no violation\n", perfPolicyType)
-	return nvml.ViolationTime{}, nvml.SUCCESS
 }
 
 // MockServer wraps dgxa100.Server and uses configurable devices

@@ -363,8 +363,10 @@ func TestFailureInjection_GetViolationStatus_HealthyReportsNoViolation(t *testin
 	dev := newTestDeviceWithConfig(t, healthyConfig())
 	vt, ret := dev.GetViolationStatus(nvml.PERF_POLICY_POWER)
 	require.Equal(t, nvml.SUCCESS, ret, "expected SUCCESS")
-	require.Zero(t, vt.ViolationTime, "healthy device must report empty ViolationTime")
-	require.Zero(t, vt.ReferenceTime, "healthy device must report empty ReferenceTime")
+	require.Zero(t, vt.ViolationTime, "healthy device must report no accrued violation time")
+	// ReferenceTime is the CPU timestamp the reading was taken at, so it is
+	// populated even on a device that has never been throttled.
+	require.NotZero(t, vt.ReferenceTime, "healthy device must still timestamp the reading")
 }
 
 func TestFailureInjection_GetViolationStatus_StaysSpecCompliantAfterTrip(t *testing.T) {
@@ -387,13 +389,13 @@ func TestFailureInjection_GetViolationStatus_StaysSpecCompliantAfterTrip(t *test
 	require.Equal(t, nvml.SUCCESS, ret, "setup call 1")
 
 	// At this point the device has just tripped (AfterCalls=2 met by the
-	// SECOND tick, which is GetViolationStatus itself). It must NOT
-	// stuff the Xid into the violation_time field; both fields stay
-	// at their healthy zero values.
+	// SECOND tick, which is GetViolationStatus itself). Neither field may
+	// carry the Xid: violation time reflects the (unthrottled) device, and
+	// reference time is a timestamp.
 	vt, ret := dev.GetViolationStatus(nvml.PERF_POLICY_POWER)
 	require.Equal(t, nvml.SUCCESS, ret, "expected SUCCESS")
 	require.Zero(t, vt.ViolationTime, "ViolationTime must be 0 ns post-trip (Xid no longer overloaded)")
-	require.Zero(t, vt.ReferenceTime, "ReferenceTime must be 0 ns post-trip")
+	require.NotEqual(t, uint64(64), vt.ReferenceTime, "ReferenceTime must not carry the Xid either")
 }
 
 func TestFailureInjection_GetViolationStatus_LostModeReturnsError(t *testing.T) {
