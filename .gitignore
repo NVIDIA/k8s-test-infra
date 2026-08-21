@@ -36,3 +36,8 @@ site/
 
 # MkDocs toolchain venv created by `make docs-deps`
 .venv-docs/
+
+# Build-time copy of enhancements/ made by hack/sync-enhancement-docs.sh so the
+# MEPs can be published (MkDocs builds only what is under docs_dir). Generated,
+# never committed: edit the originals in enhancements/.
+docs/enhancements/

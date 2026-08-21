@@ -357,7 +357,7 @@ DOCS_PYTHON_VERSION ?= 3.12
 # works for someone who has mkdocs on PATH by other means.
 DOCS_PATH := PATH="$(DOCS_VENV)/bin:$$PATH"
 
-.PHONY: docs-deps docs-build docs-serve docs-check-exclusion docs
+.PHONY: docs-deps docs-build docs-serve docs-check-exclusion docs-sync-enhancements docs
 
 # Missing uv is a hard failure, not a pip fallback. A fallback would let CI and
 # a developer resolve different interpreters while both report success, which is
@@ -377,17 +377,24 @@ docs-deps: ## Install the pinned MkDocs toolchain into .venv-docs using uv
 	$(UV) pip install --python $(DOCS_VENV) -r requirements-docs.txt
 	@echo "MkDocs installed into $(DOCS_VENV); make docs picks it up with no activation."
 
-docs-build: ## Build the documentation site (strict: broken links fail)
+# MkDocs publishes only what lives under docs_dir, and MEPs live in
+# enhancements/ where the MEP workflow puts them. Every target that runs mkdocs
+# depends on this, so the site never builds against a stale or missing copy.
+# make runs it once per invocation even though three targets ask for it.
+docs-sync-enhancements: ## Stage enhancements/ into the docs tree (gitignored copy)
+	$(CURDIR)/hack/sync-enhancement-docs.sh
+
+docs-build: docs-sync-enhancements ## Build the documentation site (strict: broken links fail)
 	$(DOCS_PATH) $(MKDOCS) build --strict
 
-docs-serve: ## Serve the documentation site locally on :8000
+docs-serve: docs-sync-enhancements ## Serve the documentation site locally on :8000
 	$(DOCS_PATH) $(MKDOCS) serve
 
 # docs/plans/ and docs/superpowers/ are gitignored scratch directories, so they
 # are absent in CI and grepping the built site for them would pass no matter
 # what. Plant a file and prove exclude_docs drops it, so this fails if that
 # config is removed.
-docs-check-exclusion: ## Verify gitignored internal plans cannot reach the site
+docs-check-exclusion: docs-sync-enhancements ## Verify gitignored internal plans cannot reach the site
 	@set -eu; \
 	export PATH="$(DOCS_VENV)/bin:$$PATH"; \
 	mkdir -p docs/plans; \
