@@ -38,7 +38,8 @@ spec:
           imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
           args:
             - --listen-addr=:{{ .Values.controlPlane.service.port }}
-            - --log-level={{ .Values.controlPlane.logLevel }}
+            - --log-level={{ .Values.controlPlane.logging.level }}
+            - --log-format={{ .Values.controlPlane.logging.format }}
           ports:
             - name: http
               containerPort: {{ .Values.controlPlane.service.port }}

@@ -384,7 +384,9 @@ controlPlane:
     repository: ghcr.io/nvidia/mokka-control-plane
     tag: latest
     pullPolicy: IfNotPresent
-  logLevel: info                       # debug | info | warn | error
+  logging:
+    level: info    # debug | info | warn | error
+    format: json   # json | plain
   service:
     type: ClusterIP
     port: 8080

@@ -313,10 +313,20 @@
             "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
           }
         },
-        "logLevel": {
-          "type": "string",
-          "enum": ["debug", "info", "warn", "warning", "error"],
-          "description": "Structured-logging level passed as --log-level. The binary rejects unknown values, so the enum here fails fast at helm template time instead of after the pod crashes."
+        "logging": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Structured-logging knobs. The binary rejects unknown values, so enums here fail fast at helm template time instead of after the pod crashes.",
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": ["debug", "info", "warn", "warning", "error"]
+            },
+            "format": {
+              "type": "string",
+              "enum": ["json", "plain"]
+            }
+          }
         },
         "service": {
           "type": "object",
