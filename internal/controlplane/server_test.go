@@ -13,13 +13,13 @@ import (
 	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
+	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/stretchr/testify/require"
 )
 
 func TestHealthEndpoints(t *testing.T) {
 	cfg := controlplane.DefaultConfig()
-	logger, err := controlplane.NewLogger(cfg)
-	require.NoError(t, err)
+	logger := logging.NewLogger(logging.Config{})
 
 	server := controlplane.NewServer(cfg, logger)
 	ts := httptest.NewServer(server.Router())
@@ -45,8 +45,7 @@ func TestHealthEndpoints(t *testing.T) {
 func TestServerShutdownOnContextCancel(t *testing.T) {
 	cfg := controlplane.DefaultConfig()
 	cfg.ShutdownTimeout = 500 * time.Millisecond
-	logger, err := controlplane.NewLogger(cfg)
-	require.NoError(t, err)
+	logger := logging.NewLogger(logging.Config{})
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

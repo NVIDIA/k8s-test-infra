@@ -12,8 +12,6 @@ import "time"
 // as a base and override the fields you need.
 type Config struct {
 	ListenAddr      string
-	LogLevel        string
-	LogFormat       string // "json" | "plain"
 	ShutdownTimeout time.Duration
 }
 
@@ -21,8 +19,6 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		ListenAddr:      ":8080",
-		LogLevel:        "info",
-		LogFormat:       "json",
 		ShutdownTimeout: 5 * time.Second,
 	}
 }

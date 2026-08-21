@@ -20,7 +20,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
-	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
+	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 )
 
 func main() {
@@ -48,7 +48,12 @@ func startCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:    "log-level",
 				Value:   "info",
-				Sources: cli.EnvVars("MOKKA_AGENT_LOG_LEVEL"),
+				Sources: cli.EnvVars("MOKKA_LOG_LEVEL"),
+			},
+			&cli.StringFlag{
+				Name:    "log-format",
+				Value:   "json",
+				Sources: cli.EnvVars("MOKKA_LOG_FORMAT"),
 			},
 			&cli.StringFlag{
 				Name:    "config",
@@ -71,10 +76,15 @@ func startCommand() *cli.Command {
 }
 
 func runStart(ctx context.Context, cmd *cli.Command) error {
-	log, err := controlplane.NewLogger(controlplane.Config{LogLevel: cmd.String("log-level")})
+	level, err := logging.ParseLevel(cmd.String("log-level"))
 	if err != nil {
 		return err
 	}
+	format, err := logging.ParseFormat(cmd.String("log-format"))
+	if err != nil {
+		return err
+	}
+	log := logging.NewLogger(logging.Config{Level: level, Format: format})
 
 	configPath := cmd.String("config")
 	if configPath == "" {
