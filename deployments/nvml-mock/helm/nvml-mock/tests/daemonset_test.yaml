@@ -134,6 +134,10 @@ tests:
             value: "8"
 
   - it: should set default DRIVER_VERSION for non-Blackwell profile
+    set:
+      gpu:
+        profile: a100
+        count: 8
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
