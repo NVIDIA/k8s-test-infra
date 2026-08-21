@@ -131,6 +131,10 @@ if with_compute_domain and multi_gpu_profile:
 # FGO replaces the GPU Operator, so it takes away the standalone DCGM this
 # consumer polls. compute-domain brings its own 4-worker cluster shape and
 # layered images; NVSentinel on top of it is untested.
+#
+# Checked before the --fgo pair below on purpose: --nv-sentinel implies
+# --gpu-operator, so that pair would otherwise catch this combination first and
+# report a conflict with a flag the user never passed.
 if with_nv_sentinel and with_fgo:
     fail('--nv-sentinel is mutually exclusive with --fgo (NVSentinel polls the GPU Operator\'s standalone DCGM, which FGO replaces)')
 if with_nv_sentinel and with_compute_domain:
