@@ -115,6 +115,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- The nvml-mock chart now defaults `gpu.profile` to `gb300` instead of `a100`, so
+  a bare `helm install` simulates current-generation hardware. Ampere is the
+  architecture least likely to expose a gap in software being tested against a
+  simulated fleet; GB300 exercises the newer surfaces (Grace-Blackwell C2C, FP4/FP6,
+  NVLink v5, the 570 driver line) that consumers are actually being ported to.
+  Pass `--set gpu.profile=a100` to keep the previous behaviour.
 - CI no longer depends on the third-party `ttl.sh` registry to share e2e images
   between jobs. The nvml-mock and kind-node images are exported as tarballs and
   handed to the legs that need them as run-scoped GitHub Actions artifacts, which need no
