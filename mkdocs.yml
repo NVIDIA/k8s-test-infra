@@ -121,7 +121,7 @@ nav:
       - fake-fabricmanager: tools/fake-fabricmanager.md
       - fake-imex: tools/fake-imex.md
       - imex-nogpu-shim: tools/imex-nogpu-shim.md
-      - mokka-control-plane: tools/mokka-control-plane.md
+      - control-plane: tools/control-plane.md
       - generate-bridge: tools/generate-bridge.md
   - Demos:
       - Overview: demo/README.md
