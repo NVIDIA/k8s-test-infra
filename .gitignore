@@ -30,3 +30,6 @@ docs/magi/
 .spike-dcgm/
 
 tmp
+
+# MkDocs build output
+site/
