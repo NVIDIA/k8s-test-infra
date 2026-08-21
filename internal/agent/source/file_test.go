@@ -64,6 +64,6 @@ func TestFileSource_EmitsInitialState(t *testing.T) {
 	require.NotNil(t, u.State)
 
 	cancel()
-	for range ch {
+	for range ch { //nolint:revive // drain closed channel
 	}
 }

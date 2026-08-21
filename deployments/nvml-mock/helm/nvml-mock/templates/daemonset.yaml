@@ -222,7 +222,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
-            - /usr/local/bin/mokka-node-agent
+            - /usr/local/bin/node-agent
             - start
             - --config=/etc/nvml-mock/config.yaml
             - --host-root=/host

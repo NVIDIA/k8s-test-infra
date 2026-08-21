@@ -81,7 +81,7 @@ func (h *Host) CopyFile(src, dst string, perm os.FileMode) error {
 	if err != nil {
 		return fmt.Errorf("open %s: %w", src, err)
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }() // read-only; close error doesn't affect data integrity
 
 	tmp := dst + ".tmp"
 	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
@@ -89,7 +89,7 @@ func (h *Host) CopyFile(src, dst string, perm os.FileMode) error {
 		return fmt.Errorf("create %s: %w", tmp, err)
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close() // already returning the copy error; close error would shadow it
 		return fmt.Errorf("copy %s -> %s: %w", src, dst, err)
 	}
 	if err := out.Close(); err != nil {

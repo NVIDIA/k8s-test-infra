@@ -34,8 +34,11 @@ type Simulator struct {
 // New returns a gpudriver Simulator.
 func New() *Simulator { return &Simulator{} }
 
+// Name returns the simulator's stable identifier.
 func (s *Simulator) Name() string { return name }
-func (s *Simulator) Ready() bool  { return s.ready.Load() }
+
+// Ready reports whether the last Stage call completed without error.
+func (s *Simulator) Ready() bool { return s.ready.Load() }
 
 // Stage materializes the GPU driver footprint under h.Root/driver/.
 // All surfaces run in parallel; a failure in any one cancels the rest via gctx.

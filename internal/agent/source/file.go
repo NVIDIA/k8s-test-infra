@@ -148,44 +148,7 @@ func compileState(data []byte) (*agent.State, error) {
 	// Per-device specs: merge DeviceDefaults with per-device overrides.
 	defaults := cfg.DeviceDefaults
 	for i := range numDevices {
-		spec := agent.DeviceSpec{
-			Index:        i,
-			Name:         defaults.Name,
-			Architecture: defaults.Architecture,
-			Serial:       defaults.Serial,
-		}
-		if defaults.ComputeCapability != nil {
-			spec.ComputeCapMajor = defaults.ComputeCapability.Major
-			spec.ComputeCapMinor = defaults.ComputeCapability.Minor
-		}
-		if defaults.Memory != nil {
-			spec.MemoryTotalBytes = defaults.Memory.TotalBytes
-		}
-		if defaults.PCI != nil {
-			spec.PCIDeviceID = defaults.PCI.DeviceID
-			spec.PCIBusID = defaults.PCI.BusID
-		}
-
-		// Per-device overrides win over defaults.
-		for _, ov := range cfg.Devices {
-			if ov.Index != i {
-				continue
-			}
-			if ov.UUID != "" {
-				spec.UUID = ov.UUID
-			}
-			if ov.Serial != "" {
-				spec.Serial = ov.Serial
-			}
-			if ov.MinorNumber != 0 {
-				spec.MinorNumber = ov.MinorNumber
-			}
-			if ov.PCI != nil && ov.PCI.BusID != "" {
-				spec.PCIBusID = ov.PCI.BusID
-			}
-		}
-
-		state.Devices = append(state.Devices, spec)
+		state.Devices = append(state.Devices, buildDeviceSpec(i, defaults, cfg.Devices))
 	}
 
 	// NVLink / fabric state
@@ -200,4 +163,46 @@ func compileState(data []byte) (*agent.State, error) {
 	}
 
 	return state, nil
+}
+
+func buildDeviceSpec(i int, defaults engine.DeviceConfig, devices []engine.DeviceOverride) agent.DeviceSpec {
+	spec := agent.DeviceSpec{
+		Index:        i,
+		Name:         defaults.Name,
+		Architecture: defaults.Architecture,
+		Serial:       defaults.Serial,
+	}
+	if defaults.ComputeCapability != nil {
+		spec.ComputeCapMajor = defaults.ComputeCapability.Major
+		spec.ComputeCapMinor = defaults.ComputeCapability.Minor
+	}
+	if defaults.Memory != nil {
+		spec.MemoryTotalBytes = defaults.Memory.TotalBytes
+	}
+	if defaults.PCI != nil {
+		spec.PCIDeviceID = defaults.PCI.DeviceID
+		spec.PCIBusID = defaults.PCI.BusID
+	}
+	for _, ov := range devices {
+		if ov.Index != i {
+			continue
+		}
+		applyDeviceOverride(&spec, ov)
+	}
+	return spec
+}
+
+func applyDeviceOverride(spec *agent.DeviceSpec, ov engine.DeviceOverride) {
+	if ov.UUID != "" {
+		spec.UUID = ov.UUID
+	}
+	if ov.Serial != "" {
+		spec.Serial = ov.Serial
+	}
+	if ov.MinorNumber != 0 {
+		spec.MinorNumber = ov.MinorNumber
+	}
+	if ov.PCI != nil && ov.PCI.BusID != "" {
+		spec.PCIBusID = ov.PCI.BusID
+	}
 }

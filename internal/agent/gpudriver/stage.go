@@ -5,6 +5,7 @@ package gpudriver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,7 +53,7 @@ func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error 
 func stageNVMLShim(ctx context.Context, h *host.Host, state *agent.State) error {
 	matches, _ := filepath.Glob("/usr/local/lib/libnvidia-ml.so.*.*.*")
 	if len(matches) == 0 {
-		return fmt.Errorf("libnvidia-ml.so.*.*.* not found in /usr/local/lib")
+		return errors.New("libnvidia-ml.so.*.*.* not found in /usr/local/lib")
 	}
 	lib64 := filepath.Join(h.Root, "driver/usr/lib64")
 	if err := h.MkdirAll(lib64, 0o755); err != nil {
@@ -170,7 +171,7 @@ func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
 // h.Root/driver/config/ (auto-discovered by the .so via /proc/self/maps).
 func writeEngineConfig(ctx context.Context, h *host.Host, state *agent.State) error {
 	if len(state.ConfigRaw) == 0 {
-		return fmt.Errorf("state.ConfigRaw is empty; FileSource must populate it")
+		return errors.New("state.ConfigRaw is empty; FileSource must populate it")
 	}
 	for _, p := range []string{
 		filepath.Join(h.Root, "config/config.yaml"),

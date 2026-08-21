@@ -47,7 +47,7 @@ COPY --from=builder /src/dist/fake-imex-ctl    /usr/bin/nvidia-imex-ctl
 COPY --from=builder /src/dist/fake-fabricmanager-daemon /usr/bin/nv-fabricmanager
 COPY --from=builder /src/dist/fake-fabricmanager-ctl    /usr/bin/nv-fabricmanager-ctl
 COPY --from=builder /src/dist/check-fabric     /usr/local/bin/check-fabric
-COPY --from=builder /src/dist/mokka-node-agent /usr/local/bin/mokka-node-agent
+COPY --from=builder /src/dist/node-agent /usr/local/bin/node-agent
 # Copied ahead of the RUN below because that layer invokes it while patchelf is
 # still installed; /scripts/ arrives later, after patchelf has been purged.
 COPY deployments/nvml-mock/scripts/stage-ib-tools.sh /usr/local/bin/stage-ib-tools.sh
