@@ -198,15 +198,17 @@ func throttleCauseForField(fieldID uint32) (throttleCause, bool) {
 
 // GetViolationStatus returns how long one performance policy has held the GPU
 // below its requested clocks. It is the deprecated getter for the same state
-// the throttle-counter field ids carry, so both paths resolve from one accrual
-// and cannot disagree.
+// the throttle-counter field ids carry, so for the three policies NVML maps
+// onto a clocks-event cause both paths resolve from one accrual and cannot
+// disagree.
 //
-// Only the three policies NVML maps onto a clocks-event cause are answered
-// (nvml.h documents the translation). The board-limit, low-utilization and
-// reliability limiters have no counterpart on the hardware these profiles
-// describe, and NVML_PERF_POLICY_TOTAL_APP_CLOCKS is deprecated outright; all
-// of them decline rather than fabricating a zero that would read as "never
-// throttled".
+// The board-limit, low-utilization, reliability and total-base-clocks limiters
+// are not modelled, but they are real policies the header maps onto their own
+// field ids, so they report zero rather than declining: zero is the answer for
+// a limiter that has never fired, where NOT_SUPPORTED says the driver cannot
+// tell — the same distinction that made these counters read N/A in the first
+// place. Only NVML_PERF_POLICY_TOTAL_APP_CLOCKS declines, because the header
+// marks it "DEPRECATED, Do not use" rather than giving it a field id.
 //
 // Failure injection does not overload these fields with the configured Xid
 // code — that is surfaced through the NVML event set — but a device tripped
@@ -216,21 +218,26 @@ func (d *ConfigurableDevice) GetViolationStatus(perfPolicyType nvml.PerfPolicyTy
 		return nvml.ViolationTime{}, ret
 	}
 
-	var cause throttleCause
 	switch perfPolicyType {
-	case nvml.PERF_POLICY_POWER:
-		cause = throttleCauseSWPowerCap
-	case nvml.PERF_POLICY_THERMAL:
-		cause = throttleCauseSWThermal
-	case nvml.PERF_POLICY_SYNC_BOOST:
-		cause = throttleCauseSyncBoost
-	default:
-		debugLog("[NVML] nvmlDeviceGetViolationStatus(policy=%d) -> NOT_SUPPORTED\n", perfPolicyType)
+	case nvml.PERF_POLICY_POWER, nvml.PERF_POLICY_THERMAL, nvml.PERF_POLICY_SYNC_BOOST,
+		nvml.PERF_POLICY_BOARD_LIMIT, nvml.PERF_POLICY_LOW_UTILIZATION,
+		nvml.PERF_POLICY_RELIABILITY, nvml.PERF_POLICY_TOTAL_BASE_CLOCKS:
+	case nvml.PERF_POLICY_TOTAL_APP_CLOCKS:
+		debugLog("[NVML] nvmlDeviceGetViolationStatus(policy=%d) -> NOT_SUPPORTED (deprecated policy)\n",
+			perfPolicyType)
 		return nvml.ViolationTime{}, nvml.ERROR_NOT_SUPPORTED
+	default:
+		// The enum has gaps (6-9) as well as an upper bound, and neither is a
+		// policy a driver would answer.
+		debugLog("[NVML] nvmlDeviceGetViolationStatus(policy=%d) -> INVALID_ARGUMENT\n", perfPolicyType)
+		return nvml.ViolationTime{}, nvml.ERROR_INVALID_ARGUMENT
 	}
 
 	accrual := d.throttleAccrual()
-	violation := accrual.resolve()[cause]
+	var violation uint64
+	if cause, modelled := throttleCauseForPolicy(perfPolicyType); modelled {
+		violation = accrual.resolve()[cause]
+	}
 	debugLog("[NVML] nvmlDeviceGetViolationStatus(policy=%d) -> %d ns\n", perfPolicyType, violation)
 	return nvml.ViolationTime{
 		// NVML documents referenceTime as a CPU timestamp in microseconds,
@@ -238,4 +245,20 @@ func (d *ConfigurableDevice) GetViolationStatus(perfPolicyType nvml.PerfPolicyTy
 		ReferenceTime: uint64(accrual.now().UnixMicro()),
 		ViolationTime: violation,
 	}, nvml.SUCCESS
+}
+
+// throttleCauseForPolicy maps the performance policies that have a clocks-event
+// counterpart, per the translation table in nvml.h. false means a policy the
+// mock does not model, which reports zero rather than declining.
+func throttleCauseForPolicy(policy nvml.PerfPolicyType) (throttleCause, bool) {
+	switch policy {
+	case nvml.PERF_POLICY_POWER:
+		return throttleCauseSWPowerCap, true
+	case nvml.PERF_POLICY_THERMAL:
+		return throttleCauseSWThermal, true
+	case nvml.PERF_POLICY_SYNC_BOOST:
+		return throttleCauseSyncBoost, true
+	default:
+		return 0, false
+	}
 }

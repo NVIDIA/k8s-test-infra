@@ -50,17 +50,19 @@ func bridgeTests(deviceCount int) []testResult {
 
 // --- Throttle counter tests ---
 
-// Field ids for the "Clocks Event Reasons Counters", in the numbering the
-// simulated driver uses. go-nvml names the first two (FI_DEV_PERF_POLICY_POWER
-// and _SYNC_BOOST) but has no constant for the three slowdown causes at these
-// ids: the header it vendors is newer and numbers them 269-271. See the same
-// note in engine/throttle_counters.go.
+// Field ids for the "Clocks Event Reasons Counters". This module pins go-nvml
+// v0.13.0-1, whose const.go still places the three slowdown causes at 251-253,
+// which is where the driver the mock simulates has them, so the names resolve
+// to the ids the engine answers. The root module has since moved to v0.13.3-1,
+// which renumbers them to 269-271 and reuses 251-253 for power smoothing —
+// which is why engine/throttle_counters.go states its ids literally instead of
+// naming them. checkThrottleFieldIDs guards the day this module is bumped too.
 const (
 	fiThrottleSWPowerCap      = nvml.FI_DEV_PERF_POLICY_POWER
 	fiThrottleSyncBoost       = nvml.FI_DEV_PERF_POLICY_SYNC_BOOST
-	fiThrottleSWThermSlowdown = 251
-	fiThrottleHWThermSlowdown = 252
-	fiThrottleHWPowerBrake    = 253
+	fiThrottleSWThermSlowdown = nvml.FI_DEV_CLOCKS_EVENT_REASON_SW_THERM_SLOWDOWN
+	fiThrottleHWThermSlowdown = nvml.FI_DEV_CLOCKS_EVENT_REASON_HW_THERM_SLOWDOWN
+	fiThrottleHWPowerBrake    = nvml.FI_DEV_CLOCKS_EVENT_REASON_HW_POWER_BRAKE_SLOWDOWN
 	valueTypeUnsignedLongLong = 3
 )
 
@@ -80,6 +82,8 @@ func testThrottleCounters(deviceCount int) []testResult {
 	if deviceCount == 0 {
 		return results
 	}
+
+	results = append(results, checkThrottleFieldIDs())
 
 	causes := []struct {
 		label   string
@@ -175,6 +179,35 @@ func testThrottleCounters(deviceCount int) []testResult {
 	}
 
 	return results
+}
+
+// checkThrottleFieldIDs pins the go-nvml names above to the ids the driver the
+// mock simulates uses. Without it, a go-nvml bump that renumbers them would
+// retarget this whole test at ids the engine deliberately does not answer, and
+// every counter below would fail as if the counters had regressed. This says
+// what actually happened instead.
+func checkThrottleFieldIDs() testResult {
+	const (
+		wantSWTherm      = 251
+		wantHWTherm      = 252
+		wantHWPowerBrake = 253
+	)
+	for _, id := range []struct {
+		label     string
+		got, want uint32
+	}{
+		{"sw_therm_slowdown", fiThrottleSWThermSlowdown, wantSWTherm},
+		{"hw_therm_slowdown", fiThrottleHWThermSlowdown, wantHWTherm},
+		{"hw_power_brake", fiThrottleHWPowerBrake, wantHWPowerBrake},
+	} {
+		if id.got != id.want {
+			return testResult{"throttle/field_ids", false, fmt.Sprintf(
+				"go-nvml puts %s at field %d, but the simulated driver has it at %d: "+
+					"this module's go-nvml was bumped past v0.13.0-1 and the names moved",
+				id.label, id.got, id.want)}
+		}
+	}
+	return testResult{"throttle/field_ids", true, ""}
 }
 
 // fieldValueULL reads the ullVal member of the nvmlValue_t union the bridge

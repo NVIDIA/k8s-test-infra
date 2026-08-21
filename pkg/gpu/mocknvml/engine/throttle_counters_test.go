@@ -266,17 +266,42 @@ func TestGetViolationStatus_PerPolicyAccrual(t *testing.T) {
 // Policies the mock models no counter for decline rather than answering zero:
 // a fabricated zero is indistinguishable from "never throttled", and these
 // limiters do not exist on the hardware the profiles describe.
-func TestGetViolationStatus_UnmodeledPoliciesAreUnsupported(t *testing.T) {
+// The limiters the mock does not model are still real policies with their own
+// field ids, so they answer zero. NOT_SUPPORTED would say the driver cannot
+// tell whether the limiter ever fired, which is the same misreading that made
+// these counters render as N/A.
+func TestGetViolationStatus_UnmodeledPoliciesReportZero(t *testing.T) {
 	dev := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "blackwell"})
 
 	for _, policy := range []nvml.PerfPolicyType{
 		nvml.PERF_POLICY_BOARD_LIMIT,
 		nvml.PERF_POLICY_LOW_UTILIZATION,
 		nvml.PERF_POLICY_RELIABILITY,
-		nvml.PERF_POLICY_TOTAL_APP_CLOCKS,
 		nvml.PERF_POLICY_TOTAL_BASE_CLOCKS,
 	} {
+		vt, ret := dev.GetViolationStatus(policy)
+		require.Equal(t, nvml.SUCCESS, ret, "policy %d", policy)
+		require.Zero(t, vt.ViolationTime, "policy %d must report no accrued time, not decline", policy)
+		require.NotZero(t, vt.ReferenceTime, "policy %d must still timestamp the reading", policy)
+	}
+}
+
+// TOTAL_APP_CLOCKS is the one policy nvml.h gives no field id, marking it
+// "DEPRECATED, Do not use", so it is the one that declines.
+func TestGetViolationStatus_DeprecatedTotalAppClocksDeclines(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "blackwell"})
+
+	_, ret := dev.GetViolationStatus(nvml.PERF_POLICY_TOTAL_APP_CLOCKS)
+	require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+}
+
+// A value outside the enum, including its 6-9 gap, is not a policy any driver
+// answers.
+func TestGetViolationStatus_RejectsPoliciesOutsideTheEnum(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{Architecture: "blackwell"})
+
+	for _, policy := range []nvml.PerfPolicyType{7, nvml.PERF_POLICY_COUNT, -1} {
 		_, ret := dev.GetViolationStatus(policy)
-		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "policy %d", policy)
+		require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "policy %d", policy)
 	}
 }

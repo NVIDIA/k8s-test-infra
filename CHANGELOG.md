@@ -32,7 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   other. `nvmlDeviceGetViolationStatus` now honours its `perfPolicyType` and
   timestamps the reading, where it previously returned a zero
   `nvmlViolationTime_t` for every policy, leaving the five causes
-  indistinguishable. A counter can also be seeded while a workload runs, with
+  indistinguishable. The limiters the mock does not model (board limit, low
+  utilization, reliability, total base clocks) keep reporting `0 ns`, since they
+  are real policies that simply never fired; `NVML_PERF_POLICY_TOTAL_APP_CLOCKS`
+  now reports `NOT_SUPPORTED`, which is the one policy `nvml.h` marks
+  "DEPRECATED, Do not use", and a value outside the enum reports
+  `INVALID_ARGUMENT` rather than a zero violation time. A counter can also be
+  seeded while a workload runs, with
   `nvml-mock-ctl set --gpu <idx>
   clocks_throttle_reasons.counters.sw_power_cap_us=<us>`. (#678)
 - mocknvml: `nvidia-smi -q` now reports the `Platform Info` block on the

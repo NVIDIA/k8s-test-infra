@@ -16,6 +16,7 @@ package engine
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"github.com/stretchr/testify/require"
@@ -392,10 +393,16 @@ func TestFailureInjection_GetViolationStatus_StaysSpecCompliantAfterTrip(t *test
 	// SECOND tick, which is GetViolationStatus itself). Neither field may
 	// carry the Xid: violation time reflects the (unthrottled) device, and
 	// reference time is a timestamp.
+	before := uint64(time.Now().UnixMicro())
 	vt, ret := dev.GetViolationStatus(nvml.PERF_POLICY_POWER)
 	require.Equal(t, nvml.SUCCESS, ret, "expected SUCCESS")
 	require.Zero(t, vt.ViolationTime, "ViolationTime must be 0 ns post-trip (Xid no longer overloaded)")
-	require.NotEqual(t, uint64(64), vt.ReferenceTime, "ReferenceTime must not carry the Xid either")
+	// Bracketing the call rather than merely excluding 64: any real clock
+	// reading is ~1.7e15, so "not the Xid" is satisfied by every implementation
+	// including the one that returned zero, and would not catch a regression.
+	require.GreaterOrEqual(t, vt.ReferenceTime, before,
+		"ReferenceTime must be a CPU timestamp taken during the call, not an Xid or a zero")
+	require.LessOrEqual(t, vt.ReferenceTime, uint64(time.Now().UnixMicro()))
 }
 
 func TestFailureInjection_GetViolationStatus_LostModeReturnsError(t *testing.T) {
