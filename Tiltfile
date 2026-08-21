@@ -128,11 +128,6 @@ if with_compute_domain and multi_gpu_profile:
     fail('--compute-domain is mutually exclusive with --multi-gpu-profile ' +
          '(compute-domain uses its own 4-worker cluster shape)')
 
-if with_fgo and with_gpu_operator:
-    fail('--fgo is mutually exclusive with --gpu-operator (FGO replaces the GPU Operator)')
-if with_fgo and with_compute_domain:
-    fail('--fgo is mutually exclusive with --compute-domain')
-
 # FGO replaces the GPU Operator, so it takes away the standalone DCGM this
 # consumer polls. compute-domain brings its own 4-worker cluster shape and
 # layered images; NVSentinel on top of it is untested.
@@ -140,6 +135,11 @@ if with_nv_sentinel and with_fgo:
     fail('--nv-sentinel is mutually exclusive with --fgo (NVSentinel polls the GPU Operator\'s standalone DCGM, which FGO replaces)')
 if with_nv_sentinel and with_compute_domain:
     fail('--nv-sentinel is mutually exclusive with --compute-domain')
+
+if with_fgo and with_gpu_operator:
+    fail('--fgo is mutually exclusive with --gpu-operator (FGO replaces the GPU Operator)')
+if with_fgo and with_compute_domain:
+    fail('--fgo is mutually exclusive with --compute-domain')
 
 # --nvmlmock-image only wires the standard nvml-mock build/install path. The
 # compute-domain scenario builds three layered images (base + imex + optional
@@ -254,8 +254,12 @@ if with_gpu_operator:
         gpu_operator_extra_deps += observability_releases
 
     # Appended after observability's so the layering order is deterministic
-    # when both flags are on. The two overlays touch disjoint keys — this one
-    # only `dcgm`, observability's only `dcgmExporter` — so they compose.
+    # when both flags are on. The keys are disjoint but the operands are not:
+    # dcgm.enabled=true makes the Operator hand dcgm-exporter a
+    # DCGM_REMOTE_HOSTENGINE_INFO of nvidia-dcgm:5555, so this overlay reroutes
+    # the exporter --observability scrapes off its embedded hostengine and onto
+    # the standalone DaemonSet's. It converges, but on a cold cluster the
+    # exporter crash-loops for minutes while that DaemonSet's ~2 GB image pulls.
     if with_nv_sentinel:
         gpu_operator_extra_values.append(nv_sentinel_gpu_operator_values)
 
