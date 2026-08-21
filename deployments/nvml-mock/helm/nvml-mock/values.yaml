@@ -384,12 +384,14 @@ controlPlane:
     repository: ghcr.io/nvidia/mokka-control-plane
     tag: latest
     pullPolicy: IfNotPresent
-  logLevel: info                       # debug | info | warn | error
+  logging:
+    level: info    # debug | info | warn | error
+    format: json   # json | plain
   service:
     type: ClusterIP
     port: 8080
   # Total shutdown budget on the pod: preStop sleep + in-flight request drain
-  # (mokka-control-plane --shutdown-timeout, default 5s) must fit inside this.
+  # (control-plane --shutdown-timeout, default 5s) must fit inside this.
   # 30s matches the kube default and leaves headroom over the current 10s
   # preStop + 5s drain; raise this together with --shutdown-timeout if the
   # CP starts holding long-lived connections. Setting it below preStop + drain

@@ -4,6 +4,7 @@
 package controlplane_test
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ func TestDefaultConfig(t *testing.T) {
 	cfg := controlplane.DefaultConfig()
 	require.Equal(t, ":8080", cfg.ListenAddr)
 	require.Equal(t, "info", cfg.LogLevel)
+	require.Equal(t, "json", cfg.LogFormat)
 	require.Equal(t, 5*time.Second, cfg.ShutdownTimeout)
 }
 
@@ -44,6 +46,40 @@ func TestNewLogger(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.NotNil(t, logger)
+		})
+	}
+}
+
+func TestNewLoggerFormat(t *testing.T) {
+	for _, tc := range []struct {
+		format   string
+		wantErr  bool
+		wantJSON bool
+	}{
+		{"json", false, true},
+		{"plain", false, false},
+		{"JSON", false, true},   // Case-insensitive.
+		{"Plain", false, false}, // Case-insensitive.
+		{"", false, true},       // Empty falls back to json.
+		{"text", true, false},   // Not an accepted alias.
+		{"logfmt", true, false},
+	} {
+		t.Run(tc.format, func(t *testing.T) {
+			cfg := controlplane.DefaultConfig()
+			cfg.LogFormat = tc.format
+			logger, err := controlplane.NewLogger(cfg)
+			if tc.wantErr {
+				require.Error(t, err)
+				require.Nil(t, logger)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, logger)
+			if tc.wantJSON {
+				require.IsType(t, (*slog.JSONHandler)(nil), logger.Handler())
+			} else {
+				require.IsType(t, (*slog.TextHandler)(nil), logger.Handler())
+			}
 		})
 	}
 }

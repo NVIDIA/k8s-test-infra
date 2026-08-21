@@ -28,10 +28,10 @@ COPY internal/ internal/
 COPY cmd/ cmd/
 RUN CGO_ENABLED=0 go build -mod=vendor \
     -ldflags="-s -w" \
-    -o /out/mokka-control-plane ./cmd/mokka-control-plane
+    -o /dist/control-plane ./cmd/control-plane
 
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=builder /out/mokka-control-plane /usr/local/bin/mokka-control-plane
+COPY --from=builder /dist/control-plane /usr/local/bin/control-plane
 USER nonroot:nonroot
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/mokka-control-plane"]
+ENTRYPOINT ["/usr/local/bin/control-plane"]
