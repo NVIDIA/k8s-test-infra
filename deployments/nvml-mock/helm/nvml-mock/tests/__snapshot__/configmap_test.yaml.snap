@@ -55,7 +55,8 @@ should match snapshot with b200 profile:
             image_version: "B200.0200.00.01"
             oem_object: "2.1"
             ecc_object: "7.16"
-            pwr_object: "1.0"
+            # No pwr_object: Blackwell carries no Power Management Object in its
+            # inforom, so the query has to fail and nvidia-smi print N/A (#679).
 
           # ---------------------------------------------------------------------------
           # Memory configuration - 192 GiB HBM3e
@@ -1055,7 +1056,8 @@ should match snapshot with gb200 profile:
             image_version: "G530.0200.00.01"
             oem_object: "2.1"
             ecc_object: "7.16"
-            pwr_object: "1.0"
+            # No pwr_object: Blackwell carries no Power Management Object in its
+            # inforom, so the query has to fail and nvidia-smi print N/A (#679).
 
           # ---------------------------------------------------------------------------
           # Memory configuration - 192 GiB HBM3e per GPU
@@ -1627,7 +1629,8 @@ should match snapshot with gb300 profile:
             image_version: "G530.0300.00.01"
             oem_object: "2.1"
             ecc_object: "7.20"
-            pwr_object: "1.0"
+            # No pwr_object: Blackwell carries no Power Management Object in its
+            # inforom, so the query has to fail and nvidia-smi print N/A (#679).
 
           # ---------------------------------------------------------------------------
           # Memory configuration - 288 GiB HBM3e per GPU (1.5x GB200's 192 GiB)

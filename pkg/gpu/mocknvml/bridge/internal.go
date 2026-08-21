@@ -41,6 +41,10 @@ extern unsigned int mockInternalFillProcessList(void* handle, void* buf, unsigne
 // below in Go). Returns 0 when the device is unknown or configures no PCIe block.
 extern unsigned int mockInternalHostMaxPcieLinkGen(void* handle);
 
+// Forward declaration of the sparse-operation-mode architecture gate (defined
+// below in Go). Returns 1 when the device's architecture reports the mode.
+extern int mockInternalReportsSparseOperationMode(void* handle);
+
 // Debug mode - check MOCK_NVML_DEBUG env var once at startup
 static int debugChecked = 0;
 static int debugEnabled = 0;
@@ -63,6 +67,7 @@ static int isDebugEnabled() {
 #define MOCK_SLOT_PROCESS_LIST_FIRST 213
 #define MOCK_SLOT_PROCESS_LIST_LAST 215
 #define MOCK_SLOT_HOST_MAX_PCIE_LINK_GEN 230
+#define MOCK_SLOT_SPARSE_OPERATION_MODE 249
 
 // C stub function for internal export table
 // This gets called by nvidia-smi via the export table function pointers
@@ -144,6 +149,24 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
         }
     }
 
+    // Sparse Operation Mode: fn(nvmlDevice_t device, unsigned int* out).
+    // nvidia-smi's "Sparse Operation Mode" row comes from here -- no public
+    // NVML entry point exposes it, which is why a repository-wide search for
+    // the name finds nothing. Falling through to the zero write below is what
+    // made every profile, Blackwell included, report "Disabled" (issue #679);
+    // real Blackwell has no such mode and reports N/A, which is what an error
+    // from this slot renders as. Slot located by its position in the -q call
+    // sequence: it fires between the clocks-event-reason field values and
+    // nvmlDeviceGetMemoryInfo_v2, exactly where the row sits in the output.
+    if (slot == MOCK_SLOT_SPARSE_OPERATION_MODE &&
+        !mockInternalReportsSparseOperationMode(arg0)) {
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u sparse operation mode (handle=%p) -> NOT_SUPPORTED\n",
+                    slot, arg0);
+        }
+        return NVML_ERROR_NOT_SUPPORTED;
+    }
+
     // Every other per-device call still gets an explicit zero count. Leaving it
     // at the caller's pre-filled capacity makes nvidia-smi walk an array we
     // never wrote: that is the phantom-process bug for the list views, and a
@@ -218,6 +241,20 @@ func mockInternalHostMaxPcieLinkGen(handle unsafe.Pointer) C.uint {
 		return 0
 	}
 	return C.uint(dev.HostMaxPcieLinkGeneration())
+}
+
+// mockInternalReportsSparseOperationMode reports whether the device nvidia-smi
+// passed through the internal export table answers the Sparse Operation Mode
+// query. An unknown handle reports 1 so an unrecognised device keeps the
+// zero-count fall-through rather than turning into an error.
+//
+//export mockInternalReportsSparseOperationMode
+func mockInternalReportsSparseOperationMode(handle unsafe.Pointer) C.int {
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil || dev.ReportsSparseOperationMode() {
+		return 1
+	}
+	return 0
 }
 
 // Layout of one entry in the internal process-list array, recovered by probing

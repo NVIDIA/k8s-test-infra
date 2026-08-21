@@ -9,7 +9,8 @@ per-GPU indexing and override scoping.
 | File | Content |
 | --- | --- |
 | `qx-a100-healthy.xml` | Ampere. Absolute temperature thresholds, `gpu_temp_tlimit` = `N/A`. |
-| `qx-gb200-healthy.xml` | Blackwell. `*_tlimit_threshold` elements; the absolute ones are absent. |
+| `qx-gb200-healthy.xml` | Blackwell, captured before #679. `*_tlimit_threshold` elements; the absolute ones are absent. Still carries the fields Blackwell removed (`current_gom`, `retired_count`, `sparse_operation_mode`, ...), so `BlackwellRemovedFieldProblems` rejects it — that is deliberate: it is the pre-fix document the check has to fail. Use `qx-gb300-healthy.xml` as the current Blackwell reference. |
+| `qx-gb300-healthy.xml` | Blackwell, captured after #679. Same threshold shape as `qx-gb200-healthy.xml`, with the removed fields reporting N/A. |
 | `qx-gb200-lost.xml` | GPU 0 healthy, GPU 1 lost (`GPU is lost` bodies). |
 | `qx-gb200-ecc-injected.xml` | GPU 0 has a non-zero `ecc_errors/aggregate/dram_uncorrectable`. |
 | `qx-gb200-fabric-degraded.xml` | GPU 0 fabric healthy, GPU 1 `route_unhealthy` (#677). Taken against the fixed library, so it is also the healthy-fabric reference. |

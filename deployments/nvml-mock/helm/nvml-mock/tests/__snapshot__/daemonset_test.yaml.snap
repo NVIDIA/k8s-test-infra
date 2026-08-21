@@ -166,7 +166,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: 34bbeafe005d65c19de791d4d2d65ac68868aa562c4fb5c00aa86f7b05d5ec5c
+            checksum/config: ff922b90cabacba1d78869321dac19086b0ae294e581f1baeca725d4c9043600
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME

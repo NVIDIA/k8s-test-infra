@@ -704,7 +704,12 @@ func (d *ConfigurableDevice) GetTemperature(sensor nvml.TemperatureSensors) (uin
 	return temp, nvml.SUCCESS
 }
 
-// GetTemperatureThreshold returns temperature thresholds
+// GetTemperatureThreshold returns temperature thresholds.
+//
+// Threshold types the profiles do not model report NOT_SUPPORTED rather than
+// falling through to the max-operating value: a catch-all answer is wrong for
+// whichever row nvidia-smi asked about and would silently extend to any
+// threshold type NVML adds next (#679).
 func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.TemperatureThresholds) (uint32, nvml.Return) {
 	c := d.cfg()
 	if c.Thermal == nil {
@@ -718,11 +723,48 @@ func (d *ConfigurableDevice) GetTemperatureThreshold(thresholdType nvml.Temperat
 		temp = uint32(c.Thermal.SlowdownThreshold_C)
 	case nvml.TEMPERATURE_THRESHOLD_GPU_MAX:
 		temp = uint32(c.Thermal.MaxOperating_C)
-	default:
+	case nvml.TEMPERATURE_THRESHOLD_MEM_MAX:
+		// No profile models a separate memory throttle limit, so the
+		// max-operating value stands in for it, as it always has on the
+		// architectures that print the row.
 		temp = uint32(c.Thermal.MaxOperating_C)
+	case nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_CURR,
+		nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_MIN,
+		nvml.TEMPERATURE_THRESHOLD_ACOUSTIC_MAX:
+		// The acoustic thresholds are nvidia-smi's "GPU Target Temperature"
+		// row and its supported min/max pair. Blackwell has no target
+		// temperature to report and answers N/A.
+		if !d.preBlackwell() {
+			return 0, nvml.ERROR_NOT_SUPPORTED
+		}
+		temp = uint32(c.Thermal.MaxOperating_C)
+	default:
+		return 0, nvml.ERROR_NOT_SUPPORTED
 	}
 	debugLog("[NVML] nvmlDeviceGetTemperatureThreshold(type=%d) -> %d\n", thresholdType, temp)
 	return temp, nvml.SUCCESS
+}
+
+// preBlackwell is the architecture gate shared by the surfaces Blackwell
+// removed: GPU Operation Mode, page retirement, the acoustic (target)
+// temperature thresholds and the internal sparse-operation-mode query. Real
+// Blackwell answers all of them NOT_SUPPORTED, which nvidia-smi renders as
+// N/A; the mock answering them instead is worse than a wrong value, because a
+// consumer that would look elsewhere on seeing N/A believes a fabricated one
+// (#679). An unset architecture counts as pre-Blackwell so a profile that
+// declares none keeps the output it has today.
+func (d *ConfigurableDevice) preBlackwell() bool {
+	return d.Config.Architecture < nvml.DEVICE_ARCH_BLACKWELL ||
+		d.Config.Architecture == nvml.DEVICE_ARCH_UNKNOWN
+}
+
+// ReportsSparseOperationMode reports whether the device's architecture answers
+// nvidia-smi's Sparse Operation Mode query. That query arrives through a slot
+// of the internal export table rather than a public NVML entry point, so the
+// bridge -- which sees only a device handle -- needs the architecture answer
+// from here.
+func (d *ConfigurableDevice) ReportsSparseOperationMode() bool {
+	return d.preBlackwell()
 }
 
 // reportsTLimit is the architecture gate shared by every T.Limit surface: the
@@ -1389,8 +1431,13 @@ func (d *ConfigurableDevice) GetFBCSessions() ([]nvml.FBCSessionInfo, nvml.Retur
 	return []nvml.FBCSessionInfo{}, nvml.SUCCESS
 }
 
-// GetGpuOperationMode returns GPU operation mode
+// GetGpuOperationMode returns GPU operation mode. The feature shipped on
+// GK110-era Tesla boards only; Blackwell reports N/A, and claiming "All On"
+// there describes a different generation of hardware.
 func (d *ConfigurableDevice) GetGpuOperationMode() (nvml.GpuOperationMode, nvml.GpuOperationMode, nvml.Return) {
+	if !d.preBlackwell() {
+		return 0, 0, nvml.ERROR_NOT_SUPPORTED
+	}
 	debugLog("[NVML] nvmlDeviceGetGpuOperationMode -> ALL_ON\n")
 	return nvml.GOM_ALL_ON, nvml.GOM_ALL_ON, nvml.SUCCESS
 }
@@ -2084,20 +2131,35 @@ func (d *ConfigurableDevice) sramLocationErrors(errorType nvml.MemoryErrorType, 
 	return counts.Correctable
 }
 
+// Page retirement was replaced by row remapping on Blackwell, so the three
+// retirement getters report NOT_SUPPORTED there -- see GetRemappedRows for the
+// surface that took over. Succeeding with an empty list is not a harmless
+// approximation: nvidia-smi renders it as a retired count of 0 and a "No"
+// blacklist, which tells a consumer that the feature exists and found nothing.
+
 // GetRetiredPages returns retired pages
 func (d *ConfigurableDevice) GetRetiredPages(_ nvml.PageRetirementCause) ([]uint64, nvml.Return) {
+	if !d.preBlackwell() {
+		return nil, nvml.ERROR_NOT_SUPPORTED
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPages -> []\n")
 	return []uint64{}, nvml.SUCCESS
 }
 
 // GetRetiredPages_v2 returns retired pages with timestamps
 func (d *ConfigurableDevice) GetRetiredPages_v2(_ nvml.PageRetirementCause) ([]uint64, []uint64, nvml.Return) {
+	if !d.preBlackwell() {
+		return nil, nil, nvml.ERROR_NOT_SUPPORTED
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPages_v2 -> [], []\n")
 	return []uint64{}, []uint64{}, nvml.SUCCESS
 }
 
 // GetRetiredPagesPendingStatus returns whether there are pending retired pages
 func (d *ConfigurableDevice) GetRetiredPagesPendingStatus() (nvml.EnableState, nvml.Return) {
+	if !d.preBlackwell() {
+		return nvml.FEATURE_DISABLED, nvml.ERROR_NOT_SUPPORTED
+	}
 	debugLog("[NVML] nvmlDeviceGetRetiredPagesPendingStatus -> NOT_PENDING\n")
 	return nvml.FEATURE_DISABLED, nvml.SUCCESS // No pending pages
 }

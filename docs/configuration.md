@@ -390,6 +390,10 @@ device_defaults:
     pwr_object: "1.0"
 ```
 
+Omit a key to report the object as unsupported, which `nvidia-smi` renders as
+`N/A`. The Blackwell profiles omit `pwr_object` for that reason: those boards
+carry no Power Management Object.
+
 ### Accounting
 
 ```yaml
