@@ -264,9 +264,10 @@ if with_topograph:
 # one mock GPU, so the device plugin must have registered nvidia.com/gpu
 # before the pod can start. Pod spec lives in local/gpu-validator.k8s.yaml so
 # it can be kubectl-applied standalone or edited without touching Starlark.
-k8s_yaml('local/gpu-validator.k8s.yaml')
-k8s_resource('gpu-validator',
-    auto_init=False,
-    resource_deps=nvml_mock_releases,
-    labels=['test'],
-)
+if with_gpu_operator:
+    k8s_yaml('local/gpu-validator.k8s.yaml')
+    k8s_resource('gpu-validator',
+        auto_init=False,
+        resource_deps=nvml_mock_releases,
+        labels=['test'],
+    )
