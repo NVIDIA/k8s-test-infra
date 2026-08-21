@@ -14,9 +14,8 @@
 
 name: Deploy documentation to Pages
 
-# The MEPs are published from enhancements/, which `make docs` stages into the
-# docs tree. Without it in the filters a MEP-only change would build nothing and
-# never reach the site.
+# make docs stages enhancements/ into the docs tree, so MEP-only edits need a
+# rebuild too.
 on:
   push:
     branches:
