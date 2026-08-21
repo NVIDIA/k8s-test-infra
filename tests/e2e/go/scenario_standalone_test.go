@@ -159,6 +159,15 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.FabricHealth(ctx, h.Kube, pod)
 			})
 
+			It("reports zeroed clocks-event counters via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #678: all five counters read N/A because the perf-policy
+				// field ids behind them were unhandled, so the same output block
+				// reported no throttle reason active and could not say whether
+				// one ever had been. A profile that has never throttled reports
+				// 0 us, which is an answer where N/A is not.
+				nvidiasmi.ThrottleCounters(ctx, h.Kube, pod)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)
@@ -249,6 +258,14 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 
 				It("sets a throttle reason via the nvml-mock-ctl throttle command", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimeThrottleCommand(ctx, h, pod)
+				})
+
+				It("seeds a clocks-event counter via nvml-mock-ctl set", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					// Issue #678: a GPU carrying accrued throttle time is the
+					// case worth simulating — one cause must report its own
+					// total while its four siblings and the node's other GPUs
+					// stay at zero.
+					assertRuntimeThrottleCounterSeeding(ctx, h, pod)
 				})
 
 				It("pins the performance state via the nvml-mock-ctl pstate command", Label("runtime-control"), func(ctx SpecContext) {

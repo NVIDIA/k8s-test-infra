@@ -179,6 +179,20 @@ func FabricHealth(ctx context.Context, k *kube.Client, pod kube.PodRef) {
 		strings.Join(problems, "\n"))
 }
 
+// ThrottleCounters asserts nvidia-smi -q -x reports five zeroed clocks-event
+// counters on every GPU. Every counter read N/A while the field ids behind them
+// went unanswered, which says the driver could not report whether the GPU had
+// ever been throttled — the opposite of the "never throttled" a healthy profile
+// means. See issue #678.
+func ThrottleCounters(ctx context.Context, k *kube.Client, pod kube.PodRef) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By("nvidia-smi -q -x reports 0 us for every clocks-event counter")
+	problems := ThrottleCounterProblems(query(ctx, k, pod), UnthrottledCounters())
+	gomega.Expect(problems).To(gomega.BeEmpty(), "clocks event reason counters wrong:\n%s",
+		strings.Join(problems, "\n"))
+}
+
 // query execs `nvidia-smi -q -x` and asserts it succeeded, returning stdout.
 func query(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
 	ginkgo.GinkgoHelper()
