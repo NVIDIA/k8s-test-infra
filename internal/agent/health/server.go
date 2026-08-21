@@ -39,16 +39,21 @@ type SimulatorStatus struct {
 // /healthz never depends on StateSource reachability — a Control Plane outage
 // must not restart the entire fleet. /readyz reflects simulator readiness.
 type Server struct {
-	addr       string
-	log        *slog.Logger
-	readyzFunc func() ReadyzResponse
+	addr            string
+	log             *slog.Logger
+	shutdownTimeout time.Duration
+	readyzFunc      func() ReadyzResponse
 }
 
 // NewServer returns a Server that will listen on addr.
-func NewServer(addr string, log *slog.Logger) *Server {
+func NewServer(addr string, log *slog.Logger, shutdownTimeout time.Duration) *Server {
+	if shutdownTimeout == 0 {
+		shutdownTimeout = 5 * time.Second
+	}
 	return &Server{
-		addr: addr,
-		log:  log,
+		addr:            addr,
+		log:             log,
+		shutdownTimeout: shutdownTimeout,
 		readyzFunc: func() ReadyzResponse {
 			return ReadyzResponse{OK: true, Simulators: map[string]SimulatorStatus{}}
 		},
@@ -87,7 +92,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
-		shutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		shutCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.shutdownTimeout)
 		defer cancel()
 		_ = srv.Shutdown(shutCtx)
 	}()

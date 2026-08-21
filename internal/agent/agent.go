@@ -21,27 +21,33 @@ import (
 
 // Agent is the reconciler and supervisor for all simulators.
 type Agent struct {
-	simulators []Simulator
-	source     StateSource
-	host       *host.Host
-	log        *slog.Logger
+	simulators      []Simulator
+	source          StateSource
+	host            *host.Host
+	log             *slog.Logger
+	shutdownTimeout time.Duration
 }
 
 // Config carries Agent constructor arguments.
 type Config struct {
-	Simulators []Simulator
-	Source     StateSource
-	Host       *host.Host
-	Log        *slog.Logger
+	Simulators      []Simulator
+	Source          StateSource
+	Host            *host.Host
+	Log             *slog.Logger
+	ShutdownTimeout time.Duration
 }
 
 // New returns an Agent from cfg.
 func New(cfg Config) *Agent {
+	if cfg.ShutdownTimeout == 0 {
+		cfg.ShutdownTimeout = 30 * time.Second
+	}
 	return &Agent{
-		simulators: cfg.Simulators,
-		source:     cfg.Source,
-		host:       cfg.Host,
-		log:        cfg.Log,
+		simulators:      cfg.Simulators,
+		source:          cfg.Source,
+		host:            cfg.Host,
+		log:             cfg.Log,
+		shutdownTimeout: cfg.ShutdownTimeout,
 	}
 }
 
@@ -72,7 +78,7 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// Teardown: Revoke then Discard, best-effort with a fresh context because
 	// gctx is already cancelled at this point.
-	teardownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	teardownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.shutdownTimeout)
 	defer cancel()
 	a.revoke(teardownCtx)
 	a.discard(teardownCtx)

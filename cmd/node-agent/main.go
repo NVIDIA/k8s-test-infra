@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/urfave/cli/v3"
 	"golang.org/x/sync/errgroup"
@@ -70,6 +71,12 @@ func startCommand() *cli.Command {
 				Value:   ":9090",
 				Sources: cli.EnvVars("MOKKA_AGENT_HEALTH_ADDR"),
 			},
+			&cli.DurationFlag{
+				Name:    "shutdown-timeout",
+				Value:   30 * time.Second,
+				Sources: cli.EnvVars("MOKKA_AGENT_SHUTDOWN_TIMEOUT"),
+				Usage:   "maximum time to wait for simulators to revoke and discard on SIGINT/SIGTERM",
+			},
 		},
 		Action: runStart,
 	}
@@ -96,7 +103,9 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 
 	simulators := []agent.Simulator{gpudriver.New()}
 
-	healthSrv := health.NewServer(cmd.String("health-addr"), log)
+	shutdownTimeout := cmd.Duration("shutdown-timeout")
+
+	healthSrv := health.NewServer(cmd.String("health-addr"), log, shutdownTimeout)
 	healthSrv.SetReadiness(func() health.ReadyzResponse {
 		sims := make(map[string]health.SimulatorStatus, len(simulators))
 		allOK := true
@@ -111,10 +120,11 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	})
 
 	a := agent.New(agent.Config{
-		Simulators: simulators,
-		Source:     source.NewFileSource(configPath, log),
-		Host:       host.New(cmd.String("host-root")),
-		Log:        log,
+		Simulators:      simulators,
+		Source:          source.NewFileSource(configPath, log),
+		Host:            host.New(cmd.String("host-root")),
+		Log:             log,
+		ShutdownTimeout: shutdownTimeout,
 	})
 
 	g, gctx := errgroup.WithContext(signalCtx)

@@ -54,6 +54,9 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --log-level=info
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --shutdown-timeout=5s
 
   # The container port, the args --listen-addr, and the probes must all name
   # the same port; a probe pointed at the wrong port makes the pod never go
@@ -113,7 +116,7 @@ tests:
           path: spec.template.spec.containers[0].lifecycle.preStop.exec
 
   # terminationGracePeriodSeconds bounds preStop + drain. Guard both the
-  # default (30s covers 10s preStop + 5s ShutdownTimeout with headroom)
+  # default (30s covers 10s preStop + 5s shutdownTimeout with headroom)
   # and the override path, so a template refactor cannot silently drop
   # the field and revert to Kubernetes' default.
   - it: should default terminationGracePeriodSeconds to the documented 30s
@@ -136,6 +139,17 @@ tests:
       - equal:
           path: spec.template.spec.terminationGracePeriodSeconds
           value: 60
+
+  - it: should honour a shutdownTimeout override
+    set:
+      controlPlane:
+        enabled: true
+        shutdownTimeout: 30s
+    template: templates/controlplane-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --shutdown-timeout=30s
 
   - it: should carry a hardened securityContext consistent with distroless-nonroot
     set:
