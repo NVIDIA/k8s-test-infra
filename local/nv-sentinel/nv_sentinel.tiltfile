@@ -33,7 +33,78 @@ load('ext://helm_resource', 'helm_resource')
 
 GPU_OPERATOR_VALUES = 'local/nv-sentinel/gpu-operator.values.yaml'
 
+_NAMESPACE = 'nvsentinel'
+_CERT_MANAGER_RELEASE = 'cert-manager'
+# Pinned to the version docs/demo/nv-sentinel/run.sh installs.
+_CERT_MANAGER_VERSION = 'v1.19.1'
+_CERT_MANAGER_REPO_RESOURCE = 'jetstack'
+# Generous: cert-manager's --wait covers three Deployments and its webhook
+# becoming live, on a Kind cluster that is simultaneously pulling GPU Operator
+# operands.
+_HELM_TIMEOUT_S = 600
+
 
 def install(nvml_mock_releases):
     """Install the NVSentinel stack and register its scenarios."""
+    # Tilt caps a k8s apply at 30s by default, which cert-manager's --wait blows
+    # through — the build then fails with a bare "apply command timed out" that
+    # never mentions helm. Raised only when this consumer is active.
+    update_settings(k8s_upsert_timeout_secs=_HELM_TIMEOUT_S + 60)
+
+    _install_cert_manager()
+    _install_mongodb()
+
     return []
+
+
+def _install_cert_manager():
+    """Install cert-manager, the TLS dependency of MongoDB and NVSentinel."""
+    helm_resource(
+        _CERT_MANAGER_RELEASE,
+        'jetstack/cert-manager',
+        namespace=_CERT_MANAGER_RELEASE,
+        flags=[
+            '--create-namespace',
+            '--version', _CERT_MANAGER_VERSION,
+            # The chart skips its CRDs unless asked, and the MongoDB manifest
+            # applied next is nothing but cert-manager custom resources.
+            '--set', 'crds.enabled=true',
+            # --wait, unlike most consumers here: the Issuer/Certificate objects
+            # in mongodb.k8s.yaml are rejected until the webhook is live, and
+            # helm_resource cannot map this release's pods to the Tilt resource
+            # (no Tilt-built image to match on), so without it the resource goes
+            # green the moment `helm upgrade` returns.
+            '--wait', '--timeout', '%ds' % _HELM_TIMEOUT_S,
+        ],
+        resource_deps=[_CERT_MANAGER_REPO_RESOURCE],
+        labels=['nv-sentinel'],
+    )
+
+
+def _install_mongodb():
+    """Deploy the external MongoDB replica set NVSentinel stores events in."""
+    k8s_yaml('local/nv-sentinel/mongodb.k8s.yaml')
+
+    k8s_resource(
+        'mongodb-ext',
+        objects=[
+            '%s:namespace' % _NAMESPACE,
+            'mongodb-selfsigned:issuer:%s' % _NAMESPACE,
+            'mongodb-ca:certificate:%s' % _NAMESPACE,
+            'mongodb-ca-issuer:issuer:%s' % _NAMESPACE,
+            'mongodb-server:certificate:%s' % _NAMESPACE,
+            'nvsentinel-datastore-mongodb-uri:secret:%s' % _NAMESPACE,
+        ],
+        # Hard dependency, not UI ordering: the Certificates are cert-manager
+        # CRs and its webhook must be live to admit them.
+        resource_deps=[_CERT_MANAGER_RELEASE],
+        labels=['nv-sentinel'],
+    )
+
+    k8s_resource(
+        'mongodb-ext-rs-init',
+        # rs.initiate() has to reach a running mongod, and the Job's own retry
+        # loop should be the backstop, not the mechanism.
+        resource_deps=['mongodb-ext'],
+        labels=['nv-sentinel'],
+    )
