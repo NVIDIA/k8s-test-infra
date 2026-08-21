@@ -19,6 +19,7 @@ COPY go.mod go.sum ./
 COPY vendor/ vendor/
 COPY pkg/ pkg/
 COPY cmd/ cmd/
+COPY internal/ internal/
 COPY Makefile ./
 RUN cd pkg/gpu/mocknvml && make clean && make
 RUN cd pkg/gpu/mockcuda && make clean && make
