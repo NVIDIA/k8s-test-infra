@@ -1,7 +1,7 @@
 # nvml-mock Failure-Injection Demo
 
 End-to-end walkthrough of the GPU failure-injection feature on a
-dedicated Kind cluster. Unlike [`../standalone/`](../standalone/), this
+dedicated Kind cluster. Unlike [`../standalone/`](../standalone/README.md), this
 demo exercises every supported failure mode (`healthy` →
 `ecc_uncorrectable` → `lost` → `fallen_off_bus`) by re-deploying the
 chart between scenarios with `helm upgrade --reuse-values`, and
@@ -121,7 +121,7 @@ kubectl exec -it "$POD" -- nvidia-smi \
 — and watch the counter increment on every poll.
 
 For the full per-mode behaviour contract see
-[`pkg/gpu/mocknvml/README.md#failure-injection-optional`](../../../pkg/gpu/mocknvml/README.md#failure-injection-optional).
+[`pkg/gpu/mocknvml/README.md#failure-injection-optional`](https://github.com/NVIDIA/k8s-test-infra/blob/main/pkg/gpu/mocknvml/README.md#failure-injection-optional).
 
 ## Clean up
 

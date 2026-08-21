@@ -117,6 +117,6 @@ make cluster-create
 tilt up -- --observability
 ```
 
-See [local/observability/README.md](../../local/observability/README.md) for the
-walkthrough, and [local/README.md](../../local/README.md) for the other Tilt
+See [local/observability/README.md](https://github.com/NVIDIA/k8s-test-infra/blob/main/local/observability/README.md) for the
+walkthrough, and [local/README.md](https://github.com/NVIDIA/k8s-test-infra/blob/main/local/README.md) for the other Tilt
 flags.

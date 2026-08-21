@@ -6,7 +6,7 @@ failures, flip ECC state, or tweak metrics (temperature, power, utilization,
 clocks, fan, …) on the fly while a test is in flight.
 
 - **Boot-time state** comes from the Helm profile / `config.yaml` (see the
-  [Helm chart README](../deployments/nvml-mock/helm/nvml-mock/README.md) and
+  [Helm chart README](helm-chart.md) and
   [Configuration Reference](configuration.md)).
 - **Runtime state** is layered on top by `nvml-mock-ctl`, described here.
 
@@ -152,7 +152,7 @@ Sets the `failure` block for the target. Modes:
 
 `fail --mode healthy` is how you *recover* a single device (it deletes the
 `failure` block from that bucket). See the failure-injection section of the
-[mock NVML README](../pkg/gpu/mocknvml/README.md#failure-injection-optional) for
+[mock NVML README](https://github.com/NVIDIA/k8s-test-infra/blob/main/pkg/gpu/mocknvml/README.md#failure-injection-optional) for
 the full per-mode semantics.
 
 ### `temp` / `power` / `fan` / `util` / `clocks` / `throttle` / `pstate` — pin a common metric

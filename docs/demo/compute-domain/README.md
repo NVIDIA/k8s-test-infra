@@ -25,7 +25,7 @@ introduced by [NVIDIA/k8s-test-infra#304](https://github.com/NVIDIA/k8s-test-inf
 
 The demo lives in its own cluster (`nvml-mock-compute-domain`) and its
 own 4-worker Kind topology
-([`tests/e2e/kind-compute-domain-config.yaml`](../../../tests/e2e/kind-compute-domain-config.yaml)).
+([`tests/e2e/kind-compute-domain-config.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/kind-compute-domain-config.yaml)).
 
 ## Prerequisites
 
@@ -294,7 +294,7 @@ overlay installed both paths hold the real binaries: the shim at
 the upstream daemon runs unmodified — same argv, same probe, real
 protocol, no GPUs. Point its container image at the default (`daemon`)
 target of
-[`deployments/nvml-mock/Dockerfile.compute-domain-daemon`](../../../deployments/nvml-mock/Dockerfile.compute-domain-daemon).
+[`deployments/nvml-mock/Dockerfile.compute-domain-daemon`](https://github.com/NVIDIA/k8s-test-infra/blob/main/deployments/nvml-mock/Dockerfile.compute-domain-daemon).
 
 > **Using the upstream daemon chart.** With NRI enabled, its workload pod
 > does not need a mock driver mount, a topology ConfigMap mount, or manually
