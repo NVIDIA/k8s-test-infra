@@ -14,18 +14,25 @@
 
 name: Deploy documentation to Pages
 
+# The MEPs are published from enhancements/, which `make docs` stages into the
+# docs tree. Without it in the filters a MEP-only change would build nothing and
+# never reach the site.
 on:
   push:
     branches:
       - main
     paths:
       - "docs/**"
+      - "enhancements/**"
+      - "hack/sync-enhancement-docs.sh"
       - "mkdocs.yml"
       - "requirements-docs.txt"
       - ".github/workflows/deploy-pages.yaml"
   pull_request:
     paths:
       - "docs/**"
+      - "enhancements/**"
+      - "hack/sync-enhancement-docs.sh"
       - "mkdocs.yml"
       - "requirements-docs.txt"
       - ".github/workflows/deploy-pages.yaml"

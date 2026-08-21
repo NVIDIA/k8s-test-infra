@@ -121,5 +121,14 @@ nav:
       - NVSentinel: demo/nv-sentinel/README.md
   - Integrations:
       - fake-gpu-operator: integrations/fake-gpu-operator.md
+  # These pages are a build-time copy of enhancements/ staged by
+  # hack/sync-enhancement-docs.sh; docs/enhancements/ is gitignored. Adding a MEP
+  # means adding it to enhancements/meps/ and listing it here.
+  - Enhancement Proposals:
+      - Overview: enhancements/README.md
+      - "MEP-0001: Mokka Control Plane": enhancements/meps/0001-mokka-control-plane/README.md
+      - "MEP-0002: Device Plugin and NRI Composition": enhancements/meps/0002-device-plugin-nri-composition/README.md
+      - "MEP-0003: Mokka Node Agent": enhancements/meps/0003-node-agent/README.md
+      - Template: enhancements/template.md
   - Contributing:
       - Development Guide: development.md

@@ -43,3 +43,16 @@ whether a MEP is needed.
 
 Superseded or withdrawn MEPs stay in `meps/` with their status updated —
 history is preserved, not rewritten.
+
+## Publishing
+
+Merged MEPs are published on the [documentation site][site] under Enhancement
+Proposals. `make docs` copies this directory into the MkDocs tree at build time,
+so proposals stay here where you wrote them; a new MEP needs one nav entry in
+`mkdocs.yml`.
+
+Link to repo files outside `enhancements/` with an ordinary relative path, the
+way you would for GitHub. The copy step rewrites those links to point at GitHub,
+so they resolve both here and on the site.
+
+[site]: https://nvidia.github.io/k8s-test-infra/

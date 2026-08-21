@@ -341,22 +341,29 @@ e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 PYTHON ?= python3
 MKDOCS ?= mkdocs
 
-.PHONY: docs-deps docs-build docs-serve docs-check-exclusion docs
+.PHONY: docs-deps docs-build docs-serve docs-check-exclusion docs-sync-enhancements docs
 
 docs-deps: ## Install the pinned MkDocs toolchain
 	$(PYTHON) -m pip install -r requirements-docs.txt
 
-docs-build: ## Build the documentation site (strict: broken links fail)
+# MkDocs publishes only what lives under docs_dir, and MEPs live in
+# enhancements/ where the MEP workflow puts them. Every target that runs mkdocs
+# depends on this, so the site never builds against a stale or missing copy.
+# make runs it once per invocation even though three targets ask for it.
+docs-sync-enhancements: ## Stage enhancements/ into the docs tree (gitignored copy)
+	$(CURDIR)/hack/sync-enhancement-docs.sh
+
+docs-build: docs-sync-enhancements ## Build the documentation site (strict: broken links fail)
 	$(MKDOCS) build --strict
 
-docs-serve: ## Serve the documentation site locally on :8000
+docs-serve: docs-sync-enhancements ## Serve the documentation site locally on :8000
 	$(MKDOCS) serve
 
 # docs/plans/ and docs/superpowers/ are gitignored scratch directories, so they
 # are absent in CI and grepping the built site for them would pass no matter
 # what. Plant a file and prove exclude_docs drops it, so this fails if that
 # config is removed.
-docs-check-exclusion: ## Verify gitignored internal plans cannot reach the site
+docs-check-exclusion: docs-sync-enhancements ## Verify gitignored internal plans cannot reach the site
 	@set -eu; \
 	mkdir -p docs/plans; \
 	printf '# Internal\n\nPAGES_EXCLUSION_CANARY\n' > docs/plans/_canary.md; \
