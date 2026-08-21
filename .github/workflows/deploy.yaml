@@ -1,16 +1,42 @@
+# ARCHIVED. This workflow is disabled on purpose and must stay disabled.
+#
+# GitHub Pages for this repository now serves the Mokka documentation, which is
+# built and published from the main branch by
+# .github/workflows/deploy-pages.yaml. The gh-pages branch is kept only as a
+# readable archive of the retired React CI dashboard.
+#
+# actions/deploy-pages replaces the ENTIRE Pages site, so a single run of this
+# workflow, from one push to gh-pages or one manual dispatch, would silently
+# overwrite the live documentation with the old dashboard. Both triggers are
+# therefore gone: the push filter below ignores every branch name, and the
+# manual dispatch trigger has been removed. The Pages write permissions are
+# dropped as a second stop, so even a careless re-enable cannot publish.
+# Do not add any of them back on their own.
+#
+# If you genuinely want the dashboard published again, treat it as a design
+# decision rather than a workflow edit: open an issue, pick a target that does
+# not collide with the docs site (its own repository, its own Pages site, or a
+# subdirectory owned by the docs build on main), and only then restore a
+# trigger and the two commented-out permissions below.
+#
+# See issue #696.
+
 name: Deploy React site to Pages
 
 on:
   push:
-    branches:
-      - gh-pages
-
-  workflow_dispatch:
+    # '**' matches every branch name, so no push event can match. An 'on' key
+    # is still required, since a workflow file without one is reported by
+    # GitHub as invalid; this is the inert form of it.
+    branches-ignore:
+      - "**"
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
+  # Removed with the triggers. Restore these two lines only as part of the
+  # design decision described above:
+  #   pages: write
+  #   id-token: write
 
 concurrency:
   group: "pages"
