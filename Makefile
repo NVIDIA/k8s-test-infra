@@ -338,19 +338,45 @@ e2e-nfd: ## e2e — NFD label-provenance scenario (pinned to a100)
 
 # The docs site is MkDocs Material. CI calls these same targets so a failure
 # reproduces locally with one command.
-PYTHON ?= python3
 MKDOCS ?= mkdocs
+
+# uv manages the toolchain, installed from the pinned requirements-docs.txt.
+# It goes into a project-local virtualenv rather than the system interpreter:
+# `uv pip install` refuses a non-virtual environment outright, and --system
+# resolves whichever interpreter uv happens to find first (an Xcode python3.9
+# on macOS) or trips Debian's externally-managed marker on the CI runner.
+# Naming the venv sidesteps both.
+UV                  ?= uv
+DOCS_VENV           ?= $(CURDIR)/.venv-docs
+DOCS_PYTHON_VERSION ?= 3.12
+
+# Put the venv ahead of PATH for the build targets instead of asking anyone to
+# activate it. The entry is inert when the venv is absent, so `make docs` still
+# works for someone who has mkdocs on PATH by other means.
+DOCS_PATH := PATH="$(DOCS_VENV)/bin:$$PATH"
 
 .PHONY: docs-deps docs-build docs-serve docs-check-exclusion docs
 
-docs-deps: ## Install the pinned MkDocs toolchain
-	$(PYTHON) -m pip install -r requirements-docs.txt
+# Missing uv is a hard failure, not a pip fallback. A fallback would let CI and
+# a developer resolve different interpreters while both report success, which is
+# the divergence the pinned manifest exists to prevent.
+docs-deps: ## Install the pinned MkDocs toolchain into .venv-docs using uv
+	@command -v $(UV) >/dev/null 2>&1 || { \
+		echo "ERROR: uv not found on PATH. The docs toolchain is managed with uv."; \
+		echo "  Install it with:  brew install uv"; \
+		echo "               or:  curl -LsSf https://astral.sh/uv/install.sh | sh"; \
+		echo "  Docs: https://docs.astral.sh/uv/getting-started/installation/"; \
+		exit 1; \
+	}
+	$(UV) venv --python $(DOCS_PYTHON_VERSION) $(DOCS_VENV)
+	$(UV) pip install --python $(DOCS_VENV) -r requirements-docs.txt
+	@echo "MkDocs installed into $(DOCS_VENV); make docs picks it up with no activation."
 
 docs-build: ## Build the documentation site (strict: broken links fail)
-	$(MKDOCS) build --strict
+	$(DOCS_PATH) $(MKDOCS) build --strict
 
 docs-serve: ## Serve the documentation site locally on :8000
-	$(MKDOCS) serve
+	$(DOCS_PATH) $(MKDOCS) serve
 
 # docs/plans/ and docs/superpowers/ are gitignored scratch directories, so they
 # are absent in CI and grepping the built site for them would pass no matter
@@ -358,6 +384,7 @@ docs-serve: ## Serve the documentation site locally on :8000
 # config is removed.
 docs-check-exclusion: ## Verify gitignored internal plans cannot reach the site
 	@set -eu; \
+	export PATH="$(DOCS_VENV)/bin:$$PATH"; \
 	mkdir -p docs/plans; \
 	printf '# Internal\n\nPAGES_EXCLUSION_CANARY\n' > docs/plans/_canary.md; \
 	trap 'rm -rf docs/plans/_canary.md "$(CURDIR)/tmp/canary-site"; rmdir docs/plans 2>/dev/null || true' EXIT; \
