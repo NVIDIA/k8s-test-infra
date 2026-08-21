@@ -14,6 +14,7 @@ import (
 // Level is the log verbosity.
 type Level string
 
+// Supported log levels.
 const (
 	LevelDebug Level = "debug"
 	LevelInfo  Level = "info"
@@ -40,6 +41,7 @@ func ParseLevel(s string) (Level, error) {
 // Format is the log output encoding.
 type Format string
 
+// Supported log formats.
 const (
 	FormatJSON  Format = "json"
 	FormatPlain Format = "plain"
