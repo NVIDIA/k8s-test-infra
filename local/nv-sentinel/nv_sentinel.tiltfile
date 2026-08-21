@@ -38,6 +38,13 @@ _CERT_MANAGER_NAMESPACE = 'cert-manager'
 # Pinned to the version docs/demo/nv-sentinel/run.sh installs.
 _CERT_MANAGER_VERSION = 'v1.19.1'
 _CERT_MANAGER_REPO_RESOURCE = 'jetstack'
+_NVSENTINEL_RELEASE = 'nvsentinel'
+_NVSENTINEL_CHART = 'oci://ghcr.io/nvidia/nvsentinel'
+# Pinned to the version docs/demo/nv-sentinel/run.sh installs. The values file
+# sets subchart keys (gpu-health-monitor, node-drainer, fault-quarantine) that a
+# floating version could rename, which Helm accepts silently.
+_NVSENTINEL_VERSION = 'v1.15.0'
+_READY_RESOURCE = 'nvsentinel-ready'
 # Generous: cert-manager's --wait covers three Deployments and its webhook
 # becoming live, on a Kind cluster that is simultaneously pulling GPU Operator
 # operands.
@@ -53,6 +60,9 @@ def install(nvml_mock_releases):
 
     _install_cert_manager(nvml_mock_releases)
     _install_mongodb()
+    _install_nvsentinel()
+
+    return [_NVSENTINEL_RELEASE]
 
 
 def _install_cert_manager(nvml_mock_releases):
@@ -106,5 +116,39 @@ def _install_mongodb():
         # rs.initiate() has to reach a running mongod, and the Job's own retry
         # loop should be the backstop, not the mechanism.
         resource_deps=['mongodb-ext'],
+        labels=['nv-sentinel'],
+    )
+
+
+def _install_nvsentinel():
+    """Install NVSentinel against the external MongoDB and the DCGM Service."""
+    helm_resource(
+        _NVSENTINEL_RELEASE,
+        _NVSENTINEL_CHART,
+        namespace=_NAMESPACE,
+        flags=[
+            '--version', _NVSENTINEL_VERSION,
+            '--values', 'local/nv-sentinel/nvsentinel.values.yaml',
+            '--timeout', '%ds' % _HELM_TIMEOUT_S,
+            # Deliberately NO --wait. The collection-setup Job is a post-install
+            # hook, and the DB-consuming pods cannot become Ready until it has
+            # run — but Helm runs post-install hooks only after --wait is
+            # satisfied, so --wait deadlocks the release against its own hook.
+            # nvsentinel-ready below is what actually waits.
+        ],
+        # mongodb-ext-rs-init is a hard dependency: the release reads the
+        # datastore Secret and needs a PRIMARY to open change streams against.
+        # gpu-operator only orders the two — a green Operator release does not
+        # mean the standalone DCGM is serving yet, since its ~2 GB image is
+        # still pulling, so the wait the health monitor actually needs is on the
+        # Service's endpoints, in nvsentinel-ready.
+        resource_deps=['mongodb-ext-rs-init', 'gpu-operator'],
+        labels=['nv-sentinel'],
+    )
+
+    local_resource(
+        _READY_RESOURCE,
+        cmd='bash local/nv-sentinel/nvsentinel-ready.sh',
+        resource_deps=[_NVSENTINEL_RELEASE],
         labels=['nv-sentinel'],
     )
