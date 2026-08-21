@@ -217,7 +217,6 @@ spec:
             - name: host-fabric-state
               mountPath: {{ .Values.fabricmanager.stateDir }}
             {{- end }}
-        {{- if .Values.allocationWatcher.enabled }}
         - name: node-agent
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -246,6 +245,7 @@ spec:
               port: 9091
           resources:
             {{- toYaml .Values.nodeAgent.resources | nindent 12 }}
+        {{- if .Values.allocationWatcher.enabled }}
         # #506: mirrors each pod's nvidia.com/gpu claim into the same runtime
         # override file nvml-mock-ctl writes, which the engine re-reads within
         # one TTL. A sidecar rather than its own DaemonSet so it shares the
