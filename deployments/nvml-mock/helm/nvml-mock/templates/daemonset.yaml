@@ -35,6 +35,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
+        # TODO: Remove this container once Mokka Node Agent has all simulation logic in place
         - name: nvml-mock
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -217,6 +218,31 @@ spec:
               mountPath: {{ .Values.fabricmanager.stateDir }}
             {{- end }}
         {{- if .Values.allocationWatcher.enabled }}
+        - name: node-agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /usr/local/bin/mokka-node-agent
+            - start
+            - --config=/etc/nvml-mock/config.yaml
+            - --host-root=/host
+            - --health-addr=:9091
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: host-nvml-mock
+              mountPath: /host/var/lib/nvml-mock
+            - name: host-run-nvidia
+              mountPath: /host/run/nvidia
+            - name: gpu-config
+              mountPath: /etc/nvml-mock
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9091
+          resources:
+            {{- toYaml .Values.nodeAgent.resources | nindent 12 }}
         # #506: mirrors each pod's nvidia.com/gpu claim into the same runtime
         # override file nvml-mock-ctl writes, which the engine re-reads within
         # one TTL. A sidecar rather than its own DaemonSet so it shares the

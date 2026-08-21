@@ -127,6 +127,12 @@ nodeLabels:
 # While enabled, the watcher owns memory.used_bytes/free_bytes: an
 # `nvml-mock-ctl set --gpu N memory.used_bytes=...` is overwritten on the next
 # poll. Every other field nvml-mock-ctl writes is preserved.
+nodeAgent:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+
 allocationWatcher:
   enabled: false
   # Poll period. The engine re-reads the override file at most once per its own

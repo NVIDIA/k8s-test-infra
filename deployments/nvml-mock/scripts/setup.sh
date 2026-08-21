@@ -30,42 +30,6 @@ mkdir -p "$DRIVER_ROOT/usr/lib64" "$DRIVER_ROOT/usr/bin" "$DRIVER_ROOT/usr/local
 mkdir -p "$DEV_ROOT" "$CONFIG_DIR"
 mkdir -p "$HOST/run"
 
-# 2. Copy mock NVML library + create symlinks
-#    The .so is built with a fixed version (Makefile LIB_VERSION); rename to match
-#    the target DRIVER_VERSION so consumers see a consistent version string.
-BUILT_SO=$(ls /usr/local/lib/libnvidia-ml.so.*.*.* 2>/dev/null | head -1)
-if [ -z "$BUILT_SO" ]; then
-  echo "ERROR: No mock NVML library found in /usr/local/lib/" >&2
-  exit 1
-fi
-cp "$BUILT_SO" "$DRIVER_ROOT/usr/lib64/libnvidia-ml.so.$DRIVER_VERSION"
-ln -sf "libnvidia-ml.so.$DRIVER_VERSION" "$DRIVER_ROOT/usr/lib64/libnvidia-ml.so.1"
-ln -sf "libnvidia-ml.so.1" "$DRIVER_ROOT/usr/lib64/libnvidia-ml.so"
-
-# 2b. Copy mock CUDA library + create symlinks
-BUILT_CUDA_SO=$(ls /usr/local/lib/libcuda.so.*.*.* 2>/dev/null | head -1)
-if [ -z "$BUILT_CUDA_SO" ]; then
-  echo "WARNING: No mock CUDA library found in /usr/local/lib/, skipping libcuda.so setup"
-else
-  cp "$BUILT_CUDA_SO" "$DRIVER_ROOT/usr/lib64/libcuda.so.$DRIVER_VERSION"
-  ln -sf "libcuda.so.$DRIVER_VERSION" "$DRIVER_ROOT/usr/lib64/libcuda.so.1"
-  ln -sf "libcuda.so.1" "$DRIVER_ROOT/usr/lib64/libcuda.so"
-  # TODO: properly split driver API (libcuda.so) and runtime API (libcudart.so)
-  # For now, our mock exports CUDA Runtime API symbols but is built as libcuda.so.
-  # CUDA samples (e.g. vectorAdd) link against libcudart.so, so create a symlink.
-  ln -sf "libcuda.so.1" "$DRIVER_ROOT/usr/lib64/libcudart.so.12"
-  ln -sf "libcudart.so.12" "$DRIVER_ROOT/usr/lib64/libcudart.so"
-fi
-
-# 3. Create char device nodes
-#    Major 195 = nvidia, Major 510 = nvidia-uvm (standard NVIDIA major numbers)
-for i in $(seq 0 $((GPU_COUNT - 1))); do
-  mknod -m 666 "$DEV_ROOT/nvidia$i" c 195 "$i" 2>/dev/null || true
-done
-mknod -m 666 "$DEV_ROOT/nvidiactl" c 195 255 2>/dev/null || true
-mknod -m 666 "$DEV_ROOT/nvidia-uvm" c 510 0 2>/dev/null || true
-mknod -m 666 "$DEV_ROOT/nvidia-uvm-tools" c 510 1 2>/dev/null || true
-
 # 3a. Mock IMEX capability surface (opt-in via IMEX_MOCK_CHANNELS).
 #     The NVIDIA DRA driver's compute-domain kubelet plugin reads a device major
 #     for nvidia-caps-imex-channels out of /proc/devices at startup. There is no
@@ -340,40 +304,6 @@ done
 
 echo "NRI CDI spec generated at $NRI_CDI_SPEC ($GPU_COUNT devices + all)"
 
-# 4. Install nvidia-smi
-#    The ELF binary has RPATH=$ORIGIN/../lib64 (set by patchelf in Dockerfile),
-#    so it finds libnvidia-ml.so.1 relative to its own location. This works for:
-#    - GPU Operator validator:  /run/nvidia/driver/usr/bin/ → ../lib64
-#    - CDI injection:           /usr/bin/ → ../lib64 (CDI also mounts libs there)
-#    - DRA kubelet-plugin:      /var/lib/nvml-mock/driver/usr/bin/ → ../lib64
-#    - Kind node direct:        same path
-#
-#    We also install a shell fallback (nvidia-smi.sh) for environments without
-#    glibc (e.g. Alpine/musl init containers).
-if [ -f /usr/local/bin/nvidia-smi ]; then
-  cp /usr/local/bin/nvidia-smi "$DRIVER_ROOT/usr/bin/nvidia-smi"
-  chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi"
-  echo "Installed nvidia-smi ELF binary (RPATH-enabled)"
-else
-  echo "WARNING: Real nvidia-smi not found, installing shell fallback only"
-fi
-
-# Ensure nvidia-smi exists at the standard path even when the ELF is missing.
-# Consumers (e.g. GPU Operator validator) expect /usr/bin/nvidia-smi to exist.
-if [ ! -f "$DRIVER_ROOT/usr/bin/nvidia-smi" ]; then
-  ln -sf nvidia-smi.sh "$DRIVER_ROOT/usr/bin/nvidia-smi"
-  echo "Symlinked nvidia-smi -> nvidia-smi.sh (shell fallback)"
-fi
-
-# Shell fallback for non-glibc environments
-cat > "$DRIVER_ROOT/usr/bin/nvidia-smi.sh" << NVIDIA_SMI_EOF
-#!/bin/sh
-echo "NVIDIA-SMI $DRIVER_VERSION"
-echo "Driver Version: $DRIVER_VERSION"
-echo "CUDA Version: 12.4"
-NVIDIA_SMI_EOF
-chmod +x "$DRIVER_ROOT/usr/bin/nvidia-smi.sh"
-
 # 4b. Stage InfiniBand tools and preload shims for node-wide NRI injection.
 #     The NRI plugin mounts /var/lib/nvml-mock at /opt/nvml-mock in each
 #     workload, then prepends driver/usr/bin and driver/usr/lib64 and appends
@@ -424,36 +354,6 @@ if [ -x /usr/local/bin/check-fabric ]; then
 fi
 cp -a /usr/local/lib/libibmock*.so* "$DRIVER_ROOT/usr/local/lib/" 2>/dev/null || true
 cp -a /usr/local/lib/libpcimocksys.so* "$DRIVER_ROOT/usr/local/lib/" 2>/dev/null || true
-
-# 4c. Create /proc/driver/nvidia mock files (read by nvidia-smi)
-PROC_DIR="$DRIVER_ROOT/proc/driver/nvidia"
-mkdir -p "$PROC_DIR"
-cat > "$PROC_DIR/version" << PROC_VERSION_EOF
-NVRM version: NVIDIA UNIX x86_64 Kernel Module  $DRIVER_VERSION  Thu Feb 20 23:41:34 UTC 2026
-GCC version:  gcc version 12.2.0 (Debian 12.2.0-14)
-PROC_VERSION_EOF
-
-cat > "$PROC_DIR/params" << PROC_PARAMS_EOF
-EnableMSI: 1
-NVreg_RegistryDwords:
-NVreg_DeviceFileGID: 0
-NVreg_DeviceFileMode: 438
-NVreg_DeviceFileUID: 0
-NVreg_ModifyDeviceFiles: 1
-NVreg_PreserveVideoMemoryAllocations: 0
-NVreg_EnableResizableBar: 0
-PROC_PARAMS_EOF
-
-# 5. Copy GPU profile config to both locations:
-#    - config/config.yaml (canonical, used by device plugin)
-#    - driver/config/config.yaml (auto-discovered by .so via /proc/self/maps)
-cp /etc/nvml-mock/config.yaml "$CONFIG_DIR/config.yaml"
-cp /etc/nvml-mock/config.yaml "$DRIVER_ROOT/config/config.yaml"
-
-# 6. Inject num_devices into config so the .so knows GPU count without env vars.
-#    This makes the on-host config self-contained — consumers just point at driver root.
-sed -i "/^system:/a\\  num_devices: $GPU_COUNT" "$CONFIG_DIR/config.yaml"
-sed -i "/^system:/a\\  num_devices: $GPU_COUNT" "$DRIVER_ROOT/config/config.yaml"
 
 # Runtime overrides (written by nvml-mock-ctl) are ephemeral: wipe them on
 # every pod start so a restart of this DaemonSet resets simulated GPU state
@@ -544,7 +444,7 @@ if [ "$PCI_LABEL_MODE" = "on" ]; then
   # stderr. It replaced a `kubectl label` call here that carried `|| true`
   # (cleanup.sh carried the matching one for the removal), and under
   # `set -e` (line 9) a bare failure here would abort the entrypoint before
-  # step 8's /host/run/nvidia/driver symlink, crash-looping the whole mock for
+  # the IB and PCI renders in steps 9 and 10, crash-looping the whole mock for
   # an optional, gated feature. When the write fails no label appears, which is
   # the honest state (#505), and nothing downstream is corrupted — unlike the
   # IB and PCI renders in steps 9 and 10, which are deliberately fatal because
@@ -559,20 +459,13 @@ if [ "$PCI_LABEL_MODE" = "on" ]; then
 else
   # Mirror of the tolerant write above: the removal is the same optional,
   # gated feature on its other arm, so an EROFS or unwritable directory must
-  # not abort the entrypoint before step 8 either.
+  # not abort the entrypoint before steps 9 and 10 either.
   if rm -f "$NFD_FEATURE_FILE"; then
     echo "Skipping NFD pci-10de feature file (nodeLabels.pciVendorPresent=false)"
   else
     echo "WARNING: could not remove $NFD_FEATURE_FILE — a stale feature file may keep feature.node.kubernetes.io/pci-10de.present alive; the mock is otherwise unaffected" >&2
   fi
 fi
-
-# 8. Create GPU Operator compatibility symlink.
-#    The GPU Operator's validator DaemonSet mounts hostPath /run/nvidia/driver
-#    into the driver-validation init container. By symlinking to our mock driver
-#    root, the validator finds nvidia-smi and mock NVML at the expected path.
-mkdir -p /host/run/nvidia
-ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 
 # 8b. Deliberately NOT written here: /run/nvidia/validations/toolkit-ready.
 #     Six GPU Operator operand DaemonSets ship an unconditional
@@ -610,8 +503,8 @@ ln -sfn /var/lib/nvml-mock/driver /host/run/nvidia/driver
 #     state-dcgm/0400_dcgm.yml:55-58 and
 #     state-mps-control-daemon/0400_daemonset.yaml:125-128 as type Directory
 #     (which requires the parent to pre-exist), and
-#     state-dcgm-exporter/0800_daemonset.yaml:76-78 with no type at all — step 8
-#     above still creates that parent. The validator also does os.Mkdir on the
+#     state-dcgm-exporter/0800_daemonset.yaml:76-78 with no type at all — the
+#     node-agent sidecar creates that parent. The validator also does os.Mkdir on the
 #     status dir itself (main.go:524).
 #
 #     Residual hazard, as a debugging pointer: nvidia-validator has a cleanup-all
