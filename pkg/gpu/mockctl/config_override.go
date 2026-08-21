@@ -244,6 +244,166 @@ func NVLinkErrorPatch(rate float64, links []int) map[string]any {
 	return map[string]any{"nvlink_error": block}
 }
 
+// sramErrorTypeKeys maps CLI-friendly SRAM error-type names to the
+// ecc.sram counter they fill. Parity and SEC-DED are the two uncorrectable
+// flavours hardware distinguishes; correctable errors have no source
+// breakdown.
+var sramErrorTypeKeys = map[string]string{
+	"correctable": "correctable",
+	"parity":      "uncorrectable_parity",
+	"secded":      "uncorrectable_secded",
+}
+
+// sramSourceKeys maps CLI-friendly unit names to the
+// ecc.sram.uncorrectable_sources field that attributes errors to them.
+var sramSourceKeys = map[string]string{
+	"l2":              "l2",
+	"sm":              "sm",
+	"microcontroller": "microcontroller",
+	"mcu":             "microcontroller",
+	"pcie":            "pcie",
+	"other":           "other",
+}
+
+// allSramSourceKeys is the full set of source fields, written as an all-zero
+// baseline so a patch represents exactly the requested attribution.
+var allSramSourceKeys = []string{"l2", "sm", "microcontroller", "pcie", "other"}
+
+// SramECCPatch builds a config override patch that injects count SRAM ECC
+// errors of one type (correctable, uncorrectable parity or uncorrectable
+// SEC-DED), attributed to one reporting unit, optionally raising the
+// SRAM error threshold flag. A count of 0 heals the device.
+//
+// The count lands in both the volatile and aggregate scopes: hardware that has
+// just taken an SRAM fault reports it in both, and pinning only one would leave
+// the other reading as a GPU whose history disagrees with its present.
+//
+// Only the ecc.sram sub-block is written, never the whole ecc block: replacing
+// ecc would drop mode_current, and a GPU with ECC off reports no SRAM counters
+// at all, so the injection would erase itself. Within ecc.sram the patch is
+// authoritative — every counter and source is written — so repeated
+// invocations replace rather than accumulate.
+func SramECCPatch(count uint64, errorType, source string, thresholdExceeded bool) (map[string]any, error) {
+	counterKey, ok := sramErrorTypeKeys[strings.ToLower(strings.TrimSpace(errorType))]
+	if !ok {
+		return nil, fmt.Errorf("unknown SRAM error type %q (want correctable|parity|secded)", errorType)
+	}
+	correctable := counterKey == "correctable"
+	source = strings.ToLower(strings.TrimSpace(source))
+	if correctable && source != "" {
+		return nil, errors.New("--source only applies to uncorrectable SRAM errors")
+	}
+	sourceKey := ""
+	if !correctable {
+		if source == "" {
+			source = "other" // unattributed errors land in the catch-all bucket
+		}
+		if sourceKey, ok = sramSourceKeys[source]; !ok {
+			return nil, fmt.Errorf("unknown SRAM error source %q (want l2|sm|microcontroller|pcie|other)", source)
+		}
+	}
+
+	counts := func() map[string]any {
+		c := map[string]any{"correctable": 0, "uncorrectable_parity": 0, "uncorrectable_secded": 0}
+		c[counterKey] = count
+		return c
+	}
+	sources := map[string]any{}
+	for _, k := range allSramSourceKeys {
+		sources[k] = 0
+	}
+	if sourceKey != "" {
+		sources[sourceKey] = count
+	}
+	return map[string]any{
+		"ecc": map[string]any{
+			"sram": map[string]any{
+				"volatile":              counts(),
+				"aggregate":             counts(),
+				"uncorrectable_sources": sources,
+				"threshold_exceeded":    thresholdExceeded,
+			},
+		},
+	}, nil
+}
+
+// fabricHealthConditionKeys maps CLI-friendly fabric health condition names to
+// the fabric.health boolean they set. The canonical JSON keys are accepted
+// directly; the aliases cover how operators say them out loud.
+var fabricHealthConditionKeys = map[string]string{
+	"degraded_bandwidth":      "degraded_bandwidth",
+	"bandwidth":               "degraded_bandwidth",
+	"degraded_bw":             "degraded_bandwidth",
+	"route_recovery":          "route_recovery",
+	"route_unhealthy":         "route_unhealthy",
+	"access_timeout_recovery": "access_timeout_recovery",
+	"access_timeout":          "access_timeout_recovery",
+}
+
+// allFabricHealthConditionKeys is the full set of fabric.health booleans, used
+// to write an authoritative all-clear baseline so a FabricHealthPatch
+// represents exactly the requested conditions.
+var allFabricHealthConditionKeys = []string{
+	"degraded_bandwidth", "route_recovery", "route_unhealthy", "access_timeout_recovery",
+}
+
+// FabricHealthPatch builds a config override patch that sets a device's NVLink
+// fabric health conditions, so a fabric can degrade under a running workload
+// (#677). conditions are CLI-friendly names (see fabricHealthConditionKeys)
+// plus the incorrect-configuration values the engine accepts
+// (engine.FabricIncorrectConfigNames, e.g. "no_partition"); the special
+// condition "healthy" clears everything and cannot be combined with others.
+//
+// Like ThrottlePatch the block is authoritative: every condition is written
+// (requested ones faulted, the rest clear) so repeated invocations replace
+// rather than accumulate. It also releases fabric.health_summary to "auto",
+// because a profile that pins a summary would otherwise keep reporting it no
+// matter which condition is injected.
+func FabricHealthPatch(conditions []string) (map[string]any, error) {
+	if len(conditions) == 0 {
+		return nil, errors.New("fabric-health requires at least one condition (or 'healthy')")
+	}
+	health := map[string]any{"incorrect_configuration": "none"}
+	for _, k := range allFabricHealthConditionKeys {
+		health[k] = false
+	}
+	for _, c := range conditions {
+		key := strings.ToLower(strings.TrimSpace(c))
+		if key == "healthy" || key == "none" {
+			if len(conditions) != 1 {
+				return nil, errors.New("fabric-health 'healthy' cannot be combined with other conditions")
+			}
+			break
+		}
+		if canonical, ok := fabricHealthConditionKeys[key]; ok {
+			health[canonical] = true
+			continue
+		}
+		if misconfig, ok := fabricIncorrectConfigName(key); ok {
+			health["incorrect_configuration"] = misconfig
+			continue
+		}
+		return nil, fmt.Errorf("unknown fabric health condition %q", c)
+	}
+	return map[string]any{"fabric": map[string]any{
+		"health":         health,
+		"health_summary": "auto",
+	}}, nil
+}
+
+// fabricIncorrectConfigName reports whether name is one of the
+// incorrect-configuration values the engine decodes. "not_supported" is
+// excluded: it means "this driver does not answer the question", which is a
+// profile-level statement rather than something to inject at runtime.
+func fabricIncorrectConfigName(name string) (string, bool) {
+	for _, known := range engine.FabricIncorrectConfigNames() {
+		if known == name && known != "none" && known != "not_supported" {
+			return known, true
+		}
+	}
+	return "", false
+}
+
 // throttleReasonKeys maps CLI-friendly throttle reason names to the
 // clocks_throttle_reasons config field they enable. The canonical JSON keys are
 // accepted directly; short aliases cover the common thermal/power cases.

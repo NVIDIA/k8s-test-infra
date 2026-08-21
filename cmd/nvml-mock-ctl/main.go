@@ -46,6 +46,11 @@ const (
 	// degrading NVLink tops out well below this; the generous cap keeps the
 	// accrual math (rate * elapsed seconds) far from overflowing uint64.
 	maxNvlinkErrorRate = 1e9
+
+	// maxSramEccCount bounds the `sram-ecc` command. A GPU is retired long
+	// before its SRAM error count approaches this, so the cap only exists to
+	// keep an obvious typo from being written as a plausible counter.
+	maxSramEccCount = 1e9
 )
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
@@ -70,6 +75,14 @@ commands:
   throttle --gpu <idx|all|uuid> <reason>[ reason ...]  set active throttle reasons ('none' clears)
   pstate --gpu <idx|all|uuid> <0-15>       pin reported performance state (P-state)
   nvlink-error --gpu <idx|all|uuid> <errors_per_sec> [--links a,b,c]  inject NVLink DL errors (0 heals)
+  sram-ecc --gpu <idx|all|uuid> <count> [--type correctable|parity|secded]
+           [--source l2|sm|microcontroller|pcie|other] [--threshold-exceeded]
+                                           inject SRAM ECC errors (0 heals)
+  fabric-health --gpu <idx|all|uuid> <condition>[ condition ...]  degrade NVLink fabric health ('healthy' clears)
+         conditions: degraded_bandwidth, route_recovery, route_unhealthy,
+         access_timeout_recovery, or a misconfiguration (no_partition,
+         insufficient_nvlinks, incompatible_gpu_fw, invalid_location,
+         incorrect_sysguid, incorrect_chassis_sn, gpu_state_invalid)
   set    --gpu <idx|all|uuid> key.path=value [key.path=value ...]
   status [--gpu <idx>]
   reset  [--gpu <idx|all|uuid>]
@@ -86,6 +99,8 @@ global flags:
 //nolint:cyclop // existing complexity; refactor deferred
 func run(args []string, stdout, stderr io.Writer) int {
 	var configOverridePath, configPath, gpu, mode, links, socket string
+	var sramErrorType, sramSource string
+	var sramThresholdExceeded bool
 	var afterCalls int
 	var xid uint64
 	var interval time.Duration
@@ -100,6 +115,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&afterCalls, "after-calls", 0, "trip after N guarded calls (fail)")
 	fs.Uint64Var(&xid, "xid", 0, "Xid code to surface (fail)")
 	fs.StringVar(&links, "links", "", "comma-separated NVLink ids for nvlink-error (default: all active links)")
+	fs.StringVar(&sramErrorType, "type", "secded", "SRAM error type: correctable|parity|secded (sram-ecc)")
+	fs.StringVar(&sramSource, "source", "", "unit the SRAM errors are attributed to (sram-ecc, default: other)")
+	fs.BoolVar(&sramThresholdExceeded, "threshold-exceeded", false, "raise the SRAM error threshold flag (sram-ecc)")
 	fs.StringVar(&socket, "socket", envOr("MOCK_NVML_PODRESOURCES_SOCKET", allocwatch.DefaultSocketPath),
 		"kubelet pod-resources socket (watch-allocations)")
 	fs.DurationVar(&interval, "interval", allocwatch.DefaultInterval,
@@ -150,8 +168,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "status":
 		return doStatus(configOverridePath, gpu, stdout, stderr)
 	case "fail", "temp", "temperature", "power", "fan", "util", "utilization",
-		"clocks", "throttle", "pstate", "nvlink-error", "set", "reset":
-		return mutate(cmd, configOverridePath, gpu, mode, links, afterCalls, xid, positional, cfg, base, stdout, stderr)
+		"clocks", "throttle", "pstate", "nvlink-error", "sram-ecc", "fabric-health", "set", "reset":
+		sram := sramECCOptions{errorType: sramErrorType, source: sramSource, thresholdExceeded: sramThresholdExceeded}
+		return mutate(cmd, configOverridePath, gpu, mode, links, afterCalls, xid, positional, sram, cfg, base, stdout, stderr)
 	case "watch-allocations":
 		return doWatchAllocations(configOverridePath, socket, interval, usedFraction, cfg, stdout, stderr)
 	default:
@@ -161,9 +180,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+// sramECCOptions carries the sram-ecc command's flags: which SRAM error type to
+// inject, the unit it is attributed to, and whether the error threshold flag is
+// raised.
+type sramECCOptions struct {
+	errorType         string
+	source            string
+	thresholdExceeded bool
+}
+
 //nolint:cyclop // existing complexity; refactor deferred
 func mutate(cmd, configOverridePath, gpu, mode, links string, afterCalls int, xid uint64,
-	positional []string, cfg *engine.Config, base *engine.DeviceConfig, stdout, stderr io.Writer,
+	positional []string, sram sramECCOptions, cfg *engine.Config, base *engine.DeviceConfig, stdout, stderr io.Writer,
 ) int {
 	if gpu == "" && cmd != "reset" {
 		fprintln(stderr, "--gpu is required")
@@ -288,6 +316,33 @@ func mutate(cmd, configOverridePath, gpu, mode, links string, afterCalls int, xi
 			return 2
 		}
 		if code := applyPatch(doc, target, base, mockctl.NVLinkErrorPatch(rate, linkIDs), stderr); code != 0 {
+			return code
+		}
+	case "sram-ecc":
+		count, perr := singleIntArg(positional, cmd, 0, maxSramEccCount)
+		if perr != nil {
+			fprintf(stderr, "%v\n", perr)
+			return 2
+		}
+		patch, perr := mockctl.SramECCPatch(uint64(count), sram.errorType, sram.source, sram.thresholdExceeded)
+		if perr != nil {
+			fprintf(stderr, "%v\n", perr)
+			return 2
+		}
+		if code := applyPatch(doc, target, base, patch, stderr); code != 0 {
+			return code
+		}
+	case "fabric-health":
+		if len(positional) == 0 {
+			fprintln(stderr, "fabric-health requires at least one condition (or 'healthy')")
+			return 2
+		}
+		patch, perr := mockctl.FabricHealthPatch(positional)
+		if perr != nil {
+			fprintf(stderr, "%v\n", perr)
+			return 2
+		}
+		if code := applyPatch(doc, target, base, patch, stderr); code != 0 {
 			return code
 		}
 	case "set":

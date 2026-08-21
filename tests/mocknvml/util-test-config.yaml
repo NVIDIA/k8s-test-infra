@@ -39,6 +39,17 @@ device_defaults:
   num_gpu_cores: 6912               # CUDA cores
 
   # ---------------------------------------------------------------------------
+  # NVLink fabric. Present so testFabricHealth exercises the v1/v2/v3 structs
+  # through the real C ABI: this block says nothing about health, so it must
+  # report a healthy fabric with a non-zero health summary. Device 1 overrides
+  # it with a fault (#677).
+  # ---------------------------------------------------------------------------
+  fabric:
+    cluster_uuid: "00000000-0000-0000-0000-0000000000ab"
+    clique_id: 3
+    state: "completed"
+
+  # ---------------------------------------------------------------------------
   # InfoROM versions
   # ---------------------------------------------------------------------------
   inforom:
@@ -333,6 +344,14 @@ devices:
       bus_id: "0000:0F:00.0"
     minor_number: 1
     processes: []   # explicit clear: empty-path coverage
+    # One faulted condition, so the harness can tell a per-device health mask
+    # apart from a constant: only this row flips, and the summary follows.
+    fabric:
+      cluster_uuid: "00000000-0000-0000-0000-0000000000ab"
+      clique_id: 3
+      state: "completed"
+      health:
+        route_unhealthy: true
 
   - index: 2
     uuid: "GPU-12345678-1234-1234-1234-123456780002"

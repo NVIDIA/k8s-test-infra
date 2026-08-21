@@ -38,13 +38,13 @@
 		<gpu_part_number>N/A</gpu_part_number>
 		<gpu_fru_part_number>N/A</gpu_fru_part_number>
 		<platformInfo>
-			<chassis_serial_number>N/A</chassis_serial_number>
-			<slot_number>N/A</slot_number>
-			<tray_index>N/A</tray_index>
-			<host_id>N/A</host_id>
-			<peer_type>N/A</peer_type>
-			<module_id>N/A</module_id>
-			<gpu_fabric_guid>N/A</gpu_fabric_guid>
+			<chassis_serial_number>1822725100200</chassis_serial_number>
+			<slot_number>21</slot_number>
+			<tray_index>11</tray_index>
+			<host_id>1</host_id>
+			<peer_type>Switch Connected</peer_type>
+			<module_id>1</module_id>
+			<gpu_fabric_guid>0x0000000000000000</gpu_fabric_guid>
 		</platformInfo>
 		<inforom_version>
 			<img_version>G530.0200.00.01</img_version>
@@ -343,13 +343,13 @@
 		<gpu_part_number>N/A</gpu_part_number>
 		<gpu_fru_part_number>N/A</gpu_fru_part_number>
 		<platformInfo>
-			<chassis_serial_number>N/A</chassis_serial_number>
-			<slot_number>N/A</slot_number>
-			<tray_index>N/A</tray_index>
-			<host_id>N/A</host_id>
-			<peer_type>N/A</peer_type>
-			<module_id>N/A</module_id>
-			<gpu_fabric_guid>N/A</gpu_fabric_guid>
+			<chassis_serial_number>1822725100200</chassis_serial_number>
+			<slot_number>21</slot_number>
+			<tray_index>11</tray_index>
+			<host_id>1</host_id>
+			<peer_type>Switch Connected</peer_type>
+			<module_id>2</module_id>
+			<gpu_fabric_guid>0x0000000000000000</gpu_fabric_guid>
 		</platformInfo>
 		<inforom_version>
 			<img_version>G530.0200.00.01</img_version>

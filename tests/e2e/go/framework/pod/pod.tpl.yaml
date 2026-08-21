@@ -1,0 +1,66 @@
+# The single-container test pod every scenario applies. Callers supply the parts
+# that vary; everything omitted is left out of the manifest rather than emitted
+# empty, so the API server applies its own defaults.
+#
+# Interpolated keys and values are both quoted. YAML 1.1 resolves bare y, n, on,
+# off and ~ as bools and nulls, and the API server needs strings on both sides of
+# these maps, so a bare key of `y` would arrive as `true`.
+#
+# terminationGracePeriodSeconds is capped here on purpose and is load-bearing for
+# suite runtime; see the package doc for why the 30s default costs minutes.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Name | quote }}
+  namespace: {{ .Namespace | quote }}
+  {{- with .Labels }}
+  labels:
+    {{- range $key, $value := . }}
+    {{ $key | quote }}: {{ $value | quote }}
+    {{- end }}
+  {{- end }}
+  {{- with .Annotations }}
+  annotations:
+    {{- range $key, $value := . }}
+    {{ $key | quote }}: {{ $value | quote }}
+    {{- end }}
+  {{- end }}
+spec:
+  restartPolicy: {{ .RestartPolicy | quote }}
+  terminationGracePeriodSeconds: {{ .GracePeriodSeconds }}
+  {{- with .Node }}
+  nodeName: {{ . | quote }}
+  {{- end }}
+  {{- with .NodeSelector }}
+  nodeSelector:
+    {{- range $key, $value := . }}
+    {{ $key | quote }}: {{ $value | quote }}
+    {{- end }}
+  {{- end }}
+  containers:
+    - name: {{ .ContainerName | quote }}
+      image: {{ .Image | quote }}
+      {{- with .Command }}
+      command:
+        {{- range . }}
+        - {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      {{- with .Args }}
+      args:
+        {{- range . }}
+        - {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      {{- with .Env }}
+      env:
+        {{- range $name, $value := . }}
+        - name: {{ $name | quote }}
+          value: {{ $value | quote }}
+        {{- end }}
+      {{- end }}
+      {{- if .GPUs }}
+      resources:
+        limits:
+          {{ .GPUResourceName | quote }}: {{ .GPUs }}
+      {{- end }}

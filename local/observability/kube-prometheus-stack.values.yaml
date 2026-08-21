@@ -1,0 +1,60 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# kube-prometheus-stack values for the observability consumer, trimmed for Kind.
+#
+# Usage (via Tilt):
+#   tilt up -- --observability
+#
+# Issue #597 requires this stack be sized against the per-node footprint budget,
+# so Alertmanager is off, retention is 2h, and Prometheus has explicit limits.
+# node-exporter stays ON: host CPU/memory pressure is exactly what a scale run
+# needs to correlate GPU symptoms against, and it is the one per-node DaemonSet
+# this stack adds. kube-state-metrics is a single Deployment.
+
+# Nothing here alerts; Alertmanager would only add footprint.
+alertmanager:
+  enabled: false
+
+# The bundled Kubernetes control-plane alert rules fire constantly on Kind
+# (single-node etcd, no kube-proxy metrics) and would bury the demo in noise.
+defaultRules:
+  create: false
+
+grafana:
+  # Local-dev credential for a throwaway Kind cluster, reachable only through
+  # the Tilt-managed port-forward on localhost. Quoted so an all-digit
+  # replacement still reaches the chart's b64enc as a string.
+  adminPassword: "mokka"
+  # ClusterIP (the chart default, restated): Grafana is reached through the
+  # `grafana` port-forward resource in observability.tiltfile, because the
+  # shared Kind config carries no extraPortMappings for a NodePort to land on.
+  service:
+    type: ClusterIP
+  # The sidecar imports any ConfigMap carrying this label, which is how
+  # dashboards/mokka-gpu.json gets in as a reviewable file in git instead of
+  # click-together UI state. These are chart defaults, pinned here because
+  # observability.tiltfile builds the ConfigMap's label from them — the two must
+  # agree or the dashboard never appears, with no error anywhere.
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+
+prometheus:
+  service:
+    type: ClusterIP
+  prometheusSpec:
+    # dcgm-exporter collects every 5s (see gpu-operator.values.yaml); scraping
+    # slower would alias away the step change the fault scenarios assert on.
+    scrapeInterval: 5s
+    evaluationInterval: 30s
+    retention: 2h
+    resources:
+      requests:
+        cpu: 100m
+        memory: 400Mi
+      limits:
+        memory: 1Gi

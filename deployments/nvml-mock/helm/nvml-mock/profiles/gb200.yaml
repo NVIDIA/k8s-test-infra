@@ -55,7 +55,30 @@ device_defaults:
     cluster_uuid: "00000000-0000-0000-0000-000000000001"
     clique_id: 0
     state: "auto"                   # couple GPU fabric registration to fake fabricmanager readiness
-    health_mask: 0
+    # Health defaults to a healthy fabric (nvidia-smi -q reports Summary:
+    # Healthy, Bandwidth: Full). Add a `health:` block to fault a specific
+    # condition, or use `nvml-mock-ctl fabric-health` at runtime.
+    # See docs/configuration.md#fabric-health.
+
+  # ---------------------------------------------------------------------------
+  # Platform identity — where this node sits in the NVL72 rack, which
+  # nvidia-smi -q renders as its "Platform Info" block and rack-scale fault
+  # correlation reads to turn a GPU fault into a physical location.
+  #
+  # Every field but module_id describes the node, so all its GPUs share them:
+  # a node occupies one tray, in one slot, of one chassis. Only module_id
+  # ("ID of this GPU within the node") is set per device below.
+  #
+  # slot_number counts switch trays as well as compute trays while tray_index
+  # counts compute trays only, so slot runs ahead of tray for a tray sitting
+  # above the rack's nine switch trays: compute tray 11 lands in slot 21.
+  # ---------------------------------------------------------------------------
+  platform:
+    chassis_serial_number: "1822725100200"
+    slot_number: 21
+    tray_index: 11
+    host_id: 1                      # first of the tray's two OS domains
+    peer_type: "switch_connected"   # peers reached through the NVSwitch trays
 
   # ---------------------------------------------------------------------------
   # InfoROM versions
@@ -275,6 +298,18 @@ device_defaults:
     uncorrectable: 0
     pending: false
     failure_occurred: false
+    # Bank remap availability: every bank still holds its full complement of
+    # spare rows, which is what a GPU that has never remapped reports. Row
+    # remapping is Ampere and later, so a pre-Ampere profile (t4) omits this
+    # block and the mock reports the histogram unsupported, as that hardware
+    # does. The bank count follows the 16-banks-per-GiB ratio a real 40 GiB
+    # A100 reports.
+    availability_histogram:
+      max: 3072
+      high: 0
+      partial: 0
+      low: 0
+      none: 0
 
   # ---------------------------------------------------------------------------
   # Display configuration
@@ -375,6 +410,8 @@ devices:
       bus_id: "0000:0A:00.0"
     minor_number: 0
     grace_cpu_pair: 0               # Paired with Grace CPU 0
+    platform:
+      module_id: 1                  # ID of this GPU within the node
 
   - index: 1
     uuid: "GPU-b200b200-0000-0000-0000-000000000001"
@@ -383,6 +420,8 @@ devices:
       bus_id: "0000:0B:00.0"
     minor_number: 1
     grace_cpu_pair: 0               # Same superchip as GPU 0
+    platform:
+      module_id: 2
 
   - index: 2
     uuid: "GPU-b200b200-0000-0000-0000-000000000002"
@@ -391,6 +430,8 @@ devices:
       bus_id: "0000:4A:00.0"
     minor_number: 2
     grace_cpu_pair: 1
+    platform:
+      module_id: 3
 
   - index: 3
     uuid: "GPU-b200b200-0000-0000-0000-000000000003"
@@ -399,6 +440,8 @@ devices:
       bus_id: "0000:4B:00.0"
     minor_number: 3
     grace_cpu_pair: 1
+    platform:
+      module_id: 4
 
   - index: 4
     uuid: "GPU-b200b200-0000-0000-0000-000000000004"
@@ -407,6 +450,8 @@ devices:
       bus_id: "0000:8A:00.0"
     minor_number: 4
     grace_cpu_pair: 2
+    platform:
+      module_id: 5
 
   - index: 5
     uuid: "GPU-b200b200-0000-0000-0000-000000000005"
@@ -415,6 +460,8 @@ devices:
       bus_id: "0000:8B:00.0"
     minor_number: 5
     grace_cpu_pair: 2
+    platform:
+      module_id: 6
 
   - index: 6
     uuid: "GPU-b200b200-0000-0000-0000-000000000006"
@@ -423,6 +470,8 @@ devices:
       bus_id: "0000:CA:00.0"
     minor_number: 6
     grace_cpu_pair: 3
+    platform:
+      module_id: 7
 
   - index: 7
     uuid: "GPU-b200b200-0000-0000-0000-000000000007"
@@ -431,6 +480,8 @@ devices:
       bus_id: "0000:CB:00.0"
     minor_number: 7
     grace_cpu_pair: 3
+    platform:
+      module_id: 8
 
 # =============================================================================
 # NVLink topology - GB200 uses NVLink 5.0

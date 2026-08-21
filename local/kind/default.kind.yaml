@@ -42,10 +42,15 @@
 #      overlay at container-creation time. Inert until a workload registers
 #      as an NRI plugin, so the node-wide-NRI scenario is the only consumer.
 #
-# Worker labels drive two orthogonal consumer paths without conflict:
-#   - nvml-mock/profile=<a100|t4>            — targeted by install_fleet() in
-#     local/nvml_mock.tiltfile under --multi-gpu-profile, so each worker runs
-#     its own nvml-mock release simulating the labelled GPU.
+# Worker names are pinned via JoinConfiguration instead of being derived from
+# the cluster name, so they stay stable across recreations and can be selected
+# directly: install_fleet() in local/nvml_mock.tiltfile pins each per-profile
+# nvml-mock release with kubernetes.io/hostname=<worker> under
+# --multi-gpu-profile (a100 on worker-0, t4 on worker-1). The control-plane
+# node keeps its kind-derived name: kubeadm names the bootstrap node from
+# InitConfiguration, which JoinConfiguration cannot override.
+#
+# Worker labels drive the remaining consumer path:
 #   - run.ai/simulated-gpu-node-pool=<integration|scale> — FGO node-pool split.
 #     integration (a100) runs nvml-mock as the NVML shim; scale (t4) is managed
 #     entirely by FGO's fake backend. Consumers that ignore these labels see
@@ -70,9 +75,17 @@ nodes:
             runtime-config: "resource.k8s.io/v1beta1=true"
   - role: worker
     labels:
-      nvml-mock/profile: a100
       run.ai/simulated-gpu-node-pool: integration
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-0
   - role: worker
     labels:
-      nvml-mock/profile: t4
       run.ai/simulated-gpu-node-pool: scale
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-1

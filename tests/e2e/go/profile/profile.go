@@ -63,9 +63,16 @@ type rawProfile struct {
 		PCIe *struct {
 			MaxLinkGen int `json:"max_link_gen"`
 		} `json:"pcie"`
+		Platform     *rawPlatform `json:"platform"`
+		RemappedRows *struct {
+			AvailabilityHistogram *struct {
+				Max int `json:"max"`
+			} `json:"availability_histogram"`
+		} `json:"remapped_rows"`
 	} `json:"device_defaults"`
 	Devices []struct {
-		Index int `json:"index"`
+		Index    int          `json:"index"`
+		Platform *rawPlatform `json:"platform"`
 	} `json:"devices"`
 	NVLink struct {
 		LinksPerGPU int  `json:"links_per_gpu"`
@@ -83,6 +90,30 @@ type rawProfile struct {
 			ID string `json:"id"`
 		} `json:"root_complexes"`
 	} `json:"pcie_topology"`
+}
+
+// rawPlatform decodes a platform block, which appears both under
+// device_defaults (the node's location) and per device (its module id).
+type rawPlatform struct {
+	ChassisSerialNumber string `json:"chassis_serial_number"`
+	SlotNumber          int    `json:"slot_number"`
+	TrayIndex           int    `json:"tray_index"`
+	HostID              int    `json:"host_id"`
+	PeerType            string `json:"peer_type"`
+	ModuleID            int    `json:"module_id"`
+}
+
+// PlatformIdentity is the platform identity a profile configures — where its
+// node sits in a rack. ModuleIDs is indexed by device; the rest describe the
+// node and are shared by all its GPUs. PeerType keeps the profile spelling
+// ("switch_connected"), leaving the rendering nvidia-smi uses to the assertion.
+type PlatformIdentity struct {
+	ChassisSerialNumber string
+	SlotNumber          int
+	TrayIndex           int
+	HostID              int
+	PeerType            string
+	ModuleIDs           []int
 }
 
 // Profile is the typed, validated view of a chart GPU profile.
@@ -110,6 +141,11 @@ type Profile struct {
 	jpegUtilizationPct int
 	ofaUtilizationPct  int
 	maxPCIeLinkGen     int
+	rowRemapHistogram  bool
+	rowRemapBanks      int
+
+	platform    PlatformIdentity
+	hasPlatform bool
 }
 
 // bytesPerMiB is the divisor GPU Feature Discovery uses when it publishes
@@ -189,10 +225,46 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	if pcie := raw.DeviceDefaults.PCIe; pcie != nil {
 		p.maxPCIeLinkGen = pcie.MaxLinkGen
 	}
+	if r := raw.DeviceDefaults.RemappedRows; r != nil && r.AvailabilityHistogram != nil {
+		p.rowRemapHistogram = true
+		p.rowRemapBanks = r.AvailabilityHistogram.Max
+	}
 	if f := raw.DeviceDefaults.Fabric; f != nil {
 		p.hasFabric = true
 		p.fabricAuto = strings.EqualFold(strings.TrimSpace(f.State), "auto")
 	}
+	if pl := raw.DeviceDefaults.Platform; pl != nil {
+		p.hasPlatform = true
+		p.platform = PlatformIdentity{
+			ChassisSerialNumber: pl.ChassisSerialNumber,
+			SlotNumber:          pl.SlotNumber,
+			TrayIndex:           pl.TrayIndex,
+			HostID:              pl.HostID,
+			PeerType:            pl.PeerType,
+			ModuleIDs:           deviceModuleIDs(raw, pl.ModuleID),
+		}
+	}
+}
+
+// deviceModuleIDs collects each device's module id, keyed by the declared
+// device index so the result lines up with NVML's device order however the YAML
+// lists them. A device that declares no module id falls back to the default,
+// mirroring the mock's per-device merge, which treats zero as unset.
+func deviceModuleIDs(raw rawProfile, defaultModuleID int) []int {
+	ids := make([]int, len(raw.Devices))
+	for i := range ids {
+		ids[i] = defaultModuleID
+	}
+	for i, dev := range raw.Devices {
+		at := dev.Index
+		if at < 0 || at >= len(ids) {
+			at = i
+		}
+		if dev.Platform != nil && dev.Platform.ModuleID != 0 {
+			ids[at] = dev.Platform.ModuleID
+		}
+	}
+	return ids
 }
 
 // All loads every KnownProfiles entry from profilesDir.
@@ -263,6 +335,14 @@ func (p Profile) HasFabric() bool { return p.hasFabric }
 // elsewhere. Absent key means false, i.e. N/A.
 func (p Profile) C2CEnabled() bool { return p.c2cEnabled }
 
+// PlatformIdentity returns the platform identity the profile configures and
+// whether it declares one at all. Only the rack-scale profiles (gb200, gb300)
+// do: NVML answers nvmlDeviceGetPlatformInfo for a board whose platform can
+// report a physical location, and nvidia-smi renders N/A for every other one, so
+// the absent case is the negative control that keeps the populated case from
+// being satisfiable by constants.
+func (p Profile) PlatformIdentity() (PlatformIdentity, bool) { return p.platform, p.hasPlatform }
+
 // Architecture is device_defaults.architecture (lowercased), e.g. "ampere".
 func (p Profile) Architecture() string { return p.architecture }
 
@@ -288,6 +368,33 @@ func (p Profile) OFAUtilizationPct() int { return p.ofaUtilizationPct }
 // Ranges from 3 (t4) to 6 (Blackwell), so asserting against it pins the value
 // to config rather than a hardcoded constant.
 func (p Profile) MaxPCIeLinkGen() int { return p.maxPCIeLinkGen }
+
+// preAmpereArchitectures are the device_defaults.architecture values whose
+// hardware predates both row remapping and the split SRAM ECC counters.
+var preAmpereArchitectures = map[string]bool{
+	"kepler": true, "maxwell": true, "pascal": true, "volta": true, "turing": true,
+}
+
+// ReportsDetailedSramECC is true when nvidia-smi renders the Ampere-and-later
+// SRAM breakdown for this architecture: the uncorrectable count split into
+// parity and SEC-DED, plus the per-unit source list and the threshold flag.
+// Pre-Ampere output carries a single combined SRAM Uncorrectable row and none of
+// the rest, so the expectation is an architecture axis rather than a config one
+// — nvidia-smi picks the layout from the reported architecture, not from what
+// the profile configures (#641).
+func (p Profile) ReportsDetailedSramECC() bool { return !preAmpereArchitectures[p.architecture] }
+
+// ReportsRowRemapHistogram reports whether the profile configures
+// remapped_rows.availability_histogram, i.e. whether nvidia-smi must render bank
+// counts rather than N/A for the Bank Remap Availability Histogram. Row
+// remapping is Ampere and later, so pre-Ampere profiles leave the block out and
+// the mock answers unsupported the way that hardware does (#641).
+func (p Profile) ReportsRowRemapHistogram() bool { return p.rowRemapHistogram }
+
+// RowRemapHistogramBanks is remapped_rows.availability_histogram.max: how many
+// banks a never-remapped GPU reports with their full complement of spare rows.
+// Zero when the profile configures no histogram.
+func (p Profile) RowRemapHistogramBanks() int { return p.rowRemapBanks }
 
 // ReportsTLimitTemp is true when real hardware of this architecture reports the
 // GPU T.Limit temperature field IDs (Ada and later). Pre-Ada profiles keep the

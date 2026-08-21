@@ -171,3 +171,100 @@ func TestC2CIsGraceOnly(t *testing.T) {
 			"%s: nvlink.c2c_enabled should be %v", name, graceProfiles[name])
 	}
 }
+
+// TestPlatformIdentityIsRackScaleOnly pins platform identity as a rack-scale
+// axis, for the same reason as the C2C one: an e2e expectation derived from the
+// profiles must keep a negative control, or "reports a location" could quietly
+// become "always reports one". b200 is the interesting case — Blackwell, but a
+// board in no rack. See issue #642.
+func TestPlatformIdentityIsRackScaleOnly(t *testing.T) {
+	rackProfiles := map[string]bool{"gb200": true, "gb300": true}
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		identity, declared := p.PlatformIdentity()
+		require.Equal(t, rackProfiles[name], declared,
+			"%s: device_defaults.platform should be declared=%v", name, rackProfiles[name])
+		if !declared {
+			require.Empty(t, identity.ModuleIDs, "%s: module ids without a platform block", name)
+			continue
+		}
+		require.Len(t, identity.ModuleIDs, p.ExpectedGPUs(), "%s: a module id per GPU", name)
+		require.NotEmpty(t, identity.ChassisSerialNumber, "%s: chassis_serial_number", name)
+	}
+}
+
+// The per-device module ids must survive the profile decode distinctly: they are
+// the only field that tells one of a node's GPUs from another, and a decode that
+// read them from device_defaults alone would hand every GPU the same one.
+func TestPlatformIdentityModuleIDsAreDistinct(t *testing.T) {
+	for _, name := range []string{"gb200", "gb300"} {
+		t.Run(name, func(t *testing.T) {
+			p, err := Load(profilesDir, name)
+			require.NoError(t, err, "Load(%q)", name)
+			identity, declared := p.PlatformIdentity()
+			require.True(t, declared, "declares a platform block")
+
+			seen := map[int]int{}
+			for i, id := range identity.ModuleIDs {
+				require.NotZero(t, id, "device %d module id", i)
+				prev, dup := seen[id]
+				require.False(t, dup, "device %d shares module id %d with device %d", i, id, prev)
+				seen[id] = i
+			}
+		})
+	}
+}
+
+// TestRowRemapHistogramIsAmpereAndLater pins the histogram to the same
+// architecture axis nvidia-smi uses for the SRAM layout: row remapping arrived
+// with Ampere, so t4 must leave remapped_rows.availability_histogram unset and
+// report unsupported, while every later profile configures it. Requiring the two
+// accessors to agree is what stops a profile from configuring capacity for a
+// generation whose driver output has no place to report it. Driven from
+// KnownProfiles so a newly added profile has to declare which side it belongs on
+// (#641).
+func TestRowRemapHistogramIsAmpereAndLater(t *testing.T) {
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		want := p.ReportsDetailedSramECC()
+		require.Equal(t, want, p.ReportsRowRemapHistogram(),
+			"%s (%s): remapped_rows.availability_histogram configured should be %v",
+			name, p.Architecture(), want)
+		if want {
+			require.Positive(t, p.RowRemapHistogramBanks(),
+				"%s: availability_histogram.max must be a real bank count", name)
+		}
+	}
+}
+
+// The SRAM layout is keyed on the architecture nvidia-smi reads, so t4 is the
+// only shipped profile on the combined side. Pinning it by name as well as by
+// architecture catches a profile that changes its architecture without the
+// expectation following.
+func TestDetailedSramECCIsAmpereAndLater(t *testing.T) {
+	for _, name := range KnownProfiles {
+		p, err := Load(profilesDir, name)
+		require.NoError(t, err, "Load(%q)", name)
+		require.Equal(t, name != "t4", p.ReportsDetailedSramECC(),
+			"%s (%s): detailed SRAM ECC rendering", name, p.Architecture())
+	}
+}
+
+// A profile with no remapped_rows block must load and report the histogram
+// unsupported rather than failing.
+func TestRowRemapHistogramDefaultsToUnsupported(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `
+device_defaults:
+  name: "NVIDIA TEST-GPU"
+devices:
+  - index: 0
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "fixture.yaml"), []byte(yaml), 0o600))
+
+	p, err := Load(dir, "fixture")
+	require.NoError(t, err, "Load(fixture)")
+	assert.False(t, p.ReportsRowRemapHistogram(), "ReportsRowRemapHistogram()")
+}

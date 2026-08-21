@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 268 stub functions for unimplemented NVML functions.
+// 264 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -394,11 +394,6 @@ func nvmlDeviceGetMinMaxFanSpeed(device C.nvmlDevice_t, minSpeed *C.uint, maxSpe
 	return stubReturn("nvmlDeviceGetMinMaxFanSpeed")
 }
 
-//export nvmlDeviceGetModuleId
-func nvmlDeviceGetModuleId(device C.nvmlDevice_t, moduleId *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetModuleId")
-}
-
 //export nvmlDeviceGetNumGpuCores
 func nvmlDeviceGetNumGpuCores(device C.nvmlDevice_t, numCores *C.uint) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetNumGpuCores")
@@ -449,11 +444,6 @@ func nvmlDeviceGetPgpuMetadataString(device C.nvmlDevice_t, pgpuMetadata *C.char
 	return stubReturn("nvmlDeviceGetPgpuMetadataString")
 }
 
-//export nvmlDeviceGetPlatformInfo
-func nvmlDeviceGetPlatformInfo(device C.nvmlDevice_t, platformInfo *C.nvmlPlatformInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetPlatformInfo")
-}
-
 //export nvmlDeviceGetPowerMizerMode_v1
 func nvmlDeviceGetPowerMizerMode_v1(device C.nvmlDevice_t, powerMizerMode *C.nvmlDevicePowerMizerModes_v1_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetPowerMizerMode_v1")
@@ -474,11 +464,6 @@ func nvmlDeviceGetRepairStatus(device C.nvmlDevice_t, repairStatus *C.nvmlRepair
 	return stubReturn("nvmlDeviceGetRepairStatus")
 }
 
-//export nvmlDeviceGetRowRemapperHistogram
-func nvmlDeviceGetRowRemapperHistogram(device C.nvmlDevice_t, values *C.nvmlRowRemapperHistogramValues_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetRowRemapperHistogram")
-}
-
 //export nvmlDeviceGetRunningProcessDetailList
 func nvmlDeviceGetRunningProcessDetailList(device C.nvmlDevice_t, plist *C.nvmlProcessDetailList_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetRunningProcessDetailList")
@@ -487,11 +472,6 @@ func nvmlDeviceGetRunningProcessDetailList(device C.nvmlDevice_t, plist *C.nvmlP
 //export nvmlDeviceGetSamples
 func nvmlDeviceGetSamples(device C.nvmlDevice_t, _type C.nvmlSamplingType_t, lastSeenTimeStamp C.ulonglong, sampleValType *C.nvmlValueType_t, sampleCount *C.uint, samples *C.nvmlSample_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetSamples")
-}
-
-//export nvmlDeviceGetSramEccErrorStatus
-func nvmlDeviceGetSramEccErrorStatus(device C.nvmlDevice_t, status *C.nvmlEccSramErrorStatus_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetSramEccErrorStatus")
 }
 
 //export nvmlDeviceGetSramUniqueUncorrectedEccErrorCounts

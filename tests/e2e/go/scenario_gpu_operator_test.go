@@ -41,7 +41,6 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 			)
 
 			BeforeAll(func(ctx SpecContext) {
-				var podName string
 				p, _, _ = setupStandaloneProfile(ctx, h, name)
 				// Not the node setupStandaloneProfile returns: that comes from
 				// FirstPodName over the nvml-mock DaemonSet, which can land on
@@ -51,8 +50,7 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 				node = gpuOperatorTargetNode(ctx, h)
 				cp, err := h.Cluster.ControlPlane(ctx)
 				Expect(err).NotTo(HaveOccurred())
-				podName = cp.Name
-				verifyGPUOperatorNodeSetup(ctx, podName)
+				verifyGPUOperatorNodeSetup(ctx, cp.Container)
 
 				// Wait belongs here, not in a spec: every spec below reads state
 				// that only the operator publishes, and `helm --wait` covers only
@@ -243,10 +241,10 @@ func rolloutRestart(ctx context.Context, h *harness.Harness, ns, ds string) {
 	Expect(err).NotTo(HaveOccurred(), "rollout status %s/%s", ns, ds)
 }
 
-func verifyGPUOperatorNodeSetup(ctx context.Context, node string) {
+func verifyGPUOperatorNodeSetup(ctx context.Context, container string) {
 	GinkgoHelper()
-	Expect(dockerExec(ctx, node, "test", "-f", "/var/run/cdi/nvidia.yaml")).To(Succeed(), "CDI spec exists")
-	Expect(dockerExec(ctx, node, "bash", "-c", "LD_LIBRARY_PATH=/run/nvidia/driver/usr/lib64 /run/nvidia/driver/usr/bin/nvidia-smi")).To(Succeed(), "nvidia-smi works via /run/nvidia/driver")
+	Expect(dockerExec(ctx, container, "test", "-f", "/var/run/cdi/nvidia.yaml")).To(Succeed(), "CDI spec exists")
+	Expect(dockerExec(ctx, container, "bash", "-c", "LD_LIBRARY_PATH=/run/nvidia/driver/usr/lib64 /run/nvidia/driver/usr/bin/nvidia-smi")).To(Succeed(), "nvidia-smi works via /run/nvidia/driver")
 }
 
 func waitOperatorValidatorRunning(ctx SpecContext, h *harness.Harness) {
@@ -261,9 +259,9 @@ func waitOperatorValidatorRunning(ctx SpecContext, h *harness.Harness) {
 	assertions.WaitPodPhase(ctx, h.Kube, gpuOperatorNamespace, pod, "Running", 5*time.Minute, config.PollInterval())
 }
 
-func dockerExec(ctx context.Context, node string, args ...string) error {
+func dockerExec(ctx context.Context, container string, args ...string) error {
 	GinkgoHelper()
-	all := append([]string{"exec", node}, args...)
+	all := append([]string{"exec", container}, args...)
 	_, err := runner.Run(ctx, "docker", all...)
 	return err
 }

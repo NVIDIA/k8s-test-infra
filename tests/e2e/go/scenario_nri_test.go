@@ -24,6 +24,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/pod"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
@@ -34,7 +35,10 @@ const (
 	nriAgentSelector  = "app=gpu-agent"
 	nriNRIDaemonSet   = "nvml-mock-nri"
 	nriPluginSelector = "app.kubernetes.io/name=nvml-mock-nri"
-	// Device-plugin composition (#440, MEP-0002).
+	// Device-plugin composition (#440, MEP-0002). Not a smaller image: the
+	// overlay stages nvidia-smi without its glibc dependencies, so the image has
+	// to supply them. busybox:1.36-glibc resolves ld-linux but ships no
+	// libdl.so.2 or librt.so.1, and nvidia-smi exits 127 there.
 	nriWorkloadImage = "debian:bookworm-slim"
 	// nriMinimalImage is the negative control for overlay self-containment
 	// (#438): glibc, so the tools' ELF interpreter resolves, but shipping no
@@ -68,6 +72,9 @@ const (
 	// nriImexChannelMajor must equal imex.mockChannels.channelMajor, which is
 	// also the major the rendered proc-devices advertises to the DRA driver.
 	nriImexChannelMajor = 235
+
+	// nriDeviceAnnotation is the per-pod opt-in for device-node injection.
+	nriDeviceAnnotation = "nvml-mock.nvidia.com/devices"
 )
 
 // Go port of docs/demo/node-wide-injection/run.sh. A dedicated Kind cluster
@@ -282,7 +289,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 		It("keeps an annotated pod's allocation intact", Label("nri-dp-suppression"), func(ctx SpecContext) {
 			pod := applyNRIWorkload(ctx, h,
 				nriRequestPodManifest("nri-dp-annotated-request", gpuNode, 1,
-					map[string]string{"nvml-mock.nvidia.com/devices": "true"}),
+					map[string]string{nriDeviceAnnotation: "true"}),
 				"nri-dp-annotated-request")
 
 			allocated := allocatedGPUUUID(ctx, h, pod)
@@ -592,7 +599,7 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 			Expect(err).NotTo(HaveOccurred(), "read baseline restart count")
 
 			By("SIGSTOP the nvml-mock-nri process on " + victim.Name)
-			wedgeNRIPlugin(ctx, victim.Name)
+			wedgeNRIPlugin(ctx, victim.Container)
 		})
 
 		// The readiness probe is the detectable half of the fail-open posture:
@@ -684,16 +691,16 @@ func nriRestartCount(ctx context.Context, h *harness.Harness, pod kube.PodRef) (
 // sent to a namespace init from within that same namespace. `kubectl exec ...
 // kill -STOP 1` is silently a no-op. From the node -- an ancestor namespace --
 // the signal is delivered.
-func wedgeNRIPlugin(ctx context.Context, node string) {
+func wedgeNRIPlugin(ctx context.Context, container string) {
 	GinkgoHelper()
-	pid := nriPluginHostPID(ctx, node)
-	_, err := runner.Run(ctx, "docker", "exec", node, "kill", "-STOP", pid)
-	Expect(err).NotTo(HaveOccurred(), "SIGSTOP nvml-mock-nri (pid %s) on %s", pid, node)
+	pid := nriPluginHostPID(ctx, container)
+	_, err := runner.Run(ctx, "docker", "exec", container, "kill", "-STOP", pid)
+	Expect(err).NotTo(HaveOccurred(), "SIGSTOP nvml-mock-nri (pid %s) on %s", pid, container)
 
 	// Confirm the process really is stopped rather than trusting kill's exit
 	// code: a wedge that did not take would make every assertion below vacuous.
 	Eventually(func() (string, error) {
-		res, err := runner.RunQuiet(ctx, "docker", "exec", node, "cat", "/proc/"+pid+"/stat")
+		res, err := runner.RunQuiet(ctx, "docker", "exec", container, "cat", "/proc/"+pid+"/stat")
 		if err != nil {
 			return "", err
 		}
@@ -703,21 +710,21 @@ func wedgeNRIPlugin(ctx context.Context, node string) {
 		}
 		return fields[2], nil // state: T = stopped
 	}).WithContext(ctx).WithTimeout(30*time.Second).WithPolling(time.Second).
-		Should(Equal("T"), "nvml-mock-nri (pid %s) on %s did not enter the stopped state", pid, node)
+		Should(Equal("T"), "nvml-mock-nri (pid %s) on %s did not enter the stopped state", pid, container)
 }
 
 // nriPluginHostPID finds the plugin process in the Kind node's PID namespace.
 // It reads /proc/<pid>/exe rather than shelling out to pgrep: procps is not
 // guaranteed in the node image, and matching on a command line would also match
 // the matching process itself.
-func nriPluginHostPID(ctx context.Context, node string) string {
+func nriPluginHostPID(ctx context.Context, container string) string {
 	GinkgoHelper()
 	const script = `for p in /proc/[0-9]*; do case "$(readlink "$p/exe" 2>/dev/null)" in */nvml-mock-nri) echo "${p##*/}";; esac; done`
-	res, err := runner.Run(ctx, "docker", "exec", node, "sh", "-c", script)
-	Expect(err).NotTo(HaveOccurred(), "locate nvml-mock-nri on %s: %s", node, res.Combined())
+	res, err := runner.Run(ctx, "docker", "exec", container, "sh", "-c", script)
+	Expect(err).NotTo(HaveOccurred(), "locate nvml-mock-nri on %s: %s", container, res.Combined())
 
 	pids := strings.Fields(res.Stdout)
-	Expect(pids).NotTo(BeEmpty(), "no nvml-mock-nri process found on %s", node)
+	Expect(pids).NotTo(BeEmpty(), "no nvml-mock-nri process found on %s", container)
 	return pids[0]
 }
 
@@ -840,116 +847,88 @@ func applyNRIWorkload(ctx context.Context, h *harness.Harness, manifest []byte, 
 	return kube.PodRef{Namespace: nriWorkloadNS, Pod: name}
 }
 
+// nriWorkload is the shared shape of this scenario's workloads: a long-lived
+// container on the standard image, in the workload namespace. Callers vary
+// placement, annotations and the GPU request from there.
+func nriWorkload(name string) pod.Spec {
+	return pod.Spec{
+		Name:      name,
+		Namespace: nriWorkloadNS,
+		Image:     nriWorkloadImage,
+		// Kept alive so specs can exec into it. Traps SIGTERM so teardown does
+		// not wait out the grace period: `sleep` as PID 1 installs no handler
+		// and the kernel discards the signal. Backgrounding it leaves the shell
+		// free to run the trap. `TERM`, not `SIGTERM`: dash is /bin/sh here and
+		// rejects the prefixed name as a bad trap, installing nothing.
+		Command: []string{"/bin/sh", "-c"},
+		Args:    []string{"trap 'exit 0' TERM; sleep 3600 & wait"},
+	}
+}
+
+// nriAnyGPUNode places a pod on whichever node carries the mock's GPU label,
+// unless the caller pinned one. Pinning matters whenever the pod observes
+// node-local state: the runtime override file lives on a per-node hostPath, so
+// an unpinned observer can be scheduled onto a different node from the workload
+// it is meant to watch and will then read a node that never saw the allocation.
+func nriAnyGPUNode(spec pod.Spec, node string) pod.Spec {
+	if node != "" {
+		spec.Node = node
+		return spec
+	}
+	spec.NodeSelector = map[string]string{gpuPresentLabel: "true"}
+	return spec
+}
+
 // nriRequestPodManifest renders a plain GPU-requesting pod: a resource request
 // and nothing else. No hostPath, no MOCK_* env, no runtimeClassName, no
-// annotation. This is the shape MEP-0002 exists to make work.
+// annotation. This is the shape MEP-0002 exists to make work. An empty node
+// leaves placement to the scheduler, which the oversubscription spec relies on.
 func nriRequestPodManifest(name, node string, gpus int, annotations ...map[string]string) []byte {
-	nodeLine := ""
-	if node != "" {
-		nodeLine = "  nodeName: " + node + "\n"
-	}
-	annotationBlock := ""
+	spec := nriWorkload(name)
+	spec.Node = node
+	spec.GPUs = gpus
+	spec.Annotations = map[string]string{}
 	for _, set := range annotations {
 		for key, value := range set {
-			if annotationBlock == "" {
-				annotationBlock = "  annotations:\n"
-			}
-			annotationBlock += "    " + key + ": \"" + value + "\"\n"
+			spec.Annotations[key] = value
 		}
 	}
-	return []byte(`apiVersion: v1
-kind: Pod
-metadata:
-  name: ` + name + `
-  namespace: ` + nriWorkloadNS + `
-` + annotationBlock + `spec:
-  restartPolicy: Never
-` + nodeLine + `  containers:
-    - name: app
-      image: ` + nriWorkloadImage + `
-      command: ["/bin/sh", "-c", "sleep 3600"]
-      resources:
-        limits:
-          nvidia.com/gpu: "` + strconv.Itoa(gpus) + `"
-`)
+	return spec.Render()
 }
 
 // nriAnnotatedPodManifest renders a pod that opts into device nodes via the
-// annotation and requests no GPU resources.
-// nriAnnotatedPodManifest renders an opt-in pod. Pass a node to pin it there.
-//
-// Pinning matters whenever the pod observes node-local state: the runtime
-// override file lives on a per-node hostPath, so an unpinned observer can be
-// scheduled onto a different node from the workload it is meant to watch and
-// will then read a node that never saw the allocation.
+// annotation and requests no GPU resources. Pass a node to pin it there.
 func nriAnnotatedPodManifest(name string, node ...string) []byte {
-	placement := "  nodeSelector:\n    nvidia.com/gpu.present: \"true\"\n"
-	if len(node) > 0 && node[0] != "" {
-		placement = "  nodeName: " + node[0] + "\n"
+	pinned := ""
+	if len(node) > 0 {
+		pinned = node[0]
 	}
-	return []byte(`apiVersion: v1
-kind: Pod
-metadata:
-  name: ` + name + `
-  namespace: ` + nriWorkloadNS + `
-  annotations:
-    nvml-mock.nvidia.com/devices: "true"
-spec:
-  restartPolicy: Never
-` + placement + `  containers:
-    - name: app
-      image: ` + nriWorkloadImage + `
-      command: ["/bin/sh", "-c", "sleep 3600"]
-`)
+	spec := nriAnyGPUNode(nriWorkload(name), pinned)
+	spec.Annotations = map[string]string{nriDeviceAnnotation: "true"}
+	return spec.Render()
 }
 
 // nriPlainPodManifest renders a pod that opts into nothing: no GPU request and
 // no device annotation. It still receives the overlay and the environment,
 // which is the node-wide NRI contract.
 func nriPlainPodManifest(name string) []byte {
-	return []byte(`apiVersion: v1
-kind: Pod
-metadata:
-  name: ` + name + `
-  namespace: ` + nriWorkloadNS + `
-spec:
-  restartPolicy: Never
-  nodeSelector:
-    nvidia.com/gpu.present: "true"
-  containers:
-    - name: app
-      image: ` + nriWorkloadImage + `
-      command: ["/bin/sh", "-c", "sleep 3600"]
-`)
+	return nriAnyGPUNode(nriWorkload(name), "").Render()
 }
 
 // nriMinimalIBPodManifest renders a run-to-completion pod on a minimal image
 // that invokes one IB tool from the overlay by absolute path. There is no
 // `sleep` wrapper and no `sh -c`: the image has no shell, which is the whole
-// point of using it.
+// point of using it. The label is what the spec selects on to read the pod's
+// logs, since it has already exited by the time they are collected.
 func nriMinimalIBPodManifest(name, tool string, args ...string) []byte {
-	argv := `"` + nriOverlayBinDir + "/" + tool + `"`
-	var argvSb937 strings.Builder
-	for _, a := range args {
-		argvSb937.WriteString(`, "` + a + `"`)
-	}
-	argv += argvSb937.String()
-	return []byte(`apiVersion: v1
-kind: Pod
-metadata:
-  name: ` + name + `
-  namespace: ` + nriWorkloadNS + `
-  labels:
-    app: ` + name + `
-spec:
-  restartPolicy: Never
-  nodeSelector:
-    nvidia.com/gpu.present: "true"
-  containers:
-    - name: app
-      image: ` + nriMinimalImage + `
-      command: [` + argv + `]
-`)
+	spec := nriAnyGPUNode(nriWorkload(name), "")
+	spec.Image = nriMinimalImage
+	// Replaces the keepalive shell wholesale; this image has none, so the trap
+	// script would reach the tool as arguments.
+	spec.Command = append([]string{nriOverlayBinDir + "/" + tool}, args...)
+	spec.Args = nil
+	spec.Labels = map[string]string{"app": name}
+	return spec.Render()
 }
 
 // runIBToolInMinimalImage applies the pod, waits for it to terminate, and
@@ -1019,23 +998,13 @@ func installNRICDIChart(ctx context.Context, h *harness.Harness, p profile.Profi
 // nriImexPodManifest renders a pod pinned to one node that optionally opts into
 // mock IMEX channel injection. It requests no GPU resources.
 func nriImexPodManifest(name, node string, wantChannels bool) []byte {
-	annotations := ""
+	spec := nriWorkload(name)
+	spec.Node = node
+	spec.Annotations = map[string]string{}
 	if wantChannels {
-		annotations = "  annotations:\n    " + nriImexAnnotation + ": \"true\"\n"
+		spec.Annotations[nriImexAnnotation] = "true"
 	}
-	return []byte(`apiVersion: v1
-kind: Pod
-metadata:
-  name: ` + name + `
-  namespace: ` + nriWorkloadNS + `
-` + annotations + `spec:
-  restartPolicy: Never
-  nodeName: ` + node + `
-  containers:
-    - name: app
-      image: ` + nriWorkloadImage + `
-      command: ["/bin/sh", "-c", "sleep 3600"]
-`)
+	return spec.Render()
 }
 
 // imexChannelNames lists the channel nodes visible inside a pod.
