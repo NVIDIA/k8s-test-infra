@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/NVIDIA/go-nvml v0.13.3-1
 	github.com/containerd/nri v0.12.2
-	github.com/go-chi/chi/v5 v5.3.1
+	github.com/go-chi/chi/v5 v5.3.2
 	github.com/onsi/ginkgo/v2 v2.32.1
 	github.com/onsi/gomega v1.42.1
 	github.com/stretchr/testify v1.12.1
