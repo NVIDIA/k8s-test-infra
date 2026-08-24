@@ -120,21 +120,7 @@ func compileState(data []byte) (*agent.State, error) {
 		},
 	}
 
-	// Resolve device count: profile list → system.num_devices → GPU_COUNT env (runtime).
-	// TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): GPU_COUNT is a bootstrap shim until the Profile/Runtime split lands —
-	// runtime overrides (active device count, faults, fabric) should flow through
-	// a dedicated Runtime state populated by MEP-0001 CP and nvml-mock-ctl, not
-	// via env vars read inside compileState.
-	numDevices := len(cfg.Devices)
-	if numDevices == 0 {
-		numDevices = 8
-	}
-	if cfg.System.NumDevices > 0 {
-		numDevices = cfg.System.NumDevices
-	}
-	if v, err := strconv.Atoi(os.Getenv("GPU_COUNT")); err == nil && v > 0 && v < numDevices {
-		numDevices = v
-	}
+	numDevices := resolveDeviceCount(cfg)
 	state.NodeShape.NumGPUs = numDevices
 
 	// PCIe topology
@@ -171,6 +157,25 @@ func compileState(data []byte) (*agent.State, error) {
 	}
 
 	return state, nil
+}
+
+// resolveDeviceCount returns the active GPU count from the profile, applying
+// system.num_devices and then the GPU_COUNT env var as successive overrides.
+// TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): GPU_COUNT is a
+// bootstrap shim — runtime overrides should flow through a dedicated Runtime
+// state populated by MEP-0001 CP and nvml-mock-ctl, not via env vars here.
+func resolveDeviceCount(cfg engine.YAMLConfig) int {
+	n := len(cfg.Devices)
+	if n == 0 {
+		n = 8
+	}
+	if cfg.System.NumDevices > 0 {
+		n = cfg.System.NumDevices
+	}
+	if v, err := strconv.Atoi(os.Getenv("GPU_COUNT")); err == nil && v > 0 && v < n {
+		n = v
+	}
+	return n
 }
 
 func buildDeviceSpec(i int, defaults engine.DeviceConfig, devices []engine.DeviceOverride) agent.DeviceSpec {
