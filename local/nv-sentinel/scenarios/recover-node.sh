@@ -35,7 +35,7 @@ WORKLOAD_SELECTOR="app=gpu-sample-workload"
 
 # The recovery waits on the same round trip as the detection: the mock's override
 # TTL, the DCGM poll, the health monitor's own interval, then the healthy event's
-# trip through MongoDB to fault-quarantine. Measured at 10-17s on this path, so
+# trip through MongoDB to fault-quarantine. Measured at 10-16s on this path, so
 # the budget is deliberately generous — it costs nothing on a run whose assertion
 # passes.
 POLL_ATTEMPTS="${POLL_ATTEMPTS:-60}"

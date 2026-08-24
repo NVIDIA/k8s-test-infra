@@ -157,19 +157,36 @@ printf '==> waiting for the GPU workload to be Running where a fault can be inje
 workload_pod=""
 target_node=""
 target_pod=""
+workload_count=0
 for _ in $(seq 1 "${POLL_ATTEMPTS}"); do
-  read -r workload_pod target_node <<<"$(workload_state | head -1)"
-  if [[ -n "${target_node}" ]]; then
-    target_pod=$(mock_pod_on "${target_node}")
-    if [[ -n "${target_pod}" ]]; then
-      break
+  workload_pods=$(workload_state)
+  workload_count=$(grep -c . <<<"${workload_pods}" || true)
+  # Exactly one pod, not the first of however many. The selection below takes
+  # one line and phase 2 then passes as soon as a workload pod with a different
+  # name is Running elsewhere — which a second replica already satisfies before
+  # node-drainer evicts anything, turning the drain assertion back into "the
+  # workload is somewhere else". The workload ships replicas: 1
+  # (gpu-workload.k8s.yaml), so this asserts the invariant the code already
+  # depends on rather than adding a new constraint.
+  #
+  # Polled rather than failed on the spot: a rollout may briefly surge to two
+  # Running pods, and that resolves on its own.
+  if [[ "${workload_count}" == "1" ]]; then
+    read -r workload_pod target_node <<<"${workload_pods}"
+    if [[ -n "${target_node}" ]]; then
+      target_pod=$(mock_pod_on "${target_node}")
+      if [[ -n "${target_pod}" ]]; then
+        break
+      fi
     fi
   fi
   sleep "${POLL_INTERVAL_S}"
 done
 if [[ -z "${target_pod}" ]]; then
   diagnose ${gpu_nodes}
-  if [[ -n "${target_node}" ]]; then
+  if [[ "${workload_count}" -gt 1 ]]; then
+    fail "${workload_count} pods match ${WORKLOAD_SELECTOR} in ${WORKLOAD_NAMESPACE} after ~${POLL_BUDGET_S}s, and this scenario needs exactly one: with a sibling replica already Running on the healthy worker, the eviction assertion in phase 2 is satisfied by that sibling and would pass without node-drainer evicting anything. Scale gpu-sample-workload back to the replicas: 1 that local/nv-sentinel/gpu-workload.k8s.yaml declares."
+  elif [[ -n "${target_node}" ]]; then
     fail "the GPU workload (${workload_pod}) is Running on ${target_node}, but no nvml-mock pod is Running there after ~${POLL_BUDGET_S}s, so the fault cannot be injected on the node whose drain this scenario asserts. Inspect \`kubectl -n ${MOKKA_NAMESPACE} get pods -l app.kubernetes.io/name=nvml-mock -o wide\`."
   else
     fail "no Running pod matches ${WORKLOAD_SELECTOR} in ${WORKLOAD_NAMESPACE} after ~${POLL_BUDGET_S}s. Without one there is nothing for node-drainer to evict, so a drain could not be observed even if NVSentinel performed it. Inspect \`kubectl -n ${WORKLOAD_NAMESPACE} get pods -l ${WORKLOAD_SELECTOR} -o wide\`."
