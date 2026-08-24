@@ -1,33 +1,79 @@
 # libpcisysfs
 
-LD_PRELOAD shim that redirects `/sys/bus/pci/...` and `/sys/devices/pci...` lookups to `$MOCK_PCI_ROOT`, making `lspci` 
-and topology-aware schedulers enumerate mock GPU BDFs from a rendered sysfs tree instead of the real one.
+`libpcisysfs.so` is an `LD_PRELOAD` shim that redirects PCI sysfs accesses to a fake filesystem tree.
 
-## Build
+It is useful for testing software that discovers or inspects PCI devices without exposing or depending on the host's real PCI topology.
 
-```sh
-make
+## How it works
+
+When `MOCK_PCI_ROOT` is set, accesses under:
+
+```text
+/sys/bus/pci
+/sys/bus/pci/devices
+/sys/devices/pci*
 ```
 
-Produces `libpcisysfs.so.1.0.0` with `.so.1` and `.so` symlinks.
+are rewritten by prepending `MOCK_PCI_ROOT`.
 
-## Use
+For example:
 
-```sh
-MOCK_PCI_ROOT=/var/lib/nvml-mock LD_PRELOAD=/usr/local/lib/libpcisysfs.so.1 lspci
+```text
+/sys/bus/pci/devices/0000:07:00.0/config
 ```
 
-Set `MOCK_PCI_ROOT` to the root passed to `render.Render` (the node agent writes the tree there). Unset or empty disables all redirection.
+with:
 
-## Intercepted syscalls
-
-`open`/`open64`/`openat`/`openat64` (including `_FORTIFY_SOURCE` `__open_2` variants), `fopen`/`fopen64`, `opendir`, `stat`/`lstat`/`fstatat`/`statx`, `access`/`faccessat`, `readlink`/`readlinkat`.
-
-## Test
-
-Integration tests require Linux and the shim to be built:
-
-```sh
-make
-go test -tags integration -v .
+```bash
+MOCK_PCI_ROOT=/tmp/mock-pci
 ```
+
+becomes:
+
+```text
+/tmp/mock-pci/sys/bus/pci/devices/0000:07:00.0/config
+```
+
+All unrelated paths pass through unchanged.
+
+The library intercepts common libc filesystem APIs including:
+
+* `open`, `open64`, `openat`, `openat64`
+* fortified `__open*_2` variants
+* `fopen`, `fopen64`
+* `opendir`
+* `stat`, `lstat`, `fstatat`, `statx`
+* `access`, `faccessat`
+* `readlink`, `readlinkat`
+
+The real libc implementations are called through `dlsym(RTLD_NEXT, ...)`.
+
+## Usage
+
+Create a fake tree that mirrors the expected PCI sysfs layout:
+
+```text
+/tmp/mock-pci/
+└── sys/
+    └── bus/
+        └── pci/
+            └── devices/
+                └── 0000:07:00.0/
+                    ├── config
+                    ├── resource
+                    └── vendor
+```
+
+Then run the target process with the shim preloaded:
+
+```bash
+MOCK_PCI_ROOT=/tmp/mock-pci \
+LD_PRELOAD=/path/to/libpcisysfs.so \
+lspci
+```
+
+If `MOCK_PCI_ROOT` is unset, the library is a no-op.
+
+## Scope
+
+This is userspace libc interposition. It does not modify, mount, or virtualize the real `/sys` filesystem and only affects processes started with the library preloaded.
