@@ -168,14 +168,18 @@ def _install_workload():
 
 
 def _register_scenarios():
-    """Register the quarantine scenario as a manual trigger.
+    """Register the quarantine and recovery scenarios as manual triggers.
 
     Manual (auto_init=False), mirroring the observability and compute-domain
-    scenarios: it injects into a live stack and asserts what NVSentinel does
-    about it, so it is something you do while watching, not part of bring-up.
-    It exits non-zero on failure, which turns the Tilt resource red.
+    scenarios: they inject into a live stack and assert what NVSentinel does
+    about it, so they are something you do while watching, not part of bring-up.
+    Both exit non-zero on failure, which turns the Tilt resource red.
+
+    recover-node refuses to run unless a node is actually quarantined, so the
+    order is quarantine-node then recover-node; it is not a cleanup step for a
+    healthy cluster.
     """
-    for scenario in ['quarantine-node']:
+    for scenario in ['quarantine-node', 'recover-node']:
         local_resource(
             scenario,
             cmd='bash local/nv-sentinel/scenarios/%s.sh' % scenario,
