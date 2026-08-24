@@ -13,6 +13,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: gpu-sample-workload
+  # Explicit, because the scenarios hardcode `default` as WORKLOAD_NAMESPACE: an
+  # implicit namespace would follow whatever the kubeconfig's context selects and
+  # the assertions would then look for the workload somewhere it is not.
+  namespace: default
   labels:
     app: gpu-sample-workload
 spec:
