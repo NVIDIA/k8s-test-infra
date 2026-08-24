@@ -192,10 +192,15 @@ containers run Bitnami-only startup scripts — unusable on Apple Silicon. So th
 runs a plain `mongo:8.0.3` single-node replica set (change streams need one) as an
 external datastore, with TLS from cert-manager.
 
-**The control-plane runs an `nvml-mock` pod but is never treated as a GPU node.**
-No GPU Operator operand lands there, so it advertises no `nvidia.com/gpu` and has
-no DCGM to detect anything with. Both scenarios filter on the advertised resource
-for exactly that reason, and the workload needs no node selector.
+**The control-plane runs an `nvml-mock` pod but advertises no `nvidia.com/gpu`.**
+The reason is narrow, and it is not that the node looks GPU-free — it carries
+`nvidia.com/gpu.present=true` and `nvsentinel.dgxc.nvidia.com/driver.installed=true`,
+and NVSentinel's `metadata-collector` schedules there on exactly those two labels.
+What does not land there is the GPU Operator's **device plugin**: its only
+toleration is `nvidia.com/gpu:NoSchedule`, which does not cover the
+`node-role.kubernetes.io/control-plane:NoSchedule` taint, so nothing ever
+advertises the resource on that node. Both scenarios filter on the advertised
+resource for exactly that reason, and the workload needs no node selector.
 
 **`dcgm-exporter` crash-looping for a few minutes on a cold cluster.** Enabling
 the standalone DCGM makes the Operator hand `dcgm-exporter` a
@@ -217,6 +222,42 @@ persistent storage, so its TSDB restarts empty and the temperature step from
 before the fault is gone from the dashboard. The remediation worked exactly as
 asserted; if you want the whole step in one graph, check which worker Prometheus
 is on first.
+
+**`inject-thermal` quarantining a worker, under `--observability`.** Not a bug
+either, but the one interaction that leaves the cluster worse off, so know it
+before you run both sets of triggers. `--observability`'s `inject-thermal` pins
+GPU 0 to a fixed **90 °C**, chosen to clear the *shutdown* threshold of every
+`--gpu-profile` — nothing about the *slowdown* threshold this consumer keys on.
+`GpuThermalMarginWatch` fails when the pinned temperature is **strictly above**
+that threshold, so whether the observability trigger doubles as a fault injection
+depends entirely on the active profile:
+
+| `--gpu-profile` | `slowdown_threshold_c` | 90 °C pin |
+|---|---|---|
+| `h100` | 87 °C | **quarantines the worker** |
+| `gb300` (default), `b200`, `gb200` | 90 °C | lands exactly on the limit, no fault |
+| `l40s` | 93 °C | no fault |
+
+On `h100` the pin is the very fault `quarantine-node` injects, so NVSentinel
+cordons the worker and drains it — evicting Prometheus itself if it lives there.
+Two consequences then follow:
+
+- **`inject-thermal` can red-fail a run that did nothing wrong.** Detection is
+  ~15 s while the scenario budgets 25–45 s for the pin to reach Prometheus, so the
+  drain can land on top of its own closing queries.
+- **The worker stays cordoned.** `inject-thermal` leaves the pin in place on
+  purpose, so nothing lifts the quarantine on its own.
+
+Clear the pin and NVSentinel uncordons within ~15 s; `recover-node` does both and
+asserts it:
+
+```bash
+bash local/nv-sentinel/scenarios/recover-node.sh
+```
+
+To keep the dashboard step on any profile without the remediation, pin below
+every slowdown threshold and above the simulator's own 73 °C ceiling:
+`HOT_TEMP_C=80 bash local/observability/scenarios/inject-thermal.sh`.
 
 **Slow bring-up under host CPU pressure.** This stack runs the GPU Operator,
 DCGM, MongoDB and the full NVSentinel pipeline, so on a busy machine — several

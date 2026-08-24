@@ -100,6 +100,35 @@ wander onto the injected value and fake a scope leak, and at or below the lowest
 threshold of any profile (92 °C on a100/h100). A higher `HOT_TEMP_C` is rejected
 up front rather than timing out on a value the mock would never report.
 
+## Running `inject-thermal` alongside `--nv-sentinel`
+
+The 90 °C default is chosen against each profile's *shutdown* threshold. Nothing
+here reads the **slowdown** threshold, which is lower — 87 °C on a100/h100, 90 °C
+on b200/gb200/gb300, 93 °C on l40s/t4 — so plain `--observability` never notices
+that the pin can exceed it. Add [`--nv-sentinel`](../nv-sentinel/README.md), whose
+whole purpose is to remediate a slowdown violation, and on some profiles the same
+pin becomes a fault:
+
+> Under `tilt up -- --observability --nv-sentinel --gpu-profile h100`,
+> `inject-thermal` **cordons and drains the target worker.** h100 slows down at
+> 87 °C, so a 90 °C pin opens the negative T.Limit margin NVSentinel acts on — the
+> same fault `quarantine-node` injects. Two things follow. The scenario can
+> **red-fail on its own closing queries**, because detection takes ~15 s while it
+> allows 25–45 s for the pin to reach Prometheus; and the **worker stays
+> cordoned**, because `inject-thermal` deliberately leaves the pin in place. If
+> Prometheus was on that worker the drain evicts it, restarting its TSDB and
+> taking the temperature step with it.
+>
+> Get the worker back by clearing the pin, which NVSentinel acts on within ~15 s:
+> `bash local/nv-sentinel/scenarios/recover-node.sh`.
+
+The watch fails only when the pin is **strictly above** the profile's slowdown
+threshold, so `--nv-sentinel`'s default `gb300` (90 °C) and `b200`/`gb200` land
+exactly on the limit and are unaffected, and `l40s` is clear of it. To be
+independent of the profile, pin below every slowdown threshold and above the
+simulator's own 73 °C ceiling:
+`HOT_TEMP_C=80 bash local/observability/scenarios/inject-thermal.sh`.
+
 ## Two couplings that fail silently
 
 Both are pinned in this directory with comments naming them, so they move
