@@ -183,8 +183,10 @@ def _register_scenarios():
         local_resource(
             scenario,
             cmd='bash local/nv-sentinel/scenarios/%s.sh' % scenario,
-            # The workload is the drainer's eviction target, so it must exist
-            # before a quarantine can demonstrate anything.
+            # quarantine-node needs the workload as the drainer's eviction
+            # target. recover-node only reports where it ended up, but shares
+            # the dependency because it recovers what quarantine-node did, so
+            # offering it before that can run would only invite a failed run.
             resource_deps=['gpu-sample-workload'],
             auto_init=False,
             labels=['nv-sentinel-tests'],

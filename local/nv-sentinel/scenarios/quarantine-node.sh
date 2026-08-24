@@ -128,7 +128,7 @@ done
 
 printf '==> waiting for every GPU node to be schedulable before injecting anything\n'
 cordoned_gpu_nodes() {
-  kubectl get nodes -o go-template='{{range .items}}{{if index .status.allocatable "nvidia.com/gpu"}}{{if .spec.unschedulable}}{{.metadata.name}}{{" "}}{{end}}{{end}}{{end}}'
+  kubectl get nodes -o go-template='{{range .items}}{{if index .status.allocatable "nvidia.com/gpu"}}{{if .spec.unschedulable}}{{.metadata.name}}{{"\n"}}{{end}}{{end}}{{end}}'
 }
 still_cordoned=""
 for _ in $(seq 1 "${POLL_ATTEMPTS}"); do
@@ -140,7 +140,7 @@ for _ in $(seq 1 "${POLL_ATTEMPTS}"); do
 done
 if [[ -n "${still_cordoned}" ]]; then
   diagnose ${gpu_nodes}
-  fail "GPU node(s) ${still_cordoned% } still cordoned ~${POLL_BUDGET_S}s after clearing every GPU override. If they were cordoned by hand, \`kubectl uncordon\` them; otherwise a health check other than the thermal margin is still failing and this scenario can neither attribute a cordon to its own fault nor drain onto a healthy node."
+  fail "GPU node(s) $(tr '\n' ' ' <<<"${still_cordoned}") still cordoned ~${POLL_BUDGET_S}s after clearing every GPU override. If they were cordoned by hand, \`kubectl uncordon\` them; otherwise a health check other than the thermal margin is still failing and this scenario can neither attribute a cordon to its own fault nor drain onto a healthy node."
 fi
 
 # --- target selection: the node the workload is on RIGHT NOW -----------------

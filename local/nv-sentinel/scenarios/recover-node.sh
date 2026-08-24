@@ -35,8 +35,9 @@ WORKLOAD_SELECTOR="app=gpu-sample-workload"
 
 # The recovery waits on the same round trip as the detection: the mock's override
 # TTL, the DCGM poll, the health monitor's own interval, then the healthy event's
-# trip through MongoDB to fault-quarantine. Measured at 10-21s, so the budget is
-# deliberately generous — it costs nothing on a run whose assertion passes.
+# trip through MongoDB to fault-quarantine. Measured at 10-17s on this path, so
+# the budget is deliberately generous — it costs nothing on a run whose assertion
+# passes.
 POLL_ATTEMPTS="${POLL_ATTEMPTS:-60}"
 POLL_INTERVAL_S="${POLL_INTERVAL_S:-5}"
 POLL_BUDGET_S=$((POLL_ATTEMPTS * POLL_INTERVAL_S))
@@ -96,6 +97,37 @@ mock_ctl_on() {
   kubectl -n "${MOKKA_NAMESPACE}" exec "${pod}" -- nvml-mock-ctl "$@"
 }
 
+# The slowdown limit of the profile the mock on $1 loaded, so a pinned
+# temperature can be judged hot rather than merely present. It differs per
+# --gpu-profile (87C on h100, 90C on b200/gb200/gb300, 93C on l40s), so it is
+# read out of the pod rather than hardcoded. /etc/nvml-mock/config.yaml is the
+# chart's rendered profile, mounted read-only into the pod; each key appears
+# once, under device_defaults.thermal.
+#
+# Deliberately a second copy of quarantine-node.sh's reader rather than a shared
+# library: scenario scripts in this repo are self-contained, so each one can be
+# read, and run, on its own.
+threshold() {
+  kubectl -n "${MOKKA_NAMESPACE}" exec "$1" -- \
+    grep -m1 -E "^[[:space:]]*$2:" /etc/nvml-mock/config.yaml \
+    | sed -E 's/.*:[[:space:]]*([0-9]+).*/\1/'
+}
+
+# The hottest temperature any GPU on $1's mock is pinned to, or empty if none is.
+# Both keys are read because `nvml-mock-ctl temp` writes both — the static
+# thermal reading and the zero-variance dynamic block that masks it when
+# gpu.dynamicMetrics is on, which this consumer's overlay enables.
+hottest_pinned_temp() {
+  grep -E '^[[:space:]]*(temperature_gpu_c|base_c):' <<<"$1" \
+    | sed -E 's/.*:[[:space:]]*([0-9]+).*/\1/' | sort -n | tail -1
+}
+
+# Every failure that turns on the overrides prints them: the guards below are the
+# ones an operator is most likely to hit by hand, and the dump is what says why.
+dump_overrides() {
+  printf '\n--- nvml-mock-ctl status on %s (%s) ---\n%s\n\n' "$1" "$2" "$3"
+}
+
 # The standalone DCGM pods, each with its container's restart count. Sampled
 # either side of the recovery so the "no DCGM restart" line this script prints at
 # the end is an assertion rather than a claim. Pod names are part of the sample:
@@ -117,7 +149,7 @@ printf '==> cordoned GPU nodes: %s\n' "$(tr '\n' ' ' <<<"${cordoned_nodes}")"
 # its recovery does not first destroy the evidence it would have needed. Each
 # guard rejects a node whose eventual state says nothing about this run: one
 # NVSentinel is not holding, one held by a check no temperature override
-# governs, or one with no fault left to clear.
+# governs, or one with no GPU pinned hot enough to be the fault.
 mock_pods=()
 for node in ${cordoned_nodes}; do
   read -r cordon marker margin <<<"$(node_state "${node}")"
@@ -134,19 +166,33 @@ for node in ${cordoned_nodes}; do
   if [[ -z "${pod}" ]]; then
     fail "no Running nvml-mock pod on the cordoned node ${node}, so its GPU overrides cannot be cleared. node-drainer skips DaemonSets, so one should have survived the drain: \`kubectl -n ${MOKKA_NAMESPACE} get pods -l app.kubernetes.io/name=nvml-mock -o wide\`."
   fi
-  # The pinned temperature is the fault this run clears. Without one the node
-  # would uncordon on its own timing and "NVSentinel uncordoned it" would be
-  # true of a run that did nothing — the exact vacuous pass this scenario is
-  # most exposed to. `|| true` keeps a failed exec out of `set -e` so the guard,
-  # and kubectl's own stderr, get to explain it.
+  # A GPU pinned past its slowdown limit is the fault this run clears. Without
+  # one the node would uncordon on its own timing and "NVSentinel uncordoned it"
+  # would be true of a run that did nothing — the exact vacuous pass this
+  # scenario is most exposed to. The value is compared, not merely found: a cold
+  # pin from a by-hand session is an override this run can clear but not a fault
+  # GpuThermalMarginWatch can be failing on, so accepting it would pass the
+  # guard on a node whose recovery is somebody else's.
+  #
+  # `|| true` keeps a failed exec out of `set -e` so the guards, and kubectl's
+  # own stderr, get to explain it.
   overrides=$(mock_ctl_on "${pod}" status || true)
-  if ! grep -q '^[[:space:]]*temperature_gpu_c:' <<<"${overrides}"; then
-    printf '\n--- nvml-mock-ctl status on %s (%s) ---\n%s\n\n' "${node}" "${pod}" "${overrides}"
+  slowdown_c=$(threshold "${pod}" slowdown_threshold_c || true)
+  hottest_c=$(hottest_pinned_temp "${overrides}" || true)
+  if [[ ! "${slowdown_c}" =~ ^[0-9]+$ ]]; then
+    fail "could not read slowdown_threshold_c from /etc/nvml-mock/config.yaml on ${pod} (got '${slowdown_c}'); any kubectl error above says why. Without it a pinned temperature cannot be judged hot, and clearing one proves nothing."
+  fi
+  if [[ ! "${hottest_c}" =~ ^[0-9]+$ ]]; then
+    dump_overrides "${node}" "${pod}" "${overrides}"
     fail "no temperature override is pinned on ${node} (its override dump is above), so this run has no thermal fault to clear and the uncordon it would go on to assert would happen with or without it. Run quarantine-node first."
   fi
+  if [[ "${hottest_c}" -lt "${slowdown_c}" ]]; then
+    dump_overrides "${node}" "${pod}" "${overrides}"
+    fail "the hottest GPU pinned on ${node} is at ${hottest_c}C, below this profile's slowdown threshold of ${slowdown_c}C (its override dump is above), so nothing there is hot enough for GpuThermalMarginWatch to be failing on it and clearing the pin is not what would recover the node. A cold pin left behind by a by-hand session reads exactly like this. Run quarantine-node first."
+  fi
   mock_pods+=("${node}=${pod}")
-  printf '    %s: quarantined by fault-quarantine over GpuThermalMarginWatch, GPU pinned hot via %s\n' \
-    "${node}" "${pod}"
+  printf '    %s: quarantined by fault-quarantine over GpuThermalMarginWatch, hottest GPU pinned at %sC against a %sC slowdown limit via %s\n' \
+    "${node}" "${hottest_c}" "${slowdown_c}" "${pod}"
 done
 
 dcgm_before=$(dcgm_restarts)
@@ -201,7 +247,7 @@ done
 still_cordoned=$(cordoned_gpu_nodes)
 if [[ -n "${still_cordoned}" ]]; then
   diagnose ${still_cordoned}
-  fail "GPU node(s) $(tr '\n' ' ' <<<"${still_cordoned}") are cordoned now but were not when this run started, so a fault this run never cleared is being detected — most likely a temperature override on a node that was schedulable at the start. \`kubectl -n ${MOKKA_NAMESPACE} exec <that node's mock pod> -- nvml-mock-ctl reset --gpu all\` clears it; quarantine-node also clears every pin fleet-wide before it injects."
+  fail "GPU node(s) $(tr '\n' ' ' <<<"${still_cordoned}") are cordoned now, so a fault this run never cleared is being detected — most likely a temperature override on a node that was schedulable when this run started, though a node it did recover being re-quarantined since would look the same. \`kubectl -n ${MOKKA_NAMESPACE} exec <that node's mock pod> -- nvml-mock-ctl reset --gpu all\` clears it; quarantine-node also clears every pin fleet-wide before it injects."
 fi
 
 dcgm_after=$(dcgm_restarts)
@@ -214,7 +260,7 @@ fi
 # Not asserted on, deliberately: a Deployment does not move a Running pod back,
 # so the workload stays on the node quarantine-node drained it onto. The node
 # coming back means it can be scheduled there again, not that anything migrates.
-printf '\n--- the GPU workload, unmoved by the recovery ---\n'
+printf "\n--- the GPU workload's placement ---\n"
 kubectl -n "${WORKLOAD_NAMESPACE}" get pods -l "${WORKLOAD_SELECTOR}" -o wide || true
 kubectl get nodes || true
 printf '\n==> recover-node passed: the thermal margin re-opened and NVSentinel uncordoned every quarantined node.\n'
