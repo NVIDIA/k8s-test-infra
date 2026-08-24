@@ -380,7 +380,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: a66f0f0e6622369198c9e8ba677b92c714c8e25783dba2e5ae6cf7028fecb927
+            checksum/config: b521d8084a13dcabcdfdfb3d91eeb60da163e980aab6db65779b7c7d9723cde9
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME
@@ -393,7 +393,7 @@ should match snapshot with default values:
                 - name: GPU_COUNT
                   value: "8"
                 - name: DRIVER_VERSION
-                  value: 550.163.01
+                  value: 570.124.06
                 - name: NODE_NAME
                   valueFrom:
                     fieldRef:
