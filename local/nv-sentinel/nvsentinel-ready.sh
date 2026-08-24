@@ -39,6 +39,11 @@ DCGM_DAEMONSET="nvidia-dcgm"
 # to compare against. See the armed assertion at the bottom of this script.
 ARMED_LOG="Watching DCGM field 153"
 DISARMED_LOG="missing slowdown TLIMIT threshold metadata"
+# The line the monitor logs during DCGM init with the GPU ids nv-hostengine
+# actually handed it, e.g. "dcgm gpu_id are [0, 1, ... 7]". It is the only
+# positive evidence in the log that anything is behind the watch, and both
+# checks above are blind without it: see the enumeration assertion below.
+ENUMERATED_LOG="dcgm gpu_id are"
 POLL_ATTEMPTS="${POLL_ATTEMPTS:-60}"
 POLL_INTERVAL_S="${POLL_INTERVAL_S:-5}"
 # A separate, much larger budget for the two waits that sit behind a first-time
@@ -327,6 +332,61 @@ done
 [[ "${monitors_armed}" == "true" ]] \
   || fail "the GPU health monitors never logged \"${ARMED_LOG}\" within ~$((WATCH_POLL_ATTEMPTS * POLL_INTERVAL_S))s (${unarmed:-no monitor pod was checked}), so the DCGM field-153 watch was never set up and a heated GPU would be detected by nothing. Check gpu-health-monitor.dcgmFieldsMonitoring in local/nv-sentinel/nvsentinel.values.yaml and \`kubectl -n ${NAMESPACE} logs -l ${MONITOR_SELECTOR}\`."
 
+# Neither check around this one can see a monitor that enumerated ZERO GPUs, and
+# that is a reachable state rather than a theoretical one: nv-hostengine pointed
+# at a driver root with no mock library comes up healthy and serves :5555 with an
+# empty device list, so the DCGM endpoint gate above is satisfied too. The
+# monitor then logs ARMED_LOG (it is gated on the field watch being set up, not
+# on the group being non-empty), its per-GPU evaluation loop iterates an empty
+# list, and DISARMED_LOG is therefore absent for the same reason it is absent on
+# a perfectly healthy node. Every check in this script passes over a fleet
+# monitored by nothing.
+#
+# ENUMERATED_LOG is what discriminates, because it carries the list itself. It is
+# logged in the same DCGM-init block as ARMED_LOG, a millisecond before it, so a
+# monitor past the poll above has already printed it — no second poll is needed
+# and a missing line is a real failure rather than a race.
+printf '==> asserting nv-hostengine handed every monitor a non-empty GPU list\n'
+# The GPU ids from the LAST init in the log: the monitor re-runs DCGM init after
+# a connectivity failure, and the most recent list is the one it now evaluates.
+# Absent output means the line itself is missing, which is a different failure
+# from an empty list and gets its own message below.
+monitor_gpu_count() {
+  awk 'match($0, /dcgm gpu_id are \[[^]]*\]/) {
+         ids = substr($0, RSTART, RLENGTH)
+         sub(/^dcgm gpu_id are \[/, "", ids)
+         sub(/\]$/, "", ids)
+         count = split(ids, _drop, ",")
+         found = 1
+       }
+       END { if (found) print count }' <<<"$1"
+}
+monitored_gpus=0
+for pod in ${monitors}; do
+  monitor_log="$(kube -n "${NAMESPACE}" logs "${pod}")" \
+    || fail "could not read the ${pod} log to count the GPUs behind its thermal-margin watch: $(kube_err)"
+  gpu_count="$(monitor_gpu_count "${monitor_log}")"
+  [[ -n "${gpu_count}" ]] \
+    || fail "${pod} logged \"${ARMED_LOG}\" but never \"${ENUMERATED_LOG}\", so how many GPUs its watch covers cannot be established from its log and \"armed\" here would assert nothing. The gpu-health-monitor image logs both during DCGM init; a version that dropped the line needs this check re-pointed at whatever replaced it."
+  ((gpu_count > 0)) \
+    || fail "nv-hostengine handed ${pod} an EMPTY GPU list (\"${ENUMERATED_LOG} []\"), so its thermal-margin watch evaluates no GPU and the node is monitored by nothing — while every other check here passes, because the per-GPU \"${DISARMED_LOG}\" message this script watches for is emitted inside the loop over that empty list. Usual cause: NVIDIA_DRIVER_ROOT in local/nv-sentinel/gpu-operator.values.yaml not pointing at the path the nvml-mock DaemonSet stages libnvidia-ml.so on, which leaves a healthy hostengine with no devices behind it."
+  # Cross-check against the node, so a hostengine that found SOME of the mock's
+  # GPUs is caught too. Only when the node advertises the resource: the monitor
+  # DaemonSet selects on a DCGM-version label, not on the device plugin, so a
+  # monitor on a node the plugin does not cover is a separate condition and not
+  # one this count can speak to.
+  pod_node="$(kube -n "${NAMESPACE}" get pod "${pod}" -o 'jsonpath={.spec.nodeName}')" \
+    || fail "could not read which node ${pod} runs on: $(kube_err)"
+  node_gpus="$(kube get node "${pod_node}" -o 'jsonpath={.status.capacity.nvidia\.com/gpu}')" \
+    || fail "could not read ${pod_node}'s advertised nvidia.com/gpu: $(kube_err)"
+  if [[ "${node_gpus}" =~ ^[1-9][0-9]*$ ]] && ((gpu_count != node_gpus)); then
+    fail "nv-hostengine handed ${pod} ${gpu_count} GPU(s) but ${pod_node} advertises ${node_gpus}, so $((node_gpus - gpu_count)) GPU(s) on that node are outside the thermal-margin watch and a fault on one of them would be detected by nothing. Compare \`kubectl -n ${NAMESPACE} logs ${pod} | grep '${ENUMERATED_LOG}'\` against \`kubectl -n ${DCGM_NAMESPACE} exec ds/${DCGM_DAEMONSET} -- dcgmi discovery -l\`."
+  fi
+  printf '    %s on %s: %s GPU(s) enumerated, %s advertised\n' \
+    "${pod}" "${pod_node}" "${gpu_count}" "${node_gpus:-none}"
+  monitored_gpus=$((monitored_gpus + gpu_count))
+done
+
 # The armed line alone is not proof: it is printed when the field watch is set
 # up, before any GPU's metadata is read, so it appears on a pre-Ada profile too.
 # The disarmed message is what discriminates, and the monitor re-logs it per GPU
@@ -363,5 +423,5 @@ while ((observed_s < observe_s)); do
   done
 done
 
-printf 'OK: GpuThermalMarginWatch is armed on all %s health monitor(s)\n' \
-  "${running_monitors}"
+printf 'OK: GpuThermalMarginWatch is armed on all %s health monitor(s), over %s GPU(s)\n' \
+  "${running_monitors}" "${monitored_gpus}"
