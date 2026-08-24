@@ -75,6 +75,8 @@ Prometheus and Grafana images pull. Do not kill a `tilt up` that looks stuck on
 |---|---|---|
 | `jetstack` | — | Helm repo for cert-manager |
 | `cert-manager` | `cert-manager` | v1.19.1, the TLS dependency of both MongoDB and NVSentinel |
+| `mongodb-certs` | `nvsentinel` | The namespace, the self-signed CA and the two Certificates MongoDB serves TLS from |
+| `mongodb-certs-ready` | — | `kubectl wait` on both Certificates, so the Secret exists before anything mounts it |
 | `mongodb-ext` | `nvsentinel` | Single-node replica set (`rs0`) on the official multi-arch image, serving TLS from a cert-manager certificate |
 | `mongodb-ext-rs-init` | `nvsentinel` | One-shot Job running `rs.initiate()` |
 | `nvsentinel` | `nvsentinel` | The chart, v1.15.0, installed deliberately **without** `--wait` |

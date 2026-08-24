@@ -38,6 +38,12 @@ _CERT_MANAGER_NAMESPACE = 'cert-manager'
 # Pinned to the version docs/demo/nv-sentinel/run.sh installs.
 _CERT_MANAGER_VERSION = 'v1.19.1'
 _CERT_MANAGER_REPO_RESOURCE = 'jetstack'
+_MONGODB_CERTS_RESOURCE = 'mongodb-certs'
+_MONGODB_CERTS_READY_RESOURCE = 'mongodb-certs-ready'
+# Self-signed issuance is a sub-second operation once cert-manager's webhook is
+# live, which the release above already waited for. The budget is for a Kind
+# cluster busy pulling GPU Operator operands, not for the crypto.
+_CERT_READY_TIMEOUT_S = 180
 _NVSENTINEL_RELEASE = 'nvsentinel'
 _NVSENTINEL_CHART = 'oci://ghcr.io/nvidia/nvsentinel'
 # Pinned to the version docs/demo/nv-sentinel/run.sh installs. The values file
@@ -96,18 +102,48 @@ def _install_mongodb():
     k8s_yaml('local/nv-sentinel/mongodb.k8s.yaml')
 
     k8s_resource(
-        'mongodb-ext',
+        new_name=_MONGODB_CERTS_RESOURCE,
         objects=[
             '%s:namespace' % _NAMESPACE,
             'mongodb-selfsigned:issuer:%s' % _NAMESPACE,
             'mongodb-ca:certificate:%s' % _NAMESPACE,
             'mongodb-ca-issuer:issuer:%s' % _NAMESPACE,
             'mongodb-server:certificate:%s' % _NAMESPACE,
-            'nvsentinel-datastore-mongodb-uri:secret:%s' % _NAMESPACE,
         ],
         # Hard dependency, not UI ordering: the Certificates are cert-manager
         # CRs and its webhook must be live to admit them.
         resource_deps=[_CERT_MANAGER_RELEASE],
+        labels=['nv-sentinel'],
+    )
+
+    # Applying a Certificate only asks cert-manager to issue one; the Secret it
+    # writes appears seconds later. The StatefulSet mounts that Secret, so
+    # shipping both in one resource starts the pod against a Secret that does
+    # not exist yet: kubelet reports `FailedMount ... secret
+    # "mongodb-server-tls" not found` and then retries on an exponential
+    # backoff that outlasts the issuance by minutes. Waiting on the
+    # Certificates instead makes the Secret a precondition of the pod.
+    #
+    # Both Certificates, not just the server one: mongodb-ca-issuer signs with
+    # the CA Secret, and NVSentinel mounts it as its trust root
+    # (global.datastore.tls.caSecretName), so a missing CA fails the same way
+    # one layer down.
+    local_resource(
+        _MONGODB_CERTS_READY_RESOURCE,
+        cmd=' '.join([
+            'kubectl wait --for=condition=Ready',
+            '--timeout=%ds' % _CERT_READY_TIMEOUT_S,
+            '-n', _NAMESPACE,
+            'certificate/mongodb-ca certificate/mongodb-server',
+        ]),
+        resource_deps=[_MONGODB_CERTS_RESOURCE],
+        labels=['nv-sentinel'],
+    )
+
+    k8s_resource(
+        'mongodb-ext',
+        objects=['nvsentinel-datastore-mongodb-uri:secret:%s' % _NAMESPACE],
+        resource_deps=[_MONGODB_CERTS_READY_RESOURCE],
         labels=['nv-sentinel'],
     )
 
