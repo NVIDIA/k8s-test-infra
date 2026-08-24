@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
+	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/urfave/cli/v3"
 	"golang.org/x/sync/errgroup"
 )
@@ -40,13 +41,13 @@ func newCLI() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:    "log-level",
-				Value:   defaults.LogLevel,
+				Value:   string(logging.LevelInfo),
 				Sources: cli.EnvVars("MOKKA_LOG_LEVEL"),
 				Usage:   "log level: debug | info | warn | error",
 			},
 			&cli.StringFlag{
 				Name:    "log-format",
-				Value:   defaults.LogFormat,
+				Value:   string(logging.FormatJSON),
 				Sources: cli.EnvVars("MOKKA_LOG_FORMAT"),
 				Usage:   "log format: json | plain",
 			},
@@ -62,16 +63,19 @@ func newCLI() *cli.Command {
 }
 
 func run(ctx context.Context, cmd *cli.Command) error {
-	cfg := controlplane.Config{
-		ListenAddr:      cmd.String("listen-addr"),
-		LogLevel:        cmd.String("log-level"),
-		LogFormat:       cmd.String("log-format"),
-		ShutdownTimeout: cmd.Duration("shutdown-timeout"),
-	}
-
-	logger, err := controlplane.NewLogger(cfg)
+	level, err := logging.ParseLevel(cmd.String("log-level"))
 	if err != nil {
 		return err
+	}
+	format, err := logging.ParseFormat(cmd.String("log-format"))
+	if err != nil {
+		return err
+	}
+	logger := logging.NewLogger(logging.Config{Level: level, Format: format})
+
+	cfg := controlplane.Config{
+		ListenAddr:      cmd.String("listen-addr"),
+		ShutdownTimeout: cmd.Duration("shutdown-timeout"),
 	}
 
 	signalCtx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)

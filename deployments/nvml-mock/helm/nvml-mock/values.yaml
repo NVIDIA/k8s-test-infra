@@ -114,6 +114,18 @@ nodeLabels:
 # container at runtime without mutating pod specs. Opt-in (default false): it
 # injects into workloads cluster-wide, so enable it only for the
 # node-wide-injection demo/use case. See docs/demo/node-wide-injection.
+
+nodeAgent:
+  logging:
+    level: info    # debug | info | warn | error
+    format: json   # json | plain
+  # Go duration string: 5s, 1m30s, etc.
+  shutdownTimeout: 30s
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+
 # Allocation-aware GPU memory (#506). When enabled, a sidecar in the nvml-mock
 # DaemonSet polls the kubelet pod-resources API and mirrors each pod's
 # nvidia.com/gpu claim into memory.used_bytes / memory.free_bytes, so a
@@ -387,15 +399,17 @@ controlPlane:
   logging:
     level: info    # debug | info | warn | error
     format: json   # json | plain
+  # Go duration string: 5s, 1m30s, etc.
+  shutdownTimeout: 5s
   service:
     type: ClusterIP
     port: 8080
   # Total shutdown budget on the pod: preStop sleep + in-flight request drain
-  # (control-plane --shutdown-timeout, default 5s) must fit inside this.
-  # 30s matches the kube default and leaves headroom over the current 10s
-  # preStop + 5s drain; raise this together with --shutdown-timeout if the
-  # CP starts holding long-lived connections. Setting it below preStop + drain
-  # truncates the drain — kube SIGKILLs at the grace boundary regardless.
+  # (shutdownTimeout above) must fit inside this. 30s matches the kube default
+  # and leaves headroom over the current 10s preStop + 5s drain; raise this
+  # together with shutdownTimeout if the CP starts holding long-lived connections.
+  # Setting it below preStop + drain truncates the drain — kube SIGKILLs at the
+  # grace boundary regardless.
   terminationGracePeriodSeconds: 30
   resources:
     requests:

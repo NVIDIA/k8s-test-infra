@@ -109,6 +109,50 @@ should match snapshot with all overrides:
                   name: host-nfd-features
                 - mountPath: /var/lib/nvml-mock/fabric-state
                   name: host-fabric-state
+            - command:
+                - /usr/local/bin/node-agent
+                - start
+                - --config=/etc/nvml-mock/config.yaml
+                - --host-root=/host
+                - --health-addr=:9091
+                - --log-level=info
+                - --log-format=json
+                - --shutdown-timeout=30s
+              env:
+                - name: GPU_COUNT
+                  value: "2"
+                - name: DRIVER_VERSION
+                  value: 555.55.55
+              image: custom-registry/nvml-mock:v2.0.0
+              imagePullPolicy: Always
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 9091
+              name: node-agent
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: 9091
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  add:
+                    - MKNOD
+                  drop:
+                    - ALL
+              volumeMounts:
+                - mountPath: /host/var/lib/nvml-mock
+                  name: host-nvml-mock
+                - mountPath: /host/run/nvidia
+                  name: host-run-nvidia
+                - mountPath: /etc/nvml-mock
+                  name: gpu-config
+                  readOnly: true
           nodeSelector:
             nvidia.com/gpu.present: "true"
           serviceAccountName: nvml-mock-custom
@@ -243,6 +287,50 @@ should match snapshot with b200 profile:
                   name: host-run-nvidia
                 - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
                   name: host-nfd-features
+            - command:
+                - /usr/local/bin/node-agent
+                - start
+                - --config=/etc/nvml-mock/config.yaml
+                - --host-root=/host
+                - --health-addr=:9091
+                - --log-level=info
+                - --log-format=json
+                - --shutdown-timeout=30s
+              env:
+                - name: GPU_COUNT
+                  value: "4"
+                - name: DRIVER_VERSION
+                  value: 560.35.03
+              image: ghcr.io/nvidia/nvml-mock:latest
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 9091
+              name: node-agent
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: 9091
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  add:
+                    - MKNOD
+                  drop:
+                    - ALL
+              volumeMounts:
+                - mountPath: /host/var/lib/nvml-mock
+                  name: host-nvml-mock
+                - mountPath: /host/run/nvidia
+                  name: host-run-nvidia
+                - mountPath: /etc/nvml-mock
+                  name: gpu-config
+                  readOnly: true
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 2
           tolerations:
@@ -375,6 +463,50 @@ should match snapshot with default values:
                   name: host-nfd-features
                 - mountPath: /var/lib/nvml-mock/fabric-state
                   name: host-fabric-state
+            - command:
+                - /usr/local/bin/node-agent
+                - start
+                - --config=/etc/nvml-mock/config.yaml
+                - --host-root=/host
+                - --health-addr=:9091
+                - --log-level=info
+                - --log-format=json
+                - --shutdown-timeout=30s
+              env:
+                - name: GPU_COUNT
+                  value: "8"
+                - name: DRIVER_VERSION
+                  value: 570.124.06
+              image: ghcr.io/nvidia/nvml-mock:latest
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 9091
+              name: node-agent
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: 9091
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  add:
+                    - MKNOD
+                  drop:
+                    - ALL
+              volumeMounts:
+                - mountPath: /host/var/lib/nvml-mock
+                  name: host-nvml-mock
+                - mountPath: /host/run/nvidia
+                  name: host-run-nvidia
+                - mountPath: /etc/nvml-mock
+                  name: gpu-config
+                  readOnly: true
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 2
           tolerations:

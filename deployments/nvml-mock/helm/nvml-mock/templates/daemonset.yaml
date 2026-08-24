@@ -35,6 +35,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
+        # TODO: Remove this container once Mokka Node Agent has all simulation logic in place
         - name: nvml-mock
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -216,6 +217,46 @@ spec:
             - name: host-fabric-state
               mountPath: {{ .Values.fabricmanager.stateDir }}
             {{- end }}
+        - name: node-agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /usr/local/bin/node-agent
+            - start
+            - --config=/etc/nvml-mock/config.yaml
+            - --host-root=/host
+            - --health-addr=:9091
+            - --log-level={{ .Values.nodeAgent.logging.level }}
+            - --log-format={{ .Values.nodeAgent.logging.format }}
+            - --shutdown-timeout={{ .Values.nodeAgent.shutdownTimeout }}
+          env:
+            - name: GPU_COUNT
+              value: "{{ include "nvml-mock.gpuCount" . }}"
+            - name: DRIVER_VERSION
+              value: "{{ include "nvml-mock.driverVersion" . }}"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+              add: [MKNOD]
+          volumeMounts:
+            - name: host-nvml-mock
+              mountPath: /host/var/lib/nvml-mock
+            - name: host-run-nvidia
+              mountPath: /host/run/nvidia
+            - name: gpu-config
+              mountPath: /etc/nvml-mock
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9091
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9091
+          resources:
+            {{- toYaml .Values.nodeAgent.resources | nindent 12 }}
         {{- if .Values.allocationWatcher.enabled }}
         # #506: mirrors each pod's nvidia.com/gpu claim into the same runtime
         # override file nvml-mock-ctl writes, which the engine re-reads within
