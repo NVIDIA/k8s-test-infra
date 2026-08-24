@@ -107,6 +107,13 @@ func compileState(data []byte) (*agent.State, error) {
 		return nil, fmt.Errorf("parse yaml: %w", err)
 	}
 
+	dv := cfg.System.DriverVersion
+	if dv == "" {
+		// TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): bootstrap
+		// shim — remove once Profile/Runtime split lands and driverVersion is
+		// always embedded in the profile.
+		dv = os.Getenv("DRIVER_VERSION")
+	}
 	state := &agent.State{
 		Node: agent.NodeMeta{
 			NodeName: os.Getenv("NODE_NAME"),
@@ -114,7 +121,7 @@ func compileState(data []byte) (*agent.State, error) {
 			HostRoot: "/host",
 		},
 		Software: agent.SoftwareVersions{
-			DriverVersion: cfg.System.DriverVersion,
+			DriverVersion: dv,
 			NVMLVersion:   cfg.System.NVMLVersion,
 			CUDAVersion:   cfg.System.CUDAVersion,
 		},

@@ -229,6 +229,11 @@ spec:
             - --log-level={{ .Values.nodeAgent.logging.level }}
             - --log-format={{ .Values.nodeAgent.logging.format }}
             - --shutdown-timeout={{ .Values.nodeAgent.shutdownTimeout }}
+          env:
+            - name: GPU_COUNT
+              value: "{{ include "nvml-mock.gpuCount" . }}"
+            - name: DRIVER_VERSION
+              value: "{{ include "nvml-mock.driverVersion" . }}"
           securityContext:
             privileged: true
           volumeMounts:
