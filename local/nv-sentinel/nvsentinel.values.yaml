@@ -55,12 +55,18 @@ global:
   # and cannot start on arm64. The full URI (no auth in this demo) is supplied
   # via the Secret referenced by credentialsFromSecret.name.
   #
-  # The platform-connector talks TLS to the datastore and reads a CA cert, so
-  # the standalone MongoDB serves TLS with a cert-manager-issued certificate and
-  # we hand NVSentinel the CA via tls.caSecretName (the cert-manager CA secret,
-  # data key ca.crt). tls.enabled must be true here (the chart also renders it
-  # true regardless due to a `| default true`, so keeping MongoDB on TLS keeps
-  # both sides consistent).
+  # TLS to the datastore, matching what a real deployment looks like: the
+  # standalone MongoDB serves a cert-manager-issued certificate and NVSentinel
+  # gets the CA via tls.caSecretName (the cert-manager CA secret, data key
+  # ca.crt), which the components mount at MONGODB_CLIENT_CERT_MOUNT_PATH.
+  #
+  # This is a choice, not a requirement. The chart supports an external datastore
+  # without TLS (tls.enabled: false renders MONGODB_TLS_ENABLED="false", and
+  # dropping caSecretName removes every mongodb-ca mount), which would also make
+  # cert-manager unnecessary here. Ignore the `| default true` on the rendered
+  # datastore.yaml tls block: no pod mounts that file — the components read this
+  # setting from the nvsentinel-datastore-config ConfigMap via envFrom, and that
+  # one honours false.
   datastore:
     provider: "mongodb"
     credentialsFromSecret:
