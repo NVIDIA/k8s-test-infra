@@ -268,10 +268,17 @@ kubectl -n "${NAMESPACE}" get pods -o wide || true
 # that it has no slowdown T.Limit threshold to watch. That was the exact state
 # of a green `tilt ci` on the a100 profile, so assert against it here.
 printf '==> asserting the GPU thermal-margin watch armed on every health monitor\n'
+# Pods with a deletionTimestamp are excluded. A pod keeps status.phase=Running
+# while it terminates, so the restart above leaves doomed pods matching the field
+# selector for a few seconds — and one of them was selected here, went away
+# mid-observation, and failed the run on a NotFound instead of on anything about
+# the watch. Skipping them makes the DaemonSet's replacement the pod that is
+# checked: until it is Running the count below stays short of desired and this
+# waits, which is the correct response to a restart still in flight.
 monitor_pods() {
   kube -n "${NAMESPACE}" get pods -l "${MONITOR_SELECTOR}" \
     --field-selector=status.phase=Running \
-    -o 'jsonpath={range .items[*]}{.metadata.name}{"\n"}{end}'
+    -o go-template='{{range .items}}{{if not .metadata.deletionTimestamp}}{{.metadata.name}}{{"\n"}}{{end}}{{end}}'
 }
 # Summed over both monitor DaemonSets — the chart ships a dcgm-3.x and a
 # dcgm-4.x variant and node labels decide which one schedules — so a fleet
