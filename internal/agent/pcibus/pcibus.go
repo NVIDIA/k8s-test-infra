@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package pcibus implements the PCI bus simulator: it renders a fake
-// /sys/bus/pci/devices tree and stages libpcimocksys.so so that lspci and
+// /sys/bus/pci/devices tree and stages libpcisysfs.so so that lspci and
 // topology-aware schedulers see mock GPU BDFs. It also writes the NFD
 // local-source feature file so NFD can label the node with
 // feature.node.kubernetes.io/pci-10de.present=true.
@@ -45,7 +45,7 @@ func (s *Simulator) Name() string { return name }
 // Ready reports whether the last Stage call completed without error.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
-// Stage renders the PCI sysfs tree under h.Root and stages libpcimocksys.so.
+// Stage renders the PCI sysfs tree under h.Root and stages libpcisysfs.so.
 // When the state carries no topology the render is a no-op.
 func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
 	s.ready.Store(false)
@@ -76,7 +76,7 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 	}
 
 	// Remove staged shim files.
-	shimGlob := filepath.Join(h.Root, "driver/usr/local/lib/libpcimocksys.so*")
+	shimGlob := filepath.Join(h.Root, "driver/usr/local/lib/libpcisysfs.so*")
 	matches, _ := filepath.Glob(shimGlob)
 	for _, p := range matches {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {

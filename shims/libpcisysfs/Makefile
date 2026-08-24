@@ -5,7 +5,7 @@ CC      ?= gcc
 CFLAGS  ?= -O2 -Wall -Wextra -fPIC -fvisibility=default
 LDFLAGS ?= -shared -ldl
 
-LIB_NAME    := libpcimocksys.so
+LIB_NAME    := libpcisysfs.so
 LIB_SONAME  := $(LIB_NAME).1
 LIB_VERSION ?= 1.0.0
 LIB_REAL    := $(LIB_NAME).$(LIB_VERSION)

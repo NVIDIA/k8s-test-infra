@@ -24,11 +24,11 @@ func stageSysfs(h *host.Host, state *agent.State) error {
 	})
 }
 
-// stagePCIShim copies libpcimocksys.so* from /usr/local/lib into the driver
+// stagePCIShim copies libpcisysfs.so* from /usr/local/lib into the driver
 // lib directory so lspci inside a workload can be LD_PRELOAD-ed by the NRI
 // plugin. Non-fatal when the shim is not built into the container image.
 func stagePCIShim(h *host.Host) error {
-	matches, _ := filepath.Glob("/usr/local/lib/libpcimocksys.so*")
+	matches, _ := filepath.Glob("/usr/local/lib/libpcisysfs.so*")
 
 	if len(matches) == 0 {
 		return nil

@@ -129,11 +129,11 @@ func TestStageSysfs_WritesSysfsUnderRoot(t *testing.T) {
 // ─── stagePCIShim ────────────────────────────────────────────────────────────
 
 func TestStagePCIShim_NopWhenNoLib(t *testing.T) {
-	// This passes on any machine that doesn't have libpcimocksys.so built in at
+	// This passes on any machine that doesn't have libpcisysfs.so built in at
 	// /usr/local/lib — i.e., all dev machines and macOS CI runners.
-	matches, _ := filepath.Glob("/usr/local/lib/libpcimocksys.so*")
+	matches, _ := filepath.Glob("/usr/local/lib/libpcisysfs.so*")
 	if len(matches) > 0 {
-		t.Skip("libpcimocksys.so present; skipping no-lib path")
+		t.Skip("libpcisysfs.so present; skipping no-lib path")
 	}
 
 	h := testHost(t)

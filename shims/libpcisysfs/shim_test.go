@@ -3,7 +3,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package libpcimocksys_test
+package libpcisysfs_test
 
 import (
 	"os"
@@ -24,9 +24,9 @@ func TestReadlinkPCIRedirect(t *testing.T) {
 	}
 	wd, err := os.Getwd()
 	require.NoError(t, err)
-	shim := filepath.Join(wd, "libpcimocksys.so")
+	shim := filepath.Join(wd, "libpcisysfs.so")
 	if _, statErr := os.Stat(shim); statErr != nil {
-		t.Skipf("shim not built: %v (run make -C shims/libpcimocksys)", statErr)
+		t.Skipf("shim not built: %v (run make -C shims/libpcisysfs)", statErr)
 	}
 
 	root := t.TempDir()
@@ -55,9 +55,9 @@ func TestOpenSysDevicesPCIRedirect(t *testing.T) {
 	}
 	wd, err := os.Getwd()
 	require.NoError(t, err)
-	shim := filepath.Join(wd, "libpcimocksys.so")
+	shim := filepath.Join(wd, "libpcisysfs.so")
 	if _, statErr := os.Stat(shim); statErr != nil {
-		t.Skipf("shim not built: %v (run make -C shims/libpcimocksys)", statErr)
+		t.Skipf("shim not built: %v (run make -C shims/libpcisysfs)", statErr)
 	}
 
 	root := t.TempDir()
@@ -93,9 +93,9 @@ func TestFortifiedOpenPCIRedirect(t *testing.T) {
 	}
 	wd, err := os.Getwd()
 	require.NoError(t, err)
-	shim := filepath.Join(wd, "libpcimocksys.so")
+	shim := filepath.Join(wd, "libpcisysfs.so")
 	if _, statErr := os.Stat(shim); statErr != nil {
-		t.Skipf("shim not built: %v (run make -C shims/libpcimocksys)", statErr)
+		t.Skipf("shim not built: %v (run make -C shims/libpcisysfs)", statErr)
 	}
 	cc, lookErr := exec.LookPath("cc")
 	if lookErr != nil {
@@ -155,9 +155,9 @@ func TestFopenPCIRedirect(t *testing.T) {
 	}
 	wd, err := os.Getwd()
 	require.NoError(t, err)
-	shim := filepath.Join(wd, "libpcimocksys.so")
+	shim := filepath.Join(wd, "libpcisysfs.so")
 	if _, statErr := os.Stat(shim); statErr != nil {
-		t.Skipf("shim not built: %v (run make -C shims/libpcimocksys)", statErr)
+		t.Skipf("shim not built: %v (run make -C shims/libpcisysfs)", statErr)
 	}
 	cc, lookErr := exec.LookPath("cc")
 	if lookErr != nil {
@@ -224,9 +224,9 @@ func TestRewriteOverflowFailsClosed(t *testing.T) {
 	}
 	wd, err := os.Getwd()
 	require.NoError(t, err)
-	shim := filepath.Join(wd, "libpcimocksys.so")
+	shim := filepath.Join(wd, "libpcisysfs.so")
 	if _, statErr := os.Stat(shim); statErr != nil {
-		t.Skipf("shim not built: %v (run make -C shims/libpcimocksys)", statErr)
+		t.Skipf("shim not built: %v (run make -C shims/libpcisysfs)", statErr)
 	}
 
 	// A ~4090-byte root guarantees root_len + len(matched path) + 1 exceeds the

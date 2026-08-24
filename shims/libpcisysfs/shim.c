@@ -2,7 +2,7 @@
  * Copyright 2026 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  *
- * libpcimocksys.so redirects PCI sysfs lookups to a fake tree under
+ * libpcisysfs.so redirects PCI sysfs lookups to a fake tree under
  * $MOCK_PCI_ROOT. It is a no-op when MOCK_PCI_ROOT is unset.
  */
 
