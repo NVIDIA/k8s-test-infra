@@ -74,6 +74,20 @@ The script is idempotent and reuses the cluster; set `FORCE_RECREATE=true` to
 rebuild from scratch. Useful overrides: `GPU_PROFILE`, `HOT_TEMP_C`, `TARGET_GPU`,
 `NVSENTINEL_VERSION`, `GPU_OPERATOR_VERSION`, `CERT_MANAGER_VERSION`.
 
+## Or run it in Tilt
+
+The same stack is available as a Tilt consumer on the shared dev cluster, with the
+two phases as manual triggers:
+
+```bash
+make cluster-create
+tilt up -- --nv-sentinel
+```
+
+It needs no dedicated cluster and no per-worker `nvidia-container-toolkit`
+install — the shared Kind node image already bakes both in. See
+[local/nv-sentinel/README.md](../../../local/nv-sentinel/README.md).
+
 ## What the script does
 
 1. **Cluster** — creates the Kind cluster from [`kind.yaml`](kind.yaml) (CDI

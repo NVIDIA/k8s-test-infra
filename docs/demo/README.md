@@ -99,6 +99,17 @@ cd nv-sentinel && ./run.sh
 
 See [nv-sentinel/README.md](nv-sentinel/README.md) for the walkthrough.
 
+Also available as a Tilt consumer on the shared dev cluster, which skips the
+dedicated cluster and the per-worker container-toolkit provisioning, and runs the
+two phases as manual triggers:
+
+```bash
+make cluster-create
+tilt up -- --nv-sentinel
+```
+
+See [local/nv-sentinel/README.md](../../local/nv-sentinel/README.md).
+
 ## Observability (Prometheus + Grafana)
 
 Not a standalone demo. It composes with the GPU Operator rather than replacing

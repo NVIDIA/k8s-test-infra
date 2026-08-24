@@ -22,6 +22,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `features.confidential_compute` key is removed from the `h100`, `b200`,
   `gb200` and `gb300` profiles: gating this surface on it would have made a T4
   report `N/A` where a real one reports `0 MiB`. (#711)
+- A `--nv-sentinel` Tilt consumer that runs NVIDIA NVSentinel over mock GPUs
+  with cert-manager and an external MongoDB replica set, so the full
+  detect-remediate-recover loop runs on a cluster with no GPUs. Adds two manual
+  triggers: one heats a GPU past the loaded profile's hardware slowdown
+  threshold and fails unless NVSentinel cordons the node and the GPU workload is
+  evicted onto the other worker, the other cools it and fails unless the node is
+  uncordoned — so the remediation path is asserted rather than eyeballed. The
+  injected temperature is derived from the profile the mock loaded rather than
+  hardcoded, since slowdown thresholds range from 87C to 93C and the mock clamps
+  at shutdown. The flag also defaults `--gpu-profile` to `h100` and rejects
+  pre-Ada profiles: those report no T.Limit thermal margin, exactly as real
+  hardware does, so the watch never arms and a heated GPU is detected by nothing
+  on a stack that looks healthy. `docs/demo/nv-sentinel/` remains as the
+  standalone, no-Tilt version.
 - A `--observability` Tilt consumer that runs kube-prometheus-stack and the GPU
   Operator's `dcgm-exporter` over mock GPUs and ships a Grafana dashboard
   in-tree, so the real exporter is scraped and rendered on a cluster with no
