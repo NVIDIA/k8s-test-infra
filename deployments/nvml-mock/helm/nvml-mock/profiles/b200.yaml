@@ -341,7 +341,6 @@ device_defaults:
     transformer_engine: true
     fp4_support: true
     fp8_support: true
-    confidential_compute: true
     decompression_engine: true
     fifth_gen_tensor_cores: true
 

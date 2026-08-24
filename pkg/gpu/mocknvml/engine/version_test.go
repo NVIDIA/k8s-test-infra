@@ -96,6 +96,13 @@ func TestFunctionAvailable(t *testing.T) {
 		{"gpm available on 560", "560.0", "nvmlGpmQueryDeviceSupport", true},
 		{"gpm streaming not available on 550", "550.163.01", "nvmlGpmQueryIfStreamingEnabled", false},
 		{"gpm streaming available on 555", "555.0", "nvmlGpmQueryIfStreamingEnabled", true},
+
+		// Confidential Compute arrived with Hopper CC in 525.x, so a profile on
+		// an older driver must miss the symbol rather than answer for it.
+		{"cc memsize not available on 470", "470.0", "nvmlDeviceGetConfComputeMemSizeInfo", false},
+		{"cc memsize available on 525", "525.0", "nvmlDeviceGetConfComputeMemSizeInfo", true},
+		{"cc protected usage not available on 470", "470.0", "nvmlDeviceGetConfComputeProtectedMemoryUsage", false},
+		{"cc protected usage available on 580", "580.173.02", "nvmlDeviceGetConfComputeProtectedMemoryUsage", true},
 	}
 
 	for _, tt := range tests {

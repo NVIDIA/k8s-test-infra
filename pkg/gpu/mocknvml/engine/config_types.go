@@ -542,12 +542,17 @@ type GSPFirmwareConfig struct {
 	Version string `json:"version,omitempty"`
 }
 
-// FeaturesConfig defines GPU-specific features (like Blackwell features)
+// FeaturesConfig defines GPU-specific features (like Blackwell features).
+//
+// Every field here is descriptive metadata that no getter reads. A key only
+// belongs in this block while nothing depends on it: confidential_compute was
+// removed once the Conf Compute memory getters landed, because real NVML answers
+// those on any part and gating them on a capability claim would have made a T4
+// report N/A where a real one reports 0 MiB. See issue #711.
 type FeaturesConfig struct {
 	TransformerEngine   bool `json:"transformer_engine,omitempty"`
 	FP4Support          bool `json:"fp4_support,omitempty"`
 	FP8Support          bool `json:"fp8_support,omitempty"`
-	ConfidentialCompute bool `json:"confidential_compute,omitempty"`
 	NVLinkC2C           bool `json:"nvlink_c2c,omitempty"`
 	DecompressionEngine bool `json:"decompression_engine,omitempty"`
 	FifthGenTensorCores bool `json:"fifth_gen_tensor_cores,omitempty"`

@@ -49,6 +49,10 @@ var functionRegistry = map[string]FunctionVersion{
 	"nvmlDeviceGetGraphicsRunningProcesses_v3": {Added: "510.0"},
 	"nvmlDeviceGetGspFirmwareMode":             {Added: "510.0"},
 
+	// 525.x additions. Confidential Compute arrived with Hopper CC.
+	"nvmlDeviceGetConfComputeMemSizeInfo":          {Added: "525.0"},
+	"nvmlDeviceGetConfComputeProtectedMemoryUsage": {Added: "525.0"},
+
 	// 535.x additions. GPM (GPU Performance Monitoring) — DCGM's profiling
 	// path on Hopper+ (DCGM_FI_PROF_*).
 	"nvmlGpmQueryDeviceSupport": {Added: "535.0"},

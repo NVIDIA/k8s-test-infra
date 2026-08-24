@@ -348,7 +348,6 @@ device_defaults:
   features:
     transformer_engine: true
     fp8_support: true
-    confidential_compute: true
 
   # ---------------------------------------------------------------------------
   # Processes (empty at idle)

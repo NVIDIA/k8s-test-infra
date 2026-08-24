@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- mocknvml: the `Conf Compute Protected Memory Usage` block of `nvidia-smi -q`
+  now reports `0 MiB` for Total, Used and Free instead of `N/A`. Both NVML
+  getters behind it were generated stubs that `nvidia-smi` calls once per GPU on
+  every `-q` run, so the mock said the driver could not tell whether any memory
+  is protected, where every real board answers that none is. The values are not
+  configurable and are not gated on the part: all seven real-hardware captures
+  in-tree report `0 MiB` here on drivers 570 and later, including the A100, L40S
+  and T4 boards that cannot do Confidential Compute at all. Nothing partitions
+  protected memory until CC mode is on, which stays unmodelled (#377). The two
+  exports are registered as arriving in driver `525`, so a profile pinned below
+  that reports `N/A` as real hardware of that vintage does. The unread
+  `features.confidential_compute` key is removed from the `h100`, `b200`,
+  `gb200` and `gb300` profiles: gating this surface on it would have made a T4
+  report `N/A` where a real one reports `0 MiB`. (#711)
 - A `--observability` Tilt consumer that runs kube-prometheus-stack and the GPU
   Operator's `dcgm-exporter` over mock GPUs and ships a Grafana dashboard
   in-tree, so the real exporter is scraped and rendered on a cluster with no
