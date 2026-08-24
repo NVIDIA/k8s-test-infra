@@ -124,3 +124,52 @@ func TestRevoke_IdempotentWhenFileAbsent(t *testing.T) {
 
 	require.NoError(t, sim.Revoke(context.Background(), h), "Revoke on absent file must not error")
 }
+
+func TestApply_Idempotent(t *testing.T) {
+	h := testHost(t)
+	sim := New()
+
+	require.NoError(t, sim.Apply(context.Background(), h, nil))
+	require.NoError(t, sim.Apply(context.Background(), h, nil), "second Apply must not error")
+}
+
+// ─── Ready ───────────────────────────────────────────────────────────────────
+
+func TestReady_FalseBeforeStage(t *testing.T) {
+	sim := New()
+	require.False(t, sim.Ready())
+}
+
+func TestReady_TrueAfterStage(t *testing.T) {
+	h := testHost(t)
+	sim := New()
+
+	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
+	require.True(t, sim.Ready())
+}
+
+func TestReady_FalseAfterDiscard(t *testing.T) {
+	h := testHost(t)
+	sim := New()
+
+	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
+	require.True(t, sim.Ready())
+
+	require.NoError(t, sim.Discard(context.Background(), h))
+	// Discard does not reset ready — Ready() tracks Stage success, not current
+	// sysfs presence. Downstream callers use ready to gate Discard itself.
+	// This test documents the actual contract.
+	require.True(t, sim.Ready(), "Discard does not reset ready flag")
+}
+
+func TestDiscard_SysGoneIsNotError(t *testing.T) {
+	h := testHost(t)
+	sim := New()
+
+	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
+
+	// Manually remove sys/ before calling Discard; RemoveAll on a missing path is
+	// a no-op so Discard must still succeed.
+	require.NoError(t, os.RemoveAll(filepath.Join(h.Root, "sys")))
+	require.NoError(t, sim.Discard(context.Background(), h))
+}

@@ -29,19 +29,24 @@ func stageSysfs(h *host.Host, state *agent.State) error {
 // plugin. Non-fatal when the shim is not built into the container image.
 func stagePCIShim(h *host.Host) error {
 	matches, _ := filepath.Glob("/usr/local/lib/libpcimocksys.so*")
+
 	if len(matches) == 0 {
 		return nil
 	}
+
 	libDir := filepath.Join(h.Root, "driver/usr/local/lib")
+
 	if err := h.MkdirAll(libDir, 0o755); err != nil {
 		return err
 	}
+
 	for _, src := range matches {
 		dst := filepath.Join(libDir, filepath.Base(src))
 		if err := h.CopyFile(src, dst, 0o755); err != nil {
 			return fmt.Errorf("stage %s: %w", filepath.Base(src), err)
 		}
 	}
+
 	return nil
 }
 
@@ -49,10 +54,13 @@ func stagePCIShim(h *host.Host) error {
 // Returns nil when the state carries no root complexes (render treats nil as no-op).
 func buildTopology(state *agent.State) *config.PCIeTopology {
 	rcs := state.NodeShape.Topology.RootComplexes
+
 	if len(rcs) == 0 {
 		return nil
 	}
+
 	topo := &config.PCIeTopology{RootComplexes: make([]config.RootComplex, 0, len(rcs))}
+
 	for _, rc := range rcs {
 		topo.RootComplexes = append(topo.RootComplexes, config.RootComplex{
 			ID:       rc.ID,
@@ -60,6 +68,7 @@ func buildTopology(state *agent.State) *config.PCIeTopology {
 			Devices:  rc.DeviceBDFs,
 		})
 	}
+
 	return topo
 }
 
@@ -67,14 +76,17 @@ func buildTopology(state *agent.State) *config.PCIeTopology {
 // the renderer's attribute files (vendor, device, class, config space).
 func buildIdentities(state *agent.State) map[string]config.PCI {
 	ids := make(map[string]config.PCI, len(state.Devices))
+
 	for _, d := range state.Devices {
 		if d.PCIBusID == "" {
 			continue
 		}
+
 		ids[strings.ToLower(d.PCIBusID)] = config.PCI{
 			BusID:    d.PCIBusID,
 			DeviceID: d.PCIDeviceID,
 		}
 	}
+
 	return ids
 }
