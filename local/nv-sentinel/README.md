@@ -51,7 +51,7 @@ values disable it because nothing else polls one. Mutually exclusive with `--fgo
 (which replaces the Operator), `--compute-domain`, and `--multi-gpu-profile`
 (whose a100 + t4 fleet predates the thermal margin this keys on).
 
-**`--gpu-profile` defaults to `h100` here, and pre-Ada profiles are rejected.**
+**`--gpu-profile` defaults to `gb300` here, and pre-Ada profiles are rejected.**
 `GpuThermalMarginWatch` arms only from the GPU's slowdown T.Limit offset, which
 real hardware reports on Ada and later only — and the mock gates it the same way.
 On `a100` or `t4` every Tilt resource still goes green while the watch stays
@@ -136,9 +136,9 @@ Tunables, read from the environment: `POLL_ATTEMPTS` (default `60`) and
 `POLL_INTERVAL_S` (`5`) in both; `TARGET_GPU` (`0`) and `HOT_TEMP_C` in
 `quarantine-node` only. `HOT_TEMP_C` defaults to the loaded profile's
 `slowdown_threshold_c + 3`, capped one degree below `shutdown_threshold_c`, read
-out of the mock's own config rather than hardcoded — slowdown is 87 °C on `h100`,
-90 °C on `b200`/`gb200`/`gb300` and 93 °C on `l40s`, and the mock clamps at
-shutdown. An override outside that band is rejected before anything is injected.
+out of the mock's own config rather than hardcoded — slowdown is 90 °C on the
+default `gb300` (so 93 °C is injected), 87 °C on `h100`, 90 °C on `b200`/`gb200`
+and 93 °C on `l40s`, and the mock clamps at shutdown. An override outside that band is rejected before anything is injected.
 
 ## The six options that make this work
 

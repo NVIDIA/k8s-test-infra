@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uncordoned — so the remediation path is asserted rather than eyeballed. The
   injected temperature is derived from the profile the mock loaded rather than
   hardcoded, since slowdown thresholds range from 87C to 93C and the mock clamps
-  at shutdown. The flag also defaults `--gpu-profile` to `h100` and rejects
+  at shutdown. The flag also defaults `--gpu-profile` to `gb300` and rejects
   pre-Ada profiles: those report no T.Limit thermal margin, exactly as real
   hardware does, so the watch never arms and a heated GPU is detected by nothing
   on a stack that looks healthy. `docs/demo/nv-sentinel/` remains as the
@@ -161,6 +161,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   simulated fleet; GB300 exercises the newer surfaces (Grace-Blackwell C2C, FP4/FP6,
   NVLink v5, the 570 driver line) that consumers are actually being ported to.
   Pass `--set gpu.profile=a100` to keep the previous behaviour.
+- The Tilt environment's default `--gpu-profile` is now `gb300` instead of
+  `a100`, matching the chart default above — the Tiltfile always passes the
+  profile explicitly, so the two defaults move independently. Ada-and-later
+  profiles report the slowdown T.Limit thermal margin that the thermal-margin
+  consumers key on, so the default no longer silently excludes them; pass
+  `--gpu-profile a100` to get the previous shape. The heterogeneous
+  `--multi-gpu-profile` fleet is unaffected and stays a100 + t4.
 - CI no longer depends on the third-party `ttl.sh` registry to share e2e images
   between jobs. The nvml-mock and kind-node images are exported as tarballs and
   handed to the legs that need them as run-scoped GitHub Actions artifacts, which need no

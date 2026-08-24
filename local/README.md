@@ -47,7 +47,7 @@ Installs one nvml-mock release that covers every worker in the cluster with the 
 The control-plane node is excluded: `local/nvml-mock.values.yaml` pins the DaemonSet to nodes labelled `mokka.nvidia.com/type=sgpu`, which every worker in the Kind configs carries. Without it the mock lands on the control plane too — it tolerates every taint — while GPU Operator, FGO and NFD operands stop at the `NoSchedule` taint, leaving a node that advertises a driver nobody consumes.
 
 ```bash
-tilt up                                  # default: a100
+tilt up                                  # default: gb300
 tilt up -- --gpu-profile h100
 tilt up -- --gpu-profile gb200
 ```
@@ -159,7 +159,7 @@ Deploys [NVSentinel](https://github.com/NVIDIA/nvsentinel), NVIDIA's GPU health 
 
 `--nv-sentinel` implies `--gpu-operator`: the standalone DCGM (`nv-hostengine`) that NVSentinel polls is one of the Operator's operands, and the default operator values disable it because nothing else polls one. Mutually exclusive with `--fgo` (which replaces the Operator), `--compute-domain`, and `--multi-gpu-profile`. Composes with `--observability`, which adds the Grafana view of the temperature step.
 
-`--gpu-profile` defaults to `h100` here and is restricted to `h100`, `l40s`, `b200`, `gb200`, `gb300`. NVSentinel's thermal-margin watch arms only from the GPU's slowdown T.Limit offset, which real hardware — and the mock, gating it the same way — reports on Ada and later only. On `a100` or `t4` the stack goes green while the watch never arms, so nothing detects the heated GPU.
+`--gpu-profile` defaults to `gb300` here and is restricted to `h100`, `l40s`, `b200`, `gb200`, `gb300`. NVSentinel's thermal-margin watch arms only from the GPU's slowdown T.Limit offset, which real hardware — and the mock, gating it the same way — reports on Ada and later only. On `a100` or `t4` the stack goes green while the watch never arms, so nothing detects the heated GPU.
 
 ```bash
 make cluster-create

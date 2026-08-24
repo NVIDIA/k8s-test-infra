@@ -179,14 +179,14 @@ NV_SENTINEL_PROFILES = ['h100', 'l40s', 'b200', 'gb200', 'gb300']
 
 if with_nv_sentinel:
     if gpu_profile_raw == None:
-        gpu_profile_raw = 'h100'
+        gpu_profile_raw = 'gb300'
     elif gpu_profile_raw not in NV_SENTINEL_PROFILES:
         fail('--nv-sentinel needs an Ada-or-later --gpu-profile (' +
              ', '.join(NV_SENTINEL_PROFILES) + '); ' + gpu_profile_raw +
              ' is not one of them, and a pre-Ada GPU reports no T.Limit thermal ' +
              'margin, so NVSentinel would detect nothing')
 
-gpu_profile = gpu_profile_raw or 'a100'
+gpu_profile = gpu_profile_raw or 'gb300'
 
 k8s_context_default = 'kind-mokka-compute-domain' if with_compute_domain else 'kind-mokka'
 k8s_context         = cfg.get('k8s-context', k8s_context_default)
