@@ -114,6 +114,18 @@ nodeLabels:
 # container at runtime without mutating pod specs. Opt-in (default false): it
 # injects into workloads cluster-wide, so enable it only for the
 # node-wide-injection demo/use case. See docs/demo/node-wide-injection.
+
+nodeAgent:
+  logging:
+    level: info    # debug | info | warn | error
+    format: json   # json | plain
+  # Go duration string: 5s, 1m30s, etc.
+  shutdownTimeout: 30s
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+
 # Allocation-aware GPU memory (#506). When enabled, a sidecar in the nvml-mock
 # DaemonSet polls the kubelet pod-resources API and mirrors each pod's
 # nvidia.com/gpu claim into memory.used_bytes / memory.free_bytes, so a
@@ -127,17 +139,6 @@ nodeLabels:
 # While enabled, the watcher owns memory.used_bytes/free_bytes: an
 # `nvml-mock-ctl set --gpu N memory.used_bytes=...` is overwritten on the next
 # poll. Every other field nvml-mock-ctl writes is preserved.
-nodeAgent:
-  logging:
-    level: info    # debug | info | warn | error
-    format: json   # json | plain
-  # Go duration string: 5s, 1m30s, etc.
-  shutdownTimeout: 30s
-  resources:
-    requests:
-      cpu: 10m
-      memory: 32Mi
-
 allocationWatcher:
   enabled: false
   # Poll period. The engine re-reads the override file at most once per its own
