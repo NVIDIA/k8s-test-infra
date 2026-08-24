@@ -70,8 +70,10 @@ func (s *Server) SetLiveness(fn func() bool) { s.livenessFunc = fn }
 // map; the server builds the JSON response from it.
 func (s *Server) SetReadiness(fn func() map[string]bool) { s.readyzFunc = fn }
 
-// Run starts the HTTP server and blocks until ctx is cancelled.
-func (s *Server) Run(ctx context.Context) error {
+// Handler returns the HTTP handler. Useful for testing without binding a port.
+func (s *Server) Handler() http.Handler { return s.buildRouter() }
+
+func (s *Server) buildRouter() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
@@ -99,10 +101,14 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		writeJSON(w, status, resp)
 	})
+	return r
+}
 
+// Run starts the HTTP server and blocks until ctx is cancelled.
+func (s *Server) Run(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:              s.addr,
-		Handler:           r,
+		Handler:           s.buildRouter(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
