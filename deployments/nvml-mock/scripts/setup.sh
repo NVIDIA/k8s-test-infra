@@ -216,6 +216,21 @@ done
 
 echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices, index + UUID keyed)"
 
+# 3c. Wait for the node-agent to stage the control device nodes before generating
+#     the NRI CDI spec. node-agent (stageCharDevs) runs as a sibling container
+#     with no ordering guarantee; nri_cdi_device_nodes checks [ -e ] on each
+#     extra node and silently omits any that do not exist at spec-write time.
+#     TODO: remove this wait when NRI CDI generation moves into the node-agent.
+_wait_secs=0
+until [ -e "$DEV_ROOT/nvidiactl" ] || [ "$_wait_secs" -ge 60 ]; do
+  sleep 1
+  _wait_secs=$((_wait_secs + 1))
+done
+if [ ! -e "$DEV_ROOT/nvidiactl" ]; then
+  echo "ERROR: timed out waiting for node-agent to create $DEV_ROOT/nvidiactl" >&2
+  exit 1
+fi
+
 # 3c. Generate the CDI spec the NRI plugin injects (issue #436).
 #
 #     This is deliberately a SECOND spec, not a reuse of nvidia.yaml above:
