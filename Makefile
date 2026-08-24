@@ -119,7 +119,7 @@ build: ## Build all CLIs
 	done
 
 build-mockpcisysfs: ## Build mockpcisysfs
-	@make -C pkg/system/mockpcisysfs
+	@make -C shims/libpcimocksys
 
 .PHONY: test
 test: ## Run unit tests with race detection and coverage
@@ -178,11 +178,11 @@ test-mocknvml-bridge:
 
 .PHONY: mockpcisysfs-shim
 mockpcisysfs-shim: ## Build the mockpcisysfs LD_PRELOAD shim (libpcimocksys.so)
-	@$(MAKE) -C pkg/system/mockpcisysfs
+	@$(MAKE) -C shims/libpcimocksys
 
 .PHONY: test-mockpcisysfs
 test-mockpcisysfs: mockpcisysfs-shim ## Run mockpcisysfs integration tests
-	@$(GO_CMD) test -tags integration -v ./pkg/system/mockpcisysfs/...
+	@$(GO_CMD) test -tags integration -v ./shims/libpcimocksys/...
 
 .PHONY: helm-tests
 helm-tests: ## Run the nvml-mock chart unit test suite

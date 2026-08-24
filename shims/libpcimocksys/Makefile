@@ -13,7 +13,7 @@ LIB_REAL    := $(LIB_NAME).$(LIB_VERSION)
 .PHONY: all clean
 all: $(LIB_NAME)
 
-$(LIB_REAL): c/shim.c
+$(LIB_REAL): shim.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -Wl,-soname,$(LIB_SONAME) -o $@ $<
 
 $(LIB_NAME): $(LIB_REAL)

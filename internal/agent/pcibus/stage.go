@@ -10,8 +10,8 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
-	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockpcisysfs/config"
-	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockpcisysfs/render"
+	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs/config"
+	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs/render"
 )
 
 // stageSysfs renders the PCI sysfs tree under h.Root.

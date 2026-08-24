@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
-	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockpcisysfs/config"
+	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs/config"
 )
 
 // ─── buildTopology ───────────────────────────────────────────────────────────

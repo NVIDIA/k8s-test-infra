@@ -24,7 +24,7 @@ COPY Makefile ./
 RUN cd pkg/gpu/mocknvml && make clean && make
 RUN cd pkg/gpu/mockcuda && make clean && make
 RUN cd pkg/network/mockib && make clean && make
-RUN cd pkg/system/mockpcisysfs && make clean && make
+RUN cd shims/libpcimocksys && make clean && make
 
 RUN make build
 
@@ -36,7 +36,7 @@ COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmocksys.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmockumad.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/network/mockib/libibmockverbs.so.* /usr/local/lib/
-COPY --from=builder /src/pkg/system/mockpcisysfs/libpcimocksys.so.* /usr/local/lib/
+COPY --from=builder /src/shims/libpcimocksys/libpcimocksys.so.* /usr/local/lib/
 COPY --from=builder /src/dist/mock-ib /usr/local/bin/mock-ib
 COPY --from=builder /src/dist/nvml-mock-nri /usr/local/bin/nvml-mock-nri
 COPY --from=builder /src/dist/nvml-mock-ctl /usr/local/bin/nvml-mock-ctl

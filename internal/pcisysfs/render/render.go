@@ -31,7 +31,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockpcisysfs/config"
+	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs/config"
 )
 
 // Options controls a single rendering pass.

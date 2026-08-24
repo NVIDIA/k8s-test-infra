@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockpcisysfs/config"
+	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs/config"
 )
 
 func TestRender_NoTopologyNoOp(t *testing.T) {
