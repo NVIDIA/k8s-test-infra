@@ -101,27 +101,12 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	signalCtx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	simulators := []agent.Simulator{gpudriver.New()}
-
 	shutdownTimeout := cmd.Duration("shutdown-timeout")
 
 	healthSrv := health.NewServer(cmd.String("health-addr"), log, shutdownTimeout)
 
-	healthSrv.SetReadiness(func() health.ReadyzResponse {
-		sims := make(map[string]health.SimulatorStatus, len(simulators))
-		allOK := true
-		for _, sim := range simulators {
-			ok := sim.Ready()
-			if !ok {
-				allOK = false
-			}
-			sims[sim.Name()] = health.SimulatorStatus{OK: ok}
-		}
-		return health.ReadyzResponse{OK: allOK, Simulators: sims}
-	})
-
 	a := agent.New(agent.Config{
-		Simulators:      simulators,
+		Simulators:      []agent.Simulator{gpudriver.New()},
 		Source:          source.NewFileSource(configPath, log),
 		Host:            host.New(cmd.String("host-root")),
 		Log:             log,
@@ -129,6 +114,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	})
 
 	healthSrv.SetLiveness(a.Live)
+	healthSrv.SetReadiness(a.Readyz)
 
 	g, gctx := errgroup.WithContext(signalCtx)
 	g.Go(func() error { return healthSrv.Run(gctx) })

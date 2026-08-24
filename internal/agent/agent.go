@@ -59,6 +59,15 @@ func New(cfg Config) *Agent {
 // Returns false after a Stage failure; recovers once Stage succeeds again.
 func (a *Agent) Live() bool { return a.live.Load() }
 
+// Readyz returns a name→ready map of all simulator readiness states.
+func (a *Agent) Readyz() map[string]bool {
+	m := make(map[string]bool, len(a.simulators))
+	for _, sim := range a.simulators {
+		m[sim.Name()] = sim.Ready()
+	}
+	return m
+}
+
 // Run starts the agent and blocks until ctx is cancelled or a required component
 // fails. On return it executes a best-effort Revoke → Discard teardown.
 func (a *Agent) Run(ctx context.Context) error {
