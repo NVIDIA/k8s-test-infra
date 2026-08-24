@@ -166,12 +166,20 @@ if with_compute_domain and gpu_profile_raw != None:
 # every Tilt resource still goes green while the watch stays inert, logging
 # "missing slowdown TLIMIT threshold metadata", so default to the profile the
 # demo pins rather than simulate a fault nothing can detect.
+#
+# An allow-list, not a deny-list of the pre-Ada profiles: a profile added later
+# is pre-Ada until someone checks, and failing closed costs the user one flag
+# while failing open costs a green stack that detects nothing.
+NV_SENTINEL_PROFILES = ['h100', 'l40s', 'b200', 'gb200', 'gb300']
+
 if with_nv_sentinel:
     if gpu_profile_raw == None:
         gpu_profile_raw = 'h100'
-    elif gpu_profile_raw in ['a100', 't4']:
-        fail('--nv-sentinel needs an Ada-or-later --gpu-profile (h100, l40s, b200, gb200, gb300); ' +
-             gpu_profile_raw + ' reports no T.Limit thermal margin, so NVSentinel would detect nothing')
+    elif gpu_profile_raw not in NV_SENTINEL_PROFILES:
+        fail('--nv-sentinel needs an Ada-or-later --gpu-profile (' +
+             ', '.join(NV_SENTINEL_PROFILES) + '); ' + gpu_profile_raw +
+             ' is not one of them, and a pre-Ada GPU reports no T.Limit thermal ' +
+             'margin, so NVSentinel would detect nothing')
 
 gpu_profile = gpu_profile_raw or 'a100'
 
