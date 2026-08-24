@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 264 stub functions for unimplemented NVML functions.
+// 262 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -177,16 +177,6 @@ func nvmlDeviceGetConfComputeGpuAttestationReport(device C.nvmlDevice_t, gpuAtst
 //export nvmlDeviceGetConfComputeGpuCertificate
 func nvmlDeviceGetConfComputeGpuCertificate(device C.nvmlDevice_t, gpuCert *C.nvmlConfComputeGpuCertificate_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetConfComputeGpuCertificate")
-}
-
-//export nvmlDeviceGetConfComputeMemSizeInfo
-func nvmlDeviceGetConfComputeMemSizeInfo(device C.nvmlDevice_t, memInfo *C.nvmlConfComputeMemSizeInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetConfComputeMemSizeInfo")
-}
-
-//export nvmlDeviceGetConfComputeProtectedMemoryUsage
-func nvmlDeviceGetConfComputeProtectedMemoryUsage(device C.nvmlDevice_t, memory *C.nvmlMemory_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetConfComputeProtectedMemoryUsage")
 }
 
 //export nvmlDeviceGetCoolerInfo
