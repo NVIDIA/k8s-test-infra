@@ -36,12 +36,15 @@ type SimulatorStatus struct {
 }
 
 // Server serves /healthz (liveness) and /readyz (readiness) probes.
-// /healthz never depends on StateSource reachability — a Control Plane outage
-// must not restart the entire fleet. /readyz reflects simulator readiness.
+// /healthz reflects simulator Stage health — a Stage failure marks the node
+// unhealthy so kubelet restarts the pod. It never depends on StateSource
+// reachability; a Control Plane outage must not restart the entire fleet.
+// /readyz reflects simulator readiness.
 type Server struct {
 	addr            string
 	log             *slog.Logger
 	shutdownTimeout time.Duration
+	livenessFunc    func() bool
 	readyzFunc      func() ReadyzResponse
 }
 
@@ -54,11 +57,16 @@ func NewServer(addr string, log *slog.Logger, shutdownTimeout time.Duration) *Se
 		addr:            addr,
 		log:             log,
 		shutdownTimeout: shutdownTimeout,
+		livenessFunc:    func() bool { return true },
 		readyzFunc: func() ReadyzResponse {
 			return ReadyzResponse{OK: true, Simulators: map[string]SimulatorStatus{}}
 		},
 	}
 }
+
+// SetLiveness replaces the liveness probe function. When fn returns false,
+// /healthz responds 503 so kubelet restarts the pod.
+func (s *Server) SetLiveness(fn func() bool) { s.livenessFunc = fn }
 
 // SetReadiness replaces the readiness probe function. The agent calls this
 // after wiring simulators so /readyz reflects per-simulator Ready() state.
@@ -73,7 +81,12 @@ func (s *Server) Run(ctx context.Context) error {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, HealthzResponse{OK: true})
+		ok := s.livenessFunc()
+		status := http.StatusOK
+		if !ok {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, HealthzResponse{OK: ok})
 	})
 	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
 		resp := s.readyzFunc()

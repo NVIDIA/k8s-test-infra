@@ -106,6 +106,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	shutdownTimeout := cmd.Duration("shutdown-timeout")
 
 	healthSrv := health.NewServer(cmd.String("health-addr"), log, shutdownTimeout)
+
 	healthSrv.SetReadiness(func() health.ReadyzResponse {
 		sims := make(map[string]health.SimulatorStatus, len(simulators))
 		allOK := true
@@ -126,6 +127,8 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 	})
+
+	healthSrv.SetLiveness(a.Live)
 
 	g, gctx := errgroup.WithContext(signalCtx)
 	g.Go(func() error { return healthSrv.Run(gctx) })

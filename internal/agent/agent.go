@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -26,6 +27,7 @@ type Agent struct {
 	host            *host.Host
 	log             *slog.Logger
 	shutdownTimeout time.Duration
+	live            atomic.Bool // true = Stage healthy; false = /healthz returns 503
 }
 
 // Config carries Agent constructor arguments.
@@ -42,14 +44,20 @@ func New(cfg Config) *Agent {
 	if cfg.ShutdownTimeout == 0 {
 		cfg.ShutdownTimeout = 30 * time.Second
 	}
-	return &Agent{
+	a := &Agent{
 		simulators:      cfg.Simulators,
 		source:          cfg.Source,
 		host:            cfg.Host,
 		log:             cfg.Log,
 		shutdownTimeout: cfg.ShutdownTimeout,
 	}
+	a.live.Store(true)
+	return a
 }
+
+// Live returns true when the last Stage wave completed without error.
+// Returns false after a Stage failure; recovers once Stage succeeds again.
+func (a *Agent) Live() bool { return a.live.Load() }
 
 // Run starts the agent and blocks until ctx is cancelled or a required component
 // fails. On return it executes a best-effort Revoke → Discard teardown.
@@ -132,10 +140,15 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 			}
 		}()
 	}
+
 	wg.Wait()
+
 	if len(stageErrs) > 0 {
+		a.live.Store(false)
 		return errors.Join(stageErrs...)
 	}
+
+	a.live.Store(true)
 
 	// Apply wave: fail-fast — appliers share cross-component dependencies
 	// (CDI spec references chardevs that gpudriver must have staged first).

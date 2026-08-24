@@ -239,6 +239,10 @@ spec:
             - name: gpu-config
               mountPath: /etc/nvml-mock
               readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9091
           readinessProbe:
             httpGet:
               path: /readyz
