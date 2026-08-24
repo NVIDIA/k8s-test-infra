@@ -26,12 +26,6 @@ dcgmExporter:
   serviceMonitor:
     enabled: true
     interval: 5s
-    # Must be lowered with the interval above. The chart's default is 10s, and
-    # prometheus-operator REJECTS a ServiceMonitor whose scrapeTimeout exceeds
-    # its interval — it logs "skipping object" and emits an InvalidConfiguration
-    # event, but the ServiceMonitor still exists and every Tilt resource still
-    # goes green, so the only symptom is empty GPU panels.
-    scrapeTimeout: 5s
     additionalLabels:
       # THE most fragile coupling in this consumer. kube-prometheus-stack
       # defaults serviceMonitorSelectorNilUsesHelmValues=true, so Prometheus
