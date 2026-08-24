@@ -86,7 +86,7 @@ tilt up -- --nv-sentinel
 
 It needs no dedicated cluster and no per-worker `nvidia-container-toolkit`
 install — the shared Kind node image already bakes both in. See
-[local/nv-sentinel/README.md](../../../local/nv-sentinel/README.md).
+[local/nv-sentinel/README.md](https://github.com/NVIDIA/k8s-test-infra/blob/main/local/nv-sentinel/README.md).
 
 ## What the script does
 

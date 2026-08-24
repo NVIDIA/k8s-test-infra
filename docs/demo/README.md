@@ -108,7 +108,7 @@ make cluster-create
 tilt up -- --nv-sentinel
 ```
 
-See [local/nv-sentinel/README.md](../../local/nv-sentinel/README.md).
+See [local/nv-sentinel/README.md](https://github.com/NVIDIA/k8s-test-infra/blob/main/local/nv-sentinel/README.md).
 
 ## Observability (Prometheus + Grafana)
 
