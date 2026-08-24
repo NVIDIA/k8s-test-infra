@@ -118,8 +118,17 @@ should match snapshot with all overrides:
                 - --log-level=info
                 - --log-format=json
                 - --shutdown-timeout=30s
+              env:
+                - name: GPU_COUNT
+                  value: "2"
+                - name: DRIVER_VERSION
+                  value: 555.55.55
               image: custom-registry/nvml-mock:v2.0.0
               imagePullPolicy: Always
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 9091
               name: node-agent
               readinessProbe:
                 httpGet:
@@ -282,8 +291,17 @@ should match snapshot with b200 profile:
                 - --log-level=info
                 - --log-format=json
                 - --shutdown-timeout=30s
+              env:
+                - name: GPU_COUNT
+                  value: "4"
+                - name: DRIVER_VERSION
+                  value: 560.35.03
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 9091
               name: node-agent
               readinessProbe:
                 httpGet:
@@ -444,8 +462,17 @@ should match snapshot with default values:
                 - --log-level=info
                 - --log-format=json
                 - --shutdown-timeout=30s
+              env:
+                - name: GPU_COUNT
+                  value: "8"
+                - name: DRIVER_VERSION
+                  value: 550.163.01
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 9091
               name: node-agent
               readinessProbe:
                 httpGet:
