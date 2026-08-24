@@ -137,6 +137,11 @@ if with_compute_domain and multi_gpu_profile:
 # report a conflict with a flag the user never passed.
 if with_nv_sentinel and with_fgo:
     fail('--nv-sentinel is mutually exclusive with --fgo (NVSentinel polls the GPU Operator\'s standalone DCGM, which FGO replaces)')
+# --topograph before --compute-domain for the same reason: --topograph implies
+# --compute-domain above, so the pair below would name a flag the user never
+# passed and send them looking for it in their own command line.
+if with_nv_sentinel and with_topograph:
+    fail('--nv-sentinel is mutually exclusive with --topograph (which implies --compute-domain, whose 4-worker cluster shape NVSentinel is untested on)')
 if with_nv_sentinel and with_compute_domain:
     fail('--nv-sentinel is mutually exclusive with --compute-domain')
 # The fleet is built from FLEET_PROFILES (a100 + t4), and both predate the
