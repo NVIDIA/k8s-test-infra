@@ -188,16 +188,6 @@ func (a *Agent) revoke(ctx context.Context) {
 	_ = g.Wait()
 }
 
-// applierName returns a human-readable name for an Applier.
-// Appliers that also implement Simulator expose their Name(); others fall back
-// to the Go type name which is always unique and deterministic.
-func applierName(a Applier) string {
-	if n, ok := a.(interface{ Name() string }); ok {
-		return n.Name()
-	}
-	return fmt.Sprintf("%T", a)
-}
-
 // discard calls Discard on all simulators concurrently, best-effort.
 func (a *Agent) discard(ctx context.Context) {
 	var g errgroup.Group
@@ -211,4 +201,14 @@ func (a *Agent) discard(ctx context.Context) {
 		})
 	}
 	_ = g.Wait()
+}
+
+// applierName returns a human-readable name for an Applier.
+// Appliers that also implement Simulator expose their Name(); others fall back
+// to the Go type name which is always unique and deterministic.
+func applierName(a Applier) string {
+	if n, ok := a.(interface{ Name() string }); ok {
+		return n.Name()
+	}
+	return fmt.Sprintf("%T", a)
 }

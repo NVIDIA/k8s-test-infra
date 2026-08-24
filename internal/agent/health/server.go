@@ -45,7 +45,7 @@ type Server struct {
 	log             *slog.Logger
 	shutdownTimeout time.Duration
 	livenessFunc    func() bool
-	readyzFunc      func() ReadyzResponse
+	readyzFunc      func() map[string]bool // simulator name → simulator ready status
 }
 
 // NewServer returns a Server that will listen on addr.
@@ -58,9 +58,7 @@ func NewServer(addr string, log *slog.Logger, shutdownTimeout time.Duration) *Se
 		log:             log,
 		shutdownTimeout: shutdownTimeout,
 		livenessFunc:    func() bool { return true },
-		readyzFunc: func() ReadyzResponse {
-			return ReadyzResponse{OK: true, Simulators: map[string]SimulatorStatus{}}
-		},
+		readyzFunc:      func() map[string]bool { return map[string]bool{} },
 	}
 }
 
@@ -68,11 +66,9 @@ func NewServer(addr string, log *slog.Logger, shutdownTimeout time.Duration) *Se
 // /healthz responds 503 so kubelet restarts the pod.
 func (s *Server) SetLiveness(fn func() bool) { s.livenessFunc = fn }
 
-// SetReadiness replaces the readiness probe function. The agent calls this
-// after wiring simulators so /readyz reflects per-simulator Ready() state.
-func (s *Server) SetReadiness(fn func() ReadyzResponse) {
-	s.readyzFunc = fn
-}
+// SetReadiness replaces the readiness probe function. fn returns a name→ready
+// map; the server builds the JSON response from it.
+func (s *Server) SetReadiness(fn func() map[string]bool) { s.readyzFunc = fn }
 
 // Run starts the HTTP server and blocks until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
@@ -89,7 +85,14 @@ func (s *Server) Run(ctx context.Context) error {
 		writeJSON(w, status, HealthzResponse{OK: ok})
 	})
 	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
-		resp := s.readyzFunc()
+		statuses := s.readyzFunc()
+		resp := ReadyzResponse{OK: true, Simulators: make(map[string]SimulatorStatus, len(statuses))}
+		for name, ok := range statuses {
+			if !ok {
+				resp.OK = false
+			}
+			resp.Simulators[name] = SimulatorStatus{OK: ok}
+		}
 		status := http.StatusOK
 		if !resp.OK {
 			status = http.StatusServiceUnavailable
