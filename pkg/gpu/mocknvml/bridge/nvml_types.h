@@ -267,7 +267,17 @@ typedef struct nvmlComputeInstanceProfileInfo_v2_st         nvmlComputeInstanceP
 typedef struct nvmlConfComputeGetKeyRotationThresholdInfo_st nvmlConfComputeGetKeyRotationThresholdInfo_t;
 typedef struct nvmlConfComputeGpuAttestationReport_st       nvmlConfComputeGpuAttestationReport_t;
 typedef struct nvmlConfComputeGpuCertificate_st             nvmlConfComputeGpuCertificate_t;
-typedef struct nvmlConfComputeMemSizeInfo_st                nvmlConfComputeMemSizeInfo_t;
+/* How device memory splits across a Confidential Compute partition. Full
+ * definition needed by bridge so conf_compute.go can fill the caller's buffer. */
+typedef struct nvmlConfComputeMemSizeInfo_st
+{
+    unsigned long long protectedMemSizeKib;
+    unsigned long long unprotectedMemSizeKib;
+} nvmlConfComputeMemSizeInfo_t;
+/* Callers allocate this buffer from go-nvml's ConfComputeMemSizeInfo, so a
+ * field added here would make the bridge write past the caller's allocation. */
+_Static_assert(sizeof(nvmlConfComputeMemSizeInfo_t) == 16,
+               "nvmlConfComputeMemSizeInfo_t must stay two unsigned long longs to match the go-nvml ABI");
 typedef struct nvmlConfComputeSetKeyRotationThresholdInfo_st nvmlConfComputeSetKeyRotationThresholdInfo_t;
 typedef struct nvmlConfComputeSystemCaps_st                 nvmlConfComputeSystemCaps_t;
 typedef struct nvmlConfComputeSystemState_st                nvmlConfComputeSystemState_t;

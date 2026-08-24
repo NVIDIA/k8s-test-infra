@@ -168,6 +168,15 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.ThrottleCounters(ctx, h.Kube, pod)
 			})
 
+			It("reports zeroed Conf Compute protected memory via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #711: all three rows read N/A because both NVML getters
+				// behind the block were generated stubs, so the mock could not
+				// say whether any memory is protected. Every real board answers
+				// 0 MiB there, CC-capable or not, so the expectation is the same
+				// on every selected profile rather than derived from it.
+				nvidiasmi.ConfComputeMemory(ctx, h.Kube, pod)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)

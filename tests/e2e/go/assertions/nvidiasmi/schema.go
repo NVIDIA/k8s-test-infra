@@ -112,6 +112,7 @@ type gpuElement struct {
 	FanSpeed                 reading           `xml:"fan_speed"`
 	PerformanceState         reading           `xml:"performance_state"`
 	FBMemoryUsage            memoryUsage       `xml:"fb_memory_usage"`
+	CCProtectedMemoryUsage   memoryUsage       `xml:"cc_protected_memory_usage"`
 	AccountingModeBufferSize reading           `xml:"accounting_mode_buffer_size"`
 	EncoderStats             statsBlock        `xml:"encoder_stats"`
 	FBCStats                 statsBlock        `xml:"fbc_stats"`
@@ -131,9 +132,10 @@ type gpuElement struct {
 	} `xml:"processes"`
 }
 
-// memoryUsage is <fb_memory_usage>: the framebuffer. The sibling
-// <bar1_memory_usage> and <cc_protected_memory_usage> blocks repeat the same
-// child names and are deliberately not decoded.
+// memoryUsage is the shape of the memory blocks: <total>, <used>, <free>, and a
+// <reserved> only the framebuffer reports. Each block is decoded separately
+// because they repeat the same child names, so a reading must name which one it
+// came from. The <bar1_memory_usage> sibling is deliberately not decoded.
 type memoryUsage struct {
 	Total    reading `xml:"total"`
 	Reserved reading `xml:"reserved"`

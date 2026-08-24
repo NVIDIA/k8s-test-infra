@@ -104,6 +104,10 @@ func comparedReadings(g gpuElement) []namedReading {
 		{"fb_memory_usage/total", g.FBMemoryUsage.Total},
 		{"fb_memory_usage/used", g.FBMemoryUsage.Used},
 
+		{"cc_protected_memory_usage/total", g.CCProtectedMemoryUsage.Total},
+		{"cc_protected_memory_usage/used", g.CCProtectedMemoryUsage.Used},
+		{"cc_protected_memory_usage/free", g.CCProtectedMemoryUsage.Free},
+
 		{"utilization/gpu_util", g.Utilization.GPU},
 		{"utilization/memory_util", g.Utilization.Memory},
 		{"utilization/encoder_util", g.Utilization.Encoder},

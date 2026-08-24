@@ -346,7 +346,6 @@ should match snapshot with b200 profile:
             transformer_engine: true
             fp4_support: true
             fp8_support: true
-            confidential_compute: true
             decompression_engine: true
             fifth_gen_tensor_cores: true
 
@@ -1346,7 +1345,6 @@ should match snapshot with gb200 profile:
             transformer_engine: true        # 2nd gen Transformer Engine
             fp4_support: true               # FP4 precision support
             fp8_support: true               # FP8 precision support
-            confidential_compute: true      # CC/TEE support
             nvlink_c2c: true                # NVLink Chip-to-Chip (Grace connection)
             decompression_engine: true      # Hardware decompression
             fifth_gen_tensor_cores: true    # 5th generation tensor cores
@@ -1920,7 +1918,6 @@ should match snapshot with gb300 profile:
             fp4_support: true               # FP4 precision support
             fp6_support: true               # FP6 precision (Blackwell Ultra)
             fp8_support: true               # FP8 precision support
-            confidential_compute: true      # CC/TEE support
             nvlink_c2c: true                # NVLink Chip-to-Chip (Grace connection)
             decompression_engine: true      # Hardware decompression
             fifth_gen_tensor_cores: true    # 5th generation tensor cores
@@ -2458,7 +2455,6 @@ should match snapshot with h100 profile:
           features:
             transformer_engine: true
             fp8_support: true
-            confidential_compute: true
 
           # ---------------------------------------------------------------------------
           # Processes (empty at idle)
