@@ -31,7 +31,7 @@ func podFileExists(ctx context.Context, k *kube.Client, pod kube.PodRef, path st
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "missing file: %s\n%s", path, res.Combined())
 }
 
-// ConfigContains asserts that the config file at path contains substr.
+// ConfigContains asserts the config file at path contains substr.
 func ConfigContains(ctx context.Context, k *kube.Client, pod kube.PodRef, path, substr string) {
 	ginkgo.GinkgoHelper()
 	ginkgo.By(fmt.Sprintf("%s contains %q", path, substr))
@@ -42,7 +42,7 @@ func ConfigContains(ctx context.Context, k *kube.Client, pod kube.PodRef, path, 
 
 // DevicePluginMockFiles ports the e2e-device-plugin "Verify mock files"
 // step: NVML symlink, dev nodes (nvidia0/nvidiactl, and nvidia1 when count>=2),
-// and config present at both locations.
+// config at BOTH locations, and the profile-derived num_devices line.
 func DevicePluginMockFiles(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount int) {
 	ginkgo.GinkgoHelper()
 	NVMLSymlink(ctx, k, pod)
@@ -57,12 +57,16 @@ func DevicePluginMockFiles(ctx context.Context, k *kube.Client, pod kube.PodRef,
 	ginkgo.By("config present at both locations")
 	podFileExists(ctx, k, pod, "/var/lib/nvml-mock/config/config.yaml")
 	podFileExists(ctx, k, pod, "/var/lib/nvml-mock/driver/config/config.yaml")
+	ConfigContains(ctx, k, pod, "/var/lib/nvml-mock/config/config.yaml",
+		fmt.Sprintf("num_devices: %d", gpuCount))
 }
 
 // DRAMockFiles ports the e2e-dra "Verify mock files on node" step: driver-root
-// config and the NVML symlink.
+// config only, plus the num_devices line and the NVML symlink.
 func DRAMockFiles(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount int) {
 	ginkgo.GinkgoHelper()
 	podFileExists(ctx, k, pod, "/var/lib/nvml-mock/driver/config/config.yaml")
+	ConfigContains(ctx, k, pod, "/var/lib/nvml-mock/driver/config/config.yaml",
+		fmt.Sprintf("num_devices: %d", gpuCount))
 	NVMLSymlink(ctx, k, pod)
 }

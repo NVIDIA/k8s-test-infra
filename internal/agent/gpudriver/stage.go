@@ -10,8 +10,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"sigs.k8s.io/yaml"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
 // stageCharDevs creates the GPU character devices that ioctl-based callers
@@ -169,9 +172,22 @@ func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
 // GPUs to expose and their properties at dlopen time.
 // Written to two locations: h.Root/config/ (device-plugin) and
 // h.Root/driver/config/ (auto-discovered by the .so via /proc/self/maps).
+//
+// system.num_devices is stamped to len(state.Devices) so the shim caps at the
+// runtime GPU count even when the profile lists more devices than are active.
 func writeEngineConfig(ctx context.Context, h *host.Host, state *agent.State) error {
 	if len(state.ConfigRaw) == 0 {
 		return errors.New("state.ConfigRaw is empty; FileSource must populate it")
+	}
+	var cfg engine.YAMLConfig
+	if err := yaml.Unmarshal(state.ConfigRaw, &cfg); err != nil {
+		return fmt.Errorf("parse engine config: %w", err)
+	}
+	// TODO: replace with Runtime.System.NumDevices once the Profile/Runtime split lands.
+	cfg.System.NumDevices = len(state.Devices)
+	configBytes, err := yaml.Marshal(&cfg)
+	if err != nil {
+		return fmt.Errorf("marshal engine config: %w", err)
 	}
 	for _, p := range []string{
 		filepath.Join(h.Root, "config/config.yaml"),
@@ -180,7 +196,7 @@ func writeEngineConfig(ctx context.Context, h *host.Host, state *agent.State) er
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := h.WriteFile(p, state.ConfigRaw, 0o644); err != nil {
+		if err := h.WriteFile(p, configBytes, 0o644); err != nil {
 			return err
 		}
 	}

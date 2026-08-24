@@ -19,8 +19,9 @@ type State struct {
 	Fabric     FabricState
 	// ConfigRaw holds the raw YAML profile bytes so gpudriver can write the
 	// engine config without re-deriving it from the narrower State fields.
-	// TODO: move YAMLConfig and sub-types to internal/config, use them directly
-	// in State, and eliminate this field — see specs/internal-config-package/IDEA.md.
+	// TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): replace with Profile/Runtime *config.YAMLConfig split — Profile carries
+	// the static hardware model, Runtime carries operational overrides (GPU_COUNT,
+	// faults, fabric) written by GPU_COUNT env, MEP-0001 CP, and nvml-mock-ctl.
 	ConfigRaw []byte
 }
 

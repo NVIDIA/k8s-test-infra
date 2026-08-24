@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"time"
 
 	"sigs.k8s.io/yaml"
@@ -119,13 +120,20 @@ func compileState(data []byte) (*agent.State, error) {
 		},
 	}
 
-	// Resolve device count: system.num_devices wins, then devices list, then default.
+	// Resolve device count: profile list → system.num_devices → GPU_COUNT env (runtime).
+	// TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): GPU_COUNT is a bootstrap shim until the Profile/Runtime split lands —
+	// runtime overrides (active device count, faults, fabric) should flow through
+	// a dedicated Runtime state populated by MEP-0001 CP and nvml-mock-ctl, not
+	// via env vars read inside compileState.
 	numDevices := len(cfg.Devices)
 	if numDevices == 0 {
 		numDevices = 8
 	}
 	if cfg.System.NumDevices > 0 {
 		numDevices = cfg.System.NumDevices
+	}
+	if v, err := strconv.Atoi(os.Getenv("GPU_COUNT")); err == nil && v > 0 && v < numDevices {
+		numDevices = v
 	}
 	state.NodeShape.NumGPUs = numDevices
 
