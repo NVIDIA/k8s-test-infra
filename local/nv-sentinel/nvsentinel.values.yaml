@@ -13,7 +13,9 @@
 # + drained), then auto-recovered on cooldown. Syslog/CSP monitors are off
 # (detection is via DCGM field 153, not kernel logs).
 #
-# Five options here are non-default and each is load-bearing for this scenario:
+# Most keys below just restate this deployment's topology (namespace, MongoDB
+# host, DCGM endpoint, which monitors run). Five change behaviour away from the
+# chart defaults, and each is load-bearing for this scenario:
 # labeler.assumeDriverInstalled,
 # gpu-health-monitor.dcgmFieldsMonitoring.gpuTempLimitStoreOnly,
 # gpu-health-monitor.dcgmHealthCheck.suppressedErrorCodes,

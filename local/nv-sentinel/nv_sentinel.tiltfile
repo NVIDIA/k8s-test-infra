@@ -64,8 +64,6 @@ def install(nvml_mock_releases):
     _install_workload()
     _register_scenarios()
 
-    return [_NVSENTINEL_RELEASE]
-
 
 def _install_cert_manager(nvml_mock_releases):
     """Install cert-manager, the TLS dependency of MongoDB and NVSentinel."""
