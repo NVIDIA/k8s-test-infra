@@ -19,7 +19,11 @@ driver:
 toolkit:
   enabled: false
 
-# DCGM is not supported by the mock NVML (requires full driver stack).
+# Off because nothing here polls a standalone hostengine — dcgm-exporter embeds
+# its own. Not because it cannot run: pointed at the mock driver root,
+# nv-hostengine comes up and serves the nvidia-dcgm Service on :5555, which is
+# what the --nv-sentinel consumer re-enables it for
+# (local/nv-sentinel/gpu-operator.values.yaml).
 dcgm:
   enabled: false
 
