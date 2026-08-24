@@ -61,6 +61,8 @@ def install(nvml_mock_releases):
     _install_cert_manager(nvml_mock_releases)
     _install_mongodb()
     _install_nvsentinel()
+    _install_workload()
+    _register_scenarios()
 
     return [_NVSENTINEL_RELEASE]
 
@@ -152,3 +154,36 @@ def _install_nvsentinel():
         resource_deps=[_NVSENTINEL_RELEASE],
         labels=['nv-sentinel'],
     )
+
+
+def _install_workload():
+    """Deploy the GPU workload the drainer evicts when it quarantines a node."""
+    k8s_yaml('local/nv-sentinel/gpu-workload.k8s.yaml')
+
+    k8s_resource(
+        'gpu-sample-workload',
+        # Not just UI ordering: a pod scheduled before node-drainer is running
+        # would sit on the node through the quarantine and never be evicted.
+        resource_deps=[_READY_RESOURCE],
+        labels=['nv-sentinel'],
+    )
+
+
+def _register_scenarios():
+    """Register the quarantine scenario as a manual trigger.
+
+    Manual (auto_init=False), mirroring the observability and compute-domain
+    scenarios: it injects into a live stack and asserts what NVSentinel does
+    about it, so it is something you do while watching, not part of bring-up.
+    It exits non-zero on failure, which turns the Tilt resource red.
+    """
+    for scenario in ['quarantine-node']:
+        local_resource(
+            scenario,
+            cmd='bash local/nv-sentinel/scenarios/%s.sh' % scenario,
+            # The workload is the drainer's eviction target, so it must exist
+            # before a quarantine can demonstrate anything.
+            resource_deps=['gpu-sample-workload'],
+            auto_init=False,
+            labels=['nv-sentinel-tests'],
+        )
