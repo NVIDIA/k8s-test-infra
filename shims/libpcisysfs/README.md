@@ -1,6 +1,7 @@
 # libpcisysfs
 
-LD_PRELOAD shim that redirects `/sys/bus/pci/...` and `/sys/devices/pci...` lookups to `$MOCK_PCI_ROOT`, making `lspci` and topology-aware schedulers enumerate mock GPU BDFs from a rendered sysfs tree instead of the real one.
+LD_PRELOAD shim that redirects `/sys/bus/pci/...` and `/sys/devices/pci...` lookups to `$MOCK_PCI_ROOT`, making `lspci` 
+and topology-aware schedulers enumerate mock GPU BDFs from a rendered sysfs tree instead of the real one.
 
 ## Build
 

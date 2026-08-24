@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
-	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs/config"
+	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
 // ─── buildTopology ───────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ func TestBuildIdentities_LowercasesKey(t *testing.T) {
 	entry, ok := ids["0000:0b:00.0"]
 	require.True(t, ok, "key must be lowercase")
 	// BusID in value is kept as-is; DeviceID is copied verbatim.
-	require.Equal(t, config.PCI{BusID: "0000:0B:00.0", DeviceID: 0x232010de}, entry)
+	require.Equal(t, pcisysfs.PCI{BusID: "0000:0B:00.0", DeviceID: 0x232010de}, entry)
 }
 
 func TestBuildIdentities_MultipleDevices(t *testing.T) {

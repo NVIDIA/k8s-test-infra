@@ -1,27 +1,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package render writes a fake PCI sysfs tree from a
-// [config.PCIeTopology] specification.
-//
-// The layout mimics what real Linux kernels expose to userspace, so any
-// consumer that resolves "PCIe root complex" via a single readlink + path
-// parse (e.g. the k8s deviceattribute library used by the NVIDIA DRA
-// driver) gets the right answer when pointed at the rendered tree:
-//
-//	<output>/sys/bus/pci/devices/0000:07:00.0 ->
-//	    ../../../devices/pci0000:00/0000:07:00.0
-//	<output>/sys/devices/pci0000:00/0000:07:00.0/numa_node    # "0"
-//
-// Beyond topology resolution (symlinks + numa_node), the tree also carries
-// the PCI identity attribute files that userspace PCI tooling reads:
-// `vendor`, `device`, `subsystem_vendor`, `subsystem_device`, `class`,
-// `revision`, `irq`, and a synthetic binary `config` space. This is what
-// lets `lspci` enumerate the mock GPUs inside the pod (via the
-// libpcisysfs.so redirector) instead of failing with "Cannot open
-// .../vendor". It is still *not* a full sysfs simulation — resource ranges,
-// capabilities, and driver bindings are out of scope.
-package render
+package pcisysfs
 
 import (
 	"encoding/binary"
@@ -30,8 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs/config"
 )
 
 // Options controls a single rendering pass.
@@ -39,15 +17,15 @@ type Options struct {
 	// Topology is the resolved layout to render. Callers typically pass
 	// `profile.EffectiveTopology()` so empty `pcie_topology:` blocks
 	// still produce a flat default tree.
-	Topology *config.PCIeTopology
+	Topology *PCIeTopology
 
 	// Identities carries the per-device PCI identity (device_id /
 	// subsystem_id) keyed by lowercased BDF, as returned by
-	// config.Profile.DeviceIdentities(). It is the source of the
+	// Profile.DeviceIdentities(). It is the source of the
 	// lspci-visible attribute files. A BDF present in the topology but
 	// absent here still gets attribute files rendered with the NVIDIA
 	// vendor default, so lspci never fatals on a missing `vendor`.
-	Identities map[string]config.PCI
+	Identities map[string]PCI
 
 	// Output is the fake-root directory. The renderer writes under
 	// <Output>/sys/... — Output itself is created if missing.
@@ -90,7 +68,7 @@ func Render(o Options) error {
 	return nil
 }
 
-func renderRootComplex(root string, rc config.RootComplex, ids map[string]config.PCI) error {
+func renderRootComplex(root string, rc RootComplex, ids map[string]PCI) error {
 	rcDir := filepath.Join("sys/devices", rc.ID)
 	if err := mkdirAll(root, rcDir); err != nil {
 		return err
@@ -160,7 +138,7 @@ func pciResourceFile() string {
 // exposes them: device_id = (device<<16)|vendor, subsystem_id =
 // (subdevice<<16)|subvendor. When no identity is known the vendor defaults
 // to NVIDIA so the mandatory `vendor`/`device` files still exist.
-func renderDeviceAttrs(root, devDir string, pci config.PCI) error {
+func renderDeviceAttrs(root, devDir string, pci PCI) error {
 	vendor := pci.DeviceID & 0xffff
 	device := (pci.DeviceID >> 16) & 0xffff
 	subVendor := pci.SubsystemID & 0xffff

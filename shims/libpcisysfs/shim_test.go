@@ -13,15 +13,22 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs/config"
-	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs/render"
+	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 	"github.com/stretchr/testify/require"
 )
 
-func TestReadlinkPCIRedirect(t *testing.T) {
+// macOS workstation, and skips at run time instead of disappearing.
+func requireLinux(t *testing.T) {
+	t.Helper()
+
 	if runtime.GOOS != "linux" {
-		t.Skip("requires linux")
+		t.Skipf("requires linux, running on %s", runtime.GOOS)
 	}
+}
+
+func TestReadlinkPCIRedirect(t *testing.T) {
+	requireLinux(t)
+
 	wd, err := os.Getwd()
 	require.NoError(t, err)
 	shim := filepath.Join(wd, "libpcisysfs.so")
@@ -30,14 +37,14 @@ func TestReadlinkPCIRedirect(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	topo := &config.PCIeTopology{
-		RootComplexes: []config.RootComplex{{
+	topo := &pcisysfs.PCIeTopology{
+		RootComplexes: []pcisysfs.RootComplex{{
 			ID:       "pci0000:00",
 			NUMANode: 0,
 			Devices:  []string{"0000:07:00.0"},
 		}},
 	}
-	require.NoError(t, render.Render(render.Options{Topology: topo, Output: root}))
+	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Output: root}))
 
 	cmd := exec.Command("readlink", "/sys/bus/pci/devices/0000:07:00.0")
 	cmd.Env = append(os.Environ(),
@@ -50,9 +57,8 @@ func TestReadlinkPCIRedirect(t *testing.T) {
 }
 
 func TestOpenSysDevicesPCIRedirect(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("requires linux")
-	}
+	requireLinux(t)
+
 	wd, err := os.Getwd()
 	require.NoError(t, err)
 	shim := filepath.Join(wd, "libpcisysfs.so")
@@ -61,14 +67,14 @@ func TestOpenSysDevicesPCIRedirect(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	topo := &config.PCIeTopology{
-		RootComplexes: []config.RootComplex{{
+	topo := &pcisysfs.PCIeTopology{
+		RootComplexes: []pcisysfs.RootComplex{{
 			ID:       "pci0000:00",
 			NUMANode: 0,
 			Devices:  []string{"0000:07:00.0"},
 		}},
 	}
-	require.NoError(t, render.Render(render.Options{Topology: topo, Output: root}))
+	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Output: root}))
 
 	cmd := exec.Command("cat", "/sys/devices/pci0000:00/0000:07:00.0/numa_node")
 	cmd.Env = append(os.Environ(),
@@ -88,9 +94,8 @@ func TestOpenSysDevicesPCIRedirect(t *testing.T) {
 // .../config" warning. This compiles a tiny helper that forces __open_2 and
 // asserts it reads the redirected mock config.
 func TestFortifiedOpenPCIRedirect(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("requires linux")
-	}
+	requireLinux(t)
+
 	wd, err := os.Getwd()
 	require.NoError(t, err)
 	shim := filepath.Join(wd, "libpcisysfs.so")
@@ -103,8 +108,8 @@ func TestFortifiedOpenPCIRedirect(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	topo := &config.PCIeTopology{
-		RootComplexes: []config.RootComplex{{
+	topo := &pcisysfs.PCIeTopology{
+		RootComplexes: []pcisysfs.RootComplex{{
 			ID: "pci0000:00", NUMANode: 0,
 			Devices: []string{"0000:07:00.0"},
 		}},
@@ -113,7 +118,7 @@ func TestFortifiedOpenPCIRedirect(t *testing.T) {
 	ids := map[string]config.PCI{
 		"0000:07:00.0": {BusID: "0000:07:00.0", DeviceID: 0x233010DE},
 	}
-	require.NoError(t, render.Render(render.Options{Topology: topo, Identities: ids, Output: root}))
+	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Identities: ids, Output: root}))
 
 	// Helper: open(argv[2], flags=atoi(argv[1])) — the runtime flags value
 	// forces the compiler to emit __open_2 under _FORTIFY_SOURCE. It prints
@@ -150,9 +155,8 @@ int main(int argc, char **argv) {
 // fopen interposer the read escapes redirection and hits the real host path.
 // Go never calls fopen, so this needs a small C consumer.
 func TestFopenPCIRedirect(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("requires linux")
-	}
+	requireLinux(t)
+
 	wd, err := os.Getwd()
 	require.NoError(t, err)
 	shim := filepath.Join(wd, "libpcisysfs.so")
@@ -165,8 +169,8 @@ func TestFopenPCIRedirect(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	topo := &config.PCIeTopology{
-		RootComplexes: []config.RootComplex{{
+	topo := &pcisysfs.PCIeTopology{
+		RootComplexes: []pcisysfs.RootComplex{{
 			ID: "pci0000:00", NUMANode: 0,
 			Devices: []string{"0000:07:00.0"},
 		}},
@@ -175,7 +179,7 @@ func TestFopenPCIRedirect(t *testing.T) {
 	ids := map[string]config.PCI{
 		"0000:07:00.0": {BusID: "0000:07:00.0", DeviceID: 0x233010DE},
 	}
-	require.NoError(t, render.Render(render.Options{Topology: topo, Identities: ids, Output: root}))
+	require.NoError(t, pcisysfs.Render(pcisysfs.Options{Topology: topo, Identities: ids, Output: root}))
 
 	bin := compileCHelper(t, cc, `#include <stdio.h>
 int main(int argc, char **argv) {
@@ -219,9 +223,8 @@ func compileCHelper(t *testing.T, cc, src string, extraFlags ...string) string {
 // the rewritten path would overflow the buffer, the shim fails the call with
 // ENAMETOOLONG instead of silently falling back to the real host path.
 func TestRewriteOverflowFailsClosed(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("requires linux")
-	}
+	requireLinux(t)
+
 	wd, err := os.Getwd()
 	require.NoError(t, err)
 	shim := filepath.Join(wd, "libpcisysfs.so")
