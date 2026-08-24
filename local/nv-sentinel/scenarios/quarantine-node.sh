@@ -98,12 +98,18 @@ gpu_node_count=$(grep -c . <<<"${gpu_nodes}")
 [[ "${gpu_node_count}" -ge 2 ]] \
   || fail "only ${gpu_node_count} GPU node(s); the drain has no healthy worker to reschedule onto. Recreate the cluster with \`make cluster-create\` (1 control-plane + 2 workers)."
 
-# Name and node of every Running workload pod, one per line. Read as a pair in a
-# single call so the name can never be matched against another pod's node.
+# Name and node of every live Running workload pod, one per line. Read as a pair
+# in a single call so the name can never be matched against another pod's node.
+#
+# Pods with a deletionTimestamp are excluded: an evicted pod keeps
+# status.phase=Running until it is actually gone, so a drain still in flight
+# would otherwise offer this scenario a doomed pod to target — and its
+# replacement, already Running elsewhere, would then satisfy phase 2 without
+# this run having evicted anything.
 workload_state() {
   kubectl -n "${WORKLOAD_NAMESPACE}" get pods -l "${WORKLOAD_SELECTOR}" \
     --field-selector=status.phase=Running \
-    -o go-template='{{range .items}}{{.metadata.name}} {{.spec.nodeName}}{{"\n"}}{{end}}' 2>/dev/null || true
+    -o go-template='{{range .items}}{{if not .metadata.deletionTimestamp}}{{.metadata.name}} {{.spec.nodeName}}{{"\n"}}{{end}}{{end}}' 2>/dev/null || true
 }
 
 # --- start from a genuinely healthy fleet ------------------------------------
