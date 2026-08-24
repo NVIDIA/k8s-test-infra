@@ -8,6 +8,7 @@ package gpudriver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,17 +61,33 @@ func (s *Simulator) Stage(ctx context.Context, h *host.Host, state *agent.State)
 	return nil
 }
 
-// Discard removes the driver tree and engine config written by Stage.
+// stagedPaths lists exactly the paths Stage writes, in removal order (leaves first).
+// RemoveAll on the whole driver/ tree is intentionally avoided: setup.sh stages
+// IB tools, libibverbs.d, and preload shims there, and those must survive Discard.
+var stagedPaths = []string{
+	"driver/dev",
+	"driver/usr/lib64",
+	"driver/usr/bin/nvidia-smi",
+	"driver/usr/bin/nvidia-smi.sh",
+	"driver/proc/driver/nvidia",
+	"driver/config/config.yaml",
+	"config/config.yaml",
+}
+
+// Discard removes only the paths Stage wrote. It is a no-op when Stage never
+// completed successfully, so it does not disturb a partially initialised tree.
 func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
-	driverRoot := filepath.Join(h.Root, "driver")
-	if err := os.RemoveAll(driverRoot); err != nil {
-		return fmt.Errorf("remove %s: %w", driverRoot, err)
+	if !s.ready.Load() {
+		return nil
 	}
-	configYAML := filepath.Join(h.Root, "config", "config.yaml")
-	if err := os.Remove(configYAML); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove %s: %w", configYAML, err)
+	var errs []error
+	for _, rel := range stagedPaths {
+		p := filepath.Join(h.Root, rel)
+		if err := os.RemoveAll(p); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
+		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // Apply creates the GPU-Operator compatibility symlink at /run/nvidia/driver.
