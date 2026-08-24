@@ -64,8 +64,10 @@ later is rejected until someone checks its architecture.
 the Operator's standalone DCGM image is ~2 GB; the monitor took **~14 minutes** to
 pull on two cold workers, so `nvsentinel-ready` budgets 20 minutes for the waits
 behind those pulls and prints what it is blocked on every minute. Cold bring-up is
-8–15 minutes end to end, warm re-runs about a minute. Do not kill a `tilt up` that
-looks stuck on `nvsentinel-ready`.
+8–15 minutes end to end, warm re-runs about a minute; adding `--observability` to
+an already-warm cluster costs about 3½ minutes more the first time, while the
+Prometheus and Grafana images pull. Do not kill a `tilt up` that looks stuck on
+`nvsentinel-ready`.
 
 ## What lands in the cluster
 
@@ -119,8 +121,10 @@ bash local/nv-sentinel/scenarios/recover-node.sh
 GPU node is schedulable and the workload is Running where a fault can be injected,
 then heats one GPU past its slowdown limit. It asserts the node is cordoned by
 NVSentinel and that *this* workload pod was evicted and replaced on another node —
-a pod merely being elsewhere proves nothing. Measured ~15 s from injection to
-cordon, with the eviction in the same second.
+a pod merely being elsewhere proves nothing. Measured 10–21 s from injection to
+cordon, with the eviction in the same second or within one 5 s poll of it — the
+watch reads DCGM every 15 s, so where the injection lands in that cycle is most
+of the spread.
 
 **`recover-node`** clears the overrides on every cordoned GPU node and asserts it
 becomes schedulable *and* that `GpuThermalMarginWatch` reports it healthy, then
@@ -199,7 +203,20 @@ the standalone DCGM makes the Operator hand `dcgm-exporter` a
 embedded hostengine and connects to the shared one — which does not exist until
 the DaemonSet's ~2 GB image has pulled. Measured ~3 minutes of crash-looping, then
 it self-heals. Under `--observability` this is a multi-minute gap in the GPU
-dashboard that a plain `--observability` session does not have.
+dashboard that a plain `--observability` session does not have. It belongs to the
+cold DCGM pull, not to the flag pair: adding `--observability` to a stack whose
+`nvidia-dcgm` is already serving restarted no exporter pod at all.
+
+**Prometheus or Grafana restarting when `quarantine-node` runs, under
+`--observability`.** `node-drainer` is configured with `userNamespaces` `"*"` in
+`Immediate` mode, so the drain evicts every non-DaemonSet pod on the quarantined
+worker — including anything from `monitoring` that landed there. Measured:
+`quarantine-node` picked the worker hosting `prometheus-...-0`, which was evicted
+and rescheduled onto the other one. `kube-prometheus-stack` runs here without
+persistent storage, so its TSDB restarts empty and the temperature step from
+before the fault is gone from the dashboard. The remediation worked exactly as
+asserted; if you want the whole step in one graph, check which worker Prometheus
+is on first.
 
 **Slow bring-up under host CPU pressure.** This stack runs the GPU Operator,
 DCGM, MongoDB and the full NVSentinel pipeline, so on a busy machine — several
@@ -218,8 +235,9 @@ verdict.** `nvsentinel-ready` deletes every Running pod labelled
 pipeline and loses the in-flight state the trigger is waiting on.
 
 **`recover-node` is not a cleanup button.** It refuses to run on a healthy
-cluster, on a node cordoned by hand, and on a quarantined node whose override
-someone already cleared — in each case the uncordon it would assert would happen
+cluster, on a node cordoned by hand, and on a quarantined node with no GPU pinned
+at or above the profile's slowdown threshold — whether the override was already
+cleared or was never hot. In each case the uncordon it would assert would happen
 without it. So the order is `quarantine-node` then `recover-node`. It is not
 *required* between runs, though: `quarantine-node` clears every pin fleet-wide
 before it injects. To tidy up by hand, clear the overrides and wait, or `kubectl
@@ -235,11 +253,25 @@ cools.
 Deleting the `mongodb-ext` pod leaves an **uninitialised replica set behind an
 all-green Tilt UI**. Its data is on `emptyDir` and the replica set is initialised
 by a one-shot Job, so a recreated pod comes up empty, its ping-only readiness
-probe passes, and nothing re-runs `rs.initiate()`. Recovery:
+probe passes, and nothing re-runs `rs.initiate()`.
+
+Re-running that Job is **not** the whole recovery. It restores the replica set,
+but the `HealthEventsDatabase` collections went with the `emptyDir` and only the
+chart's own setup hook creates them, so `fault-quarantine` and `node-drainer`
+crash-loop on `no collection with name HealthEvents for DB HealthEventsDatabase
+was found` until the release is upgraded again. Re-running the bring-up does both
+— it re-runs the hook Job, and `nvsentinel-ready` then restarts the pods that
+crash-looped:
 
 ```bash
-tilt trigger mongodb-ext-rs-init
+tilt trigger mongodb-ext-rs-init   # re-initialises the replica set
+tilt ci -- --nv-sentinel           # re-runs the setup hook, restoring the collections
 ```
+
+`tilt trigger` talks to a running `tilt up` session's API, so on the `tilt ci`
+path it fails with `Could not connect to Tilt at http://localhost:10350`. The
+`tilt ci` line alone recovers both halves; reach for `tilt trigger` when you are
+watching a live UI, which is the situation this symptom shows up in.
 
 This is an accepted trade-off, not an oversight. The obvious fix — a readiness
 probe asserting PRIMARY — was tried and reverted: `mongodb-ext-rs-init` depends on
