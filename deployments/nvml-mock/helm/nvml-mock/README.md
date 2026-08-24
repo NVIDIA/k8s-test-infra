@@ -18,17 +18,6 @@ is a summary so that `helm show readme` stays useful.
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock
 ```
 
-On KIND the image must be loaded into the cluster first. The published image is
-multi-arch, and `kind load docker-image` cannot load a multi-arch image from
-Docker Desktop's containerd store, so save a single platform first:
-
-```bash
-ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
-docker pull ghcr.io/nvidia/nvml-mock:latest
-docker save --platform "linux/${ARCH}" ghcr.io/nvidia/nvml-mock:latest -o nvml-mock.tar
-kind load image-archive nvml-mock.tar --name <cluster>
-```
-
 ## GPU profiles
 
 Set `gpu.profile` to one of the profiles shipped in `profiles/`:
