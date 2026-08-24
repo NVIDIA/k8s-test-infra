@@ -18,9 +18,16 @@
 #
 # NVSentinel talks TLS to the datastore and reads a CA certificate, so MongoDB
 # serves TLS with a cert-manager-issued cert and the CA secret (mongodb-ca) is
-# handed over via global.datastore.tls.caSecretName. It also needs change
-# streams (fault-quarantine and the analyzer watch them), which require a
-# replica set — hence the single-node rs0 and its init Job.
+# handed over via global.datastore.tls.caSecretName.
+#
+# The single-node rs0 below, and its init Job, are not optional: --replSet is
+# what makes this remediation pipeline work at all. fault-quarantine and
+# node-drainer each hold an open change stream on
+# HealthEventsDatabase.HealthEvents — that is how a stored health event becomes
+# a cordon and a drain — and change streams are derived from the oplog, which a
+# standalone mongod does not keep. Dropping --replSet gets
+# "Location40573: The $changeStream stage is only supported on replica sets"
+# and a pipeline that stores events and reacts to none of them.
 #
 # Everything is pinned to the control-plane so a remediation drain of a GPU
 # worker never evicts the datastore the pipeline depends on.
