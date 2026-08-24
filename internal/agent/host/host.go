@@ -64,7 +64,7 @@ func (h *Host) Symlink(target, linkPath string) error {
 
 // Remove removes path; not-exist is not an error.
 func (h *Host) Remove(path string) error {
-	if err := os.Remove(path); !os.IsNotExist(err) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove %s: %w", path, err)
 	}
 	return nil
