@@ -71,11 +71,11 @@ multi-node heterogeneous fleet.
 
 | Profile | GPU Name | VRAM | Architecture |
 |---------|----------|------|--------------|
-| `a100` | A100-SXM4-40GB | 40 GiB | Ampere |
-| `h100` | H100 80GB HBM3 | 80 GiB | Hopper |
-| `b200` | B200 | 192 GiB | Blackwell |
-| `gb200` | GB200 | 192 GiB | Blackwell |
 | `gb300` | GB300 NVL | 288 GiB | Blackwell Ultra |
+| `gb200` | GB200 | 192 GiB | Blackwell |
+| `b200` | B200 | 192 GiB | Blackwell |
+| `h100` | H100 80GB HBM3 | 80 GiB | Hopper |
+| `a100` | A100-SXM4-40GB | 40 GiB | Ampere |
 | `l40s` | L40S | 48 GiB | Ada Lovelace |
 | `t4` | Tesla T4 | 16 GiB | Turing |
 

@@ -79,7 +79,7 @@ device_defaults:
 
 ```yaml
 device_defaults:
-  architecture: "ampere"              # kepler, maxwell, pascal, volta, 
+  architecture: "ampere"              # kepler, maxwell, pascal, volta,
                                       # turing, ampere, ada, hopper
   compute_capability:
     major: 8
@@ -96,7 +96,7 @@ device_defaults:
     reserved_bytes: 0
     free_bytes: 42949672960
     used_bytes: 0
-  
+
   bar1_memory:
     total_bytes: 68719476736          # 64 GiB
     free_bytes: 68719476736
@@ -111,7 +111,7 @@ device_defaults:
     device_id: 0x20B010DE             # A100 device ID
     subsystem_id: 0x134710DE
     bus_id: "0000:07:00.0"        # Usually per-device
-  
+
   pcie:
     max_link_gen: 4
     current_link_gen: 4
@@ -232,7 +232,7 @@ device_defaults:
     memory_app_default: 1215
     video_current: 585
     video_max: 1290
-  
+
   clocks_throttle_reasons:
     gpu_idle: true
     applications_clocks_setting: false
@@ -290,7 +290,7 @@ nvml-mock-ctl set --gpu 3 clocks_throttle_reasons.counters.hw_thermal_slowdown_u
 ```yaml
 device_defaults:
   performance_state: "P0"             # P0-P15
-  
+
   utilization:
     gpu: 0                            # 0-100%
     memory: 0
@@ -405,7 +405,7 @@ device_defaults:
 ```yaml
 device_defaults:
   persistence_mode: "enabled"
-  compute_mode: "default"             # default, exclusive_thread, 
+  compute_mode: "default"             # default, exclusive_thread,
                                       # prohibited, exclusive_process
 ```
 
@@ -447,7 +447,7 @@ device_defaults:
     session_count: 0
     average_fps: 0
     average_latency_us: 0
-  
+
   fbc_stats:
     session_count: 0
     average_fps: 0
@@ -497,7 +497,7 @@ devices:
     # Override thermal for this device only
     thermal:
       temperature_gpu_c: 35
-  
+
   - index: 1
     uuid: "GPU-12345678-1234-1234-1234-123456780001"
     minor_number: 1
@@ -637,11 +637,11 @@ Standalone configuration files are provided for each supported GPU model:
 
 | File | GPU Model | Memory | Architecture |
 |------|-----------|--------|--------------|
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` | NVIDIA A100-SXM4-40GB | 40 GiB | Ampere |
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml` | NVIDIA H100 80GB HBM3 | 80 GiB | Hopper |
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-b200.yaml` | NVIDIA B200 | 192 GiB | Blackwell |
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml` | NVIDIA GB200 NVL | 192 GiB | Blackwell |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-gb300.yaml` | NVIDIA GB300 NVL | 288 GiB | Blackwell Ultra |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml` | NVIDIA GB200 NVL | 192 GiB | Blackwell |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-b200.yaml` | NVIDIA B200 | 192 GiB | Blackwell |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml` | NVIDIA H100 80GB HBM3 | 80 GiB | Hopper |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` | NVIDIA A100-SXM4-40GB | 40 GiB | Ampere |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-l40s.yaml` | NVIDIA L40S | 48 GiB | Ada Lovelace |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-t4.yaml` | NVIDIA T4 | 16 GiB | Turing |
 

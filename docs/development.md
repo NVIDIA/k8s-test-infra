@@ -149,7 +149,7 @@ func (d *ConfigurableDevice) GetNewFunction() (ReturnType, nvml.Return) {
         debugLog("[NVML] nvmlDeviceGetNewFunction -> %v\n", value)
         return value, nvml.SUCCESS
     }
-    
+
     // No config = not supported
     debugLog("[NVML] nvmlDeviceGetNewFunction -> NOT_SUPPORTED\n")
     return ReturnType{}, nvml.ERROR_NOT_SUPPORTED
@@ -321,7 +321,7 @@ func TestNewFunction(t *testing.T) {
             wantErr:  nvml.ERROR_NOT_SUPPORTED,
         },
     }
-    
+
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
             dev := &ConfigurableDevice{config: tt.config}

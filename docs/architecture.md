@@ -1,6 +1,6 @@
 # Architecture
 
-The main idea of Mokka is to simulate very low-level system contracts, 
+The main idea of Mokka is to simulate very low-level system contracts,
 so that higher layer components work meaningfully without any modifications.
 
 This is achieved via simulation of device status, PCI trees, driver footprints for GPU and networking.
@@ -201,11 +201,11 @@ func (ht *HandleTable) Register(dev nvml.Device) uintptr {
     // Allocate C memory block
     cHandle := C.allocHandle(C.uint(deviceIndex))
     handle := uintptr(unsafe.Pointer(cHandle))
-    
+
     // Store bidirectional mapping
     ht.devices[handle] = dev
     ht.reverse[dev] = handle
-    
+
     return handle
 }
 ```
@@ -234,7 +234,7 @@ YAMLConfig:
 func (c *Config) GetDeviceConfig(index int) *DeviceConfig {
     // Start with defaults
     merged := c.YAMLConfig.DeviceDefaults
-    
+
     // Apply per-device overrides
     for _, override := range c.YAMLConfig.Devices {
         if override.Index == index {
@@ -242,7 +242,7 @@ func (c *Config) GetDeviceConfig(index int) *DeviceConfig {
             break
         }
     }
-    
+
     return &merged
 }
 ```
