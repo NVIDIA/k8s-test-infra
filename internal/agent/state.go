@@ -17,8 +17,10 @@ type State struct {
 	NodeShape  NodeShape
 	Devices    []DeviceSpec
 	Fabric     FabricState
-	// ConfigRaw holds the raw YAML profile bytes so simulators (e.g. gpudriver)
-	// can write an engine-readable config file without re-deriving the profile.
+	// ConfigRaw holds the raw YAML profile bytes so gpudriver can write the
+	// engine config without re-deriving it from the narrower State fields.
+	// TODO: move YAMLConfig and sub-types to internal/config, use them directly
+	// in State, and eliminate this field — see specs/internal-config-package/IDEA.md.
 	ConfigRaw []byte
 }
 
