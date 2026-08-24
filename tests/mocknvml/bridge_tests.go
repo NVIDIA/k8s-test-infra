@@ -45,6 +45,58 @@ func bridgeTests(deviceCount int) []testResult {
 	results = append(results, testInternalExportTable()...)
 	results = append(results, testFabricHealth(deviceCount)...)
 	results = append(results, testThrottleCounters(deviceCount)...)
+	results = append(results, testConfComputeMemory(deviceCount)...)
+	return results
+}
+
+// --- Confidential Compute memory tests ---
+
+// testConfComputeMemory drives the two CC memory getters through the built
+// library. Both write caller-allocated C structs, so a field written at the
+// wrong offset or width only shows up here.
+//
+// CC mode is unmodelled, so every device must answer with zeros regardless of
+// what it configures — what nvidia-smi renders as 0 MiB, and what the reference
+// GB300 tray reports. The one direction that still declines is a driver older
+// than 525, which version_test.go covers.
+func testConfComputeMemory(deviceCount int) []testResult {
+	var results []testResult
+
+	for index := 0; index < 2 && index < deviceCount; index++ {
+		name := fmt.Sprintf("confcompute/gpu%d", index)
+		device, ret := nvml.DeviceGetHandleByIndex(index)
+		if ret != nvml.SUCCESS {
+			results = append(results, testResult{name, false, fmt.Sprintf("GetHandleByIndex(%d) failed: %v", index, nvml.ErrorString(ret))})
+			continue
+		}
+
+		info, ret := device.GetConfComputeMemSizeInfo()
+		switch {
+		case ret != nvml.SUCCESS:
+			results = append(results, testResult{name + "/memsize", false,
+				fmt.Sprintf("GetConfComputeMemSizeInfo failed: %v", nvml.ErrorString(ret))})
+		case info.ProtectedMemSizeKib != 0 || info.UnprotectedMemSizeKib != 0:
+			results = append(results, testResult{name + "/memsize", false,
+				fmt.Sprintf("protected=%d KiB unprotected=%d KiB, want 0/0 with CC mode off",
+					info.ProtectedMemSizeKib, info.UnprotectedMemSizeKib)})
+		default:
+			results = append(results, testResult{name + "/memsize", true, ""})
+		}
+
+		mem, ret := device.GetConfComputeProtectedMemoryUsage()
+		switch {
+		case ret != nvml.SUCCESS:
+			results = append(results, testResult{name + "/protected_usage", false,
+				fmt.Sprintf("GetConfComputeProtectedMemoryUsage failed: %v", nvml.ErrorString(ret))})
+		case mem.Total != 0 || mem.Used != 0 || mem.Free != 0:
+			results = append(results, testResult{name + "/protected_usage", false,
+				fmt.Sprintf("total=%d used=%d free=%d, want all zero with CC mode off",
+					mem.Total, mem.Used, mem.Free)})
+		default:
+			results = append(results, testResult{name + "/protected_usage", true, ""})
+		}
+	}
+
 	return results
 }
 

@@ -729,6 +729,17 @@ mock does not run, so deriving them from anything other than the configured
 utilization would be fabrication rather than simulation. They stay fixed by
 design and are not a gap to be closed.
 
+**Conf Compute protected memory.** The `Conf Compute Protected Memory Usage`
+block of `nvidia-smi -q` reports `0 MiB` for Total, Used and Free on every
+profile, and there is no key to change it. Nothing partitions protected memory
+until Confidential Compute mode is switched on, which the mock does not model
+(see issue #377), and NVML reports `0 MiB` rather than an unsupported query
+whether or not the part could do CC: every board in
+`tests/e2e/go/assertions/nvidiasmi/testdata/hardware` reports it that way,
+including A100, L40S and T4. A profile pinned to a driver older than `525` is the
+one exception — the CC APIs did not exist yet, so the rows read `N/A`, as they do
+on real hardware of that vintage.
+
 **Identity and topology.** Device `name`, `architecture`, `brand`,
 `compute_capability`, `uuid`, PCI `bus_id`, and the BAR1 aperture
 (`bar1_memory`) are baked onto the device at construction and need a pod restart
