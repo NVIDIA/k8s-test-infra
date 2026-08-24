@@ -81,6 +81,25 @@ fi
 # 3b. Generate CDI spec for nvidia-container-runtime CDI mode.
 #     This allows the toolkit to inject our mock libs into containers without
 #     needing libnvidia-container or kernel modules.
+#
+#     Wait for node-agent to stage the driver footprint before writing either
+#     CDI spec (3b and 3c). node-agent runs as a sibling container with no
+#     ordering guarantee. nvidiactl is the last file stageCharDevs creates, so
+#     its presence implies the full Stage wave (libs, smi, chardevs, config) is
+#     complete. Without this guard the specs would reference hostPaths that do
+#     not yet exist, and any container created in the interim would fail the
+#     bind-mount silently from setup.sh's perspective.
+#     TODO: remove this wait once setup.sh is fully replaced by the node-agent.
+_wait_secs=0
+until [ -e "$DEV_ROOT/nvidiactl" ] || [ "$_wait_secs" -ge 60 ]; do
+  sleep 1
+  _wait_secs=$((_wait_secs + 1))
+done
+if [ ! -e "$DEV_ROOT/nvidiactl" ]; then
+  echo "ERROR: timed out waiting for node-agent to stage driver footprint" >&2
+  exit 1
+fi
+
 CDI_DIR=/host/var/run/cdi
 mkdir -p "$CDI_DIR"
 
@@ -215,21 +234,6 @@ for i in $(seq 0 $((GPU_COUNT - 1))); do
 done
 
 echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices, index + UUID keyed)"
-
-# 3c. Wait for the node-agent to stage the control device nodes before generating
-#     the NRI CDI spec. node-agent (stageCharDevs) runs as a sibling container
-#     with no ordering guarantee; nri_cdi_device_nodes checks [ -e ] on each
-#     extra node and silently omits any that do not exist at spec-write time.
-#     TODO: remove this wait when NRI CDI generation moves into the node-agent.
-_wait_secs=0
-until [ -e "$DEV_ROOT/nvidiactl" ] || [ "$_wait_secs" -ge 60 ]; do
-  sleep 1
-  _wait_secs=$((_wait_secs + 1))
-done
-if [ ! -e "$DEV_ROOT/nvidiactl" ]; then
-  echo "ERROR: timed out waiting for node-agent to create $DEV_ROOT/nvidiactl" >&2
-  exit 1
-fi
 
 # 3c. Generate the CDI spec the NRI plugin injects (issue #436).
 #

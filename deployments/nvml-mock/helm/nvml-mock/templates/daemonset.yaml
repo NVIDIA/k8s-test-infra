@@ -235,7 +235,10 @@ spec:
             - name: DRIVER_VERSION
               value: "{{ include "nvml-mock.driverVersion" . }}"
           securityContext:
-            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+              add: [MKNOD]
           volumeMounts:
             - name: host-nvml-mock
               mountPath: /host/var/lib/nvml-mock

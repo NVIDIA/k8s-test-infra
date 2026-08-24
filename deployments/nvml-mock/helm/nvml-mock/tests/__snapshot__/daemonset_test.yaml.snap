@@ -139,7 +139,12 @@ should match snapshot with all overrides:
                   cpu: 10m
                   memory: 32Mi
               securityContext:
-                privileged: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  add:
+                    - MKNOD
+                  drop:
+                    - ALL
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: host-nvml-mock
@@ -312,7 +317,12 @@ should match snapshot with b200 profile:
                   cpu: 10m
                   memory: 32Mi
               securityContext:
-                privileged: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  add:
+                    - MKNOD
+                  drop:
+                    - ALL
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: host-nvml-mock
@@ -483,7 +493,12 @@ should match snapshot with default values:
                   cpu: 10m
                   memory: 32Mi
               securityContext:
-                privileged: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  add:
+                    - MKNOD
+                  drop:
+                    - ALL
               volumeMounts:
                 - mountPath: /host/var/lib/nvml-mock
                   name: host-nvml-mock
