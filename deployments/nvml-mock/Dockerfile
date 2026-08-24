@@ -40,7 +40,6 @@ COPY --from=builder /src/pkg/system/mockpcisysfs/libpcimocksys.so.* /usr/local/l
 COPY --from=builder /src/dist/mock-ib /usr/local/bin/mock-ib
 COPY --from=builder /src/dist/nvml-mock-nri /usr/local/bin/nvml-mock-nri
 COPY --from=builder /src/dist/nvml-mock-ctl /usr/local/bin/nvml-mock-ctl
-COPY --from=builder /src/dist/render-pci-sysfs /usr/local/bin/render-pci-sysfs
 COPY --from=builder /src/dist/render-imex-procdevices /usr/local/bin/render-imex-procdevices
 COPY --from=builder /src/dist/fake-imex-daemon /usr/bin/nvidia-imex
 COPY --from=builder /src/dist/fake-imex-ctl    /usr/bin/nvidia-imex-ctl

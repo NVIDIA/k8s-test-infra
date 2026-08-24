@@ -17,7 +17,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 )
 
-// PCIDevicesDir is the fake /sys/bus/pci/devices tree render-pci-sysfs
+// PCIDevicesDir is the fake /sys/bus/pci/devices tree the pcibus simulator
 // materializes from the profile's pcie_topology block (consumed by the NVIDIA
 // DRA driver's dra.k8s.io/pcieRoot resolution and device-plugin NUMA hints).
 const PCIDevicesDir = "/var/lib/nvml-mock/sys/bus/pci/devices"
