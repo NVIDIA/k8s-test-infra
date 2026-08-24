@@ -21,11 +21,11 @@ tests:
   - it: should render NOTES with default profile and count
     asserts:
       - matchRegexRaw:
-          pattern: "Profile: a100"
+          pattern: "Profile: gb300"
       - matchRegexRaw:
           pattern: "GPUs per node: 8"
       - matchRegexRaw:
-          pattern: "Driver version: 550.163.01"
+          pattern: "Driver version: 570.124.06"
 
   - it: should render NOTES with h100 profile
     set:
