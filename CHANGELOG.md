@@ -213,6 +213,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unaffected. The chart schema permits unknown keys, so a values file still
   setting `imex.enabled: true` installs silently with no state directory
   mounted rather than failing. (#304)
+- `pkg/kubernetes`. Its Ginkgo-bound node, taint, Job and cleanup helpers had no
+  in-tree callers; the e2e suite uses `tests/e2e/go/framework`. (#TBD)
 
 ### Fixed
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
