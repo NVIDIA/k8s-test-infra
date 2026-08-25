@@ -55,6 +55,7 @@ func writeStub(t *testing.T, dir string) string {
 }
 
 func TestShimExecsRealWithNogpu(t *testing.T) {
+	t.Parallel()
 	tmp := t.TempDir()
 	shim := prebuiltShim(t)
 	stub := writeStub(t, tmp)
@@ -70,6 +71,7 @@ func TestShimExecsRealWithNogpu(t *testing.T) {
 }
 
 func TestShimMissingRealBinary(t *testing.T) {
+	t.Parallel()
 	shim := prebuiltShim(t)
 
 	cmd := exec.Command(shim, "-c", "/cfg")
@@ -79,5 +81,5 @@ func TestShimMissingRealBinary(t *testing.T) {
 	var ee *exec.ExitError
 	require.ErrorAs(t, err, &ee)
 	require.Equal(t, 127, ee.ExitCode(), "conventional command-not-found code")
-	require.Contains(t, string(out), "imex-nogpu-shim: exec /nonexistent/nvidia-imex.real")
+	require.Contains(t, string(out), "nvidia-imex-shim: exec /nonexistent/nvidia-imex.real")
 }

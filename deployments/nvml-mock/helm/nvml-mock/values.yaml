@@ -274,7 +274,7 @@ infiniband:
 # DEPRECATED — fake IMEX coordination, removed in a follow-up release.
 # The fake nvidia-imex / nvidia-imex-ctl marker protocol is superseded
 # by the REAL nvidia-imex daemon running in NO GPU mode (--nogpu) via
-# imex-nogpu-shim; real daemons coordinate over the pod network and
+# nvidia-imex-shim; real daemons coordinate over the pod network and
 # need no hostPath (see deployments/nvml-mock/Dockerfile.compute-domain-daemon
 # and NVIDIA/k8s-test-infra#304). While deprecated, `imex.enabled: true`
 # still mounts the hostPath state directory the fakes' marker files use.
