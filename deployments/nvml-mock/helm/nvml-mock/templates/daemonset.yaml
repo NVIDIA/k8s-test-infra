@@ -73,13 +73,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            # Gates the NFD feature file that yields
-            # feature.node.kubernetes.io/pci-10de.present=true. setup.sh writes
-            # the file and cleanup.sh removes it only when this is "on", so the
-            # mock never deletes an input it did not supply. NFD, not the mock,
-            # creates the label. NFD's PCI source cannot derive it as deployed —
-            # nfd-worker reads a link-time-fixed /host-sys path, so the rendered
-            # tree is not on a path it reads; see setup.sh step 7.
+            # Gates the direct node label (nvidia.com/gpu.present=true) that
+            # setup.sh sets via kubectl as a fast-path before NFD propagates.
+            # The canonical NFD feature file (nvml-mock.features) is written by
+            # the node-agent container, not setup.sh; this flag controls only
+            # the legacy kubectl-label step in setup.sh step 7.
             - name: MOCK_NFD_PCI_LABEL
               value: {{ ternary "on" "off" .Values.nodeLabels.pciVendorPresent | quote }}
             {{- if .Values.imex.mockChannels.enabled }}
@@ -247,6 +245,8 @@ spec:
             - name: gpu-config
               mountPath: /etc/nvml-mock
               readOnly: true
+            - name: host-nfd-features
+              mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
           livenessProbe:
             httpGet:
               path: /healthz
