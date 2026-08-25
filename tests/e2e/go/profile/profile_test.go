@@ -268,3 +268,28 @@ devices:
 	require.NoError(t, err, "Load(fixture)")
 	assert.False(t, p.ReportsRowRemapHistogram(), "ReportsRowRemapHistogram()")
 }
+
+// TestExpectedPCIRootsFallsBackToOneRoot pins the assumption Load makes for a
+// profile with no pcie_topology block: the pcibus simulator synthesizes one flat
+// root complex (internal/agent/pcibus flatTopology), so PCISysfs must expect
+// exactly one. No shipped profile omits the block, so nothing else covers this.
+func TestExpectedPCIRootsFallsBackToOneRoot(t *testing.T) {
+	dir := t.TempDir()
+	const raw = `
+device_defaults:
+  name: "NVIDIA Mock GPU"
+devices:
+  - index: 0
+    pci:
+      bus_id: "0000:1A:00.0"
+  - index: 1
+    pci:
+      bus_id: "0000:1B:00.0"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "flat.yaml"), []byte(raw), 0o600))
+
+	p, err := Load(dir, "flat")
+	require.NoError(t, err)
+	require.Equal(t, 1, p.ExpectedPCIRoots(), "topology-less profile spans one synthesized root")
+	require.Equal(t, 2, p.ExpectedGPUs())
+}

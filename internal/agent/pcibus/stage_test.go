@@ -16,8 +16,35 @@ import (
 
 // ─── buildTopology ───────────────────────────────────────────────────────────
 
-func TestBuildTopology_NilWhenEmpty(t *testing.T) {
+func TestBuildTopology_NilWhenNoDevices(t *testing.T) {
+	// No root complexes AND no BDFs: nothing to hang off a fallback root.
 	require.Nil(t, buildTopology(&agent.State{}))
+	require.Nil(t, buildTopology(&agent.State{
+		Devices: []agent.DeviceSpec{{Index: 0, PCIBusID: ""}},
+	}))
+}
+
+func TestBuildTopology_FlatDefaultWhenNoRootComplexes(t *testing.T) {
+	// A config with devices but no pcie_topology block must still render; the
+	// profile helper in tests/e2e/go/profile counts on exactly one root here.
+	state := &agent.State{
+		Devices: []agent.DeviceSpec{
+			{Index: 0, PCIBusID: "0000:1A:00.0"},
+			{Index: 1, PCIBusID: ""},
+			{Index: 2, PCIBusID: "0000:1B:00.0"},
+		},
+	}
+
+	topo := buildTopology(state)
+	require.NotNil(t, topo)
+	require.Len(t, topo.RootComplexes, 1)
+
+	rc := topo.RootComplexes[0]
+	require.Equal(t, defaultRootComplexID, rc.ID)
+	require.Equal(t, 0, rc.NUMANode)
+	// BDFs are lowercased to match the keys buildIdentities emits; the device
+	// without one is skipped rather than rendered as an empty entry.
+	require.Equal(t, []string{"0000:1a:00.0", "0000:1b:00.0"}, rc.Devices)
 }
 
 func TestBuildTopology_SingleRC(t *testing.T) {
@@ -155,6 +182,21 @@ func TestStageSysfs_RendersSubsystemAttrs(t *testing.T) {
 		require.NoError(t, err, "reading %s", tc.file)
 		require.Equal(t, tc.want, string(data), tc.file)
 	}
+}
+
+func TestStageSysfs_RendersFlatDefault(t *testing.T) {
+	h := testHost(t)
+	state := &agent.State{
+		Devices: []agent.DeviceSpec{
+			{Index: 0, PCIBusID: "0000:1A:00.0", PCIDeviceID: 0x233010DE, PCISubsystemID: 0x165810DE},
+		},
+	}
+
+	require.NoError(t, stageSysfs(h, state))
+
+	target, err := os.Readlink(filepath.Join(h.Root, "sys/bus/pci/devices/0000:1a:00.0"))
+	require.NoError(t, err, "device must be rendered under the synthesized root")
+	require.Contains(t, target, defaultRootComplexID)
 }
 
 // ─── stagePCIShim ────────────────────────────────────────────────────────────
