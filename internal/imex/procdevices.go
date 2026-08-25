@@ -1,7 +1,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package render generates the mock IMEX capability surface that the NVIDIA DRA
+// Package imex generates the mock IMEX capability surface that the NVIDIA DRA
 // driver's compute-domain kubelet plugin needs on a node with no NVIDIA kernel
 // driver.
 //
@@ -20,7 +20,7 @@
 // appear between the "Character devices:" and "Block devices:" headers and to be
 // newline-terminated. See internal/common/nvcaps.go in
 // kubernetes-sigs/dra-driver-nvidia-gpu.
-package render
+package imex
 
 import (
 	"fmt"
@@ -31,8 +31,8 @@ import (
 
 // Device names the DRA driver looks up.
 const (
-	IMEXChannelsDeviceName = "nvidia-caps-imex-channels"
-	CapsDeviceName         = "nvidia-caps"
+	imexChannelsDeviceName = "nvidia-caps-imex-channels"
+	capsDeviceName         = "nvidia-caps"
 )
 
 const (
@@ -99,14 +99,14 @@ func ProcDevices(src string, imexMajor, capsMajor int) (string, error) {
 	// duplicates. Only the character-devices section is rewritten.
 	charSection := src[:blockAt]
 	rest := src[blockAt:]
-	for _, name := range []string{IMEXChannelsDeviceName, CapsDeviceName} {
+	for _, name := range []string{imexChannelsDeviceName, capsDeviceName} {
 		charSection = entryPattern(name).ReplaceAllString(charSection, "")
 	}
 
 	// Trim trailing blank lines from the character section, append the entries,
 	// then restore the blank-line separator before the block header.
 	charSection = strings.TrimRight(charSection, "\n \t")
-	entries := fmt.Sprintf("\n%3d %s\n%3d %s\n\n", imexMajor, IMEXChannelsDeviceName, capsMajor, CapsDeviceName)
+	entries := fmt.Sprintf("\n%3d %s\n%3d %s\n\n", imexMajor, imexChannelsDeviceName, capsMajor, capsDeviceName)
 
 	return charSection + entries + rest, nil
 }
@@ -116,8 +116,8 @@ func validateMajors(src string, imexMajor, capsMajor int) error {
 		name  string
 		major int
 	}{
-		{IMEXChannelsDeviceName, imexMajor},
-		{CapsDeviceName, capsMajor},
+		{imexChannelsDeviceName, imexMajor},
+		{capsDeviceName, capsMajor},
 	} {
 		if m.major <= 0 || m.major > maxDeviceMajor {
 			return fmt.Errorf("device major %d for %s is out of range, want 1..%d",
@@ -127,7 +127,7 @@ func validateMajors(src string, imexMajor, capsMajor int) error {
 
 	if imexMajor == capsMajor {
 		return fmt.Errorf("device majors for %s and %s must differ, both are %d",
-			IMEXChannelsDeviceName, CapsDeviceName, imexMajor)
+			imexChannelsDeviceName, capsDeviceName, imexMajor)
 	}
 
 	inUse := existingMajors(src)
@@ -135,8 +135,8 @@ func validateMajors(src string, imexMajor, capsMajor int) error {
 		name  string
 		major int
 	}{
-		{IMEXChannelsDeviceName, imexMajor},
-		{CapsDeviceName, capsMajor},
+		{imexChannelsDeviceName, imexMajor},
+		{capsDeviceName, capsMajor},
 	} {
 		if owner, taken := inUse[m.major]; taken && owner != m.name {
 			return fmt.Errorf("device major %d is already assigned to %q, refusing to reuse it for %s",
