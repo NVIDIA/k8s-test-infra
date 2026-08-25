@@ -23,7 +23,7 @@ tests:
       - matchRegexRaw:
           pattern: "Profile: gb300"
       - matchRegexRaw:
-          pattern: "GPUs per node: 8"
+          pattern: "GPUs per node: 4"
       - matchRegexRaw:
           pattern: "Driver version: 570.124.06"
 
@@ -53,7 +53,7 @@ tests:
     set:
       gpu:
         profile: gb300
-        count: 8
+        count: 4
     asserts:
       - matchRegexRaw:
           pattern: "Driver version: 570.124.06"

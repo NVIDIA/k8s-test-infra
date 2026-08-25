@@ -645,7 +645,9 @@ Standalone configuration files are provided for each supported GPU model:
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-l40s.yaml` | NVIDIA L40S | 48 GiB | Ada Lovelace |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-t4.yaml` | NVIDIA T4 | 16 GiB | Turing |
 
-Each file contains a complete configuration with all 8 devices configured.
+Each file contains a complete configuration with every device configured: 8 for
+the baseboard profiles, 4 for the Grace-Blackwell ones (`gb200`, `gb300`), which
+model one NVL72 compute tray, the unit a real node reports.
 
 ## Integration Values
 

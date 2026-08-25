@@ -30,10 +30,10 @@ LD_LIBRARY_PATH=. nvidia-smi
 # 2. A100 profile (8x A100-SXM4-40GB, 40GB, 400W)
 LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-a100.yaml nvidia-smi
 
-# 3. GB200 profile (8x GB200 NVL, 192GB, 1000W)
+# 3. GB200 profile (4x GB200 NVL, 192GB, 1000W)
 LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-gb200.yaml nvidia-smi
 
-# 4. GB300 profile (8x GB300 NVL Blackwell Ultra, 288GB, 1400W)
+# 4. GB300 profile (4x GB300 NVL Blackwell Ultra, 288GB, 1400W)
 LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-gb300.yaml nvidia-smi
 ```
 
@@ -115,8 +115,8 @@ YAML configs allow full control over GPU properties. See `configs/` for examples
 - `mock-nvml-config-a100.yaml` - DGX A100 (8x A100-SXM4-40GB)
 - `mock-nvml-config-h100.yaml` - HGX H100 (8x H100 80GB HBM3)
 - `mock-nvml-config-b200.yaml` - B200 (8x B200, 192 GiB HBM3e)
-- `mock-nvml-config-gb200.yaml` - GB200 NVL (8x GB200 with 192 GiB HBM3e)
-- `mock-nvml-config-gb300.yaml` - GB300 NVL (8x Blackwell Ultra with 288 GiB HBM3e, 1.4 kW TDP)
+- `mock-nvml-config-gb200.yaml` - GB200 NVL (4x GB200 with 192 GiB HBM3e — one NVL72 compute tray)
+- `mock-nvml-config-gb300.yaml` - GB300 NVL (4x Blackwell Ultra with 288 GiB HBM3e, 1.4 kW TDP)
 - `mock-nvml-config-l40s.yaml` - L40S (8x L40S, 48 GiB)
 - `mock-nvml-config-t4.yaml` - T4 (8x T4, 16 GiB)
 

@@ -149,7 +149,7 @@ NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
 kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}'
 ```
 
-Expected: `8` (default gpu.count).
+Expected: `4` (default gpu.count, derived from the `gb300` profile's four devices).
 
 ### 7. Clean up
 
@@ -240,7 +240,7 @@ kubectl get resourceslices -o json | \
   jq '[.items[].spec.devices // [] | length] | add // 0'
 ```
 
-Expected: `8` (default gpu.count).
+Expected: `4` (default gpu.count, derived from the `gb300` profile's four devices).
 
 ### 7. Clean up
 
@@ -355,7 +355,7 @@ kubectl -n gpu-operator wait --for=condition=ready pod --all --timeout=180s
 kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}'
 ```
 
-Expected: `8` (default gpu.count).
+Expected: `4` (default gpu.count, derived from the `gb300` profile's four devices).
 
 ### 9. Clean up
 
@@ -675,7 +675,8 @@ $ cat /var/lib/nvml-mock/sys/devices/pci0000:00/0000:07:00.0/numa_node
 | `a100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual EPYC) | 4 |
 | `h100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
 | `b200`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
-| `gb200` | 4 (`pci0000:00`, `:40`, `:80`, `:c0`) | 4 (per Grace pair) | 2 |
+| `gb200` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 |
+| `gb300` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 |
 | `l40s`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
 | `t4`    | 1 (`pci0000:00`) | 1 | 4 |
 
@@ -925,7 +926,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `gpu.profile` | `gb300` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, or `t4` |
-| `gpu.count` | `8` | Number of mock GPUs per node |
+| `gpu.count` | `""` | Number of mock GPUs per node. Empty derives it from the profile's `devices:` list (8 for the baseboard profiles, 4 for `t4`, `gb200` and `gb300`); a larger value is capped to that list at runtime |
 | `gpu.customConfig` | `""` | Inline YAML to override profile config entirely |
 | `gpu.dynamicMetrics.enabled` | `false` | Make the mock return time-varying temperature / power / utilization readings instead of the static profile values. See [Dynamic Metrics](#dynamic-metrics) below. |
 | `gpu.dynamicMetrics.seed` | `0` (baseline) | RNG seed; `0` uses a time-based seed, non-zero produces reproducible sequences. |

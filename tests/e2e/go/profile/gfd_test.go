@@ -10,15 +10,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The expected values are the ones GPU Feature Discovery actually published on a
-// live gb200 Mokka cluster on 2026-07-25:
+// The product and memory values are the ones GPU Feature Discovery actually
+// published on a live gb200 Mokka cluster on 2026-07-25:
 //
 //	nvidia.com/gpu.product=NVIDIA-GB200
 //	nvidia.com/gpu.memory=196608
-//	nvidia.com/gpu.count=8
 //
 // Deriving them from the profile and comparing against those observed literals
-// is what makes the e2e GFD assertion discriminating.
+// is what makes the e2e GFD assertion discriminating. The count follows the
+// profile's device list rather than that capture, which was taken while the
+// profile still declared a node of eight GPUs; it now models the four an NVL72
+// compute tray actually reports.
 func TestGB200ProfileDerivesObservedGFDLabelValues(t *testing.T) {
 	t.Parallel()
 
@@ -27,7 +29,7 @@ func TestGB200ProfileDerivesObservedGFDLabelValues(t *testing.T) {
 
 	assert.Equal(t, "NVIDIA-GB200", p.GFDProductName())
 	assert.Equal(t, 196608, p.MemoryMiB())
-	assert.Equal(t, 8, p.ExpectedGPUs())
+	assert.Equal(t, 4, p.ExpectedGPUs())
 }
 
 func TestGFDProductNameReplacesSpacesWithDashes(t *testing.T) {

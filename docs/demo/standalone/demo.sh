@@ -10,11 +10,14 @@ set -euo pipefail
 #
 # GPU_PROFILE / GPU_COUNT are env-overridable so the same demo can drive any
 # of the chart's built-in profiles, e.g.
-#   GPU_PROFILE=gb200 GPU_COUNT=8 ./demo.sh
-#   GPU_PROFILE=t4    GPU_COUNT=4 ./demo.sh
-# The PCI-sysfs assertions in step 9 derive their expected values from
-# GPU_COUNT and from the profile's `pcie_topology:` block, so switching
-# profile keeps the demo correct without further edits.
+#   GPU_PROFILE=gb200 ./demo.sh
+#   GPU_PROFILE=t4    ./demo.sh
+# GPU_COUNT defaults to the selected profile's device list, so profiles that
+# model fewer GPUs than an 8-GPU baseboard (t4, and the 4-GPU Grace-Blackwell
+# trays gb200/gb300) need no second override. The PCI-sysfs assertions in
+# step 9 derive their expected values from GPU_COUNT and from the profile's
+# `pcie_topology:` block, so switching profile keeps the demo correct without
+# further edits.
 ###############################################################################
 CLUSTER_NAME="nvml-mock-demo"
 # Kind creates a kubeconfig context named "kind-<cluster>". Pin every kubectl
@@ -25,7 +28,6 @@ IMAGE_NAME="nvml-mock:demo"
 CHART_PATH="deployments/nvml-mock/helm/nvml-mock"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${GPU_PROFILE:=h100}"
-: "${GPU_COUNT:=8}"
 # Deploy into a dedicated namespace (env-overridable) instead of default, so the
 # mock stack is easy to isolate and clean up. The namespace is also set as the
 # current context's default so the validate-*.sh helpers (which exec into pods
@@ -41,6 +43,12 @@ if [[ ! -f "${PROFILE_YAML}" ]]; then
   echo "       set GPU_PROFILE to one of: $(ls "${REPO_ROOT}/${CHART_PATH}/profiles/" | sed 's/\.yaml$//' | tr '\n' ' ')" >&2
   exit 1
 fi
+
+# Default the GPU count to the profile's device list, matching what the chart
+# derives when gpu.count is empty. Asking for more than the profile declares
+# would leave the step 9 PCI-sysfs assertions expecting devices the renderer
+# never materializes.
+: "${GPU_COUNT:=$(grep -c "^[[:space:]]*- index:" "${PROFILE_YAML}")}"
 
 # Count the `- id: "pci...` rows under `pcie_topology.root_complexes`. The
 # renderer falls back to a flat single-root layout for profiles without an
@@ -233,8 +241,8 @@ info "${FIRST_DEV} numa_node=${NUMA_NODE}"
 
 # Count distinct root complexes the symlinks resolve to. The expected
 # count was derived from the profile's `pcie_topology.root_complexes`
-# block at the top of the script, so e.g. h100/a100/b200/l40s -> 2,
-# gb200 -> 4, t4 -> 1. A regression that collapsed all devices onto a
+# block at the top of the script, so e.g. h100/a100/b200/l40s/gb200 -> 2,
+# t4 -> 1. A regression that collapsed all devices onto a
 # single root would silently break NUMA-aware scheduling.
 # readlink target shape: "../../../devices/pciDDDD:BB/<bdf>"
 # Splitting on "/" yields: $1=.. $2=.. $3=.. $4=devices $5=pciDDDD:BB
