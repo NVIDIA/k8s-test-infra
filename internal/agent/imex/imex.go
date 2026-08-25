@@ -24,8 +24,11 @@ const name = "imex"
 var _ agent.Simulator = (*Simulator)(nil)
 
 // Simulator fakes the IMEX kernel surface that is absent on CPU-only nodes
-// (no nvidia.ko = no /proc/devices entries, no channel chardevs), so the DRA
-// compute-domain plugin can start without a real GPU driver.
+//
+// Main consumers
+// - the DRA compute-domain kubelet plugin (discover device majors at startup)
+// - containerd (must find the channel chardevs on disk before it admits a pod
+// carrying a compute-domain CDI spec).
 type Simulator struct {
 	ready           atomic.Bool
 	procDevicesPath string // /proc/devices in production; overridden in tests
