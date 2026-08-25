@@ -153,6 +153,8 @@ should match snapshot with all overrides:
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
                   readOnly: true
+                - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+                  name: host-nfd-features
           nodeSelector:
             nvidia.com/gpu.present: "true"
           serviceAccountName: nvml-mock-custom
@@ -331,6 +333,8 @@ should match snapshot with b200 profile:
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
                   readOnly: true
+                - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+                  name: host-nfd-features
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 2
           tolerations:
@@ -507,6 +511,8 @@ should match snapshot with default values:
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
                   readOnly: true
+                - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+                  name: host-nfd-features
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 2
           tolerations:
