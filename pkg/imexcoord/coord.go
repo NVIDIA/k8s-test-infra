@@ -12,8 +12,7 @@
 // limitations under the License.
 
 // Package imexcoord implements the shared-volume coordination protocol
-// used by the fake IMEX binaries (cmd/fake-imex/{daemon,ctl}) to
-// simulate ComputeDomain peer discovery on KIND clusters without real
+// for simulating ComputeDomain peer discovery on KIND clusters without real
 // GB200 hardware. See NVIDIA/k8s-test-infra#304 for the full design.
 //
 // Deprecated: the fake IMEX marker protocol is superseded by the real
