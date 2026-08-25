@@ -66,8 +66,8 @@ FROM golang:${GOLANG_VERSION} AS shim
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY vendor/ vendor/
-COPY shims/imex-nogpu/ shims/imex-nogpu/
-RUN CGO_ENABLED=0 go build -mod=vendor -o /out/imex-nogpu-shim ./shims/imex-nogpu
+COPY shims/nvidia-imex-shim/ shims/nvidia-imex-shim/
+RUN CGO_ENABLED=0 go build -mod=vendor -o /out/nvidia-imex-shim ./shims/nvidia-imex-shim
 
 # demo: real IMEX on top of the nvml-mock image, replacing the
 # deprecated fakes at their canonical paths. The package's default
@@ -76,7 +76,7 @@ FROM ${NVML_MOCK_IMAGE} AS demo
 COPY --from=imex /usr/bin/nvidia-imex         /usr/bin/nvidia-imex.real
 COPY --from=imex /usr/bin/nvidia-imex-ctl     /usr/bin/nvidia-imex-ctl
 COPY --from=imex /etc/nvidia-imex/config.cfg  /etc/nvidia-imex/config.cfg
-COPY --from=shim /out/imex-nogpu-shim         /usr/bin/nvidia-imex
+COPY --from=shim /out/nvidia-imex-shim         /usr/bin/nvidia-imex
 
 # daemon (default target): real IMEX on top of the upstream
 # compute-domain-daemon image. Upstream renders its own imexd.cfg from
@@ -84,4 +84,4 @@ COPY --from=shim /out/imex-nogpu-shim         /usr/bin/nvidia-imex
 FROM ${COMPUTE_DOMAIN_DAEMON_IMAGE} AS daemon
 COPY --from=imex /usr/bin/nvidia-imex         /usr/bin/nvidia-imex.real
 COPY --from=imex /usr/bin/nvidia-imex-ctl     /usr/bin/nvidia-imex-ctl
-COPY --from=shim /out/imex-nogpu-shim         /usr/bin/nvidia-imex
+COPY --from=shim /out/nvidia-imex-shim         /usr/bin/nvidia-imex

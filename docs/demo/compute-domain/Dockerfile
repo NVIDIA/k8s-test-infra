@@ -31,11 +31,11 @@ FROM golang:${GOLANG_VERSION} AS shim
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY vendor/ vendor/
-COPY shims/imex-nogpu/ shims/imex-nogpu/
-RUN CGO_ENABLED=0 go build -mod=vendor -o /out/imex-nogpu-shim ./shims/imex-nogpu
+COPY shims/nvidia-imex-shim/ shims/nvidia-imex-shim/
+RUN CGO_ENABLED=0 go build -mod=vendor -o /out/nvidia-imex-shim ./shims/nvidia-imex-shim
 
 # Retain the package configuration and runtime dependencies while replacing
 # the daemon entry point with the NO GPU mode shim.
 FROM imex
 RUN mv /usr/bin/nvidia-imex /usr/bin/nvidia-imex.real
-COPY --from=shim /out/imex-nogpu-shim /usr/bin/nvidia-imex
+COPY --from=shim /out/nvidia-imex-shim /usr/bin/nvidia-imex
