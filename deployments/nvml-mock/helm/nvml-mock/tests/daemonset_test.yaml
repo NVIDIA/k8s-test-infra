@@ -125,13 +125,14 @@ tests:
           path: spec.template.spec.containers[0].lifecycle.preStop.exec.command
           value: ["/scripts/cleanup.sh"]
 
-  - it: should set default GPU_COUNT env var to 8
+  # The default profile is gb300, whose device list is one NVL72 compute tray.
+  - it: should set default GPU_COUNT env var to 4
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: GPU_COUNT
-            value: "8"
+            value: "4"
 
   - it: should set default DRIVER_VERSION for non-Blackwell profile
     set:
@@ -161,7 +162,7 @@ tests:
     set:
       gpu:
         profile: gb200
-        count: 8
+        count: 4
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -260,7 +261,7 @@ tests:
     set:
       gpu:
         profile: gb300
-        count: 8
+        count: 4
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -313,6 +314,22 @@ tests:
             value: "4"
 
   # ── GPU_COUNT derived from the profile devices list (count unset) ──────
+  #
+  # One case per device-list length the shipped profiles carry, so a derivation
+  # replaced by any single constant fails here. The 4-GPU profiles alone would
+  # all agree with a hardcoded 4.
+  - it: should derive GPU_COUNT from the h100 profile devices list (8)
+    set:
+      gpu:
+        profile: h100
+        count: ""
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GPU_COUNT
+            value: "8"
+
   - it: should derive GPU_COUNT from the t4 profile devices list (4)
     set:
       gpu:
@@ -325,7 +342,7 @@ tests:
             name: GPU_COUNT
             value: "4"
 
-  - it: should derive GPU_COUNT from the gb200 profile devices list (8)
+  - it: should derive GPU_COUNT from the gb200 profile devices list (4)
     set:
       gpu:
         profile: gb200
@@ -335,7 +352,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: GPU_COUNT
-            value: "8"
+            value: "4"
 
   - it: should mount all required volumes
     asserts:

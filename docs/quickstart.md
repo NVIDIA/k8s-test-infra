@@ -2,7 +2,40 @@
 
 Get Mock NVML running in 5 minutes.
 
-## Prerequisites
+## Kubernetes (Recommended)
+
+Requires Docker, `kind`, `kubectl`, and Helm 3.8+ (for OCI registry support).
+
+```bash
+kind create cluster --name mokka
+
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+    --namespace mokka --create-namespace \
+    --set gpu.profile=gb300
+```
+
+Every node now reports 4 mock GB300 GPUs, one NVL72 compute tray. `gb300` is the
+chart default; swap in
+`a100`, `h100`, `b200`, `gb200`, `l40s`, or `t4` for other hardware.
+
+Verify:
+
+```bash
+kubectl exec -n mokka ds/nvml-mock -- nvidia-smi -L
+```
+
+Use `make cluster-create` instead of `kind create cluster` when you need the
+CDI-enabled Kind node image — that is what the device plugin, DRA driver, and
+GPU Operator paths run on. `make cluster-delete` tears it down.
+
+See the [Helm Chart README](helm-chart.md)
+for full deployment walkthrough including device plugin, DRA driver, and GPU
+Operator integration.
+
+## Building the Library Locally
+
+The sections below build the mock `libnvidia-ml.so` directly, for local
+development and CI pipelines outside Kubernetes. They need:
 
 - Linux (x86_64 or arm64)
 - Go 1.25+ with CGo
@@ -10,9 +43,9 @@ Get Mock NVML running in 5 minutes.
 - `nvidia-smi` binary (optional -- only needed for local nvidia-smi output;
   the Kubernetes deployment includes it automatically)
 
-## Option 1: Local Build (Linux)
+### Option 1: Local Build (Linux)
 
-### Step 1: Build the Library
+#### Step 1: Build the Library
 
 ```bash
 cd pkg/gpu/mocknvml
@@ -26,14 +59,14 @@ libnvidia-ml.so.1           # Soname symlink
 libnvidia-ml.so             # Linker symlink
 ```
 
-### Step 2: Run with Default Configuration
+#### Step 2: Run with Default Configuration
 
 ```bash
 # 8x Mock A100 GPUs with default settings
 LD_LIBRARY_PATH=. nvidia-smi
 ```
 
-### Step 3: Run with YAML Configuration
+#### Step 3: Run with YAML Configuration
 
 ```bash
 # A100 profile (40GB, 400W)
@@ -46,7 +79,7 @@ LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-gb200.yaml nvidia-sm
 LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-gb300.yaml nvidia-smi
 ```
 
-## Option 2: Docker Build (Cross-Platform)
+### Option 2: Docker Build (Cross-Platform)
 
 Build Linux binaries from macOS or other platforms:
 
@@ -59,9 +92,9 @@ Build artifacts (shared libraries) are placed in `pkg/gpu/mocknvml/`:
 `libnvidia-ml.so`, `libnvidia-ml.so.1`, `libnvidia-ml.so.{version}`, and
 `nvidia-smi`.
 
-## Verification
+### Verification
 
-### Basic Check
+#### Basic Check
 
 ```bash
 LD_LIBRARY_PATH=. nvidia-smi -L
@@ -74,25 +107,25 @@ GPU 1: NVIDIA A100-SXM4-40GB (UUID: GPU-12345678-1234-1234-1234-123456780001)
 ...
 ```
 
-### Full Query
+#### Full Query
 
 ```bash
 LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-a100.yaml nvidia-smi -q
 ```
 
-### XML Output
+#### XML Output
 
 ```bash
 LD_LIBRARY_PATH=. MOCK_NVML_CONFIG=configs/mock-nvml-config-a100.yaml nvidia-smi -x -q
 ```
 
-### CSV Query
+#### CSV Query
 
 ```bash
 LD_LIBRARY_PATH=. nvidia-smi --query-gpu=index,name,uuid,memory.total --format=csv
 ```
 
-## Debug Mode
+### Debug Mode
 
 Enable verbose logging to see NVML function calls:
 
@@ -109,7 +142,7 @@ Output includes:
 [NVML] nvmlDeviceGetTemperature(sensor=0) -> 33
 ```
 
-## Environment Variables
+### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -117,21 +150,6 @@ Output includes:
 | `MOCK_NVML_NUM_DEVICES` | Number of GPUs (without YAML) | 8 |
 | `MOCK_NVML_DRIVER_VERSION` | Driver version (without YAML) | 550.163.01 |
 | `MOCK_NVML_DEBUG` | Enable debug logging | (disabled) |
-
-## Option 3: Kubernetes (Published Image)
-
-Deploy on a Kind cluster using the published container image:
-
-```bash
-kind create cluster --name nvml-mock-test
-docker pull ghcr.io/nvidia/nvml-mock:latest
-kind load docker-image ghcr.io/nvidia/nvml-mock:latest --name nvml-mock-test
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock --wait --timeout 120s
-```
-
-See the [Helm Chart README](helm-chart.md)
-for full deployment walkthrough including device plugin, DRA driver, and GPU
-Operator integration.
 
 ## Next Steps
 

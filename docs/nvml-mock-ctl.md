@@ -86,7 +86,7 @@ override that default.)
 ```bash
 # Pick the nvml-mock pod on a specific node.
 # Replace <node> with the node name; adjust -n if you installed elsewhere.
-POD=$(kubectl -n nvml-mock get pod -l app.kubernetes.io/name=nvml-mock \
+POD=$(kubectl -n mokka get pod -l app.kubernetes.io/name=nvml-mock \
   --field-selector spec.nodeName=<node> -o jsonpath='{.items[0].metadata.name}')
 ```
 
@@ -220,11 +220,11 @@ argument is the error **rate in errors/second** (0–1e9); `0` heals (no injecti
 
 ```bash
 # ramp 250 NVLink errors/sec on every active link of GPU 0
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl nvlink-error --gpu 0 250
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl nvlink-error --gpu 0 250
 # restrict to specific link ids
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl nvlink-error --gpu 0 250 --links 0,3,7
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl nvlink-error --gpu 0 250 --links 0,3,7
 # heal
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl nvlink-error --gpu 0 0
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl nvlink-error --gpu 0 0
 ```
 
 The count climbs monotonically off the shared counter epoch (the same accrual
@@ -253,12 +253,12 @@ that has just taken an SRAM fault does. The positional argument is the error
 
 ```bash
 # 4 uncorrectable SEC-DED errors on GPU 0's SM, past the service threshold
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl sram-ecc --gpu 0 \
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl sram-ecc --gpu 0 \
   --type secded --source sm --threshold-exceeded 4
 # correctable errors (no source attribution on real hardware)
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl sram-ecc --gpu 0 --type correctable 12
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl sram-ecc --gpu 0 --type correctable 12
 # heal
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl sram-ecc --gpu 0 0
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl sram-ecc --gpu 0 0
 ```
 
 | flag                   | meaning                                                                                   |
@@ -288,13 +288,13 @@ the conditions to report:
 
 ```bash
 # a route on GPU 0 is unhealthy
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 route_unhealthy
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 route_unhealthy
 # degraded fabric bandwidth while a route recovers
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 degraded_bandwidth route_recovery
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 degraded_bandwidth route_recovery
 # the fabric manager gave this GPU no partition
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 no_partition
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 no_partition
 # recover
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 healthy
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 healthy
 ```
 
 | condition | reported as |
@@ -392,83 +392,83 @@ All examples assume `$POD` is set as shown in [Where it runs](#where-it-runs).
 
 ```bash
 # 1) Force uncorrectable ECC on GPU 0, deliver Xid 79
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fail --gpu 0 --mode ecc_uncorrectable --after-calls 1 --xid 79
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl fail --gpu 0 --mode ecc_uncorrectable --after-calls 1 --xid 79
 # verify from any consumer pod:
 kubectl exec <consumer> -- nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.total --format=csv,noheader
 ```
 
 ```bash
 # 2) Mark ALL GPUs lost
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fail --gpu all --mode lost
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl fail --gpu all --mode lost
 ```
 
 ```bash
 # 3) Pin GPU 3's reported temperature to 85 C (works whether or not the
 # profile drives temperature dynamically — the temp command handles both).
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl temp --gpu 3 85
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl temp --gpu 3 85
 # verify from any consumer pod:
 kubectl exec <consumer> -- nvidia-smi --id=3 --query-gpu=temperature.gpu --format=csv,noheader,nounits
 ```
 
 ```bash
 # 3b) Pin power draw to 350 W on all GPUs, and fan speed to 60% on GPU 0.
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl power --gpu all 350
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fan --gpu 0 60
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl power --gpu all 350
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl fan --gpu 0 60
 # verify from any consumer pod:
 kubectl exec <consumer> -- nvidia-smi --query-gpu=index,power.draw,fan.speed --format=csv,noheader
 ```
 
 ```bash
 # 3c) Pin utilization, clocks, a throttle reason and the P-state on GPU 0.
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl util --gpu 0 90
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl clocks --gpu 0 1200
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl throttle --gpu 0 thermal
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl pstate --gpu 0 8
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl util --gpu 0 90
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl clocks --gpu 0 1200
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl throttle --gpu 0 thermal
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl pstate --gpu 0 8
 # verify from any consumer pod:
 kubectl exec <consumer> -- nvidia-smi --id=0 \
   --query-gpu=utilization.gpu,clocks.sm,clocks_throttle_reasons.hw_thermal_slowdown,pstate \
   --format=csv,noheader
 # clear the throttle reason again:
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl throttle --gpu 0 none
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl throttle --gpu 0 none
 ```
 
 ```bash
 # 3d) Degrade GPU 0's NVLink fabric route while the workload keeps running.
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 route_unhealthy
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 route_unhealthy
 # verify from any consumer pod (Fabric -> Health block):
 kubectl exec <consumer> -- nvidia-smi --id=0 -q | grep -A 7 Health
 # recover, keeping the device's other overrides:
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 healthy
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl fabric-health --gpu 0 healthy
 ```
 
 ```bash
 # 4) Set several fields on GPU 0 in one call
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl set --gpu 0 \
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl set --gpu 0 \
   ecc.mode_current=disabled \
   utilization.gpu=100
 ```
 
 ```bash
 # 5) Target by UUID (requires an explicit uuid: in the profile for that device)
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fail --gpu GPU-12345678-1234-1234-1234-123456780000 --mode fallen_off_bus
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl fail --gpu GPU-12345678-1234-1234-1234-123456780000 --mode fallen_off_bus
 ```
 
 ```bash
 # 6) Inspect active overrides
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl status
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl status
 # or just GPU 0 (integer index only):
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl status --gpu 0
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl status --gpu 0
 ```
 
 ```bash
 # 7) Recover one GPU, then reset everything
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl fail --gpu 0 --mode healthy
-kubectl -n nvml-mock exec "$POD" -- nvml-mock-ctl reset --gpu all
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl fail --gpu 0 --mode healthy
+kubectl -n mokka exec "$POD" -- nvml-mock-ctl reset --gpu all
 ```
 
 ```bash
 # 8) Full reset via pod restart (setup.sh wipes overrides.yaml on startup)
-kubectl -n nvml-mock delete pod "$POD"
+kubectl -n mokka delete pod "$POD"
 ```
 
 ## Troubleshooting

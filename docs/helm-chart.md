@@ -46,7 +46,7 @@ default. Kind clusters must have containerd NRI enabled; see
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  -n nvml-mock --create-namespace \
+  -n mokka --create-namespace \
   --set nri.enabled=true
 ```
 
@@ -149,7 +149,7 @@ NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
 kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}'
 ```
 
-Expected: `8` (default gpu.count).
+Expected: `4` (default gpu.count, derived from the `gb300` profile's four devices).
 
 ### 7. Clean up
 
@@ -240,7 +240,7 @@ kubectl get resourceslices -o json | \
   jq '[.items[].spec.devices // [] | length] | add // 0'
 ```
 
-Expected: `8` (default gpu.count).
+Expected: `4` (default gpu.count, derived from the `gb300` profile's four devices).
 
 ### 7. Clean up
 
@@ -355,7 +355,7 @@ kubectl -n gpu-operator wait --for=condition=ready pod --all --timeout=180s
 kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}'
 ```
 
-Expected: `8` (default gpu.count).
+Expected: `4` (default gpu.count, derived from the `gb300` profile's four devices).
 
 ### 9. Clean up
 
@@ -675,7 +675,8 @@ $ cat /var/lib/nvml-mock/sys/devices/pci0000:00/0000:07:00.0/numa_node
 | `a100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual EPYC) | 4 |
 | `h100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
 | `b200`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
-| `gb200` | 4 (`pci0000:00`, `:40`, `:80`, `:c0`) | 4 (per Grace pair) | 2 |
+| `gb200` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 |
+| `gb300` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 |
 | `l40s`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
 | `t4`    | 1 (`pci0000:00`) | 1 | 4 |
 
@@ -904,10 +905,10 @@ Guidance:
 
 ```bash
 # Which nodes are actually injecting right now
-kubectl get pods -n nvml-mock -l app.kubernetes.io/name=nvml-mock-nri -o wide
+kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock-nri -o wide
 
 # Why a given node is not
-kubectl describe pod -n nvml-mock <nvml-mock-nri-pod>
+kubectl describe pod -n mokka <nvml-mock-nri-pod>
 ```
 
 Both probe endpoints answer with the reason in the body, so a readiness failure
@@ -925,7 +926,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `gpu.profile` | `gb300` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, or `t4` |
-| `gpu.count` | `8` | Number of mock GPUs per node |
+| `gpu.count` | `""` | Number of mock GPUs per node. Empty derives it from the profile's `devices:` list (8 for the baseboard profiles, 4 for `t4`, `gb200` and `gb300`); a larger value is capped to that list at runtime |
 | `gpu.customConfig` | `""` | Inline YAML to override profile config entirely |
 | `gpu.dynamicMetrics.enabled` | `false` | Make the mock return time-varying temperature / power / utilization readings instead of the static profile values. See [Dynamic Metrics](#dynamic-metrics) below. |
 | `gpu.dynamicMetrics.seed` | `0` (baseline) | RNG seed; `0` uses a time-based seed, non-zero produces reproducible sequences. |
@@ -951,7 +952,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
-| `nri.enabled` | `false` | Deploy the `nvml-mock-nri` containerd NRI plugin DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n nvml-mock`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
+| `nri.enabled` | `false` | Deploy the `nvml-mock-nri` containerd NRI plugin DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
 | `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
 | `nri.pluginName` / `nri.pluginIndex` | `nvml-mock` / `"10"` | NRI registration identity. The index orders this plugin against others |
 | `nri.overlay.hostPath` / `nri.overlay.mountPath` | `/var/lib/nvml-mock` / `/opt/nvml-mock` | Host overlay staged by the main DaemonSet, and the path it is injected at inside workloads |
@@ -1395,7 +1396,8 @@ kubectl -n nvidia logs -l app.kubernetes.io/name=nvidia-dra-driver-gpu --tail=10
 
 **Privileged pods blocked**: Your cluster may have PodSecurity or OPA/Gatekeeper
 policies blocking `privileged: true`. KIND allows this by default. For managed
-clusters, you may need to create a PodSecurity exception for the nvml-mock namespace.
+clusters, you may need to create a PodSecurity exception for the nvml-mock
+release namespace.
 
 ## Related Documentation
 

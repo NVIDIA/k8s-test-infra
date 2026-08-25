@@ -27,10 +27,12 @@ No physical NVIDIA hardware required.
 kind create cluster --name mokka
 
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+    --namespace mokka --create-namespace \
     --set gpu.profile=gb300
 ```
 
-Every node now reports 8 mock GB300 GPUs. `gb300` is the chart default; swap in
+Every node now reports 4 mock GB300 GPUs, one NVL72 compute tray. `gb300` is the
+chart default; swap in
 `a100`, `h100`, `b200`, `gb200`, `l40s`, or `t4` for other hardware.
 
 After install, deploy a consumer to test:

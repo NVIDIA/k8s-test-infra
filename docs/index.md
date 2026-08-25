@@ -45,8 +45,13 @@ though real hardware were present. No physical NVIDIA GPU is required.
 ```bash
 kind create cluster --name mokka
 
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+    --namespace mokka --create-namespace
 ```
+
+Use `make cluster-create` instead of `kind create cluster` when you need the
+CDI-enabled Kind node image — that is what the device plugin, DRA driver and
+GPU Operator paths run on. `make cluster-delete` tears it down.
 
 The [Helm chart guide](helm-chart.md) has the full walkthrough for each
 consumer, including the device plugin, the DRA driver, the GPU Operator and a
