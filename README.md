@@ -27,6 +27,7 @@ No physical NVIDIA hardware required.
 kind create cluster --name mokka
 
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+    --namespace mokka --create-namespace \
     --set gpu.profile=gb300
 ```
 
