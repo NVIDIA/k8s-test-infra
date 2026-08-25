@@ -812,6 +812,16 @@ tests:
           path: spec.template.spec.containers[1].command
           content: --shutdown-timeout=30s
 
+  # CDI specs are written to h.Run/cdi/ = /host/run/cdi/. Without this mount the
+  # writes land in the container overlayfs and containerd never sees the specs.
+  - it: node-agent should mount the CDI spec directory
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: host-cdi
+            mountPath: /host/run/cdi
+
   - it: should honour node-agent logging and timeout overrides
     set:
       nodeAgent:

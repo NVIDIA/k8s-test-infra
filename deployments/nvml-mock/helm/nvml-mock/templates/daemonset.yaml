@@ -221,6 +221,10 @@ spec:
             - --log-format={{ .Values.nodeAgent.logging.format }}
             - --shutdown-timeout={{ .Values.nodeAgent.shutdownTimeout }}
           env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
             - name: GPU_COUNT
               value: "{{ include "nvml-mock.gpuCount" . }}"
             - name: DRIVER_VERSION
@@ -235,6 +239,8 @@ spec:
               mountPath: /host/var/lib/nvml-mock
             - name: host-run-nvidia
               mountPath: /host/run/nvidia
+            - name: host-cdi
+              mountPath: /host/run/cdi
             - name: gpu-config
               mountPath: /etc/nvml-mock
               readOnly: true
