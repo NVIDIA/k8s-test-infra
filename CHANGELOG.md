@@ -129,6 +129,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- The local-dev and CI Kind clusters no longer run nvml-mock on the control-plane
+  node. The chart tolerates every taint, so the DaemonSet landed there too, but
+  nothing follows it: GPU Operator operands, FGO and NFD workers all stop at the
+  `NoSchedule` taint. That left a node advertising a GPU driver footprint no
+  consumer could use, and scenarios that pick a mock pod by list position
+  intermittently targeted it. Every Kind worker now carries
+  `mokka.nvidia.com/type=sgpu` and `local/nvml-mock.values.yaml` selects on it;
+  the compute-domain overlay repeats the selector because its Tiltfile installs
+  the chart without that baseline, and its `topology.yaml` gives the control
+  plane no clique to report. Pinning stays additive — Helm deep-merges maps, so
+  the FGO pool selector and `--multi-gpu-profile`'s hostname pin compose with
+  it. (#724)
 - The nvml-mock chart now defaults `gpu.profile` to `gb300` instead of `a100`, so
   a bare `helm install` simulates current-generation hardware. Ampere is the
   architecture least likely to expose a gap in software being tested against a
