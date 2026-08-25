@@ -6,15 +6,18 @@
 // compute-domain kubelet plugin via ALT_PROC_DEVICES_PATH.
 //
 // On a Mokka node there is no NVIDIA kernel module, so /proc/devices has no
-// nvidia-caps-imex-channels entry and the plugin aborts at startup. The DRA
-// driver's chart exposes an altProcDevices value for exactly this case; this
-// command produces the file it points at.
+// nvidia-caps-imex-channels entry and the plugin aborts at startup. This
+// command produces the file ALT_PROC_DEVICES_PATH points at.
+//
+// The output belongs inside the mock driver root, which the plugin's container
+// already bind-mounts, so no extra volume is needed to reach it. See
+// deployments/nvml-mock/scripts/setup.sh.
 //
 // Usage:
 //
 //	render-imex-procdevices \
 //	    --source /proc/devices \
-//	    --output /var/lib/nvml-mock/imex/proc-devices \
+//	    --output /var/lib/nvml-mock/driver/proc/devices \
 //	    --imex-major 235 --caps-major 236
 //
 // Rendering is idempotent, so the DaemonSet may re-run it on restart.

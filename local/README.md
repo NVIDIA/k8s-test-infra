@@ -116,6 +116,8 @@ tilt up -- --compute-domain
 tilt up -- --compute-domain --dra        # with DRA driver
 ```
 
+With `--dra` the DRA driver's ComputeDomain controller and `compute-domains` kubelet plugin run against the simulated fabric. That plugin insists on resolving the `nvidia-caps-imex-channels` device major before it starts, so `local/dra/nvml-mock.values.yaml` stages a substitute `/proc/devices` inside the mock driver root and `local/dra/dra-driver.values.yaml` points the plugin at it via `ALT_PROC_DEVICES_PATH`.
+
 The Tilt UI exposes two manual triggers under the `compute-domain-tests` label:
 - **check-fabric** — asserts the topology overlay assigned the expected `cliqueId`/`clusterUUID` to each node
 - **topology-rebind** — live-rebinds the NVLink topology and re-asserts the new clique assignment

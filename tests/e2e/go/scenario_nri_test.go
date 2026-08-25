@@ -1027,7 +1027,7 @@ func imexChannelNames(ctx context.Context, h *harness.Harness, pod kube.PodRef) 
 func advertisedImexMajor(ctx context.Context, h *harness.Harness, node string) int {
 	GinkgoHelper()
 	pod := nriMockPodOnNode(ctx, h, node)
-	res, err := h.Kube.ExecSh(ctx, pod, `cat /host/var/lib/nvml-mock/imex/proc-devices`)
+	res, err := h.Kube.ExecSh(ctx, pod, `cat /host/var/lib/nvml-mock/driver/proc/devices`)
 	Expect(err).NotTo(HaveOccurred(), "read rendered proc-devices on %s: %s", node, res.Combined())
 
 	for _, line := range strings.Split(res.Combined(), "\n") {

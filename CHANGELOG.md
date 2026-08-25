@@ -173,6 +173,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests/e2e/go/framework/pod`, rendered from a `Spec` carrying only what varies.
 
 ### Fixed
+- `tilt up -- --compute-domain --dra` now brings the NVIDIA DRA driver up instead
+  of crash-looping its `compute-domains` kubelet plugin with `error parsing
+  '/proc/devices': unexpected regex match: []`. That plugin resolves the
+  `nvidia-caps-imex-channels` character-device major from `/proc/devices` before
+  it will start, and a Mokka node has no NVIDIA kernel module to put one there.
+  The chart value the DRA driver documents for this, `altProcDevices`, is absent
+  from every release up to and including v25.12.0, so the substitute file is
+  instead rendered inside the mock driver root — which the plugin's container
+  already bind-mounts at `/driver-root` — and pointed at through the chart's
+  generic per-container env list. Nothing new is mounted, and the location
+  matches where that same plugin already looks for the companion
+  `fabric-imex-mgmt` capability once `ALT_PROC_DEVICES_PATH` is set.
+  `imex.mockChannels` therefore moves its output from
+  `/var/lib/nvml-mock/imex/proc-devices` to
+  `/var/lib/nvml-mock/driver/proc/devices`, and turns on for any `--dra` run
+  rather than only the ComputeDomain scenario, so the two DRA compositions cannot
+  drift apart. Staging it costs well under a second per node. (#497)
+- The `--compute-domain` Tilt scenario builds again. It carried its own copy of
+  the nvml-mock image's `docker_build(only=[...])` context restriction, so adding
+  `internal/` and `Makefile` to that image's Dockerfile (#705) — which updated
+  only the default path's copy — left every `tilt up -- --compute-domain` failing
+  before any pod started, with BuildKit reporting `failed to compute cache key:
+  "/Makefile": not found` rather than naming the flag that excluded it. Both
+  builds now share one exported list, and a new test asserts that every Tilt
+  build of that Dockerfile admits each path it COPYs from the build context, so
+  the next such omission fails in `make test`. (#497)
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
   uses (`00000000:07:00.0`, `NVML_DEVICE_PCI_BUS_ID_FMT`) while `busIdLegacy`
   keeps the 4-digit one (`0000:07:00.0`). Both were filled with the profile's

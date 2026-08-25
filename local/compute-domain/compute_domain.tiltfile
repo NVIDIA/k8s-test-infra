@@ -25,6 +25,8 @@
 
 load('ext://helm_resource', 'helm_resource')
 load('ext://k8s_attach', 'k8s_attach')
+# Same Dockerfile as the default path, so the same build context restriction.
+load('../nvml_mock.tiltfile', 'MOCK_IMAGE_BUILD_INPUTS')
 
 _BASE_IMAGE         = 'nvml-mock:compute-domain'
 _DEMO_IMAGE         = 'nvml-mock:compute-domain-imex'
@@ -54,14 +56,7 @@ def build_images(with_dra):
         _BASE_IMAGE,
         context='.',
         dockerfile=_MOCK_DOCKERFILE,
-        only=[
-            'go.mod',
-            'go.sum',
-            'vendor/',
-            'cmd/',
-            'pkg/',
-            'deployments/nvml-mock/',
-        ],
+        only=MOCK_IMAGE_BUILD_INPUTS,
     )
 
     # Demo overlay: real nvidia-imex + imex-nogpu-shim on top of the

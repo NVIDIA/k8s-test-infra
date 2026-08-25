@@ -34,27 +34,30 @@ mkdir -p "$HOST/run"
 #     The NVIDIA DRA driver's compute-domain kubelet plugin reads a device major
 #     for nvidia-caps-imex-channels out of /proc/devices at startup. There is no
 #     NVIDIA kernel module here, so that entry does not exist and the plugin
-#     aborts. The DRA driver supports a substitute file via its chart's
-#     altProcDevices value (env ALT_PROC_DEVICES_PATH); this renders it.
-#
-#     Pair with, on the DRA driver release that supports it:
-#       --set altProcDevices=/var/lib/nvml-mock/imex/proc-devices
-#       --set resources.computeDomains.enabled=true
+#     aborts. The DRA driver reads a substitute file from ALT_PROC_DEVICES_PATH
+#     instead; this renders it.
 #
 #     Bind-mounting over /proc/devices is not an option: runc rejects it
 #     ("cannot be mounted because it is inside /proc"), which is why the
 #     consumer uses an env-var indirection instead.
+#
+#     The substitute lands under $DRIVER_ROOT/proc, mirroring the host path it
+#     stands in for, because the plugin container already bind-mounts the driver
+#     root at /driver-root: no extra volume is needed to reach it, which is what
+#     lets this work on DRA driver releases whose chart has no altProcDevices
+#     value. It is also where that plugin already looks for the companion
+#     fabric-imex-mgmt capability once ALT_PROC_DEVICES_PATH is set. See
+#     local/dra/dra-driver.values.yaml and NVIDIA/k8s-test-infra#497.
 if [ "${IMEX_MOCK_CHANNELS:-false}" = "true" ]; then
-  IMEX_DIR=$HOST/imex
   IMEX_MAJOR=${IMEX_CHANNEL_MAJOR:-235}
   CAPS_MAJOR=${IMEX_CAPS_MAJOR:-236}
   IMEX_CHANNELS=${IMEX_CHANNEL_COUNT:-2048}
+  IMEX_PROC_DEVICES=$DRIVER_ROOT/proc/devices
 
-  mkdir -p "$IMEX_DIR"
   # Rendering is idempotent, so a DaemonSet restart re-runs this safely.
   render-imex-procdevices \
     --source /proc/devices \
-    --output "$IMEX_DIR/proc-devices" \
+    --output "$IMEX_PROC_DEVICES" \
     --imex-major "$IMEX_MAJOR" \
     --caps-major "$CAPS_MAJOR"
 
@@ -75,7 +78,7 @@ CAPS_EOF
     i=$((i + 1))
   done
 
-  echo "Mock IMEX surface ready: $IMEX_CHANNELS channels, major $IMEX_MAJOR, proc-devices at $IMEX_DIR/proc-devices"
+  echo "Mock IMEX surface ready: $IMEX_CHANNELS channels, major $IMEX_MAJOR, proc-devices at $IMEX_PROC_DEVICES"
 fi
 
 # 3b. Generate CDI spec for nvidia-container-runtime CDI mode.

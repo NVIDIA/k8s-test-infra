@@ -5,6 +5,7 @@
 #
 # Exports:
 #   FLEET_PROFILES                — list[str], GPU profiles that make up the per-profile fleet.
+#   MOCK_IMAGE_BUILD_INPUTS       — list[str], docker_build only= set for deployments/nvml-mock/Dockerfile.
 #   build_nvml_mock_image()       — build the ghcr.io/nvidia/nvml-mock image.
 #   install_single()              — install one nvml-mock Helm release. Returns list[str] of Tilt resource names.
 #   install_fleet()               — install one nvml-mock release per profile, node-pinned via
@@ -24,6 +25,26 @@ load('ext://k8s_attach', 'k8s_attach')
 # Order matters: the Nth profile is pinned to worker-N, whose name comes from
 # the JoinConfiguration patches in local/kind/default.kind.yaml.
 FLEET_PROFILES = ['a100', 't4']
+
+# Build context restriction for deployments/nvml-mock/Dockerfile. Exported
+# because the compute-domain scenario builds the same Dockerfile under a
+# different tag: two copies of this list silently diverge, and a path the
+# Dockerfile COPYs but the list omits fails the build with an opaque
+# "failed to compute cache key" (that is how #497 first surfaced).
+#
+# Deliberately coarse (top-level trees): the Dockerfile's per-subpath COPYs
+# drive layer-cache invalidation, so listing whole trees avoids churn when new
+# cmd/pkg subdirs appear without forcing extra rebuilds.
+MOCK_IMAGE_BUILD_INPUTS = [
+    'go.mod',
+    'go.sum',
+    'vendor/',
+    'cmd/',
+    'pkg/',
+    'internal/',
+    'Makefile',
+    'deployments/nvml-mock/',
+]
 
 _IMAGE = 'ghcr.io/nvidia/nvml-mock'
 _CONTROL_PLANE_IMAGE = 'ghcr.io/nvidia/mokka-control-plane'
@@ -58,24 +79,11 @@ def build_nvml_mock_image(nvmlmock_image=''):
         return
     # Build the nvml-mock image from the repo root. The Dockerfile COPYs
     # go.mod/vendor/pkg/cmd from the root, so the context must be '.'.
-    # only= is intentionally coarse (top-level dirs): the Dockerfile's
-    # per-subpath COPYs drive layer-cache invalidation, so listing whole
-    # trees here avoids drift when new cmd/pkg subdirs are added without
-    # forcing extra rebuilds.
     docker_build(
         _IMAGE,
         context='.',
         dockerfile='deployments/nvml-mock/Dockerfile',
-        only=[
-            'go.mod',
-            'go.sum',
-            'vendor/',
-            'cmd/',
-            'pkg/',
-            'internal/',
-            'Makefile',
-            'deployments/nvml-mock/',
-        ],
+        only=MOCK_IMAGE_BUILD_INPUTS,
     )
 
 def build_control_plane_image():

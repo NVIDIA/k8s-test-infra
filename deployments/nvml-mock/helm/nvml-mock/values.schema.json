@@ -257,7 +257,7 @@
         "mockChannels": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Renders a substitute /proc/devices, the fabric-imex-mgmt capability file, and the channel device nodes. Consumed via the DRA driver's altProcDevices value. See NVIDIA/k8s-test-infra#498.",
+          "description": "Renders a substitute /proc/devices, the fabric-imex-mgmt capability file, and the channel device nodes, all inside the driver root. Consumed by the DRA driver's compute-domain kubelet plugin via ALT_PROC_DEVICES_PATH=/driver-root/proc/devices. See NVIDIA/k8s-test-infra#497.",
           "properties": {
             "enabled": { "type": "boolean" },
             "channelCount": {

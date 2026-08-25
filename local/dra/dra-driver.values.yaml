@@ -32,3 +32,27 @@ gpuResourcesEnabledOverride: true
 resources:
   computeDomains:
     enabled: false
+
+# Read the nvidia-caps-imex-channels device major from the substitute
+# /proc/devices that nvml-mock stages (local/dra/nvml-mock.values.yaml turns
+# that staging on) rather than the node's real one, which has no NVIDIA entries
+# without a kernel module. Without this the compute-domain plugin exits at
+# startup with "error parsing '/proc/devices': unexpected regex match: []"
+# (NVIDIA/k8s-test-infra#497).
+#
+# Set through the chart's generic per-container env list rather than its
+# altProcDevices value: no released chart carries altProcDevices (absent up to
+# and including v25.12.0), while every release honours ALT_PROC_DEVICES_PATH in
+# the plugin binary. The generic list cannot add a volume, hence the
+# /driver-root path — nvidiaDriverRoot above is already bind-mounted there, so
+# the file is reachable with no chart change.
+#
+# Inert on this default path: the chart only renders the compute-domains
+# container, and therefore this env block, when resources.computeDomains is
+# enabled (local/compute-domain/dra-driver.values.yaml).
+kubeletPlugin:
+  containers:
+    computeDomains:
+      env:
+        - name: ALT_PROC_DEVICES_PATH
+          value: /driver-root/proc/devices

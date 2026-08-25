@@ -1,0 +1,23 @@
+# Copyright 2026 NVIDIA CORPORATION
+# SPDX-License-Identifier: Apache-2.0
+#
+# nvml-mock helm values overlay applied whenever --dra is active, on both the
+# default and the compute-domain install paths (see the per-consumer overlay
+# loop in local/nvml_mock.tiltfile and
+# local/compute-domain/compute_domain.tiltfile).
+
+# The DRA driver's compute-domain kubelet plugin resolves the
+# nvidia-caps-imex-channels device major out of /proc/devices before it will
+# start. There is no NVIDIA kernel module on a Mokka node, so it has to read the
+# substitute this renders instead — otherwise it exits with
+# "error parsing '/proc/devices': unexpected regex match: []" and crash-loops
+# (NVIDIA/k8s-test-infra#497).
+#
+# On by default for --dra even though only `--compute-domain --dra` enables
+# resources.computeDomains: staging the surface is cheap (sub-second per node)
+# and tying it to the consumer rather than the scenario keeps the two DRA
+# compositions from diverging. local/dra/dra-driver.values.yaml holds the
+# matching consumer-side wiring.
+imex:
+  mockChannels:
+    enabled: true

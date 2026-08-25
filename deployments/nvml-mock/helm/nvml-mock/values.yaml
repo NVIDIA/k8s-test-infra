@@ -323,18 +323,20 @@ imex:
   # aborts with "error parsing '/proc/devices': unexpected regex match: []".
   #
   # When enabled, the DaemonSet renders:
-  #   <hostPath>/imex/proc-devices                       substitute /proc/devices
+  #   <driverRoot>/proc/devices                          substitute /proc/devices
   #   <driverRoot>/proc/driver/nvidia/capabilities/...   fabric-imex-mgmt
   #   <driverRoot>/dev/nvidia-caps-imex-channels/channelN  channel device nodes
   #
-  # Pair it with the DRA driver, on a release that supports altProcDevices:
-  #   --set altProcDevices=/var/lib/nvml-mock/imex/proc-devices
+  # Everything lands inside the driver root on purpose: the DRA driver's plugin
+  # container already bind-mounts that directory at /driver-root, so pointing
+  # the plugin at the substitute file needs no extra volume and therefore works
+  # on releases whose chart has no altProcDevices value (none up to and
+  # including v25.12.0). Pair it with the DRA driver:
   #   --set resources.computeDomains.enabled=true
-  #
-  # NOTE: as of 2026-07-25 altProcDevices is on the DRA driver's main branch
-  # but is NOT in any release (absent at v25.12.0), so enabling this alone does
-  # not yet make ComputeDomains work with released artifacts. See
-  # NVIDIA/k8s-test-infra#498.
+  #   --set kubeletPlugin.containers.computeDomains.env[0].name=ALT_PROC_DEVICES_PATH
+  #   --set kubeletPlugin.containers.computeDomains.env[0].value=/driver-root/proc/devices
+  # See local/compute-domain/dra-driver.values.yaml for the wiring Tilt uses,
+  # and NVIDIA/k8s-test-infra#497.
   #
   # Off by default: it creates channelCount device nodes per node.
   mockChannels:
