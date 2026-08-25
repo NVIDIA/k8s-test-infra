@@ -20,7 +20,6 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,7 +31,7 @@ func buildShim(t *testing.T, out string) string {
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skipf("unsupported GOOS=%s for build/exec integration", runtime.GOOS)
 	}
-	cmd := exec.Command("go", "build", "-mod=vendor", "-o", out, "./cmd/imex-nogpu-shim")
+	cmd := exec.Command("go", "build", "-mod=vendor", "-o", out, "./shims/imex-nogpu")
 	cmd.Dir = shimRepoRoot(t)
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "build shim: %s", output)

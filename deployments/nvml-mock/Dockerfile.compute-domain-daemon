@@ -66,8 +66,8 @@ FROM golang:${GOLANG_VERSION} AS shim
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY vendor/ vendor/
-COPY cmd/imex-nogpu-shim/ cmd/imex-nogpu-shim/
-RUN CGO_ENABLED=0 go build -mod=vendor -o /out/imex-nogpu-shim ./cmd/imex-nogpu-shim
+COPY shims/imex-nogpu/ shims/imex-nogpu/
+RUN CGO_ENABLED=0 go build -mod=vendor -o /out/imex-nogpu-shim ./shims/imex-nogpu
 
 # demo: real IMEX on top of the nvml-mock image, replacing the
 # deprecated fakes at their canonical paths. The package's default
