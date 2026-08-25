@@ -16,7 +16,7 @@
 # mock stack. Two targets:
 #
 #   daemon (default) — the upstream compute-domain-daemon image with
-#       the real nvidia-imex / nvidia-imex-ctl and the imex-nogpu-shim
+#       the real nvidia-imex / nvidia-imex-ctl and the nvidia-imex-shim
 #       swapped in. Upstream spawns `nvidia-imex -c /imexd/imexd.cfg`
 #       with a hard-coded argv (no flag passthrough), so the shim at
 #       /usr/bin/nvidia-imex exec's /usr/bin/nvidia-imex.real with
@@ -58,7 +58,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
  && dpkg-query -W -f='${Version}\n' nvidia-imex-595 | tee /imex-version \
  && grep -q '^595\.' /imex-version
 
-# imex-nogpu-shim (installed below as /usr/bin/nvidia-imex) execs
+# nvidia-imex-shim (installed below as /usr/bin/nvidia-imex) execs
 # /usr/bin/nvidia-imex.real with --nogpu appended. Setting
 # IMEX_SHIM_REAL_BIN in the container environment overrides the
 # real-binary path for non-standard installs.

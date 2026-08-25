@@ -73,6 +73,7 @@ def build_nvml_mock_image(nvmlmock_image=''):
             'cmd/',
             'pkg/',
             'internal/',
+            'shims/',
             'Makefile',
             'deployments/nvml-mock/',
         ],

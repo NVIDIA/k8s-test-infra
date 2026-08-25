@@ -5,7 +5,7 @@
 #
 # containerd NRI injects the staged mock stack, node topology identity, and
 # annotated IMEX channel devices into ordinary workload pods. The real
-# nvidia-imex daemons (NO GPU mode via imex-nogpu-shim) coordinate over the
+# nvidia-imex daemons (NO GPU mode via nvidia-imex-shim) coordinate over the
 # pod network.
 #
 # Install nvml-mock in the dedicated `mokka` namespace with the `gb200`

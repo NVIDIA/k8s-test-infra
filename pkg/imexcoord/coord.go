@@ -16,7 +16,7 @@
 // GB200 hardware. See NVIDIA/k8s-test-infra#304 for the full design.
 //
 // Deprecated: the fake IMEX marker protocol is superseded by the real
-// nvidia-imex daemon running in NO GPU mode (--nogpu) via imex-nogpu-shim;
+// nvidia-imex daemon running in NO GPU mode (--nogpu) via nvidia-imex-shim;
 // this package will be removed in a follow-up release. See
 // NVIDIA/k8s-test-infra#304.
 //
