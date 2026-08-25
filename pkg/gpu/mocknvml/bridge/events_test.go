@@ -188,6 +188,10 @@ func TestEventSetWait_DeliversPendingXid(t *testing.T) {
 		"clients filter on eventType; a wrong class is an undelivered event")
 	require.Equal(t, uint64(xid), got.eventData, "the configured Xid code must reach the caller")
 	require.True(t, got.deviceSet, "the event must name the device the Xid came from")
+	require.Equal(t, nvmlNoMIGInstanceID, got.gpuInstanceID,
+		"a non-MIG Xid must carry NVML's 0xFFFFFFFF gpuInstanceId sentinel, not GI 0")
+	require.Equal(t, nvmlNoMIGInstanceID, got.computeInstanceID,
+		"a non-MIG Xid must carry NVML's 0xFFFFFFFF computeInstanceId sentinel, not CI 0")
 }
 
 // An Xid pending while the caller is parked must arrive within one poll

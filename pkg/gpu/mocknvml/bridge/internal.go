@@ -274,13 +274,18 @@ func mockInternalFillProcessList(handle unsafe.Pointer, buf unsafe.Pointer, capa
 // writeProcessEntry writes one process into the caller's array at index, using
 // the layout documented above. The name is truncated to fit and always
 // NUL-terminated.
+// nvmlNoMIGInstanceID is the gpuInstanceId / computeInstanceId value NVML
+// reports for anything not attributed to a MIG instance: process entries and
+// nvmlEventData_t alike ("0xFFFFFFFF otherwise" in the NVML docs).
+const nvmlNoMIGInstanceID uint32 = 0xFFFFFFFF
+
 func writeProcessEntry(buf unsafe.Pointer, index int, pid uint32, usedGpuMemory uint64, name string) {
 	e := unsafe.Add(buf, index*procEntrySize)
 	*(*uint32)(e) = pid
 	*(*uint64)(unsafe.Add(e, 8)) = usedGpuMemory
-	*(*uint32)(unsafe.Add(e, 16)) = 0xFFFFFFFF // gpuInstanceId = N/A (non-MIG)
-	*(*uint32)(unsafe.Add(e, 20)) = 0xFFFFFFFF // computeInstanceId = N/A
-	*(*uint64)(unsafe.Add(e, 24)) = 0          // usedGpuCcProtectedMemory
+	*(*uint32)(unsafe.Add(e, 16)) = nvmlNoMIGInstanceID // gpuInstanceId = N/A (non-MIG)
+	*(*uint32)(unsafe.Add(e, 20)) = nvmlNoMIGInstanceID // computeInstanceId = N/A
+	*(*uint64)(unsafe.Add(e, 24)) = 0                   // usedGpuCcProtectedMemory
 
 	if len(name) > procEntryNameMax-1 {
 		name = name[:procEntryNameMax-1]
