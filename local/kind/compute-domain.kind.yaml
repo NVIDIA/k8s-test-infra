@@ -21,6 +21,11 @@
 # CDI + the runtimes.nvidia handler are baked into the node image
 # (deployments/kind-nvidia-cdi/), so no containerdConfigPatches are needed.
 #
+# Each worker carries mokka.nvidia.com/type=sgpu, the simulated-GPU fleet
+# marker local/compute-domain/nvml-mock.values.yaml selects on. It keeps the
+# mock off the control plane, which topology.yaml gives no clique — a mock pod
+# there would report a fabric identity the topology never declared.
+#
 # Usage:
 #   make cluster-create PROFILE=compute-domain
 #   tilt up -- --compute-domain --k8s-context=kind-nvml-mock-compute-domain
@@ -44,6 +49,7 @@ nodes:
   - role: worker
     labels:
       nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000ab.0"
+      mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration
@@ -52,6 +58,7 @@ nodes:
   - role: worker
     labels:
       nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000ab.1"
+      mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration
@@ -60,6 +67,7 @@ nodes:
   - role: worker
     labels:
       nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000cd.0"
+      mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration
@@ -68,6 +76,7 @@ nodes:
   - role: worker
     labels:
       nvidia.com/gpu.clique: "00000000-0000-0000-0000-0000000000cd.1"
+      mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration

@@ -17,6 +17,14 @@
 gpu:
   profile: gb200
 
+# Workers only, same reason as local/nvml-mock.values.yaml — repeated here
+# because compute_domain.tiltfile installs the chart itself and does not layer
+# that baseline. Also load-bearing for this scenario: topology.yaml assigns a
+# clique per worker and nothing describes the control plane, so a mock pod there
+# would report a fabric identity the topology never declared.
+nodeSelector:
+  mokka.nvidia.com/type: sgpu
+
 # Speed up Scenario 3's DaemonSet rollout so every pod re-reads
 # MOCK_TOPOLOGY_CONFIG in seconds, not tens.
 updateStrategy:
