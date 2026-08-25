@@ -17,38 +17,31 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func buildShim(t *testing.T, out string) string {
-	t.Helper()
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("go toolchain not available")
-	}
-	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
-		t.Skipf("unsupported GOOS=%s for build/exec integration", runtime.GOOS)
-	}
-	cmd := exec.Command("go", "build", "-mod=vendor", "-o", out, "./shims/imex-nogpu")
-	cmd.Dir = shimRepoRoot(t)
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "build shim: %s", output)
-	return out
-}
-
-func shimRepoRoot(t *testing.T) string {
+// prebuiltShim returns the path to the binary produced by `make build`.
+// Tests are skipped when the binary is absent so `go test ./...` still
+// passes on a clean checkout without a prior build.
+func prebuiltShim(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
 	require.NoError(t, err)
+	var root string
 	for cur := wd; cur != "/"; cur = filepath.Dir(cur) {
 		if _, err := os.Stat(filepath.Join(cur, "go.mod")); err == nil {
-			return cur
+			root = cur
+			break
 		}
 	}
-	require.FailNow(t, "could not locate repo root")
-	return ""
+	require.NotEmpty(t, root, "could not locate repo root")
+	bin := filepath.Join(root, "dist", "imex-nogpu-shim")
+	if _, err := os.Stat(bin); err != nil {
+		t.Skipf("pre-built binary not found at %s — run 'make build' first", bin)
+	}
+	return bin
 }
 
 // writeStub creates a fake "real" nvidia-imex that prints its argv and
@@ -65,7 +58,7 @@ func writeStub(t *testing.T, dir string) string {
 
 func TestShimExecsRealWithNogpu(t *testing.T) {
 	tmp := t.TempDir()
-	shim := buildShim(t, filepath.Join(tmp, "shim"))
+	shim := prebuiltShim(t)
 	stub := writeStub(t, tmp)
 
 	cmd := exec.Command(shim, "-c", "/imexd/imexd.cfg")
@@ -74,13 +67,12 @@ func TestShimExecsRealWithNogpu(t *testing.T) {
 
 	var ee *exec.ExitError
 	require.ErrorAs(t, err, &ee, "stub exits 7; shim must surface the real binary's exit code")
-	assert.Equal(t, 7, ee.ExitCode(), "exit code must pass through exec")
-	assert.Equal(t, "-c\n/imexd/imexd.cfg\n--nogpu\nENV_PROBE=carried-through\n", string(out))
+	require.Equal(t, 7, ee.ExitCode(), "exit code must pass through exec")
+	require.Equal(t, "-c\n/imexd/imexd.cfg\n--nogpu\nENV_PROBE=carried-through\n", string(out))
 }
 
 func TestShimMissingRealBinary(t *testing.T) {
-	tmp := t.TempDir()
-	shim := buildShim(t, filepath.Join(tmp, "shim"))
+	shim := prebuiltShim(t)
 
 	cmd := exec.Command(shim, "-c", "/cfg")
 	cmd.Env = append(os.Environ(), envRealBin+"=/nonexistent/nvidia-imex.real")
@@ -88,6 +80,6 @@ func TestShimMissingRealBinary(t *testing.T) {
 
 	var ee *exec.ExitError
 	require.ErrorAs(t, err, &ee)
-	assert.Equal(t, 127, ee.ExitCode(), "conventional command-not-found code")
-	assert.Contains(t, string(out), "imex-nogpu-shim: exec /nonexistent/nvidia-imex.real")
+	require.Equal(t, 127, ee.ExitCode(), "conventional command-not-found code")
+	require.Contains(t, string(out), "imex-nogpu-shim: exec /nonexistent/nvidia-imex.real")
 }

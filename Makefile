@@ -117,6 +117,12 @@ build: ## Build all CLIs
 	    echo "🔨 $$name"; \
 	    $(GO_CMD) build -mod=vendor -o $(DIST_DIR)/$$name $$pkg || exit 1; \
 	done
+	@echo "Building Golang shims.."
+	@for pkg in $$(find ./shims -type f -name main.go -exec dirname {} \; | sort -u); do \
+	    name=$$(basename $$pkg)-shim; \
+	    echo "🔨 $$name"; \
+	    $(GO_CMD) build -mod=vendor -o $(DIST_DIR)/$$name $$pkg || exit 1; \
+	done
 
 build-mockpcisysfs: ## Build mockpcisysfs
 	@make -C shims/libpcisysfs
