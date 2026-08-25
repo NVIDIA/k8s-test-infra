@@ -74,7 +74,7 @@ should match snapshot with default values:
       Mock GPU environment deployed on all nodes!
 
         Profile: gb300
-        GPUs per node: 8
+        GPUs per node: 4
         Available profiles: a100, h100, b200, gb200, gb300, l40s, t4
         Driver version: 570.124.06
         Mock driver root: /var/lib/nvml-mock/driver

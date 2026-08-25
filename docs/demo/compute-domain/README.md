@@ -67,9 +67,9 @@ The demo expects the following tools on `$PATH`:
    That flag only sizes the host-side CDI spec produced by
    `scripts/setup.sh`; the in-pod ConfigMap at
    `/etc/nvml-mock/config.yaml` — which is what `check-fabric` loads
-   — always reflects the chosen profile's full device list (8 GPUs
-   for `gb200`). For ComputeDomain verification this is actually
-   *stronger* evidence: every one of the 8 GPUs on each node must
+   — always reflects the chosen profile's full device list (4 GPUs
+   for `gb200`, one NVL72 compute tray). For ComputeDomain verification
+   this is actually *stronger* evidence: every GPU on each node must
    report the same `cliqueId` / `clusterUuid`, exercising the
    topology overlay over the full device list rather than a subset.
 4. Recycles the staging and NRI DaemonSets in order, then creates a separate
