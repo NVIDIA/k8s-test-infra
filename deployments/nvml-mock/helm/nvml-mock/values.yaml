@@ -4,10 +4,10 @@
 gpu:
   profile: gb300          # any *.yaml basename under profiles/ (e.g. a100, h100, b200, gb200, gb300, l40s, t4)
   # Number of GPUs to expose. Empty (default) derives the count from the
-  # selected profile's `devices:` list (t4 -> 4, all NVSwitch baseboards/NVL
-  # slices -> 8), so the profile is the single source of truth. Set to a
-  # positive integer to force a smaller/larger slice; setup.sh caps it to the
-  # profile's device count at runtime.
+  # selected profile's `devices:` list (t4 and the Grace-Blackwell trays
+  # gb200/gb300 -> 4, the 8-GPU baseboards -> 8), so the profile is the single
+  # source of truth. Set to a positive integer to force a smaller/larger slice;
+  # setup.sh caps it to the profile's device count at runtime.
   count: ""
   customConfig: ""
 

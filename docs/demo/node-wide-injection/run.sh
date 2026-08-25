@@ -17,7 +17,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 # to rewrite per node. A non-fabric profile (t4/l40s) still demonstrates plain
 # node-wide injection; set WITH_COMPUTE_DOMAIN=false to skip the fabric checks.
 : "${GPU_PROFILE:=gb200}"
-: "${GPU_COUNT:=8}"
+# Default to the profile's own device list, the same count the chart derives
+# when gpu.count is empty, so switching GPU_PROFILE never asks for more GPUs
+# than the profile declares (setup.sh would cap it and warn).
+: "${GPU_COUNT:=$(grep -c "^[[:space:]]*- index:" "${REPO_ROOT}/${CHART_PATH}/profiles/${GPU_PROFILE}.yaml")}"
 : "${FORCE_RECREATE:=false}"
 : "${NVML_MOCK_NAMESPACE:=mokka}"
 : "${WORKLOAD_NAMESPACE:=default}"

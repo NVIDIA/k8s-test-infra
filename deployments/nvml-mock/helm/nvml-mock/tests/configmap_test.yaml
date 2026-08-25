@@ -40,7 +40,7 @@ tests:
     set:
       gpu:
         profile: gb200
-        count: 8
+        count: 4
     asserts:
       - matchSnapshot: {}
 
@@ -132,7 +132,7 @@ tests:
     set:
       gpu:
         profile: gb200
-        count: 8
+        count: 4
     asserts:
       - matchRegex:
           path: data["config.yaml"]

@@ -4,3 +4,14 @@
 # Local-dev Helm value overrides for nvml-mock (committed, shared baseline).
 # To add personal overrides that won't be committed, create:
 #   local/nvml-mock.values.local.yaml  (gitignored, wins over this file)
+
+# Keep the mock off the control-plane node. The chart tolerates every taint
+# (tolerations: operator Exists) so without a selector the DaemonSet also lands
+# on the control plane, where no consumer follows it: GPU Operator operands, FGO
+# and NFD workers all stop at the NoSchedule taint. The result is a node that
+# advertises a GPU driver nobody consumes, and scenarios that pick a mock pod by
+# position intermittently target it. Every worker in local/kind/*.kind.yaml
+# carries this label; consumer overlays add their own keys on top (helm
+# deep-merges maps), so pinning stays additive.
+nodeSelector:
+  mokka.nvidia.com/type: sgpu

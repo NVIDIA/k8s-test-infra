@@ -15,6 +15,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/assertions"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/cluster"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
@@ -43,14 +44,12 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 			BeforeAll(func(ctx SpecContext) {
 				p, _, _ = setupStandaloneProfile(ctx, h, name)
 				// Not the node setupStandaloneProfile returns: that comes from
-				// FirstPodName over the nvml-mock DaemonSet, which can land on
-				// the CP (mock tolerates `operator: Exists`), and the Operator's
+				// FirstPodName over the nvml-mock DaemonSet, and the Operator's
 				// operands don't tolerate the CP NoSchedule taint — WaitGFDLabels
 				// and WaitAllocatableGPU would time out on a CP-derived node.
-				node = gpuOperatorTargetNode(ctx, h)
-				cp, err := h.Cluster.ControlPlane(ctx)
-				Expect(err).NotTo(HaveOccurred())
-				verifyGPUOperatorNodeSetup(ctx, cp.Container)
+				target := gpuOperatorTargetNode(ctx, h)
+				node = target.Name
+				verifyGPUOperatorNodeSetup(ctx, target.Container)
 
 				// Wait belongs here, not in a spec: every spec below reads state
 				// that only the operator publishes, and `helm --wait` covers only
@@ -119,7 +118,7 @@ const tempPinC = 85
 func assertRuntimeTempViaDCGM(ctx SpecContext, h *harness.Harness, wantC int) {
 	GinkgoHelper()
 	const targetGPU = 0
-	node := gpuOperatorTargetNode(ctx, h)
+	node := gpuOperatorTargetNode(ctx, h).Name
 
 	By(fmt.Sprintf("pin temperature to %dC on GPU %d at runtime via nvml-mock-ctl on %s (no restart)", wantC, targetGPU, node))
 	nvmlMockCtlOnNode(ctx, h, node, "temp", "--gpu", strconv.Itoa(targetGPU), strconv.Itoa(wantC))
@@ -139,7 +138,7 @@ func assertRuntimeTempViaDCGM(ctx SpecContext, h *harness.Harness, wantC int) {
 func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
 	GinkgoHelper()
 	const targetGPU = 0
-	node := gpuOperatorTargetNode(ctx, h)
+	node := gpuOperatorTargetNode(ctx, h).Name
 
 	pod := nvmlPodOnNode(ctx, h, node)
 	envelope := smiGPU(ctx, h, pod, targetGPU)
@@ -172,7 +171,7 @@ func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
 func assertRuntimeXidViaDCGM(ctx SpecContext, h *harness.Harness, xid int) {
 	GinkgoHelper()
 	const targetGPU = 0
-	node := gpuOperatorTargetNode(ctx, h)
+	node := gpuOperatorTargetNode(ctx, h).Name
 
 	By(fmt.Sprintf("inject ecc_uncorrectable + Xid on GPU 0 at runtime via nvml-mock-ctl on %s (no restart)", node))
 	nvmlMockCtlOnNode(ctx, h, node, "fail", "--gpu", strconv.Itoa(targetGPU),
@@ -189,16 +188,16 @@ func assertRuntimeXidViaDCGM(ctx SpecContext, h *harness.Harness, xid int) {
 // tolerate the CP NoSchedule taint, so any worker qualifies whenever workers
 // exist; on control-plane-only clusters the CP is the only place both
 // DaemonSets can land, so fall back to it.
-func gpuOperatorTargetNode(ctx SpecContext, h *harness.Harness) string {
+func gpuOperatorTargetNode(ctx SpecContext, h *harness.Harness) cluster.Node {
 	GinkgoHelper()
 	workers, err := h.Cluster.Workers(ctx)
 	Expect(err).NotTo(HaveOccurred())
 	if len(workers) > 0 {
-		return workers[0].Name
+		return workers[0]
 	}
 	cp, err := h.Cluster.ControlPlane(ctx)
 	Expect(err).NotTo(HaveOccurred())
-	return cp.Name
+	return cp
 }
 
 // injectXidAndValidate enables failure injection, restarts dcgm-exporter so

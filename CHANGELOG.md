@@ -129,6 +129,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- The local-dev and CI Kind clusters no longer run nvml-mock on the control-plane
+  node. The chart tolerates every taint, so the DaemonSet landed there too, but
+  nothing follows it: GPU Operator operands, FGO and NFD workers all stop at the
+  `NoSchedule` taint. That left a node advertising a GPU driver footprint no
+  consumer could use, and scenarios that pick a mock pod by list position
+  intermittently targeted it. Every Kind worker now carries
+  `mokka.nvidia.com/type=sgpu` and `local/nvml-mock.values.yaml` selects on it;
+  the compute-domain overlay repeats the selector because its Tiltfile installs
+  the chart without that baseline, and its `topology.yaml` gives the control
+  plane no clique to report. Pinning stays additive — Helm deep-merges maps, so
+  the FGO pool selector and `--multi-gpu-profile`'s hostname pin compose with
+  it. (#724)
 - The nvml-mock chart now defaults `gpu.profile` to `gb300` instead of `a100`, so
   a bare `helm install` simulates current-generation hardware. Ampere is the
   architecture least likely to expose a gap in software being tested against a
@@ -159,6 +171,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is now the pipeline's critical path.
 - Test pod manifests moved into a generic `pod.tpl.yaml` under
   `tests/e2e/go/framework/pod`, rendered from a `Spec` carrying only what varies.
+- The `gb200` and `gb300` profiles now model 4 GPUs per node over 2 PCI root
+  complexes, not 8 over 4. Both were written to the 8-GPU baseboard shape the
+  other profiles use, but an NVL72 rack reaches 72 GPUs as 18 compute trays of
+  4, and `nvidia-smi` runs per node: the real captures in
+  `tests/e2e/go/assertions/nvidiasmi/testdata/hardware/` report 4 attached GPUs
+  on one tray, in one slot, of one chassis. A node twice its real size inflates
+  every count a consumer derives from it — allocatable GPUs, GFD's
+  `nvidia.com/gpu.count`, ResourceSlice sizes — and invents a second pair of
+  Grace CPUs and NUMA nodes that no such node has. Two details the captures
+  report are now reproduced with it: the two GPUs of a superchip share one board
+  serial, and `module_id` does not follow the device index (2, 1, 4, 3 across
+  devices 0..3), so a consumer that assumes either breaks here rather than on
+  real hardware. `gpu.count` left empty still derives from the profile, so the
+  chart needs no change, but `gb300` is the chart default: a default install now
+  exposes 4 GPUs per node rather than 8. Set `gpu.profile` to one of the 8-GPU
+  baseboards, or `gpu.count` explicitly, for a larger node. The standalone and
+  node-wide demos now default the count from the selected profile's device list
+  instead of a hardcoded 8.
 
 ### Removed
 - Chart value `nodeLabels.pciVendorPresent`. The NFD feature file behind
