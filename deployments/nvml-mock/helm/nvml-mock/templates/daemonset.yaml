@@ -73,15 +73,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            # Gates the NFD feature file that yields
-            # feature.node.kubernetes.io/pci-10de.present=true. setup.sh writes
-            # the file and cleanup.sh removes it only when this is "on", so the
-            # mock never deletes an input it did not supply. NFD, not the mock,
-            # creates the label. NFD's PCI source cannot derive it as deployed —
-            # nfd-worker reads a link-time-fixed /host-sys path, so the rendered
-            # tree is not on a path it reads; see setup.sh step 7.
-            - name: MOCK_NFD_PCI_LABEL
-              value: {{ ternary "on" "off" .Values.nodeLabels.pciVendorPresent | quote }}
             {{- if .Values.imex.mockChannels.enabled }}
             # Mock IMEX capability surface for the DRA compute-domain plugin.
             # See values.yaml imex.mockChannels and NVIDIA/k8s-test-infra#498.
@@ -171,13 +162,13 @@ spec:
             # daemon when MOCK_IB=full. libibmocksys rewrites paths under
             # /sys/class/infiniband, /sys/class/infiniband_mad,
             # /sys/class/infiniband_verbs, /sys/class/infiniband_cm and
-            # /dev/infiniband into $MOCK_IB_ROOT. libpcimocksys rewrites
+            # /dev/infiniband into $MOCK_IB_ROOT. libpcisysfs rewrites
             # /sys/bus/pci and /sys/devices/pci into $MOCK_PCI_ROOT. A path
             # outside those prefixes passes through unchanged.
             # libibmockumad must precede libibmocksys so UMAD ioctls are
             # intercepted before sysfs path rewriting.
             - name: LD_PRELOAD
-              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1"
+              value: "/usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1"
             - name: MOCK_IB_ROOT
               value: "/var/lib/nvml-mock/ib"
             - name: MOCK_PCI_ROOT
@@ -247,6 +238,8 @@ spec:
             - name: gpu-config
               mountPath: /etc/nvml-mock
               readOnly: true
+            - name: host-nfd-features
+              mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
           livenessProbe:
             httpGet:
               path: /healthz

@@ -1,7 +1,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package render
+package pcisysfs
 
 import (
 	"encoding/binary"
@@ -11,9 +11,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"sigs.k8s.io/yaml"
-
-	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockpcisysfs/config"
 )
 
 func TestRender_NoTopologyNoOp(t *testing.T) {
@@ -24,8 +21,8 @@ func TestRender_NoTopologyNoOp(t *testing.T) {
 }
 
 func TestRender_RequiresOutput(t *testing.T) {
-	err := Render(Options{Topology: &config.PCIeTopology{
-		RootComplexes: []config.RootComplex{{
+	err := Render(Options{Topology: &PCIeTopology{
+		RootComplexes: []RootComplex{{
 			ID: "pci0000:00", NUMANode: 0,
 			Devices: []string{"0000:07:00.0"},
 		}},
@@ -40,8 +37,8 @@ func TestRender_RequiresOutput(t *testing.T) {
 // "k8s deviceattribute resolves PCIe root via readlink + path parse".
 func TestRender_FullTree(t *testing.T) {
 	dir := t.TempDir()
-	topo := &config.PCIeTopology{
-		RootComplexes: []config.RootComplex{
+	topo := &PCIeTopology{
+		RootComplexes: []RootComplex{
 			{
 				ID:       "pci0000:00",
 				NUMANode: 0,
@@ -98,13 +95,13 @@ func TestRender_FullTree(t *testing.T) {
 // `lspci` fails with "Cannot open .../vendor" inside the mock pod.
 func TestRender_PCIAttributeFiles(t *testing.T) {
 	dir := t.TempDir()
-	topo := &config.PCIeTopology{
-		RootComplexes: []config.RootComplex{{
+	topo := &PCIeTopology{
+		RootComplexes: []RootComplex{{
 			ID: "pci0000:00", NUMANode: 0,
 			Devices: []string{"0000:1A:00.0"},
 		}},
 	}
-	ids := map[string]config.PCI{
+	ids := map[string]PCI{
 		// H100 SXM: device_id 0x233010DE, subsystem_id 0x165810DE.
 		"0000:1a:00.0": {BusID: "0000:1A:00.0", DeviceID: 0x233010DE, SubsystemID: 0x165810DE},
 	}
@@ -152,8 +149,8 @@ func TestRender_PCIAttributeFiles(t *testing.T) {
 // (NVIDIA vendor default) so lspci never fatals on a missing `vendor`.
 func TestRender_PCIAttributeFilesDefaultVendor(t *testing.T) {
 	dir := t.TempDir()
-	topo := &config.PCIeTopology{
-		RootComplexes: []config.RootComplex{{
+	topo := &PCIeTopology{
+		RootComplexes: []RootComplex{{
 			ID: "pci0000:00", NUMANode: 0,
 			Devices: []string{"0000:07:00.0"},
 		}},
@@ -171,8 +168,8 @@ func TestRender_PCIAttributeFilesDefaultVendor(t *testing.T) {
 
 func TestRender_IdempotentRerender(t *testing.T) {
 	dir := t.TempDir()
-	topoA := &config.PCIeTopology{
-		RootComplexes: []config.RootComplex{{
+	topoA := &PCIeTopology{
+		RootComplexes: []RootComplex{{
 			ID: "pci0000:00", NUMANode: 0,
 			Devices: []string{"0000:07:00.0"},
 		}},
@@ -183,8 +180,8 @@ func TestRender_IdempotentRerender(t *testing.T) {
 	// Second pass with a *different* root complex for the same BDF.
 	// Re-render must point the symlink at the new root and overwrite
 	// numa_node — a stale symlink would silently misattribute pcieRoot.
-	topoB := &config.PCIeTopology{
-		RootComplexes: []config.RootComplex{{
+	topoB := &PCIeTopology{
+		RootComplexes: []RootComplex{{
 			ID: "pci0000:c0", NUMANode: 3,
 			Devices: []string{"0000:07:00.0"},
 		}},
@@ -202,8 +199,8 @@ func TestRender_IdempotentRerender(t *testing.T) {
 
 func TestRender_NormalizesUppercaseBDF(t *testing.T) {
 	dir := t.TempDir()
-	topo := &config.PCIeTopology{
-		RootComplexes: []config.RootComplex{{
+	topo := &PCIeTopology{
+		RootComplexes: []RootComplex{{
 			ID: "pci0000:00", NUMANode: 0,
 			Devices: []string{"0000:BD:00.0"}, // uppercase BDF
 		}},
@@ -216,160 +213,69 @@ func TestRender_NormalizesUppercaseBDF(t *testing.T) {
 	require.NoError(t, err, "expected lowercase symlink")
 }
 
-// --- Config / Validate tests --------------------------------------------------
-
-func TestValidate_AcceptsCanonicalProfile(t *testing.T) {
-	var p config.Profile
-	require.NoError(t, yaml.Unmarshal([]byte(`
-devices:
-  - index: 0
-    pci:
-      bus_id: "0000:07:00.0"
-  - index: 1
-    pci:
-      bus_id: "0000:0F:00.0"
-pcie_topology:
-  root_complexes:
-    - id: "pci0000:00"
-      numa_node: 0
-      devices:
-        - "0000:07:00.0"
-        - "0000:0F:00.0"
-`), &p), "unmarshal")
-	require.NoError(t, p.Validate(), "Validate")
-}
-
-func TestValidate_RejectsLegacy8DigitBDF(t *testing.T) {
-	// The whole point of the BDF migration is to stop using the 8-digit
-	// busId form in profile YAMLs. Validation must catch it explicitly so a
-	// half-migrated profile doesn't silently render a tree the DRA
-	// driver can't resolve.
-	p := config.Profile{
-		Devices: []config.Device{{Index: 0, PCI: config.PCI{BusID: "00000000:07:00.0"}}},
-		PCIeTopology: &config.PCIeTopology{RootComplexes: []config.RootComplex{{
-			ID: "pci0000:00", NUMANode: 0,
-			Devices: []string{"00000000:07:00.0"},
-		}}},
+// TestRender_PrunesRemovedDevices covers the converging half of Render's
+// contract: a re-render with a shrunk device set must leave no orphan behind.
+// Without it lspci keeps enumerating GPUs that NVML no longer reports.
+func TestRender_PrunesRemovedDevices(t *testing.T) {
+	dir := t.TempDir()
+	rc := func(devs ...string) *PCIeTopology {
+		return &PCIeTopology{RootComplexes: []RootComplex{
+			{ID: "pci0000:00", NUMANode: 0, Devices: devs},
+		}}
 	}
-	require.Error(t, p.Validate(), "expected error for 8-digit BDF")
-}
 
-func TestValidate_RejectsMalformedRoot(t *testing.T) {
-	p := config.Profile{
-		Devices: []config.Device{{Index: 0, PCI: config.PCI{BusID: "0000:07:00.0"}}},
-		PCIeTopology: &config.PCIeTopology{RootComplexes: []config.RootComplex{{
-			ID:      "0000:00", // missing "pci" prefix
-			Devices: []string{"0000:07:00.0"},
-		}}},
+	require.NoError(t, Render(Options{
+		Topology: rc("0000:07:00.0", "0000:0f:00.0", "0000:17:00.0"),
+		Output:   dir,
+	}))
+	require.NoError(t, Render(Options{Topology: rc("0000:07:00.0"), Output: dir}))
+
+	require.FileExists(t, filepath.Join(dir, "sys/devices/pci0000:00/0000:07:00.0/vendor"))
+	require.DirExists(t, filepath.Join(dir, "sys/devices/pci0000:00/0000:07:00.0"))
+
+	for _, gone := range []string{"0000:0f:00.0", "0000:17:00.0"} {
+		require.NoDirExists(t, filepath.Join(dir, "sys/devices/pci0000:00", gone))
+		_, err := os.Lstat(filepath.Join(dir, "sys/bus/pci/devices", gone))
+		require.True(t, os.IsNotExist(err), "stale symlink %s must be pruned", gone)
 	}
-	require.Error(t, p.Validate(), "expected error for malformed root id")
+
+	entries, err := os.ReadDir(filepath.Join(dir, "sys/bus/pci/devices"))
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "exactly the surviving device")
 }
 
-func TestValidate_RejectsDuplicateRoot(t *testing.T) {
-	p := config.Profile{
-		Devices: []config.Device{{Index: 0, PCI: config.PCI{BusID: "0000:07:00.0"}}},
-		PCIeTopology: &config.PCIeTopology{RootComplexes: []config.RootComplex{
-			{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
-			{ID: "pci0000:00", NUMANode: 1, Devices: []string{}},
-		}},
-	}
-	require.Error(t, p.Validate(), "expected error for duplicate root complex")
-}
-
-func TestValidate_RejectsDuplicateBDF(t *testing.T) {
-	// A device under two root complexes would silently overwrite its
-	// own numa_node on the second pass; catching duplicates at parse
-	// time makes the topology unambiguous.
-	p := config.Profile{
-		Devices: []config.Device{{Index: 0, PCI: config.PCI{BusID: "0000:07:00.0"}}},
-		PCIeTopology: &config.PCIeTopology{RootComplexes: []config.RootComplex{
-			{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
-			{ID: "pci0000:80", NUMANode: 1, Devices: []string{"0000:07:00.0"}},
-		}},
-	}
-	require.Error(t, p.Validate(), "expected error for duplicate BDF")
-}
-
-func TestValidate_RejectsUnknownBDF(t *testing.T) {
-	// A BDF in the topology that has no matching `devices:` entry
-	// indicates a profile typo. Validate must surface it instead of
-	// quietly rendering an orphan sysfs entry.
-	p := config.Profile{
-		Devices: []config.Device{{Index: 0, PCI: config.PCI{BusID: "0000:07:00.0"}}},
-		PCIeTopology: &config.PCIeTopology{RootComplexes: []config.RootComplex{{
-			ID: "pci0000:00", NUMANode: 0,
-			Devices: []string{"0000:99:00.0"},
-		}}},
-	}
-	require.Error(t, p.Validate(), "expected error for unknown BDF")
-}
-
-func TestEffectiveTopology_DefaultFlatRoot(t *testing.T) {
-	// Profiles that don't carry an explicit `pcie_topology:` block
-	// must still produce a renderable, well-formed tree.
-	p := config.Profile{Devices: []config.Device{
-		{Index: 0, PCI: config.PCI{BusID: "0000:07:00.0"}},
-		{Index: 1, PCI: config.PCI{BusID: "0000:0F:00.0"}},
+func TestRender_PrunesRemovedRootComplex(t *testing.T) {
+	dir := t.TempDir()
+	two := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+		{ID: "pci0001:00", NUMANode: 1, Devices: []string{"0001:05:00.0"}},
 	}}
-	topo := p.EffectiveTopology()
-	require.NotNil(t, topo, "expected non-nil default topology")
-	require.Len(t, topo.RootComplexes, 1, "expected single default root")
-	require.Equal(t, "pci0000:00", topo.RootComplexes[0].ID, "default root id")
-	require.Equal(t, 0, topo.RootComplexes[0].NUMANode, "default numa_node")
-	require.Len(t, topo.RootComplexes[0].Devices, 2, "default root should contain all devices")
-}
-
-func TestDeviceIdentities_InheritsDefaults(t *testing.T) {
-	// Per-device entries carry only bus_id; device_id / subsystem_id live
-	// under device_defaults.pci. DeviceIdentities must merge them so every
-	// BDF resolves to the shared identity.
-	var p config.Profile
-	require.NoError(t, yaml.Unmarshal([]byte(`
-device_defaults:
-  pci:
-    device_id: 0x233010DE
-    subsystem_id: 0x165810DE
-devices:
-  - index: 0
-    pci:
-      bus_id: "0000:1A:00.0"
-  - index: 1
-    pci:
-      bus_id: "0000:1B:00.0"
-      device_id: 0x232110DE
-`), &p), "unmarshal")
-
-	ids := p.DeviceIdentities()
-	require.Len(t, ids, 2, "one identity per device with a bus_id")
-
-	// Inherited from defaults (lowercased key).
-	require.Equal(t, uint32(0x233010DE), ids["0000:1a:00.0"].DeviceID, "inherited device_id")
-	require.Equal(t, uint32(0x165810DE), ids["0000:1a:00.0"].SubsystemID, "inherited subsystem_id")
-
-	// Per-device override wins for device_id, subsystem_id still inherited.
-	require.Equal(t, uint32(0x232110DE), ids["0000:1b:00.0"].DeviceID, "overridden device_id")
-	require.Equal(t, uint32(0x165810DE), ids["0000:1b:00.0"].SubsystemID, "inherited subsystem_id")
-}
-
-func TestDeviceIdentities_NoDefaults(t *testing.T) {
-	// A profile without device_defaults still yields one entry per device;
-	// the zero identity is fine (the renderer falls back to NVIDIA vendor).
-	p := config.Profile{Devices: []config.Device{
-		{Index: 0, PCI: config.PCI{BusID: "0000:07:00.0"}},
+	one := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
 	}}
-	ids := p.DeviceIdentities()
-	require.Len(t, ids, 1)
-	require.Equal(t, uint32(0), ids["0000:07:00.0"].DeviceID)
+
+	require.NoError(t, Render(Options{Topology: two, Output: dir}))
+	require.NoError(t, Render(Options{Topology: one, Output: dir}))
+
+	require.DirExists(t, filepath.Join(dir, "sys/devices/pci0000:00"))
+	require.NoDirExists(t, filepath.Join(dir, "sys/devices/pci0001:00"))
+	_, err := os.Lstat(filepath.Join(dir, "sys/bus/pci/devices/0001:05:00.0"))
+	require.True(t, os.IsNotExist(err), "symlink into the dropped root must be pruned")
 }
 
-func TestEffectiveTopology_PrefersExplicit(t *testing.T) {
-	p := config.Profile{
-		Devices: []config.Device{{Index: 0, PCI: config.PCI{BusID: "0000:07:00.0"}}},
-		PCIeTopology: &config.PCIeTopology{RootComplexes: []config.RootComplex{{
-			ID: "pci0000:80", NUMANode: 1,
-			Devices: []string{"0000:07:00.0"},
-		}}},
-	}
-	topo := p.EffectiveTopology()
-	require.Equal(t, "pci0000:80", topo.RootComplexes[0].ID, "explicit topology lost")
+// TestRender_PruneLeavesForeignEntriesAlone guards the ownership boundary:
+// libpcisysfs rewrites only /sys/devices/pci*, so the renderer must not delete
+// anything else a sibling component staged in the same fake root.
+func TestRender_PruneLeavesForeignEntriesAlone(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+	}}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+
+	foreign := filepath.Join(dir, "sys/devices/platform")
+	require.NoError(t, os.MkdirAll(foreign, 0o755))
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+
+	require.DirExists(t, foreign, "non-pci entries are not this renderer's to remove")
 }

@@ -22,10 +22,9 @@ type YAMLConfig struct {
 	Devices        []DeviceOverride `json:"devices"`
 	NVLink         *NVLinkConfig    `json:"nvlink,omitempty"`
 
-	// PCIeTopology promotes the root-complex / NUMA layout (previously
-	// consumed only by cmd/render-pci-sysfs) into the engine so NVLink
-	// topology, pairwise PCIe levels, and CPU/NUMA affinity all derive
-	// from the same facts. Optional; absent on PCIe-only profiles.
+	// PCIeTopology describes the root-complex / NUMA layout consumed by the
+	// pcibus simulator and the engine for NVLink topology, pairwise PCIe
+	// levels, and CPU/NUMA affinity. Optional; absent on PCIe-only profiles.
 	PCIeTopology *PCIeTopologyConfig `json:"pcie_topology,omitempty"`
 }
 
@@ -883,9 +882,9 @@ type NVLinkLinkConfig struct {
 	RemoteIndex *int `json:"remote_index,omitempty"`
 }
 
-// PCIeTopologyConfig describes the root-complex / NUMA layout shared with
-// render-pci-sysfs. CoresPerNUMA synthesizes a CPU affinity set per NUMA
-// node when a root complex does not declare an explicit cpu_affinity range.
+// PCIeTopologyConfig describes the root-complex / NUMA layout consumed by the
+// pcibus simulator. CoresPerNUMA synthesizes a CPU affinity set per NUMA node
+// when a root complex does not declare an explicit cpu_affinity range.
 type PCIeTopologyConfig struct {
 	RootComplexes []RootComplexConfig `json:"root_complexes,omitempty"`
 	CoresPerNUMA  int                 `json:"cores_per_numa,omitempty"`

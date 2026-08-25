@@ -73,7 +73,7 @@ var defaultShims = []string{
 	"driver/usr/local/lib/libibmockumad.so.1",
 	"driver/usr/local/lib/libibmockverbs.so.1",
 	"driver/usr/local/lib/libibmocksys.so.1",
-	"driver/usr/local/lib/libpcimocksys.so.1",
+	"driver/usr/local/lib/libpcisysfs.so.1",
 }
 
 // Config controls how the mock driver tree is injected into containers.

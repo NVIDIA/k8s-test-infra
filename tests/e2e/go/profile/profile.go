@@ -194,7 +194,7 @@ func Load(profilesDir, name string) (Profile, error) {
 		architecture: strings.ToLower(strings.TrimSpace(raw.DeviceDefaults.Architecture)),
 	}
 	p.applyOptionalDeviceDefaults(raw)
-	// render-pci-sysfs falls back to a flat single-root layout when a profile
+	// pcibus simulator falls back to a flat single-root layout when a profile
 	// declares no pcie_topology block, so an empty list still means 1 root.
 	p.pciRoots = len(raw.PCIeTopology.RootComplexes)
 	if p.pciRoots == 0 {

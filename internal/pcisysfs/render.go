@@ -1,27 +1,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package render writes a fake PCI sysfs tree from a
-// [config.PCIeTopology] specification.
-//
-// The layout mimics what real Linux kernels expose to userspace, so any
-// consumer that resolves "PCIe root complex" via a single readlink + path
-// parse (e.g. the k8s deviceattribute library used by the NVIDIA DRA
-// driver) gets the right answer when pointed at the rendered tree:
-//
-//	<output>/sys/bus/pci/devices/0000:07:00.0 ->
-//	    ../../../devices/pci0000:00/0000:07:00.0
-//	<output>/sys/devices/pci0000:00/0000:07:00.0/numa_node    # "0"
-//
-// Beyond topology resolution (symlinks + numa_node), the tree also carries
-// the PCI identity attribute files that userspace PCI tooling reads:
-// `vendor`, `device`, `subsystem_vendor`, `subsystem_device`, `class`,
-// `revision`, `irq`, and a synthetic binary `config` space. This is what
-// lets `lspci` enumerate the mock GPUs inside the pod (via the
-// libpcimocksys.so redirector) instead of failing with "Cannot open
-// .../vendor". It is still *not* a full sysfs simulation — resource ranges,
-// capabilities, and driver bindings are out of scope.
-package render
+package pcisysfs
 
 import (
 	"encoding/binary"
@@ -30,44 +10,32 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockpcisysfs/config"
 )
 
 // Options controls a single rendering pass.
 type Options struct {
-	// Topology is the resolved layout to render. Callers typically pass
-	// `profile.EffectiveTopology()` so empty `pcie_topology:` blocks
-	// still produce a flat default tree.
-	Topology *config.PCIeTopology
+	// Topology is the resolved layout to render. When nil or empty, Render
+	// is a no-op.
+	Topology *PCIeTopology
 
 	// Identities carries the per-device PCI identity (device_id /
-	// subsystem_id) keyed by lowercased BDF, as returned by
-	// config.Profile.DeviceIdentities(). It is the source of the
-	// lspci-visible attribute files. A BDF present in the topology but
-	// absent here still gets attribute files rendered with the NVIDIA
-	// vendor default, so lspci never fatals on a missing `vendor`.
-	Identities map[string]config.PCI
+	// subsystem_id) keyed by lowercased BDF. A BDF present in the topology
+	// but absent here still gets attribute files with the NVIDIA vendor
+	// default, so lspci never fatals on a missing `vendor`.
+	Identities map[string]PCI
 
 	// Output is the fake-root directory. The renderer writes under
-	// <Output>/sys/... — Output itself is created if missing.
-	//
-	// When Topology is nil or has no root complexes, Render is a no-op
-	// even if Output is empty (so setup.sh can invoke the renderer
-	// unconditionally). A non-nil Topology with a non-empty Output is
-	// required; otherwise Render returns an error.
+	// <Output>/sys/... — Output itself is created if missing. Required when
+	// Topology is non-empty; otherwise Render returns an error.
 	Output string
 }
 
-// Render writes the entire tree. It is idempotent: existing directories
-// are reused, existing files are truncated and rewritten, and existing
-// symlinks are removed and recreated so a stale relative target does not
-// linger across re-renders.
+// Render writes the entire tree. It is idempotent and converging: existing
+// directories are reused, existing files are truncated and rewritten, existing
+// symlinks are removed and recreated so a stale relative target does not linger,
+// and entries the new topology no longer declares are pruned.
 func Render(o Options) error {
 	if o.Topology == nil || len(o.Topology.RootComplexes) == 0 {
-		// Nothing to do — caller decided to render a profile with no
-		// declared topology and no devices. Treat as a no-op so the
-		// renderer can be invoked unconditionally from setup.sh.
 		return nil
 	}
 	if o.Output == "" {
@@ -87,10 +55,91 @@ func Render(o Options) error {
 			return fmt.Errorf("rendering %s: %w", rc.ID, err)
 		}
 	}
-	return nil
+
+	// Pruning last means a wanted device is never briefly absent: the window
+	// holds the union of the old and new trees rather than a gap.
+	return prune(root, o.Topology)
 }
 
-func renderRootComplex(root string, rc config.RootComplex, ids map[string]config.PCI) error {
+// prune removes entries the topology no longer declares. Rendering alone is
+// additive, so a device set that shrinks or is re-addressed would otherwise
+// leave orphans that lspci keeps enumerating and NVML no longer reports.
+func prune(root string, topo *PCIeTopology) error {
+	perRoot := make(map[string]map[string]bool, len(topo.RootComplexes))
+	allBDFs := make(map[string]bool)
+
+	for _, rc := range topo.RootComplexes {
+		devs := make(map[string]bool, len(rc.Devices))
+		for _, bdf := range rc.Devices {
+			bdfLower := strings.ToLower(bdf)
+			devs[bdfLower] = true
+			allBDFs[bdfLower] = true
+		}
+		perRoot[rc.ID] = devs
+	}
+
+	errs := []error{
+		// The flat lookup directory holds only BDF symlinks.
+		pruneDir(filepath.Join(root, "sys/bus/pci/devices"),
+			func(name string) bool { return allBDFs[name] }),
+	}
+
+	devicesDir := filepath.Join(root, "sys/devices")
+	entries, err := os.ReadDir(devicesDir)
+	if err != nil && !os.IsNotExist(err) {
+		errs = append(errs, fmt.Errorf("read %s: %w", devicesDir, err))
+	}
+
+	for _, e := range entries {
+		// libpcisysfs rewrites only /sys/devices/pci*, so anything without that
+		// prefix belongs to something other than this renderer.
+		if !strings.HasPrefix(e.Name(), "pci") {
+			continue
+		}
+
+		rcDir := filepath.Join(devicesDir, e.Name())
+		devs, wanted := perRoot[e.Name()]
+		if !wanted {
+			if err := os.RemoveAll(rcDir); err != nil {
+				errs = append(errs, fmt.Errorf("remove %s: %w", rcDir, err))
+			}
+			continue
+		}
+
+		// A rendered root complex contains device directories and nothing else.
+		errs = append(errs, pruneDir(rcDir, func(name string) bool { return devs[name] }))
+	}
+
+	return errors.Join(errs...)
+}
+
+// pruneDir removes every entry of dir that keep rejects. A missing dir is not an
+// error: nothing has been rendered there yet.
+func pruneDir(dir string, keep func(string) bool) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read %s: %w", dir, err)
+	}
+
+	var errs []error
+	for _, e := range entries {
+		if keep(e.Name()) {
+			continue
+		}
+
+		p := filepath.Join(dir, e.Name())
+		if err := os.RemoveAll(p); err != nil {
+			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+func renderRootComplex(root string, rc RootComplex, ids map[string]PCI) error {
 	rcDir := filepath.Join("sys/devices", rc.ID)
 	if err := mkdirAll(root, rcDir); err != nil {
 		return err
@@ -102,7 +151,6 @@ func renderRootComplex(root string, rc config.RootComplex, ids map[string]config
 		// strings literally, so render lowercase to match the kernel.
 		bdfLC := strings.ToLower(bdf)
 
-		// 1. /sys/devices/<root>/<bdf>/numa_node
 		devDir := filepath.Join(rcDir, bdfLC)
 		if err := mkdirAll(root, devDir); err != nil {
 			return err
@@ -112,16 +160,13 @@ func renderRootComplex(root string, rc config.RootComplex, ids map[string]config
 			return err
 		}
 
-		// 1b. PCI identity attribute files (vendor, device, class, ...)
-		// so lspci and other libpci consumers can enumerate the device.
 		if err := renderDeviceAttrs(root, devDir, ids[bdfLC]); err != nil {
 			return fmt.Errorf("attrs for %s: %w", bdfLC, err)
 		}
 
-		// 2. /sys/bus/pci/devices/<bdf> -> ../../../devices/<root>/<bdf>
-		// Relative target matches what the kernel emits, so any
-		// readlink() consumer (`realpath`, deviceattribute, etc.)
-		// resolves to the same canonical path it would on real Linux.
+		// Relative target matches what the kernel emits, so readlink()
+		// consumers (realpath, deviceattribute) resolve to the same
+		// canonical path they would on real Linux.
 		linkPath := filepath.Join(root, "sys/bus/pci/devices", bdfLC)
 		linkTarget := filepath.Join("..", "..", "..", "devices", rc.ID, bdfLC)
 		if err := replaceSymlink(linkPath, linkTarget); err != nil {
@@ -133,34 +178,33 @@ func renderRootComplex(root string, rc config.RootComplex, ids map[string]config
 }
 
 // nvidiaVendorID is the PCI vendor ID for NVIDIA Corporation (0x10de). It is
-// the fallback vendor when a profile omits device_id, so a rendered device
-// always presents a well-formed `vendor` file and lspci never fatals.
+// the fallback vendor when a device carries no identity, so lspci never fatals
+// on a missing `vendor` file.
 const nvidiaVendorID = 0x10de
 
 // pciClass3DController is the sysfs `class` value for NVIDIA data-center GPUs:
 // base class 0x03 (display controller), subclass 0x02 (3D controller),
-// prog-if 0x00. This is how real H100/A100 boards enumerate under lspci
-// ("3D controller: NVIDIA Corporation ...").
+// prog-if 0x00. This is how real H100/A100 boards enumerate under lspci.
 const pciClass3DController = 0x030200
 
 // pciResourceBARs is the number of "start end flags" lines a Linux kernel
 // emits in a device's `resource` file (6 standard BARs + expansion ROM).
 const pciResourceBARs = 7
 
-// pciResourceFile builds an all-zero `resource` table matching the kernel's
-// `0x%016x 0x%016x 0x%016x` per-BAR layout. Zero rows mean "no BAR", so
-// `lspci -v` prints the device without inventing memory ranges.
-func pciResourceFile() string {
-	const zeroRow = "0x0000000000000000 0x0000000000000000 0x0000000000000000\n"
-	return strings.Repeat(zeroRow, pciResourceBARs)
-}
+// pciResource is the all-zero `resource` file content matching the kernel's
+// `0x%016x 0x%016x 0x%016x` per-BAR layout. Zero rows mean "no BAR", which is
+// truthful for a mock and keeps `lspci -v` from erroring.
+var pciResource = strings.Repeat(
+	"0x0000000000000000 0x0000000000000000 0x0000000000000000\n",
+	pciResourceBARs,
+)
 
 // renderDeviceAttrs writes the sysfs attribute files libpci reads for a
 // single device. The NVML packed identity words are unpacked as the kernel
 // exposes them: device_id = (device<<16)|vendor, subsystem_id =
 // (subdevice<<16)|subvendor. When no identity is known the vendor defaults
 // to NVIDIA so the mandatory `vendor`/`device` files still exist.
-func renderDeviceAttrs(root, devDir string, pci config.PCI) error {
+func renderDeviceAttrs(root, devDir string, pci PCI) error {
 	vendor := pci.DeviceID & 0xffff
 	device := (pci.DeviceID >> 16) & 0xffff
 	subVendor := pci.SubsystemID & 0xffff
@@ -172,35 +216,31 @@ func renderDeviceAttrs(root, devDir string, pci config.PCI) error {
 		subVendor = vendor
 	}
 
-	attrs := map[string]string{
-		// libpci reads these with die-on-error; they must exist.
-		"vendor":   fmt.Sprintf("0x%04x\n", vendor),
-		"device":   fmt.Sprintf("0x%04x\n", device),
-		"class":    fmt.Sprintf("0x%06x\n", pciClass3DController),
-		"revision": "0x00\n",
-		"irq":      "0\n",
+	// libpci reads these with die-on-error; they must exist.
+	writes := []struct{ name, val string }{
+		{"vendor", fmt.Sprintf("0x%04x\n", vendor)},
+		{"device", fmt.Sprintf("0x%04x\n", device)},
+		{"class", fmt.Sprintf("0x%06x\n", pciClass3DController)},
+		{"revision", "0x00\n"},
+		{"irq", "0\n"},
 		// Optional but cheap; lets lspci print the subsystem line.
-		"subsystem_vendor": fmt.Sprintf("0x%04x\n", subVendor),
-		"subsystem_device": fmt.Sprintf("0x%04x\n", subDevice),
-		// BAR table read by `lspci -v` (via fopen). The kernel emits one
-		// "start end flags" line per resource; all-zero means "no BAR",
-		// which is truthful for a mock and keeps lspci from erroring.
-		"resource": pciResourceFile(),
+		{"subsystem_vendor", fmt.Sprintf("0x%04x\n", subVendor)},
+		{"subsystem_device", fmt.Sprintf("0x%04x\n", subDevice)},
+		// The kernel emits one "start end flags" line per resource;
+		// all-zero means "no BAR", which is truthful for a mock.
+		{"resource", pciResource},
 	}
-	for name, contents := range attrs {
-		if err := writeFile(root, filepath.Join(devDir, name), contents); err != nil {
+	for _, w := range writes {
+		if err := writeFile(root, filepath.Join(devDir, w.name), w.val); err != nil {
 			return err
 		}
 	}
 
-	// Synthetic binary config space. lspci reads the 64-byte header first;
-	// providing it silences the "pcilib: Cannot open .../config" warning and
-	// makes `lspci -x` render a coherent header.
-	if err := writeConfigSpace(root, filepath.Join(devDir, "config"),
-		uint16(vendor), uint16(device), uint16(subVendor), uint16(subDevice)); err != nil {
-		return err
-	}
-	return nil
+	// Providing a synthetic config space silences the
+	// "pcilib: Cannot open .../config" warning and makes `lspci -x` render
+	// a coherent header.
+	return writeConfigSpace(root, filepath.Join(devDir, "config"),
+		uint16(vendor), uint16(device), uint16(subVendor), uint16(subDevice))
 }
 
 // writeConfigSpace emits a minimal 256-byte PCI configuration space with the

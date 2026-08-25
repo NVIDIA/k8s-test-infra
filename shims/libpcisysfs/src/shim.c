@@ -2,7 +2,7 @@
  * Copyright 2026 NVIDIA CORPORATION
  * SPDX-License-Identifier: Apache-2.0
  *
- * libpcimocksys.so redirects PCI sysfs lookups to a fake tree under
+ * libpcisysfs.so redirects PCI sysfs lookups to a fake tree under
  * $MOCK_PCI_ROOT. It is a no-op when MOCK_PCI_ROOT is unset.
  */
 
@@ -24,6 +24,21 @@
 #define PATH_MAX 4096
 #endif
 
+
+/* ── Infrastructure: prefix table, path rewriting, helper macros ──────────── */
+
+/*
+ * Both trailing-slash and bare forms are required: callers that open an exact
+ * directory path (e.g. opendir("/sys/bus/pci")) use the bare form; callers
+ * that open a file inside (e.g. open("/sys/bus/pci/devices/0000:07:00.0/..."))
+ * use the slash form. Listing the longer prefixes first means the most specific
+ * match wins when two entries could both apply.
+ *
+ * "/sys/devices/pci" has no trailing slash because the kernel names host-bridge
+ * directories "pciDDDD:BB" — the hex domain immediately follows "pci" with no
+ * separator, so a slash or '\0' boundary check (see rewrite_path) would reject
+ * every real path.
+ */
 static const char *const k_prefixes[] = {
     "/sys/bus/pci/devices/",
     "/sys/bus/pci/",
@@ -59,6 +74,10 @@ static int rewrite_path(const char *path, char *out, size_t out_size) {
         const char *p = k_prefixes[i];
         size_t plen = strlen(p);
         if (strncmp(path, p, plen) != 0) continue;
+        /* For bare prefixes, require a word boundary ('\0' or '/') to
+         * avoid matching "/sys/bus/pcifoo" when the prefix is "/sys/bus/pci".
+         * Exception: "/sys/devices/pci" is immediately followed by hex digits
+         * (kernel naming: pci0000:00), so no boundary can be required there. */
         if (p[plen - 1] != '/' && strcmp(p, "/sys/devices/pci") != 0) {
             if (path[plen] != '\0' && path[plen] != '/') continue;
         }
@@ -89,6 +108,17 @@ static int rewrite_path(const char *path, char *out, size_t out_size) {
         _rc == 1 ? (const char *)(buf) : (pathexpr);                    \
     })
 
+/*
+ * REAL/LOAD_REAL: lazy-load a real symbol via dlsym(RTLD_NEXT).
+ * No null check after LOAD_REAL because every intercepted symbol (open, stat,
+ * fopen, …) is guaranteed present in glibc. statx is the sole exception — it
+ * may be absent on old kernels — and is handled with its own explicit null
+ * check below rather than through these macros.
+ * The lazy-write pattern (assign only when NULL) is intentionally racy: two
+ * threads may both call dlsym and assign the same pointer, but pointer-width
+ * writes are atomic on every supported arch and dlsym always returns the same
+ * value for a given symbol, so the race is harmless.
+ */
 #define REAL(name) static __typeof__(name) *real_##name = NULL
 #define LOAD_REAL(name)                                                 \
     do {                                                                \
@@ -97,17 +127,26 @@ static int rewrite_path(const char *path, char *out, size_t out_size) {
         }                                                               \
     } while (0)
 
-REAL(open);
-REAL(open64);
-REAL(openat);
-REAL(openat64);
 
+/* ── File openers: open / openat (varargs forms) ──────────────────────────── */
+
+/*
+ * extract_mode pulls the optional `mode_t` argument from a varargs open call.
+ * POSIX requires mode only when O_CREAT is set; glibc also requires it for
+ * O_TMPFILE (a two-flag value: __O_TMPFILE | O_DIRECTORY), so a plain
+ * `flags & O_CREAT` check is insufficient.
+ */
 static mode_t extract_mode(int flags, va_list ap) {
     if ((flags & O_CREAT) || (flags & O_TMPFILE) == O_TMPFILE) {
         return (mode_t)va_arg(ap, unsigned int);
     }
     return 0;
 }
+
+REAL(open);
+REAL(open64);
+REAL(openat);
+REAL(openat64);
 
 int open(const char *path, int flags, ...) {
     LOAD_REAL(open);
@@ -164,6 +203,10 @@ int openat64(int dirfd, const char *path, int flags, ...) {
  * fortified forms never carry a mode argument (they abort if O_CREAT is set
  * without one), so they take no varargs. Declare them ourselves: fcntl.h only
  * exposes them under _FORTIFY_SOURCE, which this shim is not built with.
+ *
+ * These functions cannot use REAL()/LOAD_REAL() because the fortified symbols
+ * have non-standard signatures that __typeof__ cannot deduce from the public
+ * header declarations. Each wrapper carries its own inline static pointer.
  */
 extern int __open_2(const char *path, int flags);
 extern int __open64_2(const char *path, int flags);
@@ -202,6 +245,9 @@ int __openat64_2(int dirfd, const char *path, int flags) {
     return real(dirfd, target, flags);
 }
 
+
+/* ── Directory openers ────────────────────────────────────────────────────── */
+
 REAL(opendir);
 
 DIR *opendir(const char *name) {
@@ -211,11 +257,13 @@ DIR *opendir(const char *name) {
     return real_opendir(target);
 }
 
+
+/* ── stdio openers ────────────────────────────────────────────────────────── */
+
 /*
- * stdio openers. libpci reads a device's `resource` file via fopen(), so a
- * missing hook here leaves `lspci -v` reading the real host path. Only paths
- * under the PCI sysfs prefixes are rewritten; every other fopen (pci.ids,
- * /proc, ...) passes through untouched.
+ * libpci reads a device's `resource` file via fopen(), so a missing hook here
+ * leaves `lspci -v` reading the real host path. Only paths under the PCI sysfs
+ * prefixes are rewritten; every other fopen (pci.ids, /proc, …) passes through.
  */
 REAL(fopen);
 REAL(fopen64);
@@ -233,6 +281,9 @@ FILE *fopen64(const char *path, const char *mode) {
     const char *target = RESOLVE_OR_FAIL(path, buf, NULL);
     return real_fopen64(target, mode);
 }
+
+
+/* ── Stat family ──────────────────────────────────────────────────────────── */
 
 REAL(stat);
 REAL(stat64);
@@ -283,6 +334,13 @@ int fstatat64(int dirfd, const char *path, struct stat64 *st, int flags) {
     return real_fstatat64(dirfd, target, st, flags);
 }
 
+/*
+ * statx is not routed through REAL/LOAD_REAL because __typeof__(statx) expands
+ * to a kernel-internal type (struct statx) that is not available as a plain
+ * C type in all include configurations. An explicit function-pointer typedef
+ * avoids the issue. The null check is mandatory: statx was added in Linux 4.11
+ * and may genuinely be absent on older kernels.
+ */
 int statx(int dirfd, const char *path, int flags, unsigned int mask, struct statx *st) {
     static int (*real)(int, const char *, int, unsigned int, struct statx *) = NULL;
     if (!real) real = dlsym(RTLD_NEXT, "statx");
@@ -295,10 +353,11 @@ int statx(int dirfd, const char *path, int flags, unsigned int mask, struct stat
     return real(dirfd, target, flags, mask, st);
 }
 
+
+/* ── Access and link resolution ───────────────────────────────────────────── */
+
 REAL(access);
 REAL(faccessat);
-REAL(readlink);
-REAL(readlinkat);
 
 int access(const char *path, int mode) {
     LOAD_REAL(access);
@@ -313,6 +372,17 @@ int faccessat(int dirfd, const char *path, int mode, int flags) {
     const char *target = RESOLVE_OR_FAIL(path, buf, -1);
     return real_faccessat(dirfd, target, mode, flags);
 }
+
+/*
+ * readlink / readlinkat: the DRA device-plugin resolves NUMA affinity by
+ * calling readlink("/sys/bus/pci/devices/<bdf>") and parsing the returned
+ * relative target ("../../../devices/pci0000:00/<bdf>") to extract the root-
+ * complex ID. Without intercepting readlink, the symlink resolves into the
+ * real host /sys tree and the root-complex lookup finds actual hardware
+ * instead of the mock topology.
+ */
+REAL(readlink);
+REAL(readlinkat);
 
 ssize_t readlink(const char *path, char *out, size_t out_size) {
     LOAD_REAL(readlink);
