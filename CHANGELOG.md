@@ -160,6 +160,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test pod manifests moved into a generic `pod.tpl.yaml` under
   `tests/e2e/go/framework/pod`, rendered from a `Spec` carrying only what varies.
 
+### Removed
+- Chart value `nodeLabels.pciVendorPresent`. The NFD feature file behind
+  `feature.node.kubernetes.io/pci-10de.present` is now always written. A
+  leftover `--set nodeLabels.pciVendorPresent=false` is silently ignored, not
+  rejected. (#719)
+
 ### Fixed
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
   uses (`00000000:07:00.0`, `NVML_DEVICE_PCI_BUS_ID_FMT`) while `busIdLegacy`

@@ -73,13 +73,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            # Gates the direct node label (nvidia.com/gpu.present=true) that
-            # setup.sh sets via kubectl as a fast-path before NFD propagates.
-            # The canonical NFD feature file (nvml-mock.features) is written by
-            # the node-agent container, not setup.sh; this flag controls only
-            # the legacy kubectl-label step in setup.sh step 7.
-            - name: MOCK_NFD_PCI_LABEL
-              value: {{ ternary "on" "off" .Values.nodeLabels.pciVendorPresent | quote }}
             {{- if .Values.imex.mockChannels.enabled }}
             # Mock IMEX capability surface for the DRA compute-domain plugin.
             # See values.yaml imex.mockChannels and NVIDIA/k8s-test-infra#498.

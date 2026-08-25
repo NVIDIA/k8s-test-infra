@@ -169,36 +169,18 @@ tests:
             name: DRIVER_VERSION
             value: "580.65.06"
 
-  # ── NFD pci-10de feature-file gate (nodeLabels.pciVendorPresent) ─────
-  # setup.sh and cleanup.sh both branch on MOCK_NFD_PCI_LABEL. They accept
-  # only "on"/"off" and abort the pod on anything else, so the exact string
-  # matters, not merely the presence of the variable. The value gates the
-  # feature FILE; NFD is what turns that file into the label.
-  - it: should enable the NFD pci-10de feature file by default
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: MOCK_NFD_PCI_LABEL
-            value: "on"
-
-  - it: should suppress the NFD pci-10de feature file when nodeLabels.pciVendorPresent=false
-    set:
-      nodeLabels:
-        pciVendorPresent: false
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: MOCK_NFD_PCI_LABEL
-            value: "off"
-
   # ── NFD features.d mount (nodeLabels.featuresDir) ────────────────────
-  # setup.sh writes the pci-10de feature file here instead of calling
-  # kubectl label. Without this mount the write silently lands inside the
-  # container and NFD never sees it, so the mount IS the contract.
+  # The node agent (containers[1]) writes the pci-10de feature file here.
+  # Without its mount the write lands inside the container and NFD never sees
+  # it, so that mount IS the contract; containers[0] mounts the same directory
+  # only so `kubectl exec` can read the file back.
   - it: should mount the NFD features.d host directory
     asserts:
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: host-nfd-features
+            mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
