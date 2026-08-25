@@ -119,6 +119,10 @@ should match snapshot with all overrides:
                 - --log-format=json
                 - --shutdown-timeout=30s
               env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
                 - name: GPU_COUNT
                   value: "2"
                 - name: DRIVER_VERSION
@@ -150,6 +154,8 @@ should match snapshot with all overrides:
                   name: host-nvml-mock
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
+                - mountPath: /host/run/cdi
+                  name: host-cdi
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
                   readOnly: true
@@ -299,6 +305,10 @@ should match snapshot with b200 profile:
                 - --log-format=json
                 - --shutdown-timeout=30s
               env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
                 - name: GPU_COUNT
                   value: "4"
                 - name: DRIVER_VERSION
@@ -330,6 +340,8 @@ should match snapshot with b200 profile:
                   name: host-nvml-mock
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
+                - mountPath: /host/run/cdi
+                  name: host-cdi
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
                   readOnly: true
@@ -477,6 +489,10 @@ should match snapshot with default values:
                 - --log-format=json
                 - --shutdown-timeout=30s
               env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
                 - name: GPU_COUNT
                   value: "8"
                 - name: DRIVER_VERSION
@@ -508,6 +524,8 @@ should match snapshot with default values:
                   name: host-nvml-mock
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
+                - mountPath: /host/run/cdi
+                  name: host-cdi
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
                   readOnly: true
