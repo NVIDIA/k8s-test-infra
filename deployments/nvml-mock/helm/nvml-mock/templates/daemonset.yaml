@@ -104,15 +104,6 @@ spec:
             - name: MOCK_TOPOLOGY_CONFIG
               value: /etc/nvml-mock/topology/topology.yaml
             {{- end }}
-            {{- if .Values.imex.enabled }}
-            # Shared coordination directory for the fake nvidia-imex /
-            # nvidia-imex-ctl binaries baked into this image. The same
-            # hostPath is bind-mounted into compute-domain-daemon pods
-            # via the thin image layer in
-            # deployments/nvml-mock/Dockerfile.compute-domain-daemon.
-            - name: IMEX_STATE_DIR
-              value: {{ .Values.imex.stateDir }}
-            {{- end }}
             {{- if $fmEnabled }}
             # Start the fake nvidia-fabricmanager daemon (setup.sh) and point
             # both the daemon and the mock NVML engine at the same readiness
@@ -187,10 +178,6 @@ spec:
             {{- if .Values.topology.enabled }}
             - name: gpu-topology
               mountPath: /etc/nvml-mock/topology
-            {{- end }}
-            {{- if .Values.imex.enabled }}
-            - name: host-imex-state
-              mountPath: {{ .Values.imex.stateDir }}
             {{- end }}
             {{- if $fmEnabled }}
             - name: host-fabric-state
@@ -331,12 +318,6 @@ spec:
         - name: gpu-topology
           configMap:
             name: {{ include "nvml-mock.fullname" . }}-topology
-        {{- end }}
-        {{- if .Values.imex.enabled }}
-        - name: host-imex-state
-          hostPath:
-            path: {{ .Values.imex.stateDir }}
-            type: DirectoryOrCreate
         {{- end }}
         {{- if $fmEnabled }}
         - name: host-fabric-state

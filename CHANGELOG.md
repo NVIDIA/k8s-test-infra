@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The node agent gains `pcibus`, `cdi` and `imex` simulators, each an
+  `agent.Simulator` with the same stage/apply/discard lifecycle as the existing
+  `gpudriver`. Together they subsume the device-surface construction that
+  `deployments/nvml-mock/scripts/setup.sh` performed at pod start, which loses
+  369 lines (`cleanup.sh` loses 18). Staging a surface can now fail without
+  leaving a half-built node, because the agent discards what it staged instead
+  of exiting partway through a shell script. (#TBD)
+- The `imex` simulator renders the capability surface the NVIDIA DRA driver's
+  compute-domain kubelet plugin needs on a node with no NVIDIA kernel driver:
+  the `nvidia-caps-imex-channels` channel device nodes, the `/proc/devices`
+  substitute the plugin reads through `ALT_PROC_DEVICES_PATH`, and the
+  `fabric-imex-mgmt` capability file. Without the `/proc/devices` entry the
+  plugin aborts at startup, and without the channel nodes containerd refuses to
+  admit a pod carrying a compute-domain CDI spec. Gated on
+  `imex.mockChannels.enabled`. (#TBD)
+- `host.Host.Mknod` centralises privileged character-device creation, so
+  `gpudriver` and `imex` share one primitive rather than each carrying its own
+  copy of the `mknod`-then-`chmod` sequence. (#TBD)
+- `make build` now also builds the Go shims under `shims/`, and
+  `make test-nvidia-imex-shim` runs the shim's integration tests against that
+  built binary instead of compiling one during the test run. (#TBD)
 - mocknvml: the `Conf Compute Protected Memory Usage` block of `nvidia-smi -q`
   now reports `0 MiB` for Total, Used and Free instead of `N/A`. Both NVML
   getters behind it were generated stubs that `nvidia-smi` calls once per GPU on
@@ -129,6 +150,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- The mock renderers move out of `pkg/` now that their CLI entry points are
+  gone: `pkg/system/mockpcisysfs/render` becomes `internal/pcisysfs` and
+  `pkg/system/mockimex/render` becomes `internal/imex`. Each had one in-repo
+  consumer, so `pkg/` was advertising an importable contract that nothing
+  outside the repo used. (#TBD)
+- The LD_PRELOAD and `execve` shims are collected under a single `shims/`
+  directory: `pkg/system/mockpcisysfs/c` becomes `shims/libpcisysfs`, and
+  `cmd/imex-nogpu-shim` becomes `shims/nvidia-imex-shim` — named after the
+  binary it wraps rather than the flag it appends, and moved out of `cmd/`
+  because it is not a CLI anyone invokes. (#TBD)
+- The chart's IMEX environment moves from the `nvml-mock` container to
+  `node-agent`, which is the process that now materialises the surface those
+  variables describe. (#TBD)
+- Tilt's `docker_build(only=…)` allowlists now cover `shims/`, `internal/` and
+  `Makefile`. They had drifted from the Dockerfiles they feed, and because
+  `only=` is a context allowlist rather than a cache hint, `COPY shims/ shims/`
+  failed with `"/shims": not found` — the path was absent from the build
+  context entirely. (#TBD)
 - The local-dev and CI Kind clusters no longer run nvml-mock on the control-plane
   node. The chart tolerates every taint, so the DaemonSet landed there too, but
   nothing follows it: GPU Operator operands, FGO and NFD workers all stop at the
@@ -195,6 +234,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `feature.node.kubernetes.io/pci-10de.present` is now always written. A
   leftover `--set nodeLabels.pciVendorPresent=false` is silently ignored, not
   rejected. (#719)
+
+### Removed
+- `cmd/fake-imex` (both the daemon and the ctl). The real `nvidia-imex` in NO
+  GPU mode, reached through `shims/nvidia-imex-shim`, supersedes the
+  marker-file simulation, completing the deprecation announced in 0.3.0. (#304)
+- `cmd/render-imex-procdevices` and `cmd/render-pci-sysfs`. Both were one-shot
+  renderers that `setup.sh` invoked; the `imex` and `pcibus` simulators call
+  the same rendering code in-process. (#TBD)
+- `pkg/imexcoord` and the chart's `imex.enabled` / `imex.stateDir` values,
+  along with the `host-imex-state` hostPath they mounted. This was the
+  marker-file protocol the removed fakes coordinated through; real daemons
+  coordinate over the pod network and need no hostPath. `imex.mockChannels` is
+  unaffected. The chart schema permits unknown keys, so a values file still
+  setting `imex.enabled: true` installs silently with no state directory
+  mounted rather than failing. (#304)
 
 ### Fixed
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
