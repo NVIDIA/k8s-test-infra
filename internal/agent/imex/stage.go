@@ -10,7 +10,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
-	"github.com/NVIDIA/k8s-test-infra/pkg/system/mockimex/render"
+	"github.com/NVIDIA/k8s-test-infra/internal/imex"
 )
 
 // stageChannelDevs creates the chardevs that the compute-domain CDI spec injects
@@ -43,7 +43,7 @@ func stageProcDevices(h *host.Host, state *agent.State, procDevicesPath string) 
 		return fmt.Errorf("read %s: %w", procDevicesPath, err)
 	}
 
-	rendered, err := render.ProcDevices(string(src), state.IMEX.IMEXMajor, state.IMEX.CapsMajor)
+	rendered, err := imex.ProcDevices(string(src), state.IMEX.IMEXMajor, state.IMEX.CapsMajor)
 
 	if err != nil {
 		return fmt.Errorf("render proc-devices: %w", err)
