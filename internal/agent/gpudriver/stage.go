@@ -44,7 +44,7 @@ func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error 
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := mknodChar(filepath.Join(devRoot, d.name), d.major, d.minor); err != nil {
+		if err := h.Mknod(filepath.Join(devRoot, d.name), d.major, d.minor); err != nil {
 			return fmt.Errorf("chardev %s: %w", d.name, err)
 		}
 	}
