@@ -17,6 +17,7 @@ type State struct {
 	NodeShape  NodeShape
 	Devices    []DeviceSpec
 	Fabric     FabricState
+	IMEX       IMEXState
 	// ConfigRaw holds the raw YAML profile bytes so gpudriver can write the
 	// engine config without re-deriving it from the narrower State fields.
 	// TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): replace with Profile/Runtime *config.YAMLConfig split — Profile carries
@@ -85,6 +86,14 @@ type FabricState struct {
 	CliqueID             uint32
 	LinksPerGPU          int
 	BandwidthPerLinkMbps int
+}
+
+// IMEXState describes the IMEX capability surface for the DRA compute-domain plugin.
+type IMEXState struct {
+	Enabled      bool
+	IMEXMajor    int
+	CapsMajor    int
+	ChannelCount int
 }
 
 // StateSource emits State observations.

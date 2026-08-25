@@ -46,7 +46,7 @@ func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error 
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := mknodCharFn(filepath.Join(devRoot, d.name), d.major, d.minor); err != nil {
+		if err := h.Mknod(filepath.Join(devRoot, d.name), d.major, d.minor); err != nil {
 			return fmt.Errorf("chardev %s: %w", d.name, err)
 		}
 		wanted[d.name] = true
@@ -54,10 +54,6 @@ func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error 
 
 	return pruneGPUNodes(devRoot, wanted)
 }
-
-// mknodCharFn creates one character device. A package var so tests can drive
-// stageCharDevs without CAP_MKNOD, which CI runners do not have.
-var mknodCharFn = mknodChar
 
 // gpuNodeName matches only the per-GPU character devices. Scoped this tightly
 // because setup.sh owns other nvidia-prefixed entries in the same directory,

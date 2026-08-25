@@ -73,18 +73,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            {{- if .Values.imex.mockChannels.enabled }}
-            # Mock IMEX capability surface for the DRA compute-domain plugin.
-            # See values.yaml imex.mockChannels and NVIDIA/k8s-test-infra#498.
-            - name: IMEX_MOCK_CHANNELS
-              value: "true"
-            - name: IMEX_CHANNEL_COUNT
-              value: "{{ .Values.imex.mockChannels.channelCount }}"
-            - name: IMEX_CHANNEL_MAJOR
-              value: "{{ .Values.imex.mockChannels.channelMajor }}"
-            - name: IMEX_CAPS_MAJOR
-              value: "{{ .Values.imex.mockChannels.capsMajor }}"
-            {{- end }}
             # Point the mock NVML library at the in-pod ConfigMap mount so any
             # nvidia-smi / NVML caller running INSIDE the daemonset pod
             # (e.g. `kubectl exec ds/nvml-mock -- nvidia-smi`) loads the same
@@ -235,6 +223,18 @@ spec:
             # directory it binds always appear together.
             - name: MOCK_FABRICMANAGER_STATE_DIR
               value: {{ .Values.fabricmanager.stateDir }}
+            {{- end }}
+            {{- if .Values.imex.mockChannels.enabled }}
+            # Mock IMEX capability surface for the DRA compute-domain plugin.
+            # See values.yaml imex.mockChannels and NVIDIA/k8s-test-infra#498.
+            - name: IMEX_MOCK_CHANNELS
+              value: "true"
+            - name: IMEX_CHANNEL_COUNT
+              value: "{{ .Values.imex.mockChannels.channelCount }}"
+            - name: IMEX_CHANNEL_MAJOR
+              value: "{{ .Values.imex.mockChannels.channelMajor }}"
+            - name: IMEX_CAPS_MAJOR
+              value: "{{ .Values.imex.mockChannels.capsMajor }}"
             {{- end }}
           securityContext:
             allowPrivilegeEscalation: false

@@ -6,10 +6,14 @@
 package host
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // Host holds the roots for each host filesystem namespace the agent writes to.
@@ -105,6 +109,23 @@ func (h *Host) CopyFile(src, dst string, perm os.FileMode) error {
 func (h *Host) MkdirAll(dir string, perm os.FileMode) error {
 	if err := os.MkdirAll(dir, perm); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
+	}
+	return nil
+}
+
+// Mknod creates a character device node at path. Parent directories are created
+// as needed. EEXIST is not an error; the node's permissions are always set to 0666.
+func (h *Host) Mknod(path string, major, minor uint32) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
+	}
+	//nolint:gosec // Mknod requires the cast; values are controlled constants
+	err := unix.Mknod(path, uint32(syscall.S_IFCHR)|0o666, int(unix.Mkdev(major, minor)))
+	if err != nil && !errors.Is(err, unix.EEXIST) {
+		return fmt.Errorf("mknod %s: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o666); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
 	}
 	return nil
 }

@@ -20,6 +20,15 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
+// envIntOrDefault returns the integer value of the env var key, or def when
+// the var is unset or not a valid integer.
+func envIntOrDefault(key string, def int) int {
+	if v, err := strconv.Atoi(os.Getenv(key)); err == nil {
+		return v
+	}
+	return def
+}
+
 const defaultPollInterval = 5 * time.Second
 
 // FileSource watches a YAML config file and emits State updates on change.
@@ -166,6 +175,17 @@ func compileState(data []byte) (*agent.State, error) {
 	// Set by the chart only where it also creates the marker directory and
 	// starts the daemon, so it is the one signal that both exist on this node.
 	state.Fabric.ManagerStateDir = strings.TrimSpace(os.Getenv(engine.EnvFabricStateDir))
+
+	// IMEX mock surface: opt-in via IMEX_MOCK_CHANNELS=true, same shim
+	// pattern as GPU_COUNT until MEP-0001 embeds this in the profile.
+	if os.Getenv("IMEX_MOCK_CHANNELS") == "true" {
+		state.IMEX = agent.IMEXState{
+			Enabled:      true,
+			IMEXMajor:    envIntOrDefault("IMEX_CHANNEL_MAJOR", 235),
+			CapsMajor:    envIntOrDefault("IMEX_CAPS_MAJOR", 236),
+			ChannelCount: envIntOrDefault("IMEX_CHANNEL_COUNT", 2048),
+		}
+	}
 
 	return state, nil
 }
