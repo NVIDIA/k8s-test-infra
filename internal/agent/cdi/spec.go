@@ -58,6 +58,8 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 	devRoot := overlayHostRoot + "/driver/dev"
 
 	edits := &cdiEdits{
+		// Control devices are shared by every named GPU entry (per-GPU nvidia<N>
+		// nodes live under devices[*].containerEdits, not here).
 		DeviceNodes: []cdiDeviceNode{
 			{Path: "/dev/nvidiactl", HostPath: devRoot + "/nvidiactl"},
 			{Path: "/dev/nvidia-uvm", HostPath: devRoot + "/nvidia-uvm"},
@@ -82,6 +84,9 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 				Options:       []string{"ro", "nosuid", "nodev", "bind"},
 			},
 		},
+		// update-ldcache rebuilds the dynamic linker cache inside the container
+		// namespace so dlopen finds the bind-mounted libnvidia-ml.so.1 without
+		// modifying the container image's own ld.so.conf.
 		Hooks: []cdiHook{
 			{
 				HookName: "createContainer",
@@ -90,6 +95,8 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 			},
 		},
 		Env: []string{
+			// void tells the container toolkit to skip its own device enumeration;
+			// without it the toolkit would override our mock nodes with an empty set.
 			"NVIDIA_VISIBLE_DEVICES=void",
 			"MOCK_NVML_CONFIG=/etc/nvml-mock/config.yaml",
 			"MOCK_NVML_OVERRIDES=/etc/nvml-mock/overrides.yaml",
@@ -151,6 +158,7 @@ func buildNRISpec(state *agent.State) cdiSpec {
 
 	allNodes := make([]cdiDeviceNode, 0, len(state.Devices)+3)
 	devices := make([]cdiDevice, 0, len(state.Devices)+1)
+
 	for _, d := range state.Devices {
 		node := cdiDeviceNode{
 			Path:     fmt.Sprintf("/dev/nvidia%d", d.Index),
@@ -162,6 +170,7 @@ func buildNRISpec(state *agent.State) cdiSpec {
 		})
 		allNodes = append(allNodes, node)
 	}
+
 	// "all" also covers the control devices so a workload that only requests
 	// "all" still gets the UVM and nvidiactl nodes it needs.
 	for _, extra := range []string{"nvidiactl", "nvidia-uvm", "nvidia-uvm-tools"} {
@@ -176,8 +185,10 @@ func buildNRISpec(state *agent.State) cdiSpec {
 	})
 
 	return cdiSpec{
-		CDIVersion:     "0.6.0",
-		Kind:           "nvml-mock.nvidia.com/gpu",
+		CDIVersion: "0.6.0",
+		Kind:       "nvml-mock.nvidia.com/gpu",
+		// NVML_MOCK_DEVICE_SOURCE makes the injection path (CDI vs raw NRI) observable
+		// from inside the container — the two modes are otherwise indistinguishable.
 		ContainerEdits: &cdiEdits{Env: []string{"NVML_MOCK_DEVICE_SOURCE=cdi"}},
 		Devices:        devices,
 	}
