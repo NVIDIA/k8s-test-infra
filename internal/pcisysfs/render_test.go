@@ -212,3 +212,70 @@ func TestRender_NormalizesUppercaseBDF(t *testing.T) {
 	_, err := os.Stat(filepath.Join(dir, "sys/bus/pci/devices/0000:bd:00.0"))
 	require.NoError(t, err, "expected lowercase symlink")
 }
+
+// TestRender_PrunesRemovedDevices covers the converging half of Render's
+// contract: a re-render with a shrunk device set must leave no orphan behind.
+// Without it lspci keeps enumerating GPUs that NVML no longer reports.
+func TestRender_PrunesRemovedDevices(t *testing.T) {
+	dir := t.TempDir()
+	rc := func(devs ...string) *PCIeTopology {
+		return &PCIeTopology{RootComplexes: []RootComplex{
+			{ID: "pci0000:00", NUMANode: 0, Devices: devs},
+		}}
+	}
+
+	require.NoError(t, Render(Options{
+		Topology: rc("0000:07:00.0", "0000:0f:00.0", "0000:17:00.0"),
+		Output:   dir,
+	}))
+	require.NoError(t, Render(Options{Topology: rc("0000:07:00.0"), Output: dir}))
+
+	require.FileExists(t, filepath.Join(dir, "sys/devices/pci0000:00/0000:07:00.0/vendor"))
+	require.DirExists(t, filepath.Join(dir, "sys/devices/pci0000:00/0000:07:00.0"))
+
+	for _, gone := range []string{"0000:0f:00.0", "0000:17:00.0"} {
+		require.NoDirExists(t, filepath.Join(dir, "sys/devices/pci0000:00", gone))
+		_, err := os.Lstat(filepath.Join(dir, "sys/bus/pci/devices", gone))
+		require.True(t, os.IsNotExist(err), "stale symlink %s must be pruned", gone)
+	}
+
+	entries, err := os.ReadDir(filepath.Join(dir, "sys/bus/pci/devices"))
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "exactly the surviving device")
+}
+
+func TestRender_PrunesRemovedRootComplex(t *testing.T) {
+	dir := t.TempDir()
+	two := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+		{ID: "pci0001:00", NUMANode: 1, Devices: []string{"0001:05:00.0"}},
+	}}
+	one := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+	}}
+
+	require.NoError(t, Render(Options{Topology: two, Output: dir}))
+	require.NoError(t, Render(Options{Topology: one, Output: dir}))
+
+	require.DirExists(t, filepath.Join(dir, "sys/devices/pci0000:00"))
+	require.NoDirExists(t, filepath.Join(dir, "sys/devices/pci0001:00"))
+	_, err := os.Lstat(filepath.Join(dir, "sys/bus/pci/devices/0001:05:00.0"))
+	require.True(t, os.IsNotExist(err), "symlink into the dropped root must be pruned")
+}
+
+// TestRender_PruneLeavesForeignEntriesAlone guards the ownership boundary:
+// libpcisysfs rewrites only /sys/devices/pci*, so the renderer must not delete
+// anything else a sibling component staged in the same fake root.
+func TestRender_PruneLeavesForeignEntriesAlone(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+	}}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+
+	foreign := filepath.Join(dir, "sys/devices/platform")
+	require.NoError(t, os.MkdirAll(foreign, 0o755))
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+
+	require.DirExists(t, foreign, "non-pci entries are not this renderer's to remove")
+}

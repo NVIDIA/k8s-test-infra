@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"sigs.k8s.io/yaml"
 
@@ -40,15 +41,51 @@ func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error 
 		charDev{"nvidia-uvm-tools", 510, 1},
 	)
 
+	wanted := make(map[string]bool, len(devs))
 	for _, d := range devs {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := mknodChar(filepath.Join(devRoot, d.name), d.major, d.minor); err != nil {
+		if err := mknodCharFn(filepath.Join(devRoot, d.name), d.major, d.minor); err != nil {
 			return fmt.Errorf("chardev %s: %w", d.name, err)
 		}
+		wanted[d.name] = true
 	}
-	return nil
+
+	return pruneGPUNodes(devRoot, wanted)
+}
+
+// mknodCharFn creates one character device. A package var so tests can drive
+// stageCharDevs without CAP_MKNOD, which CI runners do not have.
+var mknodCharFn = mknodChar
+
+// gpuNodeName matches only the per-GPU character devices. Scoped this tightly
+// because setup.sh owns other nvidia-prefixed entries in the same directory,
+// notably the nvidia-caps-imex-channels/ tree.
+var gpuNodeName = regexp.MustCompile(`^nvidia[0-9]+$`)
+
+// pruneGPUNodes removes per-GPU nodes left by a larger previous device set.
+// Staging alone is additive, so shrinking the GPU count would otherwise leave
+// openable /dev/nvidiaN that NVML no longer reports.
+func pruneGPUNodes(devRoot string, wanted map[string]bool) error {
+	entries, err := os.ReadDir(devRoot)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", devRoot, err)
+	}
+
+	var errs []error
+	for _, e := range entries {
+		if wanted[e.Name()] || !gpuNodeName.MatchString(e.Name()) {
+			continue
+		}
+
+		p := filepath.Join(devRoot, e.Name())
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 // stageNVMLShim installs the mock libnvidia-ml so that nvidia-smi, the device

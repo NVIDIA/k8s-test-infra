@@ -247,3 +247,65 @@ func TestStage_Idempotent(t *testing.T) {
 	require.NoError(t, sim.Stage(context.Background(), h, state))
 	require.NoError(t, sim.Stage(context.Background(), h, state), "second Stage must not error")
 }
+
+// TestPruneGPUNodes_RemovesShrunkDeviceSet exercises pruneGPUNodes directly with
+// plain files: pruning selects purely by name, and mknod needs root, which CI
+// runners do not have.
+func TestPruneGPUNodes_RemovesShrunkDeviceSet(t *testing.T) {
+	devRoot := t.TempDir()
+	for _, n := range []string{
+		"nvidia0", "nvidia1", "nvidia2", "nvidia3",
+		"nvidiactl", "nvidia-uvm", "nvidia-uvm-tools",
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(devRoot, n), nil, 0o600))
+	}
+	// setup.sh stages the IMEX channel tree in this same directory.
+	imex := filepath.Join(devRoot, "nvidia-caps-imex-channels")
+	require.NoError(t, os.MkdirAll(imex, 0o755))
+
+	// The device set shrank from four GPUs to two.
+	wanted := map[string]bool{
+		"nvidia0": true, "nvidia1": true,
+		"nvidiactl": true, "nvidia-uvm": true, "nvidia-uvm-tools": true,
+	}
+	require.NoError(t, pruneGPUNodes(devRoot, wanted))
+
+	for _, keep := range []string{"nvidia0", "nvidia1", "nvidiactl", "nvidia-uvm", "nvidia-uvm-tools"} {
+		require.FileExists(t, filepath.Join(devRoot, keep))
+	}
+	for _, gone := range []string{"nvidia2", "nvidia3"} {
+		require.NoFileExists(t, filepath.Join(devRoot, gone),
+			"stale GPU node %s must be pruned", gone)
+	}
+	// The nvidia prefix alone must not be grounds for deletion — this tree
+	// belongs to setup.sh, not to the gpudriver simulator.
+	require.DirExists(t, imex, "IMEX channel tree must survive pruning")
+}
+
+// TestStageCharDevs_PrunesShrunkDeviceSet guards the call site, not just the
+// helper: stageCharDevs must actually prune. mknod is stubbed because CI runners
+// lack CAP_MKNOD, so the real creator is covered only by the root-gated test.
+func TestStageCharDevs_PrunesShrunkDeviceSet(t *testing.T) {
+	orig := mknodCharFn
+	mknodCharFn = func(path string, _, _ uint32) error {
+		return os.WriteFile(path, nil, 0o600)
+	}
+	t.Cleanup(func() { mknodCharFn = orig })
+
+	h := host.New(t.TempDir())
+	devRoot := filepath.Join(h.Root, "driver/dev")
+	require.NoError(t, os.MkdirAll(devRoot, 0o755))
+
+	// A previous, larger device set left four GPU nodes behind.
+	for _, n := range []string{"nvidia0", "nvidia1", "nvidia2", "nvidia3"} {
+		require.NoError(t, os.WriteFile(filepath.Join(devRoot, n), nil, 0o600))
+	}
+
+	state := &agent.State{Devices: []agent.DeviceSpec{{Index: 0}, {Index: 1}}}
+	require.NoError(t, stageCharDevs(context.Background(), h, state))
+
+	require.FileExists(t, filepath.Join(devRoot, "nvidia0"))
+	require.FileExists(t, filepath.Join(devRoot, "nvidia1"))
+	require.NoFileExists(t, filepath.Join(devRoot, "nvidia2"))
+	require.NoFileExists(t, filepath.Join(devRoot, "nvidia3"))
+}

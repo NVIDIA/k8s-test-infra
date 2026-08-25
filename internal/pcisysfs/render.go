@@ -30,10 +30,10 @@ type Options struct {
 	Output string
 }
 
-// Render writes the entire tree. It is idempotent: existing directories
-// are reused, existing files are truncated and rewritten, and existing
-// symlinks are removed and recreated so a stale relative target does not
-// linger across re-renders.
+// Render writes the entire tree. It is idempotent and converging: existing
+// directories are reused, existing files are truncated and rewritten, existing
+// symlinks are removed and recreated so a stale relative target does not linger,
+// and entries the new topology no longer declares are pruned.
 func Render(o Options) error {
 	if o.Topology == nil || len(o.Topology.RootComplexes) == 0 {
 		return nil
@@ -55,7 +55,88 @@ func Render(o Options) error {
 			return fmt.Errorf("rendering %s: %w", rc.ID, err)
 		}
 	}
-	return nil
+
+	// Pruning last means a wanted device is never briefly absent: the window
+	// holds the union of the old and new trees rather than a gap.
+	return prune(root, o.Topology)
+}
+
+// prune removes entries the topology no longer declares. Rendering alone is
+// additive, so a device set that shrinks or is re-addressed would otherwise
+// leave orphans that lspci keeps enumerating and NVML no longer reports.
+func prune(root string, topo *PCIeTopology) error {
+	perRoot := make(map[string]map[string]bool, len(topo.RootComplexes))
+	allBDFs := make(map[string]bool)
+
+	for _, rc := range topo.RootComplexes {
+		devs := make(map[string]bool, len(rc.Devices))
+		for _, bdf := range rc.Devices {
+			bdfLower := strings.ToLower(bdf)
+			devs[bdfLower] = true
+			allBDFs[bdfLower] = true
+		}
+		perRoot[rc.ID] = devs
+	}
+
+	errs := []error{
+		// The flat lookup directory holds only BDF symlinks.
+		pruneDir(filepath.Join(root, "sys/bus/pci/devices"),
+			func(name string) bool { return allBDFs[name] }),
+	}
+
+	devicesDir := filepath.Join(root, "sys/devices")
+	entries, err := os.ReadDir(devicesDir)
+	if err != nil && !os.IsNotExist(err) {
+		errs = append(errs, fmt.Errorf("read %s: %w", devicesDir, err))
+	}
+
+	for _, e := range entries {
+		// libpcisysfs rewrites only /sys/devices/pci*, so anything without that
+		// prefix belongs to something other than this renderer.
+		if !strings.HasPrefix(e.Name(), "pci") {
+			continue
+		}
+
+		rcDir := filepath.Join(devicesDir, e.Name())
+		devs, wanted := perRoot[e.Name()]
+		if !wanted {
+			if err := os.RemoveAll(rcDir); err != nil {
+				errs = append(errs, fmt.Errorf("remove %s: %w", rcDir, err))
+			}
+			continue
+		}
+
+		// A rendered root complex contains device directories and nothing else.
+		errs = append(errs, pruneDir(rcDir, func(name string) bool { return devs[name] }))
+	}
+
+	return errors.Join(errs...)
+}
+
+// pruneDir removes every entry of dir that keep rejects. A missing dir is not an
+// error: nothing has been rendered there yet.
+func pruneDir(dir string, keep func(string) bool) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read %s: %w", dir, err)
+	}
+
+	var errs []error
+	for _, e := range entries {
+		if keep(e.Name()) {
+			continue
+		}
+
+		p := filepath.Join(dir, e.Name())
+		if err := os.RemoveAll(p); err != nil {
+			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 func renderRootComplex(root string, rc RootComplex, ids map[string]PCI) error {
