@@ -201,6 +201,7 @@ func buildDeviceSpec(i int, defaults engine.DeviceConfig, devices []engine.Devic
 	}
 	if defaults.PCI != nil {
 		spec.PCIDeviceID = defaults.PCI.DeviceID
+		spec.PCISubsystemID = defaults.PCI.SubsystemID
 		spec.PCIBusID = defaults.PCI.BusID
 	}
 	for _, ov := range devices {
@@ -222,7 +223,18 @@ func applyDeviceOverride(spec *agent.DeviceSpec, ov engine.DeviceOverride) {
 	if ov.MinorNumber != 0 {
 		spec.MinorNumber = ov.MinorNumber
 	}
-	if ov.PCI != nil && ov.PCI.BusID != "" {
-		spec.PCIBusID = ov.PCI.BusID
+	// Each PCI field overrides independently, matching how the mock NVML engine
+	// merges the same block (engine/config.go): a device that sets only bus_id
+	// keeps the profile's identity words.
+	if ov.PCI != nil {
+		if ov.PCI.BusID != "" {
+			spec.PCIBusID = ov.PCI.BusID
+		}
+		if ov.PCI.DeviceID != 0 {
+			spec.PCIDeviceID = ov.PCI.DeviceID
+		}
+		if ov.PCI.SubsystemID != 0 {
+			spec.PCISubsystemID = ov.PCI.SubsystemID
+		}
 	}
 }

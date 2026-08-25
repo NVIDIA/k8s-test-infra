@@ -105,6 +105,20 @@ func TestBuildIdentities_MultipleDevices(t *testing.T) {
 	require.Contains(t, ids, "0000:07:00.1")
 }
 
+func TestBuildIdentities_CarriesFullIdentity(t *testing.T) {
+	state := &agent.State{
+		Devices: []agent.DeviceSpec{
+			{Index: 0, PCIBusID: "0000:07:00.0", PCIDeviceID: 0x233010DE, PCISubsystemID: 0x165810DE},
+		},
+	}
+
+	// Every identity word the renderer unpacks must survive the mapping; a
+	// dropped one renders as a plausible default rather than an error.
+	require.Equal(t,
+		pcisysfs.PCI{BusID: "0000:07:00.0", DeviceID: 0x233010DE, SubsystemID: 0x165810DE},
+		buildIdentities(state)["0000:07:00.0"])
+}
+
 // ─── stageSysfs ──────────────────────────────────────────────────────────────
 
 func TestStageSysfs_NilTopologyIsNop(t *testing.T) {
@@ -126,15 +140,36 @@ func TestStageSysfs_WritesSysfsUnderRoot(t *testing.T) {
 	require.NoError(t, err, "BDF symlink must appear under h.Root")
 }
 
+func TestStageSysfs_RendersSubsystemAttrs(t *testing.T) {
+	h := testHost(t)
+	require.NoError(t, stageSysfs(h, stateWithTopology()))
+
+	devDir := filepath.Join(h.Root, "sys/bus/pci/devices/0000:07:00.0")
+	for _, tc := range []struct{ file, want string }{
+		{"vendor", "0x10de\n"},
+		{"device", "0x2330\n"},
+		{"subsystem_vendor", "0x10de\n"},
+		{"subsystem_device", "0x1658\n"},
+	} {
+		data, err := os.ReadFile(filepath.Join(devDir, tc.file))
+		require.NoError(t, err, "reading %s", tc.file)
+		require.Equal(t, tc.want, string(data), tc.file)
+	}
+}
+
 // ─── stagePCIShim ────────────────────────────────────────────────────────────
 
+// withShimGlob points stagePCIShim at dir for the duration of the test, so both
+// branches run regardless of what the host has under /usr/local/lib.
+func withShimGlob(t *testing.T, dir string) {
+	t.Helper()
+	orig := shimGlob
+	shimGlob = filepath.Join(dir, "libpcisysfs.so*")
+	t.Cleanup(func() { shimGlob = orig })
+}
+
 func TestStagePCIShim_NopWhenNoLib(t *testing.T) {
-	// This passes on any machine that doesn't have libpcisysfs.so built in at
-	// /usr/local/lib — i.e., all dev machines and macOS CI runners.
-	matches, _ := filepath.Glob("/usr/local/lib/libpcisysfs.so*")
-	if len(matches) > 0 {
-		t.Skip("libpcisysfs.so present; skipping no-lib path")
-	}
+	withShimGlob(t, t.TempDir())
 
 	h := testHost(t)
 	require.NoError(t, stagePCIShim(h))
@@ -142,4 +177,23 @@ func TestStagePCIShim_NopWhenNoLib(t *testing.T) {
 	libDir := filepath.Join(h.Root, "driver/usr/local/lib")
 	_, err := os.Stat(libDir)
 	require.True(t, os.IsNotExist(err), "lib dir must not be created when shim is absent")
+}
+
+func TestStagePCIShim_StagesEverySoname(t *testing.T) {
+	src := t.TempDir()
+	for _, name := range []string{"libpcisysfs.so", "libpcisysfs.so.1"} {
+		require.NoError(t, os.WriteFile(filepath.Join(src, name), []byte(name), 0o755))
+	}
+	withShimGlob(t, src)
+
+	h := testHost(t)
+	require.NoError(t, stagePCIShim(h))
+
+	// The NRI plugin LD_PRELOADs the versioned soname, so every match must land
+	// in the driver lib dir, not only the first.
+	for _, name := range []string{"libpcisysfs.so", "libpcisysfs.so.1"} {
+		data, err := os.ReadFile(filepath.Join(h.Root, "driver/usr/local/lib", name))
+		require.NoError(t, err, "%s must be staged", name)
+		require.Equal(t, name, string(data))
+	}
 }

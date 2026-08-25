@@ -27,6 +27,7 @@ const PCIDevicesDir = "/var/lib/nvml-mock/sys/bus/pci/devices"
 //   - the first symlink resolves to a RELATIVE ../../../devices/pci.../<bdf>
 //     target (the contract deviceattribute readlink()s for the PCIe root),
 //   - that device's numa_node is an integer,
+//   - that device carries a non-zero PCI subsystem identity,
 //   - the devices span exactly expectedRoots distinct PCIe root complexes.
 func PCISysfs(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount, expectedRoots int) {
 	ginkgo.GinkgoHelper()
@@ -54,6 +55,19 @@ func PCISysfs(ctx context.Context, k *kube.Client, pod kube.PodRef, gpuCount, ex
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "reading numa_node for %s", dev)
 	gomega.Expect(strings.TrimSpace(numa.Stdout)).To(gomega.MatchRegexp(`^-?[0-9]+$`),
 		"numa_node for %s is not a number: %q", dev, numa.Stdout)
+
+	ginkgo.By("device carries a non-zero PCI subsystem identity")
+	// An identity word dropped between the profile and the renderer surfaces as
+	// 0x0000 rather than an error, so lspci prints a board with no subsystem
+	// name. Every shipped profile sets device_defaults.pci.subsystem_id, so any
+	// zero here means the value was lost in transit.
+	sub, err := k.ExecSh(ctx, pod, "cat "+PCIDevicesDir+"/"+dev+"/subsystem_device")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "reading subsystem_device for %s", dev)
+	subDev := strings.TrimSpace(sub.Stdout)
+	gomega.Expect(subDev).To(gomega.MatchRegexp(`^0x[0-9a-f]{4}$`),
+		"subsystem_device for %s is malformed: %q", dev, sub.Stdout)
+	gomega.Expect(subDev).NotTo(gomega.Equal("0x0000"),
+		"subsystem_device for %s is 0x0000; the profile's subsystem_id never reached the renderer", dev)
 
 	ginkgo.By(fmt.Sprintf("devices span %d distinct PCI root complexes", expectedRoots))
 	// readlink target shape: "../../../devices/pciDDDD:BB/<bdf>" -> field 5 is

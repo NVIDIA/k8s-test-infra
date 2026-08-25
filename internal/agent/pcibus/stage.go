@@ -23,11 +23,15 @@ func stageSysfs(h *host.Host, state *agent.State) error {
 	})
 }
 
+// shimGlob locates the shim in the container image. A package var so tests can
+// exercise both branches without depending on what the host has installed.
+var shimGlob = "/usr/local/lib/libpcisysfs.so*"
+
 // stagePCIShim copies libpcisysfs.so* from /usr/local/lib into the driver
 // lib directory so lspci inside a workload can be LD_PRELOAD-ed by the NRI
 // plugin. Non-fatal when the shim is not built into the container image.
 func stagePCIShim(h *host.Host) error {
-	matches, _ := filepath.Glob("/usr/local/lib/libpcisysfs.so*")
+	matches, _ := filepath.Glob(shimGlob)
 
 	if len(matches) == 0 {
 		return nil
@@ -82,8 +86,9 @@ func buildIdentities(state *agent.State) map[string]pcisysfs.PCI {
 		}
 
 		ids[strings.ToLower(d.PCIBusID)] = pcisysfs.PCI{
-			BusID:    d.PCIBusID,
-			DeviceID: d.PCIDeviceID,
+			BusID:       d.PCIBusID,
+			DeviceID:    d.PCIDeviceID,
+			SubsystemID: d.PCISubsystemID,
 		}
 	}
 

@@ -20,7 +20,9 @@ func testHost(t *testing.T) *host.Host {
 	return host.New(t.TempDir())
 }
 
-// stateWithTopology returns a State carrying one root complex and one device.
+// stateWithTopology returns a State carrying one root complex and one device,
+// with the h100 profile's PCI identity words so rendered attribute files are
+// checkable against real values.
 func stateWithTopology() *agent.State {
 	return &agent.State{
 		NodeShape: agent.NodeShape{
@@ -31,7 +33,12 @@ func stateWithTopology() *agent.State {
 			},
 		},
 		Devices: []agent.DeviceSpec{
-			{Index: 0, PCIBusID: "0000:07:00.0", PCIDeviceID: 0x232010de},
+			{
+				Index:          0,
+				PCIBusID:       "0000:07:00.0",
+				PCIDeviceID:    0x233010DE,
+				PCISubsystemID: 0x165810DE,
+			},
 		},
 	}
 }
@@ -94,6 +101,18 @@ func TestDiscard_RemovesSysTree(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "sys/ must be removed after Discard")
 }
 
+func TestDiscard_SysGoneIsNotError(t *testing.T) {
+	h := testHost(t)
+	sim := New()
+
+	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
+
+	// Manually remove sys/ before calling Discard; RemoveAll on a missing path is
+	// a no-op so Discard must still succeed.
+	require.NoError(t, os.RemoveAll(filepath.Join(h.Root, "sys")))
+	require.NoError(t, sim.Discard(context.Background(), h))
+}
+
 // ─── Apply / Revoke ──────────────────────────────────────────────────────────
 
 func TestApply_WritesNFDFeatureFile(t *testing.T) {
@@ -148,7 +167,7 @@ func TestReady_TrueAfterStage(t *testing.T) {
 	require.True(t, sim.Ready())
 }
 
-func TestReady_FalseAfterDiscard(t *testing.T) {
+func TestReady_SurvivesDiscard(t *testing.T) {
 	h := testHost(t)
 	sim := New()
 
@@ -156,20 +175,7 @@ func TestReady_FalseAfterDiscard(t *testing.T) {
 	require.True(t, sim.Ready())
 
 	require.NoError(t, sim.Discard(context.Background(), h))
-	// Discard does not reset ready — Ready() tracks Stage success, not current
-	// sysfs presence. Downstream callers use ready to gate Discard itself.
-	// This test documents the actual contract.
+	// Ready() records Stage success, not current sysfs presence — Discard reads
+	// the flag as its own precondition, so teardown leaves it set.
 	require.True(t, sim.Ready(), "Discard does not reset ready flag")
-}
-
-func TestDiscard_SysGoneIsNotError(t *testing.T) {
-	h := testHost(t)
-	sim := New()
-
-	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
-
-	// Manually remove sys/ before calling Discard; RemoveAll on a missing path is
-	// a no-op so Discard must still succeed.
-	require.NoError(t, os.RemoveAll(filepath.Join(h.Root, "sys")))
-	require.NoError(t, sim.Discard(context.Background(), h))
 }

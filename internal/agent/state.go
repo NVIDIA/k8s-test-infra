@@ -72,6 +72,7 @@ type DeviceSpec struct {
 	ComputeCapMinor  int
 	MemoryTotalBytes uint64
 	PCIDeviceID      uint32
+	PCISubsystemID   uint32
 }
 
 // FabricState describes the NVLink / NVSwitch fabric configuration.
