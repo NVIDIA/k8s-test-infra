@@ -27,16 +27,17 @@ tests:
       - matchRegexRaw:
           pattern: "Driver version: 570.124.06"
 
+  # count left unset: the rendered figure is the h100 device list, so it differs
+  # from the default profile's above and neither can be satisfied by a constant.
   - it: should render NOTES with h100 profile
     set:
       gpu:
         profile: h100
-        count: 4
     asserts:
       - matchRegexRaw:
           pattern: "Profile: h100"
       - matchRegexRaw:
-          pattern: "GPUs per node: 4"
+          pattern: "GPUs per node: 8"
       - matchRegexRaw:
           pattern: "Driver version: 550.163.01"
 

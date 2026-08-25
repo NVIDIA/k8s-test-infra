@@ -332,6 +332,22 @@ tests:
             value: "4"
 
   # ── GPU_COUNT derived from the profile devices list (count unset) ──────
+  #
+  # One case per device-list length the shipped profiles carry, so a derivation
+  # replaced by any single constant fails here. The 4-GPU profiles alone would
+  # all agree with a hardcoded 4.
+  - it: should derive GPU_COUNT from the h100 profile devices list (8)
+    set:
+      gpu:
+        profile: h100
+        count: ""
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GPU_COUNT
+            value: "8"
+
   - it: should derive GPU_COUNT from the t4 profile devices list (4)
     set:
       gpu:
