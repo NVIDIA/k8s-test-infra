@@ -14,6 +14,8 @@ so all consumers and applications up the stack work without modifications.
 - Red-green test-driven development
 - Code should communicate your intent
 - Code should be composable and testable
+- No code is better than a dead weight left just in case
+- Major features or refactorings should be proposed via [MEPs](./enhancements). 
 
 ## Scale
 
@@ -40,3 +42,4 @@ so all consumers and applications up the stack work without modifications.
 
 - When leaving a comment in code, it should explain intent where it's not obvious — why we are doing something, not what we are doing, in most cases. Don't write comments based on the current conversation context; they should generally be valuable long-term for readers.
 - Any documentation you produce must be concise and straight to the point.
+- Every PR should add a concise, external user-facing changelog item to [CHANGELOG.md](./CHANGELOG.md)
