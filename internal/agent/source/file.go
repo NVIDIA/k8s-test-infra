@@ -18,6 +18,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
+	ibconfig "github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 )
 
 const defaultPollInterval = 5 * time.Second
@@ -167,7 +168,26 @@ func compileState(data []byte) (*agent.State, error) {
 	// starts the daemon, so it is the one signal that both exist on this node.
 	state.Fabric.ManagerStateDir = strings.TrimSpace(os.Getenv(engine.EnvFabricStateDir))
 
+	if err := compileNetwork(data, state); err != nil {
+		return nil, err
+	}
+
 	return state, nil
+}
+
+// compileNetwork fills the network section from the profile's `infiniband:`
+// block. That block has its own schema, owned by the IB renderer, so it is
+// decoded separately rather than widening engine.YAMLConfig with fields the
+// NVML engine has no use for.
+func compileNetwork(data []byte, state *agent.State) error {
+	var profile ibconfig.Profile
+	if err := yaml.Unmarshal(data, &profile); err != nil {
+		return fmt.Errorf("parse infiniband block: %w", err)
+	}
+	if r := profile.Infiniband.RDMAResource; r != nil {
+		state.Network.RDMAResource = agent.RDMAResource{Name: r.Name, Count: r.HCAMax}
+	}
+	return nil
 }
 
 // resolveDeviceCount returns the active GPU count from the profile, applying

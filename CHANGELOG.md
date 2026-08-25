@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- node-agent: new `rdmaplugin` simulator makes mock nodes advertise the
+  `rdma/ib` extended resource that real InfiniBand nodes carry, so a workload
+  gated on `rdma/ib` schedules against the mock unmodified. It stands in for the
+  Network Operator's rdma-shared-dev-plugin, which cannot run here: patching
+  `.status.capacity` on `Apply` and withdrawing the key on shutdown, since
+  kubelet never removes capacity it does not own. Name and count are declared
+  per profile (`infiniband.rdma_resource`, `rdma/ib: 64` on `gb200` and
+  `gb300`); both are cluster conventions rather than hardware facts — upstream
+  the count is `rdmaHcaMax`, a pod-sharing limit rather than an HCA count, so a
+  4-HCA GB300 compute tray reports 64. Needs the
+  `nodes/status` patch grant the chart's ClusterRole now carries. Pods requesting
+  the resource get no device injection — the mock's IB surface reaches containers
+  through the hostPath tree and `LD_PRELOAD` shims, not `/dev/infiniband` char
+  devices.
 - mocknvml: the `Conf Compute Protected Memory Usage` block of `nvidia-smi -q`
   now reports `0 MiB` for Total, Used and Free instead of `N/A`. Both NVML
   getters behind it were generated stubs that `nvidia-smi` calls once per GPU on
