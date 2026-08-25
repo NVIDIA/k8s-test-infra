@@ -55,6 +55,10 @@
 #     integration (a100) runs nvml-mock as the NVML shim; scale (t4) is managed
 #     entirely by FGO's fake backend. Consumers that ignore these labels see
 #     both workers as generic schedulable nodes.
+#   - mokka.nvidia.com/type=sgpu — the simulated-GPU fleet. Only labelled nodes
+#     get the mock: local/nvml-mock.values.yaml selects on it, so the control
+#     plane stays clean instead of advertising a driver no consumer follows it
+#     onto (their operands stop at the NoSchedule taint the mock tolerates).
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: mokka
@@ -76,6 +80,7 @@ nodes:
   - role: worker
     labels:
       run.ai/simulated-gpu-node-pool: integration
+      mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration
@@ -84,6 +89,7 @@ nodes:
   - role: worker
     labels:
       run.ai/simulated-gpu-node-pool: scale
+      mokka.nvidia.com/type: sgpu
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration

@@ -42,7 +42,9 @@ make cluster-delete                         # tear down (PROFILE= must match cre
 
 ### Homogeneous fleet (single Helm release)
 
-Installs one nvml-mock release that covers every node in the cluster (control-plane + both workers) with the same GPU profile. Pick the profile via `--gpu-profile`.
+Installs one nvml-mock release that covers every worker in the cluster with the same GPU profile. Pick the profile via `--gpu-profile`.
+
+The control-plane node is excluded: `local/nvml-mock.values.yaml` pins the DaemonSet to nodes labelled `mokka.nvidia.com/type=sgpu`, which every worker in the Kind configs carries. Without it the mock lands on the control plane too — it tolerates every taint — while GPU Operator, FGO and NFD operands stop at the `NoSchedule` taint, leaving a node that advertises a driver nobody consumes.
 
 ```bash
 tilt up                                  # default: a100
@@ -158,7 +160,7 @@ Values are layered in this order (last wins):
 | File                                     | Committed           | Purpose                                                  |
 |------------------------------------------|---------------------|----------------------------------------------------------|
 | Chart defaults                           | —                   | upstream chart defaults                                  |
-| `local/nvml-mock.values.yaml`            | yes                 | shared local-dev baseline (IB mode, rollout speed, etc.) |
+| `local/nvml-mock.values.yaml`            | yes                 | shared local-dev baseline (sGPU node pinning, IB mode, etc.) |
 | `local/<consumer>/nvml-mock.values.yaml` | yes                 | per-consumer tweaks (e.g. `local/gpu-operator/`)         |
 | `local/nvml-mock.values.local.yaml`      | **no** (gitignored) | personal per-machine overrides                           |
 
