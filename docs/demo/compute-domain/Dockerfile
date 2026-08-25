@@ -31,8 +31,8 @@ FROM golang:${GOLANG_VERSION} AS shim
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY vendor/ vendor/
-COPY cmd/imex-nogpu-shim/ cmd/imex-nogpu-shim/
-RUN CGO_ENABLED=0 go build -mod=vendor -o /out/imex-nogpu-shim ./cmd/imex-nogpu-shim
+COPY shims/imex-nogpu/ shims/imex-nogpu/
+RUN CGO_ENABLED=0 go build -mod=vendor -o /out/imex-nogpu-shim ./shims/imex-nogpu
 
 # Retain the package configuration and runtime dependencies while replacing
 # the daemon entry point with the NO GPU mode shim.
