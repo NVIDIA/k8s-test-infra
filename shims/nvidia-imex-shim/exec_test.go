@@ -37,22 +37,20 @@ func prebuiltShim(t *testing.T) string {
 		}
 	}
 	require.NotEmpty(t, root, "could not locate repo root")
-	bin := filepath.Join(root, "dist", "imex-nogpu-shim")
+	bin := filepath.Join(root, "dist", "nvidia-imex-shim")
 	if _, err := os.Stat(bin); err != nil {
 		t.Skipf("pre-built binary not found at %s — run 'make build' first", bin)
 	}
 	return bin
 }
 
-// writeStub creates a fake "real" nvidia-imex that prints its argv and
-// an env probe, then exits 7 — so the test can independently verify
-// argv construction, environment passthrough, and exit-code
-// transparency of the exec.
+// writeStub copies testdata/nvidia-imex.real into dir with exec permission.
 func writeStub(t *testing.T, dir string) string {
 	t.Helper()
+	src, err := os.ReadFile("testdata/nvidia-imex.real")
+	require.NoError(t, err)
 	stub := filepath.Join(dir, "nvidia-imex.real")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\"\nprintf 'ENV_PROBE=%s\\n' \"$ENV_PROBE\"\nexit 7\n"
-	require.NoError(t, os.WriteFile(stub, []byte(script), 0o755))
+	require.NoError(t, os.WriteFile(stub, src, 0o755))
 	return stub
 }
 
