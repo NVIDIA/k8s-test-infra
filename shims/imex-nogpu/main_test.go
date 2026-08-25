@@ -16,7 +16,7 @@ package main
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildArgv(t *testing.T) {
@@ -53,7 +53,7 @@ func TestBuildArgv(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, buildArgv("/usr/bin/nvidia-imex.real", tt.args))
+			require.Equal(t, tt.want, buildArgv("/usr/bin/nvidia-imex.real", tt.args))
 		})
 	}
 }
@@ -61,14 +61,14 @@ func TestBuildArgv(t *testing.T) {
 func TestRealBin(t *testing.T) {
 	t.Run("default when env unset", func(t *testing.T) {
 		t.Setenv(envRealBin, "")
-		assert.Equal(t, "/usr/bin/nvidia-imex.real", realBin())
+		require.Equal(t, "/usr/bin/nvidia-imex.real", realBin())
 	})
 	t.Run("env override wins", func(t *testing.T) {
 		t.Setenv(envRealBin, "/opt/imex/nvidia-imex")
-		assert.Equal(t, "/opt/imex/nvidia-imex", realBin())
+		require.Equal(t, "/opt/imex/nvidia-imex", realBin())
 	})
 	t.Run("constant pins the documented literal", func(t *testing.T) {
-		assert.Equal(t, "IMEX_SHIM_REAL_BIN", envRealBin,
+		require.Equal(t, "IMEX_SHIM_REAL_BIN", envRealBin,
 			"documented in Dockerfile.compute-domain-daemon's shim stage; the constant must match")
 	})
 }
