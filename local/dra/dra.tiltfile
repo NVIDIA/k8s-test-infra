@@ -13,10 +13,10 @@
 #     image (used by the --compute-domain --dra composition to inject
 #     nvml-mock:compute-domain-daemon).
 #
-# Requires the shared 'nvidia' helm_repo to be registered by the caller
-# (main Tiltfile) before install() is invoked. Also requires the cluster to
-# have DynamicResourceAllocation + resource.k8s.io/v1beta1 enabled (both are
-# set by local/kind/default.kind.yaml).
+# Requires the shared 'nvidia' helm_repo, registered by the main Tiltfile and
+# waited on through resource_deps. Also requires the cluster to have
+# DynamicResourceAllocation + resource.k8s.io/v1beta1 enabled (both are set by
+# local/kind/default.kind.yaml).
 #
 # In --multi-gpu-profile mode the driver publishes a distinct ResourceSlice per
 # worker, so the fleet's two profiles surface as heterogeneous devices in a
@@ -25,6 +25,8 @@
 # talk to the same mock NVML library.
 
 load('ext://helm_resource', 'helm_resource')
+
+_REPO_RESOURCE = 'nvidia'
 
 def install(nvml_mock_releases, extra_values=[], image_deps=[], image_keys=[]):
     values_flags = ['--values', 'local/dra/dra-driver.values.yaml']
@@ -38,6 +40,6 @@ def install(nvml_mock_releases, extra_values=[], image_deps=[], image_keys=[]):
         image_deps=image_deps,
         image_keys=image_keys,
         flags=['--create-namespace'] + values_flags + ['--timeout', '300s'],
-        resource_deps=nvml_mock_releases,
+        resource_deps=[_REPO_RESOURCE] + nvml_mock_releases,
         labels=['dra'],
     )
