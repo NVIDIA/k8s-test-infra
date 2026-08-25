@@ -21,6 +21,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/gpudriver"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/imex"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/pcibus"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
@@ -109,7 +110,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	healthSrv := health.NewServer(cmd.String("health-addr"), log, shutdownTimeout)
 
 	a := agent.New(agent.Config{
-		Simulators:      []agent.Simulator{gpudriver.New(), pcibus.New(), cdi.New()},
+		Simulators:      []agent.Simulator{gpudriver.New(), pcibus.New(), imex.New(), cdi.New()},
 		Source:          source.NewFileSource(configPath, log),
 		Host:            host.New(cmd.String("host-root")),
 		Log:             log,
