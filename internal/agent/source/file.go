@@ -18,6 +18,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
+	ibconfig "github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 )
 
 // envIntOrDefault returns the integer value of the env var key, or def when
@@ -176,6 +177,12 @@ func compileState(data []byte) (*agent.State, error) {
 	// starts the daemon, so it is the one signal that both exist on this node.
 	state.Fabric.ManagerStateDir = strings.TrimSpace(os.Getenv(engine.EnvFabricStateDir))
 
+	network, err := compileNetwork(data, numDevices)
+	if err != nil {
+		return nil, err
+	}
+	state.NodeShape.Network = network
+
 	// IMEX mock surface: opt-in via IMEX_MOCK_CHANNELS=true, same shim
 	// pattern as GPU_COUNT until MEP-0001 embeds this in the profile.
 	if os.Getenv("IMEX_MOCK_CHANNELS") == "true" {
@@ -261,4 +268,43 @@ func applyDeviceOverride(spec *agent.DeviceSpec, ov engine.DeviceOverride) {
 			spec.PCISubsystemID = ov.PCI.SubsystemID
 		}
 	}
+}
+
+// compileNetwork resolves the profile's infiniband block into a NetworkShape.
+// It parses the same bytes a second time through mockib's own partial schema,
+// which already models this block and carries the default ladder the renderer
+// expects; engine.YAMLConfig deliberately does not model it because the NVML
+// engine never reads it.
+func compileNetwork(data []byte, numGPUs int) (agent.NetworkShape, error) {
+	var prof ibconfig.Profile
+	if err := yaml.Unmarshal(data, &prof); err != nil {
+		return agent.NetworkShape{}, fmt.Errorf("parse infiniband: %w", err)
+	}
+	if !prof.Infiniband.Enabled {
+		return agent.NetworkShape{}, nil
+	}
+
+	// Resolve defaults here rather than leaving them to render time, so State
+	// fully describes the node and Reload can compare two shapes for equality.
+	ib := prof.Infiniband.Defaults()
+
+	hcaCount := ib.HCACountOverride
+	if hcaCount <= 0 {
+		hcaCount = numGPUs * ib.HCAsPerGPU
+	}
+
+	return agent.NetworkShape{
+		IBEnabled:        true,
+		HCACount:         hcaCount,
+		HCAType:          ib.HCAType,
+		FWVersion:        ib.FWVersion,
+		HWRev:            ib.HWRev,
+		BoardID:          ib.BoardID,
+		NodeDescTemplate: ib.NodeDescTemplate,
+		LinkLayer:        ib.LinkLayer,
+		RateGbps:         ib.RateGbps,
+		PortState:        ib.PortState,
+		PhysState:        ib.PhysState,
+		GUIDPrefix:       ib.GUIDPrefix,
+	}, nil
 }
