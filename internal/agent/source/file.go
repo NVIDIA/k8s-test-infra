@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"sigs.k8s.io/yaml"
@@ -162,6 +163,9 @@ func compileState(data []byte) (*agent.State, error) {
 		state.Fabric.ClusterUUID = defaults.Fabric.ClusterUUID
 		state.Fabric.CliqueID = defaults.Fabric.CliqueID
 	}
+	// Set by the chart only where it also creates the marker directory and
+	// starts the daemon, so it is the one signal that both exist on this node.
+	state.Fabric.ManagerStateDir = strings.TrimSpace(os.Getenv(engine.EnvFabricStateDir))
 
 	return state, nil
 }
