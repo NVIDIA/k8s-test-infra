@@ -223,6 +223,21 @@ spec:
             - name: IMEX_CAPS_MAJOR
               value: "{{ .Values.imex.mockChannels.capsMajor }}"
             {{- end }}
+            # Same tier the nvml-mock container advertises to the LD_PRELOAD
+            # shims, so the tree the agent renders and the tree those shims
+            # redirect into can never disagree.
+            - name: MOCK_IB
+              value: {{ include "nvml-mock.mockIBTier" . | quote }}
+            - name: MOCK_IB_PING_FABRIC
+              value: {{ ternary "1" "0" $ibEnabled | quote }}
+            - name: MOCK_IB_PING_PORT
+              value: "{{ .Values.infiniband.ping.port }}"
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MOCK_IB_PING_SERVICE_HOST
+              value: "{{ include "nvml-mock.fullname" . }}-ibping.{{ .Release.Namespace }}.svc.cluster.local"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
