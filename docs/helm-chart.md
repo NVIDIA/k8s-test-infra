@@ -620,6 +620,36 @@ RPATH can redirect that.
 | `hca_count` | `0` | If non-zero, used instead of `gpu.count * hcas_per_gpu` |
 | `guid_prefix` | `a088c20300ab` | Hex prefix for node/port GUIDs. The renderer keeps the first 8 hex digits fixed and uses the lower 32 bits for node/HCA identity |
 | `node_desc_template` | `{node_name} mlx5_{idx}` | `{node_name}` and `{idx}` are interpolated |
+| `rdma_resource.name` | unset | Node extended resource to advertise, e.g. `rdma/ib`. Not a sysfs surface — the renderer ignores it; the node agent reads it. Must be qualified (contain a `/`) |
+| `rdma_resource.hca_max` | unset | Advertised count for that resource. Positive integer |
+
+### RDMA extended resource
+
+On real InfiniBand nodes the Network Operator runs
+[k8s-rdma-shared-dev-plugin](https://github.com/Mellanox/k8s-rdma-shared-dev-plugin),
+which advertises whatever `resourceName` its config declares. No such plugin
+runs against the mock, so the node agent's `rdmaplugin` simulator stands in for
+it: it patches the key into `.status.capacity` on every reconcile and withdraws
+it on shutdown. Kubelet mirrors the key into `allocatable` on its next status
+sync.
+
+Both the name and the count are cluster conventions rather than hardware facts,
+so they belong to the cluster being mirrored, not to the GPU SKU. `rdma/ib` is
+[CoreWeave's](https://docs.coreweave.com/products/networking/hpc-interconnect/use-gpudirect-rdma)
+name for it; the Network Operator's own examples use `rdma_shared_device_a`.
+`hca_max` is the plugin's `rdmaHcaMax` — how many pods may concurrently share
+the node's HCAs — so it is unrelated to `hcas_per_gpu`: a 4-HCA GB300 compute
+tray still reports `rdma/ib: 64`.
+
+The `gb200` and `gb300` profiles ship `rdma/ib: 64`, matching the clusters they
+mirror. The others declare no resource, so `rdmaplugin` publishes nothing for
+them. Pods requesting the resource
+schedule onto mock nodes and run, but receive no device injection: the mock's
+IB surface reaches containers through the hostPath tree and `LD_PRELOAD` shims,
+not through `/dev/infiniband` char devices. Advertising needs `patch` on
+`nodes/status`, which the chart's ClusterRole grants; without it the agent logs
+the failure, retries on the next reconcile, and pods requesting the resource
+stay `Pending`.
 
 ### Disable IB on a profile
 

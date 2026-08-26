@@ -17,6 +17,7 @@ type State struct {
 	NodeShape  NodeShape
 	Devices    []DeviceSpec
 	Fabric     FabricState
+	Network    NetworkState
 	// ConfigRaw holds the raw YAML profile bytes so gpudriver can write the
 	// engine config without re-deriving it from the narrower State fields.
 	// TODO(https://github.com/NVIDIA/k8s-test-infra/issues/717): replace with Profile/Runtime *config.YAMLConfig split — Profile carries
@@ -85,6 +86,23 @@ type FabricState struct {
 	CliqueID             uint32
 	LinksPerGPU          int
 	BandwidthPerLinkMbps int
+}
+
+// NetworkState describes simulated network-fabric attributes whose consumers
+// read them from the Kubernetes API rather than from the host.
+type NetworkState struct {
+	RDMAResource RDMAResource
+}
+
+// RDMAResource is the node extended resource that the RDMA shared device
+// plugin advertises on a real InfiniBand node. An empty Name means the profile
+// asks for none, and nothing is advertised.
+type RDMAResource struct {
+	// Name is fully qualified, e.g. "rdma/ib".
+	Name string
+	// Count is the upstream plugin's rdmaHcaMax: how many pods may share the
+	// node's HCAs, not how many HCAs exist.
+	Count int
 }
 
 // StateSource emits State observations.

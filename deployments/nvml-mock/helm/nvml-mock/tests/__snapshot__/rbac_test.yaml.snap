@@ -18,6 +18,12 @@ should match ClusterRole snapshot:
         verbs:
           - get
           - patch
+      - apiGroups:
+          - ""
+        resources:
+          - nodes/status
+        verbs:
+          - patch
 should match ClusterRoleBinding snapshot:
   1: |
     apiVersion: rbac.authorization.k8s.io/v1

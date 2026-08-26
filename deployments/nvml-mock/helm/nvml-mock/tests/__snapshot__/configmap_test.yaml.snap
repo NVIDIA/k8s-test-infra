@@ -1462,6 +1462,13 @@ should match snapshot with default gb300 profile:
           guid_prefix: "9b88c2:0301:cd"
           node_desc_template: "{node_name} mlx5_{idx}"
 
+          # Read by the node agent's rdmaplugin, not the renderer. Mirrors the
+          # rdma-shared-dev-plugin config of the clusters this profile stands in for,
+          # so hca_max is its rdmaHcaMax pod-sharing limit, not an HCA count.
+          rdma_resource:
+            name: "rdma/ib"
+            hca_max: 64
+
         # =============================================================================
         # PCIe topology (consumed by render-pci-sysfs to materialize
         # /sys/bus/pci/devices/<bdf> -> ../../../devices/pciDDDD:BB/<bdf> symlinks
@@ -1987,6 +1994,13 @@ should match snapshot with gb200 profile:
           hcas_per_gpu: 1
           guid_prefix: "9b88c2:0300:ab"
           node_desc_template: "{node_name} mlx5_{idx}"
+
+          # Read by the node agent's rdmaplugin, not the renderer. Mirrors the
+          # rdma-shared-dev-plugin config of the clusters this profile stands in for,
+          # so hca_max is its rdmaHcaMax pod-sharing limit, not an HCA count.
+          rdma_resource:
+            name: "rdma/ib"
+            hca_max: 64
 
         # =============================================================================
         # PCIe topology - GB200, 2 Grace CPUs -> 2 NUMA nodes, 2 GPUs each.

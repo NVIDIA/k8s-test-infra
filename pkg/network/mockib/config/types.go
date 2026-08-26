@@ -45,6 +45,23 @@ type Infiniband struct {
 	// "a088c2:0300:ab" -> fixed prefix "a088:c203" -> per-HCA node GUID
 	// "a088:c203:<node+idx>" with the matching port GUID one greater.
 	GUIDPrefix string `json:"guid_prefix" yaml:"guid_prefix"`
+
+	// RDMAResource is not a sysfs surface — the renderer ignores it. The node
+	// agent reads it to advertise the node extended resource that the Network
+	// Operator's rdma-shared-dev-plugin publishes on real IB hardware.
+	RDMAResource *RDMAResource `json:"rdma_resource" yaml:"rdma_resource"`
+}
+
+// RDMAResource declares the node extended resource a simulated IB node
+// advertises, e.g. rdma/ib = 64.
+type RDMAResource struct {
+	// Name is the fully qualified resource name, e.g. "rdma/ib": the upstream
+	// plugin's resourcePrefix and resourceName joined.
+	Name string `json:"name" yaml:"name"`
+	// HCAMax is the plugin's rdmaHcaMax — how many pods may concurrently share
+	// the node's HCAs. It is a sharing limit, not a device count, so it is
+	// unrelated to HCAsPerGPU: a 4-HCA GB300 compute tray advertises 64.
+	HCAMax int `json:"hca_max" yaml:"hca_max"`
 }
 
 // Defaults returns a copy of the InfiniBand block with reasonable fallback

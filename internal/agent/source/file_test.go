@@ -11,8 +11,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
+	ibconfig "github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 )
 
 func TestCompileState_AllSKUs(t *testing.T) {
@@ -65,6 +68,77 @@ func TestCompileState_ManagerStateDir(t *testing.T) {
 	state, err = compileState(data)
 	require.NoError(t, err)
 	require.Equal(t, "/var/lib/nvml-mock/fabric-state", state.Fabric.ManagerStateDir)
+}
+
+func TestCompileState_RDMAResource(t *testing.T) {
+	tests := map[string]struct {
+		yaml string
+		want agent.RDMAResource
+	}{
+		"declared": {
+			yaml: `
+infiniband:
+  enabled: true
+  rdma_resource:
+    name: "rdma/ib"
+    hca_max: 64
+`,
+			want: agent.RDMAResource{Name: "rdma/ib", Count: 64},
+		},
+		"ib without the block": {
+			yaml: "infiniband:\n  enabled: true\n",
+			want: agent.RDMAResource{},
+		},
+		"no infiniband block": {
+			yaml: "version: \"1.0\"\n",
+			want: agent.RDMAResource{},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			state, err := compileState([]byte(tc.yaml))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, state.Network.RDMAResource)
+		})
+	}
+}
+
+// The chart profiles are what the ConfigMap carries into the agent. Declaring
+// the resource is a per-profile choice, but a misspelled key silently stops
+// advertising it on every node running that profile, so a declared block must
+// survive the round trip intact and an absent one must stay absent.
+func TestCompileState_ChartProfileRDMAResources(t *testing.T) {
+	profiles, err := filepath.Glob("../../../deployments/nvml-mock/helm/nvml-mock/profiles/*.yaml")
+	require.NoError(t, err)
+	require.NotEmpty(t, profiles, "no chart profiles found")
+
+	declared := 0
+
+	for _, path := range profiles {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			state, err := compileState(data)
+			require.NoError(t, err)
+
+			var profile ibconfig.Profile
+			require.NoError(t, yaml.Unmarshal(data, &profile))
+
+			res := state.Network.RDMAResource
+			if profile.Infiniband.RDMAResource == nil {
+				require.Empty(t, res.Name)
+				require.Zero(t, res.Count)
+				return
+			}
+
+			declared++
+			require.Contains(t, res.Name, "/", "extended resource names must be qualified")
+			require.Positive(t, res.Count)
+		})
+	}
+
+	require.Positive(t, declared, "no chart profile declares an RDMA resource")
 }
 
 func TestFileSource_EmitsInitialState(t *testing.T) {

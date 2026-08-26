@@ -367,6 +367,13 @@ configuration.
 | `guid_prefix`        | `a088c2:0300:ab`     | Hex prefix for node/port GUIDs; the first 8 hex digits stay fixed and the lower 32 bits encode node/HCA identity. |
 | `node_desc_template` | `{node_name} mlx5_{idx}` | `{node_name}` and `{idx}` are interpolated.                            |
 
+The block may also carry an `rdma_resource: {name, hca_max}` sub-block. The
+renderer ignores it: it is read by the node agent's `rdmaplugin` simulator,
+which advertises the node extended resource (`rdma/ib`) that the
+rdma-shared-dev-plugin supplies on real hardware. Both fields are cluster
+conventions, so profiles declare them only where they mirror such a cluster. See
+[the chart docs](https://nvidia.github.io/k8s-test-infra/helm-chart/#rdma-extended-resource).
+
 ### Defaults per built-in profile
 
 | Profile  | Enabled | HCA model              | Speed        | HCAs / GPU |

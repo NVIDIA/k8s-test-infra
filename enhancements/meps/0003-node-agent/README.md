@@ -220,6 +220,7 @@ One per simulated component. Each is a package under `internal/agent/`:
 | `ibhca`                 | Component 5 — InfiniBand HCA                                    | IB sysfs tree + libibmock*.so staging + IB CLI tool staging                                | —                                       | `pkg/network/mockib/daemon.Server`; optional fabric relay            |
 | `nvlink`                | Component 6 — NVLink fabric / compute domain                    | topology YAML overlay                                                                      | —                                       | —                                                                    |
 | `cdi`                   | Component 7 — CDI surface                                       | —                                                                                          | `nvidia.yaml` + `nvml-mock-nri.yaml`    | —                                                                    |
+| `rdmaplugin`            | Component 5's Kubernetes face — RDMA shared device plugin       | resolve + validate the profile's `rdma_resource`                                            | `rdma/ib` in the node's `status.capacity` | —                                                                    |
 
 #### Example: `devicedriver.Stage`
 
@@ -248,8 +249,9 @@ The reconciler is a fan-out with one barrier:
                      ├── pcibus         (sysfs tree)
                      ├── fabricmanager  (marker; Run→ re-assertion loop)     ┌── cdi        (2 YAMLs)
    State snapshot ───┼── imex           (chardevs + /proc/devices overlay) ──┼── gpudriver  (/run/nvidia/driver symlink)
-                     ├── ibhca          (sysfs tree; Run→ mock-ib daemon)    └── pcibus     (NFD feature file)
-                     └── nvlink         (topology overlay)
+                     ├── ibhca          (sysfs tree; Run→ mock-ib daemon)    ├── pcibus     (NFD feature file)
+                     ├── nvlink         (topology overlay)                   └── rdmaplugin (node rdma/ib capacity)
+                     └── rdmaplugin     (validate)
                           Stage wave                    barrier                  Apply wave
 ```
 
@@ -340,6 +342,7 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 | `libibumad` UMAD socket protocol                                                                           | admin/diagnostic tools (`ibping`, `iblinkinfo`, `ibnetdiscover`, `sminfo`) | ✓ `libibmockumad.so` LD_PRELOAD → Unix socket to in-process `mock-ib` daemon via `pkg/network/mockib/daemon.Server`; `Run()` supervises the daemon                               |
 | Cross-node fabric relay (TCP, `MOCK_IB=full`)                                                              | multi-node `iblinkinfo`, subnet discovery                                  | ✓ `ibhca` fabric mode via `pkg/network/mockib/fabric`                                                                                                                            |
 | IB CLI tools (`ibstat`, `iblinkinfo`, `ibnetdiscover`, `ibping`, `ibv_devinfo`) — real ELFs, RPATH-patched | operator introspection, GPU Operator IB validator                          | ✓ `ibhca` stages tools RPATH-patched at Docker build time by `stage-ib-tools.sh`                                                                                                 |
+| Node extended resource `rdma/ib` (upstream: rdma-shared-dev-plugin `rdmaHcaMax`)                           | kube-scheduler, any workload gated on `rdma/ib`                            | ✓ `rdmaplugin` — bridge, like `pcibus`'s NFD feature file: the real plugin is a Go binary, so the LD_PRELOAD sysfs redirect never sees its syscalls                              |
 | RDMA netlink (`RDMA_NL_LS`) events                                                                         | newer RDMA management tools                                                | ✗ **gap** — not simulated                                                                                                                                                        |
 | CM (Communication Manager) socket for the RDMA data path                                                   | MPI, workload data-plane                                                   | N/A — data-plane simulation is not the design goal                                                                                                                               |
 
@@ -383,6 +386,8 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 ####  K8s-visible node identity
 
 Node identity is **not a subsystem** of the Mokka Node Agent. Node identity is K8s API state we mutate, not host state we render. 
+
+A node *resource* is a different case from node *identity*: `rdmaplugin` owns `rdma/ib` because no NFD, GFD or device plugin can publish it against the mock, so the simulator of the component that would publish it upstream does. Labels stay delegated — they have real publishers.
 
 This appendix documents the surfaces the current `setup.sh` publishes to node-adjacent K8s state, only so implementers refactoring `setup.sh` into the node agent know where each surface goes.
 
