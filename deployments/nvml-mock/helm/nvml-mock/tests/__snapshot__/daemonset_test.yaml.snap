@@ -117,10 +117,16 @@ should match snapshot with all overrides:
                 - --log-format=json
                 - --shutdown-timeout=30s
               env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
                 - name: GPU_COUNT
                   value: "2"
                 - name: DRIVER_VERSION
                   value: 555.55.55
+                - name: MOCK_FABRICMANAGER_STATE_DIR
+                  value: /var/lib/nvml-mock/fabric-state
               image: custom-registry/nvml-mock:v2.0.0
               imagePullPolicy: Always
               livenessProbe:
@@ -148,6 +154,8 @@ should match snapshot with all overrides:
                   name: host-nvml-mock
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
+                - mountPath: /host/run/cdi
+                  name: host-cdi
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
                   readOnly: true
@@ -295,6 +303,10 @@ should match snapshot with b200 profile:
                 - --log-format=json
                 - --shutdown-timeout=30s
               env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
                 - name: GPU_COUNT
                   value: "4"
                 - name: DRIVER_VERSION
@@ -326,6 +338,8 @@ should match snapshot with b200 profile:
                   name: host-nvml-mock
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
+                - mountPath: /host/run/cdi
+                  name: host-cdi
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
                   readOnly: true
@@ -471,10 +485,16 @@ should match snapshot with default values:
                 - --log-format=json
                 - --shutdown-timeout=30s
               env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
                 - name: GPU_COUNT
                   value: "4"
                 - name: DRIVER_VERSION
                   value: 570.124.06
+                - name: MOCK_FABRICMANAGER_STATE_DIR
+                  value: /var/lib/nvml-mock/fabric-state
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               livenessProbe:
@@ -502,6 +522,8 @@ should match snapshot with default values:
                   name: host-nvml-mock
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
+                - mountPath: /host/run/cdi
+                  name: host-cdi
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
                   readOnly: true

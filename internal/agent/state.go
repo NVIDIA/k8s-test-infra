@@ -77,7 +77,10 @@ type DeviceSpec struct {
 
 // FabricState describes the NVLink / NVSwitch fabric configuration.
 type FabricState struct {
-	Enabled              bool
+	// Profile declares NVLink; does not imply fabricmanager runs.
+	Enabled bool
+	// Fabricmanager readiness marker directory; empty when the daemon is off.
+	ManagerStateDir      string
 	ClusterUUID          string
 	CliqueID             uint32
 	LinksPerGPU          int

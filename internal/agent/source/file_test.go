@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
 func TestCompileState_AllSKUs(t *testing.T) {
@@ -47,6 +49,22 @@ func TestCompileState_FabricState(t *testing.T) {
 
 	require.True(t, state.Fabric.Enabled, "gb200 fabric should be enabled")
 	require.Positive(t, state.Fabric.LinksPerGPU)
+}
+
+// The state dir comes from the environment, not the profile: NVLink in the
+// config says nothing about whether fabricmanager runs on the node.
+func TestCompileState_ManagerStateDir(t *testing.T) {
+	data, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
+	require.NoError(t, err)
+
+	state, err := compileState(data)
+	require.NoError(t, err)
+	require.Empty(t, state.Fabric.ManagerStateDir)
+
+	t.Setenv(engine.EnvFabricStateDir, " /var/lib/nvml-mock/fabric-state ")
+	state, err = compileState(data)
+	require.NoError(t, err)
+	require.Equal(t, "/var/lib/nvml-mock/fabric-state", state.Fabric.ManagerStateDir)
 }
 
 func TestFileSource_EmitsInitialState(t *testing.T) {

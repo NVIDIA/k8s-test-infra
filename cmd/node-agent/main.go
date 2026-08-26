@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/cdi"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/gpudriver"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
@@ -92,6 +93,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
 	log := logging.NewLogger(logging.Config{Level: level, Format: format})
 
 	configPath := cmd.String("config")
@@ -107,7 +109,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	healthSrv := health.NewServer(cmd.String("health-addr"), log, shutdownTimeout)
 
 	a := agent.New(agent.Config{
-		Simulators:      []agent.Simulator{gpudriver.New(), pcibus.New()},
+		Simulators:      []agent.Simulator{gpudriver.New(), pcibus.New(), cdi.New()},
 		Source:          source.NewFileSource(configPath, log),
 		Host:            host.New(cmd.String("host-root")),
 		Log:             log,
