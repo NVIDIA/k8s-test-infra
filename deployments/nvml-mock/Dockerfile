@@ -89,12 +89,13 @@ RUN set -eux; \
     # /var/lib/nvml-mock/driver/usr/bin/, and CDI-injected /usr/bin/.
     apt-get install -y --no-install-recommends patchelf; \
     patchelf --set-rpath '$ORIGIN/../lib64' /usr/local/bin/nvidia-smi; \
-    # Same treatment for the InfiniBand CLI tools, for the same reason: setup.sh
-    # relocates them into the node overlay, where their libibmad/libibumad/
-    # libibverbs/libnl dependencies are not on any default search path. The
-    # script stages that closure next to them and bakes in the RPATH. Injected
-    # containers therefore run them straight from a minimal image that ships no
-    # IB libraries at all. See NVIDIA/k8s-test-infra#438.
+    # Same treatment for the InfiniBand CLI tools, for the same reason: the node
+    # agent's infiniband simulator relocates them into the node overlay, where
+    # their libibmad/libibumad/libibverbs/libnl dependencies are not on any
+    # default search path. The script stages that closure next to them and bakes
+    # in the RPATH. Injected containers therefore run them straight from a
+    # minimal image that ships no IB libraries at all.
+    # See NVIDIA/k8s-test-infra#438.
     sh /usr/local/bin/stage-ib-tools.sh; \
     rm -rf /var/lib/apt/lists/*; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \

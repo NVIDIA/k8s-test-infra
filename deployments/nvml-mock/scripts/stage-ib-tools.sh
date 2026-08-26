@@ -6,11 +6,12 @@
 # self-contained tree, and gives every binary an RPATH relative to its own
 # location. Runs ONCE at image build time, from the Dockerfile.
 #
-# Build time is deliberate. setup.sh copies this tree into the node overlay at
-# runtime, where patchelf is not installed and the ordering of the injected
-# LD_LIBRARY_PATH would otherwise decide which library wins. Baking the RPATH
-# here is what makes each tool self-locating in every mount context, exactly
-# as the Dockerfile already does for nvidia-smi. See NVIDIA/k8s-test-infra#438.
+# Build time is deliberate. The node agent's infiniband simulator copies this
+# tree into the node overlay at runtime, where patchelf is not installed and the
+# ordering of the injected LD_LIBRARY_PATH would otherwise decide which library
+# wins. Baking the RPATH here is what makes each tool self-locating in every
+# mount context, exactly as the Dockerfile already does for nvidia-smi.
+# See NVIDIA/k8s-test-infra#438.
 #
 # Layout produced (mirrors the overlay's driver/usr/{bin,lib64}):
 #   /usr/local/nvml-mock-ib/bin/<tool>     RPATH=$ORIGIN/../lib64
@@ -22,7 +23,8 @@ BIN_DIR="$STAGE_ROOT/bin"
 LIB_DIR="$STAGE_ROOT/lib64"
 
 # ELF tools only. ibstatus is a /bin/sh script: it has no RPATH to set and it
-# only runs in images that ship a shell, so setup.sh stages it separately.
+# only runs in images that ship a shell, so the infiniband simulator picks it up
+# off PATH instead (see fallbackTools in internal/agent/infiniband/stage.go).
 IB_TOOLS="ibnetdiscover ibstat iblinkinfo sminfo ibping ibv_devinfo"
 
 # Libraries every glibc image already provides. Staging these would put a
