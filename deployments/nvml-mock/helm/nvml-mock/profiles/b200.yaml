@@ -121,11 +121,11 @@ device_defaults:
   # ---------------------------------------------------------------------------
   clocks:
     graphics_current: 345           # Idle
-    graphics_max: 2100
-    graphics_app: 2100
-    graphics_app_default: 2100
+    graphics_max: 1965              # Boost, per the 8x B200 node capture
+    graphics_app: 1965
+    graphics_app_default: 1965
     sm_current: 345
-    sm_max: 2100
+    sm_max: 1965
     memory_current: 2500            # HBM3e
     memory_max: 2500
     memory_app: 2500
@@ -153,7 +153,7 @@ device_defaults:
   supported_clocks:
     memory_clocks:
       - freq_mhz: 2500
-        graphics_clocks: [345, 690, 1035, 1380, 1725, 1890, 2100]
+        graphics_clocks: [345, 690, 1035, 1380, 1725, 1890, 1965]
 
   # ---------------------------------------------------------------------------
   # Performance state

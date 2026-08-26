@@ -126,11 +126,11 @@ device_defaults:
   # ---------------------------------------------------------------------------
   clocks:
     graphics_current: 345           # Idle
-    graphics_max: 2200              # Boost
-    graphics_app: 2200
-    graphics_app_default: 2200
+    graphics_max: 2070              # Boost, per the reference GB300 tray
+    graphics_app: 2070
+    graphics_app_default: 2070
     sm_current: 345
-    sm_max: 2200
+    sm_max: 2070
     memory_current: 2625            # HBM3e 8 Gbps (1.05x GB200's 2500)
     memory_max: 2625
     memory_app: 2625
@@ -158,7 +158,7 @@ device_defaults:
   supported_clocks:
     memory_clocks:
       - freq_mhz: 2625
-        graphics_clocks: [345, 690, 1035, 1380, 1725, 1980, 2200]
+        graphics_clocks: [345, 690, 1035, 1380, 1725, 1980, 2070]
 
   # ---------------------------------------------------------------------------
   # Performance state

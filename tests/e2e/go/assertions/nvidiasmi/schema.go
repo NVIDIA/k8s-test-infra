@@ -121,6 +121,8 @@ type gpuElement struct {
 	Temperature              temperature       `xml:"temperature"`
 	PowerReadings            powerReadings     `xml:"gpu_power_readings"`
 	Clocks                   clocks            `xml:"clocks"`
+	MaxClocks                maxClocks         `xml:"max_clocks"`
+	MaxCustomerBoostClocks   customerBoostMax  `xml:"max_customer_boost_clocks"`
 	ECCMode                  eccMode           `xml:"ecc_mode"`
 	ECCErrors                eccErrors         `xml:"ecc_errors"`
 	RemappedRows             remappedRows      `xml:"remapped_rows"`
@@ -231,14 +233,32 @@ type powerReadings struct {
 	MaxPowerLimit     reading `xml:"max_power_limit"`
 }
 
-// clocks is the <clocks> block: the clocks in effect now. The sibling
-// <max_clocks> and <applications_clocks> blocks reuse the same child names and
-// are deliberately not decoded — clocks.sm reads the current value.
+// clocks is the <clocks> block: the clocks in effect now. Its <max_clocks> and
+// <max_customer_boost_clocks> siblings reuse graphics_clock and are decoded
+// separately below, so a reading always says which block it came from;
+// <applications_clocks> and <default_applications_clocks> reuse it too and are
+// deliberately not decoded, since no assertion reads them.
 type clocks struct {
 	GraphicsClock reading `xml:"graphics_clock"`
 	SMClock       reading `xml:"sm_clock"`
 	MemClock      reading `xml:"mem_clock"`
 	VideoClock    reading `xml:"video_clock"`
+}
+
+// maxClocks is <max_clocks>: the ceiling each domain can reach. Only the
+// graphics child is decoded, because the only assertion over this block is the
+// one comparing it against the customer-boost ceiling beside it.
+type maxClocks struct {
+	GraphicsClock reading `xml:"graphics_clock"`
+}
+
+// customerBoostMax is <max_customer_boost_clocks>: the OEM-defined ceiling,
+// which nvml.h allows to sit below the boost maximum. nvidia-smi emits a
+// graphics child and nothing else, on every board captured in
+// testdata/hardware. The element read N/A on every profile while both NVML
+// getters behind it were generated stubs (#712).
+type customerBoostMax struct {
+	GraphicsClock reading `xml:"graphics_clock"`
 }
 
 type eccErrors struct {

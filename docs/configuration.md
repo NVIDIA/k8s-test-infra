@@ -232,7 +232,24 @@ device_defaults:
     memory_app_default: 1215
     video_current: 585
     video_max: 1290
+```
 
+`graphics_max` answers two rows of `nvidia-smi -q`, not one: Max Clocks and Max
+Customer Boost Clocks. NVML keeps them apart — the second is an OEM-defined
+ceiling that may legally sit below the boost maximum — but every real board
+captured in `tests/e2e/go/assertions/nvidiasmi/testdata/hardware` reports the two
+as equal, so the mock resolves both from this key rather than carrying a second
+one that profiles would have to keep in step by hand. A profile with no
+`graphics_max` reports both rows as `N/A`.
+
+Only the graphics domain answers the customer-boost row; `nvidia-smi` emits no
+other child under it. `nvmlDeviceGetClock` resolves the whole clock-type ×
+clock-id matrix from the keys above, and returns `NVML_ERROR_NOT_SUPPORTED` for
+the combinations no key carries — application clocks for the SM and video
+domains, and the OEM ceiling for anything but graphics.
+
+```yaml
+device_defaults:
   clocks_throttle_reasons:
     gpu_idle: true
     applications_clocks_setting: false
