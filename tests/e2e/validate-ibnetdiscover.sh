@@ -142,5 +142,5 @@ for attempt in $(seq 1 "$MAX_RETRIES"); do
 done
 
 echo "FAIL: ibnetdiscover did not reach a cross-pod peer after $MAX_RETRIES attempts"
-kubectl exec "$LOCAL_POD" -- tail -40 /tmp/mock-ib.log 2>/dev/null || true
+kubectl logs "$LOCAL_POD" -c node-agent --tail=40 2>/dev/null || true
 exit 1

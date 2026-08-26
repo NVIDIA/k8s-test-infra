@@ -3,18 +3,19 @@
 
 //go:build integration
 
-// Integration test: rendered sysfs + libibmocksys + libibmockumad + mock-ib
-// and the real ibping binary (phase 1 loopback to local port GUID).
+// Integration test: rendered sysfs + libibmocksys + libibmockumad + an
+// in-process UMAD server, driven by the real ibping binary (phase 1 loopback
+// to a local port GUID).
 //
 // Run with:
 //
 //	make -C pkg/network/mockib
-//	go build -mod=vendor -o /tmp/mock-ib ./cmd/mock-ib
 //	go test -tags=integration ./pkg/network/mockib/render/ -run TestIbping -v
-package render
+package render_test
 
 import (
 	"context"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,8 +25,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/daemon"
+	"github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/render"
 )
 
 func TestIbping_Loopback_Integration(t *testing.T) {
@@ -51,16 +55,9 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 	out, err := exec.Command("make", "-C", mockibDir).CombinedOutput()
 	require.NoError(t, err, "make shims\n%s", out)
 
-	repoRoot := filepath.Join(wd, "..", "..", "..", "..")
-	daemonBin := filepath.Join(t.TempDir(), "mock-ib")
-	build := exec.Command("go", "build", "-mod=vendor", "-o", daemonBin, "./cmd/mock-ib")
-	build.Dir = repoRoot
-	buildOut, err := build.CombinedOutput()
-	require.NoError(t, err, "build mock-ib\n%s", buildOut)
-
 	root := t.TempDir()
 	nodeName := "host1"
-	err = Render(Options{
+	err = render.Render(render.Options{
 		IB: config.Infiniband{
 			Enabled:   true,
 			HCAType:   "MT4129",
@@ -88,14 +85,16 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	daemon := exec.CommandContext(ctx, daemonBin, "-socket", socketPath, "-ib-root", root)
-	daemon.Stdout = os.Stderr
-	daemon.Stderr = os.Stderr
-	err = daemon.Start()
-	require.NoError(t, err, "start mock-ib")
+	srv, err := daemon.NewServer(daemon.Config{SocketPath: socketPath, IBRoot: root}, log.New(os.Stderr, "mock-ib: ", 0))
+	require.NoError(t, err, "new server")
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		_ = srv.ListenAndServe(ctx)
+	}()
 	t.Cleanup(func() {
 		cancel()
-		_ = daemon.Wait()
+		<-served
 	})
 	waitForUnixSocket(t, socketPath)
 
