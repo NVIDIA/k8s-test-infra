@@ -17,8 +17,8 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
+	ibconfig "github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
-	ibconfig "github.com/NVIDIA/k8s-test-infra/pkg/network/mockib/config"
 )
 
 // envIntOrDefault returns the integer value of the env var key, or def when
