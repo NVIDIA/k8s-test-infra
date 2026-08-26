@@ -52,11 +52,11 @@ func isolateSources(t *testing.T) {
 	empty := t.TempDir()
 	t.Cleanup(func(orig ...string) func() {
 		return func() {
-			toolStageRoot, shimGlob, verbsConfDir, checkFabric = orig[0], orig[1], orig[2], orig[3]
+			toolBundleRoot, shimGlob, verbsConfDir, checkFabric = orig[0], orig[1], orig[2], orig[3]
 		}
-	}(toolStageRoot, shimGlob, verbsConfDir, checkFabric))
+	}(toolBundleRoot, shimGlob, verbsConfDir, checkFabric))
 
-	toolStageRoot = filepath.Join(empty, "nvml-mock-ib")
+	toolBundleRoot = filepath.Join(empty, "nvml-mock-ib")
 	shimGlob = filepath.Join(empty, "lib", "libibmock*.so*")
 	verbsConfDir = filepath.Join(empty, "libibverbs.d")
 	checkFabric = filepath.Join(empty, "check-fabric")
@@ -70,7 +70,7 @@ func TestStage_RendersSysfsTree(t *testing.T) {
 	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
 	require.True(t, s.Ready())
 
-	ca := filepath.Join(h.Root, "ib/sys/class/infiniband/mlx5_0")
+	ca := h.RootPath("ib/sys/class/infiniband/mlx5_0")
 	for _, attr := range []string{"node_type", "fw_ver", "board_id", "node_desc", "hw_rev"} {
 		require.FileExists(t, filepath.Join(ca, attr))
 	}
@@ -82,8 +82,8 @@ func TestStage_RendersSysfsTree(t *testing.T) {
 	}
 
 	// HCACount drives how many CAs appear, independent of GPU count.
-	require.DirExists(t, filepath.Join(h.Root, "ib/sys/class/infiniband/mlx5_1"))
-	require.NoDirExists(t, filepath.Join(h.Root, "ib/sys/class/infiniband/mlx5_2"))
+	require.DirExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_1"))
+	require.NoDirExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_2"))
 }
 
 func TestStage_ProfileValuesReachSysfs(t *testing.T) {
@@ -93,7 +93,7 @@ func TestStage_ProfileValuesReachSysfs(t *testing.T) {
 
 	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
 
-	ca := filepath.Join(h.Root, "ib/sys/class/infiniband/mlx5_0")
+	ca := h.RootPath("ib/sys/class/infiniband/mlx5_0")
 	read := func(rel string) string {
 		b, err := os.ReadFile(filepath.Join(ca, rel))
 		require.NoError(t, err)
@@ -113,10 +113,10 @@ func TestStage_IsIdempotent(t *testing.T) {
 	state := testState(testNetwork())
 
 	require.NoError(t, s.Stage(context.Background(), h, state))
-	first := snapshotTree(t, filepath.Join(h.Root, "ib"))
+	first := snapshotTree(t, h.RootPath("ib"))
 
 	require.NoError(t, s.Stage(context.Background(), h, state))
-	require.Equal(t, first, snapshotTree(t, filepath.Join(h.Root, "ib")))
+	require.Equal(t, first, snapshotTree(t, h.RootPath("ib")))
 }
 
 func TestStage_NoOpCases(t *testing.T) {
@@ -138,8 +138,8 @@ func TestStage_NoOpCases(t *testing.T) {
 			require.True(t, s.Ready(), "a no-op stage is still ready")
 
 			// The root is created but left empty, masking any real host IB.
-			require.DirExists(t, filepath.Join(h.Root, "ib"))
-			require.NoDirExists(t, filepath.Join(h.Root, "ib/sys/class/infiniband"))
+			require.DirExists(t, h.RootPath("ib"))
+			require.NoDirExists(t, h.RootPath("ib/sys/class/infiniband"))
 		})
 	}
 }
@@ -152,11 +152,11 @@ func TestStage_CopiesToolsShimsAndConfig(t *testing.T) {
 	s := New(Options{Mode: ModeSysfs})
 	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
 
-	require.FileExists(t, filepath.Join(h.Root, "driver/usr/bin/ibstat"))
-	require.FileExists(t, filepath.Join(h.Root, "driver/usr/lib64/libibmad.so.5"))
-	require.FileExists(t, filepath.Join(h.Root, "driver/usr/local/lib/libibmockumad.so.1"))
-	require.FileExists(t, filepath.Join(h.Root, "driver/etc/libibverbs.d/mlx5.driver"))
-	require.FileExists(t, filepath.Join(h.Root, "driver/usr/bin/check-fabric"))
+	require.FileExists(t, h.RootPath("driver/usr/bin/ibstat"))
+	require.FileExists(t, h.RootPath("driver/usr/lib64/libibmad.so.5"))
+	require.FileExists(t, h.RootPath("driver/usr/local/lib/libibmockumad.so.1"))
+	require.FileExists(t, h.RootPath("driver/etc/libibverbs.d/mlx5.driver"))
+	require.FileExists(t, h.RootPath("driver/usr/bin/check-fabric"))
 }
 
 // Absent image sources are not an error: images are built without the IB stack.
@@ -167,10 +167,10 @@ func TestStage_ToleratesMissingImageSources(t *testing.T) {
 
 	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
 	require.True(t, s.Ready())
-	require.NoFileExists(t, filepath.Join(h.Root, "driver/usr/bin/check-fabric"))
+	require.NoFileExists(t, h.RootPath("driver/usr/bin/check-fabric"))
 }
 
-// seedImageSources fabricates the container-image layout stage-ib-tools.sh
+// seedImageSources fabricates the container-image layout bundle-ib-tools.sh
 // produces, so the copy paths are exercised without a real IB install.
 func seedImageSources(t *testing.T) {
 	t.Helper()
@@ -178,9 +178,9 @@ func seedImageSources(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
 		require.NoError(t, os.WriteFile(path, []byte("elf"), 0o755))
 	}
-	write(filepath.Join(toolStageRoot, "bin", "ibstat"))
-	write(filepath.Join(toolStageRoot, "bin", "iblinkinfo"))
-	write(filepath.Join(toolStageRoot, "lib64", "libibmad.so.5"))
+	write(filepath.Join(toolBundleRoot, "bin", "ibstat"))
+	write(filepath.Join(toolBundleRoot, "bin", "iblinkinfo"))
+	write(filepath.Join(toolBundleRoot, "lib64", "libibmad.so.5"))
 	write(filepath.Join(filepath.Dir(shimGlob), "libibmockumad.so.1"))
 	write(filepath.Join(verbsConfDir, "mlx5.driver"))
 	write(checkFabric)

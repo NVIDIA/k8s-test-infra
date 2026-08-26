@@ -45,9 +45,10 @@ COPY --from=builder /src/dist/fake-fabricmanager-daemon /usr/bin/nv-fabricmanage
 COPY --from=builder /src/dist/fake-fabricmanager-ctl    /usr/bin/nv-fabricmanager-ctl
 COPY --from=builder /src/dist/check-fabric     /usr/local/bin/check-fabric
 COPY --from=builder /src/dist/node-agent /usr/local/bin/node-agent
-# Copied ahead of the RUN below because that layer invokes it while patchelf is
-# still installed; /scripts/ arrives later, after patchelf has been purged.
-COPY deployments/nvml-mock/scripts/stage-ib-tools.sh /usr/local/bin/stage-ib-tools.sh
+# Build-time only, so it lives outside scripts/ — that directory is copied
+# wholesale into the runtime image below, and this script cannot run there once
+# patchelf is purged.
+COPY deployments/nvml-mock/build/bundle-ib-tools.sh /usr/local/bin/bundle-ib-tools.sh
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
@@ -96,7 +97,7 @@ RUN set -eux; \
     # in the RPATH. Injected containers therefore run them straight from a
     # minimal image that ships no IB libraries at all.
     # See NVIDIA/k8s-test-infra#438.
-    sh /usr/local/bin/stage-ib-tools.sh; \
+    sh /usr/local/bin/bundle-ib-tools.sh; \
     rm -rf /var/lib/apt/lists/*; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \

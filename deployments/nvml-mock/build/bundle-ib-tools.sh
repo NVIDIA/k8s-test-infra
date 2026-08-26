@@ -2,35 +2,37 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Stages the InfiniBand CLI tools and their shared-library closure into a
-# self-contained tree, and gives every binary an RPATH relative to its own
-# location. Runs ONCE at image build time, from the Dockerfile.
+# Mokka injects real InfiniBand tools (ibstat, ibping, iblinkinfo, ...) into
+# workload pods, but no common base image ships the IB stack — a tool copied in
+# on its own dies on "error while loading shared libraries", measured on
+# distroless, debian:bookworm-slim and ubuntu:22.04 alike.
 #
-# Build time is deliberate. The node agent's infiniband simulator copies this
-# tree into the node overlay at runtime, where patchelf is not installed and the
-# ordering of the injected LD_LIBRARY_PATH would otherwise decide which library
-# wins. Baking the RPATH here is what makes each tool self-locating in every
-# mount context, exactly as the Dockerfile already does for nvidia-smi.
-# See NVIDIA/k8s-test-infra#438.
+# This bundles each tool beside its own shared-library closure and bakes in an
+# RPATH, so the tree runs from any image. Runs ONCE per image build, from the
+# Dockerfile. See NVIDIA/k8s-test-infra#438.
+#
+# Not part of the node agent because it needs ldd and patchelf, which the
+# Dockerfile purges from the final image. The agent only relocates the tree, and
+# the RPATH is what makes that a plain file copy.
 #
 # Layout produced (mirrors the overlay's driver/usr/{bin,lib64}):
 #   /usr/local/nvml-mock-ib/bin/<tool>     RPATH=$ORIGIN/../lib64
 #   /usr/local/nvml-mock-ib/lib64/<lib>    RPATH=$ORIGIN
 set -eu
 
-STAGE_ROOT=${STAGE_ROOT:-/usr/local/nvml-mock-ib}
-BIN_DIR="$STAGE_ROOT/bin"
-LIB_DIR="$STAGE_ROOT/lib64"
+BUNDLE_ROOT=${BUNDLE_ROOT:-/usr/local/nvml-mock-ib}
+BIN_DIR="$BUNDLE_ROOT/bin"
+LIB_DIR="$BUNDLE_ROOT/lib64"
 
 # ELF tools only. ibstatus is a /bin/sh script: it has no RPATH to set and it
 # only runs in images that ship a shell, so the infiniband simulator picks it up
 # off PATH instead (see fallbackTools in internal/agent/infiniband/stage.go).
 IB_TOOLS="ibnetdiscover ibstat iblinkinfo sminfo ibping ibv_devinfo"
 
-# Libraries every glibc image already provides. Staging these would put a
+# Libraries every glibc image already provides. Bundling these would put a
 # second copy of the C runtime ahead of the container's own on the search
 # path, which is how you get a binary running against a libc that does not
-# match its loader. The tools' own dependencies are what we stage.
+# match its loader. The tools' own dependencies are what we bundle.
 is_glibc_core() {
 	case "$1" in
 	libc.so.* | libm.so.* | libdl.so.* | librt.so.* | libpthread.so.* | \
@@ -44,14 +46,14 @@ is_glibc_core() {
 mkdir -p "$BIN_DIR" "$LIB_DIR"
 
 # 1. Collect the tools.
-staged_tools=""
+bundled_tools=""
 for tool in $IB_TOOLS; do
 	path=$(command -v "$tool" 2>/dev/null) || {
 		echo "ERROR: $tool not found in PATH; the image must install infiniband-diags/ibverbs-utils" >&2
 		exit 1
 	}
 	cp "$path" "$BIN_DIR/$tool"
-	staged_tools="$staged_tools $tool"
+	bundled_tools="$bundled_tools $tool"
 done
 
 # 2. Collect their dependency closure. ldd resolves transitively, so this
@@ -72,15 +74,15 @@ done
 #
 #    The hard case is a transitive dependency: ibv_devinfo names libnl
 #    nowhere, it reaches it through libibverbs. Two independent mechanisms
-#    resolve that, and this stages both:
+#    resolve that, and this bundles both:
 #
 #      a. --force-rpath writes DT_RPATH rather than patchelf's default
 #         DT_RUNPATH. DT_RUNPATH applies only to the direct dependencies of
 #         the object carrying it; DT_RPATH is inherited down the chain.
-#      b. $ORIGIN on each staged library, so a library resolves its own
+#      b. $ORIGIN on each bundled library, so a library resolves its own
 #         dependencies from the directory it was loaded out of.
 #
-#    Measured on distroless with libnl staged: strip (b) and keep (a) and
+#    Measured on distroless with libnl bundled: strip (b) and keep (a) and
 #    ibv_devinfo loads; strip (a) and keep (b) and it loads; strip both and it
 #    dies with "libnl-route-3.so.200: cannot open shared object file". Either
 #    is sufficient alone, so keeping both means no single edit here silently
@@ -92,11 +94,11 @@ done
 for tool in "$BIN_DIR"/*; do
 	patchelf --force-rpath --set-rpath '$ORIGIN/../lib64' "$tool"
 done
-staged_libs=""
+bundled_libs=""
 # shellcheck disable=SC2016
 for lib in "$LIB_DIR"/*; do
 	patchelf --force-rpath --set-rpath '$ORIGIN' "$lib"
-	staged_libs="$staged_libs $(basename "$lib")"
+	bundled_libs="$bundled_libs $(basename "$lib")"
 done
 
 # 4. Self-verify. A partial run must not exit 0: without this, a tool whose
@@ -105,10 +107,10 @@ done
 #
 #    The allowlist below is spelled out again on purpose. An earlier revision
 #    called is_glibc_core() here too, and that made the check unable to fail:
-#    widening the staging filter widened the verifier with it, so a run that
+#    widening the bundling filter widened the verifier with it, so a run that
 #    dropped libnl still exited 0. A verifier that shares its predicate with
 #    the step it verifies is not a verifier. Keep these two lists independent.
-needs_staging() {
+needs_bundling() {
 	case "$1" in
 	libc.so.* | libm.so.* | libdl.so.* | librt.so.* | libpthread.so.* | \
 		ld-linux*.so.* | ld.so.* | linux-vdso.so.*)
@@ -129,11 +131,11 @@ for tool in "$BIN_DIR"/*; do
 done
 for obj in "$BIN_DIR"/* "$LIB_DIR"/*; do
 	for need in $(patchelf --print-needed "$obj"); do
-		if ! needs_staging "$need"; then
+		if ! needs_bundling "$need"; then
 			continue
 		fi
 		if [ ! -e "$LIB_DIR/$need" ]; then
-			echo "ERROR: $obj needs $need, which is not staged in $LIB_DIR" >&2
+			echo "ERROR: $obj needs $need, which is not bundled in $LIB_DIR" >&2
 			rc=1
 		fi
 	done
@@ -142,5 +144,5 @@ if [ "$rc" -ne 0 ]; then
 	exit "$rc"
 fi
 
-echo "Staged IB tools:$staged_tools"
-echo "Staged IB libraries:$staged_libs"
+echo "Bundled IB tools:$bundled_tools"
+echo "Bundled IB libraries:$bundled_libs"

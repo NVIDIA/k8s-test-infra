@@ -4,16 +4,10 @@
 #
 # Entrypoint for the nvml-mock DaemonSet container.
 #
-# What remains is the residue of the MEP-0003 migration. The node agent owns
-# the GPU driver footprint, the PCI bus, IMEX, InfiniBand and the CDI specs;
-# what is left here are the phases no simulator claims yet — directory
-# creation, the runtime-override wipe, the ComputeDomain topology overlay, the
-# node label, and fabric-manager. Phase numbers are kept so the mapping back to
-# the MEP stays readable.
-#
-# A ported phase is deleted, never left as a duplicate: the agent and this
-# script must not both own a surface, and a stale phase here can outlive the
-# CLI it invoked and fail the pod under `set -e`.
+# Holds only the phases the node agent has not claimed yet, each keeping its
+# original number so the mapping to MEP-0003 stays readable. A ported phase is
+# deleted rather than left as a duplicate: two owners of one surface diverge,
+# and a phase that outlives the CLI it called fails the pod under `set -e`.
 #
 # Required env vars: GPU_COUNT, DRIVER_VERSION, NODE_NAME
 set -e
