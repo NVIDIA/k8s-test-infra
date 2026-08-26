@@ -28,6 +28,13 @@ type Agent struct {
 	log             *slog.Logger
 	shutdownTimeout time.Duration
 	live            atomic.Bool // true = Stage healthy; false = /healthz returns 503
+
+	// Daemons launch into this group from reconcile but bind to supervisorCtx,
+	// so they outlive the reconcile that started them.
+	supervisor    *errgroup.Group
+	supervisorCtx context.Context //nolint:containedctx // agent lifetime, outlives each reconcile
+	// started needs no mutex: reconcile only runs on reconcileLoop's goroutine.
+	started map[string]bool
 }
 
 // Config carries Agent constructor arguments.
@@ -50,6 +57,7 @@ func New(cfg Config) *Agent {
 		host:            cfg.Host,
 		log:             cfg.Log,
 		shutdownTimeout: cfg.ShutdownTimeout,
+		started:         make(map[string]bool),
 	}
 	a.live.Store(true)
 	return a
@@ -73,21 +81,11 @@ func (a *Agent) Readyz() map[string]bool {
 func (a *Agent) Run(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 
-	// Supervisor wave: launch background daemons once at startup.
-	// Only simulators that implement Daemon get a goroutine here.
-	for _, sim := range a.simulators {
-		sim := sim
-		d, ok := sim.(Daemon)
-		if !ok {
-			continue
-		}
-		g.Go(func() error {
-			if err := d.Run(gctx); err != nil {
-				a.log.Error("simulator daemon exited", "simulator", sim.Name(), "err", err)
-			}
-			return nil // daemon errors are non-fatal to the agent
-		})
-	}
+	// Daemons launch from reconcile, not here — they need their Stage artifacts
+	// on disk first. Publishing the group up front does not race errgroup's
+	// Go-after-Wait rule: reconcile runs inside reconcileLoop, so Wait cannot
+	// advance while a Go call is still possible.
+	a.supervisor, a.supervisorCtx = g, gctx
 
 	g.Go(func() error { return a.reconcileLoop(gctx) })
 
@@ -125,7 +123,7 @@ func (a *Agent) reconcileLoop(ctx context.Context) error {
 }
 
 // reconcile runs Stage on all simulators in parallel, waits for the barrier,
-// then runs Apply on all appliers in parallel.
+// starts (or reloads) the daemons, then runs Apply on all appliers in parallel.
 func (a *Agent) reconcile(ctx context.Context, state *State) error {
 	// Stage wave: all simulators run concurrently and are fully isolated from
 	// each other — a failure never cancels sibling goroutines. All errors are
@@ -159,6 +157,10 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 
 	a.live.Store(true)
 
+	// Supervisor wave sits on the barrier: a daemon starts against surfaces Stage
+	// has written, and before Apply publishes them off-node.
+	a.supervise(ctx, state)
+
 	// Apply wave: fail-fast — appliers share cross-component dependencies
 	// (CDI spec references chardevs that gpudriver must have staged first).
 	// Only simulators that also implement Applier participate.
@@ -176,6 +178,36 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 		})
 	}
 	return applyG.Wait()
+}
+
+// supervise launches each Daemon's Run once and delivers later States via
+// Reload. Once, because a daemon owns a socket or port that a second instance
+// would fight over rather than converge with.
+func (a *Agent) supervise(ctx context.Context, state *State) {
+	for _, sim := range a.simulators {
+		d, ok := sim.(Daemon)
+		if !ok {
+			continue
+		}
+
+		if a.started[sim.Name()] {
+			// Non-fatal: the daemon keeps serving the previous state, which
+			// beats tearing it down.
+			if err := d.Reload(ctx, state); err != nil {
+				a.log.Error("daemon reload failed", "simulator", sim.Name(), "err", err)
+			}
+			continue
+		}
+
+		a.started[sim.Name()] = true
+		a.log.Info("starting simulator daemon", "simulator", sim.Name())
+		a.supervisor.Go(func() error {
+			if err := d.Run(a.supervisorCtx); err != nil {
+				a.log.Error("simulator daemon exited", "simulator", sim.Name(), "err", err)
+			}
+			return nil // daemon errors are non-fatal to the agent
+		})
+	}
 }
 
 // revoke calls Revoke on all Applier simulators concurrently, best-effort.
