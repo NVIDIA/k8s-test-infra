@@ -756,6 +756,27 @@ tests:
               path: /var/lib/nvml-mock/fabric-state
               type: DirectoryOrCreate
 
+  # b200 declares NVLink but no NVSwitches, so no state dir is created on the
+  # node. Leaving node-agent's env unset keeps that mount out of its CDI spec;
+  # emitting it would fail creation of every CDI consumer on the node.
+  - it: should not wire fabricmanager for an NVLink profile without NVSwitches (b200)
+    set:
+      gpu:
+        profile: b200
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /var/lib/nvml-mock/fabric-state
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-fabric-state
+            hostPath:
+              path: /var/lib/nvml-mock/fabric-state
+              type: DirectoryOrCreate
+
   - it: should wire fabricmanager env, mount, and volume when enabled
     set:
       fabricmanager:
@@ -768,6 +789,13 @@ tests:
             value: "on"
       - contains:
           path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /var/lib/nvml-mock/fabric-state
+      # node-agent gates its CDI fabric-state mount on this env, so it must be
+      # set wherever the host-fabric-state volume below is.
+      - contains:
+          path: spec.template.spec.containers[1].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
@@ -792,6 +820,11 @@ tests:
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /run/nvidia-fabricmanager
+      - contains:
+          path: spec.template.spec.containers[1].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /run/nvidia-fabricmanager

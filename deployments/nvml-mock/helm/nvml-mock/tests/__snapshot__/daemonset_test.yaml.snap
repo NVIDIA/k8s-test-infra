@@ -125,6 +125,8 @@ should match snapshot with all overrides:
                   value: "2"
                 - name: DRIVER_VERSION
                   value: 555.55.55
+                - name: MOCK_FABRICMANAGER_STATE_DIR
+                  value: /var/lib/nvml-mock/fabric-state
               image: custom-registry/nvml-mock:v2.0.0
               imagePullPolicy: Always
               livenessProbe:
@@ -491,6 +493,8 @@ should match snapshot with default values:
                   value: "4"
                 - name: DRIVER_VERSION
                   value: 570.124.06
+                - name: MOCK_FABRICMANAGER_STATE_DIR
+                  value: /var/lib/nvml-mock/fabric-state
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               livenessProbe:

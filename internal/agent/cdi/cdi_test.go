@@ -115,7 +115,7 @@ func TestNRISpec(t *testing.T) {
 func TestFabricStateMount(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
-	state.Fabric.Enabled = true
+	state.Fabric.ManagerStateDir = "/var/lib/nvml-mock/fabric-state"
 	s := New()
 	ctx := context.Background()
 	require.NoError(t, s.Stage(ctx, h, state))
@@ -143,9 +143,12 @@ func TestFabricStateMount(t *testing.T) {
 	require.True(t, hasFabricEnv, "expected MOCK_FABRICMANAGER_STATE_DIR in nvidia.yaml env")
 }
 
+// A profile can declare NVLink without running fabricmanager, in which case
+// the marker directory does not exist on the node and must not be mounted.
 func TestFabricMountAbsentWhenDisabled(t *testing.T) {
 	h := host.New(t.TempDir())
-	state := testState() // Fabric.Enabled is false by default
+	state := testState()
+	state.Fabric.Enabled = true // NVLink, but ManagerStateDir is empty
 	s := New()
 	ctx := context.Background()
 	require.NoError(t, s.Stage(ctx, h, state))

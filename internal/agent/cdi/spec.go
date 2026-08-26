@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
-	"github.com/NVIDIA/k8s-test-infra/pkg/fmcoord"
 )
 
 // overlayHostRoot is the path containerd sees for the mock overlay on the host.
@@ -103,10 +102,9 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 		},
 	}
 
-	// Fabric state dir: the mock NVML .so inside the container must see the
-	// fabricmanager readiness marker for fabric.state:auto to work correctly.
-	if state.Fabric.Enabled {
-		stateDir := fmcoord.DefaultStateDir
+	// The .so resolving fabric.state:auto runs in the consumer container, so the
+	// marker dir mounts there — but only where it exists, else creation fails.
+	if stateDir := state.Fabric.ManagerStateDir; stateDir != "" {
 		edits.Mounts = append(edits.Mounts, cdiMount{
 			HostPath:      stateDir,
 			ContainerPath: stateDir,

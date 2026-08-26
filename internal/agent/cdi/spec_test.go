@@ -106,24 +106,31 @@ func TestNvidiaSpecNoUUIDEntry(t *testing.T) {
 	require.Equal(t, "all", spec.Devices[1].Name)
 }
 
-func TestNvidiaSpecFabricEnabled(t *testing.T) {
+// The mounted path follows the configured state dir, which the chart allows to
+// differ from the default.
+func TestNvidiaSpecFabricManagerEnabled(t *testing.T) {
+	const stateDir = "/var/lib/custom/fabric-state"
 	state := twoGPUState()
-	state.Fabric.Enabled = true
+	state.Fabric.ManagerStateDir = stateDir
 	spec := buildNvidiaSpec(state)
 
 	var hasFabricMount bool
 	for _, m := range spec.ContainerEdits.Mounts {
-		if m.HostPath == fmcoord.DefaultStateDir {
+		if m.HostPath == stateDir {
 			hasFabricMount = true
-			require.Equal(t, fmcoord.DefaultStateDir, m.ContainerPath)
+			require.Equal(t, stateDir, m.ContainerPath)
 		}
 	}
 	require.True(t, hasFabricMount, "fabric-state mount missing")
-	require.Contains(t, spec.ContainerEdits.Env, "MOCK_FABRICMANAGER_STATE_DIR="+fmcoord.DefaultStateDir)
+	require.Contains(t, spec.ContainerEdits.Env, "MOCK_FABRICMANAGER_STATE_DIR="+stateDir)
 }
 
-func TestNvidiaSpecFabricDisabled(t *testing.T) {
-	spec := buildNvidiaSpec(twoGPUState()) // Fabric.Enabled is false
+// NVLink alone leaves no marker directory on the node, so nothing is mounted.
+func TestNvidiaSpecFabricManagerDisabled(t *testing.T) {
+	state := twoGPUState()
+	state.Fabric.Enabled = true
+	spec := buildNvidiaSpec(state)
+
 	for _, m := range spec.ContainerEdits.Mounts {
 		require.NotEqual(t, fmcoord.DefaultStateDir, m.HostPath)
 	}

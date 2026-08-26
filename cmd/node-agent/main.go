@@ -93,6 +93,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+
 	log := logging.NewLogger(logging.Config{Level: level, Format: format})
 
 	configPath := cmd.String("config")
