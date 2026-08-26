@@ -61,7 +61,7 @@ func TestDiscard_LeavesGPUDriverFilesIntact(t *testing.T) {
 	h := newTestHost(t)
 	seedGPUDriver := func() {
 		for _, rel := range []string{"driver/usr/bin/nvidia-smi", "driver/usr/lib64/libnvidia-ml.so.1"} {
-			p := filepath.Join(h.Root, rel)
+			p := h.RootPath(rel)
 			require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
 			require.NoError(t, os.WriteFile(p, []byte("gpudriver"), 0o755))
 		}
@@ -72,15 +72,15 @@ func TestDiscard_LeavesGPUDriverFilesIntact(t *testing.T) {
 	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
 	require.NoError(t, s.Discard(context.Background(), h))
 
-	require.NoDirExists(t, filepath.Join(h.Root, "ib"))
-	require.NoFileExists(t, filepath.Join(h.Root, "driver/usr/bin/ibstat"))
-	require.NoFileExists(t, filepath.Join(h.Root, "driver/usr/lib64/libibmad.so.5"))
-	require.NoFileExists(t, filepath.Join(h.Root, "driver/usr/local/lib/libibmockumad.so.1"))
-	require.NoFileExists(t, filepath.Join(h.Root, "driver/usr/bin/check-fabric"))
-	require.NoDirExists(t, filepath.Join(h.Root, "driver/etc/libibverbs.d"))
+	require.NoDirExists(t, h.RootPath("ib"))
+	require.NoFileExists(t, h.RootPath("driver/usr/bin/ibstat"))
+	require.NoFileExists(t, h.RootPath("driver/usr/lib64/libibmad.so.5"))
+	require.NoFileExists(t, h.RootPath("driver/usr/local/lib/libibmockumad.so.1"))
+	require.NoFileExists(t, h.RootPath("driver/usr/bin/check-fabric"))
+	require.NoDirExists(t, h.RootPath("driver/etc/libibverbs.d"))
 
-	require.FileExists(t, filepath.Join(h.Root, "driver/usr/bin/nvidia-smi"))
-	require.FileExists(t, filepath.Join(h.Root, "driver/usr/lib64/libnvidia-ml.so.1"))
+	require.FileExists(t, h.RootPath("driver/usr/bin/nvidia-smi"))
+	require.FileExists(t, h.RootPath("driver/usr/lib64/libnvidia-ml.so.1"))
 }
 
 func TestDiscard_NoOpBeforeStage(t *testing.T) {
@@ -198,12 +198,12 @@ func TestReload_RerendersTreeForNewShape(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, s.Stage(ctx, h, testState(testNetwork())))
-	require.NoDirExists(t, filepath.Join(h.Root, "ib/sys/class/infiniband/mlx5_3"))
+	require.NoDirExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_3"))
 
 	grown := testNetwork()
 	grown.HCACount = 4
 	require.NoError(t, s.Stage(ctx, h, testState(grown)))
-	require.DirExists(t, filepath.Join(h.Root, "ib/sys/class/infiniband/mlx5_3"))
+	require.DirExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_3"))
 }
 
 func requireEventually(t *testing.T, cond func() bool, msg string) {
@@ -237,7 +237,7 @@ func TestStage_DerivesSocketPathUnderHostRoot(t *testing.T) {
 
 	got := s.socketPath.Load()
 	require.NotNil(t, got)
-	require.Equal(t, filepath.Join(h.Root, "run", "mock-ib.sock"), *got)
+	require.Equal(t, h.RootPath("run", "mock-ib.sock"), *got)
 }
 
 func TestStage_SocketPathOverrideWins(t *testing.T) {

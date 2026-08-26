@@ -18,14 +18,11 @@ import (
 // Source paths inside the container image. Package vars so tests can exercise
 // both the present and absent branches without depending on the host.
 var (
-	// toolStageRoot holds ELF tools pre-patched at image build time by
-	// stage-ib-tools.sh: each carries RPATH=$ORIGIN/../lib64 with its shared
-	// libraries alongside, so an injected pod resolves libibmad/libibumad/
-	// libibverbs/libnl from the overlay itself rather than from the image.
-	toolStageRoot = "/usr/local/nvml-mock-ib"
-	shimGlob      = "/usr/local/lib/libibmock*.so*"
-	verbsConfDir  = "/etc/libibverbs.d"
-	checkFabric   = "/usr/local/bin/check-fabric"
+	// Built by bundle-ib-tools.sh, whose RPATHs make the tree relocatable.
+	toolBundleRoot = "/usr/local/nvml-mock-ib"
+	shimGlob       = "/usr/local/lib/libibmock*.so*"
+	verbsConfDir   = "/etc/libibverbs.d"
+	checkFabric    = "/usr/local/bin/check-fabric"
 )
 
 // fallbackTools are looked up on PATH when the image did not pre-stage them.
@@ -37,7 +34,7 @@ var fallbackTools = []string{
 // ibRoot returns the rendered sysfs tree. It is the same directory the chart
 // exposes as MOCK_IB_ROOT: the DaemonSet mounts one hostPath at both
 // /host/var/lib/nvml-mock and /var/lib/nvml-mock.
-func ibRoot(h *host.Host) string { return filepath.Join(h.Root, "ib") }
+func ibRoot(h *host.Host) string { return h.RootPath("ib") }
 
 // stageSysfs renders the fake IB sysfs tree real tools read through
 // libibmocksys.so's path redirection.
@@ -69,20 +66,18 @@ func buildIB(n agent.NetworkShape) ibconfig.Infiniband {
 	}
 }
 
-// stageIBTools copies the pre-patched tools and their shared libraries into the
-// overlay the NRI plugin bind-mounts into workloads. Without the libraries
-// alongside, the first tool an injected pod runs dies on "error while loading
-// shared libraries" — neither distroless nor ubuntu:22.04 ships the IB stack.
-// See NVIDIA/k8s-test-infra#438.
+// stageIBTools copies the patched IB tools and their libraries into the overlay the NRI
+// plugin mounts into workloads. The libraries must travel with them: no common
+// base image ships the IB stack. See NVIDIA/k8s-test-infra#438.
 func stageIBTools(h *host.Host) error {
-	binDir := filepath.Join(h.Root, "driver/usr/bin")
-	libDir := filepath.Join(h.Root, "driver/usr/lib64")
+	binDir := h.RootPath("driver/usr/bin")
+	libDir := h.RootPath("driver/usr/lib64")
 
-	staged, err := copyTree(h, filepath.Join(toolStageRoot, "bin"), binDir)
+	staged, err := copyTree(h, filepath.Join(toolBundleRoot, "bin"), binDir)
 	if err != nil {
 		return err
 	}
-	if _, err := copyTree(h, filepath.Join(toolStageRoot, "lib64"), libDir); err != nil {
+	if _, err := copyTree(h, filepath.Join(toolBundleRoot, "lib64"), libDir); err != nil {
 		return err
 	}
 
@@ -105,16 +100,15 @@ func stageIBTools(h *host.Host) error {
 // stageIBShims installs the LD_PRELOAD shims that forward UMAD and verbs traffic
 // to the mock-ib daemon and redirect sysfs reads into ibRoot.
 func stageIBShims(h *host.Host) error {
-	return copyGlob(h, shimGlob, filepath.Join(h.Root, "driver/usr/local/lib"))
+	return copyGlob(h, shimGlob, h.RootPath("driver/usr/local/lib"))
 }
 
-// stageVerbsConfig carries the ibverbs provider set along with the tools it
-// belongs to. libibverbs reads /etc/libibverbs.d from a compile-time absolute
-// path with no env override, so this copy does not redirect an injected
-// container's lookup — the mock answers verbs through libibmockverbs.so.1 and
-// never consults it. It is here for consumers that mount the overlay as a root.
+// stageVerbsConfig carries the ibverbs provider set alongside the tools it
+// belongs to. It redirects nothing — libibverbs reads /etc/libibverbs.d from a
+// compile-time path and the mock answers verbs through the shim — but consumers
+// that mount the overlay as a root expect to find it.
 func stageVerbsConfig(h *host.Host) error {
-	_, err := copyTree(h, verbsConfDir, filepath.Join(h.Root, "driver/etc/libibverbs.d"))
+	_, err := copyTree(h, verbsConfDir, h.RootPath("driver/etc/libibverbs.d"))
 	return err
 }
 
@@ -128,7 +122,7 @@ func stageCheckFabric(h *host.Host) error {
 	if _, err := os.Stat(checkFabric); err != nil {
 		return nil
 	}
-	return h.CopyFile(checkFabric, filepath.Join(h.Root, "driver/usr/bin/check-fabric"), 0o755)
+	return h.CopyFile(checkFabric, h.RootPath("driver/usr/bin/check-fabric"), 0o755)
 }
 
 // copyTree copies srcDir's regular files into dstDir, returning the base names

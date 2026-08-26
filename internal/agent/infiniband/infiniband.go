@@ -70,13 +70,9 @@ var (
 	_ agent.Daemon    = (*Simulator)(nil)
 )
 
-// Simulator fakes the InfiniBand HCAs absent on CPU-only nodes.
-//
-// Main consumers
-//   - ibstat / ibstatus / iblinkinfo / ibnetdiscover, via libibmocksys.so path
-//     redirection into the rendered tree
-//   - RDMA-aware workloads and the Network Operator, via libibmockverbs.so
-//   - ibping across pods, via the daemon's TCP fabric relay
+// Simulator fakes the InfiniBand HCAs (Host Channel Adapters) absent on
+// CPU-only nodes. Consumers reach it through the LD_PRELOAD shims: sysfs reads
+// via libibmocksys, verbs and UMAD via libibmockverbs and the daemon.
 type Simulator struct {
 	opts Options
 
@@ -144,7 +140,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 
 	socket := s.opts.SocketPath
 	if socket == "" {
-		socket = filepath.Join(h.Root, "run", socketName)
+		socket = h.RootPath("run", socketName)
 	}
 	s.socketPath.Store(&socket)
 
@@ -189,7 +185,7 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 		removeTree(ibRoot(h)),
 		discardTools(h),
 		discardShims(h),
-		removeTree(filepath.Join(h.Root, "driver/etc/libibverbs.d")),
+		removeTree(h.RootPath("driver/etc/libibverbs.d")),
 	)
 }
 
@@ -199,18 +195,18 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 func discardTools(h *host.Host) error {
 	errs := make([]error, 0, 3+len(fallbackTools))
 	errs = append(errs,
-		removeStaged(h, filepath.Join(toolStageRoot, "bin"), "driver/usr/bin"),
-		removeStaged(h, filepath.Join(toolStageRoot, "lib64"), "driver/usr/lib64"),
-		h.Remove(filepath.Join(h.Root, "driver/usr/bin/check-fabric")),
+		removeStaged(h, filepath.Join(toolBundleRoot, "bin"), "driver/usr/bin"),
+		removeStaged(h, filepath.Join(toolBundleRoot, "lib64"), "driver/usr/lib64"),
+		h.Remove(h.RootPath("driver/usr/bin/check-fabric")),
 	)
 	for _, tool := range fallbackTools {
-		errs = append(errs, h.Remove(filepath.Join(h.Root, "driver/usr/bin", tool)))
+		errs = append(errs, h.Remove(h.RootPath("driver/usr/bin", tool)))
 	}
 	return errors.Join(errs...)
 }
 
 func discardShims(h *host.Host) error {
-	matches, _ := filepath.Glob(filepath.Join(h.Root, "driver/usr/local/lib/libibmock*.so*"))
+	matches, _ := filepath.Glob(h.RootPath("driver/usr/local/lib/libibmock*.so*"))
 	errs := make([]error, 0, len(matches))
 	for _, p := range matches {
 		errs = append(errs, h.Remove(p))
@@ -236,7 +232,7 @@ func removeStaged(h *host.Host, srcDir, dstRel string) error {
 		if e.IsDir() {
 			continue
 		}
-		if err := h.Remove(filepath.Join(h.Root, dstRel, e.Name())); err != nil {
+		if err := h.Remove(h.RootPath(dstRel, e.Name())); err != nil {
 			errs = append(errs, err)
 		}
 	}

@@ -39,6 +39,25 @@ func New(hostPrefix string) *Host {
 	}
 }
 
+// RootPath joins parts under Root, the simulator staging area. Prefer it over
+// filepath.Join(h.Root, ...) so a call site names the namespace it writes to.
+func (h *Host) RootPath(parts ...string) string { return join(h.Root, parts) }
+
+// DevPath joins parts under Dev.
+func (h *Host) DevPath(parts ...string) string { return join(h.Dev, parts) }
+
+// ProcPath joins parts under Proc.
+func (h *Host) ProcPath(parts ...string) string { return join(h.Proc, parts) }
+
+// SysPath joins parts under Sys.
+func (h *Host) SysPath(parts ...string) string { return join(h.Sys, parts) }
+
+// EtcPath joins parts under Etc.
+func (h *Host) EtcPath(parts ...string) string { return join(h.Etc, parts) }
+
+// RunPath joins parts under Run.
+func (h *Host) RunPath(parts ...string) string { return join(h.Run, parts) }
+
 // WriteFile atomically writes data to path, creating parent directories as needed.
 func (h *Host) WriteFile(path string, data []byte, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -128,4 +147,8 @@ func (h *Host) Mknod(path string, major, minor uint32) error {
 		return fmt.Errorf("chmod %s: %w", path, err)
 	}
 	return nil
+}
+
+func join(root string, parts []string) string {
+	return filepath.Join(append([]string{root}, parts...)...)
 }
