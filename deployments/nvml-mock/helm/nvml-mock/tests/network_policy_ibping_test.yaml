@@ -39,18 +39,10 @@ tests:
       - equal:
           path: spec.ingress[0].ports[0].protocol
           value: TCP
-      - equal:
-          path: spec.ingress[0].ports[1].port
-          value: imex
-      - equal:
-          path: spec.ingress[0].ports[1].protocol
-          value: TCP
-      - equal:
-          path: spec.ingress[0].ports[2].port
-          value: imex-cmd
-      - equal:
-          path: spec.ingress[0].ports[2].protocol
-          value: TCP
+      # IMEX is out of scope: nvidia-imex runs in a separate workload with its
+      # own policy, and nothing in this pod ever bound 50000/50005.
+      - notExists:
+          path: spec.ingress[0].ports[1]
 
   - it: should not render when disabled
     set:

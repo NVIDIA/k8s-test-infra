@@ -1,18 +1,13 @@
 {{- /* Copyright 2026 NVIDIA CORPORATION */}}
 {{- /* SPDX-License-Identifier: Apache-2.0 */}}
 {{- if and .Values.infiniband.ping.networkPolicy.enabled (eq (include "nvml-mock.infinibandEnabled" .) "true") }}
-# The mock-ib TCP fabric listener binds 0.0.0.0:{{ .Values.infiniband.ping.port }}
-# with no authentication, and the DaemonSet runs privileged. This policy
-# limits the blast radius by allowing inbound fabric traffic only from peer
-# nvml-mock pods (the only legitimate clients). Egress is left unrestricted so
-# DNS-based peer discovery and registration keep working.
+# The fabric relay listens on 0.0.0.0:{{ .Values.infiniband.ping.port }} without
+# authentication, in a pod that also runs a privileged container. Admitting only
+# peer nvml-mock pods keeps that surface reachable by its real clients alone.
+# Egress stays open so DNS peer discovery and registration still work.
 #
-# NOTE: kind's kindnetd ENFORCES NetworkPolicy on current kind releases, so
-# this allow-list is load-bearing on Kind, not just on Calico/Cilium clusters.
-# The IMEX ports remain for backwards compatibility and custom images that run
-# nvidia-imex inside this chart-managed daemon pod. The NRI-based ComputeDomain
-# demo runs IMEX in a separate workload selected by its own NetworkPolicy; this
-# chart policy neither selects nor admits that workload.
+# kindnetd enforces NetworkPolicy on current Kind releases, so this is
+# load-bearing in local e2e, not only on Calico/Cilium.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -28,17 +23,14 @@ spec:
     - Ingress
   ingress:
     - from:
-        # Match by app name + daemon component (not instance): the fabric spans
-        # every nvml-mock daemon pod cluster-wide, which may be deployed as
-        # multiple Helm releases (e.g. one per node in the ibping-multinode
-        # e2e). Scoping to the release's own instance would block cross-release
-        # registration; the component keeps the sidecar NRI DaemonSet out.
+        # Name + component, not instance: the fabric spans every daemon pod
+        # cluster-wide and ibping-multinode deploys one release per node, so
+        # instance scoping would drop cross-release REGISTER. The component
+        # label keeps the NRI sidecar out.
         #
-        # The namespaceSelector and podSelector are combined in a single peer
-        # (logical AND), so this admits nvml-mock pods in ANY namespace. Without
-        # the namespaceSelector a bare podSelector only matches pods in this
-        # policy's own namespace, which would silently drop REGISTER traffic for
-        # a fleet split across namespaces on enforcing CNIs (Calico/Cilium).
+        # namespaceSelector {} is load-bearing, not redundant: a bare
+        # podSelector matches only this policy's own namespace, silently
+        # dropping REGISTER from a fleet split across namespaces.
         - namespaceSelector: {}
           podSelector:
             matchLabels:
@@ -46,9 +38,5 @@ spec:
               app.kubernetes.io/component: daemon
       ports:
         - port: ibping
-          protocol: TCP
-        - port: imex
-          protocol: TCP
-        - port: imex-cmd
           protocol: TCP
 {{- end }}
