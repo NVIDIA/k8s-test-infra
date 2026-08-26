@@ -38,8 +38,8 @@ func IBLinkInfo(ctx context.Context, k *kube.Client, local, peer kube.PodRef, p 
 
 	// Soft: warn (do not fail) if a pod has not logged 'fabric ready' yet.
 	for _, pod := range []kube.PodRef{local, peer} {
-		logRes, _ := k.ExecSh(ctx, pod, "cat /tmp/mock-ib.log 2>/dev/null || true")
-		if !strings.Contains(logRes.Combined(), "fabric ready") {
+		logs, _ := k.PodLogs(ctx, pod.Namespace, pod.Pod, "node-agent", 200)
+		if !strings.Contains(logs, "fabric ready") {
 			_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "WARN: pod %s log does not show 'fabric ready' yet\n", pod.Pod)
 		}
 	}
