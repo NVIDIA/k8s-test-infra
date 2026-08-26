@@ -122,6 +122,7 @@ func stageCheckFabric(h *host.Host) error {
 	if _, err := os.Stat(checkFabric); err != nil {
 		return nil
 	}
+
 	return h.CopyFile(checkFabric, h.RootPath("driver/usr/bin/check-fabric"), 0o755)
 }
 

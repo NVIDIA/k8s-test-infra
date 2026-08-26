@@ -173,8 +173,8 @@ tests:
   # ── NFD features.d mount (nodeLabels.featuresDir) ────────────────────
   # The node agent (containers[1]) writes the pci-10de feature file here.
   # Without its mount the write lands inside the container and NFD never sees
-  # it, so that mount IS the contract; containers[0] mounts the same directory
-  # only so `kubectl exec` can read the file back.
+  # it, so that mount IS the contract. nvml-mock does not mount it: the pcibus
+  # simulator is the only writer.
   - it: should mount the NFD features.d host directory
     asserts:
       - contains:
@@ -182,7 +182,7 @@ tests:
           content:
             name: host-nfd-features
             mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: host-nfd-features
@@ -366,12 +366,18 @@ tests:
           content:
             name: gpu-config
             mountPath: /etc/nvml-mock
+      # Written by the cdi and gpudriver simulators, so only the agent mounts them.
       - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: host-cdi
+            mountPath: /host/run/cdi
+      - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: host-cdi
             mountPath: /host/var/run/cdi
-      - contains:
+      - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
             name: host-run-nvidia
@@ -596,12 +602,12 @@ tests:
             name: MOCK_IB
             value: "full"
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.containers[1].env
           content:
             name: MOCK_IB_PING_FABRIC
             value: "1"
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.containers[1].env
           content:
             name: MOCK_IB_PING_PORT
             value: "18515"
@@ -610,15 +616,16 @@ tests:
           content:
             name: MOCK_IB_PING_SOCKET
             value: /var/lib/nvml-mock/run/mock-ib.sock
+      # Peer discovery inputs: read by the daemon the agent supervises.
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.containers[1].env
           content:
             name: POD_IP
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.containers[1].env
           content:
             name: MOCK_IB_PING_SERVICE_HOST
             value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
@@ -632,33 +639,20 @@ tests:
           content:
             name: MOCK_PCI_ROOT
             value: /var/lib/nvml-mock
+      # The agent binds the fabric relay, so ibping is declared on node-agent.
+      # Port names are unique per pod, so it cannot also sit on nvml-mock.
       - equal:
-          path: spec.template.spec.containers[0].ports[0].name
+          path: spec.template.spec.containers[1].ports[1].name
           value: ibping
       - equal:
-          path: spec.template.spec.containers[0].ports[0].containerPort
+          path: spec.template.spec.containers[1].ports[1].containerPort
           value: 18515
       - equal:
-          path: spec.template.spec.containers[0].ports[0].protocol
+          path: spec.template.spec.containers[1].ports[1].protocol
           value: TCP
-      - equal:
-          path: spec.template.spec.containers[0].ports[1].name
-          value: imex
-      - equal:
-          path: spec.template.spec.containers[0].ports[1].containerPort
-          value: 50000
-      - equal:
-          path: spec.template.spec.containers[0].ports[1].protocol
-          value: TCP
-      - equal:
-          path: spec.template.spec.containers[0].ports[2].name
-          value: imex-cmd
-      - equal:
-          path: spec.template.spec.containers[0].ports[2].containerPort
-          value: 50005
-      - equal:
-          path: spec.template.spec.containers[0].ports[2].protocol
-          value: TCP
+      # nvml-mock binds nothing, so it declares no ports at all.
+      - notExists:
+          path: spec.template.spec.containers[0].ports
 
   - it: should disable ping mock (but keep sysfs masking) for profiles without InfiniBand
     set:
@@ -672,12 +666,18 @@ tests:
             name: MOCK_IB
             value: "sysfs"
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.containers[1].env
           content:
             name: MOCK_IB_PING_FABRIC
             value: "0"
       - notExists:
           path: spec.template.spec.containers[0].ports
+      # The agent keeps its health port but declares no fabric relay.
+      - equal:
+          path: spec.template.spec.containers[1].ports[0].name
+          value: health
+      - notExists:
+          path: spec.template.spec.containers[1].ports[1]
 
   - it: should honor a custom ping port
     set:
@@ -686,12 +686,12 @@ tests:
           port: 19000
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].env
+          path: spec.template.spec.containers[1].env
           content:
             name: MOCK_IB_PING_PORT
             value: "19000"
       - equal:
-          path: spec.template.spec.containers[0].ports[0].containerPort
+          path: spec.template.spec.containers[1].ports[1].containerPort
           value: 19000
 
   - it: should let infiniband.mockTier override the derived MOCK_IB tier
