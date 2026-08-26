@@ -42,6 +42,7 @@ MOCK_IMAGE_BUILD_INPUTS = [
     'cmd/',
     'pkg/',
     'internal/',
+    'shims/',
     'Makefile',
     'deployments/nvml-mock/',
 ]

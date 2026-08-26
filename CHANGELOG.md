@@ -222,7 +222,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "/Makefile": not found` rather than naming the flag that excluded it. Both
   builds now share one exported list, and a new test asserts that every Tilt
   build of that Dockerfile admits each path it COPYs from the build context, so
-  the next such omission fails in `make test`. (#497)
+  the next such omission fails in `make test`. That guard caught one
+  immediately: `shims/` (#719) was missing from the list, which broke the
+  default `tilt up` path too, and is now included. (#497)
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
   uses (`00000000:07:00.0`, `NVML_DEVICE_PCI_BUS_ID_FMT`) while `busIdLegacy`
   keeps the 4-digit one (`0000:07:00.0`). Both were filled with the profile's
