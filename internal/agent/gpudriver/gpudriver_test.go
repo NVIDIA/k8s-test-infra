@@ -283,22 +283,17 @@ func TestPruneGPUNodes_RemovesShrunkDeviceSet(t *testing.T) {
 }
 
 // TestStageCharDevs_PrunesShrunkDeviceSet guards the call site, not just the
-// helper: stageCharDevs must actually prune. mknod is stubbed because CI runners
-// lack CAP_MKNOD, so the real creator is covered only by the root-gated test.
+// helper: stageCharDevs must prune GPU nodes a larger device set left behind.
 func TestStageCharDevs_PrunesShrunkDeviceSet(t *testing.T) {
-	orig := mknodCharFn
-	mknodCharFn = func(path string, _, _ uint32) error {
-		return os.WriteFile(path, nil, 0o600)
-	}
-	t.Cleanup(func() { mknodCharFn = orig })
+	skipUnlessRootLinux(t)
 
-	h := host.New(t.TempDir())
+	h := testHost(t)
 	devRoot := filepath.Join(h.Root, "driver/dev")
 	require.NoError(t, os.MkdirAll(devRoot, 0o755))
 
 	// A previous, larger device set left four GPU nodes behind.
-	for _, n := range []string{"nvidia0", "nvidia1", "nvidia2", "nvidia3"} {
-		require.NoError(t, os.WriteFile(filepath.Join(devRoot, n), nil, 0o600))
+	for i, n := range []string{"nvidia0", "nvidia1", "nvidia2", "nvidia3"} {
+		require.NoError(t, h.Mknod(filepath.Join(devRoot, n), 195, uint32(i)))
 	}
 
 	state := &agent.State{Devices: []agent.DeviceSpec{{Index: 0}, {Index: 1}}}

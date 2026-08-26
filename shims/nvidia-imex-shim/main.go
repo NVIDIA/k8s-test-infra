@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// imex-nogpu-shim is a drop-in argv wrapper for the real `nvidia-imex`
+// nvidia-imex-shim is a drop-in argv wrapper for the real `nvidia-imex`
 // daemon. The upstream compute-domain-daemon hard-codes the daemon
 // command line (`nvidia-imex -c /imexd/imexd.cfg`) with no
 // flag passthrough, so GPU-less environments install this shim at
@@ -60,7 +60,7 @@ func buildArgv(realPath string, args []string) []string {
 func main() {
 	bin := realBin()
 	if err := syscall.Exec(bin, buildArgv(bin, os.Args[1:]), os.Environ()); err != nil {
-		fmt.Fprintf(os.Stderr, "imex-nogpu-shim: exec %s: %v\n", bin, err)
+		fmt.Fprintf(os.Stderr, "nvidia-imex-shim: exec %s: %v\n", bin, err)
 		os.Exit(127)
 	}
 }

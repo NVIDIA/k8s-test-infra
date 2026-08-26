@@ -1,7 +1,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package render
+package imex
 
 import (
 	"regexp"
@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,13 +61,13 @@ func TestProcDevicesOutputSatisfiesTheDRAParser(t *testing.T) {
 	out, err := ProcDevices(realisticProcDevices, 235, 236)
 	require.NoError(t, err)
 
-	major, ok := draParserOracle(t, out, IMEXChannelsDeviceName)
+	major, ok := draParserOracle(t, out, imexChannelsDeviceName)
 	require.True(t, ok, "the DRA driver's own regex must find the IMEX channels entry")
-	assert.Equal(t, 235, major)
+	require.Equal(t, 235, major)
 
-	capsMajor, ok := draParserOracle(t, out, CapsDeviceName)
+	capsMajor, ok := draParserOracle(t, out, capsDeviceName)
 	require.True(t, ok, "the DRA driver's own regex must also find the nvidia-caps entry")
-	assert.Equal(t, 236, capsMajor)
+	require.Equal(t, 236, capsMajor)
 }
 
 // The failure this reproduces is the one observed on the POC cluster:
@@ -76,9 +75,9 @@ func TestProcDevicesOutputSatisfiesTheDRAParser(t *testing.T) {
 func TestUnmodifiedProcDevicesFailsTheDRAParser(t *testing.T) {
 	t.Parallel()
 
-	_, ok := draParserOracle(t, realisticProcDevices, IMEXChannelsDeviceName)
+	_, ok := draParserOracle(t, realisticProcDevices, imexChannelsDeviceName)
 
-	assert.False(t, ok,
+	require.False(t, ok,
 		"an unmodified /proc/devices must NOT satisfy the parser, otherwise this test proves nothing")
 }
 
@@ -90,12 +89,12 @@ func TestEntriesLandBeforeTheBlockDevicesSection(t *testing.T) {
 	out, err := ProcDevices(realisticProcDevices, 235, 236)
 	require.NoError(t, err)
 
-	imexAt := strings.Index(out, IMEXChannelsDeviceName)
+	imexAt := strings.Index(out, imexChannelsDeviceName)
 	blockAt := strings.Index(out, "Block devices:")
 	require.NotEqual(t, -1, imexAt)
 	require.NotEqual(t, -1, blockAt)
 
-	assert.Less(t, imexAt, blockAt,
+	require.Less(t, imexAt, blockAt,
 		"the IMEX entry must precede the Block devices header or the parser will not match it")
 }
 
@@ -106,7 +105,7 @@ func TestProcDevicesPreservesExistingEntries(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, keep := range []string{"1 mem", "4 tty", "136 pts", "7 loop", "259 blkext"} {
-		assert.Contains(t, out, keep, "existing entry %q must survive rendering", keep)
+		require.Contains(t, out, keep, "existing entry %q must survive rendering", keep)
 	}
 }
 
@@ -120,8 +119,8 @@ func TestProcDevicesIsIdempotent(t *testing.T) {
 	twice, err := ProcDevices(once, 235, 236)
 	require.NoError(t, err)
 
-	assert.Equal(t, once, twice, "rendering an already-rendered file must be a no-op")
-	assert.Equal(t, 1, strings.Count(twice, IMEXChannelsDeviceName),
+	require.Equal(t, once, twice, "rendering an already-rendered file must be a no-op")
+	require.Equal(t, 1, strings.Count(twice, imexChannelsDeviceName),
 		"the IMEX entry must appear exactly once")
 }
 
@@ -135,10 +134,10 @@ func TestProcDevicesReplacesAnExistingEntryWithADifferentMajor(t *testing.T) {
 	second, err := ProcDevices(first, 240, 241)
 	require.NoError(t, err)
 
-	major, ok := draParserOracle(t, second, IMEXChannelsDeviceName)
+	major, ok := draParserOracle(t, second, imexChannelsDeviceName)
 	require.True(t, ok)
-	assert.Equal(t, 240, major, "the major must be updated, not duplicated")
-	assert.Equal(t, 1, strings.Count(second, IMEXChannelsDeviceName))
+	require.Equal(t, 240, major, "the major must be updated, not duplicated")
+	require.Equal(t, 1, strings.Count(second, imexChannelsDeviceName))
 }
 
 func TestProcDevicesRejectsInputWithoutBlockDevicesSection(t *testing.T) {
@@ -147,7 +146,7 @@ func TestProcDevicesRejectsInputWithoutBlockDevicesSection(t *testing.T) {
 	_, err := ProcDevices("Character devices:\n  1 mem\n", 235, 236)
 
 	require.Error(t, err, "without a Block devices section the DRA parser can never match")
-	assert.Contains(t, err.Error(), "Block devices")
+	require.Contains(t, err.Error(), "Block devices")
 }
 
 func TestProcDevicesRejectsInputWithoutCharacterDevicesSection(t *testing.T) {
@@ -156,7 +155,7 @@ func TestProcDevicesRejectsInputWithoutCharacterDevicesSection(t *testing.T) {
 	_, err := ProcDevices("Block devices:\n  7 loop\n", 235, 236)
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Character devices")
+	require.Contains(t, err.Error(), "Character devices")
 }
 
 func TestProcDevicesRejectsOutOfRangeMajors(t *testing.T) {
@@ -175,7 +174,7 @@ func TestProcDevicesRejectsOutOfRangeMajors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := ProcDevices(realisticProcDevices, tc.imex, tc.caps)
-			assert.Error(t, err, "major pair (%d,%d) must be rejected", tc.imex, tc.caps)
+			require.Error(t, err, "major pair (%d,%d) must be rejected", tc.imex, tc.caps)
 		})
 	}
 }
@@ -188,5 +187,5 @@ func TestProcDevicesRejectsAMajorAlreadyInUse(t *testing.T) {
 	_, err := ProcDevices(realisticProcDevices, 10, 236)
 
 	require.Error(t, err, "major 10 is already 'misc' in the fixture and must be refused")
-	assert.Contains(t, err.Error(), "10")
+	require.Contains(t, err.Error(), "10")
 }

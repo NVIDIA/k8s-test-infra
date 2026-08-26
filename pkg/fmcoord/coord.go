@@ -14,9 +14,9 @@
 // Package fmcoord implements the marker-file coordination protocol used by
 // the fake nvidia-fabricmanager binaries (cmd/fake-fabricmanager/{daemon,ctl})
 // to simulate fabric-manager readiness on KIND clusters without real NVSwitch
-// hardware. It mirrors pkg/imexcoord, but fabric manager is a node-local
-// service (it manages the NVSwitches on its own node), so readiness is a
-// single node-local marker rather than a multi-peer set.
+// hardware. Fabric manager is a node-local service (it manages the NVSwitches
+// on its own node), so readiness is a single node-local marker rather than a
+// multi-peer set.
 //
 // Protocol:
 //
