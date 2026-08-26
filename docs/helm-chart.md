@@ -1281,7 +1281,9 @@ recover.
 
 Each `nvidia-smi` invocation is a fresh process whose call counter starts at
 0, so a narrow query like `--query-gpu=ecc.errors.uncorrected.aggregate.total`
-will only ever issue **one** guarded call per GPU per invocation. To see the
+will only ever issue **one** guarded call per GPU per invocation. (Within a
+single process the counter, like the rest of the device state, also survives
+`nvmlShutdown()` followed by `nvmlInit()`.) To see the
 failure surface from a single short command set `after_calls: 1`, or use a
 richer query that issues several guarded calls per GPU (e.g. `nvidia-smi -q`)
 so the trigger fires within one process.

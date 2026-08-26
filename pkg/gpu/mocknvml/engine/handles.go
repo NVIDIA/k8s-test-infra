@@ -37,6 +37,14 @@ static void freeHandle(void* handle) {
     free(handle);
 }
 
+// retireHandle invalidates a handle block without freeing it, so its
+// address can never be handed out again for a later registration.
+static void retireHandle(void* handle) {
+    if (handle) {
+        ((HandleBlock*)handle)->magic = 0;
+    }
+}
+
 // isValidHandle checks if the handle has the correct magic number.
 // Returns 1 if valid, 0 otherwise.
 static int isValidHandle(void* handle) {
@@ -85,6 +93,13 @@ import (
 type HandleTable struct {
 	devices map[unsafe.Pointer]nvml.Device
 	reverse map[nvml.Device]unsafe.Pointer
+	// retired holds blocks handed out before a Clear. They are kept
+	// allocated (with the magic cleared) instead of freed so that a later
+	// Register can never reuse their address: a client holding a handle from
+	// before nvmlShutdown must keep getting ERROR_INVALID_ARGUMENT, not
+	// alias whichever device happened to get the recycled block. Blocks are
+	// tiny and only accumulate once per Shutdown/Init cycle.
+	retired []unsafe.Pointer
 	mu      sync.RWMutex
 }
 
@@ -176,16 +191,35 @@ func (ht *HandleTable) HandleFor(dev nvml.Device) unsafe.Pointer {
 	return ht.reverse[dev]
 }
 
-// Clear removes all entries from the handle table and frees allocated memory.
+// Clear invalidates every registered handle. The C blocks are retired, not
+// freed (see HandleTable.retired), so handles issued before the Clear stay
+// invalid for the lifetime of the table even after new registrations.
 func (ht *HandleTable) Clear() {
 	ht.mu.Lock()
 	defer ht.mu.Unlock()
 
-	// Free all allocated C handle blocks
+	for handle := range ht.devices {
+		C.retireHandle(handle)
+		ht.retired = append(ht.retired, handle)
+	}
+
+	ht.devices = make(map[unsafe.Pointer]nvml.Device)
+	ht.reverse = make(map[nvml.Device]unsafe.Pointer)
+}
+
+// Free releases every block, live and retired. Only for tests and teardown;
+// any handle a client still holds becomes a dangling pointer afterwards.
+func (ht *HandleTable) Free() {
+	ht.mu.Lock()
+	defer ht.mu.Unlock()
+
 	for handle := range ht.devices {
 		C.freeHandle(handle)
 	}
-
+	for _, handle := range ht.retired {
+		C.freeHandle(handle)
+	}
+	ht.retired = nil
 	ht.devices = make(map[unsafe.Pointer]nvml.Device)
 	ht.reverse = make(map[nvml.Device]unsafe.Pointer)
 }

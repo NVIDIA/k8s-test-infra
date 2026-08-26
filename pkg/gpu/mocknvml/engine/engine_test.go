@@ -66,8 +66,10 @@ func TestEngine_InitShutdown(t *testing.T) {
 	// Shutdown
 	ret = e.Shutdown()
 	require.Equal(t, nvml.SUCCESS, ret, "Shutdown failed")
-	require.Nil(t, e.server, "Server should be nil after shutdown")
+	require.NotNil(t, e.server, "Device state must be kept across shutdown")
 	require.Equal(t, 0, e.initCount, "Expected initCount 0")
+	_, ret = e.DeviceGetCount()
+	require.Equal(t, nvml.ERROR_UNINITIALIZED, ret, "API must report uninitialized after shutdown")
 }
 
 func TestEngine_MultipleInit(t *testing.T) {
@@ -95,8 +97,79 @@ func TestEngine_MultipleInit(t *testing.T) {
 	// Second shutdown (should uninitialize)
 	ret = e.Shutdown()
 	require.Equal(t, nvml.SUCCESS, ret, "Second shutdown failed")
-	require.Nil(t, e.server, "Server should be nil after final shutdown")
+	require.NotNil(t, e.server, "Device state must be kept across final shutdown")
 	require.Equal(t, 0, e.initCount, "Expected initCount 0")
+}
+
+// A full Shutdown followed by Init must keep the device objects (and with
+// them failure-injection state) while invalidating previously issued
+// handles, mirroring hardware state surviving nvmlShutdown/nvmlInit.
+func TestEngine_DeviceStatePersistsAcrossShutdownInit(t *testing.T) {
+	config := &Config{
+		NumDevices:    2,
+		DriverVersion: "550.54.15",
+	}
+	e := NewEngine(config)
+	require.Equal(t, nvml.SUCCESS, e.Init())
+
+	handle, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	server := e.server
+	dev := e.LookupDevice(handle)
+	require.NotNil(t, dev)
+
+	require.Equal(t, nvml.SUCCESS, e.Shutdown())
+	require.Equal(t, 0, e.initCount)
+	require.Equal(t, InvalidDeviceInstance, e.LookupDevice(handle), "handles must not survive shutdown")
+
+	require.Equal(t, nvml.SUCCESS, e.Init())
+	defer func() { _ = e.Shutdown() }()
+	require.Equal(t, 1, e.initCount)
+	require.Same(t, server, e.server, "the same device set must be reused after re-init")
+
+	handle2, ret := e.DeviceGetHandleByIndex(0)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Same(t, dev, e.LookupDevice(handle2), "device 0 must be the same object across Shutdown/Init")
+	require.NotEqual(t, handle, handle2, "a retired handle address must not be reissued")
+	require.Equal(t, InvalidDeviceInstance, e.LookupDevice(handle), "the pre-shutdown handle must stay invalid after re-init")
+}
+
+// The behaviour the persistence buys: a failure tripped in one init cycle
+// (as during a client's device discovery) must still deliver its Xid in the
+// next one (the client's event-wait loop).
+func TestEngine_TrippedFailureSurvivesShutdownInit(t *testing.T) {
+	config := &Config{
+		NumDevices:    1,
+		DriverVersion: "550.54.15",
+	}
+	e := NewEngine(config)
+	require.Equal(t, nvml.SUCCESS, e.Init())
+
+	dev := e.server.configurableDevices[0]
+	// Apply any pending override generation first so the injector installed
+	// below is not reconciled away by the first guarded call.
+	dev.refresh()
+	dev.failure.Store(newFailureInjector(&FailureInjectionConfig{
+		Mode: FailureModeECCUncorrectable,
+		Xid:  &XidErrorConfig{Code: 79},
+	}))
+
+	_, ret := dev.GetMemoryInfo() // guarded call: trips the injector
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.True(t, dev.failureInjector().Triggered(), "guarded call must trip the injector")
+
+	require.Equal(t, nvml.SUCCESS, e.Shutdown())
+	require.Equal(t, nvml.SUCCESS, e.Init())
+	defer func() { _ = e.Shutdown() }()
+
+	require.True(t, e.server.configurableDevices[0].failureInjector().Triggered(),
+		"tripped state must survive Shutdown/Init")
+	handle, xid, ok := e.PendingXidEvent()
+	require.True(t, ok, "the Xid tripped before shutdown must still be deliverable after re-init")
+	require.Equal(t, uint64(79), xid)
+	require.Same(t, dev, e.LookupDevice(handle))
+	_, _, ok = e.PendingXidEvent()
+	require.False(t, ok, "each Xid is delivered once")
 }
 
 func TestEngine_ShutdownWithoutInit(t *testing.T) {

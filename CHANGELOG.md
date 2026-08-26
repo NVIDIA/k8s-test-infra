@@ -197,6 +197,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejected. (#719)
 
 ### Fixed
+- mocknvml: Xid critical-error events are now attributed to the whole GPU the
+  way real NVML does — `nvmlEventData_t.gpuInstanceId`/`computeInstanceId`
+  carry the `0xFFFFFFFF` "not a MIG instance" sentinel instead of `0`/`0`,
+  which consumers (e.g. the DRA driver's health monitor) treat as MIG GI 0 /
+  CI 0 and drop on a GPU without MIG enabled.
+- mocknvml: device state (tripped failure injection, ECC counters, undelivered
+  Xid events) now survives a full `nvmlShutdown()`/`nvmlInit()` cycle, as it
+  does on real hardware. Previously the devices were recreated on re-init, so
+  a failure tripped during one init cycle was silently forgotten before a
+  client that inits NVML again (e.g. for an event-set wait loop) could observe
+  it. This also means the `after_calls` counter and the seeded `probability`
+  roll sequence continue across a re-init within one process rather than
+  starting over. Handles issued before the shutdown remain invalid, and their
+  addresses are never reused for new handles.
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
   uses (`00000000:07:00.0`, `NVML_DEVICE_PCI_BUS_ID_FMT`) while `busIdLegacy`
   keeps the 4-digit one (`0000:07:00.0`). Both were filled with the profile's
