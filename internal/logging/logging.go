@@ -67,24 +67,31 @@ type Config struct {
 
 // NewLogger returns a slog.Logger writing to stdout.
 func NewLogger(cfg Config) *slog.Logger {
-	var slogLevel slog.Level
+	var lvl slog.Level
+
 	switch cfg.Level {
 	case LevelDebug:
-		slogLevel = slog.LevelDebug
+		lvl = slog.LevelDebug
 	case LevelWarn:
-		slogLevel = slog.LevelWarn
+		lvl = slog.LevelWarn
 	case LevelError:
-		slogLevel = slog.LevelError
+		lvl = slog.LevelError
 	default:
-		slogLevel = slog.LevelInfo
+		lvl = slog.LevelInfo
 	}
 
-	opts := &slog.HandlerOptions{Level: slogLevel}
-	var handler slog.Handler
+	opts := &slog.HandlerOptions{Level: lvl}
+	var h slog.Handler
+
 	if cfg.Format == FormatPlain {
-		handler = slog.NewTextHandler(os.Stdout, opts)
+		h = slog.NewTextHandler(os.Stdout, opts)
 	} else {
-		handler = slog.NewJSONHandler(os.Stdout, opts)
+		h = slog.NewJSONHandler(os.Stdout, opts)
 	}
-	return slog.New(handler)
+
+	l := slog.New(h)
+
+	slog.SetDefault(l)
+
+	return l
 }
