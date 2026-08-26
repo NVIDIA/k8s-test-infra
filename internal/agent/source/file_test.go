@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
 )
 
@@ -159,4 +160,130 @@ devices:
 	require.Equal(t, "0000:1B:00.0", state.Devices[1].PCIBusID)
 	require.Equal(t, uint32(0x234010DE), state.Devices[1].PCIDeviceID)
 	require.Equal(t, uint32(0x181810DE), state.Devices[1].PCISubsystemID)
+}
+
+const helmProfileGlob = "../../../deployments/nvml-mock/helm/nvml-mock/profiles/*.yaml"
+
+// The runtime ConfigMap is rendered from the Helm profiles (see
+// nvml-mock.gpuConfigBase in _helpers.tpl), and only those carry an
+// infiniband block — the pkg/gpu/mocknvml/configs copies do not.
+func TestCompileState_NetworkResolvedForEveryProfile(t *testing.T) {
+	profiles, err := filepath.Glob(helmProfileGlob)
+	require.NoError(t, err)
+	require.NotEmpty(t, profiles, "no Helm profiles found")
+
+	for _, path := range profiles {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			state, err := compileState(data)
+			require.NoError(t, err)
+
+			net := state.NodeShape.Network
+			if !net.IBEnabled {
+				require.Equal(t, agent.NetworkShape{}, net, "disabled IB must leave a zero shape")
+				return
+			}
+
+			// Every field the renderer needs must be resolved here, so no
+			// simulator downstream has to re-apply defaults.
+			require.Positive(t, net.HCACount)
+			require.NotEmpty(t, net.HCAType)
+			require.NotEmpty(t, net.GUIDPrefix)
+			require.NotEmpty(t, net.LinkLayer)
+			require.NotEmpty(t, net.PortState)
+			require.NotEmpty(t, net.PhysState)
+			require.Positive(t, net.RateGbps)
+		})
+	}
+}
+
+func TestCompileState_NetworkFromProfile(t *testing.T) {
+	data, err := os.ReadFile("../../../deployments/nvml-mock/helm/nvml-mock/profiles/gb200.yaml")
+	require.NoError(t, err)
+
+	state, err := compileState(data)
+	require.NoError(t, err)
+
+	net := state.NodeShape.Network
+	require.True(t, net.IBEnabled)
+	require.Equal(t, state.NodeShape.NumGPUs, net.HCACount, "gb200 sets hcas_per_gpu: 1")
+	require.Equal(t, "MT4129", net.HCAType)
+	require.Equal(t, "28.40.1000", net.FWVersion)
+	require.Equal(t, "MT_0000000838", net.BoardID)
+	require.Equal(t, "InfiniBand", net.LinkLayer)
+	require.Equal(t, 400, net.RateGbps)
+	require.Equal(t, "ACTIVE", net.PortState)
+	require.Equal(t, "LinkUp", net.PhysState)
+	require.Equal(t, "9b88c2:0300:ab", net.GUIDPrefix)
+	require.Equal(t, "{node_name} mlx5_{idx}", net.NodeDescTemplate)
+}
+
+func TestCompileState_NetworkDisabled(t *testing.T) {
+	// t4 sets infiniband.enabled: false; the mocknvml config omits the block
+	// entirely. Both must compile to the same zero shape.
+	cases := []struct{ name, path string }{
+		{"explicitly disabled", "../../../deployments/nvml-mock/helm/nvml-mock/profiles/t4.yaml"},
+		{"block absent", "../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			data, err := os.ReadFile(c.path)
+			require.NoError(t, err)
+
+			state, err := compileState(data)
+			require.NoError(t, err)
+			require.False(t, state.NodeShape.Network.IBEnabled)
+			require.Equal(t, agent.NetworkShape{}, state.NodeShape.Network)
+		})
+	}
+}
+
+func TestCompileNetwork_HCACount(t *testing.T) {
+	cases := []struct {
+		name    string
+		yaml    string
+		numGPUs int
+		want    int
+	}{
+		{
+			name:    "derived from hcas_per_gpu",
+			yaml:    "infiniband:\n  enabled: true\n  hcas_per_gpu: 2\n",
+			numGPUs: 4,
+			want:    8,
+		},
+		{
+			// An explicit count wins: rail-optimized nodes pin HCAs independently
+			// of how many GPUs the profile happens to expose.
+			name:    "hca_count overrides the derived value",
+			yaml:    "infiniband:\n  enabled: true\n  hcas_per_gpu: 2\n  hca_count: 3\n",
+			numGPUs: 4,
+			want:    3,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			net, err := compileNetwork([]byte(c.yaml), c.numGPUs)
+			require.NoError(t, err)
+			require.Equal(t, c.want, net.HCACount)
+		})
+	}
+}
+
+// A minimal block must still compile to a renderable shape, matching what
+// render.Render would otherwise fill in via config.Infiniband.Defaults().
+func TestCompileNetwork_AppliesDefaults(t *testing.T) {
+	net, err := compileNetwork([]byte("infiniband:\n  enabled: true\n  hcas_per_gpu: 1\n"), 2)
+	require.NoError(t, err)
+
+	require.True(t, net.IBEnabled)
+	require.Equal(t, 2, net.HCACount)
+	require.NotEmpty(t, net.HCAType)
+	require.NotEmpty(t, net.FWVersion)
+	require.NotEmpty(t, net.GUIDPrefix)
+	require.NotEmpty(t, net.LinkLayer)
+	require.NotEmpty(t, net.PortState)
+	require.NotEmpty(t, net.PhysState)
+	require.Positive(t, net.RateGbps)
 }
