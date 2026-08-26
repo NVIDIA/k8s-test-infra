@@ -194,7 +194,7 @@ func Load(profilesDir, name string) (Profile, error) {
 		architecture: strings.ToLower(strings.TrimSpace(raw.DeviceDefaults.Architecture)),
 	}
 	p.applyOptionalDeviceDefaults(raw)
-	// render-pci-sysfs falls back to a flat single-root layout when a profile
+	// pcibus simulator falls back to a flat single-root layout when a profile
 	// declares no pcie_topology block, so an empty list still means 1 root.
 	p.pciRoots = len(raw.PCIeTopology.RootComplexes)
 	if p.pciRoots == 0 {
@@ -309,7 +309,7 @@ func (p Profile) ExpectedNV() int {
 // ExpectedPCIRoots is the number of distinct PCIe root complexes the rendered
 // /sys/bus/pci tree should span (len of pcie_topology.root_complexes, or 1 for
 // profiles with no explicit block). Mirrors the demo's EXPECTED_ROOTS: e.g.
-// a100/h100/b200/l40s -> 2, gb200/gb300 -> 4, t4 -> 1. A regression that
+// a100/h100/b200/l40s/gb200/gb300 -> 2, t4 -> 1. A regression that
 // collapsed every device onto one root would break NUMA-aware scheduling.
 func (p Profile) ExpectedPCIRoots() int { return p.pciRoots }
 

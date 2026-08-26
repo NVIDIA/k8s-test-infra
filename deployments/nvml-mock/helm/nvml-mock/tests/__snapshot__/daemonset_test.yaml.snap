@@ -37,8 +37,6 @@ should match snapshot with all overrides:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
-                - name: MOCK_NFD_PCI_LABEL
-                  value: "on"
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
@@ -62,7 +60,7 @@ should match snapshot with all overrides:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: nvml-mock-custom-ibping.gpu-system.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
+                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
@@ -153,6 +151,8 @@ should match snapshot with all overrides:
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
                   readOnly: true
+                - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+                  name: host-nfd-features
           nodeSelector:
             nvidia.com/gpu.present: "true"
           serviceAccountName: nvml-mock-custom
@@ -228,8 +228,6 @@ should match snapshot with b200 profile:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
-                - name: MOCK_NFD_PCI_LABEL
-                  value: "on"
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
@@ -249,7 +247,7 @@ should match snapshot with b200 profile:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
+                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
@@ -331,6 +329,8 @@ should match snapshot with b200 profile:
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
                   readOnly: true
+                - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+                  name: host-nfd-features
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 2
           tolerations:
@@ -380,7 +380,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: b521d8084a13dcabcdfdfb3d91eeb60da163e980aab6db65779b7c7d9723cde9
+            checksum/config: e320e5ab85f89b9678ceb8681b040d2cfd84ad50190566425a8772fe4c916221
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME
@@ -391,15 +391,13 @@ should match snapshot with default values:
                 - /scripts/entrypoint.sh
               env:
                 - name: GPU_COUNT
-                  value: "8"
+                  value: "4"
                 - name: DRIVER_VERSION
                   value: 570.124.06
                 - name: NODE_NAME
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
-                - name: MOCK_NFD_PCI_LABEL
-                  value: "on"
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
@@ -423,7 +421,7 @@ should match snapshot with default values:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
+                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
@@ -474,7 +472,7 @@ should match snapshot with default values:
                 - --shutdown-timeout=30s
               env:
                 - name: GPU_COUNT
-                  value: "8"
+                  value: "4"
                 - name: DRIVER_VERSION
                   value: 570.124.06
               image: ghcr.io/nvidia/nvml-mock:latest
@@ -507,6 +505,8 @@ should match snapshot with default values:
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
                   readOnly: true
+                - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+                  name: host-nfd-features
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 2
           tolerations:

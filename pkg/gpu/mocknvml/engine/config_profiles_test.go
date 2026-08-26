@@ -127,8 +127,10 @@ func TestLoadConfig_GB300Profile(t *testing.T) {
 	yamlCfg, err := LoadYAMLConfig(profilePath)
 	require.NoError(t, err, "Failed to load GB300 profile")
 
-	// 8 GPUs: 4 Grace-Blackwell Ultra superchips × 2 B300 GPUs each.
-	require.Len(t, yamlCfg.Devices, 8, "GB300 device count")
+	// 4 GPUs: one NVL72 compute tray, 2 Grace-Blackwell Ultra superchips × 2
+	// B300 GPUs each, which is what a real node reports (see
+	// tests/e2e/go/assertions/nvidiasmi/testdata/hardware/qx-gb300.xml).
+	require.Len(t, yamlCfg.Devices, 4, "GB300 device count")
 
 	require.Equal(t, "NVIDIA GB300 NVL", yamlCfg.DeviceDefaults.Name, "GB300 name")
 
@@ -177,8 +179,8 @@ func TestLoadConfig_AllProfilesConsistent(t *testing.T) {
 		{"A100", "a100.yaml", "ampere", 8, 0, 40, 8},
 		{"H100", "h100.yaml", "hopper", 9, 0, 80, 8},
 		{"B200", "b200.yaml", "blackwell", 10, 0, 192, 8},
-		{"GB200", "gb200.yaml", "blackwell", 10, 0, 192, 8},
-		{"GB300", "gb300.yaml", "blackwell", 10, 0, 288, 8},
+		{"GB200", "gb200.yaml", "blackwell", 10, 0, 192, 4},
+		{"GB300", "gb300.yaml", "blackwell", 10, 0, 288, 4},
 		{"L40S", "l40s.yaml", "ada_lovelace", 8, 9, 48, 8},
 		{"T4", "t4.yaml", "turing", 7, 5, 16, 4},
 	}

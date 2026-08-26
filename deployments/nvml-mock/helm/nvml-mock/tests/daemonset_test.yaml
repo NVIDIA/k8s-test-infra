@@ -125,13 +125,14 @@ tests:
           path: spec.template.spec.containers[0].lifecycle.preStop.exec.command
           value: ["/scripts/cleanup.sh"]
 
-  - it: should set default GPU_COUNT env var to 8
+  # The default profile is gb300, whose device list is one NVL72 compute tray.
+  - it: should set default GPU_COUNT env var to 4
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: GPU_COUNT
-            value: "8"
+            value: "4"
 
   - it: should set default DRIVER_VERSION for non-Blackwell profile
     set:
@@ -161,7 +162,7 @@ tests:
     set:
       gpu:
         profile: gb200
-        count: 8
+        count: 4
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -169,36 +170,18 @@ tests:
             name: DRIVER_VERSION
             value: "580.65.06"
 
-  # ── NFD pci-10de feature-file gate (nodeLabels.pciVendorPresent) ─────
-  # setup.sh and cleanup.sh both branch on MOCK_NFD_PCI_LABEL. They accept
-  # only "on"/"off" and abort the pod on anything else, so the exact string
-  # matters, not merely the presence of the variable. The value gates the
-  # feature FILE; NFD is what turns that file into the label.
-  - it: should enable the NFD pci-10de feature file by default
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: MOCK_NFD_PCI_LABEL
-            value: "on"
-
-  - it: should suppress the NFD pci-10de feature file when nodeLabels.pciVendorPresent=false
-    set:
-      nodeLabels:
-        pciVendorPresent: false
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: MOCK_NFD_PCI_LABEL
-            value: "off"
-
   # ── NFD features.d mount (nodeLabels.featuresDir) ────────────────────
-  # setup.sh writes the pci-10de feature file here instead of calling
-  # kubectl label. Without this mount the write silently lands inside the
-  # container and NFD never sees it, so the mount IS the contract.
+  # The node agent (containers[1]) writes the pci-10de feature file here.
+  # Without its mount the write lands inside the container and NFD never sees
+  # it, so that mount IS the contract; containers[0] mounts the same directory
+  # only so `kubectl exec` can read the file back.
   - it: should mount the NFD features.d host directory
     asserts:
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: host-nfd-features
+            mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
@@ -278,7 +261,7 @@ tests:
     set:
       gpu:
         profile: gb300
-        count: 8
+        count: 4
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -331,6 +314,22 @@ tests:
             value: "4"
 
   # ── GPU_COUNT derived from the profile devices list (count unset) ──────
+  #
+  # One case per device-list length the shipped profiles carry, so a derivation
+  # replaced by any single constant fails here. The 4-GPU profiles alone would
+  # all agree with a hardcoded 4.
+  - it: should derive GPU_COUNT from the h100 profile devices list (8)
+    set:
+      gpu:
+        profile: h100
+        count: ""
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GPU_COUNT
+            value: "8"
+
   - it: should derive GPU_COUNT from the t4 profile devices list (4)
     set:
       gpu:
@@ -343,7 +342,7 @@ tests:
             name: GPU_COUNT
             value: "4"
 
-  - it: should derive GPU_COUNT from the gb200 profile devices list (8)
+  - it: should derive GPU_COUNT from the gb200 profile devices list (4)
     set:
       gpu:
         profile: gb200
@@ -353,7 +352,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: GPU_COUNT
-            value: "8"
+            value: "4"
 
   - it: should mount all required volumes
     asserts:
@@ -627,7 +626,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: LD_PRELOAD
-            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
+            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1
       - contains:
           path: spec.template.spec.containers[0].env
           content:

@@ -132,12 +132,8 @@
     "nodeLabels": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Node labels nvml-mock causes to exist, reversed by the preStop cleanup.sh.",
+      "description": "Node labels nvml-mock causes to exist. setup.sh writes nvidia.com/gpu.present directly; NFD derives pci-10de.present from the node agent's feature file.",
       "properties": {
-        "pciVendorPresent": {
-          "type": "boolean",
-          "description": "Cause feature.node.kubernetes.io/pci-10de.present=true to exist on the node by writing an NFD feature file; NFD creates the label. Set false when something else already supplies that key. NFD's PCI source cannot derive it as deployed — nfd-worker reads a link-time-fixed /host-sys path, so the rendered PCI tree is not on a path it reads — but the tree itself is complete: given visibility, NFD derives this exact label. Typed as a boolean here because the DaemonSet renders it with `ternary`, which rejects a string with a template error rather than silently treating \"false\" as true."
-        },
         "featuresDir": {
           "type": "string",
           "minLength": 1,

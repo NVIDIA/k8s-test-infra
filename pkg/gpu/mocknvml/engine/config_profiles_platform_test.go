@@ -39,7 +39,7 @@ var gracePlatformProfiles = map[string]bool{
 // distinct per GPU so a physical location can be derived per device. Loading
 // through Config.GetDeviceConfig is what makes the distinctness meaningful —
 // that is the merge path a device's getters read, and a shared PlatformConfig
-// pointer would collapse all eight module ids onto whichever merged last.
+// pointer would collapse every module id onto whichever merged last.
 func TestProfilePlatformIdentity(t *testing.T) {
 	for file, grace := range gracePlatformProfiles {
 		t.Run(file, func(t *testing.T) {

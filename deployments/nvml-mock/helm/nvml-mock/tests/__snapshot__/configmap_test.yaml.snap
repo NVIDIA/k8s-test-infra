@@ -1045,7 +1045,7 @@ should match snapshot with default gb300 profile:
             chassis_serial_number: "1822725100300"
             slot_number: 26
             tray_index: 16
-            host_id: 1                      # first of the tray's two OS domains
+            host_id: 1                      # the tray's OS domain; all its GPUs report it
             peer_type: "switch_connected"   # peers reached through the NVSwitch trays
 
           # ---------------------------------------------------------------------------
@@ -1368,89 +1368,58 @@ should match snapshot with default gb300 profile:
 
         # =============================================================================
         # Device-specific overrides
-        # GB300 NVL72 has 72 GPUs, but we define 8 for testing (4 superchip trays,
-        # each with 1 Grace CPU + 2 B300 GPUs, matching the GB200 layout).
+        #
+        # Four GPUs, because that is what one GB300 NVL72 compute tray presents to one
+        # OS domain: two Grace-Blackwell Ultra superchips, so 2 Grace CPUs and 4 B300
+        # GPUs. The rack's 72 GPUs are 18 such trays, and nvidia-smi runs per node —
+        # see tests/e2e/go/assertions/nvidiasmi/testdata/hardware/qx-gb300.xml, which
+        # reports 4 attached GPUs sharing one tray, slot and chassis.
+        #
+        # Two properties of that capture are deliberately reproduced here, because a
+        # consumer that assumes them away breaks on real hardware: the two GPUs of a
+        # superchip report the SAME board serial, and module_id does not follow the
+        # device index (the capture reports 2, 1, 4, 3 across devices 0..3).
         # =============================================================================
         devices:
           - index: 0
             uuid: "GPU-b300b300-0000-0000-0000-000000000000"
-            serial: "1573041103700"
+            serial: "1573041103700"         # superchip board serial, shared with GPU 1
             pci:
               bus_id: "0000:0A:00.0"
             minor_number: 0
             grace_cpu_pair: 0               # Paired with Grace CPU 0
             platform:
-              module_id: 1                  # ID of this GPU within the node
+              module_id: 2                  # ID of this GPU within the node
 
           - index: 1
             uuid: "GPU-b300b300-0000-0000-0000-000000000001"
-            serial: "1573041103701"
+            serial: "1573041103700"
             pci:
               bus_id: "0000:0B:00.0"
             minor_number: 1
             grace_cpu_pair: 0               # Same superchip as GPU 0
             platform:
-              module_id: 2
+              module_id: 1
 
           - index: 2
             uuid: "GPU-b300b300-0000-0000-0000-000000000002"
-            serial: "1573041103702"
+            serial: "1573041103701"         # second superchip, shared with GPU 3
             pci:
               bus_id: "0000:4A:00.0"
             minor_number: 2
             grace_cpu_pair: 1
             platform:
-              module_id: 3
+              module_id: 4
 
           - index: 3
             uuid: "GPU-b300b300-0000-0000-0000-000000000003"
-            serial: "1573041103703"
+            serial: "1573041103701"
             pci:
               bus_id: "0000:4B:00.0"
             minor_number: 3
             grace_cpu_pair: 1
             platform:
-              module_id: 4
-
-          - index: 4
-            uuid: "GPU-b300b300-0000-0000-0000-000000000004"
-            serial: "1573041103704"
-            pci:
-              bus_id: "0000:8A:00.0"
-            minor_number: 4
-            grace_cpu_pair: 2
-            platform:
-              module_id: 5
-
-          - index: 5
-            uuid: "GPU-b300b300-0000-0000-0000-000000000005"
-            serial: "1573041103705"
-            pci:
-              bus_id: "0000:8B:00.0"
-            minor_number: 5
-            grace_cpu_pair: 2
-            platform:
-              module_id: 6
-
-          - index: 6
-            uuid: "GPU-b300b300-0000-0000-0000-000000000006"
-            serial: "1573041103706"
-            pci:
-              bus_id: "0000:CA:00.0"
-            minor_number: 6
-            grace_cpu_pair: 3
-            platform:
-              module_id: 7
-
-          - index: 7
-            uuid: "GPU-b300b300-0000-0000-0000-000000000007"
-            serial: "1573041103707"
-            pci:
-              bus_id: "0000:CB:00.0"
-            minor_number: 7
-            grace_cpu_pair: 3
-            platform:
-              module_id: 8
+              module_id: 3
 
         # =============================================================================
         # NVLink topology - GB300 uses NVLink 5.0 (same fabric as GB200)
@@ -1497,7 +1466,7 @@ should match snapshot with default gb300 profile:
         # PCIe topology (consumed by render-pci-sysfs to materialize
         # /sys/bus/pci/devices/<bdf> -> ../../../devices/pciDDDD:BB/<bdf> symlinks
         # and per-device numa_node files). Mirrors the GB300 NVL superchip layout:
-        # one PCI root complex per Grace+2×B300 tray, NUMA-aligned per tray.
+        # one PCI root complex per Grace+2×B300 superchip, NUMA-aligned per superchip.
         # =============================================================================
         pcie_topology:
           root_complexes:
@@ -1511,16 +1480,6 @@ should match snapshot with default gb300 profile:
               devices:
                 - "0000:4A:00.0"
                 - "0000:4B:00.0"
-            - id: "pci0000:80"
-              numa_node: 2
-              devices:
-                - "0000:8A:00.0"
-                - "0000:8B:00.0"
-            - id: "pci0000:c0"
-              numa_node: 3
-              devices:
-                - "0000:CA:00.0"
-                - "0000:CB:00.0"
     kind: ConfigMap
     metadata:
       labels:
@@ -1614,7 +1573,7 @@ should match snapshot with gb200 profile:
             chassis_serial_number: "1822725100200"
             slot_number: 21
             tray_index: 11
-            host_id: 1                      # first of the tray's two OS domains
+            host_id: 1                      # the tray's OS domain; all its GPUs report it
             peer_type: "switch_connected"   # peers reached through the NVSwitch trays
 
           # ---------------------------------------------------------------------------
@@ -1935,89 +1894,58 @@ should match snapshot with gb200 profile:
 
         # =============================================================================
         # Device-specific overrides
-        # GB200 NVL72 has 72 GPUs, but we'll define 8 for testing
-        # In a real GB200 system, GPUs are paired in superchips with Grace CPUs
+        #
+        # Four GPUs, because that is what one GB200 NVL72 compute tray presents to one
+        # OS domain: two Grace-Blackwell superchips, so 2 Grace CPUs and 4 B200 GPUs.
+        # The rack's 72 GPUs are 18 such trays, and nvidia-smi runs per node — see
+        # tests/e2e/go/assertions/nvidiasmi/testdata/hardware/qx-gb200.xml, which
+        # reports 4 attached GPUs sharing one tray, slot and chassis.
+        #
+        # Two properties of that capture are deliberately reproduced here, because a
+        # consumer that assumes them away breaks on real hardware: the two GPUs of a
+        # superchip report the SAME board serial, and module_id does not follow the
+        # device index (the capture reports 2, 1, 4, 3 across devices 0..3).
         # =============================================================================
         devices:
           - index: 0
             uuid: "GPU-b200b200-0000-0000-0000-000000000000"
-            serial: "1562849103700"
+            serial: "1562849103700"         # superchip board serial, shared with GPU 1
             pci:
               bus_id: "0000:0A:00.0"
             minor_number: 0
             grace_cpu_pair: 0               # Paired with Grace CPU 0
             platform:
-              module_id: 1                  # ID of this GPU within the node
+              module_id: 2                  # ID of this GPU within the node
 
           - index: 1
             uuid: "GPU-b200b200-0000-0000-0000-000000000001"
-            serial: "1562849103701"
+            serial: "1562849103700"
             pci:
               bus_id: "0000:0B:00.0"
             minor_number: 1
             grace_cpu_pair: 0               # Same superchip as GPU 0
             platform:
-              module_id: 2
+              module_id: 1
 
           - index: 2
             uuid: "GPU-b200b200-0000-0000-0000-000000000002"
-            serial: "1562849103702"
+            serial: "1562849103701"         # second superchip, shared with GPU 3
             pci:
               bus_id: "0000:4A:00.0"
             minor_number: 2
             grace_cpu_pair: 1
             platform:
-              module_id: 3
+              module_id: 4
 
           - index: 3
             uuid: "GPU-b200b200-0000-0000-0000-000000000003"
-            serial: "1562849103703"
+            serial: "1562849103701"
             pci:
               bus_id: "0000:4B:00.0"
             minor_number: 3
             grace_cpu_pair: 1
             platform:
-              module_id: 4
-
-          - index: 4
-            uuid: "GPU-b200b200-0000-0000-0000-000000000004"
-            serial: "1562849103704"
-            pci:
-              bus_id: "0000:8A:00.0"
-            minor_number: 4
-            grace_cpu_pair: 2
-            platform:
-              module_id: 5
-
-          - index: 5
-            uuid: "GPU-b200b200-0000-0000-0000-000000000005"
-            serial: "1562849103705"
-            pci:
-              bus_id: "0000:8B:00.0"
-            minor_number: 5
-            grace_cpu_pair: 2
-            platform:
-              module_id: 6
-
-          - index: 6
-            uuid: "GPU-b200b200-0000-0000-0000-000000000006"
-            serial: "1562849103706"
-            pci:
-              bus_id: "0000:CA:00.0"
-            minor_number: 6
-            grace_cpu_pair: 3
-            platform:
-              module_id: 7
-
-          - index: 7
-            uuid: "GPU-b200b200-0000-0000-0000-000000000007"
-            serial: "1562849103707"
-            pci:
-              bus_id: "0000:CB:00.0"
-            minor_number: 7
-            grace_cpu_pair: 3
-            platform:
-              module_id: 8
+              module_id: 3
 
         # =============================================================================
         # NVLink topology - GB200 uses NVLink 5.0
@@ -2061,7 +1989,7 @@ should match snapshot with gb200 profile:
           node_desc_template: "{node_name} mlx5_{idx}"
 
         # =============================================================================
-        # PCIe topology - GB200, 4 Grace CPU pairs -> 4 NUMA nodes, 2 GPUs each.
+        # PCIe topology - GB200, 2 Grace CPUs -> 2 NUMA nodes, 2 GPUs each.
         # Consumed by `render-pci-sysfs` to materialize a fake /sys/bus/pci tree
         # under MOCK_PCI_ROOT. C consumers such as `lspci` resolve the PCIe root
         # complex through these symlinks. The NVIDIA DRA driver does NOT: it is a
@@ -2081,16 +2009,6 @@ should match snapshot with gb200 profile:
               devices:
                 - "0000:4A:00.0"
                 - "0000:4B:00.0"
-            - id: "pci0000:80"
-              numa_node: 2
-              devices:
-                - "0000:8A:00.0"
-                - "0000:8B:00.0"
-            - id: "pci0000:c0"
-              numa_node: 3
-              devices:
-                - "0000:CA:00.0"
-                - "0000:CB:00.0"
     kind: ConfigMap
     metadata:
       labels:

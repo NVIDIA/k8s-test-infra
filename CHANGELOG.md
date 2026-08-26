@@ -171,6 +171,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is now the pipeline's critical path.
 - Test pod manifests moved into a generic `pod.tpl.yaml` under
   `tests/e2e/go/framework/pod`, rendered from a `Spec` carrying only what varies.
+- The `gb200` and `gb300` profiles now model 4 GPUs per node over 2 PCI root
+  complexes, not 8 over 4. Both were written to the 8-GPU baseboard shape the
+  other profiles use, but an NVL72 rack reaches 72 GPUs as 18 compute trays of
+  4, and `nvidia-smi` runs per node: the real captures in
+  `tests/e2e/go/assertions/nvidiasmi/testdata/hardware/` report 4 attached GPUs
+  on one tray, in one slot, of one chassis. A node twice its real size inflates
+  every count a consumer derives from it — allocatable GPUs, GFD's
+  `nvidia.com/gpu.count`, ResourceSlice sizes — and invents a second pair of
+  Grace CPUs and NUMA nodes that no such node has. Two details the captures
+  report are now reproduced with it: the two GPUs of a superchip share one board
+  serial, and `module_id` does not follow the device index (2, 1, 4, 3 across
+  devices 0..3), so a consumer that assumes either breaks here rather than on
+  real hardware. `gpu.count` left empty still derives from the profile, so the
+  chart needs no change, but `gb300` is the chart default: a default install now
+  exposes 4 GPUs per node rather than 8. Set `gpu.profile` to one of the 8-GPU
+  baseboards, or `gpu.count` explicitly, for a larger node. The standalone and
+  node-wide demos now default the count from the selected profile's device list
+  instead of a hardcoded 8.
+
+### Removed
+- Chart value `nodeLabels.pciVendorPresent`. The NFD feature file behind
+  `feature.node.kubernetes.io/pci-10de.present` is now always written. A
+  leftover `--set nodeLabels.pciVendorPresent=false` is silently ignored, not
+  rejected. (#719)
 
 ### Fixed
 - `tilt up -- --compute-domain --dra` now brings the NVIDIA DRA driver up instead
