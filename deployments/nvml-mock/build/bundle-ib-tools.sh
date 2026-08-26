@@ -25,8 +25,8 @@ BIN_DIR="$BUNDLE_ROOT/bin"
 LIB_DIR="$BUNDLE_ROOT/lib64"
 
 # ELF tools only. ibstatus is a /bin/sh script: it has no RPATH to set and it
-# only runs in images that ship a shell, so the infiniband simulator picks it up
-# off PATH instead (see fallbackTools in internal/agent/infiniband/stage.go).
+# only runs in images that ship a shell, so the ib simulator picks it up
+# off PATH instead (see fallbackTools in internal/agent/ib/stage.go).
 IB_TOOLS="ibnetdiscover ibstat iblinkinfo sminfo ibping ibv_devinfo"
 
 # Libraries every glibc image already provides. Bundling these would put a

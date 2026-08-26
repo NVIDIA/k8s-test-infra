@@ -21,8 +21,8 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/gpudriver"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/ib"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/imex"
-	"github.com/NVIDIA/k8s-test-infra/internal/agent/infiniband"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/pcibus"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
@@ -120,7 +120,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		return errors.New("--config is required")
 	}
 
-	ibMode, err := infiniband.ParseMode(cmd.String("ib-mode"))
+	ibMode, err := ib.ParseMode(cmd.String("ib-mode"))
 	if err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 			gpudriver.New(),
 			pcibus.New(),
 			imex.New(),
-			infiniband.New(infiniband.Options{
+			ib.New(ib.Options{
 				Mode:    ibMode,
 				TCPPort: cmd.Int("ib-fabric-port"),
 				Fabric:  cmd.Bool("ib-fabric"),
