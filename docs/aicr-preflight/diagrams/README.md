@@ -21,18 +21,22 @@ colour alone to carry meaning.
 
 `coverage-map` and `preflight-timeline` carry counts from a real run. **If the catalog changes, these
 must be regenerated.** The source of truth is
-[`tests/aicr-preflight/catalog.yaml`](../../../tests/aicr-preflight/catalog.yaml) and the generated
-[report](../../../tests/aicr-preflight/results/2026-07-25-gb200-kind/coverage.md).
+[`tests/aicr-sweep/catalog.yaml`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/aicr-sweep/catalog.yaml), and the reports are generated
+from it by the harness in the same directory.
 
-Current values, from the 2026-07-25 run (provenance `sim`):
+Bucket split, from the catalog (21 checks):
 
-- 21 checks total: A 14, B 0, C 4, G 3
-- Today 66.7% (A / total), Mokka-specific 42.9% (9 / 21), reachable 81.0% ((A + G) / total)
-- Executed 9 of 21: 6 pass, 3 fail, 12 not run
-- Proxy back-test: 2 of 4 caught
+- A meaningful 16, B trivial 1, C hardware-dependent 4, G closable Mokka gap 0
+- **76% is the analytical ceiling** (A / total) if the full 14-component recipe stack deploys. It is
+  not a measured result, and the diagrams say so on their face.
+- **Measured on 2026-08-03: 14%**, three of 21 reaching a meaningful pass.
 
-Verify with:
+A second run against Mokka `57ef01659` on 2026-08-26 did not change the bucket split, because the
+catalog did not change. It moved the measured side: 53 of 210 check-results reached a verdict against
+13 in the first run. See `tests/aicr-sweep/FINDINGS-57ef016.md`.
+
+Verify the bucket counts with:
 
 ```bash
-grep -c 'bucket: A' ../../../tests/aicr-preflight/catalog.yaml
+grep -c 'bucket: A' tests/aicr-sweep/catalog.yaml
 ```
