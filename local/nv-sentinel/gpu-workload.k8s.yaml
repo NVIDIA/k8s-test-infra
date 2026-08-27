@@ -7,8 +7,9 @@
 # Ported from docs/demo/nv-sentinel/sample-workload.yaml without its
 # nvml-mock-gpu=true nodeSelector: requesting nvidia.com/gpu already restricts
 # this to the workers, since the GPU Operator's device plugin does not tolerate
-# the control-plane taint and so never advertises the resource there. That is
-# also why the shared cluster needs no GPU-worker label of its own.
+# the control-plane taint and so never advertises the resource there. The shared
+# cluster labels its workers mokka.nvidia.com/type=sgpu, but selecting on it here
+# would only duplicate what the resource request already guarantees.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

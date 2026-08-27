@@ -40,9 +40,10 @@ DCGM_DAEMONSET="nvidia-dcgm"
 ARMED_LOG="Watching DCGM field 153"
 DISARMED_LOG="missing slowdown TLIMIT threshold metadata"
 # The line the monitor logs during DCGM init with the GPU ids nv-hostengine
-# actually handed it, e.g. "dcgm gpu_id are [0, 1, ... 7]". It is the only
-# positive evidence in the log that anything is behind the watch, and both
-# checks above are blind without it: see the enumeration assertion below.
+# actually handed it, e.g. "dcgm gpu_id are [0 1 2 3]" on the default gb300
+# compute tray. It is the only positive evidence in the log that anything is
+# behind the watch, and both checks above are blind without it: see the
+# enumeration assertion below.
 ENUMERATED_LOG="dcgm gpu_id are"
 POLL_ATTEMPTS="${POLL_ATTEMPTS:-60}"
 POLL_INTERVAL_S="${POLL_INTERVAL_S:-5}"

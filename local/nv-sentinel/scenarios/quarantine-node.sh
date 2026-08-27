@@ -56,9 +56,11 @@ diagnose() {
 }
 
 # --- candidate nodes --------------------------------------------------------
-# Only nodes that actually advertise nvidia.com/gpu are candidates: the shared
-# cluster also runs an nvml-mock pod on the control-plane, but no GPU Operator
-# operand lands there, so it has no DCGM to detect anything with.
+# Only nodes that actually advertise nvidia.com/gpu are candidates. The mock now
+# runs on labelled workers only, so this filter and the node set coincide on the
+# shared cluster; it stays because the advertised resource is what the workload
+# schedules on, and a node with a mock driver but no GPU Operator operand has no
+# DCGM to detect anything with.
 gpu_nodes=$(kubectl get nodes -o go-template='{{range .items}}{{if index .status.allocatable "nvidia.com/gpu"}}{{.metadata.name}}{{"\n"}}{{end}}{{end}}')
 [[ -n "${gpu_nodes}" ]] \
   || fail "no node advertises nvidia.com/gpu; the GPU Operator's device plugin has not registered the mock GPUs yet"
