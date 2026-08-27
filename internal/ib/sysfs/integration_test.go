@@ -21,38 +21,11 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 	"github.com/stretchr/testify/require"
 )
 
 func TestIbstat_Integration(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("integration test requires linux")
-	}
-	ibstat, err := exec.LookPath("ibstat")
-	if err != nil {
-		t.Skip("ibstat not installed (apt-get install infiniband-diags)")
-	}
-	wd, err := os.Getwd()
-	require.NoError(t, err, "getwd")
-	shim := filepath.Join(wd, "..", "..", "..", "shims", "libibmock", "libibmocksys.so")
-	if _, err := os.Stat(shim); err != nil {
-		t.Skipf("shim not built: %v (run `make -C shims/libibmock`)", err)
-	}
-
-	root := t.TempDir()
-	err = Render(Options{
-		IB: config.Infiniband{
-			Enabled:   true,
-			HCAType:   "MT4129",
-			FWVersion: "28.39.2048",
-			RateGbps:  400,
-		},
-		GPUCount: 2,
-		NodeName: "test-node",
-		Output:   root,
-	})
-	require.NoError(t, err, "Render")
+	ibstat, shim, root := renderForTool(t, "ibstat", "infiniband-diags")
 
 	cmd := exec.Command(ibstat)
 	cmd.Env = append(os.Environ(),
@@ -92,15 +65,42 @@ func TestIbstat_Integration(t *testing.T) {
 }
 
 func TestIbvDevinfo_List_Integration(t *testing.T) {
+	ibv, shim, root := renderForTool(t, "ibv_devinfo", "rdma-core")
+
+	cmd := exec.Command(ibv, "-l")
+	cmd.Env = append(os.Environ(),
+		"LD_PRELOAD="+shim,
+		"MOCK_IB=sysfs",
+		"MOCK_IB_ROOT="+root,
+	)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "ibv_devinfo -l failed\noutput:\n%s", out)
+	got := string(out)
+	for _, want := range []string{"mlx5_0", "mlx5_1"} {
+		require.Contains(t, got, want, "ibv_devinfo -l missing %q\nfull output:\n%s", want, got)
+	}
+}
+
+// renderForTool prepares one integration case: it skips unless the host can run
+// real IB tooling (Linux, the binary on PATH, the prebuilt sysfs shim), then
+// renders a two-HCA tree. Returns the tool path, the shim to LD_PRELOAD, and
+// the tree root.
+func renderForTool(t *testing.T, tool, aptPkg string) (string, string, string) {
+	t.Helper()
+
 	if runtime.GOOS != "linux" {
 		t.Skip("integration test requires linux")
 	}
-	ibv, err := exec.LookPath("ibv_devinfo")
+
+	bin, err := exec.LookPath(tool)
+
 	if err != nil {
-		t.Skip("ibv_devinfo not installed (apt-get install rdma-core)")
+		t.Skipf("%s not installed (apt-get install %s)", tool, aptPkg)
 	}
+
 	wd, err := os.Getwd()
 	require.NoError(t, err, "getwd")
+
 	shim := filepath.Join(wd, "..", "..", "..", "shims", "libibmock", "libibmocksys.so")
 	if _, err := os.Stat(shim); err != nil {
 		t.Skipf("shim not built: %v (run `make -C shims/libibmock`)", err)
@@ -118,18 +118,7 @@ func TestIbvDevinfo_List_Integration(t *testing.T) {
 		NodeName: "test-node",
 		Output:   root,
 	})
-	require.NoError(t, err, "Render")
+	require.NoError(t, err)
 
-	cmd := exec.Command(ibv, "-l")
-	cmd.Env = append(os.Environ(),
-		"LD_PRELOAD="+shim,
-		"MOCK_IB=sysfs",
-		"MOCK_IB_ROOT="+root,
-	)
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "ibv_devinfo -l failed\noutput:\n%s", out)
-	got := string(out)
-	for _, want := range []string{"mlx5_0", "mlx5_1"} {
-		require.Contains(t, got, want, "ibv_devinfo -l missing %q\nfull output:\n%s", want, got)
-	}
+	return bin, shim, root
 }
