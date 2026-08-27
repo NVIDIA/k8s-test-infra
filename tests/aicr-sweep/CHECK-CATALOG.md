@@ -1,5 +1,11 @@
 # Artifact 1: AICR check-coverage catalog under Mokka
 
+> **Result columns are the first run's (Mokka `v0.3.0`, 2026-08-03).** The bucket
+> classification (A/B/C/G) is a property of each check and did not change. The
+> **measured 14%** below is that run's. The 2026-08-26 re-run against
+> `57ef01659` reached a verdict on 53 of 210 check-results against 13, and is
+> written up in [FINDINGS-57ef016.md](FINDINGS-57ef016.md).
+
 **Purpose:** the core deliverable. For every AICR validation and conformance check, classify what it
 actually proves when run on a Mokka-enabled cluster with no silicon. Mark's bar: separate checks that
 exercise **real integration** from checks that **pass trivially against mocked APIs**. A check in

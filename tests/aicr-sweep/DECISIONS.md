@@ -1,5 +1,19 @@
 # Decisions log: Mokka + AICR compatibility sweep
 
+> **First run, 2026-08-03.** The 2026-08-26 re-run
+> ([FINDINGS-57ef016.md](FINDINGS-57ef016.md)) revisited two of these decisions
+> with fresh measurements:
+>
+> - **D-009** blocked the ComputeDomain cells as cause `U` because
+>   `altProcDevices` was in no DRA driver release. **v0.5.0 shipped it on
+>   2026-08-19**, and `dra-support` now passes. The cell itself is `X` for a
+>   different reason: it declares `intent=training`, which resolves no recipe on
+>   `kind`. See [results/dra-altprocdevices-evidence.log](results/dra-altprocdevices-evidence.log).
+> - **D-014** classified the GFD failure `K` and named the experiment that would
+>   settle it. That reasoning **survives** the re-run, and the experiment is still
+>   the one to run. What changed is the diagnosis, not the verdict. See
+>   [results/gfd-sysfs-evidence.log](results/gfd-sysfs-evidence.log).
+
 Every judgment call made while running this sweep, with its rationale. The mission brief told me to
 decide and keep going instead of asking, so this file is the audit trail for what I decided and why.
 

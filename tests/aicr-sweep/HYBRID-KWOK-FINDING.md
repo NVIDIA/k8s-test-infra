@@ -1,5 +1,10 @@
 # KWOK + Mokka: combining them silently turns the AICR suite into a rubber stamp
 
+> **First run, 2026-08-03. This finding is unaffected by the 2026-08-26 re-run**,
+> which did not repeat the KWOK composition. The `14%` and `76%` figures quoted
+> below are the first run's; see [FINDINGS-57ef016.md](FINDINGS-57ef016.md) for
+> the current ones.
+
 **Run 2026-08-03, cluster `mokka-hybrid`.** Raw evidence:
 [`results/kwok-false-pass-evidence.log`](results/kwok-false-pass-evidence.log).
 
