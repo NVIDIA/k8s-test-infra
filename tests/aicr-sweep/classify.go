@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -49,6 +50,8 @@ func statusToOutcome(status string) Outcome {
 // blockedCause, when not CauseNone, marks the whole cell blocked: every check
 // becomes OutcomeBlocked carrying that cause. This is how a cell that never ran
 // stays visibly distinct from a cell that ran and passed.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func Classify(cat *Catalog, run *RunResults, cell Cell, versions Versions, prov Provenance, blockedCause Cause, blockedWhy string) CellResult {
 	result := CellResult{
 		Cell:       cell,
@@ -129,6 +132,8 @@ func Classify(cat *Catalog, run *RunResults, cell Cell, versions Versions, prov 
 // not-run ones. Dropping them would raise the percentage by hiding the work
 // that did not happen, which is the specific dishonesty this sweep exists to
 // avoid.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func Roll(cells []CellResult) Rollup {
 	r := Rollup{ByCause: map[Cause]int{}, ByOutcome: map[Outcome]int{}}
 	for _, cell := range cells {
@@ -163,12 +168,14 @@ func Roll(cells []CellResult) Rollup {
 }
 
 // Validate rejects a catalog that would produce a misleading number.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func (c *Catalog) Validate() error {
 	if len(c.Checks) == 0 {
-		return fmt.Errorf("catalog has no checks")
+		return errors.New("catalog has no checks")
 	}
 	if strings.TrimSpace(c.Source) == "" {
-		return fmt.Errorf("catalog has no source ref: a catalog whose provenance is unknown cannot be audited")
+		return errors.New("catalog has no source ref: a catalog whose provenance is unknown cannot be audited")
 	}
 
 	seen := map[string]bool{}
