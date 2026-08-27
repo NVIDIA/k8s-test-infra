@@ -373,7 +373,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writes the machine type to `driver/config/machine-type`, and the NRI plugin
   points `GFD_MACHINE_TYPE_FILE` at it, so an install needs no GPU Operator
   override. Deployments using the CDI path still need one, because the runtime
-  applies the spec's mounts but drops its env. The value is the GPU product name
+  applies the spec's mounts but drops its env (#747). The value is the GPU product name
   for want of a platform name in the profiles, so the label reads
   `NVIDIA-GB300-NVL`, matching `gpu.product`, rather than the
   `NVIDIA-GB300-NVL72` a real compute tray reports. (#681)

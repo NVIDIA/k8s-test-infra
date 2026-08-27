@@ -78,7 +78,8 @@ devicePlugin:
 # hosts without DMI. The agent writes this one, served by the CDI config mount.
 #
 # Set here only because this suite drives the CDI path, where the runtime
-# applies the spec's mounts but drops its env. With nri.enabled the plugin
+# applies the spec's mounts but drops its env (#747). With nri.enabled the
+# plugin
 # injects GFD_MACHINE_TYPE_FILE itself and no override is needed.
 gfd:
   enabled: true

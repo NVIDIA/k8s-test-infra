@@ -756,8 +756,9 @@ container wins, for a cluster pinning a file of its own.
 
 Without NRI the file is still served, at `/etc/nvml-mock/machine-type` by the
 CDI mount that carries `config.yaml`, but the value has to be set by hand — the
-runtime applies the spec's mounts and drops its env, so the plugin's channel is
-the only automatic one:
+runtime applies the spec's mounts and drops its env
+([#747](https://github.com/NVIDIA/k8s-test-infra/issues/747)), so the plugin's
+channel is the only automatic one:
 
 ```yaml
 gfd:
