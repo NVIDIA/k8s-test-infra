@@ -226,7 +226,8 @@ the citation points somewhere else.
 3. **Raise the DRA chart rename with AICR.** `dra-support` cannot pass against v0.5.0 with default
    chart values, because AICR looks for `nvidia-dra-driver-gpu-controller` and the chart now produces
    `dra-driver-nvidia-gpu-controller`.
-4. **Close #498 and fix the stale note** in `deployments/nvml-mock/helm/nvml-mock/values.yaml`, which
-   still says `altProcDevices` "is NOT in any release (absent at v25.12.0)".
+4. **Fix the stale note** in `deployments/nvml-mock/helm/nvml-mock/values.yaml`, which still says
+   `altProcDevices` "is NOT in any release (absent at v25.12.0)" and points readers at #498. #498 is
+   already closed; the note outlived it and is now wrong on the facts as well as the pointer.
 5. **Raise `gb300` with AICR again.** #699 made `gb300` the Mokka chart default while AICR still has
    no such accelerator, so the two sides have drifted further apart, not closer.
