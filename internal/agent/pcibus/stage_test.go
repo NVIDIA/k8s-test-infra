@@ -41,7 +41,7 @@ func TestBuildTopology_FlatDefaultWhenNoRootComplexes(t *testing.T) {
 	require.Len(t, topo.RootComplexes, 1)
 
 	rc := topo.RootComplexes[0]
-	require.Equal(t, defaultRootComplexID, rc.ID)
+	require.Equal(t, agent.DefaultRootComplexID, rc.ID)
 	require.Equal(t, 0, rc.NUMANode)
 	// BDFs are lowercased to match the keys buildIdentities emits; the device
 	// without one is skipped rather than rendered as an empty entry.
@@ -56,6 +56,10 @@ func TestBuildTopology_SingleRC(t *testing.T) {
 					{ID: "pci0000:00", NUMANode: 2, DeviceBDFs: []string{"0000:07:00.0", "0000:07:00.1"}},
 				},
 			},
+		},
+		Devices: []agent.DeviceSpec{
+			{Index: 0, PCIBusID: "0000:07:00.0"},
+			{Index: 1, PCIBusID: "0000:07:00.1"},
 		},
 	}
 
@@ -79,6 +83,11 @@ func TestBuildTopology_MultipleRCs(t *testing.T) {
 				},
 			},
 		},
+		Devices: []agent.DeviceSpec{
+			{Index: 0, PCIBusID: "0000:03:00.0"},
+			{Index: 1, PCIBusID: "0001:05:00.0"},
+			{Index: 2, PCIBusID: "0001:05:00.1"},
+		},
 	}
 
 	topo := buildTopology(state)
@@ -88,25 +97,15 @@ func TestBuildTopology_MultipleRCs(t *testing.T) {
 	require.Equal(t, "pci0001:00", topo.RootComplexes[1].ID)
 }
 
-// The CDI simulator gates its sysfs mounts on HasPCITopology, so the predicate
-// has to answer exactly "will a tree be rendered": a false positive publishes a
-// bind mount with no source, failing every pod that requests a GPU.
-func TestHasPCITopology_AgreesWithBuildTopology(t *testing.T) {
-	states := map[string]*agent.State{
-		"empty":              {},
-		"device without bdf": {Devices: []agent.DeviceSpec{{Index: 0}}},
-		"device with bdf":    {Devices: []agent.DeviceSpec{{Index: 0, PCIBusID: "0000:07:00.0"}}},
-		"explicit topology":  stateWithTopology(),
-		"root complex, no devices": {NodeShape: agent.NodeShape{Topology: agent.PCIeTopology{
-			RootComplexes: []agent.RootComplex{{ID: "pci0000:00"}},
-		}}},
-	}
+// A layout no device backs renders nothing, so nothing is served either. The
+// reconciliation itself is covered in internal/agent.
+func TestBuildTopology_NilWhenNoDeviceBacksTheLayout(t *testing.T) {
+	state := &agent.State{NodeShape: agent.NodeShape{Topology: agent.PCIeTopology{
+		RootComplexes: []agent.RootComplex{{ID: "pci0000:00", DeviceBDFs: []string{"0000:07:00.0"}}},
+	}}}
 
-	for name, state := range states {
-		t.Run(name, func(t *testing.T) {
-			require.Equal(t, buildTopology(state) != nil, state.HasPCITopology())
-		})
-	}
+	require.Nil(t, buildTopology(state))
+	require.False(t, state.HasPCITopology())
 }
 
 // ─── buildIdentities ─────────────────────────────────────────────────────────
@@ -218,7 +217,7 @@ func TestStageSysfs_RendersFlatDefault(t *testing.T) {
 
 	target, err := os.Readlink(filepath.Join(h.Root, "sys/bus/pci/devices/0000:1a:00.0"))
 	require.NoError(t, err, "device must be rendered under the synthesized root")
-	require.Contains(t, target, defaultRootComplexID)
+	require.Contains(t, target, agent.DefaultRootComplexID)
 }
 
 // ─── stageDMI ────────────────────────────────────────────────────────────────

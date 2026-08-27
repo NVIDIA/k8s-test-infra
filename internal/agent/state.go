@@ -5,6 +5,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -31,20 +32,113 @@ type State struct {
 	TopologyRaw []byte
 }
 
-// HasPCITopology reports whether the state describes a PCI layout to render:
-// explicit root complexes, or devices carrying a BDF to synthesize a flat one
-// from. Whoever serves that tree gates on this rather than probing the
-// filesystem, so the answer comes from the same state the renderer reads.
-func (s *State) HasPCITopology() bool {
-	if len(s.NodeShape.Topology.RootComplexes) > 0 {
-		return true
+// DefaultRootComplexID is the host bridge a synthesized layout hangs every
+// device off, matching what a single-socket profile declares explicitly.
+const DefaultRootComplexID = "pci0000:00"
+
+// PCITopology returns the root complexes to render, reconciled against the
+// devices that exist at runtime rather than taken from the profile as written.
+// Devices are the authority because they are what NVML reports, and a served
+// tree that disagrees with NVML is worse than no tree: a consumer resolves a
+// GPU in one and not the other.
+//
+// The profile's pcie_topology outlives its device list — GPU_COUNT truncates
+// Devices and leaves the layout whole — so declared BDFs no device claims are
+// dropped, along with any root that empties out. Conversely a device no root
+// claims is adopted by the first one, since an unplaced GPU cannot be resolved
+// at all while a misplaced one only misreports its pcieRoot.
+//
+// Returns nil when no device carries a BDF, which is the signal to render
+// nothing.
+func (s *State) PCITopology() []RootComplex {
+	active := s.activeBDFs()
+	if len(active) == 0 {
+		return nil
 	}
-	for _, d := range s.Devices {
-		if d.PCIBusID != "" {
-			return true
+
+	declared := s.NodeShape.Topology.RootComplexes
+	if len(declared) == 0 {
+		return []RootComplex{{ID: DefaultRootComplexID, DeviceBDFs: active}}
+	}
+
+	roots, placed := placeDeclared(declared, active)
+
+	var orphans []string
+	for _, bdf := range active {
+		if !placed[bdf] {
+			orphans = append(orphans, bdf)
 		}
 	}
-	return false
+
+	switch {
+	case len(orphans) == 0:
+		return roots
+	case len(roots) == 0:
+		return []RootComplex{{ID: DefaultRootComplexID, DeviceBDFs: orphans}}
+	default:
+		roots[0].DeviceBDFs = append(roots[0].DeviceBDFs, orphans...)
+		return roots
+	}
+}
+
+// activeBDFs returns the BDFs of the devices that exist at runtime, lowercased
+// to match the paths the renderer writes, in device order and deduplicated.
+func (s *State) activeBDFs() []string {
+	seen := make(map[string]bool, len(s.Devices))
+	out := make([]string, 0, len(s.Devices))
+
+	for _, d := range s.Devices {
+		if d.PCIBusID == "" {
+			continue
+		}
+		bdf := strings.ToLower(d.PCIBusID)
+		if seen[bdf] {
+			continue
+		}
+		seen[bdf] = true
+		out = append(out, bdf)
+	}
+
+	return out
+}
+
+// placeDeclared keeps the BDFs of each declared root that an active device
+// claims, dropping any root left with none. It reports which BDFs it placed so
+// the caller can find the devices no root accounts for.
+func placeDeclared(declared []RootComplex, active []string) ([]RootComplex, map[string]bool) {
+	wanted := make(map[string]bool, len(active))
+	for _, bdf := range active {
+		wanted[bdf] = true
+	}
+
+	placed := make(map[string]bool, len(active))
+	out := make([]RootComplex, 0, len(declared))
+
+	for _, rc := range declared {
+		kept := make([]string, 0, len(rc.DeviceBDFs))
+		for _, bdf := range rc.DeviceBDFs {
+			bdf = strings.ToLower(bdf)
+			if wanted[bdf] && !placed[bdf] {
+				placed[bdf] = true
+				kept = append(kept, bdf)
+			}
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		rc.DeviceBDFs = kept
+		out = append(out, rc)
+	}
+
+	return out, placed
+}
+
+// HasPCITopology reports whether a PCI sysfs tree will be rendered for this
+// state. Whoever serves that tree gates on this, so it answers from the same
+// reconciliation the renderer reads rather than from a filesystem probe: a bind
+// mount whose source is missing fails container creation for the whole pod.
+func (s *State) HasPCITopology() bool {
+	return len(s.PCITopology()) > 0
 }
 
 // NodeMeta carries node identity fields.

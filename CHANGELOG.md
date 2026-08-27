@@ -370,6 +370,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   profile that declares no `bus_id`, where it previously left the last
   profile's devices in place — invisible until the tree started being served,
   and then a container enumerating GPUs the node no longer simulates. (#673)
+- node-agent: the rendered PCI tree now follows the devices NVML reports rather
+  than `pcie_topology` as the profile writes it. `gpu.count` (`GPU_COUNT`) caps
+  the device list without touching the layout, so a capped node used to render
+  BDFs with no NVML device behind them — phantom NVIDIA 3D controllers, every
+  attribute plausible, harmless only while nothing could read the tree. Declared
+  BDFs no device claims are dropped along with any root left empty, and a device
+  no root claims is adopted by the first one, since an unplaced GPU cannot be
+  resolved at all where a misplaced one only misreports its `pcieRoot`. (#673)
 - node-agent: `nvidia.com/gpu.machine` no longer reads `unknown`. GFD derives it
   from `--machine-type-file`, whose default `/sys/class/dmi/id/product_name` no
   mock can own under kind: the node image writes `kind` there and re-binds it

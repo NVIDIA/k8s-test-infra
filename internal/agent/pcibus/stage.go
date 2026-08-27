@@ -16,10 +16,6 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
-// defaultRootComplexID is the host bridge a flat fallback topology hangs every
-// device off, matching what a single-socket profile declares explicitly.
-const defaultRootComplexID = "pci0000:00"
-
 const (
 	// kernelDMIRelPath is the kernel's DMI directory relative to /sys;
 	// /sys/class/dmi/id is a symlink to it.
@@ -122,18 +118,15 @@ func stagePCIShim(h *host.Host) error {
 	return nil
 }
 
-// buildTopology converts the agent's PCIeTopology to the pcisysfs type, falling
-// back to a flat single-root layout when the state declares no root complexes.
-// Returns nil only when no device carries a BDF (Render treats nil as no-op).
+// buildTopology maps the state's reconciled layout onto the renderer's type.
+// Returns nil when there is nothing to render, which Render treats as a no-op.
 func buildTopology(state *agent.State) *pcisysfs.PCIeTopology {
-	rcs := state.NodeShape.Topology.RootComplexes
-
+	rcs := state.PCITopology()
 	if len(rcs) == 0 {
-		return flatTopology(state)
+		return nil
 	}
 
 	topo := &pcisysfs.PCIeTopology{RootComplexes: make([]pcisysfs.RootComplex, 0, len(rcs))}
-
 	for _, rc := range rcs {
 		topo.RootComplexes = append(topo.RootComplexes, pcisysfs.RootComplex{
 			ID:       rc.ID,
@@ -143,27 +136,6 @@ func buildTopology(state *agent.State) *pcisysfs.PCIeTopology {
 	}
 
 	return topo
-}
-
-// flatTopology synthesizes one root complex covering every device that declares
-// a BDF. A config with devices but no pcie_topology block is a single-socket
-// node, so rendering nothing at all would leave lspci with no devices to find.
-func flatTopology(state *agent.State) *pcisysfs.PCIeTopology {
-	rc := pcisysfs.RootComplex{ID: defaultRootComplexID}
-
-	for _, d := range state.Devices {
-		if d.PCIBusID == "" {
-			continue
-		}
-
-		rc.Devices = append(rc.Devices, strings.ToLower(d.PCIBusID))
-	}
-
-	if len(rc.Devices) == 0 {
-		return nil
-	}
-
-	return &pcisysfs.PCIeTopology{RootComplexes: []pcisysfs.RootComplex{rc}}
 }
 
 // buildIdentities maps each device's lowercased BDF to its PCI identity for
