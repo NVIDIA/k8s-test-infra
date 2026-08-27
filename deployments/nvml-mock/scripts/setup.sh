@@ -39,19 +39,6 @@ mkdir -p "$HOST/run"
 # back to the pristine profile config.
 rm -f "$CONFIG_DIR/overrides.yaml" "$DRIVER_ROOT/config/overrides.yaml"
 
-# 6b. Stage the cluster-level ComputeDomain topology document into the overlay
-#     tree so node-wide NRI injection can surface per-node fabric identity.
-#     The daemon mounts the topology ConfigMap at /etc/nvml-mock/topology when
-#     topology.enabled=true; the NRI plugin bind-mounts $HOST at the container
-#     overlay path and injects MOCK_TOPOLOGY_CONFIG pointing here (plus the
-#     node's NODE_NAME) so the mock NVML engine's applyTopologyOverlay() rewrites
-#     each GPU's clique_id / cluster_uuid. No-op when topology is disabled.
-if [ -f /etc/nvml-mock/topology/topology.yaml ]; then
-  mkdir -p "$HOST/topology"
-  cp /etc/nvml-mock/topology/topology.yaml "$HOST/topology/topology.yaml"
-  echo "Staged ComputeDomain topology overlay at $HOST/topology/topology.yaml"
-fi
-
 # 7. Label node with nvidia.com/gpu.present (requires RBAC: get+patch on nodes).
 if command -v kubectl >/dev/null 2>&1; then
   kubectl label node "$NODE_NAME" nvidia.com/gpu.present=true --overwrite || true

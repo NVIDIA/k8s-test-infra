@@ -237,6 +237,13 @@ spec:
               readOnly: true
             - name: host-nfd-features
               mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+            {{- if .Values.topology.enabled }}
+            # Source for the topology document the nvlink simulator stages into
+            # the overlay, where the NRI plugin points workloads at it.
+            - name: gpu-topology
+              mountPath: /etc/nvml-mock/topology
+              readOnly: true
+            {{- end }}
             {{- if $fmEnabled }}
             # The agent writes the marker the nvml-mock container reads, and it
             # reaches host paths through /host.

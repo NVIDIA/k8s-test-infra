@@ -763,6 +763,40 @@ tests:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
 
+  # ── ComputeDomain topology ──────────────────────────────────────────
+  - it: should mount the topology ConfigMap into both readers when enabled
+    set:
+      topology:
+        enabled: true
+    asserts:
+      # nvml-mock: the engine reads it for `kubectl exec nvidia-smi -q`.
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: gpu-topology
+            mountPath: /etc/nvml-mock/topology
+      # node-agent: the nvlink simulator stages it into the overlay, where the
+      # NRI plugin points workloads at it.
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: gpu-topology
+            mountPath: /etc/nvml-mock/topology
+            readOnly: true
+
+  - it: should not mount the topology ConfigMap when disabled
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: gpu-topology
+            mountPath: /etc/nvml-mock/topology
+            readOnly: true
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: gpu-topology
+
   - it: should wire fabricmanager state dir into both containers when enabled
     set:
       fabricmanager:

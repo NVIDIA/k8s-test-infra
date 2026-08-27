@@ -13,6 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/imex"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvlink"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/pcibus"
 	"github.com/urfave/cli/v3"
 	"golang.org/x/sync/errgroup"
 
@@ -23,15 +26,13 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/ib"
-	"github.com/NVIDIA/k8s-test-infra/internal/agent/imex"
-	"github.com/NVIDIA/k8s-test-infra/internal/agent/pcibus"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 )
 
 func main() {
 	if err := newCLI().Run(context.Background(), os.Args); err != nil {
-		fmt.Fprintf(os.Stderr, "node-agent: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "node-agent: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -141,17 +142,18 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
 			gpudriver.New(),
+			pcibus.New(),
+			cdi.New(),
+			imex.New(),
+			nvlink.New(),
 			fabricmanager.New(fabricmanager.Options{
 				InitDelay: cmd.Duration("fabricmanager-init-delay"),
 			}),
-			pcibus.New(),
-			imex.New(),
 			ib.New(ib.Options{
 				Mode:    ibMode,
 				TCPPort: cmd.Int("ib-fabric-port"),
 				Fabric:  cmd.Bool("ib-fabric"),
 			}),
-			cdi.New(),
 		},
 		Source:          source.NewFileSource(configPath, log),
 		Host:            host.New(cmd.String("host-root")),
