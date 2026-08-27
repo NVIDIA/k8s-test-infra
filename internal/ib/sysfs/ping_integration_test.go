@@ -3,9 +3,8 @@
 
 //go:build integration
 
-// Integration test: rendered sysfs + libibmocksys + libibmockumad + an
-// in-process UMAD server, driven by the real ibping binary (phase 1 loopback
-// to a local port GUID).
+// Integration test: the real ibping binary against a rendered tree, both shims,
+// and an in-process UMAD server, pinging a local port GUID.
 //
 // Run with:
 //
@@ -50,9 +49,6 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 			t.Skipf("shim not built: %v (run `make -C shims/libibmock`)", err)
 		}
 	}
-
-	out, err := exec.Command("make", "-C", shimDir).CombinedOutput()
-	require.NoError(t, err, "make shims\n%s", out)
 
 	root := t.TempDir()
 	nodeName := "host1"
