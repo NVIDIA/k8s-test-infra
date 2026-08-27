@@ -18,6 +18,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/cdi"
+	"github.com/NVIDIA/k8s-test-infra/internal/agent/fabricmanager"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/gpudriver"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
@@ -93,6 +94,11 @@ func startCommand() *cli.Command {
 				Sources: cli.EnvVars("MOCK_IB_PING_FABRIC"),
 			},
 			&cli.DurationFlag{
+				Name:    "fabricmanager-init-delay",
+				Usage:   "withhold fabric readiness for this long, simulating NVSwitch registration latency",
+				Sources: cli.EnvVars("MOCK_FABRICMANAGER_INIT_DELAY"),
+			},
+			&cli.DurationFlag{
 				Name:    "shutdown-timeout",
 				Value:   30 * time.Second,
 				Sources: cli.EnvVars("MOKKA_AGENT_SHUTDOWN_TIMEOUT"),
@@ -135,6 +141,9 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
 			gpudriver.New(),
+			fabricmanager.New(fabricmanager.Options{
+				InitDelay: cmd.Duration("fabricmanager-init-delay"),
+			}),
 			pcibus.New(),
 			imex.New(),
 			ib.New(ib.Options{

@@ -217,8 +217,8 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: MOCK_FABRICMANAGER
-            value: "on"
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /var/lib/nvml-mock/fabric-state
 
   - it: should start fabricmanager for an NVSwitch profile (a100, legacy daemon)
     set:
@@ -228,8 +228,8 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: MOCK_FABRICMANAGER
-            value: "on"
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /var/lib/nvml-mock/fabric-state
 
   - it: should honor an explicit fabricmanager.enabled=true override on a100
     set:
@@ -241,8 +241,8 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: MOCK_FABRICMANAGER
-            value: "on"
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /var/lib/nvml-mock/fabric-state
 
   - it: should honor an explicit fabricmanager.enabled=false override on gb200
     set:
@@ -254,8 +254,8 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
-            name: MOCK_FABRICMANAGER
-            value: "on"
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /var/lib/nvml-mock/fabric-state
 
   - it: should derive Blackwell Ultra driver version for gb300 profile
     set:
@@ -746,15 +746,8 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
-            name: MOCK_FABRICMANAGER
-            value: "on"
-      - notContains:
-          path: spec.template.spec.volumes
-          content:
-            name: host-fabric-state
-            hostPath:
-              path: /var/lib/nvml-mock/fabric-state
-              type: DirectoryOrCreate
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /var/lib/nvml-mock/fabric-state
 
   # b200 declares NVLink but no NVSwitches, so no state dir is created on the
   # node. Leaving node-agent's env unset keeps that mount out of its CDI spec;
@@ -769,48 +762,54 @@ tests:
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
-      - notContains:
-          path: spec.template.spec.volumes
-          content:
-            name: host-fabric-state
-            hostPath:
-              path: /var/lib/nvml-mock/fabric-state
-              type: DirectoryOrCreate
 
-  - it: should wire fabricmanager env, mount, and volume when enabled
+  - it: should wire fabricmanager state dir into both containers when enabled
     set:
       fabricmanager:
         enabled: true
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: MOCK_FABRICMANAGER
-            value: "on"
+      # nvml-mock: the engine reads the marker so `kubectl exec nvidia-smi -q`
+      # reports the same fabric state a workload sees.
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
-      # node-agent gates its CDI fabric-state mount on this env, so it must be
-      # set wherever the host-fabric-state volume below is.
+      # node-agent: non-empty is what enables the simulator, and it is the path
+      # the cdi simulator mounts into workloads.
       - contains:
           path: spec.template.spec.containers[1].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
-      - contains:
-          path: spec.template.spec.containers[0].volumeMounts
-          content:
-            name: host-fabric-state
-            mountPath: /var/lib/nvml-mock/fabric-state
-      - contains:
+      # No dedicated volume: the directory sits under the host-nvml-mock
+      # hostPath both containers already mount, and the agent creates it.
+      - notContains:
           path: spec.template.spec.volumes
           content:
             name: host-fabric-state
-            hostPath:
-              path: /var/lib/nvml-mock/fabric-state
-              type: DirectoryOrCreate
+
+  - it: should withhold readiness for fabricmanager.initDelay
+    set:
+      fabricmanager:
+        enabled: true
+        initDelay: 15s
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: MOCK_FABRICMANAGER_INIT_DELAY
+            value: "15s"
+
+  - it: should publish readiness immediately when no initDelay is set
+    set:
+      fabricmanager:
+        enabled: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: MOCK_FABRICMANAGER_INIT_DELAY
 
   - it: should honor a custom fabricmanager.stateDir
     set:

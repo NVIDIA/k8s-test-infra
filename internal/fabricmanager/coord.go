@@ -11,25 +11,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package fmcoord implements the marker-file coordination protocol used by
-// the fake nvidia-fabricmanager binaries (cmd/fake-fabricmanager/{daemon,ctl})
-// to simulate fabric-manager readiness on KIND clusters without real NVSwitch
-// hardware. Fabric manager is a node-local service (it manages the NVSwitches
-// on its own node), so readiness is a single node-local marker rather than a
-// multi-peer set.
+// Package fabricmanager defines the marker-file protocol that stands in for
+// NVSwitch fabric registration. The node agent's fabricmanager simulator writes
+// the marker; the mock NVML engine reads it to decide whether a GPU configured
+// with `fabric.state: auto` reports IN_PROGRESS or COMPLETED. Both sides live
+// here so the path and filename cannot drift apart.
 //
-// Protocol:
-//
-//  1. The fake nvidia-fabricmanager daemon writes an empty marker file at
-//     <stateDir>/fabricmanager.ready on startup and removes it on
-//     SIGTERM/SIGINT.
-//  2. The fake nvidia-fabricmanager-ctl readiness probe (and the mock NVML
-//     engine's fabric-state coupling) report READY iff that marker exists.
-//
-// The same marker path is read by the mock NVML engine
-// (pkg/gpu/mocknvml/engine/fabric_readiness.go) so a GPU configured with
-// fabric state "auto" reports COMPLETED only once the daemon is ready.
-package fmcoord
+// A single node-local file suffices because the real fabric manager is itself
+// node-local: it manages the NVSwitches on its own node, so there is no
+// multi-peer state to agree on.
+package fabricmanager
 
 import (
 	"fmt"
@@ -69,12 +60,12 @@ func MarkerPath(stateDir string) string {
 // it on an existing marker is fine.
 func WriteReady(stateDir string) error {
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		return fmt.Errorf("fmcoord: mkdir %s: %w", stateDir, err)
+		return fmt.Errorf("fabricmanager: mkdir %s: %w", stateDir, err)
 	}
 	path := MarkerPath(stateDir)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		return fmt.Errorf("fmcoord: write marker %s: %w", path, err)
+		return fmt.Errorf("fabricmanager: write marker %s: %w", path, err)
 	}
 	return f.Close()
 }

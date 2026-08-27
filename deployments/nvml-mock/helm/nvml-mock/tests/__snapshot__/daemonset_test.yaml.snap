@@ -41,8 +41,6 @@ should match snapshot with all overrides:
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
                   value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
-                - name: MOCK_FABRICMANAGER
-                  value: "on"
                 - name: MOCK_FABRICMANAGER_STATE_DIR
                   value: /var/lib/nvml-mock/fabric-state
                 - name: MOCK_IB
@@ -79,8 +77,6 @@ should match snapshot with all overrides:
                   name: host-nvml-mock
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
-                - mountPath: /var/lib/nvml-mock/fabric-state
-                  name: host-fabric-state
             - command:
                 - /usr/local/bin/node-agent
                 - start
@@ -182,10 +178,6 @@ should match snapshot with all overrides:
                 path: /etc/kubernetes/node-feature-discovery/features.d
                 type: DirectoryOrCreate
               name: host-nfd-features
-            - hostPath:
-                path: /var/lib/nvml-mock/fabric-state
-                type: DirectoryOrCreate
-              name: host-fabric-state
       updateStrategy:
         rollingUpdate:
           maxUnavailable: 25%
@@ -402,8 +394,6 @@ should match snapshot with default values:
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
                   value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
-                - name: MOCK_FABRICMANAGER
-                  value: "on"
                 - name: MOCK_FABRICMANAGER_STATE_DIR
                   value: /var/lib/nvml-mock/fabric-state
                 - name: MOCK_IB
@@ -433,8 +423,6 @@ should match snapshot with default values:
                   name: host-nvml-mock
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
-                - mountPath: /var/lib/nvml-mock/fabric-state
-                  name: host-fabric-state
             - command:
                 - /usr/local/bin/node-agent
                 - start
@@ -532,10 +520,6 @@ should match snapshot with default values:
                 path: /etc/kubernetes/node-feature-discovery/features.d
                 type: DirectoryOrCreate
               name: host-nfd-features
-            - hostPath:
-                path: /var/lib/nvml-mock/fabric-state
-                type: DirectoryOrCreate
-              name: host-fabric-state
       updateStrategy:
         rollingUpdate:
           maxUnavailable: 25%

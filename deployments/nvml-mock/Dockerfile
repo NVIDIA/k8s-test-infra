@@ -40,8 +40,6 @@ COPY --from=builder /src/shims/libibmock/libibmockverbs.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libpcisysfs/libpcisysfs.so.* /usr/local/lib/
 COPY --from=builder /src/dist/nvml-mock-nri /usr/local/bin/nvml-mock-nri
 COPY --from=builder /src/dist/nvml-mock-ctl /usr/local/bin/nvml-mock-ctl
-COPY --from=builder /src/dist/fake-fabricmanager-daemon /usr/bin/nv-fabricmanager
-COPY --from=builder /src/dist/fake-fabricmanager-ctl    /usr/bin/nv-fabricmanager-ctl
 COPY --from=builder /src/dist/check-fabric     /usr/local/bin/check-fabric
 COPY --from=builder /src/dist/node-agent /usr/local/bin/node-agent
 # Build-time only, so it lives outside scripts/ — that directory is copied

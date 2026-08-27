@@ -17,26 +17,32 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 )
 
-// FabricManagerGate ports the "Verify fake fabricmanager readiness" step. It
-// reads MOCK_FABRICMANAGER off the DEPLOYED daemonset (never a hardcoded
-// profile->FM table); only when it is "on" does it Eventually-poll
-// nv-fabricmanager-ctl -q for READY inside the pod. It returns whether FM was
-// enabled. Callers MUST invoke this BEFORE the NV# topology assertion so the
-// real HGX/GB200 ordering (fabric ready -> NV# links) is preserved.
+// FabricManagerGate waits until fabric readiness is published on the node, and
+// reports whether fabricmanager is deployed at all.
+//
+// Enablement is read off the DEPLOYED daemonset rather than a profile->FM table,
+// because the chart derives it from the profile's fabric.state and nvlink
+// switches. The readiness signal is the marker file itself: that is what the
+// mock NVML engine reads to move a GPU from IN_PROGRESS to COMPLETED.
+//
+// Callers MUST invoke this BEFORE the NV# topology assertion, so the real
+// HGX/GB200 ordering (fabric ready -> NV# links) is preserved.
 func FabricManagerGate(ctx context.Context, k *kube.Client, ns, dsName string, pod kube.PodRef, timeout, poll time.Duration) bool {
 	ginkgo.GinkgoHelper()
-	val, _, err := k.DaemonSetContainerEnv(ctx, ns, dsName, "MOCK_FABRICMANAGER")
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "reading MOCK_FABRICMANAGER off daemonset %s/%s", ns, dsName)
-	if strings.ToLower(strings.TrimSpace(val)) != "on" {
-		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "fabricmanager not enabled (MOCK_FABRICMANAGER=%q); skipping readiness gate\n", val)
+	stateDir, _, err := k.DaemonSetContainerEnv(ctx, ns, dsName, "MOCK_FABRICMANAGER_STATE_DIR")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "reading MOCK_FABRICMANAGER_STATE_DIR off daemonset %s/%s", ns, dsName)
+	stateDir = strings.TrimSpace(stateDir)
+	if stateDir == "" {
+		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "fabricmanager not enabled (no state dir); skipping readiness gate\n")
 		return false
 	}
 
-	ginkgo.By("waiting for fake nv-fabricmanager to report READY")
-	gomega.Eventually(func() (string, error) {
-		res, _ := k.ExecSh(ctx, pod, "/usr/bin/nv-fabricmanager-ctl -q 2>/dev/null || true")
-		return res.Combined(), nil
+	marker := stateDir + "/fabricmanager.ready"
+	ginkgo.By("waiting for the fabric readiness marker at " + marker)
+	gomega.Eventually(func() error {
+		_, err := k.ExecSh(ctx, pod, "test -f "+marker)
+		return err
 	}).WithContext(ctx).WithTimeout(timeout).WithPolling(poll).
-		Should(gomega.ContainSubstring("READY"), "fake fabricmanager did not report READY")
+		Should(gomega.Succeed(), "fabric readiness marker never appeared at %s", marker)
 	return true
 }
