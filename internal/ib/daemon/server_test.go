@@ -18,7 +18,6 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/daemon/madtest"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/protocol"
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/render"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/sysfs"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +25,7 @@ import (
 func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 	dir := t.TempDir()
 	ib := config.Infiniband{Enabled: true}
-	require.NoError(t, render.Render(render.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir}))
+	require.NoError(t, sysfs.Render(sysfs.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir}))
 	// Short path under /tmp: macOS limits unix socket paths; sandbox may block $TMPDIR binds.
 	safe := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
 	sock := filepath.Join(os.TempDir(), "mock-ib-"+safe+".sock")
@@ -94,7 +93,7 @@ func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 
 func TestServer_handleSend_shortMADNoPanic(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, render.Render(render.Options{
+	require.NoError(t, sysfs.Render(sysfs.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "n", Output: dir,
 	}))
 	sock := filepath.Join(os.TempDir(), fmt.Sprintf("mock-ib-%d-short.sock", os.Getpid()))
@@ -139,7 +138,7 @@ func TestServer_handleSend_shortMADNoPanic(t *testing.T) {
 
 func TestServer_handleClose_unknownHandle(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, render.Render(render.Options{
+	require.NoError(t, sysfs.Render(sysfs.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "n", Output: dir,
 	}))
 	sock := filepath.Join(os.TempDir(), fmt.Sprintf("mock-ib-%d-close.sock", os.Getpid()))

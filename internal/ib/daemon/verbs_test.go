@@ -8,14 +8,14 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/config"
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/render"
+	"github.com/NVIDIA/k8s-test-infra/internal/ib/sysfs"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSynthesizeVerbsWrite_QueryDevice(t *testing.T) {
 	root := t.TempDir()
 
-	err := render.Render(render.Options{
+	err := sysfs.Render(sysfs.Options{
 		IB:       config.Infiniband{Enabled: true},
 		GPUCount: 1,
 		NodeName: "n1",

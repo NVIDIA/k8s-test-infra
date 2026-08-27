@@ -9,7 +9,6 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/daemon/madtest"
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/render"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/sysfs"
 	"github.com/stretchr/testify/require"
 )
@@ -17,7 +16,7 @@ import (
 func TestLoopback_ShouldQueueRecv_LocalGUID(t *testing.T) {
 	dir := t.TempDir()
 	ib := config.Infiniband{Enabled: true}
-	require.NoError(t, render.Render(render.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir}))
+	require.NoError(t, sysfs.Render(sysfs.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir}))
 	ports, err := sysfs.Scan(dir)
 	require.NoError(t, err)
 	lb := newLoopbackIndex(ports)
@@ -28,7 +27,7 @@ func TestLoopback_ShouldQueueRecv_LocalGUID(t *testing.T) {
 func TestLoopback_ShouldNotQueueRecv_RemoteLID(t *testing.T) {
 	dir := t.TempDir()
 	ib := config.Infiniband{Enabled: true}
-	require.NoError(t, render.Render(render.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir}))
+	require.NoError(t, sysfs.Render(sysfs.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir}))
 	ports, err := sysfs.Scan(dir)
 	require.NoError(t, err)
 	lb := newLoopbackIndex(ports)

@@ -14,14 +14,13 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/daemon/madtest"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/registry"
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/render"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/sysfs"
 	"github.com/stretchr/testify/require"
 )
 
 func TestFabric_RegisterAndPingHandler(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, render.Render(render.Options{
+	require.NoError(t, sysfs.Render(sysfs.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dir,
 	}))
 	ports, err := sysfs.Scan(dir)
@@ -76,10 +75,10 @@ func TestFabric_RegisterAndPingHandler(t *testing.T) {
 func TestFabric_RemoteSendForwardsPing(t *testing.T) {
 	dirA := t.TempDir()
 	dirB := t.TempDir()
-	require.NoError(t, render.Render(render.Options{
+	require.NoError(t, sysfs.Render(sysfs.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dirA,
 	}))
-	require.NoError(t, render.Render(render.Options{
+	require.NoError(t, sysfs.Render(sysfs.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-b", Output: dirB,
 	}))
 	portsA, err := sysfs.Scan(dirA)

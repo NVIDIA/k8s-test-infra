@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/config"
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/render"
 	"github.com/stretchr/testify/require"
 )
 
@@ -94,7 +93,7 @@ func with(m map[string]string, key, value string) map[string]string {
 func TestScan_RenderedTree(t *testing.T) {
 	dir := t.TempDir()
 	ib := config.Infiniband{Enabled: true}
-	err := render.Render(render.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir})
+	err := Render(Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir})
 	require.NoError(t, err)
 	ports, err := Scan(dir)
 	require.NoError(t, err)

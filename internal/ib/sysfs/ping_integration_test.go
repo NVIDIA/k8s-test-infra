@@ -10,8 +10,8 @@
 // Run with:
 //
 //	make -C shims/libibmock
-//	go test -tags=integration ./internal/ib/render/ -run TestIbping -v
-package render_test
+//	go test -tags=integration ./internal/ib/sysfs/ -run TestIbping -v
+package sysfs_test
 
 import (
 	"context"
@@ -28,7 +28,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/daemon"
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/render"
+	"github.com/NVIDIA/k8s-test-infra/internal/ib/sysfs"
 )
 
 func TestIbping_Loopback_Integration(t *testing.T) {
@@ -56,7 +56,7 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 
 	root := t.TempDir()
 	nodeName := "host1"
-	err = render.Render(render.Options{
+	err = sysfs.Render(sysfs.Options{
 		IB: config.Infiniband{
 			Enabled:   true,
 			HCAType:   "MT4129",
@@ -67,7 +67,7 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 		NodeName: nodeName,
 		Output:   root,
 	})
-	require.NoError(t, err, "Render")
+	require.NoError(t, err)
 
 	lidPath := filepath.Join(root, "sys/class/infiniband/mlx5_0/ports/1/lid")
 	guidPath := filepath.Join(root, "sys/class/infiniband/mlx5_0/ports/1/port_guid")

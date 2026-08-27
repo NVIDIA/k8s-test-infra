@@ -11,14 +11,13 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/daemon/madtest"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/gid"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/registry"
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/render"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/sysfs"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSAPathQuery_LocalPort(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, render.Render(render.Options{
+	require.NoError(t, sysfs.Render(sysfs.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dir,
 	}))
 	ports, err := sysfs.Scan(dir)
@@ -46,10 +45,10 @@ func TestSAPathQuery_LocalPort(t *testing.T) {
 func TestSAPathQuery_RemoteViaRegistry(t *testing.T) {
 	dirA := t.TempDir()
 	dirB := t.TempDir()
-	require.NoError(t, render.Render(render.Options{
+	require.NoError(t, sysfs.Render(sysfs.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dirA,
 	}))
-	require.NoError(t, render.Render(render.Options{
+	require.NoError(t, sysfs.Render(sysfs.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-b", Output: dirB,
 	}))
 	portsA, _ := sysfs.Scan(dirA)

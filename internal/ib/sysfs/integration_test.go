@@ -11,8 +11,8 @@
 // Run with:
 //
 //	make -C shims/libibmock                          # build libibmocksys.so
-//	go test -tags=integration ./internal/ib/render/...
-package render
+//	go test -tags=integration ./internal/ib/sysfs/...
+package sysfs
 
 import (
 	"os"
