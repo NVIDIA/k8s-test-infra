@@ -302,7 +302,7 @@ func (s *Simulator) serveOnce(ctx context.Context) error {
 		IBRoot:     *root,
 		TCPPort:    s.opts.TCPPort,
 		Fabric:     s.opts.Fabric,
-	}, slog.NewLogLogger(slog.Default().With("simulator", name).Handler(), slog.LevelInfo))
+	})
 	if err != nil {
 		return err
 	}
@@ -322,6 +322,7 @@ func (s *Simulator) Reload(_ context.Context, _ *agent.State) error {
 	if s.opts.Mode != ModeFull || !s.dirty.Swap(false) {
 		return nil
 	}
+	slog.Info("ib shape changed; restarting daemon", "simulator", name)
 	select {
 	case s.restart <- struct{}{}:
 	default: // a restart is already pending

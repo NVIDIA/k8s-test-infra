@@ -5,7 +5,6 @@ package daemon
 
 import (
 	"context"
-	"log"
 	"net"
 	"strconv"
 	"testing"
@@ -29,13 +28,13 @@ func TestFabric_RegisterAndPingHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	srv := &Server{
+		log:        newLogger(),
 		cfg:        Config{TCPPort: 0, Fabric: true},
 		localPorts: ports,
 		registry:   registry.New(),
 		podIP:      "10.0.0.1",
 		nodeName:   "node-a",
 		loopback:   newLoopbackIndex(ports),
-		log:        log.Default(),
 		handles:    make(map[int]*portHandle),
 	}
 	ln := startTestFabricListener(t, srv)
@@ -89,26 +88,26 @@ func TestFabric_RemoteSendForwardsPing(t *testing.T) {
 	require.NoError(t, err)
 
 	server := &Server{
+		log:        newLogger(),
 		cfg:        Config{TCPPort: 0, Fabric: true},
 		localPorts: portsA,
 		registry:   registry.New(),
 		podIP:      "127.0.0.1",
 		nodeName:   "node-a",
 		loopback:   newLoopbackIndex(portsA),
-		log:        log.Default(),
 		handles:    make(map[int]*portHandle),
 	}
 	ln := startTestFabricListener(t, server)
 	defer func() { _ = ln.Close() }()
 
 	client := &Server{
+		log:        newLogger(),
 		cfg:        Config{TCPPort: server.cfg.TCPPort, Fabric: true},
 		localPorts: portsB,
 		registry:   registry.New(),
 		podIP:      "10.0.0.2",
 		nodeName:   "node-b",
 		loopback:   newLoopbackIndex(portsB),
-		log:        log.Default(),
 		handles:    make(map[int]*portHandle),
 	}
 	client.registry.Register(portsA[0].PortGUID, registry.Peer{

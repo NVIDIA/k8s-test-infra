@@ -15,7 +15,6 @@ package render_test
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -85,7 +84,7 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	srv, err := daemon.NewServer(daemon.Config{SocketPath: socketPath, IBRoot: root}, log.New(os.Stderr, "mock-ib: ", 0))
+	srv, err := daemon.NewServer(daemon.Config{SocketPath: socketPath, IBRoot: root})
 	require.NoError(t, err, "new server")
 	served := make(chan struct{})
 	go func() {

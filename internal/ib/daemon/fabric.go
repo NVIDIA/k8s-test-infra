@@ -70,7 +70,7 @@ func (s *Server) acceptFabric(ctx context.Context, ln net.Listener) {
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			s.log.Printf("mock-ib: fabric accept: %v", err)
+			s.log.Warn("fabric listener accept failed; retrying", "err", err)
 			select {
 			case <-ctx.Done():
 				return
@@ -96,14 +96,14 @@ func (s *Server) serveFabricConn(ctx context.Context, c net.Conn) {
 			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) || ctx.Err() != nil {
 				return
 			}
-			s.log.Printf("mock-ib: fabric read: %v", err)
+			s.log.Warn("dropping fabric connection: read failed", "err", err)
 			return
 		}
 		// Symmetric to the read deadline above: cap the Pong/response write so
 		// a peer that stops reading mid-exchange cannot pin this goroutine.
 		_ = c.SetWriteDeadline(time.Now().Add(fabricConnIdleTimeout))
 		if err := s.dispatchFabric(c, env); err != nil {
-			s.log.Printf("mock-ib: fabric %s: %v", env.Type, err)
+			s.log.Warn("dropping fabric connection: peer message rejected", "type", env.Type, "err", err)
 			return
 		}
 	}
@@ -149,8 +149,8 @@ func (s *Server) applyRegister(body protocol.RegisterBody) {
 		if !changed[i] {
 			continue
 		}
-		s.log.Printf("mock-ib: register from podIP=%s node=%q ca=%s port=%d lid=0x%04x port_guid=%s",
-			body.PodIP, body.NodeName, port.CAName, port.Port, port.LID, port.PortGUID)
+		s.log.Info("peer registered", "pod_ip", body.PodIP, "node", body.NodeName, "ca", port.CAName,
+			"port", port.Port, "lid", lidHex(port.LID), "port_guid", port.PortGUID)
 	}
 }
 
@@ -161,8 +161,7 @@ func (s *Server) handleFabricPing(c net.Conn, ping protocol.PingBody) error {
 		// Logging this here is the only way to spot a one-shot REGISTER that
 		// shipped stale/wrong port advertisements without re-running the
 		// validate-ibping.sh harness by hand.
-		s.log.Printf("mock-ib: fabric ping mismatch: dst_lid=0x%04x dst_guid=%s does not match any local port",
-			ping.DstLID, ping.DstPortGUID)
+		s.log.Warn("fabric ping addressed no local port", "dst_lid", lidHex(ping.DstLID), "dst_port_guid", ping.DstPortGUID)
 		return nil
 	}
 	return protocol.WriteMessage(c, protocol.TypePong, protocol.PongBody{
@@ -235,9 +234,9 @@ func (s *Server) registerWithPeers(ctx context.Context) {
 	if int32(ok) > s.lastPeerRegisterOK.Load() {
 		switch {
 		case ok >= wantPeers:
-			s.log.Printf("mock-ib: fabric ready — registered %d port(s) with all %d peer(s)", len(body.Ports), wantPeers)
+			s.log.Info("fabric ready", "ports", len(body.Ports), "peers", wantPeers)
 		default:
-			s.log.Printf("mock-ib: registered %d port(s) with %d/%d peer(s) (waiting for remaining pods)", len(body.Ports), ok, wantPeers)
+			s.log.Info("fabric converging", "ports", len(body.Ports), "registered_peers", ok, "peers", wantPeers)
 		}
 		s.lastPeerRegisterOK.Store(int32(ok))
 	}
@@ -249,12 +248,12 @@ func (s *Server) logRegisterError(peerIP string, err error) {
 		_, seen := s.registerWarned[peerIP]
 		if !seen {
 			s.registerWarned[peerIP] = struct{}{}
-			s.log.Printf("mock-ib: peer %s not listening yet (setup in progress; will retry)", peerIP)
+			s.log.Info("peer not listening yet; retrying every 2s", "peer_ip", peerIP)
 		}
 		s.registerWarnedMu.Unlock()
 		return
 	}
-	s.log.Printf("mock-ib: register to %s: %v", peerIP, err)
+	s.log.Warn("peer registration failed; will retry", "peer_ip", peerIP, "err", err)
 }
 
 func (s *Server) clearRegisterWarn(peerIP string) {
@@ -379,8 +378,8 @@ func (s *Server) tryFabricSend(h *portHandle, sendMad []byte) bool {
 		// immediately obvious whether REGISTER never arrived (size=0) or
 		// arrived with the wrong key (size>0 + miss).
 		if dstLID, ok := destLID(sendMad); ok && dstLID != 0 {
-			s.log.Printf("mock-ib: no fabric route for lid=0x%04x (registry size=%d, self=%s, peer.PodIP=%q)",
-				dstLID, s.registry.Size(), s.podIP, peer.PodIP)
+			s.log.Warn("no fabric route to destination LID", "dst_lid", lidHex(dstLID), "registry_size", s.registry.Size(),
+				"self_pod_ip", s.podIP, "peer_pod_ip", peer.PodIP)
 		}
 		return false
 	}
@@ -391,7 +390,7 @@ func (s *Server) tryFabricSend(h *portHandle, sendMad []byte) bool {
 		dstLID = peer.LID
 	}
 	if err := s.pingPeer(peer.PodIP, guid, dstLID); err != nil {
-		s.log.Printf("mock-ib: fabric ping %s@%s: %v", guid, peer.PodIP, err)
+		s.log.Warn("fabric ping to peer failed", "port_guid", guid, "peer_ip", peer.PodIP, "err", err)
 		return false
 	}
 	resp := s.loopback.SynthesizeRecv(sendMad)

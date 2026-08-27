@@ -5,7 +5,6 @@ package daemon
 
 import (
 	"encoding/binary"
-	"log"
 	"testing"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/fabric"
@@ -38,18 +37,21 @@ func TestTryFabricSend_SkipsSubnetMAD(t *testing.T) {
 	local := []protocol.PortAdvert{
 		{PortGUID: "a088:c203:00ab:0001", LID: 0x101, CAName: "mlx5_0", Port: 1},
 	}
+
 	srv := &Server{
+		log:        newLogger(),
 		cfg:        Config{Fabric: true},
 		localPorts: local,
 		registry:   registry.New(),
 		podIP:      "10.0.0.1",
 		loopback:   newLoopbackIndex(local),
-		log:        log.Default(),
 		handles:    make(map[int]*portHandle),
 	}
+
 	srv.registry.Register("a088:c203:00ab:0002", registry.Peer{
 		LID: 0x102, CAName: "mlx5_0", PodIP: "10.0.0.2",
 	})
+
 	srv.rebuildGraph()
 
 	send := make([]byte, umadMADOffset+256)

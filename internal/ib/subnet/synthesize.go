@@ -7,18 +7,21 @@ package subnet
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
-	"os"
+	"log/slog"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/fabric"
 )
 
-var debugSMP = os.Getenv("MOCK_IB_DEBUG_SMP") == "1"
+// logComponent tags SMP synthesis output so it is separable from the rest of
+// the node agent's stream. Directed-route walks are verbose and only wanted when
+// diagnosing a failed iblinkinfo, hence Debug rather than Info.
+var logComponent = slog.String("component", "mock-ib-smp")
 
-func smpLogf(format string, args ...interface{}) {
-	if debugSMP {
-		log.Print("mock-ib smp: ", fmt.Sprintf(format, args...))
-	}
+// hexPath renders the first four directed-route hop bytes the way a MAD dump
+// does, so a logged path lines up with ibnetdiscover output.
+func hexPath(mad []byte) string {
+	return fmt.Sprintf("%02x:%02x:%02x:%02x",
+		drPathByte(mad, 1), drPathByte(mad, 2), drPathByte(mad, 3), drPathByte(mad, 4))
 }
 
 const (
@@ -99,7 +102,8 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 		}
 		out := newSMPResp(sendMad, method)
 		fillSMInfo(out[umadMADOffset:], sm)
-		smpLogf("attr=0x%04x SMInfo -> master sm guid=%s lid=0x%x state=MASTER", attrID, sm.PortGUID, sm.LID)
+		slog.Debug("smp SMInfo resolved to master SM", logComponent,
+			"attr", attrID, "sm_port_guid", sm.PortGUID, "sm_lid", sm.LID)
 		return out, true
 	}
 
@@ -111,13 +115,16 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 	}
 	target, ok := resolveTarget(g, mad, lid, localCA)
 	if !ok {
-		smpLogf("attr=0x%04x mod=0x%x lid=0x%x localCA=%s hopCnt=%d hops=%02x:%02x:%02x:%02x NO_TARGET",
-			attrID, attrMod, lid, localCA, drHopCnt(mad), drPathByte(mad, 1), drPathByte(mad, 2), drPathByte(mad, 3), drPathByte(mad, 4))
+		slog.Debug("smp directed route resolved no target", logComponent,
+			"attr", attrID, "attr_mod", attrMod, "lid", lid, "local_ca", localCA,
+			"hop_count", drHopCnt(mad), "hops", hexPath(mad))
 		return nil, false
 	}
-	smpLogf("attr=0x%04x mod=0x%x lid=0x%x localCA=%s hopCnt=%d hops=%02x:%02x:%02x:%02x -> %s/%s lid=0x%x local=%t podIP=%s",
-		attrID, attrMod, lid, localCA, drHopCnt(mad), drPathByte(mad, 1), drPathByte(mad, 2), drPathByte(mad, 3), drPathByte(mad, 4),
-		target.CAName, target.PortGUID, target.LID, target.Local, target.PodIP)
+	slog.Debug("smp directed route resolved", logComponent,
+		"attr", attrID, "attr_mod", attrMod, "lid", lid, "local_ca", localCA,
+		"hop_count", drHopCnt(mad), "hops", hexPath(mad),
+		"target_ca", target.CAName, "target_port_guid", target.PortGUID,
+		"target_lid", target.LID, "target_local", target.Local, "target_pod_ip", target.PodIP)
 	out := newSMPResp(sendMad, method)
 	respMAD := out[umadMADOffset:]
 	switch attrID {

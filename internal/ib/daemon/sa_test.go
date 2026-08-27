@@ -24,6 +24,7 @@ func TestSAPathQuery_LocalPort(t *testing.T) {
 	ports, err := sysfs.Scan(dir)
 	require.NoError(t, err)
 	srv := &Server{
+		log:        newLogger(),
 		localPorts: ports,
 		loopback:   newLoopbackIndex(ports),
 		registry:   registry.New(),
@@ -55,6 +56,7 @@ func TestSAPathQuery_RemoteViaRegistry(t *testing.T) {
 	portsB, _ := sysfs.Scan(dirB)
 
 	client := &Server{
+		log:        newLogger(),
 		localPorts: portsB,
 		loopback:   newLoopbackIndex(portsB),
 		registry:   registry.New(),

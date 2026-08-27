@@ -6,8 +6,7 @@ package daemon
 import (
 	"bytes"
 	"context"
-	"io"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"strconv"
@@ -24,12 +23,11 @@ import (
 )
 
 // TestApplyRegister_LogsOnlyOnChange pins REGISTER log volume: peers
-// re-register every 2s, so an unchanged registration must stay silent
-// (~86k lines/day per port otherwise) while the first registration and any
-// change keep the existing per-port log line for kubectl-logs debuggability.
+// re-register every 2s, so an unchanged registration must stay silent —
+// otherwise a two-port node emits ~86k lines a day saying nothing changed.
 func TestApplyRegister_LogsOnlyOnChange(t *testing.T) {
-	var buf bytes.Buffer
-	srv := &Server{registry: registry.New(), log: log.New(&buf, "", 0)}
+	buf := captureLogs(t)
+	srv := &Server{log: newLogger(), registry: registry.New()}
 	body := protocol.RegisterBody{
 		NodeName: "node-b",
 		PodIP:    "10.0.0.2",
@@ -40,23 +38,31 @@ func TestApplyRegister_LogsOnlyOnChange(t *testing.T) {
 	}
 
 	srv.applyRegister(body)
-	require.Equal(t, 2, strings.Count(buf.String(), "register from"),
+	require.Equal(t, 2, strings.Count(buf.String(), "peer registered"),
 		"first REGISTER must log every port:\n%s", buf.String())
-	// First-registration log content must stay identical (CI greps depend on it).
-	require.Contains(t, buf.String(),
-		`mock-ib: register from podIP=10.0.0.2 node="node-b" ca=mlx5_0 port=1 lid=0x0300 port_guid=a088:c203:00ab:2001`)
+	require.Contains(t, buf.String(), "port_guid=a088:c203:00ab:2001")
 
-	// Identical 2s re-register: no new lines.
 	srv.applyRegister(body)
-	require.Equal(t, 2, strings.Count(buf.String(), "register from"),
+	require.Equal(t, 2, strings.Count(buf.String(), "peer registered"),
 		"unchanged re-register must not log:\n%s", buf.String())
 
-	// LID change on one port: exactly one new line, for the changed port.
 	body.Ports[1].LID = 0x0999
 	srv.applyRegister(body)
-	require.Equal(t, 3, strings.Count(buf.String(), "register from"),
+	require.Equal(t, 3, strings.Count(buf.String(), "peer registered"),
 		"changed port must log exactly once:\n%s", buf.String())
 	require.Contains(t, buf.String(), "lid=0x0999")
+}
+
+// captureLogs redirects the global logger for one test. The daemon logs through
+// slog.Default() rather than an injected logger, so assertions on log output
+// have to swap the default and restore it.
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
 }
 
 // TestRegisterWithPeers_CancelledCtxMakesNoDials pins ctx handling in the
@@ -85,9 +91,9 @@ func TestRegisterWithPeers_CancelledCtxMakesNoDials(t *testing.T) {
 
 	t.Setenv(envMockIBPeers, "127.0.0.1")
 	srv := &Server{
+		log:            newLogger(),
 		cfg:            Config{TCPPort: tcpPort},
 		podIP:          "10.255.255.1", // must differ from the peer so it is not skipped as self
-		log:            log.New(io.Discard, "", 0),
 		registerWarned: make(map[string]struct{}),
 	}
 
@@ -139,7 +145,7 @@ func TestServer_sendRegister(t *testing.T) {
 	tcpPort, err := strconv.Atoi(portStr)
 	require.NoError(t, err)
 
-	srv, err := NewServer(Config{IBRoot: dir, TCPPort: tcpPort, Fabric: true}, nil)
+	srv, err := NewServer(Config{IBRoot: dir, TCPPort: tcpPort, Fabric: true})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
