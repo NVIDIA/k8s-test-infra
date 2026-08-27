@@ -26,6 +26,10 @@ set -euo pipefail
 # NVSentinel's (_NAMESPACE in local/nv-sentinel/nv_sentinel.tiltfile).
 MOKKA_NAMESPACE="mokka"
 NVSENTINEL_NAMESPACE="nvsentinel"
+# nvml-mock-ctl and the rendered profile live in this container only. The pod
+# also runs a node-agent sidecar, so every exec names its container rather than
+# letting kubectl pick the first one and warn about it.
+MOCK_CONTAINER="nvml-mock"
 # The GPU Operator's namespace, home of the standalone DCGM DaemonSet the health
 # monitor polls (local/nv-sentinel/gpu-operator.values.yaml enables it).
 GPU_OPERATOR_NAMESPACE="gpu-operator"
@@ -94,7 +98,7 @@ mock_pod_on() {
 mock_ctl_on() {
   local pod="$1"
   shift
-  kubectl -n "${MOKKA_NAMESPACE}" exec "${pod}" -- nvml-mock-ctl "$@"
+  kubectl -n "${MOKKA_NAMESPACE}" exec "${pod}" -c "${MOCK_CONTAINER}" -- nvml-mock-ctl "$@"
 }
 
 # The slowdown limit of the profile the mock on $1 loaded, so a pinned
@@ -108,7 +112,7 @@ mock_ctl_on() {
 # library: scenario scripts in this repo are self-contained, so each one can be
 # read, and run, on its own.
 threshold() {
-  kubectl -n "${MOKKA_NAMESPACE}" exec "$1" -- \
+  kubectl -n "${MOKKA_NAMESPACE}" exec "$1" -c "${MOCK_CONTAINER}" -- \
     grep -m1 -E "^[[:space:]]*$2:" /etc/nvml-mock/config.yaml \
     | sed -E 's/.*:[[:space:]]*([0-9]+).*/\1/'
 }
@@ -247,7 +251,7 @@ done
 still_cordoned=$(cordoned_gpu_nodes)
 if [[ -n "${still_cordoned}" ]]; then
   diagnose ${still_cordoned}
-  fail "GPU node(s) $(tr '\n' ' ' <<<"${still_cordoned}") are cordoned now, so a fault this run never cleared is being detected — most likely a temperature override on a node that was schedulable when this run started, though a node it did recover being re-quarantined since would look the same. \`kubectl -n ${MOKKA_NAMESPACE} exec <that node's mock pod> -- nvml-mock-ctl reset --gpu all\` clears it; quarantine-node also clears every pin fleet-wide before it injects."
+  fail "GPU node(s) $(tr '\n' ' ' <<<"${still_cordoned}") are cordoned now, so a fault this run never cleared is being detected — most likely a temperature override on a node that was schedulable when this run started, though a node it did recover being re-quarantined since would look the same. \`kubectl -n ${MOKKA_NAMESPACE} exec <that node's mock pod> -c ${MOCK_CONTAINER} -- nvml-mock-ctl reset --gpu all\` clears it; quarantine-node also clears every pin fleet-wide before it injects."
 fi
 
 dcgm_after=$(dcgm_restarts)

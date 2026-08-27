@@ -23,6 +23,10 @@ set -euo pipefail
 # NVSentinel's (_NAMESPACE in local/nv-sentinel/nv_sentinel.tiltfile).
 MOKKA_NAMESPACE="mokka"
 NVSENTINEL_NAMESPACE="nvsentinel"
+# nvml-mock-ctl and the rendered profile live in this container only. The pod
+# also runs a node-agent sidecar, so every exec names its container rather than
+# letting kubectl pick the first one and warn about it.
+MOCK_CONTAINER="nvml-mock"
 # The workload from local/nv-sentinel/gpu-workload.k8s.yaml.
 WORKLOAD_NAMESPACE="default"
 WORKLOAD_SELECTOR="app=gpu-sample-workload"
@@ -76,7 +80,7 @@ mock_pod_on() {
 mock_ctl_on() {
   local pod="$1"
   shift
-  kubectl -n "${MOKKA_NAMESPACE}" exec "${pod}" -- nvml-mock-ctl "$@"
+  kubectl -n "${MOKKA_NAMESPACE}" exec "${pod}" -c "${MOCK_CONTAINER}" -- nvml-mock-ctl "$@"
 }
 
 # Every GPU node paired with the mock pod that can inject into it. The whole set
@@ -212,7 +216,7 @@ mock_ctl() { mock_ctl_on "${target_pod}" "$@"; }
 # into the pod (MOCK_NVML_CONFIG in the DaemonSet). Each key appears once, under
 # device_defaults.thermal.
 threshold() {
-  kubectl -n "${MOKKA_NAMESPACE}" exec "${target_pod}" -- \
+  kubectl -n "${MOKKA_NAMESPACE}" exec "${target_pod}" -c "${MOCK_CONTAINER}" -- \
     grep -m1 -E "^[[:space:]]*$1:" /etc/nvml-mock/config.yaml \
     | sed -E 's/.*:[[:space:]]*([0-9]+).*/\1/'
 }
@@ -243,9 +247,9 @@ printf '    profile thresholds: slowdown %sC, shutdown %sC -> heating to %sC\n' 
 # Every failure after the injection leaves the GPU pinned hot, and a pin left
 # behind reads later as an unexplained cordon on a cluster nobody touched.
 pinned_hot_hint() {
-  printf 'gpu %s on %s is LEFT PINNED at %sC by this run: clear it with `kubectl -n %s exec %s -- nvml-mock-ctl reset --gpu %s` (the next run of this scenario also clears it), or the node stays quarantined for reasons a later reader cannot see.' \
+  printf 'gpu %s on %s is LEFT PINNED at %sC by this run: clear it with `kubectl -n %s exec %s -c %s -- nvml-mock-ctl reset --gpu %s` (the next run of this scenario also clears it), or the node stays quarantined for reasons a later reader cannot see.' \
     "${TARGET_GPU}" "${target_node}" "${HOT_TEMP_C}" \
-    "${MOKKA_NAMESPACE}" "${target_pod}" "${TARGET_GPU}"
+    "${MOKKA_NAMESPACE}" "${target_pod}" "${MOCK_CONTAINER}" "${TARGET_GPU}"
 }
 
 # --- phase 1: heat, and expect a cordon -------------------------------------
