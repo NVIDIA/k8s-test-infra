@@ -6,10 +6,41 @@ package host
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func skipUnlessRootLinux(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" || os.Getuid() != 0 {
+		t.Skip("requires root on Linux (mknod)")
+	}
+}
+
+func TestMknod_CreatesChardev(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	h := New(t.TempDir())
+	path := filepath.Join(h.Root, "test-chardev")
+
+	require.NoError(t, h.Mknod(path, 195, 0))
+
+	fi, err := os.Stat(path)
+	require.NoError(t, err)
+	require.EqualValues(t, 0o666, fi.Mode().Perm())
+}
+
+func TestMknod_Idempotent(t *testing.T) {
+	skipUnlessRootLinux(t)
+
+	h := New(t.TempDir())
+	path := filepath.Join(h.Root, "test-chardev")
+
+	require.NoError(t, h.Mknod(path, 195, 0))
+	require.NoError(t, h.Mknod(path, 195, 0), "second Mknod must not error")
+}
 
 func TestHostRemove(t *testing.T) {
 	t.Run("existing file is removed", func(t *testing.T) {

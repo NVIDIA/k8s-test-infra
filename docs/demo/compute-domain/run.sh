@@ -21,7 +21,7 @@
 #      -worker3 / -worker4 report clique 1.
 #
 #   3. Real IMEX domain formation (NO GPU mode)
-#      Two real nvidia-imex daemons (started via imex-nogpu-shim, which
+#      Two real nvidia-imex daemons (started via nvidia-imex-shim, which
 #      execs nvidia-imex.real --nogpu) form a domain over the pod
 #      network: nvidia-imex-ctl -q reports READY for a single daemon's
 #      local probe, -N -j reports the domain UP with every peer READY
@@ -399,7 +399,7 @@ assert_clique "${WORKER4}" 1 "${EXPECTED_DOMAIN_UUID}"
 ###############################################################################
 # Scenario 2 — Real IMEX domain (NO GPU mode) over the pod network
 ###############################################################################
-# The demo workload image carries the real nvidia-imex behind imex-nogpu-shim;
+# The demo workload image carries the real nvidia-imex behind nvidia-imex-shim;
 # NRI supplies the mock NVML overlay, topology environment, and IMEX channels.
 # /usr/bin/nvidia-imex exec's /usr/bin/nvidia-imex.real --nogpu. The
 # daemons below speak the real gRPC peer protocol (port 50000) and exchange
@@ -574,7 +574,7 @@ cat <<EOF
                                 (workers 1-2 -> clique 0, workers 3-4 -> clique 1)
                                 via nvmlDeviceGetGpuFabricInfo.
    Scenario 2  real IMEX      : two real nvidia-imex daemons (NO GPU
-                                mode via imex-nogpu-shim) formed a
+                                mode via nvidia-imex-shim) formed a
                                 domain over the pod network; ctl -q
                                 printed READY, -N -j reported UP with
                                 version NO_GPU, and killing a peer
@@ -586,7 +586,7 @@ cat <<EOF
 ==> The upstream compute-domain-controller and compute-domain-daemon
     can now run unmodified against this cluster: their NVML calls land
     on the mock library, and the real nvidia-imex / nvidia-imex-ctl are
-    fronted by the imex-nogpu-shim overlay image (see
+    fronted by the nvidia-imex-shim overlay image (see
     deployments/nvml-mock/Dockerfile.compute-domain-daemon for the
     thin overlay that runs the real IMEX daemon with --nogpu).
 

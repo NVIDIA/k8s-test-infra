@@ -243,13 +243,8 @@
     "imex": {
       "type": "object",
       "additionalProperties": true,
-      "description": "IMEX simulation. enabled/stateDir cover the deprecated hostPath-backed fake IMEX daemons; mockChannels covers the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads.",
+      "description": "IMEX simulation. mockChannels covers the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads.",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "stateDir": {
-          "type": "string",
-          "description": "HostPath directory for the fake IMEX daemons' marker files."
-        },
         "mockChannels": {
           "type": "object",
           "additionalProperties": true,

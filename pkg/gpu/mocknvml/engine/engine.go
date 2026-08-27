@@ -75,11 +75,23 @@ func (e *Engine) Init() nvml.Return {
 		return nvml.SUCCESS
 	}
 
-	// Create server on first init
-	server, err := e.createServer()
-	if err != nil {
-		debugLog("[ENGINE] Failed to create mock server: %v\n", err)
-		return nvml.ERROR_UNKNOWN
+	// Create the server on the first init only. After a full shutdown the
+	// existing one is reused: injected failures, ECC counters, call counters
+	// and undelivered Xid events model hardware state, which survives
+	// nvmlShutdown()/nvmlInit() on a real GPU. Clients such as the DRA driver
+	// init/shutdown NVML around each discovery step and then again for their
+	// health monitor; recreating the devices here would silently drop a
+	// failure tripped in between.
+	server := e.server
+	if server == nil {
+		var err error
+		server, err = e.createServer()
+		if err != nil {
+			debugLog("[ENGINE] Failed to create mock server: %v\n", err)
+			return nvml.ERROR_UNKNOWN
+		}
+	} else {
+		debugLog("[ENGINE] Re-initializing, reusing existing device state\n")
 	}
 
 	// Detect which GPU device nodes exist. In containers where CDI injects
@@ -262,7 +274,8 @@ func (e *Engine) Shutdown() nvml.Return {
 		return nvml.SUCCESS
 	}
 
-	e.server = nil
+	// Handles become invalid (and their addresses are never reused, see
+	// HandleTable.Clear), but the device state is kept for a later Init.
 	e.handles.Clear()
 
 	debugLog("[ENGINE] Shutdown complete\n")

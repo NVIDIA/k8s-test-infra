@@ -78,251 +78,6 @@ CAPS_EOF
   echo "Mock IMEX surface ready: $IMEX_CHANNELS channels, major $IMEX_MAJOR, proc-devices at $IMEX_DIR/proc-devices"
 fi
 
-# 3b. Generate CDI spec for nvidia-container-runtime CDI mode.
-#     This allows the toolkit to inject our mock libs into containers without
-#     needing libnvidia-container or kernel modules.
-#
-#     Wait for node-agent to stage the driver footprint before writing either
-#     CDI spec (3b and 3c). node-agent runs as a sibling container with no
-#     ordering guarantee. nvidiactl is the last file stageCharDevs creates, so
-#     its presence implies the full Stage wave (libs, smi, chardevs, config) is
-#     complete. Without this guard the specs would reference hostPaths that do
-#     not yet exist, and any container created in the interim would fail the
-#     bind-mount silently from setup.sh's perspective.
-#     TODO: remove this wait once setup.sh is fully replaced by the node-agent.
-_wait_secs=0
-until [ -e "$DEV_ROOT/nvidiactl" ] || [ "$_wait_secs" -ge 60 ]; do
-  sleep 1
-  _wait_secs=$((_wait_secs + 1))
-done
-if [ ! -e "$DEV_ROOT/nvidiactl" ]; then
-  echo "ERROR: timed out waiting for node-agent to stage driver footprint" >&2
-  exit 1
-fi
-
-CDI_DIR=/host/var/run/cdi
-mkdir -p "$CDI_DIR"
-
-# Resolve fabricmanager enablement once, here, because it influences both the
-# CDI spec (below) and the daemon launch (step 11). Validate early so a typo
-# fails the pod with a clear message rather than silently disabling the gate.
-MOCK_FM_MODE=$(printf '%s' "${MOCK_FABRICMANAGER:-off}" | tr '[:upper:]' '[:lower:]')
-case "$MOCK_FM_MODE" in
-  off | on) ;;
-  *)
-    echo "ERROR: MOCK_FABRICMANAGER='$MOCK_FABRICMANAGER' is invalid; expected off or on" >&2
-    exit 1
-    ;;
-esac
-FM_STATE_DIR="${MOCK_FABRICMANAGER_STATE_DIR:-/var/lib/nvml-mock/fabric-state}"
-
-cat > "$CDI_DIR/nvidia.yaml" << 'CDI_HEADER'
-cdiVersion: "0.6.0"
-kind: "nvidia.com/gpu"
-containerEdits:
-  deviceNodes:
-    - path: /dev/nvidiactl
-      hostPath: /var/lib/nvml-mock/driver/dev/nvidiactl
-    - path: /dev/nvidia-uvm
-      hostPath: /var/lib/nvml-mock/driver/dev/nvidia-uvm
-    - path: /dev/nvidia-uvm-tools
-      hostPath: /var/lib/nvml-mock/driver/dev/nvidia-uvm-tools
-  mounts:
-    - hostPath: /var/lib/nvml-mock/driver/usr/lib64/libnvidia-ml.so.1
-      containerPath: /usr/lib64/libnvidia-ml.so.1
-      options: [ro, nosuid, nodev, bind]
-    - hostPath: /var/lib/nvml-mock/driver/usr/bin/nvidia-smi
-      containerPath: /usr/bin/nvidia-smi
-      options: [ro, nosuid, nodev, bind]
-    # Bind-mount the GPU profile config DIRECTORY (not just config.yaml) so the
-    # mock NVML library finds config.yaml via MOCK_NVML_CONFIG below AND sees
-    # overrides.yaml when nvml-mock-ctl writes it at runtime. The CLI creates
-    # the config override via temp-file+rename in this same dir; a directory bind makes
-    # that atomic rename observable to CDI-injected consumers (a single-file
-    # bind would pin the original inode and hide the replacement). Without the
-    # config the mock .so falls back to "no-YAML" defaults — temperature, power
-    # and similar metrics surface as N/A in nvidia-smi.
-    - hostPath: /var/lib/nvml-mock/driver/config
-      containerPath: /etc/nvml-mock
-      options: [ro, nosuid, nodev, bind]
-CDI_HEADER
-
-# When fabricmanager is enabled, bind-mount the node-local readiness marker
-# directory into CDI-injected workloads and point the mock NVML library at it.
-# Without this, the mock .so loaded inside user pods sees an empty
-# MOCK_FABRICMANAGER_STATE_DIR and resolves `fabric.state: auto` straight to
-# COMPLETED, silently bypassing the fabricmanager readiness gate (the mock .so
-# is loaded by nvidia-smi *inside the workload container*, not by this pod).
-if [ "$MOCK_FM_MODE" != "off" ]; then
-  cat >> "$CDI_DIR/nvidia.yaml" << FM_MOUNT_EOF
-    - hostPath: $FM_STATE_DIR
-      containerPath: $FM_STATE_DIR
-      options: [ro, nosuid, nodev, bind]
-FM_MOUNT_EOF
-fi
-
-cat >> "$CDI_DIR/nvidia.yaml" << 'CDI_HOOKS_ENV'
-  hooks:
-    - hookName: createContainer
-      path: /usr/bin/nvidia-cdi-hook
-      args: [nvidia-cdi-hook, update-ldcache, --folder, /usr/lib64]
-  env:
-    - NVIDIA_VISIBLE_DEVICES=void
-    - MOCK_NVML_CONFIG=/etc/nvml-mock/config.yaml
-    - MOCK_NVML_OVERRIDES=/etc/nvml-mock/overrides.yaml
-CDI_HOOKS_ENV
-
-if [ "$MOCK_FM_MODE" != "off" ]; then
-  cat >> "$CDI_DIR/nvidia.yaml" << FM_ENV_EOF
-    - MOCK_FABRICMANAGER_STATE_DIR=$FM_STATE_DIR
-FM_ENV_EOF
-fi
-
-cat >> "$CDI_DIR/nvidia.yaml" << 'CDI_DEVICES'
-devices:
-CDI_DEVICES
-
-# Build an "index uuid" map from the profile config so each device node's CDI
-# entry uses the UUID for its declared `index:`, not for its list position.
-# Profiles are conventionally in ascending order, but the mock's NVML shim
-# resolves overrides by explicit index — an out-of-order profile would make
-# CDI and NVML disagree about which GPU a UUID names, and pods would land on
-# the wrong /dev/nvidia<n>. Devices are exposed under BOTH the index
-# shorthand ("0".."N-1") — how the nvidia-container-runtime CLI addresses
-# them — and the fully-qualified UUID — how the k8s device plugin allocates
-# and how containerd resolves CDI device references by name. Without the UUID
-# entries, any pod requesting `nvidia.com/gpu` on a containerd with
-# `enable_cdi = true` (the kind-nvidia-cdi image default) fails with
-# `unresolvable CDI devices nvidia.com/gpu=<uuid>`.
-INDEX_UUID_MAP=$(awk '
-    /^[[:space:]]*- index:/ {
-        cur_index = $3
-        gsub(/"/, "", cur_index)
-        pending = 1
-        next
-    }
-    pending && /^[[:space:]]*uuid:/ {
-        sub(/^[[:space:]]*uuid:[[:space:]]*/, "")
-        gsub(/"/, "")
-        print cur_index " " $0
-        pending = 0
-    }
-' /etc/nvml-mock/config.yaml)
-
-# Per-GPU device entries (index and UUID names point at the same device node).
-for i in $(seq 0 $((GPU_COUNT - 1))); do
-  UUID=$(echo "$INDEX_UUID_MAP" | awk -v idx="$i" '$1 == idx { print $2; exit }')
-  for NAME in "$i" "$UUID"; do
-    [ -z "$NAME" ] && continue
-    cat >> "$CDI_DIR/nvidia.yaml" << DEVICE_EOF
-  - name: "$NAME"
-    containerEdits:
-      deviceNodes:
-        - path: /dev/nvidia$i
-          hostPath: /var/lib/nvml-mock/driver/dev/nvidia$i
-DEVICE_EOF
-  done
-done
-
-# "all" device — aggregates all GPUs
-echo '  - name: "all"' >> "$CDI_DIR/nvidia.yaml"
-echo '    containerEdits:' >> "$CDI_DIR/nvidia.yaml"
-echo '      deviceNodes:' >> "$CDI_DIR/nvidia.yaml"
-for i in $(seq 0 $((GPU_COUNT - 1))); do
-  echo "        - path: /dev/nvidia$i" >> "$CDI_DIR/nvidia.yaml"
-  echo "          hostPath: /var/lib/nvml-mock/driver/dev/nvidia$i" >> "$CDI_DIR/nvidia.yaml"
-done
-
-echo "CDI spec generated at $CDI_DIR/nvidia.yaml ($GPU_COUNT devices, index + UUID keyed)"
-
-# 3c. Generate the CDI spec the NRI plugin injects (issue #436).
-#
-#     This is deliberately a SECOND spec, not a reuse of nvidia.yaml above:
-#
-#     - Vendor. nvidia.com/gpu belongs to the device plugin and the container
-#       toolkit. MEP-0002 requires that exactly one component emit CDI device
-#       references for a given container; a distinct vendor makes that
-#       observable instead of merely asserted.
-#     - No hooks. nvidia.yaml runs /usr/bin/nvidia-cdi-hook, which only exists
-#       on a toolkit-bearing node. The NRI path has to work on stock
-#       kindest/node, where containerd enables CDI by default but no toolkit is
-#       installed.
-#     - Device nodes only. The NRI plugin already delivers the libraries and the
-#       environment through its overlay bind mount and LD_PRELOAD, so repeating
-#       nvidia.yaml's library mounts here would inject them twice by two
-#       different mechanisms.
-#
-#     Per-GPU entries plus "all" keep MEP-0002's detectVisibleDevices oracle
-#     intact: the correct SUBSET stays expressible, so a future per-device
-#     caller does not have to widen the container to use CDI.
-NRI_CDI_SPEC=$CDI_DIR/nvml-mock-nri.yaml
-
-# hostPath in a CDI spec is resolved by the RUNTIME, on the real host — not by
-# this container, which sees the host root under /host. $DEV_ROOT is this
-# container's view, so strip the prefix. Getting this wrong does not fail here:
-# the spec is written happily and containerd then refuses to create any
-# container that references it, which surfaces as a pod stuck out of Running
-# with no obvious link back to this file.
-HOST_DEV_ROOT=${DEV_ROOT#/host}
-
-# NVML_MOCK_DEVICE_SOURCE records which mechanism delivered the device nodes.
-# The raw NRI path injects device nodes only and has no way to set an
-# environment variable on the device opt-in, so this is present if and only if
-# the runtime resolved this spec. That makes "did CDI actually take effect"
-# observable from inside the container: the two modes are otherwise identical by
-# design, and a silent fallback to raw would look exactly like a working CDI
-# deployment.
-cat > "$NRI_CDI_SPEC" << 'NRI_CDI_HEADER'
-cdiVersion: "0.6.0"
-kind: "nvml-mock.nvidia.com/gpu"
-containerEdits:
-  env:
-    - NVML_MOCK_DEVICE_SOURCE=cdi
-devices:
-NRI_CDI_HEADER
-
-# nri_cdi_device_nodes emits the deviceNodes block for one GPU index, or for
-# every mock node when passed "all". The set MUST match what discoverDevices
-# stages on the raw path (every non-directory nvidia* node under $DEV_ROOT):
-# cdi mode replaces the mechanism, not the contract, and a narrower set here
-# would be a silent regression for a workload that opens /dev/nvidia-uvm.
-nri_cdi_device_nodes() {
-  _which=$1
-  if [ "$_which" = "all" ]; then
-    for _i in $(seq 0 $((GPU_COUNT - 1))); do
-      echo "        - path: /dev/nvidia$_i"
-      echo "          hostPath: $HOST_DEV_ROOT/nvidia$_i"
-    done
-    for _extra in nvidiactl nvidia-uvm nvidia-uvm-tools; do
-      if [ -e "$DEV_ROOT/$_extra" ]; then
-        echo "        - path: /dev/$_extra"
-        echo "          hostPath: $HOST_DEV_ROOT/$_extra"
-      fi
-    done
-  else
-    echo "        - path: /dev/nvidia$_which"
-    echo "          hostPath: $HOST_DEV_ROOT/nvidia$_which"
-  fi
-}
-
-for i in $(seq 0 $((GPU_COUNT - 1))); do
-  {
-    echo "  - name: \"$i\""
-    echo '    containerEdits:'
-    echo '      deviceNodes:'
-    nri_cdi_device_nodes "$i"
-  } >> "$NRI_CDI_SPEC"
-done
-
-{
-  echo '  - name: "all"'
-  echo '    containerEdits:'
-  echo '      deviceNodes:'
-  nri_cdi_device_nodes all
-} >> "$NRI_CDI_SPEC"
-
-echo "NRI CDI spec generated at $NRI_CDI_SPEC ($GPU_COUNT devices + all)"
-
 # 4b. Stage InfiniBand tools and preload shims for node-wide NRI injection.
 #     The NRI plugin mounts /var/lib/nvml-mock at /opt/nvml-mock in each
 #     workload, then prepends driver/usr/bin and driver/usr/lib64 and appends
@@ -495,12 +250,21 @@ fi
 #     /proc/stat btime (stable across nvidia-smi invocations), so no epoch
 #     export is needed here for counters to grow.
 #
-#     MOCK_FM_MODE / FM_STATE_DIR were resolved + validated earlier (near the
-#     CDI block). The readiness marker lives on a DirectoryOrCreate hostPath
+#     The readiness marker lives on a DirectoryOrCreate hostPath
 #     that survives pod restarts, and the daemon re-asserts it every 2s — so a
 #     stale marker from a prior pod could make a fresh pod report COMPLETED
 #     before its own daemon is ready. Clear it here so every pod starts in a
 #     clean IN_PROGRESS state until *this* daemon writes the marker.
+MOCK_FM_MODE=$(printf '%s' "${MOCK_FABRICMANAGER:-off}" | tr '[:upper:]' '[:lower:]')
+case "$MOCK_FM_MODE" in
+  off | on) ;;
+  *)
+    echo "ERROR: MOCK_FABRICMANAGER='$MOCK_FABRICMANAGER' is invalid; expected off or on" >&2
+    exit 1
+    ;;
+esac
+FM_STATE_DIR="${MOCK_FABRICMANAGER_STATE_DIR:-/var/lib/nvml-mock/fabric-state}"
+
 if [ "$MOCK_FM_MODE" != "off" ]; then
   if [ -x /usr/bin/nv-fabricmanager ]; then
     mkdir -p "$FM_STATE_DIR"

@@ -1,0 +1,4 @@
+#!/bin/sh
+printf '%s\n' "$@"
+printf 'ENV_PROBE=%s\n' "$ENV_PROBE"
+exit 7

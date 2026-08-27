@@ -112,8 +112,13 @@ func pollPendingXid(data *C.nvmlEventData_t) bool {
 	data.device.handle = (*C.struct_nvmlDevice_st)(handle)
 	data.eventType = C.NVML_EVENT_TYPE_XID_CRITICAL_ERROR
 	data.eventData = C.ulonglong(xid)
-	data.gpuInstanceId = 0
-	data.computeInstanceId = 0
+	// Real NVML reports 0xFFFFFFFF for both instance ids on events that are
+	// not scoped to a MIG instance. Consumers such as the DRA driver and the
+	// device plugin key off that sentinel to attribute the Xid to the whole
+	// GPU; (0, 0) would name MIG GI 0 / CI 0 instead and be dropped on a GPU
+	// without MIG enabled.
+	data.gpuInstanceId = C.uint(nvmlNoMIGInstanceID)
+	data.computeInstanceId = C.uint(nvmlNoMIGInstanceID)
 	return true
 }
 
@@ -217,11 +222,13 @@ func eventSetWaitForTest(
 
 // xidDelivery is what the bridge wrote into the caller's nvmlEventData_t.
 type xidDelivery struct {
-	status     uint32
-	eventType  uint64
-	eventData  uint64
-	deviceSet  bool
-	claimCount int
+	status            uint32
+	eventType         uint64
+	eventData         uint64
+	gpuInstanceID     uint32
+	computeInstanceID uint32
+	deviceSet         bool
+	claimCount        int
 }
 
 // eventSetWaitWithPendingXidForTest stubs the engine claim with one pending Xid
@@ -259,6 +266,8 @@ func eventSetWaitWithPendingXidForTest(xid uint64, timeoutms uint32, availableAf
 	out.status = uint32(nvmlEventSetWait_v2(set, &data, C.uint(timeoutms)))
 	out.eventType = uint64(data.eventType)
 	out.eventData = uint64(data.eventData)
+	out.gpuInstanceID = uint32(data.gpuInstanceId)
+	out.computeInstanceID = uint32(data.computeInstanceId)
 	out.deviceSet = unsafe.Pointer(data.device.handle) == handle
 	return out
 }

@@ -65,7 +65,7 @@ Dedicated cluster (`nvml-mock-compute-domain`) with 4 workers.
 Exercises the mock NVML fabric APIs (`nvmlDeviceGetGpuFabricInfo` /
 `…InfoV`) driven by a cluster-level topology ConfigMap, plus the REAL
 `nvidia-imex` daemon in NO GPU mode (`--nogpu`, injected by
-`imex-nogpu-shim`) forming a live gRPC IMEX domain over the pod
+`nvidia-imex-shim`) forming a live gRPC IMEX domain over the pod
 network — readiness, version handshake, and peer-death detection are
 the real protocol, not a simulation. Concludes with a `helm upgrade`
 that rebinds every node into a new clique without rebuilding the
