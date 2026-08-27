@@ -21,18 +21,17 @@ import (
 const defaultRootComplexID = "pci0000:00"
 
 const (
-	// kernelDMIRelPath is where the kernel keeps DMI attributes, relative to
-	// /sys. /sys/class/dmi/id is a symlink to it.
+	// kernelDMIRelPath is the kernel's DMI directory relative to /sys;
+	// /sys/class/dmi/id is a symlink to it.
 	kernelDMIRelPath = "devices/virtual/dmi/id"
-	// mockDMIRelPath is the same directory inside the rendered tree, relative
-	// to the overlay root.
+	// mockDMIRelPath is the same directory inside the rendered tree.
 	mockDMIRelPath = pcisysfs.SysDevicesRelPath + "/virtual/dmi/id"
 )
 
 // dmiMountTargets are the attributes kind's mount-product-files.sh hook
-// bind-mounts into every container. Only product_name travels by value:
-// product_uuid identifies the node and the kernel exposes it to root alone, so
-// it is staged as an empty file that exists purely to be mounted over.
+// bind-mounts into every container. product_uuid identifies the node and the
+// kernel shows it to root alone, so it is staged empty — it exists only to be
+// mounted over.
 var dmiMountTargets = []struct {
 	name     string
 	byValue  bool
@@ -42,23 +41,16 @@ var dmiMountTargets = []struct {
 	{name: "product_uuid", byValue: false, fileMode: 0o400},
 }
 
-// stageDMI reproduces, inside the rendered tree, the DMI attributes kind's
-// createContainer hook bind-mounts into every container.
+// stageDMI keeps kind's bind-mount targets alive: serving the tree at
+// /sys/devices replaces the directory /sys/class/dmi/id resolves into, and
+// mount(8) cannot create a target on a read-only sysfs, so without these files
+// every served pod dies on "mount point does not exist".
 //
-// This is mount-target compatibility, not a machine-type mock (#681). Serving
-// the tree at /sys/devices replaces the directory /sys/class/dmi/id resolves
-// into, and mount(8) cannot create a target on a read-only sysfs — so without
-// these files every served pod dies with
-//
-//	mount: .../sys/class/dmi/id/product_uuid: mount point does not exist
-//
-// on Linux, while passing on Docker Desktop, whose linuxkit VM exposes no DMI
-// and where kind's hook therefore does not fire either.
+// Deliberately not a machine-type mock — that is writeMachineType's job (#681).
 func stageDMI(h *host.Host) error {
 	kernelDir := filepath.Join(h.Sys, kernelDMIRelPath)
 	if _, err := os.Stat(kernelDir); err != nil {
-		// No DMI on this kernel means no /sys/class/dmi to resolve through and
-		// no hook to satisfy, so there is nothing to stand in for.
+		// No kernel DMI means no hook to satisfy either: both test the host.
 		return nil
 	}
 
@@ -70,8 +62,7 @@ func stageDMI(h *host.Host) error {
 	for _, attr := range dmiMountTargets {
 		var value []byte
 		if attr.byValue {
-			// Unreadable is not fatal: the file's job as a mount target does
-			// not depend on carrying the node's value.
+			// Unreadable is not fatal: a mount target need not carry a value.
 			value, _ = os.ReadFile(filepath.Join(kernelDir, attr.name))
 		}
 		if err := fsutil.Write(filepath.Join(mockDir, attr.name), value, attr.fileMode); err != nil {
@@ -82,10 +73,9 @@ func stageDMI(h *host.Host) error {
 	return nil
 }
 
-// stageSysfs renders the PCI sysfs tree under h.Root, together with the DMI
-// mount targets a container served that tree needs. When the state declares no
-// PCI topology the tree is emptied instead and no DMI is staged, since nothing
-// is served.
+// stageSysfs renders the PCI sysfs tree under h.Root, plus the DMI mount
+// targets a container served that tree needs. A state with no PCI topology
+// empties the tree and stages no DMI, since nothing is served.
 func stageSysfs(h *host.Host, state *agent.State) error {
 	if err := pcisysfs.Render(pcisysfs.Options{
 		Topology:   buildTopology(state),

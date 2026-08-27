@@ -263,12 +263,10 @@ func TestRender_PrunesRemovedRootComplex(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "symlink into the dropped root must be pruned")
 }
 
-// TestRender_ClearsTreeWhenTopologyEmpty covers re-profiling a node onto a
-// config whose devices declare no bus_id, which gpu.customConfig makes
-// reachable. Leaving the previous profile's devices behind is not a cosmetic
-// leak now that the tree is mounted at the kernel paths: a consumer would
-// enumerate GPUs the node no longer simulates, under a root complex no profile
-// declares.
+// Re-profiling onto a config whose devices declare no bus_id, which
+// gpu.customConfig makes reachable. Now that the tree is served at the kernel
+// paths, leftovers would have a consumer enumerate GPUs the node no longer
+// simulates.
 func TestRender_ClearsTreeWhenTopologyEmpty(t *testing.T) {
 	dir := t.TempDir()
 	topo := &PCIeTopology{RootComplexes: []RootComplex{
@@ -284,10 +282,9 @@ func TestRender_ClearsTreeWhenTopologyEmpty(t *testing.T) {
 	require.Empty(t, entries, "no device may survive a profile that declares none")
 }
 
-// TestRender_EmptyTopologyKeepsForeignEntries pins the ownership boundary on
-// the clearing path too. virtual/dmi/id is staged by the same simulator for a
-// different reason and must outlive a topology change, or a container served
-// the tree loses a bind-mount target it needs to start.
+// The ownership boundary holds on the clearing path too: virtual/dmi/id is
+// staged by the same simulator for another reason, and a served container needs
+// it to start.
 func TestRender_EmptyTopologyKeepsForeignEntries(t *testing.T) {
 	dir := t.TempDir()
 	topo := &PCIeTopology{RootComplexes: []RootComplex{

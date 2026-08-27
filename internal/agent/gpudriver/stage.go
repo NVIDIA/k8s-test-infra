@@ -203,6 +203,33 @@ func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
 	return fsutil.Write(filepath.Join(procDir, "params"), []byte(params), 0o644)
 }
 
+// machineTypeRel is the machine type served to containers at
+// /etc/nvml-mock/machine-type, alongside config.yaml under the same CDI mount.
+const machineTypeRel = "driver/config/machine-type"
+
+// writeMachineType serves the string GFD turns into nvidia.com/gpu.machine,
+// pointed at by GFD_MACHINE_TYPE_FILE in the chart's GPU Operator values.
+//
+// GFD defaults to /sys/class/dmi/id/product_name, which cannot carry a mocked
+// value under kind: the node image writes "kind" there and re-binds it into
+// every container after the container's own mounts are set up, and on hosts
+// without DMI (Docker Desktop) the path does not exist at all (#681). A file of
+// our own sidesteps both.
+//
+// The value is the GPU's product name for want of a platform field in the
+// profiles, so gpu.machine reads NVIDIA-GB300-NVL rather than the
+// NVIDIA-GB300-NVL72 a real tray reports.
+func writeMachineType(ctx context.Context, h *host.Host, state *agent.State) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(state.Devices) == 0 || state.Devices[0].Name == "" {
+		return nil
+	}
+	return fsutil.Write(filepath.Join(h.Root, machineTypeRel),
+		[]byte(state.Devices[0].Name+"\n"), 0o644)
+}
+
 // writeEngineConfig writes the GPU profile so the mock NVML shim knows how many
 // GPUs to expose and their properties at dlopen time.
 // Written to two locations: h.Root/config/ (device-plugin) and

@@ -255,11 +255,8 @@ spec:
             - name: host-fabric-state
               mountPath: {{ printf "/host%s" .Values.fabricmanager.stateDir }}
             {{- end }}
-            # Read-only, and read from rather than written to: serving the
-            # rendered tree at /sys/devices replaces the directory
-            # /sys/class/dmi/id resolves into, so the agent reproduces the
-            # node's DMI attributes inside the tree to keep the runtime's
-            # bind-mount targets alive.
+            # Read only: the agent copies the node's DMI attributes into the
+            # rendered tree, which shadows them once served at /sys/devices.
             - name: host-sys
               mountPath: /host/sys
               readOnly: true
@@ -337,8 +334,8 @@ spec:
           hostPath:
             path: {{ .Values.nodeLabels.featuresDir | quote }}
             type: DirectoryOrCreate
-        # Directory, not DirectoryOrCreate: every node has /sys, and a node that
-        # somehow does not should fail loudly rather than get an empty stand-in.
+        # Directory, not DirectoryOrCreate: a node without /sys should fail
+        # loudly rather than get an empty stand-in.
         - name: host-sys
           hostPath:
             path: /sys

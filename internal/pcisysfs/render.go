@@ -12,10 +12,9 @@ import (
 	"strings"
 )
 
-// The two directories that together make the tree readable. Exported because
-// whoever serves them to a container has to name the same paths the renderer
-// writes, and a silent drift there fails open: the entries list and every
-// attribute read returns ENOENT, which is indistinguishable from no tree at all.
+// The two directories that together make the tree readable. Exported because a
+// server naming different paths fails open: entries list, every attribute read
+// returns ENOENT, and the result is indistinguishable from no tree at all.
 const (
 	// PCIDevicesRelPath is the flat lookup directory of BDF symlinks.
 	PCIDevicesRelPath = "sys/bus/pci/devices"
@@ -55,11 +54,9 @@ func Render(o Options) error {
 		return errors.New("pcisysfs render: Output is required")
 	}
 
-	// A profile that declares no PCI devices means an empty tree, not the
-	// previous profile's. Pruning rather than returning is what makes the
-	// rendered tree describe this generation, which matters most for whoever
-	// serves it: an a100 tree left behind by a config change would go on being
-	// mounted at the kernel paths as if the node still simulated those GPUs.
+	// A profile declaring no PCI devices means an empty tree, not the previous
+	// profile's: leftovers would go on being served at the kernel paths as if
+	// the node still simulated those GPUs.
 	if empty {
 		return prune(o.Output, &PCIeTopology{})
 	}

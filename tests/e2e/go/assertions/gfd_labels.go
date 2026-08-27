@@ -27,6 +27,10 @@ const (
 	// reaches a consumer. It is asserted separately from the labels above for
 	// that reason: they fail together when NVML is wrong, this one when sysfs is.
 	GFDLabelMode = "nvidia.com/gpu.mode"
+	// GFDLabelMachine comes from the machine-type file the agent serves, not
+	// from GFD's DMI default: under kind that path reads "kind", and on hosts
+	// without DMI it does not exist (#681).
+	GFDLabelMachine = "nvidia.com/gpu.machine"
 )
 
 // GFDModeCompute is the mode GFD derives from the 3D-controller PCI class every

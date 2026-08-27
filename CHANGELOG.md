@@ -366,11 +366,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sys/devices/virtual/dmi/id`: that is where `/sys/class/dmi/id` resolves, and
   kind bind-mounts the node's product files there for every container, so
   without the mirror the shadowing removes a target `mount(8)` cannot recreate
-  and every served pod fails to start. This is not a machine-type mock, which
-  remains blocked under kind (#681). Rendering also empties the tree for a
+  and every served pod fails to start. Rendering also empties the tree for a
   profile that declares no `bus_id`, where it previously left the last
   profile's devices in place — invisible until the tree started being served,
   and then a container enumerating GPUs the node no longer simulates. (#673)
+- node-agent: `nvidia.com/gpu.machine` no longer reads `unknown`. GFD derives it
+  from `--machine-type-file`, whose default `/sys/class/dmi/id/product_name` no
+  mock can own under kind: the node image writes `kind` there and re-binds it
+  into every container after the container's own mounts are set up, and hosts
+  without DMI (Docker Desktop) have no such path at all. The agent now writes
+  the machine type to `driver/config/machine-type`, served at
+  `/etc/nvml-mock/machine-type` by the CDI mount that already carries
+  `config.yaml`, and the chart's GPU Operator values point
+  `GFD_MACHINE_TYPE_FILE` at it. The value is the profile's GPU product name for
+  want of a platform name in the profiles, so the label reads
+  `NVIDIA-GB300-NVL`, matching `gpu.product`, rather than the
+  `NVIDIA-GB300-NVL72` a real compute tray reports. (#681)
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
   uses (`00000000:07:00.0`, `NVML_DEVICE_PCI_BUS_ID_FMT`) while `busIdLegacy`
   keeps the 4-digit one (`0000:07:00.0`). Both were filled with the profile's

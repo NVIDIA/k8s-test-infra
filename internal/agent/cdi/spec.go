@@ -158,38 +158,28 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 	}
 }
 
-// pciSysfsMounts serves the tree the pcibus simulator renders at the kernel
-// paths a Go consumer reads.
+// pciSysfsMounts serves the rendered PCI tree at the kernel paths, which is the
+// only way it reaches a Go consumer: libpcisysfs.so redirects those paths for
+// libc callers, but Go's os package issues openat directly, so GFD and the DRA
+// driver read the node's real /sys and find no mock GPUs (#673).
 //
-// libpcisysfs.so already redirects those paths for libc consumers such as lspci,
-// but Go's os package issues openat directly, so the shim never sees the open
-// and the process reads the node's real /sys — where the mock GPUs do not
-// exist. GPU Feature Discovery resolves each GPU's BDF from NVML and then reads
-// its class from sysfs, so it labelled the node nvidia.com/gpu.mode=unknown
-// (#673). The NVIDIA DRA driver resolves dra.k8s.io/pcieRoot the same way.
+// The pair is indivisible — the lookup directory holds relative symlinks into
+// ../../../devices/pciDDDD:BB, so serving it alone yields entries whose every
+// attribute read returns ENOENT.
 //
-// Both entries go together: the lookup directory holds relative symlinks into
-// ../../../devices/pciDDDD:BB, so serving it alone yields entries that list and
-// whose every attribute read returns ENOENT.
+// /sys/devices goes whole, hiding the host's other device classes from served
+// containers (#689): narrowing it needs mountpoints the runtime cannot create
+// on a read-only sysfs, and profiles declare root complexes the node lacks.
 //
-// /sys/devices is served whole. Narrowing it to the profile's root complexes
-// would need mountpoints the runtime cannot create on a read-only sysfs, and it
-// fails container creation rather than degrading — profiles routinely declare
-// root complexes the node does not have. A served container therefore does not
-// see the host's other device classes, CPU topology among them; #689 tracks
-// removing that trade-off.
-//
-// Emitted only when the state declares a topology, because pcibus renders on
-// exactly that condition and a mount with a missing source fails container
-// creation for the whole pod.
+// Gated on the same condition pcibus renders under, since a mount with a
+// missing source fails container creation for the whole pod.
 func pciSysfsMounts(state *agent.State) []cdiMount {
 	if !state.HasPCITopology() {
 		return nil
 	}
 
 	mounts := make([]cdiMount, 0, 2)
-	// The renderer's rel-paths are the kernel paths without the leading slash,
-	// because it renders a fake root rather than a private layout.
+	// The renderer's rel-paths are the kernel paths minus the leading slash.
 	for _, relPath := range []string{pcisysfs.SysDevicesRelPath, pcisysfs.PCIDevicesRelPath} {
 		mounts = append(mounts, cdiMount{
 			HostPath:      overlayHostRoot + "/" + relPath,

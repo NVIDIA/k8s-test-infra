@@ -32,14 +32,9 @@ type State struct {
 }
 
 // HasPCITopology reports whether the state describes a PCI layout to render:
-// either explicit root complexes, or devices carrying a BDF for a flat one to
-// be synthesized from.
-//
-// It is the condition under which a PCI sysfs tree exists on the node, so
-// anything that serves that tree to a container gates on it. A bind mount whose
-// source is missing fails container creation for the whole pod, which is why
-// the answer has to come from the same state the renderer reads rather than
-// from a filesystem probe.
+// explicit root complexes, or devices carrying a BDF to synthesize a flat one
+// from. Whoever serves that tree gates on this rather than probing the
+// filesystem, so the answer comes from the same state the renderer reads.
 func (s *State) HasPCITopology() bool {
 	if len(s.NodeShape.Topology.RootComplexes) > 0 {
 		return true

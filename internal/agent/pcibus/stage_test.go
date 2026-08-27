@@ -88,11 +88,9 @@ func TestBuildTopology_MultipleRCs(t *testing.T) {
 	require.Equal(t, "pci0001:00", topo.RootComplexes[1].ID)
 }
 
-// TestHasPCITopology_AgreesWithBuildTopology pins the invariant the CDI
-// simulator relies on. It gates the sysfs mounts it publishes on
-// HasPCITopology, so that predicate has to answer exactly "will a tree be
-// rendered": a false positive publishes a bind mount with no source, which
-// fails container creation for every pod that requests a GPU.
+// The CDI simulator gates its sysfs mounts on HasPCITopology, so the predicate
+// has to answer exactly "will a tree be rendered": a false positive publishes a
+// bind mount with no source, failing every pod that requests a GPU.
 func TestHasPCITopology_AgreesWithBuildTopology(t *testing.T) {
 	states := map[string]*agent.State{
 		"empty":              {},
@@ -248,10 +246,8 @@ func TestStageDMI_MirrorsProductName(t *testing.T) {
 	require.Equal(t, "NVIDIA DGX A100\n", string(data))
 }
 
-// product_uuid is a node identifier the kernel exposes to root alone. Only the
-// file's existence matters here — kind bind-mounts the node's own copy over it
-// — so mirroring the value would republish it into every served container for
-// no gain.
+// product_uuid identifies the node and kind mounts its own copy over ours, so
+// mirroring the value would republish it into every served container for no gain.
 func TestStageDMI_ProductUUIDIsEmptyStandIn(t *testing.T) {
 	h := testHost(t)
 	writeKernelDMI(t, h, map[string]string{
@@ -271,9 +267,8 @@ func TestStageDMI_ProductUUIDIsEmptyStandIn(t *testing.T) {
 	require.Equal(t, os.FileMode(0o400), info.Mode().Perm(), "mirror the kernel's own permissions")
 }
 
-// A kernel with no DMI at all (Docker Desktop's linuxkit VM) has no
-// /sys/class/dmi for anything to resolve through, and kind's hook guards on the
-// same condition — so there is no mount target to keep alive and nothing to write.
+// A kernel with no DMI (Docker Desktop's linuxkit VM) is also one where kind's
+// hook does not fire, so there is no mount target to keep alive.
 func TestStageDMI_NothingWithoutKernelDMI(t *testing.T) {
 	h := testHost(t)
 
@@ -318,9 +313,8 @@ func TestStageSysfs_StagesDMIAlongsideTheTree(t *testing.T) {
 	require.FileExists(t, filepath.Join(h.Root, mockDMIRelPath, "product_name"))
 }
 
-// A re-render must not take the DMI directory with it: a CDI-served container
-// cannot wait for the next render, and the runtime applies the spec's mounts
-// unconditionally.
+// A re-render must not take the DMI directory with it: the runtime applies the
+// spec's mounts unconditionally, and a container cannot wait for the next pass.
 func TestStageSysfs_DMISurvivesARerender(t *testing.T) {
 	h := testHost(t)
 	writeKernelDMI(t, h, map[string]string{"product_name": "NVIDIA DGX A100\n"})

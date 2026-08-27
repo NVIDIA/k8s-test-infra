@@ -55,6 +55,7 @@ func (s *Simulator) Stage(ctx context.Context, h *host.Host, state *agent.State)
 	g.Go(func() error { return stageNvidiaSMI(gctx, h, state) })
 	g.Go(func() error { return writeProcFS(gctx, h, state) })
 	g.Go(func() error { return writeEngineConfig(gctx, h, state) })
+	g.Go(func() error { return writeMachineType(gctx, h, state) })
 
 	if err := g.Wait(); err != nil {
 		return err
@@ -73,6 +74,7 @@ var stagedPaths = []string{
 	"driver/usr/bin/nvidia-smi.sh",
 	"driver/proc/driver/nvidia",
 	"driver/config/config.yaml",
+	machineTypeRel,
 	"config/config.yaml",
 }
 

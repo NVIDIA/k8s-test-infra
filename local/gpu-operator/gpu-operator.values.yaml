@@ -58,11 +58,17 @@ devicePlugin:
       value: "/var/lib/nvml-mock/driver"
 
 # GFD reads GPU attributes via mock NVML and labels the node.
+#
+# The machine type has to come from a file of the mock's own: GFD's default,
+# /sys/class/dmi/id/product_name, reads "kind" under kind and does not exist on
+# hosts without DMI. The agent writes this one, served by the CDI config mount.
 gfd:
   enabled: true
   env:
     - name: NVIDIA_DRIVER_ROOT
       value: "/var/lib/nvml-mock/driver"
+    - name: GFD_MACHINE_TYPE_FILE
+      value: "/etc/nvml-mock/machine-type"
 
 # Validator checks that the GPU stack is functional.
 #

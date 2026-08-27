@@ -91,6 +91,14 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 					config.ReadyTimeout(), config.PollInterval())
 			})
 
+			It("labels gpu.machine from the served machine-type file", Label("device-plugin"), func(ctx SpecContext) {
+				// The same string as gpu.product, for want of a platform field
+				// in the profiles: both are the GPU's product name.
+				assertions.WaitGFDLabels(ctx, h.Kube, node,
+					map[string]string{assertions.GFDLabelMachine: p.GFDProductName()},
+					config.ReadyTimeout(), config.PollInterval())
+			})
+
 			It("exports DCGM device metrics that vary over time", Label("dcgm"), func(ctx SpecContext) {
 				assertions.DCGMDeviceMetrics(ctx, h.Kube, gpuOperatorNamespace,
 					p.DisplayName, p.ExpectedGPUs(), gpmProfiles[name],

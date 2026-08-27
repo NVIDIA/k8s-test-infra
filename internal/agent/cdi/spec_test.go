@@ -180,10 +180,8 @@ func mountByContainerPath(spec cdiSpec, path string) (cdiMount, bool) {
 	return cdiMount{}, false
 }
 
-// The mock renders the tree and libpcisysfs.so redirects reads of the kernel
-// paths to it, but Go's os package issues openat directly, so the shim never
-// sees the open. GPU Feature Discovery and the DRA driver are both Go. Only a
-// real mount at the kernel path reaches them.
+// GFD and the DRA driver are Go, so libpcisysfs.so never sees their openat
+// calls: only a real mount at the kernel path reaches them.
 func TestNvidiaSpecServesPCISysfsAtKernelPaths(t *testing.T) {
 	spec := buildNvidiaSpec(pciState())
 
@@ -198,10 +196,8 @@ func TestNvidiaSpecServesPCISysfsAtKernelPaths(t *testing.T) {
 	require.Contains(t, sysDevices.Options, "ro")
 }
 
-// The two mounts are one feature. The PCI entries are relative symlinks into
-// ../../../devices/pciDDDD:BB, so serving the lookup directory alone yields
-// entries that list and whose every attribute read returns ENOENT — which looks
-// exactly like no mount at all, and is why they must never drift apart.
+// The two mounts are one feature: the entries are relative symlinks into
+// ../../../devices/pciDDDD:BB, so half the pair reads like no mount at all.
 func TestNvidiaSpecPCISysfsMountsAreEmittedAsAPair(t *testing.T) {
 	spec := buildNvidiaSpec(pciState())
 

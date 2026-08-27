@@ -741,6 +741,29 @@ A workload that needs the node's real device tree belongs in
 `nri.excludedNamespaces`, or should not request a GPU through the
 `nvidia.com/gpu` CDI spec.
 
+### Machine type (`nvidia.com/gpu.machine`)
+
+GFD derives the label from `--machine-type-file`, which defaults to
+`/sys/class/dmi/id/product_name` — a path no mock can own under `kind`: the node
+image writes `kind` there and re-binds it into every container after the
+container's own mounts are set up, and on hosts without DMI (Docker Desktop) it
+does not exist at all.
+
+The agent therefore writes the machine type to `driver/config/machine-type`,
+served at `/etc/nvml-mock/machine-type` by the same CDI mount that carries
+`config.yaml`. Point GFD at it in the GPU Operator values:
+
+```yaml
+gfd:
+  env:
+    - name: GFD_MACHINE_TYPE_FILE
+      value: "/etc/nvml-mock/machine-type"
+```
+
+The value is the profile's GPU product name, so `gpu.machine` matches
+`gpu.product` (`NVIDIA-GB300-NVL`) rather than the `NVIDIA-GB300-NVL72` a real
+tray reports; the profiles carry no platform name to use instead.
+
 ### Cross-node `ibping`
 
 Sysfs mocking alone lets `ibstat` / `iblinkinfo` work, but real `ibping`
