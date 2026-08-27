@@ -22,7 +22,16 @@ const (
 	GFDLabelProduct = "nvidia.com/gpu.product"
 	GFDLabelMemory  = "nvidia.com/gpu.memory"
 	GFDLabelCount   = "nvidia.com/gpu.count"
+	// GFDLabelMode is derived from each GPU's PCI class rather than from NVML,
+	// so it is the one GFD label that reports whether the mock's PCI sysfs tree
+	// reaches a consumer. It is asserted separately from the labels above for
+	// that reason: they fail together when NVML is wrong, this one when sysfs is.
+	GFDLabelMode = "nvidia.com/gpu.mode"
 )
+
+// GFDModeCompute is the mode GFD derives from the 3D-controller PCI class every
+// profile renders. A node whose GPUs it cannot resolve in sysfs reads "unknown".
+const GFDModeCompute = "compute"
 
 // ExpectedGFDLabels derives the GFD labels a node must carry from the profile,
 // rather than from the node itself. Deriving them independently is what makes

@@ -31,6 +31,27 @@ type State struct {
 	TopologyRaw []byte
 }
 
+// HasPCITopology reports whether the state describes a PCI layout to render:
+// either explicit root complexes, or devices carrying a BDF for a flat one to
+// be synthesized from.
+//
+// It is the condition under which a PCI sysfs tree exists on the node, so
+// anything that serves that tree to a container gates on it. A bind mount whose
+// source is missing fails container creation for the whole pod, which is why
+// the answer has to come from the same state the renderer reads rather than
+// from a filesystem probe.
+func (s *State) HasPCITopology() bool {
+	if len(s.NodeShape.Topology.RootComplexes) > 0 {
+		return true
+	}
+	for _, d := range s.Devices {
+		if d.PCIBusID != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // NodeMeta carries node identity fields.
 type NodeMeta struct {
 	NodeName string

@@ -263,6 +263,46 @@ func TestRender_PrunesRemovedRootComplex(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "symlink into the dropped root must be pruned")
 }
 
+// TestRender_ClearsTreeWhenTopologyEmpty covers re-profiling a node onto a
+// config whose devices declare no bus_id, which gpu.customConfig makes
+// reachable. Leaving the previous profile's devices behind is not a cosmetic
+// leak now that the tree is mounted at the kernel paths: a consumer would
+// enumerate GPUs the node no longer simulates, under a root complex no profile
+// declares.
+func TestRender_ClearsTreeWhenTopologyEmpty(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+	}}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+
+	require.NoError(t, Render(Options{Output: dir}), "Render(empty topology)")
+
+	require.NoDirExists(t, filepath.Join(dir, "sys/devices/pci0000:00"))
+	entries, err := os.ReadDir(filepath.Join(dir, PCIDevicesRelPath))
+	require.NoError(t, err)
+	require.Empty(t, entries, "no device may survive a profile that declares none")
+}
+
+// TestRender_EmptyTopologyKeepsForeignEntries pins the ownership boundary on
+// the clearing path too. virtual/dmi/id is staged by the same simulator for a
+// different reason and must outlive a topology change, or a container served
+// the tree loses a bind-mount target it needs to start.
+func TestRender_EmptyTopologyKeepsForeignEntries(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+	}}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+
+	foreign := filepath.Join(dir, SysDevicesRelPath, "virtual/dmi/id")
+	require.NoError(t, os.MkdirAll(foreign, 0o755))
+
+	require.NoError(t, Render(Options{Output: dir}), "Render(empty topology)")
+
+	require.DirExists(t, foreign)
+}
+
 // TestRender_PruneLeavesForeignEntriesAlone guards the ownership boundary:
 // libpcisysfs rewrites only /sys/devices/pci*, so the renderer must not delete
 // anything else a sibling component staged in the same fake root.

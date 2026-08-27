@@ -79,6 +79,9 @@ type objectMeta struct {
 	Name        string            `json:"name"`
 	Labels      map[string]string `json:"labels"`
 	Annotations map[string]string `json:"annotations"`
+	// A terminating pod reports phase Running until its containers exit, so the
+	// phase alone does not distinguish one an exec can reach.
+	DeletionTimestamp string `json:"deletionTimestamp"`
 }
 
 type nodeCondition struct {
@@ -283,6 +286,27 @@ func (c *Client) RunningPodNames(ctx context.Context, ns, selector string) ([]st
 		}
 	}
 	return out, nil
+}
+
+// RunningPodOnNode returns a pod matching the selector that is on node and that
+// an exec can reach: Running and not terminating.
+//
+// FirstPodName is the wrong tool for a DaemonSet whose pod a caller means to
+// exec into. It returns Items[0] with no filter, so a Terminating or Pending pod
+// matches as readily as the Running one, and Items[0] is not necessarily on the
+// node the surrounding specs assert labels about — the spec could report about
+// hardware it never checked.
+func (c *Client) RunningPodOnNode(ctx context.Context, ns, selector, node string) (string, error) {
+	var pl podList
+	if err := c.getJSON(ctx, &pl, "pods", "-n", ns, "-l", selector, "--field-selector", "spec.nodeName="+node); err != nil {
+		return "", err
+	}
+	for _, p := range pl.Items {
+		if p.Status.Phase == "Running" && p.Metadata.DeletionTimestamp == "" {
+			return p.Metadata.Name, nil
+		}
+	}
+	return "", fmt.Errorf("no running pod in ns %q matching %q on node %q", ns, selector, node)
 }
 
 // PodNode returns the Kubernetes node a pod is scheduled on.

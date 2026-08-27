@@ -345,6 +345,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roll sequence continue across a re-init within one process rather than
   starting over. Handles issued before the shutdown remain invalid, and their
   addresses are never reused for new handles.
+- node-agent: the rendered PCI sysfs tree now reaches Go consumers. It was
+  readable only through `MOCK_PCI_ROOT` and the `libpcisysfs.so` `LD_PRELOAD`
+  shim, which covers libc consumers such as `lspci` but not Go: `os.Open` issues
+  `openat` directly, the shim never sees it, and the process reads the node's
+  real `/sys`, where the mock GPUs do not exist. GPU Feature Discovery and the
+  NVIDIA DRA driver are both Go, so GFD resolved each mock GPU's BDF from NVML,
+  failed to read its class, and labelled the node
+  `nvidia.com/gpu.mode=unknown`. The `nvidia.com/gpu` CDI spec the agent writes
+  now bind-mounts `sys/devices` and `sys/bus/pci/devices` read-only onto the
+  kernel paths. The two go together, because the PCI entries are relative
+  symlinks into `../../../devices/pciDDDD:BB`: mounting one alone yields entries
+  that list and whose every attribute read returns `ENOENT`, which is
+  indistinguishable from no mount at all. `/sys/devices` is mounted whole —
+  narrowing it to the profile's root complexes needs a mountpoint the runtime
+  cannot create on a read-only sysfs, and container creation fails outright
+  rather than degrading — so a served container does not see the host's other
+  device classes, CPU topology among them (#689). The `pcibus` simulator also
+  mirrors the node's `product_name` and an empty `product_uuid` stand-in into
+  `sys/devices/virtual/dmi/id`: that is where `/sys/class/dmi/id` resolves, and
+  kind bind-mounts the node's product files there for every container, so
+  without the mirror the shadowing removes a target `mount(8)` cannot recreate
+  and every served pod fails to start. This is not a machine-type mock, which
+  remains blocked under kind (#681). Rendering also empties the tree for a
+  profile that declares no `bus_id`, where it previously left the last
+  profile's devices in place — invisible until the tree started being served,
+  and then a container enumerating GPUs the node no longer simulates. (#673)
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
   uses (`00000000:07:00.0`, `NVML_DEVICE_PCI_BUS_ID_FMT`) while `busIdLegacy`
   keeps the 4-digit one (`0000:07:00.0`). Both were filled with the profile's

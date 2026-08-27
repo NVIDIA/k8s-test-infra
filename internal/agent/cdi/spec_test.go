@@ -10,6 +10,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/fabricmanager"
+	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
 func twoGPUState() *agent.State {
@@ -158,6 +159,66 @@ func TestNvidiaSpecFabricManagerDisabled(t *testing.T) {
 	for _, e := range spec.ContainerEdits.Env {
 		require.NotContains(t, e, "MOCK_FABRICMANAGER_STATE_DIR")
 	}
+}
+
+// --- PCI sysfs mounts ---
+
+// pciState carries what a profile with a pcie_topology block compiles to.
+func pciState() *agent.State {
+	state := twoGPUState()
+	state.Devices[0].PCIBusID = "0000:07:00.0"
+	state.Devices[1].PCIBusID = "0000:0f:00.0"
+	return state
+}
+
+func mountByContainerPath(spec cdiSpec, path string) (cdiMount, bool) {
+	for _, m := range spec.ContainerEdits.Mounts {
+		if m.ContainerPath == path {
+			return m, true
+		}
+	}
+	return cdiMount{}, false
+}
+
+// The mock renders the tree and libpcisysfs.so redirects reads of the kernel
+// paths to it, but Go's os package issues openat directly, so the shim never
+// sees the open. GPU Feature Discovery and the DRA driver are both Go. Only a
+// real mount at the kernel path reaches them.
+func TestNvidiaSpecServesPCISysfsAtKernelPaths(t *testing.T) {
+	spec := buildNvidiaSpec(pciState())
+
+	devices, ok := mountByContainerPath(spec, "/sys/bus/pci/devices")
+	require.True(t, ok, "/sys/bus/pci/devices must be served")
+	require.Equal(t, overlayHostRoot+"/"+pcisysfs.PCIDevicesRelPath, devices.HostPath)
+	require.Contains(t, devices.Options, "ro")
+
+	sysDevices, ok := mountByContainerPath(spec, "/sys/devices")
+	require.True(t, ok, "/sys/devices must be served")
+	require.Equal(t, overlayHostRoot+"/"+pcisysfs.SysDevicesRelPath, sysDevices.HostPath)
+	require.Contains(t, sysDevices.Options, "ro")
+}
+
+// The two mounts are one feature. The PCI entries are relative symlinks into
+// ../../../devices/pciDDDD:BB, so serving the lookup directory alone yields
+// entries that list and whose every attribute read returns ENOENT — which looks
+// exactly like no mount at all, and is why they must never drift apart.
+func TestNvidiaSpecPCISysfsMountsAreEmittedAsAPair(t *testing.T) {
+	spec := buildNvidiaSpec(pciState())
+
+	_, devices := mountByContainerPath(spec, "/sys/bus/pci/devices")
+	_, sysDevices := mountByContainerPath(spec, "/sys/devices")
+	require.Equal(t, devices, sysDevices, "one half of the pair without the other")
+}
+
+// A profile whose devices declare no bus_id renders no tree, and a CDI mount
+// whose source does not exist fails container creation for the whole pod.
+func TestNvidiaSpecOmitsPCISysfsWithoutTopology(t *testing.T) {
+	spec := buildNvidiaSpec(twoGPUState())
+
+	_, ok := mountByContainerPath(spec, "/sys/bus/pci/devices")
+	require.False(t, ok, "nothing may be served when no tree is rendered")
+	_, ok = mountByContainerPath(spec, "/sys/devices")
+	require.False(t, ok, "nothing may be served when no tree is rendered")
 }
 
 // --- buildNRISpec ---
