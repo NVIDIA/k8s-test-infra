@@ -222,7 +222,7 @@ func toNRI(adjustment nvmlmock.Adjustment) (*api.ContainerAdjustment, error) {
 		}
 		result.AddDevice(nriDevice)
 	}
-	// CDI references are resolved by the runtime from the spec setup.sh stages,
+	// CDI references are resolved by the runtime from the spec the cdi simulator writes,
 	// so there is nothing to stat here — an unresolvable name fails container
 	// creation, which is why Adjust only emits one once it has seen the spec.
 	for _, name := range adjustment.CDIDevices {

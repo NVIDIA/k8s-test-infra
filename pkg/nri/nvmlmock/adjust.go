@@ -26,18 +26,17 @@ const (
 	defaultOptOutAnnotation      = "nvml-mock.nvidia.com/inject"
 	defaultDeviceAnnotation      = "nvml-mock.nvidia.com/devices"
 	defaultImexChannelAnnotation = "nvml-mock.nvidia.com/imex-channels"
-	// defaultImexChannelRelPath is where the main DaemonSet's setup.sh mknods
+	// defaultImexChannelRelPath is where the node agent's imex simulator mknods
 	// the mock IMEX channel nodes, resolved relative to the host overlay path.
-	// It must track the imex.mockChannels surface in the chart: setup.sh writes
-	// them to $DRIVER_ROOT/dev/nvidia-caps-imex-channels.
+	// It must track that simulator and the imex.mockChannels chart surface.
 	defaultImexChannelRelPath = "driver/dev/nvidia-caps-imex-channels"
 	// imexChannelContainerDir is the fixed kernel location the channels must
 	// appear at inside the container. Consumers (nvidia-imex, the DRA driver's
 	// compute-domain plugin) hard-code this path.
 	imexChannelContainerDir = "/dev/nvidia-caps-imex-channels"
-	// defaultTopologyRelPath is where setup.sh stages the cluster-level
-	// ComputeDomain topology document inside the overlay tree. It is
-	// resolved relative to the host overlay path (for the existence
+	// defaultTopologyRelPath is where the node agent's nvlink simulator stages
+	// the cluster-level ComputeDomain topology document inside the overlay
+	// tree. It is resolved relative to the host overlay path (for the existence
 	// check) and the container overlay path (for the injected
 	// MOCK_TOPOLOGY_CONFIG env).
 	defaultTopologyRelPath = "topology/topology.yaml"
@@ -48,7 +47,7 @@ const (
 	// support is off or absent.
 	DeviceInjectionModeRaw = "raw"
 	// DeviceInjectionModeCDI hands the runtime a CDI device reference and lets
-	// it resolve the device nodes from the spec setup.sh stages. containerd
+	// it resolve the device nodes from the spec the cdi simulator writes. containerd
 	// 2.x enables CDI by default (enable_cdi = true, spec dirs /etc/cdi and
 	// /var/run/cdi), so this needs no container toolkit on the node.
 	DeviceInjectionModeCDI = "cdi"
@@ -62,7 +61,7 @@ const (
 	// container" invariant observable rather than merely asserted, and it keeps
 	// alreadyHasGPUDevices' nvidia.com/ test meaningful.
 	defaultCDIDeviceName = "nvml-mock.nvidia.com/gpu=all"
-	// defaultCDISpecHostPath is where setup.sh stages the spec that backs
+	// defaultCDISpecHostPath is where the cdi simulator writes the spec backing
 	// defaultCDIDeviceName. containerd resolves an unknown CDI device by
 	// failing container creation outright, so the plugin checks this exists
 	// before it commits to a reference it cannot honour.
@@ -116,9 +115,9 @@ type Config struct {
 	// overlay resolves the container's per-node clique / cluster UUID. Empty
 	// disables topology injection (the historical node-wide behavior).
 	NodeName string
-	// TopologyHostPath is where the plugin checks whether a topology
-	// document has been staged (by setup.sh) into the overlay tree. Empty
-	// defaults to <HostOverlayPath>/topology/topology.yaml.
+	// TopologyHostPath is where the plugin checks whether the nvlink simulator
+	// has staged a topology document into the overlay tree. Empty defaults to
+	// <HostOverlayPath>/topology/topology.yaml.
 	TopologyHostPath string
 	// TopologyContainerPath is the in-container path injected as
 	// MOCK_TOPOLOGY_CONFIG. Empty defaults to
@@ -263,10 +262,10 @@ func Adjust(cfg Config, container Container) (Adjustment, bool, error) {
 	// allocation to widen — suppressing channels here would instead deny a
 	// ComputeDomain workload the fabric it explicitly asked for.
 	if strings.EqualFold(container.PodAnnotations[cfg.ImexChannelAnnotation], "true") {
-		// Fail open like the device path: channels are staged by the main
-		// DaemonSet's setup.sh (imex.mockChannels.enabled), and nothing orders
-		// this plugin's DaemonSet after it. They are also off by default, so an
-		// annotation on a node without them must not block the pod.
+		// Fail open like the device path: channels are staged by the node agent
+		// (imex.mockChannels.enabled), and nothing orders this plugin's
+		// DaemonSet after it. They are also off by default, so an annotation on
+		// a node without them must not block the pod.
 		channels, err := discoverImexChannels(cfg.ImexChannelHostPath)
 		if err != nil {
 			warnf("imex channel injection requested but the channel tree at %s is unavailable (%v); "+
@@ -464,7 +463,7 @@ func alreadyHasGPUDevices(container Container) bool {
 
 // cdiSpecStaged reports whether the CDI spec backing cfg.CDIDeviceName is
 // present on the node. The stat runs per container, like topologyInjectable,
-// so the plugin tolerates setup.sh staging the spec after the plugin starts.
+// so the plugin tolerates the agent writing the spec after the plugin starts.
 func cdiSpecStaged(cfg Config) bool {
 	if cfg.CDISpecHostPath == "" {
 		return false

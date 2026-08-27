@@ -23,10 +23,10 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/cdi"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/fabricmanager"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/gpudriver"
-	"github.com/NVIDIA/k8s-test-infra/internal/agent/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/ib"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/source"
+	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 )
 
@@ -142,7 +142,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 
 	shutdownTimeout := cmd.Duration("shutdown-timeout")
 
-	healthSrv := health.NewServer(cmd.String("health-addr"), log, shutdownTimeout)
+	healthSrv := health.NewServer(cmd.String("health-addr"), shutdownTimeout)
 
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
@@ -166,8 +166,8 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 		ShutdownTimeout: shutdownTimeout,
 	})
 
-	healthSrv.SetLiveness(a.Live)
-	healthSrv.SetReadiness(a.Readyz)
+	healthSrv.SetLiveness(a.Liveness)
+	healthSrv.SetReadiness(a.Readiness)
 
 	g, gctx := errgroup.WithContext(signalCtx)
 	g.Go(func() error { return healthSrv.Run(gctx) })
