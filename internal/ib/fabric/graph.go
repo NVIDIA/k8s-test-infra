@@ -77,6 +77,7 @@ func (g *Graph) Ports() []Port {
 // ByLID looks up a port by LID.
 func (g *Graph) ByLID(lid uint16) (Port, bool) {
 	p, ok := g.byLID[lid]
+
 	return p, ok
 }
 
@@ -91,6 +92,7 @@ func (g *Graph) MasterSM() (Port, bool) {
 	if len(g.ports) == 0 {
 		return Port{}, false
 	}
+
 	return g.ports[0], true
 }
 

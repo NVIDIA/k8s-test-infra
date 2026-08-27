@@ -59,6 +59,7 @@ func TestSAPathQuery_IbpingCapture(t *testing.T) {
 	portsB, _ := sysfs.Scan(dirB)
 
 	client := &Server{
+		log:        newLogger(),
 		localPorts: portsB,
 		loopback:   newLoopbackIndex(portsB),
 		registry:   registry.New(),

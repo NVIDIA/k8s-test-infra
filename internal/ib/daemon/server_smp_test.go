@@ -28,7 +28,7 @@ func TestServer_SMPPortInfoSelfResolveShort(t *testing.T) {
 	sock := filepath.Join(os.TempDir(), "mock-ib-"+safe+".sock")
 	t.Cleanup(func() { _ = os.Remove(sock) })
 
-	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir, Fabric: true}, nil)
+	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir, Fabric: true})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -91,7 +91,7 @@ func TestServer_SMPNodeInfoThenPortInfo(t *testing.T) {
 	sock := filepath.Join(os.TempDir(), "mock-ib-"+safe+".sock")
 	t.Cleanup(func() { _ = os.Remove(sock) })
 
-	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir, Fabric: true}, nil)
+	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir, Fabric: true})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -156,7 +156,7 @@ func TestServer_SMInfoMaster(t *testing.T) {
 	sock := filepath.Join(os.TempDir(), "mock-ib-"+safe+".sock")
 	t.Cleanup(func() { _ = os.Remove(sock) })
 
-	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir, Fabric: true}, nil)
+	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir, Fabric: true})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

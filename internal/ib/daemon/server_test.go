@@ -32,7 +32,7 @@ func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 	sock := filepath.Join(os.TempDir(), "mock-ib-"+safe+".sock")
 	t.Cleanup(func() { _ = os.Remove(sock) })
 
-	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir}, nil)
+	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -99,7 +99,7 @@ func TestServer_handleSend_shortMADNoPanic(t *testing.T) {
 	}))
 	sock := filepath.Join(os.TempDir(), fmt.Sprintf("mock-ib-%d-short.sock", os.Getpid()))
 	t.Cleanup(func() { _ = os.Remove(sock) })
-	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir}, nil)
+	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -144,7 +144,7 @@ func TestServer_handleClose_unknownHandle(t *testing.T) {
 	}))
 	sock := filepath.Join(os.TempDir(), fmt.Sprintf("mock-ib-%d-close.sock", os.Getpid()))
 	t.Cleanup(func() { _ = os.Remove(sock) })
-	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir}, nil)
+	srv, err := NewServer(Config{SocketPath: sock, IBRoot: dir})
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -192,7 +192,7 @@ func TestEffectiveRecvTimeout(t *testing.T) {
 // still honored through the poll loop: an empty queue yields Timeout=true
 // shortly after timeout_ms, not at the cap and not never.
 func TestServer_handleRecv_EmptyQueueTimesOut(t *testing.T) {
-	srv := &Server{handles: map[int]*portHandle{1: {caName: "mlx5_0", port: 1}}}
+	srv := &Server{log: newLogger(), handles: map[int]*portHandle{1: {caName: "mlx5_0", port: 1}}}
 	clientEnd, serverEnd := net.Pipe()
 	t.Cleanup(func() { _ = clientEnd.Close(); _ = serverEnd.Close() })
 
@@ -212,7 +212,7 @@ func TestServer_handleRecv_EmptyQueueTimesOut(t *testing.T) {
 // Timeout response — the client's normal no-data path — matching how the rest
 // of the daemon treats ctx cancellation as an expected lifecycle event.
 func TestServer_handleRecv_CtxCancelReturnsTimeout(t *testing.T) {
-	srv := &Server{handles: map[int]*portHandle{1: {caName: "mlx5_0", port: 1}}}
+	srv := &Server{log: newLogger(), handles: map[int]*portHandle{1: {caName: "mlx5_0", port: 1}}}
 	clientEnd, serverEnd := net.Pipe()
 	t.Cleanup(func() { _ = clientEnd.Close(); _ = serverEnd.Close() })
 

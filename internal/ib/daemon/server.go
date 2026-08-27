@@ -11,7 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -58,7 +58,7 @@ const (
 type Server struct {
 	cfg      Config
 	loopback *loopbackIndex
-	log      *log.Logger
+	log      *slog.Logger
 
 	localPorts []protocol.PortAdvert
 	registry   *registry.Registry
@@ -86,18 +86,15 @@ type Server struct {
 }
 
 // NewServer builds a server; local ports are loaded from ib-root sysfs.
-func NewServer(cfg Config, logger *log.Logger) (*Server, error) {
-	if logger == nil {
-		logger = log.Default()
-	}
+func NewServer(cfg Config) (*Server, error) {
 	ports, err := sysfs.Scan(cfg.IBRoot)
 	if err != nil {
 		return nil, fmt.Errorf("scan ib-root %q: %w", cfg.IBRoot, err)
 	}
 	srv := &Server{
 		cfg:            cfg,
+		log:            newLogger(),
 		loopback:       newLoopbackIndex(ports),
-		log:            logger,
 		localPorts:     ports,
 		registry:       registry.New(),
 		podIP:          localPodIP(),
@@ -138,20 +135,11 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		}
 	}
 
-	// Unconditional one-shot startup log so `kubectl logs` is enough to confirm
-	// the daemon came up, learned its local ports, and (when -fabric) bound its
-	// TCP relay. Cross-pod ibping cannot work without this listener; absence of
-	// this line on a peer pod immediately localizes the bug to startup, not to
-	// MAD routing.
-	s.log.Printf("mock-ib: ready socket=%s fabric=%t port=%d podIP=%s node=%q localPorts=%d",
-		s.cfg.SocketPath, s.cfg.Fabric, s.cfg.TCPPort, s.podIP, s.nodeName, len(s.localPorts))
-	for _, p := range s.localPorts {
-		s.log.Printf("mock-ib: local port ca=%s port=%d lid=0x%04x port_guid=%s",
-			p.CAName, p.Port, p.LID, p.PortGUID)
-	}
+	s.logStartup()
 
 	go func() {
 		<-ctx.Done()
+		s.log.Info("shutting down", "socket", s.cfg.SocketPath)
 		_ = ln.Close()
 	}()
 
@@ -163,7 +151,29 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 			}
 			return err
 		}
+
 		go s.serveConn(ctx, conn)
+	}
+}
+
+// logStartup announces the listener and its port inventory. Emitted
+// unconditionally: cross-pod ibping cannot work without this listener, so the
+// absence of these lines on a peer pod localizes a failure to startup rather
+// than to MAD routing.
+func (s *Server) logStartup() {
+	s.log.Info("serving", "socket", s.cfg.SocketPath, "fabric", s.cfg.Fabric, "port", s.cfg.TCPPort,
+		"pod_ip", s.podIP, "node", s.nodeName, "local_ports", len(s.localPorts))
+
+	if len(s.localPorts) == 0 {
+		// The commonest misconfiguration, and it surfaces downstream as
+		// "0 HCAs found" with nothing pointing back here.
+		slog.Warn("no local ports found; ibstat and ibping will report nothing",
+			"ib_root", s.cfg.IBRoot)
+		return
+	}
+
+	for _, p := range s.localPorts {
+		s.log.Info("local port", "ca", p.CAName, "port", p.Port, "lid", lidHex(p.LID), "port_guid", p.PortGUID)
 	}
 }
 
@@ -188,7 +198,7 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn) {
 			if errors.Is(err, io.EOF) || errors.Is(err, os.ErrDeadlineExceeded) || ctx.Err() != nil {
 				return
 			}
-			s.log.Printf("mock-ib: read: %v", err)
+			s.log.Warn("dropping client connection: read failed", "err", err)
 			return
 		}
 		// Bound the response write the same way the read above is bounded: a
@@ -196,7 +206,7 @@ func (s *Server) serveConn(ctx context.Context, c net.Conn) {
 		// this goroutine for the pod's life on a full socket buffer.
 		_ = c.SetWriteDeadline(time.Now().Add(unixConnIdleTimeout))
 		if err := s.dispatch(ctx, c, env); err != nil {
-			s.log.Printf("mock-ib: %s: %v", env.Type, err)
+			s.log.Warn("dropping client connection: request failed", "type", env.Type, "err", err)
 			return
 		}
 	}
