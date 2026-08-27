@@ -143,7 +143,8 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 			gpudriver.New(),
 			fabricmanager.New(fabricmanager.Options{
 				InitDelay: cmd.Duration("fabricmanager-init-delay"),
-			}),pcibus.New(),
+			}),
+			pcibus.New(),
 			imex.New(),
 			ib.New(ib.Options{
 				Mode:    ibMode,

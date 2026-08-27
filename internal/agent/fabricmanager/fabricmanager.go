@@ -7,6 +7,7 @@ package fabricmanager
 
 import (
 	"context"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -22,6 +23,11 @@ const (
 	// Readers use the chart's configured path instead, which resolves to the
 	// same host directory through a different mount.
 	stateDirRel = "fabric-state"
+
+	// reassertInterval matches what the mock NVML engine tolerates between
+	// checks. The marker sits on a hostPath that outlives the pod, so it is
+	// rewritten rather than written once: see Run.
+	reassertInterval = 2 * time.Second
 )
 
 var (
@@ -34,6 +40,13 @@ var (
 // GPU between IN_PROGRESS and COMPLETED, which is how workloads end up waiting
 // on the fabric the way they do on real NVSwitch hardware.
 type Simulator struct {
+	ready   atomic.Bool
+	serving atomic.Bool
+
+	// enabled mirrors whether the last Stage saw a fabricmanager deployment.
+	// Run consults it because the agent has no Host to re-derive it from.
+	enabled atomic.Bool
+	// initDelay simulates the registration latency of the real daemon.
 	initDelay time.Duration
 
 	ready atomic.Bool
@@ -61,6 +74,7 @@ func (s *Simulator) Ready() bool {
 	if !s.ready.Load() {
 		return false
 	}
+
 	d := s.daemon.Load()
 	return d == nil || d.Ready()
 }
@@ -82,6 +96,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	if err := h.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+
 	// Built once: Run holds a reference for the agent's lifetime, so replacing
 	// it on a later reconcile would leave the running daemon orphaned.
 	if s.daemon.Load() == nil {
@@ -98,9 +113,11 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 // Run keeps readiness published until the agent shuts down.
 func (s *Simulator) Run(ctx context.Context) error {
 	d := s.daemon.Load()
+
 	if d == nil {
 		return nil
 	}
+
 	return d.Serve(ctx)
 }
 
@@ -114,8 +131,10 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 	if !s.ready.Load() {
 		return nil
 	}
+
 	if d := s.daemon.Load(); d != nil {
 		return d.Stop()
 	}
+
 	return fabricmanager.RemoveReady(h.RootPath(stateDirRel))
 }
