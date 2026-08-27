@@ -52,6 +52,7 @@ func main() {
 	}
 }
 
+//nolint:cyclop // existing complexity; refactor deferred
 func run() error {
 	var (
 		catalogPath = flag.String("catalog", "catalog.yaml", "path to the coverage catalog")

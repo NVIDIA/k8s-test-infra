@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,7 +41,7 @@ func ParseCTRF(data []byte) (*RunResults, error) {
 	}
 
 	if len(report.Results.Tests) == 0 {
-		return nil, fmt.Errorf("CTRF report contains no tests, refusing to treat an empty report as a run")
+		return nil, errors.New("CTRF report contains no tests, refusing to treat an empty report as a run")
 	}
 
 	run := &RunResults{Tests: make([]RunTest, 0, len(report.Results.Tests))}

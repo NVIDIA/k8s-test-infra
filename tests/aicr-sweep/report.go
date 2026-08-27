@@ -34,6 +34,8 @@ func RenderJSON(cells []CellResult, roll Rollup) ([]byte, error) {
 // signal today, and (A+G)/total is what becomes reachable once tracked gaps
 // close. The second is never printed without the first, because presenting the
 // roadmap number alone is the specific overclaim this sweep exists to avoid.
+//
+//nolint:cyclop // existing complexity; refactor deferred
 func RenderMarkdown(cells []CellResult, roll Rollup) string {
 	var b strings.Builder
 
