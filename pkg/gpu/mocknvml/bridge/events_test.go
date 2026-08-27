@@ -144,6 +144,43 @@ func TestWaitForDelivery_ZeroTimeoutIsNonBlockingPoll(t *testing.T) {
 	require.Less(t, elapsed, schedulerSlack, "zero timeout must not block")
 }
 
+// A lost GPU aborts before the first sleep, so the wait does not consume the
+// caller's timeout the way an idle TIMEOUT does.
+func TestWaitForDeliveryOrAbort_AbortsImmediately(t *testing.T) {
+	var deliverCalls, abortCalls atomic.Int32
+	start := time.Now()
+	delivered, aborted := waitForDeliveryOrAbort(5*time.Second, time.Second, func() bool {
+		deliverCalls.Add(1)
+		return false
+	}, func() bool {
+		abortCalls.Add(1)
+		return true
+	})
+	elapsed := time.Since(start)
+
+	require.False(t, delivered)
+	require.True(t, aborted)
+	require.Equal(t, int32(1), deliverCalls.Load(), "deliver must still be polled first")
+	require.Equal(t, int32(1), abortCalls.Load(), "abort must be taken on the first poll")
+	require.Less(t, elapsed, time.Second, "an abort must not wait for the poll interval")
+}
+
+// A pending Xid must be delivered even when the device is already lost, so
+// callers see Xid 79 before ERROR_GPU_IS_LOST starts.
+func TestWaitForDeliveryOrAbort_PendingEventBeatsAbort(t *testing.T) {
+	var abortCalls atomic.Int32
+	delivered, aborted := waitForDeliveryOrAbort(5*time.Second, time.Second, func() bool {
+		return true
+	}, func() bool {
+		abortCalls.Add(1)
+		return true
+	})
+
+	require.True(t, delivered)
+	require.False(t, aborted)
+	require.Zero(t, abortCalls.Load(), "abort must not run when deliver already succeeded")
+}
+
 // A NULL set or payload must fail fast with INVALID_ARGUMENT, as real NVML
 // does, not wait out the timeout and report TIMEOUT.
 func TestEventSetWait_RejectsNilArguments(t *testing.T) {
@@ -235,4 +272,70 @@ func TestEventSetWait_BlocksForRequestedMilliseconds(t *testing.T) {
 				"the wait must return at the timeout, not block past it")
 		})
 	}
+}
+
+// A lost GPU must fail the wait immediately with GPU_IS_LOST, not after the
+// caller's timeout. Real NVML returns that error promptly; clients back off.
+func TestEventSetWait_ReturnsGPUIsLostWhenDeviceLost(t *testing.T) {
+	const timeoutms = 10_000
+
+	for _, tc := range []struct {
+		version string
+		wait    func(eventSetWaitTestArgs, uint32) uint32
+	}{
+		{"v1", eventSetWaitV1ForTest},
+		{"v2", eventSetWaitV2ForTest},
+	} {
+		t.Run(tc.version, func(t *testing.T) {
+			start := time.Now()
+			ret := eventSetWaitWhenLostForTest(tc.wait, timeoutms, 0)
+			elapsed := time.Since(start)
+
+			require.Equal(t, uint32(nvml.ERROR_GPU_IS_LOST), ret,
+				"a lost device must fail the wait with GPU_IS_LOST")
+			require.Less(t, elapsed, schedulerSlack,
+				"GPU_IS_LOST must return immediately, not after the %d ms timeout", timeoutms)
+		})
+	}
+}
+
+// Real NVML delivers Xid 79 (SUCCESS) and only then starts returning
+// GPU_IS_LOST. A pending Xid must win the first wait even when the device
+// is already lost.
+func TestEventSetWait_DeliversPendingXidBeforeGPUIsLost(t *testing.T) {
+	const xid = 79
+
+	start := time.Now()
+	first, second := eventSetWaitWithPendingXidAndLostForTest(xid, 10_000)
+	elapsed := time.Since(start)
+
+	require.Equal(t, uint32(nvml.SUCCESS), first.status,
+		"a pending Xid must be delivered before GPU_IS_LOST")
+	require.Equal(t, uint64(nvml.EventTypeXidCriticalError), first.eventType)
+	require.Equal(t, uint64(xid), first.eventData)
+	require.True(t, first.deviceSet)
+	require.Equal(t, uint32(nvml.ERROR_GPU_IS_LOST), second,
+		"the wait after the Xid is consumed must report GPU_IS_LOST")
+	require.Less(t, elapsed, schedulerSlack,
+		"both waits must return immediately when the device is already lost")
+}
+
+// A device that trips while the caller is parked must abort the wait within
+// one poll interval rather than running out the timeout.
+func TestEventSetWait_GPUIsLostMidWait(t *testing.T) {
+	const (
+		timeoutms = 30_000
+		lostAfter = 250 * time.Millisecond
+	)
+
+	start := time.Now()
+	ret := eventSetWaitWhenLostForTest(eventSetWaitV2ForTest, timeoutms, lostAfter)
+	elapsed := time.Since(start)
+
+	require.Equal(t, uint32(nvml.ERROR_GPU_IS_LOST), ret,
+		"a device lost mid-wait must fail with GPU_IS_LOST")
+	require.GreaterOrEqual(t, elapsed, lostAfter,
+		"the wait must not return before the device is lost")
+	require.Less(t, elapsed, lostAfter+waitPollInterval+schedulerSlack,
+		"GPU_IS_LOST took %s; must land within one poll interval of the trip", elapsed)
 }
