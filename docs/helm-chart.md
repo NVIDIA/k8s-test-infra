@@ -749,9 +749,15 @@ image writes `kind` there and re-binds it into every container after the
 container's own mounts are set up, and on hosts without DMI (Docker Desktop) it
 does not exist at all.
 
-The agent therefore writes the machine type to `driver/config/machine-type`,
-served at `/etc/nvml-mock/machine-type` by the same CDI mount that carries
-`config.yaml`. Point GFD at it in the GPU Operator values:
+The agent therefore writes the machine type to `driver/config/machine-type`. The
+NRI plugin points `GFD_MACHINE_TYPE_FILE` at it, so with `nri.enabled` the label
+needs nothing from the operator's own configuration. A value authored on the
+container wins, for a cluster pinning a file of its own.
+
+Without NRI the file is still served, at `/etc/nvml-mock/machine-type` by the
+CDI mount that carries `config.yaml`, but the value has to be set by hand — the
+runtime applies the spec's mounts and drops its env, so the plugin's channel is
+the only automatic one:
 
 ```yaml
 gfd:

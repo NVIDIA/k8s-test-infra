@@ -55,10 +55,27 @@ func TestAdjustPointsTheLoaderAtTheOverlay(t *testing.T) {
 	require.Contains(t, adjustment.Env, "MOCK_IB_ROOT=/opt/nvml-mock/ib")
 	require.Contains(t, adjustment.Env, "MOCK_IB_PING_SOCKET=/opt/nvml-mock/run/mock-ib.sock")
 	require.Contains(t, adjustment.Env, "MOCK_PCI_ROOT=/opt/nvml-mock")
+	require.Contains(t, adjustment.Env, "GFD_MACHINE_TYPE_FILE=/opt/nvml-mock/driver/config/machine-type")
 	// MOCK_IB=off is authored by the container and left unchanged, so the
 	// plugin must NOT re-emit it — emitting untouched vars would claim NRI
 	// ownership and conflict with other plugins.
 	requireNoEnvKey(t, adjustment.Env, "MOCK_IB")
+}
+
+// The machine type reaches GFD as a default, so a cluster that pins its own
+// file keeps it: overriding would silently retarget a deliberate choice.
+func TestAdjustLeavesAnAuthoredMachineTypeFile(t *testing.T) {
+	t.Parallel()
+
+	container := Container{
+		Namespace: "default",
+		Env:       []string{"GFD_MACHINE_TYPE_FILE=/etc/machine-type"},
+	}
+
+	adjustment, ok := Adjust(DefaultConfig(), container)
+	require.True(t, ok)
+
+	requireNoEnvKey(t, adjustment.Env, "GFD_MACHINE_TYPE_FILE")
 }
 
 func TestAdjustEmitsOnlyAddedOrChangedEnv(t *testing.T) {

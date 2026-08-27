@@ -108,7 +108,7 @@ func TestWriteMachineType_ServesTheProductName(t *testing.T) {
 	state := testState(t)
 	state.Devices[0].Name = "NVIDIA GB300 NVL"
 
-	require.NoError(t, writeMachineType(context.Background(), h, state))
+	require.NoError(t, writeMachineType(t.Context(), h, state))
 
 	data, err := os.ReadFile(filepath.Join(h.Root, machineTypeRel))
 	require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestWriteMachineType_NoFileWithoutAProductName(t *testing.T) {
 	state := testState(t)
 	state.Devices[0].Name = ""
 
-	require.NoError(t, writeMachineType(context.Background(), h, state))
+	require.NoError(t, writeMachineType(t.Context(), h, state))
 
 	_, err := os.Stat(filepath.Join(h.Root, machineTypeRel))
 	require.True(t, os.IsNotExist(err), "no product name means no file")
@@ -134,7 +134,7 @@ func TestWriteMachineType_NoFileWithoutDevices(t *testing.T) {
 	state := testState(t)
 	state.Devices = nil
 
-	require.NoError(t, writeMachineType(context.Background(), h, state))
+	require.NoError(t, writeMachineType(t.Context(), h, state))
 
 	_, err := os.Stat(filepath.Join(h.Root, machineTypeRel))
 	require.True(t, os.IsNotExist(err))

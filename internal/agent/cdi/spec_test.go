@@ -183,6 +183,8 @@ func mountByContainerPath(spec cdiSpec, path string) (cdiMount, bool) {
 // GFD and the DRA driver are Go, so libpcisysfs.so never sees their openat
 // calls: only a real mount at the kernel path reaches them.
 func TestNvidiaSpecServesPCISysfsAtKernelPaths(t *testing.T) {
+	t.Parallel()
+
 	spec := buildNvidiaSpec(pciState())
 
 	devices, ok := mountByContainerPath(spec, "/sys/bus/pci/devices")
@@ -199,6 +201,8 @@ func TestNvidiaSpecServesPCISysfsAtKernelPaths(t *testing.T) {
 // The two mounts are one feature: the entries are relative symlinks into
 // ../../../devices/pciDDDD:BB, so half the pair reads like no mount at all.
 func TestNvidiaSpecPCISysfsMountsAreEmittedAsAPair(t *testing.T) {
+	t.Parallel()
+
 	spec := buildNvidiaSpec(pciState())
 
 	_, devices := mountByContainerPath(spec, "/sys/bus/pci/devices")
@@ -209,6 +213,8 @@ func TestNvidiaSpecPCISysfsMountsAreEmittedAsAPair(t *testing.T) {
 // A profile whose devices declare no bus_id renders no tree, and a CDI mount
 // whose source does not exist fails container creation for the whole pod.
 func TestNvidiaSpecOmitsPCISysfsWithoutTopology(t *testing.T) {
+	t.Parallel()
+
 	spec := buildNvidiaSpec(twoGPUState())
 
 	_, ok := mountByContainerPath(spec, "/sys/bus/pci/devices")

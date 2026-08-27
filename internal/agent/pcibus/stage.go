@@ -24,10 +24,9 @@ const (
 	mockDMIRelPath = pcisysfs.SysDevicesRelPath + "/virtual/dmi/id"
 )
 
-// dmiMountTargets are the attributes kind's mount-product-files.sh hook
-// bind-mounts into every container. product_uuid identifies the node and the
-// kernel shows it to root alone, so it is staged empty — it exists only to be
-// mounted over.
+// dmiMountTargets are the DMI attributes a container reads through
+// /sys/class/dmi/id. product_uuid identifies the node and the kernel shows it
+// to root alone, so it is staged empty — a target to mount over, not a value.
 var dmiMountTargets = []struct {
 	name     string
 	byValue  bool
@@ -37,10 +36,14 @@ var dmiMountTargets = []struct {
 	{name: "product_uuid", byValue: false, fileMode: 0o400},
 }
 
-// stageDMI keeps kind's bind-mount targets alive: serving the tree at
-// /sys/devices replaces the directory /sys/class/dmi/id resolves into, and
-// mount(8) cannot create a target on a read-only sysfs, so without these files
-// every served pod dies on "mount point does not exist".
+// stageDMI reproduces the node's DMI attributes inside the rendered tree.
+// Serving the tree at /sys/devices replaces the directory /sys/class/dmi/id
+// resolves into, so on any cluster a served container would otherwise read
+// ENOENT where the node has values.
+//
+// Under kind it is worse than a missing value: the node image bind-mounts its
+// own product files into every container, mount(8) cannot create a target on a
+// read-only sysfs, and every served pod dies on "mount point does not exist".
 //
 // Deliberately not a machine-type mock — that is writeMachineType's job (#681).
 func stageDMI(h *host.Host) error {

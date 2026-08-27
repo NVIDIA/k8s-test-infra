@@ -927,10 +927,18 @@ tests:
   # rendered PCI tree, because serving that tree at /sys/devices replaces the
   # directory /sys/class/dmi/id resolves into and the runtime's bind-mount
   # targets have to survive it. Read-only: the agent never writes to /sys.
-  - it: node-agent should mount the node's sysfs read-only
+  - it: should mount the node's sysfs read-only in the agent alone
     asserts:
       - contains:
           path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: host-sys
+            mountPath: /host/sys
+            readOnly: true
+      # Nothing in the mock container reads the node's sysfs, and the volume is
+      # the whole of /sys.
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
           content:
             name: host-sys
             mountPath: /host/sys

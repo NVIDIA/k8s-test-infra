@@ -345,49 +345,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roll sequence continue across a re-init within one process rather than
   starting over. Handles issued before the shutdown remain invalid, and their
   addresses are never reused for new handles.
-- node-agent: the rendered PCI sysfs tree now reaches Go consumers. It was
-  readable only through `MOCK_PCI_ROOT` and the `libpcisysfs.so` `LD_PRELOAD`
-  shim, which covers libc consumers such as `lspci` but not Go: `os.Open` issues
-  `openat` directly, the shim never sees it, and the process reads the node's
-  real `/sys`, where the mock GPUs do not exist. GPU Feature Discovery and the
-  NVIDIA DRA driver are both Go, so GFD resolved each mock GPU's BDF from NVML,
-  failed to read its class, and labelled the node
-  `nvidia.com/gpu.mode=unknown`. The `nvidia.com/gpu` CDI spec the agent writes
-  now bind-mounts `sys/devices` and `sys/bus/pci/devices` read-only onto the
-  kernel paths. The two go together, because the PCI entries are relative
-  symlinks into `../../../devices/pciDDDD:BB`: mounting one alone yields entries
-  that list and whose every attribute read returns `ENOENT`, which is
-  indistinguishable from no mount at all. `/sys/devices` is mounted whole —
-  narrowing it to the profile's root complexes needs a mountpoint the runtime
-  cannot create on a read-only sysfs, and container creation fails outright
-  rather than degrading — so a served container does not see the host's other
-  device classes, CPU topology among them (#689). The `pcibus` simulator also
-  mirrors the node's `product_name` and an empty `product_uuid` stand-in into
-  `sys/devices/virtual/dmi/id`: that is where `/sys/class/dmi/id` resolves, and
-  kind bind-mounts the node's product files there for every container, so
-  without the mirror the shadowing removes a target `mount(8)` cannot recreate
-  and every served pod fails to start. Rendering also empties the tree for a
-  profile that declares no `bus_id`, where it previously left the last
-  profile's devices in place — invisible until the tree started being served,
-  and then a container enumerating GPUs the node no longer simulates. (#673)
-- node-agent: the rendered PCI tree now follows the devices NVML reports rather
-  than `pcie_topology` as the profile writes it. `gpu.count` (`GPU_COUNT`) caps
-  the device list without touching the layout, so a capped node used to render
-  BDFs with no NVML device behind them — phantom NVIDIA 3D controllers, every
-  attribute plausible, harmless only while nothing could read the tree. Declared
-  BDFs no device claims are dropped along with any root left empty, and a device
-  no root claims is adopted by the first one, since an unplaced GPU cannot be
-  resolved at all where a misplaced one only misreports its `pcieRoot`. (#673)
-- node-agent: `nvidia.com/gpu.machine` no longer reads `unknown`. GFD derives it
-  from `--machine-type-file`, whose default `/sys/class/dmi/id/product_name` no
-  mock can own under kind: the node image writes `kind` there and re-binds it
-  into every container after the container's own mounts are set up, and hosts
-  without DMI (Docker Desktop) have no such path at all. The agent now writes
-  the machine type to `driver/config/machine-type`, served at
-  `/etc/nvml-mock/machine-type` by the CDI mount that already carries
-  `config.yaml`, and the chart's GPU Operator values point
-  `GFD_MACHINE_TYPE_FILE` at it. The value is the profile's GPU product name for
-  want of a platform name in the profiles, so the label reads
+- node-agent: the rendered PCI sysfs tree now reaches Go consumers. Only the
+  `libpcisysfs.so` `LD_PRELOAD` shim redirected the kernel paths to it, and Go
+  bypasses the shim — `os.Open` issues `openat` directly — so GPU Feature
+  Discovery read the node's real `/sys`, found none of the mock GPUs, and
+  labelled the node `nvidia.com/gpu.mode=unknown`; the NVIDIA DRA driver omitted
+  `dra.k8s.io/pcieRoot` for the same reason. The agent's `nvidia.com/gpu` CDI
+  spec now bind-mounts `sys/devices` and `sys/bus/pci/devices` read-only over
+  the kernel paths, as a pair, since the PCI entries are relative symlinks into
+  `../../../devices/pciDDDD:BB`. `/sys/devices` is served whole, so a served
+  container no longer sees the host's other device classes, CPU topology among
+  them; #689 tracks narrowing it. The node's DMI attributes are reproduced
+  inside the tree, without which kind's product-file bind-mounts lose their
+  target and every served pod fails to start. (#673)
+- node-agent: the rendered tree now follows the devices NVML reports rather than
+  `pcie_topology` as the profile writes it. `gpu.count` caps the device list
+  without touching the layout, so a capped node rendered PCI entries that read
+  as GPUs — NVIDIA vendor ID, GPU device class — with no NVML device behind
+  them. Declared BDFs no device claims are dropped along with any root left
+  empty, and a device no root claims is adopted by the first. A profile
+  declaring no `bus_id` now empties the tree instead of leaving the previous
+  profile's GPUs served. (#673)
+- node-agent: `nvidia.com/gpu.machine` no longer reads `unknown`. GFD's default
+  source for it, `/sys/class/dmi/id/product_name`, is a path no mock can own
+  under kind — the node image writes `kind` there and re-binds it into every
+  container — and hosts without DMI have no such path at all. The agent now
+  writes the machine type to `driver/config/machine-type`, and the NRI plugin
+  points `GFD_MACHINE_TYPE_FILE` at it, so an install needs no GPU Operator
+  override. Deployments using the CDI path still need one, because the runtime
+  applies the spec's mounts but drops its env. The value is the GPU product name
+  for want of a platform name in the profiles, so the label reads
   `NVIDIA-GB300-NVL`, matching `gpu.product`, rather than the
   `NVIDIA-GB300-NVL72` a real compute tray reports. (#681)
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
