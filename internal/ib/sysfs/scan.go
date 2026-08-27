@@ -1,7 +1,6 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package sysfs scans a mock InfiniBand sysfs tree under MOCK_IB_ROOT.
 package sysfs
 
 import (
@@ -14,7 +13,6 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/gid"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/protocol"
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/registry"
 )
 
 // Scan walks root/sys/class/infiniband/mlx5_*/ports/1 for port_guid and lid.
@@ -47,14 +45,14 @@ func Scan(root string) ([]protocol.PortAdvert, error) {
 		nodeGUID := ""
 		nodeGUIDBytes, _ := os.ReadFile(filepath.Join(caDir, "node_guid"))
 		if raw := strings.TrimSpace(string(nodeGUIDBytes)); raw != "" {
-			nodeGUID = registry.NormalizePortGUID(raw)
+			nodeGUID = gid.NormalizePortGUID(raw)
 		}
 		defaultGID := ""
 		if rawGID, err := os.ReadFile(filepath.Join(portDir, "gids/0")); err == nil {
 			defaultGID = gid.Normalize(strings.TrimSpace(string(rawGID)))
 		}
 		out = append(out, protocol.PortAdvert{
-			PortGUID:   registry.NormalizePortGUID(strings.TrimSpace(string(guidBytes))),
+			PortGUID:   gid.NormalizePortGUID(strings.TrimSpace(string(guidBytes))),
 			NodeGUID:   nodeGUID,
 			DefaultGID: defaultGID,
 			CAName:     caName,

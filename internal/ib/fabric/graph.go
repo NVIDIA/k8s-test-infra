@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/ib/gid"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/registry"
 )
@@ -115,7 +116,7 @@ func coalesceGUID(nodeGUID, portGUID string) string {
 
 // nodeGUIDFromPortGUID derives CA node_guid from port_guid (clear port U/L bit).
 func nodeGUIDFromPortGUID(portGUID string) string {
-	n := registry.NormalizePortGUID(portGUID)
+	n := gid.NormalizePortGUID(portGUID)
 	parts := strings.Split(n, ":")
 	if len(parts) != 4 {
 		return n

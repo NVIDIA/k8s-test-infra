@@ -8,7 +8,6 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/gid"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/protocol"
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/registry"
 )
 
 // loopbackIndex matches outbound ping MADs to local port GUIDs under ib-root and
@@ -26,7 +25,7 @@ func newLoopbackIndex(localPorts []protocol.PortAdvert) *loopbackIndex {
 	byGID := make(map[string]protocol.PortAdvert, len(localPorts))
 	byLID := make(map[uint16]protocol.PortAdvert, len(localPorts))
 	for _, p := range localPorts {
-		byGUID[registry.NormalizePortGUID(p.PortGUID)] = p
+		byGUID[gid.NormalizePortGUID(p.PortGUID)] = p
 		if p.DefaultGID != "" {
 			byGID[gid.Normalize(p.DefaultGID)] = p
 		}

@@ -9,8 +9,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
-
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/registry"
 )
 
 // Normalize lowercases and trims a GID string (colon-separated or compact hex).
@@ -34,7 +32,7 @@ func PortGUIDFromBytes(gid []byte) string {
 		return ""
 	}
 	b := gid[8:16]
-	return registry.NormalizePortGUID(fmt.Sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x",
+	return NormalizePortGUID(fmt.Sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x",
 		b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]))
 }
 
@@ -49,4 +47,27 @@ func ParseInto(dst []byte, s string) {
 		return
 	}
 	copy(dst, b)
+}
+
+// NormalizePortGUID lowercases a port GUID and formats it with colon separators
+// (a088:c203:00ab:0001). Non-hex characters are stripped; short inputs are
+// left-padded to 16 hex digits.
+func NormalizePortGUID(s string) string {
+	var b strings.Builder
+
+	for _, c := range strings.ToLower(s) {
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
+			b.WriteByte(byte(c))
+		}
+	}
+
+	hex := b.String()
+
+	if len(hex) < 16 {
+		hex = strings.Repeat("0", 16-len(hex)) + hex
+	} else if len(hex) > 16 {
+		hex = hex[len(hex)-16:]
+	}
+
+	return hex[0:4] + ":" + hex[4:8] + ":" + hex[8:12] + ":" + hex[12:16]
 }
