@@ -12,7 +12,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	ibconfig "github.com/NVIDIA/k8s-test-infra/internal/ib/config"
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/render"
+	"github.com/NVIDIA/k8s-test-infra/internal/ib/sysfs"
 )
 
 // Source paths inside the container image. Package vars so tests can exercise
@@ -39,7 +39,7 @@ func ibRoot(h *host.Host) string { return h.RootPath("ib") }
 // stageSysfs renders the fake IB sysfs tree real tools read through
 // libibmocksys.so's path redirection.
 func stageSysfs(h *host.Host, state *agent.State) error {
-	return render.Render(render.Options{
+	return sysfs.Render(sysfs.Options{
 		IB:       buildIB(state.NodeShape.Network),
 		NodeName: state.Node.NodeName,
 		Output:   ibRoot(h),

@@ -14,16 +14,20 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/protocol"
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/render"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/subnet"
+	"github.com/NVIDIA/k8s-test-infra/internal/ib/sysfs"
 	"github.com/stretchr/testify/require"
 )
 
 func TestServer_SMPPortInfoSelfResolveShort(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, render.Render(render.Options{
-		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dir,
-	}))
+	err := sysfs.Render(sysfs.Options{
+		IB:       config.Infiniband{Enabled: true},
+		GPUCount: 2,
+		NodeName: "node-a",
+		Output:   dir,
+	})
+	require.NoError(t, err)
 	safe := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
 	sock := filepath.Join(os.TempDir(), "mock-ib-"+safe+".sock")
 	t.Cleanup(func() { _ = os.Remove(sock) })
@@ -84,7 +88,7 @@ func TestServer_SMPPortInfoSelfResolveShort(t *testing.T) {
 
 func TestServer_SMPNodeInfoThenPortInfo(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, render.Render(render.Options{
+	require.NoError(t, sysfs.Render(sysfs.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dir,
 	}))
 	safe := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
@@ -149,7 +153,7 @@ func TestServer_SMPNodeInfoThenPortInfo(t *testing.T) {
 // owns LID 1.
 func TestServer_SMInfoMaster(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, render.Render(render.Options{
+	require.NoError(t, sysfs.Render(sysfs.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dir,
 	}))
 	safe := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())

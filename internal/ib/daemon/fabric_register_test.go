@@ -18,7 +18,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/registry"
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/render"
+	"github.com/NVIDIA/k8s-test-infra/internal/ib/sysfs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -134,7 +134,7 @@ func TestWriteRegister_StalledPeerTimesOut(t *testing.T) {
 
 func TestServer_sendRegister(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, render.Render(render.Options{
+	require.NoError(t, sysfs.Render(sysfs.Options{
 		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "node-a", Output: dir,
 	}))
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

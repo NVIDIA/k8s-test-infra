@@ -10,7 +10,6 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/registry"
-	"github.com/NVIDIA/k8s-test-infra/internal/ib/render"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/sysfs"
 	"github.com/stretchr/testify/require"
 )
@@ -53,9 +52,15 @@ func TestSAPathQuery_IbpingCapture(t *testing.T) {
 	const capturedTargetLID uint16 = 0x0201
 
 	dirB := t.TempDir()
-	require.NoError(t, render.Render(render.Options{
-		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "nvml-mock-demo-worker2", Output: dirB,
-	}))
+
+	err = sysfs.Render(sysfs.Options{
+		IB:       config.Infiniband{Enabled: true},
+		GPUCount: 2,
+		NodeName: "nvml-mock-demo-worker2",
+		Output:   dirB,
+	})
+	require.NoError(t, err)
+
 	portsB, _ := sysfs.Scan(dirB)
 
 	client := &Server{

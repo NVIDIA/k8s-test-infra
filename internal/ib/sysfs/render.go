@@ -1,13 +1,15 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package render writes a fake InfiniBand sysfs tree from an
-// [config.Infiniband] specification.
+// Package sysfs owns both halves of the fake InfiniBand sysfs tree: Render
+// writes it from a [config.Infiniband] spec, Scan reads it back. They live
+// together because they share a file layout that nothing else enforces —
+// renaming an attribute in one silently breaks the other.
 //
-// Layout matches what the kernel ib_core driver exposes at runtime, so real
-// userspace tools (ibstat, ibstatus, iblinkinfo, libibverbs consumers, ...)
-// can read it through libibmocksys.so's path redirection.
-package render
+// The layout matches what the kernel ib_core driver exposes, so real userspace
+// tools (ibstat, ibstatus, iblinkinfo, libibverbs consumers, ...) read it
+// through libibmocksys.so's path redirection.
+package sysfs
 
 import (
 	"fmt"

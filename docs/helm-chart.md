@@ -758,9 +758,9 @@ see `internal/ib/README.md`). Companion fabric validators:
   — `ibv_devinfo -l` claims every rendered HCA via libmlx5; `ibstatus`
   confirms ACTIVE / LinkUp port state.
 
-See [`internal/ib/README.md`](https://github.com/NVIDIA/k8s-test-infra/blob/main/internal/ib/README.md#mock-ibping)
-for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
-`MOCK_IB_DEBUG_SMP`, …) and architecture details.
+See [`internal/ib/README.md`](https://github.com/NVIDIA/k8s-test-infra/blob/main/internal/ib/README.md#tiers)
+for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`, …) and
+architecture details.
 
 ## Device injection mode
 
