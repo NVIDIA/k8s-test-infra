@@ -15,28 +15,11 @@ const (
 
 // IsSMPSend reports whether umad carries a subnet management GET/SET.
 //
-// MAD wire layout (IBA §13.4) puts MgmtClass at byte 1 of the MAD header.
-// libibumad delivers the MAD payload to the daemon in wire (network) byte
-// order, so we read MgmtClass directly. A previous version of this function
-// ran the header through normalizeMADHeader (which 4-byte-word-swaps as if
-// the bytes were in host order) and then read hdr[1] — that ended up reading
-// ClassVersion, which is 0x01 for almost every IB management class.
-//
-// The consequence was that vendor OpenIB ping MADs (MgmtClass=0x32,
-// ClassVersion=0x01) were misclassified as SMI (0x01) and short-circuited
-// the cross-pod fabric path in handleSend:
-//
-//	if s.cfg.Fabric && !subnet.IsSMPSend(req.MAD) && s.tryFabricSend(...) {
-//
-// With IsSMPSend wrongly returning true, ibping MADs were never routed to
-// the peer over TCP and never produced a synthetic recv either, so ibping's
-// umad_recv timed out with EAGAIN ("recv failed: Resource temporarily
-// unavailable") on every attempt — including the ibping-multinode CI job
-// and `docs/demo/standalone/demo.sh`. iblinkinfo (real SMI, ClassVersion
-// also 0x01) only worked by the same coincidence.
-//
-// Reading MgmtClass directly fixes vendor MADs without changing SMI/SMIDir
-// behaviour (their MgmtClass values 0x01 / 0x81 land on the right byte too).
+// MgmtClass sits at byte 1 of the MAD header (IBA §13.4) and libibumad delivers
+// the payload in wire order, so read it directly. Normalizing the header first
+// would word-swap it and land on ClassVersion instead — 0x01 for nearly every
+// class, which misclassifies vendor ping MADs as SMI and diverts them out of
+// the cross-pod fabric path.
 func IsSMPSend(umad []byte) bool {
 	if len(umad) < umadMADOffset+24 {
 		return false

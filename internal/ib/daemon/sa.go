@@ -149,15 +149,12 @@ func saMethodResponseSet(mad []byte) bool {
 	return false
 }
 
-// setSAMethodResponse converts an SA GET into a GETRESP by OR-ing the response
-// bit (0x80) onto the method byte. The method's wire offset varies with the SA
-// GET layout this daemon observes (attr-4 in the synthetic fixture, byte 3 in a
-// standard-aligned MAD), so locate it relative to the AttributeID rather than
-// assuming a fixed offset. Two header regions are never written: the 64-bit TID
-// (bytes 8-15, used by libibmad to match the reply) and the leading common
-// header (BaseVersion/MgmtClass/ClassVersion at bytes 0-2). A previous revision
-// special-cased mad[0]==0x01, which unconditionally matched BaseVersion and
-// corrupted it to 0x81 without ever flipping the real method byte.
+// setSAMethodResponse turns an SA GET into a GETRESP by OR-ing the response bit
+// onto the method byte. That byte's offset varies with the SA GET layout, so
+// locate it relative to the AttributeID rather than assuming a fixed position.
+//
+// Two regions must stay untouched: the TID at bytes 8-15, which libibmad uses
+// to match the reply to its request, and the common header at bytes 0-2.
 //
 //nolint:cyclop // existing complexity; refactor deferred
 func setSAMethodResponse(mad []byte) {

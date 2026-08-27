@@ -223,14 +223,11 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCou
 		return err
 	}
 
-	// libibverbs matches each sysfs device against provider modalias tables
-	// (libibverbs/init.c match_modalias -> fnmatch). The kernel modalias
-	// grammar is "pci:v<8H>d<8H>sv<8H>sd<8H>bc<2H>sc<2H>i<2H>" with
-	// upper-case hex, zero-padded fields — otherwise libmlx5's match
-	// pattern "pci:v000015B3d*sv*sd*bc*sc*i*" never claims the device and
-	// ibv_devinfo reports "0 HCAs found". Use the ConnectX-5 (0x1017) PCI
-	// IDs (vendor 0x15B3 Mellanox, subsystem 0x15B3:0x0008, class
-	// 0x028000 = Infiniband controller).
+	// libibverbs fnmatches this against each provider's modalias table, so the
+	// grammar is exact: "pci:v<8H>d<8H>sv<8H>sd<8H>bc<2H>sc<2H>i<2H>",
+	// upper-case and zero-padded. Any deviation and libmlx5 never claims the
+	// device, leaving ibv_devinfo to report "0 HCAs found". The IDs below are a
+	// ConnectX-5: Mellanox 0x15B3, device 0x1017, class 0x028000 (IB controller).
 	if err := mkdirAll(root, filepath.Join(caDir, "device")); err != nil {
 		return err
 	}

@@ -12,7 +12,7 @@ import (
 
 func TestDiscoverPeerIPs_FiltersSelf(t *testing.T) {
 	// Unit test uses empty host; integration uses real DNS in cluster.
-	got := DiscoverPeerIPs(context.Background(), "", "10.0.0.1")
+	got := discoverPeerIPs(context.Background(), "", "10.0.0.1")
 	require.Empty(t, got)
 }
 
@@ -31,8 +31,9 @@ func TestDiscoverPeerIPs_CancelledCtxAborts(t *testing.T) {
 		return nil, ctx.Err()
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	got := DiscoverPeerIPs(ctx, "mock-ib-ibping.default.svc", "")
+
+	got := discoverPeerIPs(ctx, "mock-ib-ibping.default.svc", "")
 	require.Empty(t, got, "canceled ctx must abort DNS resolution")
 }

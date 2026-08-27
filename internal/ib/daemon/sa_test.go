@@ -25,7 +25,7 @@ func TestSAPathQuery_LocalPort(t *testing.T) {
 	require.NoError(t, err)
 	srv := &Server{
 		localPorts: ports,
-		loopback:   NewLoopback(ports),
+		loopback:   newLoopbackIndex(ports),
 		registry:   registry.New(),
 	}
 	dgid := gidBytesForPort(t, ports[0].DefaultGID)
@@ -56,7 +56,7 @@ func TestSAPathQuery_RemoteViaRegistry(t *testing.T) {
 
 	client := &Server{
 		localPorts: portsB,
-		loopback:   NewLoopback(portsB),
+		loopback:   newLoopbackIndex(portsB),
 		registry:   registry.New(),
 	}
 	client.registry.Register(portsA[0].PortGUID, registry.Peer{

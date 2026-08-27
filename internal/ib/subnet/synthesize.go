@@ -74,11 +74,9 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 
 	// MAD wire header (IBA §13.4): BaseVer | MgmtClass | ClassVer | Method,
 	// then Status, TID, AttrID (BE16 @16), Reserved, AttrMod (BE32 @20).
-	// libibumad delivers MADs in wire byte order, so read every field straight
-	// from the payload — same convention as IsSMPSend and the SA decoder. A
-	// previous version word-swapped the header first and then read hdr[1],
-	// which is ClassVersion (0x01 for almost every class), so any vendor/GSI
-	// MAD with ClassVersion 0x01 was misclassified as SMI.
+	// libibumad delivers MADs in wire byte order, so read fields straight from
+	// the payload — normalizing first shifts MgmtClass onto ClassVersion. See
+	// IsSMPSend.
 	cls := mad[1]
 	if cls != ibClassSMI && cls != ibClassSMIDirect {
 		return nil, false
@@ -137,12 +135,10 @@ func TrySynthesize(sendMad []byte, g *fabric.Graph, localCA string) ([]byte, boo
 	}
 }
 
-// newSMPResp clones a SEND umad into a GETRESP buffer: padded to at least a full
-// legacy umad frame (so short libibmad sends still carry the 256-byte MAD),
-// umad.status zeroed (a non-zero status makes libibmad discard the reply), and
-// the MAD method's response bit (0x80) set. It is the single response-framing
-// helper for TrySynthesize, used by both the SMInfo branch and the directed-route
-// NODE_DESC/NODE_INFO/PORT_INFO path.
+// newSMPResp clones a SEND umad into a GETRESP buffer. Three things the reply
+// will not survive without: padding to a full legacy umad frame, since short
+// libibmad sends must still carry the 256-byte MAD; a zeroed umad.status, which
+// libibmad treats as "discard"; and the method's response bit.
 func newSMPResp(sendMad []byte, method byte) []byte {
 	out := make([]byte, len(sendMad))
 	if len(sendMad) < minUmadLen {
@@ -156,13 +152,11 @@ func newSMPResp(sendMad []byte, method byte) []byte {
 	return out
 }
 
-// fillSMInfo writes a master-SM SMInfo payload (AttrID 0x0020) for sm into the
-// SMP data block. Layout per IBA Vol.1 §14.2.5.13 Table 120 / libibmad fields.c:
-// GUID {0,64}, SM_Key {64,64}, ActCount {128,32}, Priority {160,4}, SMState
-// {164,4}. The two 64-bit fields are plain big-endian (putGUID64 / SetField64),
-// matching how NodeGuid/PortGuid/GidPrefix are written; the sub-32-bit fields use
-// the libibmad BITSOFFS convention via SetFieldSpec, so byte 20 of the block ends
-// up (Priority<<4)|SMState.
+// fillSMInfo writes a master-SM SMInfo payload (AttrID 0x0020) into the SMP data
+// block. Layout per IBA Vol.1 §14.2.5.13 Table 120: GUID {0,64}, SM_Key {64,64},
+// ActCount {128,32}, Priority {160,4}, SMState {164,4}. The 64-bit fields are
+// plain big-endian; the sub-32-bit ones follow libibmad's BITSOFFS packing, so
+// byte 20 ends up (Priority<<4)|SMState.
 func fillSMInfo(mad []byte, sm fabric.Port) {
 	if len(mad) < ibSMPDataOff+64 {
 		return
