@@ -1,5 +1,19 @@
 # Mokka + AICR pre-silicon preflight: sweep findings
 
+> **First run, 2026-08-03. Partly superseded by the 2026-08-26 re-run**
+> ([FINDINGS-57ef016.md](FINDINGS-57ef016.md)). Everything below was correct when
+> measured. Three things have changed since:
+>
+> - **Section 3, "the one real gap"** (the PCI bus ID without its domain) was
+>   **fixed upstream by #672** on 2026-08-19. Verified in the shipped image. But
+>   `gpu-operator-health` did **not** move: GFD now gets a well-formed BDF and
+>   still cannot read the vendor file, for a separate mount reason. See
+>   [results/gfd-sysfs-evidence.log](results/gfd-sysfs-evidence.log).
+> - **The 8-GPU figures in section 5** are now 4. #727 remodelled `gb200`/`gb300`
+>   as a 4-GPU NVL72 compute tray. The DRA device count went 16 to 12.
+> - **Two blocked cells were misattributed here** and are `X`, not `BUDGET`/`U`.
+>   See [results/aicr-recipe-matrix-evidence.log](results/aicr-recipe-matrix-evidence.log).
+
 **Date:** 2026-08-03 · **Ran by:** Carlos Eduardo Arango Gutierrez · **For review by:** Mark Chmarny
 **Cluster:** kind v0.32.0, Kubernetes v1.36.1, containerd 2.3.1, 1 control plane + 2 workers, arm64,
 one host, 7.75 GiB Docker VM

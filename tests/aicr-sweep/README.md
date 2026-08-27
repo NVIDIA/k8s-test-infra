@@ -1,5 +1,12 @@
 # Mokka + AICR compatibility sweep
 
+> **There are two runs.** This README describes the harness and the first run
+> (Mokka `v0.3.0`, 2026-08-03). A second run against `upstream/main` `57ef01659`
+> on 2026-08-26 is written up in [FINDINGS-57ef016.md](FINDINGS-57ef016.md), and
+> pairs with [cells-57ef016.yaml](cells-57ef016.yaml) and
+> [results-57ef016/](results-57ef016/). Both runs regenerate byte-identically and
+> neither overwrites the other. Any figure below is the first run's.
+
 Runs the [AICR](https://github.com/NVIDIA/aicr) recipe and validation suite against an
 `nvml-mock` (Mokka) cluster on kind, and classifies what each check actually proves when no GPU is
 present.
