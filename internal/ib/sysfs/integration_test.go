@@ -22,6 +22,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/ib/config"
 )
 
 func TestIbstat_Integration(t *testing.T) {
