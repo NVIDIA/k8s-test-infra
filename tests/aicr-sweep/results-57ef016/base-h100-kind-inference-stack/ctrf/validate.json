@@ -1,0 +1,381 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.0.1",
+  "timestamp": "2026-08-26T15:35:29Z",
+  "generatedBy": "aicr",
+  "results": {
+    "tool": {
+      "name": "aicr",
+      "version": "dev"
+    },
+    "summary": {
+      "tests": 14,
+      "passed": 5,
+      "failed": 7,
+      "skipped": 1,
+      "pending": 0,
+      "other": 1,
+      "start": 1787757894028,
+      "stop": 1787758768971
+    },
+    "tests": [
+      {
+        "name": "operator-health",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "deployment"
+        ],
+        "stdout": [
+          "time=2026-08-26T15:25:49.947Z level=INFO msg=\"starting check\" name=operator-health",
+          "time=2026-08-26T15:25:49.961Z level=INFO msg=\"listing pods\" namespace=gpu-operator label=\"app=gpu-operator\"",
+          "Found 1 gpu-operator pod(s):",
+          "  gpu-operator-869cf5b4c-cmxdp: Running",
+          "Running: 1/1",
+          "time=2026-08-26T15:25:49.970Z level=INFO msg=\"operator-health: passed\" running=1"
+        ]
+      },
+      {
+        "name": "expected-resources",
+        "status": "other",
+        "duration": 0,
+        "suite": [
+          "deployment"
+        ],
+        "message": "pod not found for Job aicr-expected-resources-5ef990d4: [NOT_FOUND] pod for job not found"
+      },
+      {
+        "name": "gpu-operator-version",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "deployment"
+        ],
+        "stdout": [
+          "time=2026-08-26T15:33:56.251Z level=INFO msg=\"starting check\" name=gpu-operator-version",
+          "Detected GPU Operator version: v25.3.4",
+          "Constraint: \u003e= v24.6.0 → true"
+        ]
+      },
+      {
+        "name": "check-nvidia-smi",
+        "status": "passed",
+        "duration": 86000,
+        "suite": [
+          "deployment"
+        ],
+        "stdout": [
+          "time=2026-08-26T15:34:01.084Z level=INFO msg=\"starting check\" name=check-nvidia-smi",
+          "Found 2 GPU node(s), 2 schedulable, 0 cordoned:",
+          "  mokka-aicr-stack-worker",
+          "  mokka-aicr-stack-worker2",
+          "time=2026-08-26T15:34:01.101Z level=INFO msg=\"verifying node\" node=mokka-aicr-stack-worker",
+          "time=2026-08-26T15:34:01.101Z level=INFO msg=\"deploying nvidia-smi verify pod\" node=mokka-aicr-stack-worker podName=nvidia-smi-verify-mokka-aicr-stack-worker image=nvcr.io/nvidia/cuda:13.0.0-base-ubuntu22.04 namespace=aicr-validation",
+          "All 2 GPU node(s) available. Verifying...",
+          "time=2026-08-26T15:34:01.104Z level=INFO msg=\"waiting for pod to reach Succeeded state\" name=nvidia-smi-verify-mokka-aicr-stack-worker",
+          "time=2026-08-26T15:34:01.118Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker status=Pending waitingReason=ContainerCreating",
+          "time=2026-08-26T15:34:01.508Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker status=Pending waitingReason=ContainerCreating",
+          "time=2026-08-26T15:34:40.441Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker status=Running",
+          "time=2026-08-26T15:34:41.294Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker status=Running",
+          "time=2026-08-26T15:34:42.285Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker status=Running",
+          "time=2026-08-26T15:34:42.358Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker status=Succeeded",
+          "time=2026-08-26T15:34:42.358Z level=INFO msg=\"pod successfully completed\" name=nvidia-smi-verify-mokka-aicr-stack-worker",
+          "time=2026-08-26T15:34:42.370Z level=INFO msg=\"verifying node\" node=mokka-aicr-stack-worker2",
+          "time=2026-08-26T15:34:42.370Z level=INFO msg=\"deploying nvidia-smi verify pod\" node=mokka-aicr-stack-worker2 podName=nvidia-smi-verify-mokka-aicr-stack-worker2 image=nvcr.io/nvidia/cuda:13.0.0-base-ubuntu22.04 namespace=aicr-validation",
+          "  mokka-aicr-stack-worker: OK",
+          "time=2026-08-26T15:34:42.376Z level=INFO msg=\"waiting for pod to reach Succeeded state\" name=nvidia-smi-verify-mokka-aicr-stack-worker2",
+          "time=2026-08-26T15:34:42.394Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker2 status=Pending waitingReason=ContainerCreating",
+          "time=2026-08-26T15:34:42.808Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker2 status=Pending waitingReason=ContainerCreating",
+          "time=2026-08-26T15:35:25.503Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker2 status=Running",
+          "time=2026-08-26T15:35:26.190Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker2 status=Running",
+          "time=2026-08-26T15:35:27.194Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker2 status=Running",
+          "time=2026-08-26T15:35:27.261Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker2 status=Succeeded",
+          "time=2026-08-26T15:35:27.261Z level=INFO msg=\"pod successfully completed\" name=nvidia-smi-verify-mokka-aicr-stack-worker2",
+          "  mokka-aicr-stack-worker2: OK",
+          "RESULT: nodesValidated: 2/2",
+          "Successfully verified GPU on all 2 schedulable node(s)"
+        ],
+        "extra": {
+          "nodesTotal": "2",
+          "nodesValidated": "2"
+        }
+      },
+      {
+        "name": "dra-support",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "message": "[NOT_FOUND] deployment nvidia-dra-driver/nvidia-dra-driver-gpu-controller not found: deployments.apps \"nvidia-dra-driver-gpu-controller\" not found",
+        "stdout": [
+          "time=2026-08-26T15:36:24.776Z level=INFO msg=\"starting check\" name=dra-support",
+          "--- DRA driver namespace ---",
+          "Namespace: nvidia-dra-driver",
+          "Source:    resolved recipe componentRef nvidia-dra-driver-gpu",
+          "--- DRA API resources ---",
+          "Equivalent: kubectl api-resources --api-group=resource.k8s.io",
+          "",
+          "Served version: resource.k8s.io/v1",
+          "deviceclasses              DeviceClass            namespaced=false",
+          "resourceclaims             ResourceClaim          namespaced=true",
+          "resourceclaims/status      ResourceClaim          namespaced=true",
+          "resourceclaimtemplates     ResourceClaimTemplate  namespaced=true",
+          "resourceslices             ResourceSlice          namespaced=false",
+          "",
+          "--- DRA driver pods ---",
+          "Equivalent: kubectl get pods -n nvidia-dra-driver -o wide",
+          "",
+          "",
+          "time=2026-08-26T15:36:24.800Z level=ERROR msg=FAIL message=\"[NOT_FOUND] deployment nvidia-dra-driver/nvidia-dra-driver-gpu-controller not found: deployments.apps \\\"nvidia-dra-driver-gpu-controller\\\" not found\""
+        ]
+      },
+      {
+        "name": "gang-scheduling",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "message": "[NOT_FOUND] recipe declares kai-scheduler but its Deployment kai-scheduler/kai-scheduler-default is absent — apply the bundle or check RBAC: deployments.apps \"kai-scheduler-default\" not found",
+        "stdout": [
+          "time=2026-08-26T15:36:30.132Z level=INFO msg=\"starting check\" name=gang-scheduling",
+          "time=2026-08-26T15:36:30.146Z level=ERROR msg=FAIL message=\"[NOT_FOUND] recipe declares kai-scheduler but its Deployment kai-scheduler/kai-scheduler-default is absent — apply the bundle or check RBAC: deployments.apps \\\"kai-scheduler-default\\\" not found\""
+        ]
+      },
+      {
+        "name": "accelerator-metrics",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "stdout": [
+          "time=2026-08-26T15:36:34.779Z level=INFO msg=\"starting check\" name=accelerator-metrics",
+          "--- DCGM Exporter Metrics (sample) ---",
+          "# HELP DCGM_FI_DEV_SM_CLOCK SM clock frequency (in MHz).",
+          "# TYPE DCGM_FI_DEV_SM_CLOCK gauge",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"0\",UUID=\"GPU-01000100-0000-0000-0000-000000000000\",pci_bus_id=\"00000000:1A:00.0\",device=\"nvidia0\",modelName=\"NVIDIA H100 80GB HBM3\",Hostname=\"mokka-aicr-stack-worker\",DCGM_FI_DRIVER_VERSION=\"550.163.01\"} 345",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"1\",UUID=\"GPU-01000100-0000-0000-0000-000000000001\",pci_bus_id=\"00000000:1B:00.0\",device=\"nvidia1\",modelName=\"NVIDIA H100 80GB HBM3\",Hostname=\"mokka-aicr-stack-worker\",DCGM_FI_DRIVER_VERSION=\"550.163.01\"} 345",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"2\",UUID=\"GPU-01000100-0000-0000-0000-000000000002\",pci_bus_id=\"00000000:4A:00.0\",device=\"nvidia2\",modelName=\"NVIDIA H100 80GB HBM3\",Hostname=\"mokka-aicr-stack-worker\",DCGM_FI_DRIVER_VERSION=\"550.163.01\"} 345",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"3\",UUID=\"GPU-01000100-0000-0000-0000-000000000003\",pci_bus_id=\"00000000:4B:00.0\",device=\"nvidia3\",modelName=\"NVIDIA H100 80GB HBM3\",Hostname=\"mokka-aicr-stack-worker\",DCGM_FI_DRIVER_VERSION=\"550.163.01\"} 345",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"4\",UUID=\"GPU-01000100-0000-0000-0000-000000000004\",pci_bus_id=\"00000000:8A:00.0\",device=\"nvidia4\",modelName=\"NVIDIA H100 80GB HBM3\",Hostname=\"mokka-aicr-stack-worker\",DCGM_FI_DRIVER_VERSION=\"550.163.01\"} 345",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"5\",UUID=\"GPU-01000100-0000-0000-0000-000000000005\",pci_bus_id=\"00000000:8B:00.0\",device=\"nvidia5\",modelName=\"NVIDIA H100 80GB HBM3\",Hostname=\"mokka-aicr-stack-worker\",DCGM_FI_DRIVER_VERSION=\"550.163.01\"} 345",
+          "... [truncated]",
+          "--- Required DCGM Metrics ---",
+          "  DCGM_FI_DEV_GPU_UTIL           FOUND",
+          "  DCGM_FI_DEV_FB_USED            FOUND",
+          "  DCGM_FI_DEV_GPU_TEMP           FOUND",
+          "  DCGM_FI_DEV_POWER_USAGE        FOUND"
+        ]
+      },
+      {
+        "name": "ai-service-metrics",
+        "status": "failed",
+        "duration": 1000,
+        "suite": [
+          "conformance"
+        ],
+        "message": "[NOT_FOUND] no Prometheus service with port 9090 found in namespace \"monitoring\"",
+        "stdout": [
+          "time=2026-08-26T15:36:39.994Z level=INFO msg=\"starting check\" name=ai-service-metrics",
+          "time=2026-08-26T15:36:40.019Z level=ERROR msg=FAIL message=\"[NOT_FOUND] no Prometheus service with port 9090 found in namespace \\\"monitoring\\\"\""
+        ]
+      },
+      {
+        "name": "inference-gateway",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "message": "[NOT_FOUND] GatewayClass 'agentgateway' not found: the server could not find the requested resource",
+        "stdout": [
+          "time=2026-08-26T15:36:44.943Z level=INFO msg=\"starting check\" name=inference-gateway",
+          "--- agentgateway deployments ---",
+          "Equivalent: kubectl get deploy -n agentgateway-system",
+          "",
+          "",
+          "--- agentgateway pods ---",
+          "Equivalent: kubectl get pods -n agentgateway-system",
+          "",
+          "",
+          "time=2026-08-26T15:36:44.966Z level=ERROR msg=FAIL message=\"[NOT_FOUND] GatewayClass 'agentgateway' not found: the server could not find the requested resource\""
+        ]
+      },
+      {
+        "name": "pod-autoscaling",
+        "status": "failed",
+        "duration": 61000,
+        "suite": [
+          "conformance"
+        ],
+        "message": "[NOT_FOUND] custom metrics API not available (prometheus-adapter not ready): client rate limiter Wait returned an error: context deadline exceeded",
+        "stdout": [
+          "time=2026-08-26T15:36:50.010Z level=INFO msg=\"starting check\" name=pod-autoscaling",
+          "time=2026-08-26T15:37:50.063Z level=ERROR msg=FAIL message=\"[NOT_FOUND] custom metrics API not available (prometheus-adapter not ready): client rate limiter Wait returned an error: context deadline exceeded\""
+        ]
+      },
+      {
+        "name": "cluster-autoscaling",
+        "status": "skipped",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "message": "[INTERNAL] Karpenter not found and cluster platform not recognized (not EKS or GKE): skip",
+        "stdout": [
+          "time=2026-08-26T15:37:55.576Z level=INFO msg=\"starting check\" name=cluster-autoscaling",
+          "time=2026-08-26T15:37:55.597Z level=INFO msg=\"Karpenter not found, falling back to platform autoscaling\" platform=\"\"",
+          "time=2026-08-26T15:37:55.597Z level=INFO msg=SKIP reason=\"[INTERNAL] Karpenter not found and cluster platform not recognized (not EKS or GKE): skip\""
+        ]
+      },
+      {
+        "name": "secure-accelerator-access",
+        "status": "passed",
+        "duration": 74000,
+        "suite": [
+          "conformance"
+        ],
+        "stdout": [
+          "time=2026-08-26T15:38:02.052Z level=INFO msg=\"starting check\" name=secure-accelerator-access",
+          "--- ClusterPolicy status ---",
+          "Equivalent: kubectl get clusterpolicy -o wide",
+          "",
+          "Name:   cluster-policy",
+          "State:  notReady",
+          "--- GPU operator pods ---",
+          "Equivalent: kubectl get pods -n gpu-operator -o wide",
+          "",
+          "gpu-feature-discovery-9rz6j                    ready=0/1 phase=Running node=mokka-aicr-stack-worker2",
+          "gpu-feature-discovery-vgktj                    ready=0/1 phase=Running node=mokka-aicr-stack-worker",
+          "gpu-operator-869cf5b4c-cmxdp                   ready=1/1 phase=Running node=mokka-aicr-stack-control-plane",
+          "gpu-operator-node-feature-discovery-gc-66bb9d6947-fbdk8 ready=1/1 phase=Running node=mokka-aicr-stack-worker2",
+          "gpu-operator-node-feature-discovery-master-fcb8f67db-469mj ready=1/1 phase=Running node=mokka-aicr-stack-control-plane",
+          "gpu-operator-node-feature-discovery-worker-2sxxh ready=1/1 phase=Running node=mokka-aicr-stack-worker",
+          "gpu-operator-node-feature-discovery-worker-67ndb ready=1/1 phase=Running node=mokka-aicr-stack-worker2",
+          "gpu-operator-node-feature-discovery-worker-cbk7c ready=1/1 phase=Running node=mokka-aicr-stack-control-plane",
+          "nvidia-dcgm-exporter-szfwx                     ready=1/1 phase=Running node=mokka-aicr-stack-worker",
+          "nvidia-dcgm-exporter-w2zhs                     ready=1/1 phase=Running node=mokka-aicr-stack-worker2",
+          "nvidia-device-plugin-daemonset-9hpkv           ready=1/1 phase=Running node=mokka-aicr-stack-worker2",
+          "nvidia-device-plugin-daemonset-xxrzq           ready=1/1 phase=Running node=mokka-aicr-stack-worker",
+          "nvidia-operator-validator-dsgg8                ready=1/1 phase=Running node=mokka-aicr-stack-worker",
+          "nvidia-operator-validator-t7cvt                ready=1/1 phase=Running node=mokka-aicr-stack-worker2",
+          "",
+          "--- GPU operator DaemonSets ---",
+          "Equivalent: kubectl get ds -n gpu-operator",
+          "",
+          "gpu-feature-discovery                  ready=0/2",
+          "gpu-operator-node-feature-discovery-worker ready=3/3",
+          "nvidia-dcgm-exporter                   ready=2/2",
+          "nvidia-device-plugin-daemonset         ready=2/2",
+          "nvidia-device-plugin-mps-control-daemon ready=0/0",
+          "nvidia-operator-validator              ready=2/2",
+          "",
+          "--- ResourceSlices ---",
+          "Equivalent: kubectl get resourceslices -o wide",
+          "",
+          "",
+          "--- GPU devices in ResourceSlice ---",
+          "Equivalent: kubectl get resourceslices -o yaml",
+          "",
+          "apiVersion: resource.k8s.io/v1",
+          "items: []",
+          "kind: ResourceSliceList",
+          "metadata:",
+          "  resourceVersion: \"5628\"",
+          "",
+          "--- GPU allocation mode ---",
+          "Equivalent: kubectl get deviceclass gpu.nvidia.com; kubectl get resourceslices; kubectl get nodes -o wide",
+          "",
+          "DRA (gpu.nvidia.com):              usable=false nodes=[]",
+          "Device plugin (nvidia.com/gpu):  usable=true nodes=[mokka-aicr-stack-worker,mokka-aicr-stack-worker2]",
+          "full-GPU DRA not usable: DeviceClass gpu.nvidia.com not found",
+          "device plugin usable: 2 Ready, schedulable node(s) with allocatable nvidia.com/gpu",
+          "extended-resource attribution: no DeviceClass maps nvidia.com/gpu to DRA",
+          "note: node eligibility is Ready+uncordoned only — node taints are not evaluated; workloads must tolerate any node taints",
+          "--- GPU allocation policy ---",
+          "configured policy: device-plugin-extended-resource",
+          "--- Secure access mode ---",
+          "mode exercised: device plugin (nvidia.com/gpu limits)",
+          "--- Pod status ---",
+          "Equivalent: kubectl get pod gpu-alloc-test-8ac85fdfa9af04947cca0addab26285f -n aicr-gpu-test-8ac85fdfa9af04947cca0addab26285f -o wide",
+          "",
+          "Name:      aicr-gpu-test-8ac85fdfa9af04947cca0addab26285f/gpu-alloc-test-8ac85fdfa9af04947cca0addab26285f",
+          "Phase:     Succeeded",
+          "Node:      mokka-aicr-stack-worker2",
+          "GPULimits: nvidia.com/gpu: 1",
+          "--- GPU test pod logs (gpu-test) ---",
+          "Equivalent: kubectl logs gpu-alloc-test-8ac85fdfa9af04947cca0addab26285f -n aicr-gpu-test-8ac85fdfa9af04947cca0addab26285f -c gpu-test",
+          "",
+          "granted GPU count: 1",
+          "granted GPU UUIDs: GPU-01000100-0000-0000-0000-000000000001",
+          "PASS: exactly one usable GPU visible",
+          "",
+          "--- GPU test pod logs (unauthorized) ---",
+          "Equivalent: kubectl logs gpu-alloc-test-8ac85fdfa9af04947cca0addab26285f -n aicr-gpu-test-8ac85fdfa9af04947cca0addab26285f -c unauthorized",
+          "",
+          "PASS: GPU isolated",
+          "",
+          "--- Pod GPU limits (device plugin) ---",
+          "Equivalent: kubectl get pod gpu-alloc-test-8ac85fdfa9af04947cca0addab26285f -n aicr-gpu-test-8ac85fdfa9af04947cca0addab26285f -o jsonpath='{.spec.containers[*].resources.limits}'",
+          "",
+          "Pod:             aicr-gpu-test-8ac85fdfa9af04947cca0addab26285f/gpu-alloc-test-8ac85fdfa9af04947cca0addab26285f",
+          "GPULimits:       1",
+          "ResourceClaims:  0",
+          "--- Pod volumes (no hostPath) ---",
+          "Equivalent: kubectl get pod gpu-alloc-test-8ac85fdfa9af04947cca0addab26285f -n aicr-gpu-test-8ac85fdfa9af04947cca0addab26285f -o jsonpath='{.spec.volumes}'",
+          "",
+          "Pod:               aicr-gpu-test-8ac85fdfa9af04947cca0addab26285f/gpu-alloc-test-8ac85fdfa9af04947cca0addab26285f",
+          "HostPathGPUMounts: 0",
+          "--- Container-level isolation ---",
+          "granted container:      gpu-test (nvidia.com/gpu limits, exactly one GPU visible via nvidia-smi, exit 0)",
+          "unauthorized container: unauthorized (no allocation, no GPU visible, exit 0)",
+          "--- No-allocation probe pod logs ---",
+          "Equivalent: kubectl logs no-alloc-probe-8ac85fdfa9af04947cca0addab26285f -n aicr-gpu-test-8ac85fdfa9af04947cca0addab26285f",
+          "",
+          "PASS: GPU isolated",
+          "",
+          "--- Device Plugin Isolation Test ---",
+          "Equivalent: kubectl logs no-alloc-probe-8ac85fdfa9af04947cca0addab26285f -n aicr-gpu-test-8ac85fdfa9af04947cca0addab26285f",
+          "",
+          "Pod:               aicr-gpu-test-8ac85fdfa9af04947cca0addab26285f/no-alloc-probe-8ac85fdfa9af04947cca0addab26285f",
+          "Phase:             Succeeded",
+          "ExitCode:          0",
+          "ResourceClaims:    0",
+          "HostPathGPUMounts: 0",
+          "--- Cleanup test namespace ---",
+          "Equivalent: kubectl get namespace aicr-gpu-test-8ac85fdfa9af04947cca0addab26285f --ignore-not-found -o jsonpath='{.metadata.uid} {.status.phase}'  # read-only inspection of the current state; see the artifact body for what cleanup actually did",
+          "",
+          "namespace aicr-gpu-test-8ac85fdfa9af04947cca0addab26285f deleted — confirmed absent (all test resources removed with it)"
+        ]
+      },
+      {
+        "name": "gpu-operator-health",
+        "status": "failed",
+        "duration": 1000,
+        "suite": [
+          "conformance"
+        ],
+        "message": "[INTERNAL] ClusterPolicy state=notReady (want ready)",
+        "stdout": [
+          "time=2026-08-26T15:39:20.981Z level=INFO msg=\"starting check\" name=gpu-operator-health",
+          "time=2026-08-26T15:39:21.017Z level=ERROR msg=FAIL message=\"[INTERNAL] ClusterPolicy state=notReady (want ready)\""
+        ]
+      },
+      {
+        "name": "platform-health",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "message": "[NOT_FOUND] platform health check failed (9 issues):\n  namespace agentgateway-system: not found\n  namespace cert-manager: not found\n  namespace monitoring: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace node-feature-discovery: not found\n  namespace skyhook: not found\n  namespace nvidia-dra-driver: not found\n  namespace nvsentinel: not found",
+        "stdout": [
+          "time=2026-08-26T15:39:26.248Z level=INFO msg=\"starting check\" name=platform-health",
+          "time=2026-08-26T15:39:26.313Z level=ERROR msg=FAIL message=\"[NOT_FOUND] platform health check failed (9 issues):\\n  namespace agentgateway-system: not found\\n  namespace cert-manager: not found\\n  namespace monitoring: not found\\n  namespace kai-scheduler: not found\\n  namespace nvidia-network-operator: not found\\n  namespace node-feature-discovery: not found\\n  namespace skyhook: not found\\n  namespace nvidia-dra-driver: not found\\n  namespace nvsentinel: not found\""
+        ]
+      }
+    ]
+  }
+}

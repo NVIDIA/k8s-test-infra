@@ -1,0 +1,66 @@
+# Evidence: an injected uncorrectable ECC fault moves no AICR verdict
+# Captured 2026-08-26, cell axis-failure-injection-ecc, Mokka sha-57ef016.
+
+## The fault is real and active, verified before drawing any conclusion
+
+helm values in effect on the running release:
+
+  gpu:
+    failureInjection:
+      enabled: true
+      mode: ecc_uncorrectable
+      probability: 1
+    profile: gb200
+
+nvidia-smi against the mock, in cluster:
+
+  Attached GPUs : 4
+      ECC Mode
+          Volatile
+              SRAM Uncorrectable Parity  : 0
+              SRAM Uncorrectable SEC-DED : 0
+              DRAM Uncorrectable         : 6
+              SRAM Uncorrectable Parity  : 0
+              SRAM Uncorrectable SEC-DED : 0
+              DRAM Uncorrectable         : 9
+
+The GPUs still enumerate (nvidia-smi -L lists 4, rc=0), so this is a degraded
+GPU rather than an absent one, which is the scenario the cell is meant to model.
+
+## Result: no verdict moves
+
+All 9 dispatched checks are identical to the base cell.
+
+  operator-health       passed     accelerator-metrics   passed
+  expected-resources    other      ai-service-metrics    failed
+  gpu-operator-version  failed     gpu-operator-health   failed
+  check-nvidia-smi      passed     platform-health       failed
+  dra-support           failed
+
+check-nvidia-smi passes and accelerator-metrics passes, with 15 uncorrectable
+DRAM errors visible in NVML at that moment.
+
+## Reading it
+
+This is a discrimination test of the AICR check set, not of Mokka. Mokka's
+failure injection works end to end and is observable through NVML. What the
+result says is that the checks AICR dispatches for kind/gb200/inference do not
+read ECC state, so a GPU that is degraded but still enumerable is indistinguishable
+from a healthy one at this recipe. It says nothing about AICR checks that this
+recipe does not dispatch.
+
+## A trap worth recording
+
+The first attempt at this cell produced a DIFFERENT and much more flattering
+result: 1 passed, 7 failed, with check-nvidia-smi and accelerator-metrics both
+flipping to failed. That looked like clean evidence that AICR detects the fault.
+It was not. `--set gpu.failureInjection.probability=1.0` types 1.0 as a STRING,
+values.schema.json wants a number, and the Mokka install failed with
+
+  Error: INSTALLATION FAILED: values don't meet the specifications of the
+  schema(s) ... at '/gpu/failureInjection/probability': got string, want number
+
+The driver script logged the failure and carried on, so the cell ran against a
+cluster with no mock at all, and the two checks "flipped" only because there were
+no GPU nodes. Use --set-json for numeric values. The driver now aborts the cell
+when the Mokka install fails rather than measuring an empty cluster.
