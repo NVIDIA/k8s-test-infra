@@ -1,0 +1,300 @@
+{
+  "reportFormat": "CTRF",
+  "specVersion": "0.0.1",
+  "timestamp": "2026-08-26T17:47:00Z",
+  "generatedBy": "aicr",
+  "results": {
+    "tool": {
+      "name": "aicr",
+      "version": "dev"
+    },
+    "summary": {
+      "tests": 9,
+      "passed": 3,
+      "failed": 5,
+      "skipped": 0,
+      "pending": 0,
+      "other": 1,
+      "start": 1787765775169,
+      "stop": 1787766553999
+    },
+    "tests": [
+      {
+        "name": "operator-health",
+        "status": "other",
+        "duration": 0,
+        "suite": [
+          "deployment"
+        ],
+        "message": "pod never reached running state"
+      },
+      {
+        "name": "expected-resources",
+        "status": "failed",
+        "duration": 360000,
+        "suite": [
+          "deployment"
+        ],
+        "message": "[NOT_FOUND] Deployment agentgateway-system/agentgateway not found: deployments.apps \"agentgateway\" not found",
+        "stdout": [
+          "time=2026-08-26T17:39:50.033Z level=INFO msg=\"starting check\" name=expected-resources",
+          "  Namespace gpu-operator: Active",
+          "  Namespace nvidia-dra-driver: Active",
+          "  DaemonSet nvidia-dra-driver/nvidia-dra-driver-gpu-kubelet-plugin: healthy (stable ≥1m0s)",
+          "time=2026-08-26T17:40:50.176Z level=INFO msg=\"running health check assertions\" components=14",
+          "time=2026-08-26T17:41:20.194Z level=WARN msg=\"health check failed\" component=cert-manager step=validate-crds-established error=\"[NOT_FOUND] CustomResourceDefinition /certificates.cert-manager.io not found: customresourcedefinitions.apiextensions.k8s.io \\\"certificates.cert-manager.io\\\" not found\"",
+          "time=2026-08-26T17:41:20.194Z level=WARN msg=\"health check failed\" component=agentgateway step=validate-deployment-exists error=\"[NOT_FOUND] Deployment agentgateway-system/agentgateway not found: deployments.apps \\\"agentgateway\\\" not found\"",
+          "time=2026-08-26T17:41:20.194Z level=WARN msg=\"health check failed\" component=agentgateway-crds step=validate-gateway-api-crds-established error=\"[NOT_FOUND] CustomResourceDefinition /gatewayclasses.gateway.networking.k8s.io not found: customresourcedefinitions.apiextensions.k8s.io \\\"gatewayclasses.gateway.networking.k8s.io\\\" not found\"",
+          "time=2026-08-26T17:41:50.208Z level=WARN msg=\"health check failed\" component=kube-prometheus-stack step=validate-deployment-exists error=\"[NOT_FOUND] Deployment monitoring/kube-prometheus-operator not found: deployments.apps \\\"kube-prometheus-operator\\\" not found\"",
+          "time=2026-08-26T17:41:50.208Z level=WARN msg=\"health check failed\" component=kai-scheduler step=validate-deployment-exists error=\"[NOT_FOUND] Deployment kai-scheduler/kai-operator not found: deployments.apps \\\"kai-operator\\\" not found\"",
+          "time=2026-08-26T17:41:50.208Z level=WARN msg=\"health check failed\" component=k8s-ephemeral-storage-metrics step=validate-deployment-exists error=\"[NOT_FOUND] Deployment monitoring/k8s-ephemeral-storage-metrics not found: deployments.apps \\\"k8s-ephemeral-storage-metrics\\\" not found\"",
+          "time=2026-08-26T17:42:20.221Z level=WARN msg=\"health check failed\" component=nfd step=validate-master-deployment error=\"[NOT_FOUND] Deployment node-feature-discovery/nfd-node-feature-discovery-master not found: deployments.apps \\\"nfd-node-feature-discovery-master\\\" not found\"",
+          "time=2026-08-26T17:42:20.221Z level=WARN msg=\"health check failed\" component=nodewright-operator step=validate-skyhook-crd-established error=\"[NOT_FOUND] CustomResourceDefinition /skyhooks.skyhook.nvidia.com not found: customresourcedefinitions.apiextensions.k8s.io \\\"skyhooks.skyhook.nvidia.com\\\" not found\"",
+          "time=2026-08-26T17:42:20.221Z level=WARN msg=\"health check failed\" component=network-operator step=validate-crds-established error=\"[NOT_FOUND] CustomResourceDefinition /nicclusterpolicies.mellanox.com not found: customresourcedefinitions.apiextensions.k8s.io \\\"nicclusterpolicies.mellanox.com\\\" not found\"",
+          "time=2026-08-26T17:42:20.246Z level=INFO msg=\"health check passed\" component=nvidia-dra-driver-gpu",
+          "time=2026-08-26T17:42:50.233Z level=WARN msg=\"health check failed\" component=nvsentinel step=validate-deployment-exists error=\"[NOT_FOUND] Deployment nvsentinel/labeler not found: deployments.apps \\\"labeler\\\" not found\"",
+          "time=2026-08-26T17:42:50.233Z level=WARN msg=\"health check failed\" component=prometheus-adapter step=validate-deployment-exists error=\"[NOT_FOUND] Deployment monitoring/prometheus-adapter not found: deployments.apps \\\"prometheus-adapter\\\" not found\"",
+          "time=2026-08-26T17:42:50.249Z level=WARN msg=\"health check failed\" component=prometheus-operator-crds step=validate-prometheus-operator-crds-established error=\"[NOT_FOUND] CustomResourceDefinition /alertmanagers.monitoring.coreos.com not found: customresourcedefinitions.apiextensions.k8s.io \\\"alertmanagers.monitoring.coreos.com\\\" not found\"",
+          "time=2026-08-26T17:45:50.188Z level=WARN msg=\"health check failed\" component=gpu-operator step=validate-cluster-policy-ready error=\"[INTERNAL] ClusterPolicy /cluster-policy: status.state: Invalid value: \\\"notReady\\\": Expected value: \\\"ready\\\"\"",
+          "  [chainsaw] nvidia-dra-driver-gpu: health check passed",
+          "Failed resources:",
+          "  namespace agentgateway-system: namespaces \"agentgateway-system\" not found",
+          "  namespace cert-manager: namespaces \"cert-manager\" not found",
+          "  namespace monitoring: namespaces \"monitoring\" not found",
+          "  namespace kai-scheduler: namespaces \"kai-scheduler\" not found",
+          "  namespace nvidia-network-operator: namespaces \"nvidia-network-operator\" not found",
+          "  namespace node-feature-discovery: namespaces \"node-feature-discovery\" not found",
+          "  namespace skyhook: namespaces \"skyhook\" not found",
+          "  namespace nvsentinel: namespaces \"nvsentinel\" not found",
+          "  [chainsaw] agentgateway: health check failed:",
+          "[NOT_FOUND] Deployment agentgateway-system/agentgateway not found: deployments.apps \"agentgateway\" not found",
+          "error: [NOT_FOUND] Deployment agentgateway-system/agentgateway not found: deployments.apps \"agentgateway\" not found",
+          "  [chainsaw] agentgateway-crds: health check failed:",
+          "[NOT_FOUND] CustomResourceDefinition /gatewayclasses.gateway.networking.k8s.io not found: customresourcedefinitions.apiextensions.k8s.io \"gatewayclasses.gateway.networking.k8s.io\" not found",
+          "error: [NOT_FOUND] CustomResourceDefinition /gatewayclasses.gateway.networking.k8s.io not found: customresourcedefinitions.apiextensions.k8s.io \"gatewayclasses.gateway.networking.k8s.io\" not found",
+          "  [chainsaw] cert-manager: health check failed:",
+          "[NOT_FOUND] CustomResourceDefinition /certificates.cert-manager.io not found: customresourcedefinitions.apiextensions.k8s.io \"certificates.cert-manager.io\" not found",
+          "error: [NOT_FOUND] CustomResourceDefinition /certificates.cert-manager.io not found: customresourcedefinitions.apiextensions.k8s.io \"certificates.cert-manager.io\" not found",
+          "  [chainsaw] gpu-operator: health check failed:",
+          "[INTERNAL] ClusterPolicy /cluster-policy: status.state: Invalid value: \"notReady\": Expected value: \"ready\"",
+          "error: [INTERNAL] ClusterPolicy /cluster-policy: status.state: Invalid value: \"notReady\": Expected value: \"ready\"",
+          "  [chainsaw] k8s-ephemeral-storage-metrics: health check failed:",
+          "[NOT_FOUND] Deployment monitoring/k8s-ephemeral-storage-metrics not found: deployments.apps \"k8s-ephemeral-storage-metrics\" not found",
+          "error: [NOT_FOUND] Deployment monitoring/k8s-ephemeral-storage-metrics not found: deployments.apps \"k8s-ephemeral-storage-metrics\" not found",
+          "  [chainsaw] kai-scheduler: health check failed:",
+          "[NOT_FOUND] Deployment kai-scheduler/kai-operator not found: deployments.apps \"kai-operator\" not found",
+          "error: [NOT_FOUND] Deployment kai-scheduler/kai-operator not found: deployments.apps \"kai-operator\" not found",
+          "  [chainsaw] kube-prometheus-stack: health check failed:",
+          "[NOT_FOUND] Deployment monitoring/kube-prometheus-operator not found: deployments.apps \"kube-prometheus-operator\" not found",
+          "error: [NOT_FOUND] Deployment monitoring/kube-prometheus-operator not found: deployments.apps \"kube-prometheus-operator\" not found",
+          "  [chainsaw] network-operator: health check failed:",
+          "[NOT_FOUND] CustomResourceDefinition /nicclusterpolicies.mellanox.com not found: customresourcedefinitions.apiextensions.k8s.io \"nicclusterpolicies.mellanox.com\" not found",
+          "error: [NOT_FOUND] CustomResourceDefinition /nicclusterpolicies.mellanox.com not found: customresourcedefinitions.apiextensions.k8s.io \"nicclusterpolicies.mellanox.com\" not found",
+          "  [chainsaw] nfd: health check failed:",
+          "[NOT_FOUND] Deployment node-feature-discovery/nfd-node-feature-discovery-master not found: deployments.apps \"nfd-node-feature-discovery-master\" not found",
+          "error: [NOT_FOUND] Deployment node-feature-discovery/nfd-node-feature-discovery-master not found: deployments.apps \"nfd-node-feature-discovery-master\" not found",
+          "  [chainsaw] nodewright-operator: health check failed:",
+          "[NOT_FOUND] CustomResourceDefinition /skyhooks.skyhook.nvidia.com not found: customresourcedefinitions.apiextensions.k8s.io \"skyhooks.skyhook.nvidia.com\" not found",
+          "error: [NOT_FOUND] CustomResourceDefinition /skyhooks.skyhook.nvidia.com not found: customresourcedefinitions.apiextensions.k8s.io \"skyhooks.skyhook.nvidia.com\" not found",
+          "  [chainsaw] nvsentinel: health check failed:",
+          "[NOT_FOUND] Deployment nvsentinel/labeler not found: deployments.apps \"labeler\" not found",
+          "error: [NOT_FOUND] Deployment nvsentinel/labeler not found: deployments.apps \"labeler\" not found",
+          "  [chainsaw] prometheus-adapter: health check failed:",
+          "[NOT_FOUND] Deployment monitoring/prometheus-adapter not found: deployments.apps \"prometheus-adapter\" not found",
+          "error: [NOT_FOUND] Deployment monitoring/prometheus-adapter not found: deployments.apps \"prometheus-adapter\" not found",
+          "  [chainsaw] prometheus-operator-crds: health check failed:",
+          "[NOT_FOUND] CustomResourceDefinition /alertmanagers.monitoring.coreos.com not found: customresourcedefinitions.apiextensions.k8s.io \"alertmanagers.monitoring.coreos.com\" not found",
+          "error: [NOT_FOUND] CustomResourceDefinition /alertmanagers.monitoring.coreos.com not found: customresourcedefinitions.apiextensions.k8s.io \"alertmanagers.monitoring.coreos.com\" not found",
+          "time=2026-08-26T17:45:50.189Z level=ERROR msg=FAIL message=\"[NOT_FOUND] Deployment agentgateway-system/agentgateway not found: deployments.apps \\\"agentgateway\\\" not found\""
+        ]
+      },
+      {
+        "name": "gpu-operator-version",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "deployment"
+        ],
+        "message": "[INTERNAL] GPU Operator version v25.3.4 does not satisfy constraint \"\u003e= v25.10.0\"",
+        "stdout": [
+          "time=2026-08-26T17:45:55.172Z level=INFO msg=\"starting check\" name=gpu-operator-version",
+          "Detected GPU Operator version: v25.3.4",
+          "Constraint: \u003e= v25.10.0 → false",
+          "time=2026-08-26T17:45:55.186Z level=ERROR msg=FAIL message=\"[INTERNAL] GPU Operator version v25.3.4 does not satisfy constraint \\\"\u003e= v25.10.0\\\"\""
+        ]
+      },
+      {
+        "name": "check-nvidia-smi",
+        "status": "passed",
+        "duration": 58000,
+        "suite": [
+          "deployment"
+        ],
+        "stdout": [
+          "time=2026-08-26T17:45:59.242Z level=INFO msg=\"starting check\" name=check-nvidia-smi",
+          "Found 2 GPU node(s), 2 schedulable, 0 cordoned:",
+          "  mokka-aicr-stack-worker",
+          "  mokka-aicr-stack-worker2",
+          "All 2 GPU node(s) available. Verifying...",
+          "time=2026-08-26T17:45:59.258Z level=INFO msg=\"verifying node\" node=mokka-aicr-stack-worker",
+          "time=2026-08-26T17:45:59.258Z level=INFO msg=\"deploying nvidia-smi verify pod\" node=mokka-aicr-stack-worker podName=nvidia-smi-verify-mokka-aicr-stack-worker image=nvcr.io/nvidia/cuda:13.0.0-base-ubuntu22.04 namespace=aicr-validation",
+          "time=2026-08-26T17:45:59.262Z level=INFO msg=\"waiting for pod to reach Succeeded state\" name=nvidia-smi-verify-mokka-aicr-stack-worker",
+          "time=2026-08-26T17:45:59.284Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker status=Pending waitingReason=ContainerCreating",
+          "time=2026-08-26T17:45:59.669Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker status=Pending waitingReason=ContainerCreating",
+          "time=2026-08-26T17:46:27.407Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker status=Running",
+          "time=2026-08-26T17:46:27.807Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker status=Running",
+          "time=2026-08-26T17:46:28.813Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker status=Running",
+          "time=2026-08-26T17:46:28.885Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker status=Succeeded",
+          "time=2026-08-26T17:46:28.885Z level=INFO msg=\"pod successfully completed\" name=nvidia-smi-verify-mokka-aicr-stack-worker",
+          "  mokka-aicr-stack-worker: OK",
+          "time=2026-08-26T17:46:28.892Z level=INFO msg=\"verifying node\" node=mokka-aicr-stack-worker2",
+          "time=2026-08-26T17:46:28.892Z level=INFO msg=\"deploying nvidia-smi verify pod\" node=mokka-aicr-stack-worker2 podName=nvidia-smi-verify-mokka-aicr-stack-worker2 image=nvcr.io/nvidia/cuda:13.0.0-base-ubuntu22.04 namespace=aicr-validation",
+          "time=2026-08-26T17:46:28.896Z level=INFO msg=\"waiting for pod to reach Succeeded state\" name=nvidia-smi-verify-mokka-aicr-stack-worker2",
+          "time=2026-08-26T17:46:28.905Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker2 status=Pending waitingReason=ContainerCreating",
+          "time=2026-08-26T17:46:29.286Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker2 status=Pending waitingReason=ContainerCreating",
+          "time=2026-08-26T17:46:55.834Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker2 status=Running",
+          "time=2026-08-26T17:46:56.524Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker2 status=Running",
+          "time=2026-08-26T17:46:57.525Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker2 status=Running",
+          "time=2026-08-26T17:46:57.604Z level=INFO msg=\"pod current phase\" name=nvidia-smi-verify-mokka-aicr-stack-worker2 status=Succeeded",
+          "time=2026-08-26T17:46:57.604Z level=INFO msg=\"pod successfully completed\" name=nvidia-smi-verify-mokka-aicr-stack-worker2",
+          "  mokka-aicr-stack-worker2: OK",
+          "RESULT: nodesValidated: 2/2",
+          "Successfully verified GPU on all 2 schedulable node(s)"
+        ],
+        "extra": {
+          "nodesTotal": "2",
+          "nodesValidated": "2"
+        }
+      },
+      {
+        "name": "dra-support",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "stdout": [
+          "time=2026-08-26T17:48:52.785Z level=INFO msg=\"starting check\" name=dra-support",
+          "--- DRA driver namespace ---",
+          "Namespace: nvidia-dra-driver",
+          "Source:    resolved recipe componentRef nvidia-dra-driver-gpu",
+          "--- DRA API resources ---",
+          "Equivalent: kubectl api-resources --api-group=resource.k8s.io",
+          "",
+          "Served version: resource.k8s.io/v1",
+          "deviceclasses              DeviceClass            namespaced=false",
+          "resourceclaims             ResourceClaim          namespaced=true",
+          "resourceclaims/status      ResourceClaim          namespaced=true",
+          "resourceclaimtemplates     ResourceClaimTemplate  namespaced=true",
+          "resourceslices             ResourceSlice          namespaced=false",
+          "",
+          "--- DRA driver pods ---",
+          "Equivalent: kubectl get pods -n nvidia-dra-driver -o wide",
+          "",
+          "nvidia-dra-driver-gpu-controller-76c895d7c9-mnx7k ready=1/1 phase=Running node=mokka-aicr-stack-control-plane",
+          "nvidia-dra-driver-gpu-kubelet-plugin-77dsw       ready=2/2 phase=Running node=mokka-aicr-stack-worker2",
+          "nvidia-dra-driver-gpu-kubelet-plugin-f8j7h       ready=2/2 phase=Running node=mokka-aicr-stack-worker",
+          "",
+          "--- DRA Controller Deployment ---",
+          "Name:      nvidia-dra-driver/nvidia-dra-driver-gpu-controller",
+          "Replicas:  1/1 available",
+          "Image:     nvcr.io/nvidia/dra-driver-nvidia-gpu:v0.5.0",
+          "--- DRA Kubelet Plugin DaemonSet ---",
+          "Name:      nvidia-dra-driver/nvidia-dra-driver-gpu-kubelet-plugin",
+          "Ready:     2/2 pods",
+          "Image:     nvcr.io/nvidia/dra-driver-nvidia-gpu:v0.5.0",
+          "--- ResourceSlices ---",
+          "Equivalent: kubectl get resourceslices",
+          "",
+          "Total ResourceSlices: 4",
+          "00000-compute-domain.nvidia.com-mokka-aicr-stack-worker-nfxlp node=mokka-aicr-stack-worker driver=compute-domain.nvidia.com pool=mokka-aicr-stack-worker",
+          "00000-compute-domain.nvidia.com-mokka-aicr-stack-worker2-f4x2r node=mokka-aicr-stack-worker2 driver=compute-domain.nvidia.com pool=mokka-aicr-stack-worker2",
+          "00000-gpu.nvidia.com-mokka-aicr-stack-worker-hzxcs node=mokka-aicr-stack-worker driver=gpu.nvidia.com pool=mokka-aicr-stack-worker",
+          "00000-gpu.nvidia.com-mokka-aicr-stack-worker2-v58mw node=mokka-aicr-stack-worker2 driver=gpu.nvidia.com pool=mokka-aicr-stack-worker2",
+          "NVIDIA driver compute-domain.nvidia.com: 2 slice(s), usable device(s) on 2 Ready, schedulable node(s) [mokka-aicr-stack-worker,mokka-aicr-stack-worker2]",
+          "NVIDIA driver gpu.nvidia.com: 2 slice(s), usable device(s) on 2 Ready, schedulable node(s) [mokka-aicr-stack-worker,mokka-aicr-stack-worker2]",
+          "",
+          "--- GPU allocation policy ---",
+          "configured policy: device-plugin-extended-resource",
+          "--- GPU allocation mode ---",
+          "DRA (gpu.nvidia.com):              usable=true nodes=[mokka-aicr-stack-worker,mokka-aicr-stack-worker2]",
+          "Device plugin (nvidia.com/gpu):  usable=true nodes=[mokka-aicr-stack-worker,mokka-aicr-stack-worker2]",
+          "full-GPU DRA usable: DeviceClass gpu.nvidia.com exists (resource.k8s.io/v1) and 2 Ready, schedulable node(s) have advertised devices; note: DeviceClass carries 1 CEL selector(s), which this probe does not evaluate",
+          "device plugin usable: 2 Ready, schedulable node(s) with allocatable nvidia.com/gpu",
+          "time=2026-08-26T17:48:52.912Z level=WARN msg=\"both full-GPU DRA (gpu.nvidia.com) and the device plugin (nvidia.com/gpu) advertise GPUs on the same node(s) — GPU over-admission risk: the same physical GPU can be admitted through both mechanisms\" nodes=mokka-aicr-stack-worker,mokka-aicr-stack-worker2",
+          "extended-resource attribution: DeviceClass gpu.nvidia.com maps nvidia.com/gpu to DRA (spec.extendedResourceName) — allocatable nvidia.com/gpu may be served by DRA, not the device plugin",
+          "note: node eligibility is Ready+uncordoned only — node taints are not evaluated; workloads must tolerate any node taints",
+          "WARNING: both mechanisms advertise GPUs on node(s) [mokka-aicr-stack-worker,mokka-aicr-stack-worker2] — GPU over-admission risk",
+          "node-local raw gpu.nvidia.com ResourceSlice devices (unvalidated, kai-attributable): [mokka-aicr-stack-worker=4,mokka-aicr-stack-worker2=4] — kai-scheduler rejects scalar device-plugin GPU pods on these nodes",
+          "--- Behavioral GPU allocation ---",
+          "skipped (not applicable): configured GPU allocation policy is device-plugin-extended-resource — whole GPUs are device-plugin-allocated, so the full-GPU DRA behavioral subtest does not apply; DRA validated via driver health and validated ResourceSlices. full-GPU DRA usable: DeviceClass gpu.nvidia.com exists (resource.k8s.io/v1) and 2 Ready, schedulable node(s) have advertised devices; note: DeviceClass carries 1 CEL selector(s), which this probe does not evaluate"
+        ]
+      },
+      {
+        "name": "accelerator-metrics",
+        "status": "passed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "stdout": [
+          "time=2026-08-26T17:48:57.919Z level=INFO msg=\"starting check\" name=accelerator-metrics",
+          "--- DCGM Exporter Metrics (sample) ---",
+          "# HELP DCGM_FI_DEV_SM_CLOCK SM clock frequency (in MHz).",
+          "# TYPE DCGM_FI_DEV_SM_CLOCK gauge",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"0\",UUID=\"GPU-b200b200-0000-0000-0000-000000000000\",pci_bus_id=\"00000000:0A:00.0\",device=\"nvidia0\",modelName=\"NVIDIA GB200\",Hostname=\"mokka-aicr-stack-worker2\",DCGM_FI_DRIVER_VERSION=\"580.65.06\"} 345",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"1\",UUID=\"GPU-b200b200-0000-0000-0000-000000000001\",pci_bus_id=\"00000000:0B:00.0\",device=\"nvidia1\",modelName=\"NVIDIA GB200\",Hostname=\"mokka-aicr-stack-worker2\",DCGM_FI_DRIVER_VERSION=\"580.65.06\"} 345",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"2\",UUID=\"GPU-b200b200-0000-0000-0000-000000000002\",pci_bus_id=\"00000000:4A:00.0\",device=\"nvidia2\",modelName=\"NVIDIA GB200\",Hostname=\"mokka-aicr-stack-worker2\",DCGM_FI_DRIVER_VERSION=\"580.65.06\"} 345",
+          "DCGM_FI_DEV_SM_CLOCK{gpu=\"3\",UUID=\"GPU-b200b200-0000-0000-0000-000000000003\",pci_bus_id=\"00000000:4B:00.0\",device=\"nvidia3\",modelName=\"NVIDIA GB200\",Hostname=\"mokka-aicr-stack-worker2\",DCGM_FI_DRIVER_VERSION=\"580.65.06\"} 345",
+          "# HELP DCGM_FI_DEV_MEM_CLOCK Memory clock frequency (in MHz).",
+          "# TYPE DCGM_FI_DEV_MEM_CLOCK gauge",
+          "... [truncated]",
+          "--- Required DCGM Metrics ---",
+          "  DCGM_FI_DEV_GPU_UTIL           FOUND",
+          "  DCGM_FI_DEV_FB_USED            FOUND",
+          "  DCGM_FI_DEV_GPU_TEMP           FOUND",
+          "  DCGM_FI_DEV_POWER_USAGE        FOUND"
+        ]
+      },
+      {
+        "name": "ai-service-metrics",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "message": "[NOT_FOUND] no Prometheus service with port 9090 found in namespace \"monitoring\"",
+        "stdout": [
+          "time=2026-08-26T17:49:02.871Z level=INFO msg=\"starting check\" name=ai-service-metrics",
+          "time=2026-08-26T17:49:02.883Z level=ERROR msg=FAIL message=\"[NOT_FOUND] no Prometheus service with port 9090 found in namespace \\\"monitoring\\\"\""
+        ]
+      },
+      {
+        "name": "gpu-operator-health",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "message": "[INTERNAL] ClusterPolicy state=notReady (want ready)",
+        "stdout": [
+          "time=2026-08-26T17:49:06.810Z level=INFO msg=\"starting check\" name=gpu-operator-health",
+          "time=2026-08-26T17:49:06.827Z level=ERROR msg=FAIL message=\"[INTERNAL] ClusterPolicy state=notReady (want ready)\""
+        ]
+      },
+      {
+        "name": "platform-health",
+        "status": "failed",
+        "duration": 0,
+        "suite": [
+          "conformance"
+        ],
+        "message": "[NOT_FOUND] platform health check failed (8 issues):\n  namespace agentgateway-system: not found\n  namespace cert-manager: not found\n  namespace monitoring: not found\n  namespace kai-scheduler: not found\n  namespace nvidia-network-operator: not found\n  namespace node-feature-discovery: not found\n  namespace skyhook: not found\n  namespace nvsentinel: not found",
+        "stdout": [
+          "time=2026-08-26T17:49:11.186Z level=INFO msg=\"starting check\" name=platform-health",
+          "time=2026-08-26T17:49:11.205Z level=ERROR msg=FAIL message=\"[NOT_FOUND] platform health check failed (8 issues):\\n  namespace agentgateway-system: not found\\n  namespace cert-manager: not found\\n  namespace monitoring: not found\\n  namespace kai-scheduler: not found\\n  namespace nvidia-network-operator: not found\\n  namespace node-feature-discovery: not found\\n  namespace skyhook: not found\\n  namespace nvsentinel: not found\""
+        ]
+      }
+    ]
+  }
+}
