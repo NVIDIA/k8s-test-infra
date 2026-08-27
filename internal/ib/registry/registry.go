@@ -5,8 +5,9 @@
 package registry
 
 import (
-	"strings"
 	"sync"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/ib/gid"
 )
 
 // Peer identifies a mock-ib instance advertising a port GUID.
@@ -36,7 +37,7 @@ func New() *Registry {
 // pod's new IP takes effect. A GUID claimed by two different nodes keeps the
 // lower PodIP — an arbitrary but stable tie-break, so the two do not alternate.
 func (r *Registry) Register(portGUID string, peer Peer) bool {
-	key := NormalizePortGUID(portGUID)
+	key := gid.NormalizePortGUID(portGUID)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if cur, ok := r.m[key]; ok {
@@ -54,7 +55,7 @@ func (r *Registry) Register(portGUID string, peer Peer) bool {
 
 // Lookup returns the peer for portGUID and whether it was found.
 func (r *Registry) Lookup(portGUID string) (Peer, bool) {
-	key := NormalizePortGUID(portGUID)
+	key := gid.NormalizePortGUID(portGUID)
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -112,27 +113,4 @@ func (r *Registry) LookupByLID(lid uint16) (Peer, string, bool) {
 	}
 
 	return best, bestGUID, found
-}
-
-// NormalizePortGUID lowercases a port GUID and formats it with colon separators
-// (a088:c203:00ab:0001). Non-hex characters are stripped; short inputs are
-// left-padded to 16 hex digits.
-func NormalizePortGUID(s string) string {
-	var b strings.Builder
-
-	for _, c := range strings.ToLower(s) {
-		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
-			b.WriteByte(byte(c))
-		}
-	}
-
-	hex := b.String()
-
-	if len(hex) < 16 {
-		hex = strings.Repeat("0", 16-len(hex)) + hex
-	} else if len(hex) > 16 {
-		hex = hex[len(hex)-16:]
-	}
-
-	return hex[0:4] + ":" + hex[4:8] + ":" + hex[8:12] + ":" + hex[12:16]
 }

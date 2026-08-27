@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/ib/gid"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/protocol"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/registry"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/subnet"
@@ -336,10 +337,10 @@ func (s *Server) pingPeer(peerIP, portGUID string, dstLID uint16) error {
 }
 
 func (s *Server) hasLocalPortGUID(guid string) bool {
-	key := registry.NormalizePortGUID(guid)
+	key := gid.NormalizePortGUID(guid)
 
 	for _, p := range s.localPorts {
-		if registry.NormalizePortGUID(p.PortGUID) == key {
+		if gid.NormalizePortGUID(p.PortGUID) == key {
 			return true
 		}
 	}
