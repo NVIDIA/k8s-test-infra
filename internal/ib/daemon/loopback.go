@@ -11,17 +11,17 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/registry"
 )
 
-// Loopback matches outbound ping MADs to local port GUIDs under ib-root and
-// synthesizes RECV payloads. The lookup maps are populated once in NewLoopback
+// loopbackIndex matches outbound ping MADs to local port GUIDs under ib-root and
+// synthesizes RECV payloads. The lookup maps are populated once in newLoopbackIndex
 // and never mutated afterwards, so reads need no synchronization.
-type Loopback struct {
+type loopbackIndex struct {
 	byGUID map[string]protocol.PortAdvert
 	byGID  map[string]protocol.PortAdvert
 	byLID  map[uint16]protocol.PortAdvert
 }
 
-// NewLoopback indexes localPorts by port GUID, default GID, and LID.
-func NewLoopback(localPorts []protocol.PortAdvert) *Loopback {
+// newLoopbackIndex indexes localPorts by port GUID, default GID, and LID.
+func newLoopbackIndex(localPorts []protocol.PortAdvert) *loopbackIndex {
 	byGUID := make(map[string]protocol.PortAdvert, len(localPorts))
 	byGID := make(map[string]protocol.PortAdvert, len(localPorts))
 	byLID := make(map[uint16]protocol.PortAdvert, len(localPorts))
@@ -32,7 +32,7 @@ func NewLoopback(localPorts []protocol.PortAdvert) *Loopback {
 		}
 		byLID[p.LID] = p
 	}
-	return &Loopback{
+	return &loopbackIndex{
 		byGUID: byGUID,
 		byGID:  byGID,
 		byLID:  byLID,
@@ -40,7 +40,7 @@ func NewLoopback(localPorts []protocol.PortAdvert) *Loopback {
 }
 
 // ShouldQueueRecv reports whether sendMad should produce a synthetic RECV for loopback.
-func (l *Loopback) ShouldQueueRecv(sendMad []byte) bool {
+func (l *loopbackIndex) ShouldQueueRecv(sendMad []byte) bool {
 	if len(sendMad) < umadMADOffset+ibMADMethodOff+1 {
 		return false
 	}
@@ -48,7 +48,7 @@ func (l *Loopback) ShouldQueueRecv(sendMad []byte) bool {
 }
 
 // SynthesizeRecv builds the next RECV buffer for a prior SEND.
-func (l *Loopback) SynthesizeRecv(sendMad []byte) []byte {
+func (l *loopbackIndex) SynthesizeRecv(sendMad []byte) []byte {
 	out := make([]byte, len(sendMad))
 	copy(out, sendMad)
 	if len(out) >= 8 {
@@ -63,7 +63,7 @@ func (l *Loopback) SynthesizeRecv(sendMad []byte) []byte {
 	return out
 }
 
-func (l *Loopback) matchesLocal(umad []byte) bool {
+func (l *loopbackIndex) matchesLocal(umad []byte) bool {
 	if g, ok := destPortGUID(umad); ok {
 		if _, ok := l.byGUID[g]; ok {
 			return true
@@ -83,7 +83,7 @@ func (l *Loopback) matchesLocal(umad []byte) bool {
 }
 
 // lidForGID returns the LID for a 16-byte destination GID when it matches a local port.
-func (l *Loopback) lidForGID(gidBytes []byte) (uint16, bool) {
+func (l *loopbackIndex) lidForGID(gidBytes []byte) (uint16, bool) {
 	if len(gidBytes) != 16 {
 		return 0, false
 	}

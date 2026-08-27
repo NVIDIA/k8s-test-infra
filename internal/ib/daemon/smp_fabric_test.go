@@ -43,7 +43,7 @@ func TestTryFabricSend_SkipsSubnetMAD(t *testing.T) {
 		localPorts: local,
 		registry:   registry.New(),
 		podIP:      "10.0.0.1",
-		loopback:   NewLoopback(local),
+		loopback:   newLoopbackIndex(local),
 		log:        log.Default(),
 		handles:    make(map[int]*portHandle),
 	}

@@ -20,7 +20,7 @@ func TestLoopback_ShouldQueueRecv_LocalGUID(t *testing.T) {
 	require.NoError(t, render.Render(render.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir}))
 	ports, err := sysfs.Scan(dir)
 	require.NoError(t, err)
-	lb := NewLoopback(ports)
+	lb := newLoopbackIndex(ports)
 	mad := madtest.PingMAD(ports[0])
 	require.True(t, lb.ShouldQueueRecv(mad), "want queue for local ping; port=%+v", ports[0])
 }
@@ -31,7 +31,7 @@ func TestLoopback_ShouldNotQueueRecv_RemoteLID(t *testing.T) {
 	require.NoError(t, render.Render(render.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir}))
 	ports, err := sysfs.Scan(dir)
 	require.NoError(t, err)
-	lb := NewLoopback(ports)
+	lb := newLoopbackIndex(ports)
 	remote := make([]byte, 72)
 	binary.BigEndian.PutUint16(remote[umadLIDOffset:], ports[0].LID+0x100)
 	require.False(t, lb.ShouldQueueRecv(remote), "should not loopback echo for non-local destination LID")

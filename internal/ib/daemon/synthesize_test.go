@@ -16,7 +16,7 @@ const ibpingSendMAD = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgAEAAA3AAAAAAAAAAAAAAAAAA
 func TestSynthesizeRecv_PreservesTrid(t *testing.T) {
 	send, err := base64.StdEncoding.DecodeString(ibpingSendMAD)
 	require.NoError(t, err)
-	lb := NewLoopback(nil)
+	lb := newLoopbackIndex(nil)
 	recv := lb.SynthesizeRecv(send)
 	require.GreaterOrEqual(t, len(recv), umadMADOffset+8, "short recv buffer")
 	sendMAD := send[umadMADOffset : umadMADOffset+16]

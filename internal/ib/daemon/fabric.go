@@ -23,21 +23,25 @@ import (
 
 func (s *Server) startFabric(ctx context.Context) (net.Listener, error) {
 	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", s.cfg.TCPPort))
+
 	if err != nil {
 		return nil, fmt.Errorf("listen tcp :%d: %w", s.cfg.TCPPort, err)
 	}
+
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()
 	}()
+
 	go s.registerWithPeersLoop(ctx)
 	go s.acceptFabric(ctx, ln)
+
 	return ln, nil
 }
 
 // registerWithPeersLoop retries REGISTER until ctx is canceled (MOCK_IB_PEERS).
 func (s *Server) registerWithPeersLoop(ctx context.Context) {
-	// Peers finish setup.sh at different times; avoid noisy refused logs at t=0.
+	// Peer pods become reachable at different times; dialing at t=0 only logs refusals.
 	select {
 	case <-ctx.Done():
 		return
@@ -137,13 +141,10 @@ func (s *Server) applyRegister(body protocol.RegisterBody) {
 		})
 	}
 	s.rebuildGraph()
-	// Log so cross-pod REGISTER outcomes are visible in kubectl logs without
-	// enabling per-feature debug flags. Cross-release ibping (ibping-multinode
-	// CI job) depends on this REGISTER reaching every peer; absence of this
-	// line on a pod immediately tells us the one-shot `mock-ib -register-peers`
-	// did not arrive (TCP firewall, wrong port, ...). Peers re-register every
-	// 2s, so only changed registrations are logged: the first one and any
-	// later LID/PodIP/node change, not the steady-state repeats.
+	// Cross-pod diagnostics fail silently when a REGISTER never lands, so log
+	// arrivals unconditionally — absence of this line localizes the fault to
+	// the network rather than to MAD routing. Only changes are logged; peers
+	// re-register every 2s and the steady-state repeats carry no information.
 	for i, port := range body.Ports {
 		if !changed[i] {
 			continue
@@ -186,20 +187,25 @@ func (s *Server) pingTargetsLocalPort(ping protocol.PingBody) bool {
 
 //nolint:cyclop // existing complexity; refactor deferred
 func (s *Server) registerWithPeers(ctx context.Context) {
-	peers := ParsePeerList(EnvOr(EnvMockIBPeers, ""))
+	peers := parsePeerList(envOr(envMockIBPeers, ""))
+
 	if len(peers) == 0 {
-		peers = DiscoverPeerIPs(ctx, EnvOr(EnvMockIBPingServiceHost, ""), s.podIP)
+		peers = discoverPeerIPs(ctx, envOr(envMockIBPingServiceHost, ""), s.podIP)
 	}
+
 	if len(peers) == 0 {
 		return
 	}
+
 	body := protocol.RegisterBody{
 		NodeName: s.nodeName,
 		PodIP:    s.podIP,
 		Ports:    s.localPorts,
 	}
+
 	wantPeers := 0
 	var ok int
+
 	for _, peerIP := range peers {
 		// Sequential sweep with up-to-5s dials per peer: once ctx is canceled
 		// (SIGTERM), stop between peers instead of walking the rest of the list.
@@ -219,9 +225,11 @@ func (s *Server) registerWithPeers(ctx context.Context) {
 		s.clearRegisterWarn(peerIP)
 		ok++
 	}
+
 	if ctx.Err() != nil || wantPeers == 0 {
 		return
 	}
+
 	// Concurrent callers may both log the same step (harmless); the atomic
 	// only guarantees the read-modify-write is race-free, not single-shot.
 	if int32(ok) > s.lastPeerRegisterOK.Load() {
@@ -259,19 +267,14 @@ func isPeerNotReady(err error) bool {
 	if err == nil {
 		return false
 	}
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
+
+	if opErr, ok := errors.AsType[*net.OpError](err); ok {
 		if errors.Is(opErr.Err, syscall.ECONNREFUSED) {
 			return true
 		}
 	}
-	return strings.Contains(err.Error(), "connection refused")
-}
 
-// RegisterWithPeers sends REGISTER to every address in MOCK_IB_PEERS. It does
-// not start listeners; use from a one-shot CLI while the main daemon is running.
-func (s *Server) RegisterWithPeers() {
-	s.registerWithPeers(context.Background())
+	return strings.Contains(err.Error(), "connection refused")
 }
 
 func (s *Server) sendRegister(peerIP string, body protocol.RegisterBody) error {
@@ -335,22 +338,21 @@ func (s *Server) pingPeer(peerIP, portGUID string, dstLID uint16) error {
 
 func (s *Server) hasLocalPortGUID(guid string) bool {
 	key := registry.NormalizePortGUID(guid)
+
 	for _, p := range s.localPorts {
 		if registry.NormalizePortGUID(p.PortGUID) == key {
 			return true
 		}
 	}
+
 	return false
 }
 
 //nolint:cyclop // existing complexity; refactor deferred
 func (s *Server) tryFabricSend(h *portHandle, sendMad []byte) bool {
-	// Subnet management packets must be answered by subnet synthesis, never
-	// translated into a cross-pod fabric ping. handleSend already gates this
-	// path with !subnet.IsSMPSend, but we re-check here as defense-in-depth:
-	// a future caller, a refactor, or a buggy heuristic in handleSend would
-	// otherwise turn an iblinkinfo SMP into a synthetic ping reply and break
-	// link discovery silently.
+	// Redundant with handleSend's gate, deliberately: routing a subnet
+	// management packet over the fabric answers an iblinkinfo SMP with a ping
+	// reply, which breaks link discovery without erroring anywhere.
 	if subnet.IsSMPSend(sendMad) {
 		return false
 	}

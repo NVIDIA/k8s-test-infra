@@ -1,7 +1,9 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package daemon implements mock-ib Unix-socket UMAD loopback (phase 1).
+// Package daemon serves the InfiniBand control plane the LD_PRELOAD shims talk
+// to: UMAD and verbs over a Unix socket, plus a TCP relay that exchanges port
+// registrations with peer pods so diagnostics can see a multi-node fabric.
 package daemon
 
 import (
@@ -32,36 +34,30 @@ type Config struct {
 	Fabric     bool
 }
 
+// Every deadline here bounds a goroutine. The Unix socket is 0666 and the
+// fabric listener is unauthenticated, so a client that connects and then stalls
+// must not pin a goroutine for the pod's lifetime.
 const (
-	// unixConnIdleTimeout caps how long a Unix-socket client may stall between
-	// frames before its connection (and goroutine) is reaped. Diag tools run in
-	// seconds with sub-second gaps, so this is generous headroom that still
-	// prevents a half-open client from pinning a goroutine for the pod's life.
+	// Diag tools finish in seconds, with sub-second gaps between frames.
 	unixConnIdleTimeout = 5 * time.Minute
-	// fabricConnIdleTimeout is tighter because cross-pod fabric exchanges are a
-	// single REGISTER or Ping/Pong round-trip; a peer that connects to the
-	// 0.0.0.0 listener but never completes a frame is reaped quickly.
+	// A fabric exchange is one REGISTER or Ping/Pong round-trip, so a peer that
+	// connects without completing a frame is reaped far sooner.
 	fabricConnIdleTimeout = 30 * time.Second
-	// fabricPeerIOTimeout bounds the dial and the whole exchange on outbound
-	// fabric connections (REGISTER, Ping). registerWithPeersLoop walks peers
-	// sequentially, so a peer that accepts but never reads or replies must not
-	// pin the loop past this deadline.
+	// Covers dial plus exchange on outbound connections. registerWithPeersLoop
+	// walks peers sequentially, so one dead peer must not stall the sweep.
 	fabricPeerIOTimeout = 5 * time.Second
-	// recvTimeoutCap bounds the client-supplied recv timeout_ms. The value
-	// arrives untrusted off the 0666 Unix socket; without a cap a single recv
-	// RPC could pin its poll-loop goroutine for arbitrary client-chosen time.
-	// Diag tools use sub-second timeouts, so 60s is generous headroom.
+	// The client supplies recv timeout_ms over the world-writable socket, so it
+	// is capped rather than trusted.
 	recvTimeoutCap = 60 * time.Second
-	// defaultRecvTimeout applies when the client sends timeout_ms <= 0.
+
 	defaultRecvTimeout = time.Second
-	// recvPollInterval is the recv queue poll period inside handleRecv.
-	recvPollInterval = 5 * time.Millisecond
+	recvPollInterval   = 5 * time.Millisecond
 )
 
 // Server serves libibmockumad over a Unix socket.
 type Server struct {
 	cfg      Config
-	loopback *Loopback
+	loopback *loopbackIndex
 	log      *log.Logger
 
 	localPorts []protocol.PortAdvert
@@ -81,9 +77,9 @@ type Server struct {
 	graphMu sync.RWMutex
 	graph   *fabric.Graph
 
-	// Fabric registration: suppress repeated "connection refused" while peers
-	// start. lastPeerRegisterOK is touched by both registerWithPeersLoop and
-	// the socket-driven register_peers handler, so it is atomic.
+	// Peers boot at different times, so the first registration sweeps fail with
+	// "connection refused". Tracking the last outcome keeps that transient out
+	// of the log until it stops being transient.
 	lastPeerRegisterOK atomic.Int32
 	registerWarned     map[string]struct{}
 	registerWarnedMu   sync.Mutex
@@ -100,7 +96,7 @@ func NewServer(cfg Config, logger *log.Logger) (*Server, error) {
 	}
 	srv := &Server{
 		cfg:            cfg,
-		loopback:       NewLoopback(ports),
+		loopback:       newLoopbackIndex(ports),
 		log:            logger,
 		localPorts:     ports,
 		registry:       registry.New(),
@@ -233,11 +229,6 @@ func (s *Server) dispatch(ctx context.Context, c net.Conn, env protocol.Envelope
 			return err
 		}
 		return s.handleClose(c, req)
-	case protocol.TypeRegisterPeers:
-		// Use the server ctx (not Background) so a one-shot register sweep
-		// stops between peers when the daemon is shutting down.
-		s.registerWithPeers(ctx)
-		return protocol.WriteMessage(c, protocol.TypeRegisterPeers, map[string]bool{"ok": true})
 	case protocol.TypeVerbsOpen, protocol.TypeVerbsWrite, protocol.TypeVerbsRead, protocol.TypeVerbsClose:
 		return s.dispatchVerbs(c, env)
 	default:

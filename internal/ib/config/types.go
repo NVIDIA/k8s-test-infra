@@ -1,13 +1,14 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-// Package config defines the YAML schema for the InfiniBand block embedded
-// in mock-nvml profile configs. The renderer consumes this to populate the
-// fake sysfs tree under MOCK_IB_ROOT.
+// Package config defines the InfiniBand block embedded in mock-nvml profile
+// YAML. The node agent parses it into its own compiled state; the renderer
+// takes the resolved Infiniband value and writes the sysfs tree from it.
 package config
 
-// Profile is the minimal slice of the mock-nvml profile YAML that the
-// InfiniBand renderer cares about. It deliberately ignores all GPU fields.
+// Profile is the slice of the mock-nvml profile YAML this package cares about,
+// so the same file can be unmarshalled a second time without modelling the GPU
+// fields the NVML engine owns.
 type Profile struct {
 	Infiniband Infiniband `json:"infiniband" yaml:"infiniband"`
 }

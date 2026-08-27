@@ -34,7 +34,7 @@ func TestFabric_RegisterAndPingHandler(t *testing.T) {
 		registry:   registry.New(),
 		podIP:      "10.0.0.1",
 		nodeName:   "node-a",
-		loopback:   NewLoopback(ports),
+		loopback:   newLoopbackIndex(ports),
 		log:        log.Default(),
 		handles:    make(map[int]*portHandle),
 	}
@@ -94,7 +94,7 @@ func TestFabric_RemoteSendForwardsPing(t *testing.T) {
 		registry:   registry.New(),
 		podIP:      "127.0.0.1",
 		nodeName:   "node-a",
-		loopback:   NewLoopback(portsA),
+		loopback:   newLoopbackIndex(portsA),
 		log:        log.Default(),
 		handles:    make(map[int]*portHandle),
 	}
@@ -107,7 +107,7 @@ func TestFabric_RemoteSendForwardsPing(t *testing.T) {
 		registry:   registry.New(),
 		podIP:      "10.0.0.2",
 		nodeName:   "node-b",
-		loopback:   NewLoopback(portsB),
+		loopback:   newLoopbackIndex(portsB),
 		log:        log.Default(),
 		handles:    make(map[int]*portHandle),
 	}

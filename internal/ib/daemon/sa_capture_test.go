@@ -60,7 +60,7 @@ func TestSAPathQuery_IbpingCapture(t *testing.T) {
 
 	client := &Server{
 		localPorts: portsB,
-		loopback:   NewLoopback(portsB),
+		loopback:   newLoopbackIndex(portsB),
 		registry:   registry.New(),
 	}
 	client.registry.Register(capturedTargetGUID, registry.Peer{

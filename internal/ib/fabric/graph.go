@@ -80,16 +80,13 @@ func (g *Graph) ByLID(lid uint16) (Port, bool) {
 	return p, ok
 }
 
-// MasterSM returns the port elected as the fabric's master subnet manager: the
-// lowest-PortGUID port in the merged graph. Build already sorts ports ascending
-// by PortGUID, so this is g.ports[0]. Every pod that has converged on the same
-// local+peer set therefore elects the same master, so sminfo reports one
-// consistent SM identity across the fabric (the election only differs during the
-// pre-REGISTER convergence window). Returns false for an empty graph.
+// MasterSM returns the fabric's master subnet manager: the lowest-PortGUID port
+// in the graph. There is no election protocol — every pod that has converged on
+// the same peer set picks the same port, so sminfo reports one identity fabric
+// wide. Pods disagree only during the pre-REGISTER convergence window.
 //
-// This assumes a CA-only graph; the mock models no switches. If a synthetic
-// switch node is ever added to the graph it must be excluded here so the elected
-// SM stays an HCA port.
+// Assumes a CA-only graph. A synthetic switch node would have to be excluded
+// here to keep the elected SM an HCA port.
 func (g *Graph) MasterSM() (Port, bool) {
 	if len(g.ports) == 0 {
 		return Port{}, false

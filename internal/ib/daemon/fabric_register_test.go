@@ -83,7 +83,7 @@ func TestRegisterWithPeers_CancelledCtxMakesNoDials(t *testing.T) {
 	tcpPort, err := strconv.Atoi(portStr)
 	require.NoError(t, err)
 
-	t.Setenv(EnvMockIBPeers, "127.0.0.1")
+	t.Setenv(envMockIBPeers, "127.0.0.1")
 	srv := &Server{
 		cfg:            Config{TCPPort: tcpPort},
 		podIP:          "10.255.255.1", // must differ from the peer so it is not skipped as self
