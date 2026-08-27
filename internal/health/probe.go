@@ -1,6 +1,13 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
+// Package health serves the /healthz and /readyz probes shared by every Mokka
+// binary. A probe answers with its reason in the body, not just a status code,
+// so a failing pod explains itself in `kubectl describe pod` instead of leaving
+// an operator to guess which of its parts went red.
+//
+// Binaries with no other HTTP surface run a Server; ones that already serve
+// HTTP mount Handler on their own router.
 package health
 
 import (

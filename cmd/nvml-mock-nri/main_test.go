@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/nri/nvmlmock"
+	"github.com/NVIDIA/k8s-test-infra/internal/nri/inject"
 	"github.com/containerd/nri/pkg/api"
 	"github.com/stretchr/testify/require"
 )
@@ -97,7 +97,7 @@ func TestNriDeviceRejectsNonDevicePaths(t *testing.T) {
 		t.Parallel()
 		missing := filepath.Join(t.TempDir(), "nvidia0")
 
-		device, err := nriDevice(nvmlmock.Device{HostPath: missing, Path: "/dev/nvidia0"})
+		device, err := nriDevice(inject.Device{HostPath: missing, Path: "/dev/nvidia0"})
 
 		// Catches a swallowed stat error: without the check, a vanished device
 		// node yields a LinuxDevice with major/minor decoded from a zeroed
@@ -112,7 +112,7 @@ func TestNriDeviceRejectsNonDevicePaths(t *testing.T) {
 		regular := filepath.Join(t.TempDir(), "nvidia0")
 		require.NoError(t, os.WriteFile(regular, []byte("not a device"), 0o644))
 
-		device, err := nriDevice(nvmlmock.Device{HostPath: regular, Path: "/dev/nvidia0"})
+		device, err := nriDevice(inject.Device{HostPath: regular, Path: "/dev/nvidia0"})
 
 		// Catches a missing S_IFCHR check. A regular file stats fine, so
 		// without it the plugin emits type "c" for a path that is not a
@@ -126,7 +126,7 @@ func TestNriDeviceRejectsNonDevicePaths(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 
-		device, err := nriDevice(nvmlmock.Device{HostPath: dir, Path: "/dev/nvidia0"})
+		device, err := nriDevice(inject.Device{HostPath: dir, Path: "/dev/nvidia0"})
 
 		require.Error(t, err)
 		require.Nil(t, device)
@@ -140,7 +140,7 @@ func TestNriDeviceRejectsNonDevicePaths(t *testing.T) {
 func TestNriDeviceMapsCharacterDeviceMetadata(t *testing.T) {
 	t.Parallel()
 
-	device, err := nriDevice(nvmlmock.Device{HostPath: "/dev/null", Path: "/dev/nvidia0"})
+	device, err := nriDevice(inject.Device{HostPath: "/dev/null", Path: "/dev/nvidia0"})
 	require.NoError(t, err)
 	require.NotNil(t, device)
 
@@ -180,7 +180,7 @@ func TestFromNRI(t *testing.T) {
 		require.Equal(t, "gpu-tests", result.Namespace)
 		require.Equal(t, map[string]string{"nvml-mock.nvidia.com/inject": "true"}, result.PodAnnotations)
 		require.Equal(t, []string{"PATH=/usr/bin", "MOCK_IB=off"}, result.Env)
-		require.Equal(t, []nvmlmock.Mount{{
+		require.Equal(t, []inject.Mount{{
 			Source:      "/var/lib/nvml-mock",
 			Destination: "/opt/nvml-mock",
 			Type:        "bind",
@@ -188,7 +188,7 @@ func TestFromNRI(t *testing.T) {
 		}}, result.Mounts)
 	})
 
-	// MEP-0002: the suppression rule in nvmlmock.Adjust is inert unless fromNRI
+	// MEP-0002: the suppression rule in inject.Adjust is inert unless fromNRI
 	// actually carries the incoming device state across. Verified against a real
 	// containerd 2.2.0 CreateContainer payload, which populates Linux.Devices with
 	// the device plugin's allocation and CDIDevices for the cdi-* strategies.
@@ -206,7 +206,7 @@ func TestFromNRI(t *testing.T) {
 
 		result := fromNRI(nil, container)
 
-		require.Equal(t, []nvmlmock.Device{
+		require.Equal(t, []inject.Device{
 			{Path: "/dev/nvidia0"},
 			{Path: "/dev/fuse"},
 		}, result.Devices)
@@ -263,8 +263,8 @@ func TestToNRI(t *testing.T) {
 
 	t.Run("maps mounts and env", func(t *testing.T) {
 		t.Parallel()
-		adjustment := nvmlmock.Adjustment{
-			Mounts: []nvmlmock.Mount{{
+		adjustment := inject.Adjustment{
+			Mounts: []inject.Mount{{
 				Source:      "/var/lib/nvml-mock",
 				Destination: "/opt/nvml-mock",
 				Type:        "bind",
@@ -289,7 +289,7 @@ func TestToNRI(t *testing.T) {
 
 	t.Run("splits env on the first separator only", func(t *testing.T) {
 		t.Parallel()
-		result, err := toNRI(nvmlmock.Adjustment{
+		result, err := toNRI(inject.Adjustment{
 			Env: []string{"LD_PRELOAD=/a/lib.so:/b/lib.so", "PATH=/usr/bin=weird"},
 		})
 		require.NoError(t, err)
@@ -305,7 +305,7 @@ func TestToNRI(t *testing.T) {
 
 	t.Run("drops env entries with no separator", func(t *testing.T) {
 		t.Parallel()
-		result, err := toNRI(nvmlmock.Adjustment{
+		result, err := toNRI(inject.Adjustment{
 			Env: []string{"MALFORMED", "PATH=/usr/bin"},
 		})
 		require.NoError(t, err)
@@ -320,8 +320,8 @@ func TestToNRI(t *testing.T) {
 	t.Run("fails open per device and keeps the usable ones", func(t *testing.T) {
 		t.Parallel()
 		missing := filepath.Join(t.TempDir(), "nvidia1")
-		result, err := toNRI(nvmlmock.Adjustment{
-			Devices: []nvmlmock.Device{
+		result, err := toNRI(inject.Adjustment{
+			Devices: []inject.Device{
 				{HostPath: missing, Path: "/dev/nvidia1"},
 				{HostPath: "/dev/null", Path: "/dev/nvidia0"},
 			},
@@ -337,8 +337,8 @@ func TestToNRI(t *testing.T) {
 
 	t.Run("leaves Linux unset when no device is usable", func(t *testing.T) {
 		t.Parallel()
-		result, err := toNRI(nvmlmock.Adjustment{
-			Devices: []nvmlmock.Device{
+		result, err := toNRI(inject.Adjustment{
+			Devices: []inject.Device{
 				{HostPath: filepath.Join(t.TempDir(), "nvidia0"), Path: "/dev/nvidia0"},
 			},
 		})
