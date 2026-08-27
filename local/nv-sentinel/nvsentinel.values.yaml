@@ -60,13 +60,24 @@ global:
   # gets the CA via tls.caSecretName (the cert-manager CA secret, data key
   # ca.crt), which the components mount at MONGODB_CLIENT_CERT_MOUNT_PATH.
   #
-  # This is a choice, not a requirement. The chart supports an external datastore
-  # without TLS (tls.enabled: false renders MONGODB_TLS_ENABLED="false", and
-  # dropping caSecretName removes every mongodb-ca mount), which would also make
-  # cert-manager unnecessary here. Ignore the `| default true` on the rendered
-  # datastore.yaml tls block: no pod mounts that file — the components read this
-  # setting from the nvsentinel-datastore-config ConfigMap via envFrom, and that
-  # one honours false.
+  # This is a choice, not a requirement — but flipping it takes TWO settings, and
+  # doing only the obvious one is worse than leaving TLS on. tls.enabled: false
+  # alone just renders MONGODB_TLS_ENABLED="false"; each component still defaults
+  # clientCertMountPath to a real path, the chart passes it as
+  # --database-client-cert-mount-path, and the binary reads ca.crt from there
+  # before connecting. With no CA mounted it logs "Failed to read CA certificate,
+  # retrying" for CA_CERT_MOUNT_TIMEOUT_TOTAL_SECONDS (360s) and exits 1 — while
+  # reporting Ready the whole time, so the pipeline looks healthy for six minutes
+  # and remediates nothing. Plaintext therefore needs tls.enabled: false, no
+  # caSecretName, AND clientCertMountPath: "" on every datastore consumer
+  # (fault-quarantine, node-drainer, platformConnector.mongodbStore here), which
+  # makes the templates pass --tls-enabled=false. The chart ships the same recipe
+  # as values-tilt-mongodb-tls-disabled.yaml.
+  #
+  # Ignore the `| default true` on the rendered datastore.yaml tls block: Helm's
+  # default treats false as empty so it always says true, and nothing reads it —
+  # no pod mounts that ConfigMap as a file, and envFrom skips the key because
+  # "datastore.yaml" is not a valid environment variable name.
   datastore:
     provider: "mongodb"
     credentialsFromSecret:

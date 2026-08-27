@@ -147,14 +147,6 @@ def _install_mongodb():
         labels=['nv-sentinel'],
     )
 
-    k8s_resource(
-        'mongodb-ext-rs-init',
-        # rs.initiate() has to reach a running mongod, and the Job's own retry
-        # loop should be the backstop, not the mechanism.
-        resource_deps=['mongodb-ext'],
-        labels=['nv-sentinel'],
-    )
-
 
 def _install_nvsentinel():
     """Install NVSentinel against the external MongoDB and the DCGM Service."""
@@ -172,13 +164,15 @@ def _install_nvsentinel():
             # satisfied, so --wait deadlocks the release against its own hook.
             # nvsentinel-ready below is what actually waits.
         ],
-        # mongodb-ext-rs-init is a hard dependency: the release reads the
-        # datastore Secret and needs a PRIMARY to open change streams against.
+        # mongodb-ext is a hard dependency: the release reads the datastore
+        # Secret and needs a PRIMARY to open change streams against, which this
+        # pod being Ready now means — its postStart hook initiates rs0 and its
+        # readiness probe asserts a writable primary.
         # gpu-operator only orders the two — a green Operator release does not
         # mean the standalone DCGM is serving yet, since its ~2 GB image is
         # still pulling, so the wait the health monitor actually needs is on the
         # Service's endpoints, in nvsentinel-ready.
-        resource_deps=['mongodb-ext-rs-init', 'gpu-operator'],
+        resource_deps=['mongodb-ext', 'gpu-operator'],
         labels=['nv-sentinel'],
     )
 

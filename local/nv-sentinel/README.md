@@ -77,8 +77,7 @@ Prometheus and Grafana images pull. Do not kill a `tilt up` that looks stuck on
 | `cert-manager` | `cert-manager` | v1.19.1, the TLS dependency of both MongoDB and NVSentinel |
 | `mongodb-certs` | `nvsentinel` | The namespace, the self-signed CA and the two Certificates MongoDB serves TLS from |
 | `mongodb-certs-ready` | — | `kubectl wait` on both Certificates, so the Secret exists before anything mounts it |
-| `mongodb-ext` | `nvsentinel` | Single-node replica set (`rs0`) on the official multi-arch image, serving TLS from a cert-manager certificate |
-| `mongodb-ext-rs-init` | `nvsentinel` | One-shot Job running `rs.initiate()` |
+| `mongodb-ext` | `nvsentinel` | Single-node replica set (`rs0`) on the official multi-arch image, serving TLS from a cert-manager certificate; `rs.initiate()` runs in a `postStart` hook, and Ready means writable primary |
 | `nvsentinel` | `nvsentinel` | The chart, v1.15.0, installed deliberately **without** `--wait` |
 | `nvsentinel-ready` | — | Waits out the post-install hook, restarts the pods that raced it, and asserts the thermal watch armed |
 | `gpu-sample-workload` | `default` | One pause pod requesting `nvidia.com/gpu` — the drainer's eviction target |
@@ -88,9 +87,9 @@ Prometheus and Grafana images pull. Do not kill a `tilt up` that looks stuck on
 
 MongoDB and NVSentinel's Deployments (`fault-quarantine`, `node-drainer`,
 `labeler`) are pinned to the control-plane, so draining a GPU worker never evicts
-the pipeline doing the draining. The DaemonSets spread: `gpu-health-monitor` onto
-the GPU workers only, `metadata-collector` and `platform-connectors` onto all
-three nodes.
+the pipeline doing the draining. The DaemonSets spread wider: `gpu-health-monitor`
+onto the GPU workers only, `metadata-collector` and `platform-connectors` onto
+every node the labeler marks driver-installed.
 
 ## Files
 
@@ -99,7 +98,7 @@ three nodes.
 | `nv_sentinel.tiltfile` | Installs cert-manager, MongoDB, NVSentinel and the workload; registers the two triggers |
 | `gpu-operator.values.yaml` | Overlay re-enabling the standalone `dcgm` DaemonSet, pointed at the mock driver root |
 | `nvml-mock.values.yaml` | Overlay enabling `gpu.dynamicMetrics`, so a heated GPU reads differently from its idle siblings |
-| `mongodb.k8s.yaml` | The external MongoDB: cert chain, headless Service, StatefulSet, `rs.initiate()` Job, and the URI Secret NVSentinel reads |
+| `mongodb.k8s.yaml` | The external MongoDB: cert chain, headless Service, StatefulSet with the `rs.initiate()` `postStart` hook, and the URI Secret NVSentinel reads |
 | `nvsentinel.values.yaml` | The chart values — external datastore, DCGM endpoint, and the options below |
 | `nvsentinel-ready.sh` | The post-install choreography `--wait` cannot express (see below) |
 | `gpu-workload.k8s.yaml` | The GPU workload the drain evicts |
@@ -194,15 +193,26 @@ containers run Bitnami-only startup scripts — unusable on Apple Silicon. So th
 runs a plain `mongo:8.0.3` single-node replica set (change streams need one) as an
 external datastore, with TLS from cert-manager.
 
-**The control-plane runs an `nvml-mock` pod but advertises no `nvidia.com/gpu`.**
-The reason is narrow, and it is not that the node looks GPU-free — it carries
-`nvidia.com/gpu.present=true` and `nvsentinel.dgxc.nvidia.com/driver.installed=true`,
-and NVSentinel's `metadata-collector` schedules there on exactly those two labels.
-What does not land there is the GPU Operator's **device plugin**: its only
-toleration is `nvidia.com/gpu:NoSchedule`, which does not cover the
-`node-role.kubernetes.io/control-plane:NoSchedule` taint, so nothing ever
-advertises the resource on that node. Both scenarios filter on the advertised
-resource for exactly that reason, and the workload needs no node selector.
+**Plaintext is possible, but it takes two settings, and getting only the obvious
+one is worse than leaving TLS on.** `global.datastore.tls.enabled: false` merely
+renders `MONGODB_TLS_ENABLED` into a ConfigMap. Each component separately defaults
+`clientCertMountPath` to a real path, which the chart passes as
+`--database-client-cert-mount-path`, and the binary reads `ca.crt` from there
+before connecting; with no CA mounted it logs `Failed to read CA certificate,
+retrying` for 360s and exits 1 while **reporting Ready the whole time**, so the UI
+is green for six minutes and nothing is remediated. Dropping TLS therefore means
+`tls.enabled: false`, no `caSecretName`, and `clientCertMountPath: ""` on every
+datastore consumer — which makes the templates pass `--tls-enabled=false`. The
+chart ships that recipe as `values-tilt-mongodb-tls-disabled.yaml`. This consumer
+keeps TLS because it mirrors the standalone demo and a real deployment.
+
+**The control-plane hosts NVSentinel's pipeline but is not a GPU node.** The mock
+runs on workers only (`mokka.nvidia.com/type=sgpu`), and the GPU Operator's device
+plugin tolerates `nvidia.com/gpu:NoSchedule` but not
+`node-role.kubernetes.io/control-plane:NoSchedule`, so nothing advertises
+`nvidia.com/gpu` there either way. Both scenarios filter on the advertised
+resource rather than on a node label, which is also why the workload needs no node
+selector: the resource request already pins it to a worker.
 
 **`dcgm-exporter` crash-looping for a few minutes on a cold cluster.** Enabling
 the standalone DCGM makes the Operator hand `dcgm-exporter` a
@@ -293,34 +303,26 @@ cools.
 
 ## One thing that looks fine and is not
 
-Deleting the `mongodb-ext` pod leaves an **uninitialised replica set behind an
-all-green Tilt UI**. Its data is on `emptyDir` and the replica set is initialised
-by a one-shot Job, so a recreated pod comes up empty, its ping-only readiness
-probe passes, and nothing re-runs `rs.initiate()`.
-
-Re-running that Job is **not** the whole recovery. It restores the replica set,
-but the `HealthEventsDatabase` collections went with the `emptyDir` and only the
-chart's own setup hook creates them, so `fault-quarantine` and `node-drainer`
-crash-loop on `no collection with name HealthEvents for DB HealthEventsDatabase
-was found` until the release is upgraded again. Re-running the bring-up does both
-— it re-runs the hook Job, and `nvsentinel-ready` then restarts the pods that
-crash-looped:
+Deleting the `mongodb-ext` pod costs you the **`HealthEventsDatabase`
+collections**, and only the chart's own setup hook creates them. The replica set
+itself recovers unattended — `rs.initiate()` runs in a `postStart` hook, so it
+re-runs with the pod, and the readiness probe asserts a writable primary rather
+than a bare ping — but `fault-quarantine` and `node-drainer` then crash-loop on
+`no collection with name HealthEvents for DB HealthEventsDatabase was found`
+until the release is upgraded again. Re-running the bring-up does both, since it
+re-runs the hook Job and `nvsentinel-ready` restarts the pods that crash-looped:
 
 ```bash
-tilt trigger mongodb-ext-rs-init   # re-initialises the replica set
-tilt ci -- --nv-sentinel           # re-runs the setup hook, restoring the collections
+tilt ci -- --nv-sentinel
 ```
 
-`tilt trigger` talks to a running `tilt up` session's API, so on the `tilt ci`
-path it fails with `Could not connect to Tilt at http://localhost:10350`. The
-`tilt ci` line alone recovers both halves; reach for `tilt trigger` when you are
-watching a live UI, which is the situation this symptom shows up in.
+The cause is `emptyDir`, which is deliberate for a dev stack: anything the setup
+hook created has to be recreated by that hook. Unlike the replica set, the
+collections cannot re-create themselves.
 
-This is an accepted trade-off, not an oversight. The obvious fix — a readiness
-probe asserting PRIMARY — was tried and reverted: `mongodb-ext-rs-init` depends on
-`mongodb-ext`, so a probe that waits for `rs.initiate()` withholds the Job that
-performs it, and a StatefulSet will not roll a not-Ready pod, which wedges the pod
-beyond `tilt ci`'s ability to repair.
+The same crash-loop shows up on a **cold** bring-up and is not this problem: the
+components start before the setup hook has run, and `nvsentinel-ready` waits it
+out and restarts them.
 
 ## Without Tilt
 

@@ -1,36 +1,22 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# External MongoDB for the nv-sentinel Tilt consumer, using the official
-# multi-arch image public.ecr.aws/docker/library/mongo:8.0.3.
+# External MongoDB for the nv-sentinel Tilt consumer, ported from
+# docs/demo/nv-sentinel/mongodb.yaml. The chart's own mongodb-store subchart
+# wraps the Bitnami chart, whose bitnamilegacy/* images are amd64-only, so
+# NVSentinel points here as an external datastore instead.
 #
-# Ported from docs/demo/nv-sentinel/mongodb.yaml. Two additions: the Namespace
-# is declared here (run.sh created it with `kubectl create namespace`, which has
-# no Tilt equivalent) and so is the MONGODB_URI Secret (run.sh shelled out to
-# `kubectl create secret`). The URI carries no credentials — this MongoDB runs
-# without auth — so committing it exposes nothing.
+# --replSet is mandatory: fault-quarantine and node-drainer react through change
+# streams on HealthEventsDatabase.HealthEvents, and change streams need an oplog,
+# which a standalone mongod does not keep.
 #
-# Why not the chart's built-in MongoDB? NVSentinel's mongodb-store subchart uses
-# the Bitnami MongoDB chart, whose containers run Bitnami-only scripts and whose
-# images (bitnamilegacy/*) are published amd64-only, so on arm64 it cannot
-# start. NVSentinel therefore points at this as an EXTERNAL datastore
-# (global.mongodbStore.enabled=false + global.datastore).
+# TLS mirrors the demo and a real deployment, so mongod serves a cert-manager
+# certificate and the chart gets the CA via global.datastore.tls.caSecretName.
+# Plaintext is possible if you want a lighter stack — see nvsentinel.values.yaml
+# for the two settings it takes, one of which is easy to miss.
 #
-# NVSentinel talks TLS to the datastore and reads a CA certificate, so MongoDB
-# serves TLS with a cert-manager-issued cert and the CA secret (mongodb-ca) is
-# handed over via global.datastore.tls.caSecretName.
-#
-# The single-node rs0 below, and its init Job, are not optional: --replSet is
-# what makes this remediation pipeline work at all. fault-quarantine and
-# node-drainer each hold an open change stream on
-# HealthEventsDatabase.HealthEvents — that is how a stored health event becomes
-# a cordon and a drain — and change streams are derived from the oplog, which a
-# standalone mongod does not keep. Dropping --replSet gets
-# "Location40573: The $changeStream stage is only supported on replica sets"
-# and a pipeline that stores events and reacts to none of them.
-#
-# Everything is pinned to the control-plane so a remediation drain of a GPU
-# worker never evicts the datastore the pipeline depends on.
+# Control-plane pinned so a remediation drain never evicts the datastore driving
+# it. The URI Secret carries no credentials: this mongod runs without auth.
 ---
 apiVersion: v1
 kind: Namespace
@@ -109,8 +95,8 @@ metadata:
     app: mongodb-ext
 spec:
   clusterIP: None
-  # Publish the pod's DNS before it is Ready so the replica-set init Job and the
-  # readiness probe can resolve it during startup.
+  # Publish the pod's DNS before it is Ready, so clients can resolve the member
+  # name the postStart hook puts in the replica-set config.
   publishNotReadyAddresses: true
   selector:
     app: mongodb-ext
@@ -144,6 +130,20 @@ spec:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists
           effect: NoSchedule
+      # Load-bearing for the postStart hook below. rs.initiate() must name a host
+      # other pods can reach, and mongod refuses a config it cannot find itself in
+      # ("NodeNotFound: No host described in new configuration ... maps to this
+      # node"). Resolving that name needs this pod in the Service's EndpointSlice,
+      # which does not happen while postStart holds the container out of Running —
+      # so without this alias the hook can only fail, and only the restart it
+      # triggers succeeds, costing a container restart and ~3.5 minutes on every
+      # fresh pod. Pointing the name at loopback inside the pod makes mongod
+      # recognise itself immediately; clients outside still resolve it through
+      # CoreDNS. Sound only because rs0 has exactly one member.
+      hostAliases:
+        - ip: 127.0.0.1
+          hostnames:
+            - mongodb-ext.nvsentinel.svc.cluster.local
       initContainers:
         # mongod wants cert + key in a single PEM; cert-manager emits them
         # separately, so concatenate into an emptyDir the main container reads.
@@ -185,13 +185,61 @@ spec:
             - name: tls-pem
               mountPath: /tls
               readOnly: true
-          # Deliberately only liveness, not "the replica set is usable". The
-          # stronger probe (quit(db.hello().isWritablePrimary ? 0 : 1)) cannot
-          # go here: rs.initiate() runs in the mongodb-ext-rs-init Job, Tilt
-          # withholds that Job until this pod is Ready, and the pod cannot be
-          # Ready until the Job has run — a circular wait that leaves mongod
-          # running forever with no rs0. Consumers must therefore order
-          # themselves behind mongodb-ext-rs-init, not behind mongodb-ext.
+          # rs.initiate() belongs to the pod, not to a Job beside it: data lives
+          # on emptyDir, so a recreated pod has no rs0, and a Completed Job does
+          # not run again. Here it re-runs with every container, so the replica
+          # set cannot outlive the data it describes. The container is not
+          # Running until this returns, which is also what lets the readiness
+          # probe below demand a primary without a circular wait.
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - bash
+                  - -c
+                  - |
+                    set -euo pipefail
+                    # Must be the name other pods resolve: a replica set
+                    # advertising localhost is reachable only by mongod itself.
+                    # hostAliases above is what makes it resolve here, too.
+                    member="mongodb-ext.nvsentinel.svc.cluster.local:27017"
+                    # The server cert covers localhost, but it is issued by a
+                    # private CA that mongosh has no reason to trust, and this
+                    # connection never leaves the pod.
+                    mongo() {
+                      mongosh --tls --tlsAllowInvalidCertificates \
+                        --host localhost --quiet --eval "$1"
+                    }
+                    # Bounded, unlike the Job this replaces: postStart has no
+                    # activeDeadlineSeconds, so an unbounded wait would hold the
+                    # pod out of Running forever instead of failing it. Exiting
+                    # non-zero makes kubelet kill the container and retry.
+                    for _ in $(seq 1 60); do
+                      if mongo 'db.adminCommand("ping").ok' >/dev/null 2>&1; then break; fi
+                      sleep 2
+                    done
+                    if ! mongo 'db.adminCommand("ping").ok' >/dev/null 2>&1; then
+                      echo "mongod did not answer on localhost within ~2m" >&2
+                      exit 1
+                    fi
+                    if mongo 'rs.status().ok' >/dev/null 2>&1; then
+                      echo "replica set already initialized"
+                    else
+                      mongo "rs.initiate({_id: 'rs0', members: [{_id: 0, host: '${member}'}]})"
+                    fi
+                    # Primary, not merely initiated: change streams need a
+                    # writable primary, which is why rs0 exists at all.
+                    for _ in $(seq 1 60); do
+                      if mongo 'db.hello().isWritablePrimary' | grep -q true; then
+                        echo "mongodb replica set ready"
+                        exit 0
+                      fi
+                      sleep 2
+                    done
+                    echo "rs0 never reported a writable primary within ~2m" >&2
+                    exit 1
+          # Asserts the replica set is usable, not merely that mongod answers.
+          # Anything that consumes change streams can order itself behind this.
           readinessProbe:
             exec:
               command:
@@ -202,7 +250,8 @@ spec:
                 - localhost
                 - --quiet
                 - --eval
-                - db.adminCommand('ping').ok
+                # Quoted: unquoted, YAML reads the "? 0 : 1" as a mapping.
+                - "quit(db.hello().isWritablePrimary ? 0 : 1)"
             initialDelaySeconds: 5
             periodSeconds: 10
       volumes:
@@ -214,60 +263,8 @@ spec:
         - name: tls-pem
           emptyDir: {}
 ---
-# Initialize the single-node replica set once MongoDB is reachable over TLS.
-# Idempotent: skips if the replica set is already initialized.
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: mongodb-ext-rs-init
-  namespace: nvsentinel
-spec:
-  # Both wait loops below are unbounded, so a mongod that answers but never
-  # reaches PRIMARY would hang this Job forever and `tilt ci` would wait on it
-  # rather than failing. 10 minutes is well past a cold Kind cluster pulling the
-  # mongo image and scheduling both pods, which is the slowest legitimate path.
-  activeDeadlineSeconds: 600
-  backoffLimit: 20
-  template:
-    spec:
-      restartPolicy: OnFailure
-      nodeSelector:
-        node-role.kubernetes.io/control-plane: ""
-      tolerations:
-        - key: node-role.kubernetes.io/control-plane
-          operator: Exists
-          effect: NoSchedule
-      containers:
-        - name: rs-init
-          image: public.ecr.aws/docker/library/mongo:8.0.3
-          command:
-            - bash
-            - -c
-            - |
-              set -e
-              host="mongodb-ext.nvsentinel.svc.cluster.local:27017"
-              tls=(--tls --tlsAllowInvalidCertificates)
-              echo "waiting for mongod at ${host}..."
-              until mongosh "${tls[@]}" --host "${host}" --quiet --eval "db.adminCommand('ping').ok" >/dev/null 2>&1; do
-                sleep 3
-              done
-              mongosh "${tls[@]}" --host "${host}" --quiet --eval '
-                try {
-                  if (rs.status().ok === 1) { print("replica set already initialized"); quit(0); }
-                } catch (e) {
-                  rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongodb-ext.nvsentinel.svc.cluster.local:27017"}]});
-                  print("replica set initiated");
-                }
-              '
-              # Wait until the node reports PRIMARY so consumers can use change streams.
-              until mongosh "${tls[@]}" --host "${host}" --quiet --eval 'db.hello().isWritablePrimary' | grep -q true; do
-                echo "waiting for PRIMARY..."; sleep 3
-              done
-              echo "mongodb replica set ready"
----
-# The URI NVSentinel reads via global.datastore.credentialsFromSecret. No
-# credentials: this MongoDB runs without auth, and the replicaSet parameter is
-# what makes the driver open a change stream against rs0.
+# The URI NVSentinel reads via global.datastore.credentialsFromSecret. The
+# replicaSet parameter is what makes the driver open change streams against rs0.
 apiVersion: v1
 kind: Secret
 metadata:
