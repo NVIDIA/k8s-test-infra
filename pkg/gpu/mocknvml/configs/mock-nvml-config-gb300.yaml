@@ -126,11 +126,11 @@ device_defaults:
   # ---------------------------------------------------------------------------
   clocks:
     graphics_current: 345           # Idle
-    graphics_max: 2200              # Boost
-    graphics_app: 2200
-    graphics_app_default: 2200
+    graphics_max: 2070              # Boost, per the reference GB300 tray
+    graphics_app: 2070
+    graphics_app_default: 2070
     sm_current: 345
-    sm_max: 2200
+    sm_max: 2070
     memory_current: 2625            # HBM3e 8 Gbps (1.05x GB200's 2500)
     memory_max: 2625
     memory_app: 2625
@@ -158,7 +158,7 @@ device_defaults:
   supported_clocks:
     memory_clocks:
       - freq_mhz: 2625
-        graphics_clocks: [345, 690, 1035, 1380, 1725, 1980, 2200]
+        graphics_clocks: [345, 690, 1035, 1380, 1725, 1980, 2070]
 
   # ---------------------------------------------------------------------------
   # Performance state
@@ -318,7 +318,6 @@ device_defaults:
     fp4_support: true               # FP4 precision support
     fp6_support: true               # FP6 precision (Blackwell Ultra)
     fp8_support: true               # FP8 precision support
-    confidential_compute: true      # CC/TEE support
     nvlink_c2c: true                # NVLink Chip-to-Chip (Grace connection)
     decompression_engine: true      # Hardware decompression
     fifth_gen_tensor_cores: true    # 5th generation tensor cores
@@ -339,13 +338,19 @@ device_defaults:
 
 # =============================================================================
 # Device-specific overrides
-# GB300 NVL72 has 72 GPUs, but we define 8 for testing (4 superchip trays,
-# each with 1 Grace CPU + 2 B300 GPUs, matching the GB200 layout).
+#
+# Four GPUs, because that is what one GB300 NVL72 compute tray presents to one
+# OS domain: two Grace-Blackwell Ultra superchips, so 2 Grace CPUs and 4 B300
+# GPUs. The rack's 72 GPUs are 18 such trays, and nvidia-smi runs per node —
+# see tests/e2e/go/assertions/nvidiasmi/testdata/hardware/qx-gb300.xml.
+#
+# The two GPUs of a superchip report the SAME board serial there, so they do
+# here: a consumer keying on serial must not assume it identifies one GPU.
 # =============================================================================
 devices:
   - index: 0
     uuid: "GPU-b300b300-0000-0000-0000-000000000000"
-    serial: "1573041103700"
+    serial: "1573041103700"         # superchip board serial, shared with GPU 1
     pci:
       bus_id: "0000:0A:00.0"
     minor_number: 0
@@ -353,7 +358,7 @@ devices:
 
   - index: 1
     uuid: "GPU-b300b300-0000-0000-0000-000000000001"
-    serial: "1573041103701"
+    serial: "1573041103700"
     pci:
       bus_id: "0000:0B:00.0"
     minor_number: 1
@@ -361,7 +366,7 @@ devices:
 
   - index: 2
     uuid: "GPU-b300b300-0000-0000-0000-000000000002"
-    serial: "1573041103702"
+    serial: "1573041103701"         # second superchip, shared with GPU 3
     pci:
       bus_id: "0000:4A:00.0"
     minor_number: 2
@@ -369,43 +374,11 @@ devices:
 
   - index: 3
     uuid: "GPU-b300b300-0000-0000-0000-000000000003"
-    serial: "1573041103703"
+    serial: "1573041103701"
     pci:
       bus_id: "0000:4B:00.0"
     minor_number: 3
     grace_cpu_pair: 1
-
-  - index: 4
-    uuid: "GPU-b300b300-0000-0000-0000-000000000004"
-    serial: "1573041103704"
-    pci:
-      bus_id: "0000:8A:00.0"
-    minor_number: 4
-    grace_cpu_pair: 2
-
-  - index: 5
-    uuid: "GPU-b300b300-0000-0000-0000-000000000005"
-    serial: "1573041103705"
-    pci:
-      bus_id: "0000:8B:00.0"
-    minor_number: 5
-    grace_cpu_pair: 2
-
-  - index: 6
-    uuid: "GPU-b300b300-0000-0000-0000-000000000006"
-    serial: "1573041103706"
-    pci:
-      bus_id: "0000:CA:00.0"
-    minor_number: 6
-    grace_cpu_pair: 3
-
-  - index: 7
-    uuid: "GPU-b300b300-0000-0000-0000-000000000007"
-    serial: "1573041103707"
-    pci:
-      bus_id: "0000:CB:00.0"
-    minor_number: 7
-    grace_cpu_pair: 3
 
 # =============================================================================
 # NVLink topology - GB300 uses NVLink 5.0 (same fabric as GB200)
@@ -435,7 +408,7 @@ nvlink:
 # PCIe topology (consumed by render-pci-sysfs to materialize
 # /sys/bus/pci/devices/<bdf> -> ../../../devices/pciDDDD:BB/<bdf> symlinks
 # and per-device numa_node files). Mirrors the GB300 NVL superchip layout:
-# one PCI root complex per Grace+2×B300 tray, NUMA-aligned per tray.
+# one PCI root complex per Grace+2×B300 superchip, NUMA-aligned per superchip.
 # =============================================================================
 pcie_topology:
   root_complexes:
@@ -449,13 +422,3 @@ pcie_topology:
       devices:
         - "0000:4A:00.0"
         - "0000:4B:00.0"
-    - id: "pci0000:80"
-      numa_node: 2
-      devices:
-        - "0000:8A:00.0"
-        - "0000:8B:00.0"
-    - id: "pci0000:c0"
-      numa_node: 3
-      devices:
-        - "0000:CA:00.0"
-        - "0000:CB:00.0"

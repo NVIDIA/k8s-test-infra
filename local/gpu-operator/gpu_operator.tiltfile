@@ -12,10 +12,12 @@
 #     --observability consumer, which re-enables dcgm-exporter and needs
 #     kube-prometheus-stack's ServiceMonitor CRD to exist first.
 #
-# Requires the shared 'nvidia' helm_repo to be registered by the caller
-# (main Tiltfile) before install() is invoked.
+# Requires the shared 'nvidia' helm_repo, registered by the main Tiltfile and
+# waited on through resource_deps.
 
 load('ext://helm_resource', 'helm_resource')
+
+_REPO_RESOURCE = 'nvidia'
 
 def install(nvml_mock_releases, extra_values=[], extra_resource_deps=[]):
     # local/gpu-operator/gpu-operator.values.yaml disables driver/toolkit/DCGM
@@ -30,6 +32,6 @@ def install(nvml_mock_releases, extra_values=[], extra_resource_deps=[]):
         'nvidia/gpu-operator',
         namespace='gpu-operator',
         flags=['--create-namespace'] + values_flags + ['--timeout', '300s'],
-        resource_deps=nvml_mock_releases + extra_resource_deps,
+        resource_deps=[_REPO_RESOURCE] + nvml_mock_releases + extra_resource_deps,
         labels=['gpu-operator'],
     )

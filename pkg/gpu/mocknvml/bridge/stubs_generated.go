@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 264 stub functions for unimplemented NVML functions.
+// 260 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -144,11 +144,6 @@ func nvmlDeviceGetClkMonStatus(device C.nvmlDevice_t, status *C.nvmlClkMonStatus
 	return stubReturn("nvmlDeviceGetClkMonStatus")
 }
 
-//export nvmlDeviceGetClock
-func nvmlDeviceGetClock(device C.nvmlDevice_t, clockType C.nvmlClockType_t, clockId C.nvmlClockId_t, clockMHz *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetClock")
-}
-
 //export nvmlDeviceGetClockOffsets
 func nvmlDeviceGetClockOffsets(device C.nvmlDevice_t, info *C.nvmlClockOffset_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetClockOffsets")
@@ -177,16 +172,6 @@ func nvmlDeviceGetConfComputeGpuAttestationReport(device C.nvmlDevice_t, gpuAtst
 //export nvmlDeviceGetConfComputeGpuCertificate
 func nvmlDeviceGetConfComputeGpuCertificate(device C.nvmlDevice_t, gpuCert *C.nvmlConfComputeGpuCertificate_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetConfComputeGpuCertificate")
-}
-
-//export nvmlDeviceGetConfComputeMemSizeInfo
-func nvmlDeviceGetConfComputeMemSizeInfo(device C.nvmlDevice_t, memInfo *C.nvmlConfComputeMemSizeInfo_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetConfComputeMemSizeInfo")
-}
-
-//export nvmlDeviceGetConfComputeProtectedMemoryUsage
-func nvmlDeviceGetConfComputeProtectedMemoryUsage(device C.nvmlDevice_t, memory *C.nvmlMemory_t) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetConfComputeProtectedMemoryUsage")
 }
 
 //export nvmlDeviceGetCoolerInfo
@@ -367,11 +352,6 @@ func nvmlDeviceGetMPSComputeRunningProcesses_v2(device C.nvmlDevice_t, infoCount
 //export nvmlDeviceGetMPSComputeRunningProcesses_v3
 func nvmlDeviceGetMPSComputeRunningProcesses_v3(device C.nvmlDevice_t, infoCount *C.uint, infos *C.nvmlProcessInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetMPSComputeRunningProcesses_v3")
-}
-
-//export nvmlDeviceGetMaxCustomerBoostClock
-func nvmlDeviceGetMaxCustomerBoostClock(device C.nvmlDevice_t, clockType C.nvmlClockType_t, clockMHz *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMaxCustomerBoostClock")
 }
 
 //export nvmlDeviceGetMemClkMinMaxVfOffset

@@ -168,6 +168,33 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.ThrottleCounters(ctx, h.Kube, pod)
 			})
 
+			It("reports zeroed Conf Compute protected memory via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #711: all three rows read N/A because both NVML getters
+				// behind the block were generated stubs, so the mock could not
+				// say whether any memory is protected. Every real board answers
+				// 0 MiB there, CC-capable or not, so the expectation is the same
+				// on every selected profile rather than derived from it.
+				nvidiasmi.ConfComputeMemory(ctx, h.Kube, pod)
+			})
+
+			It("reports the OEM boost ceiling via nvidia-smi -q -x", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Issue #712: Max Customer Boost Clocks read N/A because both
+				// nvmlDeviceGetMaxCustomerBoostClock and nvmlDeviceGetClock were
+				// generated stubs, so the mock could not report an OEM ceiling
+				// where every real board reports one. The expectation is the
+				// profile's clocks.graphics_max, and the check also requires the
+				// Max Clocks row to agree with it, which is the invariant every
+				// hardware capture satisfies. pmon and topo -m are re-checked
+				// because nvidia-smi calls nvmlDeviceGetClock once per GPU on
+				// every -q run, and a new export on that path is what segfaulted
+				// pmon in PR #630.
+				if p.GraphicsMaxClockMHz() == 0 {
+					Skip("profile " + name + " declares no clocks.graphics_max, so the row is N/A")
+				}
+				nvidiasmi.MaxCustomerBoostClock(ctx, h.Kube, pod, p)
+				nvidiasmi.ProcessMonitorAndTopology(ctx, h.Kube, pod)
+			})
+
 			It("exposes the NVLink topology (gated on fabricmanager)", Label("nvlink"), func(ctx SpecContext) {
 				assertions.FabricManagerGate(ctx, h.Kube, nvmlMockNamespace, "nvml-mock", pod, config.ReadyTimeout(), config.PollInterval())
 				assertions.NVLink(ctx, h.Kube, pod, p)

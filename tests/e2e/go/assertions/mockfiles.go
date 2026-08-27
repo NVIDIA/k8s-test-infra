@@ -31,8 +31,7 @@ func podFileExists(ctx context.Context, k *kube.Client, pod kube.PodRef, path st
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "missing file: %s\n%s", path, res.Combined())
 }
 
-// ConfigContains asserts the config file at path contains substr (parity
-// with the `grep -q "num_devices: N"` checks).
+// ConfigContains asserts the config file at path contains substr.
 func ConfigContains(ctx context.Context, k *kube.Client, pod kube.PodRef, path, substr string) {
 	ginkgo.GinkgoHelper()
 	ginkgo.By(fmt.Sprintf("%s contains %q", path, substr))

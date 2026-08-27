@@ -63,6 +63,9 @@ type rawProfile struct {
 		PCIe *struct {
 			MaxLinkGen int `json:"max_link_gen"`
 		} `json:"pcie"`
+		Clocks *struct {
+			GraphicsMax int `json:"graphics_max"`
+		} `json:"clocks"`
 		Platform     *rawPlatform `json:"platform"`
 		RemappedRows *struct {
 			AvailabilityHistogram *struct {
@@ -141,6 +144,7 @@ type Profile struct {
 	jpegUtilizationPct int
 	ofaUtilizationPct  int
 	maxPCIeLinkGen     int
+	graphicsMaxMHz     int
 	rowRemapHistogram  bool
 	rowRemapBanks      int
 
@@ -194,7 +198,7 @@ func Load(profilesDir, name string) (Profile, error) {
 		architecture: strings.ToLower(strings.TrimSpace(raw.DeviceDefaults.Architecture)),
 	}
 	p.applyOptionalDeviceDefaults(raw)
-	// render-pci-sysfs falls back to a flat single-root layout when a profile
+	// pcibus simulator falls back to a flat single-root layout when a profile
 	// declares no pcie_topology block, so an empty list still means 1 root.
 	p.pciRoots = len(raw.PCIeTopology.RootComplexes)
 	if p.pciRoots == 0 {
@@ -224,6 +228,9 @@ func (p *Profile) applyOptionalDeviceDefaults(raw rawProfile) {
 	}
 	if pcie := raw.DeviceDefaults.PCIe; pcie != nil {
 		p.maxPCIeLinkGen = pcie.MaxLinkGen
+	}
+	if c := raw.DeviceDefaults.Clocks; c != nil {
+		p.graphicsMaxMHz = c.GraphicsMax
 	}
 	if r := raw.DeviceDefaults.RemappedRows; r != nil && r.AvailabilityHistogram != nil {
 		p.rowRemapHistogram = true
@@ -309,7 +316,7 @@ func (p Profile) ExpectedNV() int {
 // ExpectedPCIRoots is the number of distinct PCIe root complexes the rendered
 // /sys/bus/pci tree should span (len of pcie_topology.root_complexes, or 1 for
 // profiles with no explicit block). Mirrors the demo's EXPECTED_ROOTS: e.g.
-// a100/h100/b200/l40s -> 2, gb200/gb300 -> 4, t4 -> 1. A regression that
+// a100/h100/b200/l40s/gb200/gb300 -> 2, t4 -> 1. A regression that
 // collapsed every device onto one root would break NUMA-aware scheduling.
 func (p Profile) ExpectedPCIRoots() int { return p.pciRoots }
 
@@ -368,6 +375,13 @@ func (p Profile) OFAUtilizationPct() int { return p.ofaUtilizationPct }
 // Ranges from 3 (t4) to 6 (Blackwell), so asserting against it pins the value
 // to config rather than a hardcoded constant.
 func (p Profile) MaxPCIeLinkGen() int { return p.maxPCIeLinkGen }
+
+// GraphicsMaxClockMHz is device_defaults.clocks.graphics_max, the boost maximum
+// nvidia-smi renders in Max Clocks. The mock reports the same value as the
+// OEM ceiling in Max Customer Boost Clocks, which is what every real board does
+// (#712). 0 when the profile declares no clocks block, in which case both rows
+// read N/A.
+func (p Profile) GraphicsMaxClockMHz() int { return p.graphicsMaxMHz }
 
 // preAmpereArchitectures are the device_defaults.architecture values whose
 // hardware predates both row remapping and the split SRAM ECC counters.

@@ -22,6 +22,8 @@
 
 load('ext://helm_resource', 'helm_resource')
 
+_REPO_RESOURCE = 'topograph-repo'
+
 def install(nvml_mock_releases):
     helm_resource(
         'topograph',
@@ -35,6 +37,6 @@ def install(nvml_mock_releases):
         # nvml-mock dep is for Tilt UI ordering; topograph reads from
         # the Kubernetes API (static node labels) so there is no
         # technical runtime dependency on nvml-mock.
-        resource_deps=nvml_mock_releases,
+        resource_deps=[_REPO_RESOURCE] + nvml_mock_releases,
         labels=['topograph'],
     )

@@ -112,6 +112,7 @@ type gpuElement struct {
 	FanSpeed                 reading           `xml:"fan_speed"`
 	PerformanceState         reading           `xml:"performance_state"`
 	FBMemoryUsage            memoryUsage       `xml:"fb_memory_usage"`
+	CCProtectedMemoryUsage   memoryUsage       `xml:"cc_protected_memory_usage"`
 	AccountingModeBufferSize reading           `xml:"accounting_mode_buffer_size"`
 	EncoderStats             statsBlock        `xml:"encoder_stats"`
 	FBCStats                 statsBlock        `xml:"fbc_stats"`
@@ -120,6 +121,8 @@ type gpuElement struct {
 	Temperature              temperature       `xml:"temperature"`
 	PowerReadings            powerReadings     `xml:"gpu_power_readings"`
 	Clocks                   clocks            `xml:"clocks"`
+	MaxClocks                maxClocks         `xml:"max_clocks"`
+	MaxCustomerBoostClocks   customerBoostMax  `xml:"max_customer_boost_clocks"`
 	ECCMode                  eccMode           `xml:"ecc_mode"`
 	ECCErrors                eccErrors         `xml:"ecc_errors"`
 	RemappedRows             remappedRows      `xml:"remapped_rows"`
@@ -131,9 +134,10 @@ type gpuElement struct {
 	} `xml:"processes"`
 }
 
-// memoryUsage is <fb_memory_usage>: the framebuffer. The sibling
-// <bar1_memory_usage> and <cc_protected_memory_usage> blocks repeat the same
-// child names and are deliberately not decoded.
+// memoryUsage is the shape of the memory blocks: <total>, <used>, <free>, and a
+// <reserved> only the framebuffer reports. Each block is decoded separately
+// because they repeat the same child names, so a reading must name which one it
+// came from. The <bar1_memory_usage> sibling is deliberately not decoded.
 type memoryUsage struct {
 	Total    reading `xml:"total"`
 	Reserved reading `xml:"reserved"`
@@ -229,14 +233,32 @@ type powerReadings struct {
 	MaxPowerLimit     reading `xml:"max_power_limit"`
 }
 
-// clocks is the <clocks> block: the clocks in effect now. The sibling
-// <max_clocks> and <applications_clocks> blocks reuse the same child names and
-// are deliberately not decoded — clocks.sm reads the current value.
+// clocks is the <clocks> block: the clocks in effect now. Its <max_clocks> and
+// <max_customer_boost_clocks> siblings reuse graphics_clock and are decoded
+// separately below, so a reading always says which block it came from;
+// <applications_clocks> and <default_applications_clocks> reuse it too and are
+// deliberately not decoded, since no assertion reads them.
 type clocks struct {
 	GraphicsClock reading `xml:"graphics_clock"`
 	SMClock       reading `xml:"sm_clock"`
 	MemClock      reading `xml:"mem_clock"`
 	VideoClock    reading `xml:"video_clock"`
+}
+
+// maxClocks is <max_clocks>: the ceiling each domain can reach. Only the
+// graphics child is decoded, because the only assertion over this block is the
+// one comparing it against the customer-boost ceiling beside it.
+type maxClocks struct {
+	GraphicsClock reading `xml:"graphics_clock"`
+}
+
+// customerBoostMax is <max_customer_boost_clocks>: the OEM-defined ceiling,
+// which nvml.h allows to sit below the boost maximum. nvidia-smi emits a
+// graphics child and nothing else, on every board captured in
+// testdata/hardware. The element read N/A on every profile while both NVML
+// getters behind it were generated stubs (#712).
+type customerBoostMax struct {
+	GraphicsClock reading `xml:"graphics_clock"`
 }
 
 type eccErrors struct {

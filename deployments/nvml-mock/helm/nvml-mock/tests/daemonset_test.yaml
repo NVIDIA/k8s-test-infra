@@ -125,15 +125,20 @@ tests:
           path: spec.template.spec.containers[0].lifecycle.preStop.exec.command
           value: ["/scripts/cleanup.sh"]
 
-  - it: should set default GPU_COUNT env var to 8
+  # The default profile is gb300, whose device list is one NVL72 compute tray.
+  - it: should set default GPU_COUNT env var to 4
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: GPU_COUNT
-            value: "8"
+            value: "4"
 
   - it: should set default DRIVER_VERSION for non-Blackwell profile
+    set:
+      gpu:
+        profile: a100
+        count: 8
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -157,7 +162,7 @@ tests:
     set:
       gpu:
         profile: gb200
-        count: 8
+        count: 4
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -165,36 +170,18 @@ tests:
             name: DRIVER_VERSION
             value: "580.65.06"
 
-  # ── NFD pci-10de feature-file gate (nodeLabels.pciVendorPresent) ─────
-  # setup.sh and cleanup.sh both branch on MOCK_NFD_PCI_LABEL. They accept
-  # only "on"/"off" and abort the pod on anything else, so the exact string
-  # matters, not merely the presence of the variable. The value gates the
-  # feature FILE; NFD is what turns that file into the label.
-  - it: should enable the NFD pci-10de feature file by default
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: MOCK_NFD_PCI_LABEL
-            value: "on"
-
-  - it: should suppress the NFD pci-10de feature file when nodeLabels.pciVendorPresent=false
-    set:
-      nodeLabels:
-        pciVendorPresent: false
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: MOCK_NFD_PCI_LABEL
-            value: "off"
-
   # ── NFD features.d mount (nodeLabels.featuresDir) ────────────────────
-  # setup.sh writes the pci-10de feature file here instead of calling
-  # kubectl label. Without this mount the write silently lands inside the
-  # container and NFD never sees it, so the mount IS the contract.
+  # The node agent (containers[1]) writes the pci-10de feature file here.
+  # Without its mount the write lands inside the container and NFD never sees
+  # it, so that mount IS the contract; containers[0] mounts the same directory
+  # only so `kubectl exec` can read the file back.
   - it: should mount the NFD features.d host directory
     asserts:
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: host-nfd-features
+            mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
@@ -274,7 +261,7 @@ tests:
     set:
       gpu:
         profile: gb300
-        count: 8
+        count: 4
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -327,6 +314,22 @@ tests:
             value: "4"
 
   # ── GPU_COUNT derived from the profile devices list (count unset) ──────
+  #
+  # One case per device-list length the shipped profiles carry, so a derivation
+  # replaced by any single constant fails here. The 4-GPU profiles alone would
+  # all agree with a hardcoded 4.
+  - it: should derive GPU_COUNT from the h100 profile devices list (8)
+    set:
+      gpu:
+        profile: h100
+        count: ""
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GPU_COUNT
+            value: "8"
+
   - it: should derive GPU_COUNT from the t4 profile devices list (4)
     set:
       gpu:
@@ -339,7 +342,7 @@ tests:
             name: GPU_COUNT
             value: "4"
 
-  - it: should derive GPU_COUNT from the gb200 profile devices list (8)
+  - it: should derive GPU_COUNT from the gb200 profile devices list (4)
     set:
       gpu:
         profile: gb200
@@ -349,7 +352,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: GPU_COUNT
-            value: "8"
+            value: "4"
 
   - it: should mount all required volumes
     asserts:
@@ -623,7 +626,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: LD_PRELOAD
-            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
+            value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -753,6 +756,27 @@ tests:
               path: /var/lib/nvml-mock/fabric-state
               type: DirectoryOrCreate
 
+  # b200 declares NVLink but no NVSwitches, so no state dir is created on the
+  # node. Leaving node-agent's env unset keeps that mount out of its CDI spec;
+  # emitting it would fail creation of every CDI consumer on the node.
+  - it: should not wire fabricmanager for an NVLink profile without NVSwitches (b200)
+    set:
+      gpu:
+        profile: b200
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /var/lib/nvml-mock/fabric-state
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-fabric-state
+            hostPath:
+              path: /var/lib/nvml-mock/fabric-state
+              type: DirectoryOrCreate
+
   - it: should wire fabricmanager env, mount, and volume when enabled
     set:
       fabricmanager:
@@ -765,6 +789,13 @@ tests:
             value: "on"
       - contains:
           path: spec.template.spec.containers[0].env
+          content:
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /var/lib/nvml-mock/fabric-state
+      # node-agent gates its CDI fabric-state mount on this env, so it must be
+      # set wherever the host-fabric-state volume below is.
+      - contains:
+          path: spec.template.spec.containers[1].env
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
@@ -792,13 +823,62 @@ tests:
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /run/nvidia-fabricmanager
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content:
+            name: MOCK_FABRICMANAGER_STATE_DIR
+            value: /run/nvidia-fabricmanager
+
+  # ── Node Agent ──────────────────────────────────────────────────────
+  - it: should always run the node-agent sidecar
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: node-agent
+      - contains:
+          path: spec.template.spec.containers[1].command
+          content: --log-level=info
+      - contains:
+          path: spec.template.spec.containers[1].command
+          content: --log-format=json
+      - contains:
+          path: spec.template.spec.containers[1].command
+          content: --shutdown-timeout=30s
+
+  # CDI specs are written to h.Run/cdi/ = /host/run/cdi/. Without this mount the
+  # writes land in the container overlayfs and containerd never sees the specs.
+  - it: node-agent should mount the CDI spec directory
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: host-cdi
+            mountPath: /host/run/cdi
+
+  - it: should honour node-agent logging and timeout overrides
+    set:
+      nodeAgent:
+        logging:
+          level: debug
+          format: plain
+        shutdownTimeout: 60s
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].command
+          content: --log-level=debug
+      - contains:
+          path: spec.template.spec.containers[1].command
+          content: --log-format=plain
+      - contains:
+          path: spec.template.spec.containers[1].command
+          content: --shutdown-timeout=60s
 
   # ── Allocation watcher (#506) ───────────────────────────────────────
   - it: should not run the allocation watcher by default
     asserts:
       - lengthEqual:
           path: spec.template.spec.containers
-          count: 1
+          count: 2
       - notContains:
           path: spec.template.spec.volumes
           content:
@@ -814,20 +894,20 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.template.spec.containers
-          count: 2
+          count: 3
       - equal:
-          path: spec.template.spec.containers[1].name
+          path: spec.template.spec.containers[2].name
           value: allocation-watcher
       # The image installs the binary at /usr/local/bin. A wrong path here is
       # a CrashLoop that no unit test outside the chart would catch.
       - equal:
-          path: spec.template.spec.containers[1].command[0]
+          path: spec.template.spec.containers[2].command[0]
           value: /usr/local/bin/nvml-mock-ctl
       - equal:
-          path: spec.template.spec.containers[1].command[1]
+          path: spec.template.spec.containers[2].command[1]
           value: watch-allocations
       - contains:
-          path: spec.template.spec.containers[1].volumeMounts
+          path: spec.template.spec.containers[2].volumeMounts
           content:
             name: host-pod-resources
             mountPath: /var/lib/kubelet/pod-resources
@@ -842,10 +922,10 @@ tests:
       # It writes only into the driver root; the socket is read-only and the
       # container drops every capability.
       - equal:
-          path: spec.template.spec.containers[1].securityContext.readOnlyRootFilesystem
+          path: spec.template.spec.containers[2].securityContext.readOnlyRootFilesystem
           value: true
       - equal:
-          path: spec.template.spec.containers[1].securityContext.allowPrivilegeEscalation
+          path: spec.template.spec.containers[2].securityContext.allowPrivilegeEscalation
           value: false
 
   - it: should thread the poll interval and per-claim fraction into the watcher argv
@@ -856,10 +936,10 @@ tests:
         usedFractionPerClaim: 0.25
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].command
+          path: spec.template.spec.containers[2].command
           content: --interval=500ms
       - contains:
-          path: spec.template.spec.containers[1].command
+          path: spec.template.spec.containers[2].command
           content: --used-fraction=0.25
 
   - it: should follow a custom pod-resources socket path into both mount and volume
@@ -869,10 +949,10 @@ tests:
         podResourcesSocket: /var/lib/k0s/kubelet/pod-resources/kubelet.sock
     asserts:
       - contains:
-          path: spec.template.spec.containers[1].command
+          path: spec.template.spec.containers[2].command
           content: --socket=/var/lib/k0s/kubelet/pod-resources/kubelet.sock
       - contains:
-          path: spec.template.spec.containers[1].volumeMounts
+          path: spec.template.spec.containers[2].volumeMounts
           content:
             name: host-pod-resources
             mountPath: /var/lib/k0s/kubelet/pod-resources

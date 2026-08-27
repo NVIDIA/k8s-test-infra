@@ -132,17 +132,41 @@
     "nodeLabels": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Node labels nvml-mock causes to exist, reversed by the preStop cleanup.sh.",
+      "description": "Node labels nvml-mock causes to exist. setup.sh writes nvidia.com/gpu.present directly; NFD derives pci-10de.present from the node agent's feature file.",
       "properties": {
-        "pciVendorPresent": {
-          "type": "boolean",
-          "description": "Cause feature.node.kubernetes.io/pci-10de.present=true to exist on the node by writing an NFD feature file; NFD creates the label. Set false when something else already supplies that key. NFD's PCI source cannot derive it as deployed — nfd-worker reads a link-time-fixed /host-sys path, so the rendered PCI tree is not on a path it reads — but the tree itself is complete: given visibility, NFD derives this exact label. Typed as a boolean here because the DaemonSet renders it with `ternary`, which rejects a string with a template error rather than silently treating \"false\" as true."
-        },
         "featuresDir": {
           "type": "string",
           "minLength": 1,
           "description": "Host directory NFD's local source reads feature files from. Must be the featureFilesDir the deployed NFD actually reads. Typed as a non-empty string so that an empty string, or a boolean/number/array, is rejected at `helm template` time. An explicit `null` deletes the key and is not caught (there is no `required`), rendering a blank hostPath the API server rejects only at apply time."
         }
+      }
+    },
+    "nodeAgent": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Mokka Node Agent sidecar.",
+      "properties": {
+        "logging": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Structured-logging knobs passed to --log-level and --log-format.",
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": ["debug", "info", "warn", "warning", "error"]
+            },
+            "format": {
+              "type": "string",
+              "enum": ["json", "plain"]
+            }
+          }
+        },
+        "shutdownTimeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
+          "description": "Go duration string passed to --shutdown-timeout."
+        },
+        "resources": { "type": "object" }
       }
     },
     "allocationWatcher": {
@@ -219,13 +243,8 @@
     "imex": {
       "type": "object",
       "additionalProperties": true,
-      "description": "IMEX simulation. enabled/stateDir cover the deprecated hostPath-backed fake IMEX daemons; mockChannels covers the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads.",
+      "description": "IMEX simulation. mockChannels covers the capability surface the NVIDIA DRA driver's compute-domain kubelet plugin reads.",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "stateDir": {
-          "type": "string",
-          "description": "HostPath directory for the fake IMEX daemons' marker files."
-        },
         "mockChannels": {
           "type": "object",
           "additionalProperties": true,
@@ -336,13 +355,18 @@
             "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
           }
         },
+        "shutdownTimeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
+          "description": "Go duration string passed to --shutdown-timeout. Must fit inside terminationGracePeriodSeconds minus the preStop sleep."
+        },
         "resources": { "type": "object" },
         "nodeSelector": { "type": "object" },
         "tolerations": { "type": "array" },
         "terminationGracePeriodSeconds": {
           "type": "integer",
           "minimum": 0,
-          "description": "Pod-level grace period. Must be >= preStop sleep + server shutdown-timeout, otherwise kube SIGKILLs the drain window."
+          "description": "Pod-level grace period. Must be >= preStop sleep + shutdownTimeout, otherwise kube SIGKILLs the drain window."
         }
       }
     }

@@ -104,6 +104,10 @@ func comparedReadings(g gpuElement) []namedReading {
 		{"fb_memory_usage/total", g.FBMemoryUsage.Total},
 		{"fb_memory_usage/used", g.FBMemoryUsage.Used},
 
+		{"cc_protected_memory_usage/total", g.CCProtectedMemoryUsage.Total},
+		{"cc_protected_memory_usage/used", g.CCProtectedMemoryUsage.Used},
+		{"cc_protected_memory_usage/free", g.CCProtectedMemoryUsage.Free},
+
 		{"utilization/gpu_util", g.Utilization.GPU},
 		{"utilization/memory_util", g.Utilization.Memory},
 		{"utilization/encoder_util", g.Utilization.Encoder},
@@ -125,6 +129,8 @@ func comparedReadings(g gpuElement) []namedReading {
 		{"gpu_power_readings/instant_power_draw", g.PowerReadings.InstantPowerDraw},
 
 		{"clocks/sm_clock", g.Clocks.SMClock},
+		{"max_clocks/graphics_clock", g.MaxClocks.GraphicsClock},
+		{"max_customer_boost_clocks/graphics_clock", g.MaxCustomerBoostClocks.GraphicsClock},
 		{"ecc_mode/current_ecc", g.ECCMode.Current},
 
 		{"encoder_stats/session_count", g.EncoderStats.SessionCount},

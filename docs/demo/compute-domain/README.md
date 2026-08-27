@@ -17,7 +17,7 @@ introduced by [NVIDIA/k8s-test-infra#304](https://github.com/NVIDIA/k8s-test-inf
   environment, and annotated IMEX channel nodes into a separate demo workload
   DaemonSet. The demo workload has no mock mounts or mock environment.
 * **Real `nvidia-imex` in NO GPU mode** — the demo workload image fronts
-  the real daemon with `imex-nogpu-shim` (`/usr/bin/nvidia-imex` exec's
+  the real daemon with `nvidia-imex-shim` (`/usr/bin/nvidia-imex` exec's
   `/usr/bin/nvidia-imex.real --nogpu`), so IMEX readiness is the real
   gRPC peer protocol over the pod network: `nvidia-imex-ctl -q` prints
   `READY`, `-N -j` reports the domain `UP` with version `NO_GPU`, and
@@ -49,7 +49,7 @@ The demo expects the following tools on `$PATH`:
 2. Builds and loads the standard `nvml-mock:compute-domain` image, then
    builds the `nvml-mock:compute-domain-workload` image from the demo's
    [`Dockerfile`](./Dockerfile). It contains the real `nvidia-imex` (NO GPU
-   mode via `imex-nogpu-shim`) but no mock GPU files.
+   mode via `nvidia-imex-shim`) but no mock GPU files.
 3. Installs the chart with:
 
    ```text
@@ -67,9 +67,9 @@ The demo expects the following tools on `$PATH`:
    That flag only sizes the host-side CDI spec produced by
    `scripts/setup.sh`; the in-pod ConfigMap at
    `/etc/nvml-mock/config.yaml` — which is what `check-fabric` loads
-   — always reflects the chosen profile's full device list (8 GPUs
-   for `gb200`). For ComputeDomain verification this is actually
-   *stronger* evidence: every one of the 8 GPUs on each node must
+   — always reflects the chosen profile's full device list (4 GPUs
+   for `gb200`, one NVL72 compute tray). For ComputeDomain verification
+   this is actually *stronger* evidence: every GPU on each node must
    report the same `cliqueId` / `clusterUuid`, exercising the
    topology overlay over the full device list rather than a subset.
 4. Recycles the staging and NRI DaemonSets in order, then creates a separate

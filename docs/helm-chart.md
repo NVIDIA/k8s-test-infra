@@ -46,7 +46,7 @@ default. Kind clusters must have containerd NRI enabled; see
 
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  -n nvml-mock --create-namespace \
+  -n mokka --create-namespace \
   --set nri.enabled=true
 ```
 
@@ -149,7 +149,7 @@ NODE=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')
 kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}'
 ```
 
-Expected: `8` (default gpu.count).
+Expected: `4` (default gpu.count, derived from the `gb300` profile's four devices).
 
 ### 7. Clean up
 
@@ -240,7 +240,7 @@ kubectl get resourceslices -o json | \
   jq '[.items[].spec.devices // [] | length] | add // 0'
 ```
 
-Expected: `8` (default gpu.count).
+Expected: `4` (default gpu.count, derived from the `gb300` profile's four devices).
 
 ### 7. Clean up
 
@@ -355,7 +355,7 @@ kubectl -n gpu-operator wait --for=condition=ready pod --all --timeout=180s
 kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}'
 ```
 
-Expected: `8` (default gpu.count).
+Expected: `4` (default gpu.count, derived from the `gb300` profile's four devices).
 
 ### 9. Clean up
 
@@ -675,7 +675,8 @@ $ cat /var/lib/nvml-mock/sys/devices/pci0000:00/0000:07:00.0/numa_node
 | `a100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual EPYC) | 4 |
 | `h100`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
 | `b200`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
-| `gb200` | 4 (`pci0000:00`, `:40`, `:80`, `:c0`) | 4 (per Grace pair) | 2 |
+| `gb200` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 |
+| `gb300` | 2 (`pci0000:00`, `pci0000:40`) | 2 (one per Grace CPU) | 2 |
 | `l40s`  | 2 (`pci0000:00`, `pci0000:80`) | 2 (dual socket) | 4 |
 | `t4`    | 1 (`pci0000:00`) | 1 | 4 |
 
@@ -904,10 +905,10 @@ Guidance:
 
 ```bash
 # Which nodes are actually injecting right now
-kubectl get pods -n nvml-mock -l app.kubernetes.io/name=nvml-mock-nri -o wide
+kubectl get pods -n mokka -l app.kubernetes.io/name=nvml-mock-nri -o wide
 
 # Why a given node is not
-kubectl describe pod -n nvml-mock <nvml-mock-nri-pod>
+kubectl describe pod -n mokka <nvml-mock-nri-pod>
 ```
 
 Both probe endpoints answer with the reason in the body, so a readiness failure
@@ -924,8 +925,8 @@ namespace, on the pod IP where the kubelet reaches it.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `gpu.profile` | `a100` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, or `t4` |
-| `gpu.count` | `8` | Number of mock GPUs per node |
+| `gpu.profile` | `gb300` | GPU profile: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, or `t4` |
+| `gpu.count` | `""` | Number of mock GPUs per node. Empty derives it from the profile's `devices:` list (8 for the baseboard profiles, 4 for `t4`, `gb200` and `gb300`); a larger value is capped to that list at runtime |
 | `gpu.customConfig` | `""` | Inline YAML to override profile config entirely |
 | `gpu.dynamicMetrics.enabled` | `false` | Make the mock return time-varying temperature / power / utilization readings instead of the static profile values. See [Dynamic Metrics](#dynamic-metrics) below. |
 | `gpu.dynamicMetrics.seed` | `0` (baseline) | RNG seed; `0` uses a time-based seed, non-zero produces reproducible sequences. |
@@ -944,7 +945,6 @@ namespace, on the pod IP where the kubelet reaches it.
 | `driverVersion` | `""` (auto) | NVIDIA driver version to mock. When empty, read from `system.driver_version` of the resolved GPU config (the selected `gpu.profile` file, or `gpu.customConfig` if set), so the profile is the single source of truth (e.g. GB200 → `580.65.06`, B200 → `560.35.03`, GB300 → `570.124.06`, others → `550.163.01`). Set explicitly only to override the profile. |
 | `nodeSelector` | `{}` | Node selector for DaemonSet |
 | `tolerations` | `[{operator: Exists}]` | Pod tolerations (default: tolerate all) |
-| `nodeLabels.pciVendorPresent` | `true` | Write the NFD feature file that makes `feature.node.kubernetes.io/pci-10de.present=true` appear. The label is created by NFD, not by nvml-mock. Set to `false` when something else already supplies that key. See [Node Labels](#node-labels) |
 | `nodeLabels.featuresDir` | `/etc/kubernetes/node-feature-discovery/features.d` | Host directory NFD's local source reads feature files from. Override only if NFD runs with a non-default `featureFilesDir` |
 | `integrations.fakeGpuOperator.enabled` | `false` | Create per-profile ConfigMaps named `gpu-profile-<profile>`, keyed `profile.yaml`, in the shape fake-gpu-operator's loader reads |
 | `integrations.fakeGpuOperator.targetNamespace` | `""` (release namespace) | Namespace for the profile ConfigMaps. Set to FGO's release namespace for FGO to find them; requires FGO's `builtinProfiles.enabled=false` to avoid a Helm ownership collision on the same seven names |
@@ -952,7 +952,7 @@ namespace, on the pod IP where the kubelet reaches it.
 | `infiniband.mockTier` | `""` (auto) | `MOCK_IB` tier: `off`, `sysfs`, or `full`. Empty auto-derives `full` for IB-enabled profiles and `sysfs` otherwise (keeps the `libibmocksys` redirect active so any real host IB is masked). `off` makes every shim a no-op and skips the daemon. An invalid value fails `helm template` |
 | `infiniband.ping.port` | `18515` | TCP port for fabric relay between nvml-mock pods (`mock-ib` / `ibping` always enabled) |
 | `infiniband.ping.networkPolicy.enabled` | `true` | Restrict inbound access to the fabric port to peer nvml-mock pods. No-op on CNIs that don't enforce NetworkPolicy (e.g. Kind's kindnet) |
-| `nri.enabled` | `false` | Deploy the `nvml-mock-nri` containerd NRI plugin DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n nvml-mock`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
+| `nri.enabled` | `false` | Deploy the `nvml-mock-nri` containerd NRI plugin DaemonSet. Injects mock overlay and environment cluster-wide into non-excluded namespaces. Always install into a dedicated namespace (`-n mokka`) to avoid excluding `default`. Device node injection remains opt-in (`nvidia.com/gpu` request or `nvml-mock.nvidia.com/devices: "true"` annotation). |
 | `nri.socketPath` | `/var/run/nri/nri.sock` | NRI socket on the host. Its directory is hostPath-mounted into the plugin |
 | `nri.pluginName` / `nri.pluginIndex` | `nvml-mock` / `"10"` | NRI registration identity. The index orders this plugin against others |
 | `nri.overlay.hostPath` / `nri.overlay.mountPath` | `/var/lib/nvml-mock` / `/opt/nvml-mock` | Host overlay staged by the main DaemonSet, and the path it is injected at inside workloads |
@@ -969,18 +969,18 @@ namespace, on the pod IP where the kubelet reaches it.
 
 ### Node Labels
 
-The DaemonSet's `setup.sh` writes one node label directly with `kubectl label`,
-and drops a feature file that NFD turns into a second. The preStop `cleanup.sh`
-removes the first label and deletes the feature file; NFD retires the second
-label itself on its next cycle:
+The DaemonSet causes two node labels to exist. `setup.sh` writes the first
+directly with `kubectl label` and the preStop `cleanup.sh` removes it; the node
+agent writes a feature file NFD turns into the second, and NFD retires that one
+on its next cycle once the agent deletes the file at shutdown:
 
-| Label | Written by | Gated by | Default |
-|-------|-----------|----------|---------|
-| `nvidia.com/gpu.present=true` | nvml-mock (`kubectl label`) | not gated — always written | n/a |
-| `feature.node.kubernetes.io/pci-10de.present=true` | **NFD**, from a feature file nvml-mock writes | `nodeLabels.pciVendorPresent` | `true` |
+| Label | Written by | Removed by |
+|-------|-----------|------------|
+| `nvidia.com/gpu.present=true` | nvml-mock (`kubectl label`) | preStop `cleanup.sh` |
+| `feature.node.kubernetes.io/pci-10de.present=true` | **NFD**, from a feature file the node agent writes | NFD, once the node agent deletes the file |
 
 The second label is produced by Node Feature Discovery. nvml-mock only supplies
-the input: it writes `pci-10de.present=true` into
+the input: `internal/agent/pcibus` writes `pci-10de.present=true` into
 `nodeLabels.featuresDir`, which NFD's local source reads and turns into the
 namespaced label. With no NFD on the cluster the file is inert and the label
 does not exist — which is the honest state, and is what the e2e in
@@ -991,9 +991,8 @@ host-prefixed sysfs path fixed at link time (`/host-sys/bus/pci/devices`, from
 `HOSTMOUNT_PREFIX`), while nvml-mock's rendered PCI tree lives under
 `/var/lib/nvml-mock/sys` and is reachable at the canonical `/sys` path only
 through an `LD_PRELOAD` sysfs shim — and `nfd-worker` ships statically linked,
-so `LD_PRELOAD` is inert in it. Either fact alone is enough; both hold. The
-`setup.sh` comment at step 7 carries the full analysis with upstream file
-references (verified against NFD v0.19.0).
+so `LD_PRELOAD` is inert in it. Either fact alone is enough; both hold (verified
+against NFD v0.19.0, the version pinned in `go.mod`).
 
 That is a limit of how NFD is deployed, not of the rendered tree. Pointed at
 `/var/lib/nvml-mock/sys`, NFD v0.19.0 enumerates every mock GPU and — with the
@@ -1002,24 +1001,6 @@ exactly `pci-10de.present` on its own. The rendered devices already carry all
 five attributes its PCI source treats as mandatory. Only visibility is missing,
 and nothing nvml-mock can do supplies it without editing a third party's
 DaemonSet, which is why the local source is the route the chart uses.
-
-Keep the default (`true`) on a mock-only cluster running NFD: consumers that
-gate on the NFD PCI label — GPU Operator operands, NFD-based `nodeSelector`s —
-need it to schedule. Disable it when something else already supplies
-`feature.node.kubernetes.io/pci-10de.present` and a second writer would
-conflict:
-
-```bash
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
-  --set nodeLabels.pciVendorPresent=false
-```
-
-`setup.sh` converges either way: with the switch on it writes the feature file,
-with it off it removes any file an earlier run left behind. `cleanup.sh` reads
-the same switch and unwinds only the write `setup.sh` makes, so with the switch
-off it has nothing to undo. Because the label itself belongs to NFD, disabling
-the switch does not delete an existing label directly; NFD retires it on its
-next discovery cycle once the feature file is gone.
 
 Writing a feature file rather than the label is also why the DaemonSet needs no
 `patch` on `nodes` for this key — `nvidia.com/gpu.present` is the only label it
@@ -1068,11 +1049,11 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 
 #### When to Use Each Profile
 
-- **`a100`** (default) — broadest compatibility. Most NVIDIA software assumes A100 in docs and examples. Use this unless you need a specific architecture.
+- **`a100`** — broadest compatibility. Most NVIDIA software assumes A100 in docs and examples. Use it when a test targets Ampere or trips over newer architectures.
 - **`h100`** — testing Hopper-specific features: FP8, Transformer Engine, PCIe Gen5, or NVLink v4 topology.
 - **`b200`** — testing next-gen Blackwell features: FP4, NVLink v5, PCIe Gen6. Standalone GPU (no Grace CPU).
 - **`gb200`** — testing Grace-Blackwell Superchip: NVLink-C2C to Grace CPU, unified memory, and Blackwell features.
-- **`gb300`** — testing Grace-Blackwell Ultra Superchip: 288 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (570.124.06).
+- **`gb300`** (default) — testing Grace-Blackwell Ultra Superchip: 288 GiB HBM3e per GPU, 1.4 kW TDP, FP6 in addition to FP4/FP8, and Blackwell Ultra driver line (570.124.06).
 - **`l40s`** — testing Ada Lovelace inference workloads: FP8, PCIe Gen4, no NVLink (PCIe-only topology).
 - **`t4`** — testing Turing inference GPUs: low power (70W), small memory (16 GiB), 4 GPUs per node.
 
@@ -1300,7 +1281,9 @@ recover.
 
 Each `nvidia-smi` invocation is a fresh process whose call counter starts at
 0, so a narrow query like `--query-gpu=ecc.errors.uncorrected.aggregate.total`
-will only ever issue **one** guarded call per GPU per invocation. To see the
+will only ever issue **one** guarded call per GPU per invocation. (Within a
+single process the counter, like the rest of the device state, also survives
+`nvmlShutdown()` followed by `nvmlInit()`.) To see the
 failure surface from a single short command set `after_calls: 1`, or use a
 richer query that issues several guarded calls per GPU (e.g. `nvidia-smi -q`)
 so the trigger fires within one process.
@@ -1345,9 +1328,10 @@ The chart deploys:
    - Creates symlinks (`libnvidia-ml.so.1` → `libnvidia-ml.so.{version}`)
    - Creates mock device nodes at `/var/lib/nvml-mock/driver/dev/nvidia{N,ctl,-uvm,-uvm-tools}` (CDI bind-mounts them to `/dev/nvidia*` in consumer containers)
    - Writes GPU config YAML at `/var/lib/nvml-mock/driver/config/config.yaml`
-   - Labels the node `nvidia.com/gpu.present=true`, and writes the NFD feature
-     file that makes `feature.node.kubernetes.io/pci-10de.present=true` appear
-     (unless `nodeLabels.pciVendorPresent=false`) — see [Node Labels](#node-labels)
+   - Labels the node `nvidia.com/gpu.present=true`; the node agent sidecar writes
+     the NFD feature file that makes
+     `feature.node.kubernetes.io/pci-10de.present=true` appear — see
+     [Node Labels](#node-labels)
 2. **ConfigMap** — GPU configuration from the selected profile
 3. **RBAC** — ServiceAccount with permission to patch node labels
 
@@ -1414,7 +1398,8 @@ kubectl -n nvidia logs -l app.kubernetes.io/name=nvidia-dra-driver-gpu --tail=10
 
 **Privileged pods blocked**: Your cluster may have PodSecurity or OPA/Gatekeeper
 policies blocking `privileged: true`. KIND allows this by default. For managed
-clusters, you may need to create a PodSecurity exception for the nvml-mock namespace.
+clusters, you may need to create a PodSecurity exception for the nvml-mock
+release namespace.
 
 ## Related Documentation
 

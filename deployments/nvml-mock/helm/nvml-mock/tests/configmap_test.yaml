@@ -8,7 +8,15 @@ templates:
   - templates/configmap.yaml
 tests:
   # ── Snapshots ───────────────────────────────────────────────────────
-  - it: should match snapshot with default a100 profile
+  - it: should match snapshot with default gb300 profile
+    asserts:
+      - matchSnapshot: {}
+
+  - it: should match snapshot with a100 profile
+    set:
+      gpu:
+        profile: a100
+        count: 8
     asserts:
       - matchSnapshot: {}
 
@@ -32,15 +40,7 @@ tests:
     set:
       gpu:
         profile: gb200
-        count: 8
-    asserts:
-      - matchSnapshot: {}
-
-  - it: should match snapshot with gb300 profile
-    set:
-      gpu:
-        profile: gb300
-        count: 8
+        count: 4
     asserts:
       - matchSnapshot: {}
 
@@ -89,7 +89,11 @@ tests:
       - exists:
           path: data["config.yaml"]
 
-  - it: should load a100 profile by default
+  - it: should load a100 profile
+    set:
+      gpu:
+        profile: a100
+        count: 8
     asserts:
       - matchRegex:
           path: data["config.yaml"]
@@ -128,7 +132,7 @@ tests:
     set:
       gpu:
         profile: gb200
-        count: 8
+        count: 4
     asserts:
       - matchRegex:
           path: data["config.yaml"]
@@ -137,11 +141,7 @@ tests:
           path: data["config.yaml"]
           pattern: "architecture: .blackwell."
 
-  - it: should load gb300 profile
-    set:
-      gpu:
-        profile: gb300
-        count: 8
+  - it: should load gb300 profile by default
     asserts:
       - matchRegex:
           path: data["config.yaml"]
@@ -233,6 +233,9 @@ tests:
   # from it — are never a constant 0 without opting into the chart overlay.
   # The overlay's temperature/power simulation stays opt-in and must NOT appear.
   - it: should keep the profile's own utilization block when the overlay is disabled (default)
+    set:
+      gpu:
+        profile: a100
     asserts:
       - matchRegex:
           path: data["config.yaml"]
@@ -264,9 +267,10 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "pattern: burst"
+      # Default profile is gb300, whose power base wins over the chart baseline.
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "base_mw: 250000"
+          pattern: "base_mw: 800000"
       - matchRegex:
           path: data["config.yaml"]
           pattern: "base_c: 55"

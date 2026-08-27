@@ -44,13 +44,12 @@ const (
 	nfdOwnedLabelsAnnotation = "nfd.node.kubernetes.io/feature-labels"
 	pciVendorFeature         = "pci-10de.present"
 
-	// Written unconditionally by setup.sh in step 7, before anything
-	// pci-10de-related, and used here only as a synchronisation barrier.
-	// See spec 1.
+	// Written unconditionally by setup.sh in step 7 and used here only as a
+	// synchronisation barrier. See spec 1.
 	gpuPresentLabel = "nvidia.com/gpu.present"
 
-	// Container path of the feature file setup.sh writes (chart mount from
-	// Task 2; the hostPath behind it is nodeLabels.featuresDir).
+	// Container path of the feature file the node agent writes
+	// (internal/agent/pcibus); the hostPath behind it is nodeLabels.featuresDir.
 	nfdFeatureFile = "/host/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features"
 
 	nfdLabelTimeout = 3 * time.Minute
@@ -94,17 +93,12 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 
 	It("does not create the PCI vendor label without NFD", Label("nfd-provenance"), func(ctx SpecContext) {
 		// SYNCHRONISATION BARRIER — not a feature assertion. Do not "tidy" it
-		// away: without it this negative check is unordered against setup.sh
-		// and can pass vacuously, which would make the whole guard useless.
-		//
-		// Nothing else orders us after setup.sh's labelling step: the nvml-mock
-		// DaemonSet declares no readinessProbe, demoRelease sets
-		// maxUnavailable=100% so `helm --wait` returns on merely-scheduled
-		// pods, and pod selection waits only for phase Running. setup.sh writes
-		// nvidia.com/gpu.present unconditionally in step 7, still ahead of the
-		// pci-10de feature-file block that follows it, so observing it proves
-		// setup.sh reached the labelling block — and that a still-absent
-		// pci-10de label is a real absence, not a race we won.
+		// away: the nvml-mock container declares no readinessProbe, demoRelease
+		// sets maxUnavailable=100% so `helm --wait` returns on merely-scheduled
+		// pods, and pod selection waits only for phase Running — so nothing
+		// else orders this negative check after its setup.sh and it can pass
+		// vacuously. The node-agent container, which writes the feature file,
+		// is instead ordered by BeforeAll's WaitDaemonSetReady.
 		assertions.WaitNodeLabelsPresent(ctx, h.Kube, node,
 			[]string{gpuPresentLabel}, nfdLabelTimeout, nfdLabelPoll)
 

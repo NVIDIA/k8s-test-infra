@@ -79,7 +79,7 @@ device_defaults:
 
 ```yaml
 device_defaults:
-  architecture: "ampere"              # kepler, maxwell, pascal, volta, 
+  architecture: "ampere"              # kepler, maxwell, pascal, volta,
                                       # turing, ampere, ada, hopper
   compute_capability:
     major: 8
@@ -96,7 +96,7 @@ device_defaults:
     reserved_bytes: 0
     free_bytes: 42949672960
     used_bytes: 0
-  
+
   bar1_memory:
     total_bytes: 68719476736          # 64 GiB
     free_bytes: 68719476736
@@ -111,7 +111,7 @@ device_defaults:
     device_id: 0x20B010DE             # A100 device ID
     subsystem_id: 0x134710DE
     bus_id: "0000:07:00.0"        # Usually per-device
-  
+
   pcie:
     max_link_gen: 4
     current_link_gen: 4
@@ -232,7 +232,24 @@ device_defaults:
     memory_app_default: 1215
     video_current: 585
     video_max: 1290
-  
+```
+
+`graphics_max` answers two rows of `nvidia-smi -q`, not one: Max Clocks and Max
+Customer Boost Clocks. NVML keeps them apart — the second is an OEM-defined
+ceiling that may legally sit below the boost maximum — but every real board
+captured in `tests/e2e/go/assertions/nvidiasmi/testdata/hardware` reports the two
+as equal, so the mock resolves both from this key rather than carrying a second
+one that profiles would have to keep in step by hand. A profile with no
+`graphics_max` reports both rows as `N/A`.
+
+Only the graphics domain answers the customer-boost row; `nvidia-smi` emits no
+other child under it. `nvmlDeviceGetClock` resolves the whole clock-type ×
+clock-id matrix from the keys above, and returns `NVML_ERROR_NOT_SUPPORTED` for
+the combinations no key carries — application clocks for the SM and video
+domains, and the OEM ceiling for anything but graphics.
+
+```yaml
+device_defaults:
   clocks_throttle_reasons:
     gpu_idle: true
     applications_clocks_setting: false
@@ -290,7 +307,7 @@ nvml-mock-ctl set --gpu 3 clocks_throttle_reasons.counters.hw_thermal_slowdown_u
 ```yaml
 device_defaults:
   performance_state: "P0"             # P0-P15
-  
+
   utilization:
     gpu: 0                            # 0-100%
     memory: 0
@@ -405,7 +422,7 @@ device_defaults:
 ```yaml
 device_defaults:
   persistence_mode: "enabled"
-  compute_mode: "default"             # default, exclusive_thread, 
+  compute_mode: "default"             # default, exclusive_thread,
                                       # prohibited, exclusive_process
 ```
 
@@ -447,7 +464,7 @@ device_defaults:
     session_count: 0
     average_fps: 0
     average_latency_us: 0
-  
+
   fbc_stats:
     session_count: 0
     average_fps: 0
@@ -497,7 +514,7 @@ devices:
     # Override thermal for this device only
     thermal:
       temperature_gpu_c: 35
-  
+
   - index: 1
     uuid: "GPU-12345678-1234-1234-1234-123456780001"
     minor_number: 1
@@ -637,15 +654,17 @@ Standalone configuration files are provided for each supported GPU model:
 
 | File | GPU Model | Memory | Architecture |
 |------|-----------|--------|--------------|
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` | NVIDIA A100-SXM4-40GB | 40 GiB | Ampere |
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml` | NVIDIA H100 80GB HBM3 | 80 GiB | Hopper |
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-b200.yaml` | NVIDIA B200 | 192 GiB | Blackwell |
-| `pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml` | NVIDIA GB200 NVL | 192 GiB | Blackwell |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-gb300.yaml` | NVIDIA GB300 NVL | 288 GiB | Blackwell Ultra |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml` | NVIDIA GB200 NVL | 192 GiB | Blackwell |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-b200.yaml` | NVIDIA B200 | 192 GiB | Blackwell |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-h100.yaml` | NVIDIA H100 80GB HBM3 | 80 GiB | Hopper |
+| `pkg/gpu/mocknvml/configs/mock-nvml-config-a100.yaml` | NVIDIA A100-SXM4-40GB | 40 GiB | Ampere |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-l40s.yaml` | NVIDIA L40S | 48 GiB | Ada Lovelace |
 | `pkg/gpu/mocknvml/configs/mock-nvml-config-t4.yaml` | NVIDIA T4 | 16 GiB | Turing |
 
-Each file contains a complete configuration with all 8 devices configured.
+Each file contains a complete configuration with every device configured: 8 for
+the baseboard profiles, 4 for the Grace-Blackwell ones (`gb200`, `gb300`), which
+model one NVL72 compute tray, the unit a real node reports.
 
 ## Integration Values
 
@@ -728,6 +747,17 @@ execution. SM occupancy and tensor-core activity are properties of kernels the
 mock does not run, so deriving them from anything other than the configured
 utilization would be fabrication rather than simulation. They stay fixed by
 design and are not a gap to be closed.
+
+**Conf Compute protected memory.** The `Conf Compute Protected Memory Usage`
+block of `nvidia-smi -q` reports `0 MiB` for Total, Used and Free on every
+profile, and there is no key to change it. Nothing partitions protected memory
+until Confidential Compute mode is switched on, which the mock does not model
+(see issue #377), and NVML reports `0 MiB` rather than an unsupported query
+whether or not the part could do CC: every board in
+`tests/e2e/go/assertions/nvidiasmi/testdata/hardware` reports it that way,
+including A100, L40S and T4. A profile pinned to a driver older than `525` is the
+one exception — the CC APIs did not exist yet, so the rows read `N/A`, as they do
+on real hardware of that vintage.
 
 **Identity and topology.** Device `name`, `architecture`, `brand`,
 `compute_capability`, `uuid`, PCI `bus_id`, and the BAR1 aperture

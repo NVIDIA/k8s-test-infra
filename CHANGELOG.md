@@ -7,7 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- mocknvml: `Max Customer Boost Clocks` in `nvidia-smi -q` now reports the
+  profile's `clocks.graphics_max` instead of `N/A`. Both NVML entry points that
+  can answer the row were generated stubs — the dedicated
+  `nvmlDeviceGetMaxCustomerBoostClock` and `nvmlDeviceGetClock`, which
+  `nvidia-smi` calls once per GPU on every `-q` run — so the mock said the driver
+  could not report an OEM boost ceiling where every real board reports one. Both
+  are now hand-written, and `nvmlDeviceGetClock` answers its whole clock-type ×
+  clock-id matrix from the `clocks:` block rather than only the one combination
+  this row needs, so DCGM and other go-nvml callers reaching it for current or
+  application clocks no longer get `NOT_SUPPORTED` either.
+  The ceiling is derived from `clocks.graphics_max` rather than from a new key.
+  #712 proposed a `clocks.customer_boost_max` on the premise that the OEM limit
+  sits below the boost maximum on real parts; the seven real-hardware captures
+  in-tree say otherwise — A100, H100, L40S, T4, B200, GB200 and GB300 all report
+  `max_customer_boost_clocks` equal to `max_clocks`. The reference GB300 tray
+  reporting `2070 MHz` where the profile said `2200` was the `gb300` profile's
+  `graphics_max` being wrong, not a customer-boost-specific limit, so a second
+  key would only have given profiles two values to keep in step by hand. The
+  e2e check pins the equality as well as the value, so a board that ever needs
+  the two to differ has to change the check and say why. (#712)
+- mocknvml: the `b200`, `gb200` and `gb300` profiles reported graphics and SM
+  boost clocks their real counterparts do not — `2100`/`2100`/`2200 MHz` against
+  the `1965`/`2062`/`2070 MHz` in the captures — so `Max Clocks`,
+  `Applications Clocks` and `Default Applications Clocks` were all off on the
+  three Blackwell profiles. The application clocks move with the maximum because
+  a real board reports them equal, and leaving them behind would have claimed an
+  application clock above the GPU's own ceiling. `supported_clocks` is capped at
+  the corrected maximum for the same reason. The `video_max` and memory clock
+  values on these profiles are still off against their captures and are left for
+  a follow-up. (#712)
+
 ### Added
+- The node agent gains `pcibus`, `cdi` and `imex` simulators, each an
+  `agent.Simulator` with the same stage/apply/discard lifecycle as the existing
+  `gpudriver`. Together they subsume the device-surface construction that
+  `deployments/nvml-mock/scripts/setup.sh` performed at pod start, which loses
+  369 lines (`cleanup.sh` loses 18). Staging a surface can now fail without
+  leaving a half-built node, because the agent discards what it staged instead
+  of exiting partway through a shell script. (#TBD)
+- The `imex` simulator renders the capability surface the NVIDIA DRA driver's
+  compute-domain kubelet plugin needs on a node with no NVIDIA kernel driver:
+  the `nvidia-caps-imex-channels` channel device nodes, the `/proc/devices`
+  substitute the plugin reads through `ALT_PROC_DEVICES_PATH`, and the
+  `fabric-imex-mgmt` capability file. Without the `/proc/devices` entry the
+  plugin aborts at startup, and without the channel nodes containerd refuses to
+  admit a pod carrying a compute-domain CDI spec. Gated on
+  `imex.mockChannels.enabled`. (#TBD)
+- `host.Host.Mknod` centralises privileged character-device creation, so
+  `gpudriver` and `imex` share one primitive rather than each carrying its own
+  copy of the `mknod`-then-`chmod` sequence. (#TBD)
+- `make build` now also builds the Go shims under `shims/`, and
+  `make test-nvidia-imex-shim` runs the shim's integration tests against that
+  built binary instead of compiling one during the test run. (#TBD)
+- mocknvml: the `Conf Compute Protected Memory Usage` block of `nvidia-smi -q`
+  now reports `0 MiB` for Total, Used and Free instead of `N/A`. Both NVML
+  getters behind it were generated stubs that `nvidia-smi` calls once per GPU on
+  every `-q` run, so the mock said the driver could not tell whether any memory
+  is protected, where every real board answers that none is. The values are not
+  configurable and are not gated on the part: all seven real-hardware captures
+  in-tree report `0 MiB` here on drivers 570 and later, including the A100, L40S
+  and T4 boards that cannot do Confidential Compute at all. Nothing partitions
+  protected memory until CC mode is on, which stays unmodelled (#377). The two
+  exports are registered as arriving in driver `525`, so a profile pinned below
+  that reports `N/A` as real hardware of that vintage does. The unread
+  `features.confidential_compute` key is removed from the `h100`, `b200`,
+  `gb200` and `gb300` profiles: gating this surface on it would have made a T4
+  report `N/A` where a real one reports `0 MiB`. (#711)
 - A `--observability` Tilt consumer that runs kube-prometheus-stack and the GPU
   Operator's `dcgm-exporter` over mock GPUs and ships a Grafana dashboard
   in-tree, so the real exporter is scraped and rendered on a cluster with no
@@ -115,6 +182,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- The mock renderers move out of `pkg/` now that their CLI entry points are
+  gone: `pkg/system/mockpcisysfs/render` becomes `internal/pcisysfs` and
+  `pkg/system/mockimex/render` becomes `internal/imex`. Each had one in-repo
+  consumer, so `pkg/` was advertising an importable contract that nothing
+  outside the repo used. (#TBD)
+- The LD_PRELOAD and `execve` shims are collected under a single `shims/`
+  directory: `pkg/system/mockpcisysfs/c` becomes `shims/libpcisysfs`, and
+  `cmd/imex-nogpu-shim` becomes `shims/nvidia-imex-shim` — named after the
+  binary it wraps rather than the flag it appends, and moved out of `cmd/`
+  because it is not a CLI anyone invokes. (#TBD)
+- The chart's IMEX environment moves from the `nvml-mock` container to
+  `node-agent`, which is the process that now materialises the surface those
+  variables describe. (#TBD)
+- Tilt's `docker_build(only=…)` allowlists now cover `shims/`, `internal/` and
+  `Makefile`. They had drifted from the Dockerfiles they feed, and because
+  `only=` is a context allowlist rather than a cache hint, `COPY shims/ shims/`
+  failed with `"/shims": not found` — the path was absent from the build
+  context entirely. (#TBD)
+- The local-dev and CI Kind clusters no longer run nvml-mock on the control-plane
+  node. The chart tolerates every taint, so the DaemonSet landed there too, but
+  nothing follows it: GPU Operator operands, FGO and NFD workers all stop at the
+  `NoSchedule` taint. That left a node advertising a GPU driver footprint no
+  consumer could use, and scenarios that pick a mock pod by list position
+  intermittently targeted it. Every Kind worker now carries
+  `mokka.nvidia.com/type=sgpu` and `local/nvml-mock.values.yaml` selects on it;
+  the compute-domain overlay repeats the selector because its Tiltfile installs
+  the chart without that baseline, and its `topology.yaml` gives the control
+  plane no clique to report. Pinning stays additive — Helm deep-merges maps, so
+  the FGO pool selector and `--multi-gpu-profile`'s hostname pin compose with
+  it. (#724)
+- The nvml-mock chart now defaults `gpu.profile` to `gb300` instead of `a100`, so
+  a bare `helm install` simulates current-generation hardware. Ampere is the
+  architecture least likely to expose a gap in software being tested against a
+  simulated fleet; GB300 exercises the newer surfaces (Grace-Blackwell C2C, FP4/FP6,
+  NVLink v5, the 570 driver line) that consumers are actually being ported to.
+  Pass `--set gpu.profile=a100` to keep the previous behaviour.
 - CI no longer depends on the third-party `ttl.sh` registry to share e2e images
   between jobs. The nvml-mock and kind-node images are exported as tarballs and
   handed to the legs that need them as run-scoped GitHub Actions artifacts, which need no
@@ -139,8 +242,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is now the pipeline's critical path.
 - Test pod manifests moved into a generic `pod.tpl.yaml` under
   `tests/e2e/go/framework/pod`, rendered from a `Spec` carrying only what varies.
+- The `gb200` and `gb300` profiles now model 4 GPUs per node over 2 PCI root
+  complexes, not 8 over 4. Both were written to the 8-GPU baseboard shape the
+  other profiles use, but an NVL72 rack reaches 72 GPUs as 18 compute trays of
+  4, and `nvidia-smi` runs per node: the real captures in
+  `tests/e2e/go/assertions/nvidiasmi/testdata/hardware/` report 4 attached GPUs
+  on one tray, in one slot, of one chassis. A node twice its real size inflates
+  every count a consumer derives from it — allocatable GPUs, GFD's
+  `nvidia.com/gpu.count`, ResourceSlice sizes — and invents a second pair of
+  Grace CPUs and NUMA nodes that no such node has. Two details the captures
+  report are now reproduced with it: the two GPUs of a superchip share one board
+  serial, and `module_id` does not follow the device index (2, 1, 4, 3 across
+  devices 0..3), so a consumer that assumes either breaks here rather than on
+  real hardware. `gpu.count` left empty still derives from the profile, so the
+  chart needs no change, but `gb300` is the chart default: a default install now
+  exposes 4 GPUs per node rather than 8. Set `gpu.profile` to one of the 8-GPU
+  baseboards, or `gpu.count` explicitly, for a larger node. The standalone and
+  node-wide demos now default the count from the selected profile's device list
+  instead of a hardcoded 8.
+
+### Removed
+- Chart value `nodeLabels.pciVendorPresent`. The NFD feature file behind
+  `feature.node.kubernetes.io/pci-10de.present` is now always written. A
+  leftover `--set nodeLabels.pciVendorPresent=false` is silently ignored, not
+  rejected. (#719)
+
+### Removed
+- `cmd/fake-imex` (both the daemon and the ctl). The real `nvidia-imex` in NO
+  GPU mode, reached through `shims/nvidia-imex-shim`, supersedes the
+  marker-file simulation, completing the deprecation announced in 0.3.0. (#304)
+- `cmd/render-imex-procdevices` and `cmd/render-pci-sysfs`. Both were one-shot
+  renderers that `setup.sh` invoked; the `imex` and `pcibus` simulators call
+  the same rendering code in-process. (#TBD)
+- `pkg/imexcoord` and the chart's `imex.enabled` / `imex.stateDir` values,
+  along with the `host-imex-state` hostPath they mounted. This was the
+  marker-file protocol the removed fakes coordinated through; real daemons
+  coordinate over the pod network and need no hostPath. `imex.mockChannels` is
+  unaffected. The chart schema permits unknown keys, so a values file still
+  setting `imex.enabled: true` installs silently with no state directory
+  mounted rather than failing. (#304)
 
 ### Fixed
+- mocknvml: Xid critical-error events are now attributed to the whole GPU the
+  way real NVML does — `nvmlEventData_t.gpuInstanceId`/`computeInstanceId`
+  carry the `0xFFFFFFFF` "not a MIG instance" sentinel instead of `0`/`0`,
+  which consumers (e.g. the DRA driver's health monitor) treat as MIG GI 0 /
+  CI 0 and drop on a GPU without MIG enabled.
+- mocknvml: device state (tripped failure injection, ECC counters, undelivered
+  Xid events) now survives a full `nvmlShutdown()`/`nvmlInit()` cycle, as it
+  does on real hardware. Previously the devices were recreated on re-init, so
+  a failure tripped during one init cycle was silently forgotten before a
+  client that inits NVML again (e.g. for an event-set wait loop) could observe
+  it. This also means the `after_calls` counter and the seeded `probability`
+  roll sequence continue across a re-init within one process rather than
+  starting over. Handles issued before the shutdown remain invalid, and their
+  addresses are never reused for new handles.
 - mocknvml: `nvmlPciInfo_t.busId` now reports the 8-digit PCI domain real NVML
   uses (`00000000:07:00.0`, `NVML_DEVICE_PCI_BUS_ID_FMT`) while `busIdLegacy`
   keeps the 4-digit one (`0000:07:00.0`). Both were filled with the profile's

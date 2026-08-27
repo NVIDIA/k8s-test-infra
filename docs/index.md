@@ -43,20 +43,15 @@ though real hardware were present. No physical NVIDIA GPU is required.
 ## Try it
 
 ```bash
-# 1. Create a cluster
 kind create cluster --name mokka
 
-# 2. Load the published image. It is multi-arch, and `kind load docker-image`
-# cannot load a multi-arch image from Docker Desktop's containerd store, so
-# save a single platform first.
-ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
-docker pull ghcr.io/nvidia/nvml-mock:latest
-docker save --platform "linux/${ARCH}" ghcr.io/nvidia/nvml-mock:latest -o nvml-mock.tar
-kind load image-archive nvml-mock.tar --name mokka
-
-# 3. Install
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+    --namespace mokka --create-namespace
 ```
+
+Use `make cluster-create` instead of `kind create cluster` when you need the
+CDI-enabled Kind node image — that is what the device plugin, DRA driver and
+GPU Operator paths run on. `make cluster-delete` tears it down.
 
 The [Helm chart guide](helm-chart.md) has the full walkthrough for each
 consumer, including the device plugin, the DRA driver, the GPU Operator and a
@@ -81,11 +76,11 @@ multi-node heterogeneous fleet.
 
 | Profile | GPU Name | VRAM | Architecture |
 |---------|----------|------|--------------|
-| `a100` | A100-SXM4-40GB | 40 GiB | Ampere |
-| `h100` | H100 80GB HBM3 | 80 GiB | Hopper |
-| `b200` | B200 | 192 GiB | Blackwell |
-| `gb200` | GB200 | 192 GiB | Blackwell |
 | `gb300` | GB300 NVL | 288 GiB | Blackwell Ultra |
+| `gb200` | GB200 | 192 GiB | Blackwell |
+| `b200` | B200 | 192 GiB | Blackwell |
+| `h100` | H100 80GB HBM3 | 80 GiB | Hopper |
+| `a100` | A100-SXM4-40GB | 40 GiB | Ampere |
 | `l40s` | L40S | 48 GiB | Ada Lovelace |
 | `t4` | Tesla T4 | 16 GiB | Turing |
 

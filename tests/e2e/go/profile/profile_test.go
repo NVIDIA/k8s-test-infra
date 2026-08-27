@@ -42,14 +42,20 @@ func TestDerivations(t *testing.T) {
 		slowdownC     int
 		maxOperatingC int
 		maxLinkGen    int
+		// graphicsMaxMHz is clocks.graphics_max, which the mock also reports as
+		// the OEM ceiling in Max Customer Boost Clocks (#712). Every value here
+		// is the max_clocks/graphics_clock its board reports in
+		// tests/e2e/go/assertions/nvidiasmi/testdata/hardware, so a profile
+		// edited away from its capture fails here.
+		graphicsMaxMHz int
 	}{
-		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, "ampere", false, false, 92, 87, 83, 4}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
-		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, "hopper", true, false, 92, 87, 83, 5},
-		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, "blackwell", true, false, 95, 90, 85, 6}, // NVLink negative control, IB enabled
-		{"gb200", "NVIDIA GB200", 8, 8, 18, true, true, true, 4, "blackwell", true, true, 95, 90, 85, 6},
-		{"gb300", "NVIDIA GB300 NVL", 8, 8, 18, true, true, true, 4, "blackwell", true, true, 95, 90, 85, 6},
-		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, "ada_lovelace", true, false, 96, 93, 89, 4}, // IB + NVLink negative control
-		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, "turing", false, false, 96, 93, 89, 3},
+		{"a100", "NVIDIA A100-SXM4-40GB", 8, 8, 12, true, false, true, 2, "ampere", false, false, 92, 87, 83, 4, 1410}, // NVSwitch (FabricMgr) but no ComputeDomain fabric block
+		{"h100", "NVIDIA H100 80GB HBM3", 8, 8, 18, true, true, true, 2, "hopper", true, false, 92, 87, 83, 5, 1980},
+		{"b200", "NVIDIA B200", 8, 8, 0, false, false, true, 2, "blackwell", true, false, 95, 90, 85, 6, 1965}, // NVLink negative control, IB enabled
+		{"gb200", "NVIDIA GB200", 4, 4, 18, true, true, true, 2, "blackwell", true, true, 95, 90, 85, 6, 2062}, // one NVL72 compute tray: 2 superchips, 4 GPUs
+		{"gb300", "NVIDIA GB300 NVL", 4, 4, 18, true, true, true, 2, "blackwell", true, true, 95, 90, 85, 6, 2070},
+		{"l40s", "NVIDIA L40S", 8, 0, 0, false, false, false, 2, "ada_lovelace", true, false, 96, 93, 89, 4, 2520}, // IB + NVLink negative control
+		{"t4", "NVIDIA T4", 4, 0, 0, false, false, false, 1, "turing", false, false, 96, 93, 89, 3, 1590},
 	}
 
 	for _, c := range cases {
@@ -79,6 +85,7 @@ func TestDerivations(t *testing.T) {
 				{"SlowdownThresholdC", p.SlowdownThresholdC(), c.slowdownC},
 				{"MaxOperatingC", p.MaxOperatingC(), c.maxOperatingC},
 				{"MaxPCIeLinkGen", p.MaxPCIeLinkGen(), c.maxLinkGen},
+				{"GraphicsMaxClockMHz", p.GraphicsMaxClockMHz(), c.graphicsMaxMHz},
 			}
 			for _, ck := range checks {
 				t.Run(ck.name, func(t *testing.T) {
@@ -267,4 +274,29 @@ devices:
 	p, err := Load(dir, "fixture")
 	require.NoError(t, err, "Load(fixture)")
 	assert.False(t, p.ReportsRowRemapHistogram(), "ReportsRowRemapHistogram()")
+}
+
+// TestExpectedPCIRootsFallsBackToOneRoot pins the assumption Load makes for a
+// profile with no pcie_topology block: the pcibus simulator synthesizes one flat
+// root complex (internal/agent/pcibus flatTopology), so PCISysfs must expect
+// exactly one. No shipped profile omits the block, so nothing else covers this.
+func TestExpectedPCIRootsFallsBackToOneRoot(t *testing.T) {
+	dir := t.TempDir()
+	const raw = `
+device_defaults:
+  name: "NVIDIA Mock GPU"
+devices:
+  - index: 0
+    pci:
+      bus_id: "0000:1A:00.0"
+  - index: 1
+    pci:
+      bus_id: "0000:1B:00.0"
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "flat.yaml"), []byte(raw), 0o600))
+
+	p, err := Load(dir, "flat")
+	require.NoError(t, err)
+	require.Equal(t, 1, p.ExpectedPCIRoots(), "topology-less profile spans one synthesized root")
+	require.Equal(t, 2, p.ExpectedGPUs())
 }

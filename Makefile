@@ -117,9 +117,15 @@ build: ## Build all CLIs
 	    echo "🔨 $$name"; \
 	    $(GO_CMD) build -mod=vendor -o $(DIST_DIR)/$$name $$pkg || exit 1; \
 	done
+	@echo "Building Golang shims.."
+	@for pkg in $$(find ./shims -type f -name main.go -exec dirname {} \; | sort -u); do \
+	    name=$$(basename $$pkg); \
+	    echo "🔨 $$name"; \
+	    $(GO_CMD) build -mod=vendor -o $(DIST_DIR)/$$name $$pkg || exit 1; \
+	done
 
 build-mockpcisysfs: ## Build mockpcisysfs
-	@make -C pkg/system/mockpcisysfs
+	@make -C shims/libpcisysfs
 
 .PHONY: test
 test: ## Run unit tests with race detection and coverage
@@ -177,12 +183,16 @@ test-mocknvml-bridge:
 	$(MAKE) -C tests/mocknvml test
 
 .PHONY: mockpcisysfs-shim
-mockpcisysfs-shim: ## Build the mockpcisysfs LD_PRELOAD shim (libpcimocksys.so)
-	@$(MAKE) -C pkg/system/mockpcisysfs
+mockpcisysfs-shim: ## Build the mockpcisysfs LD_PRELOAD shim (libpcisysfs.so)
+	@$(MAKE) -C shims/libpcisysfs
 
 .PHONY: test-mockpcisysfs
 test-mockpcisysfs: mockpcisysfs-shim ## Run mockpcisysfs integration tests
-	@$(GO_CMD) test -tags integration -v ./pkg/system/mockpcisysfs/...
+	@$(GO_CMD) test -tags integration -v ./shims/libpcisysfs/...
+
+.PHONY: test-nvidia-imex-shim
+test-nvidia-imex-shim: build ## Run nvidia-imex-shim integration tests
+	@$(GO_CMD) test -v ./shims/nvidia-imex-shim/...
 
 .PHONY: helm-tests
 helm-tests: ## Run the nvml-mock chart unit test suite

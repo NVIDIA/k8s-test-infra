@@ -22,10 +22,9 @@ type YAMLConfig struct {
 	Devices        []DeviceOverride `json:"devices"`
 	NVLink         *NVLinkConfig    `json:"nvlink,omitempty"`
 
-	// PCIeTopology promotes the root-complex / NUMA layout (previously
-	// consumed only by cmd/render-pci-sysfs) into the engine so NVLink
-	// topology, pairwise PCIe levels, and CPU/NUMA affinity all derive
-	// from the same facts. Optional; absent on PCIe-only profiles.
+	// PCIeTopology describes the root-complex / NUMA layout consumed by the
+	// pcibus simulator and the engine for NVLink topology, pairwise PCIe
+	// levels, and CPU/NUMA affinity. Optional; absent on PCIe-only profiles.
 	PCIeTopology *PCIeTopologyConfig `json:"pcie_topology,omitempty"`
 }
 
@@ -542,12 +541,17 @@ type GSPFirmwareConfig struct {
 	Version string `json:"version,omitempty"`
 }
 
-// FeaturesConfig defines GPU-specific features (like Blackwell features)
+// FeaturesConfig defines GPU-specific features (like Blackwell features).
+//
+// Every field here is descriptive metadata that no getter reads. A key only
+// belongs in this block while nothing depends on it: confidential_compute was
+// removed once the Conf Compute memory getters landed, because real NVML answers
+// those on any part and gating them on a capability claim would have made a T4
+// report N/A where a real one reports 0 MiB. See issue #711.
 type FeaturesConfig struct {
 	TransformerEngine   bool `json:"transformer_engine,omitempty"`
 	FP4Support          bool `json:"fp4_support,omitempty"`
 	FP8Support          bool `json:"fp8_support,omitempty"`
-	ConfidentialCompute bool `json:"confidential_compute,omitempty"`
 	NVLinkC2C           bool `json:"nvlink_c2c,omitempty"`
 	DecompressionEngine bool `json:"decompression_engine,omitempty"`
 	FifthGenTensorCores bool `json:"fifth_gen_tensor_cores,omitempty"`
@@ -878,9 +882,9 @@ type NVLinkLinkConfig struct {
 	RemoteIndex *int `json:"remote_index,omitempty"`
 }
 
-// PCIeTopologyConfig describes the root-complex / NUMA layout shared with
-// render-pci-sysfs. CoresPerNUMA synthesizes a CPU affinity set per NUMA
-// node when a root complex does not declare an explicit cpu_affinity range.
+// PCIeTopologyConfig describes the root-complex / NUMA layout consumed by the
+// pcibus simulator. CoresPerNUMA synthesizes a CPU affinity set per NUMA node
+// when a root complex does not declare an explicit cpu_affinity range.
 type PCIeTopologyConfig struct {
 	RootComplexes []RootComplexConfig `json:"root_complexes,omitempty"`
 	CoresPerNUMA  int                 `json:"cores_per_numa,omitempty"`

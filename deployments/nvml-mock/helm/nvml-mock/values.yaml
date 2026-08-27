@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 gpu:
-  profile: a100           # any *.yaml basename under profiles/ (e.g. a100, h100, b200, gb200, gb300, l40s, t4)
+  profile: gb300          # any *.yaml basename under profiles/ (e.g. a100, h100, b200, gb200, gb300, l40s, t4)
   # Number of GPUs to expose. Empty (default) derives the count from the
-  # selected profile's `devices:` list (t4 -> 4, all NVSwitch baseboards/NVL
-  # slices -> 8), so the profile is the single source of truth. Set to a
-  # positive integer to force a smaller/larger slice; setup.sh caps it to the
-  # profile's device count at runtime.
+  # selected profile's `devices:` list (t4 and the Grace-Blackwell trays
+  # gb200/gb300 -> 4, the 8-GPU baseboards -> 8), so the profile is the single
+  # source of truth. Set to a positive integer to force a smaller/larger slice;
+  # setup.sh caps it to the profile's device count at runtime.
   count: ""
   customConfig: ""
 
@@ -68,45 +68,11 @@ tolerations:
 
 resources: {}
 
-# Node labels nvml-mock causes to exist, reversed again by the preStop
-# cleanup.sh. setup.sh writes nvidia.com/gpu.present directly with `kubectl
-# label`; feature.node.kubernetes.io/pci-10de.present is created by NFD from a
-# feature file setup.sh drops in featuresDir below. setup.sh converges either
-# way: with the switch on it writes that file, with it off it removes any file
-# an earlier run left behind. cleanup.sh unwinds only setup.sh's own write, so
-# with the switch off it has nothing to undo. The label belongs to NFD, which
-# retires it on its next discovery cycle once the file is gone.
+# Node labels nvml-mock causes to exist: setup.sh writes nvidia.com/gpu.present
+# directly; NFD derives pci-10de.present from the node agent's feature file.
 nodeLabels:
-  # feature.node.kubernetes.io/pci-10de.present=true
-  #
-  # NFD creates this label; nvml-mock only writes the feature file it derives
-  # it from. That keeps the key to exactly one writer, so "NFD works" stays
-  # distinguishable from "we set it ourselves" (#505), and it needs no node
-  # RBAC. With no NFD on the cluster the file is inert and the label does not
-  # exist.
-  #
-  # NFD's PCI source cannot derive it as deployed: nfd-worker reads a
-  # host-prefixed sysfs path fixed at link time (/host-sys/bus/pci/devices), so
-  # our rendered tree at /var/lib/nvml-mock/sys is not on a path it reads. The
-  # tree itself is complete — pointed at it, NFD enumerates every mock GPU and
-  # derives exactly this label. See setup.sh step 7 for the full analysis.
-  #
-  # Keep the default (true) on a mock-only cluster running NFD: consumers that
-  # gate on the NFD PCI label (GPU Operator operands, nfd-based nodeSelectors)
-  # need it to schedule. The default supplies the input, not the label — with no
-  # NFD on the cluster nothing derives the label and those consumers do not
-  # schedule. Set to false when something else already supplies
-  # feature.node.kubernetes.io/pci-10de.present and a second writer would
-  # conflict with it.
-  pciVendorPresent: true
-
-  # Host directory NFD's *local* source reads feature files from
-  # (source/local/local.go featureFilesDir, a plain literal — unlike the PCI
-  # source's /host-sys path it is not host-prefixed). setup.sh drops the
-  # pci-10de feature file here and NFD turns it into the label, so the mock
-  # never writes that key to the node API (nvidia.com/gpu.present is the only
-  # label it still sets directly). Override only if NFD is deployed with a
-  # non-default features.d location.
+  # Host directory NFD's local source reads feature files from; must match the
+  # featureFilesDir the deployed NFD actually reads.
   featuresDir: /etc/kubernetes/node-feature-discovery/features.d
 
 # Node-wide ambient injection via containerd NRI. When enabled, a lightweight
@@ -114,6 +80,18 @@ nodeLabels:
 # container at runtime without mutating pod specs. Opt-in (default false): it
 # injects into workloads cluster-wide, so enable it only for the
 # node-wide-injection demo/use case. See docs/demo/node-wide-injection.
+
+nodeAgent:
+  logging:
+    level: info    # debug | info | warn | error
+    format: json   # json | plain
+  # Go duration string: 5s, 1m30s, etc.
+  shutdownTimeout: 30s
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+
 # Allocation-aware GPU memory (#506). When enabled, a sidecar in the nvml-mock
 # DaemonSet polls the kubelet pod-resources API and mirrors each pod's
 # nvidia.com/gpu claim into memory.used_bytes / memory.free_bytes, so a
@@ -293,17 +271,7 @@ infiniband:
     networkPolicy:
       enabled: true
 
-# DEPRECATED — fake IMEX coordination, removed in a follow-up release.
-# The fake nvidia-imex / nvidia-imex-ctl marker protocol is superseded
-# by the REAL nvidia-imex daemon running in NO GPU mode (--nogpu) via
-# imex-nogpu-shim; real daemons coordinate over the pod network and
-# need no hostPath (see deployments/nvml-mock/Dockerfile.compute-domain-daemon
-# and NVIDIA/k8s-test-infra#304). While deprecated, `imex.enabled: true`
-# still mounts the hostPath state directory the fakes' marker files use.
 imex:
-  enabled: false
-  stateDir: /var/lib/nvml-mock/imex-state
-
   # Mock IMEX capability surface for the NVIDIA DRA driver's compute-domain
   # kubelet plugin. That plugin reads a device major for
   # nvidia-caps-imex-channels out of /proc/devices at startup; on a mock node
@@ -387,15 +355,17 @@ controlPlane:
   logging:
     level: info    # debug | info | warn | error
     format: json   # json | plain
+  # Go duration string: 5s, 1m30s, etc.
+  shutdownTimeout: 5s
   service:
     type: ClusterIP
     port: 8080
   # Total shutdown budget on the pod: preStop sleep + in-flight request drain
-  # (control-plane --shutdown-timeout, default 5s) must fit inside this.
-  # 30s matches the kube default and leaves headroom over the current 10s
-  # preStop + 5s drain; raise this together with --shutdown-timeout if the
-  # CP starts holding long-lived connections. Setting it below preStop + drain
-  # truncates the drain — kube SIGKILLs at the grace boundary regardless.
+  # (shutdownTimeout above) must fit inside this. 30s matches the kube default
+  # and leaves headroom over the current 10s preStop + 5s drain; raise this
+  # together with shutdownTimeout if the CP starts holding long-lived connections.
+  # Setting it below preStop + drain truncates the drain — kube SIGKILLs at the
+  # grace boundary regardless.
   terminationGracePeriodSeconds: 30
   resources:
     requests:

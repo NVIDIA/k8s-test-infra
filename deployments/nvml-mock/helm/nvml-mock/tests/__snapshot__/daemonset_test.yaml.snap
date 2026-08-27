@@ -19,7 +19,7 @@ should match snapshot with all overrides:
       template:
         metadata:
           annotations:
-            checksum/config: fb921dcb2b78ce2a7f41a6b6bf55586804e92655fcf1a29449d8515db3c44e97
+            checksum/config: fccb5cf9ce1dc2d717ff75f1a57dac8f1581c95d6f8fc5c4138493a21edeba58
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: custom
@@ -37,8 +37,6 @@ should match snapshot with all overrides:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
-                - name: MOCK_NFD_PCI_LABEL
-                  value: "on"
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
@@ -62,7 +60,7 @@ should match snapshot with all overrides:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: nvml-mock-custom-ibping.gpu-system.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
+                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
@@ -109,6 +107,60 @@ should match snapshot with all overrides:
                   name: host-nfd-features
                 - mountPath: /var/lib/nvml-mock/fabric-state
                   name: host-fabric-state
+            - command:
+                - /usr/local/bin/node-agent
+                - start
+                - --config=/etc/nvml-mock/config.yaml
+                - --host-root=/host
+                - --health-addr=:9091
+                - --log-level=info
+                - --log-format=json
+                - --shutdown-timeout=30s
+              env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: GPU_COUNT
+                  value: "2"
+                - name: DRIVER_VERSION
+                  value: 555.55.55
+                - name: MOCK_FABRICMANAGER_STATE_DIR
+                  value: /var/lib/nvml-mock/fabric-state
+              image: custom-registry/nvml-mock:v2.0.0
+              imagePullPolicy: Always
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 9091
+              name: node-agent
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: 9091
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  add:
+                    - MKNOD
+                  drop:
+                    - ALL
+              volumeMounts:
+                - mountPath: /host/var/lib/nvml-mock
+                  name: host-nvml-mock
+                - mountPath: /host/run/nvidia
+                  name: host-run-nvidia
+                - mountPath: /host/run/cdi
+                  name: host-cdi
+                - mountPath: /etc/nvml-mock
+                  name: gpu-config
+                  readOnly: true
+                - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+                  name: host-nfd-features
           nodeSelector:
             nvidia.com/gpu.present: "true"
           serviceAccountName: nvml-mock-custom
@@ -166,7 +218,7 @@ should match snapshot with b200 profile:
       template:
         metadata:
           annotations:
-            checksum/config: 34bbeafe005d65c19de791d4d2d65ac68868aa562c4fb5c00aa86f7b05d5ec5c
+            checksum/config: c31fe3cb55c5bfe18a4905911287a9f08fdaef0d3be553d218b4ce16cab429d8
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME
@@ -184,8 +236,6 @@ should match snapshot with b200 profile:
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
-                - name: MOCK_NFD_PCI_LABEL
-                  value: "on"
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
@@ -205,7 +255,7 @@ should match snapshot with b200 profile:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
+                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
@@ -241,6 +291,58 @@ should match snapshot with b200 profile:
                   name: host-cdi
                 - mountPath: /host/run/nvidia
                   name: host-run-nvidia
+                - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+                  name: host-nfd-features
+            - command:
+                - /usr/local/bin/node-agent
+                - start
+                - --config=/etc/nvml-mock/config.yaml
+                - --host-root=/host
+                - --health-addr=:9091
+                - --log-level=info
+                - --log-format=json
+                - --shutdown-timeout=30s
+              env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: GPU_COUNT
+                  value: "4"
+                - name: DRIVER_VERSION
+                  value: 560.35.03
+              image: ghcr.io/nvidia/nvml-mock:latest
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 9091
+              name: node-agent
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: 9091
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  add:
+                    - MKNOD
+                  drop:
+                    - ALL
+              volumeMounts:
+                - mountPath: /host/var/lib/nvml-mock
+                  name: host-nvml-mock
+                - mountPath: /host/run/nvidia
+                  name: host-run-nvidia
+                - mountPath: /host/run/cdi
+                  name: host-cdi
+                - mountPath: /etc/nvml-mock
+                  name: gpu-config
+                  readOnly: true
                 - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
                   name: host-nfd-features
           serviceAccountName: RELEASE-NAME-nvml-mock
@@ -292,7 +394,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: a66f0f0e6622369198c9e8ba677b92c714c8e25783dba2e5ae6cf7028fecb927
+            checksum/config: fe6f2984729290d4ca69845836d40df01d3e5c857db8c170dbbbf185a7228bc4
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME
@@ -303,15 +405,13 @@ should match snapshot with default values:
                 - /scripts/entrypoint.sh
               env:
                 - name: GPU_COUNT
-                  value: "8"
+                  value: "4"
                 - name: DRIVER_VERSION
-                  value: 550.163.01
+                  value: 570.124.06
                 - name: NODE_NAME
                   valueFrom:
                     fieldRef:
                       fieldPath: spec.nodeName
-                - name: MOCK_NFD_PCI_LABEL
-                  value: "on"
                 - name: MOCK_NVML_CONFIG
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
@@ -335,7 +435,7 @@ should match snapshot with default values:
                 - name: MOCK_IB_PING_SERVICE_HOST
                   value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
-                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcimocksys.so.1
+                  value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1
                 - name: MOCK_IB_ROOT
                   value: /var/lib/nvml-mock/ib
                 - name: MOCK_PCI_ROOT
@@ -375,6 +475,60 @@ should match snapshot with default values:
                   name: host-nfd-features
                 - mountPath: /var/lib/nvml-mock/fabric-state
                   name: host-fabric-state
+            - command:
+                - /usr/local/bin/node-agent
+                - start
+                - --config=/etc/nvml-mock/config.yaml
+                - --host-root=/host
+                - --health-addr=:9091
+                - --log-level=info
+                - --log-format=json
+                - --shutdown-timeout=30s
+              env:
+                - name: NODE_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: spec.nodeName
+                - name: GPU_COUNT
+                  value: "4"
+                - name: DRIVER_VERSION
+                  value: 570.124.06
+                - name: MOCK_FABRICMANAGER_STATE_DIR
+                  value: /var/lib/nvml-mock/fabric-state
+              image: ghcr.io/nvidia/nvml-mock:latest
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 9091
+              name: node-agent
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: 9091
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  add:
+                    - MKNOD
+                  drop:
+                    - ALL
+              volumeMounts:
+                - mountPath: /host/var/lib/nvml-mock
+                  name: host-nvml-mock
+                - mountPath: /host/run/nvidia
+                  name: host-run-nvidia
+                - mountPath: /host/run/cdi
+                  name: host-cdi
+                - mountPath: /etc/nvml-mock
+                  name: gpu-config
+                  readOnly: true
+                - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+                  name: host-nfd-features
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 2
           tolerations:

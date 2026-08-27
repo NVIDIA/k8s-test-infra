@@ -116,7 +116,6 @@ type Simulator interface {
     Name() string
     Stage(ctx context.Context, host Host, state *State) error // materialize artifacts; nothing outside can see them yet
     Discard(ctx context.Context, host Host) error             // inverse of Stage
-    Run(ctx context.Context) error                            // long-running; nil-op for pure renderers
     Ready() bool
 }
 
@@ -126,6 +125,13 @@ type Applier interface {
     Apply(ctx context.Context, host Host, state *State) error
     Revoke(ctx context.Context, host Host) error
 }
+
+// Daemon is implemented by simulators that supervise a long-running background
+// process (fabricmanager marker loop, mock-ib server). Only fabricmanager and
+// ibhca implement this; the agent launches Run once at startup via type assertion.
+type Daemon interface {
+    Run(ctx context.Context) error
+}
 ```
 
 - `Stage` and `Apply` together are the level-triggered reconcile: both re-run on every state change and must be idempotent. `Revoke` and `Discard` run only on shutdown.
@@ -133,8 +139,7 @@ type Applier interface {
 - Internally, `Stage` parallelizes independent surfaces via a local `errgroup`. The GPU-driver-footprint simulator runs 7 things (chardevs + NVML shim + CUDA shim + nvidia-smi + procfs version + procfs params + engine config) concurrently.
 - Only three simulators implement `Applier`: `cdi` (both CDI YAMLs), `gpudriver` (`/run/nvidia/driver` symlink), `pcibus` (NFD feature file). The other four have no surface a third party acts on.
 - `Stage`↔`Discard` and `Apply`↔`Revoke` are exact inverses, so the shutdown order is written once in the agent and cannot delete an artifact before the spec that references it.
-- `Run` supervises background daemons (mock-ib server, fabric-manager marker loop). Returning nil means "one-shot done".
-- There is no agent-wide resync period. A simulator that owns a file something else can delete re-asserts it from `Run` instead, like the fabric-manager marker every 2 s.
+- Only `fabricmanager` and `ibhca` implement `Daemon`. The agent type-asserts each `Simulator` to `Daemon` at startup and launches `Run` only for those that match. A simulator that owns a file something else can delete re-asserts it from `Run`, like the fabric-manager marker every 2 s.
 - `Discard` removes only files the simulator created; the top-level `/host/var/lib/nvml-mock` root is left to the pod's hostPath lifecycle.
 - `Ready()` powers `/readyz` and attributes failures per surface.
 
@@ -194,9 +199,9 @@ This is the reconciler & supervisor.
 `Agent.Run(ctx)`:
 
 1. Subscribe to `StateSource.Watch(ctx)`; cache the last `State` in memory ([MEP-0001]'s crash-tolerance requirement). An `Update` carrying `Err` leaves that cache in force — the agent keeps serving it and does not reconcile.
-2. **Stage wave (parallel)** — on every `State` (initial + updates), call `Stage(ctx, host, state)` on every simulator concurrently via `errgroup`. Failures are isolated: an optional simulator's failure marks it unready and continues; a required one's failure returns.
+2. **Stage wave (parallel)** — on every `State` (initial + updates), call `Stage(ctx, host, state)` on every simulator concurrently via a `sync.WaitGroup`. Failures are fully isolated — a failing simulator never cancels its siblings. All errors are collected; if any Stage failed, the Apply wave is skipped and the errors are returned to the reconcile loop. Apply requires a clean Stage because appliers depend on Stage artifacts being present (CDI spec → chardevs, NFD file → PCI sysfs tree).
 3. **Barrier, then apply wave (parallel)** — once every `Stage` has returned, call `Apply(ctx, host, state)` on every `Applier`. The barrier is what stops containerd admitting a container against a CDI spec whose chardevs do not exist yet; reconciling again cannot undo that admission.
-4. **Supervisor wave (parallel, launched once)** — each simulator's `Run(ctx)` is launched under a supervisor `errgroup` at startup. Runs continue across state changes; only a canceled `ctx` stops them.
+4. **Supervisor wave (parallel, launched once)** — each simulator that implements `Daemon` has its `Run(ctx)` launched under a supervisor `errgroup` at startup (type assertion, not a required method). Daemons continue across state changes; only a canceled `ctx` stops them.
 5. Expose `/healthz` + `/readyz` HTTP endpoints, aggregated + per-simulator (shape from `cmd/nvml-mock-nri/main.go:107` `serveHealth`). `/healthz` is liveness only and never depends on `StateSource` reachability: otherwise one Control Plane outage restarts — and per step 6, tears down — the whole fleet at once. `/readyz` means the simulators reconciled the last accepted `State`, and is red only until the first one arrives; later staleness is a metric over `Update.At` and `State.Generation`, not a probe.
 6. On `ctx.Done()`: cancel `Run` goroutines, `Revoke` on every `Applier` in parallel, then — after that wave completes — `Discard` on every simulator in parallel. Both teardown waves use `errgroup.Group` rather than `errgroup.WithContext`: staging wants fail-fast, teardown wants best-effort so one stuck simulator does not strand the rest of the host. Because `ctx` is already done at this point, both waves must use a fresh context: `context.WithTimeout(context.WithoutCancel(ctx), timeout)`, budgeted under `terminationGracePeriodSeconds` (same pattern as `internal/controlplane/server.go:84`). Without this, any context-aware work in `Revoke` or `Discard` returns immediately and the node keeps advertising surfaces the agent believes it retracted.
 
@@ -206,10 +211,10 @@ Graceful shutdown via `signal.NotifyContext(ctx, SIGINT, SIGTERM)`.
 
 One per simulated component. Each is a package under `internal/agent/`:
 
-| Package                 | Simulates                                                       | Stage does (in parallel)                                                                   | Apply does                            | Run does                                                             |
+| Package                 | Simulates                                                       | Stage does (in parallel)                                                                   | Apply does                            | Daemon.Run does                                                      |
 |-------------------------|-----------------------------------------------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------|----------------------------------------------------------------------|
 | `gpudriver`             | Component 1 — GPU driver footprint                              | chardevs, NVML shim, CUDA shim, nvidia-smi, procfs version+params, mock-NVML engine config | `/run/nvidia/driver` symlink            | —                                                                    |
-| `pcibus`                | Component 2 — GPU on PCI bus                                    | PCI sysfs tree + libpcimocksys.so staging                                                  | NFD feature file                        | —                                                                    |
+| `pcibus`                | Component 2 — GPU on PCI bus                                    | PCI sysfs tree + libpcisysfs.so staging                                                  | NFD feature file                        | —                                                                    |
 | `fabricmanager`         | Component 3 — NVSwitch fabric manager                           | initial marker write                                                                       | —                                       | re-assert marker every 2 s                                           |
 | `imex`                  | Component 4 — NVIDIA IMEX                                       | IMEX channel chardevs + `/proc/devices` overlay                                            | —                                       | —                                                                    |
 | `ibhca`                 | Component 5 — InfiniBand HCA                                    | IB sysfs tree + libibmock*.so staging + IB CLI tool staging                                | —                                       | `pkg/network/mockib/daemon.Server`; optional fabric relay            |
@@ -287,10 +292,10 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 | `/sys/bus/pci/devices/<BDF>/driver → /sys/bus/pci/drivers/nvidia` symlink                      | GPU Operator's "is nvidia driver bound" probes                                                                 | ? verify; add explicit test to MEP-0003 test plan                          |
 | `/sys/bus/pci/devices/<BDF>/config` (PCIe config space, 4 KB)                                  | `lspci -vv`, low-level probes                                                                                  | ✗ **gap** — not materialized                                               |
 | `/proc/bus/pci/devices`                                                                        | legacy `lspci` fallback                                                                                        | ✗ **gap** — not materialized                                               |
-| `libpci`-based tools via `libpcimocksys.so` LD_PRELOAD                                         | `lspci`, C-based sysfs walkers                                                                                 | ✓ `pcibus` stages the shim + owns the LD_PRELOAD entry                     |
+| `libpci`-based tools via `libpcisysfs.so` LD_PRELOAD                                         | `lspci`, C-based sysfs walkers                                                                                 | ✓ `pcibus` stages the shim + owns the LD_PRELOAD entry                     |
 | NFD feature file `/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features` → `feature.node.kubernetes.io/pci-10de.present=true` | NFD-based operators, DRA driver | ✓ `pcibus.Apply` — bridge because NFD reads real host `/sys/bus/pci/`, which cannot see the mock's isolated PCI tree |
 
-**Delivery**: files under `/host/var/lib/nvml-mock/sys/` mounted at `/sys` in containers via CDI. LD_PRELOAD of `libpcimocksys.so` covers C `libpci` consumers.
+**Delivery**: files under `/host/var/lib/nvml-mock/sys/` mounted at `/sys` in containers via CDI. LD_PRELOAD of `libpcisysfs.so` covers C `libpci` consumers.
 
 **Restage trigger**: `state.NodeShape.Topology` changes.
 

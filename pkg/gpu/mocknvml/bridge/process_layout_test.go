@@ -55,8 +55,8 @@ func TestWriteProcessEntry_StrideAndFields(t *testing.T) {
 		e := unsafe.Add(base, i*procEntrySize)
 		require.Equal(t, want.pid, *(*uint32)(e), "entry %d pid", i)
 		require.Equal(t, want.mem, *(*uint64)(unsafe.Add(e, 8)), "entry %d usedGpuMemory", i)
-		require.Equal(t, uint32(0xFFFFFFFF), *(*uint32)(unsafe.Add(e, 16)), "entry %d gpuInstanceId", i)
-		require.Equal(t, uint32(0xFFFFFFFF), *(*uint32)(unsafe.Add(e, 20)), "entry %d computeInstanceId", i)
+		require.Equal(t, nvmlNoMIGInstanceID, *(*uint32)(unsafe.Add(e, 16)), "entry %d gpuInstanceId", i)
+		require.Equal(t, nvmlNoMIGInstanceID, *(*uint32)(unsafe.Add(e, 20)), "entry %d computeInstanceId", i)
 
 		nameBuf := unsafe.Slice((*byte)(unsafe.Add(e, procEntryNameOffset)), procEntryNameMax)
 		got, _, found := bytes.Cut(nameBuf, []byte{0})

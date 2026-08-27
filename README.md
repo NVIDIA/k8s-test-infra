@@ -24,21 +24,16 @@ Turn any Kubernetes cluster into a multi-GPU environment for testing.
 No physical NVIDIA hardware required.
 
 ```bash
-# 1. Create cluster
 kind create cluster --name mokka
 
-# 2. Load the published image (or build locally with: docker build -t nvml-mock:local -f deployments/nvml-mock/Dockerfile .)
-# The published image is multi-arch. `kind load docker-image` cannot load a
-# multi-arch image from Docker Desktop's containerd store and fails with
-# "ctr: content digest ...: not found", so save one platform first.
-ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
-docker pull ghcr.io/nvidia/nvml-mock:latest
-docker save --platform "linux/${ARCH}" ghcr.io/nvidia/nvml-mock:latest -o nvml-mock.tar
-kind load image-archive nvml-mock.tar --name mokka
-
-# 3. Install
-helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock
+helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
+    --namespace mokka --create-namespace \
+    --set gpu.profile=gb300
 ```
+
+Every node now reports 4 mock GB300 GPUs, one NVL72 compute tray. `gb300` is the
+chart default; swap in
+`a100`, `h100`, `b200`, `gb200`, `l40s`, or `t4` for other hardware.
 
 After install, deploy a consumer to test:
 
@@ -65,11 +60,6 @@ node-wide NRI, and NFD label-provenance coverage. Run manually via
 | **Multi-Node Fleet** | Heterogeneous A100/T4 workers, mock files, InfiniBand behavior, device plugin resources, and GPU workload scheduling | Fixed multi-node topology |
 | **Node-Wide NRI Injection** | Ambient mock GPU injection into ordinary pods without GPU requests or hostPath mounts | Workflow-selected profiles |
 | **NFD Label Provenance** | That NFD creates `feature.node.kubernetes.io/pci-10de.present` from the feature file nvml-mock writes, and that nvml-mock does not write the label itself | Pinned to `a100` — the label is vendor-only and byte-identical across profiles |
-
-Manual dispatch accepts a JSON array of GPU profiles; local runs default to
-`gb200`.
-
-See [`.github/workflows/nvml-mock-e2e-go.yaml`](.github/workflows/nvml-mock-e2e-go.yaml) for details.
 
 ## Mock NVML Library
 

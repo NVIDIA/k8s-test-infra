@@ -61,7 +61,8 @@ def build_nvml_mock_image(nvmlmock_image=''):
     # only= is intentionally coarse (top-level dirs): the Dockerfile's
     # per-subpath COPYs drive layer-cache invalidation, so listing whole
     # trees here avoids drift when new cmd/pkg subdirs are added without
-    # forcing extra rebuilds.
+    # forcing extra rebuilds. A new top-level tree in the Dockerfile does
+    # need an entry here, or its COPY fails on a path the context omits.
     docker_build(
         _IMAGE,
         context='.',
@@ -72,6 +73,9 @@ def build_nvml_mock_image(nvmlmock_image=''):
             'vendor/',
             'cmd/',
             'pkg/',
+            'internal/',
+            'shims/',
+            'Makefile',
             'deployments/nvml-mock/',
         ],
     )
