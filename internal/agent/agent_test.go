@@ -142,7 +142,10 @@ func TestReconcile_StageFailurePreventsApply(t *testing.T) {
 
 	require.Equal(t, int32(1), sim.stageCalls.Load())
 	require.Equal(t, int32(0), sim.applyCalls.Load(), "Apply must not run when Stage fails")
-	require.False(t, a.Live())
+
+	live := a.Liveness()
+	require.False(t, live.OK)
+	require.Equal(t, "stage failed: test", live.Reason, "/healthz must name the simulator that failed")
 }
 
 // TestReconcile_StageSuccessRunsApply verifies Apply is called after Stage succeeds.
@@ -153,7 +156,7 @@ func TestReconcile_StageSuccessRunsApply(t *testing.T) {
 
 	require.Equal(t, int32(1), sim.stageCalls.Load())
 	require.Equal(t, int32(1), sim.applyCalls.Load())
-	require.True(t, a.Live())
+	require.True(t, a.Liveness().OK)
 }
 
 // TestSupervise_ReloadRunsBetweenStageAndApply pins the supervisor wave to the
@@ -201,7 +204,7 @@ func TestSupervise_ReloadErrorDoesNotFailReconcile(t *testing.T) {
 		[]string{"stage", "apply", "stage", "reload", "apply"},
 		sim.callLog(),
 	)
-	require.True(t, a.Live())
+	require.True(t, a.Liveness().OK)
 }
 
 // TestSupervise_StageFailureSkipsSupervisorWave verifies a daemon does not start
@@ -222,7 +225,7 @@ func (f *failingStageDaemon) Stage(_ context.Context, _ *host.Host, _ *State) er
 	return errors.New("stage error")
 }
 
-// TestAgentLiveness_Recovery verifies Live() becomes true again once Stage succeeds.
+// TestAgentLiveness_Recovery verifies liveness passes again once Stage succeeds.
 func TestAgentLiveness_Recovery(t *testing.T) {
 	sim := &mockSimApplier{name: "test"}
 	sim.stageFailN.Store(1) // first Stage fails, second succeeds
@@ -233,5 +236,5 @@ func TestAgentLiveness_Recovery(t *testing.T) {
 	runAgent(t, a)
 
 	require.Equal(t, int32(2), sim.stageCalls.Load())
-	require.True(t, a.Live(), "Live must recover once Stage succeeds")
+	require.True(t, a.Liveness().OK, "liveness must recover once Stage succeeds")
 }

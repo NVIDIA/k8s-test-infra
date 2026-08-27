@@ -5,7 +5,7 @@ package controlplane_test
 
 import (
 	"context"
-	"io"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
+	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
 	"github.com/stretchr/testify/require"
 )
@@ -32,9 +33,9 @@ func TestHealthEndpoints(t *testing.T) {
 			t.Cleanup(func() { _ = resp.Body.Close() })
 
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-			body, err := io.ReadAll(resp.Body)
-			require.NoError(t, err)
-			require.Equal(t, "ok\n", string(body))
+			var probe health.Probe
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&probe))
+			require.True(t, probe.OK)
 		})
 	}
 }
