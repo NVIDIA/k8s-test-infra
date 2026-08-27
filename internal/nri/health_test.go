@@ -1,7 +1,7 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package nri
 
 import (
 	"net/http"
@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/health"
 )
 
 // The states this file pins down, and why each matters. A probe that only
@@ -38,14 +40,23 @@ type testClock struct{ t time.Time }
 func (c *testClock) now() time.Time          { return c.t }
 func (c *testClock) advance(d time.Duration) { c.t = c.t.Add(d) }
 
-// newTestHealth builds a health tracker whose wedge threshold is a known
+// newTestHealth builds a tracker whose wedge threshold is a known
 // 2 x 4s = 8s, so every duration assertion below is a literal.
-func newTestHealth(t *testing.T) (*health, *testClock) {
+func newTestHealth(t *testing.T) (*pluginHealth, *testClock) {
 	t.Helper()
 	clock := &testClock{t: time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)}
-	h := newHealth(clock.now, wedgeFactor)
+	h := newPluginHealth(clock.now, wedgeFactor)
 	h.setTimeoutSource(fakeTimeouts{requestTimeout: 4 * time.Second})
 	return h, clock
+}
+
+// probeServer wires the tracker into the shared probe server the same way the
+// CLI does, so the status codes are asserted against the real serving path.
+func probeServer(h *pluginHealth) http.Handler {
+	srv := health.NewServer(":0", time.Second)
+	srv.SetLiveness(h.liveness)
+	srv.SetReadiness(h.readiness)
+	return srv.Handler()
 }
 
 // State 2. Catches the probe-shaped no-op: a readiness surface that reports
@@ -56,8 +67,8 @@ func TestNotReadyBeforeRegistration(t *testing.T) {
 
 	h, _ := newTestHealth(t)
 
-	require.False(t, h.readiness().ok, "must not be ready before Configure")
-	require.True(t, h.liveness().ok, "must stay live while waiting to register")
+	require.False(t, h.readiness().OK, "must not be ready before Configure")
+	require.True(t, h.liveness().OK, "must stay live while waiting to register")
 }
 
 // State 3.
@@ -67,8 +78,8 @@ func TestReadyOnceRegistered(t *testing.T) {
 	h, _ := newTestHealth(t)
 	h.setRegistered(true)
 
-	require.True(t, h.readiness().ok)
-	require.True(t, h.liveness().ok)
+	require.True(t, h.readiness().OK)
+	require.True(t, h.liveness().OK)
 }
 
 // State 5. containerd dropped the connection and the plugin is no longer
@@ -79,11 +90,11 @@ func TestNotReadyAfterRuntimeDisconnects(t *testing.T) {
 
 	h, _ := newTestHealth(t)
 	h.setRegistered(true)
-	require.True(t, h.readiness().ok, "precondition: registered")
+	require.True(t, h.readiness().OK, "precondition: registered")
 
 	h.setRegistered(false) // what the stub's OnClose callback does
 
-	require.False(t, h.readiness().ok, "must not be ready once the runtime disconnects")
+	require.False(t, h.readiness().OK, "must not be ready once the runtime disconnects")
 }
 
 // A request that is in flight but has not yet exceeded the runtime's own
@@ -98,11 +109,11 @@ func TestInFlightRequestUnderTimeoutStaysHealthy(t *testing.T) {
 	done := h.begin()
 	clock.advance(7 * time.Second) // threshold is 8s
 
-	require.True(t, h.liveness().ok, "a request under the wedge threshold is not a wedge")
-	require.True(t, h.readiness().ok)
+	require.True(t, h.liveness().OK, "a request under the wedge threshold is not a wedge")
+	require.True(t, h.readiness().OK)
 
 	done()
-	require.True(t, h.liveness().ok)
+	require.True(t, h.liveness().OK)
 }
 
 // State 4 — the failure the issue is about. The process is alive, the ttRPC
@@ -117,8 +128,8 @@ func TestWedgedRequestFailsLivenessAndReadiness(t *testing.T) {
 	h.begin() // deliberately never completed
 	clock.advance(9 * time.Second)
 
-	require.False(t, h.liveness().ok, "an in-flight request past the wedge threshold must fail liveness")
-	require.False(t, h.readiness().ok, "a wedged plugin is not serving")
+	require.False(t, h.liveness().OK, "an in-flight request past the wedge threshold must fail liveness")
+	require.False(t, h.readiness().OK, "a wedged plugin is not serving")
 }
 
 // Catches a latch bug: a wedge flag that is set but never cleared leaves the
@@ -131,12 +142,12 @@ func TestWedgeClearsWhenTheRequestCompletes(t *testing.T) {
 
 	done := h.begin()
 	clock.advance(9 * time.Second)
-	require.False(t, h.liveness().ok, "precondition: wedged")
+	require.False(t, h.liveness().OK, "precondition: wedged")
 
 	done()
 
-	require.True(t, h.liveness().ok, "liveness must recover once the slow request finishes")
-	require.True(t, h.readiness().ok)
+	require.True(t, h.liveness().OK, "liveness must recover once the slow request finishes")
+	require.True(t, h.readiness().OK)
 }
 
 // The discriminating test against the obvious wrong design. A "time since the
@@ -152,8 +163,8 @@ func TestIdleAfterRegistrationIsNotWedged(t *testing.T) {
 	done()
 	clock.advance(72 * time.Hour)
 
-	require.True(t, h.liveness().ok, "an idle plugin is healthy; only in-flight work can wedge")
-	require.True(t, h.readiness().ok)
+	require.True(t, h.liveness().OK, "an idle plugin is healthy; only in-flight work can wedge")
+	require.True(t, h.readiness().OK)
 }
 
 // Concurrent requests: the oldest one decides. Catches a detector that only
@@ -170,7 +181,7 @@ func TestOldestInFlightRequestDecides(t *testing.T) {
 	done := h.begin() // a later, healthy request
 	done()
 
-	require.False(t, h.liveness().ok, "a newer completed request must not mask the stuck one")
+	require.False(t, h.liveness().OK, "a newer completed request must not mask the stuck one")
 }
 
 // The threshold is derived from what containerd reported, not hardcoded. A
@@ -186,11 +197,11 @@ func TestWedgeThresholdFollowsTheRuntimeRequestTimeout(t *testing.T) {
 	h.begin()
 	clock.advance(90 * time.Second) // past the 8s default, under 2 x 60s
 
-	require.True(t, h.liveness().ok, "threshold must follow the runtime's request timeout")
+	require.True(t, h.liveness().OK, "threshold must follow the runtime's request timeout")
 
 	clock.advance(45 * time.Second) // now past 2 x 60s
 
-	require.False(t, h.liveness().ok)
+	require.False(t, h.liveness().OK)
 }
 
 // Before Configure lands there is no runtime-reported timeout, so the stub
@@ -200,14 +211,14 @@ func TestWedgeThresholdFallsBackBeforeConfigure(t *testing.T) {
 	t.Parallel()
 
 	clock := &testClock{t: time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)}
-	h := newHealth(clock.now, wedgeFactor)
+	h := newPluginHealth(clock.now, wedgeFactor)
 
 	h.begin()
 	clock.advance(time.Millisecond)
-	require.True(t, h.liveness().ok, "a just-started request must not read as wedged")
+	require.True(t, h.liveness().OK, "a just-started request must not read as wedged")
 
 	clock.advance(24 * time.Hour)
-	require.False(t, h.liveness().ok, "a request stuck for a day is wedged under any timeout")
+	require.False(t, h.liveness().OK, "a request stuck for a day is wedged under any timeout")
 }
 
 func TestHealthEndpointStatusCodes(t *testing.T) {
@@ -216,31 +227,31 @@ func TestHealthEndpointStatusCodes(t *testing.T) {
 	tests := []struct {
 		name       string
 		path       string
-		setup      func(*health, *testClock)
+		setup      func(*pluginHealth, *testClock)
 		wantStatus int
 	}{
 		{
 			name:       "readyz before registration",
 			path:       "/readyz",
-			setup:      func(*health, *testClock) {},
+			setup:      func(*pluginHealth, *testClock) {},
 			wantStatus: http.StatusServiceUnavailable,
 		},
 		{
 			name:       "readyz once registered",
 			path:       "/readyz",
-			setup:      func(h *health, _ *testClock) { h.setRegistered(true) },
+			setup:      func(h *pluginHealth, _ *testClock) { h.setRegistered(true) },
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "healthz before registration",
 			path:       "/healthz",
-			setup:      func(*health, *testClock) {},
+			setup:      func(*pluginHealth, *testClock) {},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name: "readyz after the runtime disconnects",
 			path: "/readyz",
-			setup: func(h *health, _ *testClock) {
+			setup: func(h *pluginHealth, _ *testClock) {
 				h.setRegistered(true)
 				h.setRegistered(false)
 			},
@@ -249,7 +260,7 @@ func TestHealthEndpointStatusCodes(t *testing.T) {
 		{
 			name: "healthz while wedged",
 			path: "/healthz",
-			setup: func(h *health, c *testClock) {
+			setup: func(h *pluginHealth, c *testClock) {
 				h.setRegistered(true)
 				h.begin()
 				c.advance(9 * time.Second)
@@ -259,7 +270,7 @@ func TestHealthEndpointStatusCodes(t *testing.T) {
 		{
 			name: "readyz while wedged",
 			path: "/readyz",
-			setup: func(h *health, c *testClock) {
+			setup: func(h *pluginHealth, c *testClock) {
 				h.setRegistered(true)
 				h.begin()
 				c.advance(9 * time.Second)
@@ -276,7 +287,7 @@ func TestHealthEndpointStatusCodes(t *testing.T) {
 			tt.setup(h, clock)
 
 			rec := httptest.NewRecorder()
-			h.handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			probeServer(h).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
 
 			require.Equal(t, tt.wantStatus, rec.Code)
 			require.NotEmpty(t, rec.Body.String(), "probe body should say why, for kubectl describe")
@@ -293,7 +304,7 @@ func TestUnknownHealthPathIsNotOK(t *testing.T) {
 	h.setRegistered(true)
 
 	rec := httptest.NewRecorder()
-	h.handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthzz", nil))
+	probeServer(h).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthzz", nil))
 
 	require.Equal(t, http.StatusNotFound, rec.Code)
 }
