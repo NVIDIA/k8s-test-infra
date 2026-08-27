@@ -27,8 +27,6 @@ func enabledState() *agent.State {
 	return &agent.State{Fabric: agent.FabricState{ManagerStateDir: fabricmanager.DefaultStateDir}}
 }
 
-func markerPath(h *host.Host) string { return fabricmanager.MarkerPath(h.RootPath(stateDirRel)) }
-
 // The chart sets the state dir only where it also mounts it, so an empty value
 // means no fabricmanager on this node.
 func TestStage_NoOpWithoutStateDir(t *testing.T) {
@@ -40,53 +38,28 @@ func TestStage_NoOpWithoutStateDir(t *testing.T) {
 	require.NoDirExists(t, h.RootPath(stateDirRel))
 }
 
+// Stage owns the directory because it is the only method holding a Host, and
+// the cdi simulator mounts that path into workloads during the Apply that
+// follows.
 func TestStage_CreatesStateDir(t *testing.T) {
 	h := host.New(t.TempDir())
 	s := New(Options{})
 
 	require.NoError(t, s.Stage(context.Background(), h, enabledState()))
 	require.DirExists(t, h.RootPath(stateDirRel))
-	require.False(t, s.Ready(), "readiness waits for Run to publish the marker")
+	require.False(t, s.Ready(), "readiness waits for the daemon to publish")
 }
 
-func TestRun_PublishesAndHoldsReadiness(t *testing.T) {
+// Run holds a reference for the agent's lifetime, so a second Stage must not
+// swap the daemon out from under it.
+func TestStage_KeepsTheSameDaemonAcrossReconciles(t *testing.T) {
 	h := host.New(t.TempDir())
 	s := New(Options{})
+
 	require.NoError(t, s.Stage(context.Background(), h, enabledState()))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- s.Run(ctx) }()
-
-	requireEventually(t, func() bool { return s.Ready() }, "marker never published")
-	require.FileExists(t, markerPath(h))
-
-	cancel()
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not exit on cancellation")
-	}
-}
-
-// The hostPath outlives the pod, so a marker from a previous one must not make
-// a fresh pod report COMPLETED before it has registered anything.
-func TestRun_ClearsStaleMarkerBeforePublishing(t *testing.T) {
-	h := host.New(t.TempDir())
-	s := New(Options{InitDelay: time.Hour})
+	first := s.daemon.Load()
 	require.NoError(t, s.Stage(context.Background(), h, enabledState()))
-	require.NoError(t, fabricmanager.WriteReady(h.RootPath(stateDirRel)))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { _ = s.Run(ctx) }()
-
-	// The init delay parks Run before it writes, so anything left is the marker
-	// it cleared on entry.
-	requireEventually(t, func() bool { _, err := os.Stat(markerPath(h)); return os.IsNotExist(err) },
-		"stale marker was not cleared")
-	require.False(t, s.Ready())
+	require.Same(t, first, s.daemon.Load())
 }
 
 func TestRun_ReturnsImmediatelyWhenDisabled(t *testing.T) {
@@ -104,31 +77,35 @@ func TestRun_ReturnsImmediatelyWhenDisabled(t *testing.T) {
 	}
 }
 
-// Something else removing the marker must not strand every GPU on the node at
-// IN_PROGRESS for the pod's lifetime.
-func TestRun_ReassertsAfterExternalRemoval(t *testing.T) {
+func TestRun_PublishesReadinessThroughTheSimulator(t *testing.T) {
 	h := host.New(t.TempDir())
 	s := New(Options{})
 	require.NoError(t, s.Stage(context.Background(), h, enabledState()))
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { _ = s.Run(ctx) }()
-	requireEventually(t, func() bool { return s.Ready() }, "marker never published")
+	done := make(chan error, 1)
+	go func() { done <- s.Run(ctx) }()
 
-	require.NoError(t, os.Remove(markerPath(h)))
-	requireEventually(t, func() bool { _, err := os.Stat(markerPath(h)); return err == nil },
-		"marker was not re-asserted")
+	require.Eventually(t, s.Ready, 5*time.Second, 10*time.Millisecond,
+		"readiness never surfaced through the simulator")
+
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not exit on cancellation")
+	}
 }
 
-func TestDiscard_RemovesMarker(t *testing.T) {
+func TestDiscard_WithdrawsReadiness(t *testing.T) {
 	h := host.New(t.TempDir())
 	s := New(Options{})
 	require.NoError(t, s.Stage(context.Background(), h, enabledState()))
 	require.NoError(t, fabricmanager.WriteReady(h.RootPath(stateDirRel)))
 
 	require.NoError(t, s.Discard(context.Background(), h))
-	require.NoFileExists(t, markerPath(h))
+	require.NoFileExists(t, fabricmanager.MarkerPath(h.RootPath(stateDirRel)))
 	require.False(t, s.Ready())
 }
 
@@ -138,16 +115,4 @@ func TestDiscard_NoOpBeforeStage(t *testing.T) {
 
 func TestReload_IsNoOp(t *testing.T) {
 	require.NoError(t, New(Options{}).Reload(context.Background(), enabledState()))
-}
-
-func requireEventually(t *testing.T, cond func() bool, msg string) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal(msg)
 }

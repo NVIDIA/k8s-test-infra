@@ -7,7 +7,6 @@ package fabricmanager
 
 import (
 	"context"
-	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -19,16 +18,10 @@ import (
 const (
 	name = "fabricmanager"
 
-	// stateDirRel is where the marker lands in the agent's mount namespace. The
-	// chart points fabricmanager.stateDir and the host-fabric-state hostPath at
-	// the same directory, so the workload-side reader and this writer see one
-	// file through two mounts.
+	// stateDirRel is where the marker lands in the agent's mount namespace.
+	// Readers use the chart's configured path instead, which resolves to the
+	// same host directory through a different mount.
 	stateDirRel = "fabric-state"
-
-	// reassertInterval matches what the mock NVML engine tolerates between
-	// checks. The marker sits on a hostPath that outlives the pod, so it is
-	// rewritten rather than written once: see Run.
-	reassertInterval = 2 * time.Second
 )
 
 var (
@@ -41,40 +34,35 @@ var (
 // GPU between IN_PROGRESS and COMPLETED, which is how workloads end up waiting
 // on the fabric the way they do on real NVSwitch hardware.
 type Simulator struct {
-	ready   atomic.Bool
-	serving atomic.Bool
-
-	// enabled mirrors whether the last Stage saw a fabricmanager deployment.
-	// Run consults it because the agent has no Host to re-derive it from.
-	enabled atomic.Bool
-	// initDelay simulates the registration latency of the real daemon.
 	initDelay time.Duration
-	// stateDir is captured by Stage; Run is called without a Host.
-	stateDir atomic.Pointer[string]
+
+	ready atomic.Bool
+	// daemon is built by Stage, the only method holding a Host. Nil means this
+	// node has no fabricmanager.
+	daemon atomic.Pointer[fabricmanager.Daemon]
 }
 
 // Options configures the simulator.
 type Options struct {
-	// InitDelay withholds the marker for this long after Run starts, so tests
-	// can observe the IN_PROGRESS state real hardware passes through.
+	// InitDelay withholds readiness after the daemon starts, reproducing the
+	// window during which real GPUs report IN_PROGRESS while registering.
 	InitDelay time.Duration
 }
 
 // New returns a fabricmanager Simulator.
-func New(opts Options) *Simulator {
-	return &Simulator{initDelay: opts.InitDelay}
-}
+func New(opts Options) *Simulator { return &Simulator{initDelay: opts.InitDelay} }
 
 // Name returns the simulator's stable identifier.
 func (s *Simulator) Name() string { return name }
 
-// Ready reports whether Stage succeeded and, where a marker is expected, it has
-// been written.
+// Ready reports whether Stage succeeded and, where a marker is expected, the
+// daemon has published it.
 func (s *Simulator) Ready() bool {
 	if !s.ready.Load() {
 		return false
 	}
-	return !s.enabled.Load() || s.serving.Load()
+	d := s.daemon.Load()
+	return d == nil || d.Ready()
 }
 
 // Stage creates the marker directory. A profile that declares NVLink does not
@@ -85,7 +73,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	s.ready.Store(false)
 
 	if state.Fabric.ManagerStateDir == "" {
-		s.enabled.Store(false)
+		s.daemon.Store(nil)
 		s.ready.Store(true)
 		return nil
 	}
@@ -94,82 +82,40 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	if err := h.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	s.stateDir.Store(&dir)
-	s.enabled.Store(true)
+	// Built once: Run holds a reference for the agent's lifetime, so replacing
+	// it on a later reconcile would leave the running daemon orphaned.
+	if s.daemon.Load() == nil {
+		s.daemon.Store(fabricmanager.NewDaemon(fabricmanager.Config{
+			StateDir:  dir,
+			InitDelay: s.initDelay,
+		}))
+	}
 
 	s.ready.Store(true)
 	return nil
 }
 
-// Run publishes readiness and holds it until the agent shuts down.
+// Run keeps readiness published until the agent shuts down.
 func (s *Simulator) Run(ctx context.Context) error {
-	dir := s.stateDir.Load()
-	if !s.enabled.Load() || dir == nil {
+	d := s.daemon.Load()
+	if d == nil {
 		return nil
 	}
-
-	// The hostPath outlives the pod, so a marker left by a previous one would
-	// report COMPLETED before this fabricmanager had registered anything.
-	if err := fabricmanager.RemoveReady(*dir); err != nil {
-		slog.Warn("could not clear stale readiness marker", "simulator", name, "err", err)
-	}
-	if !s.awaitRegistration(ctx) {
-		return nil
-	}
-
-	// Re-assert rather than write once: the marker is a plain file on a shared
-	// hostPath, and anything that removes it must not silently strand every GPU
-	// on the node at IN_PROGRESS.
-	t := time.NewTicker(reassertInterval)
-	defer t.Stop()
-	for {
-		s.assert(*dir)
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-t.C:
-		}
-	}
-}
-
-// awaitRegistration simulates the latency of registering with the NVSwitches.
-// Reports false when the agent shut down first.
-func (s *Simulator) awaitRegistration(ctx context.Context) bool {
-	if s.initDelay <= 0 {
-		return true
-	}
-	slog.Info("simulating fabric registration delay", "simulator", name, "delay", s.initDelay)
-	select {
-	case <-ctx.Done():
-		return false
-	case <-time.After(s.initDelay):
-		return true
-	}
-}
-
-// assert writes the marker, logging only the transitions so a 2s loop does not
-// fill the log with confirmations that nothing changed.
-func (s *Simulator) assert(dir string) {
-	if err := fabricmanager.WriteReady(dir); err != nil {
-		s.serving.Store(false)
-		slog.Error("could not write readiness marker", "simulator", name, "err", err)
-		return
-	}
-	if s.serving.CompareAndSwap(false, true) {
-		slog.Info("fabric ready", "simulator", name, "marker", fabricmanager.MarkerPath(dir))
-	}
+	return d.Serve(ctx)
 }
 
 // Reload is a no-op: the marker carries no state derived from the profile, so a
-// changed State cannot alter what Run publishes.
+// changed State cannot alter what the daemon publishes.
 func (s *Simulator) Reload(_ context.Context, _ *agent.State) error { return nil }
 
-// Discard removes the marker so a GPU does not report COMPLETED against a
+// Discard withdraws readiness so a GPU does not report COMPLETED against a
 // fabricmanager that is no longer running.
 func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 	if !s.ready.Load() {
 		return nil
 	}
-	s.serving.Store(false)
+	if d := s.daemon.Load(); d != nil {
+		return d.Stop()
+	}
 	return fabricmanager.RemoveReady(h.RootPath(stateDirRel))
 }
