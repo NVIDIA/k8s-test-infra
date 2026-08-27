@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/nri/nvmlmock"
+	"github.com/NVIDIA/k8s-test-infra/internal/nri/inject"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
@@ -78,7 +78,7 @@ func TestNriDeviceDecodesRealCharacterDevices(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			device, err := nriDevice(nvmlmock.Device{HostPath: tt.hostPath, Path: "/dev/nvidia0"})
+			device, err := nriDevice(inject.Device{HostPath: tt.hostPath, Path: "/dev/nvidia0"})
 			require.NoError(t, err)
 			require.NotNil(t, device)
 
