@@ -1320,6 +1320,48 @@ func nvmlDeviceGetDefaultApplicationsClock(device C.nvmlDevice_t, clockType C.nv
 	return C.NVML_SUCCESS
 }
 
+//export nvmlDeviceGetMaxCustomerBoostClock
+func nvmlDeviceGetMaxCustomerBoostClock(device C.nvmlDevice_t, clockType C.nvmlClockType_t, clockMHz *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetMaxCustomerBoostClock"); !ok {
+		return ret
+	}
+	if clockMHz == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := unsafe.Pointer(device.handle)
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	val, ret := dev.GetMaxCustomerBoostClock(nvml.ClockType(clockType))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*clockMHz = C.uint(val)
+	return C.NVML_SUCCESS
+}
+
+//export nvmlDeviceGetClock
+func nvmlDeviceGetClock(device C.nvmlDevice_t, clockType C.nvmlClockType_t, clockId C.nvmlClockId_t, clockMHz *C.uint) C.nvmlReturn_t {
+	if ret, ok := bridgeVersionCheck("nvmlDeviceGetClock"); !ok {
+		return ret
+	}
+	if clockMHz == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	handle := unsafe.Pointer(device.handle)
+	dev := engine.GetEngine().LookupConfigurableDevice(handle)
+	if dev == nil {
+		return C.NVML_ERROR_INVALID_ARGUMENT
+	}
+	val, ret := dev.GetClock(nvml.ClockType(clockType), nvml.ClockId(clockId))
+	if ret != nvml.SUCCESS {
+		return toReturn(ret)
+	}
+	*clockMHz = C.uint(val)
+	return C.NVML_SUCCESS
+}
+
 //export nvmlDeviceGetCurrentClocksThrottleReasons
 func nvmlDeviceGetCurrentClocksThrottleReasons(device C.nvmlDevice_t, clocksThrottleReasons *C.ulonglong) C.nvmlReturn_t {
 	if ret, ok := bridgeVersionCheck("nvmlDeviceGetCurrentClocksThrottleReasons"); !ok {

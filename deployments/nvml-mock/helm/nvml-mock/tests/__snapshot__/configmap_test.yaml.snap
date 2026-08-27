@@ -609,11 +609,11 @@ should match snapshot with b200 profile:
           # ---------------------------------------------------------------------------
           clocks:
             graphics_current: 345           # Idle
-            graphics_max: 2100
-            graphics_app: 2100
-            graphics_app_default: 2100
+            graphics_max: 1965              # Boost, per the 8x B200 node capture
+            graphics_app: 1965
+            graphics_app_default: 1965
             sm_current: 345
-            sm_max: 2100
+            sm_max: 1965
             memory_current: 2500            # HBM3e
             memory_max: 2500
             memory_app: 2500
@@ -641,7 +641,7 @@ should match snapshot with b200 profile:
           supported_clocks:
             memory_clocks:
               - freq_mhz: 2500
-                graphics_clocks: [345, 690, 1035, 1380, 1725, 1890, 2100]
+                graphics_clocks: [345, 690, 1035, 1380, 1725, 1890, 1965]
 
           # ---------------------------------------------------------------------------
           # Performance state
@@ -1127,11 +1127,11 @@ should match snapshot with default gb300 profile:
           # ---------------------------------------------------------------------------
           clocks:
             graphics_current: 345           # Idle
-            graphics_max: 2200              # Boost
-            graphics_app: 2200
-            graphics_app_default: 2200
+            graphics_max: 2070              # Boost, per the reference GB300 tray
+            graphics_app: 2070
+            graphics_app_default: 2070
             sm_current: 345
-            sm_max: 2200
+            sm_max: 2070
             memory_current: 2625            # HBM3e 8 Gbps (1.05x GB200's 2500)
             memory_max: 2625
             memory_app: 2625
@@ -1159,7 +1159,7 @@ should match snapshot with default gb300 profile:
           supported_clocks:
             memory_clocks:
               - freq_mhz: 2625
-                graphics_clocks: [345, 690, 1035, 1380, 1725, 1980, 2200]
+                graphics_clocks: [345, 690, 1035, 1380, 1725, 1980, 2070]
 
           # ---------------------------------------------------------------------------
           # Performance state
@@ -1654,11 +1654,11 @@ should match snapshot with gb200 profile:
           # ---------------------------------------------------------------------------
           clocks:
             graphics_current: 345           # Idle
-            graphics_max: 2100              # Boost
-            graphics_app: 2100
-            graphics_app_default: 2100
+            graphics_max: 2062              # Boost, per the reference GB200 tray
+            graphics_app: 2062
+            graphics_app_default: 2062
             sm_current: 345
-            sm_max: 2100
+            sm_max: 2062
             memory_current: 2500            # HBM3e
             memory_max: 2500
             memory_app: 2500
@@ -1686,7 +1686,7 @@ should match snapshot with gb200 profile:
           supported_clocks:
             memory_clocks:
               - freq_mhz: 2500
-                graphics_clocks: [345, 690, 1035, 1380, 1725, 1890, 2100]
+                graphics_clocks: [345, 690, 1035, 1380, 1725, 1890, 2062]
 
           # ---------------------------------------------------------------------------
           # Performance state

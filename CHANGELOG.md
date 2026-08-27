@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- mocknvml: `Max Customer Boost Clocks` in `nvidia-smi -q` now reports the
+  profile's `clocks.graphics_max` instead of `N/A`. Both NVML entry points that
+  can answer the row were generated stubs — the dedicated
+  `nvmlDeviceGetMaxCustomerBoostClock` and `nvmlDeviceGetClock`, which
+  `nvidia-smi` calls once per GPU on every `-q` run — so the mock said the driver
+  could not report an OEM boost ceiling where every real board reports one. Both
+  are now hand-written, and `nvmlDeviceGetClock` answers its whole clock-type ×
+  clock-id matrix from the `clocks:` block rather than only the one combination
+  this row needs, so DCGM and other go-nvml callers reaching it for current or
+  application clocks no longer get `NOT_SUPPORTED` either.
+  The ceiling is derived from `clocks.graphics_max` rather than from a new key.
+  #712 proposed a `clocks.customer_boost_max` on the premise that the OEM limit
+  sits below the boost maximum on real parts; the seven real-hardware captures
+  in-tree say otherwise — A100, H100, L40S, T4, B200, GB200 and GB300 all report
+  `max_customer_boost_clocks` equal to `max_clocks`. The reference GB300 tray
+  reporting `2070 MHz` where the profile said `2200` was the `gb300` profile's
+  `graphics_max` being wrong, not a customer-boost-specific limit, so a second
+  key would only have given profiles two values to keep in step by hand. The
+  e2e check pins the equality as well as the value, so a board that ever needs
+  the two to differ has to change the check and say why. (#712)
+- mocknvml: the `b200`, `gb200` and `gb300` profiles reported graphics and SM
+  boost clocks their real counterparts do not — `2100`/`2100`/`2200 MHz` against
+  the `1965`/`2062`/`2070 MHz` in the captures — so `Max Clocks`,
+  `Applications Clocks` and `Default Applications Clocks` were all off on the
+  three Blackwell profiles. The application clocks move with the maximum because
+  a real board reports them equal, and leaving them behind would have claimed an
+  application clock above the GPU's own ceiling. `supported_clocks` is capped at
+  the corrected maximum for the same reason. The `video_max` and memory clock
+  values on these profiles are still off against their captures and are left for
+  a follow-up. (#712)
+
 ### Added
 - The node agent gains `pcibus`, `cdi` and `imex` simulators, each an
   `agent.Simulator` with the same stage/apply/discard lifecycle as the existing
