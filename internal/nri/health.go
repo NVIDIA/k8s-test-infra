@@ -1,15 +1,15 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package nri
 
 import (
-	"fmt"
-	"net/http"
 	"sync"
 	"time"
 
 	"github.com/containerd/nri/pkg/stub"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/health"
 )
 
 // wedgeFactor multiplies the runtime's own request timeout to get the
@@ -28,14 +28,8 @@ type timeoutSource interface {
 	RequestTimeout() time.Duration
 }
 
-// probe is the outcome of one health question.
-type probe struct {
-	ok     bool
-	reason string
-}
-
-// health tracks the two things that separate a serving plugin from a plugin
-// that is merely running.
+// pluginHealth tracks the two things that separate a serving plugin from a
+// plugin that is merely running.
 //
 // Registration state answers "is containerd still sending us containers?".
 // The plugin can be alive, holding an open socket, and no longer registered —
@@ -50,7 +44,7 @@ type probe struct {
 // unfinished request has been running does, and — unlike a "time since the
 // last request" watchdog — it stays quiet on an idle node, which is the normal
 // steady state for this plugin.
-type health struct {
+type pluginHealth struct {
 	mu         sync.Mutex
 	registered bool
 	inFlight   map[uint64]time.Time
@@ -61,8 +55,8 @@ type health struct {
 	factor int
 }
 
-func newHealth(now func() time.Time, factor int) *health {
-	return &health{
+func newPluginHealth(now func() time.Time, factor int) *pluginHealth {
+	return &pluginHealth{
 		inFlight: make(map[uint64]time.Time),
 		now:      now,
 		factor:   factor,
@@ -71,8 +65,8 @@ func newHealth(now func() time.Time, factor int) *health {
 
 // setTimeoutSource attaches the stub once it exists. The stub needs the plugin
 // (and so the health tracker) to be constructed first, so the wiring cannot be
-// done in newHealth.
-func (h *health) setTimeoutSource(t timeoutSource) {
+// done in newPluginHealth.
+func (h *pluginHealth) setTimeoutSource(t timeoutSource) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.timeouts = t
@@ -80,7 +74,7 @@ func (h *health) setTimeoutSource(t timeoutSource) {
 
 // setRegistered records whether the runtime currently has this plugin
 // registered. Configure sets it; the stub's OnClose callback clears it.
-func (h *health) setRegistered(v bool) {
+func (h *pluginHealth) setRegistered(v bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.registered = v
@@ -88,7 +82,7 @@ func (h *health) setRegistered(v bool) {
 
 // begin marks a request as started and returns the function that marks it
 // finished. The returned function is safe to call once; callers defer it.
-func (h *health) begin() func() {
+func (h *pluginHealth) begin() func() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -105,7 +99,7 @@ func (h *health) begin() func() {
 
 // wedgeLimit is the in-flight duration past which the handler is considered
 // stuck. Callers hold h.mu.
-func (h *health) wedgeLimit() time.Duration {
+func (h *pluginHealth) wedgeLimit() time.Duration {
 	timeout := stub.DefaultRequestTimeout
 	if h.timeouts != nil {
 		if reported := h.timeouts.RequestTimeout(); reported > 0 {
@@ -117,7 +111,7 @@ func (h *health) wedgeLimit() time.Duration {
 
 // wedged reports the age of the oldest unfinished request and whether it has
 // passed the threshold. Callers hold h.mu.
-func (h *health) wedged() (time.Duration, bool) {
+func (h *pluginHealth) wedged() (time.Duration, bool) {
 	limit := h.wedgeLimit()
 	now := h.now()
 
@@ -135,58 +129,35 @@ func (h *health) wedged() (time.Duration, bool) {
 // liveness failure: the stub's Run returns when the connection drops and the
 // process exits on its own, and failing liveness on "not registered yet" would
 // restart the plugin every time containerd is slow to come up.
-func (h *health) liveness() probe {
+func (h *pluginHealth) liveness() health.Probe {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	if age, stuck := h.wedged(); stuck {
-		return probe{false, h.wedgeReason(age)}
+		return h.wedgeProbe(age)
 	}
-	return probe{true, "ok"}
+	return health.OK()
 }
 
 // readiness is the detectable half of the fail-open posture. It reports the
 // plugin as serving only while it is registered with the runtime and its
 // handler is answering, so every window in which injection is silently not
 // happening shows up as a NotReady pod.
-func (h *health) readiness() probe {
+func (h *pluginHealth) readiness() health.Probe {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	if !h.registered {
-		return probe{false, "not registered with the container runtime; new containers are not being injected"}
+		return health.Unhealthy("not registered with the container runtime; new containers are not being injected")
 	}
 	if age, stuck := h.wedged(); stuck {
-		return probe{false, h.wedgeReason(age)}
+		return h.wedgeProbe(age)
 	}
-	return probe{true, "ok"}
+	return health.OK()
 }
 
-// wedgeReason renders the failure text. Callers hold h.mu.
-func (h *health) wedgeReason(age time.Duration) string {
-	return fmt.Sprintf("wedged: a container request has been in flight for %s, past the %s threshold",
+// wedgeProbe renders the failure. Callers hold h.mu.
+func (h *pluginHealth) wedgeProbe(age time.Duration) health.Probe {
+	return health.Unhealthy("wedged: a container request has been in flight for %s, past the %s threshold",
 		age.Round(time.Millisecond), h.wedgeLimit())
-}
-
-// handler serves the two probe endpoints. Both write the reason in the body so
-// a failure is legible in `kubectl describe pod` and to a curl from a debug
-// pod, rather than being a bare status code.
-func (h *health) handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", writeProbe(h.liveness))
-	mux.HandleFunc("GET /readyz", writeProbe(h.readiness))
-	return mux
-}
-
-func writeProbe(check func() probe) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		result := check()
-		status := http.StatusOK
-		if !result.ok {
-			status = http.StatusServiceUnavailable
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(status)
-		_, _ = fmt.Fprintln(w, result.reason)
-	}
 }
