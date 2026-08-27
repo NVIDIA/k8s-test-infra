@@ -41,7 +41,7 @@ spec:
         - name: nvml-mock-nri
           image: "{{ $image.repository }}:{{ $image.tag }}"
           imagePullPolicy: {{ $image.pullPolicy }}
-          command: ["/usr/local/bin/nvml-mock-nri"]
+          command: ["/usr/local/bin/nri-plugin"]
           args:
             - --socket-path={{ .Values.nri.socketPath }}
             - --plugin-name={{ .Values.nri.pluginName }}
@@ -68,6 +68,8 @@ spec:
             # UUID. Harmless when topology is disabled (no document to stage).
             - --node-name=$(NODE_NAME)
             - --health-addr=:{{ .Values.nri.healthPort }}
+            - --log-level={{ .Values.nri.logging.level }}
+            - --log-format={{ .Values.nri.logging.format }}
           env:
             - name: NODE_NAME
               valueFrom:

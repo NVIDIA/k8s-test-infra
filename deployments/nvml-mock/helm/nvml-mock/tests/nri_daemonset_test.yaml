@@ -37,9 +37,21 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].image
           value: ghcr.io/nvidia/nvml-mock:latest
+      # Must match where the Dockerfile copies the binary; nothing else checks
+      # the two agree, and a mismatch is a CrashLoopBackOff on every node.
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value:
+            - /usr/local/bin/nri-plugin
       - contains:
           path: spec.template.spec.containers[0].args
           content: --socket-path=/var/run/nri/nri.sock
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-level=info
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-format=json
       - contains:
           path: spec.template.spec.containers[0].args
           content: --excluded-namespaces=NAMESPACE,kube-system
@@ -53,6 +65,21 @@ tests:
             valueFrom:
               fieldRef:
                 fieldPath: spec.nodeName
+
+  - it: should pass custom logging values through to the plugin
+    set:
+      nri:
+        enabled: true
+        logging:
+          level: debug
+          format: plain
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-level=debug
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-format=plain
 
   - it: should mount the NRI socket directory and overlay host path
     set:
