@@ -13,10 +13,10 @@ SHELL := /usr/bin/env bash
 .SHELLFLAGS := -o pipefail -ec
 
 GO_CMD ?= go
-GO_SRC := $(shell find . -type f -name '*.go' -not -path "./vendor/*")
+GO_SRC := $(shell find . -type f -name '*.go')
 # First-party Go source directories. gofumpt / golangci-lint walk these
-# rather than "." so they don't dive into vendor/ or tmp/ (which may hold an
-# untracked clone of a sibling repo — e.g. tmp/topograph/).
+# rather than "." so they don't dive into tmp/ (which may hold an untracked
+# clone of a sibling repo — e.g. tmp/topograph/).
 GO_PKG_DIRS := cmd pkg tests
 
 BIN_DIR=$(PWD)/tmp/bin
@@ -115,13 +115,13 @@ build: ## Build all CLIs
 	    parent=$$(basename $$(dirname $$pkg)); \
 	    if [ "$$parent" != "cmd" ]; then name=$$parent-$$name; fi; \
 	    echo "🔨 $$name"; \
-	    $(GO_CMD) build -mod=vendor -o $(DIST_DIR)/$$name $$pkg || exit 1; \
+	    $(GO_CMD) build -o $(DIST_DIR)/$$name $$pkg || exit 1; \
 	done
 	@echo "Building Golang shims.."
 	@for pkg in $$(find ./shims -type f -name main.go -exec dirname {} \; | sort -u); do \
 	    name=$$(basename $$pkg); \
 	    echo "🔨 $$name"; \
-	    $(GO_CMD) build -mod=vendor -o $(DIST_DIR)/$$name $$pkg || exit 1; \
+	    $(GO_CMD) build -o $(DIST_DIR)/$$name $$pkg || exit 1; \
 	done
 
 build-mockpcisysfs: ## Build mockpcisysfs
@@ -129,34 +129,15 @@ build-mockpcisysfs: ## Build mockpcisysfs
 
 .PHONY: test
 test: ## Run unit tests with race detection and coverage
-	@$(GO_CMD) test -v -race -coverprofile=coverage.out -covermode=atomic $$(go list ./... | grep -v vendor)
-
-.PHONY: vendor
-vendor: ## Refresh top-level go.mod / vendor / verify
-	@echo "Refreshing go.mod.."
-	@go mod tidy
-	@echo "Refreshing vendor directory.."
-	@go mod vendor
-	@go mod verify
-
-.PHONY: vendor-check
-vendor-check: vendor ## Fail if go.mod / go.sum / vendor are out of sync with HEAD
-	@git diff --quiet HEAD -- go.mod go.sum vendor
+	@$(GO_CMD) test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
 .PHONY: modules
-modules: | .mod-tidy .mod-vendor .mod-verify ## Tidy / vendor / verify every sub-module
+modules: | .mod-tidy .mod-verify ## Tidy / verify every module
 .mod-tidy:
 	@for mod in $$(find . -name go.mod -not -path "./testdata/*" -not -path "./third_party/*"); do \
 	    echo "Tidying $$mod..."; ( \
 	        cd $$(dirname $$mod) && go mod tidy \
             ) || exit 1; \
-	done
-
-.mod-vendor:
-	@for mod in $$(find . -name go.mod -not -path "./testdata/*" -not -path "./third_party/*" -not -path "./deployments/*"); do \
-		echo "Vendoring $$mod..."; ( \
-			cd $$(dirname $$mod) && go mod vendor \
-			) || exit 1; \
 	done
 
 .mod-verify:
@@ -167,11 +148,16 @@ modules: | .mod-tidy .mod-vendor .mod-verify ## Tidy / vendor / verify every sub
 	done
 
 .PHONY: modules-check
-modules-check: modules ## Fail if any sub-module go.mod / go.sum / vendor is out of sync
+modules-check: modules ## Fail if go.mod / go.sum are out of sync, or a vendor dir reappeared
 	@echo "- Checking if go.mod and go.sum are in sync..."
 	@git diff --exit-code -- $$(find . \( -name go.mod -o -name go.sum \))
-	@echo "- Checking if the go mod vendor dir is in sync..."
-	@git diff --exit-code -- $$(find . -name vendor)
+	@echo "- Checking that no vendor directory has reappeared..."
+	@found=$$(find . -type d -name vendor -not -path "./tmp/*"); \
+	if [ -n "$$found" ]; then \
+		echo "ERROR: dependencies resolve through the Go proxy; a vendor directory switches every build back to vendor mode silently:"; \
+		echo "$$found"; \
+		exit 1; \
+	fi
 
 HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
 CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds
