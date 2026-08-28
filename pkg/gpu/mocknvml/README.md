@@ -627,8 +627,6 @@ go generate
 
 # Or from repo root
 go run ./cmd/generate-bridge \
-  -input vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go \
-  -header vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h \
   -bridge pkg/gpu/mocknvml/bridge \
   -output pkg/gpu/mocknvml/bridge/stubs_generated.go
 ```

@@ -371,16 +371,14 @@ NVML functions that don't have hand-written implementations:
 
 ```bash
 # Preferred: use Makefile target from repo root
-make generate
+make gen
 
 # Or from bridge directory (uses go:generate directive)
 cd pkg/gpu/mocknvml/bridge
 go generate
 
-# Or run generator directly with all flags
+# Or run generator directly
 go run ./cmd/generate-bridge \
-  -input vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go \
-  -header vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h \
   -bridge pkg/gpu/mocknvml/bridge \
   -output pkg/gpu/mocknvml/bridge/stubs_generated.go
 ```

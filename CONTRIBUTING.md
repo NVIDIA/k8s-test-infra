@@ -29,13 +29,13 @@ cd k8s-test-infra
 go version  # must be >= 1.25
 
 # Run unit tests
-go test -v -race $(go list ./... | grep -v vendor)
+go test -v -race ./...
 
 # Run linter
 golangci-lint run -v --timeout 5m
 
 # Check Go modules
-make check-modules
+make modules-check
 ```
 
 ### Building the Mock NVML Library
@@ -84,7 +84,7 @@ Open an issue using the [feature request template](.github/ISSUE_TEMPLATE/featur
 ### Unit Tests
 
 ```bash
-go test -v -race $(go list ./... | grep -v vendor)
+go test -v -race ./...
 ```
 
 ### Helm Chart Tests

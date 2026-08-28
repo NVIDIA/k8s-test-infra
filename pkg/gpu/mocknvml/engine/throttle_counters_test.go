@@ -89,7 +89,7 @@ func TestThrottleCounters_ConfiguredCauseIsReportedInIsolation(t *testing.T) {
 }
 
 // The three slowdown counters sit where the simulated driver puts them, not
-// where the vendored CUDA 13 header does. Pinning the numbers keeps a header
+// where the CUDA 13 header go-nvml ships does. Pinning the numbers keeps a header
 // bump from silently moving them: the ids below are what nvidia-smi 580.65.06
 // asks for, and 269-271 are power-smoothing ramp fields to that driver, so
 // answering them with a throttle counter would fabricate readings for an

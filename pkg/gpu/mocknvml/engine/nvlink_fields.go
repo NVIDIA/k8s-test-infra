@@ -20,7 +20,7 @@ import (
 )
 
 // NVML field IDs (nvmlFieldValue_t.fieldId) for the NVLink surface, mirrored
-// from vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h (NVML_FI_DEV_NVLINK_*).
+// from go-nvml's pkg/nvml/nvml.h (NVML_FI_DEV_NVLINK_*).
 // nvidia-smi resolves the NVLink subcommands (`nvlink -s/-c/-e`) by first
 // reading LINK_COUNT and then iterating per-link fields/getters; without
 // LINK_COUNT it concludes the GPU has zero NVLinks and prints nothing.
