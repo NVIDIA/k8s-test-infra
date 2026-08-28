@@ -4,85 +4,28 @@
 package inject
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 )
 
 const (
-	defaultHostOverlayPath       = "/var/lib/nvml-mock"
-	defaultContainerOverlayPath  = "/opt/nvml-mock"
-	defaultDeviceHostPath        = "/var/lib/nvml-mock/driver/dev"
-	defaultOptOutAnnotation      = "nvml-mock.nvidia.com/inject"
-	defaultDeviceAnnotation      = "nvml-mock.nvidia.com/devices"
-	defaultImexChannelAnnotation = "nvml-mock.nvidia.com/imex-channels"
-	// defaultImexChannelRelPath is where the node agent's imex simulator mknods
-	// the mock IMEX channel nodes, resolved relative to the host overlay path.
-	// It must track that simulator and the imex.mockChannels chart surface.
-	defaultImexChannelRelPath = "driver/dev/nvidia-caps-imex-channels"
+	// imexChannelRelPath is where the node agent's imex simulator mknods the
+	// mock IMEX channel nodes, resolved relative to the host overlay path. It
+	// must track that simulator and the imex.mockChannels chart surface.
+	imexChannelRelPath = "driver/dev/nvidia-caps-imex-channels"
 	// imexChannelContainerDir is the fixed kernel location the channels must
 	// appear at inside the container. Consumers (nvidia-imex, the DRA driver's
 	// compute-domain plugin) hard-code this path.
 	imexChannelContainerDir = "/dev/nvidia-caps-imex-channels"
-	// defaultTopologyRelPath is where the node agent's nvlink simulator stages
-	// the cluster-level ComputeDomain topology document inside the overlay
-	// tree. It is resolved relative to the host overlay path (for the existence
-	// check) and the container overlay path (for the injected
-	// MOCK_TOPOLOGY_CONFIG env).
-	defaultTopologyRelPath = "topology/topology.yaml"
-
-	// defaultCDIDeviceName is the fully-qualified CDI device the cdi mode
-	// injects on the annotation path. The "all" device aggregates every mock
-	// GPU, which is what the annotation has always meant (MEP-0002 goal 2).
-	//
-	// The vendor is deliberately NOT nvidia.com: that namespace belongs to the
-	// device plugin and the container toolkit. Keeping ours distinct is what
-	// makes MEP-0002's "exactly one component emits CDI device references for a
-	// container" invariant observable rather than merely asserted, and it keeps
-	// alreadyHasGPUDevices' nvidia.com/ test meaningful.
-	defaultCDIDeviceName = "nvml-mock.nvidia.com/gpu=all"
-	// defaultCDISpecHostPath is where the cdi simulator writes the spec backing
-	// defaultCDIDeviceName. containerd resolves an unknown CDI device by
-	// failing container creation outright, so the plugin checks this exists
-	// before it commits to a reference it cannot honour.
-	defaultCDISpecHostPath = "/var/run/cdi/nvml-mock-nri.yaml"
+	// topologyRelPath is where the node agent's nvlink simulator stages the
+	// cluster-level ComputeDomain topology document inside the overlay tree. It
+	// resolves against the host overlay path for the existence check and against
+	// the container overlay path for the injected MOCK_TOPOLOGY_CONFIG.
+	topologyRelPath = "topology/topology.yaml"
 )
 
-// DeviceInjectionMode selects the mechanism the device opt-in uses to deliver
-// mock GPUs. It changes the mechanism only: whether a container is served at
-// all is decided before this is consulted, so neither mode can inject into a
-// container the device plugin already served (MEP-0002).
-type DeviceInjectionMode string
-
-const (
-	// DeviceInjectionModeRaw stages the mock /dev/nvidiaN nodes directly in the
-	// adjustment. It is the default: MEP-0002 requires the raw path to stay
-	// reachable, and it is the only mode that works on a runtime whose CDI
-	// support is off or absent.
-	DeviceInjectionModeRaw DeviceInjectionMode = "raw"
-	// DeviceInjectionModeCDI hands the runtime a CDI device reference and lets
-	// it resolve the device nodes from the spec the cdi simulator writes.
-	// containerd 2.x enables CDI by default (enable_cdi = true, spec dirs
-	// /etc/cdi and /var/run/cdi), so this needs no container toolkit on the node.
-	DeviceInjectionModeCDI DeviceInjectionMode = "cdi"
-)
-
-// ParseDeviceInjectionMode rejects an unknown mode rather than coercing it. A
-// typo that silently resolved to raw would look exactly like a working CDI
-// deployment, and the difference is only visible in the OCI spec of an
-// already-running pod.
-func ParseDeviceInjectionMode(s string) (DeviceInjectionMode, error) {
-	switch mode := DeviceInjectionMode(strings.ToLower(strings.TrimSpace(s))); mode {
-	case DeviceInjectionModeRaw, DeviceInjectionModeCDI:
-		return mode, nil
-	case "":
-		return DeviceInjectionModeRaw, nil
-	default:
-		return "", fmt.Errorf("invalid device injection mode %q: expected %q or %q",
-			s, DeviceInjectionModeRaw, DeviceInjectionModeCDI)
-	}
-}
-
+// defaultShims are preloaded in the order listed, so a symbol defined by more
+// than one resolves to the first.
 var defaultShims = []string{
 	"driver/usr/local/lib/libibmockumad.so.1",
 	"driver/usr/local/lib/libibmockverbs.so.1",
@@ -90,65 +33,74 @@ var defaultShims = []string{
 	"driver/usr/local/lib/libpcisysfs.so.1",
 }
 
-// Config controls how the mock driver tree is injected into containers.
+// Config controls how the mock driver tree is injected into containers,
+// grouped by the step each field feeds.
 type Config struct {
+	// Overlay — the mock driver tree and where it appears in a container.
 	HostOverlayPath      string
 	ContainerOverlayPath string
-	DeviceHostPath       string
-	OptOutAnnotation     string
-	DeviceAnnotation     string
-	// ImexChannelAnnotation is the pod annotation key whose value "true" opts a
-	// container into mock /dev/nvidia-caps-imex-channels/* injection. It is a
-	// separate opt-in from DeviceAnnotation because an IMEX channel is a fabric
-	// capability, not a GPU: a ComputeDomain workload may want channels without
-	// the whole mock GPU device tree, and vice versa.
-	ImexChannelAnnotation string
-	// ImexChannelHostPath is the host directory holding the mock channel nodes
-	// (channel0..N-1). The node agent stages them when imex.mockChannels.enabled
-	// is set; this plugin only consumes them.
-	ImexChannelHostPath string
-	ExcludedNamespaces  []string
-	Shims               []string
+	Shims                []string
 
-	DeviceInjectionMode DeviceInjectionMode
-	// CDIDeviceName is the CDI device injected in DeviceInjectionModeCDI.
-	CDIDeviceName string
-	// CDISpecHostPath is the staged CDI spec checked before a CDI reference is
-	// emitted. A missing spec degrades to raw injection rather than failing
+	// Scope — which containers are left exactly as authored.
+	ExcludedNamespaces []string
+	OptOutAnnotation   string
+
+	// GPUs — the annotation-gated opt-in and the mechanism that delivers it.
+	// A missing CDI spec degrades to raw injection rather than failing
 	// container creation.
-	CDISpecHostPath string
+	DeviceAnnotation    string
+	DeviceHostPath      string
+	DeviceInjectionMode DeviceInjectionMode
+	CDIDeviceName       string
+	CDISpecHostPath     string
 
-	// NodeName is the Kubernetes node this plugin runs on. When set (and a
-	// topology document is staged in the overlay) it is injected as the
-	// default NODE_NAME so the mock NVML engine's ComputeDomain topology
-	// overlay resolves the container's per-node clique / cluster UUID. Empty
-	// disables topology injection (the historical node-wide behavior).
-	NodeName string
-	// TopologyHostPath is where the plugin checks whether the nvlink simulator
-	// has staged a topology document into the overlay tree. Empty defaults to
-	// <HostOverlayPath>/topology/topology.yaml.
-	TopologyHostPath string
-	// TopologyContainerPath is the in-container path injected as
-	// MOCK_TOPOLOGY_CONFIG. Empty defaults to
-	// <ContainerOverlayPath>/topology/topology.yaml.
+	// IMEX channels — a separate opt-in from the GPU one, because a channel is
+	// a fabric capability rather than a GPU: a ComputeDomain workload may want
+	// channels without the mock device tree, and vice versa. The node agent
+	// stages the nodes when imex.mockChannels.enabled is set; this package only
+	// consumes them.
+	ImexChannelAnnotation string
+	ImexChannelHostPath   string
+
+	// ComputeDomain topology — NodeName gives the mock NVML engine's per-node
+	// overlay its lookup key, so every mock GPU reports the node's clique and
+	// cluster UUID. Empty disables topology injection.
+	NodeName              string
+	TopologyHostPath      string
 	TopologyContainerPath string
 }
 
 // DefaultConfig returns the overlay contract described by the NRI design.
 func DefaultConfig() Config {
+	const hostOverlay = "/var/lib/nvml-mock"
+
 	return Config{
-		HostOverlayPath:       defaultHostOverlayPath,
-		ContainerOverlayPath:  defaultContainerOverlayPath,
-		DeviceHostPath:        defaultDeviceHostPath,
-		OptOutAnnotation:      defaultOptOutAnnotation,
-		DeviceAnnotation:      defaultDeviceAnnotation,
-		ImexChannelAnnotation: defaultImexChannelAnnotation,
-		ImexChannelHostPath:   filepath.Join(defaultHostOverlayPath, defaultImexChannelRelPath),
-		ExcludedNamespaces:    []string{"kube-system"},
-		Shims:                 append([]string(nil), defaultShims...),
-		DeviceInjectionMode:   DeviceInjectionModeRaw,
-		CDIDeviceName:         defaultCDIDeviceName,
-		CDISpecHostPath:       defaultCDISpecHostPath,
+		HostOverlayPath:      hostOverlay,
+		ContainerOverlayPath: "/opt/nvml-mock",
+		Shims:                append([]string(nil), defaultShims...),
+
+		ExcludedNamespaces: []string{"kube-system"},
+		OptOutAnnotation:   "nvml-mock.nvidia.com/inject",
+
+		DeviceAnnotation:    "nvml-mock.nvidia.com/devices",
+		DeviceHostPath:      filepath.Join(hostOverlay, "driver/dev"),
+		DeviceInjectionMode: DeviceInjectionModeRaw,
+		// The vendor is deliberately NOT nvidia.com: that namespace belongs to
+		// the device plugin and the container toolkit. Keeping ours distinct is
+		// what makes MEP-0002's "exactly one component emits CDI device
+		// references for a container" invariant observable rather than merely
+		// asserted, and it keeps alreadyHasGPUDevices' nvidia.com/ test
+		// meaningful. The "all" device aggregates every mock GPU, which is what
+		// the annotation has always meant.
+		CDIDeviceName: "nvml-mock.nvidia.com/gpu=all",
+		// Written by the node agent's cdi simulator. containerd resolves an
+		// unknown CDI device by failing container creation outright, so the
+		// plugin checks this exists before committing to a reference it cannot
+		// honour.
+		CDISpecHostPath: "/var/run/cdi/nvml-mock-nri.yaml",
+
+		ImexChannelAnnotation: "nvml-mock.nvidia.com/imex-channels",
+		ImexChannelHostPath:   filepath.Join(hostOverlay, imexChannelRelPath),
 	}
 }
 
@@ -157,22 +109,22 @@ func withDefaults(cfg Config) Config {
 
 	cfg.HostOverlayPath = orDefault(cfg.HostOverlayPath, defaults.HostOverlayPath)
 	cfg.ContainerOverlayPath = orDefault(cfg.ContainerOverlayPath, defaults.ContainerOverlayPath)
-	cfg.DeviceHostPath = orDefault(cfg.DeviceHostPath, defaults.DeviceHostPath)
 	cfg.OptOutAnnotation = orDefault(cfg.OptOutAnnotation, defaults.OptOutAnnotation)
 	cfg.DeviceAnnotation = orDefault(cfg.DeviceAnnotation, defaults.DeviceAnnotation)
-	cfg.ImexChannelAnnotation = orDefault(cfg.ImexChannelAnnotation, defaults.ImexChannelAnnotation)
+	cfg.DeviceHostPath = orDefault(cfg.DeviceHostPath, defaults.DeviceHostPath)
 	cfg.DeviceInjectionMode = orDefault(cfg.DeviceInjectionMode, defaults.DeviceInjectionMode)
 	cfg.CDIDeviceName = orDefault(cfg.CDIDeviceName, defaults.CDIDeviceName)
 	cfg.CDISpecHostPath = orDefault(cfg.CDISpecHostPath, defaults.CDISpecHostPath)
+	cfg.ImexChannelAnnotation = orDefault(cfg.ImexChannelAnnotation, defaults.ImexChannelAnnotation)
 
-	// These three are derived from the overlay roots, so they resolve against
-	// whatever those ended up being rather than against the packaged defaults.
+	// Derived from the overlay roots, so they resolve against whatever those
+	// ended up being rather than against the packaged defaults.
 	cfg.ImexChannelHostPath = orDefault(cfg.ImexChannelHostPath,
-		filepath.Join(cfg.HostOverlayPath, defaultImexChannelRelPath))
+		filepath.Join(cfg.HostOverlayPath, imexChannelRelPath))
 	cfg.TopologyHostPath = orDefault(cfg.TopologyHostPath,
-		filepath.Join(cfg.HostOverlayPath, defaultTopologyRelPath))
+		filepath.Join(cfg.HostOverlayPath, topologyRelPath))
 	cfg.TopologyContainerPath = orDefault(cfg.TopologyContainerPath,
-		filepath.Join(cfg.ContainerOverlayPath, defaultTopologyRelPath))
+		filepath.Join(cfg.ContainerOverlayPath, topologyRelPath))
 
 	// An explicitly empty namespace list means "exclude nothing", so unlike the
 	// shims it is not restored from the defaults.
