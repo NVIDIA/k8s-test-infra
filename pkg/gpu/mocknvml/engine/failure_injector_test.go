@@ -529,6 +529,190 @@ func TestEngine_PendingXidEvent_NoEventWithoutXidConfig(t *testing.T) {
 	require.False(t, ok, "Xid-less config must produce no event")
 }
 
+func TestEngine_AnyDeviceLost_FalseWhenHealthy(t *testing.T) {
+	cfg := &Config{
+		NumDevices:    1,
+		DriverVersion: "550.163",
+		YAMLConfig: &YAMLConfig{
+			Version: "1.0",
+			System: SystemConfig{
+				DriverVersion: "550.163",
+				NVMLVersion:   "12.550.163",
+				NumDevices:    1,
+			},
+			DeviceDefaults: *healthyConfig(),
+		},
+	}
+	e := NewEngine(cfg)
+	ret := e.Init()
+	require.Equal(t, nvml.SUCCESS, ret, "engine init failed")
+	t.Cleanup(func() { _ = e.Shutdown() })
+
+	require.False(t, e.AnyDeviceLost(), "a healthy engine must not report a lost device")
+}
+
+func TestEngine_AnyDeviceLost_FalseBeforeInit(t *testing.T) {
+	e := NewEngine(&Config{
+		NumDevices:    1,
+		DriverVersion: "550.163",
+		YAMLConfig: &YAMLConfig{
+			Version: "1.0",
+			System: SystemConfig{
+				DriverVersion: "550.163",
+				NVMLVersion:   "12.550.163",
+				NumDevices:    1,
+			},
+			DeviceDefaults: *withFailure(&FailureInjectionConfig{Mode: FailureModeLost}),
+		},
+	})
+	require.False(t, e.AnyDeviceLost(), "AnyDeviceLost must be false before Init")
+}
+
+// A bare `mode: lost` / `fallen_off_bus` block (no after_calls, no probability)
+// is an immediate, deterministic loss: the wait must report it WITHOUT any
+// guarded getter tripping the injector first, so a wait-only client (the DRA
+// driver health loop) still sees ERROR_GPU_IS_LOST. The wait must not Tick.
+func TestEngine_AnyDeviceLost_TrueForImmediateLostWithoutAnyGetter(t *testing.T) {
+	for _, mode := range []string{FailureModeLost, FailureModeFallenOffBus} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := &Config{
+				NumDevices:    1,
+				DriverVersion: "550.163",
+				YAMLConfig: &YAMLConfig{
+					Version: "1.0",
+					System: SystemConfig{
+						DriverVersion: "550.163",
+						NVMLVersion:   "12.550.163",
+						NumDevices:    1,
+					},
+					DeviceDefaults: *withFailure(&FailureInjectionConfig{Mode: mode}),
+				},
+			}
+			e := NewEngine(cfg)
+			require.Equal(t, nvml.SUCCESS, e.Init(), "engine init failed")
+			t.Cleanup(func() { _ = e.Shutdown() })
+
+			h, _ := e.DeviceGetHandleByIndex(0)
+			dev := e.LookupDevice(h).(*ConfigurableDevice)
+			fi := dev.failureInjector()
+			require.NotNil(t, fi)
+			require.False(t, fi.Triggered(), "no getter has tripped the injector yet")
+
+			require.True(t, e.AnyDeviceLost(), "an immediately-lost device must fail the wait without a getter")
+			require.Equal(t, int64(0), fi.CallCount(), "the wait path must not Tick the injector")
+			require.False(t, fi.Triggered(), "the wait path must not trip the injector")
+		})
+	}
+}
+
+// after_calls gates the wait path too: a device configured to fail only after N
+// guarded calls must stay healthy on a wait-only client (which never makes those
+// calls), so `after_calls` timing is preserved.
+func TestEngine_AnyDeviceLost_FalseWhileAfterCallsPendingWithoutGetters(t *testing.T) {
+	cfg := &Config{
+		NumDevices:    1,
+		DriverVersion: "550.163",
+		YAMLConfig: &YAMLConfig{
+			Version: "1.0",
+			System: SystemConfig{
+				DriverVersion: "550.163",
+				NVMLVersion:   "12.550.163",
+				NumDevices:    1,
+			},
+			DeviceDefaults: *withFailure(&FailureInjectionConfig{
+				Mode:       FailureModeLost,
+				AfterCalls: 5,
+			}),
+		},
+	}
+	e := NewEngine(cfg)
+	require.Equal(t, nvml.SUCCESS, e.Init(), "engine init failed")
+	t.Cleanup(func() { _ = e.Shutdown() })
+
+	require.False(t, e.AnyDeviceLost(), "after_calls not yet met: the wait must not report lost")
+
+	h, _ := e.DeviceGetHandleByIndex(0)
+	dev := e.LookupDevice(h).(*ConfigurableDevice)
+	require.Equal(t, int64(0), dev.failureInjector().CallCount(), "the wait must not advance after_calls")
+}
+
+func TestEngine_AnyDeviceLost_TrueAfterLostTripWithoutTicking(t *testing.T) {
+	for _, mode := range []string{FailureModeLost, FailureModeFallenOffBus} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := &Config{
+				NumDevices:    1,
+				DriverVersion: "550.163",
+				YAMLConfig: &YAMLConfig{
+					Version: "1.0",
+					System: SystemConfig{
+						DriverVersion: "550.163",
+						NVMLVersion:   "12.550.163",
+						NumDevices:    1,
+					},
+					DeviceDefaults: *withFailure(&FailureInjectionConfig{
+						Mode:       mode,
+						AfterCalls: 2,
+					}),
+				},
+			}
+			e := NewEngine(cfg)
+			ret := e.Init()
+			require.Equal(t, nvml.SUCCESS, ret, "engine init failed")
+			t.Cleanup(func() { _ = e.Shutdown() })
+
+			h, _ := e.DeviceGetHandleByIndex(0)
+			dev := e.LookupDevice(h).(*ConfigurableDevice)
+			fi := dev.failureInjector()
+			require.NotNil(t, fi)
+
+			require.False(t, e.AnyDeviceLost(), "pre-trip: device is configured lost but not yet tripped")
+			require.Equal(t, int64(0), fi.CallCount(), "AnyDeviceLost must not Tick an untripped device")
+
+			_, ret = dev.GetTemperature(nvml.TEMPERATURE_GPU)
+			require.Equal(t, nvml.SUCCESS, ret, "call 1 of after_calls=2 must succeed")
+			require.False(t, e.AnyDeviceLost(), "after_calls not yet met")
+			require.Equal(t, int64(1), fi.CallCount())
+
+			_, ret = dev.GetTemperature(nvml.TEMPERATURE_GPU)
+			require.Equal(t, nvml.ERROR_GPU_IS_LOST, ret, "call 2 must trip")
+			require.Equal(t, int64(2), fi.CallCount())
+
+			require.True(t, e.AnyDeviceLost(), "post-trip: expected a lost device")
+			require.Equal(t, int64(2), fi.CallCount(), "AnyDeviceLost must not Tick")
+		})
+	}
+}
+
+func TestEngine_AnyDeviceLost_FalseForECCUncorrectable(t *testing.T) {
+	cfg := &Config{
+		NumDevices:    1,
+		DriverVersion: "550.163",
+		YAMLConfig: &YAMLConfig{
+			Version: "1.0",
+			System: SystemConfig{
+				DriverVersion: "550.163",
+				NVMLVersion:   "12.550.163",
+				NumDevices:    1,
+			},
+			DeviceDefaults: *withFailure(&FailureInjectionConfig{
+				Mode:       FailureModeECCUncorrectable,
+				AfterCalls: 1,
+			}),
+		},
+	}
+	e := NewEngine(cfg)
+	ret := e.Init()
+	require.Equal(t, nvml.SUCCESS, ret, "engine init failed")
+	t.Cleanup(func() { _ = e.Shutdown() })
+
+	h, _ := e.DeviceGetHandleByIndex(0)
+	dev := e.LookupDevice(h).(*ConfigurableDevice)
+	_, ret = dev.GetTemperature(nvml.TEMPERATURE_GPU)
+	require.Equal(t, nvml.SUCCESS, ret, "trip call")
+	require.True(t, dev.failureInjector().Triggered())
+	require.False(t, e.AnyDeviceLost(), "ecc_uncorrectable must not look lost to the event set")
+}
+
 // =============================================================================
 // Identity getters guarded by the lost / fallen_off_bus modes
 // =============================================================================

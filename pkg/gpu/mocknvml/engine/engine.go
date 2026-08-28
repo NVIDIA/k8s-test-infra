@@ -591,6 +591,40 @@ func (e *Engine) PendingXidEvent() (unsafe.Pointer, uint64, bool) {
 	return nil, 0, false
 }
 
+// AnyDeviceLost reports whether any configured device is lost / fallen_off_bus.
+// nvmlEventSetWait consults it so a wait on a set that (in real NVML) contains
+// a lost GPU fails with ERROR_GPU_IS_LOST like every other call against that
+// device. Does not advance any failure injector (no Tick).
+//
+// It uses failureLostByConfig, so a device the config already declares
+// immediately lost surfaces through the wait even for a client that only loops
+// on nvmlEventSetWait and never calls a guarded getter (the DRA driver's health
+// monitor) — matching real NVML, where a GPU that falls off the bus fails the
+// wait whether or not the client has since called a getter. A device gated by
+// after_calls / probability still stays healthy until it actually trips, so
+// those semantics are unchanged.
+//
+// The mock does not record event-set membership (nvmlDeviceRegisterEvents
+// is a success stub), so any lost device fails every wait.
+func (e *Engine) AnyDeviceLost() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.initCount == 0 || e.server == nil {
+		return false
+	}
+
+	for _, dev := range e.server.configurableDevices {
+		if dev == nil {
+			continue
+		}
+		if dev.failureLostByConfig() {
+			return true
+		}
+	}
+	return false
+}
+
 // SetVisibleDevicesForTesting sets the visible device mapping on an initialized
 // engine's server. Pass nil to disable filtering. Only use in tests.
 func (e *Engine) SetVisibleDevicesForTesting(visible []int) {
