@@ -205,6 +205,22 @@ func TestStageSysfs_RendersSubsystemAttrs(t *testing.T) {
 	}
 }
 
+// A device its profile's pcie_topology forgot still reaches the tree, and
+// reports -1 — what Linux writes for a device it has no proximity information
+// for — rather than the NUMA node of a root it was never put in.
+func TestStageSysfs_UnplacedDeviceRendersUnknownNUMA(t *testing.T) {
+	h := testHost(t)
+	state := stateWithTopology()
+	state.Devices = append(state.Devices,
+		agent.DeviceSpec{Index: 1, PCIBusID: "0000:8A:00.0", PCIDeviceID: 0x233010DE})
+
+	require.NoError(t, stageSysfs(h, state))
+
+	numa, err := os.ReadFile(filepath.Join(h.Root, "sys/bus/pci/devices/0000:8a:00.0/numa_node"))
+	require.NoError(t, err, "the forgotten device must still be rendered")
+	require.Equal(t, "-1\n", string(numa))
+}
+
 func TestStageSysfs_RendersFlatDefault(t *testing.T) {
 	h := testHost(t)
 	state := &agent.State{

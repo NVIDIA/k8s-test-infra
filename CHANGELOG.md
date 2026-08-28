@@ -363,9 +363,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without touching the layout, so a capped node rendered PCI entries that read
   as GPUs — NVIDIA vendor ID, GPU device class — with no NVML device behind
   them. Declared BDFs no device claims are dropped along with any root left
-  empty, and a device no root claims is adopted by the first. A profile
-  declaring no `bus_id` now empties the tree instead of leaving the previous
-  profile's GPUs served. (#673)
+  empty. A device no root claims is still rendered, since one missing from the
+  tree is one no consumer can resolve, but under a root its own address implies
+  and reporting `numa_node` `-1` — the kernel's own "no proximity information" —
+  rather than borrowing the locality of a root the profile never put it in. A
+  profile declaring no `bus_id` now empties the tree instead of leaving the
+  previous profile's GPUs served. (#673)
 - node-agent: `nvidia.com/gpu.machine` no longer reads `unknown`. GFD's default
   source for it, `/sys/class/dmi/id/product_name`, is a path no mock can own
   under kind — the node image writes `kind` there and re-binds it into every

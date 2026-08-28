@@ -44,9 +44,11 @@ const DefaultRootComplexID = "pci0000:00"
 //
 // The profile's pcie_topology outlives its device list — GPU_COUNT truncates
 // Devices and leaves the layout whole — so declared BDFs no device claims are
-// dropped, along with any root that empties out. Conversely a device no root
-// claims is adopted by the first one, since an unplaced GPU cannot be resolved
-// at all while a misplaced one only misreports its pcieRoot.
+// dropped, along with any root that empties out. A device no root claims is
+// rendered under a root its own address implies, never folded into a declared
+// one: locality is what a consumer reads this tree for, so a GPU carrying the
+// NUMA node of a root the profile never put it in is worse than one carrying
+// none. See adopt.
 //
 // Returns nil when no device carries a BDF, which is the signal to render
 // nothing.
@@ -69,16 +71,69 @@ func (s *State) PCITopology() []RootComplex {
 			orphans = append(orphans, bdf)
 		}
 	}
-
-	switch {
-	case len(orphans) == 0:
-		return roots
-	case len(roots) == 0:
-		return []RootComplex{{ID: DefaultRootComplexID, DeviceBDFs: orphans}}
-	default:
-		roots[0].DeviceBDFs = append(roots[0].DeviceBDFs, orphans...)
+	if len(orphans) == 0 {
 		return roots
 	}
+
+	return adopt(roots, orphans)
+}
+
+// numaNodeUnknown is what Linux writes to numa_node for a device it has no
+// proximity information for. Rendering it says "unknown" in the encoding every
+// consumer already handles, rather than asserting a node we do not know.
+const numaNodeUnknown = -1
+
+// adopt renders the devices no declared root claims — a profile whose
+// pcie_topology omits a BDF its device list carries.
+//
+// Each lands under the root its own address implies (pciDDDD:BB), joining a
+// declared root only when that root is the one the address names, where
+// membership is the profile's own arithmetic rather than our guess. Anything
+// else gets a root of its own with an unknown NUMA node: the alternative,
+// appending to whichever declared root came first, hands a topology-aware
+// consumer a specific and wrong answer for something it cannot re-derive.
+//
+// Rendering them at all is deliberate. A GPU missing from the tree is one no
+// consumer can resolve from the BDF NVML hands it, which is the failure this
+// whole path exists to fix.
+func adopt(roots []RootComplex, orphans []string) []RootComplex {
+	index := make(map[string]int, len(roots)+len(orphans))
+	for i, rc := range roots {
+		index[rc.ID] = i
+	}
+
+	for _, bdf := range orphans {
+		id := rootIDForBDF(bdf)
+		if i, ok := index[id]; ok {
+			roots[i].DeviceBDFs = append(roots[i].DeviceBDFs, bdf)
+			continue
+		}
+
+		index[id] = len(roots)
+		roots = append(roots, RootComplex{
+			ID:         id,
+			NUMANode:   numaNodeUnknown,
+			DeviceBDFs: []string{bdf},
+		})
+	}
+
+	return roots
+}
+
+// rootIDForBDF names the root complex a device's address implies, in the
+// kernel's pciDDDD:BB form. A BDF too malformed to split is left to the default
+// root, since the renderer needs somewhere to put it either way.
+func rootIDForBDF(bdf string) string {
+	domain, rest, ok := strings.Cut(bdf, ":")
+	if !ok {
+		return DefaultRootComplexID
+	}
+	bus, _, ok := strings.Cut(rest, ":")
+	if !ok {
+		return DefaultRootComplexID
+	}
+
+	return "pci" + domain + ":" + bus
 }
 
 // activeBDFs returns the BDFs of the devices that exist at runtime, lowercased

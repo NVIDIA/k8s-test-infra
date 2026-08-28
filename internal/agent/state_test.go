@@ -57,17 +57,51 @@ func TestPCITopology_DropsBDFsNoDeviceClaims(t *testing.T) {
 	}, bdfsOf(rcs), "the emptied root goes with its devices")
 }
 
-// The mirror case: a hand-written pcie_topology that forgets a device. Coverage
-// beats placement here — an unplaced GPU is one a consumer cannot resolve at
-// all, where a misplaced one only reports the wrong pcieRoot.
-func TestPCITopology_AdoptsADeviceNoRootClaims(t *testing.T) {
+// The mirror case: a hand-written pcie_topology that forgets a device. It is
+// still rendered, since a GPU absent from the tree is one no consumer can
+// resolve from the BDF NVML reports.
+func TestPCITopology_RendersADeviceNoRootClaims(t *testing.T) {
 	state := twoRootState()
 	state.Devices = append(state.Devices, DeviceSpec{Index: 4, PCIBusID: "0000:8a:00.0"})
 
 	rcs := state.PCITopology()
 
-	require.Equal(t, []string{"0000:0a:00.0", "0000:0b:00.0", "0000:8a:00.0"},
-		bdfsOf(rcs)["pci0000:00"], "adopted by the first declared root")
+	require.Equal(t, []string{"0000:8a:00.0"}, bdfsOf(rcs)["pci0000:8a"],
+		"under the root its own address implies")
+	require.Equal(t, []string{"0000:0a:00.0", "0000:0b:00.0"}, bdfsOf(rcs)["pci0000:00"],
+		"the declared roots keep exactly what the profile put in them")
+}
+
+// Locality is what this tree gets read for, so an unplaced device reports no
+// NUMA node rather than one borrowed from a root the profile never put it in:
+// -1 is what Linux itself writes when it has no proximity information.
+func TestPCITopology_UnplacedDeviceHasUnknownNUMA(t *testing.T) {
+	state := twoRootState()
+	state.Devices = append(state.Devices, DeviceSpec{Index: 4, PCIBusID: "0000:8a:00.0"})
+
+	for _, rc := range state.PCITopology() {
+		if rc.ID == "pci0000:8a" {
+			require.Equal(t, -1, rc.NUMANode)
+			return
+		}
+	}
+
+	t.Fatal("the unplaced device was not rendered")
+}
+
+// When the address names a root the profile did declare, membership is the
+// profile's own arithmetic rather than a guess, so the device joins it and
+// inherits a NUMA node that is genuinely its own.
+func TestPCITopology_UnplacedDeviceJoinsTheRootItsAddressNames(t *testing.T) {
+	state := twoRootState()
+	state.NodeShape.Topology.RootComplexes[1].ID = "pci0000:8a"
+	state.Devices = append(state.Devices, DeviceSpec{Index: 4, PCIBusID: "0000:8a:00.0"})
+
+	rcs := state.PCITopology()
+
+	require.Equal(t, []string{"0000:4a:00.0", "0000:4b:00.0", "0000:8a:00.0"},
+		bdfsOf(rcs)["pci0000:8a"])
+	require.Len(t, rcs, 2, "no root invented next to the one that fits")
 }
 
 func TestPCITopology_SynthesizesARootWhenNoneDeclared(t *testing.T) {
