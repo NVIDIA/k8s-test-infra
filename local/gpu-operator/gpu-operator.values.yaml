@@ -63,10 +63,10 @@ devicePlugin:
 # /sys/class/dmi/id/product_name, reads "kind" under kind and does not exist on
 # hosts without DMI. The agent writes this one, served by the CDI config mount.
 #
-# Set here only because this overlay drives the CDI path, where the runtime
-# applies the spec's mounts but drops its env (#747). With nri.enabled the
-# plugin
-# injects GFD_MACHINE_TYPE_FILE itself and no override is needed.
+# Set here only because this overlay drives the CDI path, where the toolkit
+# resolving nvidia.com/gpu applies the spec's mounts and drops its env (#747).
+# With nri.enabled the plugin injects GFD_MACHINE_TYPE_FILE itself and no
+# override is needed.
 gfd:
   enabled: true
   env:

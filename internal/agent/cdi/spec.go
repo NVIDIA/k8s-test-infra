@@ -102,10 +102,12 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 				Args:     []string{"nvidia-cdi-hook", "update-ldcache", "--folder", "/usr/lib64"},
 			},
 		},
-		// None of this currently reaches a container: the runtime applies the
-		// mounts from this same block and drops its env (#747). Kept because the
-		// values are correct and the mock's compiled-in defaults match them, so
-		// nothing depends on the channel working — do not add a key that would.
+		// None of this currently reaches a container. The toolkit resolving this
+		// spec applies the mounts from the same block and drops its env (#747) —
+		// unlike buildNRISpec's, which containerd resolves natively and whose env
+		// does arrive. Kept because the values are correct and the mock's
+		// compiled-in defaults match them, so nothing depends on the channel
+		// working — do not add a key that would.
 		Env: []string{
 			// void tells the container toolkit to skip its own device enumeration;
 			// without it the toolkit would override our mock nodes with an empty set.
