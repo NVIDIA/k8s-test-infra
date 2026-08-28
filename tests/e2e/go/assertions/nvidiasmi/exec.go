@@ -207,6 +207,21 @@ func ConfComputeMemory(ctx context.Context, k *kube.Client, pod kube.PodRef) {
 		strings.Join(problems, "\n"))
 }
 
+// MaxCustomerBoostClock asserts nvidia-smi -q -x reports the profile's
+// clocks.graphics_max as the OEM boost ceiling on every GPU, and that the Max
+// Clocks row beside it agrees. The row read N/A while both NVML getters behind
+// it were generated stubs, which says the driver could not report an OEM
+// ceiling where every real board reports one. See issue #712.
+func MaxCustomerBoostClock(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	ginkgo.By(fmt.Sprintf("nvidia-smi -q -x max_customer_boost_clocks on %s (graphics_max=%d MHz)",
+		p.Name, p.GraphicsMaxClockMHz()))
+	problems := MaxCustomerBoostClockProblems(query(ctx, k, pod), p.GraphicsMaxClockMHz())
+	gomega.Expect(problems).To(gomega.BeEmpty(),
+		"Max Customer Boost Clocks wrong for profile %s:\n%s", p.Name, strings.Join(problems, "\n"))
+}
+
 // query execs `nvidia-smi -q -x` and asserts it succeeded, returning stdout.
 func query(ctx context.Context, k *kube.Client, pod kube.PodRef) string {
 	ginkgo.GinkgoHelper()

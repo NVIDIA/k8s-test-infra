@@ -901,6 +901,64 @@ func (d *ConfigurableDevice) GetMaxClockInfo(clockType nvml.ClockType) (uint32, 
 	return clock, nvml.SUCCESS
 }
 
+// GetMaxCustomerBoostClock returns the OEM-defined boost ceiling, the
+// "Max Customer Boost Clocks" row of nvidia-smi -q.
+//
+// It resolves from graphics_max rather than a key of its own because every
+// real-hardware capture in tests/e2e/go/assertions/nvidiasmi/testdata/hardware
+// reports max_customer_boost_clocks equal to max_clocks — A100, H100, L40S, T4,
+// B200, GB200 and GB300 alike. nvml.h leaves room for an OEM to set the ceiling
+// below the boost maximum, but no board we have captured does, so inventing a
+// second key would only let a profile drift from the value it already declares.
+//
+// Only the graphics domain answers: it is the sole child nvidia-smi emits under
+// the element, and no capture shows what the other three would report.
+func (d *ConfigurableDevice) GetMaxCustomerBoostClock(clockType nvml.ClockType) (uint32, nvml.Return) {
+	if clockType != nvml.CLOCK_GRAPHICS {
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	c := d.cfg()
+	// A profile that declares no boost maximum has no ceiling to report, and
+	// N/A is the honest answer rather than 0 MHz.
+	if c.Clocks == nil || c.Clocks.GraphicsMax == 0 {
+		debugLog("[NVML] nvmlDeviceGetMaxCustomerBoostClock(type=%d) -> NOT_SUPPORTED (no graphics_max)\n",
+			clockType)
+		return 0, nvml.ERROR_NOT_SUPPORTED
+	}
+	debugLog("[NVML] nvmlDeviceGetMaxCustomerBoostClock(type=%d) -> %d MHz\n",
+		clockType, c.Clocks.GraphicsMax)
+	return c.Clocks.GraphicsMax, nvml.SUCCESS
+}
+
+// GetClock is NVML's two-dimensional clock lookup, clock domain x clock id. It
+// routes to the getter that owns each value instead of re-reading the clocks:
+// block, so this generic entry point and the dedicated ones cannot disagree —
+// including about which combinations are unsupported.
+func (d *ConfigurableDevice) GetClock(clockType nvml.ClockType, clockID nvml.ClockId) (uint32, nvml.Return) {
+	// The _COUNT members name the size of their enum, not a clock, and nvml.h
+	// documents INVALID_ARGUMENT for a clockType outside the range.
+	if clockType < nvml.CLOCK_GRAPHICS || clockType >= nvml.CLOCK_COUNT {
+		return 0, nvml.ERROR_INVALID_ARGUMENT
+	}
+	var clock uint32
+	var ret nvml.Return
+	switch clockID {
+	case nvml.CLOCK_ID_CURRENT:
+		clock, ret = d.GetClockInfo(clockType)
+	case nvml.CLOCK_ID_APP_CLOCK_TARGET:
+		clock, ret = d.GetApplicationsClock(clockType)
+	case nvml.CLOCK_ID_APP_CLOCK_DEFAULT:
+		clock, ret = d.GetDefaultApplicationsClock(clockType)
+	case nvml.CLOCK_ID_CUSTOMER_BOOST_MAX:
+		clock, ret = d.GetMaxCustomerBoostClock(clockType)
+	default:
+		return 0, nvml.ERROR_INVALID_ARGUMENT
+	}
+	debugLog("[NVML] nvmlDeviceGetClock(type=%d id=%d) -> %d MHz (ret=%d)\n",
+		clockType, clockID, clock, ret)
+	return clock, ret
+}
+
 // GetApplicationsClock returns application clock settings
 func (d *ConfigurableDevice) GetApplicationsClock(clockType nvml.ClockType) (uint32, nvml.Return) {
 	clock := uint32(0)
@@ -2301,6 +2359,19 @@ func (d *ConfigurableDevice) failureLost() bool {
 	}
 	fi := d.failureInjector()
 	return fi != nil && fi.IsLost()
+}
+
+// failureLostByConfig is failureLost for the nvmlEventSetWait path: it reports
+// a device the config already declares lost / fallen_off_bus, even before a
+// guarded getter has tripped the injector, so a wait-only client still sees
+// ERROR_GPU_IS_LOST. Like failureLost it refreshes config overrides but does
+// not advance the call counter. See failureInjector.LostByConfig.
+func (d *ConfigurableDevice) failureLostByConfig() bool {
+	if d == nil {
+		return false
+	}
+	fi := d.failureInjector()
+	return fi != nil && fi.LostByConfig()
 }
 
 // MockServer wraps dgxa100.Server and uses configurable devices

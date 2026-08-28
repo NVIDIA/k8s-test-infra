@@ -1049,6 +1049,146 @@ func TestConfigurableDevice_GetClockInfo_ZeroIsValid(t *testing.T) {
 	require.Zero(t, clock, "Expected 0")
 }
 
+// clockMatrixConfig carries a distinct value in every clock field, so a getter
+// reading the wrong one is caught by the value rather than only by a nil check.
+func clockMatrixConfig() *ClocksConfig {
+	return &ClocksConfig{
+		GraphicsCurrent:    345,
+		GraphicsMax:        2070,
+		GraphicsApp:        2060,
+		GraphicsAppDefault: 2050,
+		SMCurrent:          346,
+		SMMax:              2071,
+		MemoryCurrent:      3990,
+		MemoryMax:          3996,
+		MemoryApp:          3995,
+		MemoryAppDefault:   3994,
+		VideoCurrent:       1200,
+		VideoMax:           1912,
+	}
+}
+
+func TestConfigurableDevice_GetMaxCustomerBoostClock_GraphicsIsTheBoostMax(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name:   "NVIDIA GB300",
+		Clocks: clockMatrixConfig(),
+	})
+
+	clock, ret := dev.GetMaxCustomerBoostClock(nvml.CLOCK_GRAPHICS)
+	require.Equal(t, nvml.SUCCESS, ret)
+	require.Equal(t, uint32(2070), clock,
+		"the OEM boost ceiling is graphics_max: every in-tree hardware capture reports "+
+			"max_customer_boost_clocks equal to max_clocks")
+}
+
+// The real captures only ever carry a graphics body under
+// <max_customer_boost_clocks>, so the other three domains stay unsupported
+// rather than inventing a ceiling no board was observed to report.
+func TestConfigurableDevice_GetMaxCustomerBoostClock_OnlyGraphicsIsReported(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name:   "NVIDIA GB300",
+		Clocks: clockMatrixConfig(),
+	})
+
+	for _, clockType := range []nvml.ClockType{nvml.CLOCK_SM, nvml.CLOCK_MEM, nvml.CLOCK_VIDEO} {
+		_, ret := dev.GetMaxCustomerBoostClock(clockType)
+		require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret, "clock type %d", clockType)
+	}
+}
+
+// A profile carrying no graphics_max must keep reporting N/A, which is what
+// nvidia-smi renders for NOT_SUPPORTED. Deriving the ceiling must not conjure a
+// 0 MHz reading for a profile that declared no maximum.
+func TestConfigurableDevice_GetMaxCustomerBoostClock_UnconfiguredIsNotSupported(t *testing.T) {
+	for name, clocks := range map[string]*ClocksConfig{
+		"no clocks block": nil,
+		"no graphics_max": {GraphicsCurrent: 345},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dev := newTestDeviceWithConfig(t, &DeviceConfig{Name: "Tesla T4", Clocks: clocks})
+
+			_, ret := dev.GetMaxCustomerBoostClock(nvml.CLOCK_GRAPHICS)
+			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+		})
+	}
+}
+
+// GetClock is a two-dimensional lookup over clock type x clock id. Every
+// combination the clocks: block carries must answer, so a caller reaching for
+// the generic getter sees the same values as the dedicated ones.
+func TestConfigurableDevice_GetClock_AnswersTheWholeMatrix(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name:   "NVIDIA GB300",
+		Clocks: clockMatrixConfig(),
+	})
+
+	for _, tc := range []struct {
+		name      string
+		clockType nvml.ClockType
+		clockID   nvml.ClockId
+		want      uint32
+	}{
+		{"current graphics", nvml.CLOCK_GRAPHICS, nvml.CLOCK_ID_CURRENT, 345},
+		{"current sm", nvml.CLOCK_SM, nvml.CLOCK_ID_CURRENT, 346},
+		{"current mem", nvml.CLOCK_MEM, nvml.CLOCK_ID_CURRENT, 3990},
+		{"current video", nvml.CLOCK_VIDEO, nvml.CLOCK_ID_CURRENT, 1200},
+		{"app target graphics", nvml.CLOCK_GRAPHICS, nvml.CLOCK_ID_APP_CLOCK_TARGET, 2060},
+		{"app target mem", nvml.CLOCK_MEM, nvml.CLOCK_ID_APP_CLOCK_TARGET, 3995},
+		{"app default graphics", nvml.CLOCK_GRAPHICS, nvml.CLOCK_ID_APP_CLOCK_DEFAULT, 2050},
+		{"app default mem", nvml.CLOCK_MEM, nvml.CLOCK_ID_APP_CLOCK_DEFAULT, 3994},
+		{"customer boost max graphics", nvml.CLOCK_GRAPHICS, nvml.CLOCK_ID_CUSTOMER_BOOST_MAX, 2070},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clock, ret := dev.GetClock(tc.clockType, tc.clockID)
+			require.Equal(t, nvml.SUCCESS, ret)
+			require.Equal(t, tc.want, clock)
+		})
+	}
+}
+
+// The combinations no clocks: key carries. Application and customer-boost
+// clocks exist for a subset of the domains, and NOT_SUPPORTED is what real NVML
+// answers for the rest.
+func TestConfigurableDevice_GetClock_UncarriedCombinationsAreNotSupported(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name:   "NVIDIA GB300",
+		Clocks: clockMatrixConfig(),
+	})
+
+	for _, tc := range []struct {
+		name      string
+		clockType nvml.ClockType
+		clockID   nvml.ClockId
+	}{
+		{"app target sm", nvml.CLOCK_SM, nvml.CLOCK_ID_APP_CLOCK_TARGET},
+		{"app target video", nvml.CLOCK_VIDEO, nvml.CLOCK_ID_APP_CLOCK_TARGET},
+		{"app default sm", nvml.CLOCK_SM, nvml.CLOCK_ID_APP_CLOCK_DEFAULT},
+		{"app default video", nvml.CLOCK_VIDEO, nvml.CLOCK_ID_APP_CLOCK_DEFAULT},
+		{"customer boost max sm", nvml.CLOCK_SM, nvml.CLOCK_ID_CUSTOMER_BOOST_MAX},
+		{"customer boost max mem", nvml.CLOCK_MEM, nvml.CLOCK_ID_CUSTOMER_BOOST_MAX},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ret := dev.GetClock(tc.clockType, tc.clockID)
+			require.Equal(t, nvml.ERROR_NOT_SUPPORTED, ret)
+		})
+	}
+}
+
+// nvml.h documents INVALID_ARGUMENT for an invalid clockType, which is what the
+// _COUNT enum sentinels are. They name the size of the enum, not a clock.
+func TestConfigurableDevice_GetClock_RejectsEnumSentinels(t *testing.T) {
+	dev := newTestDeviceWithConfig(t, &DeviceConfig{
+		Name:   "NVIDIA GB300",
+		Clocks: clockMatrixConfig(),
+	})
+
+	_, ret := dev.GetClock(nvml.CLOCK_COUNT, nvml.CLOCK_ID_CURRENT)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "CLOCK_COUNT is not a clock domain")
+
+	_, ret = dev.GetClock(nvml.CLOCK_GRAPHICS, nvml.CLOCK_ID_COUNT)
+	require.Equal(t, nvml.ERROR_INVALID_ARGUMENT, ret, "CLOCK_ID_COUNT is not a clock id")
+}
+
 // =============================================================================
 // NVLink / topology / affinity getters wired to NodeFabric
 // =============================================================================

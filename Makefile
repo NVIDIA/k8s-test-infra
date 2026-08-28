@@ -194,6 +194,10 @@ test-mockpcisysfs: mockpcisysfs-shim ## Run mockpcisysfs integration tests
 test-nvidia-imex-shim: build ## Run nvidia-imex-shim integration tests
 	@$(GO_CMD) test -v ./shims/nvidia-imex-shim/...
 
+.PHONY: verify-greptile
+verify-greptile: ## Validate the .greptile review configuration
+	@bash hack/verify-greptile-config.sh
+
 .PHONY: helm-tests
 helm-tests: ## Run the nvml-mock chart unit test suite
 	helm unittest $(HELM_CHART_DIR)

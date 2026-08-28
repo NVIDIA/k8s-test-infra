@@ -21,7 +21,7 @@ package main
 */
 import "C"
 
-// 262 stub functions for unimplemented NVML functions.
+// 260 stub functions for unimplemented NVML functions.
 // These return NVML_ERROR_NOT_SUPPORTED (3).
 
 //export nvmlComputeInstanceDestroy
@@ -142,11 +142,6 @@ func nvmlDeviceGetCapabilities(device C.nvmlDevice_t, caps *C.nvmlDeviceCapabili
 //export nvmlDeviceGetClkMonStatus
 func nvmlDeviceGetClkMonStatus(device C.nvmlDevice_t, status *C.nvmlClkMonStatus_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetClkMonStatus")
-}
-
-//export nvmlDeviceGetClock
-func nvmlDeviceGetClock(device C.nvmlDevice_t, clockType C.nvmlClockType_t, clockId C.nvmlClockId_t, clockMHz *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetClock")
 }
 
 //export nvmlDeviceGetClockOffsets
@@ -357,11 +352,6 @@ func nvmlDeviceGetMPSComputeRunningProcesses_v2(device C.nvmlDevice_t, infoCount
 //export nvmlDeviceGetMPSComputeRunningProcesses_v3
 func nvmlDeviceGetMPSComputeRunningProcesses_v3(device C.nvmlDevice_t, infoCount *C.uint, infos *C.nvmlProcessInfo_t) C.nvmlReturn_t {
 	return stubReturn("nvmlDeviceGetMPSComputeRunningProcesses_v3")
-}
-
-//export nvmlDeviceGetMaxCustomerBoostClock
-func nvmlDeviceGetMaxCustomerBoostClock(device C.nvmlDevice_t, clockType C.nvmlClockType_t, clockMHz *C.uint) C.nvmlReturn_t {
-	return stubReturn("nvmlDeviceGetMaxCustomerBoostClock")
 }
 
 //export nvmlDeviceGetMemClkMinMaxVfOffset

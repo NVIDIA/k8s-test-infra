@@ -129,6 +129,8 @@ func comparedReadings(g gpuElement) []namedReading {
 		{"gpu_power_readings/instant_power_draw", g.PowerReadings.InstantPowerDraw},
 
 		{"clocks/sm_clock", g.Clocks.SMClock},
+		{"max_clocks/graphics_clock", g.MaxClocks.GraphicsClock},
+		{"max_customer_boost_clocks/graphics_clock", g.MaxCustomerBoostClocks.GraphicsClock},
 		{"ecc_mode/current_ecc", g.ECCMode.Current},
 
 		{"encoder_stats/session_count", g.EncoderStats.SessionCount},

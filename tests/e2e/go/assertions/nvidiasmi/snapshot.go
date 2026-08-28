@@ -220,6 +220,19 @@ func (g GPU) UtilizationMemoryPercent() (int, bool) {
 // sibling repeats the element name and is deliberately not read.
 func (g GPU) SMClockMHz() (int, bool) { return g.element.Clocks.SMClock.intValue() }
 
+// MaxGraphicsClockMHz is <graphics_clock> inside <max_clocks>, i.e.
+// clocks.max.graphics — the boost maximum, not the clock in effect.
+func (g GPU) MaxGraphicsClockMHz() (int, bool) {
+	return g.element.MaxClocks.GraphicsClock.intValue()
+}
+
+// MaxCustomerBoostGraphicsClockMHz is <graphics_clock> inside
+// <max_customer_boost_clocks>: the OEM-defined ceiling. false when the board
+// reports N/A, so a caller cannot mistake an unanswered getter for 0 MHz.
+func (g GPU) MaxCustomerBoostGraphicsClockMHz() (int, bool) {
+	return g.element.MaxCustomerBoostClocks.GraphicsClock.intValue()
+}
+
 // MemoryUsedMiB is <used> inside <fb_memory_usage>, i.e. memory.used. The
 // bar1_memory_usage sibling repeats the element name and is not read.
 func (g GPU) MemoryUsedMiB() (int, bool) { return g.element.FBMemoryUsage.Used.intValue() }
