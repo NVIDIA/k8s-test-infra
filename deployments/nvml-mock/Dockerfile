@@ -16,7 +16,7 @@ ARG GOLANG_VERSION=1.26.6
 FROM golang:${GOLANG_VERSION}-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
-COPY vendor/ vendor/
+RUN go mod download
 COPY pkg/ pkg/
 COPY cmd/ cmd/
 COPY internal/ internal/

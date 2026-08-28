@@ -22,11 +22,11 @@ ARG GOLANG_VERSION=1.26.6
 FROM golang:${GOLANG_VERSION}-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
-COPY vendor/ vendor/
+RUN go mod download
 COPY pkg/ pkg/
 COPY internal/ internal/
 COPY cmd/ cmd/
-RUN CGO_ENABLED=0 go build -mod=vendor \
+RUN CGO_ENABLED=0 go build \
     -ldflags="-s -w" \
     -o /dist/control-plane ./cmd/control-plane
 

@@ -65,9 +65,9 @@ RUN export DEBIAN_FRONTEND=noninteractive \
 FROM golang:${GOLANG_VERSION} AS shim
 WORKDIR /src
 COPY go.mod go.sum ./
-COPY vendor/ vendor/
+RUN go mod download
 COPY shims/nvidia-imex-shim/ shims/nvidia-imex-shim/
-RUN CGO_ENABLED=0 go build -mod=vendor -o /out/nvidia-imex-shim ./shims/nvidia-imex-shim
+RUN CGO_ENABLED=0 go build -o /out/nvidia-imex-shim ./shims/nvidia-imex-shim
 
 # demo: real IMEX on top of the nvml-mock image, replacing the
 # deprecated fakes at their canonical paths. The package's default

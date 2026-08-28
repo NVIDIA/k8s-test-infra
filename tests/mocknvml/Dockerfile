@@ -18,9 +18,10 @@ FROM golang:${GOLANG_VERSION} AS lib-builder
 
 WORKDIR /build
 
-# Copy the entire repo to build the mock library
+# The mock library is a cgo build against the root module, so it needs the root
+# module's dependency graph, not this sub-module's.
 COPY go.mod go.sum ./
-COPY vendor/ ./vendor/
+RUN go mod download
 COPY pkg/ ./pkg/
 COPY cmd/ ./cmd/
 
