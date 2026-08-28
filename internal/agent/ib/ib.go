@@ -124,19 +124,24 @@ func (s *Simulator) daemonExpected() bool {
 }
 
 // Stage renders the IB sysfs tree and installs the tools and shims that read it.
-// It is a no-op (but marks ready) when the mode is off or the profile declares
-// no InfiniBand.
+// The empty root and the shims land on every node; the rest is skipped when the
+// mode is off or the profile declares no InfiniBand.
 func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
 	s.ready.Store(false)
 
-	// The root exists even when nothing is rendered into it: MOCK_IB_ROOT is
-	// LD_PRELOAD'd into every process regardless of tier, and an empty tree is
-	// what masks any real host InfiniBand.
+	// The NRI plugin LD_PRELOADs the shims into every container it injects, so
+	// a shim the loader cannot find is an ld.so error on every process the node
+	// runs. Staging them and an empty root regardless of tier also masks any
+	// real host InfiniBand.
 	root := ibRoot(h)
 	if err := h.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
 	s.ibRootPath.Store(&root)
+
+	if err := stageIBShims(h); err != nil {
+		return err
+	}
 
 	socket := s.opts.SocketPath
 	if socket == "" {
@@ -154,8 +159,9 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	if err := stageSysfs(h, state); err != nil {
 		return fmt.Errorf("render ib sysfs: %w", err)
 	}
+
 	for _, stage := range []func(*host.Host) error{
-		stageIBTools, stageIBShims, stageVerbsConfig, stageCheckFabric,
+		stageIBTools, stageVerbsConfig, stageCheckFabric,
 	} {
 		if err := stage(h); err != nil {
 			return err

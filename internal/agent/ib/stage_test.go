@@ -119,7 +119,7 @@ func TestStage_IsIdempotent(t *testing.T) {
 	require.Equal(t, first, snapshotTree(t, h.RootPath("ib")))
 }
 
-func TestStage_NoOpCases(t *testing.T) {
+func TestStage_DisabledTierStagesShimsOnly(t *testing.T) {
 	cases := []struct {
 		name string
 		mode Mode
@@ -131,6 +131,7 @@ func TestStage_NoOpCases(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			isolateSources(t)
+			seedImageSources(t)
 			h := newTestHost(t)
 			s := New(Options{Mode: c.mode})
 
@@ -140,6 +141,11 @@ func TestStage_NoOpCases(t *testing.T) {
 			// The root is created but left empty, masking any real host IB.
 			require.DirExists(t, h.RootPath("ib"))
 			require.NoDirExists(t, h.RootPath("ib/sys/class/infiniband"))
+
+			// The NRI plugin preloads the shims whatever the tier, so they have
+			// to resolve here too. The tools they serve stay behind.
+			require.FileExists(t, h.RootPath("driver/usr/local/lib/libibmockumad.so.1"))
+			require.NoFileExists(t, h.RootPath("driver/usr/bin/ibstat"))
 		})
 	}
 }
