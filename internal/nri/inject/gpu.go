@@ -4,10 +4,46 @@
 package inject
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
 )
+
+// DeviceInjectionMode selects the mechanism the device opt-in uses to deliver
+// mock GPUs. It changes the mechanism only: whether a container is served at
+// all is decided before this is consulted, so neither mode can inject into a
+// container the device plugin already served (MEP-0002).
+type DeviceInjectionMode string
+
+const (
+	// DeviceInjectionModeRaw stages the mock /dev/nvidiaN nodes directly in the
+	// adjustment. It is the default: MEP-0002 requires the raw path to stay
+	// reachable, and it is the only mode that works on a runtime whose CDI
+	// support is off or absent.
+	DeviceInjectionModeRaw DeviceInjectionMode = "raw"
+	// DeviceInjectionModeCDI hands the runtime a CDI device reference and lets
+	// it resolve the device nodes from the spec the cdi simulator writes.
+	// containerd 2.x enables CDI by default (enable_cdi = true, spec dirs
+	// /etc/cdi and /var/run/cdi), so this needs no container toolkit on the node.
+	DeviceInjectionModeCDI DeviceInjectionMode = "cdi"
+)
+
+// ParseDeviceInjectionMode rejects an unknown mode rather than coercing it. A
+// typo that silently resolved to raw would look exactly like a working CDI
+// deployment, and the difference is only visible in the OCI spec of an
+// already-running pod.
+func ParseDeviceInjectionMode(s string) (DeviceInjectionMode, error) {
+	switch mode := DeviceInjectionMode(strings.ToLower(strings.TrimSpace(s))); mode {
+	case DeviceInjectionModeRaw, DeviceInjectionModeCDI:
+		return mode, nil
+	case "":
+		return DeviceInjectionModeRaw, nil
+	default:
+		return "", fmt.Errorf("invalid device injection mode %q: expected %q or %q",
+			s, DeviceInjectionModeRaw, DeviceInjectionModeCDI)
+	}
+}
 
 // attachGPUs delivers the mock GPU tree to a container that opted in.
 func attachGPUs(cfg Config, container Container, adjustment *Adjustment) {
