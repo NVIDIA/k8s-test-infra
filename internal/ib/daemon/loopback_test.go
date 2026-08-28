@@ -16,7 +16,7 @@ import (
 func TestLoopback_ShouldQueueRecv_LocalGUID(t *testing.T) {
 	dir := t.TempDir()
 	ib := config.Infiniband{Enabled: true}
-	require.NoError(t, sysfs.Render(sysfs.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir}))
+	require.NoError(t, sysfs.Render(sysfs.Options{IB: ib, GPUCount: 2, NodeName: "node-a", RootDir: dir}))
 	ports, err := sysfs.Scan(dir)
 	require.NoError(t, err)
 	lb := newLoopbackIndex(ports)
@@ -27,7 +27,7 @@ func TestLoopback_ShouldQueueRecv_LocalGUID(t *testing.T) {
 func TestLoopback_ShouldNotQueueRecv_RemoteLID(t *testing.T) {
 	dir := t.TempDir()
 	ib := config.Infiniband{Enabled: true}
-	require.NoError(t, sysfs.Render(sysfs.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir}))
+	require.NoError(t, sysfs.Render(sysfs.Options{IB: ib, GPUCount: 2, NodeName: "node-a", RootDir: dir}))
 	ports, err := sysfs.Scan(dir)
 	require.NoError(t, err)
 	lb := newLoopbackIndex(ports)

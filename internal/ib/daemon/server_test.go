@@ -25,7 +25,7 @@ import (
 func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 	dir := t.TempDir()
 	ib := config.Infiniband{Enabled: true}
-	require.NoError(t, sysfs.Render(sysfs.Options{IB: ib, GPUCount: 2, NodeName: "node-a", Output: dir}))
+	require.NoError(t, sysfs.Render(sysfs.Options{IB: ib, GPUCount: 2, NodeName: "node-a", RootDir: dir}))
 	// Short path under /tmp: macOS limits unix socket paths; sandbox may block $TMPDIR binds.
 	safe := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
 	sock := filepath.Join(os.TempDir(), "mock-ib-"+safe+".sock")
@@ -94,7 +94,7 @@ func TestServer_LoopbackOpenSendRecv(t *testing.T) {
 func TestServer_handleSend_shortMADNoPanic(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, sysfs.Render(sysfs.Options{
-		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "n", Output: dir,
+		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "n", RootDir: dir,
 	}))
 	sock := filepath.Join(os.TempDir(), fmt.Sprintf("mock-ib-%d-short.sock", os.Getpid()))
 	t.Cleanup(func() { _ = os.Remove(sock) })
@@ -139,7 +139,7 @@ func TestServer_handleSend_shortMADNoPanic(t *testing.T) {
 func TestServer_handleClose_unknownHandle(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, sysfs.Render(sysfs.Options{
-		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "n", Output: dir,
+		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "n", RootDir: dir,
 	}))
 	sock := filepath.Join(os.TempDir(), fmt.Sprintf("mock-ib-%d-close.sock", os.Getpid()))
 	t.Cleanup(func() { _ = os.Remove(sock) })

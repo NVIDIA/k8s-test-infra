@@ -42,7 +42,7 @@ func stageSysfs(h *host.Host, state *agent.State) error {
 	return sysfs.Render(sysfs.Options{
 		IB:       buildIB(state.NodeShape.Network),
 		NodeName: state.Node.NodeName,
-		Output:   ibRoot(h),
+		RootDir:  ibRoot(h),
 	})
 }
 

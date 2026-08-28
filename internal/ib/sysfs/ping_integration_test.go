@@ -61,7 +61,7 @@ func TestIbping_Loopback_Integration(t *testing.T) {
 		},
 		GPUCount: 2,
 		NodeName: nodeName,
-		Output:   root,
+		RootDir:  root,
 	})
 	require.NoError(t, err)
 

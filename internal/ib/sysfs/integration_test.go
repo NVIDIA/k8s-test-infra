@@ -118,7 +118,7 @@ func renderForTool(t *testing.T, tool, aptPkg string) (string, string, string) {
 		},
 		GPUCount: 2,
 		NodeName: "test-node",
-		Output:   root,
+		RootDir:  root,
 	})
 	require.NoError(t, err)
 

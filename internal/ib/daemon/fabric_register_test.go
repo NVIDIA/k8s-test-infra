@@ -135,7 +135,7 @@ func TestWriteRegister_StalledPeerTimesOut(t *testing.T) {
 func TestServer_sendRegister(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, sysfs.Render(sysfs.Options{
-		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "node-a", Output: dir,
+		IB: config.Infiniband{Enabled: true}, GPUCount: 1, NodeName: "node-a", RootDir: dir,
 	}))
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

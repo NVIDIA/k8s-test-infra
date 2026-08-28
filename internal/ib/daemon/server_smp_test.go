@@ -25,7 +25,7 @@ func TestServer_SMPPortInfoSelfResolveShort(t *testing.T) {
 		IB:       config.Infiniband{Enabled: true},
 		GPUCount: 2,
 		NodeName: "node-a",
-		Output:   dir,
+		RootDir:  dir,
 	})
 	require.NoError(t, err)
 	safe := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
@@ -89,7 +89,7 @@ func TestServer_SMPPortInfoSelfResolveShort(t *testing.T) {
 func TestServer_SMPNodeInfoThenPortInfo(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, sysfs.Render(sysfs.Options{
-		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dir,
+		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", RootDir: dir,
 	}))
 	safe := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
 	sock := filepath.Join(os.TempDir(), "mock-ib-"+safe+".sock")
@@ -154,7 +154,7 @@ func TestServer_SMPNodeInfoThenPortInfo(t *testing.T) {
 func TestServer_SMInfoMaster(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, sysfs.Render(sysfs.Options{
-		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dir,
+		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", RootDir: dir,
 	}))
 	safe := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
 	sock := filepath.Join(os.TempDir(), "mock-ib-"+safe+".sock")

@@ -18,7 +18,7 @@ import (
 func TestSAPathQuery_LocalPort(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, sysfs.Render(sysfs.Options{
-		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dir,
+		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", RootDir: dir,
 	}))
 	ports, err := sysfs.Scan(dir)
 	require.NoError(t, err)
@@ -46,10 +46,10 @@ func TestSAPathQuery_RemoteViaRegistry(t *testing.T) {
 	dirA := t.TempDir()
 	dirB := t.TempDir()
 	require.NoError(t, sysfs.Render(sysfs.Options{
-		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", Output: dirA,
+		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-a", RootDir: dirA,
 	}))
 	require.NoError(t, sysfs.Render(sysfs.Options{
-		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-b", Output: dirB,
+		IB: config.Infiniband{Enabled: true}, GPUCount: 2, NodeName: "node-b", RootDir: dirB,
 	}))
 	portsA, _ := sysfs.Scan(dirA)
 	portsB, _ := sysfs.Scan(dirB)

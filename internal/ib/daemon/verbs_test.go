@@ -19,7 +19,7 @@ func TestSynthesizeVerbsWrite_QueryDevice(t *testing.T) {
 		IB:       config.Infiniband{Enabled: true},
 		GPUCount: 1,
 		NodeName: "n1",
-		Output:   root,
+		RootDir:  root,
 	})
 	require.NoError(t, err)
 

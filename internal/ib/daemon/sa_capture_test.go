@@ -57,7 +57,7 @@ func TestSAPathQuery_IbpingCapture(t *testing.T) {
 		IB:       config.Infiniband{Enabled: true},
 		GPUCount: 2,
 		NodeName: "nvml-mock-demo-worker2",
-		Output:   dirB,
+		RootDir:  dirB,
 	})
 	require.NoError(t, err)
 

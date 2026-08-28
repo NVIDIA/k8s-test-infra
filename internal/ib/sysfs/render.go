@@ -13,7 +13,6 @@ package sysfs
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,71 +25,102 @@ type Options struct {
 	IB       config.Infiniband
 	GPUCount int    // used when IB.HCACountOverride == 0
 	NodeName string // expanded into NodeDescTemplate
-	Output   string // fake-root directory; subtree rooted at <Output>/sys/class/...
+	RootDir  string // fake-root directory; subtree rooted at <RootDir>/sys/class/...
 }
 
-// Render writes the entire tree. It is idempotent: existing files are
-// truncated and rewritten, existing directories are reused.
+// Render brings the tree at o.RootDir onto the given spec, writing what the spec
+// declares and dropping whatever an earlier spec left behind. o.RootDir must be a
+// directory this package owns outright, since anything else under it is treated
+// as garbage. A spec with InfiniBand disabled retracts the tree entirely.
+//
+// What it produces, one HCA costing ~50 files:
+//
+//	sys/class/infiniband/mlx5_N/
+//	    node_type node_guid sys_image_guid fw_ver hw_rev board_id hca_type node_desc
+//	    device/modalias                  libibverbs fnmatches this to claim the device
+//	    ports/1/
+//	        state phys_state rate lid port_guid sm_lid sm_sl cap_mask lid_mask_count link_layer
+//	        gids/0 pkeys/0 counters/* gid_attrs/{types,ndevs}/0
+//	sys/class/infiniband_mad/    abi_version {umad,issm}N/{ibdev,port}
+//	sys/class/infiniband_verbs/  abi_version uverbsN/{ibdev,abi_version,dev}
+//	dev/infiniband/              {umad,issm,uverbs}N, empty: real char devices need CAP_MKNOD
+func Render(o Options) error {
+	t, err := render(o)
+
+	if err != nil {
+		// A spec that does not validate must not retract a running fabric.
+		return err
+	}
+
+	return t.prune()
+}
+
+// render writes what the spec declares and returns the record of every path
+// it wrote, which is what tells prune the rest is garbage.
 //
 //nolint:cyclop // existing complexity; refactor deferred
-func Render(o Options) error {
+func render(o Options) (*tree, error) {
+	t := newTree(o.RootDir)
+
 	if !o.IB.Enabled {
-		return nil
+		return t, nil
 	}
+
 	ib := o.IB.Defaults()
 	guidPrefix := normalizeGUIDPrefix(ib.GUIDPrefix)
+
 	if len(guidPrefix) < 8 || !isHexString(guidPrefix) {
-		return fmt.Errorf("guid_prefix must be at least 8 hex digits after stripping ':' (got %q -> %q)", ib.GUIDPrefix, guidPrefix)
+		return nil, fmt.Errorf("guid_prefix must be at least 8 hex digits after stripping ':' (got %q -> %q)", ib.GUIDPrefix, guidPrefix)
 	}
 
 	hcaCount := ib.HCACountOverride
+
 	if hcaCount <= 0 {
 		hcaCount = o.GPUCount * ib.HCAsPerGPU
 	}
+
 	if hcaCount <= 0 {
-		return fmt.Errorf("infiniband: hca_count is 0 (gpu_count=%d, hcas_per_gpu=%d)", o.GPUCount, ib.HCAsPerGPU)
+		return nil, fmt.Errorf("infiniband: hca_count is 0 (gpu_count=%d, hcas_per_gpu=%d)", o.GPUCount, ib.HCAsPerGPU)
 	}
+
 	if hcaCount > maxGUIDHCAs {
-		return fmt.Errorf("infiniband: hca_count=%d exceeds mock GUID capacity %d", hcaCount, maxGUIDHCAs)
-	}
-	if hcaCount > maxUnicastLIDs {
-		return fmt.Errorf("infiniband: hca_count=%d exceeds mock LID capacity %d", hcaCount, maxUnicastLIDs)
+		return nil, fmt.Errorf("infiniband: hca_count=%d exceeds mock GUID capacity %d", hcaCount, maxGUIDHCAs)
 	}
 
-	root := o.Output
-	if err := mkdirAll(root, "sys/class/infiniband"); err != nil {
-		return err
+	if err := t.mkdir("sys/class/infiniband"); err != nil {
+		return nil, err
 	}
-	if err := mkdirAll(root, "sys/class/infiniband_mad"); err != nil {
-		return err
+	if err := t.mkdir("sys/class/infiniband_mad"); err != nil {
+		return nil, err
 	}
-	if err := mkdirAll(root, "sys/class/infiniband_verbs"); err != nil {
-		return err
+	if err := t.mkdir("sys/class/infiniband_verbs"); err != nil {
+		return nil, err
 	}
-	if err := mkdirAll(root, "dev/infiniband"); err != nil {
-		return err
+	if err := t.mkdir("dev/infiniband"); err != nil {
+		return nil, err
 	}
 
-	if err := writeFile(root, "sys/class/infiniband_mad/abi_version", "5\n"); err != nil {
-		return err
+	if err := t.write("sys/class/infiniband_mad/abi_version", "5\n"); err != nil {
+		return nil, err
 	}
-	if err := writeFile(root, "sys/class/infiniband_verbs/abi_version", "6\n"); err != nil {
-		return err
+	if err := t.write("sys/class/infiniband_verbs/abi_version", "6\n"); err != nil {
+		return nil, err
 	}
 
 	for i := 0; i < hcaCount; i++ {
-		if err := renderHCA(root, ib, guidPrefix, i, hcaCount, o.NodeName); err != nil {
-			return fmt.Errorf("rendering mlx5_%d: %w", i, err)
+		if err := renderHCA(t, ib, guidPrefix, i, hcaCount, o.NodeName); err != nil {
+			return nil, fmt.Errorf("rendering mlx5_%d: %w", i, err)
 		}
 	}
-	return nil
+
+	return t, nil
 }
 
 //nolint:cyclop // existing complexity; refactor deferred
-func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCount int, nodeName string) error {
+func renderHCA(t *tree, ib config.Infiniband, guidPrefix string, idx, hcaCount int, nodeName string) error {
 	caName := fmt.Sprintf("mlx5_%d", idx)
 	caDir := filepath.Join("sys/class/infiniband", caName)
-	if err := mkdirAll(root, caDir); err != nil {
+	if err := t.mkdir(caDir); err != nil {
 		return err
 	}
 
@@ -116,28 +146,28 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCou
 		{"node_desc", nodeDesc + "\n"},
 	}
 	for _, f := range caFiles {
-		if err := writeFile(root, filepath.Join(caDir, f.name), f.value); err != nil {
+		if err := t.write(filepath.Join(caDir, f.name), f.value); err != nil {
 			return err
 		}
 	}
 
 	portDir := filepath.Join(caDir, "ports/1")
-	if err := mkdirAll(root, portDir); err != nil {
+	if err := t.mkdir(portDir); err != nil {
 		return err
 	}
-	if err := mkdirAll(root, filepath.Join(portDir, "gids")); err != nil {
+	if err := t.mkdir(filepath.Join(portDir, "gids")); err != nil {
 		return err
 	}
-	if err := mkdirAll(root, filepath.Join(portDir, "pkeys")); err != nil {
+	if err := t.mkdir(filepath.Join(portDir, "pkeys")); err != nil {
 		return err
 	}
-	if err := mkdirAll(root, filepath.Join(portDir, "counters")); err != nil {
+	if err := t.mkdir(filepath.Join(portDir, "counters")); err != nil {
 		return err
 	}
 	// In real Linux sysfs `gid_attrs` is a directory containing per-GID
 	// attribute files (ndevs, types, ...). Create it as a directory so
 	// libibverbs / iblinkinfo opendir() succeeds; ibstat doesn't read it.
-	if err := mkdirAll(root, filepath.Join(portDir, "gid_attrs")); err != nil {
+	if err := t.mkdir(filepath.Join(portDir, "gid_attrs")); err != nil {
 		return err
 	}
 
@@ -157,7 +187,7 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCou
 		{"port_guid", portGUID + "\n"},
 	}
 	for _, f := range portFiles {
-		if err := writeFile(root, filepath.Join(portDir, f.name), f.value); err != nil {
+		if err := t.write(filepath.Join(portDir, f.name), f.value); err != nil {
 			return err
 		}
 	}
@@ -166,10 +196,10 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCou
 	portLower := hcaIdentity(nid, idx) | 1
 	gid := fmt.Sprintf("fe80:0000:0000:0000:%s:%s:%04x:%04x",
 		guidPrefix[0:4], guidPrefix[4:8], portLower>>16, portLower&0xffff)
-	if err := writeFile(root, filepath.Join(portDir, "gids/0"), gid+"\n"); err != nil {
+	if err := t.write(filepath.Join(portDir, "gids/0"), gid+"\n"); err != nil {
 		return err
 	}
-	if err := writeFile(root, filepath.Join(portDir, "pkeys/0"), "0xffff\n"); err != nil {
+	if err := t.write(filepath.Join(portDir, "pkeys/0"), "0xffff\n"); err != nil {
 		return err
 	}
 
@@ -182,46 +212,46 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCou
 		"VL15_dropped", "port_xmit_constraint_errors", "port_rcv_constraint_errors",
 	}
 	for _, c := range zeroCounters {
-		if err := writeFile(root, filepath.Join(portDir, "counters", c), "0\n"); err != nil {
+		if err := t.write(filepath.Join(portDir, "counters", c), "0\n"); err != nil {
 			return err
 		}
 	}
 
 	// libibumad device-name registration.
 	madDir := fmt.Sprintf("sys/class/infiniband_mad/umad%d", idx)
-	if err := mkdirAll(root, madDir); err != nil {
+	if err := t.mkdir(madDir); err != nil {
 		return err
 	}
-	if err := writeFile(root, filepath.Join(madDir, "ibdev"), caName+"\n"); err != nil {
+	if err := t.write(filepath.Join(madDir, "ibdev"), caName+"\n"); err != nil {
 		return err
 	}
-	if err := writeFile(root, filepath.Join(madDir, "port"), "1\n"); err != nil {
+	if err := t.write(filepath.Join(madDir, "port"), "1\n"); err != nil {
 		return err
 	}
 	issmDir := fmt.Sprintf("sys/class/infiniband_mad/issm%d", idx)
-	if err := mkdirAll(root, issmDir); err != nil {
+	if err := t.mkdir(issmDir); err != nil {
 		return err
 	}
-	if err := writeFile(root, filepath.Join(issmDir, "ibdev"), caName+"\n"); err != nil {
+	if err := t.write(filepath.Join(issmDir, "ibdev"), caName+"\n"); err != nil {
 		return err
 	}
-	if err := writeFile(root, filepath.Join(issmDir, "port"), "1\n"); err != nil {
+	if err := t.write(filepath.Join(issmDir, "port"), "1\n"); err != nil {
 		return err
 	}
 
 	// libibverbs device-name registration.
 	verbsDir := fmt.Sprintf("sys/class/infiniband_verbs/uverbs%d", idx)
-	if err := mkdirAll(root, verbsDir); err != nil {
+	if err := t.mkdir(verbsDir); err != nil {
 		return err
 	}
-	if err := writeFile(root, filepath.Join(verbsDir, "ibdev"), caName+"\n"); err != nil {
+	if err := t.write(filepath.Join(verbsDir, "ibdev"), caName+"\n"); err != nil {
 		return err
 	}
-	if err := writeFile(root, filepath.Join(verbsDir, "abi_version"), "1\n"); err != nil {
+	if err := t.write(filepath.Join(verbsDir, "abi_version"), "1\n"); err != nil {
 		return err
 	}
 	// libibverbs setup_sysfs_uverbs() reads major:minor from dev.
-	if err := writeFile(root, filepath.Join(verbsDir, "dev"), fmt.Sprintf("231:%d\n", idx)); err != nil {
+	if err := t.write(filepath.Join(verbsDir, "dev"), fmt.Sprintf("231:%d\n", idx)); err != nil {
 		return err
 	}
 
@@ -230,23 +260,23 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCou
 	// upper-case and zero-padded. Any deviation and libmlx5 never claims the
 	// device, leaving ibv_devinfo to report "0 HCAs found". The IDs below are a
 	// ConnectX-5: Mellanox 0x15B3, device 0x1017, class 0x028000 (IB controller).
-	if err := mkdirAll(root, filepath.Join(caDir, "device")); err != nil {
+	if err := t.mkdir(filepath.Join(caDir, "device")); err != nil {
 		return err
 	}
 	const modalias = "pci:v000015B3d00001017sv000015B3sd00000008bc02sc00i00\n"
-	if err := writeFile(root, filepath.Join(caDir, "device/modalias"), modalias); err != nil {
+	if err := t.write(filepath.Join(caDir, "device/modalias"), modalias); err != nil {
 		return err
 	}
-	if err := mkdirAll(root, filepath.Join(portDir, "gid_attrs/types")); err != nil {
+	if err := t.mkdir(filepath.Join(portDir, "gid_attrs/types")); err != nil {
 		return err
 	}
-	if err := mkdirAll(root, filepath.Join(portDir, "gid_attrs/ndevs")); err != nil {
+	if err := t.mkdir(filepath.Join(portDir, "gid_attrs/ndevs")); err != nil {
 		return err
 	}
-	if err := writeFile(root, filepath.Join(portDir, "gid_attrs/types/0"), "RoCE v2\n"); err != nil {
+	if err := t.write(filepath.Join(portDir, "gid_attrs/types/0"), "RoCE v2\n"); err != nil {
 		return err
 	}
-	if err := writeFile(root, filepath.Join(portDir, "gid_attrs/ndevs/0"), "1\n"); err != nil {
+	if err := t.write(filepath.Join(portDir, "gid_attrs/ndevs/0"), "1\n"); err != nil {
 		return err
 	}
 
@@ -259,7 +289,7 @@ func renderHCA(root string, ib config.Infiniband, guidPrefix string, idx, hcaCou
 		fmt.Sprintf("dev/infiniband/issm%d", idx),
 		fmt.Sprintf("dev/infiniband/uverbs%d", idx),
 	} {
-		if err := writeFile(root, f, ""); err != nil {
+		if err := t.write(f, ""); err != nil {
 			return err
 		}
 	}
@@ -348,6 +378,11 @@ const (
 	lidBase        = 0x0100
 	lidUnicastHi   = 0xbfff
 	maxUnicastLIDs = lidUnicastHi - lidBase + 1
+
+	// The GUID encoding caps HCAs two orders of magnitude below the unicast
+	// LID range, so hcaCount is bounded on GUIDs alone. Widening the encoding
+	// past the LID range breaks the build rather than letting hcaLID collide.
+	_ = uint(maxUnicastLIDs - maxGUIDHCAs)
 )
 
 // hcaIdentity packs node id and HCA index into the lower 32 bits of the GUID,
@@ -389,22 +424,4 @@ func perHCAPortGUID(guidPrefix string, nid uint32, idx int) string {
 	lower := hcaIdentity(nid, idx) | 1
 	return fmt.Sprintf("%s:%s:%04x:%04x",
 		guidPrefix[0:4], guidPrefix[4:8], lower>>16, lower&0xffff)
-}
-
-func mkdirAll(root, rel string) error {
-	if err := os.MkdirAll(filepath.Join(root, rel), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", rel, err)
-	}
-	return nil
-}
-
-func writeFile(root, rel, contents string) error {
-	full := filepath.Join(root, rel)
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(rel), err)
-	}
-	if err := os.WriteFile(full, []byte(contents), 0o644); err != nil {
-		return fmt.Errorf("write %s: %w", rel, err)
-	}
-	return nil
 }

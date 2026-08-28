@@ -34,7 +34,7 @@ func TestRender_Disabled(t *testing.T) {
 		LinkLayer:        "InfiniBand",
 		NodeDescTemplate: "{node_name} mlx5_{idx}",
 	}
-	err := Render(Options{IB: ib, Output: dir, GPUCount: 8, NodeName: "host1"})
+	err := Render(Options{IB: ib, RootDir: dir, GPUCount: 8, NodeName: "host1"})
 	require.NoError(t, err, "Render")
 	entries, _ := os.ReadDir(dir)
 	require.Empty(t, entries, "expected no output when disabled")
@@ -46,7 +46,7 @@ func TestRender_DefaultsAndCount(t *testing.T) {
 		IB:       config.Infiniband{Enabled: true},
 		GPUCount: 4,
 		NodeName: "host1",
-		Output:   dir,
+		RootDir:  dir,
 	})
 	require.NoError(t, err, "Render")
 	for i := 0; i < 4; i++ {
@@ -107,7 +107,7 @@ func TestRender_HCAsPerGPU(t *testing.T) {
 	err := Render(Options{
 		IB:       config.Infiniband{Enabled: true, HCAsPerGPU: 2},
 		GPUCount: 4,
-		Output:   dir,
+		RootDir:  dir,
 	})
 	require.NoError(t, err, "Render")
 	for i := 0; i < 8; i++ {
@@ -122,7 +122,7 @@ func TestRender_HCACountOverride(t *testing.T) {
 	err := Render(Options{
 		IB:       config.Infiniband{Enabled: true, HCACountOverride: 2},
 		GPUCount: 16, // ignored
-		Output:   dir,
+		RootDir:  dir,
 	})
 	require.NoError(t, err, "Render")
 	for i := 0; i < 2; i++ {
@@ -156,7 +156,7 @@ func TestRender_GUIDPrefixNormalization(t *testing.T) {
 	err := Render(Options{
 		IB:       config.Infiniband{Enabled: true, GUIDPrefix: "AA:BB:CC:00:11:22"},
 		GPUCount: 1,
-		Output:   dir,
+		RootDir:  dir,
 	})
 	require.NoError(t, err, "Render")
 	got, _ := os.ReadFile(filepath.Join(dir, "sys/class/infiniband/mlx5_0/node_guid"))
@@ -169,7 +169,7 @@ func TestRender_NodeUniqueGUIDsAcrossNodes(t *testing.T) {
 	dirB := t.TempDir()
 	ib := config.Infiniband{Enabled: true}
 	opts := func(node, out string) Options {
-		return Options{IB: ib, GPUCount: 2, NodeName: node, Output: out}
+		return Options{IB: ib, GPUCount: 2, NodeName: node, RootDir: out}
 	}
 	err := Render(opts("worker-a", dirA))
 	require.NoError(t, err)
@@ -195,9 +195,9 @@ func TestRender_NodePortGUIDsAvoidKnownHashLowBitCollision(t *testing.T) {
 	dirA := t.TempDir()
 	dirB := t.TempDir()
 	ib := config.Infiniband{Enabled: true, HCACountOverride: 2}
-	err := Render(Options{IB: ib, NodeName: "38", Output: dirA})
+	err := Render(Options{IB: ib, NodeName: "38", RootDir: dirA})
 	require.NoError(t, err)
-	err = Render(Options{IB: ib, NodeName: "worker-44", Output: dirB})
+	err = Render(Options{IB: ib, NodeName: "worker-44", RootDir: dirB})
 	require.NoError(t, err)
 	read := func(root, rel string) string {
 		t.Helper()
@@ -225,7 +225,7 @@ func TestRender_NodePortGUIDsNoOverlap(t *testing.T) {
 	err := Render(Options{
 		IB:       config.Infiniband{Enabled: true, HCACountOverride: hcas},
 		NodeName: "worker-a",
-		Output:   dir,
+		RootDir:  dir,
 	})
 	require.NoError(t, err, "Render")
 	read := func(rel string) string {
@@ -253,7 +253,7 @@ func TestRender_BadGUIDPrefix(t *testing.T) {
 	err := Render(Options{
 		IB:       config.Infiniband{Enabled: true, GUIDPrefix: "tooshort"},
 		GPUCount: 1,
-		Output:   dir,
+		RootDir:  dir,
 	})
 	require.Error(t, err, "expected error for bad guid_prefix")
 }
