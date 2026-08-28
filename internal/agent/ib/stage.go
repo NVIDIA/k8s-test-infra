@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	ibconfig "github.com/NVIDIA/k8s-test-infra/internal/ib/config"
@@ -73,11 +75,11 @@ func stageIBTools(h *host.Host) error {
 	binDir := h.RootPath("driver/usr/bin")
 	libDir := h.RootPath("driver/usr/lib64")
 
-	staged, err := copyTree(h, filepath.Join(toolBundleRoot, "bin"), binDir)
+	staged, err := copyTree(filepath.Join(toolBundleRoot, "bin"), binDir)
 	if err != nil {
 		return err
 	}
-	if _, err := copyTree(h, filepath.Join(toolBundleRoot, "lib64"), libDir); err != nil {
+	if _, err := copyTree(filepath.Join(toolBundleRoot, "lib64"), libDir); err != nil {
 		return err
 	}
 
@@ -90,7 +92,7 @@ func stageIBTools(h *host.Host) error {
 		if err != nil {
 			continue
 		}
-		if err := h.CopyFile(src, filepath.Join(binDir, tool), 0o755); err != nil {
+		if err := fsutil.Copy(src, filepath.Join(binDir, tool), 0o755); err != nil {
 			return fmt.Errorf("stage %s: %w", tool, err)
 		}
 	}
@@ -100,7 +102,7 @@ func stageIBTools(h *host.Host) error {
 // stageIBShims installs the LD_PRELOAD shims that forward UMAD and verbs traffic
 // to the mock-ib daemon and redirect sysfs reads into ibRoot.
 func stageIBShims(h *host.Host) error {
-	return copyGlob(h, shimGlob, h.RootPath("driver/usr/local/lib"))
+	return copyGlob(shimGlob, h.RootPath("driver/usr/local/lib"))
 }
 
 // stageVerbsConfig carries the ibverbs provider set alongside the tools it
@@ -108,7 +110,7 @@ func stageIBShims(h *host.Host) error {
 // compile-time path and the mock answers verbs through the shim — but consumers
 // that mount the overlay as a root expect to find it.
 func stageVerbsConfig(h *host.Host) error {
-	_, err := copyTree(h, verbsConfDir, h.RootPath("driver/etc/libibverbs.d"))
+	_, err := copyTree(verbsConfDir, h.RootPath("driver/etc/libibverbs.d"))
 	return err
 }
 
@@ -123,12 +125,12 @@ func stageCheckFabric(h *host.Host) error {
 		return nil
 	}
 
-	return h.CopyFile(checkFabric, h.RootPath("driver/usr/bin/check-fabric"), 0o755)
+	return fsutil.Copy(checkFabric, h.RootPath("driver/usr/bin/check-fabric"), 0o755)
 }
 
 // copyTree copies srcDir's regular files into dstDir, returning the base names
 // it wrote. A missing srcDir is not an error: not every image pre-stages one.
-func copyTree(h *host.Host, srcDir, dstDir string) (map[string]bool, error) {
+func copyTree(srcDir, dstDir string) (map[string]bool, error) {
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -136,7 +138,7 @@ func copyTree(h *host.Host, srcDir, dstDir string) (map[string]bool, error) {
 		}
 		return nil, fmt.Errorf("read %s: %w", srcDir, err)
 	}
-	if err := h.MkdirAll(dstDir, 0o755); err != nil {
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return nil, err
 	}
 
@@ -146,7 +148,7 @@ func copyTree(h *host.Host, srcDir, dstDir string) (map[string]bool, error) {
 			continue
 		}
 		name := e.Name()
-		if err := h.CopyFile(filepath.Join(srcDir, name), filepath.Join(dstDir, name), 0o755); err != nil {
+		if err := fsutil.Copy(filepath.Join(srcDir, name), filepath.Join(dstDir, name), 0o755); err != nil {
 			return nil, fmt.Errorf("stage %s: %w", name, err)
 		}
 		written[name] = true
@@ -156,17 +158,17 @@ func copyTree(h *host.Host, srcDir, dstDir string) (map[string]bool, error) {
 
 // copyGlob copies every match of pattern into dstDir. No matches is not an
 // error: the shims are absent from images built without them.
-func copyGlob(h *host.Host, pattern, dstDir string) error {
+func copyGlob(pattern, dstDir string) error {
 	matches, _ := filepath.Glob(pattern)
 	if len(matches) == 0 {
 		return nil
 	}
-	if err := h.MkdirAll(dstDir, 0o755); err != nil {
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return err
 	}
 	for _, src := range matches {
 		dst := filepath.Join(dstDir, filepath.Base(src))
-		if err := h.CopyFile(src, dst, 0o755); err != nil {
+		if err := fsutil.Copy(src, dst, 0o755); err != nil {
 			return fmt.Errorf("stage %s: %w", filepath.Base(src), err)
 		}
 	}

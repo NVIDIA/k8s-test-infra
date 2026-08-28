@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 )
@@ -88,7 +90,7 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 	}
 
 	capFile := filepath.Join(h.Root, "driver/proc/driver/nvidia/capabilities/fabric-imex-mgmt")
-	if err := h.Remove(capFile); err != nil {
+	if err := fsutil.Remove(capFile); err != nil {
 		errs = append(errs, err)
 	}
 

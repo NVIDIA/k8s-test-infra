@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/ib/daemon"
@@ -134,7 +136,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	// runs. Staging them and an empty root regardless of tier also masks any
 	// real host InfiniBand.
 	root := ibRoot(h)
-	if err := h.MkdirAll(root, 0o755); err != nil {
+	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
 	s.ibRootPath.Store(&root)
@@ -203,10 +205,10 @@ func discardTools(h *host.Host) error {
 	errs = append(errs,
 		removeStaged(h, filepath.Join(toolBundleRoot, "bin"), "driver/usr/bin"),
 		removeStaged(h, filepath.Join(toolBundleRoot, "lib64"), "driver/usr/lib64"),
-		h.Remove(h.RootPath("driver/usr/bin/check-fabric")),
+		fsutil.Remove(h.RootPath("driver/usr/bin/check-fabric")),
 	)
 	for _, tool := range fallbackTools {
-		errs = append(errs, h.Remove(h.RootPath("driver/usr/bin", tool)))
+		errs = append(errs, fsutil.Remove(h.RootPath("driver/usr/bin", tool)))
 	}
 	return errors.Join(errs...)
 }
@@ -215,7 +217,7 @@ func discardShims(h *host.Host) error {
 	matches, _ := filepath.Glob(h.RootPath("driver/usr/local/lib/libibmock*.so*"))
 	errs := make([]error, 0, len(matches))
 	for _, p := range matches {
-		errs = append(errs, h.Remove(p))
+		errs = append(errs, fsutil.Remove(p))
 	}
 	return errors.Join(errs...)
 }
@@ -238,7 +240,7 @@ func removeStaged(h *host.Host, srcDir, dstRel string) error {
 		if e.IsDir() {
 			continue
 		}
-		if err := h.Remove(h.RootPath(dstRel, e.Name())); err != nil {
+		if err := fsutil.Remove(h.RootPath(dstRel, e.Name())); err != nil {
 			errs = append(errs, err)
 		}
 	}

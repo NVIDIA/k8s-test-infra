@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 )
 
 // staleDirPrefix names the scratch directory pruning renames doomed entries
@@ -61,17 +63,13 @@ func (t *tree) mkdir(rel string) error {
 func (t *tree) write(rel, contents string) error {
 	full := filepath.Join(t.root, rel)
 
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(rel), err)
-	}
-
 	t.keep(rel)
 
 	if current, err := os.ReadFile(full); err == nil && string(current) == contents {
 		return nil
 	}
 
-	if err := writeAtomic(full, contents); err != nil {
+	if err := fsutil.Write(full, []byte(contents), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", rel, err)
 	}
 
@@ -154,33 +152,4 @@ func (t *tree) retract(e staleEntry, staging string) error {
 		return fmt.Errorf("retract %s: %w", e.rel, err)
 	}
 	return nil
-}
-
-// writeAtomic replaces full in a single rename, so a reader sees either the
-// old contents or the new ones and never a truncated attribute.
-func writeAtomic(full, contents string) error {
-	f, err := os.CreateTemp(filepath.Dir(full), "."+filepath.Base(full)+".tmp*")
-
-	if err != nil {
-		return err
-	}
-
-	tmp := f.Name()
-	defer func() { _ = os.Remove(tmp) }() // a no-op once the rename lands
-
-	if _, err := f.WriteString(contents); err != nil {
-		_ = f.Close()
-		return err
-	}
-
-	if err := f.Close(); err != nil {
-		return err
-	}
-
-	// CreateTemp opens 0600; sysfs attributes are world-readable.
-	if err := os.Chmod(tmp, 0o644); err != nil {
-		return err
-	}
-
-	return os.Rename(tmp, full)
 }
