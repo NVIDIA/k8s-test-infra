@@ -125,9 +125,9 @@ func (s *Simulator) daemonExpected() bool {
 	return staged != nil && staged.IBEnabled
 }
 
-// Stage renders the IB sysfs tree and installs the tools and shims that read it.
-// The empty root and the shims land on every node; the rest is skipped when the
-// mode is off or the profile declares no InfiniBand.
+// Stage converges the IB sysfs tree, tools and shims on what the profile
+// declares. The empty root and the shims land on every node; the rendered HCAs
+// and the tools that read them only where the tier simulates InfiniBand.
 func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
 	s.ready.Store(false)
 
@@ -152,14 +152,25 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	s.socketPath.Store(&socket)
 
 	net := state.NodeShape.Network
-	if s.opts.Mode == ModeOff || !net.IBEnabled {
-		s.ready.Store(true)
-		return nil
+	simulating := s.opts.Mode != ModeOff && net.IBEnabled
+
+	// A profile that retracts InfiniBand has to take its HCAs with it: the tree
+	// lives on a host mount that outlives the edit, and the daemon keys its
+	// lifecycle off the staged shape.
+	if err := stageSysfs(h, state, simulating); err != nil {
+		return fmt.Errorf("render ib sysfs: %w", err)
 	}
+
 	s.recordShape(net)
 
-	if err := stageSysfs(h, state); err != nil {
-		return fmt.Errorf("render ib sysfs: %w", err)
+	if !simulating {
+		if err := retractTools(h); err != nil {
+			return err
+		}
+
+		s.ready.Store(true)
+
+		return nil
 	}
 
 	for _, stage := range []func(*host.Host) error{
@@ -191,8 +202,17 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 	return errors.Join(
 		// The whole ib/ subtree: infiniband is its only writer.
 		removeTree(ibRoot(h)),
-		discardTools(h),
+		retractTools(h),
 		discardShims(h),
+	)
+}
+
+// retractTools removes the binaries and the verbs config an earlier shape
+// staged. The shims are left in place; the NRI plugin preloads them on every
+// tier, so they have to resolve even where nothing is simulated.
+func retractTools(h *host.Host) error {
+	return errors.Join(
+		discardTools(h),
 		removeTree(h.RootPath("driver/etc/libibverbs.d")),
 	)
 }

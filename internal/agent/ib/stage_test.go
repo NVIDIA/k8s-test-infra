@@ -214,3 +214,69 @@ func snapshotTree(t *testing.T, root string) map[string]string {
 	}))
 	return out
 }
+
+// A profile that turns InfiniBand off has to take the HCAs and tools an earlier
+// profile staged with it; the tree sits on a host mount that outlives the edit.
+func TestStage_RetractsWhenProfileDisablesIB(t *testing.T) {
+	isolateSources(t)
+	seedImageSources(t)
+
+	h := newTestHost(t)
+	s := New(Options{Mode: ModeFull, SocketPath: filepath.Join(t.TempDir(), "s.sock")})
+	ctx := context.Background()
+
+	require.NoError(t, s.Stage(ctx, h, testState(testNetwork())))
+	require.DirExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_0"))
+	require.FileExists(t, h.RootPath("driver/usr/bin/ibstat"))
+
+	require.NoError(t, s.Stage(ctx, h, testState(agent.NetworkShape{})))
+
+	require.NoDirExists(t, h.RootPath("ib/sys/class/infiniband"))
+	require.NoFileExists(t, h.RootPath("driver/usr/bin/ibstat"))
+	require.NoFileExists(t, h.RootPath("driver/usr/lib64/libibmad.so.5"))
+	require.NoFileExists(t, h.RootPath("driver/usr/bin/check-fabric"))
+	require.NoDirExists(t, h.RootPath("driver/etc/libibverbs.d"))
+
+	// The shims and the empty root outlive the retraction: the NRI plugin
+	// preloads the shims on every tier, and an empty root masks any real host IB.
+	require.DirExists(t, h.RootPath("ib"))
+	require.FileExists(t, h.RootPath("driver/usr/local/lib/libibmockumad.so.1"))
+}
+
+// Retraction has to release the daemon too, or readiness waits forever on one
+// serving HCAs the profile no longer declares.
+func TestStage_RetractionReleasesTheDaemon(t *testing.T) {
+	isolateSources(t)
+	seedImageSources(t)
+
+	h := newTestHost(t)
+	s := New(Options{Mode: ModeFull, SocketPath: filepath.Join(t.TempDir(), "s.sock")})
+	ctx := context.Background()
+
+	require.NoError(t, s.Stage(ctx, h, testState(testNetwork())))
+	require.True(t, s.daemonExpected(), "a declared fabric expects the daemon")
+	require.False(t, s.Ready(), "readiness waits on a daemon that has not started")
+
+	require.NoError(t, s.Stage(ctx, h, testState(agent.NetworkShape{})))
+	require.NoError(t, s.Reload(ctx, testState(agent.NetworkShape{})))
+
+	require.False(t, s.daemonExpected(), "a retracted fabric expects no daemon")
+	require.Len(t, s.restart, 1, "the running daemon must be signalled to stop")
+	require.True(t, s.Ready(), "readiness must not wait on a daemon that should not run")
+}
+
+// ModeOff is the other half of the tier gate: the chart can select it on a
+// profile that does declare InfiniBand, and then nothing may be rendered.
+func TestStage_ModeOffRendersNothingForEnabledProfile(t *testing.T) {
+	isolateSources(t)
+	seedImageSources(t)
+
+	h := newTestHost(t)
+	s := New(Options{Mode: ModeOff})
+
+	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
+
+	require.NoDirExists(t, h.RootPath("ib/sys/class/infiniband"))
+	require.NoFileExists(t, h.RootPath("driver/usr/bin/ibstat"))
+	require.FileExists(t, h.RootPath("driver/usr/local/lib/libibmockumad.so.1"))
+}

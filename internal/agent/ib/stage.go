@@ -39,10 +39,14 @@ var fallbackTools = []string{
 func ibRoot(h *host.Host) string { return h.RootPath("ib") }
 
 // stageSysfs renders the fake IB sysfs tree real tools read through
-// libibmocksys.so's path redirection.
-func stageSysfs(h *host.Host, state *agent.State) error {
+// libibmocksys.so's path redirection. A tier that simulates nothing renders an
+// empty tree, which is what retracts HCAs an earlier shape left behind.
+func stageSysfs(h *host.Host, state *agent.State, simulating bool) error {
+	ib := buildIB(state.NodeShape.Network)
+	ib.Enabled = ib.Enabled && simulating
+
 	return sysfs.Render(sysfs.Options{
-		IB:       buildIB(state.NodeShape.Network),
+		IB:       ib,
 		NodeName: state.Node.NodeName,
 		RootDir:  ibRoot(h),
 	})
