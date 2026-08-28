@@ -22,10 +22,11 @@
 // Usage:
 //
 //	go run ./cmd/generate-bridge \
-//	    -input vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go \
-//	    -header vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h \
 //	    -bridge pkg/gpu/mocknvml/bridge \
 //	    -output pkg/gpu/mocknvml/bridge/stubs_generated.go
+//
+// -input and -header default to go-nvml's nvml.go and nvml.h as resolved from
+// the module cache; pass them explicitly to generate against a different copy.
 package main
 
 import (
@@ -45,16 +46,21 @@ import (
 
 //nolint:cyclop // existing complexity; refactor deferred
 func main() {
-	input := flag.String("input", "vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go", "NVML Go wrapper file")
-	header := flag.String("header", "vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h", "NVML C header file for prototype extraction")
+	input := flag.String("input", "", "NVML Go wrapper file (default: go-nvml from the module cache)")
+	header := flag.String("header", "", "NVML C header file for prototype extraction (default: go-nvml from the module cache)")
 	bridge := flag.String("bridge", "pkg/gpu/mocknvml/bridge", "Bridge directory to scan for existing implementations")
 	output := flag.String("output", "pkg/gpu/mocknvml/bridge/stubs_generated.go", "Output file for generated stubs")
 	stats := flag.Bool("stats", false, "Print coverage statistics and exit")
 	validate := flag.Bool("validate", false, "Validate hand-written export parameter counts against nvml.h prototypes")
 	flag.Parse()
 
+	inputPath, headerPath, err := resolveNVMLSources(*input, *header)
+	if err != nil {
+		log.Fatalf("Failed to locate NVML sources: %v", err)
+	}
+
 	if *stats {
-		allFunctions, err := parseNVMLFunctions(*input)
+		allFunctions, err := parseNVMLFunctions(inputPath)
 		if err != nil {
 			log.Fatalf("Failed to parse input: %v", err)
 		}
@@ -63,7 +69,7 @@ func main() {
 	}
 
 	if *validate {
-		headerFile, err := os.Open(*header)
+		headerFile, err := os.Open(headerPath)
 		if err != nil {
 			log.Fatalf("Failed to open header: %v", err)
 		}
@@ -89,13 +95,13 @@ func main() {
 	}
 
 	// Step 1: Parse input file to get all NVML function names
-	allFunctions, err := parseNVMLFunctions(*input)
+	allFunctions, err := parseNVMLFunctions(inputPath)
 	if err != nil {
 		log.Fatalf("Failed to parse input: %v", err)
 	}
 
 	// Step 2: Parse nvml.h to get C function prototypes
-	headerFile, err := os.Open(*header)
+	headerFile, err := os.Open(headerPath)
 	if err != nil {
 		log.Fatalf("Failed to open header: %v", err)
 	}
@@ -105,7 +111,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to parse header: %v", err)
 	}
-	log.Printf("Parsed %d C prototypes from %s", len(prototypes), *header)
+	log.Printf("Parsed %d C prototypes from %s", len(prototypes), headerPath)
 
 	// Step 3: Scan bridge directory for existing //export functions
 	existingFunctions, err := scanBridgeExports(*bridge)
