@@ -277,8 +277,8 @@ parallelise demos), two things need to change in lockstep:
 1. The `nodes:` lists in [`topology.yaml`](./topology.yaml) — each
    Kind worker is named `<cluster-name>-worker[N]`, so renaming the
    cluster renames every entry in the topology.
-2. Cluster name in every `kind` / `kubectl --context` / `kind load`
-   call below.
+2. Cluster name in every `kind` / `kubectl --context` / `kind load` /
+   `helm --kube-context` call below.
 
 The script doesn't expose this as a flag because the demo is
 documentation-by-example; the canonical name keeps the example
