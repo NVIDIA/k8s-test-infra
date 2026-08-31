@@ -52,16 +52,27 @@ One control-plane + two workers:
 When one worker's GPU overheats, NVSentinel cordons/drains it and the sample GPU
 workload reschedules onto the second, healthy worker.
 
-## Requirements
+## Prerequisites
 
-- Docker, [Kind](https://kind.sigs.k8s.io/), Helm, `kubectl`
-- `jq` (optional — only used to pretty-print node conditions)
+> **This demo creates its own Kind cluster.** It pins a two-worker topology and
+> specific node labels, so it provisions its own cluster rather than using your
+> current `KUBECONFIG` context, and it will not touch it.
+
+- **Docker**, with the daemon running.
+- **Kind**, to provision the demo's dedicated cluster.
+- **Helm 3.8 or newer.** Install it from the official docs:
+  <https://helm.sh/docs/intro/install/>
+- `kubectl`.
+- `jq` (optional, only used to pretty-print node conditions).
 - Network access to `ghcr.io` (NVSentinel chart), `helm.ngc.nvidia.com`
   (GPU Operator), `public.ecr.aws` (MongoDB), and `nvidia.github.io`
   (container-toolkit packages).
 - An `arm64` or `amd64` host. The demo runs a standalone MongoDB
   (`public.ecr.aws/docker/library/mongo:8.0.3`) instead of the chart's bundled
   Bitnami MongoDB, so it works on Apple Silicon too (see below).
+
+New to Mokka? The [quick start](../../quickstart.md) is the fastest way to see
+simulated GPUs before running this demo.
 
 ## Run it
 

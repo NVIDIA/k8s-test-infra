@@ -14,6 +14,21 @@ deployment. The Kind topology itself is the shared
 [`../kind.yaml`](../kind.yaml) (1 control-plane + 3 workers with
 FGO-style labels) — failure injection doesn't need its own topology.
 
+## Prerequisites
+
+- **A Kubernetes cluster and a valid `KUBECONFIG`.** This demo installs into
+  whatever cluster your current context points at. Check yours with
+  `kubectl config current-context`.
+- **Helm 3.8 or newer.** Install it from the official docs:
+  <https://helm.sh/docs/intro/install/>
+- `kubectl`, matching your cluster version.
+
+> **No cluster yet?** The [quick start](../../quickstart.md) creates a
+> throwaway one with Kind in about a minute, then come back here.
+
+Docker and Kind are needed only if you want to build the image from source
+(`BUILD_LOCAL=true`); the default path pulls the published image.
+
 ## What the script does
 
 1. (Re)creates the dedicated Kind cluster (idempotent: an existing
