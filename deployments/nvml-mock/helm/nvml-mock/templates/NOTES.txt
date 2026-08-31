@@ -83,7 +83,7 @@ OPTION C: GPU Operator
 {{- if .Values.integrations.fakeGpuOperator.enabled }}
 
 fake-gpu-operator integration is enabled.
-6 profile ConfigMaps created. Discover them with:
+7 profile ConfigMaps created, one per GPU model. Discover them with:
 
   kubectl get cm -l run.ai/gpu-profile=true
 
