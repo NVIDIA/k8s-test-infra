@@ -12,6 +12,10 @@ import (
 // Host holds the roots for each host filesystem namespace the agent writes to.
 // Production: hostPrefix = "/host". Tests: hostPrefix = t.TempDir().
 type Host struct {
+	// Prefix is where the host filesystem is mounted in the agent's namespace,
+	// so a host path the deployment names can be reached through it.
+	Prefix string // /host
+
 	Root string // /host/var/lib/nvml-mock — simulator staging area
 	Dev  string // /host/dev
 	Proc string // /host/proc
@@ -23,6 +27,8 @@ type Host struct {
 // New returns a Host whose paths are rooted under hostPrefix.
 func New(hostPrefix string) *Host {
 	return &Host{
+		Prefix: filepath.Clean(hostPrefix),
+
 		Root: filepath.Join(hostPrefix, "var/lib/nvml-mock"),
 		Dev:  filepath.Join(hostPrefix, "dev"),
 		Proc: filepath.Join(hostPrefix, "proc"),
@@ -50,6 +56,10 @@ func (h *Host) EtcPath(parts ...string) string { return join(h.Etc, parts) }
 
 // RunPath joins parts under Run.
 func (h *Host) RunPath(parts ...string) string { return join(h.Run, parts) }
+
+// HostPath maps an absolute host path into the agent's namespace, for
+// directories the deployment names rather than this package deriving them.
+func (h *Host) HostPath(abs string) string { return filepath.Join(h.Prefix, abs) }
 
 func join(root string, parts []string) string {
 	return filepath.Join(append([]string{root}, parts...)...)

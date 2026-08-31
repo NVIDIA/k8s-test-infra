@@ -26,6 +26,8 @@ func TestPathAccessors(t *testing.T) {
 		{"sys", h.SysPath("bus/pci"), "/host/sys/bus/pci"},
 		{"etc", h.EtcPath("libibverbs.d"), "/host/etc/libibverbs.d"},
 		{"run", h.RunPath("nvidia"), "/host/run/nvidia"},
+		{"host path", h.HostPath("/run/nvidia-fabricmanager"), "/host/run/nvidia-fabricmanager"},
+		{"host path under root", h.HostPath("/var/lib/nvml-mock/fabric-state"), "/host/var/lib/nvml-mock/fabric-state"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

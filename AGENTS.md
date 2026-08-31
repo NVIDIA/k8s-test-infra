@@ -14,22 +14,26 @@ so all consumers and applications up the stack work without modifications.
 - Red-green test-driven development
 - Code should communicate your intent
 - Code should be composable and testable
+- Errors should not be ignored. Bubble them up with more context, log or handle. If it doesn't make sense to handle an error, you must leave an concise explanation why.
 
-## Scale
+## Use cases
 
 - The system should work well for clusters up to 100k nodes.
+- Also, the system should be convenient to use in local, low-scale clusters
 
 ## Tech Stack
 
 - Modern Golang 1.26
-- Use testify/require for test assertions
 - Kubernetes as a main deployment target
 - Tilt for local development and CI E2E test environment setup
 
 ## Testing
 
+- Use testify/require for test assertions
 - When changing Golang codebase, make sure `make lint-fix` works without violations. Run `make test` to run changes against existing test suite.
 - When modify helm chart, make sure to run `make helm-tests` in order to ensure that the Helm chart is not broken.
+- Add only meaningful tests
+- Use t.Parallel() where possible to speed up test execution
 
 ## CI/CD
 

@@ -16,17 +16,17 @@ package engine
 import (
 	"testing"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/fmcoord"
+	"github.com/NVIDIA/k8s-test-infra/internal/fabricmanager"
 	"github.com/stretchr/testify/require"
 )
 
 // TestFabricCoordContract guards the marker/env contract shared between the
 // mock NVML engine (which READS the readiness marker for `fabric.state: auto`)
-// and the fake fabricmanager daemon/ctl in pkg/fmcoord (which WRITE it). The
+// and the node agent's fabricmanager simulator (which WRITES it). The
 // two packages deliberately do not import each other, so they agree only by
 // convention; a rename in one without the other would silently break the
 // coupling with no compile error. This test fails loudly instead.
 func TestFabricCoordContract(t *testing.T) {
-	require.Equal(t, fmcoord.EnvStateDir, EnvFabricStateDir, "state-dir env var drift")
-	require.Equal(t, fmcoord.ReadyMarker, FabricReadyMarker, "ready-marker filename drift")
+	require.Equal(t, fabricmanager.EnvStateDir, EnvFabricStateDir, "state-dir env var drift")
+	require.Equal(t, fabricmanager.ReadyMarker, FabricReadyMarker, "ready-marker filename drift")
 }

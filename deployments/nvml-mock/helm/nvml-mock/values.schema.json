@@ -275,7 +275,7 @@
     "fabricmanager": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Fake nvidia-fabricmanager daemon for NVSwitch platforms. When enabled is empty, the chart derives enablement from the GPU profile (NVSwitches or fabric.state: auto).",
+      "description": "Simulated NVSwitch fabric registration, published by the node agent as a readiness marker. When enabled is empty, the chart derives enablement from the GPU profile (NVSwitches or fabric.state: auto).",
       "properties": {
         "enabled": {
           "description": "Tri-state override: empty string derives from profile; true/false force the daemon on or off.",
@@ -287,6 +287,10 @@
         "stateDir": {
           "type": "string",
           "description": "HostPath directory for the node-local fabricmanager readiness marker."
+        },
+        "initDelay": {
+          "type": "string",
+          "description": "Go duration to withhold fabric readiness for, exercising the IN_PROGRESS window before registration completes. Empty publishes immediately."
         }
       }
     },
