@@ -342,7 +342,7 @@
     "controlPlane": {
       "type": "object",
       "additionalProperties": true,
-      "description": "Mokka Control Plane. Off by default; renders a Deployment + Service only when controlPlane.enabled is true.",
+      "description": "Mokka Control Plane. Off by default; renders its Deployment, Service, service account, and least-privilege RBAC only when controlPlane.enabled is true.",
       "properties": {
         "enabled": { "type": "boolean" },
         "replicas": { "type": "integer", "minimum": 1 },
@@ -350,8 +350,20 @@
           "type": "object",
           "additionalProperties": true,
           "properties": {
-            "repository": { "type": "string" },
-            "tag": { "type": "string" },
+            "repository": { "type": "string", "minLength": 1 },
+            "digest": {
+              "type": "string",
+              "pattern": "^(|sha256:[a-f0-9]{64})$",
+              "description": "Immutable image digest required when controlPlane.enabled is true outside the explicit local mutable-tag mode."
+            },
+            "tag": {
+              "type": "string",
+              "description": "Mutable image tag used only for local Tilt builds when allowMutableTag is true."
+            },
+            "allowMutableTag": {
+              "type": "boolean",
+              "description": "Allows mutable image tags for local development; keep false for normal installs to enforce digest pinning."
+            },
             "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
           }
         },
@@ -367,6 +379,33 @@
             "format": {
               "type": "string",
               "enum": ["json", "plain"]
+            }
+          }
+        },
+        "workers": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Worker count for each controller queue."
+        },
+        "kubeAPIQPS": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Sustained client-side Kubernetes API request limit."
+        },
+        "kubeAPIBurst": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Client-side Kubernetes API burst limit."
+        },
+        "leaderElection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
             }
           }
         },

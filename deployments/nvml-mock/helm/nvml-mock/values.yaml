@@ -349,22 +349,33 @@ integrations:
     profileLabels:
       run.ai/gpu-profile: "true"
 
-# Mokka Control Plane (MEP-0001). Defaults to disabled: the init slice serves
-# only /healthz and /readyz, so enabling it today only buys the probe surface.
-# Singleton-per-cluster placement is deferred to the MEP that gives the CP
-# real state; until then N releases produce N stateless CPs, which is fine.
+# Mokka Control Plane (MEP-0001). Defaults to disabled.
 controlPlane:
   enabled: false
   replicas: 1
   image:
     repository: ghcr.io/nvidia/mokka-control-plane
-    tag: latest
+    # Required when enabled outside Tilt's explicit local mutable-tag mode.
+    # Digest pinning prevents the cluster-privileged controller artifact from
+    # changing without a Helm values change.
+    digest: ""
+    # Tilt sets both fields for locally built images. Keep mutable tags disabled
+    # for normal installs so the cluster-privileged controller stays immutable.
+    tag: ""
+    allowMutableTag: false
     pullPolicy: IfNotPresent
   logging:
     level: info    # debug | info | warn | error
     format: json   # json | plain
   # Go duration string: 5s, 1m30s, etc.
   shutdownTimeout: 5s
+  workers: 2
+  # Client-side Kubernetes API throttling. Raise these together with workers
+  # when faster initial convergence is worth the additional control-plane load.
+  kubeAPIQPS: 50
+  kubeAPIBurst: 100
+  leaderElection:
+    name: mokka-control-plane.mokka.nvidia.com
   service:
     type: ClusterIP
     port: 8080
@@ -381,6 +392,6 @@ controlPlane:
       memory: 64Mi
     limits:
       cpu: 500m
-      memory: 256Mi
+      memory: 1Gi
   nodeSelector: {}
   tolerations: []

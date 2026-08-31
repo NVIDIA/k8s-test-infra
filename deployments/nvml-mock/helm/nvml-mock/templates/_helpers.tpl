@@ -87,7 +87,18 @@ fullname so its Deployment/Service cannot be adopted by the DaemonSet's
 selector.
 */}}
 {{- define "nvml-mock.controlPlaneName" -}}
-{{- printf "%s-control-plane" (include "nvml-mock.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- $suffix := "-control-plane" -}}
+{{- $baseLength := sub 63 (len $suffix) | int -}}
+{{- printf "%s%s" ((include "nvml-mock.fullname" .) | trunc $baseLength | trimSuffix "-") $suffix }}
+{{- end }}
+
+{{/*
+The control plane mutates cluster-scoped state, so its required cluster-scoped
+RBAC resources use a fixed identity. The ClusterRoleBinding also serves as the
+Helm-owned singleton guard.
+*/}}
+{{- define "nvml-mock.controlPlaneSingletonName" -}}
+mokka-control-plane.mokka.nvidia.com
 {{- end }}
 
 {{/*

@@ -1,0 +1,232 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+suite: Mokka Control Plane RBAC
+templates:
+  - templates/controlplane/serviceaccount.yaml
+  - templates/controlplane/rbac.yaml
+kubernetesProvider:
+  scheme:
+    "rbac.authorization.k8s.io/v1/ClusterRoleBinding":
+      gvr:
+        group: rbac.authorization.k8s.io
+        version: v1
+        resource: clusterrolebindings
+      namespaced: false
+tests:
+  - it: should not render when the control plane is disabled
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render the dedicated service account
+    set:
+      controlPlane.enabled: true
+    template: templates/controlplane/serviceaccount.yaml
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-nvml-mock-control-plane
+
+  - it: should allow only the controller resource surface
+    set:
+      controlPlane.enabled: true
+    template: templates/controlplane/rbac.yaml
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - equal:
+          path: metadata.name
+          value: mokka-control-plane.mokka.nvidia.com
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["nodes"]
+            verbs: ["get", "list", "watch", "patch"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["mokka.nvidia.com"]
+            resources: ["sgpuinventories/status", "sgpuracks/status"]
+            verbs: ["update"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["mokka.nvidia.com"]
+            resources: ["sgpuracks"]
+            verbs: ["get", "list", "watch", "create", "patch", "delete"]
+
+  - it: should allow namespaced Lease election
+    set:
+      controlPlane.enabled: true
+    template: templates/controlplane/rbac.yaml
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: Role
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["coordination.k8s.io"]
+            resources: ["leases"]
+            verbs: ["get", "create", "update"]
+
+  - it: should keep cluster-scoped RBAC invariant across releases
+    release:
+      name: other-release
+      namespace: other-namespace
+    set:
+      controlPlane.enabled: true
+    template: templates/controlplane/rbac.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: mokka-control-plane.mokka.nvidia.com
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: mokka-control-plane.mokka.nvidia.com
+        documentIndex: 1
+      - equal:
+          path: roleRef.name
+          value: mokka-control-plane.mokka.nvidia.com
+        documentIndex: 1
+      - equal:
+          path: subjects[0].name
+          value: other-release-nvml-mock-control-plane
+        documentIndex: 1
+      - equal:
+          path: subjects[0].namespace
+          value: other-namespace
+        documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: other-release-nvml-mock-control-plane
+        documentIndex: 2
+
+  - it: should keep cluster-scoped RBAC stable with nameOverride
+    release:
+      name: custom-release
+      namespace: custom-namespace
+    set:
+      controlPlane.enabled: true
+      nameOverride: renamed
+    template: templates/controlplane/rbac.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: mokka-control-plane.mokka.nvidia.com
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: mokka-control-plane.mokka.nvidia.com
+        documentIndex: 1
+      - equal:
+          path: roleRef.name
+          value: mokka-control-plane.mokka.nvidia.com
+        documentIndex: 1
+      - equal:
+          path: subjects[0].name
+          value: custom-release-renamed-control-plane
+        documentIndex: 1
+      - equal:
+          path: subjects[0].namespace
+          value: custom-namespace
+        documentIndex: 1
+
+  - it: should keep cluster-scoped RBAC stable with fullnameOverride
+    release:
+      name: custom-release
+      namespace: custom-namespace
+    set:
+      controlPlane.enabled: true
+      fullnameOverride: renamed-fullname
+    template: templates/controlplane/rbac.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: mokka-control-plane.mokka.nvidia.com
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: mokka-control-plane.mokka.nvidia.com
+        documentIndex: 1
+      - equal:
+          path: roleRef.name
+          value: mokka-control-plane.mokka.nvidia.com
+        documentIndex: 1
+      - equal:
+          path: subjects[0].name
+          value: renamed-fullname-control-plane
+        documentIndex: 1
+      - equal:
+          path: subjects[0].namespace
+          value: custom-namespace
+        documentIndex: 1
+
+  - it: should render an upgrade for the release that owns the singleton guard
+    release:
+      name: current-release
+      namespace: current-namespace
+      revision: 2
+      upgrade: true
+    kubernetesProvider:
+      objects:
+        - apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: mokka-control-plane.mokka.nvidia.com
+            labels:
+              app.kubernetes.io/managed-by: Helm
+            annotations:
+              meta.helm.sh/release-name: current-release
+              meta.helm.sh/release-namespace: current-namespace
+    set:
+      controlPlane.enabled: true
+    template: templates/controlplane/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - equal:
+          path: metadata.name
+          value: mokka-control-plane.mokka.nvidia.com
+
+  - it: should reject a release when another release owns the singleton guard
+    release:
+      name: competing-release
+      namespace: competing-namespace
+    kubernetesProvider:
+      objects:
+        - apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: mokka-control-plane.mokka.nvidia.com
+            labels:
+              app.kubernetes.io/managed-by: Helm
+            annotations:
+              meta.helm.sh/release-name: current-release
+              meta.helm.sh/release-namespace: current-namespace
+    set:
+      controlPlane.enabled: true
+    template: templates/controlplane/rbac.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: 'Mokka control plane is already installed by Helm release "current-release" in namespace "current-namespace"; uninstall it before enabling controlPlane for release "competing-release" in namespace "competing-namespace"'
+
+  - it: should reject an existing singleton guard without Helm ownership
+    kubernetesProvider:
+      objects:
+        - apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: mokka-control-plane.mokka.nvidia.com
+    set:
+      controlPlane.enabled: true
+    template: templates/controlplane/rbac.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: 'ClusterRoleBinding "mokka-control-plane.mokka.nvidia.com" already exists without Helm ownership; remove it before enabling the Mokka control plane'

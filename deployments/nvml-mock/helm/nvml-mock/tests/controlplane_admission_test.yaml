@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright 2026 NVIDIA CORPORATION
+suite: Mokka Control Plane SGPURack admission
+templates:
+  - templates/controlplane/admission.yaml
+tests:
+  - it: should not render when the control plane is disabled
+    capabilities:
+      majorVersion: 1
+      minorVersion: 28
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should restrict only main-resource creates and updates to this controller
+    release:
+      name: protected
+      namespace: mokka-system
+    capabilities:
+      majorVersion: 1
+      minorVersion: 30
+    set:
+      controlPlane.enabled: true
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ValidatingAdmissionPolicy
+      - equal:
+          path: apiVersion
+          value: admissionregistration.k8s.io/v1
+      - equal:
+          path: spec.failurePolicy
+          value: Fail
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].operations
+          value: [CREATE, UPDATE]
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [sgpuracks]
+      - equal:
+          path: spec.validations[0].expression
+          value: "request.userInfo.username == 'system:serviceaccount:mokka-system:protected-nvml-mock-control-plane'"
+
+  - it: should bind the policy in deny mode
+    capabilities:
+      majorVersion: 1
+      minorVersion: 30
+    set:
+      controlPlane.enabled: true
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ValidatingAdmissionPolicyBinding
+      - equal:
+          path: apiVersion
+          value: admissionregistration.k8s.io/v1
+      - equal:
+          path: spec.validationActions
+          value: [Deny]
+      - equal:
+          path: spec.policyName
+          value: RELEASE-NAME-nvml-mock-control-plane-sgpurack-writes
+
+  - it: should reject the control plane on Kubernetes 1.29
+    capabilities:
+      majorVersion: 1
+      minorVersion: 29
+    set:
+      controlPlane.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: controlPlane.enabled requires Kubernetes 1.30+ for stable ValidatingAdmissionPolicy
