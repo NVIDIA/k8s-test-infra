@@ -28,10 +28,26 @@ shim.
 > **No cluster yet?** The [quick start](../../quickstart.md) creates a
 > throwaway one with Kind in about a minute, then come back here.
 
-Docker and Kind are needed only if you want to build the image from source
-(`BUILD_LOCAL=true`); the default path pulls the published image.
+This guide has no script, so there is no `BUILD_LOCAL` switch to set, and no
+`DEMO_ASSUME_YES` either: the scripted demos run a preflight that announces
+the target cluster and makes you confirm it before installing a privileged
+DaemonSet, but here you are running `helm` yourself. Nothing checks the
+target on your behalf, so confirm it before Step 3:
 
-## Step 1 -- Create a Kind cluster
+```bash
+kubectl config current-context
+kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'
+```
+
+Docker and Kind are needed only for two optional steps you can skip on a
+cluster you already have: Step 1, which creates a throwaway Kind cluster, and
+Step 2, which builds the image from source. Skip both and Step 3 installs the
+published image.
+
+## Step 1 (Optional) -- Create a Kind cluster
+
+Skip this if your `KUBECONFIG` already points at a cluster whose nodes carry
+the two pool labels listed above.
 
 ```bash
 kind create cluster --name nvml-mock-fgo-demo --config=docs/demo/kind.yaml
@@ -48,13 +64,23 @@ kind load docker-image nvml-mock:demo --name nvml-mock-fgo-demo
 
 ## Step 3 -- Install nvml-mock
 
+The image is about 100 MB and a cold pull was measured at roughly 8 minutes
+per node, so `--wait` gets a 15-minute budget below rather than the 2 minutes
+this guide used to show. A long silence there is the pull, not a hang. A first
+install already pulls on every node at once; `maxUnavailable=100%` is there so
+a later `helm upgrade` does not fall back to rolling one node at a time.
+`ghcr.io/nvidia/nvml-mock:latest` is also a floating tag: a cluster holding an
+older cached `:latest` can run a build that does not match this chart, so pin
+a released tag if you need a fixed pairing.
+
 ```bash
 helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
   --set integrations.fakeGpuOperator.enabled=true \
   --set gpu.profile=h100 \
   --set gpu.count=8 \
   --set "nodeSelector.run\.ai/simulated-gpu-node-pool=integration" \
-  --wait --timeout 120s
+  --set-string updateStrategy.rollingUpdate.maxUnavailable=100% \
+  --wait --timeout 15m
 ```
 
 > **Tip:** To use the locally built image from Step 2, add `--set image.repository=nvml-mock --set image.tag=demo` to the command above.
@@ -67,7 +93,7 @@ Follow the official FGO installation instructions. A minimal example:
 
 helm upgrade --install gpu-operator  oci://ghcr.io/run-ai/fake-gpu-operator/fake-gpu-operator \
   -n gpu-operator --create-namespace \
-  --wait --timeout 120s  -f - <<EOF
+  --wait --timeout 15m  -f - <<EOF
 topology:
     nodePools:
       integration:
