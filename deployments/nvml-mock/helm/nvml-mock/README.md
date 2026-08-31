@@ -62,7 +62,17 @@ so a mistyped key fails fast rather than deploying a broken DaemonSet.
 ## Support matrix
 
 - Kubernetes >= 1.28.0
+- `controlPlane.enabled` requires Kubernetes >= 1.30.0 for its
+  `ValidatingAdmissionPolicy`
+- `controlPlane.enabled` requires an immutable image digest in
+  `controlPlane.image.digest` for normal installs. Tilt explicitly enables
+  `controlPlane.image.allowMutableTag` only to inject locally built images.
 - Chart version: see `Chart.yaml`
+
+Before disabling the control plane or uninstalling its release, follow the
+[controller decommission procedure](../../../../docs/mokka-controller.md#disable-or-uninstall-safely).
+The controller must remove its finalizers and Node projection metadata while
+its Deployment and RBAC still exist; retained CRDs cannot perform this cleanup.
 
 ## Links
 

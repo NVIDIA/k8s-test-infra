@@ -56,7 +56,7 @@ Supported `--gpu-profile` values: `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40
 
 ### Heterogeneous fleet (per-GPU-profile releases)
 
-Installs one nvml-mock release per worker, pinned by node selector `kubernetes.io/hostname=<worker>`. Profiles are fixed to `a100` on `worker-0` and `t4` on `worker-1` (the worker names come from `local/kind/default.kind.yaml`). `--gpu-profile` is ignored in this mode.
+Installs one nvml-mock release per worker, pinned by node selector `kubernetes.io/hostname=<worker>`. Profiles are fixed to `a100` on `worker-0` and `t4` on `worker-1` (the worker names come from `local/kind/default.kind.yaml`). `--gpu-profile` is ignored in this mode. With `--control-plane`, the first profile release (`nvml-mock-a100`) owns the single cluster-wide control plane.
 
 ```bash
 tilt up -- --multi-gpu-profile
