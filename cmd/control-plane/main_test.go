@@ -10,6 +10,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/controlplane"
 	"github.com/NVIDIA/k8s-test-infra/internal/logging"
+	"github.com/NVIDIA/k8s-test-infra/internal/mokkacontroller"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v3"
 )
@@ -42,7 +43,9 @@ func TestFlagsProduceExpectedConfig(t *testing.T) {
 			name: "listen-addr override",
 			args: []string{"control-plane", "--listen-addr", ":9090"},
 			want: capturedArgs{
-				cfg:    controlplane.Config{ListenAddr: ":9090", ShutdownTimeout: 5 * time.Second},
+				cfg: configWith(func(config *controlplane.Config) {
+					config.Server.ListenAddr = ":9090"
+				}),
 				level:  logging.LevelInfo,
 				format: logging.FormatJSON,
 			},
@@ -51,7 +54,9 @@ func TestFlagsProduceExpectedConfig(t *testing.T) {
 			name: "log-level and shutdown-timeout override",
 			args: []string{"control-plane", "--log-level", "debug", "--shutdown-timeout", "12s"},
 			want: capturedArgs{
-				cfg:    controlplane.Config{ListenAddr: ":8080", ShutdownTimeout: 12 * time.Second},
+				cfg: configWith(func(config *controlplane.Config) {
+					config.Server.ShutdownTimeout = 12 * time.Second
+				}),
 				level:  logging.LevelDebug,
 				format: logging.FormatJSON,
 			},
@@ -60,7 +65,7 @@ func TestFlagsProduceExpectedConfig(t *testing.T) {
 			name: "log-format plain override",
 			args: []string{"control-plane", "--log-format", "plain"},
 			want: capturedArgs{
-				cfg:    controlplane.Config{ListenAddr: ":8080", ShutdownTimeout: 5 * time.Second},
+				cfg:    controlplane.DefaultConfig(),
 				level:  logging.LevelInfo,
 				format: logging.FormatPlain,
 			},
@@ -76,8 +81,28 @@ func TestFlagsProduceExpectedConfig(t *testing.T) {
 				require.NoError(t, err)
 				got = capturedArgs{
 					cfg: controlplane.Config{
-						ListenAddr:      c.String("listen-addr"),
-						ShutdownTimeout: c.Duration("shutdown-timeout"),
+						Server: controlplane.ServerConfig{
+							ListenAddr:      c.String("listen-addr"),
+							ShutdownTimeout: c.Duration("shutdown-timeout"),
+						},
+						Kubernetes: controlplane.KubernetesConfig{
+							Kubeconfig: c.String("kubeconfig"),
+							QPS:        c.Float("kube-api-qps"),
+							Burst:      c.Int("kube-api-burst"),
+						},
+						LeaderElection: controlplane.LeaderElectionConfig{
+							Namespace:     c.String("leader-election-namespace"),
+							Name:          c.String("leader-election-name"),
+							LeaseDuration: c.Duration("leader-election-lease-duration"),
+							RenewDeadline: c.Duration("leader-election-renew-deadline"),
+							RetryPeriod:   c.Duration("leader-election-retry-period"),
+						},
+						Controller: mokkacontroller.Options{
+							Workers:                c.Int("workers"),
+							StatusDebounce:         c.Duration("status-debounce"),
+							StatusProgressInterval: c.Duration("status-progress-interval"),
+							LiveNodeGetTimeout:     c.Duration("live-node-get-timeout"),
+						},
 					},
 					level:  level,
 					format: format,
@@ -88,4 +113,10 @@ func TestFlagsProduceExpectedConfig(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func configWith(mutate func(*controlplane.Config)) controlplane.Config {
+	config := controlplane.DefaultConfig()
+	mutate(&config)
+	return config
 }
