@@ -1,4 +1,12 @@
 {{- if .Values.controlPlane.enabled }}
+{{- $image := "" }}
+{{- if .Values.controlPlane.image.allowMutableTag }}
+{{- $tag := required "controlPlane.image.tag is required when controlPlane.image.allowMutableTag is true" .Values.controlPlane.image.tag }}
+{{- $image = printf "%s:%s" .Values.controlPlane.image.repository $tag }}
+{{- else }}
+{{- $digest := required "controlPlane.image.digest is required when controlPlane.enabled is true" .Values.controlPlane.image.digest }}
+{{- $image = printf "%s@%s" .Values.controlPlane.image.repository $digest }}
+{{- end }}
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 apiVersion: apps/v1
@@ -10,6 +18,10 @@ metadata:
     app.kubernetes.io/component: control-plane
 spec:
   replicas: {{ .Values.controlPlane.replicas }}
+  # Leader election coordinates active/passive replicas within a generation;
+  # Recreate keeps whole-generation replacement deterministic.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "nvml-mock.controlPlaneSelectorLabels" . | nindent 6 }}
@@ -20,9 +32,8 @@ spec:
         {{- include "nvml-mock.controlPlaneSelectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: control-plane
     spec:
-      # The init slice needs no cluster access. Follow-up MEPs adding kube
-      # client-go usage introduce a dedicated ServiceAccount + Role.
-      automountServiceAccountToken: false
+      serviceAccountName: {{ include "nvml-mock.controlPlaneName" . }}
+      automountServiceAccountToken: true
       terminationGracePeriodSeconds: {{ .Values.controlPlane.terminationGracePeriodSeconds }}
       {{- with .Values.controlPlane.nodeSelector }}
       nodeSelector:
@@ -34,13 +45,23 @@ spec:
       {{- end }}
       containers:
         - name: control-plane
-          image: "{{ .Values.controlPlane.image.repository }}:{{ .Values.controlPlane.image.tag }}"
+          image: "{{ $image }}"
           imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
           args:
             - --listen-addr=:{{ .Values.controlPlane.service.port }}
             - --log-level={{ .Values.controlPlane.logging.level }}
             - --log-format={{ .Values.controlPlane.logging.format }}
             - --shutdown-timeout={{ .Values.controlPlane.shutdownTimeout }}
+            - --leader-election-name={{ .Values.controlPlane.leaderElection.name }}
+            - --leader-election-namespace=$(POD_NAMESPACE)
+            - --workers={{ .Values.controlPlane.workers }}
+            - --kube-api-qps={{ .Values.controlPlane.kubeAPIQPS }}
+            - --kube-api-burst={{ .Values.controlPlane.kubeAPIBurst }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           ports:
             - name: http
               containerPort: {{ .Values.controlPlane.service.port }}
