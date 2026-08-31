@@ -23,20 +23,11 @@ var (
 	_ agent.Daemon    = (*Simulator)(nil)
 )
 
-// Simulator publishes fabric readiness for GPUs whose profile sets
-// `fabric.state: auto`. The mock NVML engine reads the marker to resolve each
-// GPU between IN_PROGRESS and COMPLETED, which is how workloads end up waiting
-// on the fabric the way they do on real NVSwitch hardware.
+// Simulator stages the directory shared with workloads. Daemon owns the
+// marker lifecycle, including transitions between staged directories.
 type Simulator struct {
-	initDelay time.Duration
-
-	ready atomic.Bool
-	// daemon is built by Stage, the only method holding a Host. Nil means this
-	// node has no fabricmanager.
-	daemon atomic.Pointer[fabricmanager.Daemon]
-	// stateDir is the staged marker directory, kept so Discard can withdraw a
-	// marker left behind by a reconcile that has since disabled the daemon.
-	stateDir atomic.Pointer[string]
+	staged atomic.Bool
+	daemon *fabricmanager.Daemon
 }
 
 // Options configures the simulator.
@@ -47,84 +38,43 @@ type Options struct {
 }
 
 // New returns a fabricmanager Simulator.
-func New(opts Options) *Simulator { return &Simulator{initDelay: opts.InitDelay} }
+func New(opts Options) *Simulator {
+	return &Simulator{daemon: fabricmanager.NewDaemon(fabricmanager.Config{InitDelay: opts.InitDelay})}
+}
 
 // Name returns the simulator's stable identifier.
 func (s *Simulator) Name() string { return name }
 
-// Ready reports whether Stage succeeded and, where a marker is expected, the
-// daemon has published it.
-func (s *Simulator) Ready() bool {
-	if !s.ready.Load() {
-		return false
-	}
+// Ready reports whether Stage succeeded and the daemon has published any
+// required marker.
+func (s *Simulator) Ready() bool { return s.staged.Load() && s.daemon.Ready() }
 
-	d := s.daemon.Load()
-	return d == nil || d.Ready()
-}
-
-// Stage creates the marker directory. A profile that declares NVLink does not
-// imply fabricmanager runs, so the deployment decides: the chart sets the state
-// dir only where it also mounts it, making a non-empty value the one signal
-// that both exist on this node.
+// Stage creates the marker directory and gives it to the daemon. An empty
+// directory means fabricmanager is disabled on this node.
 func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
-	s.ready.Store(false)
+	s.staged.Store(false)
 
-	if state.Fabric.ManagerStateDir == "" {
-		s.daemon.Store(nil)
-		s.ready.Store(true)
-		return nil
+	dir := ""
+	if state.Fabric.ManagerStateDir != "" {
+		dir = h.HostPath(state.Fabric.ManagerStateDir)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
 	}
 
-	dir := h.HostPath(state.Fabric.ManagerStateDir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-
-	// Built once: Run holds a reference for the agent's lifetime, so replacing
-	// it on a later reconcile would leave the running daemon orphaned.
-	if s.daemon.Load() == nil {
-		s.daemon.Store(fabricmanager.NewDaemon(fabricmanager.Config{
-			StateDir:  dir,
-			InitDelay: s.initDelay,
-		}))
-	}
-
-	s.stateDir.Store(&dir)
-
-	s.ready.Store(true)
+	s.daemon.Reload(dir)
+	s.staged.Store(true)
 	return nil
 }
 
-// Run keeps readiness published until the agent shuts down.
-func (s *Simulator) Run(ctx context.Context) error {
-	d := s.daemon.Load()
+// Run keeps fabric readiness published until the agent shuts down.
+func (s *Simulator) Run(ctx context.Context) error { return s.daemon.Serve(ctx) }
 
-	if d == nil {
-		return nil
-	}
-
-	return d.Serve(ctx)
-}
-
-// Reload is a no-op: the marker carries no state derived from the profile, so a
-// changed State cannot alter what the daemon publishes.
+// Reload is a no-op: Stage delivers every revision to the daemon.
 func (s *Simulator) Reload(_ context.Context, _ *agent.State) error { return nil }
 
-// Discard withdraws readiness so a GPU does not report COMPLETED against a
-// fabricmanager that is no longer running.
+// Discard withdraws readiness so GPUs do not report COMPLETED after shutdown.
 func (s *Simulator) Discard(_ context.Context, _ *host.Host) error {
-	if !s.ready.Load() {
-		return nil
-	}
-
-	if d := s.daemon.Load(); d != nil {
-		return d.Stop()
-	}
-
-	if dir := s.stateDir.Load(); dir != nil {
-		return fabricmanager.RemoveReady(*dir)
-	}
-
-	return nil
+	s.staged.Store(false)
+	return s.daemon.Stop()
 }

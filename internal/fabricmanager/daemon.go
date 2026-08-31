@@ -6,34 +6,33 @@ package fabricmanager
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
-// defaultReassertInterval is how often the marker is rewritten. The mock NVML
-// engine caches its readiness check for a second, so this bounds how long a
-// GPU can observe a marker that something else removed.
+// defaultReassertInterval bounds how long an externally deleted marker persists.
 const defaultReassertInterval = 2 * time.Second
 
 // Config describes one simulated fabric manager.
 type Config struct {
-	// StateDir is where the marker is written, in this process's mount
-	// namespace. It need not equal the path readers use: the agent writes
-	// through its host mount, workloads read through a CDI bind.
+	// StateDir is where the marker is written in this process's mount namespace.
 	StateDir string
-	// InitDelay withholds readiness after Serve starts, reproducing the window
-	// during which real GPUs report IN_PROGRESS while registering.
+	// InitDelay reproduces fabric registration latency before readiness appears.
 	InitDelay time.Duration
-	// ReassertInterval overrides how often the marker is rewritten.
+	// ReassertInterval controls how often an externally deleted marker is restored.
 	ReassertInterval time.Duration
 }
 
 // Daemon publishes fabric readiness for as long as it runs, standing in for
 // nv-fabricmanager registering GPUs with the NVSwitches on this node.
 type Daemon struct {
-	cfg   Config
-	log   *slog.Logger
-	ready atomic.Bool
+	mu           sync.RWMutex
+	cfg          Config
+	lastStateDir string
+	changed      chan struct{}
+	log          *slog.Logger
+	ready        atomic.Bool
 }
 
 // NewDaemon returns a Daemon that publishes readiness under cfg.StateDir.
@@ -43,71 +42,146 @@ func NewDaemon(cfg Config) *Daemon {
 	}
 
 	return &Daemon{
-		cfg: cfg,
-		log: slog.Default().With("component", "fabricmanager"),
+		cfg:          cfg,
+		lastStateDir: cfg.StateDir,
+		changed:      make(chan struct{}),
+		log:          slog.Default().With("component", "fabricmanager"),
 	}
 }
 
-// Ready reports whether the marker is currently published.
-func (d *Daemon) Ready() bool { return d.ready.Load() }
+// Reload changes the state directory served by the running daemon. An empty
+// directory disables readiness publication until a later reload enables it.
+func (d *Daemon) Reload(stateDir string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
-// Serve publishes readiness and holds it until ctx is cancelled.
+	if stateDir == d.cfg.StateDir {
+		return
+	}
+
+	d.cfg.StateDir = stateDir
+
+	if stateDir != "" {
+		d.lastStateDir = stateDir
+	}
+
+	d.ready.Store(false)
+
+	close(d.changed)
+	d.changed = make(chan struct{})
+}
+
+// Ready reports whether the marker is currently published, or is not needed.
+func (d *Daemon) Ready() bool {
+	d.mu.RLock()
+	disabled := d.cfg.StateDir == ""
+	d.mu.RUnlock()
+
+	return disabled || d.ready.Load()
+}
+
+// Serve publishes readiness and applies every Reload until ctx is cancelled.
 func (d *Daemon) Serve(ctx context.Context) error {
-	// The state dir outlives the pod, so a marker left by a previous one would
-	// report COMPLETED before this daemon had registered anything.
-	if err := RemoveReady(d.cfg.StateDir); err != nil {
-		d.log.Warn("could not clear stale readiness marker", "err", err)
-	}
-
-	if !d.awaitRegistration(ctx) {
-		return nil
-	}
-
-	t := time.NewTicker(d.cfg.ReassertInterval)
-	defer t.Stop()
 	for {
-		d.assert()
-		select {
-		case <-ctx.Done():
+		cfg, changed := d.snapshot()
+
+		if cfg.StateDir == "" {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-changed:
+			}
+			continue
+		}
+
+		d.serveGen(ctx, cfg, changed)
+
+		if err := d.withdrawReadiness(cfg.StateDir); err != nil {
+			d.log.Error("could not withdraw fabric readiness", "err", err)
+		}
+
+		if ctx.Err() != nil {
 			return nil
-		case <-t.C:
 		}
 	}
 }
 
 // Stop withdraws readiness.
 func (d *Daemon) Stop() error {
+	d.mu.RLock()
+	dir := d.lastStateDir
+	d.mu.RUnlock()
+
 	d.ready.Store(false)
-	return RemoveReady(d.cfg.StateDir)
+	return d.withdrawReadiness(dir)
 }
 
-// awaitRegistration simulates the latency of registering with the NVSwitches.
-// Reports false when ctx was cancelled first.
-func (d *Daemon) awaitRegistration(ctx context.Context) bool {
-	if d.cfg.InitDelay <= 0 {
+func (d *Daemon) snapshot() (Config, <-chan struct{}) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	return d.cfg, d.changed
+}
+
+func (d *Daemon) serveGen(ctx context.Context, cfg Config, changed <-chan struct{}) {
+	if err := d.withdrawReadiness(cfg.StateDir); err != nil {
+		d.log.Warn("could not clear stale readiness marker", "err", err)
+	}
+
+	if !d.simRegistration(ctx, changed, cfg.InitDelay) {
+		return
+	}
+
+	ticker := time.NewTicker(cfg.ReassertInterval)
+
+	defer ticker.Stop()
+
+	for {
+		d.assertReadiness(cfg.StateDir)
+		select {
+		case <-ctx.Done():
+			return
+		case <-changed:
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// simRegistration simulates the initial delay that real fabric manager has before it becomes ready
+func (d *Daemon) simRegistration(ctx context.Context, changed <-chan struct{}, delay time.Duration) bool {
+	if delay <= 0 {
 		return true
 	}
 
-	d.log.Info("simulating fabric registration delay", "delay", d.cfg.InitDelay)
-
+	d.log.Info("simulating fabric registration delay", "delay", delay)
 	select {
 	case <-ctx.Done():
-		return false
-	case <-time.After(d.cfg.InitDelay):
+	case <-changed:
+	case <-time.After(delay):
 		return true
 	}
+	return false
 }
 
-// assert rewrites the marker, logging only transitions so a 2s loop does not
-// fill the log with confirmations that nothing changed.
-func (d *Daemon) assert() {
-	if err := WriteReady(d.cfg.StateDir); err != nil {
+func (d *Daemon) assertReadiness(stateDir string) {
+	if err := WriteReady(stateDir); err != nil {
 		d.ready.Store(false)
 		d.log.Error("could not write readiness marker", "err", err)
 		return
 	}
 
 	if d.ready.CompareAndSwap(false, true) {
-		d.log.Info("fabric ready", "marker", MarkerPath(d.cfg.StateDir))
+		d.log.Info("fabric ready", "marker", MarkerPath(stateDir))
 	}
+}
+
+func (d *Daemon) withdrawReadiness(stateDir string) error {
+	d.ready.Store(false)
+
+	if stateDir == "" {
+		return nil
+	}
+
+	return RemoveReady(stateDir)
 }

@@ -77,6 +77,29 @@ func TestServe_ReassertsAfterExternalRemoval(t *testing.T) {
 	eventually(t, func() bool { return exists(t, dir) }, "marker was not re-asserted")
 }
 
+func TestServe_ReloadMovesReadinessToNewStateDir(t *testing.T) {
+	oldDir := t.TempDir()
+	newDir := t.TempDir()
+	d := NewDaemon(Config{StateDir: oldDir})
+	serve(t, d)
+	eventually(t, func() bool { return exists(t, oldDir) }, "initial marker never published")
+
+	d.Reload(newDir)
+	eventually(t, func() bool { return exists(t, newDir) }, "new marker never published")
+	require.False(t, exists(t, oldDir))
+}
+
+func TestServe_ReloadDisablesReadiness(t *testing.T) {
+	dir := t.TempDir()
+	d := NewDaemon(Config{StateDir: dir})
+	serve(t, d)
+	eventually(t, func() bool { return exists(t, dir) }, "marker never published")
+
+	d.Reload("")
+	eventually(t, func() bool { return !exists(t, dir) }, "marker outlived disabled daemon")
+	require.True(t, d.Ready(), "a disabled daemon is ready")
+}
+
 func TestServe_ExitsOnCancel(t *testing.T) {
 	d := NewDaemon(Config{StateDir: t.TempDir()})
 	cancel, wait := serve(t, d)
