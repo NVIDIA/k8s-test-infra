@@ -7,6 +7,7 @@ package fabricmanager
 
 import (
 	"context"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -80,7 +81,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	}
 
 	dir := h.RootPath(stateDirRel)
-	if err := h.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 

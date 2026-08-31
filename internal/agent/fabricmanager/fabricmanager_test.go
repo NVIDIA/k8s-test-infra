@@ -62,18 +62,6 @@ func TestStage_KeepsTheSameDaemonAcrossReconciles(t *testing.T) {
 	require.Same(t, first, s.daemon.Load())
 }
 
-// Run holds a reference for the agent's lifetime, so a second Stage must not
-// swap the daemon out from under it.
-func TestStage_KeepsTheSameDaemonAcrossReconciles(t *testing.T) {
-	h := host.New(t.TempDir())
-	s := New(Options{})
-
-	require.NoError(t, s.Stage(context.Background(), h, enabledState()))
-	first := s.daemon.Load()
-	require.NoError(t, s.Stage(context.Background(), h, enabledState()))
-	require.Same(t, first, s.daemon.Load())
-}
-
 func TestRun_ReturnsImmediatelyWhenDisabled(t *testing.T) {
 	h := host.New(t.TempDir())
 	s := New(Options{})
@@ -95,11 +83,6 @@ func TestRun_PublishesReadinessThroughTheSimulator(t *testing.T) {
 	require.NoError(t, s.Stage(context.Background(), h, enabledState()))
 
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- s.Run(ctx) }()
-
-	require.Eventually(t, s.Ready, 5*time.Second, 10*time.Millisecond,
-		"readiness never surfaced through the simulator")
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
 
