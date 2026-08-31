@@ -22,11 +22,14 @@
 // Usage:
 //
 //	go run ./cmd/generate-bridge \
+//	    -input $GO_NVML_DIR/pkg/nvml/nvml.go \
+//	    -header $GO_NVML_DIR/pkg/nvml/nvml.h \
 //	    -bridge pkg/gpu/mocknvml/bridge \
 //	    -output pkg/gpu/mocknvml/bridge/stubs_generated.go
 //
-// -input and -header default to go-nvml's nvml.go and nvml.h as resolved from
-// the module cache; pass them explicitly to generate against a different copy.
+// The go-nvml sources live in the module cache under a version-stamped path, so
+// `make gen` downloads the module and passes the resolved paths in; run it
+// rather than invoking this generator by hand.
 package main
 
 import (
@@ -46,21 +49,16 @@ import (
 
 //nolint:cyclop // existing complexity; refactor deferred
 func main() {
-	input := flag.String("input", "", "NVML Go wrapper file (default: go-nvml from the module cache)")
-	header := flag.String("header", "", "NVML C header file for prototype extraction (default: go-nvml from the module cache)")
+	input := flag.String("input", "", "NVML Go wrapper file (nvml.go)")
+	header := flag.String("header", "", "NVML C header file for prototype extraction (nvml.h)")
 	bridge := flag.String("bridge", "pkg/gpu/mocknvml/bridge", "Bridge directory to scan for existing implementations")
 	output := flag.String("output", "pkg/gpu/mocknvml/bridge/stubs_generated.go", "Output file for generated stubs")
 	stats := flag.Bool("stats", false, "Print coverage statistics and exit")
 	validate := flag.Bool("validate", false, "Validate hand-written export parameter counts against nvml.h prototypes")
 	flag.Parse()
 
-	inputPath, headerPath, err := resolveNVMLSources(*input, *header)
-	if err != nil {
-		log.Fatalf("Failed to locate NVML sources: %v", err)
-	}
-
 	if *stats {
-		allFunctions, err := parseNVMLFunctions(inputPath)
+		allFunctions, err := parseNVMLFunctions(requirePath("input", *input))
 		if err != nil {
 			log.Fatalf("Failed to parse input: %v", err)
 		}
@@ -69,7 +67,7 @@ func main() {
 	}
 
 	if *validate {
-		headerFile, err := os.Open(headerPath)
+		headerFile, err := os.Open(requirePath("header", *header))
 		if err != nil {
 			log.Fatalf("Failed to open header: %v", err)
 		}
@@ -93,6 +91,8 @@ func main() {
 		}
 		os.Exit(1)
 	}
+
+	inputPath, headerPath := requirePath("input", *input), requirePath("header", *header)
 
 	// Step 1: Parse input file to get all NVML function names
 	allFunctions, err := parseNVMLFunctions(inputPath)
@@ -140,6 +140,23 @@ func main() {
 	}
 
 	log.Printf("Successfully generated %s", *output)
+}
+
+// makeGenHint names the flow that owns dependency resolution, so every failure to
+// locate a go-nvml source points at it rather than at a half-expanded path.
+const makeGenHint = "run `make gen`, which downloads go-nvml and passes its resolved paths in"
+
+// requirePath rejects a source path that is unset or unreadable. Both happen when
+// the generator is run outside `make gen`: the flag is missing, or GO_NVML_DIR is
+// unset and the go:generate directive expands to a bare "/pkg/nvml/nvml.go".
+func requirePath(name, value string) string {
+	if value == "" {
+		log.Fatalf("-%s is required; %s", name, makeGenHint)
+	}
+	if _, err := os.Stat(value); err != nil {
+		log.Fatalf("-%s %q is unreadable: %v; %s", name, value, err, makeGenHint)
+	}
+	return value
 }
 
 // parseNVMLFunctions extracts all function names starting with "nvml" from the input file.

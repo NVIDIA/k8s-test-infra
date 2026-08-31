@@ -29,13 +29,10 @@ cd k8s-test-infra
 go version  # must be >= 1.25
 
 # Run unit tests
-go test -v -race ./...
+make test
 
-# Run linter
-golangci-lint run -v --timeout 5m
-
-# Check Go modules
-make modules-check
+# Run linter; also tidies go.mod and reports what it could not fix
+make lint-fix
 ```
 
 ### Building the Mock NVML Library

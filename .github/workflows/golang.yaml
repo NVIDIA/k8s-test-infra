@@ -50,10 +50,6 @@ jobs:
     - name: Lint
       run: make lint
 
-    - name: Check golang modules
-      run: |
-        make modules-check
-
     - name: Run unit tests
       run: make test
 

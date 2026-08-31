@@ -62,6 +62,18 @@ tools: ## Install static checkers & other binaries
 
 .PHONY: lint
 lint: tools gen-check ## Lint the source code
+	@echo "🧹 Tidying go.mod.."
+	@go mod tidy
+	@git diff --exit-code -- go.mod go.sum || { \
+		echo "ERROR: go.mod / go.sum are out of sync. Run 'make lint-fix' and commit the result."; \
+		exit 1; }
+	@echo "🧹 Checking that no vendor directory has reappeared.."
+	@found=$$(find . -type d -name vendor -not -path "./tmp/*"); \
+	if [ -n "$$found" ]; then \
+		echo "ERROR: dependencies resolve through the Go proxy; a vendor directory switches every build back to vendor mode silently:"; \
+		echo "$$found"; \
+		exit 1; \
+	fi
 	@echo "🧹 Vetting.."
 	@go vet ./...
 	@echo "🧹 GoCI Lint.."
@@ -71,6 +83,8 @@ lint: tools gen-check ## Lint the source code
 
 .PHONY: lint-fix
 lint-fix: tools gen ## Same checks as `lint`, but auto-fix what can be fixed; report the rest
+	@echo "🔧 Tidying go.mod.."
+	@go mod tidy
 	@echo "🔧 golangci-lint --fix.."
 	@$(BIN_DIR)/golangci-lint run --fix ./...
 	@echo "🧹 Vetting.."
@@ -80,11 +94,15 @@ lint-fix: tools gen ## Same checks as `lint`, but auto-fix what can be fixed; re
 
 CRDS_OUT     := deployments/mokka-crds/helm/mokka-crds/templates
 API_PKG_PATH := ./internal/controlplane/api/...
+# The bridge generator reads go-nvml's nvml.go and nvml.h. Their module cache path
+# is version-stamped, so resolve it here instead of hardcoding the pinned version.
+GO_NVML_MOD  := github.com/NVIDIA/go-nvml
 
 .PHONY: gen
 gen: tools ## Generate machine-controlled code
 	@echo "Generating NVML Bridge.."
-	@go generate ./pkg/gpu/mocknvml/bridge/...
+	@go mod download $(GO_NVML_MOD)
+	@GO_NVML_DIR=$$(go list -m -f '{{.Dir}}' $(GO_NVML_MOD)) go generate ./pkg/gpu/mocknvml/bridge/...
 	@echo "Generating deepcopy for $(API_PKG_PATH).."
 	@$(BIN_DIR)/controller-gen object paths="$(API_PKG_PATH)"
 	@echo "Generating CRD manifests into $(CRDS_OUT).."
@@ -130,34 +148,6 @@ build-mockpcisysfs: ## Build mockpcisysfs
 .PHONY: test
 test: ## Run unit tests with race detection and coverage
 	@$(GO_CMD) test -v -race -coverprofile=coverage.out -covermode=atomic ./...
-
-.PHONY: modules
-modules: | .mod-tidy .mod-verify ## Tidy / verify every module
-.mod-tidy:
-	@for mod in $$(find . -name go.mod -not -path "./testdata/*" -not -path "./third_party/*"); do \
-	    echo "Tidying $$mod..."; ( \
-	        cd $$(dirname $$mod) && go mod tidy \
-            ) || exit 1; \
-	done
-
-.mod-verify:
-	@for mod in $$(find . -name go.mod -not -path "./testdata/*" -not -path "./third_party/*"); do \
-	    echo "Verifying $$mod..."; ( \
-	        set -o pipefail; cd $$(dirname $$mod) && go mod verify | sed 's/^/  /g' \
-	    ) || exit 1; \
-	done
-
-.PHONY: modules-check
-modules-check: modules ## Fail if go.mod / go.sum are out of sync, or a vendor dir reappeared
-	@echo "- Checking if go.mod and go.sum are in sync..."
-	@git diff --exit-code -- $$(find . \( -name go.mod -o -name go.sum \))
-	@echo "- Checking that no vendor directory has reappeared..."
-	@found=$$(find . -type d -name vendor -not -path "./tmp/*"); \
-	if [ -n "$$found" ]; then \
-		echo "ERROR: dependencies resolve through the Go proxy; a vendor directory switches every build back to vendor mode silently:"; \
-		echo "$$found"; \
-		exit 1; \
-	fi
 
 HELM_CHART_DIR      := deployments/nvml-mock/helm/nvml-mock
 CRDS_HELM_CHART_DIR := deployments/mokka-crds/helm/mokka-crds

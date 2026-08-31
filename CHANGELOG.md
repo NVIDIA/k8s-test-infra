@@ -329,10 +329,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   build — a guarantee vendoring did not provide, since Go checks
   `vendor/modules.txt` against `go.mod` but never hashes vendored files. Builds
   and `make gen` therefore need network access to `proxy.golang.org`, where
-  before they could run offline. `make vendor` and `make vendor-check` are gone;
-  `make modules-check` covers both modules and now fails if a `vendor/`
-  directory reappears, because its mere presence silently switches every build
-  back to vendor mode. (#753)
+  before they could run offline. `make vendor`, `make vendor-check`, `make
+  modules` and `make modules-check` are gone: `make lint` and `make lint-fix`
+  now tidy `go.mod` themselves, `make lint` fails when the result is out of sync
+  or when a `vendor/` directory reappears — its mere presence silently switches
+  every build back to vendor mode — and `tests/mocknvml/go.mod` is tidied by
+  hand. (#753)
 
 ### Fixed
 - mocknvml: Xid critical-error events are now attributed to the whole GPU the
