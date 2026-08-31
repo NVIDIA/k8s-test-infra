@@ -120,6 +120,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an SBOM attestation, on the same triggers as the nvml-mock image. It was
   previously buildable from `deployments/control-plane/Dockerfile` but never
   pushed anywhere, so it could only be run from a local build.
+- Mokka: add an opt-in informer-driven control plane that materializes
+  `SGPURackProfile` and `SGPUInventory` declarations into stable `SGPURack`
+  Node bindings and projects the required assignment metadata onto Kubernetes
+  Nodes. The controller rebuilds its derived state from Kubernetes after restart.
 - The node agent gains `pcibus`, `cdi` and `imex` simulators, each an
   `agent.Simulator` with the same stage/apply/discard lifecycle as the existing
   `gpudriver`. Together they subsume the device-surface construction that
