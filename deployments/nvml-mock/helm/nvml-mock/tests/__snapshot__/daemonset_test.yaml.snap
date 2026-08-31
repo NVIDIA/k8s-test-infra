@@ -150,6 +150,8 @@ should match snapshot with all overrides:
                   readOnly: true
                 - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
                   name: host-nfd-features
+                - mountPath: /host/var/lib/nvml-mock/fabric-state
+                  name: host-fabric-state
           nodeSelector:
             nvidia.com/gpu.present: "true"
           serviceAccountName: nvml-mock-custom
@@ -178,6 +180,10 @@ should match snapshot with all overrides:
                 path: /etc/kubernetes/node-feature-discovery/features.d
                 type: DirectoryOrCreate
               name: host-nfd-features
+            - hostPath:
+                path: /var/lib/nvml-mock/fabric-state
+                type: DirectoryOrCreate
+              name: host-fabric-state
       updateStrategy:
         rollingUpdate:
           maxUnavailable: 25%
@@ -496,6 +502,8 @@ should match snapshot with default values:
                   readOnly: true
                 - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
                   name: host-nfd-features
+                - mountPath: /host/var/lib/nvml-mock/fabric-state
+                  name: host-fabric-state
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 2
           tolerations:
@@ -520,6 +528,10 @@ should match snapshot with default values:
                 path: /etc/kubernetes/node-feature-discovery/features.d
                 type: DirectoryOrCreate
               name: host-nfd-features
+            - hostPath:
+                path: /var/lib/nvml-mock/fabric-state
+                type: DirectoryOrCreate
+              name: host-fabric-state
       updateStrategy:
         rollingUpdate:
           maxUnavailable: 25%

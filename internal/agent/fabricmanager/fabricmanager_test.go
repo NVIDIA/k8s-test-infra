@@ -35,7 +35,7 @@ func TestStage_NoOpWithoutStateDir(t *testing.T) {
 
 	require.NoError(t, s.Stage(context.Background(), h, &agent.State{}))
 	require.True(t, s.Ready(), "a node without fabricmanager is ready, not pending")
-	require.NoDirExists(t, h.RootPath(stateDirRel))
+	require.NoDirExists(t, h.HostPath(fabricmanager.DefaultStateDir))
 }
 
 // Stage owns the directory because it is the only method holding a Host, and
@@ -46,8 +46,22 @@ func TestStage_CreatesStateDir(t *testing.T) {
 	s := New(Options{})
 
 	require.NoError(t, s.Stage(t.Context(), h, enabledState()))
-	require.DirExists(t, h.RootPath(stateDirRel))
+	require.DirExists(t, h.HostPath(fabricmanager.DefaultStateDir))
 	require.False(t, s.Ready(), "readiness waits for the daemon to publish")
+}
+
+// The chart mounts whatever directory it names into both containers, so Stage
+// has to follow that value rather than a path this package picks.
+func TestStage_FollowsTheConfiguredStateDir(t *testing.T) {
+	h := host.New(t.TempDir())
+	s := New(Options{})
+
+	const stateDir = "/run/nvidia-fabricmanager"
+	state := &agent.State{Fabric: agent.FabricState{ManagerStateDir: stateDir}}
+
+	require.NoError(t, s.Stage(t.Context(), h, state))
+	require.DirExists(t, h.HostPath(stateDir))
+	require.NoDirExists(t, h.HostPath(fabricmanager.DefaultStateDir))
 }
 
 // Run holds a reference for the agent's lifetime, so a second Stage must not
@@ -102,10 +116,10 @@ func TestDiscard_WithdrawsReadiness(t *testing.T) {
 	h := host.New(t.TempDir())
 	s := New(Options{})
 	require.NoError(t, s.Stage(context.Background(), h, enabledState()))
-	require.NoError(t, fabricmanager.WriteReady(h.RootPath(stateDirRel)))
+	require.NoError(t, fabricmanager.WriteReady(h.HostPath(fabricmanager.DefaultStateDir)))
 
 	require.NoError(t, s.Discard(context.Background(), h))
-	require.NoFileExists(t, fabricmanager.MarkerPath(h.RootPath(stateDirRel)))
+	require.NoFileExists(t, fabricmanager.MarkerPath(h.HostPath(fabricmanager.DefaultStateDir)))
 	require.False(t, s.Ready())
 }
 

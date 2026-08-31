@@ -237,6 +237,12 @@ spec:
               readOnly: true
             - name: host-nfd-features
               mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+            {{- if $fmEnabled }}
+            # The agent writes the marker the nvml-mock container reads, and it
+            # reaches host paths through /host.
+            - name: host-fabric-state
+              mountPath: {{ printf "/host%s" .Values.fabricmanager.stateDir }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -315,4 +321,10 @@ spec:
         - name: gpu-topology
           configMap:
             name: {{ include "nvml-mock.fullname" . }}-topology
+        {{- end }}
+        {{- if $fmEnabled }}
+        - name: host-fabric-state
+          hostPath:
+            path: {{ .Values.fabricmanager.stateDir }}
+            type: DirectoryOrCreate
         {{- end }}

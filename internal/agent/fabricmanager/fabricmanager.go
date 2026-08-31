@@ -16,14 +16,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/fabricmanager"
 )
 
-const (
-	name = "fabricmanager"
-
-	// stateDirRel is where the marker lands in the agent's mount namespace.
-	// Readers use the chart's configured path instead, which resolves to the
-	// same host directory through a different mount.
-	stateDirRel = "fabric-state"
-)
+const name = "fabricmanager"
 
 var (
 	_ agent.Simulator = (*Simulator)(nil)
@@ -41,6 +34,9 @@ type Simulator struct {
 	// daemon is built by Stage, the only method holding a Host. Nil means this
 	// node has no fabricmanager.
 	daemon atomic.Pointer[fabricmanager.Daemon]
+	// stateDir is the staged marker directory, kept so Discard can withdraw a
+	// marker left behind by a reconcile that has since disabled the daemon.
+	stateDir atomic.Pointer[string]
 }
 
 // Options configures the simulator.
@@ -80,7 +76,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 		return nil
 	}
 
-	dir := h.RootPath(stateDirRel)
+	dir := h.HostPath(state.Fabric.ManagerStateDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -93,6 +89,8 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 			InitDelay: s.initDelay,
 		}))
 	}
+
+	s.stateDir.Store(&dir)
 
 	s.ready.Store(true)
 	return nil
@@ -115,7 +113,7 @@ func (s *Simulator) Reload(_ context.Context, _ *agent.State) error { return nil
 
 // Discard withdraws readiness so a GPU does not report COMPLETED against a
 // fabricmanager that is no longer running.
-func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
+func (s *Simulator) Discard(_ context.Context, _ *host.Host) error {
 	if !s.ready.Load() {
 		return nil
 	}
@@ -123,5 +121,10 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 	if d := s.daemon.Load(); d != nil {
 		return d.Stop()
 	}
-	return fabricmanager.RemoveReady(h.RootPath(stateDirRel))
+
+	if dir := s.stateDir.Load(); dir != nil {
+		return fabricmanager.RemoveReady(*dir)
+	}
+
+	return nil
 }
