@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/imex"
@@ -18,7 +20,7 @@ import (
 func stageChannelDevs(h *host.Host, state *agent.State) error {
 	dir := filepath.Join(h.Root, "driver/dev/nvidia-caps-imex-channels")
 
-	if err := h.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
@@ -26,7 +28,7 @@ func stageChannelDevs(h *host.Host, state *agent.State) error {
 
 	for i := range state.IMEX.ChannelCount {
 		path := filepath.Join(dir, fmt.Sprintf("channel%d", i))
-		if err := h.Mknod(path, major, uint32(i)); err != nil { //nolint:gosec // minor is a bounded loop index
+		if err := fsutil.Mknod(path, major, uint32(i)); err != nil { //nolint:gosec // minor is a bounded loop index
 			return fmt.Errorf("channel%d: %w", i, err)
 		}
 	}
@@ -49,7 +51,7 @@ func stageProcDevices(h *host.Host, state *agent.State, procDevicesPath string) 
 		return fmt.Errorf("render proc-devices: %w", err)
 	}
 
-	return h.WriteFile(filepath.Join(h.Root, "imex/proc-devices"), []byte(rendered), 0o644)
+	return fsutil.Write(filepath.Join(h.Root, "imex/proc-devices"), []byte(rendered), 0o644)
 }
 
 // stageFabricImexMgmt writes the capability file the DRA plugin reads alongside
@@ -60,5 +62,5 @@ DeviceFileMode: 438
 DeviceFileModify: 0
 `
 	p := filepath.Join(h.Root, "driver/proc/driver/nvidia/capabilities/fabric-imex-mgmt")
-	return h.WriteFile(p, []byte(content), 0o644)
+	return fsutil.Write(p, []byte(content), 0o644)
 }

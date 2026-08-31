@@ -114,7 +114,7 @@ run_sminfo() {
 
 if ! OUT=$(run_sminfo "$POD"); then
   echo "FAIL: sminfo did not report a master SM on $POD after $MAX_RETRIES attempts"
-  kubectl exec "$POD" -- tail -40 /tmp/mock-ib.log 2>/dev/null || true
+  kubectl logs "$POD" -c node-agent --tail=40 2>/dev/null || true
   exit 1
 fi
 GUID=$(sm_guid "$OUT")
@@ -128,7 +128,7 @@ if [ -n "$PEER_POD" ]; then
   fi
   if ! PEER_OUT=$(run_sminfo "$PEER_POD"); then
     echo "FAIL: sminfo did not report a master SM on peer $PEER_POD"
-    kubectl exec "$PEER_POD" -- tail -40 /tmp/mock-ib.log 2>/dev/null || true
+    kubectl logs "$PEER_POD" -c node-agent --tail=40 2>/dev/null || true
     exit 1
   fi
   PEER_GUID=$(sm_guid "$PEER_OUT")

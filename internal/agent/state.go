@@ -44,6 +44,26 @@ type SoftwareVersions struct {
 type NodeShape struct {
 	NumGPUs  int
 	Topology PCIeTopology
+	Network  NetworkShape
+}
+
+// NetworkShape describes the simulated InfiniBand HCAs attached to the node.
+// Every field is resolved at compile time so simulators never re-derive
+// defaults. All fields are comparable, so == detects a real IB change.
+type NetworkShape struct {
+	IBEnabled bool
+	// HCACount is already resolved from hca_count or hcas_per_gpu * NumGPUs.
+	HCACount         int
+	HCAType          string
+	FWVersion        string
+	HWRev            string
+	BoardID          string
+	NodeDescTemplate string
+	LinkLayer        string
+	RateGbps         int
+	PortState        string
+	PhysState        string
+	GUIDPrefix       string
 }
 
 // PCIeTopology describes the PCIe root-complex / NUMA layout.

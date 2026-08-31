@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -293,7 +295,7 @@ func TestStageCharDevs_PrunesShrunkDeviceSet(t *testing.T) {
 
 	// A previous, larger device set left four GPU nodes behind.
 	for i, n := range []string{"nvidia0", "nvidia1", "nvidia2", "nvidia3"} {
-		require.NoError(t, h.Mknod(filepath.Join(devRoot, n), 195, uint32(i)))
+		require.NoError(t, fsutil.Mknod(filepath.Join(devRoot, n), 195, uint32(i)))
 	}
 
 	state := &agent.State{Devices: []agent.DeviceSpec{{Index: 0}, {Index: 1}}}

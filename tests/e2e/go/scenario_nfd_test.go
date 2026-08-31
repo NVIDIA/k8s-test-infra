@@ -52,6 +52,10 @@ const (
 	// (internal/agent/pcibus); the hostPath behind it is nodeLabels.featuresDir.
 	nfdFeatureFile = "/host/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features"
 
+	// Only the node-agent container mounts featuresDir, and kubectl exec
+	// defaults to nvml-mock, so reading the file has to name the container.
+	nodeAgentContainer = "node-agent"
+
 	nfdLabelTimeout = 3 * time.Minute
 	nfdLabelPoll    = 5 * time.Second
 )
@@ -106,7 +110,10 @@ var _ = Describe("nvml-mock NFD label provenance", Label("nfd"), Ordered, Contin
 	})
 
 	It("writes the feature file NFD's local source reads", Label("nfd-provenance"), func(ctx SpecContext) {
-		res, err := h.Kube.ExecSh(ctx, pod, "cat "+nfdFeatureFile)
+		agent := pod
+		agent.Container = nodeAgentContainer
+
+		res, err := h.Kube.ExecSh(ctx, agent, "cat "+nfdFeatureFile)
 		Expect(err).NotTo(HaveOccurred(), "reading %s: %s", nfdFeatureFile, res.Combined())
 		Expect(strings.TrimSpace(res.Stdout)).To(Equal("pci-10de.present=true"),
 			"feature file contents drive the label NFD creates")

@@ -45,24 +45,6 @@ spec:
           {{- end }}
           securityContext:
             privileged: true
-          {{- if $ibEnabled }}
-          ports:
-            - name: ibping
-              containerPort: {{ .Values.infiniband.ping.port }}
-              protocol: TCP
-            # Real nvidia-imex (NO GPU mode) gRPC peer port — used by the
-            # ComputeDomain demo (see NVIDIA/k8s-test-infra#304). Declared
-            # here so the ibping NetworkPolicy's named-port entry resolves.
-            - name: imex
-              containerPort: 50000
-              protocol: TCP
-            # IMEX command/status port — peers query each other's node
-            # status and version over it; without it the domain never
-            # converges past DEGRADED (see NVIDIA/k8s-test-infra#304).
-            - name: imex-cmd
-              containerPort: 50005
-              protocol: TCP
-          {{- end }}
           command: ["/scripts/entrypoint.sh"]
           env:
             - name: GPU_COUNT
@@ -123,18 +105,10 @@ spec:
             # regardless and no-op when off.
             - name: MOCK_IB
               value: {{ include "nvml-mock.mockIBTier" . | quote }}
-            - name: MOCK_IB_PING_FABRIC
-              value: {{ ternary "1" "0" $ibEnabled | quote }}
-            - name: MOCK_IB_PING_PORT
-              value: "{{ .Values.infiniband.ping.port }}"
+            # The socket the UMAD/verbs shims dial. The node agent serves it;
+            # this container only needs to find it for `kubectl exec ibstat`.
             - name: MOCK_IB_PING_SOCKET
               value: /var/lib/nvml-mock/run/mock-ib.sock
-            - name: POD_IP
-              valueFrom:
-                fieldRef:
-                  fieldPath: status.podIP
-            - name: MOCK_IB_PING_SERVICE_HOST
-              value: "{{ include "nvml-mock.fullname" . }}-ibping.{{ .Release.Namespace }}.svc.cluster.local"
             # LD_PRELOAD installs four shims in every process spawned in this
             # container (e.g. `kubectl exec ibstat`). libibmockumad and
             # libibmockverbs forward UMAD and verbs traffic to the mock-ib
@@ -169,12 +143,6 @@ spec:
               mountPath: /var/lib/nvml-mock
             - name: gpu-config
               mountPath: /etc/nvml-mock
-            - name: host-cdi
-              mountPath: /host/var/run/cdi
-            - name: host-run-nvidia
-              mountPath: /host/run/nvidia
-            - name: host-nfd-features
-              mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
             {{- if .Values.topology.enabled }}
             - name: gpu-topology
               mountPath: /etc/nvml-mock/topology
@@ -222,6 +190,34 @@ spec:
               value: "{{ .Values.imex.mockChannels.channelMajor }}"
             - name: IMEX_CAPS_MAJOR
               value: "{{ .Values.imex.mockChannels.capsMajor }}"
+            {{- end }}
+            # Same tier the nvml-mock container advertises to the LD_PRELOAD
+            # shims, so the tree the agent renders and the tree those shims
+            # redirect into can never disagree.
+            - name: MOCK_IB
+              value: {{ include "nvml-mock.mockIBTier" . | quote }}
+            - name: MOCK_IB_PING_FABRIC
+              value: {{ ternary "1" "0" $ibEnabled | quote }}
+            - name: MOCK_IB_PING_PORT
+              value: "{{ .Values.infiniband.ping.port }}"
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MOCK_IB_PING_SERVICE_HOST
+              value: "{{ include "nvml-mock.fullname" . }}-ibping.{{ .Release.Namespace }}.svc.cluster.local"
+          ports:
+            - name: health
+              containerPort: 9091
+              protocol: TCP
+            {{- if $ibEnabled }}
+            # The infiniband simulator binds the cross-pod fabric relay here.
+            # Port names are unique per pod, so this cannot also be declared on
+            # the nvml-mock container -- and the -ibping Service and its
+            # NetworkPolicy target it by name.
+            - name: ibping
+              containerPort: {{ .Values.infiniband.ping.port }}
+              protocol: TCP
             {{- end }}
           securityContext:
             allowPrivilegeEscalation: false

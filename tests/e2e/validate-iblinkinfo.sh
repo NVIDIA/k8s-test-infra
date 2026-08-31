@@ -25,7 +25,7 @@ if [ "$EXPECTED" -eq 0 ]; then
 fi
 
 for P in "$LOCAL_POD" "$PEER_POD"; do
-  if ! kubectl logs "$P" 2>/dev/null | grep -q 'fabric ready'; then
+  if ! kubectl logs "$P" -c node-agent 2>/dev/null | grep -q 'fabric ready'; then
     echo "WARN: pod $P logs do not show 'fabric ready' yet"
   fi
 done
