@@ -248,7 +248,11 @@ Expected: `4` (default gpu.count, derived from the `gb300` profile's four device
 kind delete cluster --name nvml-mock-dra
 ```
 
-## Quick Start: GPU Operator on KIND
+## Quick Start: GPU Operator on Kind
+
+These steps bootstrap a Kind node with nvidia-container-toolkit. On a cluster
+that already has a container runtime configured for CDI, skip to
+[the GPU Operator demo](demo/with-gpu-operator/README.md).
 
 This path validates the NVIDIA GPU Operator stack (device plugin, GFD, validator)
 using CDI mode with mock GPUs. `tests/e2e/kind-gpu-operator-config.yaml` and

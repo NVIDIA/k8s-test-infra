@@ -73,8 +73,11 @@ FGO-style labels) — failure injection doesn't need its own topology.
 - **A Kubernetes cluster and a valid `KUBECONFIG`.** This demo installs into
   whatever cluster your current context points at. Check yours with
   `kubectl config current-context`.
-- **Helm 3.8 or newer.** Install it from the official docs:
-  <https://helm.sh/docs/intro/install/>
+- **Helm 3.6 or newer.** The demo installs the chart from this checkout, not
+  from a registry, so 3.6 is the floor: the chart's `_helpers.tpl` uses a
+  multi-line `dict` that only the Go 1.16 template parser in Helm 3.6 accepts.
+  On 3.5 and older, rendering fails with `unclosed action`. Install it from the
+  official docs: <https://helm.sh/docs/intro/install/>
 - `kubectl`, matching your cluster version.
 
 > **No cluster yet?** The [quick start](../../quickstart.md) creates a
@@ -143,15 +146,16 @@ chart. Pin `NVML_MOCK_IMAGE` to a released tag if you need a fixed pairing.
      which only affects the host-side CDI spec.
    * the aggregate uncorrectable ECC counter starts at `0`.
 4. **Scenario 2 — `ecc_uncorrectable` + Xid 79**. Upgrades the
-   release with `mode=ecc_uncorrectable, after_calls=3, xid.code=79`,
+   release with `mode=ecc_uncorrectable, after_calls=1, xid.code=79`,
    recycles the DaemonSet, and asserts:
    * the ConfigMap now contains `mode: ecc_uncorrectable`,
    * `nvidia-smi -L` **still** lists every GPU (mode contract: device
      stays addressable),
-   * `nvidia-smi -q -d ECC` reports a strictly-positive aggregate
-     uncorrectable total — the third guarded NVML call within that
-     same process meets `after_calls: 3`, so the trip fires while the
-     same `nvidia-smi` invocation is still running.
+   * `nvidia-smi --query-gpu=ecc.errors.uncorrected.aggregate.total
+     --format=csv,noheader,nounits` prints a strictly-positive integer
+     for at least one GPU. Each device keeps its own call counter, so
+     that query (one guarded ECC read per GPU) trips every GPU on its
+     first read, inside the one `nvidia-smi` invocation.
 5. **Scenario 3 — `lost`**. Upgrades with `mode=lost, after_calls=1`,
    recycles the DaemonSet, and asserts that
    `nvidia-smi --query-gpu=temperature.gpu --format=csv` surfaces an
@@ -216,15 +220,23 @@ lifetime — matching real NVML semantics. Real consumers see it via:
   wait. Drop those calls and the wait blocks out its timeout forever, no
   matter what `failure.xid` is configured.
 
-### The injector counter is per-process
+### The injector counter is per-process, and per-device within it
 
 Each `kubectl exec ... -- nvidia-smi` is a fresh process with a fresh
-`failureInjector` whose call counter resets to 0. That's why
-Scenario 2 uses `after_calls: 3` (so a single
-`nvidia-smi -q -d ECC` reaches the threshold during its own
-invocation) and Scenarios 3-4 use `after_calls: 1` (the very first
-guarded call trips). For interactive exploration, use a long-running
-process — e.g.
+`failureInjector` whose call counter resets to 0, so a threshold has to
+be met inside a single invocation or it is never met at all. The counter
+is also per-device: each GPU counts its own guarded calls rather than
+sharing one process-wide tally.
+
+That is why all three injection scenarios (2, 3 and 4) use
+`after_calls: 1`. A query issuing exactly one guarded call per GPU, such
+as Scenario 2's `--query-gpu=ecc.errors.uncorrected.aggregate.total`,
+still trips every GPU, because each device reaches its own threshold on
+its own first read. A larger `after_calls` would need a single command
+to hit the same device that many times, which the demo's one-shot
+queries never do.
+
+For interactive exploration, use a long-running process, for example
 
 ```bash
 kubectl exec -it "$POD" -- nvidia-smi \
@@ -232,7 +244,7 @@ kubectl exec -it "$POD" -- nvidia-smi \
   --format=csv -l 1
 ```
 
-— and watch the counter increment on every poll.
+Watch the counter increment on every poll.
 
 For the full per-mode behaviour contract see
 [`pkg/gpu/mocknvml/README.md#failure-injection-optional`](https://github.com/NVIDIA/k8s-test-infra/blob/main/pkg/gpu/mocknvml/README.md#failure-injection-optional).
