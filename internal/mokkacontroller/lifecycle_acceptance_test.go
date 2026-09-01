@@ -673,6 +673,80 @@ func TestControllerBoundsCleanupWhenForeignCoOwnerPreservesField(t *testing.T) {
 	require.Contains(t, retained.Finalizers, controllerack.RackFinalizer)
 }
 
+func TestControllerReplacementConvergesWhileRestartQueuesInitialize(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	const nodeCount = 50
+	profile := acceptanceProfile(nodeCount)
+	inventory := acceptanceInventory()
+	inventory.Finalizers = []string{controllerack.InventoryFinalizer}
+	rendered, err := materialize.RenderRack(materialize.RackInput{
+		InventoryName: inventory.Name,
+		InventoryUID:  inventory.UID,
+		Group:         inventory.Spec.RackGroups[0],
+		Profile:       profile,
+	})
+	require.NoError(t, err)
+
+	controllerRef := true
+	rack := &mokkav1alpha1.SGPURack{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: rendered.Name, UID: "rack-uid", ResourceVersion: "1",
+			Finalizers: []string{controllerack.RackFinalizer},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: mokkav1alpha1.SchemeGroupVersion.String(), Kind: "SGPUInventory",
+				Name: inventory.Name, UID: inventory.UID, Controller: &controllerRef,
+			}},
+		},
+		Spec: rendered.Spec,
+	}
+	nodes := newAcceptanceNodeClient()
+	var oldNode *corev1.Node
+	for index := range nodeCount {
+		node := acceptanceNode(
+			fmt.Sprintf("node-%06d", index),
+			types.UID(fmt.Sprintf("old-uid-%06d", index)),
+			int64(index+1),
+		)
+		rack.Spec.Nodes[index].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: node.Name, UID: node.UID}
+		assignment, encodeErr := controllerprojection.EncodeAssignment(rack, &rack.Spec.Nodes[index])
+		require.NoError(t, encodeErr)
+		node.Labels[controllerprojection.AssignedLabel] = "true"
+		node.Labels[controllerprojection.CliqueLabel] = rack.Spec.Identity.FabricUUID + ".0"
+		node.Annotations = map[string]string{controllerprojection.AssignmentAnnotation: assignment}
+		nodes.create(node)
+		if index == 0 {
+			oldNode = node
+		}
+	}
+	setAcceptanceRackManagedFields(rack)
+	mokka := mokkafake.NewSimpleClientset(profile, inventory, rack)
+	installAcceptanceAPIReactors(t, mokka)
+	controller, err := newForNodes(nodes, mokka, Options{Workers: 16, StatusDebounce: 0})
+	require.NoError(t, err)
+
+	runDone := make(chan error, 1)
+	go func() { runDone <- controller.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-runDone:
+		case <-time.After(5 * time.Second):
+			t.Error("controller did not stop")
+		}
+	})
+	require.Eventually(t, controller.Ready, 5*time.Second, 10*time.Millisecond)
+
+	replacement := acceptanceNode(oldNode.Name, "replacement-uid", 2)
+	nodes.replace(oldNode.Name, replacement)
+	require.Eventually(t, func() bool {
+		stored, getErr := mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rack.Name, metav1.GetOptions{})
+		if getErr != nil || stored.Spec.Nodes[0].NodeRef == nil || stored.Spec.Nodes[0].NodeRef.UID != replacement.UID {
+			return false
+		}
+		return nodeIsProjected(nodes.snapshot(replacement.Name), replacement.UID)
+	}, 10*time.Second, 20*time.Millisecond, "same-name replacement must converge while restart work is still queued")
+}
+
 func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -739,6 +813,7 @@ func TestRestartCleanupGatesReleasedAndRetiredBindings(t *testing.T) {
 				Spec: rendered.Spec,
 			}
 			rack.Spec.Nodes[0].NodeRef = &mokkav1alpha1.SGPUNodeReference{Name: oldNode.Name, UID: oldNode.UID}
+			setAcceptanceRackManagedFields(rack)
 			assignment, err := controllerprojection.EncodeAssignment(rack, &rack.Spec.Nodes[0])
 			require.NoError(t, err)
 			oldNode.Labels[controllerprojection.AssignedLabel] = "true"
@@ -828,41 +903,29 @@ func installAcceptanceAPIReactors(t *testing.T, client *mokkafake.Clientset) {
 	t.Helper()
 	var nextRackUID atomic.Int64
 	installAcceptanceRackCreateReactor(t, client, &nextRackUID)
-	client.PrependReactor("patch", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		patch := action.(k8stesting.PatchActionImpl)
-		require.Equal(t, types.ApplyPatchType, patch.GetPatchType())
-		require.Equal(t, controllerack.RackFieldManager, patch.GetPatchOptions().FieldManager)
-		require.NotNil(t, patch.GetPatchOptions().Force)
-		require.False(t, *patch.GetPatchOptions().Force)
-		desired := &mokkav1alpha1.SGPURack{}
-		require.NoError(t, json.Unmarshal(patch.GetPatch(), desired))
+	client.PrependReactor("update", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "" {
+			return false, nil, nil
+		}
+		update := action.(k8stesting.UpdateActionImpl)
+		require.Equal(t, controllerack.RackFieldManager, update.GetUpdateOptions().FieldManager)
+		desired := update.GetObject().(*mokkav1alpha1.SGPURack).DeepCopy()
 		resource := mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuracks")
 		stored, err := client.Tracker().Get(resource, "", desired.Name)
-		if apierrors.IsNotFound(err) {
-			desired.UID = types.UID(fmt.Sprintf("uid-%s-%d", desired.Name, nextRackUID.Add(1)))
-			desired.ResourceVersion = "1"
-			setAcceptanceRackManagedFields(desired)
-			err = client.Tracker().Create(resource, desired, "")
-			return true, desired, err
-		}
 		if err != nil {
 			return true, nil, err
 		}
-		updated := stored.(*mokkav1alpha1.SGPURack).DeepCopy()
-		if desired.ResourceVersion != updated.ResourceVersion {
+		current := stored.(*mokkav1alpha1.SGPURack)
+		if desired.ResourceVersion != current.ResourceVersion {
 			return true, nil, apierrors.NewConflict(
 				mokkav1alpha1.Resource("sgpuracks"), desired.Name, errors.New("rack resource version changed"),
 			)
 		}
-		updated.Spec = desired.Spec
-		updated.Labels = desired.Labels
-		updated.Annotations = desired.Annotations
-		updated.Finalizers = desired.Finalizers
-		updated.OwnerReferences = desired.OwnerReferences
-		updated.ResourceVersion += "a"
-		setAcceptanceRackManagedFields(updated)
-		err = client.Tracker().Update(resource, updated, "")
-		return true, updated, err
+		desired.Status = current.Status
+		desired.ResourceVersion += "a"
+		setAcceptanceRackManagedFields(desired)
+		err = client.Tracker().Update(resource, desired, "")
+		return true, desired, err
 	})
 	client.PrependReactor("update", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		if action.GetSubresource() != "status" {
@@ -924,7 +987,7 @@ func installAcceptanceRackCreateReactor(
 
 func setAcceptanceRackManagedFields(rack *mokkav1alpha1.SGPURack) {
 	rack.ManagedFields = []metav1.ManagedFieldsEntry{{
-		Manager: controllerack.RackFieldManager, Operation: metav1.ManagedFieldsOperationApply,
+		Manager: controllerack.RackFieldManager, Operation: metav1.ManagedFieldsOperationUpdate,
 		APIVersion: mokkav1alpha1.SchemeGroupVersion.String(), FieldsType: "FieldsV1",
 		FieldsV1: metav1.NewFieldsV1(`{"f:spec":{}}`),
 	}}

@@ -5,11 +5,9 @@ package rack
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
-	"slices"
 	"testing"
 	"time"
 
@@ -763,7 +761,7 @@ func TestReconcileHandlesOwnerConflictAndRetriesOptimisticConflict(t *testing.T)
 	h.sync(t)
 
 	conflicted := false
-	h.mokka.PrependReactor("patch", "sgpuracks", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+	h.mokka.PrependReactor("update", "sgpuracks", func(_ k8stesting.Action) (bool, runtime.Object, error) {
 		if conflicted {
 			return false, nil, nil
 		}
@@ -773,36 +771,6 @@ func TestReconcileHandlesOwnerConflictAndRetriesOptimisticConflict(t *testing.T)
 	_, err = h.reconcile(ctx, inventory.Name)
 	require.NoError(t, err)
 	require.True(t, conflicted)
-}
-
-func TestReconcileSurfacesRackFieldOwnershipConflict(t *testing.T) {
-	ctx := context.Background()
-	profile := testProfile("p", "profile-uid", 1, 1, 1)
-	inventory := testInventory("inventory", "inventory-uid", "p", 1)
-	h := newHarness(t, []runtime.Object{profile, inventory}, nil)
-	_, err := h.reconcile(ctx, inventory.Name)
-	require.NoError(t, err)
-	h.sync(t)
-
-	profile.Generation++
-	profile.Spec.Software.DriverVersion = "new"
-	require.NoError(t, h.mokka.Tracker().Update(
-		mokkav1alpha1.SchemeGroupVersion.WithResource("sgpurackprofiles"), profile, "",
-	))
-	h.sync(t)
-	h.mokka.PrependReactor("patch", "sgpuracks", func(k8stesting.Action) (bool, runtime.Object, error) {
-		return true, nil, apierrors.NewApplyConflict([]metav1.StatusCause{{
-			Type: metav1.CauseTypeFieldManagerConflict, Field: ".spec.profileRef.revision",
-		}}, "owned by another manager")
-	})
-
-	result, err := h.reconcile(ctx, inventory.Name)
-	require.Error(t, err)
-	require.True(t, apierrors.IsConflict(err))
-	var ownershipErr *OwnershipConflictError
-	require.ErrorAs(t, err, &ownershipErr)
-	require.Equal(t, []OwnershipConflict{ownershipErr.Conflict}, result.OwnershipConflicts)
-	require.Equal(t, materialize.RackName(inventory.Name, inventory.UID, "group", 0), ownershipErr.Conflict.RackName)
 }
 
 func TestReconcileClassifiesInvalidRackCreateAsProfileIssue(t *testing.T) {
@@ -888,7 +856,7 @@ func TestReconcileWaitsForGoneUIDCleanupBeforeAllocatingReplacement(t *testing.T
 	require.Equal(t, replacement.UID, got.Spec.Nodes[0].NodeRef.UID)
 }
 
-func TestReconcileRetriesAllocationWhenStaleRackApplyRecreatesObject(t *testing.T) {
+func TestReconcileRetriesWhenStaleRackUpdateFindsDeletedObject(t *testing.T) {
 	ctx := context.Background()
 	profile := testProfile("p", "profile-uid", 1, 1, 1)
 	inventory := testInventory("inventory", "inventory-uid", "p", 1)
@@ -912,19 +880,23 @@ func TestReconcileRetriesAllocationWhenStaleRackApplyRecreatesObject(t *testing.
 
 	_, err = reconciler.Reconcile(ctx, inventory.Name)
 	require.Error(t, err)
-	require.True(t, apierrors.IsConflict(err))
-	recreated, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
-	require.NoError(t, err)
-	require.NotEqual(t, stale.UID, recreated.UID)
-	require.Nil(t, recreated.Spec.Nodes[0].NodeRef,
-		"the replacement remains pending while the allocation snapshot contains the stale binding")
+	require.True(t, apierrors.IsNotFound(err))
+	_, err = h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
+	require.True(t, apierrors.IsNotFound(err), "an update must not recreate a cache-missing rack")
 
 	h.nodes = []*corev1.Node{replacement}
 	h.sync(t)
-	_, err = h.reconcile(ctx, inventory.Name)
+	reconciler = NewReconciler(
+		h.cache,
+		h.mokka.MokkaV1alpha1().SGPUInventories(),
+		h.mokka.MokkaV1alpha1().SGPURacks(),
+		CleanupGateFunc(func(CleanupNeeded) bool { return true }),
+	)
+	_, err = reconciler.Reconcile(ctx, inventory.Name)
 	require.NoError(t, err)
-	recreated, err = h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
+	recreated, err := h.mokka.MokkaV1alpha1().SGPURacks().Get(ctx, rackName, metav1.GetOptions{})
 	require.NoError(t, err)
+	require.NotEqual(t, stale.UID, recreated.UID)
 	require.Equal(t, replacement.UID, recreated.Spec.Nodes[0].NodeRef.UID)
 }
 
@@ -947,7 +919,7 @@ func TestCleanupAcknowledgementSurvivesConflictAndStaleCache(t *testing.T) {
 		gate,
 	)
 	conflicted := false
-	h.mokka.PrependReactor("patch", "sgpuracks", func(k8stesting.Action) (bool, runtime.Object, error) {
+	h.mokka.PrependReactor("update", "sgpuracks", func(k8stesting.Action) (bool, runtime.Object, error) {
 		if conflicted {
 			return false, nil, nil
 		}
@@ -1220,7 +1192,7 @@ func newHarness(t *testing.T, mokkaObjects []runtime.Object, nodes []*corev1.Nod
 		nodes: nodes,
 	}
 	h.installRackCreateReactor()
-	h.installRackApplyReactor()
+	h.installRackUpdateReactor()
 	h.sync(t)
 	return h
 }
@@ -1239,73 +1211,36 @@ func (h *harness) installRackCreateReactor() {
 		h.nextRackUID++
 		desired.UID = types.UID(fmt.Sprintf("uid-%s-%d", desired.Name, h.nextRackUID))
 		desired.ResourceVersion = "1"
-		desired.ManagedFields = []metav1.ManagedFieldsEntry{{
-			Manager: RackFieldManager, Operation: metav1.ManagedFieldsOperationUpdate,
-		}}
+		setRackSpecManagedFields(desired, RackFieldManager, metav1.ManagedFieldsOperationUpdate)
 		err := h.mokka.Tracker().Create(resource, desired, "")
 		return true, desired, err
 	})
 }
 
-//nolint:cyclop // The fake reactor models the API server's create/update/SSA conflict cases.
-func (h *harness) installRackApplyReactor() {
-	h.mokka.PrependReactor("patch", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		patch := action.(k8stesting.PatchActionImpl)
-		require.Equal(h.t, types.ApplyPatchType, patch.GetPatchType())
-		require.Equal(h.t, RackFieldManager, patch.GetPatchOptions().FieldManager)
-		require.NotNil(h.t, patch.GetPatchOptions().Force)
-		require.False(h.t, *patch.GetPatchOptions().Force)
-
-		desired := &mokkav1alpha1.SGPURack{}
-		require.NoError(h.t, json.Unmarshal(patch.GetPatch(), desired))
-		resource := mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuracks")
-		stored, err := h.mokka.Tracker().Get(resource, "", patch.GetName())
-		if apierrors.IsNotFound(err) {
-			h.nextRackUID++
-			desired.UID = types.UID(fmt.Sprintf("uid-%s-%d", desired.Name, h.nextRackUID))
-			desired.ResourceVersion = "1"
-			err = h.mokka.Tracker().Create(resource, desired, "")
-			return true, desired, err
+func (h *harness) installRackUpdateReactor() {
+	h.mokka.PrependReactor("update", "sgpuracks", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "" {
+			return false, nil, nil
 		}
+		update := action.(k8stesting.UpdateActionImpl)
+		require.Equal(h.t, RackFieldManager, update.GetUpdateOptions().FieldManager)
+		desired := update.GetObject().(*mokkav1alpha1.SGPURack).DeepCopy()
+		resource := mokkav1alpha1.SchemeGroupVersion.WithResource("sgpuracks")
+		stored, err := h.mokka.Tracker().Get(resource, "", desired.Name)
 		if err != nil {
 			return true, nil, err
 		}
-		current := stored.(*mokkav1alpha1.SGPURack).DeepCopy()
+		current := stored.(*mokkav1alpha1.SGPURack)
 		if desired.ResourceVersion != current.ResourceVersion {
 			return true, nil, apierrors.NewConflict(
 				mokkav1alpha1.Resource("sgpuracks"), desired.Name, errors.New("resource version changed"),
 			)
 		}
-		current.Spec = desired.Spec
-		for _, key := range []string{InventoryNameLabel, RackGroupLabel, RackIndexLabel} {
-			delete(current.Labels, key)
-			if value, found := desired.Labels[key]; found {
-				if current.Labels == nil {
-					current.Labels = make(map[string]string)
-				}
-				current.Labels[key] = value
-			}
-		}
-		delete(current.Annotations, InventoryUIDAnnotation)
-		if value, found := desired.Annotations[InventoryUIDAnnotation]; found {
-			if current.Annotations == nil {
-				current.Annotations = make(map[string]string)
-			}
-			current.Annotations[InventoryUIDAnnotation] = value
-		}
-		current.Finalizers = removeString(current.Finalizers, RackFinalizer)
-		if slices.Contains(desired.Finalizers, RackFinalizer) {
-			current.Finalizers = append(current.Finalizers, RackFinalizer)
-		}
-		current.OwnerReferences = slices.DeleteFunc(current.OwnerReferences, func(owner metav1.OwnerReference) bool {
-			return owner.Controller != nil && *owner.Controller && owner.APIVersion == mokkav1alpha1.SchemeGroupVersion.String() && owner.Kind == "SGPUInventory"
-		})
-		if owner := controllerInventoryOwner(desired); owner != nil {
-			current.OwnerReferences = append(current.OwnerReferences, *owner)
-		}
-		current.ResourceVersion += "a"
-		err = h.mokka.Tracker().Update(resource, current, "")
-		return true, current, err
+		desired.Status = current.Status
+		desired.ResourceVersion += "a"
+		setRackSpecManagedFields(desired, RackFieldManager, metav1.ManagedFieldsOperationUpdate)
+		err = h.mokka.Tracker().Update(resource, desired, "")
+		return true, desired, err
 	})
 }
 

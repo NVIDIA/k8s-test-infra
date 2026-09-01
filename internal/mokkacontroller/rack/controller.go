@@ -9,7 +9,6 @@ package rack
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -54,7 +53,7 @@ type Mutations interface {
 	Create(context.Context, *mokkav1alpha1.SGPURack, metav1.CreateOptions) (*mokkav1alpha1.SGPURack, error)
 	Get(context.Context, string, metav1.GetOptions) (*mokkav1alpha1.SGPURack, error)
 	List(context.Context, metav1.ListOptions) (*mokkav1alpha1.SGPURackList, error)
-	Patch(context.Context, string, types.PatchType, []byte, metav1.PatchOptions, ...string) (*mokkav1alpha1.SGPURack, error)
+	Update(context.Context, *mokkav1alpha1.SGPURack, metav1.UpdateOptions) (*mokkav1alpha1.SGPURack, error)
 	Delete(context.Context, string, metav1.DeleteOptions) error
 }
 
@@ -125,7 +124,7 @@ type OwnershipConflict struct {
 	OwnerUID  types.UID
 }
 
-// OwnershipConflictError makes an SSA ownership conflict retryable while
+// OwnershipConflictError makes a concurrent ownership change retryable while
 // retaining the structured conflict used to report inventory status.
 type OwnershipConflictError struct {
 	Conflict OwnershipConflict
@@ -1120,6 +1119,7 @@ func (r *Reconciler) mutateInventory(
 	return changed, nil
 }
 
+//nolint:cyclop // Rack updates validate identity, ownership, and optimistic-concurrency invariants together.
 func (r *Reconciler) mutateRack(
 	ctx context.Context,
 	inventory *mokkav1alpha1.SGPUInventory,
@@ -1154,9 +1154,15 @@ func (r *Reconciler) mutateRack(
 		if !mutate(candidate) {
 			return nil
 		}
-		updated, err := r.applyRack(ctx, candidate)
+		if !controllerOwnsRackSpec(latest) {
+			conflict := ownershipConflict(latest, base.Spec.Identity.RackGroup)
+			return &OwnershipConflictError{Conflict: conflict, Cause: apierrors.NewConflict(
+				mokkav1alpha1.Resource("sgpuracks"), base.Name, errors.New("rack spec is not exclusively controller-owned"),
+			)}
+		}
+		updated, err := r.updateRack(ctx, candidate)
 		if err != nil {
-			_, classified := r.classifyRackApplyError(ctx, inventory, candidate, err)
+			_, classified := r.classifyRackUpdateError(ctx, inventory, candidate, err)
 			return classified
 		}
 		if updated.UID != base.UID {
@@ -1174,76 +1180,18 @@ func (r *Reconciler) mutateRack(
 	return changed, rackEmpty(latest), latest, nil
 }
 
-type rackApplyDocument struct {
-	APIVersion string                     `json:"apiVersion"`
-	Kind       string                     `json:"kind"`
-	Metadata   rackApplyObjectMeta        `json:"metadata"`
-	Spec       mokkav1alpha1.SGPURackSpec `json:"spec"`
-}
-
-type rackApplyObjectMeta struct {
-	Name            string                  `json:"name"`
-	ResourceVersion string                  `json:"resourceVersion,omitempty"`
-	Labels          map[string]string       `json:"labels,omitempty"`
-	Annotations     map[string]string       `json:"annotations,omitempty"`
-	Finalizers      []string                `json:"finalizers"`
-	OwnerReferences []metav1.OwnerReference `json:"ownerReferences"`
-}
-
-func (r *Reconciler) applyRack(ctx context.Context, desired *mokkav1alpha1.SGPURack) (*mokkav1alpha1.SGPURack, error) {
-	payload, err := rackApplyPayload(desired)
+func (r *Reconciler) updateRack(ctx context.Context, desired *mokkav1alpha1.SGPURack) (*mokkav1alpha1.SGPURack, error) {
+	updated, err := r.racks.Update(ctx, desired, metav1.UpdateOptions{FieldManager: RackFieldManager})
 	if err != nil {
 		return nil, err
 	}
-	applied, err := r.racks.Patch(ctx, desired.Name, types.ApplyPatchType, payload, metav1.PatchOptions{
-		FieldManager: RackFieldManager,
-		Force:        ptr.To(false),
-	})
-	if err != nil {
-		return nil, err
+	if updated == nil {
+		return nil, fmt.Errorf("update rack %q returned no object", desired.Name)
 	}
-	if applied == nil {
-		return nil, fmt.Errorf("apply rack %q returned no object", desired.Name)
-	}
-	return applied, nil
+	return updated, nil
 }
 
-func rackApplyPayload(desired *mokkav1alpha1.SGPURack) ([]byte, error) {
-	labels := make(map[string]string, 3)
-	for _, key := range []string{InventoryNameLabel, RackGroupLabel, RackIndexLabel} {
-		if value, found := desired.Labels[key]; found {
-			labels[key] = value
-		}
-	}
-	annotations := make(map[string]string, 1)
-	if value, found := desired.Annotations[InventoryUIDAnnotation]; found {
-		annotations[InventoryUIDAnnotation] = value
-	}
-	finalizers := make([]string, 0, 1)
-	if slices.Contains(desired.Finalizers, RackFinalizer) {
-		finalizers = append(finalizers, RackFinalizer)
-	}
-	owners := make([]metav1.OwnerReference, 0, 1)
-	if owner := controllerInventoryOwner(desired); owner != nil {
-		owners = append(owners, *owner.DeepCopy())
-	}
-	document := rackApplyDocument{
-		APIVersion: mokkav1alpha1.SchemeGroupVersion.String(),
-		Kind:       "SGPURack",
-		Metadata: rackApplyObjectMeta{
-			Name: desired.Name, ResourceVersion: desired.ResourceVersion,
-			Labels: labels, Annotations: annotations, Finalizers: finalizers, OwnerReferences: owners,
-		},
-		Spec: *desired.Spec.DeepCopy(),
-	}
-	payload, err := json.Marshal(document)
-	if err != nil {
-		return nil, fmt.Errorf("marshal rack %q apply document: %w", desired.Name, err)
-	}
-	return payload, nil
-}
-
-func (r *Reconciler) classifyRackApplyError(
+func (r *Reconciler) classifyRackUpdateError(
 	ctx context.Context,
 	inventory *mokkav1alpha1.SGPUInventory,
 	desired *mokkav1alpha1.SGPURack,
@@ -1258,26 +1206,9 @@ func (r *Reconciler) classifyRackApplyError(
 		return &conflict, &OwnershipConflictError{Conflict: conflict, Cause: err}
 	}
 	if getErr != nil && !apierrors.IsNotFound(getErr) {
-		return nil, fmt.Errorf("check ownership after rack %q apply failed: %w", desired.Name, getErr)
-	}
-	if isFieldManagerConflict(err) {
-		conflict := ownershipConflict(desired, desired.Spec.Identity.RackGroup)
-		return &conflict, &OwnershipConflictError{Conflict: conflict, Cause: err}
+		return nil, fmt.Errorf("check ownership after rack %q update failed: %w", desired.Name, getErr)
 	}
 	return nil, err
-}
-
-func isFieldManagerConflict(err error) bool {
-	var status apierrors.APIStatus
-	if !errors.As(err, &status) || status.Status().Details == nil {
-		return false
-	}
-	for _, cause := range status.Status().Details.Causes {
-		if cause.Type == metav1.CauseTypeFieldManagerConflict {
-			return true
-		}
-	}
-	return false
 }
 
 //nolint:cyclop // Validation reports the precise independently-invalid inventory field.

@@ -16,6 +16,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -1144,6 +1145,63 @@ func TestProcessNextStatusStopsBeforeReconcilingCanceledBacklog(t *testing.T) {
 
 	queue.Add(key)
 	require.Equal(t, 1, queue.Len(), "the canceled status item must be marked done")
+}
+
+func TestHandlerRegistrationTracksInitialEventDelivery(t *testing.T) {
+	watcher := watch.NewRaceFreeFake()
+	node := corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", UID: "node-uid"}}
+	informer := cache.NewSharedIndexInformer(&cache.ListWatch{
+		ListWithContextFunc: func(context.Context, metav1.ListOptions) (runtime.Object, error) {
+			return &corev1.NodeList{
+				ListMeta: metav1.ListMeta{ResourceVersion: "1"},
+				Items:    []corev1.Node{node},
+			}, nil
+		},
+		WatchFuncWithContext: func(_ context.Context, options metav1.ListOptions) (watch.Interface, error) {
+			if options.SendInitialEvents != nil && *options.SendInitialEvents {
+				go func() {
+					watcher.Add(node.DeepCopy())
+					watcher.Action(watch.Bookmark, &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+						ResourceVersion: "1", Annotations: map[string]string{metav1.InitialEventsAnnotationKey: "true"},
+					}})
+				}()
+			}
+			return watcher, nil
+		},
+	}, &corev1.Node{}, 0, cache.Indexers{})
+
+	handling := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseHandler := func() { releaseOnce.Do(func() { close(release) }) }
+	registration, err := addHandler(informer, cache.ResourceEventHandlerFuncs{AddFunc: func(any) {
+		close(handling)
+		<-release
+	}})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		informer.RunWithContext(ctx)
+	}()
+	t.Cleanup(func() {
+		releaseHandler()
+		cancel()
+		watcher.Stop()
+		<-done
+	})
+
+	require.Eventually(t, informer.HasSynced, time.Second, time.Millisecond)
+	select {
+	case <-handling:
+	case <-time.After(time.Second):
+		t.Fatal("initial event was not delivered")
+	}
+	require.False(t, registration.HasSynced(), "handler sync must wait until its initial callback returns")
+	releaseHandler()
+	require.Eventually(t, registration.HasSynced, time.Second, time.Millisecond)
 }
 
 func TestRunFailsClosedWhenCacheSyncFails(t *testing.T) {
