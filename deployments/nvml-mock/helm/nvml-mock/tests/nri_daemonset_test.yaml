@@ -54,6 +54,12 @@ tests:
           content: --log-format=json
       - contains:
           path: spec.template.spec.containers[0].args
+          content: --log-level=info
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-format=json
+      - contains:
+          path: spec.template.spec.containers[0].args
           content: --excluded-namespaces=NAMESPACE,kube-system
       - contains:
           path: spec.template.spec.containers[0].args

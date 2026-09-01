@@ -33,28 +33,28 @@ global:
       endpoint: "nvidia-dcgm.gpu-operator.svc"
       port: 5555
 
-  # Use an EXTERNAL MongoDB (the standalone official-image replica set deployed
-  # by mongodb.yaml) instead of the chart's Bitnami MongoDB, which is amd64-only
-  # and cannot start on arm64. The full URI (no auth in this demo) is supplied
-  # via the Secret referenced by credentialsFromSecret.name.
-  #
-  # The platform-connector talks TLS to the datastore and reads a CA cert, so
-  # the standalone MongoDB serves TLS with a cert-manager-issued certificate and
-  # we hand NVSentinel the CA via tls.caSecretName (the cert-manager CA secret,
-  # data key ca.crt). tls.enabled must be true here (the chart also renders it
-  # true regardless due to a `| default true`, so keeping MongoDB on TLS keeps
-  # both sides consistent).
+  # Datastore: the chart's own MongoDB, deployed via the Percona operator (see
+  # the mongodb-store overrides at the bottom of this file). The operator names
+  # the replica-set service <cluster>-rs0, hence mongodb-rs0. Percona serves
+  # requireTLS and the chart issues the client certificate through cert-manager,
+  # so the connection carries tls=true.
   datastore:
     provider: "mongodb"
-    credentialsFromSecret:
-      name: nvsentinel-datastore-mongodb-uri
     connection:
-      host: "mongodb-ext.nvsentinel.svc.cluster.local"
+      host: "mongodb-rs0.nvsentinel.svc.cluster.local"
       port: 27017
       database: "HealthEventsDatabase"
-    tls:
-      enabled: true
-      caSecretName: "mongodb-ca"
+      collection: "HealthEvents"
+      tokenCollection: "ResumeTokens"
+      extraParams:
+        replicaSet: "rs0"
+        tls: "true"
+    options:
+      maxConnections: "25"
+      maxIdleConnections: "10"
+      connectionMaxLifetime: "1h"
+      pollInterval: "5s"
+
 
   # Health monitors
   gpuHealthMonitor:
@@ -68,9 +68,9 @@ global:
   nicHealthMonitor:
     enabled: false
 
-  # Remediation pipeline. The internal MongoDB is disabled (see datastore above).
+  # Remediation pipeline, backed by the chart's own MongoDB store.
   mongodbStore:
-    enabled: false
+    enabled: true
   faultQuarantine:
     enabled: true
   nodeDrainer:
@@ -78,6 +78,8 @@ global:
   faultRemediation:
     enabled: false
   janitor:
+    enabled: false
+  janitorProvider:
     enabled: false
   healthEventsAnalyzer:
     enabled: false
@@ -96,12 +98,6 @@ global:
   eventExporter:
     enabled: false
   preflight:
-    enabled: false
-
-# The external datastore (global.datastore) supplies MONGODB_URI; the internal
-# MongoDB store hooks are off.
-platformConnector:
-  mongodbStore:
     enabled: false
 
 # No Prometheus Operator in this demo.
@@ -167,3 +163,39 @@ node-drainer:
 fault-quarantine:
   circuitBreaker:
     enabled: false
+
+# mongodb-store: deploy the datastore with the Percona Server for MongoDB
+# operator instead of the chart's default Bitnami MongoDB. The Bitnami path is
+# amd64-only (bitnamilegacy/* images) and its containers run Bitnami-specific
+# startup scripts, so it cannot come up on arm64; every image on the Percona
+# path (percona-server-mongodb, the operator, mongosh, mongodb_exporter) is
+# published for linux/amd64 and linux/arm64. Both flags must be set explicitly:
+# they gate which chart dependencies are pulled in.
+mongodb-store:
+  useBitnami: false
+  usePerconaOperator: true
+
+  psmdb-db:
+    # Percona refuses a replica set smaller than three members unless the size
+    # check is explicitly waived. NVSentinel only needs change streams, which a
+    # single-member replica set provides, and three members (3 x 1 CPU / 1.5Gi)
+    # do not fit a laptop-sized Kind cluster.
+    unsafeFlags:
+      replsetSize: true
+    replsets:
+      rs0:
+        size: 1
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+        volumeSpec:
+          pvc:
+            resources:
+              requests:
+                storage: 2Gi
+        # No Prometheus Operator in this demo, so the metrics sidecar is dead weight.
+        sidecars: []
