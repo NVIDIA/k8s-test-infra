@@ -55,6 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plugin aborts at startup, and without the channel nodes containerd refuses to
   admit a pod carrying a compute-domain CDI spec. Gated on
   `imex.mockChannels.enabled`. (#TBD)
+- The node agent gains an `nvlink` simulator that stages the cluster
+  ComputeDomain topology document into the node overlay, subsuming that phase of
+  `setup.sh`. Topology edits now reach workloads without a DaemonSet restart,
+  and disabling topology removes the staged document. (#750)
 - `host.Host.Mknod` centralises privileged character-device creation, so
   `gpudriver` and `imex` share one primitive rather than each carrying its own
   copy of the `mknod`-then-`chmod` sequence. (#TBD)
