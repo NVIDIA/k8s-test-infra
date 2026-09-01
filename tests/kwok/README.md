@@ -8,8 +8,10 @@ a dedicated KWOK kubeconfig. KWOK Nodes do not run containers, so the Helm
 Deployment is intentionally not installed.
 
 Prerequisites are preinstalled `kwokctl` v0.8.0, `kubectl`, Docker, Go, `jq`,
-`curl`, and POSIX process tools. The harness downloads no binaries. KWOK
-component images are pinned in `run.sh` to the
+`curl`, and POSIX process tools. The harness downloads no binaries. Its KWOK
+cluster runs only etcd and kube-apiserver; the scheduler, controller manager,
+and KWOK controller are omitted because the scenarios need only Node metadata.
+The component images are pinned in `run.sh` to the
 [v0.8.0 release](https://github.com/kubernetes-sigs/kwok/releases/tag/v0.8.0)
 defaults. Node creation uses KWOK's
 [custom-resource scaling](https://kwok.sigs.k8s.io/docs/examples/scale-with-custom-resource/)

@@ -9,9 +9,7 @@ readonly REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 readonly KWOK_VERSION="v0.8.0"
 readonly KUBERNETES_VERSION="v1.36.1"
-readonly KWOK_CONTROLLER_IMAGE="registry.k8s.io/kwok/kwok:v0.8.0"
 readonly KUBE_APISERVER_IMAGE="registry.k8s.io/kube-apiserver:v1.36.1"
-readonly KUBE_CONTROLLER_MANAGER_IMAGE="registry.k8s.io/kube-controller-manager:v1.36.1"
 readonly ETCD_IMAGE="registry.k8s.io/etcd:3.6.10-0"
 
 readonly NODE_COUNT="${KWOK_NODE_COUNT:-200}"
@@ -176,7 +174,6 @@ capture_metrics() {
 	local state="$1"
 	kwok logs kube-apiserver >"${ARTIFACT_DIR}/${state}.kube-apiserver.log" 2>&1 || true
 	kwok logs etcd >"${ARTIFACT_DIR}/${state}.etcd.log" 2>&1 || true
-	kwok logs kwok-controller >"${ARTIFACT_DIR}/${state}.kwok-controller.log" 2>&1 || true
 	kwok etcdctl endpoint status -w json >"${ARTIFACT_DIR}/${state}.etcd-status.json" 2>&1 || true
 	kwok get components >"${ARTIFACT_DIR}/${state}.components.txt" 2>&1 || true
 	kctl get --raw /metrics >"${ARTIFACT_DIR}/${state}.kube-apiserver.metrics.prom" 2>&1 || true
@@ -250,6 +247,24 @@ inventory_summary_ready() {
 	' >/dev/null
 }
 
+rack_statuses_ready() {
+	local expected_racks="$1"
+	kctl get sgpuracks -l mokka.nvidia.com/inventory=mokka-kwok -o json | jq -e \
+		--argjson expectedRacks "${expected_racks}" '
+		(.items | length) == $expectedRacks and
+		all(.items[];
+			. as $rack |
+			$rack.status.observedGeneration == $rack.metadata.generation and
+			($rack.status.assignedNodes // 0) == ([$rack.spec.nodes[] | select(.nodeRef != null)] | length) and
+			any($rack.status.conditions[]?;
+				.type == "Ready" and
+				.status == "True" and
+				.observedGeneration == $rack.metadata.generation
+			)
+		)
+	' >/dev/null
+}
+
 check_state() {
 	local state="$1"
 	local started_seconds="$2"
@@ -261,6 +276,7 @@ check_state() {
 	log "waiting for ${state}: racks=${expected_racks} nodes=${expected_nodes} eligible=${expected_eligible} allocated=${expected_allocated}"
 	wait_for "inventory summary for ${state}" inventory_summary_ready "${expected_racks}" \
 		"${expected_eligible}" "${expected_allocated}" "${requests_satisfied}"
+	wait_for "rack statuses for ${state}" rack_statuses_ready "${expected_racks}"
 	if ! assert_state_once "${state}" "${expected_racks}" "${expected_nodes}" \
 		"${expected_eligible}" "${expected_allocated}" "${requests_satisfied}"; then
 		log "full state assertion failed for ${state}: $(cat "${WORK_DIR}/state-${state}/result.json")"
@@ -290,7 +306,8 @@ capture_failure() {
 
 cleanup() {
 	local exit_code=$?
-	trap - EXIT INT TERM
+	trap - EXIT
+	trap '' INT TERM
 	if (( exit_code != 0 )) && [[ "${CLUSTER_CREATED}" == true ]]; then
 		capture_failure
 	fi
@@ -358,13 +375,10 @@ CLUSTER_CREATED=true
 kwok create cluster \
 	--runtime=docker \
 	--kubeconfig="${KUBECONFIG_PATH}" \
-	--disable kube-scheduler \
-	--disable-qps-limits \
+	--components=etcd,kube-apiserver \
 	--etcd-quota-backend-size=16Gi \
 	--etcd-image="${ETCD_IMAGE}" \
 	--kube-apiserver-image="${KUBE_APISERVER_IMAGE}" \
-	--kube-controller-manager-image="${KUBE_CONTROLLER_MANAGER_IMAGE}" \
-	--kwok-controller-image="${KWOK_CONTROLLER_IMAGE}" \
 	--timeout=10m \
 	--wait=5m \
 	>"${ARTIFACT_DIR}/cluster-create.log" 2>&1
