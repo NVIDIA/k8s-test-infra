@@ -24,7 +24,9 @@ type Config struct {
 	Inject      inject.Config
 }
 
-// DefaultConfig returns the registration identity the chart deploys with.
+// DefaultConfig returns the registration identity used when no flag overrides
+// it. The chart sets --plugin-name from nri.pluginName, so only a standalone
+// run registers under defaultPluginName.
 func DefaultConfig() Config {
 	return Config{
 		SocketPath:  defaultSocketPath,

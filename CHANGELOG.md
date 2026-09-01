@@ -186,6 +186,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- The NRI plugin binary is renamed from `nvml-mock-nri` to `nri-plugin`, and its
+  injection logic moves from `pkg/nri/nvmlmock` into `internal/`. The chart gains
+  `nri.logging.level` and `nri.logging.format`, and `nri.*` values are now
+  schema-validated, so a typo fails at install instead of crash-looping the
+  plugin on every node. (#751)
 - mocknvml: `nvmlEventSetWait_v1`/`_v2` now return `NVML_ERROR_GPU_IS_LOST`
   immediately for a `lost` or `fallen_off_bus` device, matching real NVML
   after Xid 79, instead of only ever returning `TIMEOUT`. A device the config
