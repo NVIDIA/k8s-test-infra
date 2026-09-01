@@ -68,7 +68,6 @@ BIN_DIR := $(PROJECT_DIR)/tmp/bin
 GOBIN := $(BIN_DIR)
 
 export GOBIN
-export PATH := $(GOBIN):$(PATH)
 
 .PHONY: help
 help:
