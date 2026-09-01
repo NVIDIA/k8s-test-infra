@@ -20,6 +20,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
 const (
@@ -63,18 +64,18 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	return nil
 }
 
-// Discard removes the rendered PCI sysfs tree and staged shim. It is a no-op
-// when Stage never completed successfully.
+// Discard empties the rendered PCI sysfs tree and removes the staged shim. It
+// is a no-op when Stage never completed successfully.
 func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 	if !s.ready.Load() {
 		return nil
 	}
 
 	var errs []error
-	// Remove the entire sys/ subtree; pcibus is its only writer.
-	sysRoot := filepath.Join(h.Root, "sys")
-	if err := os.RemoveAll(sysRoot); err != nil && !os.IsNotExist(err) {
-		errs = append(errs, fmt.Errorf("remove %s: %w", sysRoot, err))
+	// Emptied rather than removed: the CDI spec mounts these directories, and a
+	// container holding one keeps the inode it started with.
+	if err := pcisysfs.Clear(h.Root); err != nil {
+		errs = append(errs, fmt.Errorf("clear pci sysfs: %w", err))
 	}
 
 	// Remove staged shim files.

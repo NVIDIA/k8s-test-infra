@@ -316,3 +316,55 @@ func TestRender_PruneLeavesForeignEntriesAlone(t *testing.T) {
 
 	require.DirExists(t, foreign, "non-pci entries are not this renderer's to remove")
 }
+
+// A consumer container holds its bind-mounts on the inodes these two
+// directories had when it started, so replacing them leaves it reading an empty
+// tree until it is recreated.
+func TestClear_EmptiesTheServedDirectoriesInPlace(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+	}}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+
+	served := []string{filepath.Join(dir, SysDevicesRelPath), filepath.Join(dir, PCIDevicesRelPath)}
+	before := make([]os.FileInfo, len(served))
+	for i, p := range served {
+		fi, err := os.Stat(p)
+		require.NoError(t, err)
+		before[i] = fi
+	}
+
+	require.NoError(t, Clear(dir))
+
+	for i, p := range served {
+		after, err := os.Stat(p)
+		require.NoError(t, err, "the mount source must outlive the teardown")
+		require.True(t, os.SameFile(before[i], after), "%s was replaced rather than emptied", p)
+
+		entries, err := os.ReadDir(p)
+		require.NoError(t, err)
+		require.Empty(t, entries, "%s still carries a discarded profile", p)
+	}
+}
+
+// Clear tears the simulator down, so unlike an empty Render it takes the DMI
+// attributes with it rather than leaving them for the next profile.
+func TestClear_RemovesTheStagedDMI(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+	}}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+	dmi := filepath.Join(dir, SysDevicesRelPath, "virtual/dmi/id")
+	require.NoError(t, os.MkdirAll(dmi, 0o755))
+
+	require.NoError(t, Clear(dir))
+
+	require.NoDirExists(t, filepath.Join(dir, SysDevicesRelPath, "virtual"))
+}
+
+// Nothing rendered is not a failure to tear down.
+func TestClear_ToleratesAnUnrenderedRoot(t *testing.T) {
+	require.NoError(t, Clear(t.TempDir()))
+}

@@ -24,8 +24,8 @@ const (
 
 // Options controls a single rendering pass.
 type Options struct {
-	// Topology is the resolved layout to render. When nil or empty, Render
-	// is a no-op.
+	// Topology is the resolved layout to render. Nil or empty renders an
+	// empty tree rather than leaving the previous one served.
 	Topology *PCIeTopology
 
 	// Identities carries the per-device PCI identity (device_id /
@@ -78,6 +78,22 @@ func Render(o Options) error {
 	// Pruning last means a wanted device is never briefly absent: the window
 	// holds the union of the old and new trees rather than a gap.
 	return prune(root, o.Topology)
+}
+
+// Clear tears the tree down for good, emptying the two served directories
+// without replacing them.
+//
+// The distinction matters because those directories are CDI mount sources: a
+// consumer container binds their inodes when it starts and keeps them across an
+// agent restart, so removing and re-rendering leaves it reading an empty tree
+// until something recreates the pod. Everything below them goes, DMI included,
+// which is what separates this from rendering an empty topology.
+func Clear(root string) error {
+	return errors.Join(
+		prune(root, &PCIeTopology{}),
+		// prune spares what the renderer does not own; a teardown owns all of it.
+		pruneDir(filepath.Join(root, SysDevicesRelPath), func(string) bool { return false }),
+	)
 }
 
 // prune removes entries the topology no longer declares. Rendering alone is

@@ -203,11 +203,25 @@ func TestNvidiaSpecServesPCISysfsAtKernelPaths(t *testing.T) {
 func TestNvidiaSpecPCISysfsMountsAreEmittedAsAPair(t *testing.T) {
 	t.Parallel()
 
-	spec := buildNvidiaSpec(pciState())
+	for name, tc := range map[string]struct {
+		state  *agent.State
+		served bool
+	}{
+		"a rendered tree serves both":     {state: pciState(), served: true},
+		"no rendered tree serves neither": {state: twoGPUState(), served: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	_, devices := mountByContainerPath(spec, "/sys/bus/pci/devices")
-	_, sysDevices := mountByContainerPath(spec, "/sys/devices")
-	require.Equal(t, devices, sysDevices, "one half of the pair without the other")
+			spec := buildNvidiaSpec(tc.state)
+
+			_, servesLookup := mountByContainerPath(spec, "/sys/bus/pci/devices")
+			require.Equal(t, tc.served, servesLookup, "the lookup directory of BDF symlinks")
+
+			_, servesHierarchy := mountByContainerPath(spec, "/sys/devices")
+			require.Equal(t, tc.served, servesHierarchy, "the hierarchy those symlinks point into")
+		})
+	}
 }
 
 // A profile whose devices declare no bus_id renders no tree, and a CDI mount

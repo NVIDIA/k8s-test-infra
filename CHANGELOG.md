@@ -353,7 +353,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dra.k8s.io/pcieRoot` for the same reason. The agent's `nvidia.com/gpu` CDI
   spec now bind-mounts `sys/devices` and `sys/bus/pci/devices` read-only over
   the kernel paths, as a pair, since the PCI entries are relative symlinks into
-  `../../../devices/pciDDDD:BB`. `/sys/devices` is served whole, so a served
+  `../../../devices/pciDDDD:BB`. Tearing the tree down empties those two
+  directories in place rather than removing them, so a container already holding
+  the mount is not left on a replaced inode reading an empty tree.
+  `/sys/devices` is served whole, so a served
   container no longer sees the host's other device classes, CPU topology among
   them; #689 tracks narrowing it. The node's DMI attributes are reproduced
   inside the tree, without which kind's product-file bind-mounts lose their

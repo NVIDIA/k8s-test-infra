@@ -695,14 +695,20 @@ pcie_topology:
         - "0000:90:00.0"
 ```
 
-The simulator validates the block and reports a staging failure through the
-agent's `/healthz` if it finds a typo:
+Nothing validates the block, so a typo is not reported anywhere — not through
+the agent's `/healthz`. What the agent renders is the block reconciled against
+the devices NVML reports, which silently absorbs most mistakes:
 
-- Every BDF listed under a root complex must also appear in `devices[]`.
-- Each BDF may belong to at most one root complex.
-- Root complex IDs must match `pciDDDD:BB`.
-- BDFs must use 4-digit-domain form (`DDDD:BB:DD.F`); the legacy NVML
-  `busIdLegacy` 8-digit form is rejected.
+- A BDF listed under a root complex that no entry in `devices[]` claims is
+  dropped, along with any root complex it leaves empty. This is also how
+  `gpu.count` works: capping the device list leaves the layout untouched, and
+  the uncapped BDFs disappear from the tree rather than rendering as GPUs NVML
+  denies exist.
+- A BDF listed under two root complexes stays under the first and is dropped
+  from the second.
+- A device in `devices[]` whose BDF no root complex lists is still rendered,
+  under the root its own address implies (`pciDDDD:BB`) and reporting
+  `numa_node` `-1`. A GPU missing from the tree is one no consumer can resolve.
 
 If a profile omits `pcie_topology:` entirely the renderer falls back to
 a flat single-root layout (every device under `pci0000:00`, NUMA 0). A profile
@@ -737,9 +743,11 @@ fails outright rather than degrading. Profiles routinely declare root complexes
 the node does not have. [#689](https://github.com/NVIDIA/k8s-test-infra/issues/689)
 tracks removing the trade-off.
 
-A workload that needs the node's real device tree belongs in
-`nri.excludedNamespaces`, or should not request a GPU through the
-`nvidia.com/gpu` CDI spec.
+A workload that needs the node's real device tree must not request
+`nvidia.com/gpu`, since the mount rides the CDI spec the container toolkit
+resolves for that resource. `nri.excludedNamespaces` is not an escape: it only
+reaches the NRI plugin, whose own `nvml-mock.nvidia.com/gpu` spec carries no
+sysfs mounts.
 
 ### Machine type (`nvidia.com/gpu.machine`)
 
