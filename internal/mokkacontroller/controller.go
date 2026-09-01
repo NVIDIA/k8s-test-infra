@@ -437,19 +437,22 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 	router.capacityWakeup = allocation.CapacityWakeup
 	router.observeRackStatus = statusReconciler.ObserveRackStatus
 	router.forgetRackStatus = statusReconciler.ForgetRackStatus
-	if err := addHandler(profileInformer, cache.ResourceEventHandlerFuncs{
+	profileHandler, err := addHandler(profileInformer, cache.ResourceEventHandlerFuncs{
 		AddFunc: router.profileAdd, UpdateFunc: router.profileUpdate, DeleteFunc: router.profileDelete,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
-	if err := addHandler(inventoryInformer, cache.ResourceEventHandlerFuncs{
+	inventoryHandler, err := addHandler(inventoryInformer, cache.ResourceEventHandlerFuncs{
 		AddFunc: router.inventoryAdd, UpdateFunc: router.inventoryUpdate, DeleteFunc: router.inventoryDelete,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
-	if err := addHandler(rackInformer, cache.ResourceEventHandlerFuncs{
+	rackHandler, err := addHandler(rackInformer, cache.ResourceEventHandlerFuncs{
 		AddFunc: router.rackAdd, UpdateFunc: router.rackUpdate, DeleteFunc: router.rackDelete,
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 	nodeHandler, err := nodeInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -484,12 +487,14 @@ func newForNodes(nodes corev1client.NodeInterface, mokkaClient versioned.Interfa
 
 	informers := []cache.SharedIndexInformer{profileInformer, inventoryInformer, rackInformer, nodeInformer}
 	controller.starters = make([]func(context.Context), 0, len(informers))
-	synced := make([]cache.InformerSynced, 0, len(informers))
 	for _, informer := range informers {
 		controller.starters = append(controller.starters, informer.RunWithContext)
-		synced = append(synced, informer.HasSynced)
 	}
-	synced = append(synced, nodeHandler.HasSynced)
+	handlers := []cache.ResourceEventHandlerRegistration{profileHandler, inventoryHandler, rackHandler, nodeHandler}
+	synced := make([]cache.InformerSynced, 0, len(handlers))
+	for _, handler := range handlers {
+		synced = append(synced, handler.HasSynced)
+	}
 	controller.waitForSync = func(ctx context.Context) bool {
 		return cache.WaitForCacheSync(ctx.Done(), synced...)
 	}
@@ -528,11 +533,15 @@ func updateRackConflictWaiters(
 	waiters.replaceGroup(*group, result.OwnershipConflicts)
 }
 
-func addHandler(informer cache.SharedIndexInformer, handler cache.ResourceEventHandler) error {
-	if _, err := informer.AddEventHandler(handler); err != nil {
-		return fmt.Errorf("add informer event handler: %w", err)
+func addHandler(
+	informer cache.SharedIndexInformer,
+	handler cache.ResourceEventHandler,
+) (cache.ResourceEventHandlerRegistration, error) {
+	registration, err := informer.AddEventHandler(handler)
+	if err != nil {
+		return nil, fmt.Errorf("add informer event handler: %w", err)
 	}
-	return nil
+	return registration, nil
 }
 
 // Ready reports whether this elected instance has synchronized every cache.
