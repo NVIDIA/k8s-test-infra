@@ -140,7 +140,7 @@ Sets the `failure` block for the target. Modes:
 | mode                | effect                                                            |
 | ------------------- | ---------------------------------------------------------------- |
 | `healthy`           | **removes** the failure override (recovers the device)          |
-| `lost`              | guarded calls and handle lookups return `ERROR_GPU_IS_LOST`     |
+| `lost`              | guarded calls, handle lookups, and event-set waits return `ERROR_GPU_IS_LOST` |
 | `fallen_off_bus`    | same surface as `lost` (models a GPU that fell off the PCIe bus) |
 | `ecc_uncorrectable` | device stays addressable; uncorrectable ECC counters climb       |
 

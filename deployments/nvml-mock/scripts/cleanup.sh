@@ -2,12 +2,14 @@
 # Copyright 2026 NVIDIA CORPORATION
 # SPDX-License-Identifier: Apache-2.0
 #
-# Cleans up mock GPU environment from host. Runs as preStop hook.
-MOCK_GPU_DIR="/host/var/lib/nvml-mock"
-
-if [ -d "$MOCK_GPU_DIR" ] && [ "$MOCK_GPU_DIR" = "/host/var/lib/nvml-mock" ]; then
-  rm -rf "$MOCK_GPU_DIR"/*
-fi
+# preStop hook for the nvml-mock container. Drops the node label this pod
+# caused to exist.
+#
+# It deliberately does not touch /host/var/lib/nvml-mock. The node agent tears
+# that tree down per-simulator on SIGTERM so each removes only what it created;
+# a blanket rm here raced that teardown and won, since hooks and SIGTERM are
+# dispatched per container and the agent has no preStop of its own.
+#
 # NOTE: /run/nvidia/validations/toolkit-ready is deliberately NOT removed here.
 # setup.sh no longer creates it (see setup.sh step 8b); its owner is GPU
 # Operator's nvidia-validator. This hook is nvml-mock's preStop, so removing the

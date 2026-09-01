@@ -41,24 +41,12 @@ should match snapshot with all overrides:
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
                   value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
-                - name: MOCK_FABRICMANAGER
-                  value: "on"
                 - name: MOCK_FABRICMANAGER_STATE_DIR
                   value: /var/lib/nvml-mock/fabric-state
                 - name: MOCK_IB
                   value: full
-                - name: MOCK_IB_PING_FABRIC
-                  value: "1"
-                - name: MOCK_IB_PING_PORT
-                  value: "18515"
                 - name: MOCK_IB_PING_SOCKET
                   value: /var/lib/nvml-mock/run/mock-ib.sock
-                - name: POD_IP
-                  valueFrom:
-                    fieldRef:
-                      fieldPath: status.podIP
-                - name: MOCK_IB_PING_SERVICE_HOST
-                  value: nvml-mock-custom-ibping.gpu-system.svc.cluster.local
                 - name: LD_PRELOAD
                   value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1
                 - name: MOCK_IB_ROOT
@@ -73,16 +61,6 @@ should match snapshot with all overrides:
                     command:
                       - /scripts/cleanup.sh
               name: nvml-mock
-              ports:
-                - containerPort: 18515
-                  name: ibping
-                  protocol: TCP
-                - containerPort: 50000
-                  name: imex
-                  protocol: TCP
-                - containerPort: 50005
-                  name: imex-cmd
-                  protocol: TCP
               resources:
                 limits:
                   cpu: 500m
@@ -99,14 +77,6 @@ should match snapshot with all overrides:
                   name: host-nvml-mock
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
-                - mountPath: /host/var/run/cdi
-                  name: host-cdi
-                - mountPath: /host/run/nvidia
-                  name: host-run-nvidia
-                - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
-                  name: host-nfd-features
-                - mountPath: /var/lib/nvml-mock/fabric-state
-                  name: host-fabric-state
             - command:
                 - /usr/local/bin/node-agent
                 - start
@@ -127,6 +97,18 @@ should match snapshot with all overrides:
                   value: 555.55.55
                 - name: MOCK_FABRICMANAGER_STATE_DIR
                   value: /var/lib/nvml-mock/fabric-state
+                - name: MOCK_IB
+                  value: full
+                - name: MOCK_IB_PING_FABRIC
+                  value: "1"
+                - name: MOCK_IB_PING_PORT
+                  value: "18515"
+                - name: POD_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.podIP
+                - name: MOCK_IB_PING_SERVICE_HOST
+                  value: nvml-mock-custom-ibping.gpu-system.svc.cluster.local
               image: custom-registry/nvml-mock:v2.0.0
               imagePullPolicy: Always
               livenessProbe:
@@ -134,6 +116,13 @@ should match snapshot with all overrides:
                   path: /healthz
                   port: 9091
               name: node-agent
+              ports:
+                - containerPort: 9091
+                  name: health
+                  protocol: TCP
+                - containerPort: 18515
+                  name: ibping
+                  protocol: TCP
               readinessProbe:
                 httpGet:
                   path: /readyz
@@ -161,6 +150,8 @@ should match snapshot with all overrides:
                   readOnly: true
                 - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
                   name: host-nfd-features
+                - mountPath: /host/var/lib/nvml-mock/fabric-state
+                  name: host-fabric-state
           nodeSelector:
             nvidia.com/gpu.present: "true"
           serviceAccountName: nvml-mock-custom
@@ -242,18 +233,8 @@ should match snapshot with b200 profile:
                   value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
                 - name: MOCK_IB
                   value: full
-                - name: MOCK_IB_PING_FABRIC
-                  value: "1"
-                - name: MOCK_IB_PING_PORT
-                  value: "18515"
                 - name: MOCK_IB_PING_SOCKET
                   value: /var/lib/nvml-mock/run/mock-ib.sock
-                - name: POD_IP
-                  valueFrom:
-                    fieldRef:
-                      fieldPath: status.podIP
-                - name: MOCK_IB_PING_SERVICE_HOST
-                  value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
                   value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1
                 - name: MOCK_IB_ROOT
@@ -268,16 +249,6 @@ should match snapshot with b200 profile:
                     command:
                       - /scripts/cleanup.sh
               name: nvml-mock
-              ports:
-                - containerPort: 18515
-                  name: ibping
-                  protocol: TCP
-                - containerPort: 50000
-                  name: imex
-                  protocol: TCP
-                - containerPort: 50005
-                  name: imex-cmd
-                  protocol: TCP
               securityContext:
                 privileged: true
               volumeMounts:
@@ -287,12 +258,6 @@ should match snapshot with b200 profile:
                   name: host-nvml-mock
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
-                - mountPath: /host/var/run/cdi
-                  name: host-cdi
-                - mountPath: /host/run/nvidia
-                  name: host-run-nvidia
-                - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
-                  name: host-nfd-features
             - command:
                 - /usr/local/bin/node-agent
                 - start
@@ -311,6 +276,18 @@ should match snapshot with b200 profile:
                   value: "4"
                 - name: DRIVER_VERSION
                   value: 560.35.03
+                - name: MOCK_IB
+                  value: full
+                - name: MOCK_IB_PING_FABRIC
+                  value: "1"
+                - name: MOCK_IB_PING_PORT
+                  value: "18515"
+                - name: POD_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.podIP
+                - name: MOCK_IB_PING_SERVICE_HOST
+                  value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               livenessProbe:
@@ -318,6 +295,13 @@ should match snapshot with b200 profile:
                   path: /healthz
                   port: 9091
               name: node-agent
+              ports:
+                - containerPort: 9091
+                  name: health
+                  protocol: TCP
+                - containerPort: 18515
+                  name: ibping
+                  protocol: TCP
               readinessProbe:
                 httpGet:
                   path: /readyz
@@ -416,24 +400,12 @@ should match snapshot with default values:
                   value: /etc/nvml-mock/config.yaml
                 - name: MOCK_NVML_OVERRIDES
                   value: /host/var/lib/nvml-mock/driver/config/overrides.yaml
-                - name: MOCK_FABRICMANAGER
-                  value: "on"
                 - name: MOCK_FABRICMANAGER_STATE_DIR
                   value: /var/lib/nvml-mock/fabric-state
                 - name: MOCK_IB
                   value: full
-                - name: MOCK_IB_PING_FABRIC
-                  value: "1"
-                - name: MOCK_IB_PING_PORT
-                  value: "18515"
                 - name: MOCK_IB_PING_SOCKET
                   value: /var/lib/nvml-mock/run/mock-ib.sock
-                - name: POD_IP
-                  valueFrom:
-                    fieldRef:
-                      fieldPath: status.podIP
-                - name: MOCK_IB_PING_SERVICE_HOST
-                  value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
                 - name: LD_PRELOAD
                   value: /usr/local/lib/libibmockumad.so.1:/usr/local/lib/libibmockverbs.so.1:/usr/local/lib/libibmocksys.so.1:/usr/local/lib/libpcisysfs.so.1
                 - name: MOCK_IB_ROOT
@@ -448,16 +420,6 @@ should match snapshot with default values:
                     command:
                       - /scripts/cleanup.sh
               name: nvml-mock
-              ports:
-                - containerPort: 18515
-                  name: ibping
-                  protocol: TCP
-                - containerPort: 50000
-                  name: imex
-                  protocol: TCP
-                - containerPort: 50005
-                  name: imex-cmd
-                  protocol: TCP
               securityContext:
                 privileged: true
               volumeMounts:
@@ -467,14 +429,6 @@ should match snapshot with default values:
                   name: host-nvml-mock
                 - mountPath: /etc/nvml-mock
                   name: gpu-config
-                - mountPath: /host/var/run/cdi
-                  name: host-cdi
-                - mountPath: /host/run/nvidia
-                  name: host-run-nvidia
-                - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
-                  name: host-nfd-features
-                - mountPath: /var/lib/nvml-mock/fabric-state
-                  name: host-fabric-state
             - command:
                 - /usr/local/bin/node-agent
                 - start
@@ -495,6 +449,18 @@ should match snapshot with default values:
                   value: 570.124.06
                 - name: MOCK_FABRICMANAGER_STATE_DIR
                   value: /var/lib/nvml-mock/fabric-state
+                - name: MOCK_IB
+                  value: full
+                - name: MOCK_IB_PING_FABRIC
+                  value: "1"
+                - name: MOCK_IB_PING_PORT
+                  value: "18515"
+                - name: POD_IP
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: status.podIP
+                - name: MOCK_IB_PING_SERVICE_HOST
+                  value: RELEASE-NAME-nvml-mock-ibping.NAMESPACE.svc.cluster.local
               image: ghcr.io/nvidia/nvml-mock:latest
               imagePullPolicy: IfNotPresent
               livenessProbe:
@@ -502,6 +468,13 @@ should match snapshot with default values:
                   path: /healthz
                   port: 9091
               name: node-agent
+              ports:
+                - containerPort: 9091
+                  name: health
+                  protocol: TCP
+                - containerPort: 18515
+                  name: ibping
+                  protocol: TCP
               readinessProbe:
                 httpGet:
                   path: /readyz
@@ -529,6 +502,8 @@ should match snapshot with default values:
                   readOnly: true
                 - mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
                   name: host-nfd-features
+                - mountPath: /host/var/lib/nvml-mock/fabric-state
+                  name: host-fabric-state
           serviceAccountName: RELEASE-NAME-nvml-mock
           terminationGracePeriodSeconds: 2
           tolerations:

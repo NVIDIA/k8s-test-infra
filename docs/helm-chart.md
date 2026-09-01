@@ -750,7 +750,7 @@ kubectl exec "$CLIENT_POD" -- ibping -c 3 "$LID"
 For automated cross-node validation (including peer restart and retries), use
 `tests/e2e/validate-ibping.sh`. LID-based ping is the supported path;
 cross-node `ibping -G <port_guid>` is supported (use `0x` hex without colons;
-see `pkg/network/mockib/README.md`). Companion fabric validators:
+see `internal/ib/README.md`). Companion fabric validators:
 
 - [`tests/e2e/validate-iblinkinfo.sh`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/validate-iblinkinfo.sh)
   — direct-route walk reports peer GUIDs without duplicate-port errors.
@@ -758,9 +758,9 @@ see `pkg/network/mockib/README.md`). Companion fabric validators:
   — `ibv_devinfo -l` claims every rendered HCA via libmlx5; `ibstatus`
   confirms ACTIVE / LinkUp port state.
 
-See [`pkg/network/mockib/README.md`](https://github.com/NVIDIA/k8s-test-infra/blob/main/pkg/network/mockib/README.md#mock-ibping)
-for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
-`MOCK_IB_DEBUG_SMP`, …) and architecture details.
+See [`internal/ib/README.md`](https://github.com/NVIDIA/k8s-test-infra/blob/main/internal/ib/README.md#tiers)
+for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`, …) and
+architecture details.
 
 ## Device injection mode
 
@@ -1245,23 +1245,32 @@ Per-mode behaviour:
 | mode                | guarded API calls return | handle lookup returns | identity getters    | ECC counters         | event set                       |
 | ------------------- | ------------------------ | --------------------- | ------------------- | -------------------- | ------------------------------- |
 | `healthy` (default) | normal values            | normal handle         | normal values       | zero                 | empty                           |
-| `lost`              | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | `ERROR_GPU_IS_LOST` | error                | empty                           |
-| `fallen_off_bus`    | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | `ERROR_GPU_IS_LOST` | error                | empty                           |
+| `lost`              | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | `ERROR_GPU_IS_LOST` | error                | `ERROR_GPU_IS_LOST` (Xid once first if `xid:` set and getter-tripped) |
+| `fallen_off_bus`    | `ERROR_GPU_IS_LOST`      | `ERROR_GPU_IS_LOST`   | `ERROR_GPU_IS_LOST` | error                | `ERROR_GPU_IS_LOST` (Xid once first if `xid:` set and getter-tripped) |
 | `ecc_uncorrectable` | normal values            | normal handle         | normal values       | strictly-increasing  | one `XID_CRITICAL_ERROR` if xid |
 
 A configured Xid is delivered once per trip, through either
-`nvmlEventSetWait_v1` or `nvmlEventSetWait_v2`. With no event pending
-the wait blocks for the caller's timeout and then returns
-`NVML_ERROR_TIMEOUT`, like real NVML — clients such as the device-plugin
-health monitor and dcgm-exporter loop on the wait with no sleep of their
-own, so an immediate return would spin a CPU core.
+`nvmlEventSetWait_v1` or `nvmlEventSetWait_v2`. Subsequent waits then
+match the rest of the mode: `lost` and `fallen_off_bus` return
+`NVML_ERROR_GPU_IS_LOST` immediately, as real NVML does after Xid 79;
+`ecc_uncorrectable` reports `NVML_ERROR_TIMEOUT` (no event). With no
+event pending and no lost device the wait blocks for the caller's
+timeout, like real NVML — clients such as the device-plugin health
+monitor and dcgm-exporter loop on the wait with no sleep of their own,
+so an immediate `TIMEOUT` would spin a CPU core. `ERROR_GPU_IS_LOST` is
+the exception: real NVML returns it promptly, and those same clients
+already back off on it.
 
-The wait re-checks every 100 ms, but only ever claims an Xid that is
-*already* pending: a device trips its injector on a guarded **device**
-call (`GetTemperature`, `GetEccErrors`, …), never on the wait itself. A
-client that only loops on `nvmlEventSetWait` never advances the injector,
-so something must drive a device getter (`nvidia-smi -q`, a
-dcgm-exporter scrape) for the trip to happen. `nvml-mock-ctl` only writes
+A device the config declares *immediately* lost — a bare `mode: lost` /
+`fallen_off_bus` block with no `after_calls` or `probability` gate — fails the
+wait with `NVML_ERROR_GPU_IS_LOST` on its own, so a client that only loops on
+`nvmlEventSetWait` (the DRA driver's health monitor) sees a lost GPU the way
+real NVML surfaces one that fell off the bus, without calling a getter first.
+Everything else still needs a trip: the injector trips on a guarded **device**
+call (`GetTemperature`, `GetEccErrors`, …), never on the wait itself, so
+delivering the configured **Xid**, the `ecc_uncorrectable` event, and any
+`after_calls` / `probability` gate only advance once something drives a device
+getter (`nvidia-smi -q`, a dcgm-exporter scrape). `nvml-mock-ctl` only writes
 the override file — it configures the failure, it does not trip it.
 
 Values rendered into the ConfigMap are validated against

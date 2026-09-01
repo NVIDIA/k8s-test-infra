@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 )
@@ -90,10 +92,10 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 // Apply writes the NFD local-source feature file so NFD can derive
 // feature.node.kubernetes.io/pci-10de.present=true from it.
 func (s *Simulator) Apply(_ context.Context, h *host.Host, _ *agent.State) error {
-	return h.WriteFile(filepath.Join(h.Etc, nfdFeatureFile), []byte(nfdContent), 0o644)
+	return fsutil.Write(filepath.Join(h.Etc, nfdFeatureFile), []byte(nfdContent), 0o644)
 }
 
 // Revoke removes the NFD feature file.
 func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
-	return h.Remove(filepath.Join(h.Etc, nfdFeatureFile))
+	return fsutil.Remove(filepath.Join(h.Etc, nfdFeatureFile))
 }

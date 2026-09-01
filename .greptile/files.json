@@ -1,0 +1,22 @@
+{
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "description": "Project principles, tech stack, and the commands a change is expected to pass. Go 1.26, testify/require for assertions, `make lint-fix` and `make test` for Go changes, `make helm-tests` for chart changes. Also states that code comments explain why rather than what."
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "description": "Contribution workflow and the commit and pull request conventions this repository expects."
+    },
+    {
+      "path": ".golangci.yml",
+      "description": "The exact linter set that already runs on every pull request. Treat every finding these linters produce as already reported, and do not raise it again in review.",
+      "scope": ["**/*.go"]
+    },
+    {
+      "path": "docs/architecture.md",
+      "description": "How the simulated driver layers fit together, for judging whether a change sits at the right layer.",
+      "scope": ["internal/**", "pkg/**", "cmd/**"]
+    }
+  ]
+}

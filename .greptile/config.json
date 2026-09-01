@@ -1,0 +1,96 @@
+{
+  "strictness": 3,
+  "commentTypes": [
+    "logic"
+  ],
+  "triggerOnUpdates": true,
+  "triggerOnDrafts": false,
+  "statusCheck": true,
+  "hideFooter": true,
+  "shouldUpdateDescription": false,
+  "ignorePatterns": "vendor/\ntests/mocknvml/vendor/\nLICENSES/\n**/zz_generated*.go\n",
+  "summarySection": {
+    "included": true,
+    "collapsible": false,
+    "defaultOpen": true
+  },
+  "issuesTableSection": {
+    "included": false
+  },
+  "confidenceScoreSection": {
+    "included": false
+  },
+  "sequenceDiagramSection": {
+    "included": false
+  },
+  "instructions": "Write about the code, never about the review. Do not describe your own pass over the change: no \"I checked\", no \"the changes look good\", no \"nothing blocking remains\", no \"this pull request appears safe to merge\", and no counting of your own findings. Do not name the tooling or any configuration file behind the review.\n\nState each finding in one or two sentences: what breaks, then what to do about it. Name the symbol, invariant, or test involved, because that specificity is what makes a comment worth reading and what makes it read as a person who looked at the change. Do not put a severity word or tag in the comment text. Do not repeat an inline comment in the summary; the summary carries only findings that have no inline anchor.\n\nDo not use emojis, em dashes, or filler adjectives. When nothing blocks the change, open with one short sentence naming what this change specifically improves. A sentence that would fit any pull request adds nothing.",
+  "rules": [
+    {
+      "id": "nvml-bridge-types",
+      "rule": "When a change adds a new nvml entry point to vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go, pkg/gpu/mocknvml/bridge/stubs_generated.go must be regenerated with `make gen`, and pkg/gpu/mocknvml/bridge/nvml_types.h must gain the matching C type definitions by hand with full field layouts rather than opaque forward declarations. The generator does not touch that header. A stale stubs_generated.go omits the //export directives for the new entry points, and the shared library still links because -buildmode=c-shared does not pass --no-undefined, so build, vet, test and lint all stay green. The failure appears only when a consumer dlopens the library with RTLD_NOW.",
+      "scope": [
+        "pkg/gpu/mocknvml/bridge/**",
+        "vendor/github.com/NVIDIA/go-nvml/**"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "nvml-busid-signedness",
+      "rule": "The element type of nvml.PciInfo.BusId alternates between [32]uint8 and [32]int8 across go-nvml regenerations. A loop that copies a bus ID must cast to the element type of the vendored struct rather than a hard-coded uint8 or int8, or the package stops type-checking on the next dependency bump.",
+      "scope": [
+        "pkg/gpu/mocknvml/**"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "list-index-access",
+      "rule": "Do not select an element from a Kubernetes list response or any other collection with unspecified order by position, such as .Items[0] or items[N]. Match on Name or UID, or sort before indexing. Positional access passes locally and fails once the API returns the same set in a different order.",
+      "scope": [
+        "**/*.go"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "test-discrimination",
+      "rule": "Each assertion must compare against a literal or a value derived independently of the code under test. Recomputing the implementation's own logic inside the test asserts nothing. Flag a test that would still pass if the body of the function it covers were replaced with an empty return or a zero value, and flag a table case whose expected value is produced by calling the subject.",
+      "scope": [
+        "**/*_test.go"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "helm-chart-version-coupling",
+      "rule": "A change to the chart version in Chart.yaml also requires regenerated helm-unittest snapshots and updated helm.sh/chart label assertions in the chart tests. Flag a version bump that arrives without those matching test updates, and name `make helm-tests` as the check that would catch it.",
+      "scope": [
+        "deployments/**"
+      ],
+      "severity": "medium"
+    },
+    {
+      "id": "workflow-tag-paths-filter",
+      "rule": "In a workflow triggered on push, do not combine a tags filter with a paths filter in the same on.push block. A tag push carries no file diff, so the paths filter suppresses the run and the tag-triggered job never fires.",
+      "scope": [
+        ".github/workflows/**"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "comment-intent",
+      "rule": "A code comment must explain why the code does what it does, where that reason is not obvious from the code itself. Flag a comment that restates what the following line does, and flag a comment that narrates the change being made rather than the long-lived behaviour a future reader needs.",
+      "scope": [
+        "**/*.go"
+      ],
+      "severity": "medium"
+    },
+    {
+      "id": "rbac-and-secrets",
+      "rule": "Flag an RBAC rule that introduces a wildcard verb, resource, or apiGroup, and flag any credential, token, or private key committed as a literal value. Name the specific permission and the ServiceAccount or workload it binds to. Host path mounts and privileged containers are expected in this project because it simulates device driver state, so raise those only when a change widens access beyond what the surrounding workload already holds.",
+      "scope": [
+        "deployments/**",
+        "internal/**",
+        "cmd/**"
+      ],
+      "severity": "high"
+    }
+  ]
+}

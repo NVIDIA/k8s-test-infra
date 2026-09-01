@@ -193,6 +193,46 @@ func (f *failureInjector) IsLost() bool {
 	}
 }
 
+// LostByConfig reports whether the device is lost / fallen_off_bus as of now
+// WITHOUT advancing the call counter or rolling probability. It is true when
+// the injector has already tripped, or when the config declares a
+// deterministic, immediate loss (no probability gate and the AfterCalls
+// threshold already satisfied) that a guarded getter would trip on its next
+// Tick anyway.
+//
+// nvmlEventSetWait consults this (via AnyDeviceLost) so a lost GPU surfaces
+// through the wait even for a client that only loops on nvmlEventSetWait and
+// never calls a guarded getter — the DRA driver's health monitor, KEP-4680 —
+// the way real NVML surfaces ERROR_GPU_IS_LOST once the GPU falls off the bus.
+// The wait still never trips the injector: a probability-gated device is only
+// reported once it has actually tripped, and an AfterCalls-gated device stays
+// healthy until enough guarded getter calls have counted down, so `after_calls`
+// timing is unchanged.
+func (f *failureInjector) LostByConfig() bool {
+	if f == nil {
+		return false
+	}
+	switch f.Mode() {
+	case FailureModeLost, FailureModeFallenOffBus:
+	default:
+		return false
+	}
+	if f.Triggered() {
+		return true
+	}
+	// Never roll the dice from the wait path.
+	if f.cfg == nil || f.cfg.Probability > 0 {
+		return false
+	}
+	// AfterCalls <= 0 means "trip on the first guarded call" (Tick rule 2),
+	// i.e. the device is already effectively lost, so the wait reports it now.
+	// An AfterCalls == N > 0 device only trips once N guarded calls have
+	// counted down, and Tick sets tripped() on the call that reaches N — so a
+	// not-yet-tripped device with AfterCalls > 0 is never lost on the wait
+	// path (it was caught by the Triggered() check above once it trips).
+	return f.cfg.AfterCalls <= 0
+}
+
 // IsECCUncorrectable returns true when the device has tripped into the
 // ecc_uncorrectable mode. Callers use this to decide whether ECC counters
 // should report non-zero errors.

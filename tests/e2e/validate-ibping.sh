@@ -83,50 +83,6 @@ normalize_guid_for_ibping() {
   printf '0x%s' "${hex}"
 }
 
-# One-shot REGISTER (no TCP bind) for separate Helm releases that do not share
-# the same -ibping headless Service (see ibping-multinode CI job).
-maybe_register_cross_release_peers() {
-  local server_pod=$1 client_pod=$2 server_ip=$3 client_ip=$4
-  local s_inst c_inst
-  s_inst=$(kubectl get pod "$server_pod" -o jsonpath='{.metadata.labels.app\.kubernetes\.io/instance}' 2>/dev/null || true)
-  c_inst=$(kubectl get pod "$client_pod" -o jsonpath='{.metadata.labels.app\.kubernetes\.io/instance}' 2>/dev/null || true)
-  if [ -n "$s_inst" ] && [ "$s_inst" = "$c_inst" ]; then
-    echo "Same Helm release ($s_inst): peer discovery via MOCK_IB_PING_SERVICE_HOST"
-    return 0
-  fi
-  echo "Separate Helm releases ($s_inst / $c_inst): one-shot REGISTER to peer IPs"
-  local pod peers pod_ip attempt
-  for pod in "$server_pod" "$client_pod"; do
-    if [ "$pod" = "$server_pod" ]; then
-      peers=$client_ip
-      pod_ip=$server_ip
-    else
-      peers=$server_ip
-      pod_ip=$client_ip
-    fi
-    for attempt in $(seq 1 5); do
-      if kubectl exec "$pod" -- env \
-        POD_IP="${pod_ip}" \
-        MOCK_IB_PEERS="${peers}" \
-        MOCK_IB_ROOT="${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib}" \
-        MOCK_IB_PING_PORT="${MOCK_IBPING_PORT}" \
-        /usr/local/bin/mock-ib \
-          -register-peers \
-          -ib-root "${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib}" \
-          -port "${MOCK_IBPING_PORT}" \
-          -fabric >/dev/null 2>&1; then
-        break
-      fi
-      if [ "$attempt" -eq 5 ]; then
-        echo "FAIL: register-peers failed on $pod"
-        return 1
-      fi
-      sleep 2
-    done
-  done
-  return 0
-}
-
 wait_for_socket() {
   local pod=$1
   local i
@@ -139,7 +95,7 @@ wait_for_socket() {
     sleep 1
   done
   echo "FAIL: mock-ib socket not ready on $pod (MOCK_IB_PING_SOCKET, default /run/mock-ib.sock)"
-  kubectl exec "$pod" -- tail -20 /tmp/mock-ib.log 2>/dev/null || true
+  kubectl logs "$pod" -c node-agent --tail=20 2>/dev/null || true
   return 1
 }
 
@@ -194,7 +150,6 @@ echo "Server port GUID (sysfs=$GUID_RAW, ibping -G=$GUID)"
 
 wait_for_socket "$SERVER_POD"
 wait_for_socket "$CLIENT_POD"
-maybe_register_cross_release_peers "$SERVER_POD" "$CLIENT_POD" "$SERVER_IP" "$CLIENT_IP"
 # Allow registerWithPeersLoop / DNS discovery to populate registries.
 sleep 5
 
@@ -241,7 +196,7 @@ fi
 
 echo "FAIL: one or more ibping modes failed (IBPING_E2E_MODE=$IBPING_E2E_MODE)"
 echo "=== server pod logs (mock-ib) ==="
-kubectl exec "$SERVER_POD" -- tail -40 /tmp/mock-ib.log 2>/dev/null || true
+kubectl logs "$SERVER_POD" -c node-agent --tail=40 2>/dev/null || true
 echo "=== client pod logs (mock-ib) ==="
-kubectl exec "$CLIENT_POD" -- tail -40 /tmp/mock-ib.log 2>/dev/null || true
+kubectl logs "$CLIENT_POD" -c node-agent --tail=40 2>/dev/null || true
 exit 1

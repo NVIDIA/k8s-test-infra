@@ -45,24 +45,6 @@ spec:
           {{- end }}
           securityContext:
             privileged: true
-          {{- if $ibEnabled }}
-          ports:
-            - name: ibping
-              containerPort: {{ .Values.infiniband.ping.port }}
-              protocol: TCP
-            # Real nvidia-imex (NO GPU mode) gRPC peer port — used by the
-            # ComputeDomain demo (see NVIDIA/k8s-test-infra#304). Declared
-            # here so the ibping NetworkPolicy's named-port entry resolves.
-            - name: imex
-              containerPort: 50000
-              protocol: TCP
-            # IMEX command/status port — peers query each other's node
-            # status and version over it; without it the domain never
-            # converges past DEGRADED (see NVIDIA/k8s-test-infra#304).
-            - name: imex-cmd
-              containerPort: 50005
-              protocol: TCP
-          {{- end }}
           command: ["/scripts/entrypoint.sh"]
           env:
             - name: GPU_COUNT
@@ -105,13 +87,11 @@ spec:
               value: /etc/nvml-mock/topology/topology.yaml
             {{- end }}
             {{- if $fmEnabled }}
-            # Start the fake nvidia-fabricmanager daemon (setup.sh) and point
-            # both the daemon and the mock NVML engine at the same readiness
-            # marker directory. With this enabled, GPUs on profiles that set
-            # `fabric.state: auto` (GB200/GB300/H100) report COMPLETED only
-            # once the daemon is ready. See engine/fabric_readiness.go.
-            - name: MOCK_FABRICMANAGER
-              value: "on"
+            # Where the mock NVML engine in this container looks for the
+            # readiness marker, so `kubectl exec nvidia-smi -q` reports the same
+            # fabric state a workload sees. GPUs on profiles setting
+            # `fabric.state: auto` stay IN_PROGRESS until it appears.
+            # See engine/fabric_readiness.go.
             - name: MOCK_FABRICMANAGER_STATE_DIR
               value: {{ .Values.fabricmanager.stateDir }}
             {{- end }}
@@ -123,18 +103,10 @@ spec:
             # regardless and no-op when off.
             - name: MOCK_IB
               value: {{ include "nvml-mock.mockIBTier" . | quote }}
-            - name: MOCK_IB_PING_FABRIC
-              value: {{ ternary "1" "0" $ibEnabled | quote }}
-            - name: MOCK_IB_PING_PORT
-              value: "{{ .Values.infiniband.ping.port }}"
+            # The socket the UMAD/verbs shims dial. The node agent serves it;
+            # this container only needs to find it for `kubectl exec ibstat`.
             - name: MOCK_IB_PING_SOCKET
               value: /var/lib/nvml-mock/run/mock-ib.sock
-            - name: POD_IP
-              valueFrom:
-                fieldRef:
-                  fieldPath: status.podIP
-            - name: MOCK_IB_PING_SERVICE_HOST
-              value: "{{ include "nvml-mock.fullname" . }}-ibping.{{ .Release.Namespace }}.svc.cluster.local"
             # LD_PRELOAD installs four shims in every process spawned in this
             # container (e.g. `kubectl exec ibstat`). libibmockumad and
             # libibmockverbs forward UMAD and verbs traffic to the mock-ib
@@ -169,19 +141,9 @@ spec:
               mountPath: /var/lib/nvml-mock
             - name: gpu-config
               mountPath: /etc/nvml-mock
-            - name: host-cdi
-              mountPath: /host/var/run/cdi
-            - name: host-run-nvidia
-              mountPath: /host/run/nvidia
-            - name: host-nfd-features
-              mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
             {{- if .Values.topology.enabled }}
             - name: gpu-topology
               mountPath: /etc/nvml-mock/topology
-            {{- end }}
-            {{- if $fmEnabled }}
-            - name: host-fabric-state
-              mountPath: {{ .Values.fabricmanager.stateDir }}
             {{- end }}
         - name: node-agent
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -190,6 +152,11 @@ spec:
             - /usr/local/bin/node-agent
             - start
             - --config=/etc/nvml-mock/config.yaml
+            {{- if .Values.topology.enabled }}
+            # Names the gpu-topology mount below. Leaving it unset is what
+            # retracts the document the nvlink simulator staged for workloads.
+            - --topology=/etc/nvml-mock/topology/topology.yaml
+            {{- end }}
             - --host-root=/host
             - --health-addr=:9091
             - --log-level={{ .Values.nodeAgent.logging.level }}
@@ -205,11 +172,18 @@ spec:
             - name: DRIVER_VERSION
               value: "{{ include "nvml-mock.driverVersion" . }}"
             {{- if $fmEnabled }}
-            # Gates the fabric-state mount in the CDI spec this agent writes.
-            # Same guard as the host-fabric-state volume, so the mount and the
-            # directory it binds always appear together.
+            # Non-empty is what turns the fabricmanager simulator on, and it is
+            # also the path the cdi simulator mounts into workloads. The agent
+            # creates the directory during Stage, before Apply writes the CDI
+            # spec that references it.
             - name: MOCK_FABRICMANAGER_STATE_DIR
               value: {{ .Values.fabricmanager.stateDir }}
+            {{- if .Values.fabricmanager.initDelay }}
+            # Withholds the readiness marker, so workloads observe the
+            # IN_PROGRESS window real NVSwitch registration takes.
+            - name: MOCK_FABRICMANAGER_INIT_DELAY
+              value: {{ .Values.fabricmanager.initDelay | quote }}
+            {{- end }}
             {{- end }}
             {{- if .Values.imex.mockChannels.enabled }}
             # Mock IMEX capability surface for the DRA compute-domain plugin.
@@ -222,6 +196,34 @@ spec:
               value: "{{ .Values.imex.mockChannels.channelMajor }}"
             - name: IMEX_CAPS_MAJOR
               value: "{{ .Values.imex.mockChannels.capsMajor }}"
+            {{- end }}
+            # Same tier the nvml-mock container advertises to the LD_PRELOAD
+            # shims, so the tree the agent renders and the tree those shims
+            # redirect into can never disagree.
+            - name: MOCK_IB
+              value: {{ include "nvml-mock.mockIBTier" . | quote }}
+            - name: MOCK_IB_PING_FABRIC
+              value: {{ ternary "1" "0" $ibEnabled | quote }}
+            - name: MOCK_IB_PING_PORT
+              value: "{{ .Values.infiniband.ping.port }}"
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MOCK_IB_PING_SERVICE_HOST
+              value: "{{ include "nvml-mock.fullname" . }}-ibping.{{ .Release.Namespace }}.svc.cluster.local"
+          ports:
+            - name: health
+              containerPort: 9091
+              protocol: TCP
+            {{- if $ibEnabled }}
+            # The infiniband simulator binds the cross-pod fabric relay here.
+            # Port names are unique per pod, so this cannot also be declared on
+            # the nvml-mock container -- and the -ibping Service and its
+            # NetworkPolicy target it by name.
+            - name: ibping
+              containerPort: {{ .Values.infiniband.ping.port }}
+              protocol: TCP
             {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
@@ -240,6 +242,19 @@ spec:
               readOnly: true
             - name: host-nfd-features
               mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
+            {{- if .Values.topology.enabled }}
+            # Source for the topology document the nvlink simulator stages into
+            # the overlay, where the NRI plugin points workloads at it.
+            - name: gpu-topology
+              mountPath: /etc/nvml-mock/topology
+              readOnly: true
+            {{- end }}
+            {{- if $fmEnabled }}
+            # The agent writes the marker the nvml-mock container reads, and it
+            # reaches host paths through /host.
+            - name: host-fabric-state
+              mountPath: {{ printf "/host%s" .Values.fabricmanager.stateDir }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

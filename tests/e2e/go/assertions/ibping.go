@@ -101,9 +101,8 @@ func IBPing(ctx context.Context, k *kube.Client, server, client kube.PodRef, mod
 	waitMockIBSocket(ctx, k, server)
 	waitMockIBSocket(ctx, k, client)
 
-	// One-shot REGISTER (NOT idempotent) — once, before the polling loop.
-	registerPeersOnce(ctx, k, server, client)
-	// Allow registerWithPeersLoop / DNS discovery to populate registries.
+	// Let registerWithPeersLoop discover peers through the headless -ibping
+	// Service and populate both registries before the first ping.
 	sleepCtx(ctx, 5*time.Second)
 
 	switch mode {
@@ -124,31 +123,6 @@ func waitMockIBSocket(ctx context.Context, k *kube.Client, pod kube.PodRef) {
 		return err
 	}).WithContext(ctx).WithTimeout(30*time.Second).WithPolling(time.Second).
 		Should(gomega.Succeed(), "mock-ib socket not ready on %s", pod.Pod)
-}
-
-// registerPeersOnce performs the cross-release one-shot REGISTER on both pods.
-// Best-effort: peer discovery within a single release happens automatically; a
-// repeated register is harmless but is intentionally run once (not polled).
-func registerPeersOnce(ctx context.Context, k *kube.Client, server, client kube.PodRef) {
-	sIP, _ := k.PodIP(ctx, server.Namespace, server.Pod)
-	cIP, _ := k.PodIP(ctx, client.Namespace, client.Pod)
-	if sIP == "" || cIP == "" {
-		_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "register-peers: could not resolve pod IPs (server=%q client=%q); skipping\n", sIP, cIP)
-		return
-	}
-	reg := func(pod kube.PodRef, podIP, peers string) {
-		cmd := fmt.Sprintf(
-			"env POD_IP=%s MOCK_IB_PEERS=%s "+
-				"MOCK_IB_ROOT=${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib} "+
-				"MOCK_IB_PING_PORT=${MOCK_IB_PING_PORT:-18515} "+
-				"/usr/local/bin/mock-ib -register-peers "+
-				"-ib-root ${MOCK_IB_ROOT:-/var/lib/nvml-mock/ib} "+
-				"-port ${MOCK_IB_PING_PORT:-18515} -fabric",
-			podIP, peers)
-		_, _ = k.ExecSh(ctx, pod, cmd)
-	}
-	reg(server, sIP, cIP)
-	reg(client, cIP, sIP)
 }
 
 func runIBPingCase(ctx context.Context, k *kube.Client, client kube.PodRef, label, cmd string, retries int, retrySleep time.Duration) {

@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
+
 	"golang.org/x/sync/errgroup"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -92,10 +94,10 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 
 // Apply creates the GPU-Operator compatibility symlink at /run/nvidia/driver.
 func (s *Simulator) Apply(_ context.Context, h *host.Host, _ *agent.State) error {
-	return h.Symlink("/var/lib/nvml-mock/driver", filepath.Join(h.Run, "nvidia/driver"))
+	return fsutil.Symlink("/var/lib/nvml-mock/driver", filepath.Join(h.Run, "nvidia/driver"))
 }
 
 // Revoke removes the /run/nvidia/driver symlink.
 func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
-	return h.Remove(filepath.Join(h.Run, "nvidia/driver"))
+	return fsutil.Remove(filepath.Join(h.Run, "nvidia/driver"))
 }

@@ -24,7 +24,7 @@ COPY shims/ shims/
 COPY Makefile ./
 RUN cd pkg/gpu/mocknvml && make clean && make
 RUN cd pkg/gpu/mockcuda && make clean && make
-RUN cd pkg/network/mockib && make clean && make
+RUN cd shims/libibmock && make clean && make
 RUN cd shims/libpcisysfs && make clean && make
 
 RUN make build
@@ -34,20 +34,18 @@ ARG KUBECTL_VERSION=v1.36.1
 ARG TARGETARCH
 COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
-COPY --from=builder /src/pkg/network/mockib/libibmocksys.so.* /usr/local/lib/
-COPY --from=builder /src/pkg/network/mockib/libibmockumad.so.* /usr/local/lib/
-COPY --from=builder /src/pkg/network/mockib/libibmockverbs.so.* /usr/local/lib/
+COPY --from=builder /src/shims/libibmock/libibmocksys.so.* /usr/local/lib/
+COPY --from=builder /src/shims/libibmock/libibmockumad.so.* /usr/local/lib/
+COPY --from=builder /src/shims/libibmock/libibmockverbs.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libpcisysfs/libpcisysfs.so.* /usr/local/lib/
-COPY --from=builder /src/dist/mock-ib /usr/local/bin/mock-ib
 COPY --from=builder /src/dist/nvml-mock-nri /usr/local/bin/nvml-mock-nri
 COPY --from=builder /src/dist/nvml-mock-ctl /usr/local/bin/nvml-mock-ctl
-COPY --from=builder /src/dist/fake-fabricmanager-daemon /usr/bin/nv-fabricmanager
-COPY --from=builder /src/dist/fake-fabricmanager-ctl    /usr/bin/nv-fabricmanager-ctl
 COPY --from=builder /src/dist/check-fabric     /usr/local/bin/check-fabric
 COPY --from=builder /src/dist/node-agent /usr/local/bin/node-agent
-# Copied ahead of the RUN below because that layer invokes it while patchelf is
-# still installed; /scripts/ arrives later, after patchelf has been purged.
-COPY deployments/nvml-mock/scripts/stage-ib-tools.sh /usr/local/bin/stage-ib-tools.sh
+# Build-time only, so it lives outside scripts/ — that directory is copied
+# wholesale into the runtime image below, and this script cannot run there once
+# patchelf is purged.
+COPY deployments/nvml-mock/build/bundle-ib-tools.sh /usr/local/bin/bundle-ib-tools.sh
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg2 \
@@ -89,13 +87,14 @@ RUN set -eux; \
     # /var/lib/nvml-mock/driver/usr/bin/, and CDI-injected /usr/bin/.
     apt-get install -y --no-install-recommends patchelf; \
     patchelf --set-rpath '$ORIGIN/../lib64' /usr/local/bin/nvidia-smi; \
-    # Same treatment for the InfiniBand CLI tools, for the same reason: setup.sh
-    # relocates them into the node overlay, where their libibmad/libibumad/
-    # libibverbs/libnl dependencies are not on any default search path. The
-    # script stages that closure next to them and bakes in the RPATH. Injected
-    # containers therefore run them straight from a minimal image that ships no
-    # IB libraries at all. See NVIDIA/k8s-test-infra#438.
-    sh /usr/local/bin/stage-ib-tools.sh; \
+    # Same treatment for the InfiniBand CLI tools, for the same reason: the node
+    # agent's infiniband simulator relocates them into the node overlay, where
+    # their libibmad/libibumad/libibverbs/libnl dependencies are not on any
+    # default search path. The script stages that closure next to them and bakes
+    # in the RPATH. Injected containers therefore run them straight from a
+    # minimal image that ships no IB libraries at all.
+    # See NVIDIA/k8s-test-infra#438.
+    sh /usr/local/bin/bundle-ib-tools.sh; \
     rm -rf /var/lib/apt/lists/*; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \

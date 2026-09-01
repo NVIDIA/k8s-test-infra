@@ -503,6 +503,13 @@ func logsArgs(ns, selector string, tail int, previous bool) []string {
 	return args
 }
 
+// PodLogs returns one container's logs from one pod. Diagnostics that need a
+// specific container use this; Logs fans out across a selector instead.
+func (c *Client) PodLogs(ctx context.Context, ns, pod, container string, tail int) (string, error) {
+	res, err := c.kubectl(ctx, "logs", "-n", ns, pod, "-c", container, fmt.Sprintf("--tail=%d", tail))
+	return res.Combined(), err
+}
+
 // Logs returns current pod logs for a label selector, across every container of
 // every matching pod (best-effort diagnostics).
 func (c *Client) Logs(ctx context.Context, ns, selector string, tail int) (string, error) {

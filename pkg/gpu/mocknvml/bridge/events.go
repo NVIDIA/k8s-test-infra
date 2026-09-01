@@ -23,8 +23,17 @@
 // see the Xid through the API designed for it instead of having to
 // scrape it out of an overloaded ViolationTime field.
 //
-// With no event pending they block for the caller's timeout, as real NVML
-// does: clients loop on the wait with no sleep of their own.
+// After a lost / fallen_off_bus device has tripped, and after any
+// configured Xid has been delivered once, subsequent waits return
+// NVML_ERROR_GPU_IS_LOST immediately — matching real NVML after Xid 79,
+// and without blocking for the timeout. Clients (the DRA driver,
+// dcgm-exporter) already back off on that error. A wait never trips the
+// injector; it only observes a device that some other guarded call has
+// already lost.
+//
+// With no event pending and no lost device they block for the caller's
+// timeout, as real NVML does: clients loop on the wait with no sleep of
+// their own.
 package main
 
 /*
@@ -94,6 +103,13 @@ var pendingXidClaim = func() (unsafe.Pointer, uint64, bool) {
 	return engine.GetEngine().PendingXidEvent()
 }
 
+// anyDeviceLost is the engine call waitForXid consults to fail a wait with
+// NVML_ERROR_GPU_IS_LOST. A variable only so tests can drive it without
+// the engine singleton.
+var anyDeviceLost = func() bool {
+	return engine.GetEngine().AnyDeviceLost()
+}
+
 // pollPendingXid asks the engine for the next undelivered Xid critical
 // error (produced by failure injection) and, if one exists, populates
 // `data` with the standard NVML event payload. Returns true when an
@@ -126,48 +142,85 @@ func pollPendingXid(data *C.nvmlEventData_t) bool {
 // re-checking every pollInterval. Free of C types so the blocking contract is
 // unit-testable. Returning early would spin the caller's health loop.
 func waitForDelivery(timeout, pollInterval time.Duration, deliver func() bool) bool {
-	if deliver() {
-		return true
+	delivered, _ := waitForDeliveryOrAbort(timeout, pollInterval, deliver, nil)
+	return delivered
+}
+
+// waitForDeliveryOrAbort is waitForDelivery plus an abort check (lost GPU)
+// after every poll. abort==true returns immediately without waiting out the
+// timeout, matching real nvmlEventSetWait after a device is lost. A pending
+// event still wins: deliver is checked first so a configured Xid 79 is
+// handed to the caller before ERROR_GPU_IS_LOST starts.
+func waitForDeliveryOrAbort(timeout, pollInterval time.Duration, deliver, abort func() bool) (delivered, aborted bool) {
+	if delivered, aborted = pollDeliverOrAbort(deliver, abort); delivered || aborted {
+		return delivered, aborted
 	}
 	// Zero timeout is a non-blocking poll.
 	if timeout <= 0 {
-		return false
+		return false, false
 	}
+	return pollUntil(timeout, clampPollInterval(pollInterval), deliver, abort)
+}
+
+func clampPollInterval(pollInterval time.Duration) time.Duration {
 	// A non-positive interval would spin the loop below without ever sleeping.
 	if pollInterval <= 0 {
-		pollInterval = waitPollInterval
+		return waitPollInterval
 	}
+	return pollInterval
+}
+
+// pollUntil sleeps until deliver or abort fires, or timeout elapses.
+func pollUntil(timeout, pollInterval time.Duration, deliver, abort func() bool) (delivered, aborted bool) {
 	deadline := time.Now().Add(timeout)
 	for {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return false
+			// A Xid that lands after the deadline is a TIMEOUT. A lost GPU
+			// observed at the same instant is ERROR_GPU_IS_LOST: real NVML
+			// does not wait out the timeout for that error.
+			return false, abort != nil && abort()
 		}
 		if remaining > pollInterval {
 			remaining = pollInterval
 		}
 		time.Sleep(remaining)
-		if deliver() {
-			return true
+		if delivered, aborted = pollDeliverOrAbort(deliver, abort); delivered || aborted {
+			return delivered, aborted
 		}
 	}
 }
 
+func pollDeliverOrAbort(deliver, abort func() bool) (delivered, aborted bool) {
+	if deliver != nil && deliver() {
+		return true, false
+	}
+	if abort != nil && abort() {
+		return false, true
+	}
+	return false, false
+}
+
 // waitForXid mirrors real nvmlEventSetWait semantics: NVML_SUCCESS as soon as
-// an injected Xid is pending, otherwise NVML_ERROR_TIMEOUT after blocking for
-// up to timeoutms.
+// an injected Xid is pending, NVML_ERROR_GPU_IS_LOST immediately if a device
+// has already tripped into lost / fallen_off_bus (and no Xid remains),
+// otherwise NVML_ERROR_TIMEOUT after blocking for up to timeoutms.
 func waitForXid(set C.nvmlEventSet_t, data *C.nvmlEventData_t, timeoutms C.uint) C.nvmlReturn_t {
 	// NVML rejects a NULL set or payload; fail fast instead of after the timeout.
 	if set == nil || data == nil {
 		return C.NVML_ERROR_INVALID_ARGUMENT
 	}
-	delivered := waitForDelivery(
+	delivered, aborted := waitForDeliveryOrAbort(
 		time.Duration(timeoutms)*time.Millisecond,
 		waitPollInterval,
 		func() bool { return pollPendingXid(data) },
+		anyDeviceLost,
 	)
 	if delivered {
 		return C.NVML_SUCCESS
+	}
+	if aborted {
+		return C.NVML_ERROR_GPU_IS_LOST
 	}
 	return C.NVML_ERROR_TIMEOUT
 }
@@ -270,4 +323,71 @@ func eventSetWaitWithPendingXidForTest(xid uint64, timeoutms uint32, availableAf
 	out.computeInstanceID = uint32(data.computeInstanceId)
 	out.deviceSet = unsafe.Pointer(data.device.handle) == handle
 	return out
+}
+
+// eventSetWaitWhenLostForTest stubs the engine so no Xid is pending and
+// anyDeviceLost becomes true after lostAfter, then drives the wait.
+func eventSetWaitWhenLostForTest(
+	wait func(eventSetWaitTestArgs, uint32) uint32,
+	timeoutms uint32,
+	lostAfter time.Duration,
+) uint32 {
+	restoreClaim := pendingXidClaim
+	restoreLost := anyDeviceLost
+	pendingXidClaim = func() (unsafe.Pointer, uint64, bool) {
+		return nil, 0, false
+	}
+	available := time.Now().Add(lostAfter)
+	anyDeviceLost = func() bool {
+		return !time.Now().Before(available)
+	}
+	defer func() {
+		pendingXidClaim = restoreClaim
+		anyDeviceLost = restoreLost
+	}()
+	return wait(eventSetWaitTestArgs{}, timeoutms)
+}
+
+// eventSetWaitWithPendingXidAndLostForTest stubs a single pending Xid while
+// the device is already lost, then drives two waits: the first must deliver
+// the Xid, the second must return GPU_IS_LOST.
+func eventSetWaitWithPendingXidAndLostForTest(xid uint64, timeoutms uint32) (first xidDelivery, second uint32) {
+	handle := C.malloc(1)
+	defer C.free(handle)
+
+	claimed := false
+	restoreClaim := pendingXidClaim
+	restoreLost := anyDeviceLost
+	pendingXidClaim = func() (unsafe.Pointer, uint64, bool) {
+		first.claimCount++
+		if claimed {
+			return nil, 0, false
+		}
+		claimed = true
+		return handle, xid, true
+	}
+	anyDeviceLost = func() bool { return true }
+	defer func() {
+		pendingXidClaim = restoreClaim
+		anyDeviceLost = restoreLost
+	}()
+
+	var set C.nvmlEventSet_t
+	if ret := nvmlEventSetCreate(&set); ret != C.NVML_SUCCESS {
+		first.status = uint32(ret)
+		return first, 0
+	}
+	defer nvmlEventSetFree(set)
+
+	var data C.nvmlEventData_t
+	first.status = uint32(nvmlEventSetWait_v2(set, &data, C.uint(timeoutms)))
+	first.eventType = uint64(data.eventType)
+	first.eventData = uint64(data.eventData)
+	first.gpuInstanceID = uint32(data.gpuInstanceId)
+	first.computeInstanceID = uint32(data.computeInstanceId)
+	first.deviceSet = unsafe.Pointer(data.device.handle) == handle
+
+	var data2 C.nvmlEventData_t
+	second = uint32(nvmlEventSetWait_v2(set, &data2, C.uint(timeoutms)))
+	return first, second
 }

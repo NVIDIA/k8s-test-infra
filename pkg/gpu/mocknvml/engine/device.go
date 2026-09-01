@@ -2361,6 +2361,19 @@ func (d *ConfigurableDevice) failureLost() bool {
 	return fi != nil && fi.IsLost()
 }
 
+// failureLostByConfig is failureLost for the nvmlEventSetWait path: it reports
+// a device the config already declares lost / fallen_off_bus, even before a
+// guarded getter has tripped the injector, so a wait-only client still sees
+// ERROR_GPU_IS_LOST. Like failureLost it refreshes config overrides but does
+// not advance the call counter. See failureInjector.LostByConfig.
+func (d *ConfigurableDevice) failureLostByConfig() bool {
+	if d == nil {
+		return false
+	}
+	fi := d.failureInjector()
+	return fi != nil && fi.LostByConfig()
+}
+
 // MockServer wraps dgxa100.Server and uses configurable devices
 type MockServer struct {
 	*dgxa100.Server

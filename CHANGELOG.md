@@ -55,6 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plugin aborts at startup, and without the channel nodes containerd refuses to
   admit a pod carrying a compute-domain CDI spec. Gated on
   `imex.mockChannels.enabled`. (#TBD)
+- The node agent gains an `nvlink` simulator that stages the cluster
+  ComputeDomain topology document into the node overlay, subsuming that phase of
+  `setup.sh`. Topology edits now reach workloads without a DaemonSet restart,
+  and disabling topology removes the staged document. (#750)
 - `host.Host.Mknod` centralises privileged character-device creation, so
   `gpudriver` and `imex` share one primitive rather than each carrying its own
   copy of the `mknod`-then-`chmod` sequence. (#TBD)
@@ -182,6 +186,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- mocknvml: `nvmlEventSetWait_v1`/`_v2` now return `NVML_ERROR_GPU_IS_LOST`
+  immediately for a `lost` or `fallen_off_bus` device, matching real NVML
+  after Xid 79, instead of only ever returning `TIMEOUT`. A device the config
+  declares immediately lost (a bare `mode:` block, no `after_calls` /
+  `probability`) fails the wait on its own, so a client that only loops on
+  `nvmlEventSetWait` — the DRA driver's NVML health monitor, KEP-4680 — sees the
+  lost GPU the way real NVML surfaces one that fell off the bus, without having
+  to call a guarded getter first; it can then heartbeat on that error and taint
+  the lost GPUs, which the previous `TIMEOUT`-only wait made untestable. When a
+  guarded getter has already tripped the device, the configured Xid is still
+  delivered once (`SUCCESS`) before the lost errors begin. The wait itself never
+  trips the injector and never advances an `after_calls` / `probability` gate —
+  it only observes a device the config already declares lost.
 - The mock renderers move out of `pkg/` now that their CLI entry points are
   gone: `pkg/system/mockpcisysfs/render` becomes `internal/pcisysfs` and
   `pkg/system/mockimex/render` becomes `internal/imex`. Each had one in-repo
