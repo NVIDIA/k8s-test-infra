@@ -198,6 +198,21 @@ helm upgrade --install nvsentinel "${NVSENTINEL_CHART}" \
   -f "${REPO_ROOT}/${DEMO_DIR}/nvsentinel-values.yaml" \
   --timeout 5m
 
+info "Waiting for the MongoDB collection-setup Job"
+kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" wait --for=condition=complete \
+  job -l app.kubernetes.io/name=create-mongodb-database --timeout=900s || \
+  warn "collection-setup job not complete yet; connectors will retry"
+
+# The DB-consuming pods (platform-connectors, fault-quarantine, node-drainer)
+# start before the setup Job creates the collections and land in
+# CrashLoopBackOff. Once the Job is done, force a clean restart so they come up
+# immediately instead of waiting out the exponential backoff. The Percona
+# operator is left alone so it does not restart mid-reconcile.
+info "Restarting DB-consuming pods now that collections exist"
+kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" delete pod \
+  -l 'app.kubernetes.io/instance=nvsentinel,app.kubernetes.io/name!=psmdb-operator' \
+  --field-selector=status.phase=Running --ignore-not-found >/dev/null 2>&1 || true
+
 # Covers the Percona pods too — they live in the same namespace, and the
 # operator + replica-set bring-up is the slowest part of the install.
 info "Waiting for NVSentinel pods to become Ready"
