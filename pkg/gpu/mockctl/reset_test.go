@@ -103,18 +103,26 @@ func TestResetDevice_EmptyPathSucceeds(t *testing.T) {
 // `--gpu all` needs a Target{All: true} reset; nvidia-smi will report a
 // successful reset while the shared block still masks the device.
 func TestResetDevice_LeavesSharedAllBucket(t *testing.T) {
-	body := `version: 1
+	// The device bucket is what makes this test load-bearing: without it the
+	// reset stops at the "nothing injected" early return, never reaches
+	// Doc.Reset, and passes on a file it never opened for writing.
+	path := writeOverridesFile(t, `version: 1
 all:
   thermal:
     temperature_gpu_c: 88
-`
-	path := writeOverridesFile(t, body)
+devices:
+  "0":
+    thermal:
+      temperature_gpu_c: 99
+`)
 
 	require.NoError(t, ResetDevice(path, 0))
 
-	after, err := os.ReadFile(path)
+	doc, err := Load(path)
 	require.NoError(t, err)
-	require.Equal(t, body, string(after))
+	require.NotContains(t, doc.Devices, "0", "the reset must clear the device's own bucket")
+	require.Equal(t, map[string]any{"thermal": map[string]any{"temperature_gpu_c": float64(88)}}, doc.All,
+		"the shared block survives a per-device reset, so the device stays masked by it")
 }
 
 // A corrupt overrides file must fail the reset rather than be silently treated
