@@ -45,7 +45,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${FORCE_RECREATE:=false}"
 : "${KIND_NODE_IMAGE:=kindest/node:v1.35.0}"
 
-: "${NVML_MOCK_NAMESPACE:=nvml-mock-system}"
+: "${NAMESPACE:=mokka}"
 : "${WORKLOAD_NAMESPACE:=default}"
 : "${GPU_OPERATOR_NAMESPACE:=gpu-operator}"
 : "${GPU_OPERATOR_VERSION:=v26.3.3}"
@@ -145,7 +145,7 @@ kind load docker-image "${IMAGE_NAME}" --name "${CLUSTER_NAME}"
 info "Installing nvml-mock (profile=${GPU_PROFILE}) on the GPU workers"
 helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --kube-context "${KUBE_CONTEXT}" \
-  --namespace "${NVML_MOCK_NAMESPACE}" --create-namespace \
+  --namespace "${NAMESPACE}" --create-namespace \
   --set image.repository=nvml-mock \
   --set image.tag=nvsentinel-demo \
   --set "gpu.profile=${GPU_PROFILE}" \
@@ -241,12 +241,12 @@ info "Sample workload scheduled on: ${WORKLOAD_NODE:-<pending>}"
 # Target the mock on the same worker the sample workload landed on (so the drain
 # is observable), else the first GPU worker.
 TARGET_NODE="${WORKLOAD_NODE:-${WORKERS[0]}}"
-MOCK_POD=$(kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" get pod -l app.kubernetes.io/name=nvml-mock \
+MOCK_POD=$(kubectl_ctx -n "${NAMESPACE}" get pod -l app.kubernetes.io/name=nvml-mock \
   --field-selector "spec.nodeName=${TARGET_NODE}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-[[ -n "${MOCK_POD}" ]] || { TARGET_NODE="${WORKERS[0]}"; MOCK_POD=$(kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" get pod -l app.kubernetes.io/name=nvml-mock --field-selector "spec.nodeName=${TARGET_NODE}" -o jsonpath='{.items[0].metadata.name}'); }
+[[ -n "${MOCK_POD}" ]] || { TARGET_NODE="${WORKERS[0]}"; MOCK_POD=$(kubectl_ctx -n "${NAMESPACE}" get pod -l app.kubernetes.io/name=nvml-mock --field-selector "spec.nodeName=${TARGET_NODE}" -o jsonpath='{.items[0].metadata.name}'); }
 
 info "PHASE 1: heating GPU ${TARGET_GPU} to ${HOT_TEMP_C}C on node ${TARGET_NODE} (pod ${MOCK_POD})"
-kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" exec "${MOCK_POD}" -- \
+kubectl_ctx -n "${NAMESPACE}" exec "${MOCK_POD}" -- \
   nvml-mock-ctl temp --gpu "${TARGET_GPU}" "${HOT_TEMP_C}"
 
 info "Waiting for NVSentinel to cordon ${TARGET_NODE} (detect -> quarantine)"
@@ -289,7 +289,7 @@ observe kubectl_ctx -n "${WORKLOAD_NAMESPACE}" get pods -l app=gpu-sample-worklo
 # restart needed. That live self-clearing behavior is the whole point of driving
 # the demo through the thermal-margin check.
 info "PHASE 2: cooling GPU ${TARGET_GPU} back down on ${TARGET_NODE} (clear temp override)"
-kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" exec "${MOCK_POD}" -- nvml-mock-ctl reset --gpu "${TARGET_GPU}"
+kubectl_ctx -n "${NAMESPACE}" exec "${MOCK_POD}" -- nvml-mock-ctl reset --gpu "${TARGET_GPU}"
 
 info "Waiting for NVSentinel to uncordon ${TARGET_NODE} (cooldown -> recovery)"
 recovered=false
@@ -332,9 +332,9 @@ cat <<EOF
     kubectl --context ${KUBE_CONTEXT} -n ${NVSENTINEL_NAMESPACE} logs -l app.kubernetes.io/instance=nvsentinel --prefix | grep -iE 'cordon'
 
   Re-run the fault manually:
-    MOCK=\$(kubectl --context ${KUBE_CONTEXT} -n ${NVML_MOCK_NAMESPACE} get pod -l app.kubernetes.io/name=nvml-mock --field-selector spec.nodeName=${TARGET_NODE} -o jsonpath='{.items[0].metadata.name}')
-    kubectl --context ${KUBE_CONTEXT} -n ${NVML_MOCK_NAMESPACE} exec \$MOCK -- nvml-mock-ctl temp --gpu ${TARGET_GPU} ${HOT_TEMP_C}   # heat -> cordon
-    kubectl --context ${KUBE_CONTEXT} -n ${NVML_MOCK_NAMESPACE} exec \$MOCK -- nvml-mock-ctl reset --gpu ${TARGET_GPU}               # cool -> auto-uncordon
+    MOCK=\$(kubectl --context ${KUBE_CONTEXT} -n ${NAMESPACE} get pod -l app.kubernetes.io/name=nvml-mock --field-selector spec.nodeName=${TARGET_NODE} -o jsonpath='{.items[0].metadata.name}')
+    kubectl --context ${KUBE_CONTEXT} -n ${NAMESPACE} exec \$MOCK -- nvml-mock-ctl temp --gpu ${TARGET_GPU} ${HOT_TEMP_C}   # heat -> cordon
+    kubectl --context ${KUBE_CONTEXT} -n ${NAMESPACE} exec \$MOCK -- nvml-mock-ctl reset --gpu ${TARGET_GPU}               # cool -> auto-uncordon
 
   Cleanup:
     kind delete cluster --name ${CLUSTER_NAME}

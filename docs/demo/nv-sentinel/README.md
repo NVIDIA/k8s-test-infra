@@ -104,9 +104,9 @@ rebuild from scratch. Useful overrides: `GPU_PROFILE`, `HOT_TEMP_C`, `TARGET_GPU
 Heat the GPU (done by the script):
 
 ```bash
-MOCK=$(kubectl --context kind-nvml-mock-nvsentinel -n nvml-mock-system \
+MOCK=$(kubectl --context kind-nvml-mock-nvsentinel -n mokka \
   get pod -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')
-kubectl --context kind-nvml-mock-nvsentinel -n nvml-mock-system exec "$MOCK" -- \
+kubectl --context kind-nvml-mock-nvsentinel -n mokka exec "$MOCK" -- \
   nvml-mock-ctl temp --gpu 0 90
 ```
 
@@ -125,7 +125,7 @@ GpuThermalMarginWatch=True: GPU 0 thermal margin -3°C below HW slowdown T.Limit
 Cool the GPU (also done by the script):
 
 ```bash
-kubectl --context kind-nvml-mock-nvsentinel -n nvml-mock-system exec "$MOCK" -- \
+kubectl --context kind-nvml-mock-nvsentinel -n mokka exec "$MOCK" -- \
   nvml-mock-ctl reset --gpu 0
 ```
 
