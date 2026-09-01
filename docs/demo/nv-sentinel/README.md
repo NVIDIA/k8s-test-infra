@@ -94,7 +94,7 @@ rebuild from scratch. Useful overrides: `GPU_PROFILE`, `HOT_TEMP_C`, `TARGET_GPU
 6. **Sample workload** — [`sample-workload.yaml`](sample-workload.yaml), a pod that
    requests one `nvidia.com/gpu` so the drainer has something to evict.
 7. **Phase 1 — detect + remediate** — pins one worker's GPU to a hot temperature
-   (`HOT_TEMP_C`, default 90 °C) and waits for NVSentinel to cordon it; the sample
+   (`HOT_TEMP_C`, default 142 °C) and waits for NVSentinel to cordon it; the sample
    workload reschedules to the other worker.
 8. **Phase 2 — auto-recover** — clears the temperature override and waits for
    NVSentinel to uncordon the node. No DCGM restart is involved.
@@ -107,18 +107,21 @@ Heat the GPU (done by the script):
 MOCK=$(kubectl --context kind-nvml-mock-nvsentinel -n mokka \
   get pod -l app.kubernetes.io/name=nvml-mock -o jsonpath='{.items[0].metadata.name}')
 kubectl --context kind-nvml-mock-nvsentinel -n mokka exec "$MOCK" -- \
-  nvml-mock-ctl temp --gpu 0 90
+  nvml-mock-ctl temp --gpu 0 142
 ```
 
-The mock's h100 profile slows down at 87 °C, so pinning 90 °C makes the T.Limit
-margin (DCGM field 153) go to about `-3 °C`. Because that is below the GPU's
-slowdown offset (`0 °C` for the mock, read from NVML field 194), the GPU Health
-Monitor's `GpuThermalMarginWatch` fails with `GPU_TEMP_HW_SLOWDOWN_VIOLATION`,
-producing a node condition such as:
+Pinning the GPU above its profile's slowdown threshold (87 °C on h100, 90 °C on
+gb300) drives the T.Limit margin (DCGM field 153) negative. Because the margin is
+then below the GPU's slowdown offset (`0 °C` for the mock, read from NVML field
+194), the GPU Health Monitor's `GpuThermalMarginWatch` fails with
+`GPU_TEMP_HW_SLOWDOWN_VIOLATION`, producing a node condition such as:
 
 ```
 GpuThermalMarginWatch=True: GPU 0 thermal margin -3°C below HW slowdown T.Limit (slowdown=0°C)
 ```
+
+The comparison is strict, so pinning *exactly* at the threshold leaves a margin of
+`0 °C` and the watch stays healthy — the temperature has to clear it.
 
 `fault-quarantine` cordons the node → `node-drainer` drains it.
 

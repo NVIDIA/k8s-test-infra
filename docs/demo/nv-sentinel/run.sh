@@ -56,12 +56,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 # The GPU (index) overheated on the target worker.
 : "${TARGET_GPU:=0}"
-# Temperature (C) to pin on the target GPU. It must exceed the mock profile's
-# slowdown threshold so the T.Limit margin (DCGM field 153) goes negative and
-# crosses the slowdown offset. The default h100 mock profile slows down at 87C
-# (shutdown 92C), so 90C yields a small negative margin (~ -3C) — a thermal
-# slowdown, not a shutdown.
-: "${HOT_TEMP_C:=90}"
+# Temperature (C) to pin on the target GPU. It must be strictly ABOVE the mock
+# profile's slowdown threshold: GpuThermalMarginWatch fails only once the
+# T.Limit margin (DCGM field 153) drops BELOW the slowdown offset, so pinning
+# exactly at the threshold leaves a margin of 0 and never trips. Thresholds vary
+# per profile (h100 slows down at 87C, gb300 at 90C), so this is set well clear
+# of every profile rather than tuned to one board.
+: "${HOT_TEMP_C:=142}"
 # Node label that pins the mock + GPU operands to the GPU workers.
 GPU_NODE_LABEL="nvml-mock-gpu=true"
 
@@ -203,15 +204,6 @@ kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" wait --for=condition=complete \
   job -l app.kubernetes.io/name=create-mongodb-database --timeout=900s || \
   warn "collection-setup job not complete yet; connectors will retry"
 
-# The DB-consuming pods (platform-connectors, fault-quarantine, node-drainer)
-# start before the setup Job creates the collections and land in
-# CrashLoopBackOff. Once the Job is done, force a clean restart so they come up
-# immediately instead of waiting out the exponential backoff. The Percona
-# operator is left alone so it does not restart mid-reconcile.
-info "Restarting DB-consuming pods now that collections exist"
-kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" delete pod \
-  -l 'app.kubernetes.io/instance=nvsentinel,app.kubernetes.io/name!=psmdb-operator' \
-  --field-selector=status.phase=Running --ignore-not-found >/dev/null 2>&1 || true
 
 # Covers the Percona pods too — they live in the same namespace, and the
 # operator + replica-set bring-up is the slowest part of the install.

@@ -76,7 +76,7 @@ global:
   nodeDrainer:
     enabled: true
   faultRemediation:
-    enabled: true
+    enabled: false
   janitor:
     enabled: false
   janitorProvider:
