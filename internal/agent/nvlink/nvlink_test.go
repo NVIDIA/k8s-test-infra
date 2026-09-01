@@ -123,6 +123,11 @@ func TestDiscard_RemovesTheDocument(t *testing.T) {
 	require.NoFileExists(t, h.RootPath("topology/topology.yaml"))
 }
 
+func TestDiscard_NoOpBeforeStage(t *testing.T) {
+	t.Parallel()
+	require.NoError(t, New().Discard(context.Background(), host.New(t.TempDir())))
+}
+
 // Cleanup ownership is independent of the last Stage result: a reconcile that
 // fails after an earlier one staged the document clears readiness, and the
 // document is still on a host mount that outlives the pod.
@@ -136,9 +141,4 @@ func TestDiscard_RemovesTheDocumentWhenNotReady(t *testing.T) {
 
 	require.NoError(t, s.Discard(context.Background(), h))
 	require.NoFileExists(t, h.RootPath("topology/topology.yaml"))
-}
-
-func TestDiscard_NoOpBeforeStage(t *testing.T) {
-	t.Parallel()
-	require.NoError(t, New().Discard(context.Background(), host.New(t.TempDir())))
 }
