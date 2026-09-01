@@ -51,7 +51,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${GPU_OPERATOR_VERSION:=v26.3.3}"
 : "${CERT_MANAGER_VERSION:=v1.19.1}"
 : "${NVSENTINEL_NAMESPACE:=nvsentinel}"
-: "${NVSENTINEL_VERSION:=v1.15.0}"
+: "${NVSENTINEL_VERSION:=v1.21.0}"
 : "${NVSENTINEL_CHART:=oci://ghcr.io/nvidia/nvsentinel}"
 
 # The GPU (index) overheated on the target worker.
@@ -64,9 +64,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${HOT_TEMP_C:=90}"
 # Node label that pins the mock + GPU operands to the GPU workers.
 GPU_NODE_LABEL="nvml-mock-gpu=true"
-# MongoDB Secret consumed by NVSentinel (global.datastore.credentialsFromSecret).
-MONGO_URI_SECRET="nvsentinel-datastore-mongodb-uri"
-MONGO_URI="mongodb://mongodb-ext.${NVSENTINEL_NAMESPACE}.svc.cluster.local:27017/HealthEventsDatabase?replicaSet=rs0"
 
 info() { echo "==> $*"; }
 warn() { echo "WARN: $*" >&2; }
@@ -188,31 +185,12 @@ info "Waiting for cert-manager to be ready"
 # cert-manager image pulls.
 kubectl_ctx -n cert-manager wait --for=condition=Available deploy --all --timeout=600s
 
-# --- Standalone MongoDB (public.ecr.aws mongo:8.0.3, TLS via cert-manager) -----
-# The chart's built-in Bitnami MongoDB is amd64-only (bitnamilegacy images) and
-# cannot run on arm64, so we run the official multi-arch image as an EXTERNAL
-# datastore (single-node replica set, TLS). See mongodb.yaml + README.
-info "Deploying standalone MongoDB (mongo:8.0.3, cert-manager TLS, replica set)"
-# Create the namespace up front: mongodb.yaml lives in it, and it is applied
-# before the NVSentinel Helm install that would otherwise --create-namespace it.
-kubectl_ctx create namespace "${NVSENTINEL_NAMESPACE}" --dry-run=client -o yaml | kubectl_ctx apply -f -
-kubectl_ctx apply -f "${REPO_ROOT}/${DEMO_DIR}/mongodb.yaml"
-kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" rollout status statefulset/mongodb-ext --timeout=180s
-info "Waiting for the replica-set init Job"
-kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" wait --for=condition=complete job/mongodb-ext-rs-init --timeout=180s
-
-info "Creating the MONGODB_URI Secret consumed by NVSentinel"
-kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" create secret generic "${MONGO_URI_SECRET}" \
-  --from-literal=MONGODB_URI="${MONGO_URI}" \
-  --dry-run=client -o yaml | kubectl_ctx apply -f -
-
 # --- Install NVSentinel --------------------------------------------------------
-# NOTE: install WITHOUT --wait. The external-MongoDB collection-setup Job is a
-# Helm post-install/post-upgrade hook, but the DB-consuming pods cannot become
-# Ready until those collections exist. With --wait, Helm blocks on pod readiness
-# and the hook never runs -> deadlock. Without --wait the hook runs immediately,
-# creates the collections, and the pods then start.
-info "Installing NVSentinel ${NVSENTINEL_VERSION} (external MongoDB, DCGM health monitor)"
+# NOTE: install WITHOUT --wait. Bringing up the datastore is a multi-step dance
+# (Percona operator -> PerconaServerMongoDB CR -> cert-manager certs -> the
+# collection-setup Job), and the DB-consuming pods stay unready until it
+# finishes. --wait would just block Helm for the whole sequence and time out.
+info "Installing NVSentinel ${NVSENTINEL_VERSION} (Percona MongoDB store, DCGM health monitor)"
 helm upgrade --install nvsentinel "${NVSENTINEL_CHART}" \
   --kube-context "${KUBE_CONTEXT}" \
   --version "${NVSENTINEL_VERSION}" \
@@ -220,22 +198,10 @@ helm upgrade --install nvsentinel "${NVSENTINEL_CHART}" \
   -f "${REPO_ROOT}/${DEMO_DIR}/nvsentinel-values.yaml" \
   --timeout 5m
 
-info "Waiting for the external-MongoDB setup Job to create collections"
-kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" wait --for=condition=complete \
-  job/nvsentinel-external-mongodb-setup --timeout=300s || \
-  warn "setup job not found/complete yet; connectors will retry"
-
-# The DB-consuming pods (platform-connectors, fault-quarantine, node-drainer)
-# start before the setup Job creates the collections and land in
-# CrashLoopBackOff. Once the Job is done, force a clean restart so they come up
-# immediately instead of waiting out the exponential backoff.
-info "Restarting DB-consuming pods now that collections exist"
-kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" delete pod \
-  -l app.kubernetes.io/instance=nvsentinel --field-selector=status.phase=Running \
-  --ignore-not-found >/dev/null 2>&1 || true
-
+# Covers the Percona pods too — they live in the same namespace, and the
+# operator + replica-set bring-up is the slowest part of the install.
 info "Waiting for NVSentinel pods to become Ready"
-for _ in $(seq 1 60); do
+for _ in $(seq 1 120); do
   not_ready=$(kubectl_ctx -n "${NVSENTINEL_NAMESPACE}" get pods \
     --field-selector=status.phase!=Succeeded \
     -o 'jsonpath={range .items[*]}{.metadata.name}{" "}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null \
@@ -332,7 +298,7 @@ cat <<EOF
 
   Cluster            : ${CLUSTER_NAME} (1 control-plane + ${#WORKERS[@]} workers)
   Overheated node    : ${TARGET_NODE} (GPU ${TARGET_GPU} pinned to ${HOT_TEMP_C}C)
-  MongoDB            : standalone mongo:8.0.3 (external datastore, cert-manager TLS)
+  MongoDB            : NVSentinel's Percona store (single-member rs0, cert-manager TLS)
 
   What was shown:
     1. DETECT     : the metadata-collector published GPU ${TARGET_GPU}'s slowdown

@@ -57,11 +57,11 @@ workload reschedules onto the second, healthy worker.
 - Docker, [Kind](https://kind.sigs.k8s.io/), Helm, `kubectl`
 - `jq` (optional — only used to pretty-print node conditions)
 - Network access to `ghcr.io` (NVSentinel chart), `helm.ngc.nvidia.com`
-  (GPU Operator), `public.ecr.aws` (MongoDB), and `nvidia.github.io`
+  (GPU Operator), `docker.io` (Percona images), and `nvidia.github.io`
   (container-toolkit packages).
-- An `arm64` or `amd64` host. The demo runs a standalone MongoDB
-  (`public.ecr.aws/docker/library/mongo:8.0.3`) instead of the chart's bundled
-  Bitnami MongoDB, so it works on Apple Silicon too (see below).
+- An `arm64` or `amd64` host. The demo deploys NVSentinel's MongoDB through the
+  Percona operator instead of the default Bitnami store, so it works on Apple
+  Silicon too (see below).
 
 ## Run it
 
@@ -84,19 +84,19 @@ rebuild from scratch. Useful overrides: `GPU_PROFILE`, `HOT_TEMP_C`, `TARGET_GPU
 3. **GPU Operator** — installs it with [`gpu-operator-values.yaml`](gpu-operator-values.yaml),
    which disables the real driver/toolkit (the mock provides them) and **enables
    the standalone DCGM** DaemonSet + Service that NVSentinel polls.
-4. **cert-manager** — installed as a TLS dependency.
-5. **MongoDB** — deploys [`mongodb.yaml`](mongodb.yaml): a single-node replica set
-   using the official multi-arch image, serving TLS with a cert-manager cert.
-6. **NVSentinel** — installs the chart with [`nvsentinel-values.yaml`](nvsentinel-values.yaml),
-   wired to the external MongoDB and the standalone DCGM. This enables the
-   `metadata-collector` (for the slowdown offset) and turns the thermal-margin
-   watch from dry-run into an active, remediating check.
-7. **Sample workload** — [`sample-workload.yaml`](sample-workload.yaml), a pod that
+4. **cert-manager** — installed as a TLS dependency (Percona and NVSentinel both
+   use it to issue MongoDB certificates).
+5. **NVSentinel** — installs the chart with [`nvsentinel-values.yaml`](nvsentinel-values.yaml),
+   which brings up the MongoDB store via the Percona operator and wires the
+   pipeline to the standalone DCGM. This enables the `metadata-collector` (for the
+   slowdown offset) and turns the thermal-margin watch from dry-run into an active,
+   remediating check.
+6. **Sample workload** — [`sample-workload.yaml`](sample-workload.yaml), a pod that
    requests one `nvidia.com/gpu` so the drainer has something to evict.
-8. **Phase 1 — detect + remediate** — pins one worker's GPU to a hot temperature
+7. **Phase 1 — detect + remediate** — pins one worker's GPU to a hot temperature
    (`HOT_TEMP_C`, default 90 °C) and waits for NVSentinel to cordon it; the sample
    workload reschedules to the other worker.
-9. **Phase 2 — auto-recover** — clears the temperature override and waits for
+8. **Phase 2 — auto-recover** — clears the temperature override and waits for
    NVSentinel to uncordon the node. No DCGM restart is involved.
 
 ## The fault and the recovery
@@ -142,8 +142,9 @@ needed** — that is the key difference from a latched XID/ECC fault.
 
 ## Why these config choices matter
 
-`nvsentinel-values.yaml` sets five non-default options that are essential for the
-demo to complete cleanly (all documented inline in that file):
+Beyond the datastore choice, `nvsentinel-values.yaml` sets a handful of non-default
+options that are essential for the demo to complete cleanly (all documented inline in
+that file):
 
 - **`global.metadataCollector.enabled: true`**. The `metadata-collector` DaemonSet
   reads each GPU's slowdown T.Limit offset (NVML field 194) once and writes it to
@@ -185,18 +186,30 @@ and pod readiness (cert-manager and DCGM in particular). `run.sh` uses generous
 waits, but if a step times out, re-running it (it reuses the cluster) or freeing up
 other clusters usually resolves it.
 
-## Why standalone MongoDB instead of the chart's built-in one
+## Why the Percona MongoDB store
 
-NVSentinel's `mongodb-store` subchart uses the Bitnami MongoDB chart, whose images
-(`bitnamilegacy/*`) are published amd64-only and whose containers run Bitnami-only
-startup scripts. On arm64 (and after Bitnami's image relocation) that MongoDB cannot
-start. This demo therefore runs a plain, official-image MongoDB and points NVSentinel
-at it as an **external datastore** (`global.mongodbStore.enabled=false` +
-`global.datastore.*`). NVSentinel requires change streams (fault-quarantine and the
-analyzer watch them), which need a replica set, so `mongodb.yaml` runs a single-node
-replica set (`rs0`). It also talks TLS to the datastore, so MongoDB serves TLS with a
-cert-manager-issued cert and the CA is handed to NVSentinel via
-`global.datastore.tls.caSecretName`.
+NVSentinel's `mongodb-store` subchart defaults to the Bitnami MongoDB chart, whose
+images (`bitnamilegacy/*`) are published amd64-only and whose containers run
+Bitnami-only startup scripts. On arm64 that MongoDB cannot start. The subchart also
+ships a [Percona Server for MongoDB](https://docs.nvidia.com/nvsentinel/runbooks/mongo-db-bitnami-to-percona-migration/)
+path, and every image on it — `percona-server-mongodb`, the operator, and `mongosh` —
+is published for both `linux/amd64` and `linux/arm64`, so the demo selects it:
+
+```yaml
+mongodb-store:
+  useBitnami: false
+  usePerconaOperator: true
+```
+
+Both flags are required — they gate which chart dependencies Helm pulls in.
+
+The demo then trims the Percona defaults for a laptop-sized Kind cluster: a
+**single-member** replica set (`unsafeFlags.replsetSize: true`, since Percona
+otherwise insists on three) with smaller CPU/memory requests and no metrics
+sidecar. NVSentinel only needs change streams, which a one-member replica set
+provides. The operator, the replica set, and the collection-setup Job are all
+pinned to the control-plane alongside the rest of the pipeline, so a remediation
+drain never evicts the datastore it depends on.
 
 ## Inspecting the result
 
