@@ -24,7 +24,7 @@ import (
 
 func main() {
 	if err := newCLI().Run(context.Background(), os.Args); err != nil {
-		fmt.Fprintf(os.Stderr, "nri-plugin: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "nri-plugin: %v\n", err)
 		os.Exit(1)
 	}
 }
