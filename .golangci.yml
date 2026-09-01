@@ -123,6 +123,24 @@ linters:
         linters:
           - nolintlint
         text: 'directive .* is unused'
+      # pkg/gpu/allocwatch/podresources.go dials the kubelet pod-resources socket
+      # with grpc.DialContext + grpc.WithBlock, both marked "Deprecated: ... Will
+      # be supported throughout 1.x" by grpc-go. The blocking-with-timeout dial
+      # they provide has no NewClient equivalent, and the //nolint:staticcheck
+      # directives on those two lines are what keeps SA1019 quiet.
+      #
+      # Whether staticcheck actually raises SA1019 there is not stable across
+      # analysis environments: the same commit, toolchain and linter version
+      # reports it locally (directives used, tree clean) and does not report it
+      # on the pull_request runner (directives unused, two nolintlint errors, a
+      # red gate on every PR touching nothing near this file). Dropping the
+      # directives just inverts which environment is red. Scoping the "unused
+      # directive" tolerance to this one file keeps stale nolints flagged
+      # everywhere else, exactly as the nvml-mock-nri carve-out above does.
+      - path: ^pkg/gpu/allocwatch/podresources\.go$
+        linters:
+          - nolintlint
+        text: 'directive .* is unused'
 
 issues:
   # Report every occurrence, not the first three. The default of 3 groups by
