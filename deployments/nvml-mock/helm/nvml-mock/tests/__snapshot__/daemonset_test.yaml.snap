@@ -81,7 +81,6 @@ should match snapshot with all overrides:
                 - /usr/local/bin/node-agent
                 - start
                 - --config=/etc/nvml-mock/config.yaml
-                - --topology=/etc/nvml-mock/topology/topology.yaml
                 - --host-root=/host
                 - --health-addr=:9091
                 - --log-level=info
@@ -263,7 +262,6 @@ should match snapshot with b200 profile:
                 - /usr/local/bin/node-agent
                 - start
                 - --config=/etc/nvml-mock/config.yaml
-                - --topology=/etc/nvml-mock/topology/topology.yaml
                 - --host-root=/host
                 - --health-addr=:9091
                 - --log-level=info
@@ -435,7 +433,6 @@ should match snapshot with default values:
                 - /usr/local/bin/node-agent
                 - start
                 - --config=/etc/nvml-mock/config.yaml
-                - --topology=/etc/nvml-mock/topology/topology.yaml
                 - --host-root=/host
                 - --health-addr=:9091
                 - --log-level=info

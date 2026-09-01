@@ -387,6 +387,19 @@ func TestFileSource_TopologyRemovalTriggersAReconcile(t *testing.T) {
 	require.Empty(t, u.State.TopologyRaw)
 }
 
+// The chart omits --topology where the cluster declares none, so an unset path
+// carries the same meaning as an unmounted ConfigMap.
+func TestFileSource_UnsetTopologyPathIsEmptyNotAnError(t *testing.T) {
+	f, _ := sourceWith(t, topologyDoc)
+	f.topologyPath = ""
+
+	var hash [32]byte
+	u := pollOnce(t, f, &hash)
+	require.NotNil(t, u)
+	require.NoError(t, u.Err)
+	require.Empty(t, u.State.TopologyRaw)
+}
+
 // A topology that cannot be read is a broken mount, not a cluster without
 // topology; emitting an empty document would retract every node's overlay.
 func TestFileSource_ReportsAnUnreadableTopology(t *testing.T) {

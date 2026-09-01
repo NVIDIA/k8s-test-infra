@@ -119,10 +119,14 @@ func (f *FileSource) send(ctx context.Context, ch chan<- agent.Update, u agent.U
 	}
 }
 
-// readTopology returns the cluster topology document, or nil when no topology
-// ConfigMap is mounted. Other read failures surface as errors, because a nil
-// document retracts the one already staged on this node.
+// readTopology returns the cluster topology document, or nil where the node has
+// none — an unset path or an unmounted ConfigMap. Other read failures surface as
+// errors, because a nil document retracts the one already staged on this node.
 func readTopology(path string) ([]byte, error) {
+	if path == "" {
+		return nil, nil
+	}
+
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil

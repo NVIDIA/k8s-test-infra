@@ -69,8 +69,7 @@ func startCommand() *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:    "topology",
-				Value:   "/etc/nvml-mock/topology/topology.yaml",
-				Usage:   "path to the cluster ComputeDomain topology document; the chart mounts it only when topology is enabled",
+				Usage:   "path to the cluster ComputeDomain topology document; unset where the cluster declares no topology",
 				Sources: cli.EnvVars("MOKKA_AGENT_TOPOLOGY"),
 			},
 			&cli.StringFlag{

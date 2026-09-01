@@ -803,6 +803,10 @@ tests:
 
   - it: should not mount the topology ConfigMap when disabled
     asserts:
+      # An unset --topology is what tells the agent this cluster declares none.
+      - notContains:
+          path: spec.template.spec.containers[1].command
+          content: --topology=/etc/nvml-mock/topology/topology.yaml
       - notContains:
           path: spec.template.spec.containers[1].volumeMounts
           content:
