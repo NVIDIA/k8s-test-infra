@@ -225,6 +225,34 @@ func testInternalGpuReset(table, handle unsafe.Pointer) []testResult {
 			results = append(results, testResult{name, true, ""})
 		}
 	}
+
+	// A slot 20 call carrying anything other than a registered device handle is
+	// a probe, not a reset, and the dispatcher's catch-all requires those to see
+	// NVML_SUCCESS: nvidia-smi aborts `topo -m` on any error. Serving the reset
+	// ahead of that guard without checking the handle turned a failed device
+	// lookup into NVML_ERROR_OPERATING_SYSTEM, indistinguishable from a reset
+	// attempted on a real device that failed. The guard buffer is a live
+	// allocation never registered as a device, so it exercises that path.
+	{
+		const name = "internal/gpu_reset_non_device_handle"
+		const notACount = 65535
+		C.memset(guard, guardFill, guardSize)
+		count := C.uint(notACount)
+
+		ret := C.mockCallSlot(table, C.uint(slotGpuReset), guard, unsafe.Pointer(&count), guard, nil)
+
+		switch {
+		case ret != 0:
+			results = append(results, testResult{name, false,
+				fmt.Sprintf("slot %d returned %d for a handle that is not a device, want NVML_SUCCESS: "+
+					"a probe must not read as a reset that could not run", slotGpuReset, ret)})
+		case count != notACount:
+			results = append(results, testResult{name, false,
+				fmt.Sprintf("slot %d wrote %d through an argument that carries no count", slotGpuReset, count)})
+		default:
+			results = append(results, testResult{name, true, ""})
+		}
+	}
 	return results
 }
 
@@ -282,6 +310,22 @@ func testInternalProcessList(table, handle unsafe.Pointer) []testResult {
 // take no count at all. Each is covered by its own test above, so anything still
 // in this loop is a slot we have not identified and must therefore keep treating
 // as a list count.
+// hasDedicatedTest reports whether a slot's meaning is known, which is what
+// keeps it out of the unidentified-slot sweep: each of these is asserted
+// against its real contract by one of the tests above.
+func hasDedicatedTest(slot int) bool {
+	switch {
+	case slot >= slotProcessListFirst && slot <= slotProcessListLast:
+		return true
+	case slot == slotHostMaxPcieLinkGen:
+		return true
+	case slot == slotGpuReset, slot == slotGpuResetComplete:
+		return true
+	default:
+		return false
+	}
+}
+
 func testInternalOtherSlotsDoNotWrite(table, handle unsafe.Pointer) []testResult {
 	const name = "internal/other_slots_no_write"
 	var results []testResult
@@ -295,13 +339,7 @@ func testInternalOtherSlotsDoNotWrite(table, handle unsafe.Pointer) []testResult
 	want := bytes.Repeat([]byte{guardFill}, guardSize)
 
 	for slot := 1; slot < exportTableSlots; slot++ {
-		if slot >= slotProcessListFirst && slot <= slotProcessListLast {
-			continue
-		}
-		if slot == slotHostMaxPcieLinkGen {
-			continue
-		}
-		if slot == slotGpuReset || slot == slotGpuResetComplete {
+		if hasDedicatedTest(slot) {
 			continue
 		}
 		C.memset(guard, guardFill, guardSize)

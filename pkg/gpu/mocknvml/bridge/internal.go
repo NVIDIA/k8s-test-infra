@@ -98,7 +98,15 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
     // the write faulted there, which is what made every reset die with a SIGSEGV
     // and no diagnostic (the fault landed ahead of the debug print, so the log
     // stopped mid-sequence and pointed at nvidia-smi rather than at us).
-    if (slot == MOCK_SLOT_GPU_RESET) {
+    //
+    // The device-handle gate matters for what an error here means. Without it a
+    // slot 20 call carrying anything other than a registered handle -- a probe,
+    // or an engine still at initCount 0 -- fails the lookup and reports
+    // NVML_ERROR_OPERATING_SYSTEM, the one answer the catch-all below documents
+    // as unsafe for a call that was never a device call. Falling through to that
+    // guard instead keeps NVML_ERROR_OPERATING_SYSTEM meaning "this device's
+    // reset was attempted and failed".
+    if (slot == MOCK_SLOT_GPU_RESET && mockInternalIsDeviceHandle(arg0)) {
         // The reset the mock can actually perform is clearing the device's
         // injected overrides, the same mutation `nvml-mock-ctl reset --gpu <n>`
         // makes. Real hardware clears its transient error state here, so a
