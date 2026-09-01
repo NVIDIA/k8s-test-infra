@@ -120,3 +120,32 @@ func TestDiscard_RemovesTheDocument(t *testing.T) {
 func TestDiscard_NoOpBeforeStage(t *testing.T) {
 	require.NoError(t, New().Discard(context.Background(), host.New(t.TempDir())))
 }
+
+// The overlay is on a host mount that outlives the pod, so a topology withdrawn
+// between two agent lifetimes must not leave workloads on an obsolete clique.
+func TestStage_RetractsAWithdrawnDocument(t *testing.T) {
+	withSource(t, doc)
+	h := host.New(t.TempDir())
+	s := New()
+	require.NoError(t, s.Stage(context.Background(), h, &agent.State{}))
+
+	require.NoError(t, os.Remove(sourcePath))
+	require.NoError(t, s.Stage(context.Background(), h, &agent.State{}))
+
+	require.True(t, s.Ready(), "a retracted topology is ready, not pending")
+	require.NoFileExists(t, h.RootPath("topology/topology.yaml"))
+}
+
+// A source that cannot be stat'd at all is a broken mount, not a node without
+// topology; reporting ready would hide it behind plausible clique defaults.
+func TestStage_PropagatesAnUnreadableSource(t *testing.T) {
+	orig := sourcePath
+	t.Cleanup(func() { sourcePath = orig })
+	notADir := filepath.Join(t.TempDir(), "topology.yaml")
+	require.NoError(t, os.WriteFile(notADir, nil, 0o644))
+	sourcePath = filepath.Join(notADir, "topology.yaml")
+
+	s := New()
+	require.Error(t, s.Stage(context.Background(), host.New(t.TempDir()), &agent.State{}))
+	require.False(t, s.Ready())
+}

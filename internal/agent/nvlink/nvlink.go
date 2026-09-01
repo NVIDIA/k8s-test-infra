@@ -12,6 +12,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 )
 
 const name = "nvlink"
@@ -46,17 +47,26 @@ func (s *Simulator) Name() string { return name }
 // Ready reports whether the last Stage call completed without error.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
-// Stage copies the topology document into the overlay. Absence of the source is
-// not an error: the chart mounts it only when topology is enabled, and a fabric
-// without a declared topology simply keeps the profile's own clique defaults.
+// Stage copies the topology document into the overlay. An absent source retracts
+// it: the chart mounts the ConfigMap only when topology is enabled, and a fabric
+// without a declared topology keeps the profile's own clique defaults.
 func (s *Simulator) Stage(_ context.Context, h *host.Host, _ *agent.State) error {
 	s.ready.Store(false)
 
 	if _, err := os.Stat(sourcePath); err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		// The overlay is on a host mount that outlives the pod, and the NRI
+		// plugin injects MOCK_TOPOLOGY_CONFIG for any container while the file
+		// is there, so a retracted topology has to take the document with it.
+		if err := fsutil.Remove(h.RootPath(overlayRel)); err != nil {
+			return err
+		}
 		s.ready.Store(true)
 		return nil
 	}
-	if err := h.CopyFile(sourcePath, h.RootPath(overlayRel), 0o644); err != nil {
+	if err := fsutil.Copy(sourcePath, h.RootPath(overlayRel), 0o644); err != nil {
 		return err
 	}
 
@@ -70,5 +80,5 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 	if !s.ready.Load() {
 		return nil
 	}
-	return h.Remove(h.RootPath(overlayRel))
+	return fsutil.Remove(h.RootPath(overlayRel))
 }
