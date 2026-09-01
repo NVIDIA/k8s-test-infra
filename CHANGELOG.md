@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- mocknvml: `nvidia-smi --gpu-reset` (`-r`) segfaulted instead of resetting a
+  GPU. The fault was in the mock's own internal export-table dispatcher, not in
+  `nvidia-smi`: the catch-all for per-device calls ends by writing a zero count
+  through `arg1`, and on slot 197 — reached only while resetting — `arg1` carries
+  no count. Because that write sits ahead of the debug print, the fault produced
+  no log line of its own, so the trace stopped mid-sequence and the crash looked
+  like `nvidia-smi` dying on driver state a mock cannot supply. Returning before
+  the write is the whole fix; the reset then completes entirely in-process, so an
+  operator reaching for the most common GPU remediation no longer gets a bare
+  exit 139 with no output at all.
+  The reset is now also a real operation rather than a refusal. Slot 20 calls
+  into Go and clears the device's injected overrides under the same flock
+  `nvml-mock-ctl` takes — the same mutation as `nvml-mock-ctl reset --gpu <n>` —
+  so a remediation controller or runbook that already reaches for the standard
+  GPU reset works unmodified against the mock, and the NVSentinel demo's
+  heal-and-uncordon step can be driven either way. Scope follows `nvidia-smi`,
+  which calls the slot once per targeted GPU: `-i <n>` clears one device and a
+  bare `--gpu-reset` walks every device, reporting each one. Two consequences
+  follow from it being per-device and are documented in `docs/nvml-mock-ctl.md`:
+  state injected with `--gpu all` lives in a shared bucket that no per-device
+  reset clears (matching `reset --gpu <n>`, so `reset --gpu all` is still needed
+  for it), and resetting a GPU with nothing injected leaves `overrides.yaml`
+  untouched, so a reset on a healthy GPU cannot fail on a read-only mount.
 - mocknvml: `Max Customer Boost Clocks` in `nvidia-smi -q` now reports the
   profile's `clocks.graphics_max` instead of `N/A`. Both NVML entry points that
   can answer the row were generated stubs — the dedicated

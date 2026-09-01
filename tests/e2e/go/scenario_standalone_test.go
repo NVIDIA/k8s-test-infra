@@ -137,6 +137,15 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 				nvidiasmi.ProcessMonitorAndTopology(ctx, h.Kube, pod)
 			})
 
+			It("resets GPUs through nvidia-smi --gpu-reset", Label("nvidia-smi"), func(ctx SpecContext) {
+				// Reset runs entirely through the internal export table, where
+				// the dispatcher's catch-all used to fault writing a zero count
+				// through an argument that carries none on the completion slot:
+				// an operator reaching for the most common GPU remediation got a
+				// bare exit 139 with no output at all.
+				nvidiasmi.GpuReset(ctx, h.Kube, pod, p)
+			})
+
 			It("reports the profile's platform identity via nvidia-smi", Label("nvidia-smi"), func(ctx SpecContext) {
 				// Issue #642: nvmlDeviceGetPlatformInfo was a generated stub, so
 				// the whole Platform Info block read N/A even on gb200/gb300,
@@ -265,6 +274,14 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 
 				It("pins temperature via the nvml-mock-ctl temp command", Label("runtime-control"), func(ctx SpecContext) {
 					assertRuntimeTempCommand(ctx, h, pod)
+				})
+
+				It("resets a GPU via nvidia-smi -r, clearing its overrides", Label("runtime-control"), Label("nvidia-smi"), func(ctx SpecContext) {
+					// The remediation an operator reaches for first, and the
+					// only coverage of the reset export-table slots doing real
+					// work: nvidia-smi must clear the injected state, not just
+					// exit without crashing.
+					assertGpuResetViaNvidiaSmi(ctx, h, pod)
 				})
 
 				It("pins power draw via the nvml-mock-ctl power command", Label("runtime-control"), func(ctx SpecContext) {

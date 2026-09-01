@@ -41,6 +41,10 @@ extern unsigned int mockInternalFillProcessList(void* handle, void* buf, unsigne
 // below in Go). Returns 0 when the device is unknown or configures no PCIe block.
 extern unsigned int mockInternalHostMaxPcieLinkGen(void* handle);
 
+// Forward declaration of the GPU reset (defined in gpu_reset.go). Returns 1 when
+// the device returned to its healthy baseline, 0 when it could not.
+extern int mockInternalResetGPU(void* handle);
+
 // Debug mode - check MOCK_NVML_DEBUG env var once at startup
 static int debugChecked = 0;
 static int debugEnabled = 0;
@@ -59,7 +63,9 @@ static int isDebugEnabled() {
 // is what identifies the internal entry point being called. Recovered by giving
 // every slot its own trampoline and logging which slots each nvidia-smi view
 // hits (580.65.06).
+#define MOCK_SLOT_GPU_RESET 20
 #define MOCK_SLOT_DEVICE_HANDLE_BY_INDEX 81
+#define MOCK_SLOT_GPU_RESET_COMPLETE 197
 #define MOCK_SLOT_PROCESS_LIST_FIRST 213
 #define MOCK_SLOT_PROCESS_LIST_LAST 215
 #define MOCK_SLOT_HOST_MAX_PCIE_LINK_GEN 230
@@ -80,6 +86,36 @@ static nvmlReturn_t internalStubFunction(unsigned int slot, void* arg0, void* ar
                     slot, (unsigned int)rawArg0, ret, (void*)outputPtr->handle);
         }
         return ret;
+    }
+
+    // GPU reset. `nvidia-smi --gpu-reset` / `-r` performs the whole reset through
+    // these two slots and nothing else reaches either of them, so serving them
+    // costs no other view. nvidia-smi calls slot 20 once per GPU being reset and
+    // slot 197 twice, then prints "GPU <busid> was successfully reset."
+    //
+    // Both must return before the zero write at the bottom of this function. That
+    // write assumes arg1 is a caller-supplied count, and on slot 197 it is not:
+    // the write faulted there, which is what made every reset die with a SIGSEGV
+    // and no diagnostic (the fault landed ahead of the debug print, so the log
+    // stopped mid-sequence and pointed at nvidia-smi rather than at us).
+    if (slot == MOCK_SLOT_GPU_RESET) {
+        // The reset the mock can actually perform is clearing the device's
+        // injected overrides, the same mutation `nvml-mock-ctl reset --gpu <n>`
+        // makes. Real hardware clears its transient error state here, so a
+        // profile returning to its healthy baseline is the faithful analogue.
+        int ok = mockInternalResetGPU(arg0);
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u GPU reset (handle=%p) -> ok=%d\n", slot, arg0, ok);
+        }
+        // An error here is what nvidia-smi renders as "GPU Reset couldn't run",
+        // which is the honest answer when the overrides could not be cleared.
+        return ok ? NVML_SUCCESS : NVML_ERROR_OPERATING_SYSTEM;
+    }
+    if (slot == MOCK_SLOT_GPU_RESET_COMPLETE) {
+        if (isDebugEnabled()) {
+            fprintf(stderr, "[C-STUB] slot %u GPU reset completion (handle=%p)\n", slot, arg0);
+        }
+        return NVML_SUCCESS;
     }
 
     if (arg1 == NULL || !mockInternalIsDeviceHandle(arg0)) {
