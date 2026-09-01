@@ -225,9 +225,9 @@ terminationGracePeriodSeconds: 2
 # pkg/gpu/mocknvml/engine/fabric.go and issue NVIDIA/k8s-test-infra#304.
 topology:
   enabled: false
-  # Cluster-level topology document (consumed only by the mock NVML
-  # engine). Each node must appear in exactly one clique within one
-  # domain. Example:
+  # Cluster-level topology document, read by the mock NVML engine and staged
+  # for workloads by the node agent. Each node must appear in exactly one
+  # clique within one domain. Example:
   # domains:
   #   - name: "test-domain-1"
   #     uuid: "00000000-0000-0000-0000-000000000001"
