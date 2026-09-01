@@ -10,6 +10,8 @@
 // the plugin's DaemonSet after the agent's.
 package inject
 
+import "path/filepath"
+
 // Adjust returns what to add to a container, or ok=false when the container
 // should be left exactly as authored.
 //
@@ -52,16 +54,35 @@ func skip(cfg Config, container Container) bool {
 	return false
 }
 
-// mountOverlay binds the staged mock driver tree into the container.
+// mountOverlay binds the staged mock driver tree into the container, read-only
+// except for the config directory.
 //
 // This is the one step with no opt-in gate: the shims, the mock NVML config and
 // the IB sysfs tree all live under this path, so every later step describes
 // something reachable only through it.
+//
+// The config directory is writable because the container writes back through
+// it: the mock serves `nvidia-smi --gpu-reset` by clearing the device's bucket
+// from overrides.yaml, under the same flock every other writer takes. With the
+// whole overlay read-only that write failed with EROFS, so a reset reported
+// "GPU Reset couldn't run" on exactly the GPUs that had state to clear, while
+// healthy ones reported success by skipping the write. Layering a narrower
+// writable bind over the read-only tree keeps the mock library and nvidia-smi
+// below it immutable; the order matters, since the overlay would cover this
+// mount if it came second.
 func mountOverlay(cfg Config, adjustment *Adjustment) {
-	adjustment.Mounts = append(adjustment.Mounts, Mount{
-		Source:      cfg.HostOverlayPath,
-		Destination: cfg.ContainerOverlayPath,
-		Type:        "bind",
-		Options:     []string{"rbind", "ro", "nosuid", "nodev"},
-	})
+	adjustment.Mounts = append(adjustment.Mounts,
+		Mount{
+			Source:      cfg.HostOverlayPath,
+			Destination: cfg.ContainerOverlayPath,
+			Type:        "bind",
+			Options:     []string{"rbind", "ro", "nosuid", "nodev"},
+		},
+		Mount{
+			Source:      filepath.Join(cfg.HostOverlayPath, configRelPath),
+			Destination: filepath.Join(cfg.ContainerOverlayPath, configRelPath),
+			Type:        "bind",
+			Options:     []string{"rbind", "rw", "nosuid", "nodev"},
+		},
+	)
 }

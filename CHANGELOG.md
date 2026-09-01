@@ -30,7 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   state injected with `--gpu all` lives in a shared bucket that no per-device
   reset clears (matching `reset --gpu <n>`, so `reset --gpu all` is still needed
   for it), and resetting a GPU with nothing injected leaves `overrides.yaml`
-  untouched, so a reset on a healthy GPU cannot fail on a read-only mount.
+  untouched, so a reset on a healthy GPU never depends on the overrides being
+  writable.
+  The reset also works from an injected consumer container, not just from the
+  nvml-mock pod, which is where a remediation controller actually runs it.
+  Clearing a bucket rewrites `overrides.yaml`, and both injection paths mounted
+  the config directory read-only: the write failed with `EROFS` on exactly the
+  GPUs that had state to clear, while healthy ones reported success through the
+  no-write path above. CDI now binds that directory `rw`, and the NRI plugin
+  layers a writable bind over it on top of the still-read-only overlay, so the
+  mock library and `nvidia-smi` themselves stay immutable inside the container.
 - mocknvml: `Max Customer Boost Clocks` in `nvidia-smi -q` now reports the
   profile's `clocks.graphics_max` instead of `N/A`. Both NVML entry points that
   can answer the row were generated stubs — the dedicated

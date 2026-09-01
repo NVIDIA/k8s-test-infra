@@ -395,8 +395,16 @@ at a time:
   `all:` bucket. State injected with `--gpu all` needs
   `nvml-mock-ctl reset --gpu all`.
 - Resetting a GPU that has nothing injected leaves `overrides.yaml` untouched
-  (no write, no lock), so a reset on a healthy GPU cannot fail on a read-only
-  overrides mount.
+  (no write, no lock), so a reset on a healthy GPU never depends on the overrides
+  being writable.
+
+The reset works from an injected consumer container as well as from the nvml-mock
+pod, which is what lets a remediation controller run it where the workload sees
+the GPU. Clearing a bucket rewrites `overrides.yaml` under an flock, so the config
+directory is bind-mounted writable into injected containers (the driver library
+and `nvidia-smi` itself stay read-only). Mounted read-only it would fail with
+`GPU Reset couldn't run` on exactly the GPUs that had state to clear, while
+healthy ones reported success through the no-write path above.
 
 ## Reset semantics
 

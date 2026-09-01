@@ -77,10 +77,18 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 			},
 			// Bind the config directory (not just config.yaml) so atomic renames
 			// by nvml-mock-ctl's overrides.yaml writes are visible inside the container.
+			//
+			// Writable because the container also resets through it: the mock
+			// serves `nvidia-smi --gpu-reset` by clearing the device's bucket from
+			// overrides.yaml, which takes an flock and rewrites the file. Read-only
+			// here failed that write with EROFS exactly when the GPU had state to
+			// clear, so the remediation an operator reaches for first reported
+			// "GPU Reset couldn't run" on precisely the GPUs that needed it, while
+			// healthy ones "succeeded" through the no-write path.
 			{
 				HostPath:      overlayHostRoot + "/driver/config",
 				ContainerPath: "/etc/nvml-mock",
-				Options:       []string{"ro", "nosuid", "nodev", "bind"},
+				Options:       []string{"rw", "nosuid", "nodev", "bind"},
 			},
 		},
 		// update-ldcache rebuilds the dynamic linker cache inside the container
