@@ -75,7 +75,9 @@ import (
 // library on purpose: these tests pin the slots nvidia-smi calls, so a change on
 // either side has to be deliberate.
 const (
+	slotGpuReset            = 20
 	slotDeviceHandleByIndex = 81
+	slotGpuResetComplete    = 197
 	slotProcessListFirst    = 213
 	slotProcessListLast     = 215
 	slotHostMaxPcieLinkGen  = 230
@@ -124,6 +126,7 @@ func testInternalExportTable() []testResult {
 
 	results = append(results, testInternalProcessList(table, handle)...)
 	results = append(results, testInternalHostMaxPcieLinkGen(table, handle)...)
+	results = append(results, testInternalGpuReset(table, handle)...)
 	results = append(results, testInternalOtherSlotsDoNotWrite(table, handle)...)
 	return results
 }
@@ -167,6 +170,62 @@ func testInternalHostMaxPcieLinkGen(table, handle unsafe.Pointer) []testResult {
 				"this as the Host Max PCIe generation", slotHostMaxPcieLinkGen, gen, wantMaxPcieLinkGen)})
 	}
 	return append(results, testResult{name, true, ""})
+}
+
+// testInternalGpuReset checks the two slots behind `nvidia-smi --gpu-reset`
+// (`-r`). They are the exception to the zero-count rule the sweep below
+// enforces: nvidia-smi passes no count to either, so the second argument holds a
+// leftover register value rather than a caller's capacity. Writing a zero
+// through it is what made every reset die with a SIGSEGV, and the fault landed
+// ahead of the slot's debug print, so it left no trace of its own and looked
+// like nvidia-smi crashing on driver state a mock cannot supply.
+//
+// The count is therefore asserted to come back untouched, not zeroed — that is
+// the whole point of excluding these two slots. The guard buffer still has to be
+// untouched, and both slots still have to report success, or nvidia-smi abandons
+// the reset and prints "GPU Reset couldn't run".
+//
+// Slot 20 performs a real reset, which against this fixture means clearing
+// device 0's runtime overrides. There is no overrides file here, so it resolves
+// to a no-op that still exercises the device lookup and the path resolution.
+func testInternalGpuReset(table, handle unsafe.Pointer) []testResult {
+	var results []testResult
+
+	const guardSize = 2 * procEntrySize
+	guard := C.malloc(guardSize)
+	if guard == nil {
+		return append(results, testResult{"internal/gpu_reset", false, "malloc failed"})
+	}
+	defer C.free(guard)
+	want := bytes.Repeat([]byte{guardFill}, guardSize)
+
+	for _, slot := range []int{slotGpuReset, slotGpuResetComplete} {
+		name := fmt.Sprintf("internal/gpu_reset_slot_%d", slot)
+		C.memset(guard, guardFill, guardSize)
+		// The same value nvidia-smi's uninitialized variable held on the call
+		// that faulted, so a stray write shows up as a change from it.
+		const notACount = 65535
+		count := C.uint(notACount)
+
+		ret := C.mockCallSlot(table, C.uint(slot), handle, unsafe.Pointer(&count), guard, nil)
+
+		switch {
+		case ret != 0:
+			results = append(results, testResult{name, false,
+				fmt.Sprintf("slot %d returned %d, want NVML_SUCCESS: nvidia-smi renders anything "+
+					"else as a reset that could not run", slot, ret)})
+		case !bytes.Equal(C.GoBytes(guard, C.int(guardSize)), want):
+			results = append(results, testResult{name, false,
+				fmt.Sprintf("slot %d wrote into a buffer it was never given", slot)})
+		case count != notACount:
+			results = append(results, testResult{name, false,
+				fmt.Sprintf("slot %d wrote %d through an argument that carries no count: "+
+					"this is the write that segfaulted every reset", slot, count)})
+		default:
+			results = append(results, testResult{name, true, ""})
+		}
+	}
+	return results
 }
 
 // testInternalProcessList checks that the process-list slots report the
@@ -219,9 +278,10 @@ func testInternalProcessList(table, handle unsafe.Pointer) []testResult {
 // zero entries.
 //
 // The slots with a known meaning are excluded: the process list writes entries,
-// and the host-max PCIe generation writes a scalar reading. Both are covered by
-// their own test above, so anything still in this loop is a slot we have not
-// identified and must therefore keep treating as a list count.
+// the host-max PCIe generation writes a scalar reading, and the two reset slots
+// take no count at all. Each is covered by its own test above, so anything still
+// in this loop is a slot we have not identified and must therefore keep treating
+// as a list count.
 func testInternalOtherSlotsDoNotWrite(table, handle unsafe.Pointer) []testResult {
 	const name = "internal/other_slots_no_write"
 	var results []testResult
@@ -239,6 +299,9 @@ func testInternalOtherSlotsDoNotWrite(table, handle unsafe.Pointer) []testResult
 			continue
 		}
 		if slot == slotHostMaxPcieLinkGen {
+			continue
+		}
+		if slot == slotGpuReset || slot == slotGpuResetComplete {
 			continue
 		}
 		C.memset(guard, guardFill, guardSize)
