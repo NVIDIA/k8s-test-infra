@@ -44,7 +44,7 @@ The demo expects the following tools on `$PATH`:
 | `bash`    | 3.2+           | `run.sh` uses `set -euo pipefail` — no bash 4+ features. |
 | `jq`      | any recent     | Scenario 2 parses `nvidia-imex-ctl -N -j` JSON. |
 
-Install Helm at the version the table above pins, from the official docs:
+Install Helm at the version the table above lists, from the official docs:
 <https://helm.sh/docs/intro/install/>
 
 New to Mokka? The [quick start](../../quickstart.md) is the fastest way to see
