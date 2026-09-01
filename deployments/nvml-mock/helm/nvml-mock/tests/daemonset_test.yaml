@@ -784,6 +784,23 @@ tests:
             mountPath: /etc/nvml-mock/topology
             readOnly: true
 
+  # The flag and the mount have to name the same path, or the agent watches a
+  # file the chart never places there.
+  - it: should point the node agent at the mounted topology document
+    set:
+      topology:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].command
+          content: --topology=/etc/nvml-mock/topology/topology.yaml
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: gpu-topology
+            mountPath: /etc/nvml-mock/topology
+            readOnly: true
+
   - it: should not mount the topology ConfigMap when disabled
     asserts:
       - notContains:

@@ -152,6 +152,9 @@ spec:
             - /usr/local/bin/node-agent
             - start
             - --config=/etc/nvml-mock/config.yaml
+            # Absent unless topology.enabled, which is what retracts the
+            # document the nvlink simulator staged for workloads.
+            - --topology=/etc/nvml-mock/topology/topology.yaml
             - --host-root=/host
             - --health-addr=:9091
             - --log-level={{ .Values.nodeAgent.logging.level }}

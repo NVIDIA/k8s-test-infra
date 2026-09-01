@@ -7,7 +7,6 @@ package nvlink
 
 import (
 	"context"
-	"os"
 	"sync/atomic"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -21,10 +20,6 @@ const name = "nvlink"
 // bind-mounts the overlay root into workloads and points MOCK_TOPOLOGY_CONFIG
 // at this path within it.
 const overlayRel = "topology/topology.yaml"
-
-// sourcePath is the chart's topology ConfigMap mount. A package var so tests
-// can point it at a fixture.
-var sourcePath = "/etc/nvml-mock/topology/topology.yaml"
 
 var _ agent.Simulator = (*Simulator)(nil)
 
@@ -47,16 +42,13 @@ func (s *Simulator) Name() string { return name }
 // Ready reports whether the last Stage call completed without error.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
-// Stage copies the topology document into the overlay. An absent source retracts
-// it: the chart mounts the ConfigMap only when topology is enabled, and a fabric
-// without a declared topology keeps the profile's own clique defaults.
-func (s *Simulator) Stage(_ context.Context, h *host.Host, _ *agent.State) error {
+// Stage writes the topology document into the overlay. An empty document
+// retracts it: the chart mounts the ConfigMap only when topology is enabled,
+// and a fabric without a declared topology keeps the profile's clique defaults.
+func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
 	s.ready.Store(false)
 
-	if _, err := os.Stat(sourcePath); err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
+	if len(state.TopologyRaw) == 0 {
 		// The overlay is on a host mount that outlives the pod, and the NRI
 		// plugin injects MOCK_TOPOLOGY_CONFIG for any container while the file
 		// is there, so a retracted topology has to take the document with it.
@@ -66,7 +58,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, _ *agent.State) error
 		s.ready.Store(true)
 		return nil
 	}
-	if err := fsutil.Copy(sourcePath, h.RootPath(overlayRel), 0o644); err != nil {
+	if err := fsutil.Write(h.RootPath(overlayRel), state.TopologyRaw, 0o644); err != nil {
 		return err
 	}
 
