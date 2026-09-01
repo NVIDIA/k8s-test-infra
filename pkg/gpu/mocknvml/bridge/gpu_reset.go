@@ -23,7 +23,6 @@ package main
 import "C"
 
 import (
-	"strconv"
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -39,9 +38,9 @@ import (
 // Clearing the overrides is the reset a mock can honour. A real reset clears the
 // GPU's transient hardware and software error state — the double-bit ECC error
 // or hung channel that made an operator reach for it in the first place — and on
-// the mock that state is exactly what `nvml-mock-ctl` injected. So the same
-// mutation `nvml-mock-ctl reset --gpu <n>` performs is the faithful analogue,
-// and it is the same code path: mockctl.Doc.Reset under mockctl's lock.
+// the mock that state is exactly what `nvml-mock-ctl` injected. So this performs
+// the same mutation `nvml-mock-ctl reset --gpu <n>` performs, through the same
+// function, rather than a second implementation of it.
 //
 // Scope follows nvidia-smi rather than being decided here. It calls this once per
 // GPU being reset, so `-i 1` clears one device and a bare `--gpu-reset` walks
@@ -60,61 +59,12 @@ func mockInternalResetGPU(handle unsafe.Pointer) C.int {
 		debugLog("[RESET] device %p reports no index (ret=%d)\n", handle, ret)
 		return 0
 	}
-	if err := clearDeviceOverrides(engine.ConfigOverridePath(), index); err != nil {
+	// engine.ConfigOverridePath resolves the same file the engine reads, so the
+	// reader and this writer can never disagree on which one is authoritative.
+	if err := mockctl.ResetDevice(engine.ConfigOverridePath(), index); err != nil {
 		debugLog("[RESET] GPU %d: %v\n", index, err)
 		return 0
 	}
 	debugLog("[RESET] GPU %d returned to its healthy baseline\n", index)
 	return 1
-}
-
-// clearDeviceOverrides removes the device's override bucket, taking the same
-// flock nvml-mock-ctl takes so a concurrent injection cannot interleave with the
-// reset.
-//
-// The shared `all:` bucket is deliberately left alone, which matches
-// `nvml-mock-ctl reset --gpu <n>`: the schema cannot express "drop the shared
-// block for one GPU only". State injected with `--gpu all` therefore survives a
-// reset of any single GPU, and survives a bare `nvidia-smi --gpu-reset` too,
-// because nvidia-smi drives that as one per-device reset per GPU rather than as
-// one all-GPU operation. Clearing it needs `nvml-mock-ctl reset --gpu all`.
-//
-// A device with nothing injected is reset without touching the file at all — no
-// write and no lock. That is not just an optimisation: resetting a healthy GPU is
-// the common case, and skipping the write keeps it working where the overrides
-// are not writable. Only a reset that genuinely has state to clear can fail.
-func clearDeviceOverrides(path string, index int) error {
-	if path == "" {
-		// No config, so no injected state to clear; the device is already at its
-		// baseline and the reset has nothing to do.
-		return nil
-	}
-	if has, err := hasDeviceOverrides(path, index); err != nil || !has {
-		return err
-	}
-
-	unlock, err := mockctl.LockOverride(path)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-
-	// Re-read under the lock: the peek above raced with any concurrent writer.
-	doc, err := mockctl.Load(path)
-	if err != nil {
-		return err
-	}
-	doc.Reset(mockctl.Target{Index: index})
-	return mockctl.WriteAtomic(path, doc)
-}
-
-// hasDeviceOverrides reports whether the document carries a bucket for the
-// device. A missing or empty file is not an error: it means nothing was injected.
-func hasDeviceOverrides(path string, index int) (bool, error) {
-	doc, err := mockctl.Load(path)
-	if err != nil {
-		return false, err
-	}
-	_, ok := doc.Devices[strconv.Itoa(index)]
-	return ok, nil
 }
