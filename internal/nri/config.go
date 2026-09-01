@@ -9,7 +9,7 @@ const (
 	defaultSocketPath = "/var/run/nri/nri.sock"
 	// defaultPluginName is the identity containerd registers this plugin under;
 	// it names the socket the runtime creates and is not the binary's name.
-	defaultPluginName = "nvml-mock"
+	defaultPluginName = "mokka-nri-plugin"
 	// defaultPluginIndex orders this plugin against the others the runtime has
 	// registered. Later indices adjust a container after earlier ones.
 	defaultPluginIndex = "10"
