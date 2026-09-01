@@ -44,6 +44,11 @@ cluster you already have: Step 1, which creates a throwaway Kind cluster, and
 Step 2, which builds the image from source. Skip both and Step 3 installs the
 published image.
 
+Steps 1 and 2 name paths inside this repository (`docs/demo/kind.yaml`,
+`deployments/nvml-mock/Dockerfile`), so run the commands in this guide from the
+root of a checkout. Steps 3 to 5 only need `kubectl` and `helm` and work from
+any directory.
+
 ## Step 1 (Optional) -- Create a Kind cluster
 
 Skip this if your `KUBECONFIG` already points at a cluster whose nodes carry
@@ -134,10 +139,21 @@ kubectl exec "${POD}" -- ibstatus
 
 ### Scale pool (fake-gpu-operator)
 
+FGO names each pod after the component it runs and labels it to match
+(`app=device-plugin`, `app=status-updater`, `app=topology-server` and so on).
+No FGO object carries `app=fake-gpu-operator`, so that selector, which this
+guide used to show, matched nothing in any namespace and still exited 0, which
+reads as "no pods yet" rather than "wrong query". List the release namespace
+Step 4 installed into and read the NODE column instead:
+
 ```bash
-# FGO pods should be running on the scale workers.
-kubectl get pods -l app=fake-gpu-operator -o wide
+kubectl get pods -n gpu-operator -o wide
 ```
+
+The `device-plugin` DaemonSet is the part that lands on the scale workers:
+FGO's status-updater labels those nodes `nvidia.com/gpu.deploy.device-plugin=true`
+from the topology you passed in Step 4. The remaining components are
+single-replica Deployments with no node selector and can land anywhere.
 
 ## Expected outcome
 
