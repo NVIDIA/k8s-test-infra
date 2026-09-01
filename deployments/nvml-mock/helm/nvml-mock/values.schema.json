@@ -186,6 +186,21 @@
       "description": "Node-wide ambient injection via containerd NRI.",
       "properties": {
         "enabled": { "type": "boolean" },
+        "logging": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Structured-logging knobs passed to --log-level and --log-format.",
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": ["debug", "info", "warn", "warning", "error"]
+            },
+            "format": {
+              "type": "string",
+              "enum": ["json", "plain"]
+            }
+          }
+        },
         "socketPath": { "type": "string", "minLength": 1 },
         "pluginName": { "type": "string", "minLength": 1 },
         "pluginIndex": { "type": ["string", "integer"] },
@@ -211,11 +226,15 @@
         },
         "optOutAnnotation": { "type": "string", "minLength": 1 },
         "deviceAnnotation": { "type": "string", "minLength": 1 },
+        "deviceInjectionMode": { "type": "string", "enum": ["raw", "cdi"] },
+        "cdiSpecDir": { "type": "string", "minLength": 1 },
+        "imexChannelAnnotation": { "type": "string", "minLength": 1 },
         "excludedNamespaces": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
         },
-        "resources": { "type": "object" }
+        "resources": { "type": "object" },
+        "healthPort": { "type": "integer", "minimum": 1, "maximum": 65535 }
       }
     },
     "terminationGracePeriodSeconds": {

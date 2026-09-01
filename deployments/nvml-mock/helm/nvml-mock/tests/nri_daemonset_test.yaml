@@ -81,6 +81,24 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --log-format=plain
 
+  - it: should reject an unknown logging.level via the values schema
+    set:
+      nri:
+        enabled: true
+        logging:
+          level: trace
+    asserts:
+      - failedTemplate: {}
+
+  - it: should reject an unknown logging.format via the values schema
+    set:
+      nri:
+        enabled: true
+        logging:
+          format: text
+    asserts:
+      - failedTemplate: {}
+
   - it: should mount the NRI socket directory and overlay host path
     set:
       nri:
@@ -352,5 +370,16 @@ tests:
       # first sign of a bad value is a CrashLoopBackOff rather than a failed
       # install. "cdi-annotations" specifically is a plausible typo: it is a real
       # device-plugin --device-list-strategy value, and MEP-0002 forbids it here.
+      - failedTemplate: {}
+
+  - it: should reject a deleted device injection mode at template time
+    set:
+      nri:
+        enabled: true
+        deviceInjectionMode: null
+    asserts:
+      # Helm's --set treats null as "delete this key", which the schema lets
+      # through because it constrains values rather than requiring the key.
+      # The template guard is what covers that, so it stays reachable.
       - failedTemplate:
-          errorMessage: 'nri.deviceInjectionMode must be "raw" or "cdi", got "cdi-annotations"'
+          errorMessage: 'nri.deviceInjectionMode must be "raw" or "cdi", got %!q(<nil>)'
