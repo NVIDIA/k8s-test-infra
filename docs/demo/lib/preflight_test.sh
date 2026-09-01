@@ -430,6 +430,7 @@ check_stderr "missing helm names the tool" "helm not found on PATH"
 
 STANDALONE="${SCRIPT_DIR}/../standalone/demo.sh"
 FAILURE_INJECTION="${SCRIPT_DIR}/../failure-injection/run.sh"
+WITH_GPU_OPERATOR="${SCRIPT_DIR}/../with-gpu-operator/run.sh"
 
 # EVERY script-level guard below reads this, never the raw file. A guard that
 # greps the whole file passes when the code it checks is commented out, since
@@ -440,9 +441,12 @@ code_lines() {
     grep -v '^[[:space:]]*#' "$1"
 }
 
-# Both scripts, every time. Checking one and not its sibling is the same
-# asymmetry that shipped the original defect, mirrored into the guards.
-DEMO_SCRIPTS="${STANDALONE} ${FAILURE_INJECTION}"
+# EVERY demo script, every time. Checking one and not its siblings is the same
+# asymmetry that shipped the original defect, mirrored into the guards. This
+# list started at two and a third demo (with-gpu-operator) was added without
+# widening it, so every check below now derives its subjects from this
+# variable rather than naming demos: adding a fourth cannot repeat that.
+DEMO_SCRIPTS="${STANDALONE} ${FAILURE_INJECTION} ${WITH_GPU_OPERATOR}"
 
 for f in ${DEMO_SCRIPTS}; do
     if [ ! -f "${f}" ]; then
@@ -470,30 +474,47 @@ fi
 # install dies with "ClusterRole \"nvml-mock\" in namespace \"\" exists and
 # cannot be imported into the current release". Distinct release names are the
 # actual mechanism; distinct namespaces are necessary but not sufficient.
-FI_RELEASE="$(code_lines "${FAILURE_INJECTION}" | sed -n 's/^RELEASE_NAME="\([^"]*\)".*/\1/p' | head -1)"
-SA_RELEASE="$(code_lines "${STANDALONE}"        | sed -n 's/^RELEASE_NAME="\([^"]*\)".*/\1/p' | head -1)"
-FI_NS="$(code_lines "${FAILURE_INJECTION}" | sed -n 's/^: "${NAMESPACE:=\([^}]*\)}".*/\1/p' | head -1)"
-SA_NS="$(code_lines "${STANDALONE}"        | sed -n 's/^: "${NAMESPACE:=\([^}]*\)}".*/\1/p' | head -1)"
+# One record per demo: "<dir>:<release>:<namespace>", derived from
+# DEMO_SCRIPTS so a new demo is covered the moment it joins that list.
+DEMO_RECORDS=""
+for f in ${DEMO_SCRIPTS}; do
+    base="$(basename "$(dirname "${f}")")"
+    _rel="$(code_lines "${f}" | sed -n 's/^RELEASE_NAME="\([^"]*\)".*/\1/p' | head -1)"
+    _ns="$(code_lines "${f}"  | sed -n 's/^: "${NAMESPACE:=\([^}]*\)}".*/\1/p' | head -1)"
+    if [ -z "${_rel}" ] || [ -z "${_ns}" ]; then
+        echo "FAIL could not extract release/namespace from ${base} (release='${_rel}' namespace='${_ns}')"
+        FAILURES=$((FAILURES + 1))
+        continue
+    fi
+    echo "ok   extracted ${base} (release='${_rel}' namespace='${_ns}')"
+    DEMO_RECORDS="${DEMO_RECORDS} ${base}:${_rel}:${_ns}"
+done
 
-if [ -z "${FI_RELEASE}" ] || [ -z "${SA_RELEASE}" ]; then
-    echo "FAIL could not extract release names (FI='${FI_RELEASE}' SA='${SA_RELEASE}')"
-    FAILURES=$((FAILURES + 1))
-else
-    echo "ok   extracted release names (FI='${FI_RELEASE}' SA='${SA_RELEASE}')"
-fi
-check "demo release names differ (cluster-scoped RBAC would collide)" \
-    "differ" "$([ "${FI_RELEASE}" != "${SA_RELEASE}" ] && echo differ || echo same)"
-check "demo namespaces differ" \
-    "differ" "$([ "${FI_NS}" != "${SA_NS}" ] && echo differ || echo same)"
+# Every unordered pair, not just one. Two demos sharing a release name collide
+# on the chart's cluster-scoped ClusterRole/ClusterRoleBinding; two sharing a
+# namespace interleave their objects. The string comparison picks one ordering
+# of each pair so the same pair is not asserted twice.
+for _a in ${DEMO_RECORDS}; do
+    for _b in ${DEMO_RECORDS}; do
+        _an="${_a%%:*}"; _bn="${_b%%:*}"
+        [ "${_an}" \< "${_bn}" ] || continue
+        _ar="${_a#*:}"; _ar="${_ar%%:*}"
+        _br="${_b#*:}"; _br="${_br%%:*}"
+        check "${_an} vs ${_bn}: release names differ (cluster-scoped RBAC would collide)" \
+            "differ" "$([ "${_ar}" != "${_br}" ] && echo differ || echo same)"
+        check "${_an} vs ${_bn}: namespaces differ" \
+            "differ" "$([ "${_a##*:}" != "${_b##*:}" ] && echo differ || echo same)"
+    done
+done
 
 # Every derived name follows the release name through nvml-mock.fullname,
 # which collapses to the release name only when the release name contains the
 # chart name. If either stopped containing it, fullname would become
 # "<release>-nvml-mock" and CONFIGMAP_NAME / daemonset/<release> would both
-# point at objects that do not exist. Checked for BOTH releases: asserting it
-# of one and not the other is how P8 slipped through.
-for _pair in "standalone:${SA_RELEASE}" "failure-injection:${FI_RELEASE}"; do
-    _who="${_pair%%:*}"; _rel="${_pair#*:}"
+# point at objects that do not exist. Checked for EVERY release: asserting it
+# of one and not the others is how P8 slipped through.
+for _pair in ${DEMO_RECORDS}; do
+    _who="${_pair%%:*}"; _rel="${_pair#*:}"; _rel="${_rel%%:*}"
     case "${_rel}" in
         *nvml-mock*) echo "ok   ${_who} release '${_rel}' keeps fullname collapsed" ;;
         *) echo "FAIL ${_who} release '${_rel}' does not contain the chart name, so nvml-mock.fullname would not collapse to it"
@@ -590,20 +611,44 @@ for f in ${DEMO_SCRIPTS}; do
     fi
 done
 
-# Each demo must name the OTHER demo's release, not its own, or the check is a
-# no-op that can never fire.
-if code_lines "${STANDALONE}" | grep -q 'demo::require_no_sibling_release "nvml-mock-failure"'; then
-    echo "ok   standalone watches for the failure-injection release"
-else
-    echo "FAIL standalone must pass the failure-injection release name as the sibling"
-    FAILURES=$((FAILURES + 1))
-fi
-if code_lines "${FAILURE_INJECTION}" | grep -q 'demo::require_no_sibling_release "nvml-mock"'; then
-    echo "ok   failure-injection watches for the standalone release"
-else
-    echo "FAIL failure-injection must pass the standalone release name as the sibling"
-    FAILURES=$((FAILURES + 1))
-fi
+# Each demo must name EVERY other demo's release, and never its own. Both
+# halves matter and both have been wrong here. Covering one direction only
+# leaves the unguarded demo installing on top of the guarded one, which is how
+# with-gpu-operator shipped invisible to this suite; passing your own release
+# gives a call that can never fire, which reads as a guard and is not one.
+#
+# Derived from DEMO_RECORDS, so the pair count grows on its own: with three
+# demos this is six directed assertions plus three self-checks.
+for _me in ${DEMO_RECORDS}; do
+    _my_name="${_me%%:*}"
+    _my_rel="${_me#*:}"; _my_rel="${_my_rel%%:*}"
+    _my_path=""
+    for f in ${DEMO_SCRIPTS}; do
+        if [ "$(basename "$(dirname "${f}")")" = "${_my_name}" ]; then
+            _my_path="${f}"
+        fi
+    done
+
+    for _other in ${DEMO_RECORDS}; do
+        _other_rel="${_other#*:}"; _other_rel="${_other_rel%%:*}"
+        [ "${_other_rel}" = "${_my_rel}" ] && continue
+        # The closing quote is part of the pattern, so "nvml-mock" does not
+        # match a call naming "nvml-mock-failure".
+        if code_lines "${_my_path}" | grep -q "demo::require_no_sibling_release \"${_other_rel}\""; then
+            echo "ok   ${_my_name} watches for '${_other_rel}'"
+        else
+            echo "FAIL ${_my_name} must pass '${_other_rel}' as a sibling to demo::require_no_sibling_release"
+            FAILURES=$((FAILURES + 1))
+        fi
+    done
+
+    if code_lines "${_my_path}" | grep -q "demo::require_no_sibling_release \"${_my_rel}\""; then
+        echo "FAIL ${_my_name} passes its OWN release '${_my_rel}' as the sibling, which can never fire"
+        FAILURES=$((FAILURES + 1))
+    else
+        echo "ok   ${_my_name} does not watch for itself"
+    fi
+done
 
 # Case 30: the co-location refusal. Selector pinning keeps each demo's kubectl
 # calls on its own pods, but nothing scopes the hostPaths both DaemonSets
@@ -659,6 +704,30 @@ write_helm "v3.8.0+g1234" "nvml-mock"
 check "DEMO_ASSUME_YES overrides the refusal" 0 \
     "$(run_sibling nvml-mock nvml-mock-failure DEMO_NAMESPACE=mokka DEMO_ASSUME_YES=true)"
 check_stderr "override still warns about shared host state" "share"
+
+# Case 31: the GPU Operator demo's own guard calls. It has TWO siblings, so
+# both directions are exercised, and one case here can only be written for this
+# demo: its release name "nvml-mock-operator" CONTAINS the standalone demo's
+# "nvml-mock", so a substring match would make a plain re-run of this demo
+# refuse to proceed against itself.
+make_shims; write_kubectl "kind-demo" 0 "https://127.0.0.1:6443"
+write_helm "v3.8.0+g1234" "nvml-mock"
+check "gpu-operator demo refuses when standalone is co-located" 4 \
+    "$(run_sibling nvml-mock nvml-mock-operator DEMO_NAMESPACE=mokka-operator)"
+check_stderr "refusal names the standalone release" "the 'nvml-mock' demo is already installed"
+
+make_shims; write_kubectl "kind-demo" 0 "https://127.0.0.1:6443"
+write_helm "v3.8.0+g1234" "nvml-mock-failure"
+check "gpu-operator demo refuses when failure-injection is co-located" 4 \
+    "$(run_sibling nvml-mock-failure nvml-mock-operator DEMO_NAMESPACE=mokka-operator)"
+check_stderr "refusal names the failure-injection release" "the 'nvml-mock-failure' demo is already installed"
+
+# Its OWN release present must not read as the standalone demo's. Without an
+# exact match this returns 4 and the demo can never be re-run.
+make_shims; write_kubectl "kind-demo" 0 "https://127.0.0.1:6443"
+write_helm "v3.8.0+g1234" "nvml-mock-operator"
+check "gpu-operator demo re-run is not mistaken for the standalone release" 0 \
+    "$(run_sibling nvml-mock nvml-mock-operator DEMO_NAMESPACE=mokka-operator)"
 
 # A helm that cannot list degrades to a warning rather than blocking a
 # legitimate install.

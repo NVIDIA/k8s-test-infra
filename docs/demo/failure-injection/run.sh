@@ -207,6 +207,10 @@ demo::preflight
 # The standalone demo's release. Co-locating the two corrupts shared per-node
 # host state that no namespace or release name scopes.
 demo::require_no_sibling_release "nvml-mock" "${RELEASE_NAME}"
+# And the GPU Operator demo's release, added later. Every demo has to know
+# about every other one: a guard that covers one direction only is the same
+# asymmetry that shipped the original defect.
+demo::require_no_sibling_release "nvml-mock-operator" "${RELEASE_NAME}"
 KUBE_CONTEXT="${DEMO_KUBE_CONTEXT}"
 IMAGE_NAME="$(demo::image_ref)"
 

@@ -62,8 +62,7 @@ should match snapshot with b200 profile:
 
         Cluster prerequisites (KIND): the node needs CDI enabled in containerd
         and the nvidia runtime handler registered.
-        Walkthrough, including that containerd setup:
-          https://nvidia.github.io/k8s-test-infra/helm-chart/#quick-start-gpu-operator-on-kind
+        Walkthrough, including that containerd setup: docs/demo/with-gpu-operator/
 
         Install:
           helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
@@ -151,8 +150,7 @@ should match snapshot with default values:
 
         Cluster prerequisites (KIND): the node needs CDI enabled in containerd
         and the nvidia runtime handler registered.
-        Walkthrough, including that containerd setup:
-          https://nvidia.github.io/k8s-test-infra/helm-chart/#quick-start-gpu-operator-on-kind
+        Walkthrough, including that containerd setup: docs/demo/with-gpu-operator/
 
         Install:
           helm repo add nvidia https://helm.ngc.nvidia.com/nvidia

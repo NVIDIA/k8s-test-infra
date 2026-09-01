@@ -101,4 +101,4 @@ tests:
       - notMatchRegexRaw:
           pattern: "Verified in CI"
       - matchRegexRaw:
-          pattern: "nvidia\\.github\\.io/k8s-test-infra/helm-chart/#quick-start-gpu-operator-on-kind"
+          pattern: "docs/demo/with-gpu-operator/"

@@ -114,6 +114,28 @@ cd nv-sentinel && ./run.sh
 
 See [nv-sentinel/README.md](nv-sentinel/README.md) for the walkthrough.
 
+### With the NVIDIA GPU Operator
+
+Deploys the real upstream `nvidia/gpu-operator` chart against mock GPUs on the
+cluster your current context points at. The device plugin, GFD, dcgm-exporter
+and validator operands are unmodified; only the driver and container-toolkit
+operands, which need real hardware, are disabled. Asserts that a node ends up
+with `nvidia.com/gpu` in its allocatable and a GFD-published
+`nvidia.com/gpu.product` label.
+
+Needs a node with containerd in CDI mode and the `nvidia` runtime handler
+registered, which `make cluster-create` provides and a plain
+`kind create cluster` does not.
+
+**Requirements:** KUBECONFIG, Helm 3.8+, kubectl
+
+```bash
+cd with-gpu-operator && ./run.sh
+```
+
+See [with-gpu-operator/README.md](with-gpu-operator/README.md) for the
+walkthrough.
+
 ## Observability (Prometheus + Grafana)
 
 Not a standalone demo. It composes with the GPU Operator rather than replacing
