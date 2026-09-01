@@ -95,6 +95,18 @@ func (m *mockDaemon) Reload(_ context.Context, _ *State) error {
 	return m.reloadErr
 }
 
+// readySim is a Simulator whose readiness is set directly, so a probe test can
+// pin one simulator down without also driving a reconcile.
+type readySim struct {
+	name  string
+	ready bool
+}
+
+func (s readySim) Name() string                                          { return s.name }
+func (s readySim) Stage(_ context.Context, _ *host.Host, _ *State) error { return nil }
+func (s readySim) Discard(_ context.Context, _ *host.Host) error         { return nil }
+func (s readySim) Ready() bool                                           { return s.ready }
+
 // chanSource is a finite StateSource backed by a pre-filled, closed channel.
 type chanSource struct{ ch chan Update }
 
@@ -237,4 +249,46 @@ func TestAgentLiveness_Recovery(t *testing.T) {
 
 	require.Equal(t, int32(2), sim.stageCalls.Load())
 	require.True(t, a.Liveness().OK, "liveness must recover once Stage succeeds")
+}
+
+// One simulator that is not ready must sink the whole probe: health.Handler
+// keys the status code off Probe.OK alone, so an aggregate that stayed true
+// would serve 200 for a node that is not serving.
+func TestAgentReadiness_AggregatesSimulators(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		sims   []Simulator
+		wantOK bool
+		want   map[string]bool
+	}{
+		{
+			name:   "all ready",
+			sims:   []Simulator{readySim{"gpudriver", true}, readySim{"ib", true}},
+			wantOK: true,
+			want:   map[string]bool{"gpudriver": true, "ib": true},
+		},
+		{
+			name:   "one not ready",
+			sims:   []Simulator{readySim{"gpudriver", true}, readySim{"ib", false}},
+			wantOK: false,
+			want:   map[string]bool{"gpudriver": true, "ib": false},
+		},
+		{
+			name:   "none ready",
+			sims:   []Simulator{readySim{"gpudriver", false}, readySim{"ib", false}},
+			wantOK: false,
+			want:   map[string]bool{"gpudriver": false, "ib": false},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			probe := New(Config{Simulators: c.sims}).Readiness()
+
+			require.Equal(t, c.wantOK, probe.OK)
+			require.Len(t, probe.Components, len(c.want))
+			for name, ready := range c.want {
+				require.Equal(t, ready, probe.Components[name].OK,
+					"/readyz must attribute the result to %s", name)
+			}
+		})
+	}
 }
