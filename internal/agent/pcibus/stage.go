@@ -5,8 +5,11 @@ package pcibus
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
@@ -43,13 +46,13 @@ func stagePCIShim(h *host.Host) error {
 
 	libDir := filepath.Join(h.Root, "driver/usr/local/lib")
 
-	if err := h.MkdirAll(libDir, 0o755); err != nil {
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
 		return err
 	}
 
 	for _, src := range matches {
 		dst := filepath.Join(libDir, filepath.Base(src))
-		if err := h.CopyFile(src, dst, 0o755); err != nil {
+		if err := fsutil.Copy(src, dst, 0o755); err != nil {
 			return fmt.Errorf("stage %s: %w", filepath.Base(src), err)
 		}
 	}

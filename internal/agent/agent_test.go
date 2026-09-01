@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -42,6 +43,58 @@ func (m *mockSimApplier) Apply(_ context.Context, _ *host.Host, _ *State) error 
 }
 func (m *mockSimApplier) Revoke(_ context.Context, _ *host.Host) error { return nil }
 
+// mockDaemon implements Simulator, Applier and Daemon, logging each synchronous
+// lifecycle call so tests can pin the wave ordering. Run is counted rather than
+// logged: it runs on its own goroutine, so its position is not deterministic.
+type mockDaemon struct {
+	name      string
+	reloadErr error
+
+	mu    sync.Mutex
+	calls []string
+
+	runCalls    atomic.Int32
+	reloadCalls atomic.Int32
+}
+
+func (m *mockDaemon) record(call string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, call)
+}
+
+func (m *mockDaemon) callLog() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.calls...)
+}
+
+func (m *mockDaemon) Name() string { return m.name }
+func (m *mockDaemon) Stage(_ context.Context, _ *host.Host, _ *State) error {
+	m.record("stage")
+	return nil
+}
+func (m *mockDaemon) Discard(_ context.Context, _ *host.Host) error { return nil }
+func (m *mockDaemon) Ready() bool                                   { return true }
+func (m *mockDaemon) Apply(_ context.Context, _ *host.Host, _ *State) error {
+	m.record("apply")
+	return nil
+}
+func (m *mockDaemon) Revoke(_ context.Context, _ *host.Host) error { return nil }
+
+// Run returns immediately instead of blocking on ctx, so errgroup.Wait finishes
+// when the source drains rather than idling out the test timeout.
+func (m *mockDaemon) Run(_ context.Context) error {
+	m.runCalls.Add(1)
+	return nil
+}
+
+func (m *mockDaemon) Reload(_ context.Context, _ *State) error {
+	m.reloadCalls.Add(1)
+	m.record("reload")
+	return m.reloadErr
+}
+
 // chanSource is a finite StateSource backed by a pre-filled, closed channel.
 type chanSource struct{ ch chan Update }
 
@@ -58,6 +111,11 @@ func (s *chanSource) Watch(_ context.Context) <-chan Update { return s.ch }
 func (s *chanSource) Close() error                          { return nil }
 
 func newAgent(t *testing.T, sim *mockSimApplier, updates ...Update) *Agent {
+	t.Helper()
+	return newAgentWith(t, sim, updates...)
+}
+
+func newAgentWith(t *testing.T, sim Simulator, updates ...Update) *Agent {
 	t.Helper()
 	return New(Config{
 		Simulators: []Simulator{sim},
@@ -96,6 +154,72 @@ func TestReconcile_StageSuccessRunsApply(t *testing.T) {
 	require.Equal(t, int32(1), sim.stageCalls.Load())
 	require.Equal(t, int32(1), sim.applyCalls.Load())
 	require.True(t, a.Live())
+}
+
+// TestSupervise_ReloadRunsBetweenStageAndApply pins the supervisor wave to the
+// barrier: a daemon sees a state change after its Stage lands, before Apply.
+func TestSupervise_ReloadRunsBetweenStageAndApply(t *testing.T) {
+	sim := &mockDaemon{name: "daemon"}
+	a := newAgentWith(t, sim,
+		Update{State: &State{Generation: 1}, At: time.Now()},
+		Update{State: &State{Generation: 2}, At: time.Now()},
+	)
+	runAgent(t, a)
+
+	require.Equal(t,
+		[]string{"stage", "apply", "stage", "reload", "apply"},
+		sim.callLog(),
+	)
+}
+
+// TestSupervise_RunStartsOnceAcrossReconciles verifies a daemon launches once
+// however many states arrive; later ones reach it through Reload.
+func TestSupervise_RunStartsOnceAcrossReconciles(t *testing.T) {
+	sim := &mockDaemon{name: "daemon"}
+	a := newAgentWith(t, sim,
+		Update{State: &State{Generation: 1}, At: time.Now()},
+		Update{State: &State{Generation: 2}, At: time.Now()},
+		Update{State: &State{Generation: 3}, At: time.Now()},
+	)
+	runAgent(t, a)
+
+	require.Equal(t, int32(1), sim.runCalls.Load(), "Run must be launched exactly once")
+	require.Equal(t, int32(2), sim.reloadCalls.Load(), "Reload must run on every reconcile after the first")
+}
+
+// TestSupervise_ReloadErrorDoesNotFailReconcile verifies a failed Reload is
+// logged and skipped, leaving the daemon on its previous state and Apply intact.
+func TestSupervise_ReloadErrorDoesNotFailReconcile(t *testing.T) {
+	sim := &mockDaemon{name: "daemon", reloadErr: errors.New("reload error")}
+	a := newAgentWith(t, sim,
+		Update{State: &State{Generation: 1}, At: time.Now()},
+		Update{State: &State{Generation: 2}, At: time.Now()},
+	)
+	runAgent(t, a)
+
+	require.Equal(t,
+		[]string{"stage", "apply", "stage", "reload", "apply"},
+		sim.callLog(),
+	)
+	require.True(t, a.Live())
+}
+
+// TestSupervise_StageFailureSkipsSupervisorWave verifies a daemon does not start
+// against surfaces Stage failed to write.
+func TestSupervise_StageFailureSkipsSupervisorWave(t *testing.T) {
+	sim := &failingStageDaemon{}
+	a := newAgentWith(t, sim, Update{State: &State{}, At: time.Now()})
+	runAgent(t, a)
+
+	require.Equal(t, int32(0), sim.runCalls.Load(), "Run must not start when Stage fails")
+	require.Equal(t, int32(0), sim.reloadCalls.Load())
+}
+
+// failingStageDaemon is a Daemon whose Stage always fails.
+type failingStageDaemon struct{ mockDaemon }
+
+func (f *failingStageDaemon) Stage(_ context.Context, _ *host.Host, _ *State) error {
+	return errors.New("stage error")
 }
 
 // TestAgentLiveness_Recovery verifies Live() becomes true again once Stage succeeds.

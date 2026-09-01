@@ -128,9 +128,11 @@ type Applier interface {
 
 // Daemon is implemented by simulators that supervise a long-running background
 // process (fabricmanager marker loop, mock-ib server). Only fabricmanager and
-// ibhca implement this; the agent launches Run once at startup via type assertion.
+// infiniband implement this. The agent launches Run once, on the Stage barrier
+// of the first successful reconcile; Reload delivers later States to it.
 type Daemon interface {
     Run(ctx context.Context) error
+    Reload(ctx context.Context, state *State) error
 }
 ```
 
@@ -139,7 +141,7 @@ type Daemon interface {
 - Internally, `Stage` parallelizes independent surfaces via a local `errgroup`. The GPU-driver-footprint simulator runs 7 things (chardevs + NVML shim + CUDA shim + nvidia-smi + procfs version + procfs params + engine config) concurrently.
 - Only three simulators implement `Applier`: `cdi` (both CDI YAMLs), `gpudriver` (`/run/nvidia/driver` symlink), `pcibus` (NFD feature file). The other four have no surface a third party acts on.
 - `Stage`↔`Discard` and `Apply`↔`Revoke` are exact inverses, so the shutdown order is written once in the agent and cannot delete an artifact before the spec that references it.
-- Only `fabricmanager` and `ibhca` implement `Daemon`. The agent type-asserts each `Simulator` to `Daemon` at startup and launches `Run` only for those that match. A simulator that owns a file something else can delete re-asserts it from `Run`, like the fabric-manager marker every 2 s.
+- Only `fabricmanager` and `ib` implement `Daemon`. The agent type-asserts each `Simulator` to `Daemon` and launches `Run` for those that match, on the Stage barrier rather than at startup — `mock-ib` scans its rendered sysfs tree when the server is constructed, so it cannot start before `Stage`. A simulator that owns a file something else can delete re-asserts it from `Run`, like the fabric-manager marker every 2 s.
 - `Discard` removes only files the simulator created; the top-level `/host/var/lib/nvml-mock` root is left to the pod's hostPath lifecycle.
 - `Ready()` powers `/readyz` and attributes failures per surface.
 
@@ -217,7 +219,7 @@ One per simulated component. Each is a package under `internal/agent/`:
 | `pcibus`                | Component 2 — GPU on PCI bus                                    | PCI sysfs tree + libpcisysfs.so staging                                                  | NFD feature file                        | —                                                                    |
 | `fabricmanager`         | Component 3 — NVSwitch fabric manager                           | initial marker write                                                                       | —                                       | re-assert marker every 2 s                                           |
 | `imex`                  | Component 4 — NVIDIA IMEX                                       | IMEX channel chardevs + `/proc/devices` overlay                                            | —                                       | —                                                                    |
-| `ibhca`                 | Component 5 — InfiniBand HCA                                    | IB sysfs tree + libibmock*.so staging + IB CLI tool staging                                | —                                       | `pkg/network/mockib/daemon.Server`; optional fabric relay            |
+| `ib`                 | Component 5 — InfiniBand HCA                                    | IB sysfs tree + libibmock*.so staging + IB CLI tool staging                                | —                                       | `internal/ib/daemon.Server`; optional fabric relay            |
 | `nvlink`                | Component 6 — NVLink fabric / compute domain                    | topology YAML overlay                                                                      | —                                       | —                                                                    |
 | `cdi`                   | Component 7 — CDI surface                                       | —                                                                                          | `nvidia.yaml` + `nvml-mock-nri.yaml`    | —                                                                    |
 
@@ -246,11 +248,14 @@ The reconciler is a fan-out with one barrier:
 ```
                      ┌── gpudriver      (chardevs + libs + smi + procfs + engine config, all parallel)
                      ├── pcibus         (sysfs tree)
-                     ├── fabricmanager  (marker; Run→ re-assertion loop)     ┌── cdi        (2 YAMLs)
+                     ├── fabricmanager  (marker)                             ┌── cdi        (2 YAMLs)
    State snapshot ───┼── imex           (chardevs + /proc/devices overlay) ──┼── gpudriver  (/run/nvidia/driver symlink)
-                     ├── ibhca          (sysfs tree; Run→ mock-ib daemon)    └── pcibus     (NFD feature file)
+                     ├── ib             (sysfs tree)                         └── pcibus     (NFD feature file)
                      └── nvlink         (topology overlay)
-                          Stage wave                    barrier                  Apply wave
+                          Stage wave              barrier +                      Apply wave
+                                              supervisor wave
+                                        (Run: fabricmanager marker
+                                         loop, mock-ib daemon)
 ```
 
 Startup time ≈ `max(t_stage) + max(t_apply)` instead of `sum(t_phase)`. Dominant cost is IB sysfs render + `mock-ib` daemon warm-up; the apply wave is four small file writes, so the barrier costs almost nothing.
@@ -305,7 +310,7 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 
 | Surface                                                                                       | Consumers                                                                                  | Coverage                                                                                                                                                             |
 |-----------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Readiness marker `/var/lib/nvml-mock/fabric-state/fabricmanager.ready`, re-asserted every 2 s | GPU Operator (waits for fabric ready before workloads), nvidia-smi via NVML fabric queries | ✓ `fabricmanager` via `pkg/fmcoord`; `Run()` supervises the re-assertion loop; optional init delay simulates real startup latency                                    |
+| Readiness marker `/var/lib/nvml-mock/fabric-state/fabricmanager.ready`, re-asserted every 2 s | GPU Operator (waits for fabric ready before workloads), nvidia-smi via NVML fabric queries | ✓ `fabricmanager` via `internal/fabricmanager`; `Run()` supervises the re-assertion loop; optional init delay simulates real startup latency                                    |
 | Process presence in `ps` / `systemctl status nvidia-fabricmanager`                            | operator diagnostic tooling                                                                | ~ marker only; process name is `mokka-node-agent`, not `nv-fabricmanager`. Acceptable divergence unless a consumer greps for the process name — call out in MEP-0003 |
 | `nv-fabricmanager` telemetry Unix socket `/run/nvidia-fabricmanager/socket`                   | DCGM-Exporter `fabric_manager_status` collector                                            | ✗ **gap** — DCGM-Exporter's fabric metrics report unknown                                                                                                            |
 | `nvswitch-audit` CLI                                                                          | operator diagnostics                                                                       | ✗ **gap** — CLI not shipped                                                                                                                                          |
@@ -335,11 +340,11 @@ Legend: **✓** covered, **~** partial, **✗** gap, **N/A** intentionally out o
 
 | Surface                                                                                                    | Consumers                                                                  | Coverage                                                                                                                                                                         |
 |------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `/sys/class/infiniband/mlx5_<N>/*`                                                                         | Network Operator, `ibstat`, `ibv_devinfo`, DCGM fabric metrics, Topograph  | ✓ `ibhca` via `pkg/network/mockib/render` — full HCA surface (18 file attributes + `gids/`, `pkeys/`, `counters/`, `gid_attrs/` subdirs); `gids/0` derived as `fe80::+port_guid` |
-| `libibverbs` C ABI (`ibv_get_device_list`, `ibv_open_device`, `ibv_query_port`, ...)                       | RDMA-aware apps, MPI, DCGM                                                 | ✓ `ibhca` stages `libibmockverbs.so` for LD_PRELOAD                                                                                                                              |
-| `libibumad` UMAD socket protocol                                                                           | admin/diagnostic tools (`ibping`, `iblinkinfo`, `ibnetdiscover`, `sminfo`) | ✓ `libibmockumad.so` LD_PRELOAD → Unix socket to in-process `mock-ib` daemon via `pkg/network/mockib/daemon.Server`; `Run()` supervises the daemon                               |
-| Cross-node fabric relay (TCP, `MOCK_IB=full`)                                                              | multi-node `iblinkinfo`, subnet discovery                                  | ✓ `ibhca` fabric mode via `pkg/network/mockib/fabric`                                                                                                                            |
-| IB CLI tools (`ibstat`, `iblinkinfo`, `ibnetdiscover`, `ibping`, `ibv_devinfo`) — real ELFs, RPATH-patched | operator introspection, GPU Operator IB validator                          | ✓ `ibhca` stages tools RPATH-patched at Docker build time by `stage-ib-tools.sh`                                                                                                 |
+| `/sys/class/infiniband/mlx5_<N>/*`                                                                         | Network Operator, `ibstat`, `ibv_devinfo`, DCGM fabric metrics, Topograph  | ✓ `ib` via `internal/ib/sysfs` — full HCA surface (18 file attributes + `gids/`, `pkeys/`, `counters/`, `gid_attrs/` subdirs); `gids/0` derived as `fe80::+port_guid` |
+| `libibverbs` C ABI (`ibv_get_device_list`, `ibv_open_device`, `ibv_query_port`, ...)                       | RDMA-aware apps, MPI, DCGM                                                 | ✓ `ib` stages `libibmockverbs.so` for LD_PRELOAD                                                                                                                              |
+| `libibumad` UMAD socket protocol                                                                           | admin/diagnostic tools (`ibping`, `iblinkinfo`, `ibnetdiscover`, `sminfo`) | ✓ `libibmockumad.so` LD_PRELOAD → Unix socket to in-process `mock-ib` daemon via `internal/ib/daemon.Server`; `Run()` supervises the daemon                               |
+| Cross-node fabric relay (TCP, `MOCK_IB=full`)                                                              | multi-node `iblinkinfo`, subnet discovery                                  | ✓ `ib` fabric mode via `internal/ib/fabric`                                                                                                                            |
+| IB CLI tools (`ibstat`, `iblinkinfo`, `ibnetdiscover`, `ibping`, `ibv_devinfo`) — real ELFs, RPATH-patched | operator introspection, GPU Operator IB validator                          | ✓ `ib` stages tools RPATH-patched at Docker build time by `bundle-ib-tools.sh`                                                                                                 |
 | RDMA netlink (`RDMA_NL_LS`) events                                                                         | newer RDMA management tools                                                | ✗ **gap** — not simulated                                                                                                                                                        |
 | CM (Communication Manager) socket for the RDMA data path                                                   | MPI, workload data-plane                                                   | N/A — data-plane simulation is not the design goal                                                                                                                               |
 

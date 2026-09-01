@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
-	"github.com/NVIDIA/k8s-test-infra/pkg/fmcoord"
+	"github.com/NVIDIA/k8s-test-infra/internal/fabricmanager"
 )
 
 func twoGPUState() *agent.State {
@@ -132,7 +132,7 @@ func TestNvidiaSpecFabricManagerDisabled(t *testing.T) {
 	spec := buildNvidiaSpec(state)
 
 	for _, m := range spec.ContainerEdits.Mounts {
-		require.NotEqual(t, fmcoord.DefaultStateDir, m.HostPath)
+		require.NotEqual(t, fabricmanager.DefaultStateDir, m.HostPath)
 	}
 	for _, e := range spec.ContainerEdits.Env {
 		require.NotContains(t, e, "MOCK_FABRICMANAGER_STATE_DIR")

@@ -750,7 +750,7 @@ kubectl exec "$CLIENT_POD" -- ibping -c 3 "$LID"
 For automated cross-node validation (including peer restart and retries), use
 `tests/e2e/validate-ibping.sh`. LID-based ping is the supported path;
 cross-node `ibping -G <port_guid>` is supported (use `0x` hex without colons;
-see `pkg/network/mockib/README.md`). Companion fabric validators:
+see `internal/ib/README.md`). Companion fabric validators:
 
 - [`tests/e2e/validate-iblinkinfo.sh`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/validate-iblinkinfo.sh)
   — direct-route walk reports peer GUIDs without duplicate-port errors.
@@ -758,9 +758,9 @@ see `pkg/network/mockib/README.md`). Companion fabric validators:
   — `ibv_devinfo -l` claims every rendered HCA via libmlx5; `ibstatus`
   confirms ACTIVE / LinkUp port state.
 
-See [`pkg/network/mockib/README.md`](https://github.com/NVIDIA/k8s-test-infra/blob/main/pkg/network/mockib/README.md#mock-ibping)
-for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`,
-`MOCK_IB_DEBUG_SMP`, …) and architecture details.
+See [`internal/ib/README.md`](https://github.com/NVIDIA/k8s-test-infra/blob/main/internal/ib/README.md#tiers)
+for env vars (`MOCK_IB`, `MOCK_IB_PING_FABRIC`, `MOCK_IB_PEERS`, …) and
+architecture details.
 
 ## Device injection mode
 

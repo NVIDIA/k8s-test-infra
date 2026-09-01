@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
+	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
+
 	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -58,10 +60,10 @@ func (s *Simulator) Discard(_ context.Context, _ *host.Host) error { return nil 
 
 // Apply writes /run/cdi/nvidia.yaml and /run/cdi/nvml-mock-nri.yaml.
 func (s *Simulator) Apply(_ context.Context, h *host.Host, state *agent.State) error {
-	if err := writeSpec(h, filepath.Join(h.Run, nvidiaSpecFile), buildNvidiaSpec(state)); err != nil {
+	if err := writeSpec(filepath.Join(h.Run, nvidiaSpecFile), buildNvidiaSpec(state)); err != nil {
 		return fmt.Errorf("nvidia.yaml: %w", err)
 	}
-	if err := writeSpec(h, filepath.Join(h.Run, nriSpecFile), buildNRISpec(state)); err != nil {
+	if err := writeSpec(filepath.Join(h.Run, nriSpecFile), buildNRISpec(state)); err != nil {
 		return fmt.Errorf("nvml-mock-nri.yaml: %w", err)
 	}
 	return nil
@@ -69,8 +71,8 @@ func (s *Simulator) Apply(_ context.Context, h *host.Host, state *agent.State) e
 
 // Revoke removes both CDI specs.
 func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
-	err1 := h.Remove(filepath.Join(h.Run, nvidiaSpecFile))
-	err2 := h.Remove(filepath.Join(h.Run, nriSpecFile))
+	err1 := fsutil.Remove(filepath.Join(h.Run, nvidiaSpecFile))
+	err2 := fsutil.Remove(filepath.Join(h.Run, nriSpecFile))
 
 	if err1 != nil {
 		return err1
@@ -79,10 +81,10 @@ func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
 	return err2
 }
 
-func writeSpec(h *host.Host, path string, spec cdiSpec) error {
+func writeSpec(path string, spec cdiSpec) error {
 	data, err := yaml.Marshal(spec)
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
-	return h.WriteFile(path, data, 0o644)
+	return fsutil.Write(path, data, 0o644)
 }

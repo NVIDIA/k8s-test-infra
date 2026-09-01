@@ -20,7 +20,7 @@ the node labels that downstream consumers expect.
    - Six GPU profile ConfigMaps are created (one per profile field group).
    - `nvidia-smi` runs successfully inside a pod.
    - `ibstat` lists 8 simulated ConnectX-7 NDR HCAs (see
-     [`pkg/network/mockib/README.md`](https://github.com/NVIDIA/k8s-test-infra/blob/main/pkg/network/mockib/README.md)).
+     [`internal/ib/README.md`](https://github.com/NVIDIA/k8s-test-infra/blob/main/internal/ib/README.md)).
    - `ibv_devinfo -l` enumerates every mock HCA (via libmlx5) and
      `ibstatus` confirms ACTIVE / LinkUp ports, both driven by
      [`tests/e2e/validate-ibv-devinfo.sh`](https://github.com/NVIDIA/k8s-test-infra/blob/main/tests/e2e/validate-ibv-devinfo.sh).

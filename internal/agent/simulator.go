@@ -34,7 +34,13 @@ type Applier interface {
 
 // Daemon is implemented by simulators that supervise a long-running background
 // process (fabricmanager marker loop, mock-ib server). The agent launches Run
-// once at startup; it must block until ctx is cancelled.
+// on the Stage barrier of the first successful reconcile, so a daemon may
+// assume its own Stage artifacts exist.
 type Daemon interface {
+	// Run blocks until ctx is cancelled. ctx is the agent's lifetime, so a Run
+	// survives every subsequent state update.
 	Run(ctx context.Context) error
+	// Reload delivers later States to the running daemon, so a profile edit
+	// applies without a pod restart. No-op for daemons holding no staged state.
+	Reload(ctx context.Context, state *State) error
 }

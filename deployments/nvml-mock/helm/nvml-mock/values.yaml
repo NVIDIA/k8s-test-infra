@@ -322,6 +322,11 @@ imex:
 fabricmanager:
   enabled: ""
   stateDir: /var/lib/nvml-mock/fabric-state
+  # Delay before the node agent publishes fabric readiness, as a Go duration
+  # ("15s"). Real NVSwitch registration is not instant; set this to exercise the
+  # IN_PROGRESS window a workload sees before the fabric comes up. Empty means
+  # publish immediately.
+  initDelay: ""
 
 # Integration with external projects
 integrations:
