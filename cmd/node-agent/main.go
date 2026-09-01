@@ -68,6 +68,12 @@ func startCommand() *cli.Command {
 				Sources: cli.EnvVars("MOKKA_AGENT_CONFIG"),
 			},
 			&cli.StringFlag{
+				Name:    "topology",
+				Value:   "/etc/nvml-mock/topology/topology.yaml",
+				Usage:   "path to the cluster ComputeDomain topology document; the chart mounts it only when topology is enabled",
+				Sources: cli.EnvVars("MOKKA_AGENT_TOPOLOGY"),
+			},
+			&cli.StringFlag{
 				Name:    "host-root",
 				Value:   "/host",
 				Sources: cli.EnvVars("MOKKA_AGENT_HOST_ROOT"),
@@ -155,7 +161,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 				Fabric:  cmd.Bool("ib-fabric"),
 			}),
 		},
-		Source:          source.NewFileSource(configPath, log),
+		Source:          source.NewFileSource(configPath, cmd.String("topology"), log),
 		Host:            host.New(cmd.String("host-root")),
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,

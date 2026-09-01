@@ -32,26 +32,29 @@ func envIntOrDefault(key string, def int) int {
 
 const defaultPollInterval = 5 * time.Second
 
-// FileSource watches a YAML config file and emits State updates on change.
-// It polls the config directory so ConfigMap atomic ..data symlink swaps
-// are detected correctly — watching the file itself would pin the replaced inode.
+// FileSource watches the profile and the cluster topology document and emits a
+// State update when either changes. It polls the containing directories so
+// ConfigMap atomic ..data symlink swaps are detected correctly — watching a file
+// itself would pin the replaced inode.
 type FileSource struct {
 	configPath   string
+	topologyPath string
 	pollInterval time.Duration
 	log          *slog.Logger
 }
 
-// NewFileSource returns a FileSource that watches configPath for changes.
-func NewFileSource(configPath string, log *slog.Logger) *FileSource {
+// NewFileSource returns a FileSource that watches configPath and topologyPath.
+func NewFileSource(configPath, topologyPath string, log *slog.Logger) *FileSource {
 	return &FileSource{
 		configPath:   configPath,
+		topologyPath: topologyPath,
 		pollInterval: defaultPollInterval,
 		log:          log,
 	}
 }
 
 // Watch sends the current State immediately and then pushes updates whenever
-// the config file content changes. The channel is closed when ctx is done.
+// either watched document changes. The channel is closed when ctx is done.
 func (f *FileSource) Watch(ctx context.Context) <-chan agent.Update {
 	ch := make(chan agent.Update, 1)
 	go f.run(ctx, ch)
@@ -86,7 +89,13 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 		return
 	}
 
-	h := sha256.Sum256(data)
+	topology, err := readTopology(f.topologyPath)
+	if err != nil {
+		f.send(ctx, ch, agent.Update{Err: err, At: time.Now()})
+		return
+	}
+
+	h := inputsHash(data, topology)
 	if h == *lastHash {
 		return // content unchanged
 	}
@@ -98,6 +107,7 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 		return
 	}
 	state.ConfigRaw = data
+	state.TopologyRaw = topology
 	f.log.Info("state updated from config", "config", f.configPath)
 	f.send(ctx, ch, agent.Update{State: state, At: time.Now()})
 }
@@ -107,6 +117,29 @@ func (f *FileSource) send(ctx context.Context, ch chan<- agent.Update, u agent.U
 	case ch <- u:
 	case <-ctx.Done():
 	}
+}
+
+// readTopology returns the cluster topology document, or nil when no topology
+// ConfigMap is mounted. Other read failures surface as errors, because a nil
+// document retracts the one already staged on this node.
+func readTopology(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read topology: %w", err)
+	}
+
+	return data, nil
+}
+
+// inputsHash digests both documents so an edit to either is a change. Hashing
+// the fixed-width sums keeps a byte from shifting across the boundary.
+func inputsHash(config, topology []byte) [32]byte {
+	c, t := sha256.Sum256(config), sha256.Sum256(topology)
+
+	return sha256.Sum256(append(c[:], t[:]...))
 }
 
 // compileState parses raw YAML config bytes and builds the agent State.

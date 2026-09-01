@@ -24,6 +24,11 @@ type State struct {
 	// the static hardware model, Runtime carries operational overrides (GPU_COUNT,
 	// faults, fabric) written by GPU_COUNT env, MEP-0001 CP, and nvml-mock-ctl.
 	ConfigRaw []byte
+	// TopologyRaw holds the cluster ComputeDomain topology document verbatim.
+	// It stays raw because the document describes every node and the mock NVML
+	// engine picks this node's entry by NODE_NAME at load time, so there is no
+	// per-node view for the agent to compile.
+	TopologyRaw []byte
 }
 
 // NodeMeta carries node identity fields.
