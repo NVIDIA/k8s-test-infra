@@ -5,6 +5,7 @@ package source
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -75,7 +76,7 @@ func TestFileSource_EmitsInitialState(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fs := NewFileSource(configs[0], slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	fs := NewFileSource(configs[0], filepath.Join(t.TempDir(), "topology.yaml"), slog.New(slog.NewTextHandler(os.Stdout, nil)))
 	ch := fs.Watch(ctx)
 
 	u := <-ch
@@ -286,4 +287,128 @@ func TestCompileNetwork_AppliesDefaults(t *testing.T) {
 	require.NotEmpty(t, net.PortState)
 	require.NotEmpty(t, net.PhysState)
 	require.Positive(t, net.RateGbps)
+}
+
+const topologyDoc = `domains:
+  - uuid: 6f0e1b8a-0000-4000-8000-000000000001
+    cliques:
+      - id: 1
+        nodes: [worker-0]
+`
+
+// sourceWith returns a FileSource over a gb200 profile and a topology path that
+// the caller can create, edit, or leave absent.
+func sourceWith(t *testing.T, topology string) (*FileSource, string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	profile, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
+	require.NoError(t, err)
+	configPath := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, profile, 0o600))
+
+	topologyPath := filepath.Join(dir, "topology.yaml")
+	if topology != "" {
+		require.NoError(t, os.WriteFile(topologyPath, []byte(topology), 0o600))
+	}
+
+	return NewFileSource(configPath, topologyPath, slog.New(slog.NewTextHandler(io.Discard, nil))), topologyPath
+}
+
+// poll is what the ticker calls, so driving it directly exercises the same
+// change detection the running agent sees without waiting on the interval.
+func pollOnce(t *testing.T, f *FileSource, lastHash *[32]byte) *agent.Update {
+	t.Helper()
+
+	ch := make(chan agent.Update, 1)
+	f.poll(context.Background(), ch, lastHash)
+	select {
+	case u := <-ch:
+		return &u
+	default:
+		return nil
+	}
+}
+
+// The topology document reaches simulators through State, so nvlink never has
+// to read the ConfigMap mount itself.
+func TestFileSource_CarriesTheTopologyDocument(t *testing.T) {
+	f, _ := sourceWith(t, topologyDoc)
+
+	var hash [32]byte
+	u := pollOnce(t, f, &hash)
+	require.NotNil(t, u)
+	require.NoError(t, u.Err)
+	require.Equal(t, topologyDoc, string(u.State.TopologyRaw))
+}
+
+// The chart mounts the ConfigMap only when topology is enabled, so an absent
+// document is an ordinary state, and it is what retracts a staged overlay.
+func TestFileSource_AbsentTopologyIsEmptyNotAnError(t *testing.T) {
+	f, _ := sourceWith(t, "")
+
+	var hash [32]byte
+	u := pollOnce(t, f, &hash)
+	require.NotNil(t, u)
+	require.NoError(t, u.Err)
+	require.Empty(t, u.State.TopologyRaw)
+}
+
+// Editing the topology alone must reconcile: nothing in the profile changes, so
+// hashing the profile by itself would leave workloads on the previous clique.
+func TestFileSource_TopologyEditTriggersAReconcile(t *testing.T) {
+	f, topologyPath := sourceWith(t, topologyDoc)
+
+	var hash [32]byte
+	require.NotNil(t, pollOnce(t, f, &hash), "initial poll emits")
+	require.Nil(t, pollOnce(t, f, &hash), "an unchanged pair emits nothing")
+
+	updated := topologyDoc + "      - id: 2\n        nodes: [worker-1]\n"
+	require.NoError(t, os.WriteFile(topologyPath, []byte(updated), 0o600))
+
+	u := pollOnce(t, f, &hash)
+	require.NotNil(t, u, "a topology edit must emit an update")
+	require.NoError(t, u.Err)
+	require.Equal(t, updated, string(u.State.TopologyRaw))
+}
+
+// Deleting the ConfigMap is the retraction path, and it has to reconcile too.
+func TestFileSource_TopologyRemovalTriggersAReconcile(t *testing.T) {
+	f, topologyPath := sourceWith(t, topologyDoc)
+
+	var hash [32]byte
+	require.NotNil(t, pollOnce(t, f, &hash))
+
+	require.NoError(t, os.Remove(topologyPath))
+
+	u := pollOnce(t, f, &hash)
+	require.NotNil(t, u, "a withdrawn topology must emit an update")
+	require.NoError(t, u.Err)
+	require.Empty(t, u.State.TopologyRaw)
+}
+
+// The chart omits --topology where the cluster declares none, so an unset path
+// carries the same meaning as an unmounted ConfigMap.
+func TestFileSource_UnsetTopologyPathIsEmptyNotAnError(t *testing.T) {
+	f, _ := sourceWith(t, topologyDoc)
+	f.topologyPath = ""
+
+	var hash [32]byte
+	u := pollOnce(t, f, &hash)
+	require.NotNil(t, u)
+	require.NoError(t, u.Err)
+	require.Empty(t, u.State.TopologyRaw)
+}
+
+// A topology that cannot be read is a broken mount, not a cluster without
+// topology; emitting an empty document would retract every node's overlay.
+func TestFileSource_ReportsAnUnreadableTopology(t *testing.T) {
+	f, topologyPath := sourceWith(t, topologyDoc)
+	f.topologyPath = filepath.Join(topologyPath, "topology.yaml") // a file, not a directory
+
+	var hash [32]byte
+	u := pollOnce(t, f, &hash)
+	require.NotNil(t, u)
+	require.Error(t, u.Err)
+	require.Nil(t, u.State)
 }
