@@ -94,7 +94,13 @@ if ! kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
 fi
 
 # Worker node names == docker container names (default kind naming).
-mapfile -t WORKERS < <(kind get nodes --name "${CLUSTER_NAME}" | grep -v control-plane | sort)
+# Populated with a while-read loop rather than mapfile: mapfile is a bash 4.0
+# builtin and macOS ships bash 3.2, where it aborts the demo outright with
+# "mapfile: command not found" before anything has been demonstrated.
+WORKERS=()
+while IFS= read -r worker_node; do
+  [ -n "${worker_node}" ] && WORKERS+=("${worker_node}")
+done < <(kind get nodes --name "${CLUSTER_NAME}" | grep -v control-plane | sort)
 [[ "${#WORKERS[@]}" -ge 1 ]] || fail "no worker nodes found"
 info "GPU workers: ${WORKERS[*]}"
 
