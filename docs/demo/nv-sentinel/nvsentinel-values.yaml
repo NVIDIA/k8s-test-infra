@@ -175,29 +175,11 @@ mongodb-store:
   useBitnami: false
   usePerconaOperator: true
 
-  # Keep the collection-setup Job on the control-plane with the rest of the
-  # pipeline so a remediation drain cannot evict it mid-run.
-  job:
-    nodeSelector:
-      node-role.kubernetes.io/control-plane: ""
-    tolerations:
-      - key: node-role.kubernetes.io/control-plane
-        operator: Exists
-        effect: NoSchedule
-
-  psmdb-operator:
-    nodeSelector:
-      node-role.kubernetes.io/control-plane: ""
-    tolerations:
-      - key: node-role.kubernetes.io/control-plane
-        operator: Exists
-        effect: NoSchedule
-
   psmdb-db:
     # Percona refuses a replica set smaller than three members unless the size
     # check is explicitly waived. NVSentinel only needs change streams, which a
-    # single-member replica set provides, and three members (3 x 1 CPU / 1.5Gi,
-    # all on the control-plane) do not fit a laptop-sized Kind cluster.
+    # single-member replica set provides, and three members (3 x 1 CPU / 1.5Gi)
+    # do not fit a laptop-sized Kind cluster.
     unsafeFlags:
       replsetSize: true
     replsets:
@@ -217,9 +199,3 @@ mongodb-store:
                 storage: 2Gi
         # No Prometheus Operator in this demo, so the metrics sidecar is dead weight.
         sidecars: []
-        nodeSelector:
-          node-role.kubernetes.io/control-plane: ""
-        tolerations:
-          - key: node-role.kubernetes.io/control-plane
-            operator: Exists
-            effect: NoSchedule

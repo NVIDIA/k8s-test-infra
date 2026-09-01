@@ -210,9 +210,7 @@ The demo then trims the Percona defaults for a laptop-sized Kind cluster: a
 **single-member** replica set (`unsafeFlags.replsetSize: true`, since Percona
 otherwise insists on three) with smaller CPU/memory requests and no metrics
 sidecar. NVSentinel only needs change streams, which a one-member replica set
-provides. The operator, the replica set, and the collection-setup Job are all
-pinned to the control-plane alongside the rest of the pipeline, so a remediation
-drain never evicts the datastore it depends on.
+provides.
 
 ## Inspecting the result
 
