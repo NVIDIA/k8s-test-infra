@@ -899,7 +899,7 @@ tests:
       # The watcher reads the kubelet's pod-resources socket, not the node's
       # sysfs, and the volume is the whole of /sys.
       - notContains:
-          path: spec.template.spec.containers[1].volumeMounts
+          path: spec.template.spec.containers[0].volumeMounts
           content:
             name: node-sysfs
             mountPath: /host/sys
