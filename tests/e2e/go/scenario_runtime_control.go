@@ -393,6 +393,78 @@ func assertRuntimeTempCommand(ctx SpecContext, h *harness.Harness, consumer kube
 			"GPU %d temperature should return to the simulator baseline after reset", target)
 }
 
+// assertGpuResetViaNvidiaSmi covers `nvidia-smi --gpu-reset` / `-r` as a
+// remediation an operator or controller actually reaches for: pin a GPU's
+// temperature, reset that GPU through nvidia-smi rather than nvml-mock-ctl, and
+// confirm the device returns to its baseline and the override is gone.
+//
+// The reset performs the same mutation as `nvml-mock-ctl reset --gpu <n>`,
+// reached from the other direction — nvidia-smi drives it through the internal
+// export table, so this is the only test that covers those slots doing real
+// work. Two bugs are guarded at once: the dispatcher's catch-all used to fault
+// writing a zero count through an argument that carries none on the reset
+// completion slot (every reset died with a bare exit 139 and no output), and a
+// reset that reported success while clearing nothing would leave the pinned
+// temperature in place here.
+//
+// Scope is asserted too: nvidia-smi calls the reset slot once per targeted GPU,
+// so `-i <target>` must leave a second pinned GPU alone.
+func assertGpuResetViaNvidiaSmi(ctx SpecContext, h *harness.Harness, consumer kube.PodRef) {
+	GinkgoHelper()
+	resetRuntimeOverrides(ctx, h)
+
+	count := gpuCount(ctx, h, consumer)
+	target := count - 1 // exercise a non-zero index where possible
+	// Distinct from the ~55-70 dynamic baseline and below every profile's
+	// shutdown threshold (min 92), so nvidia-smi never clamps the reading.
+	const overrideC = 87
+
+	baseline := smiGPUTempC(ctx, h, consumer, target)
+	Expect(baseline).NotTo(Equal(overrideC), "baseline temperature must differ from the override for a meaningful assertion")
+
+	By(fmt.Sprintf("pin temperature to %dC on GPU %d via nvml-mock-ctl temp", overrideC, target))
+	nvmlMockCtl(ctx, h, "temp", "--gpu", strconv.Itoa(target), strconv.Itoa(overrideC))
+	if count > 1 {
+		// A second pinned GPU makes the -i scoping assertion below meaningful.
+		nvmlMockCtl(ctx, h, "temp", "--gpu", "0", strconv.Itoa(overrideC))
+	}
+
+	Eventually(func() int {
+		return smiGPUTempC(ctx, h, consumer, target)
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(overrideC), "GPU %d temperature should reflect the override before the reset", target)
+
+	By(fmt.Sprintf("reset GPU %d with nvidia-smi -r", target))
+	res, _ := h.Kube.Exec(ctx, consumer, "nvidia-smi", "-r", "-i", strconv.Itoa(target))
+	problems := nvidiasmi.GpuResetProblems(res.ExitCode, res.Combined(), 1)
+	Expect(problems).To(BeEmpty(), strings.Join(problems, "\n"))
+
+	Eventually(func() int {
+		return smiGPUTempC(ctx, h, consumer, target)
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(And(BeNumerically(">", 0), BeNumerically("<", overrideC)),
+			"GPU %d temperature should return to the simulator baseline after nvidia-smi -r", target)
+	Expect(nvmlMockCtl(ctx, h, "status", "--gpu", strconv.Itoa(target))).
+		To(ContainSubstring(fmt.Sprintf("no active overrides for gpu %d", target)),
+			"nvidia-smi -r should clear the target's overrides, like nvml-mock-ctl reset")
+
+	if count > 1 {
+		By("verify the reset is scoped to the target GPU (GPU 0 still pinned)")
+		Expect(smiGPUTempC(ctx, h, consumer, 0)).To(Equal(overrideC),
+			"GPU 0 must keep its override when only GPU %d was reset", target)
+
+		By("a bare nvidia-smi --gpu-reset resets every GPU")
+		all, _ := h.Kube.Exec(ctx, consumer, "nvidia-smi", "--gpu-reset")
+		problems = nvidiasmi.GpuResetProblems(all.ExitCode, all.Combined(), count)
+		Expect(problems).To(BeEmpty(), strings.Join(problems, "\n"))
+		Eventually(func() int {
+			return smiGPUTempC(ctx, h, consumer, 0)
+		}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+			Should(BeNumerically("<", overrideC), "GPU 0 should return to baseline after a bare --gpu-reset")
+		Expect(nvmlMockCtl(ctx, h, "status")).To(ContainSubstring("no active overrides"))
+	}
+}
+
 // assertRuntimePowerCommand covers the `power` convenience command: pin a GPU's
 // power draw (in watts, the unit nvidia-smi displays) and read it back through
 // power.draw. The command writes both the static and zero-variation dynamic

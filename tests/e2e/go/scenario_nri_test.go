@@ -134,6 +134,10 @@ var _ = Describe("nvml-mock node-wide NRI injection", Label("nri"), Ordered, fun
 				assertAgentSeesGPUs(ctx, h, p.ExpectedGPUs())
 			})
 
+			It("resets a GPU with nvidia-smi -r from inside an injected container", Label("nvidia-smi"), Label("nri-inject"), func(ctx SpecContext) {
+				assertGpuResetFromInjectedContainer(ctx, h)
+			})
+
 			// #438. The IB CLI tools are dynamically linked and setup.sh
 			// relocates them into the overlay, which until this change carried
 			// none of their libraries. Nothing in CI ran them from an injected
@@ -800,6 +804,55 @@ func assertAgentSeesGPUs(ctx context.Context, h *harness.Harness, expectedGPUs i
 	pod := firstNRIAgentPod(ctx, h)
 	Expect(visibleGPUCount(ctx, h, pod)).To(Equal(expectedGPUs),
 		"gpu-agent should see %d NRI-injected GPUs", expectedGPUs)
+}
+
+// assertGpuResetFromInjectedContainer runs the reset where a remediation
+// controller runs it: inside a container the mock was injected into, rather than
+// in the nvml-mock pod.
+//
+// The distinction is the whole point of the spec. Clearing a device's bucket
+// rewrites overrides.yaml under an flock, and an injected container reaches that
+// file through the overlay the NRI plugin mounts. While that overlay was
+// read-only end to end, the write failed with EROFS and nvidia-smi reported
+// "GPU Reset couldn't run" on exactly the GPUs that had something to clear, with
+// healthy ones still reporting success through the no-write path. Every other
+// reset spec execs into the nvml-mock pod, where the file is a writable
+// hostPath, so none of them could see it.
+//
+// The injection and the reset are pinned to one node: the overrides are
+// node-local, so a fault injected on another node would not be the state this
+// reset clears.
+func assertGpuResetFromInjectedContainer(ctx SpecContext, h *harness.Harness) {
+	GinkgoHelper()
+	consumer := firstNRIAgentPod(ctx, h)
+	node := podNode(ctx, h, consumer)
+
+	// Distinct from the dynamic baseline and below every profile's shutdown
+	// threshold, so nvidia-smi never clamps the reading.
+	const overrideC = 87
+
+	nvmlMockCtlOnNode(ctx, h, node, "temp", "--gpu", "0", strconv.Itoa(overrideC))
+	DeferCleanup(func(ctx SpecContext) {
+		nvmlMockCtlOnNode(ctx, h, node, "reset")
+	})
+
+	Eventually(func() int {
+		return smiGPUTempC(ctx, h, consumer, 0)
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(Equal(overrideC), "the injected container must observe the pinned temperature before the reset")
+
+	By("reset GPU 0 with nvidia-smi -r from the injected container")
+	res, _ := h.Kube.Exec(ctx, consumer, "nvidia-smi", "-r", "-i", "0")
+	problems := nvidiasmi.GpuResetProblems(res.ExitCode, res.Combined(), 1)
+	Expect(problems).To(BeEmpty(), strings.Join(problems, "\n"))
+
+	Eventually(func() int {
+		return smiGPUTempC(ctx, h, consumer, 0)
+	}).WithContext(ctx).WithTimeout(runtimeTTLTimeout).WithPolling(runtimeTTLPoll).
+		Should(BeNumerically("<", overrideC), "GPU 0 should return to the simulator baseline after the reset")
+	Expect(nvmlMockCtlOnNode(ctx, h, node, "status", "--gpu", "0")).
+		To(ContainSubstring("no active overrides for gpu 0"),
+			"a reset from an injected container must clear the override, not just exit 0")
 }
 
 // assertNodeCliqueIdentities runs the staged `check-fabric` consumer inside the

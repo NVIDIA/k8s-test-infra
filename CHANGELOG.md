@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
+  segfaulting. The mock's export-table dispatcher ended every per-device call by
+  writing a zero count through `arg1`, which the reset slots do not carry, so the
+  most common GPU remediation died with a bare exit 139. The reset is also a real
+  operation now: it clears the device's injected overrides under the same flock
+  as `nvml-mock-ctl reset --gpu <n>`, so an existing remediation controller or
+  runbook works unmodified against the mock. It runs from an injected consumer
+  container as well as the nvml-mock pod — CDI and NRI mount the config directory
+  writable for it, while the mock library and `nvidia-smi` stay read-only.
+  `-i <n>` resets one GPU, a bare `--gpu-reset` every device. Two consequences,
+  documented in `docs/nvml-mock-ctl.md`: state injected with `--gpu all` still
+  needs `reset --gpu all`, and resetting a GPU with nothing injected rewrites
+  nothing.
 - mocknvml: `Max Customer Boost Clocks` in `nvidia-smi -q` now reports the
   profile's `clocks.graphics_max` instead of `N/A`. Both NVML entry points that
   can answer the row were generated stubs — the dedicated

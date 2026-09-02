@@ -585,6 +585,58 @@ func TestProcessMonitorProblems_RejectsOtherAbnormalExits(t *testing.T) {
 	}
 }
 
+// The real nvidia-smi reset report: one line per GPU naming its PCI bus id,
+// then a single trailer.
+const gpuResetReport = "GPU 00000000:0A:00.0 was successfully reset.\n" +
+	"GPU 00000000:0B:00.0 was successfully reset.\n" +
+	"All done.\n"
+
+func TestGpuResetProblems_AcceptsFullReport(t *testing.T) {
+	assert.Empty(t, GpuResetProblems(0, gpuResetReport, 2))
+	assert.Empty(t, GpuResetProblems(0,
+		"GPU 00000000:0B:00.0 was successfully reset.\nAll done.\n", 1))
+}
+
+// Exit 139 is the SIGSEGV the mock used to die with while serving the reset
+// slots, and the reason this check exists.
+func TestGpuResetProblems_RejectsSegfault(t *testing.T) {
+	problems := GpuResetProblems(139, "command terminated with exit code 139", 1)
+	require.Len(t, problems, 1)
+	assert.Contains(t, problems[0], "139")
+}
+
+// A refusal is no longer acceptable: the reset is implemented, so nvidia-smi
+// giving up ("GPU Reset couldn't run...") is a regression rather than a baseline.
+func TestGpuResetProblems_RejectsRefusal(t *testing.T) {
+	for _, code := range []int{3, 255, 2} {
+		assert.NotEmpty(t, GpuResetProblems(code,
+			"GPU Reset couldn't run because it could not be determined if GPU 0 is the primary GPU.", 1),
+			"exit %d", code)
+	}
+}
+
+// Exit 0 with no report means the reset did nothing, which a bare exit-code
+// check would pass.
+func TestGpuResetProblems_RejectsSilentSuccess(t *testing.T) {
+	problems := GpuResetProblems(0, "", 1)
+	require.NotEmpty(t, problems)
+	assert.Contains(t, strings.Join(problems, "; "), "want 1")
+}
+
+// Resetting every GPU must report every GPU; a report covering only the first
+// would mean the walk stopped early.
+func TestGpuResetProblems_RejectsPartialReport(t *testing.T) {
+	problems := GpuResetProblems(0, gpuResetReport, 4)
+	require.NotEmpty(t, problems)
+	assert.Contains(t, problems[0], "want 4")
+}
+
+func TestGpuResetProblems_RejectsMissingTrailer(t *testing.T) {
+	problems := GpuResetProblems(0, "GPU 00000000:0A:00.0 was successfully reset.\n", 1)
+	require.Len(t, problems, 1)
+	assert.Contains(t, problems[0], "All done.")
+}
+
 // The captured document is the defect: every SRAM reading, the source breakdown
 // and the threshold flag are N/A, so a health checker cannot tell a GPU with no
 // SRAM errors from one whose SRAM state is unknown (#641).

@@ -217,6 +217,40 @@ func ProcessMonitorProblems(exitCode int, output string) []string {
 		exitCode, pmonAcceptableExitCodes, output)}
 }
 
+// resetSuccessLine is what nvidia-smi prints per GPU after a successful reset,
+// and resetTrailer closes the report. Both come from real hardware output.
+const (
+	resetSuccessLine = "was successfully reset."
+	resetTrailer     = "All done."
+)
+
+// GpuResetProblems checks that `nvidia-smi --gpu-reset` actually reset wantGPUs
+// devices: exit 0, one success line per GPU, and the trailer.
+//
+// Reset is driven entirely through the internal export table, and the mock used
+// to fault inside its own dispatcher while serving it — the catch-all wrote a
+// zero count through an argument that is not a count on the reset completion
+// slot, so every invocation died with a bare SIGSEGV (exit 139 through kubectl)
+// and no output at all. Asserting the report rather than just a non-crashing
+// exit is deliberate: a reset that silently does nothing would still exit 0.
+func GpuResetProblems(exitCode int, output string, wantGPUs int) []string {
+	if exitCode != 0 {
+		return []string{fmt.Sprintf(
+			"nvidia-smi --gpu-reset exited %d, want 0 (139 is a SIGSEGV through kubectl): %s",
+			exitCode, output)}
+	}
+
+	var problems []string
+	if got := strings.Count(output, resetSuccessLine); got != wantGPUs {
+		problems = append(problems, fmt.Sprintf("nvidia-smi --gpu-reset reported %d %q lines, want %d: %s",
+			got, resetSuccessLine, wantGPUs, output))
+	}
+	if !strings.Contains(output, resetTrailer) {
+		problems = append(problems, fmt.Sprintf("nvidia-smi --gpu-reset omitted %q: %s", resetTrailer, output))
+	}
+	return problems
+}
+
 // EncoderFBCStats are the non-default values issue #636 expects nvidia-smi to
 // surface.
 type EncoderFBCStats struct {

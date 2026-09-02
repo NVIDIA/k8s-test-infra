@@ -375,11 +375,43 @@ prints `no active overrides`.
 `--gpu` clears **everything** (equivalent to `reset --gpu all`). State reverts to
 the pristine profile within one TTL.
 
+### Reset via `nvidia-smi`
+
+`nvidia-smi --gpu-reset` (`-r`) performs the same reset, so a remediation
+controller or a runbook that already reaches for the standard GPU reset works
+unmodified against the mock:
+
+```bash
+kubectl -n mokka exec "$POD" -- nvidia-smi -r -i 0   # same as: reset --gpu 0
+kubectl -n mokka exec "$POD" -- nvidia-smi -r        # every GPU, one at a time
+```
+
+It reports per GPU (`GPU 00000000:0A:00.0 was successfully reset.`) and exits 0.
+
+Two differences from the CLI follow from nvidia-smi driving the reset one device
+at a time:
+
+- A bare `-r` resets each GPU individually, so it does **not** clear the shared
+  `all:` bucket. State injected with `--gpu all` needs
+  `nvml-mock-ctl reset --gpu all`.
+- Resetting a GPU that has nothing injected leaves `overrides.yaml` untouched
+  (no write, no lock), so a reset on a healthy GPU never depends on the overrides
+  being writable.
+
+The reset works from an injected consumer container as well as from the nvml-mock
+pod, which is what lets a remediation controller run it where the workload sees
+the GPU. Clearing a bucket rewrites `overrides.yaml` under an flock, so the config
+directory is bind-mounted writable into injected containers (the driver library
+and `nvidia-smi` itself stay read-only). Mounted read-only it would fail with
+`GPU Reset couldn't run` on exactly the GPUs that had state to clear, while
+healthy ones reported success through the no-write path above.
+
 ## Reset semantics
 
 | Action | Effect on runtime overrides | Result |
 | ------ | --------------------------- | ------ |
 | `nvml-mock-ctl reset [--gpu <t>]` | clears the targeted bucket(s) from `overrides.yaml` | device(s) revert to pristine profile within one TTL |
+| `nvidia-smi --gpu-reset [-i <idx>]` | clears the same per-device bucket(s) — see [via nvidia-smi](#reset-via-nvidia-smi) | device(s) revert to pristine profile within one TTL |
 | `nvml-mock-ctl fail --gpu <t> --mode healthy` | removes just the `failure` block for the target | that device recovers within one TTL; other overrides stay |
 | `nvml-mock-ctl fabric-health --gpu <t> healthy` | clears just the fabric health conditions for the target | that device's fabric reports healthy within one TTL; other overrides stay |
 | DaemonSet pod restart | `setup.sh` deletes `overrides.yaml` on startup | **all** overrides wiped; back to pristine profile |
