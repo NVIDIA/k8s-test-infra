@@ -5,10 +5,11 @@ package fabricmanager
 
 import (
 	"context"
-	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // defaultReassertInterval bounds how long an externally deleted marker persists.
@@ -31,7 +32,7 @@ type Daemon struct {
 	cfg          Config
 	lastStateDir string
 	changed      chan struct{}
-	log          *slog.Logger
+	log          *zap.Logger
 	ready        atomic.Bool
 }
 
@@ -45,7 +46,7 @@ func NewDaemon(cfg Config) *Daemon {
 		cfg:          cfg,
 		lastStateDir: cfg.StateDir,
 		changed:      make(chan struct{}),
-		log:          slog.Default().With("component", "fabricmanager"),
+		log:          zap.L().With(zap.String("component", "fabricmanager")),
 	}
 }
 
@@ -97,7 +98,7 @@ func (d *Daemon) Serve(ctx context.Context) error {
 		d.serveGen(ctx, cfg, changed)
 
 		if err := d.withdrawReadiness(cfg.StateDir); err != nil {
-			d.log.Error("could not withdraw fabric readiness", "err", err)
+			d.log.Error("could not withdraw fabric readiness", zap.Error(err))
 		}
 
 		if ctx.Err() != nil {
@@ -125,7 +126,7 @@ func (d *Daemon) snapshot() (Config, <-chan struct{}) {
 
 func (d *Daemon) serveGen(ctx context.Context, cfg Config, changed <-chan struct{}) {
 	if err := d.withdrawReadiness(cfg.StateDir); err != nil {
-		d.log.Warn("could not clear stale readiness marker", "err", err)
+		d.log.Warn("could not clear stale readiness marker", zap.Error(err))
 	}
 
 	if !d.simRegistration(ctx, changed, cfg.InitDelay) {
@@ -154,7 +155,7 @@ func (d *Daemon) simRegistration(ctx context.Context, changed <-chan struct{}, d
 		return true
 	}
 
-	d.log.Info("simulating fabric registration delay", "delay", delay)
+	d.log.Info("simulating fabric registration delay", zap.Duration("delay", delay))
 	select {
 	case <-ctx.Done():
 	case <-changed:
@@ -167,12 +168,12 @@ func (d *Daemon) simRegistration(ctx context.Context, changed <-chan struct{}, d
 func (d *Daemon) assertReadiness(stateDir string) {
 	if err := WriteReady(stateDir); err != nil {
 		d.ready.Store(false)
-		d.log.Error("could not write readiness marker", "err", err)
+		d.log.Error("could not write readiness marker", zap.Error(err))
 		return
 	}
 
 	if d.ready.CompareAndSwap(false, true) {
-		d.log.Info("fabric ready", "marker", MarkerPath(stateDir))
+		d.log.Info("fabric ready", zap.String("marker", MarkerPath(stateDir)))
 	}
 }
 

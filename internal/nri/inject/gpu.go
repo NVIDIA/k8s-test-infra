@@ -5,9 +5,10 @@ package inject
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
+
+	"go.uber.org/zap"
 )
 
 // DeviceInjectionMode selects the mechanism the device opt-in uses to deliver
@@ -58,7 +59,7 @@ func attachGPUs(cfg Config, container Container, adjustment *Adjustment) {
 		// the container past its allocation, and would defeat the mock engine's
 		// visibility filter, which derives the visible GPU set from which
 		// /dev/nvidiaN nodes are present.
-		slog.Warn("device injection requested but the device plugin already served this container; leaving its allocation intact")
+		zap.L().Warn("device injection requested but the device plugin already served this container; leaving its allocation intact")
 
 	case cfg.DeviceInjectionMode == DeviceInjectionModeCDI && cdiSpecStaged(cfg):
 		// The runtime resolves the device nodes from the staged spec. Nothing is
@@ -71,8 +72,8 @@ func attachGPUs(cfg Config, container Container, adjustment *Adjustment) {
 		if cfg.DeviceInjectionMode == DeviceInjectionModeCDI {
 			// containerd fails container creation outright on an unresolvable
 			// CDI device, so an unstaged spec falls back to raw nodes.
-			slog.Warn("cdi device injection requested but no spec is staged; falling back to raw device nodes",
-				"spec", cfg.CDISpecHostPath)
+			zap.L().Warn("cdi device injection requested but no spec is staged; falling back to raw device nodes",
+				zap.String("spec", cfg.CDISpecHostPath))
 		}
 		attachRawGPUNodes(cfg, adjustment)
 	}
@@ -87,8 +88,8 @@ func attachRawGPUNodes(cfg Config, adjustment *Adjustment) {
 	devices, err := discoverDevices(cfg.DeviceHostPath)
 	switch {
 	case err != nil:
-		slog.Warn("device injection requested but the device tree is unavailable; injecting overlay only",
-			"path", cfg.DeviceHostPath, "err", err)
+		zap.L().Warn("device injection requested but the device tree is unavailable; injecting overlay only",
+			zap.String("path", cfg.DeviceHostPath), zap.Error(err))
 
 	case len(devices) == 0:
 		// The directory is readable and holds nothing we recognise, so
@@ -97,9 +98,9 @@ func attachRawGPUNodes(cfg Config, adjustment *Adjustment) {
 		// and the engine derives its visible-GPU set from which /dev/nvidiaN
 		// are present — so the pod reports zero GPUs as though that were the
 		// configured state. Still fail open, but say so.
-		slog.Warn("device injection requested but the device tree holds no device nodes; "+
+		zap.L().Warn("device injection requested but the device tree holds no device nodes; "+
 			"injecting overlay only (has the node agent staged this node?)",
-			"path", cfg.DeviceHostPath)
+			zap.String("path", cfg.DeviceHostPath))
 
 	default:
 		adjustment.Devices = append(adjustment.Devices, devices...)

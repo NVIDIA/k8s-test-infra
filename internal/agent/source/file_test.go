@@ -5,13 +5,12 @@ package source
 
 import (
 	"context"
-	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/pkg/gpu/mocknvml/engine"
@@ -76,7 +75,7 @@ func TestFileSource_EmitsInitialState(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	fs := NewFileSource(configs[0], filepath.Join(t.TempDir(), "topology.yaml"), slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	fs := NewFileSource(configs[0], filepath.Join(t.TempDir(), "topology.yaml"), zap.NewNop())
 	ch := fs.Watch(ctx)
 
 	u := <-ch
@@ -312,7 +311,7 @@ func sourceWith(t *testing.T, topology string) (*FileSource, string) {
 		require.NoError(t, os.WriteFile(topologyPath, []byte(topology), 0o600))
 	}
 
-	return NewFileSource(configPath, topologyPath, slog.New(slog.NewTextHandler(io.Discard, nil))), topologyPath
+	return NewFileSource(configPath, topologyPath, zap.NewNop()), topologyPath
 }
 
 // poll is what the ticker calls, so driving it directly exercises the same

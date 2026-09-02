@@ -14,11 +14,11 @@ package nri
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/containerd/nri/pkg/api"
 	"github.com/containerd/nri/pkg/stub"
+	"go.uber.org/zap"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 	"github.com/NVIDIA/k8s-test-infra/internal/nri/inject"
@@ -54,7 +54,7 @@ func (p *Plugin) Run(ctx context.Context) error {
 		// containers created from here on come up unmocked. Clearing the
 		// registered flag is what makes that window visible as a NotReady pod.
 		stub.WithOnClose(func() {
-			slog.Warn("runtime closed the connection; no longer registered")
+			zap.L().Warn("runtime closed the connection; no longer registered")
 			p.health.setRegistered(false)
 		}),
 	)
@@ -63,8 +63,8 @@ func (p *Plugin) Run(ctx context.Context) error {
 	}
 	p.health.setTimeoutSource(pluginStub)
 
-	slog.Info("registering NRI plugin",
-		"index", p.cfg.PluginIndex, "name", p.cfg.PluginName, "socket", p.cfg.SocketPath)
+	zap.L().Info("registering NRI plugin",
+		zap.String("index", p.cfg.PluginIndex), zap.String("name", p.cfg.PluginName), zap.String("socket", p.cfg.SocketPath))
 
 	if err := pluginStub.Run(ctx); err != nil && ctx.Err() == nil {
 		return fmt.Errorf("nri stub: %w", err)
@@ -75,7 +75,7 @@ func (p *Plugin) Run(ctx context.Context) error {
 // Configure is the last step of registration, so it is the point at which the
 // plugin actually starts receiving containers.
 func (p *Plugin) Configure(_ context.Context, _, runtime, version string) (stub.EventMask, error) {
-	slog.Info("configured by runtime", "runtime", runtime, "nri_version", version)
+	zap.L().Info("configured by runtime", zap.String("runtime", runtime), zap.String("nri_version", version))
 	p.health.setRegistered(true)
 
 	var events stub.EventMask
