@@ -773,7 +773,7 @@ to a container that carries `nvml-mock.nvidia.com/devices: "true"`:
 | Mode | Mechanism | Needs |
 | --- | --- | --- |
 | `raw` (default) | The plugin stages the `/dev/nvidia*` nodes itself, in the NRI adjustment. | Nothing. |
-| `cdi` | The plugin emits the CDI device `nvml-mock.nvidia.com/gpu=all` and the runtime resolves it from the spec `setup.sh` stages at `<cdiSpecDir>/nvml-mock-nri.yaml`. | A runtime with CDI on. |
+| `cdi` | The plugin emits the CDI device `nvml-mock.nvidia.com/gpu=all` and the runtime resolves it from the spec the `cdi` simulator stages at `<cdiSpecDir>/nvml-mock-nri.yaml`. | A runtime with CDI on. |
 
 Both modes deliver the same device set, so switching is not meant to change what
 a workload sees. `cdi` additionally sets `NVML_MOCK_DEVICE_SOURCE=cdi` inside
@@ -969,17 +969,20 @@ namespace, on the pod IP where the kubelet reaches it.
 
 ### Node Labels
 
-The DaemonSet causes two node labels to exist. `setup.sh` writes the first
-directly with `kubectl label` and the preStop `cleanup.sh` removes it; the node
-agent writes a feature file NFD turns into the second, and NFD retires that one
-on its next cycle once the agent deletes the file at shutdown:
+nvml-mock writes no node labels itself. It writes a feature file NFD turns into
+one label, and NFD retires that label on its next cycle once the agent deletes
+the file at shutdown:
 
 | Label | Written by | Removed by |
 |-------|-----------|------------|
-| `nvidia.com/gpu.present=true` | nvml-mock (`kubectl label`) | preStop `cleanup.sh` |
 | `feature.node.kubernetes.io/pci-10de.present=true` | **NFD**, from a feature file the node agent writes | NFD, once the node agent deletes the file |
 
-The second label is produced by Node Feature Discovery. nvml-mock only supplies
+Labels under `nvidia.com/` — `gpu.present`, `gpu.count`, `gpu.product` — belong
+to NFD and GFD exactly as on real hardware, and are absent unless those are
+deployed. Workloads that need to land on a mock node should select on whatever
+`nodeSelector` the chart itself was given.
+
+The label above is produced by Node Feature Discovery. nvml-mock only supplies
 the input: `internal/agent/pcibus` writes `pci-10de.present=true` into
 `nodeLabels.featuresDir`, which NFD's local source reads and turns into the
 namespaced label. With no NFD on the cluster the file is inert and the label
@@ -1390,6 +1393,16 @@ We are actively working on PCIe sysfs simulation to address this gap — see
 **ImagePullBackOff**: Verify the image is accessible. The published image is at `ghcr.io/nvidia/nvml-mock:latest`. For local builds, ensure the image is loaded into your cluster (see Quick Start).
 
 **DaemonSet not ready**: Check pod logs: `kubectl logs -l app.kubernetes.io/name=nvml-mock`
+
+**GPU Operator operands stuck on `toolkit-validation`**: Six operand DaemonSets
+block until `/run/nvidia/validations/toolkit-ready` exists. nvml-mock
+deliberately does not write it — the marker belongs to GPU Operator's own
+`nvidia-validator`, which deletes it, runs `nvidia-smi` against the mock driver,
+and recreates it only on success. Writing it here would let operands clear the
+gate before any check had run. If operands block on a marker that never returns
+while the validator is in `CrashLoopBackOff`, check `CLEANUP_ALL`: it makes the
+validator `RemoveAll` its output dir, which fails `EBUSY` on the bind mount and
+exits before recreating anything. Nothing sets it by default.
 
 **Device plugin shows 0 GPUs**: Verify mock files exist on the node:
 ```bash

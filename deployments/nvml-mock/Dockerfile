@@ -99,4 +99,3 @@ RUN set -eux; \
     rm -rf /tmp/nvidia-utils /tmp/nvidia-utils-580*.deb \
            /usr/share/keyrings/nvidia.gpg /etc/apt/sources.list.d/nvidia.list; \
     apt-get purge -y --auto-remove curl ca-certificates gnupg2 patchelf
-COPY --chmod=755 deployments/nvml-mock/scripts/ /scripts/

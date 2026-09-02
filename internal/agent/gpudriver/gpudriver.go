@@ -64,8 +64,9 @@ func (s *Simulator) Stage(ctx context.Context, h *host.Host, state *agent.State)
 }
 
 // stagedPaths lists exactly the paths Stage writes, in removal order (leaves first).
-// RemoveAll on the whole driver/ tree is intentionally avoided: setup.sh stages
-// IB tools, libibverbs.d, and preload shims there, and those must survive Discard.
+// RemoveAll on the whole driver/ tree is intentionally avoided: the ib and pcibus
+// simulators stage tools, libibverbs.d and preload shims there, and those must
+// survive Discard.
 var stagedPaths = []string{
 	"driver/dev",
 	"driver/usr/lib64",

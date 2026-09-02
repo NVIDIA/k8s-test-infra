@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- nvml-mock: the DaemonSet no longer runs the `nvml-mock` container; the node
+  agent is the only simulation container.
+- nvml-mock: the chart no longer labels nodes `nvidia.com/gpu.present=true`, and
+  no longer requests any cluster RBAC. GPU labels under `nvidia.com/` come from
+  NFD, GFD, GPU Operator when deployed, as on real hardware. Workloads that selected on the
+  label must select on the chart's own `nodeSelector` instead.
+- nvml-mock: the top-level `resources` value is gone; use `nodeAgent.resources`.
+
+### Changed
+- nvml-mock: `terminationGracePeriodSeconds` defaults to `10` and
+  `nodeAgent.shutdownTimeout` to `5s`, so the agent's teardown finishes before
+  SIGKILL instead of being cut short.
+
 ### Fixed
 - mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
   segfaulting. The mock's export-table dispatcher ended every per-device call by

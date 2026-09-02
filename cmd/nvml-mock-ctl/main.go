@@ -472,7 +472,7 @@ func envOr(k, def string) string {
 // loadConfig loads the pristine profile so `--gpu` can resolve UUIDs and the
 // index bounds check knows the real device count. NumDevices is resolved the
 // same way the engine's LoadConfig does: the device-list length, unless
-// system.num_devices (which setup.sh injects from GPU_COUNT) overrides it — so
+// system.num_devices (which the node agent stamps from GPU_COUNT) overrides it — so
 // the bounds check matches the count the running engine actually serves even
 // when gpu.count differs from the profile's device list. A load failure is
 // non-fatal (UUID resolution and the bounds check degrade to best-effort) but

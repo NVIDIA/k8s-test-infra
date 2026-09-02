@@ -16,9 +16,9 @@
 
 # Point the DRA kubelet plugin at the mock driver tree instead of "/".
 # The mock DaemonSet lays down libnvidia-ml.so, device nodes, and nvidia-smi
-# under this path — see deployments/nvml-mock/scripts/setup.sh, which
-# co-locates $DEV_ROOT under $DRIVER_ROOT specifically so getDevRoot() in
-# the upstream DRA driver resolves here rather than falling back to "/".
+# under this path — the gpudriver simulator co-locates the device nodes under
+# the driver root specifically so getDevRoot() in the upstream DRA driver
+# resolves here rather than falling back to "/".
 nvidiaDriverRoot: /var/lib/nvml-mock/driver
 
 # Force-enable GPU resources without waiting for NFD to detect real hardware.

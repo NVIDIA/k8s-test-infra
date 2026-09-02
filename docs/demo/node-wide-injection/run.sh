@@ -19,7 +19,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 : "${GPU_PROFILE:=gb200}"
 # Default to the profile's own device list, the same count the chart derives
 # when gpu.count is empty, so switching GPU_PROFILE never asks for more GPUs
-# than the profile declares (setup.sh would cap it and warn).
+# than the profile declares (the node agent would cap it and warn).
 : "${GPU_COUNT:=$(grep -c "^[[:space:]]*- index:" "${REPO_ROOT}/${CHART_PATH}/profiles/${GPU_PROFILE}.yaml")}"
 : "${FORCE_RECREATE:=false}"
 : "${NVML_MOCK_NAMESPACE:=mokka}"
@@ -86,9 +86,9 @@ helm upgrade --install nvml-mock "${REPO_ROOT}/${CHART_PATH}" \
   --wait --timeout 180s
 
 info "Waiting for setup and NRI DaemonSets"
-# Restart the daemon so setup.sh re-runs and (re)stages the topology overlay
-# into /var/lib/nvml-mock/topology on every node, even when reusing a cluster
-# whose pods predate a topology change.
+# Restart the daemon so the nvlink simulator re-stages the topology overlay
+# into /var/lib/nvml-mock/topology on every node without waiting out the agent's
+# config poll, even when reusing a cluster whose pods predate a topology change.
 kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" rollout restart daemonset/nvml-mock
 kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" rollout status daemonset/nvml-mock --timeout=120s
 kubectl_ctx -n "${NVML_MOCK_NAMESPACE}" rollout status daemonset/nvml-mock-nri --timeout=90s

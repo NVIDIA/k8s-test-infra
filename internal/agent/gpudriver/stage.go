@@ -58,8 +58,8 @@ func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error 
 }
 
 // gpuNodeName matches only the per-GPU character devices. Scoped this tightly
-// because setup.sh owns other nvidia-prefixed entries in the same directory,
-// notably the nvidia-caps-imex-channels/ tree.
+// because the imex simulator owns other nvidia-prefixed entries in the same
+// directory, notably the nvidia-caps-imex-channels/ tree.
 var gpuNodeName = regexp.MustCompile(`^nvidia[0-9]+$`)
 
 // pruneGPUNodes removes per-GPU nodes left by a larger previous device set.

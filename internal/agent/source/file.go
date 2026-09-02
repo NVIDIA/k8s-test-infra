@@ -247,8 +247,15 @@ func resolveDeviceCount(cfg engine.YAMLConfig) int {
 	if cfg.System.NumDevices > 0 {
 		n = cfg.System.NumDevices
 	}
-	if v, err := strconv.Atoi(os.Getenv("GPU_COUNT")); err == nil && v > 0 && v < n {
-		n = v
+	if v, err := strconv.Atoi(os.Getenv("GPU_COUNT")); err == nil && v > 0 {
+		if v > n {
+			// Silently capping would leave an operator who asked for more GPUs
+			// than the profile declares wondering why nvidia-smi disagrees.
+			slog.Warn("GPU_COUNT exceeds the profile device count; capping",
+				"requested", v, "profile_devices", n)
+		} else {
+			n = v
+		}
 	}
 	return n
 }

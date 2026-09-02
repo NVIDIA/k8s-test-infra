@@ -23,8 +23,6 @@ spec:
         app: gpu-agent
     spec:
       automountServiceAccountToken: false
-      nodeSelector:
-        nvidia.com/gpu.present: "true"
       containers:
         - name: agent
           image: debian:bookworm-slim

@@ -51,17 +51,12 @@ var _ = Describe("nvml-mock standalone", Ordered, func() {
 		name := name
 		Context("profile "+name, Label(name), Ordered, func() {
 			var (
-				p    profile.Profile
-				pod  kube.PodRef
-				node string
+				p   profile.Profile
+				pod kube.PodRef
 			)
 
 			BeforeAll(func(ctx SpecContext) {
-				p, pod, node = setupStandaloneProfile(ctx, h, name)
-			})
-
-			It("sets the GPU-present node label", Label("labels"), func(ctx SpecContext) {
-				assertions.NodeLabelEquals(ctx, h.Kube, node, "nvidia.com/gpu.present", "true")
+				p, pod, _ = setupStandaloneProfile(ctx, h, name)
 			})
 
 			It("publishes profile ConfigMaps in the fake-GPU-operator's discovery shape", Label("fgo"), func(ctx SpecContext) {

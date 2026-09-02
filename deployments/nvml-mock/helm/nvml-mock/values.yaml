@@ -7,7 +7,7 @@ gpu:
   # selected profile's `devices:` list (t4 and the Grace-Blackwell trays
   # gb200/gb300 -> 4, the 8-GPU baseboards -> 8), so the profile is the single
   # source of truth. Set to a positive integer to force a smaller/larger slice;
-  # setup.sh caps it to the profile's device count at runtime.
+  # The node agent caps it to the profile's device count at runtime.
   count: ""
   customConfig: ""
 
@@ -66,10 +66,8 @@ nodeSelector: {}
 tolerations:
   - operator: Exists
 
-resources: {}
-
-# Node labels nvml-mock causes to exist: setup.sh writes nvidia.com/gpu.present
-# directly; NFD derives pci-10de.present from the node agent's feature file.
+# NFD derives pci-10de.present from the feature file the node agent writes here.
+# GPU labels under nvidia.com/ belong to NFD and GFD, exactly as on real hardware.
 nodeLabels:
   # Host directory NFD's local source reads feature files from; must match the
   # featureFilesDir the deployed NFD actually reads.
@@ -85,8 +83,9 @@ nodeAgent:
   logging:
     level: info    # debug | info | warn | error
     format: json   # json | plain
-  # Go duration string: 5s, 1m30s, etc.
-  shutdownTimeout: 30s
+  # Go duration string: 5s, 1m30s, etc. Teardown is a handful of parallel file
+  # removals, and it has to finish inside terminationGracePeriodSeconds.
+  shutdownTimeout: 5s
   resources:
     requests:
       cpu: 10m
@@ -215,10 +214,9 @@ updateStrategy:
   rollingUpdate:
     maxUnavailable: 25%
 
-# Pod termination grace period. preStop cleanup is a few rm -rf
-# calls plus kubectl label requests, so the upstream 30s default
-# is overkill and slows rollouts.
-terminationGracePeriodSeconds: 2
+# Pod termination grace period. It must exceed nodeAgent.shutdownTimeout or
+# SIGKILL lands mid-teardown, leaving the CDI specs and driver symlink behind.
+terminationGracePeriodSeconds: 10
 
 # ComputeDomain (NVLink fabric) simulation. Opt-in: when `topology.enabled`
 # is true a cluster-level ConfigMap declaring domain UUID + per-clique node

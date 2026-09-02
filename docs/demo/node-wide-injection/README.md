@@ -24,7 +24,7 @@ Install these tools locally before running the demo:
 
 1. `topology.enabled=true` renders a cluster-level topology ConfigMap and
    mounts it into the nvml-mock DaemonSet pod.
-2. `setup.sh` copies that topology document into the overlay tree
+2. The `nvlink` simulator copies that topology document into the overlay tree
    (`/var/lib/nvml-mock/topology/topology.yaml`) that the NRI plugin
    bind-mounts into workloads, and stages the `check-fabric` consumer.
 3. The `nvml-mock-nri` plugin, knowing its own `NODE_NAME` (downward API),
