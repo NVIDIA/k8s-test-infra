@@ -822,7 +822,7 @@ func assertNodeCliqueIdentities(ctx context.Context, h *harness.Harness, workers
 	}
 }
 
-// deployDevicePluginOnWorkers reuses the validator scenario's device-plugin
+// deployDevicePluginOnWorkers reuses the gfd scenario's device-plugin
 // deployment and extends the capacity wait to every worker, so the composition
 // specs can pin pods to a node knowing it advertises the full profile count.
 func deployDevicePluginOnWorkers(ctx SpecContext, h *harness.Harness, workers []cluster.Node, expectedGPUs int) {

@@ -316,7 +316,7 @@ image-load:
 # ---------------------------------------------------------------------------
 GINKGO ?= $(GO_CMD) run github.com/onsi/ginkgo/v2/ginkgo
 E2E_TIMEOUT ?= 90m
-E2E_DEFAULT_LABEL_FILTER ?= !validator && !dra && !gpu-operator && !multi-node && !nri && !nfd
+E2E_DEFAULT_LABEL_FILTER ?= !gfd && !dra && !gpu-operator && !multi-node && !nri && !nfd
 E2E_GINKGO_FLAGS ?= --label-filter='$(E2E_DEFAULT_LABEL_FILTER)'
 
 .PHONY: e2e e2e-dra e2e-gpu-operator e2e-multi-node e2e-nri e2e-nfd

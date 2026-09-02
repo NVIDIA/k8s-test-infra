@@ -37,10 +37,10 @@ named — does not resolve.
 
 ### Written but NOT run in CI
 
-One scenario lives in `scenario_validator_test.go` and is excluded **twice
+One scenario lives in `scenario_gfd_test.go` and is excluded **twice
 over**: `BeforeAll` skips unless `E2E_RUN_NGC=true`, which is set in no
 workflow, and the default label filter (`Makefile`, `E2E_DEFAULT_LABEL_FILTER`)
-leads with `!validator`. A green pipeline says nothing about it.
+leads with `!gfd`. A green pipeline says nothing about it.
 
 - **GPU Feature Discovery** (standalone DaemonSet, `gfd-mock.yaml`): would read GPU attributes via NVML and label nodes. The GFD CI *does* exercise is the GPU Operator's operand.
 

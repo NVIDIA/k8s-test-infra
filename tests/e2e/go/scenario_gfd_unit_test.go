@@ -7,14 +7,14 @@ package e2e
 
 import "testing"
 
-func TestValidatorGFDRequiredLabels(t *testing.T) {
+func TestGFDRequiredLabels(t *testing.T) {
 	want := []string{
 		"nvidia.com/gpu.product",
 		"nvidia.com/gpu.memory",
 		"nvidia.com/gpu.compute.major",
 	}
 
-	got := validatorGFDRequiredLabels()
+	got := gfdRequiredLabels()
 	if len(got) != len(want) {
 		t.Fatalf("expected GFD labels %#v, got %#v", want, got)
 	}
