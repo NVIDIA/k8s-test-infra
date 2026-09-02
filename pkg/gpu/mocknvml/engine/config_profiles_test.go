@@ -156,9 +156,9 @@ func TestLoadConfig_GB300Profile(t *testing.T) {
 	require.Equal(t, uint32(1400000), power.DefaultLimitMW, "GB300 power default_limit_mw")
 
 	// Grace pairing must be wired up — GB300 is a superchip part.
-	grace := yamlCfg.DeviceDefaults.GraceSuperchip
-	require.NotNil(t, grace, "GB300 grace_superchip config is nil")
-	require.True(t, grace.Enabled, "GB300 grace_superchip.enabled: got false, want true")
+	cpu := yamlCfg.DeviceDefaults.CPU
+	require.NotNil(t, cpu, "GB300 cpu config is nil")
+	require.Equal(t, "grace", cpu.Type, "GB300 cpu.type")
 
 	// NVLink v5, 18 links @ 100 GB/s (same fabric as GB200).
 	require.NotNil(t, yamlCfg.NVLink, "GB300 NVLink config is nil")
