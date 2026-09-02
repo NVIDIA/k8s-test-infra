@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- mocknvml: `nvidia-smi --gpu-reset` (`-r`) now resets a GPU instead of
+  segfaulting. The mock's export-table dispatcher ended every per-device call by
+  writing a zero count through `arg1`, which the reset slots do not carry, so the
+  most common GPU remediation died with a bare exit 139. The reset is also a real
+  operation now: it clears the device's injected overrides under the same flock
+  as `nvml-mock-ctl reset --gpu <n>`, so an existing remediation controller or
+  runbook works unmodified against the mock. It runs from an injected consumer
+  container as well as the nvml-mock pod — CDI and NRI mount the config directory
+  writable for it, while the mock library and `nvidia-smi` stay read-only.
+  `-i <n>` resets one GPU, a bare `--gpu-reset` every device. Two consequences,
+  documented in `docs/nvml-mock-ctl.md`: state injected with `--gpu all` still
+  needs `reset --gpu all`, and resetting a GPU with nothing injected rewrites
+  nothing.
 - mocknvml: `Max Customer Boost Clocks` in `nvidia-smi -q` now reports the
   profile's `clocks.graphics_max` instead of `N/A`. Both NVML entry points that
   can answer the row were generated stubs — the dedicated
@@ -186,6 +199,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- mocknvml: the `grace_superchip:` profile block is now `cpu:`, with `cpu_cores`
+  and `cpu_memory_gb` renamed to `cores` and `memory_gb` and the `enabled` flag
+  replaced by a free-form `type:` (`grace` on the gb200 and gb300 profiles). The
+  old key hardcoded one CPU family into the schema, so a profile for a part
+  behind any other host had no way to describe it. A profile that omits the
+  block makes no claim about its host, which is the honest reading for a PCIe or
+  SXM part. Profiles carrying `grace_superchip:` must be updated — the key is no
+  longer read.
+- The NRI plugin binary is renamed from `nvml-mock-nri` to `nri-plugin`, and its
+  injection logic moves from `pkg/nri/nvmlmock` into `internal/`. The chart gains
+  `nri.logging.level` and `nri.logging.format`, and `nri.*` values are now
+  schema-validated, so a typo fails at install instead of crash-looping the
+  plugin on every node. (#751)
 - mocknvml: `nvmlEventSetWait_v1`/`_v2` now return `NVML_ERROR_GPU_IS_LOST`
   immediately for a `lost` or `fallen_off_bus` device, matching real NVML
   after Xid 79, instead of only ever returning `TIMEOUT`. A device the config

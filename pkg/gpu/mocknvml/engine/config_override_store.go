@@ -78,6 +78,14 @@ func newConfigOverrideStoreAt(pathFn func() string, now func() time.Time) *confi
 	return &configOverrideStore{now: now, pathFn: pathFn, ttl: configOverrideTTL()}
 }
 
+// ConfigOverridePath is the overrides file the engine reads, for callers that
+// need to mutate it rather than observe it — the GPU reset path writes through
+// the same resolution the reader uses so the two can never disagree on which
+// file is authoritative.
+func ConfigOverridePath() string {
+	return resolveConfigOverridePath()
+}
+
 // resolveConfigOverridePath derives the config override path from the same resolution the
 // engine uses for config. It is cheap and only called on cache misses.
 func resolveConfigOverridePath() string {

@@ -1,13 +1,13 @@
 // Copyright 2026 NVIDIA CORPORATION
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package nri
 
 import (
 	"runtime"
 	"testing"
 
-	"github.com/NVIDIA/k8s-test-infra/pkg/nri/nvmlmock"
+	"github.com/NVIDIA/k8s-test-infra/internal/nri/inject"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
@@ -59,7 +59,7 @@ func TestMajorMinorAgreeWithUnixOnLinux(t *testing.T) {
 
 // The device numbers below are fixed by the Linux mem driver, so they are
 // literals rather than values read back from the same syscall the code uses.
-func TestNriDeviceDecodesRealCharacterDevices(t *testing.T) {
+func TestLinuxDeviceDecodesRealCharacterDevices(t *testing.T) {
 	requireLinux(t)
 	t.Parallel()
 
@@ -78,7 +78,7 @@ func TestNriDeviceDecodesRealCharacterDevices(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			device, err := nriDevice(nvmlmock.Device{HostPath: tt.hostPath, Path: "/dev/nvidia0"})
+			device, err := linuxDevice(inject.Device{HostPath: tt.hostPath, Path: "/dev/nvidia0"})
 			require.NoError(t, err)
 			require.NotNil(t, device)
 

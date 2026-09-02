@@ -14,10 +14,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/NVIDIA/k8s-test-infra/internal/health"
 )
 
-// Server bounds ReadHeaderTimeout against slow-header clients, matching the
-// defence cmd/nvml-mock-nri/main.go applies.
+// Server bounds ReadHeaderTimeout so a client that opens a connection and
+// dribbles headers cannot hold a handler slot indefinitely.
 type Server struct {
 	cfg    Config
 	logger *slog.Logger
@@ -30,8 +32,8 @@ func NewServer(cfg Config, logger *slog.Logger) *Server {
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
 
-	router.Get("/healthz", Healthz)
-	router.Get("/readyz", Readyz)
+	router.Get("/healthz", health.Handler(health.OK))
+	router.Get("/readyz", health.Handler(health.OK))
 
 	return &Server{
 		cfg:    cfg,
