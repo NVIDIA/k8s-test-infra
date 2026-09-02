@@ -54,7 +54,7 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 ```
 
 Every node now reports four mock GB300 GPUs. Swap in `a100`, `b200`, `gb200`,
-`h100`, `l40s` or `t4` with `--set gpu.profile=<name>`.
+`h100`, `l40s`, `t4` or `vr200` with `--set gpu.profile=<name>`.
 
 [Simulation depth by area](https://nvidia.github.io/k8s-test-infra/#simulation-depth-by-area)
 breaks this down per surface — GPU and NVML, Kubernetes allocation, metrics, PCI

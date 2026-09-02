@@ -46,7 +46,7 @@ load('./local/observability/observability.tiltfile',
 
 # --- Flags ---------------------------------------------------------------
 config.define_string('gpu-profile', args=False,
-    usage='GPU profile to simulate (used unless --multi-gpu-profile is set): a100 | h100 | b200 | gb200 | gb300 | l40s | t4')
+    usage='GPU profile to simulate (used unless --multi-gpu-profile is set): a100 | h100 | b200 | gb200 | gb300 | l40s | t4 | vr200')
 config.define_string('k8s-context', args=False,
     usage='kubectl context to deploy into (must be a local cluster)')
 # Boolean toggles use config.define_bool so `--multi-gpu-profile --gpu-operator

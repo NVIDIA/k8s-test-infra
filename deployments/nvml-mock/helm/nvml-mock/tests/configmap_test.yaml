@@ -218,7 +218,7 @@ tests:
         count: 1
     asserts:
       - failedTemplate:
-          errorMessage: 'Unknown GPU profile "invalid-gpu": profiles/invalid-gpu.yaml not found in chart. Available profiles: a100, b200, gb200, gb300, h100, l40s, t4. Or set gpu.customConfig with inline YAML.'
+          errorMessage: 'Unknown GPU profile "invalid-gpu": profiles/invalid-gpu.yaml not found in chart. Available profiles: a100, b200, gb200, gb300, h100, l40s, t4, vr200. Or set gpu.customConfig with inline YAML.'
 
   - it: should respect fullnameOverride in ConfigMap name
     set:

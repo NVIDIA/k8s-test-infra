@@ -40,7 +40,7 @@ import (
 // KnownProfiles is the full set of chart profiles shipped in the repo. The
 // required CI matrix is a subset chosen by the workflow input; this list is
 // only used by All() and the cross-check unit test.
-var KnownProfiles = []string{"a100", "h100", "b200", "gb200", "gb300", "l40s", "t4"}
+var KnownProfiles = []string{"a100", "h100", "b200", "gb200", "gb300", "l40s", "t4", "vr200"}
 
 // rawProfile decodes only the fields the harness needs from a chart profile
 // YAML. sigs.k8s.io/yaml maps via JSON tags, so the tags are the snake_case
@@ -251,8 +251,9 @@ func Load(profilesDir, name string) (Profile, error) {
 		p.pciRoots = 1
 	}
 	// An IB-enabled profile that forgot hcas_per_gpu would silently expect 0
-	// HCAs; the shipped profiles all set 1. Default to 1 when enabled but
-	// unset so a missing key does not weaken the assertion.
+	// HCAs; every shipped profile sets it explicitly (1, or 2 on vr200).
+	// Default to 1 when enabled but unset so a missing key does not weaken
+	// the assertion.
 	if p.ibEnabled && p.hcasPerGPU == 0 {
 		p.hcasPerGPU = 1
 	}
@@ -341,7 +342,8 @@ func (p Profile) ExpectedGPUs() int { return p.gpuCount }
 func (p Profile) IBEnabled() bool { return p.ibEnabled }
 
 // ExpectedHCAs is the number of InfiniBand HCAs the profile should expose:
-// one per GPU when IB is enabled, otherwise 0 (l40s/t4 negative control).
+// hcas_per_gpu per GPU when IB is enabled, otherwise 0 (l40s/t4 negative
+// control). Most profiles pair one HCA with each GPU; vr200 pairs two.
 func (p Profile) ExpectedHCAs() int {
 	if !p.ibEnabled {
 		return 0
@@ -375,7 +377,7 @@ func (p Profile) ExpectedPCIRoots() int { return p.pciRoots }
 func (p Profile) FabricMgr() bool { return p.hasSwitches || p.fabricAuto }
 
 // HasFabric reports whether the profile declares a device_defaults.fabric block
-// (cluster_uuid / clique_id). Only these profiles (h100, gb200, gb300) expose
+// (cluster_uuid / clique_id). Only these profiles (h100, gb200, gb300, vr200) expose
 // ComputeDomain fabric identity via nvmlDeviceGetGpuFabricInfo, so the mock's
 // check-fabric consumer succeeds and the topology overlay has something to
 // rewrite. This is DISTINCT from FabricMgr: an NVSwitch profile like a100 runs
@@ -384,14 +386,15 @@ func (p Profile) FabricMgr() bool { return p.hasSwitches || p.fabricAuto }
 func (p Profile) HasFabric() bool { return p.hasFabric }
 
 // C2CEnabled reports whether the profile declares an NVLink-C2C link to the
-// host CPU (nvlink.c2c_enabled). True only on the Grace-Blackwell profiles;
+// host CPU (nvlink.c2c_enabled). True only on the superchip profiles, where a
+// CPU sits on the other end of the link: Grace on gb200/gb300, Vera on vr200.
 // nvidia-smi -q renders it as "GPU C2C Mode : Enabled" there and N/A
 // elsewhere. Absent key means false, i.e. N/A.
 func (p Profile) C2CEnabled() bool { return p.c2cEnabled }
 
 // PlatformIdentity returns the platform identity the profile configures and
-// whether it declares one at all. Only the rack-scale profiles (gb200, gb300)
-// do: NVML answers nvmlDeviceGetPlatformInfo for a board whose platform can
+// whether it declares one at all. Only the rack-scale profiles (gb200, gb300,
+// vr200) do: NVML answers nvmlDeviceGetPlatformInfo for a board whose platform can
 // report a physical location, and nvidia-smi renders N/A for every other one, so
 // the absent case is the negative control that keeps the populated case from
 // being satisfiable by constants.

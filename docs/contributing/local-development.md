@@ -53,7 +53,7 @@ the `a100` profile. Everything else is a flag.
 
 | Flag | Effect |
 |---|---|
-| `--gpu-profile <name>` | Which GPU profile the release uses. One of `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4` |
+| `--gpu-profile <name>` | Which GPU profile the release uses. One of `a100`, `h100`, `b200`, `gb200`, `gb300`, `l40s`, `t4`, `vr200` |
 | `--multi-gpu-profile` | One release per worker instead of one for the fleet: `a100` on `worker-0`, `t4` on `worker-1`. Ignores `--gpu-profile` |
 | `--compute-domain` | GB200 profile with an NVLink topology overlay. Needs the `compute-domain` cluster |
 

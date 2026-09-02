@@ -50,9 +50,9 @@ helm upgrade nvml-mock \
     --set gpu.profile=a100
 ```
 
-Seven profiles ship with the chart: `a100`, `b200`, `gb200`, `gb300`, `h100`,
-`l40s` and `t4`. [Configuration](configuration.md) covers what each one defines
-and how to change individual values.
+Eight profiles ship with the chart: `a100`, `b200`, `gb200`, `gb300`, `h100`,
+`l40s`, `t4` and `vr200`. [Configuration](configuration.md) covers what each one
+defines and how to change individual values.
 
 ## Clean up
 
