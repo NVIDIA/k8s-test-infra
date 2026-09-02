@@ -19,7 +19,6 @@ package mockctl
 // moment either changes.
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -78,21 +77,4 @@ func LockOverride(path string) (func(), error) {
 		_ = unix.Flock(int(lf.Fd()), unix.LOCK_UN)
 		_ = lf.Close()
 	}, nil
-}
-
-// ResetOverrides removes the override document so simulated state falls back to
-// the pristine profile. It takes the same lock as WriteAtomic's callers because
-// the allocation watcher publishes on its own interval and would otherwise
-// re-create the file mid-removal. A missing file is already the desired state.
-func ResetOverrides(path string) error {
-	unlock, err := LockOverride(path)
-	if err != nil {
-		return fmt.Errorf("lock %s: %w", path, err)
-	}
-	defer unlock()
-
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove %s: %w", path, err)
-	}
-	return nil
 }
