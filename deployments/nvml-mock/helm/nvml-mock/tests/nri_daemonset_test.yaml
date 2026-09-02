@@ -326,13 +326,13 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: cdi-spec-dir
+            name: cdi-specs
             mountPath: /var/run/cdi
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: cdi-spec-dir
+            name: cdi-specs
             hostPath:
               path: /var/run/cdi
               type: DirectoryOrCreate
@@ -356,13 +356,13 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: cdi-spec-dir
+            name: cdi-specs
             mountPath: /etc/cdi
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: cdi-spec-dir
+            name: cdi-specs
             hostPath:
               path: /etc/cdi
               type: DirectoryOrCreate
