@@ -304,9 +304,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   setting `imex.enabled: true` installs silently with no state directory
   mounted rather than failing. (#304)
 - `pkg/gpu/mockcuda` and the `libcuda.so` it produced. The nvml-mock image no
-  longer builds or ships the mock CUDA library, the node agent no longer stages
-  it into the driver root, and the gated e2e `validator` scenario no longer runs
-  the vectorAdd sample. (#TBD)
+  longer builds or ships the mock CUDA library, and the node agent no longer
+  stages it into the driver root. The gated e2e scenario that ran vectorAdd
+  against it is now a standalone-GFD check under the Ginkgo label `gfd`. (#TBD)
 
 ### Fixed
 - mocknvml: Xid critical-error events are now attributed to the whole GPU the
