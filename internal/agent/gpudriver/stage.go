@@ -110,47 +110,6 @@ func stageNVMLShim(ctx context.Context, h *host.Host, state *agent.State) error 
 	return fsutil.Symlink("libnvidia-ml.so.1", filepath.Join(lib64, "libnvidia-ml.so"))
 }
 
-// stageCUDAShim installs the mock libcuda so that CUDA workloads can link and
-// run without a real driver. Absence is non-fatal — not all profiles need it.
-func stageCUDAShim(ctx context.Context, h *host.Host, state *agent.State) error {
-	matches, _ := filepath.Glob("/usr/local/lib/libcuda.so.*.*.*")
-
-	if len(matches) == 0 {
-		return nil
-	}
-
-	lib64 := filepath.Join(h.Root, "driver/usr/lib64")
-	if err := os.MkdirAll(lib64, 0o755); err != nil {
-		return err
-	}
-
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	soVersioned := "libcuda.so." + state.Software.DriverVersion
-	if err := fsutil.Copy(matches[0], filepath.Join(lib64, soVersioned), 0o755); err != nil {
-		return err
-	}
-
-	// The mock exports CUDA Runtime API symbols under libcuda.so; vectorAdd and
-	// similar samples link against libcudart.so, so create compatibility links.
-	type symlink struct{ name, target string }
-
-	for _, lnk := range []symlink{
-		{"libcuda.so.1", soVersioned},
-		{"libcuda.so", "libcuda.so.1"},
-		{"libcudart.so.12", "libcuda.so.1"},
-		{"libcudart.so", "libcudart.so.12"},
-	} {
-		if err := fsutil.Symlink(lnk.target, filepath.Join(lib64, lnk.name)); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 // stageNvidiaSMI satisfies tooling (GPU Operator validator, health checks) that
 // exec nvidia-smi to confirm driver presence. The ELF uses the NVML shim via
 // RPATH; the shell fallback covers environments where the ELF is unavailable.

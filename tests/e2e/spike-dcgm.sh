@@ -46,25 +46,13 @@ LIB_DIR="$OUT_DIR/lib"
 mkdir -p "$OUT_DIR" "$LIB_DIR"
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  echo "=== Building mock NVML + CUDA libraries (native arch, in container) ==="
+  echo "=== Building mock NVML library (native arch, in container) ==="
   make -C pkg/gpu/mocknvml docker-build
-  # dcgmi diag's nvvs plugins dlopen libcuda.so.1; reuse the builder image.
-  docker run --rm \
-    -e GOCACHE=/tmp/.cache/go -e GOMODCACHE=/tmp/.cache/gomod \
-    -e GOFLAGS=-buildvcs=false \
-    -v "$REPO_ROOT:/work" -w /work/pkg/gpu/mockcuda \
-    --user "$(id -u):$(id -g)" \
-    mock-nvml-builder make
 fi
 
 cp pkg/gpu/mocknvml/libnvidia-ml.so.550.163.01 "$LIB_DIR/"
 ln -sf libnvidia-ml.so.550.163.01 "$LIB_DIR/libnvidia-ml.so.1"
 ln -sf libnvidia-ml.so.1 "$LIB_DIR/libnvidia-ml.so"
-if [ -f pkg/gpu/mockcuda/libcuda.so.550.163.01 ]; then
-  cp pkg/gpu/mockcuda/libcuda.so.550.163.01 "$LIB_DIR/"
-  ln -sf libcuda.so.550.163.01 "$LIB_DIR/libcuda.so.1"
-  ln -sf libcuda.so.1 "$LIB_DIR/libcuda.so"
-fi
 
 EXPORTER_PROFILE_PATH="$PROFILE_PATH"
 if [ "$HOPPER_PLUS" = "1" ]; then

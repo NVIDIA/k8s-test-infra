@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package gpudriver implements the GPU driver footprint simulator:
-// chardevs, NVML/CUDA shims, nvidia-smi, procfs entries, engine config,
+// chardevs, the NVML shim, nvidia-smi, procfs entries, engine config,
 // and the /run/nvidia/driver GPU-Operator compatibility symlink.
 package gpudriver
 
@@ -51,7 +51,6 @@ func (s *Simulator) Stage(ctx context.Context, h *host.Host, state *agent.State)
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return stageCharDevs(gctx, h, state) })
 	g.Go(func() error { return stageNVMLShim(gctx, h, state) })
-	g.Go(func() error { return stageCUDAShim(gctx, h, state) })
 	g.Go(func() error { return stageNvidiaSMI(gctx, h, state) })
 	g.Go(func() error { return writeProcFS(gctx, h, state) })
 	g.Go(func() error { return writeEngineConfig(gctx, h, state) })

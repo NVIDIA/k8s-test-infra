@@ -117,18 +117,6 @@ func TestStageNvidiaSMI_WritesSMIScript(t *testing.T) {
 	require.NoError(t, err, "nvidia-smi must exist (ELF or symlink)")
 }
 
-func TestStageCUDAShim_NopWhenNoLib(t *testing.T) {
-	matches, _ := filepath.Glob("/usr/local/lib/libcuda.so.*.*.*")
-	if len(matches) > 0 {
-		t.Skip("libcuda.so is present; this test covers the no-lib path")
-	}
-	h := testHost(t)
-	state := testState(t)
-
-	require.NoError(t, stageCUDAShim(context.Background(), h, state),
-		"stageCUDAShim must not error when libcuda.so is absent")
-}
-
 func TestStageNVMLShim_CopiesLibAndCreatesLinks(t *testing.T) {
 	skipUnlessNVMLLib(t)
 
