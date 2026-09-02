@@ -44,7 +44,7 @@ spec:
             - start
             - --config=/etc/nvml-mock/config.yaml
             {{- if .Values.topology.enabled }}
-            # Names the gpu-topology mount below. Leaving it unset is what
+            # Names the cluster-topology mount below. Leaving it unset is what
             # retracts the document the nvlink simulator staged for workloads.
             - --topology=/etc/nvml-mock/topology/topology.yaml
             {{- end }}
@@ -157,34 +157,40 @@ spec:
               drop: [ALL]
               add: [MKNOD]
           volumeMounts:
-            - name: host-nvml-mock
+            # Where the simulators write. Every path they stage is rooted here.
+            - name: mokka-root
               mountPath: /host/var/lib/nvml-mock
-            # Second mount of the same volume at the canonical path so the
-            # host-absolute MOCK_PCI_ROOT / MOCK_IB_ROOT the shims rewrite into,
-            # and the fabric marker nvidia-smi reads, resolve for exec'd tools
-            # exactly as they do in a CDI-injected consumer pod.
-            - name: host-nvml-mock
+            # The same tree at the path its contents name. MOCK_PCI_ROOT and
+            # MOCK_IB_ROOT are host-absolute, so the LD_PRELOAD shims and any
+            # tool run via `kubectl exec` only resolve them through this mount.
+            - name: mokka-root
               mountPath: /var/lib/nvml-mock
-            - name: host-run-nvidia
+            # gpudriver.Apply puts the /run/nvidia/driver symlink here, which is
+            # the driver root the GPU Operator and DRA driver look for.
+            - name: driver-root-link
               mountPath: /host/run/nvidia
-            - name: host-cdi
+            # cdi.Apply writes both specs here; containerd scans the directory.
+            - name: cdi-specs
               mountPath: /host/run/cdi
-            - name: gpu-config
+            # The agent's --config input, and what exec'd nvidia-smi reads.
+            - name: mokka-profile
               mountPath: /etc/nvml-mock
               readOnly: true
-            - name: host-nfd-features
+            # pcibus.Apply drops the feature file NFD's local source turns into
+            # a node label.
+            - name: nfd-features
               mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
             {{- if .Values.topology.enabled }}
             # Source for the topology document the nvlink simulator stages into
             # the overlay, where the NRI plugin points workloads at it.
-            - name: gpu-topology
+            - name: cluster-topology
               mountPath: /etc/nvml-mock/topology
               readOnly: true
             {{- end }}
             {{- if $fmEnabled }}
-            # The agent writes the marker the nvml-mock container reads, and it
-            # reaches host paths through /host.
-            - name: host-fabric-state
+            # The agent writes the readiness marker here; the mock NVML engine in
+            # every consumer reads it to resolve fabric.state: auto.
+            - name: fabric-state
               mountPath: {{ printf "/host%s" .Values.fabricmanager.stateDir }}
             {{- end }}
           livenessProbe:
@@ -226,14 +232,15 @@ spec:
           resources:
             {{- toYaml .Values.allocationWatcher.resources | nindent 12 }}
           volumeMounts:
-            - name: host-nvml-mock
+            - name: mokka-root
               mountPath: /var/lib/nvml-mock
-            - name: host-pod-resources
+            - name: pod-resources
               mountPath: {{ dir .Values.allocationWatcher.podResourcesSocket }}
               readOnly: true
         {{- end }}
       volumes:
-        - name: host-nvml-mock
+        # The simulated driver tree: chardevs, shims, PCI and IB sysfs, configs.
+        - name: mokka-root
           hostPath:
             path: /var/lib/nvml-mock
             type: DirectoryOrCreate
@@ -241,33 +248,33 @@ spec:
         # Read-only, node-local kubelet API. It is a socket, not the API
         # server, so this needs no RBAC. Directory (not the socket itself) so
         # a kubelet restart that recreates the socket is picked up.
-        - name: host-pod-resources
+        - name: pod-resources
           hostPath:
             path: {{ dir .Values.allocationWatcher.podResourcesSocket }}
             type: Directory
         {{- end }}
-        - name: gpu-config
+        - name: mokka-profile
           configMap:
             name: {{ include "nvml-mock.fullname" . }}-config
-        - name: host-cdi
+        - name: cdi-specs
           hostPath:
             path: /var/run/cdi
             type: DirectoryOrCreate
-        - name: host-run-nvidia
+        - name: driver-root-link
           hostPath:
             path: /run/nvidia
             type: DirectoryOrCreate
-        - name: host-nfd-features
+        - name: nfd-features
           hostPath:
             path: {{ .Values.nodeLabels.featuresDir | quote }}
             type: DirectoryOrCreate
         {{- if .Values.topology.enabled }}
-        - name: gpu-topology
+        - name: cluster-topology
           configMap:
             name: {{ include "nvml-mock.fullname" . }}-topology
         {{- end }}
         {{- if $fmEnabled }}
-        - name: host-fabric-state
+        - name: fabric-state
           hostPath:
             path: {{ .Values.fabricmanager.stateDir }}
             type: DirectoryOrCreate
