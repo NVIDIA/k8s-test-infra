@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   NFD, GFD, GPU Operator when deployed, as on real hardware. Workloads that selected on the
   label must select on the chart's own `nodeSelector` instead.
 - nvml-mock: the top-level `resources` value is gone; use `nodeAgent.resources`.
+- nvml-mock: `kubectl` is no longer installed in the image. Its only callers
+  were the deleted setup/cleanup scripts, and the pod now has neither a
+  ServiceAccount token nor cluster RBAC to use it with.
 
 ### Changed
 - nvml-mock: `terminationGracePeriodSeconds` defaults to `10` and

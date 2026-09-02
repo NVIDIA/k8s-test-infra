@@ -65,9 +65,9 @@ should match snapshot with b200 profile:
 
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-      Quick check — node labels:
+      Quick check — the PCI feature NFD turns into a node label (needs NFD installed):
 
-        kubectl get nodes -o 'custom-columns=NAME:.metadata.name,GPU_PRESENT:.metadata.labels.nvidia\.com/gpu\.present'
+        kubectl get nodes -o 'custom-columns=NAME:.metadata.name,PCI_10DE:.metadata.labels.feature\.node\.kubernetes\.io/pci-10de\.present'
 should match snapshot with default values:
   1: |
     |
@@ -135,6 +135,6 @@ should match snapshot with default values:
 
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-      Quick check — node labels:
+      Quick check — the PCI feature NFD turns into a node label (needs NFD installed):
 
-        kubectl get nodes -o 'custom-columns=NAME:.metadata.name,GPU_PRESENT:.metadata.labels.nvidia\.com/gpu\.present'
+        kubectl get nodes -o 'custom-columns=NAME:.metadata.name,PCI_10DE:.metadata.labels.feature\.node\.kubernetes\.io/pci-10de\.present'

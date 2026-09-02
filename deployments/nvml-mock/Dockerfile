@@ -30,7 +30,6 @@ RUN cd shims/libpcisysfs && make clean && make
 RUN make build
 
 FROM debian:bookworm-slim
-ARG KUBECTL_VERSION=v1.36.1
 ARG TARGETARCH
 COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
 COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
@@ -42,9 +41,7 @@ COPY --from=builder /src/dist/nri-plugin /usr/local/bin/nri-plugin
 COPY --from=builder /src/dist/nvml-mock-ctl /usr/local/bin/nvml-mock-ctl
 COPY --from=builder /src/dist/check-fabric     /usr/local/bin/check-fabric
 COPY --from=builder /src/dist/node-agent /usr/local/bin/node-agent
-# Build-time only, so it lives outside scripts/ — that directory is copied
-# wholesale into the runtime image below, and this script cannot run there once
-# patchelf is purged.
+# Build-time only: it needs ldd and patchelf, both purged from the final image.
 COPY deployments/nvml-mock/build/bundle-ib-tools.sh /usr/local/bin/bundle-ib-tools.sh
 RUN set -eux; \
     apt-get update; \
@@ -57,13 +54,6 @@ RUN set -eux; \
     # but keep an explicit mkdir as a belt-and-braces guarantee so the
     # warning never appears even if the providers package is purged. \
     mkdir -p /etc/libibverbs.d; \
-    curl -fsSLo /usr/local/bin/kubectl \
-      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl"; \
-    curl -fsSLo /tmp/kubectl.sha256 \
-      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256"; \
-    echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum --check; \
-    chmod +x /usr/local/bin/kubectl; \
-    rm /tmp/kubectl.sha256; \
     # Extract just the nvidia-smi binary from nvidia-utils (Ubuntu 22.04 repo:
     # glibc 2.35, runs on bookworm). The 580 branch renders the full GB200/GB300
     # NVLink5 surface (`nvlink -e/-info/-gLowPwrInfo/-gLWidth`); older binaries
