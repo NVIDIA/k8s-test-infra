@@ -125,8 +125,8 @@ type DeviceConfig struct {
 	// Blackwell-specific features (GB200)
 	Features *FeaturesConfig `json:"features,omitempty"`
 
-	// Grace Superchip (GB200)
-	GraceSuperchip *GraceSuperchipConfig `json:"grace_superchip,omitempty"`
+	// Host CPU the board is paired with
+	CPU *CPUConfig `json:"cpu,omitempty"`
 
 	// Topology
 	Topology *TopologyConfig `json:"topology,omitempty"`
@@ -557,12 +557,17 @@ type FeaturesConfig struct {
 	FifthGenTensorCores bool `json:"fifth_gen_tensor_cores,omitempty"`
 }
 
-// GraceSuperchipConfig defines Grace CPU pairing for GB200
-type GraceSuperchipConfig struct {
-	Enabled        bool `json:"enabled,omitempty"`
-	CPUCores       int  `json:"cpu_cores,omitempty"`
-	CPUMemoryGB    int  `json:"cpu_memory_gb,omitempty"`
-	CoherentMemory bool `json:"coherent_memory,omitempty"`
+// CPUConfig describes the host CPU the board is attached to. Type is free-form
+// and names the CPU family — "grace" on the superchip profiles. An absent block
+// means the profile makes no claim about its host, which is the honest reading
+// for a PCIe or SXM part that can ship behind any CPU.
+//
+// Descriptive metadata that no getter reads, on the same terms as FeaturesConfig.
+type CPUConfig struct {
+	Type           string `json:"type,omitempty"`
+	Cores          int    `json:"cores,omitempty"`
+	MemoryGB       int    `json:"memory_gb,omitempty"`
+	CoherentMemory bool   `json:"coherent_memory,omitempty"`
 }
 
 // ProcessConfig defines a running process

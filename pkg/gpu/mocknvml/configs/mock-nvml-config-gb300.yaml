@@ -323,12 +323,12 @@ device_defaults:
     fifth_gen_tensor_cores: true    # 5th generation tensor cores
 
   # ---------------------------------------------------------------------------
-  # Grace CPU pairing (GB300 superchip)
+  # Host CPU pairing (GB300 superchip)
   # ---------------------------------------------------------------------------
-  grace_superchip:
-    enabled: true
-    cpu_cores: 72                   # Grace CPU cores (same Grace as GB200)
-    cpu_memory_gb: 480              # LPDDR5X per Grace CPU
+  cpu:
+    type: "grace"                   # NVLink-C2C attached Grace, not a PCIe host
+    cores: 72                       # Grace CPU cores (same Grace as GB200)
+    memory_gb: 480                  # LPDDR5X per Grace CPU
     coherent_memory: true           # NVLink-C2C coherent memory
 
   # ---------------------------------------------------------------------------

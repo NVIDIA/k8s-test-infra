@@ -199,6 +199,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- mocknvml: the `grace_superchip:` profile block is now `cpu:`, with `cpu_cores`
+  and `cpu_memory_gb` renamed to `cores` and `memory_gb` and the `enabled` flag
+  replaced by a free-form `type:` (`grace` on the gb200 and gb300 profiles). The
+  old key hardcoded one CPU family into the schema, so a profile for a part
+  behind any other host had no way to describe it. A profile that omits the
+  block makes no claim about its host, which is the honest reading for a PCIe or
+  SXM part. Profiles carrying `grace_superchip:` must be updated — the key is no
+  longer read.
 - The NRI plugin binary is renamed from `nvml-mock-nri` to `nri-plugin`, and its
   injection logic moves from `pkg/nri/nvmlmock` into `internal/`. The chart gains
   `nri.logging.level` and `nri.logging.format`, and `nri.*` values are now

@@ -378,7 +378,7 @@ should match snapshot with default values:
       template:
         metadata:
           annotations:
-            checksum/config: fe6f2984729290d4ca69845836d40df01d3e5c857db8c170dbbbf185a7228bc4
+            checksum/config: c6dfd465923cdd4faa1c33e2324dec08654aa238f27ea884499079f4680f5578
           labels:
             app.kubernetes.io/component: daemon
             app.kubernetes.io/instance: RELEASE-NAME
