@@ -16,6 +16,8 @@ name: Golang
 
 permissions:
   contents: read
+  # Mints the short-lived Artifactory token for the Go proxy.
+  id-token: write
 
 on:
   workflow_call:
@@ -47,6 +49,35 @@ jobs:
         mkdir -p tmp/bin
         ln -sf "$(command -v golangci-lint)" tmp/bin/golangci-lint
 
+    - name: Configure the DGXC Go proxy
+      uses: ./.github/actions/setup-dgxc-goproxy
+      with:
+        mode: routed
+
+    # GOPROXY is an ordered list consulted left to right, so an entry ahead of
+    # Artifactory routes nothing while every downstream step still passes. An
+    # assertion is the only thing that catches the action silently no-opping.
+    - name: Assert the proxy is actually in front
+      run: |
+        set -euo pipefail
+        proxy="$(go env GOPROXY)"
+        echo "GOPROXY=${proxy}"
+        case "${proxy}" in
+          *"|"*)
+            echo "::error::GOPROXY uses '|', which falls through on 401/403. Use ','."
+            exit 1
+            ;;
+        esac
+        case "${proxy%%,*}" in
+          https://edge.urm.nvidia.com/*) ;;
+          *)
+            echo "::error::first GOPROXY entry is '${proxy%%,*}', not Artifactory"
+            exit 1
+            ;;
+        esac
+        [ "$(go env GOSUMDB)" != off ] \
+          || { echo "::error::GOSUMDB=off; modules would not be verified against the transparency log"; exit 1; }
+
     - name: Lint
       run: make lint
 
@@ -69,3 +100,7 @@ jobs:
     # (#562). These are plain `go test` units -- no cluster, no kubectl.
     - name: Run e2e framework unit tests
       run: make test-e2e-framework
+
+    - name: Remove the proxy credential
+      if: always()
+      run: rm -f "${RUNNER_TEMP}/dgxc-goauth"

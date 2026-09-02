@@ -18,9 +18,8 @@
 # An org with no identity mapping on the `nvgithub-dgxc` provider fails the OIDC
 # exchange, and `enforced` mode has no credential fallback — a 401 stops the
 # build rather than resolving publicly. Finding that out by breaking everyone's
-# PR is the outcome this workflow exists to avoid, so it gates nothing and runs
-# only on demand or on changes to the proxy setup itself. Delete the file to
-# revert.
+# PR is the outcome this workflow exists to avoid, so it is dispatch-only and
+# gates nothing. Delete the file to revert.
 #
 # Prefer a dispatch from `main`. The exchange matches on the ID token's claims,
 # and a dispatch on main presents the same OIDC subject as a push to main —
@@ -33,22 +32,6 @@ name: DGXC Go Proxy Probe
 
 on:
   workflow_dispatch: {}
-
-  # TODO: temp PR trigger for the sake of testing without merging
-  pull_request:
-    paths:
-      - '.github/workflows/dgxc-goproxy-probe.yaml'
-      - '.github/actions/setup-dgxc-goproxy/**'
-
-  # TEMPORARY, same lifetime as the trigger above. `pull_request` does not fire
-  # for a branch that is not a PR head, and PR #756 comes from a fork, which
-  # cannot mint an ID token at all — so a push is the only event that reaches
-  # this workflow from a working branch. Any branch, because the paths filter
-  # already keeps it to changes in the proxy setup.
-  push:
-    paths:
-      - '.github/workflows/dgxc-goproxy-probe.yaml'
-      - '.github/actions/setup-dgxc-goproxy/**'
 
 permissions:
   contents: read

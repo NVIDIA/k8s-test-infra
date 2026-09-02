@@ -18,6 +18,9 @@ permissions:
   security-events: write
   actions: read
   packages: read
+  # Passed down to golang.yaml, which mints a short-lived Artifactory token.
+  # A called workflow cannot hold more permission than its caller.
+  id-token: write
 
 on:
   workflow_call:
