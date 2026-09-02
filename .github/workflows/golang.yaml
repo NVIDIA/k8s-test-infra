@@ -54,29 +54,8 @@ jobs:
       with:
         mode: routed
 
-    # GOPROXY is an ordered list consulted left to right, so an entry ahead of
-    # Artifactory routes nothing while every downstream step still passes. An
-    # assertion is the only thing that catches the action silently no-opping.
     - name: Assert the proxy is actually in front
-      run: |
-        set -euo pipefail
-        proxy="$(go env GOPROXY)"
-        echo "GOPROXY=${proxy}"
-        case "${proxy}" in
-          *"|"*)
-            echo "::error::GOPROXY uses '|', which falls through on 401/403. Use ','."
-            exit 1
-            ;;
-        esac
-        case "${proxy%%,*}" in
-          https://edge.urm.nvidia.com/*) ;;
-          *)
-            echo "::error::first GOPROXY entry is '${proxy%%,*}', not Artifactory"
-            exit 1
-            ;;
-        esac
-        [ "$(go env GOSUMDB)" != off ] \
-          || { echo "::error::GOSUMDB=off; modules would not be verified against the transparency log"; exit 1; }
+      run: ./hack/check-goproxy.sh
 
     - name: Lint
       run: make lint
