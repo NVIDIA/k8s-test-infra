@@ -43,12 +43,18 @@ jobs:
 
       # Ahead of CodeQL's init so everything it resolves, not just the explicit
       # download below, comes through Artifactory.
+
+      # A fork PR gets a read-only token and cannot mint an OIDC credential, so
+      # it resolves publicly. A gate an outside contributor cannot pass would
+      # deadlock their PR permanently.
       - name: Configure the DGXC Go proxy
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: ./.github/actions/setup-dgxc-goproxy
         with:
           mode: routed
 
       - name: Assert the proxy is actually in front
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         run: ./hack/check-goproxy.sh
 
       - name: Initialize CodeQL
