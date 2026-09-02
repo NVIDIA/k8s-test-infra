@@ -161,12 +161,12 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-nfd-features
+            name: nfd-features
             mountPath: /host/etc/kubernetes/node-feature-discovery/features.d
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-nfd-features
+            name: nfd-features
             hostPath:
               path: /etc/kubernetes/node-feature-discovery/features.d
               type: DirectoryOrCreate
@@ -179,7 +179,7 @@ tests:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-nfd-features
+            name: nfd-features
             hostPath:
               path: /custom/features.d
               type: DirectoryOrCreate
@@ -335,12 +335,12 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-nvml-mock
+            name: mokka-root
             mountPath: /host/var/lib/nvml-mock
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: gpu-config
+            name: mokka-profile
             mountPath: /etc/nvml-mock
             readOnly: true
       # Host-absolute MOCK_PCI_ROOT / MOCK_IB_ROOT only resolve for exec'd tools
@@ -348,22 +348,22 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-nvml-mock
+            name: mokka-root
             mountPath: /var/lib/nvml-mock
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-run-nvidia
+            name: driver-root-link
             mountPath: /host/run/nvidia
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-cdi
+            name: cdi-specs
             mountPath: /host/run/cdi
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-cdi
+            name: cdi-specs
             mountPath: /host/var/run/cdi
 
   - it: should define all required volumes
@@ -371,27 +371,27 @@ tests:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-nvml-mock
+            name: mokka-root
             hostPath:
               path: /var/lib/nvml-mock
               type: DirectoryOrCreate
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: gpu-config
+            name: mokka-profile
             configMap:
               name: RELEASE-NAME-nvml-mock-config
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-cdi
+            name: cdi-specs
             hostPath:
               path: /var/run/cdi
               type: DirectoryOrCreate
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-run-nvidia
+            name: driver-root-link
             hostPath:
               path: /run/nvidia
               type: DirectoryOrCreate
@@ -724,7 +724,7 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: gpu-topology
+            name: cluster-topology
             mountPath: /etc/nvml-mock/topology
             readOnly: true
 
@@ -741,7 +741,7 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: gpu-topology
+            name: cluster-topology
             mountPath: /etc/nvml-mock/topology
             readOnly: true
 
@@ -754,13 +754,13 @@ tests:
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: gpu-topology
+            name: cluster-topology
             mountPath: /etc/nvml-mock/topology
             readOnly: true
       - notContains:
           path: spec.template.spec.volumes
           content:
-            name: gpu-topology
+            name: cluster-topology
 
   - it: should wire fabricmanager state dir into both containers when enabled
     set:
@@ -781,12 +781,12 @@ tests:
           content:
             name: MOCK_FABRICMANAGER_STATE_DIR
             value: /var/lib/nvml-mock/fabric-state
-      # No dedicated volume: the directory sits under the host-nvml-mock
+      # No dedicated volume: the directory sits under the mokka-root
       # hostPath both containers already mount, and the agent creates it.
       - notContains:
           path: spec.template.spec.volumes
           content:
-            name: host-fabric-state
+            name: fabric-state
 
   - it: should withhold readiness for fabricmanager.initDelay
     set:
@@ -831,14 +831,14 @@ tests:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-fabric-state
+            name: fabric-state
             hostPath:
               path: /run/nvidia-fabricmanager
               type: DirectoryOrCreate
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-fabric-state
+            name: fabric-state
             mountPath: /host/run/nvidia-fabricmanager
 
   # ── Node Agent ──────────────────────────────────────────────────────
@@ -890,7 +890,7 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: host-cdi
+            name: cdi-specs
             mountPath: /host/run/cdi
 
   # The agent reads the node's DMI attributes and reproduces them inside the
@@ -948,7 +948,7 @@ tests:
       - notContains:
           path: spec.template.spec.volumes
           content:
-            name: host-pod-resources
+            name: pod-resources
             hostPath:
               path: /var/lib/kubelet/pod-resources
               type: Directory
@@ -975,13 +975,13 @@ tests:
       - contains:
           path: spec.template.spec.containers[1].volumeMounts
           content:
-            name: host-pod-resources
+            name: pod-resources
             mountPath: /var/lib/kubelet/pod-resources
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-pod-resources
+            name: pod-resources
             hostPath:
               path: /var/lib/kubelet/pod-resources
               type: Directory
@@ -1020,13 +1020,13 @@ tests:
       - contains:
           path: spec.template.spec.containers[1].volumeMounts
           content:
-            name: host-pod-resources
+            name: pod-resources
             mountPath: /var/lib/k0s/kubelet/pod-resources
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: host-pod-resources
+            name: pod-resources
             hostPath:
               path: /var/lib/k0s/kubelet/pod-resources
               type: Directory
