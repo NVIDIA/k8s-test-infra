@@ -57,7 +57,7 @@ tests:
           content:
             apiGroups: ["mokka.nvidia.com"]
             resources: ["sgpuracks"]
-            verbs: ["get", "list", "watch", "create", "patch", "delete"]
+            verbs: ["get", "list", "watch", "create", "update", "delete"]
 
   - it: should allow namespaced Lease election
     set:
