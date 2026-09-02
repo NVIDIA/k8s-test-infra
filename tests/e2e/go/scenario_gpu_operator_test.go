@@ -131,10 +131,14 @@ func assertRuntimeTempViaDCGM(ctx SpecContext, h *harness.Harness, wantC int) {
 // assertRuntimePowerViaDCGM pins a single GPU's power draw at runtime via
 // nvml-mock-ctl — no Helm upgrade, no pod restart — and asserts the already-
 // running dcgm-exporter reports the pinned DCGM_FI_DEV_POWER_USAGE (watts) for
-// that GPU only. The target watts is chosen inside the profile's advertised
-// [min_limit, max_limit] envelope (read from nvidia-smi -q -x so the test is
-// profile-agnostic) and far from the dynamic baseline, so the engine never
-// clamps it and the change is unambiguous.
+// that GPU only. Both watt marks sit inside the profile's [min_limit, max_limit]
+// envelope (read from nvidia-smi -q -x so the test is profile-agnostic), where
+// the engine will not clamp them.
+//
+// Every GPU is pinned to restW before the target is pinned to wantW. An
+// unpinned GPU's power sweeps the whole envelope, so it passes through any
+// value the scoping check could pick and the assertion would be a race against
+// the simulator rather than a test of the override.
 func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
 	GinkgoHelper()
 	const targetGPU = 0
@@ -147,16 +151,16 @@ func assertRuntimePowerViaDCGM(ctx SpecContext, h *harness.Harness) {
 	Expect(minOK && maxOK).To(BeTrue(), "profile must report a numeric power envelope")
 	minW, maxW := int(minF), int(maxF)
 	Expect(maxW).To(BeNumerically(">", minW), "profile must advertise a usable power envelope")
-	baseline := smiGPUPowerDrawW(ctx, h, pod, targetGPU)
 
-	lo := minW + (maxW-minW)/4
-	hi := minW + (maxW-minW)*3/4
-	wantW := lo
-	if absInt(hi-baseline) > absInt(lo-baseline) {
-		wantW = hi
-	}
+	restW := minW + (maxW-minW)/4
+	wantW := minW + (maxW-minW)*3/4
+	// The scoping check allows 1W for float formatting, so the two marks have to
+	// land further apart than that to mean anything.
+	Expect(wantW-restW).To(BeNumerically(">", 1),
+		"profile power envelope [%dW, %dW] is too narrow to separate the pinned GPU from the rest", minW, maxW)
 
-	By(fmt.Sprintf("pin power draw to %dW on GPU %d at runtime via nvml-mock-ctl on %s (no restart)", wantW, targetGPU, node))
+	By(fmt.Sprintf("pin every GPU to %dW, then GPU %d to %dW at runtime via nvml-mock-ctl on %s (no restart)", restW, targetGPU, wantW, node))
+	nvmlMockCtlOnNode(ctx, h, node, "power", "--gpu", "all", strconv.Itoa(restW))
 	nvmlMockCtlOnNode(ctx, h, node, "power", "--gpu", strconv.Itoa(targetGPU), strconv.Itoa(wantW))
 	DeferCleanup(func(ctx SpecContext) { nvmlMockCtlOnNode(ctx, h, node, "reset", "--gpu", "all") })
 
