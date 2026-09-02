@@ -25,7 +25,7 @@ import (
 // state is "auto" mirrors the fake fabricmanager's readiness:
 //
 //   - Coupling is OFF unless EnvFabricStateDir is set (fabricmanager
-//     enabled, wired by setup.sh / the Helm DaemonSet). With coupling off,
+//     enabled, wired by the Helm DaemonSet). With coupling off,
 //     "auto" resolves to COMPLETED so single-node and ComputeDomain
 //     behavior (#304/#342) is unchanged — there is no regression when
 //     fabricmanager is disabled.

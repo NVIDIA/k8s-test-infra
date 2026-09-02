@@ -10,7 +10,7 @@
 #
 # Prerequisites:
 #   - nvml-mock Helm chart already installed (provides mock NVML + CUDA libs)
-#   - Node labelled nvidia.com/gpu.present=true (done by nvml-mock chart)
+#   - NFD deployed (the operator bundles it) so operands see pci-10de.present
 #
 # Tested versions:
 #   - GPU Operator: v24.9.x

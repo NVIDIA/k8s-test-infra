@@ -104,7 +104,7 @@ cluster_has_nri_enabled() {
 # Pick two majors unused on every Kind node. The chart defaults are intended
 # for its DRA fixtures, but Kind's host kernel may already assign them (for
 # example, major 236 is hidraw on current nodes). Reusing one would make the
-# substitute /proc/devices lie, so setup.sh correctly rejects it.
+# substitute /proc/devices lie, so the imex simulator correctly rejects it.
 choose_imex_device_majors() {
   local node candidate
   local used_majors
@@ -336,7 +336,7 @@ kind load docker-image "${IMAGE_NAME}" "${WORKLOAD_IMAGE_NAME}" --name "${CLUSTE
 info "Installing chart (gb200 + topology + NRI channel injection)"
 # NOTE: `--set gpu.count=...` is intentionally NOT passed. The flag
 # only controls the host-side CDI spec / /dev/nvidia* device nodes
-# emitted by setup.sh; the in-pod ConfigMap mounted at
+# emitted by the cdi simulator; the in-pod ConfigMap mounted at
 # /etc/nvml-mock/config.yaml — which is what check-fabric below
 # loads — always reflects the profile's full device list (8 for
 # gb200). For this demo the GPU count is irrelevant: what matters is
@@ -359,7 +359,7 @@ helm upgrade --install "${RELEASE_NAME}" "${REPO_ROOT}/${CHART_PATH}" \
   --wait --timeout 180s >/dev/null
 
 # Helm cannot detect that a same-tag local image was rebuilt, and changing the
-# topology ConfigMap does not rerun setup.sh or restart the demo workload.
+# topology ConfigMap does not restart the demo workload.
 # Always recycle in dependency order so reruns stage the current topology and
 # image, register the current NRI plugin, and discard any IMEX process left by a
 # failed run. A fresh cluster pays for one redundant rollout; keeping one path

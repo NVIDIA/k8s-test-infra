@@ -13,6 +13,13 @@ const (
 	nvmlMockNamespace = "mokka"
 
 	nvmlMockSelector = "app.kubernetes.io/name=nvml-mock"
+
+	// The simulated-GPU fleet label every Kind worker carries and the chart
+	// selects on (local/nvml-mock.values.yaml). It says "this node runs the
+	// mock", which is what placement needs; GPU labels under nvidia.com/ are
+	// NFD's and GFD's to write, and are absent unless those are deployed.
+	sgpuNodeLabel      = "mokka.nvidia.com/type"
+	sgpuNodeLabelValue = "sgpu"
 )
 
 // builtImage is the nvml-mock image ref shared across parallel processes

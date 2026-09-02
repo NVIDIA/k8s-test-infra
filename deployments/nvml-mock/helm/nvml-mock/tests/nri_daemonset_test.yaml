@@ -184,7 +184,8 @@ tests:
 
   # Mock IMEX channel delivery (#437). The channel nodes are staged by the main
   # DaemonSet under imex.mockChannels; the plugin must read them from that one
-  # location. A host path that disagrees with where setup.sh writes them makes
+  # location. A host path that disagrees with where the imex simulator writes
+  # them makes
   # the annotation a silent no-op, so pin it against the overlay root.
   - it: should point IMEX channel injection at the staged channel directory
     set:
@@ -213,7 +214,7 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --imex-channel-host-path=/custom/nvml-mock/driver/dev/nvidia-caps-imex-channels
       # The GPU device root and the channel root must stay siblings under the
-      # same relocated overlay; they are staged by the same setup.sh run.
+      # same relocated overlay; they are staged by the same node agent.
       - contains:
           path: spec.template.spec.containers[0].args
           content: --device-host-path=/custom/nvml-mock/driver/dev

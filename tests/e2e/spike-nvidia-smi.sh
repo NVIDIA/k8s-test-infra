@@ -36,7 +36,7 @@ RUN_ARGS=(
 )
 
 # We need a config file inside the container. The Dockerfile doesn't COPY one
-# by default (setup.sh handles it at runtime), so mount it.
+# by default (the chart mounts it from a ConfigMap at runtime), so mount it.
 CONFIG="deployments/nvml-mock/helm/nvml-mock/profiles/a100.yaml"
 RUN_ARGS+=(-v "$(pwd)/$CONFIG:/config/config.yaml:ro")
 

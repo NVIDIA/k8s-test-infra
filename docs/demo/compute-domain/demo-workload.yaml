@@ -24,8 +24,6 @@ spec:
         nvml-mock.nvidia.com/imex-channels: "true"
     spec:
       automountServiceAccountToken: false
-      nodeSelector:
-        nvidia.com/gpu.present: "true"
       containers:
         - name: demo-workload
           image: nvml-mock:compute-domain-workload

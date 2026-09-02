@@ -306,7 +306,7 @@ func TestPruneGPUNodes_RemovesShrunkDeviceSet(t *testing.T) {
 	} {
 		require.NoError(t, os.WriteFile(filepath.Join(devRoot, n), nil, 0o600))
 	}
-	// setup.sh stages the IMEX channel tree in this same directory.
+	// The imex simulator stages the IMEX channel tree in this same directory.
 	imex := filepath.Join(devRoot, "nvidia-caps-imex-channels")
 	require.NoError(t, os.MkdirAll(imex, 0o755))
 
@@ -325,7 +325,7 @@ func TestPruneGPUNodes_RemovesShrunkDeviceSet(t *testing.T) {
 			"stale GPU node %s must be pruned", gone)
 	}
 	// The nvidia prefix alone must not be grounds for deletion — this tree
-	// belongs to setup.sh, not to the gpudriver simulator.
+	// belongs to the imex simulator, not to gpudriver.
 	require.DirExists(t, imex, "IMEX channel tree must survive pruning")
 }
 

@@ -65,7 +65,7 @@ The demo expects the following tools on `$PATH`:
 
    The script intentionally does **not** pass `--set gpu.count=...`.
    That flag only sizes the host-side CDI spec produced by
-   `scripts/setup.sh`; the in-pod ConfigMap at
+   the `cdi` simulator; the in-pod ConfigMap at
    `/etc/nvml-mock/config.yaml` — which is what `check-fabric` loads
    — always reflects the chosen profile's full device list (4 GPUs
    for `gb200`, one NVL72 compute tray). For ComputeDomain verification

@@ -115,7 +115,7 @@ networkPolicy:
 # nvml-mock supplies libnvidia-ml.so instead), so there is no
 # nvidia-driver-daemonset pod for the labeler to detect and it never sets
 # nvsentinel.dgxc.nvidia.com/driver.installed=true. assumeDriverInstalled makes
-# the labeler set that label on every nvidia.com/gpu.present node, which the
+# the labeler set that label on every node GFD marks nvidia.com/gpu.present, which the
 # metadata-collector DaemonSet requires in its node selector. (This is the same
 # knob NVIDIA documents for hosts with pre-baked drivers.)
 labeler:
