@@ -146,6 +146,8 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	healthSrv := health.NewServer(cmd.String("health-addr"), shutdownTimeout)
 
 	h := host.New(cmd.String("host-root"))
+
+	// TODO: we should consider keeping runtime state in /var/ dir so it naturally gets reset on container restart
 	if err := resetRuntimeOverrides(h); err != nil {
 		return err
 	}
