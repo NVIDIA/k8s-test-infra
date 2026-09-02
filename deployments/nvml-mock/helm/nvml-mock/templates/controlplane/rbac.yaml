@@ -35,7 +35,7 @@ rules:
     verbs: ["get", "list", "watch", "update"]
   - apiGroups: ["mokka.nvidia.com"]
     resources: ["sgpuracks"]
-    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
   - apiGroups: ["mokka.nvidia.com"]
     resources: ["sgpuinventories/status", "sgpuracks/status"]
     verbs: ["update"]
