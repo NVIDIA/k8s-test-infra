@@ -18,13 +18,13 @@
 # An org with no identity mapping on the `nvgithub-dgxc` provider fails the OIDC
 # exchange, and `enforced` mode has no credential fallback — a 401 stops the
 # build rather than resolving publicly. Finding that out by breaking everyone's
-# PR is the outcome this workflow exists to avoid, so it is dispatch-only and
-# wired into nothing. Delete the file to revert.
+# PR is the outcome this workflow exists to avoid, so it gates nothing and runs
+# only on demand or on changes to the proxy setup itself. Delete the file to
+# revert.
 #
-# Run it from `main`. The exchange matches on the ID token's claims, and a
-# dispatch on main presents the same OIDC subject as a push to main; a
-# pull_request ref presents `refs/pull/N/merge` and cannot validate the mapping
-# a real job would match.
+# Prefer a dispatch from `main`. The exchange matches on the ID token's claims,
+# and a dispatch on main presents the same OIDC subject as a push to main —
+# the identity a real job will send.
 #
 # `enforced` makes the run its own measurement. With no fallback entry in
 # GOPROXY, a green run means every module came from Artifactory, because there
@@ -33,6 +33,12 @@ name: DGXC Go Proxy Probe
 
 on:
   workflow_dispatch: {}
+
+  # TODO: temp PR trigger for the sake of testing without merging
+  pull_request:
+    paths:
+      - '.github/workflows/dgxc-goproxy-probe.yaml'
+      - '.github/actions/setup-dgxc-goproxy/**'
 
 permissions:
   contents: read
@@ -49,8 +55,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      # Mints the short-lived Artifactory token. Forks cannot obtain this, which
-      # is why the probe is main-only.
+      # Mints the short-lived Artifactory token. A fork PR cannot obtain one, so
+      # a run from a fork fails at the exchange.
       id-token: write
     steps:
       - name: Checkout code
