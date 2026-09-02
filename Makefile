@@ -74,6 +74,8 @@ lint: tools gen-check ## Lint the source code
 		echo "$$found"; \
 		exit 1; \
 	fi
+	@echo "🛡️ Verifying the vendored Go proxy action.."
+	@./hack/check-depproxy-kit.sh
 	@echo "🧹 Vetting.."
 	@go vet ./...
 	@echo "🧹 GoCI Lint.."
