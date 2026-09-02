@@ -102,13 +102,13 @@ linters:
           - revive
         text: 'should not use dot imports'
 
-      # The mocknvml/mockcuda packages deliberately mirror NVML/CUDA C API names
-      # (GetBoardId, DeviceGetHandleByPciBusId, GetMemoryInfo_v2, TemperatureGPU_C,
-      # ...) so ConfigurableDevice satisfies go-nvml's Device interface and the
-      # YAML profiles read like their real NVML counterparts. Renaming these to
-      # Go idiom (BoardID, GetMemoryInfoV2, TemperatureGPUC) would break the
+      # The mocknvml package deliberately mirrors NVML C API names (GetBoardId,
+      # DeviceGetHandleByPciBusId, GetMemoryInfo_v2, TemperatureGPU_C, ...) so
+      # ConfigurableDevice satisfies go-nvml's Device interface and the YAML
+      # profiles read like their real NVML counterparts. Renaming these to Go
+      # idiom (BoardID, GetMemoryInfoV2, TemperatureGPUC) would break the
       # interface and the profile schema.
-      - path: ^pkg/gpu/mock(nvml|cuda)/
+      - path: ^pkg/gpu/mocknvml/
         linters:
           - revive
         text: 'var-naming'

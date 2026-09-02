@@ -40,7 +40,6 @@ COPY internal/ internal/
 COPY shims/ shims/
 COPY Makefile ./
 RUN cd pkg/gpu/mocknvml && make clean && make
-RUN cd pkg/gpu/mockcuda && make clean && make
 RUN cd shims/libibmock && make clean && make
 RUN cd shims/libpcisysfs && make clean && make
 
@@ -49,7 +48,6 @@ RUN make build
 FROM debian:bookworm-slim
 ARG TARGETARCH
 COPY --from=builder /src/pkg/gpu/mocknvml/libnvidia-ml.so.* /usr/local/lib/
-COPY --from=builder /src/pkg/gpu/mockcuda/libcuda.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libibmock/libibmocksys.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libibmock/libibmockumad.so.* /usr/local/lib/
 COPY --from=builder /src/shims/libibmock/libibmockverbs.so.* /usr/local/lib/
