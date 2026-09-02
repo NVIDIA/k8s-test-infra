@@ -1,0 +1,145 @@
+# Copyright 2026 NVIDIA CORPORATION
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+---
+# Proves the DGXC Go proxy path works before any build depends on it.
+#
+# An org with no identity mapping on the `nvgithub-dgxc` provider fails the OIDC
+# exchange, and `enforced` mode has no credential fallback — a 401 stops the
+# build rather than resolving publicly. Finding that out by breaking everyone's
+# PR is the outcome this workflow exists to avoid, so it is dispatch-only and
+# wired into nothing. Delete the file to revert.
+#
+# Run it from `main`. The exchange matches on the ID token's claims, and a
+# dispatch on main presents the same OIDC subject as a push to main; a
+# pull_request ref presents `refs/pull/N/merge` and cannot validate the mapping
+# a real job would match.
+#
+# `enforced` makes the run its own measurement. With no fallback entry in
+# GOPROXY, a green run means every module came from Artifactory, because there
+# is nowhere else it could have come from.
+name: DGXC Go Proxy Probe
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  # Under `auto`, a `go` directive above the installed toolchain downloads one
+  # through GOPROXY as golang.org/toolchain, which enforced mode may not serve.
+  GOTOOLCHAIN: local
+
+jobs:
+  probe:
+    name: Probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Mints the short-lived Artifactory token. Forks cannot obtain this, which
+      # is why the probe is main-only.
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Get Go version
+        id: golang
+        run: echo "version=$(./hack/golang-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ steps.golang.outputs.version }}
+          # A restored module cache satisfies every assertion below without
+          # contacting Artifactory once.
+          cache: false
+
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: enforced
+
+      # Catches what the download cannot: the action silently no-opping, or a
+      # revert to `routed`. Either looks healthy while routing nothing.
+      - name: Assert the proxy is actually in front
+        run: |
+          set -euo pipefail
+          proxy="$(go env GOPROXY)"
+          echo "GOPROXY=${proxy}"
+          expected="https://edge.urm.nvidia.com/artifactory/api/go/dgxc-go-virtual"
+          [ "${proxy}" = "${expected}" ] \
+            || { echo "::error::GOPROXY is '${proxy}', expected exactly '${expected}'"; exit 1; }
+          case "${proxy}" in
+            *,*|*"|"*)
+              echo "::error::GOPROXY has a fallback entry ('${proxy}'); this is not enforced"
+              exit 1
+              ;;
+          esac
+          [ "$(go env GOSUMDB)" != off ] \
+            || { echo "::error::GOSUMDB=off; modules would not be verified against the transparency log"; exit 1; }
+          echo "OK: Artifactory is the only GOPROXY entry and GOSUMDB is intact"
+
+      - name: Assert the module cache is cold
+        run: |
+          set -euo pipefail
+          modcache="$(go env GOMODCACHE)"
+          if [ -d "${modcache}/cache/download" ] \
+             && [ -n "$(find "${modcache}/cache/download" -name '*.zip' -print -quit 2>/dev/null)" ]; then
+            echo "::error::module cache at ${modcache} is already populated; this run cannot demonstrate coverage"
+            exit 1
+          fi
+          echo "OK: cache is cold, so anything resolved below came over the wire"
+
+      # Not `go mod download all`: `all` walks test dependencies of dependencies
+      # into the Kubernetes staging modules, which k8s.io/kubernetes declares at
+      # v0.0.0 and replaces with local paths. Go ignores a dependency's replace
+      # directives, so `all` asks every proxy for k8s.io/*@v0.0.0 and gets a 404
+      # that says nothing about Artifactory.
+      - name: Resolve the module graph through the proxy
+        run: |
+          set -euo pipefail
+          go mod download -x 2>&1 | tee /tmp/godownload.log
+
+          # `-x` traces each request as `# get <url>` and its result as
+          # `# get <url>: <status>`. With a cold cache and a single-entry
+          # GOPROXY, counting the module zips Artifactory served is the
+          # coverage measurement.
+          served="$(grep -cE '# get https://edge\.urm\.nvidia\.com/.*\.zip: 200 OK' /tmp/godownload.log || true)"
+          echo "module zips served by Artifactory: ${served}"
+
+          # Zero fetches is the signature of a false pass: every assertion above
+          # is satisfied by a job that contacted nothing at all.
+          [ "${served}" -gt 0 ] \
+            || { echo "::error::no module zips were fetched; this run proves nothing about coverage"; exit 1; }
+
+          others="$(grep -oE '# get https://[a-z0-9.-]+/' /tmp/godownload.log \
+                      | grep -v 'edge\.urm\.nvidia\.com' | sort -u || true)"
+          if [ -n "${others}" ]; then
+            echo "::error::requests went to hosts other than Artifactory:"
+            echo "${others}"
+            exit 1
+          fi
+          echo "OK: the whole graph resolved through Artifactory"
+
+      # The action writes a GOAUTH helper holding a live bearer token to
+      # $RUNNER_TEMP and composite actions get no teardown hook, so this has to
+      # be explicit and last.
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
