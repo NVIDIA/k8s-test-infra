@@ -61,8 +61,6 @@ func TestCatalogDeleteUsesExactNodeIdentity(t *testing.T) {
 	record, found := catalog.GetByName("same")
 	require.True(t, found)
 	require.Equal(t, types.UID("new-uid"), record.Node().UID)
-	require.Same(t, record, catalog.GetByUID("new-uid"))
-	require.Nil(t, catalog.GetByUID("old-uid"))
 
 	catalog.Delete("same", "new-uid")
 	_, found = catalog.GetByName("same")

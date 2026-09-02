@@ -62,7 +62,6 @@ type Catalog struct {
 	mu sync.RWMutex
 
 	byName       map[string]*Record
-	byUID        map[types.UID]*Record
 	byLabelKey   map[string]recordSet
 	byLabelValue map[labelValue]recordSet
 	snapshot     *Snapshot
@@ -73,7 +72,6 @@ type Catalog struct {
 func New() *Catalog {
 	return &Catalog{
 		byName:       make(map[string]*Record),
-		byUID:        make(map[types.UID]*Record),
 		byLabelKey:   make(map[string]recordSet),
 		byLabelValue: make(map[labelValue]recordSet),
 	}
@@ -104,11 +102,7 @@ func (c *Catalog) Upsert(node *corev1.Node) {
 	if previous := c.byName[node.Name]; previous != nil {
 		c.removeLocked(previous)
 	}
-	if previous := c.byUID[node.UID]; previous != nil {
-		c.removeLocked(previous)
-	}
 	c.byName[node.Name] = record
-	c.byUID[node.UID] = record
 	c.indexLocked(record)
 	if allocationChanged {
 		c.generation++
@@ -143,13 +137,6 @@ func (c *Catalog) GetByName(name string) (*Record, bool) {
 	defer c.mu.RUnlock()
 	record, found := c.byName[name]
 	return record, found
-}
-
-// GetByUID returns the current immutable record for an exact Node UID.
-func (c *Catalog) GetByUID(uid types.UID) *Record {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.byUID[uid]
 }
 
 // Snapshot returns a cached immutable view until the next Node change.
@@ -227,9 +214,6 @@ func (c *Catalog) indexLocked(record *Record) {
 func (c *Catalog) removeLocked(record *Record) {
 	if c.byName[record.node.Name] == record {
 		delete(c.byName, record.node.Name)
-	}
-	if c.byUID[record.node.UID] == record {
-		delete(c.byUID, record.node.UID)
 	}
 	for key, value := range record.node.Labels {
 		removeFromSet(c.byLabelKey, key, record)
