@@ -40,6 +40,16 @@ on:
       - '.github/workflows/dgxc-goproxy-probe.yaml'
       - '.github/actions/setup-dgxc-goproxy/**'
 
+  # TEMPORARY, same lifetime as the trigger above. `pull_request` does not fire
+  # for a branch that is not a PR head, and PR #756 comes from a fork, which
+  # cannot mint an ID token at all — so a push is the only event that reaches
+  # this workflow from a working branch. Any branch, because the paths filter
+  # already keeps it to changes in the proxy setup.
+  push:
+    paths:
+      - '.github/workflows/dgxc-goproxy-probe.yaml'
+      - '.github/actions/setup-dgxc-goproxy/**'
+
 permissions:
   contents: read
 
