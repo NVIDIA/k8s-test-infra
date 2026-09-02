@@ -263,7 +263,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	logging.NewLogger(logging.Config{Level: level, Format: format})
+	logger := logging.NewLogger(logging.Config{Level: level, Format: format})
+	defer func() { _ = logger.Sync() }()
 
 	cfg, err := configFrom(cmd)
 

@@ -10,12 +10,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 
@@ -287,7 +288,7 @@ func (s *Simulator) Run(ctx context.Context) error {
 			continue
 		}
 		if err := s.serveOnce(ctx); err != nil && ctx.Err() == nil {
-			slog.Error("mock-ib daemon exited", "simulator", name, "err", err)
+			zap.L().Error("mock-ib daemon exited", zap.String("simulator", name), zap.Error(err))
 			select {
 			case <-ctx.Done():
 			case <-time.After(serverRestartBackoff):
@@ -350,7 +351,7 @@ func (s *Simulator) Reload(_ context.Context, _ *agent.State) error {
 	if s.opts.Mode != ModeFull || !s.dirty.Swap(false) {
 		return nil
 	}
-	slog.Info("ib shape changed; restarting daemon", "simulator", name)
+	zap.L().Info("ib shape changed; restarting daemon", zap.String("simulator", name))
 	select {
 	case s.restart <- struct{}{}:
 	default: // a restart is already pending

@@ -5,13 +5,12 @@ package fabricmanager
 
 import (
 	"context"
-	"io"
-	"log/slog"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
@@ -19,7 +18,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	zap.ReplaceGlobals(zap.NewNop())
 	os.Exit(m.Run())
 }
 
