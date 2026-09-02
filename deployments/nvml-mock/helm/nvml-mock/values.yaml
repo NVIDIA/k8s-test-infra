@@ -125,6 +125,9 @@ allocationWatcher:
 
 nri:
   enabled: false
+  logging:
+    level: info    # debug | info | warn | error
+    format: json   # json | plain
   socketPath: /var/run/nri/nri.sock
   pluginName: nvml-mock
   pluginIndex: "10"
@@ -140,7 +143,7 @@ nri:
   # How the deviceAnnotation opt-in delivers mock GPUs to a container:
   #   raw - stage the /dev/nvidiaN nodes directly in the NRI adjustment.
   #   cdi - emit a CDI device reference and let the runtime resolve it from the
-  #         spec setup.sh stages at cdiSpecDir/nvml-mock-nri.yaml.
+  #         spec the node agent stages at cdiSpecDir/nvml-mock-nri.yaml.
   #
   # raw is the default. It is the only mode that works where the runtime has no
   # CDI support, and MEP-0002 requires it to stay reachable. containerd 2.x

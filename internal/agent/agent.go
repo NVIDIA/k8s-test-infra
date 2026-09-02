@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/health"
 )
 
 // Agent is the reconciler and supervisor for all simulators.
@@ -27,7 +30,7 @@ type Agent struct {
 	host            *host.Host
 	log             *slog.Logger
 	shutdownTimeout time.Duration
-	live            atomic.Bool // true = Stage healthy; false = /healthz returns 503
+	live            atomic.Pointer[health.Probe] // last Stage wave outcome, served on /healthz
 
 	// Daemons launch into this group from reconcile but bind to supervisorCtx,
 	// so they outlive the reconcile that started them.
@@ -59,21 +62,28 @@ func New(cfg Config) *Agent {
 		shutdownTimeout: cfg.ShutdownTimeout,
 		started:         make(map[string]bool),
 	}
-	a.live.Store(true)
+	a.setLive(health.OK())
 	return a
 }
 
-// Live returns true when the last Stage wave completed without error.
-// Returns false after a Stage failure; recovers once Stage succeeds again.
-func (a *Agent) Live() bool { return a.live.Load() }
+func (a *Agent) setLive(probe health.Probe) { a.live.Store(&probe) }
 
-// Readyz returns a name→ready map of all simulator readiness states.
-func (a *Agent) Readyz() map[string]bool {
-	m := make(map[string]bool, len(a.simulators))
+// Liveness passes while the last Stage wave completed without error, naming the
+// simulators that failed when it did. It recovers once Stage succeeds again.
+func (a *Agent) Liveness() health.Probe { return *a.live.Load() }
+
+// Readiness aggregates every simulator's readiness and attributes the result
+// per simulator, so a red /readyz names which one is not serving.
+func (a *Agent) Readiness() health.Probe {
+	probe := health.Probe{OK: true, Components: make(map[string]health.Probe, len(a.simulators))}
 	for _, sim := range a.simulators {
-		m[sim.Name()] = sim.Ready()
+		ready := sim.Ready()
+		if !ready {
+			probe.OK = false
+		}
+		probe.Components[sim.Name()] = health.Probe{OK: ready}
 	}
-	return m
+	return probe
 }
 
 // Run starts the agent and blocks until ctx is cancelled or a required component
@@ -130,9 +140,10 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 	// collected; if any Stage failed the Apply wave is skipped entirely, because
 	// appliers depend on Stage artifacts being present (e.g. CDI spec → chardevs).
 	var (
-		wg        sync.WaitGroup
-		stageMu   sync.Mutex
-		stageErrs []error
+		wg          sync.WaitGroup
+		stageMu     sync.Mutex
+		stageErrs   []error
+		stageFailed []string
 	)
 	for _, sim := range a.simulators {
 		sim := sim
@@ -143,6 +154,7 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 				a.log.Error("stage failed", "simulator", sim.Name(), "err", err)
 				stageMu.Lock()
 				stageErrs = append(stageErrs, fmt.Errorf("stage %s: %w", sim.Name(), err))
+				stageFailed = append(stageFailed, sim.Name())
 				stageMu.Unlock()
 			}
 		}()
@@ -151,11 +163,12 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 	wg.Wait()
 
 	if len(stageErrs) > 0 {
-		a.live.Store(false)
+		slices.Sort(stageFailed)
+		a.setLive(health.Unhealthy("stage failed: %s", strings.Join(stageFailed, ", ")))
 		return errors.Join(stageErrs...)
 	}
 
-	a.live.Store(true)
+	a.setLive(health.OK())
 
 	// Supervisor wave sits on the barrier: a daemon starts against surfaces Stage
 	// has written, and before Apply publishes them off-node.

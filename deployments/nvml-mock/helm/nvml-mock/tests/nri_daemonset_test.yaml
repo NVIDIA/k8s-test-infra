@@ -37,9 +37,27 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].image
           value: ghcr.io/nvidia/nvml-mock:latest
+      # Must match where the Dockerfile copies the binary; nothing else checks
+      # the two agree, and a mismatch is a CrashLoopBackOff on every node.
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value:
+            - /usr/local/bin/nri-plugin
       - contains:
           path: spec.template.spec.containers[0].args
           content: --socket-path=/var/run/nri/nri.sock
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-level=info
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-format=json
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-level=info
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-format=json
       - contains:
           path: spec.template.spec.containers[0].args
           content: --excluded-namespaces=NAMESPACE,kube-system
@@ -53,6 +71,39 @@ tests:
             valueFrom:
               fieldRef:
                 fieldPath: spec.nodeName
+
+  - it: should pass custom logging values through to the plugin
+    set:
+      nri:
+        enabled: true
+        logging:
+          level: debug
+          format: plain
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-level=debug
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --log-format=plain
+
+  - it: should reject an unknown logging.level via the values schema
+    set:
+      nri:
+        enabled: true
+        logging:
+          level: trace
+    asserts:
+      - failedTemplate: {}
+
+  - it: should reject an unknown logging.format via the values schema
+    set:
+      nri:
+        enabled: true
+        logging:
+          format: text
+    asserts:
+      - failedTemplate: {}
 
   - it: should mount the NRI socket directory and overlay host path
     set:
@@ -325,5 +376,16 @@ tests:
       # first sign of a bad value is a CrashLoopBackOff rather than a failed
       # install. "cdi-annotations" specifically is a plausible typo: it is a real
       # device-plugin --device-list-strategy value, and MEP-0002 forbids it here.
+      - failedTemplate: {}
+
+  - it: should reject a deleted device injection mode at template time
+    set:
+      nri:
+        enabled: true
+        deviceInjectionMode: null
+    asserts:
+      # Helm's --set treats null as "delete this key", which the schema lets
+      # through because it constrains values rather than requiring the key.
+      # The template guard is what covers that, so it stays reachable.
       - failedTemplate:
-          errorMessage: 'nri.deviceInjectionMode must be "raw" or "cdi", got "cdi-annotations"'
+          errorMessage: 'nri.deviceInjectionMode must be "raw" or "cdi", got %!q(<nil>)'
