@@ -29,7 +29,7 @@ const (
 // Standalone GPU Feature Discovery scenario. This is gated because the GFD
 // image is pulled from nvcr.io; keep it disabled by default until #446
 // resolves the CI image/auth path.
-var _ = Describe("nvml-mock GPU feature discovery", Label("validator"), Ordered, func() {
+var _ = Describe("nvml-mock GPU feature discovery", Label("gfd"), Ordered, func() {
 	var h *harness.Harness
 	selectedProfiles := config.SelectedProfileNames()
 
@@ -37,7 +37,7 @@ var _ = Describe("nvml-mock GPU feature discovery", Label("validator"), Ordered,
 		if !config.RunNGCSpecs() {
 			Skip("set E2E_RUN_NGC=true to run the nvcr.io-backed GFD scenario; see #446")
 		}
-		h = setupCluster(ctx, "validator")
+		h = setupCluster(ctx, "gfd")
 	})
 
 	for _, name := range selectedProfiles {
@@ -73,10 +73,10 @@ func deployGPUFeatureDiscovery(ctx SpecContext, h *harness.Harness, node string)
 	Expect(h.Kube.Apply(ctx, assets.GFDManifest)).To(Succeed(), "apply GFD manifest")
 	Expect(h.Kube.DeletePodsByLabel(ctx, gfdNamespace, gfdSelector)).To(Succeed(), "restart GFD pods")
 	assertions.WaitDaemonSetReady(ctx, h.Kube, gfdNamespace, gfdName, config.ReadyTimeout(), config.PollInterval())
-	assertions.WaitNodeLabelsPresent(ctx, h.Kube, node, validatorGFDRequiredLabels(), config.ReadyTimeout(), config.PollInterval())
+	assertions.WaitNodeLabelsPresent(ctx, h.Kube, node, gfdRequiredLabels(), config.ReadyTimeout(), config.PollInterval())
 }
 
-func validatorGFDRequiredLabels() []string {
+func gfdRequiredLabels() []string {
 	return []string{
 		"nvidia.com/gpu.product",
 		"nvidia.com/gpu.memory",
