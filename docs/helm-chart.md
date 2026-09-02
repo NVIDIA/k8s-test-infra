@@ -10,7 +10,6 @@ Deploys a DaemonSet that creates on every node:
 - Mock `libnvidia-ml.so` shared library at `/var/lib/nvml-mock/driver/usr/lib64/`
 - Mock device nodes at `/var/lib/nvml-mock/driver/dev/nvidia{N,ctl,-uvm,-uvm-tools}` (consumers see them at `/dev/nvidia*` via CDI bind-mount)
 - GPU configuration at `/var/lib/nvml-mock/driver/config/config.yaml`
-- Node label `nvidia.com/gpu.present=true`
 - An NFD feature file at
   `/etc/kubernetes/node-feature-discovery/features.d/nvml-mock.features`, which
   NFD turns into the node label
@@ -1005,9 +1004,8 @@ five attributes its PCI source treats as mandatory. Only visibility is missing,
 and nothing nvml-mock can do supplies it without editing a third party's
 DaemonSet, which is why the local source is the route the chart uses.
 
-Writing a feature file rather than the label is also why the DaemonSet needs no
-`patch` on `nodes` for this key — `nvidia.com/gpu.present` is the only label it
-sets through the API.
+Writing a feature file rather than the label is why the DaemonSet needs no
+cluster RBAC at all: nothing in the pod calls the Kubernetes API.
 
 ### GPU Profiles
 
@@ -1340,12 +1338,11 @@ The chart deploys:
    - Creates symlinks (`libnvidia-ml.so.1` → `libnvidia-ml.so.{version}`)
    - Creates mock device nodes at `/var/lib/nvml-mock/driver/dev/nvidia{N,ctl,-uvm,-uvm-tools}` (CDI bind-mounts them to `/dev/nvidia*` in consumer containers)
    - Writes GPU config YAML at `/var/lib/nvml-mock/driver/config/config.yaml`
-   - Labels the node `nvidia.com/gpu.present=true`; the node agent sidecar writes
-     the NFD feature file that makes
+   - Writes the NFD feature file that makes
      `feature.node.kubernetes.io/pci-10de.present=true` appear — see
      [Node Labels](#node-labels)
 2. **ConfigMap** — GPU configuration from the selected profile
-3. **RBAC** — ServiceAccount with permission to patch node labels
+3. **ServiceAccount** — no cluster RBAC; nothing in the pod calls the API
 
 Consumer components (DRA driver, device plugin) mount `/var/lib/nvml-mock`
 and use `--nvidia-driver-root=/var/lib/nvml-mock/driver` to discover GPUs
@@ -1360,7 +1357,7 @@ discovery and monitoring. Some host-level subsystems are not mocked:
 |----------------|-------------------|--------|
 | `/sys/bus/pci/devices/{busID}` sysfs entries **as a Go program reads them** | DRA driver | The tree is rendered and `lspci` reads it, but the driver is a Go binary: Go's `os` package issues raw syscalls that the `LD_PRELOAD` shim cannot intercept, so it reads the host's real sysfs instead. `dra.k8s.io/pcieRoot` stays absent from ResourceSlices — **blocks topology-aware scheduling demos** (e.g., GPU + SR-IOV VF alignment). Tracked in [#265](https://github.com/NVIDIA/k8s-test-infra/issues/265) |
 | `/sys/bus/pci/devices/{busID}/numa_node` | Device plugin | NUMA-aware topology hints unavailable; scheduling works but NUMA affinity not enforced |
-| `/sys/bus/pci/devices/*/vendor,device,class` **as NFD reads them** (`/host-sys/…`, fixed at link time) | NFD (Node Feature Discovery) | PCI feature labels not auto-detected. `nvidia.com/gpu.present` is written directly by nvml-mock; `pci-10de.present` is created by NFD from a feature file nvml-mock drops in `nodeLabels.featuresDir` — see [Node Labels](#node-labels) |
+| `/sys/bus/pci/devices/*/vendor,device,class` **as NFD reads them** (`/host-sys/…`, fixed at link time) | NFD (Node Feature Discovery) | PCI feature labels not auto-detected. `pci-10de.present` is created by NFD from a feature file nvml-mock drops in `nodeLabels.featuresDir` — see [Node Labels](#node-labels) |
 
 ### PCIe Root Complex (DRA driver)
 

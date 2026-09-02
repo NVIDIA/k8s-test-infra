@@ -117,7 +117,7 @@ should match snapshot with all overrides:
                 - mountPath: /host/var/lib/nvml-mock/fabric-state
                   name: fabric-state
           nodeSelector:
-            nvidia.com/gpu.present: "true"
+            mokka.nvidia.com/type: sgpu
           serviceAccountName: nvml-mock-custom
           terminationGracePeriodSeconds: 10
           tolerations:
