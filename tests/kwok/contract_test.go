@@ -114,6 +114,16 @@ func TestRunnerContract(t *testing.T) {
 	require.NoError(t, err, string(output))
 }
 
+func TestRunnerUIDLookupsPropagateFailures(t *testing.T) {
+	runner := readFile(t, "run.sh")
+
+	for _, uid := range []string{"OLD_UID", "NEW_UID"} {
+		assignment := uid + `="$(kctl get node "${REPLACED_NODE}" -o jsonpath='{.metadata.uid}')"`
+		require.Contains(t, runner, assignment+"\nreadonly "+uid)
+		require.NotContains(t, runner, "readonly "+assignment)
+	}
+}
+
 func TestRunnerRendersCRDChartBeforeApply(t *testing.T) {
 	runner := readFile(t, "run.sh")
 	require.Contains(t, runner, "for command in kwokctl kubectl helm ")
