@@ -79,3 +79,26 @@ tests:
           pattern: "OPTION B: NVIDIA DRA Driver"
       - matchRegexRaw:
           pattern: "OPTION C: GPU Operator"
+
+  # Guards the OPTION C fix. The printed install must keep pointing at the
+  # overlay the demo and docs use (tests/e2e/gpu-operator-values.yaml, which
+  # currently matches the one CI installs through Tilt, though nothing
+  # enforces that), must keep waiting for the operands, and must never go back
+  # to the --set form that told users toolkit.enabled=true. The last two
+  # asserts cover contracts the snapshot alone would guard, and `helm unittest
+  # -u` launders a snapshot regression away without anyone noticing.
+  - it: should install the GPU Operator from the tested values overlay
+    asserts:
+      - matchRegexRaw:
+          pattern: "-f https://raw\\.githubusercontent\\.com/NVIDIA/k8s-test-infra/main/tests/e2e/gpu-operator-values\\.yaml"
+      # --wait is bounded to the OPTION C section rather than pinned to a
+      # timeout value: [^\u2501] cannot cross the box rule that separates
+      # sections, so OPTION B's own --wait line cannot satisfy this.
+      - matchRegexRaw:
+          pattern: "OPTION C: GPU Operator[^\u2501]*--wait"
+      - notMatchRegexRaw:
+          pattern: "--set toolkit\\.enabled"
+      - notMatchRegexRaw:
+          pattern: "Verified in CI"
+      - matchRegexRaw:
+          pattern: "nvidia\\.github\\.io/k8s-test-infra/helm-chart/#quick-start-gpu-operator-on-kind"
