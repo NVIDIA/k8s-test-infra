@@ -103,19 +103,8 @@ func newCLI() *cli.Command {
 	}
 }
 
-func run(ctx context.Context, cmd *cli.Command) error {
-	level, err := logging.ParseLevel(cmd.String("log-level"))
-	if err != nil {
-		return err
-	}
-	format, err := logging.ParseFormat(cmd.String("log-format"))
-	if err != nil {
-		return err
-	}
-	logger := logging.NewLogger(logging.Config{Level: level, Format: format})
-	klog.SetSlogLogger(logger)
-
-	cfg := controlplane.Config{
+func configFrom(cmd *cli.Command) controlplane.Config {
+	return controlplane.Config{
 		Server: controlplane.ServerConfig{
 			ListenAddr:      cmd.String("listen-addr"),
 			ShutdownTimeout: cmd.Duration("shutdown-timeout"),
@@ -139,7 +128,21 @@ func run(ctx context.Context, cmd *cli.Command) error {
 			LiveNodeGetTimeout:     cmd.Duration("live-node-get-timeout"),
 		},
 	}
+}
 
+func run(ctx context.Context, cmd *cli.Command) error {
+	level, err := logging.ParseLevel(cmd.String("log-level"))
+	if err != nil {
+		return err
+	}
+	format, err := logging.ParseFormat(cmd.String("log-format"))
+	if err != nil {
+		return err
+	}
+	logger := logging.NewLogger(logging.Config{Level: level, Format: format})
+	klog.SetSlogLogger(logger)
+
+	cfg := configFrom(cmd)
 	controller, err := controlplane.NewController(cfg)
 	if err != nil {
 		return err
