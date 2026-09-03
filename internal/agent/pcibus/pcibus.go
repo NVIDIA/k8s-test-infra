@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
+	"go.uber.org/zap"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -52,6 +54,7 @@ func (s *Simulator) Ready() bool { return s.ready.Load() }
 // When the state carries no topology the render is a no-op.
 func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
 	s.ready.Store(false)
+	zap.L().Debug("staging simulator", zap.String("simulator", name))
 
 	if err := stageSysfs(h, state); err != nil {
 		return fmt.Errorf("render pci sysfs: %w", err)
@@ -61,12 +64,19 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 		return err
 	}
 
+	s.ready.Store(true)
+	zap.L().Debug("simulator staged", zap.String("simulator", name))
 	return nil
 }
 
 // Discard empties the rendered PCI sysfs tree and removes the staged shim.
 // pcibus owns both, so clearing absent or partially staged paths is safe.
 func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
+	if !s.ready.Load() {
+		return nil
+	}
+	zap.L().Debug("discarding simulator", zap.String("simulator", name))
+
 	var errs []error
 
 	// Emptied rather than removed: the CDI spec mounts these directories, and a
@@ -103,6 +113,7 @@ func (s *Simulator) Apply(_ context.Context, h *host.Host, _ *agent.State) error
 
 // Revoke removes the NFD feature file.
 func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
+	zap.L().Debug("revoking simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 
 	return fsutil.Remove(filepath.Join(h.Etc, nfdFeatureFile))

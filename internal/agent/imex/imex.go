@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
+	"go.uber.org/zap"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -51,9 +53,11 @@ func (s *Simulator) Ready() bool { return s.ready.Load() }
 // It is a no-op (but marks ready) when state.IMEX.Enabled is false.
 func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
 	s.ready.Store(false)
+	zap.L().Debug("staging simulator", zap.String("simulator", name))
 
 	if !state.IMEX.Enabled {
 		s.ready.Store(true)
+		zap.L().Debug("simulator staged; imex disabled", zap.String("simulator", name))
 		return nil
 	}
 
@@ -68,6 +72,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	}
 
 	s.ready.Store(true)
+	zap.L().Debug("simulator staged", zap.String("simulator", name))
 	return nil
 }
 
@@ -77,6 +82,7 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 	if !s.ready.Load() {
 		return nil
 	}
+	zap.L().Debug("discarding simulator", zap.String("simulator", name))
 
 	var errs []error
 	for _, rel := range []string{

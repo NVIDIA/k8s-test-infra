@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"regexp"
 
+	"go.uber.org/zap"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 
 	"sigs.k8s.io/yaml"
@@ -116,6 +118,7 @@ func stageCUDAShim(ctx context.Context, h *host.Host, state *agent.State) error 
 	matches, _ := filepath.Glob("/usr/local/lib/libcuda.so.*.*.*")
 
 	if len(matches) == 0 {
+		zap.L().Debug("no libcuda.so in image; skipping CUDA shim staging")
 		return nil
 	}
 
@@ -169,8 +172,10 @@ func stageNvidiaSMI(ctx context.Context, h *host.Host, state *agent.State) error
 	}
 	elfPath := filepath.Join(binDir, "nvidia-smi")
 	if _, err := os.Stat("/usr/local/bin/nvidia-smi"); err == nil {
+		zap.L().Debug("staging nvidia-smi from the real ELF binary")
 		return fsutil.Copy("/usr/local/bin/nvidia-smi", elfPath, 0o755)
 	}
+	zap.L().Debug("no nvidia-smi ELF binary in image; staging the shell fallback")
 	return fsutil.Symlink("nvidia-smi.sh", elfPath)
 }
 

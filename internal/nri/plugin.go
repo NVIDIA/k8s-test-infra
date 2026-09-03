@@ -92,7 +92,11 @@ func (p *Plugin) CreateContainer(_ context.Context, pod *api.PodSandbox, contain
 
 	adjustment, ok := inject.Adjust(p.cfg.Inject, containerFromNRI(pod, container))
 	if !ok {
+		zap.L().Debug("container left unmodified", zap.String("pod", pod.Name), zap.String("container", container.Name))
 		return nil, nil, nil
 	}
+	zap.L().Debug("container adjusted",
+		zap.String("pod", pod.Name), zap.String("container", container.Name),
+		zap.Int("mounts", len(adjustment.Mounts)), zap.Int("devices", len(adjustment.Devices)))
 	return adjustmentToNRI(adjustment), nil, nil
 }

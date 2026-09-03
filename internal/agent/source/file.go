@@ -89,7 +89,7 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 		return
 	}
 
-	topology, err := readTopology(f.topologyPath)
+	topology, err := readTopology(f.topologyPath, f.log)
 	if err != nil {
 		f.send(ctx, ch, agent.Update{Err: err, At: time.Now()})
 		return
@@ -97,6 +97,7 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 
 	h := inputsHash(data, topology)
 	if h == *lastHash {
+		f.log.Debug("config and topology unchanged; skipping reconcile")
 		return // content unchanged
 	}
 	*lastHash = h
@@ -122,13 +123,15 @@ func (f *FileSource) send(ctx context.Context, ch chan<- agent.Update, u agent.U
 // readTopology returns the cluster topology document, or nil where the node has
 // none — an unset path or an unmounted ConfigMap. Other read failures surface as
 // errors, because a nil document retracts the one already staged on this node.
-func readTopology(path string) ([]byte, error) {
+func readTopology(path string, log *zap.Logger) ([]byte, error) {
 	if path == "" {
+		log.Debug("no topology path configured; ComputeDomain topology disabled")
 		return nil, nil
 	}
 
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
+		log.Debug("topology file not yet mounted", zap.String("path", path))
 		return nil, nil
 	}
 	if err != nil {

@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/fabricmanager"
@@ -26,8 +28,9 @@ var (
 // Simulator stages the directory shared with workloads. Daemon owns the
 // marker lifecycle, including transitions between staged directories.
 type Simulator struct {
-	staged atomic.Bool
-	daemon *fabricmanager.Daemon
+	staged  atomic.Bool
+	enabled atomic.Bool
+	daemon  *fabricmanager.Daemon
 }
 
 // Options configures the simulator.
@@ -53,6 +56,7 @@ func (s *Simulator) Ready() bool { return s.staged.Load() && s.daemon.Ready() }
 // directory means fabricmanager is disabled on this node.
 func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
 	s.staged.Store(false)
+	zap.L().Debug("staging simulator", zap.String("simulator", name))
 
 	dir := ""
 	if state.Fabric.ManagerStateDir != "" {
@@ -62,8 +66,17 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 		}
 	}
 
+	if enabled := dir != ""; enabled != s.enabled.Swap(enabled) {
+		if enabled {
+			zap.L().Info("fabricmanager simulation enabled", zap.String("state_dir", dir))
+		} else {
+			zap.L().Info("fabricmanager simulation disabled")
+		}
+	}
+
 	s.daemon.Reload(dir)
 	s.staged.Store(true)
+	zap.L().Debug("simulator staged", zap.String("simulator", name))
 	return nil
 }
 
@@ -76,5 +89,6 @@ func (s *Simulator) Reload(_ context.Context, _ *agent.State) error { return nil
 // Discard withdraws readiness so GPUs do not report COMPLETED after shutdown.
 func (s *Simulator) Discard(_ context.Context, _ *host.Host) error {
 	s.staged.Store(false)
+	zap.L().Debug("discarding simulator", zap.String("simulator", name))
 	return s.daemon.Stop()
 }
