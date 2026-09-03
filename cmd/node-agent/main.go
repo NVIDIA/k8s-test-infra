@@ -166,22 +166,21 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
-			gpudriver.New(),
-			pcibus.New(),
-			cdi.New(),
-			imex.New(),
-			nvlink.New(),
-			fabricmanager.New(fabricmanager.Options{
+			gpudriver.New(h),
+			pcibus.New(h),
+			cdi.New(h),
+			imex.New(h),
+			nvlink.New(h),
+			fabricmanager.New(h, fabricmanager.Options{
 				InitDelay: cmd.Duration("fabricmanager-init-delay"),
 			}),
-			ib.New(ib.Options{
+			ib.New(h, ib.Options{
 				Mode:    ibMode,
 				TCPPort: cmd.Int("ib-fabric-port"),
 				Fabric:  cmd.Bool("ib-fabric"),
 			}),
 		},
 		Source:          source.NewFileSource(configPath, cmd.String("topology"), log),
-		Host:            h,
 		Log:             log,
 		ShutdownTimeout: shutdownTimeout,
 	})

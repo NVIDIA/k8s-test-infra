@@ -6,7 +6,6 @@ package cdi
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -29,26 +28,26 @@ func testState() *agent.State {
 func TestApplyWritesSpecs(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
-	s := New()
+	s := New(h)
 	ctx := context.Background()
 
-	require.NoError(t, s.Stage(ctx, h, state))
+	require.NoError(t, s.Stage(ctx, state))
 	require.True(t, s.Ready())
-	require.NoError(t, s.Apply(ctx, h, state))
+	require.NoError(t, s.Apply(ctx, state))
 
-	require.FileExists(t, filepath.Join(h.Run, nvidiaSpecFile))
-	require.FileExists(t, filepath.Join(h.Run, nriSpecFile))
+	require.FileExists(t, h.RunPath(nvidiaSpecFile))
+	require.FileExists(t, h.RunPath(nriSpecFile))
 }
 
 func TestNvidiaSpec(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
-	s := New()
+	s := New(h)
 	ctx := context.Background()
-	require.NoError(t, s.Stage(ctx, h, state))
-	require.NoError(t, s.Apply(ctx, h, state))
+	require.NoError(t, s.Stage(ctx, state))
+	require.NoError(t, s.Apply(ctx, state))
 
-	data, err := os.ReadFile(filepath.Join(h.Run, nvidiaSpecFile))
+	data, err := os.ReadFile(h.RunPath(nvidiaSpecFile))
 	require.NoError(t, err)
 
 	var spec cdiSpec
@@ -82,12 +81,12 @@ func TestNvidiaSpec(t *testing.T) {
 func TestNRISpec(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
-	s := New()
+	s := New(h)
 	ctx := context.Background()
-	require.NoError(t, s.Stage(ctx, h, state))
-	require.NoError(t, s.Apply(ctx, h, state))
+	require.NoError(t, s.Stage(ctx, state))
+	require.NoError(t, s.Apply(ctx, state))
 
-	data, err := os.ReadFile(filepath.Join(h.Run, nriSpecFile))
+	data, err := os.ReadFile(h.RunPath(nriSpecFile))
 	require.NoError(t, err)
 
 	var spec cdiSpec
@@ -116,12 +115,12 @@ func TestFabricStateMount(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
 	state.Fabric.ManagerStateDir = "/var/lib/nvml-mock/fabric-state"
-	s := New()
+	s := New(h)
 	ctx := context.Background()
-	require.NoError(t, s.Stage(ctx, h, state))
-	require.NoError(t, s.Apply(ctx, h, state))
+	require.NoError(t, s.Stage(ctx, state))
+	require.NoError(t, s.Apply(ctx, state))
 
-	data, err := os.ReadFile(filepath.Join(h.Run, nvidiaSpecFile))
+	data, err := os.ReadFile(h.RunPath(nvidiaSpecFile))
 	require.NoError(t, err)
 	var spec cdiSpec
 	require.NoError(t, yaml.Unmarshal(data, &spec))
@@ -149,12 +148,12 @@ func TestFabricMountAbsentWhenDisabled(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
 	state.Fabric.Enabled = true // NVLink, but ManagerStateDir is empty
-	s := New()
+	s := New(h)
 	ctx := context.Background()
-	require.NoError(t, s.Stage(ctx, h, state))
-	require.NoError(t, s.Apply(ctx, h, state))
+	require.NoError(t, s.Stage(ctx, state))
+	require.NoError(t, s.Apply(ctx, state))
 
-	data, err := os.ReadFile(filepath.Join(h.Run, nvidiaSpecFile))
+	data, err := os.ReadFile(h.RunPath(nvidiaSpecFile))
 	require.NoError(t, err)
 	var spec cdiSpec
 	require.NoError(t, yaml.Unmarshal(data, &spec))
@@ -170,39 +169,38 @@ func TestFabricMountAbsentWhenDisabled(t *testing.T) {
 func TestRevoke(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
-	s := New()
+	s := New(h)
 	ctx := context.Background()
 
-	require.NoError(t, s.Stage(ctx, h, state))
-	require.NoError(t, s.Apply(ctx, h, state))
+	require.NoError(t, s.Stage(ctx, state))
+	require.NoError(t, s.Apply(ctx, state))
 
-	require.FileExists(t, filepath.Join(h.Run, nvidiaSpecFile))
-	require.FileExists(t, filepath.Join(h.Run, nriSpecFile))
+	require.FileExists(t, h.RunPath(nvidiaSpecFile))
+	require.FileExists(t, h.RunPath(nriSpecFile))
 
-	require.NoError(t, s.Revoke(ctx, h))
+	require.NoError(t, s.Revoke(ctx))
 
-	_, err := os.Stat(filepath.Join(h.Run, nvidiaSpecFile))
+	_, err := os.Stat(h.RunPath(nvidiaSpecFile))
 	require.ErrorIs(t, err, os.ErrNotExist)
-	_, err = os.Stat(filepath.Join(h.Run, nriSpecFile))
+	_, err = os.Stat(h.RunPath(nriSpecFile))
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestRevokeBeforeApplyIsNoop(t *testing.T) {
-	h := host.New(t.TempDir())
-	s := New()
-	require.NoError(t, s.Revoke(context.Background(), h))
+	s := New(host.New(t.TempDir()))
+	require.NoError(t, s.Revoke(context.Background()))
 }
 
 func TestApplyIsIdempotent(t *testing.T) {
 	h := host.New(t.TempDir())
 	state := testState()
-	s := New()
+	s := New(h)
 	ctx := context.Background()
 
-	require.NoError(t, s.Stage(ctx, h, state))
-	require.NoError(t, s.Apply(ctx, h, state))
-	require.NoError(t, s.Apply(ctx, h, state))
+	require.NoError(t, s.Stage(ctx, state))
+	require.NoError(t, s.Apply(ctx, state))
+	require.NoError(t, s.Apply(ctx, state))
 
-	require.FileExists(t, filepath.Join(h.Run, nvidiaSpecFile))
-	require.FileExists(t, filepath.Join(h.Run, nriSpecFile))
+	require.FileExists(t, h.RunPath(nvidiaSpecFile))
+	require.FileExists(t, h.RunPath(nriSpecFile))
 }

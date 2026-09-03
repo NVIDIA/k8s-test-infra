@@ -19,7 +19,6 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 	"github.com/NVIDIA/k8s-test-infra/internal/health"
 )
 
@@ -27,7 +26,6 @@ import (
 type Agent struct {
 	simulators      []Simulator
 	source          StateSource
-	host            *host.Host
 	log             *zap.Logger
 	shutdownTimeout time.Duration
 	live            atomic.Pointer[health.Probe] // last Stage wave outcome, served on /healthz
@@ -44,7 +42,6 @@ type Agent struct {
 type Config struct {
 	Simulators      []Simulator
 	Source          StateSource
-	Host            *host.Host
 	Log             *zap.Logger
 	ShutdownTimeout time.Duration
 }
@@ -57,7 +54,6 @@ func New(cfg Config) *Agent {
 	a := &Agent{
 		simulators:      cfg.Simulators,
 		source:          cfg.Source,
-		host:            cfg.Host,
 		log:             cfg.Log,
 		shutdownTimeout: cfg.ShutdownTimeout,
 		started:         make(map[string]bool),
@@ -156,7 +152,7 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := sim.Stage(ctx, a.host, state); err != nil {
+			if err := sim.Stage(ctx, state); err != nil {
 				a.log.Error("stage failed", zap.String("simulator", sim.Name()), zap.Error(err))
 				stageMu.Lock()
 				stageErrs = append(stageErrs, fmt.Errorf("stage %s: %w", sim.Name(), err))
@@ -190,7 +186,7 @@ func (a *Agent) reconcile(ctx context.Context, state *State) error {
 			continue
 		}
 		applyG.Go(func() error {
-			if err := app.Apply(applyCtx, a.host, state); err != nil {
+			if err := app.Apply(applyCtx, state); err != nil {
 				return fmt.Errorf("apply %s: %w", applierName(app), err)
 			}
 			return nil
@@ -239,7 +235,7 @@ func (a *Agent) revoke(ctx context.Context) {
 		}
 
 		g.Go(func() error {
-			if err := app.Revoke(ctx, a.host); err != nil {
+			if err := app.Revoke(ctx); err != nil {
 				a.log.Error("revoke failed", zap.String("applier", applierName(app)), zap.Error(err))
 			}
 			return nil
@@ -254,7 +250,7 @@ func (a *Agent) discard(ctx context.Context) {
 	for _, sim := range a.simulators {
 		sim := sim
 		g.Go(func() error {
-			if err := sim.Discard(ctx, a.host); err != nil {
+			if err := sim.Discard(ctx); err != nil {
 				a.log.Error("discard failed", zap.String("simulator", sim.Name()), zap.Error(err))
 			}
 			return nil

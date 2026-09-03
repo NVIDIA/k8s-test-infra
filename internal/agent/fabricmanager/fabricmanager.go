@@ -28,6 +28,7 @@ var (
 // Simulator stages the directory shared with workloads. Daemon owns the
 // marker lifecycle, including transitions between staged directories.
 type Simulator struct {
+	host    *host.Host
 	staged  atomic.Bool
 	enabled atomic.Bool
 	daemon  *fabricmanager.Daemon
@@ -41,8 +42,11 @@ type Options struct {
 }
 
 // New returns a fabricmanager Simulator.
-func New(opts Options) *Simulator {
-	return &Simulator{daemon: fabricmanager.NewDaemon(fabricmanager.Config{InitDelay: opts.InitDelay})}
+func New(h *host.Host, opts Options) *Simulator {
+	return &Simulator{
+		host:   h,
+		daemon: fabricmanager.NewDaemon(fabricmanager.Config{InitDelay: opts.InitDelay}),
+	}
 }
 
 // Name returns the simulator's stable identifier.
@@ -54,13 +58,13 @@ func (s *Simulator) Ready() bool { return s.staged.Load() && s.daemon.Ready() }
 
 // Stage creates the marker directory and gives it to the daemon. An empty
 // directory means fabricmanager is disabled on this node.
-func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
+func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	s.staged.Store(false)
 	zap.L().Debug("staging simulator", zap.String("simulator", name))
 
 	dir := ""
 	if state.Fabric.ManagerStateDir != "" {
-		dir = h.HostPath(state.Fabric.ManagerStateDir)
+		dir = s.host.HostPath(state.Fabric.ManagerStateDir)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
@@ -87,7 +91,7 @@ func (s *Simulator) Run(ctx context.Context) error { return s.daemon.Serve(ctx) 
 func (s *Simulator) Reload(_ context.Context, _ *agent.State) error { return nil }
 
 // Discard withdraws readiness so GPUs do not report COMPLETED after shutdown.
-func (s *Simulator) Discard(_ context.Context, _ *host.Host) error {
+func (s *Simulator) Discard(_ context.Context) error {
 	s.staged.Store(false)
 	zap.L().Debug("discarding simulator", zap.String("simulator", name))
 	return s.daemon.Stop()
