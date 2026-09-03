@@ -22,6 +22,11 @@ const (
 	// resolves against the host overlay path for the existence check and against
 	// the container overlay path for the injected MOCK_TOPOLOGY_CONFIG.
 	topologyRelPath = "topology/topology.yaml"
+	// configRelPath holds the mock NVML config and, beside it, the overrides
+	// file runtime state is injected into. It is named once because the mount
+	// and the injected MOCK_NVML_CONFIG have to agree: the overrides the
+	// container resets are resolved relative to that config.
+	configRelPath = "driver/config"
 )
 
 // defaultShims are preloaded in the order listed, so a symbol defined by more

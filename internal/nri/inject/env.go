@@ -17,7 +17,7 @@ func setEnvironment(cfg Config, container Container, adjustment *Adjustment) {
 	env.prepend("PATH", filepath.Join(cfg.ContainerOverlayPath, "driver/usr/bin"))
 	env.prepend("LD_LIBRARY_PATH", filepath.Join(cfg.ContainerOverlayPath, "driver/usr/lib64"))
 	env.appendList("LD_PRELOAD", shimPaths(cfg))
-	env.setDefault("MOCK_NVML_CONFIG", filepath.Join(cfg.ContainerOverlayPath, "driver/config/config.yaml"))
+	env.setDefault("MOCK_NVML_CONFIG", filepath.Join(cfg.ContainerOverlayPath, configRelPath, "config.yaml"))
 	env.setDefault("MOCK_IB", "full")
 	env.setDefault("MOCK_IB_ROOT", filepath.Join(cfg.ContainerOverlayPath, "ib"))
 	env.setDefault("MOCK_IB_PING_SOCKET", filepath.Join(cfg.ContainerOverlayPath, "run/mock-ib.sock"))

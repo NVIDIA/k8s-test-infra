@@ -37,7 +37,7 @@ import (
 // NVML_FI_DEV_PERF_POLICY_THERMAL is the older name for the SW thermal counter.
 // The three slowdown causes only exist under the newer names.
 //
-// Those three are NOT taken from the header this repo vendors, which is a CUDA
+// Those three are NOT taken from the go-nvml header this repo pins, which is a CUDA
 // 13 header numbering them 269-271 and reusing 251-253 for power smoothing.
 // The driver these profiles report — and the nvidia-smi 580.65.06 the image
 // bundles — has them at 251-253 and power smoothing at 256-273 instead. The

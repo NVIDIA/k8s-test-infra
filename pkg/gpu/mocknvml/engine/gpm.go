@@ -37,7 +37,7 @@ import (
 )
 
 // nvmlGpmMetricId_t values, mirrored from
-// vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h (NVML_GPM_METRIC_*).
+// go-nvml's pkg/nvml/nvml.h (NVML_GPM_METRIC_*).
 const (
 	gpmMetricGraphicsUtil        = 1
 	gpmMetricSMUtil              = 2

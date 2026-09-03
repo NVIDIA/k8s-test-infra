@@ -18,7 +18,9 @@
 // - Stub handling (stubReturn)
 // - Error string caching for nvmlErrorString
 
-//go:generate go run ../../../../cmd/generate-bridge/ -input ../../../../vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go -header ../../../../vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h -bridge . -output stubs_generated.go
+// GO_NVML_DIR is exported by `make gen`, which downloads go-nvml and resolves its
+// version-stamped module cache path.
+//go:generate go run ../../../../cmd/generate-bridge/ -input $GO_NVML_DIR/pkg/nvml/nvml.go -header $GO_NVML_DIR/pkg/nvml/nvml.h -bridge . -output stubs_generated.go
 
 package main
 

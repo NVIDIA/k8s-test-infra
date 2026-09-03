@@ -58,6 +58,27 @@ func TestNvidiaSpecMounts(t *testing.T) {
 	}, containerPaths)
 }
 
+// The container does not only read the config directory: `nvidia-smi --gpu-reset`
+// clears the device's bucket from overrides.yaml, taking an flock and rewriting
+// the file. Mounted read-only, that write fails with EROFS exactly when the GPU
+// has state to clear, so the reset fails on the GPUs that need it and "succeeds"
+// on the healthy ones that skip the write. The driver library and nvidia-smi
+// stay read-only; only the config directory is writable.
+func TestNvidiaSpecConfigDirIsWritable(t *testing.T) {
+	spec := buildNvidiaSpec(twoGPUState())
+	require.NotNil(t, spec.ContainerEdits)
+
+	for _, m := range spec.ContainerEdits.Mounts {
+		switch m.ContainerPath {
+		case "/etc/nvml-mock":
+			require.Contains(t, m.Options, "rw", "the reset writes overrides.yaml through this mount")
+			require.NotContains(t, m.Options, "ro")
+		case "/usr/lib64/libnvidia-ml.so.1", "/usr/bin/nvidia-smi":
+			require.Contains(t, m.Options, "ro", "%s must stay immutable inside the container", m.ContainerPath)
+		}
+	}
+}
+
 func TestNvidiaSpecHookAndEnv(t *testing.T) {
 	spec := buildNvidiaSpec(twoGPUState())
 	require.NotNil(t, spec.ContainerEdits)

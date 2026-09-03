@@ -10,14 +10,14 @@
 // an explicit context.
 //
 // DELIBERATE DEVIATION from the proposed "client-go typed clientset": the
-// clientset config loader `k8s.io/client-go/tools/clientcmd` and
-// `k8s.io/client-go/dynamic` are NOT in vendor/modules.txt (only
-// clientcmd/api is), so importing them would force a `go mod vendor` and grow
-// vendor/. The binding constraints require ZERO new dependencies and an empty
-// `git diff` on go.mod/go.sum/vendor. Decoding `kubectl -o json` into typed
-// structs keeps the assertions strongly typed (no jsonpath/jq string-fishing),
-// threads context.Context into every call, and adds no dependency. The Execer
-// transport is shell `kubectl exec` per the user-resolved decision regardless.
+// binding constraints require ZERO new dependencies and an empty `git diff` on
+// go.mod/go.sum, which rules out importing
+// `k8s.io/client-go/tools/clientcmd` and `k8s.io/client-go/dynamic` (only
+// clientcmd/api is already a dependency). Decoding `kubectl -o json` into
+// typed structs keeps the assertions strongly typed (no jsonpath/jq
+// string-fishing), threads context.Context into every call, and adds no
+// dependency. The Execer transport is shell `kubectl exec` per the
+// user-resolved decision regardless.
 package kube
 
 import (

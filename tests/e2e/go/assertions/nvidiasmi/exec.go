@@ -110,6 +110,32 @@ func ProcessMonitorAndTopology(ctx context.Context, k *kube.Client, pod kube.Pod
 		"nvidia-smi topo -m exited %d: %s", res.ExitCode, res.Combined())
 }
 
+// GpuReset asserts `nvidia-smi --gpu-reset` resets the GPUs it is pointed at and
+// reports it the way real hardware does. Reset runs entirely through the internal
+// export table, where the dispatcher's catch-all used to fault writing a zero
+// count through an argument that carries no count on the reset completion slot —
+// every invocation died with a bare exit 139 and no output.
+//
+// Both spellings are covered because `-r` is the one a runbook or a remediation
+// controller is likely to carry, and both scopes are covered because a bare
+// --gpu-reset walks every GPU while -i names one.
+func GpuReset(ctx context.Context, k *kube.Client, pod kube.PodRef, p profile.Profile) {
+	ginkgo.GinkgoHelper()
+
+	for _, tc := range []struct {
+		args     []string
+		wantGPUs int
+	}{
+		{[]string{"nvidia-smi", "--gpu-reset"}, p.ExpectedGPUs()},
+		{[]string{"nvidia-smi", "-r", "-i", "0"}, 1},
+	} {
+		ginkgo.By(fmt.Sprintf("%s resets %d GPU(s)", strings.Join(tc.args, " "), tc.wantGPUs))
+		res, _ := k.Exec(ctx, pod, tc.args...)
+		problems := GpuResetProblems(res.ExitCode, res.Combined(), tc.wantGPUs)
+		gomega.Expect(problems).To(gomega.BeEmpty(), strings.Join(problems, "\n"))
+	}
+}
+
 // TemperatureThresholds asserts nvidia-smi -q -x uses the
 // architecture-correct threshold presentation for the profile: absolute
 // elements on pre-Ada, *_tlimit_threshold elements on Ada and later. See issue
