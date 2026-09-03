@@ -256,16 +256,47 @@ func TestRenderRackRejectsInvalidCoordinates(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		mutate func(*RackInput)
+		name          string
+		expectedError string
+		mutate        func(*RackInput)
 	}{
-		{name: "empty inventory name", mutate: func(in *RackInput) { in.InventoryName = "" }},
-		{name: "empty inventory UID", mutate: func(in *RackInput) { in.InventoryUID = "" }},
-		{name: "empty group", mutate: func(in *RackInput) { in.Group.ID = "" }},
-		{name: "negative rack index", mutate: func(in *RackInput) { in.RackIndex = -1 }},
-		{name: "rack index outside group", mutate: func(in *RackInput) { in.RackIndex = 1 }},
-		{name: "empty profile UID", mutate: func(in *RackInput) { in.Profile.UID = "" }},
-		{name: "invalid profile", mutate: func(in *RackInput) { in.Profile.Spec.Node.Topology.GPUSlots = nil }},
+		{
+			name:          "empty inventory name",
+			expectedError: "inventory name must not be empty",
+			mutate:        func(in *RackInput) { in.InventoryName = "" },
+		},
+		{
+			name:          "empty inventory UID",
+			expectedError: "inventory UID must not be empty",
+			mutate:        func(in *RackInput) { in.InventoryUID = "" },
+		},
+		{
+			name:          "empty group",
+			expectedError: "rack group ID must not be empty",
+			mutate:        func(in *RackInput) { in.Group.ID = "" },
+		},
+		{
+			name:          "negative rack index",
+			expectedError: "rack index -1 is outside group count 1",
+			mutate:        func(in *RackInput) { in.RackIndex = -1 },
+		},
+		{
+			name:          "rack index outside group",
+			expectedError: "rack index 1 is outside group count 1",
+			mutate:        func(in *RackInput) { in.RackIndex = 1 },
+		},
+		{
+			name:          "empty profile UID",
+			expectedError: "profile reference must include name, UID, and generation",
+			mutate:        func(in *RackInput) { in.Profile.UID = "" },
+		},
+		{
+			name:          "invalid profile",
+			expectedError: "validate profile: gpuSlots length 0 must equal gpus.count 2",
+			mutate: func(in *RackInput) {
+				in.Profile.Spec.Node.Topology.GPUSlots = nil
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -274,7 +305,7 @@ func TestRenderRackRejectsInvalidCoordinates(t *testing.T) {
 			input.Profile = base.Profile.DeepCopy()
 			tt.mutate(&input)
 			_, err := RenderRack(input)
-			require.Error(t, err)
+			require.ErrorContains(t, err, tt.expectedError)
 		})
 	}
 }
