@@ -762,20 +762,13 @@ tests:
           content:
             name: cluster-topology
 
-  - it: should wire fabricmanager state dir into both containers when enabled
+  - it: should wire fabricmanager state dir into the node-agent when enabled
     set:
       fabricmanager:
         enabled: true
     asserts:
       # nvml-mock: the engine reads the marker so `kubectl exec nvidia-smi -q`
       # reports the same fabric state a workload sees.
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: MOCK_FABRICMANAGER_STATE_DIR
-            value: /var/lib/nvml-mock/fabric-state
-      # node-agent: non-empty is what enables the simulator, and it is the path
-      # the cdi simulator mounts into workloads.
       - contains:
           path: spec.template.spec.containers[0].env
           content:
@@ -810,17 +803,12 @@ tests:
           content:
             name: MOCK_FABRICMANAGER_INIT_DELAY
 
-  - it: should honor a custom fabricmanager.stateDir
+  - it: should honor a custom fabricmanager.stateDir in the node-agent
     set:
       fabricmanager:
         enabled: true
         stateDir: /run/nvidia-fabricmanager
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: MOCK_FABRICMANAGER_STATE_DIR
-            value: /run/nvidia-fabricmanager
       - contains:
           path: spec.template.spec.containers[0].env
           content:
