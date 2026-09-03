@@ -21,11 +21,39 @@ import (
 )
 
 // SGPUInventoryInformer provides access to a shared informer and lister for
-// SGPUInventories.
+// SGPUInventories. Prefer using the type-safe variant (see [TypedSGPUInventoryInformer]).
 type SGPUInventoryInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() apiv1alpha1.SGPUInventoryLister
 }
+
+// TypedSGPUInventoryInformer provides access to a shared informer and lister for
+// SGPUInventories, including the type-safe TypedInformer variant.
+// It is a superset of SGPUInventoryInformer.
+type TypedSGPUInventoryInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() SGPUInventoryIndexInformer
+	Lister() apiv1alpha1.SGPUInventoryLister
+}
+
+// SGPUInventoryIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type SGPUInventoryIndexInformer cache.TypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPUInventory]
+
+// SGPUInventoryHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for SGPUInventory.
+type SGPUInventoryHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*controlplaneapiv1alpha1.SGPUInventory]
+
+// SGPUInventoryDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for SGPUInventory.
+type SGPUInventoryDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*controlplaneapiv1alpha1.SGPUInventory]
+
+// SGPUInventoryFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for SGPUInventory.
+type SGPUInventoryFilteringHandler = cache.TypedFilteringResourceEventHandler[*controlplaneapiv1alpha1.SGPUInventory]
+
+// SGPUInventoryIndexers is a specialization of [cache.TypedIndexers] for SGPUInventory.
+type SGPUInventoryIndexers = cache.TypedIndexers[*controlplaneapiv1alpha1.SGPUInventory]
+
+// DeletedSGPUInventory is a specialization of [cache.DeletedObject] for SGPUInventory.
+type DeletedSGPUInventory = cache.DeletedObject[*controlplaneapiv1alpha1.SGPUInventory]
 
 type sGPUInventoryInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -35,25 +63,49 @@ type sGPUInventoryInformer struct {
 // NewSGPUInventoryInformer constructs a new informer for SGPUInventory type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedSGPUInventoryInformer]).
 func NewSGPUInventoryInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
 	return NewSGPUInventoryInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedSGPUInventoryInformer constructs a new informer for SGPUInventory type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedSGPUInventoryInformer(client versioned.Interface, resyncPeriod time.Duration, indexers SGPUInventoryIndexers) SGPUInventoryIndexInformer {
+	return NewTypedSGPUInventoryInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredSGPUInventoryInformer constructs a new informer for SGPUInventory type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredSGPUInventoryInformer]).
 func NewFilteredSGPUInventoryInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return NewSGPUInventoryInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+	return NewTypedSGPUInventoryInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredSGPUInventoryInformer constructs a new informer for SGPUInventory type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredSGPUInventoryInformer(client versioned.Interface, resyncPeriod time.Duration, indexers SGPUInventoryIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) SGPUInventoryIndexInformer {
+	return NewTypedSGPUInventoryInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
 }
 
 // NewSGPUInventoryInformerWithOptions constructs a new informer for SGPUInventory type with additional options.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedSGPUInventoryInformerWithOptions]).
 func NewSGPUInventoryInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedSGPUInventoryInformerWithOptions(client, options)
+}
+
+// NewTypedSGPUInventoryInformerWithOptions constructs a new informer for SGPUInventory type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedSGPUInventoryInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) SGPUInventoryIndexInformer {
 	gvr := schema.GroupVersionResource{Group: "mokka.nvidia.com", Version: "v1alpha1", Resource: "sgpuinventorys"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPUInventory](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -86,17 +138,57 @@ func NewSGPUInventoryInformerWithOptions(client versioned.Interface, options int
 			Indexers:     options.Indexers,
 			Identifier:   identifier,
 		},
-	)
+	))
 }
 
 func (f *sGPUInventoryInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewSGPUInventoryInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
+	return NewTypedSGPUInventoryInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *sGPUInventoryInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&controlplaneapiv1alpha1.SGPUInventory{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *sGPUInventoryInformer) TypedInformer() SGPUInventoryIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPUInventory](f.factory.InformerFor(&controlplaneapiv1alpha1.SGPUInventory{}, f.defaultInformer))
 }
 
 func (f *sGPUInventoryInformer) Lister() apiv1alpha1.SGPUInventoryLister {
 	return apiv1alpha1.NewSGPUInventoryLister(f.Informer().GetIndexer())
+}
+
+// ToTypedSGPUInventoryInformer converts an untyped informer into a TypedSGPUInventoryInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *SGPUInventory. If that is not the case, calling type-safe methods of the returned
+// TypedSGPUInventoryInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedSGPUInventoryInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedSGPUInventoryInformer(informer SGPUInventoryInformer) TypedSGPUInventoryInformer {
+	if informer, ok := informer.(TypedSGPUInventoryInformer); ok {
+		return informer
+	}
+	return &sGPUInventoryTypedInformerAdapter{informer}
+}
+
+type sGPUInventoryTypedInformerAdapter struct {
+	SGPUInventoryInformer
+}
+
+func (a *sGPUInventoryTypedInformerAdapter) TypedInformer() SGPUInventoryIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPUInventory](a.Informer())
+}
+
+// ToSGPUInventoryIndexInformer converts an untyped informer into a SGPUInventoryIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *SGPUInventory. If that is not the case, calling type-safe methods of the returned
+// SGPUInventoryIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a SGPUInventoryIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToSGPUInventoryIndexInformer(informer cache.SharedIndexInformer) SGPUInventoryIndexInformer {
+	if informer, ok := informer.(SGPUInventoryIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPUInventory](informer)
 }

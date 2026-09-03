@@ -21,11 +21,39 @@ import (
 )
 
 // SGPURackInformer provides access to a shared informer and lister for
-// SGPURacks.
+// SGPURacks. Prefer using the type-safe variant (see [TypedSGPURackInformer]).
 type SGPURackInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() apiv1alpha1.SGPURackLister
 }
+
+// TypedSGPURackInformer provides access to a shared informer and lister for
+// SGPURacks, including the type-safe TypedInformer variant.
+// It is a superset of SGPURackInformer.
+type TypedSGPURackInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() SGPURackIndexInformer
+	Lister() apiv1alpha1.SGPURackLister
+}
+
+// SGPURackIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type SGPURackIndexInformer cache.TypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURack]
+
+// SGPURackHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for SGPURack.
+type SGPURackHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*controlplaneapiv1alpha1.SGPURack]
+
+// SGPURackDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for SGPURack.
+type SGPURackDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*controlplaneapiv1alpha1.SGPURack]
+
+// SGPURackFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for SGPURack.
+type SGPURackFilteringHandler = cache.TypedFilteringResourceEventHandler[*controlplaneapiv1alpha1.SGPURack]
+
+// SGPURackIndexers is a specialization of [cache.TypedIndexers] for SGPURack.
+type SGPURackIndexers = cache.TypedIndexers[*controlplaneapiv1alpha1.SGPURack]
+
+// DeletedSGPURack is a specialization of [cache.DeletedObject] for SGPURack.
+type DeletedSGPURack = cache.DeletedObject[*controlplaneapiv1alpha1.SGPURack]
 
 type sGPURackInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -35,25 +63,49 @@ type sGPURackInformer struct {
 // NewSGPURackInformer constructs a new informer for SGPURack type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedSGPURackInformer]).
 func NewSGPURackInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
 	return NewSGPURackInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedSGPURackInformer constructs a new informer for SGPURack type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedSGPURackInformer(client versioned.Interface, resyncPeriod time.Duration, indexers SGPURackIndexers) SGPURackIndexInformer {
+	return NewTypedSGPURackInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredSGPURackInformer constructs a new informer for SGPURack type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredSGPURackInformer]).
 func NewFilteredSGPURackInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return NewSGPURackInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+	return NewTypedSGPURackInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredSGPURackInformer constructs a new informer for SGPURack type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredSGPURackInformer(client versioned.Interface, resyncPeriod time.Duration, indexers SGPURackIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) SGPURackIndexInformer {
+	return NewTypedSGPURackInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
 }
 
 // NewSGPURackInformerWithOptions constructs a new informer for SGPURack type with additional options.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedSGPURackInformerWithOptions]).
 func NewSGPURackInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedSGPURackInformerWithOptions(client, options)
+}
+
+// NewTypedSGPURackInformerWithOptions constructs a new informer for SGPURack type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedSGPURackInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) SGPURackIndexInformer {
 	gvr := schema.GroupVersionResource{Group: "mokka.nvidia.com", Version: "v1alpha1", Resource: "sgpuracks"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURack](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -86,17 +138,57 @@ func NewSGPURackInformerWithOptions(client versioned.Interface, options internal
 			Indexers:     options.Indexers,
 			Identifier:   identifier,
 		},
-	)
+	))
 }
 
 func (f *sGPURackInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewSGPURackInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
+	return NewTypedSGPURackInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *sGPURackInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&controlplaneapiv1alpha1.SGPURack{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *sGPURackInformer) TypedInformer() SGPURackIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURack](f.factory.InformerFor(&controlplaneapiv1alpha1.SGPURack{}, f.defaultInformer))
 }
 
 func (f *sGPURackInformer) Lister() apiv1alpha1.SGPURackLister {
 	return apiv1alpha1.NewSGPURackLister(f.Informer().GetIndexer())
+}
+
+// ToTypedSGPURackInformer converts an untyped informer into a TypedSGPURackInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *SGPURack. If that is not the case, calling type-safe methods of the returned
+// TypedSGPURackInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedSGPURackInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedSGPURackInformer(informer SGPURackInformer) TypedSGPURackInformer {
+	if informer, ok := informer.(TypedSGPURackInformer); ok {
+		return informer
+	}
+	return &sGPURackTypedInformerAdapter{informer}
+}
+
+type sGPURackTypedInformerAdapter struct {
+	SGPURackInformer
+}
+
+func (a *sGPURackTypedInformerAdapter) TypedInformer() SGPURackIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURack](a.Informer())
+}
+
+// ToSGPURackIndexInformer converts an untyped informer into a SGPURackIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *SGPURack. If that is not the case, calling type-safe methods of the returned
+// SGPURackIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a SGPURackIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToSGPURackIndexInformer(informer cache.SharedIndexInformer) SGPURackIndexInformer {
+	if informer, ok := informer.(SGPURackIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURack](informer)
 }

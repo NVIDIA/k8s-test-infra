@@ -21,11 +21,39 @@ import (
 )
 
 // SGPURuntimePolicyInformer provides access to a shared informer and lister for
-// SGPURuntimePolicies.
+// SGPURuntimePolicies. Prefer using the type-safe variant (see [TypedSGPURuntimePolicyInformer]).
 type SGPURuntimePolicyInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() apiv1alpha1.SGPURuntimePolicyLister
 }
+
+// TypedSGPURuntimePolicyInformer provides access to a shared informer and lister for
+// SGPURuntimePolicies, including the type-safe TypedInformer variant.
+// It is a superset of SGPURuntimePolicyInformer.
+type TypedSGPURuntimePolicyInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() SGPURuntimePolicyIndexInformer
+	Lister() apiv1alpha1.SGPURuntimePolicyLister
+}
+
+// SGPURuntimePolicyIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type SGPURuntimePolicyIndexInformer cache.TypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURuntimePolicy]
+
+// SGPURuntimePolicyHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for SGPURuntimePolicy.
+type SGPURuntimePolicyHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*controlplaneapiv1alpha1.SGPURuntimePolicy]
+
+// SGPURuntimePolicyDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for SGPURuntimePolicy.
+type SGPURuntimePolicyDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*controlplaneapiv1alpha1.SGPURuntimePolicy]
+
+// SGPURuntimePolicyFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for SGPURuntimePolicy.
+type SGPURuntimePolicyFilteringHandler = cache.TypedFilteringResourceEventHandler[*controlplaneapiv1alpha1.SGPURuntimePolicy]
+
+// SGPURuntimePolicyIndexers is a specialization of [cache.TypedIndexers] for SGPURuntimePolicy.
+type SGPURuntimePolicyIndexers = cache.TypedIndexers[*controlplaneapiv1alpha1.SGPURuntimePolicy]
+
+// DeletedSGPURuntimePolicy is a specialization of [cache.DeletedObject] for SGPURuntimePolicy.
+type DeletedSGPURuntimePolicy = cache.DeletedObject[*controlplaneapiv1alpha1.SGPURuntimePolicy]
 
 type sGPURuntimePolicyInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -35,25 +63,49 @@ type sGPURuntimePolicyInformer struct {
 // NewSGPURuntimePolicyInformer constructs a new informer for SGPURuntimePolicy type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedSGPURuntimePolicyInformer]).
 func NewSGPURuntimePolicyInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
 	return NewSGPURuntimePolicyInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedSGPURuntimePolicyInformer constructs a new informer for SGPURuntimePolicy type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedSGPURuntimePolicyInformer(client versioned.Interface, resyncPeriod time.Duration, indexers SGPURuntimePolicyIndexers) SGPURuntimePolicyIndexInformer {
+	return NewTypedSGPURuntimePolicyInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredSGPURuntimePolicyInformer constructs a new informer for SGPURuntimePolicy type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredSGPURuntimePolicyInformer]).
 func NewFilteredSGPURuntimePolicyInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return NewSGPURuntimePolicyInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+	return NewTypedSGPURuntimePolicyInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredSGPURuntimePolicyInformer constructs a new informer for SGPURuntimePolicy type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredSGPURuntimePolicyInformer(client versioned.Interface, resyncPeriod time.Duration, indexers SGPURuntimePolicyIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) SGPURuntimePolicyIndexInformer {
+	return NewTypedSGPURuntimePolicyInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
 }
 
 // NewSGPURuntimePolicyInformerWithOptions constructs a new informer for SGPURuntimePolicy type with additional options.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedSGPURuntimePolicyInformerWithOptions]).
 func NewSGPURuntimePolicyInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedSGPURuntimePolicyInformerWithOptions(client, options)
+}
+
+// NewTypedSGPURuntimePolicyInformerWithOptions constructs a new informer for SGPURuntimePolicy type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedSGPURuntimePolicyInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) SGPURuntimePolicyIndexInformer {
 	gvr := schema.GroupVersionResource{Group: "mokka.nvidia.com", Version: "v1alpha1", Resource: "sgpuruntimepolicys"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURuntimePolicy](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -86,17 +138,57 @@ func NewSGPURuntimePolicyInformerWithOptions(client versioned.Interface, options
 			Indexers:     options.Indexers,
 			Identifier:   identifier,
 		},
-	)
+	))
 }
 
 func (f *sGPURuntimePolicyInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewSGPURuntimePolicyInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
+	return NewTypedSGPURuntimePolicyInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *sGPURuntimePolicyInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&controlplaneapiv1alpha1.SGPURuntimePolicy{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *sGPURuntimePolicyInformer) TypedInformer() SGPURuntimePolicyIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURuntimePolicy](f.factory.InformerFor(&controlplaneapiv1alpha1.SGPURuntimePolicy{}, f.defaultInformer))
 }
 
 func (f *sGPURuntimePolicyInformer) Lister() apiv1alpha1.SGPURuntimePolicyLister {
 	return apiv1alpha1.NewSGPURuntimePolicyLister(f.Informer().GetIndexer())
+}
+
+// ToTypedSGPURuntimePolicyInformer converts an untyped informer into a TypedSGPURuntimePolicyInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *SGPURuntimePolicy. If that is not the case, calling type-safe methods of the returned
+// TypedSGPURuntimePolicyInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedSGPURuntimePolicyInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedSGPURuntimePolicyInformer(informer SGPURuntimePolicyInformer) TypedSGPURuntimePolicyInformer {
+	if informer, ok := informer.(TypedSGPURuntimePolicyInformer); ok {
+		return informer
+	}
+	return &sGPURuntimePolicyTypedInformerAdapter{informer}
+}
+
+type sGPURuntimePolicyTypedInformerAdapter struct {
+	SGPURuntimePolicyInformer
+}
+
+func (a *sGPURuntimePolicyTypedInformerAdapter) TypedInformer() SGPURuntimePolicyIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURuntimePolicy](a.Informer())
+}
+
+// ToSGPURuntimePolicyIndexInformer converts an untyped informer into a SGPURuntimePolicyIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *SGPURuntimePolicy. If that is not the case, calling type-safe methods of the returned
+// SGPURuntimePolicyIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a SGPURuntimePolicyIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToSGPURuntimePolicyIndexInformer(informer cache.SharedIndexInformer) SGPURuntimePolicyIndexInformer {
+	if informer, ok := informer.(SGPURuntimePolicyIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*controlplaneapiv1alpha1.SGPURuntimePolicy](informer)
 }

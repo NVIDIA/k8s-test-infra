@@ -12,13 +12,13 @@ import (
 // Interface provides access to all the informers in this group version.
 type Interface interface {
 	// SGPUInventories returns a SGPUInventoryInformer.
-	SGPUInventories() SGPUInventoryInformer
+	SGPUInventories() TypedSGPUInventoryInformer
 	// SGPURacks returns a SGPURackInformer.
-	SGPURacks() SGPURackInformer
+	SGPURacks() TypedSGPURackInformer
 	// SGPURackProfiles returns a SGPURackProfileInformer.
-	SGPURackProfiles() SGPURackProfileInformer
+	SGPURackProfiles() TypedSGPURackProfileInformer
 	// SGPURuntimePolicies returns a SGPURuntimePolicyInformer.
-	SGPURuntimePolicies() SGPURuntimePolicyInformer
+	SGPURuntimePolicies() TypedSGPURuntimePolicyInformer
 }
 
 type version struct {
@@ -32,22 +32,22 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
-// SGPUInventories returns a SGPUInventoryInformer.
-func (v *version) SGPUInventories() SGPUInventoryInformer {
+// SGPUInventories returns a TypedSGPUInventoryInformer.
+func (v *version) SGPUInventories() TypedSGPUInventoryInformer {
 	return &sGPUInventoryInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// SGPURacks returns a SGPURackInformer.
-func (v *version) SGPURacks() SGPURackInformer {
+// SGPURacks returns a TypedSGPURackInformer.
+func (v *version) SGPURacks() TypedSGPURackInformer {
 	return &sGPURackInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// SGPURackProfiles returns a SGPURackProfileInformer.
-func (v *version) SGPURackProfiles() SGPURackProfileInformer {
+// SGPURackProfiles returns a TypedSGPURackProfileInformer.
+func (v *version) SGPURackProfiles() TypedSGPURackProfileInformer {
 	return &sGPURackProfileInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// SGPURuntimePolicies returns a SGPURuntimePolicyInformer.
-func (v *version) SGPURuntimePolicies() SGPURuntimePolicyInformer {
+// SGPURuntimePolicies returns a TypedSGPURuntimePolicyInformer.
+func (v *version) SGPURuntimePolicies() TypedSGPURuntimePolicyInformer {
 	return &sGPURuntimePolicyInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
