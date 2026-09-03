@@ -97,9 +97,13 @@ func (a *Agent) Run(ctx context.Context) error {
 	// advance while a Go call is still possible.
 	a.supervisor, a.supervisorCtx = g, gctx
 
+	a.log.Info("agent started; watching state source", zap.Int("simulators", len(a.simulators)))
+
 	g.Go(func() error { return a.reconcileLoop(gctx) })
 
 	err := g.Wait()
+
+	a.log.Info("agent stopping; tearing down simulators")
 
 	// Teardown: Revoke then Discard, best-effort with a fresh context because
 	// gctx is already cancelled at this point.
@@ -127,6 +131,8 @@ func (a *Agent) reconcileLoop(ctx context.Context) error {
 			}
 			if err := a.reconcile(ctx, u.State); err != nil {
 				a.log.Error("reconcile failed", zap.Int64("generation", u.State.Generation), zap.Error(err))
+			} else {
+				a.log.Debug("reconcile succeeded", zap.Int64("generation", u.State.Generation))
 			}
 		}
 	}

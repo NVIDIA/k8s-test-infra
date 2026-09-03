@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"go.uber.org/zap"
+
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -41,6 +43,7 @@ func stagePCIShim(h *host.Host) error {
 	matches, _ := filepath.Glob(shimGlob)
 
 	if len(matches) == 0 {
+		zap.L().Debug("no libpcisysfs shim in image; skipping PCI shim staging")
 		return nil
 	}
 
