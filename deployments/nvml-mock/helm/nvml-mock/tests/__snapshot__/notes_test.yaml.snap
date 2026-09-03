@@ -64,10 +64,6 @@ should match snapshot with b200 profile:
         please contribute the test back.
 
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-      Quick check — the PCI feature NFD turns into a node label (needs NFD installed):
-
-        kubectl get nodes -o 'custom-columns=NAME:.metadata.name,PCI_10DE:.metadata.labels.feature\.node\.kubernetes\.io/pci-10de\.present'
 should match snapshot with default values:
   1: |
     |
@@ -134,7 +130,3 @@ should match snapshot with default values:
         please contribute the test back.
 
       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-      Quick check — the PCI feature NFD turns into a node label (needs NFD installed):
-
-        kubectl get nodes -o 'custom-columns=NAME:.metadata.name,PCI_10DE:.metadata.labels.feature\.node\.kubernetes\.io/pci-10de\.present'
