@@ -17,6 +17,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/nvlink"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/pcibus"
 	"github.com/urfave/cli/v3"
+	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -149,9 +150,19 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	h := host.New(cmd.String("host-root"))
 
 	// TODO: we should consider keeping runtime state in /var/ dir so it naturally gets reset on container restart
-	if err := resetRuntimeOverrides(h); err != nil {
+	if err := resetRuntimeOverrides(h, log); err != nil {
 		return err
 	}
+
+	log.Info("starting node agent",
+		zap.String("config", configPath),
+		zap.String("topology", cmd.String("topology")),
+		zap.String("host_root", cmd.String("host-root")),
+		zap.String("health_addr", cmd.String("health-addr")),
+		zap.String("ib_mode", string(ibMode)),
+		zap.Bool("ib_fabric", cmd.Bool("ib-fabric")),
+		zap.Duration("shutdown_timeout", shutdownTimeout),
+	)
 
 	a := agent.New(agent.Config{
 		Simulators: []agent.Simulator{
@@ -190,14 +201,16 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 // profile. Both locations the mock NVML engine resolves are cleared; the paths
 // are derived here rather than via engine.ConfigOverridePathFor because that
 // helper short-circuits on MOCK_NVML_OVERRIDES and would mask the other one.
-func resetRuntimeOverrides(h *host.Host) error {
-	for _, p := range []string{
+func resetRuntimeOverrides(h *host.Host, log *zap.Logger) error {
+	paths := []string{
 		h.RootPath("config/overrides.yaml"),
 		h.RootPath("driver/config/overrides.yaml"),
-	} {
+	}
+	for _, p := range paths {
 		if err := mockctl.ResetOverrides(p); err != nil {
 			return err
 		}
 	}
+	log.Info("reset runtime overrides from previous pod lifetime", zap.Strings("paths", paths))
 	return nil
 }

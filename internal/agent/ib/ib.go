@@ -131,6 +131,7 @@ func (s *Simulator) daemonExpected() bool {
 // and the tools that read them only where the tier simulates InfiniBand.
 func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
 	s.ready.Store(false)
+	zap.L().Debug("staging simulator", zap.String("simulator", name))
 
 	// The NRI plugin LD_PRELOADs the shims into every container it injects, so
 	// a shim the loader cannot find is an ld.so error on every process the node
@@ -155,6 +156,10 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	net := state.NodeShape.Network
 	simulating := s.opts.Mode != ModeOff && net.IBEnabled
 
+	zap.L().Debug("resolved ib stage decision",
+		zap.String("mode", string(s.opts.Mode)), zap.Bool("ib_enabled", net.IBEnabled),
+		zap.Bool("simulating", simulating))
+
 	// A profile that retracts InfiniBand has to take its HCAs with it: the tree
 	// lives on a host mount that outlives the edit, and the daemon keys its
 	// lifecycle off the staged shape.
@@ -170,6 +175,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 		}
 
 		s.ready.Store(true)
+		zap.L().Debug("simulator staged; not simulating", zap.String("simulator", name))
 
 		return nil
 	}
@@ -183,6 +189,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	}
 
 	s.ready.Store(true)
+	zap.L().Debug("simulator staged", zap.String("simulator", name))
 	return nil
 }
 
@@ -200,6 +207,7 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 	if !s.ready.Load() {
 		return nil
 	}
+	zap.L().Debug("discarding simulator", zap.String("simulator", name))
 	return errors.Join(
 		// The whole ib/ subtree: infiniband is its only writer.
 		removeTree(ibRoot(h)),
@@ -284,6 +292,7 @@ func (s *Simulator) Run(ctx context.Context) error {
 		// Park rather than return when the profile declares no IB: Run is
 		// launched once, so returning would strand a later edit that turns it on.
 		if !s.daemonExpected() {
+			zap.L().Debug("mock-ib daemon parked; profile declares no InfiniBand", zap.String("simulator", name))
 			s.awaitRestart(ctx)
 			continue
 		}
