@@ -184,6 +184,19 @@ func TestMokkaControlPlanePublishDefaultDockerfileExists(t *testing.T) {
 		"default MOKKA_CONTROL_PLANE_DOCKERFILE must exist")
 }
 
+func TestMokkaControlPlanePushRejectsMissingGolangVersion(t *testing.T) {
+	t.Parallel()
+
+	image := "registry.example.test/nvidia/mokka-control-plane"
+	out, err := runMake(t, "mokka-control-plane-image-push",
+		"MOKKA_CONTROL_PLANE_IMAGE="+image,
+		"MOKKA_CONTROL_PLANE_TAGS="+image+":test",
+		"MOKKA_CONTROL_PLANE_GOLANG_VERSION=",
+	)
+	require.Error(t, err, "image push unexpectedly accepted an empty Go version:\n%s", out)
+	require.Contains(t, out, "MOKKA_CONTROL_PLANE_GOLANG_VERSION")
+}
+
 func TestMokkaControlPlanePublishAttestsEachPlatformSBOM(t *testing.T) {
 	t.Parallel()
 
@@ -193,6 +206,7 @@ func TestMokkaControlPlanePublishAttestsEachPlatformSBOM(t *testing.T) {
 	sbomFile := filepath.Join(work, "image.spdx.json")
 	goauthFile := filepath.Join(work, "goauth")
 	require.NoError(t, os.WriteFile(goauthFile, []byte("#!/bin/sh\n"), 0o600))
+	golangVersion := "1.99.0"
 	goProxy := "https://proxy.example.test/artifactory/api/go/virtual"
 	indexDigest := "sha256:" + strings.Repeat("a", 64)
 	amd64Digest := "sha256:" + strings.Repeat("b", 64)
@@ -258,6 +272,7 @@ printf '%s\0' "$@" >> "${PUBLISH_TEST_LOG}"
 		"MOKKA_CONTROL_PLANE_PLATFORMS=linux/amd64,linux/arm64",
 		"MOKKA_CONTROL_PLANE_CACHE_FROM=type=gha",
 		"MOKKA_CONTROL_PLANE_CACHE_TO=type=gha,mode=max",
+		"MOKKA_CONTROL_PLANE_GOLANG_VERSION="+golangVersion,
 		"MOKKA_CONTROL_PLANE_GOPROXY="+goProxy,
 		"MOKKA_CONTROL_PLANE_GOAUTH_FILE="+goauthFile,
 		"MOKKA_CONTROL_PLANE_DIGEST_FILE="+digestFile,
@@ -293,6 +308,7 @@ printf '%s\0' "$@" >> "${PUBLISH_TEST_LOG}"
 	requireFlagValue(t, dockerCalls[0], "--label", "org.opencontainers.image.description=a label with spaces")
 	requireFlagValue(t, dockerCalls[0], "--cache-from", "type=gha")
 	requireFlagValue(t, dockerCalls[0], "--cache-to", "type=gha,mode=max")
+	requireFlagValue(t, dockerCalls[0], "--build-arg", "GOLANG_VERSION="+golangVersion)
 	requireFlagValue(t, dockerCalls[0], "--build-arg", "GOPROXY="+goProxy)
 	requireFlagValue(t, dockerCalls[0], "--secret", "id=goauth,src="+goauthFile)
 	require.Equal(t, image+"@"+indexDigest, dockerCalls[1][3])
