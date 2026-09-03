@@ -63,9 +63,16 @@ RUN export DEBIAN_FRONTEND=noninteractive \
 # IMEX_SHIM_REAL_BIN in the container environment overrides the
 # real-binary path for non-standard installs.
 FROM golang:${GOLANG_VERSION} AS shim
+ARG GOPROXY=https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY} \
+    GOSUMDB=sum.golang.org \
+    GONOPROXY=none \
+    GOTOOLCHAIN=local
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=secret,id=goauth,mode=0500 \
+    if [ -f /run/secrets/goauth ]; then export GOAUTH=/run/secrets/goauth; fi; \
+    go mod download
 COPY shims/nvidia-imex-shim/ shims/nvidia-imex-shim/
 RUN CGO_ENABLED=0 go build -o /out/nvidia-imex-shim ./shims/nvidia-imex-shim
 
