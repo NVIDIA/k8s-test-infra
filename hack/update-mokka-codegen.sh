@@ -10,12 +10,13 @@ api_package="${module}/internal/controlplane/api/v1alpha1"
 generated_package="${module}/pkg/generated"
 header="${repo_root}/hack/boilerplate.go.txt"
 tool_dir="$(mktemp -d)"
+code_generator_version="v0.37.0"
 
 trap 'rm -rf "${tool_dir}"' EXIT
 
-GOBIN="${tool_dir}" GOFLAGS=-mod=mod go install k8s.io/code-generator/cmd/client-gen@v0.36.3
-GOBIN="${tool_dir}" GOFLAGS=-mod=mod go install k8s.io/code-generator/cmd/lister-gen@v0.36.3
-GOBIN="${tool_dir}" GOFLAGS=-mod=mod go install k8s.io/code-generator/cmd/informer-gen@v0.36.3
+GOBIN="${tool_dir}" GOFLAGS=-mod=mod go install k8s.io/code-generator/cmd/client-gen@"${code_generator_version}"
+GOBIN="${tool_dir}" GOFLAGS=-mod=mod go install k8s.io/code-generator/cmd/lister-gen@"${code_generator_version}"
+GOBIN="${tool_dir}" GOFLAGS=-mod=mod go install k8s.io/code-generator/cmd/informer-gen@"${code_generator_version}"
 
 export GOFLAGS=-mod=mod
 
