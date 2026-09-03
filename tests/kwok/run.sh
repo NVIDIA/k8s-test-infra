@@ -413,11 +413,13 @@ snapshot_assignments "${ARTIFACT_DIR}/restart.after.json"
 cmp "${ARTIFACT_DIR}/restart.before.json" "${ARTIFACT_DIR}/restart.after.json" || die "assignments changed across controller restart"
 
 readonly REPLACED_NODE="mokka-node-000000"
-readonly OLD_UID="$(kctl get node "${REPLACED_NODE}" -o jsonpath='{.metadata.uid}')"
+OLD_UID="$(kctl get node "${REPLACED_NODE}" -o jsonpath='{.metadata.uid}')"
+readonly OLD_UID
 scenario_started_seconds="$(date -u +%s)"
 kctl delete node "${REPLACED_NODE}" --wait=true >/dev/null
 scale_nodes "${NODE_COUNT}"
-readonly NEW_UID="$(kctl get node "${REPLACED_NODE}" -o jsonpath='{.metadata.uid}')"
+NEW_UID="$(kctl get node "${REPLACED_NODE}" -o jsonpath='{.metadata.uid}')"
+readonly NEW_UID
 [[ "${OLD_UID}" != "${NEW_UID}" ]] || die "same-name replacement retained the old UID"
 check_state same-name-new-uid "${scenario_started_seconds}" "${FULL_RACKS}" "${NODE_COUNT}" "${NODE_COUNT}" "${NODE_COUNT}" true
 jq -cn --arg name "${REPLACED_NODE}" --arg oldUID "${OLD_UID}" --arg newUID "${NEW_UID}" \
