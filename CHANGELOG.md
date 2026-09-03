@@ -199,6 +199,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   public NVML APIs.
 
 ### Changed
+- Dependencies no longer ship in `vendor/`. Go resolves them through a module
+  proxy — NVIDIA's DGXC Artifactory in CI and for the published `nvml-mock`
+  image, the public proxy locally — so builds and `make gen` need network access
+  where they could once run offline. `make vendor` and `make modules` are gone.
+  (#756)
 - mocknvml: the `grace_superchip:` profile block is now `cpu:`, with `cpu_cores`
   and `cpu_memory_gb` renamed to `cores` and `memory_gb` and the `enabled` flag
   replaced by a free-form `type:` (`grace` on the gb200 and gb300 profiles). The
@@ -324,17 +329,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unaffected. The chart schema permits unknown keys, so a values file still
   setting `imex.enabled: true` installs silently with no state directory
   mounted rather than failing. (#304)
-- `vendor/` and `tests/mocknvml/vendor/`. Dependencies now resolve through the
-  Go module proxy, verified against `go.sum` and `sum.golang.org` on every
-  build — a guarantee vendoring did not provide, since Go checks
-  `vendor/modules.txt` against `go.mod` but never hashes vendored files. Builds
-  and `make gen` therefore need network access to `proxy.golang.org`, where
-  before they could run offline. `make vendor`, `make vendor-check`, `make
-  modules` and `make modules-check` are gone: `make lint` and `make lint-fix`
-  now tidy `go.mod` themselves, `make lint` fails when the result is out of sync
-  or when a `vendor/` directory reappears — its mere presence silently switches
-  every build back to vendor mode — and `tests/mocknvml/go.mod` is tidied by
-  hand. (#753)
 
 ### Fixed
 - mocknvml: Xid critical-error events are now attributed to the whole GPU the
