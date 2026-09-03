@@ -11,14 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync/atomic"
 
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/fsutil"
-
-	"golang.org/x/sync/errgroup"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
@@ -33,11 +31,12 @@ var (
 
 // Simulator implements agent.Simulator and agent.Applier.
 type Simulator struct {
+	host  *host.Host
 	ready atomic.Bool
 }
 
 // New returns a gpudriver Simulator.
-func New() *Simulator { return &Simulator{} }
+func New(h *host.Host) *Simulator { return &Simulator{host: h} }
 
 // Name returns the simulator's stable identifier.
 func (s *Simulator) Name() string { return name }
@@ -45,25 +44,26 @@ func (s *Simulator) Name() string { return name }
 // Ready reports whether the driver footprint and its published symlink exist.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
-// Stage materializes the GPU driver footprint under h.Root/driver/.
+// Stage materializes the GPU driver footprint under host.Root/driver/.
 // All surfaces run in parallel; a failure in any one cancels the rest via gctx.
-func (s *Simulator) Stage(ctx context.Context, h *host.Host, state *agent.State) error {
+func (s *Simulator) Stage(ctx context.Context, state *agent.State) error {
 	s.ready.Store(false)
 	zap.L().Info("staging simulator", zap.String("simulator", name))
 
 	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error { return stageCharDevs(gctx, h, state) })
-	g.Go(func() error { return stageNVMLShim(gctx, h, state) })
-	g.Go(func() error { return stageCUDAShim(gctx, h, state) })
-	g.Go(func() error { return stageNvidiaSMI(gctx, h, state) })
-	g.Go(func() error { return writeProcFS(gctx, h, state) })
-	g.Go(func() error { return writeEngineConfig(gctx, h, state) })
-	g.Go(func() error { return writeMachineType(gctx, h, state) })
+	g.Go(func() error { return stageCharDevs(gctx, s.host, state) })
+	g.Go(func() error { return stageNVMLShim(gctx, s.host, state) })
+	g.Go(func() error { return stageCUDAShim(gctx, s.host, state) })
+	g.Go(func() error { return stageNvidiaSMI(gctx, s.host, state) })
+	g.Go(func() error { return writeProcFS(gctx, s.host, state) })
+	g.Go(func() error { return writeEngineConfig(gctx, s.host, state) })
+	g.Go(func() error { return writeMachineType(gctx, s.host, state) })
 
 	if err := g.Wait(); err != nil {
 		return err
 	}
 
+	s.ready.Store(true)
 	zap.L().Info("simulator staged", zap.String("simulator", name))
 	return nil
 }
@@ -83,15 +83,15 @@ var stagedPaths = []string{
 	"config/config.yaml",
 }
 
-// Discard removes only the paths Stage writes. Every path is exclusively owned
+// Discard removes only the paths Stage wrote.  writes. Every path is exclusively owned
 // by gpudriver, so removing absent or partially staged paths is safe.
-func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
+func (s *Simulator) Discard(_ context.Context) error {
 	zap.L().Info("discarding simulator", zap.String("simulator", name))
 
 	var errs []error
 
 	for _, rel := range stagedPaths {
-		p := filepath.Join(h.Root, rel)
+		p := s.host.RootPath(rel)
 		if err := os.RemoveAll(p); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
 		}
@@ -101,11 +101,11 @@ func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
 }
 
 // Apply creates the GPU-Operator compatibility symlink at /run/nvidia/driver.
-func (s *Simulator) Apply(_ context.Context, h *host.Host, _ *agent.State) error {
+func (s *Simulator) Apply(_ context.Context, _ *agent.State) error {
 	zap.L().Info("applying simulator", zap.String("simulator", name))
 	s.ready.Store(false)
 
-	if err := fsutil.Symlink("/var/lib/nvml-mock/driver", filepath.Join(h.Run, "nvidia/driver")); err != nil {
+	if err := fsutil.Symlink("/var/lib/nvml-mock/driver", s.host.RunPath("nvidia/driver")); err != nil {
 		return err
 	}
 
@@ -114,8 +114,9 @@ func (s *Simulator) Apply(_ context.Context, h *host.Host, _ *agent.State) error
 }
 
 // Revoke removes the /run/nvidia/driver symlink.
-func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
+func (s *Simulator) Revoke(_ context.Context) error {
 	zap.L().Info("revoking simulator", zap.String("simulator", name))
 	s.ready.Store(false)
-	return fsutil.Remove(filepath.Join(h.Run, "nvidia/driver"))
+
+	return fsutil.Remove(s.host.RunPath("nvidia/driver"))
 }

@@ -65,9 +65,9 @@ func isolateSources(t *testing.T) {
 func TestStage_RendersSysfsTree(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
-	s := New(Options{Mode: ModeSysfs})
+	s := New(h, Options{Mode: ModeSysfs})
 
-	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
+	require.NoError(t, s.Stage(context.Background(), testState(testNetwork())))
 	require.True(t, s.Ready())
 
 	ca := h.RootPath("ib/sys/class/infiniband/mlx5_0")
@@ -89,9 +89,9 @@ func TestStage_RendersSysfsTree(t *testing.T) {
 func TestStage_ProfileValuesReachSysfs(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
-	s := New(Options{Mode: ModeSysfs})
+	s := New(h, Options{Mode: ModeSysfs})
 
-	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
+	require.NoError(t, s.Stage(context.Background(), testState(testNetwork())))
 
 	ca := h.RootPath("ib/sys/class/infiniband/mlx5_0")
 	read := func(rel string) string {
@@ -109,13 +109,13 @@ func TestStage_ProfileValuesReachSysfs(t *testing.T) {
 func TestStage_IsIdempotent(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
-	s := New(Options{Mode: ModeSysfs})
+	s := New(h, Options{Mode: ModeSysfs})
 	state := testState(testNetwork())
 
-	require.NoError(t, s.Stage(context.Background(), h, state))
+	require.NoError(t, s.Stage(context.Background(), state))
 	first := snapshotTree(t, h.RootPath("ib"))
 
-	require.NoError(t, s.Stage(context.Background(), h, state))
+	require.NoError(t, s.Stage(context.Background(), state))
 	require.Equal(t, first, snapshotTree(t, h.RootPath("ib")))
 }
 
@@ -133,9 +133,9 @@ func TestStage_DisabledTierStagesShimsOnly(t *testing.T) {
 			isolateSources(t)
 			seedImageSources(t)
 			h := newTestHost(t)
-			s := New(Options{Mode: c.mode})
+			s := New(h, Options{Mode: c.mode})
 
-			require.NoError(t, s.Stage(context.Background(), h, testState(c.net)))
+			require.NoError(t, s.Stage(context.Background(), testState(c.net)))
 			require.True(t, s.Ready(), "a no-op stage is still ready")
 
 			// The root is created but left empty, masking any real host IB.
@@ -155,8 +155,8 @@ func TestStage_CopiesToolsShimsAndConfig(t *testing.T) {
 	seedImageSources(t)
 
 	h := newTestHost(t)
-	s := New(Options{Mode: ModeSysfs})
-	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
+	s := New(h, Options{Mode: ModeSysfs})
+	require.NoError(t, s.Stage(context.Background(), testState(testNetwork())))
 
 	require.FileExists(t, h.RootPath("driver/usr/bin/ibstat"))
 	require.FileExists(t, h.RootPath("driver/usr/lib64/libibmad.so.5"))
@@ -169,9 +169,9 @@ func TestStage_CopiesToolsShimsAndConfig(t *testing.T) {
 func TestStage_ToleratesMissingImageSources(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
-	s := New(Options{Mode: ModeSysfs})
+	s := New(h, Options{Mode: ModeSysfs})
 
-	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
+	require.NoError(t, s.Stage(context.Background(), testState(testNetwork())))
 	require.True(t, s.Ready())
 	require.NoFileExists(t, h.RootPath("driver/usr/bin/check-fabric"))
 }
@@ -222,14 +222,14 @@ func TestStage_RetractsWhenProfileDisablesIB(t *testing.T) {
 	seedImageSources(t)
 
 	h := newTestHost(t)
-	s := New(Options{Mode: ModeFull, SocketPath: filepath.Join(t.TempDir(), "s.sock")})
+	s := New(h, Options{Mode: ModeFull, SocketPath: filepath.Join(t.TempDir(), "s.sock")})
 	ctx := context.Background()
 
-	require.NoError(t, s.Stage(ctx, h, testState(testNetwork())))
+	require.NoError(t, s.Stage(ctx, testState(testNetwork())))
 	require.DirExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_0"))
 	require.FileExists(t, h.RootPath("driver/usr/bin/ibstat"))
 
-	require.NoError(t, s.Stage(ctx, h, testState(agent.NetworkShape{})))
+	require.NoError(t, s.Stage(ctx, testState(agent.NetworkShape{})))
 
 	require.NoDirExists(t, h.RootPath("ib/sys/class/infiniband"))
 	require.NoFileExists(t, h.RootPath("driver/usr/bin/ibstat"))
@@ -250,14 +250,14 @@ func TestStage_RetractionReleasesTheDaemon(t *testing.T) {
 	seedImageSources(t)
 
 	h := newTestHost(t)
-	s := New(Options{Mode: ModeFull, SocketPath: filepath.Join(t.TempDir(), "s.sock")})
+	s := New(h, Options{Mode: ModeFull, SocketPath: filepath.Join(t.TempDir(), "s.sock")})
 	ctx := context.Background()
 
-	require.NoError(t, s.Stage(ctx, h, testState(testNetwork())))
+	require.NoError(t, s.Stage(ctx, testState(testNetwork())))
 	require.True(t, s.daemonExpected(), "a declared fabric expects the daemon")
 	require.False(t, s.Ready(), "readiness waits on a daemon that has not started")
 
-	require.NoError(t, s.Stage(ctx, h, testState(agent.NetworkShape{})))
+	require.NoError(t, s.Stage(ctx, testState(agent.NetworkShape{})))
 	require.NoError(t, s.Reload(ctx, testState(agent.NetworkShape{})))
 
 	require.False(t, s.daemonExpected(), "a retracted fabric expects no daemon")
@@ -272,9 +272,9 @@ func TestStage_ModeOffRendersNothingForEnabledProfile(t *testing.T) {
 	seedImageSources(t)
 
 	h := newTestHost(t)
-	s := New(Options{Mode: ModeOff})
+	s := New(h, Options{Mode: ModeOff})
 
-	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
+	require.NoError(t, s.Stage(context.Background(), testState(testNetwork())))
 
 	require.NoDirExists(t, h.RootPath("ib/sys/class/infiniband"))
 	require.NoFileExists(t, h.RootPath("driver/usr/bin/ibstat"))

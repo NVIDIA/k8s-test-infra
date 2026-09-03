@@ -67,9 +67,9 @@ func TestDiscard_LeavesGPUDriverFilesIntact(t *testing.T) {
 	}
 	seedGPUDriver()
 
-	s := New(Options{Mode: ModeSysfs})
-	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
-	require.NoError(t, s.Discard(context.Background(), h))
+	s := New(h, Options{Mode: ModeSysfs})
+	require.NoError(t, s.Stage(context.Background(), testState(testNetwork())))
+	require.NoError(t, s.Discard(context.Background()))
 
 	require.NoDirExists(t, h.RootPath("ib"))
 	require.NoFileExists(t, h.RootPath("driver/usr/bin/ibstat"))
@@ -85,14 +85,14 @@ func TestDiscard_LeavesGPUDriverFilesIntact(t *testing.T) {
 func TestDiscard_NoOpBeforeStage(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
-	s := New(Options{Mode: ModeSysfs})
-	require.NoError(t, s.Discard(context.Background(), h))
+	s := New(h, Options{Mode: ModeSysfs})
+	require.NoError(t, s.Discard(context.Background()))
 }
 
 func TestRun_ReturnsImmediatelyWhenNotFull(t *testing.T) {
 	for _, mode := range []Mode{ModeOff, ModeSysfs} {
 		t.Run(string(mode), func(t *testing.T) {
-			s := New(Options{Mode: mode})
+			s := New(newTestHost(t), Options{Mode: mode})
 			done := make(chan error, 1)
 			go func() { done <- s.Run(context.Background()) }()
 			select {
@@ -109,9 +109,9 @@ func TestRun_ServesAndReports(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
 	socket := filepath.Join(t.TempDir(), "mock-ib.sock")
-	s := New(Options{Mode: ModeFull, SocketPath: socket})
+	s := New(h, Options{Mode: ModeFull, SocketPath: socket})
 
-	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
+	require.NoError(t, s.Stage(context.Background(), testState(testNetwork())))
 	require.False(t, s.Ready(), "full mode is not ready until the daemon serves")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -137,9 +137,9 @@ func TestRun_ServesAndReports(t *testing.T) {
 func TestRun_ReadyWithoutDaemonWhenIBDisabled(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
-	s := New(Options{Mode: ModeFull, SocketPath: filepath.Join(t.TempDir(), "s.sock")})
+	s := New(h, Options{Mode: ModeFull, SocketPath: filepath.Join(t.TempDir(), "s.sock")})
 
-	require.NoError(t, s.Stage(context.Background(), h, testState(agent.NetworkShape{})))
+	require.NoError(t, s.Stage(context.Background(), testState(agent.NetworkShape{})))
 	require.True(t, s.Ready())
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -165,27 +165,27 @@ func TestRun_ReadyWithoutDaemonWhenIBDisabled(t *testing.T) {
 func TestReload_OnlyRestartsWhenShapeChanges(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
-	s := New(Options{Mode: ModeFull, SocketPath: filepath.Join(t.TempDir(), "s.sock")})
+	s := New(h, Options{Mode: ModeFull, SocketPath: filepath.Join(t.TempDir(), "s.sock")})
 	ctx := context.Background()
 
 	net := testNetwork()
-	require.NoError(t, s.Stage(ctx, h, testState(net)))
+	require.NoError(t, s.Stage(ctx, testState(net)))
 
 	// Same shape re-staged: nothing to restart.
-	require.NoError(t, s.Stage(ctx, h, testState(net)))
+	require.NoError(t, s.Stage(ctx, testState(net)))
 	require.NoError(t, s.Reload(ctx, testState(net)))
 	require.Empty(t, s.restart, "an unchanged shape must not request a restart")
 
 	// A real change does.
 	changed := net
 	changed.HCACount = 4
-	require.NoError(t, s.Stage(ctx, h, testState(changed)))
+	require.NoError(t, s.Stage(ctx, testState(changed)))
 	require.NoError(t, s.Reload(ctx, testState(changed)))
 	require.Len(t, s.restart, 1, "a changed shape must request a restart")
 
 	// The request is consumed once; a repeat reconcile is quiet again.
 	<-s.restart
-	require.NoError(t, s.Stage(ctx, h, testState(changed)))
+	require.NoError(t, s.Stage(ctx, testState(changed)))
 	require.NoError(t, s.Reload(ctx, testState(changed)))
 	require.Empty(t, s.restart)
 }
@@ -193,15 +193,15 @@ func TestReload_OnlyRestartsWhenShapeChanges(t *testing.T) {
 func TestReload_RerendersTreeForNewShape(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
-	s := New(Options{Mode: ModeSysfs})
+	s := New(h, Options{Mode: ModeSysfs})
 	ctx := context.Background()
 
-	require.NoError(t, s.Stage(ctx, h, testState(testNetwork())))
+	require.NoError(t, s.Stage(ctx, testState(testNetwork())))
 	require.NoDirExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_3"))
 
 	grown := testNetwork()
 	grown.HCACount = 4
-	require.NoError(t, s.Stage(ctx, h, testState(grown)))
+	require.NoError(t, s.Stage(ctx, testState(grown)))
 	require.DirExists(t, h.RootPath("ib/sys/class/infiniband/mlx5_3"))
 }
 
@@ -230,9 +230,9 @@ func requireDialable(t *testing.T, socket string) {
 func TestStage_DerivesSocketPathUnderHostRoot(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
-	s := New(Options{Mode: ModeFull})
+	s := New(h, Options{Mode: ModeFull})
 
-	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
+	require.NoError(t, s.Stage(context.Background(), testState(testNetwork())))
 
 	got := s.socketPath.Load()
 	require.NotNil(t, got)
@@ -243,8 +243,8 @@ func TestStage_SocketPathOverrideWins(t *testing.T) {
 	isolateSources(t)
 	h := newTestHost(t)
 	want := filepath.Join(t.TempDir(), "custom.sock")
-	s := New(Options{Mode: ModeFull, SocketPath: want})
+	s := New(h, Options{Mode: ModeFull, SocketPath: want})
 
-	require.NoError(t, s.Stage(context.Background(), h, testState(testNetwork())))
+	require.NoError(t, s.Stage(context.Background(), testState(testNetwork())))
 	require.Equal(t, want, *s.socketPath.Load())
 }

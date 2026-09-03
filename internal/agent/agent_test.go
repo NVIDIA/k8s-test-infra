@@ -13,8 +13,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
-
-	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 )
 
 // mockSimApplier implements Simulator and Applier.
@@ -27,20 +25,20 @@ type mockSimApplier struct {
 }
 
 func (m *mockSimApplier) Name() string { return m.name }
-func (m *mockSimApplier) Stage(_ context.Context, _ *host.Host, _ *State) error {
+func (m *mockSimApplier) Stage(_ context.Context, _ *State) error {
 	m.stageCalls.Add(1)
 	if m.stageFailN.Add(-1) >= 0 {
 		return errors.New("stage error")
 	}
 	return nil
 }
-func (m *mockSimApplier) Discard(_ context.Context, _ *host.Host) error { return nil }
-func (m *mockSimApplier) Ready() bool                                   { return m.stageFailN.Load() < 0 }
-func (m *mockSimApplier) Apply(_ context.Context, _ *host.Host, _ *State) error {
+func (m *mockSimApplier) Discard(_ context.Context) error { return nil }
+func (m *mockSimApplier) Ready() bool                     { return m.stageFailN.Load() < 0 }
+func (m *mockSimApplier) Apply(_ context.Context, _ *State) error {
 	m.applyCalls.Add(1)
 	return nil
 }
-func (m *mockSimApplier) Revoke(_ context.Context, _ *host.Host) error { return nil }
+func (m *mockSimApplier) Revoke(_ context.Context) error { return nil }
 
 // mockDaemon implements Simulator, Applier and Daemon, logging each synchronous
 // lifecycle call so tests can pin the wave ordering. Run is counted rather than
@@ -69,17 +67,17 @@ func (m *mockDaemon) callLog() []string {
 }
 
 func (m *mockDaemon) Name() string { return m.name }
-func (m *mockDaemon) Stage(_ context.Context, _ *host.Host, _ *State) error {
+func (m *mockDaemon) Stage(_ context.Context, _ *State) error {
 	m.record("stage")
 	return nil
 }
-func (m *mockDaemon) Discard(_ context.Context, _ *host.Host) error { return nil }
-func (m *mockDaemon) Ready() bool                                   { return true }
-func (m *mockDaemon) Apply(_ context.Context, _ *host.Host, _ *State) error {
+func (m *mockDaemon) Discard(_ context.Context) error { return nil }
+func (m *mockDaemon) Ready() bool                     { return true }
+func (m *mockDaemon) Apply(_ context.Context, _ *State) error {
 	m.record("apply")
 	return nil
 }
-func (m *mockDaemon) Revoke(_ context.Context, _ *host.Host) error { return nil }
+func (m *mockDaemon) Revoke(_ context.Context) error { return nil }
 
 // Run returns immediately instead of blocking on ctx, so errgroup.Wait finishes
 // when the source drains rather than idling out the test timeout.
@@ -101,10 +99,10 @@ type readySim struct {
 	ready bool
 }
 
-func (s readySim) Name() string                                          { return s.name }
-func (s readySim) Stage(_ context.Context, _ *host.Host, _ *State) error { return nil }
-func (s readySim) Discard(_ context.Context, _ *host.Host) error         { return nil }
-func (s readySim) Ready() bool                                           { return s.ready }
+func (s readySim) Name() string                            { return s.name }
+func (s readySim) Stage(_ context.Context, _ *State) error { return nil }
+func (s readySim) Discard(_ context.Context) error         { return nil }
+func (s readySim) Ready() bool                             { return s.ready }
 
 // chanSource is a finite StateSource backed by a pre-filled, closed channel.
 type chanSource struct{ ch chan Update }
@@ -131,7 +129,6 @@ func newAgentWith(t *testing.T, sim Simulator, updates ...Update) *Agent {
 	return New(Config{
 		Simulators: []Simulator{sim},
 		Source:     newChanSource(updates...),
-		Host:       host.New(t.TempDir()),
 		Log:        zap.NewNop(),
 	})
 }
@@ -232,7 +229,7 @@ func TestSupervise_StageFailureSkipsSupervisorWave(t *testing.T) {
 // failingStageDaemon is a Daemon whose Stage always fails.
 type failingStageDaemon struct{ mockDaemon }
 
-func (f *failingStageDaemon) Stage(_ context.Context, _ *host.Host, _ *State) error {
+func (f *failingStageDaemon) Stage(_ context.Context, _ *State) error {
 	return errors.New("stage error")
 }
 

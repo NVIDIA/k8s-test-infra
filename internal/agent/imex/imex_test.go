@@ -61,7 +61,7 @@ func TestStageProcDevices_WritesRenderedFile(t *testing.T) {
 
 	require.NoError(t, stageProcDevices(h, state, writeProcDevicesFixture(t)))
 
-	content, err := os.ReadFile(filepath.Join(h.Root, "imex/proc-devices"))
+	content, err := os.ReadFile(h.RootPath("imex/proc-devices"))
 	require.NoError(t, err)
 	require.Contains(t, string(content), "nvidia-caps-imex-channels")
 	require.Contains(t, string(content), "nvidia-caps")
@@ -81,7 +81,7 @@ func TestStageFabricImexMgmt_WritesFile(t *testing.T) {
 
 	require.NoError(t, stageFabricImexMgmt(h))
 
-	content, err := os.ReadFile(filepath.Join(h.Root, "driver/proc/driver/nvidia/capabilities/fabric-imex-mgmt"))
+	content, err := os.ReadFile(h.RootPath("driver/proc/driver/nvidia/capabilities/fabric-imex-mgmt"))
 	require.NoError(t, err)
 	require.Contains(t, string(content), "DeviceFileMinor: 512")
 	require.Contains(t, string(content), "DeviceFileMode: 438")
@@ -95,7 +95,7 @@ func TestStageChannelDevs_CreatesNodes(t *testing.T) {
 
 	require.NoError(t, stageChannelDevs(h, state))
 
-	dir := filepath.Join(h.Root, "driver/dev/nvidia-caps-imex-channels")
+	dir := h.RootPath("driver/dev/nvidia-caps-imex-channels")
 	for i := range state.IMEX.ChannelCount {
 		_, err := os.Stat(filepath.Join(dir, fmt.Sprintf("channel%d", i)))
 		require.NoError(t, err, "channel%d must exist", i)
@@ -106,13 +106,13 @@ func TestStageChannelDevs_CreatesNodes(t *testing.T) {
 
 func TestStage_NoopWhenDisabled(t *testing.T) {
 	h := testHost(t)
-	sim := New()
+	sim := New(h)
 	ctx := context.Background()
 
-	require.NoError(t, sim.Stage(ctx, h, testState(false)))
+	require.NoError(t, sim.Stage(ctx, testState(false)))
 	require.True(t, sim.Ready(), "disabled IMEX must still mark simulator ready")
 
-	entries, err := os.ReadDir(h.Root)
+	entries, err := os.ReadDir(h.RootPath())
 	if !os.IsNotExist(err) {
 		require.NoError(t, err)
 		require.Empty(t, entries, "disabled IMEX must write nothing")
@@ -120,39 +120,38 @@ func TestStage_NoopWhenDisabled(t *testing.T) {
 }
 
 func TestDiscard_NopWhenNotReady(t *testing.T) {
-	h := testHost(t)
-	sim := New()
+	sim := New(testHost(t))
 
-	require.NoError(t, sim.Discard(context.Background(), h))
+	require.NoError(t, sim.Discard(context.Background()))
 }
 
 func TestStage_Idempotent(t *testing.T) {
 	skipUnlessRootLinux(t)
 
 	h := testHost(t)
-	sim := &Simulator{procDevicesPath: writeProcDevicesFixture(t)}
+	sim := &Simulator{host: h, procDevicesPath: writeProcDevicesFixture(t)}
 	state := testState(true)
 	ctx := context.Background()
 
-	require.NoError(t, sim.Stage(ctx, h, state))
-	require.NoError(t, sim.Stage(ctx, h, state), "second Stage must not error")
+	require.NoError(t, sim.Stage(ctx, state))
+	require.NoError(t, sim.Stage(ctx, state), "second Stage must not error")
 }
 
 func TestStage_WritesAndDiscardCleans(t *testing.T) {
 	skipUnlessRootLinux(t)
 
 	h := testHost(t)
-	sim := &Simulator{procDevicesPath: writeProcDevicesFixture(t)}
+	sim := &Simulator{host: h, procDevicesPath: writeProcDevicesFixture(t)}
 	state := testState(true)
 	ctx := context.Background()
 
-	require.NoError(t, sim.Stage(ctx, h, state))
+	require.NoError(t, sim.Stage(ctx, state))
 	require.True(t, sim.Ready())
 
-	require.NoError(t, sim.Discard(ctx, h))
+	require.NoError(t, sim.Discard(ctx))
 
-	_, err := os.Stat(filepath.Join(h.Root, "driver/dev/nvidia-caps-imex-channels"))
+	_, err := os.Stat(h.RootPath("driver/dev/nvidia-caps-imex-channels"))
 	require.ErrorIs(t, err, os.ErrNotExist)
-	_, err = os.Stat(filepath.Join(h.Root, "imex"))
+	_, err = os.Stat(h.RootPath("imex"))
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
