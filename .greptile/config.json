@@ -1,14 +1,15 @@
 {
-  "strictness": 3,
+  "strictness": 2,
   "commentTypes": [
-    "logic"
+    "logic",
+    "syntax"
   ],
   "triggerOnUpdates": true,
   "triggerOnDrafts": false,
   "statusCheck": true,
   "hideFooter": true,
   "shouldUpdateDescription": false,
-  "ignorePatterns": "vendor/\ntests/mocknvml/vendor/\nLICENSES/\n**/zz_generated*.go\n",
+  "ignorePatterns": "LICENSES/\n**/zz_generated*.go\n",
   "summarySection": {
     "included": true,
     "collapsible": false,
@@ -27,10 +28,10 @@
   "rules": [
     {
       "id": "nvml-bridge-types",
-      "rule": "When a change adds a new nvml entry point to vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go, pkg/gpu/mocknvml/bridge/stubs_generated.go must be regenerated with `make gen`, and pkg/gpu/mocknvml/bridge/nvml_types.h must gain the matching C type definitions by hand with full field layouts rather than opaque forward declarations. The generator does not touch that header. A stale stubs_generated.go omits the //export directives for the new entry points, and the shared library still links because -buildmode=c-shared does not pass --no-undefined, so build, vet, test and lint all stay green. The failure appears only when a consumer dlopens the library with RTLD_NOW.",
+      "rule": "When a change bumps the version of github.com/NVIDIA/go-nvml in go.mod or go.sum, pkg/gpu/mocknvml/bridge/stubs_generated.go must be regenerated with `make gen` in the same change, and pkg/gpu/mocknvml/bridge/nvml_types.h must gain by hand the C type definitions any new entry point needs, with full field layouts rather than opaque forward declarations. The generator does not touch that header. A stale stubs_generated.go omits the //export directives for the entry points the new go-nvml version added, and the shared library still links because -buildmode=c-shared does not pass --no-undefined, so build, vet, test and lint all stay green. The failure appears only when a consumer dlopens the library with RTLD_NOW. When that header gains or changes a struct, check every field against the type of the same name in the pinned go-nvml release, in order and with matching widths: a layout that is complete but wrong compiles, regenerates clean, and passes gen-check, lint and the tests, then corrupts memory in the first real consumer that reads it, which is how nvmlDeviceGetRemappedRows_v2 once shipped with the v1 flat-pointer ABI.",
       "scope": [
-        "pkg/gpu/mocknvml/bridge/**",
-        "vendor/github.com/NVIDIA/go-nvml/**"
+        "go.mod",
+        "pkg/gpu/mocknvml/bridge/**"
       ],
       "severity": "high"
     },
