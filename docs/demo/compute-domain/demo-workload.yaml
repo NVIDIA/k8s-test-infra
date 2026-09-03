@@ -24,6 +24,8 @@ spec:
         nvml-mock.nvidia.com/imex-channels: "true"
     spec:
       automountServiceAccountToken: false
+      nodeSelector:
+        mokka.nvidia.com/type: sgpu
       containers:
         - name: demo-workload
           image: nvml-mock:compute-domain-workload

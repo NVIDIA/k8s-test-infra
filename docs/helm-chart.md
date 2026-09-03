@@ -127,18 +127,22 @@ helm install nvml-mock oci://ghcr.io/nvidia/k8s-test-infra/chart/nvml-mock \
 
 ```bash
 kubectl rollout status daemonset/nvml-mock --timeout=60s
-kubectl get nodes -o 'custom-columns=NAME:.metadata.name,GPU_PRESENT:.metadata.labels.nvidia\.com/gpu\.present'
+kubectl get pods -l app.kubernetes.io/name=nvml-mock -o wide
 ```
 
-Expected: `GPU_PRESENT` shows `true`.
+Expected: a Running pod on the node. GPU labels under `nvidia.com/` need NFD or
+GFD — see [Node Labels](#node-labels).
 
 ### 5. Deploy the device plugin
 
 ```bash
+kubectl label node nvml-mock-test-control-plane mokka.nvidia.com/type=sgpu
 kubectl apply -f tests/e2e/device-plugin-mock.yaml
 kubectl -n kube-system wait --for=condition=ready \
   pod -l name=nvidia-device-plugin-mock --timeout=120s
 ```
+
+The manifest selects the simulated-GPU node pool; this cluster's single node is it.
 
 ### 6. Verify allocatable GPUs
 
@@ -1053,8 +1057,8 @@ the file at shutdown:
 
 Labels under `nvidia.com/` — `gpu.present`, `gpu.count`, `gpu.product` — belong
 to NFD and GFD exactly as on real hardware, and are absent unless those are
-deployed. Workloads that need to land on a mock node should select on whatever
-`nodeSelector` the chart itself was given.
+deployed. Workloads that need to land on a mock node select the GPU node-pool
+label their cluster gives those nodes, as they would on real hardware.
 
 The label above is produced by Node Feature Discovery. nvml-mock only supplies
 the input: `internal/agent/pcibus` writes `pci-10de.present=true` into

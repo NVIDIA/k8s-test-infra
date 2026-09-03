@@ -34,12 +34,16 @@ nodes:
   - role: worker
     labels:
       nvml-mock/clique: "0"
+      mokka.nvidia.com/type: sgpu
   - role: worker
     labels:
       nvml-mock/clique: "0"
+      mokka.nvidia.com/type: sgpu
   - role: worker
     labels:
       nvml-mock/clique: "1"
+      mokka.nvidia.com/type: sgpu
   - role: worker
     labels:
       nvml-mock/clique: "1"
+      mokka.nvidia.com/type: sgpu

@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - nvml-mock: the chart no longer labels nodes `nvidia.com/gpu.present=true`, and
   no longer requests any cluster RBAC. GPU labels under `nvidia.com/` come from
   NFD, GFD, GPU Operator when deployed, as on real hardware. Workloads that selected on the
-  label must select on the chart's own `nodeSelector` instead.
+  label must select on their cluster's GPU node-pool label instead.
 - nvml-mock: the top-level `resources` value is gone; use `nodeAgent.resources`.
 - nvml-mock: `kubectl` is no longer installed in the image. Its only callers
   were the deleted setup/cleanup scripts, and the pod now has neither a

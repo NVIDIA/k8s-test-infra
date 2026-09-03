@@ -20,11 +20,6 @@ spec:
       labels:
         name: nvidia-device-plugin-mock
     spec:
-      # Only schedule where the nvml-mock chart actually installed the driver.
-      # This mirrors the chart's own nodeSelector (local/nvml-mock.values.yaml);
-      # without it the DaemonSet, which tolerates all taints, also lands on the
-      # control-plane, where /var/lib/nvml-mock/driver is absent and NVML init
-      # fails with ERROR_LIBRARY_NOT_FOUND so the rollout never completes.
       nodeSelector:
         mokka.nvidia.com/type: sgpu
       tolerations:
