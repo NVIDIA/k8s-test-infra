@@ -47,6 +47,7 @@ MOKKA_CONTROL_PLANE_DOCKERFILE ?= deployments/control-plane/Dockerfile
 MOKKA_CONTROL_PLANE_PLATFORMS ?= linux/amd64,linux/arm64
 MOKKA_CONTROL_PLANE_CACHE_FROM ?=
 MOKKA_CONTROL_PLANE_CACHE_TO ?=
+MOKKA_CONTROL_PLANE_GOLANG_VERSION ?= $(shell ./hack/golang-version.sh)
 MOKKA_CONTROL_PLANE_GOPROXY ?=
 MOKKA_CONTROL_PLANE_GOAUTH_FILE ?=
 MOKKA_CONTROL_PLANE_DIGEST_FILE ?= dist/mokka-control-plane.digest
@@ -58,7 +59,7 @@ MOKKA_CONTROL_PLANE_COSIGN ?= cosign
 export MOKKA_CONTROL_PLANE_IMAGE MOKKA_CONTROL_PLANE_TAGS MOKKA_CONTROL_PLANE_LABELS
 export MOKKA_CONTROL_PLANE_CONTEXT MOKKA_CONTROL_PLANE_DOCKERFILE MOKKA_CONTROL_PLANE_PLATFORMS
 export MOKKA_CONTROL_PLANE_CACHE_FROM MOKKA_CONTROL_PLANE_CACHE_TO
-export MOKKA_CONTROL_PLANE_GOPROXY MOKKA_CONTROL_PLANE_GOAUTH_FILE
+export MOKKA_CONTROL_PLANE_GOLANG_VERSION MOKKA_CONTROL_PLANE_GOPROXY MOKKA_CONTROL_PLANE_GOAUTH_FILE
 export MOKKA_CONTROL_PLANE_DIGEST_FILE MOKKA_CONTROL_PLANE_SBOM_FILE
 export MOKKA_CONTROL_PLANE_DOCKER MOKKA_CONTROL_PLANE_SYFT MOKKA_CONTROL_PLANE_COSIGN
 
@@ -225,10 +226,11 @@ mokka-control-plane-image-push: ## Build and push the multi-platform Mokka contr
 	platforms="$${MOKKA_CONTROL_PLANE_PLATFORMS:-}"; \
 	digest_file="$${MOKKA_CONTROL_PLANE_DIGEST_FILE:-}"; \
 	docker_cmd="$${MOKKA_CONTROL_PLANE_DOCKER:-}"; \
+	golang_version="$${MOKKA_CONTROL_PLANE_GOLANG_VERSION:-}"; \
 	goproxy="$${MOKKA_CONTROL_PLANE_GOPROXY:-}"; \
 	goauth_file="$${MOKKA_CONTROL_PLANE_GOAUTH_FILE:-}"; \
-	if [[ -z "$$image" || -z "$$tags" || -z "$$context" || -z "$$dockerfile" || -z "$$platforms" || -z "$$digest_file" || -z "$$docker_cmd" ]]; then \
-		echo "ERROR: MOKKA_CONTROL_PLANE_IMAGE, MOKKA_CONTROL_PLANE_TAGS, MOKKA_CONTROL_PLANE_CONTEXT, MOKKA_CONTROL_PLANE_DOCKERFILE, MOKKA_CONTROL_PLANE_PLATFORMS, MOKKA_CONTROL_PLANE_DIGEST_FILE, and MOKKA_CONTROL_PLANE_DOCKER are required." >&2; \
+	if [[ -z "$$image" || -z "$$tags" || -z "$$context" || -z "$$dockerfile" || -z "$$platforms" || -z "$$digest_file" || -z "$$docker_cmd" || -z "$$golang_version" ]]; then \
+		echo "ERROR: MOKKA_CONTROL_PLANE_IMAGE, MOKKA_CONTROL_PLANE_TAGS, MOKKA_CONTROL_PLANE_CONTEXT, MOKKA_CONTROL_PLANE_DOCKERFILE, MOKKA_CONTROL_PLANE_PLATFORMS, MOKKA_CONTROL_PLANE_DIGEST_FILE, MOKKA_CONTROL_PLANE_DOCKER, and MOKKA_CONTROL_PLANE_GOLANG_VERSION are required." >&2; \
 		exit 2; \
 	fi; \
 	image_name="$${image##*/}"; \
@@ -237,7 +239,8 @@ mokka-control-plane-image-push: ## Build and push the multi-platform Mokka contr
 		exit 2; \
 	fi; \
 	command -v "$$docker_cmd" >/dev/null 2>&1 || { echo "ERROR: required buildx frontend not found: $$docker_cmd" >&2; exit 2; }; \
-	build_args=(buildx build --file "$$dockerfile" --platform "$$platforms" --push); \
+	build_args=(buildx build --file "$$dockerfile" --platform "$$platforms" --push \
+		--build-arg "GOLANG_VERSION=$$golang_version"); \
 	if [[ -n "$$goproxy" ]]; then \
 		build_args+=(--build-arg "GOPROXY=$$goproxy"); \
 	fi; \

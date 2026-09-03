@@ -125,6 +125,7 @@ jobs:
           MOKKA_CONTROL_PLANE_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           MOKKA_CONTROL_PLANE_TAGS: ${{ steps.meta.outputs.tags }}
           MOKKA_CONTROL_PLANE_LABELS: ${{ steps.meta.outputs.labels }}
+          MOKKA_CONTROL_PLANE_GOLANG_VERSION: ${{ steps.golang.outputs.version }}
           MOKKA_CONTROL_PLANE_GOPROXY: https://edge.urm.nvidia.com/artifactory/api/go/dgxc-go-virtual
           MOKKA_CONTROL_PLANE_GOAUTH_FILE: ${{ runner.temp }}/dgxc-goauth
           MOKKA_CONTROL_PLANE_DIGEST_FILE: ${{ runner.temp }}/mokka-control-plane.digest
