@@ -16,6 +16,8 @@
 # Asserts that Go module resolution is routed through the DGXC Artifactory
 # proxy. Run it immediately after .github/actions/setup-dgxc-goproxy.
 #
+# Usage: check-goproxy.sh [routed|enforced]   (default: routed)
+#
 # GOPROXY is an ordered list consulted left to right, so an entry sitting ahead
 # of Artifactory routes nothing while every downstream step still reports a
 # healthy posture. If the action ever no-ops, only a failing assertion catches
@@ -24,6 +26,12 @@
 set -euo pipefail
 
 readonly ARTIFACTORY_PREFIX="https://edge.urm.nvidia.com/"
+readonly MODE="${1:-routed}"
+
+case "${MODE}" in
+  routed|enforced) ;;
+  *) echo "ERROR: mode must be 'routed' or 'enforced', got '${MODE}'" >&2; exit 1 ;;
+esac
 
 proxy="$(go env GOPROXY)"
 echo "GOPROXY=${proxy}"
@@ -48,9 +56,20 @@ case "${proxy%%,*}" in
     ;;
 esac
 
+# Under `enforced` every byte must come from Artifactory, so any second entry --
+# even `direct` -- means a module it cannot serve is fetched from elsewhere.
+if [ "${MODE}" = enforced ]; then
+  case "${proxy}" in
+    *,*)
+      echo "ERROR: GOPROXY has a fallback entry ('${proxy}'); this is not enforced" >&2
+      exit 1
+      ;;
+  esac
+fi
+
 if [ "$(go env GOSUMDB)" = off ]; then
   echo "ERROR: GOSUMDB=off; modules would not be verified against the transparency log" >&2
   exit 1
 fi
 
-echo "OK: Artifactory is first in GOPROXY and GOSUMDB is intact"
+echo "OK: GOPROXY satisfies ${MODE} mode and GOSUMDB is intact"

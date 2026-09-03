@@ -94,6 +94,15 @@ lint-fix: tools gen ## Same checks as `lint`, but auto-fix what can be fixed; re
 	@echo "🛡️ govulncheck.."
 	@$(BIN_DIR)/govulncheck -tags=e2e,integration ./...
 
+.PHONY: deps-verify
+deps-verify: ## Re-download every module into a throwaway cache and re-verify it against go.sum
+	@echo "🛡️ Verifying modules against go.sum.."
+	@cache=$$(mktemp -d); \
+	GOMODCACHE="$$cache" GOFLAGS=-mod=readonly go mod download; \
+	status=$$?; \
+	GOMODCACHE="$$cache" go clean -modcache >/dev/null 2>&1 || true; \
+	exit $$status
+
 CRDS_OUT     := deployments/mokka-crds/helm/mokka-crds/templates
 API_PKG_PATH := ./internal/controlplane/api/...
 # The bridge generator reads go-nvml's nvml.go and nvml.h. Their module cache path

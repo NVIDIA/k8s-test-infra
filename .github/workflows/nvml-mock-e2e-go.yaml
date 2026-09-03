@@ -99,6 +99,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
+      # A BuildKit stage cannot read the runner's GOAUTH helper, so the minted
+      # credential is handed to it as a secret below. No setup-go here: the
+      # action shells out to curl and jq, and the builder brings its own Go.
+      - name: Configure the DGXC Go proxy
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
       - name: Build nvml-mock image to a tarball
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
@@ -109,8 +117,13 @@ jobs:
           # type=docker bakes the tag into the tarball, so a plain `docker load`
           # in each leg yields E2E_IMAGE with no re-tagging.
           outputs: type=docker,dest=${{ runner.temp }}/${{ env.NVMLMOCK_TARBALL }}
+          # `routed` rather than the release path's `enforced`: a coordinate
+          # Artifactory cannot serve falls through instead of failing every PR.
           build-args: |
             GOLANG_VERSION=${{ env.GO_VERSION }}
+            GOPROXY=https://edge.urm.nvidia.com/artifactory/api/go/dgxc-go-virtual,direct
+          secret-files: |
+            goauth=${{ runner.temp }}/dgxc-goauth
           cache-from: type=gha,scope=nvml-mock
           cache-to: type=gha,mode=max,scope=nvml-mock
 
@@ -128,6 +141,10 @@ jobs:
           if-no-files-found: error
           # Buildx's docker exporter already writes gzipped layers.
           compression-level: 0
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"
 
   # Build the custom kind-node image (kindest/node + nvidia-container-toolkit)
   # once per commit for the standalone `e2e` pilot, and share it the same way
