@@ -51,7 +51,7 @@ func TestStage_RendersTopology(t *testing.T) {
 	sim := New()
 
 	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
-	require.True(t, sim.Ready())
+	require.False(t, sim.Ready(), "Stage does not publish the NFD feature file")
 
 	// Renderer writes a /sys/bus/pci/devices/<bdf> symlink under h.Root.
 	symlink := filepath.Join(h.Root, "sys/bus/pci/devices/0000:07:00.0")
@@ -65,7 +65,7 @@ func TestStage_NopWhenNoTopology(t *testing.T) {
 	state := &agent.State{} // no topology, no devices
 
 	require.NoError(t, sim.Stage(context.Background(), h, state))
-	require.True(t, sim.Ready())
+	require.False(t, sim.Ready(), "Stage does not publish the NFD feature file")
 
 	sysDir := filepath.Join(h.Root, "sys")
 	_, err := os.Stat(sysDir)
@@ -146,6 +146,7 @@ func TestApply_WritesNFDFeatureFile(t *testing.T) {
 	sim := New()
 
 	require.NoError(t, sim.Apply(context.Background(), h, nil))
+	require.True(t, sim.Ready())
 
 	data, err := os.ReadFile(filepath.Join(h.Etc, nfdFeatureFile))
 	require.NoError(t, err)
@@ -185,11 +186,13 @@ func TestReady_FalseBeforeStage(t *testing.T) {
 	require.False(t, sim.Ready())
 }
 
-func TestReady_TrueAfterStage(t *testing.T) {
+func TestReady_TrueAfterApply(t *testing.T) {
 	h := testHost(t)
 	sim := New()
 
 	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
+	require.False(t, sim.Ready())
+	require.NoError(t, sim.Apply(context.Background(), h, nil))
 	require.True(t, sim.Ready())
 }
 
@@ -198,10 +201,11 @@ func TestReady_SurvivesDiscard(t *testing.T) {
 	sim := New()
 
 	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
+	require.NoError(t, sim.Apply(context.Background(), h, nil))
 	require.True(t, sim.Ready())
 
 	require.NoError(t, sim.Discard(context.Background(), h))
-	// Ready() records Stage success, not current sysfs presence — Discard reads
-	// the flag as its own precondition, so teardown leaves it set.
+	// Discard removes staged artifacts but does not withdraw published ones;
+	// Revoke runs first during teardown and clears readiness.
 	require.True(t, sim.Ready(), "Discard does not reset ready flag")
 }

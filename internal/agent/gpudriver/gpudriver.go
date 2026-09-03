@@ -40,7 +40,7 @@ func New() *Simulator { return &Simulator{} }
 // Name returns the simulator's stable identifier.
 func (s *Simulator) Name() string { return name }
 
-// Ready reports whether the last Stage call completed without error.
+// Ready reports whether the driver footprint and its published symlink exist.
 func (s *Simulator) Ready() bool { return s.ready.Load() }
 
 // Stage materializes the GPU driver footprint under h.Root/driver/.
@@ -60,7 +60,6 @@ func (s *Simulator) Stage(ctx context.Context, h *host.Host, state *agent.State)
 	if err := g.Wait(); err != nil {
 		return err
 	}
-	s.ready.Store(true)
 	return nil
 }
 
@@ -79,28 +78,35 @@ var stagedPaths = []string{
 	"config/config.yaml",
 }
 
-// Discard removes only the paths Stage wrote. It is a no-op when Stage never
-// completed successfully, so it does not disturb a partially initialised tree.
+// Discard removes only the paths Stage writes. Every path is exclusively owned
+// by gpudriver, so removing absent or partially staged paths is safe.
 func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
-	if !s.ready.Load() {
-		return nil
-	}
 	var errs []error
+
 	for _, rel := range stagedPaths {
 		p := filepath.Join(h.Root, rel)
 		if err := os.RemoveAll(p); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, fmt.Errorf("remove %s: %w", p, err))
 		}
 	}
+
 	return errors.Join(errs...)
 }
 
 // Apply creates the GPU-Operator compatibility symlink at /run/nvidia/driver.
 func (s *Simulator) Apply(_ context.Context, h *host.Host, _ *agent.State) error {
-	return fsutil.Symlink("/var/lib/nvml-mock/driver", filepath.Join(h.Run, "nvidia/driver"))
+	s.ready.Store(false)
+
+	if err := fsutil.Symlink("/var/lib/nvml-mock/driver", filepath.Join(h.Run, "nvidia/driver")); err != nil {
+		return err
+	}
+
+	s.ready.Store(true)
+	return nil
 }
 
 // Revoke removes the /run/nvidia/driver symlink.
 func (s *Simulator) Revoke(_ context.Context, h *host.Host) error {
+	s.ready.Store(false)
 	return fsutil.Remove(filepath.Join(h.Run, "nvidia/driver"))
 }

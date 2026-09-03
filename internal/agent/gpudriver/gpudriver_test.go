@@ -212,6 +212,7 @@ func TestApply_CreatesSymlink(t *testing.T) {
 	sim := New()
 
 	require.NoError(t, sim.Apply(context.Background(), h, testState(t)))
+	require.True(t, sim.Ready())
 
 	link := filepath.Join(h.Run, "nvidia/driver")
 	target, err := os.Readlink(link)
@@ -259,6 +260,8 @@ func TestStage_WritesAllSurfaces(t *testing.T) {
 	state := testState(t)
 
 	require.NoError(t, sim.Stage(context.Background(), h, state))
+	require.False(t, sim.Ready(), "Stage does not publish the driver symlink")
+	require.NoError(t, sim.Apply(context.Background(), h, state))
 	require.True(t, sim.Ready())
 
 	// chardevs

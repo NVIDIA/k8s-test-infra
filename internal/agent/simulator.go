@@ -18,7 +18,7 @@ type Simulator interface {
 	Stage(ctx context.Context, h *host.Host, state *State) error
 	// Discard is the inverse of Stage and runs only on shutdown.
 	Discard(ctx context.Context, h *host.Host) error
-	// Ready reports whether the last Stage call succeeded.
+	// Ready reports whether the simulator is successfully done staging and publishing its artifacts.
 	Ready() bool
 }
 
