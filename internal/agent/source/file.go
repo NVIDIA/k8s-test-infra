@@ -8,12 +8,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"sigs.k8s.io/yaml"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
@@ -40,11 +40,11 @@ type FileSource struct {
 	configPath   string
 	topologyPath string
 	pollInterval time.Duration
-	log          *slog.Logger
+	log          *zap.Logger
 }
 
 // NewFileSource returns a FileSource that watches configPath and topologyPath.
-func NewFileSource(configPath, topologyPath string, log *slog.Logger) *FileSource {
+func NewFileSource(configPath, topologyPath string, log *zap.Logger) *FileSource {
 	return &FileSource{
 		configPath:   configPath,
 		topologyPath: topologyPath,
@@ -108,7 +108,7 @@ func (f *FileSource) poll(ctx context.Context, ch chan<- agent.Update, lastHash 
 	}
 	state.ConfigRaw = data
 	state.TopologyRaw = topology
-	f.log.Info("state updated from config", "config", f.configPath)
+	f.log.Info("state updated from config", zap.String("config", f.configPath))
 	f.send(ctx, ch, agent.Update{State: state, At: time.Now()})
 }
 
@@ -251,8 +251,8 @@ func resolveDeviceCount(cfg engine.YAMLConfig) int {
 		if v > n {
 			// Silently capping would leave an operator who asked for more GPUs
 			// than the profile declares wondering why nvidia-smi disagrees.
-			slog.Warn("GPU_COUNT exceeds the profile device count; capping",
-				"requested", v, "profile_devices", n)
+			zap.L().Warn("GPU_COUNT exceeds the profile device count; capping",
+				zap.Int("requested", v), zap.Int("profile_devices", n))
 		} else {
 			n = v
 		}

@@ -5,11 +5,12 @@ package daemon
 
 import (
 	"fmt"
-	"log/slog"
+
+	"go.uber.org/zap"
 )
 
-func newLogger() *slog.Logger {
-	return slog.Default().With("component", "ib")
+func newLogger() *zap.Logger {
+	return zap.L().With(zap.String("component", "ib"))
 }
 
 // lidHex renders a LID the way IB tooling prints it, so a value logged here can

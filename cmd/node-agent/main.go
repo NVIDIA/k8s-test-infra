@@ -127,6 +127,7 @@ func runStart(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	log := logging.NewLogger(logging.Config{Level: level, Format: format})
+	defer func() { _ = log.Sync() }()
 
 	configPath := cmd.String("config")
 	if configPath == "" {

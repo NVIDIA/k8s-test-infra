@@ -4,17 +4,18 @@
 package inject
 
 import (
-	"context"
-	"io"
-	"log/slog"
+	"fmt"
 	"os"
-	"sync"
 	"testing"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // TestMain silences the steps' fail-open warnings so a passing run is quiet.
 func TestMain(m *testing.M) {
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	zap.ReplaceGlobals(zap.NewNop())
 	os.Exit(m.Run())
 }
 
@@ -24,42 +25,29 @@ type warning struct {
 	Attrs   map[string]string
 }
 
-// captureWarnings routes the default logger into a recorder for one test.
-// It does not combine with t.Parallel: slog.SetDefault is process-wide.
+// recorder observes everything the global logger emits for one test.
+type recorder struct {
+	logs *observer.ObservedLogs
+}
+
+// captureWarnings routes the global logger into a recorder for one test.
+// It does not combine with t.Parallel: zap.ReplaceGlobals is process-wide.
 func captureWarnings(t *testing.T) *recorder {
 	t.Helper()
-	original := slog.Default()
-	rec := &recorder{}
-	slog.SetDefault(slog.New(rec))
-	t.Cleanup(func() { slog.SetDefault(original) })
-	return rec
+	core, logs := observer.New(zapcore.WarnLevel)
+	t.Cleanup(zap.ReplaceGlobals(zap.New(core)))
+	return &recorder{logs: logs}
 }
-
-type recorder struct {
-	mu       sync.Mutex
-	warnings []warning
-}
-
-func (r *recorder) Enabled(context.Context, slog.Level) bool { return true }
-
-func (r *recorder) Handle(_ context.Context, record slog.Record) error {
-	captured := warning{Message: record.Message, Attrs: make(map[string]string)}
-	record.Attrs(func(attr slog.Attr) bool {
-		captured.Attrs[attr.Key] = attr.Value.String()
-		return true
-	})
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.warnings = append(r.warnings, captured)
-	return nil
-}
-
-func (r *recorder) WithAttrs([]slog.Attr) slog.Handler { return r }
-func (r *recorder) WithGroup(string) slog.Handler      { return r }
 
 func (r *recorder) captured() []warning {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]warning(nil), r.warnings...)
+	entries := r.logs.All()
+	out := make([]warning, len(entries))
+	for i, e := range entries {
+		attrs := make(map[string]string, len(e.Context))
+		for k, v := range e.ContextMap() {
+			attrs[k] = fmt.Sprint(v)
+		}
+		out[i] = warning{Message: e.Message, Attrs: attrs}
+	}
+	return out
 }

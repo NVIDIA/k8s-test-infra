@@ -3,7 +3,7 @@
 
 package inject
 
-import "log/slog"
+import "go.uber.org/zap"
 
 // attachIMEXChannels delivers the mock IMEX channel nodes to a container that
 // opted in.
@@ -24,9 +24,9 @@ func attachIMEXChannels(cfg Config, container Container, adjustment *Adjustment)
 	// node without them must not block the pod.
 	channels, err := discoverImexChannels(cfg.ImexChannelHostPath)
 	if err != nil {
-		slog.Warn("imex channel injection requested but the channel tree is unavailable; "+
+		zap.L().Warn("imex channel injection requested but the channel tree is unavailable; "+
 			"injecting without channels (is imex.mockChannels.enabled set?)",
-			"path", cfg.ImexChannelHostPath, "err", err)
+			zap.String("path", cfg.ImexChannelHostPath), zap.Error(err))
 		return
 	}
 	adjustment.Devices = append(adjustment.Devices, channels...)
