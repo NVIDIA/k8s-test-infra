@@ -371,16 +371,21 @@ NVML functions that don't have hand-written implementations:
 
 ```bash
 # Preferred: use Makefile target from repo root
-make generate
+make gen
 
-# Or from bridge directory (uses go:generate directive)
+# Outside make, resolve go-nvml's module cache path yourself — the generator
+# reads its nvml.go and nvml.h, and the cache path carries the pinned version
+go mod download github.com/NVIDIA/go-nvml
+export GO_NVML_DIR=$(go list -m -f '{{.Dir}}' github.com/NVIDIA/go-nvml)
+
+# From bridge directory (uses go:generate directive)
 cd pkg/gpu/mocknvml/bridge
 go generate
 
-# Or run generator directly with all flags
+# Or run generator directly
 go run ./cmd/generate-bridge \
-  -input vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.go \
-  -header vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h \
+  -input $GO_NVML_DIR/pkg/nvml/nvml.go \
+  -header $GO_NVML_DIR/pkg/nvml/nvml.h \
   -bridge pkg/gpu/mocknvml/bridge \
   -output pkg/gpu/mocknvml/bridge/stubs_generated.go
 ```
@@ -400,7 +405,7 @@ automatically remove the corresponding stub.
 View current implementation coverage:
 
 ```bash
-go run ./cmd/generate-bridge --stats
+go run ./cmd/generate-bridge -input $GO_NVML_DIR/pkg/nvml/nvml.go --stats
 ```
 
 Output:
@@ -424,7 +429,7 @@ NVML Function Coverage:
 Check that hand-written exports match nvml.h parameter counts:
 
 ```bash
-go run ./cmd/generate-bridge --validate
+go run ./cmd/generate-bridge -header $GO_NVML_DIR/pkg/nvml/nvml.h --validate
 ```
 
 This compares the number of Go parameters in each `//export` function against

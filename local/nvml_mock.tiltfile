@@ -57,7 +57,7 @@ def build_nvml_mock_image(nvmlmock_image=''):
     if nvmlmock_image:
         return
     # Build the nvml-mock image from the repo root. The Dockerfile COPYs
-    # go.mod/vendor/pkg/cmd from the root, so the context must be '.'.
+    # go.mod/pkg/cmd from the root, so the context must be '.'.
     # only= is intentionally coarse (top-level dirs): the Dockerfile's
     # per-subpath COPYs drive layer-cache invalidation, so listing whole
     # trees here avoids drift when new cmd/pkg subdirs are added without
@@ -70,7 +70,6 @@ def build_nvml_mock_image(nvmlmock_image=''):
         only=[
             'go.mod',
             'go.sum',
-            'vendor/',
             'cmd/',
             'pkg/',
             'internal/',
@@ -86,7 +85,7 @@ def build_control_plane_image():
     Kept separate from build_nvml_mock_image so a run without --control-plane
     doesn't pay the (tiny) cost of an unnecessary docker_build. The context is
     the repo root for the same reason as nvml-mock: the Dockerfile pulls
-    go.mod/vendor/pkg/cmd from the root.
+    go.mod/pkg/cmd from the root.
     """
     docker_build(
       _CONTROL_PLANE_IMAGE,
@@ -95,7 +94,6 @@ def build_control_plane_image():
         only=[
             'go.mod',
             'go.sum',
-            'vendor/',
             'cmd/',
             'pkg/',
             'internal/',

@@ -25,7 +25,7 @@ import (
 )
 
 // NVML field IDs (nvmlFieldValue_t.fieldId) for the device scope, mirrored
-// from vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h (NVML_FI_DEV_*).
+// from go-nvml's pkg/nvml/nvml.h (NVML_FI_DEV_*).
 const (
 	fiEccCurrent = 1
 	fiEccPending = 2

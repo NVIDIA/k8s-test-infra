@@ -16,6 +16,8 @@ name: Golang
 
 permissions:
   contents: read
+  # Mints the short-lived Artifactory token for the Go proxy.
+  id-token: write
 
 on:
   workflow_call:
@@ -47,12 +49,21 @@ jobs:
         mkdir -p tmp/bin
         ln -sf "$(command -v golangci-lint)" tmp/bin/golangci-lint
 
+    # A fork PR gets a read-only token and cannot mint an OIDC credential, so
+    # it resolves publicly. A gate an outside contributor cannot pass would
+    # deadlock their PR permanently.
+    - name: Configure the DGXC Go proxy
+      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+      uses: ./.github/actions/setup-dgxc-goproxy
+      with:
+        mode: routed
+
+    - name: Assert the proxy is actually in front
+      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+      run: ./hack/check-goproxy.sh
+
     - name: Lint
       run: make lint
-
-    - name: Check golang modules
-      run: |
-        make modules-check
 
     - name: Run unit tests
       run: make test
@@ -73,3 +84,7 @@ jobs:
     # (#562). These are plain `go test` units -- no cluster, no kubectl.
     - name: Run e2e framework unit tests
       run: make test-e2e-framework
+
+    - name: Remove the proxy credential
+      if: always()
+      run: rm -f "${RUNNER_TEMP}/dgxc-goauth"

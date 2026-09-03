@@ -31,7 +31,7 @@ const platformStructSize = 44
 // go-nvml bump that grew or shrank the struct would silently move every tag
 // and make nvidia-smi's request classify as Invalid — the whole Platform Info
 // block would go back to N/A with nothing failing. Pin the size against the
-// vendored structs the callers actually allocate.
+// go-nvml structs the callers actually allocate.
 func TestPlatformInfoStructSizeIsPinned(t *testing.T) {
 	require.Equal(t, uintptr(platformStructSize), unsafe.Sizeof(nvml.PlatformInfo_v1{}),
 		"nvml.PlatformInfo_v1 size; update nvml_types.h and this constant together")

@@ -30,6 +30,8 @@ jobs:
     permissions:
       security-events: write
       packages: read
+      # Mints the short-lived Artifactory token for the Go proxy.
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,6 +40,22 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ inputs.golang_version }}
+
+      # Ahead of CodeQL's init so everything it resolves, not just the explicit
+      # download below, comes through Artifactory.
+
+      # A fork PR gets a read-only token and cannot mint an OIDC credential, so
+      # it resolves publicly. A gate an outside contributor cannot pass would
+      # deadlock their PR permanently.
+      - name: Configure the DGXC Go proxy
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: ./.github/actions/setup-dgxc-goproxy
+        with:
+          mode: routed
+
+      - name: Assert the proxy is actually in front
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        run: ./hack/check-goproxy.sh
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
@@ -51,3 +69,7 @@ jobs:
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           category: "/language:go"
+
+      - name: Remove the proxy credential
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/dgxc-goauth"

@@ -29,7 +29,7 @@ package main
 // Include NVML type definitions for strict ABI compatibility.
 // We use a custom types-only header (not full nvml.h) to avoid conflicts
 // between nvml.h function declarations and CGo-generated exports.
-// These types match vendor/github.com/NVIDIA/go-nvml/pkg/nvml/nvml.h exactly.
+// These types match go-nvml's pkg/nvml/nvml.h exactly.
 #include "nvml_types.h"
 
 // Forward declaration of our device handle getter (defined in device.go)

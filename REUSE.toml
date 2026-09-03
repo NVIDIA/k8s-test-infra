@@ -18,6 +18,6 @@ SPDX-FileCopyrightText = "Copyright 2024-2026 NVIDIA CORPORATION"
 SPDX-License-Identifier = "Apache-2.0"
 
 [[annotations]]
-path = ["go.sum", "vendor/**", ".gitignore", ".editorconfig"]
+path = ["go.sum", ".gitignore", ".editorconfig"]
 SPDX-FileCopyrightText = "Copyright 2024-2026 NVIDIA CORPORATION"
 SPDX-License-Identifier = "Apache-2.0"
