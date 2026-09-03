@@ -152,7 +152,7 @@ func TestStageSysfs_NilTopologyIsNop(t *testing.T) {
 	h := testHost(t)
 	require.NoError(t, stageSysfs(h, &agent.State{}))
 
-	_, err := os.Stat(filepath.Join(h.Root, "sys"))
+	_, err := os.Stat(h.RootPath("sys"))
 	require.True(t, os.IsNotExist(err), "sys/ must not be created when state has no root complexes")
 }
 
@@ -162,7 +162,7 @@ func TestStageSysfs_WritesSysfsUnderRoot(t *testing.T) {
 
 	require.NoError(t, stageSysfs(h, state))
 
-	symlink := filepath.Join(h.Root, "sys/bus/pci/devices/0000:07:00.0")
+	symlink := h.RootPath("sys/bus/pci/devices/0000:07:00.0")
 	_, err := os.Lstat(symlink)
 	require.NoError(t, err, "BDF symlink must appear under h.Root")
 }
@@ -171,7 +171,7 @@ func TestStageSysfs_RendersSubsystemAttrs(t *testing.T) {
 	h := testHost(t)
 	require.NoError(t, stageSysfs(h, stateWithTopology()))
 
-	devDir := filepath.Join(h.Root, "sys/bus/pci/devices/0000:07:00.0")
+	devDir := h.RootPath("sys/bus/pci/devices/0000:07:00.0")
 	for _, tc := range []struct{ file, want string }{
 		{"vendor", "0x10de\n"},
 		{"device", "0x2330\n"},
@@ -194,7 +194,7 @@ func TestStageSysfs_RendersFlatDefault(t *testing.T) {
 
 	require.NoError(t, stageSysfs(h, state))
 
-	target, err := os.Readlink(filepath.Join(h.Root, "sys/bus/pci/devices/0000:1a:00.0"))
+	target, err := os.Readlink(h.RootPath("sys/bus/pci/devices/0000:1a:00.0"))
 	require.NoError(t, err, "device must be rendered under the synthesized root")
 	require.Contains(t, target, defaultRootComplexID)
 }
@@ -216,7 +216,7 @@ func TestStagePCIShim_NopWhenNoLib(t *testing.T) {
 	h := testHost(t)
 	require.NoError(t, stagePCIShim(h))
 
-	libDir := filepath.Join(h.Root, "driver/usr/local/lib")
+	libDir := h.RootPath("driver/usr/local/lib")
 	_, err := os.Stat(libDir)
 	require.True(t, os.IsNotExist(err), "lib dir must not be created when shim is absent")
 }
@@ -234,7 +234,7 @@ func TestStagePCIShim_StagesEverySoname(t *testing.T) {
 	// The NRI plugin LD_PRELOADs the versioned soname, so every match must land
 	// in the driver lib dir, not only the first.
 	for _, name := range []string{"libpcisysfs.so", "libpcisysfs.so.1"} {
-		data, err := os.ReadFile(filepath.Join(h.Root, "driver/usr/local/lib", name))
+		data, err := os.ReadFile(h.RootPath("driver/usr/local/lib", name))
 		require.NoError(t, err, "%s must be staged", name)
 		require.Equal(t, name, string(data))
 	}

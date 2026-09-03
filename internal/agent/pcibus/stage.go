@@ -28,7 +28,7 @@ func stageSysfs(h *host.Host, state *agent.State) error {
 	return pcisysfs.Render(pcisysfs.Options{
 		Topology:   buildTopology(state),
 		Identities: buildIdentities(state),
-		Output:     h.Root,
+		Output:     h.RootPath(),
 	})
 }
 
@@ -47,7 +47,7 @@ func stagePCIShim(h *host.Host) error {
 		return nil
 	}
 
-	libDir := filepath.Join(h.Root, "driver/usr/local/lib")
+	libDir := h.RootPath("driver/usr/local/lib")
 
 	if err := os.MkdirAll(libDir, 0o755); err != nil {
 		return err

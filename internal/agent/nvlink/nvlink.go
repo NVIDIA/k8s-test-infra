@@ -32,11 +32,12 @@ var _ agent.Simulator = (*Simulator)(nil)
 // mock NVML engine selects this node's entry by NODE_NAME when it loads. That
 // is why this stages the file whole rather than compiling a per-node view.
 type Simulator struct {
+	host  *host.Host
 	ready atomic.Bool
 }
 
 // New returns an nvlink Simulator.
-func New() *Simulator { return &Simulator{} }
+func New(h *host.Host) *Simulator { return &Simulator{host: h} }
 
 // Name returns the simulator's stable identifier.
 func (s *Simulator) Name() string { return name }
@@ -47,7 +48,7 @@ func (s *Simulator) Ready() bool { return s.ready.Load() }
 // Stage writes the topology document into the overlay. An empty document
 // retracts it: the chart mounts the ConfigMap only when topology is enabled,
 // and a fabric without a declared topology keeps the profile's clique defaults.
-func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
+func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	s.ready.Store(false)
 	zap.L().Debug("staging simulator", zap.String("simulator", name))
 
@@ -55,7 +56,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 		// The overlay is on a host mount that outlives the pod, and the NRI
 		// plugin injects MOCK_TOPOLOGY_CONFIG for any container while the file
 		// is there, so a retracted topology has to take the document with it.
-		if err := fsutil.Remove(h.RootPath(overlayRel)); err != nil {
+		if err := fsutil.Remove(s.host.RootPath(overlayRel)); err != nil {
 			return err
 		}
 
@@ -64,7 +65,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 		return nil
 	}
 
-	if err := fsutil.Write(h.RootPath(overlayRel), state.TopologyRaw, 0o644); err != nil {
+	if err := fsutil.Write(s.host.RootPath(overlayRel), state.TopologyRaw, 0o644); err != nil {
 		return err
 	}
 
@@ -74,7 +75,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 }
 
 // Discard removes the staged document.
-func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
+func (s *Simulator) Discard(_ context.Context) error {
 	zap.L().Debug("discarding simulator", zap.String("simulator", name))
-	return fsutil.Remove(h.RootPath(overlayRel))
+	return fsutil.Remove(s.host.RootPath(overlayRel))
 }

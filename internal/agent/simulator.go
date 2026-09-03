@@ -5,8 +5,6 @@ package agent
 
 import (
 	"context"
-
-	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
 )
 
 // Simulator owns one simulated component's reconciliation lifecycle.
@@ -15,9 +13,9 @@ type Simulator interface {
 	Name() string
 	// Stage materializes artifacts that are not yet externally visible.
 	// Re-runs on every State change and must be idempotent.
-	Stage(ctx context.Context, h *host.Host, state *State) error
+	Stage(ctx context.Context, state *State) error
 	// Discard is the inverse of Stage and runs only on shutdown.
-	Discard(ctx context.Context, h *host.Host) error
+	Discard(ctx context.Context) error
 	// Ready reports whether the last Stage call succeeded.
 	Ready() bool
 }
@@ -27,9 +25,9 @@ type Simulator interface {
 // Only gpudriver, pcibus, and cdi implement this interface.
 type Applier interface {
 	// Apply publishes artifacts after all Stage calls have completed (barrier).
-	Apply(ctx context.Context, h *host.Host, state *State) error
+	Apply(ctx context.Context, state *State) error
 	// Revoke is the inverse of Apply and runs on shutdown before Discard.
-	Revoke(ctx context.Context, h *host.Host) error
+	Revoke(ctx context.Context) error
 }
 
 // Daemon is implemented by simulators that supervise a long-running background

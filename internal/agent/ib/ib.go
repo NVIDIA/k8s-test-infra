@@ -77,6 +77,7 @@ var (
 // CPU-only nodes. Consumers reach it through the LD_PRELOAD shims: sysfs reads
 // via libibmocksys, verbs and UMAD via libibmockverbs and the daemon.
 type Simulator struct {
+	host *host.Host
 	opts Options
 
 	ready   atomic.Bool
@@ -99,8 +100,8 @@ type Simulator struct {
 }
 
 // New returns an infiniband Simulator.
-func New(opts Options) *Simulator {
-	return &Simulator{opts: opts, restart: make(chan struct{}, 1)}
+func New(h *host.Host, opts Options) *Simulator {
+	return &Simulator{host: h, opts: opts, restart: make(chan struct{}, 1)}
 }
 
 // Name returns the simulator's stable identifier.
@@ -129,7 +130,7 @@ func (s *Simulator) daemonExpected() bool {
 // Stage converges the IB sysfs tree, tools and shims on what the profile
 // declares. The empty root and the shims land on every node; the rendered HCAs
 // and the tools that read them only where the tier simulates InfiniBand.
-func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) error {
+func (s *Simulator) Stage(_ context.Context, state *agent.State) error {
 	s.ready.Store(false)
 	zap.L().Debug("staging simulator", zap.String("simulator", name))
 
@@ -137,19 +138,19 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	// a shim the loader cannot find is an ld.so error on every process the node
 	// runs. Staging them and an empty root regardless of tier also masks any
 	// real host InfiniBand.
-	root := ibRoot(h)
+	root := ibRoot(s.host)
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
 	s.ibRootPath.Store(&root)
 
-	if err := stageIBShims(h); err != nil {
+	if err := stageIBShims(s.host); err != nil {
 		return err
 	}
 
 	socket := s.opts.SocketPath
 	if socket == "" {
-		socket = h.RootPath("run", socketName)
+		socket = s.host.RootPath("run", socketName)
 	}
 	s.socketPath.Store(&socket)
 
@@ -163,14 +164,14 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	// A profile that retracts InfiniBand has to take its HCAs with it: the tree
 	// lives on a host mount that outlives the edit, and the daemon keys its
 	// lifecycle off the staged shape.
-	if err := stageSysfs(h, state, simulating); err != nil {
+	if err := stageSysfs(s.host, state, simulating); err != nil {
 		return fmt.Errorf("render ib sysfs: %w", err)
 	}
 
 	s.recordShape(net)
 
 	if !simulating {
-		if err := retractTools(h); err != nil {
+		if err := retractTools(s.host); err != nil {
 			return err
 		}
 
@@ -183,7 +184,7 @@ func (s *Simulator) Stage(_ context.Context, h *host.Host, state *agent.State) e
 	for _, stage := range []func(*host.Host) error{
 		stageIBTools, stageVerbsConfig, stageCheckFabric,
 	} {
-		if err := stage(h); err != nil {
+		if err := stage(s.host); err != nil {
 			return err
 		}
 	}
@@ -203,16 +204,16 @@ func (s *Simulator) recordShape(net agent.NetworkShape) {
 
 // Discard removes the rendered tree and every file Stage copied into the
 // overlay. It is a no-op when Stage never completed successfully.
-func (s *Simulator) Discard(_ context.Context, h *host.Host) error {
+func (s *Simulator) Discard(_ context.Context) error {
 	if !s.ready.Load() {
 		return nil
 	}
 	zap.L().Debug("discarding simulator", zap.String("simulator", name))
 	return errors.Join(
 		// The whole ib/ subtree: infiniband is its only writer.
-		removeTree(ibRoot(h)),
-		retractTools(h),
-		discardShims(h),
+		removeTree(ibRoot(s.host)),
+		retractTools(s.host),
+		discardShims(s.host),
 	)
 }
 

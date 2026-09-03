@@ -26,7 +26,7 @@ import (
 // (CUDA, nvidia-smi) open to reach the driver. Without them open() fails.
 // Major 195 = nvidia (per-GPU + nvidiactl); major 510 = nvidia-uvm.
 func stageCharDevs(ctx context.Context, h *host.Host, state *agent.State) error {
-	devRoot := filepath.Join(h.Root, "driver/dev")
+	devRoot := h.RootPath("driver/dev")
 	if err := os.MkdirAll(devRoot, 0o755); err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func stageNVMLShim(ctx context.Context, h *host.Host, state *agent.State) error 
 	if len(matches) == 0 {
 		return errors.New("libnvidia-ml.so.*.*.* not found in /usr/local/lib")
 	}
-	lib64 := filepath.Join(h.Root, "driver/usr/lib64")
+	lib64 := h.RootPath("driver/usr/lib64")
 	if err := os.MkdirAll(lib64, 0o755); err != nil {
 		return err
 	}
@@ -122,7 +122,7 @@ func stageCUDAShim(ctx context.Context, h *host.Host, state *agent.State) error 
 		return nil
 	}
 
-	lib64 := filepath.Join(h.Root, "driver/usr/lib64")
+	lib64 := h.RootPath("driver/usr/lib64")
 	if err := os.MkdirAll(lib64, 0o755); err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func stageCUDAShim(ctx context.Context, h *host.Host, state *agent.State) error 
 // exec nvidia-smi to confirm driver presence. The ELF uses the NVML shim via
 // RPATH; the shell fallback covers environments where the ELF is unavailable.
 func stageNvidiaSMI(ctx context.Context, h *host.Host, state *agent.State) error {
-	binDir := filepath.Join(h.Root, "driver/usr/bin")
+	binDir := h.RootPath("driver/usr/bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return err
 	}
@@ -182,7 +182,7 @@ func stageNvidiaSMI(ctx context.Context, h *host.Host, state *agent.State) error
 // writeProcFS provides the procfs entries that libnvidia-ml and
 // nvidia-container-toolkit read to discover driver version without dlopen.
 func writeProcFS(ctx context.Context, h *host.Host, state *agent.State) error {
-	procDir := filepath.Join(h.Root, "driver/proc/driver/nvidia")
+	procDir := h.RootPath("driver/proc/driver/nvidia")
 	if err := os.MkdirAll(procDir, 0o755); err != nil {
 		return err
 	}
@@ -230,8 +230,8 @@ func writeEngineConfig(ctx context.Context, h *host.Host, state *agent.State) er
 		return fmt.Errorf("marshal engine config: %w", err)
 	}
 	for _, p := range []string{
-		filepath.Join(h.Root, "config/config.yaml"),
-		filepath.Join(h.Root, "driver/config/config.yaml"),
+		h.RootPath("config/config.yaml"),
+		h.RootPath("driver/config/config.yaml"),
 	} {
 		if err := ctx.Err(); err != nil {
 			return err
