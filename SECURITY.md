@@ -43,89 +43,34 @@ Areas of particular interest:
 - Supply chain integrity (dependencies, build process)
 - Helm chart security (RBAC, privileges)
 
-## Security Expectations
+## Secure Development
 
-Mokka is a test double. It implements the NVIDIA driver interfaces that GPU
-software talks to, so that the device plugin, the DRA driver, the GPU Operator
-and `nvidia-smi` behave as though hardware were present. That purpose shapes
-what you should and should not expect from it:
+Mokka is a test double for CI and test clusters, not production. The `nvml-mock`
+DaemonSet container runs `privileged: true` because staging driver-shaped files
+and device nodes onto the host requires it; we disclose that rather than work
+around it. Every other component is least-privileged: the ClusterRole grants
+`get` and `patch` on `nodes` and nothing else, the control plane and allocation
+watcher drop all capabilities and run with `readOnlyRootFilesystem`, and the
+container that creates device nodes adds back only `MKNOD`.
 
-- **Mokka is for test and CI clusters, not production.** The `nvml-mock`
-  DaemonSet container runs privileged and stages driver-shaped files onto host
-  paths. Do not install it on a cluster carrying production workloads.
-- **Mokka makes no security claims about the software it simulates hardware
-  for.** It provides no isolation, admission control, or policy enforcement for
-  the GPU software that consumes its mock driver files.
-- **Mokka processes no sensitive data.** It has no user accounts, stores no
-  credentials, and keeps no persistent state beyond the driver files it stages
-  and the node labels it patches.
+Inputs come from the operator installing the chart rather than from untrusted
+third parties, so validation is scoped accordingly: chart values are checked
+against `deployments/nvml-mock/helm/nvml-mock/values.schema.json`, and the YAML
+device profile is checked by `validateYAMLConfig` in
+`pkg/gpu/mocknvml/engine/config.go`. Review attention goes to the error classes
+this codebase can actually hit — memory handling across the CGo boundary in
+`shims/` and `pkg/gpu/mocknvml`, and path handling in the privileged code that
+writes to hostPath mounts and performs NRI injection.
 
-What you can expect is the least-privilege posture and the supply-chain
-practices described below.
-
-## Secure Development Practices
-
-### Design principles
-
-Least privilege is applied per component rather than claimed globally:
-
-- The ClusterRole grants `get` and `patch` on `nodes`, and nothing else.
-- The control plane Deployment runs `runAsNonRoot` as UID 65532 with
-  `readOnlyRootFilesystem`, `capabilities.drop: [ALL]`, and
-  `seccompProfile: RuntimeDefault`.
-- The allocation watcher drops all capabilities and runs with
-  `readOnlyRootFilesystem`; it only reads the kubelet pod-resources socket.
-- The container that creates device nodes drops all capabilities and adds back
-  only `MKNOD`.
-- The `nvml-mock` container runs `privileged: true`. Staging driver files and
-  device nodes onto the host requires it. We disclose this rather than work
-  around it, and we reduce what it exposes: the InfiniBand ping relay in that
-  pod listens without authentication, so an opt-out NetworkPolicy restricts its
-  ingress to peer nvml-mock daemon pods.
-
-### Common implementation errors
-
-Review attention goes to the error classes this codebase can actually hit:
-
-- **Memory handling across the CGo boundary** in `shims/` and
-  `pkg/gpu/mocknvml`, where Go code fills C structs consumed by real NVIDIA
-  client software.
-- **Path handling** in the code that writes to hostPath mounts and performs NRI
-  injection, since that code runs privileged against host directories.
-
-### Input validation
-
-Mokka's inputs come from the cluster operator installing the chart, not from
-untrusted third parties, so validation is scoped accordingly:
-
-- **Chart values** are validated against a JSON Schema
-  (`deployments/nvml-mock/helm/nvml-mock/values.schema.json`), which Helm
-  enforces at install and upgrade time.
-- **The YAML device profile** is validated by `validateYAMLConfig` in
-  `pkg/gpu/mocknvml/engine/config.go`: it requires a config version and a
-  driver version, and rejects duplicate device indices.
-
-## Cryptography
-
-Mokka implements no cryptographic functionality. It stores no passwords,
-generates no keys, and defines no cryptographic protocols. Where TLS is needed
-to reach the Kubernetes API server, it calls `client-go` and the Go standard
-library, which perform certificate verification by default.
+Mokka implements no cryptography. It stores no passwords and generates no keys,
+and where TLS is needed to reach the Kubernetes API server it calls `client-go`
+and the Go standard library, which verify certificates by default.
 
 ## Security Analysis
 
-Static and dynamic analysis run in CI on every pull request and on every push to
-`main`:
-
-| Tool | Scope | Where |
-|------|-------|-------|
-| CodeQL | Semantic static analysis of the Go tree | `.github/workflows/code_scanning.yaml` |
-| golangci-lint | Go linting, including tag-guarded e2e and integration sources | `.golangci.yml` |
-| Race detector | `go test -race` across all packages | `make test` |
-| Go fuzzing | `pkg/gpu/mocknvml/engine/fuzz_test.go` | `go test -fuzz` |
-| `-Wall -Wextra` | The C shims | `shims/libibmock/Makefile`, `shims/libpcisysfs/Makefile` |
-| Dependabot | Weekly Go module and GitHub Actions updates | `.github/dependabot.yml` |
-| OpenSSF Scorecard | Supply-chain posture, reported publicly | `.github/workflows/scorecard.yaml` |
-
-Findings from these tools are fixed rather than suppressed wholesale; the
-per-path exclusions in `.golangci.yml` each carry a written justification.
+CodeQL, `golangci-lint`, and `go test -race` run on every pull request and every
+push to `main`. `-Wall -Wextra` gates the C shims, and
+`pkg/gpu/mocknvml/engine/fuzz_test.go` provides a Go fuzz target. Dependabot
+proposes weekly Go module and GitHub Actions updates, and
+[OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/NVIDIA/k8s-test-infra)
+reports supply-chain posture publicly.
