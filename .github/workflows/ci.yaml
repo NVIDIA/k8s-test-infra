@@ -13,9 +13,10 @@
 # limitations under the License.
 name: CI Pipeline
 
+# Read-only default for all jobs. Only the basic job elevates, so a newly
+# added job cannot silently inherit a write token.
 permissions:
   contents: read
-  security-events: write
   actions: read
   packages: read
   # Passed down to golang.yaml, which mints a short-lived Artifactory token.
@@ -31,6 +32,14 @@ on:
   
 jobs:
   basic:
+    # Fans out to CodeQL, which uploads SARIF. A called workflow can never
+    # hold more than its caller grants, so the write is threaded through
+    # every level of the call chain.
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+      security-events: write
     uses: ./.github/workflows/basic-checks.yaml
 
   nvml-mock-e2e:
