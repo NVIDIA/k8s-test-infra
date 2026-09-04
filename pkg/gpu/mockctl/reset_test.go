@@ -92,9 +92,14 @@ func TestResetDevice_MissingFileSucceeds(t *testing.T) {
 	require.NoFileExists(t, path)
 }
 
-// With no config there is no override file to resolve, and nothing to clear.
-func TestResetDevice_EmptyPathSucceeds(t *testing.T) {
-	require.NoError(t, ResetDevice("", 0))
+// A reset with no resolvable config must fail rather than report success: the
+// device's injected state is unknown, not absent. Reporting success is what
+// lets a remediation controller believe it fixed a GPU it never touched —
+// nvidia-smi prints "was successfully reset" and exits 0. See issue #759.
+func TestResetDevice_EmptyPathIsAnError(t *testing.T) {
+	t.Parallel()
+
+	require.Error(t, ResetDevice("", 0))
 }
 
 // A per-device reset leaves the shared `all:` bucket in place, matching

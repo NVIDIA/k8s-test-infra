@@ -20,6 +20,7 @@ package mockctl
 // needs the whole read-modify-write in one call.
 
 import (
+	"errors"
 	"strconv"
 )
 
@@ -39,9 +40,13 @@ import (
 // are not writable. Only a reset that genuinely has state to clear can fail.
 func ResetDevice(path string, index int) error {
 	if path == "" {
-		// No config, so no injected state to clear: the device is already at its
-		// baseline and the reset has nothing to do.
-		return nil
+		// An unresolvable config is not "nothing was injected", it is "the
+		// injected state is unknown", and the two must not report the same
+		// result. A reset that cannot find the overrides file has to fail
+		// loudly: the caller is a remediation controller that will otherwise
+		// record a GPU as repaired without anything having been cleared.
+		// See issue #759.
+		return errors.New("cannot reset GPU: the mock NVML config could not be resolved, so no overrides path is known")
 	}
 	if has, err := deviceHasOverrides(path, index); err != nil || !has {
 		return err
