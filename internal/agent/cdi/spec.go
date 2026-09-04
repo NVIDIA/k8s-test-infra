@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
+	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
 // overlayHostRoot is the path containerd sees for the mock overlay on the host.
@@ -101,6 +102,12 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 				Args:     []string{"nvidia-cdi-hook", "update-ldcache", "--folder", "/usr/lib64"},
 			},
 		},
+		// None of this currently reaches a container. The toolkit resolving this
+		// spec applies the mounts from the same block and drops its env (#747) —
+		// unlike buildNRISpec's, which containerd resolves natively and whose env
+		// does arrive. Kept because the values are correct and the mock's
+		// compiled-in defaults match them, so nothing depends on the channel
+		// working — do not add a key that would.
 		Env: []string{
 			// void tells the container toolkit to skip its own device enumeration;
 			// without it the toolkit would override our mock nodes with an empty set.
@@ -109,6 +116,8 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 			"MOCK_NVML_OVERRIDES=/etc/nvml-mock/overrides.yaml",
 		},
 	}
+
+	edits.Mounts = append(edits.Mounts, pciSysfsMounts(state)...)
 
 	// The .so resolving fabric.state:auto runs in the consumer container, so the
 	// marker dir mounts there — but only where it exists, else creation fails.
@@ -153,6 +162,38 @@ func buildNvidiaSpec(state *agent.State) cdiSpec {
 		ContainerEdits: edits,
 		Devices:        devices,
 	}
+}
+
+// pciSysfsMounts serves the rendered PCI tree at the kernel paths, which is the
+// only way it reaches a Go consumer: libpcisysfs.so redirects those paths for
+// libc callers, but Go's os package issues openat directly, so GFD and the DRA
+// driver read the node's real /sys and find no mock GPUs (#673).
+//
+// The pair is indivisible — the lookup directory holds relative symlinks into
+// ../../../devices/pciDDDD:BB, so serving it alone yields entries whose every
+// attribute read returns ENOENT.
+//
+// /sys/devices goes whole, hiding the host's other device classes from served
+// containers (#689): narrowing it needs mountpoints the runtime cannot create
+// on a read-only sysfs, and profiles declare root complexes the node lacks.
+//
+// Gated on the same condition pcibus renders under, since a mount with a
+// missing source fails container creation for the whole pod.
+func pciSysfsMounts(state *agent.State) []cdiMount {
+	if !state.HasPCITopology() {
+		return nil
+	}
+
+	mounts := make([]cdiMount, 0, 2)
+	// The renderer's rel-paths are the kernel paths minus the leading slash.
+	for _, relPath := range []string{pcisysfs.SysDevicesRelPath, pcisysfs.PCIDevicesRelPath} {
+		mounts = append(mounts, cdiMount{
+			HostPath:      overlayHostRoot + "/" + relPath,
+			ContainerPath: "/" + relPath,
+			Options:       []string{"ro", "nosuid", "nodev", "bind"},
+		})
+	}
+	return mounts
 }
 
 // buildNRISpec returns the nvml-mock.nvidia.com/gpu CDI spec consumed by the NRI plugin's

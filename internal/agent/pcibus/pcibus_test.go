@@ -13,6 +13,7 @@ import (
 
 	"github.com/NVIDIA/k8s-test-infra/internal/agent"
 	"github.com/NVIDIA/k8s-test-infra/internal/agent/host"
+	"github.com/NVIDIA/k8s-test-infra/internal/pcisysfs"
 )
 
 func testHost(t *testing.T) *host.Host {
@@ -89,16 +90,41 @@ func TestDiscard_NopWhenNotReady(t *testing.T) {
 	require.NoError(t, sim.Discard(context.Background(), h))
 }
 
-func TestDiscard_RemovesSysTree(t *testing.T) {
+func TestDiscard_EmptiesSysTree(t *testing.T) {
 	h := testHost(t)
 	sim := New()
 
 	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
 	require.NoError(t, sim.Discard(context.Background(), h))
 
-	sysDir := filepath.Join(h.Root, "sys")
-	_, err := os.Stat(sysDir)
-	require.True(t, os.IsNotExist(err), "sys/ must be removed after Discard")
+	for _, rel := range []string{pcisysfs.SysDevicesRelPath, pcisysfs.PCIDevicesRelPath} {
+		entries, err := os.ReadDir(filepath.Join(h.Root, rel))
+		require.NoError(t, err)
+		require.Empty(t, entries, "%s still carries a discarded profile", rel)
+	}
+}
+
+// The CDI spec names the two served directories as mount sources, so a consumer
+// container that outlives an agent restart reads whatever those inodes hold. If
+// Discard replaces them the container is left on the removed ones, reading an
+// empty tree no restage can reach.
+func TestDiscard_KeepsTheDirectoriesTheCDISpecMounts(t *testing.T) {
+	h := testHost(t)
+	sim := New()
+
+	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
+
+	for _, rel := range []string{pcisysfs.SysDevicesRelPath, pcisysfs.PCIDevicesRelPath} {
+		path := filepath.Join(h.Root, rel)
+		before, err := os.Stat(path)
+		require.NoError(t, err)
+
+		require.NoError(t, sim.Discard(context.Background(), h))
+
+		after, err := os.Stat(path)
+		require.NoError(t, err, "%s must outlive the teardown", rel)
+		require.True(t, os.SameFile(before, after), "%s was replaced rather than emptied", rel)
+	}
 }
 
 func TestDiscard_SysGoneIsNotError(t *testing.T) {
@@ -107,8 +133,8 @@ func TestDiscard_SysGoneIsNotError(t *testing.T) {
 
 	require.NoError(t, sim.Stage(context.Background(), h, stateWithTopology()))
 
-	// Manually remove sys/ before calling Discard; RemoveAll on a missing path is
-	// a no-op so Discard must still succeed.
+	// Removing sys/ before Discard: a teardown with nothing left to tear down
+	// must still succeed.
 	require.NoError(t, os.RemoveAll(filepath.Join(h.Root, "sys")))
 	require.NoError(t, sim.Discard(context.Background(), h))
 }

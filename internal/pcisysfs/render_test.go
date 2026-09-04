@@ -263,6 +263,43 @@ func TestRender_PrunesRemovedRootComplex(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "symlink into the dropped root must be pruned")
 }
 
+// Re-profiling onto a config whose devices declare no bus_id, which
+// gpu.customConfig makes reachable. Now that the tree is served at the kernel
+// paths, leftovers would have a consumer enumerate GPUs the node no longer
+// simulates.
+func TestRender_ClearsTreeWhenTopologyEmpty(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+	}}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+
+	require.NoError(t, Render(Options{Output: dir}), "Render(empty topology)")
+
+	require.NoDirExists(t, filepath.Join(dir, "sys/devices/pci0000:00"))
+	entries, err := os.ReadDir(filepath.Join(dir, PCIDevicesRelPath))
+	require.NoError(t, err)
+	require.Empty(t, entries, "no device may survive a profile that declares none")
+}
+
+// The ownership boundary holds on the clearing path too: virtual/dmi/id is
+// staged by the same simulator for another reason, and a served container needs
+// it to start.
+func TestRender_EmptyTopologyKeepsForeignEntries(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+	}}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+
+	foreign := filepath.Join(dir, SysDevicesRelPath, "virtual/dmi/id")
+	require.NoError(t, os.MkdirAll(foreign, 0o755))
+
+	require.NoError(t, Render(Options{Output: dir}), "Render(empty topology)")
+
+	require.DirExists(t, foreign)
+}
+
 // TestRender_PruneLeavesForeignEntriesAlone guards the ownership boundary:
 // libpcisysfs rewrites only /sys/devices/pci*, so the renderer must not delete
 // anything else a sibling component staged in the same fake root.
@@ -278,4 +315,81 @@ func TestRender_PruneLeavesForeignEntriesAlone(t *testing.T) {
 	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
 
 	require.DirExists(t, foreign, "non-pci entries are not this renderer's to remove")
+}
+
+// A consumer container holds its bind-mounts on the inodes these two
+// directories had when it started, so replacing them leaves it reading an empty
+// tree until it is recreated.
+func TestClear_EmptiesTheServedDirectoriesInPlace(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+	}}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+
+	served := []string{filepath.Join(dir, SysDevicesRelPath), filepath.Join(dir, PCIDevicesRelPath)}
+	before := make([]os.FileInfo, len(served))
+	for i, p := range served {
+		fi, err := os.Stat(p)
+		require.NoError(t, err)
+		before[i] = fi
+	}
+
+	require.NoError(t, Clear(dir))
+
+	for i, p := range served {
+		after, err := os.Stat(p)
+		require.NoError(t, err, "the mount source must outlive the teardown")
+		require.True(t, os.SameFile(before[i], after), "%s was replaced rather than emptied", p)
+
+		entries, err := os.ReadDir(p)
+		require.NoError(t, err)
+		require.Empty(t, entries, "%s still carries a discarded profile", p)
+	}
+}
+
+// Clear tears the simulator down, so unlike an empty Render it takes the DMI
+// attributes with it rather than leaving them for the next profile.
+func TestClear_RemovesTheStagedDMI(t *testing.T) {
+	dir := t.TempDir()
+	topo := &PCIeTopology{RootComplexes: []RootComplex{
+		{ID: "pci0000:00", NUMANode: 0, Devices: []string{"0000:07:00.0"}},
+	}}
+	require.NoError(t, Render(Options{Topology: topo, Output: dir}))
+	dmi := filepath.Join(dir, SysDevicesRelPath, "virtual/dmi/id")
+	require.NoError(t, os.MkdirAll(dmi, 0o755))
+
+	require.NoError(t, Clear(dir))
+
+	require.NoDirExists(t, filepath.Join(dir, SysDevicesRelPath, "virtual"))
+}
+
+// Nothing rendered is not a failure to tear down.
+func TestClear_ToleratesAnUnrenderedRoot(t *testing.T) {
+	require.NoError(t, Clear(t.TempDir()))
+}
+
+// Every BDF and root-complex ID becomes a path component under Output, so one
+// carrying separators or parent references writes outside the tree. The agent
+// filters these already; failing here keeps that from being the only thing
+// standing between a profile's bus_id and the host filesystem.
+func TestRender_RejectsANameThatEscapesOutput(t *testing.T) {
+	for name, topo := range map[string]*PCIeTopology{
+		"device": {RootComplexes: []RootComplex{
+			{ID: "pci0000:00", Devices: []string{"../../../../escaped"}},
+		}},
+		"root complex": {RootComplexes: []RootComplex{
+			{ID: "../../../../escaped", Devices: []string{"0000:07:00.0"}},
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			base := t.TempDir()
+			out := filepath.Join(base, "overlay")
+			require.NoError(t, os.MkdirAll(out, 0o755))
+
+			require.Error(t, Render(Options{Topology: topo, Output: out}))
+			require.NoDirExists(t, filepath.Join(base, "escaped"),
+				"the render escaped Output")
+		})
+	}
 }

@@ -12,10 +12,20 @@ import (
 	"strings"
 )
 
+// The two directories that together make the tree readable. Exported because a
+// server naming different paths fails open: entries list, every attribute read
+// returns ENOENT, and the result is indistinguishable from no tree at all.
+const (
+	// PCIDevicesRelPath is the flat lookup directory of BDF symlinks.
+	PCIDevicesRelPath = "sys/bus/pci/devices"
+	// SysDevicesRelPath is the hierarchy those symlinks point into.
+	SysDevicesRelPath = "sys/devices"
+)
+
 // Options controls a single rendering pass.
 type Options struct {
-	// Topology is the resolved layout to render. When nil or empty, Render
-	// is a no-op.
+	// Topology is the resolved layout to render. Nil or empty renders an
+	// empty tree rather than leaving the previous one served.
 	Topology *PCIeTopology
 
 	// Identities carries the per-device PCI identity (device_id /
@@ -26,7 +36,8 @@ type Options struct {
 
 	// Output is the fake-root directory. The renderer writes under
 	// <Output>/sys/... — Output itself is created if missing. Required when
-	// Topology is non-empty; otherwise Render returns an error.
+	// Topology is non-empty; otherwise Render returns an error. An empty
+	// Topology empties the tree under Output rather than leaving it alone.
 	Output string
 }
 
@@ -35,18 +46,26 @@ type Options struct {
 // symlinks are removed and recreated so a stale relative target does not linger,
 // and entries the new topology no longer declares are pruned.
 func Render(o Options) error {
-	if o.Topology == nil || len(o.Topology.RootComplexes) == 0 {
-		return nil
-	}
+	empty := o.Topology == nil || len(o.Topology.RootComplexes) == 0
 	if o.Output == "" {
+		if empty {
+			return nil
+		}
 		return errors.New("pcisysfs render: Output is required")
 	}
 
+	// A profile declaring no PCI devices means an empty tree, not the previous
+	// profile's: leftovers would go on being served at the kernel paths as if
+	// the node still simulated those GPUs.
+	if empty {
+		return prune(o.Output, &PCIeTopology{})
+	}
+
 	root := o.Output
-	if err := mkdirAll(root, "sys/bus/pci/devices"); err != nil {
+	if err := mkdirAll(root, PCIDevicesRelPath); err != nil {
 		return err
 	}
-	if err := mkdirAll(root, "sys/devices"); err != nil {
+	if err := mkdirAll(root, SysDevicesRelPath); err != nil {
 		return err
 	}
 
@@ -59,6 +78,32 @@ func Render(o Options) error {
 	// Pruning last means a wanted device is never briefly absent: the window
 	// holds the union of the old and new trees rather than a gap.
 	return prune(root, o.Topology)
+}
+
+// Clear tears the tree down for good, emptying the two served directories
+// without replacing them.
+//
+// The distinction matters because those directories are CDI mount sources: a
+// consumer container binds their inodes when it starts and keeps them across an
+// agent restart, so removing and re-rendering leaves it reading an empty tree
+// until something recreates the pod. Everything below them goes, DMI included,
+// which is what separates this from rendering an empty topology.
+func Clear(root string) error {
+	return errors.Join(
+		prune(root, &PCIeTopology{}),
+		// prune spares what the renderer does not own; a teardown owns all of it.
+		pruneDir(filepath.Join(root, SysDevicesRelPath), func(string) bool { return false }),
+	)
+}
+
+// safeName reports whether name can be joined under Output as a single
+// directory. Every root-complex ID and BDF becomes a path component, so one
+// carrying a separator or a parent reference writes outside the tree. Callers
+// are expected to have validated their input; this is the backstop that keeps a
+// hand-authored bus_id from reaching the host filesystem.
+func safeName(name string) bool {
+	return name != "" && name != "." && name != ".." &&
+		!strings.ContainsAny(name, `/\`)
 }
 
 // prune removes entries the topology no longer declares. Rendering alone is
@@ -80,11 +125,11 @@ func prune(root string, topo *PCIeTopology) error {
 
 	errs := []error{
 		// The flat lookup directory holds only BDF symlinks.
-		pruneDir(filepath.Join(root, "sys/bus/pci/devices"),
+		pruneDir(filepath.Join(root, PCIDevicesRelPath),
 			func(name string) bool { return allBDFs[name] }),
 	}
 
-	devicesDir := filepath.Join(root, "sys/devices")
+	devicesDir := filepath.Join(root, SysDevicesRelPath)
 	entries, err := os.ReadDir(devicesDir)
 	if err != nil && !os.IsNotExist(err) {
 		errs = append(errs, fmt.Errorf("read %s: %w", devicesDir, err))
@@ -140,12 +185,20 @@ func pruneDir(dir string, keep func(string) bool) error {
 }
 
 func renderRootComplex(root string, rc RootComplex, ids map[string]PCI) error {
-	rcDir := filepath.Join("sys/devices", rc.ID)
+	if !safeName(rc.ID) {
+		return fmt.Errorf("root complex id %q is not a path component", rc.ID)
+	}
+
+	rcDir := filepath.Join(SysDevicesRelPath, rc.ID)
 	if err := mkdirAll(root, rcDir); err != nil {
 		return err
 	}
 
 	for _, bdf := range rc.Devices {
+		if !safeName(bdf) {
+			return fmt.Errorf("device %q is not a path component", bdf)
+		}
+
 		// Normalize once: sysfs paths are case-insensitive on most
 		// filesystems but tooling (libpciaccess, lspci) compares
 		// strings literally, so render lowercase to match the kernel.
@@ -167,11 +220,11 @@ func renderRootComplex(root string, rc RootComplex, ids map[string]PCI) error {
 		// Relative target matches what the kernel emits, so readlink()
 		// consumers (realpath, deviceattribute) resolve to the same
 		// canonical path they would on real Linux.
-		linkPath := filepath.Join(root, "sys/bus/pci/devices", bdfLC)
+		linkPath := filepath.Join(root, PCIDevicesRelPath, bdfLC)
 		linkTarget := filepath.Join("..", "..", "..", "devices", rc.ID, bdfLC)
 		if err := replaceSymlink(linkPath, linkTarget); err != nil {
 			return fmt.Errorf("symlink %s -> %s: %w",
-				filepath.Join("sys/bus/pci/devices", bdfLC), linkTarget, err)
+				filepath.Join(PCIDevicesRelPath, bdfLC), linkTarget, err)
 		}
 	}
 	return nil

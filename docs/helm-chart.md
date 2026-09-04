@@ -19,12 +19,11 @@ Deploys a DaemonSet that creates on every node:
   paired with `libibmocksys.so` (`LD_PRELOAD`) so real `ibstat`, `ibstatus`,
   `iblinkinfo`, ... read mock HCAs
 - A fake PCI sysfs tree at `/var/lib/nvml-mock/sys/bus/pci/devices/...` (symlinks
-  into `/var/lib/nvml-mock/sys/devices/pciDDDD:BB/...`) so C consumers of the
-  PCI sysfs — `lspci` and anything else reaching it through libc — resolve the
-  PCIe root complex via a standard `readlink()`. The NVIDIA DRA driver is a Go
-  binary and does not see this tree, so `dra.k8s.io/pcieRoot` is still absent
-  from its ResourceSlices; see [Known Limitations](#known-limitations) and
-  issue [#265](https://github.com/NVIDIA/k8s-test-infra/issues/265)
+  into `/var/lib/nvml-mock/sys/devices/pciDDDD:BB/...`) so consumers resolve the
+  PCIe root complex via a standard `readlink()`. `lspci` and anything else
+  reaching it through libc read it via `libpcisysfs.so`; containers served the
+  `nvidia.com/gpu` CDI spec get it bind-mounted at the kernel paths, which is
+  what Go consumers need — see [PCI sysfs in containers](#pci-sysfs-in-containers)
 
 Consumers (DRA driver, device plugin) point at `/var/lib/nvml-mock/driver`
 as the NVIDIA driver root and discover GPUs through standard NVML APIs.
@@ -653,12 +652,11 @@ Two options, depending on intent:
 ## PCIe topology mocking
 
 Each profile carries a `pcie_topology:` block describing the host's PCI
-root-complex layout. When the DaemonSet starts, `render-pci-sysfs` reads
-it and writes a fake sysfs tree at `/var/lib/nvml-mock/sys/...` matching
-what real Linux kernels expose. Topology-aware consumers (NVIDIA DRA
-driver, device plugins computing NUMA hints) resolve "which PCIe root
-complex a GPU lives on" via a standard `readlink()` + path parse against
-the rendered tree:
+root-complex layout. The node agent's `pcibus` simulator reads it and writes a
+fake sysfs tree at `/var/lib/nvml-mock/sys/...` matching what real Linux kernels
+expose. Topology-aware consumers (NVIDIA DRA driver, device plugins computing
+NUMA hints) resolve "which PCIe root complex a GPU lives on" via a standard
+`readlink()` + path parse against the rendered tree:
 
 ```bash
 $ readlink /var/lib/nvml-mock/sys/bus/pci/devices/0000:07:00.0
@@ -697,17 +695,94 @@ pcie_topology:
         - "0000:90:00.0"
 ```
 
-`render-pci-sysfs` validates the block at startup and fails the
-DaemonSet under `set -e` if it finds a typo:
+Nothing validates the block, so a typo is not reported anywhere — not through
+the agent's `/healthz`. What the agent renders is the block reconciled against
+the devices NVML reports, which silently absorbs most mistakes:
 
-- Every BDF listed under a root complex must also appear in `devices[]`.
-- Each BDF may belong to at most one root complex.
-- Root complex IDs must match `pciDDDD:BB`.
-- BDFs must use 4-digit-domain form (`DDDD:BB:DD.F`); the legacy NVML
-  `busIdLegacy` 8-digit form is rejected.
+- A `bus_id` that is not an address in the kernel's `DDDD:BB:DD.F` form is
+  dropped, and the device is left out of the tree. This includes the 8-digit
+  domain NVML reports through `nvmlPciInfo_t.busId`; `bus_id` carries the
+  4-digit form, as `busIdLegacy` does. A value that is not an address is one no
+  consumer can look up, and it would otherwise become a directory name.
+- A BDF listed under a root complex that no entry in `devices[]` claims is
+  dropped, along with any root complex it leaves empty. This is also how
+  `gpu.count` works: capping the device list leaves the layout untouched, and
+  the uncapped BDFs disappear from the tree rather than rendering as GPUs NVML
+  denies exist.
+- A BDF listed under two root complexes stays under the first and is dropped
+  from the second.
+- A device in `devices[]` whose BDF no root complex lists is still rendered,
+  under the root its own address implies (`pciDDDD:BB`) and reporting
+  `numa_node` `-1`. A GPU missing from the tree is one no consumer can resolve.
 
 If a profile omits `pcie_topology:` entirely the renderer falls back to
-a flat single-root layout (every device under `pci0000:00`, NUMA 0).
+a flat single-root layout (every device under `pci0000:00`, NUMA 0). A profile
+whose devices declare no `bus_id` at all renders nothing, and the simulator
+empties any tree a previous profile left behind.
+
+### PCI sysfs in containers
+
+Reaching the tree through `MOCK_PCI_ROOT` requires the `libpcisysfs.so`
+`LD_PRELOAD` shim, which only works for libc consumers: Go's `os` package issues
+`openat` directly, so the shim never sees the open and the process reads the
+node's real `/sys`, where the mock GPUs do not exist. GPU Feature Discovery and
+the NVIDIA DRA driver are both Go.
+
+So the `nvidia.com/gpu` CDI spec the node agent writes bind-mounts the tree
+read-only at the kernel paths:
+
+| Host | Container |
+|---|---|
+| `/var/lib/nvml-mock/sys/devices` | `/sys/devices` |
+| `/var/lib/nvml-mock/sys/bus/pci/devices` | `/sys/bus/pci/devices` |
+
+Both, always together. The entries under `sys/bus/pci/devices` are relative
+symlinks into `../../../devices/pciDDDD:BB`, so mounting that directory alone
+yields entries that list but whose every attribute read fails with `ENOENT`.
+
+**Trade-off:** `/sys/devices` is mounted whole, which hides the host's other
+device classes — CPU topology among them — from served containers. Narrowing it
+to the profile's root complexes is not possible: the runtime would have to create
+the mountpoint, and sysfs is read-only in a container, so container creation
+fails outright rather than degrading. Profiles routinely declare root complexes
+the node does not have. [#689](https://github.com/NVIDIA/k8s-test-infra/issues/689)
+tracks removing the trade-off.
+
+A workload that needs the node's real device tree must not request
+`nvidia.com/gpu`, since the mount rides the CDI spec the container toolkit
+resolves for that resource. `nri.excludedNamespaces` is not an escape: it only
+reaches the NRI plugin, whose own `nvml-mock.nvidia.com/gpu` spec carries no
+sysfs mounts.
+
+### Machine type (`nvidia.com/gpu.machine`)
+
+GFD derives the label from `--machine-type-file`, which defaults to
+`/sys/class/dmi/id/product_name` — a path no mock can own under `kind`: the node
+image writes `kind` there and re-binds it into every container after the
+container's own mounts are set up, and on hosts without DMI (Docker Desktop) it
+does not exist at all.
+
+The agent therefore writes the machine type to `driver/config/machine-type`. The
+NRI plugin points `GFD_MACHINE_TYPE_FILE` at it, so with `nri.enabled` the label
+needs nothing from the operator's own configuration. A value authored on the
+container wins, for a cluster pinning a file of its own.
+
+Without NRI the file is still served, at `/etc/nvml-mock/machine-type` by the
+CDI mount that carries `config.yaml`, but the value has to be set by hand — the
+toolkit resolving `nvidia.com/gpu` applies the spec's mounts and drops its env
+([#747](https://github.com/NVIDIA/k8s-test-infra/issues/747)), so the plugin's
+channel is the only automatic one:
+
+```yaml
+gfd:
+  env:
+    - name: GFD_MACHINE_TYPE_FILE
+      value: "/etc/nvml-mock/machine-type"
+```
+
+The value is the profile's GPU product name, so `gpu.machine` matches
+`gpu.product` (`NVIDIA-GB300-NVL`) rather than the `NVIDIA-GB300-NVL72` a real
+tray reports; the profiles carry no platform name to use instead.
 
 ### Cross-node `ibping`
 
@@ -1355,8 +1430,9 @@ discovery and monitoring. Some host-level subsystems are not mocked:
 
 | What's Missing | Affected Consumer | Impact |
 |----------------|-------------------|--------|
-| `/sys/bus/pci/devices/{busID}` sysfs entries **as a Go program reads them** | DRA driver | The tree is rendered and `lspci` reads it, but the driver is a Go binary: Go's `os` package issues raw syscalls that the `LD_PRELOAD` shim cannot intercept, so it reads the host's real sysfs instead. `dra.k8s.io/pcieRoot` stays absent from ResourceSlices — **blocks topology-aware scheduling demos** (e.g., GPU + SR-IOV VF alignment). Tracked in [#265](https://github.com/NVIDIA/k8s-test-infra/issues/265) |
-| `/sys/bus/pci/devices/{busID}/numa_node` | Device plugin | NUMA-aware topology hints unavailable; scheduling works but NUMA affinity not enforced |
+| `/sys/bus/pci/devices/{busID}` sysfs entries **in a container the mock does not serve** | Any Go consumer | Go's `os` package issues raw syscalls that the `LD_PRELOAD` shim cannot intercept, so a Go binary reads the host's real sysfs. Containers served the `nvidia.com/gpu` CDI spec get the tree bind-mounted at the kernel paths instead; ones reached only by the NRI plugin still see the host's — see [PCI sysfs in containers](#pci-sysfs-in-containers) |
+| The host's other device classes **in a container the mock does serve** | Anything reading `/sys/devices` | `/sys/devices` is replaced wholesale, so CPU topology and the container's namespaced sysfs are not visible there. Tracked in [#689](https://github.com/NVIDIA/k8s-test-infra/issues/689) |
+| `/sys/bus/pci/devices/{busID}/numa_node` **in a container the mock does not serve** | Device plugin | NUMA-aware topology hints unavailable there; scheduling works but NUMA affinity not enforced. A served device plugin does get the hints — the renderer writes `numa_node` for every device |
 | `/sys/bus/pci/devices/*/vendor,device,class` **as NFD reads them** (`/host-sys/…`, fixed at link time) | NFD (Node Feature Discovery) | PCI feature labels not auto-detected. `nvidia.com/gpu.present` is written directly by nvml-mock; `pci-10de.present` is created by NFD from a feature file nvml-mock drops in `nodeLabels.featuresDir` — see [Node Labels](#node-labels) |
 
 ### PCIe Root Complex (DRA driver)
@@ -1370,20 +1446,25 @@ W0319 11:41:21.314205       1 nvlib.go:491] error getting PCIe root for device 0
   readlink /sys/bus/pci/devices/0000:07:00.0: no such file or directory
 ```
 
-**This warning is expected** but has real impact. The DRA driver resolves PCIe
-root complex topology by reading sysfs symlinks. Since nvml-mock provides a mock
-NVML library (not a full kernel driver), these sysfs entries don't exist. GPUs
-appear in ResourceSlices and are fully allocatable, but the
-`dra.k8s.io/pcieRoot` topology attribute is absent.
+The driver resolves PCIe root complex topology by `readlink()`-ing
+`/sys/bus/pci/devices/{busID}`, and it is a Go binary, so `libpcisysfs.so` cannot
+redirect that read to the rendered tree. A container served the `nvidia.com/gpu`
+CDI spec gets the tree at that path and resolves the root; one the mock does not
+serve reads the node's real sysfs and logs the warning above. GPUs are fully
+allocatable either way — only the `dra.k8s.io/pcieRoot` attribute is affected.
 
-**What this blocks:** DRA topology-aware scheduling that uses `pcieRoot` to
-align devices on the same PCIe root complex — for example, co-scheduling a GPU
+**What its absence blocks:** DRA topology-aware scheduling that uses `pcieRoot`
+to align devices on the same PCIe root complex — for example, co-scheduling a GPU
 with an SR-IOV virtual function (VF) from the same root for optimal data path
 locality. Without `pcieRoot`, ResourceClaims that express cross-device topology
 constraints cannot be validated.
 
-We are actively working on PCIe sysfs simulation to address this gap — see
-[#265](https://github.com/NVIDIA/k8s-test-infra/issues/265) for progress.
+Confirming the attribute end-to-end against the pinned driver version is tracked
+in [#265](https://github.com/NVIDIA/k8s-test-infra/issues/265). Note the upstream
+constraint the shape of the tree has to satisfy: `deviceattribute` rejects a
+symlink whose resolved target does not start with `devices/pci`, so the mock's
+entries have to stay canonical relative symlinks and be served at the kernel
+path rather than redirected elsewhere.
 
 ## Troubleshooting
 

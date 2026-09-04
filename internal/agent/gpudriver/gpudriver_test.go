@@ -101,6 +101,51 @@ func TestWriteEngineConfig_EmptyConfigRawErrors(t *testing.T) {
 	require.Error(t, err)
 }
 
+// GFD reads its machine type from a file, so the mock has to serve one: under
+// kind the DMI path it defaults to is either absent or owned by the node image.
+func TestWriteMachineType_ServesTheProductName(t *testing.T) {
+	h := testHost(t)
+	state := testState(t)
+	state.Devices[0].Name = "NVIDIA GB300 NVL"
+
+	require.NoError(t, writeMachineType(t.Context(), h, state))
+
+	data, err := os.ReadFile(filepath.Join(h.Root, machineTypeRel))
+	require.NoError(t, err)
+	require.Equal(t, "NVIDIA GB300 NVL\n", string(data),
+		"trailing newline mirrors how the kernel renders product_name")
+}
+
+// A missing file leaves GFD on its own default, which is the better failure:
+// an empty one would label the node with the empty string.
+func TestWriteMachineType_NoFileWithoutAProductName(t *testing.T) {
+	h := testHost(t)
+	state := testState(t)
+	state.Devices[0].Name = ""
+
+	require.NoError(t, writeMachineType(t.Context(), h, state))
+
+	_, err := os.Stat(filepath.Join(h.Root, machineTypeRel))
+	require.True(t, os.IsNotExist(err), "no product name means no file")
+}
+
+func TestWriteMachineType_NoFileWithoutDevices(t *testing.T) {
+	h := testHost(t)
+	state := testState(t)
+	state.Devices = nil
+
+	require.NoError(t, writeMachineType(t.Context(), h, state))
+
+	_, err := os.Stat(filepath.Join(h.Root, machineTypeRel))
+	require.True(t, os.IsNotExist(err))
+}
+
+// The file is served through the same mount as config.yaml, so it has to sit
+// beside it — a path outside driver/config would never reach a container.
+func TestWriteMachineType_LandsInTheServedConfigDir(t *testing.T) {
+	require.Equal(t, "driver/config", filepath.Dir(machineTypeRel))
+}
+
 func TestStageNvidiaSMI_WritesSMIScript(t *testing.T) {
 	h := testHost(t)
 	state := testState(t)

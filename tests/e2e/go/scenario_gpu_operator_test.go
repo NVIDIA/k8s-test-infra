@@ -19,6 +19,7 @@ import (
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/config"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/harness"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/helm"
+	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/kube"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/framework/runner"
 	"github.com/NVIDIA/k8s-test-infra/tests/e2e/go/profile"
 )
@@ -69,6 +70,33 @@ var _ = Describe("nvml-mock GPU Operator", Label("gpu-operator"), Ordered, func(
 					assertions.ExpectedGFDLabels(p.GFDProductName(), p.MemoryMiB(), p.ExpectedGPUs()),
 					config.ReadyTimeout(), config.PollInterval())
 				assertions.WaitAllocatableGPU(ctx, h.Kube, node, p.ExpectedGPUs(), config.ReadyTimeout(), config.PollInterval())
+			})
+
+			It("serves the mock PCI tree to a Go consumer at the kernel paths", Label("pcisysfs"), func(ctx SpecContext) {
+				// GFD is the consumer the bug was found in, and it is Go: it
+				// resolves each GPU's BDF from NVML and then reads that device's
+				// class from sysfs. Reading the tree from inside its own
+				// container is what pins delivery, independently of the label
+				// below, which the operator could publish for other reasons.
+				assertions.PCISysfsAtKernelPaths(ctx, h.Kube,
+					gfdPodRef(ctx, h, node), p.ExpectedGPUs())
+			})
+
+			It("labels gpu.mode from the served PCI class", Label("device-plugin"), func(ctx SpecContext) {
+				// Separate from the GFD labels above: those come from NVML and
+				// fail together, this one reads "unknown" precisely when the
+				// tree does not reach GFD (#673).
+				assertions.WaitGFDLabels(ctx, h.Kube, node,
+					map[string]string{assertions.GFDLabelMode: assertions.GFDModeCompute},
+					config.ReadyTimeout(), config.PollInterval())
+			})
+
+			It("labels gpu.machine from the served machine-type file", Label("device-plugin"), func(ctx SpecContext) {
+				// The same string as gpu.product, for want of a platform field
+				// in the profiles: both are the GPU's product name.
+				assertions.WaitGFDLabels(ctx, h.Kube, node,
+					map[string]string{assertions.GFDLabelMachine: p.GFDProductName()},
+					config.ReadyTimeout(), config.PollInterval())
 			})
 
 			It("exports DCGM device metrics that vary over time", Label("dcgm"), func(ctx SpecContext) {
@@ -244,6 +272,27 @@ func verifyGPUOperatorNodeSetup(ctx context.Context, container string) {
 	GinkgoHelper()
 	Expect(dockerExec(ctx, container, "test", "-f", "/var/run/cdi/nvidia.yaml")).To(Succeed(), "CDI spec exists")
 	Expect(dockerExec(ctx, container, "bash", "-c", "LD_LIBRARY_PATH=/run/nvidia/driver/usr/lib64 /run/nvidia/driver/usr/bin/nvidia-smi")).To(Succeed(), "nvidia-smi works via /run/nvidia/driver")
+}
+
+// gfdPodRef resolves the GPU Feature Discovery pod on node, polling for the
+// same reason waitOperatorValidatorRunning does: the operator replaces its
+// operands a reconcile after nvml-mock rolls, so resolving the pod once can land
+// in the gap where none is ready.
+func gfdPodRef(ctx SpecContext, h *harness.Harness, node string) kube.PodRef {
+	GinkgoHelper()
+	var pod string
+	Eventually(func() (string, error) {
+		p, err := h.Kube.RunningPodOnNode(ctx, gpuOperatorNamespace, "app=gpu-feature-discovery", node)
+		pod = p
+		return p, err
+	}).WithContext(ctx).WithTimeout(config.ReadyTimeout()).WithPolling(config.PollInterval()).
+		ShouldNot(BeEmpty(), "no running gpu-feature-discovery pod on node %s", node)
+
+	return kube.PodRef{
+		Namespace: gpuOperatorNamespace,
+		Pod:       pod,
+		Container: "gpu-feature-discovery",
+	}
 }
 
 func waitOperatorValidatorRunning(ctx SpecContext, h *harness.Harness) {

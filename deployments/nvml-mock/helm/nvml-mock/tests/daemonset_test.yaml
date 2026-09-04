@@ -923,6 +923,34 @@ tests:
             name: host-cdi
             mountPath: /host/run/cdi
 
+  # The agent reads the node's DMI attributes and reproduces them inside the
+  # rendered PCI tree, because serving that tree at /sys/devices replaces the
+  # directory /sys/class/dmi/id resolves into and the runtime's bind-mount
+  # targets have to survive it. Read-only: the agent never writes to /sys.
+  - it: should mount the node's sysfs read-only in the agent alone
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[1].volumeMounts
+          content:
+            name: host-sys
+            mountPath: /host/sys
+            readOnly: true
+      # Nothing in the mock container reads the node's sysfs, and the volume is
+      # the whole of /sys.
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: host-sys
+            mountPath: /host/sys
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: host-sys
+            hostPath:
+              path: /sys
+              type: Directory
+
   - it: should honour node-agent logging and timeout overrides
     set:
       nodeAgent:

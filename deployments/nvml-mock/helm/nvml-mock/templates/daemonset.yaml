@@ -255,6 +255,11 @@ spec:
             - name: host-fabric-state
               mountPath: {{ printf "/host%s" .Values.fabricmanager.stateDir }}
             {{- end }}
+            # Read only: the agent copies the node's DMI attributes into the
+            # rendered tree, which shadows them once served at /sys/devices.
+            - name: host-sys
+              mountPath: /host/sys
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /healthz
@@ -329,6 +334,12 @@ spec:
           hostPath:
             path: {{ .Values.nodeLabels.featuresDir | quote }}
             type: DirectoryOrCreate
+        # Directory, not DirectoryOrCreate: a node without /sys should fail
+        # loudly rather than get an empty stand-in.
+        - name: host-sys
+          hostPath:
+            path: /sys
+            type: Directory
         {{- if .Values.topology.enabled }}
         - name: gpu-topology
           configMap:
