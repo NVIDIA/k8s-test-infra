@@ -173,6 +173,13 @@ first act is the `chroot` preflight under `set -e`, and the demo prints
 `nvml-mock-ctl status` for the reset GPU afterwards, which is empty only if the
 reset genuinely cleared the injected fault.
 
+Two artifacts of this setup are worth expecting. Both GPU workers run the same
+mock profile and therefore serve identical GPU UUIDs, so NVSentinel may open a
+GPUReset against the other worker for the same UUID; the demo scopes everything
+it reports to the node it faulted. And a reset that fails once usually recovers
+on the janitor's retry — the Job re-pulls its image on every attempt, so the
+first can lose its deadline to the registry rather than to anything on the node.
+
 ## Why these config choices matter
 
 Beyond the datastore choice, `nvsentinel-values.yaml` sets a handful of non-default
