@@ -14,18 +14,24 @@
 
 name: Deploy documentation to Pages
 
+# make docs stages enhancements/ into the docs tree, so MEP-only edits need a
+# rebuild too.
 on:
   push:
     branches:
       - main
     paths:
       - "docs/**"
+      - "enhancements/**"
+      - "hack/sync-enhancement-docs.sh"
       - "mkdocs.yml"
       - "requirements-docs.txt"
       - ".github/workflows/deploy-pages.yaml"
   pull_request:
     paths:
       - "docs/**"
+      - "enhancements/**"
+      - "hack/sync-enhancement-docs.sh"
       - "mkdocs.yml"
       - "requirements-docs.txt"
       - ".github/workflows/deploy-pages.yaml"

@@ -790,7 +790,7 @@ containerd reject container creation outright.
 
 Neither mode changes *whether* a container is served. A container the NVIDIA
 device plugin already served keeps exactly its allocation in both modes, per
-[MEP-0002](https://github.com/NVIDIA/k8s-test-infra/blob/main/enhancements/meps/0002-device-plugin-nri-composition/README.md).
+[MEP-0002](enhancements/meps/0002-device-plugin-nri-composition/README.md).
 
 ## NRI plugin failure modes
 
