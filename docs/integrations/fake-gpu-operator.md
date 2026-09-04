@@ -34,9 +34,9 @@ Together, they enable **mixed clusters** where a small set of real nodes run nvm
 |  |  +------------------------+ |   |  +-------------------------+  |  |
 |  |  | nvml-mock DaemonSet    | |   |  | FGO fake device plugin  |  |  |
 |  |  | - libnvidia-ml.so      | |   |  | - Advertises GPU        |  |  |
-|  |  | - libcuda.so.1         | |   |  |   resources to K8s API  |  |  |
-|  |  | - nvidia-smi           | |   |  +-------------------------+  |  |
-|  |  +------------------------+ |   |                               |  |
+|  |  | - nvidia-smi           | |   |  |   resources to K8s API  |  |  |
+|  |  +------------------------+ |   |  +-------------------------+  |  |
+|  |                             |   |                               |  |
 |  |                             |   |  +-------------------------+  |  |
 |  |  +------------------------+ |   |  | FGO fake GFD            |  |  |
 |  |  | GPU Operator           | |   |  | - Node labels           |  |  |

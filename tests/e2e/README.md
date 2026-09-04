@@ -122,7 +122,7 @@ tests/e2e/go/
   scenario_standalone_test.go    # standalone demo scenario map
   scenario_standalone_setup.go   # per-profile install/setup helper
   scenario_failure_injection.go  # failure-injection scenario helpers
-  scenario_validator_test.go     # CUDA vectorAdd validator scenario
+  scenario_gfd_test.go           # standalone GPU Feature Discovery scenario
   scenario_nri_test.go           # node-wide NRI ambient-injection scenario
   framework/                     # thin wrappers for kind, helm, and kubectl
   framework/pod/                 # generic pod.tpl.yaml plus the Spec that renders it
@@ -224,26 +224,22 @@ make e2e-nri                       # default gb200 (fabric + ComputeDomain)
 make e2e-nri E2E_PROFILES=t4       # plain node-wide injection, no fabric checks
 ```
 
-## CUDA Validator Scenario
+## Standalone GFD Scenario
 
-The `validator` scenario applies [`go/assets/validator-mock.yaml`](go/assets/validator-mock.yaml),
-which runs the CUDA vectorAdd sample against the mock CUDA library mounted from
-the `nvml-mock` DaemonSet.
-
-The validator Job requests `nvidia.com/gpu`, so the scenario first applies
+The `gfd` scenario applies
 [`go/assets/device-plugin-mock.yaml`](go/assets/device-plugin-mock.yaml), waits
-for the mock device plugin DaemonSet, waits for allocatable GPUs on the profile
-node, applies [`go/assets/gfd-mock.yaml`](go/assets/gfd-mock.yaml), and verifies
-the required GFD node labels.
+for the mock device plugin DaemonSet and for allocatable GPUs on the profile
+node, then applies [`go/assets/gfd-mock.yaml`](go/assets/gfd-mock.yaml) and
+verifies that standalone GPU Feature Discovery derives the required node labels
+from the mock GPU inventory.
 
-This scenario is skipped by default because the standalone GFD and CUDA
-validator images are pulled from `nvcr.io`. The Go workflow also excludes the
-`validator` label until [#446](https://github.com/NVIDIA/k8s-test-infra/issues/446)
-resolves the CI image/auth path. Enable it locally when those images are
-available:
+This scenario is skipped by default because the standalone GFD image is pulled
+from `nvcr.io`. The Go workflow also excludes the `gfd` label until
+[#446](https://github.com/NVIDIA/k8s-test-infra/issues/446) resolves the CI
+image/auth path. Enable it locally when that image is available:
 
 ```bash
-make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
+make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="gfd"'
 ```
 
 ## Labels
@@ -272,7 +268,7 @@ Use-case labels:
 - `nfd`
 - `compute-domain`
 - `failure-injection`
-- `validator`
+- `gfd`
 
 Examples:
 
@@ -285,7 +281,7 @@ make e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter="gpu-operator"'
 make e2e E2E_PROFILES=a100,t4 E2E_GINKGO_FLAGS='--label-filter="multi-node"'
 make e2e E2E_GINKGO_FLAGS='--label-filter="nri"'
 make e2e E2E_PROFILES=a100 E2E_GINKGO_FLAGS='--label-filter="nfd"'
-make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
+make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="gfd"'
 ```
 
 ## Environment Variables
@@ -299,7 +295,7 @@ make e2e E2E_RUN_NGC=true E2E_GINKGO_FLAGS='--label-filter="validator"'
 | `E2E_ARTIFACTS` | `artifacts/e2e/go` | Directory for failure diagnostics. |
 | `E2E_BUILDX_GHA_CACHE` | `false` | Enable buildx GitHub Actions cache flags. |
 | `E2E_GOLANG_VERSION` | empty | Optional Docker build arg override. |
-| `E2E_RUN_NGC` | `false` | Run scenarios that need `nvcr.io` images, such as `validator`. |
+| `E2E_RUN_NGC` | `false` | Run scenarios that need `nvcr.io` images, such as `gfd`. |
 | `E2E_CLUSTER_TIMEOUT` | `5m` | Kind cluster setup timeout. |
 | `E2E_HELM_TIMEOUT` | `5m` | Helm install/upgrade timeout. |
 | `E2E_READY_TIMEOUT` | `2m` | Kubernetes readiness wait timeout, sized for a single rollout. |

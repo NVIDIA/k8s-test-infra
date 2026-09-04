@@ -61,7 +61,6 @@ docs/
 ├── quickstart.md
 ├── architecture.md
 ├── configuration.md
-├── cuda-mock.md
 ├── development.md
 ├── examples.md
 ├── troubleshooting.md

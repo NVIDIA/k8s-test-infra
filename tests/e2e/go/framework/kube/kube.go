@@ -166,12 +166,6 @@ type daemonSetObj struct {
 	} `json:"status"`
 }
 
-type jobObj struct {
-	Status struct {
-		Succeeded int `json:"succeeded"`
-	} `json:"status"`
-}
-
 // ---------------------------------------------------------------------------
 // Typed reads
 // ---------------------------------------------------------------------------
@@ -370,15 +364,6 @@ func (c *Client) DaemonSetContainerEnv(ctx context.Context, ns, name, envName st
 		}
 	}
 	return "", false, nil
-}
-
-// JobComplete reports whether a Job has at least one successful completion.
-func (c *Client) JobComplete(ctx context.Context, ns, name string) (bool, error) {
-	var job jobObj
-	if err := c.getJSON(ctx, &job, "job", "-n", ns, name); err != nil {
-		return false, err
-	}
-	return job.Status.Succeeded > 0, nil
 }
 
 // ---------------------------------------------------------------------------

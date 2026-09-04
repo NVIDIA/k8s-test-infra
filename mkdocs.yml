@@ -30,10 +30,6 @@ docs_dir: docs
 exclude_docs: |
   plans/
   superpowers/
-  # CUDA mocking is not usable yet: 14 of its 15 exports are runtime API and
-  # real workloads never enter the mock. The page stays in the repo for
-  # contributors. Delete this line to republish once the driver surface lands.
-  cuda-mock.md
 
 theme:
   name: material
