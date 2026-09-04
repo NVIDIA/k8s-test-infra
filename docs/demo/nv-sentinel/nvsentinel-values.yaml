@@ -75,6 +75,11 @@ global:
     enabled: true
   nodeDrainer:
     enabled: true
+  # Reset remediation stays armed on every install, not just GPU_RESET=true
+  # runs, so that reusing a cluster does not churn the release. The trade-off:
+  # an ECC fault left in a node's overrides.yaml by an interrupted run is still
+  # a real fault, and NVSentinel will remediate it on the next install. Use
+  # FORCE_RECREATE=true for a run that starts from nothing.
   faultRemediation:
     enabled: true
   janitor:
