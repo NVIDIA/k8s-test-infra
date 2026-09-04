@@ -551,3 +551,72 @@ func statsBlockProblems(name string, got statsBlock, want EncoderFBCStats) []str
 	return append(problems,
 		intReadingProblems(name+" average_latency", got.AverageLatency, want.AverageLatencyUS, " us")...)
 }
+
+// ChrootDriverRoot is the mock driver root as the nvml-mock pod sees it. The
+// pod mounts the node's /var/lib/nvml-mock at /host/var/lib/nvml-mock, and
+// /run/nvidia/driver on the node is a symlink to that same directory — so this
+// is the path NVSentinel's reset Job chroots into, reached from a pod.
+const ChrootDriverRoot = "/host/var/lib/nvml-mock/driver"
+
+// ChrootInventoryProblems checks that a chrooted nvidia-smi answers for the
+// node's real GPUs rather than the mock library's compiled-in defaults, given
+// the output of `--query-gpu=index,temperature.gpu,pci.bus_id
+// --format=csv,noheader` run both inside the chroot and normally in the pod.
+//
+// The two readings must agree. Comparing them rather than asserting fixed
+// values keeps this profile-independent while still catching every way the
+// fallback shows up: the defaults describe a different device count, report no
+// temperatures, and sit at PCI domain 00000000 regardless of what the profile
+// declares. The count is checked separately so two readings that agree because
+// both fell back cannot pass.
+//
+// The failure this guards is not a crash. Without a resolvable config the
+// library answers happily and exits 0, describing hardware the node does not
+// have. See issue #759.
+func ChrootInventoryProblems(exitCode int, chrootOut, inContainerOut string, wantGPUs int) []string {
+	if exitCode != 0 {
+		return []string{fmt.Sprintf(
+			"chrooted nvidia-smi exited %d, want 0 (127 means the loader or a library is missing from the driver root): %s",
+			exitCode, chrootOut)}
+	}
+
+	rows := func(s string) []string {
+		out := make([]string, 0, wantGPUs)
+		for _, l := range strings.Split(strings.TrimSpace(s), "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+
+	got, want := rows(chrootOut), rows(inContainerOut)
+
+	var problems []string
+	if len(got) != wantGPUs {
+		problems = append(problems, fmt.Sprintf(
+			"chrooted nvidia-smi reported %d GPUs, want %d (a different count means it fell back to compiled-in defaults): %s",
+			len(got), wantGPUs, chrootOut))
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		problems = append(problems, fmt.Sprintf(
+			"chrooted nvidia-smi disagrees with the same query run in the pod, so it did not resolve this node's config.\nchroot:\n%s\npod:\n%s",
+			chrootOut, inContainerOut))
+	}
+	return problems
+}
+
+// OverridesClearedProblems checks that `nvml-mock-ctl status --gpu <n>` reports
+// nothing left after a reset. Matched as a prefix because the per-device form
+// prints "no active overrides for gpu <n>" and the whole-node form prints
+// "no active overrides".
+//
+// A reset that cannot resolve its overrides path still prints "was successfully
+// reset" and exits 0, so the reset's own output cannot tell a real reset from a
+// reported one — only the override state afterwards can. See issue #759.
+func OverridesClearedProblems(output string) []string {
+	if strings.Contains(output, "no active overrides") {
+		return nil
+	}
+	return []string{"overrides survived the chrooted reset, so it reported success without clearing anything: " + output}
+}
