@@ -7,8 +7,7 @@ permissions: {}
 # No paths filter here: GitHub applies paths filters to tag pushes too, and
 # a tag push has no changed-files diff, so a paths filter silently suppresses
 # every tag-triggered run. workflow_dispatch allows re-running a publish from
-# protected main or a protected semantic-version release tag without
-# re-pushing it.
+# main or an exact stable semantic-version release tag without re-pushing it.
 on:
   push:
     branches:
@@ -31,29 +30,17 @@ env:
 jobs:
   validate-publish-ref:
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      contents: read
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Require an approved publishing ref
         env:
           PUBLISH_REF: ${{ github.ref }}
-          PUBLISH_REF_PROTECTED: ${{ github.ref_protected }}
-        run: |
-          if [[ "${PUBLISH_REF_PROTECTED}" != "true" ]]; then
-            echo "Publishing requires a ref protected by branch protection or a ruleset." >&2
-            exit 1
-          fi
-
-          if [[ "${PUBLISH_REF}" == "refs/heads/main" ]]; then
-            exit 0
-          fi
-
-          if [[ "${PUBLISH_REF}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            exit 0
-          fi
-
-          echo "Publishing is restricted to main and semantic-version release tags (vMAJOR.MINOR.PATCH)." >&2
-          exit 1
+        run: ./hack/validate-mokka-control-plane-publish-ref.sh "${PUBLISH_REF}"
 
   publish:
     needs: validate-publish-ref

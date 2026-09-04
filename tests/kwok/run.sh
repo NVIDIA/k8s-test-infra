@@ -24,6 +24,7 @@ readonly ARTIFACT_ROOT="${KWOK_ARTIFACT_ROOT:-${REPO_DIR}/_artifacts/kwok}"
 readonly RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-${NODE_COUNT}-$$"
 readonly ARTIFACT_DIR="${ARTIFACT_ROOT}/${RUN_ID}"
 readonly LOCK_DIR="${ARTIFACT_ROOT}/.locks/${CLUSTER_NAME}"
+readonly PORT_LOCK_ROOT="${ARTIFACT_ROOT}/.locks/.controller-ports"
 readonly WORK_DIR="${ARTIFACT_DIR}/work"
 readonly KUBECONFIG_PATH="${WORK_DIR}/kubeconfig"
 readonly CONTROLLER_BIN="${WORK_DIR}/mokka-control-plane"
@@ -39,6 +40,8 @@ readonly OWNER_LABEL="tests.mokka.nvidia.com/kwok-cluster"
 CLUSTER_CREATED=false
 LOCK_HELD=false
 CONTROLLER_PID=""
+CONTROLLER_PORT=""
+PORT_LOCK_DIR=""
 
 log() {
 	printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"
@@ -96,20 +99,43 @@ wait_for() {
 }
 
 controller_ready() {
+	if ! kill -0 "${CONTROLLER_PID}" 2>/dev/null; then
+		log "ERROR: host controller PID ${CONTROLLER_PID} exited before becoming ready; recent controller log follows" >&2
+		tail -n 50 "${CONTROLLER_LOG}" >&2 || true
+		exit 1
+	fi
+	curl --fail --silent --max-time 2 "http://127.0.0.1:${CONTROLLER_PORT}/readyz" >/dev/null
+}
+
+reserve_controller_port() {
+	[[ -z "${PORT_LOCK_DIR}" ]] || return
 	local port
-	port="$(cat "${WORK_DIR}/controller.port")"
-	curl --fail --silent --max-time 2 "http://127.0.0.1:${port}/readyz" >/dev/null
+	for (( port=18081; port<=19080; port++ )); do
+		if mkdir "${PORT_LOCK_ROOT}/${port}" 2>/dev/null; then
+			CONTROLLER_PORT="${port}"
+			PORT_LOCK_DIR="${PORT_LOCK_ROOT}/${port}"
+			return
+		fi
+	done
+	die "unable to reserve a controller port in the range 18081-19080"
+}
+
+release_controller_port() {
+	if [[ -n "${PORT_LOCK_DIR}" ]]; then
+		rmdir "${PORT_LOCK_DIR}" 2>/dev/null || true
+		PORT_LOCK_DIR=""
+		CONTROLLER_PORT=""
+	fi
 }
 
 start_controller() {
 	[[ -z "${CONTROLLER_PID}" ]] || die "controller is already running"
-	local port
-	port="$((18081 + ($$ % 1000)))"
-	printf '%s\n' "${port}" >"${WORK_DIR}/controller.port"
+	reserve_controller_port
+	printf '%s\n' "${CONTROLLER_PORT}" >"${WORK_DIR}/controller.port"
 	log "starting the real host controller against ${KUBECONFIG_PATH}"
 	"${CONTROLLER_BIN}" \
 		--kubeconfig="${KUBECONFIG_PATH}" \
-		--listen-addr="127.0.0.1:${port}" \
+		--listen-addr="127.0.0.1:${CONTROLLER_PORT}" \
 		--leader-election-namespace=default \
 		--leader-election-name=mokka-controller-kwok \
 		--leader-election-lease-duration=15s \
@@ -312,6 +338,7 @@ cleanup() {
 		capture_failure
 	fi
 	stop_controller
+	release_controller_port
 	if [[ "${CLUSTER_CREATED}" == true ]]; then
 		log "deleting owned KWOK cluster ${CLUSTER_NAME}"
 		kwok delete cluster >"${ARTIFACT_DIR}/cluster-delete.log" 2>&1 || true
@@ -341,7 +368,7 @@ validate_uint KWOK_TIMEOUT_SECONDS "${TIMEOUT_SECONDS}"
 
 mkdir -p "${WORK_DIR}"
 trap cleanup EXIT INT TERM
-mkdir -p "${ARTIFACT_ROOT}/.locks"
+mkdir -p "${PORT_LOCK_ROOT}"
 mkdir "${LOCK_DIR}" 2>/dev/null || die "another harness owns the local cluster lock ${LOCK_DIR}"
 LOCK_HELD=true
 

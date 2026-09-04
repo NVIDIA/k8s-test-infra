@@ -4,12 +4,15 @@
 package kwok_test
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
@@ -114,6 +117,123 @@ func TestRunnerContract(t *testing.T) {
 	require.NoError(t, err, string(output))
 }
 
+func TestControllerReadinessExitsWhenControllerDies(t *testing.T) {
+	t.Parallel()
+
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is not installed")
+	}
+
+	tempDir := t.TempDir()
+	controllerLog := filepath.Join(tempDir, "controller.log")
+	require.NoError(t, os.WriteFile(controllerLog, []byte("controller startup failed: test marker\n"), 0o600))
+
+	runner := readFile(t, "run.sh")
+	script := strings.Join([]string{
+		"set -u",
+		`log() { printf '%s\n' "$*"; }`,
+		extractBashFunction(t, runner, "wait_for"),
+		extractBashFunction(t, runner, "controller_ready"),
+		`wait_for "host controller readiness" controller_ready`,
+	}, "\n")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, bash, "-c", script)
+	command.Env = append(os.Environ(),
+		"TIMEOUT_SECONDS=30",
+		"CONTROLLER_LOG="+controllerLog,
+		"CONTROLLER_PID=99999999",
+		"CONTROLLER_PORT=18081",
+	)
+	output, err := command.CombinedOutput()
+	require.Error(t, err)
+	require.NoError(t, ctx.Err(), "controller death was retried until the subprocess deadline: %s", output)
+	require.Contains(t, string(output), "controller PID 99999999 exited before becoming ready")
+	require.Contains(t, string(output), "controller startup failed: test marker")
+}
+
+func TestControllerPortReservationSerializesConcurrentHarnesses(t *testing.T) {
+	t.Parallel()
+
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is not installed")
+	}
+
+	lockRoot := filepath.Join(t.TempDir(), "controller-ports")
+	require.NoError(t, os.MkdirAll(lockRoot, 0o755))
+	runner := readFile(t, "run.sh")
+	script := strings.Join([]string{
+		"set -euo pipefail",
+		`die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }`,
+		extractBashFunction(t, runner, "reserve_controller_port"),
+		extractBashFunction(t, runner, "release_controller_port"),
+		extractBashFunction(t, runner, "stop_controller"),
+		"trap release_controller_port EXIT",
+		"reserve_controller_port",
+		`reserved_lock="${PORT_LOCK_DIR}"`,
+		"stop_controller",
+		`[[ -d "${reserved_lock}" ]] || die "stop_controller released the port reservation"`,
+		`printf '%s\n' "${CONTROLLER_PORT}" >"${OUTPUT_FILE}"`,
+		`if [[ "${HOLD_LOCK}" == true ]]; then`,
+		`  touch "${READY_FILE}"`,
+		`  while [[ ! -e "${RELEASE_FILE}" ]]; do sleep 0.05; done`,
+		"fi",
+	}, "\n")
+
+	readyFile := filepath.Join(lockRoot, "holder.ready")
+	releaseFile := filepath.Join(lockRoot, "holder.release")
+	firstOutput := filepath.Join(lockRoot, "first.port")
+	secondOutput := filepath.Join(lockRoot, "second.port")
+	newCommand := func(outputFile string, hold bool) *exec.Cmd {
+		command := exec.Command(bash, "-c", script)
+		command.Env = append(os.Environ(),
+			"PORT_LOCK_ROOT="+lockRoot,
+			"PORT_LOCK_DIR=",
+			"CONTROLLER_PORT=",
+			"CONTROLLER_PID=",
+			"OUTPUT_FILE="+outputFile,
+			"READY_FILE="+readyFile,
+			"RELEASE_FILE="+releaseFile,
+			"HOLD_LOCK="+map[bool]string{true: "true", false: "false"}[hold],
+		)
+		return command
+	}
+
+	var firstLog bytes.Buffer
+	first := newCommand(firstOutput, true)
+	first.Stdout = &firstLog
+	first.Stderr = &firstLog
+	require.NoError(t, first.Start())
+	firstFinished := false
+	t.Cleanup(func() {
+		if !firstFinished {
+			_ = first.Process.Kill()
+			_ = first.Wait()
+		}
+	})
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(readyFile)
+		return err == nil
+	}, 2*time.Second, 10*time.Millisecond, "port-reservation holder did not become ready")
+
+	second := newCommand(secondOutput, false)
+	output, err := second.CombinedOutput()
+	require.NoError(t, err, string(output))
+	firstPort := strings.TrimSpace(readPath(t, firstOutput))
+	secondPort := strings.TrimSpace(readPath(t, secondOutput))
+	require.NotEqual(t, firstPort, secondPort)
+	require.DirExists(t, filepath.Join(lockRoot, firstPort))
+	require.NoDirExists(t, filepath.Join(lockRoot, secondPort))
+
+	require.NoError(t, os.WriteFile(releaseFile, nil, 0o600))
+	require.NoError(t, first.Wait(), firstLog.String())
+	firstFinished = true
+	require.NoDirExists(t, filepath.Join(lockRoot, firstPort))
+}
+
 func TestRunnerUIDLookupsPropagateFailures(t *testing.T) {
 	runner := readFile(t, "run.sh")
 
@@ -173,9 +293,23 @@ kctl label node mokka-node-000000 mokka.nvidia.com/sgpu-node-`)
 
 func readFile(t *testing.T, name string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(testDir(t), name))
+	return readPath(t, filepath.Join(testDir(t), name))
+}
+
+func readPath(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return string(data)
+}
+
+func extractBashFunction(t *testing.T, script, name string) string {
+	t.Helper()
+	start := strings.Index(script, name+"() {\n")
+	require.NotEqual(t, -1, start, "function %s not found", name)
+	end := strings.Index(script[start:], "\n}\n")
+	require.NotEqual(t, -1, end, "function %s has no closing brace", name)
+	return script[start : start+end+3]
 }
 
 func testDir(t *testing.T) string {

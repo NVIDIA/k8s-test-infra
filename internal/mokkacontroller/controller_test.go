@@ -984,6 +984,48 @@ func TestProcessNextRateLimitsErrorsAndForgetsSuccess(t *testing.T) {
 	require.Zero(t, queue.NumRequeues("key"))
 }
 
+func TestProjectionCleanupRevisionRetryPolicy(t *testing.T) {
+	t.Parallel()
+
+	t.Run("cancellation stops a pre-cleanup stale retry", func(t *testing.T) {
+		ctx, cancel := context.WithCancelCause(context.Background())
+		cause := errors.New("shutdown")
+		attempts := 0
+
+		err := retryProjectionCleanupRevision(ctx, func() (bool, error) {
+			attempts++
+			cancel(cause)
+			return false, nil
+		})
+
+		require.ErrorIs(t, err, cause)
+		require.Equal(t, 1, attempts)
+	})
+
+	t.Run("exhaustion is bounded and rate limited", func(t *testing.T) {
+		queue := workqueue.NewTypedRateLimitingQueue(
+			workqueue.NewTypedItemFastSlowRateLimiter[projectionKey](0, 0, 1),
+		)
+		t.Cleanup(queue.ShutDown)
+		key := projectionKey{mode: projectionCleanup}
+		queue.Add(key)
+		attempts := 0
+
+		reconcile := func(ctx context.Context, _ projectionKey) error {
+			err := retryProjectionCleanupRevision(ctx, func() (bool, error) {
+				attempts++
+				return false, nil
+			})
+			require.ErrorIs(t, err, errProjectionCleanupRevisionChanged)
+			return err
+		}
+		require.True(t, processNext(context.Background(), queue, reconcile))
+		require.Equal(t, projectionCleanupRevisionAttempts, attempts)
+		require.Equal(t, 1, queue.NumRequeues(key))
+		require.Eventually(t, func() bool { return queue.Len() == 1 }, time.Second, time.Millisecond)
+	})
+}
+
 func TestProjectionConflictWorkerRetryPolicy(t *testing.T) {
 	conflict := &controllerprojection.MetadataConflictError{NodeName: "node"}
 
