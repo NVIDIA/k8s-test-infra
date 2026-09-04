@@ -73,20 +73,18 @@ func (s *Simulator) Stage(ctx context.Context, h *host.Host, state *agent.State)
 // RemoveAll on the whole driver/ tree is intentionally avoided: the ib and pcibus
 // simulators stage tools, libibverbs.d and preload shims there, and those must
 // survive Discard.
-var stagedPaths = append(
-	[]string{
-		"driver/dev",
-		"driver/usr/lib64",
-	},
-	append(chrootStageRoots,
-		"driver/usr/bin/nvidia-smi",
-		"driver/usr/bin/nvidia-smi.sh",
-		"driver/proc/driver/nvidia",
-		"driver/config/config.yaml",
-		machineTypeRel,
-		"config/config.yaml",
-	)...,
-)
+var stagedPaths = []string{
+	"driver/dev",
+	"driver/usr/lib64",
+	"driver/lib",
+	"driver/lib64",
+	"driver/usr/bin/nvidia-smi",
+	"driver/usr/bin/nvidia-smi.sh",
+	"driver/proc/driver/nvidia",
+	"driver/config/config.yaml",
+	machineTypeRel,
+	"config/config.yaml",
+}
 
 // Discard removes only the paths Stage writes. Every path is exclusively owned
 // by gpudriver, so removing absent or partially staged paths is safe.
