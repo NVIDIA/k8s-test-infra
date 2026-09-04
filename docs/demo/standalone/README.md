@@ -5,6 +5,21 @@ enabled. It does not require any external GPU operator -- nvml-mock itself
 generates the GPU profile ConfigMaps, the fake InfiniBand sysfs tree, and
 the node labels that downstream consumers expect.
 
+## Prerequisites
+
+- **A Kubernetes cluster and a valid `KUBECONFIG`.** This demo installs into
+  whatever cluster your current context points at. Check yours with
+  `kubectl config current-context`.
+- **Helm 3.8 or newer.** Install it from the official docs:
+  <https://helm.sh/docs/intro/install/>
+- `kubectl`, matching your cluster version.
+
+> **No cluster yet?** The [quick start](../../quickstart.md) creates a
+> throwaway one with Kind in about a minute, then come back here.
+
+Docker and Kind are needed only if you want to build the image from source
+(`BUILD_LOCAL=true`); the default path pulls the published image.
+
 ## What it does
 
 1. Creates a Kind cluster (`nvml-mock-demo`: 1 control-plane, 3 workers).
@@ -17,7 +32,7 @@ the node labels that downstream consumers expect.
    validation helpers resolve pods in it.
 5. Verifies the deployment:
    - DaemonSet pods are running on all workers.
-   - Six GPU profile ConfigMaps are created (one per profile field group).
+   - Seven GPU profile ConfigMaps are created, one per GPU model.
    - `nvidia-smi` runs successfully inside a pod.
    - `ibstat` lists 8 simulated ConnectX-7 NDR HCAs (see
      [`internal/ib/README.md`](https://github.com/NVIDIA/k8s-test-infra/blob/main/internal/ib/README.md)).
