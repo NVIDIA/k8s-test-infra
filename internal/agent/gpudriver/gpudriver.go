@@ -53,6 +53,7 @@ func (s *Simulator) Stage(ctx context.Context, h *host.Host, state *agent.State)
 	g.Go(func() error { return stageNVMLShim(gctx, h, state) })
 	g.Go(func() error { return stageCUDAShim(gctx, h, state) })
 	g.Go(func() error { return stageNvidiaSMI(gctx, h, state) })
+	g.Go(func() error { return stageChrootRuntime(gctx, h, state) })
 	g.Go(func() error { return writeProcFS(gctx, h, state) })
 	g.Go(func() error { return writeEngineConfig(gctx, h, state) })
 	g.Go(func() error { return writeMachineType(gctx, h, state) })
@@ -67,16 +68,20 @@ func (s *Simulator) Stage(ctx context.Context, h *host.Host, state *agent.State)
 // stagedPaths lists exactly the paths Stage writes, in removal order (leaves first).
 // RemoveAll on the whole driver/ tree is intentionally avoided: setup.sh stages
 // IB tools, libibverbs.d, and preload shims there, and those must survive Discard.
-var stagedPaths = []string{
-	"driver/dev",
-	"driver/usr/lib64",
-	"driver/usr/bin/nvidia-smi",
-	"driver/usr/bin/nvidia-smi.sh",
-	"driver/proc/driver/nvidia",
-	"driver/config/config.yaml",
-	machineTypeRel,
-	"config/config.yaml",
-}
+var stagedPaths = append(
+	[]string{
+		"driver/dev",
+		"driver/usr/lib64",
+	},
+	append(chrootStageRoots,
+		"driver/usr/bin/nvidia-smi",
+		"driver/usr/bin/nvidia-smi.sh",
+		"driver/proc/driver/nvidia",
+		"driver/config/config.yaml",
+		machineTypeRel,
+		"config/config.yaml",
+	)...,
+)
 
 // Discard removes only the paths Stage wrote. It is a no-op when Stage never
 // completed successfully, so it does not disturb a partially initialised tree.
