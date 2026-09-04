@@ -17,6 +17,10 @@
 # CDI is enabled in containerd and the nvidia runtime handler is registered on
 # every node; the nvidia-container-toolkit package is installed into each worker
 # after creation and containerd restarted (see run.sh).
+#
+# Every node also mounts journald-node-syslog.conf, which gives the node a
+# kernel-log "syslog" NVSentinel's syslog monitor can read (see that file). The
+# hostPath is repo-relative, so run.sh creates the cluster from the repo root.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 containerdConfigPatches:
@@ -29,5 +33,11 @@ containerdConfigPatches:
       BinaryName = "/usr/bin/nvidia-container-runtime"
 nodes:
   - role: control-plane
+    extraMounts: &node-syslog
+      - hostPath: docs/demo/nv-sentinel/journald-node-syslog.conf
+        containerPath: /etc/systemd/journald.conf.d/99-node-syslog.conf
+        readOnly: true
   - role: worker
+    extraMounts: *node-syslog
   - role: worker
+    extraMounts: *node-syslog

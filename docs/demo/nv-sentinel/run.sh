@@ -88,9 +88,11 @@ if kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
 fi
 if ! kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
   info "Creating Kind cluster '${CLUSTER_NAME}' (1 control-plane + 2 workers, CDI enabled)"
-  kind create cluster --name "${CLUSTER_NAME}" \
-    --image "${KIND_NODE_IMAGE}" \
-    --config="${REPO_ROOT}/${DEMO_DIR}/kind.yaml"
+  # From the repo root: kind.yaml mounts the journald drop-in by a repo-relative
+  # hostPath, and Kind resolves extraMounts against the working directory.
+  ( cd "${REPO_ROOT}" && kind create cluster --name "${CLUSTER_NAME}" \
+      --image "${KIND_NODE_IMAGE}" \
+      --config="${DEMO_DIR}/kind.yaml" )
 fi
 
 # Worker node names == docker container names (default kind naming).
