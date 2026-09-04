@@ -161,7 +161,41 @@ func ConfigOverridePathFor(configPath string) string {
 	return filepath.Join(filepath.Dir(configPath), "overrides.yaml")
 }
 
-// discoverConfigPath attempts to locate the config file by reading /proc/self/maps
+// chrootConfigPaths are the fixed locations tried when /proc/self/maps cannot
+// name the loaded .so, in order of preference. /config/config.yaml is the
+// driver root's own config directory seen from inside a chroot of that root,
+// which is how a GPU reset reaches nvidia-smi: NVSentinel's reset Job runs
+// every call as `chroot /run/nvidia/driver nvidia-smi`. A chroot has no /proc,
+// so without this the engine silently serves its compiled-in defaults and
+// answers for GPUs the node does not have — and a reset, finding no overrides
+// path, reports success having cleared nothing. See issue #759.
+var chrootConfigPaths = []string{
+	"/config/config.yaml",
+	"/etc/nvml-mock/config.yaml",
+}
+
+// discoverConfigPath locates the config file, preferring the path derived from
+// the loaded .so and falling back to the fixed chroot locations.
+func discoverConfigPath() string {
+	return discoverConfigPathFrom(discoverConfigPathFromMaps, chrootConfigPaths)
+}
+
+// discoverConfigPathFrom is the injectable form. The candidates are absolute
+// paths, so a seam like this is what makes the fallback testable without root.
+func discoverConfigPathFrom(fromMaps func() string, candidates []string) string {
+	if p := fromMaps(); p != "" {
+		return p
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			debugLog("[CONFIG] Using fallback config at %s\n", p)
+			return p
+		}
+	}
+	return ""
+}
+
+// discoverConfigPathFromMaps attempts to locate the config file by reading /proc/self/maps
 // to find the path of the loaded mock NVML .so, then navigating to the config directory.
 //
 // Expected layout:
@@ -172,7 +206,7 @@ func ConfigOverridePathFor(configPath string) string {
 // Returns empty string if auto-discovery is not possible (non-Linux, file not found).
 //
 //nolint:cyclop // existing complexity; refactor deferred
-func discoverConfigPath() string {
+func discoverConfigPathFromMaps() string {
 	if runtime.GOOS != "linux" {
 		return ""
 	}
