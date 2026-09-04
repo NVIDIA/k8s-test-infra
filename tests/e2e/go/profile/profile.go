@@ -93,6 +93,7 @@ type rawProfile struct {
 			ID string `json:"id"`
 		} `json:"root_complexes"`
 	} `json:"pcie_topology"`
+	Driver *rawDriver `json:"driver"`
 }
 
 // rawPlatform decodes a platform block, which appears both under
@@ -150,6 +151,8 @@ type Profile struct {
 
 	platform    PlatformIdentity
 	hasPlatform bool
+
+	deviceFileParams DeviceFileParams
 }
 
 // bytesPerMiB is the divisor GPU Feature Discovery uses when it publishes
@@ -186,16 +189,17 @@ func Load(profilesDir, name string) (Profile, error) {
 	}
 
 	p := Profile{
-		Name:         name,
-		DisplayName:  raw.DeviceDefaults.Name,
-		gpuCount:     len(raw.Devices),
-		ibEnabled:    raw.Infiniband.Enabled,
-		hcasPerGPU:   raw.Infiniband.HCAsPerGPU,
-		linksPerGPU:  raw.NVLink.LinksPerGPU,
-		hasSwitches:  len(raw.NVLink.Switches) > 0,
-		c2cEnabled:   raw.NVLink.C2CEnabled,
-		memoryBytes:  raw.DeviceDefaults.Memory.TotalBytes,
-		architecture: strings.ToLower(strings.TrimSpace(raw.DeviceDefaults.Architecture)),
+		Name:             name,
+		DisplayName:      raw.DeviceDefaults.Name,
+		gpuCount:         len(raw.Devices),
+		ibEnabled:        raw.Infiniband.Enabled,
+		hcasPerGPU:       raw.Infiniband.HCAsPerGPU,
+		linksPerGPU:      raw.NVLink.LinksPerGPU,
+		hasSwitches:      len(raw.NVLink.Switches) > 0,
+		c2cEnabled:       raw.NVLink.C2CEnabled,
+		memoryBytes:      raw.DeviceDefaults.Memory.TotalBytes,
+		architecture:     strings.ToLower(strings.TrimSpace(raw.DeviceDefaults.Architecture)),
+		deviceFileParams: resolveDeviceFileParams(raw.Driver),
 	}
 	p.applyOptionalDeviceDefaults(raw)
 	// pcibus simulator falls back to a flat single-root layout when a profile

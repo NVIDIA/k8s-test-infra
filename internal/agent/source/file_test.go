@@ -41,6 +41,154 @@ func TestCompileState_AllSKUs(t *testing.T) {
 	}
 }
 
+// The VBIOS version reaches State because the procfs GPU information files
+// report it alongside what nvmlDeviceGetVbiosVersion answers; the two must not
+// come from different places.
+func TestCompileState_VBIOSVersionFromProfile(t *testing.T) {
+	const cfg = `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+  num_devices: 2
+device_defaults:
+  vbios_version: "92.00.45.00.03"
+devices:
+  - index: 1
+    vbios_version: "92.00.45.00.99"
+`
+
+	state, err := compileState([]byte(cfg))
+	require.NoError(t, err)
+
+	require.Len(t, state.Devices, 2)
+	require.Equal(t, "92.00.45.00.03", state.Devices[0].VBIOSVersion)
+	require.Equal(t, "92.00.45.00.99", state.Devices[1].VBIOSVersion)
+}
+
+// The driver hands out minors in device order, and /dev/nvidiaN, NVML's
+// nvmlDeviceGetMinorNumber and /proc/driver/nvidia/gpus/<BDF>/information must
+// all agree on N. A profile that lists devices without spelling out
+// minor_number must therefore still compile to one minor per index.
+func TestCompileState_DeviceMinorDefaultsToIndex(t *testing.T) {
+	configs, err := filepath.Glob("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-*.yaml")
+	require.NoError(t, err)
+	require.NotEmpty(t, configs, "no config YAMLs found")
+
+	for _, path := range configs {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			state, err := compileState(data)
+			require.NoError(t, err)
+
+			for i, d := range state.Devices {
+				require.Equal(t, i, d.MinorNumber, "device %d minor", i)
+			}
+		})
+	}
+}
+
+// The shipped profiles all spell out minor_number, so the gap only shows on a
+// profile that lists devices for their PCI identity alone — every GPU then
+// claims minor 0 and collides on /dev/nvidia0.
+func TestCompileState_DeviceMinorDefaultsWithoutProfileMinors(t *testing.T) {
+	const cfg = `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+  num_devices: 3
+devices:
+  - index: 0
+    pci:
+      bus_id: "0000:07:00.0"
+  - index: 1
+    pci:
+      bus_id: "0000:0F:00.0"
+  - index: 2
+    pci:
+      bus_id: "0000:47:00.0"
+`
+
+	state, err := compileState([]byte(cfg))
+	require.NoError(t, err)
+
+	require.Len(t, state.Devices, 3)
+
+	for i, d := range state.Devices {
+		require.Equal(t, i, d.MinorNumber, "device %d minor", i)
+	}
+}
+
+// An explicit minor_number still wins, so a profile can simulate the gaps a
+// node with excluded GPUs shows.
+func TestCompileState_DeviceMinorOverride(t *testing.T) {
+	const cfg = `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+  num_devices: 2
+devices:
+  - index: 1
+    minor_number: 7
+`
+
+	state, err := compileState([]byte(cfg))
+	require.NoError(t, err)
+
+	require.Len(t, state.Devices, 2)
+	require.Equal(t, 0, state.Devices[0].MinorNumber)
+	require.Equal(t, 7, state.Devices[1].MinorNumber)
+}
+
+// Every profile must arrive with the driver's own device-node defaults
+// resolved, so gpudriver never has to re-derive them when writing params.
+func TestCompileState_DriverParamsDefaultToDriverBehaviour(t *testing.T) {
+	configs, err := filepath.Glob("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-*.yaml")
+	require.NoError(t, err)
+	require.NotEmpty(t, configs, "no config YAMLs found")
+
+	for _, path := range configs {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			state, err := compileState(data)
+			require.NoError(t, err)
+
+			require.Equal(t, 0, state.DriverParams.DeviceFileUID)
+			require.Equal(t, 0, state.DriverParams.DeviceFileGID)
+			require.Equal(t, 0o666, state.DriverParams.DeviceFileMode)
+			require.True(t, state.DriverParams.ModifyDeviceFiles)
+		})
+	}
+}
+
+// A profile asking for restrictive device-node permissions is the scenario
+// worth simulating: 0660 root:video is the root cause of a common class of
+// "Insufficient Permissions" NVML failures.
+func TestCompileState_DriverParamsFromProfile(t *testing.T) {
+	const cfg = `
+version: "1.0"
+system:
+  driver_version: "550.163.01"
+  num_devices: 1
+driver:
+  device_file_uid: 0
+  device_file_gid: 27
+  device_file_mode: 0660
+  modify_device_files: false
+`
+
+	state, err := compileState([]byte(cfg))
+	require.NoError(t, err)
+
+	require.Equal(t, 0, state.DriverParams.DeviceFileUID)
+	require.Equal(t, 27, state.DriverParams.DeviceFileGID)
+	require.Equal(t, 0o660, state.DriverParams.DeviceFileMode)
+	require.False(t, state.DriverParams.ModifyDeviceFiles)
+}
+
 func TestCompileState_FabricState(t *testing.T) {
 	// gb200 has nvlink and fabric config
 	data, err := os.ReadFile("../../../pkg/gpu/mocknvml/configs/mock-nvml-config-gb200.yaml")
